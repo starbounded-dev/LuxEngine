@@ -1,39 +1,44 @@
+//
+// Note:	this file is to be included in client applications ONLY
+//			NEVER include this file anywhere in the engine codebase
+//
 #pragma once
 
-// for use by StarEngine applications
 #include "StarEngine/Core/Application.h"
-#include "StarEngine/Core/Layer.h"
 #include "StarEngine/Core/Log.h"
-#include "StarEngine/Core/Assert.h"
-
-#include "StarEngine/Core/Timestep.h"
-
-#include "StarEngine/ImGui/ImGuiLayer.h"
-
-// ---Input-------------------------
 #include "StarEngine/Core/Input.h"
-#include "StarEngine/Core/KeyCodes.h"
-#include "StarEngine/Core/MouseCodes.h"
-// ---------------------------------
+#include "StarEngine/Core/TimeStep.h"
+#include "StarEngine/Core/Timer.h"
+#include "StarEngine/Core/Platform.h"
+#include "StarEngine/Core/Version.h"
 
-// ---Renderer------------------------
+#include "StarEngine/Core/Events/Event.h"
+#include "StarEngine/Core/Events/ApplicationEvent.h"
+#include "StarEngine/Core/Events/KeyEvent.h"
+#include "StarEngine/Core/Events/MouseEvent.h"
+#include "StarEngine/Core/Events/SceneEvents.h"
+
+#include "StarEngine/Core/Math/AABB.h"
+#include "StarEngine/Core/Math/Ray.h"
+
+#include "imgui/imgui.h"
+
+// --- StarEngine Render API ------------------------------
 #include "StarEngine/Renderer/Renderer.h"
-#include "StarEngine/Renderer/Renderer2D.h"
-#include "StarEngine/Renderer/RenderCommand.h"
-
-#include "StarEngine/Scene/Scene.h"
-#include "StarEngine/Scene/Entity.h"
-#include "StarEngine/Scene/Components.h"
-#include "StarEngine/Scene/ScriptableEntity.h"
-
-#include "StarEngine/Project/Project.h"
-
-#include "StarEngine/Renderer/Shader.h"
-#include "StarEngine/Renderer/Texture.h"
+#include "StarEngine/Renderer/SceneRenderer.h"
+#include "StarEngine/Renderer/RenderPass.h"
 #include "StarEngine/Renderer/Framebuffer.h"
-#include "StarEngine/Renderer/SubTexture2D.h"
-#include "StarEngine/Renderer/VertexArray.h"
+#include "StarEngine/Renderer/VertexBuffer.h"
+#include "StarEngine/Renderer/IndexBuffer.h"
+#include "StarEngine/Renderer/Pipeline.h"
+#include "StarEngine/Renderer/Texture.h"
+#include "StarEngine/Renderer/Shader.h"
+#include "StarEngine/Renderer/Camera.h"
+#include "StarEngine/Renderer/Material.h"
+// ---------------------------------------------------
 
-#include "StarEngine/Renderer/OrthographicCamera.h"
-#include "StarEngine/Renderer/OrthographicCameraController.h"
-// -----------------------------------
+// Scenes
+#include "StarEngine/Scene/Scene.h"
+#include "StarEngine/Scene/SceneCamera.h"
+#include "StarEngine/Scene/SceneSerializer.h"
+#include "StarEngine/Scene/Components.h"

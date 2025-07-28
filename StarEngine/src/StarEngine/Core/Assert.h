@@ -26,11 +26,11 @@
 #define SE_ASSERT_MESSAGE_INTERNAL(...)  ::StarEngine::Log::PrintAssertMessage(::StarEngine::Log::Type::Client, "Assertion Failed" __VA_OPT__(,) __VA_ARGS__)
 #endif
 
-#define SE_CORE_ASSERT(condition, ...) do { if(!(condition)) { SE_CORE_ASSERT_MESSAGE_INTERNAL(__VA_ARGS__); SE_DEBUG_BREAK; } } while(0)
-#define SE_ASSERT(condition, ...) do { if(!(condition)) { SE_ASSERT_MESSAGE_INTERNAL(__VA_ARGS__); SE_DEBUG_BREAK; } } while(0)
+#define SE_CORE_ASSERT(condition, ...) { if(!(condition)) { SE_CORE_ASSERT_MESSAGE_INTERNAL(__VA_ARGS__); SE_DEBUG_BREAK; } }
+#define SE_ASSERT(condition, ...) { if(!(condition)) { SE_ASSERT_MESSAGE_INTERNAL(__VA_ARGS__); SE_DEBUG_BREAK; } }
 #else
-#define SE_CORE_ASSERT(condition, ...) ((void) (condition))
-#define SE_ASSERT(condition, ...) ((void) (condition))
+#define SE_CORE_ASSERT(condition, ...)
+#define SE_ASSERT(condition, ...)
 #endif
 
 #ifdef SE_ENABLE_VERIFY
@@ -42,9 +42,9 @@
 #define SE_VERIFY_MESSAGE_INTERNAL(...)  ::StarEngine::Log::PrintAssertMessage(::StarEngine::Log::Type::Client, "Verify Failed" __VA_OPT__(,) __VA_ARGS__)
 #endif
 
-#define SE_CORE_VERIFY(condition, ...) do { if(!(condition)) { SE_CORE_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); SE_DEBUG_BREAK; } } while(0)
-#define SE_VERIFY(condition, ...) do { if(!(condition)) { SE_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); SE_DEBUG_BREAK; } } while(0)
+#define SE_CORE_VERIFY(condition, ...) { if(!(condition)) { SE_CORE_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); SE_DEBUG_BREAK; } }
+#define SE_VERIFY(condition, ...) { if(!(condition)) { SE_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); SE_DEBUG_BREAK; } }
 #else
-#define SE_CORE_VERIFY(condition, ...) ((void) (condition))
-#define SE_VERIFY(condition, ...) ((void) (condition))
+#define SE_CORE_VERIFY(condition, ...)
+#define SE_VERIFY(condition, ...)
 #endif

@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace Zenith {
+namespace StarEngine {
 
 	class Platform
 	{

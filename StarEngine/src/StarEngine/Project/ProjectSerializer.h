@@ -2,15 +2,20 @@
 
 #include "Project.h"
 
+#include <string>
+
 namespace StarEngine {
 
-	class ProjectSerializer : public RefCounted
+	class ProjectSerializer
 	{
 	public:
 		ProjectSerializer(Ref<Project> project);
 
-		bool Serialize(const std::filesystem::path& filepath);
+		void Serialize(const std::filesystem::path& filepath);
+		bool SerializeRuntime(const std::filesystem::path& filepath);
 		bool Deserialize(const std::filesystem::path& filepath);
+		bool DeserializeRuntime(const std::filesystem::path& filepath);
+
 	private:
 		Ref<Project> m_Project;
 	};

@@ -9,7 +9,7 @@
 #include "StarEngine/Scene/Scene.h"
 #include "StarEngine/Scene/Entity.h"
 
-#include "StarEngine/Physics/ContactListener2D.h"
+#include "StarEngine/Physics2D/ContactListener2D.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"

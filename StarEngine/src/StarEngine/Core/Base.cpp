@@ -18,6 +18,8 @@ namespace StarEngine {
 	void ShutdownCore()
 	{
 		SE_CORE_TRACE_TAG("Core", "Shutting down...");
+
+		Log::Shutdown();
 	}
 
 }

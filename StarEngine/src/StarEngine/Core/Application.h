@@ -1,110 +1,185 @@
 #pragma once
 
 #include "StarEngine/Core/Base.h"
-
+#include "StarEngine/Core/TimeStep.h"
+#include "StarEngine/Core/Timer.h"
 #include "StarEngine/Core/Window.h"
 #include "StarEngine/Core/LayerStack.h"
-#include "StarEngine/Core/Thread.h"
-#include "StarEngine/Events/Event.h"
-#include "StarEngine/Events/ApplicationEvent.h"
+#include "StarEngine/Renderer/RendererConfig.h"
 
-#include "StarEngine/Core/Timestep.h"
+#include "StarEngine/Core/ApplicationSettings.h"
+#include "StarEngine/Core/Events/ApplicationEvent.h"
+#include "StarEngine/Core/RenderThread.h"
 
 #include "StarEngine/ImGui/ImGuiLayer.h"
 
-#include "StarEngine/Renderer/DeviceManager.h"
-#include "StarEngine/Renderer/RenderThread.h"
-#include "StarEngine/Renderer/RendererConfig.h"
+#include "nvrhi/nvrhi.h"
 
-int main(int argc, char** argv);
+#include <deque>
 
 namespace StarEngine
 {
-	struct ApplicationCommandLineArgs
-	{
-		int Count = 0;
-		char** Args = nullptr;
-
-		const char* operator[](int index) const
-		{
-			SE_CORE_ASSERT(index < Count);
-			return Args[index];
-		}
-	};
-
 	struct ApplicationSpecification
 	{
 		std::string Name = "StarEngine";
-		uint32_t WindowWidth = 1920, WindowHeight = 1080;
+		uint32_t WindowWidth = 1600, WindowHeight = 900;
+		bool WindowDecorated = false;
 		bool Fullscreen = false;
 		bool VSync = true;
+		std::string WorkingDirectory;
 		bool StartMaximized = true;
 		bool Resizable = true;
 		bool EnableImGui = true;
-		bool ShowSplashScreen = false;
+		//ScriptEngineConfig ScriptConfig;
 		RendererConfig RenderConfig;
 		ThreadingPolicy CoreThreadingPolicy = ThreadingPolicy::MultiThreaded;
 		std::filesystem::path IconPath;
-		std::string WorkingDirectory;
 	};
 
 	class Application
 	{
-		public:
-			Application(const ApplicationSpecification& specification);
-			virtual ~Application();
+		using EventCallbackFn = std::function<void(Event&)>;
+	public:
+		struct PerformanceTimers
+		{
+			float MainThreadWorkTime = 0.0f;
+			float MainThreadWaitTime = 0.0f;
+			float RenderThreadWorkTime = 0.0f;
+			float RenderThreadWaitTime = 0.0f;
+			float RenderThreadGPUWaitTime = 0.0f;
 
-			void OnEvent(Event& e);
+			float ScriptUpdate = 0.0f;
+			float PhysicsStepTime = 0.0f;
+		};
+	public:
+		Application(const ApplicationSpecification& specification);
+		virtual ~Application();
 
-			void Run();
+		void Run();
+		void Close();
 
-			void PushLayer(Layer* layer);
-			void PushOverlay(Layer* layer);
+		virtual void OnInit() {}
+		virtual void OnShutdown();
+		virtual void OnUpdate(Timestep ts) {}
 
-			Window& GetWindow() { return *m_Window; }
+		virtual void OnEvent(Event& event);
 
-			void Close();
+		void PushLayer(Layer* layer);
+		void PushOverlay(Layer* layer);
+		void PopLayer(Layer* layer);
+		void PopOverlay(Layer* layer);
+		void RenderImGui();
 
-			ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
+		void AddEventCallback(const EventCallbackFn& eventCallback) { m_EventCallbacks.push_back(eventCallback); }
 
-			static Application& Get() { return *s_Instance; }
+		void SetShowStats(bool show) { m_ShowStats = show; }
 
-			const ApplicationSpecification& GetSpecification() const { return m_Specification; }
+		template<typename Func>
+		void QueueEvent(Func&& func)
+		{
+			std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
+			m_EventQueue.emplace_back(true, func);
+		}
 
-			void SubmitToMainThread(const std::function<void()>& function);
+		// Creates & Dispatches an event either immediately, or adds it to an event queue which will be processed after the next call
+		// to SyncEvents().
+		// Waiting until after next sync gives the application some control over _when_ the events will be processed.
+		// An example of where this is useful:
+		// Suppose an asset thread is loading assets and dispatching "AssetReloaded" events.
+		// We do not want those events to be processed until the asset thread has synced its assets back to the main thread.
+		template<typename TEvent, bool DispatchImmediately = false, typename... TEventArgs>
+		void DispatchEvent(TEventArgs&&... args)
+		{
+	#ifndef SE_COMPILER_GCC
+			// TODO(Emily): GCC causes this to fail for AnimationGraphCompiledEvent for some reason. Investigate.
+			static_assert(std::is_assignable_v<Event, TEvent>);
+	#endif
 
-			RenderThread& GetRenderThread() { return m_RenderThread; }
-			
-			static nvrhi::DeviceHandle GetGraphicsDeviceManager() { return Application::Get().GetWindow().GetDeviceManager(); }
-		
-			static std::thread::id GetMainThreadID();
-			static bool IsMainThread();
+			std::shared_ptr<TEvent> event = std::make_shared<TEvent>(std::forward<TEventArgs>(args)...);
+			if constexpr (DispatchImmediately)
+			{
+				OnEvent(*event);
+			}
+			else
+			{
+				std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
+				m_EventQueue.emplace_back(false, [event]() { Application::Get().OnEvent(*event); });
+			}
+		}
+
+		// Mark all waiting events as sync'd.
+		// Thus allowing them to be processed on next call to ProcessEvents()
+		void SyncEvents();
+
+		inline Window& GetWindow() { return *m_Window; }
+
+		static inline Application& Get() { return *s_Instance; }
+
+		Timestep GetTimestep() const { return m_TimeStep; }
+		Timestep GetFrametime() const { return m_Frametime; }
+		float GetTime() const; // TODO: This should be in "Platform"
+
+		static std::thread::id GetMainThreadID();
+		static bool IsMainThread();
+
+		static const char* GetConfigurationName();
+		static const char* GetPlatformName();
+
+		const ApplicationSpecification& GetSpecification() const { return m_Specification; }
+
+		PerformanceProfiler* GetPerformanceProfiler() { return m_Profiler; }
+
+		ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
+
+		RenderThread& GetRenderThread() { return m_RenderThread; }
+		uint32_t GetCurrentFrameIndex() const { return m_CurrentFrameIndex; }
+		const PerformanceTimers& GetPerformanceTimers() const { return m_PerformanceTimers; }
+		PerformanceTimers& GetPerformanceTimers() { return m_PerformanceTimers; }
+		const std::unordered_map<const char*, PerformanceProfiler::PerFrameData>& GetProfilerPreviousFrameData() const { return m_ProfilerPreviousFrameData; }
+
+		ApplicationSettings& GetSettings() { return m_AppSettings; }
+		const ApplicationSettings& GetSettings() const { return m_AppSettings; }
+
+		static bool IsRuntime() { return s_IsRuntime; }
+
+		static DeviceManager* GetGraphicsDeviceManager() { return Application::Get().GetWindow().GetDeviceManager(); }
+		static nvrhi::DeviceHandle GetGraphicsDevice() { return GetGraphicsDeviceManager()->GetDevice(); }
 	private:
-			bool OnWindowClose(WindowCloseEvent& e);
-			bool OnWindowResize(WindowResizeEvent& e);
+		void ProcessEvents();
 
-			void ExecuteMainThreadQueue();
-		private:
-			ApplicationSpecification m_Specification;
-			std::unique_ptr<Window> m_Window;
-			ImGuiLayer* m_ImGuiLayer;
-			bool m_Running = true;
-			bool m_Minimized = false;
-			LayerStack m_LayerStack;
-			float m_LastFrameTime = 0.0f;
+		bool OnWindowResize(WindowResizeEvent& e);
+		bool OnWindowMinimize(WindowMinimizeEvent& e);
+		bool OnWindowClose(WindowCloseEvent& e);
+	private:
+		std::unique_ptr<Window> m_Window;
+		ApplicationSpecification m_Specification;
+		bool m_Running = true, m_Minimized = false;
+		LayerStack m_LayerStack;
+		ImGuiLayer* m_ImGuiLayer;
+		Timestep m_Frametime;
+		Timestep m_TimeStep;
+		PerformanceProfiler* m_Profiler = nullptr; // TODO: Should be null in Dist
+		std::unordered_map<const char*, PerformanceProfiler::PerFrameData> m_ProfilerPreviousFrameData;
+		bool m_ShowStats = true;
 
-			static nvrhi::DeviceHandle s_GraphicsDevice; // Add this member to store the graphics device
-			Ref<DeviceManager> m_GraphicsDeviceManager; // Add this member to store the device manager
+		RenderThread m_RenderThread;
 
-			std::vector<std::function<void()>> m_MainThreadQueue;
-			std::mutex m_MainThreadQueueMutex;
+		std::mutex m_EventQueueMutex;
+		std::deque<std::pair<bool, std::function<void()>>> m_EventQueue;
+		std::vector<EventCallbackFn> m_EventCallbacks;
 
-			RenderThread m_RenderThread;
+		float m_LastFrameTime = 0.0f;
+		uint32_t m_CurrentFrameIndex = 0;
 
-			static std::thread::id s_MainThreadID;
-		private:
-				static Application* s_Instance;
-				friend int ::main(int argc, char** argv);
+		PerformanceTimers m_PerformanceTimers; // TODO(Yan): remove for Dist
+
+		ApplicationSettings m_AppSettings;
+
+		static Application* s_Instance;
+
+		friend class Renderer;
+	protected:
+		inline static bool s_IsRuntime = false;
 	};
 
 	// Implemented by CLIENT

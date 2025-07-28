@@ -9,7 +9,7 @@ namespace StarEngine {
 	class ImGuiLayer : public Layer
 	{
 	public:
-		static Ref<ImGuiLayer> Create() { return Ref<ImGuiLayer>::Create(); }
+		static ImGuiLayer* Create() { return snew ImGuiLayer(); }
 
 		virtual void OnAttach() override;
 		virtual void OnDetach() override;
@@ -18,15 +18,18 @@ namespace StarEngine {
 		void End();
 
 		void SetDarkThemeColors();
+		void SetDarkThemeV2Colors();
 
-		void AllowInputsEvents(bool allowEvents);
+		void AllowInputEvents(bool allowEvents);
 	public:
 		ImGuiLayer() = default;
 		virtual ~ImGuiLayer() = default;
 	private:
 		void InitPlatformInterface();
 	private:
-		ImGuiRenderer m_ImGuiRenderer;
+		std::unique_ptr<ImGuiRenderer> m_ImGuiRenderer;
 	};
+
+
 
 }

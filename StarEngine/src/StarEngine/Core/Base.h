@@ -57,13 +57,13 @@ namespace StarEngine
 
 // Pointer wrappers
 namespace StarEngine {
-
 	template<typename T>
 	T RoundDown(T x, T fac) { return x / fac * fac; }
 
 	template<typename T>
 	T RoundUp(T x, T fac) { return RoundDown(x + fac - 1, fac); }
 
+	// Pointer wrappers
 	template<typename T>
 	using Scope = std::unique_ptr<T>;
 	template<typename T, typename ... Args>
@@ -73,5 +73,41 @@ namespace StarEngine {
 	}
 
 	using byte = uint8_t;
+
+	/** A simple wrapper for std::atomic_flag to avoid confusing
+		function names usage. The object owning it can still be
+		default copyable, but the copied flag is going to be reset.
+	*/
+	struct AtomicFlag
+	{
+		SE_FORCE_INLINE void SetDirty() { flag.clear(); }
+		SE_FORCE_INLINE bool CheckAndResetIfDirty() { return !flag.test_and_set(); }
+
+		explicit AtomicFlag() noexcept { flag.test_and_set(); }
+		AtomicFlag(const AtomicFlag&) noexcept {}
+		AtomicFlag& operator=(const AtomicFlag&) noexcept { return *this; }
+		AtomicFlag(AtomicFlag&&) noexcept {};
+		AtomicFlag& operator=(AtomicFlag&&) noexcept { return *this; }
+
+	private:
+		std::atomic_flag flag;
+	};
+
+	struct Flag
+	{
+		SE_FORCE_INLINE void SetDirty() noexcept { flag = true; }
+		SE_FORCE_INLINE bool CheckAndResetIfDirty() noexcept
+		{
+			if (flag)
+				return !(flag = !flag);
+			else
+				return false;
+		}
+
+		SE_FORCE_INLINE bool IsDirty() const noexcept { return flag; }
+
+	private:
+		bool flag = false;
+	};
 
 }

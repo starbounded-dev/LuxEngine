@@ -1,10 +1,10 @@
+#include "sepch.h"
 #include "EditorLayer.h"
 
 #include "StarEngine/Scene/SceneSerializer.h"
-#include "StarEngine/Utils/PlatformUtils.h"
-#include "StarEngine/Math/Math.h"
+#include "StarEngine/Utilities/PlatformUtils.h"
 #include "StarEngine/Scripting/ScriptEngine.h"
-#include "StarEngine/Renderer/Font.h"
+#include "StarEngine/Renderer/UI/Font.h"
 
 #include "StarEngine/Asset/AssetManager.h"
 #include "StarEngine/Asset/TextureImporter.h"
@@ -19,7 +19,7 @@
 
 namespace StarEngine {
 
-	static RefPtr<Font> s_Font;
+	static Ref<Font> s_Font;
 
 	EditorLayer::EditorLayer()
 		: Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f, true), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
@@ -31,7 +31,7 @@ namespace StarEngine {
 
 	void EditorLayer::OnAttach()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("EditorLayer::OnAttach");
 
 		m_IconPlay = TextureImporter::LoadTexture2D("Resources/Icons/PlayButton.png");
 		m_IconPause = TextureImporter::LoadTexture2D("Resources/Icons/PauseButton.png");
@@ -45,7 +45,7 @@ namespace StarEngine {
 		fbSpec.Height = 720;
 		m_Framebuffer = Framebuffer::Create(fbSpec);
 
-		m_EditorScene = RefPtr<Scene>::Create();
+		m_EditorScene = Ref<Scene>::Create();
 		m_ActiveScene = m_EditorScene;
 
 		auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs;
@@ -72,12 +72,12 @@ namespace StarEngine {
 
 	void EditorLayer::OnDetach()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("EditorLayer::OnDetach");
 	}
 
 	void EditorLayer::OnUpdate(Timestep ts)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("EditorLayer::OnUpdate");
 
 		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
@@ -150,7 +150,7 @@ namespace StarEngine {
 
 	void EditorLayer::OnImGuiRender()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("EditorLayer::OnImGuiRender");
 
 		// Note: Switch this to true to enable dockspace
 		static bool dockspaceOpen = true;
@@ -688,7 +688,7 @@ namespace StarEngine {
 
 	void EditorLayer::NewScene()
 	{
-		m_ActiveScene = RefPtr<Scene>::Create();
+		m_ActiveScene = Ref<Scene>::Create();
 		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 
@@ -697,7 +697,7 @@ namespace StarEngine {
 
 	void EditorLayer::OpenScene()
 	{
-		// std::string filepath = FileDialogs::OpenFile("Hazel Scene (*.hazel)\0*.hazel\0");
+		// std::string filepath = FileDialogs::OpenFile("StarEngine Scene (*.hazel)\0*.hazel\0");
 		// if (!filepath.empty())
 		// 	OpenScene(filepath);
 	}
@@ -709,8 +709,8 @@ namespace StarEngine {
 		if (m_SceneState != SceneState::Edit)
 			OnSceneStop();
 
-		RefPtr<Scene> readOnlyScene = AssetManager::GetAsset<Scene>(handle);
-		RefPtr<Scene> newScene = Scene::Copy(readOnlyScene);
+		Ref<Scene> readOnlyScene = AssetManager::GetAsset<Scene>(handle);
+		Ref<Scene> newScene = Scene::Copy(readOnlyScene);
 
 		m_EditorScene = newScene;
 		m_SceneHierarchyPanel.SetContext(m_EditorScene);

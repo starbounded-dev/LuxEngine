@@ -1,11 +1,14 @@
+
 #pragma once
 
 #include "RendererContext.h"
 #include "RenderCommandQueue.h"
-#include "RenderPass.h"
-#include "ComputePass.h"
 #include "RenderCommandBuffer.h"
+#include "Pipeline.h"
 #include "PipelineCompute.h"
+#include "Mesh.h"
+#include "Material.h"
+#include "SceneEnvironment.h"
 #include "UniformBufferSet.h"
 #include "StorageBufferSet.h"
 
@@ -17,13 +20,15 @@
 
 #include "GPUStats.h"
 
-#include <nvrhi/nvrhi.h>
+#include "nvrhi/nvrhi.h"
 
 #include "StarEngine/Scene/Scene.h"
 
 namespace StarEngine {
 
 	class ShaderLibrary;
+	class RenderPass;
+	class ComputePass;
 
 	class Renderer
 	{
@@ -38,27 +43,25 @@ namespace StarEngine {
 		static void Init();
 		static void Shutdown();
 
-		static RendererCapabilities& GetCapabilities();
+		static RendererCapabilities& GetCapabilities() { static RendererCapabilities caps; return caps; }
 
 		static Ref<ShaderLibrary> GetShaderLibrary();
 
 		template<typename FuncT>
 		static void Submit(FuncT&& func)
 		{
-			auto renderCmd = [](void* ptr)
-				{
-					auto pFunc = (FuncT*)ptr;
-					(*pFunc)();
+			auto renderCmd = [](void* ptr) {
+				auto pFunc = (FuncT*)ptr;
+				(*pFunc)();
 
-					// NOTE: Instead of destroying we could try and enforce all items to be trivally destructible
-					// however some items like uniforms which contain std::strings still exist for now
-					// static_assert(std::is_trivially_destructible_v<FuncT>, "FuncT must be trivially destructible");
-					pFunc->~FuncT();
+				// NOTE: Instead of destroying we could try and enforce all items to be trivally destructible
+				// however some items like uniforms which contain std::strings still exist for now
+				// static_assert(std::is_trivially_destructible_v<FuncT>, "FuncT must be trivially destructible");
+				pFunc->~FuncT();
 				};
-
 			auto storageBuffer = GetRenderCommandQueue().Allocate(renderCmd, sizeof(func));
 			new (storageBuffer) FuncT(std::forward<FuncT>(func));
-		};
+		}
 
 		template<typename FuncT>
 		static void SubmitResourceFree(FuncT&& func)
@@ -90,6 +93,11 @@ namespace StarEngine {
 			}
 		}
 
+		/*static void* Submit(RenderCommandFn fn, unsigned int size)
+		{
+			return s_Instance->m_CommandQueue.Allocate(fn, size);
+		}*/
+
 		static void WaitAndRender(RenderThread* renderThread);
 		static void SwapQueues();
 
@@ -103,6 +111,11 @@ namespace StarEngine {
 		static void BeginRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, bool explicitClear = false);
 		static void EndRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer);
 
+		// Compute Pass API
+		static void BeginComputePass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass);
+		static void EndComputePass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass);
+		static void DispatchCompute(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups, Buffer constants = Buffer());
+
 		static void BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor = {});
 		static void InsertGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor = {});
 		static void EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer);
@@ -114,12 +127,20 @@ namespace StarEngine {
 		static void BeginFrame();
 		static void EndFrame();
 
-		static void RenderStaticMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<StaticMesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<MaterialTable> materialTable, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount);
-		static void RenderStaticMeshWithMaterial(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<StaticMesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount, Ref<Material> material, Buffer additionalUniforms = Buffer());
-		static void RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount = 0);
+		static void SetSceneEnvironment(Ref<SceneRenderer> sceneRenderer, Ref<Environment> environment, Ref<Image2D> shadow, Ref<Image2D> spotShadow);
+		static std::pair<Ref<TextureCube>, Ref<TextureCube>> CreateEnvironmentMap(const std::string& filepath);
+		static Ref<TextureCube> CreatePreethamSky(float turbidity, float azimuth, float inclination);
+
+		//static void RenderStaticMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, Ref<StaticMesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<MaterialTable> materialTable, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount);
+		//static void RenderSubmeshInstanced(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Mesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<MaterialTable> materialTable, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t boneTransformsOffset, uint32_t boneTransformsStride, uint32_t instanceCount);
+		//static void RenderMeshWithMaterial(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Mesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t boneTransformsOffset, uint32_t boneTransformStride, uint32_t instanceCount, Ref<Material> material, Buffer additionalUniforms = Buffer());
+		//static void RenderStaticMeshWithMaterial(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<StaticMesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount, Ref<Material> material, Buffer additionalUniforms = Buffer());
 		static void RenderQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, const glm::mat4& transform);
 		static void SubmitFullscreenQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material);
 		static void SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides);
+		static void LightCulling(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups);
+		static void RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount = 0);
+		static void SubmitQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Material> material, const glm::mat4& transform = glm::mat4(1.0f));
 		static void ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, const ImageClearValue& clearValue, ImageSubresourceRange subresourceRange = ImageSubresourceRange());
 		static void CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 		static void BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
@@ -129,7 +150,9 @@ namespace StarEngine {
 		static Ref<Texture2D> GetHilbertLut();
 		static Ref<Texture2D> GetBRDFLutTexture();
 		static Ref<TextureCube> GetBlackCubeTexture();
+		static Ref<Environment> GetEmptyEnvironment();
 
+		static void RegisterShaderDependency(Ref<Shader> shader, Ref<PipelineCompute> computePipeline);
 		static void RegisterShaderDependency(Ref<Shader> shader, Ref<Pipeline> pipeline);
 		static void RegisterShaderDependency(Ref<Shader> shader, Ref<Material> material);
 		static void OnShaderReloaded(size_t hash);
@@ -152,20 +175,24 @@ namespace StarEngine {
 
 		static GPUMemoryStats GetGPUMemoryStats();
 
-		static nvrhi::SamplerHandle GetClampSampler();
-		static nvrhi::SamplerHandle GetPointSampler();
+		static Ref<Sampler> GetClampSampler();
+		static Ref<Sampler> GetPointSampler();
+		static Ref<Sampler> GetDefaultSampler() { return GetClampSampler(); }
 	private:
-		static RendererCommandQueue& GetRenderCommandQueue();
+		static RenderCommandQueue& GetRenderCommandQueue();
 	};
 
-	namespace Utils
-	{
+	namespace Utils {
+
 		inline void DumpGPUInfo()
 		{
-			auto & caps = Renderer::GetCapabilities();
-			SE_CORE_INFO("Renderer", "GPU Info:");
-			SE_CORE_INFO("Renderer", "Vendor: {0}", caps.Vendor);
-			SE_CORE_INFO("Renderer", "Device: {0}", caps.Device);
-			SE_CORE_INFO("Renderer", "Version: {0}", caps.Version);
+			auto& caps = Renderer::GetCapabilities();
+			SE_CORE_TRACE_TAG("Renderer", "GPU Info:");
+			SE_CORE_TRACE_TAG("Renderer", "  Vendor: {0}", caps.Vendor);
+			SE_CORE_TRACE_TAG("Renderer", "  Device: {0}", caps.Device);
+			SE_CORE_TRACE_TAG("Renderer", "  Version: {0}", caps.Version);
 		}
+
+	}
+
 }

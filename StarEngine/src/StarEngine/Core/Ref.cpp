@@ -1,28 +1,16 @@
 #include "sepch.h"
 
 #include <unordered_set>
-#include <atomic>
 
 namespace StarEngine {
 
 	static std::unordered_set<void*> s_LiveReferences;
 	static std::mutex s_LiveReferenceMutex;
-	static std::atomic<bool> s_RefUtilsDestroyed{false};
-
-	struct RefUtilsDestroyer {
-		~RefUtilsDestroyer() {
-			s_RefUtilsDestroyed.store(true);
-		}
-	};
-	static RefUtilsDestroyer s_RefUtilsDestroyer;
 
 	namespace RefUtils {
 
 		void AddToLiveReferences(void* instance)
 		{
-			if (s_RefUtilsDestroyed.load())
-				return;
-
 			std::scoped_lock<std::mutex> lock(s_LiveReferenceMutex);
 			SE_CORE_ASSERT(instance);
 			s_LiveReferences.insert(instance);
@@ -30,9 +18,6 @@ namespace StarEngine {
 
 		void RemoveFromLiveReferences(void* instance)
 		{
-			if (s_RefUtilsDestroyed.load())
-				return;
-
 			std::scoped_lock<std::mutex> lock(s_LiveReferenceMutex);
 			SE_CORE_ASSERT(instance);
 			SE_CORE_ASSERT(s_LiveReferences.find(instance) != s_LiveReferences.end());
@@ -41,13 +26,10 @@ namespace StarEngine {
 
 		bool IsLive(void* instance)
 		{
-			if (s_RefUtilsDestroyed.load())
-				return false;
-
-			std::scoped_lock<std::mutex> lock(s_LiveReferenceMutex);
 			SE_CORE_ASSERT(instance);
 			return s_LiveReferences.find(instance) != s_LiveReferences.end();
 		}
 	}
+
 
 }

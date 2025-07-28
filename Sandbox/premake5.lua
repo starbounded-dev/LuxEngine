@@ -1,8 +1,5 @@
 project "Sandbox"
 	kind "ConsoleApp"
-	language "C++"
-	cppdialect "C++17"
-	staticruntime "off"
 
 	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
@@ -21,16 +18,28 @@ project "Sandbox"
 		"%{IncludeDir.glm}",
 		"%{IncludeDir.entt}",
 		"%{IncludeDir.GLFW}",
+		"%{IncludeDir.Tracy}",
 		"%{IncludeDir.miniaudio}"
 	}
 
 	links
 	{
-		"StarEngine"
+		"StarEngine",
+		"%{Library.Tracy}",
+	}
+
+	defines
+	{
+		"TRACY_ENABLE",
+		"TRACY_ON_DEMAND",
+		"TRACY_CALLSTACK=10",
 	}
 
 	filter "system:windows" 
 		systemversion "latest"
+		defines {
+			"SE_PLATFORM_WINDOWS"
+		}
 
 	filter "configurations:Debug"
 		defines "SE_DEBUG"

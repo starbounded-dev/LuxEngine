@@ -1,25 +1,21 @@
+StarEngineRootDirectory = os.getenv("STARENGINE_DIR")
+
+--include (path.join(StarEngineRootDirectory, "StarEngine", "vendor", "Coral", "Premake", "CSExtensions.lua"))
+--include (path.join(StarEngineRootDirectory, "StarEngine", "vendor", "Coral", "Coral.Managed"))
+
 project "StarEngine-ScriptCore"
 	kind "SharedLib"
 	language "C#"
-	dotnetframework "4.7.2"
+	dotnetframework "net8.0"
+	clr "Unsafe"
+	targetdir "%{StarEngineRootDirectory}/StarEditor/Resources/Scripts"
+	objdir "%{StarEngineRootDirectory}/StarEditor/Resources/Scripts/Intermediates"
 
-	targetdir ("../StarEditor/Resources/Scripts")
-	objdir ("../StarEditor/Resources/Scripts/Intermediates")
+	--links { "Coral.Managed" }
 
-	files 
-	{
-		"Source/**.cs",
-		"Properties/**.cs"
+	--propertytags {{ "AppendTargetFrameworkToOutputPath", "false" },{ "Nullable", "enable" },}
+
+	files {
+		"%{StarEngineRootDirectory}/StarEngine-ScriptCore/Source/**.cs",
+		"%{StarEngineRootDirectory}/StarEngine-ScriptCore/Properties/**.cs"
 	}
-	
-	filter "configurations:Debug"
-		optimize "Off"
-		symbols "Default"
-
-	filter "configurations:Release"
-		optimize "On"
-		symbols "Default"
-
-	filter "configurations:Dist"
-		optimize "Full"
-		symbols "Off"

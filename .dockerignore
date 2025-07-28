@@ -1,0 +1,21 @@
+**
+
+# Direct mirror of Dockerfile `COPY` contents
+
+!vendor/**
+!scripts/Linux-Build.sh
+!premake5.lua
+!Dependencies.lua
+
+!StarEditorLauncher/**
+!StarEngine-Launcher/**
+!StarEngine-ScriptCore/**
+!StarEngine-Runtime/**
+
+!StarEditor/src/**
+!StarEditor/premake5.lua
+!StarEditor/Resources/LUA/**
+!StarEditor/SandboxProject/premake5.lua
+!StarEditor/SandboxProject/Assets/Scripts/**
+
+!StarEngine/**

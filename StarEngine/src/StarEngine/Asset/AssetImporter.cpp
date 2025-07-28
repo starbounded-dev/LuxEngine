@@ -1,49 +1,109 @@
 #include "sepch.h"
 #include "AssetImporter.h"
+#include "AssetManager.h"
+#include "MeshSerializer.h"
 
-#include "TextureImporter.h"
-#include "SceneImporter.h"
-#include "AudioImporter.h"
-
-/*
-#include "FontImporter.h"
-#include "ObjModelImporter.h"*/
-
-#include <map>
+#include "StarEngine/Debug/Profiler.h"
 
 namespace StarEngine {
 
-	using AssetImportFunction = std::function<Ref<Asset>(AssetHandle, const AssetMetadata&)>;
-	static std::map<AssetType, AssetImportFunction> s_AssetImportFunctions = {
-		{ AssetType::Scene, SceneImporter::ImportScene },
-		{ AssetType::Texture2D, TextureImporter::ImportTexture2D },
-		{ AssetType::Audio, AudioImporter::ImportAudio },/*
-		{ AssetType::ObjModel, ObjModelImporter::ImportObjModel },
-		{ AssetType::ScriptFile, SceneImporter::ImportScript }*/
-	};
-
-	Ref<Asset> AssetImporter::ImportAsset(AssetHandle handle, const AssetMetadata& metadata)
+	void AssetImporter::Init()
 	{
-		SE_PROFILE_FUNCTION_COLOR("AssetImporter::ImportAsset", 0xF2FA8A);
-
-		{
-			SE_PROFILE_SCOPE_COLOR("AssetImporter::ImportAsset Scope", 0x27628A);
-
-			if (s_AssetImportFunctions.find(metadata.Type) == s_AssetImportFunctions.end())
-			{
-				SE_CORE_ERROR("No importer available for asset type: {}", (uint16_t)metadata.Type);
-				return nullptr;
-			}
-		}
-
-		auto& result = s_AssetImportFunctions.at(metadata.Type);//(metadata.Type)(handle, metadata);
-
-		{
-			SE_PROFILE_SCOPE_COLOR("AssetImporter::ImportAsset 2 Scope", 0xD1C48A);
-
-			return result(handle, metadata);
-		}
-
+		s_Serializers.clear();
+		s_Serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
+		s_Serializers[AssetType::Texture] = CreateScope<TextureSerializer>();
+		s_Serializers[AssetType::Mesh] = CreateScope<MeshSerializer>();
+		s_Serializers[AssetType::StaticMesh] = CreateScope<StaticMeshSerializer>();
+		s_Serializers[AssetType::MeshSource] = CreateScope<MeshSourceSerializer>();
+		s_Serializers[AssetType::Material] = CreateScope<MaterialAssetSerializer>();
+		s_Serializers[AssetType::EnvMap] = CreateScope<EnvironmentSerializer>();
+		s_Serializers[AssetType::Audio] = CreateScope<AudioFileSourceSerializer>();
+		s_Serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>();
+		s_Serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
+		s_Serializers[AssetType::Font] = CreateScope<FontSerializer>();
+		s_Serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
+		s_Serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
 	}
+
+	void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)
+	{
+		if (s_Serializers.find(metadata.Type) == s_Serializers.end())
+		{
+			SE_CORE_WARN("There's currently no importer for assets of type {0}", metadata.FilePath.stem().string());
+			return;
+		}
+
+		s_Serializers[asset->GetAssetType()]->Serialize(metadata, asset);
+	}
+
+	void AssetImporter::Serialize(const Ref<Asset>& asset)
+	{
+		const AssetMetadata& metadata = Project::GetEditorAssetManager()->GetMetadata(asset->Handle);
+		Serialize(metadata, asset);
+	}
+
+	bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)
+	{
+		SE_PROFILE_FUNCTION("AssetImporter::TryLoadData");
+
+		if (s_Serializers.find(metadata.Type) == s_Serializers.end())
+		{
+			SE_CORE_WARN("There's currently no importer for assets of type {0}", metadata.FilePath.stem().string());
+			return false;
+		}
+
+		// HZ_CORE_TRACE("AssetImporter::TryLoadData - {}", metadata.FilePath);
+		return s_Serializers[metadata.Type]->TryLoadData(metadata, asset);
+	}
+
+	void AssetImporter::RegisterDependencies(const AssetMetadata& metadata)
+	{
+		if (s_Serializers.find(metadata.Type) == s_Serializers.end())
+		{
+			SE_CORE_WARN("There's currently no importer for assets of type {0}", metadata.FilePath.stem().string());
+			return;
+		}
+
+		s_Serializers[metadata.Type]->RegisterDependencies(metadata);
+	}
+
+	bool AssetImporter::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo)
+	{
+		outInfo.Size = 0;
+
+		if (!AssetManager::IsAssetHandleValid(handle))
+			return false;
+
+		AssetType type = AssetManager::GetAssetType(handle);
+		if (s_Serializers.find(type) == s_Serializers.end())
+		{
+			const auto& metadata = Project::GetEditorAssetManager()->GetMetadata(handle);
+			SE_CORE_WARN("There's currently no serializer for assets of type {0}", metadata.FilePath.stem().string());
+			return false;
+		}
+
+		return s_Serializers[type]->SerializeToAssetPack(handle, stream, outInfo);
+	}
+
+	Ref<Asset> AssetImporter::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo)
+	{
+		AssetType assetType = (AssetType)assetInfo.Type;
+		if (s_Serializers.find(assetType) == s_Serializers.end())
+			return nullptr;
+
+		return s_Serializers[assetType]->DeserializeFromAssetPack(stream, assetInfo);
+	}
+
+	Ref<Scene> AssetImporter::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo)
+	{
+		AssetType assetType = AssetType::Scene;
+		if (s_Serializers.find(assetType) == s_Serializers.end())
+			return nullptr;
+
+		SceneAssetSerializer* sceneAssetSerializer = (SceneAssetSerializer*)s_Serializers[assetType].get();
+		return sceneAssetSerializer->DeserializeSceneFromAssetPack(stream, sceneInfo);
+	}
+
+	std::unordered_map<AssetType, Scope<AssetSerializer>> AssetImporter::s_Serializers;
 
 }

@@ -1,38 +1,40 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
-#include "StarEngine/Core/Ref.h"
-
-#ifdef SE_WITH_DX11 || SE_WITH_DX12
+#if SE_HAS_DX11 || SE_HAS_DX12
 #include <DXGI.h>
 #endif
 
-#ifdef SE_WITH_DX11
+#if SE_HAS_DX11
 #include <d3d11.h>
 #endif
 
-#ifdef SE_WITH_DX12
+#if SE_HAS_DX12
 #include <d3d12.h>
 #endif
 
-#ifdef SE_WITH_VULKAN
-#include <nvrhi/vulkan.h>
+#if SE_HAS_VULKAN
+#include "nvrhi/nvrhi.h"
 #endif
 
 #define GLFW_INCLUDE_NONE // Do not include any OpenGL headers
 #include <GLFW/glfw3.h>
-#ifdef SE_PLATFORM_WINDOWS
+#ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
 #endif // _WIN32
+
+
 #include <GLFW/glfw3native.h>
 #include <nvrhi/nvrhi.h>
 
 #include <list>
 #include <functional>
-#include <optional>
+
+#include "StarEngine/Platform/Vulkan/VulkanDevice.h"
 
 namespace StarEngine
 {
+	class Window;
+
 	struct DefaultMessageCallback : public nvrhi::IMessageCallback
 	{
 		static DefaultMessageCallback& GetInstance();
@@ -43,28 +45,9 @@ namespace StarEngine
 	struct InstanceParameters
 	{
 		bool enableDebugRuntime = false;
-		bool enableWarningsAsErrors = false;
-		bool enableGPUValidation = false; // Affects only DX12
 		bool headlessDevice = false;
-		bool logBufferLifetime = false;
-		bool enableHeapDirectlyIndexed = false; // Allows ResourceDescriptorHeap on DX12
 
-		// Enables per-monitor DPI scale support.
-		//
-		// If set to true, the app will receive DisplayScaleChanged() events on DPI change and can read
-		// the scaling factors using GetDPIScaleInfo(...). The window may be resized when DPI changes if
-		// DeviceCreationParameters::resizeWindowWithDisplayScale is true.
-		//
-		// If set to false, the app will see DPI scaling factors being 1.0 all the time, but the OS
-		// may scale the contents of the window based on DPI.
-		//
-		// This field is located in InstanceParameters and not DeviceCreationParameters because it is needed
-		// in the CreateInstance() function to override the glfwInit() behavior.
-		bool enablePerMonitorDPI = false;
-#ifdef SE_WITH_VULKAN
-		// Allows overriding the Vulkan library name with something custom, useful for Streamline
-		std::string vulkanLibraryName;
-
+#if SE_HAS_VULKAN
 		std::vector<std::string> requiredVulkanInstanceExtensions;
 		std::vector<std::string> requiredVulkanLayers;
 		std::vector<std::string> optionalVulkanInstanceExtensions;
@@ -74,10 +57,10 @@ namespace StarEngine
 
 	struct DeviceCreationParameters : public InstanceParameters
 	{
-		bool startMaximized = false; // ignores backbuffer width/height to be monitor size
+		bool startMaximized = false;
 		bool startFullscreen = false;
-		bool startBorderless = false;
-		bool allowModeSwitch = false;
+		bool allowModeSwitch = true;
+		bool Decorated = true;
 		int windowPosX = -1;            // -1 means use default placement
 		int windowPosY = -1;
 		uint32_t backBufferWidth = 1280;
@@ -99,38 +82,26 @@ namespace StarEngine
 		// The order of indices matches that returned by DeviceManager::EnumerateAdapters.
 		int adapterIndex = -1;
 
-		// Set this to true if the application implements UI scaling for DPI explicitly instead of relying
-		// on ImGUI's DisplayFramebufferScale. This produces crisp text and lines at any scale
-		// but requires considerable changes to applications that rely on the old behavior:
-		// all UI sizes and offsets need to be computed as multiples of some scaled parameter,
-		// such as ImGui::GetFontSize(). Note that the ImGUI style is automatically reset and scaled in 
-		// ImGui_Renderer::DisplayScaleChanged(...).
+		// set to true to enable DPI scale factors to be computed per monitor
+		// this will keep the on-screen window size in pixels constant
 		//
-		// See ImGUI FAQ for more info:
-		//   https://github.com/ocornut/imgui/blob/master/docs/FAQ.md#q-how-should-i-handle-dpi-in-my-application
-		bool supportExplicitDisplayScaling = false;
+		// if set to false, the DPI scale factors will be constant but the system
+		// may scale the contents of the window based on DPI
+		//
+		// note that the backbuffer size is never updated automatically; if the app
+		// wishes to scale up rendering based on DPI, then it must set this to true
+		// and respond to DPI scale factor changes by resizing the backbuffer explicitly
+		bool enablePerMonitorDPI = false;
 
-		// Enables automatic resizing of the application window according to the DPI scaling of the monitor
-		// that it is located on. When set to true and the app launches on a monitor with >100% scale, 
-		// the initial window size will be larger than specified in 'backBufferWidth' and 'backBufferHeight' parameters.
-		bool resizeWindowWithDisplayScale = false;
-
-		nvrhi::IMessageCallback* messageCallback = nullptr;
-
-#ifdef SE_WITH_DX11 || SE_WITH_DX12
+#if SE_HAS_DX11 || SE_HAS_DX12
 		DXGI_USAGE swapChainUsage = DXGI_USAGE_SHADER_INPUT | DXGI_USAGE_RENDER_TARGET_OUTPUT;
 		D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_1;
 #endif
 
-#ifdef SE_WITH_VULKAN
+#if SE_HAS_VULKAN
 		std::vector<std::string> requiredVulkanDeviceExtensions;
 		std::vector<std::string> optionalVulkanDeviceExtensions;
-		std::vector<size_t> ignoredVulkanValidationMessageLocations = {
-			// Ignore the warnings like "the storage image descriptor [...] is accessed by a OpTypeImage that has
-			//   a Format operand ... which doesn't match the VkImageView ..." -- even when the GPU supports
-			// storage without format, which all modern GPUs do, there is no good way to enable it in the shaders.
-			0x13365b2
-		};
+		std::vector<size_t> ignoredVulkanValidationMessageLocations;
 		std::function<void(VkDeviceCreateInfo&)> deviceCreateInfoCallback;
 
 		// This pointer specifies an optional structure to be put at the end of the chain for 'vkGetPhysicalDeviceFeatures2' call.
@@ -145,21 +116,14 @@ namespace StarEngine
 
 	struct AdapterInfo
 	{
-		typedef std::array<uint8_t, 16> UUID;
-		typedef std::array<uint8_t, 8> LUID;
-
 		std::string name;
 		uint32_t vendorID = 0;
 		uint32_t deviceID = 0;
 		uint64_t dedicatedVideoMemory = 0;
-
-		std::optional<UUID> uuid;
-		std::optional<LUID> luid;
-
-#ifdef SE_WITH_DX11 || SE_WITH_DX12
+#if SE_HAS_DX11 || SE_HAS_DX12
 		nvrhi::RefCountPtr<IDXGIAdapter> dxgiAdapter;
 #endif
-#ifdef SE_WITH_VULKAN
+#if SE_HAS_VULKAN
 		VkPhysicalDevice vkPhysicalDevice = nullptr;
 #endif
 	};
@@ -167,10 +131,11 @@ namespace StarEngine
 	class DeviceManager
 	{
 	public:
-		static DeviceManager* Create(nvrhi::GraphicsAPI api);
+		static DeviceManager* Create(nvrhi::GraphicsAPI api, GLFWwindow* windowHandle);
 
 		bool CreateHeadlessDevice(const DeviceCreationParameters& params);
-		bool CreateDeviceAndSwapChain(const DeviceCreationParameters& params, const char* windowTitle);
+		bool CreateDevice(const DeviceCreationParameters& params, const char* windowTitle);
+		virtual bool InitSurfaceCapabilities(uint64_t surfaceHandle) = 0;
 
 		// Initializes device-independent objects (DXGI factory, Vulkan instnace).
 		// Calling CreateInstance() is required before EnumerateAdapters(), but optional if you don't use EnumerateAdapters().
@@ -182,11 +147,10 @@ namespace StarEngine
 		// Note: a call to CreateInstance() or Create*Device*() is required before EnumerateAdapters().
 		virtual bool EnumerateAdapters(std::vector<AdapterInfo>& outAdapters) = 0;
 
-		void AddRenderPassToFront(IRenderPass* pController);
-		void AddRenderPassToBack(IRenderPass* pController);
-		void RemoveRenderPass(IRenderPass* pController);
-
 		void RunMessageLoop();
+		void AnimateRenderPresent();
+
+		const DeviceCreationParameters& GetDeviceParams() const { return m_DeviceParams; }
 
 		// returns the size of the window in screen coordinates
 		void GetWindowDimensions(int& width, int& height);
@@ -197,15 +161,14 @@ namespace StarEngine
 			y = m_DPIScaleFactorY;
 		}
 
+		Window* GetWindowContext() { return m_StarEngineWindow; }
+		void SetWindowContext(Window* window) { m_StarEngineWindow = window; }
 	protected:
-		// useful for apps that require 2 frames worth of simulation data before first render
-		// apps should extend the DeviceManager classes, and constructor initialized this to true to opt in to the behavior
-		bool m_SkipRenderOnFirstFrame = false;
 		bool m_windowVisible = false;
-		bool m_windowIsInFocus = true;
 
 		DeviceCreationParameters m_DeviceParams;
-		GLFWwindow* m_Window = nullptr;
+		Window* m_StarEngineWindow = nullptr;
+		GLFWwindow* m_WindowHandle = nullptr;
 		bool m_EnableRenderDuringWindowMovement = false;
 		// set to true if running on NV GPU
 		bool m_IsNvidia = false;
@@ -215,8 +178,6 @@ namespace StarEngine
 		// current DPI scale info (updated when window moves)
 		float m_DPIScaleFactorX = 1.f;
 		float m_DPIScaleFactorY = 1.f;
-		float m_PrevDPIScaleFactorX = 0.f;
-		float m_PrevDPIScaleFactorY = 0.f;
 		bool m_RequestedVSync = false;
 		bool m_InstanceCreated = false;
 
@@ -227,29 +188,14 @@ namespace StarEngine
 
 		uint32_t m_FrameIndex = 0;
 
-		std::vector<nvrhi::FramebufferHandle> m_SwapChainFramebuffers;
+		DeviceManager() = default;
 
-		DeviceManager();
-
-		void UpdateWindowSize();
-		bool ShouldRenderUnfocused() const;
-
-		void BackBufferResizing();
-		void BackBufferResized();
-		void DisplayScaleChanged();
-
-		void Animate(double elapsedTime);
-		void Render();
 		void UpdateAverageFrameTime(double elapsedTime);
-		bool AnimateRenderPresent();
 		// device-specific methods
 		virtual bool CreateInstanceInternal() = 0;
 		virtual bool CreateDevice() = 0;
-		virtual bool CreateSwapChain() = 0;
-		virtual void DestroyDeviceAndSwapChain() = 0;
-		virtual void ResizeSwapChain() = 0;
-		virtual bool BeginFrame() = 0;
-		virtual bool Present() = 0;
+		virtual void DestroyDevice() = 0;
+
 
 	public:
 		[[nodiscard]] virtual nvrhi::IDevice* GetDevice() const = 0;
@@ -278,22 +224,12 @@ namespace StarEngine
 		void MouseButtonUpdate(int button, int action, int mods);
 		void MouseScrollUpdate(double xoffset, double yoffset);
 
-		[[nodiscard]] GLFWwindow* GetWindow() const { return m_Window; }
 		[[nodiscard]] uint32_t GetFrameIndex() const { return m_FrameIndex; }
-
-		virtual nvrhi::ITexture* GetCurrentBackBuffer() = 0;
-		virtual nvrhi::ITexture* GetBackBuffer(uint32_t index) = 0;
-		virtual uint32_t GetCurrentBackBufferIndex() = 0;
-		virtual uint32_t GetBackBufferCount() = 0;
-		nvrhi::IFramebuffer* GetCurrentFramebuffer();
-		nvrhi::IFramebuffer* GetFramebuffer(uint32_t index);
 
 		virtual void Shutdown();
 		virtual ~DeviceManager() = default;
 
-		void SetWindowTitle(const char* title);
-		void SetInformativeWindowTitle(const char* applicationName, bool includeFramerate = true, const char* extraInfo = nullptr);
-		const char* GetWindowTitle();
+		void SetInformativeWindowTitle(const char* applicationName, const char* extraInfo = nullptr);
 
 		virtual bool IsVulkanInstanceExtensionEnabled(const char* extensionName) const { return false; }
 		virtual bool IsVulkanDeviceExtensionEnabled(const char* extensionName) const { return false; }
@@ -302,22 +238,20 @@ namespace StarEngine
 		virtual void GetEnabledVulkanDeviceExtensions(std::vector<std::string>& extensions) const {}
 		virtual void GetEnabledVulkanLayers(std::vector<std::string>& layers) const {}
 
-		// GetFrameIndex cannot be used inside of these callbacks, hence the additional passing of frameID
-		// Refer to AnimateRenderPresent implementation for more details
 		struct PipelineCallbacks {
-			std::function<void(DeviceManager&, uint32_t)> beforeFrame = nullptr;
-			std::function<void(DeviceManager&, uint32_t)> beforeAnimate = nullptr;
-			std::function<void(DeviceManager&, uint32_t)> afterAnimate = nullptr;
-			std::function<void(DeviceManager&, uint32_t)> beforeRender = nullptr;
-			std::function<void(DeviceManager&, uint32_t)> afterRender = nullptr;
-			std::function<void(DeviceManager&, uint32_t)> beforePresent = nullptr;
-			std::function<void(DeviceManager&, uint32_t)> afterPresent = nullptr;
+			std::function<void(DeviceManager&)> beforeFrame = nullptr;
+			std::function<void(DeviceManager&)> beforeAnimate = nullptr;
+			std::function<void(DeviceManager&)> afterAnimate = nullptr;
+			std::function<void(DeviceManager&)> beforeRender = nullptr;
+			std::function<void(DeviceManager&)> afterRender = nullptr;
+			std::function<void(DeviceManager&)> beforePresent = nullptr;
+			std::function<void(DeviceManager&)> afterPresent = nullptr;
 		} m_callbacks;
 
 	private:
 		static DeviceManager* CreateD3D11();
 		static DeviceManager* CreateD3D12();
-		static DeviceManager* CreateVK();
+		static DeviceManager* CreateVK(GLFWwindow* windowHandle);
 
 		std::string m_WindowTitle;
 	};
@@ -335,15 +269,10 @@ namespace StarEngine
 
 		virtual ~IRenderPass() = default;
 
-		virtual void SetLatewarpOptions() {}
-		virtual bool ShouldRenderUnfocused() { return false; }
 		virtual void Render(nvrhi::IFramebuffer* framebuffer) {}
 		virtual void Animate(float fElapsedTimeSeconds) {}
 		virtual void BackBufferResizing() {}
 		virtual void BackBufferResized(const uint32_t width, const uint32_t height, const uint32_t sampleCount) {}
-
-		// Called before Animate() when a DPI change was detected
-		virtual void DisplayScaleChanged(float scaleX, float scaleY) {}
 
 		// all of these pass in GLFW constants as arguments
 		// see http://www.glfw.org/docs/latest/input.html

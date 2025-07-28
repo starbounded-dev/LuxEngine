@@ -1,13 +1,30 @@
 # Binaries
 **/bin/
+!vendor/bin/premake/
+!StarEngine/vendor/assimp/bin
+!StarEngine/vendor/mono/bin
 bin-int/
+obj/
+**/cache/**
+**/Cache/**
+StarEditor/vendor/VulkanSDK
+StarEditor/Resources/Scripts/StarEngine-ScriptCore.dll
+StarEditor/Resources/Scripts/StarEngine-ScriptCore.pdb
+StarEditor/StarEditor
 Intermediates/
+Binaries
+StarEditor/Resources/Scripts/
+__pycache__
 
-# StarEngine files
-*.log
-*imgui.ini
+StarEditor/SandboxProject/Assets/Scripts/Binaries/**
+StarEditor/SandboxProject/Assets/SoundBank.hsb
 
-!StarEditor/imgui.ini
+# StarEditor ApplicationSettings
+StarEditor/Config/ApplicationSettings.yaml
+
+# StarEditor Folders
+StarEditor/Captures/
+StarEditor/Tools/JoltViewer
 
 # Visual Studio files and folder
 .vs/
@@ -16,16 +33,43 @@ Intermediates/
 **.vcxproj.filters
 **.vcxproj.user
 **.csproj
+**.nsight-gfxproj
+**.DotSettings
+**.user
 
-# Directories
-StarEngine/vendor/VulkanSDK
-StarEditor/assets/cache
-scripts/__pycache__
+.idea/
+Makefile
+*.make
+*.a
 
-StarEngine/vendor/VulkanSDK/VulkanSDK-1.2.170.0-Installer.exe
-vendor/premake/bin/
-StarEditor/Resources/Scripts/StarEngine-ScriptCore.dll
-StarEditor/Resources/Scripts/StarEngine-ScriptCore.pdb
-StarEditor/SandboxProject/Assets/Scripts/Binaries
-StarEditor/SandboxProject/Assets/Scripts/obj
-StarEngine-ScriptCore/obj
+StarEditor/EditorLayout.yaml
+StarEditor/Config/EditorApplicationSettings.yaml
+
+# LFS Folders
+lfs/
+hooks/
+
+# Meta Files
+**.meta
+
+# Log files
+**.log
+
+# Auto saves
+*.auto
+
+# Dumps
+*.nvdbg
+*.nv-gpudmp
+*gpudmp.json
+
+# Folder Exceptions
+!StarEditor/SandboxProject/Assets/Scripts/Binaries
+
+# System DLLs
+StarEditor/SandboxProject/Assets/Scripts/Binaries/System*.dll
+StarEditor/SandboxProject/Assets/Scripts/Binaries/Microsoft*.dll
+
+# File Exceptions
+!AssetRegistryCache.hzr
+StarEditor/DotNet

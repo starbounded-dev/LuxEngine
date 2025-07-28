@@ -1,41 +1,86 @@
 #pragma once
 
-#include <string>
+#include "StarEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "StarEngine/Asset/AssetManager/RuntimeAssetManager.h"
+#include "StarEngine/Core/Log.h"
+#include "StarEngine/Core/Ref.h"
+#include "StarEngine/Physics/PhysicsAPI.h"
+
 #include <filesystem>
+#include <format>
 
-#include "StarEngine/Core/Base.h"
-
-#include "StarEngine/Asset/RuntimeAssetManager.h"
-#include "StarEngine/Asset/EditorAssetManager.h"
 
 namespace StarEngine {
 
+	class AudioCommandRegistry;
+
 	struct ProjectConfig
 	{
-		std::string Name = "Untitled";
+		std::string Name;
 
-		AssetHandle StartScene;
+		std::string AssetDirectory = "Assets";
+		std::string AssetRegistryPath = "Assets/AssetRegistry.ser";
 
-		std::filesystem::path AssetDirectory;
-		std::filesystem::path AssetRegistryPath; // Relative to AssetDirectory
-		std::filesystem::path ScriptModulePath;
+		std::string AudioCommandsRegistryPath = "Assets/AudioCommandsRegistry.ser";
+
+		std::string MeshPath = "Assets/Meshes";
+		std::string MeshSourcePath = "Assets/Meshes/Source";
+
+		std::string AnimationPath;
+
+		std::string ScriptModulePath = "Assets/Scripts/Binaries";
+		std::string DefaultNamespace;
+
+		std::string StartScene;
+
+		bool AutomaticallyReloadAssembly;
+
+		bool EnableAutoSave = false;
+		int AutoSaveIntervalSeconds = 300;
+
+		PhysicsAPIType CurrentPhysicsAPI = PhysicsAPIType::Jolt;
+
+		// Not serialized
+		std::string ProjectFileName;
+		std::string ProjectDirectory;
+
+		// Runtime only
+		AssetHandle StartSceneHandle;
 	};
 
 	class Project : public RefCounted
 	{
 	public:
-		const std::filesystem::path& GetProjectDirectory() { return m_ProjectDirectory; }
-		std::filesystem::path GetAssetDirectory() { return GetProjectDirectory() / s_ActiveProject->m_Config.AssetDirectory; }
-		std::filesystem::path GetAssetRegistryPath() { return GetAssetDirectory() / s_ActiveProject->m_Config.AssetRegistryPath; }
-		// TODO: move to asset manager when we have one
-		std::filesystem::path GetAssetFileSystemPath(const std::filesystem::path& path) { return GetAssetDirectory() / path; }
+		Project();
+		~Project();
 
-		std::filesystem::path GetAssetAbsolutePath(const std::filesystem::path& path);
+		const ProjectConfig& GetConfig() const { return m_Config; }
 
-		static const std::filesystem::path& GetActiveProjectDirectory()
+		void ReloadScriptEngine();
+
+		static Ref<Project> GetActive() { return s_ActiveProject; }
+		static void SetActive(Ref<Project> project);
+		static void SetActiveRuntime(Ref<Project> project, Ref<AssetPack> assetPack);
+
+		inline static Ref<AssetManagerBase> GetAssetManager() { return s_AssetManager; }
+		inline static Ref<EditorAssetManager> GetEditorAssetManager() { return s_AssetManager.As<EditorAssetManager>(); }
+		inline static Ref<RuntimeAssetManager> GetRuntimeAssetManager() { return s_AssetManager.As<RuntimeAssetManager>(); }
+
+		static const std::string& GetProjectName()
 		{
 			SE_CORE_ASSERT(s_ActiveProject);
-			return s_ActiveProject->GetProjectDirectory();
+			return s_ActiveProject->GetConfig().Name;
+		}
+
+		static std::filesystem::path GetProjectDirectory()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return s_ActiveProject->GetConfig().ProjectDirectory;
+		}
+
+		std::filesystem::path GetAssetDirectory() const
+		{
+			return std::filesystem::path(GetConfig().ProjectDirectory) / GetConfig().AssetDirectory;
 		}
 
 		static std::filesystem::path GetActiveAssetDirectory()
@@ -44,34 +89,69 @@ namespace StarEngine {
 			return s_ActiveProject->GetAssetDirectory();
 		}
 
-		static std::filesystem::path GetActiveAssetRegistryPath()
+		static std::filesystem::path GetAssetRegistryPath()
 		{
 			SE_CORE_ASSERT(s_ActiveProject);
-			return s_ActiveProject->GetAssetRegistryPath();
+			return std::filesystem::path(s_ActiveProject->GetConfig().ProjectDirectory) / s_ActiveProject->GetConfig().AssetRegistryPath;
 		}
 
-		// TODO: move to asset manager when we have one
-		static std::filesystem::path GetActiveAssetFileSystemPath(const std::filesystem::path& path)
+		static std::filesystem::path GetMeshPath()
 		{
 			SE_CORE_ASSERT(s_ActiveProject);
-			return s_ActiveProject->GetAssetFileSystemPath(path);
+			return std::filesystem::path(s_ActiveProject->GetConfig().ProjectDirectory) / s_ActiveProject->GetConfig().MeshPath;
 		}
 
+		static std::filesystem::path GetAnimationPath()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return std::filesystem::path(s_ActiveProject->GetConfig().ProjectDirectory) / s_ActiveProject->GetConfig().AnimationPath;
+		}
 
-		ProjectConfig& GetConfig() { return m_Config; }
+		static std::filesystem::path GetAudioCommandsRegistryPath()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return std::filesystem::path(s_ActiveProject->GetConfig().ProjectDirectory) / s_ActiveProject->GetConfig().AudioCommandsRegistryPath;
+		}
 
-		static Ref<Project> GetActive() { return s_ActiveProject; }
-		std::shared_ptr<AssetManagerBase> GetAssetManager() { return m_AssetManager; }
-		std::shared_ptr<RuntimeAssetManager> GetRuntimeAssetManager() { return std::static_pointer_cast<RuntimeAssetManager>(m_AssetManager); }
-		std::shared_ptr<EditorAssetManager> GetEditorAssetManager() { return std::static_pointer_cast<EditorAssetManager>(m_AssetManager); }
+		static std::filesystem::path GetScriptModulePath()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return std::filesystem::path(s_ActiveProject->GetConfig().ProjectDirectory) / s_ActiveProject->GetConfig().ScriptModulePath;
+		}
 
-		static Ref<Project> New();
-		static Ref<Project> Load(const std::filesystem::path& path);
-		static bool SaveActive(const std::filesystem::path& path);
+		static std::filesystem::path GetScriptModuleFilePath()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return GetScriptModulePath() / std::format("{0}.dll", GetProjectName());
+		}
+
+		std::filesystem::path GetScriptProjectPath() const
+		{
+			return GetAssetDirectory() / "Scripts" / (GetConfig().Name + ".csproj");
+		}
+
+		static std::filesystem::path GetActiveScriptProjectPath()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return s_ActiveProject->GetScriptProjectPath();
+		}
+
+		static std::filesystem::path GetCacheDirectory()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return std::filesystem::path(s_ActiveProject->GetConfig().ProjectDirectory) / "Cache";
+		}
+	private:
+		void OnSerialized();
+		void OnDeserialized();
+
 	private:
 		ProjectConfig m_Config;
-		std::filesystem::path m_ProjectDirectory;
-		std::shared_ptr<AssetManagerBase> m_AssetManager;
+		Ref<AudioCommandRegistry> m_AudioCommands;
+		inline static Ref<AssetManagerBase> s_AssetManager;
+
+		friend class ProjectSettingsWindow;
+		friend class ProjectSerializer;
 
 		inline static Ref<Project> s_ActiveProject;
 	};

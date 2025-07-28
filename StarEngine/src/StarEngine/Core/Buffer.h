@@ -1,9 +1,8 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
-#include "StarEngine/Core/Assert.h"
+#include "StarEngine//Core/Assert.h"
 
-#include <cstring>
+#include <array>
 
 namespace StarEngine {
 
@@ -14,8 +13,19 @@ namespace StarEngine {
 
 		Buffer() = default;
 
-		Buffer(const void* data, uint64_t size = 0)
+		Buffer(const void* data, uint64_t size)
 			: Data((void*)data), Size(size) {
+		}
+
+		template<typename T, size_t S>
+		Buffer(const std::array<T, S>& array)
+			: Data(array.data()), Size(array.size() * sizeof(T)) {
+		}
+
+		template<typename T>
+		Buffer(const std::vector<T>& vector)
+			: Data(vector.data()), Size(vector.size() * sizeof(T))
+		{
 		}
 
 		static Buffer Copy(const Buffer& other)
@@ -44,6 +54,12 @@ namespace StarEngine {
 				return;
 
 			Data = snew byte[size];
+		}
+
+		void Reallocate(uint64_t size)
+		{
+			Release();
+			Allocate(size);
 		}
 
 		void Release()
@@ -79,10 +95,15 @@ namespace StarEngine {
 			return buffer;
 		}
 
+		void Write(Buffer buffer, uint64_t offset = 0)
+		{
+			SE_CORE_ASSERT(offset + buffer.Size <= Size, "Buffer overflow!");
+			memcpy((byte*)Data + offset, buffer.Data, buffer.Size);
+		}
+
 		void Write(const void* data, uint64_t size, uint64_t offset = 0)
 		{
-			SE_CORE_ASSERT(offset + size <= Size, "Buffer overflow!");
-			memcpy((byte*)Data + offset, data, size);
+			Write(Buffer(data, size), offset);
 		}
 
 		operator bool() const

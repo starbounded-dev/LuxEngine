@@ -1,65 +1,98 @@
 #include "sepch.h"
 #include "Project.h"
 
-#include "ProjectSerializer.h"
-#include"StarEngine/Audio/AudioEngine.h"
+#include "StarEngine/Asset/AssetManager.h"
+#include "StarEngine/Audio/AudioEngine.h"
+#include "StarEngine/Audio/AudioEvents/AudioCommandRegistry.h"
+
+#include "StarEngine/Physics/PhysicsSystem.h"
+
+#include "StarEngine/Scripting/ScriptEngine.h"
 
 namespace StarEngine {
 
-	std::filesystem::path Project::GetAssetAbsolutePath(const std::filesystem::path& path)
+	Project::Project()
 	{
-		return GetAssetDirectory() / path;
+		m_AudioCommands = Ref<AudioCommandRegistry>::Create();
 	}
 
-	Ref<Project> Project::New()
+	Project::~Project()
 	{
-		s_ActiveProject = Ref<Project>::Create();
-		return s_ActiveProject;
 	}
 
-	Ref<Project> Project::Load(const std::filesystem::path& path)
+	void Project::ReloadScriptEngine()
 	{
-		Ref<Project> project = Ref<Project>::Create();
+		auto& scriptEngine = ScriptEngine::GetMutable();
+		scriptEngine.Shutdown();
+		scriptEngine.Initialize(this);
+		scriptEngine.LoadProjectAssembly();
+	}
 
-		ProjectSerializer serializer(project);
-		if (serializer.Deserialize(path))
+	void Project::SetActive(Ref<Project> project)
+	{
+		if (s_ActiveProject)
 		{
-			if (AudioEngine::HasInitializedEngine())
-			{
-				AudioEngine::Shutdown();
-				AudioEngine::SetInitalizedEngine(false);
-			}
-
-			project->m_ProjectDirectory = path.parent_path();
-			s_ActiveProject = project;
-
-			Ref<EditorAssetManager> editorAssetManager = std::make_shared<EditorAssetManager>();
-			s_ActiveProject->m_AssetManager = editorAssetManager;
-			editorAssetManager->DeserializeAssetRegistry();
-
-			if (!AudioEngine::HasInitializedEngine())
-			{
-				AudioEngine::Init();
-				AudioEngine::SetInitalizedEngine(true);
-			}
-
-
-			return s_ActiveProject;
+			s_AssetManager->Shutdown();
+			s_AssetManager = nullptr;
+			ScriptEngine::GetMutable().Shutdown();
+			PhysicsSystem::Shutdown();
+			AudioCommandRegistry::Shutdown();
 		}
 
-		return nullptr;
+		s_ActiveProject = project;
+		if (s_ActiveProject)
+		{
+			PhysicsAPI::SetCurrentAPI(s_ActiveProject->GetConfig().CurrentPhysicsAPI);
+
+			s_AssetManager = Ref<EditorAssetManager>::Create();
+			PhysicsSystem::Init();
+
+			MiniAudioEngine::Get().OnProjectLoaded();
+
+			// AudioCommandsRegistry must be deserialized after AssetManager,
+			// otheriwse all of the command action targets are going to be invalid and cleared!
+			WeakRef<AudioCommandRegistry> audioCommands = s_ActiveProject->m_AudioCommands;
+			AudioCommandRegistry::Init(audioCommands);
+
+			ScriptEngine::GetMutable().Initialize(project);
+		}
 	}
 
-	bool Project::SaveActive(const std::filesystem::path& path)
+	void Project::SetActiveRuntime(Ref<Project> project, Ref<AssetPack> assetPack)
 	{
-		ProjectSerializer serializer(s_ActiveProject);
-		if (serializer.Serialize(path))
+		if (s_ActiveProject)
 		{
-			s_ActiveProject->m_ProjectDirectory = path.parent_path();
-			return true;
+			s_AssetManager = nullptr;
+			ScriptEngine::GetMutable().Shutdown();
+			PhysicsSystem::Shutdown();
+			AudioCommandRegistry::Shutdown();
 		}
 
-		return false;
+		s_ActiveProject = project;
+		if (s_ActiveProject)
+		{
+			s_AssetManager = Ref<RuntimeAssetManager>::Create();
+			Project::GetRuntimeAssetManager()->SetAssetPack(assetPack);
+
+			PhysicsSystem::Init();
+
+			// AudioCommandsRegistry must be deserialized after AssetManager,
+			// otherwise all of the command action targets are going to be invalid and cleared!
+			WeakRef<AudioCommandRegistry> audioCommands = s_ActiveProject->m_AudioCommands;
+			//if (!runtime)
+			MiniAudioEngine::Get().OnProjectLoaded();
+			AudioCommandRegistry::Init(audioCommands);
+			ScriptEngine::GetMutable().Initialize(project);
+		}
+	}
+
+	void Project::OnSerialized()
+	{
+		m_AudioCommands->WriteRegistryToFile(std::filesystem::path(m_Config.ProjectDirectory) / m_Config.AudioCommandsRegistryPath);
+	}
+
+	void Project::OnDeserialized()
+	{
 	}
 
 }

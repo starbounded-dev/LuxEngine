@@ -1,108 +1,133 @@
 #include "sepch.h"
-#include "StarEngine/Core/Window.h"
+#include "Window.h"
 
-#include "StarEngine/Renderer/DeviceManager.h"
-
+#include "StarEngine/Core/Events/ApplicationEvent.h"
+#include "StarEngine/Core/Events/KeyEvent.h"
+#include "StarEngine/Core/Events/MouseEvent.h"
 #include "StarEngine/Core/Input.h"
 
-#include "StarEngine/Events/ApplicationEvent.h"
-#include "StarEngine/Events/MouseEvent.h"
-#include "StarEngine/Events/KeyEvent.h"
+#include "StarEngine/Renderer/RendererAPI.h"
 
+#include "StarEngine/Platform/Vulkan/VulkanContext.h"
+#include "StarEngine/Platform/Vulkan/VulkanSwapChain.h"
+#include "StarEngine/Platform/Vulkan/VulkanDeviceManager.h"
+
+#include <imgui.h>
 #include "stb_image.h"
-#include <nvrhi/nvrhi.h>
 
-namespace StarEngine
-{
-	float Window::s_HighDPIScaleFactor = 1.0f;
+#include <GLFW/glfw3.h>
 
-	static uint8_t s_GLFWWindowCount = 0;
+namespace StarEngine {
+
+	static const struct
+	{
+		nvrhi::Format format;
+		uint32_t redBits;
+		uint32_t greenBits;
+		uint32_t blueBits;
+		uint32_t alphaBits;
+		uint32_t depthBits;
+		uint32_t stencilBits;
+	} formatInfo[] = {
+		{ nvrhi::Format::UNKNOWN,            0,  0,  0,  0,  0,  0, },
+		{ nvrhi::Format::R8_UINT,            8,  0,  0,  0,  0,  0, },
+		{ nvrhi::Format::RG8_UINT,           8,  8,  0,  0,  0,  0, },
+		{ nvrhi::Format::RG8_UNORM,          8,  8,  0,  0,  0,  0, },
+		{ nvrhi::Format::R16_UINT,          16,  0,  0,  0,  0,  0, },
+		{ nvrhi::Format::R16_UNORM,         16,  0,  0,  0,  0,  0, },
+		{ nvrhi::Format::R16_FLOAT,         16,  0,  0,  0,  0,  0, },
+		{ nvrhi::Format::RGBA8_UNORM,        8,  8,  8,  8,  0,  0, },
+		{ nvrhi::Format::RGBA8_SNORM,        8,  8,  8,  8,  0,  0, },
+		{ nvrhi::Format::BGRA8_UNORM,        8,  8,  8,  8,  0,  0, },
+		{ nvrhi::Format::SRGBA8_UNORM,       8,  8,  8,  8,  0,  0, },
+		{ nvrhi::Format::SBGRA8_UNORM,       8,  8,  8,  8,  0,  0, },
+		{ nvrhi::Format::R10G10B10A2_UNORM, 10, 10, 10,  2,  0,  0, },
+		{ nvrhi::Format::R11G11B10_FLOAT,   11, 11, 10,  0,  0,  0, },
+		{ nvrhi::Format::RG16_UINT,         16, 16,  0,  0,  0,  0, },
+		{ nvrhi::Format::RG16_FLOAT,        16, 16,  0,  0,  0,  0, },
+		{ nvrhi::Format::R32_UINT,          32,  0,  0,  0,  0,  0, },
+		{ nvrhi::Format::R32_FLOAT,         32,  0,  0,  0,  0,  0, },
+		{ nvrhi::Format::RGBA16_FLOAT,      16, 16, 16, 16,  0,  0, },
+		{ nvrhi::Format::RGBA16_UNORM,      16, 16, 16, 16,  0,  0, },
+		{ nvrhi::Format::RGBA16_SNORM,      16, 16, 16, 16,  0,  0, },
+		{ nvrhi::Format::RG32_UINT,         32, 32,  0,  0,  0,  0, },
+		{ nvrhi::Format::RG32_FLOAT,        32, 32,  0,  0,  0,  0, },
+		{ nvrhi::Format::RGB32_UINT,        32, 32, 32,  0,  0,  0, },
+		{ nvrhi::Format::RGB32_FLOAT,       32, 32, 32,  0,  0,  0, },
+		{ nvrhi::Format::RGBA32_UINT,       32, 32, 32, 32,  0,  0, },
+		{ nvrhi::Format::RGBA32_FLOAT,      32, 32, 32, 32,  0,  0, },
+	};
 
 	static void GLFWErrorCallback(int error, const char* description)
 	{
-		SE_CORE_ERROR("GLFW Error ({0}): {1}", error, description);
+		SE_CORE_ERROR_TAG("GLFW", "GLFW Error ({0}): {1}", error, description);
 	}
 
 	static bool s_GLFWInitialized = false;
 
-	std::unique_ptr<Window> Window::Create(const WindowSpecification& specification)
+	Window* Window::Create(const WindowSpecification& specification)
 	{
-		return std::make_unique<Window>(specification);
+		return new Window(specification);
 	}
 
-	Window::Window(const WindowSpecification& specification)
-		: m_Specification(specification)
+	Window::Window(const WindowSpecification& props)
+		: m_Specification(props)
 	{
-		SE_PROFILE_FUNCTION();
-
-		Init(specification);
 	}
 
 	Window::~Window()
 	{
-		SE_PROFILE_FUNCTION();
-
 		Shutdown();
 	}
 
-	void Window::OnUpdate()
+	void Window::Init()
 	{
-		SE_PROFILE_FUNCTION();
-
-		glfwPollEvents();
-		m_Context->SwapBuffers();
-	}
-
-	/*
-	void Window::Init(specification)
-	{
-		m_Specification.Title = m_Specification.Title;
-		m_Specification.Width = m_Specification.Width;
-		m_Specification.Height = m_Specification.Height;
+		m_Data.Title = m_Specification.Title;
+		m_Data.Width = m_Specification.Width;
+		m_Data.Height = m_Specification.Height;
 
 		DeviceCreationParameters deviceParams;
-		deviceParams.decorated = m_Specification.Decorated;
-		deviceParams.swapChainBufferCount = 2;
-		deviceParams.enableRayTracingExtensions = false;
-		deviceParams.backBufferWidth = 1920;
-		deviceParams.backBufferHeight = 1080;
+		deviceParams.Decorated = m_Specification.Decorated;
+		deviceParams.swapChainBufferCount = 3;
+		deviceParams.enableRayTracingExtensions = true;
+		deviceParams.maxFramesInFlight = 1;
+		deviceParams.backBufferWidth = m_Specification.Width;
+		deviceParams.backBufferHeight = m_Specification.Height;
 		deviceParams.vsyncEnabled = false;
 		deviceParams.enableDebugRuntime = true;
+		deviceParams.ignoredVulkanValidationMessageLocations = { 0xc81ad50e };
 
-		nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
+		SE_CORE_INFO_TAG("GLFW", "Creating window {0} ({1}, {2})", m_Specification.Title, m_Specification.Width, m_Specification.Height);
 
-		m_DeviceManager = DeviceManager::Create(api);
-		m_DeviceManager->SetWindowContext(this);
-
-		if (!m_DeviceManager->CreateDeviceAndSwapChain(deviceParams, m_Specification.Title.c_str()))
+		if (!s_GLFWInitialized)
 		{
-			SE_CORE_ERROR("Cannot initialize a {} graphics device.", (uint8_t)api);
-			return;
+			// TODO: glfwTerminate on system shutdown
+			int success = glfwInit();
+			SE_CORE_ASSERT(success, "Could not intialize GLFW!");
+			glfwSetErrorCallback(GLFWErrorCallback);
+
+			s_GLFWInitialized = true;
+		}
+
+		if (RendererAPI::Current() == RendererAPIType::Vulkan)
+			glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+#ifdef _WINDOWS
+		if (params.enablePerMonitorDPI)
+		{
+			// this needs to happen before glfwInit in order to override GLFW behavior
+			SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
 		}
 		else
 		{
-			SE_CORE_INFO("Successfully created a {} graphics device.", (uint8_t)api);
+			SetProcessDpiAwareness(PROCESS_DPI_UNAWARE);
 		}
-
-		bool rayQuerySupported = m_DeviceManager->GetDevice()->queryFeatureSupport(nvrhi::Feature::RayQuery);
-
-		if (!rayQuerySupported)
-		{
-			SE_CORE_ERROR("Ray Query is not supported by the device. Please check your device capabilities.");
-			return;
-		}
-		else {
-			SE_CORE_INFO("Ray Query is supported by the device.");
-		}
-
-		m_Window = m_DeviceManager->GetWindow();
-
-		glfwSetErrorCallback(GLFWErrorCallback);
+#endif
 
 		glfwDefaultWindowHints();
 
 		bool foundFormat = false;
-		for (const auto& info : FormatInfo)
+		for (const auto& info : formatInfo)
 		{
 			if (info.format == deviceParams.swapChainFormat)
 			{
@@ -121,7 +146,6 @@ namespace StarEngine
 
 		glfwWindowHint(GLFW_SAMPLES, deviceParams.swapChainSampleCount);
 		glfwWindowHint(GLFW_REFRESH_RATE, deviceParams.refreshRate);
-		glfwWindowHint(GLFW_SCALE_TO_MONITOR, deviceParams.resizeWindowWithDisplayScale);
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
@@ -129,41 +153,50 @@ namespace StarEngine
 
 		if (!m_Specification.Decorated)
 		{
+			// This removes titlebar on all platforms
+			// and all of the native window effects on non-Windows platforms
 #ifdef SE_PLATFORM_WINDOWS
-			glfwWindowHint(GLFW_TITLEBAR, GLFW_FALSE); // Borderless window
+			glfwWindowHint(GLFW_TITLEBAR, false);
 #else
-			glfwWindowHint(GLFW_DECORATED, GLFW_FALSE); // Borderless window
+			glfwWindowHint(GLFW_DECORATED, false);
 #endif
 		}
 
-		m_Window = glfwCreateWindow((int)m_Specification.Width, (int)m_Specification.Height, m_Specification.Title.c_str(), m_Specification.Fullscreen ? glfwGetPrimaryMonitor() : nullptr, nullptr);
+		m_WindowHandle = glfwCreateWindow((int)m_Specification.Width, (int)m_Specification.Height, m_Data.Title.c_str(), m_Specification.Fullscreen ? glfwGetPrimaryMonitor() : nullptr, nullptr);
 
-		glfwSetWindowUserPointer(m_Window, this);
+		glfwSetWindowUserPointer(m_WindowHandle, this);
 
-		if (m_Window == nullptr)
+		if (m_WindowHandle == nullptr)
 		{
 			// return false;
 		}
 
-		if (deviceParams.startFullscreen)
+		if (m_Specification.Fullscreen)
 		{
-			glfwSetWindowMonitor(m_Window, glfwGetPrimaryMonitor(), 0, 0,
-				m_DeviceParams.backBufferWidth, m_DeviceParams.backBufferHeight, m_DeviceParams.refreshRate);
+			glfwSetWindowMonitor(m_WindowHandle, glfwGetPrimaryMonitor(), 0, 0,
+				m_Specification.Width, m_Specification.Height, deviceParams.refreshRate);
 		}
 		else
 		{
 			int fbWidth = 0, fbHeight = 0;
-			glfwGetFramebufferSize(m_Window, &fbWidth, &fbHeight);
-			m_DeviceParams.backBufferWidth = fbWidth;
-			m_DeviceParams.backBufferHeight = fbHeight;
+			glfwGetFramebufferSize(m_WindowHandle, &fbWidth, &fbHeight);
+			m_Data.Width = fbWidth;
+			m_Data.Height = fbHeight;
 		}
 
 		if (deviceParams.windowPosX != -1 && deviceParams.windowPosY != -1)
 		{
-			glfwSetWindowPos(m_Window, deviceParams.windowPosX, deviceParams.windowPosY);
+			glfwSetWindowPos(m_WindowHandle, deviceParams.windowPosX, deviceParams.windowPosY);
 		}
-		/*
-		// Set Icon
+
+#if TODO
+		if (m_Specification.StartMaximized)
+		{
+			glfwMaximizeWindow(m_WindowHandle);
+		}
+#endif
+
+		// Set icon
 		{
 			GLFWimage icon;
 			int channels;
@@ -176,7 +209,7 @@ namespace StarEngine
 				icon.pixels = stbi_load(iconPathStr.c_str(), &icon.width, &icon.height, &channels, 4);
 				if (icon.pixels)
 				{
-					glfwSetWindowIcon(m_Window, 1, &icon);
+					glfwSetWindowIcon(m_WindowHandle, 1, &icon);
 					stbi_image_free(icon.pixels);
 				}
 				else
@@ -187,184 +220,271 @@ namespace StarEngine
 
 			if (useEmbedded)
 			{
+				// Use embedded StarEngine icon
 				icon.pixels = stbi_load_from_memory(g_StarIconPNG, sizeof(g_StarIconPNG), &icon.width, &icon.height, &channels, 4);
-				glfwSetWindowIcon(m_Window, 1, &icon);
+				glfwSetWindowIcon(m_WindowHandle, 1, &icon);
 				stbi_image_free(icon.pixels);
 			}
 		}
-		
-	}*/
-	
-	void Window::Init(WindowSpecification& spec)
-	{
-		SE_PROFILE_FUNCTION();
 
-		m_Specification.Title = spec.Title;
-		m_Specification.Width = spec.Width;
-		m_Specification.Height = spec.Height;
+		nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
 
-		SE_CORE_INFO("Creating window {0} ({1}, {2})", spec.Title, spec.Width, spec.Height);
+		m_DeviceManager = DeviceManager::Create(api, m_WindowHandle);
+		m_DeviceManager->SetWindowContext(this);
 
-		if (s_GLFWWindowCount == 0)
+		if (!m_DeviceManager->CreateDevice(deviceParams, m_Specification.Title.c_str()))
 		{
-			SE_PROFILE_SCOPE("glfwInit");
-			int success = glfwInit();
-			SE_CORE_ASSERT(success, "Could not initialize GLFW!");
-			glfwSetErrorCallback(GLFWErrorCallback);
+			SE_CORE_ERROR("Cannot initialize a {} graphics device.", (uint8_t)api);
+			return;
+		}
+		else
+		{
+			SE_CORE_INFO("Successfully created {} device!", (uint8_t)api);
 		}
 
+		bool rayQuerySupported = m_DeviceManager->GetDevice()->queryFeatureSupport(nvrhi::Feature::RayQuery);
+
+		if (!rayQuerySupported)
 		{
-			SE_PROFILE_SCOPE("glfwCreateWindow");
+			SE_CORE_ERROR("The GPU ({}) or its driver does not support Ray Queries.", m_DeviceManager->GetRendererString());
+			return;
+		}
+		else
+		{
+			SE_CORE_INFO("rayQuerySupported=true");
+		}
 
-			GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-			float xscale, yscale;
-			glfwGetMonitorContentScale(monitor, &xscale, &yscale);
+		if (!deviceParams.headlessDevice)
+			CreateWindowSurface();
 
-			if (xscale > 1.0f || yscale > 1.0f)
-			{
-				s_HighDPIScaleFactor = yscale;
-				glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
-			}
+		m_DeviceManager->InitSurfaceCapabilities(*(uint64_t*)&m_WindowSurface);
 
-#if defined(SE_DEBUG)
-			if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
-				glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+		m_SwapChain = snew VulkanSwapChain(m_WindowSurface);
+		m_SwapChain->Create(m_Specification.Width, m_Specification.Height);
+
+#if OLD
+		// Create Renderer Context
+		m_RendererContext = RendererContext::Create();
+		m_RendererContext->Init();
+
+		Ref<VulkanContext> context = m_RendererContext.As<VulkanContext>();
+
+		m_SwapChain = snew VulkanSwapChain();
+		m_SwapChain->Init(VulkanContext::GetInstance(), context->GetDevice());
+		m_SwapChain->InitSurface(m_WindowHandle);
+
+		m_SwapChain->Create(&m_Data.Width, &m_Data.Height, m_Specification.VSync);
 #endif
+		//glfwMaximizeWindow(m_Window);
+		glfwSetWindowUserPointer(m_WindowHandle, &m_Data);
 
-			m_Window = glfwCreateWindow((int)spec.Width, (int)spec.Height, m_Specification.Title.c_str(), nullptr, nullptr);
-			++s_GLFWWindowCount;
-		}
-
-		m_Context = GraphicsContext::Create(m_Window);
-		m_Context->Init();
-
-		glfwSetWindowUserPointer(m_Window, &m_Specification);
-		SetVSync(true);
+		bool isRawMouseMotionSupported = glfwRawMouseMotionSupported();
+		if (isRawMouseMotionSupported)
+			glfwSetInputMode(m_WindowHandle, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+		else
+			SE_CORE_WARN_TAG("Platform", "Raw mouse motion not supported.");
 
 		// Set GLFW callbacks
-		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height)
+		glfwSetWindowSizeCallback(m_WindowHandle, [](GLFWwindow* window, int width, int height)
 			{
-				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+				auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+
+				WindowResizeEvent event((uint32_t)width, (uint32_t)height);
+				data.EventCallback(event);
 				data.Width = width;
 				data.Height = height;
-
-				WindowResizeEvent event(width, height);
-				data.EventCallback(event);
 			});
 
-		glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* window)
+		glfwSetWindowCloseCallback(m_WindowHandle, [](GLFWwindow* window)
 			{
-				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+				auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+
 				WindowCloseEvent event;
 				data.EventCallback(event);
 			});
 
-		glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
+		glfwSetKeyCallback(m_WindowHandle, [](GLFWwindow* window, int key, int scancode, int action, int mods)
 			{
-				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+				auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
 
 				switch (action)
 				{
 				case GLFW_PRESS:
 				{
-					KeyPressedEvent event(key, true);
+					Input::UpdateKeyState((KeyCode)key, KeyState::Pressed);
+					KeyPressedEvent event((KeyCode)key, 0);
 					data.EventCallback(event);
 					break;
 				}
 				case GLFW_RELEASE:
 				{
-					KeyReleasedEvent event(key);
+					Input::UpdateKeyState((KeyCode)key, KeyState::Released);
+					KeyReleasedEvent event((KeyCode)key);
 					data.EventCallback(event);
 					break;
 				}
 				case GLFW_REPEAT:
 				{
-					KeyPressedEvent event(key, 1);
+					Input::UpdateKeyState((KeyCode)key, KeyState::Held);
+					KeyPressedEvent event((KeyCode)key, 1);
 					data.EventCallback(event);
 					break;
 				}
 				}
 			});
 
-		glfwSetCharCallback(m_Window, [](GLFWwindow* window, unsigned int keycode)
+		glfwSetCharCallback(m_WindowHandle, [](GLFWwindow* window, uint32_t codepoint)
 			{
-				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+				auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
 
-				KeyTypedEvent event(keycode);
+				KeyTypedEvent event((KeyCode)codepoint);
 				data.EventCallback(event);
 			});
 
-		glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* window, int button, int action, int mods)
+		glfwSetMouseButtonCallback(m_WindowHandle, [](GLFWwindow* window, int button, int action, int mods)
 			{
-				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+				auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
 
 				switch (action)
 				{
 				case GLFW_PRESS:
 				{
-					MouseButtonPressedEvent event(button);
+					Input::UpdateButtonState((MouseButton)button, KeyState::Pressed);
+					MouseButtonPressedEvent event((MouseButton)button);
 					data.EventCallback(event);
 					break;
 				}
 				case GLFW_RELEASE:
 				{
-					MouseButtonReleasedEvent event(button);
+					Input::UpdateButtonState((MouseButton)button, KeyState::Released);
+					MouseButtonReleasedEvent event((MouseButton)button);
 					data.EventCallback(event);
 					break;
 				}
 				}
 			});
 
-		glfwSetScrollCallback(m_Window, [](GLFWwindow* window, double xOffset, double yOffset)
+		glfwSetScrollCallback(m_WindowHandle, [](GLFWwindow* window, double xOffset, double yOffset)
 			{
-				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+				auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
 
 				MouseScrolledEvent event((float)xOffset, (float)yOffset);
 				data.EventCallback(event);
 			});
 
-		glfwSetCursorPosCallback(m_Window, [](GLFWwindow* window, double xPos, double yPos)
+		glfwSetCursorPosCallback(m_WindowHandle, [](GLFWwindow* window, double x, double y)
 			{
-				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
-
-				MouseMovedEvent event((float)xPos, (float)yPos);
+				auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+				MouseMovedEvent event((float)x, (float)y);
 				data.EventCallback(event);
 			});
 
-		glfwSetDropCallback(m_Window, [](GLFWwindow* window, int pathCount, const char* paths[])
+		glfwSetTitlebarHitTestCallback(m_WindowHandle, [](GLFWwindow* window, int x, int y, int* hit)
 			{
-				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
-
-				std::vector<std::filesystem::path> filepaths(pathCount);
-				for (int i = 0; i < pathCount; i++)
-					filepaths[i] = paths[i];
-
-				WindowDropEvent event(std::move(filepaths));
+				auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+				WindowTitleBarHitTestEvent event(x, y, *hit);
 				data.EventCallback(event);
 			});
+
+		glfwSetWindowIconifyCallback(m_WindowHandle, [](GLFWwindow* window, int iconified)
+			{
+				auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+				WindowMinimizeEvent event((bool)iconified);
+				data.EventCallback(event);
+			});
+
+		m_ImGuiMouseCursors[ImGuiMouseCursor_Arrow] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
+		m_ImGuiMouseCursors[ImGuiMouseCursor_TextInput] = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
+		m_ImGuiMouseCursors[ImGuiMouseCursor_ResizeAll] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);   // FIXME: GLFW doesn't have this.
+		m_ImGuiMouseCursors[ImGuiMouseCursor_ResizeNS] = glfwCreateStandardCursor(GLFW_VRESIZE_CURSOR);
+		m_ImGuiMouseCursors[ImGuiMouseCursor_ResizeEW] = glfwCreateStandardCursor(GLFW_HRESIZE_CURSOR);
+		m_ImGuiMouseCursors[ImGuiMouseCursor_ResizeNESW] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);  // FIXME: GLFW doesn't have this.
+		m_ImGuiMouseCursors[ImGuiMouseCursor_ResizeNWSE] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);  // FIXME: GLFW doesn't have this.
+		m_ImGuiMouseCursors[ImGuiMouseCursor_Hand] = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
+
+		// Update window size to actual size
+		{
+			int width, height;
+			glfwGetWindowSize(m_WindowHandle, &width, &height);
+			m_Data.Width = width;
+			m_Data.Height = height;
+		}
+
+	}
+
+	bool Window::CreateWindowSurface()
+	{
+		const VkResult res = glfwCreateWindowSurface(((VulkanDeviceManager*)m_DeviceManager)->GetVulkanInstance(), m_WindowHandle, nullptr, (VkSurfaceKHR*)&m_WindowSurface);
+		if (res != VK_SUCCESS)
+		{
+			SE_CORE_ERROR("Failed to create a GLFW window surface, error code = {}", nvrhi::vulkan::resultToString(res));
+			return false;
+		}
+
+		return true;
 	}
 
 	void Window::Shutdown()
 	{
-		glfwDestroyWindow(m_Window);
-		--s_GLFWWindowCount;
-
-		if (s_GLFWWindowCount == 0)
+		if (m_WindowSurface)
 		{
-			glfwTerminate();
+			auto vInstance = ((VulkanDeviceManager*)m_DeviceManager)->GetVulkanInstance();
+			SE_CORE_VERIFY(vInstance);
+			vInstance.destroySurfaceKHR(m_WindowSurface);
+			m_WindowSurface = nullptr;
 		}
+
+		m_DeviceManager->Shutdown();
+		sdelete m_DeviceManager;
+
+		// m_SwapChain->Destroy();
+		// sdelete m_SwapChain;
+		// m_RendererContext.As<VulkanContext>()->GetDevice()->Destroy(); // need to destroy the device _before_ windows window destructor destroys the renderer context (because device Destroy() asks for renderer context...)
+		// glfwTerminate();
+		s_GLFWInitialized = false;
+	}
+
+	inline std::pair<float, float> Window::GetWindowPos() const
+	{
+		int x, y;
+		glfwGetWindowPos(m_WindowHandle, &x, &y);
+		return { (float)x, (float)y };
+	}
+
+	void Window::ProcessEvents()
+	{
+		glfwPollEvents();
+		Input::Update();
+
+		// m_DeviceManager->UpdateWindowSize();
+		int width;
+		int height;
+		glfwGetWindowSize(m_WindowHandle, &width, &height);
+
+		if (m_Data.Width != width || m_Data.Height != height)
+		{
+			m_Data.Width = width;
+			m_Data.Height = height;
+
+			m_SwapChain->OnResize(width, height);
+		}
+
+	}
+
+	void Window::Present()
+	{
+		m_SwapChain->Present();
 	}
 
 	void Window::SetVSync(bool enabled)
 	{
-		SE_PROFILE_FUNCTION();
-
-		if (enabled)
-			glfwSwapInterval(1);
-		else
-			glfwSwapInterval(0);
-
 		m_Specification.VSync = enabled;
+
+		Application::Get().QueueEvent([&]()
+			{
+				// m_SwapChain->SetVSync(m_Specification.VSync);
+				// m_SwapChain->OnResize(m_Specification.Width, m_Specification.Height);
+			});
 	}
 
 	bool Window::IsVSync() const
@@ -372,8 +492,133 @@ namespace StarEngine
 		return m_Specification.VSync;
 	}
 
-	DeviceManager* Window::GetDeviceManager()
+	void Window::SetResizable(bool resizable) const
 	{
-		m_DeviceManager->GetDevice();
+		glfwSetWindowAttrib(m_WindowHandle, GLFW_RESIZABLE, resizable ? GLFW_TRUE : GLFW_FALSE);
 	}
+
+	void Window::BeginFrame()
+	{
+		SE_CORE_VERIFY(m_SwapChain);
+		m_SwapChain->BeginFrame();
+	}
+
+	void Window::Maximize()
+	{
+		glfwMaximizeWindow(m_WindowHandle);
+	}
+
+	void Window::CenterWindow()
+	{
+		const GLFWvidmode* videmode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+		int x = (videmode->width / 2) - (m_Data.Width / 2);
+		int y = (videmode->height / 2) - (m_Data.Height / 2);
+		glfwSetWindowPos(m_WindowHandle, x, y);
+	}
+
+	void Window::SetTitle(const std::string& title)
+	{
+		m_Data.Title = title;
+		glfwSetWindowTitle(m_WindowHandle, m_Data.Title.c_str());
+	}
+
+	VulkanSwapChain& Window::GetSwapChain()
+	{
+		return *m_SwapChain;
+	}
+
+	void Window::OnWindowSizeCallback(int width, int height)
+	{
+		WindowResizeEvent event((uint32_t)width, (uint32_t)height);
+		if (m_Data.EventCallback)
+			m_Data.EventCallback(event);
+		m_Data.Width = width;
+		m_Data.Height = height;
+	}
+
+	void Window::OnWindowCloseCallback()
+	{
+		WindowCloseEvent event;
+		m_Data.EventCallback(event);
+	}
+
+	void Window::OnKeyCallback(int key, int scancode, int action, int mods)
+	{
+		switch (action)
+		{
+		case GLFW_PRESS:
+		{
+			Input::UpdateKeyState((KeyCode)key, KeyState::Pressed);
+			KeyPressedEvent event((KeyCode)key, 0);
+			m_Data.EventCallback(event);
+			break;
+		}
+		case GLFW_RELEASE:
+		{
+			Input::UpdateKeyState((KeyCode)key, KeyState::Released);
+			KeyReleasedEvent event((KeyCode)key);
+			m_Data.EventCallback(event);
+			break;
+		}
+		case GLFW_REPEAT:
+		{
+			Input::UpdateKeyState((KeyCode)key, KeyState::Held);
+			KeyPressedEvent event((KeyCode)key, 1);
+			m_Data.EventCallback(event);
+			break;
+		}
+		}
+	}
+
+	void Window::OnCharCallback(uint32_t codepoint)
+	{
+		KeyTypedEvent event((KeyCode)codepoint);
+		m_Data.EventCallback(event);
+	}
+
+	void Window::OnMouseButtonCallback(int button, int action, int mods)
+	{
+		switch (action)
+		{
+		case GLFW_PRESS:
+		{
+			Input::UpdateButtonState((MouseButton)button, KeyState::Pressed);
+			MouseButtonPressedEvent event((MouseButton)button);
+			m_Data.EventCallback(event);
+			break;
+		}
+		case GLFW_RELEASE:
+		{
+			Input::UpdateButtonState((MouseButton)button, KeyState::Released);
+			MouseButtonReleasedEvent event((MouseButton)button);
+			m_Data.EventCallback(event);
+			break;
+		}
+		}
+	}
+
+	void Window::OnMouseScrollCallback(double xOffset, double yOffset)
+	{
+		MouseScrolledEvent event((float)xOffset, (float)yOffset);
+		m_Data.EventCallback(event);
+	}
+
+	void Window::OnMousePosCallback(double x, double y)
+	{
+		MouseMovedEvent event((float)x, (float)y);
+		m_Data.EventCallback(event);
+	}
+
+	void Window::OnTitlebarHitTestCallback(int x, int y, int* hit)
+	{
+		WindowTitleBarHitTestEvent event(x, y, *hit);
+		m_Data.EventCallback(event);
+	}
+
+	void Window::OnWindowIconifyCallback(int iconified)
+	{
+		WindowMinimizeEvent event((bool)iconified);
+		m_Data.EventCallback(event);
+	}
+
 }

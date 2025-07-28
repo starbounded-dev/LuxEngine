@@ -141,13 +141,49 @@ namespace StarEngine {
 		free(memory);
 	}
 
+	void Allocator::Free(void* memory, size_t size)
+	{
+		if (memory == nullptr)
+			return;
+
+		{
+			bool found = false;
+			{
+				std::scoped_lock<std::mutex> lock(s_Data->m_Mutex);
+				auto allocMapIt = s_Data->m_AllocationMap.find(memory);
+				found = allocMapIt != s_Data->m_AllocationMap.end();
+				if (found)
+				{
+					const Allocation& alloc = allocMapIt->second;
+					SE_CORE_VERIFY(size == alloc.Size);
+					s_GlobalStats.TotalFreed += alloc.Size;
+					if (alloc.Category)
+						s_Data->m_AllocationStatsMap[alloc.Category].TotalFreed += alloc.Size;
+
+					s_Data->m_AllocationMap.erase(memory);
+				}
+			}
+
+#if SE_ENABLE_PROFILING
+			TracyFree(memory);
+#endif
+
+#ifndef SE_DIST
+			if (!found)
+				SE_CORE_WARN_TAG("Memory", "Memory block {0} not present in alloc map", memory);
+#endif
+		}
+
+		free(memory);
+	}
+
 	namespace Memory {
 
 		const AllocationStats& GetAllocationStats() { return s_GlobalStats; }
 	}
 }
 
-#if defined(SE_TRACK_MEMORY) && defined(SE_PLATFORM_WINDOWS)
+#ifdef SE_TRACK_MEMORY && SE_PLATFORM_WINDOWS
 
 _NODISCARD _Ret_notnull_ _Post_writable_byte_size_(size) _VCRT_ALLOCATOR
 void* __CRTDECL operator new(size_t size)
@@ -188,6 +224,11 @@ void* __CRTDECL operator new[](size_t size, const char* file, int line)
 void __CRTDECL operator delete(void* memory)
 {
 	return StarEngine::Allocator::Free(memory);
+}
+
+void __CRTDECL operator delete(void* memory, size_t size)
+{
+	return StarEngine::Allocator::Free(memory, size);
 }
 
 void __CRTDECL operator delete(void* memory, const char* desc)

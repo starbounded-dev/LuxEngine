@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RendererCapabilites.h"
+#include "RendererCapabilities.h"
 #include "RenderCommandBuffer.h"
 #include "StorageBufferSet.h"
 #include "UniformBufferSet.h"
@@ -20,20 +20,18 @@ namespace StarEngine {
 
 	enum class PrimitiveType
 	{
-		None = 0,
-		Triangles, 
-		Lines
+		None = 0, Triangles, Lines
 	};
 
 	class RendererAPI
 	{
 	public:
-		virtual RendererCapabilites& GetCapabilities() = 0;
+		virtual RendererCapabilities& GetCapabilities() = 0;
 
-		static RendererAPI Current() { return s_CurrentRendererAPI; }
+		static RendererAPIType Current() { return s_CurrentRendererAPI; }
 		static void SetAPI(RendererAPIType api);
-
 	private:
 		inline static RendererAPIType s_CurrentRendererAPI = RendererAPIType::Vulkan;
 	};
+
 }

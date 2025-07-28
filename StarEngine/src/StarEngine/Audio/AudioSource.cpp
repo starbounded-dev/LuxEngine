@@ -3,20 +3,21 @@
 
 #include "AudioEngine.h"
 #include "StarEngine/Asset/AudioImporter.h"
+#include "StarEngine/Debug/Profiler.h"
 #include "StarEngine/Project/Project.h"
 
 namespace StarEngine {
 
 	AudioSource::AudioSource()
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::AudioSource");
 
 		m_Sound = std::make_unique<ma_sound>();
 	}
 
 	AudioSource::~AudioSource()
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::~AudioSource");
 
 		if (!AudioEngine::ShuttingDownEngine())
 		{
@@ -36,7 +37,7 @@ namespace StarEngine {
 
 	void AudioSource::Play()
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::Play");
 
 		if (m_Sound)
 		{
@@ -46,7 +47,7 @@ namespace StarEngine {
 
 	void AudioSource::Pause()
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::Pause");
 
 		if (m_Sound)
 		{
@@ -56,7 +57,7 @@ namespace StarEngine {
 
 	void AudioSource::UnPause()
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::UnPause");
 
 		if (m_Sound)
 		{
@@ -66,7 +67,7 @@ namespace StarEngine {
 
 	void AudioSource::Stop()
 	{
-		//NZ_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::Stop");
 
 		if (m_Sound)
 		{
@@ -79,7 +80,7 @@ namespace StarEngine {
 
 	bool AudioSource::IsPlaying()
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::IsPlaying");
 
 		if (m_Sound.get())
 			return ma_sound_is_playing(m_Sound.get());
@@ -101,7 +102,7 @@ namespace StarEngine {
 
 	static ma_attenuation_model GetAttenuationModel(AttenuationModelType model)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("ma_attenuation_model GetAttenuationModel");
 
 		switch (model)
 		{
@@ -116,7 +117,7 @@ namespace StarEngine {
 
 	void AudioSource::SetConfig(AudioSourceConfig& config)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetConfig");
 
 		if (m_Sound)
 		{
@@ -159,7 +160,7 @@ namespace StarEngine {
 
 	void AudioSource::SetVolume(float volume)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetVolume");
 
 		if (m_Sound)
 		{
@@ -169,7 +170,7 @@ namespace StarEngine {
 
 	void AudioSource::SetPitch(float pitch)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetPitch");
 
 		if (m_Sound)
 		{
@@ -187,7 +188,7 @@ namespace StarEngine {
 
 	void AudioSource::SetLooping(bool state)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetLooping");
 
 		if (m_Sound)
 		{
@@ -200,7 +201,7 @@ namespace StarEngine {
 
 	void AudioSource::SetSpatialization(bool state)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetSpatialization");
 
 		m_Spatialization = state;
 		if (m_Sound)
@@ -211,7 +212,7 @@ namespace StarEngine {
 
 	void AudioSource::SetAttenuationModel(AttenuationModelType type)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetAttenuationModel");
 
 		if (m_Sound)
 		{
@@ -224,7 +225,7 @@ namespace StarEngine {
 
 	void AudioSource::SetRollOff(float rollOff)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetRollOff");
 
 		if (m_Sound)
 		{
@@ -234,7 +235,7 @@ namespace StarEngine {
 
 	void AudioSource::SetMinGain(float minGain)
 	{
-		//NZ_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetMinGain");
 
 		if (m_Sound)
 		{
@@ -244,7 +245,7 @@ namespace StarEngine {
 
 	void AudioSource::SetMaxGain(float maxGain)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetMaxGain");
 
 		if (m_Sound)
 		{
@@ -254,7 +255,7 @@ namespace StarEngine {
 
 	void AudioSource::SetMinDistance(float minDistance)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetMinDistance");
 
 		if (m_Sound)
 		{
@@ -264,7 +265,7 @@ namespace StarEngine {
 
 	void AudioSource::SetMaxDistance(float maxDistance)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetMaxDistance");
 
 		if (m_Sound)
 		{
@@ -274,7 +275,7 @@ namespace StarEngine {
 
 	void AudioSource::SetCone(float innerAngle, float outerAngle, float outerGain)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetCone");
 
 		if (m_Sound)
 		{
@@ -284,7 +285,7 @@ namespace StarEngine {
 
 	void AudioSource::SetDopplerFactor(float factor)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetDopplerFactor");
 
 		if (m_Sound)
 		{
@@ -294,7 +295,7 @@ namespace StarEngine {
 
 	void AudioSource::SetPosition(const glm::vec4& position)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetPosition");
 
 		if (m_Sound)
 		{
@@ -304,7 +305,7 @@ namespace StarEngine {
 
 	void AudioSource::SetDirection(const glm::vec3& forward)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetDirection");
 
 		if (m_Sound)
 		{
@@ -314,7 +315,7 @@ namespace StarEngine {
 
 	void AudioSource::SetVelocity(const glm::vec3& velocity)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioSource::SetVelocity");
 
 		if (m_Sound)
 		{

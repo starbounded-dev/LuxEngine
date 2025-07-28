@@ -2,18 +2,25 @@
 
 #include "UniformBuffer.h"
 
-namespace StarEngine
-{
+namespace StarEngine {
+
 	class UniformBufferSet : public RefCounted
 	{
-		virtual ~UniformBufferSet() {}
+	public:
+		static Ref<UniformBufferSet> Create(uint32_t size, uint32_t framesInFlight = 0) { return Ref<UniformBufferSet>::Create(size, framesInFlight); }
 
-		virtual Ref<UniformBuffer> Get() = 0;
-		virtual Ref<UniformBuffer> RT_Get() = 0;
-		virtual Ref<UniformBuffer> Get(uint32_t frame) = 0;
+		Ref<UniformBuffer> Get();
+		Ref<UniformBuffer> RT_Get();
 
-		virtual void Set(Ref<UniformBuffer> uniformBuffer, uint32_t frame) = 0;
+		Ref<UniformBuffer> Get(uint32_t frame);
 
-		static Ref<UniformBuffer> Create(uint32_t size, uint32_t frameInFlight = 0);
+		void Set(Ref<UniformBuffer> uniformBuffer, uint32_t frame = 0);
+	public:
+		UniformBufferSet(uint32_t size, uint32_t framesInFlight);
+		virtual ~UniformBufferSet() = default;
+	private:
+		uint32_t m_FramesInFlight = 0;
+		std::map<uint32_t, Ref<UniformBuffer>> m_UniformBuffers;
 	};
+
 }

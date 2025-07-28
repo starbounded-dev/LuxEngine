@@ -39,16 +39,19 @@ namespace StarEngine {
 	public:
 		Ref()
 			: m_Instance(nullptr)
-		{}
+		{
+		}
 
 		Ref(std::nullptr_t n)
 			: m_Instance(nullptr)
-		{}
+		{
+		}
 
 		Ref(T* instance)
 			: m_Instance(instance)
 		{
 			static_assert(std::is_base_of<RefCounted, T>::value, "Class is not RefCounted!");
+
 			IncRef();
 		}
 
@@ -171,7 +174,7 @@ namespace StarEngine {
 		{
 			if (!m_Instance || !other.m_Instance)
 				return false;
-			
+
 			return *m_Instance == *other.m_Instance;
 		}
 	private:
@@ -189,7 +192,7 @@ namespace StarEngine {
 			if (m_Instance)
 			{
 				m_Instance->DecRefCount();
-				
+
 				if (m_Instance->GetRefCount() == 0)
 				{
 					delete m_Instance;
@@ -203,7 +206,7 @@ namespace StarEngine {
 		friend class Ref;
 		mutable T* m_Instance;
 	};
-	
+
 	template<typename T>
 	class WeakRef
 	{

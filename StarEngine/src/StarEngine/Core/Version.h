@@ -1,35 +1,29 @@
 #pragma once
 
-#include "Base.h"
+#define SE_VERSION "2025.1"
 
-#define SE_VERSION "25.3.0.1"
-
-#ifdef NDEBUG
-		#define SE_RELEASE
-#else
-		#define SE_DEBUG
-#endif
-
-// ==== Build Configuration ====
+//
+// Build Configuration
+//
 #if defined(SE_DEBUG)
-		#define SE_BUILD_CONFIG_NAME "Debug"
+#define SE_BUILD_CONFIG_NAME "Debug"
 #elif defined(SE_RELEASE)
-		#define SE_BUILD_CONFIG_NAME "Release"
+#define SE_BUILD_CONFIG_NAME "Release"
+#elif defined(SE_DIST)
+#define SE_BUILD_CONFIG_NAME "Dist"
 #else
-		#define SE_BUILD_CONFIG_NAME "Unknown"
+#error Undefined configuration?
 #endif
 
-// ==== Build Platform ====
+//
+// Build Platform
+//
 #if defined(SE_PLATFORM_WINDOWS)
-	#define SE_BUILD_PLATFORM_NAME "Windows x64"
+#define SE_BUILD_PLATFORM_NAME "Windows x64"
 #elif defined(SE_PLATFORM_LINUX)
-	#define SE_BUILD_PLATFORM_NAME "Linux"
-#elif defined(SE_PLATFORM_BSD)
-	#define SE_BUILD_PLATFORM_NAME "BSD"
-#elif defined(SE_PLATFORM_UNIX)
-	#define SE_BUILD_PLATFORM_NAME "Unix"
+#define SAE_BUILD_PLATFORM_NAME "Linux"
 #else
-	#define SE_BUILD_PLATFORM_NAME "Unknown"
+#define SE_BUILD_PLATFORM_NAME "Unknown"
 #endif
 
 #define SE_VERSION_LONG "StarEngine " SE_VERSION " (" SE_BUILD_PLATFORM_NAME " " SE_BUILD_CONFIG_NAME ")"

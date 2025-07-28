@@ -1,28 +1,42 @@
-
 import os
 import subprocess
-import platform
+import CheckPython
 
-from SetupPython import PythonConfiguration as PythonRequirements
+# Make sure everything we need is installed
+CheckPython.ValidatePackages()
 
-# Make sure everything we need for the setup is installed
-PythonRequirements.Validate()
+import Vulkan
+import Utils
+import colorama
+from colorama import Fore
+from colorama import Back
+from colorama import Style
 
-from SetupPremake import PremakeConfiguration as PremakeRequirements
-from SetupVulkan import VulkanConfiguration as VulkanRequirements
-os.chdir('./../') # Change from devtools/scripts directory to root
+colorama.init()
 
-premakeInstalled = PremakeRequirements.Validate()
-VulkanRequirements.Validate()
+# Change from Scripts directory to root
+os.chdir('../')
 
-print("\nUpdating submodules...")
+# Set STARENGINE_DIR environment variable to current StarEngine root directory
+print(f"{Style.BRIGHT}{Back.GREEN}Setting STARENGINE_DIR to {os.getcwd()}{Style.RESET_ALL}")
+subprocess.call(["setx", "STARENGINE_DIR", os.getcwd()])
+os.environ['STARENGINE_DIR'] = os.getcwd()
+
+if (not Vulkan.CheckVulkanSDK()):
+    print("Vulkan SDK not installed.")
+    exit()
+    
+if (Vulkan.CheckVulkanSDKDebugLibs()):
+    print(f"{Style.BRIGHT}{Back.GREEN}Vulkan SDK debug libs located.{Style.RESET_ALL}")
+
+subprocess.call(["git", "lfs", "pull"])
 subprocess.call(["git", "submodule", "update", "--init", "--recursive"])
 
-if (premakeInstalled):
-    if platform.system() == "Windows":
-        print("\nRunning premake...")
-        subprocess.call([os.path.abspath("./scripts/Win-GenProjects.bat"), "nopause"])
+if not os.path.exists("StarEditor/DotNet/"):
+    os.makedirs("StarEditor/DotNet/")
 
-    print("\nSetup completed!")
-else:
-    print("StarEngine requires Premake to generate project files.")
+print(f"{Style.BRIGHT}{Back.GREEN}Generating Visual Studio 2022 solution.{Style.RESET_ALL}")
+subprocess.call(["vendor/bin/premake5.exe", "vs2022"])
+
+os.chdir('StarEditor/SandboxProject')
+subprocess.call(["../../vendor/bin/premake5.exe", "vs2022"])

@@ -2,65 +2,47 @@
 
 #ifdef SE_PLATFORM_WINDOWS
 #include <Windows.h>
-#include <intrin.h>
 #endif
-
-#include <cassert>
-#include <cmath>
-#include <cstring>
-#include <cstddef>
-#include <cstdlib>
-#include <cstdint>
-#include <cstdarg>
-#include <csignal>
-#include <cctype>
-#include <climits>
 
 #include <algorithm>
 #include <array>
-#include <bit>
-#include <chrono>
-#include <compare>
-#include <concepts>
-#include <initializer_list>
-#include <limits>
-#include <memory>
-#include <new>
-#include <optional>
-#include <random>
-#include <type_traits>
-#include <utility>
-#include <variant>
-
-#include <deque>
-#include <map>
-#include <set>
-#include <stack>
-#include <queue>
-#include <span>
-#include <tuple>
-#include <unordered_map>
-#include <vector>
-
+#include <cstddef>
+#include <cstdlib>
+#include <cstdarg>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
-#include <iostream>
-#include <iomanip>
+#include <functional>
+#include <limits>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <random>
+#include <set>
 #include <string>
 #include <string_view>
-
-#include <atomic>
-#include <condition_variable>
-#include <mutex>
-#include <shared_mutex>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+#include <filesystem>
 #include <thread>
 
-#include <functional>
-
 #include <StarEngine/Core/Version.h>
-#include <StarEngine/Core/Base.h>
 #include <StarEngine/Core/Assert.h>
-#include <StarEngine/Events/Event.h>
-#include <StarEngine/Core/Memory.h>
+#include <StarEngine/Core/Base.h>
+#include <StarEngine/Core/Events/Event.h>
 #include <StarEngine/Core/Log.h>
+#include <StarEngine/Core/Math/Mat4.h>
+#include <StarEngine/Core/Memory.h>
+#include <StarEngine/Core/Delegate.h>
+
+#include <StarEngine/Debug/Profiler.h>
+
+/*
+// Jolt (Safety because this file has to be included before all other Jolt headers, at all times)
+#ifdef SE_DEBUG // NOTE(Emily): This is a bit of a hacky fix for some dark magic that happens in Jolt
+				// 				We'll need to address this in future.
+#define JPH_ENABLE_ASSERTS
+#endif
+*/

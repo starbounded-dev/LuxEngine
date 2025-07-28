@@ -1,39 +1,45 @@
 #include "sepch.h"
 #include "PipelineCompute.h"
 
-#include "StarEngine/Core/Application.h"
 #include "StarEngine/Renderer/RendererAPI.h"
-#include "StarEngine/Renderer/ComputePipeline.h"
+#include "StarEngine/Renderer/Renderer.h"
 
-namespace StarEngine
-{
+namespace StarEngine {
+
 	PipelineCompute::PipelineCompute(Ref<Shader> computeShader)
 		: m_Shader(computeShader)
 	{
-		Ref<PipelineCompute> instance = this;
-		Renderer::Submit([instance]() mutable
-			{
-				instance->RT_CreatePipeline();
-			});
+		// Ref<PipelineCompute> instance = this;
+		// Renderer::Submit([instance]() mutable
+		// {
+		// 	instance->RT_CreatePipeline();
+		// });
+
+		RT_CreatePipeline();
 		Renderer::RegisterShaderDependency(computeShader, this);
 	}
 
 	void PipelineCompute::RT_CreatePipeline()
 	{
+		SE_CORE_INFO_TAG("Renderer", "[PipelineCompute] Creating compute pipeline: {}", m_Shader->GetName());
+
 		nvrhi::ComputePipelineDesc desc;
 		desc.CS = m_Shader->GetHandle();
-		//Todo binding layout;
+		desc.bindingLayouts = m_Shader.As<Shader>()->GetAllDescriptorSetLayouts();
+		// TODO: binding layouts
 
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		device->createComputePipeline(desc);
+		m_Handle = device->createComputePipeline(desc);
+
+		m_CommandList = RenderCommandBuffer::Create(1, "PipelineCompute");
 	}
 
-	void PipelineCompute::Begin(Ref<RenderCommandBuffer> renderCommandBuffer /*= nullptr*/)
+	void PipelineCompute::Begin(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
 
 	}
 
-	void PipelineCompute::RT_Begin(Ref<RenderCommandBuffer> renderCommandBuffer /*= nullptr*/)
+	void PipelineCompute::RT_Begin(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
 
 	}
@@ -43,22 +49,22 @@ namespace StarEngine
 
 	}
 
-	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourcesAccessFlags fromAccess, ResourcesAccessFlags toAccess)
+	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)
 	{
 
 	}
 
-	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, PipelineStage fromStage, ResourcesAccessFlags fromAccess, PipelineStage toStage, ResourcesAccessFlags toAccess)
+	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess)
 	{
 
 	}
 
-	void PipelineCompute::ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, ResourcesAccessFlags fromAccess, ResourcesAccessFlags toAccess)
+	void PipelineCompute::ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)
 	{
 
 	}
 
-	void PipelineCompute::ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, PipelineStage fromStage, ResourcesAccessFlags fromAccess, PipelineStage toStage, ResourcesAccessFlags toAccess)
+	void PipelineCompute::ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess)
 	{
 
 	}
@@ -67,38 +73,26 @@ namespace StarEngine
 	{
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 
-		nvrhi::ComputeState	computeState;
+		nvrhi::ComputeState computeState;
 		computeState.pipeline = m_Handle;
 
-		nvrhi::CommandListHandle commandList = device->createCommandList();
-		commandList->open();
+		m_CommandList->RT_Begin();
 
-		commandList->setComputeState(computeState);
-		commandList->dispatch(groupCountX, groupCountY, groupCountZ);
+		m_CommandList->GetActive()->setComputeState(computeState);
+		m_CommandList->GetActive()->dispatch(groupCountX, groupCountY, groupCountZ);
 
-		commandList->close();
-		device->executeCommandList(commandList);
+		m_CommandList->RT_End();
+		m_CommandList->RT_Submit();
 	}
-
 
 	void PipelineCompute::SetPushConstants(Buffer constants) const
 	{
 
 	}
 
-
 	void PipelineCompute::CreatePipeline()
 	{
 
 	}
 
-	Ref<Shader> PipelineCompute::GetShader() const
-	{
-
-	}
-
-	Ref<PipelineCompute> PipelineCompute::Create(Ref<Shader> computeShader)
-	{
-
-	}
 }

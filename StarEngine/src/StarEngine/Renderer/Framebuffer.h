@@ -3,10 +3,10 @@
 #include <glm/glm.hpp>
 #include <map>
 
-#include "RendererTypes.h"
+#include "StarEngine/Renderer/RendererTypes.h"
 #include "Image.h"
 
-#include <nvrhi/nvrhi.h>
+#include "nvrhi/nvrhi.h"
 
 namespace StarEngine {
 
@@ -15,13 +15,13 @@ namespace StarEngine {
 	enum class FramebufferBlendMode
 	{
 		None = 0,
-		OneZero, 
+		OneZero,
 		SrcAlphaOneMinusSrcAlpha,
 		Additive,
 		Zero_SrcColor
 	};
 
-	enum class AttachementLoadOp
+	enum class AttachmentLoadOp
 	{
 		Inherit = 0, Clear = 1, Load = 2
 	};
@@ -34,25 +34,26 @@ namespace StarEngine {
 		ImageFormat Format;
 		bool Blend = true;
 		FramebufferBlendMode BlendMode = FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha;
-		AttachementLoadOp LoadOp = AttachementLoadOp::Inherit;
-		// TODO: filtering, wrap mode, etc.
+		AttachmentLoadOp LoadOp = AttachmentLoadOp::Inherit;
+		// TODO: filtering/wrap
 	};
 
 	struct FramebufferAttachmentSpecification
 	{
 		FramebufferAttachmentSpecification() = default;
 		FramebufferAttachmentSpecification(const std::initializer_list<FramebufferTextureSpecification>& attachments)
-			: Attachments(attachments) { }
+			: Attachments(attachments) {
+		}
 
 		std::vector<FramebufferTextureSpecification> Attachments;
 	};
 
-	struct FramebufferSpecification 
+	struct FramebufferSpecification
 	{
 		float Scale = 1.0f;
 		uint32_t Width = 0;
 		uint32_t Height = 0;
-		glm::vec4 ClearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		glm::vec4 ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 		float DepthClearValue = 0.0f;
 		bool ClearColorOnLoad = true;
 		bool ClearDepthOnLoad = true;
@@ -60,28 +61,29 @@ namespace StarEngine {
 		FramebufferAttachmentSpecification Attachments;
 		uint32_t Samples = 1; // multisampling
 
-		// TODO: Needs scale
+		// TODO: Temp, needs scale
 		bool NoResize = false;
 
-		//Master switch
+		// Master switch (individual attachments can be disabled in FramebufferTextureSpecification)
 		bool Blend = true;
-		// None mean use BlendMode in texture spec
+		// None means use BlendMode in FramebufferTextureSpecification
 		FramebufferBlendMode BlendMode = FramebufferBlendMode::None;
 
-		// SwapChainTarget
+		// SwapChainTarget = screen buffer (i.e. no framebuffer)
 		bool SwapChainTarget = false;
 
+		// Will it be used for transfer ops?
 		bool Transfer = false;
 
-		// Note: these are used to attach multi-layered color/depth images
+		// Note: these are used to attach multi-layered color/depth images 
 		Ref<Image2D> ExistingImage;
 		std::vector<uint32_t> ExistingImageLayers;
 
-		// specify existing images to attach instead of creating
-		// new images. atachment index -> image
+		// Specify existing images to attach instead of creating
+		// new images. attachment index -> image
 		std::map<uint32_t, Ref<Image2D>> ExistingImages;
 
-		// at the moment this will just create a new renderpass
+		// At the moment this will just create a new render pass
 		// with an existing framebuffer
 		Ref<Framebuffer> ExistingFramebuffer;
 
@@ -90,21 +92,21 @@ namespace StarEngine {
 
 	typedef union ClearColorValue
 	{
-		float float32[4];
-		uint32_t uint32[4];
-		int32_t int32[4];
+		float       float32[4];
+		int32_t     int32[4];
+		uint32_t    uint32[4];
 	} ClearColorValue;
 
 	typedef struct ClearDepthStencilValue
 	{
-		float Depth;
-		uint32_t Stencil;
+		float       Depth;
+		uint32_t    Stencil;
 	} ClearDepthStencilValue;
 
 	typedef union ClearValue
 	{
-		ClearColorValue Color;
-		ClearDepthStencilValue DepthStencil;
+		ClearColorValue           Color;
+		ClearDepthStencilValue    DepthStencil;
 	} ClearValue;
 
 	class Framebuffer : public RefCounted
@@ -118,13 +120,9 @@ namespace StarEngine {
 		uint32_t GetWidth() const { return m_Width; }
 		uint32_t GetHeight() const { return m_Height; }
 
-		Ref<Image2D> GetImage(uint32_t attachmentIndex = 0) const {
-			SE_CORE_ASSERT(attachmentIndex < m_AttachmentImages.size(), "Attachment index out of range");
-			return m_AttachmentImages[attachmentIndex];
-		}
+		Ref<Image2D> GetImage(uint32_t attachmentIndex = 0) const { SE_CORE_ASSERT(attachmentIndex < m_AttachmentImages.size()); return m_AttachmentImages[attachmentIndex]; }
 		Ref<Image2D> GetDepthImage() const { return m_DepthAttachmentImage; }
-
-		size_t GetColorAttachementCount() const { return m_Specification.SwapChainTarget ? 1 : m_AttachmentImages.size(); }
+		size_t GetColorAttachmentCount() const { return m_Specification.SwapChainTarget ? 1 : m_AttachmentImages.size(); }
 		bool HasDepthAttachment() const { return (bool)m_DepthAttachmentImage; }
 		nvrhi::FramebufferHandle GetHandle() const { return m_Handle; }
 		const std::vector<ClearValue>& GetClearValues() const { return m_ClearValues; }
@@ -139,9 +137,9 @@ namespace StarEngine {
 
 		virtual ~Framebuffer();
 	private:
-		nvrhi::FramebufferHandle m_Handle = nullptr;
-
 		FramebufferSpecification m_Specification;
+
+		nvrhi::FramebufferHandle m_Handle = nullptr;
 
 		uint32_t m_Width = 0, m_Height = 0;
 
@@ -152,5 +150,5 @@ namespace StarEngine {
 
 		std::vector<std::function<void(Ref<Framebuffer>)>> m_ResizeCallbacks;
 	};
-}
 
+}

@@ -18,19 +18,19 @@ Sandbox2D::Sandbox2D()
 
 void Sandbox2D::OnAttach()
 {
-	SE_PROFILE_FUNCTION();
+	SE_PROFILE_FUNCTION("Sandbox2D::OnAttach");
 
 	//m_CheckerboardTexture = StarEngine::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
 }
 
 void Sandbox2D::OnDetach()
 {
-	SE_PROFILE_FUNCTION();
+	SE_PROFILE_FUNCTION("Sandbox2D::OnDetach");
 }
 
 void Sandbox2D::OnUpdate(StarEngine::Timestep ts)
 {
-	SE_PROFILE_FUNCTION();
+	SE_PROFILE_FUNCTION("Sandbox2D::OnUpdate");
 
 	// Update
 	m_CameraController.OnUpdate(ts);

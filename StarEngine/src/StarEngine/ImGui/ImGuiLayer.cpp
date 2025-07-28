@@ -1,48 +1,104 @@
 #include "sepch.h"
-#include "StarEngine/ImGui/ImGuiLayer.h"
+#include "ImGuiLayer.h"
 
-// Include the ImGuiRenderer header file
-#include "StarEngine/ImGui/ImGuiRenderer.h"
-
-#include "StarEngine/Core/Application.h"
+#include "Colors.h"
 
 #include "StarEngine/Core/Input.h"
 
-#include "StarEngine/Renderer/DeviceManager.h"
+#include "StarEngine/Renderer/Renderer.h"
+
+#include "StarEngine/Platform/Vulkan/VulkanImGuiLayer.h"
+#include "StarEngine/Platform/Vulkan/VulkanSwapChain.h"
+#include "StarEngine/Platform/Vulkan/VulkanDeviceManager.h"
+
+#include "StarEngine/Renderer/RendererAPI.h"
+
+#include "StarEngine/Editor/FontAwesome.h"
+
+#include "StarEngine/ImGui/ImGuizmo.h"
+#include "StarEngine/ImGui/ImGuiFonts.h"
 
 #include <imgui.h>
-#include <imgui_internal.h>
 
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_vulkan.h>
+#include "backends/imgui_impl_glfw.h"
 
-// TEMPORARY
-#include <GLFW/glfw3.h>
+#include "ImGuiBuild.cpp"
 
-#include "ImGuizmo.h"
+
+// TODO(Yan): WIP
+// Defined in imgui_impl_glfw.cpp
+// extern bool g_DisableImGuiEvents;
 
 namespace StarEngine {
 
 	void ImGuiLayer::OnAttach()
 	{
-		SE_PROFILE_FUNCTION();
-
+		// Setup Dear ImGui context
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO(); (void)io;
-		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
 		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
-		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
+		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
 
-		float fontSize = 18.0f;// *2.0f;
+		// Configure Fonts
+		{
+			UI::FontConfiguration robotoBold;
+			robotoBold.FontName = "Bold";
+			robotoBold.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
+			robotoBold.Size = 18.0f;
+			UI::Fonts::Add(robotoBold);
 
-		io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Bold.ttf", fontSize);
-		io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Regular.ttf", fontSize);
+			UI::FontConfiguration robotoLarge;
+			robotoLarge.FontName = "Large";
+			robotoLarge.FilePath = "Resources/Fonts/Roboto/Roboto-Regular.ttf";
+			robotoLarge.Size = 24.0f;
+			UI::Fonts::Add(robotoLarge);
+
+			UI::FontConfiguration robotoDefault;
+			robotoDefault.FontName = "Default";
+			robotoDefault.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
+			robotoDefault.Size = 15.0f;
+			UI::Fonts::Add(robotoDefault, true);
+
+			static const ImWchar s_FontAwesomeRanges[] = { SE_ICON_MIN, SE_ICON_MAX, 0 };
+			UI::FontConfiguration fontAwesome;
+			fontAwesome.FontName = "FontAwesome";
+			fontAwesome.FilePath = "Resources/Fonts/FontAwesome/fontawesome-webfont.ttf";
+			fontAwesome.Size = 16.0f;
+			fontAwesome.GlyphRanges = s_FontAwesomeRanges;
+			fontAwesome.MergeWithLast = true;
+			UI::Fonts::Add(fontAwesome);
+
+			UI::FontConfiguration robotoMedium;
+			robotoMedium.FontName = "Medium";
+			robotoMedium.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
+			robotoMedium.Size = 18.0f;
+			UI::Fonts::Add(robotoMedium);
+
+			UI::FontConfiguration robotoSmall;
+			robotoSmall.FontName = "Small";
+			robotoSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
+			robotoSmall.Size = 12.0f;
+			UI::Fonts::Add(robotoSmall);
+
+			UI::FontConfiguration robotoExtraSmall;
+			robotoExtraSmall.FontName = "ExtraSmall";
+			robotoExtraSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
+			robotoExtraSmall.Size = 10.0f;
+			UI::Fonts::Add(robotoExtraSmall);
+
+			UI::FontConfiguration robotoBoldTitle;
+			robotoBoldTitle.FontName = "BoldTitle";
+			robotoBoldTitle.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
+			robotoBoldTitle.Size = 16.0f;
+			UI::Fonts::Add(robotoBoldTitle);
+		}
 
 		// Setup Dear ImGui style
 		ImGui::StyleColorsDark();
-		//ImGui::StyleColorsClassic();
+		SetDarkThemeV2Colors();
 
 		// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
 		ImGuiStyle& style = ImGui::GetStyle();
@@ -53,69 +109,92 @@ namespace StarEngine {
 		}
 		style.Colors[ImGuiCol_WindowBg] = ImVec4(0.15f, 0.15f, 0.15f, style.Colors[ImGuiCol_WindowBg].w);
 
-		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-		{
-			style.WindowRounding = 0.0f;
-			style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-		}
-
-		SetDarkThemeColors();
-
 		ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)Application::Get().GetWindow().GetNativeWindow(), true);
-		m_ImGuiRenderer.Init(m_Device);
+
+		m_ImGuiRenderer = std::make_unique<ImGuiRenderer>();
+		m_ImGuiRenderer->Init();
 
 		InitPlatformInterface();
 	}
 
-	struct ImGuiViewportData {
+	struct ImGuiViewportData
+	{
 		bool WindowOwned = false;
-		std::unique_ptr<DeviceManager> DM;
+		std::unique_ptr<VulkanSwapChain> SC;
+		std::unique_ptr<ImGuiRenderer> Renderer;
 	};
 
 	static void ImGuiRenderer_CreateWindow(ImGuiViewport* viewport)
 	{
-#if 0
 		ImGuiViewportData* data = IM_NEW(ImGuiViewportData)();
 		viewport->RendererUserData = data;
 
-		DeviceCreationParameters deviceParams;
-		deviceParams.Decorated = m_Specification.Decorated;
+		vk::Instance vInstance = ((VulkanDeviceManager*)Application::GetGraphicsDeviceManager())->GetVulkanInstance();
 
-		data->DM = std::make_unique <DeviceManager>();
+		// Create surface
+		ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+		vk::SurfaceKHR surface;
+		VkResult err = (VkResult)platform_io.Platform_CreateVkSurface(viewport, *(ImU64*)&vInstance, nullptr, (ImU64*)&surface);
+		SE_CORE_ASSERT(err == VkResult::VK_SUCCESS);
 
-		ImGuiPlatformIO& platform_IO = ImGui::GetPlatformIO();
-		VkResult err = (VkResult)platform_IO.Platform_CreateVkSurface(viewport, (ImU64)v->Instance, (const void*)v-Allocator);
-		check_vk_result(err);
-#endif
+		data->SC = std::make_unique<VulkanSwapChain>(surface);
+		data->SC->Create((uint32_t)viewport->Size.x, (uint32_t)viewport->Size.y);
+		data->WindowOwned = true;
+
+		data->Renderer = std::make_unique<ImGuiRenderer>();
+		data->Renderer->Init();
+	}
+
+	static void ImGuiRenderer_DestroyWindow(ImGuiViewport* viewport)
+	{
+		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
+		sdelete vd;
+		viewport->RendererUserData = nullptr;
+	}
+
+	static void ImGuiRenderer_SetWindowSize(ImGuiViewport* viewport, ImVec2 size)
+	{
+		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
+		vd->SC->OnResize((uint32_t)size.x, (uint32_t)size.y);
+	}
+
+	static void ImGuiRenderer_RenderWindow(ImGuiViewport* viewport, void*)
+	{
+		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
+		vd->SC->BeginFrame();
+		vd->Renderer->UpdateFontTexture();
+		vd->Renderer->RenderToSwapchain(viewport, vd->SC.get());
+	}
+
+	static void ImGuiRenderer_SwapBuffers(ImGuiViewport* viewport, void*)
+	{
+		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
+		vd->SC->Present();
 	}
 
 	void ImGuiLayer::InitPlatformInterface()
 	{
-		ImGuiPlatformIO& platform_IO = ImGui::GetPlatformIO();
+		ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
 		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-			IM_ASSERT(platform_IO.Platform_CreateVkSurface != NULL && "Platform needs to set up the CreateVkSurfaceHandler.");
+			IM_ASSERT(platform_io.Platform_CreateVkSurface != NULL && "Platform needs to setup the CreateVkSurface handler.");
 
-		platform_IO.Renderer_CreateWindow = ImGuiRenderer_CreateWindow;
-		//platform_IO.Renderer_DestroyWindow = ImGui_ImplVulkan_DestroyWindow;
-		//platform_IO.Renderer_SetWindowSize = ImGui_ImplVulkan_SetWindowSize;
-		//platform_IO.Renderer_RenderWindow = ImGui_ImplVulkan_RenderWindow;
-		//platform_IO.Renderer_SwapBuffers = ImGui_ImplVulkan_SwapBuffers;
+		platform_io.Renderer_CreateWindow = ImGuiRenderer_CreateWindow;
+		platform_io.Renderer_DestroyWindow = ImGuiRenderer_DestroyWindow;
+		platform_io.Renderer_SetWindowSize = ImGuiRenderer_SetWindowSize;
+		platform_io.Renderer_RenderWindow = ImGuiRenderer_RenderWindow;
+		platform_io.Renderer_SwapBuffers = ImGuiRenderer_SwapBuffers;
 	}
 
 	void ImGuiLayer::OnDetach()
 	{
-		SE_PROFILE_FUNCTION();
-
 		ImGui::DestroyContext();
 	}
 
 	void ImGuiLayer::Begin()
 	{
-		SE_PROFILE_FUNCTION();
-
 		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
 
-		//m_ImGuiRenderer->UpdateFontTexture();
+		m_ImGuiRenderer->UpdateFontTexture();
 		ImGui_ImplGlfw_NewFrame();
 
 		ImGui::NewFrame();
@@ -124,21 +203,16 @@ namespace StarEngine {
 
 	void ImGuiLayer::End()
 	{
-		SE_PROFILE_FUNCTION();
-
 		ImGui::Render();
 
-		//m_ImGuiRenderer->Render(Application::GetGraphicsDeviceManager()->GetCurrentFramebuffer());
+		m_ImGuiRenderer->RenderToSwapchain(ImGui::GetMainViewport(), &Application::Get().GetWindow().GetSwapChain());
 
-#if TODO
-		ImGuiIO& io = ImGui::GetIO(); (void)io;
-
-		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+		// Update and Render additional Platform Windows
+		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
 			ImGui::UpdatePlatformWindows();
 			ImGui::RenderPlatformWindowsDefault();
 		}
-#endif
 	}
 
 	void ImGuiLayer::SetDarkThemeColors()
@@ -150,7 +224,7 @@ namespace StarEngine {
 		colors[ImGuiCol_Header] = ImVec4{ 0.2f, 0.205f, 0.21f, 1.0f };
 		colors[ImGuiCol_HeaderHovered] = ImVec4{ 0.3f, 0.305f, 0.31f, 1.0f };
 		colors[ImGuiCol_HeaderActive] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
-		
+
 		// Buttons
 		colors[ImGuiCol_Button] = ImVec4{ 0.2f, 0.205f, 0.21f, 1.0f };
 		colors[ImGuiCol_ButtonHovered] = ImVec4{ 0.3f, 0.305f, 0.31f, 1.0f };
@@ -172,5 +246,115 @@ namespace StarEngine {
 		colors[ImGuiCol_TitleBg] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
 		colors[ImGuiCol_TitleBgActive] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
 		colors[ImGuiCol_TitleBgCollapsed] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
+
+		// Resize Grip
+		colors[ImGuiCol_ResizeGrip] = ImVec4(0.91f, 0.91f, 0.91f, 0.25f);
+		colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.81f, 0.81f, 0.81f, 0.67f);
+		colors[ImGuiCol_ResizeGripActive] = ImVec4(0.46f, 0.46f, 0.46f, 0.95f);
+
+		// Scrollbar
+		colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
+		colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.31f, 0.31f, 0.31f, 1.0f);
+		colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.41f, 0.41f, 1.0f);
+		colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.51f, 0.51f, 0.51f, 1.0f);
+
+		// Check Mark
+		colors[ImGuiCol_CheckMark] = ImVec4(0.94f, 0.94f, 0.94f, 1.0f);
+
+		// Slider
+		colors[ImGuiCol_SliderGrab] = ImVec4(0.51f, 0.51f, 0.51f, 0.7f);
+		colors[ImGuiCol_SliderGrabActive] = ImVec4(0.66f, 0.66f, 0.66f, 1.0f);
+
 	}
+
+	void ImGuiLayer::SetDarkThemeV2Colors()
+	{
+		auto& style = ImGui::GetStyle();
+		auto& colors = ImGui::GetStyle().Colors;
+
+		//========================================================
+		/// Colours
+
+		// Headers
+		colors[ImGuiCol_Header] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader);
+		colors[ImGuiCol_HeaderHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader);
+		colors[ImGuiCol_HeaderActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader);
+
+		// Buttons
+		colors[ImGuiCol_Button] = ImColor(56, 56, 56, 200);
+		colors[ImGuiCol_ButtonHovered] = ImColor(70, 70, 70, 255);
+		colors[ImGuiCol_ButtonActive] = ImColor(56, 56, 56, 150);
+
+		// Frame BG
+		colors[ImGuiCol_FrameBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
+		colors[ImGuiCol_FrameBgHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
+		colors[ImGuiCol_FrameBgActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
+
+		// Tabs
+		colors[ImGuiCol_Tab] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+		colors[ImGuiCol_TabHovered] = ImColor(255, 225, 135, 30);
+		colors[ImGuiCol_TabActive] = ImColor(255, 225, 135, 60);
+		colors[ImGuiCol_TabUnfocused] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+		colors[ImGuiCol_TabUnfocusedActive] = colors[ImGuiCol_TabHovered];
+
+		// Title
+		colors[ImGuiCol_TitleBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+		colors[ImGuiCol_TitleBgActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+		colors[ImGuiCol_TitleBgCollapsed] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
+
+		// Resize Grip
+		colors[ImGuiCol_ResizeGrip] = ImVec4(0.91f, 0.91f, 0.91f, 0.25f);
+		colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.81f, 0.81f, 0.81f, 0.67f);
+		colors[ImGuiCol_ResizeGripActive] = ImVec4(0.46f, 0.46f, 0.46f, 0.95f);
+
+		// Scrollbar
+		colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
+		colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.31f, 0.31f, 0.31f, 1.0f);
+		colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.41f, 0.41f, 1.0f);
+		colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.51f, 0.51f, 0.51f, 1.0f);
+
+		// Check Mark
+		colors[ImGuiCol_CheckMark] = ImColor(200, 200, 200, 255);
+
+		// Slider
+		colors[ImGuiCol_SliderGrab] = ImVec4(0.51f, 0.51f, 0.51f, 0.7f);
+		colors[ImGuiCol_SliderGrabActive] = ImVec4(0.66f, 0.66f, 0.66f, 1.0f);
+
+		// Text
+		colors[ImGuiCol_Text] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
+
+		// Checkbox
+		colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
+
+		// Separator
+		colors[ImGuiCol_Separator] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
+		colors[ImGuiCol_SeparatorActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::highlight);
+		colors[ImGuiCol_SeparatorHovered] = ImColor(39, 185, 242, 150);
+
+		// Window Background
+		colors[ImGuiCol_WindowBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+		colors[ImGuiCol_ChildBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::background);
+		colors[ImGuiCol_PopupBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundPopup);
+		colors[ImGuiCol_Border] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
+
+		// Tables
+		colors[ImGuiCol_TableHeaderBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader);
+		colors[ImGuiCol_TableBorderLight] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
+
+		// Menubar
+		colors[ImGuiCol_MenuBarBg] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
+
+		//========================================================
+		/// Style
+		style.FrameRounding = 2.5f;
+		style.FrameBorderSize = 1.0f;
+		style.IndentSpacing = 11.0f;
+	}
+
+	void ImGuiLayer::AllowInputEvents(bool allowEvents)
+	{
+		// TODO
+		// g_DisableImGuiEvents = !allowEvents;
+	}
+
 }

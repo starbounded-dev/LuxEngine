@@ -10,6 +10,7 @@
 
 #undef STB_VORBIS_HEADER_ONLY
 #include "stb_vorbis.c" // Enables Vorbis decoding.
+#include "StarEngine/Debug/Profiler.h"
 
 namespace StarEngine {
 
@@ -17,7 +18,7 @@ namespace StarEngine {
 
 	void AudioEngine::Init()
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioEngine::Init");
 
 		s_ShuttingDown = false;
 		ma_engine_config engineConfig = ma_engine_config_init();
@@ -36,7 +37,7 @@ namespace StarEngine {
 
 	void AudioEngine::Shutdown()
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioEngine::Shutdown");
 
 		s_ShuttingDown = true;
 		ma_engine_stop(s_Engine);

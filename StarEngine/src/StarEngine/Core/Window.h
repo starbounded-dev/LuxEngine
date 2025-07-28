@@ -1,77 +1,109 @@
 #pragma once
 
 #include "StarEngine/Core/Base.h"
-#include "StarEngine/Core/Window.h"
+#include "StarEngine/Core/Events/Event.h"
 
-#include "StarEngine/Events/Event.h"
-#include "StarEngine/Renderer/GraphicsContext.h"
+#include "StarEngine/Renderer/DeviceManager.h"
+#include "StarEngine/Renderer/RendererContext.h"
 
-#include <sstream>
+#include <functional>
+#include <filesystem>
 
+#include <vulkan/vulkan.h> // NOTE(Emily): This ensures that the first inclusion of GLFW defines
+//			   Vulkan exclusive procs before include guards trip.
+
+#include <vulkan/vulkan.hpp>
 #include <GLFW/glfw3.h>
-
-#include <nvrhi/nvrhi.h>
 
 namespace StarEngine {
 
 	struct WindowSpecification
 	{
-		std::string Title;
-		uint32_t Width;
-		uint32_t Height;
-
-		WindowSpecification(const std::string& title = "StarEngine",
-			uint32_t width = 1600,
-			uint32_t height = 900)
-			: Title(title), Width(width), Height(height)
-		{
-		}
+		std::string Title = "StarEngine";
+		uint32_t Width = 1600;
+		uint32_t Height = 900;
+		bool Decorated = true;
+		bool Fullscreen = false;
+		bool VSync = true;
+		std::filesystem::path IconPath;
 	};
 
-	// Interface representing a desktop system based Window
+	class VulkanSwapChain;
+
 	class Window
 	{
 	public:
 		using EventCallbackFn = std::function<void(Event&)>;
 
-		Window(const WindowSpecification& spec);
-		~Window();
+		Window(const WindowSpecification& specification);
+		virtual ~Window();
 
-		void OnUpdate();
+		virtual void Init();
+		virtual void ProcessEvents();
+		virtual void Present();
 
-		unsigned int GetWidth() const { return m_Specification.Width; }
-		unsigned int GetHeight() const { return m_Specification.Height; }
+		inline uint32_t GetWidth() const { return m_Data.Width; }
+		inline uint32_t GetHeight() const { return m_Data.Height; }
+
+		virtual std::pair<uint32_t, uint32_t> GetSize() const { return { m_Data.Width, m_Data.Height }; }
+		virtual std::pair<float, float> GetWindowPos() const;
 
 		// Window attributes
-		void SetEventCallback(const EventCallbackFn& callback) { m_Specification.EventCallback = callback; }
-		void SetVSync(bool enabled);
-		bool IsVSync() const;
+		virtual void SetEventCallback(const EventCallbackFn& callback) { m_Data.EventCallback = callback; }
+		virtual void SetVSync(bool enabled);
+		virtual bool IsVSync() const;
+		virtual void SetResizable(bool resizable) const;
 
-		void* GetNativeWindow() const { return m_Window; }
+		void BeginFrame();
 
-		DeviceManager* GetDeviceManager();
+		virtual void Maximize();
+		virtual void CenterWindow();
 
-		static std::unique_ptr<Window> Create(const WindowSpecification& spec = WindowSpecification());
+		virtual const std::string& GetTitle() const { return m_Data.Title; }
+		virtual void SetTitle(const std::string& title);
+
+		inline GLFWwindow* GetNativeWindow() const { return m_WindowHandle; }
+
+		virtual Ref<RendererContext> GetRenderContext() { return m_RendererContext; }
+		virtual VulkanSwapChain& GetSwapChain();
+		DeviceManager* GetDeviceManager() { return m_DeviceManager; }
+
+		void OnWindowSizeCallback(int width, int height);
+		void OnWindowCloseCallback();
+		void OnKeyCallback(int key, int scancode, int action, int mods);
+		void OnCharCallback(uint32_t codepoint);
+		void OnMouseButtonCallback(int button, int action, int mods);
+		void OnMouseScrollCallback(double xOffset, double yOffset);
+		void OnMousePosCallback(double x, double y);
+		void OnTitlebarHitTestCallback(int x, int y, int* hit);
+		void OnWindowIconifyCallback(int iconified);
 	public:
-		static float s_HighDPIScaleFactor;
+		static Window* Create(const WindowSpecification& specification = WindowSpecification());
 	private:
-		void Init(WindowSpecification& spec);
-		void Shutdown();
+		bool CreateWindowSurface();
+		virtual void Shutdown();
 	private:
-		GLFWwindow* m_Window;
-		std::unique_ptr<GraphicsContext> m_Context;
+		DeviceManager* m_DeviceManager = nullptr;
+		GLFWwindow* m_WindowHandle = nullptr;
+		GLFWcursor* m_ImGuiMouseCursors[9] = { 0 };
+		WindowSpecification m_Specification;
 		struct WindowData
 		{
 			std::string Title;
-			unsigned int Width, Height;
-			bool VSync;
+			uint32_t Width, Height;
 
 			EventCallbackFn EventCallback;
 		};
 
-		WindowData m_Specification;
+		WindowData m_Data;
+		float m_LastFrameTime = 0.0f;
 
-		Ref<DeviceManager> m_DeviceManager;
+		Ref<RendererContext> m_RendererContext;
+		VulkanSwapChain* m_SwapChain;
+
+		vk::SurfaceKHR m_WindowSurface;
+
+		friend class DeviceManager;
 	};
 
 }

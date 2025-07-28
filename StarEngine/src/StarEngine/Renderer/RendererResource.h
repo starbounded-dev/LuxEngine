@@ -11,4 +11,5 @@ namespace StarEngine {
 	public:
 		virtual ResourceDescriptorInfo GetDescriptorInfo() const = 0;
 	};
+
 }

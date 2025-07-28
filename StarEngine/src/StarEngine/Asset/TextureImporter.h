@@ -1,20 +1,17 @@
 #pragma once
 
-#include "Asset.h"
-#include "AssetMetadata.h"
-
 #include "StarEngine/Renderer/Texture.h"
+
+#include <filesystem>
 
 namespace StarEngine {
 
-	class TextureImporter : RefCounted
+	class TextureImporter
 	{
 	public:
-		// AssetMetadata filepath is relative to project asset directory
-		static Ref<Texture2D> ImportTexture2D(AssetHandle handle, const AssetMetadata& metadata);
-
-		// Reads file directly from filesystem
-		// (i.e. path has to be relative / absolute to working directory)
-		static Ref<Texture2D> LoadTexture2D(const std::filesystem::path& path);
+		static Buffer ToBufferFromFile(const std::filesystem::path& path, ImageFormat& outFormat, uint32_t& outWidth, uint32_t& outHeight);
+		static Buffer ToBufferFromMemory(Buffer buffer, ImageFormat& outFormat, uint32_t& outWidth, uint32_t& outHeight);
+	private:
+		const std::filesystem::path m_Path;
 	};
 }

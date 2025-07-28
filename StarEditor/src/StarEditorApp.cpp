@@ -1,6 +1,7 @@
+#include "sepch.h"
 #include <StarEngine.h>
 
-#include <StarEngine/Core/Entrypoint.h>
+#include <StarEngine/Entrypoint.h>
 
 #include "EditorLayer.h"
 

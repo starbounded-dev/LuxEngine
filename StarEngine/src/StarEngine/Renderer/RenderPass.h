@@ -2,11 +2,8 @@
 
 #include "StarEngine/Core/Base.h"
 
-#include "Framebuffer.h"
+#include "StarEngine/Renderer/Platform/Vulkan/DescriptorSetManager.h"
 
-#include "UniformBufferSet.h"
-#include "StorageBufferSet.h"
-#include "Texture.h"
 #include "Pipeline.h"
 
 namespace StarEngine {
@@ -21,34 +18,46 @@ namespace StarEngine {
 	class RenderPass : public RefCounted
 	{
 	public:
+		static Ref<RenderPass> Create(const RenderPassSpecification& specification) { return Ref<RenderPass>::Create(specification); }
+
+		RenderPassSpecification& GetSpecification() { return m_Specification; }
+		const RenderPassSpecification& GetSpecification() const { return m_Specification; }
+
+		void SetInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet);
+		void SetInput(std::string_view name, Ref<UniformBuffer> uniformBuffer);
+
+		void SetInput(std::string_view name, Ref<StorageBufferSet> storageBufferSet);
+		void SetInput(std::string_view name, Ref<StorageBuffer> storageBuffer);
+
+		void SetInput(std::string_view name, Ref<Texture2D> texture);
+		void SetInput(std::string_view name, Ref<TextureCube> textureCube);
+		void SetInput(std::string_view name, Ref<Image2D> image);
+		void SetInput(std::string_view name, Ref<Sampler> sampler);
+
+		Ref<Image2D> GetOutput(uint32_t index);
+		Ref<Image2D> GetDepthOutput();
+		uint32_t GetFirstSetIndex() const;
+
+		Ref<Framebuffer> GetTargetFramebuffer() const;
+		Ref<Pipeline> GetPipeline() const;
+
+		bool Validate();
+		void Bake();
+		void Prepare();
+
+		bool HasDescriptorSets() const;
+		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const { return m_DescriptorSetManager.GetBindingSets(frameIndex); }
+
+		bool IsInputValid(std::string_view name) const;
+		const RenderInputDeclaration* GetInputDeclaration(std::string_view name) const;
+	public:
+		RenderPass(const RenderPassSpecification& spec);
 		virtual ~RenderPass() = default;
-
-		virtual RenderPassSpecification& GetSpecification() = 0;
-		virtual const RenderPassSpecification& GetSpecification() const = 0;
-
-		virtual void SetInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet) = 0;
-		virtual void SetInput(std::string_view name, Ref<UniformBuffer> uniformBuffer) = 0;
-
-		virtual void SetInput(std::string_view name, Ref<StorageBufferSet> storageBufferSet) = 0;
-		virtual void SetInput(std::string_view name, Ref<StorageBuffer> storageBuffer) = 0;
-
-		virtual void SetInput(std::string_view name, Ref<Texture2D> texture) = 0;
-		//virtual void SetInput(std::string_view name, Ref<TextureCube> textureCube) = 0;
-		virtual void SetInput(std::string_view name, Ref<Image2D> image) = 0;
-
-		virtual Ref<Image2D> GetOutput(uint32_t index) = 0;
-		virtual Ref<Image2D> GetDepthOutput() = 0;
-		virtual uint32_t GetFirstSetIndex() const = 0;
-
-		virtual Ref<Pipeline> GetPipeline() const = 0;
-		virtual Ref<Framebuffer> GetTargetFramebuffer() const = 0;
-
-		virtual bool Validate() = 0;
-		virtual void Bake() = 0;
-		virtual bool Baked() const = 0;
-		virtual void Prepare() = 0;
-
-		static Ref<RenderPass> Create(const RenderPassSpecification& spec);
+	private:
+		bool IsInvalidated(uint32_t set, uint32_t binding) const;
+	private:
+		RenderPassSpecification m_Specification;
+		DescriptorSetManager m_DescriptorSetManager;
 	};
 
 }
