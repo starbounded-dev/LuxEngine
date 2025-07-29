@@ -3,6 +3,7 @@ project "StarEngine"
 	language "C++"
 	cppdialect "C++20"
 	staticruntime "off"
+	conformancemode "On"
 
 	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
@@ -13,7 +14,10 @@ project "StarEngine"
 	files
 	{
 		"src/**.h",
+		"src/**.c",
+		"src/**.hpp",
 		"src/**.cpp",
+
 		"vendor/stb_image/**.h",
 		"vendor/stb_image/**.cpp",
 		"vendor/glm/glm/**.hpp",
@@ -33,7 +37,7 @@ project "StarEngine"
 	includedirs
 	{
 		"src",
-		"vendor/spdlog/include",
+		"vendor/spdlog/",
 		"%{IncludeDir.GLFW}",
 		"%{IncludeDir.GLAD}",
 		"%{IncludeDir.Box2D}",
@@ -58,6 +62,7 @@ project "StarEngine"
 		"GLAD",
 		"imgui",
 		"opengl32",
+		"spdlog",
 		"%{Library.Coral}",
 		"yaml-cpp",
 		"msdf-atlas-gen",

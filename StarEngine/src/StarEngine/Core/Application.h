@@ -1,5 +1,6 @@
 #pragma once
 
+#include "StarEngine/Core/Assert.h"
 #include "StarEngine/Core/Base.h"
 
 #include "StarEngine/Core/Window.h"

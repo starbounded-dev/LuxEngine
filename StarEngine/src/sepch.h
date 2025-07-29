@@ -1,35 +1,40 @@
 #pragma once
 
-#include "StarEngine/Core/PlatformDetection.h"
-
 #ifdef SE_PLATFORM_WINDOWS
-#ifndef NOMINMAX
-// See github.com/skypjack/entt/wiki/Frequently-Asked-Questions#warning-c4003-the-min-the-max-and-the-macro
-#define NOMINMAX
-#endif
+#include <Windows.h>
 #endif
 
-#include <iostream>
-#include <memory>
-#include <utility>
 #include <algorithm>
-#include <functional>
-
-#include <string>
-#include <sstream>
 #include <array>
-#include <vector>
+#include <cstddef>
+#include <cstring>
+#include <cstdlib>
+#include <cstdarg>
+#include <csignal>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <limits>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <random>
+#include <set>
+#include <stack>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <type_traits>
 #include <unordered_map>
-#include <unordered_set>
+#include <utility>
+#include <vector>
 
-#include "StarEngine/Core/Base.h"
+#include <StarEngine/Core/Assert.h>
+#include <StarEngine/Core/Base.h>
+#include <StarEngine/Core/Log.h>
+#include <StarEngine/Core/Memory.h>
+#include <StarEngine/Core/Delegate.h>
+#include <StarEngine/Core/Ref.h>
 
-#include "StarEngine/Core/Buffer.h"
-
-#include "StarEngine/Core/Log.h"
-
-#include "StarEngine/Debug/Instrumentor.h"
-
-#ifdef SE_PLATFORM_WINDOWS
-	#include <Windows.h>
-#endif
+#include <StarEngine/Debug/Instrumentor.h>

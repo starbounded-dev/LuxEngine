@@ -1,20 +1,15 @@
 #pragma once
 
 #include "CSharpObject.h"
-#include "ScriptEntityStorage.h"
+#include "ScriptEntityStorage.hpp"
 
-#include "StarEngine/Asset/Asset.h"
-#include "StarEngine/Core/Base.h"
-#include "StarEngine/Core/Buffer.h"
-#include "StarEngine/Scene/Scene.h"
+#include "StarEngine/Core/Ref.h"
 
 #include <Coral/Assembly.hpp>
 #include <Coral/Type.hpp>
 #include <Coral/StableVector.hpp>
 #include <Coral/Attribute.hpp>
 #include <Coral/Array.hpp>
-
-#include "ScriptEntityStorage.h"
 
 namespace Coral {
 
@@ -27,6 +22,7 @@ namespace Coral {
 namespace StarEngine {
 
 	class Scene;
+	class SceneRenderer;
 	class Project;
 
 	struct AssemblyData
@@ -50,8 +46,13 @@ namespace StarEngine {
 			if (ManagedType->IsSZArray())
 			{
 				auto value = temp.GetFieldValue<Coral::Array<T>>(Name);
-				DefaultValue = Buffer::Copy(Buffer(value.Data(), value.ByteLength()));
+				DefaultValue = Buffer::Copy(value.Data(), value.ByteLength());
 				Coral::Array<T>::Free(value);
+			}
+			else if (Type == DataType::String)
+			{
+				auto value = temp.GetFieldValue<std::string>(Name);
+				DefaultValue = Buffer::Copy(value.data(), value.size() + 1);
 			}
 			else
 			{
@@ -76,6 +77,9 @@ namespace StarEngine {
 		Ref<Scene> GetCurrentScene() const { return m_CurrentScene; }
 		void SetCurrentScene(Ref<Scene> scene) { m_CurrentScene = scene; }
 
+		Ref<SceneRenderer> GetSceneRenderer() const { return m_SceneRenderer; }
+		void SetSceneRenderer(Ref<SceneRenderer> sceneRenderer) { m_SceneRenderer = sceneRenderer; }
+
 		bool IsValidScript(UUID scriptID) const;
 
 		const ScriptMetadata& GetScriptMetadata(UUID scriptID) const;
@@ -94,13 +98,14 @@ namespace StarEngine {
 		void Shutdown();
 
 		void LoadProjectAssembly();
+		void LoadProjectAssemblyRuntime(Buffer data);
 
 		void BuildAssemblyCache(AssemblyData* assemblyData);
 
 		template<typename... TArgs>
-		CSharpObject Instantiate(UUID entityID, ScriptStorage& storage, TArgs&&... args)
+		CSharpObject Instantiate(UUID entityID, ScriptStorage& storage,  TArgs&&... args)
 		{
-			SE_CORE_VERIFY(storage.EntityStorage.find(entityID) != storage.EntityStorage.end());
+			SE_CORE_VERIFY(storage.EntityStorage.contains(entityID));
 
 			auto& entityStorage = storage.EntityStorage.at(entityID);
 
@@ -109,20 +114,26 @@ namespace StarEngine {
 
 			auto* type = m_AppAssemblyData->CachedTypes[entityStorage.ScriptID];
 			auto instance = type->CreateInstance(std::forward<TArgs>(args)...);
-			auto [index, handle] = m_ManagedObjects.Insert(std::move(instance));
+			auto[index, handle] = m_ManagedObjects.Insert(std::move(instance));
 
 			entityStorage.Instance = &handle;
 
-			for (auto& [fieldID, fieldStorage] : entityStorage.Fields)
+			for (auto&[fieldID, fieldStorage] : entityStorage.Fields)
 			{
 				const auto& fieldMetadata = m_ScriptMetadata[entityStorage.ScriptID].Fields[fieldID];
 
 				auto& editorAssignableAttribType = m_CoreAssemblyData->Assembly->GetType("StarEngine.EditorAssignableAttribute");
 				if (fieldMetadata.ManagedType->HasAttribute(editorAssignableAttribType))
 				{
-					Coral::ManagedObject value = fieldMetadata.ManagedType->CreateInstance(fieldStorage.GetValue<uint64_t>());
-					handle.SetFieldValue(fieldStorage.GetName(), value);
-					value.Destroy();
+					auto storedValue = fieldStorage.GetValue<uint64_t>();
+					if (storedValue != 0)
+					{
+						// Only set C# object's field if the C++ uuid is valid (non-zero)
+						// If the uuid isn't valid, then the C# object field value remains as null (which is what we want)
+						Coral::ManagedObject value = fieldMetadata.ManagedType->CreateInstance(storedValue);
+						handle.SetFieldValue(fieldStorage.GetName(), value);
+						value.Destroy();
+					}
 				}
 				else if (fieldMetadata.ManagedType->IsSZArray())
 				{
@@ -151,10 +162,16 @@ namespace StarEngine {
 						} array;
 
 						array.Data = fieldStorage.m_ValueBuffer.Data;
-						array.Length = fieldStorage.GetLength();
+						array.Length = static_cast<int32_t>(fieldStorage.GetLength());
 
 						handle.SetFieldValueRaw(fieldStorage.GetName(), &array);
 					}
+				}
+				else if (fieldMetadata.Type == DataType::String)
+				{
+					auto s = Coral::String::New(static_cast<const char*>(fieldStorage.m_ValueBuffer.Data));
+					handle.SetFieldValueRaw(fieldStorage.GetName(), &s);
+					Coral::String::Free(s);
 				}
 				else
 				{
@@ -169,7 +186,22 @@ namespace StarEngine {
 			return result;
 		}
 
-		void DestroyInstance(UUID entityID, ScriptStorage& storage);
+		void DestroyInstance(UUID entityID, ScriptStorage& storage)
+		{
+			SE_CORE_VERIFY(storage.EntityStorage.contains(entityID));
+			
+			auto& entityStorage = storage.EntityStorage.at(entityID);
+
+			SE_CORE_VERIFY(IsValidScript(entityStorage.ScriptID));
+
+			for (auto& [fieldID, fieldStorage] : entityStorage.Fields)
+				fieldStorage.m_Instance = nullptr;
+
+			entityStorage.Instance->Destroy();
+			entityStorage.Instance = nullptr;
+
+			// TODO(Peter): Free-list
+		}
 
 	private:
 		static ScriptEngine& GetMutable();
@@ -186,12 +218,13 @@ namespace StarEngine {
 	private:
 		std::unique_ptr<Coral::HostInstance> m_Host;
 		std::unique_ptr<Coral::AssemblyLoadContext> m_LoadContext;
-		std::unique_ptr<AssemblyData> m_CoreAssemblyData = nullptr;
-		std::unique_ptr<AssemblyData> m_AppAssemblyData = nullptr;
+		Scope<AssemblyData> m_CoreAssemblyData = nullptr;
+		Scope<AssemblyData> m_AppAssemblyData = nullptr;
 
 		std::unordered_map<UUID, ScriptMetadata> m_ScriptMetadata;
 
 		Ref<Scene> m_CurrentScene = nullptr;
+		Ref<SceneRenderer> m_SceneRenderer = nullptr;
 		Coral::StableVector<Coral::ManagedObject> m_ManagedObjects;
 
 	private:
@@ -200,7 +233,8 @@ namespace StarEngine {
 		friend class Scene;
 		friend class SceneHierarchyPanel;
 		friend class SceneSerializer;
-		friend class SceneImporter;
+		friend class EditorLayer;
+		friend class RuntimeLayer;
 	};
 
 }

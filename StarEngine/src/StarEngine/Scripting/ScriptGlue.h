@@ -2,7 +2,9 @@
 
 #include "StarEngine/Asset/Asset.h"
 #include "StarEngine/Scene/Components.h"
-#include "StarEngine/Core/Input.h"
+//#include "StarEngine/Physics/PhysicsScene.h"
+//#include "StarEngine/Physics/PhysicsTypes.h"
+#include "StarEngine/Core/KeyCodes.h"
 
 #include <Coral/Assembly.hpp>
 #include <Coral/String.hpp>
@@ -10,377 +12,780 @@
 
 #include <glm/glm.hpp>
 
-#include <type_traits>
+#include <concepts>
 
+namespace StarEngine::Audio
+{
+	class CommandID;
+	struct Transform;
+}
 
 namespace StarEngine {
 
 	// Forward declarations
-	class Entity;
+	class Noise;
 
 	class ScriptGlue
 	{
 	public:
 		static void RegisterGlue(Coral::ManagedAssembly& coreAssembly);
 
-		static Entity GetHoveredEntity();
-		static void SetHoveredEntity(Entity entity);
-
-		static Entity GetSelectedEntity();
-		static void SetSelectedEntity(Entity entity);
-
 	private:
 		static void RegisterComponentTypes(Coral::ManagedAssembly& coreAssembly);
 		static void RegisterInternalCalls(Coral::ManagedAssembly& coreAssembly);
-
-	public:
-		static bool s_CalledSetCursor;
-		static bool s_ChangedCursor;
-		static glm::vec2 s_CursorHotSpot;
-
-		static std::string s_SetCursorPath;
-
-		inline static bool s_IsCursorInViewport = false;
 	};
 
 	namespace InternalCalls {
-		template<typename T>
-		struct Param {
-			static_assert(std::is_default_constructible<T>::value, "T must be default-constructible");
+
+		// NOTE(Peter): "Hack" around C++ taking in types that aren't standard layout, e.g UUID isn't passable because
+		//				it defines proper constructors, this method is slightly risky though, depending on the type
+		template<std::default_initializable T>
+		struct Param
+		{
 			std::byte Data[sizeof(T)];
-			operator T() const {
+
+			operator T() const
+			{
 				T result;
 				std::memcpy(&result, Data, sizeof(T));
 				return result;
 			}
 		};
 
+		template<typename T>
+		struct OutParam
+		{
+			std::byte* Ptr = nullptr;
+
+			T* operator->() noexcept { return reinterpret_cast<T*>(Ptr); }
+			const T* operator->() const noexcept { return reinterpret_cast<const T*>(Ptr); }
+
+			T& operator*() { return *reinterpret_cast<T*>(Ptr); }
+			const T& operator*() const { return *reinterpret_cast<const T*>(Ptr); }
+		};
+
 #pragma region AssetHandle
 
-		bool AssetHandle_IsValid(AssetHandle assetHandle);
+		Coral::Bool32 AssetHandle_IsValid(Param<AssetHandle> assetHandle);
+
+#pragma endregion
+
+#pragma region Application
+
+		void Application_Quit();
+		float Application_GetTime();
+		uint32_t Application_GetWidth();
+		uint32_t Application_GetHeight();
+		Coral::String Application_GetDataDirectoryPath();
+		Coral::String Application_GetSetting(Coral::String name, Coral::String defaultValue);
+		int Application_GetSettingInt(Coral::String name, int defaultValue);
+		float Application_GetSettingFloat(Coral::String name, float defaultValue);
+
+#pragma endregion
+
+#pragma region SceneManager
+
+		Coral::Bool32 SceneManager_IsSceneValid(Coral::String inScene);
+		Coral::Bool32 SceneManager_IsSceneIDValid(Param<AssetHandle> sceneHandle);
+		void SceneManager_LoadScene(Param<AssetHandle> sceneHandle);
+		void SceneManager_LoadSceneByID(Param<AssetHandle> sceneHandle);
+		uint64_t SceneManager_GetCurrentSceneID();
+		Coral::String SceneManager_GetCurrentSceneName();
+
+#pragma endregion
+
+#pragma region Scene
+
+		uint64_t Scene_FindEntityByTag(Coral::String tag);
+		Coral::Bool32 Scene_IsEntityValid(uint64_t entityID);
+		uint64_t Scene_CreateEntity(Coral::String tag);
+		void Scene_DestroyEntity(uint64_t entityID);
+		void Scene_DestroyAllChildren(uint64_t entityID);
+
+		Coral::Array<uint64_t> Scene_GetEntities();
+		Coral::Array<uint64_t> Scene_GetChildrenIDs(uint64_t entityID);
+
+		uint64_t Scene_InstantiatePrefab(Param<AssetHandle> prefabHandle);
+		uint64_t Scene_InstantiatePrefabWithT(Param<AssetHandle> prefabHandle, glm::vec3* inTranslation);
+		uint64_t Scene_InstantiatePrefabWithTR(Param<AssetHandle> prefabHandle, glm::vec3* inTranslation, glm::vec3* inRotation);
+		uint64_t Scene_InstantiatePrefabWithTRS(Param<AssetHandle> prefabHandle, glm::vec3* inTranslation, glm::vec3* inRotation, glm::vec3* inScale);
+
+		uint64_t Scene_InstantiateChildPrefab(uint64_t parentId, Param<AssetHandle> prefabHandle);
+		uint64_t Scene_InstantiateChildPrefabWithT(uint64_t parentId, Param<AssetHandle> prefabHandle, glm::vec3* inTranslation);
+		uint64_t Scene_InstantiateChildPrefabWithTR(uint64_t parentId, Param<AssetHandle> prefabHandle, glm::vec3* inTranslation, glm::vec3* inRotation);
+		uint64_t Scene_InstantiateChildPrefabWithTRS(uint64_t parentId, Param<AssetHandle> prefabHandle, glm::vec3* inTranslation, glm::vec3* inRotation, glm::vec3* inScale);
+		
+		void Scene_SetTimeScale(float timeScale);
+
+#pragma endregion
+
+#pragma region Entity
+
+		uint64_t Entity_GetParent(uint64_t entityID);
+		void Entity_SetParent(uint64_t entityID, uint64_t parentID);
+
+		Coral::Array<uint64_t> Entity_GetChildren(uint64_t entityID);
+
+		void Entity_CreateComponent(uint64_t entityID, Coral::ReflectionType componentType);
+		Coral::Bool32 Entity_HasComponent(uint64_t entityID, Coral::ReflectionType componentType);
+		Coral::Bool32 Entity_RemoveComponent(uint64_t entityID, Coral::ReflectionType componentType);
+
+#pragma endregion
+
+#pragma region TagComponent
+
+		Coral::String TagComponent_GetTag(uint64_t entityID);
+		void TagComponent_SetTag(uint64_t entityID, Coral::String inTag);
+
+#pragma endregion
+
+#pragma region TransformComponent
+
+		struct Transform
+		{
+			glm::vec3 Translation = glm::vec3(0.0f);
+			glm::vec3 Rotation = glm::vec3(0.0f);
+			glm::vec3 Scale = glm::vec3(1.0f);
+		};
+
+		void TransformComponent_GetTransform(uint64_t entityID, Transform* outTransform);
+		void TransformComponent_SetTransform(uint64_t entityID, Transform* inTransform);
+		void TransformComponent_GetWorldSpaceTransform(uint64_t entityID, Transform* outTransform);
+		void TransformComponent_SetWorldSpaceTransform(uint64_t entityID, Transform* inTransform);
+		void TransformComponent_GetTranslation(uint64_t entityID, glm::vec3* outTranslation);
+		void TransformComponent_SetTranslation(uint64_t entityID, glm::vec3* inTranslation);
+		void TransformComponent_GetRotation(uint64_t entityID, glm::vec3* outRotation);
+		void TransformComponent_SetRotation(uint64_t entityID, glm::vec3* inRotation);
+		void TransformComponent_GetRotationQuat(uint64_t entityID, glm::quat* outRotation);
+		void TransformComponent_SetRotationQuat(uint64_t entityID, glm::quat* inRotation);
+		void TransformComponent_GetScale(uint64_t entityID, glm::vec3* outScale);
+		void TransformComponent_SetScale(uint64_t entityID, glm::vec3* inScale);
+		void TransformComponent_GetTransformMatrix(uint64_t entityID, glm::mat4* outTransform);
+		void TransformComponent_SetTransformMatrix(uint64_t entityID, glm::mat4* inTransform);
+		void TransformComponent_GetWorldTranslation(uint64_t entityID, glm::vec3* outTranslation);
+		void TransformComponent_SetWorldTranslation(uint64_t entityID, glm::vec3* inTranslation);
+		void TransformComponent_GetWorldRotation(uint64_t entityID, glm::vec3* outRotation);
+		void TransformComponent_SetWorldRotation(uint64_t entityID, glm::vec3* inRotation);
+		void TransformComponent_GetWorldRotationQuat(uint64_t entityID, glm::quat* outRotation);
+		void TransformComponent_SetWorldRotationQuat(uint64_t entityID, glm::quat* inRotation);
+		void TransformComponent_GetWorldScale(uint64_t entityID, glm::vec3* outScale);
+		void TransformComponent_SetWorldScale(uint64_t entityID, glm::vec3* inScale);
+		void TransformComponent_GetWorldTransformMatrix(uint64_t entityID, glm::mat4* outTransform);
+		void TransformComponent_SetWorldTransformMatrix(uint64_t entityID, glm::mat4* inTransform);
+		void TransformMultiply_Native(Transform* inA, Transform* inB, Transform* outResult);
+		void TransformInverse_Native(Transform* inTransform, Transform* outResult);
+
+#pragma endregion
+		/*
+#pragma region MeshComponent
+
+		Coral::Bool32 MeshComponent_GetMesh(uint64_t entityID, OutParam<AssetHandle> outHandle);
+		void MeshComponent_SetMesh(uint64_t entityID, Param<AssetHandle> meshHandle);
+		Coral::Bool32 MeshComponent_GetVisible(uint64_t entityID);
+		void MeshComponent_SetVisible(uint64_t entityID, Coral::Bool32 isVisible);
+		Coral::Bool32 MeshComponent_HasMaterial(uint64_t entityID, int index);
+		Coral::Bool32 MeshComponent_GetMaterial(uint64_t entityID, int index, OutParam<AssetHandle> outHandle);
+		Coral::Bool32 MeshComponent_GetIsRigged(uint64_t entityID);
+
+#pragma endregion
+
+#pragma region StaticMeshComponent
+
+		Coral::Bool32 StaticMeshComponent_GetMesh(uint64_t entityID, OutParam<AssetHandle> outHandle);
+		void StaticMeshComponent_SetMesh(uint64_t entityID, Param<AssetHandle> meshHandle);
+		Coral::Bool32 StaticMeshComponent_HasMaterial(uint64_t entityID, int index);
+		Coral::Bool32 StaticMeshComponent_GetMaterial(uint64_t entityID, int index, OutParam<AssetHandle> outHandle);
+		void StaticMeshComponent_SetMaterial(uint64_t entityID, int index, Param<AssetHandle> materialHandle);
+		Coral::Bool32 StaticMeshComponent_GetVisible(uint64_t entityID);
+		void StaticMeshComponent_SetVisible(uint64_t entityID, Coral::Bool32 visible);
+
+#pragma endregion
+
+#pragma region AnimationComponent
+		uint32_t Identifier_Get(Coral::String inName);
+		Coral::Bool32 AnimationComponent_GetInputBool(uint64_t entityID, uint32_t inputID);
+		void AnimationComponent_SetInputBool(uint64_t entityID, uint32_t inputId, Coral::Bool32 value);
+		int32_t AnimationComponent_GetInputInt(uint64_t entityID, uint32_t inputID);
+		void AnimationComponent_SetInputInt(uint64_t entityID, uint32_t inputId, int32_t value);
+		float AnimationComponent_GetInputFloat(uint64_t entityID, uint32_t inputID);
+		void AnimationComponent_SetInputFloat(uint64_t entityID, uint32_t inputId, float value);
+		void AnimationComponent_GetInputVector3(uint64_t entityID, uint32_t inputID, glm::vec3* value);
+		void AnimationComponent_SetInputVector3(uint64_t entityID, uint32_t inputId, const glm::vec3* value);
+		void AnimationComponent_SetInputTrigger(uint64_t entityID, uint32_t inputId);
+		void AnimationComponent_GetRootMotion(uint64_t entityID, Transform* outTransform);
+
+#pragma endregion
+		*/
+#pragma region ScriptComponent
+
+		void ScriptComponent_GetInstance(uint64_t entityID, Coral::ManagedObject* outObject);
+
+#pragma endregion
+
+#pragma region CameraComponent
+
+		void CameraComponent_SetPerspective(uint64_t entityID, float inVerticalFOV, float inNearClip, float inFarClip);
+		void CameraComponent_SetOrthographic(uint64_t entityID, float inSize, float inNearClip, float inFarClip);
+		float CameraComponent_GetVerticalFOV(uint64_t entityID);
+		void CameraComponent_SetVerticalFOV(uint64_t entityID, float verticalFOV);
+		float CameraComponent_GetPerspectiveNearClip(uint64_t entityID);
+		void CameraComponent_SetPerspectiveNearClip(uint64_t entityID, float inNearClip);
+		float CameraComponent_GetPerspectiveFarClip(uint64_t entityID);
+		void CameraComponent_SetPerspectiveFarClip(uint64_t entityID, float inFarClip);
+		float CameraComponent_GetOrthographicSize(uint64_t entityID);
+		void CameraComponent_SetOrthographicSize(uint64_t entityID, float inSize);
+		float CameraComponent_GetOrthographicNearClip(uint64_t entityID);
+		void CameraComponent_SetOrthographicNearClip(uint64_t entityID, float inNearClip);
+		float CameraComponent_GetOrthographicFarClip(uint64_t entityID);
+		void CameraComponent_SetOrthographicFarClip(uint64_t entityID, float inFarClip);
+		CameraComponent::Type CameraComponent_GetProjectionType(uint64_t entityID);
+		void CameraComponent_SetProjectionType(uint64_t entityID, CameraComponent::Type inType);
+		Coral::Bool32 CameraComponent_GetPrimary(uint64_t entityID);
+		void CameraComponent_SetPrimary(uint64_t entityID, Coral::Bool32 inValue);
+		void CameraComponent_ToScreenSpace(uint64_t entityID, glm::vec3* inWorldTranslation, glm::vec2* outResult);
+		void CameraComponent_GetRayDirection(uint64_t entityID, glm::vec2* inScreenPos, glm::vec3* outResult);
+
+#pragma endregion
+/*
+#pragma region DirectionalLightComponent
+
+		void DirectionalLightComponent_GetRadiance(uint64_t entityID, glm::vec3* outRadiance);
+		void DirectionalLightComponent_SetRadiance(uint64_t entityID, glm::vec3* inRadiance);
+		float DirectionalLightComponent_GetIntensity(uint64_t entityID);
+		void DirectionalLightComponent_SetIntensity(uint64_t entityID, float intensity);
+		Coral::Bool32 DirectionalLightComponent_GetCastShadows(uint64_t entityID);
+		void DirectionalLightComponent_SetCastShadows(uint64_t entityID, Coral::Bool32 castShadows);
+		Coral::Bool32 DirectionalLightComponent_GetSoftShadows(uint64_t entityID);
+		void DirectionalLightComponent_SetSoftShadows(uint64_t entityID, Coral::Bool32 softShadows);
+		float DirectionalLightComponent_GetLightSize(uint64_t entityID);
+		void DirectionalLightComponent_SetLightSize(uint64_t entityID, float lightSize);
+
+#pragma endregion
+
+#pragma region PointLightComponent
+
+		void PointLightComponent_GetRadiance(uint64_t entityID, glm::vec3* outRadiance);
+		void PointLightComponent_SetRadiance(uint64_t entityID, glm::vec3* inRadiance);
+		float PointLightComponent_GetIntensity(uint64_t entityID);
+		void PointLightComponent_SetIntensity(uint64_t entityID, float intensity);
+		float PointLightComponent_GetRadius(uint64_t entityID);
+		void PointLightComponent_SetRadius(uint64_t entityID, float radius);
+		float PointLightComponent_GetFalloff(uint64_t entityID);
+		void PointLightComponent_SetFalloff(uint64_t entityID, float falloff);
+
+#pragma endregion
+
+#pragma region SpotLightComponent
+
+		void SpotLightComponent_GetRadiance(uint64_t entityID, glm::vec3* outRadiance);
+		void SpotLightComponent_SetRadiance(uint64_t entityID, glm::vec3* inRadiance);
+		float SpotLightComponent_GetIntensity(uint64_t entityID);
+		void SpotLightComponent_SetIntensity(uint64_t entityID, float intensity);
+		float SpotLightComponent_GetRange(uint64_t entityID);
+		void SpotLightComponent_SetRange(uint64_t entityID, float range);
+		float SpotLightComponent_GetAngle(uint64_t entityID);
+		void SpotLightComponent_SetAngle(uint64_t entityID, float angle);
+		float SpotLightComponent_GetAngleAttenuation(uint64_t entityID);
+		void SpotLightComponent_SetAngleAttenuation(uint64_t entityID, float angleAttenuation);
+		float SpotLightComponent_GetFalloff(uint64_t entityID);
+		void SpotLightComponent_SetFalloff(uint64_t entityID, float falloff);
+		Coral::Bool32 SpotLightComponent_GetCastsShadows(uint64_t entityID);
+		void SpotLightComponent_SetCastsShadows(uint64_t entityID, Coral::Bool32 castsShadows);
+		Coral::Bool32 SpotLightComponent_GetSoftShadows(uint64_t entityID);
+		void SpotLightComponent_SetSoftShadows(uint64_t entityID, Coral::Bool32 softShadows);
+#pragma endregion
+
+#pragma region SkyLightComponent
+
+		float SkyLightComponent_GetIntensity(uint64_t entityID);
+		void SkyLightComponent_SetIntensity(uint64_t entityID, float intensity);
+		float SkyLightComponent_GetTurbidity(uint64_t entityID);
+		void SkyLightComponent_SetTurbidity(uint64_t entityID, float turbidity);
+		float SkyLightComponent_GetAzimuth(uint64_t entityID);
+		void SkyLightComponent_SetAzimuth(uint64_t entityID, float azimuth);
+		float SkyLightComponent_GetInclination(uint64_t entityID);
+		void SkyLightComponent_SetInclination(uint64_t entityID, float inclination);
+
+#pragma endregion
+		*/
+#pragma region TileRendererComponent
+
+		uint32_t TileRendererComponent_GetWidth(uint64_t entityID);
+		void TileRendererComponent_SetWidth(uint64_t entityID, uint32_t width);
+		uint32_t TileRendererComponent_GetHeight(uint64_t entityID);
+		void TileRendererComponent_SetHeight(uint64_t entityID, uint32_t height);
+		Coral::Array<uint8_t> TileRendererComponent_GetMaterialIDs(uint64_t entityID);
+		void TileRendererComponent_SetMaterialIDs(uint64_t entityID, Coral::Array<uint8_t> inData);
+
+#pragma endregion
+
+#pragma region SpriteRendererComponent
+
+		void SpriteRendererComponent_GetColor(uint64_t entityID, glm::vec4* outColor);
+		void SpriteRendererComponent_SetColor(uint64_t entityID, glm::vec4* inColor);
+		float SpriteRendererComponent_GetTilingFactor(uint64_t entityID);
+		void SpriteRendererComponent_SetTilingFactor(uint64_t entityID, float tilingFactor);
+		void SpriteRendererComponent_GetUVStart(uint64_t entityID, glm::vec2* outUVStart);
+		void SpriteRendererComponent_SetUVStart(uint64_t entityID, glm::vec2* inUVStart);
+		void SpriteRendererComponent_GetUVEnd(uint64_t entityID, glm::vec2* outUVEnd);
+		void SpriteRendererComponent_SetUVEnd(uint64_t entityID, glm::vec2* inUVEnd);
+		
+#pragma endregion
+
+#pragma region RigidBody2DComponent
+
+		RigidBody2DComponent::Type RigidBody2DComponent_GetBodyType(uint64_t entityID);
+		void RigidBody2DComponent_SetBodyType(uint64_t entityID, RigidBody2DComponent::Type inType);
+
+		void RigidBody2DComponent_GetTranslation(uint64_t entityID, glm::vec2* outTranslation);
+		void RigidBody2DComponent_SetTranslation(uint64_t entityID, glm::vec2* inTranslation);
+		float RigidBody2DComponent_GetRotation(uint64_t entityID);
+		void RigidBody2DComponent_SetRotation(uint64_t entityID, float rotation);
+
+		float RigidBody2DComponent_GetMass(uint64_t entityID);
+		void RigidBody2DComponent_SetMass(uint64_t entityID, float mass);
+		void RigidBody2DComponent_GetLinearVelocity(uint64_t entityID, glm::vec2* outVelocity);
+		void RigidBody2DComponent_SetLinearVelocity(uint64_t entityID, glm::vec2* inVelocity);
+		float RigidBody2DComponent_GetGravityScale(uint64_t entityID);
+		void RigidBody2DComponent_SetGravityScale(uint64_t entityID, float gravityScale);
+		void RigidBody2DComponent_ApplyLinearImpulse(uint64_t entityID, glm::vec2* inImpulse, glm::vec2* inOffset, Coral::Bool32 wake);
+		void RigidBody2DComponent_ApplyAngularImpulse(uint64_t entityID, float impulse, Coral::Bool32 wake);
+		void RigidBody2DComponent_AddForce(uint64_t entityID, glm::vec3* inForce, glm::vec3* inOffset, Coral::Bool32 wake);
+		void RigidBody2DComponent_AddTorque(uint64_t entityID, float torque, Coral::Bool32 wake);
+
+#pragma endregion
+/*
+#pragma region RigidBodyComponent
+
+		void RigidBodyComponent_AddForce(uint64_t entityID, glm::vec3* inForce, EForceMode forceMode);
+		void RigidBodyComponent_AddForceAtLocation(uint64_t entityID, glm::vec3* inForce, glm::vec3* inLocation, EForceMode forceMode);
+		void RigidBodyComponent_AddTorque(uint64_t entityID, glm::vec3* inTorque, EForceMode forceMode);
+		void RigidBodyComponent_GetLinearVelocity(uint64_t entityID, glm::vec3* outVelocity);
+		void RigidBodyComponent_SetLinearVelocity(uint64_t entityID, glm::vec3* inVelocity);
+		void RigidBodyComponent_GetAngularVelocity(uint64_t entityID, glm::vec3* outVelocity);
+		void RigidBodyComponent_SetAngularVelocity(uint64_t entityID, glm::vec3* inVelocity);
+		float RigidBodyComponent_GetMaxLinearVelocity(uint64_t entityID);
+		void RigidBodyComponent_SetMaxLinearVelocity(uint64_t entityID, float maxVelocity);
+		float RigidBodyComponent_GetMaxAngularVelocity(uint64_t entityID);
+		void RigidBodyComponent_SetMaxAngularVelocity(uint64_t entityID, float maxVelocity);
+		float RigidBodyComponent_GetLinearDrag(uint64_t entityID);
+		void RigidBodyComponent_SetLinearDrag(uint64_t entityID, float linearDrag);
+		float RigidBodyComponent_GetAngularDrag(uint64_t entityID);
+		void RigidBodyComponent_SetAngularDrag(uint64_t entityID, float angularDrag);
+		void RigidBodyComponent_Rotate(uint64_t entityID, glm::vec3* inRotation);
+		uint32_t RigidBodyComponent_GetLayer(uint64_t entityID);
+		void RigidBodyComponent_SetLayer(uint64_t entityID, uint32_t layerID);
+		Coral::String RigidBodyComponent_GetLayerName(uint64_t entityID);
+		void RigidBodyComponent_SetLayerByName(uint64_t entityID, Coral::String inName);
+		float RigidBodyComponent_GetMass(uint64_t entityID);
+		void RigidBodyComponent_SetMass(uint64_t entityID, float mass);
+		EBodyType RigidBodyComponent_GetBodyType(uint64_t entityID);
+		void RigidBodyComponent_SetBodyType(uint64_t entityID, EBodyType type);
+		Coral::Bool32 RigidBodyComponent_IsTrigger(uint64_t entityID);
+		void RigidBodyComponent_SetTrigger(uint64_t entityID, Coral::Bool32 isTrigger);
+		void RigidBodyComponent_MoveKinematic(uint64_t entityID, glm::vec3* inTargetPosition, glm::vec3* inTargetRotation, float inDeltaSeconds);
+		void RigidBodyComponent_SetAxisLock(uint64_t entityID, EActorAxis axis, Coral::Bool32 value, Coral::Bool32 forceWake);
+		Coral::Bool32 RigidBodyComponent_IsAxisLocked(uint64_t entityID, EActorAxis axis);
+		uint32_t RigidBodyComponent_GetLockedAxes(uint64_t entityID);
+		Coral::Bool32 RigidBodyComponent_IsSleeping(uint64_t entityID);
+		void RigidBodyComponent_SetIsSleeping(uint64_t entityID, Coral::Bool32 isSleeping);
+		void RigidBodyComponent_AddRadialImpulse(uint64_t entityID, glm::vec3* inOrigin, float radius, float strength, EFalloffMode falloff, Coral::Bool32 velocityChange);
+		Coral::Bool32 RigidBodyComponent_IsGravityEnabled(uint64_t entityID);
+		void RigidBodyComponent_SetIsGravityEnabled(uint64_t entityID, Coral::Bool32 enabled);
+
+#pragma endregion
+*//*
+#pragma region CharacterControllerComponent
+
+		Coral::Bool32 CharacterControllerComponent_GetIsGravityEnabled(uint64_t entityID);
+		void CharacterControllerComponent_SetIsGravityEnabled(uint64_t entityID, Coral::Bool32 isGravityEnabled);
+		float CharacterControllerComponent_GetSlopeLimit(uint64_t entityID);
+		void CharacterControllerComponent_SetSlopeLimit(uint64_t entityID, float slopeLimit);
+		float CharacterControllerComponent_GetStepOffset(uint64_t entityID);
+		void CharacterControllerComponent_SetStepOffset(uint64_t entityID, float stepOffset);
+		void CharacterControllerComponent_SetTranslation(uint64_t entityID, glm::vec3* inPosition);
+		void CharacterControllerComponent_SetRotation(uint64_t entityID, glm::quat* inRotation);
+		void CharacterControllerComponent_Move(uint64_t entityID, glm::vec3* inDisplacement);
+		void CharacterControllerComponent_Rotate(uint64_t entityID, glm::quat* inRotation);
+		void CharacterControllerComponent_Jump(uint64_t entityID, float jumpPower);
+		void CharacterControllerComponent_GetLinearVelocity(uint64_t entityID, glm::vec3* outVelocity);
+		void CharacterControllerComponent_SetLinearVelocity(uint64_t entityID, glm::vec3* inVelocity);
+		void CharacterControllerComponent_GetAngularVelocity(uint64_t entityID, glm::vec3* outAngularVelocity);
+		void CharacterControllerComponent_SetAngularVelocity(uint64_t entityID, glm::vec3* inAngularVelocity);
+		bool CharacterControllerComponent_IsGrounded(uint64_t entityID);
+		ECollisionFlags CharacterControllerComponent_GetCollisionFlags(uint64_t entityID);
+
+#pragma endregion
+
+#pragma region BoxColliderComponent
+
+		void BoxColliderComponent_GetHalfSize(uint64_t entityID, glm::vec3* outSize);
+		void BoxColliderComponent_GetOffset(uint64_t entityID, glm::vec3* outOffset);
+		Coral::Bool32 BoxColliderComponent_GetMaterial(uint64_t entityID, ColliderMaterial* outMaterial);
+		void BoxColliderComponent_SetMaterial(uint64_t entityID, ColliderMaterial* inMaterial);
+
+#pragma endregion
+
+#pragma region SphereColliderComponent
+
+		float SphereColliderComponent_GetRadius(uint64_t entityID);
+		void SphereColliderComponent_GetOffset(uint64_t entityID, glm::vec3* outOffset);
+		Coral::Bool32 SphereColliderComponent_GetMaterial(uint64_t entityID, ColliderMaterial* outMaterial);
+		void SphereColliderComponent_SetMaterial(uint64_t entityID, ColliderMaterial* inMaterial);
+
+#pragma endregion
+
+#pragma region CapsuleColliderComponent
+
+		float CapsuleColliderComponent_GetRadius(uint64_t entityID);
+		float CapsuleColliderComponent_GetHeight(uint64_t entityID);
+		void CapsuleColliderComponent_GetOffset(uint64_t entityID, glm::vec3* outOffset);
+		Coral::Bool32 CapsuleColliderComponent_GetMaterial(uint64_t entityID, ColliderMaterial* outMaterial);
+		void CapsuleColliderComponent_SetMaterial(uint64_t entityID, ColliderMaterial* inMaterial);
+
+#pragma endregion
+
+#pragma region MeshColliderComponent
+
+		Coral::Bool32 MeshColliderComponent_IsMeshStatic(uint64_t entityID);
+		Coral::Bool32 MeshColliderComponent_IsColliderMeshValid(uint64_t entityID, Param<AssetHandle> meshHandle);
+		Coral::Bool32 MeshColliderComponent_GetColliderMesh(uint64_t entityID, OutParam<AssetHandle> outHandle);
+		Coral::Bool32 MeshColliderComponent_GetMaterial(uint64_t entityID, ColliderMaterial* outMaterial);
+		void MeshColliderComponent_SetMaterial(uint64_t entityID, ColliderMaterial* inMaterial);
+
+#pragma endregion
+
+#pragma region MeshCollider
+
+		Coral::Bool32 MeshCollider_IsStaticMesh(Param<AssetHandle> meshHandle);
+
+#pragma endregion
+*/
+#pragma region AudioComponent
+
+		Coral::Bool32 AudioComponent_IsPlaying(uint64_t entityID);
+		Coral::Bool32 AudioComponent_Play(uint64_t entityID, float startTime);
+		Coral::Bool32 AudioComponent_Stop(uint64_t entityID);
+		Coral::Bool32 AudioComponent_Pause(uint64_t entityID);
+		Coral::Bool32 AudioComponent_Resume(uint64_t entityID);
+		float AudioComponent_GetVolumeMult(uint64_t entityID);
+		void AudioComponent_SetVolumeMult(uint64_t entityID, float volumeMult);
+		float AudioComponent_GetPitchMult(uint64_t entityID);
+		void AudioComponent_SetPitchMult(uint64_t entityID, float pitchMult);
+		void AudioComponent_SetEvent(uint64_t entityID, Audio::CommandID eventID);
+
+#pragma endregion
+
+#pragma region TextComponent
+
+		size_t TextComponent_GetHash(uint64_t entityID);
+		Coral::String TextComponent_GetText(uint64_t entityID);
+		void TextComponent_SetText(uint64_t entityID, Coral::String text);
+		void TextComponent_GetColor(uint64_t entityID, glm::vec4* outColor);
+		void TextComponent_SetColor(uint64_t entityID, glm::vec4* inColor);
+
+#pragma endregion
+		/*
+#pragma region Audio
+		uint32_t Audio_PostEvent(Audio::CommandID eventID, uint64_t entityID);
+		uint32_t Audio_PostEventFromAC(Audio::CommandID eventID, uint64_t entityID);
+		uint32_t Audio_PostEventAtLocation(Audio::CommandID eventID, Transform* inLocation);
+		Coral::Bool32 Audio_StopEventID(uint32_t playingEventID);
+		Coral::Bool32 Audio_PauseEventID(uint32_t playingEventID);
+		Coral::Bool32 Audio_ResumeEventID(uint32_t playingEventID);
+		uint64_t Audio_CreateAudioEntity(Audio::CommandID eventID, Transform* inLocation, float volume, float pitch);
+
+		void Audio_PreloadEventSources(Audio::CommandID eventID);
+		void Audio_UnloadEventSources(Audio::CommandID eventID);
+
+		void Audio_SetLowPassFilterValue(uint64_t entityID, float value);
+		void Audio_SetHighPassFilterValue(uint64_t entityID, float value);
+		void Audio_SetLowPassFilterValue_Event(Audio::CommandID eventID, float value);
+		void Audio_SetHighPassFilterValue_Event(Audio::CommandID eventID, float value);
+		void Audio_SetLowPassFilterValue_AC(uint64_t entityID, float value);
+		void Audio_SetHighPassFilterValue_AC(uint64_t entityID, float value);
+
+#pragma endregion
+
+#pragma region AudioCommandID
+		
+		uint32_t AudioCommandID_Constructor(Coral::String inCommandName);
+
+#pragma endregion
+
+#pragma region AudioParameters
+		//============================================================================================
+		/// Audio Parameters Interface
+		void Audio_SetParameterFloat(Audio::CommandID parameterID, uint64_t entityID, float value);
+		void Audio_SetParameterInt(Audio::CommandID parameterID, uint64_t entityID, int value);
+		void Audio_SetParameterBool(Audio::CommandID parameterID, uint64_t entityID, Coral::Bool32 value);
+		void Audio_SetParameterFloatForAC(Audio::CommandID parameterID, uint64_t entityID, float value);
+		void Audio_SetParameterIntForAC(Audio::CommandID parameterID, uint64_t entityID, int value);
+		void Audio_SetParameterBoolForAC(Audio::CommandID parameterID, uint64_t entityID, Coral::Bool32 value);
+
+		void Audio_SetParameterFloatForEvent(Audio::CommandID parameterID, uint32_t eventID, float value);
+		void Audio_SetParameterIntForEvent(Audio::CommandID parameterID, uint32_t eventID, int value);
+		void Audio_SetParameterBoolForEvent(Audio::CommandID parameterID, uint32_t eventID, Coral::Bool32 value);
+
+
+#pragma endregion
+		/*
+#pragma region Texture2D
+
+		Coral::Bool32 Texture2D_Create(uint32_t width, uint32_t height, TextureWrap wrapMode, TextureFilter filterMode, OutParam<AssetHandle> outHandle);
+		void Texture2D_GetSize(Param<AssetHandle> inHandle, uint32_t* outWidth, uint32_t* outHeight);
+		void Texture2D_SetData(Param<AssetHandle> inHandle, Coral::Array<glm::vec4> inData);
+		//Coral::Array Texture2D_GetData(Param<AssetHandle> inHandle);
+
+#pragma endregion
+		*//*
+#pragma region Mesh
+
+		Coral::Bool32 Mesh_GetMaterialByIndex(Param<AssetHandle> meshHandle, int index, OutParam<AssetHandle> outHandle);
+		int Mesh_GetMaterialCount(Param<AssetHandle> meshHandle);
+
+#pragma endregion
+
+#pragma region StaticMesh
+
+		Coral::Bool32 StaticMesh_GetMaterialByIndex(Param<AssetHandle> meshHandle, int index, OutParam<AssetHandle> outHandle);
+		int StaticMesh_GetMaterialCount(Param<AssetHandle> meshHandle);
+
+#pragma endregion
+
+#pragma region Material
+
+		void Material_GetAlbedoColor(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle, glm::vec3* outAlbedoColor);
+		void Material_SetAlbedoColor(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle, glm::vec3* inAlbedoColor);
+		float Material_GetMetalness(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle);
+		void Material_SetMetalness(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle, float inMetalness);
+		float Material_GetRoughness(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle);
+		void Material_SetRoughness(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle, float inRoughness);
+		float Material_GetEmission(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle);
+		void Material_SetEmission(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle, float inEmission);
+
+		void Material_SetFloat(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle, Coral::String inUniform, float value);
+		void Material_SetVector3(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle, Coral::String inUniform, glm::vec3* inValue);
+		void Material_SetVector4(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle, Coral::String inUniform, glm::vec3* inValue);
+		void Material_SetTexture(uint64_t entityID, Param<AssetHandle> meshHandle, Param<AssetHandle> materialHandle, Coral::String inUniform, Param<AssetHandle> inTexture);
+
+#pragma endregion
+
+#pragma region MeshFactory
+
+		void* MeshFactory_CreatePlane(float width, float height);
+
+#pragma endregion
+
+#pragma region Physics
+
+		struct RaycastData
+		{
+			glm::vec3 Origin;
+			glm::vec3 Direction;
+			float MaxDistance;
+			float Padding;
+			Coral::Array<Coral::ReflectionType> RequiredComponentTypes;
+			Coral::Array<uint64_t> ExcludeEntities;
+		};
+
+		struct ShapeQueryData
+		{
+			glm::vec3 Origin;
+			glm::vec3 Direction;
+			float MaxDistance;
+			float Padding;
+			Coral::ManagedObject ShapeDataInstance;
+			Coral::Array<Coral::ReflectionType> RequiredComponentTypes;
+			Coral::Array<uint64_t> ExcludeEntities;
+		};
+
+		struct RaycastData2D
+		{
+			glm::vec2 Origin;
+			glm::vec2 Direction;
+			float MaxDistance;
+			float Padding;
+			Coral::Array<Coral::ReflectionType> RequiredComponentTypes;
+		};
+
+		struct SceneQueryHitInterop
+		{
+			uint64_t HitEntity = 0;
+			glm::vec3 Position = glm::vec3(0.0f);
+			glm::vec3 Normal = glm::vec3(0.0f);
+			float Distance = 0.0f;
+			float Padding;
+			Coral::ManagedObject HitCollider;
+		};
+
+		Coral::Bool32 Physics_CastRay(RaycastData* inRaycastData, SceneQueryHitInterop* outHit);
+		Coral::Bool32 Physics_CastShape(ShapeQueryData* inShapeQueryData, SceneQueryHitInterop* outHit);
+		int32_t Physics_OverlapShape(ShapeQueryData* inOverlapData, Coral::Array<SceneQueryHitInterop>* outHits);
+
+		struct ScriptRaycastHit2D
+		{
+			uint64_t EntityID;
+			glm::vec2 Position;
+			glm::vec2 Normal;
+			float Distance;
+		};
+
+		Coral::Array<ScriptRaycastHit2D> Physics_Raycast2D(RaycastData2D* inRaycastData);
+
+		void Physics_GetGravity(glm::vec3* outGravity);
+		void Physics_SetGravity(glm::vec3* inGravity);
+
+		//void Physics_AddRadialImpulse(glm::vec3* inOrigin, float radius, float strength, EFalloffMode falloff, Coral::Bool32 velocityChange);
+
+#pragma endregion
+
+#pragma region Noise
+
+		Noise* Noise_Constructor(int seed);
+		void Noise_Destructor(Noise* _this);
+
+		float Noise_GetFrequency(Noise* _this);
+		void Noise_SetFrequency(Noise* _this, float frequency);
+
+		int Noise_GetFractalOctaves(Noise* _this);
+		void Noise_SetFractalOctaves(Noise* _this, int octaves);
+
+		float Noise_GetFractalLacunarity(Noise* _this);
+		void Noise_SetFractalLacunarity(Noise* _this, float lacunarity);
+
+		float Noise_GetFractalGain(Noise* _this);
+		void Noise_SetFractalGain(Noise* _this, float gain);
+
+		float Noise_Get(Noise* _this, float x, float y);
+
+		void Noise_SetSeed(int seed);
+		float Noise_Perlin(float x, float y);
+
+#pragma endregion
+
+#pragma region Matrix4
+		void Matrix4_LookAt(glm::vec3* eye, glm::vec3* center, glm::vec3* up, glm::mat4* outMatrix);
+		void Matrix4_Inverse(glm::mat4* inMatrix, glm::mat4* outMatrix);
+		void Matrix4_MultiplyPoint(glm::mat4* inMatrix, glm::vec3* inPoint, glm::vec3* outPoint);
+		void Matrix4_MultiplyVector(glm::mat4* inMatrix, glm::vec3* inVector, glm::vec3* outVector);
+#pragma endregion*/
+
+#pragma region Log
+
+		enum class LogLevel : int32_t
+		{
+			Trace = BIT(0),
+			Debug = BIT(1),
+			Info = BIT(2),
+			Warn = BIT(3),
+			Error = BIT(4),
+			Critical = BIT(5)
+		};
+
+
+		void Log_LogMessage(LogLevel level, Coral::String inFormattedMessage);
 
 #pragma endregion
 
 #pragma region Input
 
-		bool Input_IsKeyDown(KeyCode keycode);
-		//bool Input_IsKeyUp(KeyCode keycode);
-		//bool Input_IsMouseButtonPressed(MouseCode button);
-		//bool Input_PressMouseButton(MouseCode button);
-		//bool Input_ReleaseMouseButton(MouseCode button);
-		//float Input_GetMousePositionX();
-		//float Input_GetMousePositionY();
-		//float Input_GetMouseWorldPositionX();
-		//float Input_GetMouseWorldPositionY();
+		Coral::Bool32 Input_IsKeyPressed(KeyCode keycode);
+		Coral::Bool32 Input_IsKeyHeld(KeyCode keycode);
+		Coral::Bool32 Input_IsKeyDown(KeyCode keycode);
+		Coral::Bool32 Input_IsKeyReleased(KeyCode keycode);
+		Coral::Bool32 Input_IsKeyToggledOn(KeyCode keycode);
+		Coral::Bool32 Input_IsMouseButtonPressed(MouseButton button);
+		Coral::Bool32 Input_IsMouseButtonHeld(MouseButton button);
+		Coral::Bool32 Input_IsMouseButtonDown(MouseButton button);
+		Coral::Bool32 Input_IsMouseButtonReleased(MouseButton button);
+		void Input_GetMousePosition(glm::vec2* outPosition);
+		void Input_SetCursorMode(CursorMode mode);
+		CursorMode Input_GetCursorMode();
+		Coral::Bool32 Input_IsControllerPresent(int id);
+		Coral::Array<int32_t> Input_GetConnectedControllerIDs();
+		Coral::String Input_GetControllerName(int id);
+		Coral::Bool32 Input_IsControllerButtonPressed(int id, int button);
+		Coral::Bool32 Input_IsControllerButtonHeld(int id, int button);
+		Coral::Bool32 Input_IsControllerButtonDown(int id, int button);
+		Coral::Bool32 Input_IsControllerButtonReleased(int id, int button);
+		float Input_GetControllerAxis(int id, int axis);
+		uint8_t Input_GetControllerHat(int id, int hat);
+		float Input_GetControllerDeadzone(int id, int axis);
+		void Input_SetControllerDeadzone(int id, int axis, float deadzone);
+
+
+#pragma endregion
+/*
+#pragma region SceneRenderer
+
+		float SceneRenderer_GetOpacity();
+		void SceneRenderer_SetOpacity(float opacity);
+
+		Coral::Bool32 SceneRenderer_DepthOfField_IsEnabled();
+		void SceneRenderer_DepthOfField_SetEnabled(Coral::Bool32 enabled);
+		float SceneRenderer_DepthOfField_GetFocusDistance();
+		void SceneRenderer_DepthOfField_SetFocusDistance(float focusDistance);
+		float SceneRenderer_DepthOfField_GetBlurSize();
+		void SceneRenderer_DepthOfField_SetBlurSize(float blurSize);
+
+		void SceneRenderer_GTAO_SetEffectRadius(float effectRadius);
+		float SceneRenderer_GTAO_GetEffectRadius();
+		void SceneRenderer_GTAO_SetEffectFalloffRange(float effectFalloffRange);
+		float SceneRenderer_GTAO_GetEffectFalloffRange();
+		void SceneRenderer_GTAO_SetRadiusMultiplier(float radiusMultiplier);
+		float SceneRenderer_GTAO_GetRadiusMultiplier();
+		void SceneRenderer_GTAO_SetDenoiseBlurBeta(float denoiseBlurBeta);
+		float SceneRenderer_GTAO_GetDenoiseBlurBeta();
+		void SceneRenderer_GTAO_SetHalfRes(Coral::Bool32 halfRes);
+		Coral::Bool32 SceneRenderer_GTAO_GetHalfRes();
+		void SceneRenderer_GTAO_SetSampleDistributionPower(float sampleDistributionPower);
+		float SceneRenderer_GTAO_GetSampleDistributionPower();
+		void SceneRenderer_GTAO_SetThinOccluderCompensation(float thinOccluderCompensation);
+		float SceneRenderer_GTAO_GetThinOccluderCompensation();
+		void SceneRenderer_GTAO_SetDepthMIPSamplingOffset(float depthMIPSamplingOffset);
+		float SceneRenderer_GTAO_GetDepthMIPSamplingOffset();
+		void SceneRenderer_GTAO_SetShadowTolerance(float shadowTolerance);
+		float SceneRenderer_GTAO_GetShadowTolerance();
+
+		void SceneRenderer_Bloom_SetEnabled(Coral::Bool32 enabled);
+		Coral::Bool32 SceneRenderer_Bloom_GetEnabled();
+		void SceneRenderer_Bloom_SetThreshold(float threshold);
+		float SceneRenderer_Bloom_GetThreshold();
+		void SceneRenderer_Bloom_SetKnee(float knee);
+		float SceneRenderer_Bloom_GetKnee();
+		void SceneRenderer_Bloom_SetUpsampleScale(float upsampleScale);
+		float SceneRenderer_Bloom_GetUpsampleScale();
+		void SceneRenderer_Bloom_SetIntensity(float intensity);
+		float SceneRenderer_Bloom_GetIntensity();
+		void SceneRenderer_Bloom_SetDirtIntensity(float dirtIntensity);
+		float SceneRenderer_Bloom_GetDirtIntensity();
 
 #pragma endregion
 
-		/*
-#pragma region Application
+#pragma region DebugRenderer
 
-		float Application_GetFPS();
-		float Application_GetFrameTime();
-		float Application_GetMinFrameTime();
-		float Application_GetMaxFrameTime();
-
-#pragma endregion
-		*/
-		/*
-#pragma region Scene
-
-		void Scene_LoadScene(AssetHandle assetHandle);
-		Coral::String Scene_GetCursor();
-		void Scene_SetCursor(Coral::String filepath);
-		float Scene_GetMouseHotSpotX();
-		float Scene_GetMouseHotSpotY();
-		void Scene_SetMouseHotSpot(float hotSpotX, float hotSpotY);
-		void Scene_ChangeCursor(Coral::String filepath, float hotSpotX, float hotspotY);
-		//static void Scene_CloseApplication();
-		Coral::String Scene_GetCurrentFilename();
-		Coral::String Scene_GetName();
-		void Scene_SetName(Coral::String path);
-		bool Scene_IsGamePaused();
-		void Scene_SetPauseGame(bool shouldPause);
-		uint64_t Scene_CreateEntity(Coral::String tag);
-		bool Scene_IsEntityValid(uint64_t entityID);
-		uint64_t Scene_GetHoveredEntity();
-		uint64_t Scene_GetSelectedEntity();
-		void Scene_SetSelectedEntity(uint64_t entityID);
-		void Scene_RenderHoveredEntityOutline(uint64_t entityID, float colorX, float colorY, float colorZ, float colorW);
-		void Scene_RenderSelectedEntityOutline(uint64_t entityID, float colorX, float colorY, float colorZ, float colorW);
-		//void Scene_GetEntityComponent(uint64_t entityID, void* component);
-
-#pragma endregion
-		*/
-#pragma region Entity
-
-		//void Entity_CreateComponent(uint64_t entityID, Coral::ReflectionType componentType);
-		bool Entity_HasComponent(uint64_t entityID, Coral::ReflectionType componentType);
-		//bool Entity_RemoveComponent(uint64_t entityID, Coral::ReflectionType componentType);
-		//void Entity_DestroyEntity(uint64_t entityID);
-		uint64_t Entity_FindEntityByName(Coral::String name);
-		uint64_t Entity_FindEntityByTag(Coral::String tag);
-
-#pragma endregion
-		/*
-#pragma region TagComponent
-
-		Coral::String TagComponent_GetTag(uint64_t entityID);
-		void TagComponent_SetTag(uint64_t entityID, Coral::String tag);
-
-#pragma endregion
-	*/
-#pragma region TransformComponent
-
-		//bool TransformComponent_GetIsEnabled(uint64_t entityID);
-		//void TransformComponent_SetIsEnabled(uint64_t entityID, bool isEnabled);
-		void TransformComponent_GetTransform(uint64_t entityID, TransformComponent* outTransform);
-		void TransformComponent_SetTransform(uint64_t entityID, TransformComponent* inTransform);
-		//float TransformComponent_GetTranslationX(uint64_t entityID);
-		//float TransformComponent_GetTranslationY(uint64_t entityID);
-		//float TransformComponent_GetTranslationZ(uint64_t entityID);
-		//void TransformComponent_SetTranslation(uint64_t entityID, float translationX, float translationY, float translationZ);
-		//float TransformComponent_GetRotationX(uint64_t entityID);
-		//float TransformComponent_GetRotationY(uint64_t entityID);
-		//float TransformComponent_GetRotationZ(uint64_t entityID);
-		//void TransformComponent_SetRotation(uint64_t entityID, float rotationX, float rotationY, float rotationZ);
-		//float TransformComponent_GetScaleX(uint64_t entityID);
-		//float TransformComponent_GetScaleY(uint64_t entityID);
-		//float TransformComponent_GetScaleZ(uint64_t entityID);
-		//void TransformComponent_SetScale(uint64_t entityID, float scaleX, float scaleY, float scaleZ);
-
-#pragma endregion
-		/*
-#pragma region CameraComponent
-
-		bool CameraComponent_GetIsPrimary(uint64_t entityID);
-		void CameraComponent_SetPrimary(uint64_t entityID, bool primary);
-		bool CameraComponent_GetFixedAspectRatio(uint64_t entityID);
-		void CameraComponent_SetFixedAspectRatio(uint64_t entityID, bool fixedAspectRatio);
-
-#pragma endregion
-		*/
-		/*
-#pragma region SpriteRendererComponent
-
-		float SpriteRendererComponent_GetOffsetX(uint64_t entityID);
-		float SpriteRendererComponent_GetOffsetY(uint64_t entityID);
-		float SpriteRendererComponent_GetOffsetZ(uint64_t entityID);
-		void SpriteRendererComponent_SetOffset(uint64_t entityID, float offsetX, float offsetY, float offsetZ);
-		float SpriteRendererComponent_GetColorX(uint64_t entityID);
-		float SpriteRendererComponent_GetColorY(uint64_t entityID);
-		float SpriteRendererComponent_GetColorZ(uint64_t entityID);
-		float SpriteRendererComponent_GetColorW(uint64_t entityID);
-		void SpriteRendererComponent_SetColor(uint64_t entityID, float colorX, float colorY, float colorZ, float colorW);
-		float SpriteRendererComponent_GetUVX(uint64_t entityID);
-		float SpriteRendererComponent_GetUVY(uint64_t entityID);
-		void SpriteRendererComponent_SetUV(uint64_t entityID, float uvX, float uvY);
-		bool SpriteRendererComponent_GetUseParallax(uint64_t entityID);
-		void SpriteRendererComponent_SetUseParallax(uint64_t entityID, bool useParallax);
-		float SpriteRendererComponent_GetParallaxSpeedX(uint64_t entityID);
-		float SpriteRendererComponent_GetParallaxSpeedY(uint64_t entityID);
-		void SpriteRendererComponent_SetParallaxSpeed(uint64_t entityID, float speedX, float speedY);
-		float SpriteRendererComponent_GetParallaxDivision(uint64_t entityID);
-		void SpriteRendererComponent_SetParallaxDivision(uint64_t entityID, float division);
-		bool SpriteRendererComponent_GetUseTextureAtlasAnimation(uint64_t entityID);
-		void SpriteRendererComponent_SetUseTextureAtlasAnimation(uint64_t entityID, bool useAnimation);
-		float SpriteRendererComponent_GetAnimationSpeed(uint64_t entityID);
-		void SpriteRendererComponent_SetAnimationSpeed(uint64_t entityID, float animSpeed);
-		int SpriteRendererComponent_GetNumTiles(uint64_t entityID);
-		void SpriteRendererComponent_SetNumTiles(uint64_t entityID, int numTiles);
-		int SpriteRendererComponent_GetStartIndexX(uint64_t entityID);
-		void SpriteRendererComponent_SetStartIndexX(uint64_t entityID, int startIndex);
-		int SpriteRendererComponent_GetStartIndexY(uint64_t entityID);
-		void SpriteRendererComponent_SetStartIndexY(uint64_t entityID, int startIndex);
-		int SpriteRendererComponent_GetColumn(uint64_t entityID);
-		void SpriteRendererComponent_SetColumn(uint64_t entityID, int column);
-		int SpriteRendererComponent_GetRow(uint64_t entityID);
-		void SpriteRendererComponent_SetRow(uint64_t entityID, int row);
-		float SpriteRendererComponent_GetSaturation(uint64_t entityID);
-		void SpriteRendererComponent_SetSaturation(uint64_t entityID, float saturation);
-		AssetHandle SpriteRendererComponent_GetTextureAssetHandle(uint64_t entityID);
-		void SpriteRendererComponent_SetTextureAssetHandle(uint64_t entityID, AssetHandle textureHandle);
-		uint64_t SpriteRendererComponent_GetTextureAssetID(uint64_t entityID);
-		void SpriteRendererComponent_SetTextureAssetID(uint64_t entityID, uint64_t textureHandle);
-
-#pragma endregion
-		*/
-		/*
-#pragma region CircleRendererComponent
-
-		float CircleRendererComponent_GetColorX(uint64_t entityID);
-		float CircleRendererComponent_GetColorY(uint64_t entityID);
-		float CircleRendererComponent_GetColorZ(uint64_t entityID);
-		float CircleRendererComponent_GetColorW(uint64_t entityID);
-		void CircleRendererComponent_SetColor(uint64_t entityID, float colorX, float colorY, float colorZ, float colorW);
-		float CircleRendererComponent_GetUVX(uint64_t entityID);
-		float CircleRendererComponent_GetUVY(uint64_t entityID);
-		void CircleRendererComponent_SetUV(uint64_t entityID, float uvX, float uvY);
-		bool CircleRendererComponent_GetUseParallax(uint64_t entityID);
-		void CircleRendererComponent_SetUseParallax(uint64_t entityID, bool useParallax);
-		float CircleRendererComponent_GetParallaxSpeedX(uint64_t entityID);
-		float CircleRendererComponent_GetParallaxSpeedY(uint64_t entityID);
-		void CircleRendererComponent_SetParallaxSpeed(uint64_t entityID, float speedX, float speedY);
-		float CircleRendererComponent_GetParallaxDivision(uint64_t entityID);
-		void CircleRendererComponent_SetParallaxDivision(uint64_t entityID, float division);
-		bool CircleRendererComponent_GetUseTextureAtlasAnimation(uint64_t entityID);
-		void CircleRendererComponent_SetUseTextureAtlasAnimation(uint64_t entityID, bool useAnimation);
-		float CircleRendererComponent_GetAnimationSpeed(uint64_t entityID);
-		void CircleRendererComponent_SetAnimationSpeed(uint64_t entityID, float animSpeed);
-		int CircleRendererComponent_GetNumTiles(uint64_t entityID);
-		void CircleRendererComponent_SetNumTiles(uint64_t entityID, int numTiles);
-		int CircleRendererComponent_GetStartIndexX(uint64_t entityID);
-		void CircleRendererComponent_SetStartIndexX(uint64_t entityID, int startIndex);
-		int CircleRendererComponent_GetStartIndexY(uint64_t entityID);
-		void CircleRendererComponent_SetStartIndexY(uint64_t entityID, int startIndex);
-		int CircleRendererComponent_GetColumn(uint64_t entityID);
-		void CircleRendererComponent_SetColumn(uint64_t entityID, int column);
-		int CircleRendererComponent_GetRow(uint64_t entityID);
-		void CircleRendererComponent_SetRow(uint64_t entityID, int row);
-
-#pragma endregion
-		*/
-		/*
-#pragma region LineRendererComponent
-
-		float LineRendererComponent_GetLineThickness(uint64_t entityID);
-		void LineRendererComponent_SetLineThickness(uint64_t entityID, float lineThickness);
-
-#pragma endregion
-		*/
-#pragma region TextComponent
-
-		Coral::String TextComponent_GetText(uint64_t entityID);
-		void TextComponent_SetText(uint64_t entityID, Coral::String textString);
-		float TextComponent_GetColorX(uint64_t entityID);
-		float TextComponent_GetColorY(uint64_t entityID);
-		float TextComponent_GetColorZ(uint64_t entityID);
-		float TextComponent_GetColorW(uint64_t entityID);
-		void TextComponent_SetColor(uint64_t entityID, float colorX, float colorY, float colorZ, float colorW);
-		float TextComponent_GetKerning(uint64_t entityID);
-		void TextComponent_SetKerning(uint64_t entityID, float kerning);
-		float TextComponent_GetLineSpacing(uint64_t entityID);
-		void TextComponent_SetLineSpacing(uint64_t entityID, float lineSpacing);
+		void DebugRenderer_DrawLine(glm::vec3* p0, glm::vec3* p1, glm::vec4* color);
+		void DebugRenderer_DrawCircle(glm::vec3* center, glm::vec3* rotation, float radius, glm::vec4* color);
+		void DebugRenderer_DrawQuadBillboard(glm::vec3* translation, glm::vec2* size, glm::vec4* color);
+		void DebugRenderer_SetLineWidth(float width);
 
 #pragma endregion
 
-#pragma region RigidBody2DComponent
+#pragma region PerformanceTimers
 
-		void RigidBody2DComponent_ApplyLinearImpulse(uint64_t entityID, float impulseX, float impulseY, float offsetX, float offsetY, bool wake);
-		void RigidBody2DComponent_ApplyLinearImpulseToCenter(uint64_t entityID, float impulseX, float impulseY, bool wake);
-		float RigidBody2DComponent_GetLinearVelocityX(uint64_t entityID);
-		float RigidBody2DComponent_GetLinearVelocityY(uint64_t entityID);
-		//void RigidBody2DComponent_SetLinearVelocity(uint64_t entityID, float velocityX, float velocityY);
-		RigidBody2DComponent::BodyType Rigidbody2DComponent_GetType(uint64_t entityID);
-		void RigidBody2DComponent_SetType(uint64_t entityID, RigidBody2DComponent::BodyType bodyType);
-		//float RigidBody2DComponent_GetGravityX(uint64_t entityID);
-		//float RigidBody2DComponent_GetGravityY(uint64_t entityID);
-		//void RigidBody2DComponent_SetGravity(uint64_t entityID, float gravityX, float gravityY);
-		//bool RigidBody2DComponent_GetEnabled(uint64_t entityID);
-		//void RigidBody2DComponent_SetEnabled(uint64_t entityID, bool setEnabled);
-
-#pragma endregion
-
-		/*
-#pragma region BoxCollider2DComponent
-
-		void BoxCollider2DComponent_GetOffset(uint64_t entityID, glm::vec2* outOffset);
-		float BoxCollider2DComponent_GetOffsetX(uint64_t entityID);
-		float BoxCollider2DComponent_GetOffsetY(uint64_t entityID);
-		void BoxCollider2DComponent_SetOffset(uint64_t entityID, float offsetX, float offsetY);
-		float BoxCollider2DComponent_GetSizeX(uint64_t entityID);
-		float BoxCollider2DComponent_GetSizeY(uint64_t entityID);
-		void BoxCollider2DComponent_SetSize(uint64_t entityID, float sizeX, float sizeY);
-		float BoxCollider2DComponent_GetDensity(uint64_t entityID);
-		void BoxCollider2DComponent_SetDensity(uint64_t entityID, float density);
-		float BoxCollider2DComponent_GetFriction(uint64_t entityID);
-		void BoxCollider2DComponent_SetFriction(uint64_t entityID, float friction);
-		float BoxCollider2DComponent_GetRestitution(uint64_t entityID);
-		void BoxCollider2DComponent_SetRestitution(uint64_t entityID, float restitution);
-		float BoxCollider2DComponent_GetRestitutionThreshold(uint64_t entityID);
-		void BoxCollider2DComponent_SetRestitutionThreshold(uint64_t entityID, float restitutionThreshold);
-		float BoxCollider2DComponent_GetCollisionRayX(uint64_t entityID);
-		float BoxCollider2DComponent_GetCollisionRayY(uint64_t entityID);
-		void BoxCollider2DComponent_SetCollisionRay(uint64_t entityID, float rayX, float rayY);
-		bool BoxCollider2DComponent_GetAwake(uint64_t entityID);
-		void BoxCollider2DComponent_SetAwake(uint64_t entityID, bool setAwake);
-
-#pragma endregion
-		*/
-		/*
-#pragma region CircleCollider2DComponent
-
-		float CircleCollider2DComponent_GetOffsetX(uint64_t entityID);
-		float CircleCollider2DComponent_GetOffsetY(uint64_t entityID);
-		void CircleCollider2DComponent_SetOffset(uint64_t entityID, float offsetX, float offsetY);
-		float CircleCollider2DComponent_GetRadius(uint64_t entityID);
-		void CircleCollider2DComponent_SetRadius(uint64_t entityID, float radius);
-		float CircleCollider2DComponent_GetDensity(uint64_t entityID);
-		void CircleCollider2DComponent_SetDensity(uint64_t entityID, float density);
-		float CircleCollider2DComponent_GetFriction(uint64_t entityID);
-		void CircleCollider2DComponent_SetFriction(uint64_t entityID, float friction);
-		float CircleCollider2DComponent_GetRestitution(uint64_t entityID);
-		void CircleCollider2DComponent_SetRestitution(uint64_t entityID, float restitution);
-		float CircleCollider2DComponent_GetRestitutionThreshold(uint64_t entityID);
-		void CircleCollider2DComponent_SetRestitutionThreshold(uint64_t entityID, float restitutionThreshold);
-		float CircleCollider2DComponent_GetCollisionRayX(uint64_t entityID);
-		float CircleCollider2DComponent_GetCollisionRayY(uint64_t entityID);
-		void CircleCollider2DComponent_SetCollisionRay(uint64_t entityID, float rayX, float rayY);
-		bool CircleCollider2DComponent_GetAwake(uint64_t entityID);
-		void CircleCollider2DComponent_SetAwake(uint64_t entityID, bool setAwake);
-
-#pragma endregion
-		*/
-		/*
-#pragma region AudioListenerComponent
-
-		bool AudioListenerComponent_GetActive(uint64_t entityID);
-		void AudioListenerComponent_SetActive(uint64_t entityID, bool active);
-
-#pragma endregion
-
-#pragma region AudioSourceComponent
-
-		AssetHandle AudioSourceComponent_GetAssetHandle(uint64_t entityID);
-		void AudioSourceComponent_SetAssetHandle(uint64_t entityID, AssetHandle handle);
-		float AudioSourceComponent_GetVolume(uint64_t entityID);
-		void AudioSourceComponent_SetVolume(uint64_t entityID, float volume);
-		float AudioSourceComponent_GetPitch(uint64_t entityID);
-		void AudioSourceComponent_SetPitch(uint64_t entityID, float pitch);
-		bool AudioSourceComponent_GetPlayOnAwake(uint64_t entityID);
-		void AudioSourceComponent_SetPlayOnAwake(uint64_t entityID, bool playOnAwake);
-		bool AudioSourceComponent_GetLooping(uint64_t entityID);
-		void AudioSourceComponent_SetLooping(uint64_t entityID, bool looping);
-		bool AudioSourceComponent_GetSpatialization(uint64_t entityID);
-		void AudioSourceComponent_SetSpatialization(uint64_t entityID, bool spatialization);
-		int AudioSourceComponent_GetAttenuationModel(uint64_t entityID);
-		void AudioSourceComponent_SetAttenuationModel(uint64_t entityID, int attenuationModel);
-		float AudioSourceComponent_GetRollOff(uint64_t entityID);
-		void AudioSourceComponent_SetRollOff(uint64_t entityID, float rollOff);
-		float AudioSourceComponent_GetMinGain(uint64_t entityID);
-		void AudioSourceComponent_SetMinGain(uint64_t entityID, float minGain);
-		float AudioSourceComponent_GetMaxGain(uint64_t entityID);
-		void AudioSourceComponent_SetMaxGain(uint64_t entityID, float maxGain);
-		float AudioSourceComponent_GetMinDistance(uint64_t entityID);
-		void AudioSourceComponent_SetMinDistance(uint64_t entityID, float minDistance);
-		float AudioSourceComponent_GetMaxDistance(uint64_t entityID);
-		void AudioSourceComponent_SetMaxDistance(uint64_t entityID, float maxDistance);
-		float AudioSourceComponent_GetConeInnerAngle(uint64_t entityID);
-		void AudioSourceComponent_SetConeInnerAngle(uint64_t entityID, float coneInnerAngle);
-		float AudioSourceComponent_GetConeOuterAngle(uint64_t entityID);
-		void AudioSourceComponent_SetConeOuterAngle(uint64_t entityID, float coneOuterAngle);
-		float AudioSourceComponent_GetConeOuterGain(uint64_t entityID);
-		void AudioSourceComponent_SetConeOuterGain(uint64_t entityID, float coneOuterGain);
-		void AudioSourceComponent_SetCone(uint64_t entityID, float coneInnerAngle, float coneOuterAngle, float coneOuterGain);
-		float AudioSourceComponent_GetDopplerFactor(uint64_t entityID);
-		void AudioSourceComponent_SetDopplerFactor(uint64_t entityID, float dopplerFactor);
-		bool AudioSourceComponent_IsPlaying(uint64_t entityID);
-		void AudioSourceComponent_Play(uint64_t entityID);
-		void AudioSourceComponent_Pause(uint64_t entityID);
-		void AudioSourceComponent_UnPause(uint64_t entityID);
-		void AudioSourceComponent_Stop(uint64_t entityID);
-
+		float PerformanceTimers_GetFrameTime();
+		float PerformanceTimers_GetGPUTime();
+		float PerformanceTimers_GetMainThreadWorkTime();
+		float PerformanceTimers_GetMainThreadWaitTime();
+		float PerformanceTimers_GetRenderThreadWorkTime();
+		float PerformanceTimers_GetRenderThreadWaitTime();
+		uint32_t PerformanceTimers_GetFramesPerSecond();
+		uint32_t PerformanceTimers_GetEntityCount();
+		uint32_t PerformanceTimers_GetScriptEntityCount();
+		 
 #pragma endregion
 		*/
 	}
+
 }

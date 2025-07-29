@@ -1,35 +1,69 @@
 #pragma once
 
-#include "StarEngine/Core/PlatformDetection.h"
-
+#include "StarEngine/Core/Ref.h"
+#include <functional>
 #include <memory>
 
-#if defined(SE_PLATFORM_WINDOWS)
-#define SE_DEBUGBREAK() __debugbreak()
-#elif defined(SE_PLATFORM_LINUX)
-#include <signal.h>
-#define SE_DEBUGBREAK() raise(SIGTRAP)
+namespace StarEngine
+{
+	void InitializeCore();
+	void ShutdownCore();
+};
+
+#if defined(_WIN64) || defined(_WIN32)
+#define SE_PLATFORM_WINDOWS
+#elif defined(__linux__)
+#define SE_PLATFORM_LINUX
+#define SE_PLATFORM_UNIX
+#elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+#define SE_PLATFORM_BSD
+#define SE_PLATFORM_UNIX
+#elif defined(__unix__) || defined(__unix)
+#define SE_PLATFORM_UNIX
 #else
-#error "Platform doesn't support debugbreak yet!"
+#error "Unsupported platform! StarEngine supports Windows, Linux, and BSD."
 #endif
 
-#ifdef SE_DEBUG
-#define SE_ENABLE_ASSERTS
+#define BIT(x) (1u << x)
+
+//------------------------------------------------------------------------------
+// Compiler Detection
+//------------------------------------------------------------------------------
+
+#if defined(__clang__)
+#define SE_COMPILER_CLANG
+#elif defined(__GNUC__)
+#define SE_COMPILER_GCC
+#elif defined(_MSC_VER)
+#define SE_COMPILER_MSVC
+#else
+#error "Unknown compiler! StarEngine only supports MSVC, GCC, and Clang."
 #endif
 
-#ifdef SE_DIST
-#define SE_ENABLE_VERIFY
+//------------------------------------------------------------------------------
+// Function Inlining & Static Declaration
+//------------------------------------------------------------------------------
+
+#if defined(SE_COMPILER_MSVC)
+#define SE_FORCE_INLINE    __forceinline
+#define SE_EXPLICIT_STATIC static
+#elif defined(SE_COMPILER_GCC) || defined(SE_COMPILER_CLANG)
+#define SE_FORCE_INLINE    __attribute__((always_inline)) inline
+#define SE_EXPLICIT_STATIC
+#else
+#define SE_FORCE_INLINE    inline
+#define SE_EXPLICIT_STATIC
 #endif
 
-#define SE_EXPAND_MACRO(x) x
-#define SE_STRINGIFY_MACRO(x) #x
-
-#define BIT(x) (1 << x)
-
-#define SE_BIND_EVENT_FN(fn) [this](auto&&... args) -> decltype(auto) { return this->fn(std::forward<decltype(args)>(args)...); }
-
+// Pointer wrappers
 namespace StarEngine {
+	template<typename T>
+	T RoundDown(T x, T fac) { return x / fac * fac; }
 
+	template<typename T>
+	T RoundUp(T x, T fac) { return RoundDown(x + fac - 1, fac); }
+
+	// Pointer wrappers
 	template<typename T>
 	using Scope = std::unique_ptr<T>;
 	template<typename T, typename ... Args>
@@ -38,14 +72,42 @@ namespace StarEngine {
 		return std::make_unique<T>(std::forward<Args>(args)...);
 	}
 
-	template<typename T>
-	using Ref = std::shared_ptr<T>;
-	template<typename T, typename ... Args>
-	constexpr Ref<T> CreateRef(Args&& ... args)
-	{
-		return std::make_shared<T>(std::forward<Args>(args)...);
-	}
-}
+	using byte = uint8_t;
 
-#include "StarEngine/Core/Log.h"
-#include "StarEngine/Core/Assert.h"
+	/** A simple wrapper for std::atomic_flag to avoid confusing
+		function names usage. The object owning it can still be
+		default copyable, but the copied flag is going to be reset.
+	*/
+	struct AtomicFlag
+	{
+		SE_FORCE_INLINE void SetDirty() { flag.clear(); }
+		SE_FORCE_INLINE bool CheckAndResetIfDirty() { return !flag.test_and_set(); }
+
+		explicit AtomicFlag() noexcept { flag.test_and_set(); }
+		AtomicFlag(const AtomicFlag&) noexcept {}
+		AtomicFlag& operator=(const AtomicFlag&) noexcept { return *this; }
+		AtomicFlag(AtomicFlag&&) noexcept {};
+		AtomicFlag& operator=(AtomicFlag&&) noexcept { return *this; }
+
+	private:
+		std::atomic_flag flag;
+	};
+
+	struct Flag
+	{
+		SE_FORCE_INLINE void SetDirty() noexcept { flag = true; }
+		SE_FORCE_INLINE bool CheckAndResetIfDirty() noexcept
+		{
+			if (flag)
+				return !(flag = !flag);
+			else
+				return false;
+		}
+
+		SE_FORCE_INLINE bool IsDirty() const noexcept { return flag; }
+
+	private:
+		bool flag = false;
+	};
+
+}

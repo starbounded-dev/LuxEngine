@@ -3,6 +3,8 @@
 #include <string>
 #include <filesystem>
 
+#include <StarEngine/Core/Assert.h>
+
 #include "StarEngine/Asset/RuntimeAssetManager.h"
 #include "StarEngine/Asset/EditorAssetManager.h"
 

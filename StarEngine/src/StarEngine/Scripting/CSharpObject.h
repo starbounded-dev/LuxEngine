@@ -10,9 +10,7 @@ namespace StarEngine {
 		template<typename... TArgs>
 		void Invoke(std::string_view methodName, TArgs&&... args)
 		{
-			if (!m_Handle)
-				return;
-
+			SE_CORE_VERIFY(m_Handle != nullptr);
 			m_Handle->InvokeMethod(methodName, std::forward<TArgs>(args)...);
 		}
 

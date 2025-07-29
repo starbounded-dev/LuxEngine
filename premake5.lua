@@ -3,6 +3,10 @@ include "Dependencies.lua"
 
 workspace "StarEngine"
 	startproject "StarEditor"
+	architecture "x86_64"
+	conformancemode "On"
+	cppdialect "C++20"
+	staticruntime "off"
 
 	configurations
 	{

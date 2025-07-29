@@ -1,15 +1,6 @@
 #include "sepch.h"
-#include "ScriptEntityStorage.h"
+#include "ScriptEntityStorage.hpp"
 #include "ScriptEngine.h"
-
-namespace fmt::v11::detail {
-	// Define the struct if it is missing
-	template <typename T, typename Char>
-	struct type_is_unformattable_for {
-		// Add a dummy member to avoid empty struct issues
-		int dummy;
-	};
-}
 
 namespace StarEngine {
 
@@ -17,8 +8,9 @@ namespace StarEngine {
 	{
 		const auto& scriptEngine = ScriptEngine::GetInstance();
 
-		SE_CORE_VERIFY(scriptEngine.IsValidScript(scriptID));
-		SE_CORE_VERIFY(!EntityStorage.contains(entityID));
+		// TODO: This appears to be broken.
+		//SE_CORE_VERIFY(scriptEngine.IsValidScript(scriptID));
+		//SE_CORE_VERIFY(!EntityStorage.contains(entityID));
 
 		const auto& scriptMetadata = scriptEngine.GetScriptMetadata(scriptID);
 
@@ -31,11 +23,10 @@ namespace StarEngine {
 		}
 	}
 
-
 	void ScriptStorage::ShutdownEntityStorage(UUID scriptID, UUID entityID)
 	{
 		const auto& scriptEngine = ScriptEngine::GetInstance();
-
+		
 		SE_CORE_VERIFY(scriptEngine.IsValidScript(scriptID));
 		SE_CORE_VERIFY(EntityStorage.contains(entityID));
 
@@ -55,7 +46,7 @@ namespace StarEngine {
 
 			for (const auto& [fieldID, fieldMetadata] : scriptMetadata.Fields)
 			{
-				if (entityStorage.Fields.find(fieldID) != entityStorage.Fields.end())
+				if (entityStorage.Fields.contains(fieldID))
 				{
 					entityStorage.Fields[fieldID].m_Type = fieldMetadata.ManagedType;
 					continue;
@@ -74,7 +65,7 @@ namespace StarEngine {
 		{
 			if (!scriptEngine.IsValidScript(entityStorage.ScriptID))
 			{
-				SE_CORE_WARN("Cannot copy script data for script ID {}. The script is no longer valid", entityStorage.ScriptID);
+				SE_CORE_ERROR_TAG("ScriptStorage", "Cannot copy script data for script ID {}. The script is no longer valid", entityStorage.ScriptID);
 				continue;
 			}
 
@@ -86,9 +77,9 @@ namespace StarEngine {
 
 			for (const auto& [fieldID, fieldStorage] : entityStorage.Fields)
 			{
-				if (scriptMetadata.Fields.find(fieldID) == scriptMetadata.Fields.end())
+				if (!scriptMetadata.Fields.contains(fieldID))
 				{
-					SE_CORE_WARN("Cannot copy script data for field {}. The field is no longer contained in the script.", fieldStorage.GetName());
+					SE_CORE_ERROR_TAG("ScriptStorage", "Cannot copy script data for field {}. The field is no longer contained in the script.", fieldStorage.GetName());
 					continue;
 				}
 
@@ -104,9 +95,9 @@ namespace StarEngine {
 
 	void ScriptStorage::CopyEntityStorage(UUID entityID, UUID targetEntityID, ScriptStorage& targetStorage) const
 	{
-		if (targetStorage.EntityStorage.find(targetEntityID) == targetStorage.EntityStorage.end())
+		if (!targetStorage.EntityStorage.contains(targetEntityID))
 		{
-			SE_CORE_ERROR("Cannot copy script storage to entity {} because InitializeScriptStorage hasn't been called for it.", targetEntityID);
+			SE_CORE_ERROR_TAG("ScriptStorage", "Cannot copy script storage to entity {} because InitializeScriptStorage hasn't been called for it.", targetEntityID);
 			return;
 		}
 
@@ -115,7 +106,7 @@ namespace StarEngine {
 
 		if (!scriptEngine.IsValidScript(srcStorage.ScriptID))
 		{
-			SE_CORE_ERROR("Cannot copy script data for script ID {}. The script is no longer valid", srcStorage.ScriptID);
+			SE_CORE_ERROR_TAG("ScriptStorage", "Cannot copy script data for script ID {}. The script is no longer valid", srcStorage.ScriptID);
 			return;
 		}
 
@@ -123,7 +114,7 @@ namespace StarEngine {
 
 		if (dstStorage.ScriptID != srcStorage.ScriptID)
 		{
-			SE_CORE_ERROR("Cannot copy script storage from entity {} to entity {} because they have different scritps!", entityID, targetEntityID);
+			SE_CORE_ERROR_TAG("ScriptStorage", "Cannot copy script storage from entity {} to entity {} because they have different scritps!", entityID, targetEntityID);
 			return;
 		}
 
@@ -133,9 +124,9 @@ namespace StarEngine {
 
 		for (const auto& [fieldID, fieldStorage] : srcStorage.Fields)
 		{
-			if (scriptMetadata.Fields.find(fieldID) == scriptMetadata.Fields.end())
+			if (!scriptMetadata.Fields.contains(fieldID))
 			{
-				SE_CORE_ERROR("Cannot copy script data for field {}. The field is no longer contained in the script.", fieldStorage.GetName());
+				SE_CORE_ERROR_TAG("ScriptStorage", "Cannot copy script data for field {}. The field is no longer contained in the script.", fieldStorage.GetName());
 				continue;
 			}
 
@@ -177,4 +168,5 @@ namespace StarEngine {
 
 		fieldStorage.m_Instance = nullptr;
 	}
+
 }

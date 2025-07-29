@@ -1,19 +1,18 @@
-[submodule "StarEngine/vendor/spdlog"]
-	path = StarEngine/vendor/spdlog
-	url = ../../gabime/spdlog.git
-	branch = v1.x
 [submodule "StarEngine/vendor/GLFW"]
 	path = StarEngine/vendor/GLFW
 	url = ../../starbounded-dev/glfw.git
 	branch = master
+
 [submodule "StarEngine/vendor/imgui"]
 	path = StarEngine/vendor/imgui
 	url = ../../starbounded-dev/imgui.git
 	branch = docking
+
 [submodule "StarEngine/vendor/glm"]
 	path = StarEngine/vendor/glm
 	url = ../../g-truc/glm.git
 	branch = master
+
 [submodule "StarEngine/vendor/yaml-cpp"]
 	path = StarEngine/vendor/yaml-cpp
 	url = https://github.com/sheazywi/yaml-cpp
@@ -29,3 +28,4 @@
 [submodule "StarEngine/vendor/Coral"]
 	path = StarEngine/vendor/Coral
 	url = https://github.com/StudioCherno/Coral.git
+	branch = dev

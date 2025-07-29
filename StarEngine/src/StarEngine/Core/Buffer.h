@@ -1,51 +1,72 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
+#include "StarEngine/Core/Assert.h"
 
-#include <stdint.h>
-#include <cstring>
+#include <array>
+
+#include "Memory.h"
 
 namespace StarEngine {
 
-	// Non-owning raw buffer class
 	struct Buffer
 	{
-		uint8_t* Data = nullptr;
+		void* Data = nullptr;
 		uint64_t Size = 0;
 
 		Buffer() = default;
 
-		Buffer(uint64_t size)
-		{
-			Allocate(size);
-		}
-
 		Buffer(const void* data, uint64_t size)
-			: Data((uint8_t*)data), Size(size)
+			: Data((void*)data), Size(size) {
+		}
+
+		template<typename T, size_t S>
+		Buffer(const std::array<T, S>& array)
+			: Data(array.data()), Size(array.size() * sizeof(T)) {
+		}
+
+		template<typename T>
+		Buffer(const std::vector<T>& vector)
+			: Data(vector.data()), Size(vector.size() * sizeof(T))
 		{
 		}
 
-		Buffer(const Buffer&) = default;
-
-		static Buffer Copy(Buffer other)
+		static Buffer Copy(const Buffer& other)
 		{
-			Buffer result(other.Size);
-			memcpy(result.Data, other.Data, other.Size);
+			Buffer buffer;
+			buffer.Allocate(other.Size);
+			memcpy(buffer.Data, other.Data, other.Size);
+			return buffer;
+		}
 
-			return result;
+		static Buffer Copy(const void* data, uint64_t size)
+		{
+			Buffer buffer;
+			buffer.Allocate(size);
+			if (size) memcpy(buffer.Data, data, size);
+			return buffer;
 		}
 
 		void Allocate(uint64_t size)
 		{
-			Release();
-
-			Data = (uint8_t*)malloc(size);
+			delete[](byte*)Data;
+			Data = nullptr;
 			Size = size;
+
+			if (size == 0)
+				return;
+
+			Data = snew byte[size];
+		}
+
+		void Reallocate(uint64_t size)
+		{
+			Release();
+			Allocate(size);
 		}
 
 		void Release()
 		{
-			free(Data);
+			delete[](byte*)Data;
 			Data = nullptr;
 			Size = 0;
 		}
@@ -59,27 +80,32 @@ namespace StarEngine {
 		template<typename T>
 		T& Read(uint64_t offset = 0)
 		{
-			return *(T*)((uint8_t*)Data + offset); // Replace 'byte' with 'uint8_t'
+			return *(T*)((byte*)Data + offset);
 		}
 
 		template<typename T>
 		const T& Read(uint64_t offset = 0) const
 		{
-			return *(T*)((uint8_t*)Data + offset);
+			return *(T*)((byte*)Data + offset);
 		}
 
-		uint8_t* ReadBytes(uint32_t size, uint32_t offset)
+		byte* ReadBytes(uint64_t size, uint64_t offset) const
 		{
 			SE_CORE_ASSERT(offset + size <= Size, "Buffer overflow!");
-			uint8_t* buffer = new uint8_t[size];
-			memcpy(buffer, (uint8_t*)Data + offset, size);
+			byte* buffer = snew byte[size];
+			memcpy(buffer, (byte*)Data + offset, size);
 			return buffer;
+		}
+
+		void Write(Buffer buffer, uint64_t offset = 0)
+		{
+			SE_CORE_ASSERT(offset + buffer.Size <= Size, "Buffer overflow!");
+			memcpy((byte*)Data + offset, buffer.Data, buffer.Size);
 		}
 
 		void Write(const void* data, uint64_t size, uint64_t offset = 0)
 		{
-			SE_CORE_ASSERT(offset + size <= Size, "Buffer overflow!");
-			memcpy((uint8_t*)Data + offset, data, size);
+			Write(Buffer(data, size), offset);
 		}
 
 		operator bool() const
@@ -87,11 +113,23 @@ namespace StarEngine {
 			return (bool)Data;
 		}
 
+		byte& operator[](int index)
+		{
+			return ((byte*)Data)[index];
+		}
+
+		byte operator[](int index) const
+		{
+			return ((byte*)Data)[index];
+		}
+
 		template<typename T>
 		T* As() const
 		{
 			return (T*)Data;
 		}
+
+		inline uint64_t GetSize() const { return Size; }
 	};
 
 	struct BufferSafe : public Buffer
@@ -109,37 +147,4 @@ namespace StarEngine {
 			return buffer;
 		}
 	};
-
-	struct ScopedBuffer
-	{
-		ScopedBuffer(Buffer buffer)
-			: m_Buffer(buffer)
-		{
-		}
-
-		ScopedBuffer(uint64_t size)
-			: m_Buffer(size)
-		{
-		}
-
-		~ScopedBuffer()
-		{
-			m_Buffer.Release();
-		}
-
-		uint8_t* Data() { return (uint8_t*)m_Buffer.Data; }
-		uint64_t Size() { return m_Buffer.Size; }
-
-		template<typename T>
-		T* As()
-		{
-			return m_Buffer.As<T>();
-		}
-
-		operator bool() const { return m_Buffer; }
-
-	private:
-		Buffer m_Buffer;
-	};
-
 }

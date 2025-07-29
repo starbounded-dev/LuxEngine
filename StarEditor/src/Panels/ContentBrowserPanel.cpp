@@ -10,7 +10,7 @@
 namespace StarEngine {
 
 	ContentBrowserPanel::ContentBrowserPanel(Ref<Project> project)
-		: m_Project(project), m_ThumbnailCache(CreateRef<ThumbnailCache>(project)), m_BaseDirectory(m_Project->GetAssetDirectory()), m_CurrentDirectory(m_BaseDirectory)
+		: m_Project(project), m_ThumbnailCache(Ref<ThumbnailCache>::Create(project)), m_BaseDirectory(m_Project->GetAssetDirectory()), m_CurrentDirectory(m_BaseDirectory)
 	{
 		m_TreeNodes.push_back(TreeNode(".", 0));
 

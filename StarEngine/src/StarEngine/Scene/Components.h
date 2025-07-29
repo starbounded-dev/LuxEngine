@@ -110,44 +110,28 @@ namespace StarEngine {
 
 	struct CameraComponent
 	{
-		Ref<SceneCamera> Camera;
-		bool Primary = true; // TODO: think about moving to Scene
-		bool FixedAspectRatio = false;
+		enum class Type { None = -1, Perspective, Orthographic };
+		Type ProjectionType;
+
+		SceneCamera Camera;
+		bool Primary = true;
 
 		CameraComponent() = default;
-		//CameraComponent(const CameraComponent& other) = default;
-		CameraComponent(const CameraComponent& other)
-		{
-			Camera = other.Camera;
-			Primary = other.Primary;
-			FixedAspectRatio = other.FixedAspectRatio;
-		}
+		CameraComponent(const CameraComponent& other) = default;
 
-		operator SceneCamera& () { return *Camera.get(); }
-		operator const SceneCamera& () const { return *Camera.get(); }
+		operator SceneCamera& () { return Camera; }
+		operator const SceneCamera& () const { return Camera; }
 	};
 
 
 	struct ScriptComponent
 	{
-		AssetHandle ScriptHandle = 0;
+		UUID ScriptID = 0;
 		CSharpObject Instance;
 		std::vector<uint32_t> FieldIDs;
-		bool HasInitializedScript = false;
 
-		// NOTE: Gets set to true when OnCreate has been called for this entity
+		// NOTE(Peter): Gets set to true when OnCreate has been called for this entity
 		bool IsRuntimeInitialized = false;
-
-		ScriptComponent() = default;
-		//ScriptComponent(const ScriptComponent& other) = default;
-		ScriptComponent(const ScriptComponent& other)
-		{
-			ScriptHandle = other.ScriptHandle;
-			Instance = other.Instance;
-			FieldIDs = other.FieldIDs;
-			HasInitializedScript = other.HasInitializedScript;
-			IsRuntimeInitialized = other.IsRuntimeInitialized;
-		}
 	};
 
 
@@ -155,19 +139,19 @@ namespace StarEngine {
 
 	struct RigidBody2DComponent
 	{
-		enum class BodyType
-		{
-			Static = 0, Dynamic, Kinematic
-		};
-
-		BodyType Type = BodyType::Static;
+		enum class Type { None = -1, Static, Dynamic, Kinematic };
+		Type BodyType;
 		bool FixedRotation = false;
-
+		float Mass = 1.0f;
+		float LinearDrag = 0.01f;
+		float AngularDrag = 0.05f;
+		float GravityScale = 1.0f;
+		bool IsBullet = false;
 		// Storage for runtime
 		void* RuntimeBody = nullptr;
 
 		RigidBody2DComponent() = default;
-		RigidBody2DComponent(const RigidBody2DComponent&) = default;
+		RigidBody2DComponent(const RigidBody2DComponent& other) = default;
 	};
 
 	struct BoxCollider2DComponent
@@ -205,6 +189,31 @@ namespace StarEngine {
 		CircleCollider2DComponent() = default;
 		CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
 	};
+	/*
+	struct RigidBodyComponent
+	{
+		EBodyType BodyType = EBodyType::Static;
+		uint32_t LayerID = 0;
+		bool EnableDynamicTypeChange = false;
+
+		float Mass = 1.0f;
+		float LinearDrag = 0.01f;
+		float AngularDrag = 0.05f;
+		bool DisableGravity = false;
+		bool IsTrigger = false;
+		ECollisionDetectionType CollisionDetection = ECollisionDetectionType::Discrete;
+
+		glm::vec3 InitialLinearVelocity = glm::vec3(0.0f);
+		glm::vec3 InitialAngularVelocity = glm::vec3(0.0f);
+
+		float MaxLinearVelocity = 500.0f;
+		float MaxAngularVelocity = 50.0f;
+
+		EActorAxis LockedAxes = EActorAxis::None;
+
+		RigidBodyComponent() = default;
+		RigidBodyComponent(const RigidBodyComponent& other) = default;
+	};*/
 
 	struct TextComponent
 	{

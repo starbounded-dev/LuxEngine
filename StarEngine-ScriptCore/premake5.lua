@@ -1,13 +1,20 @@
 project "StarEngine-ScriptCore"
 	kind "SharedLib"
 	language "C#"
-	dotnetframework "net8.0"
+	dotnetframework "net9.0"
 	clr "Unsafe"
 
 	namespace "StarEngine"
 
 	targetdir ("%{wks.location}/StarEditor/Resources/Scripts")
 	objdir ("%{wks.location}/StarEditor/Resources/Scripts/Intermediates")
+
+	vsprops {
+			AppendTargetFrameworkToOutputPath = "false",
+			Nullable = "enable",
+			CopyLocalLockFileAssemblies = "true",
+			EnableDynamicLoading = "true",
+		}
 
 	files 
 	{

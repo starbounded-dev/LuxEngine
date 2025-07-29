@@ -4,7 +4,6 @@
 #include "StarEngine/Core/Timestep.h"
 #include "StarEngine/Core/UUID.h"
 #include "StarEngine/Renderer/EditorCamera.h"
-#include "StarEngine/Scripting/ScriptEntityStorage.h"
 
 #include "entt.hpp"
 
