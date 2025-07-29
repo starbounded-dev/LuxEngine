@@ -31,6 +31,9 @@ project "StarEngine"
 	{
 		"_CRT_SECURE_NO_WARNINGS",
 		"GLFW_INCLUDE_NONE",
+		"TRACY_ENABLE",
+		"TRACY_ON_DEMAND",
+		"TRACY_CALLSTACK=10",
 		"YAML_CPP_STATIC_DEFINE"
 	}
 
@@ -67,7 +70,10 @@ project "StarEngine"
 		"yaml-cpp",
 		"msdf-atlas-gen",
 		"Box2D",
-		"dwmapi.lib"
+		"DbgHelp",
+		"dwmapi.lib",
+
+		"%{Library.Tracy}",
 	}
 
 	filter "files:vendor/imguizmo/**.cpp"

@@ -40,6 +40,7 @@ group "Dependencies"
 	include "StarEngine/vendor/GLAD"
 	include "StarEngine/vendor/imgui"
 	include "StarEngine/vendor/yaml-cpp"
+	include "StarEngine/vendor/tracy"
 group ""
 
 group "Dependencies - Mono"

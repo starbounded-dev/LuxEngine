@@ -16,7 +16,7 @@ namespace StarEngine
 	Application::Application(const ApplicationSpecification& specification)
 		: m_Specification(specification)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Application::Application");
 
 		SE_CORE_ASSERT(!s_Instance, "Application already exists!");
 		s_Instance = this;
@@ -36,7 +36,7 @@ namespace StarEngine
 
 	Application::~Application()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Application::~Application");
 
 		ScriptEngine::GetMutable().ShutdownHost();
 		Renderer::Shutdown();
@@ -44,7 +44,7 @@ namespace StarEngine
 
 	void Application::PushLayer(Layer* layer)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Application::PushLayer");
 
 		m_LayerStack.PushLayer(layer);
 		layer->OnAttach();
@@ -52,7 +52,7 @@ namespace StarEngine
 
 	void Application::PushOverlay(Layer* layer)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Application::PushOverlay");
 
 		m_LayerStack.PushOverlay(layer);
 		layer->OnAttach();
@@ -72,7 +72,7 @@ namespace StarEngine
 
 	void Application::OnEvent(Event& e)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Application::OnEvent");
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<WindowCloseEvent>(SE_BIND_EVENT_FN(Application::OnWindowClose));
@@ -88,7 +88,7 @@ namespace StarEngine
 
 	void Application::Run()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Application::Run");
 
 		while (m_Running)
 		{
@@ -120,6 +120,7 @@ namespace StarEngine
 			}
 
 			m_Window->OnUpdate();
+			SE_PROFILE_MARK_FRAME;
 		}
 	}
 
@@ -131,7 +132,7 @@ namespace StarEngine
 
 	bool Application::OnWindowResize(WindowResizeEvent& e)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Application::OnWindowResize");
 
 		if (e.GetWidth() == 0 || e.GetHeight() == 0)
 		{

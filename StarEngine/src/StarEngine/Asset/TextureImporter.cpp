@@ -9,20 +9,20 @@ namespace StarEngine {
 
 	Ref<Texture2D> TextureImporter::ImportTexture2D(AssetHandle handle, const AssetMetadata& metadata)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("TextureImporter::ImportTexture2D");
 
 		return LoadTexture2D(Project::GetActiveAssetDirectory() / metadata.FilePath);
 	}
 
 	Ref<Texture2D> TextureImporter::LoadTexture2D(const std::filesystem::path& path)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("TextureImporter::LoadTexture2D");
 		int width, height, channels;
 		stbi_set_flip_vertically_on_load(1);
 		Buffer data;
 
 		{
-			//SE_PROFILE_SCOPE("stbi_load - TextureImporter::ImportTexture2D");
+			SE_PROFILE_SCOPE("stbi_load - TextureImporter::ImportTexture2D");
 			std::string pathStr = path.string();
 			data.Data = stbi_load(pathStr.c_str(), &width, &height, &channels, 4);
 			channels = 4;

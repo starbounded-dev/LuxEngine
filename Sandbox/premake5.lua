@@ -20,8 +20,10 @@ project "Sandbox"
 		"%{wks.location}/StarEngine/vendor",
 		"%{IncludeDir.glm}",
 		"%{IncludeDir.entt}",
-		"%{IncludeDir.miniaudio}",
 		"%{IncludeDir.Coral}",
+		"%{IncludeDir.Tracy}",
+		"%{IncludeDir.GLAD}",
+		"%{IncludeDir.miniaudio}"
 	}
 
 	links
@@ -29,6 +31,15 @@ project "Sandbox"
 		"StarEngine",
 		"yaml-cpp",
 		"%{Library.Coral}",
+		"GLAD",
+		"%{Library.Tracy}"
+	}
+
+	defines
+	{
+		"TRACY_ENABLE",
+		"TRACY_ON_DEMAND",
+		"TRACY_CALLSTACK=10"
 	}
 
 	filter "system:windows" 

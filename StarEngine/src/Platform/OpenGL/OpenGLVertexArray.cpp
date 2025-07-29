@@ -28,35 +28,35 @@ namespace StarEngine {
 
 	OpenGLVertexArray::OpenGLVertexArray()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexArray::OpenGLVertexArray");
 
 		glCreateVertexArrays(1, &m_RendererID);
 	}
 
 	OpenGLVertexArray::~OpenGLVertexArray()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexArray::~OpenGLVertexArray");
 
 		glDeleteVertexArrays(1, &m_RendererID);
 	}
 
 	void OpenGLVertexArray::Bind() const
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexArray::Bind");
 
 		glBindVertexArray(m_RendererID);
 	}
 
 	void OpenGLVertexArray::Unbind() const
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexArray::Unbind");
 
 		glBindVertexArray(0);
 	}
 
 	void OpenGLVertexArray::AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexArray::AddVertexBuffer");
 
 		SE_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!");
 
@@ -126,7 +126,7 @@ namespace StarEngine {
 
 	void OpenGLVertexArray::SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexArray::SetIndexBuffer");
 
 		glBindVertexArray(m_RendererID);
 		indexBuffer->Bind();

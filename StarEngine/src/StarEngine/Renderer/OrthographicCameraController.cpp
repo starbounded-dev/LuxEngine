@@ -13,7 +13,7 @@ namespace StarEngine {
 	}
 	void OrthographicCameraController::OnUpdate(Timestep ts)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OrthographicCameraController::OnUpdate");
 
 		if (Input::IsKeyPressed(Key::A))
 		{
@@ -59,7 +59,7 @@ namespace StarEngine {
 
 	void OrthographicCameraController::OnEvent(Event& e)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OrthographicCameraController::OnEvent");
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<MouseScrolledEvent>(SE_BIND_EVENT_FN(OrthographicCameraController::OnMouseScrolled));
@@ -74,7 +74,7 @@ namespace StarEngine {
 
 	bool OrthographicCameraController::OnMouseScrolled(MouseScrolledEvent& e)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OrthographicCameraController::OnMouseScrolled");
 
 		m_ZoomLevel -= e.GetYOffset() * 0.25f;
 		m_ZoomLevel = std::max(m_ZoomLevel, 0.25f);
@@ -85,7 +85,7 @@ namespace StarEngine {
 
 	bool OrthographicCameraController::OnWindowResized(WindowResizeEvent& e)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OrthographicCameraController::OnWindowResized");
 
 		m_AspectRatio = (float)e.GetWidth() / (float)e.GetHeight();
 		m_Bounds = { -m_AspectRatio * m_ZoomLevel, m_AspectRatio * m_ZoomLevel, -m_ZoomLevel, m_ZoomLevel };

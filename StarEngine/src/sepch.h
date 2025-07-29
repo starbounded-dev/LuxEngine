@@ -29,12 +29,10 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-
 #include <StarEngine/Core/Assert.h>
 #include <StarEngine/Core/Base.h>
 #include <StarEngine/Core/Log.h>
 #include <StarEngine/Core/Memory.h>
 #include <StarEngine/Core/Delegate.h>
 #include <StarEngine/Core/Ref.h>
-
-#include <StarEngine/Debug/Instrumentor.h>
+#include "StarEngine/Debug/Profiler.h"

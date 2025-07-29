@@ -18,19 +18,19 @@ Sandbox2D::Sandbox2D()
 
 void Sandbox2D::OnAttach()
 {
-	SE_PROFILE_FUNCTION();
+	SE_PROFILE_FUNCTION("Sandbox2D::OnAttach");
 
 	//m_CheckerboardTexture = StarEngine::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
 }
 
 void Sandbox2D::OnDetach()
 {
-	SE_PROFILE_FUNCTION();
+	SE_PROFILE_FUNCTION("Sandbox2D::OnDetach");
 }
 
 void Sandbox2D::OnUpdate(StarEngine::Timestep ts)
 {
-	SE_PROFILE_FUNCTION();
+	SE_PROFILE_FUNCTION("Sandbox2D::OnUpdate");
 
 	// Update
 	m_CameraController.OnUpdate(ts);
@@ -50,14 +50,14 @@ void Sandbox2D::OnUpdate(StarEngine::Timestep ts)
 
 		StarEngine::Renderer2D::BeginScene(m_CameraController.GetCamera());
 		//StarEngine::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, m_CheckerboardTexture, 10.0f);
-		StarEngine::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, rotation, { 0.8f, 0.2f, 0.3f, 1.0f });
+		//StarEngine::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, rotation, { 0.8f, 0.2f, 0.3f, 1.0f });
 		StarEngine::Renderer2D::EndScene();
 	}
 }
 
 void Sandbox2D::OnImGuiRender()
 {
-	SE_PROFILE_FUNCTION();
+	SE_PROFILE_FUNCTION("Sandbox2D::OnImGuiRender");
 
 	ImGuiContext& g = *GImGui;
 	ImGuiIO& io = g.IO;

@@ -122,7 +122,7 @@ namespace StarEngine {
 
 	void Renderer2D::Init()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::Init");
 
 		s_Data.QuadVertexArray = VertexArray::Create();
 
@@ -227,14 +227,14 @@ namespace StarEngine {
 
 	void Renderer2D::Shutdown()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::Shutdown");
 
 		delete[] s_Data.QuadVertexBufferBase;
 	}
 
 	void Renderer2D::BeginScene(const OrthographicCamera& camera)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::BeginScene");
 
 		s_Data.CameraBuffer.ViewProjection = camera.GetViewProjectionMatrix();
 		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
@@ -244,7 +244,7 @@ namespace StarEngine {
 
 	void Renderer2D::BeginScene(const Camera& camera, const glm::mat4& transform)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::BeginScene");
 
 		s_Data.CameraBuffer.ViewProjection = camera.GetProjection() * glm::inverse(transform);
 		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
@@ -254,7 +254,7 @@ namespace StarEngine {
 
 	void Renderer2D::BeginScene(const EditorCamera& camera)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::BeginScene");
 
 		s_Data.CameraBuffer.ViewProjection = camera.GetViewProjection();
 		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
@@ -264,7 +264,7 @@ namespace StarEngine {
 
 	void Renderer2D::EndScene()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::EndScene");
 
 		Flush();
 	}
@@ -352,7 +352,7 @@ namespace StarEngine {
 
 	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::DrawQuad");
 
 		glm::mat4 transform = glm::translate(glm::mat4(1.0f), position)
 			* glm::scale(glm::mat4(1.0f), { size.x, size.y, 1.0f });
@@ -367,7 +367,7 @@ namespace StarEngine {
 
 	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::DrawQuad");
 
 		glm::mat4 transform = glm::translate(glm::mat4(1.0f), position)
 			* glm::scale(glm::mat4(1.0f), { size.x, size.y, 1.0f });
@@ -377,7 +377,7 @@ namespace StarEngine {
 
 	void Renderer2D::DrawQuad(const glm::mat4& transform, const glm::vec4& color, int entityID)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::DrawQuad");
 
 		constexpr size_t quadVertexCount = 4;
 		const float textureIndex = 0.0f; // White Texture
@@ -405,7 +405,7 @@ namespace StarEngine {
 
 	void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor, int entityID)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::DrawQuad");
 		SE_CORE_VERIFY(texture);
 
 		constexpr size_t quadVertexCount = 4;
@@ -457,7 +457,7 @@ namespace StarEngine {
 
 	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const glm::vec4& color)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::DrawRotatedQuad");
 
 		glm::mat4 transform = glm::translate(glm::mat4(1.0f), position)
 			* glm::rotate(glm::mat4(1.0f), glm::radians(rotation), { 0.0f, 0.0f, 1.0f })
@@ -473,7 +473,7 @@ namespace StarEngine {
 
 	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::DrawRotatedQuad");
 
 		glm::mat4 transform = glm::translate(glm::mat4(1.0f), position)
 			* glm::rotate(glm::mat4(1.0f), glm::radians(rotation), { 0.0f, 0.0f, 1.0f })
@@ -484,7 +484,7 @@ namespace StarEngine {
 
 	void Renderer2D::DrawCircle(const glm::mat4& transform, const glm::vec4& color, float thickness /*= 1.0f*/, float fade /*= 0.005f*/, int entityID /*= -1*/)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer2D::DrawCircle");
 
 		// TODO: implement for circles
 		// if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)

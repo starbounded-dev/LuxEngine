@@ -14,7 +14,7 @@ namespace StarEngine {
 
 	void OpenGLContext::Init()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLContext::Init");
 
 		glfwMakeContextCurrent(m_WindowHandle);
 		int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
@@ -30,7 +30,7 @@ namespace StarEngine {
 
 	void OpenGLContext::SwapBuffers()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLContext::SwapBuffers");
 
 		glfwSwapBuffers(m_WindowHandle);
 	}

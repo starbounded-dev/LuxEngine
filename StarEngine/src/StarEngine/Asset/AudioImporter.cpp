@@ -10,7 +10,7 @@ namespace StarEngine {
 
 	Ref<AudioSource> AudioImporter::ImportAudio(AssetHandle handle, const AssetMetadata& metadata)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("AudioImporter::ImportAudio");
 
 		return LoadAudio(Project::GetActiveAssetDirectory() / metadata.FilePath);
 	}

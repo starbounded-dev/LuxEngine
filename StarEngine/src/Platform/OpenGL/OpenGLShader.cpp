@@ -88,7 +88,7 @@ namespace StarEngine {
 	OpenGLShader::OpenGLShader(const std::string& filepath)
 		: m_FilePath(filepath)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::OpenGLShader");
 
 		Utils::CreateCacheDirectoryIfNeeded();
 
@@ -114,7 +114,7 @@ namespace StarEngine {
 	OpenGLShader::OpenGLShader(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
 		: m_Name(name)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::OpenGLShader");
 
 		std::unordered_map<GLenum, std::string> sources;
 		sources[GL_VERTEX_SHADER] = vertexSrc;
@@ -127,14 +127,14 @@ namespace StarEngine {
 
 	OpenGLShader::~OpenGLShader()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::~OpenGLShader");
 
 		glDeleteProgram(m_RendererID);
 	}
 
 	std::string OpenGLShader::ReadFile(const std::string& filepath)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::ReadFile");
 
 		std::string result;
 		std::ifstream in(filepath, std::ios::in | std::ios::binary); // ifstream closes itself due to RAII
@@ -163,7 +163,7 @@ namespace StarEngine {
 
 	std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(const std::string& source)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::PreProcess");
 
 		std::unordered_map<GLenum, std::string> shaderSources;
 
@@ -370,21 +370,21 @@ namespace StarEngine {
 
 	void OpenGLShader::Bind() const
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::Bind");
 
 		glUseProgram(m_RendererID);
 	}
 
 	void OpenGLShader::Unbind() const
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::Unbind");
 
 		glUseProgram(0);
 	}
 
 	void OpenGLShader::SetInt(const std::string& name, int value)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::SetInt");
 
 		UploadUniformInt(name, value);
 	}
@@ -396,35 +396,35 @@ namespace StarEngine {
 
 	void OpenGLShader::SetFloat(const std::string& name, float value)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::SetFloat");
 
 		UploadUniformFloat(name, value);
 	}
 
 	void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& value)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::SetFloat2");
 
 		UploadUniformFloat2(name, value);
 	}
 
 	void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& value)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::SetFloat3");
 
 		UploadUniformFloat3(name, value);
 	}
 
 	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& value)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::SetFloat4");
 
 		UploadUniformFloat4(name, value);
 	}
 
 	void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& value)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLShader::SetMat4");
 
 		UploadUniformMat4(name, value);
 	}

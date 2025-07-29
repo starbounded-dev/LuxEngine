@@ -27,7 +27,7 @@ namespace StarEngine {
 
 	void ImGuiLayer::OnAttach()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("ImGuiLayer::OnAttach");
 
 		// Setup Dear ImGui context
 		IMGUI_CHECKVERSION();
@@ -72,7 +72,7 @@ namespace StarEngine {
 
 	void ImGuiLayer::OnDetach()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("ImGuiLayer::OnDetach");
 
 		ImGui_ImplOpenGL3_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
@@ -90,7 +90,7 @@ namespace StarEngine {
 
 	void ImGuiLayer::Begin()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("ImGuiLayer::Begin");
 
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
@@ -100,7 +100,7 @@ namespace StarEngine {
 
 	void ImGuiLayer::End()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("ImGuiLayer::End");
 
 		ImGuiIO& io = ImGui::GetIO();
 		Application& app = Application::Get();

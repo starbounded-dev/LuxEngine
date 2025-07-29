@@ -24,21 +24,21 @@ namespace StarEngine {
 
 	WindowsWindow::WindowsWindow(const WindowProps& props)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("WindowsWindow::WindowsWindow");
 
 		Init(props);
 	}
 
 	WindowsWindow::~WindowsWindow()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("WindowsWindow::~WindowsWindow");
 
 		Shutdown();
 	}
 
 	void WindowsWindow::Init(const WindowProps& props)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("WindowsWindow::Init");
 
 		m_Data.Title = props.Title;
 		m_Data.Width = props.Width;
@@ -187,7 +187,7 @@ namespace StarEngine {
 
 	void WindowsWindow::Shutdown()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("WindowsWindow::Shutdown");
 
 		glfwDestroyWindow(m_Window);
 		--s_GLFWWindowCount;
@@ -200,7 +200,7 @@ namespace StarEngine {
 
 	void WindowsWindow::OnUpdate()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("WindowsWindow::OnUpdate");
 
 		glfwPollEvents();
 		m_Context->SwapBuffers();
@@ -208,7 +208,7 @@ namespace StarEngine {
 
 	void WindowsWindow::SetVSync(bool enabled)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("WindowsWindow::SetVSync");
 
 		if (enabled)
 			glfwSwapInterval(1);

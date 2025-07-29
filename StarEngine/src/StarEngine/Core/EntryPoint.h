@@ -6,19 +6,15 @@
 
 extern StarEngine::Application* StarEngine::CreateApplication(ApplicationCommandLineArgs args);
 
-	int main(int argc, char** argv) {
-		StarEngine::Log::Init();
+int main(int argc, char** argv)
+{
+	StarEngine::Log::Init();
 
-		SE_PROFILE_BEGIN_SESSION("Startup", "StarEngineProfile-Startup.json");
-		auto app = StarEngine::CreateApplication({ argc, argv });
-		SE_PROFILE_END_SESSION();
+	StarEngine::Application* app = StarEngine::CreateApplication({ argc, argv });
+	SE_CORE_ASSERT(app, "Client Application is null!");
+	app->Run();
+	delete app;
 
-		SE_PROFILE_BEGIN_SESSION("Runtime", "StarEngineProfile-Runtime.json");
-		app->Run();
-		SE_PROFILE_END_SESSION();
-
-		SE_PROFILE_BEGIN_SESSION("Shutdown", "StarEngineProfile-Shutdown.json");
-		delete app;
-		SE_PROFILE_END_SESSION();
-	}
+	return 0;
+}
 #endif

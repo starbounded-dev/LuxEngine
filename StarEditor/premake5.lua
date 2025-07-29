@@ -22,8 +22,10 @@ project "StarEditor"
 		"%{IncludeDir.glm}",
 		"%{IncludeDir.entt}",
 		"%{IncludeDir.ImGuizmo}",
-		"%{IncludeDir.miniaudio}",
+		"%{IncludeDir.Tracy}",
+		"%{IncludeDir.GLAD}",
 		"%{IncludeDir.Coral}",
+		"%{IncludeDir.miniaudio}"
 	}
 
 	links
@@ -31,8 +33,15 @@ project "StarEditor"
 		"StarEngine",
 		
 		"yaml-cpp",
+		"GLAD",
+		"%{Library.Tracy}"
+	}
 
-		"%{Library.Coral}",
+	defines
+	{
+		"TRACY_ENABLE",
+		"TRACY_ON_DEMAND",
+		"TRACY_CALLSTACK=10"
 	}
 
 	filter "system:windows" 

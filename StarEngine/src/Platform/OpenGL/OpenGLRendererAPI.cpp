@@ -27,7 +27,7 @@ namespace StarEngine
 
 	void OpenGLRendererAPI::Init()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLRendererAPI::Init");
 
 		#ifdef SE_DEBUG
 				glEnable(GL_DEBUG_OUTPUT);
@@ -59,6 +59,8 @@ namespace StarEngine
 	}
 	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount)
 	{
+		SE_PROFILE_GPU_SCOPE("OpenGLRendererAPI::DrawIndexed");
+
 		vertexArray->Bind();
 		uint32_t count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
 		glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nullptr);
@@ -66,12 +68,16 @@ namespace StarEngine
 
 	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, uint32_t vertexCount)
 	{
+		SE_PROFILE_GPU_SCOPE("OpenGLRendererAPI::DrawLines");
+
 		vertexArray->Bind();
 		glDrawArrays(GL_LINES, 0, vertexCount);
 	}
 
 	void OpenGLRendererAPI::SetLineWidth(float width)
 	{
+		SE_PROFILE_GPU_SCOPE("OpenGLRendererAPI::SetLineWidth");
+
 		glLineWidth(width);
 	}
 }

@@ -11,7 +11,7 @@ namespace StarEngine {
 
 	void Renderer::Init()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("Renderer::Init");
 
 		AudioEngine::Init();
 
@@ -21,6 +21,7 @@ namespace StarEngine {
 
 	void Renderer::Shutdown()
 	{
+		SE_PROFILE_FUNCTION("Renderer::Shutdown");
 		Renderer2D::Shutdown();
 
 		AudioEngine::Shutdown();
@@ -33,16 +34,22 @@ namespace StarEngine {
 
 	void Renderer::BeginScene(OrthographicCamera& camera)
 	{
+		SE_PROFILE_FUNCTION("Renderer::BeginScene");
 		s_SceneData->ViewProjectionMatrix = camera.GetViewProjectionMatrix();
 	}
 
 	void Renderer::EndScene()
 	{
-
+		SE_PROFILE_FUNCTION("Renderer::EndScene");
+		// Flush any remaining 2D rendering commands
+		Renderer2D::Flush();
+		// Reset the scene data
+		s_SceneData->ViewProjectionMatrix = glm::mat4(1.0f);
 	}
 
 	void Renderer::Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const glm::mat4& transform)
 	{
+		SE_PROFILE_FUNCTION("Renderer::Submit");
 		shader->Bind();
 
 		shader->SetMat4("u_ViewProjection", s_SceneData->ViewProjectionMatrix);

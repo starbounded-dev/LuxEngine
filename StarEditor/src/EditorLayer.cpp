@@ -33,7 +33,7 @@ namespace StarEngine {
 
 	void EditorLayer::OnAttach()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("EditorLayer::OnAttach");
 
 		m_IconPlay = TextureImporter::LoadTexture2D("Resources/Icons/PlayButton.png");
 		m_IconPause = TextureImporter::LoadTexture2D("Resources/Icons/PauseButton.png");
@@ -74,12 +74,12 @@ namespace StarEngine {
 
 	void EditorLayer::OnDetach()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("EditorLayer::OnDetach");
 	}
 
 	void EditorLayer::OnUpdate(Timestep ts)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("EditorLayer::OnUpdate");
 
 		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
@@ -152,7 +152,7 @@ namespace StarEngine {
 
 	void EditorLayer::OnImGuiRender()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("EditorLayer::OnImGuiRender");
 
 		// Note: Switch this to true to enable dockspace
 		static bool dockspaceOpen = true;

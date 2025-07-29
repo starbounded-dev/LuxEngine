@@ -11,7 +11,7 @@ namespace StarEngine {
 	
 	OpenGLVertexBuffer::OpenGLVertexBuffer(uint32_t size)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexBuffer::OpenGLVertexBuffer");
 		glCreateBuffers(1, &m_RendererID);
 		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
 		glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_DYNAMIC_DRAW);
@@ -19,7 +19,7 @@ namespace StarEngine {
 
 	OpenGLVertexBuffer::OpenGLVertexBuffer(float* vertices, uint32_t size) 
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexBuffer::OpenGLVertexBuffer");
 
 		glCreateBuffers(1, &m_RendererID);
 		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
@@ -28,21 +28,21 @@ namespace StarEngine {
 
 	OpenGLVertexBuffer::~OpenGLVertexBuffer()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexBuffer::~OpenGLVertexBuffer");
 
 		glDeleteBuffers(1, &m_RendererID);
 	}
 
 	void OpenGLVertexBuffer::Bind() const
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexBuffer::Bind");
 
 		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
 	}
 
 	void OpenGLVertexBuffer::Unbind() const
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLVertexBuffer::Unbind");
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
@@ -60,7 +60,7 @@ namespace StarEngine {
 	OpenGLIndexBuffer::OpenGLIndexBuffer(uint32_t* indices, uint32_t count)
 		: m_Count(count)
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLIndexBuffer::OpenGLIndexBuffer");
 
 		glCreateBuffers(1, &m_RendererID);
 
@@ -72,21 +72,21 @@ namespace StarEngine {
 
 	OpenGLIndexBuffer::~OpenGLIndexBuffer()
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLIndexBuffer::~OpenGLIndexBuffer");
 
 		glDeleteBuffers(1, &m_RendererID);
 	}
 
 	void OpenGLIndexBuffer::Bind() const
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLIndexBuffer::Bind");
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_RendererID);
 	}
 
 	void OpenGLIndexBuffer::Unbind() const
 	{
-		SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("OpenGLIndexBuffer::Unbind");
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	}

@@ -11,14 +11,14 @@ namespace StarEngine {
 
 	Ref<Scene> SceneImporter::ImportScene(AssetHandle handle, const AssetMetadata& metadata)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("SceneImporter::ImportScene");
 
 		return LoadScene(Project::GetActiveAssetDirectory() / metadata.FilePath);
 	}
 
 	Ref<Scene> SceneImporter::LoadScene(const std::filesystem::path& path)
 	{
-		//SE_PROFILE_FUNCTION();
+		SE_PROFILE_FUNCTION("SceneImporter::LoadScene");
 
 		Ref<Scene> scene = CreateRef<Scene>();
 		SceneSerializer serializer(scene);
