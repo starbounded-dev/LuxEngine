@@ -17,6 +17,6 @@ namespace StarEngine
 	{
 		glm::vec2 min = { coords.x * cellSize.x / (float)texture->GetWidth(), coords.y * cellSize.y / (float)texture->GetHeight() };
 		glm::vec2 max = { (coords.x + spriteSize.x) * cellSize.x / (float)texture->GetWidth(), (coords.y + spriteSize.y) * cellSize.y / (float)texture->GetHeight() };
-		return CreateRef<SubTexture2D>(texture, min, max);
+		return Ref<SubTexture2D>::Create(texture, min, max);
 	}
 }

@@ -1,8 +1,5 @@
 project "StarEditor"
 	kind "ConsoleApp"
-	language "C++"
-	cppdialect "C++20"
-	staticruntime "off"
 
 	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
@@ -41,31 +38,53 @@ project "StarEditor"
 	{
 		"TRACY_ENABLE",
 		"TRACY_ON_DEMAND",
-		"TRACY_CALLSTACK=10"
+		"TRACY_CALLSTACK=10",
+		"GLM_FORCE_DEPTH_ZERO_TO_ONE"
 	}
 
-	filter "system:windows" 
+	filter "system:windows"
 		systemversion "latest"
-		postbuildcommands {}
 
-	filter "configurations:Debug"
-		defines "SE_DEBUG"
-		runtime "Debug"
-		symbols "on"
+		defines { "SE_PLATFORM_WINDOWS" }
+
+	filter "configurations:Debug or configurations:Debug-AS"
+		symbols "On"
+		defines { "SE_DEBUG" }
+
+	filter { "system:windows", "configurations:Debug-AS" }
+		sanitize { "Address" }
+		flags { "NoRuntimeChecks", "NoIncrementalLink" }
 
 	filter "configurations:Release"
-		defines "SE_RELEASE"
-		runtime "Release"
-		optimize "on"
+		optimize "On"
+        vectorextensions "AVX2"
+        isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
+		defines { "SE_RELEASE", }
+
+	filter "configurations:Debug or configurations:Debug-AS or configurations:Release"
+		defines {
+			"SE_TRACK_MEMORY",
+			
+            "JPH_DEBUG_RENDERER",
+            "JPH_FLOATING_POINT_EXCEPTIONS_ENABLED",
+            "JPH_EXTERNAL_PROFILE"
+		}
 
 	filter "configurations:Dist"
-		defines "SE_DIST"
-		runtime "Release"
-		optimize "on"
+        flags { "ExcludeFromBuild" }
+		optimize "On"
+		symbols "Off"
+		defines { "SE_DIST" }
 
 	filter "action:vs2022"
     	buildoptions { "/utf-8" }
 
+	filter "system:linux"
+		defines { "SE_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
+		links { "dw", "dl", "unwind", "pthread" }
+
+		result, err = os.outputof("pkg-config --libs gtk+-3.0")
+		linkoptions { result }
 
 project "Coral.Native"
 	dependson "Coral.Managed"

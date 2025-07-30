@@ -147,7 +147,7 @@ namespace StarEngine {
 	{
 		static Ref<Font> DefaultFont;
 		if (!DefaultFont)
-			DefaultFont = CreateRef<Font>("assets/fonts/opensans/OpenSans-Regular.ttf");
+			DefaultFont = Ref<Font>::Create("assets/fonts/opensans/OpenSans-Regular.ttf");
 
 		return DefaultFont;
 	}

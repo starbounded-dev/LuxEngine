@@ -1,6 +1,8 @@
 #include "sepch.h"
 #include "SceneSerializer.h"
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include "Entity.h"
 #include "Components.h"
 #include "StarEngine/Scripting/ScriptEngine.h"
@@ -14,7 +16,7 @@
 
 #include <yaml-cpp/yaml.h>
 
-#include "StarEngine/Utils/Hash.h"
+#include "StarEngine/Core/Hash.h"
 
 namespace YAML {
 

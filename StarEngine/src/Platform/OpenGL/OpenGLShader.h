@@ -9,7 +9,7 @@ typedef unsigned int GLenum;
 
 namespace StarEngine {
 
-	class OpenGLShader : public StarEngine::Shader
+	class OpenGLShader : public Shader
 	{
 
 	public:

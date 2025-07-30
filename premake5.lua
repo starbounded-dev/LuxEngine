@@ -2,18 +2,14 @@ include "./vendor/premake/premake_customization/solution_items.lua"
 include "Dependencies.lua"
 
 workspace "StarEngine"
+	configurations { "Debug", "Debug-AS", "Release", "Dist" }
 	startproject "StarEditor"
 	architecture "x86_64"
 	conformancemode "On"
+
+	language "C++"
 	cppdialect "C++20"
 	staticruntime "off"
-
-	configurations
-	{
-		"Debug",
-		"Release",
-		"Dist"
-	}
 
 	solution_items
 	{
@@ -25,11 +21,31 @@ workspace "StarEngine"
 		"MultiProcessorCompile"
 	}
 
+	filter "action:vs*"
+        linkoptions { "/ignore:4099" } -- NOTE(Peter): Disable no PDB found warning
+        disablewarnings { "4068" } -- Disable "Unknown #pragma mark warning"
+
 	filter "language:C++ or language:C"
 		architecture "x86_64"
 
+	filter "configurations:Debug or configurations:Debug-AS"
+		optimize "Off"
+		symbols "On"
+
 	filter "files:**.c"
 		flags {"NoPCH"}
+
+	filter "configurations:Release"
+		optimize "On"
+		symbols "Default"
+		defines { "NDEBUG" }
+
+	filter "configurations:Dist"
+		optimize "Full"
+		symbols "Off"
+
+	filter "system:windows"
+		buildoptions { "/EHsc", "/Zc:preprocessor", "/Zc:__cplusplus" }
 
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 

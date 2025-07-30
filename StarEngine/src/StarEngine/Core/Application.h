@@ -5,8 +5,8 @@
 
 #include "StarEngine/Core/Window.h"
 #include "StarEngine/Core/LayerStack.h"
-#include "StarEngine/Events/Event.h"
-#include "StarEngine/Events/ApplicationEvent.h"
+#include "StarEngine/Core/Events/Event.h"
+#include "StarEngine/Core/Events/ApplicationEvent.h"
 
 #include "StarEngine/Core/Timestep.h"
 

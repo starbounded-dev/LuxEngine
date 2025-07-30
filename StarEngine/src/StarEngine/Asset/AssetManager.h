@@ -10,12 +10,13 @@ namespace StarEngine
 	{
 	public:
 		template<typename T>
-		static Ref<T> GetAsset(AssetHandle handle)
+		static Ref<T> GetAsset(AssetHandle assetHandle)
 		{
-			//SE_PROFILE_FUNCTION_COLOR("AssetManager::GetAsset", 0x8CCBFF);
+			//static std::mutex mutex;
+			//std::scoped_lock<std::mutex> lock(mutex);
 
-			Ref<Asset> asset = Project::GetActive()->GetAssetManager()->GetAsset(handle);
-			return std::static_pointer_cast<T>(asset);
+			Ref<Asset> asset = Project::GetAssetManager()->GetAsset(assetHandle);
+			return asset.As<T>();
 		}
 
 		static bool IsAssetHandleValid(AssetHandle handle)

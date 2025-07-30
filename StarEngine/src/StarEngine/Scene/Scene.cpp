@@ -13,6 +13,7 @@
 #include "StarEngine/Renderer/Renderer2D.h"
 #include "StarEngine/Physics/ContactListener2D.h"
 
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 
 // Box2D

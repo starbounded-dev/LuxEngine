@@ -1,4 +1,5 @@
 #include "sepch.h"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "ScriptEntityStorage.hpp"
 #include "ScriptEngine.h"
 

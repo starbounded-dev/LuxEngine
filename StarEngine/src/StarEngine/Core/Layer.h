@@ -2,7 +2,7 @@
 
 #include "StarEngine/Core/Base.h"
 #include "StarEngine/Core/Timestep.h"
-#include "StarEngine/Events/Event.h"
+#include "StarEngine/Core/Events/Event.h"
 
 namespace StarEngine
 {

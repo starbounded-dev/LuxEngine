@@ -5,6 +5,8 @@
 
 #include "StarEngine/Core/Ref.h"
 
+#include "StarEngine/Scene/Scene.h"
+
 #include <Coral/Assembly.hpp>
 #include <Coral/Type.hpp>
 #include <Coral/StableVector.hpp>
@@ -22,7 +24,7 @@ namespace Coral {
 namespace StarEngine {
 
 	class Scene;
-	class SceneRenderer;
+	//class SceneRenderer;
 	class Project;
 
 	struct AssemblyData
@@ -77,8 +79,8 @@ namespace StarEngine {
 		Ref<Scene> GetCurrentScene() const { return m_CurrentScene; }
 		void SetCurrentScene(Ref<Scene> scene) { m_CurrentScene = scene; }
 
-		Ref<SceneRenderer> GetSceneRenderer() const { return m_SceneRenderer; }
-		void SetSceneRenderer(Ref<SceneRenderer> sceneRenderer) { m_SceneRenderer = sceneRenderer; }
+		//Ref<SceneRenderer> GetSceneRenderer() const { return m_SceneRenderer; }
+		//void SetSceneRenderer(Ref<SceneRenderer> sceneRenderer) { m_SceneRenderer = sceneRenderer; }
 
 		bool IsValidScript(UUID scriptID) const;
 
@@ -224,7 +226,7 @@ namespace StarEngine {
 		std::unordered_map<UUID, ScriptMetadata> m_ScriptMetadata;
 
 		Ref<Scene> m_CurrentScene = nullptr;
-		Ref<SceneRenderer> m_SceneRenderer = nullptr;
+		//Ref<SceneRenderer> m_SceneRenderer = nullptr;
 		Coral::StableVector<Coral::ManagedObject> m_ManagedObjects;
 
 	private:

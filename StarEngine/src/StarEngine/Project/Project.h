@@ -21,7 +21,7 @@ namespace StarEngine {
 		std::filesystem::path ScriptModulePath;
 	};
 
-	class Project
+	class Project : public RefCounted
 	{
 	public:
 		const std::filesystem::path& GetProjectDirectory() { return m_ProjectDirectory; }
@@ -30,6 +30,8 @@ namespace StarEngine {
 		std::filesystem::path GetAssetFileSystemPath(const std::filesystem::path& path) { return GetAssetDirectory() / path; }
 
 		std::filesystem::path GetAssetAbsolutePath(const std::filesystem::path& path);
+
+		inline static Ref<AssetManagerBase> GetAssetManager() { return s_AssetManager; }
 
 		static const std::filesystem::path& GetActiveProjectDirectory()
 		{

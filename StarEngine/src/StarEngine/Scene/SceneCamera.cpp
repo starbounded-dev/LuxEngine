@@ -60,6 +60,6 @@ namespace StarEngine {
 
 	Ref<SceneCamera> SceneCamera::Create()
 	{
-		return CreateRef<SceneCamera>();
+		return Ref<SceneCamera>::Create();
 	}
 }

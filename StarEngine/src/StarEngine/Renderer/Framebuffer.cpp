@@ -11,7 +11,7 @@ namespace StarEngine
 		switch (Renderer::GetAPI())
 		{
 			case RendererAPI::API::None:    SE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
-			case RendererAPI::API::OpenGL:  return CreateRef<OpenGLFramebuffer>(spec);
+			case RendererAPI::API::OpenGL:  return Ref<OpenGLFramebuffer>::Create(spec);
 		}
 
 		SE_CORE_ASSERT(false, "Unknown RendererAPI!");

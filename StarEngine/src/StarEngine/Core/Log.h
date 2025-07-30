@@ -3,7 +3,7 @@
 #include "StarEngine/Core/Base.h"
 #include "StarEngine/Core/LogCustomFormatters.h"
 
-#include <spdlog.h>
+#include "spdlog/spdlog.h"
 
 #include <map>
 #include <memory>

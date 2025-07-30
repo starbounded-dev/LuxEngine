@@ -7,7 +7,7 @@
 
 namespace StarEngine {
 
-	class Shader
+	class Shader : public RefCounted
 	{
 	public:
 		virtual ~Shader() = default;

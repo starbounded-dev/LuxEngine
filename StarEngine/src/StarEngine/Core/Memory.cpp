@@ -2,7 +2,7 @@
 #include "Memory.h"
 
 #include "Log.h"
-#include "StarEngine/Debug/Instrumentor.h"
+#include "StarEngine/Debug/Profiler.h"
 
 #include <mutex>
 

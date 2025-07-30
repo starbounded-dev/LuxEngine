@@ -21,7 +21,7 @@ namespace StarEngine {
 
 	Ref<Project> Project::New()
 	{
-		s_ActiveProject = CreateRef<Project>();
+		s_ActiveProject = Ref<Project>::Create();
 		return s_ActiveProject;
 	}
 
@@ -30,7 +30,7 @@ namespace StarEngine {
 		if (s_ActiveProject)
 			ScriptEngine::GetMutable().Shutdown();
 
-		Ref<Project> project = CreateRef<Project>();
+		Ref<Project> project = Ref<Project>::Create();
 
 		ProjectSerializer serializer(project);
 		if (serializer.Serialize(path))

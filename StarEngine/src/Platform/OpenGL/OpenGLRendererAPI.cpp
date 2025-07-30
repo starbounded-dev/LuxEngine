@@ -16,7 +16,7 @@ namespace StarEngine
 	{
 		switch (severity)
 		{
-		case GL_DEBUG_SEVERITY_HIGH:         SE_CORE_CRITICAL(message); return;
+		case GL_DEBUG_SEVERITY_HIGH:         SE_CORE_FATAL(message); return;
 		case GL_DEBUG_SEVERITY_MEDIUM:       SE_CORE_ERROR(message); return;
 		case GL_DEBUG_SEVERITY_LOW:          SE_CORE_WARN(message); return;
 		case GL_DEBUG_SEVERITY_NOTIFICATION: SE_CORE_TRACE(message); return;

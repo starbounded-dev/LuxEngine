@@ -23,9 +23,12 @@
 //#include "StarEngine/Utilities/TypeInfo.h"
 
 #include <box2d/box2d.h>
+
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
+
 #include <imgui_internal.h>
 
 #include <functional>
@@ -805,8 +808,8 @@ namespace StarEngine {
 		void SceneManager_LoadScene(Param<AssetHandle> sceneHandle)
 		{
 			Ref<Scene> activeScene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(activeScene, "No active scene!");
-			HZ_ICALL_VALIDATE_PARAM(AssetManager::IsAssetHandleValid(sceneHandle));
+			SE_CORE_ASSERT(activeScene, "No active scene!");
+			SE_ICALL_VALIDATE_PARAM(AssetManager::IsAssetHandleValid(sceneHandle));
 
 			activeScene->OnSceneTransition(sceneHandle);
 		}
@@ -911,7 +914,7 @@ namespace StarEngine {
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			SE_CORE_VERIFY(scene, "No active scene!");
 			Entity parent = scene->TryGetEntityWithUUID(parentID);
-			HZ_ICALL_VALIDATE_PARAM_V(parent, parentID);
+			SE_ICALL_VALIDATE_PARAM_V(parent, parentID);
 
 			Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
 			if (prefab == nullptr)
@@ -928,7 +931,7 @@ namespace StarEngine {
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			SE_CORE_VERIFY(scene, "No active scene!");
 			Entity parent = scene->TryGetEntityWithUUID(parentID);
-			HZ_ICALL_VALIDATE_PARAM_V(parent, parentID);
+			SE_ICALL_VALIDATE_PARAM_V(parent, parentID);
 
 			Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
 			if (prefab == nullptr)
@@ -945,7 +948,7 @@ namespace StarEngine {
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			SE_CORE_VERIFY(scene, "No active scene!");
 			Entity parent = scene->TryGetEntityWithUUID(parentID);
-			HZ_ICALL_VALIDATE_PARAM_V(parent, parentID);
+			SE_ICALL_VALIDATE_PARAM_V(parent, parentID);
 
 			Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
 			if (prefab == nullptr)
@@ -962,7 +965,7 @@ namespace StarEngine {
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			SE_CORE_VERIFY(scene, "No active scene!");
 			Entity parent = scene->TryGetEntityWithUUID(parentID);
-			HZ_ICALL_VALIDATE_PARAM_V(parent, parentID);
+			SE_ICALL_VALIDATE_PARAM_V(parent, parentID);
 
 			Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
 			if (prefab == nullptr)
@@ -979,7 +982,7 @@ namespace StarEngine {
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			SE_CORE_VERIFY(scene, "No active scene!");
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			scene->SubmitToDestroyEntity(entity);
 		}
 
@@ -988,7 +991,7 @@ namespace StarEngine {
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			SE_CORE_VERIFY(scene, "No active scene!");
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			const std::vector<UUID> children = entity.Children();
 			for (UUID id : children)
@@ -1014,7 +1017,7 @@ namespace StarEngine {
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			SE_CORE_VERIFY(scene, "No active scene!");
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			const auto& children = entity.Children();
 			auto result = Coral::Array<uint64_t>::New(int32_t(children.size()));
@@ -1039,14 +1042,14 @@ namespace StarEngine {
 		uint64_t Entity_GetParent(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			return entity.GetParentUUID();
 		}
 
 		void Entity_SetParent(uint64_t entityID, uint64_t parentID)
 		{
 			Entity child = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(child, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(child, entityID);
 
 			if (parentID == 0)
 			{
@@ -1055,7 +1058,7 @@ namespace StarEngine {
 			else
 			{
 				Entity parent = GetEntity(parentID);
-				HZ_ICALL_VALIDATE_PARAM_V(parent, parentID);
+				SE_ICALL_VALIDATE_PARAM_V(parent, parentID);
 				child.SetParent(parent);
 			}
 		}
@@ -1063,7 +1066,7 @@ namespace StarEngine {
 		Coral::Array<uint64_t> Entity_GetChildren(uint64_t entityID)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			const auto& children = entity.Children();
 			auto result = Coral::Array<uint64_t>::New(int32_t(children.size()));
@@ -1076,7 +1079,7 @@ namespace StarEngine {
 		void Entity_CreateComponent(uint64_t entityID, Coral::ReflectionType componentType)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (!entity)
 				return;
@@ -1105,7 +1108,7 @@ namespace StarEngine {
 		Coral::Bool32 Entity_HasComponent(uint64_t entityID, Coral::ReflectionType componentType)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (!entity)
 				return false;
@@ -1133,7 +1136,7 @@ namespace StarEngine {
 		Coral::Bool32 Entity_RemoveComponent(uint64_t entityID, Coral::ReflectionType componentType)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (!entity)
 				return false;
@@ -1168,7 +1171,7 @@ namespace StarEngine {
 		Coral::String TagComponent_GetTag(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			const auto& tagComponent = entity.GetComponent<TagComponent>();
 			return Coral::String::New(tagComponent.Tag);
@@ -1177,7 +1180,7 @@ namespace StarEngine {
 		void TagComponent_SetTag(uint64_t entityID, Coral::String inTag)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			auto& tagComponent = entity.GetComponent<TagComponent>();
 			tagComponent.Tag = inTag;
 		}
@@ -1202,7 +1205,7 @@ namespace StarEngine {
 				return nullptr;
 
 			Entity entity = entityScene->TryGetEntityWithUUID(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			Ref<PhysicsScene> physicsScene = entityScene->GetPhysicsScene();
 
@@ -1220,7 +1223,7 @@ namespace StarEngine {
 				return nullptr;
 
 			Entity entity = entityScene->TryGetEntityWithUUID(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			Ref<PhysicsScene> physicsScene = entityScene->GetPhysicsScene();
 
@@ -1285,7 +1288,7 @@ namespace StarEngine {
 		void TransformComponent_GetTransform(uint64_t entityID, Transform* outTransform)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			const auto& tc = entity.GetComponent<TransformComponent>();
 			outTransform->Translation = tc.Translation;
@@ -1297,7 +1300,7 @@ namespace StarEngine {
 		void TransformComponent_SetTransform(uint64_t entityID, Transform* inTransform)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (inTransform == nullptr)
 			{
@@ -1319,7 +1322,7 @@ namespace StarEngine {
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			const auto& wt = scene->GetWorldSpaceTransform(entity);
 			outTransform->Translation = wt.Translation;
@@ -1333,7 +1336,7 @@ namespace StarEngine {
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (inTransform == nullptr)
 			{
@@ -1356,7 +1359,7 @@ namespace StarEngine {
 		void TransformComponent_GetTranslation(uint64_t entityID, glm::vec3* outTranslation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			*outTranslation = entity.GetComponent<TransformComponent>().Translation;
 		}
 
@@ -1364,7 +1367,7 @@ namespace StarEngine {
 		void TransformComponent_SetTranslation(uint64_t entityID, glm::vec3* inTranslation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (inTranslation == nullptr)
 			{
@@ -1383,7 +1386,7 @@ namespace StarEngine {
 		void TransformComponent_GetRotation(uint64_t entityID, glm::vec3* outRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			*outRotation = entity.GetComponent<TransformComponent>().GetRotationEuler();
 		}
 
@@ -1391,7 +1394,7 @@ namespace StarEngine {
 		void TransformComponent_SetRotation(uint64_t entityID, glm::vec3* inRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (inRotation == nullptr)
 			{
@@ -1415,7 +1418,7 @@ namespace StarEngine {
 		void TransformComponent_GetRotationQuat(uint64_t entityID, glm::quat* outRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			*outRotation = entity.GetComponent<TransformComponent>().GetRotation();
 		}
 
@@ -1423,7 +1426,7 @@ namespace StarEngine {
 		void TransformComponent_SetRotationQuat(uint64_t entityID, glm::quat* inRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (inRotation == nullptr)
 			{
@@ -1447,7 +1450,7 @@ namespace StarEngine {
 		void TransformComponent_GetScale(uint64_t entityID, glm::vec3* outScale)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			*outScale = entity.GetComponent<TransformComponent>().Scale;
 		}
 
@@ -1455,7 +1458,7 @@ namespace StarEngine {
 		void TransformComponent_SetScale(uint64_t entityID, glm::vec3* inScale)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (!entity)
 				return;
@@ -1473,7 +1476,7 @@ namespace StarEngine {
 		void TransformComponent_GetTransformMatrix(uint64_t entityID, glm::mat4* outTransform)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			*outTransform = entity.Transform().GetTransform();
 		}
 
@@ -1481,7 +1484,7 @@ namespace StarEngine {
 		void TransformComponent_SetTransformMatrix(uint64_t entityID, glm::mat4* inTransform)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			auto& tc = entity.GetComponent<TransformComponent>();
 			glm::quat rotation = tc.GetRotation();
@@ -1496,7 +1499,7 @@ namespace StarEngine {
 		void TransformComponent_GetWorldTranslation(uint64_t entityID, glm::vec3* outTranslation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			*outTranslation = scene->GetWorldSpaceTransform(entity).Translation;
 		}
@@ -1505,7 +1508,7 @@ namespace StarEngine {
 		void TransformComponent_SetWorldTranslation(uint64_t entityID, glm::vec3* inTranslation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (inTranslation == nullptr)
 			{
@@ -1528,7 +1531,7 @@ namespace StarEngine {
 		void TransformComponent_GetWorldRotation(uint64_t entityID, glm::vec3* outRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			*outRotation = scene->GetWorldSpaceTransform(entity).GetRotationEuler();
 		}
@@ -1537,7 +1540,7 @@ namespace StarEngine {
 		void TransformComponent_SetWorldRotation(uint64_t entityID, glm::vec3* inRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (inRotation == nullptr)
 			{
@@ -1561,7 +1564,7 @@ namespace StarEngine {
 		void TransformComponent_GetWorldRotationQuat(uint64_t entityID, glm::quat* outRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			*outRotation = scene->GetWorldSpaceTransform(entity).GetRotation();
 		}
@@ -1570,7 +1573,7 @@ namespace StarEngine {
 		void TransformComponent_SetWorldRotationQuat(uint64_t entityID, glm::quat* inRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (inRotation == nullptr)
 			{
@@ -1594,7 +1597,7 @@ namespace StarEngine {
 		void TransformComponent_GetWorldScale(uint64_t entityID, glm::vec3* outScale)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			*outScale = scene->GetWorldSpaceTransform(entity).Scale;
 		}
@@ -1603,7 +1606,7 @@ namespace StarEngine {
 		void TransformComponent_SetWorldScale(uint64_t entityID, glm::vec3* inScale)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (inScale == nullptr)
 			{
@@ -1622,7 +1625,7 @@ namespace StarEngine {
 		{
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 			*outTransform = scene->GetWorldSpaceTransform(entity).GetTransform();
 		}
 
@@ -1630,7 +1633,7 @@ namespace StarEngine {
 		void TransformComponent_SetWorldTransformMatrix(uint64_t entityID, glm::mat4* inTransform)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			auto& tc = entity.GetComponent<TransformComponent>();
 			glm::quat rotation = tc.GetRotation();
@@ -1684,7 +1687,7 @@ namespace StarEngine {
 		Coral::Bool32 MeshComponent_GetMesh(uint64_t entityID, OutParam<AssetHandle> outHandle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 			if (entity.HasComponent<SubmeshComponent>())
 			{
@@ -1711,8 +1714,8 @@ namespace StarEngine {
 		void MeshComponent_SetMesh(uint64_t entityID, Param<AssetHandle> meshHandle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
 			auto& meshComponent = entity.GetComponent<SubmeshComponent>();
 			meshComponent.Mesh = meshHandle;
 		}
@@ -1720,8 +1723,8 @@ namespace StarEngine {
 		Coral::Bool32 MeshComponent_GetVisible(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
 			const auto& meshComponent = entity.GetComponent<SubmeshComponent>();
 			return meshComponent.Visible;
 		}
@@ -1729,8 +1732,8 @@ namespace StarEngine {
 		void MeshComponent_SetVisible(uint64_t entityID, Coral::Bool32 visible)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
 			auto& meshComponent = entity.GetComponent<SubmeshComponent>();
 			meshComponent.Visible = visible;
 		}
@@ -1738,8 +1741,8 @@ namespace StarEngine {
 		Coral::Bool32 MeshComponent_HasMaterial(uint64_t entityID, int index)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
 			const auto& meshComponent = entity.GetComponent<SubmeshComponent>();
 			auto mesh = AssetManager::GetAsset<Mesh>(meshComponent.Mesh);
 			Ref<MaterialTable> materialTable = meshComponent.MaterialTable;
@@ -1749,8 +1752,8 @@ namespace StarEngine {
 		Coral::Bool32 MeshComponent_GetMaterial(uint64_t entityID, int index, OutParam<AssetHandle> outHandle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
 
 			const auto& meshComponent = entity.GetComponent<SubmeshComponent>();
 
@@ -1779,8 +1782,8 @@ namespace StarEngine {
 		Coral::Bool32 MeshComponent_GetIsRigged(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SubmeshComponent>());
 
 			auto& meshComponent = entity.GetComponent<SubmeshComponent>();
 			if(auto mesh = AssetManager::GetAsset<Mesh>(meshComponent.Mesh); mesh)
@@ -1800,8 +1803,8 @@ namespace StarEngine {
 		Coral::Bool32 StaticMeshComponent_GetMesh(uint64_t entityID, OutParam<AssetHandle> outHandle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
 
 			const auto& meshComponent = entity.GetComponent<StaticMeshComponent>();
 			auto mesh = AssetManager::GetAsset<StaticMesh>(meshComponent.StaticMesh);
@@ -1820,8 +1823,8 @@ namespace StarEngine {
 		void StaticMeshComponent_SetMesh(uint64_t entityID, Param<AssetHandle> meshHandle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
 			auto& meshComponent = entity.GetComponent<StaticMeshComponent>();
 			meshComponent.StaticMesh = meshHandle;
 		}
@@ -1829,8 +1832,8 @@ namespace StarEngine {
 		Coral::Bool32 StaticMeshComponent_HasMaterial(uint64_t entityID, int index)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
 			const auto& meshComponent = entity.GetComponent<StaticMeshComponent>();
 			auto mesh = AssetManager::GetAsset<StaticMesh>(meshComponent.StaticMesh);
 			Ref<MaterialTable> materialTable = meshComponent.MaterialTable;
@@ -1840,8 +1843,8 @@ namespace StarEngine {
 		Coral::Bool32 StaticMeshComponent_GetMaterial(uint64_t entityID, int index, OutParam<AssetHandle> outHandle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
 
 			const auto& meshComponent = entity.GetComponent<StaticMeshComponent>();
 
@@ -1870,8 +1873,8 @@ namespace StarEngine {
 		void StaticMeshComponent_SetMaterial(uint64_t entityID, int index, Param<AssetHandle> materialHandle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
 
 			Ref<MaterialTable> materialTable = entity.GetComponent<StaticMeshComponent>().MaterialTable;
 
@@ -1887,8 +1890,8 @@ namespace StarEngine {
 		Coral::Bool32 StaticMeshComponent_GetVisible(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
 			const auto& meshComponent = entity.GetComponent<StaticMeshComponent>();
 			return meshComponent.Visible;
 		}
@@ -1896,8 +1899,8 @@ namespace StarEngine {
 		void StaticMeshComponent_SetVisible(uint64_t entityID, Coral::Bool32 visible)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<StaticMeshComponent>());
 			auto& meshComponent = entity.GetComponent<StaticMeshComponent>();
 			meshComponent.Visible = visible;
 		}
@@ -1915,8 +1918,8 @@ namespace StarEngine {
 		Coral::Bool32 AnimationComponent_GetInputBool(uint64_t entityID, uint32_t inputID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
@@ -1927,11 +1930,11 @@ namespace StarEngine {
 				}
 				catch (const std::out_of_range&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.GetInputBool() - input with id {0} does not exist!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.GetInputBool() - input with id {0} does not exist!", inputID);
 				}
 				catch (const choc::value::Error&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.GetInputBool() - input with id {0} is not of boolean type!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.GetInputBool() - input with id {0} is not of boolean type!", inputID);
 				}
 			}
 			return false;
@@ -1940,8 +1943,8 @@ namespace StarEngine {
 		void AnimationComponent_SetInputBool(uint64_t entityID, uint32_t inputID, Coral::Bool32 value)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
@@ -1952,11 +1955,11 @@ namespace StarEngine {
 				}
 				catch (const std::out_of_range&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.SetInputBool() - input with id {0} does not exist!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.SetInputBool() - input with id {0} does not exist!", inputID);
 				}
 				catch (const choc::value::Error&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.SetInputBool() - input with id {0} is not of boolean type!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.SetInputBool() - input with id {0} is not of boolean type!", inputID);
 				}
 			}
 		}
@@ -1965,8 +1968,8 @@ namespace StarEngine {
 		int32_t AnimationComponent_GetInputInt(uint64_t entityID, uint32_t inputID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
@@ -1977,11 +1980,11 @@ namespace StarEngine {
 				}
 				catch (const std::out_of_range&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.GetInputInt() - input with id {0} does not exist!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.GetInputInt() - input with id {0} does not exist!", inputID);
 				}
 				catch (const choc::value::Error&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.GetInputInt() - input with id {0} is not of integer type!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.GetInputInt() - input with id {0} is not of integer type!", inputID);
 				}
 			}
 			return false;
@@ -1990,8 +1993,8 @@ namespace StarEngine {
 		void AnimationComponent_SetInputInt(uint64_t entityID, uint32_t inputID, int32_t value)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
@@ -2002,11 +2005,11 @@ namespace StarEngine {
 				}
 				catch (const std::out_of_range&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.SetInputInt() - input with id {0} does not exist!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.SetInputInt() - input with id {0} does not exist!", inputID);
 				}
 				catch (const choc::value::Error&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.SetInputInt() - input with id {0} is not of integer type!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.SetInputInt() - input with id {0} is not of integer type!", inputID);
 				}
 			}
 		}
@@ -2015,8 +2018,8 @@ namespace StarEngine {
 		float AnimationComponent_GetInputFloat(uint64_t entityID, uint32_t inputID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
@@ -2027,11 +2030,11 @@ namespace StarEngine {
 				}
 				catch (const std::out_of_range&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.GetInputFloat() - input with id {0} does not exist!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.GetInputFloat() - input with id {0} does not exist!", inputID);
 				}
 				catch (const choc::value::Error&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.GetInputFloat() - input with id {0} is not of float type!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.GetInputFloat() - input with id {0} is not of float type!", inputID);
 				}
 			}
 			return false;
@@ -2040,8 +2043,8 @@ namespace StarEngine {
 		void AnimationComponent_SetInputFloat(uint64_t entityID, uint32_t inputID, float value)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
@@ -2052,11 +2055,11 @@ namespace StarEngine {
 				}
 				catch (const std::out_of_range&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.SetInputFloat() - input with id {0} does not exist!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.SetInputFloat() - input with id {0} does not exist!", inputID);
 				}
 				catch (const choc::value::Error&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.SetInputFloat() - input with id {0} is not of float type!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.SetInputFloat() - input with id {0} is not of float type!", inputID);
 				}
 			}
 		}
@@ -2065,8 +2068,8 @@ namespace StarEngine {
 		void AnimationComponent_GetInputVector3(uint64_t entityID, uint32_t inputID, glm::vec3* value)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
@@ -2080,12 +2083,12 @@ namespace StarEngine {
 					}
 					else
 					{
-						HZ_CONSOLE_LOG_ERROR("AnimationComponent.GetInputVector3() - input with id {0} is not of Vector3 type!", inputID);
+						SE_CONSOLE_LOG_ERROR("AnimationComponent.GetInputVector3() - input with id {0} is not of Vector3 type!", inputID);
 					}
 				}
 				catch (const std::out_of_range&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.GetInputVector3() - input with id {0} does not exist!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.GetInputVector3() - input with id {0} does not exist!", inputID);
 				}
 			}
 		}
@@ -2093,8 +2096,8 @@ namespace StarEngine {
 		void AnimationComponent_SetInputVector3(uint64_t entityID, uint32_t inputId, const glm::vec3* value)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
@@ -2108,12 +2111,12 @@ namespace StarEngine {
 					}
 					else
 					{
-						HZ_CONSOLE_LOG_ERROR("AnimationComponent.SetInputVector3() - input with id {0} is not of Vector3 type!", inputId);
+						SE_CONSOLE_LOG_ERROR("AnimationComponent.SetInputVector3() - input with id {0} is not of Vector3 type!", inputId);
 					}
 				}
 				catch (const std::out_of_range&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.SetInputVector3() - input with id {0} does not exist!", inputId);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.SetInputVector3() - input with id {0} does not exist!", inputId);
 				}
 			}
 		}
@@ -2122,8 +2125,8 @@ namespace StarEngine {
 		void AnimationComponent_SetInputTrigger(uint64_t entityID, uint32_t inputID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
@@ -2134,7 +2137,7 @@ namespace StarEngine {
 				}
 				catch (const std::out_of_range&)
 				{
-					HZ_CONSOLE_LOG_ERROR("AnimationComponent.SetInputTrigger() - input with id {0} does not exist!", inputID);
+					SE_CONSOLE_LOG_ERROR("AnimationComponent.SetInputTrigger() - input with id {0} does not exist!", inputID);
 				}
 			}
 		}
@@ -2143,8 +2146,8 @@ namespace StarEngine {
 		void AnimationComponent_GetRootMotion(uint64_t entityID, Transform* outTransform)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AnimationComponent>());
 			auto& animationComponent = entity.GetComponent<AnimationComponent>();
 			if (animationComponent.AnimationGraph)
 			{
@@ -2163,129 +2166,129 @@ namespace StarEngine {
 		void SpotLightComponent_GetRadiance(uint64_t entityID, glm::vec3* outRadiance)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			*outRadiance = entity.GetComponent<SpotLightComponent>().Radiance;
 		}
 
 		void SpotLightComponent_SetRadiance(uint64_t entityID, glm::vec3* inRadiance)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
-			HZ_ICALL_VALIDATE_PARAM_V(inRadiance, "nullptr");
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(inRadiance, "nullptr");
 			entity.GetComponent<SpotLightComponent>().Radiance = *inRadiance;
 		}
 
 		float SpotLightComponent_GetIntensity(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			return entity.GetComponent<SpotLightComponent>().Intensity;
 		}
 
 		void SpotLightComponent_SetIntensity(uint64_t entityID, float intensity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			entity.GetComponent<SpotLightComponent>().Intensity = intensity;
 		}
 
 		float SpotLightComponent_GetRange(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			return entity.GetComponent<SpotLightComponent>().Range;
 		}
 
 		void SpotLightComponent_SetRange(uint64_t entityID, float range)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			entity.GetComponent<SpotLightComponent>().Range = range;
 		}
 
 		float SpotLightComponent_GetAngle(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			return entity.GetComponent<SpotLightComponent>().Angle;
 		}
 
 		void SpotLightComponent_SetAngle(uint64_t entityID, float angle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			entity.GetComponent<SpotLightComponent>().Angle = angle;
 		}
 
 		float SpotLightComponent_GetFalloff(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			return entity.GetComponent<SpotLightComponent>().Falloff;
 		}
 
 		void SpotLightComponent_SetFalloff(uint64_t entityID, float falloff)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			entity.GetComponent<SpotLightComponent>().Falloff = falloff;
 		}
 
 		float SpotLightComponent_GetAngleAttenuation(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			return entity.GetComponent<SpotLightComponent>().AngleAttenuation;
 		}
 
 		void SpotLightComponent_SetAngleAttenuation(uint64_t entityID, float angleAttenuation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			entity.GetComponent<SpotLightComponent>().AngleAttenuation = angleAttenuation;
 		}
 
 		Coral::Bool32 SpotLightComponent_GetCastsShadows(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			return entity.GetComponent<SpotLightComponent>().CastsShadows;
 		}
 
 		void SpotLightComponent_SetCastsShadows(uint64_t entityID, Coral::Bool32 castsShadows)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			entity.GetComponent<SpotLightComponent>().CastsShadows = castsShadows;
 		}
 
 		Coral::Bool32 SpotLightComponent_GetSoftShadows(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			return entity.GetComponent<SpotLightComponent>().SoftShadows;
 		}
 
 		void SpotLightComponent_SetSoftShadows(uint64_t entityID, Coral::Bool32 softShadows)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpotLightComponent>());
 			entity.GetComponent<SpotLightComponent>().SoftShadows = softShadows;
 		}
 
@@ -2296,11 +2299,11 @@ namespace StarEngine {
 		void ScriptComponent_GetInstance(uint64_t entityID, Coral::ManagedObject* outObject)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			//HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<ScriptComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			//SE_ICALL_VALIDATE_PARAM(entity.HasComponent<ScriptComponent>());
 			if (!entity.HasComponent<ScriptComponent>())
 			{
-				HZ_CORE_ERROR("ScriptComponent_GetInstance no ScriptComponent apparently, returning null");
+				SE_CORE_ERROR("ScriptComponent_GetInstance no ScriptComponent apparently, returning null");
 				*outObject = Coral::ManagedObject();
 				return;
 			}
@@ -2341,7 +2344,7 @@ namespace StarEngine {
 
 			if (!component.Instance.IsValid())
 			{
-				HZ_CORE_ERROR("ScriptComponent_GetInstance returning null managed object");
+				SE_CORE_ERROR("ScriptComponent_GetInstance returning null managed object");
 				*outObject = Coral::ManagedObject();
 				return;
 			}
@@ -2357,8 +2360,8 @@ namespace StarEngine {
 		void CameraComponent_SetPerspective(uint64_t entityID, float inVerticalFOV, float inNearClip, float inFarClip)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			camera.SetPerspective(inVerticalFOV, inNearClip, inFarClip);
 		}
@@ -2366,8 +2369,8 @@ namespace StarEngine {
 		void CameraComponent_SetOrthographic(uint64_t entityID, float inSize, float inNearClip, float inFarClip)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			camera.SetOrthographic(inSize, inNearClip, inFarClip);
 		}
@@ -2375,8 +2378,8 @@ namespace StarEngine {
 		float CameraComponent_GetVerticalFOV(uint64_t entityID)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			const auto& component = entity.GetComponent<CameraComponent>();
 			return component.Camera.GetDegPerspectiveVerticalFOV();
 		}
@@ -2384,8 +2387,8 @@ namespace StarEngine {
 		void CameraComponent_SetVerticalFOV(uint64_t entityID, float inVerticalFOV)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			auto& component = entity.GetComponent<CameraComponent>();
 			return component.Camera.SetDegPerspectiveVerticalFOV(inVerticalFOV);
 		}
@@ -2393,8 +2396,8 @@ namespace StarEngine {
 		float CameraComponent_GetPerspectiveNearClip(uint64_t entityID)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			return camera.GetPerspectiveNearClip();
 		}
@@ -2402,8 +2405,8 @@ namespace StarEngine {
 		void CameraComponent_SetPerspectiveNearClip(uint64_t entityID, float inNearClip)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			camera.SetPerspectiveNearClip(inNearClip);
 		}
@@ -2411,8 +2414,8 @@ namespace StarEngine {
 		float CameraComponent_GetPerspectiveFarClip(uint64_t entityID)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			return camera.GetPerspectiveFarClip();
 		}
@@ -2420,8 +2423,8 @@ namespace StarEngine {
 		void CameraComponent_SetPerspectiveFarClip(uint64_t entityID, float inFarClip)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			camera.SetPerspectiveFarClip(inFarClip);
 		}
@@ -2429,8 +2432,8 @@ namespace StarEngine {
 		float CameraComponent_GetOrthographicSize(uint64_t entityID)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			return camera.GetOrthographicSize();
 		}
@@ -2438,8 +2441,8 @@ namespace StarEngine {
 		void CameraComponent_SetOrthographicSize(uint64_t entityID, float inSize)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			camera.SetOrthographicSize(inSize);
 		}
@@ -2447,8 +2450,8 @@ namespace StarEngine {
 		float CameraComponent_GetOrthographicNearClip(uint64_t entityID)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			return camera.GetOrthographicNearClip();
 		}
@@ -2456,8 +2459,8 @@ namespace StarEngine {
 		void CameraComponent_SetOrthographicNearClip(uint64_t entityID, float inNearClip)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			camera.SetOrthographicNearClip(inNearClip);
 		}
@@ -2465,8 +2468,8 @@ namespace StarEngine {
 		float CameraComponent_GetOrthographicFarClip(uint64_t entityID)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			return camera.GetOrthographicFarClip();
 		}
@@ -2474,8 +2477,8 @@ namespace StarEngine {
 		void CameraComponent_SetOrthographicFarClip(uint64_t entityID, float inFarClip)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			SceneCamera& camera = entity.GetComponent<CameraComponent>().Camera;
 			camera.SetOrthographicFarClip(inFarClip);
 		}
@@ -2483,8 +2486,8 @@ namespace StarEngine {
 		CameraComponent::Type CameraComponent_GetProjectionType(uint64_t entityID)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			const auto& component = entity.GetComponent<CameraComponent>();
 			return component.ProjectionType;
 		}
@@ -2492,8 +2495,8 @@ namespace StarEngine {
 		void CameraComponent_SetProjectionType(uint64_t entityID, CameraComponent::Type inType)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			auto& component = entity.GetComponent<CameraComponent>();
 			component.ProjectionType = inType;
 			component.Camera.SetProjectionType((SceneCamera::ProjectionType)inType);
@@ -2502,8 +2505,8 @@ namespace StarEngine {
 		Coral::Bool32 CameraComponent_GetPrimary(uint64_t entityID)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			const auto& component = entity.GetComponent<CameraComponent>();
 			return component.Primary;
 		}
@@ -2511,8 +2514,8 @@ namespace StarEngine {
 		void CameraComponent_SetPrimary(uint64_t entityID, Coral::Bool32 inValue)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			auto& component = entity.GetComponent<CameraComponent>();
 			component.Primary = inValue;
 		}
@@ -2520,8 +2523,8 @@ namespace StarEngine {
 		void CameraComponent_ToScreenSpace(uint64_t entityID, glm::vec3* inWorldTranslation, glm::vec2* outResult)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			auto& component = entity.GetComponent<CameraComponent>();
 			
 			uint32_t viewportWidth = Application_GetWidth();
@@ -2541,8 +2544,8 @@ namespace StarEngine {
 		void CameraComponent_GetRayDirection(uint64_t entityID, glm::vec2* inScreenPos, glm::vec3* outResult)
 		{
 			Entity entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CameraComponent>());
 			auto& component = entity.GetComponent<CameraComponent>();
 			auto inverseProj = glm::inverse(component.Camera.GetProjectionMatrix());
 			auto scene = ScriptEngine::GetInstance().GetCurrentScene();
@@ -2560,80 +2563,80 @@ namespace StarEngine {
 		void DirectionalLightComponent_GetRadiance(uint64_t entityID, glm::vec3* outRadiance)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			*outRadiance = entity.GetComponent<DirectionalLightComponent>().Radiance;
 		}
 
 		void DirectionalLightComponent_SetRadiance(uint64_t entityID, glm::vec3* inRadiance)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			entity.GetComponent<DirectionalLightComponent>().Radiance = *inRadiance;
 		}
 
 		float DirectionalLightComponent_GetIntensity(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			return entity.GetComponent<DirectionalLightComponent>().Intensity;
 		}
 
 		void DirectionalLightComponent_SetIntensity(uint64_t entityID, float intensity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			entity.GetComponent<DirectionalLightComponent>().Intensity = intensity;
 		}
 
 		Coral::Bool32 DirectionalLightComponent_GetCastShadows(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			return entity.GetComponent<DirectionalLightComponent>().CastShadows;
 		}
 
 		void DirectionalLightComponent_SetCastShadows(uint64_t entityID, Coral::Bool32 castShadows)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			entity.GetComponent<DirectionalLightComponent>().CastShadows = castShadows;
 		}
 
 		Coral::Bool32 DirectionalLightComponent_GetSoftShadows(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			return entity.GetComponent<DirectionalLightComponent>().SoftShadows;
 		}
 
 		void DirectionalLightComponent_SetSoftShadows(uint64_t entityID, Coral::Bool32 softShadows)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			entity.GetComponent<DirectionalLightComponent>().SoftShadows = softShadows;
 		}
 
 		float DirectionalLightComponent_GetLightSize(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			return entity.GetComponent<DirectionalLightComponent>().LightSize;
 		}
 
 		void DirectionalLightComponent_SetLightSize(uint64_t entityID, float lightSize)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<DirectionalLightComponent>());
 			entity.GetComponent<DirectionalLightComponent>().LightSize = lightSize;
 		}
 
@@ -2644,65 +2647,65 @@ namespace StarEngine {
 		void PointLightComponent_GetRadiance(uint64_t entityID, glm::vec3* outRadiance)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
 			*outRadiance = entity.GetComponent<PointLightComponent>().Radiance;
 		}
 
 		void PointLightComponent_SetRadiance(uint64_t entityID, glm::vec3* inRadiance)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
-			HZ_ICALL_VALIDATE_PARAM_V(inRadiance, "nullptr");
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(inRadiance, "nullptr");
 			entity.GetComponent<PointLightComponent>().Radiance = *inRadiance;
 		}
 
 		float PointLightComponent_GetIntensity(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
 			return entity.GetComponent<PointLightComponent>().Intensity;
 		}
 
 		void PointLightComponent_SetIntensity(uint64_t entityID, float intensity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
 			entity.GetComponent<PointLightComponent>().Intensity = intensity;
 		}
 
 		float PointLightComponent_GetRadius(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
 			return entity.GetComponent<PointLightComponent>().Radius;
 		}
 
 		void PointLightComponent_SetRadius(uint64_t entityID, float radius)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
 			entity.GetComponent<PointLightComponent>().Radius = radius;
 		}
 
 		float PointLightComponent_GetFalloff(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
 			return entity.GetComponent<PointLightComponent>().Falloff;
 		}
 
 		void PointLightComponent_SetFalloff(uint64_t entityID, float falloff)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<PointLightComponent>());
 			entity.GetComponent<PointLightComponent>().Falloff = falloff;
 		}
 
@@ -2713,64 +2716,64 @@ namespace StarEngine {
 		float SkyLightComponent_GetIntensity(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
 			return entity.GetComponent<SkyLightComponent>().Intensity;
 		}
 
 		void SkyLightComponent_SetIntensity(uint64_t entityID, float intensity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
 			entity.GetComponent<SkyLightComponent>().Intensity = intensity;
 		}
 
 		float SkyLightComponent_GetTurbidity(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
 			return entity.GetComponent<SkyLightComponent>().TurbidityAzimuthInclination.x;
 		}
 
 		void SkyLightComponent_SetTurbidity(uint64_t entityID, float turbidity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
 			entity.GetComponent<SkyLightComponent>().TurbidityAzimuthInclination.x = turbidity;
 		}
 
 		float SkyLightComponent_GetAzimuth(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
 			return entity.GetComponent<SkyLightComponent>().TurbidityAzimuthInclination.y;
 		}
 
 		void SkyLightComponent_SetAzimuth(uint64_t entityID, float azimuth)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
 			entity.GetComponent<SkyLightComponent>().TurbidityAzimuthInclination.y = azimuth;
 		}
 
 		float SkyLightComponent_GetInclination(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
 			return entity.GetComponent<SkyLightComponent>().TurbidityAzimuthInclination.z;
 		}
 
 		void SkyLightComponent_SetInclination(uint64_t entityID, float inclination)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SkyLightComponent>());
 			entity.GetComponent<SkyLightComponent>().TurbidityAzimuthInclination.z = inclination;
 		}
 
@@ -2782,16 +2785,16 @@ namespace StarEngine {
 		uint32_t TileRendererComponent_GetWidth(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
 			return entity.GetComponent<TileRendererComponent>().Width;
 		}
 
 		void TileRendererComponent_SetWidth(uint64_t entityID, uint32_t width)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
 
 			auto& trc = entity.GetComponent<TileRendererComponent>();
 			trc.Width = width;
@@ -2801,16 +2804,16 @@ namespace StarEngine {
 		uint32_t TileRendererComponent_GetHeight(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
 			return entity.GetComponent<TileRendererComponent>().Height;
 		}
 
 		void TileRendererComponent_SetHeight(uint64_t entityID, uint32_t height)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
 			auto& trc = entity.GetComponent<TileRendererComponent>();
 			trc.Height = height;
 			trc.MaterialIDs.resize(trc.Width * trc.Height);
@@ -2819,8 +2822,8 @@ namespace StarEngine {
 		Coral::Array<uint8_t> TileRendererComponent_GetMaterialIDs(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
 
 			auto& trc = entity.GetComponent<TileRendererComponent>();
 			return Coral::Array<uint8_t>::New(trc.MaterialIDs);
@@ -2829,8 +2832,8 @@ namespace StarEngine {
 		void TileRendererComponent_SetMaterialIDs(uint64_t entityID, Coral::Array<uint8_t> inData)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TileRendererComponent>());
 
 			auto& trc = entity.GetComponent<TileRendererComponent>();
 			auto& materialIDs = trc.MaterialIDs;
@@ -2841,12 +2844,12 @@ namespace StarEngine {
 
 				if (inData.Length() > materialIDs.size())
 				{
-					HZ_CORE_WARN_TAG("Scripting", "TileRenderer.SetMaterialIDs - provided {} IDs but only needed {}", inData.Length(), materialIDs.size());
+					SE_CORE_WARN_TAG("Scripting", "TileRenderer.SetMaterialIDs - provided {} IDs but only needed {}", inData.Length(), materialIDs.size());
 				}
 			}
 			else
 			{
-				HZ_CORE_WARN_TAG("Scripting", "TileRenderer.SetMaterialIDs - provided {} IDs but needed {}. Setting remainder to ID 0.", inData.Length(), materialIDs.size());
+				SE_CORE_WARN_TAG("Scripting", "TileRenderer.SetMaterialIDs - provided {} IDs but needed {}. Setting remainder to ID 0.", inData.Length(), materialIDs.size());
 
 				memcpy(materialIDs.data(), inData.Data(), inData.Length());
 
@@ -2864,64 +2867,64 @@ namespace StarEngine {
 		void SpriteRendererComponent_GetColor(uint64_t entityID, glm::vec4* outColor)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
 			*outColor = entity.GetComponent<SpriteRendererComponent>().Color;
 		}
 
 		void SpriteRendererComponent_SetColor(uint64_t entityID, glm::vec4* inColor)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
 			entity.GetComponent<SpriteRendererComponent>().Color = *inColor;
 		}
 
 		float SpriteRendererComponent_GetTilingFactor(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
 			return entity.GetComponent<SpriteRendererComponent>().TilingFactor;
 		}
 
 		void SpriteRendererComponent_SetTilingFactor(uint64_t entityID, float tilingFactor)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
 			entity.GetComponent<SpriteRendererComponent>().TilingFactor = tilingFactor;
 		}
 
 		void SpriteRendererComponent_GetUVStart(uint64_t entityID, glm::vec2* outUVStart)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
 			*outUVStart = entity.GetComponent<SpriteRendererComponent>().UVStart;
 		}
 
 		void SpriteRendererComponent_SetUVStart(uint64_t entityID, glm::vec2* inUVStart)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
 			entity.GetComponent<SpriteRendererComponent>().UVStart = *inUVStart;
 		}
 
 		void SpriteRendererComponent_GetUVEnd(uint64_t entityID, glm::vec2* outUVEnd)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
 			*outUVEnd = entity.GetComponent<SpriteRendererComponent>().UVEnd;
 		}
 
 		void SpriteRendererComponent_SetUVEnd(uint64_t entityID, glm::vec2* inUVEnd)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SpriteRendererComponent>());
 			entity.GetComponent<SpriteRendererComponent>().UVEnd = *inUVEnd;
 		}
 
@@ -2932,24 +2935,24 @@ namespace StarEngine {
 		RigidBody2DComponent::Type RigidBody2DComponent_GetBodyType(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 			return entity.GetComponent<RigidBody2DComponent>().BodyType;
 		}
 
 		void RigidBody2DComponent_SetBodyType(uint64_t entityID, RigidBody2DComponent::Type inType)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 			entity.GetComponent<RigidBody2DComponent>().BodyType = inType;
 		}
 
 		void RigidBody2DComponent_GetTranslation(uint64_t entityID, glm::vec2* outTranslation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			const auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -2968,8 +2971,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_SetTranslation(uint64_t entityID, glm::vec2* inTranslation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			const auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -2985,8 +2988,8 @@ namespace StarEngine {
 		float RigidBody2DComponent_GetRotation(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			const auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3001,8 +3004,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_SetRotation(uint64_t entityID, float rotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			const auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3018,8 +3021,8 @@ namespace StarEngine {
 		float RigidBody2DComponent_GetMass(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			const auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3034,8 +3037,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_SetMass(uint64_t entityID, float mass)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3056,8 +3059,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_GetLinearVelocity(uint64_t entityID, glm::vec2* outVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			const auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3075,8 +3078,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_SetLinearVelocity(uint64_t entityID, glm::vec2* inVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3092,8 +3095,8 @@ namespace StarEngine {
 		float RigidBody2DComponent_GetGravityScale(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			const auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3108,8 +3111,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_SetGravityScale(uint64_t entityID, float gravityScale)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3126,8 +3129,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_ApplyLinearImpulse(uint64_t entityID, glm::vec2* inImpulse, glm::vec2* inOffset, Coral::Bool32 wake)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3149,8 +3152,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_ApplyAngularImpulse(uint64_t entityID, float impulse, Coral::Bool32 wake)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3172,8 +3175,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_AddForce(uint64_t entityID, glm::vec3* inForce, glm::vec3* inOffset, Coral::Bool32 wake)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3195,8 +3198,8 @@ namespace StarEngine {
 		void RigidBody2DComponent_AddTorque(uint64_t entityID, float torque, Coral::Bool32 wake)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBody2DComponent>());
 
 			auto& component = entity.GetComponent<RigidBody2DComponent>();
 			if (component.RuntimeBody == nullptr)
@@ -3222,8 +3225,8 @@ namespace StarEngine {
 		void RigidBodyComponent_AddForce(uint64_t entityID, glm::vec3* inForce, EForceMode forceMode)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 
@@ -3239,8 +3242,8 @@ namespace StarEngine {
 		void RigidBodyComponent_AddForceAtLocation(uint64_t entityID, glm::vec3* inForce, glm::vec3* inLocation, EForceMode forceMode)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3255,8 +3258,8 @@ namespace StarEngine {
 		void RigidBodyComponent_AddTorque(uint64_t entityID, glm::vec3* inTorque, EForceMode forceMode)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3271,8 +3274,8 @@ namespace StarEngine {
 		void RigidBodyComponent_GetLinearVelocity(uint64_t entityID, glm::vec3* outVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3287,8 +3290,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetLinearVelocity(uint64_t entityID, glm::vec3* inVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3309,8 +3312,8 @@ namespace StarEngine {
 		void RigidBodyComponent_GetAngularVelocity(uint64_t entityID, glm::vec3* outVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3325,8 +3328,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetAngularVelocity(uint64_t entityID, glm::vec3* inVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3347,8 +3350,8 @@ namespace StarEngine {
 		float RigidBodyComponent_GetMaxLinearVelocity(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3363,8 +3366,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetMaxLinearVelocity(uint64_t entityID, float maxVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3380,8 +3383,8 @@ namespace StarEngine {
 		float RigidBodyComponent_GetMaxAngularVelocity(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3396,8 +3399,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetMaxAngularVelocity(uint64_t entityID, float maxVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3413,16 +3416,16 @@ namespace StarEngine {
 		float RigidBodyComponent_GetLinearDrag(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 			return entity.GetComponent<RigidBodyComponent>().LinearDrag;
 		}
 
 		void RigidBodyComponent_SetLinearDrag(uint64_t entityID, float linearDrag)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3439,16 +3442,16 @@ namespace StarEngine {
 		float RigidBodyComponent_GetAngularDrag(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 			return entity.GetComponent<RigidBodyComponent>().AngularDrag;
 		}
 
 		void RigidBodyComponent_SetAngularDrag(uint64_t entityID, float angularDrag)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3465,8 +3468,8 @@ namespace StarEngine {
 		void RigidBodyComponent_Rotate(uint64_t entityID, glm::vec3* inRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			auto rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3487,16 +3490,16 @@ namespace StarEngine {
 		uint32_t RigidBodyComponent_GetLayer(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 			return entity.GetComponent<RigidBodyComponent>().LayerID;
 		}
 
 		void RigidBodyComponent_SetLayer(uint64_t entityID, uint32_t layerID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3519,8 +3522,8 @@ namespace StarEngine {
 		Coral::String RigidBodyComponent_GetLayerName(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			const auto& component = entity.GetComponent<RigidBodyComponent>();
 
@@ -3537,8 +3540,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetLayerByName(uint64_t entityID, Coral::String inName)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 
@@ -3571,8 +3574,8 @@ namespace StarEngine {
 		float RigidBodyComponent_GetMass(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3587,8 +3590,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetMass(uint64_t entityID, float mass)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3603,16 +3606,16 @@ namespace StarEngine {
 		EBodyType RigidBodyComponent_GetBodyType(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 			return entity.GetComponent<RigidBodyComponent>().BodyType;
 		}
 
 		void RigidBodyComponent_SetBodyType(uint64_t entityID, EBodyType type)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			auto& rigidbodyComponent = entity.GetComponent<RigidBodyComponent>();
 
@@ -3635,8 +3638,8 @@ namespace StarEngine {
 		Coral::Bool32 RigidBodyComponent_IsTrigger(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3651,8 +3654,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetTrigger(uint64_t entityID, Coral::Bool32 isTrigger)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3667,8 +3670,8 @@ namespace StarEngine {
 		void RigidBodyComponent_MoveKinematic(uint64_t entityID, glm::vec3* inTargetPosition, glm::vec3* inTargetRotation, float inDeltaSeconds)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3689,8 +3692,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetAxisLock(uint64_t entityID, EActorAxis axis, Coral::Bool32 value, Coral::Bool32 forceWake)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3705,8 +3708,8 @@ namespace StarEngine {
 		Coral::Bool32 RigidBodyComponent_IsAxisLocked(uint64_t entityID, EActorAxis axis)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3721,8 +3724,8 @@ namespace StarEngine {
 		uint32_t RigidBodyComponent_GetLockedAxes(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3737,8 +3740,8 @@ namespace StarEngine {
 		Coral::Bool32 RigidBodyComponent_IsSleeping(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3753,8 +3756,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetIsSleeping(uint64_t entityID, Coral::Bool32 isSleeping)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3769,8 +3772,8 @@ namespace StarEngine {
 		Coral::Bool32 RigidBodyComponent_IsGravityEnabled(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3785,8 +3788,8 @@ namespace StarEngine {
 		void RigidBodyComponent_SetIsGravityEnabled(uint64_t entityID, Coral::Bool32 enabled)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3801,8 +3804,8 @@ namespace StarEngine {
 		void RigidBodyComponent_AddRadialImpulse(uint64_t entityID, glm::vec3* inOrigin, float radius, float strength, EFalloffMode falloff, Coral::Bool32 velocityChange)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<RigidBodyComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			if (!rigidBody)
@@ -3821,17 +3824,17 @@ namespace StarEngine {
 		static inline Ref<CharacterController> GetPhysicsController(Entity entity)
 		{
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(scene, "No scene active!");
+			SE_CORE_ASSERT(scene, "No scene active!");
 			Ref<PhysicsScene> physicsScene = scene->GetPhysicsScene();
-			HZ_CORE_ASSERT(physicsScene, "No physics scene active!");
+			SE_CORE_ASSERT(physicsScene, "No physics scene active!");
 			return physicsScene->GetCharacterController(entity);
 		}
 
 		Coral::Bool32 CharacterControllerComponent_GetIsGravityEnabled(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -3846,8 +3849,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_SetIsGravityEnabled(uint64_t entityID, Coral::Bool32 enabled)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -3862,16 +3865,16 @@ namespace StarEngine {
 		float CharacterControllerComponent_GetSlopeLimit(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 			return entity.GetComponent<CharacterControllerComponent>().SlopeLimitDeg;
 		}
 
 		void CharacterControllerComponent_SetSlopeLimit(uint64_t entityID, float slopeLimit)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -3888,16 +3891,16 @@ namespace StarEngine {
 		float CharacterControllerComponent_GetStepOffset(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 			return entity.GetComponent<CharacterControllerComponent>().StepOffset;
 		}
 
 		void CharacterControllerComponent_SetStepOffset(uint64_t entityID, float stepOffset)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -3913,8 +3916,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_SetTranslation(uint64_t entityID, glm::vec3* inTranslation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -3935,8 +3938,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_SetRotation(uint64_t entityID, glm::quat* inRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -3957,8 +3960,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_Move(uint64_t entityID, glm::vec3* inDisplacement)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -3979,8 +3982,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_Rotate(uint64_t entityID, glm::quat* inRotation)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -4001,8 +4004,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_Jump(uint64_t entityID, float jumpPower)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -4017,8 +4020,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_GetLinearVelocity(uint64_t entityID, glm::vec3* outVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -4033,8 +4036,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_SetLinearVelocity(uint64_t entityID, glm::vec3* inVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -4049,8 +4052,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_GetAngularVelocity(uint64_t entityID, glm::vec3* outAngularVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
 			{
@@ -4063,8 +4066,8 @@ namespace StarEngine {
 		void CharacterControllerComponent_SetAngularVelocity(uint64_t entityID, glm::vec3* inAngularVelocity)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
 			{
@@ -4077,8 +4080,8 @@ namespace StarEngine {
 		bool CharacterControllerComponent_IsGrounded(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -4093,8 +4096,8 @@ namespace StarEngine {
 		ECollisionFlags CharacterControllerComponent_GetCollisionFlags(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CharacterControllerComponent>());
 
 			auto controller = GetPhysicsController(entity);
 			if (!controller)
@@ -4113,8 +4116,8 @@ namespace StarEngine {
 		void BoxColliderComponent_GetHalfSize(uint64_t entityID, glm::vec3* outSize)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<BoxColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<BoxColliderComponent>());
 
 			*outSize = entity.GetComponent<BoxColliderComponent>().HalfSize;
 		}
@@ -4122,8 +4125,8 @@ namespace StarEngine {
 		void BoxColliderComponent_GetOffset(uint64_t entityID, glm::vec3* outOffset)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<BoxColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<BoxColliderComponent>());
 
 			*outOffset = entity.GetComponent<BoxColliderComponent>().Offset;
 		}
@@ -4131,8 +4134,8 @@ namespace StarEngine {
 		Coral::Bool32 BoxColliderComponent_GetMaterial(uint64_t entityID, ColliderMaterial* outMaterial)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<BoxColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<BoxColliderComponent>());
 
 			*outMaterial = entity.GetComponent<BoxColliderComponent>().Material;
 			return true;
@@ -4141,8 +4144,8 @@ namespace StarEngine {
 		void BoxColliderComponent_SetMaterial(uint64_t entityID, ColliderMaterial* inMaterial)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<BoxColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<BoxColliderComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			SE_CORE_VERIFY(rigidBody);
@@ -4160,16 +4163,16 @@ namespace StarEngine {
 		float SphereColliderComponent_GetRadius(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SphereColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SphereColliderComponent>());
 			return entity.GetComponent<SphereColliderComponent>().Radius;
 		}
 
 		void SphereColliderComponent_GetOffset(uint64_t entityID, glm::vec3* outOffset)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SphereColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SphereColliderComponent>());
 
 			*outOffset = entity.GetComponent<SphereColliderComponent>().Offset;
 		}
@@ -4177,8 +4180,8 @@ namespace StarEngine {
 		Coral::Bool32 SphereColliderComponent_GetMaterial(uint64_t entityID, ColliderMaterial* outMaterial)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SphereColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SphereColliderComponent>());
 
 			*outMaterial = entity.GetComponent<SphereColliderComponent>().Material;
 			return true;
@@ -4187,8 +4190,8 @@ namespace StarEngine {
 		void SphereColliderComponent_SetMaterial(uint64_t entityID, ColliderMaterial* inMaterial)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<SphereColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<SphereColliderComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			SE_CORE_VERIFY(rigidBody);
@@ -4206,8 +4209,8 @@ namespace StarEngine {
 		float CapsuleColliderComponent_GetRadius(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
 
 			return entity.GetComponent<CapsuleColliderComponent>().Radius;
 		}
@@ -4215,8 +4218,8 @@ namespace StarEngine {
 		float CapsuleColliderComponent_GetHeight(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
 
 			return entity.GetComponent<CapsuleColliderComponent>().HalfHeight;
 		}
@@ -4224,8 +4227,8 @@ namespace StarEngine {
 		void CapsuleColliderComponent_GetOffset(uint64_t entityID, glm::vec3* outOffset)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
 
 			*outOffset = entity.GetComponent<CapsuleColliderComponent>().Offset;
 		}
@@ -4233,8 +4236,8 @@ namespace StarEngine {
 		Coral::Bool32 CapsuleColliderComponent_GetMaterial(uint64_t entityID, ColliderMaterial* outMaterial)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
 
 			*outMaterial = entity.GetComponent<CapsuleColliderComponent>().Material;
 			return true;
@@ -4243,8 +4246,8 @@ namespace StarEngine {
 		void CapsuleColliderComponent_SetMaterial(uint64_t entityID, ColliderMaterial* inMaterial)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<CapsuleColliderComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			SE_CORE_VERIFY(rigidBody);
@@ -4262,8 +4265,8 @@ namespace StarEngine {
 		Coral::Bool32 MeshColliderComponent_IsMeshStatic(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
 
 			const auto& component = entity.GetComponent<MeshColliderComponent>();
 			Ref<MeshColliderAsset> colliderAsset = AssetManager::GetAsset<MeshColliderAsset>(component.ColliderAsset);
@@ -4286,8 +4289,8 @@ namespace StarEngine {
 		Coral::Bool32 MeshColliderComponent_IsColliderMeshValid(uint64_t entityID, Param<AssetHandle> meshHandle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
 
 			const auto& component = entity.GetComponent<MeshColliderComponent>();
 			Ref<MeshColliderAsset> colliderAsset = AssetManager::GetAsset<MeshColliderAsset>(component.ColliderAsset);
@@ -4304,8 +4307,8 @@ namespace StarEngine {
 		Coral::Bool32 MeshColliderComponent_GetColliderMesh(uint64_t entityID, OutParam<AssetHandle> outHandle)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
 
 			const auto& component = entity.GetComponent<MeshColliderComponent>();
 			Ref<MeshColliderAsset> colliderAsset = AssetManager::GetAsset<MeshColliderAsset>(component.ColliderAsset);
@@ -4330,8 +4333,8 @@ namespace StarEngine {
 		Coral::Bool32 MeshColliderComponent_GetMaterial(uint64_t entityID, ColliderMaterial* outMaterial)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
 
 			*outMaterial = entity.GetComponent<MeshColliderComponent>().Material;
 			return true;
@@ -4340,8 +4343,8 @@ namespace StarEngine {
 		void MeshColliderComponent_SetMaterial(uint64_t entityID, ColliderMaterial* inMaterial)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<MeshColliderComponent>());
 
 			Ref<PhysicsBody> rigidBody = GetRigidBody(entityID);
 			SE_CORE_VERIFY(rigidBody);
@@ -4380,8 +4383,8 @@ namespace StarEngine {
 		Coral::Bool32 AudioComponent_IsPlaying(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			return AudioPlayback::IsPlaying(entityID);
 		}
@@ -4389,8 +4392,8 @@ namespace StarEngine {
 		Coral::Bool32 AudioComponent_Play(uint64_t entityID, float startTime)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			return AudioPlayback::Play(entityID, startTime);
 		}
@@ -4398,8 +4401,8 @@ namespace StarEngine {
 		Coral::Bool32 AudioComponent_Stop(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			return AudioPlayback::StopActiveSound(entityID);
 		}
@@ -4407,8 +4410,8 @@ namespace StarEngine {
 		Coral::Bool32 AudioComponent_Pause(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			return AudioPlayback::PauseActiveSound(entityID);
 		}
@@ -4416,8 +4419,8 @@ namespace StarEngine {
 		Coral::Bool32 AudioComponent_Resume(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			return AudioPlayback::Resume(entityID);
 		}
@@ -4425,8 +4428,8 @@ namespace StarEngine {
 		float AudioComponent_GetVolumeMult(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			return entity.GetComponent<AudioComponent>().VolumeMultiplier;
 		}
@@ -4434,8 +4437,8 @@ namespace StarEngine {
 		void AudioComponent_SetVolumeMult(uint64_t entityID, float volumeMultiplier)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			entity.GetComponent<AudioComponent>().VolumeMultiplier = volumeMultiplier;
 		}
@@ -4443,8 +4446,8 @@ namespace StarEngine {
 		float AudioComponent_GetPitchMult(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			return entity.GetComponent<AudioComponent>().PitchMultiplier;
 		}
@@ -4452,8 +4455,8 @@ namespace StarEngine {
 		void AudioComponent_SetPitchMult(uint64_t entityID, float pitchMultiplier)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			entity.GetComponent<AudioComponent>().PitchMultiplier = pitchMultiplier;
 		}
@@ -4461,8 +4464,8 @@ namespace StarEngine {
 		void AudioComponent_SetEvent(uint64_t entityID, Audio::CommandID eventID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<AudioComponent>());
 
 			if (!AudioCommandRegistry::DoesCommandExist<Audio::TriggerCommand>(eventID))
 			{
@@ -4482,8 +4485,8 @@ namespace StarEngine {
 		size_t TextComponent_GetHash(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
 
 			return entity.GetComponent<TextComponent>().TextHash;
 		}
@@ -4491,8 +4494,8 @@ namespace StarEngine {
 		Coral::String TextComponent_GetText(uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
 
 			const auto& component = entity.GetComponent<TextComponent>();
 			return Coral::String::New(component.TextString);
@@ -4501,8 +4504,8 @@ namespace StarEngine {
 		void TextComponent_SetText(uint64_t entityID, Coral::String text)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
 
 			auto& component = entity.GetComponent<TextComponent>();
 			component.TextString = text;
@@ -4512,8 +4515,8 @@ namespace StarEngine {
 		void TextComponent_GetColor(uint64_t entityID, glm::vec4* outColor)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
 
 			const auto& component = entity.GetComponent<TextComponent>();
 			*outColor = component.Color;
@@ -4522,8 +4525,8 @@ namespace StarEngine {
 		void TextComponent_SetColor(uint64_t entityID, glm::vec4* inColor)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
-			HZ_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM(entity.HasComponent<TextComponent>());
 
 			auto& component = entity.GetComponent<TextComponent>();
 			component.Color = *inColor;
@@ -4544,7 +4547,7 @@ namespace StarEngine {
 		uint32_t Audio_PostEventFromAC(Audio::CommandID eventID, uint64_t entityID)
 		{
 			auto entity = GetEntity(entityID);
-			HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+			SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 
 			if (!AudioCommandRegistry::DoesCommandExist<Audio::TriggerCommand>(eventID))
@@ -4773,7 +4776,7 @@ namespace StarEngine {
 			instance->Unlock();
 		}
 
-		// TODO(Peter): Uncomment when Hazel can actually read texture data from the CPU or when image data is persistently stored in RAM
+		// TODO(Peter): Uncomment when StarEngine can actually read texture data from the CPU or when image data is persistently stored in RAM
 		/*MonoArray* Texture2D_GetData(OutParam<AssetHandle> inHandle)
 		{
 			Ref<Texture2D> instance = AssetManager::GetAsset<Texture2D>(*inHandle);
@@ -4969,7 +4972,7 @@ namespace StarEngine {
 				}
 				else
 				{
-					ErrorWithTrace("meshHandle doesn't correspond with a Mesh? AssetType: {}", Hazel::Utils::AssetTypeToString(AssetManager::GetAssetType(meshHandle)));
+					ErrorWithTrace("meshHandle doesn't correspond with a Mesh? AssetType: {}", StarEngine::Utils::AssetTypeToString(AssetManager::GetAssetType(meshHandle)));
 					return nullptr;
 				}
 			}
@@ -4977,7 +4980,7 @@ namespace StarEngine {
 			{
 				// This material is expected to be on a component
 				auto entity = GetEntity(entityID);
-				HZ_ICALL_VALIDATE_PARAM_V(entity, entityID);
+				SE_ICALL_VALIDATE_PARAM_V(entity, entityID);
 
 				if (entity.HasComponent<SubmeshComponent>())
 				{
@@ -5193,7 +5196,7 @@ namespace StarEngine {
 		Coral::Bool32 Physics_CastRay(RaycastData* inRaycastData, SceneQueryHitInterop* outHit)
 		{
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(scene, "No active scene!");
+			SE_CORE_ASSERT(scene, "No active scene!");
 
 			if (scene->IsEditorScene())
 			{
@@ -5235,7 +5238,7 @@ namespace StarEngine {
 						break;
 					}
 
-#ifdef HZ_DEBUG
+#ifdef SE_DEBUG
 					auto& baseType = reflectionType.GetBaseType();
 
 					bool validComponentFilter = false;
@@ -5244,13 +5247,13 @@ namespace StarEngine {
 					{
 						Coral::ScopedString parentNameStr = baseType.GetFullName();
 						std::string parentName = parentNameStr;
-						validComponentFilter = parentName.find("Hazel.") != std::string::npos && parentName.find("Component") != std::string::npos;
+						validComponentFilter = parentName.find("StarEngine.") != std::string::npos && parentName.find("Component") != std::string::npos;
 					}
 
 					if (!validComponentFilter)
 					{
 						Coral::ScopedString typeName = reflectionType.GetFullName();
-						ErrorWithTrace("Physics.Raycast - {0} does not inherit from Hazel.Component!", std::string(typeName));
+						ErrorWithTrace("Physics.Raycast - {0} does not inherit from StarEngine.Component!", std::string(typeName));
 						success = false;
 						break;
 					}
@@ -5287,7 +5290,7 @@ namespace StarEngine {
 
 						if (colliderMesh->GetAssetType() == AssetType::StaticMesh)
 						{
-							const auto* staticMeshType = scriptEngine.GetTypeByName("Hazel.StaticMesh");
+							const auto* staticMeshType = scriptEngine.GetTypeByName("StarEngine.StaticMesh");
 							auto staticMeshInstance = staticMeshType->CreateInstance(uint64_t(colliderComp.ColliderAsset));
 
 							const auto* convexMeshShapeType = scriptEngine.GetTypeByName(meshShapeClass);
@@ -5295,7 +5298,7 @@ namespace StarEngine {
 						}
 						else if (colliderMesh->GetAssetType() == AssetType::Mesh)
 						{
-							const auto* meshType = scriptEngine.GetTypeByName("Hazel.Mesh");
+							const auto* meshType = scriptEngine.GetTypeByName("StarEngine.Mesh");
 							auto meshInstance = meshType->CreateInstance(uint64_t(colliderComp.ColliderAsset));
 
 							const auto* convexMeshShapeType = scriptEngine.GetTypeByName(meshShapeClass);
@@ -5315,7 +5318,7 @@ namespace StarEngine {
 
 							glm::vec3 halfSize = tempHit.HitCollider.As<BoxShape>()->GetHalfSize();
 
-							const auto* boxShape = scriptEngine.GetTypeByName("Hazel.BoxShape");
+							const auto* boxShape = scriptEngine.GetTypeByName("StarEngine.BoxShape");
 							shapeInstance = boxShape->CreateInstance(halfSize);
 							break;
 						}
@@ -5326,7 +5329,7 @@ namespace StarEngine {
 							offset = colliderComp.Offset;
 
 							float radius = tempHit.HitCollider.As<SphereShape>()->GetRadius();
-							const auto* sphereShape = scriptEngine.GetTypeByName("Hazel.SphereShape");
+							const auto* sphereShape = scriptEngine.GetTypeByName("StarEngine.SphereShape");
 							shapeInstance = sphereShape->CreateInstance(radius);
 							break;
 						}
@@ -5339,7 +5342,7 @@ namespace StarEngine {
 							Ref<CapsuleShape> capsuleShape = tempHit.HitCollider.As<CapsuleShape>();
 							float height = capsuleShape->GetHeight();
 							float radius = capsuleShape->GetRadius();
-							const auto* sphereShape = scriptEngine.GetTypeByName("Hazel.CapsuleShape");
+							const auto* sphereShape = scriptEngine.GetTypeByName("StarEngine.CapsuleShape");
 							shapeInstance = sphereShape->CreateInstance(height, radius);
 							break;
 						}
@@ -5347,21 +5350,21 @@ namespace StarEngine {
 						{
 							Entity hitEntity = GetEntity(tempHit.HitEntity);
 							const auto& colliderComp = hitEntity.GetComponent<MeshColliderComponent>();
-							shapeInstance = createMeshShape("Hazel.ConvexMeshShape", colliderComp);
+							shapeInstance = createMeshShape("StarEngine.ConvexMeshShape", colliderComp);
 							break;
 						}
 						case ShapeType::TriangleMesh:
 						{
 							Entity hitEntity = GetEntity(tempHit.HitEntity);
 							const auto& colliderComp = hitEntity.GetComponent<MeshColliderComponent>();
-							shapeInstance = createMeshShape("Hazel.TriangleMeshShape", colliderComp);
+							shapeInstance = createMeshShape("StarEngine.TriangleMeshShape", colliderComp);
 							break;
 						}
 					}
 
 					if (shapeInstance.IsValid())
 					{
-						const auto* colliderType = scriptEngine.GetTypeByName("Hazel.Collider");
+						const auto* colliderType = scriptEngine.GetTypeByName("StarEngine.Collider");
 						outHit->HitCollider = colliderType->CreateInstance(tempHit.HitEntity, shapeInstance, offset);
 					}
 				}
@@ -5377,7 +5380,7 @@ namespace StarEngine {
 		Coral::Bool32 Physics_CastShape(ShapeQueryData* inShapeCastData, SceneQueryHitInterop* outHit)
 		{
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(scene, "No active scene!");
+			SE_CORE_ASSERT(scene, "No active scene!");
 
 			if (scene->IsEditorScene())
 			{
@@ -5388,7 +5391,7 @@ namespace StarEngine {
 
 			SE_CORE_VERIFY(shapeInstanceType);
 
-			const auto* shapeBaseType = ScriptEngine::GetInstance().GetTypeByName("Hazel.Shape");
+			const auto* shapeBaseType = ScriptEngine::GetInstance().GetTypeByName("StarEngine.Shape");
 
 			if (!shapeInstanceType.IsSubclassOf(*shapeBaseType))
 			{
@@ -5467,7 +5470,7 @@ namespace StarEngine {
 						break;
 					}
 
-#ifdef HZ_DEBUG
+#ifdef SE_DEBUG
 					auto& baseType = componentType.GetBaseType();
 
 					bool validComponentFilter = false;
@@ -5476,13 +5479,13 @@ namespace StarEngine {
 					{
 						Coral::ScopedString parentNameStr = baseType.GetFullName();
 						std::string parentName = parentNameStr;
-						validComponentFilter = parentName.find("Hazel.") != std::string::npos && parentName.find("Component") != std::string::npos;
+						validComponentFilter = parentName.find("StarEngine.") != std::string::npos && parentName.find("Component") != std::string::npos;
 					}
 
 					if (!validComponentFilter)
 					{
 						Coral::ScopedString typeName = componentType.GetFullName();
-						ErrorWithTrace("Physics.CastShape - {0} does not inherit from Hazel.Component!", std::string(typeName));
+						ErrorWithTrace("Physics.CastShape - {0} does not inherit from StarEngine.Component!", std::string(typeName));
 						success = false;
 						break;
 					}
@@ -5517,7 +5520,7 @@ namespace StarEngine {
 
 						if (colliderMesh->GetAssetType() == AssetType::StaticMesh)
 						{
-							const auto* staticMeshType = scriptEngine.GetTypeByName("Hazel.StaticMesh");
+							const auto* staticMeshType = scriptEngine.GetTypeByName("StarEngine.StaticMesh");
 							auto staticMeshInstance = staticMeshType->CreateInstance(uint64_t(colliderComp.ColliderAsset));
 
 							const auto* convexMeshShapeType = scriptEngine.GetTypeByName(meshShapeClass);
@@ -5525,7 +5528,7 @@ namespace StarEngine {
 						}
 						else if (colliderMesh->GetAssetType() == AssetType::Mesh)
 						{
-							const auto* meshType = scriptEngine.GetTypeByName("Hazel.Mesh");
+							const auto* meshType = scriptEngine.GetTypeByName("StarEngine.Mesh");
 							auto meshInstance = meshType->CreateInstance(uint64_t(colliderComp.ColliderAsset));
 
 							const auto* convexMeshShapeType = scriptEngine.GetTypeByName(meshShapeClass);
@@ -5545,7 +5548,7 @@ namespace StarEngine {
 
 							glm::vec3 halfSize = tempHit.HitCollider.As<BoxShape>()->GetHalfSize();
 
-							const auto* boxShape = scriptEngine.GetTypeByName("Hazel.BoxShape");
+							const auto* boxShape = scriptEngine.GetTypeByName("StarEngine.BoxShape");
 							shapeInstance = boxShape->CreateInstance(halfSize);
 							break;
 						}
@@ -5556,7 +5559,7 @@ namespace StarEngine {
 							offset = colliderComp.Offset;
 
 							float radius = tempHit.HitCollider.As<SphereShape>()->GetRadius();
-							const auto* sphereShape = scriptEngine.GetTypeByName("Hazel.SphereShape");
+							const auto* sphereShape = scriptEngine.GetTypeByName("StarEngine.SphereShape");
 							shapeInstance = sphereShape->CreateInstance(radius);
 							break;
 						}
@@ -5569,7 +5572,7 @@ namespace StarEngine {
 							Ref<CapsuleShape> capsuleShape = tempHit.HitCollider.As<CapsuleShape>();
 							float height = capsuleShape->GetHeight();
 							float radius = capsuleShape->GetRadius();
-							const auto* sphereShape = scriptEngine.GetTypeByName("Hazel.CapsuleShape");
+							const auto* sphereShape = scriptEngine.GetTypeByName("StarEngine.CapsuleShape");
 							shapeInstance = sphereShape->CreateInstance(height, radius);
 							break;
 						}
@@ -5577,21 +5580,21 @@ namespace StarEngine {
 						{
 							Entity hitEntity = GetEntity(tempHit.HitEntity);
 							const auto& colliderComp = hitEntity.GetComponent<MeshColliderComponent>();
-							shapeInstance = createMeshShape("Hazel.ConvexMeshShape", colliderComp);
+							shapeInstance = createMeshShape("StarEngine.ConvexMeshShape", colliderComp);
 							break;
 						}
 						case ShapeType::TriangleMesh:
 						{
 							Entity hitEntity = GetEntity(tempHit.HitEntity);
 							const auto& colliderComp = hitEntity.GetComponent<MeshColliderComponent>();
-							shapeInstance = createMeshShape("Hazel.TriangleMeshShape", colliderComp);
+							shapeInstance = createMeshShape("StarEngine.TriangleMeshShape", colliderComp);
 							break;
 						}
 					}
 
 					if (shapeInstance.IsValid())
 					{
-						const auto* colliderType = scriptEngine.GetTypeByName("Hazel.Collider");
+						const auto* colliderType = scriptEngine.GetTypeByName("StarEngine.Collider");
 						outHit->HitCollider = colliderType->CreateInstance(tempHit.HitEntity, shapeInstance, offset);
 					}
 				}
@@ -5608,7 +5611,7 @@ namespace StarEngine {
 		Coral::Array<ScriptRaycastHit2D> Physics_Raycast2D(RaycastData2D* inRaycastData)
 		{
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(scene, "No active scene!");
+			SE_CORE_ASSERT(scene, "No active scene!");
 
 			if (scene->IsEditorScene())
 			{
@@ -5635,13 +5638,13 @@ namespace StarEngine {
 		int32_t Physics_OverlapShape(ShapeQueryData* inOverlapData, Coral::Array<SceneQueryHitInterop>* outHits)
 		{
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(scene, "No active scene!");
+			SE_CORE_ASSERT(scene, "No active scene!");
 
 			const auto& shapeInstanceType = inOverlapData->ShapeDataInstance.GetType();
 
 			SE_CORE_VERIFY(shapeInstanceType);
 
-			const auto* shapeBaseType = ScriptEngine::GetInstance().GetTypeByName("Hazel.Shape");
+			const auto* shapeBaseType = ScriptEngine::GetInstance().GetTypeByName("StarEngine.Shape");
 
 			if (!shapeInstanceType.IsSubclassOf(*shapeBaseType))
 			{
@@ -5724,7 +5727,7 @@ namespace StarEngine {
 							break;
 						}
 
-#ifdef HZ_DEBUG
+#ifdef SE_DEBUG
 						auto& baseType = componentType.GetBaseType();
 
 						bool validComponentFilter = false;
@@ -5733,13 +5736,13 @@ namespace StarEngine {
 						{
 							Coral::ScopedString parentNameStr = baseType.GetFullName();
 							std::string parentName = parentNameStr;
-							validComponentFilter = parentName.find("Hazel.") != std::string::npos && parentName.find("Component") != std::string::npos;
+							validComponentFilter = parentName.find("StarEngine.") != std::string::npos && parentName.find("Component") != std::string::npos;
 						}
 
 						if (!validComponentFilter)
 						{
 							Coral::ScopedString typeName = componentType.GetFullName();
-							ErrorWithTrace("Physics.OverlapShape - {0} does not inherit from Hazel.Component!", std::string(typeName));
+							ErrorWithTrace("Physics.OverlapShape - {0} does not inherit from StarEngine.Component!", std::string(typeName));
 							overlapCount = 0;
 							break;
 						}
@@ -5774,7 +5777,7 @@ namespace StarEngine {
 
 					if (colliderMesh->GetAssetType() == AssetType::StaticMesh)
 					{
-						const auto* staticMeshType = scriptEngine.GetTypeByName("Hazel.StaticMesh");
+						const auto* staticMeshType = scriptEngine.GetTypeByName("StarEngine.StaticMesh");
 						auto staticMeshInstance = staticMeshType->CreateInstance(uint64_t(colliderComp.ColliderAsset));
 
 						const auto* convexMeshShapeType = scriptEngine.GetTypeByName(meshShapeClass);
@@ -5782,7 +5785,7 @@ namespace StarEngine {
 					}
 					else if (colliderMesh->GetAssetType() == AssetType::Mesh)
 					{
-						const auto* meshType = scriptEngine.GetTypeByName("Hazel.Mesh");
+						const auto* meshType = scriptEngine.GetTypeByName("StarEngine.Mesh");
 						auto meshInstance = meshType->CreateInstance(uint64_t(colliderComp.ColliderAsset));
 
 						const auto* convexMeshShapeType = scriptEngine.GetTypeByName(meshShapeClass);
@@ -5806,7 +5809,7 @@ namespace StarEngine {
 							offset = colliderComp.Offset;
 
 							glm::vec3 halfSize = hitArray[i].HitCollider.As<BoxShape>()->GetHalfSize();
-							const auto* boxShape = scriptEngine.GetTypeByName("Hazel.BoxShape");
+							const auto* boxShape = scriptEngine.GetTypeByName("StarEngine.BoxShape");
 							shapeInstance = boxShape->CreateInstance(halfSize);
 							break;
 						}
@@ -5817,7 +5820,7 @@ namespace StarEngine {
 							offset = colliderComp.Offset;
 
 							float radius = hitArray[i].HitCollider.As<SphereShape>()->GetRadius();
-							const auto* sphereShape = scriptEngine.GetTypeByName("Hazel.SphereShape");
+							const auto* sphereShape = scriptEngine.GetTypeByName("StarEngine.SphereShape");
 							shapeInstance = sphereShape->CreateInstance(radius);
 							break;
 						}
@@ -5830,7 +5833,7 @@ namespace StarEngine {
 							Ref<CapsuleShape> capsuleShape = hitArray[i].HitCollider.As<CapsuleShape>();
 							float height = capsuleShape->GetHeight();
 							float radius = capsuleShape->GetRadius();
-							const auto* sphereShape = scriptEngine.GetTypeByName("Hazel.CapsuleShape");
+							const auto* sphereShape = scriptEngine.GetTypeByName("StarEngine.CapsuleShape");
 							shapeInstance = sphereShape->CreateInstance(height, radius);
 							break;
 						}
@@ -5838,21 +5841,21 @@ namespace StarEngine {
 						{
 							Entity hitEntity = GetEntity(hitArray[i].HitEntity);
 							const auto& colliderComp = hitEntity.GetComponent<MeshColliderComponent>();
-							shapeInstance = createMeshShape("Hazel.ConvexMeshShape", colliderComp);
+							shapeInstance = createMeshShape("StarEngine.ConvexMeshShape", colliderComp);
 							break;
 						}
 						case ShapeType::TriangleMesh:
 						{
 							Entity hitEntity = GetEntity(hitArray[i].HitEntity);
 							const auto& colliderComp = hitEntity.GetComponent<MeshColliderComponent>();
-							shapeInstance = createMeshShape("Hazel.TriangleMeshShape", colliderComp);
+							shapeInstance = createMeshShape("StarEngine.TriangleMeshShape", colliderComp);
 							break;
 						}
 					}
 
 					if (shapeInstance.IsValid())
 					{
-						const auto* colliderType = scriptEngine.GetTypeByName("Hazel.Collider");
+						const auto* colliderType = scriptEngine.GetTypeByName("StarEngine.Collider");
 						hitData.HitCollider = colliderType->CreateInstance(hitArray[i].HitEntity, shapeInstance, offset);
 					}
 
@@ -5867,21 +5870,21 @@ namespace StarEngine {
 		void Physics_GetGravity(glm::vec3* outGravity)
 		{
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(scene, "No active scene!");
+			SE_CORE_ASSERT(scene, "No active scene!");
 			*outGravity = scene->GetPhysicsScene()->GetGravity();
 		}
 
 		void Physics_SetGravity(glm::vec3* inGravity)
 		{
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(scene, "No active scene!");
+			SE_CORE_ASSERT(scene, "No active scene!");
 			scene->GetPhysicsScene()->SetGravity(*inGravity);
 		}
 
 		void Physics_AddRadialImpulse(glm::vec3* inOrigin, float radius, float strength, EFalloffMode falloff, Coral::Bool32 velocityChange)
 		{
 			Ref<Scene> scene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(scene, "No active scene!");
+			SE_CORE_ASSERT(scene, "No active scene!");
 			scene->GetPhysicsScene()->AddRadialImpulse(*inOrigin, radius, strength, falloff, velocityChange);
 		}
 
@@ -5948,22 +5951,22 @@ namespace StarEngine {
 			switch (level)
 			{
 				case LogLevel::Trace:
-					HZ_CONSOLE_LOG_TRACE(message);
+					SE_CONSOLE_LOG_TRACE(message);
 					break;
 				case LogLevel::Debug:
-					HZ_CONSOLE_LOG_INFO(message);
+					SE_CONSOLE_LOG_INFO(message);
 					break;
 				case LogLevel::Info:
-					HZ_CONSOLE_LOG_INFO(message);
+					SE_CONSOLE_LOG_INFO(message);
 					break;
 				case LogLevel::Warn:
-					HZ_CONSOLE_LOG_WARN(message);
+					SE_CONSOLE_LOG_WARN(message);
 					break;
 				case LogLevel::Error:
-					HZ_CONSOLE_LOG_ERROR(message);
+					SE_CONSOLE_LOG_ERROR(message);
 					break;
 				case LogLevel::Critical:
-					HZ_CONSOLE_LOG_FATAL(message);
+					SE_CONSOLE_LOG_FATAL(message);
 					break;
 			}
 			Coral::String::Free(inFormattedMessage);
@@ -6426,7 +6429,7 @@ namespace StarEngine {
 		uint32_t PerformanceTimers_GetEntityCount()
 		{
 			Ref<Scene> activeScene = ScriptEngine::GetInstance().GetCurrentScene();
-			HZ_CORE_ASSERT(activeScene, "No active scene!");
+			SE_CORE_ASSERT(activeScene, "No active scene!");
 
 			return (uint32_t) activeScene->GetEntityMap().size();
 		}

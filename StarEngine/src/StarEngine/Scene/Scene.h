@@ -6,6 +6,7 @@
 #include "StarEngine/Renderer/EditorCamera.h"
 
 #include "entt.hpp"
+#include "StarEngine/Scripting/ScriptEntityStorage.hpp"
 
 class b2World;
 

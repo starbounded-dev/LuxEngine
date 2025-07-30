@@ -94,13 +94,13 @@ namespace StarEngine {
 				return 0;
 			}
 			
-			/*if (m_Instance)
+			if (m_Instance)
 			{
 				auto arr = m_Instance->GetFieldValue<Coral::Array<int32_t>>(m_Name);
 				int32_t length = arr.Length();
 				Coral::Array<int32_t>::Free(arr);
 				return length;
-			}*/
+			}
 
 		}
 

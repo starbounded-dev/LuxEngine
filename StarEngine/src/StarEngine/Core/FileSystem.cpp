@@ -25,6 +25,8 @@ namespace StarEngine {
 		}
 
 		Buffer buffer(size);
+
+
 		stream.read(buffer.As<char>(), size);
 		stream.close();
 		return buffer;

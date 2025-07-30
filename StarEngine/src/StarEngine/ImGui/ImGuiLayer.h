@@ -2,9 +2,9 @@
 
 #include "StarEngine/Core/Layer.h"
 
-#include "StarEngine/Events/ApplicationEvent.h"
-#include "StarEngine/Events/KeyEvent.h"
-#include "StarEngine/Events/MouseEvent.h"
+#include "StarEngine/Core/Events/ApplicationEvent.h"
+#include "StarEngine/Core/Events/KeyEvent.h"
+#include "StarEngine/Core/Events/MouseEvent.h"
 
 namespace StarEngine {
 

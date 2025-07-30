@@ -104,7 +104,8 @@ namespace StarEngine {
 		uint32_t m_Stride = 0;
 	};
 
-	class VertexBuffer {
+	class VertexBuffer : public RefCounted
+	{
 		public:
 			virtual ~VertexBuffer() = default;
 
@@ -120,7 +121,7 @@ namespace StarEngine {
 			static Ref<VertexBuffer> Create(float* vertices, uint32_t size);
 	};
 
-	class IndexBuffer
+	class IndexBuffer : public RefCounted
 	{
 	public:
 		virtual ~IndexBuffer() = default;

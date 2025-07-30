@@ -3,8 +3,8 @@
 #include "StarEngine/Renderer/OrthographicCamera.h"
 #include "StarEngine/Core/Timestep.h"
 
-#include "StarEngine/Events/ApplicationEvent.h"
-#include "StarEngine/Events/MouseEvent.h"
+#include "StarEngine/Core/Events/ApplicationEvent.h"
+#include "StarEngine/Core/Events/MouseEvent.h"
 
 namespace StarEngine {
 
