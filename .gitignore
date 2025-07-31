@@ -1,6 +1,6 @@
 # Binaries
 **/bin/
-!vendor/bin/premake/
+!vendor/bin/
 !StarEngine/vendor/assimp/bin
 !StarEngine/vendor/mono/bin
 bin-int/
