@@ -2,7 +2,7 @@
 
 #include "PropertyGrid.h"
 
-#include "StarEngine/Scripting//ScriptEngine.h"
+#include "StarEngine/Scripting/ScriptEngine.h"
 
 namespace StarEngine::UI {
 

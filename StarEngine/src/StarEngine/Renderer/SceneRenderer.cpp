@@ -3179,7 +3179,7 @@ namespace StarEngine {
 		{
 			for (size_t i = 0; i < stride; ++i)
 			{
-				boneTransformsMap.BoneTransformsData.push_back(boneTransforms[meshSource->m_BoneInfo[i].BoneIndex] * meshSource->m_BoneInfo[i].InverseBindPose);
+				//boneTransformsMap.BoneTransformsData.push_back(boneTransforms[meshSource->m_BoneInfo[i].BoneIndex] * meshSource->m_BoneInfo[i].InverseBindPose);
 			}
 		}
 	}

@@ -8,6 +8,7 @@
 #include "yaml-cpp/yaml.h"
 
 #include "ShaderPreprocessing/ShaderPreprocessor.h"
+#include "StarEngine/Utilities/SerializationMacros.h"
 
 namespace StarEngine {
 

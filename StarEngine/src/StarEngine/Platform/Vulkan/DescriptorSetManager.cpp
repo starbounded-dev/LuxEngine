@@ -8,7 +8,7 @@
 #include "StarEngine/Debug/Profiler.h"
 
 namespace StarEngine {
-	
+
 	namespace Utils {
 
 		inline RenderResourceType GetDefaultResourceType(RenderInputType inputType)
@@ -67,7 +67,7 @@ namespace StarEngine {
 				//				Coming from somewhere.
 				const char* broken = strrchr(bname.c_str(), '.');
 				std::string name = broken ? broken + 1 : bname;
-				
+
 				InputDeclarations[name] = inputDecl;
 
 				uint32_t binding = inputDecl.Binding;
@@ -322,7 +322,7 @@ namespace StarEngine {
 			SE_CORE_ERROR_TAG("Renderer", "[RenderPass] Bake - Validate failed! {}", m_Specification.DebugName);
 			return;
 		}
-		
+
 		// If valid, we can create descriptor sets
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 
@@ -416,10 +416,10 @@ namespace StarEngine {
 								nvrhi::BindingSetItem bindingSetItem = nvrhi::BindingSetItem::Texture_SRV(binding, handle);
 								bindingSetItem.arrayElement = (uint32_t)i;
 								bindingSetDesc.bindings.push_back(bindingSetItem);
-								
+
 								storedHandles[i] = handle;
 							}
-		
+
 							break;
 						}
 						case RenderResourceType::TextureCube:
@@ -677,7 +677,7 @@ namespace StarEngine {
 
 				if (!writeDescriptors.empty())
 				{
-					SE_CORE_INFO_TAG("Renderer", "Render pass update {} descriptors in set {}", writeDescriptors.size(), set);
+					HZ_CORE_INFO_TAG("Renderer", "Render pass update {} descriptors in set {}", writeDescriptors.size(), set);
 					vkUpdateDescriptorSets(device, (uint32_t)writeDescriptors.size(), writeDescriptors.data(), 0, nullptr);
 				}
 			}
@@ -810,8 +810,8 @@ namespace StarEngine {
 			m_State = State::Ready;
 
 #if TODO
-		SE_PROFILE_FUNC();
-		SE_SCOPE_PERF("DescriptorSetManager::InvalidateAndUpdate");
+		HZ_PROFILE_FUNC();
+		HZ_SCOPE_PERF("DescriptorSetManager::InvalidateAndUpdate");
 
 		uint32_t currentFrameIndex = Renderer::RT_GetCurrentFrameIndex();
 
@@ -1018,15 +1018,15 @@ namespace StarEngine {
 						{
 							Ref<RendererResource> image = input.Input[0].As<RendererResource>();
 							writeDescriptor.pImageInfo = (VkDescriptorImageInfo*)image->GetDescriptorInfo();
-							SE_CORE_VERIFY(writeDescriptor.pImageInfo->imageView);
+							HZ_CORE_VERIFY(writeDescriptor.pImageInfo->imageView);
 							wd.ResourceHandles[0] = writeDescriptor.pImageInfo->imageView;
 							break;
 						}
 					}
 					writeDescriptorsToUpdate.emplace_back(writeDescriptor);
 				}
-				// SE_CORE_INFO_TAG("Renderer", "RenderPass::Prepare ({}) - updating {} descriptors in set {} (frameIndex={})", m_Specification.DebugName, writeDescriptorsToUpdate.size(), set, frameIndex);
-				SE_CORE_INFO_TAG("Renderer", "DescriptorSetManager::InvalidateAndUpdate ({}) - updating {} descriptors in set {} (frameIndex={})", m_Specification.DebugName, writeDescriptorsToUpdate.size(), set, frameIndex);
+				// HZ_CORE_INFO_TAG("Renderer", "RenderPass::Prepare ({}) - updating {} descriptors in set {} (frameIndex={})", m_Specification.DebugName, writeDescriptorsToUpdate.size(), set, frameIndex);
+				HZ_CORE_INFO_TAG("Renderer", "DescriptorSetManager::InvalidateAndUpdate ({}) - updating {} descriptors in set {} (frameIndex={})", m_Specification.DebugName, writeDescriptorsToUpdate.size(), set, frameIndex);
 				VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
 				vkUpdateDescriptorSets(device, (uint32_t)writeDescriptorsToUpdate.size(), writeDescriptorsToUpdate.data(), 0, nullptr);
 			}
@@ -1073,7 +1073,7 @@ namespace StarEngine {
 		nvrhi::BindingSetVector result(m_BindingSets[frameIndex].size());
 		for (size_t i = 0; i < result.size(); i++)
 			result[i] = m_BindingSets[frameIndex][i];
-		
+
 		return result;
 	}
 

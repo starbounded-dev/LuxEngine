@@ -26,6 +26,8 @@
 #include <filesystem>
 #include <nfd.hpp>
 
+#include "StarEngine/Editor/EditorApplicationSettings.h"
+
 extern bool g_ApplicationRunning;
 extern ImGuiContext* GImGui;
 namespace StarEngine
@@ -207,7 +209,7 @@ namespace StarEngine
 				Renderer::Submit([&]()
 					{
 						//m_Window->GetSwapChain().BeginFrame();
-						m_Window->GetDeviceManager()->BeginFrame();
+						m_Window->BeginFrame();
 					});
 
 				Renderer::BeginFrame();

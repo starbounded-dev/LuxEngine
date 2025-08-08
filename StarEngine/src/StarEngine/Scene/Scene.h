@@ -10,7 +10,7 @@
 #include "StarEngine/Renderer/Mesh.h"
 #include "StarEngine/Renderer/SceneEnvironment.h"
 
-#include "StarEngine/Scripting/ScriptEntityStorage.hpp"
+//#include "StarEngine/Scripting/ScriptEntityStorage.hpp"
 
 namespace StarEngine {
 
@@ -91,7 +91,7 @@ namespace StarEngine {
 		bool IsEditorScene = false;
 		bool Initalize = true;
 	};
-	/*
+	
 	class Scene : public Asset
 	{
 	public:
@@ -164,8 +164,8 @@ namespace StarEngine {
 		void RebuildMeshEntityHierarchy(Entity parent);
 		Entity InstantiateStaticMesh(Ref<StaticMesh> mesh);
 
-		std::vector<UUID> FindBoneEntityIds(Entity entity, Entity rootEntity, const Skeleton* skeleton);
-		glm::mat3 FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds);
+		//std::vector<UUID> FindBoneEntityIds(Entity entity, Entity rootEntity, const Skeleton* skeleton);
+		//glm::mat3 FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds);
 
 		template<typename... Components>
 		auto GetAllEntitiesWith()
@@ -250,8 +250,8 @@ namespace StarEngine {
 
 		void DuplicateAnimationInstance(Entity dst, Entity src);
 
-		ScriptStorage& GetScriptStorage() { return m_ScriptStorage; }
-		const ScriptStorage& GetScriptStorage() const { return m_ScriptStorage; }
+		//ScriptStorage& GetScriptStorage() { return m_ScriptStorage; }
+		//const ScriptStorage& GetScriptStorage() const { return m_ScriptStorage; }
 
 	public:
 		static Ref<Scene> CreateEmpty();
@@ -283,10 +283,10 @@ namespace StarEngine {
 			m_PostUpdateQueue.emplace_back(func);
 		}
 
-		std::vector<glm::mat4> GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, Ref<MeshSource> meshSource);
-		void UpdateAnimation(Timestep ts, bool isRuntime, AnimationGraph::AnimationGraph::HandleOutgoingEventFn* animationEventHandler);
+		//std::vector<glm::mat4> GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, Ref<MeshSource> meshSource);
+		//void UpdateAnimation(Timestep ts, bool isRuntime, AnimationGraph::AnimationGraph::HandleOutgoingEventFn* animationEventHandler);
 
-		bool RenderSkeletonDebug(Ref<SceneRenderer> renderer, Entity entity, Ref<StaticMesh> boneDebugMesh, Ref<MeshSource> boneDebugMeshSource, std::unordered_set<UUID> renderedEntities, UUID selectedEntityId);
+		//bool RenderSkeletonDebug(Ref<SceneRenderer> renderer, Entity entity, Ref<StaticMesh> boneDebugMesh, Ref<MeshSource> boneDebugMeshSource, std::unordered_set<UUID> renderedEntities, UUID selectedEntityId);
 
 	private:
 		UUID m_SceneID;
@@ -324,7 +324,7 @@ namespace StarEngine {
 
 		PerformanceTimers m_PerformanceTimers;
 
-		ScriptStorage m_ScriptStorage;
+		//ScriptStorage m_ScriptStorage;
 
 		friend class Entity;
 		friend class Prefab;
@@ -335,7 +335,7 @@ namespace StarEngine {
 		friend class SceneHierarchyPanel;
 		friend class ECSDebugPanel;
 	};
-	*/
+	
 }
 
 #include "EntityTemplates.h"

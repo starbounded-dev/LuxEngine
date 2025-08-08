@@ -225,7 +225,7 @@ namespace StarEngine {
 	JoltConvexMeshShape::JoltConvexMeshShape(Entity entity, float totalBodyMass)
 		: ConvexMeshShape(entity)
 	{
-		SE_PROFILE_FUNC();
+		SE_PROFILE_FUNCTION("JoltConvexMeshShape::JoltConvexMeshShape");
 
 		auto& component = entity.GetComponent<MeshColliderComponent>();
 
@@ -269,7 +269,7 @@ namespace StarEngine {
 	JoltTriangleMeshShape::JoltTriangleMeshShape(Entity entity)
 		: TriangleMeshShape(entity)
 	{
-		SE_PROFILE_FUNC();
+		SE_PROFILE_FUNCTION("JoltTriangleMeshShape::JoltTriangleMeshShape");
 
 		auto& component = entity.GetComponent<MeshColliderComponent>();
 

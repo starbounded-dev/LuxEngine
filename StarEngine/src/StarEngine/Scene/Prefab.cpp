@@ -10,7 +10,7 @@ namespace StarEngine {
 
 	Entity Prefab::CreatePrefabFromEntity(Entity entity)
 	{
-		HZ_CORE_ASSERT(Handle);
+		SE_CORE_ASSERT(Handle);
 
 		Entity newEntity = m_Scene->CreateEntity();
 
@@ -64,13 +64,13 @@ namespace StarEngine {
 			childDuplicate.SetParentUUID(newEntity.GetUUID());
 			newEntity.Children().push_back(childDuplicate.GetUUID());
 		}
-
+		/*
 		if (newEntity.HasComponent<ScriptComponent>())
 		{
 			const auto& scriptComponent = newEntity.GetComponent<ScriptComponent>();
 			newEntity.m_Scene->m_ScriptStorage.InitializeEntityStorage(scriptComponent.ScriptID, newEntity.GetUUID());
 			entity.m_Scene->m_ScriptStorage.CopyEntityStorage(entity.GetUUID(), newEntity.GetUUID(), newEntity.m_Scene->m_ScriptStorage);
-		}
+		}*/
 
 		return newEntity;
 	}

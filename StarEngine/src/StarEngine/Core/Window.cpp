@@ -13,7 +13,7 @@
 #include "StarEngine/Platform/Vulkan/VulkanDeviceManager.h"
 
 #include <imgui.h>
-#include "stb_image.h"
+#include <stb_image/stb_image.h>
 
 #include <GLFW/glfw3.h>
 

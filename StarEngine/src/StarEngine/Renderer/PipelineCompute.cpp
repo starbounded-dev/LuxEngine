@@ -25,7 +25,7 @@ namespace StarEngine {
 
 		nvrhi::ComputePipelineDesc desc;
 		desc.CS = m_Shader->GetHandle();
-		desc.bindingLayouts = m_Shader.As<Shader>()->GetAllDescriptorSetLayouts();
+		desc.bindingLayouts = m_Shader.As<VulkanShader>()->GetAllDescriptorSetLayouts();
 		// TODO: binding layouts
 
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();

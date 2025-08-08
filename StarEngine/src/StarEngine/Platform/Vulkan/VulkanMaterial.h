@@ -114,7 +114,7 @@ namespace StarEngine {
 			Prepare();
 			return m_DescriptorSetManager.GetDescriptorSets(index)[0];
 		}
-		
+
 		void Prepare();
 	private:
 		void Init();

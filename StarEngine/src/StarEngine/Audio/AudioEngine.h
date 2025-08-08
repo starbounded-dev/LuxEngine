@@ -1,5 +1,7 @@
 #pragma once
 
+#include <miniaudio_engine.h>
+
 struct ma_engine;
 
 namespace StarEngine {

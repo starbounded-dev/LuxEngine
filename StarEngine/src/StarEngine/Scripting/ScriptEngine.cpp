@@ -19,24 +19,6 @@
 
 #include "StarEngine/Project/Project.h"
 
-namespace fmt {
-	template <>
-	struct formatter<std::filesystem::path> : formatter<std::string> {
-		template <typename FormatContext>
-		auto format(const std::filesystem::path& path, FormatContext& ctx) const {
-			return formatter<std::string>::format(path.string(), ctx);
-		}
-	};
-
-	template <>
-	struct formatter<StarEngine::UUID> : formatter<std::string> {
-		template <typename FormatContext>
-		auto format(const StarEngine::UUID& uuid, FormatContext& ctx) const {
-			return formatter<std::string>::format(std::to_string(uuid), ctx);
-		}
-	};
-} // namespace fmt
-
 namespace StarEngine {
 
 	static std::unordered_map<std::string, ScriptFieldType> s_ScriptFieldTypeMap =

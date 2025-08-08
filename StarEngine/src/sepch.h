@@ -37,12 +37,9 @@
 #include <StarEngine/Core/Memory.h>
 #include <StarEngine/Core/Delegate.h>
 
-#include <StarEngine/Debug/Profiler.h>
-
-/*
 // Jolt (Safety because this file has to be included before all other Jolt headers, at all times)
 #ifdef SE_DEBUG // NOTE(Emily): This is a bit of a hacky fix for some dark magic that happens in Jolt
 				// 				We'll need to address this in future.
 #define JPH_ENABLE_ASSERTS
 #endif
-*/
+#include <Jolt/Jolt.h>

@@ -97,7 +97,7 @@ namespace StarEngine {
 
 		bool m_IsActive = false;
 		bool m_Panning, m_Rotating;
-		glm::vec2 m_InitialMousePosition{};
+		glm::vec2 m_InitialMousePosition {};
 		glm::vec3 m_InitialFocalPoint, m_InitialRotation;
 
 		float m_Distance;

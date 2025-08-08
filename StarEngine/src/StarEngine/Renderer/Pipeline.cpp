@@ -88,7 +88,7 @@ namespace StarEngine {
 		SE_CORE_INFO_TAG("Renderer", "[Pipeline] Creating graphics pipeline: {}", m_Specification.Shader->GetName());
 
 		nvrhi::IDevice* device = Application::Get().GetWindow().GetDeviceManager()->GetDevice();
-		Ref<Shader> vulkanShader = Ref<Shader>(m_Specification.Shader);
+		Ref<VulkanShader> vulkanShader = Ref<VulkanShader>(m_Specification.Shader);
 		Ref<Framebuffer> framebuffer = m_Specification.TargetFramebuffer;
 
 		nvrhi::GraphicsPipelineDesc pipelineDesc;

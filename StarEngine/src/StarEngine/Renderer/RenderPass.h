@@ -2,7 +2,7 @@
 
 #include "StarEngine/Core/Base.h"
 
-#include "StarEngine/Renderer/Platform/Vulkan/DescriptorSetManager.h"
+#include "StarEngine/Platform/Vulkan/DescriptorSetManager.h"
 
 #include "Pipeline.h"
 

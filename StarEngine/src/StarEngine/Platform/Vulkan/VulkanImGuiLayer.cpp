@@ -14,7 +14,7 @@
 #include "StarEngine/Core/Application.h"
 #include <GLFW/glfw3.h>
 
-//#include "StarEngine/Editor/FontAwesome.h"
+#include "StarEngine/Editor/FontAwesome.h"
 
 #include "StarEngine/Renderer/Renderer.h"
 

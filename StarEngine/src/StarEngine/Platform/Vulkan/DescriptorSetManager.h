@@ -27,38 +27,31 @@ namespace StarEngine {
 
 		RenderPassInput(Ref<UniformBuffer> uniformBuffer)
 			: Type(RenderResourceType::UniformBuffer), Input(InputArray{ uniformBuffer })
-		{
-		}
+		{}
 
 		RenderPassInput(Ref<UniformBufferSet> uniformBufferSet)
 			: Type(RenderResourceType::UniformBufferSet), Input(InputArray{ uniformBufferSet })
-		{
-		}
+		{}
 
 		RenderPassInput(Ref<StorageBuffer> storageBuffer)
 			: Type(RenderResourceType::StorageBuffer), Input(InputArray{ storageBuffer })
-		{
-		}
+		{}
 
 		RenderPassInput(Ref<StorageBufferSet> storageBufferSet)
 			: Type(RenderResourceType::StorageBufferSet), Input(InputArray{ storageBufferSet })
-		{
-		}
+		{}
 
 		RenderPassInput(Ref<Texture2D> texture)
 			: Type(RenderResourceType::Texture2D), Input(InputArray{ texture })
-		{
-		}
+		{}
 
 		RenderPassInput(Ref<TextureCube> texture)
 			: Type(RenderResourceType::TextureCube), Input(InputArray{ texture })
-		{
-		}
+		{}
 
 		RenderPassInput(Ref<Image2D> image)
 			: Type(RenderResourceType::Image2D), Input(InputArray{ image })
-		{
-		}
+		{}
 
 		void Set(Ref<UniformBuffer> uniformBuffer, uint32_t index = 0)
 		{

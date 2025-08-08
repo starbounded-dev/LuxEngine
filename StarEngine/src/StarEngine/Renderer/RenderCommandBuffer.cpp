@@ -1,6 +1,7 @@
 #include "sepch.h"
 #include "RenderCommandBuffer.h"
 
+#include "StarEngine/Platform/Vulkan/VulkanDeviceManager.h"
 #include "StarEngine/Renderer/Renderer.h"
 #include "StarEngine/Platform/Vulkan/VulkanSwapChain.h"
 

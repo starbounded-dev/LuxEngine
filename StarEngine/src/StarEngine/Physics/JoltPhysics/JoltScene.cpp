@@ -134,7 +134,7 @@ namespace StarEngine {
 
 	void JoltScene::Simulate(float ts)
 	{
-		SE_PROFILE_FUNC("JoltScene::Simulate");
+		SE_PROFILE_FUNCTION("JoltScene::Simulate");
 
 		ProcessBulkStorage();
 
@@ -638,7 +638,7 @@ namespace StarEngine {
 
 	void JoltScene::ProcessBulkStorage()
 	{
-		SE_PROFILE_FUNC();
+		SE_PROFILE_FUNCTION("JoltScene::ProcessBulkStorage");
 
 		if (m_BulkBufferCount == 0)
 			return;
@@ -670,7 +670,7 @@ namespace StarEngine {
 	//				But I'm sure it's fine for the most part, this shouldn't be a hot path
 	void JoltScene::SynchronizeBodyTransform(WeakRef<PhysicsBody> body)
 	{
-		SE_PROFILE_FUNC();
+		SE_PROFILE_FUNCTION("JoltScene::SynchronizeBodyTransform");
 
 		if (!body.IsValid() || !body->GetEntity())
 			return;

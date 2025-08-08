@@ -5,7 +5,7 @@
 
 #include "StarEngine/Serialization/FileStream.h"
 
-#include "StarEngine/Renderer/Platform/Vulkan/VulkanShader.h"
+#include "StarEngine/Platform/Vulkan/VulkanShader.h"
 
 namespace StarEngine {
 

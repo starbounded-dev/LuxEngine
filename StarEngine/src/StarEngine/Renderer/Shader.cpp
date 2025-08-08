@@ -4,10 +4,10 @@
 #include <utility>
 
 #include "StarEngine/Renderer/Renderer.h"
-#include "StarEngine/Renderer/Platform/Vulkan/VulkanShader.h"
+#include "StarEngine/Platform/Vulkan/VulkanShader.h"
 
 #if SE_HAS_SHADER_COMPILER
-#include "StarEngine/Renderer/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
+#include "StarEngine/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 #endif
 
 #include "StarEngine/Renderer/RendererAPI.h"

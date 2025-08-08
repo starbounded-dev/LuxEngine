@@ -10,16 +10,16 @@
 
 #include "StarEngine/Core/Timer.h"
 #include "StarEngine/Debug/Profiler.h"
-#include "StarEngine/Renderer/Platform/Vulkan/VulkanContext.h"
-#include "StarEngine/Renderer/Platform/Vulkan/VulkanRenderCommandBuffer.h"
-#include "StarEngine/Renderer/Platform/Vulkan/VulkanSwapChain.h"
+#include "StarEngine/Platform/Vulkan/VulkanContext.h"
+#include "StarEngine/Platform/Vulkan/VulkanRenderCommandBuffer.h"
+#include "StarEngine/Platform/Vulkan/VulkanSwapChain.h"
 #include "StarEngine/Project/Project.h"
 
 #include "nvrhi/nvrhi.h"
 #include "nvrhi/utils.h"
 
 #if SE_HAS_SHADER_COMPILER
-#include "StarEngine/Renderer/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
+#include "StarEngine/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 #endif
 
 #include <filesystem>
@@ -485,7 +485,7 @@ namespace StarEngine {
 
 	void Renderer::WaitAndRender(RenderThread* renderThread)
 	{
-		SE_PROFILE_FUNC();
+		SE_PROFILE_FUNCTION("Renderer::WaitAndRender");
 		auto& performanceTimers = Application::Get().m_PerformanceTimers;
 
 		// Wait for kick, then set render thread to busy
@@ -860,7 +860,7 @@ namespace StarEngine {
 
 		Renderer::Submit([renderCommandBuffer, renderPass, mesh, meshSource, submeshIndex, materialTable = Ref<MaterialTable>::Create(materialTable), transformBuffer, transformOffset, instanceCount]() mutable
 			{
-				SE_PROFILE_FUNC("VulkanRenderer::RenderMesh");
+				SE_PROFILE_FUNCTION("VulkanRenderer::RenderMesh");
 				SE_SCOPE_PERF("VulkanRenderer::RenderMesh");
 
 				if (s_RendererData->SelectedDrawCall != -1 && s_RendererData->DrawCallCount > s_RendererData->SelectedDrawCall)

@@ -5,7 +5,7 @@
 #include "VulkanContext.h"
 #include "VulkanRenderer.h"
 #include "StarEngine/Renderer/Texture.h"
-#include "StarEngine/Renderer/UniformBuffer.h.h"
+#include "StarEngine/Renderer/UniformBuffer.h"
 
 #include "StarEngine/Core/Timer.h"
 #include "StarEngine/Renderer/Renderer.h"

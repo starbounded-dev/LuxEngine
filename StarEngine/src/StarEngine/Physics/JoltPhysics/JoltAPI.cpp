@@ -79,7 +79,7 @@ namespace StarEngine {
 
 		JPH::RegisterTypes();
 
-		s_JoltData = hnew JoltData();
+		s_JoltData = snew JoltData();
 
 #if SE_ENABLE_MALLOC_ALLOC
 		// NOTE(Peter): We shouldn't be using this allocator if we want the best performance
@@ -106,7 +106,7 @@ namespace StarEngine {
 
 		delete s_JoltData->TemporariesAllocator;
 
-		hdelete s_JoltData;
+		sdelete s_JoltData;
 		s_JoltData = nullptr;
 
 		delete JPH::Factory::sInstance;
