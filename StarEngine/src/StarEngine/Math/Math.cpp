@@ -41,13 +41,18 @@ namespace StarEngine::Math
 			for (length_t j = 0; j < 3; ++j)
 				Row[i][j] = LocalMatrix[i][j];
 
-		// Compute X scale factor and normalize first row.
-		scale.x = length(Row[0]);
-		Row[0] = detail::scale(Row[0], static_cast<T>(1));
-		scale.y = length(Row[1]);
-		Row[1] = detail::scale(Row[1], static_cast<T>(1));
-		scale.z = length(Row[2]);
-		Row[2] = detail::scale(Row[2], static_cast<T>(1));
+               // Compute X scale factor and normalize first row.
+               scale.x = length(Row[0]);
+               if (scale.x != static_cast<T>(0))
+                       Row[0] = detail::scale(Row[0], static_cast<T>(1) / scale.x);
+
+               scale.y = length(Row[1]);
+               if (scale.y != static_cast<T>(0))
+                       Row[1] = detail::scale(Row[1], static_cast<T>(1) / scale.y);
+
+               scale.z = length(Row[2]);
+               if (scale.z != static_cast<T>(0))
+                       Row[2] = detail::scale(Row[2], static_cast<T>(1) / scale.z);
 
 		// At this point, the matrix (in rows[]) is orthonormal.
 		// Check for a coordinate system flip.  If the determinant
