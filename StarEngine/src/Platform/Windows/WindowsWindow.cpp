@@ -3,9 +3,11 @@
 
 #include "StarEngine/Core/Input.h"
 
-#include "StarEngine/Events/ApplicationEvent.h"
-#include "StarEngine/Events/MouseEvent.h"
-#include "StarEngine/Events/KeyEvent.h"
+#include "StarEngine/Core/Events/ApplicationEvent.h"
+#include "StarEngine/Core/Events/MouseEvent.h"
+#include "StarEngine/Core/Events/KeyEvent.h"
+#include "StarEngine/Core/Events/ApplicationEvent.h"
+
 
 #include "StarEngine/Renderer/Renderer.h"
 
@@ -108,19 +110,19 @@ namespace StarEngine {
 				{
 				case GLFW_PRESS:
 				{
-					KeyPressedEvent event(key, true);
+					KeyPressedEvent event(static_cast<KeyCode>(key), true);
 					data.EventCallback(event);
 					break;
 				}
 				case GLFW_RELEASE:
 				{
-					KeyReleasedEvent event(key);
+					KeyPressedEvent event(static_cast<KeyCode>(key) , 0);
 					data.EventCallback(event);
 					break;
 				}
 				case GLFW_REPEAT:
 				{
-					KeyPressedEvent event(key, 1);
+					KeyPressedEvent event(static_cast<KeyCode>(key), 1);
 					data.EventCallback(event);
 					break;
 				}
@@ -131,9 +133,11 @@ namespace StarEngine {
 			{
 				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 
-				KeyTypedEvent event(keycode);
+				// Explicitly cast 'keycode' to 'KeyCode'
+				KeyTypedEvent event(static_cast<KeyCode>(keycode));
 				data.EventCallback(event);
 			});
+
 
 		glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* window, int button, int action, int mods)
 			{
@@ -143,18 +147,19 @@ namespace StarEngine {
 				{
 				case GLFW_PRESS:
 				{
-					MouseButtonPressedEvent event(button);
+					MouseButtonPressedEvent event(static_cast<MouseButton>(button));
 					data.EventCallback(event);
 					break;
 				}
 				case GLFW_RELEASE:
 				{
-					MouseButtonReleasedEvent event(button);
+					MouseButtonReleasedEvent event(static_cast<MouseButton>(button)); // Explicit cast to MouseButton
 					data.EventCallback(event);
 					break;
 				}
 				}
 			});
+
 
 		glfwSetScrollCallback(m_Window, [](GLFWwindow* window, double xOffset, double yOffset)
 			{
@@ -169,18 +174,6 @@ namespace StarEngine {
 				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 
 				MouseMovedEvent event((float)xPos, (float)yPos);
-				data.EventCallback(event);
-			});
-
-		glfwSetDropCallback(m_Window, [](GLFWwindow* window, int pathCount, const char* paths[])
-			{
-				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
-
-				std::vector<std::filesystem::path> filepaths(pathCount);
-				for (int i = 0; i < pathCount; i++)
-					filepaths[i] = paths[i];
-
-				WindowDropEvent event(std::move(filepaths));
 				data.EventCallback(event);
 			});
 	}

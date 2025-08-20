@@ -3,7 +3,8 @@
 #include "StarEngine/Core/Base.h"
 #include "StarEngine/Core/LogCustomFormatters.h"
 
-#include "spdlog/spdlog.h"
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h> 
 
 #include <map>
 #include <memory>
@@ -42,16 +43,11 @@ namespace StarEngine {
 		static std::map<std::string, TagDetails>& EnabledTags() { return s_EnabledTags; }
 		static void SetDefaultTagSettings();
 
-#if defined(SE_PLATFORM_WINDOWS)
 		template<typename... Args>
-		static void PrintMessage(Log::Type type, Log::Level level, std::format_string<Args...> format, Args&&... args);
-#else
-		template<typename... Args>
-		static void PrintMessage(Log::Type type, Log::Level level, const std::string_view format, Args&&... args);
-#endif
+		static void PrintMessage(Log::Type type, Log::Level level, fmt::format_string<Args...> fmtStr, Args&&... args);
 
 		template<typename... Args>
-		static void PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::format_string<Args...> format, Args&&... args);
+		static void PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, fmt::format_string<Args...> fmtStr, Args&&... args);
 
 		static void PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message);
 
@@ -139,66 +135,41 @@ namespace StarEngine {
 
 namespace StarEngine {
 
-#if defined(SE_PLATFORM_WINDOWS)
+
 	template<typename... Args>
-	void Log::PrintMessage(Log::Type type, Log::Level level, std::format_string<Args...> format, Args&&... args)
-#else
-	template<typename... Args>
-	void Log::PrintMessage(Log::Type type, Log::Level level, const std::string_view format, Args&&... args)
-#endif
+	void Log::PrintMessage(Log::Type type, Log::Level level, fmt::format_string<Args...> fmtStr, Args&&... args)
 	{
-		auto detail = s_EnabledTags[""];
-		if (detail.Enabled && detail.LevelFilter <= level)
+		auto& logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+		switch (level)
 		{
-			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
-			switch (level)
-			{
-			case Level::Trace:
-				logger->trace(format, std::forward<Args>(args)...);
-				break;
-			case Level::Info:
-				logger->info(format, std::forward<Args>(args)...);
-				break;
-			case Level::Warn:
-				logger->warn(format, std::forward<Args>(args)...);
-				break;
-			case Level::Error:
-				logger->error(format, std::forward<Args>(args)...);
-				break;
-			case Level::Fatal:
-				logger->critical(format, std::forward<Args>(args)...);
-				break;
-			}
+			case Level::Trace:   logger->trace(fmtStr, std::forward<Args>(args)...); break;
+			case Level::Info:    logger->info(fmtStr, std::forward<Args>(args)...); break;
+			case Level::Warn:    logger->warn(fmtStr, std::forward<Args>(args)...); break;
+			case Level::Error:   logger->error(fmtStr, std::forward<Args>(args)...); break;
+			case Level::Fatal:   logger->critical(fmtStr, std::forward<Args>(args)...); break;
 		}
 	}
 
 
 	template<typename... Args>
-	void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::format_string<Args...> format, Args&&... args)
+	void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, fmt::format_string<Args...> fmtStr, Args&&... args)
 	{
 		auto detail = s_EnabledTags[std::string(tag)];
-		if (detail.Enabled && detail.LevelFilter <= level)
+		if (!(detail.Enabled && detail.LevelFilter <= level))
+			return;
+
+		auto& logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+
+		// Either preformat once...
+		std::string formatted = fmt::format(fmtStr, std::forward<Args>(args)...);
+
+		switch (level)
 		{
-			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
-			std::string formatted = std::format(format, std::forward<Args>(args)...);
-			switch (level)
-			{
-			case Level::Trace:
-				logger->trace("[{0}] {1}", tag, formatted);
-				break;
-			case Level::Info:
-				logger->info("[{0}] {1}", tag, formatted);
-				break;
-			case Level::Warn:
-				logger->warn("[{0}] {1}", tag, formatted);
-				break;
-			case Level::Error:
-				logger->error("[{0}] {1}", tag, formatted);
-				break;
-			case Level::Fatal:
-				logger->critical("[{0}] {1}", tag, formatted);
-				break;
-			}
+			case Level::Trace:   logger->trace("[{0}] {1}", tag, formatted); break;
+			case Level::Info:    logger->info("[{0}] {1}", tag, formatted); break;
+			case Level::Warn:    logger->warn("[{0}] {1}", tag, formatted); break;
+			case Level::Error:   logger->error("[{0}] {1}", tag, formatted); break;
+			case Level::Fatal:   logger->critical("[{0}] {1}", tag, formatted); break;
 		}
 	}
 

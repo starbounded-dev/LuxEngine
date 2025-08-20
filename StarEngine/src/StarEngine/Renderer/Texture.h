@@ -56,7 +56,9 @@ namespace StarEngine {
 
 		virtual void ChangeSize(uint32_t newWidth, uint32_t newHeight) = 0;
 
-		static AssetType GetStaticType() { return AssetType::Texture2D; }
+		//static AssetType GetStaticType() { return AssetType::Texture2D; }
+
+		static AssetType GetStaticType() { return AssetType::Texture; }
 		virtual AssetType GetType() const { return GetStaticType(); }
 	};
 }

@@ -31,8 +31,6 @@ namespace StarEngine {
 
 		std::filesystem::path GetAssetAbsolutePath(const std::filesystem::path& path);
 
-		inline static Ref<AssetManagerBase> GetAssetManager() { return s_AssetManager; }
-
 		static const std::filesystem::path& GetActiveProjectDirectory()
 		{
 			SE_CORE_ASSERT(s_ActiveProject);
@@ -74,9 +72,11 @@ namespace StarEngine {
 		void ReloadScriptEngine();
 
 		static Ref<Project> GetActive() { return s_ActiveProject; }
-		std::shared_ptr<AssetManagerBase> GetAssetManager() { return m_AssetManager; }
-		std::shared_ptr<RuntimeAssetManager> GetRuntimeAssetManager() { return std::static_pointer_cast<RuntimeAssetManager>(m_AssetManager); }
-		std::shared_ptr<EditorAssetManager> GetEditorAssetManager() { return std::static_pointer_cast<EditorAssetManager>(m_AssetManager); }
+		static void SetActive(Ref<Project> project);
+
+		inline static Ref<AssetManagerBase> GetAssetManager() { return s_AssetManager; }
+		inline static Ref<EditorAssetManager> GetEditorAssetManager() { return s_AssetManager.As<EditorAssetManager>(); }
+		inline static Ref<RuntimeAssetManager> GetRuntimeAssetManager() { return s_AssetManager.As<RuntimeAssetManager>(); }
 
 		static Ref<Project> New();
 		static Ref<Project> Load(const std::filesystem::path& path);
@@ -86,7 +86,7 @@ namespace StarEngine {
 	private:
 		ProjectConfig m_Config;
 		std::filesystem::path m_ProjectDirectory;
-		std::shared_ptr<AssetManagerBase> m_AssetManager;
+		inline static Ref<AssetManagerBase> s_AssetManager;
 		inline static bool m_HasInitializedScriptEngine = false;
 
 		inline static Ref<Project> s_ActiveProject;

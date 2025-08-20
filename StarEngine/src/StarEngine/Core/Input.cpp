@@ -3,7 +3,8 @@
 #include "Window.h"
 
 #include "StarEngine/Core/Application.h"
-#include "StarEngine/ImGui/PropertyGrid.h"
+
+#include "StarEngine/Renderer/EditorCamera.h"
 
 #include <GLFW/glfw3.h>
 #include <imgui_internal.h>
@@ -171,6 +172,28 @@ namespace StarEngine {
 		return { (float)x, (float)y };
 	}
 
+	bool IsInputEnabled()
+	{
+		const auto& io = ImGui::GetIO();
+		return (io.ConfigFlags & ImGuiConfigFlags_NoMouse) == 0 && (io.ConfigFlags & ImGuiConfigFlags_NavNoCaptureKeyboard) == 0;
+	}
+
+	void SetInputEnabled(bool enabled)
+	{
+		auto& io = ImGui::GetIO();
+
+		if (enabled)
+		{
+			io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+			io.ConfigFlags &= ~ImGuiConfigFlags_NavNoCaptureKeyboard;
+		}
+		else
+		{
+			io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+			io.ConfigFlags |= ImGuiConfigFlags_NavNoCaptureKeyboard;
+		}
+	}
+
 	// TODO: A better way to do this is to handle it internally, and simply move the cursor the opposite side
 	//		of the screen when it reaches the edge
 	void Input::SetCursorMode(CursorMode mode)
@@ -179,7 +202,7 @@ namespace StarEngine {
 		glfwSetInputMode(static_cast<GLFWwindow*>(window.GetNativeWindow()), GLFW_CURSOR, GLFW_CURSOR_NORMAL + (int)mode);
 
 		if (Application::Get().GetSpecification().EnableImGui)
-			UI::SetInputEnabled(mode == CursorMode::Normal);
+			SetInputEnabled(mode == CursorMode::Normal);
 	}
 
 	CursorMode Input::GetCursorMode()

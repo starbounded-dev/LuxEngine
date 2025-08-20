@@ -13,29 +13,31 @@ namespace StarEngine {
 		return state == GLFW_PRESS;
 	}
 
-	bool Input::IsMouseButtonPressed(const MouseCode button)
+	bool Input::IsMouseButtonPressed(const MouseButton button)
 	{
 		auto window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		auto state = glfwGetMouseButton(window, static_cast<int32_t>(button));
 		return state == GLFW_PRESS;
 	}
 
-	glm::vec2 Input::GetMousePosition()
+	std::pair<float, float> Input::GetMousePosition()
 	{
-		auto* window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		double xpos, ypos;
-		glfwGetCursorPos(window, &xpos, &ypos);
+		auto& window = static_cast<Window&>(Application::Get().GetWindow());
 
-		return { (float)xpos, (float)ypos };
+		double x, y;
+		glfwGetCursorPos(static_cast<GLFWwindow*>(window.GetNativeWindow()), &x, &y);
+		return { (float)x, (float)y };
 	}
 
 	float Input::GetMouseX()
 	{
-		return GetMousePosition().x;
+		auto [x, y] = GetMousePosition();
+		return (float)x;
 	}
 
 	float Input::GetMouseY()
 	{
-		return GetMousePosition().y;
+		auto [x, y] = GetMousePosition();
+		return (float)y;
 	}
 }

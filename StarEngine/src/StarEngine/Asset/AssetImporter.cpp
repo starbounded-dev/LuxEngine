@@ -1,4 +1,5 @@
 #include "sepch.h"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "AssetImporter.h"
 
 #include "TextureImporter.h"
@@ -17,7 +18,7 @@ namespace StarEngine {
 	using AssetImportFunction = std::function<Ref<Asset>(AssetHandle, const AssetMetadata&)>;
 	static std::map<AssetType, AssetImportFunction> s_AssetImportFunctions = {
 		{ AssetType::Scene, SceneImporter::ImportScene },
-		{ AssetType::Texture2D, TextureImporter::ImportTexture2D },
+		{ AssetType::Texture, TextureImporter::ImportTexture2D },
 		{ AssetType::Audio, AudioImporter::ImportAudio },
 //		{ AssetType::ObjModel, ObjModelImporter::ImportObjModel },
 		{ AssetType::ScriptFile, SceneImporter::ImportScript }

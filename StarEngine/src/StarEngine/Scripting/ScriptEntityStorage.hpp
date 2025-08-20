@@ -44,28 +44,28 @@ namespace StarEngine {
 	{
 		switch (type)
 		{
-			case DataType::SByte: return sizeof(int8_t);
-			case DataType::Byte: return sizeof(uint8_t);
-			case DataType::Short: return sizeof(int16_t);
-			case DataType::UShort: return sizeof(uint16_t);
-			case DataType::Int: return sizeof(int32_t);
-			case DataType::UInt: return sizeof(uint32_t);
-			case DataType::Long: return sizeof(int64_t);
-			case DataType::ULong: return sizeof(uint64_t);
-			case DataType::Float: return sizeof(float);
-			case DataType::Double: return sizeof(double);
-			case DataType::Vector2: return sizeof(float) * 2;
-			case DataType::Vector3: return sizeof(float) * 3;
-			case DataType::Vector4: return sizeof(float) * 4;
-			case DataType::Bool: return sizeof(Coral::Bool32);
-			case DataType::String: return sizeof(Coral::ScopedString);
-			case DataType::Entity: return sizeof(UUID);
-			case DataType::Prefab: return sizeof(UUID);
-			case DataType::Mesh: return sizeof(UUID);
-			case DataType::StaticMesh: return sizeof(UUID);
-			case DataType::Material: return sizeof(UUID);
-			case DataType::Texture2D: return sizeof(UUID);
-			case DataType::Scene: return sizeof(UUID);
+		case DataType::SByte: return sizeof(int8_t);
+		case DataType::Byte: return sizeof(uint8_t);
+		case DataType::Short: return sizeof(int16_t);
+		case DataType::UShort: return sizeof(uint16_t);
+		case DataType::Int: return sizeof(int32_t);
+		case DataType::UInt: return sizeof(uint32_t);
+		case DataType::Long: return sizeof(int64_t);
+		case DataType::ULong: return sizeof(uint64_t);
+		case DataType::Float: return sizeof(float);
+		case DataType::Double: return sizeof(double);
+		case DataType::Vector2: return sizeof(float) * 2;
+		case DataType::Vector3: return sizeof(float) * 3;
+		case DataType::Vector4: return sizeof(float) * 4;
+		case DataType::Bool: return sizeof(Coral::Bool32);
+		case DataType::String: return sizeof(Coral::ScopedString);
+		case DataType::Entity: return sizeof(UUID);
+		case DataType::Prefab: return sizeof(UUID);
+		case DataType::Mesh: return sizeof(UUID);
+		case DataType::StaticMesh: return sizeof(UUID);
+		case DataType::Material: return sizeof(UUID);
+		case DataType::Texture2D: return sizeof(UUID);
+		case DataType::Scene: return sizeof(UUID);
 		}
 
 		return 0;
@@ -93,14 +93,14 @@ namespace StarEngine {
 				SE_CORE_VERIFY(false, "Invalid field type for `GetLength()`");
 				return 0;
 			}
-			
-			if (m_Instance)
+
+			/*if (m_Instance)
 			{
 				auto arr = m_Instance->GetFieldValue<Coral::Array<int32_t>>(m_Name);
 				int32_t length = arr.Length();
 				Coral::Array<int32_t>::Free(arr);
 				return length;
-			}
+			}*/
 
 		}
 
@@ -304,14 +304,14 @@ namespace StarEngine {
 		{
 			switch (type)
 			{
-				case DataType::Prefab:          return true;
-				case DataType::Mesh:            return true;
-				case DataType::StaticMesh:      return true;
-				case DataType::Material:        return true;
-				case DataType::Texture2D:       return true;
-				case DataType::Scene:			return true;
-				default:
-					return false;
+			case DataType::Prefab:          return true;
+			case DataType::Mesh:            return true;
+			case DataType::StaticMesh:      return true;
+			case DataType::Material:        return true;
+			case DataType::Texture2D:       return true;
+			case DataType::Scene:			return true;
+			default:
+				return false;
 			}
 		}
 	}

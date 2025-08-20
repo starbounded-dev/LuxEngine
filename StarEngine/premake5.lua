@@ -51,6 +51,7 @@ project "StarEngine"
 		"%{IncludeDir.Coral}",
 		"%{IncludeDir.MagicEnum}",
 		"%{IncludeDir.Tracy}",
+		"%{IncludeDir.NFD}",
 		"%{IncludeDir.miniaudio}"
 	}
 
@@ -59,7 +60,6 @@ project "StarEngine"
 		"GLAD",
 		"imgui",
 		"opengl32",
-		"spdlog",
 		"%{Library.Coral}",
 		"yaml-cpp",
 		"msdf-atlas-gen",
@@ -67,6 +67,7 @@ project "StarEngine"
 		"DbgHelp",
 		"dwmapi.lib",
 		"%{Library.Tracy}",
+		"%{Library.NFD}",
 	}
 
 	filter "files:vendor/imguizmo/**.cpp"

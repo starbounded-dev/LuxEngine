@@ -1,6 +1,5 @@
 #pragma once
 
-#include "StarEngine/Renderer/OrthographicCamera.h"
 #include "StarEngine/Renderer/Texture.h"
 
 #include "StarEngine/Renderer/SubTexture2D.h"
@@ -12,17 +11,17 @@
 #include "StarEngine/Scene/Components.h"
 
 namespace StarEngine {
-	class Renderer2D
+	class Renderer2D : public RefCounted
 	{
 	public:
 
 		static void Init();
 		static void Shutdown();
 
-		static void BeginScene(const Camera& camera, const glm::mat4& transform);
+		static void BeginScene(const Camera& camera);
+		static void BeginScene(const Camera& camera, const glm::mat4& transform );
 
 		static void BeginScene(const EditorCamera& camera);
-		static void BeginScene(const OrthographicCamera& camera); // TODO: Remove
 		static void EndScene();
 		static void Flush();
 
@@ -49,9 +48,9 @@ namespace StarEngine {
 		static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 		static void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 
-		// Rotated SubTexture2D
-		static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const Ref<SubTexture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
-		static void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<SubTexture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
+		// Rotated Rectangle
+		void DrawRotatedRect(const glm::vec2& position, const glm::vec2& size, float rotation, const glm::vec4& color, const bool onTop = false);
+		void DrawRotatedRect(const glm::vec3& position, const glm::vec2& size, float rotation, const glm::vec4& color, const bool onTop = false);
 
 		// Circle
 		static void DrawCircle(const glm::mat4& transform, const glm::vec4& color, float thickness = 1.0f, float fade = 0.005f, int entityID = -1);

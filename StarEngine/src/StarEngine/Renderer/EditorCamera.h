@@ -1,42 +1,81 @@
 #pragma once
 
-#include "Camera.h"
-#include "StarEngine/Core/Timestep.h"
-#include "StarEngine/Core/Events/Event.h"
+#include <glm/detail/type_quat.hpp>
+
+#include "StarEngine/Renderer/Camera.h"
+#include "StarEngine/Core/TimeStep.h"
+#include "StarEngine/Core/Events/KeyEvent.h"
 #include "StarEngine/Core/Events/MouseEvent.h"
 
-#include <glm/glm.hpp>
-
 namespace StarEngine {
+
+	enum class CameraMode
+	{
+		NONE, FLYCAM, ARCBALL
+	};
 
 	class EditorCamera : public Camera
 	{
 	public:
-		EditorCamera() = default;
-		EditorCamera(float fov, float aspectRatio, float nearClip, float farClip);
+		EditorCamera(const float degFov, const float width, const float height, const float nearP, const float farP);
+		void Init();
 
+		void Focus(const glm::vec3& focusPoint);
 		void OnUpdate(Timestep ts);
 		void OnEvent(Event& e);
+
+		bool IsActive() const { return m_IsActive; }
+		void SetActive(bool active) { m_IsActive = active; }
+
+		CameraMode GetCurrentMode() const { return m_CameraMode; }
 
 		inline float GetDistance() const { return m_Distance; }
 		inline void SetDistance(float distance) { m_Distance = distance; }
 
-		inline void SetViewportSize(float width, float height) { m_ViewportWidth = width; m_ViewportHeight = height; UpdateProjection(); }
+		const glm::vec3& GetFocalPoint() const { return m_FocalPoint; }
+
+		inline void SetViewportBounds(uint32_t left, uint32_t top, uint32_t right, uint32_t bottom)
+		{
+			if (m_ViewportLeft == left && m_ViewportTop == top && m_ViewportRight == right && m_ViewportBottom == bottom)
+				return;
+
+			if ((right - left) != (m_ViewportRight - m_ViewportLeft) || (bottom - top) != (m_ViewportBottom - m_ViewportTop))
+			{
+				float width = (float)(right - left);
+				float height = (float)(bottom - top);
+				if (width > 0.0f && height > 0.0f)
+				{
+					SetPerspectiveProjectionMatrix(m_VerticalFOV, width, height, m_NearClip, m_FarClip);
+				}
+			}
+
+			m_ViewportLeft = left;
+			m_ViewportTop = top;
+			m_ViewportRight = right;
+			m_ViewportBottom = bottom;
+		}
 
 		const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
-		glm::mat4 GetViewProjection() const { return m_Projection * m_ViewMatrix; }
+		glm::mat4 GetViewProjection() const { return GetProjectionMatrix() * m_ViewMatrix; }
+		glm::mat4 GetUnReversedViewProjection() const { return GetUnReversedProjectionMatrix() * m_ViewMatrix; }
 
 		glm::vec3 GetUpDirection() const;
 		glm::vec3 GetRightDirection() const;
 		glm::vec3 GetForwardDirection() const;
+
 		const glm::vec3& GetPosition() const { return m_Position; }
+
 		glm::quat GetOrientation() const;
 
-		float GetPitch() const { return m_Pitch; }
-		float GetYaw() const { return m_Yaw; }
+		[[nodiscard]] float GetVerticalFOV() const { return m_VerticalFOV; }
+		[[nodiscard]] float GetAspectRatio() const { return m_AspectRatio; }
+		[[nodiscard]] float GetNearClip() const { return m_NearClip; }
+		[[nodiscard]] float GetFarClip() const { return m_FarClip; }
+		[[nodiscard]] float GetPitch() const { return m_Pitch; }
+		[[nodiscard]] float GetYaw() const { return m_Yaw; }
+		[[nodiscard]] float GetCameraSpeed() const;
 	private:
-		void UpdateProjection();
-		void UpdateView();
+		void UpdateCameraView();
 
 		bool OnMouseScroll(MouseScrolledEvent& e);
 
@@ -50,18 +89,37 @@ namespace StarEngine {
 		float RotationSpeed() const;
 		float ZoomSpeed() const;
 	private:
-		float m_FOV = 45.0f, m_AspectRatio = 1.778f, m_NearClip = 0.1f, m_FarClip = 1000.0f;
-
 		glm::mat4 m_ViewMatrix;
-		glm::vec3 m_Position = { 0.0f, 0.0f, 0.0f };
-		glm::vec3 m_FocalPoint = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 m_Position, m_Direction, m_FocalPoint;
 
-		glm::vec2 m_InitialMousePosition = { 0.0f, 0.0f };
+		// Perspective projection params
+		float m_VerticalFOV, m_AspectRatio, m_NearClip, m_FarClip;
 
-		float m_Distance = 10.0f;
-		float m_Pitch = 0.0f, m_Yaw = 0.0f;
+		bool m_IsActive = false;
+		bool m_Panning, m_Rotating;
+		glm::vec2 m_InitialMousePosition{};
+		glm::vec3 m_InitialFocalPoint, m_InitialRotation;
 
-		float m_ViewportWidth = 1280, m_ViewportHeight = 720;
+		float m_Distance;
+		float m_NormalSpeed{ 0.002f };
+
+		float m_Pitch, m_Yaw;
+		float m_PitchDelta{}, m_YawDelta{};
+		glm::vec3 m_PositionDelta{};
+		glm::vec3 m_RightDirection{};
+
+		CameraMode m_CameraMode{ CameraMode::ARCBALL };
+
+		float m_MinFocusDistance{ 100.0f };
+
+		uint32_t m_ViewportLeft = 0;
+		uint32_t m_ViewportTop = 0;
+		uint32_t m_ViewportRight = 1280;
+		uint32_t m_ViewportBottom = 720;
+
+		constexpr static float MIN_SPEED{ 0.0005f }, MAX_SPEED{ 2.0f };
+		friend class EditorLayer;
+		friend class Viewport;
 	};
 
 }

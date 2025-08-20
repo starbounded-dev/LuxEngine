@@ -1,15 +1,19 @@
 project "StarEngine-ScriptCore"
-	kind "SharedLib"
-	language "C#"
-	dotnetframework "net9.0"
-	clr "Unsafe"
+	filter { "not action:vs*" }
+        kind "StaticLib"
+	filter { "action:vs*" }
+		kind "SharedLib"
+		language "C#"
+		dotnetframework "net9.0"
+		clr "Unsafe"
+		targetdir ("%{wks.location}/StarEditor/Resources/Scripts")
+		objdir ("%{wks.location}/StarEditor/Resources/Scripts/Intermediates")
 
-	namespace "StarEngine"
+		links {
+			"Coral.Managed"
+		}
 
-	targetdir ("%{wks.location}/StarEditor/Resources/Scripts")
-	objdir ("%{wks.location}/StarEditor/Resources/Scripts/Intermediates")
-
-	vsprops {
+		vsprops {
 			AppendTargetFrameworkToOutputPath = "false",
 			Nullable = "enable",
 			CopyLocalLockFileAssemblies = "true",

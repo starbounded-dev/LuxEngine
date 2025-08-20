@@ -5,6 +5,8 @@
 
 #include <map>
 
+#include <shared_mutex>
+
 namespace StarEngine {
 
 	using AssetRegistry = std::map<AssetHandle, AssetMetadata>;
@@ -29,8 +31,13 @@ namespace StarEngine {
 		void SerializeAssetRegistry();
 		bool DeserializeAssetRegistry();
 
+		AssetHandle GetAssetHandleFromFilePath(const std::filesystem::path& filepath);
+		std::filesystem::path GetRelativePath(const std::filesystem::path& filepath);
+
 	private:
 		AssetRegistry m_AssetRegistry;
+		std::shared_mutex m_AssetRegistryMutex;
+
 		AssetMap m_LoadedAssets;
 
 		// TODO: memory-only assets

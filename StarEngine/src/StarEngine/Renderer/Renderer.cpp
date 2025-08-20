@@ -1,5 +1,5 @@
 #include "sepch.h"
-
+#define GLM_ENABLE_EXPERIMENTAL
 #include "StarEngine/Renderer/Renderer.h"
 #include "StarEngine/Renderer/Renderer2D.h"
 
@@ -31,11 +31,11 @@ namespace StarEngine {
 	{
 		RenderCommand::SetViewport(0, 0, width, height);
 	}
-
-	void Renderer::BeginScene(OrthographicCamera& camera)
+	
+	void Renderer::BeginScene(Camera& camera)
 	{
 		SE_PROFILE_FUNCTION("Renderer::BeginScene");
-		s_SceneData->ViewProjectionMatrix = camera.GetViewProjectionMatrix();
+		s_SceneData->ViewProjectionMatrix = camera.GetProjectionMatrix();
 	}
 
 	void Renderer::EndScene()
@@ -47,7 +47,7 @@ namespace StarEngine {
 		s_SceneData->ViewProjectionMatrix = glm::mat4(1.0f);
 	}
 
-	void Renderer::Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const glm::mat4& transform)
+	void Renderer::Submit(Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const glm::mat4& transform)
 	{
 		SE_PROFILE_FUNCTION("Renderer::Submit");
 		shader->Bind();

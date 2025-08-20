@@ -1,10 +1,8 @@
 #pragma once
 
-#include "StarEngine/Core/Assert.h"
+#include "StarEngine//Core/Assert.h"
 
 #include <array>
-
-#include "Memory.h"
 
 namespace StarEngine {
 

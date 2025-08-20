@@ -8,7 +8,7 @@
 #include <type_traits>
 #include <string>
 
-#include "StarEngine/Utils/Hash.h"
+#include "StarEngine/Core/Hash.h"
 
 namespace StarEngine {
 
@@ -30,7 +30,7 @@ namespace StarEngine {
 			size_t bufferLength = 0;
 			int status = 0;
 			char* buffer = abi::__cxa_demangle(typeName.c_str(), NULL, &bufferLength, &status);
-			TypeNameString result = TypeNameString(buffer, bufferLength);
+			TypeNameString result = TypeNameString(buffer);
 			free(buffer);
 
 			if constexpr (ExcludeNamespace)

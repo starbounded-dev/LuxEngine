@@ -14,16 +14,27 @@ namespace StarEngine
 		const char* message,
 		const void* userParam)
 	{
+		constexpr const char* format = "OpenGL Error: {}";
+
 		switch (severity)
 		{
-		case GL_DEBUG_SEVERITY_HIGH:         SE_CORE_FATAL(message); return;
-		case GL_DEBUG_SEVERITY_MEDIUM:       SE_CORE_ERROR(message); return;
-		case GL_DEBUG_SEVERITY_LOW:          SE_CORE_WARN(message); return;
-		case GL_DEBUG_SEVERITY_NOTIFICATION: SE_CORE_TRACE(message); return;
+		case GL_DEBUG_SEVERITY_HIGH:
+			SE_CORE_FATAL(format, message); // Ensure format is constexpr
+			return;
+		case GL_DEBUG_SEVERITY_MEDIUM:
+			SE_CORE_ERROR(format, message); // Ensure format is constexpr
+			return;
+		case GL_DEBUG_SEVERITY_LOW:
+			SE_CORE_WARN(format, message); // Ensure format is constexpr
+			return;
+		case GL_DEBUG_SEVERITY_NOTIFICATION:
+			SE_CORE_TRACE(format, message); // Ensure format is constexpr
+			return;
 		}
 
 		SE_CORE_ASSERT(false, "Unknown severity level!");
 	}
+
 
 	void OpenGLRendererAPI::Init()
 	{

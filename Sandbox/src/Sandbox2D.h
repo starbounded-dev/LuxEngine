@@ -16,7 +16,7 @@ public:
 	virtual void OnImGuiRender() override;
 	void OnEvent(StarEngine::Event& e) override;
 private:
-	StarEngine::OrthographicCameraController m_CameraController;
+	StarEngine::Camera m_CameraController;
 
 	bool m_VSync = true;
 

@@ -26,6 +26,6 @@ private:
 
 	StarEngine::Ref<StarEngine::Texture2D> m_Texture, m_starLogoTexture;
 
-	StarEngine::OrthographicCameraController m_CameraController;
+	StarEngine::Camera m_CameraController;
 	glm::vec3 m_SquareColor = { 0.2f, 0.3f, 0.8f };
 };

@@ -1,4 +1,5 @@
 #include "sepch.h"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "StarEngine/Renderer/Renderer2D.h"
 #include "StarEngine/Renderer/VertexArray.h"
 #include "StarEngine/Renderer/Shader.h"
@@ -232,11 +233,11 @@ namespace StarEngine {
 		delete[] s_Data.QuadVertexBufferBase;
 	}
 
-	void Renderer2D::BeginScene(const OrthographicCamera& camera)
+	void Renderer2D::BeginScene(const Camera& camera)
 	{
 		SE_PROFILE_FUNCTION("Renderer2D::BeginScene");
 
-		s_Data.CameraBuffer.ViewProjection = camera.GetViewProjectionMatrix();
+		s_Data.CameraBuffer.ViewProjection = camera.GetProjectionMatrix();
 		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
 
 		StartBatch();
@@ -246,7 +247,7 @@ namespace StarEngine {
 	{
 		SE_PROFILE_FUNCTION("Renderer2D::BeginScene");
 
-		s_Data.CameraBuffer.ViewProjection = camera.GetProjection() * glm::inverse(transform);
+		s_Data.CameraBuffer.ViewProjection = camera.GetProjectionMatrix() * glm::inverse(transform);
 		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
 
 		StartBatch();
@@ -482,6 +483,16 @@ namespace StarEngine {
 		DrawQuad(transform, texture, tilingFactor, tintColor);
 	}
 
+	void Renderer2D::DrawRotatedRect(const glm::vec2& position, const glm::vec2& size, float rotation, const glm::vec4& color, const bool onTop)
+	{
+
+	}
+
+	void Renderer2D::DrawRotatedRect(const glm::vec3& position, const glm::vec2& size, float rotation, const glm::vec4& color, const bool onTop)
+	{
+
+	}
+
 	void Renderer2D::DrawCircle(const glm::mat4& transform, const glm::vec4& color, float thickness /*= 1.0f*/, float fade /*= 0.005f*/, int entityID /*= -1*/)
 	{
 		SE_PROFILE_FUNCTION("Renderer2D::DrawCircle");
@@ -675,7 +686,14 @@ namespace StarEngine {
 
 	void Renderer2D::DrawString(const std::string& string, const glm::mat4& transform, const TextComponent& component, int entityID)
 	{
-		DrawString(string, component.FontAsset, transform, { component.Color, component.Kerning, component.LineSpacing }, entityID);
+		DrawString(
+			string,
+			AssetManager::GetAsset<Font>(component.FontHandle), // Convert AssetHandle to Ref<Font>
+			transform,
+			TextParams{ component.Color, component.Kerning, component.LineSpacing }, // Explicitly create a TextParams object
+			entityID
+		);
+
 	}
 
 	float Renderer2D::GetLineWidth()

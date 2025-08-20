@@ -4,8 +4,11 @@ include "Dependencies.lua"
 workspace "StarEngine"
 	configurations { "Debug", "Debug-AS", "Release", "Dist" }
 	startproject "StarEditor"
-	architecture "x86_64"
 	conformancemode "On"
+
+	defines {
+		"IMGUI_DEFINE_MATH_OPERATORS"
+	}
 
 	language "C++"
 	cppdialect "C++20"
@@ -57,6 +60,7 @@ group "Dependencies"
 	include "StarEngine/vendor/imgui"
 	include "StarEngine/vendor/yaml-cpp"
 	include "StarEngine/vendor/tracy"
+	include "StarEngine/vendor/NFD-Extended"
 group ""
 
 group "Dependencies - Mono"

@@ -7,7 +7,7 @@
 #include "StarEngine/Renderer/Renderer.h"
 #include "StarEngine/Scripting/ScriptEngine.h"
 
-#include "StarEngine/Utils/PlatformUtils.h"
+#include "StarEngine/Utilities/PlatformUtils.h"
 
 namespace StarEngine
 {
@@ -25,7 +25,7 @@ namespace StarEngine
 			std::filesystem::current_path(m_Specification.WorkingDirectory);
 
 		m_Window = Window::Create(WindowProps(m_Specification.Name));
-		m_Window->SetEventCallback(SE_BIND_EVENT_FN(Application::OnEvent));
+		//m_Window->SetEventCallback(SE_BIND_EVENT_FN(Application::OnEvent));
 
 		Renderer::Init();
 		ScriptEngine::GetMutable().InitializeHost();
@@ -75,8 +75,8 @@ namespace StarEngine
 		SE_PROFILE_FUNCTION("Application::OnEvent");
 
 		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<WindowCloseEvent>(SE_BIND_EVENT_FN(Application::OnWindowClose));
-		dispatcher.Dispatch<WindowResizeEvent>(SE_BIND_EVENT_FN(Application::OnWindowResize));
+		//dispatcher.Dispatch<WindowCloseEvent>(SE_BIND_EVENT_FN(Application::OnWindowClose));
+		//dispatcher.Dispatch<WindowResizeEvent>(SE_BIND_EVENT_FN(Application::OnWindowResize));
 
 		for (auto it = m_LayerStack.rbegin(); it != m_LayerStack.rend(); ++it)
 		{

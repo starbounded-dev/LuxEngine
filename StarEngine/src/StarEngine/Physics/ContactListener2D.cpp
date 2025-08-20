@@ -1,4 +1,5 @@
 #include "sepch.h"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "ContactListener2D.h"
 
 #include "StarEngine/Scene/Entity.h"

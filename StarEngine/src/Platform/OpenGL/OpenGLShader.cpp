@@ -224,7 +224,7 @@ namespace StarEngine {
 				shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
-					SE_CORE_ERROR(module.GetErrorMessage());
+					SE_CORE_ERROR("{}", module.GetErrorMessage().c_str());
 					SE_CORE_ASSERT(false);
 				}
 
@@ -285,7 +285,7 @@ namespace StarEngine {
 				shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
-					SE_CORE_ERROR(module.GetErrorMessage());
+					SE_CORE_ERROR("{}", module.GetErrorMessage().c_str());
 					SE_CORE_ASSERT(false);
 				}
 

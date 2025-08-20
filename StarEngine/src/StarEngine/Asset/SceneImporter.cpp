@@ -1,4 +1,5 @@
 #include "sepch.h"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "SceneImporter.h"
 
 #include "StarEngine/Project/Project.h"
@@ -6,6 +7,8 @@
 #include "StarEngine/Scripting/ScriptEngine.h"
 
 #include <stb_image.h>
+
+#include "StarEngine/Scripting/ScriptAsset.h"
 
 namespace StarEngine {
 
@@ -20,7 +23,7 @@ namespace StarEngine {
 	{
 		SE_PROFILE_FUNCTION("SceneImporter::LoadScene");
 
-		Ref<Scene> scene = CreateRef<Scene>();
+		Ref<Scene> scene = Ref<Scene>::Create();
 		SceneSerializer serializer(scene);
 		serializer.Deserialize(path);
 
@@ -33,14 +36,14 @@ namespace StarEngine {
 		serializer.Serialize(Project::GetActiveAssetDirectory() / path);
 	}
 
-	Ref<Script> SceneImporter::ImportScript(AssetHandle handle, const AssetMetadata& metadata)
+	Ref<ScriptFileAsset> SceneImporter::ImportScript(AssetHandle handle, const AssetMetadata& metadata)
 	{
 		return LoadScript(Project::GetActiveAssetDirectory() / metadata.FilePath);
 	}
 
-	Ref<Script> SceneImporter::LoadScript(const std::filesystem::path& path)
+	Ref<ScriptFileAsset> SceneImporter::LoadScript(const std::filesystem::path& path)
 	{
-		Ref<Script> result = std::make_shared<Script>();
+		Ref<ScriptFileAsset> result = Ref<ScriptFileAsset>::Create();
 
 		return result;
 	}

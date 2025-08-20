@@ -28,7 +28,6 @@ project "StarEditor"
 	links
 	{
 		"StarEngine",
-		
 		"yaml-cpp",
 		"GLAD",
 		"%{Library.Tracy}"

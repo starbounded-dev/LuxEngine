@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "StarEngine/Asset/Asset.h"
+
 namespace StarEngine {
 
 	struct AudioListenerConfig
@@ -11,7 +13,7 @@ namespace StarEngine {
 		float ConeOuterGain = 0.0f;
 	};
 
-	class AudioListener
+	class AudioListener : public Asset
 	{
 	public:
 		AudioListener() = default;

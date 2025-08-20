@@ -34,3 +34,8 @@
 	path = StarEngine/vendor/Coral
 	url = https://github.com/StudioCherno/Coral.git
 	branch = dev
+
+[submodule "StarEngine/vendor/NFD-Extended/NFD-Extended"]
+	path = StarEngine/vendor/NFD-Extended/NFD-Extended
+	url = https://github.com/btzy/nativefiledialog-extended
+	branch = master

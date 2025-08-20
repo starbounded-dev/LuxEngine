@@ -4,7 +4,7 @@
 #include "StarEngine/Scene/Components.h"
 
 #include "StarEngine/Scripting/ScriptEngine.h"
-#include "StarEngine/Scripting/ScriptEntityStorage.h"
+#include "StarEngine/Scripting/ScriptEntityStorage.hpp"
 #include "StarEngine/UI/UI.h"
 
 #include "StarEngine/Asset/AssetManager.h"

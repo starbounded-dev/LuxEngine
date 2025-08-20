@@ -1,5 +1,5 @@
 #pragma once
-
+#define GLM_ENABLE_EXPERIMENTAL
 
 #include "StarEngine/Core/UUID.h"
 #include "StarEngine/Core/Ref.h"
@@ -18,6 +18,8 @@
 #include "glm/gtx/quaternion.hpp"
 
 #include <fstream>
+
+#include "StarEngine/Math/Math.h"
 
 namespace StarEngine {
 
@@ -57,45 +59,136 @@ namespace StarEngine {
 		std::string Tag;
 
 		TagComponent() = default;
-		TagComponent(const TagComponent&) = default;
+		TagComponent(const TagComponent& other) = default;
 		TagComponent(const std::string& tag)
 			: Tag(tag) {
+		}
+
+		operator std::string& () { return Tag; }
+		operator const std::string& () const { return Tag; }
+	};
+
+	struct RelationshipComponent
+	{
+		UUID ParentHandle = 0;
+		std::vector<UUID> Children;
+
+		RelationshipComponent() = default;
+		RelationshipComponent(const RelationshipComponent& other) = default;
+		RelationshipComponent(UUID parent)
+			: ParentHandle(parent) {
 		}
 	};
 
 	struct TransformComponent
 	{
 		glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
-		glm::vec3 Rotation = { 0.0f, 0.0f, 0.0f };
 		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
 
+	private:
+		glm::vec3 RotationEuler = { 0.0f, 0.0f, 0.0f };
+		glm::quat Rotation = { 1.0f, 0.0f, 0.0f, 0.0f };
+
+	public:
 		TransformComponent() = default;
-		TransformComponent(const TransformComponent&) = default;
+		TransformComponent(const TransformComponent& other) = default;
 		TransformComponent(const glm::vec3& translation)
-			: Translation(translation) {
+			: Translation(translation)
+		{
 		}
 
 		glm::mat4 GetTransform() const
 		{
-			glm::mat4 rotation = glm::toMat4(glm::quat(Rotation));
-
 			return glm::translate(glm::mat4(1.0f), Translation)
-				* rotation
+				* glm::toMat4(Rotation)
 				* glm::scale(glm::mat4(1.0f), Scale);
 		}
+
+		void SetTransform(const glm::mat4& transform)
+		{
+			Math::DecomposeTransform(transform, Translation, Rotation, Scale);
+			RotationEuler = glm::eulerAngles(Rotation);
+		}
+
+		glm::vec3 GetRotationEuler() const
+		{
+			return RotationEuler;
+		}
+
+		void SetRotationEuler(const glm::vec3& euler)
+		{
+			RotationEuler = euler;
+			Rotation = glm::quat(RotationEuler);
+		}
+
+		glm::quat GetRotation() const
+		{
+			return Rotation;
+		}
+
+		void SetRotation(const glm::quat& quat)
+		{
+			auto wrapToPi = [](glm::vec3 v)
+				{
+					return glm::mod(v + glm::pi<float>(), 2.0f * glm::pi<float>()) - glm::pi<float>();
+				};
+
+			auto originalEuler = RotationEuler;
+			Rotation = quat;
+			RotationEuler = glm::eulerAngles(Rotation);
+
+			glm::vec3 alternate1 = { RotationEuler.x - glm::pi<float>(), glm::pi<float>() - RotationEuler.y, RotationEuler.z - glm::pi<float>() };
+			glm::vec3 alternate2 = { RotationEuler.x + glm::pi<float>(), glm::pi<float>() - RotationEuler.y, RotationEuler.z - glm::pi<float>() };
+			glm::vec3 alternate3 = { RotationEuler.x + glm::pi<float>(), glm::pi<float>() - RotationEuler.y, RotationEuler.z + glm::pi<float>() };
+			glm::vec3 alternate4 = { RotationEuler.x - glm::pi<float>(), glm::pi<float>() - RotationEuler.y, RotationEuler.z + glm::pi<float>() };
+
+			float distance0 = glm::length2(wrapToPi(RotationEuler - originalEuler));
+			float distance1 = glm::length2(wrapToPi(alternate1 - originalEuler));
+			float distance2 = glm::length2(wrapToPi(alternate2 - originalEuler));
+			float distance3 = glm::length2(wrapToPi(alternate3 - originalEuler));
+			float distance4 = glm::length2(wrapToPi(alternate4 - originalEuler));
+
+			float best = distance0;
+			if (distance1 < best)
+			{
+				best = distance1;
+				RotationEuler = alternate1;
+			}
+			if (distance2 < best)
+			{
+				best = distance2;
+				RotationEuler = alternate2;
+			}
+			if (distance3 < best)
+			{
+				best = distance3;
+				RotationEuler = alternate3;
+			}
+			if (distance4 < best)
+			{
+				best = distance4;
+				RotationEuler = alternate4;
+			}
+
+			RotationEuler = wrapToPi(RotationEuler);
+		}
+
+		// Add SceneSerializer as a friend
+		friend class SceneSerializer;
 	};
+
 
 	struct SpriteRendererComponent
 	{
-		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+		glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 		AssetHandle Texture = 0;
 		float TilingFactor = 1.0f;
+		glm::vec2 UVStart{ 0.0f, 0.0f };
+		glm::vec2 UVEnd{ 1.0f, 1.0f };
+		bool ScreenSpace = false;
 
 		SpriteRendererComponent() = default;
-		SpriteRendererComponent(const SpriteRendererComponent&) = default;
-		SpriteRendererComponent(const glm::vec4& color)
-			: Color(color) {
-		}
+		SpriteRendererComponent(const SpriteRendererComponent& other) = default;
 	};
 
 	struct CircleRendererComponent
@@ -135,8 +228,30 @@ namespace StarEngine {
 	};
 
 
-	// Physics
+	
+	struct TextComponent
+	{
+		std::string TextString = "";
+		size_t TextHash = 0;
 
+		// Font
+		AssetHandle FontHandle;
+		glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float LineSpacing = 0.0f;
+		float Kerning = 0.0f;
+
+		// Layout
+		float MaxWidth = 10.0f;
+
+		bool ScreenSpace = false;
+		bool DropShadow = false;
+		float ShadowDistance = 0.0f;
+		glm::vec4 ShadowColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+		TextComponent() = default;
+		TextComponent(const TextComponent& other) = default;
+	};
+	// Physics
 	struct RigidBody2DComponent
 	{
 		enum class Type { None = -1, Static, Dynamic, Kinematic };
@@ -156,72 +271,32 @@ namespace StarEngine {
 
 	struct BoxCollider2DComponent
 	{
-		glm::vec2 Offset = { 0.0f, 0.0f };
+		glm::vec2 Offset = { 0.0f,0.0f };
 		glm::vec2 Size = { 0.5f, 0.5f };
 
-		// TODO: move into physics material (maybe)
 		float Density = 1.0f;
-		float Friction = 0.5f;
-		float Restitution = 0.0f;
-		float RestitutionThreshold = 0.5f;
+		float Friction = 1.0f;
 
 		// Storage for runtime
 		void* RuntimeFixture = nullptr;
 
 		BoxCollider2DComponent() = default;
-		BoxCollider2DComponent(const BoxCollider2DComponent&) = default;
+		BoxCollider2DComponent(const BoxCollider2DComponent& other) = default;
 	};
 
 	struct CircleCollider2DComponent
 	{
-		glm::vec2 Offset = { 0.0f, 0.0f };
-		float Radius = 0.5f;
+		glm::vec2 Offset = { 0.0f,0.0f };
+		float Radius = 1.0f;
 
-		//TODO: move into physics material (maybe)
 		float Density = 1.0f;
-		float Friction = 0.5f;
-		float Restitution = 0.0f;
-		float RestitutionThreshold = 0.5f;
+		float Friction = 1.0f;
 
 		// Storage for runtime
 		void* RuntimeFixture = nullptr;
 
 		CircleCollider2DComponent() = default;
-		CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
-	};
-	/*
-	struct RigidBodyComponent
-	{
-		EBodyType BodyType = EBodyType::Static;
-		uint32_t LayerID = 0;
-		bool EnableDynamicTypeChange = false;
-
-		float Mass = 1.0f;
-		float LinearDrag = 0.01f;
-		float AngularDrag = 0.05f;
-		bool DisableGravity = false;
-		bool IsTrigger = false;
-		ECollisionDetectionType CollisionDetection = ECollisionDetectionType::Discrete;
-
-		glm::vec3 InitialLinearVelocity = glm::vec3(0.0f);
-		glm::vec3 InitialAngularVelocity = glm::vec3(0.0f);
-
-		float MaxLinearVelocity = 500.0f;
-		float MaxAngularVelocity = 50.0f;
-
-		EActorAxis LockedAxes = EActorAxis::None;
-
-		RigidBodyComponent() = default;
-		RigidBodyComponent(const RigidBodyComponent& other) = default;
-	};*/
-
-	struct TextComponent
-	{
-		std::string TextString;
-		Ref<Font> FontAsset = Font::GetDefault();
-		glm::vec4 Color{ 1.0f };
-		float Kerning = 0.0f;
-		float LineSpacing = 0.0f;
+		CircleCollider2DComponent(const CircleCollider2DComponent& other) = default;
 	};
 
 	struct AudioSourceComponent

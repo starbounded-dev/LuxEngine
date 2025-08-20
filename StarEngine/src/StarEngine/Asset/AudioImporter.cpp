@@ -1,4 +1,5 @@
 #include "sepch.h"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "AudioImporter.h"
 
 #include "StarEngine/Audio/AudioEngine.h"

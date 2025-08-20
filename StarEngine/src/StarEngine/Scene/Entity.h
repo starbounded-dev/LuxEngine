@@ -1,60 +1,67 @@
 #pragma once
 
-#include "StarEngine/Core/UUID.h"
-#include "StarEngine/Scene/Scene.h"
 #include "Components.h"
 
-#include "entt.hpp"
+#include <entt.hpp>
+#include <glm/glm.hpp>
 
 namespace StarEngine
 {
+	class Scene;
+
 	class Entity
 	{
 	public:
 		Entity() = default;
-		Entity(entt::entity handle, Scene* scene);
-		Entity(const Entity& other) = default;
+		Entity(entt::entity handle, Scene* scene)
+			: m_EntityHandle(handle), m_Scene(scene) {
+		}
+
+		~Entity() {}
+
+		bool IsValid() const;
 
 		template<typename T, typename... Args>
-		T& AddComponent(Args&&... args)
-		{
-			SE_CORE_ASSERT(!HasComponent<T>(), "Entity already has component!");
-			T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
-			m_Scene->OnComponentAdded<T>(*this, component);
-			return component;
-		}
-
-		template<typename T, typename... Args>
-		T& AddOrReplaceComponent(Args&&... args)
-		{
-			T& component = m_Scene->m_Registry.emplace_or_replace<T>(m_EntityHandle, std::forward<Args>(args)...);
-			m_Scene->OnComponentAdded<T>(*this, component);
-			return component;
-		}
+		T& AddComponent(Args&&... args);
 
 		template<typename T>
-		T& GetComponent()
-		{
-			SE_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
-			return m_Scene->m_Registry.get<T>(m_EntityHandle);
-		}
+		T& GetComponent();
 
 		template<typename T>
-		bool HasComponent()
-		{
-			return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
-		}
+		const T& GetComponent() const;
+
+		// returns nullptr if entity does not have the requested component type
+		template<typename T>
+		T* TryGetComponent();
+
+		// returns nullptr if entity does not have the requested component type
+		template<typename T>
+		const T* TryGetComponent() const;
+
+		template<typename... T>
+		bool HasComponent();
+
+		template<typename... T>
+		bool HasComponent() const;
+
+		template<typename...T>
+		bool HasAny();
+
+		template<typename...T>
+		bool HasAny() const;
 
 		template<typename T>
-		void RemoveComponent()
-		{
-			SE_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
-			m_Scene->m_Registry.remove<T>(m_EntityHandle);
-		}
+		void RemoveComponent();
 
-		operator bool() const { return m_EntityHandle != entt::null; }
+		template<typename T>
+		void RemoveComponentIfExists();
+
+		std::string& Name() { return HasComponent<TagComponent>() ? GetComponent<TagComponent>().Tag : NoName; }
+		const std::string& Name() const { return HasComponent<TagComponent>() ? GetComponent<TagComponent>().Tag : NoName; }
+
+		operator uint32_t () const { return (uint32_t)m_EntityHandle; }
 		operator entt::entity() const { return m_EntityHandle; }
-		operator uint32_t() const { return (uint32_t)m_EntityHandle; }
+		operator bool() const;
 
 		UUID GetUUID() { return GetComponent<IDComponent>().ID; }
 		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
@@ -69,12 +76,68 @@ namespace StarEngine
 			return !(*this == other);
 		}
 
+		bool IsAncestorOf(Entity entity) const;
+		bool IsDescendantOf(Entity entity) const { return entity.IsAncestorOf(*this); }
+
+		Entity GetParent() const;
+
+		void SetParent(Entity parent)
+		{
+			Entity currentParent = GetParent();
+			if (currentParent == parent)
+				return;
+
+			// If changing parent, remove child from existing parent
+			if (currentParent)
+				currentParent.RemoveChild(*this);
+
+			// Setting to null is okay
+			SetParentUUID(parent.GetUUID());
+
+			if (parent)
+			{
+				auto& parentChildren = parent.Children();
+				UUID uuid = GetUUID();
+				if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
+					parentChildren.emplace_back(GetUUID());
+			}
+		}
+
+		bool RemoveChild(Entity child)
+		{
+			UUID childId = child.GetUUID();
+			std::vector<UUID>& children = Children();
+			auto it = std::find(children.begin(), children.end(), childId);
+			if (it != children.end())
+			{
+				children.erase(it);
+				return true;
+			}
+
+			return false;
+		}
+
+		void SetParentUUID(UUID parent) { GetComponent<RelationshipComponent>().ParentHandle = parent; }
+		UUID GetParentUUID() const { return GetComponent<RelationshipComponent>().ParentHandle; }
+		std::vector<UUID>& Children() { return GetComponent<RelationshipComponent>().Children; }
+		const std::vector<UUID>& Children() const { return GetComponent<RelationshipComponent>().Children; }
+
 		Scene* GetScene() const { return m_Scene; }
 
 		entt::entity GetEntityHandle() const { return m_EntityHandle; }
+
+		TransformComponent& Transform() { return GetComponent<TransformComponent>(); }
+		const glm::mat4& Transform() const { return GetComponent<TransformComponent>().GetTransform(); }
 	private:
 		entt::entity m_EntityHandle{ entt::null };
 		Scene* m_Scene = nullptr;
+
+		inline static std::string NoName = "Unnamed";
+
+		friend class Prefab;
+		friend class Scene;
+		friend class SceneSerializer;
+		friend class ScriptEngine;
 	};
 
 }

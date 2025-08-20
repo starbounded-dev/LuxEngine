@@ -1,4 +1,5 @@
 #include "sepch.h"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "ScriptGlue.h"
 
 //#include "StarEngine/Animation/AnimationGraph.h"
@@ -10,17 +11,17 @@
 #include "StarEngine/Core/Application.h"
 #include "StarEngine/Core/Events/EditorEvents.h"
 #include "StarEngine/Core/Hash.h"
-#include "StarEngine/Core/Math/Noise.h"
+//#include "StarEngine/Core/Math/Noise.h"
 //#include "StarEngine/ImGui/ImGui.h"
 //#include "StarEngine/Physics/PhysicsLayer.h"
 //#include "StarEngine/Physics2D/Physics2D.h"
-///#include "StarEngine/Reflection/TypeName.h"
+//#include "StarEngine/Reflection/TypeName.h"
 //#include "StarEngine/Renderer/MeshFactory.h"
 //#include "StarEngine/Renderer/SceneRenderer.h"
 //#include "StarEngine/Scene/Prefab.h"
 #include "StarEngine/Scripting/ScriptEngine.h"
-//#include "StarEngine/Utilities/AnimationUtils.h"
-//#include "StarEngine/Utilities/TypeInfo.h"
+#include "StarEngine/Utilities/AnimationUtils.h"
+#include "StarEngine/Utilities/TypeInfo.h"
 
 #include <box2d/box2d.h>
 
@@ -102,7 +103,7 @@ namespace StarEngine {
 		static_assert(offsetof(InternalCalls::Transform, Scale) == 24);
 		static_assert(sizeof(InternalCalls::Transform) == 36);
 	/// Transform.cs
-
+		/*
 	/// Physics.cs
 		static_assert(offsetof(InternalCalls::SceneQueryHitInterop, HitEntity) == 0);
 		static_assert(offsetof(InternalCalls::SceneQueryHitInterop, Position) == 8);
@@ -139,7 +140,7 @@ namespace StarEngine {
 		static_assert(offsetof(Audio::CommandID, ID) == 0);
 		static_assert(sizeof(Audio::CommandID) == 4);
 	/// Audio.cs
-
+	*/
 	/// AssetHandle.cs
 		static_assert(sizeof(AssetHandle) == 8);
 	/// AssetHandle.cs
@@ -739,7 +740,7 @@ namespace StarEngine {
 			SE_CORE_VERIFY(scene, "No active scene!");
 			return scene->TryGetEntityWithUUID(entityID);
 		}
-
+/*
 #pragma region AssetHandle
 
 		Coral::Bool32 AssetHandle_IsValid(Param<AssetHandle> assetHandle)
@@ -1187,6 +1188,8 @@ namespace StarEngine {
 
 #pragma endregion
 
+#pragma region Physics
+
 		Ref<PhysicsScene> GetPhysicsScene()
 		{
 			Ref<Scene> entityScene = ScriptEngine::GetInstance().GetCurrentScene();
@@ -1232,6 +1235,8 @@ namespace StarEngine {
 
 			return physicsScene->GetCharacterController(entity);
 		}
+
+#pragma endregion
 
 #pragma region TransformComponent
 
@@ -2778,7 +2783,6 @@ namespace StarEngine {
 		}
 
 #pragma endregion
-
 
 #pragma region TileRendererComponent
 
@@ -4810,8 +4814,8 @@ namespace StarEngine {
 			return result;
 		}*/
 
-#pragma endregion
-
+//#pragma endregion
+/*
 #pragma region Mesh
 
 		Coral::Bool32 Mesh_GetMaterialByIndex(Param<AssetHandle> meshHandle, int index, OutParam<AssetHandle> outHandle)
@@ -6387,7 +6391,6 @@ namespace StarEngine {
 
 #pragma endregion
 
-
 #pragma region PerformanceTimers
 
 		float PerformanceTimers_GetFrameTime()
@@ -6441,6 +6444,6 @@ namespace StarEngine {
 		}
 
 #pragma endregion
-
+*/
 	}
 }

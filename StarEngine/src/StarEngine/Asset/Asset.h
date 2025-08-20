@@ -2,21 +2,13 @@
 
 #include "StarEngine/Core/UUID.h"
 
+#include "StarEngine/Asset/AssetTypes.h"
+
 #include <string_view>
 
 namespace StarEngine {
 
 	using AssetHandle = UUID;
-
-	enum class AssetType : uint16_t
-	{
-		None = 0,
-		Scene,
-		Texture2D,
-		Audio,
-		//ObjModel,
-		ScriptFile,
-	};
 
 	std::string_view AssetTypeToString(AssetType type);
 	AssetType AssetTypeFromString(std::string_view assetType);

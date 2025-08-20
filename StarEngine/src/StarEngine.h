@@ -13,8 +13,8 @@
 
 // ---Input-------------------------
 #include "StarEngine/Core/Input.h"
-#include "StarEngine/Core/KeyCodes.h"
-#include "StarEngine/Core/MouseCodes.h"
+#include "StarEngine/Core/Events/KeyEvent.h"
+#include "StarEngine/Core/Events/MouseEvent.h"
 // ---------------------------------
 
 // ---Renderer------------------------
@@ -35,6 +35,5 @@
 #include "StarEngine/Renderer/SubTexture2D.h"
 #include "StarEngine/Renderer/VertexArray.h"
 
-#include "StarEngine/Renderer/OrthographicCamera.h"
-#include "StarEngine/Renderer/OrthographicCameraController.h"
+#include "StarEngine/Renderer/Camera.h"
 // -----------------------------------

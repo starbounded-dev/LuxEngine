@@ -45,7 +45,7 @@ namespace StarEngine {
 			s_ActiveProject = project;
 
 			std::shared_ptr<EditorAssetManager> editorAssetManager = std::make_shared<EditorAssetManager>();
-			s_ActiveProject->m_AssetManager = editorAssetManager;
+			s_ActiveProject->s_AssetManager = Ref<EditorAssetManager>(editorAssetManager.get());
 			editorAssetManager->DeserializeAssetRegistry();
 
 			if (!AudioEngine::HasInitializedEngine())
@@ -84,7 +84,7 @@ namespace StarEngine {
 		}
 
 		std::shared_ptr<EditorAssetManager> editorAssetManager = std::make_shared<EditorAssetManager>();
-		s_ActiveProject->m_AssetManager = editorAssetManager;
+		s_ActiveProject->s_AssetManager = Ref<EditorAssetManager>(editorAssetManager.get());
 		editorAssetManager->DeserializeAssetRegistry();
 
 		if (!AudioEngine::HasInitializedEngine())

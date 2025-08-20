@@ -1,5 +1,5 @@
 #include "sepch.h"
-#include "StarEngine/Utils/PlatformUtils.h"
+#include "StarEngine/Utilities/PlatformUtils.h"
 
 #include "StarEngine/Core/Application.h"
 

@@ -1,7 +1,9 @@
 #include "sepch.h"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "SceneSerializer.h"
 
-#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include "Entity.h"
 #include "Components.h"
@@ -17,8 +19,36 @@
 #include <yaml-cpp/yaml.h>
 
 #include "StarEngine/Core/Hash.h"
+#include "StarEngine/Utilities/StringUtils.h"
 
 namespace YAML {
+
+	template<>
+	struct convert<glm::quat>
+	{
+		static Node encode(const glm::quat& rhs)
+		{
+			Node node;
+			node.push_back(rhs.x);
+			node.push_back(rhs.y);
+			node.push_back(rhs.z);
+			node.push_back(rhs.w);
+			node.SetStyle(EmitterStyle::Flow);
+			return node;
+		}
+
+		static bool decode(const Node& node, glm::quat& rhs)
+		{
+			if (!node.IsSequence() || node.size() != 4)
+				return false;
+
+			rhs.x = node[0].as<float>();
+			rhs.y = node[1].as<float>();
+			rhs.z = node[2].as<float>();
+			rhs.w = node[3].as<float>();
+			return true;
+		}
+	};
 
 	template<>
 	struct convert<glm::vec2>
@@ -159,27 +189,27 @@ namespace StarEngine {
 		return value;
 	}
 
-	static std::string RigidBody2DBodyTypeToString(RigidBody2DComponent::BodyType type)
+	static std::string RigidBody2DBodyTypeToString(RigidBody2DComponent::Type type)
 	{
 		switch (type)
 		{
-			case RigidBody2DComponent::BodyType::Static: return "Static";
-			case RigidBody2DComponent::BodyType::Dynamic: return "Dynamic";
-			case RigidBody2DComponent::BodyType::Kinematic: return "Kinematic";
+			case RigidBody2DComponent::Type::Static: return "Static";
+			case RigidBody2DComponent::Type::Dynamic: return "Dynamic";
+			case RigidBody2DComponent::Type::Kinematic: return "Kinematic";
 		}
 
 		SE_CORE_ASSERT(false, "Unknown RigidBody2DComponent::BodyType!");
 		return "";
 	}
 
-	static RigidBody2DComponent::BodyType RigidBody2DBodyTypeFromString(const std::string& type)
+	static RigidBody2DComponent::Type RigidBody2DBodyTypeFromString(const std::string& type)
 	{
-		if (type == "Static") return RigidBody2DComponent::BodyType::Static;
-		if (type == "Dynamic") return RigidBody2DComponent::BodyType::Dynamic;
-		if (type == "Kinematic") return RigidBody2DComponent::BodyType::Kinematic;
+		if (type == "Static") return RigidBody2DComponent::Type::Static;
+		if (type == "Dynamic") return RigidBody2DComponent::Type::Dynamic;
+		if (type == "Kinematic") return RigidBody2DComponent::Type::Kinematic;
 
 		SE_CORE_ASSERT(false, "Unknown RigidBody2DComponent::BodyType!");
-		return RigidBody2DComponent::BodyType::Static;
+		return RigidBody2DComponent::Type::Static;
 	}
 
 	SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -192,8 +222,10 @@ namespace StarEngine {
 	{
 		SE_CORE_ASSERT(entity.HasComponent<IDComponent>());
 
+		UUID uuid = entity.GetComponent<IDComponent>().ID;
 		out << YAML::BeginMap; // Entity
-		out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID();
+		out << YAML::Key << "Entity";
+		out << YAML::Value << uuid;
 
 		if (entity.HasComponent<TagComponent>())
 		{
@@ -206,60 +238,50 @@ namespace StarEngine {
 			out << YAML::EndMap; // TagComponent
 		}
 
+		if (entity.HasComponent<RelationshipComponent>())
+		{
+			auto& relationshipComponent = entity.GetComponent<RelationshipComponent>();
+			out << YAML::Key << "Parent" << YAML::Value << relationshipComponent.ParentHandle;
+
+			out << YAML::Key << "Children";
+			out << YAML::Value << YAML::BeginSeq;
+
+			for (auto child : relationshipComponent.Children)
+			{
+				out << YAML::BeginMap;
+				out << YAML::Key << "Handle" << YAML::Value << child;
+				out << YAML::EndMap;
+			}
+			out << YAML::EndSeq;
+		}
+
 		if (entity.HasComponent<TransformComponent>())
 		{
 			out << YAML::Key << "TransformComponent";
 			out << YAML::BeginMap; // TransformComponent
 
-			auto& tc = entity.GetComponent<TransformComponent>();
-			out << YAML::Key << "Translation" << YAML::Value << tc.Translation;
-			out << YAML::Key << "Rotation" << YAML::Value << tc.Rotation;
-			out << YAML::Key << "Scale" << YAML::Value << tc.Scale;
+			auto& transform = entity.GetComponent<TransformComponent>();
+			out << YAML::Key << "Position" << YAML::Value << transform.Translation;
+			out << YAML::Key << "Rotation" << YAML::Value << transform.GetRotationEuler();
+			out << YAML::Key << "Scale" << YAML::Value << transform.Scale;
 
 			out << YAML::EndMap; // TransformComponent
 		}
 
-		if (entity.HasComponent<CameraComponent>())
-		{
-			out << YAML::Key << "CameraComponent";
-			out << YAML::BeginMap; // CameraComponent
-
-			auto& cameraComponent = entity.GetComponent<CameraComponent>();
-			auto& camera = cameraComponent.Camera;
-
-			out << YAML::Key << "Camera" << YAML::Value;
-			out << YAML::BeginMap; // Camera
-			out << YAML::Key << "ProjectionType" << YAML::Value << (int)camera->GetProjectionType();
-			out << YAML::Key << "PerspectiveFOV" << YAML::Value << camera->GetPerspectiveVerticalFOV();
-			out << YAML::Key << "PerspectiveNear" << YAML::Value << camera->GetPerspectiveNearClip();
-			out << YAML::Key << "PerspectiveFar" << YAML::Value << camera->GetPerspectiveFarClip();
-			out << YAML::Key << "OrthographicSize" << YAML::Value << camera->GetOrthographicSize();
-			out << YAML::Key << "OrthographicNear" << YAML::Value << camera->GetOrthographicNearClip();
-			out << YAML::Key << "OrthographicFar" << YAML::Value << camera->GetOrthographicFarClip();
-			out << YAML::EndMap; // Camera
-
-			out << YAML::Key << "Primary" << YAML::Value << cameraComponent.Primary;
-			out << YAML::Key << "FixedAspectRatio" << YAML::Value << cameraComponent.FixedAspectRatio;
-
-			out << YAML::EndMap; // CameraComponent
-		}
-
 		if (entity.HasComponent<ScriptComponent>())
 		{
-			auto& scriptComponent = entity.GetComponent<ScriptComponent>();
-
 			out << YAML::Key << "ScriptComponent";
 			out << YAML::BeginMap; // ScriptComponent
 
 			const auto& scriptEngine = ScriptEngine::GetInstance();
 			const auto& sc = entity.GetComponent<ScriptComponent>();
 
-			if (scriptEngine.IsValidScript(sc.ScriptHandle))
+			if (scriptEngine.IsValidScript(sc.ScriptID))
 			{
-				const auto& scriptMetadata = scriptEngine.GetScriptMetadata(sc.ScriptHandle);
+				const auto& scriptMetadata = scriptEngine.GetScriptMetadata(sc.ScriptID);
 				const auto& entityStorage = scene->GetScriptStorage().EntityStorage.at(entity.GetUUID());
 
-				out << YAML::Key << "ScriptHandle" << YAML::Value << sc.ScriptHandle;
+				out << YAML::Key << "ScriptID" << YAML::Value << sc.ScriptID;
 				out << YAML::Key << "ScriptName" << YAML::Value << scriptMetadata.FullName;
 
 				out << YAML::Key << "Fields" << YAML::Value << YAML::BeginSeq;
@@ -273,138 +295,191 @@ namespace StarEngine {
 					out << YAML::Key << "Type" << YAML::Value << std::string(magic_enum::enum_name(fieldMetadata.Type));
 					out << YAML::Key << "Value" << YAML::Value;
 
-					switch (fieldMetadata.Type)
+					if (fieldStorage.IsArray())
 					{
-					case DataType::SByte:
-						out << fieldStorage.GetValue<int8_t>();
-						break;
-					case DataType::Byte:
-						out << fieldStorage.GetValue<uint8_t>();
-						break;
-					case DataType::Short:
-						out << fieldStorage.GetValue<int16_t>();
-						break;
-					case DataType::UShort:
-						out << fieldStorage.GetValue<uint16_t>();
-						break;
-					case DataType::Int:
-						out << fieldStorage.GetValue<int32_t>();
-						break;
-					case DataType::UInt:
-						out << fieldStorage.GetValue<uint32_t>();
-						break;
-					case DataType::Long:
-						out << fieldStorage.GetValue<int64_t>();
-						break;
-					case DataType::ULong:
-						out << fieldStorage.GetValue<uint64_t>();
-						break;
-					case DataType::Float:
-						out << fieldStorage.GetValue<float>();
-						break;
-					case DataType::Double:
-						out << fieldStorage.GetValue<double>();
-						break;
-					case DataType::Bool:
-						//out << fieldStorage.GetValue<int16_t>();
-						out << fieldStorage.GetValue<bool>();
-						break;
-					case DataType::String:
-						out << fieldStorage.GetValue<Coral::String>();
-						break;
-					case DataType::Bool32:
-						out << fieldStorage.GetValue<bool>();
-						break;
-					case DataType::AssetHandle:
-						out << fieldStorage.GetValue<uint64_t>();
-						break;
-					case DataType::Vector2:
-						out << fieldStorage.GetValue<glm::vec2>();
-						break;
-					case DataType::Vector3:
-						out << fieldStorage.GetValue<glm::vec3>();
-						break;
-					case DataType::Vector4:
-						out << fieldStorage.GetValue<glm::vec4>();
-						break;
-						//case DataType::Entity:
-						//	out << fieldStorage.GetValue<uint64_t>();
-						//	break;
-						//case DataType::Prefab:
-						//	out << fieldStorage.GetValue<uint64_t>();
-						//	break;
-						//case DataType::Mesh:
-						//	out << fieldStorage.GetValue<uint64_t>();
-						//	break;
-						//case DataType::StaticMesh:
-						//	out << fieldStorage.GetValue<uint64_t>();
-						//	break;
-						//case DataType::Material:
-						//	out << fieldStorage.GetValue<uint64_t>();
-						//	break;
-						//case DataType::Texture2D:
-						//	out << fieldStorage.GetValue<uint64_t>();
-						//	break;
-						//case DataType::Scene:
-						//	out << fieldStorage.GetValue<uint64_t>();
-						//	break;
-					default:
-						break;
+						out << YAML::BeginSeq;
+
+						for (int32_t i = 0; i < fieldStorage.GetLength(); i++)
+						{
+							switch (fieldMetadata.Type)
+							{
+							case DataType::Bool:
+								out << fieldStorage.GetValue<bool>(i);
+								break;
+							case DataType::SByte:
+								out << fieldStorage.GetValue<int8_t>(i);
+								break;
+							case DataType::Byte:
+								out << fieldStorage.GetValue<uint8_t>(i);
+								break;
+							case DataType::Short:
+								out << fieldStorage.GetValue<int16_t>(i);
+								break;
+							case DataType::UShort:
+								out << fieldStorage.GetValue<uint16_t>(i);
+								break;
+							case DataType::Int:
+								out << fieldStorage.GetValue<int32_t>(i);
+								break;
+							case DataType::UInt:
+								out << fieldStorage.GetValue<uint32_t>(i);
+								break;
+							case DataType::Long:
+								out << fieldStorage.GetValue<int64_t>(i);
+								break;
+							case DataType::ULong:
+								out << fieldStorage.GetValue<uint64_t>(i);
+								break;
+							case DataType::Float:
+								out << fieldStorage.GetValue<float>(i);
+								break;
+							case DataType::Double:
+								out << fieldStorage.GetValue<double>(i);
+								break;
+							case DataType::Vector2:
+								out << fieldStorage.GetValue<glm::vec2>(i);
+								break;
+							case DataType::Vector3:
+								out << fieldStorage.GetValue<glm::vec3>(i);
+								break;
+							case DataType::Vector4:
+								out << fieldStorage.GetValue<glm::vec4>(i);
+								break;
+							case DataType::String:
+								out << fieldStorage.GetValue<std::string>(i);
+								break;
+							case DataType::Entity:
+								out << fieldStorage.GetValue<uint64_t>(i);
+								break;
+							case DataType::Prefab:
+								out << fieldStorage.GetValue<uint64_t>(i);
+								break;
+							case DataType::Mesh:
+								out << fieldStorage.GetValue<uint64_t>(i);
+								break;
+							case DataType::StaticMesh:
+								out << fieldStorage.GetValue<uint64_t>(i);
+								break;
+							case DataType::Material:
+								out << fieldStorage.GetValue<uint64_t>(i);
+								break;
+							case DataType::Texture2D:
+								out << fieldStorage.GetValue<uint64_t>(i);
+								break;
+							case DataType::Scene:
+								out << fieldStorage.GetValue<uint64_t>(i);
+								break;
+							default:
+								break;
+							}
+						}
+
+						out << YAML::EndSeq;
+					}
+					else
+					{
+						switch (fieldMetadata.Type)
+						{
+						case DataType::Bool:
+							out << fieldStorage.GetValue<bool>();
+							break;
+						case DataType::SByte:
+							out << fieldStorage.GetValue<int8_t>();
+							break;
+						case DataType::Byte:
+							out << fieldStorage.GetValue<uint8_t>();
+							break;
+						case DataType::Short:
+							out << fieldStorage.GetValue<int16_t>();
+							break;
+						case DataType::UShort:
+							out << fieldStorage.GetValue<uint16_t>();
+							break;
+						case DataType::Int:
+							out << fieldStorage.GetValue<int32_t>();
+							break;
+						case DataType::UInt:
+							out << fieldStorage.GetValue<uint32_t>();
+							break;
+						case DataType::Long:
+							out << fieldStorage.GetValue<int64_t>();
+							break;
+						case DataType::ULong:
+							out << fieldStorage.GetValue<uint64_t>();
+							break;
+						case DataType::Float:
+							out << fieldStorage.GetValue<float>();
+							break;
+						case DataType::Double:
+							out << fieldStorage.GetValue<double>();
+							break;
+						case DataType::Vector2:
+							out << fieldStorage.GetValue<glm::vec2>();
+							break;
+						case DataType::Vector3:
+							out << fieldStorage.GetValue<glm::vec2>();
+							break;
+						case DataType::Vector4:
+							out << fieldStorage.GetValue<glm::vec2>();
+							break;
+							// TODO(Emily): This appears to write a spurious `\x00`
+						case DataType::String:
+							out << fieldStorage.GetValue<std::string>();
+							break;
+						case DataType::Entity:
+							out << fieldStorage.GetValue<uint64_t>();
+							break;
+						case DataType::Prefab:
+							out << fieldStorage.GetValue<uint64_t>();
+							break;
+						case DataType::Mesh:
+							out << fieldStorage.GetValue<uint64_t>();
+							break;
+						case DataType::StaticMesh:
+							out << fieldStorage.GetValue<uint64_t>();
+							break;
+						case DataType::Material:
+							out << fieldStorage.GetValue<uint64_t>();
+							break;
+						case DataType::Texture2D:
+							out << fieldStorage.GetValue<uint64_t>();
+							break;
+						case DataType::Scene:
+							out << fieldStorage.GetValue<uint64_t>();
+							break;
+						default:
+							break;
+						}
 					}
 
 					out << YAML::EndMap;
 				}
 				out << YAML::EndSeq;
 			}
-			//
-			//	out << YAML::Key << "ClassName" << YAML::Value << scriptComponent.ClassName;
-			//
-			//	// Fields
-			//	Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(scriptComponent.ClassName);
-			//	const auto& fields = entityClass->GetFields();
-			//	if (fields.size() > 0)
-			//	{
-			//		out << YAML::Key << "ScriptFields" << YAML::Value;
-			//		auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
-			//		out << YAML::BeginSeq;
-			//		for (const auto& [name, field] : fields)
-			//		{
-			//			if (entityFields.find(name) == entityFields.end())
-			//				continue;
-			//
-			//			out << YAML::BeginMap; // ScriptField
-			//			out << YAML::Key << "Name" << YAML::Value << name;
-			//			out << YAML::Key << "Type" << YAML::Value << Utils::ScriptFieldTypeToString(field.Type);
-			//
-			//			out << YAML::Key << "Data" << YAML::Value;
-			//			ScriptFieldInstance& scriptField = entityFields.at(name);
-			//
-			//			switch (field.Type)
-			//			{
-			//			WRITE_SCRIPT_FIELD(Float, float);
-			//			WRITE_SCRIPT_FIELD(Double, double);
-			//			WRITE_SCRIPT_FIELD(Bool, bool);
-			//			WRITE_SCRIPT_FIELD(SByte, int8_t);
-			//			WRITE_SCRIPT_FIELD(Short, int16_t);
-			//			WRITE_SCRIPT_FIELD(Int, int32_t);
-			//			WRITE_SCRIPT_FIELD(Long, int64_t);
-			//			WRITE_SCRIPT_FIELD(Byte, uint8_t);
-			//			WRITE_SCRIPT_FIELD(UShort, uint16_t);
-			//			WRITE_SCRIPT_FIELD(UInt, uint32_t);
-			//			WRITE_SCRIPT_FIELD(ULong, uint64_t);
-			//			WRITE_SCRIPT_FIELD(String, std::string);
-			//			WRITE_SCRIPT_FIELD(Vector2, glm::vec2);
-			//			WRITE_SCRIPT_FIELD(Vector3, glm::vec3);
-			//			WRITE_SCRIPT_FIELD(Vector4, glm::vec4);
-			//			WRITE_SCRIPT_FIELD(AssetHandle, AssetHandle);
-			//			WRITE_SCRIPT_FIELD(Entity, UUID);
-			//			}
-			//			out << YAML::EndMap; // ScriptFields
-			//		}
-			//		out << YAML::EndSeq;
-			//	}
-			//
+
 			out << YAML::EndMap; // ScriptComponent
+		}
+
+		if (entity.HasComponent<CameraComponent>())
+		{
+			out << YAML::Key << "CameraComponent";
+			out << YAML::BeginMap; // CameraComponent
+
+			auto& cameraComponent = entity.GetComponent<CameraComponent>();
+			auto& camera = cameraComponent.Camera;
+			out << YAML::Key << "Camera" << YAML::Value;
+			out << YAML::BeginMap; // Camera
+			out << YAML::Key << "ProjectionType" << YAML::Value << (int)camera.GetProjectionType();
+			out << YAML::Key << "PerspectiveFOV" << YAML::Value << camera.GetDegPerspectiveVerticalFOV();
+			out << YAML::Key << "PerspectiveNear" << YAML::Value << camera.GetPerspectiveNearClip();
+			out << YAML::Key << "PerspectiveFar" << YAML::Value << camera.GetPerspectiveFarClip();
+			out << YAML::Key << "OrthographicSize" << YAML::Value << camera.GetOrthographicSize();
+			out << YAML::Key << "OrthographicNear" << YAML::Value << camera.GetOrthographicNearClip();
+			out << YAML::Key << "OrthographicFar" << YAML::Value << camera.GetOrthographicFarClip();
+			out << YAML::EndMap; // Camera
+			out << YAML::Key << "Primary" << YAML::Value << cameraComponent.Primary;
+
+			out << YAML::EndMap; // CameraComponent
 		}
 
 		if (entity.HasComponent<SpriteRendererComponent>())
@@ -415,9 +490,12 @@ namespace StarEngine {
 			auto& spriteRendererComponent = entity.GetComponent<SpriteRendererComponent>();
 			out << YAML::Key << "Color" << YAML::Value << spriteRendererComponent.Color;
 
-			out << YAML::Key << "TextureHandle" << YAML::Value << spriteRendererComponent.Texture;
-
+			out << YAML::Key << "Texture" << YAML::Value << spriteRendererComponent.Texture;
 			out << YAML::Key << "TilingFactor" << YAML::Value << spriteRendererComponent.TilingFactor;
+			out << YAML::Key << "UVStart" << YAML::Value << spriteRendererComponent.UVStart;
+			out << YAML::Key << "UVEnd" << YAML::Value << spriteRendererComponent.UVEnd;
+			out << YAML::Key << "ScreenSpace" << YAML::Value << spriteRendererComponent.ScreenSpace;
+
 
 			out << YAML::EndMap; // SpriteRendererComponent
 		}
@@ -435,14 +513,39 @@ namespace StarEngine {
 			out << YAML::EndMap; // CircleRendererComponent
 		}
 
+		if (entity.HasComponent<TextComponent>())
+		{
+			out << YAML::Key << "TextComponent";
+			out << YAML::BeginMap; // TextComponent
+
+			auto& textComponent = entity.GetComponent<TextComponent>();
+			out << YAML::Key << "TextString" << YAML::Value << textComponent.TextString;
+			out << YAML::Key << "FontHandle" << YAML::Value << textComponent.FontHandle;
+			out << YAML::Key << "Color" << YAML::Value << textComponent.Color;
+			out << YAML::Key << "LineSpacing" << YAML::Value << textComponent.LineSpacing;
+			out << YAML::Key << "Kerning" << YAML::Value << textComponent.Kerning;
+			out << YAML::Key << "MaxWidth" << YAML::Value << textComponent.MaxWidth;
+			out << YAML::Key << "ScreenSpace" << YAML::Value << textComponent.ScreenSpace;
+			out << YAML::Key << "DropShadow" << YAML::Value << textComponent.DropShadow;
+			out << YAML::Key << "ShadowDistance" << YAML::Value << textComponent.ShadowDistance;
+			out << YAML::Key << "ShadowColor" << YAML::Value << textComponent.ShadowColor;
+
+			out << YAML::EndMap; // TextComponent
+		}
+
 		if (entity.HasComponent<RigidBody2DComponent>())
 		{
 			out << YAML::Key << "RigidBody2DComponent";
 			out << YAML::BeginMap; // RigidBody2DComponent
 
-			auto& rb2dComponent = entity.GetComponent<RigidBody2DComponent>();
-			out << YAML::Key << "BodyType" << YAML::Value << RigidBody2DBodyTypeToString(rb2dComponent.Type);
-			out << YAML::Key << "FixedRotation" << YAML::Value << rb2dComponent.FixedRotation;
+			const auto& rigidbody2DComponent = entity.GetComponent<RigidBody2DComponent>();
+			out << YAML::Key << "BodyType" << YAML::Value << (int)rigidbody2DComponent.BodyType;
+			out << YAML::Key << "FixedRotation" << YAML::Value << rigidbody2DComponent.FixedRotation;
+			out << YAML::Key << "Mass" << YAML::Value << rigidbody2DComponent.Mass;
+			out << YAML::Key << "LinearDrag" << YAML::Value << rigidbody2DComponent.LinearDrag;
+			out << YAML::Key << "AngularDrag" << YAML::Value << rigidbody2DComponent.AngularDrag;
+			out << YAML::Key << "GravityScale" << YAML::Value << rigidbody2DComponent.GravityScale;
+			out << YAML::Key << "IsBullet" << YAML::Value << rigidbody2DComponent.IsBullet;
 
 			out << YAML::EndMap; // RigidBody2DComponent
 		}
@@ -452,13 +555,11 @@ namespace StarEngine {
 			out << YAML::Key << "BoxCollider2DComponent";
 			out << YAML::BeginMap; // BoxCollider2DComponent
 
-			auto& bc2dComponent = entity.GetComponent<BoxCollider2DComponent>();
-			out << YAML::Key << "Offset" << YAML::Value << bc2dComponent.Offset;
-			out << YAML::Key << "Size" << YAML::Value << bc2dComponent.Size;
-			out << YAML::Key << "Density" << YAML::Value << bc2dComponent.Density;
-			out << YAML::Key << "Friction" << YAML::Value << bc2dComponent.Friction;
-			out << YAML::Key << "Restitution" << YAML::Value << bc2dComponent.Restitution;
-			out << YAML::Key << "RestitutionThreshold" << YAML::Value << bc2dComponent.RestitutionThreshold;
+			auto& boxCollider2DComponent = entity.GetComponent<BoxCollider2DComponent>();
+			out << YAML::Key << "Offset" << YAML::Value << boxCollider2DComponent.Offset;
+			out << YAML::Key << "Size" << YAML::Value << boxCollider2DComponent.Size;
+			out << YAML::Key << "Density" << YAML::Value << boxCollider2DComponent.Density;
+			out << YAML::Key << "Friction" << YAML::Value << boxCollider2DComponent.Friction;
 
 			out << YAML::EndMap; // BoxCollider2DComponent
 		}
@@ -468,30 +569,13 @@ namespace StarEngine {
 			out << YAML::Key << "CircleCollider2DComponent";
 			out << YAML::BeginMap; // CircleCollider2DComponent
 
-			auto& cc2dComponent = entity.GetComponent<CircleCollider2DComponent>();
-			out << YAML::Key << "Offset" << YAML::Value << cc2dComponent.Offset;
-			out << YAML::Key << "Radius" << YAML::Value << cc2dComponent.Radius;
-			out << YAML::Key << "Density" << YAML::Value << cc2dComponent.Density;
-			out << YAML::Key << "Friction" << YAML::Value << cc2dComponent.Friction;
-			out << YAML::Key << "Restitution" << YAML::Value << cc2dComponent.Restitution;
-			out << YAML::Key << "RestitutionThreshold" << YAML::Value << cc2dComponent.RestitutionThreshold;
+			auto& circleCollider2DComponent = entity.GetComponent<CircleCollider2DComponent>();
+			out << YAML::Key << "Offset" << YAML::Value << circleCollider2DComponent.Offset;
+			out << YAML::Key << "Radius" << YAML::Value << circleCollider2DComponent.Radius;
+			out << YAML::Key << "Density" << YAML::Value << circleCollider2DComponent.Density;
+			out << YAML::Key << "Friction" << YAML::Value << circleCollider2DComponent.Friction;
 
 			out << YAML::EndMap; // CircleCollider2DComponent
-		}
-
-		if (entity.HasComponent<TextComponent>())
-		{
-			out << YAML::Key << "TextComponent";
-			out << YAML::BeginMap; // TextComponent
-
-			auto& textComponent = entity.GetComponent<TextComponent>();
-			out << YAML::Key << "TextString" << YAML::Value << textComponent.TextString;
-			// TODO: textComponent.FontAsset
-			out << YAML::Key << "Color" << YAML::Value << textComponent.Color;
-			out << YAML::Key << "Kerning" << YAML::Value << textComponent.Kerning;
-			out << YAML::Key << "LineSpacing" << YAML::Value << textComponent.LineSpacing;
-
-			out << YAML::EndMap; // TextComponent
 		}
 
 		if (entity.HasComponent<AudioSourceComponent>())
@@ -559,28 +643,76 @@ namespace StarEngine {
 	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
 		YAML::Emitter out;
-		out << YAML::BeginMap;
-		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
-		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
+		SerializeToYAML(out);
 
-		auto view = m_Scene->m_Registry.view<IDComponent>();
-		for (auto entityID : view)
-		{
-			Entity entity = { entityID, m_Scene.get() };
-			if (!entity)
-				continue;
-
-			SerializeEntity(out, entity, m_Scene);
+		// if extension is .auto, then only save if the scene has actually changed (determined by hashing serialized string)
+		if (auto hash = std::hash<std::string>()(out.c_str()); (filepath.extension() != ".auto") || (hash != m_Scene->m_LastSerializeHash)) {
+			std::ofstream fout(filepath);
+			fout << out.c_str();
+			m_Scene->m_LastSerializeHash = hash;
 		}
-
-		out << YAML::EndSeq;
-		out << YAML::EndMap;
-
-		std::ofstream fout(filepath);
-		fout << out.c_str();
 	}
 
-	void SceneSerializer::SerializeRuntime(const std::filesystem::path& filepath)
+	void SceneSerializer::SerializeToYAML(YAML::Emitter& out)
+	{
+		out << YAML::BeginMap;
+		out << YAML::Key << "Scene";
+		out << YAML::Value << m_Scene->GetName();
+
+		out << YAML::Key << "Entities";
+		out << YAML::Value << YAML::BeginSeq;
+
+		// Sort entities by UUID (for better serializing)
+		std::map<UUID, entt::entity> sortedEntityMap;
+		auto idComponentView = m_Scene->m_Registry.view<IDComponent>();
+		for (auto entity : idComponentView)
+			sortedEntityMap[idComponentView.get<IDComponent>(entity).ID] = entity;
+
+		// Serialize sorted entities
+		for (auto [id, entity] : sortedEntityMap)
+			SerializeEntity(out, { entity, m_Scene.Raw() }, m_Scene);
+
+		out << YAML::EndSeq;
+
+		// Scene Audio
+		//MiniAudioEngine::Get().SerializeSceneAudio(out, m_Scene);
+
+		out << YAML::EndMap;
+	}
+
+	bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)
+	{
+		YAML::Node data = YAML::Load(yamlString);
+		if (!data["Scene"])
+			return false;
+
+		std::string sceneName = data["Scene"].as<std::string>();
+		SE_CORE_INFO_TAG("AssetManager", "Deserializing scene '{0}'", sceneName);
+		m_Scene->SetName(sceneName);
+
+		auto entities = data["Entities"];
+		if (entities)
+			DeserializeEntities(entities, m_Scene);
+
+		/*
+		auto sceneAudio = data["SceneAudio"];
+		if (sceneAudio)
+			MiniAudioEngine::Get().DeserializeSceneAudio(sceneAudio);
+		*/
+
+		// Sort IdComponent by by entity handle (which is essentially the order in which they were created)
+		// This ensures a consistent ordering when iterating IdComponent (for example: when rendering scene hierarchy panel)
+		m_Scene->m_Registry.sort<IDComponent>([this](const auto lhs, const auto rhs)
+			{
+				auto lhsEntity = m_Scene->m_EntityIDMap.find(lhs.ID);
+				auto rhsEntity = m_Scene->m_EntityIDMap.find(rhs.ID);
+				return static_cast<uint32_t>(lhsEntity->second) < static_cast<uint32_t>(rhsEntity->second);
+			});
+
+		return true;
+	}
+
+	void SceneSerializer::SerializeRuntime(AssetHandle scene)
 	{
 		// Not implemented
 		SE_CORE_ASSERT(false);
@@ -588,97 +720,125 @@ namespace StarEngine {
 
 	bool SceneSerializer::Deserialize(const std::filesystem::path& filepath)
 	{
-		YAML::Node data;
+		std::ifstream stream(filepath);
+		SE_CORE_ASSERT(stream);
+		std::stringstream strStream;
+		strStream << stream.rdbuf();
+
 		try
 		{
-			data = YAML::LoadFile(filepath.string());
+			DeserializeFromYAML(strStream.str());
+			m_Scene->m_LastSerializeHash = std::hash<std::string>{}(strStream.str());
 		}
-		catch (YAML::ParserException e)
+		catch (const YAML::Exception& e)
 		{
-			SE_CORE_ERROR("Failed to load .starscene file '{0}'\n     {1}", filepath.string(), e.what());
-
+			SE_CONSOLE_LOG_ERROR("Failed to deserialize scene '{0}': {1}", filepath.string(), e.what());
 			return false;
 		}
 
-		if (!data["Scene"])
-			return false;
+		// Asset handle
+		m_Scene->Handle = Project::GetEditorAssetManager()->GetAssetHandleFromFilePath(filepath);
 
-		std::string sceneName = data["Scene"].as<std::string>();
-		SE_CORE_TRACE("Deserializing scene '{0}'", sceneName);
+		// NOTE(Peter): Fix for "UntitledScene" name, hardcoded which isn't good
+		if (m_Scene->GetName() == "UntitledScene")
+			m_Scene->SetName(Utils::RemoveExtension(filepath.filename().string()));
 
-		auto entities = data["Entities"];
-		if (entities)
-		{
-			for (auto entity : entities)
+		return true;
+	}
+
+	bool SceneSerializer::DeserializeRuntime(const std::filesystem::path& filepath)
+	{
+		// Not implemented
+		SE_CORE_ASSERT(false);
+		return false;
+	}
+
+	void SceneSerializer::DeserializeEntities(YAML::Node& entitiesNode, Ref<Scene> scene)
+	{
+		auto checkAndAssignAssetHandle = [](AssetHandle& destination, AssetType expectedType, AssetHandle source) {
+			if (AssetManager::IsAssetHandleValid(source))
 			{
-				uint64_t uuid = entity["Entity"].as<uint64_t>();
-
-				std::string name;
-				auto tagComponent = entity["TagComponent"];
-				if (tagComponent)
-					name = tagComponent["Tag"].as<std::string>();
-
-				SE_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-				Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
-
-				auto transformComponent = entity["TransformComponent"];
-				if (transformComponent)
+				AssetType type = AssetManager::GetAssetType(source);
+				if (type == expectedType)
 				{
-					// Entities always have transforms
-					auto& tc = deserializedEntity.GetComponent<TransformComponent>();
-					tc.Translation = transformComponent["Translation"].as<glm::vec3>();
-					tc.Rotation = transformComponent["Rotation"].as<glm::vec3>();
-					tc.Scale = transformComponent["Scale"].as<glm::vec3>();
+					destination = source;
 				}
-
-				auto cameraComponent = entity["CameraComponent"];
-				if (cameraComponent)
+				else
 				{
-					auto& cc = deserializedEntity.AddComponent<CameraComponent>();
-					cc.Camera = CreateRef<SceneCamera>();
-
-					auto cameraProps = cameraComponent["Camera"];
-
-					if (cameraProps["ProjectionType"])
-						cc.Camera->SetProjectionType((SceneCamera::ProjectionType)cameraProps["ProjectionType"].as<int>());
-
-					if (cameraProps["PerspectiveFOV"])
-						cc.Camera->SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<float>());
-
-					if (cameraProps["PerspectiveNear"])
-						cc.Camera->SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<float>());
-
-					if (cameraProps["PerspectiveFar"])
-						cc.Camera->SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<float>());
-
-					if (cameraProps["OrthographicSize"])
-						cc.Camera->SetOrthographicSize(cameraProps["OrthographicSize"].as<float>());
-
-					if (cameraProps["OrthographicNear"])
-						cc.Camera->SetOrthographicNearClip(cameraProps["OrthographicNear"].as<float>());
-
-					if (cameraProps["OrthographicFar"])
-						cc.Camera->SetOrthographicFarClip(cameraProps["OrthographicFar"].as<float>());
-
-					if (cameraComponent["Primary"])
-						cc.Primary = cameraComponent["Primary"].as<bool>();
-
-					if (cameraComponent["FixedAspectRatio"])
-						cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
+					destination = 0;
+					SE_CORE_ERROR_TAG("AssetManager", "Asset {} is not of expected type {}", source, Utils::AssetTypeToString(expectedType));
 				}
+			}
+			else
+			{
+				destination = 0;
+				SE_CORE_ERROR_TAG("AssetManager", "Missing asset {}", source);
+			}
+			};
 
-				auto scriptComponent = entity["ScriptComponent"];
-				if (scriptComponent)
+		for (auto entity : entitiesNode)
+		{
+			uint64_t uuid = entity["Entity"].as<uint64_t>();
+
+			std::string name;
+			auto tagComponent = entity["TagComponent"];
+			if (tagComponent)
+				name = tagComponent["Tag"].as<std::string>();
+
+			//SE_CORE_INFO("Deserialized Entity '{0}' with ID '{1}'", name, uuid);
+
+			Entity deserializedEntity = scene->CreateEntityWithID(uuid, name, false);
+
+			auto& relationshipComponent = deserializedEntity.GetComponent<RelationshipComponent>();
+			uint64_t parentHandle = entity["Parent"] ? entity["Parent"].as<uint64_t>() : 0;
+			relationshipComponent.ParentHandle = parentHandle;
+
+			auto children = entity["Children"];
+			if (children)
+			{
+				for (auto child : children)
 				{
-					uint64_t scriptID = scriptComponent["ScriptHandle"].as<uint64_t>(0);
+					uint64_t childHandle = child["Handle"].as<uint64_t>();
+					relationshipComponent.Children.push_back(childHandle);
+				}
+			}
+
+			auto transformComponent = entity["TransformComponent"];
+			if (transformComponent)
+			{
+				// Entities always have transforms
+				auto& transform = deserializedEntity.GetComponent<TransformComponent>();
+				transform.Translation = transformComponent["Position"].as<glm::vec3>(glm::vec3(0.0f));
+				auto rotationNode = transformComponent["Rotation"];
+				// Some versions of Hazel serialized rotations as quaternions
+				// They should be serialized as Euler angles (this is the only way to support rotations > 360 degrees)
+				// If you encounter this VERIFY, then you can uncomment this code, load your scene in and then save it
+				// That will convert rotations back to Euler angles, and you can then re-comment out this code.
+				//SE_CORE_VERIFY(rotationNode.size() == 3, "Transform component rotation should be serialized as Euler angles. Found Quaternions!");
+				if (rotationNode.size() == 4)
+				{
+					transform.SetRotation(transformComponent["Rotation"].as<glm::quat>(glm::quat()));
+				}
+				else
+				{
+					transform.SetRotationEuler(transformComponent["Rotation"].as<glm::vec3>(glm::vec3(0.0f)));
+				}
+				transform.Scale = transformComponent["Scale"].as<glm::vec3>();
+			}
+
+			auto scriptComponent = entity["ScriptComponent"];
+			if (scriptComponent)
+			{
+				try
+				{
+					uint64_t scriptID = scriptComponent["ScriptID"].as<uint64_t>(0);
 
 					if (scriptID == 0)
 					{
 						scriptID = scriptComponent["ClassHandle"].as<uint64_t>(0);
-						SE_CORE_VERIFY(scriptID == 0);
 					}
 
+					if (scriptID != 0)
 					{
 						auto& scriptEngine = ScriptEngine::GetMutable();
 
@@ -687,9 +847,9 @@ namespace StarEngine {
 							const auto& scriptMetadata = scriptEngine.GetScriptMetadata(scriptID);
 
 							ScriptComponent& sc = deserializedEntity.AddComponent<ScriptComponent>();
-							sc.ScriptHandle = scriptID;
+							sc.ScriptID = scriptID;
 
-							m_Scene->m_ScriptStorage.InitializeEntityStorage(sc.ScriptHandle, deserializedEntity.GetUUID());
+							scene->m_ScriptStorage.InitializeEntityStorage(scriptID, deserializedEntity.GetUUID());
 
 							bool oldFormat = false;
 
@@ -706,342 +866,379 @@ namespace StarEngine {
 								uint32_t fieldID = field["ID"].as<uint32_t>(0);
 								auto fieldName = field["Name"].as<std::string>("");
 
-								if (oldFormat && fieldName.find(':') != std::string::npos)
+								if (oldFormat)
 								{
 									// Old format, try generating id from name
-									fieldName = fieldName.substr(fieldName.find(':') + 1);
-									fieldID = Hash::GenerateFNVHash(fieldName);
+									auto fullFieldName = std::format("{}.{}", scriptMetadata.FullName, fieldName);
+									fieldID = Hash::GenerateFNVHash(fullFieldName);
 								}
 
-								if (scriptMetadata.Fields.find(fieldID) != scriptMetadata.Fields.end())
+								if (scriptMetadata.Fields.contains(fieldID))
 								{
 									const auto& fieldMetadata = scriptMetadata.Fields.at(fieldID);
-									auto& fieldStorage = m_Scene->m_ScriptStorage.EntityStorage.at(deserializedEntity.GetUUID()).Fields[fieldID];
+									auto& fieldStorage = scene->m_ScriptStorage.EntityStorage.at(deserializedEntity.GetUUID()).Fields[fieldID];
 
 									auto valueNode = oldFormat ? field["Data"] : field["Value"];
 
-									switch (fieldMetadata.Type)
+									if (fieldStorage.IsArray())
 									{
-									case DataType::SByte:
-									{
-										fieldStorage.SetValue(valueNode.as<int8_t>());
-										break;
+										SE_CORE_VERIFY(valueNode.IsSequence());
+										fieldStorage.Resize(valueNode.size());
+
+										for (int32_t i = 0; i < valueNode.size(); i++)
+										{
+											switch (fieldMetadata.Type)
+											{
+											case DataType::Bool:
+											{
+												fieldStorage.SetValue(valueNode[i].as<bool>());
+												break;
+											}
+											case DataType::SByte:
+											{
+												fieldStorage.SetValue(valueNode[i].as<int8_t>(), i);
+												break;
+											}
+											case DataType::Byte:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint8_t>(), i);
+												break;
+											}
+											case DataType::Short:
+											{
+												fieldStorage.SetValue(valueNode[i].as<int16_t>(), i);
+												break;
+											}
+											case DataType::UShort:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint16_t>(), i);
+												break;
+											}
+											case DataType::Int:
+											{
+												fieldStorage.SetValue(valueNode[i].as<int32_t>(), i);
+												break;
+											}
+											case DataType::UInt:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint32_t>(), i);
+												break;
+											}
+											case DataType::Long:
+											{
+												fieldStorage.SetValue(valueNode[i].as<int64_t>(), i);
+												break;
+											}
+											case DataType::ULong:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint64_t>(), i);
+												break;
+											}
+											case DataType::Float:
+											{
+												fieldStorage.SetValue(valueNode[i].as<float>(), i);
+												break;
+											}
+											case DataType::Double:
+											{
+												fieldStorage.SetValue(valueNode[i].as<double>(), i);
+												break;
+											}
+											case DataType::Vector2:
+											{
+												fieldStorage.SetValue(valueNode[i].as<glm::vec2>(), i);
+												break;
+											}
+											case DataType::Vector3:
+											{
+												fieldStorage.SetValue(valueNode[i].as<glm::vec3>(), i);
+												break;
+											}
+											case DataType::Vector4:
+											{
+												fieldStorage.SetValue(valueNode[i].as<glm::vec4>(), i);
+												break;
+											}
+											case DataType::String:
+											{
+												fieldStorage.SetValue(valueNode[i].as<std::string>(), i);
+												break;
+											}
+											case DataType::Entity:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint64_t>(), i);
+												break;
+											}
+											case DataType::Prefab:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint64_t>(), i);
+												break;
+											}
+											case DataType::Mesh:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint64_t>(), i);
+												break;
+											}
+											case DataType::StaticMesh:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint64_t>(), i);
+												break;
+											}
+											case DataType::Material:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint64_t>(), i);
+												break;
+											}
+											case DataType::Texture2D:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint64_t>(), i);
+												break;
+											}
+											case DataType::Scene:
+											{
+												fieldStorage.SetValue(valueNode[i].as<uint64_t>(), i);
+												break;
+											}
+											default:
+												break;
+											}
+										}
 									}
-									case DataType::Byte:
+									else
 									{
-										fieldStorage.SetValue(valueNode.as<uint8_t>());
-										break;
-									}
-									case DataType::Short:
-									{
-										fieldStorage.SetValue(valueNode.as<int16_t>());
-										break;
-									}
-									case DataType::UShort:
-									{
-										fieldStorage.SetValue(valueNode.as<uint16_t>());
-										break;
-									}
-									case DataType::Int:
-									{
-										fieldStorage.SetValue(valueNode.as<int32_t>());
-										break;
-									}
-									case DataType::UInt:
-									{
-										fieldStorage.SetValue(valueNode.as<uint32_t>());
-										break;
-									}
-									case DataType::Long:
-									{
-										fieldStorage.SetValue(valueNode.as<int64_t>());
-										break;
-									}
-									case DataType::ULong:
-									{
-										fieldStorage.SetValue(valueNode.as<uint64_t>());
-										break;
-									}
-									case DataType::Float:
-									{
-										fieldStorage.SetValue(valueNode.as<float>());
-										break;
-									}
-									case DataType::Double:
-									{
-										fieldStorage.SetValue(valueNode.as<double>());
-										break;
-									}
-									case DataType::Bool:
-									{
-										fieldStorage.SetValue(valueNode.as<bool>());
-										break;
-									}
-									case DataType::String:
-									{
-										fieldStorage.SetValue(Coral::String::New(valueNode.as<std::string>()));
-										break;
-									}
-									case DataType::Bool32:
-									{
-										fieldStorage.SetValue((uint32_t)valueNode.as<bool>());
-										break;
-									}
-									case DataType::AssetHandle:
-									{
-										fieldStorage.SetValue(valueNode.as<uint64_t>());
-										break;
-									}
-									case DataType::Vector2:
-									{
-										fieldStorage.SetValue(valueNode.as<glm::vec2>());
-										break;
-									}
-									case DataType::Vector3:
-									{
-										fieldStorage.SetValue(valueNode.as<glm::vec3>());
-										break;
-									}
-									case DataType::Vector4:
-									{
-										fieldStorage.SetValue(valueNode.as<glm::vec4>());
-										break;
-									}
-									//case DataType::Entity:
-									//{
-									//	fieldStorage.SetValue(valueNode.as<uint64_t>());
-									//	break;
-									//}
-									//case DataType::Prefab:
-									//{
-									//	fieldStorage.SetValue(valueNode.as<uint64_t>());
-									//	break;
-									//}
-									//case DataType::Mesh:
-									//{
-									//	fieldStorage.SetValue(valueNode.as<uint64_t>());
-									//	break;
-									//}
-									//case DataType::StaticMesh:
-									//{
-									//	fieldStorage.SetValue(valueNode.as<uint64_t>());
-									//	break;
-									//}
-									//case DataType::Material:
-									//{
-									//	fieldStorage.SetValue(valueNode.as<uint64_t>());
-									//	break;
-									//}
-									//case DataType::Texture2D:
-									//{
-									//	fieldStorage.SetValue(valueNode.as<uint64_t>());
-									//	break;
-									//}
-									//case DataType::Scene:
-									//{
-									//	fieldStorage.SetValue(valueNode.as<uint64_t>());
-									//	break;
-									//}
-									default:
-										break;
+										switch (fieldMetadata.Type)
+										{
+										case DataType::Bool:
+										{
+											fieldStorage.SetValue(valueNode.as<bool>());
+											break;
+										}
+										case DataType::SByte:
+										{
+											fieldStorage.SetValue(valueNode.as<int8_t>());
+											break;
+										}
+										case DataType::Byte:
+										{
+											fieldStorage.SetValue(valueNode.as<uint8_t>());
+											break;
+										}
+										case DataType::Short:
+										{
+											fieldStorage.SetValue(valueNode.as<int16_t>());
+											break;
+										}
+										case DataType::UShort:
+										{
+											fieldStorage.SetValue(valueNode.as<uint16_t>());
+											break;
+										}
+										case DataType::Int:
+										{
+											fieldStorage.SetValue(valueNode.as<int32_t>());
+											break;
+										}
+										case DataType::UInt:
+										{
+											fieldStorage.SetValue(valueNode.as<uint32_t>());
+											break;
+										}
+										case DataType::Long:
+										{
+											fieldStorage.SetValue(valueNode.as<int64_t>());
+											break;
+										}
+										case DataType::ULong:
+										{
+											fieldStorage.SetValue(valueNode.as<uint64_t>());
+											break;
+										}
+										case DataType::Float:
+										{
+											fieldStorage.SetValue(valueNode.as<float>());
+											break;
+										}
+										case DataType::Double:
+										{
+											fieldStorage.SetValue(valueNode.as<double>());
+											break;
+										}
+										case DataType::Vector2:
+										{
+											fieldStorage.SetValue(valueNode.as<glm::vec2>());
+											break;
+										}
+										case DataType::Vector3:
+										{
+											fieldStorage.SetValue(valueNode.as<glm::vec3>());
+											break;
+										}
+										case DataType::Vector4:
+										{
+											fieldStorage.SetValue(valueNode.as<glm::vec4>());
+											break;
+										}
+										case DataType::String:
+										{
+											fieldStorage.SetValue(valueNode.as<std::string>());
+											break;
+										}
+										case DataType::Entity:
+										{
+											fieldStorage.SetValue(valueNode.as<uint64_t>());
+											break;
+										}
+										case DataType::Prefab:
+										{
+											fieldStorage.SetValue(valueNode.as<uint64_t>());
+											break;
+										}
+										case DataType::Mesh:
+										{
+											fieldStorage.SetValue(valueNode.as<uint64_t>());
+											break;
+										}
+										case DataType::StaticMesh:
+										{
+											fieldStorage.SetValue(valueNode.as<uint64_t>());
+											break;
+										}
+										case DataType::Material:
+										{
+											fieldStorage.SetValue(valueNode.as<uint64_t>());
+											break;
+										}
+										case DataType::Texture2D:
+										{
+											fieldStorage.SetValue(valueNode.as<uint64_t>());
+											break;
+										}
+										case DataType::Scene:
+										{
+											fieldStorage.SetValue(valueNode.as<uint64_t>());
+											break;
+										}
+										default:
+											break;
+										}
 									}
 								}
 							}
-
-							sc.HasInitializedScript = true;
 						}
 					}
-				}
-
-				auto spriteRendererComponent = entity["SpriteRendererComponent"];
-				if (spriteRendererComponent)
-				{
-					auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
-					src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
-
-					if (spriteRendererComponent["TexturePath"])
+					else
 					{
-						// NOTE: legacy, could try and find something in the asset registry that matches?
-						// std::string texturePath = spriteRendererComponent["TexturePath"].as<std::string>();
-						// auto path = Project::GetAssetFileSystemPath(texturePath);
-						// src.Texture = Texture2D::Create(path.string());
-					}
-
-					if (spriteRendererComponent["TextureHandle"])
-						src.Texture = spriteRendererComponent["TextureHandle"].as<AssetHandle>();
-
-					if (spriteRendererComponent["TilingFactor"])
-						src.TilingFactor = spriteRendererComponent["TilingFactor"].as<float>();
-				}
-
-				auto circleRendererComponent = entity["CircleRendererComponent"];
-				if (circleRendererComponent)
-				{
-					auto& crc = deserializedEntity.AddComponent<CircleRendererComponent>();
-					crc.Color = circleRendererComponent["Color"].as<glm::vec4>();
-					crc.Thickness = circleRendererComponent["Thickness"].as<float>();
-					crc.Fade = circleRendererComponent["Fade"].as<float>();
-				}
-
-				auto rigidBody2DComponent = entity["RigidBody2DComponent"];
-				if (rigidBody2DComponent)
-				{
-					auto& rb2d = deserializedEntity.AddComponent<RigidBody2DComponent>();
-					rb2d.Type = RigidBody2DBodyTypeFromString(rigidBody2DComponent["BodyType"].as<std::string>());
-					rb2d.FixedRotation = rigidBody2DComponent["FixedRotation"].as<bool>();
-				}
-
-				auto boxCollider2DComponent = entity["BoxCollider2DComponent"];
-				if (boxCollider2DComponent)
-				{
-					auto& bc2d = deserializedEntity.AddComponent<BoxCollider2DComponent>();
-					bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
-					bc2d.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
-					bc2d.Density = boxCollider2DComponent["Density"].as<float>();
-					bc2d.Friction = boxCollider2DComponent["Friction"].as<float>();
-					bc2d.Restitution = boxCollider2DComponent["Restitution"].as<float>();
-					bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<float>();
-				}
-
-				auto circleCollider2DComponent = entity["CircleCollider2DComponent"];
-				if (circleCollider2DComponent)
-				{
-					auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
-					cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
-					cc2d.Radius = circleCollider2DComponent["Radius"].as<float>();
-					cc2d.Density = circleCollider2DComponent["Density"].as<float>();
-					cc2d.Friction = circleCollider2DComponent["Friction"].as<float>();
-					cc2d.Restitution = circleCollider2DComponent["Restitution"].as<float>();
-					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<float>();
-				}
-
-				auto textComponent = entity["TextComponent"];
-				if (textComponent)
-				{
-					auto& tc = deserializedEntity.AddComponent<TextComponent>();
-					tc.TextString = textComponent["TextString"].as<std::string>();
-					// tc.FontAsset // TODO
-					tc.Color = textComponent["Color"].as<glm::vec4>();
-					tc.Kerning = textComponent["Kerning"].as<float>();
-					tc.LineSpacing = textComponent["LineSpacing"].as<float>();
-				}
-
-				auto audioSourceComponent = entity["AudioSourceComponent"];
-				if (audioSourceComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<AudioSourceComponent>();
-
-					if (audioSourceComponent["AudioHandle"])
-						component.Audio = audioSourceComponent["AudioHandle"].as<AssetHandle>();
-
-					if (audioSourceComponent["VolumeMultiplier"])
-						component.Config.VolumeMultiplier = audioSourceComponent["VolumeMultiplier"].as<float>();
-
-					if (audioSourceComponent["PitchMultiplier"])
-						component.Config.PitchMultiplier = audioSourceComponent["PitchMultiplier"].as<float>();
-
-					if (audioSourceComponent["PlayOnAwake"])
-						component.Config.PlayOnAwake = audioSourceComponent["PlayOnAwake"].as<bool>();
-
-					if (audioSourceComponent["Looping"])
-						component.Config.Looping = audioSourceComponent["Looping"].as<bool>();
-
-					if (audioSourceComponent["Spatialization"])
-						component.Config.Spatialization = audioSourceComponent["Spatialization"].as<bool>();
-
-					TrySetEnum(component.Config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
-
-					if (audioSourceComponent["RollOff"])
-						component.Config.RollOff = audioSourceComponent["RollOff"].as<float>();
-
-					if (audioSourceComponent["MinGain"])
-						component.Config.MinGain = audioSourceComponent["MinGain"].as<float>();
-
-					if (audioSourceComponent["MaxGain"])
-						component.Config.MaxGain = audioSourceComponent["MaxGain"].as<float>();
-
-					if (audioSourceComponent["MinDistance"])
-						component.Config.MinDistance = audioSourceComponent["MinDistance"].as<float>();
-
-					if (audioSourceComponent["MaxDistance"])
-						component.Config.MaxDistance = audioSourceComponent["MaxDistance"].as<float>();
-
-					if (audioSourceComponent["ConeInnerAngle"])
-						component.Config.ConeInnerAngle = audioSourceComponent["ConeInnerAngle"].as<float>();
-
-					if (audioSourceComponent["ConeOuterAngle"])
-						component.Config.ConeOuterAngle = audioSourceComponent["ConeOuterAngle"].as<float>();
-
-					if (audioSourceComponent["ConeOuterGain"])
-						component.Config.ConeOuterGain = audioSourceComponent["ConeOuterGain"].as<float>();
-
-					if (audioSourceComponent["DopplerFactor"])
-						component.Config.DopplerFactor = audioSourceComponent["DopplerFactor"].as<float>();
-
-					if (component.Audio != 0)
-					{
-						Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(component.Audio);
-						audioSource->SetConfig(component.Config);
-					}
-
-					if (audioSourceComponent["UsePlaylist"])
-						component.AudioSourceData.UsePlaylist = audioSourceComponent["UsePlaylist"].as<bool>();
-
-					if (component.AudioSourceData.UsePlaylist)
-					{
-						if (audioSourceComponent["AudioSourcesSize"])
-							component.AudioSourceData.NumberOfAudioSources = audioSourceComponent["AudioSourcesSize"].as<int>();
-
-						if (audioSourceComponent["StartIndex"])
-							component.AudioSourceData.StartIndex = audioSourceComponent["StartIndex"].as<int>();
-
-						if (audioSourceComponent["RepeatPlaylist"])
-							component.AudioSourceData.RepeatPlaylist = audioSourceComponent["RepeatPlaylist"].as<bool>();
-
-						if (audioSourceComponent["RepeatSpecificTrack"])
-							component.AudioSourceData.RepeatAfterSpecificTrackPlays = audioSourceComponent["RepeatSpecificTrack"].as<bool>();
-
-						for (uint32_t i = 0; i < component.AudioSourceData.NumberOfAudioSources; i++)
-						{
-							std::string audioName = "AudioHandle" + std::to_string(i);
-							if (audioSourceComponent[audioName.c_str()])
-							{
-								AssetHandle audioHandle = audioSourceComponent[audioName.c_str()].as<AssetHandle>();
-								component.AudioSourceData.Playlist.emplace_back(audioHandle);
-
-							}
-						}
+						SE_CORE_ERROR_TAG("Scripting", "Failed to deserialize ScriptComponent on entity '{}', script id of 0 is not valid.", uuid);
 					}
 				}
-
-				auto audioListenerComponent = entity["AudioListenerComponent"];
-				if (audioListenerComponent)
+				catch (const std::exception& e)
 				{
-					auto& component = deserializedEntity.AddComponent<AudioListenerComponent>();
-
-					if (audioListenerComponent["Active"])
-						component.Active = audioListenerComponent["Active"].as<bool>();
-
-					if (audioListenerComponent["ConeInnerAngle"])
-						component.Config.ConeInnerAngle = audioListenerComponent["ConeInnerAngle"].as<float>();
-
-					if (audioListenerComponent["ConeOuterAngle"])
-						component.Config.ConeOuterAngle = audioListenerComponent["ConeOuterAngle"].as<float>();
-
-					if (audioListenerComponent["ConeOuterGain"])
-						component.Config.ConeOuterGain = audioListenerComponent["ConeOuterGain"].as<float>();
+					SE_CORE_ERROR_TAG("ScriptEngine", "Failed to deserialize ScriptComponent on entity '{}' : {}", uuid, e.what());
 				}
 			}
+
+			auto cameraComponent = entity["CameraComponent"];
+			if (cameraComponent)
+			{
+				auto& component = deserializedEntity.AddComponent<CameraComponent>();
+				const auto& cameraNode = cameraComponent["Camera"];
+
+				component.Camera = SceneCamera();
+				auto& camera = component.Camera;
+
+				if (cameraNode.IsMap())
+				{
+					if (cameraNode["ProjectionType"])
+						camera.SetProjectionType((SceneCamera::ProjectionType)cameraNode["ProjectionType"].as<int>());
+					if (cameraNode["PerspectiveFOV"])
+						camera.SetDegPerspectiveVerticalFOV(cameraNode["PerspectiveFOV"].as<float>());
+					if (cameraNode["PerspectiveNear"])
+						camera.SetPerspectiveNearClip(cameraNode["PerspectiveNear"].as<float>());
+					if (cameraNode["PerspectiveFar"])
+						camera.SetPerspectiveFarClip(cameraNode["PerspectiveFar"].as<float>());
+					if (cameraNode["OrthographicSize"])
+						camera.SetOrthographicSize(cameraNode["OrthographicSize"].as<float>());
+					if (cameraNode["OrthographicNear"])
+						camera.SetOrthographicNearClip(cameraNode["OrthographicNear"].as<float>());
+					if (cameraNode["OrthographicFar"])
+						camera.SetOrthographicFarClip(cameraNode["OrthographicFar"].as<float>());
+				}
+
+				component.Primary = cameraComponent["Primary"].as<bool>();
+			}
+
+			auto spriteRendererComponent = entity["SpriteRendererComponent"];
+			if (spriteRendererComponent)
+			{
+				auto& component = deserializedEntity.AddComponent<SpriteRendererComponent>();
+				component.Color = spriteRendererComponent["Color"].as<glm::vec4>();
+				checkAndAssignAssetHandle(component.Texture, AssetType::Texture, spriteRendererComponent["Texture"].as<AssetHandle>(0));
+				component.TilingFactor = spriteRendererComponent["TilingFactor"].as<float>();
+				if (spriteRendererComponent["UVStart"])
+					component.UVStart = spriteRendererComponent["UVStart"].as<glm::vec2>();
+				if (spriteRendererComponent["UVEnd"])
+					component.UVEnd = spriteRendererComponent["UVEnd"].as<glm::vec2>();
+				if (spriteRendererComponent["ScreenSpace"])
+					component.ScreenSpace = spriteRendererComponent["ScreenSpace"].as<bool>();
+			}
+
+			auto textComponent = entity["TextComponent"];
+			if (textComponent)
+			{
+				auto& component = deserializedEntity.AddComponent<TextComponent>();
+				component.TextString = textComponent["TextString"].as<std::string>();
+				component.TextHash = std::hash<std::string>()(component.TextString);
+				checkAndAssignAssetHandle(component.FontHandle, AssetType::Font, textComponent["FontHandle"].as<AssetHandle>(0));
+				if (!component.FontHandle)
+					component.FontHandle = Font::GetDefaultFont()->Handle;
+
+				component.Color = textComponent["Color"].as<glm::vec4>();
+				component.LineSpacing = textComponent["LineSpacing"].as<float>();
+				component.Kerning = textComponent["Kerning"].as<float>();
+				component.MaxWidth = textComponent["MaxWidth"].as<float>();
+				if (textComponent["ScreenSpace"])
+					component.ScreenSpace = textComponent["ScreenSpace"].as<bool>();
+				if (textComponent["DropShadow"])
+					component.DropShadow = textComponent["DropShadow"].as<bool>();
+				if (textComponent["ShadowDistance"])
+					component.ShadowDistance = textComponent["ShadowDistance"].as<float>();
+				if (textComponent["ShadowColor"])
+					component.ShadowColor = textComponent["ShadowColor"].as<glm::vec4>();
+			}
+
+			auto rigidBody2DComponent = entity["RigidBody2DComponent"];
+			if (rigidBody2DComponent)
+			{
+				auto& component = deserializedEntity.AddComponent<RigidBody2DComponent>();
+				component.BodyType = (RigidBody2DComponent::Type)rigidBody2DComponent["BodyType"].as<int>();
+				component.FixedRotation = rigidBody2DComponent["FixedRotation"] ? rigidBody2DComponent["FixedRotation"].as<bool>() : false;
+				component.Mass = rigidBody2DComponent["Mass"].as<float>(1.0f);
+				component.LinearDrag = rigidBody2DComponent["LinearDrag"].as<float>(0.01f);
+				component.AngularDrag = rigidBody2DComponent["AngularDrag"].as<float>(0.05f);
+				component.GravityScale = rigidBody2DComponent["GravityScale"].as<float>(1.0f);
+				component.IsBullet = rigidBody2DComponent["IsBullet"].as<bool>(false);
+			}
+
+			auto boxCollider2DComponent = entity["BoxCollider2DComponent"];
+			if (boxCollider2DComponent)
+			{
+				auto& component = deserializedEntity.AddComponent<BoxCollider2DComponent>();
+				component.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
+				component.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
+				component.Density = boxCollider2DComponent["Density"] ? boxCollider2DComponent["Density"].as<float>() : 1.0f;
+				component.Friction = boxCollider2DComponent["Friction"] ? boxCollider2DComponent["Friction"].as<float>() : 1.0f;
+			}
+
+			auto circleCollider2DComponent = entity["CircleCollider2DComponent"];
+			if (circleCollider2DComponent)
+			{
+				auto& component = deserializedEntity.AddComponent<CircleCollider2DComponent>();
+				component.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
+				component.Radius = circleCollider2DComponent["Radius"].as<float>();
+				component.Density = circleCollider2DComponent["Density"] ? circleCollider2DComponent["Density"].as<float>() : 1.0f;
+				component.Friction = circleCollider2DComponent["Friction"] ? circleCollider2DComponent["Friction"].as<float>() : 1.0f;
+			}
 		}
-
-		return true;
-	}
-
-	bool SceneSerializer::DeserializeRuntime(const std::filesystem::path& filepath)
-	{
-		// Not implemented
-		SE_CORE_ASSERT(false);
-		return false;
 	}
 
 }

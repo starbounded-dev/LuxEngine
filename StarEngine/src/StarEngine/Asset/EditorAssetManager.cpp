@@ -23,9 +23,9 @@ namespace StarEngine {
 	static std::map<std::filesystem::path, AssetType> s_AssetExtensionMap = {
 		{ ".starscene", AssetType::Scene },
 		{ ".hazel", AssetType::Scene },
-		{ ".png", AssetType::Texture2D },
-		{ ".jpg", AssetType::Texture2D },
-		{ ".jpeg", AssetType::Texture2D },
+		{ ".png", AssetType::Texture },
+		{ ".jpg", AssetType::Texture },
+		{ ".jpeg", AssetType::Texture },
 		{ ".mp3", AssetType::Audio },
 		{ ".wav", AssetType::Audio },
 		{ ".ogg", AssetType::Audio },
@@ -210,5 +210,19 @@ namespace StarEngine {
 		}
 
 		return true;
+	}
+
+	AssetHandle EditorAssetManager::GetAssetHandleFromFilePath(const std::filesystem::path& filepath)
+	{
+		const auto relativePath = GetRelativePath(filepath);
+		std::shared_lock lock(m_AssetRegistryMutex);
+		for (auto& [handle, metadata] : m_AssetRegistry)
+		{
+			if (metadata.FilePath == relativePath)
+			{
+				return metadata.Handle;
+			}
+		}
+		return 0;
 	}
 }
