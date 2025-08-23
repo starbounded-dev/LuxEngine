@@ -63,7 +63,7 @@ namespace StarEngine {
 			T& operator*() { return *reinterpret_cast<T*>(Ptr); }
 			const T& operator*() const { return *reinterpret_cast<const T*>(Ptr); }
 		};
-
+		/*
 #pragma region AssetHandle
 
 		Coral::Bool32 AssetHandle_IsValid(Param<AssetHandle> assetHandle);
@@ -215,7 +215,7 @@ namespace StarEngine {
 		void AnimationComponent_GetRootMotion(uint64_t entityID, Transform* outTransform);
 
 #pragma endregion
-		*/
+		*//*
 #pragma region ScriptComponent
 
 		void ScriptComponent_GetInstance(uint64_t entityID, Coral::ManagedObject* outObject);
@@ -307,7 +307,7 @@ namespace StarEngine {
 		void SkyLightComponent_SetInclination(uint64_t entityID, float inclination);
 
 #pragma endregion
-		*/
+		*//*
 #pragma region TileRendererComponent
 
 		uint32_t TileRendererComponent_GetWidth(uint64_t entityID);
@@ -460,7 +460,7 @@ namespace StarEngine {
 		Coral::Bool32 MeshCollider_IsStaticMesh(Param<AssetHandle> meshHandle);
 
 #pragma endregion
-*/
+*//*
 #pragma region AudioComponent
 
 		Coral::Bool32 AudioComponent_IsPlaying(uint64_t entityID);
@@ -670,7 +670,7 @@ namespace StarEngine {
 		void Matrix4_MultiplyPoint(glm::mat4* inMatrix, glm::vec3* inPoint, glm::vec3* outPoint);
 		void Matrix4_MultiplyVector(glm::mat4* inMatrix, glm::vec3* inVector, glm::vec3* outVector);
 #pragma endregion*/
-
+/*
 #pragma region Log
 
 		enum class LogLevel : int32_t
@@ -685,7 +685,7 @@ namespace StarEngine {
 
 
 		void Log_LogMessage(LogLevel level, Coral::String inFormattedMessage);
-
+		/*
 #pragma endregion
 
 #pragma region Input

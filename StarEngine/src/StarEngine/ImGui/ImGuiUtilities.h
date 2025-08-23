@@ -472,7 +472,7 @@ namespace StarEngine::UI {
 		if (indentAfter) ImGui::Indent();
 	};
 
-
+	
 	//=========================================================================================
 	/// Button Image
 	/*
@@ -549,8 +549,8 @@ namespace StarEngine::UI {
 		ImVec2 uv0 = ImVec2(0.0f, 0.0f), ImVec2 uv1 = ImVec2(1.0f, 1.0f))
 	{
 		DrawButtonImage(image, image, image, tintNormal, tintHovered, tintPressed, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), uv0, uv1);
-	};*/
-
+	};
+	*/
 
 	//=========================================================================================
 	/// Border

@@ -33,5 +33,10 @@ namespace StarEngine
 		{
 			return Project::GetActive()->GetAssetManager()->GetAssetType(handle);
 		}
+
+		static bool IsAssetMissing(AssetHandle assetHandle)
+		{
+			return Project::GetAssetManager()->IsAssetMissing(assetHandle);
+		}
 	};
 }

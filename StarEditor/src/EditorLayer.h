@@ -18,6 +18,7 @@ namespace StarEngine
 	{
 	public:
 		EditorLayer();
+
 		virtual ~EditorLayer() = default;
 
 		virtual void OnAttach() override;
@@ -29,7 +30,6 @@ namespace StarEngine
 	private:
 		bool OnKeyPressed(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
-		bool OnWindowDrop(WindowDropEvent& e);
 
 		void OnOverlayRender();
 
@@ -58,7 +58,7 @@ namespace StarEngine
 		// UI Panels
 		void UI_Toolbar();
 	private:
-		OrthographicCameraController m_CameraController;
+		Camera m_CameraController;
 
 		bool m_VSync = true;
 		bool m_ViewportFocused = false, m_ViewportHovered = false;
@@ -79,7 +79,7 @@ namespace StarEngine
 
 		bool m_PrimaryCamera = true;
 
-		EditorCamera m_EditorCamera;
+		EditorCamera m_EditorCamera = EditorCamera(30.0f, 1280.0f, 720.0f, 0.1f, 1000.0f);
 
 		Ref<Texture2D> m_CheckerboardTexture;
 

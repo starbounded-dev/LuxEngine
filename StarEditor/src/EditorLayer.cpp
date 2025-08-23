@@ -3,7 +3,7 @@
 #include "StarEngine/Core/Base.h"
 
 #include "StarEngine/Scene/SceneSerializer.h"
-#include "StarEngine/Utils/PlatformUtils.h"
+#include "StarEngine/Utilities/PlatformUtils.h"
 #include "StarEngine/Math/Math.h"
 #include "StarEngine/Scripting/ScriptEngine.h"
 #include "StarEngine/Renderer/Font.h"
@@ -18,6 +18,7 @@
 #include <imgui/imgui.h>
 #include "imgui/imgui_internal.h"
 #include "ImGuizmo.h"
+#include "StarEngine/Debug/Profiler.h"
 
 namespace StarEngine {
 
@@ -27,7 +28,7 @@ namespace StarEngine {
 		: Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f, true), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 
-		s_Font = Font::GetDefault();
+		s_Font = Font::GetDefaultFont();
 
 	}
 
@@ -47,7 +48,7 @@ namespace StarEngine {
 		fbSpec.Height = 720;
 		m_Framebuffer = Framebuffer::Create(fbSpec);
 
-		m_EditorScene = CreateRef<Scene>();
+		m_EditorScene = Ref<Scene>::Create();
 		m_ActiveScene = m_EditorScene;
 
 		auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs;
@@ -107,7 +108,7 @@ namespace StarEngine {
 			case SceneState::Edit:
 				{
 				if (m_ViewportFocused)
-					m_CameraController.OnUpdate(ts);
+					m_EditorCamera.OnUpdate(ts);
 
 				m_EditorCamera.OnUpdate(ts);
 
@@ -142,7 +143,8 @@ namespace StarEngine {
 		if (mouseX >= 0 && mouseY >= 0 && mouseX < (int)viewportSize.x && mouseY < (int)viewportSize.y)
 		{
 			int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
-			m_HoveredEntity = pixelData == -1 ? Entity() : Entity((entt::entity)pixelData, m_ActiveScene.get());
+			m_HoveredEntity = pixelData == -1 ? Entity() : Entity((entt::entity)pixelData, m_ActiveScene.Raw());
+
 		}
 
 		OnOverlayRender();
@@ -324,7 +326,7 @@ namespace StarEngine {
 			// glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
 
 			// Editor camera
-			const glm::mat4& cameraProjection = m_EditorCamera.GetProjection();
+			const glm::mat4& cameraProjection = m_EditorCamera.GetViewProjection();
 			glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
 
 			// Entity transform
@@ -346,12 +348,16 @@ namespace StarEngine {
 
 			if (ImGuizmo::IsUsing())
 			{
-				glm::vec3 translation, rotation, scale;
+				glm::vec3 translation;
+				glm::quat rotation; // Change this from glm::vec3 to glm::quat
+				glm::vec3 scale;
+
 				Math::DecomposeTransform(transform, translation, rotation, scale);
 
-				glm::vec3 deltaRotation = rotation - tc.Rotation;
+
+				glm::vec3 deltaRotation = glm::eulerAngles(rotation) - tc.GetRotationEuler();
 				tc.Translation = translation;
-				tc.Rotation += deltaRotation;
+				tc.SetRotation(glm::quat(deltaRotation) * tc.GetRotation());
 				tc.Scale = scale;
 			}
 		}
@@ -458,7 +464,7 @@ namespace StarEngine {
 
 	void EditorLayer::OnEvent(Event& e)
 	{
-		m_CameraController.OnEvent(e);
+		m_ActiveScene->OnEvent(e);
 
 		if (m_SceneState == SceneState::Edit)
 		{
@@ -466,15 +472,14 @@ namespace StarEngine {
 		}
 
 		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<KeyPressedEvent>(SE_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
-		dispatcher.Dispatch<MouseButtonPressedEvent>(SE_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
-		dispatcher.Dispatch<WindowDropEvent>(SE_BIND_EVENT_FN(EditorLayer::OnWindowDrop));
+		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& event) { return OnKeyPressed(event); });
+		dispatcher.Dispatch<MouseButtonPressedEvent>([this](MouseButtonPressedEvent& event) { return OnMouseButtonPressed(event); });
 	}
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 	{
 		// Shortcuts
-		if (e.IsRepeat())
+		if (e.GetRepeatCount() > 1)
 			return false;
 
 		bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
@@ -575,7 +580,7 @@ namespace StarEngine {
 
 	bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent& e)
 	{
-		if (e.GetMouseButton() == Mouse::ButtonLeft)
+		if (e.GetMouseButton() == MouseButton::Left)
 		{
 			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
 				m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
@@ -583,14 +588,6 @@ namespace StarEngine {
 		return false;
 	}
 
-	bool EditorLayer::OnWindowDrop(WindowDropEvent& e)
-	{
-		// TODO: if a project is dropped in, probably open it
-
-		//AssetManager::ImportAsset();
-
-		return true;
-	}
 
 	void EditorLayer::OnOverlayRender()
 	{
@@ -600,7 +597,7 @@ namespace StarEngine {
 			if (!camera)
 				return;
 
-			Renderer2D::BeginScene(*camera.GetComponent<CameraComponent>().Camera.get(), camera.GetComponent<TransformComponent>().GetTransform());
+			Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera, camera.GetComponent<TransformComponent>().GetTransform());
 		}
 		else
 		{
@@ -620,7 +617,7 @@ namespace StarEngine {
 					glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
 					glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation)
-						* glm::rotate(glm::mat4(1.0f), tc.Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f))
+						* glm::rotate(glm::mat4(1.0f), tc.GetRotation().z, glm::vec3(0.0f, 0.0f, 1.0f))
 						* glm::translate(glm::mat4(1.0f), glm::vec3(bc2d.Offset, 0.001f))
 						* glm::scale(glm::mat4(1.0f), scale);
 
@@ -690,7 +687,7 @@ namespace StarEngine {
 
 	void EditorLayer::NewScene()
 	{
-		m_ActiveScene = CreateRef<Scene>();
+		m_ActiveScene = Ref<Scene>::Create();
 		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 

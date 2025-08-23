@@ -94,8 +94,7 @@ namespace StarEngine {
 		TransformComponent(const TransformComponent& other) = default;
 		TransformComponent(const glm::vec3& translation)
 			: Translation(translation)
-		{
-		}
+		{}
 
 		glm::mat4 GetTransform() const
 		{
@@ -110,6 +109,7 @@ namespace StarEngine {
 			RotationEuler = glm::eulerAngles(Rotation);
 		}
 
+		// Make this method public
 		glm::vec3 GetRotationEuler() const
 		{
 			return RotationEuler;
@@ -129,9 +129,9 @@ namespace StarEngine {
 		void SetRotation(const glm::quat& quat)
 		{
 			auto wrapToPi = [](glm::vec3 v)
-				{
-					return glm::mod(v + glm::pi<float>(), 2.0f * glm::pi<float>()) - glm::pi<float>();
-				};
+			{
+				return glm::mod(v + glm::pi<float>(), 2.0f * glm::pi<float>()) - glm::pi<float>();
+			};
 
 			auto originalEuler = RotationEuler;
 			Rotation = quat;
@@ -178,6 +178,7 @@ namespace StarEngine {
 	};
 
 
+
 	struct SpriteRendererComponent
 	{
 		glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -204,6 +205,8 @@ namespace StarEngine {
 	struct CameraComponent
 	{
 		enum class Type { None = -1, Perspective, Orthographic };
+		bool FixedAspectRatio = false; // Add this member
+
 		Type ProjectionType;
 
 		SceneCamera Camera;

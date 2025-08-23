@@ -96,7 +96,7 @@ namespace StarEngine {
 		static_assert(offsetof(glm::quat, w) == 12);
 		static_assert(sizeof(glm::quat) == 16);
 	/// Quaternion.cs
-
+		/*
 	/// Transform.cs
 		static_assert(offsetof(InternalCalls::Transform, Translation) == 0);
 		static_assert(offsetof(InternalCalls::Transform, Rotation) == 12);
@@ -259,7 +259,7 @@ namespace StarEngine {
 	}
 
 	void ScriptGlue::RegisterInternalCalls(Coral::ManagedAssembly& coreAssembly)
-	{
+	{/*
 		SE_ADD_INTERNAL_CALL(AssetHandle_IsValid);
 
 		SE_ADD_INTERNAL_CALL(Application_Quit);
@@ -359,7 +359,7 @@ namespace StarEngine {
 		SE_ADD_INTERNAL_CALL(AnimationComponent_SetInputVector3);
 		SE_ADD_INTERNAL_CALL(AnimationComponent_SetInputTrigger);
 		SE_ADD_INTERNAL_CALL(AnimationComponent_GetRootMotion);
-		*/
+		*//*
 		SE_ADD_INTERNAL_CALL(ScriptComponent_GetInstance);
 
 		SE_ADD_INTERNAL_CALL(CameraComponent_SetPerspective);
@@ -428,7 +428,7 @@ namespace StarEngine {
 		SE_ADD_INTERNAL_CALL(SpotLightComponent_GetCastsShadows);
 		SE_ADD_INTERNAL_CALL(SpotLightComponent_GetSoftShadows);
 		SE_ADD_INTERNAL_CALL(SpotLightComponent_SetSoftShadows);
-		*/
+		*//*
 		SE_ADD_INTERNAL_CALL(SpriteRendererComponent_GetColor);
 		SE_ADD_INTERNAL_CALL(SpriteRendererComponent_SetColor);
 		SE_ADD_INTERNAL_CALL(SpriteRendererComponent_GetTilingFactor);
@@ -538,7 +538,7 @@ namespace StarEngine {
 		SE_ADD_INTERNAL_CALL(MeshColliderComponent_SetMaterial);
 
 		SE_ADD_INTERNAL_CALL(MeshCollider_IsStaticMesh);
-		*/
+		*//*
 		SE_ADD_INTERNAL_CALL(AudioComponent_IsPlaying);
 		SE_ADD_INTERNAL_CALL(AudioComponent_Play);
 		SE_ADD_INTERNAL_CALL(AudioComponent_Stop);
@@ -647,8 +647,8 @@ namespace StarEngine {
 		SE_ADD_INTERNAL_CALL(Noise_SetSeed);
 		SE_ADD_INTERNAL_CALL(Noise_Perlin);
 		*/
-		SE_ADD_INTERNAL_CALL(Log_LogMessage);
-
+		//SE_ADD_INTERNAL_CALL(Log_LogMessage);
+		/*
 		SE_ADD_INTERNAL_CALL(Input_IsKeyPressed);
 		SE_ADD_INTERNAL_CALL(Input_IsKeyHeld);
 		SE_ADD_INTERNAL_CALL(Input_IsKeyDown);

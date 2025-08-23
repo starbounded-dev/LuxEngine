@@ -353,6 +353,11 @@ namespace StarEngine {
 		OnPhysics2DStop();
 	}
 
+	void Scene::OnEvent(Event& e)
+	{
+		
+	}
+
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		if ((!m_IsPaused && !s_SetPaused) || m_StepFrames-- > 0)
@@ -720,6 +725,22 @@ namespace StarEngine {
 	{
 		// Render 2D
 		RenderScene(camera);
+	}
+
+	void Scene::OnViewportResize(uint32_t width, uint32_t height)
+	{
+		// Handle viewport resizing logic here
+		// Example: Update internal viewport bounds or notify components
+		m_ViewportRight = width;
+		m_ViewportBottom = height;
+
+		// If there are cameras in the scene, update their viewport bounds
+		auto view = m_Registry.view<CameraComponent>();
+		for (auto entity : view)
+		{
+			auto& camera = view.get<CameraComponent>(entity).Camera;
+			camera.SetViewportBounds(0, 0, width, height);
+		}
 	}
 
 	void Scene::SetViewportBounds(uint32_t left, uint32_t top, uint32_t right, uint32_t bottom)

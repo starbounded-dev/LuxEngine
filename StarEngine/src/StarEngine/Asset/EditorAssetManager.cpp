@@ -9,6 +9,14 @@
 #include <spdlog/fmt/fmt.h>
 #include <filesystem>
 
+#include "StarEngine/Core/Timer.h"
+#include "StarEngine/Core/Application.h"
+#include "StarEngine/Utilities/FileSystem.h"
+
+#include "StarEngine/Asset/EditorAssetManager.h"
+#include "StarEngine/Project/Project.h"  // if you need Project::GetActive()
+#include <filesystem>
+
 namespace fmt {
 	template <>
 	struct formatter<std::filesystem::path> : formatter<std::string> {
@@ -224,5 +232,40 @@ namespace StarEngine {
 			}
 		}
 		return 0;
+	}
+
+	bool EditorAssetManager::IsAssetMissing(AssetHandle handle)
+	{
+		SE_PROFILE_FUNCTION("EditorAssetManager::IsAssetMissing");
+		SE_SCOPE_PERF("AssetManager::IsAssetMissing");
+
+		if (GetMemoryAsset(handle))
+			return false;
+
+		auto metadata = GetMetadata(handle);
+		return !FileSystem::Exists(Project::GetActive()->GetAssetDirectory() / metadata.FilePath);
+	}
+
+	Ref<StarEngine::Asset> EditorAssetManager::GetMemoryAsset(AssetHandle handle)
+	{
+		std::shared_lock lock(m_MemoryAssetsMutex);
+		if (auto it = m_MemoryAssets.find(handle); it != m_MemoryAssets.end())
+			return it->second;
+
+		return nullptr;
+	}
+
+
+	std::filesystem::path EditorAssetManager::GetRelativePath(const std::filesystem::path& abs)
+	{
+		// Pick whichever root is correct for your project:
+		// 1) If the manager has a stored assets root:
+		//    return std::filesystem::relative(abs, m_AssetDirectory);
+
+		// 2) Or via the active project (common pattern):
+		const auto& assetsRoot = Project::GetActive()->GetAssetDirectory();
+		std::error_code ec{};
+		auto rel = std::filesystem::relative(abs, assetsRoot, ec);
+		return ec ? abs : rel; // fall back to absolute if it can't be made relative
 	}
 }

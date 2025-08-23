@@ -2,6 +2,9 @@
 #include "FileSystem.h"
 #include "StringUtils.h"
 
+#include <filesystem>
+#include <fstream>
+
 #ifdef SE_PLATFORM_LINUX
 #include <libgen.h>
 #endif
@@ -252,6 +255,22 @@ namespace StarEngine {
 				return "";
 			}
 		}
+	}
+
+	FileStatus FileSystem::TryOpenFile(const std::filesystem::path& path)
+	{
+		// Use std::filesystem first to avoid throwing
+		std::error_code ec;
+		if (!std::filesystem::exists(path, ec))
+			return FileStatus::Invalid;      // <-- use your enum's "not found" value
+
+		// Try opening in read-only binary mode
+		std::ifstream f(path, std::ios::binary);
+		if (f.good())
+			return FileStatus::Success;       // <-- use your enum's "ok/success" value
+
+		// Couldn’t open (locked/denied/etc.)
+		return FileStatus::Locked;      // <-- or FileStatus::Error if you don’t have AccessDenied
 	}
 
 }

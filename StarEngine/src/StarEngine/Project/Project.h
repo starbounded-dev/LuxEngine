@@ -19,17 +19,26 @@ namespace StarEngine {
 		std::filesystem::path AssetDirectory;
 		std::filesystem::path AssetRegistryPath; // Relative to AssetDirectory
 		std::filesystem::path ScriptModulePath;
+
+		std::string ProjectDirectory;
 	};
 
 	class Project : public RefCounted
 	{
 	public:
+		const ProjectConfig& GetConfig() const { return m_Config; }
+
 		const std::filesystem::path& GetProjectDirectory() { return m_ProjectDirectory; }
 		std::filesystem::path GetAssetDirectory() { return GetProjectDirectory() / s_ActiveProject->m_Config.AssetDirectory; }
 		std::filesystem::path GetAssetRegistryPath() { return GetAssetDirectory() / s_ActiveProject->m_Config.AssetRegistryPath; }
 		std::filesystem::path GetAssetFileSystemPath(const std::filesystem::path& path) { return GetAssetDirectory() / path; }
 
 		std::filesystem::path GetAssetAbsolutePath(const std::filesystem::path& path);
+
+		std::filesystem::path GetAssetDirectory() const
+		{
+			return std::filesystem::path(GetConfig().ProjectDirectory) / GetConfig().AssetDirectory;
+		}
 
 		static const std::filesystem::path& GetActiveProjectDirectory()
 		{

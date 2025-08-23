@@ -11,6 +11,8 @@
 
 namespace StarEngine
 {
+	static std::thread::id s_MainThreadID;
+
 	Application* Application::s_Instance = nullptr;
 
 	Application::Application(const ApplicationSpecification& specification)
@@ -28,7 +30,7 @@ namespace StarEngine
 		//m_Window->SetEventCallback(SE_BIND_EVENT_FN(Application::OnEvent));
 
 		Renderer::Init();
-		ScriptEngine::GetMutable().InitializeHost();
+		//ScriptEngine::GetMutable().InitializeHost();
 
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);
@@ -38,7 +40,7 @@ namespace StarEngine
 	{
 		SE_PROFILE_FUNCTION("Application::~Application");
 
-		ScriptEngine::GetMutable().ShutdownHost();
+		//ScriptEngine::GetMutable().ShutdownHost();
 		Renderer::Shutdown();
 	}
 
@@ -154,6 +156,13 @@ namespace StarEngine
 			func();
 
 		m_MainThreadQueue.clear();
+	}
+
+	std::thread::id Application::GetMainThreadID() { return s_MainThreadID; }
+
+	bool Application::IsMainThread()
+	{
+		return std::this_thread::get_id() == s_MainThreadID;
 	}
 
 }

@@ -49,9 +49,13 @@ namespace StarEngine {
 		void OnSimulationStart();
 		void OnSimulationStop();
 
+		void OnEvent(Event& e);
+
 		void OnUpdateRuntime(Timestep ts);
 		void OnUpdateSimulation(Timestep ts, EditorCamera& camera);
 		void OnUpdateEditor(Timestep ts, EditorCamera& camera);
+
+		void OnViewportResize(uint32_t width, uint32_t height);
 
 		void SetViewportBounds(uint32_t left, uint32_t top, uint32_t right, uint32_t bottom);
 

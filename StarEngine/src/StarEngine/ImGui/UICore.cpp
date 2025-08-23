@@ -1,4 +1,4 @@
-#include "sepch.h"
+﻿#include "sepch.h"
 #include "UICore.h"
 
 #include "ImGuiUtilities.h"
@@ -183,11 +183,6 @@ namespace StarEngine::UI {
 			ImGui::EndTooltip();
 		}
 	}
-
-	bool ImageButton(const Ref<Texture2D>& texture, const ImVec2& size, const ImVec4& tint)
-	{
-		return ImageButton(texture, size, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tint);
-	}
 	/*
 	void ImageToolTip(const Ref<Texture2D>& texture)
 	{
@@ -199,5 +194,33 @@ namespace StarEngine::UI {
 		UI::Image(texture, ImVec2(384, 384));
 		ImGui::EndTooltip();
 	}*/
+
+	bool ImageButton(const Ref<Texture2D>& texture,
+				 const ImVec2& size,
+				 const ImVec2& uv0,
+				 const ImVec2& uv1,
+				 const ImVec4& bg_col,
+				 const ImVec4& tint_col)
+	{
+		if (!texture || texture->GetRendererID() == 0)
+			return ImGui::Button("##img_missing", size);
+
+		// Cast GL texture id → ImTextureID (works whether ImTextureID is integer or pointer typedef)
+		ImTextureID id = static_cast<ImTextureID>(static_cast<uintptr_t>(texture->GetRendererID()));
+
+		// ImGui 1.90+ signature: (const char* str_id, ImTextureID, size, uv0, uv1, bg, tint)
+		return ImGui::ImageButton("##tex", id, size, uv0, uv1, bg_col, tint_col);
+	}
+
+	bool ImageButton(const Ref<Texture2D>& texture,
+					 const ImVec2& size,
+					 const ImVec4& tint_col)
+	{
+		// Common GL UV flip (adjust if your textures aren’t flipped)
+		const ImVec2 uv0{ 0.0f, 1.0f };
+		const ImVec2 uv1{ 1.0f, 0.0f };
+		const ImVec4 bg_col{ 0, 0, 0, 0 };
+		return ImageButton(texture, size, uv0, uv1, bg_col, tint_col);
+	}
 
 }

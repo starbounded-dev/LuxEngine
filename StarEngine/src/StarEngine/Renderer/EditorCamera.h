@@ -18,6 +18,12 @@ namespace StarEngine {
 	{
 	public:
 		EditorCamera(const float degFov, const float width, const float height, const float nearP, const float farP);
+		EditorCamera(const float degFov, const float aspectRatio, const float nearP, const float farP)
+			: Camera(degFov, 1.0f, 1.0f / aspectRatio, nearP, farP), // Call base class constructor
+			m_VerticalFOV(degFov), m_AspectRatio(aspectRatio), m_NearClip(nearP), m_FarClip(farP)
+		{
+			UpdateCameraView();
+		}
 		void Init();
 
 		void Focus(const glm::vec3& focusPoint);
@@ -74,6 +80,16 @@ namespace StarEngine {
 		[[nodiscard]] float GetPitch() const { return m_Pitch; }
 		[[nodiscard]] float GetYaw() const { return m_Yaw; }
 		[[nodiscard]] float GetCameraSpeed() const;
+	public:
+		void SetViewportSize(float width, float height)
+		{
+			if (width > 0.0f && height > 0.0f)
+			{
+				m_AspectRatio = width / height;
+				SetPerspectiveProjectionMatrix(glm::radians(m_VerticalFOV), width, height, m_NearClip, m_FarClip);
+			}
+		}
+
 	private:
 		void UpdateCameraView();
 

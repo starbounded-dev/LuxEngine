@@ -22,6 +22,8 @@ project "StarEditor"
 		"%{IncludeDir.Tracy}",
 		"%{IncludeDir.GLAD}",
 		"%{IncludeDir.Coral}",
+		"%{IncludeDir.ImGui}",
+		"%{IncludeDir.MagicEnum}",
 		"%{IncludeDir.miniaudio}"
 	}
 

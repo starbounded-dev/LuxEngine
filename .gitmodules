@@ -5,8 +5,8 @@
 
 [submodule "StarEngine/vendor/imgui"]
 	path = StarEngine/vendor/imgui
-	url = ../../starbounded-dev/imgui.git
-	branch = docking
+	url = https://github.com/StudioCherno/imgui.git
+	branch = hazel
 
 [submodule "StarEngine/vendor/glm"]
 	path = StarEngine/vendor/glm

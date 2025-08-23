@@ -18,6 +18,9 @@
 
 #include <cstring>
 
+#include "StarEngine/ImGui/PropertyGrid.h"
+#include "StarEngine/ImGui/UICore.h"
+
 /* The Microsoft C++ compiler is non-compliant with the C++ standard and needs
  * the following definition to disable a security warning on std::strncpy().
  */
@@ -35,7 +38,7 @@ namespace StarEngine {
 	void SceneHierarchyPanel::SetContext(const Ref<Scene>& context)
 	{
 		m_Context = context;
-		m_SelectionContext = {};
+		m_EntitySelectionContext = {};
 	}
 
 	void SceneHierarchyPanel::OnImGuiRender()
@@ -47,7 +50,7 @@ namespace StarEngine {
 			auto view = m_Context->m_Registry.view<entt::entity>();
 			for (auto entityID : view)
 			{
-				Entity entity{ entityID , m_Context.get() };
+				Entity entity{ entityID, &(*m_Context) };
 				DrawEntityNode(entity);
 			}
 
@@ -63,12 +66,13 @@ namespace StarEngine {
 				ImGui::EndPopup();
 			}
 		}
+
 		ImGui::End();
 
 		ImGui::Begin("Properties");
-		if (m_SelectionContext)
+		if (m_EntitySelectionContext)
 		{
-			DrawComponents(m_SelectionContext);
+			DrawComponents(m_EntitySelectionContext);
 		}
 		ImGui::End();
 
@@ -77,28 +81,28 @@ namespace StarEngine {
 
 		if (entityDeleted)
 		{
-			m_Context->DestroyEntity(m_SelectionContext);
-			m_SelectionContext = {};
+			m_Context->DestroyEntity(m_EntitySelectionContext);
+			m_EntitySelectionContext = {};
 		}
 	}
 
 	void SceneHierarchyPanel::SetSelectedEntity(Entity entity)
 	{
-		m_SelectionContext = entity;
+		m_EntitySelectionContext = entity;
 	}
 
 	void SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	{
 		auto& tag = entity.GetComponent<TagComponent>().Tag;
 
-		ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
+		ImGuiTreeNodeFlags flags = ((m_EntitySelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
 		bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, tag.c_str());
 		if (ImGui::IsMouseReleased(0))
 		{
 			if (ImGui::IsItemHovered())
 			{
-				m_SelectionContext = entity;
+				m_EntitySelectionContext = entity;
 			}
 		}
 
@@ -107,7 +111,7 @@ namespace StarEngine {
 		{
 			if (ImGui::MenuItem("Create Empty Entity"))
 			{
-				m_SelectionContext = m_Context->CreateEntity("Empty Entity");
+				m_EntitySelectionContext = m_Context->CreateEntity("Empty Entity");
 			}
 
 			ImGui::Separator();
@@ -197,6 +201,8 @@ namespace StarEngine {
 			auto& component = entity.GetComponent<T>();
 			ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
+			//auto& entities = SelectionManager::GetSelections(s_ActiveSelectionContext);
+
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
 			float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
 			ImGui::Separator();
@@ -220,6 +226,7 @@ namespace StarEngine {
 
 			if (open)
 			{
+				//const bool isMultiEdit = entities.size() > 1;
 				uiFunction(component);
 				ImGui::TreePop();
 			}
@@ -301,9 +308,9 @@ namespace StarEngine {
 		DrawComponent<TransformComponent>("Transform", entity, [](auto& component)
 			{
 				DrawVec3Control("Translation", component.Translation);
-				glm::vec3 rotation = glm::degrees(component.Rotation);
+				glm::vec3 rotation = glm::vec3(glm::degrees(component.GetRotationEuler()));
 				DrawVec3Control("Rotation", rotation);
-				component.Rotation = glm::radians(rotation);
+				component.SetRotationEuler(glm::radians(rotation));
 				DrawVec3Control("Scale", component.Scale, 1.0f);
 			});
 
@@ -314,7 +321,7 @@ namespace StarEngine {
 				ImGui::Checkbox("Primary", &component.Primary);
 
 				const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
-				const char* currentProjectionTypeString = projectionTypeStrings[(int)camera->GetProjectionType()];
+				const char* currentProjectionTypeString = projectionTypeStrings[(int)camera.GetProjectionType()];
 				if (ImGui::BeginCombo("Projection", currentProjectionTypeString))
 				{
 					for (int i = 0; i < 2; i++)
@@ -323,7 +330,7 @@ namespace StarEngine {
 						if (ImGui::Selectable(projectionTypeStrings[i], isSelected))
 						{
 							currentProjectionTypeString = projectionTypeStrings[i];
-							camera->SetProjectionType((SceneCamera::ProjectionType)i);
+							camera.SetProjectionType((SceneCamera::ProjectionType)i);
 						}
 
 						if (isSelected)
@@ -333,34 +340,31 @@ namespace StarEngine {
 					ImGui::EndCombo();
 				}
 
-				if (camera->GetProjectionType() == SceneCamera::ProjectionType::Perspective)
+				if (camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
 				{
-					float perspectiveVerticalFov = glm::degrees(camera->GetPerspectiveVerticalFOV());
-					if (ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
-						camera->SetPerspectiveVerticalFOV(glm::radians(perspectiveVerticalFov));
 
-					float perspectiveNear = camera->GetPerspectiveNearClip();
+					float perspectiveNear = camera.GetPerspectiveNearClip();
 					if (ImGui::DragFloat("Near", &perspectiveNear))
-						camera->SetPerspectiveNearClip(perspectiveNear);
+						camera.SetPerspectiveNearClip(perspectiveNear);
 
-					float perspectiveFar = camera->GetPerspectiveFarClip();
+					float perspectiveFar = camera.GetPerspectiveFarClip();
 					if (ImGui::DragFloat("Far", &perspectiveFar))
-						camera->SetPerspectiveFarClip(perspectiveFar);
+						camera.SetPerspectiveFarClip(perspectiveFar);
 				}
 
-				if (camera->GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
+				if (camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
 				{
-					float orthoSize = camera->GetOrthographicSize();
+					float orthoSize = camera.GetOrthographicSize();
 					if (ImGui::DragFloat("Size", &orthoSize))
-						camera->SetOrthographicSize(orthoSize);
+						camera.SetOrthographicSize(orthoSize);
 
-					float orthoNear = camera->GetOrthographicNearClip();
+					float orthoNear = camera.GetOrthographicNearClip();
 					if (ImGui::DragFloat("Near", &orthoNear))
-						camera->SetOrthographicNearClip(orthoNear);
+						camera.SetOrthographicNearClip(orthoNear);
 
-					float orthoFar = camera->GetOrthographicFarClip();
+					float orthoFar = camera.GetOrthographicFarClip();
 					if (ImGui::DragFloat("Far", &orthoFar))
-						camera->SetOrthographicFarClip(orthoFar);
+						camera.SetOrthographicFarClip(orthoFar);
 
 					ImGui::Checkbox("Fixed Aspect Ratio", &component.FixedAspectRatio);
 				}
@@ -368,97 +372,94 @@ namespace StarEngine {
 
 		DrawComponent<ScriptComponent>("Script", entity, [=](ScriptComponent& component) mutable
 			{
-				ImGui::Text("Script");
-				ImGui::NextColumn();
-				ImGui::PushItemWidth(-1);
+			UI::BeginPropertyGrid();
 
-				auto& scriptEngine = ScriptEngine::GetMutable();
-				bool isError = !scriptEngine.IsValidScript(component.ScriptHandle);
+			const bool inconsistentScriptClass = IsInconsistentPrimitive<UUID, ScriptComponent>([](const ScriptComponent& other) { return other.ScriptID; });
+			//ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, isMultiEdit&& inconsistentScriptClass);
+			auto& scriptEngine = ScriptEngine::GetMutable();
 
-				std::string label = "None";
-				bool isScriptValid = false;
-				if (component.ScriptHandle != 0)
+			bool isError = !scriptEngine.IsValidScript(component.ScriptID);
+			const UI::PropertyAssetReferenceSettings c_AssetRefSettings = { true, false, 0.0f, (isError && !inconsistentScriptClass) ? ImVec4(0.9f, 0.2f, 0.2f, 1.0f) : ImGui::ColorConvertU32ToFloat4(Colors::Theme::text), ImGui::ColorConvertU32ToFloat4(Colors::Theme::textError), true };
+
+			auto oldScriptID = component.ScriptID;
+
+			if (UI::PropertyScriptReference("Script Class", component.ScriptID, c_AssetRefSettings))
+			{
+				isError = !scriptEngine.IsValidScript(component.ScriptID);
+
+				const auto& selected = SelectionManager::GetSelections(m_SelectionContext); // vector<AssetHandle>
+
+				for (auto handle : selected)
 				{
-					if (AssetManager::IsAssetHandleValid(component.ScriptHandle) && AssetManager::GetAssetType(component.ScriptHandle) == AssetType::ScriptFile)
+					Entity e = m_Context->GetEntityWithUUID(static_cast<UUID>(handle));
+					if (!e) continue;
+
+					auto& sc = e.GetComponent<ScriptComponent>();
+					sc.ScriptID = component.ScriptID;
+
+					if (isError)
 					{
-						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(component.ScriptHandle);
-						label = metadata.FilePath.filename().string();
-						isScriptValid = true;
+						bool wasCleared = (sc.ScriptID == 0);
+						if (wasCleared)
+							sc.ScriptID = oldScriptID;
+
+						if (oldScriptID)
+							m_Context->GetScriptStorage().ShutdownEntityStorage(sc.ScriptID, e.GetUUID());
+
+						if (wasCleared)
+							sc.ScriptID = 0;
 					}
 					else
 					{
-						label = "Invalid";
+						m_Context->GetScriptStorage().InitializeEntityStorage(sc.ScriptID, e.GetUUID());
 					}
 				}
 
-				ImVec2 buttonLabelSize = ImGui::CalcTextSize(label.c_str());
-				buttonLabelSize.x += 20.0f;
-				float buttonLabelWidth = std::max<float>(100.0f, buttonLabelSize.x);
+			}
 
-				ImGui::Button(label.c_str(), ImVec2(buttonLabelWidth, 0.0f));
-				if (ImGui::BeginDragDropTarget())
+			ImGui::PopItemFlag();
+
+			UI::EndPropertyGrid();
+
+			auto& scriptStorage = m_Context->GetScriptStorage();
+			/*
+			// NOTE(Peter): Editing fields doesn't really work if there's inconsistencies with the script classes...
+			if (!isError && !inconsistentScriptClass && scriptStorage.EntityStorage.contains(firstEntity.GetUUID()))
+			{
+				UI::BeginPropertyGrid();
+
+				auto& entityStorage = scriptStorage.EntityStorage.at(firstEntity.GetUUID());
+
+				for (auto& [fieldID, fieldStorage] : entityStorage.Fields)
 				{
-					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					if (fieldStorage.IsArray())
 					{
-						AssetHandle handle = *(AssetHandle*)payload->Data;
-
-						if (AssetManager::GetAssetType(handle) == AssetType::ScriptFile)
+						if (UI::DrawFieldArray(m_Context, fieldStorage.GetName(), fieldStorage))
 						{
-							component.ScriptHandle = handle;
+							/*for (auto entityID : entities)
+							{
+								Entity entity = m_Context->GetEntityWithUUID(entityID);
+								const auto& sc = entity.GetComponent<ScriptComponent>();
+								storage->CopyData(firstComponent.ManagedInstance, sc.ManagedInstance);
+							}*//*
 						}
-						else
+					}
+					else
+					{
+						if (UI::DrawFieldValue(m_Context, fieldStorage.GetName(), fieldStorage))
 						{
-							SE_CORE_WARN("Wrong asset type!");
+							/*for (auto entityID : entities)
+							{
+								Entity entity = m_Context->GetEntityWithUUID(entityID);
+								const auto& sc = entity.GetComponent<ScriptComponent>();
+								storage->CopyData(firstComponent.ManagedInstance, sc.ManagedInstance);
+							}*//*
 						}
 					}
-					ImGui::EndDragDropTarget();
 				}
 
-				if (isScriptValid)
-				{
-					ImGui::SameLine();
-					ImVec2 xLabelSize = ImGui::CalcTextSize("X");
-					float buttonSize = xLabelSize.y + ImGui::GetStyle().FramePadding.y * 2.0f;
-					if (ImGui::Button("X", ImVec2(buttonSize, buttonSize)))
-					{
-						m_Context->GetScriptStorage().ShutdownEntityStorage(component.ScriptHandle, entity.GetUUID());
-						AssetHandle result = 0;
-						component.ScriptHandle = result;
-						component.HasInitializedScript = false;
-					}
-				}
-
-				ImGui::PopItemWidth();
-				ImGui::NextColumn();
-				ImGui::Spacing();
-
-				if (component.ScriptHandle != 0)
-				{
-					isError = !scriptEngine.IsValidScript(component.ScriptHandle);
-
-					if (!isError && !component.HasInitializedScript)
-					{
-						m_Context->GetScriptStorage().InitializeEntityStorage(component.ScriptHandle, entity.GetUUID());
-						component.HasInitializedScript = true;
-					}
-					else if (isError && component.HasInitializedScript)
-					{
-						auto oldScriptHandle = component.ScriptHandle;
-						bool wasCleared = component.ScriptHandle == 0;
-
-						if (wasCleared)
-							component.ScriptHandle = oldScriptHandle;
-
-						m_Context->GetScriptStorage().ShutdownEntityStorage(component.ScriptHandle, entity.GetUUID());
-
-						if (wasCleared)
-							component.ScriptHandle = 0;
-
-						component.HasInitializedScript = false;
-					}
-				}
-
-				ImGui::Columns(1);
+				UI::EndPropertyGrid();
+			}*/
 			});
 
 		DrawComponent<SpriteRendererComponent>("Sprite Renderer", entity, [](auto& component)
@@ -470,7 +471,7 @@ namespace StarEngine {
 				if (component.Texture != 0)
 				{
 					if (AssetManager::IsAssetHandleValid(component.Texture)
-						&& AssetManager::GetAssetType(component.Texture) == AssetType::Texture2D)
+						&& AssetManager::GetAssetType(component.Texture) == AssetType::Texture)
 					{
 						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(component.Texture);
 						label = metadata.FilePath.filename().string();
@@ -492,7 +493,7 @@ namespace StarEngine {
 					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 					{
 						AssetHandle handle = *(AssetHandle*)payload->Data;
-						if (AssetManager::GetAssetType(handle) == AssetType::Texture2D)
+						if (AssetManager::GetAssetType(handle) == AssetType::Texture)
 						{
 							component.Texture = handle;
 						}
@@ -530,29 +531,29 @@ namespace StarEngine {
 			});
 
 		DrawComponent<RigidBody2DComponent>("RigidBody 2D", entity, [](auto& component)
+		{
+			const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
+			int bodyTypeIndex = static_cast<int>(component.BodyType);
+
+			if (ImGui::BeginCombo("Body Type", bodyTypeStrings[bodyTypeIndex]))
 			{
-				const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
-				const char* currentBodyTypeString = bodyTypeStrings[(int)component.Type];
-				if (ImGui::BeginCombo("Body Type", currentBodyTypeString))
+				for (int i = 0; i < 3; ++i) // 3 entries, not 2
 				{
-					for (int i = 0; i < 2; i++)
+					bool isSelected = (bodyTypeIndex == i);
+					if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
 					{
-						bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
-						if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
-						{
-							currentBodyTypeString = bodyTypeStrings[i];
-							component.Type = (RigidBody2DComponent::BodyType)i;
-						}
-
-						if (isSelected)
-							ImGui::SetItemDefaultFocus();
+						bodyTypeIndex = i;
+						component.BodyType = static_cast<RigidBody2DComponent::Type>(i);
 					}
-
-					ImGui::EndCombo();
+					if (isSelected)
+						ImGui::SetItemDefaultFocus();
 				}
+				ImGui::EndCombo();
+			}
 
-				ImGui::Checkbox("Fixed Rotation", &component.FixedRotation);
-			});
+			ImGui::Checkbox("Fixed Rotation", &component.FixedRotation);
+		});
+
 
 		DrawComponent<BoxCollider2DComponent>("Box Collider 2D", entity, [](auto& component)
 			{
@@ -560,8 +561,6 @@ namespace StarEngine {
 				ImGui::DragFloat2("Size", glm::value_ptr(component.Size));
 				ImGui::DragFloat("Density", &component.Density, 0.01f, 0.0f, 1.0f);
 				ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f);
 			});
 
 		DrawComponent<CircleCollider2DComponent>("Circle Collider 2D", entity, [](auto& component)
@@ -570,8 +569,6 @@ namespace StarEngine {
 				ImGui::DragFloat("Radius", &component.Radius);
 				ImGui::DragFloat("Density", &component.Density, 0.01f, 0.0f, 1.0f);
 				ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f);
 			});
 
 		DrawComponent<TextComponent>("Text Renderer", entity, [](auto& component)
@@ -934,11 +931,11 @@ namespace StarEngine {
 
 	template<typename T>
 	void SceneHierarchyPanel::DisplayAddComponentEntry(const std::string& entryName) {
-		if (!m_SelectionContext.HasComponent<T>())
+		if (!m_EntitySelectionContext.HasComponent<T>())
 		{
 			if (ImGui::MenuItem(entryName.c_str()))
 			{
-				m_SelectionContext.AddComponent<T>();
+				m_EntitySelectionContext.AddComponent<T>();
 				ImGui::CloseCurrentPopup();
 			}
 		}

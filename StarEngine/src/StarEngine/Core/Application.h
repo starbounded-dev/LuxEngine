@@ -13,6 +13,10 @@
 
 #include "StarEngine/ImGui/ImGuiLayer.h"
 
+#include "StarEngine/Core/Timer.h"
+
+#include <deque>
+
 int main(int argc, char** argv);
 
 namespace StarEngine
@@ -72,6 +76,8 @@ namespace StarEngine
 
 			const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 
+			static std::thread::id GetMainThreadID();
+			static bool IsMainThread();
 			void SubmitToMainThread(const std::function<void()>& function);
 
 			void AddEventCallback(const EventCallbackFn& eventCallback) { m_EventCallbacks.push_back(eventCallback); }
@@ -141,7 +147,7 @@ namespace StarEngine
 			std::mutex m_MainThreadQueueMutex;
 
 			PerformanceProfiler* m_Profiler = nullptr; // TODO: Should be null in Dist
-			std::unordered_map<const char*, PerformanceProfiler::PerFrameData> m_ProfilerPreviousFrameData;	
+			std::unordered_map<const char*, PerformanceProfiler::PerFrameData> m_ProfilerPreviousFrameData;
 
 			PerformanceTimers m_PerformanceTimers; // TODO(Yan): remove for Dist
 	private:

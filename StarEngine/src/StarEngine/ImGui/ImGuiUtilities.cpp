@@ -1,11 +1,8 @@
 #include <sepch.h>
 #include "ImGuiUtilities.h"
+#include "ImGui.h"
 
 #include "StarEngine/Renderer/RendererAPI.h"
-
-#ifdef IMGUI_DEFINE_MATH_OPERATORS
-#define IMGUI_DEFINE_MATH_OPERATORS
-#endif
 
 #include "StarEngine/ImGui/UICore.h"
 
@@ -682,7 +679,7 @@ namespace StarEngine::UI {
 
 		return pressed;
 	}
-	/*
+
 	void DrawButtonImage(Ref<Texture2D> imageNormal, Ref<Texture2D> imageHovered, Ref<Texture2D> imagePressed,
 		ImU32 tintNormal, ImU32 tintHovered, ImU32 tintPressed,
 		ImVec2 rectMin, ImVec2 rectMax, ImVec2 uv0, ImVec2 uv1)
@@ -695,7 +692,7 @@ namespace StarEngine::UI {
 		else
 			drawList->AddImage(GetTextureID(imageNormal), rectMin, rectMax, uv0, uv1, tintNormal);
 	};
-	
+	/*
 	void DrawButtonImage(Ref<Image2D> imageNormal, Ref<Image2D> imageHovered, Ref<Image2D> imagePressed,
 		ImU32 tintNormal, ImU32 tintHovered, ImU32 tintPressed,
 		ImVec2 rectMin, ImVec2 rectMax, ImVec2 uv0, ImVec2 uv1)

@@ -27,6 +27,7 @@ namespace StarEngine {
 
 		static size_t GetSelectionCount(SelectionContext contextID);
 		inline static const std::vector<UUID>& GetSelections(SelectionContext context) { return s_Contexts[context]; }
+
 	private:
 		inline static std::unordered_map<SelectionContext, std::vector<UUID>> s_Contexts;
 	};

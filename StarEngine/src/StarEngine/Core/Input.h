@@ -59,6 +59,9 @@ namespace StarEngine {
 		static float GetMouseY();
 		static std::pair<float, float> GetMousePosition();
 
+		bool IsInputEnabled();
+		static void SetInputEnabled(bool enabled);
+
 		static void SetCursorMode(CursorMode mode);
 		static CursorMode GetCursorMode();
 

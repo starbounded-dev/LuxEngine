@@ -172,13 +172,13 @@ namespace StarEngine {
 		return { (float)x, (float)y };
 	}
 
-	bool IsInputEnabled()
+	bool Input::IsInputEnabled()
 	{
 		const auto& io = ImGui::GetIO();
 		return (io.ConfigFlags & ImGuiConfigFlags_NoMouse) == 0 && (io.ConfigFlags & ImGuiConfigFlags_NavNoCaptureKeyboard) == 0;
 	}
 
-	void SetInputEnabled(bool enabled)
+	void Input::SetInputEnabled(bool enabled)
 	{
 		auto& io = ImGui::GetIO();
 
