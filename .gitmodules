@@ -1,31 +1,65 @@
-[submodule "StarEngine/vendor/spdlog"]
-	path = StarEngine/vendor/spdlog
-	url = ../../gabime/spdlog.git
-	branch = v1.x
 [submodule "StarEngine/vendor/GLFW"]
 	path = StarEngine/vendor/GLFW
-	url = ../../starbounded-dev/glfw.git
-	branch = master
-[submodule "StarEngine/vendor/imgui"]
-	path = StarEngine/vendor/imgui
-	url = ../../starbounded-dev/imgui.git
-	branch = docking
+	url = https://github.com/TheCherno/glfw
+	ignore = dirty
+	shallow = true
+
 [submodule "StarEngine/vendor/glm"]
 	path = StarEngine/vendor/glm
-	url = ../../g-truc/glm.git
-	branch = master
-[submodule "StarEngine/vendor/yaml-cpp"]
-	path = StarEngine/vendor/yaml-cpp
-	url = https://github.com/sheazywi/yaml-cpp
-[submodule "StarEngine/vendor/imguizmo"]
-	path = StarEngine/vendor/imguizmo
-	url = https://github.com/sheazywi/imguizmo.git
+	url = https://github.com/g-truc/glm
+	ignore = dirty
+	shallow = true
+
+[submodule "StarEngine/vendor/FastNoise"]
+	path = StarEngine/vendor/FastNoise
+	url = https://github.com/Auburns/FastNoise
+	ignore = dirty
+	shallow = true
+
 [submodule "StarEngine/vendor/Box2D"]
 	path = StarEngine/vendor/Box2D
-	url = https://github.com/sheazywi/box2d
+	url = https://github.com/TheCherno/Box2D
+	ignore = dirty
+	shallow = true
+
 [submodule "StarEngine/vendor/msdf-atlas-gen"]
 	path = StarEngine/vendor/msdf-atlas-gen
-	url = https://github.com/sheazywi/msdf-atlas-gen
+	url = https://github.com/TheCherno/msdf-atlas-gen
+	ignore = dirty
+	shallow = true
+
+[submodule "StarEngine/vendor/NFD-Extended/NFD-Extended"]
+	path = StarEngine/vendor/NFD-Extended/NFD-Extended
+	url = https://github.com/btzy/nativefiledialog-extended
+	ignore = dirty
+	shallow = true
+
 [submodule "StarEngine/vendor/tracy/tracy"]
 	path = StarEngine/vendor/tracy/tracy
 	url = https://github.com/wolfpld/tracy
+	ignore = dirty
+	shallow = true
+
+[submodule "StarEngine/vendor/backward-cpp"]
+	path = StarEngine/vendor/backward-cpp
+	url = https://github.com/bombela/backward-cpp
+	ignore = dirty
+	shallow = true
+
+[submodule "StarEngine/vendor/nvrhi"]
+	path = StarEngine/vendor/nvrhi
+	url = https://github.com/StudioCherno/nvrhi
+	branch = hazel
+
+[submodule "StarEngine/vendor/imgui"]
+	path = StarEngine/vendor/imgui
+	url = https://github.com/StudioCherno/imgui
+	branch = hazel
+
+[submodule "StarEngine/vendor/yaml-cpp"]
+	path = StarEngine/vendor/yaml-cpp
+	url = https://github.com/sheazywi/yaml-cpp
+
+[submodule "StarEngine/vendor/imguizmo"]
+	path = StarEngine/vendor/imguizmo
+	url = https://github.com/sheazywi/imguizmo.git
