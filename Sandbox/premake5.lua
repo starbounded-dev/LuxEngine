@@ -1,8 +1,5 @@
 project "Sandbox"
 	kind "ConsoleApp"
-	language "C++"
-	cppdialect "C++17"
-	staticruntime "off"
 
 	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
@@ -12,33 +9,6 @@ project "Sandbox"
 		"src/**.h",
 		"src/**.cpp"
 	}
-
-	includedirs
-	{
-		"%{wks.location}/StarEngine/vendor/spdlog/include",
-		"%{wks.location}/StarEngine/src",
-		"%{wks.location}/StarEngine/vendor",
-		"%{IncludeDir.glm}",
-		"%{IncludeDir.entt}",
-		"%{IncludeDir.Tracy}",
-		"%{IncludeDir.GLAD}",
-		"%{IncludeDir.miniaudio}"
-	}
-
-	links
-	{
-		"StarEngine",
-		"GLAD",
-		"%{Library.Tracy}"
-	}
-
-	defines
-	{
-		"TRACY_ENABLE",
-		"TRACY_ON_DEMAND",
-		"TRACY_CALLSTACK=10"
-	}
-
 	filter "system:windows" 
 		systemversion "latest"
 

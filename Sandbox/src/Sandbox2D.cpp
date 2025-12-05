@@ -1,11 +1,11 @@
 #include "Sandbox2D.h"
 
-#include <imgui/imgui.h>
+#include <imgui.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "imgui/imgui_internal.h"
+#include "imgui_internal.h"
 
 #include "StarEngine/Asset/TextureImporter.h"
 

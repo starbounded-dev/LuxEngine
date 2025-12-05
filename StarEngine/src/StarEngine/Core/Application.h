@@ -32,6 +32,7 @@ namespace StarEngine
 		std::string Name = "StarEngine Application";
 		std::string WorkingDirectory;
 		ApplicationCommandLineArgs CommandLineArgs;
+		bool EnableImGui = true;
 	};
 
 	class Application

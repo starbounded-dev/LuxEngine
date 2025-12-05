@@ -16,16 +16,6 @@
 
 #include "box2d/b2_body.h"
 
-template<>
-struct fmt::formatter<glm::vec3> {
-	constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
-
-	template<typename FormatContext>
-	auto format(const glm::vec3& vec, FormatContext& ctx) const { // Marked as const
-		return format_to(ctx.out(), "({}, {}, {})", vec.x, vec.y, vec.z);
-	}
-};
-
 namespace StarEngine {
 
 	namespace Utils {
@@ -52,15 +42,16 @@ namespace StarEngine {
 
 	static void NativeLog_Vector(glm::vec3* parameter, glm::vec3* outResult)
 	{
-		SE_CORE_WARN("Value: {}", *parameter);
+		SE_CORE_WARN("Value: ({}, {}, {})", parameter->x, parameter->y, parameter->z);
 		*outResult = glm::normalize(*parameter);
 	}
 
 	static float NativeLog_VectorDot(glm::vec3* parameter)
 	{
-		SE_CORE_WARN("Value: {}", *parameter);
+		SE_CORE_WARN("Value: ({}, {}, {})", parameter->x, parameter->y, parameter->z);
 		return glm::dot(*parameter, *parameter);
 	}
+
 
 	static MonoObject* GetScriptInstance(UUID entityID)
 	{
@@ -284,7 +275,7 @@ namespace StarEngine {
 				std::string_view typeName = typeid(Component).name();
 				size_t pos = typeName.find_last_of(':');
 				std::string_view structName = typeName.substr(pos + 1);
-				std::string managedTypename = fmt::format("StarEngine.{}", structName);
+				std::string managedTypename = format("StarEngine.{}", structName);
 
 				MonoType* managedType = mono_reflection_type_from_name(managedTypename.data(), ScriptEngine::GetCoreAssemblyImage());
 				if (!managedType)

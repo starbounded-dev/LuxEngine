@@ -134,7 +134,7 @@ namespace StarEngine {
 
 		{
 			auto filter = m_Registry.view<TransformComponent, AudioListenerComponent>();
-			filter.each([&](TransformComponent& transform, AudioListenerComponent& ac)
+			filter.each([&](entt::entity entity, TransformComponent& transform, AudioListenerComponent& ac)
 				{
 					ac.Listener = CreateRef<AudioListener>();
 					if (ac.Active)
@@ -150,7 +150,7 @@ namespace StarEngine {
 
 		{
 			auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
-			view.each([&](TransformComponent& transform, AudioSourceComponent& ac)
+			view.each([&](entt::entity entity, TransformComponent& transform, AudioSourceComponent& ac)
 				{
 					if (AssetManager::IsAssetHandleValid(ac.Audio))
 					{

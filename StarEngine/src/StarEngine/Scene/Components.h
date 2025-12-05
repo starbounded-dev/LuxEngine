@@ -44,7 +44,12 @@ namespace StarEngine {
 
 		IDComponent() = default;
 		IDComponent(const IDComponent&) = default;
+		IDComponent(UUID id)
+			: ID(id)
+		{
+		}
 	};
+
 
 	struct TagComponent
 	{

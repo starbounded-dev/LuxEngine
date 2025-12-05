@@ -19,24 +19,6 @@
 
 #include "StarEngine/Project/Project.h"
 
-namespace fmt {
-	template <>
-	struct formatter<std::filesystem::path> : formatter<std::string> {
-		template <typename FormatContext>
-		auto format(const std::filesystem::path& path, FormatContext& ctx) const {
-			return formatter<std::string>::format(path.string(), ctx);
-		}
-	};
-
-	template <>
-	struct formatter<StarEngine::UUID> : formatter<std::string> {
-		template <typename FormatContext>
-		auto format(const StarEngine::UUID& uuid, FormatContext& ctx) const {
-			return formatter<std::string>::format(std::to_string(uuid), ctx);
-		}
-	};
-} // namespace fmt
-
 namespace StarEngine {
 
 	static std::unordered_map<std::string, ScriptFieldType> s_ScriptFieldTypeMap =
@@ -86,8 +68,9 @@ namespace StarEngine {
 				{
 					ScopedBuffer pdbFileData = FileSystem::ReadFileBinary(pdbPath);
 					mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), pdbFileData.Size());
-					SE_CORE_INFO("Loaded PDB {}", pdbPath);
+					SE_CORE_INFO("Loaded PDB {}", pdbPath.string());
 				}
+
 			}
 
 			std::string pathString = assemblyPath.string();
@@ -259,7 +242,8 @@ namespace StarEngine {
 	bool ScriptEngine::LoadAssembly(const std::filesystem::path& filepath)
 	{
 		// Create an App Domain
-		s_Data->AppDomain = mono_domain_create_appdomain("StarEngineScriptRuntime", nullptr);
+		char appDomainName[] = "StarEngineScriptRuntime";
+		s_Data->AppDomain = mono_domain_create_appdomain(appDomainName, nullptr);
 		mono_domain_set(s_Data->AppDomain, true);
 
 		s_Data->CoreAssemblyFilepath = filepath;
@@ -343,8 +327,11 @@ namespace StarEngine {
 		}
 		else
 		{
-			SE_CORE_ERROR("Could not find ScriptInstance for entity {0}", entityUUID);
+			SE_CORE_ERROR("Could not find ScriptInstance for entity {}", (uint64_t)entityUUID);
+			// or if you have a ToString():
+			// SE_CORE_ERROR("Could not find ScriptInstance for entity {}", entityUUID.ToString());
 		}
+
 	}
 
 	Scene* ScriptEngine::GetSceneContext()
@@ -406,7 +393,7 @@ namespace StarEngine {
 			const char* className = mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAME]);
 			std::string fullName;
 			if (strlen(nameSpace) != 0)
-				fullName = fmt::format("{}.{}", nameSpace, className);
+				fullName = glm::detail::format("{}.{}", nameSpace, className);
 			else
 				fullName = className;
 

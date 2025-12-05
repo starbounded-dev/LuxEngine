@@ -9,15 +9,6 @@
 #include <spdlog/fmt/fmt.h>
 #include <filesystem>
 
-namespace fmt {
-	template <>
-	struct formatter<std::filesystem::path> : formatter<std::string> {
-		auto format(const std::filesystem::path& path, format_context& ctx) const {
-			return formatter<std::string>::format(path.string(), ctx);
-		}
-	};
-} // namespace fmt
-
 namespace StarEngine {
 
 	static std::map<std::filesystem::path, AssetType> s_AssetExtensionMap = {
@@ -37,7 +28,7 @@ namespace StarEngine {
 	{
 		if (s_AssetExtensionMap.find(extension) == s_AssetExtensionMap.end())
 		{
-			SE_CORE_WARN("Could not find AssetType for {}", extension);
+			SE_CORE_WARN("Could not find AssetType for {}", extension.string());
 			return AssetType::None;
 		}
 
@@ -191,9 +182,9 @@ namespace StarEngine {
 		{
 			data = YAML::LoadFile(path.string());
 		}
-		catch (YAML::ParserException e)
+		catch (YAML::ParserException& e)
 		{
-			SE_CORE_ERROR("Failed to load project file '{0}'\n     {1}", path, e.what());
+			SE_CORE_ERROR("Failed to load project file '{}'\n     {}", path.string(), e.what());
 			return false;
 		}
 

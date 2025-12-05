@@ -1,8 +1,8 @@
 project "StarEngine"
 	kind "StaticLib"
-	language "C++"
-	cppdialect "C++17"
-	staticruntime "off"
+	--dependson "Coral.Managed"
+
+	debuggertype "NativeWithManagedCore"
 
 	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
@@ -10,122 +10,83 @@ project "StarEngine"
 	pchheader "sepch.h"
 	pchsource "src/sepch.cpp"
 
-	files
-	{
+	files {
 		"src/**.h",
+		"src/**.c",
+		"src/**.hpp",
 		"src/**.cpp",
-		"vendor/stb_image/**.h",
-		"vendor/stb_image/**.cpp",
-		"vendor/glm/glm/**.hpp",
-		"vendor/glm/glm/**.inl",
 
-		"vendor/imguizmo/ImGuizmo.h",
-		"vendor/imguizmo/ImGuizmo.cpp"
+		"Platform/" .. firstToUpper(os.target()) .. "/**.hpp",
+		"Platform/" .. firstToUpper(os.target()) .. "/**.cpp", 
+
+		"vendor/FastNoise/**.cpp",
+
+		"vendor/yaml-cpp/src/**.cpp",
+		"vendor/yaml-cpp/src/**.h",
+		"vendor/yaml-cpp/include/**.h",
+		"vendor/VulkanMemoryAllocator/**.h",
+		"vendor/VulkanMemoryAllocator/**.cpp",
+
+		"vendor/imgui/misc/cpp/imgui_stdlib.cpp",
+		"vendor/imgui/misc/cpp/imgui_stdlib.h"
 	}
 
-	defines
-	{
-		"_CRT_SECURE_NO_WARNINGS",
-		"GLFW_INCLUDE_NONE",
-		"TRACY_ENABLE",
-		"TRACY_ON_DEMAND",
-		"TRACY_CALLSTACK=10",
-		"YAML_CPP_STATIC_DEFINE"
+	removefiles {
+		"src/StarEngine/Platform/DX11/**.cpp",
+		"src/StarEngine/Platform/DX12/**.cpp",
 	}
 
-	includedirs
-	{
-		"src",
-		"vendor/spdlog/include",
-		"%{IncludeDir.GLFW}",
-		"%{IncludeDir.GLAD}",
-		"%{IncludeDir.Box2D}",
-		"%{IncludeDir.ImGui}",
-		"%{IncludeDir.glm}",
-		"%{IncludeDir.filewatch}",
-		"%{IncludeDir.stb_image}",
-		"%{IncludeDir.entt}",
-		"%{IncludeDir.msdfgen}",
-		"%{IncludeDir.msdf_atlas_gen}",
-		"%{IncludeDir.yaml_cpp}",
-		"%{IncludeDir.ImGuizmo}",
-		"%{IncludeDir.VulkanSDK}",
-		"%{IncludeDir.Tracy}",
+	includedirs { "src/", "vendor/", }
 
-		"%{IncludeDir.mono}",
-		"%{IncludeDir.miniaudio}"
-	}
+	IncludeDependencies()
 
-	links
-	{
-		"GLFW",
-		"GLAD",
-		"imgui",
-		"opengl32",
-		"yaml-cpp",
-		"msdf-atlas-gen",
-		"Box2D",
-		"DbgHelp",
-		"dwmapi.lib",
+	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE" }
 
-		"%{Library.Tracy}",
-		"%{Library.mono}",
-	}
-
-	filter "files:vendor/imguizmo/**.cpp"
+	filter "files:vendor/FastNoise/**.cpp or files:vendor/yaml-cpp/src/**.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:src/StarEngine/Tiering/TieringSerializer.cpp or files:src/StarEngine/Core/ApplicationSettings.cpp"
 	flags { "NoPCH" }
 
 	filter "system:windows"
 		systemversion "latest"
+		defines { "SE_PLATFORM_WINDOWS", }
 
-		defines
-		{
+	filter "system:linux"
+		defines { "SE_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
+		links { "dw", "dl", "unwind", "pthread" }
 
-		}
+	filter "configurations:Debug or configurations:Debug-AS"
+		symbols "On"
+		defines { "SE_DEBUG", "_DEBUG", "ACL_ON_ASSERT_ABORT", }
 
-		links 
-		{
-			"%{Library.WinSock}",
-			"%{Library.WinMM}",
-			"%{Library.WinVersion}",
-			"%{Library.BCrypt}",
-		}
-
-	filter "configurations:Debug"
-		defines "SE_DEBUG"
-		runtime "Debug"
-		symbols "on"
-
-		links
-		{
-			"%{Library.ShaderC_Debug}",
-			"%{Library.SPIRV_Cross_Debug}",
-			"%{Library.SPIRV_Cross_GLSL_Debug}"
-		}
+	filter { "system:windows", "configurations:Debug-AS" }	
+		sanitize { "Address" }
+		flags { "NoRuntimeChecks", "NoIncrementalLink" }
 
 	filter "configurations:Release"
-		defines "SE_RELEASE"
-		runtime "Release"
-		optimize "on"
+		optimize "On"
+		vectorextensions "AVX2"
+		isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
+		defines { "SE_RELEASE", "NDEBUG", }
 
-		links
-		{
-			"%{Library.ShaderC_Release}",
-			"%{Library.SPIRV_Cross_Release}",
-			"%{Library.SPIRV_Cross_GLSL_Release}"
+	filter { "configurations:Debug or configurations:Debug-AS or configurations:Release" }
+		defines {
+			"SE_TRACK_MEMORY",
+
+			"JPH_DEBUG_RENDERER",
+			"JPH_FLOATING_POINT_EXCEPTIONS_ENABLED",
+			"JPH_EXTERNAL_PROFILE"
 		}
 
 	filter "configurations:Dist"
-		defines "SE_DIST"
-		runtime "Release"
-		optimize "on"
+		optimize "On"
+		symbols "Off"
+		vectorextensions "AVX2"
+		isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
+		defines { "SE_DIST" }
 
-		links
-		{
-			"%{Library.ShaderC_Release}",
-			"%{Library.SPIRV_Cross_Release}",
-			"%{Library.SPIRV_Cross_GLSL_Release}"
+		removefiles {
+			"src/StarEngine/Platform/Vulkan/ShaderCompiler/**.cpp",
+			"src/StarEngine/Platform/Vulkan/Debug/**.cpp",
+
+			"src/StarEngine/Asset/AssimpAnimationImporter.cpp",
+			"src/StarEngine/Asset/AssimpMeshImporter.cpp",
 		}
-
-	filter "action:vs2022"
-		buildoptions { "/utf-8" }

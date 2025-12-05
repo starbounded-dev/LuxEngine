@@ -5,7 +5,7 @@
 #include "StarEngine/Scene/SceneSerializer.h"
 #include "StarEngine/Scripting/ScriptEngine.h"
 
-#include <stb_image.h>
+#include <stb_image/stb_image.h>
 
 namespace StarEngine {
 

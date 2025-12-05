@@ -1,25 +1,15 @@
+StarRootDirectory = os.getenv("STAR_DIR")
+
 project "StarEngine-ScriptCore"
 	kind "SharedLib"
 	language "C#"
-	dotnetframework "4.7.2"
+	dotnetframework "net4.7.2"
+	clr "Unsafe"
 
-	targetdir ("../StarEditor/Resources/Scripts")
-	objdir ("../StarEditor/Resources/Scripts/Intermediates")
+	targetdir "%{StarRootDirectory}/StarEditor/Resources/Scripts"
+	objdir "%{StarRootDirectory}/StarEditor/Resources/Scripts/Intermediates"
 
-	files 
-	{
+	files {
 		"Source/**.cs",
 		"Properties/**.cs"
 	}
-	
-	filter "configurations:Debug"
-		optimize "Off"
-		symbols "Default"
-
-	filter "configurations:Release"
-		optimize "On"
-		symbols "Default"
-
-	filter "configurations:Dist"
-		optimize "Full"
-		symbols "Off"

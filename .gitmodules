@@ -10,12 +10,6 @@
 	ignore = dirty
 	shallow = true
 
-[submodule "StarEngine/vendor/FastNoise"]
-	path = StarEngine/vendor/FastNoise
-	url = https://github.com/Auburns/FastNoise
-	ignore = dirty
-	shallow = true
-
 [submodule "StarEngine/vendor/Box2D"]
 	path = StarEngine/vendor/Box2D
 	url = https://github.com/TheCherno/Box2D
