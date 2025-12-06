@@ -1,13 +1,37 @@
-#include "sepch.h"
+﻿#include "sepch.h"
 #include "StarEngine/Core/Application.h"
 
 #include "StarEngine/Core/Log.h"
-
 #include "StarEngine/Core/Input.h"
 #include "StarEngine/Renderer/Renderer.h"
 #include "StarEngine/Scripting/ScriptEngine.h"
+#include "StarEngine/Utilities/PlatformUtils.h"
 
-#include "StarEngine/Utils/PlatformUtils.h"
+#include <filesystem>
+#include <cstdlib>
+#include <fstream>   // 🔹 add this
+
+#include "StarEngine/Platform/Discord/DiscordManager.h"
+
+
+static constexpr uint64_t s_DiscordAppId = 1341559613228847155;
+
+static std::filesystem::path GetDiscordTokenPath()
+{
+#ifdef SE_PLATFORM_WINDOWS
+	const char* localAppData = std::getenv("LOCALAPPDATA");
+	std::filesystem::path base = localAppData ? localAppData : ".";
+	std::filesystem::path dir = base / "StarEngine";
+
+	std::error_code ec;
+	std::filesystem::create_directories(dir, ec);
+
+	return dir / "discord_token.txt";
+#else
+	return std::filesystem::path("discord_token.txt");
+#endif
+}
+
 
 namespace StarEngine
 {
@@ -31,6 +55,66 @@ namespace StarEngine
 
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);
+
+		// ----- Discord Social SDK -----
+		m_DiscordSDK = CreateScope<DiscordSocialSDK>();
+
+		if (!m_DiscordSDK->Initialize(s_DiscordAppId))
+		{
+			SE_CORE_ERROR("Failed to initialize Discord Social SDK");
+		}
+		else
+		{
+			// Set OnReady ONCE, works for both saved token + fresh auth
+			auto* discordSDK = m_DiscordSDK.get();
+			m_DiscordSDK->SetOnReadyCallback([discordSDK]()
+				{
+					DiscordManager::Init(
+						discordSDK,
+						"StarEditor",             // or "StarEngine" if you prefer
+						"stareditor",    // large image key
+						"starengine"     // small image key
+					);
+				});
+
+			// 1) Try loading saved token
+			m_DiscordAccessToken = LoadDiscordTokenFromDisk();
+
+			if (!m_DiscordAccessToken.empty())
+			{
+				SE_CORE_INFO("Using saved Discord token");
+				m_DiscordSDK->UpdateToken(m_DiscordAccessToken);
+			}
+			else
+			{
+				SE_CORE_INFO("No saved Discord token, starting Discord authorization");
+
+				m_DiscordSDK->Authorize(
+					[this](bool success, const std::string& accessToken)
+					{
+						if (!success)
+						{
+							SE_CORE_ERROR("Discord authorization failed (see previous logs for reason)");
+							return;
+						}
+
+						SE_CORE_INFO("Discord authorization succeeded, saving token");
+						m_DiscordAccessToken = accessToken;
+						SaveDiscordTokenToDisk(accessToken);
+
+						// You *can* set an initial activity here,
+						// but DiscordManager::Init + RefreshPresence will also handle it.
+						DiscordActivity activity;
+						activity.State = "In Editor";
+						activity.Details = "Messing with StarEngine";
+						activity.StartTimestamp = std::time(nullptr);
+
+						m_DiscordSDK->UpdateActivity(activity);
+					});
+			}
+		}
+
+
 	}
 
 	Application::~Application()
@@ -39,6 +123,9 @@ namespace StarEngine
 
 		ScriptEngine::Shutdown();
 		Renderer::Shutdown();
+
+		if (m_DiscordSDK)
+			m_DiscordSDK->Shutdown();
 	}
 
 	void Application::PushLayer(Layer* layer)
@@ -118,6 +205,9 @@ namespace StarEngine
 				m_ImGuiLayer->End();
 			}
 
+			if (m_DiscordSDK)
+				m_DiscordSDK->Update();
+
 			m_Window->OnUpdate();
 			SE_PROFILE_MARK_FRAME;
 		}
@@ -154,5 +244,34 @@ namespace StarEngine
 
 		m_MainThreadQueue.clear();
 	}
+
+	std::string Application::LoadDiscordTokenFromDisk()
+	{
+		auto path = GetDiscordTokenPath();
+		if (!std::filesystem::exists(path))
+			return {};
+
+		std::ifstream in(path);
+		if (!in)
+			return {};
+
+		std::string token;
+		std::getline(in, token);
+		return token;
+	}
+
+	void Application::SaveDiscordTokenToDisk(const std::string& token)
+	{
+		auto path = GetDiscordTokenPath();
+		std::ofstream out(path, std::ios::trunc);
+		if (!out)
+		{
+			SE_CORE_ERROR("Failed to write Discord token file: {}", path.string());
+			return;
+		}
+
+		out << token;
+	}
+
 
 }

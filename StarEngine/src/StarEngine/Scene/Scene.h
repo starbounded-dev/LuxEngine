@@ -45,6 +45,8 @@ namespace StarEngine {
 
 		Entity GetPrimaryCameraEntity();
 
+		std::string GetName() const { return m_Name; }
+
 		bool IsRunning() const { return m_IsRunning; }
 
 		bool IsPaused() const { return m_IsPaused; }
@@ -69,6 +71,8 @@ namespace StarEngine {
 	private:
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
+
+		std::string m_Name = "Unnamed Scene";
 
 		bool m_IsRunning = false;
 

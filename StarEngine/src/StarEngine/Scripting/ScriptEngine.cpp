@@ -15,7 +15,7 @@
 #include "StarEngine/Core/Application.h"
 #include "StarEngine/Core/Timer.h"
 #include "StarEngine/Core/Buffer.h"
-#include "StarEngine/Core/FileSystem.h"
+#include "StarEngine/Utilities/FileSystem.h"
 
 #include "StarEngine/Project/Project.h"
 
@@ -46,7 +46,7 @@ namespace StarEngine {
 
 		static MonoAssembly* LoadMonoAssembly(const std::filesystem::path& assemblyPath, bool loadPDB = false)
 		{
-			ScopedBuffer fileData = FileSystem::ReadFileBinary(assemblyPath);
+			ScopedBuffer fileData = FileSystem::ReadBytes(assemblyPath);
 
 			// NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
 			MonoImageOpenStatus status;
@@ -66,7 +66,7 @@ namespace StarEngine {
 
 				if (std::filesystem::exists(pdbPath))
 				{
-					ScopedBuffer pdbFileData = FileSystem::ReadFileBinary(pdbPath);
+					ScopedBuffer pdbFileData = FileSystem::ReadBytes(pdbPath);
 					mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), pdbFileData.Size());
 					SE_CORE_INFO("Loaded PDB {}", pdbPath.string());
 				}

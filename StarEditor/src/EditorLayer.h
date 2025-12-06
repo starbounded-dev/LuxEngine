@@ -16,7 +16,7 @@ namespace StarEngine
 	{
 	public:
 		EditorLayer();
-		virtual ~EditorLayer() = default;
+		~EditorLayer();
 
 		virtual void OnAttach() override;
 		virtual void OnDetach() override;

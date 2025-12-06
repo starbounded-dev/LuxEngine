@@ -35,6 +35,10 @@ project "StarEditor"
 		systemversion "latest"
 		defines { "SE_PLATFORM_WINDOWS" }
 
+		postbuildcommands {
+            '{COPY} "%{wks.location}/StarEngine/vendor/discord_social_sdk/bin/%{cfg.buildcfg}/discord_partner_sdk.dll" "%{cfg.targetdir}"'
+        }
+
 	filter "system:linux"
 		defines { "SE_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread" }

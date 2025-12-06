@@ -124,6 +124,10 @@ Dependencies = {
 		LibName = "%{wks.location}/StarEngine/vendor/mono/lib/%{cfg.buildcfg}/libmono-static-sgen.lib",
 		IncludeDir = "%{wks.location}/StarEngine/vendor/mono/include",
 	},
+	DiscordSocialSDK = {
+		LibName = "%{wks.location}/StarEngine/vendor/discord_social_sdk/lib/%{cfg.buildcfg}/discord_partner_sdk.lib",
+		IncludeDir = "%{wks.location}/StarEngine/vendor/discord_social_sdk/include",
+	},
 	GLM = {
 		IncludeDir = "%{wks.location}/StarEngine/vendor/glm",
 	},

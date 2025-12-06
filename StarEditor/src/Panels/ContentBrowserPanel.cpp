@@ -5,7 +5,7 @@
 
 #include <imgui/imgui.h>
 
-#include "StarEngine/Utils/StringUtils.h"
+#include "StarEngine/Utilities/StringUtils.h"
 
 namespace StarEngine {
 

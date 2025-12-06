@@ -10,6 +10,7 @@
 #include "StarEngine/Core/Timestep.h"
 
 #include "StarEngine/ImGui/ImGuiLayer.h"
+#include "StarEngine/Platform/Discord/DiscordSocialSDK.h"
 
 int main(int argc, char** argv);
 
@@ -56,6 +57,8 @@ namespace StarEngine
 
 			const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 
+			DiscordSocialSDK* GetDiscord() { return m_DiscordSDK.get(); }
+
 			void SubmitToMainThread(const std::function<void()>& function);
 		private:
 			void Run();
@@ -64,6 +67,11 @@ namespace StarEngine
 			bool OnWindowResize(WindowResizeEvent& e);
 
 			void ExecuteMainThreadQueue();
+		private:
+			std::string LoadDiscordTokenFromDisk();
+			void SaveDiscordTokenToDisk(const std::string& token);
+
+			std::string m_DiscordAccessToken;
 		private:
 			ApplicationSpecification m_Specification;
 			Scope<Window> m_Window;
@@ -75,6 +83,8 @@ namespace StarEngine
 
 			std::vector<std::function<void()>> m_MainThreadQueue;
 			std::mutex m_MainThreadQueueMutex;
+
+			Scope<DiscordSocialSDK> m_DiscordSDK;
 		private:
 				static Application* s_Instance;
 				friend int ::main(int argc, char** argv);

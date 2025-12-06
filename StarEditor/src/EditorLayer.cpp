@@ -1,10 +1,12 @@
 #include "EditorLayer.h"
 
 #include "StarEngine/Scene/SceneSerializer.h"
-#include "StarEngine/Utils/PlatformUtils.h"
+#include "StarEngine/Utilities/PlatformUtils.h"
 #include "StarEngine/Math/Math.h"
 #include "StarEngine/Scripting/ScriptEngine.h"
 #include "StarEngine/Renderer/Font.h"
+
+#include "StarEngine/Platform/Discord/DiscordManager.h"
 
 #include "StarEngine/Asset/AssetManager.h"
 #include "StarEngine/Asset/TextureImporter.h"
@@ -27,6 +29,13 @@ namespace StarEngine {
 
 		s_Font = Font::GetDefault();
 
+	}
+
+	EditorLayer::~EditorLayer()
+	{
+		auto discord = Application::Get().GetDiscord();
+		if (discord && discord->IsReady())
+			discord->ClearActivity();
 	}
 
 	void EditorLayer::OnAttach()
@@ -453,7 +462,6 @@ namespace StarEngine {
 		ImGui::End();
 	}
 
-
 	void EditorLayer::OnEvent(Event& e)
 	{
 		m_CameraController.OnEvent(e);
@@ -669,6 +677,8 @@ namespace StarEngine {
 				OpenScene(startScene);
 			m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>(Project::GetActive());
 		}
+
+		DiscordManager::OnProjectChanged(Project::GetActive()->GetConfig().Name);
 	}
 
 	bool EditorLayer::OpenProject()
@@ -717,6 +727,8 @@ namespace StarEngine {
 
 		m_ActiveScene = m_EditorScene;
 		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle);
+
+		DiscordManager::OnSceneChanged(m_ActiveScene->GetName());
 	}
 
 	void EditorLayer::SaveScene()
@@ -753,6 +765,8 @@ namespace StarEngine {
 		m_ActiveScene->OnRuntimeStart();
 
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+
+		DiscordManager::OnPlayModeChanged(true);  // on Play
 	}
 
 	void EditorLayer::OnSceneSimulate()
@@ -766,6 +780,8 @@ namespace StarEngine {
 		m_ActiveScene->OnSimulationStart();
 
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+
+		DiscordManager::OnPlayModeChanged(true);  // on Play
 	}
 
 	void EditorLayer::OnSceneStop()
@@ -783,6 +799,8 @@ namespace StarEngine {
 		m_ActiveScene = m_EditorScene;
 
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+
+		DiscordManager::OnPlayModeChanged(false); // on Stop
 	}
 
 	void EditorLayer::OnScenePause()
