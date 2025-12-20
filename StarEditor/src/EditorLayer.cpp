@@ -688,7 +688,7 @@ namespace StarEngine {
 
 	void EditorLayer::OpenScene()
 	{
-		// std::string filepath = FileDialogs::OpenFile("Hazel Scene (*.hazel)\0*.hazel\0");
+		// std::string filepath = FileDialogs::OpenFile("StarEngine Scene (*.hazel)\0*.hazel\0");
 		// if (!filepath.empty())
 		// 	OpenScene(filepath);
 	}

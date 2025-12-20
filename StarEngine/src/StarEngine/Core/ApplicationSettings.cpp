@@ -25,7 +25,7 @@ namespace StarEngine {
 	{
 		YAML::Emitter out;
 		out << YAML::BeginMap;
-		out << YAML::Key << "Hazel Application Settings";
+		out << YAML::Key << "StarEngine Application Settings";
 		out << YAML::Value;
 
 		out << YAML::BeginMap;
@@ -54,7 +54,7 @@ namespace StarEngine {
 
 		YAML::Node data = YAML::Load(strStream.str());
 
-		auto settings = data["Hazel Application Settings"];
+		auto settings = data["StarEngine Application Settings"];
 		if (!settings)
 			return false;
 

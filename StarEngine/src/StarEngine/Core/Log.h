@@ -241,7 +241,7 @@ namespace StarEngine {
 		logger->error("{0}: {1}", prefix, formatted);
 
 #if SE_ASSERT_MESSAGE_BOX
-		MessageBoxA(nullptr, formatted.data(), "Hazel Assert", MB_OK | MB_ICONERROR);
+		MessageBoxA(nullptr, formatted.data(), "StarEngine Assert", MB_OK | MB_ICONERROR);
 #endif
 	}
 
@@ -251,7 +251,7 @@ namespace StarEngine {
 		auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
 		logger->error("{0}", prefix);
 #if SE_ASSERT_MESSAGE_BOX
-		MessageBoxA(nullptr, "No message :(", "Hazel Assert", MB_OK | MB_ICONERROR);
+		MessageBoxA(nullptr, "No message :(", "StarEngine Assert", MB_OK | MB_ICONERROR);
 #endif
 	}
 }

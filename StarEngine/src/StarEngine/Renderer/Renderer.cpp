@@ -229,7 +229,7 @@ namespace StarEngine {
 
 		// NOTE: some shaders (compute) need to have optimization disabled because of a shaderc internal error
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ImGui.hlsl");
-		/*Renderer::GetShaderLibrary()->Load("Resources/Shaders/HZB.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HZB.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Static.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Transparent.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Anim.glsl");
@@ -286,7 +286,7 @@ namespace StarEngine {
 		// Misc
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SelectedGeometry.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SelectedGeometry_Anim.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/TexturePass.glsl");*/
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/TexturePass.glsl");
 
 		// Compile shaders
 		Application::Get().GetRenderThread().Pump();

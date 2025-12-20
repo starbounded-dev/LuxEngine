@@ -74,7 +74,7 @@ namespace StarEngine {
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;  // We can create multi-viewports on the Renderer side (optional)
 		// If the font texture exists and is bound to ImGui, we're done.
 		// Note: ImGui_Renderer will reset io.Fonts->TexID when new fonts are added.
-		if (m_FontTexture && io.Fonts->TexID)
+		if (m_FontTexture && io.Fonts->TexRef.GetTexID())
 			return true;
 
 		unsigned char* pixels;
@@ -387,7 +387,7 @@ namespace StarEngine {
 				}
 				else
 				{
-					drawState.bindings = { GetBindingSet((nvrhi::ITexture*)pCmd->TextureId) };
+					drawState.bindings = { GetBindingSet((nvrhi::ITexture*)pCmd->GetTexID()) };
 					SE_CORE_ASSERT(drawState.bindings[0]);
 
 					// Project scissor/clipping rectangles into framebuffer space

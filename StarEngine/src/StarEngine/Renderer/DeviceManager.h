@@ -159,13 +159,13 @@ namespace StarEngine
             y = m_DPIScaleFactorY;
         }
 
-		Window* GetWindowContext() { return m_HazelWindow; }
-		void SetWindowContext(Window* window) { m_HazelWindow = window; }
+		Window* GetWindowContext() { return m_StarEngineWindow; }
+		void SetWindowContext(Window* window) { m_StarEngineWindow = window; }
     protected:
         bool m_windowVisible = false;
 
         DeviceCreationParameters m_DeviceParams;
-        Window* m_HazelWindow = nullptr;
+        Window* m_StarEngineWindow = nullptr;
 		GLFWwindow* m_WindowHandle = nullptr;
         bool m_EnableRenderDuringWindowMovement = false;
         // set to true if running on NV GPU

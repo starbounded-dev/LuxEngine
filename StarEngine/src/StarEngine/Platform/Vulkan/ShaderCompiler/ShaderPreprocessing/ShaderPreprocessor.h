@@ -193,7 +193,7 @@ namespace StarEngine {
 				else if (tokens[index] == "ifdef")
 				{
 					++index;
-					if (tokens[index].rfind("__HZ_", 0) == 0) // Hazel special macros start with "__HZ_"
+					if (tokens[index].rfind("__SE_", 0) == 0) // StarEngine special macros start with "__SE_"
 					{
 						specialMacros.emplace(tokens[index]);
 					}
@@ -203,7 +203,7 @@ namespace StarEngine {
 					++index;
 					for (size_t i = index; i < tokens.size(); ++i)
 					{
-						if (tokens[i].rfind("__HZ_", 0) == 0) // Hazel special macros start with "__HZ_"
+						if (tokens[i].rfind("__SE_", 0) == 0) // StarEngine special macros start with "__SE_"
 						{
 							specialMacros.emplace(tokens[i]);
 						}
