@@ -1,55 +1,110 @@
 #pragma once
 
-#include <cstdint>
-#include <cstring>
+#include "StarEngine/Core/Assert.h"
+
+#include <array>
 
 namespace StarEngine {
 
 	struct Buffer
 	{
-		uint8_t* Data = nullptr;
+		void* Data = nullptr;
 		uint64_t Size = 0;
 
 		Buffer() = default;
 
-		Buffer(uint64_t size)
-		{
-			Allocate(size);
-		}
-
 		Buffer(const void* data, uint64_t size)
-			: Data((uint8_t*)data), Size(size)
+			: Data((void*)data), Size(size) {
+		}
+
+		template<typename T, size_t S>
+		Buffer(const std::array<T, S>& array)
+			: Data(array.data()), Size(array.size() * sizeof(T)) {
+		}
+
+		template<typename T>
+		Buffer(const std::vector<T>& vector)
+			: Data(vector.data()), Size(vector.size() * sizeof(T))
 		{
 		}
 
-		Buffer(const Buffer&) = default;
-
-		static Buffer Copy(Buffer other)
+		static Buffer Copy(const Buffer& other)
 		{
-			Buffer result(other.Size);
-			memcpy(result.Data, other.Data, other.Size);
-			return result;
+			Buffer buffer;
+			buffer.Allocate(other.Size);
+			memcpy(buffer.Data, other.Data, other.Size);
+			return buffer;
+		}
+
+		static Buffer Copy(const void* data, uint64_t size)
+		{
+			Buffer buffer;
+			buffer.Allocate(size);
+			if (size)
+				memcpy(buffer.Data, data, size);
+			return buffer;
 		}
 
 		void Allocate(uint64_t size)
 		{
-			Release();
-
-			Data = (uint8_t*)malloc(size);
+			delete[](byte*)Data;
+			Data = nullptr;
 			Size = size;
+
+			if (size == 0)
+				return;
+
+			Data = snew byte[size];
+		}
+
+		void Reallocate(uint64_t size)
+		{
+			Release();
+			Allocate(size);
 		}
 
 		void Release()
 		{
-			free(Data);
+			delete[](byte*)Data;
 			Data = nullptr;
 			Size = 0;
 		}
 
-		template<typename T>
-		T* As()
+		void ZeroInitialize()
 		{
-			return (T*)Data;
+			if (Data)
+				memset(Data, 0, Size);
+		}
+
+		template<typename T>
+		T& Read(uint64_t offset = 0)
+		{
+			return *(T*)((byte*)Data + offset);
+		}
+
+		template<typename T>
+		const T& Read(uint64_t offset = 0) const
+		{
+			return *(T*)((byte*)Data + offset);
+		}
+
+		byte* ReadBytes(uint64_t size, uint64_t offset) const
+		{
+			SE_CORE_VERIFY(offset + size <= Size, "Buffer overflow!");
+			byte* buffer = snew byte[size];
+			memcpy(buffer, (byte*)Data + offset, size);
+			return buffer;
+		}
+
+		void Write(Buffer buffer, uint64_t offset = 0)
+		{
+			SE_CORE_VERIFY(offset + buffer.Size <= Size, "Buffer overflow!");
+			memcpy((byte*)Data + offset, buffer.Data, buffer.Size);
+		}
+
+		void Write(const void* data, uint64_t size, uint64_t offset = 0)
+		{
+			Write(Buffer(data, size), offset);
 		}
 
 		operator bool() const
@@ -57,38 +112,65 @@ namespace StarEngine {
 			return (bool)Data;
 		}
 
-	};
-
-	struct ScopedBuffer
-	{
-		ScopedBuffer(Buffer buffer)
-			: m_Buffer(buffer)
+		byte& operator[](int index)
 		{
+			return ((byte*)Data)[index];
 		}
 
-		ScopedBuffer(uint64_t size)
-			: m_Buffer(size)
+		byte operator[](int index) const
 		{
+			return ((byte*)Data)[index];
 		}
-
-		~ScopedBuffer()
-		{
-			m_Buffer.Release();
-		}
-
-		uint8_t* Data() { return m_Buffer.Data; }
-		uint64_t Size() { return m_Buffer.Size; }
 
 		template<typename T>
-		T* As()
+		T* As() const
 		{
-			return m_Buffer.As<T>();
+			return (T*)Data;
 		}
 
-		operator bool() const { return m_Buffer; }
-	private:
-		Buffer m_Buffer;
+		inline uint64_t GetSize() const { return Size; }
 	};
 
+	struct BufferSafe : public Buffer
+	{
+		~BufferSafe()
+		{
+			Release();
+		}
 
+		static BufferSafe Copy(const void* data, uint64_t size)
+		{
+			BufferSafe buffer;
+			buffer.Allocate(size);
+			memcpy(buffer.Data, data, size);
+			return buffer;
+		}
+	};
+
+	template<uint64_t MaxSize>
+	struct StaticBuffer
+	{
+		uint8_t Data[MaxSize];
+		uint64_t Size = 0;
+
+		template<typename T>
+		void Write(const T& data, uint64_t offset = 0)
+		{
+			constexpr size_t dataSize = sizeof(T);
+			SE_CORE_VERIFY(offset + dataSize <= MaxSize, "Buffer overflow!");
+			memcpy((byte*)Data + offset, &data, dataSize);
+
+			if (Size < offset + dataSize)
+				Size = offset + dataSize;
+		}
+
+		void Write(Buffer buffer, uint64_t offset = 0)
+		{
+			SE_CORE_VERIFY(offset + buffer.Size <= MaxSize, "Buffer overflow!");
+			memcpy((byte*)Data + offset, buffer.Data, buffer.Size);
+
+			if (Size < offset + buffer.Size)
+				Size = offset + buffer.Size;
+		}
+	};
 }

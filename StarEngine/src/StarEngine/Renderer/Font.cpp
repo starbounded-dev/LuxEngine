@@ -28,7 +28,7 @@ namespace StarEngine {
 		TextureSpecification spec;
 		spec.Width = bitmap.width;
 		spec.Height = bitmap.height;
-		spec.Format = ImageFormat::RGB8;
+		spec.Format = ImageFormat::RGBA;
 		spec.GenerateMips = false;
 
 		Ref<Texture2D> texture = Texture2D::Create(spec);
@@ -147,7 +147,7 @@ namespace StarEngine {
 	{
 		static Ref<Font> DefaultFont;
 		if (!DefaultFont)
-			DefaultFont = CreateRef<Font>("assets/fonts/opensans/OpenSans-Regular.ttf");
+			DefaultFont = Ref<Font>::Create("assets/fonts/opensans/OpenSans-Regular.ttf");
 
 		return DefaultFont;
 	}

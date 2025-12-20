@@ -57,3 +57,6 @@
 [submodule "StarEngine/vendor/imguizmo"]
 	path = StarEngine/vendor/imguizmo
 	url = https://github.com/sheazywi/imguizmo.git
+[submodule "StarEngine/vendor/FastNoise"]
+	path = StarEngine/vendor/FastNoise
+	url = https://github.com/Auburns/FastNoise

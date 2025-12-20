@@ -20,7 +20,7 @@ namespace StarEngine {
 	{
 		SE_PROFILE_FUNCTION("SceneImporter::LoadScene");
 
-		Ref<Scene> scene = CreateRef<Scene>();
+		Ref<Scene> scene = Ref<Scene>::Create();
 		SceneSerializer serializer(scene);
 		serializer.Deserialize(path);
 

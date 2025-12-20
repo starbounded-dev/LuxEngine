@@ -66,18 +66,29 @@ namespace StarEngine {
 		// State line
 		activity.State = s_IsPlaying ? "Playing" : "Editing";
 
-		// Details line
+		// Details line: App / Project / Scene
+		std::string details;
+
 		if (!s_ProjectName.empty())
 		{
+			// Always start with app name
+			details = s_AppName;                  // e.g. "StarEditor"
+			details += " / ";
+			details += s_ProjectName;             // project
+
 			if (!s_SceneName.empty())
-				activity.Details = "Project \xC3\xB9 " + s_ProjectName + " - " + s_SceneName;
-			else
-				activity.Details = "Project \xC3\xB9 " + s_ProjectName;
+			{
+				details += " / ";
+				details += s_SceneName;           // scene
+			}
 		}
 		else
 		{
-			activity.Details = s_AppName;
+			// No project open, just show app
+			details = s_AppName;
 		}
+
+		activity.Details = details;
 
 		// Assets
 		if (!s_LargeImageKey.empty())
@@ -95,4 +106,5 @@ namespace StarEngine {
 		s_SDK->UpdateActivity(activity);
 	}
 
+										
 } // namespace StarEngine

@@ -9,6 +9,7 @@
 #include "StarEngine/Renderer/EditorCamera.h"
 
 #include "entt.hpp"
+#include "StarEngine/Renderer/OrthographicCameraController.h"
 
 namespace StarEngine
 {
@@ -27,7 +28,6 @@ namespace StarEngine
 	private:
 		bool OnKeyPressed(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
-		bool OnWindowDrop(WindowDropEvent& e);
 
 		void OnOverlayRender();
 
@@ -60,7 +60,7 @@ namespace StarEngine
 		bool m_ViewportFocused = false, m_ViewportHovered = false;
 
 		// Temp
-		Ref<VertexArray> m_SquareVA;
+		Ref<VertexBuffer> m_SquareVA;
 		Ref<Shader> m_FlatColorShader;
 		Ref<Framebuffer> m_Framebuffer;
 

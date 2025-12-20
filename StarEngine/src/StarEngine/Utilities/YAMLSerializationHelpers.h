@@ -1,7 +1,7 @@
 #pragma once
 
 #include "StarEngine/Asset/Asset.h"
-#include "StarEngine/Editor/NodeGraphEditor/NodeGraphUtils.h"
+//#include "StarEngine/Editor/NodeGraphEditor/NodeGraphUtils.h"
 
 #include "yaml-cpp/yaml.h"
 
@@ -277,7 +277,7 @@ namespace YAML {
 
 	template<>
 	struct convert<choc::value::Value>
-	{
+	{/*
 		static Node encode(const choc::value::ValueView& rhs)
 		{
 			Node out;
@@ -296,9 +296,9 @@ namespace YAML {
 										out.SetStyle(EmitterStyle::Block); }
 
 			return out;
-		}
+		}*/
 
-	private:
+	private:/*
 		static Node encodeArrayOrVector(const choc::value::ValueView& v)
 		{
 			Node out;
@@ -311,8 +311,8 @@ namespace YAML {
 			}
 
 			return out;
-		}
-
+		}*/
+		/*
 		static Node encodeObject(const choc::value::ValueView& object)
 		{
 			Node out;
@@ -346,8 +346,8 @@ namespace YAML {
 
 			return out;
 		}
-
-	public:
+		*/
+	public:/*
 		static bool decode(const Node& node, choc::value::Value& rhs)
 		{
 			if (!node.IsMap() || !node["Type"] || !node["Value"])
@@ -375,9 +375,9 @@ namespace YAML {
 			}
 
 			return true;
-		}
+		}*/
 
-	private:
+	private:/*
 		static bool decodeArrayOrVector(const Node& node, choc::value::Value& rhs)
 		{
 
@@ -405,8 +405,8 @@ namespace YAML {
 			rhs = choc::value::createArray(num, getElementValue);
 
 			return success;
-		}
-
+		}*/
+		/*
 		static bool decodeObject(const Node& node, choc::value::Value& rhs)
 		{
 			if (!node.IsMap() || !node["ClassName"])
@@ -439,7 +439,7 @@ namespace YAML {
 			}
 
 			return true;
-		}
+		}*/
 	};
 
 }
@@ -515,7 +515,7 @@ namespace StarEngine {
 		out << YAML::BeginSeq << v.w << v.x << v.y << v.z << YAML::EndSeq;
 		return out;
 	}
-
+	/*
 	inline YAML::Emitter& operator<<(YAML::Emitter& out, const choc::value::Value& v)
 	{
 		out << YAML::convert<choc::value::Value>::encode(v);
@@ -526,6 +526,6 @@ namespace StarEngine {
 	{
 		out << YAML::convert<choc::value::Value>::encode(v);
 		return out;
-	}
+	}*/
 
 }

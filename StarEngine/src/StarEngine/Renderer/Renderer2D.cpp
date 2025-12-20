@@ -1,9 +1,7 @@
 #include "sepch.h"
 #include "StarEngine/Renderer/Renderer2D.h"
-#include "StarEngine/Renderer/VertexArray.h"
 #include "StarEngine/Renderer/Shader.h"
 #include "StarEngine/Renderer/UniformBuffer.h"
-#include "StarEngine/Renderer/RenderCommand.h"
 
 #include "StarEngine/Asset/AssetManager.h"
 
@@ -58,6 +56,8 @@ namespace StarEngine {
 		// Editor-only
 		int EntityID;
 	};
+
+#if 0
 
 	struct Renderer2DData
 	{
@@ -697,5 +697,8 @@ namespace StarEngine {
 	{
 		return s_Data.Stats;
 	}
+
+#endif
+
 
 }

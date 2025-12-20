@@ -46,7 +46,7 @@ namespace StarEngine {
 			auto view = m_Context->m_Registry.view<entt::entity>();
 			for (auto entityID : view)
 			{
-				Entity entity{ entityID , m_Context.get() };
+				Entity entity{ entityID , m_Context.Raw() };
 				DrawEntityNode(entity);
 			}
 
@@ -132,7 +132,7 @@ namespace StarEngine {
 		ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
 
-		float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+		float lineHeight = GImGui->Font->Scale + GImGui->Style.FramePadding.y * 2.0f;
 		ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
 
 		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
@@ -186,14 +186,14 @@ namespace StarEngine {
 	template<typename T, typename UIFunction>
 	static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
 	{
-		const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_FramePadding;
+		const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_FramePadding;
 		if (entity.HasComponent<T>())
 		{
 			auto& component = entity.GetComponent<T>();
 			ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
-			float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+			float lineHeight = GImGui->Font->Scale + GImGui->Style.FramePadding.y * 2.0f;
 			ImGui::Separator();
 			bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
 			ImGui::PopStyleVar(
@@ -448,7 +448,7 @@ namespace StarEngine {
 				if (component.Texture != 0)
 				{
 					if (AssetManager::IsAssetHandleValid(component.Texture)
-						&& AssetManager::GetAssetType(component.Texture) == AssetType::Texture2D)
+						&& AssetManager::GetAssetType(component.Texture) == AssetType::Texture)
 					{
 						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(component.Texture);
 						label = metadata.FilePath.filename().string();
@@ -470,7 +470,7 @@ namespace StarEngine {
 					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 					{
 						AssetHandle handle = *(AssetHandle*)payload->Data;
-						if (AssetManager::GetAssetType(handle) == AssetType::Texture2D)
+						if (AssetManager::GetAssetType(handle) == AssetType::Texture)
 						{
 							component.Texture = handle;
 						}

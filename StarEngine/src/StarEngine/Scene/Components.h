@@ -124,11 +124,12 @@ namespace StarEngine {
 	{
 		std::string ClassName;
 
-		// Add the missing Instance member
-		Ref<ScriptableEntity> Instance;
+		ScriptableEntity* Instance = nullptr;
 
 		ScriptComponent() = default;
 		ScriptComponent(const ScriptComponent&) = default;
+
+		~ScriptComponent() = default;
 	};
 
 	struct NativeScriptComponent

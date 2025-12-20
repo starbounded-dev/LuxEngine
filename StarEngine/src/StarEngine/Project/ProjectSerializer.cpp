@@ -16,26 +16,27 @@ namespace StarEngine {
 		const auto& config = m_Project->GetConfig();
 
 		YAML::Emitter out;
-		{
-			out << YAML::BeginMap; // Root
-			out << YAML::Key << "Project" << YAML::Value;
-			{
-				out << YAML::BeginMap;// Project
-				out << YAML::Key << "Name" << YAML::Value << config.Name;
-				out << YAML::Key << "StartScene" << YAML::Value << (uint64_t)config.StartScene;
-				out << YAML::Key << "AssetDirectory" << YAML::Value << config.AssetDirectory.string();
-				out << YAML::Key << "AssetRegistryPath" << YAML::Value << config.AssetRegistryPath.string();
-				out << YAML::Key << "ScriptModulePath" << YAML::Value << config.ScriptModulePath.string();
-				out << YAML::EndMap; // Project
-			}
-			out << YAML::EndMap; // Root
-		}
+		out << YAML::BeginMap;
+		out << YAML::Key << "Project" << YAML::Value;
+		out << YAML::BeginMap;
+
+		out << YAML::Key << "Name" << YAML::Value << config.Name;
+
+		// If StartScene is a UUID stored as string, write it as string:
+		out << YAML::Key << "StartScene" << YAML::Value << config.StartScene;
+
+		out << YAML::Key << "AssetDirectory" << YAML::Value << config.AssetDirectory;
+		out << YAML::Key << "AssetRegistryPath" << YAML::Value << config.AssetRegistryPath;
+		out << YAML::Key << "ScriptModulePath" << YAML::Value << config.ScriptModulePath;
+
+		out << YAML::EndMap;
+		out << YAML::EndMap;
 
 		std::ofstream fout(filepath);
 		fout << out.c_str();
-
 		return true;
 	}
+
 
 	bool ProjectSerializer::Deserialize(const std::filesystem::path& filepath)
 	{

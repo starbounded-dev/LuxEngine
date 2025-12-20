@@ -452,7 +452,7 @@ namespace StarEngine {
 		auto view = m_Scene->m_Registry.view<IDComponent>();
 		for (auto entityID : view)
 		{
-			Entity entity = { entityID, m_Scene.get() };
+			Entity entity = { entityID, m_Scene.Raw() };
 			if (!entity)
 				continue;
 

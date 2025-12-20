@@ -76,7 +76,7 @@ namespace StarEngine {
 
 	Ref<Scene> Scene::Copy(Ref<Scene> other)
 	{
-		Ref<Scene> newScene = CreateRef<Scene>();
+		Ref<Scene> newScene = Ref<Scene>::Create();
 
 		newScene->m_ViewportWidth = other->m_ViewportWidth;
 		newScene->m_ViewportHeight = other->m_ViewportHeight;
@@ -136,7 +136,7 @@ namespace StarEngine {
 			auto filter = m_Registry.view<TransformComponent, AudioListenerComponent>();
 			filter.each([&](entt::entity entity, TransformComponent& transform, AudioListenerComponent& ac)
 				{
-					ac.Listener = CreateRef<AudioListener>();
+					ac.Listener = Ref<AudioListener>::Create();
 					if (ac.Active)
 					{
 						const glm::mat4 inverted = glm::inverse(transform.GetTransform());
@@ -529,7 +529,7 @@ namespace StarEngine {
 		}
 
 		if (mainCamera)
-		{
+		{/*
 			Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
 			// Draw sprites
@@ -565,7 +565,7 @@ namespace StarEngine {
 				}
 			}
 
-			Renderer2D::EndScene();
+			Renderer2D::EndScene();*/
 		}
 
 	}
@@ -735,7 +735,7 @@ namespace StarEngine {
 	}
 
 	void Scene::RenderScene(EditorCamera& camera)
-	{
+	{/*
 		Renderer2D::BeginScene(camera);
 
 		// Draw sprites
@@ -767,7 +767,7 @@ namespace StarEngine {
 			}
 		}
 
-		Renderer2D::EndScene();
+		Renderer2D::EndScene();*/
 	}
 
 	template<typename T>

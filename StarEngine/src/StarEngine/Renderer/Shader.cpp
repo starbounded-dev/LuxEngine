@@ -1,70 +1,125 @@
 #include "sepch.h"
-#include "StarEngine/Renderer/Shader.h"
+#include "Shader.h"
+
+#include <utility>
 
 #include "StarEngine/Renderer/Renderer.h"
-#include "Platform/OpenGL/OpenGLShader.h"
+#include "StarEngine/Platform/Vulkan/VulkanShader.h"
+
+#if SE_HAS_SHADER_COMPILER
+#include "StarEngine/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
+#endif
+
+#include "StarEngine/Renderer/RendererAPI.h"
+#include "StarEngine/Renderer/ShaderPack.h"
 
 namespace StarEngine {
 
-	Ref<Shader> Shader::Create(const std::string& filepath)
+	Ref<Shader> Shader::Create(const std::string& filepath, bool forceCompile, bool disableOptimization)
 	{
-		switch (Renderer::GetAPI())
-		{
-		case RendererAPI::API::None:    SE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
-		case RendererAPI::API::OpenGL:  return CreateRef<OpenGLShader>(filepath);
-		}
+		Ref<Shader> result = nullptr;
 
-		SE_CORE_ASSERT(false, "Unknown RendererAPI!");
-		return nullptr;
+		switch (RendererAPI::Current())
+		{
+		case RendererAPIType::None: return nullptr;
+		case RendererAPIType::Vulkan:
+			result = Ref<VulkanShader>::Create(filepath, forceCompile, disableOptimization);
+			break;
+		}
+		return result;
 	}
 
-
-	Ref<Shader> Shader::Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
+	Ref<Shader> Shader::CreateFromString(const std::string& source)
 	{
-		switch (Renderer::GetAPI())
-		{
-			case RendererAPI::API::None:    SE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
-			case RendererAPI::API::OpenGL:  return CreateRef<OpenGLShader>(name, vertexSrc, fragmentSrc);;
-		}
+		Ref<Shader> result = nullptr;
 
-		SE_CORE_ASSERT(false, "Unknown RendererAPI!");
-		return nullptr;
+		switch (RendererAPI::Current())
+		{
+		case RendererAPIType::None: return nullptr;
+		}
+		return result;
 	}
 
-	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
+	ShaderLibrary::ShaderLibrary()
 	{
-		SE_CORE_ASSERT(!Exists(name), "Shader already exists!");
+	}
+
+	ShaderLibrary::~ShaderLibrary()
+	{
+	}
+
+	void ShaderLibrary::Add(const StarEngine::Ref<Shader>& shader)
+	{
+		auto& name = shader->GetName();
+		SE_CORE_ASSERT(m_Shaders.find(name) == m_Shaders.end());
 		m_Shaders[name] = shader;
 	}
 
-	void ShaderLibrary::Add(const Ref<Shader>& shader)
+	void ShaderLibrary::Load(std::string_view path, bool forceCompile, bool disableOptimization)
 	{
+		Ref<Shader> shader;
+		if (!forceCompile && m_ShaderPack)
+		{
+			if (m_ShaderPack->Contains(path))
+				shader = m_ShaderPack->LoadShader(path);
+		}
+		else
+		{
+			// Try compile from source
+			// Unavailable at runtime
+#if SE_HAS_SHADER_COMPILER
+			shader = VulkanShaderCompiler::Compile(path, forceCompile, disableOptimization);
+#endif
+		}
+
 		auto& name = shader->GetName();
-		Add(name, shader);
+		SE_CORE_ASSERT(m_Shaders.find(name) == m_Shaders.end());
+		m_Shaders[name] = shader;
 	}
 
-	Ref<Shader> ShaderLibrary::Load(const std::string& filepath)
+	void ShaderLibrary::Load(std::string_view name, const std::string& path)
 	{
-		auto shader = Shader::Create(filepath);
-		Add(shader);
-		return shader;
+		SE_CORE_ASSERT(m_Shaders.find(std::string(name)) == m_Shaders.end());
+		m_Shaders[std::string(name)] = Shader::Create(path);
 	}
 
-	Ref<Shader> ShaderLibrary::Load(const std::string& name, const std::string& filepath)
+	void ShaderLibrary::LoadShaderPack(const std::filesystem::path& path)
 	{
-		auto shader = Shader::Create(filepath);
-		Add(name, shader);
-		return shader;
+		m_ShaderPack = Ref<ShaderPack>::Create(path);
+		if (!m_ShaderPack->IsLoaded())
+		{
+			m_ShaderPack = nullptr;
+			SE_CORE_ERROR("Could not load shader pack: {}", path.string());
+		}
 	}
 
-	Ref<Shader> ShaderLibrary::Get(const std::string& name)
+	const Ref<Shader>& ShaderLibrary::Get(const std::string& name) const
 	{
-		SE_CORE_ASSERT(Exists(name), "Shader not found!");
-		return m_Shaders[name];
+		SE_CORE_ASSERT(m_Shaders.find(name) != m_Shaders.end());
+		return m_Shaders.at(name);
 	}
 
-	bool ShaderLibrary::Exists(const std::string& name) const
+	ShaderUniform::ShaderUniform(std::string name, const ShaderUniformType type, const uint32_t size, const uint32_t offset)
+		: m_Name(std::move(name)), m_Type(type), m_Size(size), m_Offset(offset)
 	{
-		return m_Shaders.find(name) != m_Shaders.end();
 	}
+
+	constexpr std::string_view ShaderUniform::UniformTypeToString(const ShaderUniformType type)
+	{
+		if (type == ShaderUniformType::Bool)
+		{
+			return std::string("Boolean");
+		}
+		else if (type == ShaderUniformType::Int)
+		{
+			return std::string("Int");
+		}
+		else if (type == ShaderUniformType::Float)
+		{
+			return std::string("Float");
+		}
+
+		return std::string("None");
+	}
+
 }

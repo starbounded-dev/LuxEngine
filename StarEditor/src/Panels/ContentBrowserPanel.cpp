@@ -10,7 +10,7 @@
 namespace StarEngine {
 
 	ContentBrowserPanel::ContentBrowserPanel(Ref<Project> project)
-		: m_Project(project), m_ThumbnailCache(CreateRef<ThumbnailCache>(project)), m_BaseDirectory(m_Project->GetAssetDirectory()), m_CurrentDirectory(m_BaseDirectory)
+		: m_Project(project), m_ThumbnailCache(Ref<ThumbnailCache>::Create(project)), m_BaseDirectory(m_Project->GetAssetDirectory()), m_CurrentDirectory(m_BaseDirectory)
 	{
 		m_TreeNodes.push_back(TreeNode(".", 0));
 
@@ -86,9 +86,9 @@ namespace StarEngine {
 				std::string itemStr = item.generic_string();
 
 				ImGui::PushID(itemStr.c_str());
-				Ref<Texture2D> icon = isDirectory ? m_DirectoryIcon : m_FileIcon;
+				//Ref<Texture2D> icon = isDirectory ? m_DirectoryIcon : m_FileIcon;
 				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-				ImGui::ImageButton("##icon", (ImTextureID)icon->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+				//ImGui::ImageButton("##icon", (ImTextureID)icon->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 
 				if (ImGui::BeginPopupContextItem())
 				{
@@ -178,7 +178,7 @@ namespace StarEngine {
 
 						ImGui::SetCursorPosY(ImGui::GetCursorPosY() + diff); // Center thumbnail vertically
 
-						ImGui::ImageButton("##thumbnail", (ImTextureID)thumbnail->GetRendererID(), { thumbnailSize, thumbnailHeight }, { 0, 1 }, { 1, 0 });
+						//ImGui::ImageButton("##thumbnail", (ImTextureID)thumbnail->GetRendererID(), { thumbnailSize, thumbnailHeight }, { 0, 1 }, { 1, 0 });
 						if (ImGui::IsItemHovered())
 						{
 							ImGui::BeginTooltip();

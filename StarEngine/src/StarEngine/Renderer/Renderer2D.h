@@ -15,7 +15,7 @@ namespace StarEngine {
 	class Renderer2D
 	{
 	public:
-
+#if 0
 		static void Init();
 		static void Shutdown();
 
@@ -93,5 +93,7 @@ namespace StarEngine {
 	private:
 		static void StartBatch();
 		static void NextBatch();
+#endif
+
 	};
 }

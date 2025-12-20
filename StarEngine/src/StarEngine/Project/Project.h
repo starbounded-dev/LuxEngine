@@ -2,31 +2,51 @@
 
 #include <string>
 #include <filesystem>
+#include <memory>
 
 #include "StarEngine/Core/Base.h"
 
-#include "StarEngine/Asset/RuntimeAssetManager.h"
-#include "StarEngine/Asset/EditorAssetManager.h"
+#include "StarEngine/Asset/AssetManager/AssetManagerBase.h"
+#include "StarEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "StarEngine/Asset/AssetManager/RuntimeAssetManager.h"
 
 namespace StarEngine {
 
 	struct ProjectConfig
 	{
-		std::string Name = "Untitled";
+		std::string Name;
 
-		AssetHandle StartScene;
+		std::string AssetDirectory = "Assets";
+		std::string AssetRegistryPath = "Assets/AssetRegistry.hzr";
 
-		std::filesystem::path AssetDirectory;
-		std::filesystem::path AssetRegistryPath; // Relative to AssetDirectory
-		std::filesystem::path ScriptModulePath;
+		std::string AudioCommandsRegistryPath = "Assets/AudioCommandsRegistry.hzr";
+
+		std::string MeshPath = "Assets/Meshes";
+		std::string MeshSourcePath = "Assets/Meshes/Source";
+
+		std::string AnimationPath;
+
+		std::string ScriptModulePath = "Assets/Scripts/Binaries";
+		std::string DefaultNamespace;
+
+		std::string StartScene;
+
+		bool AutomaticallyReloadAssembly;
+
+		bool EnableAutoSave = false;
+		int AutoSaveIntervalSeconds = 300;
+
+		// Not serialized
+		std::string ProjectFileName;
+		std::string ProjectDirectory;
+
+		// Runtime only
+		AssetHandle StartSceneHandle;
 	};
 
-	class Project
+	class Project : public RefCounted
 	{
 	public:
-		const std::filesystem::path& GetProjectDirectory() { return m_ProjectDirectory; }
-		std::filesystem::path GetAssetDirectory() { return GetProjectDirectory() / s_ActiveProject->m_Config.AssetDirectory; }
-		std::filesystem::path GetAssetRegistryPath() { return GetAssetDirectory() / s_ActiveProject->m_Config.AssetRegistryPath; }
 		// TODO: move to asset manager when we have one
 		std::filesystem::path GetAssetFileSystemPath(const std::filesystem::path& path) { return GetAssetDirectory() / path; }
 
@@ -50,6 +70,29 @@ namespace StarEngine {
 			return s_ActiveProject->GetAssetRegistryPath();
 		}
 
+		static const std::string& GetProjectName()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return s_ActiveProject->GetConfig().Name;
+		}
+
+		static std::filesystem::path GetProjectDirectory()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return s_ActiveProject->GetConfig().ProjectDirectory;
+		}
+
+		std::filesystem::path GetAssetDirectory() const
+		{
+			return std::filesystem::path(s_ActiveProject->GetConfig().ProjectDirectory) / s_ActiveProject->GetConfig().AssetDirectory;
+		}
+
+		static std::filesystem::path GetAssetRegistryPath()
+		{
+			SE_CORE_ASSERT(s_ActiveProject);
+			return std::filesystem::path(s_ActiveProject->GetConfig().ProjectDirectory) / s_ActiveProject->GetConfig().AssetRegistryPath;
+		}
+
 		// TODO: move to asset manager when we have one
 		static std::filesystem::path GetActiveAssetFileSystemPath(const std::filesystem::path& path)
 		{
@@ -61,9 +104,11 @@ namespace StarEngine {
 		ProjectConfig& GetConfig() { return m_Config; }
 
 		static Ref<Project> GetActive() { return s_ActiveProject; }
-		std::shared_ptr<AssetManagerBase> GetAssetManager() { return m_AssetManager; }
-		std::shared_ptr<RuntimeAssetManager> GetRuntimeAssetManager() { return std::static_pointer_cast<RuntimeAssetManager>(m_AssetManager); }
-		std::shared_ptr<EditorAssetManager> GetEditorAssetManager() { return std::static_pointer_cast<EditorAssetManager>(m_AssetManager); }
+		static void SetActive(Ref<Project> project);
+
+		inline static Ref<AssetManagerBase> GetAssetManager() { return s_AssetManager; }
+		inline static Ref<EditorAssetManager> GetEditorAssetManager() { return s_AssetManager.As<EditorAssetManager>(); }
+		inline static Ref<RuntimeAssetManager> GetRuntimeAssetManager() { return s_AssetManager.As<RuntimeAssetManager>(); }
 
 		static Ref<Project> New();
 		static Ref<Project> Load(const std::filesystem::path& path);
@@ -71,7 +116,8 @@ namespace StarEngine {
 	private:
 		ProjectConfig m_Config;
 		std::filesystem::path m_ProjectDirectory;
-		std::shared_ptr<AssetManagerBase> m_AssetManager;
+
+		inline static Ref<AssetManagerBase> s_AssetManager;
 
 		inline static Ref<Project> s_ActiveProject;
 	};

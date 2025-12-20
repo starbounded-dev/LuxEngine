@@ -1,49 +1,109 @@
 #pragma once
 
 #include "StarEngine/Core/Base.h"
-#include "StarEngine/Events/Event.h"
+#include "StarEngine/Core/Events/Event.h"
 
-#include <sstream>
+#include "StarEngine/Renderer/DeviceManager.h"
+#include "StarEngine/Renderer/RendererContext.h"
+
+#include <functional>
+#include <filesystem>
+
+#include <vulkan/vulkan.h> // NOTE(Emily): This ensures that the first inclusion of GLFW defines
+//			   Vulkan exclusive procs before include guards trip.
+
+#include <vulkan/vulkan.hpp>
+#include <GLFW/glfw3.h>
 
 namespace StarEngine {
 
-	struct WindowProps
+	struct WindowSpecification
 	{
-		std::string Title;
-		uint32_t Width;
-		uint32_t Height;
-
-		WindowProps(const std::string& title = "StarEngine",
-			uint32_t width = 1600,
-			uint32_t height = 900)
-			: Title(title), Width(width), Height(height)
-		{
-		}
+		std::string Title = "StarEngine";
+		uint32_t Width = 1600;
+		uint32_t Height = 900;
+		bool Decorated = true;
+		bool Fullscreen = false;
+		bool VSync = true;
+		std::filesystem::path IconPath;
 	};
 
-	// Interface representing a desktop system based Window
+	class VulkanSwapChain;
+
 	class Window
 	{
 	public:
 		using EventCallbackFn = std::function<void(Event&)>;
 
-		virtual ~Window() {}
+		Window(const WindowSpecification& specification);
+		virtual ~Window();
 
-		virtual void OnUpdate() = 0;
+		virtual void Init();
+		virtual void ProcessEvents();
+		virtual void Present();
 
-		virtual uint32_t GetWidth() const = 0;
-		virtual uint32_t GetHeight() const = 0;
+		inline uint32_t GetWidth() const { return m_Data.Width; }
+		inline uint32_t GetHeight() const { return m_Data.Height; }
+
+		virtual std::pair<uint32_t, uint32_t> GetSize() const { return { m_Data.Width, m_Data.Height }; }
+		virtual std::pair<float, float> GetWindowPos() const;
 
 		// Window attributes
-		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;
-		virtual void SetVSync(bool enabled) = 0;
-		virtual bool IsVSync() const = 0;
+		virtual void SetEventCallback(const EventCallbackFn& callback) { m_Data.EventCallback = callback; }
+		virtual void SetVSync(bool enabled);
+		virtual bool IsVSync() const;
+		virtual void SetResizable(bool resizable) const;
 
-		virtual void* GetNativeWindow() const = 0;
+		void BeginFrame();
 
-		static Scope<Window> Create(const WindowProps& props = WindowProps());
+		virtual void Maximize();
+		virtual void CenterWindow();
+
+		virtual const std::string& GetTitle() const { return m_Data.Title; }
+		virtual void SetTitle(const std::string& title);
+
+		inline GLFWwindow* GetNativeWindow() const { return m_WindowHandle; }
+
+		virtual Ref<RendererContext> GetRenderContext() { return m_RendererContext; }
+		virtual VulkanSwapChain& GetSwapChain();
+		DeviceManager* GetDeviceManager() { return m_DeviceManager; }
+
+		void OnWindowSizeCallback(int width, int height);
+		void OnWindowCloseCallback();
+		void OnKeyCallback(int key, int scancode, int action, int mods);
+		void OnCharCallback(uint32_t codepoint);
+		void OnMouseButtonCallback(int button, int action, int mods);
+		void OnMouseScrollCallback(double xOffset, double yOffset);
+		void OnMousePosCallback(double x, double y);
+		void OnTitlebarHitTestCallback(int x, int y, int* hit);
+		void OnWindowIconifyCallback(int iconified);
 	public:
-		static float s_HighDPIScaleFactor;
+		static Window* Create(const WindowSpecification& specification = WindowSpecification());
+	private:
+		bool CreateWindowSurface();
+		virtual void Shutdown();
+	private:
+		DeviceManager* m_DeviceManager = nullptr;
+		GLFWwindow* m_WindowHandle = nullptr;
+		GLFWcursor* m_ImGuiMouseCursors[9] = { 0 };
+		WindowSpecification m_Specification;
+		struct WindowData
+		{
+			std::string Title;
+			uint32_t Width, Height;
+
+			EventCallbackFn EventCallback;
+		};
+
+		WindowData m_Data;
+		float m_LastFrameTime = 0.0f;
+
+		Ref<RendererContext> m_RendererContext;
+		VulkanSwapChain* m_SwapChain;
+
+		vk::SurfaceKHR m_WindowSurface;
+
+		friend class DeviceManager;
 	};
 
 }

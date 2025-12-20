@@ -1,7 +1,6 @@
 #include "EditorLayer.h"
 
 #include "StarEngine/Scene/SceneSerializer.h"
-#include "StarEngine/Utilities/PlatformUtils.h"
 #include "StarEngine/Math/Math.h"
 #include "StarEngine/Scripting/ScriptEngine.h"
 #include "StarEngine/Renderer/Font.h"
@@ -18,6 +17,7 @@
 #include <imgui/imgui.h>
 #include "imgui/imgui_internal.h"
 #include "ImGuizmo.h"
+#include "StarEngine/Renderer/Renderer2D.h"
 
 namespace StarEngine {
 
@@ -47,36 +47,19 @@ namespace StarEngine {
 		m_IconSimulate = TextureImporter::LoadTexture2D("Resources/Icons/SimulateButton.png");
 		m_IconStep = TextureImporter::LoadTexture2D("Resources/Icons/StepButton.png");
 		m_IconStop = TextureImporter::LoadTexture2D("Resources/Icons/StopButton.png");
-
+		/*
 		FramebufferSpecification fbSpec;
 		fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
 		fbSpec.Width = 1280;
 		fbSpec.Height = 720;
-		m_Framebuffer = Framebuffer::Create(fbSpec);
+		m_Framebuffer = Framebuffer::Create(fbSpec);*/
 
-		m_EditorScene = CreateRef<Scene>();
+		m_EditorScene = Ref<Scene>::Create();
 		m_ActiveScene = m_EditorScene;
-
-		auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs;
-		if (commandLineArgs.Count > 1)
-		{
-			auto projectFilePath = commandLineArgs[1];
-			OpenProject(projectFilePath);
-		}
-		else
-		{
-			// TODO: prompt the user to select a directory
-			// NewProject();
-
-			if (!OpenProject())
-			{
-				Application::Get().Close();
-			}
-		}
 
 		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 
-		Renderer2D::SetLineWidth(4.0f);
+		//Renderer2D::SetLineWidth(4.0f);
 	}
 
 	void EditorLayer::OnDetach()
@@ -99,7 +82,7 @@ namespace StarEngine {
 			m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
 			m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
 		}
-
+		/*
 		// Render
 		Renderer2D::ResetStats();
 		m_Framebuffer->Bind();
@@ -107,7 +90,7 @@ namespace StarEngine {
 		RenderCommand::Clear();
 
 		// Clear our entity ID attachment to -1
-		m_Framebuffer->ClearAttachment(1, -1);
+		m_Framebuffer->ClearAttachment(1, -1);*/
 
 		switch (m_SceneState)
 		{
@@ -145,16 +128,16 @@ namespace StarEngine {
 		my = viewportSize.y - my;
 		int mouseX = (int)mx;
 		int mouseY = (int)my;
-
+		/*
 		if (mouseX >= 0 && mouseY >= 0 && mouseX < (int)viewportSize.x && mouseY < (int)viewportSize.y)
 		{
 			int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
 			m_HoveredEntity = pixelData == -1 ? Entity() : Entity((entt::entity)pixelData, m_ActiveScene.get());
-		}
+		}*/
 
 		OnOverlayRender();
 
-		m_Framebuffer->Unbind();
+		//m_Framebuffer->Unbind();
 	}
 
 	void EditorLayer::OnImGuiRender()
@@ -260,7 +243,7 @@ namespace StarEngine {
 			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
 		ImGui::Text("Hovered Entity: %s", name.c_str());
 #endif
-
+		/*
 		auto stats = Renderer2D::GetStats();
 		ImGui::Text("Renderer2D Stats:");
 		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
@@ -268,7 +251,7 @@ namespace StarEngine {
 		ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
 		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
 
-		ImGui::Separator();
+		ImGui::Separator();*/
 
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 
@@ -281,7 +264,7 @@ namespace StarEngine {
 
 		ImGui::Separator();
 
-		ImGui::Image((ImTextureID)s_Font->GetAtlasTexture()->GetRendererID(), { 512,512 }, { 0, 1 }, { 1, 0 });
+		//ImGui::Image((ImTextureID)s_Font->GetAtlasTexture()->GetRendererID(), { 512,512 }, { 0, 1 }, { 1, 0 });
 
 		ImGui::End();
 
@@ -296,13 +279,20 @@ namespace StarEngine {
 
 		m_ViewportFocused = ImGui::IsWindowFocused();
 		m_ViewportHovered = ImGui::IsWindowHovered();
-		Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportFocused && !m_ViewportHovered);
+		if (!m_ViewportFocused && !m_ViewportHovered)
+		{
+			Application::Get().GetImGuiLayer()->AllowInputEvents(false);
+		}
+		else
+		{
+			Application::Get().GetImGuiLayer()->AllowInputEvents(true);
+		}
 
 		ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-		uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
-		ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0,1 }, ImVec2{ 1,0 });
+		//uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
+		//ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0,1 }, ImVec2{ 1,0 });
 
 		if (ImGui::BeginDragDropTarget())
 		{
@@ -397,7 +387,7 @@ namespace StarEngine {
 		bool hasPlayButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play;
 		bool hasSimulateButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate;
 		bool hasPauseButton = m_SceneState != SceneState::Edit;
-
+		/*
 		if (hasPlayButton)
 		{
 			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate) ? m_IconPlay : m_IconStop;
@@ -453,7 +443,7 @@ namespace StarEngine {
 					}
 				}
 			}
-		}
+		}*/
 
 		ImGui::PopStyleVar(2);
 		ImGui::PopStyleColor(3);
@@ -474,13 +464,12 @@ namespace StarEngine {
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(SE_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
 		dispatcher.Dispatch<MouseButtonPressedEvent>(SE_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
-		dispatcher.Dispatch<WindowDropEvent>(SE_BIND_EVENT_FN(EditorLayer::OnWindowDrop));
 	}
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 	{
 		// Shortcuts
-		if (e.IsRepeat())
+		if (e.GetRepeatCount())
 			return false;
 
 		bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
@@ -557,7 +546,7 @@ namespace StarEngine {
 				}
 				break;
 			}
-
+			/*
 			case Key::Delete:
 			{
 				if (Application::Get().GetImGuiLayer()->GetActiveWidgetID() == 0)
@@ -570,7 +559,7 @@ namespace StarEngine {
 					}
 				}
 				break;
-			}
+			}*/
 
 			default:
 				break;
@@ -581,7 +570,7 @@ namespace StarEngine {
 
 	bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent& e)
 	{
-		if (e.GetMouseButton() == Mouse::ButtonLeft)
+		if (e.GetMouseButton() == MouseButton::Button1)
 		{
 			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
 				m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
@@ -589,17 +578,8 @@ namespace StarEngine {
 		return false;
 	}
 
-	bool EditorLayer::OnWindowDrop(WindowDropEvent& e)
-	{
-		// TODO: if a project is dropped in, probably open it
-
-		//AssetManager::ImportAsset();
-
-		return true;
-	}
-
 	void EditorLayer::OnOverlayRender()
-	{
+	{/*
 		if (m_SceneState == SceneState::Play)
 		{
 			Entity camera = m_ActiveScene->GetPrimaryCameraEntity();
@@ -658,7 +638,7 @@ namespace StarEngine {
 			}
 		}
 
-		Renderer2D::EndScene();
+		Renderer2D::EndScene();*/
 	}
 
 	void EditorLayer::NewProject()
@@ -672,7 +652,8 @@ namespace StarEngine {
 		{
 			ScriptEngine::Init();
 
-			AssetHandle startScene = Project::GetActive()->GetConfig().StartScene;
+			auto startScenePath = Project::GetActive()->GetConfig().StartScene; // std::string
+			AssetHandle startScene = Project::GetActive()->GetEditorAssetManager()->GetAssetHandleFromFilePath(startScenePath);
 			if (startScene)
 				OpenScene(startScene);
 			m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>(Project::GetActive());
@@ -683,8 +664,8 @@ namespace StarEngine {
 
 	bool EditorLayer::OpenProject()
 	{
-		std::string filepath = FileDialogs::OpenFile("Star Project (*.starproj)\0*.starproj\0");
-		if (filepath.empty())
+		std::filesystem::path filepath = FileSystem::OpenFileDialog({ { "StarProject", "starproj" } });
+		if (!filepath.empty())
 			return false;
 
 		OpenProject(filepath);
@@ -698,7 +679,7 @@ namespace StarEngine {
 
 	void EditorLayer::NewScene()
 	{
-		m_ActiveScene = CreateRef<Scene>();
+		m_ActiveScene = Ref<Scene>::Create();
 		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 
@@ -726,7 +707,7 @@ namespace StarEngine {
 		m_SceneHierarchyPanel.SetContext(m_EditorScene);
 
 		m_ActiveScene = m_EditorScene;
-		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle);
+		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFileSystemPath(handle);
 
 		DiscordManager::OnSceneChanged(m_ActiveScene->GetName());
 	}
@@ -741,7 +722,7 @@ namespace StarEngine {
 
 	void EditorLayer::SaveSceneAs()
 	{
-		std::string filepath = FileDialogs::SaveFile("StarEngine Scene (*.starscene)\0*.starscene\0");
+		std::filesystem::path filepath = FileSystem::SaveFileDialog({ { "Star Scene (*.starscene)", "starscene" } });
 		if (!filepath.empty())
 		{
 			SerializeScene(m_ActiveScene, filepath);

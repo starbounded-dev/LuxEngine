@@ -1,7 +1,5 @@
 #include <StarEngine.h>
 
-#include <StarEngine/Core/Entrypoint.h>
-
 #include "EditorLayer.h"
 
 namespace StarEngine {
@@ -14,18 +12,16 @@ namespace StarEngine {
 		{
 			PushLayer(new EditorLayer());
 		}
-		~StarEditor()
-		{
-
-		}
 	};
 
-	Application* CreateApplication(ApplicationCommandLineArgs args)
+	Application* CreateApplication(int argc, char** argv)
 	{
 		ApplicationSpecification spec;
 		spec.Name = "StarEditor";
-		spec.CommandLineArgs = args;
-
-		return new StarEditor(spec);;
+		return new StarEditor(spec);
 	}
+
 }
+
+// keep this LAST
+#include <StarEngine/EntryPoint.h>

@@ -46,11 +46,18 @@ namespace StarEngine {
 
 		static MonoAssembly* LoadMonoAssembly(const std::filesystem::path& assemblyPath, bool loadPDB = false)
 		{
-			ScopedBuffer fileData = FileSystem::ReadBytes(assemblyPath);
+			Buffer fileData = FileSystem::ReadBytes(assemblyPath);
 
 			// NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
 			MonoImageOpenStatus status;
-			MonoImage* image = mono_image_open_from_data_full(fileData.As<char>(), fileData.Size(), 1, &status, 0);
+			MonoImage* image = mono_image_open_from_data_full(
+				fileData.As<char>(),
+				(uint32_t)fileData.Size,   // <-- Size, not Size()
+				1,
+				&status,
+				0
+			);
+
 
 			if (status != MONO_IMAGE_OK)
 			{
@@ -66,8 +73,13 @@ namespace StarEngine {
 
 				if (std::filesystem::exists(pdbPath))
 				{
-					ScopedBuffer pdbFileData = FileSystem::ReadBytes(pdbPath);
-					mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), pdbFileData.Size());
+					Buffer pdbFileData = FileSystem::ReadBytes(pdbPath);
+					mono_debug_open_image_from_memory(
+						image,
+						pdbFileData.As<const mono_byte>(),
+						(int)pdbFileData.Size      // <-- Size, not Size()
+					);
+
 					SE_CORE_INFO("Loaded PDB {}", pdbPath.string());
 				}
 
@@ -155,11 +167,12 @@ namespace StarEngine {
 		{
 			s_Data->AssemblyReloadPending = true;
 
-			Application::Get().SubmitToMainThread([]()
+			Application::Get().QueueEvent([]()
 				{
 					s_Data->AppAssemblyFileWatcher.reset();
 					ScriptEngine::ReloadAssembly();
 				});
+
 		}
 	}
 
@@ -190,7 +203,9 @@ namespace StarEngine {
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("StarEngine", "Entity", true);
+		s_Data->EntityClass.~ScriptClass();
+		new (&s_Data->EntityClass) ScriptClass("StarEngine", "Entity", true);
+
 	}
 
 	void ScriptEngine::Shutdown()
@@ -283,7 +298,9 @@ namespace StarEngine {
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("StarEngine", "Entity", true);
+		s_Data->EntityClass.~ScriptClass();
+		new (&s_Data->EntityClass) ScriptClass("StarEngine", "Entity", true);
+
 	}
 
 	void ScriptEngine::OnRuntimeStart(Scene* scene)
@@ -303,7 +320,7 @@ namespace StarEngine {
 		{
 			UUID entityID = entity.GetUUID();
 
-			Ref<ScriptInstance> instance = CreateRef<ScriptInstance>(s_Data->EntityClasses[sc.ClassName], entity);
+			Ref<ScriptInstance> instance = Ref<ScriptInstance>::Create(s_Data->EntityClasses[sc.ClassName], entity);
 			s_Data->EntityInstances[entityID] = instance;
 
 			// Copy field values
@@ -392,10 +409,10 @@ namespace StarEngine {
 			const char* nameSpace = mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAMESPACE]);
 			const char* className = mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAME]);
 			std::string fullName;
-			if (strlen(nameSpace) != 0)
-				fullName = glm::detail::format("{}.{}", nameSpace, className);
+			if (nameSpace && *nameSpace)
+				fullName = std::string(nameSpace) + "." + className;
 			else
-				fullName = className;
+				fullName = std::string(className);
 
 			MonoClass* monoClass = mono_class_from_name(s_Data->AppAssemblyImage, nameSpace, className);
 
@@ -406,7 +423,7 @@ namespace StarEngine {
 			if (!isEntity)
 				continue;
 
-			Ref<ScriptClass> scriptClass = CreateRef<ScriptClass>(nameSpace, className);
+			Ref<ScriptClass> scriptClass = Ref<ScriptClass>::Create(nameSpace, className);
 			s_Data->EntityClasses[fullName] = scriptClass;
 
 

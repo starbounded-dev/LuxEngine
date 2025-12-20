@@ -41,7 +41,7 @@ namespace StarEngine {
 	}
 
 	void ThumbnailCache::OnUpdate()
-	{
+	{/*
 		while (!m_Queue.empty())
 		{
 			const auto& thumbnailInfo = m_Queue.front();
@@ -69,7 +69,7 @@ namespace StarEngine {
 			cachedImage.Image = texture;
 			m_Queue.pop();
 			break;
-		}
+		}*/
 	}
 
 }

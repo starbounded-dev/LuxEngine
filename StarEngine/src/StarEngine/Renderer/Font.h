@@ -6,10 +6,10 @@
 #include "StarEngine/Renderer/Texture.h"
 
 namespace StarEngine {
-
+		
 	struct MSDFData;
 
-	class Font
+	class Font : public RefCounted
 	{
 	public:
 		Font(const std::filesystem::path& font);

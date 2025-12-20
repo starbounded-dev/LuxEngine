@@ -1,5 +1,8 @@
 #include "sepch.h"
 #include "ScriptGlue.h"
+
+#include <iostream>
+
 #include "ScriptEngine.h"
 
 #include "StarEngine/Core/UUID.h"

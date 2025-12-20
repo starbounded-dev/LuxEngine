@@ -4,7 +4,7 @@
 
 namespace StarEngine
 {
-	class ScriptableEntity
+	class ScriptableEntity : public RefCounted
 	{
 	public:
 		virtual ~ScriptableEntity() {}

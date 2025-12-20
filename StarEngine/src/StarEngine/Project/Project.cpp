@@ -6,6 +6,8 @@
 
 namespace StarEngine {
 
+	static std::shared_ptr<AssetManagerBase> m_AssetManager;
+
 	std::filesystem::path Project::GetAssetAbsolutePath(const std::filesystem::path& path)
 	{
 		return GetAssetDirectory() / path;
@@ -13,13 +15,13 @@ namespace StarEngine {
 
 	Ref<Project> Project::New()
 	{
-		s_ActiveProject = CreateRef<Project>();
+		s_ActiveProject = Ref<Project>::Create();
 		return s_ActiveProject;
 	}
 
 	Ref<Project> Project::Load(const std::filesystem::path& path)
 	{
-		Ref<Project> project = CreateRef<Project>();
+		Ref<Project> project = Ref<Project>::Create();
 
 		ProjectSerializer serializer(project);
 		if (serializer.Deserialize(path))
@@ -33,9 +35,11 @@ namespace StarEngine {
 			project->m_ProjectDirectory = path.parent_path();
 			s_ActiveProject = project;
 
-			Ref<EditorAssetManager> editorAssetManager = std::make_shared<EditorAssetManager>();
-			s_ActiveProject->m_AssetManager = editorAssetManager;
+			auto editorAssetManager = std::make_shared<EditorAssetManager>();
+			m_AssetManager = std::static_pointer_cast<AssetManagerBase>(editorAssetManager);
+
 			editorAssetManager->DeserializeAssetRegistry();
+
 
 			if (!AudioEngine::HasInitializedEngine())
 			{
@@ -61,5 +65,11 @@ namespace StarEngine {
 
 		return false;
 	}
+
+	void Project::SetActive(Ref<Project> project)
+	{
+		s_ActiveProject = project;
+	}
+
 
 }

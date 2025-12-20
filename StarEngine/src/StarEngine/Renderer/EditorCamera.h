@@ -2,8 +2,8 @@
 
 #include "Camera.h"
 #include "StarEngine/Core/Timestep.h"
-#include "StarEngine/Events/Event.h"
-#include "StarEngine/Events/MouseEvent.h"
+#include "StarEngine/Core/Events/Event.h"
+#include "StarEngine/Core/Events/MouseEvent.h"
 
 #include <glm/glm.hpp>
 
