@@ -12,16 +12,19 @@
 #include "StarEngine/Debug/Profiler.h"
 #include "StarEngine/Platform/Vulkan/VulkanContext.h"
 #include "StarEngine/Platform/Vulkan/VulkanRenderCommandBuffer.h"
+#include "StarEngine/Platform/Vulkan/VulkanSwapChain.h"
 #include "StarEngine/Project/Project.h"
-#include "IndexBuffer.h"
-#include "ShaderDefs.h"
 
+#include "StarEngine/Asset/AssetManager.h"
 
 #include "nvrhi/nvrhi.h"
+#include "nvrhi/utils.h"
 
 #if SE_HAS_SHADER_COMPILER
 #include "StarEngine/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 #endif
+
+#include <glm/gtc/type_ptr.hpp>
 
 #include <filesystem>
 #include <format>
@@ -29,8 +32,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include "StarEngine/Platform/Vulkan/VulkanSwapChain.h"
-
+#include "ShaderDefs.h"
 
 namespace std {
 	template<>
@@ -44,7 +46,6 @@ namespace std {
 }
 
 namespace StarEngine {
-
 	namespace Utils {
 
 		static const char* VulkanVendorIDToString(uint32_t vendorID)
@@ -63,13 +64,11 @@ namespace StarEngine {
 
 	static std::unordered_map<size_t, Ref<Pipeline>> s_PipelineCache;
 
-	static RendererAPI* s_RendererAPI = nullptr;
-
 	struct ShaderDependencies
 	{
-		//std::vector<Ref<PipelineCompute>> ComputePipelines;
+		std::vector<Ref<PipelineCompute>> ComputePipelines;
 		std::vector<Ref<Pipeline>> Pipelines;
-		//std::vector<Ref<Material>> Materials;
+		std::vector<Ref<Material>> Materials;
 	};
 	static std::unordered_map<size_t, ShaderDependencies> s_ShaderDependencies;
 	static std::shared_mutex s_ShaderDependenciesMutex; // ShaderDependencies can be accessed (and modified) from multiple threads, hence require synchronization
@@ -94,8 +93,8 @@ namespace StarEngine {
 		Ref<Texture2D> BlackTexture;
 		Ref<Texture2D> BRDFLutTexture;
 		Ref<Texture2D> HilbertLut;
-		//Ref<TextureCube> BlackCubeTexture;
-		//Ref<Environment> EmptyEnvironment;
+		Ref<TextureCube> BlackCubeTexture;
+		Ref<Environment> EmptyEnvironment;
 
 		std::unordered_map<std::string, std::string> GlobalShaderMacros;
 
@@ -116,26 +115,20 @@ namespace StarEngine {
 		std::unordered_map<StorageBufferSet*, std::unordered_map<uint64_t, std::vector<std::vector<VkWriteDescriptorSet>>>> StorageBufferWriteDescriptorCache;
 
 		// Default samplers
-		nvrhi::SamplerHandle SamplerClamp = nullptr;
-		nvrhi::SamplerHandle SamplerPoint = nullptr;
+		Ref<Sampler> SamplerClamp = nullptr;
+		Ref<Sampler> SamplerPoint = nullptr;
 
 		int32_t SelectedDrawCall = -1;
 		int32_t DrawCallCount = 0;
 	};
 
 	static RendererData* s_RendererData = nullptr;
-	/*
+
 	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Ref<PipelineCompute> computePipeline)
 	{
 		std::scoped_lock lock(s_ShaderDependenciesMutex);
 		s_ShaderDependencies[shader->GetHash()].ComputePipelines.push_back(computePipeline);
 	}
-
-	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Ref<Material> material)
-	{
-		std::scoped_lock lock(s_ShaderDependenciesMutex);
-		s_ShaderDependencies[shader->GetHash()].Materials.push_back(material);
-	*/
 
 	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Ref<Pipeline> pipeline)
 	{
@@ -143,7 +136,11 @@ namespace StarEngine {
 		s_ShaderDependencies[shader->GetHash()].Pipelines.push_back(pipeline);
 	}
 
-	
+	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Ref<Material> material)
+	{
+		std::scoped_lock lock(s_ShaderDependenciesMutex);
+		s_ShaderDependencies[shader->GetHash()].Materials.push_back(material);
+	}
 
 	void Renderer::OnShaderReloaded(size_t hash)
 	{
@@ -159,7 +156,7 @@ namespace StarEngine {
 		{
 			pipeline->Invalidate();
 		}
-		/*
+
 		for (auto& computePipeline : dependencies.ComputePipelines)
 		{
 			computePipeline->CreatePipeline();
@@ -168,13 +165,12 @@ namespace StarEngine {
 		for (auto& material : dependencies.Materials)
 		{
 			material->OnShaderReloaded();
-		}*/
+		}
 	}
-	
+
 	uint32_t Renderer::RT_GetCurrentFrameIndex()
 	{
-		// Swapchain owns the Render Thread frame index
-		return Application::Get().GetWindow().GetSwapChain().GetCurrentBufferIndex();
+		return Application::Get().GetWindow().GetSwapChain().GetCurrentBackBufferIndex();
 	}
 
 	uint32_t Renderer::GetCurrentFrameIndex()
@@ -209,17 +205,17 @@ namespace StarEngine {
 	void Renderer::Init()
 	{
 		s_Data = snew RendererData();
+		s_RendererData = snew RendererData();
+
 		s_CommandQueue[0] = snew RenderCommandQueue();
 		s_CommandQueue[1] = snew RenderCommandQueue();
 
 		// Make sure we don't have more frames in flight than swapchain images
-		s_Config.FramesInFlight = glm::min<uint32_t>(s_Config.FramesInFlight, Application::Get().GetWindow().GetDeviceManager()->GetBackBufferCount());
+		s_Config.FramesInFlight = glm::min<uint32_t>(s_Config.FramesInFlight, Application::Get().GetWindow().GetSwapChain().GetBackBufferCount());
 
-		s_RendererAPI = InitRendererAPI();
-
-		Renderer::SetGlobalMacroInShaders("__SE_REFLECTION_OCCLUSION_METHOD", "0");
-		Renderer::SetGlobalMacroInShaders("__SE_AO_METHOD", std::format("{}", (int)ShaderDef::GetAOMethod(true)));
-		Renderer::SetGlobalMacroInShaders("__SE_GTAO_COMPUTE_BENT_NORMALS", "0");
+		Renderer::SetGlobalMacroInShaders("__HZ_REFLECTION_OCCLUSION_METHOD", "0");
+		Renderer::SetGlobalMacroInShaders("__HZ_AO_METHOD", std::format("{}", (int)ShaderDef::GetAOMethod(true)));
+		Renderer::SetGlobalMacroInShaders("__HZ_GTAO_COMPUTE_BENT_NORMALS", "0");
 
 		s_Data->m_ShaderLibrary = Ref<ShaderLibrary>::Create();
 
@@ -228,6 +224,8 @@ namespace StarEngine {
 
 
 		// NOTE: some shaders (compute) need to have optimization disabled because of a shaderc internal error
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSample.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSampleUInt.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ImGui.hlsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HZB.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Static.glsl");
@@ -293,12 +291,14 @@ namespace StarEngine {
 
 		uint32_t whiteTextureData = 0xffffffff;
 		TextureSpecification spec;
+		spec.DebugName = "Renderer-WhiteTexture";
 		spec.Format = ImageFormat::RGBA;
 		spec.Width = 1;
 		spec.Height = 1;
 		s_Data->WhiteTexture = Texture2D::Create(spec, Buffer(&whiteTextureData, sizeof(uint32_t)));
 
 		constexpr uint32_t blackTextureData = 0xff000000;
+		spec.DebugName = "Renderer-BlackTexture";
 		s_Data->BlackTexture = Texture2D::Create(spec, Buffer(&blackTextureData, sizeof(uint32_t)));
 
 		{
@@ -306,12 +306,13 @@ namespace StarEngine {
 			spec.SamplerWrap = TextureWrap::Clamp;
 			s_Data->BRDFLutTexture = Texture2D::Create(spec, std::filesystem::path("Resources/Renderer/BRDF_LUT.png"));
 		}
-		/*
+
 		constexpr uint32_t blackCubeTextureData[6] = { 0xff000000, 0xff000000, 0xff000000, 0xff000000, 0xff000000, 0xff000000 };
+		spec.DebugName = "Renderer-BlackCubeTexture";
 		s_Data->BlackCubeTexture = TextureCube::Create(spec, Buffer(blackCubeTextureData, sizeof(blackCubeTextureData)));
 
-		s_Data->EmptyEnvironment = Ref<Environment>::Create(s_Data->BlackCubeTexture, s_Data->BlackCubeTexture);*/
-		
+		s_Data->EmptyEnvironment = Ref<Environment>::Create(s_Data->BlackCubeTexture, s_Data->BlackCubeTexture);
+
 		// Hilbert look-up texture! It's a 64 x 64 uint16 texture
 		{
 			TextureSpecification spec;
@@ -359,7 +360,6 @@ namespace StarEngine {
 		}
 
 		// From VulkanRenderer::Init()
-		s_RendererData = snew RendererData();
 		const auto& config = Renderer::GetConfig();
 		s_RendererData->DescriptorPools.resize(config.FramesInFlight);
 		s_RendererData->DescriptorPoolAllocationCount.resize(config.FramesInFlight);
@@ -375,43 +375,6 @@ namespace StarEngine {
 
 		Utils::DumpGPUInfo();
 
-#if OLD
-		// Create descriptor pools
-		Renderer::Submit([]() mutable
-			{
-				// Create Descriptor Pool
-				VkDescriptorPoolSize pool_sizes[] =
-				{
-					{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-					{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-					{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-					{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-					{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-					{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-					{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-					{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-					{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-					{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-					{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-				};
-				VkDescriptorPoolCreateInfo pool_info = {};
-				pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-				pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-				pool_info.maxSets = 100000;
-				pool_info.poolSizeCount = (uint32_t)IM_ARRAYSIZE(pool_sizes);
-				pool_info.pPoolSizes = pool_sizes;
-				VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
-				uint32_t framesInFlight = Renderer::GetConfig().FramesInFlight;
-				for (uint32_t i = 0; i < framesInFlight; i++)
-				{
-					VK_CHECK_RESULT(vkCreateDescriptorPool(device, &pool_info, nullptr, &s_VulkanRendererData->DescriptorPools[i]));
-					s_VulkanRendererData->DescriptorPoolAllocationCount[i] = 0;
-				}
-
-				VK_CHECK_RESULT(vkCreateDescriptorPool(device, &pool_info, nullptr, &s_VulkanRendererData->MaterialDescriptorPool));
-			});
-#endif
-
 		// Create fullscreen quad
 		float x = -1;
 		float y = -1;
@@ -425,23 +388,23 @@ namespace StarEngine {
 		std::array<QuadVertex, 4> quadVertexData;
 
 		quadVertexData[0].Position = glm::vec3(x, y, 0.0f);
-		quadVertexData[0].TexCoord = glm::vec2(0, 0);
+		quadVertexData[0].TexCoord = glm::vec2(0, 1);
 
 		quadVertexData[1].Position = glm::vec3(x + width, y, 0.0f);
-		quadVertexData[1].TexCoord = glm::vec2(1, 0);
+		quadVertexData[1].TexCoord = glm::vec2(1, 1);
 
 		quadVertexData[2].Position = glm::vec3(x + width, y + height, 0.0f);
-		quadVertexData[2].TexCoord = glm::vec2(1, 1);
+		quadVertexData[2].TexCoord = glm::vec2(1, 0);
 
 		quadVertexData[3].Position = glm::vec3(x, y + height, 0.0f);
-		quadVertexData[3].TexCoord = glm::vec2(0, 1);
+		quadVertexData[3].TexCoord = glm::vec2(0, 0);
 
-		s_RendererData->QuadVertexBuffer = VertexBuffer::Create(Buffer(quadVertexData.data(), quadVertexData.size()));
+		s_RendererData->QuadVertexBuffer = VertexBuffer::Create(Buffer(quadVertexData.data(), quadVertexData.size() * sizeof(QuadVertex)));
 
 		std::array<uint32_t, 6> indices = { 0, 1, 2, 2, 3, 0, };
-		s_RendererData->QuadIndexBuffer = IndexBuffer::Create(Buffer{ indices.data(), indices.size() });
+		s_RendererData->QuadIndexBuffer = IndexBuffer::Create(Buffer{ indices.data(), indices.size() * sizeof(uint32_t) });
 
-		//s_RendererData->BRDFLut = Renderer::GetBRDFLutTexture();
+		s_RendererData->BRDFLut = Renderer::GetBRDFLutTexture();
 	}
 
 	void Renderer::Shutdown()
@@ -526,397 +489,904 @@ namespace StarEngine {
 	{
 		return s_RenderCommandQueueSubmissionIndex;
 	}
-	/*
+
 	void Renderer::BeginRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, bool explicitClear)
 	{
-#if TODO
-		HZ_CORE_ASSERT(renderPass, "RenderPass cannot be null!");
-
-		Renderer::Submit([renderCommandBuffer, renderPass, explicitClear]()
+		Renderer::Submit([renderCommandBuffer, renderPass, explicitClear]() mutable
 			{
-				HZ_PROFILE_SCOPE_DYNAMIC(std::format("VulkanRenderer::BeginRenderPass ({})", renderPass->GetSpecification().DebugName).c_str());
-				HZ_CORE_TRACE_TAG("Renderer", "BeginRenderPass - {}", renderPass->GetSpecification().DebugName);
+				renderCommandBuffer->RT_BeginMarker(renderPass->GetSpecification().DebugName);
 
-				uint32_t frameIndex = Renderer::RT_GetCurrentFrameIndex();
+				Ref<Pipeline> pipeline = renderPass->GetSpecification().Pipeline;
+				Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
 
-
-				VkCommandBuffer commandBuffer = renderCommandBuffer.As<VulkanRenderCommandBuffer>()->GetActiveCommandBuffer();
-
-#if DEBUG
-				VkDebugUtilsLabelEXT debugLabel{};
-				debugLabel.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
-				memcpy(&debugLabel.color, glm::value_ptr(renderPass->GetSpecification().MarkerColor), sizeof(float) * 4);
-				debugLabel.pLabelName = renderPass->GetSpecification().DebugName.c_str();
-				fpCmdBeginDebugUtilsLabelEXT(commandBuffer, &debugLabel);
-#endif
-
-				auto fb = renderPass->GetSpecification().Pipeline->GetSpecification().TargetFramebuffer;
-				Ref<VulkanFramebuffer> framebuffer = fb.As<VulkanFramebuffer>();
-				const auto& fbSpec = framebuffer->GetSpecification();
-
-				uint32_t width = framebuffer->GetWidth();
-				uint32_t height = framebuffer->GetHeight();
-
-				VkViewport viewport = {};
-				viewport.minDepth = 0.0f;
-				viewport.maxDepth = 1.0f;
-
-				VkRenderPassBeginInfo renderPassBeginInfo = {};
-				renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-				renderPassBeginInfo.pNext = nullptr;
-				renderPassBeginInfo.renderPass = framebuffer->GetRenderPass();
-				renderPassBeginInfo.renderArea.offset.x = 0;
-				renderPassBeginInfo.renderArea.offset.y = 0;
-				renderPassBeginInfo.renderArea.extent.width = width;
-				renderPassBeginInfo.renderArea.extent.height = height;
-				if (framebuffer->GetSpecification().SwapChainTarget)
+				if (explicitClear || framebuffer->GetSpecification().ClearColorOnLoad || framebuffer->GetSpecification().ClearDepthOnLoad)
 				{
-					VulkanSwapChain& swapChain = Application::Get().GetWindow().GetSwapChain();
-					width = swapChain.GetWidth();
-					height = swapChain.GetHeight();
-					renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					renderPassBeginInfo.pNext = nullptr;
-					renderPassBeginInfo.renderPass = framebuffer->GetRenderPass();
-					renderPassBeginInfo.renderArea.offset.x = 0;
-					renderPassBeginInfo.renderArea.offset.y = 0;
-					renderPassBeginInfo.renderArea.extent.width = width;
-					renderPassBeginInfo.renderArea.extent.height = height;
-					renderPassBeginInfo.framebuffer = swapChain.GetCurrentFramebuffer();
+					const auto& clearValues = framebuffer->GetClearValues();
 
-					viewport.x = 0.0f;
-					viewport.y = (float)height;
-					viewport.width = (float)width;
-					viewport.height = -(float)height;
-				}
-				else
-				{
-					width = framebuffer->GetWidth();
-					height = framebuffer->GetHeight();
-					renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					renderPassBeginInfo.pNext = nullptr;
-					renderPassBeginInfo.renderPass = framebuffer->GetRenderPass();
-					renderPassBeginInfo.renderArea.offset.x = 0;
-					renderPassBeginInfo.renderArea.offset.y = 0;
-					renderPassBeginInfo.renderArea.extent.width = width;
-					renderPassBeginInfo.renderArea.extent.height = height;
-					renderPassBeginInfo.framebuffer = framebuffer->GetVulkanFramebuffer();
-
-					viewport.x = 0.0f;
-					viewport.y = 0.0f;
-					viewport.width = (float)width;
-					viewport.height = (float)height;
-				}
-
-				// TODO: Does our framebuffer have a depth attachment?
-				const auto& clearValues = framebuffer->GetVulkanClearValues();
-				renderPassBeginInfo.clearValueCount = (uint32_t)clearValues.size();
-				renderPassBeginInfo.pClearValues = clearValues.data();
-
-				vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-				if (explicitClear)
-				{
-					const uint32_t colorAttachmentCount = (uint32_t)framebuffer->GetColorAttachmentCount();
-					const uint32_t totalAttachmentCount = colorAttachmentCount + (framebuffer->HasDepthAttachment() ? 1 : 0);
-					HZ_CORE_ASSERT(clearValues.size() == totalAttachmentCount);
-
-					std::vector<VkClearAttachment> attachments(totalAttachmentCount);
-					std::vector<VkClearRect> clearRects(totalAttachmentCount);
-					for (uint32_t i = 0; i < colorAttachmentCount; i++)
+					if (explicitClear || framebuffer->GetSpecification().ClearColorOnLoad)
 					{
-						attachments[i].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-						attachments[i].colorAttachment = i;
-						attachments[i].clearValue = clearValues[i];
+						for (size_t i = 0; i < framebuffer->GetColorAttachmentCount(); i++)
+						{
+							nvrhi::Color color = nvrhi::Color(clearValues[i].Color.float32[0], clearValues[i].Color.float32[1],
+								clearValues[i].Color.float32[2], clearValues[i].Color.float32[3]);
 
-						clearRects[i].rect.offset = { (int32_t)0, (int32_t)0 };
-						clearRects[i].rect.extent = { width, height };
-						clearRects[i].baseArrayLayer = 0;
-						clearRects[i].layerCount = 1;
+							nvrhi::utils::ClearColorAttachment(renderCommandBuffer->GetActive(), framebuffer->GetHandle(), i, color);
+						}
 					}
 
-					if (framebuffer->HasDepthAttachment())
+					if (explicitClear || framebuffer->GetSpecification().ClearDepthOnLoad)
 					{
-						attachments[colorAttachmentCount].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-						attachments[colorAttachmentCount].clearValue = clearValues[colorAttachmentCount];
-						clearRects[colorAttachmentCount].rect.offset = { (int32_t)0, (int32_t)0 };
-						clearRects[colorAttachmentCount].rect.extent = { width, height };
-						clearRects[colorAttachmentCount].baseArrayLayer = 0;
-						clearRects[colorAttachmentCount].layerCount = 1;
+						if (framebuffer->HasDepthAttachment())
+						{
+							const auto& depthStencil = clearValues[clearValues.size() - 1].DepthStencil;
+							nvrhi::utils::ClearDepthStencilAttachment(renderCommandBuffer->GetActive(), framebuffer->GetHandle(), depthStencil.Depth, depthStencil.Stencil);
+						}
 					}
-
-					vkCmdClearAttachments(commandBuffer, totalAttachmentCount, attachments.data(), totalAttachmentCount, clearRects.data());
-
 				}
 
-				// Update dynamic viewport state
-				vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 
-				// Update dynamic scissor state
-				VkRect2D scissor = {};
-				scissor.extent.width = width;
-				scissor.extent.height = height;
-				scissor.offset.x = 0;
-				scissor.offset.y = 0;
-				vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+				graphicsState.pipeline = pipeline->GetHandle();
+				SE_CORE_ASSERT(graphicsState.pipeline);
+				graphicsState.framebuffer = framebuffer->GetHandle();
+				SE_CORE_ASSERT(graphicsState.framebuffer);
 
-				// TODO: automatic layout transitions for input resources
+				// Viewport and scissor
+				float fbWidth = (float)framebuffer->GetWidth();
+				float fbHeight = (float)framebuffer->GetHeight();
+				graphicsState.viewport.viewports = { nvrhi::Viewport(fbWidth, fbHeight) };
+				graphicsState.viewport.scissorRects = { nvrhi::Rect(fbWidth, fbHeight) };
 
-				// Bind Vulkan Pipeline
-				Ref<VulkanPipeline> vulkanPipeline = renderPass->GetSpecification().Pipeline.As<VulkanPipeline>();
-				VkPipeline vPipeline = vulkanPipeline->GetVulkanPipeline();
-				vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vPipeline);
+				graphicsState.lineWidth = 0.0f;
+				if (renderPass->GetPipeline()->IsDynamicLineWidth())
+					graphicsState.lineWidth = renderPass->GetPipeline()->GetSpecification().LineWidth;
 
-				if (vulkanPipeline->IsDynamicLineWidth())
-					vkCmdSetLineWidth(commandBuffer, vulkanPipeline->GetSpecification().LineWidth);
+				renderPass->Prepare();
+				auto bindingSets = renderPass->GetBindingSets(Renderer::RT_GetCurrentFrameIndex());
+				graphicsState.bindings = bindingSets;
 
-				// Bind input descriptors (starting from set 1, set 0 is for per-draw)
-				Ref<VulkanRenderPass> vulkanRenderPass = renderPass.As<VulkanRenderPass>();
-				vulkanRenderPass->Prepare();
-				if (vulkanRenderPass->HasDescriptorSets())
-				{
-					const auto& descriptorSets = vulkanRenderPass->GetDescriptorSets(frameIndex);
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkanPipeline->GetVulkanPipelineLayout(), vulkanRenderPass->GetFirstSetIndex(), (uint32_t)descriptorSets.size(), descriptorSets.data(), 0, nullptr);
-				}
+				renderCommandBuffer->RT_CommitGraphicsState();
 			});
-#endif
 	}
 
 	void Renderer::EndRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
-#if TODO
-		Renderer::Submit([renderCommandBuffer]()
+		Renderer::Submit([renderCommandBuffer]() mutable
 			{
-				HZ_PROFILE_FUNC("VulkanRenderer::EndRenderPass");
-
-				uint32_t frameIndex = Renderer::RT_GetCurrentFrameIndex();
-				VkCommandBuffer commandBuffer = renderCommandBuffer.As<VulkanRenderCommandBuffer>()->GetActiveCommandBuffer();
-
-				vkCmdEndRenderPass(commandBuffer);
-				fpCmdEndDebugUtilsLabelEXT(commandBuffer);
+				renderCommandBuffer->RT_EndMarker();
 			});
-#endif
-	}*/
-	/*
+	}
+
 	void Renderer::BeginComputePass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass)
 	{
 		SE_CORE_ASSERT(computePass, "ComputePass cannot be null!");
 
-		//s_RendererAPI->BeginComputePass(renderCommandBuffer, computePass);
+		Renderer::Submit([renderCommandBuffer, computePass]() mutable
+			{
+				renderCommandBuffer->RT_BeginMarker(computePass->GetSpecification().DebugName);
+
+				Ref<PipelineCompute> pipeline = computePass->GetPipeline();
+
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+
+				nvrhi::ComputeState& computeState = renderCommandBuffer->GetComputeState();
+				computeState.pipeline = pipeline->GetHandle();
+				SE_CORE_ASSERT(computeState.pipeline);
+
+				computePass->Prepare();
+
+				auto bindingSets = computePass->GetBindingSets(Renderer::RT_GetCurrentFrameIndex());
+				computeState.bindings = bindingSets;
+
+				renderCommandBuffer->RT_CommitComputeState();
+			});
 	}
 
 	void Renderer::EndComputePass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass)
 	{
-		//s_RendererAPI->EndComputePass(renderCommandBuffer, computePass);
-	}*/
-	/*
+		Renderer::Submit([renderCommandBuffer, computePass]() mutable
+			{
+				renderCommandBuffer->RT_EndMarker();
+			});
+	}
+
 	void Renderer::DispatchCompute(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups, Buffer constants)
 	{
-		//s_RendererAPI->DispatchCompute(renderCommandBuffer, computePass, material, workGroups, constants);
-	}*/
-	/*
-	void Renderer::InsertGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& color)
-	{
-		//s_RendererAPI->InsertGPUPerfMarker(renderCommandBuffer, label, color);
-	}*/
+		Buffer pushConstantBuffer;
+		if (constants)
+			pushConstantBuffer = Buffer::Copy(constants);
+
+		Renderer::Submit([renderCommandBuffer, computePass, material, workGroups, pushConstantBuffer]() mutable
+			{
+				const uint32_t frameIndex = Renderer::RT_GetCurrentFrameIndex();
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+
+				nvrhi::ComputeState& computeState = renderCommandBuffer->GetComputeState();
+
+				// Bind material descriptor set if exists
+				if (material)
+				{
+					material->Prepare();
+					auto bindingSet = material->GetBindingSet(frameIndex);
+					if (bindingSet)
+					{
+						if (computeState.bindings.empty())
+							computeState.bindings.resize(1);
+
+						computeState.bindings[0] = bindingSet;
+					}
+				}
+
+				renderCommandBuffer->RT_CommitComputeState();
+
+				if (pushConstantBuffer)
+				{
+					commandList->setPushConstants(pushConstantBuffer.Data, pushConstantBuffer.Size);
+					pushConstantBuffer.Release();
+				}
+
+				commandList->dispatch(workGroups.x, workGroups.y, workGroups.z);
+			});
+	}
 
 	void Renderer::BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
-		//s_RendererAPI->BeginGPUPerfMarker(renderCommandBuffer, label, markerColor);
+		Renderer::Submit([renderCommandBuffer, s = label]() mutable
+			{
+				renderCommandBuffer->RT_BeginTimerQuery(s);
+			});
 	}
 
 	void Renderer::EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
-		//s_RendererAPI->EndGPUPerfMarker(renderCommandBuffer);
+		Renderer::Submit([renderCommandBuffer]() mutable
+			{
+				renderCommandBuffer->RT_EndTimerQuery();
+			});
 	}
-	/*
-	void Renderer::RT_InsertGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& color)
-	{
-		//s_RendererAPI->RT_InsertGPUPerfMarker(renderCommandBuffer, label, color);
-	}*/
 
 	void Renderer::RT_BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
-		//s_RendererAPI->RT_BeginGPUPerfMarker(renderCommandBuffer, label, markerColor);
+		renderCommandBuffer->RT_BeginTimerQuery(label);
 	}
 
 	void Renderer::RT_EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
-		//s_RendererAPI->RT_EndGPUPerfMarker(renderCommandBuffer);
+		renderCommandBuffer->RT_EndTimerQuery();
 	}
 
 	void Renderer::BeginFrame()
 	{
-		//s_RendererAPI->BeginFrame();
+
 	}
 
 	void Renderer::EndFrame()
 	{
-		//s_RendererAPI->EndFrame();
+
 	}
 	/*
 	void Renderer::SetSceneEnvironment(Ref<SceneRenderer> sceneRenderer, Ref<Environment> environment, Ref<Image2D> shadow, Ref<Image2D> spotShadow)
 	{
-		//s_RendererAPI->SetSceneEnvironment(sceneRenderer, environment, shadow, spotShadow);
-	}
+
+	}*/
 
 	std::pair<Ref<TextureCube>, Ref<TextureCube>> Renderer::CreateEnvironmentMap(const std::string& filepath)
 	{
-		return { nullptr, nullptr }; // return s_RendererAPI->CreateEnvironmentMap(filepath);
-	}
+		if (!Renderer::GetConfig().ComputeEnvironmentMaps)
+			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
 
-	void Renderer::LightCulling(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups)
-	{
-		//s_RendererAPI->LightCulling(renderCommandBuffer, computePass, material, workGroups);
+		const uint32_t cubemapSize = Renderer::GetConfig().EnvironmentMapResolution;
+		const uint32_t irradianceMapSize = 32;
+
+		// Load the HDR equirectangular texture
+		TextureSpecification equirectSpec;
+		equirectSpec.DebugName = "EnvEquirect";
+		Ref<Texture2D> envEquirect = Texture2D::Create(equirectSpec, filepath);
+		if (!envEquirect || !envEquirect->Loaded())
+		{
+			SE_CORE_ERROR("Failed to load environment map: {}", filepath);
+			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
+		}
+		SE_CORE_ASSERT(envEquirect->GetFormat() == ImageFormat::RGBA32F, "Environment texture is not HDR!");
+
+		// Create cubemap textures
+		TextureSpecification cubemapSpec;
+		cubemapSpec.Format = ImageFormat::RGBA16F;
+		cubemapSpec.Width = cubemapSize;
+		cubemapSpec.Height = cubemapSize;
+		cubemapSpec.Storage = true;
+
+		cubemapSpec.DebugName = "EnvUnfiltered";
+		Ref<TextureCube> envUnfiltered = TextureCube::Create(cubemapSpec);
+
+		cubemapSpec.DebugName = "EnvFiltered";
+		Ref<TextureCube> envFiltered = TextureCube::Create(cubemapSpec);
+
+		// Convert equirectangular to unfiltered cubemap
+		{
+			Ref<Shader> equirectToCubeShader = Renderer::GetShaderLibrary()->Get("EquirectangularToCubeMap");
+			Ref<Material> equirectToCubeMaterial = Material::Create(equirectToCubeShader);
+			equirectToCubeMaterial->Set("o_CubeMap", envUnfiltered);
+			equirectToCubeMaterial->Set("u_EquirectangularTex", envEquirect);
+
+			ComputePassSpecification computePassSpec;
+			computePassSpec.Pipeline = PipelineCompute::Create(equirectToCubeShader);
+			computePassSpec.DebugName = "EquirectToCubeMap";
+			Ref<ComputePass> computePass = ComputePass::Create(computePassSpec);
+			computePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			computePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			computePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+
+			Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, "EquirectToCubeMap-Compute");
+			commandBuffer->Begin();
+			BeginComputePass(commandBuffer, computePass);
+
+			glm::uvec3 workGroups{ cubemapSize / 32, cubemapSize / 32, 6 };
+			DispatchCompute(commandBuffer, computePass, equirectToCubeMaterial, workGroups, Buffer());
+
+			EndComputePass(commandBuffer, computePass);
+			commandBuffer->End();
+			commandBuffer->Submit();
+
+			envUnfiltered->GenerateMips();
+		}
+
+		// Copy environment map as-is to filtered mip level 0.  This level is used for perfectly reflective materials
+		{
+			Ref<Shader> equirectToCubeShader = Renderer::GetShaderLibrary()->Get("EquirectangularToCubeMap");
+			Ref<Material> equirectToCubeMaterial = Material::Create(equirectToCubeShader);
+			equirectToCubeMaterial->Set("o_CubeMap", envFiltered);
+			equirectToCubeMaterial->Set("u_EquirectangularTex", envEquirect);
+
+			ComputePassSpecification computePassSpec;
+			computePassSpec.Pipeline = PipelineCompute::Create(equirectToCubeShader);
+			computePassSpec.DebugName = "EquirectToCubeMapFiltered";
+			Ref<ComputePass> computePass = ComputePass::Create(computePassSpec);
+			computePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			computePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			computePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+
+			Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, "EquirectToCubeMapFiltered-Compute");
+			commandBuffer->Begin();
+			BeginComputePass(commandBuffer, computePass);
+
+			glm::uvec3 workGroups{ cubemapSize / 32, cubemapSize / 32, 6 };
+			DispatchCompute(commandBuffer, computePass, equirectToCubeMaterial, workGroups, Buffer());
+
+			EndComputePass(commandBuffer, computePass);
+			commandBuffer->End();
+			commandBuffer->Submit();
+		}
+
+		// Step 2b: Environment Mip Filtering - pre-filter each mip level with increasing roughness for PBR
+		// This is crucial for physically-based rendering as it allows materials with different roughness values
+		// to sample the appropriate pre-filtered mip level for accurate specular reflections.
+		{
+			Ref<Shader> mipFilterShader = Renderer::GetShaderLibrary()->Get("EnvironmentMipFilter");
+
+			ComputePassSpecification computePassSpec;
+			computePassSpec.Pipeline = PipelineCompute::Create(mipFilterShader);
+			computePassSpec.DebugName = "EnvironmentMipFilter";
+			Ref<ComputePass> computePass = ComputePass::Create(computePassSpec);
+			computePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			computePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			computePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+
+			Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, "EnvironmentMipFilter-Compute");
+			commandBuffer->Begin();
+			BeginComputePass(commandBuffer, computePass);
+
+			const uint32_t mipCount = envFiltered->GetMipLevelCount();
+			const float deltaRoughness = 1.0f / glm::max((float)mipCount - 1.0f, 1.0f);
+
+			// Note: mip level 0 is the unfiltered copy from the previous step
+			// Start from mip 1 and apply increasing roughness
+			for (uint32_t mip = 1; mip < mipCount; mip++)
+			{
+				uint32_t mipSize = cubemapSize >> mip;
+				float roughness = mip * deltaRoughness;
+
+				// Create image views for the specific mip level output
+				ImageViewSpecification outputViewSpec;
+				outputViewSpec.Image = envFiltered->GetImage();
+				outputViewSpec.Mip = mip;
+				outputViewSpec.MipCount = 1;
+				outputViewSpec.Layer = 0;
+				outputViewSpec.LayerCount = 6; // All cubemap faces
+				outputViewSpec.Dimension = nvrhi::TextureDimension::TextureCube;
+				outputViewSpec.DebugName = std::format("EnvMipFilter-Output-Mip{}", mip);
+				Ref<ImageView> outputView = ImageView::Create(outputViewSpec);
+
+				Ref<Material> mipFilterMaterial = Material::Create(mipFilterShader);
+				mipFilterMaterial->Set("outputTexture", outputView);
+				mipFilterMaterial->Set("inputTexture", envUnfiltered);
+
+				uint32_t numGroups = glm::max(1u, mipSize / 32);
+				glm::uvec3 workGroups{ numGroups, numGroups, 6 };
+				DispatchCompute(commandBuffer, computePass, mipFilterMaterial, workGroups, Buffer(&roughness, sizeof(float)));
+
+				// Commit barriers between mip levels to ensure writes complete before next iteration
+				Renderer::Submit([commandBuffer]()
+					{
+						nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
+						commandList->commitBarriers();
+					});
+			}
+
+			EndComputePass(commandBuffer, computePass);
+			commandBuffer->End();
+			commandBuffer->Submit();
+		}
+
+		// Step 3: Compute irradiance map
+		cubemapSpec.Width = irradianceMapSize;
+		cubemapSpec.Height = irradianceMapSize;
+		cubemapSpec.DebugName = "IrradianceMap";
+		Ref<TextureCube> irradianceMap = TextureCube::Create(cubemapSpec);
+
+		{
+			Ref<Shader> irradianceShader = Renderer::GetShaderLibrary()->Get("EnvironmentIrradiance");
+			Ref<Material> irradianceMaterial = Material::Create(irradianceShader);
+			irradianceMaterial->Set("o_IrradianceMap", irradianceMap);
+			irradianceMaterial->Set("u_RadianceMap", envFiltered);
+
+			ComputePassSpecification computePassSpec;
+			computePassSpec.Pipeline = PipelineCompute::Create(irradianceShader);
+			computePassSpec.DebugName = "EnvironmentIrradiance";
+			Ref<ComputePass> computePass = ComputePass::Create(computePassSpec);
+			computePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			computePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			computePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+
+			Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, "EnvironmentIrradiance-Compute");
+			commandBuffer->Begin();
+			BeginComputePass(commandBuffer, computePass);
+
+			uint32_t samples = Renderer::GetConfig().IrradianceMapComputeSamples;
+			Buffer pushConstantBuffer(&samples, sizeof(uint32_t));
+			glm::uvec3 workGroups{ irradianceMapSize / 32, irradianceMapSize / 32, 6 };
+			DispatchCompute(commandBuffer, computePass, irradianceMaterial, workGroups, pushConstantBuffer);
+
+			EndComputePass(commandBuffer, computePass);
+			commandBuffer->End();
+			commandBuffer->Submit();
+
+			irradianceMap->GenerateMips();
+		}
+
+		return { envFiltered, irradianceMap };
 	}
 
 	Ref<TextureCube> Renderer::CreatePreethamSky(float turbidity, float azimuth, float inclination)
 	{
-		return nullptr; // return s_RendererAPI->CreatePreethamSky(turbidity, azimuth, inclination);
-	}*/
-#if 0
-	void Renderer::RenderStaticMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, Ref<StaticMesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<MaterialTable> materialTable, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount)
+		const uint32_t cubemapSize = Renderer::GetConfig().EnvironmentMapResolution;
+		const uint32_t irradianceMapSize = 32;
+
+		TextureSpecification cubemapSpec;
+		cubemapSpec.DebugName = "PreethamSky";
+		cubemapSpec.Format = ImageFormat::RGBA32F;
+		cubemapSpec.Width = cubemapSize;
+		cubemapSpec.Height = cubemapSize;
+		cubemapSpec.Storage = true;
+
+		Ref<TextureCube> environmentMap = TextureCube::Create(cubemapSpec);
+
+		Ref<Shader> preethamSkyShader = Renderer::GetShaderLibrary()->Get("PreethamSky");
+
+		Ref<Material> preethamSkyMaterial = Material::Create(preethamSkyShader);
+		preethamSkyMaterial->Set("o_CubeMap", environmentMap);
+
+		ComputePassSpecification computePassSpec;
+		computePassSpec.Pipeline = PipelineCompute::Create(preethamSkyShader);
+		computePassSpec.DebugName = "PreethamSky";
+		Ref<ComputePass> computePass = ComputePass::Create(computePassSpec);
+
+		Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, "PreethamSky-Compute");
+
+		commandBuffer->Begin();
+
+		BeginComputePass(commandBuffer, computePass);
+
+		glm::vec3 params = { turbidity, azimuth, inclination };
+		Buffer pushConstantBuffer(&params, sizeof(glm::vec3));
+		glm::uvec3 workGroups{ cubemapSize / 32, cubemapSize / 32, 6 };
+		DispatchCompute(commandBuffer, computePass, preethamSkyMaterial, workGroups, pushConstantBuffer);
+
+		EndComputePass(commandBuffer, computePass);
+
+		commandBuffer->End();
+		commandBuffer->Submit();
+
+		environmentMap->GenerateMips();
+
+		return environmentMap;
+	}
+	/*
+	void Renderer::RenderStaticMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, Ref<StaticMesh> staticMesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<MaterialTable> materialTable, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount)
 	{
-		HZ_CORE_VERIFY(mesh);
-		HZ_CORE_VERIFY(meshSource);
-		HZ_CORE_VERIFY(materialTable);
+		HZ_CORE_ASSERT(staticMesh);
+		HZ_CORE_ASSERT(meshSource);
+		HZ_CORE_ASSERT(materialTable);
 
-		Renderer::Submit([renderCommandBuffer, renderPass, mesh, meshSource, submeshIndex, materialTable = Ref<MaterialTable>::Create(materialTable), transformBuffer, transformOffset, instanceCount]() mutable
+		Renderer::Submit([renderCommandBuffer, renderPass, staticMesh, meshSource, submeshIndex, materialTable, transformBuffer, transformOffset, instanceCount]() mutable
 			{
-				HZ_PROFILE_FUNC("VulkanRenderer::RenderMesh");
-				HZ_SCOPE_PERF("VulkanRenderer::RenderMesh");
-
-				if (s_RendererData->SelectedDrawCall != -1 && s_RendererData->DrawCallCount > s_RendererData->SelectedDrawCall)
-					return;
-
-				uint32_t rtWidth = renderPass->GetTargetFramebuffer()->GetWidth();
-				uint32_t rtHeight = renderPass->GetTargetFramebuffer()->GetHeight();
-
-				uint32_t frameIndex = Renderer::RT_GetCurrentFrameIndex();
-				VkCommandBuffer commandBuffer = renderCommandBuffer.As<VulkanRenderCommandBuffer>()->GetActiveCommandBuffer();
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetHandle();
-
-				nvrhi::GraphicsState graphicsState = nvrhi::GraphicsState();
-				graphicsState.pipeline = renderPass->GetPipeline()->GetHandle();
-				graphicsState.framebuffer = renderPass->GetTargetFramebuffer()->GetHandle();
-				graphicsState.setViewport(nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(rtWidth, rtHeight)));
-
-				// Geometry Vertex Buffer
-				nvrhi::VertexBufferBinding vbb = nvrhi::VertexBufferBinding()
-					.setBuffer(meshSource->GetVertexBuffer()->GetHandle())
-					.setSlot(0)
-					.setOffset(0);
-				vbb.buffer = meshSource->GetVertexBuffer()->GetHandle();
-				graphicsState.addVertexBuffer(vbb);
-
-				// Transform Vertex Buffer
-				nvrhi::VertexBufferBinding transformvbb = nvrhi::VertexBufferBinding()
-					.setBuffer(transformBuffer->GetHandle())
-					.setSlot(1)
-					.setOffset(transformOffset);
-				vbb.buffer = meshSource->GetVertexBuffer()->GetHandle();
-				graphicsState.addVertexBuffer(transformvbb);
-
-				// Index Buffer
-				nvrhi::IndexBufferBinding ibb = nvrhi::IndexBufferBinding()
-					.setBuffer(meshSource->GetIndexBuffer()->GetHandle())
-					.setFormat(nvrhi::Format::R32_UINT)
-					.setOffset(0);
-				graphicsState.setIndexBuffer(ibb);
-
-				// TODO: graphicsState.addBindingSet();
-
-				commandList->setGraphicsState(graphicsState);
-
-				const auto& submeshes = meshSource->GetSubmeshes();
-				const Submesh& submesh = submeshes[submeshIndex];
-				Ref<MaterialTable> meshMaterialTable = mesh->GetMaterials();
-				uint32_t materialCount = meshMaterialTable->GetMaterialCount();
-
-#if TODO
-				// NOTE(Yan): probably should not involve Asset Manager at this stage
-				AssetHandle materialHandle = materialTable->HasMaterial(submesh.MaterialIndex) ? materialTable->GetMaterial(submesh.MaterialIndex) : meshMaterialTable->GetMaterial(submesh.MaterialIndex);
-				Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(materialHandle);
-				Ref<VulkanMaterial> vulkanMaterial = material->GetMaterial().As<VulkanMaterial>();
+				HZ_PROFILE_FUNC("Renderer::RenderStaticMeshWithMaterial");
+				HZ_SCOPE_PERF("Renderer::RenderStaticMeshWithMaterial");
 
 				if (s_Data->SelectedDrawCall != -1 && s_Data->DrawCallCount > s_Data->SelectedDrawCall)
 					return;
 
-				VkPipelineLayout layout = vulkanPipeline->GetVulkanPipelineLayout();
-				VkDescriptorSet descriptorSet = vulkanMaterial->GetDescriptorSet(frameIndex);
-				if (descriptorSet)
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &descriptorSet, 0, nullptr);
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 
-				Buffer uniformStorageBuffer = vulkanMaterial->GetUniformStorageBuffer();
-				commandList->setPushConstants(uniformStorageBuffer.Data, uniformStorageBuffer.Size);
-				//vkCmdPushConstants(commandBuffer, layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, (uint32_t)uniformStorageBuffer.Size, uniformStorageBuffer.Data);
-#endif
+				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
 
-				nvrhi::DrawArguments drawArgs = nvrhi::DrawArguments();
+				// Vertex Buffer
+				{
+					nvrhi::VertexBufferBinding vertexBufferBinding;
+
+					Ref<VertexBuffer> vertexBuffer = meshSource->GetVertexBuffer();
+					vertexBufferBinding.buffer = vertexBuffer->GetHandle();
+					vertexBufferBinding.slot = 0;
+					vertexBufferBinding.offset = 0;
+
+					nvrhi::VertexBufferBinding transformBufferBinding;
+					transformBufferBinding.buffer = transformBuffer->GetHandle();
+					transformBufferBinding.slot = 1;
+					transformBufferBinding.offset = transformOffset;
+
+					graphicsState.vertexBuffers = { vertexBufferBinding, transformBufferBinding };
+				}
+
+				// Index Buffer
+				{
+					nvrhi::IndexBufferBinding indexBufferBinding;
+
+					Ref<IndexBuffer> indexBuffer = meshSource->GetIndexBuffer();
+					indexBufferBinding.buffer = indexBuffer->GetHandle();
+					indexBufferBinding.format = nvrhi::Format::R32_UINT;
+					indexBufferBinding.offset = 0;
+
+					graphicsState.indexBuffer = indexBufferBinding;
+				}
+
+				const auto& submeshes = meshSource->GetSubmeshes();
+				const Submesh& submesh = submeshes[submeshIndex];
+
+				// Material
+				{
+					Ref<MaterialTable> meshMaterialTable = staticMesh->GetMaterials();
+					uint32_t materialCount = meshMaterialTable->GetMaterialCount();
+
+					// NOTE(Yan): probably should not involve Asset Manager at this stage
+					AssetHandle materialHandle = materialTable->HasMaterial(submesh.MaterialIndex) ? materialTable->GetMaterial(submesh.MaterialIndex) : meshMaterialTable->GetMaterial(submesh.MaterialIndex);
+					Ref<MaterialAsset> materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+					Ref<Material> material = materialAsset->GetMaterial();
+
+					material->Prepare();
+					auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
+					if (bindingSet)
+						graphicsState.bindings[0] = bindingSet;
+
+					Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
+					if (uniformStorageBuffer)
+						commandList->setPushConstants(uniformStorageBuffer.Data, uniformStorageBuffer.Size);
+				}
+
+				renderCommandBuffer->RT_CommitGraphicsState();
+
+				nvrhi::DrawArguments drawArgs{};
 				drawArgs.vertexCount = submesh.IndexCount;
-				drawArgs.instanceCount = instanceCount;
 				drawArgs.startIndexLocation = submesh.BaseIndex;
 				drawArgs.startVertexLocation = submesh.BaseVertex;
+				drawArgs.instanceCount = instanceCount;
 				commandList->drawIndexed(drawArgs);
 
-				// vkCmdDrawIndexed(commandBuffer, submesh.IndexCount, instanceCount, submesh.BaseIndex, submesh.BaseVertex, 0);
 				s_Data->DrawCallCount++;
 			});
 	}
 
-	void Renderer::RenderSubmesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<UniformBufferSet> uniformBufferSet, Ref<StorageBufferSet> storageBufferSet, Ref<Mesh> mesh, uint32_t submeshIndex, Ref<MaterialTable> materialTable, const glm::mat4& transform)
-	{
-		s_RendererAPI->RenderSubmesh(renderCommandBuffer, pipeline, uniformBufferSet, storageBufferSet, mesh, submeshIndex, materialTable, transform);
-	}
-
-
 	void Renderer::RenderSubmeshInstanced(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Mesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<MaterialTable> materialTable, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t boneTransformsOffset, uint32_t boneTransformsStride, uint32_t instanceCount)
 	{
-		//s_RendererAPI->RenderSubmeshInstanced(renderCommandBuffer, pipeline, mesh, meshSource, submeshIndex, materialTable, transformBuffer, transformOffset, boneTransformsOffset, boneTransformsStride, instanceCount);
+		HZ_CORE_ASSERT(mesh);
+		HZ_CORE_ASSERT(meshSource);
+		HZ_CORE_ASSERT(materialTable);
+
+		Renderer::Submit([renderCommandBuffer, pipeline, mesh, meshSource, submeshIndex, materialTable, transformBuffer, transformOffset, boneTransformsOffset, boneTransformsStride, instanceCount]() mutable
+			{
+				HZ_PROFILE_FUNC("Renderer::RenderSubmeshInstanced");
+				HZ_SCOPE_PERF("Renderer::RenderSubmeshInstanced");
+
+				if (s_Data->SelectedDrawCall != -1 && s_Data->DrawCallCount > s_Data->SelectedDrawCall)
+					return;
+
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+
+				const auto& submeshes = meshSource->GetSubmeshes();
+				const Submesh& submesh = submeshes[submeshIndex];
+
+				// Vertex Buffers
+				{
+					nvrhi::VertexBufferBinding vertexBufferBinding;
+					vertexBufferBinding.buffer = meshSource->GetVertexBuffer()->GetHandle();
+					vertexBufferBinding.slot = 0;
+					vertexBufferBinding.offset = 0;
+
+					nvrhi::VertexBufferBinding transformBufferBinding;
+					transformBufferBinding.buffer = transformBuffer->GetHandle();
+					transformBufferBinding.slot = 1;
+					transformBufferBinding.offset = transformOffset;
+
+					if (submesh.IsRigged)
+					{
+						nvrhi::VertexBufferBinding boneInfluenceBufferBinding;
+						boneInfluenceBufferBinding.buffer = meshSource->GetBoneInfluenceBuffer()->GetHandle();
+						boneInfluenceBufferBinding.slot = 2;
+						boneInfluenceBufferBinding.offset = 0;
+
+						graphicsState.vertexBuffers = { vertexBufferBinding, transformBufferBinding, boneInfluenceBufferBinding };
+					}
+					else
+					{
+						graphicsState.vertexBuffers = { vertexBufferBinding, transformBufferBinding };
+					}
+				}
+
+				// Index Buffer
+				{
+					nvrhi::IndexBufferBinding indexBufferBinding;
+					indexBufferBinding.buffer = meshSource->GetIndexBuffer()->GetHandle();
+					indexBufferBinding.format = nvrhi::Format::R32_UINT;
+					indexBufferBinding.offset = 0;
+
+					graphicsState.indexBuffer = indexBufferBinding;
+				}
+
+				// Material
+				Ref<MaterialTable> meshMaterialTable = mesh->GetMaterials();
+				AssetHandle materialHandle = materialTable->HasMaterial(submesh.MaterialIndex) ? materialTable->GetMaterial(submesh.MaterialIndex) : meshMaterialTable->GetMaterial(submesh.MaterialIndex);
+				Ref<MaterialAsset> materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+				Ref<Material> material = materialAsset->GetMaterial();
+
+				material->Prepare();
+				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
+				if (bindingSet)
+					graphicsState.bindings[0] = bindingSet;
+
+				renderCommandBuffer->RT_CommitGraphicsState();
+
+				// Push constants for animated meshes: Base index and Stride, then material uniforms
+				Buffer pushConstantBuffer;
+				uint64_t pushConstantOffset = 0;
+
+				if (submesh.IsRigged)
+				{
+					pushConstantBuffer.Allocate(256);
+					pushConstantBuffer.Write(&boneTransformsOffset, sizeof(uint32_t), 0);
+					pushConstantBuffer.Write(&boneTransformsStride, sizeof(uint32_t), sizeof(uint32_t));
+					pushConstantOffset = sizeof(uint32_t) * 4;  //to account for padding
+				}
+
+				Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
+				if (uniformStorageBuffer)
+				{
+					if (!pushConstantBuffer)
+					{
+						pushConstantBuffer.Allocate(128);
+					}
+					pushConstantBuffer.Write(uniformStorageBuffer.Data, uniformStorageBuffer.Size, pushConstantOffset);
+					pushConstantOffset += uniformStorageBuffer.Size;
+				}
+
+				if (pushConstantOffset > 0)
+					commandList->setPushConstants(pushConstantBuffer.Data, pushConstantOffset);
+
+				nvrhi::DrawArguments drawArgs{};
+				drawArgs.vertexCount = submesh.IndexCount;
+				drawArgs.startIndexLocation = submesh.BaseIndex;
+				drawArgs.startVertexLocation = submesh.BaseVertex;
+				drawArgs.instanceCount = instanceCount;
+				commandList->drawIndexed(drawArgs);
+
+				s_Data->DrawCallCount++;
+			});
 	}
 
 	void Renderer::RenderMeshWithMaterial(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Mesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t boneTransformsOffset, uint32_t boneTransformsStride, uint32_t instanceCount, Ref<Material> material, Buffer additionalUniforms)
 	{
-		//s_RendererAPI->RenderMeshWithMaterial(renderCommandBuffer, pipeline, mesh, meshSource, submeshIndex, material, transformBuffer, transformOffset, boneTransformsOffset, boneTransformsStride, instanceCount, additionalUniforms);
+		HZ_CORE_ASSERT(mesh);
+		HZ_CORE_ASSERT(meshSource);
+		HZ_CORE_ASSERT(material);
+
+		bool isRigged = meshSource->IsSubmeshRigged(submeshIndex);
+
+		Buffer pushConstantBuffer;
+		uint64_t pushConstantBufferOffset = 0;
+
+		if (isRigged || additionalUniforms.Size)
+		{
+			pushConstantBuffer.Allocate(128);
+
+			if (additionalUniforms.Size)
+			{
+				pushConstantBuffer.Write(additionalUniforms.Data, additionalUniforms.Size, 0);
+				pushConstantBufferOffset = additionalUniforms.Size;
+			}
+
+			if (isRigged)
+			{
+				pushConstantBuffer.Write(&boneTransformsOffset, sizeof(uint32_t), pushConstantBufferOffset);
+				pushConstantBuffer.Write(&boneTransformsStride, sizeof(uint32_t), pushConstantBufferOffset + sizeof(uint32_t));
+				pushConstantBufferOffset += sizeof(uint32_t) * 4 - additionalUniforms.Size; //to account for padding
+			}
+		}
+
+		Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
+		if (uniformStorageBuffer)
+		{
+			if (pushConstantBuffer)
+			{
+				pushConstantBuffer.Write(uniformStorageBuffer.Data, uniformStorageBuffer.Size, pushConstantBufferOffset);
+				pushConstantBufferOffset += uniformStorageBuffer.Size;
+			}
+			else
+			{
+				pushConstantBuffer = uniformStorageBuffer;
+				pushConstantBufferOffset = pushConstantBuffer.Size;
+			}
+		}
+
+		Renderer::Submit([renderCommandBuffer, pipeline, mesh, meshSource, submeshIndex, transformBuffer, transformOffset, instanceCount, material, pushConstantBuffer, pushConstantBufferOffset, isRigged]() mutable
+			{
+				HZ_PROFILE_FUNC("Renderer::RenderMeshWithMaterial");
+				HZ_SCOPE_PERF("Renderer::RenderMeshWithMaterial");
+
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+
+				const auto& submeshes = meshSource->GetSubmeshes();
+				const Submesh& submesh = submeshes[submeshIndex];
+
+				// Vertex Buffers
+				{
+					nvrhi::VertexBufferBinding vertexBufferBinding;
+					vertexBufferBinding.buffer = meshSource->GetVertexBuffer()->GetHandle();
+					vertexBufferBinding.slot = 0;
+					vertexBufferBinding.offset = 0;
+
+					nvrhi::VertexBufferBinding transformBufferBinding;
+					transformBufferBinding.buffer = transformBuffer->GetHandle();
+					transformBufferBinding.slot = 1;
+					transformBufferBinding.offset = transformOffset;
+
+					if (isRigged)
+					{
+						nvrhi::VertexBufferBinding boneInfluenceBufferBinding;
+						boneInfluenceBufferBinding.buffer = meshSource->GetBoneInfluenceBuffer()->GetHandle();
+						boneInfluenceBufferBinding.slot = 2;
+						boneInfluenceBufferBinding.offset = 0;
+
+						graphicsState.vertexBuffers = { vertexBufferBinding, transformBufferBinding, boneInfluenceBufferBinding };
+					}
+					else
+					{
+						graphicsState.vertexBuffers = { vertexBufferBinding, transformBufferBinding };
+					}
+				}
+
+				// Index Buffer
+				{
+					nvrhi::IndexBufferBinding indexBufferBinding;
+					indexBufferBinding.buffer = meshSource->GetIndexBuffer()->GetHandle();
+					indexBufferBinding.format = nvrhi::Format::R32_UINT;
+					indexBufferBinding.offset = 0;
+
+					graphicsState.indexBuffer = indexBufferBinding;
+				}
+
+				material->Prepare();
+				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
+				if (bindingSet)
+					graphicsState.bindings[0] = bindingSet;
+
+				renderCommandBuffer->RT_CommitGraphicsState();
+
+				if (pushConstantBufferOffset > 0)
+					commandList->setPushConstants(pushConstantBuffer.Data, pushConstantBufferOffset);
+
+				nvrhi::DrawArguments drawArgs{};
+				drawArgs.vertexCount = submesh.IndexCount;
+				drawArgs.startIndexLocation = submesh.BaseIndex;
+				drawArgs.startVertexLocation = submesh.BaseVertex;
+				drawArgs.instanceCount = instanceCount;
+				commandList->drawIndexed(drawArgs);
+			});
 	}
 
-	void Renderer::RenderStaticMeshWithMaterial(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<StaticMesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount, Ref<Material> material, Buffer additionalUniforms)
+	void Renderer::RenderStaticMeshWithMaterial(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<StaticMesh> staticMesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount, Ref<Material> material, Buffer additionalUniforms)
 	{
-		//s_RendererAPI->RenderStaticMeshWithMaterial(renderCommandBuffer, pipeline, mesh, meshSource, submeshIndex, material, transformBuffer, transformOffset, instanceCount, additionalUniforms);
-	}
+		HZ_CORE_ASSERT(staticMesh);
+		HZ_CORE_ASSERT(meshSource);
+		HZ_CORE_ASSERT(material);
 
+		Buffer pushConstantBuffer;
+		uint64_t pushConstantBufferOffset = 0;
+		if (additionalUniforms.Size)
+		{
+			pushConstantBuffer.Allocate(128);
+			pushConstantBuffer.Write(additionalUniforms.Data, additionalUniforms.Size);
+			pushConstantBufferOffset = additionalUniforms.Size;
+		}
+
+		Renderer::Submit([renderCommandBuffer, pipeline, staticMesh, meshSource, submeshIndex, transformBuffer, transformOffset, instanceCount, material, pushConstantBuffer, pushConstantBufferOffset]() mutable
+			{
+				HZ_PROFILE_FUNC("Renderer::RenderStaticMeshWithMaterial");
+				HZ_SCOPE_PERF("Renderer::RenderStaticMeshWithMaterial");
+
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+
+				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+
+				{
+					nvrhi::VertexBufferBinding vertexBufferBinding;
+
+					Ref<VertexBuffer> vertexBuffer = meshSource->GetVertexBuffer();
+					vertexBufferBinding.buffer = vertexBuffer->GetHandle();
+					vertexBufferBinding.slot = 0;
+					vertexBufferBinding.offset = 0;
+
+					nvrhi::VertexBufferBinding transformBufferBinding;
+					transformBufferBinding.buffer = transformBuffer->GetHandle();
+					transformBufferBinding.slot = 1;
+					transformBufferBinding.offset = transformOffset;
+
+					graphicsState.vertexBuffers = { vertexBufferBinding, transformBufferBinding };
+				}
+
+				{
+					nvrhi::IndexBufferBinding indexBufferBinding;
+
+					Ref<IndexBuffer> indexBuffer = meshSource->GetIndexBuffer();
+					indexBufferBinding.buffer = indexBuffer->GetHandle();
+					indexBufferBinding.format = nvrhi::Format::R32_UINT;
+					indexBufferBinding.offset = 0;
+
+					graphicsState.indexBuffer = indexBufferBinding;
+				}
+
+				material->Prepare();
+				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
+				if (bindingSet)
+					graphicsState.bindings[0] = bindingSet;
+
+				renderCommandBuffer->RT_CommitGraphicsState();
+
+				Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
+				if (uniformStorageBuffer)
+				{
+					if (pushConstantBuffer)
+					{
+						pushConstantBuffer.Write(uniformStorageBuffer.Data, uniformStorageBuffer.Size, pushConstantBufferOffset);
+						pushConstantBufferOffset += uniformStorageBuffer.Size;
+					}
+					else
+					{
+						pushConstantBuffer = uniformStorageBuffer;
+						pushConstantBufferOffset = pushConstantBuffer.Size;
+					}
+				}
+
+				if (pushConstantBufferOffset > 0)
+					commandList->setPushConstants(pushConstantBuffer.Data, pushConstantBufferOffset);
+
+				const auto& submeshes = meshSource->GetSubmeshes();
+				const auto& submesh = submeshes[submeshIndex];
+
+				nvrhi::DrawArguments drawArgs{};
+				drawArgs.vertexCount = submesh.IndexCount;
+				drawArgs.startIndexLocation = submesh.BaseIndex;
+				drawArgs.startVertexLocation = submesh.BaseVertex;
+				drawArgs.instanceCount = instanceCount;
+				commandList->drawIndexed(drawArgs);
+			});
+	}
+	*/
 	void Renderer::RenderQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, const glm::mat4& transform)
 	{
-		//s_RendererAPI->RenderQuad(renderCommandBuffer, pipeline, material, transform);
+		SE_CORE_VERIFY(renderCommandBuffer);
+		SE_CORE_VERIFY(pipeline);
+
+		Renderer::Submit([renderCommandBuffer, pipeline, material, transform]() mutable
+			{
+				SE_PROFILE_FUNCTION("VulkanRenderer::RenderQuad");
+
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+
+				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+
+				{
+					nvrhi::VertexBufferBinding vertexBufferBinding;
+					vertexBufferBinding.buffer = s_RendererData->QuadVertexBuffer->GetHandle();
+					vertexBufferBinding.slot = 0;
+					vertexBufferBinding.offset = 0;
+
+					graphicsState.vertexBuffers = { vertexBufferBinding };
+				}
+
+				{
+					nvrhi::IndexBufferBinding indexBufferBinding;
+					indexBufferBinding.buffer = s_RendererData->QuadIndexBuffer->GetHandle();
+					indexBufferBinding.format = nvrhi::Format::R32_UINT;
+					indexBufferBinding.offset = 0;
+
+					graphicsState.indexBuffer = indexBufferBinding;
+				}
+
+				material->Prepare();
+				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
+				if (bindingSet)
+					graphicsState.bindings[0] = bindingSet;
+
+				renderCommandBuffer->RT_CommitGraphicsState();
+
+				Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
+				if (uniformStorageBuffer)
+					commandList->setPushConstants(uniformStorageBuffer.Data, uniformStorageBuffer.Size);
+
+				nvrhi::DrawArguments drawArgs{};
+				drawArgs.vertexCount = s_RendererData->QuadIndexBuffer->GetCount();
+				drawArgs.startIndexLocation = 0;
+				drawArgs.startVertexLocation = 0;
+				drawArgs.instanceCount = 1;
+				commandList->drawIndexed(drawArgs);
+			});
 	}
 
 	void Renderer::RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount /*= 0*/)
 	{
-		//s_RendererAPI->RenderGeometry(renderCommandBuffer, pipeline, material, vertexBuffer, indexBuffer, transform, indexCount);
+		Renderer::Submit([renderCommandBuffer, pipeline, material, vertexBuffer, indexBuffer, transform, indexCount]() mutable
+			{
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+
+				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+
+				nvrhi::VertexBufferBinding vertexBufferBinding;
+				vertexBufferBinding.buffer = vertexBuffer->GetHandle();
+				vertexBufferBinding.slot = 0;
+				vertexBufferBinding.offset = 0;
+				graphicsState.vertexBuffers = { vertexBufferBinding };
+
+				nvrhi::IndexBufferBinding indexBufferBinding;
+				indexBufferBinding.buffer = indexBuffer->GetHandle();
+				indexBufferBinding.format = nvrhi::Format::R32_UINT;
+				indexBufferBinding.offset = 0;
+				graphicsState.indexBuffer = indexBufferBinding;
+
+				material->Prepare();
+				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
+				// TODO(Yan): does 0 always exist?
+				graphicsState.bindings[0] = bindingSet;
+
+				renderCommandBuffer->RT_CommitGraphicsState();
+
+				commandList->setPushConstants(&transform, sizeof(glm::mat4));
+
+				nvrhi::DrawArguments drawArgs;
+				drawArgs.vertexCount = indexCount;
+				drawArgs.startIndexLocation = 0;
+				drawArgs.startVertexLocation = 0;
+				commandList->drawIndexed(drawArgs);
+			});
 	}
 
-	void Renderer::SubmitQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Material> material, const glm::mat4& transform)
+	void Renderer::ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, nvrhi::Color clearColor, nvrhi::TextureSubresourceSet subresourceSet)
 	{
-		HZ_CORE_ASSERT(false, "Not Implemented");
-		/*bool depthTest = true;
-		if (material)
-		{
-				material->Bind();
-				depthTest = material->GetFlag(MaterialFlag::DepthTest);
-				cullFace = !material->GetFlag(MaterialFlag::TwoSided);
-
-				auto shader = material->GetShader();
-				shader->SetUniformBuffer("Transform", &transform, sizeof(glm::mat4));
-		}
-
-		s_Data->m_FullscreenQuadVertexBuffer->Bind();
-		s_Data->m_FullscreenQuadPipeline->Bind();
-		s_Data->m_FullscreenQuadIndexBuffer->Bind();
-		Renderer::DrawIndexed(6, PrimitiveType::Triangles, depthTest);*/
-	}
-
-	void Renderer::ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, const ImageClearValue& clearValue, ImageSubresourceRange subresourceRange)
-	{
-		//s_RendererAPI->ClearImage(renderCommandBuffer, image, clearValue, subresourceRange);
+		Renderer::Submit([renderCommandBuffer, image, clearColor, subresourceSet]() mutable
+			{
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+				commandList->clearTextureFloat(image->GetHandle(), subresourceSet, clearColor);
+			});
 	}
 
 	void Renderer::CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
@@ -926,52 +1396,253 @@ namespace StarEngine {
 
 	void Renderer::BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
 	{
-		//s_RendererAPI->BlitImage(renderCommandBuffer, sourceImage, destinationImage);
+		SE_CORE_VERIFY(renderCommandBuffer);
+		SE_CORE_VERIFY(sourceImage);
+		SE_CORE_VERIFY(destinationImage);
+		SE_CORE_VERIFY(sourceImage->GetHandle());
+		SE_CORE_VERIFY(destinationImage->GetHandle());
+
+		const auto& srcSpec = sourceImage->GetSpecification();
+		const auto& dstSpec = destinationImage->GetSpecification();
+
+		// Fast path: identical format + dimensions => 1:1 texture copy
+		if (srcSpec.Format == dstSpec.Format && srcSpec.Width == dstSpec.Width && srcSpec.Height == dstSpec.Height)
+		{
+			Renderer::Submit([renderCommandBuffer, sourceImage, destinationImage]() mutable
+				{
+					nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+
+					// NVRHI copyTexture doesn't do implicit state transitions
+					commandList->setTextureState(sourceImage->GetHandle(), nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+					commandList->setTextureState(destinationImage->GetHandle(), nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
+					commandList->commitBarriers();
+
+					nvrhi::TextureSlice srcSlice;
+					srcSlice.setMipLevel(0).setArraySlice(0);
+					nvrhi::TextureSlice dstSlice;
+					dstSlice.setMipLevel(0).setArraySlice(0);
+
+					commandList->copyTexture(destinationImage->GetHandle(), dstSlice, sourceImage->GetHandle(), srcSlice);
+
+					// Put destination back into a readable state by default
+					commandList->setTextureState(destinationImage->GetHandle(), nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+					commandList->commitBarriers();
+				});
+
+			return;
+		}
+
+		// General path: use compute shader to scale/copy (requires destination to be a storage image)
+		SE_CORE_VERIFY(dstSpec.Usage == ImageUsage::Storage, "Renderer::BlitImage requires destination image Usage=Storage when scaling/copying via compute.");
+
+		Ref<Shader> shader = Renderer::GetShaderLibrary()->Get(Utils::IsIntegerBased(dstSpec.Format) ? "LinearSampleUInt" : "LinearSample");
+		SE_CORE_VERIFY(shader, "Renderer::BlitImage requires LinearSample shaders to be loaded");
+
+		ComputePassSpecification spec;
+		spec.DebugName = "Renderer::BlitImage";
+		spec.Pipeline = PipelineCompute::Create(shader);
+		Ref<ComputePass> computePass = ComputePass::Create(spec);
+
+		ImageViewSpecification srcImageViewSpec;
+		srcImageViewSpec.Image = sourceImage;
+		srcImageViewSpec.Mip = 0;
+		srcImageViewSpec.MipCount = 1;
+
+		ImageViewSpecification dstImageViewSpec;
+		dstImageViewSpec.Image = destinationImage;
+		dstImageViewSpec.Mip = 0;
+		dstImageViewSpec.MipCount = 1;
+
+		Ref<ImageView> srcImageView = ImageView::Create(srcImageViewSpec);
+		Ref<ImageView> dstImageView = ImageView::Create(dstImageViewSpec);
+
+		Ref<Material> material = Material::Create(shader);
+		material->Set("u_InputTexture", srcImageView);
+		material->Set("o_OutputTexture", dstImageView);
+
+		struct PushConstants
+		{
+			glm::vec2 TexelSize;
+			int SourceMip;
+		} pushConstants;
+
+		pushConstants.TexelSize = { 1.0f / (float)dstSpec.Width, 1.0f / (float)dstSpec.Height };
+		pushConstants.SourceMip = 0;
+
+		const glm::uvec3 workGroups
+		{
+			glm::max(1u, (dstSpec.Width + 7u) / 8u),
+			glm::max(1u, (dstSpec.Height + 7u) / 8u),
+			1u
+		};
+
+		Renderer::Submit([renderCommandBuffer, sourceImage, destinationImage]() mutable
+			{
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+
+				commandList->setTextureState(sourceImage->GetHandle(), nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+				commandList->setTextureState(destinationImage->GetHandle(), nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+				commandList->commitBarriers();
+			});
+
+		Renderer::BeginComputePass(renderCommandBuffer, computePass);
+		Renderer::DispatchCompute(renderCommandBuffer, computePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+		Renderer::EndComputePass(renderCommandBuffer, computePass);
+
+		Renderer::Submit([renderCommandBuffer, destinationImage]() mutable
+			{
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+				commandList->setTextureState(destinationImage->GetHandle(), nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+				commandList->commitBarriers();
+			});
 	}
 
 	void Renderer::SubmitFullscreenQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material)
 	{
-		//s_RendererAPI->SubmitFullscreenQuad(renderCommandBuffer, pipeline, material);
+		SE_CORE_VERIFY(renderCommandBuffer);
+		SE_CORE_VERIFY(pipeline);
+
+		Renderer::Submit([renderCommandBuffer, pipeline, material]() mutable
+			{
+				SE_PROFILE_FUNCTION("VulkanRenderer::SubmitFullscreenQuad");
+
+				if (material == nullptr)
+				{
+					return;
+				}
+
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+
+				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+
+				{
+					nvrhi::VertexBufferBinding vertexBufferBinding;
+					vertexBufferBinding.buffer = s_RendererData->QuadVertexBuffer->GetHandle();
+					vertexBufferBinding.slot = 0;
+					vertexBufferBinding.offset = 0;
+
+					graphicsState.vertexBuffers = { vertexBufferBinding };
+				}
+
+				{
+					nvrhi::IndexBufferBinding indexBufferBinding;
+					indexBufferBinding.buffer = s_RendererData->QuadIndexBuffer->GetHandle();
+					indexBufferBinding.format = nvrhi::Format::R32_UINT;
+					indexBufferBinding.offset = 0;
+
+					graphicsState.indexBuffer = indexBufferBinding;
+				}
+
+				material->Prepare();
+				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
+				if (bindingSet)
+					graphicsState.bindings[0] = bindingSet;
+
+				renderCommandBuffer->RT_CommitGraphicsState();
+
+				Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
+				if (uniformStorageBuffer)
+					commandList->setPushConstants(uniformStorageBuffer.Data, uniformStorageBuffer.Size);
+
+				nvrhi::DrawArguments drawArgs{};
+				drawArgs.vertexCount = s_RendererData->QuadIndexBuffer->GetCount();
+				drawArgs.startIndexLocation = 0;
+				drawArgs.startVertexLocation = 0;
+				drawArgs.instanceCount = 1;
+				commandList->drawIndexed(drawArgs);
+			});
 	}
 
 	void Renderer::SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides)
 	{
-		//s_RendererAPI->SubmitFullscreenQuadWithOverrides(renderCommandBuffer, pipeline, material, vertexShaderOverrides, fragmentShaderOverrides);
+		SE_CORE_VERIFY(renderCommandBuffer);
+		SE_CORE_VERIFY(pipeline);
+
+		Buffer vertexPushConstantBuffer;
+		if (vertexShaderOverrides)
+			vertexPushConstantBuffer = Buffer::Copy(vertexShaderOverrides);
+
+		Buffer fragmentPushConstantBuffer;
+		if (fragmentShaderOverrides)
+			fragmentPushConstantBuffer = Buffer::Copy(fragmentShaderOverrides);
+
+		Renderer::Submit([renderCommandBuffer, pipeline, material, vertexPushConstantBuffer, fragmentPushConstantBuffer]() mutable
+			{
+				SE_PROFILE_FUNCTION("VulkanRenderer::SubmitFullscreenQuadWithOverrides");
+
+				if (material == nullptr)
+				{
+					vertexPushConstantBuffer.Release();
+					fragmentPushConstantBuffer.Release();
+					return;
+				}
+
+				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+
+				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+
+				{
+					nvrhi::VertexBufferBinding vertexBufferBinding;
+					vertexBufferBinding.buffer = s_RendererData->QuadVertexBuffer->GetHandle();
+					vertexBufferBinding.slot = 0;
+					vertexBufferBinding.offset = 0;
+
+					graphicsState.vertexBuffers = { vertexBufferBinding };
+				}
+
+				{
+					nvrhi::IndexBufferBinding indexBufferBinding;
+					indexBufferBinding.buffer = s_RendererData->QuadIndexBuffer->GetHandle();
+					indexBufferBinding.format = nvrhi::Format::R32_UINT;
+					indexBufferBinding.offset = 0;
+
+					graphicsState.indexBuffer = indexBufferBinding;
+				}
+
+				material->Prepare();
+				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
+				if (bindingSet)
+					graphicsState.bindings[0] = bindingSet;
+
+				renderCommandBuffer->RT_CommitGraphicsState();
+
+				// Build combined push constants: vertex overrides first, then fragment overrides
+				Buffer combinedPushConstants;
+				uint64_t offset = 0;
+
+				if (vertexPushConstantBuffer || fragmentPushConstantBuffer)
+				{
+					uint64_t totalSize = vertexPushConstantBuffer.Size + fragmentPushConstantBuffer.Size;
+					combinedPushConstants.Allocate(totalSize);
+
+					if (vertexPushConstantBuffer)
+					{
+						combinedPushConstants.Write(vertexPushConstantBuffer.Data, vertexPushConstantBuffer.Size, offset);
+						offset += vertexPushConstantBuffer.Size;
+					}
+
+					if (fragmentPushConstantBuffer)
+					{
+						combinedPushConstants.Write(fragmentPushConstantBuffer.Data, fragmentPushConstantBuffer.Size, offset);
+						offset += fragmentPushConstantBuffer.Size;
+					}
+
+					commandList->setPushConstants(combinedPushConstants.Data, offset);
+					combinedPushConstants.Release();
+				}
+
+				nvrhi::DrawArguments drawArgs{};
+				drawArgs.vertexCount = s_RendererData->QuadIndexBuffer->GetCount();
+				drawArgs.startIndexLocation = 0;
+				drawArgs.startVertexLocation = 0;
+				drawArgs.instanceCount = 1;
+				commandList->drawIndexed(drawArgs);
+
+				vertexPushConstantBuffer.Release();
+				fragmentPushConstantBuffer.Release();
+			});
 	}
-#endif
-#if 0
-	void Renderer::SubmitFullscreenQuad(Ref<Material> material)
-	{
-		// Retrieve pipeline from cache
-		auto& shader = material->GetShader();
-		auto hash = shader->GetHash();
-		if (s_PipelineCache.find(hash) == s_PipelineCache.end())
-		{
-			// Create pipeline
-			PipelineSpecification spec = s_Data->m_FullscreenQuadPipelineSpec;
-			spec.Shader = shader;
-			spec.DebugName = "Renderer-FullscreenQuad-" + shader->GetName();
-			s_PipelineCache[hash] = Pipeline::Create(spec);
-		}
 
-		auto& pipeline = s_PipelineCache[hash];
-
-		bool depthTest = true;
-		bool cullFace = true;
-		if (material)
-		{
-			// material->Bind();
-			depthTest = material->GetFlag(MaterialFlag::DepthTest);
-			cullFace = !material->GetFlag(MaterialFlag::TwoSided);
-		}
-
-		s_Data->FullscreenQuadVertexBuffer->Bind();
-		pipeline->Bind();
-		s_Data->FullscreenQuadIndexBuffer->Bind();
-		Renderer::DrawIndexed(6, PrimitiveType::Triangles, depthTest);
-	}
-#endif
-	
 	Ref<Texture2D> Renderer::GetWhiteTexture()
 	{
 		return s_Data->WhiteTexture;
@@ -990,7 +1661,7 @@ namespace StarEngine {
 	Ref<Texture2D> Renderer::GetBRDFLutTexture()
 	{
 		return s_Data->BRDFLutTexture;
-	}/*
+	}
 
 	Ref<TextureCube> Renderer::GetBlackCubeTexture()
 	{
@@ -1001,7 +1672,7 @@ namespace StarEngine {
 	Ref<Environment> Renderer::GetEmptyEnvironment()
 	{
 		return s_Data->EmptyEnvironment;
-	}*/
+	}
 
 	RenderCommandQueue& Renderer::GetRenderCommandQueue()
 	{
@@ -1085,31 +1756,25 @@ namespace StarEngine {
 	{
 		return VulkanAllocator::GetStats();
 	}
-	/*
-	nvrhi::SamplerHandle Renderer::GetClampSampler()
+
+	Ref<Sampler> Renderer::GetClampSampler()
 	{
-		if (s_RendererData->SamplerClamp)
-			return s_RendererData->SamplerClamp;
+		if (!s_RendererData->SamplerClamp)
+			s_RendererData->SamplerClamp = Sampler::Create();
 
-		nvrhi::SamplerDesc samplerDesc;
-		samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = true;
-		samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToEdge;
-		samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
-
-		s_RendererData->SamplerPoint = Application::GetGraphicsDevice()->createSampler(samplerDesc);
+		return s_RendererData->SamplerClamp;
 	}
 
-	nvrhi::SamplerHandle Renderer::GetPointSampler()
+	Ref<Sampler> Renderer::GetPointSampler()
 	{
-		if (s_RendererData->SamplerPoint)
-			return s_RendererData->SamplerPoint;
+		if (!s_RendererData->SamplerPoint)
+		{
+			SamplerSpecification spec;
+			spec.MinFilter = spec.MagFilter = spec.MipFilter = false;
+			s_RendererData->SamplerPoint = Sampler::Create(spec);
+		}
 
-		nvrhi::SamplerDesc samplerDesc;
-		samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = false;
-		samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToEdge;
-		samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
-
-		s_RendererData->SamplerPoint = Application::GetGraphicsDevice()->createSampler(samplerDesc);
-	}*/
+		return s_RendererData->SamplerPoint;
+	}
 
 }

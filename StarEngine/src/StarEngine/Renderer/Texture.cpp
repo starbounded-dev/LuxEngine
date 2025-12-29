@@ -5,6 +5,7 @@
 #include "StarEngine/Renderer/Renderer.h"
 
 #include "StarEngine/Asset/TextureImporter.h"
+#include "StarEngine/Platform/Vulkan/VulkanContext.h"
 
 namespace StarEngine {
 
@@ -870,7 +871,7 @@ namespace StarEngine {
 		if (m_Image)
 			m_Image->CopyToHostBuffer(buffer);
 	}
-	#if 0
+	#if 1
 	//////////////////////////////////////////////////////////////////////////////////
 	// TextureCube
 	//////////////////////////////////////////////////////////////////////////////////
@@ -1168,7 +1169,7 @@ namespace StarEngine {
 	}
 
 	void TextureCube::GenerateMips()
-	{/*
+	{
 		Ref<RenderCommandBuffer> renderCommandBuffer = RenderCommandBuffer::Create(1, std::format("TextureCube::GenerateMips - {}", m_Specification.DebugName));
 
 		Ref<Shader> shader = Renderer::GetShaderLibrary()->Get("LinearSample");
@@ -1258,7 +1259,7 @@ namespace StarEngine {
 		//});
 
 		renderCommandBuffer->End();
-		renderCommandBuffer->Submit();*/
+		renderCommandBuffer->Submit();
 	}
 
 #if 0
@@ -1544,4 +1545,5 @@ namespace StarEngine {
 	}
 #endif
 #endif
+	}
 }

@@ -4,6 +4,9 @@
 #include "RenderCommandBuffer.h"
 #include "StorageBufferSet.h"
 #include "UniformBufferSet.h"
+#include "PipelineCompute.h"
+#include "ComputePass.h"
+#include "RenderPass.h"
 
 namespace StarEngine {
 

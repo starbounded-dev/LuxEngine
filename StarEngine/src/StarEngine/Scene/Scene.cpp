@@ -618,10 +618,10 @@ namespace StarEngine {
 		// Resize our non-FixedAspectRatio cameras
 		auto view = m_Registry.view<CameraComponent>();
 		for (auto entity : view)
-		{
+		{/*
 			auto& cameraComponent = view.get<CameraComponent>(entity);
 			if (!cameraComponent.FixedAspectRatio)
-				cameraComponent.Camera.SetViewportSize(width, height);
+				cameraComponent.Camera.Set(width, height);*/
 		}
 
 	}
@@ -789,9 +789,9 @@ namespace StarEngine {
 
 	template<>
 	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
-	{
+	{/*
 		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
-			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
+			component.Camera.Set(m_ViewportWidth, m_ViewportHeight);*/
 	}
 
 	template<>

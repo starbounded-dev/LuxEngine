@@ -20,7 +20,7 @@
 
 #include <imgui.h>
 
-#include "ImGuiBuild.cpp"
+#include "backends/imgui_impl_glfw.h"
 
 // TODO(Yan): WIP
 // Defined in imgui_impl_glfw.cpp
@@ -189,7 +189,7 @@ namespace StarEngine {
 
 	void ImGuiLayer::Begin()
 	{
-		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
+		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGui::GetMouseCursor() : ImGuiMouseCursor_None);
 
 		m_ImGuiRenderer->UpdateFontTexture();
 		ImGui_ImplGlfw_NewFrame();
@@ -291,6 +291,7 @@ namespace StarEngine {
 		colors[ImGuiCol_Tab] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		colors[ImGuiCol_TabHovered] = ImColor(255, 225, 135, 30);
 		colors[ImGuiCol_TabActive] = ImColor(255, 225, 135, 60);
+		colors[ImGuiCol_TabSelectedOverline] = ImColor(255, 225, 135, 60);
 		colors[ImGuiCol_TabUnfocused] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		colors[ImGuiCol_TabUnfocusedActive] = colors[ImGuiCol_TabHovered];
 

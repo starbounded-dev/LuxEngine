@@ -39,8 +39,6 @@ namespace StarEngine {
 
 		void BackBufferResizing();
 		void BackBufferResized();
-
-		uint32_t GetCurrentBufferIndex() { return GetCurrentBackBufferIndex(); }
 	public:
 		VulkanSwapChain(vk::SurfaceKHR surface);
 	private:

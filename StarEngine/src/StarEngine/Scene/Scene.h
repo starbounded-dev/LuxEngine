@@ -3,7 +3,7 @@
 #include "StarEngine/Asset/Asset.h"
 #include "StarEngine/Core/Timestep.h"
 #include "StarEngine/Core/UUID.h"
-#include "StarEngine/Renderer/EditorCamera.h"
+#include "StarEngine/Editor/EditorCamera.h"
 
 #include "entt.hpp"
 

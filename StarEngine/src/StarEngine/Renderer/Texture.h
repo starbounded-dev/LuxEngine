@@ -117,7 +117,6 @@ namespace StarEngine {
 
 		Ref<Image2D> m_Image;
 	};
-#if 0
 	class TextureCube : public Texture
 	{
 	public:
@@ -169,5 +168,4 @@ namespace StarEngine {
 
 		Ref<RenderCommandBuffer> m_CommandList;
 	};
-#endif
 }

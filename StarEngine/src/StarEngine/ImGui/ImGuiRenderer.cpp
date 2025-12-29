@@ -1,48 +1,3 @@
-/*
-* Copyright (c) 2014-2021, NVIDIA CORPORATION. All rights reserved.
-*
-* Permission is hereby granted, free of charge, to any person obtaining a
-* copy of this software and associated documentation files (the "Software"),
-* to deal in the Software without restriction, including without limitation
-* the rights to use, copy, modify, merge, publish, distribute, sublicense,
-* and/or sell copies of the Software, and to permit persons to whom the
-* Software is furnished to do so, subject to the following conditions:
-*
-* The above copyright notice and this permission notice shall be included in
-* all copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
-* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-* DEALINGS IN THE SOFTWARE.
-*/
-
-/*
-License for Dear ImGui
-
-Copyright (c) 2014-2019 Omar Cornut
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
 #include "sepch.h"
 #include "ImGuiRenderer.h"
 
@@ -72,8 +27,7 @@ namespace StarEngine {
 		io.BackendRendererName = "StarEngineImGuiRenderer";
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;  // We can create multi-viewports on the Renderer side (optional)
-		// If the font texture exists and is bound to ImGui, we're done.
-		// Note: ImGui_Renderer will reset io.Fonts->TexID when new fonts are added.
+
 		if (m_FontTexture && io.Fonts->TexRef.GetTexID())
 			return true;
 
@@ -242,10 +196,14 @@ namespace StarEngine {
 	{
 		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 
+		if (!texture)
+			return nullptr;
+
 		auto iter = m_BindingsCache.find(texture);
-		if (iter != m_BindingsCache.end())
+		if (iter != m_BindingsCache.end() && iter->second.Binding)
 		{
-			return iter->second;
+			iter->second.LastUsedFrame = m_BindingsCacheFrameCounter;
+			return iter->second.Binding;
 		}
 
 		nvrhi::BindingSetDesc desc;
@@ -259,8 +217,31 @@ namespace StarEngine {
 		nvrhi::BindingSetHandle binding = device->createBindingSet(desc, m_BindingLayout);
 		SE_CORE_ASSERT(binding);
 
-		m_BindingsCache[texture] = binding;
+		m_BindingsCache[texture] = { binding, m_BindingsCacheFrameCounter };
 		return binding;
+	}
+
+	void ImGuiRenderer::PruneBindingsCache()
+	{
+		// Keep 2 frames of history to avoid churn if a texture isn't referenced every frame
+		const uint64_t keepFrames = 2;
+
+		const uint64_t minKeepFrame = (m_BindingsCacheFrameCounter > keepFrames)
+			? (m_BindingsCacheFrameCounter - keepFrames)
+			: 0;
+
+		for (auto it = m_BindingsCache.begin(); it != m_BindingsCache.end(); )
+		{
+			if (!it->second.Binding || it->second.LastUsedFrame < minKeepFrame)
+				it = m_BindingsCache.erase(it);
+			else
+				++it;
+		}
+
+		// Prevent unbounded growth and let old textures release
+		constexpr size_t kMaxCacheSize = 4096;
+		if (m_BindingsCache.size() > kMaxCacheSize)
+			m_BindingsCache.clear();
 	}
 
 	bool ImGuiRenderer::UpdateGeometry(ImDrawData* drawData)
@@ -315,6 +296,9 @@ namespace StarEngine {
 		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 
 		ImDrawData* drawData = viewport->DrawData;
+
+		m_BindingsCacheFrameCounter++;
+		PruneBindingsCache();
 
 		m_RenderCommandBuffer->RT_Begin();
 		nvrhi::CommandListHandle commandList = m_RenderCommandBuffer->GetActive();
@@ -430,7 +414,6 @@ namespace StarEngine {
 		if (waitSemaphore)
 			m_RenderCommandBuffer->RT_Wait(waitSemaphore);
 
-
 		m_RenderCommandBuffer->RT_Submit();
 
 		return true;
@@ -444,6 +427,7 @@ namespace StarEngine {
 	void ImGuiRenderer::BackbufferResizing()
 	{
 		m_PipelineCache.clear();
+		m_BindingsCache.clear();
 	}
 
 }
