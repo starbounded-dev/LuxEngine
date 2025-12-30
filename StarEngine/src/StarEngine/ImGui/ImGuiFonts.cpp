@@ -1,7 +1,7 @@
 #include "sepch.h"
 #include "ImGuiFonts.h"
 
-namespace StarEngine::UI {
+namespace StarEngine::ImGuiEx {
 
 	static std::unordered_map<std::string, ImFont*> s_Fonts;
 

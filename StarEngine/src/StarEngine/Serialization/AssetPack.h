@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <map>
+#include <unordered_set>
 
 #include "StarEngine/Core/UUID.h"
 #include "StarEngine/Asset/Asset.h"
@@ -13,7 +14,7 @@
 namespace StarEngine {
 
 	class AssetPack : public RefCounted
-	{		
+	{
 	public:
 		AssetPack() = default;
 		AssetPack(const std::filesystem::path& path);
@@ -24,12 +25,13 @@ namespace StarEngine {
 
 		Ref<Scene> LoadScene(AssetHandle sceneHandle);
 		Ref<Asset> LoadAsset(AssetHandle sceneHandle, AssetHandle assetHandle);
-		
+
 		bool IsAssetHandleValid(AssetHandle assetHandle) const;
 		bool IsAssetHandleValid(AssetHandle sceneHandle, AssetHandle assetHandle) const;
 
 		Buffer ReadAppBinary();
 		uint64_t GetBuildVersion();
+		void DumpAssetPackContentsToLog();
 
 		AssetType GetAssetType(AssetHandle sceneHandle, AssetHandle assetHandle) const;
 
@@ -37,7 +39,7 @@ namespace StarEngine {
 		// in currently active project. This should change in the future to
 		// take in a Ref<Project> or something when the AssetManager becomes
 		// non-static, but since it is static at the moment this is what we get
-		static Ref<AssetPack> CreateFromActiveProject(std::atomic<float>& progress);
+		//static Ref<AssetPack> CreateFromActiveProject(std::atomic<float>& progress, EntityDomain domain);
 		static Ref<AssetPack> Load(const std::filesystem::path& path);
 		static Ref<AssetPack> LoadActiveProject();
 	private:

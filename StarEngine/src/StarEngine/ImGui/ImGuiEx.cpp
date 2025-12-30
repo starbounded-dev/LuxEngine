@@ -1,13 +1,14 @@
 #include "sepch.h"
-#include "UICore.h"
+#include "ImGuiEx.h"
 
 #include "ImGuiUtilities.h"
+#include "StarEngine/Scripting/ScriptEngine.h"
 
 #include <imgui_internal.h>
 
 #include <format>
 
-namespace StarEngine::UI {
+namespace StarEngine::ImGuiEx {
 
 	static int s_UIContextID = 0;
 	static uint32_t s_Counter = 0;
@@ -134,12 +135,12 @@ namespace StarEngine::UI {
 		const ImVec2 rowAreaMax = { ImGui::TableGetCellBgRect(ImGui::GetCurrentTable(), ImGui::TableGetColumnCount() - 1).Max.x, rowAreaMin.y + rowHeight };
 
 		ImGui::PushClipRect(rowAreaMin, rowAreaMax, false);
+		ImGui::SetNextItemAllowOverlap();
 
 		bool isRowHovered, held;
 		bool isRowClicked = ImGui::ButtonBehavior(ImRect(rowAreaMin, rowAreaMax), ImGui::GetID(id),
 			&isRowHovered, &held, ImGuiButtonFlags_AllowOverlap);
 
-		ImGui::SetNextItemAllowOverlap();
 		ImGui::PopClipRect();
 
 		return isRowClicked;
@@ -196,8 +197,7 @@ namespace StarEngine::UI {
 		std::string filepath = texture->GetPath().string();
 		ImGui::TextUnformatted(filepath.c_str());
 		ImGui::PopTextWrapPos();
-		UI::Image(texture, ImVec2(384, 384));
+		ImGuiEx::Image(texture, ImVec2(384, 384));
 		ImGui::EndTooltip();
 	}
-
 }

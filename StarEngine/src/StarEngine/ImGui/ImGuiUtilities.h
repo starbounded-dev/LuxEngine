@@ -6,13 +6,13 @@
 #ifndef IMGUI_DEFINE_MATH_OPERATORS
 #define IMGUI_DEFINE_MATH_OPERATORS
 #endif
-#include <imgui_internal.h>
-#include <misc/cpp/imgui_stdlib.h>
+#include <imgui/imgui_internal.h>
+#include <imgui/misc/cpp/imgui_stdlib.h>
 
 #include <vector>
 #include <string>
 
-namespace StarEngine::UI {
+namespace StarEngine::ImGuiEx {
 	//=========================================================================================
 	/// Utilities
 	ImTextureID GetTextureID(Ref<Texture2D> texture);
@@ -164,8 +164,8 @@ namespace StarEngine::UI {
 	{
 		if (IsItemHovered(delayInSeconds, allowWhenDisabled ? ImGuiHoveredFlags_AllowWhenDisabled : 0))
 		{
-			UI::ScopedStyle tooltipPadding(ImGuiStyleVar_WindowPadding, padding);
-			UI::ScopedColour textCol(ImGuiCol_Text, Colors::Theme::textBrighter);
+			ImGuiEx::ScopedStyle tooltipPadding(ImGuiStyleVar_WindowPadding, padding);
+			ImGuiEx::ScopedColour textCol(ImGuiCol_Text, Colors::Theme::textBrighter);
 			ImGui::SetTooltip(text.data());
 		}
 	}
@@ -456,7 +456,7 @@ namespace StarEngine::UI {
 		}
 		ImGui::PopStyleColor();
 
-		UI::DrawItemActivityOutline();
+		ImGuiEx::DrawItemActivityOutline();
 
 		ImGui::PopItemWidth();
 		ImGui::NextColumn();
@@ -1023,7 +1023,7 @@ namespace StarEngine::UI {
 	inline bool Checkbox(const char* label, bool* b)
 	{
 		bool changed = ImGui::Checkbox(label, b);
-		UI::DrawItemActivityOutline();
+		ImGuiEx::DrawItemActivityOutline();
 		return changed;
 	}
 
@@ -1041,4 +1041,4 @@ namespace StarEngine::UI {
 		return false;
 	}
 
-} // namespace StarEngine::UI
+} // namespace Hazel::UI

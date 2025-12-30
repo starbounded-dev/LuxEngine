@@ -50,56 +50,56 @@ namespace StarEngine {
 
 		// Configure Fonts
 		{
-			UI::FontConfiguration robotoBold;
+			ImGuiEx::FontConfiguration robotoBold;
 			robotoBold.FontName = "Bold";
 			robotoBold.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
 			robotoBold.Size = 18.0f;
-			UI::Fonts::Add(robotoBold);
+			ImGuiEx::Fonts::Add(robotoBold);
 
-			UI::FontConfiguration robotoLarge;
+			ImGuiEx::FontConfiguration robotoLarge;
 			robotoLarge.FontName = "Large";
 			robotoLarge.FilePath = "Resources/Fonts/Roboto/Roboto-Regular.ttf";
 			robotoLarge.Size = 24.0f;
-			UI::Fonts::Add(robotoLarge);
+			ImGuiEx::Fonts::Add(robotoLarge);
 
-			UI::FontConfiguration robotoDefault;
+			ImGuiEx::FontConfiguration robotoDefault;
 			robotoDefault.FontName = "Default";
 			robotoDefault.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
 			robotoDefault.Size = 15.0f;
-			UI::Fonts::Add(robotoDefault, true);
+			ImGuiEx::Fonts::Add(robotoDefault, true);
 
 			static const ImWchar s_FontAwesomeRanges[] = { SE_ICON_MIN, SE_ICON_MAX, 0 };
-			UI::FontConfiguration fontAwesome;
+			ImGuiEx::FontConfiguration fontAwesome;
 			fontAwesome.FontName = "FontAwesome";
 			fontAwesome.FilePath = "Resources/Fonts/FontAwesome/fontawesome-webfont.ttf";
 			fontAwesome.Size = 16.0f;
 			fontAwesome.GlyphRanges = s_FontAwesomeRanges;
 			fontAwesome.MergeWithLast = true;
-			UI::Fonts::Add(fontAwesome);
+			ImGuiEx::Fonts::Add(fontAwesome);
 
-			UI::FontConfiguration robotoMedium;
+			ImGuiEx::FontConfiguration robotoMedium;
 			robotoMedium.FontName = "Medium";
 			robotoMedium.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
 			robotoMedium.Size = 18.0f;
-			UI::Fonts::Add(robotoMedium);
+			ImGuiEx::Fonts::Add(robotoMedium);
 
-			UI::FontConfiguration robotoSmall;
+			ImGuiEx::FontConfiguration robotoSmall;
 			robotoSmall.FontName = "Small";
 			robotoSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
 			robotoSmall.Size = 12.0f;
-			UI::Fonts::Add(robotoSmall);
+			ImGuiEx::Fonts::Add(robotoSmall);
 
-			UI::FontConfiguration robotoExtraSmall;
+			ImGuiEx::FontConfiguration robotoExtraSmall;
 			robotoExtraSmall.FontName = "ExtraSmall";
 			robotoExtraSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
 			robotoExtraSmall.Size = 10.0f;
-			UI::Fonts::Add(robotoExtraSmall);
+			ImGuiEx::Fonts::Add(robotoExtraSmall);
 
-			UI::FontConfiguration robotoBoldTitle;
+			ImGuiEx::FontConfiguration robotoBoldTitle;
 			robotoBoldTitle.FontName = "BoldTitle";
 			robotoBoldTitle.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
 			robotoBoldTitle.Size = 16.0f;
-			UI::Fonts::Add(robotoBoldTitle);
+			ImGuiEx::Fonts::Add(robotoBoldTitle);
 		}
 
 		// Setup Dear ImGui style

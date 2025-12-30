@@ -11,7 +11,7 @@ namespace ImGui {
 	extern bool ImageButtonEx(ImGuiID id, ImTextureID user_texture_id, const ImVec2& image_size, const ImVec2& uv0, const ImVec2& uv1, const ImVec4& bg_col, const ImVec4& tint_col, ImGuiButtonFlags flags);
 }
 
-namespace StarEngine::UI {
+namespace StarEngine::ImGuiEx {
 
 	ImTextureID GetTextureID(Ref<Image2D> image)
 	{
@@ -58,7 +58,7 @@ namespace StarEngine::UI {
 	}
 
 	void Image(const Ref<Texture2D>& texture, const ImVec2& size, const ImVec2& uv0, const ImVec2& uv1, const ImVec4& tint_col, const ImVec4& border_col)
-	{
+	{ 
 		SE_CORE_VERIFY(texture, "Texture is null");
 
 		const auto textureID = GetTextureID(texture->GetImage());

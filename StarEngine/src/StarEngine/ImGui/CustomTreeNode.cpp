@@ -2,7 +2,7 @@
 #include "CustomTreeNode.h"
 
 #include "StarEngine/ImGui/Colors.h"
-#include "StarEngine/ImGui/UICore.h"
+#include "StarEngine/ImGui/ImGuiEx.h"
 #include "StarEngine/ImGui/ImGuiUtilities.h"
 
 namespace ImGui {
@@ -186,9 +186,9 @@ namespace ImGui {
 				const float pad = 3.0f;
 				const float arrowWidth = 20.0f + 1.0f;
 				auto cursorPos = ImGui::GetCursorPos();
-				StarEngine::UI::ShiftCursorY(-frame_height + pad);
-				StarEngine::UI::ShiftCursorX(arrowWidth);
-				StarEngine::UI::Image(icon, { frame_height - pad * 2.0f, frame_height - pad * 2.0f }, ImVec2(0, 0), ImVec2(1, 1), iconTint /*selected ? colourDark : tintFloat*/);
+				StarEngine::ImGuiEx::ShiftCursorY(-frame_height + pad);
+				StarEngine::ImGuiEx::ShiftCursorX(arrowWidth);
+				StarEngine::ImGuiEx::Image(icon, { frame_height - pad * 2.0f, frame_height - pad * 2.0f }, ImVec2(0, 0), ImVec2(1, 1), iconTint /*selected ? colourDark : tintFloat*/);
 
 				// Restore itme data
 				ImGui::SetLastItemData(itemId, itemFlags, itemStatusFlags, itemRect);
@@ -245,9 +245,9 @@ namespace ImGui {
 				const float pad = 3.0f;
 				const float arrowWidth = 20.0f + 1.0f;
 				auto cursorPos = ImGui::GetCursorPos();
-				StarEngine::UI::ShiftCursorY(-frame_height + pad);
-				StarEngine::UI::ShiftCursorX(arrowWidth);
-				StarEngine::UI::Image(icon, { frame_height - pad * 2.0f, frame_height - pad * 2.0f }, ImVec2(0, 0), ImVec2(1, 1), iconTint /*selected ? colourDark : tintFloat*/);
+				StarEngine::ImGuiEx::ShiftCursorY(-frame_height + pad);
+				StarEngine::ImGuiEx::ShiftCursorX(arrowWidth);
+				StarEngine::ImGuiEx::Image(icon, { frame_height - pad * 2.0f, frame_height - pad * 2.0f }, ImVec2(0, 0), ImVec2(1, 1), iconTint /*selected ? colourDark : tintFloat*/);
 
 				// Restore itme data
 				ImGui::SetLastItemData(itemId, itemFlags, itemStatusFlags, itemRect);

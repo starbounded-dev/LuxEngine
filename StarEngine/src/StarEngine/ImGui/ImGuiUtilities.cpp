@@ -1,21 +1,18 @@
 #include <sepch.h>
 #include "ImGuiUtilities.h"
-#include "ImGui.h"
 
-#include "StarEngine/Renderer/RendererAPI.h"
+#include "StarEngine/ImGui/ImGuiEx.h"
 
-#include "StarEngine/ImGui/UICore.h"
-
-namespace StarEngine::UI {
+namespace StarEngine::ImGuiEx {
 
 	ScopedDisable::ScopedDisable(bool disabled /*= true*/)
 	{
-		UI::BeginDisabled(disabled);
+		ImGuiEx::BeginDisabled(disabled);
 	}
 
 	ScopedDisable::~ScopedDisable()
 	{
-		UI::EndDisabled();
+		ImGuiEx::EndDisabled();
 	}
 
 	bool BeginPopup(const char* str_id, ImGuiWindowFlags flags)
@@ -26,12 +23,12 @@ namespace StarEngine::UI {
 			opened = true;
 			// Fill background wiht nice gradient
 			const float padding = ImGui::GetStyle().WindowBorderSize;
-			const ImRect windowRect = UI::RectExpanded(ImGui::GetCurrentWindow()->Rect(), -padding, -padding);
+			const ImRect windowRect = ImGuiEx::RectExpanded(ImGui::GetCurrentWindow()->Rect(), -padding, -padding);
 			ImGui::PushClipRect(windowRect.Min, windowRect.Max, false);
 			const ImColor col1 = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);// Colors::Theme::backgroundPopup;
-			const ImColor col2 = UI::ColourWithMultipliedValue(col1, 0.8f);
+			const ImColor col2 = ImGuiEx::ColourWithMultipliedValue(col1, 0.8f);
 			ImGui::GetWindowDrawList()->AddRectFilledMultiColor(windowRect.Min, windowRect.Max, col1, col1, col2, col2);
-			ImGui::GetWindowDrawList()->AddRect(windowRect.Min, windowRect.Max, UI::ColourWithMultipliedValue(col1, 1.1f));
+			ImGui::GetWindowDrawList()->AddRect(windowRect.Min, windowRect.Max, ImGuiEx::ColourWithMultipliedValue(col1, 1.1f));
 			ImGui::PopClipRect();
 
 			// Popped in EndPopup()
@@ -66,7 +63,7 @@ namespace StarEngine::UI {
 
 		// We don't clip with current window clipping rectangle as it is already set to the area below. However we clip with window full rect.
 		// We remove 1 worth of rounding to Max.x to that text in long menus and small windows don't tend to display over the lower-right rounded area, which looks particularly glitchy.
-		ImRect bar_rect = UI::RectOffset(barRectangle, 0.0f, padding.y);// window->MenuBarRect();
+		ImRect bar_rect = ImGuiEx::RectOffset(barRectangle, 0.0f, padding.y);// window->MenuBarRect();
 		ImRect clip_rect(IM_ROUND(ImMax(window->Pos.x, bar_rect.Min.x + window->WindowBorderSize + window->Pos.x - 10.0f)), IM_ROUND(bar_rect.Min.y + window->WindowBorderSize + window->Pos.y),
 			IM_ROUND(ImMax(bar_rect.Min.x + window->Pos.x, bar_rect.Max.x - ImMax(window->WindowRounding, window->WindowBorderSize))), IM_ROUND(bar_rect.Max.y + window->Pos.y));
 

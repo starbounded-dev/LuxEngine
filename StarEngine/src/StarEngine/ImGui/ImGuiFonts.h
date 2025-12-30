@@ -2,7 +2,7 @@
 
 #include <imgui/imgui.h>
 
-namespace StarEngine::UI {
+namespace StarEngine::ImGuiEx {
 
 	struct FontConfiguration
 	{

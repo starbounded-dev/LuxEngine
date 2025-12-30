@@ -6,7 +6,7 @@
 
 #include <imgui/imgui.h>
 
-namespace StarEngine::UI {
+namespace StarEngine::ImGuiEx {
 
 	const char* GenerateID();
 	const char* GenerateLabelID(std::string_view label);
