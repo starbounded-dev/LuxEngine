@@ -24,12 +24,11 @@ namespace StarEngine {
 	static Ref<Font> s_Font;
 
 	EditorLayer::EditorLayer()
-		: Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f, true), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+		: Layer("EditorLayer"),m_EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f) // Initialize with appropriate values
 	{
-
 		s_Font = Font::GetDefault();
-
 	}
+
 
 	EditorLayer::~EditorLayer()
 	{
@@ -74,6 +73,7 @@ namespace StarEngine {
 		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 		// Resize
+		/*
 		if (FramebufferSpecification spec = m_Framebuffer->GetSpecification();
 			m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f && // zero sized framebuffer is invalid
 			(spec.Width != m_ViewportSize.x || spec.Height != m_ViewportSize.y))
@@ -81,7 +81,7 @@ namespace StarEngine {
 			m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 			m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
 			m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
-		}
+		}*/
 		/*
 		// Render
 		Renderer2D::ResetStats();
@@ -321,8 +321,9 @@ namespace StarEngine {
 			// glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
 
 			// Editor camera
-			const glm::mat4& cameraProjection = m_EditorCamera.GetProjection();
-			glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
+			
+			//const glm::mat4& cameraProjection = m_EditorCamera.GetProjection();
+			//glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
 
 			// Entity transform
 			auto& tc = selectedEntity.GetComponent<TransformComponent>();
@@ -337,9 +338,9 @@ namespace StarEngine {
 
 			float snapValues[3] = { snapValue, snapValue, snapValue };
 
-			ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
+			/*ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
 				(ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform),
-				nullptr, snap ? snapValues : nullptr);
+				nullptr, snap ? snapValues : nullptr);*/
 
 			if (ImGuizmo::IsUsing())
 			{

@@ -6,9 +6,12 @@
 #include "Panels/ContentBrowserPanel.h"
 
 #include "StarEngine/Scene/Entity.h"
-#include "StarEngine/Renderer/EditorCamera.h"
+#include "StarEngine/Editor/EditorCamera.h"
 
 #include "entt.hpp"
+#include "StarEngine/Editor/EditorConsolePanel.h"
+#include "StarEngine/Editor/PanelManager.h"
+#include "StarEngine/Project/UserPreferences.h"
 #include "StarEngine/Renderer/OrthographicCameraController.h"
 
 namespace StarEngine
@@ -16,31 +19,37 @@ namespace StarEngine
 	class EditorLayer : public Layer
 	{
 	public:
-		EditorLayer();
-		~EditorLayer();
+		EditorLayer(const Ref<UserPreferences>& userPreferences);
+		virtual ~EditorLayer() override;
 
 		virtual void OnAttach() override;
 		virtual void OnDetach() override;
-
 		virtual void OnUpdate(Timestep ts) override;
+
 		virtual void OnImGuiRender() override;
 		virtual void OnEvent(Event& e) override;
-	private:
-		bool OnKeyPressed(KeyPressedEvent& e);
+
+		bool OnKeyPressedEvent(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
 
-		void OnOverlayRender();
+		void OpenProject();
+		void OpenProject(const std::filesystem::path& filepath);
 
-		void NewProject();
-		bool OpenProject();
-		void OpenProject(const std::filesystem::path& path);
+		void CreateProject(std::filesystem::path projectPath);
+		void EmptyProject();
+		void UpdateCurrentProject();
 		void SaveProject();
+		void CloseProject(bool unloadProject = true);
 
-		void NewScene();
-		void OpenScene();
-		void OpenScene(AssetHandle handle);
+		void NewScene(const std::string& name = "UntitledScene");
+		bool OpenScene();
+		bool OpenScene(const std::filesystem::path& filepath, const bool checkAutoSave = true);
+
 		void SaveScene();
+		void SaveSceneAuto();
 		void SaveSceneAs();
+	private:
+		void OnOverlayRender();
 
 		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& filepath);
 
@@ -54,52 +63,22 @@ namespace StarEngine
 		// UI Panels
 		void UI_Toolbar();
 	private:
-		OrthographicCameraController m_CameraController;
+		Ref<UserPreferences> m_UserPreferences;
 
-		bool m_VSync = true;
-		bool m_ViewportFocused = false, m_ViewportHovered = false;
+		Scope<PanelManager> m_PanelManager;
+		Ref<EditorConsolePanel> m_ConsolePanel;
+		bool m_ShowStatisticsPanel = false;
 
-		// Temp
-		Ref<VertexBuffer> m_SquareVA;
-		Ref<Shader> m_FlatColorShader;
-		Ref<Framebuffer> m_Framebuffer;
+		std::vector<Ref<Viewport>> m_EditorViewports;
 
-		Ref<Scene> m_ActiveScene;
-		Ref<Scene> m_EditorScene;
-		std::filesystem::path m_EditorScenePath;
-		Entity m_SquareEntity;
-		Entity m_CameraEntity;
-		Entity m_SecondCamera;
-
-		Entity m_HoveredEntity;
-
-		bool m_PrimaryCamera = true;
-
-		EditorCamera m_EditorCamera;
-
-		Ref<Texture2D> m_CheckerboardTexture;
-
-		glm::vec2 m_ViewportSize = {0.0f, 0.0f};
-		glm::vec2 m_ViewportBounds[2];
-
-		glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
-
-		int m_GizmoType = -1;
-
-		bool m_ShowPhysicsColliders = false;
+		Ref<Scene> m_RuntimeScene, m_EditorScene, m_SimulationScene, m_CurrentScene;
+		std::string m_SceneFilePath;
 
 		enum class SceneState
 		{
-			Edit = 0, Play = 1, Simulate = 2
+			Edit = 0, Play = 1, Pause = 2, Simulate = 3
 		};
 		SceneState m_SceneState = SceneState::Edit;
-
-		// Panels
-		SceneHierarchyPanel m_SceneHierarchyPanel;
-		Scope<ContentBrowserPanel> m_ContentBrowserPanel;
-
-		// Editor resources
-		Ref<Texture2D> m_IconPlay, m_IconPause, m_IconStep, m_IconSimulate, m_IconStop;
 	};
 }
 
