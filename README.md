@@ -1,3 +1,5 @@
+## I do not have enough time and knowledge to continue this project, so I will archive, I might come back to work on it in a distant future.
+
 # StarStudio [![License](https://img.shields.io/github/license/starbounded-dev/starstudio.svg)](https://github.com/starbounded-dev/starstudio/blob/main/LICENSE) [![Build StarEngine](https://github.com/starbounded-dev/StarEngine/actions/workflows/main.yml/badge.svg)](https://github.com/starbounded-dev/StarEngine/actions/workflows/main.yml)
 
 ![StarStudio](/Resources/Branding/StarStudioLogo.png?raw=true "StarStudio")
