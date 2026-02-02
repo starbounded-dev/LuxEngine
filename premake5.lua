@@ -1,9 +1,9 @@
 include "./vendor/premake/premake_customization/solution_items.lua"
 include "Dependencies.lua"
 
-workspace "StarEngine"
+workspace "Lux"
 	architecture "x86_64"
-	startproject "StarEditor"
+	startproject "Editor"
 
 	configurations
 	{
@@ -26,25 +26,25 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 group "Dependencies"
 	include "vendor/premake"
-	include "StarEngine/vendor/Box2D"
-	include "StarEngine/vendor/GLFW"
-	include "StarEngine/vendor/GLAD"
-	include "StarEngine/vendor/imgui"
-	include "StarEngine/vendor/yaml-cpp"
-	include "StarEngine/vendor/tracy"
+	include "Core/vendor/Box2D"
+	include "Core/vendor/GLFW"
+	include "Core/vendor/GLAD"
+	include "Core/vendor/imgui"
+	include "Core/vendor/yaml-cpp"
+	include "Core/vendor/tracy"
 group ""
 
 group "Dependencies - Text"
-		include "StarEngine/vendor/msdf-atlas-gen"
+		include "Core/vendor/msdf-atlas-gen"
 group ""
 
 group "Core"
-	include "StarEngine"
-	include "StarEngine-ScriptCore"
+	include "Core"
+	include "ScriptCore"
 group ""
 
 group "Tools"
-	include "StarEditor"
+	include "Editor"
 group ""
 
 group "Misc"

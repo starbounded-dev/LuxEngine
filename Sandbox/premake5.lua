@@ -9,15 +9,15 @@ project "Sandbox"
 
 	files
 	{
-		"src/**.h",
-		"src/**.cpp"
+		"Source/**.h",
+		"Source/**.cpp"
 	}
 
 	includedirs
 	{
-		"%{wks.location}/StarEngine/vendor/spdlog/include",
-		"%{wks.location}/StarEngine/src",
-		"%{wks.location}/StarEngine/vendor",
+		"%{wks.location}/Core/vendor/spdlog/include",
+		"%{wks.location}/Core/Source",
+		"%{wks.location}/Core/vendor",
 		"%{IncludeDir.glm}",
 		"%{IncludeDir.entt}",
 		"%{IncludeDir.Tracy}",
@@ -27,7 +27,7 @@ project "Sandbox"
 
 	links
 	{
-		"StarEngine",
+		"Core",
 		"GLAD",
 		"%{Library.Tracy}"
 	}

@@ -1,31 +1,31 @@
-[submodule "StarEngine/vendor/spdlog"]
-	path = StarEngine/vendor/spdlog
+[submodule "Core/vendor/spdlog"]
+	path = Core/vendor/spdlog
 	url = ../../gabime/spdlog.git
 	branch = v1.x
-[submodule "StarEngine/vendor/GLFW"]
-	path = StarEngine/vendor/GLFW
+[submodule "Core/vendor/GLFW"]
+	path = Core/vendor/GLFW
 	url = ../../starbounded-dev/glfw.git
 	branch = master
-[submodule "StarEngine/vendor/imgui"]
-	path = StarEngine/vendor/imgui
+[submodule "Core/vendor/imgui"]
+	path = Core/vendor/imgui
 	url = ../../starbounded-dev/imgui.git
 	branch = docking
-[submodule "StarEngine/vendor/glm"]
-	path = StarEngine/vendor/glm
+[submodule "Core/vendor/glm"]
+	path = Core/vendor/glm
 	url = ../../g-truc/glm.git
 	branch = master
-[submodule "StarEngine/vendor/yaml-cpp"]
-	path = StarEngine/vendor/yaml-cpp
+[submodule "Core/vendor/yaml-cpp"]
+	path = Core/vendor/yaml-cpp
 	url = https://github.com/sheazywi/yaml-cpp
-[submodule "StarEngine/vendor/imguizmo"]
-	path = StarEngine/vendor/imguizmo
+[submodule "Core/vendor/imguizmo"]
+	path = Core/vendor/imguizmo
 	url = https://github.com/sheazywi/imguizmo.git
-[submodule "StarEngine/vendor/Box2D"]
-	path = StarEngine/vendor/Box2D
+[submodule "Core/vendor/Box2D"]
+	path = Core/vendor/Box2D
 	url = https://github.com/sheazywi/box2d
-[submodule "StarEngine/vendor/msdf-atlas-gen"]
-	path = StarEngine/vendor/msdf-atlas-gen
+[submodule "Core/vendor/msdf-atlas-gen"]
+	path = Core/vendor/msdf-atlas-gen
 	url = https://github.com/sheazywi/msdf-atlas-gen
-[submodule "StarEngine/vendor/tracy/tracy"]
-	path = StarEngine/vendor/tracy/tracy
+[submodule "Core/vendor/tracy/tracy"]
+	path = Core/vendor/tracy/tracy
 	url = https://github.com/wolfpld/tracy

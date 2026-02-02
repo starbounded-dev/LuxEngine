@@ -1,32 +1,32 @@
--- StarEngine Dependencies
+-- Core Dependencies
 
 VULKAN_SDK = os.getenv("VULKAN_SDK")
 
 IncludeDir = {}
-IncludeDir["stb_image"] = "%{wks.location}/StarEngine/vendor/stb_image"
-IncludeDir["yaml_cpp"] = "%{wks.location}/StarEngine/vendor/yaml-cpp/include"
-IncludeDir["Box2D"] = "%{wks.location}/StarEngine/vendor/Box2D/include"
-IncludeDir["GLFW"] = "%{wks.location}/StarEngine/vendor/GLFW/include"
-IncludeDir["GLAD"] = "%{wks.location}/StarEngine/vendor/GLAD/include"
-IncludeDir["ImGui"] = "%{wks.location}/StarEngine/vendor/imgui"
-IncludeDir["ImGuizmo"] = "%{wks.location}/StarEngine/vendor/imguizmo"
-IncludeDir["glm"] = "%{wks.location}/StarEngine/vendor/glm"
-IncludeDir["filewatch"] = "%{wks.location}/StarEngine/vendor/filewatch"
-IncludeDir["entt"] = "%{wks.location}/StarEngine/vendor/entt/include"
-IncludeDir["mono"] = "%{wks.location}/StarEngine/vendor/mono/include"
-IncludeDir["shaderc"] = "%{wks.location}/StarEngine/vendor/shaderc/include"
-IncludeDir["SPIRV_Cross"] = "%{wks.location}/StarEngine/vendor/SPIRV-Cross"
+IncludeDir["stb_image"] = "%{wks.location}/Core/vendor/stb_image"
+IncludeDir["yaml_cpp"] = "%{wks.location}/Core/vendor/yaml-cpp/include"
+IncludeDir["Box2D"] = "%{wks.location}/Core/vendor/Box2D/include"
+IncludeDir["GLFW"] = "%{wks.location}/Core/vendor/GLFW/include"
+IncludeDir["GLAD"] = "%{wks.location}/Core/vendor/GLAD/include"
+IncludeDir["ImGui"] = "%{wks.location}/Core/vendor/imgui"
+IncludeDir["ImGuizmo"] = "%{wks.location}/Core/vendor/imguizmo"
+IncludeDir["glm"] = "%{wks.location}/Core/vendor/glm"
+IncludeDir["filewatch"] = "%{wks.location}/Core/vendor/filewatch"
+IncludeDir["entt"] = "%{wks.location}/Core/vendor/entt/include"
+IncludeDir["mono"] = "%{wks.location}/Core/vendor/mono/include"
+IncludeDir["shaderc"] = "%{wks.location}/Core/vendor/shaderc/include"
+IncludeDir["SPIRV_Cross"] = "%{wks.location}/Core/vendor/SPIRV-Cross"
 IncludeDir["VulkanSDK"] = "%{VULKAN_SDK}/Include"
-IncludeDir["msdfgen"] = "%{wks.location}/StarEngine/vendor/msdf-atlas-gen/msdfgen"
-IncludeDir["msdf_atlas_gen"] = "%{wks.location}/StarEngine/vendor/msdf-atlas-gen/msdf-atlas-gen"
-IncludeDir["miniaudio"] = "%{wks.location}/StarEngine/vendor/miniaudio/include"
-IncludeDir["Tracy"] = "%{wks.location}/StarEngine/vendor/tracy/tracy/public"
+IncludeDir["msdfgen"] = "%{wks.location}/Core/vendor/msdf-atlas-gen/msdfgen"
+IncludeDir["msdf_atlas_gen"] = "%{wks.location}/Core/vendor/msdf-atlas-gen/msdf-atlas-gen"
+IncludeDir["miniaudio"] = "%{wks.location}/Core/vendor/miniaudio/include"
+IncludeDir["Tracy"] = "%{wks.location}/Core/vendor/tracy/tracy/public"
 
 LibraryDir = {}
 
 LibraryDir["VulkanSDK"] = "%{VULKAN_SDK}/Lib"
-LibraryDir["Mono"] = "%{wks.location}/StarEngine/vendor/mono/lib/%{cfg.buildcfg}"
-LibraryDir["Tracy"] = "%{wks.location}/StarEngine/vendor/tracy/bin/%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}/Tracy"
+LibraryDir["Mono"] = "%{wks.location}/Core/vendor/mono/lib/%{cfg.buildcfg}"
+LibraryDir["Tracy"] = "%{wks.location}/Core/vendor/tracy/bin/%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}/Tracy"
 
 Library = {}
 Library["mono"] = "%{LibraryDir.Mono}/libmono-static-sgen.lib"
