@@ -21,6 +21,7 @@ IncludeDir["msdfgen"] = "%{wks.location}/Core/vendor/msdf-atlas-gen/msdfgen"
 IncludeDir["msdf_atlas_gen"] = "%{wks.location}/Core/vendor/msdf-atlas-gen/msdf-atlas-gen"
 IncludeDir["miniaudio"] = "%{wks.location}/Core/vendor/miniaudio/include"
 IncludeDir["Tracy"] = "%{wks.location}/Core/vendor/tracy/tracy/public"
+IncludeDir["NVRHI"] = "%{wks.location}/Core/vendor/nvrhi/include"
 
 LibraryDir = {}
 
@@ -42,6 +43,10 @@ Library["SPIRV_Tools_Debug"] = "%{LibraryDir.VulkanSDK}/SPIRV-Toolsd.lib"
 Library["ShaderC_Release"] = "%{LibraryDir.VulkanSDK}/shaderc_shared.lib"
 Library["SPIRV_Cross_Release"] = "%{LibraryDir.VulkanSDK}/spirv-cross-core.lib"
 Library["SPIRV_Cross_GLSL_Release"] = "%{LibraryDir.VulkanSDK}/spirv-cross-glsl.lib"
+
+-- DXC (DirectX Shader Compiler) for runtime HLSL compilation
+Library["DXC_Debug"] = "%{LibraryDir.VulkanSDK}/dxcompilerd.lib"
+Library["DXC_Release"] = "%{LibraryDir.VulkanSDK}/dxcompiler.lib"
 
 
 -- Windows

@@ -259,7 +259,7 @@ namespace Lux {
 	bool ScriptEngine::LoadAssembly(const std::filesystem::path& filepath)
 	{
 		// Create an App Domain
-		s_Data->AppDomain = mono_domain_create_appdomain("LuxScriptRuntime", nullptr);
+		s_Data->AppDomain = mono_domain_create_appdomain(const_cast<char*>("LuxScriptRuntime"), nullptr);
 		mono_domain_set(s_Data->AppDomain, true);
 
 		s_Data->CoreAssemblyFilepath = filepath;

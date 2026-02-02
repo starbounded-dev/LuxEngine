@@ -1,14 +1,14 @@
 project "Core"
 	kind "StaticLib"
 	language "C++"
-	cppdialect "C++17"
+	cppdialect "C++20"
 	staticruntime "off"
 
 	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
 
-	pchheader "sepch.h"
-	pchsource "Source/sepch.cpp"
+	pchheader "lpch.h"
+	pchsource "Source/lpch.cpp"
 
 	files
 	{
@@ -30,7 +30,9 @@ project "Core"
 		"TRACY_ENABLE",
 		"TRACY_ON_DEMAND",
 		"TRACY_CALLSTACK=10",
-		"YAML_CPP_STATIC_DEFINE"
+		"YAML_CPP_STATIC_DEFINE",
+		"VK_USE_PLATFORM_WIN32_KHR",
+		"NOMINMAX"
 	}
 
 	includedirs
@@ -51,6 +53,8 @@ project "Core"
 		"%{IncludeDir.ImGuizmo}",
 		"%{IncludeDir.VulkanSDK}",
 		"%{IncludeDir.Tracy}",
+		"%{IncludeDir.NVRHI}",
+		"%{IncludeDir.SPIRV_Cross}",
 
 		"%{IncludeDir.mono}",
 		"%{IncludeDir.miniaudio}"
@@ -67,9 +71,11 @@ project "Core"
 		"Box2D",
 		"DbgHelp",
 		"dwmapi.lib",
+		"NVRHI",
 
 		"%{Library.Tracy}",
 		"%{Library.mono}",
+		"%{Library.Vulkan}",
 	}
 
 	filter "files:vendor/imguizmo/**.cpp"
@@ -92,39 +98,39 @@ project "Core"
 		}
 
 	filter "configurations:Debug"
-		defines "SE_DEBUG"
+		defines "LUX_DEBUG"
 		runtime "Debug"
 		symbols "on"
 
 		links
 		{
 			"%{Library.ShaderC_Debug}",
-			"%{Library.SPIRV_Cross_Debug}",
-			"%{Library.SPIRV_Cross_GLSL_Debug}"
+			"SPIRV-Cross",
+			"%{Library.DXC_Debug}"
 		}
 
 	filter "configurations:Release"
-		defines "SE_RELEASE"
+		defines "LUX_RELEASE"
 		runtime "Release"
 		optimize "on"
 
 		links
 		{
 			"%{Library.ShaderC_Release}",
-			"%{Library.SPIRV_Cross_Release}",
-			"%{Library.SPIRV_Cross_GLSL_Release}"
+			"SPIRV-Cross",
+			"%{Library.DXC_Release}"
 		}
 
 	filter "configurations:Dist"
-		defines "SE_DIST"
+		defines "LUX_DIST"
 		runtime "Release"
 		optimize "on"
 
 		links
 		{
 			"%{Library.ShaderC_Release}",
-			"%{Library.SPIRV_Cross_Release}",
-			"%{Library.SPIRV_Cross_GLSL_Release}"
+			"SPIRV-Cross",
+			"%{Library.DXC_Release}"
 		}
 
 	filter "action:vs2022"

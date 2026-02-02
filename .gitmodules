@@ -29,3 +29,10 @@
 [submodule "Core/vendor/tracy/tracy"]
 	path = Core/vendor/tracy/tracy
 	url = https://github.com/wolfpld/tracy
+[submodule "Core/vendor/nvrhi"]
+	path = Core/vendor/nvrhi
+	url = https://github.com/StudioCherno/nvrhi.git
+	branch = hazel
+[submodule "Core/vendor/SPIRV-Cross"]
+	path = Core/vendor/SPIRV-Cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross.git

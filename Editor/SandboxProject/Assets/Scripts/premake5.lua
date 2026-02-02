@@ -1,5 +1,5 @@
-local StarEngineRootDir = '../../../..'
-include (StarEngineRootDir .. "/vendor/premake/premake_customization/solution_items.lua")
+local LuxEngineRootDir = '../../../..'
+include (LuxEngineRootDir .. "/vendor/premake/premake_customization/solution_items.lua")
 
 workspace "Sandbox"
 	architecture "x86_64"
@@ -35,7 +35,7 @@ project "Sandbox"
 
 	links
 	{
-		"ScriptCore"
+		"Lux-ScriptCore"
 	}
 	
 	filter "configurations:Debug"
@@ -51,5 +51,5 @@ project "Sandbox"
 		symbols "Off"
 
 group "Core"
-	include (StarEngineRootDir .. "/ScriptCore")
+	include (LuxEngineRootDir .. "/Lux-ScriptCore")
 group ""

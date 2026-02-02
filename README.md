@@ -1,6 +1,6 @@
 # LuxEngine [![License](https://img.shields.io/github/license/starbounded-dev/luxengine.svg)](https://github.com/starbounded-dev/luxengine/blob/main/LICENSE) [![Build LuxEngine](https://github.com/starbounded-dev/LuxEngine/actions/workflows/main.yml/badge.svg)](https://github.com/starbounded-dev/LuxEngine/actions/workflows/main.yml)
 
-![LuxEngine](/Resources/Branding/StarStudioLogo.png?raw=true "LuxEngine")
+![LuxEngine](/Resources/Branding/LuxEngineLogo.png?raw=true "LuxEngine")
 
 LuxEngine is primarily an early-stage interactive application and rendering engine for Windows. Currently not much is implemented.
 

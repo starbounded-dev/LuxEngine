@@ -44,6 +44,8 @@ namespace Lux {
 
 		IDComponent() = default;
 		IDComponent(const IDComponent&) = default;
+		IDComponent(const UUID& id)
+			: ID(id) {}
 	};
 
 	struct TagComponent

@@ -116,7 +116,7 @@ ExampleLayer::ExampleLayer()
 	auto textureShader = m_ShaderLibrary.Load("assets/shaders/Texture.glsl");
 
 	m_Texture = Lux::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
-	m_starLogoTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/starLogo.png");
+	m_LuxLogoTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/luxLogo.png");
 
 	textureShader->Bind();
 	textureShader->SetInt("u_Texture", 0);
@@ -162,7 +162,7 @@ void ExampleLayer::OnUpdate(Lux::Timestep ts)
 
 	m_Texture->Bind();
 	Lux::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
-	m_starLogoTexture->Bind();
+	m_LuxLogoTexture->Bind();
 	Lux::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
 
 	// Triangle

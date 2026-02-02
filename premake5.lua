@@ -32,6 +32,8 @@ group "Dependencies"
 	include "Core/vendor/imgui"
 	include "Core/vendor/yaml-cpp"
 	include "Core/vendor/tracy"
+	include "Core/vendor/nvrhi"
+	include "Core/vendor/SPIRV-Cross"
 group ""
 
 group "Dependencies - Text"
@@ -40,7 +42,7 @@ group ""
 
 group "Core"
 	include "Core"
-	include "ScriptCore"
+	include "Lux-ScriptCore"
 group ""
 
 group "Tools"

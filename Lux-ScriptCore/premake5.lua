@@ -1,4 +1,4 @@
-project "ScriptCore"
+project "Lux-ScriptCore"
 	kind "SharedLib"
 	language "C#"
 	dotnetframework "4.7.2"

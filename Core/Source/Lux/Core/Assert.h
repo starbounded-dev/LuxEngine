@@ -8,7 +8,7 @@
 
 // Alteratively we could use the same "default" message for both "WITH_MSG" and "NO_MSG" and
 // provide support for custom formatting by concatenating the formatting string instead of having the format inside the default message
-#define LUX_INTERNAL_ASSERT_IMPL(type, check, msg, ...) { if(!(check)) { SE##type##ERROR(msg, __VA_ARGS__); LUX_DEBUGBREAK(); } }
+#define LUX_INTERNAL_ASSERT_IMPL(type, check, msg, ...) { if(!(check)) { LUX##type##ERROR(msg, __VA_ARGS__); LUX_DEBUGBREAK(); } }
 #define LUX_INTERNAL_ASSERT_WITH_MSG(type, check, ...) LUX_INTERNAL_ASSERT_IMPL(type, check, "Assertion failed: {0}", __VA_ARGS__)
 #define LUX_INTERNAL_ASSERT_NO_MSG(type, check) LUX_INTERNAL_ASSERT_IMPL(type, check, "Assertion '{0}' failed at {1}:{2}", LUX_STRINGIFY_MACRO(check), std::filesystem::path(__FILE__).filename().string(), __LINE__)
 
@@ -27,7 +27,7 @@
 
 // Alteratively we could use the same "default" message for both "WITH_MSG" and "NO_MSG" and
 // provide support for custom formatting by concatenating the formatting string instead of having the format inside the default message
-#define LUX_INTERNAL_VERIFY_IMPL(type, check, msg, ...) { if(!(check)) { SE##type##ERROR(msg, __VA_ARGS__); LUX_DEBUGBREAK(); } }
+#define LUX_INTERNAL_VERIFY_IMPL(type, check, msg, ...) { if(!(check)) { LUX##type##ERROR(msg, __VA_ARGS__); LUX_DEBUGBREAK(); } }
 #define LUX_INTERNAL_VERIFY_WITH_MSG(type, check, ...) LUX_INTERNAL_VERIFY_IMPL(type, check, "Assertion failed: {0}", __VA_ARGS__)
 #define LUX_INTERNAL_VERIFY_NO_MSG(type, check) LUX_INTERNAL_VERIFY_IMPL(type, check, "Assertion '{0}' failed at {1}:{2}", LUX_STRINGIFY_MACRO(check), std::filesystem::path(__FILE__).filename().string(), __LINE__)
 

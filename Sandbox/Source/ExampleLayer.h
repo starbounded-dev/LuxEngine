@@ -24,7 +24,7 @@ private:
 	Lux::Ref<Lux::Shader> m_FlatColorShader;
 	Lux::Ref<Lux::VertexArray> m_SquareVA;
 
-	Lux::Ref<Lux::Texture2D> m_Texture, m_starLogoTexture;
+	Lux::Ref<Lux::Texture2D> m_Texture, m_LuxLogoTexture;
 
 	Lux::OrthographicCameraController m_CameraController;
 	glm::vec3 m_SquareColor = { 0.2f, 0.3f, 0.8f };
