@@ -1,17 +1,17 @@
-#include "sepch.h"
+#include "lpch.h"
 
-#include "StarEngine/Renderer/Renderer.h"
-#include "StarEngine/Renderer/Renderer2D.h"
+#include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/Renderer2D.h"
 
-#include "StarEngine/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioEngine.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	Scope<Renderer::SceneData> Renderer::s_SceneData = CreateScope<Renderer::SceneData>();
 
 	void Renderer::Init()
 	{
-		SE_PROFILE_FUNCTION("Renderer::Init");
+		LUX_PROFILE_FUNCTION("Renderer::Init");
 
 		AudioEngine::Init();
 
@@ -21,7 +21,7 @@ namespace StarEngine {
 
 	void Renderer::Shutdown()
 	{
-		SE_PROFILE_FUNCTION("Renderer::Shutdown");
+		LUX_PROFILE_FUNCTION("Renderer::Shutdown");
 		Renderer2D::Shutdown();
 
 		AudioEngine::Shutdown();
@@ -34,13 +34,13 @@ namespace StarEngine {
 
 	void Renderer::BeginScene(OrthographicCamera& camera)
 	{
-		SE_PROFILE_FUNCTION("Renderer::BeginScene");
+		LUX_PROFILE_FUNCTION("Renderer::BeginScene");
 		s_SceneData->ViewProjectionMatrix = camera.GetViewProjectionMatrix();
 	}
 
 	void Renderer::EndScene()
 	{
-		SE_PROFILE_FUNCTION("Renderer::EndScene");
+		LUX_PROFILE_FUNCTION("Renderer::EndScene");
 		// Flush any remaining 2D rendering commands
 		Renderer2D::Flush();
 		// Reset the scene data
@@ -49,7 +49,7 @@ namespace StarEngine {
 
 	void Renderer::Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const glm::mat4& transform)
 	{
-		SE_PROFILE_FUNCTION("Renderer::Submit");
+		LUX_PROFILE_FUNCTION("Renderer::Submit");
 		shader->Bind();
 
 		shader->SetMat4("u_ViewProjection", s_SceneData->ViewProjectionMatrix);

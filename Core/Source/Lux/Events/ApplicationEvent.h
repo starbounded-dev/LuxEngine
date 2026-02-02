@@ -1,8 +1,8 @@
 #pragma once
 
-#include "StarEngine/Events/Event.h"
+#include "Lux/Events/Event.h"
 
-namespace StarEngine {
+namespace Lux {
 	class WindowResizeEvent : public Event
 	{
 	public:

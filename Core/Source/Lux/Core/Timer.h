@@ -2,7 +2,7 @@
 
 #include <chrono>
 
-namespace StarEngine {
+namespace Lux {
 
 	class Timer
 	{

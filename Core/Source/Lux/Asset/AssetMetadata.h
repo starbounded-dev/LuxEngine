@@ -4,7 +4,7 @@
 
 #include <filesystem>
 
-namespace StarEngine
+namespace Lux
 {
 	struct AssetMetadata
 	{

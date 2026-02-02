@@ -1,20 +1,20 @@
-#include "sepch.h"
-#include "StarEngine/Renderer/Shader.h"
+#include "lpch.h"
+#include "Lux/Renderer/Shader.h"
 
-#include "StarEngine/Renderer/Renderer.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	Ref<Shader> Shader::Create(const std::string& filepath)
 	{
 		switch (Renderer::GetAPI())
 		{
-		case RendererAPI::API::None:    SE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
+		case RendererAPI::API::None:    LUX_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
 		case RendererAPI::API::OpenGL:  return CreateRef<OpenGLShader>(filepath);
 		}
 
-		SE_CORE_ASSERT(false, "Unknown RendererAPI!");
+		LUX_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
 
@@ -23,17 +23,17 @@ namespace StarEngine {
 	{
 		switch (Renderer::GetAPI())
 		{
-			case RendererAPI::API::None:    SE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
+			case RendererAPI::API::None:    LUX_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
 			case RendererAPI::API::OpenGL:  return CreateRef<OpenGLShader>(name, vertexSrc, fragmentSrc);;
 		}
 
-		SE_CORE_ASSERT(false, "Unknown RendererAPI!");
+		LUX_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
 
 	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
 	{
-		SE_CORE_ASSERT(!Exists(name), "Shader already exists!");
+		LUX_CORE_ASSERT(!Exists(name), "Shader already exists!");
 		m_Shaders[name] = shader;
 	}
 
@@ -59,7 +59,7 @@ namespace StarEngine {
 
 	Ref<Shader> ShaderLibrary::Get(const std::string& name)
 	{
-		SE_CORE_ASSERT(Exists(name), "Shader not found!");
+		LUX_CORE_ASSERT(Exists(name), "Shader not found!");
 		return m_Shaders[name];
 	}
 

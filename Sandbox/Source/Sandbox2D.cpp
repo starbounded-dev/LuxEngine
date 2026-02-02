@@ -7,7 +7,7 @@
 
 #include "imgui/imgui_internal.h"
 
-#include "StarEngine/Asset/TextureImporter.h"
+#include "Lux/Asset/TextureImporter.h"
 
 
 Sandbox2D::Sandbox2D()
@@ -18,46 +18,46 @@ Sandbox2D::Sandbox2D()
 
 void Sandbox2D::OnAttach()
 {
-	SE_PROFILE_FUNCTION("Sandbox2D::OnAttach");
+	LUX_PROFILE_FUNCTION("Sandbox2D::OnAttach");
 
-	//m_CheckerboardTexture = StarEngine::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
+	//m_CheckerboardTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
 }
 
 void Sandbox2D::OnDetach()
 {
-	SE_PROFILE_FUNCTION("Sandbox2D::OnDetach");
+	LUX_PROFILE_FUNCTION("Sandbox2D::OnDetach");
 }
 
-void Sandbox2D::OnUpdate(StarEngine::Timestep ts)
+void Sandbox2D::OnUpdate(Lux::Timestep ts)
 {
-	SE_PROFILE_FUNCTION("Sandbox2D::OnUpdate");
+	LUX_PROFILE_FUNCTION("Sandbox2D::OnUpdate");
 
 	// Update
 	m_CameraController.OnUpdate(ts);
 	// Render
-	StarEngine::Renderer2D::ResetStats();
+	Lux::Renderer2D::ResetStats();
 	{
-		SE_PROFILE_SCOPE("Renderer Prep");
-		StarEngine::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
-		StarEngine::RenderCommand::Clear();
+		LUX_PROFILE_SCOPE("Renderer Prep");
+		Lux::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
+		Lux::RenderCommand::Clear();
 	}
 	
 	{
 		static float rotation = 0.0f;
 		rotation += ts * 50.0f;
 
-		SE_PROFILE_SCOPE("Renderer Draw");
+		LUX_PROFILE_SCOPE("Renderer Draw");
 
-		StarEngine::Renderer2D::BeginScene(m_CameraController.GetCamera());
-		//StarEngine::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, m_CheckerboardTexture, 10.0f);
-		//StarEngine::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, rotation, { 0.8f, 0.2f, 0.3f, 1.0f });
-		StarEngine::Renderer2D::EndScene();
+		Lux::Renderer2D::BeginScene(m_CameraController.GetCamera());
+		//Lux::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, m_CheckerboardTexture, 10.0f);
+		//Lux::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, rotation, { 0.8f, 0.2f, 0.3f, 1.0f });
+		Lux::Renderer2D::EndScene();
 	}
 }
 
 void Sandbox2D::OnImGuiRender()
 {
-	SE_PROFILE_FUNCTION("Sandbox2D::OnImGuiRender");
+	LUX_PROFILE_FUNCTION("Sandbox2D::OnImGuiRender");
 
 	ImGuiContext& g = *GImGui;
 	ImGuiIO& io = g.IO;
@@ -65,7 +65,7 @@ void Sandbox2D::OnImGuiRender()
 	//Camera Info
 	ImGui::Begin("Camera Info");
 
-	auto stats = StarEngine::Renderer2D::GetStats();
+	auto stats = Lux::Renderer2D::GetStats();
 	ImGui::Text("Renderer2D Stats:");
 	ImGui::Text("Draw Calls: %d", stats.DrawCalls);
 	ImGui::Text("Quads: %d", stats.QuadCount);
@@ -78,13 +78,13 @@ void Sandbox2D::OnImGuiRender()
 
 	if (ImGui::Checkbox("VSync", &m_VSync)) {
 		// Toggle VSync when the checkbox is clicked
-		StarEngine::Application::Get().GetWindow().SetVSync(m_VSync);
+		Lux::Application::Get().GetWindow().SetVSync(m_VSync);
 	}
 
 	ImGui::End();
 }
 
-void Sandbox2D::OnEvent(StarEngine::Event& e)
+void Sandbox2D::OnEvent(Lux::Event& e)
 {
 	m_CameraController.OnEvent(e);
 }

@@ -3,9 +3,9 @@
 #include "Asset.h"
 #include "AssetMetadata.h"
 
-#include "StarEngine/Audio/AudioSource.h"
+#include "Lux/Audio/AudioSource.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class AudioImporter
 	{

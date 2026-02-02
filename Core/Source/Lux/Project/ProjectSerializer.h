@@ -2,7 +2,7 @@
 
 #include "Project.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class ProjectSerializer
 	{

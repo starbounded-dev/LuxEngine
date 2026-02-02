@@ -1,18 +1,18 @@
-#include "sepch.h"
-#include "StarEngine/Scene/Scene.h"
+#include "lpch.h"
+#include "Lux/Scene/Scene.h"
 
-#include "StarEngine/Asset/AssetManager.h"
+#include "Lux/Asset/AssetManager.h"
 
-#include "StarEngine/Audio/AudioEngine.h"
-#include "StarEngine/Audio/AudioSource.h"
-#include "StarEngine/Audio/AudioListener.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioSource.h"
+#include "Lux/Audio/AudioListener.h"
 
-#include "StarEngine/Scene/Components.h"
-#include "StarEngine/Scene/Entity.h"
-#include "StarEngine/Scene/ScriptableEntity.h"
-#include "StarEngine/Scripting/ScriptEngine.h"
-#include "StarEngine/Renderer/Renderer2D.h"
-#include "StarEngine/Physics/ContactListener2D.h"
+#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Entity.h"
+#include "Lux/Scene/ScriptableEntity.h"
+#include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Physics/ContactListener2D.h"
 
 #include <glm/glm.hpp>
 
@@ -23,7 +23,7 @@
 #include "box2d/b2_polygon_shape.h"
 #include "box2d/b2_circle_shape.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	static ContactListener2D s_Box2DContactListener;
 
@@ -314,7 +314,7 @@ namespace StarEngine {
 			}
 
 			{
-				SE_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioListenerComponent Scope", 0xFF7200);
+				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioListenerComponent Scope", 0xFF7200);
 
 				auto view = m_Registry.view<AudioListenerComponent>();
 				view.each([&](entt::entity entity, AudioListenerComponent& alc)
@@ -335,7 +335,7 @@ namespace StarEngine {
 			}
 
 			{
-				SE_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent Scope", 0xFF7200);
+				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent Scope", 0xFF7200);
 
 				auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
 				view.each([&](entt::entity entity, TransformComponent& transform, AudioSourceComponent& asc)
@@ -365,20 +365,20 @@ namespace StarEngine {
 						}
 						else if (asc.Audio && asc.AudioSourceData.UsePlaylist)
 						{
-							SE_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 2 Scope", 0xEE3AFF);
+							LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 2 Scope", 0xEE3AFF);
 
 							Ref<AudioSource> audioSourceIndex = AssetManager::GetAsset<AudioSource>(asc.AudioSourceData.Playlist[asc.AudioSourceData.OldIndex]);
 
 							//if (ac.AudioSourceData.OldIndex <= ac.AudioSourceData.Playlist.size() - 1)
 							if (asc.AudioSourceData.CurrentIndex < asc.AudioSourceData.Playlist.size() && audioSourceIndex != nullptr && asc.Config.PlayOnAwake && !audioSourceIndex->IsPlaying() && !asc.Paused)
 							{
-								SE_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 3 Scope", 0xFF8E68);
+								LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 3 Scope", 0xFF8E68);
 
 								audioSourceIndex = AssetManager::GetAsset<AudioSource>(asc.AudioSourceData.Playlist[asc.AudioSourceData.CurrentIndex]);
 
 								if (!audioSourceIndex->IsLooping())
 								{
-									SE_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 4 Scope", 0xFF2F68);
+									LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 4 Scope", 0xFF2F68);
 
 									audioSourceIndex->SetConfig(asc.Config);
 									audioSourceIndex->Play();
@@ -394,14 +394,14 @@ namespace StarEngine {
 
 									if (asc.AudioSourceData.RepeatAfterSpecificTrackPlays && asc.AudioSourceData.CurrentIndex == asc.AudioSourceData.StartIndex)
 									{
-										SE_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 5 Scope", 0xA191FF);
+										LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 5 Scope", 0xA191FF);
 
 										audioSourceIndex->SetLooping(true);
 									}
 
 									if (asc.AudioSourceData.OldIndex != asc.AudioSourceData.CurrentIndex)
 									{
-										SE_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 6 Scope", 0x8CCBFF);
+										LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 6 Scope", 0x8CCBFF);
 
 										asc.AudioSourceData.OldIndex = asc.AudioSourceData.CurrentIndex;
 									}
@@ -434,7 +434,7 @@ namespace StarEngine {
 		}
 		else if (m_IsPaused)
 		{
-			SE_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioListenerComponent 2 Scope", 0xFF7200);
+			LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioListenerComponent 2 Scope", 0xFF7200);
 
 			auto view = m_Registry.view<AudioListenerComponent>();
 			view.each([&](entt::entity acEntity, AudioListenerComponent& alc)
@@ -454,7 +454,7 @@ namespace StarEngine {
 
 
 			{
-				SE_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 2 Scope", 0xFF7200);
+				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 2 Scope", 0xFF7200);
 
 				auto view = m_Registry.view<AudioSourceComponent>();
 				view.each([&](entt::entity entity, AudioSourceComponent& asc)

@@ -5,14 +5,14 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "StarEngine.h"
+#include "Lux.h"
 
-#include "StarEngine/Asset/TextureImporter.h"
+#include "Lux/Asset/TextureImporter.h"
 
 ExampleLayer::ExampleLayer()
 	: Layer("ExampleLayer"), m_CameraController(1280.0f / 720.0f)
 {
-	m_VertexArray = StarEngine::VertexArray::Create();
+	m_VertexArray = Lux::VertexArray::Create();
 
 	float vertices[3 * 7] = {
 		-0.5f, -0.5f, 0.0f, 0.8f, 0.2f, 0.8f, 1.0f,
@@ -20,20 +20,20 @@ ExampleLayer::ExampleLayer()
 		 0.0f,  0.5f, 0.0f, 0.8f, 0.8f, 0.2f, 1.0f
 	};
 
-	StarEngine::Ref<StarEngine::VertexBuffer> vertexBuffer = StarEngine::VertexBuffer::Create(vertices, sizeof(vertices));
-	StarEngine::BufferLayout layout = {
-		{ StarEngine::ShaderDataType::Float3, "a_Position" },
-		{ StarEngine::ShaderDataType::Float4, "a_Color" }
+	Lux::Ref<Lux::VertexBuffer> vertexBuffer = Lux::VertexBuffer::Create(vertices, sizeof(vertices));
+	Lux::BufferLayout layout = {
+		{ Lux::ShaderDataType::Float3, "a_Position" },
+		{ Lux::ShaderDataType::Float4, "a_Color" }
 	};
 
 	vertexBuffer->SetLayout(layout);
 	m_VertexArray->AddVertexBuffer(vertexBuffer);
 
 	uint32_t indices[3] = { 0, 1, 2 };
-	StarEngine::Ref<StarEngine::IndexBuffer> indexBuffer = StarEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
+	Lux::Ref<Lux::IndexBuffer> indexBuffer = Lux::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
 	m_VertexArray->SetIndexBuffer(indexBuffer);
 
-	m_SquareVA = StarEngine::VertexArray::Create();
+	m_SquareVA = Lux::VertexArray::Create();
 
 	float squareVertices[5 * 4] = {
 		-0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
@@ -42,16 +42,16 @@ ExampleLayer::ExampleLayer()
 		-0.5f,  0.5f, 0.0f, 0.0f, 1.0f
 	};
 
-	StarEngine::Ref<StarEngine::VertexBuffer> squareVB = StarEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices));
+	Lux::Ref<Lux::VertexBuffer> squareVB = Lux::VertexBuffer::Create(squareVertices, sizeof(squareVertices));
 	squareVB->SetLayout({
-		{ StarEngine::ShaderDataType::Float3, "a_Position" },
-		{ StarEngine::ShaderDataType::Float2, "a_TexCoord" }
+		{ Lux::ShaderDataType::Float3, "a_Position" },
+		{ Lux::ShaderDataType::Float2, "a_TexCoord" }
 		});
 
 	m_SquareVA->AddVertexBuffer(squareVB);
 
 	uint32_t squareIndices[6] = { 0, 1, 2, 2, 3, 0 };
-	StarEngine::Ref<StarEngine::IndexBuffer> squareIB = StarEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t));
+	Lux::Ref<Lux::IndexBuffer> squareIB = Lux::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t));
 	m_SquareVA->SetIndexBuffer(squareIB);
 
 	std::string vertexSrc = R"(
@@ -84,7 +84,7 @@ ExampleLayer::ExampleLayer()
 			}
 		)";
 
-	m_Shader = StarEngine::Shader::Create("VertexPosColor", vertexSrc, fragmentSrc);
+	m_Shader = Lux::Shader::Create("VertexPosColor", vertexSrc, fragmentSrc);
 	std::string flatColorShaderVertexSrc = R"(
 			#version 330 core
 			
@@ -112,11 +112,11 @@ ExampleLayer::ExampleLayer()
 			}
 		)";
 
-	m_FlatColorShader = StarEngine::Shader::Create("FlatColor", flatColorShaderVertexSrc, flatColorShaderFragmentSrc);
+	m_FlatColorShader = Lux::Shader::Create("FlatColor", flatColorShaderVertexSrc, flatColorShaderFragmentSrc);
 	auto textureShader = m_ShaderLibrary.Load("assets/shaders/Texture.glsl");
 
-	m_Texture = StarEngine::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
-	m_starLogoTexture = StarEngine::TextureImporter::LoadTexture2D("assets/textures/starLogo.png");
+	m_Texture = Lux::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
+	m_starLogoTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/starLogo.png");
 
 	textureShader->Bind();
 	textureShader->SetInt("u_Texture", 0);
@@ -132,16 +132,16 @@ void ExampleLayer::OnDetach()
 
 }
 
-void ExampleLayer::OnUpdate(StarEngine::Timestep ts)
+void ExampleLayer::OnUpdate(Lux::Timestep ts)
 {
 	// Update
 	m_CameraController.OnUpdate(ts);
 
 	// Render
-	StarEngine::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
-	StarEngine::RenderCommand::Clear();
+	Lux::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
+	Lux::RenderCommand::Clear();
 
-	StarEngine::Renderer::BeginScene(m_CameraController.GetCamera());
+	Lux::Renderer::BeginScene(m_CameraController.GetCamera());
 
 	glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 
@@ -154,21 +154,21 @@ void ExampleLayer::OnUpdate(StarEngine::Timestep ts)
 		{
 			glm::vec3 pos(x * 0.11f, y * 0.11f, 0.0f);
 			glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * scale;
-			StarEngine::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
+			Lux::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
 		}
 	}
 
 	auto textureShader = m_ShaderLibrary.Get("Texture");
 
 	m_Texture->Bind();
-	StarEngine::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+	Lux::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
 	m_starLogoTexture->Bind();
-	StarEngine::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+	Lux::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
 
 	// Triangle
-	// StarEngine::Renderer::Submit(m_Shader, m_VertexArray);
+	// Lux::Renderer::Submit(m_Shader, m_VertexArray);
 
-	StarEngine::Renderer::EndScene();
+	Lux::Renderer::EndScene();
 }
 
 void ExampleLayer::OnImGuiRender()
@@ -198,7 +198,7 @@ void ExampleLayer::OnImGuiRender()
 	ImGui::End();
 }
 
-void ExampleLayer::OnEvent(StarEngine::Event& e)
+void ExampleLayer::OnEvent(Lux::Event& e)
 {
 	m_CameraController.OnEvent(e);
 }

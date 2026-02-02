@@ -1,11 +1,11 @@
 #pragma once
 
-#include "StarEngine/Renderer/RenderCommand.h"
+#include "Lux/Renderer/RenderCommand.h"
 
-#include "StarEngine/Renderer/OrthographicCamera.h"
-#include "StarEngine/Renderer/Shader.h"
+#include "Lux/Renderer/OrthographicCamera.h"
+#include "Lux/Renderer/Shader.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class Renderer
 	{

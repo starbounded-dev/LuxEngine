@@ -1,8 +1,8 @@
 #pragma once
 
-#include "StarEngine/Renderer/RendererAPI.h"
+#include "Lux/Renderer/RendererAPI.h"
 
-namespace StarEngine
+namespace Lux
 {
 	class RenderCommand
 	{

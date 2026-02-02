@@ -1,12 +1,12 @@
 #pragma once
 
-#include "StarEngine/Renderer/OrthographicCamera.h"
-#include "StarEngine/Core/Timestep.h"
+#include "Lux/Renderer/OrthographicCamera.h"
+#include "Lux/Core/Timestep.h"
 
-#include "StarEngine/Events/ApplicationEvent.h"
-#include "StarEngine/Events/MouseEvent.h"
+#include "Lux/Events/ApplicationEvent.h"
+#include "Lux/Events/MouseEvent.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	struct OrthographicCameraBounds
 	{

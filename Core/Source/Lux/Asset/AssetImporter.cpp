@@ -1,4 +1,4 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "AssetImporter.h"
 
 #include "TextureImporter.h"
@@ -11,7 +11,7 @@
 
 #include <map>
 
-namespace StarEngine {
+namespace Lux {
 
 	using AssetImportFunction = std::function<Ref<Asset>(AssetHandle, const AssetMetadata&)>;
 	static std::map<AssetType, AssetImportFunction> s_AssetImportFunctions = {
@@ -24,14 +24,14 @@ namespace StarEngine {
 
 	Ref<Asset> AssetImporter::ImportAsset(AssetHandle handle, const AssetMetadata& metadata)
 	{
-		SE_PROFILE_FUNCTION_COLOR("AssetImporter::ImportAsset", 0xF2FA8A);
+		LUX_PROFILE_FUNCTION_COLOR("AssetImporter::ImportAsset", 0xF2FA8A);
 
 		{
-			SE_PROFILE_SCOPE_COLOR("AssetImporter::ImportAsset Scope", 0x27628A);
+			LUX_PROFILE_SCOPE_COLOR("AssetImporter::ImportAsset Scope", 0x27628A);
 
 			if (s_AssetImportFunctions.find(metadata.Type) == s_AssetImportFunctions.end())
 			{
-				SE_CORE_ERROR("No importer available for asset type: {}", (uint16_t)metadata.Type);
+				LUX_CORE_ERROR("No importer available for asset type: {}", (uint16_t)metadata.Type);
 				return nullptr;
 			}
 		}
@@ -39,7 +39,7 @@ namespace StarEngine {
 		auto& result = s_AssetImportFunctions.at(metadata.Type);//(metadata.Type)(handle, metadata);
 
 		{
-			SE_PROFILE_SCOPE_COLOR("AssetImporter::ImportAsset 2 Scope", 0xD1C48A);
+			LUX_PROFILE_SCOPE_COLOR("AssetImporter::ImportAsset 2 Scope", 0xD1C48A);
 
 			return result(handle, metadata);
 		}

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "StarEngine/Scene/Components.h"
+#include "Lux/Scene/Components.h"
 
 #include "box2d/b2_body.h"
 
@@ -12,7 +12,7 @@
 #include "box2d/b2_polygon_shape.h"
 #include "box2d/b2_circle_shape.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	namespace Utils {
 
@@ -25,7 +25,7 @@ namespace StarEngine {
 			case RigidBody2DComponent::BodyType::Kinematic: return b2_kinematicBody;
 			}
 
-			SE_CORE_ASSERT(false, "Unknown body type");
+			LUX_CORE_ASSERT(false, "Unknown body type");
 			return b2_staticBody;
 		}
 
@@ -38,7 +38,7 @@ namespace StarEngine {
 			case b2_kinematicBody: return RigidBody2DComponent::BodyType::Kinematic;
 			}
 
-			SE_CORE_ASSERT(false, "Unknown body type");
+			LUX_CORE_ASSERT(false, "Unknown body type");
 			return RigidBody2DComponent::BodyType::Static;
 		}
 

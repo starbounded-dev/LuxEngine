@@ -1,9 +1,9 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 
 #include <glad/glad.h>
 
-namespace StarEngine
+namespace Lux
 {
 	static const uint32_t s_MaxFramebufferSize = 8192;
 
@@ -77,7 +77,7 @@ namespace StarEngine
 			return false;
 		}
 
-		static GLenum StarEditorFBTextureFormatToGL(FramebufferTextureFormat format)
+		static GLenum LuxFBTextureFormatToGL(FramebufferTextureFormat format)
 		{
 			switch (format)
 			{
@@ -85,7 +85,7 @@ namespace StarEngine
 				case FramebufferTextureFormat::RED_INTEGER: return GL_RED_INTEGER;
 			}
 
-			SE_CORE_ASSERT(false);
+			LUX_CORE_ASSERT(false);
 			return 0;
 		}
 
@@ -162,7 +162,7 @@ namespace StarEngine
 
 		if (m_ColorAttachments.size() > 1)
 		{
-			SE_CORE_ASSERT(m_ColorAttachments.size() <= 4);
+			LUX_CORE_ASSERT(m_ColorAttachments.size() <= 4);
 			GLenum buffers[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
 			glDrawBuffers(m_ColorAttachments.size(), buffers);
 		}
@@ -172,7 +172,7 @@ namespace StarEngine
 			glDrawBuffer(GL_NONE);
 		}
 
-		SE_CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
+		LUX_CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
@@ -192,7 +192,7 @@ namespace StarEngine
 	{
 		if (width == 0 || height == 0 || width > s_MaxFramebufferSize || height > s_MaxFramebufferSize)
 		{
-			SE_CORE_WARN("Attempted to resize framebuffer to {0}, {1}", width, height);
+			LUX_CORE_WARN("Attempted to resize framebuffer to {0}, {1}", width, height);
 			return;
 		}
 
@@ -204,7 +204,7 @@ namespace StarEngine
 
 	int OpenGLFramebuffer::ReadPixel(uint32_t attachmentIndex, int x, int y)
 	{
-		SE_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+		LUX_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 
 		glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
 		int pixelData;
@@ -214,11 +214,11 @@ namespace StarEngine
 
 	void OpenGLFramebuffer::ClearAttachment(uint32_t attachmentIndex, int value)
 	{
-		SE_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+		LUX_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 
 		auto& spec = m_ColorAttachmentSpecifications[attachmentIndex];
 		glClearTexImage(m_ColorAttachments[attachmentIndex], 0, 
-			Utils::StarEditorFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
+			Utils::LuxFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
 	}
 
 }

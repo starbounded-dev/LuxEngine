@@ -1,40 +1,40 @@
 #pragma once
 
-// for use by StarEngine applications
-#include "StarEngine/Core/Application.h"
-#include "StarEngine/Core/Layer.h"
-#include "StarEngine/Core/Log.h"
-#include "StarEngine/Core/Assert.h"
+// for use by Lux applications
+#include "Lux/Core/Application.h"
+#include "Lux/Core/Layer.h"
+#include "Lux/Core/Log.h"
+#include "Lux/Core/Assert.h"
 
-#include "StarEngine/Core/Timestep.h"
+#include "Lux/Core/Timestep.h"
 
-#include "StarEngine/ImGui/ImGuiLayer.h"
+#include "Lux/ImGui/ImGuiLayer.h"
 
 // ---Input-------------------------
-#include "StarEngine/Core/Input.h"
-#include "StarEngine/Core/KeyCodes.h"
-#include "StarEngine/Core/MouseCodes.h"
+#include "Lux/Core/Input.h"
+#include "Lux/Core/KeyCodes.h"
+#include "Lux/Core/MouseCodes.h"
 // ---------------------------------
 
 // ---Renderer------------------------
-#include "StarEngine/Renderer/Renderer.h"
-#include "StarEngine/Renderer/Renderer2D.h"
-#include "StarEngine/Renderer/RenderCommand.h"
+#include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/RenderCommand.h"
 
-#include "StarEngine/Scene/Scene.h"
-#include "StarEngine/Scene/Entity.h"
-#include "StarEngine/Scene/Components.h"
-#include "StarEngine/Scene/ScriptableEntity.h"
+#include "Lux/Scene/Scene.h"
+#include "Lux/Scene/Entity.h"
+#include "Lux/Scene/Components.h"
+#include "Lux/Scene/ScriptableEntity.h"
 
-#include "StarEngine/Project/Project.h"
+#include "Lux/Project/Project.h"
 
-#include "StarEngine/Renderer/Buffer.h"
-#include "StarEngine/Renderer/Shader.h"
-#include "StarEngine/Renderer/Texture.h"
-#include "StarEngine/Renderer/Framebuffer.h"
-#include "StarEngine/Renderer/SubTexture2D.h"
-#include "StarEngine/Renderer/VertexArray.h"
+#include "Lux/Renderer/Buffer.h"
+#include "Lux/Renderer/Shader.h"
+#include "Lux/Renderer/Texture.h"
+#include "Lux/Renderer/Framebuffer.h"
+#include "Lux/Renderer/SubTexture2D.h"
+#include "Lux/Renderer/VertexArray.h"
 
-#include "StarEngine/Renderer/OrthographicCamera.h"
-#include "StarEngine/Renderer/OrthographicCameraController.h"
+#include "Lux/Renderer/OrthographicCamera.h"
+#include "Lux/Renderer/OrthographicCameraController.h"
 // -----------------------------------

@@ -2,7 +2,7 @@
 
 #include <imgui/imgui.h>
 
-namespace StarEngine::UI {
+namespace Lux::UI {
 
 	struct ScopedStyleColor
 	{

@@ -1,10 +1,10 @@
 #pragma once
 
-#include "StarEngine/Renderer/Buffer.h"
+#include "Lux/Renderer/Buffer.h"
 
 #include <memory>
 
-namespace StarEngine {
+namespace Lux {
 
 	class VertexArray {
 

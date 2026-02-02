@@ -1,6 +1,6 @@
 #pragma once
 
-namespace StarEngine {
+namespace Lux {
 
 	class ScriptGlue
 	{

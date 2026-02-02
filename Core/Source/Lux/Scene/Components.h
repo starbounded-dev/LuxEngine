@@ -3,12 +3,12 @@
 #include "SceneCamera.h"
 
 
-#include "StarEngine/Asset/AssetManager.h"
-#include "StarEngine/Audio/AudioListener.h"
-#include "StarEngine/Audio/AudioSource.h"
-#include "StarEngine/Core/UUID.h"
-#include "StarEngine/Renderer/Texture.h"
-#include "StarEngine/Renderer/Font.h"
+#include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/AudioListener.h"
+#include "Lux/Audio/AudioSource.h"
+#include "Lux/Core/UUID.h"
+#include "Lux/Renderer/Texture.h"
+#include "Lux/Renderer/Font.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -17,7 +17,7 @@
 
 #include "glm/gtx/quaternion.hpp"
 
-namespace StarEngine {
+namespace Lux {
 
 	struct AudioData // For audio sources only!
 	{

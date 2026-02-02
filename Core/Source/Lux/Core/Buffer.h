@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace StarEngine {
+namespace Lux {
 
 	struct Buffer
 	{

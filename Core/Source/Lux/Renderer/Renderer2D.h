@@ -1,17 +1,17 @@
 #pragma once
 
-#include "StarEngine/Renderer/OrthographicCamera.h"
-#include "StarEngine/Renderer/Texture.h"
+#include "Lux/Renderer/OrthographicCamera.h"
+#include "Lux/Renderer/Texture.h"
 
-#include "StarEngine/Renderer/SubTexture2D.h"
+#include "Lux/Renderer/SubTexture2D.h"
 
-#include "StarEngine/Renderer/Camera.h"
-#include "StarEngine/Renderer/EditorCamera.h"
-#include "StarEngine/Renderer/Font.h"
+#include "Lux/Renderer/Camera.h"
+#include "Lux/Renderer/EditorCamera.h"
+#include "Lux/Renderer/Font.h"
 
-#include "StarEngine/Scene/Components.h"
+#include "Lux/Scene/Components.h"
 
-namespace StarEngine {
+namespace Lux {
 	class Renderer2D
 	{
 	public:

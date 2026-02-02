@@ -1,7 +1,7 @@
-#include "sepch.h"
-#include "StarEngine/Renderer/RenderCommand.h"
+#include "lpch.h"
+#include "Lux/Renderer/RenderCommand.h"
 
-namespace StarEngine
+namespace Lux
 {
 	Scope<RendererAPI> RenderCommand::s_RendererAPI = RendererAPI::Create();
 }

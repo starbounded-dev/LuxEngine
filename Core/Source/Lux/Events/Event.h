@@ -1,13 +1,13 @@
 #pragma once
 
-#include "StarEngine/Debug/Profiler.h"
-#include "StarEngine/Core/Base.h"
+#include "Lux/Debug/Profiler.h"
+#include "Lux/Core/Base.h"
 
 #include <functional>
 
-namespace StarEngine {
+namespace Lux {
 
-	// Events in StarEngine are currently blocking, meaning when an event occurs it
+	// Events in Lux are currently blocking, meaning when an event occurs it
 	// immediately gets dispatched and must be dealt with right then an there.
 	// For the future, a better strategy might be to buffer events in an event
 	// bus and process them during the "event" part of the update stage.

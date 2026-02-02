@@ -3,12 +3,12 @@
 #include <string>
 #include <filesystem>
 
-#include "StarEngine/Core/Base.h"
+#include "Lux/Core/Base.h"
 
-#include "StarEngine/Asset/RuntimeAssetManager.h"
-#include "StarEngine/Asset/EditorAssetManager.h"
+#include "Lux/Asset/RuntimeAssetManager.h"
+#include "Lux/Asset/EditorAssetManager.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	struct ProjectConfig
 	{
@@ -34,26 +34,26 @@ namespace StarEngine {
 
 		static const std::filesystem::path& GetActiveProjectDirectory()
 		{
-			SE_CORE_ASSERT(s_ActiveProject);
+			LUX_CORE_ASSERT(s_ActiveProject);
 			return s_ActiveProject->GetProjectDirectory();
 		}
 
 		static std::filesystem::path GetActiveAssetDirectory()
 		{
-			SE_CORE_ASSERT(s_ActiveProject);
+			LUX_CORE_ASSERT(s_ActiveProject);
 			return s_ActiveProject->GetAssetDirectory();
 		}
 
 		static std::filesystem::path GetActiveAssetRegistryPath()
 		{
-			SE_CORE_ASSERT(s_ActiveProject);
+			LUX_CORE_ASSERT(s_ActiveProject);
 			return s_ActiveProject->GetAssetRegistryPath();
 		}
 
 		// TODO: move to asset manager when we have one
 		static std::filesystem::path GetActiveAssetFileSystemPath(const std::filesystem::path& path)
 		{
-			SE_CORE_ASSERT(s_ActiveProject);
+			LUX_CORE_ASSERT(s_ActiveProject);
 			return s_ActiveProject->GetAssetFileSystemPath(path);
 		}
 

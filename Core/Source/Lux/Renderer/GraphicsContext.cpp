@@ -1,19 +1,19 @@
-#include "sepch.h"
-#include "StarEngine/Renderer/GraphicsContext.h"
+#include "lpch.h"
+#include "Lux/Renderer/GraphicsContext.h"
 
-#include "StarEngine/Renderer/Renderer.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLContext.h"
 
-namespace StarEngine
+namespace Lux
 {
 	Scope<GraphicsContext> GraphicsContext::Create(void* window)
 	{
 		switch (Renderer::GetAPI())
 		{
-		case RendererAPI::API::None:    SE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
+		case RendererAPI::API::None:    LUX_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
 		case RendererAPI::API::OpenGL:  return CreateScope<OpenGLContext>(static_cast<GLFWwindow*>(window));
 		}
-		SE_CORE_ASSERT(false, "Unknown RendererAPI!");
+		LUX_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
 }

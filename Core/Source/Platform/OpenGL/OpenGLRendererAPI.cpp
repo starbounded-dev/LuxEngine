@@ -1,9 +1,9 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
 
 #include <glad/glad.h>
 
-namespace StarEngine
+namespace Lux
 {
 	void OpenGLMessageCallback(
 		unsigned source,
@@ -16,20 +16,20 @@ namespace StarEngine
 	{
 		switch (severity)
 		{
-		case GL_DEBUG_SEVERITY_HIGH:         SE_CORE_CRITICAL(message); return;
-		case GL_DEBUG_SEVERITY_MEDIUM:       SE_CORE_ERROR(message); return;
-		case GL_DEBUG_SEVERITY_LOW:          SE_CORE_WARN(message); return;
-		case GL_DEBUG_SEVERITY_NOTIFICATION: SE_CORE_TRACE(message); return;
+		case GL_DEBUG_SEVERITY_HIGH:         LUX_CORE_CRITICAL(message); return;
+		case GL_DEBUG_SEVERITY_MEDIUM:       LUX_CORE_ERROR(message); return;
+		case GL_DEBUG_SEVERITY_LOW:          LUX_CORE_WARN(message); return;
+		case GL_DEBUG_SEVERITY_NOTIFICATION: LUX_CORE_TRACE(message); return;
 		}
 
-		SE_CORE_ASSERT(false, "Unknown severity level!");
+		LUX_CORE_ASSERT(false, "Unknown severity level!");
 	}
 
 	void OpenGLRendererAPI::Init()
 	{
-		SE_PROFILE_FUNCTION("OpenGLRendererAPI::Init");
+		LUX_PROFILE_FUNCTION("OpenGLRendererAPI::Init");
 
-		#ifdef SE_DEBUG
+		#ifdef LUX_DEBUG
 				glEnable(GL_DEBUG_OUTPUT);
 				glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 				glDebugMessageCallback(OpenGLMessageCallback, nullptr);
@@ -59,7 +59,7 @@ namespace StarEngine
 	}
 	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount)
 	{
-		SE_PROFILE_GPU_SCOPE("OpenGLRendererAPI::DrawIndexed");
+		LUX_PROFILE_GPU_SCOPE("OpenGLRendererAPI::DrawIndexed");
 
 		vertexArray->Bind();
 		uint32_t count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
@@ -68,7 +68,7 @@ namespace StarEngine
 
 	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, uint32_t vertexCount)
 	{
-		SE_PROFILE_GPU_SCOPE("OpenGLRendererAPI::DrawLines");
+		LUX_PROFILE_GPU_SCOPE("OpenGLRendererAPI::DrawLines");
 
 		vertexArray->Bind();
 		glDrawArrays(GL_LINES, 0, vertexCount);
@@ -76,7 +76,7 @@ namespace StarEngine
 
 	void OpenGLRendererAPI::SetLineWidth(float width)
 	{
-		SE_PROFILE_GPU_SCOPE("OpenGLRendererAPI::SetLineWidth");
+		LUX_PROFILE_GPU_SCOPE("OpenGLRendererAPI::SetLineWidth");
 
 		glLineWidth(width);
 	}

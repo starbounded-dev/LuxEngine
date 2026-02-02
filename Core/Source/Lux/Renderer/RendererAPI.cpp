@@ -1,9 +1,9 @@
-#include "sepch.h"
-#include "StarEngine/Renderer/RendererAPI.h"
+#include "lpch.h"
+#include "Lux/Renderer/RendererAPI.h"
 
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	RendererAPI::API RendererAPI::s_API = RendererAPI::API::OpenGL;
 
@@ -11,11 +11,11 @@ namespace StarEngine {
 	{
 		switch (s_API)
 		{
-		case RendererAPI::API::None:    SE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
+		case RendererAPI::API::None:    LUX_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
 		case RendererAPI::API::OpenGL:  return CreateScope<OpenGLRendererAPI>();
 		}
 
-		SE_CORE_ASSERT(false, "Unknown RendererAPI!");
+		LUX_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
 

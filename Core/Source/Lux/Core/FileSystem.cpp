@@ -1,7 +1,7 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "FileSystem.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	Buffer FileSystem::ReadFileBinary(const std::filesystem::path& filepath)
 	{

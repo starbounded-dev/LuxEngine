@@ -2,10 +2,10 @@
 
 #include <filesystem>
 
-#include "StarEngine/Core/Base.h"
-#include "StarEngine/Renderer/Texture.h"
+#include "Lux/Core/Base.h"
+#include "Lux/Renderer/Texture.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	struct MSDFData;
 

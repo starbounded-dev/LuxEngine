@@ -1,10 +1,10 @@
 #pragma once
 
-#include "StarEngine/Renderer/VertexArray.h"
+#include "Lux/Renderer/VertexArray.h"
 
 #include <glm/glm.hpp>
 
-namespace StarEngine {
+namespace Lux {
 
 	class RendererAPI
 	{

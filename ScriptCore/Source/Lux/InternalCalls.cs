@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
 
-namespace StarEngine
+namespace Lux
 {
 	public static class InternalCalls
 	{

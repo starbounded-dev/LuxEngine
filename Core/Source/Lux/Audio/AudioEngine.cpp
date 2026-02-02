@@ -1,4 +1,4 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "AudioEngine.h"
 #include "AudioSource.h"
 
@@ -11,13 +11,13 @@
 #undef STB_VORBIS_HEADER_ONLY
 #include "stb_vorbis.c" // Enables Vorbis decoding.
 
-namespace StarEngine {
+namespace Lux {
 
 	ma_engine* AudioEngine::s_Engine;
 
 	void AudioEngine::Init()
 	{
-		SE_PROFILE_FUNCTION("AudioEngine::Init");
+		LUX_PROFILE_FUNCTION("AudioEngine::Init");
 
 		s_ShuttingDown = false;
 		ma_engine_config engineConfig = ma_engine_config_init();
@@ -30,13 +30,13 @@ namespace StarEngine {
 			ma_engine_uninit(s_Engine);
 			delete s_Engine;
 
-			SE_CORE_ERROR("Failed to initialize audio engine!");
+			LUX_CORE_ERROR("Failed to initialize audio engine!");
 		}
 	}
 
 	void AudioEngine::Shutdown()
 	{
-		SE_PROFILE_FUNCTION("AudioEngine::Shutdown");
+		LUX_PROFILE_FUNCTION("AudioEngine::Shutdown");
 
 		s_ShuttingDown = true;
 		ma_engine_stop(s_Engine);

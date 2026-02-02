@@ -1,11 +1,11 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "ContactListener2D.h"
 
-#include "StarEngine/Scene/Entity.h"
-#include "StarEngine/Scripting/ScriptEngine.h"
-#include "StarEngine/Scene/ScriptableEntity.h"
+#include "Lux/Scene/Entity.h"
+#include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Scene/ScriptableEntity.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	void ContactListener2D::BeginContact(b2Contact* contact)
 	{

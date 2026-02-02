@@ -1,13 +1,13 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
 
 #include "stb_image.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	namespace Utils {
 
-		static GLenum StarEngineImageFormatToGLDataFormat(ImageFormat format)
+		static GLenum LuxImageFormatToGLDataFormat(ImageFormat format)
 		{
 			switch (format)
 			{
@@ -15,11 +15,11 @@ namespace StarEngine {
 			case ImageFormat::RGBA8: return GL_RGBA;
 			}
 
-			SE_CORE_ASSERT(false);
+			LUX_CORE_ASSERT(false);
 			return 0;
 		}
 
-		static GLenum StarEngineImageFormatToGLInternalFormat(ImageFormat format)
+		static GLenum LuxImageFormatToGLInternalFormat(ImageFormat format)
 		{
 			switch (format)
 			{
@@ -27,7 +27,7 @@ namespace StarEngine {
 			case ImageFormat::RGBA8: return GL_RGBA8;
 			}
 
-			SE_CORE_ASSERT(false);
+			LUX_CORE_ASSERT(false);
 			return 0;
 		}
 
@@ -36,10 +36,10 @@ namespace StarEngine {
 	OpenGLTexture2D::OpenGLTexture2D(const TextureSpecification& specification, Buffer data)
 		: m_Specification(specification), m_Width(m_Specification.Width), m_Height(m_Specification.Height)
 	{
-		SE_PROFILE_FUNCTION("OpenGLTexture2D::OpenGLTexture2D");
+		LUX_PROFILE_FUNCTION("OpenGLTexture2D::OpenGLTexture2D");
 
-		m_InternalFormat = Utils::StarEngineImageFormatToGLInternalFormat(m_Specification.Format);
-		m_DataFormat = Utils::StarEngineImageFormatToGLDataFormat(m_Specification.Format);
+		m_InternalFormat = Utils::LuxImageFormatToGLInternalFormat(m_Specification.Format);
+		m_DataFormat = Utils::LuxImageFormatToGLDataFormat(m_Specification.Format);
 
 		glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
 		glTextureStorage2D(m_RendererID, 1, m_InternalFormat, m_Width, m_Height);
@@ -56,14 +56,14 @@ namespace StarEngine {
 
 	OpenGLTexture2D::~OpenGLTexture2D()
 	{
-		SE_PROFILE_FUNCTION("OpenGLTexture2D::~OpenGLTexture2D");
+		LUX_PROFILE_FUNCTION("OpenGLTexture2D::~OpenGLTexture2D");
 
 		glDeleteTextures(1, &m_RendererID);
 	}
 
 	void OpenGLTexture2D::ChangeSize(uint32_t newWidth, uint32_t newHeight)
 	{
-		SE_PROFILE_FUNCTION("OpenGLTexture2D::ChangeSize");
+		LUX_PROFILE_FUNCTION("OpenGLTexture2D::ChangeSize");
 
 		//Create new texture
 		uint32_t newTextureID;
@@ -97,16 +97,16 @@ namespace StarEngine {
 
 	void OpenGLTexture2D::SetData(Buffer data)
 	{
-		SE_PROFILE_FUNCTION("OpenGLTexture2D::SetData");
+		LUX_PROFILE_FUNCTION("OpenGLTexture2D::SetData");
 
 		uint32_t bpp = m_DataFormat == GL_RGBA ? 4 : 3;
-		SE_CORE_ASSERT(data.Size == m_Width * m_Height * bpp, "Data must be entire texture!");
+		LUX_CORE_ASSERT(data.Size == m_Width * m_Height * bpp, "Data must be entire texture!");
 		glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, data.Data);
 	}
 
 	void OpenGLTexture2D::Bind(uint32_t slot) const
 	{
-		SE_PROFILE_FUNCTION("OpenGLTexture2D::Bind");
+		LUX_PROFILE_FUNCTION("OpenGLTexture2D::Bind");
 
 		glBindTextureUnit(slot, m_RendererID);
 	}

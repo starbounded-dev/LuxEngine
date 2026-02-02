@@ -1,15 +1,15 @@
 #pragma once
 
-#include "StarEngine/Renderer/Shader.h"
+#include "Lux/Renderer/Shader.h"
 
 #include <glm/glm.hpp>
 
 //TODO REMOVE THIS
 typedef unsigned int GLenum;
 
-namespace StarEngine {
+namespace Lux {
 
-	class OpenGLShader : public StarEngine::Shader
+	class OpenGLShader : public Lux::Shader
 	{
 
 	public:

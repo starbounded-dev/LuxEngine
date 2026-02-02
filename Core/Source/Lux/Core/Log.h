@@ -1,6 +1,6 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
+#include "Lux/Core/Base.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/string_cast.hpp"
@@ -10,7 +10,7 @@
 #include "spdlog/fmt/ostr.h"
 #pragma warning(pop)
 
-namespace StarEngine {
+namespace Lux {
 	class Log
 	{
 	public:
@@ -42,14 +42,14 @@ inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 	return os << glm::to_string(quaternion);
 }
 
-#define SE_CORE_TRACE(...) ::StarEngine::Log::GetCoreLogger()->trace(__VA_ARGS__)
-#define SE_CORE_INFO(...) ::StarEngine::Log::GetCoreLogger()->info(__VA_ARGS__)
-#define SE_CORE_WARN(...) ::StarEngine::Log::GetCoreLogger()->warn(__VA_ARGS__)
-#define SE_CORE_ERROR(...) ::StarEngine::Log::GetCoreLogger()->error(__VA_ARGS__)
-#define SE_CORE_CRITICAL(...) ::StarEngine::Log::GetClientLogger()->critical(__VA_ARGS__)
+#define LUX_CORE_TRACE(...) ::Lux::Log::GetCoreLogger()->trace(__VA_ARGS__)
+#define LUX_CORE_INFO(...) ::Lux::Log::GetCoreLogger()->info(__VA_ARGS__)
+#define LUX_CORE_WARN(...) ::Lux::Log::GetCoreLogger()->warn(__VA_ARGS__)
+#define LUX_CORE_ERROR(...) ::Lux::Log::GetCoreLogger()->error(__VA_ARGS__)
+#define LUX_CORE_CRITICAL(...) ::Lux::Log::GetClientLogger()->critical(__VA_ARGS__)
 
-#define SE_TRACE(...) ::StarEngine::Log::GetClientLogger()->trace(__VA_ARGS__)
-#define SE_INFO(...) ::StarEngine::Log::GetClientLogger()->info(__VA_ARGS__)
-#define SE_WARN(...) ::StarEngine::Log::GetClientLogger()->warn(__VA_ARGS__)
-#define SE_ERROR(...) ::StarEngine::Log::GetClientLogger()->error(__VA_ARGS__)
-#define SE_CRITICAL(...) ::StarEngine::Log::GetClientLogger()->critical(__VA_ARGS__)
+#define LUX_TRACE(...) ::Lux::Log::GetClientLogger()->trace(__VA_ARGS__)
+#define LUX_INFO(...) ::Lux::Log::GetClientLogger()->info(__VA_ARGS__)
+#define LUX_WARN(...) ::Lux::Log::GetClientLogger()->warn(__VA_ARGS__)
+#define LUX_ERROR(...) ::Lux::Log::GetClientLogger()->error(__VA_ARGS__)
+#define LUX_CRITICAL(...) ::Lux::Log::GetClientLogger()->critical(__VA_ARGS__)

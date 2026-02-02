@@ -1,9 +1,9 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "OpenGLUniformBuffer.h"
 
 #include <glad/glad.h>
 
-namespace StarEngine {
+namespace Lux {
 
 	OpenGLUniformBuffer::OpenGLUniformBuffer(uint32_t size, uint32_t binding)
 	{

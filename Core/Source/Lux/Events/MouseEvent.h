@@ -1,9 +1,9 @@
 #pragma once
 
-#include "StarEngine/Events/Event.h"
-#include "StarEngine/Core/MouseCodes.h"
+#include "Lux/Events/Event.h"
+#include "Lux/Core/MouseCodes.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class MouseMovedEvent : public Event
 	{

@@ -1,19 +1,19 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
+#include "Lux/Core/Base.h"
 
-#include "StarEngine/Core/Window.h"
-#include "StarEngine/Core/LayerStack.h"
-#include "StarEngine/Events/Event.h"
-#include "StarEngine/Events/ApplicationEvent.h"
+#include "Lux/Core/Window.h"
+#include "Lux/Core/LayerStack.h"
+#include "Lux/Events/Event.h"
+#include "Lux/Events/ApplicationEvent.h"
 
-#include "StarEngine/Core/Timestep.h"
+#include "Lux/Core/Timestep.h"
 
-#include "StarEngine/ImGui/ImGuiLayer.h"
+#include "Lux/ImGui/ImGuiLayer.h"
 
 int main(int argc, char** argv);
 
-namespace StarEngine
+namespace Lux
 {
 	struct ApplicationCommandLineArgs
 	{
@@ -22,14 +22,14 @@ namespace StarEngine
 
 		const char* operator[](int index) const
 		{
-			SE_CORE_ASSERT(index < Count);
+			LUX_CORE_ASSERT(index < Count);
 			return Args[index];
 		}
 	};
 
 	struct ApplicationSpecification
 	{
-		std::string Name = "StarEngine Application";
+		std::string Name = "Lux Application";
 		std::string WorkingDirectory;
 		ApplicationCommandLineArgs CommandLineArgs;
 	};

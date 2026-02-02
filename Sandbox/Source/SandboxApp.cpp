@@ -1,16 +1,16 @@
-#include <StarEngine.h>
-#include <StarEngine/Core/EntryPoint.h>
+#include <Lux.h>
+#include <Lux/Core/EntryPoint.h>
 
-#include "StarEngine/Renderer/OrthographicCameraController.h"
+#include "Lux/Renderer/OrthographicCameraController.h"
 #include "Sandbox2D.h"
 
 #include "ExampleLayer.h"
 
-class Sandbox : public StarEngine::Application
+class Sandbox : public Lux::Application
 {
 public:
-	Sandbox(const StarEngine::ApplicationSpecification& specification)
-		: StarEngine::Application(specification)
+	Sandbox(const Lux::ApplicationSpecification& specification)
+		: Lux::Application(specification)
 	{
 		//PushLayer(new ExampleLayer());
 		PushLayer(new Sandbox2D());
@@ -23,11 +23,11 @@ public:
 
 };
 
-StarEngine::Application* StarEngine::CreateApplication(StarEngine::ApplicationCommandLineArgs args)
+Lux::Application* Lux::CreateApplication(Lux::ApplicationCommandLineArgs args)
 {
 	ApplicationSpecification spec;
 	spec.Name = "Sandbox";
-	spec.WorkingDirectory = "../StarEditor";
+	spec.WorkingDirectory = "../Editor";
 	spec.CommandLineArgs = args;
 
 	return new Sandbox(spec);

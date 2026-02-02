@@ -1,9 +1,9 @@
 #pragma once
 
-#include "StarEngine/Events/Event.h"
-#include "StarEngine/Core/KeyCodes.h"
+#include "Lux/Events/Event.h"
+#include "Lux/Core/KeyCodes.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class KeyEvent : public Event
 	{

@@ -2,9 +2,9 @@
 
 #define YAML_CPP_STATIC_DEFINE
 
-#include "StarEngine/Scene/Scene.h"
+#include "Lux/Scene/Scene.h"
 
-namespace StarEngine
+namespace Lux
 {
 	class SceneSerializer
 	{

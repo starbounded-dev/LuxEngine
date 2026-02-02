@@ -1,6 +1,6 @@
 #pragma once
 
-#include "StarEngine/Asset/Asset.h"
+#include "Lux/Asset/Asset.h"
 
 #include "miniaudio.h"
 
@@ -8,7 +8,7 @@
 
 struct ma_sound;
 
-namespace StarEngine {
+namespace Lux {
 
 	enum class AttenuationModelType
 	{

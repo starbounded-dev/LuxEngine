@@ -1,8 +1,8 @@
 #pragma once
 
-#include "StarEngine/Renderer/UniformBuffer.h"
+#include "Lux/Renderer/UniformBuffer.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class OpenGLUniformBuffer : public UniformBuffer
 	{

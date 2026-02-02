@@ -1,10 +1,10 @@
 #pragma once
 
-#include "StarEngine/Core/UUID.h"
+#include "Lux/Core/UUID.h"
 
 #include <string_view>
 
-namespace StarEngine {
+namespace Lux {
 
 	using AssetHandle = UUID;
 

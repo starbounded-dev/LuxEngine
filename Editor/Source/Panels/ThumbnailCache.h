@@ -1,11 +1,11 @@
 #pragma once
 
-#include "StarEngine/Project/Project.h"
-#include "StarEngine/Renderer/Texture.h"
+#include "Lux/Project/Project.h"
+#include "Lux/Renderer/Texture.h"
 
 #include <queue>
 
-namespace StarEngine {
+namespace Lux {
 
 	struct ThumbnailImage
 	{
@@ -35,7 +35,7 @@ namespace StarEngine {
 		};
 		std::queue<ThumbnailInfo> m_Queue;
 
-		// TEMP (replace with StarEngine::Serialization)
+		// TEMP (replace with Lux::Serialization)
 		std::filesystem::path m_ThumbnailCachePath;
 	};
 

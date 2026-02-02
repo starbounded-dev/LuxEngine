@@ -2,7 +2,7 @@
 
 #include "glm/glm.hpp"
 
-namespace StarEngine
+namespace Lux
 {
 	class Camera
 	{

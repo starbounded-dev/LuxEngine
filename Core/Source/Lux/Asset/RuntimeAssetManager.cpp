@@ -1,7 +1,7 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "AssetManager.h"
 
-namespace StarEngine {
+namespace Lux {
 
 
 }

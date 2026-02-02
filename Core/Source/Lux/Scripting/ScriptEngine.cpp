@@ -1,4 +1,4 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "ScriptEngine.h"
 
 #include "ScriptGlue.h"
@@ -12,12 +12,12 @@
 
 #include "FileWatch.h"
 
-#include "StarEngine/Core/Application.h"
-#include "StarEngine/Core/Timer.h"
-#include "StarEngine/Core/Buffer.h"
-#include "StarEngine/Core/FileSystem.h"
+#include "Lux/Core/Application.h"
+#include "Lux/Core/Timer.h"
+#include "Lux/Core/Buffer.h"
+#include "Lux/Core/FileSystem.h"
 
-#include "StarEngine/Project/Project.h"
+#include "Lux/Project/Project.h"
 
 namespace fmt {
 	template <>
@@ -29,15 +29,15 @@ namespace fmt {
 	};
 
 	template <>
-	struct formatter<StarEngine::UUID> : formatter<std::string> {
+	struct formatter<Lux::UUID> : formatter<std::string> {
 		template <typename FormatContext>
-		auto format(const StarEngine::UUID& uuid, FormatContext& ctx) const {
+		auto format(const Lux::UUID& uuid, FormatContext& ctx) const {
 			return formatter<std::string>::format(std::to_string(uuid), ctx);
 		}
 	};
 } // namespace fmt
 
-namespace StarEngine {
+namespace Lux {
 
 	static std::unordered_map<std::string, ScriptFieldType> s_ScriptFieldTypeMap =
 	{
@@ -53,11 +53,11 @@ namespace StarEngine {
 		{ "System.UInt32", ScriptFieldType::UInt },
 		{ "System.UInt64", ScriptFieldType::ULong },
 
-		{ "StarEngine.Vector2", ScriptFieldType::Vector2 },
-		{ "StarEngine.Vector3", ScriptFieldType::Vector3 },
-		{ "StarEngine.Vector4", ScriptFieldType::Vector4 },
+		{ "Lux.Vector2", ScriptFieldType::Vector2 },
+		{ "Lux.Vector3", ScriptFieldType::Vector3 },
+		{ "Lux.Vector4", ScriptFieldType::Vector4 },
 
-		{ "StarEngine.Entity", ScriptFieldType::Entity },
+		{ "Lux.Entity", ScriptFieldType::Entity },
 	};
 
 	namespace Utils {
@@ -86,7 +86,7 @@ namespace StarEngine {
 				{
 					ScopedBuffer pdbFileData = FileSystem::ReadFileBinary(pdbPath);
 					mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), pdbFileData.Size());
-					SE_CORE_INFO("Loaded PDB {}", pdbPath);
+					LUX_CORE_INFO("Loaded PDB {}", pdbPath);
 				}
 			}
 
@@ -110,7 +110,7 @@ namespace StarEngine {
 
 				const char* nameSpace = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
 				const char* name = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAME]);
-				SE_CORE_TRACE("{}.{}", nameSpace, name);
+				LUX_CORE_TRACE("{}.{}", nameSpace, name);
 			}
 		}
 
@@ -121,7 +121,7 @@ namespace StarEngine {
 			auto it = s_ScriptFieldTypeMap.find(typeName);
 			if (it == s_ScriptFieldTypeMap.end())
 			{
-				SE_CORE_ERROR("Unknown type: {}", typeName);
+				LUX_CORE_ERROR("Unknown type: {}", typeName);
 				return ScriptFieldType::None;
 			}
 
@@ -154,11 +154,11 @@ namespace StarEngine {
 		Scope<filewatch::FileWatch<std::string>> AppAssemblyFileWatcher;
 		bool AssemblyReloadPending = false;
 
-		#if SE_DEBUG
+		#if LUX_DEBUG
 		bool EnableDebugging = true;
 		#else
 		bool EnableDebugging = false;
-		#endif // SE_DEBUG
+		#endif // LUX_DEBUG
 
 		// Runtime
 		Scene* SceneContext = nullptr;
@@ -187,10 +187,10 @@ namespace StarEngine {
 		InitMono();
 		ScriptGlue::RegisterFunctions();
 
-		bool status = LoadAssembly("Resources/Scripts/StarEngine-ScriptCore.dll");
+		bool status = LoadAssembly("Resources/Scripts/Lux-ScriptCore.dll");
 		if (!status)
 		{
-			SE_CORE_ERROR("[ScriptEngine] Could not load StarEngine-ScriptCore assembly.");
+			LUX_CORE_ERROR("[ScriptEngine] Could not load Lux-ScriptCore assembly.");
 			return;
 		}
 
@@ -198,7 +198,7 @@ namespace StarEngine {
 		status = LoadAppAssembly(scriptModulePath);
 		if (!status)
 		{
-			SE_CORE_ERROR("[ScriptEngine] Could not load app assembly.");
+			LUX_CORE_ERROR("[ScriptEngine] Could not load app assembly.");
 			return;
 		}
 
@@ -207,7 +207,7 @@ namespace StarEngine {
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("StarEngine", "Entity", true);
+		s_Data->EntityClass = ScriptClass("Lux", "Entity", true);
 	}
 
 	void ScriptEngine::Shutdown()
@@ -231,8 +231,8 @@ namespace StarEngine {
 			mono_debug_init(MONO_DEBUG_FORMAT_MONO);
 		}
 
-		MonoDomain* rootDomain = mono_jit_init("StarEngineJITRuntime");
-		SE_CORE_ASSERT(rootDomain);
+		MonoDomain* rootDomain = mono_jit_init("LuxJITRuntime");
+		LUX_CORE_ASSERT(rootDomain);
 
 		// Store the root domain pointer
 		s_Data->RootDomain = rootDomain;
@@ -259,7 +259,7 @@ namespace StarEngine {
 	bool ScriptEngine::LoadAssembly(const std::filesystem::path& filepath)
 	{
 		// Create an App Domain
-		s_Data->AppDomain = mono_domain_create_appdomain("StarEngineScriptRuntime", nullptr);
+		s_Data->AppDomain = mono_domain_create_appdomain("LuxScriptRuntime", nullptr);
 		mono_domain_set(s_Data->AppDomain, true);
 
 		s_Data->CoreAssemblyFilepath = filepath;
@@ -299,7 +299,7 @@ namespace StarEngine {
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("StarEngine", "Entity", true);
+		s_Data->EntityClass = ScriptClass("Lux", "Entity", true);
 	}
 
 	void ScriptEngine::OnRuntimeStart(Scene* scene)
@@ -343,7 +343,7 @@ namespace StarEngine {
 		}
 		else
 		{
-			SE_CORE_ERROR("Could not find ScriptInstance for entity {0}", entityUUID);
+			LUX_CORE_ERROR("Could not find ScriptInstance for entity {0}", entityUUID);
 		}
 	}
 
@@ -383,7 +383,7 @@ namespace StarEngine {
 
 	ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity entity)
 	{
-		SE_CORE_ASSERT(entity);
+		LUX_CORE_ASSERT(entity);
 
 		UUID entityID = entity.GetUUID();
 		return s_Data->EntityScriptFields[entityID];
@@ -395,7 +395,7 @@ namespace StarEngine {
 
 		const MonoTableInfo* typeDefinitionsTable = mono_image_get_table_info(s_Data->AppAssemblyImage, MONO_TABLE_TYPEDEF);
 		int32_t numTypes = mono_table_info_get_rows(typeDefinitionsTable);
-		MonoClass* entityClass = mono_class_from_name(s_Data->CoreAssemblyImage, "StarEngine", "Entity");
+		MonoClass* entityClass = mono_class_from_name(s_Data->CoreAssemblyImage, "Lux", "Entity");
 
 		for (int32_t i = 0; i < numTypes; i++)
 		{
@@ -428,7 +428,7 @@ namespace StarEngine {
 			// to iterate over all of the elements. When no more values are available, the return value is NULL.
 
 			int fieldCount = mono_class_num_fields(monoClass);
-			SE_CORE_WARN("{} has {} fields:", className, fieldCount);
+			LUX_CORE_WARN("{} has {} fields:", className, fieldCount);
 			void* iterator = nullptr;
 			while (MonoClassField* field = mono_class_get_fields(monoClass, &iterator))
 			{
@@ -438,7 +438,7 @@ namespace StarEngine {
 				{
 					MonoType* type = mono_field_get_type(field);
 					ScriptFieldType fieldType = Utils::MonoTypeToScriptFieldType(type);
-					SE_CORE_WARN("  {} ({})", fieldName, Utils::ScriptFieldTypeToString(fieldType));
+					LUX_CORE_WARN("  {} ({})", fieldName, Utils::ScriptFieldTypeToString(fieldType));
 
 					scriptClass->m_Fields[fieldName] = { fieldType, fieldName, field };
 				}
@@ -459,7 +459,7 @@ namespace StarEngine {
 
 	MonoObject* ScriptEngine::GetManagedInstance(UUID uuid)
 	{
-		SE_CORE_ASSERT(s_Data->EntityInstances.find(uuid) != s_Data->EntityInstances.end());
+		LUX_CORE_ASSERT(s_Data->EntityInstances.find(uuid) != s_Data->EntityInstances.end());
 		return s_Data->EntityInstances.at(uuid)->GetManagedObject();
 	}
 

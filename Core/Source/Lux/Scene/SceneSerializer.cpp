@@ -1,12 +1,12 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "SceneSerializer.h"
 
 #include "Entity.h"
 #include "Components.h"
-#include "StarEngine/Scripting/ScriptEngine.h"
-#include "StarEngine/Core/UUID.h"
+#include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Core/UUID.h"
 
-#include "StarEngine/Project/Project.h"
+#include "Lux/Project/Project.h"
 
 #include <fstream>
 
@@ -91,16 +91,16 @@ namespace YAML {
 	};
 
 	template<>
-	struct convert<StarEngine::UUID>
+	struct convert<Lux::UUID>
 	{
-		static Node encode(const StarEngine::UUID& uuid)
+		static Node encode(const Lux::UUID& uuid)
 		{
 			Node node;
 			node.push_back((uint64_t)uuid);
 			return node;
 		}
 
-		static bool decode(const Node& node, StarEngine::UUID& uuid)
+		static bool decode(const Node& node, Lux::UUID& uuid)
 		{
 			uuid = node.as<uint64_t>();
 			return true;
@@ -109,7 +109,7 @@ namespace YAML {
 
 }
 
-namespace StarEngine {
+namespace Lux {
 
 	#define WRITE_SCRIPT_FIELD(FieldType, Type)           \
 				case ScriptFieldType::FieldType:          \
@@ -162,7 +162,7 @@ namespace StarEngine {
 			case RigidBody2DComponent::BodyType::Kinematic: return "Kinematic";
 		}
 
-		SE_CORE_ASSERT(false, "Unknown RigidBody2DComponent::BodyType!");
+		LUX_CORE_ASSERT(false, "Unknown RigidBody2DComponent::BodyType!");
 		return "";
 	}
 
@@ -172,7 +172,7 @@ namespace StarEngine {
 		if (type == "Dynamic") return RigidBody2DComponent::BodyType::Dynamic;
 		if (type == "Kinematic") return RigidBody2DComponent::BodyType::Kinematic;
 
-		SE_CORE_ASSERT(false, "Unknown RigidBody2DComponent::BodyType!");
+		LUX_CORE_ASSERT(false, "Unknown RigidBody2DComponent::BodyType!");
 		return RigidBody2DComponent::BodyType::Static;
 	}
 
@@ -184,7 +184,7 @@ namespace StarEngine {
 
 	static void SerializeEntity(YAML::Emitter& out, Entity entity)
 	{
-		SE_CORE_ASSERT(entity.HasComponent<IDComponent>());
+		LUX_CORE_ASSERT(entity.HasComponent<IDComponent>());
 
 		out << YAML::BeginMap; // Entity
 		out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID();
@@ -469,7 +469,7 @@ namespace StarEngine {
 	void SceneSerializer::SerializeRuntime(const std::filesystem::path& filepath)
 	{
 		// Not implemented
-		SE_CORE_ASSERT(false);
+		LUX_CORE_ASSERT(false);
 	}
 
 	bool SceneSerializer::Deserialize(const std::filesystem::path& filepath)
@@ -481,7 +481,7 @@ namespace StarEngine {
 		}
 		catch (YAML::ParserException e)
 		{
-			SE_CORE_ERROR("Failed to load .starscene file '{0}'\n     {1}", filepath.string(), e.what());
+			LUX_CORE_ERROR("Failed to load .luxscene file '{0}'\n     {1}", filepath.string(), e.what());
 
 			return false;
 		}
@@ -490,7 +490,7 @@ namespace StarEngine {
 			return false;
 
 		std::string sceneName = data["Scene"].as<std::string>();
-		SE_CORE_TRACE("Deserializing scene '{0}'", sceneName);
+		LUX_CORE_TRACE("Deserializing scene '{0}'", sceneName);
 
 		auto entities = data["Entities"];
 		if (entities)
@@ -504,7 +504,7 @@ namespace StarEngine {
 				if (tagComponent)
 					name = tagComponent["Tag"].as<std::string>();
 
-				SE_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
+				LUX_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
 
 				Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
 
@@ -562,8 +562,8 @@ namespace StarEngine {
 
 								ScriptFieldInstance& fieldInstance = entityFields[name];
 
-								// TODO: turn this assert into StarEditor log warning
-								SE_CORE_ASSERT(fields.find(name) != fields.end());
+								// TODO: turn this assert into LuxEditor log warning
+								LUX_CORE_ASSERT(fields.find(name) != fields.end());
 
 								if (fields.find(name) == fields.end())
 									continue;
@@ -781,7 +781,7 @@ namespace StarEngine {
 	bool SceneSerializer::DeserializeRuntime(const std::filesystem::path& filepath)
 	{
 		// Not implemented
-		SE_CORE_ASSERT(false);
+		LUX_CORE_ASSERT(false);
 		return false;
 	}
 

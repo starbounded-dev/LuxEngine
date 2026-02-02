@@ -1,7 +1,7 @@
-#include "sepch.h"
-#include "StarEngine/Scene/Entity.h"
+#include "lpch.h"
+#include "Lux/Scene/Entity.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	Entity::Entity(entt::entity handle, Scene* scene)
 		: m_EntityHandle(handle), m_Scene(scene)

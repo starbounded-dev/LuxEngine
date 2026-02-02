@@ -1,14 +1,14 @@
 #include "EditorLayer.h"
 
-#include "StarEngine/Scene/SceneSerializer.h"
-#include "StarEngine/Utils/PlatformUtils.h"
-#include "StarEngine/Math/Math.h"
-#include "StarEngine/Scripting/ScriptEngine.h"
-#include "StarEngine/Renderer/Font.h"
+#include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Utils/PlatformUtils.h"
+#include "Lux/Math/Math.h"
+#include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Renderer/Font.h"
 
-#include "StarEngine/Asset/AssetManager.h"
-#include "StarEngine/Asset/TextureImporter.h"
-#include "StarEngine/Asset/SceneImporter.h"
+#include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/TextureImporter.h"
+#include "Lux/Asset/SceneImporter.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -17,7 +17,7 @@
 #include "imgui/imgui_internal.h"
 #include "ImGuizmo.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	static Ref<Font> s_Font;
 
@@ -31,7 +31,7 @@ namespace StarEngine {
 
 	void EditorLayer::OnAttach()
 	{
-		SE_PROFILE_FUNCTION("EditorLayer::OnAttach");
+		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
 
 		m_IconPlay = TextureImporter::LoadTexture2D("Resources/Icons/PlayButton.png");
 		m_IconPause = TextureImporter::LoadTexture2D("Resources/Icons/PauseButton.png");
@@ -72,12 +72,12 @@ namespace StarEngine {
 
 	void EditorLayer::OnDetach()
 	{
-		SE_PROFILE_FUNCTION("EditorLayer::OnDetach");
+		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
 	}
 
 	void EditorLayer::OnUpdate(Timestep ts)
 	{
-		SE_PROFILE_FUNCTION("EditorLayer::OnUpdate");
+		LUX_PROFILE_FUNCTION("EditorLayer::OnUpdate");
 
 		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
@@ -150,7 +150,7 @@ namespace StarEngine {
 
 	void EditorLayer::OnImGuiRender()
 	{
-		SE_PROFILE_FUNCTION("EditorLayer::OnImGuiRender");
+		LUX_PROFILE_FUNCTION("EditorLayer::OnImGuiRender");
 
 		// Note: Switch this to true to enable dockspace
 		static bool dockspaceOpen = true;
@@ -464,9 +464,9 @@ namespace StarEngine {
 		}
 
 		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<KeyPressedEvent>(SE_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
-		dispatcher.Dispatch<MouseButtonPressedEvent>(SE_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
-		dispatcher.Dispatch<WindowDropEvent>(SE_BIND_EVENT_FN(EditorLayer::OnWindowDrop));
+		dispatcher.Dispatch<KeyPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
+		dispatcher.Dispatch<MouseButtonPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
+		dispatcher.Dispatch<WindowDropEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnWindowDrop));
 	}
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
@@ -673,7 +673,7 @@ namespace StarEngine {
 
 	bool EditorLayer::OpenProject()
 	{
-		std::string filepath = FileDialogs::OpenFile("Star Project (*.starproj)\0*.starproj\0");
+		std::string filepath = FileDialogs::OpenFile("Lux Project (*.luxproj)\0*.luxproj\0");
 		if (filepath.empty())
 			return false;
 
@@ -704,7 +704,7 @@ namespace StarEngine {
 
 	void EditorLayer::OpenScene(AssetHandle handle)
 	{
-		SE_CORE_ASSERT(handle);
+		LUX_CORE_ASSERT(handle);
 
 		if (m_SceneState != SceneState::Edit)
 			OnSceneStop();
@@ -729,7 +729,7 @@ namespace StarEngine {
 
 	void EditorLayer::SaveSceneAs()
 	{
-		std::string filepath = FileDialogs::SaveFile("StarEngine Scene (*.starscene)\0*.starscene\0");
+		std::string filepath = FileDialogs::SaveFile("Lux Scene (*.luxscene)\0*.luxscene\0");
 		if (!filepath.empty())
 		{
 			SerializeScene(m_ActiveScene, filepath);
@@ -770,7 +770,7 @@ namespace StarEngine {
 
 	void EditorLayer::OnSceneStop()
 	{
-		SE_CORE_ASSERT(m_SceneState == SceneState::Play || m_SceneState == SceneState::Simulate);
+		LUX_CORE_ASSERT(m_SceneState == SceneState::Play || m_SceneState == SceneState::Simulate);
 
 		if (m_SceneState == SceneState::Play)
 			m_ActiveScene->OnRuntimeStop();

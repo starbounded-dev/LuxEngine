@@ -1,7 +1,7 @@
 #pragma once
 
-#include "StarEngine/Scene/Scene.h"
-#include "StarEngine/Scene/Entity.h"
+#include "Lux/Scene/Scene.h"
+#include "Lux/Scene/Entity.h"
 
 #include <filesystem>
 #include <string>
@@ -17,7 +17,7 @@ extern "C" {
 	typedef struct _MonoString MonoString;
 }
 
-namespace StarEngine {
+namespace Lux {
 
 	enum class ScriptFieldType
 	{
@@ -204,7 +204,7 @@ namespace StarEngine {
 			case ScriptFieldType::Vector4: return "Vector4";
 			case ScriptFieldType::Entity:  return "Entity";
 			}
-			SE_CORE_ASSERT(false, "Unknown ScriptFieldType");
+			LUX_CORE_ASSERT(false, "Unknown ScriptFieldType");
 			return "None";
 		}
 
@@ -228,7 +228,7 @@ namespace StarEngine {
 			if (fieldType == "Vector4") return ScriptFieldType::Vector4;
 			if (fieldType == "Entity")  return ScriptFieldType::Entity;
 
-			SE_CORE_ASSERT(false, "Unknown ScriptFieldType");
+			LUX_CORE_ASSERT(false, "Unknown ScriptFieldType");
 			return ScriptFieldType::None;
 		}
 

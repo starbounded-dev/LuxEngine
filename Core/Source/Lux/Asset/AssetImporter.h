@@ -2,7 +2,7 @@
 
 #include "AssetMetadata.h"
 
-namespace StarEngine
+namespace Lux
 {
 	class AssetImporter
 	{

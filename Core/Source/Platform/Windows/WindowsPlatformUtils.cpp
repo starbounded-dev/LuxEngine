@@ -1,14 +1,14 @@
-#include "sepch.h"
-#include "StarEngine/Utils/PlatformUtils.h"
+#include "lpch.h"
+#include "Lux/Utils/PlatformUtils.h"
 
-#include "StarEngine/Core/Application.h"
+#include "Lux/Core/Application.h"
 
 #include <commdlg.h>
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
-namespace StarEngine {
+namespace Lux {
 
 	float Time::GetTime()
 	{

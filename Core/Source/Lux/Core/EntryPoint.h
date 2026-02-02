@@ -1,17 +1,17 @@
 #pragma once
-#include "StarEngine/Core/Base.h"
-#include "StarEngine/Core/Application.h"
+#include "Lux/Core/Base.h"
+#include "Lux/Core/Application.h"
 
-#ifdef SE_PLATFORM_WINDOWS
+#ifdef LUX_PLATFORM_WINDOWS
 
-extern StarEngine::Application* StarEngine::CreateApplication(ApplicationCommandLineArgs args);
+extern Lux::Application* Lux::CreateApplication(ApplicationCommandLineArgs args);
 
 int main(int argc, char** argv)
 {
-	StarEngine::Log::Init();
+	Lux::Log::Init();
 
-	StarEngine::Application* app = StarEngine::CreateApplication({ argc, argv });
-	SE_CORE_ASSERT(app, "Client Application is null!");
+	Lux::Application* app = Lux::CreateApplication({ argc, argv });
+	LUX_CORE_ASSERT(app, "Client Application is null!");
 	app->Run();
 	delete app;
 

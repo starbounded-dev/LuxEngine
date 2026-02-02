@@ -1,14 +1,14 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
-#include "StarEngine/Core/Buffer.h"
+#include "Lux/Core/Base.h"
+#include "Lux/Core/Buffer.h"
 
-#include "StarEngine/Asset/Asset.h"
+#include "Lux/Asset/Asset.h"
 
 #include <string>
 
 
-namespace StarEngine {
+namespace Lux {
 
 	enum class ImageFormat
 	{

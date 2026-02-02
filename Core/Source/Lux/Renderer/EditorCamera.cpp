@@ -1,16 +1,16 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "EditorCamera.h"
 
-#include "StarEngine/Core/Input.h"
-#include "StarEngine/Core/KeyCodes.h"
-#include "StarEngine/Core/MouseCodes.h"
+#include "Lux/Core/Input.h"
+#include "Lux/Core/KeyCodes.h"
+#include "Lux/Core/MouseCodes.h"
 
 #include <glfw/glfw3.h>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
-namespace StarEngine {
+namespace Lux {
 
 	EditorCamera::EditorCamera(float fov, float aspectRatio, float nearClip, float farClip)
 		: m_FOV(fov), m_AspectRatio(aspectRatio), m_NearClip(nearClip), m_FarClip(farClip), Camera(glm::perspective(glm::radians(fov), aspectRatio, nearClip, farClip))
@@ -81,7 +81,7 @@ namespace StarEngine {
 	void EditorCamera::OnEvent(Event& e)
 	{
 		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<MouseScrolledEvent>(SE_BIND_EVENT_FN(EditorCamera::OnMouseScroll));
+		dispatcher.Dispatch<MouseScrolledEvent>(LUX_BIND_EVENT_FN(EditorCamera::OnMouseScroll));
 	}
 
 	bool EditorCamera::OnMouseScroll(MouseScrolledEvent& e)

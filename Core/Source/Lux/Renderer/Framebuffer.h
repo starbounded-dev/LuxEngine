@@ -1,8 +1,8 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
+#include "Lux/Core/Base.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	enum class FramebufferTextureFormat
 	{

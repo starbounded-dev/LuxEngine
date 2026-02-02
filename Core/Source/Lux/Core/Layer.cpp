@@ -1,7 +1,7 @@
-#include "sepch.h"
-#include "StarEngine/Core/Layer.h"
+#include "lpch.h"
+#include "Lux/Core/Layer.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	Layer::Layer(const std::string& debugName)
 		: m_DebugName(debugName)

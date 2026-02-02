@@ -1,8 +1,8 @@
 #pragma once
 
-#include "StarEngine/Core/Buffer.h"
+#include "Lux/Core/Buffer.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class FileSystem
 	{

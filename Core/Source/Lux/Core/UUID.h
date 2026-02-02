@@ -1,6 +1,6 @@
 #pragma once
 
-namespace StarEngine {
+namespace Lux {
 
 	class UUID
 	{
@@ -20,9 +20,9 @@ namespace std {
 	template <typename T> struct hash;
 
 	template<>
-	struct hash<StarEngine::UUID>
+	struct hash<Lux::UUID>
 	{
-		std::size_t operator()(const StarEngine::UUID& uuid) const
+		std::size_t operator()(const Lux::UUID& uuid) const
 		{
 			return (uint64_t)uuid;
 		}

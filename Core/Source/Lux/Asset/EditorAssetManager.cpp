@@ -1,4 +1,4 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "AssetManager.h"
 
 #include "AssetImporter.h"
@@ -18,10 +18,10 @@ namespace fmt {
 	};
 } // namespace fmt
 
-namespace StarEngine {
+namespace Lux {
 
 	static std::map<std::filesystem::path, AssetType> s_AssetExtensionMap = {
-		{ ".starscene", AssetType::Scene },
+		{ ".luxscene", AssetType::Scene },
 		{ ".hazel", AssetType::Scene },
 		{ ".png", AssetType::Texture2D },
 		{ ".jpg", AssetType::Texture2D },
@@ -37,7 +37,7 @@ namespace StarEngine {
 	{
 		if (s_AssetExtensionMap.find(extension) == s_AssetExtensionMap.end())
 		{
-			SE_CORE_WARN("Could not find AssetType for {}", extension);
+			LUX_CORE_WARN("Could not find AssetType for {}", extension);
 			return AssetType::None;
 		}
 
@@ -74,7 +74,7 @@ namespace StarEngine {
 		AssetMetadata metadata;
 		metadata.FilePath = filepath;
 		metadata.Type = GetAssetTypeFromFileExtension(filepath.extension());
-		SE_CORE_ASSERT(metadata.Type != AssetType::None);
+		LUX_CORE_ASSERT(metadata.Type != AssetType::None);
 		Ref<Asset> asset = AssetImporter::ImportAsset(handle, metadata);
 		if (asset)
 		{
@@ -91,7 +91,7 @@ namespace StarEngine {
 		AssetMetadata metadata;
 		metadata.FilePath = filepath;
 		metadata.Type = GetAssetTypeFromFileExtension(filepath.extension());
-		SE_CORE_ASSERT(metadata.Type != AssetType::None);
+		LUX_CORE_ASSERT(metadata.Type != AssetType::None);
 		Ref<Asset> asset = AssetImporter::ImportAsset(handle, metadata);
 		if (asset)
 		{
@@ -104,7 +104,7 @@ namespace StarEngine {
 
 	const AssetMetadata& EditorAssetManager::GetMetadata(AssetHandle handle) const
 	{
-		SE_PROFILE_FUNCTION_COLOR("EditorAssetManager::GetMetadata", 0xF2A58A);
+		LUX_PROFILE_FUNCTION_COLOR("EditorAssetManager::GetMetadata", 0xF2A58A);
 
 		static AssetMetadata s_NullMetadata;
 		auto it = m_AssetRegistry.find(handle);
@@ -121,7 +121,7 @@ namespace StarEngine {
 
 	Ref<Asset> EditorAssetManager::GetAsset(AssetHandle handle)
 	{
-		SE_PROFILE_FUNCTION_COLOR("EditorAssetManager::GetAsset", 0xA3FFA4);
+		LUX_PROFILE_FUNCTION_COLOR("EditorAssetManager::GetAsset", 0xA3FFA4);
 
 		// 1. check if handle is valid
 		if (!IsAssetHandleValid(handle))
@@ -131,13 +131,13 @@ namespace StarEngine {
 		Ref<Asset> asset;
 		if (IsAssetLoaded(handle))
 		{
-			SE_PROFILE_SCOPE_COLOR("EditorAssetManager::GetAsset Scope", 0xFF7200);
+			LUX_PROFILE_SCOPE_COLOR("EditorAssetManager::GetAsset Scope", 0xFF7200);
 
 			asset = m_LoadedAssets.at(handle);
 		}
 		else
 		{
-			//SE_PROFILE_SCOPE_COLOR("EditorAssetManager::GetAsset 2 Scope", 0xA331F3);
+			//LUX_PROFILE_SCOPE_COLOR("EditorAssetManager::GetAsset 2 Scope", 0xA331F3);
 
 			// load asset
 			const AssetMetadata& metadata = GetMetadata(handle);
@@ -145,7 +145,7 @@ namespace StarEngine {
 			if (!asset)
 			{
 				// import failed
-				SE_CORE_ERROR("EditorAssetManager::GetAsset - asset import failed!");
+				LUX_CORE_ERROR("EditorAssetManager::GetAsset - asset import failed!");
 			}
 
 			m_LoadedAssets[handle] = asset;
@@ -193,7 +193,7 @@ namespace StarEngine {
 		}
 		catch (YAML::ParserException e)
 		{
-			SE_CORE_ERROR("Failed to load project file '{0}'\n     {1}", path, e.what());
+			LUX_CORE_ERROR("Failed to load project file '{0}'\n     {1}", path, e.what());
 			return false;
 		}
 

@@ -1,15 +1,15 @@
 #pragma once
 
-#include "StarEngine/Asset/Asset.h"
-#include "StarEngine/Core/Timestep.h"
-#include "StarEngine/Core/UUID.h"
-#include "StarEngine/Renderer/EditorCamera.h"
+#include "Lux/Asset/Asset.h"
+#include "Lux/Core/Timestep.h"
+#include "Lux/Core/UUID.h"
+#include "Lux/Renderer/EditorCamera.h"
 
 #include "entt.hpp"
 
 class b2World;
 
-namespace StarEngine {
+namespace Lux {
 
 	class Entity;
 

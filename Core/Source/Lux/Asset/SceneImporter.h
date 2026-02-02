@@ -3,9 +3,9 @@
 #include "Asset.h"
 #include "AssetMetadata.h"
 
-#include "StarEngine/Scene/Scene.h"
+#include "Lux/Scene/Scene.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class SceneImporter
 	{

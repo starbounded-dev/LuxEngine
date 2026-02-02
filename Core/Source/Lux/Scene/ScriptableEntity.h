@@ -1,8 +1,8 @@
 #pragma once
 
-#include "StarEngine/Scene/Entity.h"
+#include "Lux/Scene/Entity.h"
 
-namespace StarEngine
+namespace Lux
 {
 	class ScriptableEntity
 	{

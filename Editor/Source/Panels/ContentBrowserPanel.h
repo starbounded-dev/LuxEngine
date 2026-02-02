@@ -1,6 +1,6 @@
 #pragma once
 
-#include "StarEngine/Renderer/Texture.h"
+#include "Lux/Renderer/Texture.h"
 
 #include "ThumbnailCache.h"
 
@@ -8,7 +8,7 @@
 #include <set>
 #include <filesystem>
 
-namespace StarEngine {
+namespace Lux {
 
 	class ContentBrowserPanel
 	{

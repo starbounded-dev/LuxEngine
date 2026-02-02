@@ -32,7 +32,7 @@ ParticleSystem::ParticleSystem(uint32_t maxParticles) : m_PoolIndex(maxParticles
 	m_ParticlePool.resize(maxParticles);
 }
 
-void ParticleSystem::OnUpdate(StarEngine::Timestep ts)
+void ParticleSystem::OnUpdate(Lux::Timestep ts)
 {
 	for (auto& particle : m_ParticlePool)
 	{
@@ -51,9 +51,9 @@ void ParticleSystem::OnUpdate(StarEngine::Timestep ts)
 	}
 }
 
-void ParticleSystem::OnRender(StarEngine::OrthographicCamera& camera)
+void ParticleSystem::OnRender(Lux::OrthographicCamera& camera)
 {
-	StarEngine::Renderer2D::BeginScene(camera);
+	Lux::Renderer2D::BeginScene(camera);
 	for (auto& particle : m_ParticlePool)
 	{
 		if (!particle.Active)
@@ -66,9 +66,9 @@ void ParticleSystem::OnRender(StarEngine::OrthographicCamera& camera)
 
 		float size = glm::lerp(particle.SizeEnd, particle.SizeBegin, life);
 		glm::vec3 position = { particle.Position.x, particle.Position.y, 0.2f };
-		StarEngine::Renderer2D::DrawRotatedQuad(position, { size, size }, particle.Rotation, color);
+		Lux::Renderer2D::DrawRotatedQuad(position, { size, size }, particle.Rotation, color);
 	}
-	StarEngine::Renderer2D::EndScene();
+	Lux::Renderer2D::EndScene();
 }
 
 void ParticleSystem::Emit(const ParticleProps& particleProps)

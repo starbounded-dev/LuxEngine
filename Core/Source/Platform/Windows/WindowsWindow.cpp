@@ -1,17 +1,17 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "Platform/Windows/WindowsWindow.h"
 
-#include "StarEngine/Core/Input.h"
+#include "Lux/Core/Input.h"
 
-#include "StarEngine/Events/ApplicationEvent.h"
-#include "StarEngine/Events/MouseEvent.h"
-#include "StarEngine/Events/KeyEvent.h"
+#include "Lux/Events/ApplicationEvent.h"
+#include "Lux/Events/MouseEvent.h"
+#include "Lux/Events/KeyEvent.h"
 
-#include "StarEngine/Renderer/Renderer.h"
+#include "Lux/Renderer/Renderer.h"
 
 #include "Platform/OpenGL/OpenGLContext.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	float Window::s_HighDPIScaleFactor = 1.0f;
 
@@ -19,43 +19,43 @@ namespace StarEngine {
 
 	static void GLFWErrorCallback(int error, const char* description)
 	{
-		SE_CORE_ERROR("GLFW Error ({0}): {1}", error, description);
+		LUX_CORE_ERROR("GLFW Error ({0}): {1}", error, description);
 	}
 
 	WindowsWindow::WindowsWindow(const WindowProps& props)
 	{
-		SE_PROFILE_FUNCTION("WindowsWindow::WindowsWindow");
+		LUX_PROFILE_FUNCTION("WindowsWindow::WindowsWindow");
 
 		Init(props);
 	}
 
 	WindowsWindow::~WindowsWindow()
 	{
-		SE_PROFILE_FUNCTION("WindowsWindow::~WindowsWindow");
+		LUX_PROFILE_FUNCTION("WindowsWindow::~WindowsWindow");
 
 		Shutdown();
 	}
 
 	void WindowsWindow::Init(const WindowProps& props)
 	{
-		SE_PROFILE_FUNCTION("WindowsWindow::Init");
+		LUX_PROFILE_FUNCTION("WindowsWindow::Init");
 
 		m_Data.Title = props.Title;
 		m_Data.Width = props.Width;
 		m_Data.Height = props.Height;
 
-		SE_CORE_INFO("Creating window {0} ({1}, {2})", props.Title, props.Width, props.Height);
+		LUX_CORE_INFO("Creating window {0} ({1}, {2})", props.Title, props.Width, props.Height);
 
 		if (s_GLFWWindowCount == 0)
 		{
-			SE_PROFILE_SCOPE("glfwInit");
+			LUX_PROFILE_SCOPE("glfwInit");
 			int success = glfwInit();
-			SE_CORE_ASSERT(success, "Could not initialize GLFW!");
+			LUX_CORE_ASSERT(success, "Could not initialize GLFW!");
 			glfwSetErrorCallback(GLFWErrorCallback);
 		}
 
 		{
-			SE_PROFILE_SCOPE("glfwCreateWindow");
+			LUX_PROFILE_SCOPE("glfwCreateWindow");
 
 			GLFWmonitor* monitor = glfwGetPrimaryMonitor();
 			float xscale, yscale;
@@ -67,7 +67,7 @@ namespace StarEngine {
 				glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 			}
 
-			#if defined(SE_DEBUG)
+			#if defined(LUX_DEBUG)
 				if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
 					glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 			#endif
@@ -187,7 +187,7 @@ namespace StarEngine {
 
 	void WindowsWindow::Shutdown()
 	{
-		SE_PROFILE_FUNCTION("WindowsWindow::Shutdown");
+		LUX_PROFILE_FUNCTION("WindowsWindow::Shutdown");
 
 		glfwDestroyWindow(m_Window);
 		--s_GLFWWindowCount;
@@ -200,7 +200,7 @@ namespace StarEngine {
 
 	void WindowsWindow::OnUpdate()
 	{
-		SE_PROFILE_FUNCTION("WindowsWindow::OnUpdate");
+		LUX_PROFILE_FUNCTION("WindowsWindow::OnUpdate");
 
 		glfwPollEvents();
 		m_Context->SwapBuffers();
@@ -208,7 +208,7 @@ namespace StarEngine {
 
 	void WindowsWindow::SetVSync(bool enabled)
 	{
-		SE_PROFILE_FUNCTION("WindowsWindow::SetVSync");
+		LUX_PROFILE_FUNCTION("WindowsWindow::SetVSync");
 
 		if (enabled)
 			glfwSwapInterval(1);

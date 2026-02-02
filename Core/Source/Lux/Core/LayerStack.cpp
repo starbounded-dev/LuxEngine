@@ -1,7 +1,7 @@
-#include "sepch.h"
-#include "StarEngine/Core/LayerStack.h"
+#include "lpch.h"
+#include "Lux/Core/LayerStack.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	LayerStack::~LayerStack()
 	{

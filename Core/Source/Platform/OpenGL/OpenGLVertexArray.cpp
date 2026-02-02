@@ -1,9 +1,9 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "Platform/OpenGL/OpenGLVertexArray.h"
 
 #include <glad/glad.h>
 
-namespace StarEngine {
+namespace Lux {
 
 	static GLenum ShaderDataTypeToOpenGLBaseType(ShaderDataType type)
 	{
@@ -22,43 +22,43 @@ namespace StarEngine {
 		case ShaderDataType::Bool:     return GL_BOOL;
 		}
 
-		SE_CORE_ASSERT(false, "Unknown ShaderDataType!");
+		LUX_CORE_ASSERT(false, "Unknown ShaderDataType!");
 		return 0;
 	}
 
 	OpenGLVertexArray::OpenGLVertexArray()
 	{
-		SE_PROFILE_FUNCTION("OpenGLVertexArray::OpenGLVertexArray");
+		LUX_PROFILE_FUNCTION("OpenGLVertexArray::OpenGLVertexArray");
 
 		glCreateVertexArrays(1, &m_RendererID);
 	}
 
 	OpenGLVertexArray::~OpenGLVertexArray()
 	{
-		SE_PROFILE_FUNCTION("OpenGLVertexArray::~OpenGLVertexArray");
+		LUX_PROFILE_FUNCTION("OpenGLVertexArray::~OpenGLVertexArray");
 
 		glDeleteVertexArrays(1, &m_RendererID);
 	}
 
 	void OpenGLVertexArray::Bind() const
 	{
-		SE_PROFILE_FUNCTION("OpenGLVertexArray::Bind");
+		LUX_PROFILE_FUNCTION("OpenGLVertexArray::Bind");
 
 		glBindVertexArray(m_RendererID);
 	}
 
 	void OpenGLVertexArray::Unbind() const
 	{
-		SE_PROFILE_FUNCTION("OpenGLVertexArray::Unbind");
+		LUX_PROFILE_FUNCTION("OpenGLVertexArray::Unbind");
 
 		glBindVertexArray(0);
 	}
 
 	void OpenGLVertexArray::AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer)
 	{
-		SE_PROFILE_FUNCTION("OpenGLVertexArray::AddVertexBuffer");
+		LUX_PROFILE_FUNCTION("OpenGLVertexArray::AddVertexBuffer");
 
-		SE_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!");
+		LUX_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!");
 
 		glBindVertexArray(m_RendererID);
 		vertexBuffer->Bind();
@@ -117,7 +117,7 @@ namespace StarEngine {
 				break;
 			}
 			default:
-				SE_CORE_ASSERT(false, "Unknown ShaderDataType!");
+				LUX_CORE_ASSERT(false, "Unknown ShaderDataType!");
 			}
 		}
 
@@ -126,7 +126,7 @@ namespace StarEngine {
 
 	void OpenGLVertexArray::SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer)
 	{
-		SE_PROFILE_FUNCTION("OpenGLVertexArray::SetIndexBuffer");
+		LUX_PROFILE_FUNCTION("OpenGLVertexArray::SetIndexBuffer");
 
 		glBindVertexArray(m_RendererID);
 		indexBuffer->Bind();

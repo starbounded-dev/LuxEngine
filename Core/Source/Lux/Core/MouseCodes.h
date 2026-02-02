@@ -1,6 +1,6 @@
 #pragma once
 
-namespace StarEngine
+namespace Lux
 {
 	using MouseCode = uint16_t;
 

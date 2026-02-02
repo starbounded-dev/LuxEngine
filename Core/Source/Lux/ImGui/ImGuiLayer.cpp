@@ -1,7 +1,7 @@
-#include "sepch.h"
-#include "StarEngine/ImGui/ImGuiLayer.h"
+#include "lpch.h"
+#include "Lux/ImGui/ImGuiLayer.h"
 
-#include "StarEngine/Core/Application.h"
+#include "Lux/Core/Application.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -17,7 +17,7 @@
 
 
 
-namespace StarEngine {
+namespace Lux {
 
 	ImGuiLayer::ImGuiLayer()
 		: Layer("ImGuiLayer")
@@ -27,7 +27,7 @@ namespace StarEngine {
 
 	void ImGuiLayer::OnAttach()
 	{
-		SE_PROFILE_FUNCTION("ImGuiLayer::OnAttach");
+		LUX_PROFILE_FUNCTION("ImGuiLayer::OnAttach");
 
 		// Setup Dear ImGui context
 		IMGUI_CHECKVERSION();
@@ -72,7 +72,7 @@ namespace StarEngine {
 
 	void ImGuiLayer::OnDetach()
 	{
-		SE_PROFILE_FUNCTION("ImGuiLayer::OnDetach");
+		LUX_PROFILE_FUNCTION("ImGuiLayer::OnDetach");
 
 		ImGui_ImplOpenGL3_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
@@ -90,7 +90,7 @@ namespace StarEngine {
 
 	void ImGuiLayer::Begin()
 	{
-		SE_PROFILE_FUNCTION("ImGuiLayer::Begin");
+		LUX_PROFILE_FUNCTION("ImGuiLayer::Begin");
 
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
@@ -100,7 +100,7 @@ namespace StarEngine {
 
 	void ImGuiLayer::End()
 	{
-		SE_PROFILE_FUNCTION("ImGuiLayer::End");
+		LUX_PROFILE_FUNCTION("ImGuiLayer::End");
 
 		ImGuiIO& io = ImGui::GetIO();
 		Application& app = Application::Get();

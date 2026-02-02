@@ -1,6 +1,6 @@
 #pragma once
 
-namespace StarEngine {
+namespace Lux {
 
 	enum class ShaderDataType
 	{
@@ -25,7 +25,7 @@ namespace StarEngine {
 
 		}
 
-		SE_CORE_ASSERT(false, "Unknown ShaderDataType!");
+		LUX_CORE_ASSERT(false, "Unknown ShaderDataType!");
 		return 0;
 	}
 
@@ -59,7 +59,7 @@ namespace StarEngine {
 				case ShaderDataType::Bool:     return 1;
 			}
 
-			SE_CORE_ASSERT(false, "Unknown ShaderDataType!");
+			LUX_CORE_ASSERT(false, "Unknown ShaderDataType!");
 			return 0;
 		}
 

@@ -1,20 +1,20 @@
-#include <StarEngine.h>
+#include <Lux.h>
 
-#include <StarEngine/Core/Entrypoint.h>
+#include <Lux/Core/Entrypoint.h>
 
 #include "EditorLayer.h"
 
-namespace StarEngine {
+namespace Lux {
 
-	class StarEditor : public Application
+	class LuxEditor : public Application
 	{
 	public:
-		StarEditor(const ApplicationSpecification& spec)
+		LuxEditor(const ApplicationSpecification& spec)
 			: Application(spec)
 		{
 			PushLayer(new EditorLayer());
 		}
-		~StarEditor()
+		~LuxEditor()
 		{
 
 		}
@@ -23,9 +23,9 @@ namespace StarEngine {
 	Application* CreateApplication(ApplicationCommandLineArgs args)
 	{
 		ApplicationSpecification spec;
-		spec.Name = "StarEditor";
+		spec.Name = "LuxEditor";
 		spec.CommandLineArgs = args;
 
-		return new StarEditor(spec);;
+		return new LuxEditor(spec);;
 	}
 }

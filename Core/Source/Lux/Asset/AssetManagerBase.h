@@ -4,7 +4,7 @@
 
 #include <map>
 
-namespace StarEngine
+namespace Lux
 {
 	using AssetMap = std::map<AssetHandle, Ref<Asset>>;
 

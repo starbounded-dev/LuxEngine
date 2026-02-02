@@ -1,24 +1,24 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "SceneImporter.h"
 
-#include "StarEngine/Project/Project.h"
-#include "StarEngine/Scene/SceneSerializer.h"
-#include "StarEngine/Scripting/ScriptEngine.h"
+#include "Lux/Project/Project.h"
+#include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Scripting/ScriptEngine.h"
 
 #include <stb_image.h>
 
-namespace StarEngine {
+namespace Lux {
 
 	Ref<Scene> SceneImporter::ImportScene(AssetHandle handle, const AssetMetadata& metadata)
 	{
-		SE_PROFILE_FUNCTION("SceneImporter::ImportScene");
+		LUX_PROFILE_FUNCTION("SceneImporter::ImportScene");
 
 		return LoadScene(Project::GetActiveAssetDirectory() / metadata.FilePath);
 	}
 
 	Ref<Scene> SceneImporter::LoadScene(const std::filesystem::path& path)
 	{
-		SE_PROFILE_FUNCTION("SceneImporter::LoadScene");
+		LUX_PROFILE_FUNCTION("SceneImporter::LoadScene");
 
 		Ref<Scene> scene = CreateRef<Scene>();
 		SceneSerializer serializer(scene);

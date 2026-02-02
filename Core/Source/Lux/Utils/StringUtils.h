@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace StarEngine::Utils {
+namespace Lux::Utils {
 
 	std::string BytesToString(uint64_t bytes);
 }

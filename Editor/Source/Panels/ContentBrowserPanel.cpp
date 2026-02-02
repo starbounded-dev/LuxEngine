@@ -1,13 +1,13 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "ContentBrowserPanel.h"
-#include "StarEngine/Project/Project.h"
-#include "StarEngine/Asset/TextureImporter.h"
+#include "Lux/Project/Project.h"
+#include "Lux/Asset/TextureImporter.h"
 
 #include <imgui/imgui.h>
 
-#include "StarEngine/Utils/StringUtils.h"
+#include "Lux/Utils/StringUtils.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	ContentBrowserPanel::ContentBrowserPanel(Ref<Project> project)
 		: m_Project(project), m_ThumbnailCache(CreateRef<ThumbnailCache>(project)), m_BaseDirectory(m_Project->GetAssetDirectory()), m_CurrentDirectory(m_BaseDirectory)
@@ -74,7 +74,7 @@ namespace StarEngine {
 				else
 				{
 					// can't find path
-					SE_CORE_ASSERT(false);
+					LUX_CORE_ASSERT(false);
 				}
 
 			}
@@ -94,7 +94,7 @@ namespace StarEngine {
 				{
 					if (ImGui::MenuItem("Delete"))
 					{
-						SE_CORE_ASSERT(false, "Not implemented");
+						LUX_CORE_ASSERT(false, "Not implemented");
 					}
 					ImGui::EndPopup();
 				}

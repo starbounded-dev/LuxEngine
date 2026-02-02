@@ -1,10 +1,10 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
-#include "StarEngine/Core/Timestep.h"
-#include "StarEngine/Events/Event.h"
+#include "Lux/Core/Base.h"
+#include "Lux/Core/Timestep.h"
+#include "Lux/Events/Event.h"
 
-namespace StarEngine
+namespace Lux
 {
 	class Layer
 	{

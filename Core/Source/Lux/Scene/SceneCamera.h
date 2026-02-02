@@ -1,8 +1,8 @@
 #pragma once
 
-#include "StarEngine/Renderer/Camera.h"
+#include "Lux/Renderer/Camera.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class SceneCamera : public Camera
 	{

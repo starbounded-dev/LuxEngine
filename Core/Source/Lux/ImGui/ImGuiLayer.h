@@ -1,12 +1,12 @@
 #pragma once
 
-#include "StarEngine/Core/Layer.h"
+#include "Lux/Core/Layer.h"
 
-#include "StarEngine/Events/ApplicationEvent.h"
-#include "StarEngine/Events/KeyEvent.h"
-#include "StarEngine/Events/MouseEvent.h"
+#include "Lux/Events/ApplicationEvent.h"
+#include "Lux/Events/KeyEvent.h"
+#include "Lux/Events/MouseEvent.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class ImGuiLayer : public Layer
 	{

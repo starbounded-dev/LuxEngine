@@ -1,13 +1,13 @@
-#include "sepch.h"
+#include "lpch.h"
 
 #include "SceneHierarchyPanel.h"
-#include "StarEngine/Scene/Components.h"
+#include "Lux/Scene/Components.h"
 
-#include "StarEngine/Scripting/ScriptEngine.h"
-#include "StarEngine/UI/UI.h"
+#include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/UI/UI.h"
 
-#include "StarEngine/Asset/AssetManager.h"
-#include "StarEngine/Asset/AssetMetadata.h"
+#include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetMetadata.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
@@ -24,7 +24,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-namespace StarEngine {
+namespace Lux {
 
 	SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
 	{
@@ -476,7 +476,7 @@ namespace StarEngine {
 						}
 						else
 						{
-							SE_CORE_WARN("Wrong asset type!");
+							LUX_CORE_WARN("Wrong asset type!");
 						}
 
 					}
@@ -607,7 +607,7 @@ namespace StarEngine {
 						}
 						else
 						{
-							SE_CORE_WARN("Wrong asset type!");
+							LUX_CORE_WARN("Wrong asset type!");
 						}
 					}
 					ImGui::EndDragDropTarget();
@@ -837,7 +837,7 @@ namespace StarEngine {
 								}
 								else
 								{
-									SE_CORE_WARN("Wrong asset type!");
+									LUX_CORE_WARN("Wrong asset type!");
 								}
 							}
 							ImGui::EndDragDropTarget();

@@ -1,10 +1,10 @@
-#include "sepch.h"
-#include "StarEngine/Core/Input.h"
-#include "StarEngine/Core/Application.h"
+#include "lpch.h"
+#include "Lux/Core/Input.h"
+#include "Lux/Core/Application.h"
 
 #include <GLFW/glfw3.h>
 
-namespace StarEngine {
+namespace Lux {
 
 	bool Input::IsKeyPressed(const KeyCode key)
 	{

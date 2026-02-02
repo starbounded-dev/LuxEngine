@@ -1,10 +1,10 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "Project.h"
 
 #include "ProjectSerializer.h"
-#include"StarEngine/Audio/AudioEngine.h"
+#include"Lux/Audio/AudioEngine.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	std::filesystem::path Project::GetAssetAbsolutePath(const std::filesystem::path& path)
 	{

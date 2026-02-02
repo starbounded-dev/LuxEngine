@@ -1,9 +1,9 @@
 #pragma once
 
-#include "StarEngine.h"
-#include "StarEngine/Renderer/OrthographicCameraController.h"
+#include "Lux.h"
+#include "Lux/Renderer/OrthographicCameraController.h"
 
-class Sandbox2D : public StarEngine::Layer
+class Sandbox2D : public Lux::Layer
 {
 public:
 	Sandbox2D();
@@ -12,19 +12,19 @@ public:
 	virtual void OnAttach() override;
 	virtual void OnDetach() override;
 
-	void OnUpdate(StarEngine::Timestep ts) override;
+	void OnUpdate(Lux::Timestep ts) override;
 	virtual void OnImGuiRender() override;
-	void OnEvent(StarEngine::Event& e) override;
+	void OnEvent(Lux::Event& e) override;
 private:
-	StarEngine::OrthographicCameraController m_CameraController;
+	Lux::OrthographicCameraController m_CameraController;
 
 	bool m_VSync = true;
 
 	// Temp
-	StarEngine::Ref<StarEngine::VertexArray> m_SquareVA;
-	StarEngine::Ref<StarEngine::Shader> m_FlatColorShader;
+	Lux::Ref<Lux::VertexArray> m_SquareVA;
+	Lux::Ref<Lux::Shader> m_FlatColorShader;
 
-	StarEngine::Ref<StarEngine::Texture2D> m_CheckerboardTexture;
+	Lux::Ref<Lux::Texture2D> m_CheckerboardTexture;
 
 	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 };

@@ -4,7 +4,7 @@
 
 #include "glm/ext/matrix_clip_space.hpp"
 
-namespace StarEngine {
+namespace Lux {
 
 	class OrthographicCamera
 	{

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "StarEngine/Renderer/Buffer.h"
+#include "Lux/Renderer/Buffer.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class OpenGLVertexBuffer : public VertexBuffer {
 

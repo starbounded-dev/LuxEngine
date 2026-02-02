@@ -3,9 +3,9 @@
 #include "Asset.h"
 #include "AssetMetadata.h"
 
-#include "StarEngine/Renderer/Texture.h"
+#include "Lux/Renderer/Texture.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class TextureImporter
 	{

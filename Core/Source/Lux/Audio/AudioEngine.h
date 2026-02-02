@@ -2,7 +2,7 @@
 
 struct ma_engine;
 
-namespace StarEngine {
+namespace Lux {
 
 	class AudioEngine
 	{

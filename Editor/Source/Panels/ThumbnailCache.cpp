@@ -1,10 +1,10 @@
 #include "ThumbnailCache.h"
 
-#include "StarEngine/Asset/TextureImporter.h"
+#include "Lux/Asset/TextureImporter.h"
 
 #include <chrono>
 
-namespace StarEngine {
+namespace Lux {
 
 
 	ThumbnailCache::ThumbnailCache(Ref<Project> project)

@@ -1,16 +1,16 @@
 #pragma once
 
-#include "StarEngine.h"
+#include "Lux.h"
 
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 
-#include "StarEngine/Scene/Entity.h"
-#include "StarEngine/Renderer/EditorCamera.h"
+#include "Lux/Scene/Entity.h"
+#include "Lux/Renderer/EditorCamera.h"
 
 #include "entt.hpp"
 
-namespace StarEngine
+namespace Lux
 {
 	class EditorLayer : public Layer
 	{

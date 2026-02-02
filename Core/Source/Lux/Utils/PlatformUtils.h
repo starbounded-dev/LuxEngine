@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace StarEngine
+namespace Lux
 {
 	class FileDialogs
 	{

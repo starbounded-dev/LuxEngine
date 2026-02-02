@@ -1,9 +1,9 @@
-#include "sepch.h"
-#include "StarEngine/Scene/SceneCamera.h"
+#include "lpch.h"
+#include "Lux/Scene/SceneCamera.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
-namespace StarEngine {
+namespace Lux {
 
 	SceneCamera::SceneCamera()
 	{
@@ -30,7 +30,7 @@ namespace StarEngine {
 
 	void SceneCamera::SetViewportSize(uint32_t width, uint32_t height)
 	{
-		SE_CORE_ASSERT(width > 0 && height > 0);
+		LUX_CORE_ASSERT(width > 0 && height > 0);
 		m_AspectRatio = (float)width / (float)height;
 		RecalculateProjection();
 	}

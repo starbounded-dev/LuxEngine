@@ -1,7 +1,7 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "StringUtils.h"
 
-namespace StarEngine::Utils
+namespace Lux::Utils
 {
 	std::string BytesToString(uint64_t bytes)
 	{

@@ -1,7 +1,7 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "Asset.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	std::string_view AssetTypeToString(AssetType type)
 	{

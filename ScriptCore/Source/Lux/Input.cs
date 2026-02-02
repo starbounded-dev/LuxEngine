@@ -1,4 +1,4 @@
-﻿namespace StarEngine
+﻿namespace Lux
 {
 	public class Input
 	{

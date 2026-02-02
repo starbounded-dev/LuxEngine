@@ -1,13 +1,13 @@
 #pragma once
 
 #include "Camera.h"
-#include "StarEngine/Core/Timestep.h"
-#include "StarEngine/Events/Event.h"
-#include "StarEngine/Events/MouseEvent.h"
+#include "Lux/Core/Timestep.h"
+#include "Lux/Events/Event.h"
+#include "Lux/Events/MouseEvent.h"
 
 #include <glm/glm.hpp>
 
-namespace StarEngine {
+namespace Lux {
 
 	class EditorCamera : public Camera
 	{

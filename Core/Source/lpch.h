@@ -1,8 +1,8 @@
 #pragma once
 
-#include "StarEngine/Core/PlatformDetection.h"
+#include "Lux/Core/PlatformDetection.h"
 
-#ifdef SE_PLATFORM_WINDOWS
+#ifdef LUX_PLATFORM_WINDOWS
 #ifndef NOMINMAX
 // See github.com/skypjack/entt/wiki/Frequently-Asked-Questions#warning-c4003-the-min-the-max-and-the-macro
 #define NOMINMAX
@@ -22,14 +22,14 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "StarEngine/Core/Base.h"
+#include "Lux/Core/Base.h"
 
-#include "StarEngine/Core/Buffer.h"
+#include "Lux/Core/Buffer.h"
 
-#include "StarEngine/Core/Log.h"
+#include "Lux/Core/Log.h"
 
-#include "StarEngine/Debug/Profiler.h"
+#include "Lux/Debug/Profiler.h"
 
-#ifdef SE_PLATFORM_WINDOWS
+#ifdef LUX_PLATFORM_WINDOWS
 	#include <Windows.h>
 #endif

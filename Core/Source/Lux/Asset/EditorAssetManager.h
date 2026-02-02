@@ -5,7 +5,7 @@
 
 #include <map>
 
-namespace StarEngine {
+namespace Lux {
 
 	using AssetRegistry = std::map<AssetHandle, AssetMetadata>;
 

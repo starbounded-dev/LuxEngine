@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace StarEngine
+namespace Lux
 {
 	public struct Vector2
 	{

@@ -1,11 +1,11 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
-#include "StarEngine/Core/Layer.h"
+#include "Lux/Core/Base.h"
+#include "Lux/Core/Layer.h"
 
 #include <vector>
 
-namespace StarEngine {
+namespace Lux {
 	class LayerStack
 	{
 	public:

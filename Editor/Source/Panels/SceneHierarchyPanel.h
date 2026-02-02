@@ -1,10 +1,10 @@
 #pragma once
 
-#include "StarEngine/Core/Base.h"
-#include "StarEngine/Scene/Scene.h"
-#include "StarEngine/Scene/Entity.h"
+#include "Lux/Core/Base.h"
+#include "Lux/Scene/Scene.h"
+#include "Lux/Scene/Entity.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class SceneHierarchyPanel
 	{

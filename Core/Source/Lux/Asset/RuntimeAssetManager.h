@@ -2,7 +2,7 @@
 
 #include "AssetManagerBase.h"
 
-namespace StarEngine {
+namespace Lux {
 
 	class RuntimeAssetManager : public AssetManagerBase
 	{

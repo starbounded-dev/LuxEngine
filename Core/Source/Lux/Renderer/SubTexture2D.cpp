@@ -1,8 +1,8 @@
-#include "sepch.h"
+#include "lpch.h"
 
-#include "StarEngine/Renderer/SubTexture2D.h"
+#include "Lux/Renderer/SubTexture2D.h"
 
-namespace StarEngine
+namespace Lux
 {
 	SubTexture2D::SubTexture2D(const Ref<Texture2D>& texture, const glm::vec2& min, const glm::vec2& max)
 		: m_Texture(texture)

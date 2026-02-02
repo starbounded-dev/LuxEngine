@@ -1,11 +1,11 @@
 #pragma once
 
-#include "StarEngine/Core/Window.h"
-#include "StarEngine/Renderer/GraphicsContext.h"
+#include "Lux/Core/Window.h"
+#include "Lux/Renderer/GraphicsContext.h"
 
 #include <GLFW/glfw3.h>
 
-namespace StarEngine {
+namespace Lux {
 
 	class WindowsWindow : public Window
 	{

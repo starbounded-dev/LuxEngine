@@ -1,10 +1,10 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "ProjectSerializer.h"
 
 #include <fstream>
 #include <yaml-cpp/yaml.h>
 
-namespace StarEngine {
+namespace Lux {
 
 	ProjectSerializer::ProjectSerializer(Ref<Project> project)
 		: m_Project(project)
@@ -48,7 +48,7 @@ namespace StarEngine {
 		}
 		catch (YAML::ParserException e)
 		{
-			SE_CORE_ERROR("Failed to load project file '{0}'\n     {1}", filepath.string(), e.what());
+			LUX_CORE_ERROR("Failed to load project file '{0}'\n     {1}", filepath.string(), e.what());
 
 			return false;
 		}

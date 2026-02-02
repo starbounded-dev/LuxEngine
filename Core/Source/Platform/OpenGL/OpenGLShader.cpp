@@ -1,6 +1,6 @@
-#include "sepch.h"
+#include "lpch.h"
 #include "Platform/OpenGL/OpenGLShader.h"
-#include "StarEngine/Core/Timer.h"
+#include "Lux/Core/Timer.h"
 
 #include <fstream>
 #include <glad/glad.h>
@@ -10,7 +10,7 @@
 #include <spirv_cross/spirv_cross.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
 
-namespace StarEngine {
+namespace Lux {
 
 	namespace Utils {
 
@@ -21,7 +21,7 @@ namespace StarEngine {
 			if (type == "fragment" || type == "pixel")
 				return GL_FRAGMENT_SHADER;
 
-			SE_CORE_ASSERT(false, "Unknown shader type!");
+			LUX_CORE_ASSERT(false, "Unknown shader type!");
 			return 0;
 		}
 
@@ -32,7 +32,7 @@ namespace StarEngine {
 			case GL_VERTEX_SHADER:   return shaderc_glsl_vertex_shader;
 			case GL_FRAGMENT_SHADER: return shaderc_glsl_fragment_shader;
 			}
-			SE_CORE_ASSERT(false);
+			LUX_CORE_ASSERT(false);
 			return (shaderc_shader_kind)0;
 		}
 
@@ -43,7 +43,7 @@ namespace StarEngine {
 			case GL_VERTEX_SHADER:   return "GL_VERTEX_SHADER";
 			case GL_FRAGMENT_SHADER: return "GL_FRAGMENT_SHADER";
 			}
-			SE_CORE_ASSERT(false);
+			LUX_CORE_ASSERT(false);
 			return nullptr;
 		}
 
@@ -67,7 +67,7 @@ namespace StarEngine {
 			case GL_VERTEX_SHADER:    return ".cached_opengl.vert";
 			case GL_FRAGMENT_SHADER:  return ".cached_opengl.frag";
 			}
-			SE_CORE_ASSERT(false);
+			LUX_CORE_ASSERT(false);
 			return "";
 		}
 
@@ -78,7 +78,7 @@ namespace StarEngine {
 			case GL_VERTEX_SHADER:    return ".cached_vulkan.vert";
 			case GL_FRAGMENT_SHADER:  return ".cached_vulkan.frag";
 			}
-			SE_CORE_ASSERT(false);
+			LUX_CORE_ASSERT(false);
 			return "";
 		}
 
@@ -88,7 +88,7 @@ namespace StarEngine {
 	OpenGLShader::OpenGLShader(const std::string& filepath)
 		: m_FilePath(filepath)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::OpenGLShader");
+		LUX_PROFILE_FUNCTION("OpenGLShader::OpenGLShader");
 
 		Utils::CreateCacheDirectoryIfNeeded();
 
@@ -100,7 +100,7 @@ namespace StarEngine {
 			CompileOrGetVulkanBinaries(shaderSources);
 			CompileOrGetOpenGLBinaries();
 			CreateProgram();
-			SE_CORE_WARN("Shader creation took {0} ms", timer.ElapsedMillis());
+			LUX_CORE_WARN("Shader creation took {0} ms", timer.ElapsedMillis());
 		}
 
 		// Extract name from filepath
@@ -114,7 +114,7 @@ namespace StarEngine {
 	OpenGLShader::OpenGLShader(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
 		: m_Name(name)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::OpenGLShader");
+		LUX_PROFILE_FUNCTION("OpenGLShader::OpenGLShader");
 
 		std::unordered_map<GLenum, std::string> sources;
 		sources[GL_VERTEX_SHADER] = vertexSrc;
@@ -127,14 +127,14 @@ namespace StarEngine {
 
 	OpenGLShader::~OpenGLShader()
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::~OpenGLShader");
+		LUX_PROFILE_FUNCTION("OpenGLShader::~OpenGLShader");
 
 		glDeleteProgram(m_RendererID);
 	}
 
 	std::string OpenGLShader::ReadFile(const std::string& filepath)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::ReadFile");
+		LUX_PROFILE_FUNCTION("OpenGLShader::ReadFile");
 
 		std::string result;
 		std::ifstream in(filepath, std::ios::in | std::ios::binary); // ifstream closes itself due to RAII
@@ -150,12 +150,12 @@ namespace StarEngine {
 			}
 			else
 			{
-				SE_CORE_ERROR("Could not read from file '{0}'", filepath);
+				LUX_CORE_ERROR("Could not read from file '{0}'", filepath);
 			}
 		}
 		else
 		{
-			SE_CORE_ERROR("Could not open file '{0}'", filepath);
+			LUX_CORE_ERROR("Could not open file '{0}'", filepath);
 		}
 
 		return result;
@@ -163,7 +163,7 @@ namespace StarEngine {
 
 	std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(const std::string& source)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::PreProcess");
+		LUX_PROFILE_FUNCTION("OpenGLShader::PreProcess");
 
 		std::unordered_map<GLenum, std::string> shaderSources;
 
@@ -173,13 +173,13 @@ namespace StarEngine {
 		while (pos != std::string::npos)
 		{
 			size_t eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
-			SE_CORE_ASSERT(eol != std::string::npos, "Syntax error");
+			LUX_CORE_ASSERT(eol != std::string::npos, "Syntax error");
 			size_t begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
 			std::string type = source.substr(begin, eol - begin);
-			SE_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified");
+			LUX_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified");
 
 			size_t nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
-			SE_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error");
+			LUX_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error");
 			pos = source.find(typeToken, nextLinePos); //Start of next shader type declaration line
 
 			shaderSources[Utils::ShaderTypeFromString(type)] = (pos == std::string::npos) ? source.substr(nextLinePos) : source.substr(nextLinePos, pos - nextLinePos);
@@ -224,8 +224,8 @@ namespace StarEngine {
 				shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
-					SE_CORE_ERROR(module.GetErrorMessage());
-					SE_CORE_ASSERT(false);
+					LUX_CORE_ERROR(module.GetErrorMessage());
+					LUX_CORE_ASSERT(false);
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
@@ -285,8 +285,8 @@ namespace StarEngine {
 				shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
-					SE_CORE_ERROR(module.GetErrorMessage());
-					SE_CORE_ASSERT(false);
+					LUX_CORE_ERROR(module.GetErrorMessage());
+					LUX_CORE_ASSERT(false);
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
@@ -327,7 +327,7 @@ namespace StarEngine {
 
 			std::vector<GLchar> infoLog(maxLength);
 			glGetProgramInfoLog(program, maxLength, &maxLength, infoLog.data());
-			SE_CORE_ERROR("Shader linking failed ({0}):\n{1}", m_FilePath, infoLog.data());
+			LUX_CORE_ERROR("Shader linking failed ({0}):\n{1}", m_FilePath, infoLog.data());
 
 			glDeleteProgram(program);
 
@@ -349,11 +349,11 @@ namespace StarEngine {
 		spirv_cross::Compiler compiler(shaderData);
 		spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
-		SE_CORE_TRACE("OpenGLShader::Reflect - {0} {1}", Utils::GLShaderStageToString(stage), m_FilePath);
-		SE_CORE_TRACE("    {0} uniform buffers", resources.uniform_buffers.size());
-		SE_CORE_TRACE("    {0} resources", resources.sampled_images.size());
+		LUX_CORE_TRACE("OpenGLShader::Reflect - {0} {1}", Utils::GLShaderStageToString(stage), m_FilePath);
+		LUX_CORE_TRACE("    {0} uniform buffers", resources.uniform_buffers.size());
+		LUX_CORE_TRACE("    {0} resources", resources.sampled_images.size());
 
-		SE_CORE_TRACE("Uniform buffers:");
+		LUX_CORE_TRACE("Uniform buffers:");
 		for (const auto& resource : resources.uniform_buffers)
 		{
 			const auto& bufferType = compiler.get_type(resource.base_type_id);
@@ -361,30 +361,30 @@ namespace StarEngine {
 			uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
 			int memberCount = bufferType.member_types.size();
 
-			SE_CORE_TRACE("  {0}", resource.name);
-			SE_CORE_TRACE("    Size = {0}", bufferSize);
-			SE_CORE_TRACE("    Binding = {0}", binding);
-			SE_CORE_TRACE("    Members = {0}", memberCount);
+			LUX_CORE_TRACE("  {0}", resource.name);
+			LUX_CORE_TRACE("    Size = {0}", bufferSize);
+			LUX_CORE_TRACE("    Binding = {0}", binding);
+			LUX_CORE_TRACE("    Members = {0}", memberCount);
 		}
 	}
 
 	void OpenGLShader::Bind() const
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::Bind");
+		LUX_PROFILE_FUNCTION("OpenGLShader::Bind");
 
 		glUseProgram(m_RendererID);
 	}
 
 	void OpenGLShader::Unbind() const
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::Unbind");
+		LUX_PROFILE_FUNCTION("OpenGLShader::Unbind");
 
 		glUseProgram(0);
 	}
 
 	void OpenGLShader::SetInt(const std::string& name, int value)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::SetInt");
+		LUX_PROFILE_FUNCTION("OpenGLShader::SetInt");
 
 		UploadUniformInt(name, value);
 	}
@@ -396,35 +396,35 @@ namespace StarEngine {
 
 	void OpenGLShader::SetFloat(const std::string& name, float value)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::SetFloat");
+		LUX_PROFILE_FUNCTION("OpenGLShader::SetFloat");
 
 		UploadUniformFloat(name, value);
 	}
 
 	void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& value)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::SetFloat2");
+		LUX_PROFILE_FUNCTION("OpenGLShader::SetFloat2");
 
 		UploadUniformFloat2(name, value);
 	}
 
 	void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& value)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::SetFloat3");
+		LUX_PROFILE_FUNCTION("OpenGLShader::SetFloat3");
 
 		UploadUniformFloat3(name, value);
 	}
 
 	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& value)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::SetFloat4");
+		LUX_PROFILE_FUNCTION("OpenGLShader::SetFloat4");
 
 		UploadUniformFloat4(name, value);
 	}
 
 	void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& value)
 	{
-		SE_PROFILE_FUNCTION("OpenGLShader::SetMat4");
+		LUX_PROFILE_FUNCTION("OpenGLShader::SetMat4");
 
 		UploadUniformMat4(name, value);
 	}

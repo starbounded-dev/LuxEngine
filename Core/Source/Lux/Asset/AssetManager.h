@@ -2,9 +2,9 @@
 
 #include "AssetManagerBase.h"
 
-#include "StarEngine/Project/Project.h"
+#include "Lux/Project/Project.h"
 
-namespace StarEngine
+namespace Lux
 {
 	class AssetManager
 	{
@@ -12,7 +12,7 @@ namespace StarEngine
 		template<typename T>
 		static Ref<T> GetAsset(AssetHandle handle)
 		{
-			//SE_PROFILE_FUNCTION_COLOR("AssetManager::GetAsset", 0x8CCBFF);
+			//LUX_PROFILE_FUNCTION_COLOR("AssetManager::GetAsset", 0x8CCBFF);
 
 			Ref<Asset> asset = Project::GetActive()->GetAssetManager()->GetAsset(handle);
 			return std::static_pointer_cast<T>(asset);

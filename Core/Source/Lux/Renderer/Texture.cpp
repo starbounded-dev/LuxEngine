@@ -1,20 +1,20 @@
-#include "sepch.h"
-#include "StarEngine/Renderer/Texture.h"
+#include "lpch.h"
+#include "Lux/Renderer/Texture.h"
 
-#include "StarEngine/Renderer/Renderer.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
 
-namespace StarEngine
+namespace Lux
 {
 	Ref<Texture2D> Texture2D::Create(const TextureSpecification& specification, Buffer data)
 	{
 		switch (Renderer::GetAPI())
 		{
-		case RendererAPI::API::None:    SE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
+		case RendererAPI::API::None:    LUX_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
 		case RendererAPI::API::OpenGL:  return CreateRef<OpenGLTexture2D>(specification, data);
 		}
 
-		SE_CORE_ASSERT(false, "Unknown RendererAPI!");
+		LUX_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
 

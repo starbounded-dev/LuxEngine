@@ -1,11 +1,11 @@
 #pragma once
 
-#include "StarEngine/Core/KeyCodes.h"
-#include "StarEngine/Core/MouseCodes.h"
+#include "Lux/Core/KeyCodes.h"
+#include "Lux/Core/MouseCodes.h"
 
 #include <glm/glm.hpp>
 
-namespace StarEngine {
+namespace Lux {
 
 	class Input
 	{

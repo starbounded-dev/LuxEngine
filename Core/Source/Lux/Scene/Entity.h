@@ -1,12 +1,12 @@
 #pragma once
 
-#include "StarEngine/Core/UUID.h"
-#include "StarEngine/Scene/Scene.h"
+#include "Lux/Core/UUID.h"
+#include "Lux/Scene/Scene.h"
 #include "Components.h"
 
 #include "entt.hpp"
 
-namespace StarEngine
+namespace Lux
 {
 	class Entity
 	{
@@ -18,7 +18,7 @@ namespace StarEngine
 		template<typename T, typename... Args>
 		T& AddComponent(Args&&... args)
 		{
-			SE_CORE_ASSERT(!HasComponent<T>(), "Entity already has component!");
+			LUX_CORE_ASSERT(!HasComponent<T>(), "Entity already has component!");
 			T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
 			m_Scene->OnComponentAdded<T>(*this, component);
 			return component;
@@ -35,7 +35,7 @@ namespace StarEngine
 		template<typename T>
 		T& GetComponent()
 		{
-			SE_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
+			LUX_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
 			return m_Scene->m_Registry.get<T>(m_EntityHandle);
 		}
 
@@ -48,7 +48,7 @@ namespace StarEngine
 		template<typename T>
 		void RemoveComponent()
 		{
-			SE_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
+			LUX_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
 			m_Scene->m_Registry.remove<T>(m_EntityHandle);
 		}
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <StarEngine.h>
+#include <Lux.h>
 
 struct ParticleProps
 {
@@ -16,8 +16,8 @@ class ParticleSystem
 public:
 	ParticleSystem(uint32_t maxParticles = 100000);
 
-	void OnUpdate(StarEngine::Timestep ts);
-	void OnRender(StarEngine::OrthographicCamera& camera);
+	void OnUpdate(Lux::Timestep ts);
+	void OnRender(Lux::OrthographicCamera& camera);
 
 	void Emit(const ParticleProps& particleProps);
 private:
