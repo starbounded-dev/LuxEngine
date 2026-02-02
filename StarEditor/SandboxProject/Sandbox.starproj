@@ -1,6 +1,0 @@
-Project:
-  Name: Sandbox
-  StartScene: "0"
-  AssetDirectory: "Assets"
-  AssetRegistryPath: "AssetRegistry.ser"
-  ScriptModulePath: "Scripts/Binaries/Sandbox.dll"

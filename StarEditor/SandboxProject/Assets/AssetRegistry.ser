@@ -1,7 +1,0 @@
-AssetRegistry:
-  - Handle: 5698620207532946169
-    FilePath: Audio/fart-01.wav
-    Type: Audio
-  - Handle: 7305845728380112481
-    FilePath: Scenes/Physics2D.starscene
-    Type: Scene
