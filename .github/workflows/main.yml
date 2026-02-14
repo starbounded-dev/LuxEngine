@@ -2,9 +2,14 @@ name: Build LuxEngine
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - master
+      - dev
+      - 'features/**' # Glob pattern for any branch starting with 'features/'
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - master
+      - dev
 
 env: 
   GITHUB_WORKSPACE: ${{ github.workspace }}
@@ -23,21 +28,21 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
         with:
           repository: 'starbounded-dev/LuxEngine'
           submodules: true
           lfs: true
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6.2.0
         with:
           python-version: '3.12'
 
       - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1.2.0
+        uses: jakoch/install-vulkan-sdk-action@v1.4.0
         with:
-          vulkan_version: 1.3.296.0
+          vulkan_version: 1.4.335.0
           optional_components: com.lunarg.vulkan.vma, com.lunarg.vulkan.debug, com.lunarg.vulkan.glm
           install_runtime: true
           cache: true
@@ -47,7 +52,7 @@ jobs:
           install_lavapipe: false
 
       - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@v1.1
+        uses: microsoft/setup-msbuild@v2
         with:
           msbuild-architecture: 'x64'
       
@@ -55,7 +60,7 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
           cd scripts
-          python SetupAction.py
+          python Setup.py
 
       - name: Build
         working-directory: ${{env.GITHUB_WORKSPACE}}
