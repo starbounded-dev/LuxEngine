@@ -7,8 +7,6 @@ Intermediates/
 *.log
 *imgui.ini
 
-!StarEditor/imgui.ini
-
 # Visual Studio files and folder
 .vs/
 **.sln
@@ -18,15 +16,10 @@ Intermediates/
 **.csproj
 
 # Directories
-StarEngine/vendor/VulkanSDK
-StarEditor/assets/cache
 scripts/__pycache__
 
-StarEngine/vendor/VulkanSDK/VulkanSDK-1.2.170.0-Installer.exe
-vendor/premake/bin/
-StarEditor/Resources/Scripts/StarEngine-ScriptCore.dll
-StarEditor/Resources/Scripts/StarEngine-ScriptCore.pdb
-StarEditor/SandboxProject/Assets/Scripts/Binaries
+!vendor/bin/
+
 Editor/assets/cache
 Editor/Resources/Scripts/ScriptCore.dll
 Editor/Resources/Scripts/ScriptCore.pdb
