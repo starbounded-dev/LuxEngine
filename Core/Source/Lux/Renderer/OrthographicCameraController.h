@@ -3,8 +3,8 @@
 #include "Lux/Renderer/OrthographicCamera.h"
 #include "Lux/Core/Timestep.h"
 
-#include "Lux/Events/ApplicationEvent.h"
-#include "Lux/Events/MouseEvent.h"
+#include "Lux/Core/Events/ApplicationEvent.h"
+#include "Lux/Core/Events/MouseEvent.h"
 
 namespace Lux {
 

@@ -11,7 +11,7 @@ namespace Lux {
 		float ConeOuterGain = 0.0f;
 	};
 
-	class AudioListener
+	class AudioListener : public RefCounted
 	{
 	public:
 		AudioListener() = default;

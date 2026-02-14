@@ -1,12 +1,14 @@
 #include "lpch.h"
-#include "Lux/Core/LayerStack.h"
+#include "LayerStack.h"
 
 namespace Lux {
 
+	LayerStack::LayerStack()
+	{
+	}
+
 	LayerStack::~LayerStack()
 	{
-		for (Layer* layer : m_Layers)
-			delete layer;
 	}
 
 	void LayerStack::PushLayer(Layer* layer)
@@ -22,22 +24,20 @@ namespace Lux {
 
 	void LayerStack::PopLayer(Layer* layer)
 	{
-		auto it = std::find(m_Layers.begin(), m_Layers.begin() + m_LayerInsertIndex, layer);
-		if (it != m_Layers.begin() + m_LayerInsertIndex)
+		auto it = std::find(m_Layers.begin(), m_Layers.end(), layer);
+		if (it != m_Layers.end())
 		{
-			layer->OnDetach();
 			m_Layers.erase(it);
 			m_LayerInsertIndex--;
 		}
+
 	}
 
 	void LayerStack::PopOverlay(Layer* overlay)
 	{
-		auto it = std::find(m_Layers.begin() + m_LayerInsertIndex, m_Layers.end(), overlay);
-		if (it != m_Layers.end()) {
-			overlay->OnDetach();
+		auto it = std::find(m_Layers.begin(), m_Layers.end(), overlay);
+		if (it != m_Layers.end())
 			m_Layers.erase(it);
-		}
 	}
 
 }

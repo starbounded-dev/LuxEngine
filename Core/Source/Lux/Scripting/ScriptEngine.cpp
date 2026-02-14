@@ -10,7 +10,7 @@
 #include "mono/metadata/mono-debug.h"
 #include "mono/metadata/threads.h"
 
-#include "FileWatch.h"
+#include "filewatch/FileWatch.h"
 
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Timer.h"
@@ -19,23 +19,7 @@
 
 #include "Lux/Project/Project.h"
 
-namespace fmt {
-	template <>
-	struct formatter<std::filesystem::path> : formatter<std::string> {
-		template <typename FormatContext>
-		auto format(const std::filesystem::path& path, FormatContext& ctx) const {
-			return formatter<std::string>::format(path.string(), ctx);
-		}
-	};
-
-	template <>
-	struct formatter<Lux::UUID> : formatter<std::string> {
-		template <typename FormatContext>
-		auto format(const Lux::UUID& uuid, FormatContext& ctx) const {
-			return formatter<std::string>::format(std::to_string(uuid), ctx);
-		}
-	};
-} // namespace fmt
+#include <format>
 
 namespace Lux {
 
@@ -172,7 +156,7 @@ namespace Lux {
 		{
 			s_Data->AssemblyReloadPending = true;
 
-			Application::Get().SubmitToMainThread([]()
+			Application::Get().QueueEvent([]()
 				{
 					s_Data->AppAssemblyFileWatcher.reset();
 					ScriptEngine::ReloadAssembly();
@@ -187,7 +171,7 @@ namespace Lux {
 		InitMono();
 		ScriptGlue::RegisterFunctions();
 
-		bool status = LoadAssembly("Resources/Scripts/Lux-ScriptCore.dll");
+		bool status = LoadAssembly("Resources/Scripts/ScriptCore.dll");
 		if (!status)
 		{
 			LUX_CORE_ERROR("[ScriptEngine] Could not load Lux-ScriptCore assembly.");
@@ -406,7 +390,7 @@ namespace Lux {
 			const char* className = mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAME]);
 			std::string fullName;
 			if (strlen(nameSpace) != 0)
-				fullName = fmt::format("{}.{}", nameSpace, className);
+				fullName = std::format("{}.{}", nameSpace, className);
 			else
 				fullName = className;
 

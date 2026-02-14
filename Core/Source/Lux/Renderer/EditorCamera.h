@@ -2,8 +2,8 @@
 
 #include "Camera.h"
 #include "Lux/Core/Timestep.h"
-#include "Lux/Events/Event.h"
-#include "Lux/Events/MouseEvent.h"
+#include "Lux/Core/Events/Event.h"
+#include "Lux/Core/Events/MouseEvent.h"
 
 #include <glm/glm.hpp>
 

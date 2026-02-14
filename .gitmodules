@@ -36,3 +36,6 @@
 [submodule "Core/vendor/SPIRV-Cross"]
 	path = Core/vendor/SPIRV-Cross
 	url = https://github.com/KhronosGroup/SPIRV-Cross.git
+[submodule "Core/vendor/NFD-Extended/NFD-Extended"]
+	path = Core/vendor/NFD-Extended/NFD-Extended
+	url = https://github.com/btzy/nativefiledialog-extended

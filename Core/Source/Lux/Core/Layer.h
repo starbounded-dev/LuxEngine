@@ -1,16 +1,17 @@
 #pragma once
 
-#include "Lux/Core/Base.h"
-#include "Lux/Core/Timestep.h"
-#include "Lux/Events/Event.h"
+#include "Lux/Core/Events/Event.h"
+#include "Lux/Core/TimeStep.h"
 
-namespace Lux
-{
+#include <string>
+
+namespace Lux {
+
 	class Layer
 	{
 	public:
 		Layer(const std::string& name = "Layer");
-		virtual ~Layer() = default;
+		virtual ~Layer();
 
 		virtual void OnAttach() {}
 		virtual void OnDetach() {}
@@ -18,8 +19,9 @@ namespace Lux
 		virtual void OnImGuiRender() {}
 		virtual void OnEvent(Event& event) {}
 
-		const std::string& GetName() const { return m_DebugName; }
+		inline const std::string& GetName() const { return m_DebugName; }
 	protected:
 		std::string m_DebugName;
 	};
+
 }

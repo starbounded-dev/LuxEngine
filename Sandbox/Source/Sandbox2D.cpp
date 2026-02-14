@@ -8,6 +8,17 @@
 #include "imgui/imgui_internal.h"
 
 #include "Lux/Asset/TextureImporter.h"
+#include "Lux/Core/Application.h"
+#include "Lux/Core/Window.h"
+#include "Lux/Debug/Profiler.h"
+#include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/RenderCommandBuffer.h"
+#include "Lux/Renderer/SwapChainFramebuffer.h"
+
+#include "Lux/Platform/Vulkan/VulkanSwapChain.h"
+
+#include "nvrhi/utils.h"
 
 
 Sandbox2D::Sandbox2D()
@@ -20,7 +31,8 @@ void Sandbox2D::OnAttach()
 {
 	LUX_PROFILE_FUNCTION("Sandbox2D::OnAttach");
 
-	//m_CheckerboardTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
+	m_CommandBuffer = Lux::RenderCommandBuffer::Create(0, "Sandbox2D");
+	m_CheckerboardTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
 }
 
 void Sandbox2D::OnDetach()
@@ -34,25 +46,36 @@ void Sandbox2D::OnUpdate(Lux::Timestep ts)
 
 	// Update
 	m_CameraController.OnUpdate(ts);
+
 	// Render
 	Lux::Renderer2D::ResetStats();
-	{
-		LUX_PROFILE_SCOPE("Renderer Prep");
-		Lux::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
-		Lux::RenderCommand::Clear();
-	}
-	
+
+	auto& swapchain = Lux::Application::Get().GetWindow().GetSwapChain();
+	Lux::Ref<Lux::SwapChainFramebuffer> framebuffer = Lux::SwapChainFramebuffer::Create(&swapchain);
+
+	// Submit clear and 2D draws via render command buffer
+	m_CommandBuffer->Begin();
+
+	Lux::Renderer::Submit([cmd = m_CommandBuffer, fb = framebuffer]()
+		{
+			nvrhi::utils::ClearColorAttachment(cmd->GetActive(), fb->GetHandle(), 0, nvrhi::Color(0.1f, 0.1f, 0.1f, 1.0f));
+		});
+
 	{
 		static float rotation = 0.0f;
 		rotation += ts * 50.0f;
 
 		LUX_PROFILE_SCOPE("Renderer Draw");
 
-		Lux::Renderer2D::BeginScene(m_CameraController.GetCamera());
-		//Lux::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, m_CheckerboardTexture, 10.0f);
-		//Lux::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, rotation, { 0.8f, 0.2f, 0.3f, 1.0f });
+		Lux::Ref<Lux::Texture2D> bgTexture = m_CheckerboardTexture ? m_CheckerboardTexture : Lux::Renderer::GetWhiteTexture();
+		Lux::Renderer2D::BeginScene(m_CommandBuffer, &swapchain, m_CameraController.GetCamera());
+		Lux::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, bgTexture, 10.0f);
+		Lux::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, rotation, { 0.8f, 0.2f, 0.3f, 1.0f });
 		Lux::Renderer2D::EndScene();
 	}
+
+	m_CommandBuffer->End();
+	m_CommandBuffer->Submit();
 }
 
 void Sandbox2D::OnImGuiRender()

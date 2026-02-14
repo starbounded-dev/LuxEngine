@@ -1,137 +1,93 @@
 project "Core"
 	kind "StaticLib"
-	language "C++"
-	cppdialect "C++20"
-	staticruntime "off"
 
-	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
+	targetdir ("../bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
 
 	pchheader "lpch.h"
 	pchsource "Source/lpch.cpp"
 
-	files
-	{
+	files {
 		"Source/**.h",
+		"Source/**.c",
+		"Source/**.hpp",
 		"Source/**.cpp",
-		"vendor/stb_image/**.h",
-		"vendor/stb_image/**.cpp",
-		"vendor/glm/glm/**.hpp",
-		"vendor/glm/glm/**.inl",
 
-		"vendor/imguizmo/ImGuizmo.h",
-		"vendor/imguizmo/ImGuizmo.cpp"
+		"Platform/" .. firstToUpper(os.target()) .. "/**.hpp",
+		"Platform/" .. firstToUpper(os.target()) .. "/**.cpp",
+
+		"vendor/FastNoise/**.cpp",
+
+		"vendor/yaml-cpp/src/**.cpp",
+		"vendor/yaml-cpp/src/**.h",
+		"vendor/yaml-cpp/include/**.h",
+		
+		"vendor/VulkanMemoryAllocator/**.h",
+		"vendor/VulkanMemoryAllocator/**.cpp",
+
+		"vendor/imgui/misc/cpp/imgui_stdlib.cpp",
+		"vendor/imgui/misc/cpp/imgui_stdlib.h"
+	}
+	
+	removefiles {
+		"Source/Lux/Platform/DX11/**.cpp",
+		"Source/Lux/Platform/DX12/**.cpp",
 	}
 
-	defines
-	{
-		"_CRT_SECURE_NO_WARNINGS",
-		"GLFW_INCLUDE_NONE",
-		"TRACY_ENABLE",
-		"TRACY_ON_DEMAND",
-		"TRACY_CALLSTACK=10",
-		"YAML_CPP_STATIC_DEFINE",
-		"VK_USE_PLATFORM_WIN32_KHR",
-		"NOMINMAX"
-	}
+	includedirs { "Source/", "vendor/", }
 
-	includedirs
-	{
-		"Source",
-		"vendor/spdlog/include",
-		"%{IncludeDir.GLFW}",
-		"%{IncludeDir.GLAD}",
-		"%{IncludeDir.Box2D}",
-		"%{IncludeDir.ImGui}",
-		"%{IncludeDir.glm}",
-		"%{IncludeDir.filewatch}",
-		"%{IncludeDir.stb_image}",
-		"%{IncludeDir.entt}",
-		"%{IncludeDir.msdfgen}",
-		"%{IncludeDir.msdf_atlas_gen}",
-		"%{IncludeDir.yaml_cpp}",
-		"%{IncludeDir.ImGuizmo}",
-		"%{IncludeDir.VulkanSDK}",
-		"%{IncludeDir.Tracy}",
-		"%{IncludeDir.NVRHI}",
-		"%{IncludeDir.SPIRV_Cross}",
+	IncludeDependencies()
 
-		"%{IncludeDir.mono}",
-		"%{IncludeDir.miniaudio}"
-	}
+	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE" }
 
-	links
-	{
-		"GLFW",
-		"GLAD",
-		"imgui",
-		"opengl32",
-		"yaml-cpp",
-		"msdf-atlas-gen",
-		"Box2D",
-		"DbgHelp",
-		"dwmapi.lib",
-		"NVRHI",
-
-		"%{Library.Tracy}",
-		"%{Library.mono}",
-		"%{Library.Vulkan}",
-	}
-
-	filter "files:vendor/imguizmo/**.cpp"
+	filter "files:vendor/FastNoise/**.cpp or files:vendor/yaml-cpp/src/**.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:Source/Lux/Core/ApplicationSettings.cpp"
 	flags { "NoPCH" }
 
 	filter "system:windows"
 		systemversion "latest"
+		defines { "LUX_PLATFORM_WINDOWS", }
 
-		defines
-		{
+	filter "system:linux"
+		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
+		links { "dw", "dl", "unwind", "pthread" }
 
-		}
+	filter "configurations:Debug or configurations:Debug-AS"
+		symbols "On"
+		defines { "LUX_DEBUG", "_DEBUG", "ACL_ON_ASSERT_ABORT", }
+		IncludeDependencies("Debug")
 
-		links 
-		{
-			"%{Library.WinSock}",
-			"%{Library.WinMM}",
-			"%{Library.WinVersion}",
-			"%{Library.BCrypt}",
-		}
-
-	filter "configurations:Debug"
-		defines "LUX_DEBUG"
-		runtime "Debug"
-		symbols "on"
-
-		links
-		{
-			"%{Library.ShaderC_Debug}",
-			"SPIRV-Cross",
-			"%{Library.DXC_Debug}"
-		}
+	filter { "system:windows", "configurations:Debug-AS" }	
+		sanitize { "Address" }
+		flags { "NoRuntimeChecks", "NoIncrementalLink" }
 
 	filter "configurations:Release"
-		defines "LUX_RELEASE"
-		runtime "Release"
-		optimize "on"
+		optimize "On"
+		vectorextensions "AVX2"
+		isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
+		defines { "LUX_RELEASE", "NDEBUG", }
+		IncludeDependencies("Release")
 
-		links
-		{
-			"%{Library.ShaderC_Release}",
-			"SPIRV-Cross",
-			"%{Library.DXC_Release}"
+	filter { "configurations:Debug or configurations:Debug-AS or configurations:Release" }
+		defines {
+			"LUX_TRACK_MEMORY",
+
+			"JPH_DEBUG_RENDERER",
+			"JPH_FLOATING_POINT_EXCEPTIONS_ENABLED",
+			"JPH_EXTERNAL_PROFILE"
 		}
 
 	filter "configurations:Dist"
-		defines "LUX_DIST"
-		runtime "Release"
-		optimize "on"
+		optimize "On"
+		symbols "Off"
+		vectorextensions "AVX2"
+		isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
+		defines { "LUX_DIST" }
+		IncludeDependencies("Dist")
 
-		links
-		{
-			"%{Library.ShaderC_Release}",
-			"SPIRV-Cross",
-			"%{Library.DXC_Release}"
+		removefiles {
+			"Source/Lux/Platform/Vulkan/ShaderCompiler/**.cpp",
+			"Source/Lux/Platform/Vulkan/Debug/**.cpp",
+
+			"Source/Lux/Asset/AssimpAnimationImporter.cpp",
+			"Source/Lux/Asset/AssimpMeshImporter.cpp",
 		}
-
-	filter "action:vs2022"
-		buildoptions { "/utf-8" }

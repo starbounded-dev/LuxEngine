@@ -6,26 +6,17 @@
 #include <fstream>
 #include <yaml-cpp/yaml.h>
 
-#include <spdlog/fmt/fmt.h>
 #include <filesystem>
-
-namespace fmt {
-	template <>
-	struct formatter<std::filesystem::path> : formatter<std::string> {
-		auto format(const std::filesystem::path& path, format_context& ctx) const {
-			return formatter<std::string>::format(path.string(), ctx);
-		}
-	};
-} // namespace fmt
+#include <format>
 
 namespace Lux {
 
 	static std::map<std::filesystem::path, AssetType> s_AssetExtensionMap = {
 		{ ".luxscene", AssetType::Scene },
 		{ ".hazel", AssetType::Scene },
-		{ ".png", AssetType::Texture2D },
-		{ ".jpg", AssetType::Texture2D },
-		{ ".jpeg", AssetType::Texture2D },
+		{ ".png", AssetType::Texture },
+		{ ".jpg", AssetType::Texture },
+		{ ".jpeg", AssetType::Texture },
 		{ ".mp3", AssetType::Audio },
 		{ ".wav", AssetType::Audio },
 		{ ".ogg", AssetType::Audio },/*

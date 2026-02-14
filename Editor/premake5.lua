@@ -1,68 +1,77 @@
 project "Editor"
-	kind "ConsoleApp"
-	language "C++"
-	cppdialect "C++20"
-	staticruntime "off"
+    kind "ConsoleApp"
 
-	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
+    debuggertype "NativeWithManagedCore"
 
-	files
-	{
+	targetdir ("../bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
+
+	links { "Core" }
+
+	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE", }
+
+	files  { 
 		"Source/**.h",
-		"Source/**.cpp"
+		"Source/**.c",
+		"Source/**.hpp",
+		"Source/**.cpp",
+		
+		-- Shaders
+		"Resources/Shaders/**.glsl",
+		"Resources/Shaders/**.glslh",
+		"Resources/Shaders/**.hlsl",
+		"Resources/Shaders/**.hlslh",
+		"Resources/Shaders/**.slh",
 	}
 
-	includedirs
-	{
-		"%{wks.location}/Core/vendor/spdlog/include",
-		"%{wks.location}/Core/Source",
-		"%{wks.location}/Core/vendor",
-		"%{IncludeDir.filewatch}",
-		"%{IncludeDir.glm}",
-		"%{IncludeDir.entt}",
-		"%{IncludeDir.ImGuizmo}",
-		"%{IncludeDir.Tracy}",
-		"%{IncludeDir.GLAD}",
-		"%{IncludeDir.miniaudio}"
+	includedirs  {
+		"Source/",
+
+		"../Core/Source/",
+		"../Core/vendor/"
 	}
 
-	links
-	{
-		"Core",
-		"GLAD",
-		"%{Library.Tracy}"
-	}
-
-	defines
-	{
-		"TRACY_ENABLE",
-		"TRACY_ON_DEMAND",
-		"TRACY_CALLSTACK=10"
-	}
-
-	filter "system:windows" 
+	filter "system:windows"
 		systemversion "latest"
-		postbuildcommands {
-			"{COPYDIR} %{wks.location}/Editor/assets %{wks.location}/bin/" .. outputdir .. "/Editor/assets",
-			"{COPYDIR} %{wks.location}/Editor/Resources %{wks.location}/bin/" .. outputdir .. "/Editor/Resources",
-			"{COPYFILE} %{wks.location}/Editor/imgui.ini %{wks.location}/bin/" .. outputdir .. "/Editor/imgui.ini",
-		}
 
-	filter "configurations:Debug"
-		defines "LUX_DEBUG"
-		runtime "Debug"
-		symbols "on"
+		defines { "LUX_PLATFORM_WINDOWS" }
+
+	filter "system:linux"
+		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
+		links { "dw", "dl", "unwind", "pthread" }
+
+		result, err = os.outputof("pkg-config --libs gtk+-3.0")
+		linkoptions { result }
+
+	filter "configurations:Debug or configurations:Debug-AS"
+		symbols "On"
+		defines { "LUX_DEBUG" }
+
+		ProcessDependencies("Debug")
+
+	filter { "system:windows", "configurations:Debug-AS" }
+		sanitize { "Address" }
+		flags { "NoRuntimeChecks", "NoIncrementalLink" }
 
 	filter "configurations:Release"
-		defines "LUX_RELEASE"
-		runtime "Release"
-		optimize "on"
+		optimize "On"
+        vectorextensions "AVX2"
+        isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
+		defines { "LUX_RELEASE", }
 
-	filter "configurations:Dist"
-		defines "LUX_DIST"
-		runtime "Release"
-		optimize "on"
+		ProcessDependencies("Release")
 
-	filter "action:vs2022"
-    	buildoptions { "/utf-8" }
+	filter "configurations:Debug or configurations:Debug-AS or configurations:Release"
+		defines {
+			"LUX_TRACK_MEMORY",
+			
+            "JPH_DEBUG_RENDERER",
+            "JPH_FLOATING_POINT_EXCEPTIONS_ENABLED",
+            "JPH_EXTERNAL_PROFILE"
+		}
+
+	filter "files:**.hlsl"
+		flags {"ExcludeFromBuild"}
+
+    filter "configurations:Dist"
+        flags { "ExcludeFromBuild" }

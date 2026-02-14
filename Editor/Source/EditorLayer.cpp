@@ -1,6 +1,7 @@
 #include "EditorLayer.h"
 
 #include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Core/Application.h"
 #include "Lux/Utils/PlatformUtils.h"
 #include "Lux/Math/Math.h"
 #include "Lux/Scripting/ScriptEngine.h"
@@ -18,6 +19,15 @@
 #include "ImGuizmo.h"
 
 namespace Lux {
+
+namespace {
+	ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
+	{
+		auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
+		return imguiRenderer->CreateFrameTexture(texture->GetImage()->GetHandle().Get(), nvrhi::AllSubresources);
+	}
+}
+
 
 	static Ref<Font> s_Font;
 
@@ -73,6 +83,25 @@ namespace Lux {
 	void EditorLayer::OnDetach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
+		
+		// Release Vulkan resources before GPU device is destroyed
+		m_ActiveScene.reset();
+		m_EditorScene.reset();
+		m_Framebuffer.reset();
+		m_CheckerboardTexture.reset();
+		m_IconPlay.reset();
+		m_IconStop.reset();
+		m_IconSimulate.reset();
+		m_IconPause.reset();
+		m_IconStep.reset();
+		
+		// Additional resources that need cleanup
+		m_SquareVA.reset();
+		m_FlatColorShader.reset();
+		m_ContentBrowserPanel.reset();
+		
+		// Reset static font reference
+		s_Font.reset();
 	}
 
 	void EditorLayer::OnUpdate(Timestep ts)
@@ -272,7 +301,7 @@ namespace Lux {
 
 		ImGui::Separator();
 
-		ImGui::Image((ImTextureID)s_Font->GetAtlasTexture()->GetRendererID(), { 512,512 }, { 0, 1 }, { 1, 0 });
+		ImGui::Image(GetImGuiTextureID(s_Font->GetAtlasTexture()), { 512,512 }, { 0, 1 }, { 1, 0 });
 
 		ImGui::End();
 
@@ -392,7 +421,7 @@ namespace Lux {
 		if (hasPlayButton)
 		{
 			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate) ? m_IconPlay : m_IconStop;
-			if (ImGui::ImageButton("##play", (ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1))) {
+			if (ImGui::ImageButton("##play", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1))) {
 				if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate)
 					OnScenePlay();
 				else if (m_SceneState == SceneState::Play)
@@ -408,7 +437,7 @@ namespace Lux {
 			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play) ? m_IconSimulate : m_IconStop;		//ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
 
 
-			if (ImGui::ImageButton("##simulate", (ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)))
+			if (ImGui::ImageButton("##simulate", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)))
 			{
 				if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play)
 					OnSceneSimulate();
@@ -423,7 +452,7 @@ namespace Lux {
 			ImGui::SameLine();
 			{
 				Ref<Texture2D> icon = m_IconPause;
-				if (ImGui::ImageButton("##pause", (ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)) && toolbarEnabled)
+				if (ImGui::ImageButton("##pause", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)) && toolbarEnabled)
 				{
 					m_ActiveScene->SetPaused(!isPaused);
 				}
@@ -437,7 +466,7 @@ namespace Lux {
 				{
 					Ref<Texture2D> icon = m_IconStep;
 					bool isPaused = m_ActiveScene->IsPaused();
-					if (ImGui::ImageButton("##step", (ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)) && toolbarEnabled)
+					if (ImGui::ImageButton("##step", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)) && toolbarEnabled)
 
 					{
 						m_ActiveScene->Step();
@@ -662,7 +691,7 @@ namespace Lux {
 	{
 		if (Project::Load(path))
 		{
-			ScriptEngine::Init();
+			//ScriptEngine::Init();
 
 			AssetHandle startScene = Project::GetActive()->GetConfig().StartScene;
 			if (startScene)

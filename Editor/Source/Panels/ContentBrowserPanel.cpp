@@ -2,12 +2,22 @@
 #include "ContentBrowserPanel.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Asset/TextureImporter.h"
+#include "Lux/Core/Application.h"
 
 #include <imgui/imgui.h>
 
-#include "Lux/Utils/StringUtils.h"
+#include "Lux/Utilities/StringUtils.h"
 
 namespace Lux {
+
+namespace {
+	ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
+	{
+		auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
+		return imguiRenderer->CreateFrameTexture(texture->GetImage()->GetHandle().Get(), nvrhi::AllSubresources);
+	}
+}
+
 
 	ContentBrowserPanel::ContentBrowserPanel(Ref<Project> project)
 		: m_Project(project), m_ThumbnailCache(CreateRef<ThumbnailCache>(project)), m_BaseDirectory(m_Project->GetAssetDirectory()), m_CurrentDirectory(m_BaseDirectory)
@@ -88,7 +98,7 @@ namespace Lux {
 				ImGui::PushID(itemStr.c_str());
 				Ref<Texture2D> icon = isDirectory ? m_DirectoryIcon : m_FileIcon;
 				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-				ImGui::ImageButton("##icon", (ImTextureID)icon->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+				ImGui::ImageButton("##icon", GetImGuiTextureID(icon), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 
 				if (ImGui::BeginPopupContextItem())
 				{
@@ -178,11 +188,12 @@ namespace Lux {
 
 						ImGui::SetCursorPosY(ImGui::GetCursorPosY() + diff); // Center thumbnail vertically
 
-						ImGui::ImageButton("##thumbnail", (ImTextureID)thumbnail->GetRendererID(), { thumbnailSize, thumbnailHeight }, { 0, 1 }, { 1, 0 });
+						ImGui::ImageButton("##thumbnail", GetImGuiTextureID(thumbnail), { thumbnailSize, thumbnailHeight }, { 0, 1 }, { 1, 0 });
 						if (ImGui::IsItemHovered())
 						{
 							ImGui::BeginTooltip();
-							std::string sizeString = Utils::BytesToString(thumbnail->GetEstimatedSize());
+							uint64_t estimatedSize = (uint64_t)thumbnail->GetWidth() * (uint64_t)thumbnail->GetHeight() * 4;
+						std::string sizeString = Utils::BytesToString(estimatedSize);
 							ImGui::Text("Memory: %s", sizeString.c_str());
 							ImGui::EndTooltip();
 						}
@@ -245,7 +256,7 @@ namespace Lux {
 				}
 
 				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-				ImGui::ImageButton("##thumbnail", (ImTextureID)thumbnail->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+				ImGui::ImageButton("##thumbnail", GetImGuiTextureID(thumbnail), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 
 				if (ImGui::BeginPopupContextItem())
 				{

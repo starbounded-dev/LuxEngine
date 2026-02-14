@@ -1,6 +1,6 @@
-#include <Lux.h>
 
-#include <Lux/Core/Entrypoint.h>
+
+#include <Lux/EntryPoint.h>
 
 #include "EditorLayer.h"
 

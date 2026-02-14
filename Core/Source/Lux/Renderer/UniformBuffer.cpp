@@ -2,20 +2,52 @@
 #include "UniformBuffer.h"
 
 #include "Lux/Renderer/Renderer.h"
-#include "Platform/OpenGL/OpenGLUniformBuffer.h"
+#include "Lux/Renderer/RendererAPI.h"
 
 namespace Lux {
 
-	Ref<UniformBuffer> UniformBuffer::Create(uint32_t size, uint32_t binding)
+	UniformBuffer::UniformBuffer(uint64_t size, std::string_view debugName)
+		: m_Size(size), m_DebugName(debugName)
 	{
-		switch (Renderer::GetAPI())
-		{
-		case RendererAPI::API::None:    LUX_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
-		case RendererAPI::API::OpenGL:  return CreateRef<OpenGLUniformBuffer>(size, binding);
-		}
+		m_LocalData.Allocate(size);
 
-		LUX_CORE_ASSERT(false, "Unknown RendererAPI!");
-		return nullptr;
+		auto bufferDesc = nvrhi::BufferDesc()
+			.setByteSize(size)
+			.setIsConstantBuffer(true)
+			.setCpuAccess(nvrhi::CpuAccessMode::Write)
+			.setInitialState(nvrhi::ResourceStates::ConstantBuffer)
+			.setKeepInitialState(true) // enable fully automatic state tracking
+			.setDebugName(m_DebugName.c_str());
+
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		m_Handle = device->createBuffer(bufferDesc);
+	}
+
+	void UniformBuffer::SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint64_t size, uint64_t offset)
+	{
+		SetData(cmd, Buffer(data, size), offset);
+	}
+
+	void UniformBuffer::SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint64_t offset)
+	{
+		m_LocalData.Write(buffer);
+
+		Ref<UniformBuffer> instance = this;
+		Renderer::Submit([instance, data = m_LocalData, offset, cmd]() mutable { instance->RT_SetData(cmd, data, offset); });
+	}
+
+	void UniformBuffer::RT_SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint64_t size, uint64_t offset)
+	{
+		RT_SetData(cmd, Buffer(data, size), offset);
+	}
+
+	void UniformBuffer::RT_SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint64_t offset)
+	{
+		if (buffer.Size == 0)
+			return;
+
+		cmd->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size, offset);
+
 	}
 
 }

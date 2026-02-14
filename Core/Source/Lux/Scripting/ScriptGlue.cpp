@@ -16,15 +16,10 @@
 
 #include "box2d/b2_body.h"
 
-template<>
-struct fmt::formatter<glm::vec3> {
-	constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+#include <format>
+#include <iostream>
 
-	template<typename FormatContext>
-	auto format(const glm::vec3& vec, FormatContext& ctx) const { // Marked as const
-		return format_to(ctx.out(), "({}, {}, {})", vec.x, vec.y, vec.z);
-	}
-};
+// Note: std::formatter<glm::vec3> is defined in Lux/Core/LogCustomFormatters.h
 
 namespace Lux {
 
@@ -284,7 +279,7 @@ namespace Lux {
 				std::string_view typeName = typeid(Component).name();
 				size_t pos = typeName.find_last_of(':');
 				std::string_view structName = typeName.substr(pos + 1);
-				std::string managedTypename = fmt::format("Lux.{}", structName);
+				std::string managedTypename = std::format("Lux.{}", structName);
 
 				MonoType* managedType = mono_reflection_type_from_name(managedTypename.data(), ScriptEngine::GetCoreAssemblyImage());
 				if (!managedType)

@@ -3,6 +3,10 @@
 #include "Lux.h"
 #include "Lux/Renderer/OrthographicCameraController.h"
 
+namespace Lux {
+	class RenderCommandBuffer;
+}
+
 class Sandbox2D : public Lux::Layer
 {
 public:
@@ -20,10 +24,7 @@ private:
 
 	bool m_VSync = true;
 
-	// Temp
-	Lux::Ref<Lux::VertexArray> m_SquareVA;
-	Lux::Ref<Lux::Shader> m_FlatColorShader;
-
+	Lux::Ref<Lux::RenderCommandBuffer> m_CommandBuffer;
 	Lux::Ref<Lux::Texture2D> m_CheckerboardTexture;
 
 	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };

@@ -15,7 +15,7 @@ namespace Lux
 			//LUX_PROFILE_FUNCTION_COLOR("AssetManager::GetAsset", 0x8CCBFF);
 
 			Ref<Asset> asset = Project::GetActive()->GetAssetManager()->GetAsset(handle);
-			return std::static_pointer_cast<T>(asset);
+			return asset.As<T>();
 		}
 
 		static bool IsAssetHandleValid(AssetHandle handle)

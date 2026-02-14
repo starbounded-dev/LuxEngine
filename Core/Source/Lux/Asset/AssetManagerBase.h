@@ -8,7 +8,7 @@ namespace Lux
 {
 	using AssetMap = std::map<AssetHandle, Ref<Asset>>;
 
-	class AssetManagerBase
+	class AssetManagerBase : public RefCounted
 	{
 	public:
 		virtual Ref<Asset> GetAsset(AssetHandle handle) = 0;

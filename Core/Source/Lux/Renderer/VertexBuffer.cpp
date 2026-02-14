@@ -1,0 +1,89 @@
+#include "lpch.h"
+#include "VertexBuffer.h"
+
+#include "Lux/Core/Application.h"
+
+namespace Lux {
+
+	VertexBuffer::VertexBuffer(const Buffer buffer)
+		: m_Size(buffer.Size)
+	{
+		// TODO(Yan): render thread? if yes then we need to copy to m_LocalData...
+
+		auto vertexBufferDesc = nvrhi::BufferDesc()
+			.setByteSize(buffer.Size)
+			.setIsVertexBuffer(true)
+			.setInitialState(nvrhi::ResourceStates::VertexBuffer)
+			.setKeepInitialState(true) // enable fully automatic state tracking
+			.setDebugName("VertexBuffer");
+
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		m_Handle = device->createBuffer(vertexBufferDesc);
+
+		m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
+		m_CommandList->RT_Begin();
+		m_CommandList->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size);
+		m_CommandList->RT_End();
+		m_CommandList->RT_Submit();
+	}
+
+	VertexBuffer::VertexBuffer(uint64_t size)
+		: m_Size(size)
+	{
+		m_LocalData.Allocate(size);
+
+		auto vertexBufferDesc = nvrhi::BufferDesc()
+			.setByteSize(size)
+			.setIsVertexBuffer(true)
+			.setInitialState(nvrhi::ResourceStates::VertexBuffer)
+			.setKeepInitialState(true) // enable fully automatic state tracking
+			.setCpuAccess(nvrhi::CpuAccessMode::Write)
+			.setDebugName("VertexBuffer");
+
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		m_Handle = device->createBuffer(vertexBufferDesc);
+	}
+
+	void VertexBuffer::SetData(Buffer buffer, uint64_t offset)
+	{
+		if (buffer.Size == 0)
+			return;
+
+		if (!m_CommandList)
+			m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
+
+		//m_CommandList->RT_Begin();
+		//m_CommandList->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size, offset);
+		auto device = Application::GetGraphicsDevice();
+		void* mappedBuffer = device->mapBuffer(m_Handle, nvrhi::CpuAccessMode::Write);
+		memcpy(mappedBuffer, (uint8_t*)buffer.Data + offset, buffer.Size);
+		device->unmapBuffer(m_Handle);
+		//m_CommandList->RT_End();
+		//m_CommandList->RT_Submit();
+	}
+
+	void VertexBuffer::SetData(const void* data, uint64_t size, uint64_t offset)
+	{
+		SetData(Buffer(data, size), offset);
+	}
+
+	void VertexBuffer::RT_SetData(Buffer buffer, uint64_t offset)
+	{
+		if (buffer.Size == 0)
+			return;
+
+		if (!m_CommandList)
+			m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
+
+		m_CommandList->RT_Begin();
+		m_CommandList->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size);
+		m_CommandList->RT_End();
+		m_CommandList->RT_Submit();
+	}
+
+	void VertexBuffer::RT_SetData(const void* data, uint64_t size, uint64_t offset)
+	{
+		RT_SetData(Buffer(data, size), offset);
+	}
+
+}

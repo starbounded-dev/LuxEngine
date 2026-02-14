@@ -76,7 +76,7 @@ namespace Lux {
 
 	Ref<Scene> Scene::Copy(Ref<Scene> other)
 	{
-		Ref<Scene> newScene = CreateRef<Scene>();
+		Ref<Scene> newScene = Ref<Scene>::Create();
 
 		newScene->m_ViewportWidth = other->m_ViewportWidth;
 		newScene->m_ViewportHeight = other->m_ViewportHeight;
@@ -136,7 +136,7 @@ namespace Lux {
 			auto filter = m_Registry.view<TransformComponent, AudioListenerComponent>();
 			filter.each([&](TransformComponent& transform, AudioListenerComponent& ac)
 				{
-					ac.Listener = CreateRef<AudioListener>();
+					ac.Listener = Ref<AudioListener>::Create();
 					if (ac.Active)
 					{
 						const glm::mat4 inverted = glm::inverse(transform.GetTransform());

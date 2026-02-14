@@ -2,16 +2,19 @@
 
 #include "Lux/Renderer/OrthographicCamera.h"
 #include "Lux/Renderer/Texture.h"
-
-#include "Lux/Renderer/SubTexture2D.h"
+#include "Lux/Renderer/RenderCommandBuffer.h"
+#include "Lux/Renderer/Framebuffer.h"
 
 #include "Lux/Renderer/Camera.h"
 #include "Lux/Renderer/EditorCamera.h"
-#include "Lux/Renderer/Font.h"
+#include "Lux/Renderer/UI/Font.h"
 
 #include "Lux/Scene/Components.h"
 
 namespace Lux {
+
+	class VulkanSwapChain;
+
 	class Renderer2D
 	{
 	public:
@@ -19,10 +22,20 @@ namespace Lux {
 		static void Init();
 		static void Shutdown();
 
-		static void BeginScene(const Camera& camera, const glm::mat4& transform);
+		// Primary API: requires command buffer and framebuffer for the new renderer
+		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, Ref<Framebuffer> framebuffer, const Camera& camera, const glm::mat4& transform);
+		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, Ref<Framebuffer> framebuffer, const EditorCamera& camera);
+		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, Ref<Framebuffer> framebuffer, const OrthographicCamera& camera);
 
+		// Convenience: swapchain overload - uses SwapChainFramebuffer wrapper
+		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const Camera& camera, const glm::mat4& transform);
+		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const EditorCamera& camera);
+		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const OrthographicCamera& camera);
+
+		// Deprecated: use overloads with RenderCommandBuffer and Framebuffer
+		static void BeginScene(const Camera& camera, const glm::mat4& transform);
 		static void BeginScene(const EditorCamera& camera);
-		static void BeginScene(const OrthographicCamera& camera); // TODO: Remove
+		static void BeginScene(const OrthographicCamera& camera);
 		static void EndScene();
 		static void Flush();
 
@@ -33,10 +46,6 @@ namespace Lux {
 		// Texture2D
 		static void DrawQuad(const glm::vec2& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 		static void DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
-
-		// SubTexture2D
-		static void DrawQuad(const glm::vec2& position, const glm::vec2& size, const Ref<SubTexture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
-		static void DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<SubTexture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 
 		static void DrawQuad(const glm::mat4& transform, const glm::vec4& color, int entityID = -1);
 		static void DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f), int entityID = -1);
@@ -49,15 +58,11 @@ namespace Lux {
 		static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 		static void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 
-		// Rotated SubTexture2D
-		static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const Ref<SubTexture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
-		static void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<SubTexture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
-
 		// Circle
 		static void DrawCircle(const glm::mat4& transform, const glm::vec4& color, float thickness = 1.0f, float fade = 0.005f, int entityID = -1);
 
 		// Line
-		static void DrawLine(const glm::vec3& p0, glm::vec3& p1, const glm::vec4& color, int entityID = -1);
+		static void DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, int entityID = -1);
 
 		// Rect
 		static void DrawRect(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color, int entityID = -1);

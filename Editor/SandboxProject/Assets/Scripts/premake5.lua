@@ -35,7 +35,7 @@ project "Sandbox"
 
 	links
 	{
-		"Lux-ScriptCore"
+		"ScriptCore"
 	}
 	
 	filter "configurations:Debug"
@@ -51,5 +51,5 @@ project "Sandbox"
 		symbols "Off"
 
 group "Core"
-	include (LuxEngineRootDir .. "/Lux-ScriptCore")
+	include (LuxEngineRootDir .. "/ScriptCore")
 group ""

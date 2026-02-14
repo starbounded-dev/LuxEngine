@@ -69,7 +69,7 @@ namespace Lux {
 
 	using ScriptFieldMap = std::unordered_map<std::string, ScriptFieldInstance>;
 
-	class ScriptClass
+	class ScriptClass : public RefCounted
 	{
 	public:
 		ScriptClass() = default;
@@ -91,7 +91,7 @@ namespace Lux {
 		friend class ScriptEngine;
 	};
 
-	class ScriptInstance
+	class ScriptInstance : public RefCounted
 	{
 	public:
 		ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity);

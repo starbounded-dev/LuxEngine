@@ -1,39 +1,30 @@
 project "Sandbox"
 	kind "ConsoleApp"
-	language "C++"
-	cppdialect "C++20"
-	staticruntime "off"
 
-	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
+	targetdir ("../bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
 
-	files
-	{
+	links { "Core" }
+
+	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE", }
+
+	files  { 
 		"Source/**.h",
-		"Source/**.cpp"
+		"Source/**.c",
+		"Source/**.hpp",
+		"Source/**.cpp",
 	}
 
-	includedirs
-	{
-		"%{wks.location}/Core/vendor/spdlog/include",
-		"%{wks.location}/Core/Source",
-		"%{wks.location}/Core/vendor",
-		"%{IncludeDir.glm}",
-		"%{IncludeDir.entt}",
-		"%{IncludeDir.Tracy}",
-		"%{IncludeDir.GLAD}",
-		"%{IncludeDir.miniaudio}"
-	}
+	includedirs  {
+		"Source/",
 
-	links
-	{
-		"Core",
-		"GLAD",
-		"%{Library.Tracy}"
+		"../Core/Source/",
+		"../Core/vendor/"
 	}
 
 	defines
 	{
+		"LUX_PLATFORM_WINDOWS",
 		"TRACY_ENABLE",
 		"TRACY_ON_DEMAND",
 		"TRACY_CALLSTACK=10"
@@ -46,16 +37,19 @@ project "Sandbox"
 		defines "LUX_DEBUG"
 		runtime "Debug"
 		symbols "on"
+		ProcessDependencies("Debug")
 
 	filter "configurations:Release"
 		defines "LUX_RELEASE"
 		runtime "Release"
 		optimize "on"
+		ProcessDependencies("Release")
 
 	filter "configurations:Dist"
 		defines "LUX_DIST"
 		runtime "Release"
 		optimize "on"
+		ProcessDependencies("Dist")
 
 	filter "action:vs2022"
       buildoptions { "/utf-8" }

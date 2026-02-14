@@ -1,43 +1,50 @@
 #pragma once
 
-#include "Lux/Core/Base.h"
-#include "Lux/Core/Log.h"
-#include <filesystem>
+#include "Base.h"
+#include "Log.h"
+
+#ifdef LUX_PLATFORM_WINDOWS
+#define LUX_DEBUG_BREAK __debugbreak()
+#elif defined(LUX_COMPILER_CLANG)
+#define LUX_DEBUG_BREAK __builtin_debugtrap()
+#else
+#define LUX_DEBUG_BREAK
+#endif
+
+#ifdef LUX_DEBUG
+#define LUX_ENABLE_ASSERTS
+#endif
+
+#define LUX_ENABLE_VERIFY
 
 #ifdef LUX_ENABLE_ASSERTS
-
-// Alteratively we could use the same "default" message for both "WITH_MSG" and "NO_MSG" and
-// provide support for custom formatting by concatenating the formatting string instead of having the format inside the default message
-#define LUX_INTERNAL_ASSERT_IMPL(type, check, msg, ...) { if(!(check)) { LUX##type##ERROR(msg, __VA_ARGS__); LUX_DEBUGBREAK(); } }
-#define LUX_INTERNAL_ASSERT_WITH_MSG(type, check, ...) LUX_INTERNAL_ASSERT_IMPL(type, check, "Assertion failed: {0}", __VA_ARGS__)
-#define LUX_INTERNAL_ASSERT_NO_MSG(type, check) LUX_INTERNAL_ASSERT_IMPL(type, check, "Assertion '{0}' failed at {1}:{2}", LUX_STRINGIFY_MACRO(check), std::filesystem::path(__FILE__).filename().string(), __LINE__)
-
-#define LUX_INTERNAL_ASSERT_GET_MACRO_NAME(arg1, arg2, macro, ...) macro
-#define LUX_INTERNAL_ASSERT_GET_MACRO(...) LUX_EXPAND_MACRO( LUX_INTERNAL_ASSERT_GET_MACRO_NAME(__VA_ARGS__, LUX_INTERNAL_ASSERT_WITH_MSG, LUX_INTERNAL_ASSERT_NO_MSG) )
-
-// Currently accepts at least the condition and one additional parameter (the message) being optional
-#define LUX_ASSERT(...) LUX_EXPAND_MACRO( LUX_INTERNAL_ASSERT_GET_MACRO(__VA_ARGS__)(_, __VA_ARGS__) )
-#define LUX_CORE_ASSERT(...) LUX_EXPAND_MACRO( LUX_INTERNAL_ASSERT_GET_MACRO(__VA_ARGS__)(_CORE_, __VA_ARGS__) )
+#ifdef LUX_COMPILER_CLANG
+#define LUX_CORE_ASSERT_MESSAGE_INTERNAL(...)  ::Lux::Log::PrintAssertMessage(::Lux::Log::Type::Core, "Assertion Failed", ##__VA_ARGS__)
+#define LUX_ASSERT_MESSAGE_INTERNAL(...)  ::Lux::Log::PrintAssertMessage(::Lux::Log::Type::Client, "Assertion Failed", ##__VA_ARGS__)
 #else
-#define LUX_ASSERT(...)
-#define LUX_CORE_ASSERT(...)
+#define LUX_CORE_ASSERT_MESSAGE_INTERNAL(...)  ::Lux::Log::PrintAssertMessage(::Lux::Log::Type::Core, "Assertion Failed" __VA_OPT__(,) __VA_ARGS__)
+#define LUX_ASSERT_MESSAGE_INTERNAL(...)  ::Lux::Log::PrintAssertMessage(::Lux::Log::Type::Client, "Assertion Failed" __VA_OPT__(,) __VA_ARGS__)
+#endif
+
+#define LUX_CORE_ASSERT(condition, ...) { if(!(condition)) { LUX_CORE_ASSERT_MESSAGE_INTERNAL(__VA_ARGS__); LUX_DEBUG_BREAK; } }
+#define LUX_ASSERT(condition, ...) { if(!(condition)) { LUX_ASSERT_MESSAGE_INTERNAL(__VA_ARGS__); LUX_DEBUG_BREAK; } }
+#else
+#define LUX_CORE_ASSERT(condition, ...)
+#define LUX_ASSERT(condition, ...)
 #endif
 
 #ifdef LUX_ENABLE_VERIFY
-
-// Alteratively we could use the same "default" message for both "WITH_MSG" and "NO_MSG" and
-// provide support for custom formatting by concatenating the formatting string instead of having the format inside the default message
-#define LUX_INTERNAL_VERIFY_IMPL(type, check, msg, ...) { if(!(check)) { LUX##type##ERROR(msg, __VA_ARGS__); LUX_DEBUGBREAK(); } }
-#define LUX_INTERNAL_VERIFY_WITH_MSG(type, check, ...) LUX_INTERNAL_VERIFY_IMPL(type, check, "Assertion failed: {0}", __VA_ARGS__)
-#define LUX_INTERNAL_VERIFY_NO_MSG(type, check) LUX_INTERNAL_VERIFY_IMPL(type, check, "Assertion '{0}' failed at {1}:{2}", LUX_STRINGIFY_MACRO(check), std::filesystem::path(__FILE__).filename().string(), __LINE__)
-
-#define LUX_INTERNAL_VERIFY_GET_MACRO_NAME(arg1, arg2, macro, ...) macro
-#define LUX_INTERNAL_VERIFY_GET_MACRO(...) LUX_EXPAND_MACRO( LUX_INTERNAL_VERIFY_GET_MACRO_NAME(__VA_ARGS__, LUX_INTERNAL_VERIFY_WITH_MSG, LUX_INTERNAL_VERIFY_NO_MSG) )
-
-// Currently accepts at least the condition and one additional parameter (the message) being optional
-#define LUX_VERIFY(...) LUX_EXPAND_MACRO( LUX_INTERNAL_VERIFY_GET_MACRO(__VA_ARGS__)(_, __VA_ARGS__) )
-#define LUX_CORE_VERIFY(...) LUX_EXPAND_MACRO( LUX_INTERNAL_VERIFY_GET_MACRO(__VA_ARGS__)(_CORE_, __VA_ARGS__) )
+#ifdef LUX_COMPILER_CLANG
+#define LUX_CORE_VERIFY_MESSAGE_INTERNAL(...)  ::Lux::Log::PrintAssertMessage(::Lux::Log::Type::Core, "Verify Failed", ##__VA_ARGS__)
+#define LUX_VERIFY_MESSAGE_INTERNAL(...)  ::Lux::Log::PrintAssertMessage(::Lux::Log::Type::Client, "Verify Failed", ##__VA_ARGS__)
 #else
-#define LUX_VERIFY(...)
-#define LUX_CORE_VERIFY(...)
+#define LUX_CORE_VERIFY_MESSAGE_INTERNAL(...)  ::Lux::Log::PrintAssertMessage(::Lux::Log::Type::Core, "Verify Failed" __VA_OPT__(,) __VA_ARGS__)
+#define LUX_VERIFY_MESSAGE_INTERNAL(...)  ::Lux::Log::PrintAssertMessage(::Lux::Log::Type::Client, "Verify Failed" __VA_OPT__(,) __VA_ARGS__)
+#endif
+
+#define LUX_CORE_VERIFY(condition, ...) { if(!(condition)) { LUX_CORE_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); LUX_DEBUG_BREAK; } }
+#define LUX_VERIFY(condition, ...) { if(!(condition)) { LUX_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); LUX_DEBUG_BREAK; } }
+#else
+#define LUX_CORE_VERIFY(condition, ...)
+#define LUX_VERIFY(condition, ...)
 #endif

@@ -8,7 +8,7 @@
 #include "Lux/Audio/AudioSource.h"
 #include "Lux/Core/UUID.h"
 #include "Lux/Renderer/Texture.h"
-#include "Lux/Renderer/Font.h"
+#include "Lux/Renderer/UI/Font.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -124,8 +124,10 @@ namespace Lux {
 		// Add the missing Instance member
 		Ref<ScriptableEntity> Instance;
 
-		ScriptComponent() = default;
-		ScriptComponent(const ScriptComponent&) = default;
+		ScriptComponent();
+		ScriptComponent(const ScriptComponent&);
+		ScriptComponent& operator=(const ScriptComponent&);
+		~ScriptComponent();
 	};
 
 	struct NativeScriptComponent
@@ -200,11 +202,25 @@ namespace Lux {
 
 	struct TextComponent
 	{
-		std::string TextString;
-		Ref<Font> FontAsset = Font::GetDefault();
-		glm::vec4 Color{ 1.0f };
-		float Kerning = 0.0f;
+		std::string TextString = "";
+		size_t TextHash = 0;
+
+		// Font
+		AssetHandle FontHandle;
+		glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 		float LineSpacing = 0.0f;
+		float Kerning = 0.0f;
+
+		// Layout
+		float MaxWidth = 10.0f;
+
+		bool ScreenSpace = false;
+		bool DropShadow = false;
+		float ShadowDistance = 0.0f;
+		glm::vec4 ShadowColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+		TextComponent() = default;
+		TextComponent(const TextComponent& other) = default;
 	};
 
 	struct AudioSourceComponent

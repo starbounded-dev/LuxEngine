@@ -4,7 +4,7 @@
 
 namespace Lux
 {
-	class ScriptableEntity
+	class ScriptableEntity : public RefCounted
 	{
 	public:
 		virtual ~ScriptableEntity() {}

@@ -1,36 +1,37 @@
 #pragma once
 
-#include "Lux/Renderer/VertexArray.h"
-
-#include <glm/glm.hpp>
+#include "RendererCapabilities.h"
+#include "RenderCommandBuffer.h"
+#include "StorageBufferSet.h"
+#include "UniformBufferSet.h"
+#include "PipelineCompute.h"
+#include "ComputePass.h"
+#include "RenderPass.h"
 
 namespace Lux {
+
+	class SceneRenderer;
+
+	enum class RendererAPIType
+	{
+		None,
+		Vulkan
+	};
+
+	enum class PrimitiveType
+	{
+		None = 0, Triangles, Lines
+	};
 
 	class RendererAPI
 	{
 	public:
-		enum class API
-		{
-			None = 0, OpenGL = 1
-		};
-	public:
-		virtual ~RendererAPI() = default;
+		virtual RendererCapabilities& GetCapabilities() = 0;
 
-		virtual void Init() = 0;
-		virtual void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height) = 0;
-		virtual void SetClearColor(const glm::vec4& color) = 0;
-		virtual void Clear() = 0;
-
-		virtual void DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount = 0) = 0;
-		virtual void DrawLines(const Ref<VertexArray>& vertexArray, uint32_t vertexCount = 0) = 0;
-
-		virtual void SetLineWidth(float width) = 0;
-
-		static API GetAPI() { return s_API; }
-		static Scope<RendererAPI> Create();
-
+		static RendererAPIType Current() { return s_CurrentRendererAPI; }
+		static void SetAPI(RendererAPIType api);
 	private:
-		static API s_API;
+		inline static RendererAPIType s_CurrentRendererAPI = RendererAPIType::Vulkan;
 	};
 
 }

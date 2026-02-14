@@ -1,5 +1,6 @@
 #include "lpch.h"
 #include "Lux/Scene/Entity.h"
+#include "Lux/Scene/ScriptableEntity.h"
 
 namespace Lux {
 
@@ -8,5 +9,10 @@ namespace Lux {
 	{
 
 	}
+
+	ScriptComponent::ScriptComponent() = default;
+	ScriptComponent::ScriptComponent(const ScriptComponent&) = default;
+	ScriptComponent& ScriptComponent::operator=(const ScriptComponent&) = default;
+	ScriptComponent::~ScriptComponent() = default;
 
 }

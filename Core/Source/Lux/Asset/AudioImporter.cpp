@@ -18,7 +18,7 @@ namespace Lux {
 	Ref<AudioSource> AudioImporter::LoadAudio(const std::filesystem::path& path)
 	{
 		LUX_PROFILE_FUNCTION_COLOR("AudioImporter::LoadAudio", 0xD17F8A);
-		Ref<AudioSource> audioSource = CreateRef<AudioSource>();
+		Ref<AudioSource> audioSource = Ref<AudioSource>::Create();
 
 		auto* engine = static_cast<ma_engine*>(AudioEngine::GetEngine());
 

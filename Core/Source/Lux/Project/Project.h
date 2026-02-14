@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "Lux/Core/Base.h"
+#include "Lux/Core/Ref.h"
 
 #include "Lux/Asset/RuntimeAssetManager.h"
 #include "Lux/Asset/EditorAssetManager.h"
@@ -21,7 +22,7 @@ namespace Lux {
 		std::filesystem::path ScriptModulePath;
 	};
 
-	class Project
+	class Project : public RefCounted
 	{
 	public:
 		const std::filesystem::path& GetProjectDirectory() { return m_ProjectDirectory; }
@@ -61,9 +62,9 @@ namespace Lux {
 		ProjectConfig& GetConfig() { return m_Config; }
 
 		static Ref<Project> GetActive() { return s_ActiveProject; }
-		std::shared_ptr<AssetManagerBase> GetAssetManager() { return m_AssetManager; }
-		std::shared_ptr<RuntimeAssetManager> GetRuntimeAssetManager() { return std::static_pointer_cast<RuntimeAssetManager>(m_AssetManager); }
-		std::shared_ptr<EditorAssetManager> GetEditorAssetManager() { return std::static_pointer_cast<EditorAssetManager>(m_AssetManager); }
+		Ref<AssetManagerBase> GetAssetManager() { return m_AssetManager; }
+		Ref<RuntimeAssetManager> GetRuntimeAssetManager() { return m_AssetManager.As<RuntimeAssetManager>(); }
+		Ref<EditorAssetManager> GetEditorAssetManager() { return m_AssetManager.As<EditorAssetManager>(); }
 
 		static Ref<Project> New();
 		static Ref<Project> Load(const std::filesystem::path& path);
@@ -71,7 +72,7 @@ namespace Lux {
 	private:
 		ProjectConfig m_Config;
 		std::filesystem::path m_ProjectDirectory;
-		std::shared_ptr<AssetManagerBase> m_AssetManager;
+		Ref<AssetManagerBase> m_AssetManager;
 
 		inline static Ref<Project> s_ActiveProject;
 	};
