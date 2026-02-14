@@ -15,11 +15,12 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Timer.h"
 #include "Lux/Core/Buffer.h"
-#include "Lux/Core/FileSystem.h"
 
 #include "Lux/Project/Project.h"
 
 #include <format>
+
+#include "Lux/Utilities/FileSystem.h"
 
 namespace Lux {
 
@@ -48,7 +49,7 @@ namespace Lux {
 
 		static MonoAssembly* LoadMonoAssembly(const std::filesystem::path& assemblyPath, bool loadPDB = false)
 		{
-			ScopedBuffer fileData = FileSystem::ReadFileBinary(assemblyPath);
+			ScopedBuffer fileData = FileSystem::ReadBytes(assemblyPath);
 
 			// NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
 			MonoImageOpenStatus status;
@@ -68,7 +69,7 @@ namespace Lux {
 
 				if (std::filesystem::exists(pdbPath))
 				{
-					ScopedBuffer pdbFileData = FileSystem::ReadFileBinary(pdbPath);
+					ScopedBuffer pdbFileData = FileSystem::ReadBytes(pdbPath);
 					mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), pdbFileData.Size());
 					LUX_CORE_INFO("Loaded PDB {}", pdbPath);
 				}
