@@ -20,11 +20,13 @@ namespace Lux {
 		}
 
 		Buffer(const void* data, uint64_t size)
-			: Data((void*)data), Size(size) { }
+			: Data((void*)data), Size(size) {
+		}
 
 		template<typename T, size_t S>
 		Buffer(const std::array<T, S>& array)
-			: Data(array.data()), Size(array.size() * sizeof(T)) { }
+			: Data(array.data()), Size(array.size() * sizeof(T)) {
+		}
 
 		template<typename T>
 		Buffer(const std::vector<T>& vector)
@@ -51,7 +53,7 @@ namespace Lux {
 
 		void Allocate(uint64_t size)
 		{
-			delete[] (byte*)Data;
+			delete[](byte*)Data;
 			Data = nullptr;
 			Size = size;
 
@@ -69,7 +71,7 @@ namespace Lux {
 
 		void Release()
 		{
-			delete[] (byte*)Data;
+			delete[](byte*)Data;
 			Data = nullptr;
 			Size = 0;
 		}
@@ -99,7 +101,7 @@ namespace Lux {
 			memcpy(buffer, (byte*)Data + offset, size);
 			return buffer;
 		}
-				
+
 		void Write(Buffer buffer, uint64_t offset = 0)
 		{
 			LUX_CORE_VERIFY(offset + buffer.Size <= Size, "Buffer overflow!");

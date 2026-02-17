@@ -22,7 +22,7 @@
 
 
 Sandbox2D::Sandbox2D()
-	:Layer("Sandbox2D"), m_CameraController(1280.0f / 720.0f, true), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+	:Layer("Sandbox2D"), m_CameraController(90.0f, 1600.0f, 900.0f, 10.0f, 1000.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 {
 
 }
@@ -32,7 +32,7 @@ void Sandbox2D::OnAttach()
 	LUX_PROFILE_FUNCTION("Sandbox2D::OnAttach");
 
 	m_CommandBuffer = Lux::RenderCommandBuffer::Create(0, "Sandbox2D");
-	m_CheckerboardTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
+	//m_CheckerboardTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
 }
 
 void Sandbox2D::OnDetach()
@@ -68,8 +68,8 @@ void Sandbox2D::OnUpdate(Lux::Timestep ts)
 		LUX_PROFILE_SCOPE("Renderer Draw");
 
 		Lux::Ref<Lux::Texture2D> bgTexture = m_CheckerboardTexture ? m_CheckerboardTexture : Lux::Renderer::GetWhiteTexture();
-		Lux::Renderer2D::BeginScene(m_CommandBuffer, &swapchain, m_CameraController.GetCamera());
-		Lux::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, bgTexture, 10.0f);
+		Lux::Renderer2D::BeginScene(m_CommandBuffer, &swapchain, m_CameraController);
+		//Lux::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, bgTexture, 10.0f);
 		Lux::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, rotation, { 0.8f, 0.2f, 0.3f, 1.0f });
 		Lux::Renderer2D::EndScene();
 	}

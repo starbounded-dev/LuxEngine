@@ -394,7 +394,7 @@ namespace Lux {
 
 		s_Data.CurrentCommandBuffer = commandBuffer;
 		s_Data.CurrentFramebuffer = framebuffer;
-		s_Data.CameraBuffer.ViewProjection = camera.GetProjection() * glm::inverse(transform);
+		s_Data.CameraBuffer.ViewProjection = camera.GetProjectionMatrix() * glm::inverse(transform);
 		s_Data.CameraUniformBuffer->SetData(commandBuffer, &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
 		StartBatch();
 	}
@@ -410,28 +410,12 @@ namespace Lux {
 		StartBatch();
 	}
 
-	void Renderer2D::BeginScene(Ref<RenderCommandBuffer> commandBuffer, Ref<Framebuffer> framebuffer, const OrthographicCamera& camera)
-	{
-		LUX_PROFILE_FUNCTION("Renderer2D::BeginScene");
-
-		s_Data.CurrentCommandBuffer = commandBuffer;
-		s_Data.CurrentFramebuffer = framebuffer;
-		s_Data.CameraBuffer.ViewProjection = camera.GetViewProjectionMatrix();
-		s_Data.CameraUniformBuffer->SetData(commandBuffer, &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
-		StartBatch();
-	}
-
 	void Renderer2D::BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const Camera& camera, const glm::mat4& transform)
 	{
 		BeginScene(commandBuffer, SwapChainFramebuffer::Create(swapchain), camera, transform);
 	}
 
 	void Renderer2D::BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const EditorCamera& camera)
-	{
-		BeginScene(commandBuffer, SwapChainFramebuffer::Create(swapchain), camera);
-	}
-
-	void Renderer2D::BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const OrthographicCamera& camera)
 	{
 		BeginScene(commandBuffer, SwapChainFramebuffer::Create(swapchain), camera);
 	}
@@ -446,10 +430,6 @@ namespace Lux {
 		LUX_CORE_WARN_TAG("Renderer2D", "BeginScene without command buffer/framebuffer is deprecated. Use overload with RenderCommandBuffer and Framebuffer.");
 	}
 
-	void Renderer2D::BeginScene(const OrthographicCamera& camera)
-	{
-		LUX_CORE_WARN_TAG("Renderer2D", "BeginScene without command buffer/framebuffer is deprecated. Use overload with RenderCommandBuffer and Framebuffer.");
-	}
 
 	void Renderer2D::EndScene()
 	{

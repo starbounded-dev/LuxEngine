@@ -6,7 +6,7 @@
 #include "Panels/ContentBrowserPanel.h"
 
 #include "Lux/Scene/Entity.h"
-#include "Lux/Renderer/EditorCamera.h"
+#include "Lux/Editor/EditorCamera.h"
 
 #include "entt.hpp"
 
@@ -54,13 +54,13 @@ namespace Lux
 		// UI Panels
 		void UI_Toolbar();
 	private:
-		OrthographicCameraController m_CameraController;
+		EditorCamera m_CameraController;
 
 		bool m_VSync = true;
 		bool m_ViewportFocused = false, m_ViewportHovered = false;
 
 		// Temp
-		Ref<VertexArray> m_SquareVA;
+		Ref<VertexBuffer> m_SquareVA;
 		Ref<Shader> m_FlatColorShader;
 		Ref<Framebuffer> m_Framebuffer;
 

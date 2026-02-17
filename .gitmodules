@@ -8,8 +8,8 @@
 	branch = master
 [submodule "Core/vendor/imgui"]
 	path = Core/vendor/imgui
-	url = ../../starbounded-dev/imgui.git
-	branch = docking
+	url = https://github.com/StudioCherno/imgui
+	branch = hazel
 [submodule "Core/vendor/glm"]
 	path = Core/vendor/glm
 	url = ../../g-truc/glm.git

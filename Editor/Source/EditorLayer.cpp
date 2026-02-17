@@ -2,10 +2,9 @@
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Core/Application.h"
-#include "Lux/Utils/PlatformUtils.h"
 #include "Lux/Math/Math.h"
 #include "Lux/Scripting/ScriptEngine.h"
-#include "Lux/Renderer/Font.h"
+#include "Lux/Renderer/UI/Font.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/TextureImporter.h"
@@ -35,7 +34,7 @@ namespace {
 		: Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f, true), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 
-		s_Font = Font::GetDefault();
+		s_Font = Font::GetDefaultFont();
 
 	}
 

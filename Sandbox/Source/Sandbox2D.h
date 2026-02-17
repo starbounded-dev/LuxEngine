@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Lux.h"
-#include "Lux/Renderer/OrthographicCameraController.h"
 
 namespace Lux {
 	class RenderCommandBuffer;
@@ -20,7 +19,7 @@ public:
 	virtual void OnImGuiRender() override;
 	void OnEvent(Lux::Event& e) override;
 private:
-	Lux::OrthographicCameraController m_CameraController;
+	Lux::EditorCamera m_CameraController;
 
 	bool m_VSync = true;
 

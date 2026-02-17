@@ -3,7 +3,7 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
-#include "Lux/Renderer/EditorCamera.h"
+#include "Lux/Editor/EditorCamera.h"
 
 #include "entt.hpp"
 

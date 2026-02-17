@@ -538,6 +538,8 @@ namespace Lux {
 		s_RendererData->QuadIndexBuffer = IndexBuffer::Create(Buffer{ indices.data(), indices.size() * sizeof(uint32_t) });
 
 		s_RendererData->BRDFLut = Renderer::GetBRDFLutTexture();
+
+		Renderer2D::Init();
 	}
 
 	void Renderer::Shutdown()

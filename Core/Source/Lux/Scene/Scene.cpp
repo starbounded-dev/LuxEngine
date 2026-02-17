@@ -621,7 +621,7 @@ namespace Lux {
 		{
 			auto& cameraComponent = view.get<CameraComponent>(entity);
 			if (!cameraComponent.FixedAspectRatio)
-				cameraComponent.Camera.SetViewportSize(width, height);
+				cameraComponent.Camera.SetOrthographicSize(width/height);
 		}
 
 	}
@@ -791,7 +791,7 @@ namespace Lux {
 	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
 	{
 		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
-			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
+			component.Camera.SetOrthographicSize(m_ViewportWidth/m_ViewportHeight);
 	}
 
 	template<>

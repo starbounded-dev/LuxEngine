@@ -5,10 +5,6 @@
 #include "SceneImporter.h"
 #include "AudioImporter.h"
 
-/*
-#include "FontImporter.h"
-#include "ObjModelImporter.h"*/
-
 #include <map>
 
 namespace Lux {
@@ -16,7 +12,6 @@ namespace Lux {
 	using AssetImportFunction = std::function<Ref<Asset>(AssetHandle, const AssetMetadata&)>;
 	static std::map<AssetType, AssetImportFunction> s_AssetImportFunctions = {
 		{ AssetType::Scene, SceneImporter::ImportScene },
-		//{ AssetType::Texture, TextureImporter:: },
 		{ AssetType::Audio, AudioImporter::ImportAudio },/*
 		{ AssetType::ObjModel, ObjModelImporter::ImportObjModel },
 		{ AssetType::ScriptFile, SceneImporter::ImportScript }*/

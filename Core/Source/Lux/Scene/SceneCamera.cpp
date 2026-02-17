@@ -1,22 +1,15 @@
 #include "lpch.h"
-#include "Lux/Scene/SceneCamera.h"
-
-#include <glm/gtc/matrix_transform.hpp>
+#include "SceneCamera.h"
 
 namespace Lux {
 
-	SceneCamera::SceneCamera()
-	{
-		RecalculateProjection();
-	}
 
-	void SceneCamera::SetPerspective(float verticalFOV, float nearClip, float farClip)
+	void SceneCamera::SetPerspective(float degVerticalFOV, float nearClip, float farClip)
 	{
 		m_ProjectionType = ProjectionType::Perspective;
-		m_PerspectiveFOV = verticalFOV;
+		m_DegPerspectiveFOV = degVerticalFOV;
 		m_PerspectiveNear = nearClip;
 		m_PerspectiveFar = farClip;
-		RecalculateProjection();
 	}
 
 	void SceneCamera::SetOrthographic(float size, float nearClip, float farClip)
@@ -25,32 +18,27 @@ namespace Lux {
 		m_OrthographicSize = size;
 		m_OrthographicNear = nearClip;
 		m_OrthographicFar = farClip;
-		RecalculateProjection();
 	}
 
-	void SceneCamera::SetViewportSize(uint32_t width, uint32_t height)
+	void SceneCamera::SetViewportBounds(uint32_t left, uint32_t top, uint32_t right, uint32_t bottom)
 	{
-		LUX_CORE_ASSERT(width > 0 && height > 0);
-		m_AspectRatio = (float)width / (float)height;
-		RecalculateProjection();
+		m_ViewportBounds = { left, top, right, bottom };
+
+		float width = (float)(right - left);
+		float height = (float)(bottom - top);
+
+		switch (m_ProjectionType)
+		{
+		case ProjectionType::Perspective:
+			SetPerspectiveProjectionMatrix(glm::radians(m_DegPerspectiveFOV), width, height, m_PerspectiveNear, m_PerspectiveFar);
+			break;
+		case ProjectionType::Orthographic:
+			float aspect = width / height;
+			float width = m_OrthographicSize * aspect;
+			float height = m_OrthographicSize;
+			SetOrthoProjectionMatrix(width, height, m_OrthographicNear, m_OrthographicFar);
+			break;
+		}
 	}
-
-	void SceneCamera::RecalculateProjection()
-	{
-		if (m_ProjectionType == ProjectionType::Perspective)
-		{
-			m_Projection = glm::perspective(m_PerspectiveFOV, m_AspectRatio, m_PerspectiveNear, m_PerspectiveFar);
-		}
-		else
-		{
-			float orthoLeft = -m_OrthographicSize * m_AspectRatio * 0.5f;
-			float orthoRight = m_OrthographicSize * m_AspectRatio * 0.5f;
-			float orthoBottom = -m_OrthographicSize * 0.5f;
-			float orthoTop = m_OrthographicSize * 0.5f;
-
-			m_Projection = glm::ortho(orthoLeft, orthoRight, 
-				orthoBottom, orthoTop, m_OrthographicNear, m_OrthographicFar);
-		}
-		}
 
 }

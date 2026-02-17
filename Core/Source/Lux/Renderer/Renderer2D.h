@@ -1,12 +1,11 @@
 #pragma once
 
-#include "Lux/Renderer/OrthographicCamera.h"
 #include "Lux/Renderer/Texture.h"
 #include "Lux/Renderer/RenderCommandBuffer.h"
 #include "Lux/Renderer/Framebuffer.h"
 
 #include "Lux/Renderer/Camera.h"
-#include "Lux/Renderer/EditorCamera.h"
+#include "Lux/Editor/EditorCamera.h"
 #include "Lux/Renderer/UI/Font.h"
 
 #include "Lux/Scene/Components.h"
@@ -25,17 +24,14 @@ namespace Lux {
 		// Primary API: requires command buffer and framebuffer for the new renderer
 		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, Ref<Framebuffer> framebuffer, const Camera& camera, const glm::mat4& transform);
 		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, Ref<Framebuffer> framebuffer, const EditorCamera& camera);
-		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, Ref<Framebuffer> framebuffer, const OrthographicCamera& camera);
 
 		// Convenience: swapchain overload - uses SwapChainFramebuffer wrapper
 		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const Camera& camera, const glm::mat4& transform);
 		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const EditorCamera& camera);
-		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const OrthographicCamera& camera);
 
 		// Deprecated: use overloads with RenderCommandBuffer and Framebuffer
 		static void BeginScene(const Camera& camera, const glm::mat4& transform);
 		static void BeginScene(const EditorCamera& camera);
-		static void BeginScene(const OrthographicCamera& camera);
 		static void EndScene();
 		static void Flush();
 

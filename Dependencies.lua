@@ -121,6 +121,9 @@ Dependencies = {
 	Choc = {
 		IncludeDir = "%{wks.location}/Core/vendor/choc",
 	},
+	MagicEnum = {
+		IncludeDir = "%{wks.location}/Lux/vendor/magic_enum/include",
+	},
 	NFDExtended = {
 		LibName = "NFD-Extended",
 		IncludeDir = "%{wks.location}/Core/vendor/NFD-Extended/NFD-Extended/src/include"

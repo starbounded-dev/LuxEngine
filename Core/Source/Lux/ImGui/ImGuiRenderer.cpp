@@ -68,13 +68,12 @@ namespace Lux {
 		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 
 		ImGuiIO& io = ImGui::GetIO();
-
-		io.BackendRendererName = "HazelImGuiRenderer";
+		io.BackendRendererName = "LuxImGuiRenderer";
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;  // We can create multi-viewports on the Renderer side (optional)
 		// If the font texture exists and is bound to ImGui, we're done.
 		// Note: ImGui_Renderer will reset io.Fonts->TexID when new fonts are added.
-		if (m_FontTexture && io.Fonts->TexID)
+		if (m_FontTexture && io.Fonts->TexID.GetTexID())
 			return true;
 
 		unsigned char* pixels;
@@ -462,7 +461,7 @@ namespace Lux {
 				else
 				{
 					// Resolve texture handle to texture info
-					uint64_t handle = (uint64_t)pCmd->TextureId;
+					uint64_t handle = (uint64_t)pCmd->GetTexID();
 					uint32_t texIndex = (uint32_t)(handle & 0xFFFFFFFF);       // Lower 32 bits
 					uint32_t frameCounter = (uint32_t)(handle >> 32);          // Upper 32 bits
 

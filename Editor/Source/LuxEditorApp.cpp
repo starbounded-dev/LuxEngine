@@ -1,5 +1,3 @@
-
-
 #include <Lux/EntryPoint.h>
 
 #include "EditorLayer.h"
@@ -20,11 +18,10 @@ namespace Lux {
 		}
 	};
 
-	Application* CreateApplication(ApplicationCommandLineArgs args)
+	Application* CreateApplication(int argc, char** argv)
 	{
 		ApplicationSpecification spec;
 		spec.Name = "LuxEditor";
-		spec.CommandLineArgs = args;
 
 		return new LuxEditor(spec);;
 	}

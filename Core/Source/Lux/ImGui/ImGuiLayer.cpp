@@ -1,4 +1,4 @@
-#include "Lpch.h"
+#include "lpch.h"
 #include "ImGuiLayer.h"
 
 #include "Colors.h"
@@ -59,7 +59,7 @@ namespace Lux {
 			robotoDefault.Size = 15.0f;
 			UI::Fonts::Add(robotoDefault, true);
 
-			static const ImWchar s_FontAwesomeRanges[] = {LUX_ICON_MIN, LUX_ICON_MAX, 0 };
+			static const ImWchar s_FontAwesomeRanges[] = { LUX_ICON_MIN, LUX_ICON_MAX, 0 };
 			UI::FontConfiguration fontAwesome;
 			fontAwesome.FontName = "FontAwesome";
 			fontAwesome.FilePath = "Resources/Fonts/FontAwesome/fontawesome-webfont.ttf";
