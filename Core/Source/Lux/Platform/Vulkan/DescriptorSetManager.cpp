@@ -860,7 +860,7 @@ namespace Lux {
 
 		if (!InvalidatedInputResources.empty())
 		{
-			LUX_CORE_INFO_TAG("Renderer", "DescriptorSetManager::InvalidateAndUpdate ({}) - updating {} descriptors (frameIndex={})", m_Specification.DebugName, InvalidatedInputResources.size(), currentFrameIndex);
+			//LUX_CORE_INFO_TAG("Renderer", "DescriptorSetManager::InvalidateAndUpdate ({}) - updating {} descriptors (frameIndex={})", m_Specification.DebugName, InvalidatedInputResources.size(), currentFrameIndex);
 			Bake();
 		}
 

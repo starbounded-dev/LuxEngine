@@ -481,12 +481,12 @@ namespace Lux {
 	void Window::SetVSync(bool enabled)
 	{
 		m_Specification.VSync = enabled;
-		/*
+		
 		Application::Get().QueueEvent([&]()
 		{
-			// m_SwapChain->SetVSync(m_Specification.VSync);
-			// m_SwapChain->OnResize(m_Specification.Width, m_Specification.Height);
-		});*/
+			//m_SwapChain->SetVSync(m_Specification.VSync);
+			//m_SwapChain->OnResize(m_Specification.Width, m_Specification.Height);
+		});
 	}
 
 	bool Window::IsVSync() const

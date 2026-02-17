@@ -14,7 +14,7 @@ namespace Lux {
 
 	class VulkanSwapChain;
 
-	class Renderer2D
+	class Renderer2D : public RefCounted
 	{
 	public:
 
