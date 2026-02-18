@@ -538,8 +538,6 @@ namespace Lux {
 		s_RendererData->QuadIndexBuffer = IndexBuffer::Create(Buffer{ indices.data(), indices.size() * sizeof(uint32_t) });
 
 		s_RendererData->BRDFLut = Renderer::GetBRDFLutTexture();
-
-		Renderer2D::Init();
 	}
 
 	void Renderer::Shutdown()
@@ -836,7 +834,7 @@ namespace Lux {
 	{
 
 	}*/
-	/*
+	
 	std::pair<Ref<TextureCube>, Ref<TextureCube>> Renderer::CreateEnvironmentMap(const std::string& filepath)
 	{
 		if (!Renderer::GetConfig().ComputeEnvironmentMaps)
@@ -851,10 +849,10 @@ namespace Lux {
 		Ref<Texture2D> envEquirect = Texture2D::Create(equirectSpec, filepath);
 		if (!envEquirect || !envEquirect->Loaded())
 		{
-			HZ_CORE_ERROR("Failed to load environment map: {}", filepath);
+			LUX_CORE_ERROR("Failed to load environment map: {}", filepath);
 			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
 		}
-		HZ_CORE_ASSERT(envEquirect->GetFormat() == ImageFormat::RGBA32F, "Environment texture is not HDR!");
+		LUX_CORE_ASSERT(envEquirect->GetFormat() == ImageFormat::RGBA32F, "Environment texture is not HDR!");
 
 		// Create cubemap textures
 		TextureSpecification cubemapSpec;
@@ -1068,8 +1066,8 @@ namespace Lux {
 
 		return environmentMap;
 	}
-	*/
-#if 0 
+
+#if 0
 	void Renderer::RT_BindMeshBuffers(nvrhi::GraphicsState& graphicsState, Ref<MeshSource> meshSource, bool bindBoneInfluences)
 	{
 		nvrhi::VertexBufferBinding vertexBufferBinding;
@@ -1197,15 +1195,15 @@ namespace Lux {
 				s_Data->DrawInstanceCount += drawCmd.InstanceCount;
 			});
 	}
-
+#endif
 	void Renderer::RenderQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, const glm::mat4& transform)
 	{
-		HZ_CORE_VERIFY(renderCommandBuffer);
-		HZ_CORE_VERIFY(pipeline);
+		LUX_CORE_VERIFY(renderCommandBuffer);
+		LUX_CORE_VERIFY(pipeline);
 
 		Renderer::Submit([renderCommandBuffer, pipeline, material, transform]() mutable
 			{
-				HZ_PROFILE_FUNC("VulkanRenderer::RenderQuad");
+				LUX_PROFILE_FUNC("VulkanRenderer::RenderQuad");
 
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 
@@ -1307,12 +1305,12 @@ namespace Lux {
 
 	void Renderer::SubmitFullscreenQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material)
 	{
-		HZ_CORE_VERIFY(renderCommandBuffer);
-		HZ_CORE_VERIFY(pipeline);
+		LUX_CORE_VERIFY(renderCommandBuffer);
+		LUX_CORE_VERIFY(pipeline);
 
 		Renderer::Submit([renderCommandBuffer, pipeline, material]() mutable
 			{
-				HZ_PROFILE_FUNC("VulkanRenderer::SubmitFullscreenQuad");
+				LUX_PROFILE_FUNC("VulkanRenderer::SubmitFullscreenQuad");
 
 				if (material == nullptr)
 				{
@@ -1363,8 +1361,8 @@ namespace Lux {
 
 	void Renderer::SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides)
 	{
-		HZ_CORE_VERIFY(renderCommandBuffer);
-		HZ_CORE_VERIFY(pipeline);
+		LUX_CORE_VERIFY(renderCommandBuffer);
+		LUX_CORE_VERIFY(pipeline);
 
 		Buffer vertexPushConstantBuffer;
 		if (vertexShaderOverrides)
@@ -1376,7 +1374,7 @@ namespace Lux {
 
 		Renderer::Submit([renderCommandBuffer, pipeline, material, vertexPushConstantBuffer, fragmentPushConstantBuffer]() mutable
 			{
-				HZ_PROFILE_FUNC("VulkanRenderer::SubmitFullscreenQuadWithOverrides");
+				LUX_PROFILE_FUNC("VulkanRenderer::SubmitFullscreenQuadWithOverrides");
 
 				if (material == nullptr)
 				{
@@ -1450,7 +1448,6 @@ namespace Lux {
 				fragmentPushConstantBuffer.Release();
 	});
 	}
-#endif
 
 	Ref<Texture2D> Renderer::GetWhiteTexture()
 	{

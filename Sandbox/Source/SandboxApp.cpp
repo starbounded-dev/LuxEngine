@@ -12,7 +12,7 @@ class Sandbox : public Lux::Application
 {
 public:
 	Sandbox(const Lux::ApplicationSpecification& specification)
-		: Lux::Application(specification)
+		: Application(specification)
 	{
 		//PushLayer(new ExampleLayer());
 		PushLayer(new Sandbox2D());
@@ -54,7 +54,7 @@ Lux::Application* Lux::CreateApplication(int argc, char** argv)
 	specification.ScriptConfig.EnableDebugging = true;
 	specification.ScriptConfig.EnableProfiling = true;*/
 
-	specification.CoreThreadingPolicy = ThreadingPolicy::SingleThreaded;
+	specification.CoreThreadingPolicy = Lux::ThreadingPolicy::SingleThreaded;
 
 	return new Sandbox(specification);
 }

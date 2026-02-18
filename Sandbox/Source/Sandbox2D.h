@@ -19,7 +19,11 @@ public:
 	virtual void OnImGuiRender() override;
 	void OnEvent(Lux::Event& e) override;
 private:
-	Lux::EditorCamera m_CameraController;
+	Lux::EditorCamera m_EditorCamera;
+
+	Lux::Ref<Lux::Renderer2D> m_Renderer2D;
+
+	glm::mat4 m_Renderer2DProj{ 1.0f };
 
 	bool m_VSync = true;
 

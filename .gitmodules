@@ -39,3 +39,6 @@
 [submodule "Core/vendor/NFD-Extended/NFD-Extended"]
 	path = Core/vendor/NFD-Extended/NFD-Extended
 	url = https://github.com/btzy/nativefiledialog-extended
+[submodule "Core/vendor/FastNoise"]
+	path = Core/vendor/FastNoise
+	url = https://github.com/Auburns/FastNoise

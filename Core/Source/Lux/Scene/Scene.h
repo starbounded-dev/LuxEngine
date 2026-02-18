@@ -4,6 +4,7 @@
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/Renderer/Renderer2D.h"
 
 #include "entt.hpp"
 
@@ -76,6 +77,8 @@ namespace Lux {
 		int m_StepFrames = 0;
 
 		b2World* m_PhysicsWorld = nullptr;
+
+		Ref<Renderer2D> m_Renderer2D;
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 

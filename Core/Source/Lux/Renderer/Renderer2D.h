@@ -1,98 +1,236 @@
 #pragma once
 
+#include <glm/glm.hpp>
+
+#include "Lux/Core/Math/AABB.h"
+
+#include "Lux/Renderer/RenderPass.h"
 #include "Lux/Renderer/Texture.h"
 #include "Lux/Renderer/RenderCommandBuffer.h"
-#include "Lux/Renderer/Framebuffer.h"
+#include "Lux/Renderer/UniformBufferSet.h"
 
-#include "Lux/Renderer/Camera.h"
-#include "Lux/Editor/EditorCamera.h"
 #include "Lux/Renderer/UI/Font.h"
-
-#include "Lux/Scene/Components.h"
 
 namespace Lux {
 
-	class VulkanSwapChain;
+	struct Renderer2DSpecification
+	{
+		bool SwapChainTarget = false;
+		uint32_t MaxQuads = 5000;
+		uint32_t MaxLines = 1000;
+	};
 
 	class Renderer2D : public RefCounted
 	{
 	public:
+		Renderer2D(const Renderer2DSpecification& specification = Renderer2DSpecification());
+		virtual ~Renderer2D();
 
-		static void Init();
-		static void Shutdown();
+		void Init();
+		void Shutdown();
 
-		// Primary API: requires command buffer and framebuffer for the new renderer
-		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, Ref<Framebuffer> framebuffer, const Camera& camera, const glm::mat4& transform);
-		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, Ref<Framebuffer> framebuffer, const EditorCamera& camera);
+		void BeginScene(const glm::mat4& viewProj, const glm::mat4& view, bool depthTest = true);
+		void EndScene();
 
-		// Convenience: swapchain overload - uses SwapChainFramebuffer wrapper
-		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const Camera& camera, const glm::mat4& transform);
-		static void BeginScene(Ref<RenderCommandBuffer> commandBuffer, VulkanSwapChain* swapchain, const EditorCamera& camera);
+		Ref<RenderPass> GetTargetRenderPass();
+		void SetTargetFramebuffer(Ref<Framebuffer> framebuffer);
 
-		// Deprecated: use overloads with RenderCommandBuffer and Framebuffer
-		static void BeginScene(const Camera& camera, const glm::mat4& transform);
-		static void BeginScene(const EditorCamera& camera);
-		static void EndScene();
-		static void Flush();
+		void OnRecreateSwapchain();
 
-		// Native
-		static void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color);
-		static void DrawQuad(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color);
+		// Primitives
+		void DrawQuad(const glm::mat4& transform, const glm::vec4& color);
+		void DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f), glm::vec2 uv0 = glm::vec2(0.0f), glm::vec2 uv1 = glm::vec2(1.0f));
 
-		// Texture2D
-		static void DrawQuad(const glm::vec2& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
-		static void DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
+		void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color);
+		void DrawQuad(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color);
+		void DrawQuad(const glm::vec2& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f), glm::vec2 uv0 = glm::vec2(0.0f), glm::vec2 uv1 = glm::vec2(1.0f));
+		void DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f), glm::vec2 uv0 = glm::vec2(0.0f), glm::vec2 uv1 = glm::vec2(1.0f));
 
-		static void DrawQuad(const glm::mat4& transform, const glm::vec4& color, int entityID = -1);
-		static void DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f), int entityID = -1);
+		void DrawQuadBillboard(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color);
+		void DrawQuadBillboard(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 
-		// Rotated Native
-		static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const glm::vec4& color);
-		static void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const glm::vec4& color);
+		void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const glm::vec4& color);
+		void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const glm::vec4& color);
+		void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
+		void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 
-		// Rotated Texture2D
-		static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
-		static void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
+		void DrawRotatedRect(const glm::vec2& position, const glm::vec2& size, float rotation, const glm::vec4& color, const bool onTop = false);
+		void DrawRotatedRect(const glm::vec3& position, const glm::vec2& size, float rotation, const glm::vec4& color, const bool onTop = false);
 
-		// Circle
-		static void DrawCircle(const glm::mat4& transform, const glm::vec4& color, float thickness = 1.0f, float fade = 0.005f, int entityID = -1);
+		// Thickness is between 0 and 1
+		void DrawCircle(const glm::vec3& p0, const glm::vec3& rotation, float radius, const glm::vec4& color, const bool onTop = false);
+		void DrawCircle(const glm::mat4& transform, const glm::vec4& color, bool const onTop = false);
+		void FillCircle(const glm::vec2& p0, float radius, const glm::vec4& color, float thickness = 0.05f);
+		void FillCircle(const glm::vec3& p0, float radius, const glm::vec4& color, float thickness = 0.05f);
 
-		// Line
-		static void DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, int entityID = -1);
+		void DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color = glm::vec4(1.0f), const bool onTop = false);
 
-		// Rect
-		static void DrawRect(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color, int entityID = -1);
-		static void DrawRect(const glm::mat4& transform, const glm::vec4& color, int entityID = -1);
+		void DrawTransform(const glm::mat4& transform, float scale = 1.0f, const bool onTop = true);
 
-		// Sprite
-		static void DrawSprite(const glm::mat4& transform, SpriteRendererComponent& src, int entityID);
+		void DrawAABB(const AABB& aabb, const glm::mat4& transform, const glm::vec4& color = glm::vec4(1.0f), const bool onTop = false);
 
-		// Text
-		struct TextParams
-		{
-			glm::vec4 Color{ 1.0f };
-			float Kerning = 0.0f;
-			float LineSpacing = 0.0f;
-		};
-		static void DrawString(const std::string& string, Ref<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID = -1);
-		static void DrawString(const std::string& string, const glm::mat4& transform, const TextComponent& component, int entityID = -1);
+		void DrawString(const std::string& string, const glm::vec3& position, float maxWidth, const glm::vec4& color = glm::vec4(1.0f));
+		void DrawString(const std::string& string, const Ref<Font>& font, const glm::vec3& position, float maxWidth, const glm::vec4& color = glm::vec4(1.0f));
+		void DrawString(const std::string& string, const Ref<Font>& font, const glm::mat4& transform, float maxWidth, const glm::vec4& color = glm::vec4(1.0f), float lineHeightOffset = 0.0f, float kerningOffset = 0.0f);
 
-		static float GetLineWidth();
-		static void SetLineWidth(float width);
+		float GetLineWidth();
+		void SetLineWidth(float lineWidth);
 
 		// Stats
-		struct Statistics
+		struct DrawStatistics
 		{
 			uint32_t DrawCalls = 0;
 			uint32_t QuadCount = 0;
-			uint32_t GetTotalVertexCount() const { return QuadCount * 4; }
-			uint32_t GetTotalIndexCount() const { return QuadCount * 6; }
+			uint32_t LineCount = 0;
+
+			uint32_t GetTotalVertexCount() { return QuadCount * 4 + LineCount * 2; }
+			uint32_t GetTotalIndexCount() { return QuadCount * 6 + LineCount * 2; }
 		};
 
-		static void ResetStats();
-		static Statistics GetStats();
+		struct MemoryStatistics
+		{
+			uint64_t Used = 0;
+			uint64_t TotalAllocated = 0;
+
+			uint64_t GetAllocatedPerFrame() const;
+		};
+		void ResetStats();
+		DrawStatistics GetDrawStats();
+		MemoryStatistics GetMemoryStats();
+
+		const Renderer2DSpecification& GetSpecification() const { return m_Specification; }
 	private:
-		static void StartBatch();
-		static void NextBatch();
+		void Flush();
+
+		void AddQuadBuffer();
+		void AddLineBuffer(const bool onTop);
+		void AddTextBuffer();
+		void AddCircleBuffer();
+	private:
+		struct QuadVertex
+		{
+			glm::vec3 Position;
+			glm::vec4 Color;
+			glm::vec2 TexCoord;
+			float TexIndex;
+			float TilingFactor;
+		};
+
+		struct TextVertex
+		{
+			glm::vec3 Position;
+			glm::vec4 Color;
+			glm::vec2 TexCoord;
+			float TexIndex;
+		};
+
+		struct LineVertex
+		{
+			glm::vec3 Position;
+			glm::vec4 Color;
+		};
+
+		struct CircleVertex
+		{
+			glm::vec3 WorldPosition;
+			float Thickness;
+			glm::vec2 LocalPosition;
+			glm::vec4 Color;
+		};
+
+		QuadVertex*& GetWriteableQuadBuffer();
+		LineVertex*& GetWriteableLineBuffer(const bool onTop);
+		TextVertex*& GetWriteableTextBuffer();
+		CircleVertex*& GetWriteableCircleBuffer();
+
+		static const uint32_t MaxTextureSlots = 32; // TODO: RenderCaps
+
+		const uint32_t c_MaxVertices;
+		const uint32_t c_MaxIndices;
+
+		const uint32_t c_MaxLineVertices;
+		const uint32_t c_MaxLineIndices;
+
+		Renderer2DSpecification m_Specification;
+		Ref<RenderCommandBuffer> m_RenderCommandBuffer;
+
+		Ref<Texture2D> m_WhiteTexture;
+
+		using VertexBufferPerFrame = std::vector<Ref<VertexBuffer>>;
+
+		// Quads
+		Ref<RenderPass> m_QuadPass;
+		std::vector<VertexBufferPerFrame> m_QuadVertexBuffers;
+		Ref<IndexBuffer> m_QuadIndexBuffer;
+		Ref<Material> m_QuadMaterial;
+
+		uint32_t m_QuadIndexCount = 0;
+		using QuadVertexBasePerFrame = std::vector<QuadVertex*>;
+		std::vector<QuadVertexBasePerFrame> m_QuadVertexBufferBases;
+		std::vector<QuadVertex*> m_QuadVertexBufferPtr;
+		uint32_t m_QuadBufferWriteIndex = 0;
+
+		Ref<Pipeline> m_CirclePipeline;
+		Ref<Material> m_CircleMaterial;
+		std::vector<VertexBufferPerFrame> m_CircleVertexBuffers;
+		uint32_t m_CircleIndexCount = 0;
+		using CircleVertexBasePerFrame = std::vector<CircleVertex*>;
+		std::vector<CircleVertexBasePerFrame> m_CircleVertexBufferBases;
+		std::vector<CircleVertex*> m_CircleVertexBufferPtr;
+		uint32_t m_CircleBufferWriteIndex = 0;
+
+		std::array<Ref<Texture2D>, MaxTextureSlots> m_TextureSlots;
+		uint32_t m_TextureSlotIndex = 1; // 0 = white texture
+
+		glm::vec4 m_QuadVertexPositions[4];
+
+		// Lines
+		Ref<RenderPass> m_LinePass;
+		std::vector<VertexBufferPerFrame> m_LineVertexBuffers;
+		std::vector<VertexBufferPerFrame> m_LineOnTopVertexBuffers;
+		Ref<IndexBuffer> m_LineIndexBuffer;
+		Ref<IndexBuffer> m_LineOnTopIndexBuffer;
+		Ref<Material> m_LineMaterial;
+
+		uint32_t m_LineIndexCount = 0;
+		uint32_t m_LineOnTopIndexCount = 0;
+		using LineVertexBasePerFrame = std::vector<LineVertex*>;
+		std::vector<LineVertexBasePerFrame> m_LineVertexBufferBases;
+		std::vector<LineVertexBasePerFrame> m_LineOnTopVertexBufferBases;
+		std::vector<LineVertex*> m_LineVertexBufferPtr;
+		std::vector<LineVertex*> m_LineOnTopVertexBufferPtr;
+		uint32_t m_LineBufferWriteIndex = 0;
+		uint32_t m_LineOnTopBufferWriteIndex = 0;
+
+		// Text
+		Ref<RenderPass> m_TextPass;
+		std::vector<VertexBufferPerFrame> m_TextVertexBuffers;
+		Ref<IndexBuffer> m_TextIndexBuffer;
+		Ref<Material> m_TextMaterial;
+		std::array<Ref<Texture2D>, MaxTextureSlots> m_FontTextureSlots;
+		uint32_t m_FontTextureSlotIndex = 0;
+
+		uint32_t m_TextIndexCount = 0;
+		using TextVertexBasePerFrame = std::vector<TextVertex*>;
+		std::vector<TextVertexBasePerFrame> m_TextVertexBufferBases;
+		std::vector<TextVertex*> m_TextVertexBufferPtr;
+		uint32_t m_TextBufferWriteIndex = 0;
+
+		glm::mat4 m_CameraViewProj;
+		glm::mat4 m_CameraView;
+		bool m_DepthTest = true;
+
+		float m_LineWidth = 1.0f;
+
+		DrawStatistics m_DrawStats;
+		MemoryStatistics m_MemoryStats;
+
+		Ref<UniformBufferSet> m_UBSCamera;
+
+		struct UBCamera
+		{
+			glm::mat4 ViewProjection;
+		};
 	};
+
 }

@@ -20,9 +20,8 @@
 
 #include "nvrhi/utils.h"
 
-
 Sandbox2D::Sandbox2D()
-	:Layer("Sandbox2D"), m_CameraController(60.0f, 1600.0f, 900.0f, 0.1f, 1000.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+	:Layer("Sandbox2D"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 1000.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 {
 
 }
@@ -33,6 +32,9 @@ void Sandbox2D::OnAttach()
 
 	m_CommandBuffer = Lux::RenderCommandBuffer::Create(0, "Sandbox2D");
 	m_CheckerboardTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
+
+	m_Renderer2D = Lux::Ref<Lux::Renderer2D>::Create();
+	m_Renderer2D->SetLineWidth(2.0f);
 }
 
 void Sandbox2D::OnDetach()
@@ -45,10 +47,14 @@ void Sandbox2D::OnUpdate(Lux::Timestep ts)
 	LUX_PROFILE_FUNCTION("Sandbox2D::OnUpdate");
 
 	// Update
-	m_CameraController.OnUpdate(ts);
+	m_EditorCamera.OnUpdate(ts);
 
 	// Render
-	Lux::Renderer2D::ResetStats();
+		m_Renderer2D->ResetStats();
+
+	auto [width, height] = Lux::Application::Get().GetWindow().GetSize();
+	m_Renderer2DProj = glm::ortho(0.0f, (float)width, 0.0f, (float)height);
+	m_EditorCamera.SetViewportBounds(0, 0, width, height);
 
 	auto& swapchain = Lux::Application::Get().GetWindow().GetSwapChain();
 	Lux::Ref<Lux::Framebuffer> framebuffer = Lux::SwapChainFramebuffer::Create(&swapchain);
@@ -69,10 +75,10 @@ void Sandbox2D::OnUpdate(Lux::Timestep ts)
 
 		Lux::Ref<Lux::Texture2D> bgTexture = m_CheckerboardTexture ? m_CheckerboardTexture : Lux::Renderer::GetWhiteTexture();
 		// Put geometry well inside the frustum to avoid any near-plane clipping ambiguity
-		Lux::Renderer2D::BeginScene(m_CommandBuffer, framebuffer, m_CameraController);
-		Lux::Renderer2D::DrawQuad({ 0.0f, 0.0f, -5.0f }, { 20.0f, 20.0f }, bgTexture, 10.0f);
-		//Lux::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f, -5.0f }, { 0.8f, 0.8f }, rotation, { 0.8f, 0.2f, 0.3f, 1.0f });
-		Lux::Renderer2D::EndScene();
+		m_Renderer2D->BeginScene(m_Renderer2DProj, glm::mat4(1.0f));
+		m_Renderer2D->DrawQuad({ 0.0f, 0.0f, -5.0f }, { 20.0f, 20.0f }, bgTexture, 10.0f);
+		m_Renderer2D->DrawRotatedQuad({ 1.0f, 0.0f, -5.0f }, { 0.8f, 0.8f }, rotation, { 0.8f, 0.2f, 0.3f, 1.0f });
+		m_Renderer2D->EndScene();
 	}
 
 	m_CommandBuffer->End();
@@ -89,7 +95,7 @@ void Sandbox2D::OnImGuiRender()
 	//Camera Info
 	ImGui::Begin("Camera Info");
 
-	auto stats = Lux::Renderer2D::GetStats();
+	auto stats = m_Renderer2D->GetDrawStats();
 	ImGui::Text("Renderer2D Stats:");
 	ImGui::Text("Draw Calls: %d", stats.DrawCalls);
 	ImGui::Text("Quads: %d", stats.QuadCount);
@@ -110,5 +116,5 @@ void Sandbox2D::OnImGuiRender()
 
 void Sandbox2D::OnEvent(Lux::Event& e)
 {
-	m_CameraController.OnEvent(e);
+	m_EditorCamera.OnEvent(e);
 }

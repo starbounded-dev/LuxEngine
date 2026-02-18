@@ -5,7 +5,9 @@
 #include "Lux/Renderer/VertexBuffer.h"
 #include "Lux/Renderer/Shader.h"
 #include "Lux/Renderer/UniformBuffer.h"
+#include "Lux/Renderer/IndexBuffer.h"
 #include "Lux/Renderer/Framebuffer.h"
+#include "Lux/Renderer/Material.h"
 
 #include "PipelineSpecification.h"
 

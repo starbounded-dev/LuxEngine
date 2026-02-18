@@ -29,6 +29,8 @@ namespace Lux {
 
 	Scene::Scene()
 	{
+		m_Renderer2D = Ref<Renderer2D>::Create();
+		m_Renderer2D->Init();
 	}
 
 	Scene::~Scene()
@@ -530,7 +532,8 @@ namespace Lux {
 
 		if (mainCamera)
 		{
-			Renderer2D::BeginScene(*mainCamera, cameraTransform);
+			glm::mat4 view = glm::inverse(cameraTransform);
+			m_Renderer2D->BeginScene(mainCamera->GetProjectionMatrix()* view, view);
 
 			// Draw sprites
 			{
@@ -539,7 +542,11 @@ namespace Lux {
 				{
 					auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
-					Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
+					Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
+					if (texture)
+						m_Renderer2D->DrawQuad(transform.GetTransform(), texture, sprite.TilingFactor, sprite.Color);
+					else
+						m_Renderer2D->DrawQuad(transform.GetTransform(), sprite.Color); // fallback to solid color
 				}
 			}
 
@@ -550,7 +557,7 @@ namespace Lux {
 				{
 					auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
 
-					Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, (int)entity);
+					m_Renderer2D->DrawCircle(transform.GetTransform(), circle.Color);
 				}
 			}
 
@@ -561,11 +568,15 @@ namespace Lux {
 				{
 					auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
 
-					Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, (int)entity);
+					Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
+					if (font)
+					{
+						m_Renderer2D->DrawString(text.TextString, font, transform.GetTransform(), text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
+					}
 				}
 			}
 
-			Renderer2D::EndScene();
+			m_Renderer2D->EndScene();
 		}
 
 	}
@@ -621,7 +632,7 @@ namespace Lux {
 		{
 			auto& cameraComponent = view.get<CameraComponent>(entity);
 			if (!cameraComponent.FixedAspectRatio)
-				cameraComponent.Camera.SetOrthographicSize(width/height);
+				cameraComponent.Camera.SetOrthographicSize((float)width / (float)height);
 		}
 
 	}
@@ -736,7 +747,7 @@ namespace Lux {
 
 	void Scene::RenderScene(EditorCamera& camera)
 	{
-		Renderer2D::BeginScene(camera);
+		m_Renderer2D->BeginScene(camera.GetViewProjection(), camera.GetViewMatrix());
 
 		// Draw sprites
 		{
@@ -744,7 +755,11 @@ namespace Lux {
 			for (auto entity : group)
 			{
 				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
-				Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
+				Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
+				if (texture)
+					m_Renderer2D->DrawQuad(transform.GetTransform(), texture, sprite.TilingFactor, sprite.Color);
+				else
+					m_Renderer2D->DrawQuad(transform.GetTransform(), sprite.Color);
 			}
 		}
 
@@ -754,7 +769,7 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
-				Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, (int)entity);
+				m_Renderer2D->DrawCircle(transform.GetTransform(), circle.Color);
 			}
 		}
 		// Draw text
@@ -763,11 +778,15 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-				Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, (int)entity);
+				Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
+				if (font)
+				{
+					m_Renderer2D->DrawString(text.TextString, font, transform.GetTransform(), text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
+				}
 			}
 		}
 
-		Renderer2D::EndScene();
+		m_Renderer2D->EndScene();
 	}
 
 	template<typename T>
@@ -791,7 +810,7 @@ namespace Lux {
 	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
 	{
 		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
-			component.Camera.SetOrthographicSize(m_ViewportWidth/m_ViewportHeight);
+			component.Camera.SetOrthographicSize((float)m_ViewportWidth / (float)m_ViewportHeight);
 	}
 
 	template<>

@@ -118,6 +118,9 @@ Dependencies = {
 		LibName = "%{wks.location}/Core/vendor/mono/lib/%{cfg.buildcfg}/libmono-static-sgen.lib",
 		IncludeDir = "%{wks.location}/Core/vendor/mono/include",
 	},
+	FastNoise = {
+		IncludeDir = "%{wks.location}/Core/vendor/FastNoise",
+	},
 	Choc = {
 		IncludeDir = "%{wks.location}/Core/vendor/choc",
 	},
