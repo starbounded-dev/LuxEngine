@@ -227,7 +227,7 @@ namespace Lux {
 		Ref<Texture2D> BRDFLutTexture;
 		Ref<Texture2D> HilbertLut;
 		Ref<TextureCube> BlackCubeTexture;
-		//Ref<Environment> EmptyEnvironment;
+		Ref<Environment> EmptyEnvironment;
 
 		std::unordered_map<std::string, std::string> GlobalShaderMacros;
 
@@ -547,9 +547,13 @@ namespace Lux {
 			s_ShaderDependencies.clear();
 		}
 
-		// From VulkanRenderer::Init()
-		VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
-		vkDeviceWaitIdle(device);
+		// Wait for device to become idle before cleanup
+		auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
+		if (deviceManager && deviceManager->GetDevice())
+		{
+			VkDevice device = (VkDevice)deviceManager->GetDevice()->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+			vkDeviceWaitIdle(device);
+		}
 
 
 #if LUX_HAS_SHADER_COMPILER
@@ -1474,11 +1478,11 @@ namespace Lux {
 		return s_Data->BlackCubeTexture;
 	}
 
-	/*
+	
 	Ref<Environment> Renderer::GetEmptyEnvironment()
 	{
 		return s_Data->EmptyEnvironment;
-	}*/
+	}
 
 	RenderCommandQueue& Renderer::GetRenderCommandQueue()
 	{

@@ -102,10 +102,6 @@ namespace Lux {
 
 		if (opened)
 		{
-			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-			bool opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str());
-			if (opened)
-				ImGui::TreePop();
 			ImGui::TreePop();
 		}
 
@@ -330,9 +326,6 @@ namespace Lux {
 
 				if (camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
 				{
-					float perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV());
-					if (ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
-						camera.SetPerspectiveVerticalFOV(glm::radians(perspectiveVerticalFov));
 
 					float perspectiveNear = camera.GetPerspectiveNearClip();
 					if (ImGui::DragFloat("Near", &perspectiveNear))
@@ -513,20 +506,7 @@ namespace Lux {
 				const char* currentBodyTypeString = bodyTypeStrings[(int)component.Type];
 				if (ImGui::BeginCombo("Body Type", currentBodyTypeString))
 				{
-					for (int i = 0; i < 2; i++)
-					{
-						bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
-						if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
-						{
-							currentBodyTypeString = bodyTypeStrings[i];
-							component.Type = (RigidBody2DComponent::BodyType)i;
-						}
-
-						if (isSelected)
-							ImGui::SetItemDefaultFocus();
-					}
-
-					ImGui::EndCombo();
+					for (int i = 0; i < 3; i++);
 				}
 
 				ImGui::Checkbox("Fixed Rotation", &component.FixedRotation);
@@ -634,26 +614,12 @@ namespace Lux {
 				{
 					Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(component.Audio);
 
-					float volumeMultiplier = config.VolumeMultiplier;
-					if (ImGui::SliderFloat("Volume Multiplier", &config.VolumeMultiplier, 0.0f, 2.0f, "%.2f"))
-					{
-						config.VolumeMultiplier = volumeMultiplier;
-					}
+					ImGui::SliderFloat("Volume Multiplier", &config.VolumeMultiplier, 0.0f, 2.0f, "%.2f");
 
+					ImGui::SliderFloat("Pitch Multiplier", &config.PitchMultiplier, 0.0f, 3.0f, "%.2f");
 
-					float pitchMultiplier = config.PitchMultiplier;
-					if (ImGui::SliderFloat("Pitch Multiplier", &config.PitchMultiplier, 0.0f, 3.0f, "%.2f"))
-					{
-						config.PitchMultiplier = pitchMultiplier;
-					}
+					ImGui::Checkbox("Play On Awake", &config.PlayOnAwake);
 
-					bool playOnAwake = config.PlayOnAwake;
-					if (ImGui::Checkbox("Play On Awake", &config.PlayOnAwake))
-					{
-						config.PlayOnAwake = playOnAwake;
-					}
-
-					bool spatialization = config.Spatialization;
 					if (ImGui::Checkbox("Spatialization", &config.Spatialization))
 					{
 						audioSource->SetSpatialization(config.Spatialization);
@@ -890,22 +856,22 @@ namespace Lux {
 				}
 			});
 
-			DrawComponent<AudioListenerComponent>("Audio Listener", entity, [](AudioListenerComponent& component)
-				{
-					auto& config = component.Config;
+		DrawComponent<AudioListenerComponent>("Audio Listener", entity, [](AudioListenerComponent& component)
+			{
+				auto& config = component.Config;
 
-					ImGui::Checkbox("Active", &component.Active);
+				ImGui::Checkbox("Active", &component.Active);
 
-					float innerAngle = glm::degrees(config.ConeInnerAngle);
-					if (ImGui::SliderFloat("Cone Inner Angle", &innerAngle, 0.0f, 360.0f, "%.2f"))
-						config.ConeInnerAngle = glm::radians(innerAngle);
+				float innerAngle = glm::degrees(config.ConeInnerAngle);
+				if (ImGui::SliderFloat("Cone Inner Angle", &innerAngle, 0.0f, 360.0f, "%.2f"))
+					config.ConeInnerAngle = glm::radians(innerAngle);
 
-					float outerAngle = glm::degrees(config.ConeOuterAngle);
-					if (ImGui::SliderFloat("Cone Outer Angle", &outerAngle, 0.0f, 360.0f, "%.2f"))
-						config.ConeOuterAngle = glm::radians(outerAngle);
+				float outerAngle = glm::degrees(config.ConeOuterAngle);
+				if (ImGui::SliderFloat("Cone Outer Angle", &outerAngle, 0.0f, 360.0f, "%.2f"))
+					config.ConeOuterAngle = glm::radians(outerAngle);
 
-					ImGui::SliderFloat("Cone Outer Gain", &config.ConeOuterGain, 0.0f, 1.0f, "%.2f");
-				});
+				ImGui::SliderFloat("Cone Outer Gain", &config.ConeOuterGain, 0.0f, 1.0f, "%.2f");
+			});
 
 
 	}

@@ -514,7 +514,8 @@ namespace Lux {
 			.setAttachmentFragmentShadingRate(true);
 		auto vulkan13features = vk::PhysicalDeviceVulkan13Features()
 			.setSynchronization2(synchronization2Supported)
-			.setMaintenance4(maintenance4Features.maintenance4);
+			.setMaintenance4(maintenance4Features.maintenance4)
+			.setDynamicRendering(true);
 
 		pNext = nullptr;
 		APPEND_EXTENSION(accelStructSupported, accelStructFeatures)

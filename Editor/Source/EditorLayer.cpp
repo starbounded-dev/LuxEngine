@@ -2,9 +2,10 @@
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Core/Application.h"
-#include "Lux/Math/Math.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Renderer/UI/Font.h"
+
+#include "Lux/Utilities/FileSystem.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/TextureImporter.h"
@@ -16,22 +17,31 @@
 #include <imgui/imgui.h>
 #include "imgui/imgui_internal.h"
 #include "ImGuizmo.h"
+#include "Lux/Debug/Profiler.h"
+#include "Lux/Utilities/CommandLineParser.h"
+#include "Lux/Utilities/FileDialogs.h"
 
 namespace Lux {
 
-namespace {
-	ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
-	{
-		auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
-		return imguiRenderer->CreateFrameTexture(texture->GetImage()->GetHandle().Get(), nvrhi::AllSubresources);
+	namespace {
+		ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
+		{
+			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
+			return imguiRenderer->CreateFrameTexture(texture->GetImage()->GetHandle().Get(), nvrhi::AllSubresources);
+		}
+
+		ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Image2D>& image)
+		{
+			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
+			return imguiRenderer->CreateFrameTexture(image->GetHandle().Get(), nvrhi::AllSubresources);
+		}
 	}
-}
 
 
 	static Ref<Font> s_Font;
 
 	EditorLayer::EditorLayer()
-		: Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f, true), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 1000.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 
 		s_Font = Font::GetDefaultFont();
@@ -49,15 +59,19 @@ namespace {
 		m_IconStop = TextureImporter::LoadTexture2D("Resources/Icons/StopButton.png");
 
 		FramebufferSpecification fbSpec;
-		fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
+		fbSpec.Attachments = { ImageFormat::RGBA32F, ImageFormat::Depth };
 		fbSpec.Width = 1280;
 		fbSpec.Height = 720;
+		fbSpec.ClearColorOnLoad = true;
+		fbSpec.DebugName = "EditorFramebuffer";
 		m_Framebuffer = Framebuffer::Create(fbSpec);
 
-		m_EditorScene = CreateRef<Scene>();
+		m_EditorScene = Ref<Scene>::Create();
 		m_ActiveScene = m_EditorScene;
 
-		auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs;
+		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
+		/*
+		//auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs;
 		if (commandLineArgs.Count > 1)
 		{
 			auto projectFilePath = commandLineArgs[1];
@@ -73,16 +87,15 @@ namespace {
 				Application::Get().Close();
 			}
 		}
-
-		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
-
-		Renderer2D::SetLineWidth(4.0f);
+		*/
+		m_Renderer2D = Ref<Renderer2D>::Create();
+		m_Renderer2D->SetLineWidth(4.0f);
 	}
 
 	void EditorLayer::OnDetach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
-		
+
 		// Release Vulkan resources before GPU device is destroyed
 		m_ActiveScene.reset();
 		m_EditorScene.reset();
@@ -93,12 +106,12 @@ namespace {
 		m_IconSimulate.reset();
 		m_IconPause.reset();
 		m_IconStep.reset();
-		
+
 		// Additional resources that need cleanup
 		m_SquareVA.reset();
 		m_FlatColorShader.reset();
 		m_ContentBrowserPanel.reset();
-		
+
 		// Reset static font reference
 		s_Font.reset();
 	}
@@ -115,46 +128,36 @@ namespace {
 			(spec.Width != m_ViewportSize.x || spec.Height != m_ViewportSize.y))
 		{
 			m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-			m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
-			m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
+			m_EditorCamera.SetViewportBounds(0,0,m_ViewportSize.x, m_ViewportSize.y);
 		}
 
 		// Render
-		Renderer2D::ResetStats();
-		m_Framebuffer->Bind();
-		RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
-		RenderCommand::Clear();
-
-		// Clear our entity ID attachment to -1
-		m_Framebuffer->ClearAttachment(1, -1);
+		m_Renderer2D->ResetStats();
 
 		switch (m_SceneState)
 		{
-			case SceneState::Edit:
-				{
-				if (m_ViewportFocused)
-					m_CameraController.OnUpdate(ts);
+		case SceneState::Edit:
+		{
+			m_EditorCamera.OnUpdate(ts);
 
-				m_EditorCamera.OnUpdate(ts);
+			m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
+			break;
+		}
 
-				m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
-				break;
-				}
+		case SceneState::Simulate:
+		{
+			m_EditorCamera.OnUpdate(ts);
 
-			case SceneState::Simulate:
-			{
-				m_EditorCamera.OnUpdate(ts);
-
-				m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
-				break;
-			}
+			m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
+			break;
+		}
 
 
-			case SceneState::Play:
-				{
-					m_ActiveScene->OnUpdateRuntime(ts);
-					break;
-				}
+		case SceneState::Play:
+		{
+			m_ActiveScene->OnUpdateRuntime(ts);
+			break;
+		}
 		}
 
 		auto [mx, my] = ImGui::GetMousePos();
@@ -164,16 +167,14 @@ namespace {
 		my = viewportSize.y - my;
 		int mouseX = (int)mx;
 		int mouseY = (int)my;
-
+		/*
 		if (mouseX >= 0 && mouseY >= 0 && mouseX < (int)viewportSize.x && mouseY < (int)viewportSize.y)
 		{
-			int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+			int pixelData = m_Framebuffer->(1, mouseX, mouseY);
 			m_HoveredEntity = pixelData == -1 ? Entity() : Entity((entt::entity)pixelData, m_ActiveScene.get());
-		}
+		}*/
 
 		OnOverlayRender();
-
-		m_Framebuffer->Unbind();
 	}
 
 	void EditorLayer::OnImGuiRender()
@@ -280,7 +281,7 @@ namespace {
 		ImGui::Text("Hovered Entity: %s", name.c_str());
 #endif
 
-		auto stats = Renderer2D::GetStats();
+		auto stats = m_Renderer2D->GetDrawStats();
 		ImGui::Text("Renderer2D Stats:");
 		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
 		ImGui::Text("Quads: %d", stats.QuadCount);
@@ -300,7 +301,7 @@ namespace {
 
 		ImGui::Separator();
 
-		ImGui::Image(GetImGuiTextureID(s_Font->GetAtlasTexture()), { 512,512 }, { 0, 1 }, { 1, 0 });
+		ImGui::Image(GetImGuiTextureID(s_Font->GetFontAtlas()), { 512,512 }, { 0, 1 }, { 1, 0 });
 
 		ImGui::End();
 
@@ -315,13 +316,15 @@ namespace {
 
 		m_ViewportFocused = ImGui::IsWindowFocused();
 		m_ViewportHovered = ImGui::IsWindowHovered();
-		Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportFocused && !m_ViewportHovered);
+		Application::Get().GetImGuiLayer()->AllowInputEvents(!m_ViewportFocused && !m_ViewportHovered);
 
 		ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-		uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
-		ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0,1 }, ImVec2{ 1,0 });
+		ImTextureID texID = GetImGuiTextureID(m_Framebuffer->GetImage(0));
+		ImGui::Image(texID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0,1 }, ImVec2{ 1,0 });
+
+		m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 		if (ImGui::BeginDragDropTarget())
 		{
@@ -350,7 +353,7 @@ namespace {
 			// glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
 
 			// Editor camera
-			const glm::mat4& cameraProjection = m_EditorCamera.GetProjection();
+			const glm::mat4& cameraProjection = m_EditorCamera.GetViewProjection();
 			glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
 
 			// Entity transform
@@ -365,7 +368,7 @@ namespace {
 				snapValue = 45.0f;
 
 			float snapValues[3] = { snapValue, snapValue, snapValue };
-
+			/*
 			ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
 				(ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform),
 				nullptr, snap ? snapValues : nullptr);
@@ -373,13 +376,13 @@ namespace {
 			if (ImGuizmo::IsUsing())
 			{
 				glm::vec3 translation, rotation, scale;
-				Math::DecomposeTransform(transform, translation, rotation, scale);
+				glm::decDecomposeTransform(transform, translation, rotation, scale);
 
 				glm::vec3 deltaRotation = rotation - tc.Rotation;
 				tc.Translation = translation;
 				tc.Rotation += deltaRotation;
 				tc.Scale = scale;
-			}
+			}*/
 		}
 
 		ImGui::End();
@@ -477,16 +480,12 @@ namespace {
 		ImGui::PopStyleVar(2);
 		ImGui::PopStyleColor(3);
 		ImGui::End();
-
-		ImGui::End();
 	}
 
 
 	void EditorLayer::OnEvent(Event& e)
 	{
-		m_CameraController.OnEvent(e);
-
-		if (m_SceneState == SceneState::Edit)
+		if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate)
 		{
 			m_EditorCamera.OnEvent(e);
 		}
@@ -494,14 +493,14 @@ namespace {
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
 		dispatcher.Dispatch<MouseButtonPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
-		dispatcher.Dispatch<WindowDropEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnWindowDrop));
+		//dispatcher.Dispatch<WindowDropEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnWindowDrop));
 	}
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
-	{
+	{/*
 		// Shortcuts
-		if (e.IsRepeat())
-			return false;
+		if (e.GetRepeatCount())
+			return false;*/
 
 		bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
 		bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
@@ -509,91 +508,91 @@ namespace {
 		switch (e.GetKeyCode())
 		{
 			// File Commands
-			case Key::N:
-			{
-				if (control)
-					NewScene();
+		case Key::N:
+		{
+			if (control)
+				NewScene();
 
-				break;
-			}
-			case Key::O:
-			{
-				if (control)
-					OpenProject();
+			break;
+		}
+		case Key::O:
+		{
+			if (control)
+				OpenProject();
 
-				break;
-			}
-			case Key::S:
+			break;
+		}
+		case Key::S:
+		{
+			if (control)
 			{
-				if (control)
-				{
-					if (shift)
-						SaveSceneAs();
-					else
-						SaveScene();
-				}
-
-				break;
-			}
-
-			// Scene Commands
-			case Key::D:
-			{
-				if (control)
-					OnDuplicateEntity();
-
-				break;
-			}
-
-			// Gizmos
-			case Key::Q:
-			{
-				if (!ImGuizmo::IsUsing())
-					m_GizmoType = -1;
-				break;
-			}
-			case Key::W:
-			{
-				if (!ImGuizmo::IsUsing())
-					m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
-				break;
-			}
-			case Key::E:
-			{
-				if (!ImGuizmo::IsUsing())
-					m_GizmoType = ImGuizmo::OPERATION::ROTATE;
-				break;
-			}
-			case Key::R:
-			{
-				if (control)
-				{
-					ScriptEngine::ReloadAssembly();
-				}
+				if (shift)
+					SaveSceneAs();
 				else
-				{
-					if (!ImGuizmo::IsUsing())
-						m_GizmoType = ImGuizmo::OPERATION::SCALE;
-				}
-				break;
+					SaveScene();
 			}
 
-			case Key::Delete:
+			break;
+		}
+
+		// Scene Commands
+		case Key::D:
+		{
+			if (control)
+				OnDuplicateEntity();
+
+			break;
+		}
+
+		// Gizmos
+		case Key::Q:
+		{
+			if (!ImGuizmo::IsUsing())
+				m_GizmoType = -1;
+			break;
+		}
+		case Key::W:
+		{
+			if (!ImGuizmo::IsUsing())
+				m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
+			break;
+		}
+		case Key::E:
+		{
+			if (!ImGuizmo::IsUsing())
+				m_GizmoType = ImGuizmo::OPERATION::ROTATE;
+			break;
+		}
+		case Key::R:
+		{
+			if (control)
 			{
-				if (Application::Get().GetImGuiLayer()->GetActiveWidgetID() == 0)
-				{
-					Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
-					if (selectedEntity)
-					{
-						m_SceneHierarchyPanel.SetSelectedEntity({});
-						m_ActiveScene->DestroyEntity(selectedEntity);
-					}
-				}
-				break;
+				ScriptEngine::ReloadAssembly();
 			}
+			else
+			{
+				if (!ImGuizmo::IsUsing())
+					m_GizmoType = ImGuizmo::OPERATION::SCALE;
+			}
+			break;
+		}
+		/*
+		case Key::Delete:
+		{
+			if (Application::Get().GetImGuiLayer()->GetActiveWidgetID() == 0)
+			{
+				Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+				if (selectedEntity)
+				{
+					m_SceneHierarchyPanel.SetSelectedEntity({});
+					m_ActiveScene->DestroyEntity(selectedEntity);
+				}
+			}
+			break;
+		}*/
 
-			default:
-				break;
+		default:
+			break;
 		}
 
 		return false;
@@ -601,21 +600,12 @@ namespace {
 
 	bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent& e)
 	{
-		if (e.GetMouseButton() == Mouse::ButtonLeft)
+		if (e.GetMouseButton() == MouseButton::Left)
 		{
 			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
 				m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
 		}
 		return false;
-	}
-
-	bool EditorLayer::OnWindowDrop(WindowDropEvent& e)
-	{
-		// TODO: if a project is dropped in, probably open it
-
-		//AssetManager::ImportAsset();
-
-		return true;
 	}
 
 	void EditorLayer::OnOverlayRender()
@@ -625,11 +615,14 @@ namespace {
 			Entity camera = m_ActiveScene->GetPrimaryCameraEntity();
 			if (!camera)
 				return;
-			Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera, camera.GetComponent<TransformComponent>().GetTransform());
+			const auto& cam = camera.GetComponent<CameraComponent>().Camera;
+			const glm::mat4 cameraTransform = camera.GetComponent<TransformComponent>().GetTransform();
+			glm::mat4 viewMatrix = glm::inverse(cameraTransform);
+			m_Renderer2D->BeginScene(cam.GetProjectionMatrix() * viewMatrix, viewMatrix);
 		}
 		else
 		{
-			Renderer2D::BeginScene(m_EditorCamera);
+			m_Renderer2D->BeginScene(m_EditorCamera.GetViewProjection(), m_EditorCamera.GetViewMatrix());
 		}
 
 		if (m_ShowPhysicsColliders)
@@ -649,7 +642,17 @@ namespace {
 						* glm::translate(glm::mat4(1.0f), glm::vec3(bc2d.Offset, 0.001f))
 						* glm::scale(glm::mat4(1.0f), scale);
 
-					Renderer2D::DrawRect(transform, glm::vec4(0, 1, 0, 1));
+					glm::vec4 color(0, 1, 0, 1);
+					glm::vec4 corners[4] = {
+						{-0.5f, -0.5f, 0.0f, 1.0f}, { 0.5f, -0.5f, 0.0f, 1.0f},
+						{ 0.5f,  0.5f, 0.0f, 1.0f}, {-0.5f,  0.5f, 0.0f, 1.0f}
+					};
+					for (int i = 0; i < 4; i++)
+					{
+						glm::vec3 p0 = transform * corners[i];
+						glm::vec3 p1 = transform * corners[(i + 1) % 4];
+						m_Renderer2D->DrawLine(p0, p1, color);
+					}
 				}
 			}
 
@@ -666,7 +669,7 @@ namespace {
 					glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
 						* glm::scale(glm::mat4(1.0f), scale);
 
-					Renderer2D::DrawCircle(transform, glm::vec4(0, 1, 0, 1), 0.1f);
+					m_Renderer2D->DrawCircle(transform, glm::vec4(0, 1, 0, 1));
 				}
 			}
 
@@ -674,11 +677,22 @@ namespace {
 			if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity())
 			{
 				const TransformComponent& transform = selectedEntity.GetComponent<TransformComponent>();
-				Renderer2D::DrawRect(transform.GetTransform(), glm::vec4(1.0f, 0.5f, 0.0f, 1.0f));
+				glm::mat4 t = transform.GetTransform();
+				glm::vec4 color(1.0f, 0.5f, 0.0f, 1.0f);
+				glm::vec4 corners[4] = {
+					{-0.5f, -0.5f, 0.0f, 1.0f}, { 0.5f, -0.5f, 0.0f, 1.0f},
+					{ 0.5f,  0.5f, 0.0f, 1.0f}, {-0.5f,  0.5f, 0.0f, 1.0f}
+				};
+				for (int i = 0; i < 4; i++)
+				{
+					glm::vec3 p0 = t * corners[i];
+					glm::vec3 p1 = t * corners[(i + 1) % 4];
+					m_Renderer2D->DrawLine(p0, p1, color);
+				}
 			}
 		}
 
-		Renderer2D::EndScene();
+		m_Renderer2D->EndScene();
 	}
 
 	void EditorLayer::NewProject()
@@ -727,7 +741,7 @@ namespace {
 	{
 		// std::string filepath = FileDialogs::OpenFile("Hazel Scene (*.hazel)\0*.hazel\0");
 		// if (!filepath.empty())
-		// 	OpenScene(filepath);
+		 	//OpenScene(filepath);
 	}
 
 	void EditorLayer::OpenScene(AssetHandle handle)

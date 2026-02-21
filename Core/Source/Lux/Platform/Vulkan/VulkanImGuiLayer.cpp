@@ -189,6 +189,7 @@ namespace Lux {
 
 	void VulkanImGuiLayer::OnDetach()
 	{
+#if OLD
 		Renderer::Submit([]()
 		{
 			auto device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
@@ -197,6 +198,11 @@ namespace Lux {
 			ImGui_ImplGlfw_Shutdown();
 			ImGui::DestroyContext();
 		});
+#else
+		// Device wait is now handled in Renderer::Shutdown via DeviceManager
+		ImGui_ImplGlfw_Shutdown();
+		ImGui::DestroyContext();
+#endif
 	}
 
 	void VulkanImGuiLayer::Begin()

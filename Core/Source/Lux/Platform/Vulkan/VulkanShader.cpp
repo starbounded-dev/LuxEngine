@@ -7,8 +7,9 @@
 #include "ShaderCompiler/VulkanShaderCompiler.h"
 #endif
 
+#include "Lux/Core/Application.h"
 #include "Lux/Core/Hash.h"
-//#include "Lux/ImGui/PropertyGrid.h"
+#include "Lux/ImGui/PropertyGrid.h"
 #include "Lux/Platform/Vulkan/VulkanContext.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/StringUtils.h"
@@ -35,7 +36,11 @@ namespace Lux {
 		auto& pipelineCIs = m_PipelineShaderStageCreateInfos;
 		Renderer::SubmitResourceFree([pipelineCIs]()
 		{
-			const auto vulkanDevice = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
+			auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
+			if (!deviceManager || !deviceManager->GetDevice())
+				return;
+
+			VkDevice vulkanDevice = (VkDevice)deviceManager->GetDevice()->getNativeObject(nvrhi::ObjectTypes::VK_Device);
 
 			for (const auto& ci : pipelineCIs)
 				if (ci.module)
@@ -52,13 +57,17 @@ namespace Lux {
 
 	VulkanShader::~VulkanShader()
 	{
-		VkDevice device = VulkanContext::Get()->GetDevice()->GetVulkanDevice();
-		Renderer::SubmitResourceFree([device, instance = Ref(this)]()
-		{
-			for (const auto& ci : instance->m_PipelineShaderStageCreateInfos)
-				if (ci.module)
-					vkDestroyShaderModule(device, ci.module, nullptr);
-		});
+		Renderer::SubmitResourceFree([instance = Ref(this)]()
+			{
+				auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
+				if (!deviceManager || !deviceManager->GetDevice())
+					return;
+
+				VkDevice device = (VkDevice)deviceManager->GetDevice()->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+				for (const auto& ci : instance->m_PipelineShaderStageCreateInfos)
+					if (ci.module)
+						vkDestroyShaderModule(device, ci.module, nullptr);
+			});
 	}
 
 	void VulkanShader::RT_Reload(const bool forceCompile)

@@ -50,21 +50,21 @@ namespace Lux {
 			if (assetType == "Texture")             return AssetType::Texture;
 			if (assetType == "EnvMap")              return AssetType::EnvMap;
 			if (assetType == "Audio")               return AssetType::Audio;
-			if (assetType == "SoundConfig")         return AssetType::SoundConfig;
+			//if (assetType == "SoundConfig")         return AssetType::SoundConfig;
 			if (assetType == "Font")                return AssetType::Font;
 			if (assetType == "Script")              return AssetType::Script;
 			if (assetType == "ScriptFile")          return AssetType::ScriptFile;
-			if (assetType == "MeshCollider")        return AssetType::MeshCollider;
-			if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
-			if (assetType == "Skeleton")            return AssetType::Skeleton;
-			if (assetType == "Animation")           return AssetType::Animation;
+			//if (assetType == "MeshCollider")        return AssetType::MeshCollider;
+			//if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
+			//if (assetType == "Skeleton")            return AssetType::Skeleton;
+			//if (assetType == "Animation")           return AssetType::Animation;
 			//if (assetType == "AnimationController") return AssetType::AnimationController; // OBSOLETE. You need to re-import animated asset
-			if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
+			//if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
 
 			return AssetType::None;
 		}
 
-		inline const char* AssetTypeToString(AssetType assetType)
+		inline std::string_view AssetTypeToString(AssetType assetType)
 		{
 			switch (assetType)
 			{
@@ -78,20 +78,34 @@ namespace Lux {
 			case AssetType::Texture:             return "Texture";
 			case AssetType::EnvMap:              return "EnvMap";
 			case AssetType::Audio:               return "Audio";
-			case AssetType::SoundConfig:         return "SoundConfig";
+		//	case AssetType::SoundConfig:         return "SoundConfig";
 			case AssetType::Font:                return "Font";
 			case AssetType::Script:              return "Script";
 			case AssetType::ScriptFile:          return "ScriptFile";
-			case AssetType::MeshCollider:        return "MeshCollider";
-			case AssetType::SoundGraphSound:     return "SoundGraphSound";
-			case AssetType::Skeleton:            return "Skeleton";
-			case AssetType::Animation:           return "Animation";
-			case AssetType::AnimationGraph:      return "AnimationGraph";
+		//	case AssetType::MeshCollider:        return "MeshCollider";
+		//	case AssetType::SoundGraphSound:     return "SoundGraphSound";
+		//	case AssetType::Skeleton:            return "Skeleton";
+			//case AssetType::Animation:           return "Animation";
+			//case AssetType::AnimationGraph:      return "AnimationGraph";
 			}
 
 			LUX_CORE_ASSERT(false, "Unknown Asset Type");
 			return "None";
 		}
 
+	} // namespace Utils
+
+	// Public wrappers in the Lux namespace to match declarations in Asset.h.
+	// The implementation lives in Utils to keep things organized, but the
+	// symbols expected by other translation units are in Lux::.
+	inline AssetType AssetTypeFromString(std::string_view assetType)
+	{
+		return Utils::AssetTypeFromString(assetType);
 	}
+
+	inline std::string_view AssetTypeToString(AssetType assetType)
+	{
+		return Utils::AssetTypeToString(assetType);
+	}
+
 }

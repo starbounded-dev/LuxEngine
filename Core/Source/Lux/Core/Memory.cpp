@@ -40,11 +40,11 @@ namespace Lux {
 		void* memory = malloc(size);
 
 		{
-			std::scoped_lock<std::mutex> lock(s_Data->m_Mutex);
+			std::scoped_lock<std::recursive_mutex> lock(s_Data->m_Mutex);
 			Allocation& alloc = s_Data->m_AllocationMap[memory];
 			alloc.Memory = memory;
 			alloc.Size = size;
-		
+
 			s_GlobalStats.TotalAllocated += size;
 		}
 
@@ -57,13 +57,16 @@ namespace Lux {
 
 	void* Allocator::Allocate(size_t size, const char* desc)
 	{
+		if (s_InInit)
+			return AllocateRaw(size);
+
 		if (!s_Data)
 			Init();
 
 		void* memory = malloc(size);
 
 		{
-			std::scoped_lock<std::mutex> lock(s_Data->m_Mutex);
+			std::scoped_lock<std::recursive_mutex> lock(s_Data->m_Mutex);
 			Allocation& alloc = s_Data->m_AllocationMap[memory];
 			alloc.Memory = memory;
 			alloc.Size = size;
@@ -83,13 +86,16 @@ namespace Lux {
 
 	void* Allocator::Allocate(size_t size, const char* file, int line)
 	{
+		if (s_InInit)
+			return AllocateRaw(size);
+
 		if (!s_Data)
 			Init();
 
 		void* memory = malloc(size);
 
 		{
-			std::scoped_lock<std::mutex> lock(s_Data->m_Mutex);
+			std::scoped_lock<std::recursive_mutex> lock(s_Data->m_Mutex);
 			Allocation& alloc = s_Data->m_AllocationMap[memory];
 			alloc.Memory = memory;
 			alloc.Size = size;
@@ -111,10 +117,16 @@ namespace Lux {
 		if (memory == nullptr)
 			return;
 
+		if (s_InInit || !s_Data)
+		{
+			free(memory);
+			return;
+		}
+
 		{
 			bool found = false;
 			{
-				std::scoped_lock<std::mutex> lock(s_Data->m_Mutex);
+				std::scoped_lock<std::recursive_mutex> lock(s_Data->m_Mutex);
 				auto allocMapIt = s_Data->m_AllocationMap.find(memory);
 				found = allocMapIt != s_Data->m_AllocationMap.end();
 				if (found)
@@ -137,25 +149,30 @@ namespace Lux {
 				LUX_CORE_WARN_TAG("Memory", "Memory block {0} not present in alloc map", memory);
 #endif
 		}
-		
+
 		free(memory);
 	}
-	
+
 	void Allocator::Free(void* memory, size_t size)
 	{
 		if (memory == nullptr)
 			return;
 
+		if (s_InInit || !s_Data)
+		{
+			free(memory);
+			return;
+		}
+
 		{
 			bool found = false;
 			{
-				std::scoped_lock<std::mutex> lock(s_Data->m_Mutex);
+				std::scoped_lock<std::recursive_mutex> lock(s_Data->m_Mutex);
 				auto allocMapIt = s_Data->m_AllocationMap.find(memory);
 				found = allocMapIt != s_Data->m_AllocationMap.end();
 				if (found)
 				{
 					const Allocation& alloc = allocMapIt->second;
-					LUX_CORE_VERIFY(size == alloc.Size);
 					s_GlobalStats.TotalFreed += alloc.Size;
 					if (alloc.Category)
 						s_Data->m_AllocationStatsMap[alloc.Category].TotalFreed += alloc.Size;

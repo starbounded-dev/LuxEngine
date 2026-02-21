@@ -6,7 +6,7 @@
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Renderer/Renderer2D.h"
 
-#include "entt.hpp"
+#include "entt/entt.hpp"
 
 class b2World;
 

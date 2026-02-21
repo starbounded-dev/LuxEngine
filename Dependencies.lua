@@ -121,11 +121,23 @@ Dependencies = {
 	FastNoise = {
 		IncludeDir = "%{wks.location}/Core/vendor/FastNoise",
 	},
+	Assimp = {
+		IncludeDir = "%{wks.location}/Core/vendor/assimp/include",
+		Windows = { LibName = "assimp-vc143-mt", DebugLibName = "assimp-vc143-mtd", LibDir = "%{wks.location}/Core/vendor/assimp/bin/windows/%{cfg.buildcfg}/" },
+		Linux = { LibName = "assimp", LibDir = "%{wks.location}/Core/vendor/assimp/bin/linux/" },
+		Configurations = "Debug,Release"
+	},
+	ACL = {
+		IncludeDir = "%{wks.location}/Core/vendor/acl/include"
+	},
+	RTM = {
+		IncludeDir = "%{wks.location}/Core/vendor/rtm/include"
+	},
 	Choc = {
 		IncludeDir = "%{wks.location}/Core/vendor/choc",
 	},
 	MagicEnum = {
-		IncludeDir = "%{wks.location}/Lux/vendor/magic_enum/include",
+		IncludeDir = "%{wks.location}/Core/vendor/magic_enum/include",
 	},
 	NFDExtended = {
 		LibName = "NFD-Extended",

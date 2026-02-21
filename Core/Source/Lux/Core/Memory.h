@@ -63,7 +63,7 @@ namespace Lux {
 		std::map<const void*, Allocation, std::less<const void*>, MapAlloc> m_AllocationMap;
 		AllocationStatsMap m_AllocationStatsMap;
 
-		std::mutex m_Mutex, m_StatsMutex;
+		std::recursive_mutex m_Mutex, m_StatsMutex;
 	};
 
 

@@ -4,7 +4,7 @@
 #include "Lux/Scene/Scene.h"
 #include "Components.h"
 
-#include "entt.hpp"
+#include "entt/entt.hpp"
 
 namespace Lux
 {
@@ -42,7 +42,7 @@ namespace Lux
 		template<typename T>
 		bool HasComponent()
 		{
-			return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
+			return m_Scene->m_Registry.template has<T>(m_EntityHandle);
 		}
 
 		template<typename T>

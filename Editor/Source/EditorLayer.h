@@ -8,7 +8,7 @@
 #include "Lux/Scene/Entity.h"
 #include "Lux/Editor/EditorCamera.h"
 
-#include "entt.hpp"
+#include "entt/entt.hpp"
 
 namespace Lux
 {
@@ -54,10 +54,12 @@ namespace Lux
 		// UI Panels
 		void UI_Toolbar();
 	private:
-		EditorCamera m_CameraController;
+		EditorCamera m_EditorCamera;
 
 		bool m_VSync = true;
 		bool m_ViewportFocused = false, m_ViewportHovered = false;
+
+		Ref<Renderer2D> m_Renderer2D;
 
 		// Temp
 		Ref<VertexBuffer> m_SquareVA;
@@ -74,8 +76,6 @@ namespace Lux
 		Entity m_HoveredEntity;
 
 		bool m_PrimaryCamera = true;
-
-		EditorCamera m_EditorCamera;
 
 		Ref<Texture2D> m_CheckerboardTexture;
 

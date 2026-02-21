@@ -27,7 +27,7 @@ namespace Lux {
 
 int APIENTRY WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
 {
-	return LUX::Main(__argc, __argv);
+	return Lux::Main(__argc, __argv);
 }
 
 #else

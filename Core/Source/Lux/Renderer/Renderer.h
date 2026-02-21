@@ -18,6 +18,7 @@
 
 #include "GPUStats.h"
 #include "Material.h"
+#include "SceneEnvironment.h"
 #include "Texture.h"
 
 #include "nvrhi/nvrhi.h"
@@ -174,7 +175,7 @@ namespace Lux {
 		static Ref<Texture2D> GetHilbertLut();
 		static Ref<Texture2D> GetBRDFLutTexture();
 		static Ref<TextureCube> GetBlackCubeTexture();
-		//static Ref<Environment> GetEmptyEnvironment();
+		static Ref<Environment> GetEmptyEnvironment();
 
 		static void RegisterShaderDependency(Ref<Shader> shader, Ref<PipelineCompute> computePipeline);
 		static void RegisterShaderDependency(Ref<Shader> shader, Ref<Pipeline> pipeline);
