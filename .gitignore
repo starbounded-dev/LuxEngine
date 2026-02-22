@@ -1,7 +1,7 @@
 # Binaries
-**/bin/
 bin-int/
 Intermediates/
+/bin
 
 # StarEngine files
 *.log
@@ -21,8 +21,8 @@ scripts/__pycache__
 !vendor/bin/
 
 Editor/assets/cache
-Editor/Resources/Scripts/ScriptCore.dll
-Editor/Resources/Scripts/ScriptCore.pdb
-Editor/Resources/Scripts/Lux-ScriptCore.dll
-Editor/Resources/Scripts/Lux-ScriptCore.pdb
+Editor/Resources/Scripts/**
 Sandbox/Resources/Cache
+Core/vendor/GLAD
+Core/vendor/NFD-Extended
+Core/vendor/tracy
