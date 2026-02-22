@@ -167,10 +167,15 @@ void Sandbox2D::OnUpdate(Lux::Timestep ts)
 		m_Renderer2D->BeginScene(m_EditorCamera.GetViewProjection(),
 			m_EditorCamera.GetViewMatrix());
 
-		// Draw geometry at z=0 (the camera's focal point) so it appears
-		// centred in the viewport. The initial camera sits at {-5,5,5}
-		// looking at {0,0,0}; objects at z=-5 project to the top-left corner.
-		m_Renderer2D->DrawQuad({ 0.0f, 0.0f, 0.0f }, { 20.0f, 20.0f }, bgTexture, 10.0f);
+		// Background at z=-0.1 so it is always behind the rotating quad.
+		// Pass uv1={10,10} so the texture coordinates actually span 0→10
+		// across the quad, giving the repeating tile effect. The tilingFactor
+		// argument alone doesn't scale UVs - the shader uses it as a multiplier
+		// only when the vertex UVs cover the full 0→1 range first.
+		m_Renderer2D->DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, bgTexture,
+			1.0f, glm::vec4(1.0f), glm::vec2(0.0f), glm::vec2(10.0f));
+
+		// Rotating quad at z=0, clearly in front of the background.
 		m_Renderer2D->DrawRotatedQuad({ 1.0f, 0.0f, 0.0f }, { 0.8f, 0.8f },
 			glm::radians(rotation),
 			{ 0.8f, 0.2f, 0.3f, 1.0f });
@@ -327,9 +332,13 @@ void Sandbox2D::UpdatePerformanceTimers()
 {
 	auto& app = Lux::Application::Get();
 	m_FrameTime = (float)app.GetFrametime().GetMilliseconds();
-	auto perf = app.GetPerformanceTimers();
-	m_GPUTime = perf.RenderThreadGPUWaitTime;
-	m_CPUTime = m_FrameTime - m_GPUTime;
+
+	// MainThreadWorkTime is the CPU time actually measured in Application::Run().
+	// RenderThreadGPUWaitTime exists in the struct but is never populated by the
+	// engine yet, so GPU time is shown as (FrameTime - CPU) as a best approximation.
+	const auto& perf = app.GetPerformanceTimers();
+	m_CPUTime = perf.MainThreadWorkTime;
+	m_GPUTime = m_FrameTime - m_CPUTime;
 }
 
 // ---------------------------------------------------------------------------
