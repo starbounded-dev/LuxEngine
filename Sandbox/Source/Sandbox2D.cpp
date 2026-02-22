@@ -48,6 +48,9 @@ void Sandbox2D::OnAttach()
 	m_Renderer2D = Lux::Ref<Lux::Renderer2D>::Create();
 	m_Renderer2D->SetLineWidth(2.0f);
 
+	// Camera must be explicitly activated or OnUpdate returns immediately.
+	m_EditorCamera.SetActive(true);
+
 	// ------------------------------------------------------------------
 	// Offscreen Framebuffer
 	// We create our own framebuffer and hand it to Renderer2D via
@@ -128,8 +131,10 @@ void Sandbox2D::OnUpdate(Lux::Timestep ts)
 			OnViewportResize(vpW, vpH);
 	}
 
-	// Screen-space ortho projection for the debug overlay, sized to viewport.
-	m_Renderer2DProj = glm::ortho(0.0f, m_ViewportSize.x, 0.0f, m_ViewportSize.y);
+	// Screen-space ortho projection for the debug overlay.
+	// Y=0 at top, Y=height at bottom - matches Vulkan clip-space where Y increases downward.
+	// Without this flip the font atlas UV coords render the glyphs upside down.
+	m_Renderer2DProj = glm::ortho(0.0f, m_ViewportSize.x, m_ViewportSize.y, 0.0f);
 
 	// ------------------------------------------------------------------
 	// 3. Camera
@@ -148,8 +153,11 @@ void Sandbox2D::OnUpdate(Lux::Timestep ts)
 	m_Renderer2D->ResetStats();
 
 	{
+		// Accumulate in degrees, convert to radians for glm::rotate.
+		// 50 deg/s is a gentle, visible spin. The old ts * 50.0f was
+		// 50 rad/s (~8 full rotations per second) which looked insane.
 		static float rotation = 0.0f;
-		rotation += ts * 50.0f;
+		rotation += ts * 50.0f; // degrees per second
 
 		LUX_PROFILE_SCOPE("Renderer Draw");
 
@@ -159,8 +167,12 @@ void Sandbox2D::OnUpdate(Lux::Timestep ts)
 		m_Renderer2D->BeginScene(m_EditorCamera.GetViewProjection(),
 			m_EditorCamera.GetViewMatrix());
 
-		m_Renderer2D->DrawQuad({ 0.0f, 0.0f, -5.0f }, { 20.0f, 20.0f }, bgTexture, 10.0f);
-		m_Renderer2D->DrawRotatedQuad({ 1.0f, 0.0f, -5.0f }, { 0.8f, 0.8f }, rotation,
+		// Draw geometry at z=0 (the camera's focal point) so it appears
+		// centred in the viewport. The initial camera sits at {-5,5,5}
+		// looking at {0,0,0}; objects at z=-5 project to the top-left corner.
+		m_Renderer2D->DrawQuad({ 0.0f, 0.0f, 0.0f }, { 20.0f, 20.0f }, bgTexture, 10.0f);
+		m_Renderer2D->DrawRotatedQuad({ 1.0f, 0.0f, 0.0f }, { 0.8f, 0.8f },
+			glm::radians(rotation),
 			{ 0.8f, 0.2f, 0.3f, 1.0f });
 
 		m_Renderer2D->EndScene();
@@ -221,6 +233,10 @@ void Sandbox2D::OnViewportResize(uint32_t width, uint32_t height)
 	m_Height = height;
 
 	m_Framebuffer->Resize(width, height);
+
+	// SetViewportBounds already handles the projection matrix update internally:
+	// when (right-left) or (bottom-top) differs from the previous size it calls
+	// SetPerspectiveProjectionMatrix, so this is the only call needed.
 	m_EditorCamera.SetViewportBounds(0, 0, width, height);
 }
 
@@ -425,12 +441,21 @@ void Sandbox2D::OnImGuiRender()
 	Lux::Application::Get().GetImGuiLayer()->AllowInputEvents(m_ViewportFocused || m_ViewportHovered);
 
 	// Store panel size; OnUpdate will resize the framebuffer next frame if it changed.
+	// Guard against zero/negative size which occurs while the panel is being dragged
+	// or docked - passing 0 to Framebuffer::Resize frees images and produces an
+	// invalid 0xFFFFFFFFFFFFFFFF handle that crashes the ImGui renderer.
 	ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
-	m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
+	if (viewportPanelSize.x > 1.0f && viewportPanelSize.y > 1.0f)
+		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-	// GetImage(0) returns Ref<Image2D>; ImGui is set up to accept it as ImTextureID.
+	// CreateFrameTexture registers the NVRHI texture in the shared registry
+	// for this frame and returns an encoded index handle.  All ImGuiRenderer
+	// instances (main + per-viewport) share the same registry, so this handle
+	// is valid when any of them decode it during draw-command processing.
 	// UV flip (0,1)->(1,0) corrects Vulkan's top-left NDC origin.
-	ImTextureID texID = m_Framebuffer->GetImage(0);
+	nvrhi::ITexture* nvrhiTex = m_Framebuffer->GetImage(0)->GetHandle().Get();
+	ImTextureID texID = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer()
+	                                           ->CreateFrameTexture(nvrhiTex);
 	ImGui::Image(texID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y },
 		ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 

@@ -138,8 +138,12 @@ namespace Lux {
 		data->SC->Create((uint32_t)viewport->Size.x, (uint32_t)viewport->Size.y);
 		data->WindowOwned = true;
 
+		// Per-viewport renderer: pass the main renderer's shared registry so
+		// ALL texture handles (font, framebuffer images, etc.) are resolvable
+		// regardless of which renderer instance decodes the draw command.
+		ImGuiRenderer* mainRenderer = Application::Get().GetImGuiLayer()->GetImGuiRenderer();
 		data->Renderer = std::make_unique<ImGuiRenderer>();
-		data->Renderer->Init();
+		data->Renderer->Init(mainRenderer->GetRegistry());
 	}
 
 	static void ImGuiRenderer_DestroyWindow(ImGuiViewport* viewport)
@@ -189,7 +193,15 @@ namespace Lux {
 
 	void ImGuiLayer::Begin()
 	{
-		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
+		// Advance the shared registry for the new frame:
+		//   - clears per-frame texture slots registered last frame
+		//   - increments the frame counter used in stale-handle detection
+		// This runs BEFORE any rendering (main or per-viewport) so all
+		// renderers operate on consistent, up-to-date frame texture state.
+		m_ImGuiRenderer->GetRegistry()->NewFrame();
+
+		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal
+			? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
 
 		m_ImGuiRenderer->UpdateFontTexture();
 		ImGui_ImplGlfw_NewFrame();
@@ -202,9 +214,12 @@ namespace Lux {
 	{
 		ImGui::Render();
 
-		m_ImGuiRenderer->RenderToSwapchain(ImGui::GetMainViewport(), &Application::Get().GetWindow().GetSwapChain());
+		m_ImGuiRenderer->RenderToSwapchain(ImGui::GetMainViewport(),
+			&Application::Get().GetWindow().GetSwapChain());
 
-		// Update and Render additional Platform Windows
+		// Per-viewport windows rendered here all share the same registry,
+		// so their texture handles are still valid even though the main
+		// renderer rendered first.
 		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
 			ImGui::UpdatePlatformWindows();
@@ -354,7 +369,7 @@ namespace Lux {
 		// g_DisableImGuiEvents = !allowEvents;
 	}
 
-	Lux::ImGuiRenderer* ImGuiLayer::GetImGuiRenderer()
+	ImGuiRenderer* ImGuiLayer::GetImGuiRenderer()
 	{
 		return m_ImGuiRenderer.get();
 	}
