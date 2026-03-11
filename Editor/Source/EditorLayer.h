@@ -5,8 +5,14 @@
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 
+#include "Lux/Asset/Asset.h"
 #include "Lux/Scene/Entity.h"
+#include "Lux/Scene/Scene.h"
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/Framebuffer.h"
+#include "Lux/Renderer/Shader.h"
+#include "Lux/Renderer/VertexBuffer.h"
 
 #include "entt/entt.hpp"
 

@@ -24,7 +24,6 @@ project "Sandbox"
 
 	defines
 	{
-		"LUX_PLATFORM_WINDOWS",
 		"TRACY_ENABLE",
 		"TRACY_ON_DEMAND",
 		"TRACY_CALLSTACK=10"
@@ -32,6 +31,11 @@ project "Sandbox"
 
 	filter "system:windows" 
 		systemversion "latest"
+		defines { "LUX_PLATFORM_WINDOWS" }
+
+	filter "system:linux"
+		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
+		links { "dw", "dl", "unwind", "pthread" }
 
 	filter "configurations:Debug"
 		defines "LUX_DEBUG"

@@ -9,7 +9,12 @@
 #include <iostream>
 
 namespace Lux {
+	Ref<Texture2D> TextureImporter::ImportTexture(AssetHandle handle, const AssetMetadata& metadata)
+	{
+		LUX_PROFILE_FUNCTION("TextureImporter::ImportTexture");
 
+		return LoadTexture2D(metadata.FilePath);
+	}
 	Ref<Texture2D> TextureImporter::LoadTexture2D(const std::filesystem::path& path, bool srgb)
 	{
 		TextureSpecification spec;

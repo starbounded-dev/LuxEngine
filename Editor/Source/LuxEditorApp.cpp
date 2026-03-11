@@ -4,10 +4,6 @@
 
 #include "Lux/EntryPoint.h"
 
-#ifdef LUX_PLATFORM_WINDOWS
-#include <Shlobj.h>
-#endif
-
 namespace Lux {
 
 	class LuxEditor : public Application

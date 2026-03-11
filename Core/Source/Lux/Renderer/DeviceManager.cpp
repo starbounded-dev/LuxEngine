@@ -307,7 +307,7 @@ const DeviceCreationParameters& DeviceManager::GetDeviceParams()
 
 void DeviceManager::WindowPosCallback(int x, int y)
 {
-#ifdef _WINDOWS
+#if defined(LUX_PLATFORM_WINDOWS)
     if (m_DeviceParams.enablePerMonitorDPI)
     {
         HWND hwnd = glfwGetWin32Window(m_Window);

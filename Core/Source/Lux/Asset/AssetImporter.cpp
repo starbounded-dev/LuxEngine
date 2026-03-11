@@ -11,6 +11,7 @@ namespace Lux {
 
 	using AssetImportFunction = std::function<Ref<Asset>(AssetHandle, const AssetMetadata&)>;
 	static std::map<AssetType, AssetImportFunction> s_AssetImportFunctions = {
+		{AssetType::Texture, TextureImporter::ImportTexture },
 		{ AssetType::Scene, SceneImporter::ImportScene },
 		{ AssetType::Audio, AudioImporter::ImportAudio },/*
 		{ AssetType::ObjModel, ObjModelImporter::ImportObjModel },
