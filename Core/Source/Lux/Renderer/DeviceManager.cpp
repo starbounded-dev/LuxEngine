@@ -310,7 +310,7 @@ void DeviceManager::WindowPosCallback(int x, int y)
 #if defined(LUX_PLATFORM_WINDOWS)
     if (m_DeviceParams.enablePerMonitorDPI)
     {
-        HWND hwnd = glfwGetWin32Window(m_Window);
+        HWND hwnd = glfwGetWin32Window(m_WindowHandle);
         auto monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
 
         unsigned int dpiX;

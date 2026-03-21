@@ -34,7 +34,7 @@ Entities:
         PerspectiveFOV: 0.785398185
         PerspectiveNear: 0.00999999978
         PerspectiveFar: 1000
-        OrthographicSize: 25
+        OrthographicSize: 1.20256782
         OrthographicNear: -1
         OrthographicFar: 1
       Primary: true
@@ -133,7 +133,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TextComponent:
-      TextString: Welcome to StarEditor
+      TextString: Welcome to Lux
       Color: [1, 1, 1, 1]
       Kerning: 0
       LineSpacing: 0

@@ -15,14 +15,22 @@ namespace Lux {
 
 		return LoadTexture2D(metadata.FilePath);
 	}
-	Ref<Texture2D> TextureImporter::LoadTexture2D(const std::filesystem::path& path, bool srgb)
-	{
-		TextureSpecification spec;
-		if (srgb)
-			spec.Format = ImageFormat::SRGBA;
-		spec.DebugName = path.string();
-		return Texture2D::Create(spec, path);
-	}
+
+Ref<Texture2D> TextureImporter::LoadTexture2D(const std::filesystem::path& path, bool srgb)
+{
+    TextureSpecification spec;
+    if (srgb)
+    {
+        spec.Format = ImageFormat::SRGBA;
+        spec.GenerateMips = false; // SRGB formats do not support storage image operations required for compute shaders
+    }
+    else
+    {
+        spec.GenerateMips = true;
+    }
+    spec.DebugName = path.string();
+    return Texture2D::Create(spec, path);
+}
 
 	Buffer TextureImporter::ToBufferFromFile(const std::filesystem::path& path, ImageFormat& outFormat, uint32_t& outWidth, uint32_t& outHeight)
 	{
@@ -46,8 +54,8 @@ namespace Lux {
 		}
 		else
 		{
-			//stbi_set_flip_vertically_on_load(1);
-			tmp = stbi_load(pathString.c_str(), &width, &height, &channels, 4);
+		stbi_set_flip_vertically_on_load(1);
+		tmp = stbi_load(pathString.c_str(), &width, &height, &channels, 4);
 			if (tmp)
 			{
 				size = width * height * 4;
@@ -89,8 +97,8 @@ namespace Lux {
 		}
 		else
 		{
-			// stbi_set_flip_vertically_on_load(1);
-			tmp = stbi_load_from_memory((const stbi_uc*)buffer.Data, (int)buffer.Size, &width, &height, &channels, STBI_rgb_alpha);
+		stbi_set_flip_vertically_on_load(1);
+		tmp = stbi_load_from_memory((const stbi_uc*)buffer.Data, (int)buffer.Size, &width, &height, &channels, STBI_rgb_alpha);
 			size = width * height * 4;
 			outFormat = isSRGB ? ImageFormat::SRGBA : ImageFormat::RGBA;
 		}

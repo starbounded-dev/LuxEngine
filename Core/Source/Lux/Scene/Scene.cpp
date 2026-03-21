@@ -637,6 +637,10 @@ namespace Lux {
 
 	}
 
+	void Scene::SetTargetFramebuffer(Ref<Framebuffer> framebuffer)
+	{
+		m_Renderer2D->SetTargetFramebuffer(framebuffer);
+	}
 
 	Entity Scene::GetPrimaryCameraEntity()
 	{

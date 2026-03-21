@@ -108,4 +108,3 @@ namespace Lux
 		Ref<Texture2D> m_IconPlay, m_IconPause, m_IconStep, m_IconSimulate, m_IconStop;
 	};
 }
-

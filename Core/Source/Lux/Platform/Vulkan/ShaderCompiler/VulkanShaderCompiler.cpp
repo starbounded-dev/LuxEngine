@@ -93,8 +93,22 @@ namespace Lux {
 		m_SPIRVData.clear();
 
 		Utils::CreateCacheDirectoryIfNeeded();
-		const std::string source = Utils::ReadFileAndSkipBOM(m_ShaderSourcePath);
-		LUX_CORE_VERIFY(source.size(), "Failed to load shader!");
+        const std::string source = Utils::ReadFileAndSkipBOM(m_ShaderSourcePath);
+        // Enhanced diagnostics for shader loading failures
+        if (source.empty())
+        {
+            const char* langStr = nullptr;
+            switch (m_Language)
+            {
+            case ShaderUtils::SourceLang::GLSL: langStr = "GLSL"; break;
+            case ShaderUtils::SourceLang::HLSL: langStr = "HLSL"; break;
+            default: langStr = "NONE"; break;
+            }
+            LUX_CORE_ERROR_TAG("Renderer", "Failed to load shader. Path: '{}', Language: {}, SourceSize: 0", m_ShaderSourcePath.string(), langStr);
+            return false;
+        }
+        // Optional: log successful load for deeper diagnosis
+        LUX_CORE_TRACE_TAG("Renderer", "Loaded shader: {} (Language: {}) size={}", m_ShaderSourcePath.string(), (m_Language==ShaderUtils::SourceLang::GLSL?"GLSL":"HLSL"), source.size());
 
 		LUX_CORE_TRACE_TAG("Renderer", "Compiling shader: {}", m_ShaderSourcePath.string());
 		m_ShaderSource = PreProcess(source);

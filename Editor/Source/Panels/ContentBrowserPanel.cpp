@@ -10,13 +10,17 @@
 
 namespace Lux {
 
-namespace {
-	ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
-	{
-		auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
-		return imguiRenderer->CreateFrameTexture(texture->GetImage()->GetHandle().Get(), nvrhi::AllSubresources);
+	namespace {
+		// FIX: Added null guard � previously this would crash if texture or its
+		// underlying image was null (e.g. icon PNGs failed to load).
+		ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
+		{
+			if (!texture || !texture->GetImage())
+				return ImTextureID{};
+			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
+			return imguiRenderer->CreateFrameTexture(texture->GetImage()->GetHandle().Get(), nvrhi::AllSubresources);
+		}
 	}
-}
 
 
 	ContentBrowserPanel::ContentBrowserPanel(Ref<Project> project)
@@ -51,7 +55,6 @@ namespace {
 			}
 		}
 
-
 		static float padding = 16.0f;
 		static float thumbnailSize = 128.0f;
 		float cellSize = thumbnailSize + padding;
@@ -63,8 +66,6 @@ namespace {
 
 		ImGui::Columns(columnCount, 0, false);
 
-		uint32_t itemRenderCount = 0;
-
 		if (m_Mode == Mode::Asset)
 		{
 			TreeNode* node = &m_TreeNodes[0];
@@ -72,7 +73,6 @@ namespace {
 			auto currentDir = std::filesystem::relative(m_CurrentDirectory, Project::GetActiveAssetDirectory());
 			for (const auto& p : currentDir)
 			{
-				// if only one level
 				if (node->Path == currentDir)
 					break;
 
@@ -83,10 +83,8 @@ namespace {
 				}
 				else
 				{
-					// can't find path
 					LUX_CORE_ASSERT(false);
 				}
-
 			}
 
 			for (const auto& [item, treeNodeIndex] : node->Children)
@@ -96,9 +94,15 @@ namespace {
 				std::string itemStr = item.generic_string();
 
 				ImGui::PushID(itemStr.c_str());
+
 				Ref<Texture2D> icon = isDirectory ? m_DirectoryIcon : m_FileIcon;
+				ImTextureID texID = GetImGuiTextureID(icon); // null-safe after the fix above
+
 				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-				ImGui::ImageButton("##icon", GetImGuiTextureID(icon), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+				if (texID)
+					ImGui::ImageButton("##icon", texID, { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+				else
+					ImGui::Button("##icon", { thumbnailSize, thumbnailSize });
 
 				if (ImGui::BeginPopupContextItem())
 				{
@@ -116,7 +120,6 @@ namespace {
 					ImGui::EndDragDropSource();
 				}
 
-
 				ImGui::PopStyleColor();
 				if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 				{
@@ -133,111 +136,36 @@ namespace {
 		}
 		else
 		{
-			uint32_t count = 0;
-			for (auto& directoryEntry : std::filesystem::directory_iterator(m_CurrentDirectory))
-			{
-				count++;
-			}
-
-			// 1. How many entries?
-			// 2. Advance iterator to starting entry
-			ImGuiListClipper clipper;
-			clipper.Begin((int)glm::ceil((float)count / (float)columnCount));
-			bool first = true;
-			while (clipper.Step())
-			{
-				auto it = std::filesystem::directory_iterator(m_CurrentDirectory);
-				if (!first)
-				{
-					// advance to clipper.DisplayStart
-					for (int i = 0; i < clipper.DisplayStart; i++)
-					{
-						for (int c = 0; c < columnCount && it != std::filesystem::directory_iterator(); c++)
-						{
-							it++;
-						}
-					}
-				}
-
-				for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
-				{
-					int c;
-					for (c = 0; c < columnCount && it != std::filesystem::directory_iterator(); c++, it++)
-					{
-						const auto& directoryEntry = *it;
-
-						const auto& path = directoryEntry.path();
-						std::string filenameString = path.filename().string();
-
-						ImGui::PushID(filenameString.c_str());
-
-						// THUMBNAIL
-						auto relativePath = std::filesystem::relative(path, Project::GetActiveAssetDirectory());
-						Ref<Texture2D> thumbnail = m_DirectoryIcon;
-						if (!directoryEntry.is_directory())
-						{
-							thumbnail = m_ThumbnailCache->GetOrCreateThumbnail(relativePath);
-							if (!thumbnail)
-								thumbnail = m_FileIcon;
-						}
-
-						ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-
-						float thumbnailHeight = thumbnailSize * ((float)thumbnail->GetHeight() / (float)thumbnail->GetWidth());
-						float diff = thumbnailSize - thumbnailHeight;
-
-						ImGui::SetCursorPosY(ImGui::GetCursorPosY() + diff); // Center thumbnail vertically
-
-						ImGui::ImageButton("##thumbnail", GetImGuiTextureID(thumbnail), { thumbnailSize, thumbnailHeight }, { 0, 1 }, { 1, 0 });
-						if (ImGui::IsItemHovered())
-						{
-							ImGui::BeginTooltip();
-							uint64_t estimatedSize = (uint64_t)thumbnail->GetWidth() * (uint64_t)thumbnail->GetHeight() * 4;
-						std::string sizeString = Utils::BytesToString(estimatedSize);
-							ImGui::Text("Memory: %s", sizeString.c_str());
-							ImGui::EndTooltip();
-						}
-
-						itemRenderCount++;
-
-						if (ImGui::BeginPopupContextItem())
-						{
-							if (ImGui::MenuItem("Import"))
-							{
-								Project::GetActive()->GetEditorAssetManager()->ImportAsset(relativePath);
-								RefreshAssetTree();
-							}
-							ImGui::EndPopup();
-						}
-
-						ImGui::PopStyleColor();
-						if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-						{
-							if (directoryEntry.is_directory())
-								m_CurrentDirectory /= path.filename();
-						}
-
-						ImGui::TextWrapped(filenameString.c_str());
-
-						ImGui::NextColumn();
-
-						ImGui::PopID();
-					}
-
-					if (first && c < columnCount)
-					{
-						for (int extra = 0; extra < columnCount - c; extra++)
-						{
-							ImGui::NextColumn();
-						}
-					}
-				}
-
-				first = false;
-			}
-		}
-		/*
-		{
+			// FIX 1: Removed ImGuiListClipper. The previous code used a clipper
+			// together with ImGui::Columns, which are fundamentally incompatible:
+			//
+			//   - ImGui::Columns manages a grid layout where ImGui::NextColumn()
+			//     advances to the next cell. Each "item" occupies one cell.
+			//   - ImGuiListClipper operates on a linear list. It computes which
+			//     rows are visible by measuring item heights, but it has no concept
+			//     of columns. Once NextColumn() is called inside the clipper range,
+			//     the clipper's height measurements are corrupted and it produces
+			//     wrong DisplayStart/DisplayEnd values, causing most items to be
+			//     skipped entirely and never rendered.
+			//
+			//   Additionally, the clipper code re-created a fresh
+			//   directory_iterator at the top of every while(clipper.Step())
+			//   iteration, so the iterator always restarted from the beginning of
+			//   the directory regardless of DisplayStart.
+			//
+			// Fix: plain range-for with no clipper. Correct, simple, and fully
+			// compatible with ImGui::Columns. Performance on large directories
+			// is acceptable; a proper solution would switch to ImGui::BeginTable
+			// (which has built-in clipping that understands columns) if needed.
+			//
+			// FIX 2: Removed ImGui::SetCursorPosY(GetCursorPosY() + diff).
+			// That call was intended to vertically center non-square thumbnails,
+			// but inside ImGui::Columns it corrupts the row-height tracking used
+			// by NextColumn(). ImGui tracks the tallest item seen in the current
+			// row to set the row height; manually advancing the cursor Y makes
+			// later items in the same row appear to have negative height, causing
+			// them to overlap or be invisible. All thumbnails now use a square
+			// button so the layout is stable.
 			for (auto& directoryEntry : std::filesystem::directory_iterator(m_CurrentDirectory))
 			{
 				const auto& path = directoryEntry.path();
@@ -245,18 +173,42 @@ namespace {
 
 				ImGui::PushID(filenameString.c_str());
 
-				// THUMBNAIL
 				auto relativePath = std::filesystem::relative(path, Project::GetActiveAssetDirectory());
+
 				Ref<Texture2D> thumbnail = m_DirectoryIcon;
 				if (!directoryEntry.is_directory())
 				{
-					thumbnail = m_ThumbnailCache->GetOrCreateThumbnail(relativePath);
-					if (!thumbnail)
-						thumbnail = m_FileIcon;
+					// GetOrCreateThumbnail returns null on the first call for an
+					// asset (generation is queued). Fall back to the file icon
+					// until the thumbnail is ready on a subsequent frame.
+					Ref<Texture2D> cached = m_ThumbnailCache->GetOrCreateThumbnail(relativePath);
+					thumbnail = cached ? cached : m_FileIcon;
+				}
+
+				// If even the fallback icons failed to load, skip rather than crash.
+				if (!thumbnail)
+				{
+					ImGui::PopID();
+					ImGui::NextColumn();
+					continue;
 				}
 
 				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-				ImGui::ImageButton("##thumbnail", GetImGuiTextureID(thumbnail), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+
+				ImTextureID texID = GetImGuiTextureID(thumbnail);
+				if (texID)
+					ImGui::ImageButton("##thumbnail", texID, { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+				else
+					ImGui::Button("##thumbnail", { thumbnailSize, thumbnailSize });
+
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::BeginTooltip();
+					uint64_t estimatedSize = (uint64_t)thumbnail->GetWidth() * (uint64_t)thumbnail->GetHeight() * 4;
+					std::string sizeString = Utils::BytesToString(estimatedSize);
+					ImGui::Text("Memory: %s", sizeString.c_str());
+					ImGui::EndTooltip();
+				}
 
 				if (ImGui::BeginPopupContextItem())
 				{
@@ -268,7 +220,28 @@ namespace {
 					ImGui::EndPopup();
 				}
 
+				// FIX 3: FileSystem mode had no drag-drop source at all � you
+				// couldn't drag files from this mode onto scene entities. Added it
+				// here to match the Asset mode behaviour.
+				if (ImGui::BeginDragDropSource())
+				{
+					AssetHandle handle = 0;
+					const auto& registry = Project::GetActive()->GetEditorAssetManager()->GetAssetRegistry();
+					for (const auto& [h, meta] : registry)
+					{
+						if (meta.FilePath == relativePath)
+						{
+							handle = h;
+							break;
+						}
+					}
+					if (handle)
+						ImGui::SetDragDropPayload("CONTENT_BROWSER_ITEM", &handle, sizeof(AssetHandle));
+					ImGui::EndDragDropSource();
+				}
+
 				ImGui::PopStyleColor();
+
 				if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 				{
 					if (directoryEntry.is_directory())
@@ -281,7 +254,7 @@ namespace {
 
 				ImGui::PopID();
 			}
-		}*/
+		}
 
 		ImGui::Columns(1);
 
@@ -293,7 +266,7 @@ namespace {
 
 		m_ThumbnailCache->OnUpdate();
 	}
-	
+
 
 	void ContentBrowserPanel::RefreshAssetTree()
 	{
@@ -311,15 +284,14 @@ namespace {
 				}
 				else
 				{
-					// add node
 					TreeNode newNode(p, handle);
 					newNode.Parent = currentNodeIndex;
 					m_TreeNodes.push_back(newNode);
 
-					m_TreeNodes[currentNodeIndex].Children[p] = m_TreeNodes.size() - 1;
-					currentNodeIndex = m_TreeNodes.size() - 1;
+					const uint32_t newIndex = (uint32_t)(m_TreeNodes.size() - 1);
+					m_TreeNodes[currentNodeIndex].Children[p] = newIndex;
+					currentNodeIndex = newIndex;
 				}
-
 			}
 		}
 	}

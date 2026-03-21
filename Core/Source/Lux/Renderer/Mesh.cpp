@@ -23,11 +23,11 @@ namespace Lux
 
 #define MESH_DEBUG_LOG 0
 #if MESH_DEBUG_LOG
-#define HZ_MESH_LOG(...) HZ_CORE_TRACE_TAG("Mesh", __VA_ARGS__)
-#define HZ_MESH_ERROR(...) HZ_CORE_ERROR_TAG("Mesh", __VA_ARGS__)
+#define LUX_MESH_LOG(...) LUX_CORE_TRACE_TAG("Mesh", __VA_ARGS__)
+#define LUX_MESH_ERROR(...) LUX_CORE_ERROR_TAG("Mesh", __VA_ARGS__)
 #else
-#define HZ_MESH_LOG(...)
-#define HZ_MESH_ERROR(...)
+#define LUX_MESH_LOG(...)
+#define LUX_MESH_ERROR(...)
 #endif
 
 	////////////////////////////////////////////////////////
@@ -103,21 +103,21 @@ namespace Lux
 	void MeshSource::DumpVertexBuffer()
 	{
 		// TODO: Convert to ImGui
-		HZ_MESH_LOG("------------------------------------------------------");
-		HZ_MESH_LOG("Vertex Buffer Dump");
-		HZ_MESH_LOG("Mesh: {0}", m_FilePath);
+		LUX_MESH_LOG("------------------------------------------------------");
+		LUX_MESH_LOG("Vertex Buffer Dump");
+		LUX_MESH_LOG("Mesh: {0}", m_FilePath);
 		for (size_t i = 0; i < m_Vertices.size(); i++)
 		{
 			auto& vertex = m_Vertices[i];
-			HZ_MESH_LOG("Vertex: {0}", i);
-			HZ_MESH_LOG("Position: {0}, {1}, {2}", vertex.Position.x, vertex.Position.y, vertex.Position.z);
-			HZ_MESH_LOG("Normal: {0}, {1}, {2}", vertex.Normal.x, vertex.Normal.y, vertex.Normal.z);
-			HZ_MESH_LOG("Binormal: {0}, {1}, {2}", vertex.Binormal.x, vertex.Binormal.y, vertex.Binormal.z);
-			HZ_MESH_LOG("Tangent: {0}, {1}, {2}", vertex.Tangent.x, vertex.Tangent.y, vertex.Tangent.z);
-			HZ_MESH_LOG("TexCoord: {0}, {1}", vertex.Texcoord.x, vertex.Texcoord.y);
-			HZ_MESH_LOG("--");
+			LUX_MESH_LOG("Vertex: {0}", i);
+			LUX_MESH_LOG("Position: {0}, {1}, {2}", vertex.Position.x, vertex.Position.y, vertex.Position.z);
+			LUX_MESH_LOG("Normal: {0}, {1}, {2}", vertex.Normal.x, vertex.Normal.y, vertex.Normal.z);
+			LUX_MESH_LOG("Binormal: {0}, {1}, {2}", vertex.Binormal.x, vertex.Binormal.y, vertex.Binormal.z);
+			LUX_MESH_LOG("Tangent: {0}, {1}, {2}", vertex.Tangent.x, vertex.Tangent.y, vertex.Tangent.z);
+			LUX_MESH_LOG("TexCoord: {0}, {1}", vertex.Texcoord.x, vertex.Texcoord.y);
+			LUX_MESH_LOG("--");
 		}
-		HZ_MESH_LOG("------------------------------------------------------");
+		LUX_MESH_LOG("------------------------------------------------------");
 	}
 #if 0
 

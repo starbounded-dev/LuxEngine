@@ -18,8 +18,13 @@
 #include "imgui/imgui_internal.h"
 #include "ImGuizmo.h"
 #include "Lux/Debug/Profiler.h"
+#include "Lux/Editor/EditorResources.h"
+#include "Lux/ImGui/ImGuiFonts.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
+#include "Lux/ImGui/PropertyGrid.h"
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Utilities/FileDialogs.h"
+#include "Lux/Math/Math.h"
 
 namespace Lux {
 
@@ -40,7 +45,7 @@ namespace Lux {
 	static Ref<Font> s_Font;
 
 	EditorLayer::EditorLayer()
-		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 1000.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 10000.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 		s_Font = Font::GetDefaultFont();
 	}
@@ -55,14 +60,15 @@ namespace Lux {
 		m_IconStep = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Step.png");
 		m_IconStop = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Stop.png");
 
-		// FIX 1: Create Renderer2D BEFORE calling SetTargetFramebuffer.
-		// The original code called SetTargetFramebuffer on line 72 while
-		// m_Renderer2D was still null (created on line 91), causing an
-		// immediate null pointer dereference crash on launch.
 		m_Renderer2D = Ref<Renderer2D>::Create();
 		m_Renderer2D->SetLineWidth(4.0f);
 
 		FramebufferSpecification fbSpec;
+		// Attachment 0: RGBA colour output shown in viewport
+		// Attachment 1: Depth
+		// NOTE: Entity ID picking (RED_INTEGER attachment + ReadPixel) is not yet
+		// supported by Framebuffer in this engine. m_HoveredEntity is cleared every
+		// frame until that infrastructure is added.
 		fbSpec.Attachments = { ImageFormat::RGBA32F, ImageFormat::Depth };
 		fbSpec.Width = 1280;
 		fbSpec.Height = 720;
@@ -76,7 +82,13 @@ namespace Lux {
 		m_EditorCamera.SetActive(true);
 
 		m_EditorScene = Ref<Scene>::Create();
+		m_EditorScene->SetTargetFramebuffer(m_Framebuffer);
 		m_ActiveScene = m_EditorScene;
+
+		// FIX: SetContext was never called in OnAttach, so the SceneHierarchyPanel
+		// had a null context on startup. Entities would not appear in the hierarchy
+		// and the Properties panel would never draw any components.
+		m_SceneHierarchyPanel.SetContext(m_EditorScene);
 	}
 
 	void EditorLayer::OnDetach()
@@ -102,20 +114,23 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnUpdate");
 
+		if (!m_ActiveScene || !m_Framebuffer)
+			return;
+
+		// Make sure the SCENE renderer draws into the viewport framebuffer
+		m_ActiveScene->SetTargetFramebuffer(m_Framebuffer);
 		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
-		// FIX 2: Resize framebuffer here in OnUpdate, not in OnImGuiRender.
-		// Doing it in OnImGuiRender (after ImGui::Image has already sampled
-		// the old size) produces a one-frame flicker and can free images
-		// while they are still referenced by draw commands.
+		// Use actual framebuffer dimensions, not GetSpecification().Width/Height
 		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
 		{
-			FramebufferSpecification spec = m_Framebuffer->GetSpecification();
-			if (spec.Width != (uint32_t)m_ViewportSize.x || spec.Height != (uint32_t)m_ViewportSize.y)
+			uint32_t viewportWidth = (uint32_t)m_ViewportSize.x;
+			uint32_t viewportHeight = (uint32_t)m_ViewportSize.y;
+
+			if (m_Framebuffer->GetWidth() != viewportWidth || m_Framebuffer->GetHeight() != viewportHeight)
 			{
-				m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-				m_EditorCamera.SetViewportBounds(0, 0,
-					(uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+				m_Framebuffer->Resize(viewportWidth, viewportHeight);
+				m_EditorCamera.SetViewportBounds(0, 0, viewportWidth, viewportHeight);
 			}
 		}
 
@@ -156,6 +171,11 @@ namespace Lux {
 	void EditorLayer::OnImGuiRender()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnImGuiRender");
+
+		// Must be called once per frame before any other ImGuizmo function.
+		// Without this, IsOver() / IsUsing() return stale state and Manipulate()
+		// produces garbage transforms.
+		ImGuizmo::BeginFrame();
 
 		static bool dockspaceOpen = true;
 		static bool opt_fullscreen_persistant = true;
@@ -273,7 +293,7 @@ namespace Lux {
 		ImGui::Image(GetImGuiTextureID(s_Font->GetFontAtlas()), { 512, 512 }, { 0, 1 }, { 1, 0 });
 
 		ImGui::End(); // Stats
-
+		  
 		// Viewport panel
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
 		ImGui::Begin("Viewport");
@@ -288,10 +308,9 @@ namespace Lux {
 		m_ViewportHovered = ImGui::IsWindowHovered();
 		Application::Get().GetImGuiLayer()->AllowInputEvents(m_ViewportFocused || m_ViewportHovered);
 
-		// FIX 4: Only update m_ViewportSize when the panel has a valid size.
-		// During panel drag/dock transitions GetContentRegionAvail() can return
-		// zero, which would propagate to Framebuffer::Resize(0,0) next frame,
-		// freeing all attachment images and producing an invalid texture handle.
+		// Guard against zero-size during panel drag/dock transitions; a zero
+		// size would propagate to Framebuffer::Resize(0,0) next frame and
+		// destroy all attachment images while they are still in use.
 		ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 		if (viewportPanelSize.x > 1.0f && viewportPanelSize.y > 1.0f)
 			m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
@@ -319,7 +338,9 @@ namespace Lux {
 				m_ViewportBounds[1].x - m_ViewportBounds[0].x,
 				m_ViewportBounds[1].y - m_ViewportBounds[0].y);
 
-			const glm::mat4& cameraProjection = m_EditorCamera.GetViewProjection();
+			// FIX: Use GetProjectionMatrix() (projection only), not
+			// GetViewProjection() (combined VP). ImGuizmo needs them separate.
+			const glm::mat4& cameraProjection = m_EditorCamera.GetProjectionMatrix();
 			glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
 
 			auto& tc = selectedEntity.GetComponent<TransformComponent>();
@@ -328,6 +349,34 @@ namespace Lux {
 			bool snap = Input::IsKeyPressed(Key::LeftControl);
 			float snapValue = (m_GizmoType == ImGuizmo::OPERATION::ROTATE) ? 45.0f : 0.5f;
 			float snapValues[3] = { snapValue, snapValue, snapValue };
+
+			// FIX: Actually call Manipulate() - it was completely missing,
+			// so gizmos were never drawn or interactable at all.
+			ImGuizmo::Manipulate(
+				glm::value_ptr(cameraView),
+				glm::value_ptr(cameraProjection),
+				(ImGuizmo::OPERATION)m_GizmoType,
+				ImGuizmo::LOCAL,
+				glm::value_ptr(transform),
+				nullptr,
+				snap ? snapValues : nullptr);
+
+			// FIX: DecomposeTransform signature is (mat4, vec3&, quat&, vec3&).
+			// Decompose into a quaternion then convert to euler angles for storage.
+			if (ImGuizmo::IsUsing())
+			{
+				glm::vec3 translation, scale;
+				glm::quat rotationQuat;
+				Math::DecomposeTransform(transform, translation, rotationQuat, scale);
+
+				// Convert quat to euler and apply as a delta to avoid gimbal lock
+				// accumulation that would occur from direct euler assignment.
+				glm::vec3 rotationEuler = glm::eulerAngles(rotationQuat);
+				glm::vec3 deltaRotation = rotationEuler - tc.Rotation;
+				tc.Translation = translation;
+				tc.Rotation += deltaRotation;
+				tc.Scale = scale;
+			}
 		}
 
 		ImGui::End(); // Viewport
@@ -430,8 +479,8 @@ namespace Lux {
 
 		switch (e.GetKeyCode())
 		{
-		case Key::N: if (control) NewScene();     break;
-		case Key::O: if (control) OpenProject();  break;
+		case Key::N: if (control) NewScene();    break;
+		case Key::O: if (control) OpenProject(); break;
 		case Key::S:
 			if (control)
 			{
@@ -441,7 +490,7 @@ namespace Lux {
 			break;
 		case Key::D: if (control) OnDuplicateEntity(); break;
 
-		case Key::Q: if (!ImGuizmo::IsUsing()) m_GizmoType = -1;                           break;
+		case Key::Q: if (!ImGuizmo::IsUsing()) m_GizmoType = -1;                            break;
 		case Key::W: if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::TRANSLATE; break;
 		case Key::E: if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::ROTATE;   break;
 		case Key::R:
@@ -491,7 +540,6 @@ namespace Lux {
 				{
 					auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
 
-					glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, 0.001f);
 					glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
 					glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation)

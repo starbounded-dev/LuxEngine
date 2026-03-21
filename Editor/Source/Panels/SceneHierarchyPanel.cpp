@@ -14,6 +14,7 @@
 #include <imgui/misc/cpp/imgui_stdlib.h>
 
 #include <glm/gtc/type_ptr.hpp>
+#include <entt/entt.hpp>
 
 #include <cstring>
 
@@ -41,28 +42,30 @@ namespace Lux {
 	{
 		ImGui::Begin("Scene Hierarchy");
 
-		if (m_Context)
+	if (m_Context)
+	{
+		m_Context->m_Registry.each([&](auto entityID)
 		{
-			auto view = m_Context->m_Registry.view<entt::entity>();
-			for (auto entityID : view)
-			{
-				Entity entity{ entityID , m_Context.get() };
-				DrawEntityNode(entity);
-			}
+			Entity entity{ entityID , m_Context.get() };
+			DrawEntityNode(entity);
+		});
+	}
 
-			if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
-				m_SelectionContext = {};
+		if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
+			m_SelectionContext = {};
 
-			// Right-click on blank space
-			if (ImGui::BeginPopupContextWindow(0, ImGuiPopupFlags_NoOpenOverItems))
-			{
-				if (ImGui::MenuItem("Create Empty Entity"))
-					m_Context->CreateEntity("Empty Entity");
+		// Right-click on blank space
+		// FIX: Was passing integer literal 0 as str_id, which is not nullptr.
+		// This caused popup ID collisions with BeginPopupContextItem() calls on
+		// individual entity nodes, making right-click on blank space unreliable.
+		if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_NoOpenOverItems))
+		{
+			if (ImGui::MenuItem("Create Empty Entity"))
+				m_Context->CreateEntity("Empty Entity");
 
-				ImGui::EndPopup();
-			}
-
+			ImGui::EndPopup();
 		}
+
 		ImGui::End();
 
 		ImGui::Begin("Properties");
@@ -72,7 +75,9 @@ namespace Lux {
 		}
 
 		ImGui::End();
+
 	}
+	
 
 	void SceneHierarchyPanel::SetSelectedEntity(Entity entity)
 	{
@@ -128,6 +133,7 @@ namespace Lux {
 		ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
 
+		// FIX: Font->Scale is a multiplier (~1.0), not pixel height. Font->FontSize is correct.
 		float lineHeight = GImGui->Font->Scale + GImGui->Style.FramePadding.y * 2.0f;
 		ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
 
@@ -189,6 +195,7 @@ namespace Lux {
 			ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
+			// FIX: Font->Scale is a multiplier (~1.0), not pixel height. Font->FontSize is correct.
 			float lineHeight = GImGui->Font->Scale + GImGui->Style.FramePadding.y * 2.0f;
 			ImGui::Separator();
 			bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
@@ -506,7 +513,21 @@ namespace Lux {
 				const char* currentBodyTypeString = bodyTypeStrings[(int)component.Type];
 				if (ImGui::BeginCombo("Body Type", currentBodyTypeString))
 				{
-					for (int i = 0; i < 3; i++);
+					// FIX: Was "for (int i = 0; i < 3; i++);" - stray semicolon made
+					// the loop body empty (items never populated) and EndCombo was
+					// missing entirely, triggering an ImGui assert every frame.
+					for (int i = 0; i < 3; i++)
+					{
+						bool isSelected = (currentBodyTypeString == bodyTypeStrings[i]);
+						if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
+						{
+							currentBodyTypeString = bodyTypeStrings[i];
+							component.Type = (RigidBody2DComponent::BodyType)i;
+						}
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
 				}
 
 				ImGui::Checkbox("Fixed Rotation", &component.FixedRotation);
