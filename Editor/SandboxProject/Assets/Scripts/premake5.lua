@@ -1,5 +1,5 @@
 local LuxEngineRootDir = '../../../..'
-include (LuxEngineRootDir .. "/vendor/premake/premake_customization/solution_items.lua")
+include (LuxEngineRootDir .. "/vendor/premake_customization/solution_items.lua")
 
 workspace "Sandbox"
 	architecture "x86_64"

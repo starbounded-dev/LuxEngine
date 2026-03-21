@@ -124,7 +124,7 @@ namespace Lux {
 		m_InitialMousePosition = mouse;
 		m_Position += m_PositionDelta;
 		m_Yaw += m_YawDelta;
-		m_Pitch -= m_PitchDelta;
+		m_Pitch += m_PitchDelta;
 
 		if (m_CameraMode == CameraMode::ARCBALL)
 			m_Position = CalculatePosition();

@@ -20,7 +20,7 @@
 
 #include "imgui/imgui_internal.h"
 
-//#include "Lux/Script/ScriptEngine.h"
+#include "Lux/Scripting/ScriptEngine.h"
 
 #include "Lux/Utilities/StringUtils.h"
 #include "Lux/Debug/Profiler.h"
@@ -95,14 +95,13 @@ namespace Lux {
 			PushOverlay(m_ImGuiLayer);
 		}
 
-		//ScriptEngine::GetMutable().InitializeHost();
 		//MiniAudioEngine::Init();
 		Font::Init();
 	}
 
 	Application::~Application()
 	{
-		//ScriptEngine::GetMutable().ShutdownHost();
+		ScriptEngine::Shutdown();
 
 		NFD::Quit();
 

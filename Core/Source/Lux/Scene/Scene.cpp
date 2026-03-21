@@ -198,7 +198,7 @@ namespace Lux {
 					}
 				});
 		}
-
+		/*
 		// Scripting
 		{
 			ScriptEngine::OnRuntimeStart(this);
@@ -210,7 +210,7 @@ namespace Lux {
 				Entity entity = { e, this };
 				ScriptEngine::OnCreateEntity(entity);
 			}
-		}
+		}*/
 	}
 
 	void Scene::OnRuntimeStop()
@@ -252,7 +252,7 @@ namespace Lux {
 				});
 		}
 
-		ScriptEngine::OnRuntimeStop();
+		//ScriptEngine::OnRuntimeStop();
 	}
 
 	void Scene::OnSimulationStart()
@@ -280,10 +280,15 @@ namespace Lux {
 
 				m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
 					{
-						// TODO: Move to Scene::OnScenePlay
 						if (!nsc.Instance)
 						{
+							if (!nsc.InstantiateScript)
+								return;
+
 							nsc.Instance = nsc.InstantiateScript();
+							if (!nsc.Instance)
+								return;
+
 							nsc.Instance->m_Entity = Entity{ entity, this };
 							nsc.Instance->OnCreate();
 						}
@@ -351,6 +356,9 @@ namespace Lux {
 						if (asc.Audio && !asc.AudioSourceData.UsePlaylist)
 						{
 							Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(asc.Audio);
+							if (!audioSource)
+								return;
+
 							if (!audioSource->IsPlaying() && asc.Paused)
 							{
 								audioSource->SetConfig(asc.Config);
@@ -358,77 +366,53 @@ namespace Lux {
 								asc.Paused = false;
 							}
 
-							if (audioSource != nullptr)
-							{
-								audioSource->SetConfig(asc.Config);
-								audioSource->SetPosition(glm::vec4(transform.Translation, 1.0f));
-								//audioSource->SetDirection(forward);
-							}
+							audioSource->SetConfig(asc.Config);
+							audioSource->SetPosition(glm::vec4(transform.Translation, 1.0f));
 						}
 						else if (asc.Audio && asc.AudioSourceData.UsePlaylist)
 						{
-							LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 2 Scope", 0xEE3AFF);
+							auto& playlist = asc.AudioSourceData.Playlist;
 
-							Ref<AudioSource> audioSourceIndex = AssetManager::GetAsset<AudioSource>(asc.AudioSourceData.Playlist[asc.AudioSourceData.OldIndex]);
+							if (playlist.empty())
+								return;
 
-							//if (ac.AudioSourceData.OldIndex <= ac.AudioSourceData.Playlist.size() - 1)
-							if (asc.AudioSourceData.CurrentIndex < asc.AudioSourceData.Playlist.size() && audioSourceIndex != nullptr && asc.Config.PlayOnAwake && !audioSourceIndex->IsPlaying() && !asc.Paused)
+							if (asc.AudioSourceData.OldIndex >= playlist.size())
+								asc.AudioSourceData.OldIndex = 0;
+
+							if (asc.AudioSourceData.CurrentIndex >= playlist.size())
 							{
-								LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 3 Scope", 0xFF8E68);
+								if (asc.AudioSourceData.RepeatPlaylist)
+									asc.AudioSourceData.CurrentIndex = 0;
+								else
+									return;
+							}
 
-								audioSourceIndex = AssetManager::GetAsset<AudioSource>(asc.AudioSourceData.Playlist[asc.AudioSourceData.CurrentIndex]);
+							Ref<AudioSource> oldSource = AssetManager::GetAsset<AudioSource>(playlist[asc.AudioSourceData.OldIndex]);
+							Ref<AudioSource> currentSource = AssetManager::GetAsset<AudioSource>(playlist[asc.AudioSourceData.CurrentIndex]);
 
-								if (!audioSourceIndex->IsLooping())
+							if (!currentSource)
+								return;
+
+							if (asc.Config.PlayOnAwake && !asc.Paused && (!oldSource || !oldSource->IsPlaying()))
+							{
+								if (!currentSource->IsLooping())
 								{
-									LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 4 Scope", 0xFF2F68);
+									currentSource->SetConfig(asc.Config);
+									currentSource->Play();
+									currentSource->SetPosition(glm::vec4(transform.Translation, 1.0f));
 
-									audioSourceIndex->SetConfig(asc.Config);
-									audioSourceIndex->Play();
 									asc.AudioSourceData.PlayingCurrentIndex = true;
 									asc.Paused = false;
-
-									//const rtmcpp::Mat4 inverted = rtmcpp::Inverse(transform.GetTransform());
-									//const rtmcpp::Vec3 forward = rtm::vector_normalize3(inverted.Value.z_axis);
-
-									audioSourceIndex->SetConfig(asc.Config);
-									audioSourceIndex->SetPosition(glm::vec4(transform.Translation, 1.0f));
-									//audioSourceIndex->SetDirection(forward);
-
-									if (asc.AudioSourceData.RepeatAfterSpecificTrackPlays && asc.AudioSourceData.CurrentIndex == asc.AudioSourceData.StartIndex)
-									{
-										LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 5 Scope", 0xA191FF);
-
-										audioSourceIndex->SetLooping(true);
-									}
-
-									if (asc.AudioSourceData.OldIndex != asc.AudioSourceData.CurrentIndex)
-									{
-										LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 6 Scope", 0x8CCBFF);
-
-										asc.AudioSourceData.OldIndex = asc.AudioSourceData.CurrentIndex;
-									}
-
+									asc.AudioSourceData.OldIndex = asc.AudioSourceData.CurrentIndex;
 									asc.AudioSourceData.CurrentIndex++;
 								}
 							}
-							else if (asc.AudioSourceData.CurrentIndex < asc.AudioSourceData.Playlist.size() && audioSourceIndex != nullptr && asc.Config.PlayOnAwake && asc.Paused)
+							else if (asc.Config.PlayOnAwake && asc.Paused)
 							{
-								audioSourceIndex->SetConfig(asc.Config);
-								audioSourceIndex->Play();
+								currentSource->SetConfig(asc.Config);
+								currentSource->Play();
 								asc.AudioSourceData.PlayingCurrentIndex = true;
 								asc.Paused = false;
-							}
-
-							if (asc.AudioSourceData.RepeatPlaylist && !asc.AudioSourceData.RepeatAfterSpecificTrackPlays && asc.AudioSourceData.CurrentIndex >= asc.AudioSourceData.Playlist.size())
-							{
-								if (audioSourceIndex != nullptr && !audioSourceIndex->IsPlaying())
-									asc.AudioSourceData.CurrentIndex = 0;
-							}
-
-							if (asc.AudioSourceData.RepeatAfterSpecificTrackPlays && !asc.AudioSourceData.RepeatPlaylist && asc.AudioSourceData.CurrentIndex > asc.AudioSourceData.StartIndex)
-							{
-								if (audioSourceIndex != nullptr && !audioSourceIndex->IsPlaying())
-									asc.AudioSourceData.CurrentIndex = asc.AudioSourceData.StartIndex;
 							}
 						}
 					});
@@ -470,7 +454,7 @@ namespace Lux {
 							if (!asc.AudioSourceData.UsePlaylist)
 							{
 								Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(asc.Audio);
-								if (audioSource->IsPlaying())
+								if (audioSource && audioSource->IsPlaying())
 								{
 									audioSource->SetConfig(asc.Config);
 									audioSource->Pause();
