@@ -117,11 +117,6 @@ namespace Lux {
 		if (!m_ActiveScene || !m_Framebuffer)
 			return;
 
-		// Make sure the SCENE renderer draws into the viewport framebuffer
-		m_ActiveScene->SetTargetFramebuffer(m_Framebuffer);
-		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-
-		// Use actual framebuffer dimensions, not GetSpecification().Width/Height
 		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
 		{
 			uint32_t viewportWidth = (uint32_t)m_ViewportSize.x;
@@ -132,6 +127,9 @@ namespace Lux {
 				m_Framebuffer->Resize(viewportWidth, viewportHeight);
 				m_EditorCamera.SetViewportBounds(0, 0, viewportWidth, viewportHeight);
 			}
+
+			m_ActiveScene->SetTargetFramebuffer(m_Framebuffer);
+			m_ActiveScene->OnViewportResize(viewportWidth, viewportHeight);
 		}
 
 		m_Renderer2D->ResetStats();
@@ -156,14 +154,6 @@ namespace Lux {
 			break;
 		}
 		}
-
-		auto [mx, my] = ImGui::GetMousePos();
-		mx -= m_ViewportBounds[0].x;
-		my -= m_ViewportBounds[0].y;
-		glm::vec2 viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
-		my = viewportSize.y - my;
-		int mouseX = (int)mx;
-		int mouseY = (int)my;
 
 		OnOverlayRender();
 	}
@@ -633,8 +623,13 @@ namespace Lux {
 
 	void EditorLayer::NewScene()
 	{
-		m_ActiveScene = CreateRef<Scene>();
-		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+		m_EditorScene = CreateRef<Scene>();
+		m_EditorScene->SetTargetFramebuffer(m_Framebuffer);
+
+		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
+			m_EditorScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+
+		m_ActiveScene = m_EditorScene;
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 		m_EditorScenePath = std::filesystem::path();
 	}
@@ -654,9 +649,13 @@ namespace Lux {
 		Ref<Scene> newScene = Scene::Copy(readOnlyScene);
 
 		m_EditorScene = newScene;
-		m_SceneHierarchyPanel.SetContext(m_EditorScene);
+		m_EditorScene->SetTargetFramebuffer(m_Framebuffer);
+
+		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
+			m_EditorScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 		m_ActiveScene = m_EditorScene;
+		m_SceneHierarchyPanel.SetContext(m_EditorScene);
 		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle);
 	}
 
@@ -691,8 +690,12 @@ namespace Lux {
 		m_SceneState = SceneState::Play;
 
 		m_ActiveScene = Scene::Copy(m_EditorScene);
-		m_ActiveScene->OnRuntimeStart();
+		m_ActiveScene->SetTargetFramebuffer(m_Framebuffer);
 
+		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
+			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+
+		m_ActiveScene->OnRuntimeStart();
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 	}
 
@@ -704,8 +707,12 @@ namespace Lux {
 		m_SceneState = SceneState::Simulate;
 
 		m_ActiveScene = Scene::Copy(m_EditorScene);
-		m_ActiveScene->OnSimulationStart();
+		m_ActiveScene->SetTargetFramebuffer(m_Framebuffer);
 
+		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
+			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+
+		m_ActiveScene->OnSimulationStart();
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 	}
 
