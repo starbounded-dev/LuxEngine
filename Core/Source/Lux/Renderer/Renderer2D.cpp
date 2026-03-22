@@ -321,7 +321,6 @@ namespace Lux {
 		Renderer::Submit([ubsCamera = m_UBSCamera, viewProj, cmd = m_RenderCommandBuffer]() mutable
 			{
 				uint32_t bufferIndex = Renderer::RT_GetCurrentFrameIndex();
-
 				ubsCamera->RT_Get()->RT_SetData(cmd, &viewProj, sizeof(UBCamera));
 			});
 
@@ -330,30 +329,34 @@ namespace Lux {
 
 		LUX_CORE_TRACE_TAG("Renderer", "Renderer2D::BeginScene frame {}", frameIndex);
 
+		// FIX: Reset ALL write indices every frame so EndScene loops are bounded correctly
 		m_QuadIndexCount = 0;
+		m_QuadBufferWriteIndex = 0;
 		for (uint32_t i = 0; i < m_QuadVertexBufferPtr.size(); i++)
 			m_QuadVertexBufferPtr[i] = m_QuadVertexBufferBases[i][frameIndex];
 
 		m_TextIndexCount = 0;
+		m_TextBufferWriteIndex = 0;
 		for (uint32_t i = 0; i < m_TextVertexBufferPtr.size(); i++)
 			m_TextVertexBufferPtr[i] = m_TextVertexBufferBases[i][frameIndex];
 
 		m_LineIndexCount = 0;
+		m_LineBufferWriteIndex = 0;
 		for (uint32_t i = 0; i < m_LineVertexBufferPtr.size(); i++)
 			m_LineVertexBufferPtr[i] = m_LineVertexBufferBases[i][frameIndex];
 
 		m_LineOnTopIndexCount = 0;
+		m_LineOnTopBufferWriteIndex = 0;
 		for (uint32_t i = 0; i < m_LineOnTopVertexBufferPtr.size(); i++)
 			m_LineOnTopVertexBufferPtr[i] = m_LineOnTopVertexBufferBases[i][frameIndex];
 
 		m_CircleIndexCount = 0;
+		m_CircleBufferWriteIndex = 0;
 		for (uint32_t i = 0; i < m_CircleVertexBufferPtr.size(); i++)
 			m_CircleVertexBufferPtr[i] = m_CircleVertexBufferBases[i][frameIndex];
 
 		m_TextureSlotIndex = 1;
 		m_FontTextureSlotIndex = 0;
-
-		m_TextBufferWriteIndex = 0;
 
 		for (uint32_t i = 1; i < m_TextureSlots.size(); i++)
 			m_TextureSlots[i] = nullptr;
@@ -380,12 +383,13 @@ namespace Lux {
 				uint32_t indexCount = i == m_QuadBufferWriteIndex ? m_QuadIndexCount - (c_MaxIndices * i) : c_MaxIndices;
 				m_QuadVertexBuffers[i][frameIndex]->SetData(m_QuadVertexBufferBases[i][frameIndex], dataSize);
 
-				for (uint32_t i = 0; i < m_TextureSlots.size(); i++)
+				// FIX: renamed inner loop variable from 'i' to 'texSlot' to avoid shadowing the outer 'i'
+				for (uint32_t texSlot = 0; texSlot < m_TextureSlots.size(); texSlot++)
 				{
-					if (m_TextureSlots[i])
-						m_QuadMaterial->Set("u_Textures", m_TextureSlots[i], i);
+					if (m_TextureSlots[texSlot])
+						m_QuadMaterial->Set("u_Textures", m_TextureSlots[texSlot], texSlot);
 					else
-						m_QuadMaterial->Set("u_Textures", m_WhiteTexture, i);
+						m_QuadMaterial->Set("u_Textures", m_WhiteTexture, texSlot);
 				}
 
 				Renderer::BeginRenderPass(m_RenderCommandBuffer, m_QuadPass);
@@ -395,7 +399,6 @@ namespace Lux {
 				m_DrawStats.DrawCalls++;
 				m_MemoryStats.Used += dataSize;
 			}
-
 		}
 
 		// Render text
@@ -407,12 +410,13 @@ namespace Lux {
 				uint32_t indexCount = i == m_TextBufferWriteIndex ? m_TextIndexCount - (c_MaxIndices * i) : c_MaxIndices;
 				m_TextVertexBuffers[i][frameIndex]->SetData(m_TextVertexBufferBases[i][frameIndex], dataSize);
 
-				for (uint32_t i = 0; i < m_FontTextureSlots.size(); i++)
+				// FIX: renamed inner loop variable from 'i' to 'texSlot'
+				for (uint32_t texSlot = 0; texSlot < m_FontTextureSlots.size(); texSlot++)
 				{
-					if (m_FontTextureSlots[i])
-						m_TextMaterial->Set("u_FontAtlases", m_FontTextureSlots[i], i);
+					if (m_FontTextureSlots[texSlot])
+						m_TextMaterial->Set("u_FontAtlases", m_FontTextureSlots[texSlot], texSlot);
 					else
-						m_TextMaterial->Set("u_FontAtlases", m_WhiteTexture, i);
+						m_TextMaterial->Set("u_FontAtlases", m_WhiteTexture, texSlot);
 				}
 
 				Renderer::BeginRenderPass(m_RenderCommandBuffer, m_TextPass);
@@ -422,10 +426,9 @@ namespace Lux {
 				m_DrawStats.DrawCalls++;
 				m_MemoryStats.Used += dataSize;
 			}
-
 		}
 
-		// Lines
+		// Lines (depth-tested)
 		m_LinePass->GetPipeline()->GetSpecification().DepthTest = true;
 		for (uint32_t i = 0; i <= m_LineBufferWriteIndex; i++)
 		{
@@ -442,9 +445,9 @@ namespace Lux {
 				m_DrawStats.DrawCalls++;
 				m_MemoryStats.Used += dataSize;
 			}
-
 		}
 
+		// Lines on top (no depth test)
 		m_LinePass->GetPipeline()->GetSpecification().DepthTest = false;
 		for (uint32_t i = 0; i <= m_LineOnTopBufferWriteIndex; i++)
 		{
@@ -463,38 +466,6 @@ namespace Lux {
 			}
 		}
 
-#if TODO
-		// Circles
-		for (uint32_t i = 0; i <= m_CircleBufferWriteIndex; i++)
-		{
-			dataSize = (uint32_t)((uint8_t*)m_CircleVertexBufferPtr[i] - (uint8_t*)m_CircleVertexBufferBases[i][frameIndex]);
-			if (dataSize)
-			{
-				uint32_t indexCount = i == m_LineBufferWriteIndex ? m_LineIndexCount - (c_MaxIndices * i) : c_MaxIndices;
-				m_LineVertexBuffers[i][frameIndex]->SetData(m_CircleVertexBufferBases[i][frameIndex], dataSize);
-
-				Renderer::BeginRenderPass(m_RenderCommandBuffer, m_LinePass);
-				Renderer::RenderGeometry(m_RenderCommandBuffer, m_LinePass->GetSpecification().Pipeline, m_LineMaterial, m_LineVertexBuffers[i][frameIndex], m_LineIndexBuffer, glm::mat4(1.0f), indexCount);
-				Renderer::EndRenderPass(m_RenderCommandBuffer);
-
-				m_DrawStats.DrawCalls++;
-				m_MemoryStats.Used += dataSize;
-			}
-
-		}
-
-		// OLD
-		dataSize = (uint32_t)((uint8_t*)m_CircleVertexBufferPtr - (uint8_t*)m_CircleVertexBufferBase[frameIndex]);
-		if (dataSize)
-		{
-			m_CircleVertexBuffer[frameIndex]->SetData(m_CircleVertexBufferBase[frameIndex], dataSize);
-			//TODO: Renderer::RenderGeometry(m_RenderCommandBuffer, m_CirclePipeline, m_CircleMaterial, m_CircleVertexBuffer[frameIndex], m_QuadIndexBuffer, glm::mat4(1.0f), m_CircleIndexCount);
-
-			m_DrawStats.DrawCalls++;
-			m_MemoryStats.Used += dataSize;
-		}
-#endif
-
 		m_RenderCommandBuffer->End();
 		m_RenderCommandBuffer->Submit();
 	}
@@ -506,7 +477,6 @@ namespace Lux {
 
 	Ref<RenderPass> Renderer2D::GetTargetRenderPass()
 	{
-		// TODO return m_QuadPipeline->GetSpecification().RenderPass;
 		return nullptr;
 	}
 
@@ -519,6 +489,10 @@ namespace Lux {
 				pipelineSpec.TargetFramebuffer = framebuffer;
 				RenderPassSpecification& renderpassSpec = m_QuadPass->GetSpecification();
 				renderpassSpec.Pipeline = Pipeline::Create(pipelineSpec);
+				// FIX: re-validate and re-bake after pipeline recreation so descriptor sets stay consistent
+				m_QuadPass->SetInput("Camera", m_UBSCamera);
+				LUX_CORE_VERIFY(m_QuadPass->Validate());
+				m_QuadPass->Bake();
 			}
 
 			{
@@ -526,6 +500,10 @@ namespace Lux {
 				pipelineSpec.TargetFramebuffer = framebuffer;
 				RenderPassSpecification& renderpassSpec = m_LinePass->GetSpecification();
 				renderpassSpec.Pipeline = Pipeline::Create(pipelineSpec);
+				// FIX: re-validate and re-bake
+				m_LinePass->SetInput("Camera", m_UBSCamera);
+				LUX_CORE_VERIFY(m_LinePass->Validate());
+				m_LinePass->Bake();
 			}
 
 			{
@@ -533,6 +511,10 @@ namespace Lux {
 				pipelineSpec.TargetFramebuffer = framebuffer;
 				RenderPassSpecification& renderpassSpec = m_TextPass->GetSpecification();
 				renderpassSpec.Pipeline = Pipeline::Create(pipelineSpec);
+				// FIX: re-validate and re-bake
+				m_TextPass->SetInput("Camera", m_UBSCamera);
+				LUX_CORE_VERIFY(m_TextPass->Validate());
+				m_TextPass->Bake();
 			}
 		}
 	}
@@ -540,8 +522,6 @@ namespace Lux {
 	void Renderer2D::OnRecreateSwapchain()
 	{
 		LUX_CORE_VERIFY(false);
-		// if (m_Specification.SwapChainTarget)
-		// 	m_RenderCommandBuffer = RenderCommandBuffer::CreateFromSwapChain("Renderer2D");
 	}
 
 	void Renderer2D::AddQuadBuffer()
@@ -624,7 +604,7 @@ namespace Lux {
 		if (m_QuadBufferWriteIndex >= m_QuadVertexBufferBases.size())
 		{
 			AddQuadBuffer();
-			m_QuadVertexBufferPtr.emplace_back(); // TODO(Yan): check
+			m_QuadVertexBufferPtr.emplace_back();
 			m_QuadVertexBufferPtr[m_QuadBufferWriteIndex] = m_QuadVertexBufferBases[m_QuadBufferWriteIndex][frameIndex];
 		}
 
@@ -641,7 +621,7 @@ namespace Lux {
 			if (m_LineOnTopBufferWriteIndex >= m_LineOnTopVertexBufferBases.size())
 			{
 				AddLineBuffer(onTop);
-				m_LineOnTopVertexBufferPtr.emplace_back(); // TODO(Yan): check
+				m_LineOnTopVertexBufferPtr.emplace_back();
 				m_LineOnTopVertexBufferPtr[m_LineOnTopBufferWriteIndex] = m_LineOnTopVertexBufferBases[m_LineOnTopBufferWriteIndex][frameIndex];
 			}
 
@@ -653,7 +633,7 @@ namespace Lux {
 			if (m_LineBufferWriteIndex >= m_LineVertexBufferBases.size())
 			{
 				AddLineBuffer(onTop);
-				m_LineVertexBufferPtr.emplace_back(); // TODO(Yan): check
+				m_LineVertexBufferPtr.emplace_back();
 				m_LineVertexBufferPtr[m_LineBufferWriteIndex] = m_LineVertexBufferBases[m_LineBufferWriteIndex][frameIndex];
 			}
 
@@ -669,7 +649,7 @@ namespace Lux {
 		if (m_TextBufferWriteIndex >= m_TextVertexBufferBases.size())
 		{
 			AddTextBuffer();
-			m_TextVertexBufferPtr.emplace_back(); // TODO(Yan): check
+			m_TextVertexBufferPtr.emplace_back();
 			m_TextVertexBufferPtr[m_TextBufferWriteIndex] = m_TextVertexBufferBases[m_TextBufferWriteIndex][frameIndex];
 		}
 
@@ -684,7 +664,7 @@ namespace Lux {
 		if (m_CircleBufferWriteIndex >= m_CircleVertexBufferBases.size())
 		{
 			AddCircleBuffer();
-			m_CircleVertexBufferPtr.emplace_back(); // TODO(Yan): check
+			m_CircleVertexBufferPtr.emplace_back();
 			m_CircleVertexBufferPtr[m_CircleBufferWriteIndex] = m_CircleVertexBufferBases[m_CircleBufferWriteIndex][frameIndex];
 		}
 
@@ -700,15 +680,7 @@ namespace Lux {
 		constexpr glm::vec2 textureCoords[] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
 		const float tilingFactor = 1.0f;
 
-		m_QuadBufferWriteIndex = m_QuadIndexCount / c_MaxIndices;
-		if (m_QuadBufferWriteIndex >= m_QuadVertexBufferBases.size())
-		{
-			AddQuadBuffer();
-			m_QuadVertexBufferPtr.emplace_back(); // TODO(Yan): check
-			m_QuadVertexBufferPtr[m_QuadBufferWriteIndex] = m_QuadVertexBufferBases[m_QuadBufferWriteIndex][frameIndex];
-		}
-
-		auto& bufferPtr = m_QuadVertexBufferPtr[m_QuadBufferWriteIndex];
+		auto& bufferPtr = GetWriteableQuadBuffer();
 		for (size_t i = 0; i < quadVertexCount; i++)
 		{
 			bufferPtr->Position = transform * m_QuadVertexPositions[i];
@@ -741,15 +713,15 @@ namespace Lux {
 
 		if (textureIndex == 0.0f)
 		{
-			//if (m_TextureSlotIndex >= MaxTextureSlots)
-			//	FlushAndReset();
-
 			textureIndex = (float)m_TextureSlotIndex;
 			m_TextureSlots[m_TextureSlotIndex] = texture;
 			m_TextureSlotIndex++;
 		}
 
-		auto& bufferPtr = m_QuadVertexBufferPtr[m_QuadBufferWriteIndex];
+		// FIX: was accessing m_QuadVertexBufferPtr[m_QuadBufferWriteIndex] directly without
+		// advancing the write index, causing vertex data to land in the wrong/reset buffer slot.
+		// Now consistently uses GetWriteableQuadBuffer() like every other draw call.
+		auto& bufferPtr = GetWriteableQuadBuffer();
 		for (size_t i = 0; i < quadVertexCount; i++)
 		{
 			bufferPtr->Position = transform * m_QuadVertexPositions[i];
@@ -1116,7 +1088,11 @@ namespace Lux {
 			bufferPtr->Color = color;
 			bufferPtr++;
 
-			m_LineIndexCount += 2;
+			if (onTop)
+				m_LineOnTopIndexCount += 2;
+			else
+				m_LineIndexCount += 2;
+
 			m_DrawStats.LineCount++;
 		}
 	}
@@ -1206,9 +1182,6 @@ namespace Lux {
 
 	void Renderer2D::DrawAABB(const AABB& aabb, const glm::mat4& transform, const glm::vec4& color /*= glm::vec4(1.0f)*/, const bool onTop)
 	{
-		glm::vec4 min = { aabb.Min.x, aabb.Min.y, aabb.Min.z, 1.0f };
-		glm::vec4 max = { aabb.Max.x, aabb.Max.y, aabb.Max.z, 1.0f };
-
 		glm::vec4 corners[8] =
 		{
 			transform * glm::vec4 { aabb.Min.x, aabb.Min.y, aabb.Max.z, 1.0f },
@@ -1244,7 +1217,6 @@ namespace Lux {
 
 	void Renderer2D::DrawString(const std::string& string, const glm::vec3& position, float maxWidth, const glm::vec4& color)
 	{
-		// Use default font
 		DrawString(string, Font::GetDefaultFont(), position, maxWidth, color);
 	}
 
@@ -1253,13 +1225,8 @@ namespace Lux {
 		DrawString(string, font, glm::translate(glm::mat4(1.0f), position), maxWidth, color);
 	}
 
-	// warning C4996: 'std::codecvt_utf8<char32_t,1114111,(std::codecvt_mode)0>': warning STL4017: std::wbuffer_convert, std::wstring_convert, and the <codecvt> header
-	// (containing std::codecvt_mode, std::codecvt_utf8, std::codecvt_utf16, and std::codecvt_utf8_utf16) are deprecated in C++17. (The std::codecvt class template is NOT deprecated.)
-	// The C++ Standard doesn't provide equivalent non-deprecated functionality; consider using MultiByteToWideChar() and WideCharToMultiByte() from <Windows.h> instead.
-	// You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to acknowledge that you have received this warning.
 #pragma warning(disable : 4996)
 
-	// From https://stackoverflow.com/questions/31302506/stdu32string-conversion-to-from-stdstring-and-stdu16string
 	static std::u32string To_UTF32(const std::string& s)
 	{
 		std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
@@ -1275,7 +1242,6 @@ namespace Lux {
 
 		float textureIndex = -1.0f;
 
-		// TODO(Yan): this isn't really ideal, but we need to iterate through UTF-8 code points
 		std::u32string utf32string = To_UTF32(string);
 
 		Ref<Texture2D> fontAtlas = font->GetFontAtlas();
@@ -1300,15 +1266,13 @@ namespace Lux {
 		auto& fontGeometry = font->GetMSDFData()->FontGeometry;
 		const auto& metrics = fontGeometry.getMetrics();
 
-		// TODO(Yan): these font metrics really should be cleaned up/refactored...
-		//            (this is a first pass WIP)
 		std::vector<int> nextLines;
 		{
 			double x = 0.0;
 			double fsScale = 1 / (metrics.ascenderY - metrics.descenderY);
 			double y = -fsScale * metrics.ascenderY;
 			int lastSpace = -1;
-			for (int i = 0; i < utf32string.size(); i++)
+			for (int i = 0; i < (int)utf32string.size(); i++)
 			{
 				char32_t character = utf32string[i];
 				if (character == '\n')
@@ -1321,14 +1285,11 @@ namespace Lux {
 					continue;
 
 				auto glyph = fontGeometry.getGlyph(character);
-				//if (!glyph)
-				//	glyph = fontGeometry.getGlyph('?');
 				if (!glyph)
 					continue;
 
 				if (character != ' ')
 				{
-					// Calc geo
 					double pl, pb, pr, pt;
 					glyph->getQuadPlaneBounds(pl, pb, pr, pt);
 					glm::vec2 quadMin((float)pl, (float)pb);
@@ -1362,8 +1323,8 @@ namespace Lux {
 		{
 			double x = 0.0;
 			double fsScale = 1 / (metrics.ascenderY - metrics.descenderY);
-			double y = 0.0;// -fsScale * metrics.ascenderY;
-			for (int i = 0; i < utf32string.size(); i++)
+			double y = 0.0;
+			for (int i = 0; i < (int)utf32string.size(); i++)
 			{
 				char32_t character = utf32string[i];
 				if (character == '\n' || NextLine(i, nextLines))
@@ -1374,8 +1335,6 @@ namespace Lux {
 				}
 
 				auto glyph = fontGeometry.getGlyph(character);
-				//if (!glyph)
-				//	glyph = fontGeometry.getGlyph('?');
 				if (!glyph)
 					continue;
 
@@ -1385,17 +1344,12 @@ namespace Lux {
 				double pl, pb, pr, pt;
 				glyph->getQuadPlaneBounds(pl, pb, pr, pt);
 
-				pl *= fsScale, pb *= fsScale, pr *= fsScale, pt *= fsScale;
-				pl += x, pb += y, pr += x, pt += y;
+				pl *= fsScale; pb *= fsScale; pr *= fsScale; pt *= fsScale;
+				pl += x; pb += y; pr += x; pt += y;
 
 				double texelWidth = 1. / fontAtlas->GetWidth();
 				double texelHeight = 1. / fontAtlas->GetHeight();
-				l *= texelWidth, b *= texelHeight, r *= texelWidth, t *= texelHeight;
-
-				// ImGui::Begin("Font");
-				// ImGui::Text("Size: %d, %d", m_ExampleFontSheet->GetWidth(), m_ExampleFontSheet->GetHeight());
-				// UI::Image(m_ExampleFontSheet, ImVec2(m_ExampleFontSheet->GetWidth(), m_ExampleFontSheet->GetHeight()), ImVec2(0, 1), ImVec2(1, 0));
-				// ImGui::End();
+				l *= texelWidth; b *= texelHeight; r *= texelWidth; t *= texelHeight;
 
 				auto& bufferPtr = GetWriteableTextBuffer();
 				bufferPtr->Position = transform * glm::vec4(pl, pb, 0.0f, 1.0f);
@@ -1431,7 +1385,6 @@ namespace Lux {
 				m_DrawStats.QuadCount++;
 			}
 		}
-
 	}
 
 	float Renderer2D::GetLineWidth()
