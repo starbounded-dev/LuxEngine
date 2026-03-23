@@ -26,6 +26,7 @@
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Utilities/FileDialogs.h"
 #include "Lux/Math/Math.h"
+#include "Panels/TextEditorPanel.h"
 
 namespace Lux {
 
@@ -123,6 +124,8 @@ namespace Lux {
 
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();
+
+		m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View,"TextEditorPanel","Text Editor",true);
 
 		Ref<SceneRendererPanel> sceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
 
