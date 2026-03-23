@@ -157,6 +157,7 @@ namespace Lux {
 		Ref<Image2D>     GetFinalPassImage();
 		Ref<RenderPass>  GetFinalRenderPass();
 		Ref<Framebuffer> GetExternalCompositeFramebuffer() { return m_CompositingFramebuffer; }
+		Ref<RenderCommandBuffer> GetCommandBuffer() { return m_CommandBuffer; }
 
 		Ref<Renderer2D>    GetRenderer2D() { return m_Renderer2D; }
 		Ref<DebugRenderer> GetDebugRenderer() { return m_DebugRenderer; }
@@ -281,6 +282,13 @@ namespace Lux {
 			glm::mat4 ViewProjection[4];
 		} m_ShadowUB;
 
+		struct UBSpotShadow
+		{
+			glm::mat4 ViewProjection[16];
+			uint32_t Count = 0;
+			glm::vec3 Padding{};
+		};
+
 		struct UBRendererData
 		{
 			glm::vec4 CascadeSplits;
@@ -302,6 +310,30 @@ namespace Lux {
 			glm::vec3  Padding{};
 			PointLight PointLights[256]{};
 		} m_PointLightsUB;
+
+		struct SpotLight
+		{
+			glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+			float Intensity = 0.0f;
+
+			glm::vec3 Direction = { 0.0f, -1.0f, 0.0f };
+			float Range = 25.0f;
+
+			glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
+			float Angle = 45.0f;
+
+			float AngleAttenuation = 1.0f;
+			float Falloff = 1.0f;
+			bool CastsShadows = false;
+			char Padding[3] = { 0, 0, 0 };
+		};
+
+		struct UBSpotLights
+		{
+			uint32_t Count = 0;
+			glm::vec3 Padding{};
+			SpotLight SpotLights[256]{};
+		} m_SpotLightsUB;
 
 		// ── Private data ──────────────────────────────────────────────────────
 
@@ -328,8 +360,10 @@ namespace Lux {
 		Ref<UniformBufferSet> m_UBSCamera;
 		Ref<UniformBufferSet> m_UBSScene;
 		Ref<UniformBufferSet> m_UBSShadow;
+		Ref<UniformBufferSet> m_UBSSpotShadow;
 		Ref<UniformBufferSet> m_UBSRendererData;
 		Ref<UniformBufferSet> m_UBSPointLights;
+		Ref<UniformBufferSet> m_UBSSpotLights;
 
 		Ref<StorageBufferSet> m_SBSInstanceTransforms;  // TransformVertexData[]
 		Ref<StorageBufferSet> m_SBSObjectIndexes;       // uint32_t[] – maps draw → transform

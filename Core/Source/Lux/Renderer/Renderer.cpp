@@ -364,6 +364,8 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Static.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Transparent.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Anim.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LuxPBR_Static.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LuxPBR_Transparent.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Grid.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Wireframe.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Wireframe_Anim.glsl");

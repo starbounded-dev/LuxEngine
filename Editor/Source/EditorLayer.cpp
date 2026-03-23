@@ -29,6 +29,27 @@
 
 namespace Lux {
 
+#define MAX_PROJECT_NAME_LENGTH 255
+#define MAX_PROJECT_FILEPATH_LENGTH 512
+
+	static char* s_ProjectNameBuffer = new char[MAX_PROJECT_NAME_LENGTH];
+	static char* s_OpenProjectFilePathBuffer = new char[MAX_PROJECT_FILEPATH_LENGTH];
+	static char* s_NewProjectFilePathBuffer = new char[MAX_PROJECT_FILEPATH_LENGTH];
+
+#define SCENE_HIERARCHY_PANEL_ID "SceneHierarchyPanel"
+#define ECS_DEBUG_PANEL_ID "ECSDebugPanel"
+#define CONSOLE_PANEL_ID "EditorConsolePanel"
+#define CONTENT_BROWSER_PANEL_ID "ContentBrowserPanel"
+#define PROJECT_SETTINGS_PANEL_ID "ProjectSettingsPanel"
+#define PHYSICS_DEBUG_PANEL_ID "PhysicsDebugPanel"
+#define ASSET_MANAGER_PANEL_ID "AssetManagerPanel"
+#define MATERIALS_PANEL_ID "MaterialsPanel"
+#define AUDIO_EVENTS_EDITOR_PANEL_ID "AudioEventsEditor"
+#define APPLICATION_SETTINGS_PANEL_ID "ApplicationSettingsPanel"
+#define SCRIPT_ENGINE_DEBUG_PANEL_ID "ScriptEngineDebugPanel"
+#define SCENE_RENDERER_PANEL_ID "SceneRendererPanel"
+#define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
+
 	namespace {
 		ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
 		{
@@ -88,63 +109,10 @@ namespace Lux {
 			s_SceneRendererState.Renderer->SetViewportSize((uint32_t)viewportSize.x, (uint32_t)viewportSize.y);
 	}
 
-	static void DrawSceneRendererPanel(bool* showPhysicsColliders)
-	{
-		if (!s_SceneRendererState.PanelOpen)
-			return;
-
-		if (!ImGui::Begin("Scene Renderer", &s_SceneRendererState.PanelOpen))
-		{
-			ImGui::End();
-			return;
-		}
-
-		if (!s_SceneRendererState.Renderer)
-		{
-			ImGui::TextDisabled("No SceneRenderer attached.");
-			ImGui::End();
-			return;
-		}
-
-		auto& options = s_SceneRendererState.Renderer->GetOptions();
-
-		ImGui::Checkbox("Show Grid", &options.ShowGrid);
-		ImGui::Checkbox("Show Selected In Wireframe", &options.ShowSelectedInWireframe);
-
-		if (ImGui::Checkbox("Show Physics Colliders (SceneRenderer)", &options.ShowPhysicsColliders))
-		{
-			if (showPhysicsColliders)
-				*showPhysicsColliders = options.ShowPhysicsColliders;
-		}
-
-		ImGui::Checkbox("Soft Shadows", &options.SoftShadows);
-		ImGui::DragFloat("Max Shadow Distance", &options.MaxShadowDistance, 1.0f, 0.0f, 10000.0f, "%.1f");
-		ImGui::DragFloat("Shadow Fade", &options.ShadowFade, 0.01f, 0.0f, 10.0f, "%.2f");
-
-		const auto& stats = s_SceneRendererState.Renderer->GetStatistics();
-
-		ImGui::Separator();
-		ImGui::Text("Ready: %s", s_SceneRendererState.Renderer->IsReady() ? "Yes" : "No");
-		ImGui::Text("Viewport: %u x %u",
-			s_SceneRendererState.Renderer->GetViewportWidth(),
-			s_SceneRendererState.Renderer->GetViewportHeight());
-		ImGui::Text("Draw Calls: %u", stats.DrawCalls);
-		ImGui::Text("Meshes: %u", stats.Meshes);
-		ImGui::Text("Instances: %u", stats.Instances);
-		ImGui::Text("GPU Time: %.3f ms", stats.TotalGPUTime);
-
-		ImGui::Separator();
-		ImGui::TextDisabled("This one-file patch only wires SceneRenderer into");
-		ImGui::TextDisabled("EditorLayer. Full scene rendering still needs");
-		ImGui::TextDisabled("Scene::OnRenderEditor / Runtime / Simulation.");
-
-		ImGui::End();
-	}
-
 	static Ref<Font> s_Font;
 
 	EditorLayer::EditorLayer()
-		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 10000.0f),m_SecondEditorCamera(45.0f, 1600.0f, 900.0f, 0.1f, 1000.0f) ,m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 10000.0f) ,m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 		s_Font = Font::GetDefaultFont();
 	}
@@ -152,6 +120,11 @@ namespace Lux {
 	void EditorLayer::OnAttach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
+
+		/////////// Configure Panels ///////////
+		m_PanelManager = CreateScope<PanelManager>();
+
+		Ref<SceneRendererPanel> sceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
 
 		m_IconPlay = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Play.png");
 		m_IconPause = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Pause.png");
@@ -178,11 +151,23 @@ namespace Lux {
 		// Now safe to call - m_Renderer2D is valid.
 		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
 
+		m_PanelManager->SetSceneContext(m_EditorScene);
+
+		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
+		sceneRendererPanel->SetContext(s_SceneRendererState.Renderer);
+
 		m_EditorCamera.SetActive(true);
 
 		m_EditorScene = Ref<Scene>::Create();
 		m_EditorScene->SetTargetFramebuffer(m_Framebuffer);
 		m_ActiveScene = m_EditorScene;
+
+		SceneRendererSpecification sceneRendererSpec;
+		sceneRendererSpec.ViewportWidth = 1280;
+		sceneRendererSpec.ViewportHeight = 720;
+
+		m_SceneRenderer = Ref<SceneRenderer>::Create(m_ActiveScene, sceneRendererSpec);
+		m_SceneRendererPanel.SetContext(m_SceneRenderer);
 
 		// FIX: SetContext was never called in OnAttach, so the SceneHierarchyPanel
 		// had a null context on startup. Entities would not appear in the hierarchy
@@ -235,6 +220,9 @@ namespace Lux {
 
 			m_ActiveScene->SetTargetFramebuffer(m_Framebuffer);
 			m_ActiveScene->OnViewportResize(viewportWidth, viewportHeight);
+
+			if (m_SceneRenderer)
+				m_SceneRenderer->SetViewportSize(viewportWidth, viewportHeight);
 		}
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
@@ -361,7 +349,7 @@ namespace Lux {
 		if (m_ContentBrowserPanel)
 			m_ContentBrowserPanel->OnImGuiRender();
 
-		DrawSceneRendererPanel(&m_ShowPhysicsColliders);
+		m_PanelManager->OnImGuiRender();
 
 		// Stats panel
 		ImGui::Begin("Stats");
@@ -572,6 +560,8 @@ namespace Lux {
 		if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate)
 			m_EditorCamera.OnEvent(e);
 
+		m_PanelManager->OnEvent(e);
+
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
 		dispatcher.Dispatch<MouseButtonPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
@@ -748,6 +738,13 @@ namespace Lux {
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 		m_EditorScenePath = std::filesystem::path();
 
+		if (m_SceneRenderer)
+			m_SceneRenderer->SetScene(m_ActiveScene);
+
+		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
+		if (sceneRendererPanel)
+			sceneRendererPanel->SetContext(m_SceneRenderer);
+
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
 
@@ -774,6 +771,13 @@ namespace Lux {
 		m_ActiveScene = m_EditorScene;
 		m_SceneHierarchyPanel.SetContext(m_EditorScene);
 		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle);
+
+		if (m_SceneRenderer)
+			m_SceneRenderer->SetScene(m_ActiveScene);
+
+		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
+		if (sceneRendererPanel)
+			sceneRendererPanel->SetContext(m_SceneRenderer);
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
@@ -817,6 +821,13 @@ namespace Lux {
 		m_ActiveScene->OnRuntimeStart();
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 
+		if (m_SceneRenderer)
+			m_SceneRenderer->SetScene(m_ActiveScene);
+
+		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
+		if (sceneRendererPanel)
+			sceneRendererPanel->SetContext(m_SceneRenderer);
+
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
 
@@ -836,6 +847,13 @@ namespace Lux {
 		m_ActiveScene->OnSimulationStart();
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 
+		if (m_SceneRenderer)
+			m_SceneRenderer->SetScene(m_ActiveScene);
+
+		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
+		if (sceneRendererPanel)
+			sceneRendererPanel->SetContext(m_SceneRenderer);
+
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
 
@@ -852,6 +870,13 @@ namespace Lux {
 		m_ActiveScene = m_EditorScene;
 
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+
+		if (m_SceneRenderer)
+			m_SceneRenderer->SetScene(m_ActiveScene);
+
+		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
+		if (sceneRendererPanel)
+			sceneRendererPanel->SetContext(m_SceneRenderer);
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}

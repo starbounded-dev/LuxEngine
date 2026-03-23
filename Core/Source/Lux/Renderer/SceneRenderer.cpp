@@ -133,7 +133,7 @@ namespace Lux {
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_ViewportWidth;
 			fbSpec.Height = m_ViewportHeight;
-			fbSpec.Attachments = { ImageFormat::Depth };
+			fbSpec.Attachments = { ImageFormat::DEPTH32FSTENCIL8UINT };
 			fbSpec.DepthClearValue = 0.0f;
 			fbSpec.ClearDepthOnLoad = true;
 			fbSpec.DebugName = "PreDepth";
@@ -190,7 +190,7 @@ namespace Lux {
 			// Opaque PBR pipeline
 			PipelineSpecification pipelineSpec;
 			pipelineSpec.DebugName = "PBR-Static";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Static");
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("LuxPBR_Static");
 			pipelineSpec.TargetFramebuffer = loadFB;
 			pipelineSpec.Layout = vertexLayout;
 			pipelineSpec.DepthOperator = DepthCompareOperator::Equal; // rely on pre-depth
@@ -199,7 +199,7 @@ namespace Lux {
 
 			// Transparent PBR pipeline (alpha-blend, depth-test but no pre-depth Equal trick)
 			pipelineSpec.DebugName = "PBR-Transparent";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Transparent");
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("LuxPBR_Transparent");
 			pipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
 			pipelineSpec.DepthWrite = false;
 			m_TransparentGeometryPipeline = Pipeline::Create(pipelineSpec);

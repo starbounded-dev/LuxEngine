@@ -30,7 +30,6 @@ namespace Lux {
 	Scene::Scene()
 	{
 		m_Renderer2D = Ref<Renderer2D>::Create();
-		m_Renderer2D->Init();
 	}
 
 	Scene::~Scene()
@@ -251,6 +250,17 @@ namespace Lux {
 					}
 				});
 		}
+
+		m_Registry.view<NativeScriptComponent>().each([](auto, auto& nsc)
+			{
+				if (nsc.Instance && nsc.DestroyScript)
+					nsc.DestroyScript(&nsc);
+			});
+
+		m_Registry.view<AudioListenerComponent>().each([](auto, auto& alc)
+			{
+				alc.Listener.reset();
+			});
 
 		//ScriptEngine::OnRuntimeStop();
 	}

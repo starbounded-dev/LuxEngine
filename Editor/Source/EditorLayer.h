@@ -15,6 +15,9 @@
 #include "Lux/Renderer/VertexBuffer.h"
 
 #include "entt/entt.hpp"
+#include "Lux/Editor/PanelManager.h"
+#include "Panels/SceneRendererPanel.h"
+#include "Lux/Renderer/SceneRenderer.h"
 
 namespace Lux
 {
@@ -62,10 +65,16 @@ namespace Lux
 	private:
 		EditorCamera m_EditorCamera;
 
+		Scope<PanelManager> m_PanelManager;
+
 		bool m_VSync = true;
 		bool m_ViewportFocused = false, m_ViewportHovered = false;
 
 		Ref<Renderer2D> m_Renderer2D;
+
+		Ref<SceneRenderer> m_SceneRenderer;
+		SceneRendererPanel m_SceneRendererPanel;
+		bool m_ShowSceneRendererPanel = true;
 
 		// Temp
 		Ref<VertexBuffer> m_SquareVA;
