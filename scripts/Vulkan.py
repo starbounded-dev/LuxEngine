@@ -16,9 +16,9 @@ from colorama import Style
 
 VULKAN_SDK = os.environ.get('VULKAN_SDK')
 LUX_REQUIRED_VULKAN_VERSION = '1.4.' # Any 1.3 version is fine
-LUX_INSTALL_VULKAN_VERSION = '1.3.216.0' # Specifically install this one if no 1.3 version is present
+LUX_INSTALL_VULKAN_VERSION = '1.4.341.1' # Specifically install this one if no 1.3 version is present
 VULKAN_SDK_INSTALLER_URL = f'https://sdk.lunarg.com/sdk/download/{LUX_INSTALL_VULKAN_VERSION}/windows/VulkanSDK-{LUX_INSTALL_VULKAN_VERSION}-Installer.exe'
-VULKAN_SDK_LOCAL_PATH = 'Lux/vendor/VulkanSDK'
+VULKAN_SDK_LOCAL_PATH = 'Core/vendor/VulkanSDK'
 VULKAN_SDK_EXE_PATH = f'{VULKAN_SDK_LOCAL_PATH}/VulkanSDK.exe'
 
 colorama.init()
