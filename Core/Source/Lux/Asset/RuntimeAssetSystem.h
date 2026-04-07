@@ -63,9 +63,9 @@ namespace Lux
 
 		struct LoadedEntry
 		{
-			AssetHandle Handle;
-			Ref<Asset>  Asset;
-			std::function<void(AssetHandle, Ref<Asset>)> Callback;
+			AssetHandle Handle = 0;
+			Ref<Asset>  LoadedAsset;
+			std::function<void(AssetHandle, Ref<Asset>)> CallbackFn;
 		};
 		std::queue<LoadedEntry> m_FinishedQueue;
 		std::mutex              m_FinishedQueueMutex;

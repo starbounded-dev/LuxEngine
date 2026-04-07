@@ -31,11 +31,10 @@ namespace Lux
 	{
 	}
 
-	static void TraverseNodes(Ref<MeshSource> meshSource,
+	void AssimpMeshImporter::TraverseNodes(Ref<MeshSource> meshSource,
 		aiNode* node,
 		const glm::mat4& parentTransform,
-		uint32_t parentIndex,
-		uint32_t level = 0)
+		uint32_t parentIndex)
 	{
 		glm::mat4 localTransform = AssimpMat4ToGlm(node->mTransformation);
 		glm::mat4 worldTransform = parentTransform * localTransform;
@@ -63,7 +62,7 @@ namespace Lux
 		}
 
 		for (uint32_t i = 0; i < node->mNumChildren; i++)
-			TraverseNodes(meshSource, node->mChildren[i], worldTransform, nodeIndex, level + 1);
+			TraverseNodes(meshSource, node->mChildren[i], worldTransform, nodeIndex);
 	}
 
 	Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource()

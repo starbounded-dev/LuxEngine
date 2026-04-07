@@ -30,11 +30,11 @@ namespace Lux
 		while (!m_FinishedQueue.empty())
 		{
 			auto& entry = m_FinishedQueue.front();
-			if (entry.Asset)
+			if (entry.LoadedAsset)
 			{
-				loadedAssets[entry.Handle] = entry.Asset;
-				if (entry.Callback)
-					entry.Callback(entry.Handle, entry.Asset);
+				loadedAssets[entry.Handle] = entry.LoadedAsset;
+				if (entry.CallbackFn != nullptr)
+					entry.CallbackFn(entry.Handle, entry.LoadedAsset);
 			}
 			m_FinishedQueue.pop();
 		}
@@ -78,7 +78,11 @@ namespace Lux
 
 			{
 				std::scoped_lock lock(m_FinishedQueueMutex);
-				m_FinishedQueue.push({ request.Handle, asset, std::move(request.Callback) });
+				LoadedEntry entry;
+				entry.Handle = request.Handle;
+				entry.LoadedAsset = std::move(asset);
+				entry.CallbackFn = std::move(request.Callback);
+				m_FinishedQueue.push(std::move(entry));
 			}
 		}
 	}
