@@ -56,6 +56,11 @@ namespace Lux
 		out << YAML::EndMap;
 
 		std::ofstream fout(filepath);
+		if (!fout.is_open())
+		{
+			LUX_CORE_ERROR("MeshSerializer: Could not open '{}' for writing", filepath.string());
+			return;
+		}
 		fout << out.c_str();
 	}
 
@@ -119,6 +124,11 @@ namespace Lux
 		out << YAML::EndMap;
 
 		std::ofstream fout(filepath);
+		if (!fout.is_open())
+		{
+			LUX_CORE_ERROR("StaticMeshSerializer: Could not open '{}' for writing", filepath.string());
+			return;
+		}
 		fout << out.c_str();
 	}
 

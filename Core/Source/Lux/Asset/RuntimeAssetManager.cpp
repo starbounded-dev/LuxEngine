@@ -23,7 +23,8 @@ namespace Lux {
 		// runtime because assets are expected to be pre-loaded asynchronously.
 		LUX_CORE_WARN("RuntimeAssetManager::GetAsset – synchronous load for handle {}", (uint64_t)handle);
 
-		// Trigger an async load and wait for it (simple spin).
+		// Trigger an async load and sleep briefly between sync polls to avoid
+		// burning CPU cycles while waiting for the worker thread.
 		std::atomic_bool done{ false };
 		LoadAssetAsync(handle, [&done](AssetHandle, Ref<Asset>)
 		{
@@ -33,7 +34,8 @@ namespace Lux {
 		while (!done)
 		{
 			SyncLoadedAssets();
-			std::this_thread::yield();
+			using namespace std::chrono_literals;
+			std::this_thread::sleep_for(1ms);
 		}
 
 		return IsAssetLoaded(handle) ? m_LoadedAssets.at(handle) : nullptr;

@@ -42,6 +42,11 @@ namespace Lux
 		out << YAML::EndMap;
 
 		std::ofstream fout(filepath);
+		if (!fout.is_open())
+		{
+			LUX_CORE_ERROR("MaterialSerializer: Could not open '{}' for writing", filepath.string());
+			return;
+		}
 		fout << out.c_str();
 	}
 
