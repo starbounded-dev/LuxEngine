@@ -1,5 +1,6 @@
 #include "lpch.h"
 #include "AssetManager.h"
+#include "EditorAssetManager.h"
 
 #include "AssetImporter.h"
 
@@ -17,11 +18,17 @@ namespace Lux {
 		{ ".png", AssetType::Texture },
 		{ ".jpg", AssetType::Texture },
 		{ ".jpeg", AssetType::Texture },
+		{ ".hdr", AssetType::EnvMap },
 		{ ".mp3", AssetType::Audio },
 		{ ".wav", AssetType::Audio },
-		{ ".ogg", AssetType::Audio },/*
-		{ ".obj", AssetType::ObjModel },
-		{ ".cs", AssetType::ScriptFile },*/
+		{ ".ogg", AssetType::Audio },
+		{ ".fbx", AssetType::MeshSource },
+		{ ".gltf", AssetType::MeshSource },
+		{ ".glb", AssetType::MeshSource },
+		{ ".obj", AssetType::MeshSource },
+		{ ".lmesh", AssetType::Mesh },
+		{ ".lsmesh", AssetType::StaticMesh },
+		{ ".lmat", AssetType::Material },
 	};
 
 	static AssetType GetAssetTypeFromFileExtension(const std::filesystem::path& extension)
@@ -39,6 +46,33 @@ namespace Lux {
 	{
 		out << std::string(v.data(), v.size());
 		return out;
+	}
+
+	EditorAssetManager::EditorAssetManager() = default;
+
+	EditorAssetManager::~EditorAssetManager()
+	{
+		m_AssetSystem.Stop();
+	}
+
+	void EditorAssetManager::LoadAssetAsync(AssetHandle handle)
+	{
+		if (!IsAssetHandleValid(handle))
+		{
+			LUX_CORE_WARN("EditorAssetManager::LoadAssetAsync – unknown handle {}", (uint64_t)handle);
+			return;
+		}
+
+		if (IsAssetLoaded(handle))
+			return; // already loaded
+
+		const AssetMetadata& metadata = GetMetadata(handle);
+		m_AssetSystem.QueueAssetLoad(metadata);
+	}
+
+	void EditorAssetManager::SyncLoadedAssets()
+	{
+		m_AssetSystem.SyncLoadedAssets(m_LoadedAssets);
 	}
 
 	bool EditorAssetManager::IsAssetHandleValid(AssetHandle handle) const
@@ -63,6 +97,7 @@ namespace Lux {
 	{
 		AssetHandle handle; // generate new handle
 		AssetMetadata metadata;
+		metadata.Handle = handle;
 		metadata.FilePath = filepath;
 		metadata.Type = GetAssetTypeFromFileExtension(filepath.extension());
 		LUX_CORE_ASSERT(metadata.Type != AssetType::None);
@@ -78,8 +113,9 @@ namespace Lux {
 
 	void EditorAssetManager::ImportScriptAsset(const std::filesystem::path& filepath, uint64_t uuid)
 	{
-		AssetHandle handle = uuid; // generate new handle
+		AssetHandle handle = uuid; // use provided uuid as handle
 		AssetMetadata metadata;
+		metadata.Handle = handle;
 		metadata.FilePath = filepath;
 		metadata.Type = GetAssetTypeFromFileExtension(filepath.extension());
 		LUX_CORE_ASSERT(metadata.Type != AssetType::None);
@@ -196,6 +232,7 @@ namespace Lux {
 		{
 			AssetHandle handle = node["Handle"].as<uint64_t>();
 			auto& metadata = m_AssetRegistry[handle];
+			metadata.Handle = handle;
 			metadata.FilePath = node["FilePath"].as<std::string>();
 			metadata.Type = AssetTypeFromString(node["Type"].as<std::string>());
 		}
