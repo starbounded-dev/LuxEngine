@@ -113,7 +113,7 @@ namespace Lux {
 
 	void EditorAssetManager::ImportScriptAsset(const std::filesystem::path& filepath, uint64_t uuid)
 	{
-		AssetHandle handle = uuid; // use provided uuid as handle
+		AssetHandle handle = uuid; // use provided UUID as handle
 		AssetMetadata metadata;
 		metadata.Handle = handle;
 		metadata.FilePath = filepath;

@@ -16,6 +16,8 @@
 
 namespace Lux
 {
+	static constexpr uint32_t s_InvalidParentIndex = 0xffffffffu;
+
 	static glm::mat4 AssimpMat4ToGlm(const aiMatrix4x4& m)
 	{
 		glm::mat4 result;
@@ -47,7 +49,7 @@ namespace Lux
 		uint32_t nodeIndex = (uint32_t)meshSource->m_Nodes.size();
 		meshSource->m_Nodes.push_back(luxNode);
 
-		if (parentIndex != 0xffffffff)
+		if (parentIndex != s_InvalidParentIndex)
 			meshSource->m_Nodes[parentIndex].Children.push_back(nodeIndex);
 
 		auto& currentNode = meshSource->m_Nodes[nodeIndex];
@@ -172,7 +174,7 @@ namespace Lux
 		// ── Node hierarchy ────────────────────────────────────────────────────
 		// Insert sentinel root so every real node has a valid parentIndex
 		meshSource->m_Nodes.emplace_back(); // root placeholder
-		TraverseNodes(meshSource, scene->mRootNode, glm::mat4(1.0f), 0xffffffff);
+		TraverseNodes(meshSource, scene->mRootNode, glm::mat4(1.0f), s_InvalidParentIndex);
 
 		// ── Materials (allocate zero-material placeholders) ───────────────────
 		meshSource->m_Materials.resize(scene->mNumMaterials, 0);
