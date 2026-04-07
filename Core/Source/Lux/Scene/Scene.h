@@ -5,15 +5,24 @@
 #include "Lux/Core/UUID.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/SceneEnvironment.h"
 
 #include "entt/entt.hpp"
+
+#include <functional>
 
 class b2World;
 
 namespace Lux {
 
 	class Entity;
-	class Framebuffer; // add this
+	class Framebuffer;
+	class SceneRenderer;
+
+	// Forward declare light structures (defined in SceneRenderer.h)
+	struct LightEnvironment;
+	struct DirectionalLight;
+	struct PointLight;
 
 	class Scene : public Asset
 	{
@@ -53,6 +62,36 @@ namespace Lux {
 		bool IsPaused() const { return m_IsPaused; }
 		void SetPaused(bool paused) { m_IsPaused = paused; }
 		void Step(int frames = 1);
+
+		// ============================================================================
+		// 3D Rendering Support
+		// ============================================================================
+
+		// Collect light data from DirectionalLightComponent and PointLightComponent entities
+		LightEnvironment CollectLightEnvironment() const;
+
+		// Collect environment/skybox from the first SkyLightComponent entity
+		// Returns nullptr if no SkyLightComponent exists
+		Ref<Environment> CollectEnvironment(float& outIntensity) const;
+
+		// Submit all StaticMeshComponent entities to the SceneRenderer
+		// Optional predicate to determine if an entity is selected (for highlight rendering)
+		void SubmitStaticMeshes(Ref<SceneRenderer> renderer, 
+		                        const std::function<bool(Entity)>& isSelected = nullptr) const;
+
+		// High-level 3D rendering method that orchestrates the full 3D pipeline:
+		// - Sets up camera
+		// - Collects and applies light environment
+		// - Collects and applies skybox/IBL environment
+		// - Submits all static meshes
+		// Call this from EditorLayer to render 3D content
+		void Render3D(const EditorCamera& camera, Ref<SceneRenderer> renderer,
+		              const std::function<bool(Entity)>& isSelected = nullptr);
+
+		// Render 3D content using a runtime camera (for Play mode)
+		void Render3DRuntime(Ref<SceneRenderer> renderer);
+
+	// ============================================================================
 
 		template<typename... Components>
 		auto GetAllEntitiesWith()

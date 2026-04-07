@@ -41,56 +41,56 @@ namespace Lux {
 
 		// Configure Fonts
 		{
-			UI::FontConfiguration robotoBold;
+			ImGuiEx::FontConfiguration robotoBold;
 			robotoBold.FontName = "Bold";
 			robotoBold.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
 			robotoBold.Size = 18.0f;
-			UI::Fonts::Add(robotoBold);
+			ImGuiEx::Fonts::Add(robotoBold);
 
-			UI::FontConfiguration robotoLarge;
+			ImGuiEx::FontConfiguration robotoLarge;
 			robotoLarge.FontName = "Large";
 			robotoLarge.FilePath = "Resources/Fonts/Roboto/Roboto-Regular.ttf";
 			robotoLarge.Size = 24.0f;
-			UI::Fonts::Add(robotoLarge);
+			ImGuiEx::Fonts::Add(robotoLarge);
 
-			UI::FontConfiguration robotoDefault;
+			ImGuiEx::FontConfiguration robotoDefault;
 			robotoDefault.FontName = "Default";
 			robotoDefault.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
 			robotoDefault.Size = 15.0f;
-			UI::Fonts::Add(robotoDefault, true);
+			ImGuiEx::Fonts::Add(robotoDefault, true);
 
 			static const ImWchar s_FontAwesomeRanges[] = { LUX_ICON_MIN, LUX_ICON_MAX, 0 };
-			UI::FontConfiguration fontAwesome;
+			ImGuiEx::FontConfiguration fontAwesome;
 			fontAwesome.FontName = "FontAwesome";
 			fontAwesome.FilePath = "Resources/Fonts/FontAwesome/fontawesome-webfont.ttf";
 			fontAwesome.Size = 16.0f;
 			fontAwesome.GlyphRanges = s_FontAwesomeRanges;
 			fontAwesome.MergeWithLast = true;
-			UI::Fonts::Add(fontAwesome);
+			ImGuiEx::Fonts::Add(fontAwesome);
 
-			UI::FontConfiguration robotoMedium;
+			ImGuiEx::FontConfiguration robotoMedium;
 			robotoMedium.FontName = "Medium";
 			robotoMedium.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
 			robotoMedium.Size = 18.0f;
-			UI::Fonts::Add(robotoMedium);
+			ImGuiEx::Fonts::Add(robotoMedium);
 
-			UI::FontConfiguration robotoSmall;
+			ImGuiEx::FontConfiguration robotoSmall;
 			robotoSmall.FontName = "Small";
 			robotoSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
 			robotoSmall.Size = 12.0f;
-			UI::Fonts::Add(robotoSmall);
+			ImGuiEx::Fonts::Add(robotoSmall);
 
-			UI::FontConfiguration robotoExtraSmall;
+			ImGuiEx::FontConfiguration robotoExtraSmall;
 			robotoExtraSmall.FontName = "ExtraSmall";
 			robotoExtraSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
 			robotoExtraSmall.Size = 10.0f;
-			UI::Fonts::Add(robotoExtraSmall);
+			ImGuiEx::Fonts::Add(robotoExtraSmall);
 
-			UI::FontConfiguration robotoBoldTitle;
+			ImGuiEx::FontConfiguration robotoBoldTitle;
 			robotoBoldTitle.FontName = "BoldTitle";
 			robotoBoldTitle.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
 			robotoBoldTitle.Size = 16.0f;
-			UI::Fonts::Add(robotoBoldTitle);
+			ImGuiEx::Fonts::Add(robotoBoldTitle);
 		}
 
 		// Setup Dear ImGui style
@@ -138,12 +138,8 @@ namespace Lux {
 		data->SC->Create((uint32_t)viewport->Size.x, (uint32_t)viewport->Size.y);
 		data->WindowOwned = true;
 
-		// Per-viewport renderer: pass the main renderer's shared registry so
-		// ALL texture handles (font, framebuffer images, etc.) are resolvable
-		// regardless of which renderer instance decodes the draw command.
-		ImGuiRenderer* mainRenderer = Application::Get().GetImGuiLayer()->GetImGuiRenderer();
 		data->Renderer = std::make_unique<ImGuiRenderer>();
-		data->Renderer->Init(mainRenderer->GetRegistry());
+		data->Renderer->Init();
 	}
 
 	static void ImGuiRenderer_DestroyWindow(ImGuiViewport* viewport)
@@ -193,15 +189,7 @@ namespace Lux {
 
 	void ImGuiLayer::Begin()
 	{
-		// Advance the shared registry for the new frame:
-		//   - clears per-frame texture slots registered last frame
-		//   - increments the frame counter used in stale-handle detection
-		// This runs BEFORE any rendering (main or per-viewport) so all
-		// renderers operate on consistent, up-to-date frame texture state.
-		m_ImGuiRenderer->GetRegistry()->NewFrame();
-
-		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal
-			? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
+		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGui::GetMouseCursor() : ImGuiMouseCursor_None);
 
 		m_ImGuiRenderer->UpdateFontTexture();
 		ImGui_ImplGlfw_NewFrame();
@@ -217,9 +205,7 @@ namespace Lux {
 		m_ImGuiRenderer->RenderToSwapchain(ImGui::GetMainViewport(),
 			&Application::Get().GetWindow().GetSwapChain());
 
-		// Per-viewport windows rendered here all share the same registry,
-		// so their texture handles are still valid even though the main
-		// renderer rendered first.
+		// Update and Render additional Platform Windows
 		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
 			ImGui::UpdatePlatformWindows();
@@ -306,6 +292,7 @@ namespace Lux {
 		colors[ImGuiCol_Tab] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		colors[ImGuiCol_TabHovered] = ImColor(255, 225, 135, 30);
 		colors[ImGuiCol_TabActive] = ImColor(255, 225, 135, 60);
+		colors[ImGuiCol_TabSelectedOverline] = ImColor(255, 225, 135, 60);
 		colors[ImGuiCol_TabUnfocused] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		colors[ImGuiCol_TabUnfocusedActive] = colors[ImGuiCol_TabHovered];
 
@@ -325,12 +312,12 @@ namespace Lux {
 		colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.41f, 0.41f, 1.0f);
 		colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.51f, 0.51f, 0.51f, 1.0f);
 
-		// Check Mark
-		colors[ImGuiCol_CheckMark] = ImColor(200, 200, 200, 255);
+		// Check Mark - Orange accent
+		colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
 
-		// Slider
-		colors[ImGuiCol_SliderGrab] = ImVec4(0.51f, 0.51f, 0.51f, 0.7f);
-		colors[ImGuiCol_SliderGrabActive] = ImVec4(0.66f, 0.66f, 0.66f, 1.0f);
+		// Slider - Orange accent
+		colors[ImGuiCol_SliderGrab] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
+		colors[ImGuiCol_SliderGrabActive] = ImVec4(1.0f, 0.7f, 0.3f, 1.0f);
 
 		// Text
 		colors[ImGuiCol_Text] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
@@ -356,11 +343,19 @@ namespace Lux {
 		// Menubar
 		colors[ImGuiCol_MenuBarBg] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
 
+		// Docking
+		colors[ImGuiCol_DockingPreview] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
+
+		// Nav highlight
+		colors[ImGuiCol_NavHighlight] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
+
 		//========================================================
 		/// Style
-		style.FrameRounding = 2.5f;
+		style.FrameRounding = 4.0f;
 		style.FrameBorderSize = 1.0f;
 		style.IndentSpacing = 11.0f;
+		style.ItemSpacing = ImVec2(8.0f, 4.0f);
+		style.WindowPadding = ImVec2(8.0f, 8.0f);
 	}
 
 	void ImGuiLayer::AllowInputEvents(bool allowEvents)
@@ -369,7 +364,7 @@ namespace Lux {
 		// g_DisableImGuiEvents = !allowEvents;
 	}
 
-	ImGuiRenderer* ImGuiLayer::GetImGuiRenderer()
+	Lux::ImGuiRenderer* ImGuiLayer::GetImGuiRenderer()
 	{
 		return m_ImGuiRenderer.get();
 	}

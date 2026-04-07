@@ -144,12 +144,14 @@ namespace Lux {
 	{
 		m_LayerStack.PopLayer(layer);
 		layer->OnDetach();
+		delete layer;
 	}
 
 	void Application::PopOverlay(Layer* layer)
 	{
 		m_LayerStack.PopOverlay(layer);
 		layer->OnDetach();
+		delete layer;
 	}
 
 	void Application::RenderImGui()
@@ -255,7 +257,7 @@ namespace Lux {
 			m_TimeStep = glm::min<float>(m_Frametime, 0.0333f);
 			m_LastFrameTime = time;
 
-			//HZ_CORE_INFO("-- END FRAME {0}", frameCounter);
+			//LUX_CORE_INFO("-- END FRAME {0}", frameCounter);
 			frameCounter++;
 
 			LUX_PROFILE_MARK_FRAME;

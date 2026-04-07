@@ -4,6 +4,10 @@
 
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
+#include "Panels/ConsolePanel.h"
+#include "Panels/RenderStatsPanel.h"
+#include "Panels/MaterialEditorPanel.h"
+#include "Panels/LightSettingsPanel.h"
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Scene/Entity.h"

@@ -5,6 +5,7 @@
 
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/UI/UI.h"
+#include "Lux/ImGui/ImGuiEx.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetMetadata.h"
@@ -147,7 +148,7 @@ namespace Lux {
 		ImGui::PopStyleColor(3);
 
 		ImGui::SameLine();
-		ImGui::DragFloat("##X", &values.x, 0.1f, 0.0f, 0.0f, "%.2f");
+		ImGuiEx::Property("##X", values.x, 0.1f, 0.0f, 0.0f, "%.2f");
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
 
@@ -161,7 +162,7 @@ namespace Lux {
 		ImGui::PopStyleColor(3);
 
 		ImGui::SameLine();
-		ImGui::DragFloat("##Y", &values.y, 0.1f, 0.0f, 0.0f, "%.2f");
+		ImGuiEx::Property("##Y", values.y, 0.1f, 0.0f, 0.0f, "%.2f");
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
 
@@ -175,7 +176,7 @@ namespace Lux {
 		ImGui::PopStyleColor(3);
 
 		ImGui::SameLine();
-		ImGui::DragFloat("##Z", &values.z, 0.1f, 0.0f, 0.0f, "%.2f");
+		ImGuiEx::Property("##Z", values.z, 0.1f, 0.0f, 0.0f, "%.2f");
 		ImGui::PopItemWidth();
 
 		ImGui::PopStyleVar();
@@ -291,7 +292,31 @@ namespace Lux {
 				ImGui::EndMenu();
 			}
 
-			ImGui::EndPopup();
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+			if (ImGui::BeginMenu("3D"))
+			{
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+				DisplayAddComponentEntry<StaticMeshComponent>("Static Mesh");
+
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+				if (ImGui::BeginMenu("Lights"))
+				{
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+					DisplayAddComponentEntry<DirectionalLightComponent>("Directional Light");
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+					DisplayAddComponentEntry<PointLightComponent>("Point Light");
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+					DisplayAddComponentEntry<SpotLightComponent>("Spot Light");
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+					DisplayAddComponentEntry<SkyLightComponent>("Sky Light");
+
+					ImGui::EndMenu();
+				}
+
+				ImGui::EndMenu();
+			}
+
+			ImGui::EndPopup();;
 		}
 
 		ImGui::PopItemWidth();
@@ -309,7 +334,8 @@ namespace Lux {
 			{
 				auto& camera = component.Camera;
 
-				ImGui::Checkbox("Primary", &component.Primary);
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::Property("Primary", component.Primary);
 
 				const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
 				const char* currentProjectionTypeString = projectionTypeStrings[(int)camera.GetProjectionType()];
@@ -335,30 +361,32 @@ namespace Lux {
 				{
 
 					float perspectiveNear = camera.GetPerspectiveNearClip();
-					if (ImGui::DragFloat("Near", &perspectiveNear))
+					if (ImGuiEx::Property("Near", perspectiveNear))
 						camera.SetPerspectiveNearClip(perspectiveNear);
 
 					float perspectiveFar = camera.GetPerspectiveFarClip();
-					if (ImGui::DragFloat("Far", &perspectiveFar))
+					if (ImGuiEx::Property("Far", perspectiveFar))
 						camera.SetPerspectiveFarClip(perspectiveFar);
 				}
 
 				if (camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
 				{
 					float orthoSize = camera.GetOrthographicSize();
-					if (ImGui::DragFloat("Size", &orthoSize))
+					if (ImGuiEx::Property("Size", orthoSize))
 						camera.SetOrthographicSize(orthoSize);
 
 					float orthoNear = camera.GetOrthographicNearClip();
-					if (ImGui::DragFloat("Near", &orthoNear))
+					if (ImGuiEx::Property("Near", orthoNear))
 						camera.SetOrthographicNearClip(orthoNear);
 
 					float orthoFar = camera.GetOrthographicFarClip();
-					if (ImGui::DragFloat("Far", &orthoFar))
+					if (ImGuiEx::Property("Far", orthoFar))
 						camera.SetOrthographicFarClip(orthoFar);
 
-					ImGui::Checkbox("Fixed Aspect Ratio", &component.FixedAspectRatio);
+					ImGuiEx::Property("Fixed Aspect Ratio", component.FixedAspectRatio);
 				}
+
+				ImGuiEx::EndPropertyGrid();
 			});
 
 		DrawComponent<ScriptComponent>("Script", entity, [entity, scene = m_Context](auto& component) mutable
@@ -441,7 +469,8 @@ namespace Lux {
 
 		DrawComponent<SpriteRendererComponent>("Sprite Renderer", entity, [](auto& component)
 			{
-				ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::PropertyColor("Color", component.Color);
 
 				std::string label = "None";
 				bool isTextureValid = false;
@@ -497,14 +526,19 @@ namespace Lux {
 				ImGui::SameLine();
 				ImGui::Text("Texture");
 
-				ImGui::DragFloat("Tiling Factor", &component.TilingFactor, 0.1f, 0.0f, 100.0f);
+				ImGuiEx::Property("Tiling Factor", component.TilingFactor, 0.1f, 0.0f, 100.0f);
+
+				ImGuiEx::EndPropertyGrid();
 			});
 
 		DrawComponent<CircleRendererComponent>("Circle Renderer", entity, [](auto& component)
 			{
-				ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
-				ImGui::DragFloat("Thickness", &component.Thickness, 0.025f, 0.0f, 1.0f);
-				ImGui::DragFloat("Fade", &component.Fade, 0.00025f, 0.0f, 1.0f);
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::PropertyColor("Color", component.Color);
+				ImGuiEx::Property("Thickness", component.Thickness, 0.025f, 0.0f, 1.0f);
+				ImGuiEx::Property("Fade", component.Fade, 0.00025f, 0.0f, 1.0f);
+
+				ImGuiEx::EndPropertyGrid();
 			});
 
 		DrawComponent<RigidBody2DComponent>("RigidBody 2D", entity, [](auto& component)
@@ -530,35 +564,46 @@ namespace Lux {
 					ImGui::EndCombo();
 				}
 
-				ImGui::Checkbox("Fixed Rotation", &component.FixedRotation);
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::Property("Fixed Rotation", component.FixedRotation);
+				ImGuiEx::EndPropertyGrid();
 			});
 
 		DrawComponent<BoxCollider2DComponent>("Box Collider 2D", entity, [](auto& component)
 			{
-				ImGui::DragFloat2("Offset", glm::value_ptr(component.Offset));
-				ImGui::DragFloat2("Size", glm::value_ptr(component.Size));
-				ImGui::DragFloat("Density", &component.Density, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f);
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::Property("Offset", component.Offset);
+				ImGuiEx::Property("Size", component.Size);
+				ImGuiEx::Property("Density", component.Density, 0.01f, 0.0f, 1.0f);
+				ImGuiEx::Property("Friction", component.Friction, 0.01f, 0.0f, 1.0f);
+				ImGuiEx::Property("Restitution", component.Restitution, 0.01f, 0.0f, 1.0f);
+				ImGuiEx::Property("Restitution Threshold", component.RestitutionThreshold, 0.01f, 0.0f);
+
+				ImGuiEx::EndPropertyGrid();
 			});
 
 		DrawComponent<CircleCollider2DComponent>("Circle Collider 2D", entity, [](auto& component)
 			{
-				ImGui::DragFloat2("Offset", glm::value_ptr(component.Offset));
-				ImGui::DragFloat("Radius", &component.Radius);
-				ImGui::DragFloat("Density", &component.Density, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
-				ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f);
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::Property("Offset", component.Offset);
+				ImGuiEx::Property("Radius", component.Radius);
+				ImGuiEx::Property("Density", component.Density, 0.01f, 0.0f, 1.0f);
+				ImGuiEx::Property("Friction", component.Friction, 0.01f, 0.0f, 1.0f);
+				ImGuiEx::Property("Restitution", component.Restitution, 0.01f, 0.0f, 1.0f);
+				ImGuiEx::Property("Restitution Threshold", component.RestitutionThreshold, 0.01f, 0.0f);
+
+				ImGuiEx::EndPropertyGrid();
 			});
 
 		DrawComponent<TextComponent>("Text Renderer", entity, [](auto& component)
 			{
-				ImGui::InputTextMultiline("Text String", &component.TextString);
-				ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
-				ImGui::DragFloat("Kerning", &component.Kerning, 0.025f);
-				ImGui::DragFloat("Line Spacing", &component.LineSpacing, 0.025f);
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::PropertyMultiline("Text String", component.TextString);
+				ImGuiEx::PropertyColor("Color", component.Color);
+				ImGuiEx::Property("Kerning", component.Kerning, 0.025f);
+				ImGuiEx::Property("Line Spacing", component.LineSpacing, 0.025f);
+
+				ImGuiEx::EndPropertyGrid();
 			});
 
 		DrawComponent<AudioSourceComponent>("Audio Source", entity, [&entity](AudioSourceComponent& component)
@@ -639,7 +684,7 @@ namespace Lux {
 
 					ImGui::SliderFloat("Pitch Multiplier", &config.PitchMultiplier, 0.0f, 3.0f, "%.2f");
 
-					ImGui::Checkbox("Play On Awake", &config.PlayOnAwake);
+					ImGuiEx::Property("Play On Awake", config.PlayOnAwake);
 
 					if (ImGui::Checkbox("Spatialization", &config.Spatialization))
 					{
@@ -654,7 +699,7 @@ namespace Lux {
 						config.Looping = looping;
 
 						ImGui::BeginDisabled();
-						ImGui::Checkbox("Looping", &looping);
+						ImGuiEx::Property("Looping", looping);
 						ImGui::EndDisabled();
 					}
 					else
@@ -881,7 +926,9 @@ namespace Lux {
 			{
 				auto& config = component.Config;
 
-				ImGui::Checkbox("Active", &component.Active);
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::Property("Active", component.Active);
+				ImGuiEx::EndPropertyGrid();
 
 				float innerAngle = glm::degrees(config.ConeInnerAngle);
 				if (ImGui::SliderFloat("Cone Inner Angle", &innerAngle, 0.0f, 360.0f, "%.2f"))
@@ -891,7 +938,175 @@ namespace Lux {
 				if (ImGui::SliderFloat("Cone Outer Angle", &outerAngle, 0.0f, 360.0f, "%.2f"))
 					config.ConeOuterAngle = glm::radians(outerAngle);
 
-				ImGui::SliderFloat("Cone Outer Gain", &config.ConeOuterGain, 0.0f, 1.0f, "%.2f");
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::PropertySlider("Cone Outer Gain", config.ConeOuterGain, 0.0f, 1.0f);
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		// ============================================================================
+		// 3D Component Inspectors
+		// ============================================================================
+
+		DrawComponent<StaticMeshComponent>("Static Mesh", entity, [](StaticMeshComponent& component)
+			{
+				// Mesh asset selector
+				std::string meshLabel = "None";
+				if (component.Mesh != 0)
+				{
+					if (AssetManager::IsAssetHandleValid(component.Mesh)
+						&& AssetManager::GetAssetType(component.Mesh) == AssetType::Mesh)
+					{
+						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(component.Mesh);
+						meshLabel = metadata.FilePath.filename().string();
+					}
+					else
+					{
+						meshLabel = "Invalid";
+					}
+				}
+
+				ImVec2 buttonLabelSize = ImGui::CalcTextSize(meshLabel.c_str());
+				buttonLabelSize.x += 20.0f;
+				float buttonLabelWidth = glm::max<float>(100.0f, buttonLabelSize.x);
+
+				ImGui::Button(meshLabel.c_str(), ImVec2(buttonLabelWidth, 0.0f));
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						AssetHandle handle = *(AssetHandle*)payload->Data;
+						if (AssetManager::GetAssetType(handle) == AssetType::Mesh)
+							component.Mesh = handle;
+						else
+							LUX_CORE_WARN("Wrong asset type! Expected Mesh.");
+					}
+					ImGui::EndDragDropTarget();
+				}
+				ImGui::SameLine();
+				ImGui::Text("Mesh");
+
+				// Material table asset selector
+				std::string materialLabel = "Default";
+				if (component.MaterialTable != 0)
+				{
+					if (AssetManager::IsAssetHandleValid(component.MaterialTable))
+					{
+						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(component.MaterialTable);
+						materialLabel = metadata.FilePath.filename().string();
+					}
+					else
+					{
+						materialLabel = "Invalid";
+					}
+				}
+
+				ImVec2 matButtonLabelSize = ImGui::CalcTextSize(materialLabel.c_str());
+				matButtonLabelSize.x += 20.0f;
+				float matButtonLabelWidth = glm::max<float>(100.0f, matButtonLabelSize.x);
+
+				ImGui::Button(materialLabel.c_str(), ImVec2(matButtonLabelWidth, 0.0f));
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						AssetHandle handle = *(AssetHandle*)payload->Data;
+						// MaterialTable may not have its own asset type yet - just accept it
+						component.MaterialTable = handle;
+					}
+					ImGui::EndDragDropTarget();
+				}
+				ImGui::SameLine();
+				ImGui::Text("Material Table");
+
+				ImGuiEx::Property("Visible", component.Visible);
+				ImGuiEx::Property("Cast Shadows", component.CastShadows);
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponent<DirectionalLightComponent>("Directional Light", entity, [](DirectionalLightComponent& component)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::PropertyColor("Radiance", component.Radiance);
+				ImGuiEx::Property("Intensity", component.Intensity, 0.1f, 0.0f, 100.0f);
+				ImGuiEx::Property("Shadow Amount", component.ShadowAmount, 0.01f, 0.0f, 1.0f);
+				ImGuiEx::Property("Cast Shadows", component.CastShadows);
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponent<PointLightComponent>("Point Light", entity, [](PointLightComponent& component)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::PropertyColor("Radiance", component.Radiance);
+				ImGuiEx::Property("Intensity", component.Intensity, 0.1f, 0.0f, 100.0f);
+				ImGuiEx::Property("Radius", component.Radius, 0.1f, 0.0f, 1000.0f);
+				ImGuiEx::Property("Falloff", component.Falloff, 0.01f, 0.0f, 10.0f);
+				ImGuiEx::Property("Min Radius", component.MinRadius, 0.001f, 0.0f, 1.0f);
+				ImGuiEx::Property("Light Size", component.LightSize, 0.01f, 0.0f, 10.0f);
+				ImGuiEx::Property("Cast Shadows", component.CastShadows);
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponent<SpotLightComponent>("Spot Light", entity, [](SpotLightComponent& component)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::PropertyColor("Radiance", component.Radiance);
+				ImGuiEx::Property("Intensity", component.Intensity, 0.1f, 0.0f, 100.0f);
+				ImGuiEx::Property("Range", component.Range, 0.1f, 0.0f, 1000.0f);
+				ImGuiEx::Property("Angle", component.Angle, 1.0f, 0.0f, 90.0f);
+				ImGuiEx::Property("Angle Attenuation", component.AngleAttenuation, 0.01f, 0.0f, 10.0f);
+				ImGuiEx::Property("Falloff", component.Falloff, 0.01f, 0.0f, 10.0f);
+				ImGuiEx::Property("Cast Shadows", component.CastShadows);
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponent<SkyLightComponent>("Sky Light", entity, [](SkyLightComponent& component)
+			{
+				// Environment map asset selector
+				std::string envLabel = "None";
+				if (component.EnvironmentMap != 0)
+				{
+					if (AssetManager::IsAssetHandleValid(component.EnvironmentMap))
+					{
+						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(component.EnvironmentMap);
+						envLabel = metadata.FilePath.filename().string();
+					}
+					else
+					{
+						envLabel = "Invalid";
+					}
+				}
+
+				ImVec2 buttonLabelSize = ImGui::CalcTextSize(envLabel.c_str());
+				buttonLabelSize.x += 20.0f;
+				float buttonLabelWidth = glm::max<float>(100.0f, buttonLabelSize.x);
+
+				ImGui::Button(envLabel.c_str(), ImVec2(buttonLabelWidth, 0.0f));
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						AssetHandle handle = *(AssetHandle*)payload->Data;
+						// Accept environment map (HDR texture or environment asset)
+						component.EnvironmentMap = handle;
+					}
+					ImGui::EndDragDropTarget();
+				}
+				ImGui::SameLine();
+				ImGui::Text("Environment Map");
+
+				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::Property("Intensity", component.Intensity, 0.01f, 0.0f, 10.0f);
+				ImGuiEx::EndPropertyGrid();
 			});
 
 

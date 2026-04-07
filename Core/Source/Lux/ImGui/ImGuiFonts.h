@@ -1,8 +1,8 @@
 #pragma once
 
-#include <imgui.h>
+#include <imgui/imgui.h>
 
-namespace Lux::UI {
+namespace Lux::ImGuiEx {
 
 	struct FontConfiguration
 	{

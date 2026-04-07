@@ -29,6 +29,8 @@ namespace Lux {
 		{
 			m_Layers.erase(it);
 			m_LayerInsertIndex--;
+			// NOTE: Caller is responsible for deleting the layer after popping.
+			// If not deleted, this will cause a memory leak.
 		}
 
 	}
@@ -37,7 +39,11 @@ namespace Lux {
 	{
 		auto it = std::find(m_Layers.begin(), m_Layers.end(), overlay);
 		if (it != m_Layers.end())
+		{
 			m_Layers.erase(it);
+			// NOTE: Caller is responsible for deleting the overlay after popping.
+			// If not deleted, this will cause a memory leak.
+		}
 	}
 
 }

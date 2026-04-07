@@ -439,6 +439,84 @@ namespace Lux {
 			out << YAML::EndMap;
 		}
 
+		// ============================================================================
+		// 3D Component Serialization
+		// ============================================================================
+
+		if (entity.HasComponent<StaticMeshComponent>())
+		{
+			out << YAML::Key << "StaticMeshComponent";
+			out << YAML::BeginMap;
+
+			const auto& component = entity.GetComponent<StaticMeshComponent>();
+			out << YAML::Key << "Mesh" << YAML::Value << component.Mesh;
+			out << YAML::Key << "MaterialTable" << YAML::Value << component.MaterialTable;
+			out << YAML::Key << "Visible" << YAML::Value << component.Visible;
+			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
+
+			out << YAML::EndMap;
+		}
+
+		if (entity.HasComponent<DirectionalLightComponent>())
+		{
+			out << YAML::Key << "DirectionalLightComponent";
+			out << YAML::BeginMap;
+
+			const auto& component = entity.GetComponent<DirectionalLightComponent>();
+			out << YAML::Key << "Radiance" << YAML::Value << component.Radiance;
+			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
+			out << YAML::Key << "ShadowAmount" << YAML::Value << component.ShadowAmount;
+			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
+
+			out << YAML::EndMap;
+		}
+
+		if (entity.HasComponent<PointLightComponent>())
+		{
+			out << YAML::Key << "PointLightComponent";
+			out << YAML::BeginMap;
+
+			const auto& component = entity.GetComponent<PointLightComponent>();
+			out << YAML::Key << "Radiance" << YAML::Value << component.Radiance;
+			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
+			out << YAML::Key << "Radius" << YAML::Value << component.Radius;
+			out << YAML::Key << "Falloff" << YAML::Value << component.Falloff;
+			out << YAML::Key << "MinRadius" << YAML::Value << component.MinRadius;
+			out << YAML::Key << "LightSize" << YAML::Value << component.LightSize;
+			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
+
+			out << YAML::EndMap;
+		}
+
+		if (entity.HasComponent<SpotLightComponent>())
+		{
+			out << YAML::Key << "SpotLightComponent";
+			out << YAML::BeginMap;
+
+			const auto& component = entity.GetComponent<SpotLightComponent>();
+			out << YAML::Key << "Radiance" << YAML::Value << component.Radiance;
+			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
+			out << YAML::Key << "Range" << YAML::Value << component.Range;
+			out << YAML::Key << "Angle" << YAML::Value << component.Angle;
+			out << YAML::Key << "AngleAttenuation" << YAML::Value << component.AngleAttenuation;
+			out << YAML::Key << "Falloff" << YAML::Value << component.Falloff;
+			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
+
+			out << YAML::EndMap;
+		}
+
+		if (entity.HasComponent<SkyLightComponent>())
+		{
+			out << YAML::Key << "SkyLightComponent";
+			out << YAML::BeginMap;
+
+			const auto& component = entity.GetComponent<SkyLightComponent>();
+			out << YAML::Key << "EnvironmentMap" << YAML::Value << component.EnvironmentMap;
+			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
+
+			out << YAML::EndMap;
+		}
+
 		out << YAML::EndMap; // Entity
 	}
 
@@ -771,6 +849,112 @@ namespace Lux {
 
 					if (audioListenerComponent["ConeOuterGain"])
 						component.Config.ConeOuterGain = audioListenerComponent["ConeOuterGain"].as<float>();
+				}
+
+				// ============================================================================
+				// 3D Component Deserialization
+				// ============================================================================
+
+				auto staticMeshComponent = entity["StaticMeshComponent"];
+				if (staticMeshComponent)
+				{
+					auto& component = deserializedEntity.AddComponent<StaticMeshComponent>();
+
+					if (staticMeshComponent["Mesh"])
+						component.Mesh = staticMeshComponent["Mesh"].as<uint64_t>();
+
+					if (staticMeshComponent["MaterialTable"])
+						component.MaterialTable = staticMeshComponent["MaterialTable"].as<uint64_t>();
+
+					if (staticMeshComponent["Visible"])
+						component.Visible = staticMeshComponent["Visible"].as<bool>();
+
+					if (staticMeshComponent["CastShadows"])
+						component.CastShadows = staticMeshComponent["CastShadows"].as<bool>();
+				}
+
+				auto directionalLightComponent = entity["DirectionalLightComponent"];
+				if (directionalLightComponent)
+				{
+					auto& component = deserializedEntity.AddComponent<DirectionalLightComponent>();
+
+					if (directionalLightComponent["Radiance"])
+						component.Radiance = directionalLightComponent["Radiance"].as<glm::vec3>();
+
+					if (directionalLightComponent["Intensity"])
+						component.Intensity = directionalLightComponent["Intensity"].as<float>();
+
+					if (directionalLightComponent["ShadowAmount"])
+						component.ShadowAmount = directionalLightComponent["ShadowAmount"].as<float>();
+
+					if (directionalLightComponent["CastShadows"])
+						component.CastShadows = directionalLightComponent["CastShadows"].as<bool>();
+				}
+
+				auto pointLightComponent = entity["PointLightComponent"];
+				if (pointLightComponent)
+				{
+					auto& component = deserializedEntity.AddComponent<PointLightComponent>();
+
+					if (pointLightComponent["Radiance"])
+						component.Radiance = pointLightComponent["Radiance"].as<glm::vec3>();
+
+					if (pointLightComponent["Intensity"])
+						component.Intensity = pointLightComponent["Intensity"].as<float>();
+
+					if (pointLightComponent["Radius"])
+						component.Radius = pointLightComponent["Radius"].as<float>();
+
+					if (pointLightComponent["Falloff"])
+						component.Falloff = pointLightComponent["Falloff"].as<float>();
+
+					if (pointLightComponent["MinRadius"])
+						component.MinRadius = pointLightComponent["MinRadius"].as<float>();
+
+					if (pointLightComponent["LightSize"])
+						component.LightSize = pointLightComponent["LightSize"].as<float>();
+
+					if (pointLightComponent["CastShadows"])
+						component.CastShadows = pointLightComponent["CastShadows"].as<bool>();
+				}
+
+				auto spotLightComponent = entity["SpotLightComponent"];
+				if (spotLightComponent)
+				{
+					auto& component = deserializedEntity.AddComponent<SpotLightComponent>();
+
+					if (spotLightComponent["Radiance"])
+						component.Radiance = spotLightComponent["Radiance"].as<glm::vec3>();
+
+					if (spotLightComponent["Intensity"])
+						component.Intensity = spotLightComponent["Intensity"].as<float>();
+
+					if (spotLightComponent["Range"])
+						component.Range = spotLightComponent["Range"].as<float>();
+
+					if (spotLightComponent["Angle"])
+						component.Angle = spotLightComponent["Angle"].as<float>();
+
+					if (spotLightComponent["AngleAttenuation"])
+						component.AngleAttenuation = spotLightComponent["AngleAttenuation"].as<float>();
+
+					if (spotLightComponent["Falloff"])
+						component.Falloff = spotLightComponent["Falloff"].as<float>();
+
+					if (spotLightComponent["CastShadows"])
+						component.CastShadows = spotLightComponent["CastShadows"].as<bool>();
+				}
+
+				auto skyLightComponent = entity["SkyLightComponent"];
+				if (skyLightComponent)
+				{
+					auto& component = deserializedEntity.AddComponent<SkyLightComponent>();
+
+					if (skyLightComponent["EnvironmentMap"])
+						component.EnvironmentMap = skyLightComponent["EnvironmentMap"].as<uint64_t>();
+
+					if (skyLightComponent["Intensity"])
+						component.Intensity = skyLightComponent["Intensity"].as<float>();
 				}
 			}
 		}

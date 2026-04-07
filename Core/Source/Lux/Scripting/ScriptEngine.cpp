@@ -359,6 +359,7 @@ namespace Lux {
 		s_Data->SceneContext = nullptr;
 
 		s_Data->EntityInstances.clear();
+		s_Data->EntityScriptFields.clear();
 	}
 
 	std::unordered_map<std::string, Ref<ScriptClass>> ScriptEngine::GetEntityClasses()

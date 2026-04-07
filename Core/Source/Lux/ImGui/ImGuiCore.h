@@ -6,7 +6,7 @@
 
 #include <imgui/imgui.h>
 
-namespace Lux::UI {
+namespace Lux::ImGuiEx {
 
 	const char* GenerateID();
 	const char* GenerateLabelID(std::string_view label);

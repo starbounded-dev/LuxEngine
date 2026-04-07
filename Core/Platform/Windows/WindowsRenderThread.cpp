@@ -133,7 +133,7 @@ namespace Lux {
 	bool RenderThread::IsCurrentThreadRT()
 	{
 		// NOTE(Yan): for debugging
-		// HZ_CORE_VERIFY(s_RenderThreadID != std::thread::id());
+		// LUX_CORE_VERIFY(s_RenderThreadID != std::thread::id());
 		return s_RenderThreadID == std::this_thread::get_id();
 	}
 

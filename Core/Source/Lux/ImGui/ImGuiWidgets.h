@@ -1,19 +1,19 @@
 #pragma once
 
-#include "UICore.h"
+#include "ImGuiCore.h"
 #include "ImGuiUtilities.h"
 #include "Lux/Core/Input.h"
-#include "Lux/Scripting/ScriptEngine.h"
+//#include "Lux/Script/ScriptEngine.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include "choc/text/choc_StringUtilities.h"
 
-#include <magic_enum/include/magic_enum.hpp>
+#include <magic_enum.hpp>
 using namespace magic_enum::bitwise_operators;
 
-namespace Lux::UI
+namespace Lux::ImGuiEx
 {
 	enum class VectorAxis
 	{
@@ -95,14 +95,15 @@ namespace Lux::UI
 			const float areaPosX = ImGui::GetCursorPosX();
 			const float framePaddingY = ImGui::GetStyle().FramePadding.y;
 
-			UI::ScopedStyle rounding(ImGuiStyleVar_FrameRounding, 3.0f);
-			UI::ScopedStyle padding(ImGuiStyleVar_FramePadding, ImVec2(28.0f, framePaddingY));
+			ImGuiEx::ScopedStyle rounding(ImGuiStyleVar_FrameRounding, 3.0f);
+			ImGuiEx::ScopedStyle padding(ImGuiStyleVar_FramePadding, ImVec2(28.0f, framePaddingY));
 
 			if constexpr (std::is_same<StringType, std::string>::value)
 			{
 				char searchBuffer[BuffSize + 1]{};
 				strncpy(searchBuffer, searchString.c_str(), BuffSize);
-				if (ImGui::InputText(GenerateID(), searchBuffer, BuffSize))
+				ImGui::SetNextItemAllowOverlap(); // allow clear button overlay to receive clicks
+				if (ImGui::InputTextWithHint(GenerateID(), hint, searchBuffer, BuffSize))
 				{
 					searchString = searchBuffer;
 					modified = true;
@@ -120,7 +121,8 @@ namespace Lux::UI
 				static_assert(std::is_same<decltype(&searchString[0]), char*>::value,
 					"searchString paramenter must be std::string& or char*");
 
-				if (ImGui::InputText(GenerateID(), searchString, BuffSize))
+				ImGui::SetNextItemAllowOverlap(); // allow clear button overlay to receive clicks
+				if (ImGui::InputTextWithHint(GenerateID(), hint, searchString, BuffSize))
 				{
 					modified = true;
 				}
@@ -145,44 +147,47 @@ namespace Lux::UI
 					*grabFocus = false;
 			}
 
-			UI::DrawItemActivityOutline();
-			ImGui::SetNextItemAllowOverlap();
+			// Capture InputText rect for overlay positioning
+			const ImVec2 inputRectMin = ImGui::GetItemRectMin();
+			const ImVec2 inputRectMax = ImGui::GetItemRectMax();
+			const float inputHeight = inputRectMax.y - inputRectMin.y;
 
-			ImGui::SameLine(areaPosX + 5.0f);
+			ImGui::SetNextItemAllowOverlap();
+			ImGuiEx::DrawItemActivityOutline();
 
 			if (layoutSuspended)
 				ImGui::ResumeLayout();
 
-			ImGui::BeginHorizontal(GenerateID(), ImGui::GetItemRectSize());
+			// Search icon - overlay on left side of InputText
 			const ImVec2 iconSize(ImGui::GetTextLineHeight(), ImGui::GetTextLineHeight());
-
-			// Search icon
 			{
-				const float iconYOffset = framePaddingY - 3.0f;
-				UI::ShiftCursorY(iconYOffset);
-				UI::Image(EditorResources::SearchIcon, iconSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(1.0f, 1.0f, 1.0f, 0.2f));
-				UI::ShiftCursorY(-iconYOffset);
-
-				// Hint
-				if (!searching)
-				{
-					UI::ShiftCursorY(-framePaddingY + 1.0f);
-					UI::ScopedColour text(ImGuiCol_Text, Colors::Theme::textDarker);
-					UI::ScopedStyle padding(ImGuiStyleVar_FramePadding, ImVec2(0.0f, framePaddingY));
-					ImGui::TextUnformatted(hint);
-					UI::ShiftCursorY(-1.0f);
-				}
+				ImGui::SameLine(areaPosX + 5.0f);
+				const float iconYOffset = framePaddingY;
+				ImGuiEx::ShiftCursorY(iconYOffset);
+				ImGuiEx::Image(EditorResources::SearchIcon, iconSize, { 0, 0 }, { 1, 1 }, { 1.0f, 1.0f, 1.0f, 0.2f });
+				ImGuiEx::ShiftCursorY(-iconYOffset);
 			}
 
-			ImGui::Spring();
-
-			// Clear icon
+			// Clear icon - overlay on right side of InputText
 			if (searching)
 			{
 				const float spacingX = 4.0f;
-				const float lineHeight = ImGui::GetItemRectSize().y - framePaddingY / 2.0f;
+				const float clearButtonSize = inputHeight - framePaddingY / 2.0f;
+				const ImVec2 clearButtonPos{
+					inputRectMax.x - clearButtonSize - spacingX,
+					inputRectMin.y + (inputHeight - clearButtonSize) * 0.5f
+				};
 
-				if (ImGui::InvisibleButton(GenerateID(), ImVec2{ lineHeight, lineHeight }))
+				const ImRect clearRect(clearButtonPos, clearButtonPos + ImVec2(clearButtonSize, clearButtonSize));
+				const ImGuiID clearId = ImGui::GetID(GenerateID());
+
+				// Register the item so hover/click states are tracked even though we don't move the cursor.
+				ImGui::ItemAdd(clearRect, clearId);
+
+				bool hovered = false, held = false;
+				const bool clicked = ImGui::ButtonBehavior(clearRect, clearId, &hovered, &held, ImGuiButtonFlags_AllowOverlap);
+
+				if (clicked)
 				{
 					if constexpr (std::is_same<StringType, std::string>::value)
 						searchString.clear();
@@ -192,27 +197,26 @@ namespace Lux::UI
 					modified = true;
 				}
 
-				if (ImGui::IsMouseHoveringRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax()))
+				if (hovered)
 					ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
 
-				UI::DrawButtonImage(EditorResources::ClearIcon, IM_COL32(160, 160, 160, 200),
+				ImGuiEx::DrawButtonImage(EditorResources::ClearIcon, IM_COL32(160, 160, 160, 200),
 					IM_COL32(170, 170, 170, 255),
 					IM_COL32(160, 160, 160, 150),
-					UI::RectExpanded(UI::GetItemRect(), -2.0f, -2.0f));
-
-				ImGui::Spring(-1.0f, spacingX * 2.0f);
+					ImGuiEx::RectExpanded(clearRect, -2.0f, -2.0f));
 			}
+			ImGuiEx::ShiftCursorY(-1.0f);
 
-			ImGui::EndHorizontal();
-			UI::ShiftCursorY(-1.0f);
-			UI::PopID();
+			ImGuiEx::PopID();
 			return modified;
 		}
 
 		static bool AssetSearchPopup(const char* ID, AssetHandle& selected, bool* cleared = nullptr, const char* hint = "Search Assets", ImVec2 size = ImVec2{ 250.0f, 350.0f }, std::initializer_list<AssetType> assetTypes = {});
 		static bool AssetSearchPopup(const char* ID, AssetType assetType, AssetHandle& selected, bool* cleared = nullptr, const char* hint = "Search Assets", ImVec2 size = ImVec2{ 250.0f, 350.0f });
 		static bool EntitySearchPopup(const char* ID, Ref<Scene> scene, UUID& selected, bool* cleared = nullptr, const char* hint = "Search Entities", ImVec2 size = ImVec2{ 250.0f, 350.0f });
-		static bool ScriptSearchPopup(const char* ID, const ScriptEngine& scriptEngine, UUID& selected, bool* cleared = nullptr, const char* hint = "Search Scripts", ImVec2 size = ImVec2{ 250.0f, 350.0f });
+		//static bool ScriptSearchPopup(const char* ID, const ScriptEngine& scriptEngine, UUID& selected, EntityDomain entityDomain, bool* cleared = nullptr, const char* hint = "Search Scripts", ImVec2 size = ImVec2{ 250.0f, 350.0f });
+
+		static bool ItemSearchPopup(const char* ID, int32_t& selected, int32_t itemCount, std::function<const char* (int32_t)> onGetElementName, bool* cleared = nullptr, const char* hint = "", ImVec2 size = ImVec2{ 250.0f, 350.0f });
 
 		static bool OptionsButton()
 		{
@@ -224,10 +228,10 @@ namespace Lux::UI
 
 			constexpr auto buttonColour = Colors::Theme::text;
 			const uint8_t value = uint8_t(ImColor(buttonColour).Value.x * 255);
-			UI::DrawButtonImage(EditorResources::GearIcon, IM_COL32(value, value, value, 200),
+			ImGuiEx::DrawButtonImage(EditorResources::GearIcon, IM_COL32(value, value, value, 200),
 				IM_COL32(value, value, value, 255),
 				IM_COL32(value, value, value, 150),
-				UI::RectExpanded(UI::GetItemRect(), -padding, -padding));
+				ImGuiEx::RectExpanded(ImGuiEx::GetItemRect(), -padding, -padding));
 			return clicked;
 		}
 
@@ -239,15 +243,15 @@ namespace Lux::UI
 			bool changed = false;
 			{
 				const float spacingX = 8.0f;
-				UI::ScopedStyle itemSpacing(ImGuiStyleVar_ItemSpacing, ImVec2{ spacingX, 0.0f });
-				UI::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 2.0f });
+				ImGuiEx::ScopedStyle itemSpacing(ImGuiStyleVar_ItemSpacing, ImVec2{ spacingX, 0.0f });
+				ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 2.0f });
 				const float framePadding = 2.0f;
 				const float outlineSpacing = 1.0f;
-				const float lineHeight = GImGui->Font->Scale + framePadding * 2.0f;
+				const float lineHeight = ImGui::GetTextLineHeight() + framePadding * 2.0f;
 				const ImVec2 buttonSize = { lineHeight + 2.0f, lineHeight };
 				const float inputItemWidth = size.x / 3.0f - buttonSize.x;
 
-				UI::ShiftCursorY(framePadding);
+				ImGuiEx::ShiftCursorY(framePadding);
 
 				const ImGuiIO& io = ImGui::GetIO();
 				auto boldFont = io.Fonts->Fonts[0];
@@ -255,14 +259,14 @@ namespace Lux::UI
 				auto drawControl = [&](const std::string& label, float& value, const ImVec4& colourN, const ImVec4& colourH, const ImVec4& colourP, bool renderMultiSelect, float speed, float v_min, float v_max, const char* format, ImGuiSliderFlags flags)
 					{
 						{
-							UI::ScopedStyle buttonFrame(ImGuiStyleVar_FramePadding, ImVec2(framePadding, 0.0f));
-							UI::ScopedStyle buttonRounding(ImGuiStyleVar_FrameRounding, 1.0f);
-							UI::ScopedColourStack buttonColours(ImGuiCol_Button, colourN, ImGuiCol_ButtonHovered, colourH, ImGuiCol_ButtonActive, colourP);
+							ImGuiEx::ScopedStyle buttonFrame(ImGuiStyleVar_FramePadding, ImVec2(framePadding, 0.0f));
+							ImGuiEx::ScopedStyle buttonRounding(ImGuiStyleVar_FrameRounding, 1.0f);
+							ImGuiEx::ScopedColourStack buttonColours(ImGuiCol_Button, colourN, ImGuiCol_ButtonHovered, colourH, ImGuiCol_ButtonActive, colourP);
 
-							UI::ScopedFont buttonFont(boldFont);
+							ImGuiEx::ScopedFont buttonFont(boldFont);
 
 							//ImGui::AlignTextToFramePadding();
-							UI::ShiftCursorY(framePadding / 2.0f);
+							ImGuiEx::ShiftCursorY(framePadding / 2.0f);
 							if (ImGui::Button(label.c_str(), buttonSize))
 							{
 								value = resetValue;
@@ -272,10 +276,10 @@ namespace Lux::UI
 
 						ImGui::SameLine(0.0f, outlineSpacing);
 						ImGui::SetNextItemWidth(inputItemWidth);
-						UI::ShiftCursorY(-framePadding / 2.0f);
+						ImGuiEx::ShiftCursorY(-framePadding / 2.0f);
 						ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, renderMultiSelect);
 						bool wasTempInputActive = ImGui::TempInputIsActive(ImGui::GetID(("##" + label).c_str()));
-						changed |= UI::DragFloat(("##" + label).c_str(), &value, speed, v_min, v_max, format, flags);
+						changed |= ImGuiEx::DragFloat(("##" + label).c_str(), &value, speed, v_min, v_max, format, flags);
 
 						// NOTE(Peter): Ugly hack to make tabbing behave the same as Enter (e.g marking it as manually modified)
 						if (changed && Input::IsKeyDown(KeyCode::Tab))

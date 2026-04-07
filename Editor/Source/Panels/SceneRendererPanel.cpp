@@ -2,6 +2,7 @@
 #include "SceneRendererPanel.h"
 
 #include <imgui/imgui.h>
+#include "ImGui/ImGuiEx.h"
 
 namespace Lux {
 
@@ -26,9 +27,13 @@ namespace Lux {
 		ImGui::Text("Ready: %s", m_Context->IsReady() ? "Yes" : "No");
 		ImGui::Text("Viewport: %u x %u", m_Context->GetViewportWidth(), m_Context->GetViewportHeight());
 
-		ImGui::Checkbox("Show Grid", &options.ShowGrid);
-		ImGui::Checkbox("Show Selected In Wireframe", &options.ShowSelectedInWireframe);
-		ImGui::Checkbox("Show Physics Colliders", &options.ShowPhysicsColliders);
+		if (ImGuiEx::BeginPropertyGrid())
+		{
+			ImGuiEx::Property("Show Grid", options.ShowGrid);
+			ImGuiEx::Property("Show Selected In Wireframe", options.ShowSelectedInWireframe);
+			ImGuiEx::Property("Show Physics Colliders", options.ShowPhysicsColliders);
+			ImGuiEx::EndPropertyGrid();
+		}
 
 		ImGui::Separator();
 		ImGui::Text("Draw Calls: %u", stats.DrawCalls);

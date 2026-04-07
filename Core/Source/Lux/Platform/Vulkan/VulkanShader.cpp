@@ -9,7 +9,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Hash.h"
-#include "Lux/ImGui/PropertyGrid.h"
+#include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/Platform/Vulkan/VulkanContext.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/StringUtils.h"

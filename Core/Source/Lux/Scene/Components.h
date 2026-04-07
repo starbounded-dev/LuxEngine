@@ -278,6 +278,71 @@ namespace Lux {
 		Ref<AudioListener> Listener;
 	};
 
+	// ============================================================================
+	// 3D RENDERING COMPONENTS
+	// ============================================================================
+
+	struct StaticMeshComponent
+	{
+		AssetHandle Mesh = 0;
+		AssetHandle MaterialTable = 0;
+		bool Visible = true;
+		bool CastShadows = true;
+
+		StaticMeshComponent() = default;
+		StaticMeshComponent(const StaticMeshComponent&) = default;
+	};
+
+	struct DirectionalLightComponent
+	{
+		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
+		float Intensity = 1.0f;
+		float ShadowAmount = 1.0f;
+		bool CastShadows = true;
+
+		DirectionalLightComponent() = default;
+		DirectionalLightComponent(const DirectionalLightComponent&) = default;
+	};
+
+	struct PointLightComponent
+	{
+		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
+		float Intensity = 1.0f;
+		float Radius = 10.0f;
+		float Falloff = 1.0f;
+		float MinRadius = 0.001f;
+		float LightSize = 0.5f;
+		bool CastShadows = false;
+
+		PointLightComponent() = default;
+		PointLightComponent(const PointLightComponent&) = default;
+	};
+
+	struct SpotLightComponent
+	{
+		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
+		float Intensity = 1.0f;
+		float Range = 10.0f;
+		float Angle = 45.0f;
+		float AngleAttenuation = 1.0f;
+		float Falloff = 1.0f;
+		bool CastShadows = false;
+
+		SpotLightComponent() = default;
+		SpotLightComponent(const SpotLightComponent&) = default;
+	};
+
+	struct SkyLightComponent
+	{
+		AssetHandle EnvironmentMap = 0;
+		float Intensity = 1.0f;
+
+		SkyLightComponent() = default;
+		SkyLightComponent(const SkyLightComponent&) = default;
+	};
+
+	// ============================================================================
+
 	template<typename... Component>
 	struct ComponentGroup
 	{
@@ -287,6 +352,7 @@ namespace Lux {
 		ComponentGroup<TransformComponent, SpriteRendererComponent,
 		CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
-		CircleCollider2DComponent, TextComponent, AudioData, AudioSourceComponent, AudioListenerComponent>;
+		CircleCollider2DComponent, TextComponent, AudioData, AudioSourceComponent, AudioListenerComponent,
+		StaticMeshComponent, DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
 
 }

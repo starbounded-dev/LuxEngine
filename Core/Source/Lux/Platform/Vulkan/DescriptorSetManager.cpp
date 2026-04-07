@@ -869,7 +869,7 @@ namespace Lux {
 
 #if TODO
 		LUX_PROFILE_FUNC();
-		HZ_SCOPE_PERF("DescriptorSetManager::InvalidateAndUpdate");
+		LUX_SCOPE_PERF("DescriptorSetManager::InvalidateAndUpdate");
 
 		uint32_t currentFrameIndex = Renderer::RT_GetCurrentFrameIndex();
 

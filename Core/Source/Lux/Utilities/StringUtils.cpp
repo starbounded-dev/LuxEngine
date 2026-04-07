@@ -7,7 +7,6 @@
 #include <sstream>
 #include <algorithm>
 #include <iomanip>
-#include <sstream>
 #include <regex>
 
 namespace Lux::Utils {
@@ -37,6 +36,20 @@ namespace Lux::Utils {
 		{
 			std::string result(string);
 			ToLower(result);
+			return result;
+		}
+
+		std::string& ToUpper(std::string& string)
+		{
+			std::transform(string.begin(), string.end(), string.begin(),
+				[](const unsigned char c) { return std::toupper(c); });
+			return string;
+		}
+
+		std::string ToUpperCopy(const std::string_view string)
+		{
+			std::string result(string);
+			ToUpper(result);
 			return result;
 		}
 
@@ -193,28 +206,6 @@ namespace Lux::Utils {
 		}
 
 		return str;
-	}
-
-	std::string ToLower(const std::string_view& string)
-	{
-		std::string result;
-		for (const auto& character : string)
-		{
-			result += std::tolower(character);
-		}
-
-		return result;
-	}
-
-	std::string ToUpper(const std::string_view& string)
-	{
-		std::string result;
-		for (const auto& character : string)
-		{
-			result += std::toupper(character);
-		}
-
-		return result;
 	}
 
 	std::string BytesToString(uint64_t bytes)

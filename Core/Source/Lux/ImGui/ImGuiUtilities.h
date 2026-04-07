@@ -12,7 +12,7 @@
 #include <vector>
 #include <string>
 
-namespace Lux::UI {
+namespace Lux::ImGuiEx {
 	//=========================================================================================
 	/// Utilities
 	ImTextureID GetTextureID(Ref<Texture2D> texture);
@@ -164,8 +164,8 @@ namespace Lux::UI {
 	{
 		if (IsItemHovered(delayInSeconds, allowWhenDisabled ? ImGuiHoveredFlags_AllowWhenDisabled : 0))
 		{
-			UI::ScopedStyle tooltipPadding(ImGuiStyleVar_WindowPadding, padding);
-			UI::ScopedColour textCol(ImGuiCol_Text, Colors::Theme::textBrighter);
+			ImGuiEx::ScopedStyle tooltipPadding(ImGuiStyleVar_WindowPadding, padding);
+			ImGuiEx::ScopedColour textCol(ImGuiCol_Text, Colors::Theme::textBrighter);
 			ImGui::SetTooltip(text.data());
 		}
 	}
@@ -456,7 +456,7 @@ namespace Lux::UI {
 		}
 		ImGui::PopStyleColor();
 
-		UI::DrawItemActivityOutline();
+		ImGuiEx::DrawItemActivityOutline();
 
 		ImGui::PopItemWidth();
 		ImGui::NextColumn();
@@ -1023,7 +1023,7 @@ namespace Lux::UI {
 	inline bool Checkbox(const char* label, bool* b)
 	{
 		bool changed = ImGui::Checkbox(label, b);
-		UI::DrawItemActivityOutline();
+		ImGuiEx::DrawItemActivityOutline();
 		return changed;
 	}
 

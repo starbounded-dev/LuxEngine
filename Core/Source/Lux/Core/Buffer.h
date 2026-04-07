@@ -10,6 +10,7 @@ namespace Lux {
 	{
 		void* Data = nullptr;
 		uint64_t Size = 0;
+		bool OwnsData = false;
 
 		Buffer() = default;
 
@@ -19,18 +20,19 @@ namespace Lux {
 			Allocate(size);
 		}
 
+		// Constructor for external data - does NOT take ownership
 		Buffer(const void* data, uint64_t size)
-			: Data((void*)data), Size(size) {
+			: Data((void*)data), Size(size), OwnsData(false) {
 		}
 
 		template<typename T, size_t S>
 		Buffer(const std::array<T, S>& array)
-			: Data(array.data()), Size(array.size() * sizeof(T)) {
+			: Data((void*)array.data()), Size(array.size() * sizeof(T)), OwnsData(false) {
 		}
 
 		template<typename T>
 		Buffer(const std::vector<T>& vector)
-			: Data(vector.data()), Size(vector.size() * sizeof(T))
+			: Data((void*)vector.data()), Size(vector.size() * sizeof(T)), OwnsData(false)
 		{
 		}
 
@@ -53,12 +55,17 @@ namespace Lux {
 
 		void Allocate(uint64_t size)
 		{
-			delete[](byte*)Data;
+			if (OwnsData)
+				delete[](byte*)Data;
 			Data = nullptr;
 			Size = size;
+			OwnsData = true;
 
 			if (size == 0)
+			{
+				OwnsData = false;
 				return;
+			}
 
 			Data = lnew byte[size];
 		}
@@ -71,9 +78,11 @@ namespace Lux {
 
 		void Release()
 		{
-			delete[](byte*)Data;
+			if (OwnsData)
+				delete[](byte*)Data;
 			Data = nullptr;
 			Size = 0;
+			OwnsData = false;
 		}
 
 		void ZeroInitialize()

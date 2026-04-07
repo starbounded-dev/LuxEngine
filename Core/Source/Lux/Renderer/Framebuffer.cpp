@@ -196,7 +196,7 @@ namespace Lux {
 
 	void Framebuffer::RT_Invalidate()
 	{
-		// HZ_CORE_TRACE("Framebuffer::RT_Invalidate ({})", m_Specification.DebugName);
+		// LUX_CORE_TRACE("Framebuffer::RT_Invalidate ({})", m_Specification.DebugName);
 
 		Release();
 

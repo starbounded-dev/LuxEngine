@@ -5,6 +5,7 @@
 #include "Lux/Core/Application.h"
 
 #include <imgui/imgui.h>
+#include "ImGui/ImGuiEx.h"
 
 #include "Lux/Utilities/StringUtils.h"
 
@@ -258,8 +259,12 @@ namespace Lux {
 
 		ImGui::Columns(1);
 
-		ImGui::SliderFloat("Thumbnail Size", &thumbnailSize, 16, 512);
-		ImGui::SliderFloat("Padding", &padding, 0, 32);
+		if (ImGuiEx::BeginPropertyGrid())
+		{
+			ImGuiEx::PropertySlider("Thumbnail Size", thumbnailSize, 16.0f, 512.0f);
+			ImGuiEx::PropertySlider("Padding", padding, 0.0f, 32.0f);
+			ImGuiEx::EndPropertyGrid();
+		}
 
 		// TODO: status bar
 		ImGui::End();

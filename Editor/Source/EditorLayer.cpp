@@ -22,7 +22,7 @@
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/ImGuiFonts.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
-#include "Lux/ImGui/PropertyGrid.h"
+#include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Utilities/FileDialogs.h"
 #include "Lux/Math/Math.h"
@@ -128,6 +128,23 @@ namespace Lux {
 		m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View,"TextEditorPanel","Text Editor",true);
 
 		Ref<SceneRendererPanel> sceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
+		
+		// Console panel for log messages
+		m_PanelManager->AddPanel<ConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Console", true);
+
+		// Render statistics panel
+		Ref<RenderStatsPanel> renderStatsPanel = m_PanelManager->AddPanel<RenderStatsPanel>(PanelCategory::View, "RenderStatsPanel", "Render Stats", true);
+		renderStatsPanel->SetRenderer2D(m_Renderer2D);
+		renderStatsPanel->SetSceneRenderer(m_SceneRenderer);
+
+		// Material Editor panel
+		m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, "MaterialEditorPanel", "Material Editor", true);
+
+		// Light Settings panel
+		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", true);
+
+		// Render statistics panel
+		m_PanelManager->AddPanel<RenderStatsPanel>(PanelCategory::View, "RenderStatsPanel", "Render Stats", true);
 
 		m_IconPlay = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Play.png");
 		m_IconPause = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Pause.png");
@@ -234,22 +251,45 @@ namespace Lux {
 
 		m_Renderer2D->ResetStats();
 
+		// Create selection predicate for 3D rendering (highlights selected entity)
+		Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+		auto isEntitySelected = [selectedEntity](Entity entity) -> bool {
+			return selectedEntity && entity == selectedEntity;
+		};
+
 		switch (m_SceneState)
 		{
 		case SceneState::Edit:
 		{
 			m_EditorCamera.OnUpdate(ts);
+			
+			// Render 3D content first (static meshes, lights, skybox)
+			if (m_SceneRenderer && m_SceneRenderer->IsReady())
+				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
+			
+			// Then render 2D content (sprites, circles, text) - this blends on top
 			m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
 			break;
 		}
 		case SceneState::Simulate:
 		{
 			m_EditorCamera.OnUpdate(ts);
+			
+			// Render 3D content
+			if (m_SceneRenderer && m_SceneRenderer->IsReady())
+				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
+			
+			// Then render 2D content and update physics simulation
 			m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
 			break;
 		}
 		case SceneState::Play:
 		{
+			// Render 3D content using the runtime camera
+			if (m_SceneRenderer && m_SceneRenderer->IsReady())
+				m_ActiveScene->Render3DRuntime(m_SceneRenderer);
+			
+			// Then run the full runtime update (scripts, physics, 2D rendering)
 			m_ActiveScene->OnUpdateRuntime(ts);
 			break;
 		}
@@ -512,7 +552,7 @@ namespace Lux {
 		if (hasPlayButton)
 		{
 			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate) ? m_IconPlay : m_IconStop;
-			if (ImGui::ImageButton("##play", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)))
+			if (ImGui::ImageButton("##play", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0,0,0,0), tintColor))
 			{
 				if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate)
 					OnScenePlay();
@@ -527,7 +567,7 @@ namespace Lux {
 				ImGui::SameLine();
 
 			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play) ? m_IconSimulate : m_IconStop;
-			if (ImGui::ImageButton("##simulate", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)))
+			if (ImGui::ImageButton("##simulate", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0,0,0,0), tintColor))
 			{
 				if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play)
 					OnSceneSimulate();
@@ -541,16 +581,42 @@ namespace Lux {
 			bool isPaused = m_ActiveScene->IsPaused();
 			ImGui::SameLine();
 			{
-				if (ImGui::ImageButton("##pause", GetImGuiTextureID(m_IconPause), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)) && toolbarEnabled)
+				if (ImGui::ImageButton("##pause", GetImGuiTextureID(m_IconPause), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0,0,0,0), tintColor) && toolbarEnabled)
 					m_ActiveScene->SetPaused(!isPaused);
 			}
 
 			if (isPaused)
 			{
 				ImGui::SameLine();
-				if (ImGui::ImageButton("##step", GetImGuiTextureID(m_IconStep), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1)) && toolbarEnabled)
+				if (ImGui::ImageButton("##step", GetImGuiTextureID(m_IconStep), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0,0,0,0), tintColor) && toolbarEnabled)
 					m_ActiveScene->Step();
 			}
+		}
+
+		ImGui::SameLine();
+		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+		ImGui::SameLine();
+
+		// Gizmo mode indicator
+		const char* gizmoMode = "None";
+		if (m_GizmoType == ImGuizmo::TRANSLATE) gizmoMode = "Translate";
+		else if (m_GizmoType == ImGuizmo::ROTATE) gizmoMode = "Rotate";
+		else if (m_GizmoType == ImGuizmo::SCALE) gizmoMode = "Scale";
+
+		ImGui::Text("%s", gizmoMode);
+		ImGui::SameLine();
+
+		// Grid toggle
+		if (s_SceneRendererState.Renderer)
+		{
+			bool showGrid = s_SceneRendererState.Renderer->GetOptions().ShowGrid;
+			ImGui::SameLine();
+			if (ImGui::Checkbox("##grid", &showGrid))
+			{
+				s_SceneRendererState.Renderer->GetOptions().ShowGrid = showGrid;
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Toggle Grid");
 		}
 
 		ImGui::PopStyleVar(2);

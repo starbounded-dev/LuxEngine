@@ -9,7 +9,7 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include "Lux/Core/Application.h"
-#include "Lux/ImGui/PropertyGrid.h"
+#include "Lux/ImGui/ImGuiCore.h"
 
 namespace Lux {
 
@@ -37,13 +37,13 @@ namespace Lux {
 	static void DisableMouse()
 	{
 		Input::SetCursorMode(CursorMode::Locked);
-		UI::SetInputEnabled(false);
+		ImGuiEx::SetInputEnabled(false);
 	}
 
 	static void EnableMouse()
 	{
 		Input::SetCursorMode(CursorMode::Normal);
-		UI::SetInputEnabled(true);
+		ImGuiEx::SetInputEnabled(true);
 	}
 
 	void EditorCamera::OnUpdate(const Timestep ts)
@@ -51,11 +51,11 @@ namespace Lux {
 		const glm::vec2& mouse{ Input::GetMouseX(), Input::GetMouseY() };
 		const glm::vec2 delta = (mouse - m_InitialMousePosition) * 0.002f;
 
-		//HZ_CORE_WARN("EditorCamera=m_IsActive{}", m_IsActive);
+		//LUX_CORE_WARN("EditorCamera=m_IsActive{}", m_IsActive);
 		if (!m_IsActive)
 		{
-			if (!UI::IsInputEnabled())
-				UI::SetInputEnabled(true);
+			if (!ImGuiEx::IsInputEnabled())
+				ImGuiEx::SetInputEnabled(true);
 
 			return;
 		}

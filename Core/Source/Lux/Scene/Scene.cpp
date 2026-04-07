@@ -12,6 +12,9 @@
 #include "Lux/Scene/ScriptableEntity.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/SceneRenderer.h"
+#include "Lux/Renderer/Mesh.h"
+#include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Physics/ContactListener2D.h"
 
 #include <glm/glm.hpp>
@@ -34,6 +37,7 @@ namespace Lux {
 
 	Scene::~Scene()
 	{
+		m_EntityMap.clear();
 		delete m_PhysicsWorld;
 	}
 
@@ -253,8 +257,14 @@ namespace Lux {
 
 		m_Registry.view<NativeScriptComponent>().each([](auto, auto& nsc)
 			{
-				if (nsc.Instance && nsc.DestroyScript)
-					nsc.DestroyScript(&nsc);
+				if (nsc.Instance)
+				{
+					if (nsc.DestroyScript)
+						nsc.DestroyScript(&nsc);
+					else
+						delete nsc.Instance;  // Fallback delete if DestroyScript is null
+					nsc.Instance = nullptr;
+				}
 			});
 
 		m_Registry.view<AudioListenerComponent>().each([](auto, auto& alc)
@@ -684,6 +694,13 @@ namespace Lux {
 
 	void Scene::OnPhysics2DStart()
 	{
+		// Guard against double-call leak
+		if (m_PhysicsWorld)
+		{
+			delete m_PhysicsWorld;
+			m_PhysicsWorld = nullptr;
+		}
+
 		m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
 
 		auto view = m_Registry.view<RigidBody2DComponent>();
@@ -786,6 +803,216 @@ namespace Lux {
 
 		m_Renderer2D->EndScene();
 	}
+
+	// ============================================================================
+	// 3D Rendering Support
+	// ============================================================================
+
+	LightEnvironment Scene::CollectLightEnvironment() const
+	{
+		LightEnvironment lightEnv;
+
+		// Collect directional lights
+		{
+			auto view = m_Registry.view<const TransformComponent, const DirectionalLightComponent>();
+			uint32_t dirLightIndex = 0;
+			for (auto entity : view)
+			{
+				if (dirLightIndex >= LightEnvironment::MaxDirectionalLights)
+					break;
+
+				const auto& transform = view.get<const TransformComponent>(entity);
+				const auto& dirLight = view.get<const DirectionalLightComponent>(entity);
+				
+				// Calculate direction from rotation (forward vector)
+				glm::vec3 rotation = transform.Rotation;
+				glm::vec3 direction = glm::normalize(glm::vec3(
+					cos(rotation.y) * cos(rotation.x),
+					sin(rotation.x),
+					sin(rotation.y) * cos(rotation.x)
+				));
+
+				lightEnv.DirectionalLights[dirLightIndex].Direction = direction;
+				lightEnv.DirectionalLights[dirLightIndex].Radiance = dirLight.Radiance;
+				lightEnv.DirectionalLights[dirLightIndex].Intensity = dirLight.Intensity;
+				lightEnv.DirectionalLights[dirLightIndex].ShadowAmount = dirLight.ShadowAmount;
+				lightEnv.DirectionalLights[dirLightIndex].CastShadows = dirLight.CastShadows;
+
+				dirLightIndex++;
+			}
+		}
+
+		// Collect point lights
+		{
+			auto view = m_Registry.view<const TransformComponent, const PointLightComponent>();
+			for (auto entity : view)
+			{
+				const auto& transform = view.get<const TransformComponent>(entity);
+				const auto& pointLight = view.get<const PointLightComponent>(entity);
+
+				PointLight pl;
+				pl.Position = transform.Translation;
+				pl.Radiance = pointLight.Radiance;
+				pl.Intensity = pointLight.Intensity;
+				pl.Radius = pointLight.Radius;
+				pl.Falloff = pointLight.Falloff;
+				pl.MinRadius = pointLight.MinRadius;
+				pl.LightSize = pointLight.LightSize;
+				pl.CastsShadows = pointLight.CastShadows;
+
+				lightEnv.PointLights.push_back(pl);
+			}
+		}
+
+		return lightEnv;
+	}
+
+	Ref<Environment> Scene::CollectEnvironment(float& outIntensity) const
+	{
+		outIntensity = 1.0f;
+
+		auto view = m_Registry.view<const SkyLightComponent>();
+		for (auto entity : view)
+		{
+			const auto& skyLight = view.get<const SkyLightComponent>(entity);
+			
+			if (skyLight.EnvironmentMap)
+			{
+				outIntensity = skyLight.Intensity;
+				return AssetManager::GetAsset<Environment>(skyLight.EnvironmentMap);
+			}
+		}
+
+		return nullptr;
+	}
+
+	void Scene::SubmitStaticMeshes(Ref<SceneRenderer> renderer, 
+	                               const std::function<bool(Entity)>& isSelected) const
+	{
+		auto view = m_Registry.view<const TransformComponent, const StaticMeshComponent>();
+		for (auto e : view)
+		{
+			Entity entity = { e, const_cast<Scene*>(this) };
+			const auto& transform = view.get<const TransformComponent>(e);
+			const auto& meshComp = view.get<const StaticMeshComponent>(e);
+
+			if (!meshComp.Visible)
+				continue;
+
+			if (!meshComp.Mesh)
+				continue;
+
+			Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(meshComp.Mesh);
+			if (!staticMesh)
+				continue;
+
+			AssetHandle meshSourceHandle = staticMesh->GetMeshSource();
+			Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(meshSourceHandle);
+			if (!meshSource)
+				continue;
+
+			Ref<MaterialTable> materialTable = nullptr;
+			if (meshComp.MaterialTable)
+			{
+				auto materialAsset = AssetManager::GetAsset<MaterialAsset>(meshComp.MaterialTable);
+				if (materialAsset)
+				{
+					materialTable = Ref<MaterialTable>::Create(1);
+					materialTable->SetMaterial(0, meshComp.MaterialTable);
+				}
+			}
+
+			// Use the mesh's default material table if none specified
+			if (!materialTable)
+				materialTable = staticMesh->GetMaterials();
+
+			bool selected = isSelected ? isSelected(entity) : false;
+
+			renderer->SubmitStaticMesh(
+				staticMesh,
+				meshSource,
+				materialTable,
+				transform.GetTransform(),
+				nullptr,  // no override material
+				selected
+			);
+		}
+	}
+
+	void Scene::Render3D(const EditorCamera& camera, Ref<SceneRenderer> renderer,
+	                     const std::function<bool(Entity)>& isSelected)
+	{
+		if (!renderer || !renderer->IsReady())
+			return;
+
+		// Set up the SceneRendererCamera from the EditorCamera
+		SceneRendererCamera sceneCamera;
+		sceneCamera.Camera.SetProjectionMatrix(camera.GetProjectionMatrix(), camera.GetUnReversedProjectionMatrix());
+		sceneCamera.ViewMatrix = camera.GetViewMatrix();
+		sceneCamera.Near = camera.GetNearClip();
+		sceneCamera.Far = camera.GetFarClip();
+		sceneCamera.FOV = camera.GetVerticalFOV();
+
+		// Begin the 3D rendering frame
+		renderer->BeginScene(sceneCamera);
+
+		// Collect and set light environment from DirectionalLight and PointLight components
+		LightEnvironment lightEnv = CollectLightEnvironment();
+		renderer->SetLightEnvironment(lightEnv);
+
+		// Collect and set skybox/IBL environment from SkyLightComponent
+		float envIntensity = 1.0f;
+		Ref<Environment> environment = CollectEnvironment(envIntensity);
+		if (environment)
+			renderer->SetEnvironment(environment, envIntensity);
+
+		// Submit all static meshes for rendering
+		SubmitStaticMeshes(renderer, isSelected);
+
+		// End the frame and execute the render passes
+		renderer->EndScene();
+	}
+
+	void Scene::Render3DRuntime(Ref<SceneRenderer> renderer)
+	{
+		if (!renderer || !renderer->IsReady())
+			return;
+
+		// Find the primary camera entity
+		Entity cameraEntity = GetPrimaryCameraEntity();
+		if (!cameraEntity)
+			return;
+
+		const auto& cameraComp = cameraEntity.GetComponent<CameraComponent>();
+		const auto& transformComp = cameraEntity.GetComponent<TransformComponent>();
+
+		// Set up the SceneRendererCamera from the runtime camera
+		SceneRendererCamera sceneCamera;
+		sceneCamera.Camera.SetProjectionMatrix(cameraComp.Camera.GetProjectionMatrix(), cameraComp.Camera.GetUnReversedProjectionMatrix());
+		sceneCamera.ViewMatrix = glm::inverse(transformComp.GetTransform());
+		// Note: Near/Far/FOV from runtime camera component if needed
+
+		// Begin the 3D rendering frame
+		renderer->BeginScene(sceneCamera);
+
+		// Collect and set light environment
+		LightEnvironment lightEnv = CollectLightEnvironment();
+		renderer->SetLightEnvironment(lightEnv);
+
+		// Collect and set skybox/IBL environment
+		float envIntensity = 1.0f;
+		Ref<Environment> environment = CollectEnvironment(envIntensity);
+		if (environment)
+			renderer->SetEnvironment(environment, envIntensity);
+
+		// Submit all static meshes (no selection highlight in runtime)
+		SubmitStaticMeshes(renderer, nullptr);
+
+		// End the frame
+		renderer->EndScene();
+	}
+
+	// ============================================================================
 
 	template<typename T>
 	void Scene::OnComponentAdded(Entity entity, T& component)
@@ -895,5 +1122,32 @@ namespace Lux {
 	{
 		if (component.Listener)
 			component.Listener->SetConfig(component.Config);
+	}
+
+	// 3D Component specializations
+
+	template<>
+	void Scene::OnComponentAdded<StaticMeshComponent>(Entity entity, StaticMeshComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<DirectionalLightComponent>(Entity entity, DirectionalLightComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<PointLightComponent>(Entity entity, PointLightComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<SpotLightComponent>(Entity entity, SpotLightComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<SkyLightComponent>(Entity entity, SkyLightComponent& component)
+	{
 	}
 }

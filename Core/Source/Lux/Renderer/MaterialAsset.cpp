@@ -19,8 +19,6 @@ namespace Lux {
 	static const std::string s_MetalnessMapUniform = "u_MetalnessTexture";
 	static const std::string s_RoughnessMapUniform = "u_RoughnessTexture";
 
-#if 0
-
 	MaterialAsset::MaterialAsset(bool transparent)
 		: m_Transparent(transparent)
 	{
@@ -50,7 +48,6 @@ namespace Lux {
 	{
 		if (handle == m_Maps.AlbedoMap)
 		{
-			AssetManager::RemoveAsset(handle + 1);
 			SetAlbedoMap(handle);
 		}
 		else if (handle == m_Maps.NormalMap)
@@ -113,17 +110,6 @@ namespace Lux {
 		// QUESTION: Is there a reason we need to go to the material here?
 		//           Don't we already have the texture handle in m_Maps.AlbedoMap?
 		auto texture = m_Material->TryGetTexture2D(s_AlbedoMapUniform);
-#ifndef LUX_HEADLESS
-		if (!texture.EqualsObject(Renderer::GetWhiteTexture()))
-		{
-			if (texture->Handle)
-			{
-				// Return sRGB version of the albedo texture, which is at Handle-1  (see SetAlbedoMap())
-				texture = AssetManager::GetAsset<Texture2D>(texture->Handle - 1);
-				LUX_CORE_ASSERT(texture);
-			}
-		}
-#endif
 		return texture;
 	}
 
@@ -132,27 +118,8 @@ namespace Lux {
 		m_Maps.AlbedoMap = handle;
 		if (handle)
 		{
-			// Handle + 1 is the linear version of the texture
-			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle + 1);
-			if (!texture)
-			{
-				auto textureSRGB = AssetManager::GetAsset<Texture2D>(handle);
-				LUX_CORE_ASSERT(textureSRGB, "Could not find texture with handle {}", handle); // if this fires, you've passed the wrong handle.  Probably somewhere you retrieved the handle directly from shader.  You need to go through MaterialAsset::GetAlbedoMap()
-
-				if (textureSRGB)
-				{
-					texture = Texture2D::CreateFromSRGB(textureSRGB);
-					texture->Handle = handle + 1;
-					AssetManager::AddMemoryOnlyAsset(texture);
-				}
-				else
-				{
-					LUX_CORE_WARN("No texture");
-				}
-
-			}
+			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			m_Material->Set(s_AlbedoMapUniform, texture);
-			AssetManager::RegisterDependency(handle, Handle);
 		}
 		else
 		{
@@ -163,7 +130,6 @@ namespace Lux {
 	void MaterialAsset::ClearAlbedoMap()
 	{
 #ifndef LUX_HEADLESS
-		AssetManager::DeregisterDependency(m_Maps.AlbedoMap, Handle);
 		m_Material->Set(s_AlbedoMapUniform, Renderer::GetWhiteTexture());
 #endif
 	}
@@ -181,7 +147,6 @@ namespace Lux {
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			m_Material->Set(s_NormalMapUniform, texture);
-			AssetManager::RegisterDependency(handle, Handle);
 		}
 		else
 		{
@@ -202,7 +167,6 @@ namespace Lux {
 	void MaterialAsset::ClearNormalMap()
 	{
 #ifndef SE_HEADLESS
-		AssetManager::DeregisterDependency(m_Maps.NormalMap, Handle);
 		m_Material->Set(s_NormalMapUniform, Renderer::GetWhiteTexture());
 #endif
 	}
@@ -220,7 +184,6 @@ namespace Lux {
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			m_Material->Set(s_MetalnessMapUniform, texture);
-			AssetManager::RegisterDependency(handle, Handle);
 		}
 		else
 		{
@@ -231,7 +194,6 @@ namespace Lux {
 	void MaterialAsset::ClearMetalnessMap()
 	{
 #ifndef LUX_HEADLESS
-		AssetManager::DeregisterDependency(m_Maps.MetalnessMap, Handle);
 		m_Material->Set(s_MetalnessMapUniform, Renderer::GetWhiteTexture());
 #endif
 	}
@@ -249,7 +211,6 @@ namespace Lux {
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			m_Material->Set(s_RoughnessMapUniform, texture);
-			AssetManager::RegisterDependency(handle, Handle);
 		}
 		else
 		{
@@ -260,7 +221,6 @@ namespace Lux {
 	void MaterialAsset::ClearRoughnessMap()
 	{
 #ifndef LUX_HEADLESS
-		AssetManager::DeregisterDependency(m_Maps.RoughnessMap, Handle);
 		m_Material->Set(s_RoughnessMapUniform, Renderer::GetWhiteTexture());
 #endif
 	}
@@ -335,5 +295,4 @@ namespace Lux {
 		m_Materials.clear();
 	}
 
-#endif
 }

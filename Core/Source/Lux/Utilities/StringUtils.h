@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <vector>
 
 namespace Lux::Utils {
 
@@ -9,6 +10,8 @@ namespace Lux::Utils {
 		bool EqualsIgnoreCase(const std::string_view a, const std::string_view b);
 		std::string& ToLower(std::string& string);
 		std::string ToLowerCopy(std::string_view string);
+		std::string& ToUpper(std::string& string);
+		std::string ToUpperCopy(std::string_view string);
 		void Erase(std::string& str, const char* chars);
 		void Erase(std::string& str, const std::string& chars);
 		std::string SubStr(const std::string& string, size_t offset, size_t count = std::string::npos);
@@ -32,8 +35,6 @@ namespace Lux::Utils {
 	std::vector<std::string> SplitString(const std::string_view string, const char delimiter);
 	// Insert delimiter before each upper case character.
 	std::string SplitAtUpperCase(std::string_view string, std::string_view delimiter = " ", bool ifLowerCaseOnTheRight = true);
-	std::string ToLower(const std::string_view& string);
-	std::string ToUpper(const std::string_view& string);
 	std::string BytesToString(uint64_t bytes);
 
 	int SkipBOM(std::istream& in);

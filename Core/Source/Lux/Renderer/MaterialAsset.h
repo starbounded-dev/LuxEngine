@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Lux/Core/Base.h"
 #include "Lux/Asset/Asset.h"
 #include "Lux/Renderer/Material.h"
 

@@ -1,5 +1,6 @@
 #include "lpch.h"
-#include "UICore.h"
+
+#include "ImGuiCore.h"
 
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/RendererAPI.h"
@@ -11,7 +12,7 @@ namespace ImGui {
 	extern bool ImageButtonEx(ImGuiID id, ImTextureID user_texture_id, const ImVec2& image_size, const ImVec2& uv0, const ImVec2& uv1, const ImVec4& bg_col, const ImVec4& tint_col, ImGuiButtonFlags flags);
 }
 
-namespace Lux::UI {
+namespace Lux::ImGuiEx {
 
 	ImTextureID GetTextureID(Ref<Image2D> image, ImageMode mode)
 	{
