@@ -13,6 +13,8 @@
 
 namespace Lux
 {
+	using RuntimeAssetCallback = std::function<void(AssetHandle, Ref<Asset>)>;
+
 	// Request submitted to RuntimeAssetSystem for an async load.
 	struct RuntimeAssetLoadRequest
 	{
@@ -21,7 +23,7 @@ namespace Lux
 
 		// Callback invoked on the main thread (via SyncLoadedAssets) once the
 		// asset has been loaded.  May be nullptr.
-		std::function<void(AssetHandle, Ref<Asset>)> Callback;
+		RuntimeAssetCallback Callback;
 	};
 
 	// Background loading thread for runtime (shipped game) use.
@@ -65,7 +67,7 @@ namespace Lux
 		{
 			AssetHandle Handle = 0;
 			Ref<Asset>  LoadedAsset;
-			std::function<void(AssetHandle, Ref<Asset>)> CallbackFn;
+			RuntimeAssetCallback CallbackFn;
 		};
 		std::queue<LoadedEntry> m_FinishedQueue;
 		std::mutex              m_FinishedQueueMutex;

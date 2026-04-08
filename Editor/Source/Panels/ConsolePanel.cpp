@@ -52,15 +52,13 @@ namespace Lux {
 		if (ImGui::Button("Clear"))
 			Clear();
 
-		if (ImGuiEx::BeginPropertyGrid())
-		{
-			ImGuiEx::Property("Auto-scroll", m_AutoScroll);
-			ImGuiEx::Property("Trace", m_ShowTrace);
-			ImGuiEx::Property("Info", m_ShowInfo);
-			ImGuiEx::Property("Warn", m_ShowWarn);
-			ImGuiEx::Property("Error", m_ShowError);
-			ImGuiEx::EndPropertyGrid();
-		}
+		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::Property("Auto-scroll", m_AutoScroll);
+		ImGuiEx::Property("Trace", m_ShowTrace);
+		ImGuiEx::Property("Info", m_ShowInfo);
+		ImGuiEx::Property("Warn", m_ShowWarn);
+		ImGuiEx::Property("Error", m_ShowError);
+		ImGuiEx::EndPropertyGrid();
 		ImGui::Separator();
 
 		// Filter input
