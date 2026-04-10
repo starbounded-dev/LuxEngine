@@ -27,6 +27,9 @@
 #include "Lux/Utilities/FileDialogs.h"
 #include "Lux/Math/Math.h"
 #include "Panels/TextEditorPanel.h"
+#include "Panels/SceneHierarchyPanel.h"
+#include "Panels/ContentBrowserPanel.h"
+#include "Panels/SceneRendererPanel.h"
 
 namespace Lux {
 
@@ -125,7 +128,9 @@ namespace Lux {
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();
 
-		m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View,"TextEditorPanel","Text Editor",true);
+		m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
+		m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
+		m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Text Editor", true);
 
 		Ref<SceneRendererPanel> sceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
 		
@@ -142,9 +147,6 @@ namespace Lux {
 
 		// Light Settings panel
 		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", true);
-
-		// Render statistics panel
-		m_PanelManager->AddPanel<RenderStatsPanel>(PanelCategory::View, "RenderStatsPanel", "Render Stats", true);
 
 		m_IconPlay = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Play.png");
 		m_IconPause = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Pause.png");
@@ -171,8 +173,6 @@ namespace Lux {
 		// Now safe to call - m_Renderer2D is valid.
 		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
 
-		m_PanelManager->SetSceneContext(m_EditorScene);
-
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 		sceneRendererPanel->SetContext(s_SceneRendererState.Renderer);
 
@@ -187,12 +187,8 @@ namespace Lux {
 		sceneRendererSpec.ViewportHeight = 720;
 
 		m_SceneRenderer = Ref<SceneRenderer>::Create(m_ActiveScene, sceneRendererSpec);
-		m_SceneRendererPanel.SetContext(m_SceneRenderer);
-
-		// FIX: SetContext was never called in OnAttach, so the SceneHierarchyPanel
-		// had a null context on startup. Entities would not appear in the hierarchy
-		// and the Properties panel would never draw any components.
-		m_SceneHierarchyPanel.SetContext(m_EditorScene);
+		m_PanelManager->SetSceneContext(m_EditorScene);
+		m_PanelManager->OnProjectChanged(Project::GetActive());
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 		if (s_SceneRendererState.Renderer)
@@ -216,7 +212,6 @@ namespace Lux {
 		m_IconStep.reset();
 		m_SquareVA.reset();
 		m_FlatColorShader.reset();
-		m_ContentBrowserPanel.reset();
 		s_Font.reset();
 	}
 
@@ -252,7 +247,9 @@ namespace Lux {
 		m_Renderer2D->ResetStats();
 
 		// Create selection predicate for 3D rendering (highlights selected entity)
-		Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+		Entity selectedEntity = {};
+		if (auto sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID))
+			selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
 		auto isEntitySelected = [selectedEntity](Entity entity) -> bool {
 			return selectedEntity && entity == selectedEntity;
 		};
@@ -384,14 +381,6 @@ namespace Lux {
 			ImGui::EndMenuBar();
 		}
 
-		m_SceneHierarchyPanel.OnImGuiRender();
-
-		// FIX 3: Guard ContentBrowserPanel - it is only created after a project
-		// is successfully opened via OpenProject(). Calling it unconditionally
-		// when no project is loaded causes a null pointer dereference crash.
-		if (m_ContentBrowserPanel)
-			m_ContentBrowserPanel->OnImGuiRender();
-
 		m_PanelManager->OnImGuiRender();
 
 		// Stats panel
@@ -465,7 +454,9 @@ namespace Lux {
 		}
 
 		// Gizmos
-		Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+		Entity selectedEntity = {};
+		if (auto sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID))
+			selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
 		if (selectedEntity && m_GizmoType != -1)
 		{
 			ImGuizmo::SetOrthographic(false);
@@ -673,7 +664,8 @@ namespace Lux {
 		if (e.GetMouseButton() == MouseButton::Left)
 		{
 			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
-				m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
+				if (auto sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID))
+					sceneHierarchyPanel->SetSelectedEntity(m_HoveredEntity);
 		}
 		return false;
 	}
@@ -743,7 +735,10 @@ namespace Lux {
 			}
 
 			// Selected entity outline
-			if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity())
+			Entity selectedEntity = {};
+			if (auto sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID))
+				selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
+			if (selectedEntity)
 			{
 				const TransformComponent& transform = selectedEntity.GetComponent<TransformComponent>();
 				glm::mat4 t = transform.GetTransform();
@@ -776,7 +771,7 @@ namespace Lux {
 			AssetHandle startScene = Project::GetActive()->GetConfig().StartScene;
 			if (startScene)
 				OpenScene(startScene);
-			m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>(Project::GetActive());
+			m_PanelManager->OnProjectChanged(Project::GetActive());
 		}
 	}
 
@@ -804,7 +799,7 @@ namespace Lux {
 			m_EditorScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 		m_ActiveScene = m_EditorScene;
-		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+		m_PanelManager->SetSceneContext(m_ActiveScene);
 		m_EditorScenePath = std::filesystem::path();
 
 		if (m_SceneRenderer)
@@ -838,7 +833,7 @@ namespace Lux {
 			m_EditorScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 		m_ActiveScene = m_EditorScene;
-		m_SceneHierarchyPanel.SetContext(m_EditorScene);
+		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle);
 
 		if (m_SceneRenderer)
@@ -888,7 +883,7 @@ namespace Lux {
 			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 		m_ActiveScene->OnRuntimeStart();
-		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+		m_PanelManager->SetSceneContext(m_ActiveScene);
 
 		if (m_SceneRenderer)
 			m_SceneRenderer->SetScene(m_ActiveScene);
@@ -914,7 +909,7 @@ namespace Lux {
 			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 		m_ActiveScene->OnSimulationStart();
-		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+		m_PanelManager->SetSceneContext(m_ActiveScene);
 
 		if (m_SceneRenderer)
 			m_SceneRenderer->SetScene(m_ActiveScene);
@@ -938,7 +933,7 @@ namespace Lux {
 		m_SceneState = SceneState::Edit;
 		m_ActiveScene = m_EditorScene;
 
-		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+		m_PanelManager->SetSceneContext(m_ActiveScene);
 
 		if (m_SceneRenderer)
 			m_SceneRenderer->SetScene(m_ActiveScene);
@@ -963,11 +958,15 @@ namespace Lux {
 		if (m_SceneState != SceneState::Edit)
 			return;
 
-		Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+		Entity selectedEntity = {};
+		Ref<SceneHierarchyPanel> sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID);
+		if (sceneHierarchyPanel)
+			selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
 		if (selectedEntity)
 		{
 			Entity newEntity = m_EditorScene->DuplicateEntity(selectedEntity);
-			m_SceneHierarchyPanel.SetSelectedEntity(newEntity);
+			if (sceneHierarchyPanel)
+				sceneHierarchyPanel->SetSelectedEntity(newEntity);
 		}
 	}
 }

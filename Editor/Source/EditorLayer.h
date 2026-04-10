@@ -2,8 +2,6 @@
 
 #include "Lux.h"
 
-#include "Panels/SceneHierarchyPanel.h"
-#include "Panels/ContentBrowserPanel.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/RenderStatsPanel.h"
 #include "Panels/MaterialEditorPanel.h"
@@ -20,7 +18,6 @@
 
 #include "entt/entt.hpp"
 #include "Lux/Editor/PanelManager.h"
-#include "Panels/SceneRendererPanel.h"
 #include "Lux/Renderer/SceneRenderer.h"
 
 namespace Lux
@@ -77,8 +74,6 @@ namespace Lux
 		Ref<Renderer2D> m_Renderer2D;
 
 		Ref<SceneRenderer> m_SceneRenderer;
-		SceneRendererPanel m_SceneRendererPanel;
-		bool m_ShowSceneRendererPanel = true;
 
 		// Temp
 		Ref<VertexBuffer> m_SquareVA;
@@ -112,10 +107,6 @@ namespace Lux
 			Edit = 0, Play = 1, Simulate = 2
 		};
 		SceneState m_SceneState = SceneState::Edit;
-
-		// Panels
-		SceneHierarchyPanel m_SceneHierarchyPanel;
-		Scope<ContentBrowserPanel> m_ContentBrowserPanel;
 
 		// Editor resources
 		Ref<Texture2D> m_IconPlay, m_IconPause, m_IconStep, m_IconSimulate, m_IconStop;
