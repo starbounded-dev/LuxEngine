@@ -39,9 +39,16 @@ namespace Lux {
 		m_SelectionContext = {};
 	}
 
-	void SceneHierarchyPanel::OnImGuiRender()
+	void SceneHierarchyPanel::OnImGuiRender(bool& isOpen)
 	{
-		ImGui::Begin("Scene Hierarchy");
+		if (!isOpen)
+			return;
+
+		if (!ImGui::Begin("Scene Hierarchy", &isOpen))
+		{
+			ImGui::End();
+			return;
+		}
 
 	if (m_Context)
 	{
@@ -69,7 +76,10 @@ namespace Lux {
 
 		ImGui::End();
 
-		ImGui::Begin("Properties");
+		if (!isOpen)
+			return;
+
+		ImGui::Begin("Properties", &isOpen);
 		if (m_SelectionContext)
 		{
 			DrawComponents(m_SelectionContext);

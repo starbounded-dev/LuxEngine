@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Lux/Editor/EditorPanel.h"
+#include "Lux/Project/Project.h"
 #include "Lux/Renderer/Texture.h"
 
 #include "ThumbnailCache.h"
@@ -10,13 +12,16 @@
 
 namespace Lux {
 
-	class ContentBrowserPanel
+	class ContentBrowserPanel : public EditorPanel
 	{
 	public:
+		ContentBrowserPanel();
 		ContentBrowserPanel(Ref<Project> project);
 
-		void OnImGuiRender();
+		virtual void OnImGuiRender(bool& isOpen) override;
+		virtual void OnProjectChanged(const Ref<Project>& project) override;
 	private:
+		void InitializeFromProject(const Ref<Project>& project);
 		void RefreshAssetTree();
 	private:
 		Ref<Project> m_Project;
