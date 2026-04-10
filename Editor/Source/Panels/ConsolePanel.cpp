@@ -2,7 +2,7 @@
 #include "ConsolePanel.h"
 
 #include <imgui/imgui.h>
-#include "ImGui/ImGuiEx.h"
+#include "Lux/ImGui/ImGuiEx.h"
 
 namespace Lux {
 

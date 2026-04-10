@@ -2,7 +2,7 @@
 #include "TextEditorPanel.h"
 
 #include <imgui/imgui.h>
-#include "ImGui/ImGuiEx.h"
+#include "Lux/ImGui/ImGuiEx.h"
 #include <fstream>
 #include <sstream>
 
