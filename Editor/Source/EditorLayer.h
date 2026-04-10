@@ -22,6 +22,9 @@
 
 namespace Lux
 {
+	class SceneHierarchyPanel;
+	class SceneRendererPanel;
+
 	class EditorLayer : public Layer
 	{
 	public:
@@ -74,6 +77,8 @@ namespace Lux
 		Ref<Renderer2D> m_Renderer2D;
 
 		Ref<SceneRenderer> m_SceneRenderer;
+		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
+		Ref<SceneRendererPanel> m_SceneRendererPanel;
 
 		// Temp
 		Ref<VertexBuffer> m_SquareVA;

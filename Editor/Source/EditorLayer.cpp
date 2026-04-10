@@ -114,6 +114,7 @@ namespace Lux {
 	}
 
 	static Ref<Font> s_Font;
+	static bool s_ShowFontAtlasInStats = false;
 
 	EditorLayer::EditorLayer()
 		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 10000.0f) ,m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
@@ -128,11 +129,11 @@ namespace Lux {
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();
 
-		m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
+		m_SceneHierarchyPanel = m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
 		m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
 		m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Text Editor", true);
 
-		Ref<SceneRendererPanel> sceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
+		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
 		
 		// Console panel for log messages
 		m_PanelManager->AddPanel<ConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Console", true);
@@ -174,7 +175,8 @@ namespace Lux {
 		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
-		sceneRendererPanel->SetContext(s_SceneRendererState.Renderer);
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(s_SceneRendererState.Renderer);
 
 		m_EditorCamera.SetActive(true);
 
@@ -212,6 +214,8 @@ namespace Lux {
 		m_IconStep.reset();
 		m_SquareVA.reset();
 		m_FlatColorShader.reset();
+		m_SceneRendererPanel.reset();
+		m_SceneHierarchyPanel.reset();
 		s_Font.reset();
 	}
 
@@ -248,8 +252,8 @@ namespace Lux {
 
 		// Create selection predicate for 3D rendering (highlights selected entity)
 		Entity selectedEntity = {};
-		if (auto sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID))
-			selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
+		if (m_SceneHierarchyPanel)
+			selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
 		auto isEntitySelected = [selectedEntity](Entity entity) -> bool {
 			return selectedEntity && entity == selectedEntity;
 		};
@@ -305,8 +309,8 @@ namespace Lux {
 		ImGuizmo::BeginFrame();
 
 		static bool dockspaceOpen = true;
-		static bool opt_fullscreen_persistant = true;
-		bool opt_fullscreen = opt_fullscreen_persistant;
+		static bool opt_fullscreen_persistent = true;
+		bool opt_fullscreen = opt_fullscreen_persistent;
 		static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
 		ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
@@ -327,191 +331,195 @@ namespace Lux {
 			window_flags |= ImGuiWindowFlags_NoBackground;
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		ImGui::Begin("DockSpace Demo", &dockspaceOpen, window_flags);
+		const bool dockspaceVisible = ImGui::Begin("Lux Editor", &dockspaceOpen, window_flags);
 		ImGui::PopStyleVar();
 
 		if (opt_fullscreen)
 			ImGui::PopStyleVar(2);
 
-		ImGuiIO& io = ImGui::GetIO();
-		ImGuiStyle& style = ImGui::GetStyle();
-		float minWinSizeX = style.WindowMinSize.x;
-		style.WindowMinSize.x = 370.0f;
-		if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+		if (dockspaceVisible)
 		{
-			ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
-			ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
-		}
-		style.WindowMinSize.x = minWinSizeX;
-
-		if (ImGui::BeginMenuBar())
-		{
-			if (ImGui::BeginMenu("File"))
+			ImGuiIO& io = ImGui::GetIO();
+			ImGuiStyle& style = ImGui::GetStyle();
+			const float minWinSizeX = style.WindowMinSize.x;
+			style.WindowMinSize.x = 370.0f;
+			if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 			{
-				if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
-					OpenProject();
+				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+				ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+			}
+			style.WindowMinSize.x = minWinSizeX;
 
-				ImGui::Separator();
+			if (ImGui::BeginMenuBar())
+			{
+				if (ImGui::BeginMenu("File"))
+				{
+					if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
+						OpenProject();
 
-				if (ImGui::MenuItem("New Scene", "Ctrl+N"))
-					NewScene();
+					ImGui::Separator();
 
-				if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
-					SaveScene();
+					if (ImGui::MenuItem("New Scene", "Ctrl+N"))
+						NewScene();
 
-				if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
-					SaveSceneAs();
+					if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+						SaveScene();
 
-				ImGui::Separator();
+					if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
+						SaveSceneAs();
 
-				if (ImGui::MenuItem("Exit"))
-					Application::Get().Close();
+					ImGui::Separator();
 
-				ImGui::EndMenu();
+					if (ImGui::MenuItem("Exit"))
+						Application::Get().Close();
+
+					ImGui::EndMenu();
+				}
+
+				if (ImGui::BeginMenu("Script"))
+				{
+					if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
+						ScriptEngine::ReloadAssembly();
+
+					ImGui::EndMenu();
+				}
+
+				ImGui::EndMenuBar();
 			}
 
-			if (ImGui::BeginMenu("Script"))
-			{
-				if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
-					ScriptEngine::ReloadAssembly();
+			m_PanelManager->OnImGuiRender();
 
-				ImGui::EndMenu();
-			}
-
-			ImGui::EndMenuBar();
-		}
-
-		m_PanelManager->OnImGuiRender();
-
-		// Stats panel
-		ImGui::Begin("Stats");
+			// Stats panel
+			ImGui::Begin("Stats");
 
 #if 0
-		std::string name = "None";
-		if (m_HoveredEntity)
-			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
-		ImGui::Text("Hovered Entity: %s", name.c_str());
+			std::string name = "None";
+			if (m_HoveredEntity)
+				name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
+			ImGui::Text("Hovered Entity: %s", name.c_str());
 #endif
 
-		auto stats = m_Renderer2D->GetDrawStats();
-		ImGui::Text("Renderer2D Stats:");
-		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
-		ImGui::Text("Quads: %d", stats.QuadCount);
-		ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
-		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
+			auto stats = m_Renderer2D->GetDrawStats();
+			ImGui::Text("Renderer2D Stats:");
+			ImGui::Text("Draw Calls: %d", stats.DrawCalls);
+			ImGui::Text("Quads: %d", stats.QuadCount);
+			ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
+			ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
 
-		ImGui::Separator();
+			ImGui::Separator();
 
-		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 
-		if (ImGui::Checkbox("VSync", &m_VSync))
-			Application::Get().GetWindow().SetVSync(m_VSync);
+			if (ImGui::Checkbox("VSync", &m_VSync))
+				Application::Get().GetWindow().SetVSync(m_VSync);
 
-		if (ImGui::Checkbox("Show Physics Colliders", &m_ShowPhysicsColliders))
-		{
-			if (s_SceneRendererState.Renderer)
-				s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
-		}
-
-		ImGui::Separator();
-
-		ImGui::Image(GetImGuiTextureID(s_Font->GetFontAtlas()), { 512, 512 }, { 0, 1 }, { 1, 0 });
-
-		ImGui::End(); // Stats
-		  
-		// Viewport panel
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
-		ImGui::Begin("Viewport");
-
-		auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
-		auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
-		auto viewportOffset = ImGui::GetWindowPos();
-		m_ViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
-		m_ViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
-
-		m_ViewportFocused = ImGui::IsWindowFocused();
-		m_ViewportHovered = ImGui::IsWindowHovered();
-		Application::Get().GetImGuiLayer()->AllowInputEvents(m_ViewportFocused || m_ViewportHovered);
-
-		// Guard against zero-size during panel drag/dock transitions; a zero
-		// size would propagate to Framebuffer::Resize(0,0) next frame and
-		// destroy all attachment images while they are still in use.
-		ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
-		if (viewportPanelSize.x > 1.0f && viewportPanelSize.y > 1.0f)
-			m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
-
-		ImTextureID texID = GetImGuiTextureID(m_Framebuffer->GetImage(0));
-		ImGui::Image(texID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
-
-		if (ImGui::BeginDragDropTarget())
-		{
-			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+			if (ImGui::Checkbox("Show Physics Colliders", &m_ShowPhysicsColliders))
 			{
-				AssetHandle handle = *(AssetHandle*)payload->Data;
-				OpenScene(handle);
+				if (s_SceneRendererState.Renderer)
+					s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
 			}
-			ImGui::EndDragDropTarget();
-		}
 
-		// Gizmos
-		Entity selectedEntity = {};
-		if (auto sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID))
-			selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
-		if (selectedEntity && m_GizmoType != -1)
-		{
-			ImGuizmo::SetOrthographic(false);
-			ImGuizmo::SetDrawlist();
-			ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y,
-				m_ViewportBounds[1].x - m_ViewportBounds[0].x,
-				m_ViewportBounds[1].y - m_ViewportBounds[0].y);
+			ImGui::Separator();
+			ImGui::Checkbox("Show Font Atlas", &s_ShowFontAtlasInStats);
+			if (s_ShowFontAtlasInStats)
+				ImGui::Image(GetImGuiTextureID(s_Font->GetFontAtlas()), { 512, 512 }, { 0, 1 }, { 1, 0 });
 
-			// FIX: Use GetProjectionMatrix() (projection only), not
-			// GetViewProjection() (combined VP). ImGuizmo needs them separate.
-			const glm::mat4& cameraProjection = m_EditorCamera.GetProjectionMatrix();
-			glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
+			ImGui::End(); // Stats
 
-			auto& tc = selectedEntity.GetComponent<TransformComponent>();
-			glm::mat4 transform = tc.GetTransform();
+			// Viewport panel
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
+			ImGui::Begin("Viewport");
 
-			bool snap = Input::IsKeyPressed(Key::LeftControl);
-			float snapValue = (m_GizmoType == ImGuizmo::OPERATION::ROTATE) ? 45.0f : 0.5f;
-			float snapValues[3] = { snapValue, snapValue, snapValue };
+			auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
+			auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
+			auto viewportOffset = ImGui::GetWindowPos();
+			m_ViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
+			m_ViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
 
-			// FIX: Actually call Manipulate() - it was completely missing,
-			// so gizmos were never drawn or interactable at all.
-			ImGuizmo::Manipulate(
-				glm::value_ptr(cameraView),
-				glm::value_ptr(cameraProjection),
-				(ImGuizmo::OPERATION)m_GizmoType,
-				ImGuizmo::LOCAL,
-				glm::value_ptr(transform),
-				nullptr,
-				snap ? snapValues : nullptr);
+			m_ViewportFocused = ImGui::IsWindowFocused();
+			m_ViewportHovered = ImGui::IsWindowHovered();
+			Application::Get().GetImGuiLayer()->AllowInputEvents(m_ViewportFocused || m_ViewportHovered);
 
-			// FIX: DecomposeTransform signature is (mat4, vec3&, quat&, vec3&).
-			// Decompose into a quaternion then convert to euler angles for storage.
-			if (ImGuizmo::IsUsing())
+			// Guard against zero-size during panel drag/dock transitions; a zero
+			// size would propagate to Framebuffer::Resize(0,0) next frame and
+			// destroy all attachment images while they are still in use.
+			ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
+			if (viewportPanelSize.x > 1.0f && viewportPanelSize.y > 1.0f)
+				m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
+
+			ImTextureID texID = GetImGuiTextureID(m_Framebuffer->GetImage(0));
+			ImGui::Image(texID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
+
+			if (ImGui::BeginDragDropTarget())
 			{
-				glm::vec3 translation, scale;
-				glm::quat rotationQuat;
-				Math::DecomposeTransform(transform, translation, rotationQuat, scale);
-
-				// Convert quat to euler and apply as a delta to avoid gimbal lock
-				// accumulation that would occur from direct euler assignment.
-				glm::vec3 rotationEuler = glm::eulerAngles(rotationQuat);
-				glm::vec3 deltaRotation = rotationEuler - tc.Rotation;
-				tc.Translation = translation;
-				tc.Rotation += deltaRotation;
-				tc.Scale = scale;
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+				{
+					AssetHandle handle = *(AssetHandle*)payload->Data;
+					OpenScene(handle);
+				}
+				ImGui::EndDragDropTarget();
 			}
+
+			// Gizmos
+			Entity selectedEntity = {};
+			if (m_SceneHierarchyPanel)
+				selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
+			if (selectedEntity && m_GizmoType != -1)
+			{
+				ImGuizmo::SetOrthographic(false);
+				ImGuizmo::SetDrawlist();
+				ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y,
+					m_ViewportBounds[1].x - m_ViewportBounds[0].x,
+					m_ViewportBounds[1].y - m_ViewportBounds[0].y);
+
+				// FIX: Use GetProjectionMatrix() (projection only), not
+				// GetViewProjection() (combined VP). ImGuizmo needs them separate.
+				const glm::mat4& cameraProjection = m_EditorCamera.GetProjectionMatrix();
+				glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
+
+				auto& tc = selectedEntity.GetComponent<TransformComponent>();
+				glm::mat4 transform = tc.GetTransform();
+
+				bool snap = Input::IsKeyPressed(Key::LeftControl);
+				float snapValue = (m_GizmoType == ImGuizmo::OPERATION::ROTATE) ? 45.0f : 0.5f;
+				float snapValues[3] = { snapValue, snapValue, snapValue };
+
+				// FIX: Actually call Manipulate() - it was completely missing,
+				// so gizmos were never drawn or interactable at all.
+				ImGuizmo::Manipulate(
+					glm::value_ptr(cameraView),
+					glm::value_ptr(cameraProjection),
+					(ImGuizmo::OPERATION)m_GizmoType,
+					ImGuizmo::LOCAL,
+					glm::value_ptr(transform),
+					nullptr,
+					snap ? snapValues : nullptr);
+
+				// FIX: DecomposeTransform signature is (mat4, vec3&, quat&, vec3&).
+				// Decompose into a quaternion then convert to euler angles for storage.
+				if (ImGuizmo::IsUsing())
+				{
+					glm::vec3 translation, scale;
+					glm::quat rotationQuat;
+					Math::DecomposeTransform(transform, translation, rotationQuat, scale);
+
+					// Convert quat to euler and apply as a delta to avoid gimbal lock
+					// accumulation that would occur from direct euler assignment.
+					glm::vec3 rotationEuler = glm::eulerAngles(rotationQuat);
+					glm::vec3 deltaRotation = rotationEuler - tc.Rotation;
+					tc.Translation = translation;
+					tc.Rotation += deltaRotation;
+					tc.Scale = scale;
+				}
+			}
+
+			ImGui::End(); // Viewport
+			ImGui::PopStyleVar();
+
+			UI_Toolbar();
 		}
 
-		ImGui::End(); // Viewport
-		ImGui::PopStyleVar();
-
-		UI_Toolbar();
-
-		ImGui::End(); // DockSpace Demo
+		ImGui::End(); // Lux Editor
 	}
 
 	void EditorLayer::UI_Toolbar()
@@ -664,8 +672,8 @@ namespace Lux {
 		if (e.GetMouseButton() == MouseButton::Left)
 		{
 			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
-				if (auto sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID))
-					sceneHierarchyPanel->SetSelectedEntity(m_HoveredEntity);
+				if (m_SceneHierarchyPanel)
+					m_SceneHierarchyPanel->SetSelectedEntity(m_HoveredEntity);
 		}
 		return false;
 	}
@@ -736,8 +744,8 @@ namespace Lux {
 
 			// Selected entity outline
 			Entity selectedEntity = {};
-			if (auto sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID))
-				selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
+			if (m_SceneHierarchyPanel)
+				selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
 			if (selectedEntity)
 			{
 				const TransformComponent& transform = selectedEntity.GetComponent<TransformComponent>();
@@ -805,9 +813,8 @@ namespace Lux {
 		if (m_SceneRenderer)
 			m_SceneRenderer->SetScene(m_ActiveScene);
 
-		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
-		if (sceneRendererPanel)
-			sceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
@@ -839,9 +846,8 @@ namespace Lux {
 		if (m_SceneRenderer)
 			m_SceneRenderer->SetScene(m_ActiveScene);
 
-		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
-		if (sceneRendererPanel)
-			sceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
@@ -888,9 +894,8 @@ namespace Lux {
 		if (m_SceneRenderer)
 			m_SceneRenderer->SetScene(m_ActiveScene);
 
-		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
-		if (sceneRendererPanel)
-			sceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
@@ -914,9 +919,8 @@ namespace Lux {
 		if (m_SceneRenderer)
 			m_SceneRenderer->SetScene(m_ActiveScene);
 
-		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
-		if (sceneRendererPanel)
-			sceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
@@ -938,9 +942,8 @@ namespace Lux {
 		if (m_SceneRenderer)
 			m_SceneRenderer->SetScene(m_ActiveScene);
 
-		auto sceneRendererPanel = m_PanelManager->GetPanel<SceneRendererPanel>("SceneRendererPanel");
-		if (sceneRendererPanel)
-			sceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
@@ -959,14 +962,13 @@ namespace Lux {
 			return;
 
 		Entity selectedEntity = {};
-		Ref<SceneHierarchyPanel> sceneHierarchyPanel = m_PanelManager->GetPanel<SceneHierarchyPanel>(SCENE_HIERARCHY_PANEL_ID);
-		if (sceneHierarchyPanel)
-			selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
+		if (m_SceneHierarchyPanel)
+			selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
 		if (selectedEntity)
 		{
 			Entity newEntity = m_EditorScene->DuplicateEntity(selectedEntity);
-			if (sceneHierarchyPanel)
-				sceneHierarchyPanel->SetSelectedEntity(newEntity);
+			if (m_SceneHierarchyPanel)
+				m_SceneHierarchyPanel->SetSelectedEntity(newEntity);
 		}
 	}
 }
