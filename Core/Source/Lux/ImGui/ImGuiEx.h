@@ -12,6 +12,7 @@
 #include "Lux/ImGui/ImGuiWidgets.h"
 //#include "Lux/Scene/Prefab.h"
 #include "Lux/Scene/Scene.h"
+#include "Lux/UI/UI.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <choc/text/choc_StringUtilities.h>
@@ -2802,7 +2803,7 @@ namespace Lux::ImGuiEx {
 		uintptr_t tempLength = length;
 		FieldType nativeType = arrayStorage->GetFieldInfo()->Type;
 
-		if (UI::PropertyInput("Length", tempLength, 1, 1, ImGuiInputTextFlags_EnterReturnsTrue))
+		if (PropertyInput("Length", tempLength, 1, 1, ImGuiInputTextFlags_EnterReturnsTrue))
 		{
 			arrayStorage->Resize((uint32_t)tempLength);
 			length = tempLength;
@@ -2827,12 +2828,12 @@ namespace Lux::ImGuiEx {
 				size_t dataSize = ImGui::DataTypeGetInfo(dataType)->Size;
 				if (components > 1)
 				{
-					if (UI::DragScalarN(GenerateID(), dataType, &data, components, 1.0f, (const void*)0, (const void*)0, format, 0))
+					if (DragScalarN(GenerateID(), dataType, &data, components, 1.0f, (const void*)0, (const void*)0, format, 0))
 						arrayStorage->SetValue<std::remove_reference_t<decltype(data)>>((uint32_t)index, data);
 				}
 				else
 				{
-					if (UI::DragScalar(GenerateID(), dataType, &data, 1.0f, (const void*)0, (const void*)0, format, (ImGuiSliderFlags)0))
+					if (DragScalar(GenerateID(), dataType, &data, 1.0f, (const void*)0, (const void*)0, format, (ImGuiSliderFlags)0))
 						arrayStorage->SetValue<std::remove_reference_t<decltype(data)>>((uint32_t)index, data);
 				}
 
@@ -2863,7 +2864,7 @@ namespace Lux::ImGuiEx {
 				const float buttonSize = ImGui::GetFrameHeight();
 				ImGui::SetNextItemWidth(ImMax(1.0f, ImGui::CalcItemWidth() - (buttonSize + style.ItemInnerSpacing.x)));
 
-				if (UI::InputText(GenerateID(), &data))
+				if (InputText(GenerateID(), &data))
 					arrayStorage->SetValue<std::string>((uint32_t)index, data);
 
 				const ImVec2 backupFramePadding = style.FramePadding;
@@ -2892,7 +2893,7 @@ namespace Lux::ImGuiEx {
 			case FieldType::Bool:
 			{
 				bool value = arrayStorage->GetValue<bool>(i);
-				if (UI::Property(indexString.c_str(), value))
+				if (Property(indexString.c_str(), value))
 				{
 					arrayStorage->SetValue(i, value);
 					modified = true;
