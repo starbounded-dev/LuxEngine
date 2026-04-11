@@ -17,6 +17,7 @@
 
 #include <imgui/imgui.h>
 #include "imgui/imgui_internal.h"
+#include <GLFW/glfw3.h>
 #include "ImGuizmo.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/EditorResources.h"
@@ -65,6 +66,24 @@ namespace Lux {
 		{
 			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
 			return imguiRenderer->CreateFrameTexture(image->GetHandle().Get(), nvrhi::AllSubresources);
+		}
+
+		std::string GetSceneDisplayName(const std::filesystem::path& scenePath)
+		{
+			if (scenePath.empty())
+				return "Untitled Scene";
+
+			return scenePath.stem().string();
+		}
+
+		std::string GetProjectDisplayName()
+		{
+			Ref<Project> activeProject = Project::GetActive();
+			if (!activeProject)
+				return "No Project";
+
+			const auto& name = activeProject->GetConfig().Name;
+			return name.empty() ? "Untitled Project" : name;
 		}
 	}
 
@@ -125,6 +144,8 @@ namespace Lux {
 	void EditorLayer::OnAttach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
+
+		EditorResources::Init();
 
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();
@@ -217,6 +238,7 @@ namespace Lux {
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
 		s_Font.reset();
+		EditorResources::Shutdown();
 	}
 
 	void EditorLayer::OnUpdate(Timestep ts)
@@ -313,7 +335,10 @@ namespace Lux {
 		bool opt_fullscreen = opt_fullscreen_persistent;
 		static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
-		ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+		const bool isWindowMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
+
+		ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking;
 		if (opt_fullscreen)
 		{
 			ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -321,7 +346,7 @@ namespace Lux {
 			ImGui::SetNextWindowSize(viewport->Size);
 			ImGui::SetNextWindowViewport(viewport->ID);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, isWindowMaximized ? 0.0f : 3.0f);
 			window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
 				ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
 			window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
@@ -343,6 +368,15 @@ namespace Lux {
 			ImGuiStyle& style = ImGui::GetStyle();
 			const float minWinSizeX = style.WindowMinSize.x;
 			style.WindowMinSize.x = 370.0f;
+
+			UI_DrawTitlebar();
+			if (!isWindowMaximized)
+			{
+				ImGuiEx::ScopedColour borderColour(ImGuiCol_Border, IM_COL32(50, 50, 50, 255));
+				ImGuiEx::RenderWindowOuterBorders(ImGui::GetCurrentWindow());
+			}
+
+			ImGui::SetCursorPosY(m_TitlebarHeight);
 			if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 			{
 				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
@@ -350,44 +384,31 @@ namespace Lux {
 			}
 			style.WindowMinSize.x = minWinSizeX;
 
-			if (ImGui::BeginMenuBar())
-			{
-				if (ImGui::BeginMenu("File"))
-				{
-					if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
-						OpenProject();
-
-					ImGui::Separator();
-
-					if (ImGui::MenuItem("New Scene", "Ctrl+N"))
-						NewScene();
-
-					if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
-						SaveScene();
-
-					if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
-						SaveSceneAs();
-
-					ImGui::Separator();
-
-					if (ImGui::MenuItem("Exit"))
-						Application::Get().Close();
-
-					ImGui::EndMenu();
-				}
-
-				if (ImGui::BeginMenu("Script"))
-				{
-					if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
-						ScriptEngine::ReloadAssembly();
-
-					ImGui::EndMenu();
-				}
-
-				ImGui::EndMenuBar();
-			}
-
 			m_PanelManager->OnImGuiRender();
+
+			if (m_ShowImGuiMetrics)
+				ImGui::ShowMetricsWindow(&m_ShowImGuiMetrics);
+			if (m_ShowImGuiStyleEditor)
+				ImGui::ShowStyleEditor();
+			if (m_ShowAboutPopup)
+				ImGui::OpenPopup("About LuxEngine");
+
+			if (ImGui::BeginPopupModal("About LuxEngine", &m_ShowAboutPopup, ImGuiWindowFlags_AlwaysAutoResize))
+			{
+				ImGui::Text("LuxEngine Editor");
+				ImGui::Separator();
+				ImGui::Text("Version: %s", Application::GetConfigurationName());
+				ImGui::Text("Platform: %s", Application::GetPlatformName());
+				ImGui::TextWrapped("Credits: Inspired by Hazel architecture and editor workflows.");
+
+				if (ImGui::Button("Close"))
+				{
+					m_ShowAboutPopup = false;
+					ImGui::CloseCurrentPopup();
+				}
+
+				ImGui::EndPopup();
+			}
 
 			// Stats panel
 			ImGui::Begin("Stats");
@@ -522,6 +543,193 @@ namespace Lux {
 		ImGui::End(); // Lux Editor
 	}
 
+	void EditorLayer::UI_DrawMenubar()
+	{
+		ImGuiEx::ScopedColourStack menuColors(
+			ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
+			ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
+			ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
+			ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::text));
+
+		const float menuMinX = 76.0f;
+		const float menuMaxX = std::max(menuMinX + 1.0f, ImGui::GetWindowWidth() - 350.0f);
+		const ImRect menuBarRect(ImVec2(menuMinX, 0.0f), ImVec2(menuMaxX, m_TitlebarHeight));
+		if (!ImGuiEx::BeginMenuBar(menuBarRect))
+			return;
+
+		if (ImGui::BeginMenu("File"))
+		{
+			if (ImGui::MenuItem("Create Project"))
+				NewProject();
+			if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
+				OpenProject();
+
+			if (ImGui::BeginMenu("Recent Projects"))
+			{
+				ImGui::MenuItem("No recent projects", nullptr, false, false);
+				ImGui::EndMenu();
+			}
+
+			ImGui::Separator();
+			if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+				SaveScene();
+			if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
+				SaveSceneAs();
+
+			ImGui::Separator();
+			if (ImGui::MenuItem("Exit"))
+				Application::Get().DispatchEvent<WindowCloseEvent, true>();
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Edit"))
+		{
+			if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
+				ScriptEngine::ReloadAssembly();
+			ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("View"))
+		{
+			auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
+			for (auto& [id, panelData] : viewPanels)
+				ImGui::MenuItem(panelData.Name, nullptr, &panelData.IsOpen);
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Tools"))
+		{
+			ImGui::MenuItem("ImGui Metrics", nullptr, &m_ShowImGuiMetrics);
+			ImGui::MenuItem("ImGui Style Editor", nullptr, &m_ShowImGuiStyleEditor);
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Help"))
+		{
+			if (ImGui::MenuItem("About"))
+				m_ShowAboutPopup = true;
+			ImGui::EndMenu();
+		}
+
+		ImGuiEx::EndMenuBar();
+	}
+
+	void EditorLayer::UI_DrawTitlebar()
+	{
+		ImGuiWindow* window = ImGui::GetCurrentWindow();
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		const ImVec2 windowPos = window->Pos;
+		const ImVec2 windowMax = ImVec2(window->Pos.x + window->Size.x, window->Pos.y + m_TitlebarHeight);
+
+		ImU32 targetTitlebarColor = Colors::Theme::titlebar;
+		if (m_SceneState == SceneState::Play)
+			targetTitlebarColor = Colors::Theme::titlebarOrange;
+		else if (m_SceneState == SceneState::Simulate)
+			targetTitlebarColor = Colors::Theme::titlebarGreen;
+
+		const ImVec4 targetColor = ImGui::ColorConvertU32ToFloat4(targetTitlebarColor);
+		const float dt = ImGui::GetIO().DeltaTime;
+		m_AnimatedTitlebarColor = ImLerp(m_AnimatedTitlebarColor, targetColor, std::clamp(dt * 8.0f, 0.0f, 1.0f));
+		drawList->AddRectFilled(windowPos, windowMax, ImGui::ColorConvertFloat4ToU32(m_AnimatedTitlebarColor));
+
+		drawList->AddLine(ImVec2(windowPos.x, windowPos.y + m_TitlebarHeight), ImVec2(windowPos.x + window->Size.x, windowPos.y + m_TitlebarHeight), Colors::Theme::backgroundDark);
+
+		const float logoPadding = 16.0f;
+		const float logoSize = 30.0f;
+		const float logoTop = (m_TitlebarHeight - logoSize) * 0.5f;
+		const ImVec2 logoMin(windowPos.x + logoPadding, windowPos.y + logoTop);
+		const ImVec2 logoMax(logoMin.x + logoSize, logoMin.y + logoSize);
+		if (EditorResources::HazelLogoTexture)
+			drawList->AddImage(GetImGuiTextureID(EditorResources::HazelLogoTexture), logoMin, logoMax);
+
+		UI_DrawMenubar();
+
+		const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
+		const ImVec2 sceneNameSize = ImGui::CalcTextSize(sceneName.c_str());
+		const float sceneNameX = windowPos.x + (window->Size.x - sceneNameSize.x) * 0.5f;
+		const float sceneNameY = windowPos.y + (m_TitlebarHeight - sceneNameSize.y) * 0.5f;
+		drawList->AddText(ImVec2(sceneNameX, sceneNameY), Colors::Theme::textBrighter, sceneName.c_str());
+		drawList->AddLine(
+			ImVec2(sceneNameX - 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
+			ImVec2(sceneNameX + sceneNameSize.x + 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
+			Colors::Theme::accent, 1.5f);
+
+		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+		const bool isMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
+
+		const float controlsWidth = 120.0f;
+		const float dragZoneMinX = 70.0f;
+		const float dragZoneMaxX = window->Size.x - controlsWidth - 220.0f;
+		ImGui::SetCursorPos(ImVec2(dragZoneMinX, 0.0f));
+		ImGui::InvisibleButton("##titleBarDragZone", ImVec2(std::max(0.0f, dragZoneMaxX - dragZoneMinX), m_TitlebarHeight));
+		const ImVec2 dragMin = ImGui::GetItemRectMin();
+		const ImVec2 dragMax = ImGui::GetItemRectMax();
+		m_TitleBarDragRectMin = ImVec2(dragMin.x - windowPos.x, dragMin.y - windowPos.y);
+		m_TitleBarDragRectMax = ImVec2(dragMax.x - windowPos.x, dragMax.y - windowPos.y);
+
+#if !defined(LUX_PLATFORM_WINDOWS)
+		if (nativeWindow && !isMaximized && ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		{
+			int windowX = 0, windowY = 0;
+			glfwGetWindowPos(nativeWindow, &windowX, &windowY);
+			const ImVec2 delta = ImGui::GetIO().MouseDelta;
+			glfwSetWindowPos(nativeWindow, windowX + (int)delta.x, windowY + (int)delta.y);
+		}
+#endif
+
+		const std::string projectName = GetProjectDisplayName();
+		const ImVec2 projectNameSize = ImGui::CalcTextSize(projectName.c_str());
+		const ImVec2 projectBoxMin(windowPos.x + window->Size.x - controlsWidth - projectNameSize.x - 36.0f, windowPos.y + 14.0f);
+		const ImVec2 projectBoxMax(projectBoxMin.x + projectNameSize.x + 20.0f, projectBoxMin.y + 26.0f);
+		drawList->AddRect(projectBoxMin, projectBoxMax, Colors::Theme::muted, 6.0f, 0, 1.0f);
+		drawList->AddText(ImVec2(projectBoxMin.x + 10.0f, projectBoxMin.y + 5.0f), Colors::Theme::text, projectName.c_str());
+
+		const float buttonSize = 34.0f;
+		const float buttonY = (m_TitlebarHeight - buttonSize) * 0.5f;
+		const float buttonsStartX = window->Size.x - controlsWidth;
+		const ImU32 normalTint = IM_COL32(220, 220, 220, 220);
+		const ImU32 hoverTint = IM_COL32(255, 255, 255, 255);
+		const ImU32 activeTint = IM_COL32(200, 200, 200, 255);
+
+		auto drawWindowControlButton = [&](const char* id, const Ref<Texture2D>& icon, float localX, auto&& onClick)
+		{
+			ImGui::SetCursorPos(ImVec2(localX, buttonY));
+			ImGui::InvisibleButton(id, ImVec2(buttonSize, buttonSize));
+			if (icon)
+				UI::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+				onClick();
+		};
+
+		drawWindowControlButton("##minimizeWindow", EditorResources::MinimizeIcon, buttonsStartX + 4.0f, [nativeWindow]()
+		{
+			if (!nativeWindow)
+				return;
+			Application::Get().QueueEvent([nativeWindow]() { glfwIconifyWindow(nativeWindow); });
+		});
+
+		drawWindowControlButton("##maximizeRestoreWindow", isMaximized ? EditorResources::RestoreIcon : EditorResources::MaximizeIcon, buttonsStartX + 42.0f, [nativeWindow, isMaximized]()
+		{
+			if (!nativeWindow)
+				return;
+			Application::Get().QueueEvent([nativeWindow, isMaximized]()
+			{
+				if (isMaximized)
+					glfwRestoreWindow(nativeWindow);
+				else
+					glfwMaximizeWindow(nativeWindow);
+			});
+		});
+
+		drawWindowControlButton("##closeWindow", EditorResources::CloseIcon, buttonsStartX + 80.0f, []()
+		{
+			Application::Get().DispatchEvent<WindowCloseEvent, true>();
+		});
+	}
+
 	void EditorLayer::UI_Toolbar()
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 2));
@@ -633,6 +841,7 @@ namespace Lux {
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
 		dispatcher.Dispatch<MouseButtonPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
+		dispatcher.Dispatch<WindowTitleBarHitTestEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnTitleBarHitTest));
 	}
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
@@ -676,6 +885,20 @@ namespace Lux {
 					m_SceneHierarchyPanel->SetSelectedEntity(m_HoveredEntity);
 		}
 		return false;
+	}
+
+	bool EditorLayer::OnTitleBarHitTest(WindowTitleBarHitTestEvent& e)
+	{
+		const float x = (float)e.GetX();
+		const float y = (float)e.GetY();
+
+		const bool inDragZone = x >= m_TitleBarDragRectMin.x && x <= m_TitleBarDragRectMax.x
+			&& y >= m_TitleBarDragRectMin.y && y <= m_TitleBarDragRectMax.y;
+
+		if (inDragZone)
+			e.SetHit(true);
+
+		return inDragZone;
 	}
 
 	void EditorLayer::OnOverlayRender()
