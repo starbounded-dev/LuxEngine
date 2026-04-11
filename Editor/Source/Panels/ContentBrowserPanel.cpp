@@ -5,7 +5,7 @@
 #include "Lux/Core/Application.h"
 
 #include <imgui/imgui.h>
-#include "ImGui/ImGuiEx.h"
+#include "Lux/ImGui/ImGuiEx.h"
 
 #include "Lux/Utilities/StringUtils.h"
 
@@ -24,22 +24,58 @@ namespace Lux {
 	}
 
 
-	ContentBrowserPanel::ContentBrowserPanel(Ref<Project> project)
-		: m_Project(project), m_ThumbnailCache(CreateRef<ThumbnailCache>(project)), m_BaseDirectory(m_Project->GetAssetDirectory()), m_CurrentDirectory(m_BaseDirectory)
+	ContentBrowserPanel::ContentBrowserPanel()
 	{
-		m_TreeNodes.push_back(TreeNode(".", 0));
-
 		m_DirectoryIcon = TextureImporter::LoadTexture2D("Resources/Icons/ContentBrowser/DirectoryIcon.png");
 		m_FileIcon = TextureImporter::LoadTexture2D("Resources/Icons/ContentBrowser/FileIcon.png");
-
-		RefreshAssetTree();
-
 		m_Mode = Mode::FileSystem;
 	}
 
-	void ContentBrowserPanel::OnImGuiRender()
+	ContentBrowserPanel::ContentBrowserPanel(Ref<Project> project)
+		: ContentBrowserPanel()
 	{
-		ImGui::Begin("Content Browser");
+		InitializeFromProject(project);
+	}
+
+	void ContentBrowserPanel::OnProjectChanged(const Ref<Project>& project)
+	{
+		InitializeFromProject(project);
+	}
+
+	void ContentBrowserPanel::InitializeFromProject(const Ref<Project>& project)
+	{
+		m_Project = project;
+		m_TreeNodes.clear();
+		m_AssetTree.clear();
+
+		if (!m_Project)
+		{
+			m_ThumbnailCache.reset();
+			m_BaseDirectory.clear();
+			m_CurrentDirectory.clear();
+			return;
+		}
+
+		m_ThumbnailCache = CreateRef<ThumbnailCache>(project);
+		m_BaseDirectory = m_Project->GetAssetDirectory();
+		m_CurrentDirectory = m_BaseDirectory;
+		m_TreeNodes.push_back(TreeNode(".", 0));
+		RefreshAssetTree();
+	}
+
+	void ContentBrowserPanel::OnImGuiRender(bool& isOpen)
+	{
+		if (!isOpen)
+			return;
+
+		ImGui::Begin("Content Browser", &isOpen);
+
+		if (!m_Project)
+		{
+			ImGui::TextDisabled("No active project.");
+			ImGui::End();
+			return;
+		}
 
 		const char* label = m_Mode == Mode::Asset ? "Asset" : "File";
 		if (ImGui::Button(label))
@@ -71,7 +107,7 @@ namespace Lux {
 		{
 			TreeNode* node = &m_TreeNodes[0];
 
-			auto currentDir = std::filesystem::relative(m_CurrentDirectory, Project::GetActiveAssetDirectory());
+			auto currentDir = std::filesystem::relative(m_CurrentDirectory, m_Project->GetAssetDirectory());
 			for (const auto& p : currentDir)
 			{
 				if (node->Path == currentDir)
@@ -90,7 +126,7 @@ namespace Lux {
 
 			for (const auto& [item, treeNodeIndex] : node->Children)
 			{
-				bool isDirectory = std::filesystem::is_directory(Project::GetActiveAssetDirectory() / item);
+				bool isDirectory = std::filesystem::is_directory(m_Project->GetAssetDirectory() / item);
 
 				std::string itemStr = item.generic_string();
 
@@ -174,7 +210,7 @@ namespace Lux {
 
 				ImGui::PushID(filenameString.c_str());
 
-				auto relativePath = std::filesystem::relative(path, Project::GetActiveAssetDirectory());
+				auto relativePath = std::filesystem::relative(path, m_Project->GetAssetDirectory());
 
 				Ref<Texture2D> thumbnail = m_DirectoryIcon;
 				if (!directoryEntry.is_directory())
@@ -215,7 +251,7 @@ namespace Lux {
 				{
 					if (ImGui::MenuItem("Import"))
 					{
-						Project::GetActive()->GetEditorAssetManager()->ImportAsset(relativePath);
+						m_Project->GetEditorAssetManager()->ImportAsset(relativePath);
 						RefreshAssetTree();
 					}
 					ImGui::EndPopup();
@@ -227,7 +263,7 @@ namespace Lux {
 				if (ImGui::BeginDragDropSource())
 				{
 					AssetHandle handle = 0;
-					const auto& registry = Project::GetActive()->GetEditorAssetManager()->GetAssetRegistry();
+					const auto& registry = m_Project->GetEditorAssetManager()->GetAssetRegistry();
 					for (const auto& [h, meta] : registry)
 					{
 						if (meta.FilePath == relativePath)
@@ -259,23 +295,25 @@ namespace Lux {
 
 		ImGui::Columns(1);
 
-		if (ImGuiEx::BeginPropertyGrid())
-		{
-			ImGuiEx::PropertySlider("Thumbnail Size", thumbnailSize, 16.0f, 512.0f);
-			ImGuiEx::PropertySlider("Padding", padding, 0.0f, 32.0f);
-			ImGuiEx::EndPropertyGrid();
-		}
+		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::PropertySlider("Thumbnail Size", thumbnailSize, 16.0f, 512.0f);
+		ImGuiEx::PropertySlider("Padding", padding, 0.0f, 32.0f);
+		ImGuiEx::EndPropertyGrid();
 
 		// TODO: status bar
 		ImGui::End();
 
-		m_ThumbnailCache->OnUpdate();
+		if (m_ThumbnailCache)
+			m_ThumbnailCache->OnUpdate();
 	}
 
 
 	void ContentBrowserPanel::RefreshAssetTree()
 	{
-		const auto& assetRegistry = Project::GetActive()->GetEditorAssetManager()->GetAssetRegistry();
+		if (!m_Project)
+			return;
+
+		const auto& assetRegistry = m_Project->GetEditorAssetManager()->GetAssetRegistry();
 		for (const auto& [handle, metadata] : assetRegistry)
 		{
 			uint32_t currentNodeIndex = 0;

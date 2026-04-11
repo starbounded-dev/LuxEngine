@@ -2,6 +2,7 @@
 
 #include "AssetManagerBase.h"
 #include "AssetMetadata.h"
+#include "EditorAssetSystem.h"
 
 #include <map>
 
@@ -12,6 +13,9 @@ namespace Lux {
 	class EditorAssetManager : public AssetManagerBase
 	{
 	public:
+		EditorAssetManager();
+		virtual ~EditorAssetManager();
+
 		virtual Ref<Asset> GetAsset(AssetHandle handle) override;
 
 		virtual bool IsAssetHandleValid(AssetHandle handle) const override;
@@ -20,6 +24,14 @@ namespace Lux {
 
 		void ImportAsset(const std::filesystem::path& filepath);
 		void ImportScriptAsset(const std::filesystem::path& filepath, uint64_t uuid);
+
+		// Queue a background async load.  Call SyncLoadedAssets() each frame to
+		// pick up finished results.
+		void LoadAssetAsync(AssetHandle handle);
+
+		// Must be called every frame on the main thread to drain the finished
+		// load queue from EditorAssetSystem.
+		void SyncLoadedAssets();
 
 		const AssetMetadata& GetMetadata(AssetHandle handle) const;
 		const std::filesystem::path& GetFilePath(AssetHandle handle) const;
@@ -30,8 +42,9 @@ namespace Lux {
 		bool DeserializeAssetRegistry();
 
 	private:
-		AssetRegistry m_AssetRegistry;
-		AssetMap m_LoadedAssets;
+		AssetRegistry      m_AssetRegistry;
+		AssetMap           m_LoadedAssets;
+		EditorAssetSystem  m_AssetSystem;
 
 		// TODO: memory-only assets
 	};

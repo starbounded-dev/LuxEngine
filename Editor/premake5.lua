@@ -33,8 +33,17 @@ project "Editor"
 
 	filter "system:windows"
 		systemversion "latest"
-
 		defines { "LUX_PLATFORM_WINDOWS" }
+
+	filter { "system:windows", "configurations:Debug or configurations:Debug-AS" }
+		postbuildcommands {
+			'{COPY} "../Core/vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.dll" "%{cfg.targetdir}"',
+		}
+
+	filter { "system:windows", "configurations:Release or configurations:Dist" }
+		postbuildcommands {
+			'{COPY} "../Core/vendor/assimp/bin/windows/Release/assimp-vc143-mt.dll" "%{cfg.targetdir}"',
+		}
 
 	filter "system:linux"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }

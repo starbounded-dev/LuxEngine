@@ -2,7 +2,7 @@
 #include "TextEditorPanel.h"
 
 #include <imgui/imgui.h>
-#include "ImGui/ImGuiEx.h"
+#include "Lux/ImGui/ImGuiEx.h"
 #include <fstream>
 #include <sstream>
 
@@ -163,14 +163,12 @@ namespace Lux
 		}
 		else
 		{
-			if (ImGuiEx::BeginPropertyGrid())
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("Side By Side", m_DiffSideBySide))
 			{
-				if (ImGuiEx::Property("Side By Side", m_DiffSideBySide))
-				{
-					m_DiffEditor.SetSideBySideMode(m_DiffSideBySide);
-				}
-				ImGuiEx::EndPropertyGrid();
+				m_DiffEditor.SetSideBySideMode(m_DiffSideBySide);
 			}
+			ImGuiEx::EndPropertyGrid();
 		}
 
 		ImGui::Separator();
