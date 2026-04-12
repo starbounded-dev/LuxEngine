@@ -18,7 +18,7 @@ namespace Lux {
 			return {};
 
 		const auto& relationship = m_Scene->m_Registry.get<RelationshipComponent>(m_EntityHandle);
-		if ((uint64_t)relationship.ParentHandle == 0)
+		if (relationship.ParentHandle == 0)
 			return {};
 
 		return m_Scene->GetEntityByUUID(relationship.ParentHandle);

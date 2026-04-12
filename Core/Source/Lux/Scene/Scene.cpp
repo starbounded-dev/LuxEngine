@@ -708,7 +708,7 @@ namespace Lux {
 		if (entity.HasComponent<RelationshipComponent>())
 		{
 			const auto& relationship = entity.GetComponent<RelationshipComponent>();
-			if ((uint64_t)relationship.ParentHandle != 0)
+			if (relationship.ParentHandle != 0)
 			{
 				Entity parent = GetEntityByUUID(relationship.ParentHandle);
 				if (parent)
