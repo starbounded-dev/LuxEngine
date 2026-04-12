@@ -11,6 +11,7 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/TextureImporter.h"
 #include "Lux/Asset/SceneImporter.h"
+#include "Lux/Scene/Prefab.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -455,7 +456,21 @@ namespace Lux {
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
 					AssetHandle handle = *(AssetHandle*)payload->Data;
-					OpenScene(handle);
+					const AssetType type = AssetManager::GetAssetType(handle);
+					if (type == AssetType::Scene)
+					{
+						OpenScene(handle);
+					}
+					else if (type == AssetType::Prefab && m_SceneState == SceneState::Edit)
+					{
+						Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
+						if (prefab)
+						{
+							Entity instantiated = m_EditorScene->InstantiatePrefab(prefab);
+							if (m_SceneHierarchyPanel)
+								m_SceneHierarchyPanel->SetSelectedEntity(instantiated);
+						}
+					}
 				}
 				ImGui::EndDragDropTarget();
 			}
