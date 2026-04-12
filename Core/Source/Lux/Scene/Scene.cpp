@@ -116,6 +116,7 @@ namespace Lux {
 		Entity entity = { m_Registry.create(), this };
 		entity.AddComponent<IDComponent>(uuid);
 		entity.AddComponent<TransformComponent>();
+		entity.AddComponent<RelationshipComponent>();
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
 
@@ -139,15 +140,18 @@ namespace Lux {
 
 		{
 			auto filter = m_Registry.view<TransformComponent, AudioListenerComponent>();
-			filter.each([&](TransformComponent& transform, AudioListenerComponent& ac)
+			filter.each([&](entt::entity entityHandle, TransformComponent&, AudioListenerComponent& ac)
 				{
 					ac.Listener = Ref<AudioListener>::Create();
 					if (ac.Active)
 					{
-						const glm::mat4 inverted = glm::inverse(transform.GetTransform());
+						Entity entity = { entityHandle, this };
+						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
+						const glm::mat4 inverted = glm::inverse(worldTransform);
+						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
 						const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
 						ac.Listener->SetConfig(ac.Config);
-						ac.Listener->SetPosition(glm::vec4(transform.Translation, 1.0f));
+						ac.Listener->SetPosition(glm::vec4(worldPosition, 1.0f));
 						ac.Listener->SetDirection(glm::vec3{ -forward.x, -forward.y, -forward.z });
 					}
 				});
@@ -155,20 +159,24 @@ namespace Lux {
 
 		{
 			auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
-			view.each([&](TransformComponent& transform, AudioSourceComponent& ac)
+			view.each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& ac)
 				{
 					if (AssetManager::IsAssetHandleValid(ac.Audio))
 					{
+						Entity entity = { entityHandle, this };
+						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
+						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
+						const glm::mat4 inverted = glm::inverse(worldTransform);
+						const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
+
 						if (ac.Audio && !ac.AudioSourceData.UsePlaylist)
 						{
 							Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(ac.Audio);
-							const glm::mat4 inverted = glm::inverse(transform.GetTransform());
-							const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
 
 							if (audioSource != nullptr)
 							{
 								audioSource->SetConfig(ac.Config);
-								audioSource->SetPosition(glm::vec4(transform.Translation, 1.0f));
+								audioSource->SetPosition(glm::vec4(worldPosition, 1.0f));
 								audioSource->SetDirection(forward);
 								if (ac.Config.PlayOnAwake)
 									audioSource->Play();
@@ -182,13 +190,11 @@ namespace Lux {
 							if (ac.AudioSourceData.CurrentIndex < ac.AudioSourceData.Playlist.size())
 							{
 								Ref<AudioSource> playingSourceIndex = AssetManager::GetAsset<AudioSource>(ac.AudioSourceData.Playlist[ac.AudioSourceData.CurrentIndex]);
-								const glm::mat4 inverted = glm ::inverse(transform.GetTransform());
-								const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
 
 								if (playingSourceIndex != nullptr)
 								{
 									playingSourceIndex->SetConfig(ac.Config);
-									playingSourceIndex->SetPosition(glm::vec4(transform.Translation, 1.0f));
+									playingSourceIndex->SetPosition(glm::vec4(worldPosition, 1.0f));
 									playingSourceIndex->SetDirection(forward);
 									if (ac.Config.PlayOnAwake)
 										playingSourceIndex->Play();
@@ -348,13 +354,14 @@ namespace Lux {
 					{
 						Entity e = { entity, this };
 						auto& ac = e.GetComponent<AudioListenerComponent>();
-						auto& transform = e.GetComponent<TransformComponent>();
 
 						if (ac.Active)
 						{
-							const glm::mat4 inverted = glm::inverse(transform.GetTransform());
+							const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(e);
+							const glm::mat4 inverted = glm::inverse(worldTransform);
+							const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
 							const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
-							ac.Listener->SetPosition(glm::vec4(transform.Translation, 1.0f));
+							ac.Listener->SetPosition(glm::vec4(worldPosition, 1.0f));
 							ac.Listener->SetDirection(glm::vec3{ -forward.x, -forward.y, -forward.z });
 							//break;
 						}
@@ -365,13 +372,11 @@ namespace Lux {
 				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent Scope", 0xFF7200);
 
 				auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
-				view.each([&](entt::entity entity, TransformComponent& transform, AudioSourceComponent& asc)
+				view.each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& asc)
 					{
-						//Entity e = { entity, this };
-						//auto& transform = e.GetComponent<TransformComponent>();
-
-						//const glm::mat4 inverted = glm::inverse(transform.GetTransform());
-						//const glm::vec3 forward = glm::vector_normalize3(inverted.Value.z_axis);
+						Entity entity = { entityHandle, this };
+						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
+						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
 
 						if (asc.Audio && !asc.AudioSourceData.UsePlaylist)
 						{
@@ -387,7 +392,7 @@ namespace Lux {
 							}
 
 							audioSource->SetConfig(asc.Config);
-							audioSource->SetPosition(glm::vec4(transform.Translation, 1.0f));
+							audioSource->SetPosition(glm::vec4(worldPosition, 1.0f));
 						}
 						else if (asc.Audio && asc.AudioSourceData.UsePlaylist)
 						{
@@ -419,7 +424,7 @@ namespace Lux {
 								{
 									currentSource->SetConfig(asc.Config);
 									currentSource->Play();
-									currentSource->SetPosition(glm::vec4(transform.Translation, 1.0f));
+									currentSource->SetPosition(glm::vec4(worldPosition, 1.0f));
 
 									asc.AudioSourceData.PlayingCurrentIndex = true;
 									asc.Paused = false;
@@ -447,13 +452,14 @@ namespace Lux {
 				{
 					Entity e = { acEntity, this };
 					auto& ac = e.GetComponent<AudioListenerComponent>();
-					auto& transform = e.GetComponent<TransformComponent>();
 
 					if (ac.Active)
 					{
-						const glm::mat4 inverted = glm::inverse(transform.GetTransform());
+						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(e);
+						const glm::mat4 inverted = glm::inverse(worldTransform);
+						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
 						const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
-						ac.Listener->SetPosition(glm::vec4(transform.Translation, 1.0f));
+						ac.Listener->SetPosition(glm::vec4(worldPosition, 1.0f));
 						ac.Listener->SetDirection(glm::vec3{ -forward.x, -forward.y, -forward.z });
 					}
 				});
@@ -467,7 +473,6 @@ namespace Lux {
 					{
 
 						Entity e = { entity , this};
-						auto& transform = e.GetComponent<TransformComponent>();
 
 						if (asc.Audio)
 						{
@@ -523,12 +528,12 @@ namespace Lux {
 			auto view = m_Registry.view<TransformComponent, CameraComponent>();
 			for (auto entity : view)
 			{
-				auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
+				auto& camera = view.get<CameraComponent>(entity);
 
 				if (camera.Primary)
 				{
 					mainCamera = &camera.Camera;
-					cameraTransform = transform.GetTransform();
+					cameraTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
 					break;
 				}
 			}
@@ -544,13 +549,14 @@ namespace Lux {
 				auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
 				for (auto entity : group)
 				{
-					auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+					auto& sprite = group.get<SpriteRendererComponent>(entity);
 
 					Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
+					const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
 					if (texture)
-						m_Renderer2D->DrawQuad(transform.GetTransform(), texture, sprite.TilingFactor, sprite.Color);
+						m_Renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
 					else
-						m_Renderer2D->DrawQuad(transform.GetTransform(), sprite.Color); // fallback to solid color
+						m_Renderer2D->DrawQuad(worldTransform, sprite.Color); // fallback to solid color
 				}
 			}
 
@@ -559,9 +565,9 @@ namespace Lux {
 				auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
 				for (auto entity : view)
 				{
-					auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
+					auto& circle = view.get<CircleRendererComponent>(entity);
 
-					m_Renderer2D->DrawCircle(transform.GetTransform(), circle.Color);
+					m_Renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
 				}
 			}
 
@@ -570,12 +576,12 @@ namespace Lux {
 				auto view = m_Registry.view<TransformComponent, TextComponent>();
 				for (auto entity : view)
 				{
-					auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
+					auto& text = view.get<TextComponent>(entity);
 
 					Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
 					if (font)
 					{
-						m_Renderer2D->DrawString(text.TextString, font, transform.GetTransform(), text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
+						m_Renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }), text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
 					}
 				}
 			}
@@ -684,12 +690,33 @@ namespace Lux {
 		return {};
 	}
 
-	Entity Scene::GetEntityByUUID(UUID uuid)
+	Entity Scene::GetEntityByUUID(UUID uuid) const
 	{
 		if (m_EntityMap.find(uuid) != m_EntityMap.end())
-			return { m_EntityMap.at(uuid), this };
+			return { m_EntityMap.at(uuid), const_cast<Scene*>(this) };
 
 		return {};
+	}
+
+	glm::mat4 Scene::GetWorldSpaceTransformMatrix(Entity entity) const
+	{
+		if (!entity || !entity.HasComponent<TransformComponent>())
+			return glm::mat4(1.0f);
+
+		glm::mat4 transform = entity.GetComponent<TransformComponent>().GetTransform();
+
+		if (entity.HasComponent<RelationshipComponent>())
+		{
+			const auto& relationship = entity.GetComponent<RelationshipComponent>();
+			if ((uint64_t)relationship.ParentHandle != 0)
+			{
+				Entity parent = GetEntityByUUID(relationship.ParentHandle);
+				if (parent)
+					transform = GetWorldSpaceTransformMatrix(parent) * transform;
+			}
+		}
+
+		return transform;
 	}
 
 	void Scene::OnPhysics2DStart()
@@ -769,12 +796,13 @@ namespace Lux {
 			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
 			for (auto entity : group)
 			{
-				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+				auto& sprite = group.get<SpriteRendererComponent>(entity);
 				Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
+				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
 				if (texture)
-					m_Renderer2D->DrawQuad(transform.GetTransform(), texture, sprite.TilingFactor, sprite.Color);
+					m_Renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
 				else
-					m_Renderer2D->DrawQuad(transform.GetTransform(), sprite.Color);
+					m_Renderer2D->DrawQuad(worldTransform, sprite.Color);
 			}
 		}
 
@@ -783,8 +811,8 @@ namespace Lux {
 			auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
 			for (auto entity : view)
 			{
-				auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
-				m_Renderer2D->DrawCircle(transform.GetTransform(), circle.Color);
+				auto& circle = view.get<CircleRendererComponent>(entity);
+				m_Renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
 			}
 		}
 		// Draw text
@@ -792,11 +820,11 @@ namespace Lux {
 			auto view = m_Registry.view<TransformComponent, TextComponent>();
 			for (auto entity : view)
 			{
-				auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
+				auto& text = view.get<TextComponent>(entity);
 				Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
 				if (font)
 				{
-					m_Renderer2D->DrawString(text.TextString, font, transform.GetTransform(), text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
+					m_Renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }), text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
 				}
 			}
 		}
@@ -821,16 +849,10 @@ namespace Lux {
 				if (dirLightIndex >= LightEnvironment::MaxDirectionalLights)
 					break;
 
-				const auto& transform = view.get<const TransformComponent>(entity);
 				const auto& dirLight = view.get<const DirectionalLightComponent>(entity);
+				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
 				
-				// Calculate direction from rotation (forward vector)
-				glm::vec3 rotation = transform.Rotation;
-				glm::vec3 direction = glm::normalize(glm::vec3(
-					cos(rotation.y) * cos(rotation.x),
-					sin(rotation.x),
-					sin(rotation.y) * cos(rotation.x)
-				));
+				glm::vec3 direction = glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 
 				lightEnv.DirectionalLights[dirLightIndex].Direction = direction;
 				lightEnv.DirectionalLights[dirLightIndex].Radiance = dirLight.Radiance;
@@ -847,11 +869,11 @@ namespace Lux {
 			auto view = m_Registry.view<const TransformComponent, const PointLightComponent>();
 			for (auto entity : view)
 			{
-				const auto& transform = view.get<const TransformComponent>(entity);
 				const auto& pointLight = view.get<const PointLightComponent>(entity);
+				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
 
 				PointLight pl;
-				pl.Position = transform.Translation;
+				pl.Position = glm::vec3(worldTransform[3]);
 				pl.Radiance = pointLight.Radiance;
 				pl.Intensity = pointLight.Intensity;
 				pl.Radius = pointLight.Radius;
@@ -893,7 +915,6 @@ namespace Lux {
 		for (auto e : view)
 		{
 			Entity entity = { e, const_cast<Scene*>(this) };
-			const auto& transform = view.get<const TransformComponent>(e);
 			const auto& meshComp = view.get<const StaticMeshComponent>(e);
 
 			if (!meshComp.Visible)
@@ -932,7 +953,7 @@ namespace Lux {
 				staticMesh,
 				meshSource,
 				materialTable,
-				transform.GetTransform(),
+				GetWorldSpaceTransformMatrix(entity),
 				nullptr,  // no override material
 				selected
 			);
@@ -984,12 +1005,11 @@ namespace Lux {
 			return;
 
 		const auto& cameraComp = cameraEntity.GetComponent<CameraComponent>();
-		const auto& transformComp = cameraEntity.GetComponent<TransformComponent>();
 
 		// Set up the SceneRendererCamera from the runtime camera
 		SceneRendererCamera sceneCamera;
 		sceneCamera.Camera.SetProjectionMatrix(cameraComp.Camera.GetProjectionMatrix(), cameraComp.Camera.GetUnReversedProjectionMatrix());
-		sceneCamera.ViewMatrix = glm::inverse(transformComp.GetTransform());
+		sceneCamera.ViewMatrix = glm::inverse(GetWorldSpaceTransformMatrix(cameraEntity));
 		// Note: Near/Far/FOV from runtime camera component if needed
 
 		// Begin the 3D rendering frame
@@ -1028,6 +1048,11 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<TransformComponent>(Entity entity, TransformComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<RelationshipComponent>(Entity entity, RelationshipComponent& component)
 	{
 	}
 

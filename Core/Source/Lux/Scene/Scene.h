@@ -9,6 +9,7 @@
 
 #include "entt/entt.hpp"
 
+#include <glm/glm.hpp>
 #include <functional>
 
 class b2World;
@@ -54,7 +55,8 @@ namespace Lux {
 		Entity DuplicateEntity(Entity entity);
 
 		Entity FindEntityByName(std::string_view name);
-		Entity GetEntityByUUID(UUID uuid);
+		Entity GetEntityByUUID(UUID uuid) const;
+		glm::mat4 GetWorldSpaceTransformMatrix(Entity entity) const;
 
 		Entity GetPrimaryCameraEntity();
 
