@@ -58,6 +58,7 @@ namespace Lux
 
 		UUID GetUUID() { return GetComponent<IDComponent>().ID; }
 		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
+		Scene* GetScene() const { return m_Scene; }
 		Entity GetParent() const;
 		void SetParent(Entity parent);
 		std::vector<UUID>& Children();

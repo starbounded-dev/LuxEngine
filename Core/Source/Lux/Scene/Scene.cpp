@@ -9,6 +9,7 @@
 
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
+#include "Lux/Scene/Prefab.h"
 #include "Lux/Scene/ScriptableEntity.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Renderer/Renderer2D.h"
@@ -676,6 +677,54 @@ namespace Lux {
 		Entity newEntity = CreateEntity(name);
 		CopyComponentIfExists(AllComponents{}, newEntity, entity);
 		return newEntity;
+	}
+
+	Entity Scene::InstantiatePrefab(Ref<Prefab> prefab)
+	{
+		if (!prefab)
+			return {};
+
+		const Ref<Scene>& prefabScene = prefab->GetScene();
+		if (!prefabScene)
+			return {};
+
+		Entity prefabRoot = prefabScene->GetEntityByUUID(prefab->GetRootEntityID());
+		if (!prefabRoot)
+			return {};
+
+		using PrefabInstantiationComponents =
+			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, TextComponent,
+			AudioData, AudioSourceComponent, AudioListenerComponent, MeshComponent, MeshTagComponent, StaticMeshComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+
+		std::function<Entity(Entity, Entity)> instantiateHierarchy;
+		instantiateHierarchy = [&](Entity source, Entity parent) -> Entity
+		{
+			Entity destination = CreateEntity(source.GetName());
+			CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
+
+			auto& prefabComponent = destination.AddOrReplaceComponent<PrefabComponent>();
+			prefabComponent.PrefabID = prefab->Handle;
+			prefabComponent.EntityID = source.GetUUID();
+
+			if (parent)
+				destination.SetParent(parent);
+
+			if (source.HasComponent<RelationshipComponent>())
+			{
+				for (const UUID childID : source.Children())
+				{
+					Entity child = prefabScene->GetEntityByUUID(childID);
+					if (child)
+						instantiateHierarchy(child, destination);
+				}
+			}
+
+			return destination;
+		};
+
+		return instantiateHierarchy(prefabRoot, {});
 	}
 
 	Entity Scene::FindEntityByName(std::string_view name)

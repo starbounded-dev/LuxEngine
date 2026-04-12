@@ -18,6 +18,7 @@ namespace Lux {
 
 	class Entity;
 	class Framebuffer;
+	class Prefab;
 	class SceneRenderer;
 
 	// Forward declare light structures (defined in SceneRenderer.h)
@@ -53,6 +54,7 @@ namespace Lux {
 		void SetTargetFramebuffer(Ref<Framebuffer> framebuffer); // add this
 
 		Entity DuplicateEntity(Entity entity);
+		Entity InstantiatePrefab(Ref<Prefab> prefab);
 
 		Entity FindEntityByName(std::string_view name);
 		Entity GetEntityByUUID(UUID uuid) const;
