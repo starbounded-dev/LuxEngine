@@ -291,6 +291,37 @@ namespace Lux {
 	// 3D RENDERING COMPONENTS
 	// ============================================================================
 
+	struct MeshComponent
+	{
+		AssetHandle Mesh = 0;
+		AssetHandle MaterialTable = 0;
+		bool Visible = true;
+		bool CastShadows = true;
+
+		MeshComponent() = default;
+		MeshComponent(const MeshComponent&) = default;
+	};
+
+	struct MeshTagComponent
+	{
+		std::string MeshName;
+
+		MeshTagComponent() = default;
+		MeshTagComponent(const MeshTagComponent&) = default;
+		MeshTagComponent(const std::string& meshName)
+			: MeshName(meshName) {
+		}
+	};
+
+	struct PrefabComponent
+	{
+		AssetHandle PrefabID = 0;
+		UUID EntityID = 0;
+
+		PrefabComponent() = default;
+		PrefabComponent(const PrefabComponent&) = default;
+	};
+
 	struct StaticMeshComponent
 	{
 		AssetHandle Mesh = 0;
@@ -362,6 +393,6 @@ namespace Lux {
 		CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
 		CircleCollider2DComponent, TextComponent, AudioData, AudioSourceComponent, AudioListenerComponent,
-		StaticMeshComponent, DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
 
 }

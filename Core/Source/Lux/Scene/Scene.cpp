@@ -1152,6 +1152,21 @@ namespace Lux {
 	// 3D Component specializations
 
 	template<>
+	void Scene::OnComponentAdded<MeshComponent>(Entity entity, MeshComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<MeshTagComponent>(Entity entity, MeshTagComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<PrefabComponent>(Entity entity, PrefabComponent& component)
+	{
+	}
+
+	template<>
 	void Scene::OnComponentAdded<StaticMeshComponent>(Entity entity, StaticMeshComponent& component)
 	{
 	}
