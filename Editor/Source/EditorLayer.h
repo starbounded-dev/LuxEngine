@@ -65,7 +65,13 @@ namespace Lux
 		void OnDuplicateEntity();
 
 		// UI Panels
-		void UI_Toolbar();
+		void UI_DrawMenubar();
+		float UI_DrawTitlebar();
+		void UI_HandleManualWindowResize();
+		bool UI_TitleBarHitTest(int x, int y) const;
+
+		void UI_GizmosToolbar();
+		void UI_CentralToolbar();
 	private:
 		EditorCamera m_EditorCamera;
 
@@ -98,7 +104,7 @@ namespace Lux
 
 		Ref<Texture2D> m_CheckerboardTexture;
 
-		glm::vec2 m_ViewportSize = {0.0f, 0.0f};
+		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 		glm::vec2 m_ViewportBounds[2];
 
 		glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
@@ -106,6 +112,7 @@ namespace Lux
 		int m_GizmoType = -1;
 
 		bool m_ShowPhysicsColliders = false;
+		bool m_TitleBarHovered = false;
 
 		enum class SceneState
 		{

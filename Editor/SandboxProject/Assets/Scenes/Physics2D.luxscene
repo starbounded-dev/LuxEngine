@@ -7,6 +7,8 @@ Entities:
       Translation: [0, 5, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 0
     SpriteRendererComponent:
       Color: [1, 1, 1, 1]
       TextureHandle: 0
@@ -27,14 +29,16 @@ Entities:
     TransformComponent:
       Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
+      Scale: [50, 50, 50]
+    RelationshipComponent:
+      Parent: 0
     CameraComponent:
       Camera:
         ProjectionType: 1
         PerspectiveFOV: 0.785398185
         PerspectiveNear: 0.00999999978
         PerspectiveFar: 1000
-        OrthographicSize: 1.20256782
+        OrthographicSize: 1.88204801
         OrthographicNear: -1
         OrthographicFar: 1
       Primary: true
@@ -51,6 +55,8 @@ Entities:
       Translation: [0, 10, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 0
     SpriteRendererComponent:
       Color: [1, 1, 1, 1]
       TextureHandle: 0
@@ -72,6 +78,8 @@ Entities:
       Translation: [0, -10, 0]
       Rotation: [0, 0, 0]
       Scale: [10, 1, 1]
+    RelationshipComponent:
+      Parent: 0
     SpriteRendererComponent:
       Color: [1, 1, 1, 1]
       TextureHandle: 0
@@ -93,6 +101,8 @@ Entities:
       Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 0
     CircleRendererComponent:
       Color: [0.934362948, 0.497845858, 0, 1]
       Thickness: 1
@@ -132,6 +142,8 @@ Entities:
       Translation: [-3.79999995, 1.79999995, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 0
     TextComponent:
       TextString: Welcome to Lux
       Color: [1, 1, 1, 1]

@@ -157,11 +157,7 @@ namespace Lux {
 		{
 			// This removes titlebar on all platforms
 			// and all of the native window effects on non-Windows platforms
-#ifdef LUX_PLATFORM_WINDOWS
-			glfwWindowHint(GLFW_TITLEBAR, false);
-#else
 			glfwWindowHint(GLFW_DECORATED, false);
-#endif
 		}
 
 		m_WindowHandle = glfwCreateWindow((int)m_Specification.Width, (int)m_Specification.Height, m_Data.Title.c_str(), m_Specification.Fullscreen ? glfwGetPrimaryMonitor() : nullptr, nullptr);
