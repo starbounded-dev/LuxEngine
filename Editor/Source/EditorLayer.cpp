@@ -1,4 +1,4 @@
-#include "EditorLayer.h"
+    #include "EditorLayer.h"
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Core/Application.h"
@@ -19,6 +19,7 @@
 
 #include <imgui/imgui.h>
 #include "imgui/imgui_internal.h"
+#include <GLFW/glfw3.h>
 #include "ImGuizmo.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/EditorResources.h"
@@ -67,6 +68,24 @@ namespace Lux {
 		{
 			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
 			return imguiRenderer->CreateFrameTexture(image->GetHandle().Get(), nvrhi::AllSubresources);
+		}
+
+		std::string GetSceneDisplayName(const std::filesystem::path& scenePath)
+		{
+			if (scenePath.empty())
+				return "Untitled Scene";
+
+			return scenePath.stem().string();
+		}
+
+		std::string GetProjectDisplayName()
+		{
+			Ref<Project> activeProject = Project::GetActive();
+			if (!activeProject)
+				return "No Project";
+
+			const auto& name = activeProject->GetConfig().Name;
+			return name.empty() ? "Untitled Project" : name;
 		}
 	}
 
@@ -376,11 +395,12 @@ namespace Lux {
 		bool opt_fullscreen = opt_fullscreen_persistent;
 		static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
-		GLFWwindow* nativeWindow = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
 		const bool isWindowMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
 
-		// FIX: Added ImGuiWindowFlags_MenuBar back to the window flags!
 		ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+		// FIX: Added ImGuiWindowFlags_MenuBar back to the window flags!
+		
 		if (opt_fullscreen)
 		{
 			ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -388,7 +408,7 @@ namespace Lux {
 			ImGui::SetNextWindowSize(viewport->Size);
 			ImGui::SetNextWindowViewport(viewport->ID);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, isWindowMaximized ? 0.0f : 1.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 			window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
 				ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
 			window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
@@ -413,7 +433,6 @@ namespace Lux {
 			ImGuiStyle& style = ImGui::GetStyle();
 			const float minWinSizeX = style.WindowMinSize.x;
 			style.WindowMinSize.x = 370.0f;
-
 			if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 			{
 				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
@@ -421,9 +440,46 @@ namespace Lux {
 			}
 			style.WindowMinSize.x = minWinSizeX;
 
+			if (ImGui::BeginMenuBar())
+			{
+				if (ImGui::BeginMenu("File"))
+				{
+					if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
+						OpenProject();
+
+					ImGui::Separator();
+
+					if (ImGui::MenuItem("New Scene", "Ctrl+N"))
+						NewScene();
+
+					if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+						SaveScene();
+
+					if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
+						SaveSceneAs();
+
+					ImGui::Separator();
+
+					if (ImGui::MenuItem("Exit"))
+						Application::Get().Close();
+
+					ImGui::EndMenu();
+				}
+
+				if (ImGui::BeginMenu("Script"))
+				{
+					if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
+						ScriptEngine::ReloadAssembly();
+
+					ImGui::EndMenu();
+				}
+
+				ImGui::EndMenuBar();
+			}
+
 			m_PanelManager->OnImGuiRender();
 
-			// --- Stats Panel ---
+			// Stats panel
 			ImGui::Begin("Stats");
 			auto stats = m_Renderer2D->GetDrawStats();
 			ImGui::Text("Renderer2D Stats:");
@@ -534,7 +590,7 @@ namespace Lux {
 		ImGui::End(); // Lux Editor
 	}
 
-	void EditorLayer::UI_GizmosToolbar()
+	void EditorLayer::UI_Toolbar()
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 2));
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0, 0));
@@ -644,6 +700,7 @@ namespace Lux {
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
 		dispatcher.Dispatch<MouseButtonPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
+		dispatcher.Dispatch<WindowTitleBarHitTestEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnTitleBarHitTest));
 	}
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
@@ -687,6 +744,20 @@ namespace Lux {
 					m_SceneHierarchyPanel->SetSelectedEntity(m_HoveredEntity);
 		}
 		return false;
+	}
+
+	bool EditorLayer::OnTitleBarHitTest(WindowTitleBarHitTestEvent& e)
+	{
+		const float x = (float)e.GetX();
+		const float y = (float)e.GetY();
+
+		const bool inDragZone = x >= m_TitleBarDragRectMin.x && x <= m_TitleBarDragRectMax.x
+			&& y >= m_TitleBarDragRectMin.y && y <= m_TitleBarDragRectMax.y;
+
+		if (inDragZone)
+			e.SetHit(true);
+
+		return inDragZone;
 	}
 
 	void EditorLayer::OnOverlayRender()

@@ -155,8 +155,7 @@ namespace Lux {
 
 		if (!m_Specification.Decorated)
 		{
-			// This removes titlebar on all platforms
-			// and all of the native window effects on non-Windows platforms
+			// Disable native decorations so editor can render a fully custom titlebar.
 			glfwWindowHint(GLFW_DECORATED, false);
 		}
 

@@ -40,9 +40,12 @@ namespace Lux
 	private:
 		bool OnKeyPressed(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
+		bool OnTitleBarHitTest(WindowTitleBarHitTestEvent& e);
 		//bool OnWindowDrop(WindowDropEvent& e);
 
 		void OnOverlayRender();
+		void UI_DrawTitlebar();
+		void UI_DrawMenubar();
 
 		void NewProject();
 		bool OpenProject();
@@ -119,6 +122,16 @@ namespace Lux
 			Edit = 0, Play = 1, Simulate = 2
 		};
 		SceneState m_SceneState = SceneState::Edit;
+
+		ImVec4 m_AnimatedTitlebarColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+		ImVec2 m_TitleBarDragRectMin = { 0.0f, 0.0f };
+		ImVec2 m_TitleBarDragRectMax = { 0.0f, 0.0f };
+		float m_TitlebarHeight = 57.0f;
+
+		bool m_ShowImGuiMetrics = false;
+		bool m_ShowImGuiStyleEditor = false;
+		bool m_ShowAboutPopup = false;
+		bool m_SecondViewportEnabled = false;
 
 		// Editor resources
 		Ref<Texture2D> m_IconPlay, m_IconPause, m_IconStep, m_IconSimulate, m_IconStop;
