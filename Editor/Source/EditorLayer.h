@@ -10,6 +10,7 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
+#include "Lux/ImGui/Colors.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/Framebuffer.h"
@@ -43,9 +44,7 @@ namespace Lux
 		bool OnTitleBarHitTest(WindowTitleBarHitTestEvent& e);
 		//bool OnWindowDrop(WindowDropEvent& e);
 
-		void OnOverlayRender();
-		void UI_DrawTitlebar();
-		void UI_DrawMenubar();
+		
 
 		void NewProject();
 		bool OpenProject();
@@ -67,9 +66,11 @@ namespace Lux
 
 		void OnDuplicateEntity();
 
+		void OnOverlayRender();
+
 		// UI Panels
-		void UI_DrawMenubar();
 		float UI_DrawTitlebar();
+		void UI_DrawMenubar();
 		void UI_HandleManualWindowResize();
 		bool UI_TitleBarHitTest(int x, int y) const;
 

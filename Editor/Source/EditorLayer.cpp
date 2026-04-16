@@ -440,43 +440,6 @@ namespace Lux {
 			}
 			style.WindowMinSize.x = minWinSizeX;
 
-			if (ImGui::BeginMenuBar())
-			{
-				if (ImGui::BeginMenu("File"))
-				{
-					if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
-						OpenProject();
-
-					ImGui::Separator();
-
-					if (ImGui::MenuItem("New Scene", "Ctrl+N"))
-						NewScene();
-
-					if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
-						SaveScene();
-
-					if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
-						SaveSceneAs();
-
-					ImGui::Separator();
-
-					if (ImGui::MenuItem("Exit"))
-						Application::Get().Close();
-
-					ImGui::EndMenu();
-				}
-
-				if (ImGui::BeginMenu("Script"))
-				{
-					if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
-						ScriptEngine::ReloadAssembly();
-
-					ImGui::EndMenu();
-				}
-
-				ImGui::EndMenuBar();
-			}
-
 			m_PanelManager->OnImGuiRender();
 
 			// Stats panel
@@ -590,7 +553,7 @@ namespace Lux {
 		ImGui::End(); // Lux Editor
 	}
 
-	void EditorLayer::UI_Toolbar()
+	void EditorLayer::UI_GizmosToolbar()
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 2));
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0, 0));

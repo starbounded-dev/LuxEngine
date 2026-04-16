@@ -12,7 +12,6 @@
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Scene/Scene.h"
-#include "Lux/UI/UI.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <choc/text/choc_StringUtilities.h>
