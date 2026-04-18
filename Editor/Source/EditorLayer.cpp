@@ -993,9 +993,10 @@ namespace Lux {
 		farPoint /= farPoint.w;
 
 		const glm::vec3 rayOrigin = glm::vec3(nearPoint);
-		const glm::vec3 rayDirection = glm::normalize(glm::vec3(farPoint - nearPoint));
-		if (glm::dot(rayDirection, rayDirection) <= 0.0f)
+		const glm::vec3 rayVector = glm::vec3(farPoint - nearPoint);
+		if (glm::dot(rayVector, rayVector) <= std::numeric_limits<float>::epsilon())
 			return {};
+		const glm::vec3 rayDirection = glm::normalize(rayVector);
 
 		Entity closestEntity = {};
 		float closestDistance = std::numeric_limits<float>::max();
@@ -1032,9 +1033,10 @@ namespace Lux {
 		{
 			const glm::mat4 inverseTransform = glm::inverse(worldTransform * localTransform);
 			const glm::vec3 localOrigin = glm::vec3(inverseTransform * glm::vec4(rayOrigin, 1.0f));
-			const glm::vec3 localDirection = glm::normalize(glm::vec3(inverseTransform * glm::vec4(rayDirection, 0.0f)));
-			if (glm::dot(localDirection, localDirection) <= 0.0f)
+			const glm::vec3 localDirectionVector = glm::vec3(inverseTransform * glm::vec4(rayDirection, 0.0f));
+			if (glm::dot(localDirectionVector, localDirectionVector) <= std::numeric_limits<float>::epsilon())
 				return;
+			const glm::vec3 localDirection = glm::normalize(localDirectionVector);
 
 			Ray localRay(localOrigin, localDirection);
 			float t = 0.0f;
