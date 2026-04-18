@@ -4,7 +4,6 @@
 #include "Lux/Scene/Components.h"
 
 #include "Lux/Scripting/ScriptEngine.h"
-#include "Lux/UI/UI.h"
 #include "Lux/ImGui/ImGuiEx.h"
 
 #include "Lux/Asset/AssetManager.h"
@@ -406,12 +405,23 @@ namespace Lux {
 				static char buffer[64];
 				strcpy_s(buffer, sizeof(buffer), component.ClassName.c_str());
 
-				UI::ScopedStyleColor textColor(ImGuiCol_Text, ImVec4(0.9f, 0.2f, 0.3f, 1.0f), !scriptClassExists);
-
-				if (ImGui::InputText("Class", buffer, sizeof(buffer)))
+				if (!scriptClassExists)
 				{
-					component.ClassName = buffer;
-					return;
+					ImGuiEx::ScopedColour textColor(ImGuiCol_Text, ImVec4(0.9f, 0.2f, 0.3f, 1.0f));
+
+					if (ImGui::InputText("Class", buffer, sizeof(buffer)))
+					{
+						component.ClassName = buffer;
+						return;
+					}
+				}
+				else
+				{
+					if (ImGui::InputText("Class", buffer, sizeof(buffer)))
+					{
+						component.ClassName = buffer;
+						return;
+					}
 				}
 
 				// Fields

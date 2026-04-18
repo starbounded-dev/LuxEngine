@@ -1,5 +1,14 @@
 Scene: Untitled
 Entities:
+  - Entity: 10625048149344785802
+    TagComponent:
+      Tag: Empty Entity
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 0
   - Entity: 14040563719264005740
     TagComponent:
       Tag: Player
@@ -27,14 +36,16 @@ Entities:
     TransformComponent:
       Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
+      Scale: [20, 12, 10]
+    RelationshipComponent:
+      Parent: 0
     CameraComponent:
       Camera:
         ProjectionType: 1
         PerspectiveFOV: 0.785398185
         PerspectiveNear: 0.00999999978
         PerspectiveFar: 1000
-        OrthographicSize: 1.20256782
+        OrthographicSize: 1.62107623
         OrthographicNear: -1
         OrthographicFar: 1
       Primary: true
