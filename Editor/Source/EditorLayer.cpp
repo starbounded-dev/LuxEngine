@@ -1,4 +1,4 @@
-    #include "EditorLayer.h"
+#include "EditorLayer.h"
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Core/Application.h"
