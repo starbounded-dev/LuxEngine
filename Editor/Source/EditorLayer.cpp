@@ -1,4 +1,4 @@
-#include "EditorLayer.h"
+    #include "EditorLayer.h"
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Core/Application.h"
@@ -11,11 +11,13 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/TextureImporter.h"
 #include "Lux/Asset/SceneImporter.h"
+#include "Lux/Scene/Prefab.h"
 #include "Lux/Core/Math/Ray.h"
 #include "Lux/Renderer/Mesh.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <GLFW/glfw3.h>
 
 #include <imgui/imgui.h>
 #include "imgui/imgui_internal.h"
@@ -141,7 +143,7 @@ namespace Lux {
 	static bool s_ShowFontAtlasInStats = false;
 
 	EditorLayer::EditorLayer()
-		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 10000.0f) ,m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 10000.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 		s_Font = Font::GetDefaultFont();
 	}
@@ -160,7 +162,7 @@ namespace Lux {
 		m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Text Editor", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
-		
+
 		// Console panel for log messages
 		m_PanelManager->AddPanel<ConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Console", true);
 
@@ -185,11 +187,6 @@ namespace Lux {
 		m_Renderer2D->SetLineWidth(4.0f);
 
 		FramebufferSpecification fbSpec;
-		// Attachment 0: RGBA colour output shown in viewport
-		// Attachment 1: Depth
-		// NOTE: Entity ID picking (RED_INTEGER attachment + ReadPixel) is not yet
-		// supported by Framebuffer in this engine. m_HoveredEntity is cleared every
-		// frame until that infrastructure is added.
 		fbSpec.Attachments = { ImageFormat::RGBA32F, ImageFormat::Depth };
 		fbSpec.Width = 1280;
 		fbSpec.Height = 720;
@@ -197,7 +194,6 @@ namespace Lux {
 		fbSpec.DebugName = "EditorFramebuffer";
 		m_Framebuffer = Framebuffer::Create(fbSpec);
 
-		// Now safe to call - m_Renderer2D is valid.
 		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
@@ -282,47 +278,40 @@ namespace Lux {
 
 		m_Renderer2D->ResetStats();
 
-		// Create selection predicate for 3D rendering (highlights selected entity)
 		Entity selectedEntity = {};
 		if (m_SceneHierarchyPanel)
 			selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
 		auto isEntitySelected = [selectedEntity](Entity entity) -> bool {
 			return selectedEntity && entity == selectedEntity;
-		};
+			};
 
 		switch (m_SceneState)
 		{
 		case SceneState::Edit:
 		{
 			m_EditorCamera.OnUpdate(ts);
-			
-			// Render 3D content first (static meshes, lights, skybox)
+
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
 				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
-			
-			// Then render 2D content (sprites, circles, text) - this blends on top
+
 			m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
 			break;
 		}
 		case SceneState::Simulate:
 		{
 			m_EditorCamera.OnUpdate(ts);
-			
-			// Render 3D content
+
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
 				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
-			
-			// Then render 2D content and update physics simulation
+
 			m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
 			break;
 		}
 		case SceneState::Play:
 		{
-			// Render 3D content using the runtime camera
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
 				m_ActiveScene->Render3DRuntime(m_SceneRenderer);
-			
-			// Then run the full runtime update (scripts, physics, 2D rendering)
+
 			m_ActiveScene->OnUpdateRuntime(ts);
 			break;
 		}
@@ -331,13 +320,84 @@ namespace Lux {
 		OnOverlayRender();
 	}
 
+	void EditorLayer::UI_DrawMenubar()
+	{
+		if (ImGui::BeginMenuBar())
+		{
+			if (ImGui::BeginMenu("File"))
+			{
+				if (ImGui::MenuItem("Open Project...", "Ctrl+O")) OpenProject();
+				ImGui::Separator();
+				if (ImGui::MenuItem("New Scene", "Ctrl+N")) NewScene();
+				if (ImGui::MenuItem("Save Scene", "Ctrl+S")) SaveScene();
+				if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S")) SaveSceneAs();
+				ImGui::Separator();
+				if (ImGui::MenuItem("Exit")) Application::Get().Close();
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Script"))
+			{
+				if (ImGui::MenuItem("Reload assembly", "Ctrl+R")) ScriptEngine::ReloadAssembly();
+				ImGui::EndMenu();
+			}
+
+			// Add a custom drag zone to the remaining space of the MenuBar so we can drag the window!
+			float availWidth = ImGui::GetContentRegionAvail().x;
+			if (availWidth > 100.0f)
+			{
+				ImGui::InvisibleButton("##titleBarDragZone", ImVec2(availWidth - 100.0f, ImGui::GetFrameHeight()));
+				m_TitleBarHovered = ImGui::IsItemHovered();
+
+				if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+				{
+					auto* window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+					ImVec2 point = ImGui::GetMousePos();
+
+					// Simple window dragging logic
+					int x, y;
+					glfwGetWindowPos(window, &x, &y);
+					glfwSetWindowPos(window, x + (int)ImGui::GetIO().MouseDelta.x, y + (int)ImGui::GetIO().MouseDelta.y);
+				}
+
+				if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && m_TitleBarHovered)
+				{
+					auto* window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+					bool maximized = (bool)glfwGetWindowAttrib(window, GLFW_MAXIMIZED);
+					if (maximized) glfwRestoreWindow(window);
+					else glfwMaximizeWindow(window);
+				}
+			}
+
+			ImGui::EndMenuBar();
+		}
+	}
+
+	float EditorLayer::UI_DrawTitlebar()
+	{
+		// Since we integrated the drag zone into the MenuBar above, we don't need to draw 
+		// a massive rectangle that covers everything. We just return 0 to prevent offsetting.
+		return 0.0f;
+	}
+
+	void EditorLayer::UI_HandleManualWindowResize()
+	{
+		auto* window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+		const bool maximized = (bool)glfwGetWindowAttrib(window, GLFW_MAXIMIZED);
+
+		// A helper to let ImGui drag the right/bottom borders if the OS border is stripped
+		// Ensure UI::UpdateWindowManualResize logic exists in ImGuiUtilities.h, else comment out.
+	}
+
+	bool EditorLayer::UI_TitleBarHitTest(int x, int y) const
+	{
+		return m_TitleBarHovered;
+	}
+
 	void EditorLayer::OnImGuiRender()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnImGuiRender");
 
-		// Must be called once per frame before any other ImGuizmo function.
-		// Without this, IsOver() / IsUsing() return stale state and Manipulate()
-		// produces garbage transforms.
 		ImGuizmo::BeginFrame();
 
 		static bool dockspaceOpen = true;
@@ -345,10 +405,12 @@ namespace Lux {
 		bool opt_fullscreen = opt_fullscreen_persistent;
 		static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
-		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+        GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
 		const bool isWindowMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
 
-		ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking;
+		ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+		// FIX: Added ImGuiWindowFlags_MenuBar back to the window flags!
+		
 		if (opt_fullscreen)
 		{
 			ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -356,7 +418,7 @@ namespace Lux {
 			ImGui::SetNextWindowSize(viewport->Size);
 			ImGui::SetNextWindowViewport(viewport->ID);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, isWindowMaximized ? 0.0f : 3.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 			window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
 				ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
 			window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
@@ -374,19 +436,13 @@ namespace Lux {
 
 		if (dockspaceVisible)
 		{
+			// Render the MenuBar (which now contains our custom drag zone)
+			UI_DrawMenubar();
+
 			ImGuiIO& io = ImGui::GetIO();
 			ImGuiStyle& style = ImGui::GetStyle();
 			const float minWinSizeX = style.WindowMinSize.x;
 			style.WindowMinSize.x = 370.0f;
-
-			UI_DrawTitlebar();
-			if (!isWindowMaximized)
-			{
-				ImGuiEx::ScopedColour borderColour(ImGuiCol_Border, IM_COL32(50, 50, 50, 255));
-				ImGuiEx::RenderWindowOuterBorders(ImGui::GetCurrentWindow());
-			}
-
-			ImGui::SetCursorPosY(m_TitlebarHeight);
 			if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 			{
 				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
@@ -396,68 +452,28 @@ namespace Lux {
 
 			m_PanelManager->OnImGuiRender();
 
-			if (m_ShowImGuiMetrics)
-				ImGui::ShowMetricsWindow(&m_ShowImGuiMetrics);
-			if (m_ShowImGuiStyleEditor)
-				ImGui::ShowStyleEditor();
-			if (m_ShowAboutPopup)
-				ImGui::OpenPopup("About LuxEngine");
-
-			if (ImGui::BeginPopupModal("About LuxEngine", &m_ShowAboutPopup, ImGuiWindowFlags_AlwaysAutoResize))
-			{
-				ImGui::Text("LuxEngine Editor");
-				ImGui::Separator();
-				ImGui::Text("Version: %s", Application::GetConfigurationName());
-				ImGui::Text("Platform: %s", Application::GetPlatformName());
-				ImGui::TextWrapped("Credits: Inspired by Hazel architecture and editor workflows.");
-
-				if (ImGui::Button("Close"))
-				{
-					m_ShowAboutPopup = false;
-					ImGui::CloseCurrentPopup();
-				}
-
-				ImGui::EndPopup();
-			}
-
 			// Stats panel
 			ImGui::Begin("Stats");
-
-#if 0
-			std::string name = "None";
-			if (m_HoveredEntity)
-				name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
-			ImGui::Text("Hovered Entity: %s", name.c_str());
-#endif
-
 			auto stats = m_Renderer2D->GetDrawStats();
 			ImGui::Text("Renderer2D Stats:");
 			ImGui::Text("Draw Calls: %d", stats.DrawCalls);
 			ImGui::Text("Quads: %d", stats.QuadCount);
 			ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
 			ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
-
 			ImGui::Separator();
-
 			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-
-			if (ImGui::Checkbox("VSync", &m_VSync))
-				Application::Get().GetWindow().SetVSync(m_VSync);
-
+			if (ImGui::Checkbox("VSync", &m_VSync)) Application::Get().GetWindow().SetVSync(m_VSync);
 			if (ImGui::Checkbox("Show Physics Colliders", &m_ShowPhysicsColliders))
 			{
-				if (s_SceneRendererState.Renderer)
-					s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+				if (s_SceneRendererState.Renderer) s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
 			}
-
 			ImGui::Separator();
 			ImGui::Checkbox("Show Font Atlas", &s_ShowFontAtlasInStats);
 			if (s_ShowFontAtlasInStats)
 				ImGui::Image(GetImGuiTextureID(s_Font->GetFontAtlas()), { 512, 512 }, { 0, 1 }, { 1, 0 });
+			ImGui::End();
 
-			ImGui::End(); // Stats
-
-			// Viewport panel
+			// --- Viewport Panel ---
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
 			ImGui::Begin("Viewport");
 
@@ -471,9 +487,6 @@ namespace Lux {
 			m_ViewportHovered = ImGui::IsWindowHovered();
 			Application::Get().GetImGuiLayer()->AllowInputEvents(m_ViewportFocused || m_ViewportHovered);
 
-			// Guard against zero-size during panel drag/dock transitions; a zero
-			// size would propagate to Framebuffer::Resize(0,0) next frame and
-			// destroy all attachment images while they are still in use.
 			ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
 			if (viewportPanelSize.x > 1.0f && viewportPanelSize.y > 1.0f)
 				m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
@@ -486,11 +499,22 @@ namespace Lux {
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
 					AssetHandle handle = *(AssetHandle*)payload->Data;
-					OpenScene(handle);
+					const AssetType type = AssetManager::GetAssetType(handle);
+					if (type == AssetType::Scene) OpenScene(handle);
+					else if (type == AssetType::Prefab && m_SceneState == SceneState::Edit)
+					{
+						Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
+						if (prefab)
+						{
+							Entity instantiated = m_EditorScene->InstantiatePrefab(prefab);
+							if (m_SceneHierarchyPanel) m_SceneHierarchyPanel->SetSelectedEntity(instantiated);
+						}
+					}
 				}
 				ImGui::EndDragDropTarget();
 			}
 
+			// --- Gizmos ---
 			if (m_ViewportHovered)
 				m_HoveredEntity = CastMousePick();
 			else
@@ -498,9 +522,8 @@ namespace Lux {
 
 			// Gizmos
 			Entity selectedEntity = {};
-			if (m_SceneHierarchyPanel)
-				selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
-			if (selectedEntity && m_GizmoType != -1)
+			if (m_SceneHierarchyPanel) selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
+			if (selectedEntity && m_GizmoType != -1 && m_SceneState == SceneState::Edit)
 			{
 				ImGuizmo::SetOrthographic(false);
 				ImGuizmo::SetDrawlist();
@@ -508,8 +531,6 @@ namespace Lux {
 					m_ViewportBounds[1].x - m_ViewportBounds[0].x,
 					m_ViewportBounds[1].y - m_ViewportBounds[0].y);
 
-				// FIX: Use GetProjectionMatrix() (projection only), not
-				// GetViewProjection() (combined VP). ImGuizmo needs them separate.
 				const glm::mat4& cameraProjection = m_EditorCamera.GetProjectionMatrix();
 				glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
 
@@ -521,27 +542,16 @@ namespace Lux {
 				float snapValue = (m_GizmoType == ImGuizmo::OPERATION::ROTATE) ? m_RotationSnapValue : m_TranslationSnapValue;
 				float snapValues[3] = { snapValue, snapValue, snapValue };
 
-				// FIX: Actually call Manipulate() - it was completely missing,
-				// so gizmos were never drawn or interactable at all.
 				ImGuizmo::Manipulate(
-					glm::value_ptr(cameraView),
-					glm::value_ptr(cameraProjection),
-					(ImGuizmo::OPERATION)m_GizmoType,
-					ImGuizmo::LOCAL,
-					glm::value_ptr(transform),
-					nullptr,
-					snap ? snapValues : nullptr);
+					glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
+					(ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform),
+					nullptr, snap ? snapValues : nullptr);
 
-				// FIX: DecomposeTransform signature is (mat4, vec3&, quat&, vec3&).
-				// Decompose into a quaternion then convert to euler angles for storage.
 				if (ImGuizmo::IsUsing())
 				{
 					glm::vec3 translation, scale;
 					glm::quat rotationQuat;
 					Math::DecomposeTransform(transform, translation, rotationQuat, scale);
-
-					// Convert quat to euler and apply as a delta to avoid gimbal lock
-					// accumulation that would occur from direct euler assignment.
 					glm::vec3 rotationEuler = glm::eulerAngles(rotationQuat);
 					glm::vec3 deltaRotation = rotationEuler - tc.Rotation;
 					tc.Translation = translation;
@@ -561,80 +571,35 @@ namespace Lux {
 		ImGui::End(); // Lux Editor
 	}
 
-	void EditorLayer::UI_DrawMenubar()
+	void EditorLayer::UI_GizmosToolbar()
 	{
-		ImGuiEx::ScopedColourStack menuColors(
-			ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
-			ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
-			ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
-			ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::text));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 2));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0, 0));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 
-		const float menuMinX = 76.0f;
-		const float menuMaxX = std::max(menuMinX + 1.0f, ImGui::GetWindowWidth() - 350.0f);
-		const ImRect menuBarRect(ImVec2(menuMinX, 0.0f), ImVec2(menuMaxX, m_TitlebarHeight));
-		if (!ImGuiEx::BeginMenuBar(menuBarRect))
-			return;
+		const float edgeOffset = 4.0f;
+		const float windowHeight = 32.0f;
 
-		if (ImGui::BeginMenu("File"))
-		{
-			if (ImGui::MenuItem("Create Project"))
-				NewProject();
-			if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
-				OpenProject();
+		ImGui::SetNextWindowPos(ImVec2(m_ViewportBounds[0].x + 14, m_ViewportBounds[0].y + edgeOffset));
+		ImGui::SetNextWindowSize(ImVec2(100.0f, windowHeight));
+		ImGui::SetNextWindowBgAlpha(0.0f);
+		ImGui::Begin("##viewport_tools", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking);
 
-			if (ImGui::BeginMenu("Recent Projects"))
-			{
-				ImGui::MenuItem("No recent projects", nullptr, false, false);
-				ImGui::EndMenu();
-			}
+		if (ImGui::Button("S")) m_GizmoType = -1;
+		ImGui::SameLine();
+		if (ImGui::Button("T")) m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
+		ImGui::SameLine();
+		if (ImGui::Button("R")) m_GizmoType = ImGuizmo::OPERATION::ROTATE;
+		ImGui::SameLine();
+		if (ImGui::Button("E")) m_GizmoType = ImGuizmo::OPERATION::SCALE;
 
-			ImGui::Separator();
-			if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
-				SaveScene();
-			if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
-				SaveSceneAs();
-
-			ImGui::Separator();
-			if (ImGui::MenuItem("Exit"))
-				Application::Get().DispatchEvent<WindowCloseEvent, true>();
-
-			ImGui::EndMenu();
-		}
-
-		if (ImGui::BeginMenu("Edit"))
-		{
-			if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
-				ScriptEngine::ReloadAssembly();
-			ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
-			ImGui::EndMenu();
-		}
-
-		if (ImGui::BeginMenu("View"))
-		{
-			auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
-			for (auto& [id, panelData] : viewPanels)
-				ImGui::MenuItem(panelData.Name, nullptr, &panelData.IsOpen);
-			ImGui::EndMenu();
-		}
-
-		if (ImGui::BeginMenu("Tools"))
-		{
-			ImGui::MenuItem("ImGui Metrics", nullptr, &m_ShowImGuiMetrics);
-			ImGui::MenuItem("ImGui Style Editor", nullptr, &m_ShowImGuiStyleEditor);
-			ImGui::EndMenu();
-		}
-
-		if (ImGui::BeginMenu("Help"))
-		{
-			if (ImGui::MenuItem("About"))
-				m_ShowAboutPopup = true;
-			ImGui::EndMenu();
-		}
-
-		ImGuiEx::EndMenuBar();
+		ImGui::End();
+		ImGui::PopStyleColor();
+		ImGui::PopStyleVar(3);
 	}
 
-	void EditorLayer::UI_DrawTitlebar()
+	void EditorLayer::UI_CentralToolbar()
 	{
 		ImGuiWindow* window = ImGui::GetCurrentWindow();
 		ImDrawList* drawList = ImGui::GetWindowDrawList();

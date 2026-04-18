@@ -72,6 +72,8 @@ namespace Lux {
 		m_UBSShadow = UniformBufferSet::Create(sizeof(UBShadow));
 		m_UBSRendererData = UniformBufferSet::Create(sizeof(UBRendererData));
 		m_UBSPointLights = UniformBufferSet::Create(sizeof(UBPointLights));
+		m_UBSSpotLights = UniformBufferSet::Create(sizeof(UBSpotLights));
+		m_UBSSpotShadow = UniformBufferSet::Create(sizeof(UBSpotShadow));
 
 		// ── Storage buffer sets (start with generous initial capacity) ─────────
 		{
@@ -86,6 +88,15 @@ namespace Lux {
 			spec.GPUOnly = false;
 			spec.DebugName = "ObjectIndexes";
 			m_SBSObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
+		}
+		{
+			StorageBufferSpecification indexSpec;
+			indexSpec.GPUOnly = false;
+			indexSpec.DebugName = "VisiblePointLightIndices";
+			m_SBSVisiblePointLightIndices = StorageBufferSet::Create(indexSpec, sizeof(uint32_t) * 1024);
+
+			indexSpec.DebugName = "VisibleSpotLightIndices";
+			m_SBSVisibleSpotLightIndices = StorageBufferSet::Create(indexSpec, sizeof(uint32_t) * 1024);
 		}
 
 		// Common vertex layout for all opaque mesh pipelines
@@ -218,6 +229,10 @@ namespace Lux {
 			m_GeometryPass->SetInput("ShadowData", m_UBSShadow);
 			m_GeometryPass->SetInput("RendererData", m_UBSRendererData);
 			m_GeometryPass->SetInput("PointLightData", m_UBSPointLights);
+			m_GeometryPass->SetInput("SpotLightData", m_UBSSpotLights);
+			m_GeometryPass->SetInput("SpotShadowData", m_UBSSpotShadow);
+			m_GeometryPass->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
+			m_GeometryPass->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
 			m_GeometryPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
 			m_GeometryPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			// Environment textures – overridden each frame in BeginScene once env is set
@@ -226,6 +241,7 @@ namespace Lux {
 			m_GeometryPass->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
 			// Shadow map output from the shadow pass above
 			m_GeometryPass->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
+			m_GeometryPass->SetInput("u_SpotShadowTexture", Renderer::GetWhiteTexture()); // or a dummy 2D array if required
 			LUX_CORE_VERIFY(m_GeometryPass->Validate());
 			m_GeometryPass->Bake();
 
@@ -239,12 +255,19 @@ namespace Lux {
 			m_GeometryPassTransparent->SetInput("ShadowData", m_UBSShadow);
 			m_GeometryPassTransparent->SetInput("RendererData", m_UBSRendererData);
 			m_GeometryPassTransparent->SetInput("PointLightData", m_UBSPointLights);
+			m_GeometryPassTransparent->SetInput("SpotLightData", m_UBSSpotLights);
+			m_GeometryPassTransparent->SetInput("SpotShadowData", m_UBSSpotShadow);
+			m_GeometryPassTransparent->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
+			m_GeometryPassTransparent->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
 			m_GeometryPassTransparent->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
 			m_GeometryPassTransparent->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			// Environment textures – overridden each frame in BeginScene once env is set
 			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPassTransparent->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
+			// Shadow map output from the shadow pass above
 			m_GeometryPassTransparent->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
+			m_GeometryPassTransparent->SetInput("u_SpotShadowTexture", Renderer::GetWhiteTexture()); // or a dummy 2D array if required
 			LUX_CORE_VERIFY(m_GeometryPassTransparent->Validate());
 			m_GeometryPassTransparent->Bake();
 		}

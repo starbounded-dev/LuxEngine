@@ -10,6 +10,7 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
+#include "Lux/ImGui/Colors.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Renderer/Renderer2D.h"
@@ -73,8 +74,16 @@ namespace Lux
 
 		void OnDuplicateEntity();
 
+		void OnOverlayRender();
+
 		// UI Panels
-		void UI_Toolbar();
+		float UI_DrawTitlebar();
+		void UI_DrawMenubar();
+		void UI_HandleManualWindowResize();
+		bool UI_TitleBarHitTest(int x, int y) const;
+
+		void UI_GizmosToolbar();
+		void UI_CentralToolbar();
 	private:
 		EditorCamera m_EditorCamera;
 
@@ -107,7 +116,7 @@ namespace Lux
 
 		Ref<Texture2D> m_CheckerboardTexture;
 
-		glm::vec2 m_ViewportSize = {0.0f, 0.0f};
+		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 		glm::vec2 m_ViewportBounds[2];
 
 		glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };

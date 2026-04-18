@@ -10,7 +10,7 @@
 #include "Lux/ImGui/ImGuiFonts.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
-//#include "Lux/Scene/Prefab.h"
+#include "Lux/Scene/Prefab.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Utilities/StringUtils.h"
 

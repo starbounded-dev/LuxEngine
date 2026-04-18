@@ -213,6 +213,17 @@ namespace Lux {
 			out << YAML::EndMap; // TransformComponent
 		}
 
+		if (entity.HasComponent<RelationshipComponent>())
+		{
+			out << YAML::Key << "RelationshipComponent";
+			out << YAML::BeginMap; // RelationshipComponent
+
+			const auto& relationship = entity.GetComponent<RelationshipComponent>();
+			out << YAML::Key << "Parent" << YAML::Value << relationship.ParentHandle;
+
+			out << YAML::EndMap; // RelationshipComponent
+		}
+
 		if (entity.HasComponent<CameraComponent>())
 		{
 			out << YAML::Key << "CameraComponent";
@@ -378,6 +389,43 @@ namespace Lux {
 			out << YAML::Key << "LineSpacing" << YAML::Value << textComponent.LineSpacing;
 
 			out << YAML::EndMap; // TextComponent
+		}
+
+		if (entity.HasComponent<MeshComponent>())
+		{
+			out << YAML::Key << "MeshComponent";
+			out << YAML::BeginMap;
+
+			const auto& component = entity.GetComponent<MeshComponent>();
+			out << YAML::Key << "Mesh" << YAML::Value << component.Mesh;
+			out << YAML::Key << "MaterialTable" << YAML::Value << component.MaterialTable;
+			out << YAML::Key << "Visible" << YAML::Value << component.Visible;
+			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
+
+			out << YAML::EndMap;
+		}
+
+		if (entity.HasComponent<MeshTagComponent>())
+		{
+			out << YAML::Key << "MeshTagComponent";
+			out << YAML::BeginMap;
+
+			const auto& component = entity.GetComponent<MeshTagComponent>();
+			out << YAML::Key << "MeshName" << YAML::Value << component.MeshName;
+
+			out << YAML::EndMap;
+		}
+
+		if (entity.HasComponent<PrefabComponent>())
+		{
+			out << YAML::Key << "PrefabComponent";
+			out << YAML::BeginMap;
+
+			const auto& component = entity.GetComponent<PrefabComponent>();
+			out << YAML::Key << "PrefabID" << YAML::Value << component.PrefabID;
+			out << YAML::Key << "EntityID" << YAML::Value << component.EntityID;
+
+			out << YAML::EndMap;
 		}
 
 		if (entity.HasComponent<AudioSourceComponent>())
@@ -573,6 +621,8 @@ namespace Lux {
 		auto entities = data["Entities"];
 		if (entities)
 		{
+			std::vector<std::pair<UUID, UUID>> pendingParentLinks;
+
 			for (auto entity : entities)
 			{
 				uint64_t uuid = entity["Entity"].as<uint64_t>();
@@ -594,6 +644,14 @@ namespace Lux {
 					tc.Translation = transformComponent["Translation"].as<glm::vec3>();
 					tc.Rotation = transformComponent["Rotation"].as<glm::vec3>();
 					tc.Scale = transformComponent["Scale"].as<glm::vec3>();
+				}
+
+				auto relationshipComponent = entity["RelationshipComponent"];
+				if (relationshipComponent && relationshipComponent["Parent"])
+				{
+					const UUID parentID = relationshipComponent["Parent"].as<uint64_t>();
+					if (parentID != 0)
+						pendingParentLinks.emplace_back(uuid, parentID);
 				}
 
 				auto cameraComponent = entity["CameraComponent"];
@@ -743,6 +801,44 @@ namespace Lux {
 					tc.Color = textComponent["Color"].as<glm::vec4>();
 					tc.Kerning = textComponent["Kerning"].as<float>();
 					tc.LineSpacing = textComponent["LineSpacing"].as<float>();
+				}
+
+				auto meshComponent = entity["MeshComponent"];
+				if (meshComponent)
+				{
+					auto& component = deserializedEntity.AddComponent<MeshComponent>();
+
+					if (meshComponent["Mesh"])
+						component.Mesh = meshComponent["Mesh"].as<uint64_t>();
+
+					if (meshComponent["MaterialTable"])
+						component.MaterialTable = meshComponent["MaterialTable"].as<uint64_t>();
+
+					if (meshComponent["Visible"])
+						component.Visible = meshComponent["Visible"].as<bool>();
+
+					if (meshComponent["CastShadows"])
+						component.CastShadows = meshComponent["CastShadows"].as<bool>();
+				}
+
+				auto meshTagComponent = entity["MeshTagComponent"];
+				if (meshTagComponent)
+				{
+					auto& component = deserializedEntity.AddComponent<MeshTagComponent>();
+					if (meshTagComponent["MeshName"])
+						component.MeshName = meshTagComponent["MeshName"].as<std::string>();
+				}
+
+				auto prefabComponent = entity["PrefabComponent"];
+				if (prefabComponent)
+				{
+					auto& component = deserializedEntity.AddComponent<PrefabComponent>();
+
+					if (prefabComponent["PrefabID"])
+						component.PrefabID = prefabComponent["PrefabID"].as<uint64_t>();
+
+					if (prefabComponent["EntityID"])
+						component.EntityID = prefabComponent["EntityID"].as<uint64_t>();
 				}
 
 				auto audioSourceComponent = entity["AudioSourceComponent"];
@@ -956,6 +1052,14 @@ namespace Lux {
 					if (skyLightComponent["Intensity"])
 						component.Intensity = skyLightComponent["Intensity"].as<float>();
 				}
+			}
+
+			for (const auto& [childID, parentID] : pendingParentLinks)
+			{
+				Entity childEntity = m_Scene->GetEntityByUUID(childID);
+				Entity parentEntity = m_Scene->GetEntityByUUID(parentID);
+				if (childEntity && parentEntity)
+					childEntity.SetParent(parentEntity);
 			}
 		}
 

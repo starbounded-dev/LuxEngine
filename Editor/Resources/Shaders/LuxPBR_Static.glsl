@@ -1,0 +1,228 @@
+#version 450 core
+#pragma stage : vert
+
+#include <Buffers.glslh>
+#include <Lighting.glslh>
+#include <ShadowMapping.glslh>
+
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec3 a_Tangent;
+layout(location = 3) in vec3 a_Binormal;
+layout(location = 4) in vec2 a_TexCoord;
+
+struct VertexOutput
+{
+	vec3 WorldPosition;
+	vec3 Normal;
+	vec2 TexCoord;
+	mat3 WorldNormals;
+	mat3 WorldTransform;
+	vec3 Binormal;
+
+	mat3 CameraView;
+
+	vec3 ShadowMapCoords[4];
+	vec3 ViewPosition;
+};
+
+layout(location = 0) out VertexOutput Output;
+
+// Must exactly match the C++ MeshDrawPushConstants + Material data
+layout(push_constant) uniform PushConstants
+{
+	uint ObjectIndexBase;
+	uint LightIndex;
+	uint BoneTransformBase;
+	uint BoneTransformStride;
+
+	vec3 AlbedoColor;
+	float Metalness;
+	float Roughness;
+	float Emission;
+
+	float EnvMapRotation;
+
+	bool UseNormalMap;
+} u_MaterialUniforms;
+
+invariant gl_Position;
+
+void main()
+{
+	mat4 transform = GetInstanceTransform(u_MaterialUniforms.ObjectIndexBase + gl_InstanceIndex);
+	vec4 worldPosition = transform * vec4(a_Position, 1.0);
+
+	Output.WorldPosition = worldPosition.xyz;
+	Output.Normal = mat3(transform) * a_Normal;
+	Output.TexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
+	Output.WorldNormals = mat3(transform) * mat3(a_Tangent, a_Binormal, a_Normal);
+	Output.WorldTransform = mat3(transform);
+	Output.Binormal = a_Binormal;
+
+	Output.CameraView = mat3(u_Camera.ViewMatrix);
+
+	vec4 shadowCoords[4];
+	shadowCoords[0] = u_DirShadow.DirLightMatrices[0] * vec4(Output.WorldPosition.xyz, 1.0);
+	shadowCoords[1] = u_DirShadow.DirLightMatrices[1] * vec4(Output.WorldPosition.xyz, 1.0);
+	shadowCoords[2] = u_DirShadow.DirLightMatrices[2] * vec4(Output.WorldPosition.xyz, 1.0);
+	shadowCoords[3] = u_DirShadow.DirLightMatrices[3] * vec4(Output.WorldPosition.xyz, 1.0);
+	Output.ShadowMapCoords[0] = vec3(shadowCoords[0].xyz / shadowCoords[0].w);
+	Output.ShadowMapCoords[1] = vec3(shadowCoords[1].xyz / shadowCoords[1].w);
+	Output.ShadowMapCoords[2] = vec3(shadowCoords[2].xyz / shadowCoords[2].w);
+	Output.ShadowMapCoords[3] = vec3(shadowCoords[3].xyz / shadowCoords[3].w);
+
+	Output.ViewPosition = vec3(u_Camera.ViewMatrix * vec4(Output.WorldPosition, 1.0));
+
+	gl_Position = u_Camera.ViewProjectionMatrix * worldPosition;
+}
+
+
+#version 450 core 
+#pragma stage : frag 
+
+#include <Buffers.glslh>
+#include <PBR.glslh>
+#include <PBR_Resources.glslh>
+#include <Lighting.glslh>
+#include <ShadowMapping.glslh>
+#include <Samplers.glslh>
+
+const vec3 Fdielectric = vec3(0.04);
+
+struct VertexOutput
+{
+	vec3 WorldPosition;
+	vec3 Normal;
+	vec2 TexCoord;
+	mat3 WorldNormals;
+	mat3 WorldTransform;
+	vec3 Binormal;
+
+	mat3 CameraView;
+
+	vec3 ShadowMapCoords[4];
+	vec3 ViewPosition;
+};
+ 
+layout(location = 0) in VertexOutput Input;
+
+layout(location = 0) out vec4 color;
+layout(location = 1) out vec4 o_ViewNormalsLuminance;
+layout(location = 2) out vec4 o_MetalnessRoughness;
+
+layout(push_constant) uniform PushConstants
+{
+	uint ObjectIndexBase;
+	uint LightIndex;
+	uint BoneTransformBase;
+	uint BoneTransformStride;
+
+	vec3 AlbedoColor;
+	float Metalness;
+	float Roughness;
+	float Emission;
+
+	float EnvMapRotation;
+
+	bool UseNormalMap;
+} u_MaterialUniforms;
+
+vec3 IBL(vec3 F0, vec3 Lr)
+{
+	vec3 irradiance = SampleLinear(u_EnvIrradianceTex, m_Params.Normal).rgb;
+	vec3 F = FresnelSchlickRoughness(F0, m_Params.NdotV, m_Params.Roughness);
+	vec3 kd = (1.0 - F) * (1.0 - m_Params.Metalness);
+	vec3 diffuseIBL = m_Params.Albedo * irradiance;
+
+	int envRadianceTexLevels = textureQueryLevels(samplerCube(u_EnvRadianceTex, r_LinearSampler));
+	vec3 specularIrradiance = SampleLinearLOD(u_EnvRadianceTex, RotateVectorAboutY(u_MaterialUniforms.EnvMapRotation, Lr), m_Params.Roughness * envRadianceTexLevels).rgb;
+
+	vec2 specularBRDF = SampleLinear(u_BRDFLUTTexture, vec2(m_Params.NdotV, m_Params.Roughness)).rg;
+	vec3 specularIBL = specularIrradiance * (F0 * specularBRDF.x + specularBRDF.y);
+
+	return kd * diffuseIBL + specularIBL;
+}
+
+vec3 GetGradient(float value)
+{
+	vec3 zero = vec3(0.0, 0.0, 0.0);
+	vec3 white = vec3(0.0, 0.1, 0.9);
+	vec3 red = vec3(0.2, 0.9, 0.4);
+	vec3 blue = vec3(0.8, 0.8, 0.3);
+	vec3 green = vec3(0.9, 0.2, 0.3);
+
+	float step0 = 0.0f;
+	float step1 = 2.0f;
+	float step2 = 4.0f;
+	float step3 = 8.0f;
+	float step4 = 16.0f;
+
+	vec3 color = mix(zero, white, smoothstep(step0, step1, value));
+	color = mix(color, white, smoothstep(step1, step2, value));
+	color = mix(color, red, smoothstep(step1, step2, value));
+	color = mix(color, blue, smoothstep(step2, step3, value));
+	color = mix(color, green, smoothstep(step3, step4, value));
+
+	return color;
+}
+
+void main()
+{
+	vec4 albedoTexColor = SampleLinear(u_AlbedoTexture, Input.TexCoord);
+	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;
+	float alpha = albedoTexColor.a;
+
+	m_Params.Metalness = SampleLinear(u_MetalnessTexture, Input.TexCoord).b * u_MaterialUniforms.Metalness;
+	m_Params.Roughness = SampleLinear(u_RoughnessTexture, Input.TexCoord).g * u_MaterialUniforms.Roughness;
+	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.f, 1.f);
+	m_Params.Roughness = max(m_Params.Roughness, 0.05);
+
+	m_Params.Normal = normalize(Input.Normal);
+	if (u_MaterialUniforms.UseNormalMap)
+	{
+		m_Params.Normal = normalize(SampleLinear(u_NormalTexture, Input.TexCoord).rgb * 2.0f - 1.0f);
+		m_Params.Normal = normalize(Input.WorldNormals * m_Params.Normal);
+	}
+	
+	o_ViewNormalsLuminance.xyz = Input.CameraView * m_Params.Normal;
+
+	m_Params.View = normalize(u_Scene.CameraPosition - Input.WorldPosition);
+	m_Params.NdotV = max(dot(m_Params.Normal, m_Params.View), 0.0);
+
+	vec3 Lr = 2.0 * m_Params.NdotV * m_Params.Normal - m_Params.View;
+	vec3 F0 = mix(Fdielectric, m_Params.Albedo, m_Params.Metalness);
+
+	uint cascadeIndex = 0;
+	const uint SHADOW_MAP_CASCADE_COUNT = 4;
+	for (uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; i++)
+	{
+		if (Input.ViewPosition.z < u_RendererData.CascadeSplits[i])
+			cascadeIndex = i + 1;
+	}
+
+	float shadowScale = u_RendererData.SoftShadows ? 
+		PCSS_DirectionalLight(u_ShadowMapTexture, cascadeIndex, GetShadowMapCoords(Input.ShadowMapCoords, cascadeIndex), u_RendererData.LightSize) : 
+		HardShadows_DirectionalLight(u_ShadowMapTexture, cascadeIndex, GetShadowMapCoords(Input.ShadowMapCoords, cascadeIndex));
+
+	shadowScale = 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0f, 1.0f);
+
+	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
+	lightContribution += CalculatePointLights(F0, Input.WorldPosition);
+	lightContribution += m_Params.Albedo * u_MaterialUniforms.Emission;
+
+	vec3 iblContribution = IBL(F0, Lr) * u_Scene.EnvironmentMapIntensity;
+
+	color = vec4(iblContribution + lightContribution, 1.0);
+
+	if (u_Scene.DirectionalLights.Multiplier <= 0.0f)
+		shadowScale = 0.0f;
+
+	o_ViewNormalsLuminance.a = clamp(shadowScale + dot(color.rgb, vec3(0.2125f, 0.7154f, 0.0721f)), 0.0f, 1.0f);
+
+	if (u_RendererData.ShowLightComplexity)
+	{
+		int pointLightCount = GetPointLightCount();
+		color.rgb = (color.rgb * 0.2) + GetGradient(float(pointLightCount));
+	}
+}

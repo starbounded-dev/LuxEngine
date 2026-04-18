@@ -189,7 +189,7 @@ namespace Lux {
 
 	void ImGuiLayer::Begin()
 	{
-		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGui::GetMouseCursor() : ImGuiMouseCursor_None);
+		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
 
 		m_ImGuiRenderer->UpdateFontTexture();
 		ImGui_ImplGlfw_NewFrame();
@@ -202,8 +202,7 @@ namespace Lux {
 	{
 		ImGui::Render();
 
-		m_ImGuiRenderer->RenderToSwapchain(ImGui::GetMainViewport(),
-			&Application::Get().GetWindow().GetSwapChain());
+		m_ImGuiRenderer->RenderToSwapchain(ImGui::GetMainViewport(), &Application::Get().GetWindow().GetSwapChain());
 
 		// Update and Render additional Platform Windows
 		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -292,7 +291,6 @@ namespace Lux {
 		colors[ImGuiCol_Tab] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		colors[ImGuiCol_TabHovered] = ImColor(255, 225, 135, 30);
 		colors[ImGuiCol_TabActive] = ImColor(255, 225, 135, 60);
-		colors[ImGuiCol_TabSelectedOverline] = ImColor(255, 225, 135, 60);
 		colors[ImGuiCol_TabUnfocused] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		colors[ImGuiCol_TabUnfocusedActive] = colors[ImGuiCol_TabHovered];
 
@@ -312,12 +310,12 @@ namespace Lux {
 		colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.41f, 0.41f, 1.0f);
 		colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.51f, 0.51f, 0.51f, 1.0f);
 
-		// Check Mark - Orange accent
-		colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
+		// Check Mark
+		colors[ImGuiCol_CheckMark] = ImColor(200, 200, 200, 255);
 
-		// Slider - Orange accent
-		colors[ImGuiCol_SliderGrab] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
-		colors[ImGuiCol_SliderGrabActive] = ImVec4(1.0f, 0.7f, 0.3f, 1.0f);
+		// Slider
+		colors[ImGuiCol_SliderGrab] = ImVec4(0.51f, 0.51f, 0.51f, 0.7f);
+		colors[ImGuiCol_SliderGrabActive] = ImVec4(0.66f, 0.66f, 0.66f, 1.0f);
 
 		// Text
 		colors[ImGuiCol_Text] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
@@ -343,19 +341,11 @@ namespace Lux {
 		// Menubar
 		colors[ImGuiCol_MenuBarBg] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
 
-		// Docking
-		colors[ImGuiCol_DockingPreview] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
-
-		// Nav highlight
-		colors[ImGuiCol_NavHighlight] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
-
 		//========================================================
 		/// Style
-		style.FrameRounding = 4.0f;
+		style.FrameRounding = 2.5f;
 		style.FrameBorderSize = 1.0f;
 		style.IndentSpacing = 11.0f;
-		style.ItemSpacing = ImVec2(8.0f, 4.0f);
-		style.WindowPadding = ImVec2(8.0f, 8.0f);
 	}
 
 	void ImGuiLayer::AllowInputEvents(bool allowEvents)

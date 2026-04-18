@@ -2,6 +2,7 @@
 
 #include "SceneHierarchyPanel.h"
 #include "Lux/Scene/Components.h"
+#include "Lux/Scene/Prefab.h"
 
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/ImGui/ImGuiEx.h"
@@ -49,14 +50,48 @@ namespace Lux {
 			return;
 		}
 
-	if (m_Context)
-	{
-		m_Context->m_Registry.each([&](auto entityID)
+		if (m_Context)
 		{
-			Entity entity{ entityID , m_Context.get() };
-			DrawEntityNode(entity);
-		});
-	}
+			m_Context->m_Registry.each([&](auto entityID)
+			{
+				Entity entity{ entityID , m_Context.get() };
+				if (!entity.HasComponent<RelationshipComponent>())
+				{
+					DrawEntityNode(entity);
+					return;
+				}
+
+				const auto& relationship = entity.GetComponent<RelationshipComponent>();
+				const bool hasValidParent = relationship.ParentHandle != 0 && (bool)m_Context->GetEntityByUUID(relationship.ParentHandle);
+				if (!hasValidParent)
+					DrawEntityNode(entity);
+			});
+
+			const ImRect hierarchyRect(ImGui::GetWindowPos(), ImGui::GetWindowPos() + ImGui::GetWindowSize());
+			if (ImGui::BeginDragDropTargetCustom(hierarchyRect, ImGui::GetID("SceneHierarchyRootTarget")))
+			{
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SCENE_HIERARCHY_ENTITY"))
+				{
+					const UUID draggedEntityID = *(const UUID*)payload->Data;
+					Entity draggedEntity = m_Context->GetEntityByUUID(draggedEntityID);
+					if (draggedEntity)
+						draggedEntity.SetParent({});
+				}
+
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+				{
+					AssetHandle handle = *(AssetHandle*)payload->Data;
+					if (AssetManager::GetAssetType(handle) == AssetType::Prefab)
+					{
+						Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
+						if (prefab)
+							m_SelectionContext = m_Context->InstantiatePrefab(prefab);
+					}
+				}
+
+				ImGui::EndDragDropTarget();
+			}
+		}
 
 		if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 			m_SelectionContext = {};
@@ -97,13 +132,56 @@ namespace Lux {
 	void SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	{
 		auto& tag = entity.GetComponent<TagComponent>().Tag;
+		const auto& relationship = entity.GetComponent<RelationshipComponent>();
+		const bool hasChildren = !relationship.Children.empty();
 
 		ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
+		if (!hasChildren)
+			flags |= ImGuiTreeNodeFlags_Leaf;
 		bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, tag.c_str());
 		if (ImGui::IsItemClicked())
 		{
 			m_SelectionContext = entity;
+		}
+
+		if (ImGui::BeginDragDropSource())
+		{
+			const UUID entityID = entity.GetUUID();
+			ImGui::SetDragDropPayload("SCENE_HIERARCHY_ENTITY", &entityID, sizeof(UUID));
+			ImGui::TextUnformatted(tag.c_str());
+			ImGui::EndDragDropSource();
+		}
+
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SCENE_HIERARCHY_ENTITY"))
+			{
+				const UUID draggedEntityID = *(const UUID*)payload->Data;
+				Entity draggedEntity = m_Context->GetEntityByUUID(draggedEntityID);
+				if (draggedEntity && draggedEntity != entity)
+					draggedEntity.SetParent(entity);
+			}
+
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+			{
+				AssetHandle handle = *(AssetHandle*)payload->Data;
+				if (AssetManager::GetAssetType(handle) == AssetType::Prefab)
+				{
+					Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
+					if (prefab)
+					{
+						Entity instantiated = m_Context->InstantiatePrefab(prefab);
+						if (instantiated)
+						{
+							instantiated.SetParent(entity);
+							m_SelectionContext = instantiated;
+						}
+					}
+				}
+			}
+
+			ImGui::EndDragDropTarget();
 		}
 
 		bool entityDeleted = false;
@@ -117,6 +195,13 @@ namespace Lux {
 
 		if (opened)
 		{
+			for (UUID childID : relationship.Children)
+			{
+				Entity childEntity = m_Context->GetEntityByUUID(childID);
+				if (childEntity)
+					DrawEntityNode(childEntity);
+			}
+
 			ImGui::TreePop();
 		}
 
