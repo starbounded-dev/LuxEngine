@@ -46,6 +46,11 @@ namespace Lux
 		void OnOverlayRender();
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
+		void UI_GizmosToolbar();
+		void UI_CentralToolbar();
+		void UI_ViewportSettings();
+		Entity CastMousePick() const;
+		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
 
 		void NewProject();
 		bool OpenProject();
@@ -109,12 +114,24 @@ namespace Lux
 		int m_GizmoType = -1;
 
 		bool m_ShowPhysicsColliders = false;
+		bool m_ShowBoundingBoxes = false;
+		bool m_ShowEntityIcons = true;
+		bool m_UseGizmoSnap = false;
+		float m_TranslationSnapValue = 0.5f;
+		float m_RotationSnapValue = 45.0f;
 
 		enum class SceneState
 		{
 			Edit = 0, Play = 1, Simulate = 2
 		};
 		SceneState m_SceneState = SceneState::Edit;
+
+		enum class ViewportDisplayMode
+		{
+			Lit = 0,
+			SelectedWireframe = 1
+		};
+		ViewportDisplayMode m_ViewportDisplayMode = ViewportDisplayMode::Lit;
 
 		ImVec4 m_AnimatedTitlebarColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		ImVec2 m_TitleBarDragRectMin = { 0.0f, 0.0f };
