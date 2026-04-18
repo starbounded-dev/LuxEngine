@@ -716,7 +716,7 @@ namespace Lux {
 			ImGui::SetCursorPos(ImVec2(localX, buttonY));
 			ImGui::InvisibleButton(id, ImVec2(buttonSize, buttonSize));
 			if (icon)
-				UI::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+				ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 				onClick();
@@ -771,7 +771,7 @@ namespace Lux {
 		auto gizmoButton = [&](const char* id, Ref<Texture2D> icon, int gizmoMode)
 		{
 			ImGui::InvisibleButton(id, buttonSize);
-			UI::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+			ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 
 			if (m_GizmoType == gizmoMode)
 				ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colors::Theme::accent, 2.0f, 0, 2.0f);
@@ -819,7 +819,7 @@ namespace Lux {
 		auto controlButton = [&](const char* id, Ref<Texture2D> icon, bool active, const std::function<void()>& onClick)
 		{
 			ImGui::InvisibleButton(id, buttonSize);
-			UI::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+			ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 			if (active)
 				ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colors::Theme::accent, 2.0f, 0, 2.0f);
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
@@ -864,7 +864,7 @@ namespace Lux {
 
 		const ImVec2 buttonSize(24.0f, 24.0f);
 		ImGui::InvisibleButton("##viewport_settings_btn", buttonSize);
-		UI::DrawButtonImage(EditorResources::GearIcon, IM_COL32(215, 215, 215, 220), IM_COL32(255, 255, 255, 255), IM_COL32(235, 235, 235, 255), ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+		ImGuiEx::DrawButtonImage(EditorResources::GearIcon, IM_COL32(215, 215, 215, 220), IM_COL32(255, 255, 255, 255), IM_COL32(235, 235, 235, 255), ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 			ImGui::OpenPopup("##viewport_settings_popup");
 
@@ -965,7 +965,7 @@ namespace Lux {
 		return false;
 	}
 
-	Entity EditorLayer::CastMousePick() const
+	Entity EditorLayer::CastMousePick()
 	{
 		if (!m_ActiveScene)
 			return {};

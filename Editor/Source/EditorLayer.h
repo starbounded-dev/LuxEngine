@@ -11,6 +11,7 @@
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/Framebuffer.h"
 #include "Lux/Renderer/Shader.h"
@@ -49,7 +50,7 @@ namespace Lux
 		void UI_GizmosToolbar();
 		void UI_CentralToolbar();
 		void UI_ViewportSettings();
-		Entity CastMousePick() const;
+		Entity CastMousePick();
 		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
 
 		void NewProject();
