@@ -3,7 +3,7 @@
 
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/basic_file_sink.h"
-//#include "Lux/Editor/EditorConsole/EditorConsoleSink.h"
+#include "Lux/Editor/EditorConsole/EditorConsoleSink.h"
 
 #include <filesystem>
 
@@ -58,34 +58,34 @@ namespace Lux {
 			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
 #endif
 		};
-		/*
+
 		std::vector<spdlog::sink_ptr> editorConsoleSinks =
 		{
 			std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/APP.log", true),
 #if LUX_HAS_CONSOLE
-			std::make_shared<EditorConsoleSink>(1),
+			//std::make_shared<EditorConsoleSink>(1),
 			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
 #endif
-		};*/
+		};
 
 		luxSinks[0]->set_pattern("[%T] [%l] %n: %v");
 		appSinks[0]->set_pattern("[%T] [%l] %n: %v");
-/*
+
 #if LUX_HAS_CONSOLE
 		luxSinks[1]->set_pattern("%^[%T] %n: %v%$");
 		appSinks[1]->set_pattern("%^[%T] %n: %v%$");
 		for (auto sink : editorConsoleSinks)
 			sink->set_pattern("%^%v%$");
-#endif*/
+#endif
 
 		s_CoreLogger = std::make_shared<spdlog::logger>("LUX", luxSinks.begin(), luxSinks.end());
 		s_CoreLogger->set_level(spdlog::level::trace);
 
 		s_ClientLogger = std::make_shared<spdlog::logger>("APP", appSinks.begin(), appSinks.end());
 		s_ClientLogger->set_level(spdlog::level::trace);
-		/*
+
 		s_EditorConsoleLogger = std::make_shared<spdlog::logger>("Console", editorConsoleSinks.begin(), editorConsoleSinks.end());
-		s_EditorConsoleLogger->set_level(spdlog::level::trace);*/
+		s_EditorConsoleLogger->set_level(spdlog::level::trace);
 
 		SetDefaultTagSettings();
 	}

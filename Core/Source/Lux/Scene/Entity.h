@@ -12,8 +12,9 @@ namespace Lux
 	{
 	public:
 		Entity() = default;
-		Entity(entt::entity handle, Scene* scene);
-		Entity(const Entity& other) = default;
+		Entity(entt::entity handle, Scene* scene)
+			: m_EntityHandle(handle), m_Scene(scene) {
+		}
 
 		template<typename T, typename... Args>
 		T& AddComponent(Args&&... args)
@@ -58,6 +59,11 @@ namespace Lux
 
 		UUID GetUUID() { return GetComponent<IDComponent>().ID; }
 		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
+		Scene* GetScene() const { return m_Scene; }
+		Entity GetParent() const;
+		void SetParent(Entity parent);
+		std::vector<UUID>& Children();
+		bool HasParent() const;
 
 		bool operator==(const Entity& other) const
 		{

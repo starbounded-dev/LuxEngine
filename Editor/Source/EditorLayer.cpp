@@ -11,12 +11,15 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/TextureImporter.h"
 #include "Lux/Asset/SceneImporter.h"
+#include "Lux/Core/Math/Ray.h"
+#include "Lux/Renderer/Mesh.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <imgui/imgui.h>
 #include "imgui/imgui_internal.h"
+#include <GLFW/glfw3.h>
 #include "ImGuizmo.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/EditorResources.h"
@@ -30,6 +33,9 @@
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
+#include <cmath>
+#include <functional>
+#include <limits>
 
 namespace Lux {
 
@@ -65,6 +71,24 @@ namespace Lux {
 		{
 			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
 			return imguiRenderer->CreateFrameTexture(image->GetHandle().Get(), nvrhi::AllSubresources);
+		}
+
+		std::string GetSceneDisplayName(const std::filesystem::path& scenePath)
+		{
+			if (scenePath.empty())
+				return "Untitled Scene";
+
+			return scenePath.stem().string();
+		}
+
+		std::string GetProjectDisplayName()
+		{
+			Ref<Project> activeProject = Project::GetActive();
+			if (!activeProject)
+				return "No Project";
+
+			const auto& name = activeProject->GetConfig().Name;
+			return name.empty() ? "Untitled Project" : name;
 		}
 	}
 
@@ -117,7 +141,7 @@ namespace Lux {
 	static bool s_ShowFontAtlasInStats = false;
 
 	EditorLayer::EditorLayer()
-		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 10000.0f) ,m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 10000.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 		s_Font = Font::GetDefaultFont();
 	}
@@ -126,17 +150,17 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
 
+		EditorResources::Init();
+
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();
 
 		m_SceneHierarchyPanel = m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
 		m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
 		m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Text Editor", true);
+		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
-		
-		// Console panel for log messages
-		m_PanelManager->AddPanel<ConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Console", true);
 
 		// Render statistics panel
 		Ref<RenderStatsPanel> renderStatsPanel = m_PanelManager->AddPanel<RenderStatsPanel>(PanelCategory::View, "RenderStatsPanel", "Render Stats", true);
@@ -217,6 +241,7 @@ namespace Lux {
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
 		s_Font.reset();
+		EditorResources::Shutdown();
 	}
 
 	void EditorLayer::OnUpdate(Timestep ts)
@@ -244,9 +269,14 @@ namespace Lux {
 				m_SceneRenderer->SetViewportSize(viewportWidth, viewportHeight);
 		}
 
+		m_EditorCamera.SetActive(m_ViewportFocused || m_ViewportHovered);
+
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 		if (s_SceneRendererState.Renderer)
+		{
 			s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+			s_SceneRendererState.Renderer->GetOptions().ShowSelectedInWireframe = (m_ViewportDisplayMode == ViewportDisplayMode::SelectedWireframe);
+		}
 
 		m_Renderer2D->ResetStats();
 
@@ -256,42 +286,41 @@ namespace Lux {
 			selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
 		auto isEntitySelected = [selectedEntity](Entity entity) -> bool {
 			return selectedEntity && entity == selectedEntity;
-		};
+			};
 
 		switch (m_SceneState)
 		{
 		case SceneState::Edit:
 		{
 			m_EditorCamera.OnUpdate(ts);
-			
-			// Render 3D content first (static meshes, lights, skybox)
+
+			// When SceneRenderer is ready, let it own the full visible frame and
+			// composite the 2D pass on top of the 3D result. Falling back to the
+			// old Renderer2D-only path keeps the editor usable during init.
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
 				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
-			
-			// Then render 2D content (sprites, circles, text) - this blends on top
-			m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
+			else
+				m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
 			break;
 		}
 		case SceneState::Simulate:
 		{
 			m_EditorCamera.OnUpdate(ts);
-			
-			// Render 3D content
+
+			// Update simulation first so the rendered frame matches the latest
+			// physics state, then render the composed 3D + 2D scene.
+			m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
 				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
-			
-			// Then render 2D content and update physics simulation
-			m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
 			break;
 		}
 		case SceneState::Play:
 		{
-			// Render 3D content using the runtime camera
+			// Runtime has to update before rendering so sprites, circles and text
+			// appear in their current positions in the main viewport.
+			m_ActiveScene->OnUpdateRuntime(ts);
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
 				m_ActiveScene->Render3DRuntime(m_SceneRenderer);
-			
-			// Then run the full runtime update (scripts, physics, 2D rendering)
-			m_ActiveScene->OnUpdateRuntime(ts);
 			break;
 		}
 		}
@@ -313,7 +342,10 @@ namespace Lux {
 		bool opt_fullscreen = opt_fullscreen_persistent;
 		static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
-		ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+		const bool isWindowMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
+
+		ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking;
 		if (opt_fullscreen)
 		{
 			ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -321,7 +353,7 @@ namespace Lux {
 			ImGui::SetNextWindowSize(viewport->Size);
 			ImGui::SetNextWindowViewport(viewport->ID);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, isWindowMaximized ? 0.0f : 3.0f);
 			window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
 				ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
 			window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
@@ -343,6 +375,15 @@ namespace Lux {
 			ImGuiStyle& style = ImGui::GetStyle();
 			const float minWinSizeX = style.WindowMinSize.x;
 			style.WindowMinSize.x = 370.0f;
+
+			UI_DrawTitlebar();
+			if (!isWindowMaximized)
+			{
+				ImGuiEx::ScopedColour borderColour(ImGuiCol_Border, IM_COL32(50, 50, 50, 255));
+				ImGuiEx::RenderWindowOuterBorders(ImGui::GetCurrentWindow());
+			}
+
+			ImGui::SetCursorPosY(m_TitlebarHeight);
 			if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 			{
 				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
@@ -350,44 +391,34 @@ namespace Lux {
 			}
 			style.WindowMinSize.x = minWinSizeX;
 
-			if (ImGui::BeginMenuBar())
-			{
-				if (ImGui::BeginMenu("File"))
-				{
-					if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
-						OpenProject();
-
-					ImGui::Separator();
-
-					if (ImGui::MenuItem("New Scene", "Ctrl+N"))
-						NewScene();
-
-					if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
-						SaveScene();
-
-					if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
-						SaveSceneAs();
-
-					ImGui::Separator();
-
-					if (ImGui::MenuItem("Exit"))
-						Application::Get().Close();
-
-					ImGui::EndMenu();
-				}
-
-				if (ImGui::BeginMenu("Script"))
-				{
-					if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
-						ScriptEngine::ReloadAssembly();
-
-					ImGui::EndMenu();
-				}
-
-				ImGui::EndMenuBar();
-			}
-
 			m_PanelManager->OnImGuiRender();
+
+			if (m_ShowImGuiMetrics)
+				ImGui::ShowMetricsWindow(&m_ShowImGuiMetrics);
+			if (m_ShowImGuiStyleEditor)
+				ImGui::ShowStyleEditor();
+			if (m_ShowAboutPopup)
+				ImGui::OpenPopup("About LuxEngine");
+
+			ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+			ImGui::SetNextWindowPos(mainViewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+			if (ImGui::BeginPopupModal("About LuxEngine", &m_ShowAboutPopup, ImGuiWindowFlags_AlwaysAutoResize))
+			{
+				ImGui::Text("LuxEngine Editor");
+				ImGui::Separator();
+				ImGui::Text("Version: %s", Application::GetConfigurationName());
+				ImGui::Text("Platform: %s", Application::GetPlatformName());
+				ImGui::TextWrapped("Credits: Inspired by Hazel architecture and editor workflows.");
+
+				if (ImGui::Button("Close"))
+				{
+					m_ShowAboutPopup = false;
+					ImGui::CloseCurrentPopup();
+				}
+
+				ImGui::EndPopup();
+			}
 
 			// Stats panel
 			ImGui::Begin("Stats");
@@ -447,7 +478,11 @@ namespace Lux {
 			if (viewportPanelSize.x > 1.0f && viewportPanelSize.y > 1.0f)
 				m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-			ImTextureID texID = GetImGuiTextureID(m_Framebuffer->GetImage(0));
+			Ref<Image2D> viewportImage = m_Framebuffer->GetImage(0);
+			if (m_SceneRenderer && m_SceneRenderer->GetFinalPassImage())
+				viewportImage = m_SceneRenderer->GetFinalPassImage();
+
+			ImTextureID texID = GetImGuiTextureID(viewportImage);
 			ImGui::Image(texID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
 
 			if (ImGui::BeginDragDropTarget())
@@ -459,6 +494,11 @@ namespace Lux {
 				}
 				ImGui::EndDragDropTarget();
 			}
+
+			if (m_ViewportHovered)
+				m_HoveredEntity = CastMousePick();
+			else
+				m_HoveredEntity = {};
 
 			// Gizmos
 			Entity selectedEntity = {};
@@ -480,8 +520,9 @@ namespace Lux {
 				auto& tc = selectedEntity.GetComponent<TransformComponent>();
 				glm::mat4 transform = tc.GetTransform();
 
-				bool snap = Input::IsKeyPressed(Key::LeftControl);
-				float snapValue = (m_GizmoType == ImGuizmo::OPERATION::ROTATE) ? 45.0f : 0.5f;
+				const bool controlSnap = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+				bool snap = m_UseGizmoSnap || controlSnap;
+				float snapValue = (m_GizmoType == ImGuizmo::OPERATION::ROTATE) ? m_RotationSnapValue : m_TranslationSnapValue;
 				float snapValues[3] = { snapValue, snapValue, snapValue };
 
 				// FIX: Actually call Manipulate() - it was completely missing,
@@ -516,111 +557,362 @@ namespace Lux {
 			ImGui::End(); // Viewport
 			ImGui::PopStyleVar();
 
-			UI_Toolbar();
+			UI_GizmosToolbar();
+			UI_CentralToolbar();
+			UI_ViewportSettings();
 		}
 
 		ImGui::End(); // Lux Editor
 	}
 
+	void EditorLayer::UI_DrawMenubar()
+	{
+		const ImRect menuBarRect = { ImGui::GetCursorPos(), { ImGui::GetContentRegionAvail().x + ImGui::GetCursorScreenPos().x, ImGui::GetFrameHeightWithSpacing() } };
+
+		ImGui::BeginGroup();
+
+		ImGuiEx::ScopedColourStack menuColors(
+			ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
+			ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
+			ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
+			ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::text));
+
+		if (ImGuiEx::BeginMenuBar(menuBarRect))
+		{
+			if (ImGui::BeginMenu("File"))
+			{
+				if (ImGui::MenuItem("Create Project"))
+					NewProject();
+				if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
+					OpenProject();
+
+				if (ImGui::BeginMenu("Recent Projects"))
+				{
+					ImGui::MenuItem("No recent projects", nullptr, false, false);
+					ImGui::EndMenu();
+				}
+
+				ImGui::Separator();
+				if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+					SaveScene();
+				if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
+					SaveSceneAs();
+
+				ImGui::Separator();
+				if (ImGui::MenuItem("Exit"))
+					Application::Get().DispatchEvent<WindowCloseEvent, true>();
+
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Edit"))
+			{
+				if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
+					ScriptEngine::ReloadAssembly();
+				ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("View"))
+			{
+				auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
+				for (auto& [id, panelData] : viewPanels)
+					ImGui::MenuItem(panelData.Name, nullptr, &panelData.IsOpen);
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Tools"))
+			{
+				ImGui::MenuItem("ImGui Metrics", nullptr, &m_ShowImGuiMetrics);
+				ImGui::MenuItem("ImGui Style Editor", nullptr, &m_ShowImGuiStyleEditor);
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Help"))
+			{
+				if (ImGui::MenuItem("About"))
+					m_ShowAboutPopup = true;
+				ImGui::EndMenu();
+			}
+
+			ImGuiEx::EndMenuBar();
+		}
+
+		ImGui::EndGroup();
+	}
+
+	void EditorLayer::UI_DrawTitlebar()
+	{
+		ImGuiWindow* window = ImGui::GetCurrentWindow();
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		const ImVec2 windowPos = window->Pos;
+		const ImVec2 windowMax = ImVec2(window->Pos.x + window->Size.x, window->Pos.y + m_TitlebarHeight);
+
+		ImU32 targetTitlebarColor = Colors::Theme::titlebar;
+		if (m_SceneState == SceneState::Play)
+			targetTitlebarColor = Colors::Theme::titlebarOrange;
+		else if (m_SceneState == SceneState::Simulate)
+			targetTitlebarColor = Colors::Theme::titlebarGreen;
+
+		const ImVec4 targetColor = ImGui::ColorConvertU32ToFloat4(targetTitlebarColor);
+		const float dt = ImGui::GetIO().DeltaTime;
+		m_AnimatedTitlebarColor = ImLerp(m_AnimatedTitlebarColor, targetColor, std::clamp(dt * 8.0f, 0.0f, 1.0f));
+		drawList->AddRectFilled(windowPos, windowMax, ImGui::ColorConvertFloat4ToU32(m_AnimatedTitlebarColor));
+
+		drawList->AddLine(ImVec2(windowPos.x, windowPos.y + m_TitlebarHeight), ImVec2(windowPos.x + window->Size.x, windowPos.y + m_TitlebarHeight), Colors::Theme::backgroundDark);
+
+		const float logoPadding = 16.0f;
+		const float logoSize = 30.0f;
+		const float logoTop = (m_TitlebarHeight - logoSize) * 0.5f;
+		const ImVec2 logoMin(windowPos.x + logoPadding, windowPos.y + logoTop);
+		const ImVec2 logoMax(logoMin.x + logoSize, logoMin.y + logoSize);
+		if (EditorResources::HazelLogoTexture)
+			drawList->AddImage(GetImGuiTextureID(EditorResources::HazelLogoTexture), logoMin, logoMax);
+
+		const float menuBarX = logoPadding * 2.0f + logoSize + 8.0f;
+		ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
+		UI_DrawMenubar();
+
+		const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
+		const ImVec2 sceneNameSize = ImGui::CalcTextSize(sceneName.c_str());
+		const float sceneNameX = windowPos.x + (window->Size.x - sceneNameSize.x) * 0.5f;
+		const float sceneNameY = windowPos.y + (m_TitlebarHeight - sceneNameSize.y) * 0.5f;
+		drawList->AddText(ImVec2(sceneNameX, sceneNameY), Colors::Theme::textBrighter, sceneName.c_str());
+		drawList->AddLine(
+			ImVec2(sceneNameX - 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
+			ImVec2(sceneNameX + sceneNameSize.x + 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
+			Colors::Theme::accent, 1.5f);
+
+		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
+		const bool isMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
+
+		const float controlsWidth = 120.0f;
+		const float dragZoneMinX = 70.0f;
+		const float dragZoneMaxX = window->Size.x - controlsWidth - 220.0f;
+		ImGui::SetCursorPos(ImVec2(dragZoneMinX, 0.0f));
+		ImGui::InvisibleButton("##titleBarDragZone", ImVec2(std::max(0.0f, dragZoneMaxX - dragZoneMinX), m_TitlebarHeight));
+		const ImVec2 dragMin = ImGui::GetItemRectMin();
+		const ImVec2 dragMax = ImGui::GetItemRectMax();
+		m_TitleBarDragRectMin = ImVec2(dragMin.x - windowPos.x, dragMin.y - windowPos.y);
+		m_TitleBarDragRectMax = ImVec2(dragMax.x - windowPos.x, dragMax.y - windowPos.y);
+
+#if !defined(LUX_PLATFORM_WINDOWS)
+		if (nativeWindow && !isMaximized && ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		{
+			int windowX = 0, windowY = 0;
+			glfwGetWindowPos(nativeWindow, &windowX, &windowY);
+			const ImVec2 delta = ImGui::GetIO().MouseDelta;
+			glfwSetWindowPos(nativeWindow, windowX + (int)delta.x, windowY + (int)delta.y);
+		}
+#endif
+
+		const std::string projectName = GetProjectDisplayName();
+		const ImVec2 projectNameSize = ImGui::CalcTextSize(projectName.c_str());
+		const ImVec2 projectBoxMin(windowPos.x + window->Size.x - controlsWidth - projectNameSize.x - 36.0f, windowPos.y + 14.0f);
+		const ImVec2 projectBoxMax(projectBoxMin.x + projectNameSize.x + 20.0f, projectBoxMin.y + 26.0f);
+		drawList->AddRect(projectBoxMin, projectBoxMax, Colors::Theme::muted, 6.0f, 0, 1.0f);
+		drawList->AddText(ImVec2(projectBoxMin.x + 10.0f, projectBoxMin.y + 5.0f), Colors::Theme::text, projectName.c_str());
+
+		const float buttonSize = 34.0f;
+		const float buttonY = (m_TitlebarHeight - buttonSize) * 0.5f;
+		const float buttonsStartX = window->Size.x - controlsWidth;
+		const ImU32 normalTint = IM_COL32(220, 220, 220, 220);
+		const ImU32 hoverTint = IM_COL32(255, 255, 255, 255);
+		const ImU32 activeTint = IM_COL32(200, 200, 200, 255);
+
+		auto drawWindowControlButton = [&](const char* id, const Ref<Texture2D>& icon, float localX, auto&& onClick)
+			{
+				ImGui::SetCursorPos(ImVec2(localX, buttonY));
+				ImGui::InvisibleButton(id, ImVec2(buttonSize, buttonSize));
+				if (icon)
+					ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+
+				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+					onClick();
+			};
+
+		drawWindowControlButton("##minimizeWindow", EditorResources::MinimizeIcon, buttonsStartX + 4.0f, [nativeWindow]()
+			{
+				if (!nativeWindow)
+					return;
+				Application::Get().QueueEvent([nativeWindow]() { glfwIconifyWindow(nativeWindow); });
+			});
+
+		drawWindowControlButton("##maximizeRestoreWindow", isMaximized ? EditorResources::RestoreIcon : EditorResources::MaximizeIcon, buttonsStartX + 42.0f, [nativeWindow, isMaximized]()
+			{
+				if (!nativeWindow)
+					return;
+				Application::Get().QueueEvent([nativeWindow, isMaximized]()
+					{
+						if (isMaximized)
+							glfwRestoreWindow(nativeWindow);
+						else
+							glfwMaximizeWindow(nativeWindow);
+					});
+			});
+
+		drawWindowControlButton("##closeWindow", EditorResources::CloseIcon, buttonsStartX + 80.0f, []()
+			{
+				Application::Get().DispatchEvent<WindowCloseEvent, true>();
+			});
+	}
+
+	void EditorLayer::UI_GizmosToolbar()
+	{
+		if (m_ViewportSize.x <= 0.0f || m_ViewportSize.y <= 0.0f)
+			return;
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+
+		ImGui::SetNextWindowPos(ImVec2(m_ViewportBounds[0].x + 12.0f, m_ViewportBounds[0].y + 12.0f), ImGuiCond_Always);
+		ImGui::SetNextWindowBgAlpha(0.55f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
+		ImGui::Begin("##viewport_gizmos_toolbar", nullptr, flags);
+
+		const ImU32 normalTint = IM_COL32(215, 215, 215, 220);
+		const ImU32 hoverTint = IM_COL32(255, 255, 255, 255);
+		const ImU32 activeTint = IM_COL32(235, 235, 235, 255);
+		const ImVec2 buttonSize(24.0f, 24.0f);
+
+		auto gizmoButton = [&](const char* id, Ref<Texture2D> icon, int gizmoMode)
+			{
+				ImGui::InvisibleButton(id, buttonSize);
+				ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+
+				if (m_GizmoType == gizmoMode)
+					ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colors::Theme::accent, 2.0f, 0, 2.0f);
+
+				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+					m_GizmoType = gizmoMode;
+			};
+
+		gizmoButton("##gizmo_select", EditorResources::PointerIcon, -1);
+		ImGui::SameLine();
+		gizmoButton("##gizmo_translate", EditorResources::MoveIcon, ImGuizmo::TRANSLATE);
+		ImGui::SameLine();
+		gizmoButton("##gizmo_rotate", EditorResources::RotateIcon, ImGuizmo::ROTATE);
+		ImGui::SameLine();
+		gizmoButton("##gizmo_scale", EditorResources::ScaleIcon, ImGuizmo::SCALE);
+
+		ImGui::End();
+		ImGui::PopStyleVar(2);
+	}
+
+	void EditorLayer::UI_CentralToolbar()
+	{
+		if (m_ViewportSize.x <= 0.0f || m_ViewportSize.y <= 0.0f)
+			return;
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+
+		const float toolbarWidth = 118.0f;
+		const float posX = m_ViewportBounds[0].x + (m_ViewportSize.x - toolbarWidth) * 0.5f;
+		const float posY = m_ViewportBounds[0].y + 12.0f;
+
+		ImGui::SetNextWindowPos(ImVec2(posX, posY), ImGuiCond_Always);
+		ImGui::SetNextWindowBgAlpha(0.55f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 0.0f));
+		ImGui::Begin("##viewport_central_toolbar", nullptr, flags);
+
+		const ImU32 normalTint = IM_COL32(215, 215, 215, 220);
+		const ImU32 hoverTint = IM_COL32(255, 255, 255, 255);
+		const ImU32 activeTint = IM_COL32(235, 235, 235, 255);
+		const ImVec2 buttonSize(24.0f, 24.0f);
+
+		auto controlButton = [&](const char* id, Ref<Texture2D> icon, bool active, const std::function<void()>& onClick)
+			{
+				ImGui::InvisibleButton(id, buttonSize);
+				ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+				if (active)
+					ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colors::Theme::accent, 2.0f, 0, 2.0f);
+				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+					onClick();
+			};
+
+		controlButton("##scene_play", EditorResources::PlayIcon, m_SceneState == SceneState::Play, [this]()
+			{
+				if (m_SceneState != SceneState::Play)
+					OnScenePlay();
+			});
+		ImGui::SameLine();
+		controlButton("##scene_simulate", EditorResources::SimulateIcon, m_SceneState == SceneState::Simulate, [this]()
+			{
+				if (m_SceneState != SceneState::Simulate)
+					OnSceneSimulate();
+			});
+		ImGui::SameLine();
+		controlButton("##scene_stop", EditorResources::StopIcon, m_SceneState == SceneState::Edit, [this]()
+			{
+				if (m_SceneState != SceneState::Edit)
+					OnSceneStop();
+			});
+
+		ImGui::End();
+		ImGui::PopStyleVar(2);
+	}
+
+	void EditorLayer::UI_ViewportSettings()
+	{
+		if (m_ViewportSize.x <= 0.0f || m_ViewportSize.y <= 0.0f)
+			return;
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+
+		ImGui::SetNextWindowPos(ImVec2(m_ViewportBounds[1].x - 44.0f, m_ViewportBounds[0].y + 12.0f), ImGuiCond_Always);
+		ImGui::SetNextWindowBgAlpha(0.55f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
+		ImGui::Begin("##viewport_settings_toolbar", nullptr, flags);
+
+		const ImVec2 buttonSize(24.0f, 24.0f);
+		ImGui::InvisibleButton("##viewport_settings_btn", buttonSize);
+		ImGuiEx::DrawButtonImage(EditorResources::GearIcon, IM_COL32(215, 215, 215, 220), IM_COL32(255, 255, 255, 255), IM_COL32(235, 235, 235, 255), ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+		if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+			ImGui::OpenPopup("##viewport_settings_popup");
+
+		if (ImGui::BeginPopup("##viewport_settings_popup"))
+		{
+			ImGui::Checkbox("Enable Gizmo Snap", &m_UseGizmoSnap);
+			if (m_UseGizmoSnap)
+			{
+				ImGui::DragFloat("Translate Snap", &m_TranslationSnapValue, 0.05f, 0.05f, 10.0f, "%.2f");
+				ImGui::DragFloat("Rotate Snap", &m_RotationSnapValue, 1.0f, 1.0f, 180.0f, "%.0f");
+			}
+
+			ImGui::Separator();
+			ImGui::Checkbox("Show Bounding Boxes", &m_ShowBoundingBoxes);
+			ImGui::Checkbox("Show Entity Icons", &m_ShowEntityIcons);
+
+			if (s_SceneRendererState.Renderer)
+			{
+				auto& options = s_SceneRendererState.Renderer->GetOptions();
+				ImGui::Checkbox("Show Grid", &options.ShowGrid);
+				ImGui::Checkbox("Show Physics Colliders", &options.ShowPhysicsColliders);
+			}
+
+			int displayMode = (int)m_ViewportDisplayMode;
+			if (ImGui::Combo("Display Mode", &displayMode, "Lit\0Selected Wireframe\0"))
+				m_ViewportDisplayMode = (ViewportDisplayMode)displayMode;
+
+			ImGui::EndPopup();
+		}
+
+		ImGui::End();
+		ImGui::PopStyleVar();
+	}
+
 	void EditorLayer::UI_Toolbar()
 	{
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 2));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0, 0));
-		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-		auto& colors = ImGui::GetStyle().Colors;
-		const auto& buttonHovered = colors[ImGuiCol_ButtonHovered];
-		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(buttonHovered.x, buttonHovered.y, buttonHovered.z, 0.5f));
-		const auto& buttonActive = colors[ImGuiCol_ButtonActive];
-		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(buttonActive.x, buttonActive.y, buttonActive.z, 0.5f));
-
-		ImGui::Begin("##toolbar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-
-		bool toolbarEnabled = (bool)m_ActiveScene;
-
-		ImVec4 tintColor = ImVec4(1, 1, 1, 1);
-		if (!toolbarEnabled)
-			tintColor.w = 0.5f;
-
-		float size = ImGui::GetWindowHeight() - 4.0f;
-		ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
-
-		bool hasPlayButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play;
-		bool hasSimulateButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate;
-		bool hasPauseButton = m_SceneState != SceneState::Edit;
-
-		if (hasPlayButton)
-		{
-			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate) ? m_IconPlay : m_IconStop;
-			if (ImGui::ImageButton("##play", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0,0,0,0), tintColor))
-			{
-				if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate)
-					OnScenePlay();
-				else if (m_SceneState == SceneState::Play)
-					OnSceneStop();
-			}
-		}
-
-		if (hasSimulateButton)
-		{
-			if (hasPlayButton)
-				ImGui::SameLine();
-
-			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play) ? m_IconSimulate : m_IconStop;
-			if (ImGui::ImageButton("##simulate", GetImGuiTextureID(icon), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0,0,0,0), tintColor))
-			{
-				if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play)
-					OnSceneSimulate();
-				else if (m_SceneState == SceneState::Simulate)
-					OnSceneStop();
-			}
-		}
-
-		if (hasPauseButton)
-		{
-			bool isPaused = m_ActiveScene->IsPaused();
-			ImGui::SameLine();
-			{
-				if (ImGui::ImageButton("##pause", GetImGuiTextureID(m_IconPause), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0,0,0,0), tintColor) && toolbarEnabled)
-					m_ActiveScene->SetPaused(!isPaused);
-			}
-
-			if (isPaused)
-			{
-				ImGui::SameLine();
-				if (ImGui::ImageButton("##step", GetImGuiTextureID(m_IconStep), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0,0,0,0), tintColor) && toolbarEnabled)
-					m_ActiveScene->Step();
-			}
-		}
-
-		ImGui::SameLine();
-		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-		ImGui::SameLine();
-
-		// Gizmo mode indicator
-		const char* gizmoMode = "None";
-		if (m_GizmoType == ImGuizmo::TRANSLATE) gizmoMode = "Translate";
-		else if (m_GizmoType == ImGuizmo::ROTATE) gizmoMode = "Rotate";
-		else if (m_GizmoType == ImGuizmo::SCALE) gizmoMode = "Scale";
-
-		ImGui::Text("%s", gizmoMode);
-		ImGui::SameLine();
-
-		// Grid toggle
-		if (s_SceneRendererState.Renderer)
-		{
-			bool showGrid = s_SceneRendererState.Renderer->GetOptions().ShowGrid;
-			ImGui::SameLine();
-			if (ImGui::Checkbox("##grid", &showGrid))
-			{
-				s_SceneRendererState.Renderer->GetOptions().ShowGrid = showGrid;
-			}
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Toggle Grid");
-		}
-
-		ImGui::PopStyleVar(2);
-		ImGui::PopStyleColor(3);
-		ImGui::End();
+		UI_GizmosToolbar();
+		UI_CentralToolbar();
+		UI_ViewportSettings();
 	}
 
 	void EditorLayer::OnEvent(Event& e)
@@ -633,6 +925,7 @@ namespace Lux {
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
 		dispatcher.Dispatch<MouseButtonPressedEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
+		dispatcher.Dispatch<WindowTitleBarHitTestEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnTitleBarHitTest));
 	}
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
@@ -672,14 +965,177 @@ namespace Lux {
 		if (e.GetMouseButton() == MouseButton::Left)
 		{
 			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
+			{
+				m_HoveredEntity = CastMousePick();
 				if (m_SceneHierarchyPanel)
 					m_SceneHierarchyPanel->SetSelectedEntity(m_HoveredEntity);
+			}
 		}
 		return false;
 	}
 
+	Entity EditorLayer::CastMousePick()
+	{
+		if (!m_ActiveScene)
+			return {};
+
+		const float viewportWidth = m_ViewportBounds[1].x - m_ViewportBounds[0].x;
+		const float viewportHeight = m_ViewportBounds[1].y - m_ViewportBounds[0].y;
+		if (viewportWidth <= 1.0f || viewportHeight <= 1.0f)
+			return {};
+
+		const float mouseX = Input::GetMouseX() - m_ViewportBounds[0].x;
+		const float mouseY = Input::GetMouseY() - m_ViewportBounds[0].y;
+		if (mouseX < 0.0f || mouseY < 0.0f || mouseX > viewportWidth || mouseY > viewportHeight)
+			return {};
+
+		const float ndcX = (mouseX / viewportWidth) * 2.0f - 1.0f;
+		const float ndcY = 1.0f - (mouseY / viewportHeight) * 2.0f;
+
+		glm::mat4 inverseViewProjection = glm::inverse(m_EditorCamera.GetUnReversedViewProjection());
+		glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
+		glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+		if (nearPoint.w == 0.0f || farPoint.w == 0.0f)
+			return {};
+
+		nearPoint /= nearPoint.w;
+		farPoint /= farPoint.w;
+
+		const glm::vec3 rayOrigin = glm::vec3(nearPoint);
+		const glm::vec3 rayVector = glm::vec3(farPoint - nearPoint);
+		if (glm::dot(rayVector, rayVector) <= std::numeric_limits<float>::epsilon())
+			return {};
+		const glm::vec3 rayDirection = glm::normalize(rayVector);
+
+		Entity closestEntity = {};
+		float closestDistance = std::numeric_limits<float>::max();
+
+		auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent>();
+		for (auto entityID : view)
+		{
+			Entity entity(entityID, m_ActiveScene.Raw());
+			float distance = 0.0f;
+			if (!RayIntersectsEntity(entity, rayOrigin, rayDirection, distance))
+				continue;
+
+			if (distance < closestDistance)
+			{
+				closestDistance = distance;
+				closestEntity = entity;
+			}
+		}
+
+		return closestEntity;
+	}
+
+	bool EditorLayer::RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const
+	{
+		outDistance = std::numeric_limits<float>::max();
+		if (!entity || !entity.HasComponent<TransformComponent>())
+			return false;
+
+		const TransformComponent& transformComponent = entity.GetComponent<TransformComponent>();
+		const glm::mat4 worldTransform = transformComponent.GetTransform();
+		bool hit = false;
+
+		auto testAABB = [&](const AABB& localAABB, const glm::mat4& localTransform = glm::mat4(1.0f))
+			{
+				const glm::mat4 inverseTransform = glm::inverse(worldTransform * localTransform);
+				const glm::vec3 localOrigin = glm::vec3(inverseTransform * glm::vec4(rayOrigin, 1.0f));
+				const glm::vec3 localDirectionVector = glm::vec3(inverseTransform * glm::vec4(rayDirection, 0.0f));
+				if (glm::dot(localDirectionVector, localDirectionVector) <= std::numeric_limits<float>::epsilon())
+					return;
+				const glm::vec3 localDirection = glm::normalize(localDirectionVector);
+
+				Ray localRay(localOrigin, localDirection);
+				float t = 0.0f;
+				if (localRay.IntersectsAABB(localAABB, t) && t >= 0.0f && t < outDistance)
+				{
+					outDistance = t;
+					hit = true;
+				}
+			};
+
+		if (entity.HasComponent<StaticMeshComponent>())
+		{
+			const auto& staticMeshComponent = entity.GetComponent<StaticMeshComponent>();
+			Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(staticMeshComponent.Mesh);
+			if (staticMesh)
+			{
+				Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource());
+				if (meshSource)
+					testAABB(meshSource->GetBoundingBox());
+			}
+		}
+
+		if (entity.HasComponent<BoxCollider2DComponent>())
+		{
+			const auto& collider = entity.GetComponent<BoxCollider2DComponent>();
+			const glm::vec3 extents = glm::vec3(collider.Size, 0.05f);
+			const glm::vec3 center = glm::vec3(collider.Offset, 0.0f);
+			testAABB(AABB(center - extents, center + extents));
+		}
+
+		if (entity.HasComponent<CircleCollider2DComponent>())
+		{
+			const auto& collider = entity.GetComponent<CircleCollider2DComponent>();
+			const glm::vec3 extents = glm::vec3(collider.Radius, collider.Radius, 0.05f);
+			const glm::vec3 center = glm::vec3(collider.Offset, 0.0f);
+			testAABB(AABB(center - extents, center + extents));
+		}
+
+		const bool shouldUseIconSelection = entity.HasComponent<CameraComponent>() ||
+			entity.HasComponent<AudioSourceComponent>() ||
+			entity.HasComponent<AudioListenerComponent>() ||
+			entity.HasComponent<DirectionalLightComponent>() ||
+			entity.HasComponent<PointLightComponent>() ||
+			entity.HasComponent<SpotLightComponent>();
+
+		if (!hit && shouldUseIconSelection)
+		{
+			const glm::vec3 center = transformComponent.Translation;
+			const float radius = 0.35f;
+			const glm::vec3 toCenter = rayOrigin - center;
+			const float b = glm::dot(toCenter, rayDirection);
+			const float c = glm::dot(toCenter, toCenter) - radius * radius;
+			const float discriminant = b * b - c;
+			if (discriminant >= 0.0f)
+			{
+				const float t = -b - std::sqrt(discriminant);
+				if (t >= 0.0f && t < outDistance)
+				{
+					outDistance = t;
+					hit = true;
+				}
+			}
+		}
+
+		return hit;
+	}
+
+	bool EditorLayer::OnTitleBarHitTest(WindowTitleBarHitTestEvent& e)
+	{
+		const float x = (float)e.GetX();
+		const float y = (float)e.GetY();
+
+		const bool inDragZone = x >= m_TitleBarDragRectMin.x && x <= m_TitleBarDragRectMax.x
+			&& y >= m_TitleBarDragRectMin.y && y <= m_TitleBarDragRectMax.y;
+
+		if (inDragZone)
+			e.SetHit(true);
+
+		return inDragZone;
+	}
+
 	void EditorLayer::OnOverlayRender()
 	{
+		Ref<Framebuffer> overlayTarget = m_Framebuffer;
+		if (m_SceneRenderer && m_SceneRenderer->GetExternalCompositeFramebuffer())
+			overlayTarget = m_SceneRenderer->GetExternalCompositeFramebuffer();
+
+		if (overlayTarget)
+			m_Renderer2D->SetTargetFramebuffer(overlayTarget);
+
 		if (m_SceneState == SceneState::Play)
 		{
 			Entity camera = m_ActiveScene->GetPrimaryCameraEntity();
@@ -742,14 +1198,35 @@ namespace Lux {
 				}
 			}
 
-			// Selected entity outline
-			Entity selectedEntity = {};
-			if (m_SceneHierarchyPanel)
-				selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
-			if (selectedEntity)
+		}
+
+		Entity selectedEntity = {};
+		if (m_SceneHierarchyPanel)
+			selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
+
+		if (selectedEntity)
+		{
+			const TransformComponent& transform = selectedEntity.GetComponent<TransformComponent>();
+			const glm::mat4 worldTransform = transform.GetTransform();
+
+			bool drewBoundingBox = false;
+			if (m_ShowBoundingBoxes && selectedEntity.HasComponent<StaticMeshComponent>())
 			{
-				const TransformComponent& transform = selectedEntity.GetComponent<TransformComponent>();
-				glm::mat4 t = transform.GetTransform();
+				const auto& smc = selectedEntity.GetComponent<StaticMeshComponent>();
+				Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(smc.Mesh);
+				if (staticMesh)
+				{
+					Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource());
+					if (meshSource)
+					{
+						m_Renderer2D->DrawAABB(meshSource->GetBoundingBox(), worldTransform, glm::vec4(1.0f, 0.5f, 0.0f, 1.0f), true);
+						drewBoundingBox = true;
+					}
+				}
+			}
+
+			if (!drewBoundingBox)
+			{
 				glm::vec4 color(1.0f, 0.5f, 0.0f, 1.0f);
 				glm::vec4 corners[4] = {
 					{-0.5f, -0.5f, 0.0f, 1.0f}, { 0.5f, -0.5f, 0.0f, 1.0f},
@@ -757,11 +1234,33 @@ namespace Lux {
 				};
 				for (int i = 0; i < 4; i++)
 				{
-					glm::vec3 p0 = t * corners[i];
-					glm::vec3 p1 = t * corners[(i + 1) % 4];
+					glm::vec3 p0 = worldTransform * corners[i];
+					glm::vec3 p1 = worldTransform * corners[(i + 1) % 4];
 					m_Renderer2D->DrawLine(p0, p1, color);
 				}
 			}
+		}
+
+		if (m_ShowEntityIcons)
+		{
+			auto drawIconForView = [this](auto view, const Ref<Texture2D>& iconTexture)
+				{
+					if (!iconTexture)
+						return;
+
+					for (auto entityID : view)
+					{
+						auto& transform = view.template get<TransformComponent>(entityID);
+						m_Renderer2D->DrawQuadBillboard(transform.Translation, glm::vec2(0.35f), iconTexture, 1.0f, glm::vec4(1.0f));
+					}
+				};
+
+			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, CameraComponent>(), EditorResources::CameraIcon);
+			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, AudioSourceComponent>(), EditorResources::AudioIcon);
+			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, AudioListenerComponent>(), EditorResources::AudioListenerIcon);
+			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, DirectionalLightComponent>(), EditorResources::DirectionalLightIcon);
+			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, PointLightComponent>(), EditorResources::PointLightIcon);
+			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, SpotLightComponent>(), EditorResources::SpotLightIcon);
 		}
 
 		m_Renderer2D->EndScene();

@@ -367,6 +367,8 @@ namespace Lux {
 
 		Ref<StorageBufferSet> m_SBSInstanceTransforms;  // TransformVertexData[]
 		Ref<StorageBufferSet> m_SBSObjectIndexes;       // uint32_t[] – maps draw → transform
+		Ref<StorageBufferSet> m_SBSVisiblePointLightIndices;
+		Ref<StorageBufferSet> m_SBSVisibleSpotLightIndices;
 
 		// ── Shadow map (single ortho cascade) ────────────────────────────────
 		Ref<RenderPass>  m_ShadowMapPass;
