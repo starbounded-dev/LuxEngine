@@ -530,8 +530,8 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				auto& camera = view.get<CameraComponent>(entity);
-
 				if (camera.Primary)
+				
 				{
 					mainCamera = &camera.Camera;
 					cameraTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });

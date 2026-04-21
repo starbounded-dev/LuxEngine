@@ -10,26 +10,16 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <functional>
-
-// LUX_DIST may not be defined in Debug/Release builds
-#ifndef LUX_DIST
-	#define LUX_DIST 0
-#endif
 
 #define LUX_ASSERT_MESSAGE_BOX (!LUX_DIST && LUX_PLATFORM_WINDOWS && false)
 
 #if LUX_ASSERT_MESSAGE_BOX
-	#ifdef LUX_PLATFORM_WINDOWS
-		#include <Windows.h>
-	#endif
+#ifdef LUX_PLATFORM_WINDOWS
+#include <Windows.h>
+#endif
 #endif
 
 namespace Lux {
-
-	// Callback function type for console message logging
-	// Parameters: level, message
-	using LogCallback = std::function<void(uint8_t level, const std::string& message)>;
 
 	class Log
 	{
@@ -60,10 +50,6 @@ namespace Lux {
 		static std::map<std::string, TagDetails>& EnabledTags() { return s_EnabledTags; }
 		static void SetDefaultTagSettings();
 
-		// Console callback registration
-		static void SetConsoleCallback(LogCallback callback) { s_ConsoleCallback = std::move(callback); }
-		static void ClearConsoleCallback() { s_ConsoleCallback = nullptr; }
-
 #if defined(LUX_PLATFORM_WINDOWS)
 		template<typename... Args>
 		static void PrintMessage(Log::Type type, Log::Level level, std::format_string<Args...> format, Args&&... args);
@@ -88,11 +74,11 @@ namespace Lux {
 		{
 			switch (level)
 			{
-				case Level::Trace: return "Trace";
-				case Level::Info:  return "Info";
-				case Level::Warn:  return "Warn";
-				case Level::Error: return "Error";
-				case Level::Fatal: return "Fatal";
+			case Level::Trace: return "Trace";
+			case Level::Info:  return "Info";
+			case Level::Warn:  return "Warn";
+			case Level::Error: return "Error";
+			case Level::Fatal: return "Fatal";
 			}
 			return "";
 		}
@@ -108,21 +94,12 @@ namespace Lux {
 		}
 
 	private:
-		// Internal helper to invoke the console callback
-		static void NotifyConsoleCallback(Level level, const std::string& message)
-		{
-			if (s_ConsoleCallback)
-				s_ConsoleCallback(static_cast<uint8_t>(level), message);
-		}
-
 		static std::shared_ptr<spdlog::logger> s_CoreLogger;
 		static std::shared_ptr<spdlog::logger> s_ClientLogger;
 		static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
 
 		inline static std::map<std::string, TagDetails> s_EnabledTags;
 		static std::map<std::string, TagDetails> s_DefaultTagDetails;
-		
-		inline static LogCallback s_ConsoleCallback;
 	};
 
 }
@@ -148,13 +125,11 @@ namespace Lux {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Core Logging
-#define LUX_CORE_TRACE(...)    ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Trace, __VA_ARGS__)
-#define LUX_CORE_INFO(...)     ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Info, __VA_ARGS__)
-#define LUX_CORE_WARN(...)     ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Warn, __VA_ARGS__)
-#define LUX_CORE_ERROR(...)    ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Error, __VA_ARGS__)
-#define LUX_CORE_FATAL(...)    ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Fatal, __VA_ARGS__)
-#define LUX_CORE_CRITICAL(...) ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Fatal, __VA_ARGS__)
-
+#define LUX_CORE_TRACE(...)  ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Trace, __VA_ARGS__)
+#define LUX_CORE_INFO(...)   ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Info, __VA_ARGS__)
+#define LUX_CORE_WARN(...)   ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Warn, __VA_ARGS__)
+#define LUX_CORE_ERROR(...)  ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Error, __VA_ARGS__)
+#define LUX_CORE_FATAL(...)  ::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Fatal, __VA_ARGS__)
 // Client Logging
 #define LUX_TRACE(...)   ::Lux::Log::PrintMessage(::Lux::Log::Type::Client, ::Lux::Log::Level::Trace, __VA_ARGS__)
 #define LUX_INFO(...)    ::Lux::Log::PrintMessage(::Lux::Log::Type::Client, ::Lux::Log::Level::Info, __VA_ARGS__)
@@ -183,29 +158,24 @@ namespace Lux {
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
-			std::string formatted = std::format(format, std::forward<Args>(args)...);
-			
 			switch (level)
 			{
 			case Level::Trace:
-				logger->trace("{}", formatted);
+				logger->trace(format, std::forward<Args>(args)...);
 				break;
 			case Level::Info:
-				logger->info("{}", formatted);
+				logger->info(format, std::forward<Args>(args)...);
 				break;
 			case Level::Warn:
-				logger->warn("{}", formatted);
+				logger->warn(format, std::forward<Args>(args)...);
 				break;
 			case Level::Error:
-				logger->error("{}", formatted);
+				logger->error(format, std::forward<Args>(args)...);
 				break;
 			case Level::Fatal:
-				logger->critical("{}", formatted);
+				logger->critical(format, std::forward<Args>(args)...);
 				break;
 			}
-			
-			// Notify the console callback
-			NotifyConsoleCallback(level, formatted);
 		}
 	}
 
@@ -218,29 +188,24 @@ namespace Lux {
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
 			std::string formatted = std::format(format, std::forward<Args>(args)...);
-			std::string taggedMessage = std::format("[{}] {}", tag, formatted);
-			
 			switch (level)
 			{
-				case Level::Trace:
-					logger->trace("{}", taggedMessage);
-					break;
-				case Level::Info:
-					logger->info("{}", taggedMessage);
-					break;
-				case Level::Warn:
-					logger->warn("{}", taggedMessage);
-					break;
-				case Level::Error:
-					logger->error("{}", taggedMessage);
-					break;
-				case Level::Fatal:
-					logger->critical("{}", taggedMessage);
-					break;
+			case Level::Trace:
+				logger->trace("[{0}] {1}", tag, formatted);
+				break;
+			case Level::Info:
+				logger->info("[{0}] {1}", tag, formatted);
+				break;
+			case Level::Warn:
+				logger->warn("[{0}] {1}", tag, formatted);
+				break;
+			case Level::Error:
+				logger->error("[{0}] {1}", tag, formatted);
+				break;
+			case Level::Fatal:
+				logger->critical("[{0}] {1}", tag, formatted);
+				break;
 			}
-			
-			// Notify the console callback
-			NotifyConsoleCallback(level, taggedMessage);
 		}
 	}
 
@@ -251,29 +216,24 @@ namespace Lux {
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
-			std::string taggedMessage = std::format("[{}] {}", tag, message);
-			
 			switch (level)
 			{
-				case Level::Trace:
-					logger->trace("{}", taggedMessage);
-					break;
-				case Level::Info:
-					logger->info("{}", taggedMessage);
-					break;
-				case Level::Warn:
-					logger->warn("{}", taggedMessage);
-					break;
-				case Level::Error:
-					logger->error("{}", taggedMessage);
-					break;
-				case Level::Fatal:
-					logger->critical("{}", taggedMessage);
-					break;
+			case Level::Trace:
+				logger->trace("[{0}] {1}", tag, message);
+				break;
+			case Level::Info:
+				logger->info("[{0}] {1}", tag, message);
+				break;
+			case Level::Warn:
+				logger->warn("[{0}] {1}", tag, message);
+				break;
+			case Level::Error:
+				logger->error("[{0}] {1}", tag, message);
+				break;
+			case Level::Fatal:
+				logger->critical("[{0}] {1}", tag, message);
+				break;
 			}
-			
-			// Notify the console callback
-			NotifyConsoleCallback(level, taggedMessage);
 		}
 	}
 

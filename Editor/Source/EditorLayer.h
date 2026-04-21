@@ -2,15 +2,14 @@
 
 #include "Lux.h"
 
-#include "Panels/ConsolePanel.h"
 #include "Panels/RenderStatsPanel.h"
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/LightSettingsPanel.h"
+#include "Lux/Editor/EditorConsolePanel.h"
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
-#include "Lux/ImGui/Colors.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Renderer/Renderer2D.h"
@@ -74,16 +73,8 @@ namespace Lux
 
 		void OnDuplicateEntity();
 
-		void OnOverlayRender();
-
 		// UI Panels
-		float UI_DrawTitlebar();
-		void UI_DrawMenubar();
-		void UI_HandleManualWindowResize();
-		bool UI_TitleBarHitTest(int x, int y) const;
-
-		void UI_GizmosToolbar();
-		void UI_CentralToolbar();
+		void UI_Toolbar();
 	private:
 		EditorCamera m_EditorCamera;
 
@@ -97,6 +88,7 @@ namespace Lux
 		Ref<SceneRenderer> m_SceneRenderer;
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
+		Ref<EditorConsolePanel> m_ConsolePanel;
 
 		// Temp
 		Ref<VertexBuffer> m_SquareVA;

@@ -6,12 +6,6 @@
 
 namespace Lux {
 
-	Entity::Entity(entt::entity handle, Scene* scene)
-		: m_EntityHandle(handle), m_Scene(scene)
-	{
-
-	}
-
 	Entity Entity::GetParent() const
 	{
 		if (!m_Scene || !m_Scene->m_Registry.template has<RelationshipComponent>(m_EntityHandle))
