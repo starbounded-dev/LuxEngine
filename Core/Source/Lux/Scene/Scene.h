@@ -51,7 +51,7 @@ namespace Lux {
 		void OnUpdateEditor(Timestep ts, EditorCamera& camera);
 		void OnViewportResize(uint32_t width, uint32_t height);
 
-		void SetTargetFramebuffer(Ref<Framebuffer> framebuffer); // add this
+		void SetTargetFramebuffer(Ref<Framebuffer> framebuffer);
 
 		Entity DuplicateEntity(Entity entity);
 		Entity InstantiatePrefab(Ref<Prefab> prefab);
@@ -80,8 +80,8 @@ namespace Lux {
 
 		// Submit all StaticMeshComponent entities to the SceneRenderer
 		// Optional predicate to determine if an entity is selected (for highlight rendering)
-		void SubmitStaticMeshes(Ref<SceneRenderer> renderer, 
-		                        const std::function<bool(Entity)>& isSelected = nullptr) const;
+		void SubmitStaticMeshes(Ref<SceneRenderer> renderer,
+			const std::function<bool(Entity)>& isSelected = nullptr) const;
 
 		// High-level 3D rendering method that orchestrates the full 3D pipeline:
 		// - Sets up camera
@@ -90,17 +90,23 @@ namespace Lux {
 		// - Submits all static meshes
 		// Call this from EditorLayer to render 3D content
 		void Render3D(const EditorCamera& camera, Ref<SceneRenderer> renderer,
-		              const std::function<bool(Entity)>& isSelected = nullptr);
+			const std::function<bool(Entity)>& isSelected = nullptr);
 
 		// Render 3D content using a runtime camera (for Play mode)
 		void Render3DRuntime(Ref<SceneRenderer> renderer);
 
-	// ============================================================================
+		// ============================================================================
 
 		template<typename... Components>
 		auto GetAllEntitiesWith()
 		{
 			return m_Registry.view<Components...>();
+		}
+
+		template<typename... Components>
+		auto GetAllEntitiesWith() const
+		{
+			return m_Registry.view<const Components...>();
 		}
 	private:
 		template<typename T>

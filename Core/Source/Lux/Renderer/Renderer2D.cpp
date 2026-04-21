@@ -254,8 +254,17 @@ namespace Lux {
 				{ ShaderDataType::Float2, "a_LocalPosition" },
 				{ ShaderDataType::Float4, "a_Color" }
 			};
-			m_CirclePipeline = Pipeline::Create(pipelineSpecification);
-			m_CircleMaterial = Material::Create(pipelineSpecification.Shader);
+
+			RenderPassSpecification circleSpec;
+			circleSpec.DebugName = "Renderer2D-Circle";
+			circleSpec.Pipeline = Pipeline::Create(pipelineSpecification);
+			m_CirclePass = RenderPass::Create(circleSpec);
+			m_CirclePass->SetInput("Camera", m_UBSCamera);
+			LUX_CORE_VERIFY(m_CirclePass->Validate());
+			m_CirclePass->Bake();
+
+			m_CirclePipeline = m_CirclePass->GetPipeline();
+			m_CircleMaterial = Material::Create(pipelineSpecification.Shader, "CircleMaterial");
 
 			m_CircleVertexBuffers.resize(1);
 			m_CircleVertexBufferBases.resize(1);
@@ -265,7 +274,7 @@ namespace Lux {
 			m_CircleVertexBufferBases[0].resize(framesInFlight);
 			for (uint32_t i = 0; i < framesInFlight; i++)
 			{
-				uint64_t allocationSize = c_MaxVertices * sizeof(QuadVertex);
+				uint64_t allocationSize = c_MaxVertices * sizeof(CircleVertex);
 				m_CircleVertexBuffers[0][i] = VertexBuffer::Create(allocationSize);
 				m_MemoryStats.TotalAllocated += allocationSize;
 				m_CircleVertexBufferBases[0][i] = lnew CircleVertex[c_MaxVertices];
@@ -428,8 +437,26 @@ namespace Lux {
 			}
 		}
 
+		// Filled circles
+		for (uint32_t i = 0; i <= m_CircleBufferWriteIndex; i++)
+		{
+			dataSize = (uint32_t)((uint8_t*)m_CircleVertexBufferPtr[i] - (uint8_t*)m_CircleVertexBufferBases[i][frameIndex]);
+			if (dataSize)
+			{
+				uint32_t indexCount = i == m_CircleBufferWriteIndex ? m_CircleIndexCount - (c_MaxIndices * i) : c_MaxIndices;
+				m_CircleVertexBuffers[i][frameIndex]->SetData(m_CircleVertexBufferBases[i][frameIndex], dataSize);
+
+				Renderer::BeginRenderPass(m_RenderCommandBuffer, m_CirclePass);
+				Renderer::RenderGeometry(m_RenderCommandBuffer, m_CirclePass->GetPipeline(), m_CircleMaterial, m_CircleVertexBuffers[i][frameIndex], m_QuadIndexBuffer, glm::mat4(1.0f), indexCount);
+				Renderer::EndRenderPass(m_RenderCommandBuffer);
+
+				m_DrawStats.DrawCalls++;
+				m_MemoryStats.Used += dataSize;
+			}
+		}
+
 		// Lines (depth-tested)
-		m_LinePass->GetPipeline()->GetSpecification().DepthTest = true;
+		m_LinePass->GetPipeline()->GetSpecification().DepthTest = m_DepthTest;
 		for (uint32_t i = 0; i <= m_LineBufferWriteIndex; i++)
 		{
 			dataSize = (uint32_t)((uint8_t*)m_LineVertexBufferPtr[i] - (uint8_t*)m_LineVertexBufferBases[i][frameIndex]);
@@ -477,12 +504,15 @@ namespace Lux {
 
 	Ref<RenderPass> Renderer2D::GetTargetRenderPass()
 	{
-		return nullptr;
+		return m_QuadPass;
 	}
 
 	void Renderer2D::SetTargetFramebuffer(Ref<Framebuffer> framebuffer)
 	{
-		if (framebuffer != m_TextPass->GetTargetFramebuffer())
+		if (!framebuffer)
+			return;
+
+		if (framebuffer != m_QuadPass->GetTargetFramebuffer())
 		{
 			{
 				PipelineSpecification pipelineSpec = m_QuadPass->GetSpecification().Pipeline->GetSpecification();
@@ -498,6 +528,7 @@ namespace Lux {
 			{
 				PipelineSpecification pipelineSpec = m_LinePass->GetSpecification().Pipeline->GetSpecification();
 				pipelineSpec.TargetFramebuffer = framebuffer;
+				pipelineSpec.LineWidth = m_LineWidth;
 				RenderPassSpecification& renderpassSpec = m_LinePass->GetSpecification();
 				renderpassSpec.Pipeline = Pipeline::Create(pipelineSpec);
 				// FIX: re-validate and re-bake
@@ -515,6 +546,17 @@ namespace Lux {
 				m_TextPass->SetInput("Camera", m_UBSCamera);
 				LUX_CORE_VERIFY(m_TextPass->Validate());
 				m_TextPass->Bake();
+			}
+
+			{
+				PipelineSpecification pipelineSpec = m_CirclePass->GetSpecification().Pipeline->GetSpecification();
+				pipelineSpec.TargetFramebuffer = framebuffer;
+				RenderPassSpecification& renderpassSpec = m_CirclePass->GetSpecification();
+				renderpassSpec.Pipeline = Pipeline::Create(pipelineSpec);
+				m_CirclePass->SetInput("Camera", m_UBSCamera);
+				LUX_CORE_VERIFY(m_CirclePass->Validate());
+				m_CirclePass->Bake();
+				m_CirclePipeline = m_CirclePass->GetPipeline();
 			}
 		}
 	}
@@ -1115,10 +1157,10 @@ namespace Lux {
 			bufferPtr->LocalPosition = m_QuadVertexPositions[i] * 2.0f;
 			bufferPtr->Color = color;
 			bufferPtr++;
-
-			m_CircleIndexCount += 6;
-			m_DrawStats.QuadCount++;
 		}
+
+		m_CircleIndexCount += 6;
+		m_DrawStats.QuadCount++;
 	}
 
 	void Renderer2D::DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, const bool onTop)

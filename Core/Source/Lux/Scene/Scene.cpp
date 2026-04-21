@@ -46,16 +46,16 @@ namespace Lux {
 	static void CopyComponent(entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
 	{
 		([&]()
-		{
-			auto view = src.view<Component>();
-			for (auto srcEntity : view)
 			{
-				entt::entity dstEntity = enttMap.at(src.get<IDComponent>(srcEntity).ID);
+				auto view = src.view<Component>();
+				for (auto srcEntity : view)
+				{
+					entt::entity dstEntity = enttMap.at(src.get<IDComponent>(srcEntity).ID);
 
-				auto& srcComponent = src.get<Component>(srcEntity);
-				dst.emplace_or_replace<Component>(dstEntity, srcComponent);
-			}
-		}(), ...);
+					auto& srcComponent = src.get<Component>(srcEntity);
+					dst.emplace_or_replace<Component>(dstEntity, srcComponent);
+				}
+			}(), ...);
 	}
 
 	template<typename... Component>
@@ -68,10 +68,10 @@ namespace Lux {
 	static void CopyComponentIfExists(Entity dst, Entity src)
 	{
 		([&]()
-		{
-			if (src.HasComponent<Component>())
-				dst.AddOrReplaceComponent<Component>(src.GetComponent<Component>());
-		}(), ...);
+			{
+				if (src.HasComponent<Component>())
+					dst.AddOrReplaceComponent<Component>(src.GetComponent<Component>());
+			}(), ...);
 	}
 
 	template<typename... Component>
@@ -473,7 +473,7 @@ namespace Lux {
 				view.each([&](entt::entity entity, AudioSourceComponent& asc)
 					{
 
-						Entity e = { entity , this};
+						Entity e = { entity , this };
 
 						if (asc.Audio)
 						{
@@ -531,7 +531,7 @@ namespace Lux {
 			{
 				auto& camera = view.get<CameraComponent>(entity);
 				if (camera.Primary)
-				
+
 				{
 					mainCamera = &camera.Camera;
 					cameraTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
@@ -543,7 +543,7 @@ namespace Lux {
 		if (mainCamera)
 		{
 			glm::mat4 view = glm::inverse(cameraTransform);
-			m_Renderer2D->BeginScene(mainCamera->GetProjectionMatrix()* view, view);
+			m_Renderer2D->BeginScene(mainCamera->GetProjectionMatrix() * view, view);
 
 			// Draw sprites
 			{
@@ -700,29 +700,29 @@ namespace Lux {
 
 		std::function<Entity(Entity, Entity)> instantiateHierarchy;
 		instantiateHierarchy = [&](Entity source, Entity parent) -> Entity
-		{
-			Entity destination = CreateEntity(source.GetName());
-			CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
-
-			auto& prefabComponent = destination.AddOrReplaceComponent<PrefabComponent>();
-			prefabComponent.PrefabID = prefab->Handle;
-			prefabComponent.EntityID = source.GetUUID();
-
-			if (parent)
-				destination.SetParent(parent);
-
-			if (source.HasComponent<RelationshipComponent>())
 			{
-				for (const UUID childID : source.Children())
-				{
-					Entity child = prefabScene->GetEntityByUUID(childID);
-					if (child)
-						instantiateHierarchy(child, destination);
-				}
-			}
+				Entity destination = CreateEntity(source.GetName());
+				CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
 
-			return destination;
-		};
+				auto& prefabComponent = destination.AddOrReplaceComponent<PrefabComponent>();
+				prefabComponent.PrefabID = prefab->Handle;
+				prefabComponent.EntityID = source.GetUUID();
+
+				if (parent)
+					destination.SetParent(parent);
+
+				if (source.HasComponent<RelationshipComponent>())
+				{
+					for (const UUID childID : source.Children())
+					{
+						Entity child = prefabScene->GetEntityByUUID(childID);
+						if (child)
+							instantiateHierarchy(child, destination);
+					}
+				}
+
+				return destination;
+			};
 
 		return instantiateHierarchy(prefabRoot, {});
 	}
@@ -900,7 +900,7 @@ namespace Lux {
 
 				const auto& dirLight = view.get<const DirectionalLightComponent>(entity);
 				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
-				
+
 				glm::vec3 direction = glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 
 				lightEnv.DirectionalLights[dirLightIndex].Direction = direction;
@@ -946,7 +946,7 @@ namespace Lux {
 		for (auto entity : view)
 		{
 			const auto& skyLight = view.get<const SkyLightComponent>(entity);
-			
+
 			if (skyLight.EnvironmentMap)
 			{
 				outIntensity = skyLight.Intensity;
@@ -957,8 +957,8 @@ namespace Lux {
 		return nullptr;
 	}
 
-	void Scene::SubmitStaticMeshes(Ref<SceneRenderer> renderer, 
-	                               const std::function<bool(Entity)>& isSelected) const
+	void Scene::SubmitStaticMeshes(Ref<SceneRenderer> renderer,
+		const std::function<bool(Entity)>& isSelected) const
 	{
 		auto view = m_Registry.view<const TransformComponent, const StaticMeshComponent>();
 		for (auto e : view)
@@ -1010,7 +1010,7 @@ namespace Lux {
 	}
 
 	void Scene::Render3D(const EditorCamera& camera, Ref<SceneRenderer> renderer,
-	                     const std::function<bool(Entity)>& isSelected)
+		const std::function<bool(Entity)>& isSelected)
 	{
 		if (!renderer || !renderer->IsReady())
 			return;
@@ -1041,6 +1041,63 @@ namespace Lux {
 
 		// End the frame and execute the render passes
 		renderer->EndScene();
+
+		// Composite 2D content onto the SceneRenderer output so the main viewport
+		// can display a single image containing both 3D and 2D, like Hazel.
+		if (renderer->GetFinalPassImage())
+		{
+			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
+			if (renderer2D)
+			{
+				renderer2D->ResetStats();
+				renderer2D->BeginScene(camera.GetViewProjection(), camera.GetViewMatrix());
+				renderer2D->SetTargetFramebuffer(renderer->GetExternalCompositeFramebuffer());
+
+				// Draw sprites
+				{
+					auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+					for (auto entity : group)
+					{
+						auto& sprite = group.get<SpriteRendererComponent>(entity);
+
+						Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
+						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
+						if (texture)
+							renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
+						else
+							renderer2D->DrawQuad(worldTransform, sprite.Color);
+					}
+				}
+
+				// Draw circles
+				{
+					auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+					for (auto entity : view)
+					{
+						auto& circle = view.get<CircleRendererComponent>(entity);
+						renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
+					}
+				}
+
+				// Draw text
+				{
+					auto view = m_Registry.view<TransformComponent, TextComponent>();
+					for (auto entity : view)
+					{
+						auto& text = view.get<TextComponent>(entity);
+
+						Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
+						if (font)
+						{
+							renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),
+								text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
+						}
+					}
+				}
+
+				renderer2D->EndScene();
+			}
+		}
 	}
 
 	void Scene::Render3DRuntime(Ref<SceneRenderer> renderer)
@@ -1059,7 +1116,6 @@ namespace Lux {
 		SceneRendererCamera sceneCamera;
 		sceneCamera.Camera.SetProjectionMatrix(cameraComp.Camera.GetProjectionMatrix(), cameraComp.Camera.GetUnReversedProjectionMatrix());
 		sceneCamera.ViewMatrix = glm::inverse(GetWorldSpaceTransformMatrix(cameraEntity));
-		// Note: Near/Far/FOV from runtime camera component if needed
 
 		// Begin the 3D rendering frame
 		renderer->BeginScene(sceneCamera);
@@ -1079,6 +1135,65 @@ namespace Lux {
 
 		// End the frame
 		renderer->EndScene();
+
+		// Composite 2D content onto the SceneRenderer output.
+		if (renderer->GetFinalPassImage())
+		{
+			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
+			if (renderer2D)
+			{
+				const glm::mat4 view = sceneCamera.ViewMatrix;
+				const glm::mat4 viewProjection = cameraComp.Camera.GetProjectionMatrix() * view;
+
+				renderer2D->ResetStats();
+				renderer2D->BeginScene(viewProjection, view);
+				renderer2D->SetTargetFramebuffer(renderer->GetExternalCompositeFramebuffer());
+
+				// Draw sprites
+				{
+					auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+					for (auto entity : group)
+					{
+						auto& sprite = group.get<SpriteRendererComponent>(entity);
+
+						Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
+						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
+						if (texture)
+							renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
+						else
+							renderer2D->DrawQuad(worldTransform, sprite.Color);
+					}
+				}
+
+				// Draw circles
+				{
+					auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+					for (auto entity : view)
+					{
+						auto& circle = view.get<CircleRendererComponent>(entity);
+						renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
+					}
+				}
+
+				// Draw text
+				{
+					auto view = m_Registry.view<TransformComponent, TextComponent>();
+					for (auto entity : view)
+					{
+						auto& text = view.get<TextComponent>(entity);
+
+						Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
+						if (font)
+						{
+							renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),
+								text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
+						}
+					}
+				}
+
+				renderer2D->EndScene();
+			}
+		}
 	}
 
 	// ============================================================================

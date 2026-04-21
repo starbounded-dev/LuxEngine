@@ -170,6 +170,7 @@ namespace Lux {
 		std::vector<QuadVertex*> m_QuadVertexBufferPtr;
 		uint32_t m_QuadBufferWriteIndex = 0;
 
+		Ref<RenderPass> m_CirclePass;
 		Ref<Pipeline> m_CirclePipeline;
 		Ref<Material> m_CircleMaterial;
 		std::vector<VertexBufferPerFrame> m_CircleVertexBuffers;

@@ -294,34 +294,33 @@ namespace Lux {
 		{
 			m_EditorCamera.OnUpdate(ts);
 
-			// Render 3D content first (static meshes, lights, skybox)
+			// When SceneRenderer is ready, let it own the full visible frame and
+			// composite the 2D pass on top of the 3D result. Falling back to the
+			// old Renderer2D-only path keeps the editor usable during init.
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
 				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
-
-			// Then render 2D content (sprites, circles, text) - this blends on top
-			m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
+			else
+				m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
 			break;
 		}
 		case SceneState::Simulate:
 		{
 			m_EditorCamera.OnUpdate(ts);
 
-			// Render 3D content
+			// Update simulation first so the rendered frame matches the latest
+			// physics state, then render the composed 3D + 2D scene.
+			m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
 				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
-
-			// Then render 2D content and update physics simulation
-			m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
 			break;
 		}
 		case SceneState::Play:
 		{
-			// Render 3D content using the runtime camera
+			// Runtime has to update before rendering so sprites, circles and text
+			// appear in their current positions in the main viewport.
+			m_ActiveScene->OnUpdateRuntime(ts);
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
 				m_ActiveScene->Render3DRuntime(m_SceneRenderer);
-
-			// Then run the full runtime update (scripts, physics, 2D rendering)
-			m_ActiveScene->OnUpdateRuntime(ts);
 			break;
 		}
 		}
@@ -401,6 +400,9 @@ namespace Lux {
 			if (m_ShowAboutPopup)
 				ImGui::OpenPopup("About LuxEngine");
 
+			ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+			ImGui::SetNextWindowPos(mainViewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
 			if (ImGui::BeginPopupModal("About LuxEngine", &m_ShowAboutPopup, ImGuiWindowFlags_AlwaysAutoResize))
 			{
 				ImGui::Text("LuxEngine Editor");
@@ -476,7 +478,11 @@ namespace Lux {
 			if (viewportPanelSize.x > 1.0f && viewportPanelSize.y > 1.0f)
 				m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-			ImTextureID texID = GetImGuiTextureID(m_Framebuffer->GetImage(0));
+			Ref<Image2D> viewportImage = m_Framebuffer->GetImage(0);
+			if (m_SceneRenderer && m_SceneRenderer->GetFinalPassImage())
+				viewportImage = m_SceneRenderer->GetFinalPassImage();
+
+			ImTextureID texID = GetImGuiTextureID(viewportImage);
 			ImGui::Image(texID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
 
 			if (ImGui::BeginDragDropTarget())
@@ -561,75 +567,78 @@ namespace Lux {
 
 	void EditorLayer::UI_DrawMenubar()
 	{
+		const ImRect menuBarRect = { ImGui::GetCursorPos(), { ImGui::GetContentRegionAvail().x + ImGui::GetCursorScreenPos().x, ImGui::GetFrameHeightWithSpacing() } };
+
+		ImGui::BeginGroup();
+
 		ImGuiEx::ScopedColourStack menuColors(
 			ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
 			ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
 			ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent),
 			ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::text));
 
-		const float menuMinX = 76.0f;
-		const float menuMaxX = std::max(menuMinX + 1.0f, ImGui::GetWindowWidth() - 350.0f);
-		const ImRect menuBarRect(ImVec2(menuMinX, 0.0f), ImVec2(menuMaxX, m_TitlebarHeight));
-		if (!ImGuiEx::BeginMenuBar(menuBarRect))
-			return;
-
-		if (ImGui::BeginMenu("File"))
+		if (ImGuiEx::BeginMenuBar(menuBarRect))
 		{
-			if (ImGui::MenuItem("Create Project"))
-				NewProject();
-			if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
-				OpenProject();
-
-			if (ImGui::BeginMenu("Recent Projects"))
+			if (ImGui::BeginMenu("File"))
 			{
-				ImGui::MenuItem("No recent projects", nullptr, false, false);
+				if (ImGui::MenuItem("Create Project"))
+					NewProject();
+				if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
+					OpenProject();
+
+				if (ImGui::BeginMenu("Recent Projects"))
+				{
+					ImGui::MenuItem("No recent projects", nullptr, false, false);
+					ImGui::EndMenu();
+				}
+
+				ImGui::Separator();
+				if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+					SaveScene();
+				if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
+					SaveSceneAs();
+
+				ImGui::Separator();
+				if (ImGui::MenuItem("Exit"))
+					Application::Get().DispatchEvent<WindowCloseEvent, true>();
+
 				ImGui::EndMenu();
 			}
 
-			ImGui::Separator();
-			if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
-				SaveScene();
-			if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
-				SaveSceneAs();
+			if (ImGui::BeginMenu("Edit"))
+			{
+				if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
+					ScriptEngine::ReloadAssembly();
+				ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
+				ImGui::EndMenu();
+			}
 
-			ImGui::Separator();
-			if (ImGui::MenuItem("Exit"))
-				Application::Get().DispatchEvent<WindowCloseEvent, true>();
+			if (ImGui::BeginMenu("View"))
+			{
+				auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
+				for (auto& [id, panelData] : viewPanels)
+					ImGui::MenuItem(panelData.Name, nullptr, &panelData.IsOpen);
+				ImGui::EndMenu();
+			}
 
-			ImGui::EndMenu();
+			if (ImGui::BeginMenu("Tools"))
+			{
+				ImGui::MenuItem("ImGui Metrics", nullptr, &m_ShowImGuiMetrics);
+				ImGui::MenuItem("ImGui Style Editor", nullptr, &m_ShowImGuiStyleEditor);
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Help"))
+			{
+				if (ImGui::MenuItem("About"))
+					m_ShowAboutPopup = true;
+				ImGui::EndMenu();
+			}
+
+			ImGuiEx::EndMenuBar();
 		}
 
-		if (ImGui::BeginMenu("Edit"))
-		{
-			if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
-				ScriptEngine::ReloadAssembly();
-			ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
-			ImGui::EndMenu();
-		}
-
-		if (ImGui::BeginMenu("View"))
-		{
-			auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
-			for (auto& [id, panelData] : viewPanels)
-				ImGui::MenuItem(panelData.Name, nullptr, &panelData.IsOpen);
-			ImGui::EndMenu();
-		}
-
-		if (ImGui::BeginMenu("Tools"))
-		{
-			ImGui::MenuItem("ImGui Metrics", nullptr, &m_ShowImGuiMetrics);
-			ImGui::MenuItem("ImGui Style Editor", nullptr, &m_ShowImGuiStyleEditor);
-			ImGui::EndMenu();
-		}
-
-		if (ImGui::BeginMenu("Help"))
-		{
-			if (ImGui::MenuItem("About"))
-				m_ShowAboutPopup = true;
-			ImGui::EndMenu();
-		}
-
-		ImGuiEx::EndMenuBar();
+		ImGui::EndGroup();
 	}
 
 	void EditorLayer::UI_DrawTitlebar()
@@ -660,6 +669,8 @@ namespace Lux {
 		if (EditorResources::HazelLogoTexture)
 			drawList->AddImage(GetImGuiTextureID(EditorResources::HazelLogoTexture), logoMin, logoMax);
 
+		const float menuBarX = logoPadding * 2.0f + logoSize + 8.0f;
+		ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
 		UI_DrawMenubar();
 
 		const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
@@ -1118,6 +1129,13 @@ namespace Lux {
 
 	void EditorLayer::OnOverlayRender()
 	{
+		Ref<Framebuffer> overlayTarget = m_Framebuffer;
+		if (m_SceneRenderer && m_SceneRenderer->GetExternalCompositeFramebuffer())
+			overlayTarget = m_SceneRenderer->GetExternalCompositeFramebuffer();
+
+		if (overlayTarget)
+			m_Renderer2D->SetTargetFramebuffer(overlayTarget);
+
 		if (m_SceneState == SceneState::Play)
 		{
 			Entity camera = m_ActiveScene->GetPrimaryCameraEntity();
