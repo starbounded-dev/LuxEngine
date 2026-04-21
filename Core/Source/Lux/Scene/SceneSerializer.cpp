@@ -572,7 +572,7 @@ namespace Lux {
 	{
 		YAML::Emitter out;
 		out << YAML::BeginMap;
-		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
+		out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 
 		auto view = m_Scene->m_Registry.view<IDComponent>();
@@ -616,7 +616,16 @@ namespace Lux {
 			return false;
 
 		std::string sceneName = data["Scene"].as<std::string>();
+		if (sceneName.empty() || sceneName == "Untitled")
+			sceneName = filepath.stem().string();
+		m_Scene->SetName(sceneName);
 		LUX_CORE_TRACE("Deserializing scene '{0}'", sceneName);
+
+		if (Project::GetAssetManager())
+		{
+			if (auto editorAssetManager = Project::GetEditorAssetManager())
+				m_Scene->Handle = editorAssetManager->GetAssetHandleFromFilePath(filepath);
+		}
 
 		auto entities = data["Entities"];
 		if (entities)

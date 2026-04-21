@@ -18,5 +18,7 @@ namespace Lux
 		// Attempt to load the asset described by metadata.
 		// Returns true and sets asset on success; returns false on failure.
 		virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const = 0;
+
+		virtual void RegisterDependencies(const AssetMetadata& metadata) const {}
 	};
 }

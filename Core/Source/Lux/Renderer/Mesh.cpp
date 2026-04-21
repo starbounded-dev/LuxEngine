@@ -205,11 +205,10 @@ namespace Lux
 				m_Materials->SetMaterial((uint32_t)i, meshMaterials[i]);
 		}
 	}
-	/*
 	void Mesh::OnDependencyUpdated(AssetHandle handle)
 	{
-		Project::GetAssetManager()->ReloadDataAsync(Handle);
-	}*/
+		AssetManager::ReloadDataAsync(Handle);
+	}
 
 	void Mesh::SetSubmeshes(const std::vector<uint32_t>& submeshes, Ref<MeshSource> meshSource)
 	{
@@ -273,11 +272,10 @@ namespace Lux
 				m_Materials->SetMaterial(i, meshMaterials[i]);
 		}
 	}
-	/*
 	void StaticMesh::OnDependencyUpdated(AssetHandle)
 	{
-		Project::GetAssetManager()->ReloadDataAsync(Handle);
-	}*/
+		AssetManager::ReloadDataAsync(Handle);
+	}
 
 	void StaticMesh::SetSubmeshes(const std::vector<uint32_t>& submeshes, Ref<MeshSource> meshSource)
 	{

@@ -1,80 +1,113 @@
 #include "lpch.h"
 #include "AssetImporter.h"
 
-#include "TextureImporter.h"
-#include "SceneImporter.h"
 #include "AudioImporter.h"
-#include "TextureSerializer.h"
-#include "MeshSerializer.h"
 #include "MaterialSerializer.h"
+#include "MeshSerializer.h"
+#include "SceneImporter.h"
+#include "TextureSerializer.h"
 
-#include <map>
-#include <memory>
+#include "Lux/Project/Project.h"
 
-namespace Lux {
+#include <mutex>
+#include <unordered_map>
 
-	// Serializer-based dispatch table (Hazel-style).
-	// Each entry owns its AssetSerializer instance.
-	static std::map<AssetType, std::unique_ptr<AssetSerializer>> s_Serializers;
-
-	static void InitSerializers()
+namespace Lux
+{
+	namespace
 	{
-		// Texture
-		s_Serializers[AssetType::Texture]    = std::make_unique<TextureSerializer>();
-		s_Serializers[AssetType::EnvMap]     = std::make_unique<TextureSerializer>();
+		using SerializerMap = std::unordered_map<AssetType, std::unique_ptr<AssetSerializer>>;
+		SerializerMap s_Serializers;
 
-		// Mesh
-		s_Serializers[AssetType::MeshSource] = std::make_unique<MeshSourceSerializer>();
-		s_Serializers[AssetType::Mesh]       = std::make_unique<MeshSerializer>();
-		s_Serializers[AssetType::StaticMesh] = std::make_unique<StaticMeshSerializer>();
+		void InitSerializers()
+		{
+			s_Serializers.clear();
+			s_Serializers[AssetType::Scene] = std::make_unique<SceneAssetSerializer>();
+			s_Serializers[AssetType::Texture] = std::make_unique<TextureSerializer>();
+			s_Serializers[AssetType::EnvMap] = std::make_unique<TextureSerializer>();
+			s_Serializers[AssetType::MeshSource] = std::make_unique<MeshSourceSerializer>();
+			s_Serializers[AssetType::Mesh] = std::make_unique<MeshSerializer>();
+			s_Serializers[AssetType::StaticMesh] = std::make_unique<StaticMeshSerializer>();
+			s_Serializers[AssetType::Material] = std::make_unique<MaterialSerializer>();
+		}
 
-		// Material
-		s_Serializers[AssetType::Material]   = std::make_unique<MaterialSerializer>();
+		void EnsureInitialized()
+		{
+			static std::once_flag s_InitFlag;
+			std::call_once(s_InitFlag, []
+			{
+				InitSerializers();
+			});
+		}
+	}
+
+	void AssetImporter::Init()
+	{
+		EnsureInitialized();
+	}
+
+	void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)
+	{
+		EnsureInitialized();
+
+		auto serializerIt = s_Serializers.find(metadata.Type);
+		if (serializerIt == s_Serializers.end())
+		{
+			LUX_CORE_WARN("AssetImporter: no serializer for asset type {}", (uint16_t)metadata.Type);
+			return;
+		}
+
+		serializerIt->second->Serialize(metadata, asset);
+	}
+
+	void AssetImporter::Serialize(const Ref<Asset>& asset)
+	{
+		if (!asset || !Project::GetEditorAssetManager())
+			return;
+
+		Serialize(Project::GetEditorAssetManager()->GetMetadata(asset->Handle), asset);
+	}
+
+	bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)
+	{
+		EnsureInitialized();
+
+		auto serializerIt = s_Serializers.find(metadata.Type);
+		if (serializerIt != s_Serializers.end())
+			return serializerIt->second->TryLoadData(metadata, asset);
+
+		if (metadata.Type == AssetType::Audio)
+		{
+			asset = AudioImporter::ImportAudio(metadata.Handle, metadata);
+			return asset != nullptr;
+		}
+
+		LUX_CORE_WARN("AssetImporter: no loader for asset type {}", (uint16_t)metadata.Type);
+		return false;
+	}
+
+	void AssetImporter::RegisterDependencies(const AssetMetadata& metadata)
+	{
+		EnsureInitialized();
+
+		auto serializerIt = s_Serializers.find(metadata.Type);
+		if (serializerIt != s_Serializers.end())
+			serializerIt->second->RegisterDependencies(metadata);
 	}
 
 	Ref<Asset> AssetImporter::ImportAsset(AssetHandle handle, const AssetMetadata& metadata)
 	{
-		LUX_PROFILE_FUNCTION_COLOR("AssetImporter::ImportAsset", 0xF2FA8A);
+		AssetMetadata metadataWithHandle = metadata;
+		if (!metadataWithHandle.Handle)
+			metadataWithHandle.Handle = handle;
 
-		// Lazy-initialise the serializer table once.
-		static std::once_flag s_InitFlag;
-		std::call_once(s_InitFlag, InitSerializers);
-
-		// ── Serializer-based types ────────────────────────────────────────────
-		auto serializerIt = s_Serializers.find(metadata.Type);
-		if (serializerIt != s_Serializers.end())
-		{
-			// Build a metadata copy that carries the handle (in case the
-			// metadata came in without it already set).
-			AssetMetadata meta = metadata;
-			if (meta.Handle == 0)
-				meta.Handle = handle;
-
-			Ref<Asset> asset;
-			if (serializerIt->second->TryLoadData(meta, asset))
-				return asset;
-
-			LUX_CORE_ERROR("AssetImporter: serializer failed for type {} (handle {})",
-				(uint16_t)metadata.Type, (uint64_t)handle);
+		Ref<Asset> asset;
+		if (!TryLoadData(metadataWithHandle, asset))
 			return nullptr;
-		}
 
-		// ── Legacy function-pointer importers ─────────────────────────────────
-		using AssetImportFunction = std::function<Ref<Asset>(AssetHandle, const AssetMetadata&)>;
-		static const std::map<AssetType, AssetImportFunction> s_LegacyImportFunctions = {
-			{ AssetType::Scene, SceneImporter::ImportScene },
-			{ AssetType::Audio, AudioImporter::ImportAudio },
-		};
+		if (asset)
+			asset->Handle = metadataWithHandle.Handle;
 
-		auto legacyIt = s_LegacyImportFunctions.find(metadata.Type);
-		if (legacyIt == s_LegacyImportFunctions.end())
-		{
-			LUX_CORE_ERROR("AssetImporter: no importer for asset type {} (handle {})",
-				(uint16_t)metadata.Type, (uint64_t)handle);
-			return nullptr;
-		}
-
-		return legacyIt->second(handle, metadata);
+		return asset;
 	}
-
 }

@@ -1,4 +1,4 @@
-Scene: Untitled
+Scene: Physics2D
 Entities:
   - Entity: 10625048149344785802
     TagComponent:
@@ -47,7 +47,7 @@ Entities:
         PerspectiveFOV: 0.785398185
         PerspectiveNear: 0.00999999978
         PerspectiveFar: 1000
-        OrthographicSize: 1.62107623
+        OrthographicSize: 1.57551491
         OrthographicNear: -1
         OrthographicFar: 1
       Primary: true

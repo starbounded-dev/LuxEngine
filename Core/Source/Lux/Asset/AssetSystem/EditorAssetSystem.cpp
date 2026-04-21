@@ -1,7 +1,7 @@
 #include "lpch.h"
-#include "EditorAssetSystem.h"
+#include "Lux/Asset/AssetSystem/EditorAssetSystem.h"
 
-#include "AssetImporter.h"
+#include "Lux/Asset/AssetImporter.h"
 
 namespace Lux
 {
@@ -26,14 +26,12 @@ namespace Lux
 		m_LoadQueueCV.notify_one();
 	}
 
-	void EditorAssetSystem::SyncLoadedAssets(AssetMap& loadedAssets)
+	void EditorAssetSystem::SyncLoadedAssets(std::vector<EditorAssetLoadResponse>& loadedAssets)
 	{
 		std::scoped_lock lock(m_FinishedQueueMutex);
 		while (!m_FinishedQueue.empty())
 		{
-			auto& entry = m_FinishedQueue.front();
-			if (entry.Asset)
-				loadedAssets[entry.Handle] = entry.Asset;
+			loadedAssets.emplace_back(std::move(m_FinishedQueue.front()));
 			m_FinishedQueue.pop();
 		}
 	}
@@ -41,7 +39,7 @@ namespace Lux
 	void EditorAssetSystem::Stop()
 	{
 		if (!m_Running.exchange(false))
-			return; // already stopped
+			return;
 
 		m_LoadQueueCV.notify_all();
 		m_Thread.Join();
@@ -67,14 +65,13 @@ namespace Lux
 				m_LoadQueue.pop();
 			}
 
-			// Load on worker thread
-			Ref<Asset> asset = AssetImporter::ImportAsset(metadata.Handle, metadata);
-			if (asset)
+			Ref<Asset> asset;
+			if (AssetImporter::TryLoadData(metadata, asset) && asset)
 				asset->Handle = metadata.Handle;
 
 			{
 				std::scoped_lock lock(m_FinishedQueueMutex);
-				m_FinishedQueue.push({ metadata.Handle, asset });
+				m_FinishedQueue.push({ metadata, asset });
 			}
 		}
 	}

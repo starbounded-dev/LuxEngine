@@ -83,6 +83,8 @@ namespace Lux {
 	Ref<Scene> Scene::Copy(Ref<Scene> other)
 	{
 		Ref<Scene> newScene = Ref<Scene>::Create();
+		newScene->Handle = other->Handle;
+		newScene->m_Name = other->m_Name;
 
 		newScene->m_ViewportWidth = other->m_ViewportWidth;
 		newScene->m_ViewportHeight = other->m_ViewportHeight;

@@ -2,6 +2,7 @@
 
 #include "Asset.h"
 #include "AssetMetadata.h"
+#include "AssetSerializer.h"
 
 #include "Lux/Scene/Scene.h"
 
@@ -17,6 +18,13 @@ namespace Lux {
 		static Ref<Scene> LoadScene(const std::filesystem::path& path);
 
 		static void SaveScene(Ref<Scene> scene, const std::filesystem::path& path);
+	};
+
+	class SceneAssetSerializer : public AssetSerializer
+	{
+	public:
+		virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+		virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 	};
 
 }

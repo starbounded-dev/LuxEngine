@@ -289,7 +289,7 @@ namespace Lux {
 		Mesh(AssetHandle meshSource, const std::vector<uint32_t>& submeshes, bool generateColliders);
 		virtual ~Mesh() = default;
 
-		//virtual void OnDependencyUpdated(AssetHandle handle) override;
+		virtual void OnDependencyUpdated(AssetHandle handle) override;
 
 		const std::vector<uint32_t>& GetSubmeshes() const { return m_Submeshes; }
 
@@ -331,7 +331,7 @@ namespace Lux {
 		StaticMesh(AssetHandle meshSource, const std::vector<uint32_t>& submeshes, bool generateColliders);
 		virtual ~StaticMesh() = default;
 
-		//virtual void OnDependencyUpdated(AssetHandle handle) override;
+		virtual void OnDependencyUpdated(AssetHandle handle) override;
 
 		const std::vector<uint32_t>& GetSubmeshes() const { return m_Submeshes; }
 

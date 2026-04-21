@@ -1275,7 +1275,7 @@ namespace Lux {
 	{
 		if (Project::Load(path))
 		{
-			AssetHandle startScene = Project::GetActive()->GetConfig().StartScene;
+			AssetHandle startScene = Project::GetActive()->GetConfig().StartSceneHandle;
 			if (startScene)
 				OpenScene(startScene);
 			m_PanelManager->OnProjectChanged(Project::GetActive());

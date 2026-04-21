@@ -31,20 +31,24 @@ namespace Lux {
 
 		// Textures
 		Ref<Texture2D> GetAlbedoMap();
+		AssetHandle GetAlbedoMapHandle() const { return m_Maps.AlbedoMap; }
 		void SetAlbedoMap(AssetHandle handle);
 		void ClearAlbedoMap();
 
 		Ref<Texture2D> GetNormalMap();
+		AssetHandle GetNormalMapHandle() const { return m_Maps.NormalMap; }
 		void SetNormalMap(AssetHandle handle);
 		bool IsUsingNormalMap();
 		void SetUseNormalMap(bool value);
 		void ClearNormalMap();
 
 		Ref<Texture2D> GetMetalnessMap();
+		AssetHandle GetMetalnessMapHandle() const { return m_Maps.MetalnessMap; }
 		void SetMetalnessMap(AssetHandle handle);
 		void ClearMetalnessMap();
 
 		Ref<Texture2D> GetRoughnessMap();
+		AssetHandle GetRoughnessMapHandle() const { return m_Maps.RoughnessMap; }
 		void SetRoughnessMap(AssetHandle handle);
 		void ClearRoughnessMap();
 

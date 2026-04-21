@@ -34,7 +34,12 @@ namespace Lux {
 
 		static Ref<Scene> Copy(Ref<Scene> other);
 
-		virtual AssetType GetType() const { return AssetType::Scene; }
+		static AssetType GetStaticType() { return AssetType::Scene; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
+		virtual AssetType GetType() const { return GetStaticType(); }
+
+		const std::string& GetName() const { return m_Name; }
+		void SetName(const std::string& name) { m_Name = name; }
 
 		Entity CreateEntity(const std::string& name = std::string());
 		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
@@ -127,6 +132,7 @@ namespace Lux {
 		b2World* m_PhysicsWorld = nullptr;
 
 		Ref<Renderer2D> m_Renderer2D;
+		std::string m_Name = "Untitled";
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 

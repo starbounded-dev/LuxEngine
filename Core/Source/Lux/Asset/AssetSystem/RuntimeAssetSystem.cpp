@@ -1,5 +1,5 @@
 #include "lpch.h"
-#include "RuntimeAssetSystem.h"
+#include "Lux/Asset/AssetSystem/RuntimeAssetSystem.h"
 
 namespace Lux
 {
@@ -31,11 +31,11 @@ namespace Lux
 		{
 			auto& entry = m_FinishedQueue.front();
 			if (entry.LoadedAsset)
-			{
 				loadedAssets[entry.Handle] = entry.LoadedAsset;
-				if (entry.CallbackFn != nullptr)
-					entry.CallbackFn(entry.Handle, entry.LoadedAsset);
-			}
+
+			if (entry.CallbackFn)
+				entry.CallbackFn(entry.Handle, entry.LoadedAsset);
+
 			m_FinishedQueue.pop();
 		}
 	}
@@ -43,7 +43,7 @@ namespace Lux
 	void RuntimeAssetSystem::Stop()
 	{
 		if (!m_Running.exchange(false))
-			return; // already stopped
+			return;
 
 		m_LoadQueueCV.notify_all();
 		m_Thread.Join();
@@ -78,11 +78,7 @@ namespace Lux
 
 			{
 				std::scoped_lock lock(m_FinishedQueueMutex);
-				LoadedEntry entry;
-				entry.Handle = request.Handle;
-				entry.LoadedAsset = std::move(asset);
-				entry.CallbackFn = std::move(request.Callback);
-				m_FinishedQueue.push(std::move(entry));
+				m_FinishedQueue.push({ request.Handle, std::move(asset), std::move(request.Callback) });
 			}
 		}
 	}

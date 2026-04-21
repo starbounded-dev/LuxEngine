@@ -46,7 +46,9 @@ namespace Lux {
 		AudioSource();
 		~AudioSource();
 
-		virtual AssetType GetType() const { return AssetType::Audio; }
+		static AssetType GetStaticType() { return AssetType::Audio; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
+		virtual AssetType GetType() const { return GetStaticType(); }
 		std::unique_ptr<ma_sound>& GetSound() { return m_Sound; }
 
 		void Play();
