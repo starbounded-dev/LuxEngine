@@ -26,6 +26,7 @@ namespace Lux
 	{
 	public:
 		const std::filesystem::path& GetProjectDirectory() const { return m_ProjectDirectory; }
+		const std::filesystem::path& GetProjectFilePath() const { return m_ProjectFilePath; }
 
 		std::filesystem::path GetAssetDirectory() const
 		{
@@ -89,6 +90,7 @@ namespace Lux
 	private:
 		ProjectConfig m_Config;
 		std::filesystem::path m_ProjectDirectory;
+		std::filesystem::path m_ProjectFilePath;
 
 		inline static Ref<Project> s_ActiveProject;
 		inline static Ref<AssetManagerBase> s_AssetManager;

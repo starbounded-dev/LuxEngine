@@ -33,6 +33,10 @@
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
+#include "Panels/ApplicationSettingsPanel.h"
+#include "Panels/AssetManagerPanel.h"
+#include "Panels/MaterialsPanel.h"
+#include "Panels/ProjectSettingsWindow.h"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -149,6 +153,12 @@ namespace Lux {
 			return {};
 		}
 
+		bool ShouldAutoOpenMostRecentProject()
+		{
+			auto& settings = Application::Get().GetSettings();
+			return settings.GetInt("Editor.AutoOpenMostRecentProject", 1) != 0;
+		}
+
 		ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
 		{
 			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
@@ -239,6 +249,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
 
 		EditorResources::Init();
+		LoadEditorPreferences();
 
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();
@@ -257,6 +268,33 @@ namespace Lux {
 
 		// Material Editor panel
 		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, "MaterialEditorPanel", "Material Editor", true);
+		m_PanelManager->AddPanel<MaterialsPanel>(PanelCategory::View, MATERIALS_PANEL_ID, "Materials", false, m_SceneHierarchyPanel, [this, materialEditorPanel](AssetHandle handle) mutable
+			{
+				if (!materialEditorPanel)
+					return;
+
+				materialEditorPanel->OpenMaterial(handle);
+				if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash("MaterialEditorPanel")))
+					panelData->IsOpen = true;
+			});
+
+		ApplicationSettingsPanel::EditorPreferencesBindings editorPreferencesBindings{};
+		editorPreferencesBindings.VSync = &m_VSync;
+		editorPreferencesBindings.UseGizmoSnap = &m_UseGizmoSnap;
+		editorPreferencesBindings.TranslationSnapValue = &m_TranslationSnapValue;
+		editorPreferencesBindings.RotationSnapValue = &m_RotationSnapValue;
+		editorPreferencesBindings.ShowBoundingBoxes = &m_ShowBoundingBoxes;
+		editorPreferencesBindings.ShowEntityIcons = &m_ShowEntityIcons;
+		editorPreferencesBindings.ShowPhysicsColliders = &m_ShowPhysicsColliders;
+		editorPreferencesBindings.OnPreferencesChanged = [this]()
+			{
+				ApplyEditorPreferences();
+				SaveEditorPreferences();
+			};
+
+		m_PanelManager->AddPanel<ApplicationSettingsPanel>(PanelCategory::View, APPLICATION_SETTINGS_PANEL_ID, "Application Settings", false, contentBrowserPanel, editorPreferencesBindings);
+		m_PanelManager->AddPanel<AssetManagerPanel>(PanelCategory::View, ASSET_MANAGER_PANEL_ID, "Asset Manager", false);
+		m_PanelManager->AddPanel<ProjectSettingsWindow>(PanelCategory::View, PROJECT_SETTINGS_PANEL_ID, "Project Settings", false);
 
 		// Light Settings panel
 		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", true);
@@ -303,6 +341,7 @@ namespace Lux {
 		m_SceneRenderer = Ref<SceneRenderer>::Create(m_ActiveScene, sceneRendererSpec);
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
+		ApplyEditorPreferences();
 
 		if (contentBrowserPanel)
 		{
@@ -336,13 +375,17 @@ namespace Lux {
 		if (s_SceneRendererState.Renderer)
 			s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
 
-		if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
-			OpenProject(startupProject);
+		if (ShouldAutoOpenMostRecentProject())
+		{
+			if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
+				OpenProject(startupProject);
+		}
 	}
 
 	void EditorLayer::OnDetach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
+		SaveEditorPreferences();
 
 		ResetSceneRenderer();
 
@@ -561,12 +604,15 @@ namespace Lux {
 			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 
 			if (ImGui::Checkbox("VSync", &m_VSync))
-				Application::Get().GetWindow().SetVSync(m_VSync);
+			{
+				ApplyEditorPreferences();
+				SaveEditorPreferences();
+			}
 
 			if (ImGui::Checkbox("Show Physics Colliders", &m_ShowPhysicsColliders))
 			{
-				if (s_SceneRendererState.Renderer)
-					s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+				ApplyEditorPreferences();
+				SaveEditorPreferences();
 			}
 
 			ImGui::Separator();
@@ -704,6 +750,8 @@ namespace Lux {
 					NewProject();
 				if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
 					OpenProject();
+				if (ImGui::MenuItem("Save Project"))
+					SaveProject();
 
 				if (ImGui::BeginMenu("Recent Projects"))
 				{
@@ -1027,27 +1075,44 @@ namespace Lux {
 
 		if (ImGui::BeginPopup("##viewport_settings_popup"))
 		{
-			ImGui::Checkbox("Enable Gizmo Snap", &m_UseGizmoSnap);
+			bool settingsChanged = false;
+
+			if (ImGui::Checkbox("Enable Gizmo Snap", &m_UseGizmoSnap))
+				settingsChanged = true;
 			if (m_UseGizmoSnap)
 			{
-				ImGui::DragFloat("Translate Snap", &m_TranslationSnapValue, 0.05f, 0.05f, 10.0f, "%.2f");
-				ImGui::DragFloat("Rotate Snap", &m_RotationSnapValue, 1.0f, 1.0f, 180.0f, "%.0f");
+				if (ImGui::DragFloat("Translate Snap", &m_TranslationSnapValue, 0.05f, 0.05f, 10.0f, "%.2f"))
+					settingsChanged = true;
+				if (ImGui::DragFloat("Rotate Snap", &m_RotationSnapValue, 1.0f, 1.0f, 180.0f, "%.0f"))
+					settingsChanged = true;
 			}
 
 			ImGui::Separator();
-			ImGui::Checkbox("Show Bounding Boxes", &m_ShowBoundingBoxes);
-			ImGui::Checkbox("Show Entity Icons", &m_ShowEntityIcons);
+			if (ImGui::Checkbox("Show Bounding Boxes", &m_ShowBoundingBoxes))
+				settingsChanged = true;
+			if (ImGui::Checkbox("Show Entity Icons", &m_ShowEntityIcons))
+				settingsChanged = true;
 
 			if (s_SceneRendererState.Renderer)
 			{
 				auto& options = s_SceneRendererState.Renderer->GetOptions();
 				ImGui::Checkbox("Show Grid", &options.ShowGrid);
-				ImGui::Checkbox("Show Physics Colliders", &options.ShowPhysicsColliders);
+				if (ImGui::Checkbox("Show Physics Colliders", &options.ShowPhysicsColliders))
+				{
+					m_ShowPhysicsColliders = options.ShowPhysicsColliders;
+					settingsChanged = true;
+				}
 			}
 
 			int displayMode = (int)m_ViewportDisplayMode;
 			if (ImGui::Combo("Display Mode", &displayMode, "Lit\0Selected Wireframe\0"))
 				m_ViewportDisplayMode = (ViewportDisplayMode)displayMode;
+
+			if (settingsChanged)
+			{
+				ApplyEditorPreferences();
+				SaveEditorPreferences();
+			}
 
 			ImGui::EndPopup();
 		}
@@ -1414,9 +1479,50 @@ namespace Lux {
 		m_Renderer2D->EndScene();
 	}
 
+	void EditorLayer::LoadEditorPreferences()
+	{
+		auto& settings = Application::Get().GetSettings();
+
+		m_VSync = settings.GetInt("Editor.VSync", Application::Get().GetWindow().IsVSync() ? 1 : 0) != 0;
+		m_UseGizmoSnap = settings.GetInt("Editor.UseGizmoSnap", 0) != 0;
+		m_TranslationSnapValue = std::max(settings.GetFloat("Editor.TranslationSnapValue", 0.5f), 0.05f);
+		m_RotationSnapValue = std::max(settings.GetFloat("Editor.RotationSnapValue", 45.0f), 1.0f);
+		m_ShowBoundingBoxes = settings.GetInt("Editor.ShowBoundingBoxes", 0) != 0;
+		m_ShowEntityIcons = settings.GetInt("Editor.ShowEntityIcons", 1) != 0;
+		m_ShowPhysicsColliders = settings.GetInt("Editor.ShowPhysicsColliders", 0) != 0;
+
+		ApplyEditorPreferences();
+	}
+
+	void EditorLayer::SaveEditorPreferences() const
+	{
+		auto& settings = Application::Get().GetSettings();
+		settings.SetInt("Editor.VSync", m_VSync ? 1 : 0);
+		settings.SetInt("Editor.UseGizmoSnap", m_UseGizmoSnap ? 1 : 0);
+		settings.SetFloat("Editor.TranslationSnapValue", m_TranslationSnapValue);
+		settings.SetFloat("Editor.RotationSnapValue", m_RotationSnapValue);
+		settings.SetInt("Editor.ShowBoundingBoxes", m_ShowBoundingBoxes ? 1 : 0);
+		settings.SetInt("Editor.ShowEntityIcons", m_ShowEntityIcons ? 1 : 0);
+		settings.SetInt("Editor.ShowPhysicsColliders", m_ShowPhysicsColliders ? 1 : 0);
+		settings.Serialize();
+	}
+
+	void EditorLayer::ApplyEditorPreferences()
+	{
+		Application::Get().GetWindow().SetVSync(m_VSync);
+
+		if (m_SceneRenderer)
+			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+
+		if (s_SceneRendererState.Renderer)
+			s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+	}
+
 	void EditorLayer::NewProject()
 	{
 		Project::New();
+		m_PanelManager->OnProjectChanged(Project::GetActive());
+		NewScene();
 	}
 
 	void EditorLayer::OpenProject(const std::filesystem::path& path)
@@ -1443,7 +1549,21 @@ namespace Lux {
 
 	void EditorLayer::SaveProject()
 	{
-		// Project::SaveActive();
+		if (!Project::GetActive())
+			return;
+
+		std::filesystem::path projectFilePath = Project::GetActive()->GetProjectFilePath();
+		if (projectFilePath.empty())
+		{
+			std::string filepath = FileDialogs::SaveFile("Lux Project (*.luxproj)\0*.luxproj\0");
+			if (filepath.empty())
+				return;
+
+			projectFilePath = filepath;
+		}
+
+		if (Project::SaveActive(projectFilePath))
+			AddRecentProject(projectFilePath);
 	}
 
 	void EditorLayer::NewScene()

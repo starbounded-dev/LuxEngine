@@ -75,6 +75,9 @@ namespace Lux
 
 		// UI Panels
 		void UI_Toolbar();
+		void LoadEditorPreferences();
+		void SaveEditorPreferences() const;
+		void ApplyEditorPreferences();
 	private:
 		EditorCamera m_EditorCamera;
 

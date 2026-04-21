@@ -78,6 +78,7 @@ namespace Lux
 		if (!serializer.Deserialize(path))
 			return nullptr;
 
+		project->m_ProjectFilePath = path.lexically_normal();
 		project->m_ProjectDirectory = path.parent_path();
 		SetActive(project);
 		return s_ActiveProject;
@@ -94,6 +95,7 @@ namespace Lux
 		if (!serializer.Serialize(path))
 			return false;
 
+		s_ActiveProject->m_ProjectFilePath = path.lexically_normal();
 		s_ActiveProject->m_ProjectDirectory = path.parent_path();
 		return true;
 	}

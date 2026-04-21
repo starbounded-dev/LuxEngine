@@ -183,6 +183,8 @@ namespace Lux {
 		float GetThumbnailSize() const { return m_ThumbnailSize; }
 		bool GetShowAssetTypes() const { return m_ShowAssetType; }
 		bool IsFocused() const { return m_IsContentBrowserFocused; }
+		void SetThumbnailSize(float size);
+		void SetShowAssetTypes(bool show);
 
 		static ContentBrowserPanel& Get()
 		{

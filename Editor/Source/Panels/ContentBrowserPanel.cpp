@@ -902,6 +902,18 @@ namespace Lux {
 		settings.Serialize();
 	}
 
+	void ContentBrowserPanel::SetThumbnailSize(float size)
+	{
+		m_ThumbnailSize = std::clamp(size, 32.0f, 256.0f);
+		SaveSettings();
+	}
+
+	void ContentBrowserPanel::SetShowAssetTypes(bool show)
+	{
+		m_ShowAssetType = show;
+		SaveSettings();
+	}
+
 	void ContentBrowserPanel::StartRenamingItem(AssetHandle handle)
 	{
 		size_t index = m_CurrentItems.FindItem(handle);

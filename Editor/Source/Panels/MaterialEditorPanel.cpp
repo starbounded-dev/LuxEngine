@@ -1,6 +1,7 @@
 #include "lpch.h"
 #include "MaterialEditorPanel.h"
 
+#include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Texture.h"
@@ -101,8 +102,7 @@ namespace Lux {
 
 		if (ImGui::Button("Save"))
 		{
-			// The asset importer usually handles saving or asset manager does.
-			// Currently bypassing project->GetAssetManager()->SaveAsset.
+			AssetImporter::Serialize(material.As<Asset>());
 			m_IsDirty = false;
 		}
 		ImGui::SameLine();
