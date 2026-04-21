@@ -244,8 +244,8 @@ namespace Lux {
 		m_PanelManager = CreateScope<PanelManager>();
 
 		m_SceneHierarchyPanel = m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
-		m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
-		m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Text Editor", true);
+		Ref<ContentBrowserPanel> contentBrowserPanel = m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
+		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Text Editor", true);
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
@@ -256,7 +256,7 @@ namespace Lux {
 		renderStatsPanel->SetSceneRenderer(m_SceneRenderer);
 
 		// Material Editor panel
-		m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, "MaterialEditorPanel", "Material Editor", true);
+		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, "MaterialEditorPanel", "Material Editor", true);
 
 		// Light Settings panel
 		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", true);
@@ -303,6 +303,34 @@ namespace Lux {
 		m_SceneRenderer = Ref<SceneRenderer>::Create(m_ActiveScene, sceneRendererSpec);
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
+
+		if (contentBrowserPanel)
+		{
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Scene, [this](const AssetMetadata& metadata)
+			{
+				OpenScene(metadata.Handle);
+			});
+
+			if (textEditorPanel)
+			{
+				contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::ScriptFile, [this, textEditorPanel](const AssetMetadata& metadata) mutable
+				{
+					textEditorPanel->OpenFile(Project::GetActive()->GetEditorAssetManager()->GetFileSystemPath(metadata));
+					if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash("TextEditorPanel")))
+						panelData->IsOpen = true;
+				});
+			}
+
+			if (materialEditorPanel)
+			{
+				contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Material, [this, materialEditorPanel](const AssetMetadata& metadata) mutable
+				{
+					materialEditorPanel->OpenMaterial(metadata.Handle);
+					if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash("MaterialEditorPanel")))
+						panelData->IsOpen = true;
+				});
+			}
+		}
 
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 		if (s_SceneRendererState.Renderer)

@@ -22,7 +22,7 @@ Assets:
   - Handle: 11724995497610062292
     FilePath: Scenes/3D Cube.luxscene
     Type: Scene
-    FileLastWriteTime: 13421221663
+    FileLastWriteTime: 13421222375
     Status: None
   - Handle: 12181112058573688332
     FilePath: Scripts/Source/Player.cs
