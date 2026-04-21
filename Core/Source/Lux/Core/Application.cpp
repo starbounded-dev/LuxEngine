@@ -43,7 +43,7 @@ namespace Lux {
 	static std::thread::id s_MainThreadID;
 
 	Application::Application(const ApplicationSpecification& specification)
-		: m_Specification(specification), m_RenderThread(specification.CoreThreadingPolicy), m_AppSettings("App.hsettings")
+		: m_Specification(specification), m_RenderThread(specification.CoreThreadingPolicy), m_AppSettings("App.lsettings")
 	{
 		//FatalSignal::Install();
 

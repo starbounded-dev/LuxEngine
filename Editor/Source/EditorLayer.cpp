@@ -33,9 +33,11 @@
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <vector>
 
 namespace Lux {
 
@@ -61,6 +63,92 @@ namespace Lux {
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
 
 	namespace {
+		constexpr int s_MaxRecentProjects = 10;
+
+		std::string GetRecentProjectKey(size_t index)
+		{
+			return "RecentProjects." + std::to_string(index);
+		}
+
+		std::filesystem::path NormalizeProjectPath(const std::filesystem::path& path)
+		{
+			if (path.empty())
+				return {};
+
+			std::error_code ec;
+			std::filesystem::path absolutePath = path.is_absolute() ? path : std::filesystem::absolute(path, ec);
+			if (ec)
+				return path.lexically_normal();
+
+			return absolutePath.lexically_normal();
+		}
+
+		std::vector<std::filesystem::path> LoadRecentProjects()
+		{
+			auto& settings = Application::Get().GetSettings();
+			const int count = std::max(settings.GetInt("RecentProjects.Count", 0), 0);
+
+			std::vector<std::filesystem::path> projects;
+			projects.reserve((size_t)std::min(count, s_MaxRecentProjects));
+
+			for (int i = 0; i < count && (int)projects.size() < s_MaxRecentProjects; i++)
+			{
+				std::string value = settings.Get(GetRecentProjectKey((size_t)i));
+				if (value.empty())
+					continue;
+
+				std::filesystem::path normalizedPath = NormalizeProjectPath(value);
+				if (normalizedPath.empty())
+					continue;
+
+				if (std::find(projects.begin(), projects.end(), normalizedPath) == projects.end())
+					projects.emplace_back(std::move(normalizedPath));
+			}
+
+			return projects;
+		}
+
+		void SaveRecentProjects(const std::vector<std::filesystem::path>& projects)
+		{
+			auto& settings = Application::Get().GetSettings();
+			const size_t count = std::min(projects.size(), (size_t)s_MaxRecentProjects);
+
+			for (size_t i = 0; i < count; i++)
+				settings.Set(GetRecentProjectKey(i), projects[i].generic_string());
+
+			settings.SetInt("RecentProjects.Count", (int)count);
+			settings.Serialize();
+		}
+
+		void AddRecentProject(const std::filesystem::path& projectPath)
+		{
+			std::filesystem::path normalizedPath = NormalizeProjectPath(projectPath);
+			if (normalizedPath.empty())
+				return;
+
+			std::vector<std::filesystem::path> projects = LoadRecentProjects();
+			projects.erase(std::remove(projects.begin(), projects.end(), normalizedPath), projects.end());
+			projects.insert(projects.begin(), normalizedPath);
+
+			if (projects.size() > s_MaxRecentProjects)
+				projects.resize(s_MaxRecentProjects);
+
+			SaveRecentProjects(projects);
+		}
+
+		std::filesystem::path GetStartupProjectPath()
+		{
+			const std::vector<std::filesystem::path> projects = LoadRecentProjects();
+			for (const auto& projectPath : projects)
+			{
+				std::error_code ec;
+				if (std::filesystem::exists(projectPath, ec) && !ec)
+					return projectPath;
+			}
+
+			return {};
+		}
+
 		ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
 		{
 			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
@@ -219,6 +307,9 @@ namespace Lux {
 		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 		if (s_SceneRendererState.Renderer)
 			s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+
+		if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
+			OpenProject(startupProject);
 	}
 
 	void EditorLayer::OnDetach()
@@ -588,7 +679,36 @@ namespace Lux {
 
 				if (ImGui::BeginMenu("Recent Projects"))
 				{
-					ImGui::MenuItem("No recent projects", nullptr, false, false);
+					const std::vector<std::filesystem::path> recentProjects = LoadRecentProjects();
+					if (recentProjects.empty())
+					{
+						ImGui::MenuItem("No recent projects", nullptr, false, false);
+					}
+					else
+					{
+						for (const auto& recentProject : recentProjects)
+						{
+							const std::string fullPath = recentProject.generic_string();
+							const std::string displayName = recentProject.stem().string().empty() ? fullPath : recentProject.stem().string();
+							std::error_code ec;
+							const bool exists = std::filesystem::exists(recentProject, ec) && !ec;
+
+							ImGui::PushID(fullPath.c_str());
+							if (ImGui::MenuItem(displayName.c_str(), nullptr, false, exists))
+								OpenProject(recentProject);
+
+							if (ImGui::IsItemHovered())
+							{
+								ImGui::BeginTooltip();
+								ImGui::TextUnformatted(fullPath.c_str());
+								if (!exists)
+									ImGui::TextDisabled("Project file not found");
+								ImGui::EndTooltip();
+							}
+							ImGui::PopID();
+						}
+					}
+
 					ImGui::EndMenu();
 				}
 
@@ -1275,6 +1395,7 @@ namespace Lux {
 	{
 		if (Project::Load(path))
 		{
+			AddRecentProject(path);
 			AssetHandle startScene = Project::GetActive()->GetConfig().StartSceneHandle;
 			if (startScene)
 				OpenScene(startScene);

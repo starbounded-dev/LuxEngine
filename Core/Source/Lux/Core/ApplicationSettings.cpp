@@ -10,6 +10,9 @@ namespace Lux {
 	static void CreateDirectoriesIfNeeded(const std::filesystem::path& path)
 	{
 		std::filesystem::path directory = path.parent_path();
+		if (directory.empty())
+			return;
+
 		if (!std::filesystem::exists(directory))
 			std::filesystem::create_directories(directory);
 	}
@@ -24,16 +27,11 @@ namespace Lux {
 	{
 		YAML::Emitter out;
 		out << YAML::BeginMap;
-		out << YAML::Key << "Core Application Settings";
-		out << YAML::Value;
-
-		out << YAML::BeginMap;
+		out << YAML::Key << "Lux Application Settings" << YAML::Value << YAML::BeginMap;
 		for (const auto& [key, value] : m_Settings)
 			out << YAML::Key << key << YAML::Value << value;
-
 		out << YAML::EndMap;
-
-		out << YAML::EndSeq;
+		out << YAML::EndMap;
 
 		CreateDirectoriesIfNeeded(m_FilePath);
 		std::ofstream fout(m_FilePath);
@@ -52,11 +50,15 @@ namespace Lux {
 		strStream << stream.rdbuf();
 
 		YAML::Node data = YAML::Load(strStream.str());
-
-		auto settings = data["Hazel Application Settings"];
+		YAML::Node settings = data["Lux Application Settings"];
+		if (!settings)
+			settings = data["Core Application Settings"];
+		if (!settings)
+			settings = data["Hazel Application Settings"];
 		if (!settings)
 			return false;
 
+		m_Settings.clear();
 		for (auto it = settings.begin(); it != settings.end(); it++)
 		{
 			const auto& key = it->first.as<std::string>();
