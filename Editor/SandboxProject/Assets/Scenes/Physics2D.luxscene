@@ -1,5 +1,17 @@
 Scene: Physics2D
 Entities:
+  - Entity: 5194659982507728490
+    TagComponent:
+      Tag: Sky Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 0
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 1
   - Entity: 10625048149344785802
     TagComponent:
       Tag: Empty Entity
@@ -43,7 +55,7 @@ Entities:
       Parent: 0
     CameraComponent:
       Camera:
-        ProjectionType: 1
+        ProjectionType: 0
         PerspectiveFOV: 0.785398185
         PerspectiveNear: 0.00999999978
         PerspectiveFar: 1000

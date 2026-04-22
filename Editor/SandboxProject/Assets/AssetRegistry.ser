@@ -1,4 +1,9 @@
 Assets:
+  - Handle: 990815726773543575
+    FilePath: Environment/dikhololo_night_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 13419408223
+    Status: None
   - Handle: 2122978749847400591
     FilePath: Textures/Checkerboard.png
     Type: Texture
@@ -8,7 +13,7 @@ Assets:
     FilePath: Scenes/Example.luxscene
     Type: Scene
     FileLastWriteTime: 13421299743
-    Status: None
+    Status: Ready
   - Handle: 5698620207532946169
     FilePath: Audio/fart-01.wav
     Type: Audio
@@ -17,12 +22,22 @@ Assets:
   - Handle: 7305845728380112481
     FilePath: Scenes/Physics2D.luxscene
     Type: Scene
-    FileLastWriteTime: 13421219831
+    FileLastWriteTime: 13421306287
     Status: Ready
   - Handle: 8773409218751291332
     FilePath: Scripts/Source/Camera.cs
     Type: ScriptFile
     FileLastWriteTime: 13419973904
+    Status: None
+  - Handle: 9468819874646464561
+    FilePath: Environment/pink_sunrise_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 10933720561759477118
+    FilePath: Environment/rooitou_park_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 13419408224
     Status: None
   - Handle: 11724995497610062292
     FilePath: Scenes/3D Cube.luxscene
@@ -33,6 +48,16 @@ Assets:
     FilePath: Scripts/Source/Player.cs
     Type: ScriptFile
     FileLastWriteTime: 13419973904
+    Status: None
+  - Handle: 12822566442885847740
+    FilePath: Environment/birchwood_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 12976520067329992575
+    FilePath: Environment/venice_dawn_1_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 13419408224
     Status: None
   - Handle: 15308730943713920604
     FilePath: Textures/luxLogo.png

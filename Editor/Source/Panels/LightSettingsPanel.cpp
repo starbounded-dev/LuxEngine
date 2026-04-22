@@ -1,6 +1,9 @@
 #include "lpch.h"
 #include "LightSettingsPanel.h"
 
+#include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetMetadata.h"
+#include "Lux/Project/Project.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
@@ -214,7 +217,52 @@ namespace Lux {
 				ImGuiEx::Property("Intensity", light.Intensity, 0.1f, 0.0f, 100.0f);
 				ImGuiEx::EndPropertyGrid();
 
-				ImGui::Text("Environment Map: (pending)");
+				std::string envLabel = "None";
+				bool isEnvironmentValid = false;
+				if (light.EnvironmentMap != 0)
+				{
+					if (AssetManager::IsAssetHandleValid(light.EnvironmentMap)
+						&& AssetManager::GetAssetType(light.EnvironmentMap) == AssetType::EnvMap)
+					{
+						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(light.EnvironmentMap);
+						envLabel = metadata.FilePath.filename().string();
+						isEnvironmentValid = true;
+					}
+					else
+					{
+						envLabel = "Invalid";
+					}
+				}
+
+				ImVec2 buttonLabelSize = ImGui::CalcTextSize(envLabel.c_str());
+				buttonLabelSize.x += 20.0f;
+				float buttonLabelWidth = glm::max<float>(100.0f, buttonLabelSize.x);
+
+				ImGui::Button(envLabel.c_str(), ImVec2(buttonLabelWidth, 0.0f));
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						AssetHandle handle = *(AssetHandle*)payload->Data;
+						if (AssetManager::GetAssetType(handle) == AssetType::EnvMap)
+						{
+							light.EnvironmentMap = handle;
+						}
+					}
+					ImGui::EndDragDropTarget();
+				}
+
+				if (isEnvironmentValid)
+				{
+					ImGui::SameLine();
+					ImVec2 xLabelSize = ImGui::CalcTextSize("X");
+					float buttonSize = xLabelSize.y + ImGui::GetStyle().FramePadding.y * 2.0f;
+					if (ImGui::Button("X", ImVec2(buttonSize, buttonSize)))
+						light.EnvironmentMap = 0;
+				}
+
+				ImGui::SameLine();
+				ImGui::Text("Environment Map");
 
 				ImGui::PopID();
 			}

@@ -5,6 +5,8 @@
 
 #include "Lux/Asset/AssetManager.h"
 
+#include <array>
+
 namespace Lux {
 
 	static const std::string s_AlbedoColorUniform = "u_MaterialUniforms.AlbedoColor";
@@ -26,9 +28,9 @@ namespace Lux {
 
 #ifndef LUX_HEADLESS
 		if (transparent)
-			m_Material = Material::Create(Renderer::GetShaderLibrary()->Get("StarEnginePBR_Transparent"));
+			m_Material = Material::Create(Renderer::GetShaderLibrary()->Get("LuxPBR_Transparent"));
 		else
-			m_Material = Material::Create(Renderer::GetShaderLibrary()->Get("StarEnginePBR_Static"));
+			m_Material = Material::Create(Renderer::GetShaderLibrary()->Get("LuxPBR_Static"));
 #endif
 
 		SetDefaults();
@@ -237,6 +239,9 @@ namespace Lux {
 
 	void MaterialAsset::SetDefaults()
 	{
+		if (!m_Material)
+			return;
+
 		if (m_Transparent)
 		{
 			// Set defaults

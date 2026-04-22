@@ -1,4 +1,5 @@
 #include "lpch.h"
+
 #include "Lux/Scene/Scene.h"
 
 #include "Lux/Asset/AssetManager.h"
@@ -11,6 +12,7 @@
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Scene/ScriptableEntity.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/SceneRenderer.h"
@@ -937,26 +939,62 @@ namespace Lux {
 			}
 		}
 
+		// Collect spot lights
+		{
+			auto view = m_Registry.view<const TransformComponent, const SpotLightComponent>();
+			for (auto entity : view)
+			{
+				const auto& spotLight = view.get<const SpotLightComponent>(entity);
+				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
+
+				SpotLight sl;
+				sl.Position = glm::vec3(worldTransform[3]);
+				sl.Direction = glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+				sl.Radiance = spotLight.Radiance;
+				sl.Intensity = spotLight.Intensity;
+				sl.Range = spotLight.Range;
+				sl.Angle = spotLight.Angle;
+				sl.AngleAttenuation = spotLight.AngleAttenuation;
+				sl.Falloff = spotLight.Falloff;
+				sl.CastsShadows = spotLight.CastShadows;
+
+				lightEnv.SpotLights.push_back(sl);
+			}
+		}
+
 		return lightEnv;
 	}
 
 	Ref<Environment> Scene::CollectEnvironment(float& outIntensity) const
 	{
 		outIntensity = 1.0f;
+		Ref<Environment> fallbackEnvironment = Renderer::GetDefaultEnvironment();
 
 		auto view = m_Registry.view<const SkyLightComponent>();
 		for (auto entity : view)
 		{
 			const auto& skyLight = view.get<const SkyLightComponent>(entity);
+			outIntensity = skyLight.Intensity;
 
 			if (skyLight.EnvironmentMap)
 			{
-				outIntensity = skyLight.Intensity;
-				return AssetManager::GetAsset<Environment>(skyLight.EnvironmentMap);
+				Ref<Asset> asset = AssetManager::GetAsset<Asset>(skyLight.EnvironmentMap);
+				if (asset && asset->GetAssetType() != AssetType::EnvMap)
+				{
+					AssetManager::ReloadData(skyLight.EnvironmentMap);
+					asset = AssetManager::GetAsset<Asset>(skyLight.EnvironmentMap);
+				}
+
+				if (!asset || asset->GetAssetType() != AssetType::EnvMap)
+					continue;
+
+				return asset.As<Environment>();
 			}
+
+			return fallbackEnvironment;
 		}
 
-		return nullptr;
+		return fallbackEnvironment;
 	}
 
 	void Scene::SubmitStaticMeshes(Ref<SceneRenderer> renderer,
@@ -1025,9 +1063,6 @@ namespace Lux {
 		sceneCamera.Far = camera.GetFarClip();
 		sceneCamera.FOV = camera.GetVerticalFOV();
 
-		// Begin the 3D rendering frame
-		renderer->BeginScene(sceneCamera);
-
 		// Collect and set light environment from DirectionalLight and PointLight components
 		LightEnvironment lightEnv = CollectLightEnvironment();
 		renderer->SetLightEnvironment(lightEnv);
@@ -1035,8 +1070,10 @@ namespace Lux {
 		// Collect and set skybox/IBL environment from SkyLightComponent
 		float envIntensity = 1.0f;
 		Ref<Environment> environment = CollectEnvironment(envIntensity);
-		if (environment)
-			renderer->SetEnvironment(environment, envIntensity);
+		renderer->SetEnvironment(environment, envIntensity);
+
+		// Begin the 3D rendering frame after scene lighting/environment state is prepared
+		renderer->BeginScene(sceneCamera);
 
 		// Submit all static meshes for rendering
 		SubmitStaticMeshes(renderer, isSelected);
@@ -1119,9 +1156,6 @@ namespace Lux {
 		sceneCamera.Camera.SetProjectionMatrix(cameraComp.Camera.GetProjectionMatrix(), cameraComp.Camera.GetUnReversedProjectionMatrix());
 		sceneCamera.ViewMatrix = glm::inverse(GetWorldSpaceTransformMatrix(cameraEntity));
 
-		// Begin the 3D rendering frame
-		renderer->BeginScene(sceneCamera);
-
 		// Collect and set light environment
 		LightEnvironment lightEnv = CollectLightEnvironment();
 		renderer->SetLightEnvironment(lightEnv);
@@ -1129,8 +1163,10 @@ namespace Lux {
 		// Collect and set skybox/IBL environment
 		float envIntensity = 1.0f;
 		Ref<Environment> environment = CollectEnvironment(envIntensity);
-		if (environment)
-			renderer->SetEnvironment(environment, envIntensity);
+		renderer->SetEnvironment(environment, envIntensity);
+
+		// Begin the 3D rendering frame after scene lighting/environment state is prepared
+		renderer->BeginScene(sceneCamera);
 
 		// Submit all static meshes (no selection highlight in runtime)
 		SubmitStaticMeshes(renderer, nullptr);
@@ -1196,6 +1232,21 @@ namespace Lux {
 				renderer2D->EndScene();
 			}
 		}
+	}
+
+	void Scene::OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected)
+	{
+		Render3D(camera, renderer, isSelected);
+	}
+
+	void Scene::OnRenderSimulation(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected)
+	{
+		Render3D(camera, renderer, isSelected);
+	}
+
+	void Scene::OnRenderRuntime(Ref<SceneRenderer> renderer)
+	{
+		Render3DRuntime(renderer);
 	}
 
 	// ============================================================================

@@ -190,51 +190,6 @@ namespace Lux {
 		}
 	}
 
-	struct SceneRendererRuntimeState
-	{
-		Ref<SceneRenderer> Renderer;
-		Ref<Scene> SceneContext;
-		bool PanelOpen = true;
-	};
-
-	static SceneRendererRuntimeState s_SceneRendererState;
-
-	static void ResetSceneRenderer()
-	{
-		s_SceneRendererState.Renderer.reset();
-		s_SceneRendererState.SceneContext.reset();
-	}
-
-	static void EnsureSceneRenderer(const Ref<Scene>& scene, const glm::vec2& viewportSize)
-	{
-		if (!scene)
-		{
-			ResetSceneRenderer();
-			return;
-		}
-
-		if (!s_SceneRendererState.Renderer)
-		{
-			SceneRendererSpecification spec{};
-			if (viewportSize.x > 1.0f && viewportSize.y > 1.0f)
-			{
-				spec.ViewportWidth = (uint32_t)viewportSize.x;
-				spec.ViewportHeight = (uint32_t)viewportSize.y;
-			}
-
-			s_SceneRendererState.Renderer = Ref<SceneRenderer>::Create(scene, spec);
-			s_SceneRendererState.SceneContext = scene;
-		}
-		else if (s_SceneRendererState.SceneContext.Raw() != scene.Raw())
-		{
-			s_SceneRendererState.Renderer->SetScene(scene);
-			s_SceneRendererState.SceneContext = scene;
-		}
-
-		if (viewportSize.x > 1.0f && viewportSize.y > 1.0f)
-			s_SceneRendererState.Renderer->SetViewportSize((uint32_t)viewportSize.x, (uint32_t)viewportSize.y);
-	}
-
 	static Ref<Font> s_Font;
 	static bool s_ShowFontAtlasInStats = false;
 
@@ -264,7 +219,6 @@ namespace Lux {
 		// Render statistics panel
 		Ref<RenderStatsPanel> renderStatsPanel = m_PanelManager->AddPanel<RenderStatsPanel>(PanelCategory::View, "RenderStatsPanel", "Render Stats", true);
 		renderStatsPanel->SetRenderer2D(m_Renderer2D);
-		renderStatsPanel->SetSceneRenderer(m_SceneRenderer);
 
 		// Material Editor panel
 		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, "MaterialEditorPanel", "Material Editor", true);
@@ -324,10 +278,6 @@ namespace Lux {
 		// Now safe to call - m_Renderer2D is valid.
 		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
 
-		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
-		if (m_SceneRendererPanel)
-			m_SceneRendererPanel->SetContext(s_SceneRendererState.Renderer);
-
 		m_EditorCamera.SetActive(true);
 
 		m_EditorScene = Ref<Scene>::Create();
@@ -339,6 +289,10 @@ namespace Lux {
 		sceneRendererSpec.ViewportHeight = 720;
 
 		m_SceneRenderer = Ref<SceneRenderer>::Create(m_ActiveScene, sceneRendererSpec);
+		renderStatsPanel->SetSceneRenderer(m_SceneRenderer);
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
 		ApplyEditorPreferences();
@@ -371,9 +325,8 @@ namespace Lux {
 			}
 		}
 
-		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
-		if (s_SceneRendererState.Renderer)
-			s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+		if (m_SceneRenderer)
+			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
 
 		if (ShouldAutoOpenMostRecentProject())
 		{
@@ -386,8 +339,6 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
 		SaveEditorPreferences();
-
-		ResetSceneRenderer();
 
 		m_ActiveScene.reset();
 		m_EditorScene.reset();
@@ -433,11 +384,10 @@ namespace Lux {
 
 		m_EditorCamera.SetActive(m_ViewportFocused || m_ViewportHovered);
 
-		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
-		if (s_SceneRendererState.Renderer)
+		if (m_SceneRenderer)
 		{
-			s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
-			s_SceneRendererState.Renderer->GetOptions().ShowSelectedInWireframe = (m_ViewportDisplayMode == ViewportDisplayMode::SelectedWireframe);
+			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+			m_SceneRenderer->GetOptions().ShowSelectedInWireframe = (m_ViewportDisplayMode == ViewportDisplayMode::SelectedWireframe);
 		}
 
 		m_Renderer2D->ResetStats();
@@ -460,7 +410,7 @@ namespace Lux {
 			// composite the 2D pass on top of the 3D result. Falling back to the
 			// old Renderer2D-only path keeps the editor usable during init.
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
-				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
+				m_ActiveScene->OnRenderEditor(m_SceneRenderer, m_EditorCamera, isEntitySelected);
 			else
 				m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
 			break;
@@ -473,7 +423,7 @@ namespace Lux {
 			// physics state, then render the composed 3D + 2D scene.
 			m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
-				m_ActiveScene->Render3D(m_EditorCamera, m_SceneRenderer, isEntitySelected);
+				m_ActiveScene->OnRenderSimulation(m_SceneRenderer, m_EditorCamera, isEntitySelected);
 			break;
 		}
 		case SceneState::Play:
@@ -482,12 +432,13 @@ namespace Lux {
 			// appear in their current positions in the main viewport.
 			m_ActiveScene->OnUpdateRuntime(ts);
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
-				m_ActiveScene->Render3DRuntime(m_SceneRenderer);
+				m_ActiveScene->OnRenderRuntime(m_SceneRenderer);
 			break;
 		}
 		}
 
 		OnOverlayRender();
+		SceneRenderer::WaitForThreads();
 	}
 
 	void EditorLayer::OnImGuiRender()
@@ -1093,9 +1044,9 @@ namespace Lux {
 			if (ImGui::Checkbox("Show Entity Icons", &m_ShowEntityIcons))
 				settingsChanged = true;
 
-			if (s_SceneRendererState.Renderer)
+			if (m_SceneRenderer)
 			{
-				auto& options = s_SceneRendererState.Renderer->GetOptions();
+				auto& options = m_SceneRenderer->GetOptions();
 				ImGui::Checkbox("Show Grid", &options.ShowGrid);
 				if (ImGui::Checkbox("Show Physics Colliders", &options.ShowPhysicsColliders))
 				{
@@ -1513,9 +1464,6 @@ namespace Lux {
 
 		if (m_SceneRenderer)
 			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
-
-		if (s_SceneRendererState.Renderer)
-			s_SceneRendererState.Renderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
 	}
 
 	void EditorLayer::NewProject()
@@ -1583,8 +1531,6 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
-
-		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
 
 	void EditorLayer::OpenScene()
@@ -1616,8 +1562,6 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
-
-		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
 
 	void EditorLayer::SaveScene()
@@ -1664,8 +1608,6 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
-
-		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
 
 	void EditorLayer::OnSceneSimulate()
@@ -1689,8 +1631,6 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
-
-		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
 
 	void EditorLayer::OnSceneStop()
@@ -1712,8 +1652,6 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
-
-		EnsureSceneRenderer(m_ActiveScene, m_ViewportSize);
 	}
 
 	void EditorLayer::OnScenePause()

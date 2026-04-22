@@ -25,6 +25,7 @@ namespace Lux {
 	struct LightEnvironment;
 	struct DirectionalLight;
 	struct PointLight;
+	struct SpotLight;
 
 	class Scene : public Asset
 	{
@@ -76,7 +77,7 @@ namespace Lux {
 		// 3D Rendering Support
 		// ============================================================================
 
-		// Collect light data from DirectionalLightComponent and PointLightComponent entities
+		// Collect light data from DirectionalLightComponent, PointLightComponent and SpotLightComponent entities
 		LightEnvironment CollectLightEnvironment() const;
 
 		// Collect environment/skybox from the first SkyLightComponent entity
@@ -99,6 +100,9 @@ namespace Lux {
 
 		// Render 3D content using a runtime camera (for Play mode)
 		void Render3DRuntime(Ref<SceneRenderer> renderer);
+		void OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
+		void OnRenderSimulation(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
+		void OnRenderRuntime(Ref<SceneRenderer> renderer);
 
 		// ============================================================================
 

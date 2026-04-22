@@ -209,6 +209,7 @@ void main()
 
 	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
 	lightContribution += CalculatePointLights(F0, Input.WorldPosition);
+	lightContribution += CalculateSpotLights(F0, Input.WorldPosition);
 	lightContribution += m_Params.Albedo * u_MaterialUniforms.Emission;
 
 	vec3 iblContribution = IBL(F0, Lr) * u_Scene.EnvironmentMapIntensity;
@@ -223,6 +224,7 @@ void main()
 	if (u_RendererData.ShowLightComplexity)
 	{
 		int pointLightCount = GetPointLightCount();
-		color.rgb = (color.rgb * 0.2) + GetGradient(float(pointLightCount));
+		int spotLightCount = GetSpotLightCount();
+		color.rgb = (color.rgb * 0.2) + GetGradient(float(pointLightCount + spotLightCount));
 	}
 }

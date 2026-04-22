@@ -593,6 +593,23 @@ namespace Lux {
 				});
 		}
 
+		// ── Spot lights uniform buffer ────────────────────────────────────────
+		{
+			const auto& spotLights = m_SceneData.SceneLightEnvironment.SpotLights;
+			m_SpotLightsUB.Count = (uint32_t)glm::min((size_t)256, spotLights.size());
+			if (m_SpotLightsUB.Count > 0)
+				std::memcpy(m_SpotLightsUB.SpotLights, spotLights.data(),
+					sizeof(SpotLight) * m_SpotLightsUB.Count);
+
+			auto slData = m_SpotLightsUB;
+			uint32_t slSize = (uint32_t)(16ull + sizeof(SpotLight) * slData.Count);
+			Ref<SceneRenderer> instance = this;
+			Renderer::Submit([instance, slData, slSize]() mutable {
+				instance->m_UBSSpotLights->RT_Get()->RT_SetData(
+					instance->m_UploadCommandBuffer, &slData, slSize);
+				});
+		}
+
 		// ── Directional shadow matrix ─────────────────────────────────────────
 		// Single ortho shadow map centred on the camera position.
 		{
@@ -655,6 +672,13 @@ namespace Lux {
 			m_GeometryPass->SetInput("u_EnvIrradianceTex", m_SceneData.SceneEnvironment->IrradianceMap);
 			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", m_SceneData.SceneEnvironment->RadianceMap);
 			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", m_SceneData.SceneEnvironment->IrradianceMap);
+		}
+		else
+		{
+			m_GeometryPass->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
+			m_GeometryPass->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
+			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
+			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
 		}
 
 		m_UploadCommandBuffer->End();
@@ -801,6 +825,11 @@ namespace Lux {
 		LUX_CORE_ASSERT(m_Active);
 		FlushDrawList();
 		m_Active = false;
+	}
+
+	void SceneRenderer::WaitForThreads()
+	{
+		AssetManager::SyncWithAssetThread();
 	}
 
 	void SceneRenderer::FlushDrawList()

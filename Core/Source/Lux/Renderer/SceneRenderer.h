@@ -51,16 +51,40 @@ namespace Lux {
 		char      Padding[3] = { 0, 0, 0 };
 	};
 
+	struct SpotLight
+	{
+		glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+		float     Intensity = 0.0f;
+		glm::vec3 Direction = { 0.0f, -1.0f, 0.0f };
+		float     AngleAttenuation = 1.0f;
+		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
+		float     Range = 25.0f;
+		float     Angle = 45.0f;
+		float     Falloff = 1.0f;
+		uint32_t  ShadowIndex = 0;
+		bool      SoftShadows = false;
+		bool      CastsShadows = false;
+		float     AtlasOffsetX = 0.0f;
+		float     AtlasOffsetY = 0.0f;
+		float     AtlasScale = 1.0f;
+	};
+
 	struct LightEnvironment
 	{
 		static constexpr uint32_t MaxDirectionalLights = 1;
 
 		DirectionalLight        DirectionalLights[MaxDirectionalLights];
 		std::vector<PointLight> PointLights;
+		std::vector<SpotLight>  SpotLights;
 
 		uint64_t GetPointLightsSize() const
 		{
 			return PointLights.size() * sizeof(PointLight);
+		}
+
+		uint64_t GetSpotLightsSize() const
+		{
+			return SpotLights.size() * sizeof(SpotLight);
 		}
 	};
 
@@ -151,6 +175,7 @@ namespace Lux {
 			bool isSimpleCollider = true);
 
 		void EndScene();
+		static void WaitForThreads();
 
 		// ── Output ────────────────────────────────────────────────────────────
 
@@ -310,23 +335,6 @@ namespace Lux {
 			glm::vec3  Padding{};
 			PointLight PointLights[256]{};
 		} m_PointLightsUB;
-
-		struct SpotLight
-		{
-			glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
-			float Intensity = 0.0f;
-
-			glm::vec3 Direction = { 0.0f, -1.0f, 0.0f };
-			float Range = 25.0f;
-
-			glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
-			float Angle = 45.0f;
-
-			float AngleAttenuation = 1.0f;
-			float Falloff = 1.0f;
-			bool CastsShadows = false;
-			char Padding[3] = { 0, 0, 0 };
-		};
 
 		struct UBSpotLights
 		{

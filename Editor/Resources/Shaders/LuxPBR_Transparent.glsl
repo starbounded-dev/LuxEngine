@@ -179,9 +179,10 @@ void main()
 
 	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
 	lightContribution += CalculatePointLights(F0, Input.WorldPosition);
+	lightContribution += CalculateSpotLights(F0, Input.WorldPosition);
 	lightContribution += m_Params.Albedo * u_MaterialUniforms.Emission;
 
 	vec3 iblContribution = IBL(F0, Lr) * u_Scene.EnvironmentMapIntensity;
 
-	color = vec4(m_Params.Albedo, u_MaterialUniforms.Transparency);
+	color = vec4(iblContribution + lightContribution, albedoTexColor.a * u_MaterialUniforms.Transparency);
 }

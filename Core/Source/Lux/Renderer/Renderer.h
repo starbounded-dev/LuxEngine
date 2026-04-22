@@ -1,4 +1,5 @@
 
+
 #pragma once
 
 #include "RendererContext.h"
@@ -6,7 +7,7 @@
 #include "RenderCommandBuffer.h"
 #include "Pipeline.h"
 #include "PipelineCompute.h"
-//#include "Mesh.h"
+#include "Mesh.h"
 #include "UniformBufferSet.h"
 #include "StorageBufferSet.h"
 
@@ -22,7 +23,6 @@
 #include "Texture.h"
 
 #include "nvrhi/nvrhi.h"
-
 #include "Lux/Scene/Scene.h"
 
 namespace Lux {
@@ -32,7 +32,7 @@ namespace Lux {
 	class ComputePass;
 
 	// Unified draw command for mesh rendering - consolidates parameters for all mesh draw variants
-	/*struct MeshDrawCommand
+	struct MeshDrawCommand
 	{
 		Ref<MeshSource> MeshSource;
 
@@ -49,7 +49,7 @@ namespace Lux {
 
 		bool IsRigged = false;
 	};
-	*/
+	
 	class Renderer
 	{
 	public:
@@ -152,19 +152,20 @@ namespace Lux {
 		//static void SetSceneEnvironment(Ref<SceneRenderer> sceneRenderer, Ref<Environment> environment, Ref<Image2D> shadow, Ref<Image2D> spotShadow);
 		static std::pair<Ref<TextureCube>, Ref<TextureCube>> CreateEnvironmentMap(const std::string& filepath);
 		static Ref<TextureCube> CreatePreethamSky(float turbidity, float azimuth, float inclination);
+		static Ref<Environment> CreatePreethamSkyEnvironment(float turbidity, float azimuth, float inclination);
 		
 		// Renders a mesh using material from MaterialTable lookup
 		// Use for geometry passes where materials come from the mesh's material table
-		//static void RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd);
+		static void RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd);
 
 		// Renders a mesh with an explicit material override
 		// Use for shadow passes, pre-depth, selection, wireframe, etc.
-		//static void RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd, Ref<Material> material, int32_t lightIndex = -1);
+		static void RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd, Ref<Material> material, int32_t lightIndex = -1);
 
 		static void RenderQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, const glm::mat4& transform);
 		static void SubmitFullscreenQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material);
 		static void SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides);
-		//static void LightCulling(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups);
+		static void LightCulling(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups);
 		static void RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount = 0);
 		static void ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, nvrhi::Color clearColor, nvrhi::TextureSubresourceSet subresourceSet = nvrhi::TextureSubresourceSet());
 		static void CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
@@ -176,6 +177,7 @@ namespace Lux {
 		static Ref<Texture2D> GetBRDFLutTexture();
 		static Ref<TextureCube> GetBlackCubeTexture();
 		static Ref<Environment> GetEmptyEnvironment();
+		static Ref<Environment> GetDefaultEnvironment();
 
 		static void RegisterShaderDependency(Ref<Shader> shader, Ref<PipelineCompute> computePipeline);
 		static void RegisterShaderDependency(Ref<Shader> shader, Ref<Pipeline> pipeline);

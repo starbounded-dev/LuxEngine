@@ -228,6 +228,7 @@ namespace Lux {
 		Ref<Texture2D> HilbertLut;
 		Ref<TextureCube> BlackCubeTexture;
 		Ref<Environment> EmptyEnvironment;
+		Ref<Environment> DefaultEnvironment;
 
 		std::unordered_map<std::string, std::string> GlobalShaderMacros;
 
@@ -446,7 +447,7 @@ namespace Lux {
 		spec.DebugName = "Renderer-BlackCubeTexture";
 		s_Data->BlackCubeTexture = TextureCube::Create(spec, Buffer(blackCubeTextureData, sizeof(blackCubeTextureData)));
 
-		//s_Data->EmptyEnvironment = Ref<Environment>::Create(s_Data->BlackCubeTexture, s_Data->BlackCubeTexture);
+		s_Data->EmptyEnvironment = Ref<Environment>::Create(s_Data->BlackCubeTexture, s_Data->BlackCubeTexture);
 
 		// Hilbert look-up texture! It's a 64 x 64 uint16 texture
 		{
@@ -840,6 +841,51 @@ namespace Lux {
 	{
 
 	}*/
+
+	namespace
+	{
+		Ref<TextureCube> CreateEnvironmentIrradianceMap(const Ref<TextureCube>& radianceMap, const char* debugName)
+		{
+			constexpr uint32_t irradianceMapSize = 32;
+
+			TextureSpecification irradianceSpec;
+			irradianceSpec.DebugName = debugName;
+			irradianceSpec.Format = ImageFormat::RGBA32F;
+			irradianceSpec.Width = irradianceMapSize;
+			irradianceSpec.Height = irradianceMapSize;
+			irradianceSpec.Storage = true;
+			Ref<TextureCube> irradianceMap = TextureCube::Create(irradianceSpec);
+
+			Ref<Shader> irradianceShader = Renderer::GetShaderLibrary()->Get("EnvironmentIrradiance");
+			Ref<Material> irradianceMaterial = Material::Create(irradianceShader);
+			irradianceMaterial->Set("o_IrradianceMap", irradianceMap);
+			irradianceMaterial->Set("u_RadianceMap", radianceMap);
+
+			ComputePassSpecification computePassSpec;
+			computePassSpec.Pipeline = PipelineCompute::Create(irradianceShader);
+			computePassSpec.DebugName = debugName;
+			Ref<ComputePass> computePass = ComputePass::Create(computePassSpec);
+			computePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			computePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			computePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+
+			Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, std::string(debugName) + "-Compute");
+			commandBuffer->Begin();
+			Renderer::BeginComputePass(commandBuffer, computePass);
+
+			uint32_t samples = Renderer::GetConfig().IrradianceMapComputeSamples;
+			Buffer pushConstantBuffer(&samples, sizeof(uint32_t));
+			glm::uvec3 workGroups{ irradianceMapSize / 32, irradianceMapSize / 32, 6 };
+			Renderer::DispatchCompute(commandBuffer, computePass, irradianceMaterial, workGroups, pushConstantBuffer);
+
+			Renderer::EndComputePass(commandBuffer, computePass);
+			commandBuffer->End();
+			commandBuffer->Submit();
+
+			irradianceMap->GenerateMips();
+			return irradianceMap;
+		}
+	}
 	
 	std::pair<Ref<TextureCube>, Ref<TextureCube>> Renderer::CreateEnvironmentMap(const std::string& filepath)
 	{
@@ -847,7 +893,6 @@ namespace Lux {
 			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
 
 		const uint32_t cubemapSize = Renderer::GetConfig().EnvironmentMapResolution;
-		const uint32_t irradianceMapSize = 32;
 
 		// Load the HDR equirectangular texture
 		TextureSpecification equirectSpec;
@@ -989,41 +1034,7 @@ namespace Lux {
 			commandBuffer->Submit();
 		}
 
-		// Step 3: Compute irradiance map
-		cubemapSpec.Width = irradianceMapSize;
-		cubemapSpec.Height = irradianceMapSize;
-		cubemapSpec.DebugName = "IrradianceMap";
-		Ref<TextureCube> irradianceMap = TextureCube::Create(cubemapSpec);
-
-		{
-			Ref<Shader> irradianceShader = Renderer::GetShaderLibrary()->Get("EnvironmentIrradiance");
-			Ref<Material> irradianceMaterial = Material::Create(irradianceShader);
-			irradianceMaterial->Set("o_IrradianceMap", irradianceMap);
-			irradianceMaterial->Set("u_RadianceMap", envFiltered);
-
-			ComputePassSpecification computePassSpec;
-			computePassSpec.Pipeline = PipelineCompute::Create(irradianceShader);
-			computePassSpec.DebugName = "EnvironmentIrradiance";
-			Ref<ComputePass> computePass = ComputePass::Create(computePassSpec);
-			computePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
-			computePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			computePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-
-			Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, "EnvironmentIrradiance-Compute");
-			commandBuffer->Begin();
-			BeginComputePass(commandBuffer, computePass);
-
-			uint32_t samples = Renderer::GetConfig().IrradianceMapComputeSamples;
-			Buffer pushConstantBuffer(&samples, sizeof(uint32_t));
-			glm::uvec3 workGroups{ irradianceMapSize / 32, irradianceMapSize / 32, 6 };
-			DispatchCompute(commandBuffer, computePass, irradianceMaterial, workGroups, pushConstantBuffer);
-
-			EndComputePass(commandBuffer, computePass);
-			commandBuffer->End();
-			commandBuffer->Submit();
-
-			irradianceMap->GenerateMips();
-		}
+		Ref<TextureCube> irradianceMap = CreateEnvironmentIrradianceMap(envFiltered, "EnvironmentIrradiance");
 
 		return { envFiltered, irradianceMap };
 	}
@@ -1031,7 +1042,6 @@ namespace Lux {
 	Ref<TextureCube> Renderer::CreatePreethamSky(float turbidity, float azimuth, float inclination)
 	{
 		const uint32_t cubemapSize = Renderer::GetConfig().EnvironmentMapResolution;
-		const uint32_t irradianceMapSize = 32;
 
 		TextureSpecification cubemapSpec;
 		cubemapSpec.DebugName = "PreethamSky";
@@ -1071,6 +1081,19 @@ namespace Lux {
 		environmentMap->GenerateMips();
 
 		return environmentMap;
+	}
+
+	Ref<Environment> Renderer::CreatePreethamSkyEnvironment(float turbidity, float azimuth, float inclination)
+	{
+		if (!Renderer::GetConfig().ComputeEnvironmentMaps)
+			return GetEmptyEnvironment();
+
+		Ref<TextureCube> radianceMap = CreatePreethamSky(turbidity, azimuth, inclination);
+		if (!radianceMap)
+			return GetEmptyEnvironment();
+
+		Ref<TextureCube> irradianceMap = CreateEnvironmentIrradianceMap(radianceMap, "PreethamSkyIrradiance");
+		return Ref<Environment>::Create(radianceMap, irradianceMap);
 	}
 
 #if 0
@@ -1484,6 +1507,22 @@ namespace Lux {
 	Ref<Environment> Renderer::GetEmptyEnvironment()
 	{
 		return s_Data->EmptyEnvironment;
+	}
+
+	Ref<Environment> Renderer::GetDefaultEnvironment()
+	{
+		if (!s_Data->DefaultEnvironment)
+		{
+			constexpr float defaultTurbidity = 3.0f;
+			constexpr float defaultAzimuth = 0.25f;
+			constexpr float defaultInclination = 1.0f;
+
+			s_Data->DefaultEnvironment = CreatePreethamSkyEnvironment(defaultTurbidity, defaultAzimuth, defaultInclination);
+			if (!s_Data->DefaultEnvironment)
+				s_Data->DefaultEnvironment = GetEmptyEnvironment();
+		}
+
+		return s_Data->DefaultEnvironment ? s_Data->DefaultEnvironment : GetEmptyEnvironment();
 	}
 
 	RenderCommandQueue& Renderer::GetRenderCommandQueue()

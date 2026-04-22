@@ -64,26 +64,14 @@ vec3 CalculateDirLights(vec3 F0)
 
 int GetPointLightBufferIndex(int i)
 {
-	ivec2 tileID = ivec2(gl_FragCoord) / ivec2(16, 16);
-	uint index = tileID.y * u_RendererData.TilesCountX + tileID.x;
-
-	uint offset = index * 1024;
-	return s_VisiblePointLightIndicesBuffer.Indices[offset + i];
+	// Lux does not currently dispatch the Hazel-style light-culling pass, so
+	// fall back to iterating the uploaded point-light array directly.
+	return i;
 }
 
 int GetPointLightCount()
 {
-	int result = 0;
-	for (int i = 0; i < u_PointLights.LightCount; i++)
-	{
-		uint lightIndex = GetPointLightBufferIndex(i);
-		if (lightIndex == -1)
-			break;
-
-		result++;
-	}
-
-	return result;
+	return int(u_PointLights.LightCount);
 }
 
 vec3 CalculatePointLights(in vec3 F0, vec3 worldPos)
@@ -131,27 +119,15 @@ vec3 CalculatePointLights(in vec3 F0, vec3 worldPos)
 
 int GetSpotLightBufferIndex(int i)
 {
-	ivec2 tileID = ivec2(gl_FragCoord) / ivec2(16, 16);
-	uint index = tileID.y * u_RendererData.TilesCountX + tileID.x;
-
-	uint offset = index * 1024;
-	return s_VisibleSpotLightIndicesBuffer.Indices[offset + i];
+	// Lux does not currently dispatch the Hazel-style light-culling pass, so
+	// fall back to iterating the uploaded spot-light array directly.
+	return i;
 }
 
 
 int GetSpotLightCount()
 {
-	int result = 0;
-	for (int i = 0; i < u_SpotLights.LightCount; i++)
-	{
-		uint lightIndex = GetSpotLightBufferIndex(i);
-		if (lightIndex == -1)
-			break;
-
-		result++;
-	}
-
-	return result;
+	return int(u_SpotLights.LightCount);
 }
 
 vec3 CalculateSpotLights(in vec3 F0, vec3 worldPos)
