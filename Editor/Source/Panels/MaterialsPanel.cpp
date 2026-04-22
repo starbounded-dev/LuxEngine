@@ -1,10 +1,9 @@
 #include "lpch.h"
 #include "MaterialsPanel.h"
 
-#include "SceneHierarchyPanel.h"
-
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Editor/SceneHierarchyPanel.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Renderer/MaterialAsset.h"

@@ -1,14 +1,16 @@
 #include "lpch.h"
 
 #include "SceneHierarchyPanel.h"
-#include "Lux/Scene/Components.h"
-#include "Lux/Scene/Prefab.h"
-
-#include "Lux/Scripting/ScriptEngine.h"
-#include "Lux/ImGui/ImGuiEx.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetMetadata.h"
+#include "Lux/Core/Events/KeyEvent.h"
+#include "Lux/Core/Events/MouseEvent.h"
+#include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Prefab.h"
+#include "Lux/Renderer/UI/Font.h"
+#include "Lux/Scripting/ScriptEngine.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
@@ -19,16 +21,10 @@
 
 #include <cstring>
 
-/* The Microsoft C++ compiler is non-compliant with the C++ standard and needs
- * the following definition to disable a security warning on std::strncpy().
- */
-#ifdef _MSVC_LANG
-#define _CRT_SECURE_NO_WARNINGS
-#endif
-
 namespace Lux {
 
-	SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
+	SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context, bool isWindow)
+		: m_IsWindow(isWindow)
 	{
 		SetContext(context);
 	}
@@ -37,6 +33,7 @@ namespace Lux {
 	{
 		m_Context = context;
 		m_SelectionContext = {};
+		m_SearchString.clear();
 	}
 
 	void SceneHierarchyPanel::OnImGuiRender(bool& isOpen)
@@ -44,11 +41,26 @@ namespace Lux {
 		if (!isOpen)
 			return;
 
-		if (!ImGui::Begin("Scene Hierarchy", &isOpen))
+		if (m_IsWindow)
 		{
-			ImGui::End();
-			return;
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+			if (!ImGui::Begin("Scene Hierarchy", &isOpen))
+			{
+				ImGui::End();
+				ImGui::PopStyleVar();
+				return;
+			}
+			ImGui::PopStyleVar();
 		}
+
+		m_IsHierarchyFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+
+		const float edgeOffset = 4.0f;
+		ImGui::SetCursorPosX(edgeOffset * 3.0f);
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - edgeOffset * 3.0f);
+		ImGuiEx::Widgets::SearchWidget(m_SearchString, "Search entities...", &m_ActivateSearchWidget);
+		ImGui::Spacing();
+		ImGui::Separator();
 
 		if (m_Context)
 		{
@@ -57,14 +69,14 @@ namespace Lux {
 				Entity entity{ entityID , m_Context.get() };
 				if (!entity.HasComponent<RelationshipComponent>())
 				{
-					DrawEntityNode(entity);
+					DrawEntityNode(entity, m_SearchString);
 					return;
 				}
 
 				const auto& relationship = entity.GetComponent<RelationshipComponent>();
 				const bool hasValidParent = relationship.ParentHandle != 0 && (bool)m_Context->GetEntityByUUID(relationship.ParentHandle);
 				if (!hasValidParent)
-					DrawEntityNode(entity);
+					DrawEntityNode(entity, m_SearchString);
 			});
 
 			const ImRect hierarchyRect(ImGui::GetWindowPos(), ImGui::GetWindowPos() + ImGui::GetWindowSize());
@@ -93,50 +105,203 @@ namespace Lux {
 			}
 		}
 
-		if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
+		if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)
+			&& ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows)
+			&& !ImGui::IsAnyItemHovered())
 			m_SelectionContext = {};
 
-		// Right-click on blank space
-		// FIX: Was passing integer literal 0 as str_id, which is not nullptr.
-		// This caused popup ID collisions with BeginPopupContextItem() calls on
-		// individual entity nodes, making right-click on blank space unreliable.
 		if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_NoOpenOverItems))
 		{
-			if (ImGui::MenuItem("Create Empty Entity"))
-				m_Context->CreateEntity("Empty Entity");
-
+			DrawEntityCreateMenu({});
 			ImGui::EndPopup();
 		}
 
-		ImGui::End();
+		if (m_IsWindow)
+			ImGui::End();
 
 		if (!isOpen)
 			return;
 
 		ImGui::Begin("Properties", &isOpen);
+		m_IsHierarchyOrPropertiesFocused = m_IsHierarchyFocused || ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 		if (m_SelectionContext)
 		{
 			DrawComponents(m_SelectionContext);
 		}
 
 		ImGui::End();
-
 	}
-	
+
+	void SceneHierarchyPanel::OnEvent(Event& e)
+	{
+		if (!m_IsHierarchyOrPropertiesFocused)
+			return;
+
+		EventDispatcher dispatcher(e);
+		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& event)
+		{
+			switch (event.GetKeyCode())
+			{
+			case Key::F:
+				m_ActivateSearchWidget = true;
+				return true;
+			case Key::Escape:
+				m_SelectionContext = {};
+				return true;
+			default:
+				return false;
+			}
+		});
+	}
 
 	void SceneHierarchyPanel::SetSelectedEntity(Entity entity)
 	{
 		m_SelectionContext = entity;
 	}
 
-	void SceneHierarchyPanel::DrawEntityNode(Entity entity)
+	void SceneHierarchyPanel::DrawEntityCreateMenu(Entity parent)
+	{
+		if (m_Context == nullptr)
+			return;
+
+		auto createEntity = [this, parent](const char* name)
+		{
+			Entity entity = m_Context->CreateEntity(name);
+			if (parent)
+				entity.SetParent(parent);
+
+			m_SelectionContext = entity;
+			return entity;
+		};
+
+		if (ImGui::MenuItem("Create Empty Entity"))
+			createEntity("Empty Entity");
+
+		if (ImGui::BeginMenu("Create 2D"))
+		{
+			if (ImGui::MenuItem("Sprite"))
+			{
+				Entity entity = createEntity("Sprite");
+				entity.AddComponent<SpriteRendererComponent>();
+			}
+
+			if (ImGui::MenuItem("Circle"))
+			{
+				Entity entity = createEntity("Circle");
+				entity.AddComponent<CircleRendererComponent>();
+			}
+
+			if (ImGui::MenuItem("Text"))
+			{
+				Entity entity = createEntity("Text");
+				auto& text = entity.AddComponent<TextComponent>();
+				if (Ref<Font> defaultFont = Font::GetDefaultFont())
+					text.FontHandle = defaultFont->Handle;
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Create 3D"))
+		{
+			if (ImGui::MenuItem("Static Mesh"))
+			{
+				Entity entity = createEntity("Static Mesh");
+				entity.AddComponent<StaticMeshComponent>();
+			}
+
+			if (ImGui::BeginMenu("Lights"))
+			{
+				if (ImGui::MenuItem("Directional Light"))
+				{
+					Entity entity = createEntity("Directional Light");
+					entity.AddComponent<DirectionalLightComponent>();
+				}
+
+				if (ImGui::MenuItem("Point Light"))
+				{
+					Entity entity = createEntity("Point Light");
+					entity.AddComponent<PointLightComponent>();
+				}
+
+				if (ImGui::MenuItem("Spot Light"))
+				{
+					Entity entity = createEntity("Spot Light");
+					entity.AddComponent<SpotLightComponent>();
+				}
+
+				if (ImGui::MenuItem("Sky Light"))
+				{
+					Entity entity = createEntity("Sky Light");
+					entity.AddComponent<SkyLightComponent>();
+				}
+
+				ImGui::EndMenu();
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Create Utility"))
+		{
+			if (ImGui::MenuItem("Camera"))
+			{
+				Entity entity = createEntity("Camera");
+				entity.AddComponent<CameraComponent>();
+			}
+
+			if (ImGui::MenuItem("Audio Source"))
+			{
+				Entity entity = createEntity("Audio Source");
+				entity.AddComponent<AudioSourceComponent>();
+			}
+
+			if (ImGui::MenuItem("Audio Listener"))
+			{
+				Entity entity = createEntity("Audio Listener");
+				entity.AddComponent<AudioListenerComponent>();
+			}
+
+			ImGui::EndMenu();
+		}
+	}
+
+	bool SceneHierarchyPanel::TagSearchRecursive(Entity entity, std::string_view searchFilter, uint32_t maxSearchDepth, uint32_t currentDepth)
+	{
+		if (!entity || searchFilter.empty() || currentDepth > maxSearchDepth)
+			return false;
+
+		const auto& relationship = entity.GetComponent<RelationshipComponent>();
+		for (UUID childID : relationship.Children)
+		{
+			Entity childEntity = m_Context->GetEntityByUUID(childID);
+			if (!childEntity || !childEntity.HasComponent<TagComponent>())
+				continue;
+
+			if (ImGuiEx::IsMatchingSearch(childEntity.GetComponent<TagComponent>().Tag, searchFilter))
+				return true;
+
+			if (TagSearchRecursive(childEntity, searchFilter, maxSearchDepth, currentDepth + 1))
+				return true;
+		}
+
+		return false;
+	}
+
+	void SceneHierarchyPanel::DrawEntityNode(Entity entity, const std::string& searchFilter)
 	{
 		auto& tag = entity.GetComponent<TagComponent>().Tag;
 		const auto& relationship = entity.GetComponent<RelationshipComponent>();
 		const bool hasChildren = !relationship.Children.empty();
+		const bool hasChildMatchingSearch = TagSearchRecursive(entity, searchFilter, 10);
+
+		if (!ImGuiEx::IsMatchingSearch(tag, searchFilter) && !hasChildMatchingSearch)
+			return;
 
 		ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
+		if (hasChildMatchingSearch)
+			flags |= ImGuiTreeNodeFlags_DefaultOpen;
 		if (!hasChildren)
 			flags |= ImGuiTreeNodeFlags_Leaf;
 		bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, tag.c_str());
@@ -187,6 +352,8 @@ namespace Lux {
 		bool entityDeleted = false;
 		if (ImGui::BeginPopupContextItem())
 		{
+			DrawEntityCreateMenu(entity);
+			ImGui::Separator();
 			if (ImGui::MenuItem("Delete Entity"))
 				entityDeleted = true;
 
@@ -199,7 +366,7 @@ namespace Lux {
 			{
 				Entity childEntity = m_Context->GetEntityByUUID(childID);
 				if (childEntity)
-					DrawEntityNode(childEntity);
+					DrawEntityNode(childEntity, searchFilter);
 			}
 
 			ImGui::TreePop();
@@ -305,8 +472,25 @@ namespace Lux {
 			bool removeComponent = false;
 			if (ImGui::BeginPopup("ComponentSettings"))
 			{
-				if (ImGui::MenuItem("Remove component"))
-					removeComponent = true;
+				if constexpr (!std::is_same_v<T, TransformComponent>)
+				{
+					if (ImGui::MenuItem("Remove component"))
+						removeComponent = true;
+				}
+				else
+				{
+					ImGui::MenuItem("Remove component", nullptr, false, false);
+				}
+
+				if constexpr (std::is_same_v<T, TransformComponent>)
+				{
+					if (ImGui::MenuItem("Reset transform"))
+					{
+						component.Translation = glm::vec3(0.0f);
+						component.Rotation = glm::vec3(0.0f);
+						component.Scale = glm::vec3(1.0f);
+					}
+				}
 
 				ImGui::EndPopup();
 			}

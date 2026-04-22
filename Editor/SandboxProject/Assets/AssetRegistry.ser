@@ -4,16 +4,21 @@ Assets:
     Type: Texture
     FileLastWriteTime: 13419973904
     Status: None
+  - Handle: 5010151633762378122
+    FilePath: Scenes/Example.luxscene
+    Type: Scene
+    FileLastWriteTime: 13421299743
+    Status: None
   - Handle: 5698620207532946169
     FilePath: Audio/fart-01.wav
     Type: Audio
     FileLastWriteTime: 13419973904
-    Status: None
+    Status: Ready
   - Handle: 7305845728380112481
     FilePath: Scenes/Physics2D.luxscene
     Type: Scene
     FileLastWriteTime: 13421219831
-    Status: None
+    Status: Ready
   - Handle: 8773409218751291332
     FilePath: Scripts/Source/Camera.cs
     Type: ScriptFile
@@ -22,7 +27,7 @@ Assets:
   - Handle: 11724995497610062292
     FilePath: Scenes/3D Cube.luxscene
     Type: Scene
-    FileLastWriteTime: 13421222375
+    FileLastWriteTime: 13421223732
     Status: None
   - Handle: 12181112058573688332
     FilePath: Scripts/Source/Player.cs

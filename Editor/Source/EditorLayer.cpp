@@ -30,13 +30,13 @@
 #include "Lux/Utilities/FileDialogs.h"
 #include "Lux/Math/Math.h"
 #include "Panels/TextEditorPanel.h"
-#include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/ApplicationSettingsPanel.h"
 #include "Panels/AssetManagerPanel.h"
 #include "Panels/MaterialsPanel.h"
 #include "Panels/ProjectSettingsWindow.h"
+#include "Lux/Editor/SceneHierarchyPanel.h"
 #include <algorithm>
 #include <cmath>
 #include <functional>
