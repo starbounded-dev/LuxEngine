@@ -13,6 +13,7 @@
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/DebugRenderer.h"
+#include "Lux/Project/TieringSettings.h"
 #include "Lux/Scene/Scene.h"
 
 #include <glm/glm.hpp>
@@ -35,7 +36,9 @@ namespace Lux {
 		float     Intensity = 0.0f;     // 0 = disabled
 		float     ShadowAmount = 1.0f;
 		bool      CastShadows = true;
-		float     Padding1[2] = { 0.0f, 0.0f };
+		bool      SoftShadows = true;
+		float     LightSize = 0.5f;
+		float     Padding1 = 0.0f;
 	};
 
 	struct PointLight
@@ -47,8 +50,7 @@ namespace Lux {
 		float     Radius = 25.0f;
 		float     Falloff = 1.0f;
 		float     LightSize = 0.5f;
-		bool      CastsShadows = false;
-		char      Padding[3] = { 0, 0, 0 };
+		uint32_t  CastsShadows = 0;
 	};
 
 	struct SpotLight
@@ -62,12 +64,15 @@ namespace Lux {
 		float     Angle = 45.0f;
 		float     Falloff = 1.0f;
 		uint32_t  ShadowIndex = 0;
-		bool      SoftShadows = false;
-		bool      CastsShadows = false;
+		uint32_t  SoftShadows = 0;
+		uint32_t  CastsShadows = 0;
 		float     AtlasOffsetX = 0.0f;
 		float     AtlasOffsetY = 0.0f;
 		float     AtlasScale = 1.0f;
 	};
+
+	static_assert(sizeof(PointLight) == 48, "PointLight must match the GLSL std140 layout.");
+	static_assert(sizeof(SpotLight) == 80, "SpotLight must match the GLSL std140 layout.");
 
 	struct LightEnvironment
 	{
@@ -115,6 +120,7 @@ namespace Lux {
 	{
 		uint32_t ViewportWidth = 0;   // 0 = use window size
 		uint32_t ViewportHeight = 0;
+		Tiering::Renderer::RendererTieringSettings Tiering;
 	};
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -156,9 +162,9 @@ namespace Lux {
 
 		void BeginScene(const SceneRendererCamera& camera);
 
-		// Call after BeginScene, before SubmitStaticMesh / EndScene.
+		// Call before BeginScene to update the scene state consumed by the render passes.
 		void SetLightEnvironment(const LightEnvironment& lightEnvironment);
-		void SetEnvironment(Ref<Environment> environment, float intensity = 1.0f);
+		void SetEnvironment(Ref<Environment> environment, float intensity = 1.0f, float skyboxLod = 0.0f);
 
 		// Submit a static (non-animated) mesh for rendering this frame.
 		void SubmitStaticMesh(Ref<StaticMesh>    staticMesh,
@@ -318,15 +324,18 @@ namespace Lux {
 		{
 			glm::vec4 CascadeSplits;
 			uint32_t  TilesCountX = 0;
+			bool      ShowCascades = false;
+			char      Pad0[3] = { 0, 0, 0 };
 			bool      SoftShadows = true;
-			char      Pad0[3] = { 0,0,0 };
+			char      Pad1[3] = { 0, 0, 0 };
+			float     LightSize = 0.5f;
 			float     MaxShadowDistance = 200.0f;
 			float     ShadowFade = 1.0f;
 			bool      CascadeFading = false;
-			char      Pad1[3] = { 0,0,0 };
+			char      Pad2[3] = { 0, 0, 0 };
 			float     CascadeTransitionFade = 1.0f;
 			bool      ShowLightComplexity = false;
-			char      Pad2[3] = { 0,0,0 };
+			char      Pad3[3] = { 0, 0, 0 };
 		} m_RendererDataUB;
 
 		struct UBPointLights
@@ -361,6 +370,7 @@ namespace Lux {
 			SceneRendererCamera SceneCamera;
 			Ref<Environment>    SceneEnvironment;
 			float               SceneEnvironmentIntensity = 1.0f;
+			float               SkyboxLod = 0.0f;
 			LightEnvironment    SceneLightEnvironment;
 		} m_SceneData;
 

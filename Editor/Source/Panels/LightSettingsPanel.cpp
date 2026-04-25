@@ -85,6 +85,9 @@ namespace Lux {
 				}
 
 				ImGuiEx::Property("Cast Shadows", light.CastShadows);
+				ImGuiEx::Property("Soft Shadows", light.SoftShadows);
+				ImGuiEx::Property("Light Size", light.LightSize, 0.01f, 0.0f, 10.0f);
+				ImGuiEx::Property("Shadow Amount", light.ShadowAmount, 0.01f, 0.0f, 1.0f);
 
 				ImGuiEx::EndPropertyGrid();
 
@@ -130,7 +133,10 @@ namespace Lux {
 				ImGuiEx::Property("Intensity", light.Intensity, 0.1f, 0.0f, 100.0f);
 				ImGuiEx::Property("Radius", light.Radius, 0.1f, 0.0f, 100.0f);
 				ImGuiEx::Property("Falloff", light.Falloff, 0.1f, 0.0f, 10.0f);
+				ImGuiEx::Property("Min Radius", light.MinRadius, 0.001f, 0.0f, 1.0f);
+				ImGuiEx::Property("Light Size", light.LightSize, 0.01f, 0.0f, 10.0f);
 				ImGuiEx::Property("Cast Shadows", light.CastShadows);
+				ImGuiEx::Property("Soft Shadows", light.SoftShadows);
 
 				ImGuiEx::EndPropertyGrid();
 
@@ -179,6 +185,7 @@ namespace Lux {
 				ImGuiEx::Property("Angle", light.Angle, 1.0f, 0.0f, 180.0f);
 				ImGuiEx::Property("Angle Atten", light.AngleAttenuation, 0.1f, 0.0f, 1.0f);
 				ImGuiEx::Property("Cast Shadows", light.CastShadows);
+				ImGuiEx::Property("Soft Shadows", light.SoftShadows);
 
 				ImGuiEx::EndPropertyGrid();
 
@@ -215,6 +222,11 @@ namespace Lux {
 
 				ImGuiEx::BeginPropertyGrid();
 				ImGuiEx::Property("Intensity", light.Intensity, 0.1f, 0.0f, 100.0f);
+				ImGuiEx::Property("Lod", light.Lod, 0.01f, 0.0f, 10.0f);
+				ImGuiEx::Property("Dynamic Sky", light.DynamicSky);
+				ImGuiEx::Property("Turbidity", light.TurbidityAzimuthInclination.x, 0.01f, 0.0f, 20.0f);
+				ImGuiEx::Property("Azimuth", light.TurbidityAzimuthInclination.y, 0.01f, -360.0f, 360.0f);
+				ImGuiEx::Property("Inclination", light.TurbidityAzimuthInclination.z, 0.01f, -180.0f, 180.0f);
 				ImGuiEx::EndPropertyGrid();
 
 				std::string envLabel = "None";

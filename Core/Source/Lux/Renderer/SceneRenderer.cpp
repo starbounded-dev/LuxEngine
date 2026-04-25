@@ -481,10 +481,11 @@ namespace Lux {
 		m_SceneData.SceneLightEnvironment = lightEnvironment;
 	}
 
-	void SceneRenderer::SetEnvironment(Ref<Environment> environment, float intensity)
+	void SceneRenderer::SetEnvironment(Ref<Environment> environment, float intensity, float skyboxLod)
 	{
 		m_SceneData.SceneEnvironment = environment;
 		m_SceneData.SceneEnvironmentIntensity = intensity;
+		m_SceneData.SkyboxLod = skyboxLod;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -652,7 +653,9 @@ namespace Lux {
 
 		// ── Renderer data uniform buffer ──────────────────────────────────────
 		{
-			m_RendererDataUB.SoftShadows = m_Options.SoftShadows;
+			const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
+			m_RendererDataUB.SoftShadows = m_Options.SoftShadows && dirLight.SoftShadows;
+			m_RendererDataUB.LightSize = dirLight.LightSize;
 			m_RendererDataUB.MaxShadowDistance = m_Options.MaxShadowDistance;
 			m_RendererDataUB.ShadowFade = m_Options.ShadowFade;
 			m_RendererDataUB.CascadeSplits = glm::vec4(m_Options.MaxShadowDistance);
@@ -1028,7 +1031,7 @@ namespace Lux {
 
 		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SkyboxPass");
 
-		m_SkyboxMaterial->Set("u_Uniforms.TextureLod", 0.0f);
+		m_SkyboxMaterial->Set("u_Uniforms.TextureLod", m_SceneData.SkyboxLod);
 		m_SkyboxMaterial->Set("u_Uniforms.Intensity", m_SceneData.SceneEnvironmentIntensity);
 		m_SkyboxMaterial->Set("u_Texture", m_SceneData.SceneEnvironment->RadianceMap);
 

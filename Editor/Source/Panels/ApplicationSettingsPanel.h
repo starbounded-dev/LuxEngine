@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lux/Editor/EditorPanel.h"
+#include "Lux/Project/UserPreferences.h"
 
 #include <functional>
 #include <vector>
@@ -33,7 +34,7 @@ namespace Lux {
 		};
 
 	public:
-		ApplicationSettingsPanel(const Ref<ContentBrowserPanel>& contentBrowserPanel, EditorPreferencesBindings bindings);
+		ApplicationSettingsPanel(const Ref<ContentBrowserPanel>& contentBrowserPanel, EditorPreferencesBindings bindings, const Ref<UserPreferences>& userPreferences);
 		virtual ~ApplicationSettingsPanel() = default;
 
 		virtual void OnImGuiRender(bool& isOpen) override;
@@ -46,10 +47,12 @@ namespace Lux {
 
 		void SaveAutoOpenMostRecentProjectSetting(bool enabled) const;
 		bool LoadAutoOpenMostRecentProjectSetting() const;
-		void ClearRecentProjects() const;
+		void SaveUserPreferences() const;
+		void ClearRecentProjects();
 
 	private:
 		Ref<ContentBrowserPanel> m_ContentBrowserPanel;
+		Ref<UserPreferences> m_UserPreferences;
 		EditorPreferencesBindings m_Bindings;
 
 		uint32_t m_CurrentPage = 0;

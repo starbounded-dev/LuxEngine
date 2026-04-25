@@ -87,7 +87,7 @@ namespace Lux {
 			return absolutePath.lexically_normal();
 		}
 
-		std::vector<std::filesystem::path> LoadRecentProjects()
+		std::vector<std::filesystem::path> LoadLegacyRecentProjects()
 		{
 			auto& settings = Application::Get().GetSettings();
 			const int count = std::max(settings.GetInt("RecentProjects.Count", 0), 0);
@@ -110,47 +110,6 @@ namespace Lux {
 			}
 
 			return projects;
-		}
-
-		void SaveRecentProjects(const std::vector<std::filesystem::path>& projects)
-		{
-			auto& settings = Application::Get().GetSettings();
-			const size_t count = std::min(projects.size(), (size_t)s_MaxRecentProjects);
-
-			for (size_t i = 0; i < count; i++)
-				settings.Set(GetRecentProjectKey(i), projects[i].generic_string());
-
-			settings.SetInt("RecentProjects.Count", (int)count);
-			settings.Serialize();
-		}
-
-		void AddRecentProject(const std::filesystem::path& projectPath)
-		{
-			std::filesystem::path normalizedPath = NormalizeProjectPath(projectPath);
-			if (normalizedPath.empty())
-				return;
-
-			std::vector<std::filesystem::path> projects = LoadRecentProjects();
-			projects.erase(std::remove(projects.begin(), projects.end(), normalizedPath), projects.end());
-			projects.insert(projects.begin(), normalizedPath);
-
-			if (projects.size() > s_MaxRecentProjects)
-				projects.resize(s_MaxRecentProjects);
-
-			SaveRecentProjects(projects);
-		}
-
-		std::filesystem::path GetStartupProjectPath()
-		{
-			const std::vector<std::filesystem::path> projects = LoadRecentProjects();
-			for (const auto& projectPath : projects)
-			{
-				std::error_code ec;
-				if (std::filesystem::exists(projectPath, ec) && !ec)
-					return projectPath;
-			}
-
-			return {};
 		}
 
 		bool ShouldAutoOpenMostRecentProject()
@@ -205,6 +164,7 @@ namespace Lux {
 
 		EditorResources::Init();
 		LoadEditorPreferences();
+		LoadUserPreferences();
 
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();
@@ -246,7 +206,7 @@ namespace Lux {
 				SaveEditorPreferences();
 			};
 
-		m_PanelManager->AddPanel<ApplicationSettingsPanel>(PanelCategory::View, APPLICATION_SETTINGS_PANEL_ID, "Application Settings", false, contentBrowserPanel, editorPreferencesBindings);
+		m_PanelManager->AddPanel<ApplicationSettingsPanel>(PanelCategory::View, APPLICATION_SETTINGS_PANEL_ID, "Application Settings", false, contentBrowserPanel, editorPreferencesBindings, m_UserPreferences);
 		m_PanelManager->AddPanel<AssetManagerPanel>(PanelCategory::View, ASSET_MANAGER_PANEL_ID, "Asset Manager", false);
 		m_PanelManager->AddPanel<ProjectSettingsWindow>(PanelCategory::View, PROJECT_SETTINGS_PANEL_ID, "Project Settings", false);
 
@@ -328,11 +288,8 @@ namespace Lux {
 		if (m_SceneRenderer)
 			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
 
-		if (ShouldAutoOpenMostRecentProject())
-		{
-			if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
-				OpenProject(startupProject);
-		}
+		if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
+			OpenProject(startupProject);
 	}
 
 	void EditorLayer::OnDetach()
@@ -706,7 +663,7 @@ namespace Lux {
 
 				if (ImGui::BeginMenu("Recent Projects"))
 				{
-					const std::vector<std::filesystem::path> recentProjects = LoadRecentProjects();
+					const std::vector<RecentProject> recentProjects = GetRecentProjects();
 					if (recentProjects.empty())
 					{
 						ImGui::MenuItem("No recent projects", nullptr, false, false);
@@ -715,14 +672,15 @@ namespace Lux {
 					{
 						for (const auto& recentProject : recentProjects)
 						{
-							const std::string fullPath = recentProject.generic_string();
-							const std::string displayName = recentProject.stem().string().empty() ? fullPath : recentProject.stem().string();
+							const std::filesystem::path projectPath = NormalizeProjectPath(recentProject.FilePath);
+							const std::string fullPath = projectPath.generic_string();
+							const std::string displayName = recentProject.Name.empty() ? (projectPath.stem().string().empty() ? fullPath : projectPath.stem().string()) : recentProject.Name;
 							std::error_code ec;
-							const bool exists = std::filesystem::exists(recentProject, ec) && !ec;
+							const bool exists = !projectPath.empty() && std::filesystem::exists(projectPath, ec) && !ec;
 
 							ImGui::PushID(fullPath.c_str());
 							if (ImGui::MenuItem(displayName.c_str(), nullptr, false, exists))
-								OpenProject(recentProject);
+								OpenProject(projectPath);
 
 							if (ImGui::IsItemHovered())
 							{
@@ -1464,6 +1422,164 @@ namespace Lux {
 
 		if (m_SceneRenderer)
 			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+	}
+
+	void EditorLayer::LoadUserPreferences()
+	{
+		m_UserPreferences = CreateRef<UserPreferences>();
+		m_UserPreferencesPath = FileSystem::GetPersistentStoragePath() / "UserPreferences.yaml";
+
+		UserPreferencesSerializer serializer(m_UserPreferences);
+		bool loaded = serializer.Deserialize(m_UserPreferencesPath);
+		bool dirty = false;
+
+		if (!loaded)
+			dirty = true;
+
+		if (m_UserPreferences->RecentProjects.empty())
+		{
+			const auto legacyProjects = LoadLegacyRecentProjects();
+			time_t timestamp = time(nullptr);
+			for (const auto& legacyProject : legacyProjects)
+			{
+				RecentProject entry;
+				entry.Name = legacyProject.stem().string();
+				entry.FilePath = legacyProject.generic_string();
+				entry.LastOpened = timestamp--;
+				m_UserPreferences->RecentProjects[entry.LastOpened] = entry;
+			}
+
+			dirty = dirty || !legacyProjects.empty();
+		}
+
+		for (auto it = m_UserPreferences->RecentProjects.begin(); it != m_UserPreferences->RecentProjects.end();)
+		{
+			const std::filesystem::path projectPath = NormalizeProjectPath(it->second.FilePath);
+			std::error_code ec;
+			if (projectPath.empty() || !std::filesystem::exists(projectPath, ec) || ec)
+			{
+				if (!m_UserPreferences->StartupProject.empty() && NormalizeProjectPath(m_UserPreferences->StartupProject) == projectPath)
+					m_UserPreferences->StartupProject.clear();
+
+				it = m_UserPreferences->RecentProjects.erase(it);
+				dirty = true;
+			}
+			else
+			{
+				it->second.FilePath = projectPath.generic_string();
+				++it;
+			}
+		}
+
+		if (!m_UserPreferences->StartupProject.empty())
+		{
+			const std::filesystem::path startupProject = NormalizeProjectPath(m_UserPreferences->StartupProject);
+			std::error_code ec;
+			if (startupProject.empty() || !std::filesystem::exists(startupProject, ec) || ec)
+			{
+				m_UserPreferences->StartupProject.clear();
+				dirty = true;
+			}
+			else
+			{
+				m_UserPreferences->StartupProject = startupProject.generic_string();
+			}
+		}
+
+		if (m_UserPreferences->FilePath.empty())
+			m_UserPreferences->FilePath = m_UserPreferencesPath;
+
+		if (dirty)
+			serializer.Serialize(m_UserPreferencesPath);
+	}
+
+	void EditorLayer::SaveUserPreferences() const
+	{
+		if (!m_UserPreferences)
+			return;
+
+		UserPreferencesSerializer serializer(m_UserPreferences);
+		serializer.Serialize(m_UserPreferencesPath.empty() ? (FileSystem::GetPersistentStoragePath() / "UserPreferences.yaml") : m_UserPreferencesPath);
+	}
+
+	void EditorLayer::AddRecentProject(const std::filesystem::path& projectPath)
+	{
+		if (!m_UserPreferences)
+			return;
+
+		const std::filesystem::path normalizedPath = NormalizeProjectPath(projectPath);
+		if (normalizedPath.empty())
+			return;
+
+		for (auto it = m_UserPreferences->RecentProjects.begin(); it != m_UserPreferences->RecentProjects.end();)
+		{
+			if (NormalizeProjectPath(it->second.FilePath) == normalizedPath)
+				it = m_UserPreferences->RecentProjects.erase(it);
+			else
+				++it;
+		}
+
+		RecentProject entry;
+		entry.Name = normalizedPath.stem().string();
+		if (Ref<Project> activeProject = Project::GetActive())
+		{
+			if (NormalizeProjectPath(activeProject->GetProjectFilePath()) == normalizedPath && !activeProject->GetConfig().Name.empty())
+				entry.Name = activeProject->GetConfig().Name;
+		}
+		entry.FilePath = normalizedPath.generic_string();
+		entry.LastOpened = time(nullptr);
+		while (m_UserPreferences->RecentProjects.contains(entry.LastOpened))
+			entry.LastOpened--;
+
+		m_UserPreferences->RecentProjects[entry.LastOpened] = entry;
+
+		while (m_UserPreferences->RecentProjects.size() > s_MaxRecentProjects)
+		{
+			auto last = std::prev(m_UserPreferences->RecentProjects.end());
+			m_UserPreferences->RecentProjects.erase(last);
+		}
+
+		SaveUserPreferences();
+	}
+
+	std::vector<RecentProject> EditorLayer::GetRecentProjects() const
+	{
+		std::vector<RecentProject> projects;
+		if (!m_UserPreferences)
+			return projects;
+
+		projects.reserve((size_t)std::min((int)m_UserPreferences->RecentProjects.size(), s_MaxRecentProjects));
+		for (const auto& [_, project] : m_UserPreferences->RecentProjects)
+		{
+			if ((int)projects.size() >= s_MaxRecentProjects)
+				break;
+
+			projects.emplace_back(project);
+		}
+
+		return projects;
+	}
+
+	std::filesystem::path EditorLayer::GetStartupProjectPath() const
+	{
+		if (!m_UserPreferences)
+			return {};
+
+		if (!m_UserPreferences->StartupProject.empty())
+			return NormalizeProjectPath(m_UserPreferences->StartupProject);
+
+		if (!ShouldAutoOpenMostRecentProject())
+			return {};
+
+		for (const auto& [_, project] : m_UserPreferences->RecentProjects)
+		{
+			const std::filesystem::path path = NormalizeProjectPath(project.FilePath);
+			std::error_code ec;
+			if (!path.empty() && std::filesystem::exists(path, ec) && !ec)
+				return path;
+		}
+
+		return {};
 	}
 
 	void EditorLayer::NewProject()

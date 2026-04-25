@@ -80,9 +80,9 @@ namespace Lux {
 		// Collect light data from DirectionalLightComponent, PointLightComponent and SpotLightComponent entities
 		LightEnvironment CollectLightEnvironment() const;
 
-		// Collect environment/skybox from the first SkyLightComponent entity
-		// Returns nullptr if no SkyLightComponent exists
-		Ref<Environment> CollectEnvironment(float& outIntensity) const;
+		// Collect environment/skybox from the first SkyLightComponent entity.
+		// Falls back to the renderer default environment when no explicit skylight is configured.
+		Ref<Environment> CollectEnvironment(float& outIntensity, float& outLod) const;
 
 		// Submit all StaticMeshComponent entities to the SceneRenderer
 		// Optional predicate to determine if an entity is selected (for highlight rendering)
@@ -137,6 +137,9 @@ namespace Lux {
 
 		Ref<Renderer2D> m_Renderer2D;
 		std::string m_Name = "Untitled";
+		mutable Ref<Environment> m_DynamicSkyEnvironment;
+		mutable glm::vec3 m_DynamicSkyParameters = { 2.0f, 0.0f, 0.0f };
+		mutable bool m_DynamicSkyEnvironmentValid = false;
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 

@@ -308,7 +308,8 @@ namespace Lux::ImGuiEx {
 
 		return modified;
 	}
-	
+#endif
+#if 0
 	bool DrawFieldValue(Ref<Scene> sceneContext, std::string_view fieldName, FieldStorage& storage)
 	{
 		ImGui::PushID(fieldName.data());

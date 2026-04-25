@@ -4,12 +4,18 @@
 #include "ProjectSerializer.h"
 
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Scripting/ScriptEngine.h"
 
 namespace Lux
 {
 	std::filesystem::path Project::GetAssetAbsolutePath(const std::filesystem::path& path) const
 	{
 		return GetAssetDirectory() / path;
+	}
+
+	void Project::ReloadScriptEngine()
+	{
+		ScriptEngine::ReloadAssembly();
 	}
 
 	void Project::SetActive(Ref<Project> project)
@@ -23,6 +29,9 @@ namespace Lux
 		s_ActiveProject = project;
 		if (!s_ActiveProject)
 			return;
+
+		s_ActiveProject->m_Config.ProjectDirectory = s_ActiveProject->m_ProjectDirectory;
+		s_ActiveProject->m_Config.ProjectFileName = s_ActiveProject->m_ProjectFilePath.filename().string();
 
 		if (AudioEngine::HasInitializedEngine())
 		{
@@ -60,12 +69,15 @@ namespace Lux
 		if (!s_ActiveProject)
 			return;
 
+		s_ActiveProject->m_Config.ProjectDirectory = s_ActiveProject->m_ProjectDirectory;
+		s_ActiveProject->m_Config.ProjectFileName = s_ActiveProject->m_ProjectFilePath.filename().string();
 		s_AssetManager = Ref<RuntimeAssetManager>::Create();
 	}
 
 	Ref<Project> Project::New()
 	{
 		Ref<Project> project = Ref<Project>::Create();
+		project->m_Config.DefaultNamespace = project->m_Config.Name;
 		SetActive(project);
 		return s_ActiveProject;
 	}
@@ -80,6 +92,8 @@ namespace Lux
 
 		project->m_ProjectFilePath = path.lexically_normal();
 		project->m_ProjectDirectory = path.parent_path();
+		project->m_Config.ProjectDirectory = project->m_ProjectDirectory;
+		project->m_Config.ProjectFileName = project->m_ProjectFilePath.filename().string();
 		SetActive(project);
 		return s_ActiveProject;
 	}
@@ -91,12 +105,31 @@ namespace Lux
 		if (!s_ActiveProject->m_Config.StartScene.empty() && GetEditorAssetManager())
 			s_ActiveProject->m_Config.StartSceneHandle = GetEditorAssetManager()->GetAssetHandleFromFilePath(s_ActiveProject->m_Config.StartScene);
 
+		if (s_ActiveProject->m_Config.DefaultNamespace.empty())
+			s_ActiveProject->m_Config.DefaultNamespace = s_ActiveProject->m_Config.Name;
+
+		s_ActiveProject->m_ProjectFilePath = path.lexically_normal();
+		s_ActiveProject->m_ProjectDirectory = path.parent_path();
+		s_ActiveProject->m_Config.ProjectDirectory = s_ActiveProject->m_ProjectDirectory;
+		s_ActiveProject->m_Config.ProjectFileName = s_ActiveProject->m_ProjectFilePath.filename().string();
+
 		ProjectSerializer serializer(s_ActiveProject);
 		if (!serializer.Serialize(path))
 			return false;
 
-		s_ActiveProject->m_ProjectFilePath = path.lexically_normal();
-		s_ActiveProject->m_ProjectDirectory = path.parent_path();
 		return true;
+	}
+
+	void Project::OnSerialized()
+	{
+	}
+
+	void Project::OnDeserialized()
+	{
+		if (m_Config.DefaultNamespace.empty())
+			m_Config.DefaultNamespace = m_Config.Name;
+
+		if (m_Config.ScriptModulePath.empty())
+			m_Config.ScriptModulePath = std::filesystem::path("Scripts/Binaries") / (m_Config.Name + ".dll");
 	}
 }

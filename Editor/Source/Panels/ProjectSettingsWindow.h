@@ -32,6 +32,7 @@ namespace Lux {
 		bool m_Dirty = false;
 
 		char m_NameBuffer[256]{};
+		char m_DefaultNamespaceBuffer[256]{};
 		char m_ScriptModulePathBuffer[512]{};
 	};
 

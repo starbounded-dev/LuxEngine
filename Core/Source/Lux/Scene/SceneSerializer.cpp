@@ -515,6 +515,8 @@ namespace Lux {
 			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
 			out << YAML::Key << "ShadowAmount" << YAML::Value << component.ShadowAmount;
 			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
+			out << YAML::Key << "SoftShadows" << YAML::Value << component.SoftShadows;
+			out << YAML::Key << "LightSize" << YAML::Value << component.LightSize;
 
 			out << YAML::EndMap;
 		}
@@ -532,6 +534,7 @@ namespace Lux {
 			out << YAML::Key << "MinRadius" << YAML::Value << component.MinRadius;
 			out << YAML::Key << "LightSize" << YAML::Value << component.LightSize;
 			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
+			out << YAML::Key << "SoftShadows" << YAML::Value << component.SoftShadows;
 
 			out << YAML::EndMap;
 		}
@@ -549,6 +552,7 @@ namespace Lux {
 			out << YAML::Key << "AngleAttenuation" << YAML::Value << component.AngleAttenuation;
 			out << YAML::Key << "Falloff" << YAML::Value << component.Falloff;
 			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
+			out << YAML::Key << "SoftShadows" << YAML::Value << component.SoftShadows;
 
 			out << YAML::EndMap;
 		}
@@ -561,6 +565,10 @@ namespace Lux {
 			const auto& component = entity.GetComponent<SkyLightComponent>();
 			out << YAML::Key << "EnvironmentMap" << YAML::Value << component.EnvironmentMap;
 			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
+			out << YAML::Key << "Lod" << YAML::Value << component.Lod;
+			out << YAML::Key << "DynamicSky" << YAML::Value << component.DynamicSky;
+			if (component.DynamicSky)
+				out << YAML::Key << "TurbidityAzimuthInclination" << YAML::Value << component.TurbidityAzimuthInclination;
 
 			out << YAML::EndMap;
 		}
@@ -994,6 +1002,12 @@ namespace Lux {
 
 					if (directionalLightComponent["CastShadows"])
 						component.CastShadows = directionalLightComponent["CastShadows"].as<bool>();
+
+					if (directionalLightComponent["SoftShadows"])
+						component.SoftShadows = directionalLightComponent["SoftShadows"].as<bool>();
+
+					if (directionalLightComponent["LightSize"])
+						component.LightSize = directionalLightComponent["LightSize"].as<float>();
 				}
 
 				auto pointLightComponent = entity["PointLightComponent"];
@@ -1021,6 +1035,12 @@ namespace Lux {
 
 					if (pointLightComponent["CastShadows"])
 						component.CastShadows = pointLightComponent["CastShadows"].as<bool>();
+
+					if (pointLightComponent["CastsShadows"])
+						component.CastShadows = pointLightComponent["CastsShadows"].as<bool>();
+
+					if (pointLightComponent["SoftShadows"])
+						component.SoftShadows = pointLightComponent["SoftShadows"].as<bool>();
 				}
 
 				auto spotLightComponent = entity["SpotLightComponent"];
@@ -1048,6 +1068,12 @@ namespace Lux {
 
 					if (spotLightComponent["CastShadows"])
 						component.CastShadows = spotLightComponent["CastShadows"].as<bool>();
+
+					if (spotLightComponent["CastsShadows"])
+						component.CastShadows = spotLightComponent["CastsShadows"].as<bool>();
+
+					if (spotLightComponent["SoftShadows"])
+						component.SoftShadows = spotLightComponent["SoftShadows"].as<bool>();
 				}
 
 				auto skyLightComponent = entity["SkyLightComponent"];
@@ -1060,6 +1086,15 @@ namespace Lux {
 
 					if (skyLightComponent["Intensity"])
 						component.Intensity = skyLightComponent["Intensity"].as<float>();
+
+					if (skyLightComponent["Lod"])
+						component.Lod = skyLightComponent["Lod"].as<float>();
+
+					if (skyLightComponent["DynamicSky"])
+						component.DynamicSky = skyLightComponent["DynamicSky"].as<bool>();
+
+					if (skyLightComponent["TurbidityAzimuthInclination"])
+						component.TurbidityAzimuthInclination = skyLightComponent["TurbidityAzimuthInclination"].as<glm::vec3>();
 				}
 			}
 

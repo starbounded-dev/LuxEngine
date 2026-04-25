@@ -1780,7 +1780,6 @@ namespace Lux::ImGuiEx {
 		ImVec4 ButtonLabelColorError = ImGui::ColorConvertU32ToFloat4(Colors::Theme::textError);
 		bool ShowFullFilePath = false;
 	};
-	/*
 	inline auto AssetValidityAndName(AssetHandle handle, const PropertyAssetReferenceSettings& settings)
 	{
 		std::string name = "Null";
@@ -1788,10 +1787,13 @@ namespace Lux::ImGuiEx {
 		bool valid = AssetManager::IsAssetHandleValid(handle);
 		if (valid)
 		{
-			if (settings.ShowFullFilePath)
-				name = Project::GetEditorAssetManager()->GetMetadata(handle).FilePath.string();
-			else
-				name = Project::GetEditorAssetManager()->GetMetadata(handle).FilePath.stem().string();
+			if (Ref<EditorAssetManager> assetManager = Project::GetEditorAssetManager())
+			{
+				if (settings.ShowFullFilePath)
+					name = assetManager->GetMetadata(handle).FilePath.string();
+				else
+					name = assetManager->GetMetadata(handle).FilePath.stem().string();
+			}
 
 
 			if (AssetManager::IsAssetMissing(handle))
@@ -1803,8 +1805,7 @@ namespace Lux::ImGuiEx {
 
 		return std::make_pair(valid, name);
 	}
-	*/
-#if 0
+#if 1
 	template<typename T>
 	static bool PropertyAssetReference(const char* label, AssetHandle& outHandle, const char* helpText = "", PropertyAssetReferenceError* outError = nullptr, const PropertyAssetReferenceSettings& settings = {}, bool doPushUndo = true)
 	{
@@ -1853,13 +1854,7 @@ namespace Lux::ImGuiEx {
 
 				if (isHovered)
 				{
-					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-					{
-						// NOTE(Peter): Ugly workaround since AssetEditorPanel includes ImGui.h (meaning ImGui.h can't include AssetEditorPanel).
-						//				Will rework those includes at a later date...
-						AssetEditorPanelInterface::OpenEditor(AssetManager::GetAsset<Asset>(outHandle));
-					}
-					else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+					if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 					{
 						ImGui::OpenPopup(assetSearchPopupID.c_str());
 					}
@@ -1882,7 +1877,7 @@ namespace Lux::ImGuiEx {
 		{
 			if (ImGui::BeginDragDropTarget())
 			{
-				auto data = ImGui::AcceptDragDropPayload("asset_payload");
+				const ImGuiPayload* data = ImGui::AcceptDragDropPayload("asset_payload");
 
 				if (data)
 				{

@@ -5,31 +5,20 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/Project/Project.h"
+#include "Lux/Utilities/FileSystem.h"
 
 #include <imgui/imgui.h>
-
-#include <algorithm>
 
 namespace Lux {
 
 	namespace
 	{
 		constexpr int s_MaxRecentProjects = 10;
-
-		std::string GetRecentProjectKey(size_t index)
-		{
-			return "RecentProjects." + std::to_string(index);
-		}
-
-		int GetRecentProjectCount()
-		{
-			auto& settings = Application::Get().GetSettings();
-			return std::max(settings.GetInt("RecentProjects.Count", 0), 0);
-		}
 	}
 
-	ApplicationSettingsPanel::ApplicationSettingsPanel(const Ref<ContentBrowserPanel>& contentBrowserPanel, EditorPreferencesBindings bindings)
-		: m_ContentBrowserPanel(contentBrowserPanel), m_Bindings(std::move(bindings))
+	ApplicationSettingsPanel::ApplicationSettingsPanel(const Ref<ContentBrowserPanel>& contentBrowserPanel, EditorPreferencesBindings bindings, const Ref<UserPreferences>& userPreferences)
+		: m_ContentBrowserPanel(contentBrowserPanel), m_UserPreferences(userPreferences), m_Bindings(std::move(bindings))
 	{
 		m_Pages.push_back({ "Editor", [this]() { DrawEditorPage(); } });
 		m_Pages.push_back({ "Viewport", [this]() { DrawViewportPage(); } });
@@ -100,16 +89,52 @@ namespace Lux {
 
 		if (ImGuiEx::Property("Auto-open Most Recent Project", autoOpenMostRecentProject))
 			SaveAutoOpenMostRecentProjectSetting(autoOpenMostRecentProject);
+
+		if (m_UserPreferences)
+		{
+			bool showWelcomeScreen = m_UserPreferences->ShowWelcomeScreen;
+			if (ImGuiEx::Property("Show Welcome Screen", showWelcomeScreen))
+			{
+				m_UserPreferences->ShowWelcomeScreen = showWelcomeScreen;
+				SaveUserPreferences();
+			}
+		}
 		ImGuiEx::EndPropertyGrid();
 
 		if (notifyBindings && m_Bindings.OnPreferencesChanged)
 			m_Bindings.OnPreferencesChanged();
 
 		ImGui::Spacing();
+		ImGui::TextUnformatted("Startup Project");
+		ImGui::Separator();
+
+		const std::string startupProject = (m_UserPreferences && !m_UserPreferences->StartupProject.empty()) ? m_UserPreferences->StartupProject : "None";
+		ImGuiEx::Property("Project", startupProject);
+
+		if (Project::GetActive())
+		{
+			if (ImGui::Button("Use Current Project"))
+			{
+				m_UserPreferences->StartupProject = Project::GetActive()->GetProjectFilePath().generic_string();
+				SaveUserPreferences();
+			}
+			ImGui::SameLine();
+		}
+
+		const bool hasStartupProject = m_UserPreferences && !m_UserPreferences->StartupProject.empty();
+		ImGui::BeginDisabled(!hasStartupProject);
+		if (ImGui::Button("Clear Startup Project"))
+		{
+			m_UserPreferences->StartupProject.clear();
+			SaveUserPreferences();
+		}
+		ImGui::EndDisabled();
+
+		ImGui::Spacing();
 		ImGui::TextUnformatted("Recent Projects");
 		ImGui::Separator();
 
-		const int recentProjectCount = GetRecentProjectCount();
+		const int recentProjectCount = m_UserPreferences ? (int)m_UserPreferences->RecentProjects.size() : 0;
 		ImGui::Text("%d recent project%s saved", recentProjectCount, recentProjectCount == 1 ? "" : "s");
 
 		if (ImGui::Button("Clear Recent Projects"))
@@ -118,20 +143,19 @@ namespace Lux {
 		ImGui::Spacing();
 		if (ImGui::BeginChild("##recent_projects_list", ImVec2(0.0f, 180.0f), true))
 		{
-			auto& settings = Application::Get().GetSettings();
 			if (recentProjectCount == 0)
 			{
 				ImGui::TextDisabled("No recent projects stored.");
 			}
 			else
 			{
-				for (int i = 0; i < recentProjectCount && i < s_MaxRecentProjects; i++)
+				int i = 0;
+				for (const auto& [_, recentProject] : m_UserPreferences->RecentProjects)
 				{
-					const std::string projectPath = settings.Get(GetRecentProjectKey((size_t)i));
-					if (projectPath.empty())
-						continue;
+					if (i++ >= s_MaxRecentProjects)
+						break;
 
-					ImGui::BulletText("%s", projectPath.c_str());
+					ImGui::BulletText("%s", recentProject.FilePath.c_str());
 				}
 			}
 		}
@@ -208,13 +232,23 @@ namespace Lux {
 		return settings.GetInt("Editor.AutoOpenMostRecentProject", 1) != 0;
 	}
 
-	void ApplicationSettingsPanel::ClearRecentProjects() const
+	void ApplicationSettingsPanel::SaveUserPreferences() const
 	{
-		auto& settings = Application::Get().GetSettings();
-		settings.SetInt("RecentProjects.Count", 0);
-		for (int i = 0; i < s_MaxRecentProjects; i++)
-			settings.Set(GetRecentProjectKey((size_t)i), "");
-		settings.Serialize();
+		if (!m_UserPreferences)
+			return;
+
+		UserPreferencesSerializer serializer(m_UserPreferences);
+		const std::filesystem::path filepath = m_UserPreferences->FilePath.empty() ? (FileSystem::GetPersistentStoragePath() / "UserPreferences.yaml") : m_UserPreferences->FilePath;
+		serializer.Serialize(filepath);
+	}
+
+	void ApplicationSettingsPanel::ClearRecentProjects()
+	{
+		if (!m_UserPreferences)
+			return;
+
+		m_UserPreferences->RecentProjects.clear();
+		SaveUserPreferences();
 	}
 
 }

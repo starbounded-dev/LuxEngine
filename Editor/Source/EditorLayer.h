@@ -12,6 +12,7 @@
 #include "Lux/Scene/Scene.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/Project/UserPreferences.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/Framebuffer.h"
 #include "Lux/Renderer/Shader.h"
@@ -78,6 +79,11 @@ namespace Lux
 		void LoadEditorPreferences();
 		void SaveEditorPreferences() const;
 		void ApplyEditorPreferences();
+		void LoadUserPreferences();
+		void SaveUserPreferences() const;
+		void AddRecentProject(const std::filesystem::path& projectPath);
+		std::vector<RecentProject> GetRecentProjects() const;
+		std::filesystem::path GetStartupProjectPath() const;
 	private:
 		EditorCamera m_EditorCamera;
 
@@ -101,6 +107,8 @@ namespace Lux
 		Ref<Scene> m_ActiveScene;
 		Ref<Scene> m_EditorScene;
 		std::filesystem::path m_EditorScenePath;
+		Ref<UserPreferences> m_UserPreferences;
+		std::filesystem::path m_UserPreferencesPath;
 		Entity m_SquareEntity;
 		Entity m_CameraEntity;
 		Entity m_SecondCamera;

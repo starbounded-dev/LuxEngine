@@ -339,6 +339,8 @@ namespace Lux {
 		float Intensity = 1.0f;
 		float ShadowAmount = 1.0f;
 		bool CastShadows = true;
+		bool SoftShadows = true;
+		float LightSize = 0.5f;
 
 		DirectionalLightComponent() = default;
 		DirectionalLightComponent(const DirectionalLightComponent&) = default;
@@ -353,6 +355,7 @@ namespace Lux {
 		float MinRadius = 0.001f;
 		float LightSize = 0.5f;
 		bool CastShadows = false;
+		bool SoftShadows = true;
 
 		PointLightComponent() = default;
 		PointLightComponent(const PointLightComponent&) = default;
@@ -367,6 +370,7 @@ namespace Lux {
 		float AngleAttenuation = 1.0f;
 		float Falloff = 1.0f;
 		bool CastShadows = false;
+		bool SoftShadows = false;
 
 		SpotLightComponent() = default;
 		SpotLightComponent(const SpotLightComponent&) = default;
@@ -376,6 +380,9 @@ namespace Lux {
 	{
 		AssetHandle EnvironmentMap = 0;
 		float Intensity = 1.0f;
+		float Lod = 0.0f;
+		bool DynamicSky = false;
+		glm::vec3 TurbidityAzimuthInclination = { 2.0f, 0.0f, 0.0f };
 
 		SkyLightComponent() = default;
 		SkyLightComponent(const SkyLightComponent&) = default;

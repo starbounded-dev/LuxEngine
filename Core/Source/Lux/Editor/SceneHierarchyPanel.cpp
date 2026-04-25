@@ -11,6 +11,7 @@
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MeshFactory.h"
+#include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Prefab.h"
@@ -1964,6 +1965,22 @@ namespace Lux {
 					});
 				}
 
+				if (ImGuiEx::Property("Soft Shadows", firstComponent.SoftShadows))
+				{
+					ApplyToSelection<DirectionalLightComponent>(m_Context, selectedEntities, [&firstComponent](DirectionalLightComponent& component, Entity)
+					{
+						component.SoftShadows = firstComponent.SoftShadows;
+					});
+				}
+
+				if (ImGuiEx::Property("Light Size", firstComponent.LightSize, 0.01f, 0.0f, 10.0f))
+				{
+					ApplyToSelection<DirectionalLightComponent>(m_Context, selectedEntities, [&firstComponent](DirectionalLightComponent& component, Entity)
+					{
+						component.LightSize = firstComponent.LightSize;
+					});
+				}
+
 				ImGuiEx::EndPropertyGrid();
 			});
 
@@ -2025,6 +2042,14 @@ namespace Lux {
 					ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
 					{
 						component.CastShadows = firstComponent.CastShadows;
+					});
+				}
+
+				if (ImGuiEx::Property("Soft Shadows", firstComponent.SoftShadows))
+				{
+					ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
+					{
+						component.SoftShadows = firstComponent.SoftShadows;
 					});
 				}
 
@@ -2092,29 +2117,85 @@ namespace Lux {
 					});
 				}
 
+				if (ImGuiEx::Property("Soft Shadows", firstComponent.SoftShadows))
+				{
+					ApplyToSelection<SpotLightComponent>(m_Context, selectedEntities, [&firstComponent](SpotLightComponent& component, Entity)
+					{
+						component.SoftShadows = firstComponent.SoftShadows;
+					});
+				}
+
 				ImGuiEx::EndPropertyGrid();
 			});
 
 		DrawComponentSection<SkyLightComponent>(m_Context, entityIDs, "Sky Light", EditorResources::SkyLightIcon,
-			[this](SkyLightComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			[this](SkyLightComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool isMultiEdit)
 			{
 				ImGuiEx::BeginPropertyGrid();
 
 				AssetHandle environmentHandle = firstComponent.EnvironmentMap;
-				if (DrawAssetReferenceProperty("Environment Map", environmentHandle, AssetType::EnvMap, "Sky Light only accepts environment map assets"))
+				const bool mixedEnvironment = isMultiEdit && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
+				{
+					return entity.GetComponent<SkyLightComponent>().EnvironmentMap;
+				});
+				ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedEnvironment);
+				if (ImGuiEx::PropertyAssetReference<Environment>("Environment Map", environmentHandle, "Sky Light only accepts environment map assets"))
 				{
 					firstComponent.EnvironmentMap = environmentHandle;
+					firstComponent.DynamicSky = (environmentHandle == 0);
 					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [environmentHandle](SkyLightComponent& component, Entity)
 					{
 						component.EnvironmentMap = environmentHandle;
+						component.DynamicSky = (environmentHandle == 0);
 					});
 				}
+				ImGui::PopItemFlag();
 
 				if (ImGuiEx::Property("Intensity", firstComponent.Intensity, 0.01f, 0.0f, 10.0f))
 				{
 					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [&firstComponent](SkyLightComponent& component, Entity)
 					{
 						component.Intensity = firstComponent.Intensity;
+					});
+				}
+
+				if (ImGuiEx::Property("Lod", firstComponent.Lod, 0.01f, 0.0f, 10.0f))
+				{
+					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [&firstComponent](SkyLightComponent& component, Entity)
+					{
+						component.Lod = firstComponent.Lod;
+					});
+				}
+
+				if (ImGuiEx::Property("Dynamic Sky", firstComponent.DynamicSky))
+				{
+					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [&firstComponent](SkyLightComponent& component, Entity)
+					{
+						component.DynamicSky = firstComponent.DynamicSky;
+					});
+				}
+
+				if (ImGuiEx::Property("Turbidity", firstComponent.TurbidityAzimuthInclination.x, 0.01f, 0.0f, 20.0f))
+				{
+					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [&firstComponent](SkyLightComponent& component, Entity)
+					{
+						component.TurbidityAzimuthInclination.x = firstComponent.TurbidityAzimuthInclination.x;
+					});
+				}
+
+				if (ImGuiEx::Property("Azimuth", firstComponent.TurbidityAzimuthInclination.y, 0.01f, -360.0f, 360.0f))
+				{
+					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [&firstComponent](SkyLightComponent& component, Entity)
+					{
+						component.TurbidityAzimuthInclination.y = firstComponent.TurbidityAzimuthInclination.y;
+					});
+				}
+
+				if (ImGuiEx::Property("Inclination", firstComponent.TurbidityAzimuthInclination.z, 0.01f, -180.0f, 180.0f))
+				{
+					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [&firstComponent](SkyLightComponent& component, Entity)
+					{
+						component.TurbidityAzimuthInclination.z = firstComponent.TurbidityAzimuthInclination.z;
 					});
 				}
 

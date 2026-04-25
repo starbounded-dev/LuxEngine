@@ -912,6 +912,8 @@ namespace Lux {
 				lightEnv.DirectionalLights[dirLightIndex].Intensity = dirLight.Intensity;
 				lightEnv.DirectionalLights[dirLightIndex].ShadowAmount = dirLight.ShadowAmount;
 				lightEnv.DirectionalLights[dirLightIndex].CastShadows = dirLight.CastShadows;
+				lightEnv.DirectionalLights[dirLightIndex].SoftShadows = dirLight.SoftShadows;
+				lightEnv.DirectionalLights[dirLightIndex].LightSize = dirLight.LightSize;
 
 				dirLightIndex++;
 			}
@@ -933,7 +935,7 @@ namespace Lux {
 				pl.Falloff = pointLight.Falloff;
 				pl.MinRadius = pointLight.MinRadius;
 				pl.LightSize = pointLight.LightSize;
-				pl.CastsShadows = pointLight.CastShadows;
+				pl.CastsShadows = pointLight.CastShadows ? 1u : 0u;
 
 				lightEnv.PointLights.push_back(pl);
 			}
@@ -956,7 +958,8 @@ namespace Lux {
 				sl.Angle = spotLight.Angle;
 				sl.AngleAttenuation = spotLight.AngleAttenuation;
 				sl.Falloff = spotLight.Falloff;
-				sl.CastsShadows = spotLight.CastShadows;
+				sl.SoftShadows = spotLight.SoftShadows ? 1u : 0u;
+				sl.CastsShadows = spotLight.CastShadows ? 1u : 0u;
 
 				lightEnv.SpotLights.push_back(sl);
 			}
@@ -965,9 +968,10 @@ namespace Lux {
 		return lightEnv;
 	}
 
-	Ref<Environment> Scene::CollectEnvironment(float& outIntensity) const
+	Ref<Environment> Scene::CollectEnvironment(float& outIntensity, float& outLod) const
 	{
 		outIntensity = 1.0f;
+		outLod = 0.0f;
 		Ref<Environment> fallbackEnvironment = Renderer::GetDefaultEnvironment();
 
 		auto view = m_Registry.view<const SkyLightComponent>();
@@ -975,6 +979,28 @@ namespace Lux {
 		{
 			const auto& skyLight = view.get<const SkyLightComponent>(entity);
 			outIntensity = skyLight.Intensity;
+			outLod = skyLight.Lod;
+
+			if (skyLight.DynamicSky)
+			{
+				const glm::vec3 parameters = skyLight.TurbidityAzimuthInclination;
+				const bool needsRebuild = !m_DynamicSkyEnvironmentValid
+					|| !m_DynamicSkyEnvironment
+					|| m_DynamicSkyParameters.x != parameters.x
+					|| m_DynamicSkyParameters.y != parameters.y
+					|| m_DynamicSkyParameters.z != parameters.z;
+
+				if (needsRebuild)
+				{
+					// Keep a transient scene-local cache so we do not regenerate the sky every frame.
+					m_DynamicSkyEnvironment = Renderer::CreatePreethamSkyEnvironment(parameters.x, parameters.y, parameters.z);
+					m_DynamicSkyParameters = parameters;
+					m_DynamicSkyEnvironmentValid = (bool)m_DynamicSkyEnvironment;
+				}
+
+				if (m_DynamicSkyEnvironment)
+					return m_DynamicSkyEnvironment;
+			}
 
 			if (skyLight.EnvironmentMap)
 			{
@@ -1069,8 +1095,9 @@ namespace Lux {
 
 		// Collect and set skybox/IBL environment from SkyLightComponent
 		float envIntensity = 1.0f;
-		Ref<Environment> environment = CollectEnvironment(envIntensity);
-		renderer->SetEnvironment(environment, envIntensity);
+		float envLod = 0.0f;
+		Ref<Environment> environment = CollectEnvironment(envIntensity, envLod);
+		renderer->SetEnvironment(environment, envIntensity, envLod);
 
 		// Begin the 3D rendering frame after scene lighting/environment state is prepared
 		renderer->BeginScene(sceneCamera);
@@ -1162,8 +1189,9 @@ namespace Lux {
 
 		// Collect and set skybox/IBL environment
 		float envIntensity = 1.0f;
-		Ref<Environment> environment = CollectEnvironment(envIntensity);
-		renderer->SetEnvironment(environment, envIntensity);
+		float envLod = 0.0f;
+		Ref<Environment> environment = CollectEnvironment(envIntensity, envLod);
+		renderer->SetEnvironment(environment, envIntensity, envLod);
 
 		// Begin the 3D rendering frame after scene lighting/environment state is prepared
 		renderer->BeginScene(sceneCamera);
