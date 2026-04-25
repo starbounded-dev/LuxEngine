@@ -41,6 +41,9 @@ namespace Lux
 
 		static std::string SerializeMaterialToYAML(Ref<MaterialAsset> materialAsset)
 		{
+			if (!materialAsset || !materialAsset->GetMaterial())
+				return {};
+
 			const bool transparent = materialAsset->IsTransparent();
 			const glm::vec3 albedoColor = materialAsset->GetAlbedoColor();
 			const float emission = materialAsset->GetEmission();
@@ -125,6 +128,11 @@ namespace Lux
 			const bool transparent = materialNode["Transparent"].as<bool>(false);
 			targetMaterialAsset = Ref<MaterialAsset>::Create(transparent);
 			targetMaterialAsset->Handle = handle;
+			if (!targetMaterialAsset->GetMaterial())
+			{
+				LUX_CORE_ERROR("MaterialSerializer: Failed to create renderer material while loading material asset {}", (uint64_t)handle);
+				return false;
+			}
 
 			targetMaterialAsset->SetAlbedoColor(ReadVec3(materialNode["AlbedoColor"], glm::vec3(0.8f)));
 			targetMaterialAsset->SetEmission(materialNode["Emission"].as<float>(0.0f));
@@ -162,6 +170,11 @@ namespace Lux
 	{
 		Ref<MaterialAsset> materialAsset = asset.As<MaterialAsset>();
 		LUX_CORE_ASSERT(materialAsset);
+		if (!materialAsset || !materialAsset->GetMaterial())
+		{
+			LUX_CORE_ERROR("MaterialSerializer: Cannot serialize material '{}' because renderer resources are unavailable", metadata.FilePath.string());
+			return;
+		}
 
 		std::ofstream fout(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
 		if (!fout.is_open())
@@ -191,7 +204,7 @@ namespace Lux
 	bool MaterialSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
 	{
 		Ref<MaterialAsset> materialAsset = AssetManager::GetAsset<MaterialAsset>(handle);
-		if (!materialAsset)
+		if (!materialAsset || !materialAsset->GetMaterial())
 			return false;
 
 		outInfo.Offset = stream.GetStreamPosition();

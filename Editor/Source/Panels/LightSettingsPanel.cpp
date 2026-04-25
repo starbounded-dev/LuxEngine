@@ -78,10 +78,10 @@ namespace Lux {
 				{
 				}
 
-				glm::vec3 rotation = glm::degrees(entity.GetComponent<TransformComponent>().Rotation);
+				glm::vec3 rotation = glm::degrees(entity.GetComponent<TransformComponent>().GetRotationEuler());
 				if (ImGuiEx::Property("Rotation", rotation, 1.0f))
 				{
-					entity.GetComponent<TransformComponent>().Rotation = glm::radians(rotation);
+					entity.GetComponent<TransformComponent>().SetRotationEuler(glm::radians(rotation));
 				}
 
 				ImGuiEx::Property("Cast Shadows", light.CastShadows);
@@ -135,7 +135,7 @@ namespace Lux {
 				ImGuiEx::Property("Falloff", light.Falloff, 0.1f, 0.0f, 10.0f);
 				ImGuiEx::Property("Min Radius", light.MinRadius, 0.001f, 0.0f, 1.0f);
 				ImGuiEx::Property("Light Size", light.LightSize, 0.01f, 0.0f, 10.0f);
-				ImGuiEx::Property("Cast Shadows", light.CastShadows);
+				ImGuiEx::Property("Cast Shadows", light.CastsShadows);
 				ImGuiEx::Property("Soft Shadows", light.SoftShadows);
 
 				ImGuiEx::EndPropertyGrid();
@@ -184,7 +184,7 @@ namespace Lux {
 				ImGuiEx::Property("Falloff", light.Falloff, 0.1f, 0.0f, 10.0f);
 				ImGuiEx::Property("Angle", light.Angle, 1.0f, 0.0f, 180.0f);
 				ImGuiEx::Property("Angle Atten", light.AngleAttenuation, 0.1f, 0.0f, 1.0f);
-				ImGuiEx::Property("Cast Shadows", light.CastShadows);
+				ImGuiEx::Property("Cast Shadows", light.CastsShadows);
 				ImGuiEx::Property("Soft Shadows", light.SoftShadows);
 
 				ImGuiEx::EndPropertyGrid();
@@ -231,12 +231,12 @@ namespace Lux {
 
 				std::string envLabel = "None";
 				bool isEnvironmentValid = false;
-				if (light.EnvironmentMap != 0)
+				if (light.SceneEnvironment != 0)
 				{
-					if (AssetManager::IsAssetHandleValid(light.EnvironmentMap)
-						&& AssetManager::GetAssetType(light.EnvironmentMap) == AssetType::EnvMap)
+					if (AssetManager::IsAssetHandleValid(light.SceneEnvironment)
+						&& AssetManager::GetAssetType(light.SceneEnvironment) == AssetType::EnvMap)
 					{
-						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(light.EnvironmentMap);
+						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(light.SceneEnvironment);
 						envLabel = metadata.FilePath.filename().string();
 						isEnvironmentValid = true;
 					}
@@ -258,7 +258,7 @@ namespace Lux {
 						AssetHandle handle = *(AssetHandle*)payload->Data;
 						if (AssetManager::GetAssetType(handle) == AssetType::EnvMap)
 						{
-							light.EnvironmentMap = handle;
+							light.SceneEnvironment = handle;
 						}
 					}
 					ImGui::EndDragDropTarget();
@@ -270,7 +270,7 @@ namespace Lux {
 					ImVec2 xLabelSize = ImGui::CalcTextSize("X");
 					float buttonSize = xLabelSize.y + ImGui::GetStyle().FramePadding.y * 2.0f;
 					if (ImGui::Button("X", ImVec2(buttonSize, buttonSize)))
-						light.EnvironmentMap = 0;
+						light.SceneEnvironment = 0;
 				}
 
 				ImGui::SameLine();

@@ -20,24 +20,33 @@ namespace Lux {
 		m_OrthographicFar = farClip;
 	}
 
+	void SceneCamera::SetViewportSize(uint32_t width, uint32_t height)
+	{
+		SetViewportBounds(0, 0, width, height);
+	}
+
 	void SceneCamera::SetViewportBounds(uint32_t left, uint32_t top, uint32_t right, uint32_t bottom)
 	{
 		m_ViewportBounds = { left, top, right, bottom };
 
-		float width = (float)(right - left);
-		float height = (float)(bottom - top);
+		float viewportWidth = (float)(right - left);
+		float viewportHeight = (float)(bottom - top);
+		if (viewportWidth <= 0.0f || viewportHeight <= 0.0f)
+			return;
 
 		switch (m_ProjectionType)
 		{
 		case ProjectionType::Perspective:
-			SetPerspectiveProjectionMatrix(glm::radians(m_DegPerspectiveFOV), width, height, m_PerspectiveNear, m_PerspectiveFar);
+			SetPerspectiveProjectionMatrix(glm::radians(m_DegPerspectiveFOV), viewportWidth, viewportHeight, m_PerspectiveNear, m_PerspectiveFar);
 			break;
 		case ProjectionType::Orthographic:
-			float aspect = width / height;
-			float width = m_OrthographicSize * aspect;
-			float height = m_OrthographicSize;
-			SetOrthoProjectionMatrix(width, height, m_OrthographicNear, m_OrthographicFar);
+		{
+			float aspect = viewportWidth / viewportHeight;
+			float orthoWidth = m_OrthographicSize * aspect;
+			float orthoHeight = m_OrthographicSize;
+			SetOrthoProjectionMatrix(orthoWidth, orthoHeight, m_OrthographicNear, m_OrthographicFar);
 			break;
+		}
 		}
 	}
 

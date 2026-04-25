@@ -1,29 +1,40 @@
 #pragma once
 
+#include "Entity.h"
+
 #include "Lux/Asset/Asset.h"
 #include "Lux/Core/UUID.h"
+
+#include <unordered_set>
 
 namespace Lux {
 
 	class Scene;
-	class Entity;
 
 	class Prefab : public Asset
 	{
 	public:
 		Prefab();
+		~Prefab() = default;
 
 		static AssetType GetStaticType() { return AssetType::Prefab; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
-		Entity CreatePrefabFromEntity(Entity entity);
+		void Create(Entity entity, bool serialize = true);
 
 		const Ref<Scene>& GetScene() const { return m_Scene; }
-		UUID GetRootEntityID() const { return m_RootEntityID; }
+		UUID GetRootEntityID() const;
+		std::unordered_set<AssetHandle> GetAssetList(bool recursive = true);
+
+	private:
+		Entity CreatePrefabFromEntity(Entity entity);
 
 	private:
 		Ref<Scene> m_Scene;
-		UUID m_RootEntityID = 0;
+		Entity m_Entity;
+
+		friend class Scene;
+		friend class SceneSerializer;
 	};
 
 }

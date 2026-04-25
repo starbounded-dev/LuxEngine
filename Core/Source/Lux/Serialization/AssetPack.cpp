@@ -78,30 +78,36 @@ namespace Lux
 				if (entity.HasComponent<TextComponent>())
 					AddIfValid(assets, entity.GetComponent<TextComponent>().FontHandle);
 
-				if (entity.HasComponent<AudioSourceComponent>())
-				{
-					const auto& audio = entity.GetComponent<AudioSourceComponent>();
-					AddIfValid(assets, audio.Audio);
-					for (AssetHandle playlistHandle : audio.AudioSourceData.Playlist)
-						AddIfValid(assets, playlistHandle);
-				}
-
 				if (entity.HasComponent<MeshComponent>())
 				{
 					const auto& mesh = entity.GetComponent<MeshComponent>();
 					AddIfValid(assets, mesh.Mesh);
-					AddIfValid(assets, mesh.MaterialTable);
+				}
+
+				if (entity.HasComponent<SubmeshComponent>())
+				{
+					const auto& mesh = entity.GetComponent<SubmeshComponent>();
+					AddIfValid(assets, mesh.Mesh);
+					if (mesh.MaterialTable)
+					{
+						for (const auto& [index, material] : mesh.MaterialTable->GetMaterials())
+							AddIfValid(assets, material);
+					}
 				}
 
 				if (entity.HasComponent<StaticMeshComponent>())
 				{
 					const auto& mesh = entity.GetComponent<StaticMeshComponent>();
-					AddIfValid(assets, mesh.Mesh);
-					AddIfValid(assets, mesh.MaterialTable);
+					AddIfValid(assets, mesh.StaticMesh);
+					if (mesh.MaterialTable)
+					{
+						for (const auto& [index, material] : mesh.MaterialTable->GetMaterials())
+							AddIfValid(assets, material);
+					}
 				}
 
 				if (entity.HasComponent<SkyLightComponent>())
-					AddIfValid(assets, entity.GetComponent<SkyLightComponent>().EnvironmentMap);
+					AddIfValid(assets, entity.GetComponent<SkyLightComponent>().SceneEnvironment);
 
 				if (entity.HasComponent<PrefabComponent>())
 					AddIfValid(assets, entity.GetComponent<PrefabComponent>().PrefabID);

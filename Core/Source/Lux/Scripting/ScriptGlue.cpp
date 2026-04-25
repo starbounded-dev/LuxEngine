@@ -146,7 +146,7 @@ namespace Lux {
 		*outLinearVelocity = glm::vec2(linearVelocity.x, linearVelocity.y);
 	}
 
-	static RigidBody2DComponent::BodyType RigidBody2DComponent_GetType(UUID entityID)
+	static RigidBody2DComponent::Type RigidBody2DComponent_GetType(UUID entityID)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
 		LUX_CORE_ASSERT(scene);
@@ -158,7 +158,7 @@ namespace Lux {
 		return Utils::RigidBody2DTypeFromBox2DBody(body->GetType());
 	}
 
-	static void RigidBody2DComponent_SetType(UUID entityID, RigidBody2DComponent::BodyType bodyType)
+	static void RigidBody2DComponent_SetType(UUID entityID, RigidBody2DComponent::Type bodyType)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
 		LUX_CORE_ASSERT(scene);

@@ -156,11 +156,20 @@ namespace Lux {
 
 	Entity Scene::CreateEntity(const std::string& name)
 	{
-		return CreateEntityWithUUID(UUID(), name);
+		return CreateEntityWithID(UUID(), name);
 	}
 
-	Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string& name)
+	Entity Scene::CreateChildEntity(Entity parent, const std::string& name)
 	{
+		Entity entity = CreateEntity(name);
+		if (parent)
+			ParentEntity(entity, parent);
+		return entity;
+	}
+
+	Entity Scene::CreateEntityWithID(UUID uuid, const std::string& name, bool shouldSort)
+	{
+		(void)shouldSort;
 		Entity entity = { m_Registry.create(), this };
 		entity.AddComponent<IDComponent>(uuid);
 		entity.AddComponent<TransformComponent>();
@@ -172,11 +181,48 @@ namespace Lux {
 		return entity;
 	}
 
-	void Scene::DestroyEntity(Entity entity)
+	Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string& name)
 	{
+		return CreateEntityWithID(uuid, name);
+	}
+
+	void Scene::SubmitToDestroyEntity(Entity entity)
+	{
+		if (!entity)
+			return;
+
+		m_PostUpdateQueue.emplace_back([this, entityID = entity.GetUUID()]()
+		{
+			DestroyEntity(entityID);
+		});
+	}
+
+	void Scene::DestroyEntity(Entity entity, bool excludeChildren, bool first)
+	{
+		if (!entity)
+			return;
+
+		if (!excludeChildren && entity.HasComponent<RelationshipComponent>())
+		{
+			const std::vector<UUID> children = entity.Children();
+			for (UUID childID : children)
+				DestroyEntity(childID, false, false);
+		}
+
+		if (Entity parent = entity.GetParent())
+			parent.RemoveChild(entity);
+
 		ReleaseRuntimeAudio(entity);
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
+
+		if (first)
+			SortEntities();
+	}
+
+	void Scene::DestroyEntity(UUID entityID, bool excludeChildren, bool first)
+	{
+		DestroyEntity(TryGetEntityWithUUID(entityID), excludeChildren, first);
 	}
 
 	Ref<AudioSource> Scene::GetOrCreateRuntimeAudioSource(Entity entity, AssetHandle audioHandle)
@@ -434,7 +480,9 @@ namespace Lux {
 					const auto& position = body->GetPosition();
 					transform.Translation.x = position.x;
 					transform.Translation.y = position.y;
-					transform.Rotation.z = body->GetAngle();
+					glm::vec3 rotation = transform.GetRotationEuler();
+					rotation.z = body->GetAngle();
+					transform.SetRotationEuler(rotation);
 				}
 			}
 
@@ -680,6 +728,9 @@ namespace Lux {
 			m_Renderer2D->EndScene();
 		}
 
+		for (auto& func : m_PostUpdateQueue)
+			func();
+		m_PostUpdateQueue.clear();
 	}
 
 	void Scene::OnUpdateSimulation(Timestep ts, EditorCamera& camera)
@@ -704,19 +755,29 @@ namespace Lux {
 					const auto& position = body->GetPosition();
 					transform.Translation.x = position.x;
 					transform.Translation.y = position.y;
-					transform.Rotation.z = body->GetAngle();
+					glm::vec3 rotation = transform.GetRotationEuler();
+					rotation.z = body->GetAngle();
+					transform.SetRotationEuler(rotation);
 				}
 			}
 		}
 
 		// Render
 		RenderScene(camera);
+
+		for (auto& func : m_PostUpdateQueue)
+			func();
+		m_PostUpdateQueue.clear();
 	}
 
 	void Scene::OnUpdateEditor(Timestep ts, EditorCamera& camera)
 	{
 		// Render 2D
 		RenderScene(camera);
+
+		for (auto& func : m_PostUpdateQueue)
+			func();
+		m_PostUpdateQueue.clear();
 	}
 
 	void Scene::OnViewportResize(uint32_t width, uint32_t height)
@@ -733,7 +794,7 @@ namespace Lux {
 		{
 			auto& cameraComponent = view.get<CameraComponent>(entity);
 			if (!cameraComponent.FixedAspectRatio)
-				cameraComponent.Camera.SetOrthographicSize((float)width / (float)height);
+				cameraComponent.Camera.SetViewportSize(width, height);
 		}
 
 	}
@@ -762,59 +823,117 @@ namespace Lux {
 
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
-		// Copy name because we're going to modify component data structure
-		std::string name = entity.GetName();
-		Entity newEntity = CreateEntity(name);
-		CopyComponentIfExists(AllComponents{}, newEntity, entity);
-		return newEntity;
+		using DuplicateComponents =
+			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, TextComponent,
+			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+
+		if (!entity)
+			return {};
+
+		std::function<Entity(Entity, Entity)> duplicateHierarchy;
+		duplicateHierarchy = [&](Entity source, Entity parent) -> Entity
+		{
+			Entity destination = CreateEntity(source.GetName());
+			CopyComponentIfExists(DuplicateComponents{}, destination, source);
+
+			if (parent)
+				ParentEntity(destination, parent);
+
+			for (UUID childID : source.Children())
+			{
+				Entity child = TryGetEntityWithUUID(childID);
+				if (child)
+					duplicateHierarchy(child, destination);
+			}
+
+			return destination;
+		};
+
+		return duplicateHierarchy(entity, {});
+	}
+
+	Entity Scene::Instantiate(Ref<Prefab> prefab, const glm::vec3* translation, const glm::vec3* rotation, const glm::vec3* scale)
+	{
+		return InstantiateChild(prefab, {}, translation, rotation, scale);
+	}
+
+	Entity Scene::InstantiateChild(Ref<Prefab> prefab, Entity parent, const glm::vec3* translation, const glm::vec3* rotation, const glm::vec3* scale)
+	{
+		if (!prefab || !prefab->m_Entity)
+			return {};
+
+		return CreatePrefabEntity(prefab->m_Entity, parent, translation, rotation, scale);
 	}
 
 	Entity Scene::InstantiatePrefab(Ref<Prefab> prefab)
 	{
-		if (!prefab)
-			return {};
+		return Instantiate(prefab);
+	}
 
-		const Ref<Scene>& prefabScene = prefab->GetScene();
-		if (!prefabScene)
-			return {};
-
-		Entity prefabRoot = prefabScene->GetEntityByUUID(prefab->GetRootEntityID());
-		if (!prefabRoot)
+	Entity Scene::CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation, const glm::vec3* rotation, const glm::vec3* scale)
+	{
+		if (!entity)
 			return {};
 
 		using PrefabInstantiationComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, TextComponent,
-			AudioData, AudioSourceComponent, AudioListenerComponent, MeshComponent, MeshTagComponent, StaticMeshComponent,
+			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
 
 		std::function<Entity(Entity, Entity)> instantiateHierarchy;
-		instantiateHierarchy = [&](Entity source, Entity parent) -> Entity
+		instantiateHierarchy = [&](Entity source, Entity destinationParent) -> Entity
 			{
 				Entity destination = CreateEntity(source.GetName());
 				CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
 
 				auto& prefabComponent = destination.AddOrReplaceComponent<PrefabComponent>();
-				prefabComponent.PrefabID = prefab->Handle;
+				prefabComponent.PrefabID = source.HasComponent<PrefabComponent>() ? source.GetComponent<PrefabComponent>().PrefabID : AssetHandle(0);
 				prefabComponent.EntityID = source.GetUUID();
 
-				if (parent)
-					destination.SetParent(parent);
+				if (destinationParent)
+					ParentEntity(destination, destinationParent);
 
-				if (source.HasComponent<RelationshipComponent>())
+				for (const UUID childID : source.Children())
 				{
-					for (const UUID childID : source.Children())
-					{
-						Entity child = prefabScene->GetEntityByUUID(childID);
-						if (child)
-							instantiateHierarchy(child, destination);
-					}
+					Entity child = source.GetScene()->TryGetEntityWithUUID(childID);
+					if (child)
+						instantiateHierarchy(child, destination);
 				}
 
 				return destination;
 			};
 
-		return instantiateHierarchy(prefabRoot, {});
+		Entity root = instantiateHierarchy(entity, parent);
+		if (translation)
+			root.Transform().Translation = *translation;
+		if (rotation)
+			root.Transform().SetRotationEuler(*rotation);
+		if (scale)
+			root.Transform().Scale = *scale;
+		return root;
+	}
+
+	Entity Scene::InstantiateMesh(Ref<Mesh> mesh)
+	{
+		if (!mesh)
+			return {};
+
+		Entity entity = CreateEntity("Mesh");
+		entity.AddComponent<MeshComponent>(mesh->Handle);
+		return entity;
+	}
+
+	Entity Scene::InstantiateStaticMesh(Ref<StaticMesh> mesh)
+	{
+		if (!mesh)
+			return {};
+
+		Entity entity = CreateEntity("Static Mesh");
+		entity.AddComponent<StaticMeshComponent>(mesh->Handle);
+		return entity;
 	}
 
 	Entity Scene::FindEntityByName(std::string_view name)
@@ -834,6 +953,29 @@ namespace Lux {
 		if (m_EntityMap.find(uuid) != m_EntityMap.end())
 			return { m_EntityMap.at(uuid), const_cast<Scene*>(this) };
 
+		return {};
+	}
+
+	Entity Scene::GetEntityWithUUID(UUID uuid) const
+	{
+		Entity entity = TryGetEntityWithUUID(uuid);
+		LUX_CORE_ASSERT(entity, "Entity does not exist!");
+		return entity;
+	}
+
+	Entity Scene::TryGetEntityWithUUID(UUID uuid) const
+	{
+		return GetEntityByUUID(uuid);
+	}
+
+	Entity Scene::TryGetEntityWithTag(const std::string& tag)
+	{
+		auto view = m_Registry.view<TagComponent>();
+		for (auto entity : view)
+		{
+			if (view.get<TagComponent>(entity).Tag == tag)
+				return { entity, this };
+		}
 		return {};
 	}
 
@@ -858,6 +1000,105 @@ namespace Lux {
 		return transform;
 	}
 
+	TransformComponent Scene::GetWorldSpaceTransform(Entity entity) const
+	{
+		TransformComponent transform;
+		transform.SetTransform(GetWorldSpaceTransformMatrix(entity));
+		return transform;
+	}
+
+	void Scene::ConvertToLocalSpace(Entity entity)
+	{
+		Entity parent = entity.GetParent();
+		if (!parent)
+			return;
+
+		const glm::mat4 parentTransform = GetWorldSpaceTransformMatrix(parent);
+		const glm::mat4 localTransform = glm::inverse(parentTransform) * GetWorldSpaceTransformMatrix(entity);
+		entity.Transform().SetTransform(localTransform);
+	}
+
+	void Scene::ConvertToWorldSpace(Entity entity)
+	{
+		entity.Transform().SetTransform(GetWorldSpaceTransformMatrix(entity));
+	}
+
+	void Scene::ParentEntity(Entity entity, Entity parent)
+	{
+		if (!entity || !parent || entity == parent || parent.IsDescendantOf(entity))
+			return;
+
+		const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
+		entity.SetParent(parent);
+		entity.Transform().SetTransform(glm::inverse(GetWorldSpaceTransformMatrix(parent)) * worldTransform);
+		SortEntities();
+	}
+
+	void Scene::UnparentEntity(Entity entity, bool convertToWorldSpace)
+	{
+		if (!entity)
+			return;
+
+		glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
+		entity.SetParent({});
+		if (convertToWorldSpace)
+			entity.Transform().SetTransform(worldTransform);
+		SortEntities();
+	}
+
+	std::vector<UUID> Scene::GetAllChildren(Entity entity) const
+	{
+		std::vector<UUID> result;
+		if (!entity || !entity.HasComponent<RelationshipComponent>())
+			return result;
+
+		for (UUID childID : entity.Children())
+		{
+			result.emplace_back(childID);
+			Entity child = TryGetEntityWithUUID(childID);
+			if (!child)
+				continue;
+
+			std::vector<UUID> grandchildren = GetAllChildren(child);
+			result.insert(result.end(), grandchildren.begin(), grandchildren.end());
+		}
+
+		return result;
+	}
+
+	void Scene::CopyTo(Ref<Scene>& target)
+	{
+		if (!target)
+			target = Ref<Scene>::Create();
+
+		target->m_Registry.clear();
+		target->m_EntityMap.clear();
+		target->m_Name = m_Name;
+		target->m_ViewportWidth = m_ViewportWidth;
+		target->m_ViewportHeight = m_ViewportHeight;
+
+		std::unordered_map<UUID, entt::entity> enttMap;
+		auto idView = m_Registry.view<IDComponent>();
+		for (auto entity : idView)
+		{
+			UUID uuid = m_Registry.get<IDComponent>(entity).ID;
+			const auto& name = m_Registry.get<TagComponent>(entity).Tag;
+			Entity newEntity = target->CreateEntityWithID(uuid, name, false);
+			enttMap[uuid] = (entt::entity)newEntity;
+		}
+
+		CopyComponent(AllComponents{}, target->m_Registry, m_Registry, enttMap);
+		target->SortEntities();
+	}
+
+	void Scene::SortEntities()
+	{
+		m_Registry.sort<IDComponent>([](const entt::entity lhs, const entt::entity rhs)
+		{
+			return (uint32_t)lhs < (uint32_t)rhs;
+		});
+	}
+
 	void Scene::OnPhysics2DStart()
 	{
 		// Guard against double-call leak
@@ -877,9 +1118,13 @@ namespace Lux {
 			auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
 
 			b2BodyDef bodyDef;
-			bodyDef.type = Utils::RigidBody2DTypeToBox2DBody(rb2d.Type);
+			bodyDef.type = Utils::RigidBody2DTypeToBox2DBody(rb2d.BodyType);
 			bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
-			bodyDef.angle = transform.Rotation.z;
+			bodyDef.angle = transform.GetRotationEuler().z;
+			bodyDef.linearDamping = rb2d.LinearDrag;
+			bodyDef.angularDamping = rb2d.AngularDrag;
+			bodyDef.gravityScale = rb2d.GravityScale;
+			bodyDef.bullet = rb2d.IsBullet;
 
 			b2Body* body = m_PhysicsWorld->CreateBody(&bodyDef);
 			body->SetFixedRotation(rb2d.FixedRotation);
@@ -1021,7 +1266,7 @@ namespace Lux {
 				pl.Falloff = pointLight.Falloff;
 				pl.MinRadius = pointLight.MinRadius;
 				pl.LightSize = pointLight.LightSize;
-				pl.CastsShadows = pointLight.CastShadows ? 1u : 0u;
+				pl.CastsShadows = pointLight.CastsShadows ? 1u : 0u;
 
 				lightEnv.PointLights.push_back(pl);
 			}
@@ -1045,7 +1290,7 @@ namespace Lux {
 				sl.AngleAttenuation = spotLight.AngleAttenuation;
 				sl.Falloff = spotLight.Falloff;
 				sl.SoftShadows = spotLight.SoftShadows ? 1u : 0u;
-				sl.CastsShadows = spotLight.CastShadows ? 1u : 0u;
+				sl.CastsShadows = spotLight.CastsShadows ? 1u : 0u;
 
 				lightEnv.SpotLights.push_back(sl);
 			}
@@ -1088,13 +1333,13 @@ namespace Lux {
 					return m_DynamicSkyEnvironment;
 			}
 
-			if (skyLight.EnvironmentMap)
+			if (skyLight.SceneEnvironment)
 			{
-				Ref<Asset> asset = AssetManager::GetAsset<Asset>(skyLight.EnvironmentMap);
+				Ref<Asset> asset = AssetManager::GetAsset<Asset>(skyLight.SceneEnvironment);
 				if (asset && asset->GetAssetType() != AssetType::EnvMap)
 				{
-					AssetManager::ReloadData(skyLight.EnvironmentMap);
-					asset = AssetManager::GetAsset<Asset>(skyLight.EnvironmentMap);
+					AssetManager::ReloadData(skyLight.SceneEnvironment);
+					asset = AssetManager::GetAsset<Asset>(skyLight.SceneEnvironment);
 				}
 
 				if (!asset || asset->GetAssetType() != AssetType::EnvMap)
@@ -1121,10 +1366,10 @@ namespace Lux {
 			if (!meshComp.Visible)
 				continue;
 
-			if (!meshComp.Mesh)
+			if (!meshComp.StaticMesh)
 				continue;
 
-			Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(meshComp.Mesh);
+			Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(meshComp.StaticMesh);
 			if (!staticMesh)
 				continue;
 
@@ -1133,20 +1378,9 @@ namespace Lux {
 			if (!meshSource)
 				continue;
 
-			Ref<MaterialTable> materialTable = nullptr;
-			if (meshComp.MaterialTable)
-			{
-				auto materialAsset = AssetManager::GetAsset<MaterialAsset>(meshComp.MaterialTable);
-				if (materialAsset)
-				{
-					materialTable = Ref<MaterialTable>::Create(1);
-					materialTable->SetMaterial(0, meshComp.MaterialTable);
-				}
-			}
-
-			// Use the mesh's default material table if none specified
-			if (!materialTable)
-				materialTable = staticMesh->GetMaterials();
+			Ref<MaterialTable> materialTable = meshComp.MaterialTable && meshComp.MaterialTable->GetMaterialCount() > 0
+				? meshComp.MaterialTable
+				: staticMesh->GetMaterials();
 
 			bool selected = isSelected ? isSelected(entity) : false;
 
@@ -1363,6 +1597,62 @@ namespace Lux {
 		Render3DRuntime(renderer);
 	}
 
+	std::unordered_set<AssetHandle> Scene::GetAssetList()
+	{
+		std::unordered_set<AssetHandle> assets;
+		auto addIfValid = [&assets](AssetHandle handle)
+		{
+			if (handle && !AssetManager::GetMemoryAsset(handle))
+				assets.insert(handle);
+		};
+
+		auto prefabView = m_Registry.view<PrefabComponent>();
+		for (auto entity : prefabView)
+			addIfValid(prefabView.get<PrefabComponent>(entity).PrefabID);
+
+		auto spriteView = m_Registry.view<SpriteRendererComponent>();
+		for (auto entity : spriteView)
+			addIfValid(spriteView.get<SpriteRendererComponent>(entity).Texture);
+
+		auto textView = m_Registry.view<TextComponent>();
+		for (auto entity : textView)
+			addIfValid(textView.get<TextComponent>(entity).FontHandle);
+
+		auto meshView = m_Registry.view<MeshComponent>();
+		for (auto entity : meshView)
+			addIfValid(meshView.get<MeshComponent>(entity).Mesh);
+
+		auto submeshView = m_Registry.view<SubmeshComponent>();
+		for (auto entity : submeshView)
+		{
+			const auto& submesh = submeshView.get<SubmeshComponent>(entity);
+			addIfValid(submesh.Mesh);
+			if (submesh.MaterialTable)
+			{
+				for (const auto& [index, material] : submesh.MaterialTable->GetMaterials())
+					addIfValid(material);
+			}
+		}
+
+		auto staticMeshView = m_Registry.view<StaticMeshComponent>();
+		for (auto entity : staticMeshView)
+		{
+			const auto& staticMesh = staticMeshView.get<StaticMeshComponent>(entity);
+			addIfValid(staticMesh.StaticMesh);
+			if (staticMesh.MaterialTable)
+			{
+				for (const auto& [index, material] : staticMesh.MaterialTable->GetMaterials())
+					addIfValid(material);
+			}
+		}
+
+		auto skyLightView = m_Registry.view<SkyLightComponent>();
+		for (auto entity : skyLightView)
+			addIfValid(skyLightView.get<SkyLightComponent>(entity).SceneEnvironment);
+
+		return assets;
+	}
+
 	// ============================================================================
 
 	template<typename T>
@@ -1391,7 +1681,7 @@ namespace Lux {
 	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
 	{
 		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
-			component.Camera.SetOrthographicSize((float)m_ViewportWidth / (float)m_ViewportHeight);
+			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
 	}
 
 	template<>
@@ -1486,6 +1776,11 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<StaticMeshComponent>(Entity entity, StaticMeshComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<SubmeshComponent>(Entity entity, SubmeshComponent& component)
 	{
 	}
 

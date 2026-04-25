@@ -13,6 +13,7 @@ namespace Lux {
 	public:
 		void SetPerspective(float verticalFOV, float nearClip = 0.1f, float farClip = 1000.0f);
 		void SetOrthographic(float size, float nearClip = -1.0f, float farClip = 1.0f);
+		void SetViewportSize(uint32_t width, uint32_t height);
 		void SetViewportBounds(uint32_t left, uint32_t top, uint32_t right, uint32_t bottom);
 		std::tuple<uint32_t, uint32_t, uint32_t, uint32_t> GetViewportBounds() const { return m_ViewportBounds; }
 

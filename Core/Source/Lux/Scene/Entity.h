@@ -1,13 +1,14 @@
 #pragma once
 
 #include "Lux/Core/UUID.h"
-#include "Lux/Scene/Scene.h"
 #include "Components.h"
 
 #include "entt/entt.hpp"
 
 namespace Lux
 {
+	class Scene;
+
 	class Entity
 	{
 	public:
@@ -16,54 +17,66 @@ namespace Lux
 			: m_EntityHandle(handle), m_Scene(scene) {
 		}
 
-		template<typename T, typename... Args>
-		T& AddComponent(Args&&... args)
-		{
-			LUX_CORE_ASSERT(!HasComponent<T>(), "Entity already has component!");
-			T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
-			m_Scene->OnComponentAdded<T>(*this, component);
-			return component;
-		}
+		bool IsValid() const;
 
 		template<typename T, typename... Args>
-		T& AddOrReplaceComponent(Args&&... args)
-		{
-			T& component = m_Scene->m_Registry.emplace_or_replace<T>(m_EntityHandle, std::forward<Args>(args)...);
-			m_Scene->OnComponentAdded<T>(*this, component);
-			return component;
-		}
+		T& AddComponent(Args&&... args);
+
+		template<typename T, typename... Args>
+		T& AddOrReplaceComponent(Args&&... args);
 
 		template<typename T>
-		T& GetComponent()
-		{
-			LUX_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
-			return m_Scene->m_Registry.get<T>(m_EntityHandle);
-		}
+		T& GetComponent();
 
 		template<typename T>
-		bool HasComponent()
-		{
-			return m_Scene->m_Registry.template has<T>(m_EntityHandle);
-		}
+		const T& GetComponent() const;
 
 		template<typename T>
-		void RemoveComponent()
-		{
-			LUX_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
-			m_Scene->m_Registry.remove<T>(m_EntityHandle);
-		}
+		T* TryGetComponent();
+
+		template<typename T>
+		const T* TryGetComponent() const;
+
+		template<typename... T>
+		bool HasComponent();
+
+		template<typename... T>
+		bool HasComponent() const;
+
+		template<typename... T>
+		bool HasAny();
+
+		template<typename... T>
+		bool HasAny() const;
+
+		template<typename T>
+		void RemoveComponent();
+
+		template<typename T>
+		void RemoveComponentIfExists();
 
 		operator bool() const { return m_EntityHandle != entt::null; }
 		operator entt::entity() const { return m_EntityHandle; }
 		operator uint32_t() const { return (uint32_t)m_EntityHandle; }
 
-		UUID GetUUID() { return GetComponent<IDComponent>().ID; }
-		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
+		UUID GetUUID() const { return GetComponent<IDComponent>().ID; }
+		std::string& Name() { return HasComponent<TagComponent>() ? GetComponent<TagComponent>().Tag : NoName; }
+		const std::string& Name() const { return HasComponent<TagComponent>() ? GetComponent<TagComponent>().Tag : NoName; }
+		const std::string& GetName() const { return Name(); }
 		Scene* GetScene() const { return m_Scene; }
 		Entity GetParent() const;
 		void SetParent(Entity parent);
+		void SetParentUUID(UUID parent) { GetComponent<RelationshipComponent>().ParentHandle = parent; }
+		UUID GetParentUUID() const { return GetComponent<RelationshipComponent>().ParentHandle; }
 		std::vector<UUID>& Children();
+		const std::vector<UUID>& Children() const;
+		bool RemoveChild(Entity child);
 		bool HasParent() const;
+		bool IsAncestorOf(Entity entity) const;
+		bool IsDescendantOf(Entity entity) const { return entity.IsAncestorOf(*this); }
+
+		TransformComponent& Transform() { return GetComponent<TransformComponent>(); }
+		const glm::mat4 Transform() const { return GetComponent<TransformComponent>().GetTransform(); }
 
 		bool operator==(const Entity& other) const
 		{
@@ -77,6 +90,12 @@ namespace Lux
 	private:
 		entt::entity m_EntityHandle{ entt::null };
 		Scene* m_Scene = nullptr;
+
+		inline static std::string NoName = "Unnamed";
+
+		friend class Prefab;
+		friend class Scene;
+		friend class SceneSerializer;
 	};
 
 }

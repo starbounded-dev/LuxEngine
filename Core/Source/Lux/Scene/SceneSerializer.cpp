@@ -1,14 +1,16 @@
 #include "lpch.h"
 #include "SceneSerializer.h"
 
-#include "Entity.h"
 #include "Components.h"
-#include "Lux/Scripting/ScriptEngine.h"
-#include "Lux/Core/UUID.h"
+#include "Entity.h"
 
+#include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Scripting/ScriptEngine.h"
 
 #include <fstream>
+#include <sstream>
 
 #include <yaml-cpp/yaml.h>
 
@@ -86,7 +88,6 @@ namespace YAML {
 			rhs.z = node[2].as<float>();
 			rhs.w = node[3].as<float>();
 			return true;
-		
 		}
 	};
 
@@ -111,77 +112,581 @@ namespace YAML {
 
 namespace Lux {
 
-	#define WRITE_SCRIPT_FIELD(FieldType, Type)           \
-				case ScriptFieldType::FieldType:          \
-					out << scriptField.GetValue<Type>();  \
-					break
-
-	#define READ_SCRIPT_FIELD(FieldType, Type)             \
-		case ScriptFieldType::FieldType:                   \
-		{                                                  \
-			Type data = scriptField["Data"].as<Type>();    \
-			fieldInstance.SetValue(data);                  \
-			break;                                         \
-		}
-
 	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec2& v)
 	{
-		out << YAML::Flow;
-		out << YAML::BeginSeq << v.x << v.y << YAML::EndSeq;
+		out << YAML::Flow << YAML::BeginSeq << v.x << v.y << YAML::EndSeq;
 		return out;
 	}
 
 	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v)
 	{
-		out << YAML::Flow;
-		out << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
+		out << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
 		return out;
 	}
 
 	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec4& v)
 	{
-		out << YAML::Flow;
-		out << YAML::BeginSeq << v.x << v.y << v.z << v.w << YAML::EndSeq;
+		out << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << v.w << YAML::EndSeq;
 		return out;
 	}
 
-	template<typename T>
-	inline T TrySetEnum(T& value, const YAML::Node& node)
-	{
-		if (node)
-			value = static_cast<T>(node.as<int>(static_cast<int>(value)));
-		return value;
-	}
+	namespace {
 
-	static std::string RigidBody2DBodyTypeToString(RigidBody2DComponent::BodyType type)
-	{
-		switch (type)
+		static void SerializeMaterialTable(YAML::Emitter& out, const Ref<MaterialTable>& materialTable)
 		{
-			case RigidBody2DComponent::BodyType::Static: return "Static";
-			case RigidBody2DComponent::BodyType::Dynamic: return "Dynamic";
-			case RigidBody2DComponent::BodyType::Kinematic: return "Kinematic";
+			out << YAML::Key << "MaterialTable" << YAML::Value << YAML::BeginMap;
+			if (materialTable)
+			{
+				for (const auto& [index, handle] : materialTable->GetMaterials())
+					out << YAML::Key << index << YAML::Value << handle;
+			}
+			out << YAML::EndMap;
 		}
 
-		LUX_CORE_ASSERT(false, "Unknown RigidBody2DComponent::BodyType!");
-		return "";
+		static Ref<MaterialTable> DeserializeMaterialTable(const YAML::Node& materialTableNode)
+		{
+			Ref<MaterialTable> materialTable = Ref<MaterialTable>::Create();
+			if (!materialTableNode || !materialTableNode.IsMap())
+				return materialTable;
+
+			uint32_t materialCount = 0;
+			for (auto material : materialTableNode)
+			{
+				const uint32_t index = material.first.as<uint32_t>();
+				const AssetHandle handle = material.second.as<AssetHandle>();
+				materialTable->SetMaterial(index, handle);
+				materialCount = std::max(materialCount, index + 1);
+			}
+			materialTable->SetMaterialCount(std::max(materialCount, materialTable->GetMaterialCount()));
+			return materialTable;
+		}
+
+		static bool ContainsLegacyOrDeferredSceneData(const YAML::Node& entity)
+		{
+			if (entity["RelationshipComponent"])
+				return true;
+
+			if (auto transform = entity["TransformComponent"])
+			{
+				if (transform["Translation"])
+					return true;
+			}
+
+			if (auto prefab = entity["PrefabComponent"])
+			{
+				if (prefab["PrefabID"] || prefab["EntityID"])
+					return true;
+			}
+
+			if (auto meshTag = entity["MeshTagComponent"])
+			{
+				if (meshTag["MeshName"])
+					return true;
+			}
+
+			if (auto staticMesh = entity["StaticMeshComponent"])
+			{
+				if (staticMesh["Mesh"] || staticMesh["CastShadows"])
+					return true;
+			}
+
+			return entity["AudioData"] || entity["AudioSourceComponent"] || entity["AudioListenerComponent"]
+				|| entity["AnimationComponent"] || entity["RigidBodyComponent"] || entity["CharacterControllerComponent"]
+				|| entity["CompoundColliderComponent"] || entity["BoxColliderComponent"] || entity["SphereColliderComponent"]
+				|| entity["CapsuleColliderComponent"] || entity["MeshColliderComponent"];
+		}
+
+		static void SerializeEntity(YAML::Emitter& out, Entity entity)
+		{
+			LUX_CORE_ASSERT(entity.HasComponent<IDComponent>());
+
+			out << YAML::BeginMap;
+			out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID();
+
+			if (entity.HasComponent<TagComponent>())
+			{
+				out << YAML::Key << "TagComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Tag" << YAML::Value << entity.GetComponent<TagComponent>().Tag;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<RelationshipComponent>())
+			{
+				const auto& relationship = entity.GetComponent<RelationshipComponent>();
+				out << YAML::Key << "Parent" << YAML::Value << relationship.ParentHandle;
+				out << YAML::Key << "Children" << YAML::Value << YAML::BeginSeq;
+				for (UUID child : relationship.Children)
+				{
+					out << YAML::BeginMap;
+					out << YAML::Key << "Handle" << YAML::Value << child;
+					out << YAML::EndMap;
+				}
+				out << YAML::EndSeq;
+			}
+
+			if (entity.HasComponent<PrefabComponent>())
+			{
+				const auto& prefab = entity.GetComponent<PrefabComponent>();
+				out << YAML::Key << "PrefabComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Prefab" << YAML::Value << prefab.PrefabID;
+				out << YAML::Key << "Entity" << YAML::Value << prefab.EntityID;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<TransformComponent>())
+			{
+				const auto& transform = entity.GetComponent<TransformComponent>();
+				out << YAML::Key << "TransformComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Position" << YAML::Value << transform.Translation;
+				out << YAML::Key << "Rotation" << YAML::Value << transform.GetRotationEuler();
+				out << YAML::Key << "Scale" << YAML::Value << transform.Scale;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<ScriptComponent>())
+			{
+				const auto& script = entity.GetComponent<ScriptComponent>();
+				out << YAML::Key << "ScriptComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "ClassName" << YAML::Value << script.ClassName;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<MeshComponent>())
+			{
+				out << YAML::Key << "MeshComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "AssetID" << YAML::Value << entity.GetComponent<MeshComponent>().Mesh;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<MeshTagComponent>())
+			{
+				out << YAML::Key << "MeshTagComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "EntityID" << YAML::Value << entity.GetComponent<MeshTagComponent>().MeshEntity;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<SubmeshComponent>())
+			{
+				const auto& submesh = entity.GetComponent<SubmeshComponent>();
+				out << YAML::Key << "SubmeshComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "AssetID" << YAML::Value << submesh.Mesh;
+				out << YAML::Key << "SubmeshIndex" << YAML::Value << submesh.SubmeshIndex;
+				SerializeMaterialTable(out, submesh.MaterialTable);
+				out << YAML::Key << "Visible" << YAML::Value << submesh.Visible;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<StaticMeshComponent>())
+			{
+				const auto& staticMesh = entity.GetComponent<StaticMeshComponent>();
+				out << YAML::Key << "StaticMeshComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "AssetID" << YAML::Value << staticMesh.StaticMesh;
+				SerializeMaterialTable(out, staticMesh.MaterialTable);
+				out << YAML::Key << "Visible" << YAML::Value << staticMesh.Visible;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<CameraComponent>())
+			{
+				const auto& cameraComponent = entity.GetComponent<CameraComponent>();
+				const SceneCamera& camera = cameraComponent.Camera;
+				out << YAML::Key << "CameraComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Camera" << YAML::Value;
+				out << YAML::BeginMap;
+				out << YAML::Key << "ProjectionType" << YAML::Value << (int)camera.GetProjectionType();
+				out << YAML::Key << "PerspectiveFOV" << YAML::Value << camera.GetDegPerspectiveVerticalFOV();
+				out << YAML::Key << "PerspectiveNear" << YAML::Value << camera.GetPerspectiveNearClip();
+				out << YAML::Key << "PerspectiveFar" << YAML::Value << camera.GetPerspectiveFarClip();
+				out << YAML::Key << "OrthographicSize" << YAML::Value << camera.GetOrthographicSize();
+				out << YAML::Key << "OrthographicNear" << YAML::Value << camera.GetOrthographicNearClip();
+				out << YAML::Key << "OrthographicFar" << YAML::Value << camera.GetOrthographicFarClip();
+				out << YAML::EndMap;
+				out << YAML::Key << "Primary" << YAML::Value << cameraComponent.Primary;
+				out << YAML::Key << "FixedAspectRatio" << YAML::Value << cameraComponent.FixedAspectRatio;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<DirectionalLightComponent>())
+			{
+				const auto& light = entity.GetComponent<DirectionalLightComponent>();
+				out << YAML::Key << "DirectionalLightComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
+				out << YAML::Key << "Radiance" << YAML::Value << light.Radiance;
+				out << YAML::Key << "CastShadows" << YAML::Value << light.CastShadows;
+				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
+				out << YAML::Key << "LightSize" << YAML::Value << light.LightSize;
+				out << YAML::Key << "ShadowAmount" << YAML::Value << light.ShadowAmount;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<PointLightComponent>())
+			{
+				const auto& light = entity.GetComponent<PointLightComponent>();
+				out << YAML::Key << "PointLightComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Radiance" << YAML::Value << light.Radiance;
+				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
+				out << YAML::Key << "CastShadows" << YAML::Value << light.CastsShadows;
+				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
+				out << YAML::Key << "MinRadius" << YAML::Value << light.MinRadius;
+				out << YAML::Key << "Radius" << YAML::Value << light.Radius;
+				out << YAML::Key << "LightSize" << YAML::Value << light.LightSize;
+				out << YAML::Key << "Falloff" << YAML::Value << light.Falloff;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<SpotLightComponent>())
+			{
+				const auto& light = entity.GetComponent<SpotLightComponent>();
+				out << YAML::Key << "SpotLightComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Radiance" << YAML::Value << light.Radiance;
+				out << YAML::Key << "Angle" << YAML::Value << light.Angle;
+				out << YAML::Key << "AngleAttenuation" << YAML::Value << light.AngleAttenuation;
+				out << YAML::Key << "CastsShadows" << YAML::Value << light.CastsShadows;
+				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
+				out << YAML::Key << "Falloff" << YAML::Value << light.Falloff;
+				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
+				out << YAML::Key << "Range" << YAML::Value << light.Range;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<SkyLightComponent>())
+			{
+				const auto& skyLight = entity.GetComponent<SkyLightComponent>();
+				out << YAML::Key << "SkyLightComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "EnvironmentMap" << YAML::Value << (AssetManager::GetMemoryAsset(skyLight.SceneEnvironment) ? (AssetHandle)0 : skyLight.SceneEnvironment);
+				out << YAML::Key << "Intensity" << YAML::Value << skyLight.Intensity;
+				out << YAML::Key << "Lod" << YAML::Value << skyLight.Lod;
+				out << YAML::Key << "DynamicSky" << YAML::Value << skyLight.DynamicSky;
+				if (skyLight.DynamicSky)
+					out << YAML::Key << "TurbidityAzimuthInclination" << YAML::Value << skyLight.TurbidityAzimuthInclination;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<SpriteRendererComponent>())
+			{
+				const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
+				out << YAML::Key << "SpriteRendererComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Color" << YAML::Value << sprite.Color;
+				out << YAML::Key << "Texture" << YAML::Value << sprite.Texture;
+				out << YAML::Key << "TilingFactor" << YAML::Value << sprite.TilingFactor;
+				out << YAML::Key << "UVStart" << YAML::Value << sprite.UVStart;
+				out << YAML::Key << "UVEnd" << YAML::Value << sprite.UVEnd;
+				out << YAML::Key << "ScreenSpace" << YAML::Value << sprite.ScreenSpace;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<CircleRendererComponent>())
+			{
+				const auto& circle = entity.GetComponent<CircleRendererComponent>();
+				out << YAML::Key << "CircleRendererComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Color" << YAML::Value << circle.Color;
+				out << YAML::Key << "Thickness" << YAML::Value << circle.Thickness;
+				out << YAML::Key << "Fade" << YAML::Value << circle.Fade;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<TextComponent>())
+			{
+				const auto& text = entity.GetComponent<TextComponent>();
+				out << YAML::Key << "TextComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "TextString" << YAML::Value << text.TextString;
+				out << YAML::Key << "FontHandle" << YAML::Value << text.FontHandle;
+				out << YAML::Key << "Color" << YAML::Value << text.Color;
+				out << YAML::Key << "LineSpacing" << YAML::Value << text.LineSpacing;
+				out << YAML::Key << "Kerning" << YAML::Value << text.Kerning;
+				out << YAML::Key << "MaxWidth" << YAML::Value << text.MaxWidth;
+				out << YAML::Key << "ScreenSpace" << YAML::Value << text.ScreenSpace;
+				out << YAML::Key << "DropShadow" << YAML::Value << text.DropShadow;
+				out << YAML::Key << "ShadowDistance" << YAML::Value << text.ShadowDistance;
+				out << YAML::Key << "ShadowColor" << YAML::Value << text.ShadowColor;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<RigidBody2DComponent>())
+			{
+				const auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
+				out << YAML::Key << "RigidBody2DComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "BodyType" << YAML::Value << (int)rb2d.BodyType;
+				out << YAML::Key << "FixedRotation" << YAML::Value << rb2d.FixedRotation;
+				out << YAML::Key << "Mass" << YAML::Value << rb2d.Mass;
+				out << YAML::Key << "LinearDrag" << YAML::Value << rb2d.LinearDrag;
+				out << YAML::Key << "AngularDrag" << YAML::Value << rb2d.AngularDrag;
+				out << YAML::Key << "GravityScale" << YAML::Value << rb2d.GravityScale;
+				out << YAML::Key << "IsBullet" << YAML::Value << rb2d.IsBullet;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<BoxCollider2DComponent>())
+			{
+				const auto& collider = entity.GetComponent<BoxCollider2DComponent>();
+				out << YAML::Key << "BoxCollider2DComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
+				out << YAML::Key << "Size" << YAML::Value << collider.Size;
+				out << YAML::Key << "Density" << YAML::Value << collider.Density;
+				out << YAML::Key << "Friction" << YAML::Value << collider.Friction;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<CircleCollider2DComponent>())
+			{
+				const auto& collider = entity.GetComponent<CircleCollider2DComponent>();
+				out << YAML::Key << "CircleCollider2DComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
+				out << YAML::Key << "Radius" << YAML::Value << collider.Radius;
+				out << YAML::Key << "Density" << YAML::Value << collider.Density;
+				out << YAML::Key << "Friction" << YAML::Value << collider.Friction;
+				out << YAML::EndMap;
+			}
+
+			out << YAML::EndMap;
+		}
+
+		static bool DeserializeEntities(const YAML::Node& entities, Ref<Scene> scene)
+		{
+			if (!entities)
+				return true;
+
+			for (auto entity : entities)
+			{
+				if (ContainsLegacyOrDeferredSceneData(entity))
+				{
+					LUX_CORE_ERROR("Scene contains legacy Lux or deferred scene component data; refusing to deserialize Hazel-only scene schema.");
+					return false;
+				}
+
+				const UUID uuid = entity["Entity"].as<uint64_t>();
+				std::string name = "Entity";
+				if (auto tag = entity["TagComponent"])
+					name = tag["Tag"].as<std::string>("Entity");
+
+				scene->CreateEntityWithID(uuid, name, false);
+			}
+
+			for (auto entity : entities)
+			{
+				Entity deserializedEntity = scene->GetEntityWithUUID(entity["Entity"].as<uint64_t>());
+
+				if (auto parent = entity["Parent"])
+					deserializedEntity.GetComponent<RelationshipComponent>().ParentHandle = parent.as<uint64_t>();
+
+				if (auto children = entity["Children"])
+				{
+					auto& childList = deserializedEntity.GetComponent<RelationshipComponent>().Children;
+					childList.clear();
+					for (auto child : children)
+					{
+						if (auto handle = child["Handle"])
+							childList.emplace_back(handle.as<uint64_t>());
+					}
+				}
+
+				if (auto prefab = entity["PrefabComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<PrefabComponent>();
+					component.PrefabID = prefab["Prefab"].as<uint64_t>(0);
+					component.EntityID = prefab["Entity"].as<uint64_t>(0);
+				}
+
+				if (auto transform = entity["TransformComponent"])
+				{
+					auto& component = deserializedEntity.GetComponent<TransformComponent>();
+					if (!transform["Position"] || !transform["Rotation"] || !transform["Scale"])
+						return false;
+
+					component.Translation = transform["Position"].as<glm::vec3>();
+					component.SetRotationEuler(transform["Rotation"].as<glm::vec3>());
+					component.Scale = transform["Scale"].as<glm::vec3>();
+				}
+
+				if (auto script = entity["ScriptComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<ScriptComponent>();
+					component.ClassName = script["ClassName"].as<std::string>("");
+				}
+
+				if (auto mesh = entity["MeshComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<MeshComponent>();
+					component.Mesh = mesh["AssetID"].as<uint64_t>(0);
+				}
+
+				if (auto meshTag = entity["MeshTagComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<MeshTagComponent>();
+					component.MeshEntity = meshTag["EntityID"].as<uint64_t>(0);
+				}
+
+				if (auto submesh = entity["SubmeshComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<SubmeshComponent>();
+					component.Mesh = submesh["AssetID"].as<uint64_t>(0);
+					component.SubmeshIndex = submesh["SubmeshIndex"].as<uint32_t>(0);
+					component.MaterialTable = DeserializeMaterialTable(submesh["MaterialTable"]);
+					component.Visible = submesh["Visible"].as<bool>(true);
+				}
+
+				if (auto staticMesh = entity["StaticMeshComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<StaticMeshComponent>();
+					component.StaticMesh = staticMesh["AssetID"].as<uint64_t>(0);
+					component.MaterialTable = DeserializeMaterialTable(staticMesh["MaterialTable"]);
+					component.Visible = staticMesh["Visible"].as<bool>(true);
+				}
+
+				if (auto camera = entity["CameraComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<CameraComponent>();
+					auto cameraProps = camera["Camera"];
+					component.Camera.SetProjectionType((SceneCamera::ProjectionType)cameraProps["ProjectionType"].as<int>(0));
+					component.Camera.SetDegPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<float>(45.0f));
+					component.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<float>(0.1f));
+					component.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<float>(1000.0f));
+					component.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<float>(10.0f));
+					component.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<float>(-1.0f));
+					component.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<float>(1.0f));
+					component.Primary = camera["Primary"].as<bool>(true);
+					component.FixedAspectRatio = camera["FixedAspectRatio"].as<bool>(false);
+				}
+
+				if (auto light = entity["DirectionalLightComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<DirectionalLightComponent>();
+					component.Intensity = light["Intensity"].as<float>(1.0f);
+					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
+					component.CastShadows = light["CastShadows"].as<bool>(true);
+					component.SoftShadows = light["SoftShadows"].as<bool>(true);
+					component.LightSize = light["LightSize"].as<float>(0.5f);
+					component.ShadowAmount = light["ShadowAmount"].as<float>(1.0f);
+				}
+
+				if (auto light = entity["PointLightComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<PointLightComponent>();
+					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
+					component.Intensity = light["Intensity"].as<float>(1.0f);
+					component.CastsShadows = light["CastShadows"].as<bool>(true);
+					component.SoftShadows = light["SoftShadows"].as<bool>(true);
+					component.MinRadius = light["MinRadius"].as<float>(1.0f);
+					component.Radius = light["Radius"].as<float>(10.0f);
+					component.LightSize = light["LightSize"].as<float>(0.5f);
+					component.Falloff = light["Falloff"].as<float>(1.0f);
+				}
+
+				if (auto light = entity["SpotLightComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<SpotLightComponent>();
+					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
+					component.Intensity = light["Intensity"].as<float>(1.0f);
+					component.Range = light["Range"].as<float>(10.0f);
+					component.Angle = light["Angle"].as<float>(60.0f);
+					component.AngleAttenuation = light["AngleAttenuation"].as<float>(5.0f);
+					component.CastsShadows = light["CastsShadows"].as<bool>(false);
+					component.SoftShadows = light["SoftShadows"].as<bool>(false);
+					component.Falloff = light["Falloff"].as<float>(1.0f);
+				}
+
+				if (auto skyLight = entity["SkyLightComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<SkyLightComponent>();
+					component.SceneEnvironment = skyLight["EnvironmentMap"].as<uint64_t>(0);
+					component.Intensity = skyLight["Intensity"].as<float>(1.0f);
+					component.Lod = skyLight["Lod"].as<float>(0.0f);
+					component.DynamicSky = skyLight["DynamicSky"].as<bool>(false);
+					component.TurbidityAzimuthInclination = skyLight["TurbidityAzimuthInclination"].as<glm::vec3>(glm::vec3{ 2.0f, 0.0f, 0.0f });
+				}
+
+				if (auto sprite = entity["SpriteRendererComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<SpriteRendererComponent>();
+					component.Color = sprite["Color"].as<glm::vec4>(glm::vec4(1.0f));
+					component.Texture = sprite["Texture"].as<uint64_t>(0);
+					component.TilingFactor = sprite["TilingFactor"].as<float>(1.0f);
+					component.UVStart = sprite["UVStart"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.UVEnd = sprite["UVEnd"].as<glm::vec2>(glm::vec2{ 1.0f, 1.0f });
+					component.ScreenSpace = sprite["ScreenSpace"].as<bool>(false);
+				}
+
+				if (auto circle = entity["CircleRendererComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<CircleRendererComponent>();
+					component.Color = circle["Color"].as<glm::vec4>(glm::vec4(1.0f));
+					component.Thickness = circle["Thickness"].as<float>(1.0f);
+					component.Fade = circle["Fade"].as<float>(0.005f);
+				}
+
+				if (auto text = entity["TextComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<TextComponent>();
+					component.TextString = text["TextString"].as<std::string>("");
+					component.FontHandle = text["FontHandle"].as<uint64_t>(0);
+					component.Color = text["Color"].as<glm::vec4>(glm::vec4(1.0f));
+					component.LineSpacing = text["LineSpacing"].as<float>(0.0f);
+					component.Kerning = text["Kerning"].as<float>(0.0f);
+					component.MaxWidth = text["MaxWidth"].as<float>(10.0f);
+					component.ScreenSpace = text["ScreenSpace"].as<bool>(false);
+					component.DropShadow = text["DropShadow"].as<bool>(false);
+					component.ShadowDistance = text["ShadowDistance"].as<float>(0.0f);
+					component.ShadowColor = text["ShadowColor"].as<glm::vec4>(glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f });
+				}
+
+				if (auto rigidBody = entity["RigidBody2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<RigidBody2DComponent>();
+					component.BodyType = (RigidBody2DComponent::Type)rigidBody["BodyType"].as<int>((int)RigidBody2DComponent::Type::Static);
+					component.FixedRotation = rigidBody["FixedRotation"].as<bool>(false);
+					component.Mass = rigidBody["Mass"].as<float>(1.0f);
+					component.LinearDrag = rigidBody["LinearDrag"].as<float>(0.01f);
+					component.AngularDrag = rigidBody["AngularDrag"].as<float>(0.05f);
+					component.GravityScale = rigidBody["GravityScale"].as<float>(1.0f);
+					component.IsBullet = rigidBody["IsBullet"].as<bool>(false);
+				}
+
+				if (auto boxCollider = entity["BoxCollider2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<BoxCollider2DComponent>();
+					component.Offset = boxCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.Size = boxCollider["Size"].as<glm::vec2>(glm::vec2{ 0.5f, 0.5f });
+					component.Density = boxCollider["Density"].as<float>(1.0f);
+					component.Friction = boxCollider["Friction"].as<float>(1.0f);
+				}
+
+				if (auto circleCollider = entity["CircleCollider2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<CircleCollider2DComponent>();
+					component.Offset = circleCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.Radius = circleCollider["Radius"].as<float>(1.0f);
+					component.Density = circleCollider["Density"].as<float>(1.0f);
+					component.Friction = circleCollider["Friction"].as<float>(1.0f);
+				}
+			}
+
+			scene->SortEntities();
+			return true;
+		}
 	}
-
-	static RigidBody2DComponent::BodyType RigidBody2DBodyTypeFromString(const std::string& type)
-	{
-		if (type == "Static") return RigidBody2DComponent::BodyType::Static;
-		if (type == "Dynamic") return RigidBody2DComponent::BodyType::Dynamic;
-		if (type == "Kinematic") return RigidBody2DComponent::BodyType::Kinematic;
-
-		LUX_CORE_ASSERT(false, "Unknown RigidBody2DComponent::BodyType!");
-		return RigidBody2DComponent::BodyType::Static;
-	}
-
-	static void SerializeEntity(YAML::Emitter& out, Entity entity);
 
 	SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
 		: m_Scene(scene)
 	{
-
 	}
 
 	void SceneSerializer::SerializeToYAML(YAML::Emitter& out)
@@ -192,410 +697,10 @@ namespace Lux {
 
 		auto view = m_Scene->m_Registry.view<IDComponent>();
 		for (auto entityID : view)
-		{
-			Entity entity = { entityID, m_Scene.get() };
-			if (!entity)
-				continue;
-
-			SerializeEntity(out, entity);
-		}
+			SerializeEntity(out, { entityID, m_Scene.get() });
 
 		out << YAML::EndSeq;
 		out << YAML::EndMap;
-	}
-
-	static void SerializeEntity(YAML::Emitter& out, Entity entity)
-	{
-		LUX_CORE_ASSERT(entity.HasComponent<IDComponent>());
-
-		out << YAML::BeginMap; // Entity
-		out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID();
-
-		if (entity.HasComponent<TagComponent>())
-		{
-			out << YAML::Key << "TagComponent";
-			out << YAML::BeginMap; // TagComponent
-
-			auto& tag = entity.GetComponent<TagComponent>().Tag;
-			out << YAML::Key << "Tag" << YAML::Value << tag;
-
-			out << YAML::EndMap; // TagComponent
-		}
-
-		if (entity.HasComponent<TransformComponent>())
-		{
-			out << YAML::Key << "TransformComponent";
-			out << YAML::BeginMap; // TransformComponent
-
-			auto& tc = entity.GetComponent<TransformComponent>();
-			out << YAML::Key << "Translation" << YAML::Value << tc.Translation;
-			out << YAML::Key << "Rotation" << YAML::Value << tc.Rotation;
-			out << YAML::Key << "Scale" << YAML::Value << tc.Scale;
-
-			out << YAML::EndMap; // TransformComponent
-		}
-
-		if (entity.HasComponent<RelationshipComponent>())
-		{
-			out << YAML::Key << "RelationshipComponent";
-			out << YAML::BeginMap; // RelationshipComponent
-
-			const auto& relationship = entity.GetComponent<RelationshipComponent>();
-			out << YAML::Key << "Parent" << YAML::Value << relationship.ParentHandle;
-
-			out << YAML::EndMap; // RelationshipComponent
-		}
-
-		if (entity.HasComponent<CameraComponent>())
-		{
-			out << YAML::Key << "CameraComponent";
-			out << YAML::BeginMap; // CameraComponent
-
-			auto& cameraComponent = entity.GetComponent<CameraComponent>();
-			auto& camera = cameraComponent.Camera;
-
-			out << YAML::Key << "Camera" << YAML::Value;
-			out << YAML::BeginMap; // Camera
-			out << YAML::Key << "ProjectionType" << YAML::Value << (int)camera.GetProjectionType();
-			out << YAML::Key << "PerspectiveFOV" << YAML::Value << camera.GetDegPerspectiveVerticalFOV();
-			out << YAML::Key << "PerspectiveNear" << YAML::Value << camera.GetPerspectiveNearClip();
-			out << YAML::Key << "PerspectiveFar" << YAML::Value << camera.GetPerspectiveFarClip();
-			out << YAML::Key << "OrthographicSize" << YAML::Value << camera.GetOrthographicSize();
-			out << YAML::Key << "OrthographicNear" << YAML::Value << camera.GetOrthographicNearClip();
-			out << YAML::Key << "OrthographicFar" << YAML::Value << camera.GetOrthographicFarClip();
-			out << YAML::EndMap; // Camera
-
-			out << YAML::Key << "Primary" << YAML::Value << cameraComponent.Primary;
-			out << YAML::Key << "FixedAspectRatio" << YAML::Value << cameraComponent.FixedAspectRatio;
-
-			out << YAML::EndMap; // CameraComponent
-		}
-
-		if (entity.HasComponent<ScriptComponent>())
-		{
-			auto& scriptComponent = entity.GetComponent<ScriptComponent>();
-
-			out << YAML::Key << "ScriptComponent";
-			out << YAML::BeginMap; // ScriptComponent
-			out << YAML::Key << "ClassName" << YAML::Value << scriptComponent.ClassName;
-
-			// Fields
-			Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(scriptComponent.ClassName);
-			const auto& fields = entityClass->GetFields();
-			if (fields.size() > 0)
-			{
-				out << YAML::Key << "ScriptFields" << YAML::Value;
-				auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
-				out << YAML::BeginSeq;
-				for (const auto& [name, field] : fields)
-				{
-					if (entityFields.find(name) == entityFields.end())
-						continue;
-
-					out << YAML::BeginMap; // ScriptField
-					out << YAML::Key << "Name" << YAML::Value << name;
-					out << YAML::Key << "Type" << YAML::Value << Utils::ScriptFieldTypeToString(field.Type);
-
-					out << YAML::Key << "Data" << YAML::Value;
-					ScriptFieldInstance& scriptField = entityFields.at(name);
-
-					switch (field.Type)
-					{
-						WRITE_SCRIPT_FIELD(Float, float);
-						WRITE_SCRIPT_FIELD(Double, double);
-						WRITE_SCRIPT_FIELD(Bool, bool);
-						WRITE_SCRIPT_FIELD(Char, char);
-						WRITE_SCRIPT_FIELD(Byte, int8_t);
-						WRITE_SCRIPT_FIELD(Short, int16_t);
-						WRITE_SCRIPT_FIELD(Int, int32_t);
-						WRITE_SCRIPT_FIELD(Long, int64_t);
-						WRITE_SCRIPT_FIELD(UByte, uint8_t);
-						WRITE_SCRIPT_FIELD(UShort, uint16_t);
-						WRITE_SCRIPT_FIELD(UInt, uint32_t);
-						WRITE_SCRIPT_FIELD(ULong, uint64_t);
-						WRITE_SCRIPT_FIELD(Vector2, glm::vec2);
-						WRITE_SCRIPT_FIELD(Vector3, glm::vec3);
-						WRITE_SCRIPT_FIELD(Vector4, glm::vec4);
-						WRITE_SCRIPT_FIELD(Entity, UUID);
-					}
-					out << YAML::EndMap; // ScriptFields
-				}
-				out << YAML::EndSeq;
-			}
-
-			out << YAML::EndMap; // ScriptComponent
-		}
-
-		if (entity.HasComponent<SpriteRendererComponent>())
-		{
-			out << YAML::Key << "SpriteRendererComponent";
-			out << YAML::BeginMap; // SpriteRendererComponent
-
-			auto& spriteRendererComponent = entity.GetComponent<SpriteRendererComponent>();
-			out << YAML::Key << "Color" << YAML::Value << spriteRendererComponent.Color;
-
-			out << YAML::Key << "TextureHandle" << YAML::Value << spriteRendererComponent.Texture;
-
-			out << YAML::Key << "TilingFactor" << YAML::Value << spriteRendererComponent.TilingFactor;
-
-			out << YAML::EndMap; // SpriteRendererComponent
-		}
-
-		if (entity.HasComponent<CircleRendererComponent>())
-		{
-			out << YAML::Key << "CircleRendererComponent";
-			out << YAML::BeginMap; // CircleRendererComponent
-
-			auto& circleRendererComponent = entity.GetComponent<CircleRendererComponent>();
-			out << YAML::Key << "Color" << YAML::Value << circleRendererComponent.Color;
-			out << YAML::Key << "Thickness" << YAML::Value << circleRendererComponent.Thickness;
-			out << YAML::Key << "Fade" << YAML::Value << circleRendererComponent.Fade;
-
-			out << YAML::EndMap; // CircleRendererComponent
-		}
-
-		if (entity.HasComponent<RigidBody2DComponent>())
-		{
-			out << YAML::Key << "RigidBody2DComponent";
-			out << YAML::BeginMap; // RigidBody2DComponent
-
-			auto& rb2dComponent = entity.GetComponent<RigidBody2DComponent>();
-			out << YAML::Key << "BodyType" << YAML::Value << RigidBody2DBodyTypeToString(rb2dComponent.Type);
-			out << YAML::Key << "FixedRotation" << YAML::Value << rb2dComponent.FixedRotation;
-
-			out << YAML::EndMap; // RigidBody2DComponent
-		}
-
-		if (entity.HasComponent<BoxCollider2DComponent>())
-		{
-			out << YAML::Key << "BoxCollider2DComponent";
-			out << YAML::BeginMap; // BoxCollider2DComponent
-
-			auto& bc2dComponent = entity.GetComponent<BoxCollider2DComponent>();
-			out << YAML::Key << "Offset" << YAML::Value << bc2dComponent.Offset;
-			out << YAML::Key << "Size" << YAML::Value << bc2dComponent.Size;
-			out << YAML::Key << "Density" << YAML::Value << bc2dComponent.Density;
-			out << YAML::Key << "Friction" << YAML::Value << bc2dComponent.Friction;
-			out << YAML::Key << "Restitution" << YAML::Value << bc2dComponent.Restitution;
-			out << YAML::Key << "RestitutionThreshold" << YAML::Value << bc2dComponent.RestitutionThreshold;
-
-			out << YAML::EndMap; // BoxCollider2DComponent
-		}
-
-		if (entity.HasComponent<CircleCollider2DComponent>())
-		{
-			out << YAML::Key << "CircleCollider2DComponent";
-			out << YAML::BeginMap; // CircleCollider2DComponent
-
-			auto& cc2dComponent = entity.GetComponent<CircleCollider2DComponent>();
-			out << YAML::Key << "Offset" << YAML::Value << cc2dComponent.Offset;
-			out << YAML::Key << "Radius" << YAML::Value << cc2dComponent.Radius;
-			out << YAML::Key << "Density" << YAML::Value << cc2dComponent.Density;
-			out << YAML::Key << "Friction" << YAML::Value << cc2dComponent.Friction;
-			out << YAML::Key << "Restitution" << YAML::Value << cc2dComponent.Restitution;
-			out << YAML::Key << "RestitutionThreshold" << YAML::Value << cc2dComponent.RestitutionThreshold;
-
-			out << YAML::EndMap; // CircleCollider2DComponent
-		}
-
-		if (entity.HasComponent<TextComponent>())
-		{
-			out << YAML::Key << "TextComponent";
-			out << YAML::BeginMap; // TextComponent
-
-			auto& textComponent = entity.GetComponent<TextComponent>();
-			out << YAML::Key << "TextString" << YAML::Value << textComponent.TextString;
-			// TODO: textComponent.FontAsset
-			out << YAML::Key << "Color" << YAML::Value << textComponent.Color;
-			out << YAML::Key << "Kerning" << YAML::Value << textComponent.Kerning;
-			out << YAML::Key << "LineSpacing" << YAML::Value << textComponent.LineSpacing;
-
-			out << YAML::EndMap; // TextComponent
-		}
-
-		if (entity.HasComponent<MeshComponent>())
-		{
-			out << YAML::Key << "MeshComponent";
-			out << YAML::BeginMap;
-
-			const auto& component = entity.GetComponent<MeshComponent>();
-			out << YAML::Key << "Mesh" << YAML::Value << component.Mesh;
-			out << YAML::Key << "MaterialTable" << YAML::Value << component.MaterialTable;
-			out << YAML::Key << "Visible" << YAML::Value << component.Visible;
-			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<MeshTagComponent>())
-		{
-			out << YAML::Key << "MeshTagComponent";
-			out << YAML::BeginMap;
-
-			const auto& component = entity.GetComponent<MeshTagComponent>();
-			out << YAML::Key << "MeshName" << YAML::Value << component.MeshName;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<PrefabComponent>())
-		{
-			out << YAML::Key << "PrefabComponent";
-			out << YAML::BeginMap;
-
-			const auto& component = entity.GetComponent<PrefabComponent>();
-			out << YAML::Key << "PrefabID" << YAML::Value << component.PrefabID;
-			out << YAML::Key << "EntityID" << YAML::Value << component.EntityID;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<AudioSourceComponent>())
-		{
-			out << YAML::Key << "AudioSourceComponent";
-			out << YAML::BeginMap;
-
-			const auto& audioSourceComponent = entity.GetComponent<AudioSourceComponent>();
-			out << YAML::Key << "AudioHandle" << YAML::Value << audioSourceComponent.Audio;
-			out << YAML::Key << "VolumeMultiplier" << YAML::Value << audioSourceComponent.Config.VolumeMultiplier;
-			out << YAML::Key << "PitchMultiplier" << YAML::Value << audioSourceComponent.Config.PitchMultiplier;
-			out << YAML::Key << "PlayOnAwake" << YAML::Value << audioSourceComponent.Config.PlayOnAwake;
-			out << YAML::Key << "Looping" << YAML::Value << audioSourceComponent.Config.Looping;
-			out << YAML::Key << "Spatialization" << YAML::Value << audioSourceComponent.Config.Spatialization;
-			out << YAML::Key << "AttenuationModel" << YAML::Value << static_cast<int>(audioSourceComponent.Config.AttenuationModel);
-			out << YAML::Key << "RollOff" << YAML::Value << audioSourceComponent.Config.RollOff;
-			out << YAML::Key << "MinGain" << YAML::Value << audioSourceComponent.Config.MinGain;
-			out << YAML::Key << "MaxGain" << YAML::Value << audioSourceComponent.Config.MaxGain;
-			out << YAML::Key << "MinDistance" << YAML::Value << audioSourceComponent.Config.MinDistance;
-			out << YAML::Key << "MaxDistance" << YAML::Value << audioSourceComponent.Config.MaxDistance;
-			out << YAML::Key << "ConeInnerAngle" << YAML::Value << audioSourceComponent.Config.ConeInnerAngle;
-			out << YAML::Key << "ConeOuterAngle" << YAML::Value << audioSourceComponent.Config.ConeOuterAngle;
-			out << YAML::Key << "ConeOuterGain" << YAML::Value << audioSourceComponent.Config.ConeOuterGain;
-			out << YAML::Key << "DopplerFactor" << YAML::Value << audioSourceComponent.Config.DopplerFactor;
-
-			out << YAML::Key << "UsePlaylist" << YAML::Value << audioSourceComponent.AudioSourceData.UsePlaylist;
-
-			if (audioSourceComponent.AudioSourceData.UsePlaylist)
-			{
-				out << YAML::Key << "AudioSourcesSize" << YAML::Value << audioSourceComponent.AudioSourceData.NumberOfAudioSources;
-				out << YAML::Key << "StartIndex" << YAML::Value << audioSourceComponent.AudioSourceData.StartIndex;
-				out << YAML::Key << "RepeatPlaylist" << YAML::Value << audioSourceComponent.AudioSourceData.RepeatPlaylist;
-				out << YAML::Key << "RepeatSpecificTrack" << YAML::Value << audioSourceComponent.AudioSourceData.RepeatAfterSpecificTrackPlays;
-
-				for (uint32_t i = 0; i < audioSourceComponent.AudioSourceData.Playlist.size(); i++)
-				{
-					if (audioSourceComponent.AudioSourceData.Playlist[i])
-					{
-						std::string audioName = "AudioHandle" + std::to_string(i);
-						out << YAML::Key << audioName.c_str() << YAML::Value << audioSourceComponent.AudioSourceData.Playlist[i];
-					}
-				}
-			}
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<AudioListenerComponent>())
-		{
-			out << YAML::Key << "AudioListenerComponent";
-			out << YAML::BeginMap;
-
-			const auto& audioListenerComponent = entity.GetComponent<AudioListenerComponent>();
-			out << YAML::Key << "Active" << YAML::Value << audioListenerComponent.Active;
-			out << YAML::Key << "ConeInnerAngle" << YAML::Value << audioListenerComponent.Config.ConeInnerAngle;
-			out << YAML::Key << "ConeOuterAngle" << YAML::Value << audioListenerComponent.Config.ConeOuterAngle;
-			out << YAML::Key << "ConeOuterGain" << YAML::Value << audioListenerComponent.Config.ConeOuterGain;
-
-			out << YAML::EndMap;
-		}
-
-		// ============================================================================
-		// 3D Component Serialization
-		// ============================================================================
-
-		if (entity.HasComponent<StaticMeshComponent>())
-		{
-			out << YAML::Key << "StaticMeshComponent";
-			out << YAML::BeginMap;
-
-			const auto& component = entity.GetComponent<StaticMeshComponent>();
-			out << YAML::Key << "Mesh" << YAML::Value << component.Mesh;
-			out << YAML::Key << "MaterialTable" << YAML::Value << component.MaterialTable;
-			out << YAML::Key << "Visible" << YAML::Value << component.Visible;
-			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<DirectionalLightComponent>())
-		{
-			out << YAML::Key << "DirectionalLightComponent";
-			out << YAML::BeginMap;
-
-			const auto& component = entity.GetComponent<DirectionalLightComponent>();
-			out << YAML::Key << "Radiance" << YAML::Value << component.Radiance;
-			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
-			out << YAML::Key << "ShadowAmount" << YAML::Value << component.ShadowAmount;
-			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
-			out << YAML::Key << "SoftShadows" << YAML::Value << component.SoftShadows;
-			out << YAML::Key << "LightSize" << YAML::Value << component.LightSize;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<PointLightComponent>())
-		{
-			out << YAML::Key << "PointLightComponent";
-			out << YAML::BeginMap;
-
-			const auto& component = entity.GetComponent<PointLightComponent>();
-			out << YAML::Key << "Radiance" << YAML::Value << component.Radiance;
-			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
-			out << YAML::Key << "Radius" << YAML::Value << component.Radius;
-			out << YAML::Key << "Falloff" << YAML::Value << component.Falloff;
-			out << YAML::Key << "MinRadius" << YAML::Value << component.MinRadius;
-			out << YAML::Key << "LightSize" << YAML::Value << component.LightSize;
-			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
-			out << YAML::Key << "SoftShadows" << YAML::Value << component.SoftShadows;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<SpotLightComponent>())
-		{
-			out << YAML::Key << "SpotLightComponent";
-			out << YAML::BeginMap;
-
-			const auto& component = entity.GetComponent<SpotLightComponent>();
-			out << YAML::Key << "Radiance" << YAML::Value << component.Radiance;
-			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
-			out << YAML::Key << "Range" << YAML::Value << component.Range;
-			out << YAML::Key << "Angle" << YAML::Value << component.Angle;
-			out << YAML::Key << "AngleAttenuation" << YAML::Value << component.AngleAttenuation;
-			out << YAML::Key << "Falloff" << YAML::Value << component.Falloff;
-			out << YAML::Key << "CastShadows" << YAML::Value << component.CastShadows;
-			out << YAML::Key << "SoftShadows" << YAML::Value << component.SoftShadows;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<SkyLightComponent>())
-		{
-			out << YAML::Key << "SkyLightComponent";
-			out << YAML::BeginMap;
-
-			const auto& component = entity.GetComponent<SkyLightComponent>();
-			out << YAML::Key << "EnvironmentMap" << YAML::Value << component.EnvironmentMap;
-			out << YAML::Key << "Intensity" << YAML::Value << component.Intensity;
-			out << YAML::Key << "Lod" << YAML::Value << component.Lod;
-			out << YAML::Key << "DynamicSky" << YAML::Value << component.DynamicSky;
-			if (component.DynamicSky)
-				out << YAML::Key << "TurbidityAzimuthInclination" << YAML::Value << component.TurbidityAzimuthInclination;
-
-			out << YAML::EndMap;
-		}
-
-		out << YAML::EndMap; // Entity
 	}
 
 	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
@@ -609,513 +714,61 @@ namespace Lux {
 
 	void SceneSerializer::SerializeRuntime(const std::filesystem::path& filepath)
 	{
-		// Not implemented
-		LUX_CORE_ASSERT(false);
+		Serialize(filepath);
+	}
+
+	bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)
+	{
+		YAML::Node data = YAML::Load(yamlString);
+		if (!data["Scene"])
+			return false;
+
+		m_Scene->m_Registry.clear();
+		m_Scene->m_EntityMap.clear();
+		m_Scene->SetName(data["Scene"].as<std::string>());
+
+		return DeserializeEntities(data["Entities"], m_Scene);
 	}
 
 	bool SceneSerializer::Deserialize(const std::filesystem::path& filepath)
 	{
-		YAML::Node data;
+		std::ifstream stream(filepath);
+		if (!stream.is_open())
+			return false;
+
+		std::stringstream strStream;
+		strStream << stream.rdbuf();
+
 		try
 		{
-			data = YAML::LoadFile(filepath.string());
+			if (!DeserializeFromYAML(strStream.str()))
+				return false;
 		}
-		catch (YAML::ParserException e)
+		catch (const YAML::Exception& e)
 		{
-			LUX_CORE_ERROR("Failed to load .luxscene file '{0}'\n     {1}", filepath.string(), e.what());
-
+			LUX_CORE_ERROR("Failed to deserialize scene '{0}': {1}", filepath.string(), e.what());
 			return false;
 		}
 
-		if (!data["Scene"])
-			return false;
-
-		std::string sceneName = data["Scene"].as<std::string>();
-		if (sceneName.empty() || sceneName == "Untitled")
-			sceneName = filepath.stem().string();
-		m_Scene->SetName(sceneName);
-		LUX_CORE_TRACE("Deserializing scene '{0}'", sceneName);
-
-		if (Project::GetAssetManager())
+		if (Ref<Project> project = Project::GetActive())
 		{
-			if (auto editorAssetManager = Project::GetEditorAssetManager())
-				m_Scene->Handle = editorAssetManager->GetAssetHandleFromFilePath(filepath);
-		}
-
-		auto entities = data["Entities"];
-		if (entities)
-		{
-			std::vector<std::pair<UUID, UUID>> pendingParentLinks;
-
-			for (auto entity : entities)
+			if (Ref<EditorAssetManager> assetManager = Project::GetEditorAssetManager())
 			{
-				uint64_t uuid = entity["Entity"].as<uint64_t>();
-
-				std::string name;
-				auto tagComponent = entity["TagComponent"];
-				if (tagComponent)
-					name = tagComponent["Tag"].as<std::string>();
-
-				LUX_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-				Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
-
-				auto transformComponent = entity["TransformComponent"];
-				if (transformComponent)
-				{
-					// Entities always have transforms
-					auto& tc = deserializedEntity.GetComponent<TransformComponent>();
-					tc.Translation = transformComponent["Translation"].as<glm::vec3>();
-					tc.Rotation = transformComponent["Rotation"].as<glm::vec3>();
-					tc.Scale = transformComponent["Scale"].as<glm::vec3>();
-				}
-
-				auto relationshipComponent = entity["RelationshipComponent"];
-				if (relationshipComponent && relationshipComponent["Parent"])
-				{
-					const UUID parentID = relationshipComponent["Parent"].as<uint64_t>();
-					if (parentID != 0)
-						pendingParentLinks.emplace_back(uuid, parentID);
-				}
-
-				auto cameraComponent = entity["CameraComponent"];
-				if (cameraComponent)
-				{
-					auto& cc = deserializedEntity.AddComponent<CameraComponent>();
-
-					auto cameraProps = cameraComponent["Camera"];
-					cc.Camera.SetProjectionType((SceneCamera::ProjectionType)cameraProps["ProjectionType"].as<int>());
-
-					cc.Camera.SetDegPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<float>());
-					cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<float>());
-					cc.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<float>());
-
-					cc.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<float>());
-					cc.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<float>());
-					cc.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<float>());
-
-					cc.Primary = cameraComponent["Primary"].as<bool>();
-					cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
-				}
-
-				auto scriptComponent = entity["ScriptComponent"];
-				if (scriptComponent)
-				{
-					auto& sc = deserializedEntity.AddComponent<ScriptComponent>();
-					sc.ClassName = scriptComponent["ClassName"].as<std::string>();
-
-
-					auto scriptFields = scriptComponent["ScriptFields"];
-					if (scriptFields)
-					{
-						Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName);
-						if (entityClass)
-						{
-							const auto& fields = entityClass->GetFields();
-							auto& entityFields = ScriptEngine::GetScriptFieldMap(deserializedEntity);
-
-							for (auto scriptField : scriptFields)
-							{
-								std::string name = scriptField["Name"].as<std::string>();
-								std::string typeString = scriptField["Type"].as<std::string>();
-								ScriptFieldType type = Utils::ScriptFieldTypeFromString(typeString);
-
-								ScriptFieldInstance& fieldInstance = entityFields[name];
-
-								// TODO: turn this assert into LuxEditor log warning
-								LUX_CORE_ASSERT(fields.find(name) != fields.end());
-
-								if (fields.find(name) == fields.end())
-									continue;
-
-								fieldInstance.Field = fields.at(name);
-
-								switch (type)
-								{
-									READ_SCRIPT_FIELD(Float, float);
-									READ_SCRIPT_FIELD(Double, double);
-									READ_SCRIPT_FIELD(Bool, bool);
-									READ_SCRIPT_FIELD(Char, char);
-									READ_SCRIPT_FIELD(Byte, int8_t);
-									READ_SCRIPT_FIELD(Short, int16_t);
-									READ_SCRIPT_FIELD(Int, int32_t);
-									READ_SCRIPT_FIELD(Long, int64_t);
-									READ_SCRIPT_FIELD(UByte, uint8_t);
-									READ_SCRIPT_FIELD(UShort, uint16_t);
-									READ_SCRIPT_FIELD(UInt, uint32_t);
-									READ_SCRIPT_FIELD(ULong, uint64_t);
-									READ_SCRIPT_FIELD(Vector2, glm::vec2);
-									READ_SCRIPT_FIELD(Vector3, glm::vec3);
-									READ_SCRIPT_FIELD(Vector4, glm::vec4);
-									READ_SCRIPT_FIELD(Entity, UUID);
-								}
-							}
-						}
-					}
-				}
-
-				auto spriteRendererComponent = entity["SpriteRendererComponent"];
-				if (spriteRendererComponent)
-				{
-					auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
-					src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
-
-					if (spriteRendererComponent["TexturePath"])
-					{
-						// NOTE: legacy, could try and find something in the asset registry that matches?
-						// std::string texturePath = spriteRendererComponent["TexturePath"].as<std::string>();
-						// auto path = Project::GetAssetFileSystemPath(texturePath);
-						// src.Texture = Texture2D::Create(path.string());
-					}
-
-					if (spriteRendererComponent["TextureHandle"])
-						src.Texture = spriteRendererComponent["TextureHandle"].as<AssetHandle>();
-
-					if (spriteRendererComponent["TilingFactor"])
-						src.TilingFactor = spriteRendererComponent["TilingFactor"].as<float>();
-				}
-
-				auto circleRendererComponent = entity["CircleRendererComponent"];
-				if (circleRendererComponent)
-				{
-					auto& crc = deserializedEntity.AddComponent<CircleRendererComponent>();
-					crc.Color = circleRendererComponent["Color"].as<glm::vec4>();
-					crc.Thickness = circleRendererComponent["Thickness"].as<float>();
-					crc.Fade = circleRendererComponent["Fade"].as<float>();
-				}
-
-				auto rigidBody2DComponent = entity["RigidBody2DComponent"];
-				if (rigidBody2DComponent)
-				{
-					auto& rb2d = deserializedEntity.AddComponent<RigidBody2DComponent>();
-					rb2d.Type = RigidBody2DBodyTypeFromString(rigidBody2DComponent["BodyType"].as<std::string>());
-					rb2d.FixedRotation = rigidBody2DComponent["FixedRotation"].as<bool>();
-				}
-
-				auto boxCollider2DComponent = entity["BoxCollider2DComponent"];
-				if (boxCollider2DComponent)
-				{
-					auto& bc2d = deserializedEntity.AddComponent<BoxCollider2DComponent>();
-					bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
-					bc2d.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
-					bc2d.Density = boxCollider2DComponent["Density"].as<float>();
-					bc2d.Friction = boxCollider2DComponent["Friction"].as<float>();
-					bc2d.Restitution = boxCollider2DComponent["Restitution"].as<float>();
-					bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<float>();
-				}
-
-				auto circleCollider2DComponent = entity["CircleCollider2DComponent"];
-				if (circleCollider2DComponent)
-				{
-					auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
-					cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
-					cc2d.Radius = circleCollider2DComponent["Radius"].as<float>();
-					cc2d.Density = circleCollider2DComponent["Density"].as<float>();
-					cc2d.Friction = circleCollider2DComponent["Friction"].as<float>();
-					cc2d.Restitution = circleCollider2DComponent["Restitution"].as<float>();
-					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<float>();
-				}
-
-				auto textComponent = entity["TextComponent"];
-				if (textComponent)
-				{
-					auto& tc = deserializedEntity.AddComponent<TextComponent>();
-					tc.TextString = textComponent["TextString"].as<std::string>();
-					// tc.FontAsset // TODO
-					tc.Color = textComponent["Color"].as<glm::vec4>();
-					tc.Kerning = textComponent["Kerning"].as<float>();
-					tc.LineSpacing = textComponent["LineSpacing"].as<float>();
-				}
-
-				auto meshComponent = entity["MeshComponent"];
-				if (meshComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<MeshComponent>();
-
-					if (meshComponent["Mesh"])
-						component.Mesh = meshComponent["Mesh"].as<uint64_t>();
-
-					if (meshComponent["MaterialTable"])
-						component.MaterialTable = meshComponent["MaterialTable"].as<uint64_t>();
-
-					if (meshComponent["Visible"])
-						component.Visible = meshComponent["Visible"].as<bool>();
-
-					if (meshComponent["CastShadows"])
-						component.CastShadows = meshComponent["CastShadows"].as<bool>();
-				}
-
-				auto meshTagComponent = entity["MeshTagComponent"];
-				if (meshTagComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<MeshTagComponent>();
-					if (meshTagComponent["MeshName"])
-						component.MeshName = meshTagComponent["MeshName"].as<std::string>();
-				}
-
-				auto prefabComponent = entity["PrefabComponent"];
-				if (prefabComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<PrefabComponent>();
-
-					if (prefabComponent["PrefabID"])
-						component.PrefabID = prefabComponent["PrefabID"].as<uint64_t>();
-
-					if (prefabComponent["EntityID"])
-						component.EntityID = prefabComponent["EntityID"].as<uint64_t>();
-				}
-
-				auto audioSourceComponent = entity["AudioSourceComponent"];
-				if (audioSourceComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<AudioSourceComponent>();
-
-					if (audioSourceComponent["AudioHandle"])
-						component.Audio = audioSourceComponent["AudioHandle"].as<AssetHandle>();
-
-					if (audioSourceComponent["VolumeMultiplier"])
-						component.Config.VolumeMultiplier = audioSourceComponent["VolumeMultiplier"].as<float>();
-
-					if (audioSourceComponent["PitchMultiplier"])
-						component.Config.PitchMultiplier = audioSourceComponent["PitchMultiplier"].as<float>();
-
-					if (audioSourceComponent["PlayOnAwake"])
-						component.Config.PlayOnAwake = audioSourceComponent["PlayOnAwake"].as<bool>();
-
-					if (audioSourceComponent["Looping"])
-						component.Config.Looping = audioSourceComponent["Looping"].as<bool>();
-
-					if (audioSourceComponent["Spatialization"])
-						component.Config.Spatialization = audioSourceComponent["Spatialization"].as<bool>();
-
-					TrySetEnum(component.Config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
-
-					if (audioSourceComponent["RollOff"])
-						component.Config.RollOff = audioSourceComponent["RollOff"].as<float>();
-
-					if (audioSourceComponent["MinGain"])
-						component.Config.MinGain = audioSourceComponent["MinGain"].as<float>();
-
-					if (audioSourceComponent["MaxGain"])
-						component.Config.MaxGain = audioSourceComponent["MaxGain"].as<float>();
-
-					if (audioSourceComponent["MinDistance"])
-						component.Config.MinDistance = audioSourceComponent["MinDistance"].as<float>();
-
-					if (audioSourceComponent["MaxDistance"])
-						component.Config.MaxDistance = audioSourceComponent["MaxDistance"].as<float>();
-
-					if (audioSourceComponent["ConeInnerAngle"])
-						component.Config.ConeInnerAngle = audioSourceComponent["ConeInnerAngle"].as<float>();
-
-					if (audioSourceComponent["ConeOuterAngle"])
-						component.Config.ConeOuterAngle = audioSourceComponent["ConeOuterAngle"].as<float>();
-
-					if (audioSourceComponent["ConeOuterGain"])
-						component.Config.ConeOuterGain = audioSourceComponent["ConeOuterGain"].as<float>();
-
-					if (audioSourceComponent["DopplerFactor"])
-						component.Config.DopplerFactor = audioSourceComponent["DopplerFactor"].as<float>();
-
-					if (audioSourceComponent["UsePlaylist"])
-						component.AudioSourceData.UsePlaylist = audioSourceComponent["UsePlaylist"].as<bool>();
-
-					if (component.AudioSourceData.UsePlaylist)
-					{
-						if (audioSourceComponent["AudioSourcesSize"])
-							component.AudioSourceData.NumberOfAudioSources = audioSourceComponent["AudioSourcesSize"].as<int>();
-
-						if (audioSourceComponent["StartIndex"])
-							component.AudioSourceData.StartIndex = audioSourceComponent["StartIndex"].as<int>();
-
-						if (audioSourceComponent["RepeatPlaylist"])
-							component.AudioSourceData.RepeatPlaylist = audioSourceComponent["RepeatPlaylist"].as<bool>();
-
-						if (audioSourceComponent["RepeatSpecificTrack"])
-							component.AudioSourceData.RepeatAfterSpecificTrackPlays = audioSourceComponent["RepeatSpecificTrack"].as<bool>();
-
-						for (uint32_t i = 0; i < component.AudioSourceData.NumberOfAudioSources; i++)
-						{
-							std::string audioName = "AudioHandle" + std::to_string(i);
-							if (audioSourceComponent[audioName.c_str()])
-							{
-								AssetHandle audioHandle = audioSourceComponent[audioName.c_str()].as<AssetHandle>();
-								component.AudioSourceData.Playlist.emplace_back(audioHandle);
-
-							}
-						}
-					}
-				}
-
-				auto audioListenerComponent = entity["AudioListenerComponent"];
-				if (audioListenerComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<AudioListenerComponent>();
-
-					if (audioListenerComponent["Active"])
-						component.Active = audioListenerComponent["Active"].as<bool>();
-
-					if (audioListenerComponent["ConeInnerAngle"])
-						component.Config.ConeInnerAngle = audioListenerComponent["ConeInnerAngle"].as<float>();
-
-					if (audioListenerComponent["ConeOuterAngle"])
-						component.Config.ConeOuterAngle = audioListenerComponent["ConeOuterAngle"].as<float>();
-
-					if (audioListenerComponent["ConeOuterGain"])
-						component.Config.ConeOuterGain = audioListenerComponent["ConeOuterGain"].as<float>();
-				}
-
-				// ============================================================================
-				// 3D Component Deserialization
-				// ============================================================================
-
-				auto staticMeshComponent = entity["StaticMeshComponent"];
-				if (staticMeshComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<StaticMeshComponent>();
-
-					if (staticMeshComponent["Mesh"])
-						component.Mesh = staticMeshComponent["Mesh"].as<uint64_t>();
-
-					if (staticMeshComponent["MaterialTable"])
-						component.MaterialTable = staticMeshComponent["MaterialTable"].as<uint64_t>();
-
-					if (staticMeshComponent["Visible"])
-						component.Visible = staticMeshComponent["Visible"].as<bool>();
-
-					if (staticMeshComponent["CastShadows"])
-						component.CastShadows = staticMeshComponent["CastShadows"].as<bool>();
-				}
-
-				auto directionalLightComponent = entity["DirectionalLightComponent"];
-				if (directionalLightComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<DirectionalLightComponent>();
-
-					if (directionalLightComponent["Radiance"])
-						component.Radiance = directionalLightComponent["Radiance"].as<glm::vec3>();
-
-					if (directionalLightComponent["Intensity"])
-						component.Intensity = directionalLightComponent["Intensity"].as<float>();
-
-					if (directionalLightComponent["ShadowAmount"])
-						component.ShadowAmount = directionalLightComponent["ShadowAmount"].as<float>();
-
-					if (directionalLightComponent["CastShadows"])
-						component.CastShadows = directionalLightComponent["CastShadows"].as<bool>();
-
-					if (directionalLightComponent["SoftShadows"])
-						component.SoftShadows = directionalLightComponent["SoftShadows"].as<bool>();
-
-					if (directionalLightComponent["LightSize"])
-						component.LightSize = directionalLightComponent["LightSize"].as<float>();
-				}
-
-				auto pointLightComponent = entity["PointLightComponent"];
-				if (pointLightComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<PointLightComponent>();
-
-					if (pointLightComponent["Radiance"])
-						component.Radiance = pointLightComponent["Radiance"].as<glm::vec3>();
-
-					if (pointLightComponent["Intensity"])
-						component.Intensity = pointLightComponent["Intensity"].as<float>();
-
-					if (pointLightComponent["Radius"])
-						component.Radius = pointLightComponent["Radius"].as<float>();
-
-					if (pointLightComponent["Falloff"])
-						component.Falloff = pointLightComponent["Falloff"].as<float>();
-
-					if (pointLightComponent["MinRadius"])
-						component.MinRadius = pointLightComponent["MinRadius"].as<float>();
-
-					if (pointLightComponent["LightSize"])
-						component.LightSize = pointLightComponent["LightSize"].as<float>();
-
-					if (pointLightComponent["CastShadows"])
-						component.CastShadows = pointLightComponent["CastShadows"].as<bool>();
-
-					if (pointLightComponent["CastsShadows"])
-						component.CastShadows = pointLightComponent["CastsShadows"].as<bool>();
-
-					if (pointLightComponent["SoftShadows"])
-						component.SoftShadows = pointLightComponent["SoftShadows"].as<bool>();
-				}
-
-				auto spotLightComponent = entity["SpotLightComponent"];
-				if (spotLightComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<SpotLightComponent>();
-
-					if (spotLightComponent["Radiance"])
-						component.Radiance = spotLightComponent["Radiance"].as<glm::vec3>();
-
-					if (spotLightComponent["Intensity"])
-						component.Intensity = spotLightComponent["Intensity"].as<float>();
-
-					if (spotLightComponent["Range"])
-						component.Range = spotLightComponent["Range"].as<float>();
-
-					if (spotLightComponent["Angle"])
-						component.Angle = spotLightComponent["Angle"].as<float>();
-
-					if (spotLightComponent["AngleAttenuation"])
-						component.AngleAttenuation = spotLightComponent["AngleAttenuation"].as<float>();
-
-					if (spotLightComponent["Falloff"])
-						component.Falloff = spotLightComponent["Falloff"].as<float>();
-
-					if (spotLightComponent["CastShadows"])
-						component.CastShadows = spotLightComponent["CastShadows"].as<bool>();
-
-					if (spotLightComponent["CastsShadows"])
-						component.CastShadows = spotLightComponent["CastsShadows"].as<bool>();
-
-					if (spotLightComponent["SoftShadows"])
-						component.SoftShadows = spotLightComponent["SoftShadows"].as<bool>();
-				}
-
-				auto skyLightComponent = entity["SkyLightComponent"];
-				if (skyLightComponent)
-				{
-					auto& component = deserializedEntity.AddComponent<SkyLightComponent>();
-
-					if (skyLightComponent["EnvironmentMap"])
-						component.EnvironmentMap = skyLightComponent["EnvironmentMap"].as<uint64_t>();
-
-					if (skyLightComponent["Intensity"])
-						component.Intensity = skyLightComponent["Intensity"].as<float>();
-
-					if (skyLightComponent["Lod"])
-						component.Lod = skyLightComponent["Lod"].as<float>();
-
-					if (skyLightComponent["DynamicSky"])
-						component.DynamicSky = skyLightComponent["DynamicSky"].as<bool>();
-
-					if (skyLightComponent["TurbidityAzimuthInclination"])
-						component.TurbidityAzimuthInclination = skyLightComponent["TurbidityAzimuthInclination"].as<glm::vec3>();
-				}
-			}
-
-			for (const auto& [childID, parentID] : pendingParentLinks)
-			{
-				Entity childEntity = m_Scene->GetEntityByUUID(childID);
-				Entity parentEntity = m_Scene->GetEntityByUUID(parentID);
-				if (childEntity && parentEntity)
-					childEntity.SetParent(parentEntity);
+				AssetHandle handle = assetManager->GetAssetHandleFromFilePath(filepath);
+				if (handle)
+					m_Scene->Handle = handle;
 			}
 		}
+
+		if (m_Scene->GetName().empty() || m_Scene->GetName() == "Untitled" || m_Scene->GetName() == "UntitledScene")
+			m_Scene->SetName(filepath.stem().string());
 
 		return true;
 	}
 
 	bool SceneSerializer::DeserializeRuntime(const std::filesystem::path& filepath)
 	{
-		// Not implemented
-		LUX_CORE_ASSERT(false);
-		return false;
+		return Deserialize(filepath);
 	}
 
 	bool SceneSerializer::SerializeToAssetPack(FileStreamWriter& stream, AssetSerializationInfo& outInfo)
@@ -1128,27 +781,6 @@ namespace Lux {
 		stream.WriteString(yamlString);
 		outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
 		return true;
-	}
-
-	bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)
-	{
-		const std::filesystem::path tempPath =
-			std::filesystem::temp_directory_path() /
-			std::filesystem::path("lux-scene-" + std::to_string((uint64_t)UUID()) + ".luxscene");
-
-		{
-			std::ofstream fout(tempPath);
-			if (!fout.is_open())
-				return false;
-
-			fout << yamlString;
-		}
-
-		const bool result = Deserialize(tempPath);
-
-		std::error_code ec;
-		std::filesystem::remove(tempPath, ec);
-		return result;
 	}
 
 	bool SceneSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo)

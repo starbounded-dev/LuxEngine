@@ -1782,7 +1782,10 @@ namespace Lux::ImGuiEx {
 	};
 	inline auto AssetValidityAndName(AssetHandle handle, const PropertyAssetReferenceSettings& settings)
 	{
-		std::string name = "Null";
+		if (handle == 0)
+			return std::make_pair(true, std::string("None"));
+
+		std::string name = "Invalid";
 
 		bool valid = AssetManager::IsAssetHandleValid(handle);
 		if (valid)
@@ -1877,14 +1880,13 @@ namespace Lux::ImGuiEx {
 		{
 			if (ImGui::BeginDragDropTarget())
 			{
-				const ImGuiPayload* data = ImGui::AcceptDragDropPayload("asset_payload");
+				const ImGuiPayload* data = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM");
 
 				if (data)
 				{
 					AssetHandle assetHandle = *(AssetHandle*)data->Data;
 					s_PropertyAssetReferenceAssetHandle = assetHandle;
-					Ref<Asset> asset = AssetManager::GetAsset<Asset>(assetHandle);
-					if (asset && asset->GetAssetType() == T::GetStaticType())
+					if (AssetManager::GetAssetType(assetHandle) == T::GetStaticType())
 					{
 						outHandle = assetHandle;
 						modified = true;

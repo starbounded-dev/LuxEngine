@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Entity.h"
+
 #include "Lux/Asset/Asset.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
@@ -11,6 +13,7 @@
 
 #include <glm/glm.hpp>
 #include <functional>
+#include <unordered_set>
 
 class b2World;
 
@@ -21,6 +24,8 @@ namespace Lux {
 	class Prefab;
 	class SceneRenderer;
 	class AudioSource;
+	class Mesh;
+	class StaticMesh;
 
 	// Forward declare light structures (defined in SceneRenderer.h)
 	struct LightEnvironment;
@@ -44,8 +49,12 @@ namespace Lux {
 		void SetName(const std::string& name) { m_Name = name; }
 
 		Entity CreateEntity(const std::string& name = std::string());
+		Entity CreateChildEntity(Entity parent, const std::string& name = std::string());
+		Entity CreateEntityWithID(UUID uuid, const std::string& name = std::string(), bool shouldSort = true);
 		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
-		void DestroyEntity(Entity entity);
+		void SubmitToDestroyEntity(Entity entity);
+		void DestroyEntity(Entity entity, bool excludeChildren = false, bool first = true);
+		void DestroyEntity(UUID entityID, bool excludeChildren = false, bool first = true);
 
 		void OnRuntimeStart();
 		void OnRuntimeStop();
@@ -61,13 +70,29 @@ namespace Lux {
 		void SetTargetFramebuffer(Ref<Framebuffer> framebuffer);
 
 		Entity DuplicateEntity(Entity entity);
+		Entity Instantiate(Ref<Prefab> prefab, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
+		Entity InstantiateChild(Ref<Prefab> prefab, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 		Entity InstantiatePrefab(Ref<Prefab> prefab);
+		Entity InstantiateMesh(Ref<Mesh> mesh);
+		Entity InstantiateStaticMesh(Ref<StaticMesh> mesh);
 
 		Entity FindEntityByName(std::string_view name);
 		Entity GetEntityByUUID(UUID uuid) const;
+		Entity GetEntityWithUUID(UUID uuid) const;
+		Entity TryGetEntityWithUUID(UUID uuid) const;
+		Entity TryGetEntityWithTag(const std::string& tag);
 		glm::mat4 GetWorldSpaceTransformMatrix(Entity entity) const;
+		TransformComponent GetWorldSpaceTransform(Entity entity) const;
+		void ConvertToLocalSpace(Entity entity);
+		void ConvertToWorldSpace(Entity entity);
+		void ParentEntity(Entity entity, Entity parent);
+		void UnparentEntity(Entity entity, bool convertToWorldSpace = true);
+		std::vector<UUID> GetAllChildren(Entity entity) const;
+		void CopyTo(Ref<Scene>& target);
+		void SortEntities();
 
 		Entity GetPrimaryCameraEntity();
+		Entity GetMainCameraEntity() { return GetPrimaryCameraEntity(); }
 
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -104,6 +129,7 @@ namespace Lux {
 		void OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
 		void OnRenderSimulation(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
 		void OnRenderRuntime(Ref<SceneRenderer> renderer);
+		std::unordered_set<AssetHandle> GetAssetList();
 
 		// ============================================================================
 
@@ -129,6 +155,7 @@ namespace Lux {
 		Ref<AudioSource> GetOrCreateRuntimePlaylistSource(Entity entity, uint32_t index, AssetHandle audioHandle);
 		void ReleaseRuntimeAudio(Entity entity);
 		void ReleaseAllRuntimeAudio();
+		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
 	private:
 		entt::registry m_Registry;
@@ -147,6 +174,7 @@ namespace Lux {
 		mutable bool m_DynamicSkyEnvironmentValid = false;
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
+		std::vector<std::function<void()>> m_PostUpdateQueue;
 		std::unordered_map<UUID, Ref<AudioSource>> m_RuntimeAudioSources;
 		std::unordered_map<UUID, std::vector<Ref<AudioSource>>> m_RuntimeAudioPlaylists;
 
@@ -156,3 +184,5 @@ namespace Lux {
 	};
 
 }
+
+#include "EntityTemplates.h"

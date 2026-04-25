@@ -1,10 +1,16 @@
 #include "lpch.h"
 #include "Lux/Scene/Entity.h"
+#include "Lux/Scene/Scene.h"
 #include "Lux/Scene/ScriptableEntity.h"
 
 #include <algorithm>
 
 namespace Lux {
+
+	bool Entity::IsValid() const
+	{
+		return m_Scene && m_EntityHandle != entt::null && m_Scene->m_Registry.valid(m_EntityHandle);
+	}
 
 	Entity Entity::GetParent() const
 	{
@@ -29,8 +35,9 @@ namespace Lux {
 		if (parent == *this)
 			return;
 
-		auto& relationship = GetComponent<RelationshipComponent>();
-		const UUID selfUUID = GetUUID();
+		Entity currentParent = GetParent();
+		if (currentParent == parent)
+			return;
 
 		// Prevent cycles
 		for (Entity current = parent; current; current = current.GetParent())
@@ -39,23 +46,20 @@ namespace Lux {
 				return;
 		}
 
-		Entity currentParent = GetParent();
 		if (currentParent)
-		{
-			auto& siblings = currentParent.GetComponent<RelationshipComponent>().Children;
-			siblings.erase(std::remove(siblings.begin(), siblings.end(), selfUUID), siblings.end());
-		}
+			currentParent.RemoveChild(*this);
 
-		relationship.ParentHandle = 0;
+		SetParentUUID(0);
 
 		if (!parent)
 			return;
 
 		auto& parentRelationship = parent.GetComponent<RelationshipComponent>();
+		const UUID selfUUID = GetUUID();
 		if (std::find(parentRelationship.Children.begin(), parentRelationship.Children.end(), selfUUID) == parentRelationship.Children.end())
 			parentRelationship.Children.emplace_back(selfUUID);
 
-		relationship.ParentHandle = parent.GetUUID();
+		SetParentUUID(parent.GetUUID());
 	}
 
 	std::vector<UUID>& Entity::Children()
@@ -63,9 +67,40 @@ namespace Lux {
 		return GetComponent<RelationshipComponent>().Children;
 	}
 
+	const std::vector<UUID>& Entity::Children() const
+	{
+		return GetComponent<RelationshipComponent>().Children;
+	}
+
+	bool Entity::RemoveChild(Entity child)
+	{
+		const UUID childID = child.GetUUID();
+		std::vector<UUID>& children = Children();
+		auto it = std::find(children.begin(), children.end(), childID);
+		if (it == children.end())
+			return false;
+
+		children.erase(it);
+		return true;
+	}
+
 	bool Entity::HasParent() const
 	{
 		return (bool)GetParent();
+	}
+
+	bool Entity::IsAncestorOf(Entity entity) const
+	{
+		if (!*this || !entity)
+			return false;
+
+		for (Entity parent = entity.GetParent(); parent; parent = parent.GetParent())
+		{
+			if (parent == *this)
+				return true;
+		}
+
+		return false;
 	}
 
 	ScriptComponent::ScriptComponent() = default;

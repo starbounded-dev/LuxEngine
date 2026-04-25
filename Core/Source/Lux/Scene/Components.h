@@ -1,19 +1,23 @@
 #pragma once
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include "SceneCamera.h"
 
+#include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AudioSource.h"
 #include "Lux/Core/UUID.h"
+#include "Lux/Math/Math.h"
+#include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Texture.h"
 #include "Lux/Renderer/UI/Font.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-
-#define GLM_ENABLE_EXPERIMENTAL
-
-#include "glm/gtx/quaternion.hpp"
+#include <glm/gtx/norm.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 namespace Lux {
 
@@ -55,14 +59,21 @@ namespace Lux {
 		TagComponent(const std::string& tag)
 			: Tag(tag) {
 		}
+
+		operator std::string& () { return Tag; }
+		operator const std::string& () const { return Tag; }
 	};
 
 	struct TransformComponent
 	{
 		glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
-		glm::vec3 Rotation = { 0.0f, 0.0f, 0.0f };
 		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
 
+	private:
+		glm::vec3 RotationEuler = { 0.0f, 0.0f, 0.0f };
+		glm::quat Rotation = { 1.0f, 0.0f, 0.0f, 0.0f };
+
+	public:
 		TransformComponent() = default;
 		TransformComponent(const TransformComponent&) = default;
 		TransformComponent(const glm::vec3& translation)
@@ -71,12 +82,58 @@ namespace Lux {
 
 		glm::mat4 GetTransform() const
 		{
-			glm::mat4 rotation = glm::toMat4(glm::quat(Rotation));
-
 			return glm::translate(glm::mat4(1.0f), Translation)
-				* rotation
+				* glm::toMat4(Rotation)
 				* glm::scale(glm::mat4(1.0f), Scale);
 		}
+
+		void SetTransform(const glm::mat4& transform)
+		{
+			Math::DecomposeTransform(transform, Translation, Rotation, Scale);
+			RotationEuler = glm::eulerAngles(Rotation);
+		}
+
+		glm::vec3 GetRotationEuler() const { return RotationEuler; }
+
+		void SetRotationEuler(const glm::vec3& euler)
+		{
+			RotationEuler = euler;
+			Rotation = glm::quat(RotationEuler);
+		}
+
+		glm::quat GetRotation() const { return Rotation; }
+
+		void SetRotation(const glm::quat& quat)
+		{
+			auto wrapToPi = [](glm::vec3 value)
+			{
+				return glm::mod(value + glm::pi<float>(), 2.0f * glm::pi<float>()) - glm::pi<float>();
+			};
+
+			glm::vec3 originalEuler = RotationEuler;
+			Rotation = quat;
+			RotationEuler = glm::eulerAngles(Rotation);
+
+			const glm::vec3 alternate1 = { RotationEuler.x - glm::pi<float>(), glm::pi<float>() - RotationEuler.y, RotationEuler.z - glm::pi<float>() };
+			const glm::vec3 alternate2 = { RotationEuler.x + glm::pi<float>(), glm::pi<float>() - RotationEuler.y, RotationEuler.z - glm::pi<float>() };
+			const glm::vec3 alternate3 = { RotationEuler.x + glm::pi<float>(), glm::pi<float>() - RotationEuler.y, RotationEuler.z + glm::pi<float>() };
+			const glm::vec3 alternate4 = { RotationEuler.x - glm::pi<float>(), glm::pi<float>() - RotationEuler.y, RotationEuler.z + glm::pi<float>() };
+
+			float best = glm::length2(wrapToPi(RotationEuler - originalEuler));
+			for (const glm::vec3& candidate : { alternate1, alternate2, alternate3, alternate4 })
+			{
+				const float distance = glm::length2(wrapToPi(candidate - originalEuler));
+				if (distance < best)
+				{
+					best = distance;
+					RotationEuler = candidate;
+				}
+			}
+
+			RotationEuler = wrapToPi(RotationEuler);
+		}
+
+		friend class SceneSerializer;
 	};
 
 	struct RelationshipComponent
@@ -93,6 +150,9 @@ namespace Lux {
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		AssetHandle Texture = 0;
 		float TilingFactor = 1.0f;
+		glm::vec2 UVStart = { 0.0f, 0.0f };
+		glm::vec2 UVEnd = { 1.0f, 1.0f };
+		bool ScreenSpace = false;
 
 		SpriteRendererComponent() = default;
 		SpriteRendererComponent(const SpriteRendererComponent&) = default;
@@ -113,12 +173,18 @@ namespace Lux {
 
 	struct CameraComponent
 	{
+		enum class Type { None = -1, Perspective, Orthographic };
+
+		Type ProjectionType = Type::Perspective;
 		SceneCamera Camera;
 		bool Primary = true; // TODO: think about moving to Scene
 		bool FixedAspectRatio = false;
 
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
+
+		operator SceneCamera& () { return Camera; }
+		operator const SceneCamera& () const { return Camera; }
 	};
 
 	// Forward declaration
@@ -156,13 +222,18 @@ namespace Lux {
 
 	struct RigidBody2DComponent
 	{
-		enum class BodyType
+		enum class Type
 		{
-			Static = 0, Dynamic, Kinematic
+			None = -1, Static, Dynamic, Kinematic
 		};
 
-		BodyType Type = BodyType::Static;
+		Type BodyType = Type::Static;
 		bool FixedRotation = false;
+		float Mass = 1.0f;
+		float LinearDrag = 0.01f;
+		float AngularDrag = 0.05f;
+		float GravityScale = 1.0f;
+		bool IsBullet = false;
 
 		// Storage for runtime
 		void* RuntimeBody = nullptr;
@@ -292,22 +363,21 @@ namespace Lux {
 	struct MeshComponent
 	{
 		AssetHandle Mesh = 0;
-		AssetHandle MaterialTable = 0;
-		bool Visible = true;
-		bool CastShadows = true;
 
 		MeshComponent() = default;
 		MeshComponent(const MeshComponent&) = default;
+		MeshComponent(AssetHandle mesh)
+			: Mesh(mesh) {}
 	};
 
 	struct MeshTagComponent
 	{
-		std::string MeshName;
+		UUID MeshEntity = 0;
 
 		MeshTagComponent() = default;
 		MeshTagComponent(const MeshTagComponent&) = default;
-		MeshTagComponent(const std::string& meshName)
-			: MeshName(meshName) {
+		MeshTagComponent(UUID meshEntity)
+			: MeshEntity(meshEntity) {
 		}
 	};
 
@@ -322,13 +392,34 @@ namespace Lux {
 
 	struct StaticMeshComponent
 	{
-		AssetHandle Mesh = 0;
-		AssetHandle MaterialTable = 0;
+		AssetHandle StaticMesh = 0;
+		Ref<Lux::MaterialTable> MaterialTable = Ref<Lux::MaterialTable>::Create();
 		bool Visible = true;
-		bool CastShadows = true;
 
 		StaticMeshComponent() = default;
-		StaticMeshComponent(const StaticMeshComponent&) = default;
+		StaticMeshComponent(const StaticMeshComponent& other)
+			: StaticMesh(other.StaticMesh), MaterialTable(Ref<Lux::MaterialTable>::Create(other.MaterialTable)), Visible(other.Visible)
+		{
+		}
+		StaticMeshComponent(AssetHandle staticMesh)
+			: StaticMesh(staticMesh) {}
+	};
+
+	struct SubmeshComponent
+	{
+		AssetHandle Mesh = 0;
+		Ref<Lux::MaterialTable> MaterialTable = Ref<Lux::MaterialTable>::Create();
+		std::vector<UUID> BoneEntityIds;
+		uint32_t SubmeshIndex = 0;
+		bool Visible = true;
+
+		SubmeshComponent() = default;
+		SubmeshComponent(const SubmeshComponent& other)
+			: Mesh(other.Mesh), MaterialTable(Ref<Lux::MaterialTable>::Create(other.MaterialTable)), BoneEntityIds(other.BoneEntityIds), SubmeshIndex(other.SubmeshIndex), Visible(other.Visible)
+		{
+		}
+		SubmeshComponent(AssetHandle mesh, uint32_t submeshIndex = 0)
+			: Mesh(mesh), SubmeshIndex(submeshIndex) {}
 	};
 
 	struct DirectionalLightComponent
@@ -348,12 +439,12 @@ namespace Lux {
 	{
 		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
 		float Intensity = 1.0f;
-		float Radius = 10.0f;
-		float Falloff = 1.0f;
-		float MinRadius = 0.001f;
 		float LightSize = 0.5f;
-		bool CastShadows = false;
+		float MinRadius = 1.0f;
+		float Radius = 10.0f;
+		bool CastsShadows = true;
 		bool SoftShadows = true;
+		float Falloff = 1.0f;
 
 		PointLightComponent() = default;
 		PointLightComponent(const PointLightComponent&) = default;
@@ -367,7 +458,7 @@ namespace Lux {
 		float Angle = 45.0f;
 		float AngleAttenuation = 1.0f;
 		float Falloff = 1.0f;
-		bool CastShadows = false;
+		bool CastsShadows = false;
 		bool SoftShadows = false;
 
 		SpotLightComponent() = default;
@@ -376,7 +467,7 @@ namespace Lux {
 
 	struct SkyLightComponent
 	{
-		AssetHandle EnvironmentMap = 0;
+		AssetHandle SceneEnvironment = 0;
 		float Intensity = 1.0f;
 		float Lod = 0.0f;
 		bool DynamicSky = false;
@@ -397,7 +488,8 @@ namespace Lux {
 		ComponentGroup<TransformComponent, RelationshipComponent, SpriteRendererComponent,
 		CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
-		CircleCollider2DComponent, TextComponent, AudioData, AudioSourceComponent, AudioListenerComponent,
-		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+		CircleCollider2DComponent, TextComponent,
+		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
+		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
 
 }

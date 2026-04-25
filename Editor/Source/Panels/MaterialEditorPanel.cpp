@@ -25,6 +25,12 @@ namespace Lux {
 
 	void MaterialEditorPanel::OpenMaterial(AssetHandle handle)
 	{
+		if (!handle || AssetManager::GetAssetType(handle) != AssetType::Material)
+		{
+			CloseMaterial();
+			return;
+		}
+
 		m_CurrentMaterial = handle;
 		m_IsDirty = false;
 	}
@@ -66,7 +72,7 @@ namespace Lux {
 
 		ImGui::Begin("Material Editor", &isOpen);
 
-		if (!m_CurrentMaterial)
+		if (!m_CurrentMaterial || *m_CurrentMaterial == 0)
 		{
 			ImGui::Text("No material selected");
 			ImGui::Text("Select a .mat file from the Content Browser");
@@ -90,6 +96,16 @@ namespace Lux {
 			{
 				CloseMaterial();
 			}
+			ImGui::End();
+			return;
+		}
+
+		if (!material->GetMaterial())
+		{
+			ImGui::TextWrapped("Material asset loaded, but its renderer resources are unavailable.");
+			ImGui::TextDisabled("Check that the PBR shaders are available and compiled.");
+			if (ImGui::Button("Close"))
+				CloseMaterial();
 			ImGui::End();
 			return;
 		}

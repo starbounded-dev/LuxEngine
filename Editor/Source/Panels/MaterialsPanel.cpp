@@ -67,29 +67,20 @@ namespace Lux {
 					materialTable = mesh->GetMaterials();
 			}
 
-			if (component.MaterialTable && AssetManager::GetAssetType(component.MaterialTable) == AssetType::Material)
-			{
-				Ref<MaterialTable> overrideTable = Ref<MaterialTable>::Create(1);
-				overrideTable->SetMaterial(0, component.MaterialTable);
-				materialTable = overrideTable;
-				isOverride = true;
-			}
 		}
 		else if (selectedEntity.HasComponent<StaticMeshComponent>())
 		{
 			const auto& component = selectedEntity.GetComponent<StaticMeshComponent>();
-			if (component.Mesh)
+			if (component.StaticMesh)
 			{
-				Ref<StaticMesh> mesh = AssetManager::GetAsset<StaticMesh>(component.Mesh);
+				Ref<StaticMesh> mesh = AssetManager::GetAsset<StaticMesh>(component.StaticMesh);
 				if (mesh)
 					materialTable = mesh->GetMaterials();
 			}
 
-			if (component.MaterialTable && AssetManager::GetAssetType(component.MaterialTable) == AssetType::Material)
+			if (component.MaterialTable && !component.MaterialTable->GetMaterials().empty())
 			{
-				Ref<MaterialTable> overrideTable = Ref<MaterialTable>::Create(1);
-				overrideTable->SetMaterial(0, component.MaterialTable);
-				materialTable = overrideTable;
+				materialTable = component.MaterialTable;
 				isOverride = true;
 			}
 		}
@@ -123,7 +114,7 @@ namespace Lux {
 	void MaterialsPanel::RenderMaterialSlot(uint32_t materialIndex, AssetHandle materialHandle, bool isOverride)
 	{
 		Ref<MaterialAsset> materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
-		if (!materialAsset)
+		if (!materialAsset || !materialAsset->GetMaterial())
 			return;
 
 		std::string materialName = materialAsset->GetMaterial() ? materialAsset->GetMaterial()->GetName() : "";

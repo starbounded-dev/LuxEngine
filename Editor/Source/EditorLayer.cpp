@@ -285,7 +285,10 @@ namespace Lux {
 			{
 				contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Material, [this, materialEditorPanel](const AssetMetadata& metadata) mutable
 				{
-					materialEditorPanel->OpenMaterial(metadata.Handle);
+					AssetHandle materialHandle = metadata.Handle;
+					if (!materialHandle && Project::GetEditorAssetManager())
+						materialHandle = Project::GetEditorAssetManager()->GetAssetHandleFromFilePath(metadata.FilePath);
+					materialEditorPanel->OpenMaterial(materialHandle);
 					if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash("MaterialEditorPanel")))
 						panelData->IsOpen = true;
 				});
@@ -627,9 +630,9 @@ namespace Lux {
 					// Convert quat to euler and apply as a delta to avoid gimbal lock
 					// accumulation that would occur from direct euler assignment.
 					glm::vec3 rotationEuler = glm::eulerAngles(rotationQuat);
-					glm::vec3 deltaRotation = rotationEuler - tc.Rotation;
+					glm::vec3 deltaRotation = rotationEuler - tc.GetRotationEuler();
 					tc.Translation = translation;
-					tc.Rotation += deltaRotation;
+					tc.SetRotationEuler(tc.GetRotationEuler() + deltaRotation);
 					tc.Scale = scale;
 				}
 			}
@@ -1188,7 +1191,7 @@ namespace Lux {
 		if (entity.HasComponent<StaticMeshComponent>())
 		{
 			const auto& staticMeshComponent = entity.GetComponent<StaticMeshComponent>();
-			Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(staticMeshComponent.Mesh);
+			Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(staticMeshComponent.StaticMesh);
 			if (staticMesh)
 			{
 				Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource());
@@ -1292,7 +1295,7 @@ namespace Lux {
 					glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
 					glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation)
-						* glm::rotate(glm::mat4(1.0f), tc.Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f))
+						* glm::rotate(glm::mat4(1.0f), tc.GetRotationEuler().z, glm::vec3(0.0f, 0.0f, 1.0f))
 						* glm::translate(glm::mat4(1.0f), glm::vec3(bc2d.Offset, 0.001f))
 						* glm::scale(glm::mat4(1.0f), scale);
 
@@ -1342,7 +1345,7 @@ namespace Lux {
 			if (m_ShowBoundingBoxes && selectedEntity.HasComponent<StaticMeshComponent>())
 			{
 				const auto& smc = selectedEntity.GetComponent<StaticMeshComponent>();
-				Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(smc.Mesh);
+				Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(smc.StaticMesh);
 				if (staticMesh)
 				{
 					Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource());

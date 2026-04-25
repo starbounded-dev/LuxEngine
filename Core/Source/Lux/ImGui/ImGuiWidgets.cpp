@@ -17,15 +17,23 @@ namespace Lux::ImGuiEx
 
 		bool modified = false;
 
-		const auto& assetRegistry = Project::GetActive()->GetEditorAssetManager()->GetAssetRegistry();
-		AssetHandle current = selected;
-
 		ImGui::SetNextWindowSize({ size.x, 0.0f });
 
 		static bool grabFocus = true;
 
 		if (ImGuiEx::BeginPopup(ID, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
 		{
+			Ref<Project> project = Project::GetActive();
+			Ref<EditorAssetManager> assetManager = project ? project->GetEditorAssetManager() : nullptr;
+			if (!assetManager)
+			{
+				ImGui::TextDisabled("No active asset manager");
+				ImGuiEx::EndPopup();
+				return false;
+			}
+
+			const auto& assetRegistry = assetManager->GetAssetRegistry();
+			AssetHandle current = selected;
 			static std::string searchString;
 
 			if (ImGui::GetCurrentWindow()->Appearing)
@@ -90,6 +98,9 @@ namespace Lux::ImGuiEx
 
 					for (const auto& [handle, metadata] : assetRegistry)
 					{
+						if (!metadata.IsValid())
+							continue;
+
 						bool isValidType = false;
 
 						for (AssetType type : assetTypes)
@@ -113,6 +124,9 @@ namespace Lux::ImGuiEx
 					}
 
 					std::sort(assets.begin(), assets.end(), [](const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
+
+					if (assets.empty())
+						ImGui::TextDisabled("No matching assets");
 
 					for (const auto& [label, type, handle] : assets)
 					{

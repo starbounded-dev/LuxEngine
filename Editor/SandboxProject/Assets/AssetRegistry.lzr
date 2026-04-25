@@ -22,7 +22,12 @@ Assets:
   - Handle: 7305845728380112481
     FilePath: Scenes/Physics2D.luxscene
     Type: Scene
-    FileLastWriteTime: 13421306317
+    FileLastWriteTime: 13421604645
+    Status: Ready
+  - Handle: 8507320825366638536
+    FilePath: Scenes/NewSceneSystem.luxscene
+    Type: Scene
+    FileLastWriteTime: 13421611800
     Status: Ready
   - Handle: 8773409218751291332
     FilePath: Scripts/Source/Camera.cs
@@ -63,4 +68,9 @@ Assets:
     FilePath: Textures/luxLogo.png
     Type: Texture
     FileLastWriteTime: 13419973904
+    Status: None
+  - Handle: 17234396094142868651
+    FilePath: Materials/White.lmat
+    Type: Material
+    FileLastWriteTime: 13421611954
     Status: None

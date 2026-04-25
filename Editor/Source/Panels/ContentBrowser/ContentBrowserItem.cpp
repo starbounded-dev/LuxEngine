@@ -91,7 +91,7 @@ namespace Lux {
 				IM_COL32(255, 255, 255, 255),
 				IM_COL32(255, 255, 255, 255),
 				ImGuiEx::RectExpanded(thumbRect, -6.0f, -6.0f),
-				ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+				ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 		}
 
 		auto renderRenameWidget = [&]()

@@ -167,7 +167,7 @@ namespace Lux {
 		void ResetComponentToDefault<TransformComponent>(TransformComponent& component)
 		{
 			component.Translation = glm::vec3(0.0f);
-			component.Rotation = glm::vec3(0.0f);
+			component.SetRotationEuler(glm::vec3(0.0f));
 			component.Scale = glm::vec3(1.0f);
 		}
 
@@ -545,7 +545,7 @@ namespace Lux {
 		{
 			Entity entity = createEntity(name);
 			auto& staticMesh = entity.AddComponent<StaticMeshComponent>();
-			staticMesh.Mesh = meshHandle;
+			staticMesh.StaticMesh = meshHandle;
 			return entity;
 		};
 
@@ -1160,7 +1160,7 @@ namespace Lux {
 			[this](TransformComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
 			{
 				glm::vec3 translation = firstComponent.Translation;
-				glm::vec3 rotation = glm::degrees(firstComponent.Rotation);
+				glm::vec3 rotation = glm::degrees(firstComponent.GetRotationEuler());
 				glm::vec3 scale = firstComponent.Scale;
 
 				if (DrawVec3Control("Translation", translation))
@@ -1175,10 +1175,10 @@ namespace Lux {
 				if (DrawVec3Control("Rotation", rotation))
 				{
 					const glm::vec3 rotationRadians = glm::radians(rotation);
-					firstComponent.Rotation = rotationRadians;
+					firstComponent.SetRotationEuler(rotationRadians);
 					ApplyToSelection<TransformComponent>(m_Context, selectedEntities, [&rotationRadians](TransformComponent& component, Entity)
 					{
-						component.Rotation = rotationRadians;
+						component.SetRotationEuler(rotationRadians);
 					});
 				}
 
@@ -1433,15 +1433,15 @@ namespace Lux {
 			[this](RigidBody2DComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
 			{
 				const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
-				int currentBodyType = (int)firstComponent.Type;
+				int currentBodyType = (int)firstComponent.BodyType;
 				ImGuiEx::BeginPropertyGrid();
 
 				if (ImGuiEx::PropertyDropdown("Body Type", bodyTypeStrings, 3, &currentBodyType))
 				{
-					firstComponent.Type = (RigidBody2DComponent::BodyType)currentBodyType;
+					firstComponent.BodyType = (RigidBody2DComponent::Type)currentBodyType;
 					ApplyToSelection<RigidBody2DComponent>(m_Context, selectedEntities, [currentBodyType](RigidBody2DComponent& component, Entity)
 					{
-						component.Type = (RigidBody2DComponent::BodyType)currentBodyType;
+						component.BodyType = (RigidBody2DComponent::Type)currentBodyType;
 					});
 				}
 
@@ -1878,23 +1878,33 @@ namespace Lux {
 			{
 				ImGuiEx::BeginPropertyGrid();
 
-				AssetHandle meshHandle = firstComponent.Mesh;
+				AssetHandle meshHandle = firstComponent.StaticMesh;
 				if (DrawAssetReferenceProperty("Mesh", meshHandle, AssetType::StaticMesh, "Static Mesh only accepts static mesh assets"))
 				{
-					firstComponent.Mesh = meshHandle;
+					firstComponent.StaticMesh = meshHandle;
 					ApplyToSelection<StaticMeshComponent>(m_Context, selectedEntities, [meshHandle](StaticMeshComponent& component, Entity)
 					{
-						component.Mesh = meshHandle;
+						component.StaticMesh = meshHandle;
 					});
 				}
 
-				AssetHandle materialHandle = firstComponent.MaterialTable;
+				AssetHandle materialHandle = firstComponent.MaterialTable && firstComponent.MaterialTable->HasMaterial(0) ? firstComponent.MaterialTable->GetMaterial(0) : AssetHandle{};
 				if (DrawAssetReferenceProperty("Material", materialHandle, AssetType::Material, "Static Mesh material override expects a material asset"))
 				{
-					firstComponent.MaterialTable = materialHandle;
+					if (!firstComponent.MaterialTable)
+						firstComponent.MaterialTable = Ref<MaterialTable>::Create();
+					if (materialHandle)
+						firstComponent.MaterialTable->SetMaterial(0, materialHandle);
+					else
+						firstComponent.MaterialTable->ClearMaterial(0);
 					ApplyToSelection<StaticMeshComponent>(m_Context, selectedEntities, [materialHandle](StaticMeshComponent& component, Entity)
 					{
-						component.MaterialTable = materialHandle;
+						if (!component.MaterialTable)
+							component.MaterialTable = Ref<MaterialTable>::Create();
+						if (materialHandle)
+							component.MaterialTable->SetMaterial(0, materialHandle);
+						else
+							component.MaterialTable->ClearMaterial(0);
 					});
 				}
 
@@ -1903,14 +1913,6 @@ namespace Lux {
 					ApplyToSelection<StaticMeshComponent>(m_Context, selectedEntities, [&firstComponent](StaticMeshComponent& component, Entity)
 					{
 						component.Visible = firstComponent.Visible;
-					});
-				}
-
-				if (ImGuiEx::Property("Cast Shadows", firstComponent.CastShadows))
-				{
-					ApplyToSelection<StaticMeshComponent>(m_Context, selectedEntities, [&firstComponent](StaticMeshComponent& component, Entity)
-					{
-						component.CastShadows = firstComponent.CastShadows;
 					});
 				}
 
@@ -2026,11 +2028,11 @@ namespace Lux {
 					});
 				}
 
-				if (ImGuiEx::Property("Cast Shadows", firstComponent.CastShadows))
+				if (ImGuiEx::Property("Cast Shadows", firstComponent.CastsShadows))
 				{
 					ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
 					{
-						component.CastShadows = firstComponent.CastShadows;
+						component.CastsShadows = firstComponent.CastsShadows;
 					});
 				}
 
@@ -2098,11 +2100,11 @@ namespace Lux {
 					});
 				}
 
-				if (ImGuiEx::Property("Cast Shadows", firstComponent.CastShadows))
+				if (ImGuiEx::Property("Cast Shadows", firstComponent.CastsShadows))
 				{
 					ApplyToSelection<SpotLightComponent>(m_Context, selectedEntities, [&firstComponent](SpotLightComponent& component, Entity)
 					{
-						component.CastShadows = firstComponent.CastShadows;
+						component.CastsShadows = firstComponent.CastsShadows;
 					});
 				}
 
@@ -2122,19 +2124,19 @@ namespace Lux {
 			{
 				ImGuiEx::BeginPropertyGrid();
 
-				AssetHandle environmentHandle = firstComponent.EnvironmentMap;
+				AssetHandle environmentHandle = firstComponent.SceneEnvironment;
 				const bool mixedEnvironment = isMultiEdit && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
 				{
-					return entity.GetComponent<SkyLightComponent>().EnvironmentMap;
+					return entity.GetComponent<SkyLightComponent>().SceneEnvironment;
 				});
 				ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedEnvironment);
 				if (ImGuiEx::PropertyAssetReference<Environment>("Environment Map", environmentHandle, "Sky Light only accepts environment map assets"))
 				{
-					firstComponent.EnvironmentMap = environmentHandle;
+					firstComponent.SceneEnvironment = environmentHandle;
 					firstComponent.DynamicSky = (environmentHandle == 0);
 					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [environmentHandle](SkyLightComponent& component, Entity)
 					{
-						component.EnvironmentMap = environmentHandle;
+						component.SceneEnvironment = environmentHandle;
 						component.DynamicSky = (environmentHandle == 0);
 					});
 				}
