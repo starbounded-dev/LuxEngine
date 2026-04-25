@@ -9,6 +9,8 @@ namespace Lux
 	class AssetManager
 	{
 	public:
+		static Ref<Asset> GetPlaceholderAsset(AssetType type);
+
 		template<typename T>
 		static Ref<T> GetAsset(AssetHandle handle)
 		{

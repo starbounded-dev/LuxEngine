@@ -2,7 +2,6 @@
 #include "AudioSource.h"
 
 #include "AudioEngine.h"
-#include "Lux/Asset/AudioImporter.h"
 #include "Lux/Project/Project.h"
 
 namespace Lux {
@@ -18,27 +17,47 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::~AudioSource");
 
-		if (!AudioEngine::ShuttingDownEngine())
+		if (m_Sound && m_IsLoaded)
 		{
-			if (IsPlaying())
-			{
-				if (ma_sound_stop(m_Sound.get()) != MA_SUCCESS)
-				{
-					LUX_CORE_ERROR("Failed to stop playback device!");
-					ma_sound_uninit(m_Sound.get());
-				}
-
-				ma_sound_uninit(m_Sound.get());
-				m_Sound = nullptr;
-			}
+			ma_sound_stop(m_Sound.get());
+			ma_sound_uninit(m_Sound.get());
+			m_IsLoaded = false;
 		}
+	}
+
+	bool AudioSource::LoadFromFile(const std::filesystem::path& filepath)
+	{
+		LUX_PROFILE_FUNCTION("AudioSource::LoadFromFile");
+
+		auto* engine = AudioEngine::GetEngine();
+		if (!engine)
+			return false;
+
+		if (m_Sound && m_IsLoaded)
+		{
+			ma_sound_stop(m_Sound.get());
+			ma_sound_uninit(m_Sound.get());
+			m_IsLoaded = false;
+		}
+
+		const ma_result result = ma_sound_init_from_file(engine, filepath.string().c_str(), MA_SOUND_FLAG_NO_SPATIALIZATION, nullptr, nullptr, m_Sound.get());
+		if (result != MA_SUCCESS)
+		{
+			LUX_CORE_ERROR("Failed to initialize sound: {}", filepath.string());
+			return false;
+		}
+
+		m_FilePath = filepath;
+		m_IsLoaded = true;
+		m_CursorPos = 0;
+		return true;
 	}
 
 	void AudioSource::Play()
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::Play");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_start(m_Sound.get());
 		}
@@ -48,7 +67,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::Pause");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_stop(m_Sound.get());
 		}
@@ -58,7 +77,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::UnPause");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_start(m_Sound.get());
 		}
@@ -68,7 +87,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::Stop");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_stop(m_Sound.get());
 			ma_sound_seek_to_pcm_frame(m_Sound.get(), 0);
@@ -81,7 +100,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::IsPlaying");
 
-		if (m_Sound.get())
+		if (m_Sound.get() && m_IsLoaded)
 			return ma_sound_is_playing(m_Sound.get());
 
 		return false;
@@ -89,7 +108,7 @@ namespace Lux {
 
 	uint64_t AudioSource::GetCursorPosition()
 	{
-		if (m_Sound.get())
+		if (m_Sound.get() && m_IsLoaded)
 		{
 			//uint64_t cursorPos = 0;
 			ma_sound_get_cursor_in_pcm_frames(m_Sound.get(), &m_CursorPos);
@@ -114,11 +133,11 @@ namespace Lux {
 		return ma_attenuation_model_none;
 	}
 
-	void AudioSource::SetConfig(AudioSourceConfig& config)
+	void AudioSource::SetConfig(const AudioSourceConfig& config)
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetConfig");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound* sound = m_Sound.get();
 			ma_sound_set_volume(sound, config.VolumeMultiplier);
@@ -161,7 +180,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetVolume");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_volume(m_Sound.get(), volume);
 		}
@@ -171,7 +190,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetPitch");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_pitch(m_Sound.get(), pitch);
 		}
@@ -179,7 +198,7 @@ namespace Lux {
 
 	bool AudioSource::IsLooping()
 	{
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 			return ma_sound_is_looping(m_Sound.get());
 
 		return false;
@@ -189,7 +208,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetLooping");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			if (state)
 				ma_sound_set_looping(m_Sound.get(), MA_TRUE);
@@ -203,7 +222,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("AudioSource::SetSpatialization");
 
 		m_Spatialization = state;
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_spatialization_enabled(m_Sound.get(), state);
 		}
@@ -213,7 +232,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetAttenuationModel");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			if (m_Spatialization)
 				ma_sound_set_attenuation_model(m_Sound.get(), GetAttenuationModel(type));
@@ -226,7 +245,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetRollOff");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_rolloff(m_Sound.get(), rollOff);
 		}
@@ -236,7 +255,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetRollOff");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_min_gain(m_Sound.get(), minGain);
 		}
@@ -246,7 +265,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetRollOff");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_max_gain(m_Sound.get(), maxGain);
 		}
@@ -256,7 +275,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetRollOff");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_min_distance(m_Sound.get(), minDistance);
 		}
@@ -266,7 +285,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetRollOff");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_max_distance(m_Sound.get(), maxDistance);
 		}
@@ -276,7 +295,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetRollOff");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_cone(m_Sound.get(), innerAngle, outerAngle, outerGain);
 		}
@@ -286,7 +305,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetDopplerFactor");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_doppler_factor(m_Sound.get(), std::max(factor, 0.0f));
 		}
@@ -296,7 +315,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetPosition");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_position(m_Sound.get(), position.x, position.y, position.z);
 		}
@@ -306,7 +325,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("AudioSource::SetDirection");
 
-		if (m_Sound)
+		if (m_Sound && m_IsLoaded)
 		{
 			ma_sound_set_direction(m_Sound.get(), forward.x, forward.y, forward.z);
 		}

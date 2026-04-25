@@ -50,16 +50,16 @@ namespace Lux {
 			if (assetType == "Texture")             return AssetType::Texture;
 			if (assetType == "EnvMap")              return AssetType::EnvMap;
 			if (assetType == "Audio")               return AssetType::Audio;
-			//if (assetType == "SoundConfig")         return AssetType::SoundConfig;
+			if (assetType == "SoundConfig")         return AssetType::SoundConfig;
+			if (assetType == "SpatializationConfig") return AssetType::SpatializationConfig;
 			if (assetType == "Font")                return AssetType::Font;
 			if (assetType == "Script")              return AssetType::Script;
 			if (assetType == "ScriptFile")          return AssetType::ScriptFile;
-			//if (assetType == "MeshCollider")        return AssetType::MeshCollider;
-			//if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
-			//if (assetType == "Skeleton")            return AssetType::Skeleton;
-			//if (assetType == "Animation")           return AssetType::Animation;
-			//if (assetType == "AnimationController") return AssetType::AnimationController; // OBSOLETE. You need to re-import animated asset
-			//if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
+			if (assetType == "MeshCollider")        return AssetType::MeshCollider;
+			if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
+			if (assetType == "Skeleton")            return AssetType::Skeleton;
+			if (assetType == "Animation")           return AssetType::Animation;
+			if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
 
 			return AssetType::None;
 		}
@@ -78,15 +78,16 @@ namespace Lux {
 			case AssetType::Texture:             return "Texture";
 			case AssetType::EnvMap:              return "EnvMap";
 			case AssetType::Audio:               return "Audio";
-		//	case AssetType::SoundConfig:         return "SoundConfig";
+			case AssetType::SoundConfig:         return "SoundConfig";
+			case AssetType::SpatializationConfig:return "SpatializationConfig";
 			case AssetType::Font:                return "Font";
 			case AssetType::Script:              return "Script";
 			case AssetType::ScriptFile:          return "ScriptFile";
-		//	case AssetType::MeshCollider:        return "MeshCollider";
-		//	case AssetType::SoundGraphSound:     return "SoundGraphSound";
-		//	case AssetType::Skeleton:            return "Skeleton";
-			//case AssetType::Animation:           return "Animation";
-			//case AssetType::AnimationGraph:      return "AnimationGraph";
+			case AssetType::MeshCollider:        return "MeshCollider";
+			case AssetType::SoundGraphSound:     return "SoundGraphSound";
+			case AssetType::Skeleton:            return "Skeleton";
+			case AssetType::Animation:           return "Animation";
+			case AssetType::AnimationGraph:      return "AnimationGraph";
 			}
 
 			LUX_CORE_ASSERT(false, "Unknown Asset Type");

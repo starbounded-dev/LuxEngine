@@ -53,7 +53,7 @@ namespace Lux
 		std::filesystem::path NormalizeRegistryPath(const std::filesystem::path& projectDirectory, const std::filesystem::path& assetDirectory, const std::filesystem::path& rawPath)
 		{
 			if (rawPath.empty())
-				return (assetDirectory / "AssetRegistry.ser").lexically_normal();
+				return (assetDirectory / "AssetRegistry.lzr").lexically_normal();
 
 			if (rawPath.is_absolute())
 				return std::filesystem::relative(rawPath, projectDirectory).lexically_normal();

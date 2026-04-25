@@ -1,7 +1,6 @@
 #include "lpch.h"
 #include "ThumbnailCache.h"
 
-#include "Lux/Asset/TextureImporter.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
 
@@ -9,6 +8,17 @@
 #include <fstream>
 
 namespace Lux {
+	namespace
+	{
+		Ref<Texture2D> LoadTextureFromFile(const std::filesystem::path& path)
+		{
+			TextureSpecification spec;
+			spec.Format = ImageFormat::SRGBA;
+			spec.GenerateMips = false;
+			spec.DebugName = path.string();
+			return Texture2D::Create(spec, path);
+		}
+	}
 
 	ThumbnailCache::ThumbnailCache(Ref<Project> project)
 		: m_Project(project)
@@ -171,7 +181,7 @@ namespace Lux {
 			// FIX: load texture BEFORE calling Resize, then null-check.
 			// The old code called texture->Resize() before checking if
 			// texture was valid, causing a crash on failed loads.
-			Ref<Texture2D> texture = TextureImporter::LoadTexture2D(info.AbsolutePath);
+			Ref<Texture2D> texture = LoadTextureFromFile(info.AbsolutePath);
 			if (!texture)
 			{
 				m_Queue.pop();

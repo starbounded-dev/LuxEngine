@@ -2,8 +2,6 @@
 
 #include "SceneCamera.h"
 
-
-#include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AudioSource.h"
 #include "Lux/Core/UUID.h"
@@ -243,7 +241,7 @@ namespace Lux {
 		bool Seek = false;
 		uint64_t SeekPosition = 0;
 
-		Ref<AudioSource> GetAudioSource(uint32_t index) const { return AssetManager::GetAsset<AudioSource>(AudioSourceData.Playlist[index]); }
+		AssetHandle GetAudioSourceHandle(uint32_t index) const { return AudioSourceData.Playlist[index]; }
 		void SetAudioSource(uint32_t index) { Audio = AudioSourceData.Playlist[index]; }
 
 		void AddAudioSource(AssetHandle& audio)

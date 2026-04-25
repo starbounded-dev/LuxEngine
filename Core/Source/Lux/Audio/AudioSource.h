@@ -1,9 +1,10 @@
 #pragma once
 
-#include "Lux/Asset/Asset.h"
+#include "Lux/Core/Ref.h"
 
 #include "miniaudio.h"
 
+#include <filesystem>
 #include <string>
 
 struct ma_sound;
@@ -40,16 +41,16 @@ namespace Lux {
 		float DopplerFactor = 1.0f;
 	};
 
-	class AudioSource : public Asset
+	class AudioSource : public RefCounted
 	{
 	public:
 		AudioSource();
 		~AudioSource();
 
-		static AssetType GetStaticType() { return AssetType::Audio; }
-		virtual AssetType GetAssetType() const override { return GetStaticType(); }
-		virtual AssetType GetType() const { return GetStaticType(); }
 		std::unique_ptr<ma_sound>& GetSound() { return m_Sound; }
+		bool LoadFromFile(const std::filesystem::path& filepath);
+		bool IsLoaded() const { return m_IsLoaded; }
+		const std::filesystem::path& GetFilePath() const { return m_FilePath; }
 
 		void Play();
 		void Pause();
@@ -58,7 +59,7 @@ namespace Lux {
 		bool IsPlaying();
 		uint64_t GetCursorPosition();
 
-		void SetConfig(AudioSourceConfig& config);
+		void SetConfig(const AudioSourceConfig& config);
 
 		void SetVolume(float volume);
 		void SetPitch(float pitch);
@@ -80,7 +81,9 @@ namespace Lux {
 
 	private:
 		std::unique_ptr<ma_sound> m_Sound;
+		std::filesystem::path m_FilePath;
 		bool m_Spatialization = false;
+		bool m_IsLoaded = false;
 		uint64_t m_CursorPos = 0;
 	};
 }

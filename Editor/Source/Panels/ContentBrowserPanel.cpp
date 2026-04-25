@@ -4,7 +4,6 @@
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetExtensions.h"
-#include "Lux/Asset/SceneImporter.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Core/Events/KeyEvent.h"
@@ -13,6 +12,7 @@
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -85,7 +85,6 @@ namespace Lux {
 		m_AssetIconMap[".gltf"] = EditorResources::GLTFFileIcon;
 		m_AssetIconMap[".glb"] = EditorResources::GLBFileIcon;
 		m_AssetIconMap[".wav"] = EditorResources::WAVFileIcon;
-		m_AssetIconMap[".mp3"] = EditorResources::MP3FileIcon;
 		m_AssetIconMap[".ogg"] = EditorResources::OGGFileIcon;
 		m_AssetIconMap[".cs"] = EditorResources::CSFileIcon;
 		m_AssetIconMap[".png"] = EditorResources::PNGFileIcon;
@@ -93,7 +92,6 @@ namespace Lux {
 		m_AssetIconMap[".jpeg"] = EditorResources::JPGFileIcon;
 		m_AssetIconMap[".lmat"] = EditorResources::MaterialFileIcon;
 		m_AssetIconMap[".luxscene"] = EditorResources::SceneFileIcon;
-		m_AssetIconMap[".hazel"] = EditorResources::SceneFileIcon;
 		m_AssetIconMap[".lmesh"] = EditorResources::MeshFileIcon;
 		m_AssetIconMap[".lsmesh"] = EditorResources::StaticMeshFileIcon;
 
@@ -965,7 +963,8 @@ namespace Lux {
 
 		Ref<Scene> scene = Ref<Scene>::Create();
 		scene->SetName(relativePath.stem().string());
-		SceneImporter::SaveScene(scene, relativePath);
+		SceneSerializer serializer(scene);
+		serializer.Serialize(Project::GetActiveAssetDirectory() / relativePath);
 
 		AssetHandle handle = Project::GetEditorAssetManager()->ImportAsset(relativePath);
 		Refresh();

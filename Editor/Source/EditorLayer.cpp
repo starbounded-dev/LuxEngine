@@ -9,8 +9,6 @@
 #include "Lux/Utilities/FileSystem.h"
 
 #include "Lux/Asset/AssetManager.h"
-#include "Lux/Asset/TextureImporter.h"
-#include "Lux/Asset/SceneImporter.h"
 #include "Lux/Core/Math/Ray.h"
 #include "Lux/Renderer/Mesh.h"
 
@@ -147,6 +145,15 @@ namespace Lux {
 			const auto& name = activeProject->GetConfig().Name;
 			return name.empty() ? "Untitled Project" : name;
 		}
+
+		Ref<Texture2D> LoadTextureFromPath(const std::filesystem::path& path, bool srgb = true)
+		{
+			TextureSpecification spec;
+			spec.Format = srgb ? ImageFormat::SRGBA : ImageFormat::RGBA;
+			spec.GenerateMips = !srgb;
+			spec.DebugName = path.string();
+			return Texture2D::Create(spec, path);
+		}
 	}
 
 	static Ref<Font> s_Font;
@@ -213,11 +220,11 @@ namespace Lux {
 		// Light Settings panel
 		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", true);
 
-		m_IconPlay = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Play.png");
-		m_IconPause = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Pause.png");
-		m_IconSimulate = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Simulate.png");
-		m_IconStep = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Step.png");
-		m_IconStop = TextureImporter::LoadTexture2D("Resources/Editor/Viewport/Stop.png");
+		m_IconPlay = LoadTextureFromPath("Resources/Editor/Viewport/Play.png");
+		m_IconPause = LoadTextureFromPath("Resources/Editor/Viewport/Pause.png");
+		m_IconSimulate = LoadTextureFromPath("Resources/Editor/Viewport/Simulate.png");
+		m_IconStep = LoadTextureFromPath("Resources/Editor/Viewport/Step.png");
+		m_IconStop = LoadTextureFromPath("Resources/Editor/Viewport/Stop.png");
 
 		m_Renderer2D = Ref<Renderer2D>::Create();
 		m_Renderer2D->SetLineWidth(4.0f);
@@ -1700,7 +1707,8 @@ namespace Lux {
 
 	void EditorLayer::SerializeScene(Ref<Scene> scene, const std::filesystem::path& path)
 	{
-		SceneImporter::SaveScene(scene, path);
+		SceneSerializer serializer(scene);
+		serializer.Serialize(Project::GetActiveAssetDirectory() / path);
 	}
 
 	void EditorLayer::OnScenePlay()

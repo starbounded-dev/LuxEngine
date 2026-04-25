@@ -15,21 +15,30 @@ namespace Lux::AssetExtensions
 	{
 		static const std::unordered_map<std::string, AssetType> s_ExtensionMap = {
 			{ ".luxscene", AssetType::Scene },
-			{ ".hazel", AssetType::Scene },
+			{ ".lprefab", AssetType::Prefab },
 			{ ".png", AssetType::Texture },
 			{ ".jpg", AssetType::Texture },
 			{ ".jpeg", AssetType::Texture },
 			{ ".hdr", AssetType::EnvMap },
-			{ ".mp3", AssetType::Audio },
 			{ ".wav", AssetType::Audio },
 			{ ".ogg", AssetType::Audio },
+			{ ".lsoundc", AssetType::SoundConfig },
 			{ ".fbx", AssetType::MeshSource },
 			{ ".gltf", AssetType::MeshSource },
 			{ ".glb", AssetType::MeshSource },
 			{ ".obj", AssetType::MeshSource },
+			{ ".dae", AssetType::MeshSource },
 			{ ".lmesh", AssetType::Mesh },
 			{ ".lsmesh", AssetType::StaticMesh },
 			{ ".lmat", AssetType::Material },
+			{ ".lskel", AssetType::Skeleton },
+			{ ".lanim", AssetType::Animation },
+			{ ".lanimgraph", AssetType::AnimationGraph },
+			{ ".ttf", AssetType::Font },
+			{ ".ttc", AssetType::Font },
+			{ ".otf", AssetType::Font },
+			{ ".lmc", AssetType::MeshCollider },
+			{ ".lsoundgraph", AssetType::SoundGraphSound },
 			{ ".cs", AssetType::ScriptFile }
 		};
 
@@ -61,11 +70,18 @@ namespace Lux::AssetExtensions
 	{
 		switch (type)
 		{
-		case AssetType::Scene:      return ".luxscene";
-		case AssetType::Mesh:       return ".lmesh";
-		case AssetType::StaticMesh: return ".lsmesh";
-		case AssetType::Material:   return ".lmat";
-		default:                    return {};
+			case AssetType::Scene:           return ".luxscene";
+			case AssetType::Prefab:          return ".lprefab";
+			case AssetType::Mesh:            return ".lmesh";
+			case AssetType::StaticMesh:      return ".lsmesh";
+			case AssetType::Material:        return ".lmat";
+			case AssetType::SoundConfig:     return ".lsoundc";
+			case AssetType::Skeleton:        return ".lskel";
+			case AssetType::Animation:       return ".lanim";
+			case AssetType::AnimationGraph:  return ".lanimgraph";
+			case AssetType::MeshCollider:    return ".lmc";
+			case AssetType::SoundGraphSound: return ".lsoundgraph";
+			default:                         return {};
 		}
 	}
 }

@@ -1825,17 +1825,6 @@ namespace Lux {
 					ImGuiEx::EndPropertyGrid();
 				}
 
-				if (component.Audio)
-				{
-					if (Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(component.Audio))
-					{
-						const glm::mat4 inverted = glm::inverse(firstEntity.GetComponent<TransformComponent>().GetTransform());
-						const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2]));
-						audioSource->SetConfig(config);
-						audioSource->SetPosition(glm::vec4(firstEntity.GetComponent<TransformComponent>().Translation, 1.0f));
-						audioSource->SetDirection(-forward);
-					}
-				}
 			});
 
 		DrawComponentSection<AudioListenerComponent>(m_Context, entityIDs, "Audio Listener", EditorResources::AudioListenerIcon,

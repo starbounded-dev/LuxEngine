@@ -11,12 +11,6 @@
 
 namespace Lux
 {
-	struct EditorAssetLoadResponse
-	{
-		AssetMetadata Metadata;
-		Ref<Asset> Asset;
-	};
-
 	class EditorAssetSystem : public RefCounted
 	{
 	public:

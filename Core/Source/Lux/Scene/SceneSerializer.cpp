@@ -176,10 +176,32 @@ namespace Lux {
 		return RigidBody2DComponent::BodyType::Static;
 	}
 
+	static void SerializeEntity(YAML::Emitter& out, Entity entity);
+
 	SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
 		: m_Scene(scene)
 	{
 
+	}
+
+	void SceneSerializer::SerializeToYAML(YAML::Emitter& out)
+	{
+		out << YAML::BeginMap;
+		out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
+
+		auto view = m_Scene->m_Registry.view<IDComponent>();
+		for (auto entityID : view)
+		{
+			Entity entity = { entityID, m_Scene.get() };
+			if (!entity)
+				continue;
+
+			SerializeEntity(out, entity);
+		}
+
+		out << YAML::EndSeq;
+		out << YAML::EndMap;
 	}
 
 	static void SerializeEntity(YAML::Emitter& out, Entity entity)
@@ -579,22 +601,7 @@ namespace Lux {
 	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
 		YAML::Emitter out;
-		out << YAML::BeginMap;
-		out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
-		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-
-		auto view = m_Scene->m_Registry.view<IDComponent>();
-		for (auto entityID : view)
-		{
-			Entity entity = { entityID, m_Scene.get() };
-			if (!entity)
-				continue;
-
-			SerializeEntity(out, entity);
-		}
-
-		out << YAML::EndSeq;
-		out << YAML::EndMap;
+		SerializeToYAML(out);
 
 		std::ofstream fout(filepath);
 		fout << out.c_str();
@@ -910,12 +917,6 @@ namespace Lux {
 					if (audioSourceComponent["DopplerFactor"])
 						component.Config.DopplerFactor = audioSourceComponent["DopplerFactor"].as<float>();
 
-					if (component.Audio != 0)
-					{
-						Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(component.Audio);
-						audioSource->SetConfig(component.Config);
-					}
-
 					if (audioSourceComponent["UsePlaylist"])
 						component.AudioSourceData.UsePlaylist = audioSourceComponent["UsePlaylist"].as<bool>();
 
@@ -1115,6 +1116,47 @@ namespace Lux {
 		// Not implemented
 		LUX_CORE_ASSERT(false);
 		return false;
+	}
+
+	bool SceneSerializer::SerializeToAssetPack(FileStreamWriter& stream, AssetSerializationInfo& outInfo)
+	{
+		YAML::Emitter out;
+		SerializeToYAML(out);
+
+		outInfo.Offset = stream.GetStreamPosition();
+		std::string yamlString = out.c_str();
+		stream.WriteString(yamlString);
+		outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+		return true;
+	}
+
+	bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)
+	{
+		const std::filesystem::path tempPath =
+			std::filesystem::temp_directory_path() /
+			std::filesystem::path("lux-scene-" + std::to_string((uint64_t)UUID()) + ".luxscene");
+
+		{
+			std::ofstream fout(tempPath);
+			if (!fout.is_open())
+				return false;
+
+			fout << yamlString;
+		}
+
+		const bool result = Deserialize(tempPath);
+
+		std::error_code ec;
+		std::filesystem::remove(tempPath, ec);
+		return result;
+	}
+
+	bool SceneSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo)
+	{
+		stream.SetStreamPosition(sceneInfo.PackedOffset);
+		std::string sceneYAML;
+		stream.ReadString(sceneYAML);
+		return DeserializeFromYAML(sceneYAML);
 	}
 
 }

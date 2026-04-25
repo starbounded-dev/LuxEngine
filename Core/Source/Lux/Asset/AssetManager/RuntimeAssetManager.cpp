@@ -1,8 +1,6 @@
 #include "lpch.h"
 #include "Lux/Asset/AssetManager/RuntimeAssetManager.h"
-
-#include <chrono>
-#include <thread>
+#include "Lux/Asset/AssetManager.h"
 
 namespace Lux
 {
@@ -15,7 +13,12 @@ namespace Lux
 
 	void RuntimeAssetManager::Shutdown()
 	{
-		m_AssetSystem.Stop();
+		m_AssetSystem.StopAndWait();
+		m_PendingAssets.clear();
+		m_LoadedAssets.clear();
+		m_MemoryAssets.clear();
+		m_AssetPack = nullptr;
+		m_ActiveScene = 0;
 	}
 
 	AssetType RuntimeAssetManager::GetAssetType(AssetHandle assetHandle)
@@ -23,8 +26,10 @@ namespace Lux
 		if (auto memoryAsset = GetMemoryAsset(assetHandle))
 			return memoryAsset->GetAssetType();
 
-		auto it = m_AssetRegistry.find(assetHandle);
-		return it != m_AssetRegistry.end() ? it->second.Type : AssetType::None;
+		if (!m_AssetPack)
+			return AssetType::None;
+
+		return m_AssetPack->GetAssetType(m_ActiveScene, assetHandle);
 	}
 
 	Ref<Asset> RuntimeAssetManager::GetAsset(AssetHandle assetHandle)
@@ -34,31 +39,20 @@ namespace Lux
 		if (auto memoryAsset = GetMemoryAsset(assetHandle))
 			return memoryAsset;
 
-		if (!IsAssetHandleValid(assetHandle))
+		if (!m_AssetPack || !IsAssetHandleValid(assetHandle))
 			return nullptr;
 
-		auto loadedIt = m_LoadedAssets.find(assetHandle);
-		if (loadedIt != m_LoadedAssets.end())
-			return loadedIt->second;
+		if (IsAssetLoaded(assetHandle))
+			return m_LoadedAssets.at(assetHandle);
 
-		auto registryIt = m_AssetRegistry.find(assetHandle);
-		if (registryIt == m_AssetRegistry.end())
-			return nullptr;
-
-		std::atomic_bool finished = false;
-		LoadAssetAsync(assetHandle, [&finished](AssetHandle, Ref<Asset>)
+		Ref<Asset> asset = m_AssetSystem.GetAsset(m_ActiveScene, assetHandle);
+		if (asset)
 		{
-			finished = true;
-		});
-
-		while (!finished)
-		{
-			SyncLoadedAssets();
-			using namespace std::chrono_literals;
-			std::this_thread::sleep_for(1ms);
+			m_LoadedAssets[assetHandle] = asset;
+			UpdateDependents(assetHandle);
 		}
 
-		return m_LoadedAssets.contains(assetHandle) ? m_LoadedAssets.at(assetHandle) : nullptr;
+		return asset;
 	}
 
 	AsyncAssetResult<Asset> RuntimeAssetManager::GetAssetAsync(AssetHandle assetHandle)
@@ -68,16 +62,19 @@ namespace Lux
 		if (auto memoryAsset = GetMemoryAsset(assetHandle))
 			return { memoryAsset, true };
 
-		if (!IsAssetHandleValid(assetHandle))
+		if (!m_AssetPack || !IsAssetHandleValid(assetHandle))
 			return {};
 
 		if (IsAssetLoaded(assetHandle))
 			return { m_LoadedAssets.at(assetHandle), true };
 
-		if (m_AssetRegistry.contains(assetHandle) && m_AssetRegistry[assetHandle].Status != AssetStatus::Loading)
-			LoadAssetAsync(assetHandle);
+		if (!m_PendingAssets.contains(assetHandle))
+		{
+			m_PendingAssets.insert(assetHandle);
+			m_AssetSystem.QueueAssetLoad({ m_ActiveScene, assetHandle });
+		}
 
-		return {};
+		return { AssetManager::GetPlaceholderAsset(m_AssetPack->GetAssetType(m_ActiveScene, assetHandle)), false };
 	}
 
 	void RuntimeAssetManager::AddMemoryOnlyAsset(Ref<Asset> asset)
@@ -85,38 +82,35 @@ namespace Lux
 		if (!asset)
 			return;
 
-		if (!asset->Handle)
-			asset->Handle = AssetHandle();
-
+		std::scoped_lock lock(m_MemoryAssetsMutex);
 		m_MemoryAssets[asset->Handle] = asset;
 	}
 
 	bool RuntimeAssetManager::ReloadData(AssetHandle assetHandle)
 	{
-		if (!IsAssetHandleValid(assetHandle))
+		if (!m_AssetPack || !IsAssetHandleValid(assetHandle))
 			return false;
 
-		m_LoadedAssets.erase(assetHandle);
-		if (m_AssetRegistry.contains(assetHandle))
+		Ref<Asset> asset = m_AssetPack->LoadAsset(m_ActiveScene, assetHandle);
+		if (asset)
 		{
-			m_AssetRegistry[assetHandle].IsDataLoaded = false;
-			m_AssetRegistry[assetHandle].Status = AssetStatus::None;
+			m_LoadedAssets[assetHandle] = asset;
+			UpdateDependents(assetHandle);
 		}
-		return GetAsset(assetHandle) != nullptr;
+
+		return asset != nullptr;
 	}
 
 	void RuntimeAssetManager::ReloadDataAsync(AssetHandle assetHandle)
 	{
-		if (!IsAssetHandleValid(assetHandle))
+		if (!m_AssetPack || !IsAssetHandleValid(assetHandle))
 			return;
 
-		m_LoadedAssets.erase(assetHandle);
-		if (m_AssetRegistry.contains(assetHandle))
+		if (!m_PendingAssets.contains(assetHandle))
 		{
-			m_AssetRegistry[assetHandle].IsDataLoaded = false;
-			m_AssetRegistry[assetHandle].Status = AssetStatus::Loading;
+			m_PendingAssets.insert(assetHandle);
+			m_AssetSystem.QueueAssetLoad({ m_ActiveScene, assetHandle });
 		}
-		LoadAssetAsync(assetHandle);
 	}
 
 	bool RuntimeAssetManager::EnsureCurrent(AssetHandle assetHandle)
@@ -126,66 +120,65 @@ namespace Lux
 
 	bool RuntimeAssetManager::EnsureAllLoadedCurrent()
 	{
+		if (!m_AssetPack)
+			return false;
+
 		bool allCurrent = true;
-		for (const auto& [handle, metadata] : m_AssetRegistry)
+		for (const auto& [handle, asset] : m_LoadedAssets)
 			allCurrent &= EnsureCurrent(handle);
 		return allCurrent;
 	}
 
 	bool RuntimeAssetManager::IsAssetHandleValid(AssetHandle assetHandle)
 	{
-		return IsMemoryAsset(assetHandle) || m_AssetRegistry.find(assetHandle) != m_AssetRegistry.end();
+		if (assetHandle == 0)
+			return false;
+
+		return GetMemoryAsset(assetHandle) || (m_AssetPack && m_AssetPack->IsAssetHandleValid(assetHandle));
 	}
 
 	Ref<Asset> RuntimeAssetManager::GetMemoryAsset(AssetHandle handle)
 	{
+		std::shared_lock lock(m_MemoryAssetsMutex);
 		auto it = m_MemoryAssets.find(handle);
 		return it != m_MemoryAssets.end() ? it->second : nullptr;
 	}
 
 	bool RuntimeAssetManager::IsAssetLoaded(AssetHandle handle)
 	{
-		return IsMemoryAsset(handle) || m_LoadedAssets.find(handle) != m_LoadedAssets.end();
+		return m_LoadedAssets.contains(handle);
 	}
 
 	bool RuntimeAssetManager::IsAssetValid(AssetHandle handle)
 	{
-		if (IsMemoryAsset(handle))
-			return true;
-
-		auto it = m_AssetRegistry.find(handle);
-		if (it == m_AssetRegistry.end())
-			return false;
-
-		if (it->second.Status == AssetStatus::Invalid || it->second.Status == AssetStatus::Missing)
-			return false;
-
-		if (it->second.IsDataLoaded)
-			return m_LoadedAssets.find(handle) != m_LoadedAssets.end();
-
 		return GetAsset(handle) != nullptr;
 	}
 
-	bool RuntimeAssetManager::IsAssetMissing(AssetHandle)
+	bool RuntimeAssetManager::IsAssetMissing(AssetHandle handle)
 	{
-		return false;
+		return !IsAssetValid(handle);
 	}
 
 	bool RuntimeAssetManager::IsMemoryAsset(AssetHandle handle)
 	{
-		return m_MemoryAssets.find(handle) != m_MemoryAssets.end();
+		std::shared_lock lock(m_MemoryAssetsMutex);
+		return m_MemoryAssets.contains(handle);
 	}
 
 	bool RuntimeAssetManager::IsPhysicalAsset(AssetHandle handle)
 	{
-		return !IsMemoryAsset(handle) && m_AssetRegistry.find(handle) != m_AssetRegistry.end();
+		return !IsMemoryAsset(handle);
 	}
 
 	void RuntimeAssetManager::RemoveAsset(AssetHandle handle)
 	{
-		m_MemoryAssets.erase(handle);
+		{
+			std::scoped_lock lock(m_MemoryAssetsMutex);
+			m_MemoryAssets.erase(handle);
+		}
+
 		m_LoadedAssets.erase(handle);
-		m_AssetRegistry.erase(handle);
+		m_PendingAssets.erase(handle);
 		DeregisterDependencies(handle);
 	}
 
@@ -199,6 +192,7 @@ namespace Lux
 	void RuntimeAssetManager::DeregisterDependency(AssetHandle dependency, AssetHandle handle)
 	{
 		std::scoped_lock lock(m_AssetDependenciesMutex);
+
 		if (m_AssetDependencies.contains(handle))
 		{
 			m_AssetDependencies[handle].erase(dependency);
@@ -243,78 +237,79 @@ namespace Lux
 
 	void RuntimeAssetManager::SyncWithAssetThread()
 	{
-		SyncLoadedAssets();
+		std::vector<Ref<Asset>> freshAssets;
+		if (!m_AssetSystem.RetrieveReadyAssets(freshAssets))
+			return;
+
+		for (const auto& asset : freshAssets)
+		{
+			m_LoadedAssets[asset->Handle] = asset;
+			m_PendingAssets.erase(asset->Handle);
+		}
+
+		m_AssetSystem.UpdateLoadedAssetList(m_LoadedAssets);
+
+		for (const auto& asset : freshAssets)
+			UpdateDependents(asset->Handle);
 	}
 
 	std::unordered_set<AssetHandle> RuntimeAssetManager::GetAllAssetsWithType(AssetType type)
 	{
 		std::unordered_set<AssetHandle> result;
+		if (!m_AssetPack)
+			return result;
 
-		for (const auto& [handle, asset] : m_MemoryAssets)
+		for (const auto& [sceneHandle, sceneInfo] : m_AssetPack->m_File.Index.Scenes)
 		{
-			if (asset && asset->GetAssetType() == type)
-				result.insert(handle);
-		}
-
-		for (const auto& [handle, metadata] : m_AssetRegistry)
-		{
-			if (metadata.Type == type)
-				result.insert(handle);
+			if (sceneHandle == m_ActiveScene)
+			{
+				for (const auto& [assetHandle, assetInfo] : sceneInfo.Assets)
+				{
+					if ((AssetType)assetInfo.Type == type)
+						result.insert(assetHandle);
+				}
+			}
 		}
 
 		return result;
 	}
 
-	void RuntimeAssetManager::RegisterAsset(AssetHandle handle, AssetType type)
+	Ref<Scene> RuntimeAssetManager::LoadScene(AssetHandle handle)
 	{
-		AssetMetadata metadata;
-		metadata.Handle = handle;
-		metadata.Type = type;
-		m_AssetRegistry[handle] = metadata;
+		if (!m_AssetPack)
+			return nullptr;
+
+		Ref<Scene> scene = m_AssetPack->LoadScene(handle);
+		if (scene)
+			m_ActiveScene = handle;
+
+		return scene;
 	}
 
-	void RuntimeAssetManager::LoadAssetAsync(AssetHandle handle, RuntimeAssetCallback callback)
+	void RuntimeAssetManager::SetAssetPack(Ref<AssetPack> assetPack)
 	{
-		if (!IsAssetHandleValid(handle))
-			return;
+		m_AssetPack = assetPack;
+		m_AssetSystem.SetAssetPack(assetPack);
+	}
 
-		RuntimeAssetLoadRequest request;
-		request.Handle = handle;
-		request.Type = GetAssetType(handle);
-		request.Callback = [this, callback = std::move(callback)](AssetHandle loadedHandle, Ref<Asset> asset)
+	void RuntimeAssetManager::UpdateDependents(AssetHandle handle)
+	{
+		std::unordered_set<AssetHandle> dependents;
 		{
-			if (m_AssetRegistry.contains(loadedHandle))
-			{
-				auto& metadata = m_AssetRegistry[loadedHandle];
-				metadata.IsDataLoaded = asset != nullptr;
-				metadata.Status = asset ? AssetStatus::Ready : AssetStatus::Invalid;
-			}
-
-			if (callback)
-				callback(loadedHandle, asset);
-		};
-		if (m_AssetRegistry.contains(handle))
-		{
-			auto& metadata = m_AssetRegistry[handle];
-			metadata.IsDataLoaded = false;
-			metadata.Status = AssetStatus::Loading;
+			std::shared_lock lock(m_AssetDependenciesMutex);
+			auto it = m_AssetDependents.find(handle);
+			if (it != m_AssetDependents.end())
+				dependents = it->second;
 		}
-		m_AssetSystem.QueueAssetLoad(std::move(request));
-	}
 
-	void RuntimeAssetManager::SyncLoadedAssets()
-	{
-		m_AssetSystem.SyncLoadedAssets(m_LoadedAssets);
-
-		for (auto& [handle, metadata] : m_AssetRegistry)
+		for (AssetHandle dependentHandle : dependents)
 		{
-			metadata.IsDataLoaded = m_LoadedAssets.find(handle) != m_LoadedAssets.end();
-			metadata.Status = metadata.IsDataLoaded ? AssetStatus::Ready : metadata.Status;
-		}
-	}
+			if (!IsAssetLoaded(dependentHandle))
+				continue;
 
-	void RuntimeAssetManager::SetRuntimeLoader(RuntimeAssetSystem::RuntimeLoader loader)
-	{
-		m_AssetSystem.SetLoader(std::move(loader));
+			Ref<Asset> dependentAsset = IsMemoryAsset(dependentHandle) ? GetMemoryAsset(dependentHandle) : m_LoadedAssets.at(dependentHandle);
+			if (dependentAsset)
+				dependentAsset->OnDependencyUpdated(handle);
+		}
 	}
 }

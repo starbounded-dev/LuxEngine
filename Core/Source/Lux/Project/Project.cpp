@@ -57,7 +57,7 @@ namespace Lux
 		}
 	}
 
-	void Project::SetActiveRuntime(Ref<Project> project)
+	void Project::SetActiveRuntime(Ref<Project> project, Ref<AssetPack> assetPack)
 	{
 		if (s_AssetManager)
 		{
@@ -72,6 +72,7 @@ namespace Lux
 		s_ActiveProject->m_Config.ProjectDirectory = s_ActiveProject->m_ProjectDirectory;
 		s_ActiveProject->m_Config.ProjectFileName = s_ActiveProject->m_ProjectFilePath.filename().string();
 		s_AssetManager = Ref<RuntimeAssetManager>::Create();
+		GetRuntimeAssetManager()->SetAssetPack(assetPack);
 	}
 
 	Ref<Project> Project::New()

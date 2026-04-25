@@ -57,8 +57,8 @@ namespace Lux
 		AssetHandle StartSceneHandle = 0;
 
 		std::filesystem::path AssetDirectory = "Assets";
-		std::filesystem::path AssetRegistryPath = "Assets/AssetRegistry.ser";
-		std::filesystem::path AudioCommandsRegistryPath = "AudioCommandsRegistry.ser";
+		std::filesystem::path AssetRegistryPath = "Assets/AssetRegistry.lzr";
+		std::filesystem::path AudioCommandsRegistryPath = "AudioCommandsRegistry.lzr";
 		std::filesystem::path MeshPath = "Meshes";
 		std::filesystem::path MeshSourcePath = "Meshes/Source";
 		std::filesystem::path AnimationPath = "Animation";
@@ -223,7 +223,7 @@ namespace Lux
 		static Ref<EditorAssetManager> GetEditorAssetManager() { return s_AssetManager.As<EditorAssetManager>(); }
 
 		static void SetActive(Ref<Project> project);
-		static void SetActiveRuntime(Ref<Project> project);
+		static void SetActiveRuntime(Ref<Project> project, Ref<AssetPack> assetPack);
 		void ReloadScriptEngine();
 
 		static Ref<Project> New();

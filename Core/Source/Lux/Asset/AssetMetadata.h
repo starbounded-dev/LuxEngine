@@ -19,13 +19,25 @@ namespace Lux
 	{
 		AssetHandle Handle = 0;
 		AssetType Type = AssetType::None;
-		std::filesystem::path FilePath = "";
+		std::filesystem::path FilePath;
 		AssetStatus Status = AssetStatus::None;
 		uint64_t FileLastWriteTime = 0;
 		bool IsDataLoaded = false;
 
 		bool IsValid() const { return Handle != 0; }
 		operator bool() const { return IsValid(); }
+	};
+
+	struct EditorAssetLoadResponse
+	{
+		AssetMetadata Metadata;
+		Ref<Asset> Asset;
+	};
+
+	struct RuntimeAssetLoadRequest
+	{
+		AssetHandle SceneHandle = 0;
+		AssetHandle Handle = 0;
 	};
 
 }

@@ -12,7 +12,7 @@ Assets:
   - Handle: 5010151633762378122
     FilePath: Scenes/Example.luxscene
     Type: Scene
-    FileLastWriteTime: 13421299743
+    FileLastWriteTime: 13421377120
     Status: Ready
   - Handle: 5698620207532946169
     FilePath: Audio/fart-01.wav
@@ -22,7 +22,7 @@ Assets:
   - Handle: 7305845728380112481
     FilePath: Scenes/Physics2D.luxscene
     Type: Scene
-    FileLastWriteTime: 13421306287
+    FileLastWriteTime: 13421306317
     Status: Ready
   - Handle: 8773409218751291332
     FilePath: Scripts/Source/Camera.cs

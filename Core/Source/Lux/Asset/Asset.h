@@ -3,6 +3,7 @@
 #include "Lux/Core/UUID.h"
 #include "Lux/Core/Ref.h"
 
+#include <string>
 #include <string_view>
 
 #include "AssetTypes.h"
@@ -61,6 +62,26 @@ namespace Lux {
 			else
 				Flags &= ~(uint16_t)flag;
 		}
+	};
+
+	class AudioFile : public Asset
+	{
+	public:
+		double Duration = 0.0;
+		uint32_t SamplingRate = 0;
+		uint16_t BitDepth = 0;
+		uint16_t NumChannels = 0;
+		uint64_t FileSize = 0;
+		std::string FilePath;
+
+		AudioFile() = default;
+		AudioFile(double duration, uint32_t samplingRate, uint16_t bitDepth, uint16_t numChannels, uint64_t fileSize)
+			: Duration(duration), SamplingRate(samplingRate), BitDepth(bitDepth), NumChannels(numChannels), FileSize(fileSize)
+		{
+		}
+
+		static AssetType GetStaticType() { return AssetType::Audio; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 	};
 
 	template<typename T>

@@ -6,7 +6,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "Lux/Asset/TextureImporter.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Core/Window.h"
@@ -38,7 +37,11 @@ void Sandbox2D::OnAttach()
 {
 	LUX_PROFILE_FUNCTION("Sandbox2D::OnAttach");
 
-	m_CheckerboardTexture = Lux::TextureImporter::LoadTexture2D("assets/textures/Checkerboard.png");
+	Lux::TextureSpecification checkerboardSpec;
+	checkerboardSpec.Format = Lux::ImageFormat::SRGBA;
+	checkerboardSpec.GenerateMips = false;
+	checkerboardSpec.DebugName = "assets/textures/Checkerboard.png";
+	m_CheckerboardTexture = Lux::Texture2D::Create(checkerboardSpec, "assets/textures/Checkerboard.png");
 
 	// ------------------------------------------------------------------
 	// Renderer2D

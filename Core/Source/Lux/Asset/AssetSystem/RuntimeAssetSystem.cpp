@@ -4,82 +4,117 @@
 namespace Lux
 {
 	RuntimeAssetSystem::RuntimeAssetSystem()
-		: m_Thread("RuntimeAssetSystem")
+		: m_Thread("Asset Thread")
 	{
-		m_Running = true;
-		m_Thread.Dispatch(&RuntimeAssetSystem::WorkerThread, this);
+		m_Thread.Dispatch([this]() { AssetThreadFunc(); });
 	}
 
 	RuntimeAssetSystem::~RuntimeAssetSystem()
 	{
-		Stop();
-	}
-
-	void RuntimeAssetSystem::QueueAssetLoad(RuntimeAssetLoadRequest request)
-	{
-		{
-			std::scoped_lock lock(m_LoadQueueMutex);
-			m_LoadQueue.push(std::move(request));
-		}
-		m_LoadQueueCV.notify_one();
-	}
-
-	void RuntimeAssetSystem::SyncLoadedAssets(AssetMap& loadedAssets)
-	{
-		std::scoped_lock lock(m_FinishedQueueMutex);
-		while (!m_FinishedQueue.empty())
-		{
-			auto& entry = m_FinishedQueue.front();
-			if (entry.LoadedAsset)
-				loadedAssets[entry.Handle] = entry.LoadedAsset;
-
-			if (entry.CallbackFn)
-				entry.CallbackFn(entry.Handle, entry.LoadedAsset);
-
-			m_FinishedQueue.pop();
-		}
+		StopAndWait();
 	}
 
 	void RuntimeAssetSystem::Stop()
 	{
-		if (!m_Running.exchange(false))
-			return;
+		m_Running = false;
+		m_AssetLoadingQueueCV.notify_one();
+	}
 
-		m_LoadQueueCV.notify_all();
+	void RuntimeAssetSystem::StopAndWait()
+	{
+		Stop();
 		m_Thread.Join();
 	}
 
-	void RuntimeAssetSystem::WorkerThread()
+	void RuntimeAssetSystem::AssetThreadFunc()
 	{
 		while (m_Running)
 		{
-			RuntimeAssetLoadRequest request;
-
+			bool queueEmptyOrStop = false;
+			while (!queueEmptyOrStop)
 			{
-				std::unique_lock lock(m_LoadQueueMutex);
-				m_LoadQueueCV.wait(lock, [this]
+				RuntimeAssetLoadRequest request;
 				{
-					return !m_LoadQueue.empty() || !m_Running;
-				});
+					std::scoped_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
+					if (m_AssetLoadingQueue.empty() || !m_Running)
+					{
+						queueEmptyOrStop = true;
+					}
+					else
+					{
+						request = m_AssetLoadingQueue.front();
+						m_AssetLoadingQueue.pop();
+					}
+				}
 
-				if (!m_Running && m_LoadQueue.empty())
-					break;
-
-				request = std::move(m_LoadQueue.front());
-				m_LoadQueue.pop();
+				if (request.Handle != 0 && request.SceneHandle != 0)
+					TryLoadData(request);
 			}
 
-			Ref<Asset> asset;
-			if (m_Loader)
-				asset = m_Loader(request.Handle, request.Type);
-
-			if (asset)
-				asset->Handle = request.Handle;
-
+			std::unique_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
+			if (m_AssetLoadingQueue.empty() && m_Running)
 			{
-				std::scoped_lock lock(m_FinishedQueueMutex);
-				m_FinishedQueue.push({ request.Handle, std::move(asset), std::move(request.Callback) });
+				m_AssetLoadingQueueCV.wait(lock, [this]
+				{
+					return !m_Running || !m_AssetLoadingQueue.empty();
+				});
 			}
 		}
+	}
+
+	Ref<Asset> RuntimeAssetSystem::TryLoadData(const RuntimeAssetLoadRequest& request)
+	{
+		if (!m_AssetPack)
+			return nullptr;
+
+		Ref<Asset> asset = m_AssetPack->LoadAsset(request.SceneHandle, request.Handle);
+		if (asset)
+		{
+			std::scoped_lock<std::mutex> lock(m_LoadedAssetsMutex);
+			m_LoadedAssets.emplace_back(asset);
+		}
+		else
+		{
+			LUX_CORE_ERROR("RuntimeAssetSystem: failed to load asset {}", (uint64_t)request.Handle);
+		}
+
+		return asset;
+	}
+
+	void RuntimeAssetSystem::QueueAssetLoad(const RuntimeAssetLoadRequest& request)
+	{
+		{
+			std::scoped_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
+			m_AssetLoadingQueue.push(request);
+		}
+		m_AssetLoadingQueueCV.notify_one();
+	}
+
+	Ref<Asset> RuntimeAssetSystem::GetAsset(AssetHandle sceneHandle, AssetHandle assetHandle)
+	{
+		{
+			std::scoped_lock<std::mutex> lock(m_AMLoadedAssetsMutex);
+			if (auto it = m_AMLoadedAssets.find(assetHandle); it != m_AMLoadedAssets.end())
+				return it->second;
+		}
+
+		return TryLoadData({ sceneHandle, assetHandle });
+	}
+
+	bool RuntimeAssetSystem::RetrieveReadyAssets(std::vector<Ref<Asset>>& outAssetList)
+	{
+		std::scoped_lock<std::mutex> lock(m_LoadedAssetsMutex);
+		if (m_LoadedAssets.empty())
+			return false;
+
+		outAssetList = m_LoadedAssets;
+		m_LoadedAssets.clear();
+		return true;
+	}
+
+	void RuntimeAssetSystem::UpdateLoadedAssetList(const AssetMap& loadedAssets)
+	{
+		std::scoped_lock<std::mutex> lock(m_AMLoadedAssetsMutex);
+		m_AMLoadedAssets = loadedAssets;
 	}
 }

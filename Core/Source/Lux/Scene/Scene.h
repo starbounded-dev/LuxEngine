@@ -20,6 +20,7 @@ namespace Lux {
 	class Framebuffer;
 	class Prefab;
 	class SceneRenderer;
+	class AudioSource;
 
 	// Forward declare light structures (defined in SceneRenderer.h)
 	struct LightEnvironment;
@@ -124,6 +125,10 @@ namespace Lux {
 		void OnPhysics2DStart();
 		void OnPhysics2DStop();
 		void RenderScene(EditorCamera& camera);
+		Ref<AudioSource> GetOrCreateRuntimeAudioSource(Entity entity, AssetHandle audioHandle);
+		Ref<AudioSource> GetOrCreateRuntimePlaylistSource(Entity entity, uint32_t index, AssetHandle audioHandle);
+		void ReleaseRuntimeAudio(Entity entity);
+		void ReleaseAllRuntimeAudio();
 
 	private:
 		entt::registry m_Registry;
@@ -142,6 +147,8 @@ namespace Lux {
 		mutable bool m_DynamicSkyEnvironmentValid = false;
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
+		std::unordered_map<UUID, Ref<AudioSource>> m_RuntimeAudioSources;
+		std::unordered_map<UUID, std::vector<Ref<AudioSource>>> m_RuntimeAudioPlaylists;
 
 		friend class Entity;
 		friend class SceneSerializer;

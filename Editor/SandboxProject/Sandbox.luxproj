@@ -1,6 +1,79 @@
 Project:
   Name: Sandbox
   AssetDirectory: Assets
-  AssetRegistry: Assets/AssetRegistry.ser
+  AssetRegistry: Assets/AssetRegistry.lzr
+  AudioCommandsRegistryPath: AudioCommandsRegistry.lzr
+  MeshPath: Meshes
+  MeshSourcePath: Meshes/Source
+  AnimationPath: Animation
   ScriptModulePath: Scripts/Binaries/Sandbox.dll
+  DefaultNamespace: Sandbox
   StartScene: ""
+  AutomaticallyReloadAssembly: true
+  AutoSave: true
+  AutoSaveInterval: 300
+  Audio:
+    FileStreamingDurationThreshold: 1
+  Physics:
+    FixedTimestep: 0.0166666675
+    Gravity: [0, -9.81000042, 0]
+    SolverPositionIterations: 8
+    SolverVelocityIterations: 2
+    MaxBodies: 1000
+    CaptureOnPlay: true
+    CaptureMethod: LiveDebug
+  Log:
+    Animation:
+      Enabled: true
+      LevelFilter: Warn
+    Asset Pack:
+      Enabled: true
+      LevelFilter: Warn
+    AssetManager:
+      Enabled: true
+      LevelFilter: Info
+    AssetSystem:
+      Enabled: true
+      LevelFilter: Info
+    Assimp:
+      Enabled: true
+      LevelFilter: Error
+    Audio:
+      Enabled: true
+      LevelFilter: Error
+    Core:
+      Enabled: true
+      LevelFilter: Trace
+    GLFW:
+      Enabled: true
+      LevelFilter: Error
+    Memory:
+      Enabled: true
+      LevelFilter: Error
+    Mesh:
+      Enabled: true
+      LevelFilter: Warn
+    Physics:
+      Enabled: true
+      LevelFilter: Warn
+    Project:
+      Enabled: true
+      LevelFilter: Warn
+    Renderer:
+      Enabled: true
+      LevelFilter: Info
+    Scene:
+      Enabled: true
+      LevelFilter: Info
+    Scripting:
+      Enabled: true
+      LevelFilter: Warn
+    Sound Spatializer:
+      Enabled: true
+      LevelFilter: Warn
+    Timer:
+      Enabled: false
+      LevelFilter: Trace
+    miniaudio:
+      Enabled: true
+      LevelFilter: Error

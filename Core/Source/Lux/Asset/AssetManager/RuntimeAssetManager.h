@@ -4,6 +4,8 @@
 
 #include "Lux/Asset/AssetMetadata.h"
 #include "Lux/Asset/AssetSystem/RuntimeAssetSystem.h"
+#include "Lux/Scene/Scene.h"
+#include "Lux/Serialization/AssetPack.h"
 
 #include <shared_mutex>
 
@@ -46,17 +48,22 @@ namespace Lux
 		virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) override;
 		virtual const AssetMap& GetLoadedAssets() override { return m_LoadedAssets; }
 
-		void RegisterAsset(AssetHandle handle, AssetType type);
-		void LoadAssetAsync(AssetHandle handle, RuntimeAssetCallback callback = nullptr);
-		void SyncLoadedAssets();
-		void SetRuntimeLoader(RuntimeAssetSystem::RuntimeLoader loader);
+		Ref<Scene> LoadScene(AssetHandle handle);
+		void SetAssetPack(Ref<AssetPack> assetPack);
 
 	private:
-		std::unordered_map<AssetHandle, AssetMetadata> m_AssetRegistry;
+		void UpdateDependents(AssetHandle handle);
+
+		Ref<AssetPack> m_AssetPack;
+		AssetHandle m_ActiveScene = 0;
+
 		AssetMap m_LoadedAssets;
 		std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;
 		std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependents;
 		std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependencies;
+		std::unordered_set<AssetHandle> m_PendingAssets;
+
+		mutable std::shared_mutex m_MemoryAssetsMutex;
 		mutable std::shared_mutex m_AssetDependenciesMutex;
 
 		RuntimeAssetSystem m_AssetSystem;

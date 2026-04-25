@@ -19,6 +19,7 @@
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Physics/ContactListener2D.h"
+#include "Lux/Project/Project.h"
 
 #include <glm/glm.hpp>
 
@@ -33,6 +34,47 @@ namespace Lux {
 
 	static ContactListener2D s_Box2DContactListener;
 
+	namespace
+	{
+		std::filesystem::path ResolveAudioFilePath(const Ref<AudioFile>& audioFile)
+		{
+			if (!audioFile)
+				return {};
+
+			const std::filesystem::path storedPath = audioFile->FilePath;
+			if (storedPath.empty())
+				return {};
+
+			if (storedPath.is_absolute())
+				return storedPath;
+
+			if (Ref<Project> project = Project::GetActive())
+				return project->GetAssetFileSystemPath(storedPath);
+
+			return storedPath;
+		}
+
+		Ref<AudioSource> CreateRuntimeAudioSourceFromHandle(AssetHandle handle)
+		{
+			if (!AssetManager::IsAssetHandleValid(handle))
+				return nullptr;
+
+			Ref<AudioFile> audioFile = AssetManager::GetAsset<AudioFile>(handle);
+			if (!audioFile)
+				return nullptr;
+
+			const std::filesystem::path filepath = ResolveAudioFilePath(audioFile);
+			if (filepath.empty())
+				return nullptr;
+
+			Ref<AudioSource> audioSource = Ref<AudioSource>::Create();
+			if (!audioSource->LoadFromFile(filepath))
+				return nullptr;
+
+			return audioSource;
+		}
+	}
+
 	Scene::Scene()
 	{
 		m_Renderer2D = Ref<Renderer2D>::Create();
@@ -40,6 +82,7 @@ namespace Lux {
 
 	Scene::~Scene()
 	{
+		ReleaseAllRuntimeAudio();
 		m_EntityMap.clear();
 		delete m_PhysicsWorld;
 	}
@@ -131,8 +174,51 @@ namespace Lux {
 
 	void Scene::DestroyEntity(Entity entity)
 	{
+		ReleaseRuntimeAudio(entity);
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
+	}
+
+	Ref<AudioSource> Scene::GetOrCreateRuntimeAudioSource(Entity entity, AssetHandle audioHandle)
+	{
+		if (!entity || !audioHandle)
+			return nullptr;
+
+		Ref<AudioSource>& runtimeAudio = m_RuntimeAudioSources[entity.GetUUID()];
+		if (!runtimeAudio)
+			runtimeAudio = CreateRuntimeAudioSourceFromHandle(audioHandle);
+
+		return runtimeAudio;
+	}
+
+	Ref<AudioSource> Scene::GetOrCreateRuntimePlaylistSource(Entity entity, uint32_t index, AssetHandle audioHandle)
+	{
+		if (!entity || !audioHandle)
+			return nullptr;
+
+		auto& runtimePlaylist = m_RuntimeAudioPlaylists[entity.GetUUID()];
+		if (runtimePlaylist.size() <= index)
+			runtimePlaylist.resize(index + 1);
+
+		if (!runtimePlaylist[index])
+			runtimePlaylist[index] = CreateRuntimeAudioSourceFromHandle(audioHandle);
+
+		return runtimePlaylist[index];
+	}
+
+	void Scene::ReleaseRuntimeAudio(Entity entity)
+	{
+		if (!entity)
+			return;
+
+		m_RuntimeAudioSources.erase(entity.GetUUID());
+		m_RuntimeAudioPlaylists.erase(entity.GetUUID());
+	}
+
+	void Scene::ReleaseAllRuntimeAudio()
+	{
+		m_RuntimeAudioSources.clear();
+		m_RuntimeAudioPlaylists.clear();
 	}
 
 	void Scene::OnRuntimeStart()
@@ -176,7 +262,7 @@ namespace Lux {
 
 						if (ac.Audio && !ac.AudioSourceData.UsePlaylist)
 						{
-							Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(ac.Audio);
+							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(entity, ac.Audio);
 
 							if (audioSource != nullptr)
 							{
@@ -194,7 +280,7 @@ namespace Lux {
 
 							if (ac.AudioSourceData.CurrentIndex < ac.AudioSourceData.Playlist.size())
 							{
-								Ref<AudioSource> playingSourceIndex = AssetManager::GetAsset<AudioSource>(ac.AudioSourceData.Playlist[ac.AudioSourceData.CurrentIndex]);
+								Ref<AudioSource> playingSourceIndex = GetOrCreateRuntimePlaylistSource(entity, ac.AudioSourceData.CurrentIndex, ac.AudioSourceData.Playlist[ac.AudioSourceData.CurrentIndex]);
 
 								if (playingSourceIndex != nullptr)
 								{
@@ -244,7 +330,7 @@ namespace Lux {
 					{
 						if (ac.Audio && !ac.AudioSourceData.UsePlaylist)
 						{
-							Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(ac.Audio);
+							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource({ entity, this }, ac.Audio);
 
 							if (audioSource != nullptr && audioSource->IsPlaying())
 								audioSource->Stop();
@@ -254,9 +340,9 @@ namespace Lux {
 							ac.AudioSourceData.CurrentIndex = ac.AudioSourceData.StartIndex;
 							ac.AudioSourceData.PlayingCurrentIndex = false;
 
-							for (auto audio : ac.AudioSourceData.Playlist)
+							for (uint32_t i = 0; i < ac.AudioSourceData.Playlist.size(); i++)
 							{
-								Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(audio);
+								Ref<AudioSource> audioSource = GetOrCreateRuntimePlaylistSource({ entity, this }, i, ac.AudioSourceData.Playlist[i]);
 
 								if (audioSource != nullptr && audioSource->IsPlaying())
 									audioSource->Stop();
@@ -265,6 +351,7 @@ namespace Lux {
 					}
 				});
 		}
+		ReleaseAllRuntimeAudio();
 
 		m_Registry.view<NativeScriptComponent>().each([](auto, auto& nsc)
 			{
@@ -385,7 +472,7 @@ namespace Lux {
 
 						if (asc.Audio && !asc.AudioSourceData.UsePlaylist)
 						{
-							Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(asc.Audio);
+							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(entity, asc.Audio);
 							if (!audioSource)
 								return;
 
@@ -417,8 +504,8 @@ namespace Lux {
 									return;
 							}
 
-							Ref<AudioSource> oldSource = AssetManager::GetAsset<AudioSource>(playlist[asc.AudioSourceData.OldIndex]);
-							Ref<AudioSource> currentSource = AssetManager::GetAsset<AudioSource>(playlist[asc.AudioSourceData.CurrentIndex]);
+							Ref<AudioSource> oldSource = GetOrCreateRuntimePlaylistSource(entity, asc.AudioSourceData.OldIndex, playlist[asc.AudioSourceData.OldIndex]);
+							Ref<AudioSource> currentSource = GetOrCreateRuntimePlaylistSource(entity, asc.AudioSourceData.CurrentIndex, playlist[asc.AudioSourceData.CurrentIndex]);
 
 							if (!currentSource)
 								return;
@@ -483,7 +570,7 @@ namespace Lux {
 						{
 							if (!asc.AudioSourceData.UsePlaylist)
 							{
-								Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(asc.Audio);
+								Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(e, asc.Audio);
 								if (audioSource && audioSource->IsPlaying())
 								{
 									audioSource->SetConfig(asc.Config);
@@ -495,9 +582,9 @@ namespace Lux {
 							{
 								if (asc.AudioSourceData.OldIndex == 0)
 								{
-									Ref<AudioSource> audioSourceIndex = AssetManager::GetAsset<AudioSource>(asc.Audio);
+									Ref<AudioSource> audioSourceIndex = GetOrCreateRuntimeAudioSource(e, asc.Audio);
 
-									if (audioSourceIndex->IsPlaying())
+									if (audioSourceIndex && audioSourceIndex->IsPlaying())
 									{
 										audioSourceIndex->SetConfig(asc.Config);
 										audioSourceIndex->Pause();
@@ -507,11 +594,10 @@ namespace Lux {
 								}
 								else if (asc.AudioSourceData.OldIndex > 0)
 								{
-									Ref<AudioSource> audioSourceIndex = AssetManager::GetAsset<AudioSource>(asc.AudioSourceData.Playlist[asc.AudioSourceData.OldIndex]);
-
 									if (asc.AudioSourceData.OldIndex < asc.AudioSourceData.Playlist.size())
 									{
-										if (audioSourceIndex->IsPlaying())
+										Ref<AudioSource> audioSourceIndex = GetOrCreateRuntimePlaylistSource(e, asc.AudioSourceData.OldIndex, asc.AudioSourceData.Playlist[asc.AudioSourceData.OldIndex]);
+										if (audioSourceIndex && audioSourceIndex->IsPlaying())
 										{
 											audioSourceIndex->SetConfig(asc.Config);
 											audioSourceIndex->Pause();
@@ -1370,21 +1456,8 @@ namespace Lux {
 	template<>
 	void Scene::OnComponentAdded<AudioSourceComponent>(Entity entity, AudioSourceComponent& component)
 	{
-		if (component.Audio && !component.AudioSourceData.UsePlaylist)
-		{
-			Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(component.Audio);
-			if (audioSource != nullptr)
-				audioSource->SetConfig(component.Config);
-		}
-		else if (component.Audio && component.AudioSourceData.UsePlaylist)
-		{
-			for (auto audio : component.AudioSourceData.Playlist)
-			{
-				Ref<AudioSource> audioSource = AssetManager::GetAsset<AudioSource>(audio);
-				if (audioSource != nullptr)
-					audioSource->SetConfig(component.Config);
-			}
-		}
+		(void)component;
+		ReleaseRuntimeAudio(entity);
 	}
 
 	template<>
