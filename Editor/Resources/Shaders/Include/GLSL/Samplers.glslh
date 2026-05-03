@@ -36,7 +36,7 @@ vec4 SampleLinearLOD(texture2D tex, vec2 texCoord, float lod)
 
 vec4 SampleLinearLOD(texture2DArray tex, vec3 texCoord, float lod)
 {
-	return texture(sampler2DArray(tex, r_LinearSampler), texCoord, lod);
+	return textureLod(sampler2DArray(tex, r_LinearSampler), texCoord, lod);
 }
 
 vec4 SampleLinearLOD(textureCube tex, vec3 texCoord, float lod)

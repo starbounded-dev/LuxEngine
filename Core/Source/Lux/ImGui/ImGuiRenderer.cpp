@@ -125,7 +125,7 @@ namespace Lux {
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
 
-		if (m_FontTexture && io.Fonts->TexID.GetTexID())
+		if (m_FontTexture)
 			return true;
 
 		unsigned char* pixels;

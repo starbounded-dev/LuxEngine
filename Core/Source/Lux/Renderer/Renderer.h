@@ -176,6 +176,7 @@ namespace Lux {
 		static Ref<Texture2D> GetHilbertLut();
 		static Ref<Texture2D> GetBRDFLutTexture();
 		static Ref<TextureCube> GetBlackCubeTexture();
+		static Ref<Material> GetDefaultWhiteMaterial();
 		static Ref<Environment> GetEmptyEnvironment();
 		static Ref<Environment> GetDefaultEnvironment();
 

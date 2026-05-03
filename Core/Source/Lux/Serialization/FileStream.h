@@ -47,4 +47,4 @@ namespace Lux
 		std::ifstream m_Stream;
 	};
 
-} // namespace Hazel
+} // namespace Lux

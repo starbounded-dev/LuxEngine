@@ -27,7 +27,7 @@ Assets:
   - Handle: 8507320825366638536
     FilePath: Scenes/NewSceneSystem.luxscene
     Type: Scene
-    FileLastWriteTime: 13421611800
+    FileLastWriteTime: 13421614902
     Status: Ready
   - Handle: 8773409218751291332
     FilePath: Scripts/Source/Camera.cs

@@ -22,4 +22,4 @@ namespace Lux
 		ReadData((char*)string.data(), sizeof(char) * size);
 	}
 
-} // namespace Hazel
+} // namespace Lux

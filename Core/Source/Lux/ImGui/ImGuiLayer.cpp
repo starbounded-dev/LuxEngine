@@ -139,7 +139,9 @@ namespace Lux {
 		data->WindowOwned = true;
 
 		data->Renderer = std::make_unique<ImGuiRenderer>();
-		data->Renderer->Init();
+		ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer();
+		ImGuiRenderer* mainRenderer = imguiLayer ? imguiLayer->GetImGuiRenderer() : nullptr;
+		data->Renderer->Init(mainRenderer ? mainRenderer->GetRegistry() : nullptr);
 	}
 
 	static void ImGuiRenderer_DestroyWindow(ImGuiViewport* viewport)
@@ -159,7 +161,6 @@ namespace Lux {
 	{
 		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
 		vd->SC->BeginFrame();
-		vd->Renderer->UpdateFontTexture();
 		vd->Renderer->RenderToSwapchain(viewport, vd->SC.get());
 	}
 
@@ -190,6 +191,9 @@ namespace Lux {
 	void ImGuiLayer::Begin()
 	{
 		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
+
+		if (auto registry = m_ImGuiRenderer->GetRegistry())
+			registry->NewFrame();
 
 		m_ImGuiRenderer->UpdateFontTexture();
 		ImGui_ImplGlfw_NewFrame();

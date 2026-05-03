@@ -2,14 +2,16 @@
 
 #include "SceneHierarchyPanel.h"
 
+#include "Lux/Asset/Asset.h"
 #include "Lux/Asset/AssetManager.h"
-#include "Lux/Asset/AssetMetadata.h"
 #include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Renderer/Mesh.h"
 #include "Lux/Renderer/MeshFactory.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/UI/Font.h"
@@ -73,88 +75,6 @@ namespace Lux {
 			}
 
 			return false;
-		}
-
-		std::string GetAssetDisplayLabel(AssetHandle handle, const std::optional<AssetType>& expectedType)
-		{
-			if (handle == 0)
-				return "None";
-
-			if (!AssetManager::IsAssetHandleValid(handle))
-				return "Invalid";
-
-			if (expectedType.has_value() && AssetManager::GetAssetType(handle) != *expectedType)
-				return "Invalid";
-
-			Ref<Project> activeProject = Project::GetActive();
-			if (!activeProject)
-				return std::to_string((uint64_t)handle);
-
-			const AssetMetadata& metadata = activeProject->GetEditorAssetManager()->GetMetadata(handle);
-			if (metadata.FilePath.empty())
-				return std::to_string((uint64_t)handle);
-
-			return metadata.FilePath.filename().string();
-		}
-
-		bool DrawAssetReferenceProperty(const char* label, AssetHandle& handle, const std::optional<AssetType>& expectedType, const char* wrongTypeWarning = nullptr)
-		{
-			bool modified = false;
-
-			ImGui::PushID(label);
-			ImGui::TextUnformatted(label);
-			ImGui::NextColumn();
-			ImGui::PushItemWidth(-1.0f);
-
-			const std::string buttonLabel = GetAssetDisplayLabel(handle, expectedType);
-			const bool showClearButton = handle != 0;
-
-			float clearButtonWidth = 0.0f;
-			if (showClearButton)
-			{
-				const float buttonSize = ImGui::GetFrameHeight();
-				clearButtonWidth = buttonSize + ImGui::GetStyle().ItemSpacing.x;
-			}
-
-			const ImVec2 buttonSize(ImGui::GetContentRegionAvail().x - clearButtonWidth, 0.0f);
-			ImGui::Button(buttonLabel.c_str(), buttonSize);
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-				{
-					if (payload->DataSize >= sizeof(AssetHandle))
-					{
-						const AssetHandle droppedHandle = *(const AssetHandle*)payload->Data;
-						const bool typeMatches = !expectedType.has_value() || AssetManager::GetAssetType(droppedHandle) == *expectedType;
-						if (typeMatches)
-						{
-							handle = droppedHandle;
-							modified = true;
-						}
-						else if (wrongTypeWarning)
-						{
-							LUX_CORE_WARN("{}", wrongTypeWarning);
-						}
-					}
-				}
-				ImGui::EndDragDropTarget();
-			}
-
-			if (showClearButton)
-			{
-				ImGui::SameLine();
-				if (ImGui::Button("X", ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight())))
-				{
-					handle = 0;
-					modified = true;
-				}
-			}
-
-			ImGui::PopItemWidth();
-			ImGui::NextColumn();
-			ImGui::PopID();
-
-			return modified;
 		}
 
 		template<typename TComponent>
@@ -1377,7 +1297,12 @@ namespace Lux {
 				}
 
 				AssetHandle textureHandle = firstComponent.Texture;
-				if (DrawAssetReferenceProperty("Texture", textureHandle, AssetType::Texture, "Sprite Renderer only accepts texture assets"))
+				const bool mixedTexture = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
+				{
+					return entity.GetComponent<SpriteRendererComponent>().Texture;
+				});
+				ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedTexture);
+				if (ImGuiEx::PropertyAssetReference<Texture2D>("Texture", textureHandle, "Sprite Renderer only accepts texture assets"))
 				{
 					firstComponent.Texture = textureHandle;
 					ApplyToSelection<SpriteRendererComponent>(m_Context, selectedEntities, [textureHandle](SpriteRendererComponent& component, Entity)
@@ -1385,6 +1310,7 @@ namespace Lux {
 						component.Texture = textureHandle;
 					});
 				}
+				ImGui::PopItemFlag();
 
 				if (ImGuiEx::Property("Tiling Factor", firstComponent.TilingFactor, 0.1f, 0.0f, 100.0f))
 				{
@@ -1582,7 +1508,12 @@ namespace Lux {
 				}
 
 				AssetHandle fontHandle = firstComponent.FontHandle;
-				if (DrawAssetReferenceProperty("Font", fontHandle, AssetType::Font, "Text component only accepts font assets"))
+				const bool mixedFont = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
+				{
+					return entity.GetComponent<TextComponent>().FontHandle;
+				});
+				ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedFont);
+				if (ImGuiEx::PropertyAssetReference<Font>("Font", fontHandle, "Text component only accepts font assets"))
 				{
 					firstComponent.FontHandle = fontHandle;
 					ApplyToSelection<TextComponent>(m_Context, selectedEntities, [fontHandle](TextComponent& component, Entity)
@@ -1590,6 +1521,7 @@ namespace Lux {
 						component.FontHandle = fontHandle;
 					});
 				}
+				ImGui::PopItemFlag();
 
 				if (ImGuiEx::PropertyColor("Color", firstComponent.Color))
 				{
@@ -1672,7 +1604,12 @@ namespace Lux {
 
 				ImGuiEx::BeginPropertyGrid();
 				AssetHandle audioHandle = component.Audio;
-				if (DrawAssetReferenceProperty("Audio", audioHandle, AssetType::Audio, "Audio Source only accepts audio assets"))
+				const bool mixedAudio = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
+				{
+					return entity.GetComponent<AudioSourceComponent>().Audio;
+				});
+				ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedAudio);
+				if (ImGuiEx::PropertyAssetReference<AudioFile>("Audio", audioHandle, "Audio Source only accepts audio assets"))
 				{
 					component.Audio = audioHandle;
 					if (!component.AudioSourceData.Playlist.empty())
@@ -1685,6 +1622,7 @@ namespace Lux {
 							audioComponent.AudioSourceData.Playlist[0] = audioHandle;
 					});
 				}
+				ImGui::PopItemFlag();
 
 				if (ImGuiEx::Property("Volume Multiplier", config.VolumeMultiplier, 0.01f, 0.0f, 2.0f))
 				{
@@ -1879,7 +1817,12 @@ namespace Lux {
 				ImGuiEx::BeginPropertyGrid();
 
 				AssetHandle meshHandle = firstComponent.StaticMesh;
-				if (DrawAssetReferenceProperty("Mesh", meshHandle, AssetType::StaticMesh, "Static Mesh only accepts static mesh assets"))
+				const bool mixedMesh = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
+				{
+					return entity.GetComponent<StaticMeshComponent>().StaticMesh;
+				});
+				ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedMesh);
+				if (ImGuiEx::PropertyAssetReference<StaticMesh>("Mesh", meshHandle, "Static Mesh only accepts static mesh assets"))
 				{
 					firstComponent.StaticMesh = meshHandle;
 					ApplyToSelection<StaticMeshComponent>(m_Context, selectedEntities, [meshHandle](StaticMeshComponent& component, Entity)
@@ -1887,9 +1830,16 @@ namespace Lux {
 						component.StaticMesh = meshHandle;
 					});
 				}
+				ImGui::PopItemFlag();
 
 				AssetHandle materialHandle = firstComponent.MaterialTable && firstComponent.MaterialTable->HasMaterial(0) ? firstComponent.MaterialTable->GetMaterial(0) : AssetHandle{};
-				if (DrawAssetReferenceProperty("Material", materialHandle, AssetType::Material, "Static Mesh material override expects a material asset"))
+				const bool mixedMaterial = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
+				{
+					auto& smc = entity.GetComponent<StaticMeshComponent>();
+					return (smc.MaterialTable && smc.MaterialTable->HasMaterial(0)) ? smc.MaterialTable->GetMaterial(0) : AssetHandle{};
+				});
+				ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedMaterial);
+				if (ImGuiEx::PropertyAssetReference<MaterialAsset>("Material", materialHandle, "Static Mesh material override expects a material asset"))
 				{
 					if (!firstComponent.MaterialTable)
 						firstComponent.MaterialTable = Ref<MaterialTable>::Create();
@@ -1907,6 +1857,7 @@ namespace Lux {
 							component.MaterialTable->ClearMaterial(0);
 					});
 				}
+				ImGui::PopItemFlag();
 
 				if (ImGuiEx::Property("Visible", firstComponent.Visible))
 				{
@@ -2133,11 +2084,11 @@ namespace Lux {
 				if (ImGuiEx::PropertyAssetReference<Environment>("Environment Map", environmentHandle, "Sky Light only accepts environment map assets"))
 				{
 					firstComponent.SceneEnvironment = environmentHandle;
-					firstComponent.DynamicSky = (environmentHandle == 0);
+					firstComponent.DynamicSky = !environmentHandle;
 					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [environmentHandle](SkyLightComponent& component, Entity)
 					{
 						component.SceneEnvironment = environmentHandle;
-						component.DynamicSky = (environmentHandle == 0);
+						component.DynamicSky = !environmentHandle;
 					});
 				}
 				ImGui::PopItemFlag();
@@ -2150,7 +2101,27 @@ namespace Lux {
 					});
 				}
 
-				if (ImGuiEx::Property("Lod", firstComponent.Lod, 0.01f, 0.0f, 10.0f))
+				bool lodChanged = false;
+				Ref<AssetManagerBase> assetManager = Project::GetAssetManager();
+				if (firstComponent.SceneEnvironment && assetManager && assetManager->IsAssetHandleValid(firstComponent.SceneEnvironment))
+				{
+					AsyncAssetResult<Asset> environmentResult = assetManager->GetAssetAsync(firstComponent.SceneEnvironment);
+					Ref<Asset> environmentAsset = environmentResult.Asset;
+					Ref<Environment> environment = environmentResult.IsReady && environmentAsset && environmentAsset->GetAssetType() == AssetType::EnvMap ? environmentAsset.As<Environment>() : nullptr;
+					if (environment && environment->RadianceMap)
+					{
+						const float maxLod = static_cast<float>(environment->RadianceMap->GetMipLevelCount());
+						lodChanged = ImGuiEx::PropertySlider("Lod", firstComponent.Lod, 0.0f, maxLod);
+					}
+					else
+					{
+						ImGuiEx::BeginDisabled();
+						ImGuiEx::PropertySlider("Lod", firstComponent.Lod, 0.0f, 10.0f);
+						ImGuiEx::EndDisabled();
+					}
+				}
+
+				if (lodChanged)
 				{
 					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [&firstComponent](SkyLightComponent& component, Entity)
 					{
@@ -2160,9 +2131,14 @@ namespace Lux {
 
 				if (ImGuiEx::Property("Dynamic Sky", firstComponent.DynamicSky))
 				{
+					if (firstComponent.DynamicSky)
+						firstComponent.SceneEnvironment = 0;
+
 					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [&firstComponent](SkyLightComponent& component, Entity)
 					{
 						component.DynamicSky = firstComponent.DynamicSky;
+						if (component.DynamicSky)
+							component.SceneEnvironment = 0;
 					});
 				}
 

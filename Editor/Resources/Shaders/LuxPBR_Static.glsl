@@ -194,6 +194,7 @@ void main()
 	vec3 F0 = mix(Fdielectric, m_Params.Albedo, m_Params.Metalness);
 
 	uint cascadeIndex = 0;
+
 	const uint SHADOW_MAP_CASCADE_COUNT = 4;
 	for (uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; i++)
 	{
@@ -201,15 +202,67 @@ void main()
 			cascadeIndex = i + 1;
 	}
 
-	float shadowScale = u_RendererData.SoftShadows ? 
-		PCSS_DirectionalLight(u_ShadowMapTexture, cascadeIndex, GetShadowMapCoords(Input.ShadowMapCoords, cascadeIndex), u_RendererData.LightSize) : 
-		HardShadows_DirectionalLight(u_ShadowMapTexture, cascadeIndex, GetShadowMapCoords(Input.ShadowMapCoords, cascadeIndex));
+	float shadowDistance = u_RendererData.MaxShadowDistance;
+	float transitionDistance = u_RendererData.ShadowFade;
+	float distance = length(Input.ViewPosition);
+	ShadowFade = distance - (shadowDistance - transitionDistance);
+	ShadowFade /= transitionDistance;
+	ShadowFade = clamp(1.0 - ShadowFade, 0.0, 1.0);
+
+	float shadowScale;
+
+	bool fadeCascades = u_RendererData.CascadeFading;
+	if (fadeCascades)
+	{
+		float cascadeTransitionFade = u_RendererData.CascadeTransitionFade;
+
+		float c0 = smoothstep(u_RendererData.CascadeSplits[0] + cascadeTransitionFade * 0.5f, u_RendererData.CascadeSplits[0] - cascadeTransitionFade * 0.5f, Input.ViewPosition.z);
+		float c1 = smoothstep(u_RendererData.CascadeSplits[1] + cascadeTransitionFade * 0.5f, u_RendererData.CascadeSplits[1] - cascadeTransitionFade * 0.5f, Input.ViewPosition.z);
+		float c2 = smoothstep(u_RendererData.CascadeSplits[2] + cascadeTransitionFade * 0.5f, u_RendererData.CascadeSplits[2] - cascadeTransitionFade * 0.5f, Input.ViewPosition.z);
+		if (c0 > 0.0 && c0 < 1.0)
+		{
+			vec3 shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 0);
+			float shadowAmount0 = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, 0, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, 0, shadowMapCoords);
+			shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 1);
+			float shadowAmount1 = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, 1, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, 1, shadowMapCoords);
+
+			shadowScale = mix(shadowAmount0, shadowAmount1, c0);
+		}
+		else if (c1 > 0.0 && c1 < 1.0)
+		{
+			vec3 shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 1);
+			float shadowAmount1 = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, 1, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, 1, shadowMapCoords);
+			shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 2);
+			float shadowAmount2 = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, 2, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, 2, shadowMapCoords);
+
+			shadowScale = mix(shadowAmount1, shadowAmount2, c1);
+		}
+		else if (c2 > 0.0 && c2 < 1.0)
+		{
+			vec3 shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 2);
+			float shadowAmount2 = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, 2, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, 2, shadowMapCoords);
+			shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 3);
+			float shadowAmount3 = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, 3, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, 3, shadowMapCoords);
+
+			shadowScale = mix(shadowAmount2, shadowAmount3, c2);
+		}
+		else
+		{
+			vec3 shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, cascadeIndex);
+			shadowScale = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, cascadeIndex, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, cascadeIndex, shadowMapCoords);
+		}
+	}
+	else
+	{
+		vec3 shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, cascadeIndex);
+		shadowScale = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, cascadeIndex, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, cascadeIndex, shadowMapCoords);
+	}
 
 	shadowScale = 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0f, 1.0f);
 
 	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
 	lightContribution += CalculatePointLights(F0, Input.WorldPosition);
-	lightContribution += CalculateSpotLights(F0, Input.WorldPosition);
+	lightContribution += CalculateSpotLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += m_Params.Albedo * u_MaterialUniforms.Emission;
 
 	vec3 iblContribution = IBL(F0, Lr) * u_Scene.EnvironmentMapIntensity;
@@ -226,5 +279,24 @@ void main()
 		int pointLightCount = GetPointLightCount();
 		int spotLightCount = GetSpotLightCount();
 		color.rgb = (color.rgb * 0.2) + GetGradient(float(pointLightCount + spotLightCount));
+	}
+
+	if (u_RendererData.ShowCascades)
+	{
+		switch (cascadeIndex)
+		{
+		case 0:
+			color.rgb *= vec3(1.0f, 0.25f, 0.25f);
+			break;
+		case 1:
+			color.rgb *= vec3(0.25f, 1.0f, 0.25f);
+			break;
+		case 2:
+			color.rgb *= vec3(0.25f, 0.25f, 1.0f);
+			break;
+		case 3:
+			color.rgb *= vec3(1.0f, 1.0f, 0.25f);
+			break;
+		}
 	}
 }

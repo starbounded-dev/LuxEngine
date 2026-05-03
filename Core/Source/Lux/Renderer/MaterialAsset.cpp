@@ -245,7 +245,7 @@ namespace Lux {
 		if (m_Transparent)
 		{
 			// Set defaults
-			SetAlbedoColor(glm::vec3(0.8f));
+			SetAlbedoColor(glm::vec3(1.0f));
 
 			// Maps
 			ClearAlbedoMap();
@@ -253,7 +253,7 @@ namespace Lux {
 		else
 		{
 			// Set defaults
-			SetAlbedoColor(glm::vec3(0.8f));
+			SetAlbedoColor(glm::vec3(1.0f));
 			SetEmission(0.0f);
 			SetUseNormalMap(false);
 			SetMetalness(0.0f);

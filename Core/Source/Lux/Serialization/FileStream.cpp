@@ -41,4 +41,4 @@ namespace Lux
 		return true;
 	}
 
-} // namespace Hazel
+} // namespace Lux

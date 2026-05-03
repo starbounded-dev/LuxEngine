@@ -122,4 +122,4 @@ namespace Lux
 		for (uint32_t i = 0; i < size; i++)
 			ReadString(array[i]);
 	}
-} // namespace Hazel
+} // namespace Lux

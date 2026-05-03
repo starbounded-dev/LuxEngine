@@ -1787,19 +1787,29 @@ namespace Lux::ImGuiEx {
 
 		std::string name = "Invalid";
 
-		bool valid = AssetManager::IsAssetHandleValid(handle);
+		Ref<AssetManagerBase> assetManagerBase = Project::GetAssetManager();
+		if (!assetManagerBase)
+			return std::make_pair(false, name);
+
+		bool valid = assetManagerBase->IsAssetHandleValid(handle);
 		if (valid)
 		{
-			if (Ref<EditorAssetManager> assetManager = Project::GetEditorAssetManager())
+			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
 			{
-				if (settings.ShowFullFilePath)
-					name = assetManager->GetMetadata(handle).FilePath.string();
-				else
-					name = assetManager->GetMetadata(handle).FilePath.stem().string();
+				const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
+				if (metadata.IsValid() && !metadata.FilePath.empty())
+				{
+					if (settings.ShowFullFilePath)
+						name = metadata.FilePath.string();
+					else
+						name = metadata.FilePath.stem().string();
+				}
 			}
 
+			if (name == "Invalid")
+				name = std::to_string((uint64_t)handle);
 
-			if (AssetManager::IsAssetMissing(handle))
+			if (assetManagerBase->IsAssetMissing(handle))
 			{
 				valid = false;
 				name += " (Missing)";
@@ -1882,11 +1892,12 @@ namespace Lux::ImGuiEx {
 			{
 				const ImGuiPayload* data = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM");
 
-				if (data)
+				if (data && data->DataSize >= (int)sizeof(AssetHandle))
 				{
 					AssetHandle assetHandle = *(AssetHandle*)data->Data;
 					s_PropertyAssetReferenceAssetHandle = assetHandle;
-					if (AssetManager::GetAssetType(assetHandle) == T::GetStaticType())
+					Ref<AssetManagerBase> assetManager = Project::GetAssetManager();
+					if (assetManager && assetManager->GetAssetType(assetHandle) == T::GetStaticType())
 					{
 						outHandle = assetHandle;
 						modified = true;

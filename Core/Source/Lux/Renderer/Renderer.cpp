@@ -227,6 +227,7 @@ namespace Lux {
 		Ref<Texture2D> BRDFLutTexture;
 		Ref<Texture2D> HilbertLut;
 		Ref<TextureCube> BlackCubeTexture;
+		Ref<Material> DefaultWhiteMaterial;
 		Ref<Environment> EmptyEnvironment;
 		Ref<Environment> DefaultEnvironment;
 
@@ -448,6 +449,17 @@ namespace Lux {
 		s_Data->BlackCubeTexture = TextureCube::Create(spec, Buffer(blackCubeTextureData, sizeof(blackCubeTextureData)));
 
 		s_Data->EmptyEnvironment = Ref<Environment>::Create(s_Data->BlackCubeTexture, s_Data->BlackCubeTexture);
+
+		s_Data->DefaultWhiteMaterial = Material::Create(Renderer::GetShaderLibrary()->Get("LuxPBR_Static"), "Renderer-DefaultWhiteMaterial");
+		s_Data->DefaultWhiteMaterial->Set("u_MaterialUniforms.AlbedoColor", glm::vec3(1.0f));
+		s_Data->DefaultWhiteMaterial->Set("u_MaterialUniforms.Emission", 0.0f);
+		s_Data->DefaultWhiteMaterial->Set("u_MaterialUniforms.UseNormalMap", false);
+		s_Data->DefaultWhiteMaterial->Set("u_MaterialUniforms.Metalness", 0.0f);
+		s_Data->DefaultWhiteMaterial->Set("u_MaterialUniforms.Roughness", 0.4f);
+		s_Data->DefaultWhiteMaterial->Set("u_AlbedoTexture", s_Data->WhiteTexture);
+		s_Data->DefaultWhiteMaterial->Set("u_NormalTexture", s_Data->WhiteTexture);
+		s_Data->DefaultWhiteMaterial->Set("u_MetalnessTexture", s_Data->WhiteTexture);
+		s_Data->DefaultWhiteMaterial->Set("u_RoughnessTexture", s_Data->WhiteTexture);
 
 		// Hilbert look-up texture! It's a 64 x 64 uint16 texture
 		{
@@ -1035,6 +1047,8 @@ namespace Lux {
 		}
 
 		Ref<TextureCube> irradianceMap = CreateEnvironmentIrradianceMap(envFiltered, "EnvironmentIrradiance");
+		if (!irradianceMap)
+			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
 
 		return { envFiltered, irradianceMap };
 	}
@@ -1093,6 +1107,9 @@ namespace Lux {
 			return GetEmptyEnvironment();
 
 		Ref<TextureCube> irradianceMap = CreateEnvironmentIrradianceMap(radianceMap, "PreethamSkyIrradiance");
+		if (!irradianceMap)
+			return GetEmptyEnvironment();
+
 		return Ref<Environment>::Create(radianceMap, irradianceMap);
 	}
 
@@ -1501,6 +1518,11 @@ namespace Lux {
 	Ref<TextureCube> Renderer::GetBlackCubeTexture()
 	{
 		return s_Data->BlackCubeTexture;
+	}
+
+	Ref<Material> Renderer::GetDefaultWhiteMaterial()
+	{
+		return s_Data->DefaultWhiteMaterial;
 	}
 
 	

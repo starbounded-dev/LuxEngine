@@ -8,6 +8,7 @@
 
 #include <format>
 #include <tuple>
+#include <unordered_set>
 
 namespace Lux::ImGuiEx
 {
@@ -24,15 +25,15 @@ namespace Lux::ImGuiEx
 		if (ImGuiEx::BeginPopup(ID, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
 		{
 			Ref<Project> project = Project::GetActive();
-			Ref<EditorAssetManager> assetManager = project ? project->GetEditorAssetManager() : nullptr;
-			if (!assetManager)
+			Ref<AssetManagerBase> assetManagerBase = project ? Project::GetAssetManager() : nullptr;
+			Ref<EditorAssetManager> assetManager = project ? Project::GetEditorAssetManager() : nullptr;
+			if (!assetManagerBase || !assetManager)
 			{
 				ImGui::TextDisabled("No active asset manager");
 				ImGuiEx::EndPopup();
 				return false;
 			}
 
-			const auto& assetRegistry = assetManager->GetAssetRegistry();
 			AssetHandle current = selected;
 			static std::string searchString;
 
@@ -95,32 +96,31 @@ namespace Lux::ImGuiEx
 					}
 
 					std::vector<std::tuple<std::string, AssetType, AssetHandle>> assets;
+					std::unordered_set<AssetHandle> seenHandles;
 
-					for (const auto& [handle, metadata] : assetRegistry)
+					for (AssetType requestedType : assetTypes)
 					{
-						if (!metadata.IsValid())
+						if (requestedType == AssetType::None)
 							continue;
 
-						bool isValidType = false;
-
-						for (AssetType type : assetTypes)
+						for (AssetHandle handle : assetManagerBase->GetAllAssetsWithType(requestedType))
 						{
-							if (metadata.Type == type)
-							{
-								isValidType = true;
-								break;
-							}
+							if (!handle || !seenHandles.insert(handle).second || assetManagerBase->IsMemoryAsset(handle))
+								continue;
+
+							const AssetMetadata metadata = assetManager->GetMetadata(handle);
+							if (!metadata.IsValid() || metadata.FilePath.empty() || metadata.Type != requestedType)
+								continue;
+
+							const std::string assetName = metadata.FilePath.stem().string();
+							if (assetName.empty())
+								continue;
+
+							if (!searchString.empty() && !ImGuiEx::IsMatchingSearch(assetName, searchString))
+								continue;
+
+							assets.emplace_back(std::format("{}##{}", assetName, metadata.FilePath.string()), metadata.Type, handle);
 						}
-
-						if (!isValidType)
-							continue;
-
-						const std::string assetName = metadata.FilePath.stem().string();
-
-						if (!searchString.empty() && !ImGuiEx::IsMatchingSearch(assetName, searchString))
-							continue;
-
-						assets.emplace_back(std::format("{}##{}", assetName, metadata.FilePath.string()), metadata.Type, handle);
 					}
 
 					std::sort(assets.begin(), assets.end(), [](const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });

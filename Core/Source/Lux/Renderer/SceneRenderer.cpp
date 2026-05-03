@@ -9,6 +9,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
+#include <cstring>
+
 namespace Lux {
 
 	// Push-constant layout that every mesh-draw shader in this engine expects.
@@ -21,6 +24,19 @@ namespace Lux {
 		uint32_t BoneTransformBase = 0; // unused (no animation)
 		uint32_t BoneTransformStride = 0; // unused
 	};
+
+	namespace
+	{
+		Ref<TextureCube> GetEnvironmentRadianceMap(const Ref<Environment>& environment)
+		{
+			return environment && environment->RadianceMap ? environment->RadianceMap : Renderer::GetBlackCubeTexture();
+		}
+
+		Ref<TextureCube> GetEnvironmentIrradianceMap(const Ref<Environment>& environment)
+		{
+			return environment && environment->IrradianceMap ? environment->IrradianceMap : Renderer::GetBlackCubeTexture();
+		}
+	}
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Construction / destruction
@@ -65,6 +81,8 @@ namespace Lux {
 		if (m_Specification.ViewportHeight == 0) m_Specification.ViewportHeight = Application::Get().GetWindow().GetHeight();
 		m_ViewportWidth = m_Specification.ViewportWidth;
 		m_ViewportHeight = m_Specification.ViewportHeight;
+		m_InvViewportWidth = m_ViewportWidth > 0 ? 1.0f / (float)m_ViewportWidth : 0.0f;
+		m_InvViewportHeight = m_ViewportHeight > 0 ? 1.0f / (float)m_ViewportHeight : 0.0f;
 
 		// ── Uniform buffer sets ───────────────────────────────────────────────
 		m_UBSCamera = UniformBufferSet::Create(sizeof(UBCamera));
@@ -110,12 +128,25 @@ namespace Lux {
 
 		// ── Shadow map (single directional, ortho projection) ─────────────────
 		{
+			ImageSpecification shadowMapSpec;
+			shadowMapSpec.DebugName = "ShadowMapArray";
+			shadowMapSpec.Dimension = nvrhi::TextureDimension::Texture2DArray;
+			shadowMapSpec.Format = ImageFormat::Depth;
+			shadowMapSpec.Usage = ImageUsage::Attachment;
+			shadowMapSpec.Width = 4096;
+			shadowMapSpec.Height = 4096;
+			shadowMapSpec.Layers = 4;
+			m_ShadowMapImage = Image2D::Create(shadowMapSpec);
+			m_ShadowMapImage->RT_Invalidate();
+
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = 4096;
 			fbSpec.Height = 4096;
 			fbSpec.Attachments = { ImageFormat::Depth };
 			fbSpec.DepthClearValue = 0.0f;
 			fbSpec.DebugName = "ShadowMap";
+			fbSpec.ExistingImage = m_ShadowMapImage;
+			fbSpec.ExistingImageLayer = 0;
 
 			PipelineSpecification pipelineSpec;
 			pipelineSpec.DebugName = "DirShadowMap";
@@ -464,10 +495,15 @@ namespace Lux {
 
 	void SceneRenderer::SetViewportSize(uint32_t width, uint32_t height)
 	{
+		width = (uint32_t)(width * m_Specification.Tiering.RendererScale);
+		height = (uint32_t)(height * m_Specification.Tiering.RendererScale);
+
 		if (m_ViewportWidth != width || m_ViewportHeight != height)
 		{
 			m_ViewportWidth = width;
 			m_ViewportHeight = height;
+			m_InvViewportWidth = width > 0 ? 1.0f / (float)width : 0.0f;
+			m_InvViewportHeight = height > 0 ? 1.0f / (float)height : 0.0f;
 			m_NeedsResize = true;
 		}
 	}
@@ -498,14 +534,14 @@ namespace Lux {
 		LUX_CORE_ASSERT(!m_Active, "BeginScene called twice without EndScene");
 		m_Active = true;
 
-		// Open the upload command buffer for uniform/storage buffer writes
-		m_UploadCommandBuffer->Begin();
-
 		if (m_ResourcesCreatedGPU)
 			m_ResourcesCreated = true;
 
 		if (!m_ResourcesCreated)
 			return; // GPU resources not yet available
+
+		// Open the upload command buffer for uniform/storage buffer writes
+		m_UploadCommandBuffer->Begin();
 
 		m_SceneData.SceneCamera = camera;
 
@@ -658,7 +694,7 @@ namespace Lux {
 			m_RendererDataUB.LightSize = dirLight.LightSize;
 			m_RendererDataUB.MaxShadowDistance = m_Options.MaxShadowDistance;
 			m_RendererDataUB.ShadowFade = m_Options.ShadowFade;
-			m_RendererDataUB.CascadeSplits = glm::vec4(m_Options.MaxShadowDistance);
+			m_RendererDataUB.CascadeSplits = glm::vec4(-1000000.0f);
 
 			auto rdData = m_RendererDataUB;
 			Ref<SceneRenderer> instance = this;
@@ -669,20 +705,12 @@ namespace Lux {
 		}
 
 		// ── Update environment texture bindings in geometry passes ────────────
-		if (m_SceneData.SceneEnvironment)
-		{
-			m_GeometryPass->SetInput("u_EnvRadianceTex", m_SceneData.SceneEnvironment->RadianceMap);
-			m_GeometryPass->SetInput("u_EnvIrradianceTex", m_SceneData.SceneEnvironment->IrradianceMap);
-			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", m_SceneData.SceneEnvironment->RadianceMap);
-			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", m_SceneData.SceneEnvironment->IrradianceMap);
-		}
-		else
-		{
-			m_GeometryPass->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
-			m_GeometryPass->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
-			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
-			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
-		}
+		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_SceneData.SceneEnvironment);
+		Ref<TextureCube> irradianceMap = GetEnvironmentIrradianceMap(m_SceneData.SceneEnvironment);
+		m_GeometryPass->SetInput("u_EnvRadianceTex", radianceMap);
+		m_GeometryPass->SetInput("u_EnvIrradianceTex", irradianceMap);
+		m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", radianceMap);
+		m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", irradianceMap);
 
 		m_UploadCommandBuffer->End();
 		m_UploadCommandBuffer->Submit();
@@ -693,6 +721,26 @@ namespace Lux {
 	// ─────────────────────────────────────────────────────────────────────────
 
 	void SceneRenderer::SubmitStaticMesh(
+		Ref<StaticMesh>    staticMesh,
+		Ref<MeshSource>    meshSource,
+		Ref<MaterialTable> materialTable,
+		const glm::mat4& transform,
+		Ref<Material>      overrideMaterial)
+	{
+		SubmitStaticMeshInternal(staticMesh, meshSource, materialTable, transform, overrideMaterial, false);
+	}
+
+	void SceneRenderer::SubmitSelectedStaticMesh(
+		Ref<StaticMesh>    staticMesh,
+		Ref<MeshSource>    meshSource,
+		Ref<MaterialTable> materialTable,
+		const glm::mat4& transform,
+		Ref<Material>      overrideMaterial)
+	{
+		SubmitStaticMeshInternal(staticMesh, meshSource, materialTable, transform, overrideMaterial, true);
+	}
+
+	void SceneRenderer::SubmitStaticMeshInternal(
 		Ref<StaticMesh>    staticMesh,
 		Ref<MeshSource>    meshSource,
 		Ref<MaterialTable> materialTable,
@@ -714,22 +762,29 @@ namespace Lux {
 			// Resolve material handle
 			AssetHandle materialHandle = 0;
 			Ref<MaterialAsset> materialAsset;
+			Ref<Material> resolvedOverrideMaterial = overrideMaterial;
 
-			if (!overrideMaterial)
+			if (!resolvedOverrideMaterial)
 			{
-				materialHandle = materialTable && materialTable->HasMaterial(submesh.MaterialIndex)
-					? materialTable->GetMaterial(submesh.MaterialIndex)
-					: (staticMesh->GetMaterials()->HasMaterial(submesh.MaterialIndex)
-						? staticMesh->GetMaterials()->GetMaterial(submesh.MaterialIndex)
-						: AssetHandle{});
+				Ref<MaterialTable> staticMeshMaterials = staticMesh ? staticMesh->GetMaterials() : nullptr;
+				if (materialTable && materialTable->HasMaterial(submesh.MaterialIndex))
+					materialHandle = materialTable->GetMaterial(submesh.MaterialIndex);
+				else if (staticMeshMaterials && staticMeshMaterials->HasMaterial(submesh.MaterialIndex))
+					materialHandle = staticMeshMaterials->GetMaterial(submesh.MaterialIndex);
 
 				if (materialHandle)
 					materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+
+				if (!materialAsset)
+					resolvedOverrideMaterial = Renderer::GetDefaultWhiteMaterial();
 			}
 
-			LUX_CORE_ASSERT(overrideMaterial || materialAsset, "No material found for submesh {}", submeshIndex);
+			LUX_CORE_ASSERT(resolvedOverrideMaterial || materialAsset, "No material found for submesh {}", submeshIndex);
 
-			const MeshKey key{ staticMesh->Handle, materialHandle, submeshIndex, isSelected };
+			const AssetHandle keyMaterialHandle = resolvedOverrideMaterial
+				? AssetHandle((uint64_t)resolvedOverrideMaterial.Raw())
+				: materialHandle;
+			const MeshKey key{ staticMesh->Handle, keyMaterialHandle, submeshIndex, isSelected };
 
 			// ── Store transform ───────────────────────────────────────────────
 			const uint32_t transformIndex = (uint32_t)m_TransformData.size();
@@ -748,19 +803,23 @@ namespace Lux {
 			dc.MeshSource = meshSource;
 			dc.SubmeshIndex = submeshIndex;
 			dc.MaterialTable = materialTable;
-			dc.OverrideMaterial = overrideMaterial;
+			dc.OverrideMaterial = resolvedOverrideMaterial;
 			dc.InstanceCount++;
 
 			// ── Selected list ─────────────────────────────────────────────────
 			if (isSelected)
 			{
 				auto& selDc = m_SelectedStaticMeshDrawList[key];
-				selDc = dc;
-				selDc.InstanceCount = 1; // selected draw is always 1 instance
+				selDc.StaticMesh = staticMesh;
+				selDc.MeshSource = meshSource;
+				selDc.SubmeshIndex = submeshIndex;
+				selDc.MaterialTable = materialTable;
+				selDc.OverrideMaterial = resolvedOverrideMaterial;
+				selDc.InstanceCount++;
 			}
 
 			// ── Shadow pass list ──────────────────────────────────────────────
-			const bool castsShadows = overrideMaterial
+			const bool castsShadows = resolvedOverrideMaterial
 				? true // override materials always cast shadows
 				: (materialAsset && materialAsset->IsShadowCasting());
 
@@ -772,6 +831,8 @@ namespace Lux {
 				shadowDc.StaticMesh = staticMesh;
 				shadowDc.MeshSource = meshSource;
 				shadowDc.SubmeshIndex = submeshIndex;
+				shadowDc.MaterialTable = materialTable;
+				shadowDc.OverrideMaterial = resolvedOverrideMaterial;
 				shadowDc.InstanceCount++;
 			}
 		}
@@ -950,10 +1011,7 @@ namespace Lux {
 		m_CommandBuffer->Submit();
 
 		// ── 5. Update statistics ──────────────────────────────────────────────
-		m_Statistics.DrawCalls = (uint32_t)(m_StaticMeshDrawList.size()
-			+ m_TransparentStaticMeshDrawList.size());
-		m_Statistics.Meshes = m_Statistics.DrawCalls;
-		m_Statistics.Instances = (uint32_t)m_TransformData.size();
+		UpdateStatistics();
 
 		// ── 6. Clear draw lists for next frame ────────────────────────────────
 		clearAll();
@@ -1026,14 +1084,15 @@ namespace Lux {
 
 	void SceneRenderer::SkyboxPass()
 	{
-		if (!m_SceneData.SceneEnvironment)
+		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_SceneData.SceneEnvironment);
+		if (!radianceMap)
 			return;
 
 		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SkyboxPass");
 
 		m_SkyboxMaterial->Set("u_Uniforms.TextureLod", m_SceneData.SkyboxLod);
 		m_SkyboxMaterial->Set("u_Uniforms.Intensity", m_SceneData.SceneEnvironmentIntensity);
-		m_SkyboxMaterial->Set("u_Texture", m_SceneData.SceneEnvironment->RadianceMap);
+		m_SkyboxMaterial->Set("u_Texture", radianceMap);
 
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SkyboxPass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SkyboxPass->GetPipeline(), m_SkyboxMaterial);
@@ -1045,6 +1104,28 @@ namespace Lux {
 	void SceneRenderer::GeometryPass()
 	{
 		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "GeometryPass");
+
+		// Selected geometry mask, matching Hazel's static selected path. Lux does
+		// not run animation or jump-flood outline passes here.
+		Renderer::BeginRenderPass(m_CommandBuffer, m_SelectedGeometryPass);
+
+		for (auto& [key, dc] : m_SelectedStaticMeshDrawList)
+		{
+			auto it = m_MeshTransformMap.find(key);
+			if (it == m_MeshTransformMap.end()) continue;
+
+			StaticDrawCommand drawCmd = dc;
+			drawCmd.OverrideMaterial = m_SelectedGeometryMaterial;
+			const auto& tmd = it->second;
+
+			Ref<SceneRenderer> instance = this;
+			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+				instance->RT_DrawStaticMesh(
+					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true);
+				});
+		}
+
+		Renderer::EndRenderPass(m_CommandBuffer);
 
 		// ── Opaque geometry ───────────────────────────────────────────────────
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPass);
@@ -1157,6 +1238,36 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::UpdateStatistics()
+	{
+		m_Statistics.DrawCalls = 0;
+		m_Statistics.Meshes = 0;
+		m_Statistics.Instances = 0;
+
+		auto accumulate = [this](const std::map<MeshKey, StaticDrawCommand>& drawList)
+			{
+				for (const auto& [key, dc] : drawList)
+				{
+					m_Statistics.DrawCalls++;
+					m_Statistics.Meshes++;
+					m_Statistics.Instances += dc.InstanceCount;
+				}
+			};
+
+		accumulate(m_SelectedStaticMeshDrawList);
+		accumulate(m_StaticMeshDrawList);
+		accumulate(m_TransparentStaticMeshDrawList);
+
+		if (m_Options.ShowPhysicsColliders)
+			accumulate(m_StaticColliderDrawList);
+
+		m_Statistics.SavedDraws = m_Statistics.Instances > m_Statistics.DrawCalls
+			? m_Statistics.Instances - m_Statistics.DrawCalls
+			: 0;
+
+		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(Renderer::GetCurrentFrameIndex());
+	}
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// Render-thread draw helper
 	// Must be called inside a Renderer::Submit() lambda so it executes
@@ -1192,22 +1303,32 @@ namespace Lux {
 		gs.indexBuffer = ibb;
 
 		// ── Material (descriptor set 0) ───────────────────────────────────────
+		Ref<Material> material;
 		if (bindMaterial)
 		{
-			Ref<Material> material = dc.OverrideMaterial;
+			material = dc.OverrideMaterial;
 
 			if (!material)
 			{
 				AssetHandle matHandle{};
 				if (dc.MaterialTable && dc.MaterialTable->HasMaterial(submesh.MaterialIndex))
 					matHandle = dc.MaterialTable->GetMaterial(submesh.MaterialIndex);
-				else if (!meshSource->GetMaterials().empty())
-					matHandle = meshSource->GetMaterials()[submesh.MaterialIndex];
+				else if (dc.StaticMesh && dc.StaticMesh->GetMaterials() && dc.StaticMesh->GetMaterials()->HasMaterial(submesh.MaterialIndex))
+					matHandle = dc.StaticMesh->GetMaterials()->GetMaterial(submesh.MaterialIndex);
+				else
+				{
+					const auto& sourceMaterials = meshSource->GetMaterials();
+					if (submesh.MaterialIndex < sourceMaterials.size())
+						matHandle = sourceMaterials[submesh.MaterialIndex];
+				}
 
 				if (matHandle)
 					if (auto matAsset = AssetManager::GetAsset<MaterialAsset>(matHandle))
 						material = matAsset->GetMaterial();
 			}
+
+			if (!material)
+				material = Renderer::GetDefaultWhiteMaterial();
 
 			if (material)
 			{
@@ -1221,10 +1342,19 @@ namespace Lux {
 		cmd->RT_CommitGraphicsState();
 
 		// ── Push constants ────────────────────────────────────────────────────
-		MeshDrawPushConstants pc;
+		Buffer materialUniforms = material ? material->GetUniformStorageBuffer() : Buffer();
+		const uint64_t pushConstantSize = std::max<uint64_t>(sizeof(MeshDrawPushConstants), materialUniforms.Size);
+		std::vector<uint8_t> pushConstants(pushConstantSize);
+
+		if (materialUniforms)
+			std::memcpy(pushConstants.data(), materialUniforms.Data, materialUniforms.Size);
+
+		auto& pc = *reinterpret_cast<MeshDrawPushConstants*>(pushConstants.data());
 		pc.ObjectIndexBase = tmd.ObjectIndexBase;
 		pc.LightIndex = 0; // cascade 0 (single shadow cascade)
-		cmd->GetActive()->setPushConstants(&pc, sizeof(pc));
+		pc.BoneTransformBase = 0;
+		pc.BoneTransformStride = 0;
+		cmd->GetActive()->setPushConstants(pushConstants.data(), pushConstants.size());
 
 		// ── Instanced draw ────────────────────────────────────────────────────
 		nvrhi::DrawArguments drawArgs{};
@@ -1244,6 +1374,11 @@ namespace Lux {
 		if (m_CompositePass)
 			return m_CompositePass->GetOutput(0);
 		return nullptr;
+	}
+
+	Ref<Pipeline> SceneRenderer::GetFinalPipeline()
+	{
+		return m_CompositePass ? m_CompositePass->GetPipeline() : nullptr;
 	}
 
 	Ref<RenderPass> SceneRenderer::GetFinalRenderPass()

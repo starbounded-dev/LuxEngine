@@ -164,7 +164,8 @@ namespace Lux::ImGuiEx
 				ImGui::SameLine(areaPosX + 5.0f);
 				const float iconYOffset = framePaddingY;
 				ImGuiEx::ShiftCursorY(iconYOffset);
-				ImGuiEx::Image(EditorResources::SearchIcon, iconSize, { 0, 0 }, { 1, 1 }, { 1.0f, 1.0f, 1.0f, 0.2f });
+				if (EditorResources::SearchIcon)
+					ImGuiEx::Image(EditorResources::SearchIcon, iconSize, { 0, 0 }, { 1, 1 }, { 1.0f, 1.0f, 1.0f, 0.2f });
 				ImGuiEx::ShiftCursorY(-iconYOffset);
 			}
 
@@ -200,10 +201,13 @@ namespace Lux::ImGuiEx
 				if (hovered)
 					ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
 
-				ImGuiEx::DrawButtonImage(EditorResources::ClearIcon, IM_COL32(160, 160, 160, 200),
-					IM_COL32(170, 170, 170, 255),
-					IM_COL32(160, 160, 160, 150),
-					ImGuiEx::RectExpanded(clearRect, -2.0f, -2.0f));
+				if (EditorResources::ClearIcon)
+				{
+					ImGuiEx::DrawButtonImage(EditorResources::ClearIcon, IM_COL32(160, 160, 160, 200),
+						IM_COL32(170, 170, 170, 255),
+						IM_COL32(160, 160, 160, 150),
+						ImGuiEx::RectExpanded(clearRect, -2.0f, -2.0f));
+				}
 			}
 			ImGuiEx::ShiftCursorY(-1.0f);
 

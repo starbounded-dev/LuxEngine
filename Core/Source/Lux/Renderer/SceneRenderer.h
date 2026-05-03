@@ -143,6 +143,7 @@ namespace Lux {
 			uint32_t DrawCalls = 0;
 			uint32_t Meshes = 0;
 			uint32_t Instances = 0;
+			uint32_t SavedDraws = 0;
 			float    TotalGPUTime = 0.0f;
 		};
 
@@ -171,8 +172,13 @@ namespace Lux {
 			Ref<MeshSource>    meshSource,
 			Ref<MaterialTable> materialTable,
 			const glm::mat4& transform = glm::mat4(1.0f),
-			Ref<Material>      overrideMaterial = nullptr,
-			bool               isSelected = false);
+			Ref<Material>      overrideMaterial = nullptr);
+
+		void SubmitSelectedStaticMesh(Ref<StaticMesh>    staticMesh,
+			Ref<MeshSource>    meshSource,
+			Ref<MaterialTable> materialTable,
+			const glm::mat4& transform = glm::mat4(1.0f),
+			Ref<Material>      overrideMaterial = nullptr);
 
 		// Submit a debug mesh (wireframe collider, etc.) with an explicit material.
 		void SubmitPhysicsStaticDebugMesh(Ref<StaticMesh> staticMesh,
@@ -186,7 +192,9 @@ namespace Lux {
 		// ── Output ────────────────────────────────────────────────────────────
 
 		Ref<Image2D>     GetFinalPassImage();
+		Ref<Pipeline>    GetFinalPipeline();
 		Ref<RenderPass>  GetFinalRenderPass();
+		Ref<RenderPass>  GetCompositeRenderPass() { return m_CompositePass; }
 		Ref<Framebuffer> GetExternalCompositeFramebuffer() { return m_CompositingFramebuffer; }
 		Ref<RenderCommandBuffer> GetCommandBuffer() { return m_CommandBuffer; }
 
@@ -259,6 +267,13 @@ namespace Lux {
 			const glm::mat4& transform,
 			Ref<Material>    material);
 
+		void SubmitStaticMeshInternal(Ref<StaticMesh>    staticMesh,
+			Ref<MeshSource>    meshSource,
+			Ref<MaterialTable> materialTable,
+			const glm::mat4& transform,
+			Ref<Material>      overrideMaterial,
+			bool               isSelected);
+
 		// ── Render passes ────────────────────────────────────────────────────
 
 		void FlushDrawList();
@@ -269,6 +284,8 @@ namespace Lux {
 		void GeometryPass();
 		void CompositePass();
 		void GridPass();
+
+		void UpdateStatistics();
 
 		// Render-thread draw helper (must be called inside Renderer::Submit).
 		void RT_DrawStaticMesh(Ref<RenderCommandBuffer> cmd,
@@ -389,6 +406,7 @@ namespace Lux {
 		Ref<StorageBufferSet> m_SBSVisibleSpotLightIndices;
 
 		// ── Shadow map (single ortho cascade) ────────────────────────────────
+		Ref<Image2D>     m_ShadowMapImage;
 		Ref<RenderPass>  m_ShadowMapPass;
 		Ref<Material>    m_ShadowPassMaterial;
 
@@ -450,6 +468,8 @@ namespace Lux {
 		// ── Viewport / frame state ────────────────────────────────────────────
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;
+		float    m_InvViewportWidth = 0.0f;
+		float    m_InvViewportHeight = 0.0f;
 		bool     m_NeedsResize = false;
 		bool     m_Active = false;
 		bool     m_ResourcesCreatedGPU = false;

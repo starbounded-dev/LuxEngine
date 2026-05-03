@@ -1304,6 +1304,8 @@ namespace Lux {
 		outIntensity = 1.0f;
 		outLod = 0.0f;
 		Ref<Environment> fallbackEnvironment = Renderer::GetDefaultEnvironment();
+		if (!fallbackEnvironment)
+			fallbackEnvironment = Renderer::GetEmptyEnvironment();
 
 		auto view = m_Registry.view<const SkyLightComponent>();
 		for (auto entity : view)
@@ -1326,10 +1328,12 @@ namespace Lux {
 					// Keep a transient scene-local cache so we do not regenerate the sky every frame.
 					m_DynamicSkyEnvironment = Renderer::CreatePreethamSkyEnvironment(parameters.x, parameters.y, parameters.z);
 					m_DynamicSkyParameters = parameters;
-					m_DynamicSkyEnvironmentValid = (bool)m_DynamicSkyEnvironment;
+					m_DynamicSkyEnvironmentValid = m_DynamicSkyEnvironment
+						&& m_DynamicSkyEnvironment->RadianceMap
+						&& m_DynamicSkyEnvironment->IrradianceMap;
 				}
 
-				if (m_DynamicSkyEnvironment)
+				if (m_DynamicSkyEnvironmentValid)
 					return m_DynamicSkyEnvironment;
 			}
 
@@ -1345,7 +1349,9 @@ namespace Lux {
 				if (!asset || asset->GetAssetType() != AssetType::EnvMap)
 					continue;
 
-				return asset.As<Environment>();
+				Ref<Environment> environment = asset.As<Environment>();
+				if (environment && environment->RadianceMap && environment->IrradianceMap)
+					return environment;
 			}
 
 			return fallbackEnvironment;
@@ -1384,14 +1390,11 @@ namespace Lux {
 
 			bool selected = isSelected ? isSelected(entity) : false;
 
-			renderer->SubmitStaticMesh(
-				staticMesh,
-				meshSource,
-				materialTable,
-				GetWorldSpaceTransformMatrix(entity),
-				nullptr,  // no override material
-				selected
-			);
+			const glm::mat4 transform = GetWorldSpaceTransformMatrix(entity);
+			if (selected)
+				renderer->SubmitSelectedStaticMesh(staticMesh, meshSource, materialTable, transform);
+			else
+				renderer->SubmitStaticMesh(staticMesh, meshSource, materialTable, transform);
 		}
 	}
 
