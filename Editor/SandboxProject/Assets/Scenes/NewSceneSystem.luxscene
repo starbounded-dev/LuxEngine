@@ -1,5 +1,20 @@
 Scene: New Scene
 Entities:
+  - Entity: 4713413010266506957
+    TagComponent:
+      Tag: Sky Light
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 9468819874646464561
+      Intensity: 1
+      Lod: 0
+      DynamicSky: false
   - Entity: 1639952346674441217
     TagComponent:
       Tag: Camera
@@ -21,24 +36,9 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
-  - Entity: 4713413010266506957
+  - Entity: 14142260770342653537
     TagComponent:
-      Tag: Sky Light
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SkyLightComponent:
-      EnvironmentMap: 0
-      Intensity: 1
-      Lod: 0
-      DynamicSky: false
-  - Entity: 16319700565507709827
-    TagComponent:
-      Tag: Sphere
+      Tag: Cube
     Parent: 0
     Children:
       []
@@ -47,7 +47,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 18430676192667644911
+      AssetID: 2793317059321980584
       MaterialTable:
-        {}
+        0: 17234396094142868651
       Visible: true

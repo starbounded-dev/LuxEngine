@@ -4,6 +4,31 @@ Assets:
     Type: EnvMap
     FileLastWriteTime: 13419408223
     Status: None
+  - Handle: 1413204928823096047
+    FilePath: Meshes/Source/Sponza/13982482287905699490.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 1434888736002808205
+    FilePath: Meshes/Source/Sponza/6772804448157695701.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 1962539154291476993
+    FilePath: Meshes/Source/Sponza/16299174074766089871.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 1998012868994858342
+    FilePath: Meshes/Source/Sponza/15295713303328085182.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 2050661869911573750
+    FilePath: Meshes/Source/Sponza/16885566240357350108.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
   - Handle: 2122978749847400591
     FilePath: Textures/Checkerboard.png
     Type: Texture
