@@ -1,11 +1,17 @@
 #include "lpch.h"
 #include "AssimpMeshImporter.h"
 
+#include "Lux/Asset/AssetImporter.h"
+#include "Lux/Asset/AssetManager.h"
 #include "Lux/Core/Math/AABB.h"
+#include "Lux/Project/Project.h"
+#include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/VertexBuffer.h"
 #include "Lux/Renderer/IndexBuffer.h"
 
 #include <assimp/Importer.hpp>
+#include <assimp/material.h>
+#include <assimp/pbrmaterial.h>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
@@ -13,6 +19,13 @@
 #include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <fstream>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace Lux
 {
@@ -28,9 +41,267 @@ namespace Lux
 		return result;
 	}
 
+	static std::string SanitizeAssetFilename(std::string value)
+	{
+		if (value.empty())
+			value = "Material";
+
+		for (char& c : value)
+		{
+			const unsigned char ch = static_cast<unsigned char>(c);
+			if (!std::isalnum(ch) && c != '-' && c != '_')
+				c = '_';
+		}
+
+		return value;
+	}
+
+	static std::string GetMaterialName(aiMaterial* material, uint32_t index)
+	{
+		aiString name;
+		if (material && material->Get(AI_MATKEY_NAME, name) == AI_SUCCESS && name.length > 0)
+			return name.C_Str();
+
+		return "Material_" + std::to_string(index);
+	}
+
+	static bool IsEmbeddedTextureReference(const std::string& texturePath)
+	{
+		return !texturePath.empty() && texturePath[0] == '*';
+	}
+
+	static std::filesystem::path ResolveTexturePath(const std::filesystem::path& meshPath, const aiString& assimpPath)
+	{
+		std::filesystem::path texturePath = std::filesystem::path(assimpPath.C_Str());
+		if (texturePath.is_relative())
+			texturePath = meshPath.parent_path() / texturePath;
+
+		return texturePath.lexically_normal();
+	}
+
+	static std::filesystem::path FindTexturePath(const std::filesystem::path& meshPath, const aiString& assimpPath)
+	{
+		std::filesystem::path texturePath = ResolveTexturePath(meshPath, assimpPath);
+		if (std::filesystem::exists(texturePath))
+			return texturePath;
+
+		const std::filesystem::path filename = texturePath.filename();
+		if (filename.empty() || !std::filesystem::exists(meshPath.parent_path()))
+			return {};
+
+		std::error_code ec;
+		for (const auto& entry : std::filesystem::recursive_directory_iterator(meshPath.parent_path(), ec))
+		{
+			if (ec)
+				break;
+
+			if (entry.is_regular_file(ec) && entry.path().filename() == filename)
+				return entry.path().lexically_normal();
+		}
+
+		return {};
+	}
+
+	static void AddReferencedTexturePath(const std::filesystem::path& meshPath, const aiScene* scene, const aiString& texturePath, std::vector<std::filesystem::path>& paths, std::unordered_set<std::string>& seen)
+	{
+		const std::string rawPath = texturePath.C_Str();
+		if (rawPath.empty() || IsEmbeddedTextureReference(rawPath) || (scene && scene->GetEmbeddedTexture(rawPath.c_str())))
+			return;
+
+		std::filesystem::path resolvedPath = FindTexturePath(meshPath, texturePath);
+		if (resolvedPath.empty())
+			return;
+
+		const std::string key = resolvedPath.lexically_normal().generic_string();
+		if (seen.insert(key).second)
+			paths.emplace_back(resolvedPath);
+	}
+
+	static AssetHandle ImportTextureReference(const std::filesystem::path& meshPath, const aiScene* scene, aiMaterial* material, const std::initializer_list<aiTextureType>& textureTypes, std::unordered_map<std::string, AssetHandle>& textureCache)
+	{
+		Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager();
+		if (!editorAssetManager || !material)
+			return 0;
+
+		for (aiTextureType textureType : textureTypes)
+		{
+			if (material->GetTextureCount(textureType) == 0)
+				continue;
+
+			aiString texturePath;
+			if (material->GetTexture(textureType, 0, &texturePath) != AI_SUCCESS)
+				continue;
+
+			const std::string rawPath = texturePath.C_Str();
+			if (rawPath.empty() || IsEmbeddedTextureReference(rawPath) || (scene && scene->GetEmbeddedTexture(rawPath.c_str())))
+				continue;
+
+			std::filesystem::path resolvedPath = FindTexturePath(meshPath, texturePath);
+			if (resolvedPath.empty())
+			{
+				LUX_CORE_WARN("AssimpMeshImporter: texture '{}' referenced by '{}' was not found", rawPath, meshPath.filename().string());
+				continue;
+			}
+
+			const std::string cacheKey = resolvedPath.lexically_normal().generic_string();
+			if (auto it = textureCache.find(cacheKey); it != textureCache.end())
+				return it->second;
+
+			AssetHandle textureHandle = editorAssetManager->ImportAsset(resolvedPath);
+			if (textureHandle && AssetManager::GetAssetType(textureHandle) == AssetType::Texture)
+			{
+				textureCache[cacheKey] = textureHandle;
+				return textureHandle;
+			}
+		}
+
+		return 0;
+	}
+
+	static std::filesystem::path GetImportedMaterialPath(const std::filesystem::path& meshPath, const std::string& materialName, uint32_t index)
+	{
+		Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager();
+		if (!editorAssetManager)
+			return {};
+
+		std::filesystem::path meshRelativePath = editorAssetManager->GetRelativePath(meshPath).lexically_normal();
+		std::filesystem::path materialRelativeDirectory;
+		if (!meshRelativePath.empty() && !meshRelativePath.is_absolute())
+			materialRelativeDirectory = meshRelativePath.parent_path() / "Materials";
+		else
+			materialRelativeDirectory = std::filesystem::path("Materials") / SanitizeAssetFilename(meshPath.stem().string());
+
+		const std::string fileName = SanitizeAssetFilename(meshPath.stem().string() + "_" + std::to_string(index) + "_" + materialName) + ".lmat";
+		return (materialRelativeDirectory / fileName).lexically_normal();
+	}
+
+	static void ImportAssimpMaterials(const std::filesystem::path& meshPath, const aiScene* scene, Ref<MeshSource> meshSource)
+	{
+		Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager();
+		if (!editorAssetManager || !scene || !meshSource)
+			return;
+
+		meshSource->GetMaterials().assign(scene->mNumMaterials, 0);
+		std::unordered_map<std::string, AssetHandle> textureCache;
+
+		for (uint32_t i = 0; i < scene->mNumMaterials; i++)
+		{
+			aiMaterial* assimpMaterial = scene->mMaterials[i];
+			const std::string materialName = SanitizeAssetFilename(GetMaterialName(assimpMaterial, i));
+			const std::filesystem::path materialRelativePath = GetImportedMaterialPath(meshPath, materialName, i);
+			if (materialRelativePath.empty())
+				continue;
+
+			const std::filesystem::path materialFilesystemPath = Project::GetActiveAssetDirectory() / materialRelativePath;
+			std::error_code ec;
+			std::filesystem::create_directories(materialFilesystemPath.parent_path(), ec);
+			if (!std::filesystem::exists(materialFilesystemPath))
+			{
+				std::ofstream createFile(materialFilesystemPath);
+				createFile.close();
+			}
+
+			AssetHandle materialHandle = editorAssetManager->ImportAsset(materialRelativePath);
+			if (!materialHandle)
+				continue;
+
+			float opacity = 1.0f;
+			if (assimpMaterial)
+				assimpMaterial->Get(AI_MATKEY_OPACITY, opacity);
+
+			aiColor4D baseColor(1.0f, 1.0f, 1.0f, opacity);
+			if (assimpMaterial && assimpMaterial->Get(AI_MATKEY_BASE_COLOR, baseColor) != AI_SUCCESS)
+			{
+				aiColor3D diffuseColor(1.0f, 1.0f, 1.0f);
+				if (assimpMaterial->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor) == AI_SUCCESS)
+					baseColor = aiColor4D(diffuseColor.r, diffuseColor.g, diffuseColor.b, opacity);
+			}
+
+			const bool transparent = baseColor.a < 0.999f || opacity < 0.999f;
+			Ref<MaterialAsset> materialAsset = Ref<MaterialAsset>::Create(transparent);
+			materialAsset->Handle = materialHandle;
+			if (!materialAsset->GetMaterial())
+				continue;
+
+			materialAsset->SetAlbedoColor({ baseColor.r, baseColor.g, baseColor.b });
+			if (transparent)
+				materialAsset->SetTransparency(std::min(baseColor.a, opacity));
+
+			float metalness = 0.0f;
+			if (assimpMaterial && assimpMaterial->Get(AI_MATKEY_METALLIC_FACTOR, metalness) == AI_SUCCESS)
+				materialAsset->SetMetalness(std::clamp(metalness, 0.0f, 1.0f));
+
+			float roughness = 0.5f;
+			if (assimpMaterial && assimpMaterial->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) == AI_SUCCESS)
+				materialAsset->SetRoughness(std::clamp(roughness, 0.0f, 1.0f));
+
+			if (AssetHandle albedoMap = ImportTextureReference(meshPath, scene, assimpMaterial, { aiTextureType_BASE_COLOR, aiTextureType_DIFFUSE }, textureCache))
+				materialAsset->SetAlbedoMap(albedoMap);
+
+			if (AssetHandle normalMap = ImportTextureReference(meshPath, scene, assimpMaterial, { aiTextureType_NORMAL_CAMERA, aiTextureType_NORMALS, aiTextureType_HEIGHT }, textureCache))
+			{
+				materialAsset->SetNormalMap(normalMap);
+				materialAsset->SetUseNormalMap(true);
+			}
+
+			if (AssetHandle metalnessMap = ImportTextureReference(meshPath, scene, assimpMaterial, { aiTextureType_METALNESS }, textureCache))
+				materialAsset->SetMetalnessMap(metalnessMap);
+
+			if (AssetHandle roughnessMap = ImportTextureReference(meshPath, scene, assimpMaterial, { aiTextureType_DIFFUSE_ROUGHNESS, aiTextureType_SHININESS }, textureCache))
+				materialAsset->SetRoughnessMap(roughnessMap);
+
+			AssetImporter::Serialize(editorAssetManager->GetMetadata(materialHandle), materialAsset.As<Asset>());
+			AssetManager::ReloadData(materialHandle);
+			meshSource->GetMaterials()[i] = materialHandle;
+		}
+	}
+
 	AssimpMeshImporter::AssimpMeshImporter(const std::filesystem::path& path)
 		: m_Path(path)
 	{
+	}
+
+	std::vector<std::filesystem::path> AssimpMeshImporter::GetReferencedTexturePaths(const std::filesystem::path& path)
+	{
+		std::vector<std::filesystem::path> texturePaths;
+		std::unordered_set<std::string> seenPaths;
+
+		Assimp::Importer importer;
+		const aiScene* scene = importer.ReadFile(path.string(), aiProcess_ValidateDataStructure);
+		if (!scene)
+			return texturePaths;
+
+		constexpr std::array<aiTextureType, 9> textureTypes = {
+			aiTextureType_BASE_COLOR,
+			aiTextureType_DIFFUSE,
+			aiTextureType_NORMAL_CAMERA,
+			aiTextureType_NORMALS,
+			aiTextureType_HEIGHT,
+			aiTextureType_METALNESS,
+			aiTextureType_DIFFUSE_ROUGHNESS,
+			aiTextureType_SHININESS,
+			aiTextureType_EMISSIVE
+		};
+
+		for (uint32_t materialIndex = 0; materialIndex < scene->mNumMaterials; materialIndex++)
+		{
+			aiMaterial* material = scene->mMaterials[materialIndex];
+			if (!material)
+				continue;
+
+			for (aiTextureType textureType : textureTypes)
+			{
+				const uint32_t textureCount = material->GetTextureCount(textureType);
+				for (uint32_t textureIndex = 0; textureIndex < textureCount; textureIndex++)
+				{
+					aiString texturePath;
+					if (material->GetTexture(textureType, textureIndex, &texturePath) == AI_SUCCESS)
+						AddReferencedTexturePath(path, scene, texturePath, texturePaths, seenPaths);
+				}
+			}
+		}
+
+		return texturePaths;
 	}
 
 	void AssimpMeshImporter::TraverseNodes(Ref<MeshSource> meshSource,
@@ -176,8 +447,7 @@ namespace Lux
 		meshSource->m_Nodes.emplace_back(); // root placeholder
 		TraverseNodes(meshSource, scene->mRootNode, glm::mat4(1.0f), s_InvalidParentIndex);
 
-		// ── Materials (allocate zero-material placeholders) ───────────────────
-		meshSource->m_Materials.resize(scene->mNumMaterials, 0);
+		ImportAssimpMaterials(m_Path, scene, meshSource);
 
 		// ── Triangle cache ────────────────────────────────────────────────────
 		for (uint32_t i = 0; i < (uint32_t)meshSource->m_Submeshes.size(); i++)

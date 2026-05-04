@@ -4,6 +4,7 @@
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetExtensions.h"
+#include "Lux/Asset/AssimpMeshImporter.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Core/Events/KeyEvent.h"
@@ -20,6 +21,7 @@
 #include <imgui/imgui_internal.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <set>
 
@@ -39,6 +41,53 @@ namespace Lux {
 		bool IsThumbnailSupported(AssetType type)
 		{
 			return s_SupportedThumbnailAssetTypes.contains(type);
+		}
+
+		std::string ToLowerExtension(const std::filesystem::path& path)
+		{
+			std::string extension = path.extension().string();
+			std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+			return extension;
+		}
+
+		void CopyDependencyFile(const std::filesystem::path& sourceFile, const std::filesystem::path& sourceRoot, const std::filesystem::path& destinationRoot)
+		{
+			if (sourceFile.empty() || !std::filesystem::exists(sourceFile) || !std::filesystem::is_regular_file(sourceFile))
+				return;
+
+			std::error_code ec;
+			std::filesystem::path relativePath = std::filesystem::relative(sourceFile, sourceRoot, ec);
+			const std::string relativePathString = relativePath.generic_string();
+			if (ec || relativePath.empty() || relativePathString.rfind("..", 0) == 0)
+				relativePath = sourceFile.filename();
+
+			const std::filesystem::path destinationFile = destinationRoot / relativePath;
+			std::filesystem::create_directories(destinationFile.parent_path(), ec);
+			std::filesystem::copy_file(sourceFile, destinationFile, std::filesystem::copy_options::skip_existing, ec);
+		}
+
+		void CopyImportedMeshDependencies(const std::filesystem::path& sourceFile, const std::filesystem::path& destinationDirectory)
+		{
+			if (!Project::GetEditorAssetManager() || Project::GetEditorAssetManager()->GetAssetTypeFromPath(sourceFile) != AssetType::MeshSource)
+				return;
+
+			const std::filesystem::path sourceRoot = sourceFile.parent_path();
+
+			for (const std::filesystem::path& texturePath : AssimpMeshImporter::GetReferencedTexturePaths(sourceFile))
+				CopyDependencyFile(texturePath, sourceRoot, destinationDirectory);
+
+			if (ToLowerExtension(sourceFile) == ".gltf")
+			{
+				std::error_code ec;
+				for (const auto& entry : std::filesystem::directory_iterator(sourceRoot, ec))
+				{
+					if (ec)
+						break;
+
+					if (entry.is_regular_file(ec) && ToLowerExtension(entry.path()) == ".bin")
+						CopyDependencyFile(entry.path(), sourceRoot, destinationDirectory);
+				}
+			}
 		}
 
 		bool PathStartsWith(const std::filesystem::path& path, const std::filesystem::path& prefix)
@@ -186,8 +235,12 @@ namespace Lux {
 							std::filesystem::path filepath = FileSystem::OpenFileDialog();
 							if (!filepath.empty())
 							{
-								FileSystem::CopyFile(filepath, Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath);
-								Refresh();
+								const std::filesystem::path destinationDirectory = Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath;
+								if (FileSystem::CopyFile(filepath, destinationDirectory))
+								{
+									CopyImportedMeshDependencies(filepath, destinationDirectory);
+									Refresh();
+								}
 							}
 						}
 

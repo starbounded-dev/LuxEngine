@@ -403,7 +403,8 @@ namespace Lux {
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_ViewportWidth;
 			fbSpec.Height = m_ViewportHeight;
-			fbSpec.Attachments = { ImageFormat::RGBA, ImageFormat::Depth };
+			fbSpec.Attachments = { ImageFormat::RGBA, ImageFormat::DEPTH32FSTENCIL8UINT };
+			fbSpec.ExistingImages[1] = m_PreDepthPass->GetDepthOutput();
 			fbSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 			fbSpec.ClearColorOnLoad = false;
 			fbSpec.ClearDepthOnLoad = false;
@@ -445,7 +446,7 @@ namespace Lux {
 			fbSpec.Height = m_ViewportHeight;
 			fbSpec.ExistingImages[0] = m_CompositingFramebuffer->GetImage(0);
 			fbSpec.ExistingImages[1] = m_CompositingFramebuffer->GetDepthImage();
-			fbSpec.Attachments = { ImageFormat::RGBA, ImageFormat::Depth };
+			fbSpec.Attachments = { ImageFormat::RGBA, ImageFormat::DEPTH32FSTENCIL8UINT };
 			fbSpec.ClearColorOnLoad = false;
 			fbSpec.ClearDepthOnLoad = false;
 			fbSpec.DebugName = "Grid";
@@ -1231,7 +1232,7 @@ namespace Lux {
 
 		m_CompositeMaterial->Set("u_Uniforms.Opacity", m_Opacity);
 
-		Renderer::BeginRenderPass(m_CommandBuffer, m_CompositePass, /*explicitClear=*/true);
+		Renderer::BeginRenderPass(m_CommandBuffer, m_CompositePass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_CompositePass->GetPipeline(), m_CompositeMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
 

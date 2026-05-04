@@ -1384,7 +1384,7 @@ namespace Lux {
 			if (!meshSource)
 				continue;
 
-			Ref<MaterialTable> materialTable = meshComp.MaterialTable && meshComp.MaterialTable->GetMaterialCount() > 0
+			Ref<MaterialTable> materialTable = meshComp.MaterialTable && !meshComp.MaterialTable->GetMaterials().empty()
 				? meshComp.MaterialTable
 				: staticMesh->GetMaterials();
 

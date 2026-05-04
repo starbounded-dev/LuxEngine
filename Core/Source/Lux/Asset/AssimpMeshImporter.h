@@ -5,6 +5,7 @@
 
 #include <assimp/scene.h>
 #include <filesystem>
+#include <vector>
 
 namespace Lux
 {
@@ -17,6 +18,8 @@ namespace Lux
 
 		// Load the mesh source.  Returns nullptr on failure.
 		Ref<MeshSource> ImportToMeshSource();
+
+		static std::vector<std::filesystem::path> GetReferencedTexturePaths(const std::filesystem::path& path);
 
 	private:
 		void TraverseNodes(Ref<MeshSource> meshSource, aiNode* node, const glm::mat4& parentTransform, uint32_t parentIndex);

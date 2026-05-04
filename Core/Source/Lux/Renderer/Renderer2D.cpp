@@ -956,28 +956,28 @@ namespace Lux {
 		auto& bufferPtr = GetWriteableQuadBuffer();
 		bufferPtr->Position = position + camRightWS * (m_QuadVertexPositions[0].x) * size.x + camUpWS * m_QuadVertexPositions[0].y * size.y;
 		bufferPtr->Color = tintColor;
-		bufferPtr->TexCoord = { 0.0f, 1.0f };
+		bufferPtr->TexCoord = { 0.0f, 0.0f };
 		bufferPtr->TexIndex = textureIndex;
 		bufferPtr->TilingFactor = tilingFactor;
 		bufferPtr++;
 
 		bufferPtr->Position = position + camRightWS * m_QuadVertexPositions[1].x * size.x + camUpWS * m_QuadVertexPositions[1].y * size.y;
 		bufferPtr->Color = tintColor;
-		bufferPtr->TexCoord = { 0.0f, 0.0f };
+		bufferPtr->TexCoord = { 0.0f, 1.0f };
 		bufferPtr->TexIndex = textureIndex;
 		bufferPtr->TilingFactor = tilingFactor;
 		bufferPtr++;
 
 		bufferPtr->Position = position + camRightWS * m_QuadVertexPositions[2].x * size.x + camUpWS * m_QuadVertexPositions[2].y * size.y;
 		bufferPtr->Color = tintColor;
-		bufferPtr->TexCoord = { 1.0f, 0.0f };
+		bufferPtr->TexCoord = { 1.0f, 1.0f };
 		bufferPtr->TexIndex = textureIndex;
 		bufferPtr->TilingFactor = tilingFactor;
 		bufferPtr++;
 
 		bufferPtr->Position = position + camRightWS * m_QuadVertexPositions[3].x * size.x + camUpWS * m_QuadVertexPositions[3].y * size.y;
 		bufferPtr->Color = tintColor;
-		bufferPtr->TexCoord = { 1.0f, 1.0f };
+		bufferPtr->TexCoord = { 1.0f, 0.0f };
 		bufferPtr->TexIndex = textureIndex;
 		bufferPtr->TilingFactor = tilingFactor;
 		bufferPtr++;

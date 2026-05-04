@@ -1,47 +1,5 @@
 Scene: New Scene
 Entities:
-  - Entity: 14121814355416061655
-    TagComponent:
-      Tag: Text
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [-3, 1.5, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    TextComponent:
-      TextString: Welcome to Lux
-      FontHandle: 0
-      Color: [1, 1, 1, 1]
-      LineSpacing: 0
-      Kerning: 0
-      MaxWidth: 10
-      ScreenSpace: false
-      DropShadow: false
-      ShadowDistance: 0
-      ShadowColor: [0, 0, 0, 1]
-  - Entity: 1639952346674441217
-    TagComponent:
-      Tag: Camera
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 0, 6.9000001]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 45
-        PerspectiveNear: 0.100000001
-        PerspectiveFar: 1000
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
   - Entity: 4713413010266506957
     TagComponent:
       Tag: Sky Light
@@ -53,11 +11,53 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     SkyLightComponent:
-      EnvironmentMap: 10933720561759477118
+      EnvironmentMap: 9468819874646464561
       Intensity: 1
       Lod: 0
       DynamicSky: false
-  - Entity: 16432102992038791604
+  - Entity: 1639952346674441217
+    TagComponent:
+      Tag: Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-7.49999952, 1, -0.0974102318]
+      Rotation: [0, -1.57045102, 0]
+      Scale: [0.999999881, 1, 0.999999881]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 45
+        PerspectiveNear: 0.100000001
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 14121814355416061655
+    TagComponent:
+      Tag: Text
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.99948168, 2.5, -1.50172627]
+      Rotation: [0, -1.57045102, 0]
+      Scale: [0.5, 0.5, 0.5]
+    TextComponent:
+      TextString: Welcome to Lux
+      FontHandle: 0
+      Color: [1, 1, 1, 1]
+      LineSpacing: 0
+      Kerning: 0
+      MaxWidth: 10
+      ScreenSpace: false
+      DropShadow: false
+      ShadowDistance: 0
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 16805889847351497941
     TagComponent:
       Tag: Static Mesh
     Parent: 0
@@ -70,5 +70,5 @@ Entities:
     StaticMeshComponent:
       AssetID: 17606103004507165164
       MaterialTable:
-        0: 17234396094142868651
+        {}
       Visible: true
