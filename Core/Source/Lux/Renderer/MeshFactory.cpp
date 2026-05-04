@@ -102,7 +102,7 @@ namespace Lux
 				const float sinPhi = std::sin(phi);
 				const float cosPhi = std::cos(phi);
 
-				Vertex vertex;
+				Vertex vertex{};
 				vertex.Normal = glm::normalize(glm::vec3(cosPhi * sinTheta, cosTheta, sinPhi * sinTheta));
 				vertex.Position = radius * vertex.Normal;
 				vertex.Texcoord = { (float)longitude / (float)longitudeBands, (float)latitude / (float)latitudeBands };

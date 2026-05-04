@@ -12,7 +12,6 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
-#include "Lux/Renderer/MeshFactory.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Scene/Components.h"
@@ -27,6 +26,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <vector>
@@ -75,6 +75,20 @@ namespace Lux {
 			}
 
 			return false;
+		}
+
+		AssetHandle GetDefaultMeshSourceHandle(const char* filename)
+		{
+			Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager();
+			if (!editorAssetManager)
+				return 0;
+
+			const std::filesystem::path relativePath = std::filesystem::path("Meshes") / "Source" / "Default" / filename;
+			AssetHandle handle = editorAssetManager->GetAssetHandleFromFilePath(relativePath);
+			if (!handle || AssetManager::GetAssetType(handle) != AssetType::MeshSource)
+				return 0;
+
+			return handle;
 		}
 
 		template<typename TComponent>
@@ -501,14 +515,20 @@ namespace Lux {
 		{
 			if (ImGui::BeginMenu("Meshes"))
 			{
-				if (ImGui::MenuItem("Cube"))
-					createStaticMeshEntity("Cube", MeshFactory::CreateBox({ 1.0f, 1.0f, 1.0f }));
+				auto defaultMeshMenuItem = [&createStaticMeshEntity](const char* name, const char* filename)
+				{
+					AssetHandle meshHandle = GetDefaultMeshSourceHandle(filename);
+					if (ImGui::MenuItem(name, nullptr, false, meshHandle != 0))
+						createStaticMeshEntity(name, meshHandle);
+				};
 
-				if (ImGui::MenuItem("Sphere"))
-					createStaticMeshEntity("Sphere", MeshFactory::CreateSphere(0.5f));
-
-				if (ImGui::MenuItem("Capsule"))
-					createStaticMeshEntity("Capsule", MeshFactory::CreateCapsule(0.5f, 1.0f));
+				defaultMeshMenuItem("Capsule", "Capsule.gltf");
+				defaultMeshMenuItem("Cone", "Cone.gltf");
+				defaultMeshMenuItem("Cube", "Cube.gltf");
+				defaultMeshMenuItem("Cylinder", "Cylinder.gltf");
+				defaultMeshMenuItem("Plane", "Plane.gltf");
+				defaultMeshMenuItem("Sphere", "Sphere.gltf");
+				defaultMeshMenuItem("Torus", "Torus.gltf");
 
 				ImGui::Separator();
 
@@ -1822,7 +1842,7 @@ namespace Lux {
 					return entity.GetComponent<StaticMeshComponent>().StaticMesh;
 				});
 				ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedMesh);
-				if (ImGuiEx::PropertyAssetReference<StaticMesh>("Mesh", meshHandle, "Static Mesh only accepts static mesh assets"))
+				if (ImGuiEx::PropertyAssetReference<MeshSource>("Mesh", meshHandle, "Static Mesh accepts mesh source assets"))
 				{
 					firstComponent.StaticMesh = meshHandle;
 					ApplyToSelection<StaticMeshComponent>(m_Context, selectedEntities, [meshHandle](StaticMeshComponent& component, Entity)

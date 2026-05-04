@@ -118,11 +118,11 @@ namespace Lux {
 	class Submesh
 	{
 	public:
-		uint32_t BaseVertex;
-		uint32_t BaseIndex;
-		uint32_t MaterialIndex;
-		uint32_t IndexCount;
-		uint32_t VertexCount;
+		uint32_t BaseVertex = 0;
+		uint32_t BaseIndex = 0;
+		uint32_t MaterialIndex = 0;
+		uint32_t IndexCount = 0;
+		uint32_t VertexCount = 0;
 
 		glm::mat4 Transform{ 1.0f }; // World transform
 		glm::mat4 LocalTransform{ 1.0f };
@@ -344,6 +344,8 @@ namespace Lux {
 		Ref<MaterialTable> GetMaterials() const { return m_Materials; }
 
 		bool ShouldGenerateColliders() const { return m_GenerateColliders; }
+
+		static Ref<StaticMesh> GetOrCreateRuntime(AssetHandle staticMeshOrMeshSource);
 
 		static AssetType GetStaticType() { return AssetType::StaticMesh; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }

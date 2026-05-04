@@ -288,8 +288,26 @@ namespace Lux {
 			textureSlice.mipLevel = mip;
 			size_t rowPitch;
 			void* data = device->mapStagingTexture(stagingTexture, textureSlice, nvrhi::CpuAccessMode::Read, &rowPitch);
-			LUX_CORE_VERIFY(bufferSize == (rowPitch * m_Specification.Height));
-			memcpy(buffer.Data, data, buffer.Size);
+			if (!data)
+			{
+				device->unmapStagingTexture(stagingTexture);
+				buffer.Release();
+				return;
+			}
+
+			const uint64_t rowSize = m_Specification.Width * Utils::GetImageFormatBPP(m_Specification.Format);
+			if (rowPitch == rowSize)
+			{
+				memcpy(buffer.Data, data, buffer.Size);
+			}
+			else
+			{
+				byte* dst = static_cast<byte*>(buffer.Data);
+				const byte* src = static_cast<const byte*>(data);
+				for (uint32_t y = 0; y < m_Specification.Height; y++)
+					memcpy(dst + y * rowSize, src + y * rowPitch, rowSize);
+			}
+
 			device->unmapStagingTexture(stagingTexture);
 		}
 

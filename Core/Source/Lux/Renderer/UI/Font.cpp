@@ -392,12 +392,18 @@ namespace Lux {
 
 	Ref<Font> Font::GetFontAssetForTextComponent(const TextComponent& textComponent)
 	{
-		if (textComponent.FontHandle == s_DefaultFont->Handle || !AssetManager::IsAssetHandleValid(textComponent.FontHandle))
-		{
-			return s_DefaultFont;
-		}
+		if (!s_DefaultFont)
+			return nullptr;
 
-		return AssetManager::GetAsset<Font>(textComponent.FontHandle);
+		if (!textComponent.FontHandle || textComponent.FontHandle == s_DefaultFont->Handle)
+			return s_DefaultFont;
+
+		Ref<AssetManagerBase> assetManager = Project::GetAssetManager();
+		if (!assetManager || !assetManager->IsAssetHandleValid(textComponent.FontHandle))
+			return s_DefaultFont;
+
+		Ref<Font> font = assetManager->GetAsset(textComponent.FontHandle).As<Font>();
+		return font ? font : s_DefaultFont;
 	}
 
 }

@@ -7,10 +7,13 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Renderer/Mesh.h"
 #include "Lux/Scripting/ScriptEngine.h"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 
 #include <yaml-cpp/yaml.h>
 
@@ -196,6 +199,68 @@ namespace Lux {
 				|| entity["CapsuleColliderComponent"] || entity["MeshColliderComponent"];
 		}
 
+		static AssetHandle GetSerializableStaticMeshHandle(AssetHandle handle)
+		{
+			if (!handle || !Project::GetAssetManager() || !AssetManager::IsMemoryAsset(handle))
+				return handle;
+
+			Ref<Asset> asset = AssetManager::GetMemoryAsset(handle);
+			if (!asset || asset->GetAssetType() != AssetType::StaticMesh)
+				return handle;
+
+			const AssetHandle meshSourceHandle = asset.As<StaticMesh>()->GetMeshSource();
+			if (meshSourceHandle && !AssetManager::IsMemoryAsset(meshSourceHandle) && AssetManager::GetAssetType(meshSourceHandle) == AssetType::MeshSource)
+				return meshSourceHandle;
+
+			return handle;
+		}
+
+		static AssetHandle GetDefaultPrimitiveMeshSourceHandle(std::string_view primitiveName)
+		{
+			const char* filename = nullptr;
+			if (primitiveName == "Capsule")
+				filename = "Capsule.gltf";
+			else if (primitiveName == "Cone")
+				filename = "Cone.gltf";
+			else if (primitiveName == "Cube")
+				filename = "Cube.gltf";
+			else if (primitiveName == "Cylinder")
+				filename = "Cylinder.gltf";
+			else if (primitiveName == "Plane")
+				filename = "Plane.gltf";
+			else if (primitiveName == "Sphere")
+				filename = "Sphere.gltf";
+			else if (primitiveName == "Torus")
+				filename = "Torus.gltf";
+
+			if (!filename)
+				return 0;
+
+			Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager();
+			if (!editorAssetManager)
+				return 0;
+
+			const std::filesystem::path relativePath = std::filesystem::path("Meshes") / "Source" / "Default" / filename;
+			AssetHandle handle = editorAssetManager->GetAssetHandleFromFilePath(relativePath);
+			if (!handle || AssetManager::GetAssetType(handle) != AssetType::MeshSource)
+				return 0;
+
+			return handle;
+		}
+
+		static AssetHandle GetDeserializedStaticMeshHandle(const YAML::Node& staticMesh, Entity entity)
+		{
+			AssetHandle handle = staticMesh["AssetID"].as<uint64_t>(0);
+			if (!handle || !Project::GetAssetManager() || AssetManager::IsAssetHandleValid(handle))
+				return handle;
+
+			const std::string& entityName = entity.GetComponent<TagComponent>().Tag;
+			if (AssetHandle defaultPrimitive = GetDefaultPrimitiveMeshSourceHandle(entityName))
+				return defaultPrimitive;
+
+			return handle;
+		}
+
 		static void SerializeEntity(YAML::Emitter& out, Entity entity)
 		{
 			LUX_CORE_ASSERT(entity.HasComponent<IDComponent>());
@@ -288,7 +353,7 @@ namespace Lux {
 				const auto& staticMesh = entity.GetComponent<StaticMeshComponent>();
 				out << YAML::Key << "StaticMeshComponent";
 				out << YAML::BeginMap;
-				out << YAML::Key << "AssetID" << YAML::Value << staticMesh.StaticMesh;
+				out << YAML::Key << "AssetID" << YAML::Value << GetSerializableStaticMeshHandle(staticMesh.StaticMesh);
 				SerializeMaterialTable(out, staticMesh.MaterialTable);
 				out << YAML::Key << "Visible" << YAML::Value << staticMesh.Visible;
 				out << YAML::EndMap;
@@ -547,7 +612,7 @@ namespace Lux {
 				if (auto staticMesh = entity["StaticMeshComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<StaticMeshComponent>();
-					component.StaticMesh = staticMesh["AssetID"].as<uint64_t>(0);
+					component.StaticMesh = GetDeserializedStaticMeshHandle(staticMesh, deserializedEntity);
 					component.MaterialTable = DeserializeMaterialTable(staticMesh["MaterialTable"]);
 					component.Visible = staticMesh["Visible"].as<bool>(true);
 				}

@@ -36,6 +36,7 @@ layout (location = 0) in vec3 v_Position;
 
 void main()
 {
-	finalColor = SampleLinearLOD(u_Texture, v_Position, u_Uniforms.TextureLod) * u_Uniforms.Intensity;
+	vec3 sampleDirection = vec3(v_Position.x, -v_Position.y, v_Position.z);
+	finalColor = SampleLinearLOD(u_Texture, sampleDirection, u_Uniforms.TextureLod) * u_Uniforms.Intensity;
 	finalColor.a = 1.0f;
 }

@@ -1,4 +1,44 @@
 Assets:
+  - Handle: 223673312713576084
+    FilePath: Meshes/Source/mosin/arms1_Mat_diff.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 258743915091292477
+    FilePath: Meshes/Source/Sponza/11872827283454512094.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 651152521786077851
+    FilePath: Meshes/Source/Sponza/8747919177698443163.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 697941861652792243
+    FilePath: Meshes/Source/cerberus/CerberusMaterials.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 728603598961321712
+    FilePath: Meshes/Source/KayKit/Pistol.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 769980859436078981
+    FilePath: Meshes/Source/Sponza/5792855332885324923.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 783332701537149832
+    FilePath: Meshes/Source/Sponza/2185409758123873465.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 933628635240013253
+    FilePath: Meshes/Source/Sponza/3455394979645218238.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
   - Handle: 990815726773543575
     FilePath: Environment/dikhololo_night_4k.hdr
     Type: EnvMap
@@ -7,61 +47,361 @@ Assets:
   - Handle: 1413204928823096047
     FilePath: Meshes/Source/Sponza/13982482287905699490.jpg
     Type: Texture
-    FileLastWriteTime: 13419408223
+    FileLastWriteTime: 13422334386
     Status: None
   - Handle: 1434888736002808205
     FilePath: Meshes/Source/Sponza/6772804448157695701.jpg
     Type: Texture
-    FileLastWriteTime: 13419408223
+    FileLastWriteTime: 13422334386
     Status: None
   - Handle: 1962539154291476993
     FilePath: Meshes/Source/Sponza/16299174074766089871.jpg
     Type: Texture
-    FileLastWriteTime: 13419408223
+    FileLastWriteTime: 13422334386
     Status: None
   - Handle: 1998012868994858342
     FilePath: Meshes/Source/Sponza/15295713303328085182.jpg
     Type: Texture
-    FileLastWriteTime: 13419408223
+    FileLastWriteTime: 13422334386
     Status: None
   - Handle: 2050661869911573750
     FilePath: Meshes/Source/Sponza/16885566240357350108.jpg
     Type: Texture
-    FileLastWriteTime: 13419408223
+    FileLastWriteTime: 13422334386
     Status: None
   - Handle: 2122978749847400591
     FilePath: Textures/Checkerboard.png
     Type: Texture
     FileLastWriteTime: 13419973904
     Status: None
+  - Handle: 2253591222053023986
+    FilePath: Meshes/Source/Sponza/5823059166183034438.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 2278584737807234556
+    FilePath: Meshes/Source/CubeScene.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 2281703627847043356
+    FilePath: Meshes/Source/Default/Cylinder.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334385
+    Status: None
+  - Handle: 2332557273778946128
+    FilePath: Meshes/Source/Sponza/4910669866631290573.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 2546667996273117914
+    FilePath: Meshes/Source/Sponza/14118779221266351425.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 2561961058285473145
+    FilePath: Meshes/Source/KayKit/Bullet.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 2584375856647350434
+    FilePath: Meshes/Source/mosin/mat0_c.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 2860499812192067565
+    FilePath: Meshes/Source/Sponza/8773302468495022225.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 2955303729165353634
+    FilePath: Meshes/Source/Sponza/14170708867020035030.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 2970833986988448652
+    FilePath: Meshes/Source/Sponza/466164707995436622.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 3549150412379553978
+    FilePath: Meshes/Source/Sponza/15722799267630235092.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 3710315018549368126
+    FilePath: Meshes/Source/Default/Capsule.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334385
+    Status: None
+  - Handle: 3899263394449625530
+    FilePath: Meshes/Source/Sponza/9916269861720640319.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 3922195694138099552
+    FilePath: Meshes/Source/Sponza/2051777328469649772.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 4249452486413767587
+    FilePath: Meshes/Source/Sponza/755318871556304029.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 4282598428673505970
+    FilePath: Meshes/Source/Ramp.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 4446562595566062491
+    FilePath: Meshes/Source/Sponza/4975155472559461469.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 4481672024797730542
+    FilePath: Meshes/Source/Sponza/8481240838833932244.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 4535281249512517725
+    FilePath: Meshes/Source/Sponza/2374361008830720677.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 4737693403909348457
+    FilePath: Meshes/Source/KayKit/Pillar_A.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 4818853679576146169
+    FilePath: Meshes/Source/Sponza/715093869573992647.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 4965830344751170929
+    FilePath: Meshes/Source/Default/Plane.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334385
+    Status: None
   - Handle: 5010151633762378122
     FilePath: Scenes/Example.luxscene
     Type: Scene
     FileLastWriteTime: 13421377120
     Status: Ready
+  - Handle: 5142731789844538043
+    FilePath: Meshes/Source/Sponza/7441062115984513793.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 5384808908584690785
+    FilePath: Meshes/Source/cerberus/Cerberus_N.png
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 5426157236060710972
+    FilePath: Meshes/Source/Sponza/17556969131407844942.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 5440837493967276442
+    FilePath: Meshes/Source/Sponza/11968150294050148237.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 5535000748586164203
+    FilePath: Meshes/Source/KayKit/Pillar_B.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 5571176821040530682
+    FilePath: Meshes/Source/cerberus/Cerberus_A.png
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 5575517523176026159
+    FilePath: Meshes/Source/KayKit/Door.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
   - Handle: 5698620207532946169
     FilePath: Audio/fart-01.wav
     Type: Audio
     FileLastWriteTime: 13419973904
     Status: Ready
+  - Handle: 5985147163914489523
+    FilePath: Meshes/Source/Sponza/7268504077753552595.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 6041298930630833044
+    FilePath: Meshes/Source/Default/Cube.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334385
+    Status: None
+  - Handle: 6224831163537212937
+    FilePath: Meshes/Source/Sponza/3371964815757888145.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 6292020953060568251
+    FilePath: Meshes/Source/mosin/arms1_Mat_spec.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 6302370793932683912
+    FilePath: Meshes/Source/PhysicsTestMesh.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 6400429345634770658
+    FilePath: Meshes/Source/KayKit/Wall_decorated.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 6646075243382446201
+    FilePath: Meshes/Source/mosin/arms1_Mat_spec.png
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 6746613247884176739
+    FilePath: Meshes/Source/Sponza/14650633544276105767.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 6914727327871460686
+    FilePath: Meshes/Source/Sponza/2299742237651021498.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 7141287463087652035
+    FilePath: Meshes/Source/Default/Cone.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334385
+    Status: None
+  - Handle: 7262258654207957250
+    FilePath: Meshes/Source/Tests/TransformTest.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
   - Handle: 7305845728380112481
     FilePath: Scenes/Physics2D.luxscene
     Type: Scene
     FileLastWriteTime: 13421604645
     Status: Ready
+  - Handle: 7597659250482312386
+    FilePath: Meshes/Source/KayKit/Dummy_base.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 7859056154174783072
+    FilePath: Meshes/Source/Sponza/11474523244911310074.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 7877180993882849338
+    FilePath: Meshes/Source/mosin/E_bullet_3_ddna.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 8105000795067424479
+    FilePath: Meshes/Source/Sponza/10388182081421875623.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 8323972311181722450
+    FilePath: Meshes/Source/Sponza/10381718147657362067.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 8358000703127827012
+    FilePath: Meshes/Source/KayKit/Wall_targets.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
   - Handle: 8507320825366638536
     FilePath: Scenes/NewSceneSystem.luxscene
     Type: Scene
-    FileLastWriteTime: 13421614902
+    FileLastWriteTime: 13422336575
     Status: Ready
   - Handle: 8773409218751291332
     FilePath: Scripts/Source/Camera.cs
     Type: ScriptFile
     FileLastWriteTime: 13419973904
     Status: None
+  - Handle: 8884993776634020314
+    FilePath: Meshes/Source/Sponza/9288698199695299068.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 9094510823641623537
+    FilePath: Meshes/Source/mosin/mat1_diff.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 9195708065935548703
+    FilePath: Meshes/Source/Sponza/759203620573749278.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 9240158301788368274
+    FilePath: Meshes/Source/KayKit/Knight.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 9244450725860025483
+    FilePath: Meshes/Source/mosin/mat1_r.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 9293677099767795054
+    FilePath: Meshes/Source/Sponza/white.png
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
   - Handle: 9468819874646464561
     FilePath: Environment/pink_sunrise_4k.hdr
     Type: EnvMap
+    FileLastWriteTime: 13419408223
+    Status: Ready
+  - Handle: 9527719122853977049
+    FilePath: Meshes/Source/Sponza/6667038893015345571.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 9687583933038248376
+    FilePath: Meshes/Source/Sponza/7815564343179553343.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 9992257838460718701
+    FilePath: Meshes/Source/Sponza/8783994986360286082.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 10012952657345780143
+    FilePath: Meshes/Source/cerberus/cerberus.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 10030994927286067699
+    FilePath: Meshes/Source/Sponza/13824894030729245199.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 10622867314537240874
+    FilePath: Meshes/Source/Sponza/11490520546946913238.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 10659429319594584328
+    FilePath: Meshes/Source/HazelText.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 10839873939144702810
+    FilePath: Meshes/Source/KayKit/Primitive_floor.glb
+    Type: MeshSource
     FileLastWriteTime: 13419408223
     Status: None
   - Handle: 10933720561759477118
@@ -69,33 +409,288 @@ Assets:
     Type: EnvMap
     FileLastWriteTime: 13419408224
     Status: None
+  - Handle: 11386138621682493883
+    FilePath: Meshes/Source/KayKit/Wall_window_closed.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 11421070812618556194
+    FilePath: Meshes/Source/KayKit/Wall.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 11702378344242164174
+    FilePath: Meshes/Source/Sponza/5061699253647017043.png
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
   - Handle: 11724995497610062292
     FilePath: Scenes/3D Cube.luxscene
     Type: Scene
     FileLastWriteTime: 13421223732
+    Status: None
+  - Handle: 11730479039144612461
+    FilePath: Meshes/Source/Bloom/BloomText.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 11821523028362778657
+    FilePath: Meshes/Source/stormtrooper/Stormtrooper_D.png
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 11852428503118080765
+    FilePath: Meshes/Source/TestScene.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 11854005243157820956
+    FilePath: Meshes/Source/Sponza/13196865903111448057.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
     Status: None
   - Handle: 12181112058573688332
     FilePath: Scripts/Source/Player.cs
     Type: ScriptFile
     FileLastWriteTime: 13419973904
     Status: None
+  - Handle: 12274015493156252050
+    FilePath: Meshes/Source/KayKit/Workbench.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 12293067222607620338
+    FilePath: Meshes/Source/mosin/arms1_Mat_ddna.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 12651818064993813594
+    FilePath: Meshes/Source/Sponza/1219024358953944284.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 12733502148430487645
+    FilePath: Meshes/Source/Sponza/8750083169368950601.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
   - Handle: 12822566442885847740
     FilePath: Environment/birchwood_4k.hdr
     Type: EnvMap
     FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 12935782613808872524
+    FilePath: Meshes/Source/mosin/mat0_r.png
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 12941508462435364632
+    FilePath: Meshes/Source/Sponza/7056944414013900257.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
     Status: None
   - Handle: 12976520067329992575
     FilePath: Environment/venice_dawn_1_4k.hdr
     Type: EnvMap
     FileLastWriteTime: 13419408224
     Status: None
+  - Handle: 13048225047047572629
+    FilePath: Meshes/Source/Sponza/8051790464816141987.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 13055711753778829695
+    FilePath: Meshes/Source/Default/Sphere.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334385
+    Status: None
+  - Handle: 13067564481859945738
+    FilePath: Meshes/Source/SubmeshCubeTest.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 13105187264694725154
+    FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 13105236105095356643
+    FilePath: Meshes/Source/mosin/mosin.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 13208840653129928909
+    FilePath: Meshes/Source/Sponza/6593109234861095314.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 13312551767314411820
+    FilePath: Meshes/Source/Sponza/7645212358685992005.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 13399019488849805488
+    FilePath: Meshes/Source/cerberus/Cerberus_M-Cerberus_R.png
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 13593712532035867021
+    FilePath: Meshes/Source/Sponza/4675343432951571524.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 13635080544275699815
+    FilePath: Meshes/Source/Sponza/6047387724914829168.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 14225372291651291778
+    FilePath: Meshes/Source/mosin/E_bullet_3_diff.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 14226763787516267423
+    FilePath: Meshes/Source/mosin/E_bullet_3_spec.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 14621783590124176652
+    FilePath: Meshes/Source/Sponza/8503262930880235456.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 15023985440347032073
+    FilePath: Meshes/Source/mosin/mat1_r.png
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 15295268805590112113
+    FilePath: Meshes/Source/Sponza/8006627369776289000.png
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
   - Handle: 15308730943713920604
     FilePath: Textures/luxLogo.png
     Type: Texture
     FileLastWriteTime: 13419973904
     Status: None
+  - Handle: 15340925957748944814
+    FilePath: Meshes/Source/Sponza/2775690330959970771.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 15351123992676839202
+    FilePath: Meshes/Source/Sponza/2411100444841994089.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 15373029321514277906
+    FilePath: Meshes/Source/KayKit/Ammo_Box.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 15594029875242838149
+    FilePath: Meshes/Source/Sponza/6151467286084645207.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 15612139542921100408
+    FilePath: Meshes/Source/Sponza/332936164838540657.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 15645014067899150826
+    FilePath: Meshes/Source/Default/Torus.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334385
+    Status: None
+  - Handle: 15793156657706112797
+    FilePath: Meshes/Source/KayKit/Target_wall_large_B.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 15804256356093925870
+    FilePath: Meshes/Source/Sponza/4601176305987539675.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 15929043883980398015
+    FilePath: Meshes/Source/mosin/mat1_n.png
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 16181978456722479879
+    FilePath: Meshes/Source/Sponza/4477655471536070370.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 16206340608231192560
+    FilePath: Meshes/Source/Sponza/4871783166746854860.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 16334913998136248908
+    FilePath: Meshes/Source/Sponza/8114461559286000061.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 16487270287787705879
+    FilePath: Meshes/Source/Sponza/3628158980083700836.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 16648787738538492193
+    FilePath: Meshes/Source/Sponza/16275776544635328252.png
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 16768446743128485597
+    FilePath: Meshes/Source/Sponza/12501374198249454378.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
   - Handle: 17234396094142868651
     FilePath: Materials/White.lmat
     Type: Material
     FileLastWriteTime: 13421611954
+    Status: None
+  - Handle: 17381855264826258582
+    FilePath: Meshes/Source/Sponza/3827035219084910048.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 17606103004507165164
+    FilePath: Meshes/Source/Sponza/Sponza.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 17675372942011121617
+    FilePath: Meshes/Source/Sponza/14267839433702832875.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 17770593546956670021
+    FilePath: Meshes/Source/Sponza/17876391417123941155.jpg
+    Type: Texture
+    FileLastWriteTime: 13422334386
+    Status: None
+  - Handle: 17806530732036536836
+    FilePath: Meshes/Source/mosin/mat0_r.jpg
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 17982125276221229510
+    FilePath: Meshes/Source/stormtrooper/stormtrooper.gltf
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 18047951358235648239
+    FilePath: Meshes/Source/mosin/E_bullet_3_diff.png
+    Type: Texture
+    FileLastWriteTime: 13419408223
+    Status: None
+  - Handle: 18308501637164291034
+    FilePath: Meshes/Source/KayKit/Target_stand_B.glb
+    Type: MeshSource
+    FileLastWriteTime: 13419408223
     Status: None

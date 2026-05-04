@@ -7,7 +7,7 @@
 // Computes diffuse irradiance cubemap convolution for image-based lighting.
 // Uses quasi Monte Carlo sampling with Hammersley sequence.
 
-layout(binding = 0, rgba16f) restrict writeonly uniform imageCube o_IrradianceMap;
+layout(binding = 0, rgba32f) restrict writeonly uniform imageCube o_IrradianceMap;
 layout(binding = 1) uniform textureCube u_RadianceMap;
 
 layout(push_constant) uniform Uniforms

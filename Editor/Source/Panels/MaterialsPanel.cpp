@@ -73,7 +73,7 @@ namespace Lux {
 			const auto& component = selectedEntity.GetComponent<StaticMeshComponent>();
 			if (component.StaticMesh)
 			{
-				Ref<StaticMesh> mesh = AssetManager::GetAsset<StaticMesh>(component.StaticMesh);
+				Ref<StaticMesh> mesh = StaticMesh::GetOrCreateRuntime(component.StaticMesh);
 				if (mesh)
 					materialTable = mesh->GetMaterials();
 			}

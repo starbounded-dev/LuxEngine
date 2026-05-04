@@ -573,7 +573,28 @@ namespace Lux {
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
 					AssetHandle handle = *(AssetHandle*)payload->Data;
-					OpenScene(handle);
+					const AssetType assetType = AssetManager::GetAssetType(handle);
+					if (assetType == AssetType::Scene)
+					{
+						OpenScene(handle);
+					}
+					else if ((assetType == AssetType::MeshSource || assetType == AssetType::StaticMesh) && m_ActiveScene)
+					{
+						std::string entityName = "Static Mesh";
+						if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+						{
+							const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
+							if (metadata.IsValid() && !metadata.FilePath.empty())
+								entityName = metadata.FilePath.stem().string();
+						}
+
+						Entity entity = m_ActiveScene->CreateEntity(entityName);
+						auto& staticMesh = entity.AddComponent<StaticMeshComponent>();
+						staticMesh.StaticMesh = handle;
+
+						if (m_SceneHierarchyPanel)
+							m_SceneHierarchyPanel->SetSelectedEntity(entity);
+					}
 				}
 				ImGui::EndDragDropTarget();
 			}
@@ -1191,7 +1212,7 @@ namespace Lux {
 		if (entity.HasComponent<StaticMeshComponent>())
 		{
 			const auto& staticMeshComponent = entity.GetComponent<StaticMeshComponent>();
-			Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(staticMeshComponent.StaticMesh);
+			Ref<StaticMesh> staticMesh = StaticMesh::GetOrCreateRuntime(staticMeshComponent.StaticMesh);
 			if (staticMesh)
 			{
 				Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource());
@@ -1345,7 +1366,7 @@ namespace Lux {
 			if (m_ShowBoundingBoxes && selectedEntity.HasComponent<StaticMeshComponent>())
 			{
 				const auto& smc = selectedEntity.GetComponent<StaticMeshComponent>();
-				Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(smc.StaticMesh);
+				Ref<StaticMesh> staticMesh = StaticMesh::GetOrCreateRuntime(smc.StaticMesh);
 				if (staticMesh)
 				{
 					Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource());

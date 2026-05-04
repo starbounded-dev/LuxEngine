@@ -310,7 +310,7 @@ namespace Lux {
 			fbSpec.Height = m_ViewportHeight;
 			fbSpec.Attachments = { ImageFormat::RGBA32F, ImageFormat::Depth };
 			fbSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-			fbSpec.DepthClearValue = 1.0f;
+			fbSpec.DepthClearValue = 0.0f;
 			fbSpec.DebugName = "SelectedGeometry";
 
 			PipelineSpecification pipelineSpec;
@@ -318,7 +318,7 @@ namespace Lux {
 			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("SelectedGeometry");
 			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
 			pipelineSpec.Layout = vertexLayout;
-			pipelineSpec.DepthOperator = DepthCompareOperator::LessOrEqual;
+			pipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
 
 			RenderPassSpecification rpSpec;
 			rpSpec.DebugName = "SelectedGeometryPass";
@@ -405,6 +405,8 @@ namespace Lux {
 			fbSpec.Height = m_ViewportHeight;
 			fbSpec.Attachments = { ImageFormat::RGBA, ImageFormat::Depth };
 			fbSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+			fbSpec.ClearColorOnLoad = false;
+			fbSpec.ClearDepthOnLoad = false;
 			fbSpec.DebugName = "SceneComposite";
 			m_CompositingFramebuffer = Framebuffer::Create(fbSpec);
 
@@ -420,7 +422,11 @@ namespace Lux {
 			};
 
 			m_CompositeMaterial = Material::Create(pipelineSpec.Shader, "SceneComposite");
+			m_CompositeMaterial->Set("u_Uniforms.Exposure", 1.0f);
+			m_CompositeMaterial->Set("u_Uniforms.BloomIntensity", 0.0f);
+			m_CompositeMaterial->Set("u_Uniforms.BloomDirtIntensity", 0.0f);
 			m_CompositeMaterial->Set("u_Uniforms.Opacity", m_Opacity);
+			m_CompositeMaterial->Set("u_Uniforms.Time", 0.0f);
 
 			RenderPassSpecification rpSpec;
 			rpSpec.DebugName = "CompositePass";
@@ -927,7 +933,7 @@ namespace Lux {
 		{
 			tmd.ObjectIndexBase = cursor;
 			for (uint32_t idx : tmd.ObjectIndices)
-				objectIndexData.push_back(idx);
+				objectIndexData.push_back(idx * 3u);
 			cursor += (uint32_t)tmd.ObjectIndices.size();
 		}
 		// Do the same for the shadow-specific transform map
@@ -935,7 +941,7 @@ namespace Lux {
 		{
 			shadowTmd.Cascade.ObjectIndexBase = cursor;
 			for (uint32_t idx : shadowTmd.Cascade.ObjectIndices)
-				objectIndexData.push_back(idx);
+				objectIndexData.push_back(idx * 3u);
 			cursor += (uint32_t)shadowTmd.Cascade.ObjectIndices.size();
 		}
 
@@ -1107,25 +1113,28 @@ namespace Lux {
 
 		// Selected geometry mask, matching Hazel's static selected path. Lux does
 		// not run animation or jump-flood outline passes here.
-		Renderer::BeginRenderPass(m_CommandBuffer, m_SelectedGeometryPass);
-
-		for (auto& [key, dc] : m_SelectedStaticMeshDrawList)
+		if (!m_SelectedStaticMeshDrawList.empty())
 		{
-			auto it = m_MeshTransformMap.find(key);
-			if (it == m_MeshTransformMap.end()) continue;
+			Renderer::BeginRenderPass(m_CommandBuffer, m_SelectedGeometryPass);
 
-			StaticDrawCommand drawCmd = dc;
-			drawCmd.OverrideMaterial = m_SelectedGeometryMaterial;
-			const auto& tmd = it->second;
+			for (auto& [key, dc] : m_SelectedStaticMeshDrawList)
+			{
+				auto it = m_MeshTransformMap.find(key);
+				if (it == m_MeshTransformMap.end()) continue;
 
-			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
-				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true);
-				});
+				StaticDrawCommand drawCmd = dc;
+				drawCmd.OverrideMaterial = m_SelectedGeometryMaterial;
+				const auto& tmd = it->second;
+
+				Ref<SceneRenderer> instance = this;
+				Renderer::Submit([instance, drawCmd, tmd]() mutable {
+					instance->RT_DrawStaticMesh(
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true);
+					});
+			}
+
+			Renderer::EndRenderPass(m_CommandBuffer);
 		}
-
-		Renderer::EndRenderPass(m_CommandBuffer);
 
 		// ── Opaque geometry ───────────────────────────────────────────────────
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPass);

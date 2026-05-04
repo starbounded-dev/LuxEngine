@@ -284,7 +284,7 @@ namespace Lux {
 		size_t TextHash = 0;
 
 		// Font
-		AssetHandle FontHandle;
+		AssetHandle FontHandle = 0;
 		glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 		float LineSpacing = 0.0f;
 		float Kerning = 0.0f;

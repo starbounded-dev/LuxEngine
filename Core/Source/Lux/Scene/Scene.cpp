@@ -717,7 +717,7 @@ namespace Lux {
 				{
 					auto& text = view.get<TextComponent>(entity);
 
-					Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
+					Ref<Font> font = Font::GetFontAssetForTextComponent(text);
 					if (font)
 					{
 						m_Renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }), text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
@@ -1205,7 +1205,7 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				auto& text = view.get<TextComponent>(entity);
-				Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
+				Ref<Font> font = Font::GetFontAssetForTextComponent(text);
 				if (font)
 				{
 					m_Renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }), text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
@@ -1375,7 +1375,7 @@ namespace Lux {
 			if (!meshComp.StaticMesh)
 				continue;
 
-			Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(meshComp.StaticMesh);
+			Ref<StaticMesh> staticMesh = StaticMesh::GetOrCreateRuntime(meshComp.StaticMesh);
 			if (!staticMesh)
 				continue;
 
@@ -1438,9 +1438,9 @@ namespace Lux {
 			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
 			if (renderer2D)
 			{
+				renderer2D->SetTargetFramebuffer(renderer->GetExternalCompositeFramebuffer());
 				renderer2D->ResetStats();
 				renderer2D->BeginScene(camera.GetViewProjection(), camera.GetViewMatrix());
-				renderer2D->SetTargetFramebuffer(renderer->GetExternalCompositeFramebuffer());
 
 				// Draw sprites
 				{
@@ -1475,7 +1475,7 @@ namespace Lux {
 					{
 						auto& text = view.get<TextComponent>(entity);
 
-						Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
+						Ref<Font> font = Font::GetFontAssetForTextComponent(text);
 						if (font)
 						{
 							renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),
@@ -1534,9 +1534,9 @@ namespace Lux {
 				const glm::mat4 view = sceneCamera.ViewMatrix;
 				const glm::mat4 viewProjection = cameraComp.Camera.GetProjectionMatrix() * view;
 
+				renderer2D->SetTargetFramebuffer(renderer->GetExternalCompositeFramebuffer());
 				renderer2D->ResetStats();
 				renderer2D->BeginScene(viewProjection, view);
-				renderer2D->SetTargetFramebuffer(renderer->GetExternalCompositeFramebuffer());
 
 				// Draw sprites
 				{
@@ -1571,7 +1571,7 @@ namespace Lux {
 					{
 						auto& text = view.get<TextComponent>(entity);
 
-						Ref<Font> font = AssetManager::GetAsset<Font>(text.FontHandle);
+						Ref<Font> font = Font::GetFontAssetForTextComponent(text);
 						if (font)
 						{
 							renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),

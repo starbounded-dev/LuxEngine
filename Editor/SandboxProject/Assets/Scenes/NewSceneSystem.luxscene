@@ -1,20 +1,26 @@
 Scene: New Scene
 Entities:
-  - Entity: 4713413010266506957
+  - Entity: 14121814355416061655
     TagComponent:
-      Tag: Sky Light
+      Tag: Text
     Parent: 0
     Children:
       []
     TransformComponent:
-      Position: [0, 0, 0]
+      Position: [-3, 1.5, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    SkyLightComponent:
-      EnvironmentMap: 9468819874646464561
-      Intensity: 1
-      Lod: 0
-      DynamicSky: false
+    TextComponent:
+      TextString: Welcome to Lux
+      FontHandle: 0
+      Color: [1, 1, 1, 1]
+      LineSpacing: 0
+      Kerning: 0
+      MaxWidth: 10
+      ScreenSpace: false
+      DropShadow: false
+      ShadowDistance: 0
+      ShadowColor: [0, 0, 0, 1]
   - Entity: 1639952346674441217
     TagComponent:
       Tag: Camera
@@ -22,7 +28,7 @@ Entities:
     Children:
       []
     TransformComponent:
-      Position: [0, 0, 0]
+      Position: [0, 0, 6.9000001]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     CameraComponent:
@@ -36,9 +42,24 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
-  - Entity: 14142260770342653537
+  - Entity: 4713413010266506957
     TagComponent:
-      Tag: Cube
+      Tag: Sky Light
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 10933720561759477118
+      Intensity: 1
+      Lod: 0
+      DynamicSky: false
+  - Entity: 16432102992038791604
+    TagComponent:
+      Tag: Static Mesh
     Parent: 0
     Children:
       []
@@ -47,7 +68,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 2793317059321980584
+      AssetID: 17606103004507165164
       MaterialTable:
         0: 17234396094142868651
       Visible: true

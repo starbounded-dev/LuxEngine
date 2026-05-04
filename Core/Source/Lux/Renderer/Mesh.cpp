@@ -17,6 +17,7 @@
 #include "imgui/imgui.h"
 
 #include <filesystem>
+#include <unordered_map>
 
 namespace Lux
 {
@@ -42,7 +43,9 @@ namespace Lux
 		Submesh submesh;
 		submesh.BaseVertex = 0;
 		submesh.BaseIndex = 0;
+		submesh.MaterialIndex = 0;
 		submesh.IndexCount = (uint32_t)indices.size() * 3u;
+		submesh.VertexCount = (uint32_t)vertices.size();
 		submesh.Transform = transform;
 		m_Submeshes.push_back(submesh);
 
@@ -229,6 +232,10 @@ namespace Lux
 	// StaticMesh //////////////////////////////////////////
 	////////////////////////////////////////////////////////
 
+	namespace {
+		std::unordered_map<AssetHandle, Ref<StaticMesh>> s_RuntimeStaticMeshCache;
+	}
+
 	StaticMesh::StaticMesh(AssetHandle meshSource, bool generateColliders)
 		: m_MeshSource(meshSource)
 		, m_GenerateColliders(generateColliders)
@@ -275,6 +282,32 @@ namespace Lux
 	void StaticMesh::OnDependencyUpdated(AssetHandle)
 	{
 		AssetManager::ReloadDataAsync(Handle);
+	}
+
+	Ref<StaticMesh> StaticMesh::GetOrCreateRuntime(AssetHandle staticMeshOrMeshSource)
+	{
+		if (!staticMeshOrMeshSource || !Project::GetAssetManager())
+			return nullptr;
+
+		const AssetType assetType = AssetManager::GetAssetType(staticMeshOrMeshSource);
+		if (assetType == AssetType::StaticMesh)
+			return AssetManager::GetAsset<StaticMesh>(staticMeshOrMeshSource);
+
+		if (assetType != AssetType::MeshSource)
+			return nullptr;
+
+		if (auto it = s_RuntimeStaticMeshCache.find(staticMeshOrMeshSource); it != s_RuntimeStaticMeshCache.end())
+		{
+			if (it->second)
+				return it->second;
+		}
+
+		Ref<StaticMesh> staticMesh = Ref<StaticMesh>::Create(staticMeshOrMeshSource, false);
+		if (staticMesh->GetSubmeshes().empty())
+			return nullptr;
+
+		s_RuntimeStaticMeshCache[staticMeshOrMeshSource] = staticMesh;
+		return staticMesh;
 	}
 
 	void StaticMesh::SetSubmeshes(const std::vector<uint32_t>& submeshes, Ref<MeshSource> meshSource)

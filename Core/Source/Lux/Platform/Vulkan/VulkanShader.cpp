@@ -337,13 +337,6 @@ namespace Lux {
 			descriptorLayout.bindingCount = (uint32_t)(layoutBindings.size());
 			descriptorLayout.pBindings = layoutBindings.data();
 
-			LUX_CORE_TRACE_TAG("Renderer", "Creating descriptor set {0} with {1} ubo's, {2} ssbo's, {3} samplers, {4} separate textures, {5} separate samplers and {6} storage images", set,
-				shaderDescriptorSet.UniformBuffers.size(),
-				shaderDescriptorSet.StorageBuffers.size(),
-				shaderDescriptorSet.ImageSamplers.size(),
-				shaderDescriptorSet.SeparateTextures.size(),
-				shaderDescriptorSet.SeparateSamplers.size(),
-				shaderDescriptorSet.StorageImages.size());
 			if (set >= m_DescriptorSetLayouts.size())
 				m_DescriptorSetLayouts.resize((size_t)(set + 1));
 			VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &m_DescriptorSetLayouts[set]));

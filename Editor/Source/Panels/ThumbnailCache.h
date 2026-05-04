@@ -6,6 +6,7 @@
 
 #include <queue>
 #include <map>
+#include <set>
 
 namespace Lux {
 
@@ -86,6 +87,8 @@ namespace Lux {
 			uint64_t    Timestamp = 0;
 		};
 		std::queue<PendingThumbnail> m_Queue;
+		std::set<AssetHandle> m_QueuedHandles;
+		std::set<std::filesystem::path> m_QueuedPaths;
 
 		uint32_t m_ThumbnailSize = 128;
 

@@ -34,6 +34,18 @@
 
 namespace Lux {
 
+#ifndef LUX_SHADER_COMPILER_VERBOSE_LOGS
+#define LUX_SHADER_COMPILER_VERBOSE_LOGS 0
+#endif
+
+#if LUX_SHADER_COMPILER_VERBOSE_LOGS
+#define LUX_SHADER_COMPILER_TRACE(...) LUX_CORE_TRACE_TAG("Renderer", __VA_ARGS__)
+#define LUX_SHADER_REFLECTION_INFO(...) LUX_CORE_INFO_TAG("Renderer", __VA_ARGS__)
+#else
+#define LUX_SHADER_COMPILER_TRACE(...) ((void)0)
+#define LUX_SHADER_REFLECTION_INFO(...) ((void)0)
+#endif
+
 	static std::unordered_map<uint32_t, std::unordered_map<uint32_t, ShaderResource::UniformBuffer>> s_UniformBuffers; // set -> binding point -> buffer
 	static std::unordered_map<uint32_t, std::unordered_map<uint32_t, ShaderResource::StorageBuffer>> s_StorageBuffers; // set -> binding point -> buffer
 
@@ -107,10 +119,9 @@ namespace Lux {
             LUX_CORE_ERROR_TAG("Renderer", "Failed to load shader. Path: '{}', Language: {}, SourceSize: 0", m_ShaderSourcePath.string(), langStr);
             return false;
         }
-        // Optional: log successful load for deeper diagnosis
-        LUX_CORE_TRACE_TAG("Renderer", "Loaded shader: {} (Language: {}) size={}", m_ShaderSourcePath.string(), (m_Language==ShaderUtils::SourceLang::GLSL?"GLSL":"HLSL"), source.size());
+        LUX_SHADER_COMPILER_TRACE("Loaded shader: {} (Language: {}) size={}", m_ShaderSourcePath.string(), (m_Language==ShaderUtils::SourceLang::GLSL?"GLSL":"HLSL"), source.size());
 
-		LUX_CORE_TRACE_TAG("Renderer", "Compiling shader: {}", m_ShaderSourcePath.string());
+		LUX_SHADER_COMPILER_TRACE("Compiling shader: {}", m_ShaderSourcePath.string());
 		m_ShaderSource = PreProcess(source);
 		const nvrhi::ShaderType changedStages = VulkanShaderCache::HasChanged(this);
 
@@ -671,15 +682,15 @@ namespace Lux {
 
 	void VulkanShaderCompiler::Reflect(nvrhi::ShaderType shaderStage, const std::vector<uint32_t>& shaderData)
 	{
-		LUX_CORE_INFO_TAG("Renderer", "===========================");
-		LUX_CORE_INFO_TAG("Renderer", " Vulkan Shader Reflection");
-		LUX_CORE_INFO_TAG("Renderer", "===========================");
-		LUX_CORE_INFO_TAG("Renderer", m_ShaderSourcePath.string());
+		LUX_SHADER_REFLECTION_INFO("===========================");
+		LUX_SHADER_REFLECTION_INFO(" Vulkan Shader Reflection");
+		LUX_SHADER_REFLECTION_INFO("===========================");
+		LUX_SHADER_REFLECTION_INFO(m_ShaderSourcePath.string());
 
 		spirv_cross::Compiler compiler(shaderData);
 		auto resources = compiler.get_shader_resources();
 
-		LUX_CORE_INFO_TAG("Renderer", "Uniform Buffers:");
+		LUX_SHADER_REFLECTION_INFO("Uniform Buffers:");
 		for (const auto& resource : resources.uniform_buffers)
 		{
 			auto activeBuffers = compiler.get_active_buffer_ranges(resource.id);
@@ -714,14 +725,14 @@ namespace Lux {
 				}
 				shaderDescriptorSet.UniformBuffers[binding] = s_UniformBuffers.at(descriptorSet).at(binding);
 
-				LUX_CORE_INFO_TAG("Renderer", "  {0} ({1}, {2})", name, descriptorSet, binding);
-				LUX_CORE_INFO_TAG("Renderer", "  Member Count: {0}", memberCount);
-				LUX_CORE_INFO_TAG("Renderer", "  Size: {0}", size);
-				LUX_CORE_INFO_TAG("Renderer", "-------------------");
+				LUX_SHADER_REFLECTION_INFO("  {0} ({1}, {2})", name, descriptorSet, binding);
+				LUX_SHADER_REFLECTION_INFO("  Member Count: {0}", memberCount);
+				LUX_SHADER_REFLECTION_INFO("  Size: {0}", size);
+				LUX_SHADER_REFLECTION_INFO("-------------------");
 			}
 		}
 
-		LUX_CORE_INFO_TAG("Renderer", "Storage Buffers:");
+		LUX_SHADER_REFLECTION_INFO("Storage Buffers:");
 		for (const auto& resource : resources.storage_buffers)
 		{
 			auto activeBuffers = compiler.get_active_buffer_ranges(resource.id);
@@ -762,15 +773,15 @@ namespace Lux {
 
 				shaderDescriptorSet.StorageBuffers[binding] = s_StorageBuffers.at(descriptorSet).at(binding);
 
-				LUX_CORE_INFO_TAG("Renderer", "  {0} ({1}, {2})", name, descriptorSet, binding);
-				LUX_CORE_INFO_TAG("Renderer", "  Member Count: {0}", memberCount);
-				LUX_CORE_INFO_TAG("Renderer", "  Size: {0}", size);
-				LUX_CORE_INFO_TAG("Renderer", "  ReadOnly: {0}", readOnly);
-				LUX_CORE_INFO_TAG("Renderer", "-------------------");
+				LUX_SHADER_REFLECTION_INFO("  {0} ({1}, {2})", name, descriptorSet, binding);
+				LUX_SHADER_REFLECTION_INFO("  Member Count: {0}", memberCount);
+				LUX_SHADER_REFLECTION_INFO("  Size: {0}", size);
+				LUX_SHADER_REFLECTION_INFO("  ReadOnly: {0}", readOnly);
+				LUX_SHADER_REFLECTION_INFO("-------------------");
 			}
 		}
 
-		LUX_CORE_INFO_TAG("Renderer", "Push Constant Buffers:");
+		LUX_SHADER_REFLECTION_INFO("Push Constant Buffers:");
 		for (const auto& resource : resources.push_constant_buffers)
 		{
 			const auto& bufferName = resource.name;
@@ -794,9 +805,9 @@ namespace Lux {
 			buffer.Name = bufferName;
 			buffer.Size = bufferSize;
 
-			LUX_CORE_INFO_TAG("Renderer", "  Name: {0}", bufferName);
-			LUX_CORE_INFO_TAG("Renderer", "  Member Count: {0}", memberCount);
-			LUX_CORE_INFO_TAG("Renderer", "  Size: {0}", bufferSize);
+			LUX_SHADER_REFLECTION_INFO("  Name: {0}", bufferName);
+			LUX_SHADER_REFLECTION_INFO("  Member Count: {0}", memberCount);
+			LUX_SHADER_REFLECTION_INFO("  Size: {0}", bufferSize);
 
 			for (uint32_t i = 0; i < memberCount; i++)
 			{
@@ -810,7 +821,7 @@ namespace Lux {
 			}
 		}
 
-		LUX_CORE_INFO_TAG("Renderer", "Sampled Images:");
+		LUX_SHADER_REFLECTION_INFO("Sampled Images:");
 		for (const auto& resource : resources.sampled_images)
 		{
 			const auto& name = resource.name;
@@ -849,10 +860,10 @@ namespace Lux {
 
 			m_ReflectionData.Resources[name] = ShaderResourceDeclaration(name, descriptorSet, binding, arraySize);
 
-			LUX_CORE_INFO_TAG("Renderer", "  {0} ({1}, {2})", name, descriptorSet, binding);
+			LUX_SHADER_REFLECTION_INFO("  {0} ({1}, {2})", name, descriptorSet, binding);
 		}
 
-		LUX_CORE_INFO_TAG("Renderer", "Separate Images:");
+		LUX_SHADER_REFLECTION_INFO("Separate Images:");
 		for (const auto& resource : resources.separate_images)
 		{
 			const auto& name = resource.name;
@@ -891,10 +902,10 @@ namespace Lux {
 
 			m_ReflectionData.Resources[name] = ShaderResourceDeclaration(name, descriptorSet, binding, arraySize);
 
-			LUX_CORE_INFO_TAG("Renderer", "  {0} ({1}, {2})", name, descriptorSet, binding);
+			LUX_SHADER_REFLECTION_INFO("  {0} ({1}, {2})", name, descriptorSet, binding);
 		}
 
-		LUX_CORE_INFO_TAG("Renderer", "Separate Samplers:");
+		LUX_SHADER_REFLECTION_INFO("Separate Samplers:");
 		for (const auto& resource : resources.separate_samplers)
 		{
 			const auto& name = resource.name;
@@ -935,10 +946,10 @@ namespace Lux {
 
 			m_ReflectionData.Resources[name] = ShaderResourceDeclaration(name, descriptorSet, binding, arraySize);
 
-			LUX_CORE_INFO_TAG("Renderer", "  {0} ({1}, {2})", name, descriptorSet, binding);
+			LUX_SHADER_REFLECTION_INFO("  {0} ({1}, {2})", name, descriptorSet, binding);
 		}
 
-		LUX_CORE_INFO_TAG("Renderer", "Storage Images:");
+		LUX_SHADER_REFLECTION_INFO("Storage Images:");
 		for (const auto& resource : resources.storage_images)
 		{
 			const auto& name = resource.name;
@@ -976,16 +987,16 @@ namespace Lux {
 
 			m_ReflectionData.Resources[name] = ShaderResourceDeclaration(name, descriptorSet, binding, arraySize);
 
-			LUX_CORE_INFO_TAG("Renderer", "  {0} ({1}, {2})", name, descriptorSet, binding);
+			LUX_SHADER_REFLECTION_INFO("  {0} ({1}, {2})", name, descriptorSet, binding);
 		}
 
-		LUX_CORE_INFO_TAG("Renderer", "Special macros:");
+		LUX_SHADER_REFLECTION_INFO("Special macros:");
 		for (const auto& macro : m_AcknowledgedMacros)
 		{
-			LUX_CORE_INFO_TAG("Renderer", "  {0}", macro);
+			LUX_SHADER_REFLECTION_INFO("  {0}", macro);
 		}
 
-		LUX_CORE_INFO_TAG("Renderer", "===========================");
+		LUX_SHADER_REFLECTION_INFO("===========================");
 
 
 	}

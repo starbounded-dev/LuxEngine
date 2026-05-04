@@ -143,6 +143,21 @@ namespace Lux {
 			return nullptr;
 
 		// Queue for generation (skip if already queued)
+		if (handle)
+		{
+			if (m_QueuedHandles.contains(handle))
+				return nullptr;
+
+			m_QueuedHandles.insert(handle);
+		}
+		else
+		{
+			if (m_QueuedPaths.contains(assetRelativePath))
+				return nullptr;
+
+			m_QueuedPaths.insert(assetRelativePath);
+		}
+
 		m_Queue.push({ absPath, assetRelativePath, handle, timestamp });
 		return nullptr;
 	}
@@ -156,6 +171,11 @@ namespace Lux {
 	void ThumbnailCache::Clear()
 	{
 		m_CachedImages.clear();
+		m_QueuedHandles.clear();
+		m_QueuedPaths.clear();
+
+		while (!m_Queue.empty())
+			m_Queue.pop();
 	}
 
 	// -----------------------------------------------------------------
@@ -167,35 +187,32 @@ namespace Lux {
 		while (!m_Queue.empty())
 		{
 			const auto& info = m_Queue.front();
+			auto popPending = [&]()
+			{
+				if (info.Handle)
+					m_QueuedHandles.erase(info.Handle);
+				else
+					m_QueuedPaths.erase(info.RelativePath);
+
+				m_Queue.pop();
+			};
 
 			// Already cached and current?
 			if (info.Handle && m_CachedImages.contains(info.Handle))
 			{
 				if (m_CachedImages.at(info.Handle).LastWriteTime == info.Timestamp)
 				{
-					m_Queue.pop();
+					popPending();
 					continue;
 				}
 			}
 
-			// FIX: load texture BEFORE calling Resize, then null-check.
-			// The old code called texture->Resize() before checking if
-			// texture was valid, causing a crash on failed loads.
 			Ref<Texture2D> texture = LoadTextureFromFile(info.AbsolutePath);
 			if (!texture)
 			{
-				m_Queue.pop();
+				popPending();
 				continue;
 			}
-
-			// Scale to thumbnail size, preserving aspect ratio
-			uint32_t thumbHeight = m_ThumbnailSize;
-			if (texture->GetWidth() > 0)
-			{
-				thumbHeight = static_cast<uint32_t>(
-					m_ThumbnailSize * (float(texture->GetHeight()) / float(texture->GetWidth())));
-			}
-			texture->Resize(m_ThumbnailSize, thumbHeight);
 
 			AssetHandle handle = info.Handle;
 			if (!handle)
@@ -207,7 +224,7 @@ namespace Lux {
 			m_CachedImages[handle] = { texture, info.Timestamp };
 			WriteToDisk(handle, texture, info.Timestamp);
 
-			m_Queue.pop();
+			popPending();
 			break; // one per frame
 		}
 	}
