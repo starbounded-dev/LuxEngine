@@ -26,6 +26,10 @@
 #include <fstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <GLFW/deps/stb_image_write.h>
 
 namespace Lux
 {
@@ -68,6 +72,78 @@ namespace Lux
 	static bool IsEmbeddedTextureReference(const std::string& texturePath)
 	{
 		return !texturePath.empty() && texturePath[0] == '*';
+	}
+
+	static std::string ToLower(std::string value)
+	{
+		std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+		{
+			return (char)std::tolower(c);
+		});
+		return value;
+	}
+
+	static std::string GetEmbeddedTextureExtension(const aiTexture* texture)
+	{
+		if (!texture)
+			return ".png";
+
+		std::string hint = ToLower(texture->achFormatHint);
+		if (hint == "jpeg")
+			hint = "jpg";
+
+		if (hint == "png" || hint == "jpg" || hint == "bmp" || hint == "tga")
+			return "." + hint;
+
+		return ".png";
+	}
+
+	static std::filesystem::path GetImportedTexturePath(const std::filesystem::path& meshPath, const std::string& textureName, const std::string& extension)
+	{
+		Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager();
+		if (!editorAssetManager)
+			return {};
+
+		std::filesystem::path meshRelativePath = editorAssetManager->GetRelativePath(meshPath).lexically_normal();
+		std::filesystem::path textureRelativeDirectory;
+		if (!meshRelativePath.empty() && !meshRelativePath.is_absolute())
+			textureRelativeDirectory = meshRelativePath.parent_path() / "Textures";
+		else
+			textureRelativeDirectory = std::filesystem::path("Textures") / SanitizeAssetFilename(meshPath.stem().string());
+
+		const std::string fileName = SanitizeAssetFilename(meshPath.stem().string() + "_" + textureName) + extension;
+		return (textureRelativeDirectory / fileName).lexically_normal();
+	}
+
+	static bool WriteEmbeddedTextureToFile(const aiTexture* texture, const std::filesystem::path& filesystemPath)
+	{
+		if (!texture)
+			return false;
+
+		std::error_code ec;
+		std::filesystem::create_directories(filesystemPath.parent_path(), ec);
+
+		if (texture->mHeight == 0)
+		{
+			std::ofstream stream(filesystemPath, std::ios::binary);
+			if (!stream.is_open())
+				return false;
+
+			stream.write(reinterpret_cast<const char*>(texture->pcData), texture->mWidth);
+			return stream.good();
+		}
+
+		std::vector<uint8_t> rgba(texture->mWidth * texture->mHeight * 4);
+		for (uint32_t i = 0; i < texture->mWidth * texture->mHeight; i++)
+		{
+			const aiTexel& texel = texture->pcData[i];
+			rgba[i * 4 + 0] = texel.r;
+			rgba[i * 4 + 1] = texel.g;
+			rgba[i * 4 + 2] = texel.b;
+			rgba[i * 4 + 3] = texel.a;
+		}
+
+		return stbi_write_png(filesystemPath.string().c_str(), texture->mWidth, texture->mHeight, 4, rgba.data(), texture->mWidth * 4) != 0;
 	}
 
 	static std::filesystem::path ResolveTexturePath(const std::filesystem::path& meshPath, const aiString& assimpPath)
@@ -117,10 +193,71 @@ namespace Lux
 			paths.emplace_back(resolvedPath);
 	}
 
-	static AssetHandle ImportTextureReference(const std::filesystem::path& meshPath, const aiScene* scene, aiMaterial* material, const std::initializer_list<aiTextureType>& textureTypes, std::unordered_map<std::string, AssetHandle>& textureCache)
+	static AssetHandle ImportTexturePathReference(const std::filesystem::path& meshPath, const aiScene* scene, const aiString& texturePath, std::unordered_map<std::string, AssetHandle>& textureCache)
 	{
 		Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager();
-		if (!editorAssetManager || !material)
+		if (!editorAssetManager)
+			return 0;
+
+		const std::string rawPath = texturePath.C_Str();
+		if (rawPath.empty())
+			return 0;
+
+		if (const aiTexture* embeddedTexture = scene ? scene->GetEmbeddedTexture(rawPath.c_str()) : nullptr)
+		{
+			const std::string cacheKey = meshPath.lexically_normal().generic_string() + "::embedded::" + rawPath;
+			if (auto it = textureCache.find(cacheKey); it != textureCache.end())
+				return it->second;
+
+			const std::string extension = GetEmbeddedTextureExtension(embeddedTexture);
+			const std::filesystem::path textureRelativePath = GetImportedTexturePath(meshPath, rawPath, extension);
+			if (textureRelativePath.empty())
+				return 0;
+
+			const std::filesystem::path textureFilesystemPath = Project::GetActiveAssetDirectory() / textureRelativePath;
+			if (!std::filesystem::exists(textureFilesystemPath) && !WriteEmbeddedTextureToFile(embeddedTexture, textureFilesystemPath))
+			{
+				LUX_CORE_WARN("AssimpMeshImporter: failed to extract embedded texture '{}' from '{}'", rawPath, meshPath.filename().string());
+				return 0;
+			}
+
+			AssetHandle textureHandle = editorAssetManager->ImportAsset(textureRelativePath);
+			if (textureHandle && AssetManager::GetAssetType(textureHandle) == AssetType::Texture)
+			{
+				textureCache[cacheKey] = textureHandle;
+				return textureHandle;
+			}
+
+			return 0;
+		}
+
+		if (IsEmbeddedTextureReference(rawPath))
+			return 0;
+
+		std::filesystem::path resolvedPath = FindTexturePath(meshPath, texturePath);
+		if (resolvedPath.empty())
+		{
+			LUX_CORE_WARN("AssimpMeshImporter: texture '{}' referenced by '{}' was not found", rawPath, meshPath.filename().string());
+			return 0;
+		}
+
+		const std::string cacheKey = resolvedPath.lexically_normal().generic_string();
+		if (auto it = textureCache.find(cacheKey); it != textureCache.end())
+			return it->second;
+
+		AssetHandle textureHandle = editorAssetManager->ImportAsset(resolvedPath);
+		if (textureHandle && AssetManager::GetAssetType(textureHandle) == AssetType::Texture)
+		{
+			textureCache[cacheKey] = textureHandle;
+			return textureHandle;
+		}
+
+		return 0;
+	}
+
+	static AssetHandle ImportTextureReference(const std::filesystem::path& meshPath, const aiScene* scene, aiMaterial* material, const std::initializer_list<aiTextureType>& textureTypes, std::unordered_map<std::string, AssetHandle>& textureCache)
+	{
+		if (!material)
 			return 0;
 
 		for (aiTextureType textureType : textureTypes)
@@ -132,27 +269,9 @@ namespace Lux
 			if (material->GetTexture(textureType, 0, &texturePath) != AI_SUCCESS)
 				continue;
 
-			const std::string rawPath = texturePath.C_Str();
-			if (rawPath.empty() || IsEmbeddedTextureReference(rawPath) || (scene && scene->GetEmbeddedTexture(rawPath.c_str())))
-				continue;
-
-			std::filesystem::path resolvedPath = FindTexturePath(meshPath, texturePath);
-			if (resolvedPath.empty())
-			{
-				LUX_CORE_WARN("AssimpMeshImporter: texture '{}' referenced by '{}' was not found", rawPath, meshPath.filename().string());
-				continue;
-			}
-
-			const std::string cacheKey = resolvedPath.lexically_normal().generic_string();
-			if (auto it = textureCache.find(cacheKey); it != textureCache.end())
-				return it->second;
-
-			AssetHandle textureHandle = editorAssetManager->ImportAsset(resolvedPath);
-			if (textureHandle && AssetManager::GetAssetType(textureHandle) == AssetType::Texture)
-			{
-				textureCache[cacheKey] = textureHandle;
+			AssetHandle textureHandle = ImportTexturePathReference(meshPath, scene, texturePath, textureCache);
+			if (textureHandle)
 				return textureHandle;
-			}
 		}
 
 		return 0;
@@ -271,7 +390,7 @@ namespace Lux
 		if (!scene)
 			return texturePaths;
 
-		constexpr std::array<aiTextureType, 9> textureTypes = {
+		constexpr std::array<aiTextureType, 10> textureTypes = {
 			aiTextureType_BASE_COLOR,
 			aiTextureType_DIFFUSE,
 			aiTextureType_NORMAL_CAMERA,
@@ -280,7 +399,8 @@ namespace Lux
 			aiTextureType_METALNESS,
 			aiTextureType_DIFFUSE_ROUGHNESS,
 			aiTextureType_SHININESS,
-			aiTextureType_EMISSIVE
+			aiTextureType_EMISSIVE,
+			aiTextureType_UNKNOWN
 		};
 
 		for (uint32_t materialIndex = 0; materialIndex < scene->mNumMaterials; materialIndex++)

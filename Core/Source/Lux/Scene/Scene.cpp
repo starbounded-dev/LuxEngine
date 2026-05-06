@@ -1609,6 +1609,82 @@ namespace Lux {
 				assets.insert(handle);
 		};
 
+		auto addMaterialDependencies = [&addIfValid](AssetHandle materialHandle)
+		{
+			addIfValid(materialHandle);
+
+			if (!materialHandle || AssetManager::GetAssetType(materialHandle) != AssetType::Material)
+				return;
+
+			Ref<MaterialAsset> materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+			if (!materialAsset)
+				return;
+
+			addIfValid(materialAsset->GetAlbedoMapHandle());
+			addIfValid(materialAsset->GetNormalMapHandle());
+			addIfValid(materialAsset->GetMetalnessMapHandle());
+			addIfValid(materialAsset->GetRoughnessMapHandle());
+		};
+
+		auto addMaterialTableDependencies = [&addMaterialDependencies](const Ref<MaterialTable>& materialTable)
+		{
+			if (!materialTable)
+				return;
+
+			for (const auto& [index, material] : materialTable->GetMaterials())
+			{
+				(void)index;
+				addMaterialDependencies(material);
+			}
+		};
+
+		auto addMeshSourceDependencies = [&addIfValid, &addMaterialDependencies](AssetHandle meshSourceHandle)
+		{
+			addIfValid(meshSourceHandle);
+
+			if (!meshSourceHandle || AssetManager::GetAssetType(meshSourceHandle) != AssetType::MeshSource)
+				return;
+
+			Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(meshSourceHandle);
+			if (!meshSource)
+				return;
+
+			for (AssetHandle material : meshSource->GetMaterials())
+				addMaterialDependencies(material);
+		};
+
+		auto addMeshDependencies = [&addIfValid, &addMaterialTableDependencies, &addMeshSourceDependencies](AssetHandle meshHandle)
+		{
+			addIfValid(meshHandle);
+
+			if (!meshHandle)
+				return;
+
+			const AssetType assetType = AssetManager::GetAssetType(meshHandle);
+			if (assetType == AssetType::MeshSource)
+			{
+				addMeshSourceDependencies(meshHandle);
+			}
+			else if (assetType == AssetType::Mesh)
+			{
+				Ref<Mesh> mesh = AssetManager::GetAsset<Mesh>(meshHandle);
+				if (!mesh)
+					return;
+
+				addMeshSourceDependencies(mesh->GetMeshSource());
+				addMaterialTableDependencies(mesh->GetMaterials());
+			}
+			else if (assetType == AssetType::StaticMesh)
+			{
+				Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(meshHandle);
+				if (!staticMesh)
+					return;
+
+				addMeshSourceDependencies(staticMesh->GetMeshSource());
+				addMaterialTableDependencies(staticMesh->GetMaterials());
+			}
+		};
+
 		auto prefabView = m_Registry.view<PrefabComponent>();
 		for (auto entity : prefabView)
 			addIfValid(prefabView.get<PrefabComponent>(entity).PrefabID);
@@ -1623,30 +1699,22 @@ namespace Lux {
 
 		auto meshView = m_Registry.view<MeshComponent>();
 		for (auto entity : meshView)
-			addIfValid(meshView.get<MeshComponent>(entity).Mesh);
+			addMeshDependencies(meshView.get<MeshComponent>(entity).Mesh);
 
 		auto submeshView = m_Registry.view<SubmeshComponent>();
 		for (auto entity : submeshView)
 		{
 			const auto& submesh = submeshView.get<SubmeshComponent>(entity);
-			addIfValid(submesh.Mesh);
-			if (submesh.MaterialTable)
-			{
-				for (const auto& [index, material] : submesh.MaterialTable->GetMaterials())
-					addIfValid(material);
-			}
+			addMeshDependencies(submesh.Mesh);
+			addMaterialTableDependencies(submesh.MaterialTable);
 		}
 
 		auto staticMeshView = m_Registry.view<StaticMeshComponent>();
 		for (auto entity : staticMeshView)
 		{
 			const auto& staticMesh = staticMeshView.get<StaticMeshComponent>(entity);
-			addIfValid(staticMesh.StaticMesh);
-			if (staticMesh.MaterialTable)
-			{
-				for (const auto& [index, material] : staticMesh.MaterialTable->GetMaterials())
-					addIfValid(material);
-			}
+			addMeshDependencies(staticMesh.StaticMesh);
+			addMaterialTableDependencies(staticMesh.MaterialTable);
 		}
 
 		auto skyLightView = m_Registry.view<SkyLightComponent>();

@@ -58,6 +58,18 @@ namespace Lux
 					manager.RegisterDependency(materialHandle, asset->Handle);
 			}
 		}
+
+		void RegisterMeshSourceMaterialDependencies(EditorAssetManager& manager, const Ref<MeshSource>& meshSource)
+		{
+			if (!meshSource)
+				return;
+
+			for (AssetHandle materialHandle : meshSource->GetMaterials())
+			{
+				if (materialHandle)
+					manager.RegisterDependency(materialHandle, meshSource->Handle);
+			}
+		}
 	}
 
 	EditorAssetManager::EditorAssetManager()
@@ -807,6 +819,12 @@ namespace Lux
 				RegisterDependency(materialAsset->GetMetalnessMapHandle(), materialAsset->Handle);
 			if (materialAsset->GetRoughnessMapHandle())
 				RegisterDependency(materialAsset->GetRoughnessMapHandle(), materialAsset->Handle);
+			return;
+		}
+
+		if (auto meshSource = asset.As<MeshSource>())
+		{
+			RegisterMeshSourceMaterialDependencies(*this, meshSource);
 			return;
 		}
 

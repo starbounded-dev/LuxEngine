@@ -7,6 +7,7 @@
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/Shader.h"
 
 namespace Lux
 {
@@ -119,6 +120,11 @@ namespace Lux
 			stream.WriteArray(meshMaterials);
 			file.Data.MaterialArraySize = (stream.GetStreamPosition() - streamOffset) - file.Data.MaterialArrayOffset;
 		}
+		else
+		{
+			file.Data.MaterialArrayOffset = 0;
+			file.Data.MaterialArraySize = 0;
+		}
 
 		file.Data.VertexBufferOffset = stream.GetStreamPosition() - streamOffset;
 		stream.WriteArray(meshSource->m_Vertices);
@@ -155,6 +161,7 @@ namespace Lux
 		stream.ReadRaw<MeshSourceFile::Metadata>(file.Data);
 		const auto& metadata = file.Data;
 		const bool hasMaterials = (metadata.Flags & (uint32_t)MeshSourceFile::MeshFlags::HasMaterials) != 0;
+		meshSource->m_BoundingBox = metadata.BoundingBox;
 
 		stream.SetStreamPosition(streamOffset + metadata.NodeArrayOffset);
 		stream.ReadArray(meshSource->m_Nodes);
@@ -172,9 +179,31 @@ namespace Lux
 			for (size_t i = 0; i < meshMaterials.size(); i++)
 			{
 				const auto& meshMaterial = meshMaterials[i];
-				Ref<Shader> shader = Renderer::GetShaderLibrary()->Get(meshMaterial.ShaderName);
-				Ref<Material> material = Material::Create(shader, meshMaterial.MaterialName);
-				Ref<MaterialAsset> materialAsset = Ref<MaterialAsset>::Create(material);
+				Ref<Shader> shader;
+				if (Ref<ShaderLibrary> shaderLibrary = Renderer::GetShaderLibrary())
+				{
+					const auto& shaders = shaderLibrary->GetShaders();
+					if (!meshMaterial.ShaderName.empty())
+					{
+						if (auto it = shaders.find(meshMaterial.ShaderName); it != shaders.end())
+							shader = it->second;
+					}
+
+					if (!shader)
+					{
+						if (auto it = shaders.find("LuxPBR_Static"); it != shaders.end())
+							shader = it->second;
+					}
+				}
+
+				Ref<MaterialAsset> materialAsset;
+				if (shader)
+					materialAsset = Ref<MaterialAsset>::Create(Material::Create(shader, meshMaterial.MaterialName.empty() ? "RuntimeMeshMaterial" : meshMaterial.MaterialName));
+				else
+					materialAsset = Ref<MaterialAsset>::Create(false);
+
+				if (!materialAsset || !materialAsset->GetMaterial())
+					continue;
 
 				materialAsset->SetAlbedoColor(meshMaterial.AlbedoColor);
 				materialAsset->SetEmission(meshMaterial.Emission);
@@ -201,6 +230,28 @@ namespace Lux
 
 		if (!meshSource->m_Indices.empty())
 			meshSource->m_IndexBuffer = IndexBuffer::Create(Buffer(meshSource->m_Indices.data(), (uint32_t)(meshSource->m_Indices.size() * sizeof(Index))));
+
+		for (uint32_t i = 0; i < (uint32_t)meshSource->m_Submeshes.size(); i++)
+		{
+			const Submesh& submesh = meshSource->m_Submeshes[i];
+			const uint32_t firstTriangle = submesh.BaseIndex / 3;
+			const uint32_t triangleCount = submesh.IndexCount / 3;
+			for (uint32_t triangle = 0; triangle < triangleCount; triangle++)
+			{
+				const uint32_t indexOffset = firstTriangle + triangle;
+				if (indexOffset >= meshSource->m_Indices.size())
+					break;
+
+				const Index& index = meshSource->m_Indices[indexOffset];
+				const uint32_t v0 = submesh.BaseVertex + index.V1;
+				const uint32_t v1 = submesh.BaseVertex + index.V2;
+				const uint32_t v2 = submesh.BaseVertex + index.V3;
+				if (v0 >= meshSource->m_Vertices.size() || v1 >= meshSource->m_Vertices.size() || v2 >= meshSource->m_Vertices.size())
+					continue;
+
+				meshSource->m_TriangleCache[i].emplace_back(meshSource->m_Vertices[v0], meshSource->m_Vertices[v1], meshSource->m_Vertices[v2]);
+			}
+		}
 
 		return meshSource;
 	}

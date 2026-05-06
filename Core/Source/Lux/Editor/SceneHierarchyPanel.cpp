@@ -85,6 +85,13 @@ namespace Lux {
 
 			const std::filesystem::path relativePath = std::filesystem::path("Meshes") / "Source" / "Default" / filename;
 			AssetHandle handle = editorAssetManager->GetAssetHandleFromFilePath(relativePath);
+			if (!handle)
+			{
+				const std::filesystem::path filesystemPath = Project::GetActiveAssetDirectory() / relativePath;
+				if (std::filesystem::exists(filesystemPath))
+					handle = editorAssetManager->ImportAsset(filesystemPath);
+			}
+
 			if (!handle || AssetManager::GetAssetType(handle) != AssetType::MeshSource)
 				return 0;
 

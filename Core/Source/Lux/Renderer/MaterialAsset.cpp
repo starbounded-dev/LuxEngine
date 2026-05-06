@@ -121,7 +121,10 @@ namespace Lux {
 		if (handle)
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
-			m_Material->Set(s_AlbedoMapUniform, texture);
+			if (texture)
+				m_Material->Set(s_AlbedoMapUniform, texture);
+			else
+				ClearAlbedoMap();
 		}
 		else
 		{
@@ -148,7 +151,10 @@ namespace Lux {
 		if (handle)
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
-			m_Material->Set(s_NormalMapUniform, texture);
+			if (texture)
+				m_Material->Set(s_NormalMapUniform, texture);
+			else
+				ClearNormalMap();
 		}
 		else
 		{
@@ -168,7 +174,7 @@ namespace Lux {
 
 	void MaterialAsset::ClearNormalMap()
 	{
-#ifndef SE_HEADLESS
+#ifndef LUX_HEADLESS
 		m_Material->Set(s_NormalMapUniform, Renderer::GetWhiteTexture());
 #endif
 	}
@@ -185,7 +191,10 @@ namespace Lux {
 		if (handle)
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
-			m_Material->Set(s_MetalnessMapUniform, texture);
+			if (texture)
+				m_Material->Set(s_MetalnessMapUniform, texture);
+			else
+				ClearMetalnessMap();
 		}
 		else
 		{
@@ -212,7 +221,10 @@ namespace Lux {
 		if (handle)
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
-			m_Material->Set(s_RoughnessMapUniform, texture);
+			if (texture)
+				m_Material->Set(s_RoughnessMapUniform, texture);
+			else
+				ClearRoughnessMap();
 		}
 		else
 		{
