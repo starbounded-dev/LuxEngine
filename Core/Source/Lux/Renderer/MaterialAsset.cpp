@@ -6,6 +6,7 @@
 #include "Lux/Asset/AssetManager.h"
 
 #include <array>
+#include <unordered_map>
 
 namespace Lux {
 
@@ -20,6 +21,38 @@ namespace Lux {
 	static const std::string s_NormalMapUniform = "u_NormalTexture";
 	static const std::string s_MetalnessMapUniform = "u_MetalnessTexture";
 	static const std::string s_RoughnessMapUniform = "u_RoughnessTexture";
+
+	struct SRGBTextureCacheEntry
+	{
+		uint64_t SourceHash = 0;
+		Ref<Texture2D> Texture;
+	};
+
+	static std::unordered_map<AssetHandle, SRGBTextureCacheEntry> s_SRGBAlbedoTextureCache;
+
+	static Ref<Texture2D> GetAlbedoTextureForMaterial(AssetHandle handle, const Ref<Texture2D>& texture)
+	{
+		if (!texture)
+			return nullptr;
+
+		const ImageFormat format = texture->GetFormat();
+		if (format == ImageFormat::SRGBA || format == ImageFormat::SRGB)
+			return texture;
+
+#ifndef LUX_HEADLESS
+		const uint64_t sourceHash = texture->GetHash();
+		auto& cacheEntry = s_SRGBAlbedoTextureCache[handle];
+		if (!cacheEntry.Texture || cacheEntry.SourceHash != sourceHash || cacheEntry.Texture->GetSize() != texture->GetSize() || cacheEntry.Texture->GetMipLevelCount() != texture->GetMipLevelCount())
+		{
+			cacheEntry.SourceHash = sourceHash;
+			cacheEntry.Texture = Texture2D::CreateFromSRGB(texture);
+		}
+
+		return cacheEntry.Texture ? cacheEntry.Texture : texture;
+#else
+		return texture;
+#endif
+	}
 
 	MaterialAsset::MaterialAsset(bool transparent)
 		: m_Transparent(transparent)
@@ -118,13 +151,19 @@ namespace Lux {
 	void MaterialAsset::SetAlbedoMap(AssetHandle handle)
 	{
 		m_Maps.AlbedoMap = handle;
+		if (!m_Material)
+			return;
+
 		if (handle)
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			if (texture)
-				m_Material->Set(s_AlbedoMapUniform, texture);
+				m_Material->Set(s_AlbedoMapUniform, GetAlbedoTextureForMaterial(handle, texture));
 			else
+			{
+				s_SRGBAlbedoTextureCache.erase(handle);
 				ClearAlbedoMap();
+			}
 		}
 		else
 		{

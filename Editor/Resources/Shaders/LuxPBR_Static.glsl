@@ -55,7 +55,7 @@ void main()
 
 	Output.WorldPosition = worldPosition.xyz;
 	Output.Normal = mat3(transform) * a_Normal;
-	Output.TexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
+	Output.TexCoord = a_TexCoord;
 	Output.WorldNormals = mat3(transform) * mat3(a_Tangent, a_Binormal, a_Normal);
 	Output.WorldTransform = mat3(transform);
 	Output.Binormal = a_Binormal;
