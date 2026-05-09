@@ -301,18 +301,20 @@ float PCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, ve
 vec3 CalculateSpotLightsShadowed(in vec3 F0, vec3 worldPos, texture2D SpotAtlas)
 {
 	vec3 result = vec3(0.0);
-	for (int i = 0; i < u_SpotLights.LightCount; i++)
+	for (int i = 0; i < GetSpotLightCount(); i++)
 	{
-		uint lightIndex = GetSpotLightBufferIndex(i);
-		if (lightIndex == -1)
+		int visibleIndex = GetSpotLightBufferIndex(i);
+		if (visibleIndex < 0)
 			break;
+
+		uint lightIndex = uint(visibleIndex);
 
 		SpotLight light = u_SpotLights.Lights[lightIndex];
 		vec3 Li = normalize(light.Position - worldPos);
 		float lightDistance = length(light.Position - worldPos);
 
 		float cutoff = cos(radians(light.Angle * 0.5f));
-		float scos = max(dot(Li, light.Direction), cutoff);
+		float scos = max(dot(-Li, normalize(light.Direction)), cutoff);
 		float rim = (1.0 - scos) / (1.0 - cutoff);
 
 		float attenuation = clamp(1.0 - (lightDistance * lightDistance) / (light.Range * light.Range), 0.0, 1.0);
@@ -320,9 +322,12 @@ vec3 CalculateSpotLightsShadowed(in vec3 F0, vec3 worldPos, texture2D SpotAtlas)
 		attenuation *= 1.0 - pow(max(rim, 0.001), light.AngleAttenuation);
 
 		// Shadow sampling - supports up to 16 spotlights with dynamic atlas
-		if(light.CastsShadows && light.ShadowIndex < 16)
+		if(light.CastsShadows && light.ShadowIndex < 16 && light.ShadowIndex < u_SpotLightMatrices.Count)
 		{
 			vec4 coords = u_SpotLightMatrices.Mats[light.ShadowIndex] * vec4(worldPos, 1.0f);
+			if (coords.w <= 0.0f)
+				continue;
+
 			vec3 shadowMapCoords = (coords.xyz / coords.w);
 			// Flip Y to compensate for NVRHI viewport Y-axis inversion
 			shadowMapCoords.xy = ShadowCoordsToUV(shadowMapCoords.xy);

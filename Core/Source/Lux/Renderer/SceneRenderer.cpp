@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 namespace Lux {
 
@@ -92,6 +93,7 @@ namespace Lux {
 		m_UBSPointLights = UniformBufferSet::Create(sizeof(UBPointLights));
 		m_UBSSpotLights = UniformBufferSet::Create(sizeof(UBSpotLights));
 		m_UBSSpotShadow = UniformBufferSet::Create(sizeof(UBSpotShadow));
+		m_UBSScreenData = UniformBufferSet::Create(sizeof(UBScreenData));
 
 		// ── Storage buffer sets (start with generous initial capacity) ─────────
 		{
@@ -109,12 +111,13 @@ namespace Lux {
 		}
 		{
 			StorageBufferSpecification indexSpec;
-			indexSpec.GPUOnly = false;
+			indexSpec.GPUOnly = true;
 			indexSpec.DebugName = "VisiblePointLightIndices";
-			m_SBSVisiblePointLightIndices = StorageBufferSet::Create(indexSpec, sizeof(uint32_t) * 1024);
+			m_SBSVisiblePointLightIndices = StorageBufferSet::Create(indexSpec, sizeof(int32_t) * MaxVisibleLightsPerTile);
 
 			indexSpec.DebugName = "VisibleSpotLightIndices";
-			m_SBSVisibleSpotLightIndices = StorageBufferSet::Create(indexSpec, sizeof(uint32_t) * 1024);
+			m_SBSVisibleSpotLightIndices = StorageBufferSet::Create(indexSpec, sizeof(int32_t) * MaxVisibleLightsPerTile);
+			ResizeLightCullingResources();
 		}
 
 		// Common vertex layout for all opaque mesh pipelines
@@ -170,6 +173,52 @@ namespace Lux {
 			m_ShadowPassMaterial = Material::Create(pipelineSpec.Shader, "ShadowPass");
 		}
 
+		// ── Spot shadow atlas (single depth atlas) ───────────────────────────
+		{
+			m_SpotShadowMapSize = 2048;
+			m_SpotShadowAtlasGridSize = 1;
+			m_SpotShadowTileSize = m_SpotShadowMapSize;
+
+			ImageSpecification spotShadowSpec;
+			spotShadowSpec.DebugName = "SpotShadowAtlas";
+			spotShadowSpec.Dimension = nvrhi::TextureDimension::Texture2D;
+			spotShadowSpec.Format = ImageFormat::Depth;
+			spotShadowSpec.Usage = ImageUsage::Attachment;
+			spotShadowSpec.Width = m_SpotShadowMapSize;
+			spotShadowSpec.Height = m_SpotShadowMapSize;
+			m_SpotShadowMapImage = Image2D::Create(spotShadowSpec);
+			m_SpotShadowMapImage->RT_Invalidate();
+
+			FramebufferSpecification fbSpec;
+			fbSpec.Width = m_SpotShadowMapSize;
+			fbSpec.Height = m_SpotShadowMapSize;
+			fbSpec.Attachments = { ImageFormat::Depth };
+			fbSpec.DepthClearValue = 1.0f;
+			fbSpec.DebugName = "SpotShadowAtlas";
+			fbSpec.ExistingImage = m_SpotShadowMapImage;
+
+			PipelineSpecification pipelineSpec;
+			pipelineSpec.DebugName = "SpotShadowMap";
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("SpotShadowMap");
+			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
+			pipelineSpec.Layout = vertexLayout;
+			pipelineSpec.DepthOperator = DepthCompareOperator::LessOrEqual;
+			pipelineSpec.BackfaceCulling = false;
+
+			RenderPassSpecification rpSpec;
+			rpSpec.DebugName = "SpotShadowMapPass";
+			rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
+
+			m_SpotShadowMapPass = RenderPass::Create(rpSpec);
+			m_SpotShadowMapPass->SetInput("SpotShadowData", m_UBSSpotShadow);
+			m_SpotShadowMapPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
+			m_SpotShadowMapPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			LUX_CORE_VERIFY(m_SpotShadowMapPass->Validate());
+			m_SpotShadowMapPass->Bake();
+
+			m_SpotShadowPassMaterial = Material::Create(pipelineSpec.Shader, "SpotShadowPass");
+		}
+
 		// ── Pre-depth pass ────────────────────────────────────────────────────
 		{
 			FramebufferSpecification fbSpec;
@@ -200,6 +249,31 @@ namespace Lux {
 			m_PreDepthPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_PreDepthPass->Validate());
 			m_PreDepthPass->Bake();
+		}
+
+		// ── Tiled light culling pass ─────────────────────────────────────────
+		{
+			ComputePassSpecification computeSpec;
+			computeSpec.DebugName = "LightCulling";
+			computeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("LightCulling"));
+
+			m_LightCullingPass = ComputePass::Create(computeSpec);
+			m_LightCullingPass->SetInput("u_DepthMap", m_PreDepthPass->GetDepthOutput());
+			m_LightCullingPass->SetInput("ShadowData", m_UBSShadow);
+			m_LightCullingPass->SetInput("SceneData", m_UBSScene);
+			m_LightCullingPass->SetInput("PointLightData", m_UBSPointLights);
+			m_LightCullingPass->SetInput("SpotLightData", m_UBSSpotLights);
+			m_LightCullingPass->SetInput("SpotShadowData", m_UBSSpotShadow);
+			m_LightCullingPass->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
+			m_LightCullingPass->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
+			m_LightCullingPass->SetInput("Camera", m_UBSCamera);
+			m_LightCullingPass->SetInput("RendererData", m_UBSRendererData);
+			m_LightCullingPass->SetInput("ScreenData", m_UBSScreenData);
+			m_LightCullingPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_LightCullingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_LightCullingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_LightCullingPass->Validate());
+			m_LightCullingPass->Bake();
 		}
 
 		// ── Geometry framebuffer (owns the color + normal + material images) ──
@@ -272,7 +346,7 @@ namespace Lux {
 			m_GeometryPass->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
 			// Shadow map output from the shadow pass above
 			m_GeometryPass->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
-			m_GeometryPass->SetInput("u_SpotShadowTexture", Renderer::GetWhiteTexture()); // or a dummy 2D array if required
+			m_GeometryPass->SetInput("u_SpotShadowTexture", m_SpotShadowMapImage);
 			LUX_CORE_VERIFY(m_GeometryPass->Validate());
 			m_GeometryPass->Bake();
 
@@ -298,7 +372,7 @@ namespace Lux {
 			m_GeometryPassTransparent->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
 			// Shadow map output from the shadow pass above
 			m_GeometryPassTransparent->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
-			m_GeometryPassTransparent->SetInput("u_SpotShadowTexture", Renderer::GetWhiteTexture()); // or a dummy 2D array if required
+			m_GeometryPassTransparent->SetInput("u_SpotShadowTexture", m_SpotShadowMapImage);
 			LUX_CORE_VERIFY(m_GeometryPassTransparent->Validate());
 			m_GeometryPassTransparent->Bake();
 		}
@@ -515,6 +589,24 @@ namespace Lux {
 		}
 	}
 
+	void SceneRenderer::ResizeLightCullingResources()
+	{
+		m_LightTilesCountX = glm::max(1u, (m_ViewportWidth + LightCullingTileSize - 1u) / LightCullingTileSize);
+		m_LightTilesCountY = glm::max(1u, (m_ViewportHeight + LightCullingTileSize - 1u) / LightCullingTileSize);
+
+		const uint64_t tileCount = static_cast<uint64_t>(m_LightTilesCountX) * static_cast<uint64_t>(m_LightTilesCountY);
+		const uint64_t bufferSize = tileCount * MaxVisibleLightsPerTile * sizeof(int32_t);
+		LUX_CORE_ASSERT(bufferSize <= std::numeric_limits<uint32_t>::max(), "Light culling index buffer is too large");
+
+		const uint32_t newSize = static_cast<uint32_t>(bufferSize);
+		if (newSize == m_VisibleLightIndexBufferSize)
+			return;
+
+		m_VisibleLightIndexBufferSize = newSize;
+		m_SBSVisiblePointLightIndices->Resize(newSize);
+		m_SBSVisibleSpotLightIndices->Resize(newSize);
+	}
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// Per-frame scene data setters (call between BeginScene and EndScene)
 	// ─────────────────────────────────────────────────────────────────────────
@@ -568,6 +660,7 @@ namespace Lux {
 			m_CompositingFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GridRenderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			ResizeLightCullingResources();
 		}
 
 		// ── Camera uniform buffer ─────────────────────────────────────────────
@@ -599,6 +692,27 @@ namespace Lux {
 			Renderer::Submit([instance, cameraData]() mutable {
 				instance->m_UBSCamera->RT_Get()->RT_SetData(
 					instance->m_UploadCommandBuffer, &cameraData, sizeof(UBCamera));
+				});
+		}
+
+		// ── Screen uniform buffer ─────────────────────────────────────────────
+		{
+			const glm::vec2 fullResolution = {
+				glm::max(1.0f, static_cast<float>(m_ViewportWidth)),
+				glm::max(1.0f, static_cast<float>(m_ViewportHeight))
+			};
+			const glm::vec2 halfResolution = glm::max(fullResolution * 0.5f, glm::vec2(1.0f));
+
+			m_ScreenDataUB.FullResolution = fullResolution;
+			m_ScreenDataUB.InvFullResolution = 1.0f / fullResolution;
+			m_ScreenDataUB.HalfResolution = halfResolution;
+			m_ScreenDataUB.InvHalfResolution = 1.0f / halfResolution;
+
+			auto screenData = m_ScreenDataUB;
+			Ref<SceneRenderer> instance = this;
+			Renderer::Submit([instance, screenData]() mutable {
+				instance->m_UBSScreenData->RT_Get()->RT_SetData(
+					instance->m_UploadCommandBuffer, &screenData, sizeof(UBScreenData));
 				});
 		}
 
@@ -637,20 +751,83 @@ namespace Lux {
 				});
 		}
 
-		// ── Spot lights uniform buffer ────────────────────────────────────────
+		// ── Spot lights uniform buffer + shadow data ─────────────────────────-
 		{
 			const auto& spotLights = m_SceneData.SceneLightEnvironment.SpotLights;
 			m_SpotLightsUB.Count = (uint32_t)glm::min((size_t)256, spotLights.size());
+			m_SpotShadowCount = 0;
+
+			uint32_t castCount = 0;
+			for (size_t i = 0; i < spotLights.size(); i++)
+				if (spotLights[i].CastsShadows)
+					castCount++;
+
+			m_SpotShadowAtlasGridSize = (uint32_t)glm::ceil(glm::sqrt((float)glm::max(1u, glm::min((uint32_t)MaxSpotShadows, castCount))));
+			m_SpotShadowAtlasGridSize = glm::max(1u, glm::min(m_SpotShadowAtlasGridSize, 4u));
+			m_SpotShadowTileSize = m_SpotShadowMapSize / m_SpotShadowAtlasGridSize;
+
+			if (m_SpotShadowMapPass && m_SpotShadowMapPass->GetTargetFramebuffer()
+				&& (m_SpotShadowMapPass->GetTargetFramebuffer()->GetWidth() != m_SpotShadowMapSize
+					|| m_SpotShadowMapPass->GetTargetFramebuffer()->GetHeight() != m_SpotShadowMapSize))
+			{
+				m_SpotShadowMapPass->GetTargetFramebuffer()->Resize(m_SpotShadowMapSize, m_SpotShadowMapSize);
+			}
+
 			if (m_SpotLightsUB.Count > 0)
 				std::memcpy(m_SpotLightsUB.SpotLights, spotLights.data(),
 					sizeof(SpotLight) * m_SpotLightsUB.Count);
 
+			m_SpotShadowUB.Count = 0;
+			for (uint32_t i = 0; i < m_SpotLightsUB.Count; i++)
+			{
+				auto& light = m_SpotLightsUB.SpotLights[i];
+				if (!light.CastsShadows || m_SpotShadowCount >= MaxSpotShadows)
+				{
+					light.ShadowIndex = 0;
+					light.AtlasOffsetX = 0.0f;
+					light.AtlasOffsetY = 0.0f;
+					light.AtlasScale = 1.0f;
+					if (m_SpotShadowCount >= MaxSpotShadows)
+						light.CastsShadows = 0;
+					continue;
+				}
+
+				const uint32_t atlasIndex = m_SpotShadowCount++;
+				const uint32_t tileX = atlasIndex % m_SpotShadowAtlasGridSize;
+				const uint32_t tileY = atlasIndex / m_SpotShadowAtlasGridSize;
+				const float atlasScale = 1.0f / (float)m_SpotShadowAtlasGridSize;
+
+				light.ShadowIndex = atlasIndex;
+				light.AtlasOffsetX = tileX * atlasScale;
+				light.AtlasOffsetY = tileY * atlasScale;
+				light.AtlasScale = atlasScale;
+
+				const glm::vec3 direction = glm::normalize(light.Direction);
+				const glm::vec3 up = glm::abs(glm::dot(direction, glm::vec3(0, 1, 0))) < 0.99f
+					? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
+				const glm::mat4 view = glm::lookAt(light.Position, light.Position + direction, up);
+				const float nearPlane = 0.1f;
+				const float farPlane = glm::max(0.1f, light.Range);
+				const float fov = glm::radians(glm::clamp(light.Angle, 1.0f, 179.0f));
+				const glm::mat4 proj = glm::perspective(fov, 1.0f, nearPlane, farPlane);
+				m_SpotShadowUB.ViewProjection[atlasIndex] = proj * view;
+			}
+
+			m_SpotShadowUB.Count = m_SpotShadowCount;
+
 			auto slData = m_SpotLightsUB;
 			uint32_t slSize = (uint32_t)(16ull + sizeof(SpotLight) * slData.Count);
+			auto spotShadowData = m_SpotShadowUB;
+			uint32_t spotShadowSize = (uint32_t)(sizeof(glm::mat4) * MaxSpotShadows + 16ull);
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, slData, slSize]() mutable {
 				instance->m_UBSSpotLights->RT_Get()->RT_SetData(
 					instance->m_UploadCommandBuffer, &slData, slSize);
+				});
+
+			Renderer::Submit([instance, spotShadowData, spotShadowSize]() mutable {
+				instance->m_UBSSpotShadow->RT_Get()->RT_SetData(
+					instance->m_UploadCommandBuffer, &spotShadowData, spotShadowSize);
 				});
 		}
 
@@ -702,6 +879,7 @@ namespace Lux {
 			m_RendererDataUB.MaxShadowDistance = m_Options.MaxShadowDistance;
 			m_RendererDataUB.ShadowFade = m_Options.ShadowFade;
 			m_RendererDataUB.CascadeSplits = glm::vec4(-1000000.0f);
+			m_RendererDataUB.TilesCountX = m_LightTilesCountX;
 
 			auto rdData = m_RendererDataUB;
 			Ref<SceneRenderer> instance = this;
@@ -983,7 +1161,9 @@ namespace Lux {
 		m_CommandBuffer->Begin();
 
 		ShadowMapPass();
+		SpotShadowMapPass();
 		PreDepthPass();
+		LightCullingPass();
 		SkyboxPass();
 		GeometryPass();
 		CompositePass();
@@ -1065,6 +1245,53 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::SpotShadowMapPass()
+	{
+		if (m_SpotShadowCount == 0)
+		{
+			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
+			Renderer::EndRenderPass(m_CommandBuffer);
+			return;
+		}
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SpotShadowMapPass");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
+
+		const uint32_t tilesPerRow = m_SpotShadowAtlasGridSize;
+		const uint32_t tileSize = m_SpotShadowTileSize;
+		const uint32_t atlasSize = m_SpotShadowMapSize;
+
+		for (uint32_t shadowIndex = 0; shadowIndex < m_SpotShadowCount; shadowIndex++)
+		{
+			const uint32_t tileX = shadowIndex % tilesPerRow;
+			const uint32_t tileY = shadowIndex / tilesPerRow;
+			Renderer::SetViewport(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
+
+			for (auto& [key, dc] : m_StaticMeshShadowPassDrawList)
+			{
+				auto it = m_ShadowMeshTransformMap.find(key);
+				if (it == m_ShadowMeshTransformMap.end()) continue;
+				const auto& cascadeTmd = it->second.Cascade;
+				const uint32_t instCount = (uint32_t)cascadeTmd.ObjectIndices.size();
+				if (instCount == 0) continue;
+
+				StaticDrawCommand drawCmd = dc;
+				drawCmd.InstanceCount = instCount;
+
+				Ref<SceneRenderer> instance = this;
+				Renderer::Submit([instance, drawCmd, cascadeTmd, shadowIndex]() mutable {
+					instance->RT_DrawStaticMesh(
+						instance->m_CommandBuffer, drawCmd, cascadeTmd, /*bindMaterial=*/false, shadowIndex);
+					});
+			}
+		}
+
+		Renderer::SetViewport(m_CommandBuffer, 0, 0, atlasSize, atlasSize);
+
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
 	void SceneRenderer::PreDepthPass()
 	{
 		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "PreDepthPass");
@@ -1086,6 +1313,16 @@ namespace Lux {
 		}
 
 		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::LightCullingPass()
+	{
+		if (!m_LightCullingPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
+			return;
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "LightCullingPass");
+		Renderer::LightCulling(m_CommandBuffer, m_LightCullingPass, nullptr, { m_LightTilesCountX, m_LightTilesCountY, 1 });
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -1288,7 +1525,8 @@ namespace Lux {
 		Ref<RenderCommandBuffer>  cmd,
 		const StaticDrawCommand& dc,
 		const TransformMapData& tmd,
-		bool                      bindMaterial)
+		bool                      bindMaterial,
+		uint32_t                  lightIndex)
 	{
 		// Non-const copy of the MeshSource Ref: MeshSource::GetVertexBuffer /
 		// GetIndexBuffer / GetMaterials are not marked const, so we cannot call
@@ -1361,7 +1599,7 @@ namespace Lux {
 
 		auto& pc = *reinterpret_cast<MeshDrawPushConstants*>(pushConstants.data());
 		pc.ObjectIndexBase = tmd.ObjectIndexBase;
-		pc.LightIndex = 0; // cascade 0 (single shadow cascade)
+		pc.LightIndex = lightIndex;
 		pc.BoneTransformBase = 0;
 		pc.BoneTransformStride = 0;
 		cmd->GetActive()->setPushConstants(pushConstants.data(), pushConstants.size());

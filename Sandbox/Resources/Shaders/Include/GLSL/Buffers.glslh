@@ -69,7 +69,9 @@ layout(std140, set = 1, binding = 7) uniform SpotLightData
 
 layout(std140, set = 1, binding = 8) uniform SpotShadowData
 {
-	mat4 Mats[1024];
+	mat4 Mats[16];
+	uint Count;
+	vec3 Padding;
 } u_SpotLightMatrices;
 
 /*layout(std430, set = 1, binding = 9) readonly buffer VisiblePointLightIndicesBuffer

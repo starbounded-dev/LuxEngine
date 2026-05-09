@@ -14,6 +14,9 @@ layout(std430, set = 1, binding = 10) readonly buffer VisibleSpotLightIndicesBuf
 	int Indices[];
 } s_VisibleSpotLightIndicesBuffer;
 
+const int LIGHT_CULLING_TILE_SIZE = 16;
+const int MAX_VISIBLE_LIGHTS_PER_TILE = 256;
+
 // Used in PBR shader
 struct PBRParameters
 {
@@ -64,24 +67,42 @@ vec3 CalculateDirLights(vec3 F0)
 
 int GetPointLightBufferIndex(int i)
 {
-	// Lux does not currently dispatch the Hazel-style light-culling pass, so
-	// fall back to iterating the uploaded point-light array directly.
-	return i;
+	if (u_RendererData.TilesCountX == 0)
+		return i;
+
+	ivec2 tileID = ivec2(gl_FragCoord.xy) / LIGHT_CULLING_TILE_SIZE;
+	tileID.x = clamp(tileID.x, 0, int(u_RendererData.TilesCountX) - 1);
+	int tileIndex = tileID.y * int(u_RendererData.TilesCountX) + tileID.x;
+	return s_VisiblePointLightIndicesBuffer.Indices[tileIndex * MAX_VISIBLE_LIGHTS_PER_TILE + i];
 }
 
 int GetPointLightCount()
 {
-	return int(u_PointLights.LightCount);
+	if (u_RendererData.TilesCountX == 0)
+		return int(u_PointLights.LightCount);
+
+	int result = 0;
+	for (int i = 0; i < MAX_VISIBLE_LIGHTS_PER_TILE; i++)
+	{
+		if (GetPointLightBufferIndex(i) < 0)
+			break;
+
+		result++;
+	}
+
+	return result;
 }
 
 vec3 CalculatePointLights(in vec3 F0, vec3 worldPos)
 {
 	vec3 result = vec3(0.0);
-	for (int i = 0; i < u_PointLights.LightCount; i++)
+	for (int i = 0; i < GetPointLightCount(); i++)
 	{
-		uint lightIndex = GetPointLightBufferIndex(i);
-		if (lightIndex == -1)
+		int visibleIndex = GetPointLightBufferIndex(i);
+		if (visibleIndex < 0)
 			break;
+
+		uint lightIndex = uint(visibleIndex);
 
 		PointLight light = u_PointLights.Lights[lightIndex];
 		vec3 Li = normalize(light.Position - worldPos);
@@ -119,32 +140,50 @@ vec3 CalculatePointLights(in vec3 F0, vec3 worldPos)
 
 int GetSpotLightBufferIndex(int i)
 {
-	// Lux does not currently dispatch the Hazel-style light-culling pass, so
-	// fall back to iterating the uploaded spot-light array directly.
-	return i;
+	if (u_RendererData.TilesCountX == 0)
+		return i;
+
+	ivec2 tileID = ivec2(gl_FragCoord.xy) / LIGHT_CULLING_TILE_SIZE;
+	tileID.x = clamp(tileID.x, 0, int(u_RendererData.TilesCountX) - 1);
+	int tileIndex = tileID.y * int(u_RendererData.TilesCountX) + tileID.x;
+	return s_VisibleSpotLightIndicesBuffer.Indices[tileIndex * MAX_VISIBLE_LIGHTS_PER_TILE + i];
 }
 
 
 int GetSpotLightCount()
 {
-	return int(u_SpotLights.LightCount);
+	if (u_RendererData.TilesCountX == 0)
+		return int(u_SpotLights.LightCount);
+
+	int result = 0;
+	for (int i = 0; i < MAX_VISIBLE_LIGHTS_PER_TILE; i++)
+	{
+		if (GetSpotLightBufferIndex(i) < 0)
+			break;
+
+		result++;
+	}
+
+	return result;
 }
 
 vec3 CalculateSpotLights(in vec3 F0, vec3 worldPos)
 {
 	vec3 result = vec3(0.0);
-	for (int i = 0; i < u_SpotLights.LightCount; i++)
+	for (int i = 0; i < GetSpotLightCount(); i++)
 	{
-		uint lightIndex = GetSpotLightBufferIndex(i); 
-		if (lightIndex == -1)
+		int visibleIndex = GetSpotLightBufferIndex(i);
+		if (visibleIndex < 0)
 			break;
+
+		uint lightIndex = uint(visibleIndex);
 
 		SpotLight light = u_SpotLights.Lights[lightIndex];
 		vec3 Li = normalize(light.Position - worldPos);
 		float lightDistance = length(light.Position - worldPos);
 
 		float cutoff = cos(radians(light.Angle * 0.5f));
-		float scos = max(dot(Li, light.Direction), cutoff);
+		float scos = max(dot(-Li, normalize(light.Direction)), cutoff);
 		float rim = (1.0 - scos) / (1.0 - cutoff);
 
 		float attenuation = clamp(1.0 - (lightDistance * lightDistance) / (light.Range * light.Range), 0.0, 1.0);

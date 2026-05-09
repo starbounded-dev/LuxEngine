@@ -4,7 +4,9 @@
 #include "Lux/Renderer/Camera.h"
 #include "Lux/Renderer/RenderCommandBuffer.h"
 #include "Lux/Renderer/RenderPass.h"
+#include "Lux/Renderer/ComputePass.h"
 #include "Lux/Renderer/Pipeline.h"
+#include "Lux/Renderer/PipelineCompute.h"
 #include "Lux/Renderer/Framebuffer.h"
 #include "Lux/Renderer/Material.h"
 #include "Lux/Renderer/Mesh.h"
@@ -138,6 +140,9 @@ namespace Lux {
 	class SceneRenderer : public RefCounted
 	{
 	public:
+		static constexpr uint32_t MaxSpotShadows = 16;
+		static constexpr uint32_t LightCullingTileSize = 16;
+		static constexpr uint32_t MaxVisibleLightsPerTile = 256;
 		struct Statistics
 		{
 			uint32_t DrawCalls = 0;
@@ -279,19 +284,23 @@ namespace Lux {
 		void FlushDrawList();
 
 		void ShadowMapPass();
+		void SpotShadowMapPass();
 		void PreDepthPass();
+		void LightCullingPass();
 		void SkyboxPass();
 		void GeometryPass();
 		void CompositePass();
 		void GridPass();
 
 		void UpdateStatistics();
+		void ResizeLightCullingResources();
 
 		// Render-thread draw helper (must be called inside Renderer::Submit).
 		void RT_DrawStaticMesh(Ref<RenderCommandBuffer> cmd,
 			const StaticDrawCommand& dc,
 			const TransformMapData& tmd,
-			bool                     bindMaterial);
+			bool                     bindMaterial,
+			uint32_t                 lightIndex = 0);
 
 		// ── Uniform buffer GPU structs ────────────────────────────────────────
 
@@ -332,10 +341,10 @@ namespace Lux {
 
 		struct UBSpotShadow
 		{
-			glm::mat4 ViewProjection[16];
+			glm::mat4 ViewProjection[MaxSpotShadows];
 			uint32_t Count = 0;
 			glm::vec3 Padding{};
-		};
+		} m_SpotShadowUB;
 
 		struct UBRendererData
 		{
@@ -354,6 +363,14 @@ namespace Lux {
 			bool      ShowLightComplexity = false;
 			char      Pad3[3] = { 0, 0, 0 };
 		} m_RendererDataUB;
+
+		struct UBScreenData
+		{
+			glm::vec2 InvFullResolution = { 1.0f, 1.0f };
+			glm::vec2 FullResolution = { 1.0f, 1.0f };
+			glm::vec2 InvHalfResolution = { 1.0f, 1.0f };
+			glm::vec2 HalfResolution = { 1.0f, 1.0f };
+		} m_ScreenDataUB;
 
 		struct UBPointLights
 		{
@@ -397,6 +414,7 @@ namespace Lux {
 		Ref<UniformBufferSet> m_UBSShadow;
 		Ref<UniformBufferSet> m_UBSSpotShadow;
 		Ref<UniformBufferSet> m_UBSRendererData;
+		Ref<UniformBufferSet> m_UBSScreenData;
 		Ref<UniformBufferSet> m_UBSPointLights;
 		Ref<UniformBufferSet> m_UBSSpotLights;
 
@@ -404,16 +422,31 @@ namespace Lux {
 		Ref<StorageBufferSet> m_SBSObjectIndexes;       // uint32_t[] – maps draw → transform
 		Ref<StorageBufferSet> m_SBSVisiblePointLightIndices;
 		Ref<StorageBufferSet> m_SBSVisibleSpotLightIndices;
+		uint32_t              m_LightTilesCountX = 1;
+		uint32_t              m_LightTilesCountY = 1;
+		uint32_t              m_VisibleLightIndexBufferSize = 0;
 
 		// ── Shadow map (single ortho cascade) ────────────────────────────────
 		Ref<Image2D>     m_ShadowMapImage;
 		Ref<RenderPass>  m_ShadowMapPass;
 		Ref<Material>    m_ShadowPassMaterial;
 
+		// ── Spot shadow atlas ───────────────────────────────────────────────
+		Ref<Image2D>     m_SpotShadowMapImage;
+		Ref<RenderPass>  m_SpotShadowMapPass;
+		Ref<Material>    m_SpotShadowPassMaterial;
+		uint32_t         m_SpotShadowMapSize = 2048;
+		uint32_t         m_SpotShadowAtlasGridSize = 1;
+		uint32_t         m_SpotShadowTileSize = 2048;
+		uint32_t         m_SpotShadowCount = 0;
+
 		// ── Pre-depth pass ────────────────────────────────────────────────────
 		Ref<Pipeline>    m_PreDepthPipeline;
 		Ref<Material>    m_PreDepthMaterial;
 		Ref<RenderPass>  m_PreDepthPass;
+
+		// ── Tiled light culling ──────────────────────────────────────────────
+		Ref<ComputePass> m_LightCullingPass;
 
 		// ── Geometry pass ─────────────────────────────────────────────────────
 		Ref<Framebuffer> m_GeometryPassFramebuffer;     // owns the attachments

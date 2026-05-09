@@ -14,7 +14,7 @@
 layout(set = 1, binding = 0) uniform texture2D u_DepthMap;
 
 #define TILE_SIZE 16
-#define MAX_LIGHT_COUNT 1024
+#define MAX_LIGHT_COUNT 256
 
 layout(std430, set = 1, binding = 9) writeonly buffer VisiblePointLightIndicesBuffer
 {
@@ -66,6 +66,8 @@ layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE, local_size_z = 1) in;
 void main()
 {
     ivec2 location = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 screenSize = ivec2(u_ScreenData.FullResolution);
+	ivec2 clampedLocation = clamp(location, ivec2(0), max(screenSize - ivec2(1), ivec2(0)));
     ivec2 itemID = ivec2(gl_LocalInvocationID.xy);
     ivec2 tileID = ivec2(gl_WorkGroupID.xy);
     ivec2 tileNumber = ivec2(gl_NumWorkGroups.xy);
@@ -83,7 +85,7 @@ void main()
     barrier();
 
     // Step 1: Calculate the minimum and maximum depth values (from the depth buffer) for this group's tile
-    vec2 tc = vec2(location) / u_ScreenData.FullResolution;
+    vec2 tc = (vec2(clampedLocation) + vec2(0.5)) * u_ScreenData.InvFullResolution;
     float linearDepth = ScreenSpaceToViewSpaceDepth(textureLod(sampler2D(u_DepthMap, r_DefaultSampler), tc, 0).r);
 
     // Convert depth to uint so we can do atomic min and max comparisons between the threads
@@ -134,12 +136,13 @@ void main()
     // Parallelize the threads against the lights now.
     // Can handle 256 simultaniously. Anymore lights than that and additional passes are performed
     const uint threadCount = TILE_SIZE * TILE_SIZE;
-    uint passCount = (u_PointLights.LightCount + threadCount - 1) / threadCount;
+    uint pointLightCount = min(u_PointLights.LightCount, uint(MAX_LIGHT_COUNT));
+    uint passCount = (pointLightCount + threadCount - 1) / threadCount;
     for (uint i = 0; i < passCount; i++)
     {
 		// Get the lightIndex to test for this thread / pass. If the index is >= light count, then this thread can stop testing lights
 		uint lightIndex = i * threadCount + gl_LocalInvocationIndex;
-		if (lightIndex >= u_PointLights.LightCount)
+		if (lightIndex >= pointLightCount)
 		    break;
 
 		vec4 position = vec4(u_PointLights.Lights[lightIndex].Position, 1.0f);
@@ -160,16 +163,18 @@ void main()
 		{
 		    // Add index to the shared array of visible indices
 		    uint offset = atomicAdd(visiblePointLightCount, 1);
-		    visiblePointLightIndices[offset] = int(lightIndex);
+		    if (offset < uint(MAX_LIGHT_COUNT))
+				visiblePointLightIndices[offset] = int(lightIndex);
 		}
     }
 
-	passCount = (u_SpotLights.LightCount + threadCount - 1) / threadCount;
+	uint spotLightCount = min(u_SpotLights.LightCount, uint(MAX_LIGHT_COUNT));
+	passCount = (spotLightCount + threadCount - 1) / threadCount;
 	for (uint i = 0; i < passCount; i++)
 	{
 		// Get the lightIndex to test for this thread / pass. If the index is >= light count, then this thread can stop testing lights
 		uint lightIndex = i * threadCount + gl_LocalInvocationIndex;
-		if (lightIndex >= u_SpotLights.LightCount)
+		if (lightIndex >= spotLightCount)
 			break;
 
 		SpotLight light = u_SpotLights.Lights[lightIndex];
@@ -188,7 +193,8 @@ void main()
 		{
 			// Add index to the shared array of visible indices
 			uint offset = atomicAdd(visibleSpotLightCount, 1);
-			visibleSpotLightIndices[offset] = int(lightIndex);
+			if (offset < uint(MAX_LIGHT_COUNT))
+				visibleSpotLightIndices[offset] = int(lightIndex);
 		} 
 		
 	}
@@ -199,27 +205,30 @@ void main()
     if (gl_LocalInvocationIndex == 0)
     {
 		const uint offset = index * MAX_LIGHT_COUNT; // Determine position in global buffer
-		for (uint i = 0; i < visiblePointLightCount; i++) 
+		for (uint i = 0; i < min(visiblePointLightCount, uint(MAX_LIGHT_COUNT)); i++) 
 		{
 			s_VisiblePointLightIndicesBuffer.Indices[offset + i] = visiblePointLightIndices[i];
 		}
 
-		for (uint i = 0; i < visibleSpotLightCount; i++) {
+		for (uint i = 0; i < min(visibleSpotLightCount, uint(MAX_LIGHT_COUNT)); i++) {
 			s_VisibleSpotLightIndicesBuffer.Indices[offset + i] = visibleSpotLightIndices[i];
 		}
 
-		if (visiblePointLightCount != MAX_LIGHT_COUNT)
+		uint pointWriteCount = min(visiblePointLightCount, uint(MAX_LIGHT_COUNT));
+		uint spotWriteCount = min(visibleSpotLightCount, uint(MAX_LIGHT_COUNT));
+
+		if (pointWriteCount != uint(MAX_LIGHT_COUNT))
 		{
 		    // Unless we have totally filled the entire array, mark it's end with -1
 		    // Final shader step will use this to determine where to stop (without having to pass the light count)
-			s_VisiblePointLightIndicesBuffer.Indices[offset + visiblePointLightCount] = -1;
+			s_VisiblePointLightIndicesBuffer.Indices[offset + pointWriteCount] = -1;
 		}
 
-		if (visibleSpotLightCount != MAX_LIGHT_COUNT)
+		if (spotWriteCount != uint(MAX_LIGHT_COUNT))
 		{
 			// Unless we have totally filled the entire array, mark it's end with -1
 			// Final shader step will use this to determine where to stop (without having to pass the light count)
-			s_VisibleSpotLightIndicesBuffer.Indices[offset + visibleSpotLightCount] = -1;
+			s_VisibleSpotLightIndicesBuffer.Indices[offset + spotWriteCount] = -1;
 		}
     }
 }

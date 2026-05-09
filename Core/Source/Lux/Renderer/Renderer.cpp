@@ -812,6 +812,13 @@ namespace Lux {
 			});
 	}
 
+	void Renderer::LightCulling(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups)
+	{
+		Renderer::BeginComputePass(renderCommandBuffer, computePass);
+		Renderer::DispatchCompute(renderCommandBuffer, computePass, material, workGroups);
+		Renderer::EndComputePass(renderCommandBuffer, computePass);
+	}
+
 	void Renderer::BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
 		Renderer::Submit([renderCommandBuffer, s = label]() mutable
