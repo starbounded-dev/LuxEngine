@@ -20,7 +20,7 @@ Entities:
       []
     TransformComponent:
       Position: [-0.397086352, 3.4798944, 0.385443866]
-      Rotation: [3.12563705, 1.34484768, 1.62000799]
+      Rotation: [1.93881643, 0.971345544, 0.202807263]
       Scale: [0.999996483, 0.999957502, 0.999996901]
     DirectionalLightComponent:
       Intensity: 1

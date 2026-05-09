@@ -37,6 +37,72 @@ namespace Lux {
 		{
 			return environment && environment->IrradianceMap ? environment->IrradianceMap : Renderer::GetBlackCubeTexture();
 		}
+
+		AssetHandle GetStaticMeshKeyHandle(const Ref<StaticMesh>& staticMesh)
+		{
+			if (!staticMesh)
+				return 0;
+
+			return staticMesh->Handle ? staticMesh->Handle : staticMesh->GetMeshSource();
+		}
+
+		uint32_t AlignUp(uint32_t value, uint32_t alignment)
+		{
+			if (alignment == 0)
+				return value;
+
+			return ((value + alignment - 1u) / alignment) * alignment;
+		}
+
+		uint32_t DivideRoundUp(uint32_t value, uint32_t divisor)
+		{
+			return divisor == 0 ? value : (value + divisor - 1u) / divisor;
+		}
+
+		glm::uvec2 DivideRoundUp(const glm::uvec2& value, uint32_t divisor)
+		{
+			return { DivideRoundUp(value.x, divisor), DivideRoundUp(value.y, divisor) };
+		}
+
+		uint32_t NextPowerOfTwo(uint32_t value)
+		{
+			if (value <= 1)
+				return 1;
+
+			value--;
+			value |= value >> 1;
+			value |= value >> 2;
+			value |= value >> 4;
+			value |= value >> 8;
+			value |= value >> 16;
+			return value + 1;
+		}
+
+		AssetHandle ResolveStaticMeshMaterialHandle(
+			const Ref<MaterialTable>& materialTable,
+			const Ref<StaticMesh>& staticMesh,
+			const Ref<MeshSource>& meshSource,
+			uint32_t materialIndex)
+		{
+			if (materialTable)
+			{
+				if (materialTable->HasMaterial(materialIndex))
+					return materialTable->GetMaterial(materialIndex);
+
+				const auto& overrides = materialTable->GetMaterials();
+				if (overrides.size() == 1 && materialTable->HasMaterial(0))
+					return materialTable->GetMaterial(0);
+			}
+
+			Ref<MaterialTable> staticMeshMaterials = staticMesh ? staticMesh->GetMaterials() : nullptr;
+			if (staticMeshMaterials && staticMeshMaterials->HasMaterial(materialIndex))
+				return staticMeshMaterials->GetMaterial(materialIndex);
+
+			if (meshSource && materialIndex < meshSource->GetMaterials().size())
+				return meshSource->GetMaterials()[materialIndex];
+
+			return 0;
+		}
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -251,6 +317,71 @@ namespace Lux {
 			m_PreDepthPass->Bake();
 		}
 
+		// ── Hierarchical depth + SSR pre-integration ──────────────────────────
+		{
+			TextureSpecification hzbSpec;
+			hzbSpec.Format = ImageFormat::RED32F;
+			hzbSpec.Width = 1;
+			hzbSpec.Height = 1;
+			hzbSpec.SamplerWrap = TextureWrap::Clamp;
+			hzbSpec.SamplerFilter = TextureFilter::Nearest;
+			hzbSpec.Storage = true;
+			hzbSpec.GenerateMips = true;
+			hzbSpec.DebugName = "HierarchicalZ";
+			m_HierarchicalDepthTexture.Texture = Texture2D::Create(hzbSpec);
+
+			ComputePassSpecification hzbPassSpec;
+			hzbPassSpec.DebugName = "HierarchicalDepth";
+			hzbPassSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("HZB"));
+			m_HierarchicalDepthPass = ComputePass::Create(hzbPassSpec);
+			m_HierarchicalDepthPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_HierarchicalDepthPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_HierarchicalDepthPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_HierarchicalDepthPass->Validate());
+			m_HierarchicalDepthPass->Bake();
+
+			TextureSpecification visibilitySpec;
+			visibilitySpec.Format = ImageFormat::RED8UN;
+			visibilitySpec.Width = 1;
+			visibilitySpec.Height = 1;
+			visibilitySpec.SamplerWrap = TextureWrap::Clamp;
+			visibilitySpec.SamplerFilter = TextureFilter::Linear;
+			visibilitySpec.Storage = true;
+			visibilitySpec.GenerateMips = true;
+			visibilitySpec.DebugName = "Pre-Integration";
+			m_PreIntegrationVisibilityTexture.Texture = Texture2D::Create(visibilitySpec);
+
+			ComputePassSpecification preIntegrationSpec;
+			preIntegrationSpec.DebugName = "Pre-Integration";
+			preIntegrationSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("Pre-Integration"));
+			m_PreIntegrationPass = ComputePass::Create(preIntegrationSpec);
+			m_PreIntegrationPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_PreIntegrationPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_PreIntegrationPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_PreIntegrationPass->Validate());
+			m_PreIntegrationPass->Bake();
+
+			TextureSpecification preConvolutionSpec;
+			preConvolutionSpec.Format = ImageFormat::RGBA32F;
+			preConvolutionSpec.Width = 1;
+			preConvolutionSpec.Height = 1;
+			preConvolutionSpec.SamplerWrap = TextureWrap::Clamp;
+			preConvolutionSpec.Storage = true;
+			preConvolutionSpec.GenerateMips = true;
+			preConvolutionSpec.DebugName = "Pre-Convoluted";
+			m_PreConvolutedTexture.Texture = Texture2D::Create(preConvolutionSpec);
+
+			ComputePassSpecification preConvolutionPassSpec;
+			preConvolutionPassSpec.DebugName = "Pre-Convolution";
+			preConvolutionPassSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("Pre-Convolution"));
+			m_PreConvolutionComputePass = ComputePass::Create(preConvolutionPassSpec);
+			m_PreConvolutionComputePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_PreConvolutionComputePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_PreConvolutionComputePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_PreConvolutionComputePass->Validate());
+			m_PreConvolutionComputePass->Bake();
+		}
+
 		// ── Tiled light culling pass ─────────────────────────────────────────
 		{
 			ComputePassSpecification computeSpec;
@@ -377,6 +508,164 @@ namespace Lux {
 			m_GeometryPassTransparent->Bake();
 		}
 
+		// ── GTAO + AO composite ───────────────────────────────────────────────
+		{
+			ImageSpecification imageSpec;
+			imageSpec.Format = ImageFormat::RED8UI;
+			imageSpec.Usage = ImageUsage::Storage;
+			imageSpec.DebugName = "GTAO";
+			m_GTAOOutputImage = Image2D::Create(imageSpec);
+
+			imageSpec.DebugName = "GTAO-Denoise";
+			m_GTAODenoiseImage = Image2D::Create(imageSpec);
+
+			imageSpec.Format = ImageFormat::RED8UN;
+			imageSpec.DebugName = "GTAO-Edges";
+			m_GTAOEdgesOutputImage = Image2D::Create(imageSpec);
+
+			Ref<Shader> gtaoShader = Renderer::GetShaderLibrary()->Get("GTAO");
+			ComputePassSpecification gtaoSpec;
+			gtaoSpec.DebugName = "GTAO-ComputePass";
+			gtaoSpec.Pipeline = PipelineCompute::Create(gtaoShader);
+			m_GTAOComputePass = ComputePass::Create(gtaoSpec);
+			m_GTAOComputePass->SetInput("u_HiZDepth", m_HierarchicalDepthTexture.Texture);
+			m_GTAOComputePass->SetInput("u_HilbertLut", Renderer::GetHilbertLut());
+			m_GTAOComputePass->SetInput("u_ViewNormal", m_GeometryPass->GetOutput(1));
+			m_GTAOComputePass->SetInput("o_AOwBentNormals", m_GTAOOutputImage);
+			m_GTAOComputePass->SetInput("o_Edges", m_GTAOEdgesOutputImage);
+			m_GTAOComputePass->SetInput("u_samplerPointClamp", Renderer::GetPointSampler());
+			m_GTAOComputePass->SetInput("Camera", m_UBSCamera);
+			m_GTAOComputePass->SetInput("ScreenData", m_UBSScreenData);
+			LUX_CORE_VERIFY(m_GTAOComputePass->Validate());
+			m_GTAOComputePass->Bake();
+
+			Ref<Shader> denoiseShader = Renderer::GetShaderLibrary()->Get("GTAO-Denoise");
+			m_GTAODenoiseMaterial[0] = Material::Create(denoiseShader, "GTAO-Denoise-Ping");
+			m_GTAODenoiseMaterial[1] = Material::Create(denoiseShader, "GTAO-Denoise-Pong");
+
+			ComputePassSpecification denoiseSpec;
+			denoiseSpec.DebugName = "GTAO-Denoise";
+			denoiseSpec.Pipeline = PipelineCompute::Create(denoiseShader);
+			m_GTAODenoisePass[0] = ComputePass::Create(denoiseSpec);
+			m_GTAODenoisePass[0]->SetInput("u_Edges", m_GTAOEdgesOutputImage);
+			m_GTAODenoisePass[0]->SetInput("u_AOTerm", m_GTAOOutputImage);
+			m_GTAODenoisePass[0]->SetInput("o_AOTerm", m_GTAODenoiseImage);
+			m_GTAODenoisePass[0]->SetInput("ScreenData", m_UBSScreenData);
+			m_GTAODenoisePass[0]->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_GTAODenoisePass[0]->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_GTAODenoisePass[0]->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_GTAODenoisePass[0]->Validate());
+			m_GTAODenoisePass[0]->Bake();
+
+			m_GTAODenoisePass[1] = ComputePass::Create(denoiseSpec);
+			m_GTAODenoisePass[1]->SetInput("u_Edges", m_GTAOEdgesOutputImage);
+			m_GTAODenoisePass[1]->SetInput("u_AOTerm", m_GTAODenoiseImage);
+			m_GTAODenoisePass[1]->SetInput("o_AOTerm", m_GTAOOutputImage);
+			m_GTAODenoisePass[1]->SetInput("ScreenData", m_UBSScreenData);
+			m_GTAODenoisePass[1]->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_GTAODenoisePass[1]->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_GTAODenoisePass[1]->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_GTAODenoisePass[1]->Validate());
+			m_GTAODenoisePass[1]->Bake();
+
+			m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
+
+			FramebufferSpecification aoFramebufferSpec;
+			aoFramebufferSpec.Width = m_ViewportWidth;
+			aoFramebufferSpec.Height = m_ViewportHeight;
+			aoFramebufferSpec.Attachments = { ImageFormat::RGBA32F };
+			aoFramebufferSpec.ExistingImages[0] = m_GeometryPass->GetOutput(0);
+			aoFramebufferSpec.ClearColorOnLoad = false;
+			aoFramebufferSpec.Blend = true;
+			aoFramebufferSpec.BlendMode = FramebufferBlendMode::Zero_SrcColor;
+			aoFramebufferSpec.DebugName = "AO-Composite";
+
+			PipelineSpecification aoPipelineSpec;
+			aoPipelineSpec.DebugName = "AO-Composite";
+			aoPipelineSpec.TargetFramebuffer = Framebuffer::Create(aoFramebufferSpec);
+			aoPipelineSpec.DepthTest = false;
+			aoPipelineSpec.DepthWrite = false;
+			aoPipelineSpec.Layout = {
+				{ ShaderDataType::Float3, "a_Position" },
+				{ ShaderDataType::Float2, "a_TexCoord" },
+			};
+			aoPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("AO-Composite");
+
+			RenderPassSpecification aoRenderPassSpec;
+			aoRenderPassSpec.DebugName = "AO-Composite";
+			aoRenderPassSpec.Pipeline = Pipeline::Create(aoPipelineSpec);
+			m_AOCompositePass = RenderPass::Create(aoRenderPassSpec);
+			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_AOCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_AOCompositePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_AOCompositePass->Validate());
+			m_AOCompositePass->Bake();
+			m_AOCompositeMaterial = Material::Create(aoPipelineSpec.Shader, "GTAO-Composite");
+		}
+
+		// ── SSR ────────────────────────────────────────────────────────────────
+		{
+			ImageSpecification ssrImageSpec;
+			ssrImageSpec.Format = ImageFormat::RGBA16F;
+			ssrImageSpec.Usage = ImageUsage::Storage;
+			ssrImageSpec.DebugName = "SSR";
+			m_SSRImage = Image2D::Create(ssrImageSpec);
+
+			ComputePassSpecification ssrComputeSpec;
+			ssrComputeSpec.DebugName = "SSR-Compute";
+			ssrComputeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("SSR"));
+			m_SSRPass = ComputePass::Create(ssrComputeSpec);
+			m_SSRPass->SetInput("outColor", m_SSRImage);
+			m_SSRPass->SetInput("u_InputColor", m_PreConvolutedTexture.Texture);
+			m_SSRPass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_SSRPass->SetInput("u_HiZBuffer", m_HierarchicalDepthTexture.Texture);
+			m_SSRPass->SetInput("u_MetalnessRoughness", m_GeometryPass->GetOutput(2));
+			m_SSRPass->SetInput("u_VisibilityBuffer", m_PreIntegrationVisibilityTexture.Texture);
+			if (m_SSRPass->IsInputValid("u_GTAOTex"))
+				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_SSRPass->SetInput("Camera", m_UBSCamera);
+			m_SSRPass->SetInput("ScreenData", m_UBSScreenData);
+			m_SSRPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_SSRPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_SSRPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_SSRPass->Validate());
+			m_SSRPass->Bake();
+
+			FramebufferSpecification ssrCompositeFBSpec;
+			ssrCompositeFBSpec.Width = m_ViewportWidth;
+			ssrCompositeFBSpec.Height = m_ViewportHeight;
+			ssrCompositeFBSpec.Attachments = { ImageFormat::RGBA32F };
+			ssrCompositeFBSpec.ExistingImages[0] = m_GeometryPass->GetOutput(0);
+			ssrCompositeFBSpec.ClearColorOnLoad = false;
+			ssrCompositeFBSpec.Blend = true;
+			ssrCompositeFBSpec.BlendMode = FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha;
+			ssrCompositeFBSpec.DebugName = "SSR-Composite";
+
+			PipelineSpecification ssrCompositePipelineSpec;
+			ssrCompositePipelineSpec.DebugName = "SSR-Composite";
+			ssrCompositePipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("SSR-Composite");
+			ssrCompositePipelineSpec.TargetFramebuffer = Framebuffer::Create(ssrCompositeFBSpec);
+			ssrCompositePipelineSpec.DepthTest = false;
+			ssrCompositePipelineSpec.DepthWrite = false;
+			ssrCompositePipelineSpec.Layout = {
+				{ ShaderDataType::Float3, "a_Position" },
+				{ ShaderDataType::Float2, "a_TexCoord" },
+			};
+
+			RenderPassSpecification ssrRenderPassSpec;
+			ssrRenderPassSpec.DebugName = "SSR-Composite";
+			ssrRenderPassSpec.Pipeline = Pipeline::Create(ssrCompositePipelineSpec);
+			m_SSRCompositePass = RenderPass::Create(ssrRenderPassSpec);
+			m_SSRCompositePass->SetInput("u_SSR", m_SSRImage);
+			m_SSRCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_SSRCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_SSRCompositePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_SSRCompositePass->Validate());
+			m_SSRCompositePass->Bake();
+			m_SSRCompositeMaterial = Material::Create(ssrCompositePipelineSpec.Shader, "SSR-Composite");
+		}
+
 		// ── Selected geometry (isolation for outline) ─────────────────────────
 		{
 			FramebufferSpecification fbSpec;
@@ -405,6 +694,58 @@ namespace Lux {
 			m_SelectedGeometryPass->Bake();
 
 			m_SelectedGeometryMaterial = Material::Create(pipelineSpec.Shader, "SelectedGeometry");
+		}
+
+		// ── Jump flood outline buffers ────────────────────────────────────────
+		{
+			FramebufferSpecification fbSpec;
+			fbSpec.Width = m_ViewportWidth;
+			fbSpec.Height = m_ViewportHeight;
+			fbSpec.Attachments = { ImageFormat::RGBA32F };
+			fbSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+			fbSpec.DebugName = "JumpFlood-Init";
+
+			PipelineSpecification pipelineSpec;
+			pipelineSpec.DebugName = "JumpFlood-Init";
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("JumpFlood_Init");
+			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
+			pipelineSpec.DepthTest = false;
+			pipelineSpec.DepthWrite = false;
+			pipelineSpec.Layout = {
+				{ ShaderDataType::Float3, "a_Position" },
+				{ ShaderDataType::Float2, "a_TexCoord" },
+			};
+
+			RenderPassSpecification rpSpec;
+			rpSpec.DebugName = "JumpFlood-Init";
+			rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
+			m_JumpFloodInitPass = RenderPass::Create(rpSpec);
+			m_JumpFloodInitPass->SetInput("u_Texture", m_SelectedGeometryPass->GetOutput(0));
+			m_JumpFloodInitPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_JumpFloodInitPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_JumpFloodInitPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_JumpFloodInitPass->Validate());
+			m_JumpFloodInitPass->Bake();
+			m_JumpFloodInitMaterial = Material::Create(pipelineSpec.Shader, "JumpFlood-Init");
+
+			for (uint32_t i = 0; i < 2; i++)
+			{
+				fbSpec.DebugName = "JumpFlood-Pass" + std::to_string(i);
+				pipelineSpec.DebugName = "JumpFlood-Pass" + std::to_string(i);
+				pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("JumpFlood_Pass");
+				pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
+
+				rpSpec.DebugName = pipelineSpec.DebugName;
+				rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
+				m_JumpFloodPasses[i] = RenderPass::Create(rpSpec);
+				m_JumpFloodPasses[i]->SetInput("u_Texture", i == 0 ? m_JumpFloodInitPass->GetOutput(0) : m_JumpFloodPasses[0]->GetOutput(0));
+				m_JumpFloodPasses[i]->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+				m_JumpFloodPasses[i]->SetInput("r_PointSampler", Renderer::GetPointSampler());
+				m_JumpFloodPasses[i]->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+				LUX_CORE_VERIFY(m_JumpFloodPasses[i]->Validate());
+				m_JumpFloodPasses[i]->Bake();
+				m_JumpFloodPassMaterials[i] = Material::Create(pipelineSpec.Shader, pipelineSpec.DebugName);
+			}
 		}
 
 		// ── Wireframe pass (on top of geometry, for selected meshes) ──────────
@@ -472,6 +813,40 @@ namespace Lux {
 			m_SkyboxPass->Bake();
 		}
 
+		// ── Bloom compute (feeds the scene composite) ─────────────────────────
+		{
+			Ref<Shader> shader = Renderer::GetShaderLibrary()->Get("Bloom");
+			m_BloomComputePipeline = PipelineCompute::Create(shader);
+
+			TextureSpecification spec;
+			spec.Format = ImageFormat::RGBA32F;
+			spec.Width = 1;
+			spec.Height = 1;
+			spec.SamplerWrap = TextureWrap::Clamp;
+			spec.Storage = true;
+			spec.GenerateMips = true;
+
+			for (uint32_t i = 0; i < (uint32_t)m_BloomComputeTextures.size(); i++)
+			{
+				spec.DebugName = "BloomCompute-" + std::to_string(i);
+				m_BloomComputeTextures[i].Texture = Texture2D::Create(spec);
+			}
+
+			ComputePassSpecification computeSpec;
+			computeSpec.DebugName = "Bloom-Compute";
+			computeSpec.Pipeline = m_BloomComputePipeline;
+			m_BloomComputePass = ComputePass::Create(computeSpec);
+			m_BloomComputePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_BloomComputePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_BloomComputePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_BloomComputePass->Validate());
+			m_BloomComputePass->Bake();
+
+			m_BloomDirtTexture = Renderer::GetBlackTexture();
+			ResizeBloomResources();
+			CreateBloomPassMaterials();
+		}
+
 		// ── Scene composite (tone-map + exposure + opacity) ───────────────────
 		{
 			FramebufferSpecification fbSpec;
@@ -509,8 +884,84 @@ namespace Lux {
 			m_CompositePass = RenderPass::Create(rpSpec);
 			// The geometry color output feeds the composite shader
 			m_CompositePass->SetInput("u_Texture", m_GeometryPass->GetOutput(0));
+			m_CompositePass->SetInput("u_BloomTexture", m_BloomComputeTextures[2].Texture);
+			m_CompositePass->SetInput("u_BloomDirtTexture", m_BloomDirtTexture);
+			m_CompositePass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
+			m_CompositePass->SetInput("u_TransparentDepthTexture", m_GeometryPassTransparent->GetDepthOutput());
 			LUX_CORE_VERIFY(m_CompositePass->Validate());
 			m_CompositePass->Bake();
+		}
+
+		// ── Depth of field and jump-flood composite overlays ─────────────────
+		{
+			FramebufferSpecification dofFBSpec;
+			dofFBSpec.Width = m_ViewportWidth;
+			dofFBSpec.Height = m_ViewportHeight;
+			dofFBSpec.Attachments = { ImageFormat::RGBA, ImageFormat::DEPTH32FSTENCIL8UINT };
+			dofFBSpec.ExistingImages[1] = m_PreDepthPass->GetDepthOutput();
+			dofFBSpec.ClearColorOnLoad = false;
+			dofFBSpec.ClearDepthOnLoad = false;
+			dofFBSpec.DebugName = "POST-DepthOfField";
+
+			PipelineSpecification dofPipelineSpec;
+			dofPipelineSpec.DebugName = "POST-DepthOfField";
+			dofPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("DOF");
+			dofPipelineSpec.TargetFramebuffer = Framebuffer::Create(dofFBSpec);
+			dofPipelineSpec.DepthTest = false;
+			dofPipelineSpec.DepthWrite = false;
+			dofPipelineSpec.Layout = {
+				{ ShaderDataType::Float3, "a_Position" },
+				{ ShaderDataType::Float2, "a_TexCoord" }
+			};
+
+			RenderPassSpecification dofPassSpec;
+			dofPassSpec.DebugName = "POST-DepthOfField";
+			dofPassSpec.Pipeline = Pipeline::Create(dofPipelineSpec);
+			m_DOFPass = RenderPass::Create(dofPassSpec);
+			m_DOFPass->SetInput("u_Texture", m_CompositePass->GetOutput(0));
+			m_DOFPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
+			m_DOFPass->SetInput("Camera", m_UBSCamera);
+			m_DOFPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_DOFPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_DOFPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_DOFPass->Validate());
+			m_DOFPass->Bake();
+			m_DOFMaterial = Material::Create(dofPipelineSpec.Shader, "DepthOfField");
+
+			FramebufferSpecification jfCompositeFBSpec;
+			jfCompositeFBSpec.Width = m_ViewportWidth;
+			jfCompositeFBSpec.Height = m_ViewportHeight;
+			jfCompositeFBSpec.Attachments = { ImageFormat::RGBA, ImageFormat::DEPTH32FSTENCIL8UINT };
+			jfCompositeFBSpec.ExistingImages[0] = m_CompositingFramebuffer->GetImage(0);
+			jfCompositeFBSpec.ExistingImages[1] = m_CompositingFramebuffer->GetDepthImage();
+			jfCompositeFBSpec.ClearColorOnLoad = false;
+			jfCompositeFBSpec.ClearDepthOnLoad = false;
+			jfCompositeFBSpec.Blend = true;
+			jfCompositeFBSpec.BlendMode = FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha;
+			jfCompositeFBSpec.DebugName = "JumpFlood-Composite";
+
+			PipelineSpecification jfCompositePipelineSpec;
+			jfCompositePipelineSpec.DebugName = "JumpFlood-Composite";
+			jfCompositePipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("JumpFlood_Composite");
+			jfCompositePipelineSpec.TargetFramebuffer = Framebuffer::Create(jfCompositeFBSpec);
+			jfCompositePipelineSpec.DepthTest = false;
+			jfCompositePipelineSpec.DepthWrite = false;
+			jfCompositePipelineSpec.Layout = {
+				{ ShaderDataType::Float3, "a_Position" },
+				{ ShaderDataType::Float2, "a_TexCoord" }
+			};
+
+			RenderPassSpecification jfCompositePassSpec;
+			jfCompositePassSpec.DebugName = "JumpFlood-Composite";
+			jfCompositePassSpec.Pipeline = Pipeline::Create(jfCompositePipelineSpec);
+			m_JumpFloodCompositePass = RenderPass::Create(jfCompositePassSpec);
+			m_JumpFloodCompositePass->SetInput("u_Texture", m_JumpFloodPasses[0]->GetOutput(0));
+			m_JumpFloodCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_JumpFloodCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_JumpFloodCompositePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_JumpFloodCompositePass->Validate());
+			m_JumpFloodCompositePass->Bake();
+			m_JumpFloodCompositeMaterial = Material::Create(jfCompositePipelineSpec.Shader, "JumpFlood-Composite");
 		}
 
 		// ── Editor grid (renders into composite output, preserves depth) ──────
@@ -564,6 +1015,8 @@ namespace Lux {
 			m_ComplexColliderMaterial->Set("u_MaterialUniforms.Color", glm::vec4{ 0.5f, 0.5f, 1.0f, 1.0f });
 		}
 
+		ResizeScreenSpaceEffectResources();
+
 		// Signal render thread that GPU resources are ready
 		Renderer::Submit([instance = Ref<SceneRenderer>(this)]() mutable {
 			instance->m_ResourcesCreatedGPU = true;
@@ -605,6 +1058,281 @@ namespace Lux {
 		m_VisibleLightIndexBufferSize = newSize;
 		m_SBSVisiblePointLightIndices->Resize(newSize);
 		m_SBSVisibleSpotLightIndices->Resize(newSize);
+	}
+
+	void SceneRenderer::ResizeBloomResources()
+	{
+		if (!m_BloomComputePass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
+			return;
+
+		glm::uvec2 bloomSize = { glm::max(1u, (m_ViewportWidth + 1u) / 2u), glm::max(1u, (m_ViewportHeight + 1u) / 2u) };
+		bloomSize.x = glm::max(m_BloomComputeWorkgroupSize, AlignUp(bloomSize.x, m_BloomComputeWorkgroupSize));
+		bloomSize.y = glm::max(m_BloomComputeWorkgroupSize, AlignUp(bloomSize.y, m_BloomComputeWorkgroupSize));
+
+		ImageViewSpecification imageViewSpec;
+		imageViewSpec.MipCount = 1;
+
+		for (uint32_t i = 0; i < (uint32_t)m_BloomComputeTextures.size(); i++)
+		{
+			auto& bloomTexture = m_BloomComputeTextures[i];
+			bloomTexture.Texture->Resize(bloomSize);
+
+			const uint32_t mipCount = bloomTexture.Texture->GetMipLevelCount();
+			bloomTexture.ImageViews.resize(mipCount);
+
+			imageViewSpec.Image = bloomTexture.Texture->GetImage();
+			imageViewSpec.DebugName = "BloomCompute-" + std::to_string(i);
+
+			for (uint32_t mip = 0; mip < mipCount; mip++)
+			{
+				imageViewSpec.Mip = mip;
+				bloomTexture.ImageViews[mip] = ImageView::Create(imageViewSpec);
+			}
+		}
+	}
+
+	void SceneRenderer::CreateBloomPassMaterials()
+	{
+		if (!m_BloomComputePass || !m_SkyboxPass || !m_BloomComputeTextures[0].Texture)
+			return;
+
+		Ref<Image2D> inputImage = m_SkyboxPass->GetOutput(0);
+		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
+		if (mipCount < 4)
+			return;
+
+		const uint32_t mips = mipCount - 2;
+
+		m_BloomComputeMaterials.PrefilterMaterial = Material::Create(m_BloomComputePass->GetShader(), "Bloom-Prefilter");
+		m_BloomComputeMaterials.PrefilterMaterial->Set("o_Image", m_BloomComputeTextures[0].ImageViews[0]);
+		m_BloomComputeMaterials.PrefilterMaterial->Set("u_Texture", inputImage);
+		m_BloomComputeMaterials.PrefilterMaterial->Set("u_BloomTexture", inputImage);
+
+		m_BloomComputeMaterials.DownsampleAMaterials.clear();
+		m_BloomComputeMaterials.DownsampleBMaterials.clear();
+		m_BloomComputeMaterials.DownsampleAMaterials.resize(mips);
+		m_BloomComputeMaterials.DownsampleBMaterials.resize(mips);
+
+		for (uint32_t i = 1; i < mips; i++)
+		{
+			m_BloomComputeMaterials.DownsampleAMaterials[i] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-DownsampleA");
+			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("o_Image", m_BloomComputeTextures[1].ImageViews[i]);
+			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
+			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("u_BloomTexture", inputImage);
+
+			m_BloomComputeMaterials.DownsampleBMaterials[i] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-DownsampleB");
+			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("o_Image", m_BloomComputeTextures[0].ImageViews[i]);
+			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("u_Texture", m_BloomComputeTextures[1].Texture);
+			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("u_BloomTexture", inputImage);
+		}
+
+		m_BloomComputeMaterials.FirstUpsampleMaterial = Material::Create(m_BloomComputePass->GetShader(), "Bloom-FirstUpsample");
+		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mips - 2]);
+		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("u_Texture", m_BloomComputeTextures[0].Texture);
+		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("u_BloomTexture", inputImage);
+
+		m_BloomComputeMaterials.UpsampleMaterials.clear();
+		m_BloomComputeMaterials.UpsampleMaterials.resize(mips - 2);
+
+		for (int32_t mip = (int32_t)mips - 3; mip >= 0; mip--)
+		{
+			m_BloomComputeMaterials.UpsampleMaterials[mip] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-Upsample");
+			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mip]);
+			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
+			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_BloomTexture", m_BloomComputeTextures[2].Texture);
+		}
+	}
+
+	void SceneRenderer::ResizeScreenSpaceEffectResources()
+	{
+		if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
+			return;
+
+		const glm::uvec2 viewportSize{ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) };
+
+		auto resizePass = [&](Ref<RenderPass> pass)
+		{
+			if (pass && pass->GetTargetFramebuffer())
+				pass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+		};
+
+		resizePass(m_AOCompositePass);
+		resizePass(m_SSRCompositePass);
+		resizePass(m_JumpFloodInitPass);
+		resizePass(m_JumpFloodPasses[0]);
+		resizePass(m_JumpFloodPasses[1]);
+		resizePass(m_JumpFloodCompositePass);
+		resizePass(m_DOFPass);
+
+		// HZB uses a power-of-two texture with UV factor back to the real viewport.
+		if (m_HierarchicalDepthTexture.Texture)
+		{
+			const uint32_t hzbWidth = NextPowerOfTwo(viewportSize.x);
+			const uint32_t hzbHeight = NextPowerOfTwo(viewportSize.y);
+			const uint32_t maxDimension = glm::max(hzbWidth, hzbHeight);
+			m_SSROptions.NumDepthMips = glm::max(1u, (uint32_t)glm::floor(glm::log2((float)maxDimension)) + 1u);
+			m_SSROptions.HZBUvFactor = glm::vec2(viewportSize) / glm::vec2(hzbWidth, hzbHeight);
+
+			m_HierarchicalDepthTexture.Texture->Resize(hzbWidth, hzbHeight);
+			const uint32_t mipCount = m_HierarchicalDepthTexture.Texture->GetMipLevelCount();
+			m_HierarchicalDepthTexture.ImageViews.resize(mipCount);
+
+			ImageViewSpecification viewSpec;
+			viewSpec.Image = m_HierarchicalDepthTexture.Texture->GetImage();
+			viewSpec.MipCount = 1;
+			for (uint32_t mip = 0; mip < mipCount; mip++)
+			{
+				viewSpec.Mip = mip;
+				viewSpec.DebugName = "HierarchicalDepthTexture-" + std::to_string(mip);
+				m_HierarchicalDepthTexture.ImageViews[mip] = ImageView::Create(viewSpec);
+			}
+
+			CreateHZBPassMaterials();
+		}
+
+		if (m_PreIntegrationVisibilityTexture.Texture)
+		{
+			m_PreIntegrationVisibilityTexture.Texture->Resize(viewportSize);
+			const uint32_t mipCount = m_PreIntegrationVisibilityTexture.Texture->GetMipLevelCount();
+			m_PreIntegrationVisibilityTexture.ImageViews.resize(mipCount > 0 ? mipCount - 1 : 0);
+
+			ImageViewSpecification viewSpec;
+			viewSpec.Image = m_PreIntegrationVisibilityTexture.Texture->GetImage();
+			viewSpec.MipCount = 1;
+			for (uint32_t mip = 1; mip < mipCount; mip++)
+			{
+				viewSpec.Mip = mip;
+				viewSpec.DebugName = "PreIntegrationVisibilityTexture-" + std::to_string(mip);
+				m_PreIntegrationVisibilityTexture.ImageViews[mip - 1] = ImageView::Create(viewSpec);
+			}
+
+			CreatePreIntegrationPassMaterials();
+		}
+
+		if (m_Options.EnableGTAO && m_GTAOOutputImage && m_GTAODenoiseImage && m_GTAOEdgesOutputImage)
+		{
+			glm::uvec2 gtaoSize = m_GTAODataCB.HalfRes ? (viewportSize + 1u) / 2u : viewportSize;
+			glm::uvec2 denoiseSize = gtaoSize;
+			const ImageFormat gtaoImageFormat = m_Options.GTAOBentNormals ? ImageFormat::RED32UI : ImageFormat::RED8UI;
+			m_GTAOOutputImage->GetSpecification().Format = gtaoImageFormat;
+			m_GTAODenoiseImage->GetSpecification().Format = gtaoImageFormat;
+
+			constexpr uint32_t GTAO_WORKGROUP_SIZE = 16u;
+			gtaoSize = { AlignUp(gtaoSize.x, GTAO_WORKGROUP_SIZE), AlignUp(gtaoSize.y, GTAO_WORKGROUP_SIZE) };
+			m_GTAOOutputImage->Resize(gtaoSize.x, gtaoSize.y);
+			m_GTAOEdgesOutputImage->Resize(gtaoSize.x, gtaoSize.y);
+
+			m_GTAOWorkGroups = { gtaoSize.x / GTAO_WORKGROUP_SIZE, gtaoSize.y / GTAO_WORKGROUP_SIZE, 1 };
+
+			constexpr uint32_t DENOISE_WORKGROUP_SIZE = 8u;
+			denoiseSize = { AlignUp(denoiseSize.x, DENOISE_WORKGROUP_SIZE), AlignUp(denoiseSize.y, DENOISE_WORKGROUP_SIZE) };
+			m_GTAODenoiseImage->Resize(denoiseSize.x, denoiseSize.y);
+			m_GTAODenoiseWorkGroups = {
+				(denoiseSize.x + 2u * DENOISE_WORKGROUP_SIZE - 1u) / (DENOISE_WORKGROUP_SIZE * 2u),
+				denoiseSize.y / DENOISE_WORKGROUP_SIZE,
+				1
+			};
+
+			m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
+			if (m_AOCompositePass)
+				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
+				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+		}
+
+		if (m_SSRImage && m_PreConvolutedTexture.Texture)
+		{
+			constexpr uint32_t SSR_WORKGROUP_SIZE = 8u;
+			glm::uvec2 ssrSize = m_SSROptions.HalfRes ? (viewportSize + 1u) / 2u : viewportSize;
+			ssrSize = { AlignUp(ssrSize.x, SSR_WORKGROUP_SIZE), AlignUp(ssrSize.y, SSR_WORKGROUP_SIZE) };
+
+			m_SSRImage->Resize(ssrSize.x, ssrSize.y);
+			m_SSRWorkGroups = { ssrSize.x / SSR_WORKGROUP_SIZE, ssrSize.y / SSR_WORKGROUP_SIZE, 1 };
+
+			m_PreConvolutedTexture.Texture->Resize(ssrSize.x, ssrSize.y);
+			const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
+			m_PreConvolutedTexture.ImageViews.resize(mipCount);
+
+			ImageViewSpecification viewSpec;
+			viewSpec.Image = m_PreConvolutedTexture.Texture->GetImage();
+			viewSpec.MipCount = 1;
+			for (uint32_t mip = 0; mip < mipCount; mip++)
+			{
+				viewSpec.Mip = mip;
+				viewSpec.DebugName = "PreConvolutionCompute-" + std::to_string(mip);
+				m_PreConvolutedTexture.ImageViews[mip] = ImageView::Create(viewSpec);
+			}
+
+			CreatePreConvolutionPassMaterials();
+		}
+
+		ResizeBloomResources();
+		CreateBloomPassMaterials();
+	}
+
+	void SceneRenderer::CreateHZBPassMaterials()
+	{
+		if (!m_HierarchicalDepthPass || !m_PreDepthPass || !m_HierarchicalDepthTexture.Texture)
+			return;
+
+		constexpr uint32_t maxMipBatchSize = 4;
+		const uint32_t hzbMipCount = m_HierarchicalDepthTexture.Texture->GetMipLevelCount();
+		m_HZBMaterials.clear();
+		m_HZBMaterials.resize(DivideRoundUp(hzbMipCount, maxMipBatchSize));
+
+		for (uint32_t startDestMip = 0; startDestMip < hzbMipCount; startDestMip += maxMipBatchSize)
+		{
+			Ref<Material> material = Material::Create(m_HierarchicalDepthPass->GetShader(), "HZB");
+			material->Set("u_InputDepth", startDestMip == 0 ? m_PreDepthPass->GetDepthOutput() : m_HierarchicalDepthTexture.Texture->GetImage());
+
+			for (uint32_t outputIndex = 0; outputIndex < maxMipBatchSize; outputIndex++)
+			{
+				const uint32_t destMip = glm::min(startDestMip + outputIndex, hzbMipCount - 1u);
+				material->Set("o_HZB", m_HierarchicalDepthTexture.ImageViews[destMip], outputIndex);
+			}
+
+			m_HZBMaterials[startDestMip / maxMipBatchSize] = material;
+		}
+	}
+
+	void SceneRenderer::CreatePreIntegrationPassMaterials()
+	{
+		if (!m_PreIntegrationPass || !m_PreIntegrationVisibilityTexture.Texture || !m_HierarchicalDepthTexture.Texture)
+			return;
+
+		const uint32_t mipCount = m_PreIntegrationVisibilityTexture.Texture->GetMipLevelCount();
+		if (mipCount < 2)
+			return;
+
+		m_PreIntegrationMaterials.clear();
+		m_PreIntegrationMaterials.resize(mipCount - 1);
+
+		for (uint32_t mip = 1; mip < mipCount; mip++)
+		{
+			Ref<Material> material = Material::Create(m_PreIntegrationPass->GetShader(), "Pre-Integration");
+			material->Set("o_VisibilityImage", m_PreIntegrationVisibilityTexture.ImageViews[mip - 1]);
+			material->Set("u_VisibilityTex", m_PreIntegrationVisibilityTexture.Texture);
+			material->Set("u_HZB", m_HierarchicalDepthTexture.Texture);
+			m_PreIntegrationMaterials[mip - 1] = material;
+		}
+	}
+
+	void SceneRenderer::CreatePreConvolutionPassMaterials()
+	{
+		if (!m_PreConvolutionComputePass || !m_SkyboxPass || !m_PreConvolutedTexture.Texture)
+			return;
+
+		const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
+		m_PreConvolutionMaterials.clear();
+		m_PreConvolutionMaterials.resize(mipCount);
+
+		for (uint32_t mip = 0; mip < mipCount; mip++)
+		{
+			Ref<Material> material = Material::Create(m_PreConvolutionComputePass->GetShader(), "Pre-Convolution");
+			material->Set("o_Image", m_PreConvolutedTexture.ImageViews[mip]);
+			material->Set("u_Input", mip == 0 ? m_SkyboxPass->GetOutput(0) : m_PreConvolutedTexture.Texture->GetImage());
+			m_PreConvolutionMaterials[mip] = material;
+		}
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -661,6 +1389,7 @@ namespace Lux {
 			m_CompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GridRenderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			ResizeLightCullingResources();
+			ResizeScreenSpaceEffectResources();
 		}
 
 		// ── Camera uniform buffer ─────────────────────────────────────────────
@@ -714,6 +1443,17 @@ namespace Lux {
 				instance->m_UBSScreenData->RT_Get()->RT_SetData(
 					instance->m_UploadCommandBuffer, &screenData, sizeof(UBScreenData));
 				});
+		}
+
+		// ── Screen-space effect constants ────────────────────────────────────
+		{
+			const glm::vec2 gtaoPixelSize = m_GTAODataCB.HalfRes
+				? m_ScreenDataUB.InvHalfResolution
+				: m_ScreenDataUB.InvFullResolution;
+			m_GTAODataCB.NDCToViewMul_x_PixelSize = m_CameraUB.NDCToViewMul * gtaoPixelSize;
+			m_GTAODataCB.HZBUVFactor = m_SSROptions.HZBUvFactor;
+			m_GTAODataCB.NoiseIndex = (int)(Renderer::GetCurrentFrameIndex() % 64);
+			m_GTAODataCB.ShadowTolerance = 0.0f;
 		}
 
 		// ── Scene (light) uniform buffer ──────────────────────────────────────
@@ -951,11 +1691,7 @@ namespace Lux {
 
 			if (!resolvedOverrideMaterial)
 			{
-				Ref<MaterialTable> staticMeshMaterials = staticMesh ? staticMesh->GetMaterials() : nullptr;
-				if (materialTable && materialTable->HasMaterial(submesh.MaterialIndex))
-					materialHandle = materialTable->GetMaterial(submesh.MaterialIndex);
-				else if (staticMeshMaterials && staticMeshMaterials->HasMaterial(submesh.MaterialIndex))
-					materialHandle = staticMeshMaterials->GetMaterial(submesh.MaterialIndex);
+				materialHandle = ResolveStaticMeshMaterialHandle(materialTable, staticMesh, meshSource, submesh.MaterialIndex);
 
 				if (materialHandle)
 					materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
@@ -969,7 +1705,7 @@ namespace Lux {
 			const AssetHandle keyMaterialHandle = resolvedOverrideMaterial
 				? AssetHandle((uint64_t)resolvedOverrideMaterial.Raw())
 				: materialHandle;
-			const MeshKey key{ staticMesh->Handle, keyMaterialHandle, submeshIndex, isSelected };
+			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), keyMaterialHandle, submeshIndex, isSelected };
 
 			// ── Store transform ───────────────────────────────────────────────
 			const uint32_t transformIndex = (uint32_t)m_TransformData.size();
@@ -987,6 +1723,7 @@ namespace Lux {
 			dc.StaticMesh = staticMesh;
 			dc.MeshSource = meshSource;
 			dc.SubmeshIndex = submeshIndex;
+			dc.MaterialHandle = materialHandle;
 			dc.MaterialTable = materialTable;
 			dc.OverrideMaterial = resolvedOverrideMaterial;
 			dc.InstanceCount++;
@@ -998,6 +1735,7 @@ namespace Lux {
 				selDc.StaticMesh = staticMesh;
 				selDc.MeshSource = meshSource;
 				selDc.SubmeshIndex = submeshIndex;
+				selDc.MaterialHandle = materialHandle;
 				selDc.MaterialTable = materialTable;
 				selDc.OverrideMaterial = resolvedOverrideMaterial;
 				selDc.InstanceCount++;
@@ -1016,6 +1754,7 @@ namespace Lux {
 				shadowDc.StaticMesh = staticMesh;
 				shadowDc.MeshSource = meshSource;
 				shadowDc.SubmeshIndex = submeshIndex;
+				shadowDc.MaterialHandle = materialHandle;
 				shadowDc.MaterialTable = materialTable;
 				shadowDc.OverrideMaterial = resolvedOverrideMaterial;
 				shadowDc.InstanceCount++;
@@ -1046,7 +1785,7 @@ namespace Lux {
 
 			// Use the material pointer as a fake asset handle so each material gets its own MeshKey bucket
 			const AssetHandle fakeHandle = (AssetHandle)(uint64_t)material.Raw();
-			const MeshKey key{ staticMesh->Handle, fakeHandle, submeshIndex, false };
+			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), fakeHandle, submeshIndex, false };
 
 			const uint32_t transformIndex = (uint32_t)m_TransformData.size();
 			m_MeshTransformMap[key].ObjectIndices.push_back(transformIndex);
@@ -1060,6 +1799,7 @@ namespace Lux {
 			dc.StaticMesh = staticMesh;
 			dc.MeshSource = meshSource;
 			dc.SubmeshIndex = submeshIndex;
+			dc.MaterialHandle = fakeHandle;
 			dc.OverrideMaterial = material;
 			dc.InstanceCount++;
 		}
@@ -1163,10 +1903,29 @@ namespace Lux {
 		ShadowMapPass();
 		SpotShadowMapPass();
 		PreDepthPass();
+		HZBCompute();
+		PreIntegration();
 		LightCullingPass();
 		SkyboxPass();
 		GeometryPass();
+		if (m_Options.EnableGTAO)
+		{
+			GTAOCompute();
+			GTAODenoiseCompute();
+			AOComposite();
+		}
+		PreConvolutionCompute();
+		if (m_Options.EnableSSR)
+		{
+			SSRCompute();
+			SSRCompositePass();
+		}
+		if (m_Options.EnableJumpFlood && !m_SelectedStaticMeshDrawList.empty())
+			JumpFloodPass();
+		BloomCompute();
 		CompositePass();
+		if (m_Options.EnableJumpFlood && !m_SelectedStaticMeshDrawList.empty())
+			JumpFloodCompositePass();
 
 		if (m_Options.ShowGrid)
 			GridPass();
@@ -1193,6 +1952,9 @@ namespace Lux {
 
 			m_Renderer2D->EndScene();
 		}
+
+		if (m_DOFSettings.Enabled)
+			DOFPass();
 
 		m_CommandBuffer->End();
 		m_CommandBuffer->Submit();
@@ -1313,6 +2075,132 @@ namespace Lux {
 		}
 
 		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::HZBCompute()
+	{
+		if (!m_HierarchicalDepthPass || !m_HierarchicalDepthTexture.Texture || !m_PreDepthPass || m_HZBMaterials.empty())
+			return;
+
+		constexpr uint32_t maxMipBatchSize = 4;
+		const uint32_t hzbMipCount = m_HierarchicalDepthTexture.Texture->GetMipLevelCount();
+		if (hzbMipCount == 0)
+			return;
+
+		struct HierarchicalZComputePushConstants
+		{
+			glm::vec2 DispatchThreadIdToBufferUV;
+			glm::vec2 InputViewportMaxBound;
+			glm::vec2 InvSize;
+			int FirstLod = 0;
+			int IsFirstPass = 0;
+		};
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "HZB");
+		Renderer::BeginComputePass(m_CommandBuffer, m_HierarchicalDepthPass);
+
+		auto reduceHZB = [&](uint32_t startDestMip, uint32_t parentMip, const glm::vec2& dispatchThreadIdToBufferUV, const glm::vec2& inputViewportMaxBound, bool isFirstPass)
+		{
+			const uint32_t materialIndex = startDestMip / maxMipBatchSize;
+			if (materialIndex >= m_HZBMaterials.size() || !m_HZBMaterials[materialIndex])
+				return;
+
+			const glm::uvec2 srcSize = DivideRoundUp(m_HierarchicalDepthTexture.Texture->GetSize(), 1u << glm::min(parentMip, 31u));
+			const glm::uvec2 dstSize = DivideRoundUp(m_HierarchicalDepthTexture.Texture->GetSize(), 1u << glm::min(startDestMip, 31u));
+
+			HierarchicalZComputePushConstants pushConstants;
+			pushConstants.DispatchThreadIdToBufferUV = dispatchThreadIdToBufferUV;
+			pushConstants.InputViewportMaxBound = inputViewportMaxBound;
+			pushConstants.InvSize = {
+				srcSize.x > 0 ? 1.0f / (float)srcSize.x : 1.0f,
+				srcSize.y > 0 ? 1.0f / (float)srcSize.y : 1.0f
+			};
+			pushConstants.FirstLod = (int)startDestMip;
+			pushConstants.IsFirstPass = isFirstPass ? 1 : 0;
+
+			const glm::uvec3 workGroups = {
+				DivideRoundUp(glm::max(1u, dstSize.x), 8u),
+				DivideRoundUp(glm::max(1u, dstSize.y), 8u),
+				1
+			};
+
+			Renderer::DispatchCompute(m_CommandBuffer, m_HierarchicalDepthPass, m_HZBMaterials[materialIndex], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			m_HierarchicalDepthPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_HierarchicalDepthTexture.Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		};
+
+		const glm::uvec2 depthSize = m_PreDepthPass->GetDepthOutput()->GetSize();
+		if (depthSize.x > 0 && depthSize.y > 0)
+		{
+			reduceHZB(
+				0,
+				0,
+				1.0f / glm::vec2(depthSize),
+				(glm::vec2(depthSize) - 0.5f) / glm::vec2(depthSize),
+				true);
+		}
+
+		for (uint32_t startDestMip = maxMipBatchSize; startDestMip < hzbMipCount; startDestMip += maxMipBatchSize)
+		{
+			const glm::uvec2 parentSize = DivideRoundUp(m_HierarchicalDepthTexture.Texture->GetSize(), 1u << glm::min(startDestMip - 1u, 31u));
+			if (parentSize.x == 0 || parentSize.y == 0)
+				continue;
+
+			reduceHZB(
+				startDestMip,
+				startDestMip - 1u,
+				2.0f / glm::vec2(parentSize),
+				glm::vec2(1.0f),
+				false);
+		}
+
+		Renderer::EndComputePass(m_CommandBuffer, m_HierarchicalDepthPass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::PreIntegration()
+	{
+		if (!m_PreIntegrationPass || !m_PreIntegrationVisibilityTexture.Texture || m_PreIntegrationMaterials.empty())
+			return;
+
+		Ref<Texture2D> visibilityTexture = m_PreIntegrationVisibilityTexture.Texture;
+		const uint32_t mipCount = visibilityTexture->GetMipLevelCount();
+		if (mipCount < 2)
+			return;
+
+		Ref<Image2D> visibilityImage = visibilityTexture->GetImage();
+		Renderer::ClearImage(m_CommandBuffer, visibilityImage, nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f), visibilityImage->GetMipImageView(0));
+
+		struct PreIntegrationComputePushConstants
+		{
+			glm::vec2 HZBResFactor;
+			glm::vec2 ResFactor;
+			glm::vec2 ProjectionParams;
+			int PrevLod = 0;
+		} pushConstants;
+
+		pushConstants.ProjectionParams = { m_SceneData.SceneCamera.Far, m_SceneData.SceneCamera.Near };
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "PreIntegration");
+		Renderer::BeginComputePass(m_CommandBuffer, m_PreIntegrationPass);
+
+		for (uint32_t mip = 1; mip < mipCount && mip - 1 < m_PreIntegrationMaterials.size(); mip++)
+		{
+			auto [mipWidth, mipHeight] = visibilityTexture->GetMipSize(mip);
+			if (mipWidth == 0 || mipHeight == 0 || !m_PreIntegrationMaterials[mip - 1])
+				continue;
+
+			const glm::vec2 resFactor = 1.0f / glm::vec2(mipWidth, mipHeight);
+			pushConstants.HZBResFactor = resFactor * m_SSROptions.HZBUvFactor;
+			pushConstants.ResFactor = resFactor;
+			pushConstants.PrevLod = (int)mip - 1;
+
+			const glm::uvec3 workGroups = { DivideRoundUp(mipWidth, 8u), DivideRoundUp(mipHeight, 8u), 1 };
+			Renderer::DispatchCompute(m_CommandBuffer, m_PreIntegrationPass, m_PreIntegrationMaterials[mip - 1], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			m_PreIntegrationPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, visibilityImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		}
+
+		Renderer::EndComputePass(m_CommandBuffer, m_PreIntegrationPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -1463,11 +2351,332 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::GTAOCompute()
+	{
+		if (!m_Options.EnableGTAO || !m_GTAOComputePass || !m_GTAOOutputImage)
+			return;
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "GTAO");
+		Renderer::BeginComputePass(m_CommandBuffer, m_GTAOComputePass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_GTAOComputePass, nullptr, m_GTAOWorkGroups, Buffer(&m_GTAODataCB, sizeof(m_GTAODataCB)));
+		Renderer::EndComputePass(m_CommandBuffer, m_GTAOComputePass);
+		m_GTAOComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_GTAOOutputImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_GTAOComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_GTAOEdgesOutputImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::GTAODenoiseCompute()
+	{
+		if (!m_Options.EnableGTAO || !m_GTAODenoisePass[0] || !m_GTAODenoisePass[1] || !m_GTAOOutputImage)
+			return;
+
+		if (m_Options.GTAODenoisePasses == 0)
+		{
+			m_GTAOFinalImage = m_GTAOOutputImage;
+			if (m_AOCompositePass)
+				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
+				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			return;
+		}
+
+		m_GTAODenoiseConstants.DenoiseBlurBeta = m_GTAODataCB.DenoiseBlurBeta;
+		m_GTAODenoiseConstants.HalfRes = m_GTAODataCB.HalfRes;
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "GTAO-Denoise");
+		for (uint32_t pass = 0; pass < m_Options.GTAODenoisePasses; pass++)
+		{
+			const uint32_t passIndex = (pass % 2u) != 0u ? 1u : 0u;
+			Ref<ComputePass> denoisePass = m_GTAODenoisePass[passIndex];
+			Ref<Image2D> outputImage = passIndex == 0 ? m_GTAODenoiseImage : m_GTAOOutputImage;
+
+			Renderer::BeginComputePass(m_CommandBuffer, denoisePass);
+			Renderer::DispatchCompute(m_CommandBuffer, denoisePass, nullptr, m_GTAODenoiseWorkGroups, Buffer(&m_GTAODenoiseConstants, sizeof(m_GTAODenoiseConstants)));
+			Renderer::EndComputePass(m_CommandBuffer, denoisePass);
+			denoisePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, outputImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		}
+
+		m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2u) != 0u ? m_GTAODenoiseImage : m_GTAOOutputImage;
+		if (m_AOCompositePass)
+			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
+			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::AOComposite()
+	{
+		if (!m_AOCompositePass || !m_AOCompositeMaterial || !m_GTAOFinalImage)
+			return;
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "AOComposite");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_AOCompositePass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AOCompositePass->GetPipeline(), m_AOCompositeMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::PreConvolutionCompute()
+	{
+		if (!m_Options.EnableSSR || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
+			return;
+
+		struct PreConvolutionComputePushConstants
+		{
+			int PrevLod = 0;
+			int Mode = 0;
+		} pushConstants;
+
+		Ref<Image2D> preConvolutedImage = m_PreConvolutedTexture.Texture->GetImage();
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "PreConvolution");
+		Renderer::BeginComputePass(m_CommandBuffer, m_PreConvolutionComputePass);
+
+		if (m_PreConvolutionMaterials[0])
+		{
+			auto [width, height] = m_PreConvolutedTexture.Texture->GetMipSize(0);
+			const glm::uvec3 workGroups = { DivideRoundUp(glm::max(1u, width), 16u), DivideRoundUp(glm::max(1u, height), 16u), 1 };
+			pushConstants.PrevLod = 0;
+			pushConstants.Mode = 0;
+			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[0], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			m_PreConvolutionComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, preConvolutedImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		}
+
+		const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
+		for (uint32_t mip = 1; mip < mipCount && mip < m_PreConvolutionMaterials.size(); mip++)
+		{
+			if (!m_PreConvolutionMaterials[mip])
+				continue;
+
+			auto [mipWidth, mipHeight] = m_PreConvolutedTexture.Texture->GetMipSize(mip);
+			const glm::uvec3 workGroups = { DivideRoundUp(glm::max(1u, mipWidth), 16u), DivideRoundUp(glm::max(1u, mipHeight), 16u), 1 };
+			pushConstants.PrevLod = (int)mip - 1;
+
+			pushConstants.Mode = 1;
+			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[mip], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			m_PreConvolutionComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, preConvolutedImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+
+			pushConstants.Mode = 2;
+			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[mip], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			m_PreConvolutionComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, preConvolutedImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		}
+
+		Renderer::EndComputePass(m_CommandBuffer, m_PreConvolutionComputePass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::SSRCompute()
+	{
+		if (!m_Options.EnableSSR || !m_SSRPass || !m_SSRImage)
+			return;
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SSR");
+		Renderer::BeginComputePass(m_CommandBuffer, m_SSRPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_SSRPass, nullptr, m_SSRWorkGroups, Buffer(&m_SSROptions, sizeof(m_SSROptions)));
+		Renderer::EndComputePass(m_CommandBuffer, m_SSRPass);
+		m_SSRPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_SSRImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::SSRCompositePass()
+	{
+		if (!m_Options.EnableSSR || !m_SSRCompositePass || !m_SSRCompositeMaterial)
+			return;
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SSRComposite");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_SSRCompositePass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SSRCompositePass->GetPipeline(), m_SSRCompositeMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::DOFPass()
+	{
+		if (!m_DOFSettings.Enabled || !m_DOFPass || !m_DOFMaterial)
+			return;
+
+		const float focusDistance = glm::max(0.001f, m_DOFSettings.FocusDistance);
+		m_DOFMaterial->Set("u_Uniforms.DOFParams", glm::vec2(focusDistance, m_DOFSettings.BlurSize));
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "DOF");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_DOFPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_DOFPass->GetPipeline(), m_DOFMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::JumpFloodPass()
+	{
+		if (!m_Options.EnableJumpFlood || !m_JumpFloodInitPass || !m_JumpFloodInitMaterial || !m_JumpFloodPasses[0] || !m_JumpFloodPasses[1])
+			return;
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "JumpFlood");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_JumpFloodInitPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_JumpFloodInitPass->GetPipeline(), m_JumpFloodInitMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+
+		int step = 4;
+		uint32_t passIndex = 0;
+		Ref<Image2D> input = m_JumpFloodInitPass->GetOutput(0);
+		Ref<Image2D> output = input;
+
+		Ref<Framebuffer> passFramebuffer = m_JumpFloodPasses[0]->GetTargetFramebuffer();
+		const glm::vec2 texelSize = {
+			passFramebuffer && passFramebuffer->GetWidth() > 0 ? 1.0f / (float)passFramebuffer->GetWidth() : 1.0f,
+			passFramebuffer && passFramebuffer->GetHeight() > 0 ? 1.0f / (float)passFramebuffer->GetHeight() : 1.0f
+		};
+
+		Buffer vertexOverrides;
+		vertexOverrides.Allocate(sizeof(glm::vec2) + sizeof(int));
+		vertexOverrides.Write(glm::value_ptr(texelSize), sizeof(glm::vec2));
+
+		while (step > 0)
+		{
+			Ref<RenderPass> jumpFloodPass = m_JumpFloodPasses[passIndex];
+			if (!jumpFloodPass || !m_JumpFloodPassMaterials[passIndex])
+				break;
+
+			jumpFloodPass->SetInput("u_Texture", input);
+			vertexOverrides.Write(&step, sizeof(int), sizeof(glm::vec2));
+
+			Renderer::BeginRenderPass(m_CommandBuffer, jumpFloodPass);
+			Renderer::SubmitFullscreenQuadWithOverrides(m_CommandBuffer, jumpFloodPass->GetPipeline(), m_JumpFloodPassMaterials[passIndex], vertexOverrides, Buffer());
+			Renderer::EndRenderPass(m_CommandBuffer);
+
+			output = jumpFloodPass->GetOutput(0);
+			input = output;
+			passIndex = (passIndex + 1u) % 2u;
+			step /= 2;
+		}
+
+		vertexOverrides.Release();
+
+		if (m_JumpFloodCompositePass && output)
+			m_JumpFloodCompositePass->SetInput("u_Texture", output);
+
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::JumpFloodCompositePass()
+	{
+		if (!m_Options.EnableJumpFlood || !m_JumpFloodCompositePass || !m_JumpFloodCompositeMaterial)
+			return;
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "JumpFloodComposite");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_JumpFloodCompositePass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_JumpFloodCompositePass->GetPipeline(), m_JumpFloodCompositeMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::BloomCompute()
+	{
+		if (!m_BloomSettings.Enabled || !m_BloomComputePass || !m_BloomComputePipeline || !m_BloomComputeMaterials.PrefilterMaterial)
+			return;
+
+		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
+		if (mipCount < 4)
+			return;
+
+		const uint32_t mips = mipCount - 2;
+		if (mips < 3 || !m_BloomComputeMaterials.FirstUpsampleMaterial)
+			return;
+
+		struct BloomComputePushConstants
+		{
+			glm::vec4 Params;
+			glm::vec4 TexSize;
+			float LOD = 0.0f;
+			int Mode = 0;
+		} pushConstants;
+
+		const float knee = glm::max(m_BloomSettings.Knee, 0.0001f);
+		pushConstants.Params = {
+			m_BloomSettings.Threshold,
+			m_BloomSettings.Threshold - knee,
+			knee * 2.0f,
+			0.25f / knee
+		};
+
+		auto setTexSize = [&](uint32_t mip)
+		{
+			auto [mipWidth, mipHeight] = m_BloomComputeTextures[0].Texture->GetMipSize(mip);
+			pushConstants.TexSize = {
+				(float)mipWidth,
+				(float)mipHeight,
+				mipWidth > 0 ? 1.0f / (float)mipWidth : 0.0f,
+				mipHeight > 0 ? 1.0f / (float)mipHeight : 0.0f
+			};
+		};
+
+		auto dispatchForMip = [&](Ref<Material> material, uint32_t mip)
+		{
+			if (!material)
+				return;
+
+			auto [mipWidth, mipHeight] = m_BloomComputeTextures[0].Texture->GetMipSize(mip);
+			const glm::uvec3 workGroups = {
+				AlignUp(glm::max(1u, mipWidth), m_BloomComputeWorkgroupSize) / m_BloomComputeWorkgroupSize,
+				AlignUp(glm::max(1u, mipHeight), m_BloomComputeWorkgroupSize) / m_BloomComputeWorkgroupSize,
+				1
+			};
+			Renderer::DispatchCompute(m_CommandBuffer, m_BloomComputePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+		};
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "BloomCompute");
+		Renderer::BeginComputePass(m_CommandBuffer, m_BloomComputePass);
+
+		// Prefilter
+		pushConstants.Mode = 0;
+		pushConstants.LOD = 0.0f;
+		setTexSize(0);
+		dispatchForMip(m_BloomComputeMaterials.PrefilterMaterial, 0);
+		m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[0].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+
+		// Downsample, ping-ponging between texture 0 and texture 1.
+		pushConstants.Mode = 1;
+		for (uint32_t i = 1; i < mips; i++)
+		{
+			setTexSize(i);
+			pushConstants.LOD = (float)i - 1.0f;
+			dispatchForMip(m_BloomComputeMaterials.DownsampleAMaterials[i], i);
+			m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[1].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+
+			pushConstants.LOD = (float)i;
+			dispatchForMip(m_BloomComputeMaterials.DownsampleBMaterials[i], i);
+			m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[0].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		}
+
+		// First upsample from the smallest downsampled mip.
+		pushConstants.Mode = 2;
+		pushConstants.LOD = (float)mips - 2.0f;
+		setTexSize(mips - 1);
+		dispatchForMip(m_BloomComputeMaterials.FirstUpsampleMaterial, mips - 2);
+		m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[2].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+
+		// Upsample back to mip 0.
+		pushConstants.Mode = 3;
+		for (int32_t mip = (int32_t)mips - 3; mip >= 0; mip--)
+		{
+			pushConstants.LOD = (float)mip;
+			setTexSize((uint32_t)mip + 1u);
+			dispatchForMip(m_BloomComputeMaterials.UpsampleMaterials[mip], (uint32_t)mip);
+			m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[2].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		}
+
+		Renderer::EndComputePass(m_CommandBuffer, m_BloomComputePass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
 	void SceneRenderer::CompositePass()
 	{
 		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "CompositePass");
 
+		m_CompositeMaterial->Set("u_Uniforms.Exposure", m_SceneData.SceneCamera.Camera.GetExposure());
+		m_CompositeMaterial->Set("u_Uniforms.BloomIntensity", m_BloomSettings.Enabled ? m_BloomSettings.Intensity : 0.0f);
+		m_CompositeMaterial->Set("u_Uniforms.BloomDirtIntensity", m_BloomSettings.Enabled ? m_BloomSettings.DirtIntensity : 0.0f);
 		m_CompositeMaterial->Set("u_Uniforms.Opacity", m_Opacity);
+		m_CompositeMaterial->Set("u_Uniforms.Time", Application::Get().GetTime());
 
 		Renderer::BeginRenderPass(m_CommandBuffer, m_CompositePass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_CompositePass->GetPipeline(), m_CompositeMaterial);
@@ -1558,17 +2767,9 @@ namespace Lux {
 
 			if (!material)
 			{
-				AssetHandle matHandle{};
-				if (dc.MaterialTable && dc.MaterialTable->HasMaterial(submesh.MaterialIndex))
-					matHandle = dc.MaterialTable->GetMaterial(submesh.MaterialIndex);
-				else if (dc.StaticMesh && dc.StaticMesh->GetMaterials() && dc.StaticMesh->GetMaterials()->HasMaterial(submesh.MaterialIndex))
-					matHandle = dc.StaticMesh->GetMaterials()->GetMaterial(submesh.MaterialIndex);
-				else
-				{
-					const auto& sourceMaterials = meshSource->GetMaterials();
-					if (submesh.MaterialIndex < sourceMaterials.size())
-						matHandle = sourceMaterials[submesh.MaterialIndex];
-				}
+				AssetHandle matHandle = dc.MaterialHandle
+					? dc.MaterialHandle
+					: ResolveStaticMeshMaterialHandle(dc.MaterialTable, dc.StaticMesh, meshSource, submesh.MaterialIndex);
 
 				if (matHandle)
 					if (auto matAsset = AssetManager::GetAsset<MaterialAsset>(matHandle))
@@ -1619,6 +2820,8 @@ namespace Lux {
 
 	Ref<Image2D> SceneRenderer::GetFinalPassImage()
 	{
+		if (m_DOFSettings.Enabled && m_DOFPass)
+			return m_DOFPass->GetOutput(0);
 		if (m_CompositePass)
 			return m_CompositePass->GetOutput(0);
 		return nullptr;

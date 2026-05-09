@@ -10,6 +10,7 @@
 #include "Lux/Renderer/Framebuffer.h"
 #include "Lux/Renderer/Material.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Renderer/Texture.h"
 #include "Lux/Renderer/UniformBufferSet.h"
 #include "Lux/Renderer/StorageBufferSet.h"
 #include "Lux/Renderer/SceneEnvironment.h"
@@ -107,6 +108,44 @@ namespace Lux {
 		bool  SoftShadows = true;
 		float MaxShadowDistance = 200.0f;
 		float ShadowFade = 1.0f;
+		bool  EnableGTAO = true;
+		bool  GTAOBentNormals = false;
+		uint32_t GTAODenoisePasses = 4;
+		bool  EnableSSR = true;
+		bool  EnableJumpFlood = true;
+	};
+
+	struct BloomSettings
+	{
+		bool  Enabled = true;
+		float Threshold = 1.0f;
+		float Knee = 0.1f;
+		float Intensity = 1.0f;
+		float DirtIntensity = 0.0f;
+	};
+
+	struct DOFSettings
+	{
+		bool  Enabled = false;
+		float FocusDistance = 10.0f;
+		float BlurSize = 1.0f;
+	};
+
+	struct SSROptionsUB
+	{
+		glm::vec2 HZBUvFactor = { 1.0f, 1.0f };
+		glm::vec2 FadeIn = { 0.1f, 0.15f };
+		float Brightness = 0.7f;
+		float DepthTolerance = 0.8f;
+		float FacingReflectionsFading = 0.1f;
+		int MaxSteps = 70;
+		uint32_t NumDepthMips = 1;
+		float RoughnessDepthTolerance = 1.0f;
+		bool HalfRes = true;
+		char Padding[3]{ 0, 0, 0 };
+		bool EnableConeTracing = true;
+		char Padding1[3]{ 0, 0, 0 };
+		float LuminanceFactor = 1.0f;
 	};
 
 	struct SceneRendererCamera
@@ -209,6 +248,9 @@ namespace Lux {
 		// ── Settings ─────────────────────────────────────────────────────────
 
 		SceneRendererOptions& GetOptions() { return m_Options; }
+		BloomSettings& GetBloomSettings() { return m_BloomSettings; }
+		DOFSettings& GetDOFSettings() { return m_DOFSettings; }
+		SSROptionsUB& GetSSROptions() { return m_SSROptions; }
 		const SceneRendererSpecification& GetSpecification()  const { return m_Specification; }
 
 		void SetLineWidth(float width);
@@ -248,6 +290,7 @@ namespace Lux {
 			Ref<StaticMesh>    StaticMesh;
 			Ref<MeshSource>    MeshSource;
 			uint32_t           SubmeshIndex = 0;
+			AssetHandle        MaterialHandle = 0;
 			Ref<MaterialTable> MaterialTable;
 			Ref<Material>      OverrideMaterial;
 			uint32_t           InstanceCount = 0;
@@ -286,14 +329,32 @@ namespace Lux {
 		void ShadowMapPass();
 		void SpotShadowMapPass();
 		void PreDepthPass();
+		void HZBCompute();
+		void PreIntegration();
 		void LightCullingPass();
 		void SkyboxPass();
 		void GeometryPass();
+		void GTAOCompute();
+		void GTAODenoiseCompute();
+		void AOComposite();
+		void PreConvolutionCompute();
+		void SSRCompute();
+		void SSRCompositePass();
+		void BloomCompute();
 		void CompositePass();
+		void DOFPass();
+		void JumpFloodPass();
+		void JumpFloodCompositePass();
 		void GridPass();
 
 		void UpdateStatistics();
 		void ResizeLightCullingResources();
+		void ResizeBloomResources();
+		void CreateBloomPassMaterials();
+		void ResizeScreenSpaceEffectResources();
+		void CreateHZBPassMaterials();
+		void CreatePreIntegrationPassMaterials();
+		void CreatePreConvolutionPassMaterials();
 
 		// Render-thread draw helper (must be called inside Renderer::Submit).
 		void RT_DrawStaticMesh(Ref<RenderCommandBuffer> cmd,
@@ -372,6 +433,32 @@ namespace Lux {
 			glm::vec2 HalfResolution = { 1.0f, 1.0f };
 		} m_ScreenDataUB;
 
+		struct CBGTAOData
+		{
+			glm::vec2 NDCToViewMul_x_PixelSize = { 1.0f, 1.0f };
+			float EffectRadius = 0.5f;
+			float EffectFalloffRange = 0.62f;
+			float RadiusMultiplier = 1.46f;
+			float FinalValuePower = 2.2f;
+			float DenoiseBlurBeta = 1.2f;
+			bool HalfRes = false;
+			char Padding0[3]{ 0, 0, 0 };
+			float SampleDistributionPower = 2.0f;
+			float ThinOccluderCompensation = 0.0f;
+			float DepthMIPSamplingOffset = 3.3f;
+			int NoiseIndex = 0;
+			glm::vec2 HZBUVFactor = { 1.0f, 1.0f };
+			float ShadowTolerance = 0.0f;
+			float Padding = 0.0f;
+		} m_GTAODataCB;
+
+		struct GTAODenoiseConstants
+		{
+			float DenoiseBlurBeta = 1.2f;
+			bool HalfRes = false;
+			char Padding[3]{ 0, 0, 0 };
+		} m_GTAODenoiseConstants;
+
 		struct UBPointLights
 		{
 			uint32_t   Count = 0;
@@ -448,6 +535,80 @@ namespace Lux {
 		// ── Tiled light culling ──────────────────────────────────────────────
 		Ref<ComputePass> m_LightCullingPass;
 
+		struct MippedTexture
+		{
+			Ref<Texture2D> Texture;
+			std::vector<Ref<ImageView>> ImageViews;
+		};
+
+		// ── HZB / SSR prepasses ───────────────────────────────────────────────
+		Ref<ComputePass> m_HierarchicalDepthPass;
+		MippedTexture    m_HierarchicalDepthTexture;
+		std::vector<Ref<Material>> m_HZBMaterials;
+
+		Ref<ComputePass> m_PreIntegrationPass;
+		MippedTexture    m_PreIntegrationVisibilityTexture;
+		std::vector<Ref<Material>> m_PreIntegrationMaterials;
+
+		Ref<ComputePass> m_PreConvolutionComputePass;
+		MippedTexture    m_PreConvolutedTexture;
+		std::vector<Ref<Material>> m_PreConvolutionMaterials;
+
+		// ── GTAO / AO ────────────────────────────────────────────────────────
+		Ref<ComputePass> m_GTAOComputePass;
+		Ref<ComputePass> m_GTAODenoisePass[2];
+		Ref<Material>    m_GTAODenoiseMaterial[2];
+		Ref<Image2D>     m_GTAOOutputImage;
+		Ref<Image2D>     m_GTAODenoiseImage;
+		Ref<Image2D>     m_GTAOFinalImage;
+		Ref<Image2D>     m_GTAOEdgesOutputImage;
+		glm::uvec3       m_GTAOWorkGroups{ 1 };
+		glm::uvec3       m_GTAODenoiseWorkGroups{ 1 };
+
+		Ref<RenderPass>  m_AOCompositePass;
+		Ref<Material>    m_AOCompositeMaterial;
+
+		// ── SSR ──────────────────────────────────────────────────────────────
+		Ref<Image2D>     m_SSRImage;
+		Ref<ComputePass> m_SSRPass;
+		Ref<RenderPass>  m_SSRCompositePass;
+		Ref<Material>    m_SSRCompositeMaterial;
+		glm::uvec3       m_SSRWorkGroups{ 1 };
+
+		// ── Bloom compute ────────────────────────────────────────────────────
+		Ref<ComputePass>     m_BloomComputePass;
+		Ref<PipelineCompute> m_BloomComputePipeline;
+		uint32_t             m_BloomComputeWorkgroupSize = 4;
+
+		struct BloomComputeTextures
+		{
+			Ref<Texture2D> Texture;
+			std::vector<Ref<ImageView>> ImageViews;
+		};
+		std::vector<BloomComputeTextures> m_BloomComputeTextures{ 3 };
+
+		struct BloomComputeMaterials
+		{
+			Ref<Material> PrefilterMaterial;
+			std::vector<Ref<Material>> DownsampleAMaterials;
+			std::vector<Ref<Material>> DownsampleBMaterials;
+			Ref<Material> FirstUpsampleMaterial;
+			std::vector<Ref<Material>> UpsampleMaterials;
+		} m_BloomComputeMaterials;
+		Ref<Texture2D> m_BloomDirtTexture;
+
+		// ── DOF ──────────────────────────────────────────────────────────────
+		Ref<RenderPass> m_DOFPass;
+		Ref<Material>   m_DOFMaterial;
+
+		// ── Jump flood selected outline ──────────────────────────────────────
+		Ref<RenderPass> m_JumpFloodInitPass;
+		Ref<RenderPass> m_JumpFloodPasses[2];
+		Ref<RenderPass> m_JumpFloodCompositePass;
+		Ref<Material>   m_JumpFloodInitMaterial;
+		Ref<Material>   m_JumpFloodPassMaterials[2];
+		Ref<Material>   m_JumpFloodCompositeMaterial;
+
 		// ── Geometry pass ─────────────────────────────────────────────────────
 		Ref<Framebuffer> m_GeometryPassFramebuffer;     // owns the attachments
 		Ref<Pipeline>    m_GeometryPipeline;            // opaque PBR
@@ -510,6 +671,9 @@ namespace Lux {
 
 		float m_LineWidth = 2.0f;
 		float m_Opacity = 1.0f;
+		BloomSettings m_BloomSettings;
+		DOFSettings m_DOFSettings;
+		SSROptionsUB m_SSROptions;
 
 		SceneRendererOptions m_Options;
 		Statistics           m_Statistics;
