@@ -1,0 +1,13 @@
+Lux Application Settings:
+  ContentBrowser.ShowAssetTypes: 1
+  ContentBrowser.ThumbnailSize: 101.000000
+  Editor.AutoOpenMostRecentProject: 1
+  Editor.RotationSnapValue: 45.000000
+  Editor.ShowBoundingBoxes: 1
+  Editor.ShowEntityIcons: 1
+  Editor.ShowPhysicsColliders: 1
+  Editor.TranslationSnapValue: 0.500000
+  Editor.UseGizmoSnap: 1
+  Editor.VSync: 1
+  RecentProjects.0: M:/Git/luxengine/Editor/SandboxProject/Sandbox.luxproj
+  RecentProjects.Count: 1

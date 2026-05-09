@@ -3,9 +3,8 @@ bin-int/
 Intermediates/
 /bin
 
-# StarEngine files
+# Lux files
 *.log
-*imgui.ini
 
 # Visual Studio files and folder
 .vs/
@@ -29,6 +28,5 @@ Core/vendor/tracy
 Editor/SandboxProject/Assets/Scripts/Binaries
 Editor/Resources/Cache
 Lux.slnx
-Editor/App.lsettings
 Editor/SandboxProject/Assets/Cache/Thumbnails
 Editor/SandboxProject/Assets/AssetRegistry.lzr
