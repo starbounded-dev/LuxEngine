@@ -86,5 +86,4 @@ group "Tools"
 group ""
 
 group "Runtime"
-	include "Sandbox"
 group ""
