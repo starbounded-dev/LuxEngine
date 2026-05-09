@@ -143,7 +143,7 @@ namespace Lux {
 			fbSpec.Width = 4096;
 			fbSpec.Height = 4096;
 			fbSpec.Attachments = { ImageFormat::Depth };
-			fbSpec.DepthClearValue = 0.0f;
+			fbSpec.DepthClearValue = 1.0f;
 			fbSpec.DebugName = "ShadowMap";
 			fbSpec.ExistingImage = m_ShadowMapImage;
 			fbSpec.ExistingImageLayer = 0;

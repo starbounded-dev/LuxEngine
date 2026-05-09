@@ -1,20 +1,24 @@
 Scene: New Scene
 Entities:
-  - Entity: 4713413010266506957
+  - Entity: 8091695794772928150
     TagComponent:
-      Tag: Sky Light
-    Parent: 0
+      Tag: Spot Light
+    Parent: 7022982668959240531
     Children:
       []
     TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
+      Position: [-4.57385921, 1.5, -2.68104601]
+      Rotation: [0, 0.959585905, 0]
       Scale: [1, 1, 1]
-    SkyLightComponent:
-      EnvironmentMap: 9468819874646464561
-      Intensity: 1
-      Lod: 0
-      DynamicSky: false
+    SpotLightComponent:
+      Radiance: [1, 1, 1]
+      Angle: 90
+      AngleAttenuation: 3.18000007
+      CastsShadows: true
+      SoftShadows: true
+      Falloff: 1
+      Intensity: 2.5999999
+      Range: 24.5
   - Entity: 1639952346674441217
     TagComponent:
       Tag: Camera
@@ -38,7 +42,7 @@ Entities:
       FixedAspectRatio: false
   - Entity: 14121814355416061655
     TagComponent:
-      Tag: Text
+      Tag: LuxWelcome
     Parent: 0
     Children:
       []
@@ -59,7 +63,7 @@ Entities:
       ShadowColor: [0, 0, 0, 1]
   - Entity: 16805889847351497941
     TagComponent:
-      Tag: Static Mesh
+      Tag: Sponza
     Parent: 0
     Children:
       []
@@ -72,3 +76,47 @@ Entities:
       MaterialTable:
         {}
       Visible: true
+  - Entity: 12726918091783066847
+    TagComponent:
+      Tag: Sky Light
+    Parent: 7022982668959240531
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 10933720561759477118
+      Intensity: 1
+      Lod: 0
+      DynamicSky: false
+  - Entity: 8322387861642138170
+    TagComponent:
+      Tag: Directional Light
+    Parent: 7022982668959240531
+    Children:
+      []
+    TransformComponent:
+      Position: [-0.397086352, 3.4798944, 0.385443866]
+      Rotation: [3.12563705, 1.34484768, 1.62000799]
+      Scale: [0.999996483, 0.999957502, 0.999996901]
+    DirectionalLightComponent:
+      Intensity: 1
+      Radiance: [1, 1, 1]
+      CastShadows: false
+      SoftShadows: true
+      LightSize: 1.67999995
+      ShadowAmount: 1
+  - Entity: 7022982668959240531
+    TagComponent:
+      Tag: Light
+    Parent: 0
+    Children:
+      - Handle: 12726918091783066847
+      - Handle: 8322387861642138170
+      - Handle: 8091695794772928150
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
