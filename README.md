@@ -25,7 +25,7 @@ If the repository was cloned non-recursively previously, use `git submodule upda
 ***
 
 ## Continuous Integration
-The [Build LuxEngine](.github/workflows/main.yml) workflow builds Debug, Release, and Dist on Windows Server 2025. It checks out LFS assets and submodules recursively, installs Python and the Vulkan SDK, generates Visual Studio 2022 project files with `scripts/Setup.py vs2022`, and builds `Lux.sln` for the `Mixed Platforms` solution platform. MSBuild logs are uploaded for each configuration when the workflow runs.
+The [Build LuxEngine](.github/workflows/main.yml) workflow builds Debug, Release, and Dist on Windows Server 2025. It checks out LFS assets and submodules recursively, installs Python and the Vulkan SDK, generates Visual Studio 2022 project files with `scripts/Setup.py vs2022`, and builds `Lux.sln` for the `Mixed Platforms` solution platform. Debug and Release builds upload an `editor-<configuration>` artifact containing the built Editor output plus `Editor/imgui.ini`, `Editor/App.lsettings`, `Editor/SandboxProject`, `Editor/Resources`, and `Editor/mono`. MSBuild logs are uploaded for each configuration when the workflow runs.
 
 ***
 

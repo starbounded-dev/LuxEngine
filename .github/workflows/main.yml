@@ -73,6 +73,47 @@ jobs:
         run: |
           MSBuild "${{ env.SOLUTION_FILE_PATH }}" /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
 
+      - name: Package editor artifact
+        if: matrix.configuration != 'Dist'
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: |
+          $configuration = "${{ matrix.configuration }}"
+          $editorOutput = Join-Path "bin" "$configuration-windows-x86_64\Editor"
+          $artifactRoot = Join-Path "artifacts" "Editor-$configuration"
+          $editorItems = @(
+            "imgui.ini",
+            "App.lsettings",
+            "SandboxProject",
+            "Resources",
+            "mono"
+          )
+
+          if (!(Test-Path $editorOutput)) {
+            throw "Editor build output was not found: $editorOutput"
+          }
+
+          Remove-Item $artifactRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $artifactRoot | Out-Null
+
+          Copy-Item -Path (Join-Path $editorOutput "*") -Destination $artifactRoot -Recurse -Force
+
+          foreach ($item in $editorItems) {
+            $source = Join-Path "Editor" $item
+            if (!(Test-Path $source)) {
+              throw "Editor artifact input was not found: $source"
+            }
+
+            Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
+          }
+
+      - name: Upload editor artifact
+        if: matrix.configuration != 'Dist'
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-${{ matrix.configuration }}
+          path: artifacts/Editor-${{ matrix.configuration }}/
+          if-no-files-found: error
+
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
