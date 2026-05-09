@@ -1,6 +1,7 @@
 name: Build LuxEngine
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -11,16 +12,18 @@ on:
       - master
       - dev
 
-env: 
+env:
   GITHUB_WORKSPACE: ${{ github.workspace }}
   SOLUTION_FILE_PATH: Lux.sln
+  BUILD_PLATFORM: Mixed Platforms
+  PREMAKE_GENERATOR: vs2022
 
 permissions:
   contents: read
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2025
     strategy:
       fail-fast: false
       matrix:
@@ -30,8 +33,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6.0.2
         with:
-          repository: 'starbounded-dev/LuxEngine'
-          submodules: true
+          submodules: recursive
           lfs: true
 
       - name: Setup Python
@@ -47,7 +49,7 @@ jobs:
           install_runtime: true
           cache: true
           stripdown: true
-          
+
           install_swiftshader: false
           install_lavapipe: false
 
@@ -55,14 +57,26 @@ jobs:
         uses: microsoft/setup-msbuild@v3
         with:
           msbuild-architecture: 'x64'
-      
+
       - name: Setup
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
           cd scripts
-          python Setup.py vs2026
+          python Setup.py ${{ env.PREMAKE_GENERATOR }}
+
+      - name: Prepare logs
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: New-Item -ItemType Directory -Force logs
 
       - name: Build
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
-          MSBuild ${{env.SOLUTION_FILE_PATH}} /m /p:Configuration=${{ matrix.configuration }} -fl -flp:logfile=logs/Build-${{ matrix.configuration }}.log
+          MSBuild "${{ env.SOLUTION_FILE_PATH }}" /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ matrix.configuration }}
+          path: logs/*.log
+          if-no-files-found: ignore
