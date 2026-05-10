@@ -18,10 +18,12 @@ namespace Lux {
 		uint32_t Height = 1;
 		TextureWrap SamplerWrap = TextureWrap::Repeat;
 		TextureFilter SamplerFilter = TextureFilter::Linear;
+		float MaxAnisotropy = 1.0f;
 
 		bool GenerateMips = true;
 		bool Storage = false;
 		bool StoreLocally = false;
+		bool FlipVertically = true;
 
 		std::string DebugName;
 	};

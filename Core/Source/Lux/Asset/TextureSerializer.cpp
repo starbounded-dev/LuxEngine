@@ -11,6 +11,36 @@
 
 namespace Lux
 {
+	namespace
+	{
+		bool PathStartsWith(const std::filesystem::path& path, const std::filesystem::path& directory)
+		{
+			const std::filesystem::path normalizedPath = path.lexically_normal();
+			const std::filesystem::path normalizedDirectory = directory.lexically_normal();
+
+			auto pathIt = normalizedPath.begin();
+			for (auto directoryIt = normalizedDirectory.begin(); directoryIt != normalizedDirectory.end(); ++directoryIt, ++pathIt)
+			{
+				if (pathIt == normalizedPath.end() || *pathIt != *directoryIt)
+					return false;
+			}
+
+			return true;
+		}
+
+		bool IsMeshSourceTexture(const std::filesystem::path& assetPath)
+		{
+			Ref<Project> project = Project::GetActive();
+			if (!project)
+				return false;
+
+			const std::filesystem::path meshSourcePath = project->GetConfig().MeshSourcePath;
+			if (meshSourcePath.empty())
+				return false;
+
+			return PathStartsWith(assetPath, meshSourcePath);
+		}
+	}
 	void TextureSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
 	{
 		// Source-format textures (.png/.jpg/…) are their own serialized form – nothing to write back.
@@ -38,6 +68,11 @@ namespace Lux
 		}
 
 		TextureSpecification spec;
+		if (IsMeshSourceTexture(metadata.FilePath))
+		{
+			spec.FlipVertically = false;
+			spec.MaxAnisotropy = 16.0f;
+		}
 		Ref<Texture2D> texture = Texture2D::Create(spec, filepath);
 		if (!texture || !texture->Loaded())
 			return false;

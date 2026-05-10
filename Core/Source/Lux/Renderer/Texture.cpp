@@ -105,6 +105,7 @@ namespace Lux {
 		spec.GenerateMips = false; // SRGBA cannot be used as storage image for compute-based mip generation
 		spec.SamplerWrap = texture->m_Specification.SamplerWrap;
 		spec.SamplerFilter = texture->m_Specification.SamplerFilter;
+		spec.MaxAnisotropy = texture->m_Specification.MaxAnisotropy;
 
 		// Create the SRGBA image with all mip levels pre-allocated (matching source texture)
 		ImageSpecification imageSpec;
@@ -132,6 +133,7 @@ namespace Lux {
 				samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = Utils::NVRHISamplerFilter(spec.SamplerFilter);
 				samplerDesc.addressU = Utils::NVRHISamplerWrap(spec.SamplerWrap);
 				samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
+				samplerDesc.maxAnisotropy = spec.MaxAnisotropy;
 				srgbImage->GetImageInfo().Sampler = device->createSampler(samplerDesc);
 
 				// Copy all mip levels from source texture to SRGBA texture using GPU copy
@@ -165,12 +167,12 @@ namespace Lux {
 
 		//specification.GenerateMips = true;
 
-		m_ImageData = TextureImporter::ToBufferFromFile(filepath, m_Specification.Format, m_Specification.Width, m_Specification.Height);
+		m_ImageData = TextureImporter::ToBufferFromFile(filepath, m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
 		if (!m_ImageData)
 		{
 			// TODO(Yan): move this to asset manager
 			LUX_CORE_ERROR("Failed to load texture from file: {}", filepath);
-			m_ImageData = TextureImporter::ToBufferFromFile("Resources/Textures/ErrorTexture.png", m_Specification.Format, m_Specification.Width, m_Specification.Height);
+			m_ImageData = TextureImporter::ToBufferFromFile("Resources/Textures/ErrorTexture.png", m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
 		}
 
 		ImageSpecification imageSpec;
@@ -192,12 +194,12 @@ namespace Lux {
 	{
 		Utils::ValidateSpecification(specification);
 
-		m_ImageData = TextureImporter::ToBufferFromFile(filepath, m_Specification.Format, m_Specification.Width, m_Specification.Height);
+		m_ImageData = TextureImporter::ToBufferFromFile(filepath, m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
 		if (!m_ImageData)
 		{
 			// TODO(Yan): move this to asset manager
 			LUX_CORE_ERROR("Failed to load texture from file: {}", filepath);
-			m_ImageData = TextureImporter::ToBufferFromFile("Resources/Textures/ErrorTexture.png", m_Specification.Format, m_Specification.Width, m_Specification.Height);
+			m_ImageData = TextureImporter::ToBufferFromFile("Resources/Textures/ErrorTexture.png", m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
 		}
 
 		ImageSpecification imageSpec;
@@ -225,11 +227,11 @@ namespace Lux {
 
 		if (m_Specification.Height == 0)
 		{
-			m_ImageData = TextureImporter::ToBufferFromMemory(Buffer(data.Data, m_Specification.Width), m_Specification.Format, m_Specification.Width, m_Specification.Height);
+			m_ImageData = TextureImporter::ToBufferFromMemory(Buffer(data.Data, m_Specification.Width), m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
 			if (!m_ImageData)
 			{
 				// TODO(Yan): move this to asset manager
-				m_ImageData = TextureImporter::ToBufferFromFile("Resources/Textures/ErrorTexture.png", m_Specification.Format, m_Specification.Width, m_Specification.Height);
+				m_ImageData = TextureImporter::ToBufferFromFile("Resources/Textures/ErrorTexture.png", m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
 			}
 
 			Utils::ValidateSpecification(m_Specification);
@@ -325,6 +327,7 @@ namespace Lux {
 		samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = Utils::NVRHISamplerFilter(m_Specification.SamplerFilter);
 		samplerDesc.addressU = Utils::NVRHISamplerWrap(m_Specification.SamplerWrap);
 		samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
+		samplerDesc.maxAnisotropy = m_Specification.MaxAnisotropy;
 
 		info.Sampler = device->createSampler(samplerDesc);
 
