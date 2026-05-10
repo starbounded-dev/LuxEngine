@@ -9,6 +9,7 @@
 #include "Lux/Asset/AssetManager/RuntimeAssetManager.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Ref.h"
+#include "Lux/Renderer/RendererTypes.h"
 
 #include <glm/glm.hpp>
 
@@ -68,6 +69,7 @@ namespace Lux
 		bool EnableAutoSave = false;
 		int AutoSaveIntervalSeconds = 300;
 		PhysicsAPIType CurrentPhysicsAPI = PhysicsAPIType::Box2D;
+		RenderingTechnique RendererTechnique = RenderingTechnique::Forward;
 
 		std::string ProjectFileName;
 		std::filesystem::path ProjectDirectory;

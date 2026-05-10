@@ -3,6 +3,7 @@
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Renderer/SceneRenderer.h"
 
@@ -160,7 +161,7 @@ namespace Lux {
 	static bool s_ShowFontAtlasInStats = false;
 
 	EditorLayer::EditorLayer()
-		: Layer("EditorLayer"), m_EditorCamera(60.0f, 1600.0f, 900.0f, 0.1f, 10000.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+		: Layer("EditorLayer"), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 		s_Font = Font::GetDefaultFont();
 	}
@@ -240,22 +241,21 @@ namespace Lux {
 		fbSpec.Height = 720;
 		fbSpec.ClearColorOnLoad = true;
 		fbSpec.DebugName = "EditorFramebuffer";
-		m_Framebuffer = Framebuffer::Create(fbSpec);
-
-		// Now safe to call - m_Renderer2D is valid.
-		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
-
-		m_EditorCamera.SetActive(true);
-
 		m_EditorScene = Ref<Scene>::Create();
-		m_EditorScene->SetTargetFramebuffer(m_Framebuffer);
 		m_ActiveScene = m_EditorScene;
 
 		SceneRendererSpecification sceneRendererSpec;
 		sceneRendererSpec.ViewportWidth = 1280;
 		sceneRendererSpec.ViewportHeight = 720;
 
-		m_SceneRenderer = Ref<SceneRenderer>::Create(m_ActiveScene, sceneRendererSpec);
+		m_EditorViewport = Ref<Viewport>::Create("Viewport");
+		m_EditorViewport->Init(m_ActiveScene, fbSpec, sceneRendererSpec);
+		m_Framebuffer = m_EditorViewport->GetFramebuffer();
+		m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+
+		// Now safe to call - m_Renderer2D and the viewport framebuffer are valid.
+		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
+
 		renderStatsPanel->SetSceneRenderer(m_SceneRenderer);
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
@@ -318,6 +318,10 @@ namespace Lux {
 		m_IconStep.reset();
 		m_SquareVA.reset();
 		m_FlatColorShader.reset();
+		if (m_EditorViewport)
+			m_EditorViewport->Shutdown();
+		m_EditorViewport.reset();
+		m_SceneRenderer.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
 		s_Font.reset();
@@ -328,33 +332,20 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnUpdate");
 
-		if (!m_ActiveScene || !m_Framebuffer)
+		if (!m_ActiveScene || !m_EditorViewport)
 			return;
 
-		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
-		{
-			uint32_t viewportWidth = (uint32_t)m_ViewportSize.x;
-			uint32_t viewportHeight = (uint32_t)m_ViewportSize.y;
+		m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+		m_Framebuffer = m_EditorViewport->GetFramebuffer();
+		m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
 
-			if (m_Framebuffer->GetWidth() != viewportWidth || m_Framebuffer->GetHeight() != viewportHeight)
-			{
-				m_Framebuffer->Resize(viewportWidth, viewportHeight);
-				m_EditorCamera.SetViewportBounds(0, 0, viewportWidth, viewportHeight);
-			}
-
-			m_ActiveScene->SetTargetFramebuffer(m_Framebuffer);
-			m_ActiveScene->OnViewportResize(viewportWidth, viewportHeight);
-
-			if (m_SceneRenderer)
-				m_SceneRenderer->SetViewportSize(viewportWidth, viewportHeight);
-		}
-
-		m_EditorCamera.SetActive(m_ViewportFocused || m_ViewportHovered);
+		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
+		viewportCamera.SetActive(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered());
 
 		if (m_SceneRenderer)
 		{
 			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
-			m_SceneRenderer->GetOptions().ShowSelectedInWireframe = (m_ViewportDisplayMode == ViewportDisplayMode::SelectedWireframe);
+			m_SceneRenderer->GetOptions().ShowSelectedInWireframe = m_EditorViewport->IsSelectedWireframeMode();
 		}
 
 		m_Renderer2D->ResetStats();
@@ -371,26 +362,26 @@ namespace Lux {
 		{
 		case SceneState::Edit:
 		{
-			m_EditorCamera.OnUpdate(ts);
+			viewportCamera.OnUpdate(ts);
 
 			// When SceneRenderer is ready, let it own the full visible frame and
 			// composite the 2D pass on top of the 3D result. Falling back to the
 			// old Renderer2D-only path keeps the editor usable during init.
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
-				m_ActiveScene->OnRenderEditor(m_SceneRenderer, m_EditorCamera, isEntitySelected);
+				m_ActiveScene->OnRenderEditor(m_SceneRenderer, viewportCamera, isEntitySelected);
 			else
-				m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
+				m_ActiveScene->OnUpdateEditor(ts, viewportCamera);
 			break;
 		}
 		case SceneState::Simulate:
 		{
-			m_EditorCamera.OnUpdate(ts);
+			viewportCamera.OnUpdate(ts);
 
 			// Update simulation first so the rendered frame matches the latest
 			// physics state, then render the composed 3D + 2D scene.
-			m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
+			m_ActiveScene->OnUpdateSimulation(ts, viewportCamera);
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
-				m_ActiveScene->OnRenderSimulation(m_SceneRenderer, m_EditorCamera, isEntitySelected);
+				m_ActiveScene->OnRenderSimulation(m_SceneRenderer, viewportCamera, isEntitySelected);
 			break;
 		}
 		case SceneState::Play:
@@ -542,123 +533,111 @@ namespace Lux {
 
 			// Viewport panel
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
-			ImGui::Begin("Viewport");
-
-			auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
-			auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
-			auto viewportOffset = ImGui::GetWindowPos();
-			m_ViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
-			m_ViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
-
-			m_ViewportFocused = ImGui::IsWindowFocused();
-			m_ViewportHovered = ImGui::IsWindowHovered();
-			Application::Get().GetImGuiLayer()->AllowInputEvents(m_ViewportFocused || m_ViewportHovered);
-
-			// Guard against zero-size during panel drag/dock transitions; a zero
-			// size would propagate to Framebuffer::Resize(0,0) next frame and
-			// destroy all attachment images while they are still in use.
-			ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
-			if (viewportPanelSize.x > 1.0f && viewportPanelSize.y > 1.0f)
-				m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
-
-			Ref<Image2D> viewportImage = m_Framebuffer->GetImage(0);
-			if (m_SceneRenderer && m_SceneRenderer->GetFinalPassImage())
-				viewportImage = m_SceneRenderer->GetFinalPassImage();
-
-			ImTextureID texID = GetImGuiTextureID(viewportImage);
-			ImGui::Image(texID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
-
-			if (ImGui::BeginDragDropTarget())
+			const bool viewportReady = m_EditorViewport && m_EditorViewport->BeginImGui();
+			if (m_EditorViewport)
 			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+				Application::Get().GetImGuiLayer()->AllowInputEvents(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered());
+
+				if (viewportReady)
 				{
-					AssetHandle handle = *(AssetHandle*)payload->Data;
-					const AssetType assetType = AssetManager::GetAssetType(handle);
-					if (assetType == AssetType::Scene)
+					const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+					const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+
+					Ref<Image2D> viewportImage = m_EditorViewport->GetDisplayImage();
+					bool renderedViewportImage = false;
+					if (viewportImage)
 					{
-						OpenScene(handle);
+						ImTextureID texID = GetImGuiTextureID(viewportImage);
+						ImGui::Image(texID, ImVec2{ viewportSize.x, viewportSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
+						renderedViewportImage = true;
 					}
-					else if ((assetType == AssetType::MeshSource || assetType == AssetType::StaticMesh) && m_ActiveScene)
+
+					if (renderedViewportImage && ImGui::BeginDragDropTarget())
 					{
-						std::string entityName = "Static Mesh";
-						if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+						if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 						{
-							const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
-							if (metadata.IsValid() && !metadata.FilePath.empty())
-								entityName = metadata.FilePath.stem().string();
+							AssetHandle handle = *(AssetHandle*)payload->Data;
+							const AssetType assetType = AssetManager::GetAssetType(handle);
+							if (assetType == AssetType::Scene)
+							{
+								OpenScene(handle);
+							}
+							else if ((assetType == AssetType::MeshSource || assetType == AssetType::StaticMesh) && m_ActiveScene)
+							{
+								std::string entityName = "Static Mesh";
+								if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+								{
+									const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
+									if (metadata.IsValid() && !metadata.FilePath.empty())
+										entityName = metadata.FilePath.stem().string();
+								}
+
+								Entity entity = m_ActiveScene->CreateEntity(entityName);
+								auto& staticMesh = entity.AddComponent<StaticMeshComponent>();
+								staticMesh.StaticMesh = handle;
+
+								if (m_SceneHierarchyPanel)
+									m_SceneHierarchyPanel->SetSelectedEntity(entity);
+							}
 						}
+						ImGui::EndDragDropTarget();
+					}
 
-						Entity entity = m_ActiveScene->CreateEntity(entityName);
-						auto& staticMesh = entity.AddComponent<StaticMeshComponent>();
-						staticMesh.StaticMesh = handle;
+					if (m_EditorViewport->IsHovered())
+						m_HoveredEntity = CastMousePick();
+					else
+						m_HoveredEntity = {};
 
-						if (m_SceneHierarchyPanel)
-							m_SceneHierarchyPanel->SetSelectedEntity(entity);
+					// Gizmos
+					Entity selectedEntity = {};
+					if (m_SceneHierarchyPanel)
+						selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
+					if (selectedEntity && m_GizmoType != -1)
+					{
+						ImGuizmo::SetOrthographic(false);
+						ImGuizmo::SetDrawlist();
+						ImGuizmo::SetRect(viewportBounds[0].x, viewportBounds[0].y,
+							viewportBounds[1].x - viewportBounds[0].x,
+							viewportBounds[1].y - viewportBounds[0].y);
+
+						EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
+						const glm::mat4& cameraProjection = viewportCamera.GetProjectionMatrix();
+						glm::mat4 cameraView = viewportCamera.GetViewMatrix();
+
+						auto& tc = selectedEntity.GetComponent<TransformComponent>();
+						glm::mat4 transform = tc.GetTransform();
+
+						const bool controlSnap = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+						bool snap = m_UseGizmoSnap || controlSnap;
+						float snapValue = (m_GizmoType == ImGuizmo::OPERATION::ROTATE) ? m_RotationSnapValue : m_TranslationSnapValue;
+						float snapValues[3] = { snapValue, snapValue, snapValue };
+
+						ImGuizmo::Manipulate(
+							glm::value_ptr(cameraView),
+							glm::value_ptr(cameraProjection),
+							(ImGuizmo::OPERATION)m_GizmoType,
+							ImGuizmo::LOCAL,
+							glm::value_ptr(transform),
+							nullptr,
+							snap ? snapValues : nullptr);
+
+						if (ImGuizmo::IsUsing())
+						{
+							glm::vec3 translation, scale;
+							glm::quat rotationQuat;
+							Math::DecomposeTransform(transform, translation, rotationQuat, scale);
+
+							glm::vec3 rotationEuler = glm::eulerAngles(rotationQuat);
+							glm::vec3 deltaRotation = rotationEuler - tc.GetRotationEuler();
+							tc.Translation = translation;
+							tc.SetRotationEuler(tc.GetRotationEuler() + deltaRotation);
+							tc.Scale = scale;
+						}
 					}
 				}
-				ImGui::EndDragDropTarget();
+
+				m_EditorViewport->EndImGui();
 			}
-
-			if (m_ViewportHovered)
-				m_HoveredEntity = CastMousePick();
-			else
-				m_HoveredEntity = {};
-
-			// Gizmos
-			Entity selectedEntity = {};
-			if (m_SceneHierarchyPanel)
-				selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
-			if (selectedEntity && m_GizmoType != -1)
-			{
-				ImGuizmo::SetOrthographic(false);
-				ImGuizmo::SetDrawlist();
-				ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y,
-					m_ViewportBounds[1].x - m_ViewportBounds[0].x,
-					m_ViewportBounds[1].y - m_ViewportBounds[0].y);
-
-				// FIX: Use GetProjectionMatrix() (projection only), not
-				// GetViewProjection() (combined VP). ImGuizmo needs them separate.
-				const glm::mat4& cameraProjection = m_EditorCamera.GetProjectionMatrix();
-				glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
-
-				auto& tc = selectedEntity.GetComponent<TransformComponent>();
-				glm::mat4 transform = tc.GetTransform();
-
-				const bool controlSnap = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
-				bool snap = m_UseGizmoSnap || controlSnap;
-				float snapValue = (m_GizmoType == ImGuizmo::OPERATION::ROTATE) ? m_RotationSnapValue : m_TranslationSnapValue;
-				float snapValues[3] = { snapValue, snapValue, snapValue };
-
-				// FIX: Actually call Manipulate() - it was completely missing,
-				// so gizmos were never drawn or interactable at all.
-				ImGuizmo::Manipulate(
-					glm::value_ptr(cameraView),
-					glm::value_ptr(cameraProjection),
-					(ImGuizmo::OPERATION)m_GizmoType,
-					ImGuizmo::LOCAL,
-					glm::value_ptr(transform),
-					nullptr,
-					snap ? snapValues : nullptr);
-
-				// FIX: DecomposeTransform signature is (mat4, vec3&, quat&, vec3&).
-				// Decompose into a quaternion then convert to euler angles for storage.
-				if (ImGuizmo::IsUsing())
-				{
-					glm::vec3 translation, scale;
-					glm::quat rotationQuat;
-					Math::DecomposeTransform(transform, translation, rotationQuat, scale);
-
-					// Convert quat to euler and apply as a delta to avoid gimbal lock
-					// accumulation that would occur from direct euler assignment.
-					glm::vec3 rotationEuler = glm::eulerAngles(rotationQuat);
-					glm::vec3 deltaRotation = rotationEuler - tc.GetRotationEuler();
-					tc.Translation = translation;
-					tc.SetRotationEuler(tc.GetRotationEuler() + deltaRotation);
-					tc.Scale = scale;
-				}
-			}
-
-			ImGui::End(); // Viewport
 			ImGui::PopStyleVar();
 
 			UI_GizmosToolbar();
@@ -685,8 +664,14 @@ namespace Lux {
 		{
 			if (ImGui::BeginMenu("File"))
 			{
-				if (ImGui::MenuItem("Create Project"))
-					NewProject();
+				if (ImGui::BeginMenu("Create Project"))
+				{
+					if (ImGui::MenuItem("Forward"))
+						NewProject(RenderingTechnique::Forward);
+					if (ImGui::MenuItem("Deferred"))
+						NewProject(RenderingTechnique::Deferred);
+					ImGui::EndMenu();
+				}
 				if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
 					OpenProject();
 				if (ImGui::MenuItem("Save Project"))
@@ -745,6 +730,8 @@ namespace Lux {
 			{
 				if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
 					ScriptEngine::ReloadAssembly();
+				if (ImGui::MenuItem("Reload Shaders", "Ctrl+Shift+R"))
+					Renderer::ReloadShaders(true);
 				ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
 				ImGui::EndMenu();
 			}
@@ -895,14 +882,19 @@ namespace Lux {
 
 	void EditorLayer::UI_GizmosToolbar()
 	{
-		if (m_ViewportSize.x <= 0.0f || m_ViewportSize.y <= 0.0f)
+		if (!m_EditorViewport)
+			return;
+
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
 			return;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
-		ImGui::SetNextWindowPos(ImVec2(m_ViewportBounds[0].x + 12.0f, m_ViewportBounds[0].y + 12.0f), ImGuiCond_Always);
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.55f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
@@ -939,7 +931,12 @@ namespace Lux {
 
 	void EditorLayer::UI_CentralToolbar()
 	{
-		if (m_ViewportSize.x <= 0.0f || m_ViewportSize.y <= 0.0f)
+		if (!m_EditorViewport)
+			return;
+
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
 			return;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
@@ -947,8 +944,8 @@ namespace Lux {
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
 		const float toolbarWidth = 118.0f;
-		const float posX = m_ViewportBounds[0].x + (m_ViewportSize.x - toolbarWidth) * 0.5f;
-		const float posY = m_ViewportBounds[0].y + 12.0f;
+		const float posX = viewportBounds[0].x + (viewportSize.x - toolbarWidth) * 0.5f;
+		const float posY = viewportBounds[0].y + 12.0f;
 
 		ImGui::SetNextWindowPos(ImVec2(posX, posY), ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.55f);
@@ -995,14 +992,19 @@ namespace Lux {
 
 	void EditorLayer::UI_ViewportSettings()
 	{
-		if (m_ViewportSize.x <= 0.0f || m_ViewportSize.y <= 0.0f)
+		if (!m_EditorViewport)
+			return;
+
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
 			return;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
-		ImGui::SetNextWindowPos(ImVec2(m_ViewportBounds[1].x - 44.0f, m_ViewportBounds[0].y + 12.0f), ImGuiCond_Always);
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 44.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.55f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
 		ImGui::Begin("##viewport_settings_toolbar", nullptr, flags);
@@ -1044,9 +1046,9 @@ namespace Lux {
 				}
 			}
 
-			int displayMode = (int)m_ViewportDisplayMode;
+			int displayMode = (int)m_EditorViewport->GetDisplayMode();
 			if (ImGui::Combo("Display Mode", &displayMode, "Lit\0Selected Wireframe\0"))
-				m_ViewportDisplayMode = (ViewportDisplayMode)displayMode;
+				m_EditorViewport->SetDisplayMode((Viewport::DisplayMode)displayMode);
 
 			if (settingsChanged)
 			{
@@ -1070,8 +1072,8 @@ namespace Lux {
 
 	void EditorLayer::OnEvent(Event& e)
 	{
-		if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate)
-			m_EditorCamera.OnEvent(e);
+		if ((m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate) && m_EditorViewport && m_EditorViewport->IsHovered())
+			m_EditorViewport->GetCamera().OnEvent(e);
 
 		m_PanelManager->OnEvent(e);
 
@@ -1103,7 +1105,8 @@ namespace Lux {
 		case Key::W: if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::TRANSLATE; break;
 		case Key::E: if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::ROTATE;   break;
 		case Key::R:
-			if (control) ScriptEngine::ReloadAssembly();
+			if (control && shift) Renderer::ReloadShaders(true);
+			else if (control) ScriptEngine::ReloadAssembly();
 			else if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::SCALE;
 			break;
 
@@ -1117,7 +1120,7 @@ namespace Lux {
 	{
 		if (e.GetMouseButton() == MouseButton::Left)
 		{
-			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
+			if (m_EditorViewport && m_EditorViewport->IsHovered() && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
 			{
 				m_HoveredEntity = CastMousePick();
 				if (m_SceneHierarchyPanel)
@@ -1129,23 +1132,24 @@ namespace Lux {
 
 	Entity EditorLayer::CastMousePick()
 	{
-		if (!m_ActiveScene)
+		if (!m_ActiveScene || !m_EditorViewport)
 			return {};
 
-		const float viewportWidth = m_ViewportBounds[1].x - m_ViewportBounds[0].x;
-		const float viewportHeight = m_ViewportBounds[1].y - m_ViewportBounds[0].y;
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		const float viewportWidth = viewportBounds[1].x - viewportBounds[0].x;
+		const float viewportHeight = viewportBounds[1].y - viewportBounds[0].y;
 		if (viewportWidth <= 1.0f || viewportHeight <= 1.0f)
 			return {};
 
-		const float mouseX = Input::GetMouseX() - m_ViewportBounds[0].x;
-		const float mouseY = Input::GetMouseY() - m_ViewportBounds[0].y;
+		const float mouseX = Input::GetMouseX() - viewportBounds[0].x;
+		const float mouseY = Input::GetMouseY() - viewportBounds[0].y;
 		if (mouseX < 0.0f || mouseY < 0.0f || mouseX > viewportWidth || mouseY > viewportHeight)
 			return {};
 
 		const float ndcX = (mouseX / viewportWidth) * 2.0f - 1.0f;
 		const float ndcY = 1.0f - (mouseY / viewportHeight) * 2.0f;
 
-		glm::mat4 inverseViewProjection = glm::inverse(m_EditorCamera.GetUnReversedViewProjection());
+		glm::mat4 inverseViewProjection = glm::inverse(m_EditorViewport->GetCamera().GetUnReversedViewProjection());
 		glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
 		glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
 		if (nearPoint.w == 0.0f || farPoint.w == 0.0f)
@@ -1301,7 +1305,8 @@ namespace Lux {
 		}
 		else
 		{
-			m_Renderer2D->BeginScene(m_EditorCamera.GetViewProjection(), m_EditorCamera.GetViewMatrix());
+			EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
+			m_Renderer2D->BeginScene(viewportCamera.GetViewProjection(), viewportCamera.GetViewMatrix());
 		}
 
 		if (m_ShowPhysicsColliders)
@@ -1613,9 +1618,10 @@ namespace Lux {
 		return {};
 	}
 
-	void EditorLayer::NewProject()
+	void EditorLayer::NewProject(RenderingTechnique renderingTechnique)
 	{
 		Project::New();
+		Project::GetActive()->GetConfig().RendererTechnique = renderingTechnique;
 		m_PanelManager->OnProjectChanged(Project::GetActive());
 		NewScene();
 	}
@@ -1664,17 +1670,17 @@ namespace Lux {
 	void EditorLayer::NewScene()
 	{
 		m_EditorScene = CreateRef<Scene>();
-		m_EditorScene->SetTargetFramebuffer(m_Framebuffer);
-
-		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
-			m_EditorScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-
 		m_ActiveScene = m_EditorScene;
 		m_PanelManager->SetSceneContext(m_ActiveScene);
 		m_EditorScenePath = std::filesystem::path();
 
-		if (m_SceneRenderer)
-			m_SceneRenderer->SetScene(m_ActiveScene);
+		if (m_EditorViewport)
+		{
+			m_EditorViewport->SetScene(m_ActiveScene);
+			m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+			m_Framebuffer = m_EditorViewport->GetFramebuffer();
+			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		}
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
@@ -1695,17 +1701,17 @@ namespace Lux {
 		Ref<Scene> newScene = Scene::Copy(readOnlyScene);
 
 		m_EditorScene = newScene;
-		m_EditorScene->SetTargetFramebuffer(m_Framebuffer);
-
-		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
-			m_EditorScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-
 		m_ActiveScene = m_EditorScene;
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle);
 
-		if (m_SceneRenderer)
-			m_SceneRenderer->SetScene(m_ActiveScene);
+		if (m_EditorViewport)
+		{
+			m_EditorViewport->SetScene(m_ActiveScene);
+			m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+			m_Framebuffer = m_EditorViewport->GetFramebuffer();
+			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		}
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
@@ -1743,16 +1749,17 @@ namespace Lux {
 		m_SceneState = SceneState::Play;
 
 		m_ActiveScene = Scene::Copy(m_EditorScene);
-		m_ActiveScene->SetTargetFramebuffer(m_Framebuffer);
-
-		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
-			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 		m_ActiveScene->OnRuntimeStart();
 		m_PanelManager->SetSceneContext(m_ActiveScene);
 
-		if (m_SceneRenderer)
-			m_SceneRenderer->SetScene(m_ActiveScene);
+		if (m_EditorViewport)
+		{
+			m_EditorViewport->SetScene(m_ActiveScene);
+			m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+			m_Framebuffer = m_EditorViewport->GetFramebuffer();
+			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		}
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
@@ -1766,16 +1773,17 @@ namespace Lux {
 		m_SceneState = SceneState::Simulate;
 
 		m_ActiveScene = Scene::Copy(m_EditorScene);
-		m_ActiveScene->SetTargetFramebuffer(m_Framebuffer);
-
-		if (m_ViewportSize.x > 1.0f && m_ViewportSize.y > 1.0f)
-			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
 		m_ActiveScene->OnSimulationStart();
 		m_PanelManager->SetSceneContext(m_ActiveScene);
 
-		if (m_SceneRenderer)
-			m_SceneRenderer->SetScene(m_ActiveScene);
+		if (m_EditorViewport)
+		{
+			m_EditorViewport->SetScene(m_ActiveScene);
+			m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+			m_Framebuffer = m_EditorViewport->GetFramebuffer();
+			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		}
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
@@ -1795,8 +1803,13 @@ namespace Lux {
 
 		m_PanelManager->SetSceneContext(m_ActiveScene);
 
-		if (m_SceneRenderer)
-			m_SceneRenderer->SetScene(m_ActiveScene);
+		if (m_EditorViewport)
+		{
+			m_EditorViewport->SetScene(m_ActiveScene);
+			m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+			m_Framebuffer = m_EditorViewport->GetFramebuffer();
+			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		}
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);

@@ -12,6 +12,7 @@ namespace Lux {
 	struct StorageBufferSpecification
 	{
 		bool GPUOnly = true;
+		bool DrawIndirect = false;
 		std::string DebugName = "StorageBuffer";
 	};
 

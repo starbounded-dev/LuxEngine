@@ -12,6 +12,7 @@ namespace Lux {
 			.setByteSize(size)
 			.setCanHaveRawViews(true)
 			.setCanHaveUAVs(true)
+			.setIsDrawIndirectArgs(m_Specification.DrawIndirect)
 			.setInitialState(nvrhi::ResourceStates::UnorderedAccess)
 			.setKeepInitialState(true) // enable fully automatic state tracking
 			.setCpuAccess(m_Specification.GPUOnly ? nvrhi::CpuAccessMode::None : nvrhi::CpuAccessMode::Write)

@@ -21,6 +21,7 @@
 #include "entt/entt.hpp"
 #include "Lux/Editor/PanelManager.h"
 #include "Lux/Renderer/SceneRenderer.h"
+#include "Viewport/Viewport.h"
 
 namespace Lux
 {
@@ -54,7 +55,7 @@ namespace Lux
 		Entity CastMousePick();
 		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
 
-		void NewProject();
+		void NewProject(RenderingTechnique renderingTechnique = RenderingTechnique::Forward);
 		bool OpenProject();
 		void OpenProject(const std::filesystem::path& path);
 		void SaveProject();
@@ -85,15 +86,13 @@ namespace Lux
 		std::vector<RecentProject> GetRecentProjects() const;
 		std::filesystem::path GetStartupProjectPath() const;
 	private:
-		EditorCamera m_EditorCamera;
-
 		Scope<PanelManager> m_PanelManager;
 
 		bool m_VSync = true;
-		bool m_ViewportFocused = false, m_ViewportHovered = false;
 
 		Ref<Renderer2D> m_Renderer2D;
 
+		Ref<Viewport> m_EditorViewport;
 		Ref<SceneRenderer> m_SceneRenderer;
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
@@ -119,9 +118,6 @@ namespace Lux
 
 		Ref<Texture2D> m_CheckerboardTexture;
 
-		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
-		glm::vec2 m_ViewportBounds[2];
-
 		glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 
 		int m_GizmoType = -1;
@@ -138,13 +134,6 @@ namespace Lux
 			Edit = 0, Play = 1, Simulate = 2
 		};
 		SceneState m_SceneState = SceneState::Edit;
-
-		enum class ViewportDisplayMode
-		{
-			Lit = 0,
-			SelectedWireframe = 1
-		};
-		ViewportDisplayMode m_ViewportDisplayMode = ViewportDisplayMode::Lit;
 
 		ImVec4 m_AnimatedTitlebarColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		ImVec2 m_TitleBarDragRectMin = { 0.0f, 0.0f };

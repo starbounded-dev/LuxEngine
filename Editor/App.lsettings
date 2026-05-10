@@ -4,7 +4,7 @@ Lux Application Settings:
   Editor.AutoOpenMostRecentProject: 1
   Editor.RotationSnapValue: 10.000000
   Editor.ShowBoundingBoxes: 1
-  Editor.ShowEntityIcons: 1
+  Editor.ShowEntityIcons: 0
   Editor.ShowPhysicsColliders: 1
   Editor.TranslationSnapValue: 0.500000
   Editor.UseGizmoSnap: 1

@@ -398,6 +398,7 @@ namespace Lux {
 		// Light-culling
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Anim.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/MeshCulling.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LightCulling.glsl");
 
 		// Renderer2D Shaders
@@ -593,6 +594,24 @@ namespace Lux {
 	Ref<ShaderLibrary> Renderer::GetShaderLibrary()
 	{
 		return s_Data->m_ShaderLibrary;
+	}
+
+	uint32_t Renderer::ReloadShaders(bool forceCompile)
+	{
+		if (!s_Data || !s_Data->m_ShaderLibrary)
+			return 0;
+
+		uint32_t reloadedCount = 0;
+		for (auto& [name, shader] : s_Data->m_ShaderLibrary->GetShaders())
+		{
+			if (!shader)
+				continue;
+
+			shader->Reload(forceCompile);
+			reloadedCount++;
+		}
+
+		return reloadedCount;
 	}
 
 	void Renderer::RenderThreadFunc(RenderThread* renderThread)

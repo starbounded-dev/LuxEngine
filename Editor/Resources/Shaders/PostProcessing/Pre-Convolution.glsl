@@ -52,6 +52,9 @@ void main()
 {
 	vec2 imgSize = imageSize(o_Image);
 	ivec2 invocID = ivec2(gl_GlobalInvocationID);
+	if (invocID.x >= int(imgSize.x) || invocID.y >= int(imgSize.y))
+		return;
+
 	vec2 pixelSize = 1.0f / imgSize;
 	vec2 texCoords = invocID * pixelSize + pixelSize * 0.5;
 	vec4 finalColor;

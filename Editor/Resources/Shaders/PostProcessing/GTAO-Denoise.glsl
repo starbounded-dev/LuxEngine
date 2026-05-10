@@ -117,6 +117,9 @@ void main()
 
     // we're computing 2 horizontal pixels at a time (performance optimization)
     ivec2 pixCoordBase = ivec2(gl_GlobalInvocationID.xy * ivec2(2, 1));
+    ivec2 outputSize = ivec2(u_Settings.HalfRes ? u_ScreenData.HalfResolution : u_ScreenData.FullResolution);
+    if (pixCoordBase.x >= outputSize.x || pixCoordBase.y >= outputSize.y)
+        return;
 
     // gather edge and visibility quads, used later
     vec2 gatherCenter = vec2(pixCoordBase) * u_ScreenData.InvFullResolution * (1 + int(u_Settings.HalfRes));
@@ -183,7 +186,8 @@ void main()
 
         aoTerm[side] = sum / sumWeight;
 
-        XeGTAO_Output(pixCoord, aoTerm[side]);
+        if (pixCoord.x < outputSize.x)
+            XeGTAO_Output(pixCoord, aoTerm[side]);
     }
 }
 

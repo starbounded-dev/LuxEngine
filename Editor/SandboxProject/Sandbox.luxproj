@@ -12,6 +12,7 @@ Project:
   AutomaticallyReloadAssembly: true
   AutoSave: true
   AutoSaveInterval: 300
+  RenderingTechnique: Forward
   Audio:
     FileStreamingDurationThreshold: 1
   Physics:

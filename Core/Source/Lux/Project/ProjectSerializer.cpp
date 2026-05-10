@@ -138,6 +138,7 @@ namespace Lux
 			out << YAML::Key << "AutomaticallyReloadAssembly" << YAML::Value << config.AutomaticallyReloadAssembly;
 			out << YAML::Key << "AutoSave" << YAML::Value << config.EnableAutoSave;
 			out << YAML::Key << "AutoSaveInterval" << YAML::Value << config.AutoSaveIntervalSeconds;
+			out << YAML::Key << "RenderingTechnique" << YAML::Value << RenderingTechniqueToString(config.RendererTechnique);
 
 			out << YAML::Key << "Audio" << YAML::Value;
 			{
@@ -319,6 +320,14 @@ namespace Lux
 		config.AutomaticallyReloadAssembly = projectNode["AutomaticallyReloadAssembly"].as<bool>(true);
 		config.EnableAutoSave = projectNode["AutoSave"].as<bool>(false);
 		config.AutoSaveIntervalSeconds = projectNode["AutoSaveInterval"].as<int>(300);
+		config.RendererTechnique = RenderingTechnique::Forward;
+		if (auto renderingTechniqueNode = projectNode["RenderingTechnique"])
+		{
+			if (renderingTechniqueNode.IsScalar() && !IsNumericString(renderingTechniqueNode.Scalar()))
+				config.RendererTechnique = RenderingTechniqueFromString(renderingTechniqueNode.as<std::string>());
+			else
+				config.RendererTechnique = renderingTechniqueNode.as<int>((int)RenderingTechnique::Forward) == (int)RenderingTechnique::Deferred ? RenderingTechnique::Deferred : RenderingTechnique::Forward;
+		}
 		config.StartScene.clear();
 		config.StartSceneHandle = 0;
 

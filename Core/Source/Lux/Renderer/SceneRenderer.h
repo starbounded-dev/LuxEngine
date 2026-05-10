@@ -16,10 +16,12 @@
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/DebugRenderer.h"
+#include "Lux/Renderer/RendererTypes.h"
 #include "Lux/Project/TieringSettings.h"
 #include "Lux/Scene/Scene.h"
 
 #include <glm/glm.hpp>
+#include <limits>
 #include <map>
 #include <vector>
 
@@ -113,6 +115,8 @@ namespace Lux {
 		uint32_t GTAODenoisePasses = 4;
 		bool  EnableSSR = true;
 		bool  EnableJumpFlood = true;
+		bool  EnableFrustumCulling = true;
+		bool  EnableGPUDrivenRendering = true;
 	};
 
 	struct BloomSettings
@@ -187,6 +191,9 @@ namespace Lux {
 			uint32_t DrawCalls = 0;
 			uint32_t Meshes = 0;
 			uint32_t Instances = 0;
+			uint32_t VisibleInstances = 0;
+			uint32_t CulledInstances = 0;
+			uint32_t IndirectDraws = 0;
 			uint32_t SavedDraws = 0;
 			float    TotalGPUTime = 0.0f;
 		};
@@ -251,6 +258,8 @@ namespace Lux {
 		BloomSettings& GetBloomSettings() { return m_BloomSettings; }
 		DOFSettings& GetDOFSettings() { return m_DOFSettings; }
 		SSROptionsUB& GetSSROptions() { return m_SSROptions; }
+		RenderingTechnique GetRenderingTechnique() const { return m_RenderingTechnique; }
+		void SetRenderingTechnique(RenderingTechnique technique) { m_RenderingTechnique = technique; }
 		const SceneRendererSpecification& GetSpecification()  const { return m_Specification; }
 
 		void SetLineWidth(float width);
@@ -306,6 +315,22 @@ namespace Lux {
 		{
 			std::vector<uint32_t> ObjectIndices;
 			uint32_t              ObjectIndexBase = 0;  // offset into ObjectIndexes SSBO
+			uint32_t              VisibleObjectIndexBase = 0;
+			uint32_t              VisibleInstanceCount = 0;
+			uint32_t              IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
+		};
+
+		struct InstanceBoundsData
+		{
+			glm::vec4 Sphere; // xyz = world center, w = world radius
+		};
+
+		struct MeshCullDrawData
+		{
+			uint32_t ObjectIndexBase = 0;
+			uint32_t InstanceCount = 0;
+			uint32_t VisibleObjectIndexBase = 0;
+			uint32_t Padding = 0;
 		};
 
 		// Internal helper for the debug-mesh submission path.
@@ -331,6 +356,7 @@ namespace Lux {
 		void PreDepthPass();
 		void HZBCompute();
 		void PreIntegration();
+		void MeshCullingPass();
 		void LightCullingPass();
 		void SkyboxPass();
 		void GeometryPass();
@@ -355,13 +381,18 @@ namespace Lux {
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();
+		void BuildIndirectDrawCommand(const StaticDrawCommand& dc,
+			const TransformMapData& tmd,
+			std::vector<nvrhi::DrawIndexedIndirectArguments>& drawCommands);
 
 		// Render-thread draw helper (must be called inside Renderer::Submit).
 		void RT_DrawStaticMesh(Ref<RenderCommandBuffer> cmd,
 			const StaticDrawCommand& dc,
 			const TransformMapData& tmd,
 			bool                     bindMaterial,
-			uint32_t                 lightIndex = 0);
+			uint32_t                 lightIndex = 0,
+			bool                     useVisibleObjectIndexes = false,
+			bool                     useIndirect = false);
 
 		// ── Uniform buffer GPU structs ────────────────────────────────────────
 
@@ -477,6 +508,7 @@ namespace Lux {
 
 		Ref<Scene>                 m_Scene;
 		SceneRendererSpecification m_Specification;
+		RenderingTechnique         m_RenderingTechnique = RenderingTechnique::Forward;
 		Ref<RenderCommandBuffer>   m_CommandBuffer;       // render commands
 		Ref<RenderCommandBuffer>   m_UploadCommandBuffer; // UB/SB data uploads
 
@@ -507,6 +539,10 @@ namespace Lux {
 
 		Ref<StorageBufferSet> m_SBSInstanceTransforms;  // TransformVertexData[]
 		Ref<StorageBufferSet> m_SBSObjectIndexes;       // uint32_t[] – maps draw → transform
+		Ref<StorageBufferSet> m_SBSVisibleObjectIndexes;
+		Ref<StorageBufferSet> m_SBSInstanceBounds;
+		Ref<StorageBufferSet> m_SBSMeshCullDrawData;
+		Ref<StorageBufferSet> m_SBSIndirectDrawCommands;
 		Ref<StorageBufferSet> m_SBSVisiblePointLightIndices;
 		Ref<StorageBufferSet> m_SBSVisibleSpotLightIndices;
 		uint32_t              m_LightTilesCountX = 1;
@@ -533,7 +569,9 @@ namespace Lux {
 		Ref<RenderPass>  m_PreDepthPass;
 
 		// ── Tiled light culling ──────────────────────────────────────────────
+		Ref<ComputePass> m_MeshCullingPass;
 		Ref<ComputePass> m_LightCullingPass;
+		uint32_t         m_MeshCullDrawCount = 0;
 
 		struct MippedTexture
 		{
@@ -650,6 +688,7 @@ namespace Lux {
 		// Transform storage for all submitted meshes this frame.
 		std::map<MeshKey, TransformMapData>  m_MeshTransformMap;
 		std::vector<TransformVertexData>     m_TransformData;
+		std::vector<InstanceBoundsData>      m_InstanceBoundsData;
 
 		// Shadow-specific per-cascade transform tracking.
 		// Index 0 is the only cascade we use currently.

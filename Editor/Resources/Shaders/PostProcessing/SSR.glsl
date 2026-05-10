@@ -341,7 +341,11 @@ layout(local_size_x = 8, local_size_y = 8) in;
 void main()
 {
 	const ivec2 base = ivec2(gl_GlobalInvocationID);
-	vec2 uv = u_SSRInfo.HalfRes ? u_ScreenData.InvHalfResolution * (base + 0.25) : u_ScreenData.InvFullResolution * (base + 0.50);
+	const ivec2 outputSize = imageSize(outColor);
+	if (base.x >= outputSize.x || base.y >= outputSize.y)
+		return;
+
+	vec2 uv = u_SSRInfo.HalfRes ? u_ScreenData.InvHalfResolution * (vec2(base) + 0.25) : u_ScreenData.InvFullResolution * (vec2(base) + 0.50);
 	const ivec2 baseDepthResolution = GetDepthMipResolution(BASE_LOD);
 	const float depth = FetchDepth(ivec2(baseDepthResolution * uv), 0).r;
 

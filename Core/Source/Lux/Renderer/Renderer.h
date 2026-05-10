@@ -198,6 +198,7 @@ namespace Lux {
 		static void AcknowledgeParsedGlobalMacros(const std::unordered_set<std::string>& macros, Ref<Shader> shader);
 		static void SetMacroInShader(Ref<Shader> shader, const std::string& name, const std::string& value = "");
 		static void SetGlobalMacroInShaders(const std::string& name, const std::string& value = "");
+		static uint32_t ReloadShaders(bool forceCompile = true);
 		// Returns true if any shader is actually updated.
 		static bool UpdateDirtyShaders();
 

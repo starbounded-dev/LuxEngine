@@ -71,6 +71,11 @@ namespace Lux {
 
 			return result;
 		}
+
+		constexpr RenderingTechnique s_RenderingTechniques[] = {
+			RenderingTechnique::Forward,
+			RenderingTechnique::Deferred
+		};
 	}
 
 	ProjectSettingsWindow::ProjectSettingsWindow()
@@ -296,9 +301,26 @@ namespace Lux {
 		if (!ImGuiEx::PropertyGridHeader("Renderer", false))
 			return;
 
+		auto& projectConfig = m_Project->GetConfig();
 		auto& rendererConfig = Renderer::GetConfig();
 
 		ImGuiEx::BeginPropertyGrid();
+		if (ImGui::BeginCombo("Rendering Technique", RenderingTechniqueToString(projectConfig.RendererTechnique)))
+		{
+			for (RenderingTechnique technique : s_RenderingTechniques)
+			{
+				const bool selected = projectConfig.RendererTechnique == technique;
+				if (ImGui::Selectable(RenderingTechniqueToString(technique), selected))
+				{
+					projectConfig.RendererTechnique = technique;
+					m_Dirty = true;
+				}
+				if (selected)
+					ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+
 		ImGuiEx::Property("Compute HDR Environment Maps", rendererConfig.ComputeEnvironmentMaps);
 
 		int32_t environmentMapSizeIndex = ResolutionToComboIndex(rendererConfig.EnvironmentMapResolution);

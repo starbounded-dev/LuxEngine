@@ -468,6 +468,10 @@ lpfloat2 SpatioTemporalNoise(uint2 pixCoord, uint temporalIndex)    // without T
 [numthreads(XE_GTAO_NUMTHREADS_X, XE_GTAO_NUMTHREADS_Y, 1)]
 void main(const uint2 pixCoord : SV_DispatchThreadID)
 {
+    const uint2 outputSize = uint2(u_GTAOConsts.HalfRes ? u_ScreenData.HalfResolution : u_ScreenData.FullResolution);
+    if (pixCoord.x >= outputSize.x || pixCoord.y >= outputSize.y)
+        return;
+
     const int2 outputPixCoords = pixCoord;
     const int2 inputPixCoords = outputPixCoords * (1 + int(u_GTAOConsts.HalfRes));
     XeGTAO_MainPass(outputPixCoords, inputPixCoords, 9, 3, SpatioTemporalNoise(inputPixCoords, u_GTAOConsts.NoiseIndex));

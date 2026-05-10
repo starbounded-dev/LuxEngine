@@ -4,7 +4,9 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Core/Application.h"
+#include "Lux/Core/Math/Frustum.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Project/Project.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -44,6 +46,17 @@ namespace Lux {
 				return 0;
 
 			return staticMesh->Handle ? staticMesh->Handle : staticMesh->GetMeshSource();
+		}
+
+		glm::vec4 CalculateWorldBoundsSphere(const AABB& localBounds, const glm::mat4& transform)
+		{
+			const BoundingSphere localSphere = localBounds.ToBoundingSphere();
+			const glm::vec3 worldCenter = glm::vec3(transform * glm::vec4(localSphere.Center, 1.0f));
+			const float maxScale = glm::max(
+				glm::length(glm::vec3(transform[0])),
+				glm::max(glm::length(glm::vec3(transform[1])), glm::length(glm::vec3(transform[2]))));
+
+			return { worldCenter, localSphere.Radius * maxScale };
 		}
 
 		uint32_t AlignUp(uint32_t value, uint32_t alignment)
@@ -174,6 +187,19 @@ namespace Lux {
 			spec.GPUOnly = false;
 			spec.DebugName = "ObjectIndexes";
 			m_SBSObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
+
+			spec.DebugName = "VisibleObjectIndexes";
+			m_SBSVisibleObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
+
+			spec.DebugName = "InstanceBounds";
+			m_SBSInstanceBounds = StorageBufferSet::Create(spec, sizeof(InstanceBoundsData) * 4096);
+
+			spec.DebugName = "MeshCullDrawData";
+			m_SBSMeshCullDrawData = StorageBufferSet::Create(spec, sizeof(MeshCullDrawData) * 4096);
+
+			spec.DrawIndirect = true;
+			spec.DebugName = "IndirectDrawCommands";
+			m_SBSIndirectDrawCommands = StorageBufferSet::Create(spec, sizeof(nvrhi::DrawIndexedIndirectArguments) * 4096);
 		}
 		{
 			StorageBufferSpecification indexSpec;
@@ -312,7 +338,7 @@ namespace Lux {
 			m_PreDepthPass = RenderPass::Create(rpSpec);
 			m_PreDepthPass->SetInput("Camera", m_UBSCamera);
 			m_PreDepthPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
-			m_PreDepthPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			m_PreDepthPass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			LUX_CORE_VERIFY(m_PreDepthPass->Validate());
 			m_PreDepthPass->Bake();
 		}
@@ -380,6 +406,22 @@ namespace Lux {
 			m_PreConvolutionComputePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
 			LUX_CORE_VERIFY(m_PreConvolutionComputePass->Validate());
 			m_PreConvolutionComputePass->Bake();
+		}
+
+		// ── Mesh culling / GPU-driven indirect pass ─────────────────────────
+		{
+			ComputePassSpecification computeSpec;
+			computeSpec.DebugName = "MeshCulling";
+			computeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("MeshCulling"));
+
+			m_MeshCullingPass = ComputePass::Create(computeSpec);
+			m_MeshCullingPass->SetInput("MeshCullDrawData", m_SBSMeshCullDrawData);
+			m_MeshCullingPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			m_MeshCullingPass->SetInput("InstanceBounds", m_SBSInstanceBounds);
+			m_MeshCullingPass->SetInput("VisibleObjectIndexes", m_SBSVisibleObjectIndexes);
+			m_MeshCullingPass->SetInput("IndirectDrawCommands", m_SBSIndirectDrawCommands);
+			LUX_CORE_VERIFY(m_MeshCullingPass->Validate());
+			m_MeshCullingPass->Bake();
 		}
 
 		// ── Tiled light culling pass ─────────────────────────────────────────
@@ -470,7 +512,7 @@ namespace Lux {
 			m_GeometryPass->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
 			m_GeometryPass->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
 			m_GeometryPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
-			m_GeometryPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			m_GeometryPass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			// Environment textures – overridden each frame in BeginScene once env is set
 			m_GeometryPass->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPass->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
@@ -496,7 +538,7 @@ namespace Lux {
 			m_GeometryPassTransparent->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
 			m_GeometryPassTransparent->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
 			m_GeometryPassTransparent->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
-			m_GeometryPassTransparent->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			m_GeometryPassTransparent->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			// Environment textures – overridden each frame in BeginScene once env is set
 			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
@@ -689,7 +731,7 @@ namespace Lux {
 			m_SelectedGeometryPass = RenderPass::Create(rpSpec);
 			m_SelectedGeometryPass->SetInput("Camera", m_UBSCamera);
 			m_SelectedGeometryPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
-			m_SelectedGeometryPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			m_SelectedGeometryPass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			LUX_CORE_VERIFY(m_SelectedGeometryPass->Validate());
 			m_SelectedGeometryPass->Bake();
 
@@ -772,7 +814,7 @@ namespace Lux {
 			m_GeometryWireframePass = RenderPass::Create(rpSpec);
 			m_GeometryWireframePass->SetInput("Camera", m_UBSCamera);
 			m_GeometryWireframePass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
-			m_GeometryWireframePass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			m_GeometryWireframePass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			LUX_CORE_VERIFY(m_GeometryWireframePass->Validate());
 			m_GeometryWireframePass->Bake();
 
@@ -1211,25 +1253,23 @@ namespace Lux {
 
 		if (m_Options.EnableGTAO && m_GTAOOutputImage && m_GTAODenoiseImage && m_GTAOEdgesOutputImage)
 		{
-			glm::uvec2 gtaoSize = m_GTAODataCB.HalfRes ? (viewportSize + 1u) / 2u : viewportSize;
-			glm::uvec2 denoiseSize = gtaoSize;
+			const glm::uvec2 gtaoSize = m_GTAODataCB.HalfRes ? (viewportSize + 1u) / 2u : viewportSize;
+			const glm::uvec2 denoiseSize = gtaoSize;
 			const ImageFormat gtaoImageFormat = m_Options.GTAOBentNormals ? ImageFormat::RED32UI : ImageFormat::RED8UI;
 			m_GTAOOutputImage->GetSpecification().Format = gtaoImageFormat;
 			m_GTAODenoiseImage->GetSpecification().Format = gtaoImageFormat;
 
 			constexpr uint32_t GTAO_WORKGROUP_SIZE = 16u;
-			gtaoSize = { AlignUp(gtaoSize.x, GTAO_WORKGROUP_SIZE), AlignUp(gtaoSize.y, GTAO_WORKGROUP_SIZE) };
 			m_GTAOOutputImage->Resize(gtaoSize.x, gtaoSize.y);
 			m_GTAOEdgesOutputImage->Resize(gtaoSize.x, gtaoSize.y);
 
-			m_GTAOWorkGroups = { gtaoSize.x / GTAO_WORKGROUP_SIZE, gtaoSize.y / GTAO_WORKGROUP_SIZE, 1 };
+			m_GTAOWorkGroups = { DivideRoundUp(gtaoSize.x, GTAO_WORKGROUP_SIZE), DivideRoundUp(gtaoSize.y, GTAO_WORKGROUP_SIZE), 1 };
 
 			constexpr uint32_t DENOISE_WORKGROUP_SIZE = 8u;
-			denoiseSize = { AlignUp(denoiseSize.x, DENOISE_WORKGROUP_SIZE), AlignUp(denoiseSize.y, DENOISE_WORKGROUP_SIZE) };
 			m_GTAODenoiseImage->Resize(denoiseSize.x, denoiseSize.y);
 			m_GTAODenoiseWorkGroups = {
-				(denoiseSize.x + 2u * DENOISE_WORKGROUP_SIZE - 1u) / (DENOISE_WORKGROUP_SIZE * 2u),
-				denoiseSize.y / DENOISE_WORKGROUP_SIZE,
+				DivideRoundUp(denoiseSize.x, DENOISE_WORKGROUP_SIZE * 2u),
+				DivideRoundUp(denoiseSize.y, DENOISE_WORKGROUP_SIZE),
 				1
 			};
 
@@ -1244,10 +1284,9 @@ namespace Lux {
 		{
 			constexpr uint32_t SSR_WORKGROUP_SIZE = 8u;
 			glm::uvec2 ssrSize = m_SSROptions.HalfRes ? (viewportSize + 1u) / 2u : viewportSize;
-			ssrSize = { AlignUp(ssrSize.x, SSR_WORKGROUP_SIZE), AlignUp(ssrSize.y, SSR_WORKGROUP_SIZE) };
 
 			m_SSRImage->Resize(ssrSize.x, ssrSize.y);
-			m_SSRWorkGroups = { ssrSize.x / SSR_WORKGROUP_SIZE, ssrSize.y / SSR_WORKGROUP_SIZE, 1 };
+			m_SSRWorkGroups = { DivideRoundUp(ssrSize.x, SSR_WORKGROUP_SIZE), DivideRoundUp(ssrSize.y, SSR_WORKGROUP_SIZE), 1 };
 
 			m_PreConvolutedTexture.Texture->Resize(ssrSize.x, ssrSize.y);
 			const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
@@ -1361,6 +1400,9 @@ namespace Lux {
 		LUX_CORE_ASSERT(!m_Active, "BeginScene called twice without EndScene");
 		m_Active = true;
 
+		if (Ref<Project> project = Project::GetActive())
+			m_RenderingTechnique = project->GetConfig().RendererTechnique;
+
 		if (m_ResourcesCreatedGPU)
 			m_ResourcesCreated = true;
 
@@ -1430,7 +1472,10 @@ namespace Lux {
 				glm::max(1.0f, static_cast<float>(m_ViewportWidth)),
 				glm::max(1.0f, static_cast<float>(m_ViewportHeight))
 			};
-			const glm::vec2 halfResolution = glm::max(fullResolution * 0.5f, glm::vec2(1.0f));
+			const glm::vec2 halfResolution = {
+				static_cast<float>((glm::max(1u, m_ViewportWidth) + 1u) / 2u),
+				static_cast<float>((glm::max(1u, m_ViewportHeight) + 1u) / 2u)
+			};
 
 			m_ScreenDataUB.FullResolution = fullResolution;
 			m_ScreenDataUB.InvFullResolution = 1.0f / fullResolution;
@@ -1713,6 +1758,7 @@ namespace Lux {
 			td.MRow[0] = { submeshTransform[0][0], submeshTransform[1][0], submeshTransform[2][0], submeshTransform[3][0] };
 			td.MRow[1] = { submeshTransform[0][1], submeshTransform[1][1], submeshTransform[2][1], submeshTransform[3][1] };
 			td.MRow[2] = { submeshTransform[0][2], submeshTransform[1][2], submeshTransform[2][2], submeshTransform[3][2] };
+			m_InstanceBoundsData.push_back({ CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform) });
 
 			// ── Main draw list ────────────────────────────────────────────────
 			m_MeshTransformMap[key].ObjectIndices.push_back(transformIndex);
@@ -1781,7 +1827,8 @@ namespace Lux {
 
 		for (uint32_t submeshIndex : staticMesh->GetSubmeshes())
 		{
-			const glm::mat4 submeshTransform = transform * submeshData[submeshIndex].Transform;
+			const auto& submesh = submeshData[submeshIndex];
+			const glm::mat4 submeshTransform = transform * submesh.Transform;
 
 			// Use the material pointer as a fake asset handle so each material gets its own MeshKey bucket
 			const AssetHandle fakeHandle = (AssetHandle)(uint64_t)material.Raw();
@@ -1794,6 +1841,7 @@ namespace Lux {
 			td.MRow[0] = { submeshTransform[0][0], submeshTransform[1][0], submeshTransform[2][0], submeshTransform[3][0] };
 			td.MRow[1] = { submeshTransform[0][1], submeshTransform[1][1], submeshTransform[2][1], submeshTransform[3][1] };
 			td.MRow[2] = { submeshTransform[0][2], submeshTransform[1][2], submeshTransform[2][2], submeshTransform[3][2] };
+			m_InstanceBoundsData.push_back({ CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform) });
 
 			auto& dc = drawList[key];
 			dc.StaticMesh = staticMesh;
@@ -1827,6 +1875,7 @@ namespace Lux {
 		auto clearAll = [this]()
 			{
 				m_TransformData.clear();
+				m_InstanceBoundsData.clear();
 				m_MeshTransformMap.clear();
 				m_ShadowMeshTransformMap.clear();
 				m_StaticMeshDrawList.clear();
@@ -1834,6 +1883,7 @@ namespace Lux {
 				m_SelectedStaticMeshDrawList.clear();
 				m_StaticMeshShadowPassDrawList.clear();
 				m_StaticColliderDrawList.clear();
+				m_MeshCullDrawCount = 0;
 			};
 
 		if (!m_ResourcesCreated)
@@ -1847,14 +1897,49 @@ namespace Lux {
 		// The shader uses  objectIndex = ObjectIndexBase + gl_InstanceIndex
 		// to look up its row in the InstanceTransforms SSBO.
 		uint32_t cursor = 0;
+		uint32_t visibleCursor = 0;
 		std::vector<uint32_t> objectIndexData;
+		std::vector<uint32_t> visibleObjectIndexData;
+		std::vector<MeshCullDrawData> meshCullDrawData;
+		std::vector<nvrhi::DrawIndexedIndirectArguments> indirectDrawData;
+
+		const glm::mat4 viewProjection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix() * m_SceneData.SceneCamera.ViewMatrix;
+		const Frustum cameraFrustum = Frustum::FromViewProjection(viewProjection);
+		auto isInstanceVisible = [this, &cameraFrustum](uint32_t transformIndex)
+			{
+				if (!m_Options.EnableFrustumCulling)
+					return true;
+
+				if (transformIndex >= m_InstanceBoundsData.size())
+					return true;
+
+				const glm::vec4& sphereData = m_InstanceBoundsData[transformIndex].Sphere;
+				return cameraFrustum.IsSphereVisible({ glm::vec3(sphereData), sphereData.w });
+			};
+
 		for (auto& [key, tmd] : m_MeshTransformMap)
 		{
 			tmd.ObjectIndexBase = cursor;
+			tmd.VisibleObjectIndexBase = visibleCursor;
+			tmd.VisibleInstanceCount = 0;
+			tmd.IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
+
 			for (uint32_t idx : tmd.ObjectIndices)
+			{
+				const uint32_t objectIndex = idx * 3u;
 				objectIndexData.push_back(idx * 3u);
+
+				if (isInstanceVisible(idx))
+				{
+					visibleObjectIndexData.push_back(objectIndex);
+					tmd.VisibleInstanceCount++;
+					visibleCursor++;
+				}
+			}
+
 			cursor += (uint32_t)tmd.ObjectIndices.size();
 		}
+
 		// Do the same for the shadow-specific transform map
 		for (auto& [key, shadowTmd] : m_ShadowMeshTransformMap)
 		{
@@ -1864,16 +1949,49 @@ namespace Lux {
 			cursor += (uint32_t)shadowTmd.Cascade.ObjectIndices.size();
 		}
 
-		// ── 2. Upload InstanceTransforms and ObjectIndexes SSBOs ──────────────
+		auto registerIndirectDraws = [this, &meshCullDrawData, &indirectDrawData](const std::map<MeshKey, StaticDrawCommand>& drawList)
+			{
+				for (const auto& [key, dc] : drawList)
+				{
+					auto transformIt = m_MeshTransformMap.find(key);
+					if (transformIt == m_MeshTransformMap.end())
+						continue;
+
+					auto& tmd = transformIt->second;
+					if (tmd.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
+						continue;
+
+					tmd.IndirectDrawOffsetBytes = (uint32_t)(indirectDrawData.size() * sizeof(nvrhi::DrawIndexedIndirectArguments));
+					meshCullDrawData.push_back({
+						tmd.ObjectIndexBase,
+						(uint32_t)tmd.ObjectIndices.size(),
+						tmd.VisibleObjectIndexBase,
+						0
+					});
+					BuildIndirectDrawCommand(dc, tmd, indirectDrawData);
+				}
+			};
+
+		registerIndirectDraws(m_SelectedStaticMeshDrawList);
+		registerIndirectDraws(m_StaticMeshDrawList);
+		registerIndirectDraws(m_TransparentStaticMeshDrawList);
+		registerIndirectDraws(m_StaticColliderDrawList);
+		m_MeshCullDrawCount = (uint32_t)meshCullDrawData.size();
+
+		// ── 2. Upload InstanceTransforms, ObjectIndexes, culling data, and indirect args
 		m_UploadCommandBuffer->Begin();
 
 		if (!m_TransformData.empty())
 		{
 			const auto transformData = m_TransformData;
+			const auto boundsData = m_InstanceBoundsData;
 			const auto indexData = objectIndexData;
+			const auto visibleIndexData = visibleObjectIndexData;
+			const auto cullDrawData = meshCullDrawData;
+			const auto indirectCommands = indirectDrawData;
 			Ref<SceneRenderer> instance = this;
 
-			Renderer::Submit([instance, transformData, indexData]() mutable {
+			Renderer::Submit([instance, transformData, boundsData, indexData, visibleIndexData, cullDrawData, indirectCommands]() mutable {
 
 				Ref<RenderCommandBuffer> cmd = instance->m_UploadCommandBuffer;
 
@@ -1883,6 +2001,14 @@ namespace Lux {
 					instance->m_SBSInstanceTransforms->Resize(transformBytes * 2u);
 				instance->m_SBSInstanceTransforms->RT_Get()->RT_SetData(cmd, transformData.data(), transformBytes);
 
+				const uint32_t boundsBytes = (uint32_t)(sizeof(InstanceBoundsData) * boundsData.size());
+				if (boundsBytes > 0)
+				{
+					if (instance->m_SBSInstanceBounds->RT_Get()->GetHandle()->getDesc().byteSize < boundsBytes)
+						instance->m_SBSInstanceBounds->Resize(boundsBytes * 2u);
+					instance->m_SBSInstanceBounds->RT_Get()->RT_SetData(cmd, boundsData.data(), boundsBytes);
+				}
+
 				// Grow ObjectIndexes SSBO if needed
 				if (!indexData.empty())
 				{
@@ -1890,8 +2016,33 @@ namespace Lux {
 					if (instance->m_SBSObjectIndexes->RT_Get()->GetHandle()->getDesc().byteSize < indexBytes)
 						instance->m_SBSObjectIndexes->Resize(indexBytes * 2u);
 					instance->m_SBSObjectIndexes->RT_Get()->RT_SetData(cmd, indexData.data(), indexBytes);
+
+					if (instance->m_SBSVisibleObjectIndexes->RT_Get()->GetHandle()->getDesc().byteSize < indexBytes)
+						instance->m_SBSVisibleObjectIndexes->Resize(indexBytes * 2u);
 				}
-				});
+
+				if (!visibleIndexData.empty())
+				{
+					const uint32_t visibleIndexBytes = (uint32_t)(sizeof(uint32_t) * visibleIndexData.size());
+					instance->m_SBSVisibleObjectIndexes->RT_Get()->RT_SetData(cmd, visibleIndexData.data(), visibleIndexBytes);
+				}
+
+				if (!cullDrawData.empty())
+				{
+					const uint32_t cullDrawBytes = (uint32_t)(sizeof(MeshCullDrawData) * cullDrawData.size());
+					if (instance->m_SBSMeshCullDrawData->RT_Get()->GetHandle()->getDesc().byteSize < cullDrawBytes)
+						instance->m_SBSMeshCullDrawData->Resize(cullDrawBytes * 2u);
+					instance->m_SBSMeshCullDrawData->RT_Get()->RT_SetData(cmd, cullDrawData.data(), cullDrawBytes);
+				}
+
+				if (!indirectCommands.empty())
+				{
+					const uint32_t indirectBytes = (uint32_t)(sizeof(nvrhi::DrawIndexedIndirectArguments) * indirectCommands.size());
+					if (instance->m_SBSIndirectDrawCommands->RT_Get()->GetHandle()->getDesc().byteSize < indirectBytes)
+						instance->m_SBSIndirectDrawCommands->Resize(indirectBytes * 2u);
+					instance->m_SBSIndirectDrawCommands->RT_Get()->RT_SetData(cmd, indirectCommands.data(), indirectBytes);
+				}
+			});
 		}
 
 		m_UploadCommandBuffer->End();
@@ -1902,6 +2053,7 @@ namespace Lux {
 
 		ShadowMapPass();
 		SpotShadowMapPass();
+		MeshCullingPass();
 		PreDepthPass();
 		HZBCompute();
 		PreIntegration();
@@ -2070,7 +2222,7 @@ namespace Lux {
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, drawCmd, tmd]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/false);
+					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
 				});
 		}
 
@@ -2214,6 +2366,33 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::MeshCullingPass()
+	{
+		if (!m_Options.EnableGPUDrivenRendering || !m_MeshCullingPass || m_MeshCullDrawCount == 0)
+			return;
+
+		struct MeshCullingPushConstants
+		{
+			glm::mat4 ViewProjection;
+			uint32_t DrawCount = 0;
+			uint32_t CullingEnabled = 1;
+			uint32_t Padding0 = 0;
+			uint32_t Padding1 = 0;
+		} pushConstants;
+
+		pushConstants.ViewProjection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix() * m_SceneData.SceneCamera.ViewMatrix;
+		pushConstants.DrawCount = m_MeshCullDrawCount;
+		pushConstants.CullingEnabled = m_Options.EnableFrustumCulling ? 1u : 0u;
+
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "MeshCullingPass");
+		Renderer::BeginComputePass(m_CommandBuffer, m_MeshCullingPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_MeshCullingPass, nullptr, { m_MeshCullDrawCount, 1, 1 }, Buffer(&pushConstants, sizeof(pushConstants)));
+		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSVisibleObjectIndexes->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands->Get(), PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
+		Renderer::EndComputePass(m_CommandBuffer, m_MeshCullingPass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
 	void SceneRenderer::SkyboxPass()
 	{
 		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_SceneData.SceneEnvironment);
@@ -2255,7 +2434,7 @@ namespace Lux {
 				Ref<SceneRenderer> instance = this;
 				Renderer::Submit([instance, drawCmd, tmd]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true);
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
 					});
 			}
 
@@ -2276,7 +2455,7 @@ namespace Lux {
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, drawCmd, tmd]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true);
+					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
 				});
 		}
 
@@ -2294,7 +2473,7 @@ namespace Lux {
 				Ref<SceneRenderer> instance = this;
 				Renderer::Submit([instance, drawCmd, tmd]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true);
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, false);
 					});
 			}
 		}
@@ -2317,7 +2496,7 @@ namespace Lux {
 				Ref<SceneRenderer> instance = this;
 				Renderer::Submit([instance, drawCmd, tmd]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true);
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
 					});
 			}
 
@@ -2341,7 +2520,7 @@ namespace Lux {
 				Ref<SceneRenderer> instance = this;
 				Renderer::Submit([instance, drawCmd, tmd]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true);
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
 					});
 			}
 
@@ -2694,11 +2873,29 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::BuildIndirectDrawCommand(const StaticDrawCommand& dc,
+		const TransformMapData& tmd,
+		std::vector<nvrhi::DrawIndexedIndirectArguments>& drawCommands)
+	{
+		const auto& submesh = dc.MeshSource->GetSubmeshes()[dc.SubmeshIndex];
+
+		nvrhi::DrawIndexedIndirectArguments args{};
+		args.indexCount = submesh.IndexCount;
+		args.instanceCount = tmd.VisibleInstanceCount;
+		args.startIndexLocation = submesh.BaseIndex;
+		args.baseVertexLocation = (int32_t)submesh.BaseVertex;
+		args.startInstanceLocation = 0;
+		drawCommands.push_back(args);
+	}
+
 	void SceneRenderer::UpdateStatistics()
 	{
 		m_Statistics.DrawCalls = 0;
 		m_Statistics.Meshes = 0;
 		m_Statistics.Instances = 0;
+		m_Statistics.VisibleInstances = 0;
+		m_Statistics.CulledInstances = 0;
+		m_Statistics.IndirectDraws = 0;
 
 		auto accumulate = [this](const std::map<MeshKey, StaticDrawCommand>& drawList)
 			{
@@ -2707,6 +2904,18 @@ namespace Lux {
 					m_Statistics.DrawCalls++;
 					m_Statistics.Meshes++;
 					m_Statistics.Instances += dc.InstanceCount;
+
+					auto transformIt = m_MeshTransformMap.find(key);
+					if (transformIt != m_MeshTransformMap.end())
+					{
+						m_Statistics.VisibleInstances += transformIt->second.VisibleInstanceCount;
+						if (m_Options.EnableGPUDrivenRendering && transformIt->second.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
+							m_Statistics.IndirectDraws++;
+					}
+					else
+					{
+						m_Statistics.VisibleInstances += dc.InstanceCount;
+					}
 				}
 			};
 
@@ -2719,6 +2928,9 @@ namespace Lux {
 
 		m_Statistics.SavedDraws = m_Statistics.Instances > m_Statistics.DrawCalls
 			? m_Statistics.Instances - m_Statistics.DrawCalls
+			: 0;
+		m_Statistics.CulledInstances = m_Statistics.Instances > m_Statistics.VisibleInstances
+			? m_Statistics.Instances - m_Statistics.VisibleInstances
 			: 0;
 
 		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(Renderer::GetCurrentFrameIndex());
@@ -2735,7 +2947,9 @@ namespace Lux {
 		const StaticDrawCommand& dc,
 		const TransformMapData& tmd,
 		bool                      bindMaterial,
-		uint32_t                  lightIndex)
+		uint32_t                  lightIndex,
+		bool                      useVisibleObjectIndexes,
+		bool                      useIndirect)
 	{
 		// Non-const copy of the MeshSource Ref: MeshSource::GetVertexBuffer /
 		// GetIndexBuffer / GetMaterials are not marked const, so we cannot call
@@ -2758,6 +2972,7 @@ namespace Lux {
 		ibb.format = nvrhi::Format::R32_UINT;
 		ibb.offset = 0;
 		gs.indexBuffer = ibb;
+		gs.indirectParams = nullptr;
 
 		// ── Material (descriptor set 0) ───────────────────────────────────────
 		Ref<Material> material;
@@ -2799,18 +3014,29 @@ namespace Lux {
 			std::memcpy(pushConstants.data(), materialUniforms.Data, materialUniforms.Size);
 
 		auto& pc = *reinterpret_cast<MeshDrawPushConstants*>(pushConstants.data());
-		pc.ObjectIndexBase = tmd.ObjectIndexBase;
+		pc.ObjectIndexBase = useVisibleObjectIndexes ? tmd.VisibleObjectIndexBase : tmd.ObjectIndexBase;
 		pc.LightIndex = lightIndex;
 		pc.BoneTransformBase = 0;
 		pc.BoneTransformStride = 0;
 		cmd->GetActive()->setPushConstants(pushConstants.data(), pushConstants.size());
 
-		// ── Instanced draw ────────────────────────────────────────────────────
+		if (useIndirect && tmd.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
+		{
+			gs.indirectParams = m_SBSIndirectDrawCommands->RT_Get()->GetHandle();
+			cmd->RT_CommitGraphicsState();
+			cmd->GetActive()->drawIndexedIndirect(tmd.IndirectDrawOffsetBytes, 1);
+			return;
+		}
+
+		const uint32_t instanceCount = useVisibleObjectIndexes ? tmd.VisibleInstanceCount : dc.InstanceCount;
+		if (instanceCount == 0)
+			return;
+
 		nvrhi::DrawArguments drawArgs{};
 		drawArgs.vertexCount = submesh.IndexCount;
 		drawArgs.startIndexLocation = submesh.BaseIndex;
 		drawArgs.startVertexLocation = submesh.BaseVertex;
-		drawArgs.instanceCount = dc.InstanceCount;
+		drawArgs.instanceCount = instanceCount;
 		cmd->GetActive()->drawIndexed(drawArgs);
 	}
 
