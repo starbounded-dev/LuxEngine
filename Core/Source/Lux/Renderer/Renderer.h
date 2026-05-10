@@ -206,6 +206,7 @@ namespace Lux {
 
 		static Ref<Sampler> GetClampSampler();
 		static Ref<Sampler> GetPointSampler();
+		static Ref<Sampler> GetRepeatSampler();
 		static Ref<Sampler> GetDefaultSampler() { return GetClampSampler(); }
 
 		static int GetDrawcallCount();

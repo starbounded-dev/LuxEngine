@@ -169,19 +169,19 @@ vec3 GetGradient(float value)
 
 void main()
 {
-	vec4 albedoTexColor = SampleLinear(u_AlbedoTexture, Input.TexCoord);
+	vec4 albedoTexColor = SampleMaterial(u_AlbedoTexture, Input.TexCoord);
 	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;
 	float alpha = albedoTexColor.a;
 
-	m_Params.Metalness = SampleLinear(u_MetalnessTexture, Input.TexCoord).b * u_MaterialUniforms.Metalness;
-	m_Params.Roughness = SampleLinear(u_RoughnessTexture, Input.TexCoord).g * u_MaterialUniforms.Roughness;
+	m_Params.Metalness = SampleMaterial(u_MetalnessTexture, Input.TexCoord).b * u_MaterialUniforms.Metalness;
+	m_Params.Roughness = SampleMaterial(u_RoughnessTexture, Input.TexCoord).g * u_MaterialUniforms.Roughness;
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.f, 1.f);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05);
 
 	m_Params.Normal = normalize(Input.Normal);
 	if (u_MaterialUniforms.UseNormalMap)
 	{
-		m_Params.Normal = normalize(SampleLinear(u_NormalTexture, Input.TexCoord).rgb * 2.0f - 1.0f);
+		m_Params.Normal = normalize(SampleMaterial(u_NormalTexture, Input.TexCoord).rgb * 2.0f - 1.0f);
 		m_Params.Normal = normalize(Input.WorldNormals * m_Params.Normal);
 	}
 	

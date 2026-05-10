@@ -252,6 +252,7 @@ namespace Lux {
 		// Default samplers
 		Ref<Sampler> SamplerClamp = nullptr;
 		Ref<Sampler> SamplerPoint = nullptr;
+		Ref<Sampler> SamplerRepeat = nullptr;
 
 		int32_t DrawCallCount = 0;
 		int32_t DrawInstanceCount = 0;
@@ -1674,6 +1675,19 @@ namespace Lux {
 		}
 
 		return s_RendererData->SamplerPoint;
+	}
+
+	Ref<Sampler> Renderer::GetRepeatSampler()
+	{
+		if (!s_RendererData->SamplerRepeat)
+		{
+			SamplerSpecification spec;
+			spec.AddressMode = nvrhi::SamplerAddressMode::Repeat;
+			spec.MaxAnisotropy = 16.0f;
+			s_RendererData->SamplerRepeat = Sampler::Create(spec);
+		}
+
+		return s_RendererData->SamplerRepeat;
 	}
 
 	int Renderer::GetDrawcallCount()

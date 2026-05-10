@@ -517,6 +517,7 @@ namespace Lux {
 			m_GeometryPass->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPass->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPass->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
+			m_GeometryPass->SetInput("r_MaterialSampler", Renderer::GetRepeatSampler());
 			// Shadow map output from the shadow pass above
 			m_GeometryPass->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
 			m_GeometryPass->SetInput("u_SpotShadowTexture", m_SpotShadowMapImage);
@@ -543,6 +544,7 @@ namespace Lux {
 			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPassTransparent->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
+			m_GeometryPassTransparent->SetInput("r_MaterialSampler", Renderer::GetRepeatSampler());
 			// Shadow map output from the shadow pass above
 			m_GeometryPassTransparent->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
 			m_GeometryPassTransparent->SetInput("u_SpotShadowTexture", m_SpotShadowMapImage);

@@ -436,6 +436,7 @@ namespace Lux {
 	{
 		const auto desc = nvrhi::SamplerDesc()
 			.setMipBias(m_Specification.MipBias)
+			.setMaxAnisotropy(m_Specification.MaxAnisotropy)
 			.setAllAddressModes(m_Specification.AddressMode)
 			.setMinFilter(m_Specification.MinFilter)
 			.setMagFilter(m_Specification.MagFilter)

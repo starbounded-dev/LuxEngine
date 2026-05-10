@@ -6,29 +6,11 @@ Entities:
     Parent: 0
     Children:
       - Handle: 12726918091783066847
-      - Handle: 8322387861642138170
       - Handle: 8091695794772928150
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-  - Entity: 8322387861642138170
-    TagComponent:
-      Tag: Directional Light
-    Parent: 7022982668959240531
-    Children:
-      []
-    TransformComponent:
-      Position: [-0.397086352, 3.4798944, 0.385443866]
-      Rotation: [1.93881643, 0.971345544, 0.202807263]
-      Scale: [0.999996483, 0.999957502, 0.999996901]
-    DirectionalLightComponent:
-      Intensity: 1
-      Radiance: [1, 1, 1]
-      CastShadows: false
-      SoftShadows: true
-      LightSize: 1.67999995
-      ShadowAmount: 1
   - Entity: 12726918091783066847
     TagComponent:
       Tag: Sky Light
@@ -41,7 +23,7 @@ Entities:
       Scale: [1, 1, 1]
     SkyLightComponent:
       EnvironmentMap: 10933720561759477118
-      Intensity: 1
+      Intensity: 0.5
       Lod: 0
       DynamicSky: false
   - Entity: 16805889847351497941
@@ -87,8 +69,8 @@ Entities:
     Children:
       []
     TransformComponent:
-      Position: [-7.49999952, 1, -0.0974102318]
-      Rotation: [0, -1.57045102, 0]
+      Position: [-9.69999981, 0.400000006, 0.902999997]
+      Rotation: [0.164060935, -1.30515718, 0]
       Scale: [0.999999881, 1, 0.999999881]
     CameraComponent:
       Camera:

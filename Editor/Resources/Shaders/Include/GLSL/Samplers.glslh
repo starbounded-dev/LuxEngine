@@ -3,6 +3,7 @@
 layout (set = 3, binding = 0) uniform sampler r_DefaultSampler;
 layout (set = 3, binding = 1) uniform sampler r_PointSampler;
 layout (set = 3, binding = 2) uniform sampler r_LinearSampler;
+layout (set = 3, binding = 3) uniform sampler r_MaterialSampler;
 
 vec4 SampleDefault(texture2D tex, vec2 texCoord)
 {
@@ -12,6 +13,11 @@ vec4 SampleDefault(texture2D tex, vec2 texCoord)
 vec4 SampleLinear(texture2D tex, vec2 texCoord)
 {
 	return texture(sampler2D(tex, r_LinearSampler), texCoord);
+}
+
+vec4 SampleMaterial(texture2D tex, vec2 texCoord)
+{
+	return texture(sampler2D(tex, r_MaterialSampler), texCoord);
 }
 
 vec4 SampleLinear(texture2DArray tex, vec3 texCoord)

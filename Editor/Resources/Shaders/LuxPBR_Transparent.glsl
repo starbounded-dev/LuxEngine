@@ -167,7 +167,7 @@ vec3 GetGradient(float value)
 
 void main()
 {
-	vec4 albedoTexColor = SampleLinear(u_AlbedoTexture, Input.TexCoord);
+	vec4 albedoTexColor = SampleMaterial(u_AlbedoTexture, Input.TexCoord);
 	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;
 	
 	m_Params.Metalness = 0.0f;
@@ -177,7 +177,7 @@ void main()
 	m_Params.Normal = normalize(Input.Normal);
 	if (u_MaterialUniforms.UseNormalMap)
 	{
-		m_Params.Normal = normalize(SampleLinear(u_NormalTexture, Input.TexCoord).rgb * 2.0f - 1.0f);
+		m_Params.Normal = normalize(SampleMaterial(u_NormalTexture, Input.TexCoord).rgb * 2.0f - 1.0f);
 		m_Params.Normal = normalize(Input.WorldNormals * m_Params.Normal);
 	}
 

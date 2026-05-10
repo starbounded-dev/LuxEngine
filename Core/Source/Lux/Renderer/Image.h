@@ -388,6 +388,7 @@ namespace Lux {
 	{
 		float MipBias = 0.0f;
 		nvrhi::SamplerAddressMode AddressMode = nvrhi::SamplerAddressMode::Clamp;
+		float MaxAnisotropy = 1.0f;
 		bool MinFilter = true;
 		bool MagFilter = true;
 		bool MipFilter = true;
