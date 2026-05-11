@@ -12,6 +12,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
 
@@ -221,7 +222,7 @@ namespace Lux {
 			{ ShaderDataType::Float2, "a_TexCoord" }
 		};
 
-		// ── Shadow map (single directional, ortho projection) ─────────────────
+		// ── Directional shadow maps ───────────────────────────────────────────
 		{
 			ImageSpecification shadowMapSpec;
 			shadowMapSpec.DebugName = "ShadowMapArray";
@@ -234,35 +235,40 @@ namespace Lux {
 			m_ShadowMapImage = Image2D::Create(shadowMapSpec);
 			m_ShadowMapImage->RT_Invalidate();
 
-			FramebufferSpecification fbSpec;
-			fbSpec.Width = 4096;
-			fbSpec.Height = 4096;
-			fbSpec.Attachments = { ImageFormat::Depth };
-			fbSpec.DepthClearValue = 1.0f;
-			fbSpec.DebugName = "ShadowMap";
-			fbSpec.ExistingImage = m_ShadowMapImage;
-			fbSpec.ExistingImageLayer = 0;
+			Ref<Shader> shadowPassShader = Renderer::GetShaderLibrary()->Get("DirShadowMap");
+			for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+			{
+				FramebufferSpecification fbSpec;
+				fbSpec.Width = 4096;
+				fbSpec.Height = 4096;
+				fbSpec.Attachments = { ImageFormat::Depth };
+				fbSpec.DepthClearValue = 1.0f;
+				fbSpec.DebugName = "ShadowMap-Cascade" + std::to_string(cascade);
+				fbSpec.ExistingImage = m_ShadowMapImage;
+				fbSpec.ExistingImageLayer = cascade;
 
-			PipelineSpecification pipelineSpec;
-			pipelineSpec.DebugName = "DirShadowMap";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("DirShadowMap");
-			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
-			pipelineSpec.Layout = vertexLayout;
-			pipelineSpec.DepthOperator = DepthCompareOperator::LessOrEqual;
-			pipelineSpec.BackfaceCulling = false; // avoid peter-panning
+				PipelineSpecification pipelineSpec;
+				pipelineSpec.DebugName = "DirShadowMap-Cascade" + std::to_string(cascade);
+				pipelineSpec.Shader = shadowPassShader;
+				pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
+				pipelineSpec.Layout = vertexLayout;
+				pipelineSpec.DepthOperator = DepthCompareOperator::LessOrEqual;
+				pipelineSpec.BackfaceCulling = false; // avoid peter-panning
 
-			RenderPassSpecification rpSpec;
-			rpSpec.DebugName = "ShadowMapPass";
-			rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
+				RenderPassSpecification rpSpec;
+				rpSpec.DebugName = "ShadowMapPass-Cascade" + std::to_string(cascade);
+				rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
 
-			m_ShadowMapPass = RenderPass::Create(rpSpec);
-			m_ShadowMapPass->SetInput("ShadowData", m_UBSShadow);
-			m_ShadowMapPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
-			m_ShadowMapPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
-			LUX_CORE_VERIFY(m_ShadowMapPass->Validate());
-			m_ShadowMapPass->Bake();
+				m_ShadowMapPasses[cascade] = RenderPass::Create(rpSpec);
+				m_ShadowMapPasses[cascade]->SetInput("ShadowData", m_UBSShadow);
+				m_ShadowMapPasses[cascade]->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
+				m_ShadowMapPasses[cascade]->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+				LUX_CORE_VERIFY(m_ShadowMapPasses[cascade]->Validate());
+				m_ShadowMapPasses[cascade]->Bake();
+			}
 
-			m_ShadowPassMaterial = Material::Create(pipelineSpec.Shader, "ShadowPass");
+			m_ShadowMapPass = m_ShadowMapPasses[0];
+			m_ShadowPassMaterial = Material::Create(shadowPassShader, "ShadowPass");
 		}
 
 		// ── Spot shadow atlas (single depth atlas) ───────────────────────────
@@ -1392,6 +1398,98 @@ namespace Lux {
 		m_SceneData.SkyboxLod = skyboxLod;
 	}
 
+	void SceneRenderer::CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection) const
+	{
+		const float nearClip = glm::max(sceneCamera.Near, 0.001f);
+		const float cameraFar = glm::max(sceneCamera.Far, nearClip + 0.001f);
+		const float shadowFar = glm::clamp(m_Options.MaxShadowDistance, nearClip + 0.001f, cameraFar);
+		const float cameraClipRange = cameraFar - nearClip;
+		const float shadowRange = shadowFar - nearClip;
+		const float ratio = shadowFar / nearClip;
+
+		float cascadeSplits[ShadowCascadeCount]{};
+		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+		{
+			const float p = (cascade + 1.0f) / static_cast<float>(ShadowCascadeCount);
+			const float logSplit = nearClip * std::pow(ratio, p);
+			const float uniformSplit = nearClip + shadowRange * p;
+			const float splitDistance = glm::mix(uniformSplit, logSplit, glm::clamp(m_Options.ShadowCascadeSplitLambda, 0.0f, 1.0f));
+			cascadeSplits[cascade] = (splitDistance - nearClip) / cameraClipRange;
+		}
+		cascadeSplits[ShadowCascadeCount - 1] = (shadowFar - nearClip) / cameraClipRange;
+
+		const glm::mat4 viewProjection = sceneCamera.Camera.GetUnReversedProjectionMatrix() * sceneCamera.ViewMatrix;
+		const glm::mat4 inverseViewProjection = glm::inverse(viewProjection);
+		const float shadowMapResolution = m_ShadowMapPass ? static_cast<float>(m_ShadowMapPass->GetTargetFramebuffer()->GetWidth()) : 4096.0f;
+		const glm::vec3 normalizedLightDirection = glm::normalize(lightDirection);
+		const glm::vec3 up = glm::abs(glm::dot(normalizedLightDirection, glm::vec3(0.0f, 1.0f, 0.0f))) < 0.99f
+			? glm::vec3(0.0f, 1.0f, 0.0f)
+			: glm::vec3(1.0f, 0.0f, 0.0f);
+
+		float lastSplitDist = 0.0f;
+		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+		{
+			const float splitDist = cascadeSplits[cascade];
+
+			glm::vec3 frustumCorners[8] =
+			{
+				{ -1.0f,  1.0f, 0.0f },
+				{  1.0f,  1.0f, 0.0f },
+				{  1.0f, -1.0f, 0.0f },
+				{ -1.0f, -1.0f, 0.0f },
+				{ -1.0f,  1.0f, 1.0f },
+				{  1.0f,  1.0f, 1.0f },
+				{  1.0f, -1.0f, 1.0f },
+				{ -1.0f, -1.0f, 1.0f },
+			};
+
+			for (glm::vec3& corner : frustumCorners)
+			{
+				const glm::vec4 worldCorner = inverseViewProjection * glm::vec4(corner, 1.0f);
+				corner = glm::vec3(worldCorner) / worldCorner.w;
+			}
+
+			for (uint32_t i = 0; i < 4; i++)
+			{
+				const glm::vec3 cornerRay = frustumCorners[i + 4] - frustumCorners[i];
+				frustumCorners[i + 4] = frustumCorners[i] + cornerRay * splitDist;
+				frustumCorners[i] = frustumCorners[i] + cornerRay * lastSplitDist;
+			}
+
+			glm::vec3 frustumCenter(0.0f);
+			for (const glm::vec3& corner : frustumCorners)
+				frustumCenter += corner;
+			frustumCenter /= 8.0f;
+
+			float radius = 0.0f;
+			for (const glm::vec3& corner : frustumCorners)
+				radius = glm::max(radius, glm::length(corner - frustumCenter));
+			radius = glm::max(std::ceil(radius * 16.0f) / 16.0f, 0.01f);
+
+			const glm::vec3 maxExtents(radius);
+			const glm::vec3 minExtents = -maxExtents;
+			glm::mat4 lightView = glm::lookAt(frustumCenter - normalizedLightDirection * radius, frustumCenter, up);
+			glm::mat4 lightProjection = glm::ortho(
+				minExtents.x, maxExtents.x,
+				minExtents.y, maxExtents.y,
+				glm::max(0.0f, m_Options.ShadowCascadeNearPlaneOffset),
+				maxExtents.z - minExtents.z + glm::max(0.0f, m_Options.ShadowCascadeFarPlaneOffset));
+
+			glm::mat4 shadowMatrix = lightProjection * lightView;
+			glm::vec4 shadowOrigin = (shadowMatrix * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)) * shadowMapResolution * 0.5f;
+			glm::vec4 roundedOrigin = glm::round(shadowOrigin);
+			glm::vec4 roundOffset = (roundedOrigin - shadowOrigin) * (2.0f / shadowMapResolution);
+			roundOffset.z = 0.0f;
+			roundOffset.w = 0.0f;
+			lightProjection[3] += roundOffset;
+
+			cascades[cascade].SplitDepth = -(nearClip + splitDist * cameraClipRange);
+			cascades[cascade].ViewProj = lightProjection * lightView;
+
+			lastSplitDist = splitDist;
+		}
+	}
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// BeginScene
 	// ─────────────────────────────────────────────────────────────────────────
@@ -1618,36 +1716,29 @@ namespace Lux {
 				});
 		}
 
-		// ── Directional shadow matrix ─────────────────────────────────────────
-		// Single ortho shadow map centred on the camera position.
+		// ── Directional shadow matrices ───────────────────────────────────────
 		{
 			const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
 
 			if (dirLight.Intensity > 0.0f && dirLight.CastShadows)
 			{
-				const glm::vec3 lightDir = glm::normalize(dirLight.Direction);
-				const glm::vec3 camPos = glm::vec3(glm::inverse(camera.ViewMatrix)[3]);
+				CascadeData cascades[ShadowCascadeCount];
+				CalculateCascades(cascades, camera, dirLight.Direction);
+				for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+					m_ShadowUB.ViewProjection[cascade] = cascades[cascade].ViewProj;
 
-				// Pick an up vector that is not collinear with the light direction
-				const glm::vec3 up = glm::abs(glm::dot(lightDir, glm::vec3(0, 1, 0))) < 0.99f
-					? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
-
-				const glm::mat4 lightView = glm::lookAt(
-					camPos - lightDir * 150.0f,
-					camPos,
-					up);
-
-				const float halfSize = m_Options.MaxShadowDistance * 0.5f;
-				const glm::mat4 lightProj = glm::ortho(
-					-halfSize, halfSize,
-					-halfSize, halfSize,
-					-500.0f, 500.0f);
-
-				m_ShadowUB.ViewProjection[0] = lightProj * lightView;
+				m_RendererDataUB.CascadeSplits = {
+					cascades[0].SplitDepth,
+					cascades[1].SplitDepth,
+					cascades[2].SplitDepth,
+					cascades[3].SplitDepth
+				};
 			}
 			else
 			{
-				m_ShadowUB.ViewProjection[0] = glm::mat4(1.0f);
+				for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+					m_ShadowUB.ViewProjection[cascade] = glm::mat4(1.0f);
+				m_RendererDataUB.CascadeSplits = glm::vec4(-1000000.0f);
 			}
 
 			auto shadowData = m_ShadowUB;
@@ -1665,7 +1756,10 @@ namespace Lux {
 			m_RendererDataUB.LightSize = dirLight.LightSize;
 			m_RendererDataUB.MaxShadowDistance = m_Options.MaxShadowDistance;
 			m_RendererDataUB.ShadowFade = m_Options.ShadowFade;
-			m_RendererDataUB.CascadeSplits = glm::vec4(-1000000.0f);
+			m_RendererDataUB.CascadeFading = true;
+			m_RendererDataUB.CascadeTransitionFade = m_Options.ShadowCascadeTransitionFade;
+			m_RendererDataUB.ShowCascades = m_Options.ShowShadowCascades;
+			m_RendererDataUB.ShowLightComplexity = m_Options.ShowLightComplexity;
 			m_RendererDataUB.TilesCountX = m_LightTilesCountX;
 
 			auto rdData = m_RendererDataUB;
@@ -2129,35 +2223,41 @@ namespace Lux {
 		const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
 		if (dirLight.Intensity <= 0.0f || !dirLight.CastShadows)
 		{
-			// Clear the shadow map so geometry doesn't sample stale data
-			Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapPass, /*explicitClear=*/true);
-			Renderer::EndRenderPass(m_CommandBuffer);
+			// Clear every cascade so geometry doesn't sample stale data.
+			for (auto& shadowMapPass : m_ShadowMapPasses)
+			{
+				Renderer::BeginRenderPass(m_CommandBuffer, shadowMapPass, /*explicitClear=*/true);
+				Renderer::EndRenderPass(m_CommandBuffer);
+			}
 			return;
 		}
 
 		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "ShadowMapPass");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapPass, /*explicitClear=*/true);
-
-		for (auto& [key, dc] : m_StaticMeshShadowPassDrawList)
+		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 		{
-			auto it = m_ShadowMeshTransformMap.find(key);
-			if (it == m_ShadowMeshTransformMap.end()) continue;
+			Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapPasses[cascade], /*explicitClear=*/true);
 
-			const auto& cascadeTmd = it->second.Cascade;
-			const uint32_t instCount = (uint32_t)cascadeTmd.ObjectIndices.size();
-			if (instCount == 0) continue;
+			for (auto& [key, dc] : m_StaticMeshShadowPassDrawList)
+			{
+				auto it = m_ShadowMeshTransformMap.find(key);
+				if (it == m_ShadowMeshTransformMap.end()) continue;
 
-			StaticDrawCommand drawCmd = dc;
-			drawCmd.InstanceCount = instCount;
+				const auto& cascadeTmd = it->second.Cascade;
+				const uint32_t instCount = (uint32_t)cascadeTmd.ObjectIndices.size();
+				if (instCount == 0) continue;
 
-			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, cascadeTmd]() mutable {
-				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, cascadeTmd, /*bindMaterial=*/false);
-				});
+				StaticDrawCommand drawCmd = dc;
+				drawCmd.InstanceCount = instCount;
+
+				Ref<SceneRenderer> instance = this;
+				Renderer::Submit([instance, drawCmd, cascadeTmd, cascade]() mutable {
+					instance->RT_DrawStaticMesh(
+						instance->m_CommandBuffer, drawCmd, cascadeTmd, /*bindMaterial=*/false, cascade);
+					});
+			}
+
+			Renderer::EndRenderPass(m_CommandBuffer);
 		}
-
-		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 

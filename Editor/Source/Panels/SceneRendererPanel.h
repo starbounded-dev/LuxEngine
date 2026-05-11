@@ -16,6 +16,8 @@ namespace Lux {
 
 	private:
 		Ref<SceneRenderer> m_Context;
+		std::string m_ShaderSearch;
+		uint32_t m_LastReloadedShaderCount = 0;
 	};
 
 }

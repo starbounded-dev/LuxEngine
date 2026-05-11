@@ -4,7 +4,6 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Renderer/Renderer.h"
-#include "Lux/Renderer/UI/Font.h"
 #include "Lux/Renderer/SceneRenderer.h"
 
 #include "Lux/Utilities/FileSystem.h"
@@ -33,7 +32,6 @@
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/ApplicationSettingsPanel.h"
 #include "Panels/AssetManagerPanel.h"
-#include "Panels/MaterialsPanel.h"
 #include "Panels/ProjectSettingsWindow.h"
 #include "Lux/Editor/SceneHierarchyPanel.h"
 #include <algorithm>
@@ -58,7 +56,6 @@ namespace Lux {
 #define PROJECT_SETTINGS_PANEL_ID "ProjectSettingsPanel"
 #define PHYSICS_DEBUG_PANEL_ID "PhysicsDebugPanel"
 #define ASSET_MANAGER_PANEL_ID "AssetManagerPanel"
-#define MATERIALS_PANEL_ID "MaterialsPanel"
 #define AUDIO_EVENTS_EDITOR_PANEL_ID "AudioEventsEditor"
 #define APPLICATION_SETTINGS_PANEL_ID "ApplicationSettingsPanel"
 #define SCRIPT_ENGINE_DEBUG_PANEL_ID "ScriptEngineDebugPanel"
@@ -157,13 +154,9 @@ namespace Lux {
 		}
 	}
 
-	static Ref<Font> s_Font;
-	static bool s_ShowFontAtlasInStats = false;
-
 	EditorLayer::EditorLayer()
 		: Layer("EditorLayer"), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
-		s_Font = Font::GetDefaultFont();
 	}
 
 	void EditorLayer::OnAttach()
@@ -183,22 +176,6 @@ namespace Lux {
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
-
-		// Render statistics panel
-		Ref<RenderStatsPanel> renderStatsPanel = m_PanelManager->AddPanel<RenderStatsPanel>(PanelCategory::View, "RenderStatsPanel", "Render Stats", true);
-		renderStatsPanel->SetRenderer2D(m_Renderer2D);
-
-		// Material Editor panel
-		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, "MaterialEditorPanel", "Material Editor", true);
-		m_PanelManager->AddPanel<MaterialsPanel>(PanelCategory::View, MATERIALS_PANEL_ID, "Materials", false, m_SceneHierarchyPanel, [this, materialEditorPanel](AssetHandle handle) mutable
-			{
-				if (!materialEditorPanel)
-					return;
-
-				materialEditorPanel->OpenMaterial(handle);
-				if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash("MaterialEditorPanel")))
-					panelData->IsOpen = true;
-			});
 
 		ApplicationSettingsPanel::EditorPreferencesBindings editorPreferencesBindings{};
 		editorPreferencesBindings.VSync = &m_VSync;
@@ -256,7 +233,6 @@ namespace Lux {
 		// Now safe to call - m_Renderer2D and the viewport framebuffer are valid.
 		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
 
-		renderStatsPanel->SetSceneRenderer(m_SceneRenderer);
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 
@@ -281,18 +257,6 @@ namespace Lux {
 				});
 			}
 
-			if (materialEditorPanel)
-			{
-				contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Material, [this, materialEditorPanel](const AssetMetadata& metadata) mutable
-				{
-					AssetHandle materialHandle = metadata.Handle;
-					if (!materialHandle && Project::GetEditorAssetManager())
-						materialHandle = Project::GetEditorAssetManager()->GetAssetHandleFromFilePath(metadata.FilePath);
-					materialEditorPanel->OpenMaterial(materialHandle);
-					if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash("MaterialEditorPanel")))
-						panelData->IsOpen = true;
-				});
-			}
 		}
 
 		if (m_SceneRenderer)
@@ -324,7 +288,6 @@ namespace Lux {
 		m_SceneRenderer.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
-		s_Font.reset();
 		EditorResources::Shutdown();
 	}
 
@@ -490,46 +453,6 @@ namespace Lux {
 
 				ImGui::EndPopup();
 			}
-
-			// Stats panel
-			ImGui::Begin("Stats");
-
-#if 0
-			std::string name = "None";
-			if (m_HoveredEntity)
-				name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
-			ImGui::Text("Hovered Entity: %s", name.c_str());
-#endif
-
-			auto stats = m_Renderer2D->GetDrawStats();
-			ImGui::Text("Renderer2D Stats:");
-			ImGui::Text("Draw Calls: %d", stats.DrawCalls);
-			ImGui::Text("Quads: %d", stats.QuadCount);
-			ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
-			ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
-
-			ImGui::Separator();
-
-			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-
-			if (ImGui::Checkbox("VSync", &m_VSync))
-			{
-				ApplyEditorPreferences();
-				SaveEditorPreferences();
-			}
-
-			if (ImGui::Checkbox("Show Physics Colliders", &m_ShowPhysicsColliders))
-			{
-				ApplyEditorPreferences();
-				SaveEditorPreferences();
-			}
-
-			ImGui::Separator();
-			ImGui::Checkbox("Show Font Atlas", &s_ShowFontAtlasInStats);
-			if (s_ShowFontAtlasInStats)
-				ImGui::Image(GetImGuiTextureID(s_Font->GetFontAtlas()), { 512, 512 }, { 0, 1 }, { 1, 0 });
-
-			ImGui::End(); // Stats
 
 			// Viewport panel
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
@@ -730,7 +653,7 @@ namespace Lux {
 			{
 				if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
 					ScriptEngine::ReloadAssembly();
-				if (ImGui::MenuItem("Reload Shaders", "Ctrl+Shift+R"))
+				if (ImGui::MenuItem("Reload All Shaders", "Ctrl+Shift+R"))
 					Renderer::ReloadShaders(true);
 				ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
 				ImGui::EndMenu();

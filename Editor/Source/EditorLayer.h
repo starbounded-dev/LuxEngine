@@ -2,8 +2,6 @@
 
 #include "Lux.h"
 
-#include "Panels/RenderStatsPanel.h"
-#include "Panels/MaterialEditorPanel.h"
 #include "Panels/LightSettingsPanel.h"
 #include "Lux/Editor/EditorConsolePanel.h"
 

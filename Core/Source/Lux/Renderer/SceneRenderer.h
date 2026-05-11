@@ -21,6 +21,7 @@
 #include "Lux/Scene/Scene.h"
 
 #include <glm/glm.hpp>
+#include <array>
 #include <limits>
 #include <map>
 #include <vector>
@@ -107,9 +108,15 @@ namespace Lux {
 		bool  ShowGrid = true;
 		bool  ShowSelectedInWireframe = false;
 		bool  ShowPhysicsColliders = false;
+		bool  ShowShadowCascades = false;
+		bool  ShowLightComplexity = false;
 		bool  SoftShadows = true;
 		float MaxShadowDistance = 200.0f;
-		float ShadowFade = 1.0f;
+		float ShadowFade = 25.0f;
+		float ShadowCascadeSplitLambda = 0.92f;
+		float ShadowCascadeNearPlaneOffset = 0.0f;
+		float ShadowCascadeFarPlaneOffset = 50.0f;
+		float ShadowCascadeTransitionFade = 1.0f;
 		bool  EnableGTAO = true;
 		bool  GTAOBentNormals = false;
 		uint32_t GTAODenoisePasses = 4;
@@ -183,6 +190,7 @@ namespace Lux {
 	class SceneRenderer : public RefCounted
 	{
 	public:
+		static constexpr uint32_t ShadowCascadeCount = 4;
 		static constexpr uint32_t MaxSpotShadows = 16;
 		static constexpr uint32_t LightCullingTileSize = 16;
 		static constexpr uint32_t MaxVisibleLightsPerTile = 256;
@@ -381,6 +389,14 @@ namespace Lux {
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();
+
+		struct CascadeData
+		{
+			glm::mat4 ViewProj{ 1.0f };
+			float SplitDepth = 0.0f;
+		};
+		void CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection) const;
+
 		void BuildIndirectDrawCommand(const StaticDrawCommand& dc,
 			const TransformMapData& tmd,
 			std::vector<nvrhi::DrawIndexedIndirectArguments>& drawCommands);
@@ -425,10 +441,9 @@ namespace Lux {
 			float       EnvironmentMapIntensity = 1.0f;
 		} m_SceneUB;
 
-		// Supports up to 4 cascades; we only use [0] (single ortho shadow map).
 		struct UBShadow
 		{
-			glm::mat4 ViewProjection[4];
+			glm::mat4 ViewProjection[ShadowCascadeCount];
 		} m_ShadowUB;
 
 		struct UBSpotShadow
@@ -549,9 +564,10 @@ namespace Lux {
 		uint32_t              m_LightTilesCountY = 1;
 		uint32_t              m_VisibleLightIndexBufferSize = 0;
 
-		// ── Shadow map (single ortho cascade) ────────────────────────────────
+		// ── Directional shadow maps ─────────────────────────────────────────
 		Ref<Image2D>     m_ShadowMapImage;
-		Ref<RenderPass>  m_ShadowMapPass;
+		std::array<Ref<RenderPass>, ShadowCascadeCount> m_ShadowMapPasses;
+		Ref<RenderPass>  m_ShadowMapPass; // Alias for cascade 0, used for shared shadow texture binding
 		Ref<Material>    m_ShadowPassMaterial;
 
 		// ── Spot shadow atlas ───────────────────────────────────────────────

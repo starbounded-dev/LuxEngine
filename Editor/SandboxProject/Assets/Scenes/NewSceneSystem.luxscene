@@ -1,67 +1,24 @@
 Scene: New Scene
 Entities:
-  - Entity: 7022982668959240531
+  - Entity: 8091695794772928150
     TagComponent:
-      Tag: Light
-    Parent: 0
-    Children:
-      - Handle: 12726918091783066847
-      - Handle: 8091695794772928150
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 12726918091783066847
-    TagComponent:
-      Tag: Sky Light
+      Tag: Spot Light
     Parent: 7022982668959240531
     Children:
       []
     TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SkyLightComponent:
-      EnvironmentMap: 10933720561759477118
-      Intensity: 0.5
-      Lod: 0
-      DynamicSky: false
-  - Entity: 16805889847351497941
-    TagComponent:
-      Tag: Sponza
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    StaticMeshComponent:
-      AssetID: 17606103004507165164
-      MaterialTable:
-        {}
-      Visible: true
-  - Entity: 14121814355416061655
-    TagComponent:
-      Tag: LuxWelcome
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [1.99948168, 2.5, -1.50172627]
-      Rotation: [0, -1.57045102, 0]
-      Scale: [0.5, 0.5, 0.5]
-    TextComponent:
-      TextString: Welcome to Lux
-      FontHandle: 0
-      Color: [1, 1, 1, 1]
-      LineSpacing: 0
-      Kerning: 0
-      MaxWidth: 10
-      ScreenSpace: false
-      DropShadow: false
-      ShadowDistance: 0
-      ShadowColor: [0, 0, 0, 1]
+      Position: [-5.00075769, 1.43117845, -1.65001678]
+      Rotation: [-3.05781674, 0.950855374, 0.0122173047]
+      Scale: [1, 0.99995023, 0.999930203]
+    SpotLightComponent:
+      Radiance: [1, 1, 1]
+      Angle: 90
+      AngleAttenuation: 3.18000007
+      CastsShadows: true
+      SoftShadows: true
+      Falloff: 1
+      Intensity: 2.5999999
+      Range: 24.5
   - Entity: 1639952346674441217
     TagComponent:
       Tag: Camera
@@ -83,22 +40,65 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
-  - Entity: 8091695794772928150
+  - Entity: 14121814355416061655
     TagComponent:
-      Tag: Spot Light
+      Tag: LuxWelcome
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.99948168, 2.5, -1.50172627]
+      Rotation: [0, -1.57045102, 0]
+      Scale: [0.5, 0.5, 0.5]
+    TextComponent:
+      TextString: Welcome to Lux
+      FontHandle: 0
+      Color: [1, 1, 1, 1]
+      LineSpacing: 0
+      Kerning: 0
+      MaxWidth: 10
+      ScreenSpace: false
+      DropShadow: false
+      ShadowDistance: 0
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 16805889847351497941
+    TagComponent:
+      Tag: Sponza
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 17606103004507165164
+      MaterialTable:
+        {}
+      Visible: true
+  - Entity: 12726918091783066847
+    TagComponent:
+      Tag: Sky Light
     Parent: 7022982668959240531
     Children:
       []
     TransformComponent:
-      Position: [-5.00075769, 1.43117845, -1.65001678]
-      Rotation: [-3.05781674, 0.950855374, 0.0122173047]
-      Scale: [1, 0.99995023, 0.999930203]
-    SpotLightComponent:
-      Radiance: [1, 1, 1]
-      Angle: 90
-      AngleAttenuation: 3.18000007
-      CastsShadows: true
-      SoftShadows: true
-      Falloff: 1
-      Intensity: 2.5999999
-      Range: 24.5
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 10933720561759477118
+      Intensity: 0.5
+      Lod: 0
+      DynamicSky: false
+  - Entity: 7022982668959240531
+    TagComponent:
+      Tag: Light
+    Parent: 0
+    Children:
+      - Handle: 12726918091783066847
+      - Handle: 8091695794772928150
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
