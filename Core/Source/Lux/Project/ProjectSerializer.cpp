@@ -109,6 +109,194 @@ namespace Lux
 				return PhysicsCaptureMethod::CaptureToFile;
 			return PhysicsCaptureMethod::LiveDebug;
 		}
+
+		void SerializeSceneRendererSettings(YAML::Emitter& out, const ProjectSceneRendererSettings& settings)
+		{
+			out << YAML::Key << "SceneRenderer" << YAML::Value;
+			out << YAML::BeginMap;
+
+			out << YAML::Key << "Rendering" << YAML::Value;
+			out << YAML::BeginMap;
+			out << YAML::Key << "FrustumCulling" << YAML::Value << settings.EnableFrustumCulling;
+			out << YAML::Key << "GPUDrivenRendering" << YAML::Value << settings.EnableGPUDrivenRendering;
+			out << YAML::Key << "GTAO" << YAML::Value << settings.EnableGTAO;
+			out << YAML::Key << "GTAOBentNormals" << YAML::Value << settings.GTAOBentNormals;
+			out << YAML::Key << "GTAODenoisePasses" << YAML::Value << settings.GTAODenoisePasses;
+			out << YAML::Key << "AOShadowTolerance" << YAML::Value << settings.AOShadowTolerance;
+			out << YAML::Key << "SSR" << YAML::Value << settings.EnableSSR;
+			out << YAML::Key << "JumpFloodOutline" << YAML::Value << settings.EnableJumpFlood;
+			out << YAML::EndMap;
+
+			out << YAML::Key << "Shadows" << YAML::Value;
+			out << YAML::BeginMap;
+			out << YAML::Key << "SoftShadows" << YAML::Value << settings.SoftShadows;
+			out << YAML::Key << "MaxDistance" << YAML::Value << settings.MaxShadowDistance;
+			out << YAML::Key << "DistanceFade" << YAML::Value << settings.ShadowFade;
+			out << YAML::Key << "SplitLambda" << YAML::Value << settings.ShadowCascadeSplitLambda;
+			out << YAML::Key << "NearOffset" << YAML::Value << settings.ShadowCascadeNearPlaneOffset;
+			out << YAML::Key << "FarOffset" << YAML::Value << settings.ShadowCascadeFarPlaneOffset;
+			out << YAML::Key << "CascadeFade" << YAML::Value << settings.ShadowCascadeTransitionFade;
+			out << YAML::EndMap;
+
+			out << YAML::Key << "PostFX" << YAML::Value;
+			out << YAML::BeginMap;
+			out << YAML::Key << "Bloom" << YAML::Value;
+			out << YAML::BeginMap;
+			out << YAML::Key << "Enabled" << YAML::Value << settings.BloomEnabled;
+			out << YAML::Key << "Threshold" << YAML::Value << settings.BloomThreshold;
+			out << YAML::Key << "Knee" << YAML::Value << settings.BloomKnee;
+			out << YAML::Key << "UpsampleScale" << YAML::Value << settings.BloomUpsampleScale;
+			out << YAML::Key << "Intensity" << YAML::Value << settings.BloomIntensity;
+			out << YAML::Key << "DirtIntensity" << YAML::Value << settings.BloomDirtIntensity;
+			out << YAML::EndMap;
+
+			out << YAML::Key << "DOF" << YAML::Value;
+			out << YAML::BeginMap;
+			out << YAML::Key << "Enabled" << YAML::Value << settings.DOFEnabled;
+			out << YAML::Key << "FocusDistance" << YAML::Value << settings.DOFFocusDistance;
+			out << YAML::Key << "BlurSize" << YAML::Value << settings.DOFBlurSize;
+			out << YAML::EndMap;
+
+			out << YAML::Key << "SSR" << YAML::Value;
+			out << YAML::BeginMap;
+			out << YAML::Key << "HalfRes" << YAML::Value << settings.SSRHalfRes;
+			out << YAML::Key << "MaxSteps" << YAML::Value << settings.SSRMaxSteps;
+			out << YAML::Key << "Brightness" << YAML::Value << settings.SSRBrightness;
+			out << YAML::Key << "DepthTolerance" << YAML::Value << settings.SSRDepthTolerance;
+			out << YAML::EndMap;
+			out << YAML::EndMap;
+
+			out << YAML::EndMap;
+		}
+
+		void DeserializeSceneRendererSettings(const YAML::Node& node, ProjectSceneRendererSettings& settings)
+		{
+			if (!node)
+				return;
+
+			if (auto rendering = node["Rendering"])
+			{
+				settings.EnableFrustumCulling = rendering["FrustumCulling"].as<bool>(settings.EnableFrustumCulling);
+				settings.EnableGPUDrivenRendering = rendering["GPUDrivenRendering"].as<bool>(settings.EnableGPUDrivenRendering);
+				settings.EnableGTAO = rendering["GTAO"].as<bool>(settings.EnableGTAO);
+				settings.GTAOBentNormals = rendering["GTAOBentNormals"].as<bool>(settings.GTAOBentNormals);
+				settings.GTAODenoisePasses = rendering["GTAODenoisePasses"].as<int>(settings.GTAODenoisePasses);
+				settings.AOShadowTolerance = rendering["AOShadowTolerance"].as<float>(settings.AOShadowTolerance);
+				settings.EnableSSR = rendering["SSR"].as<bool>(settings.EnableSSR);
+				settings.EnableJumpFlood = rendering["JumpFloodOutline"].as<bool>(settings.EnableJumpFlood);
+			}
+
+			if (auto shadows = node["Shadows"])
+			{
+				settings.SoftShadows = shadows["SoftShadows"].as<bool>(settings.SoftShadows);
+				settings.MaxShadowDistance = shadows["MaxDistance"].as<float>(settings.MaxShadowDistance);
+				settings.ShadowFade = shadows["DistanceFade"].as<float>(settings.ShadowFade);
+				settings.ShadowCascadeSplitLambda = shadows["SplitLambda"].as<float>(settings.ShadowCascadeSplitLambda);
+				settings.ShadowCascadeNearPlaneOffset = shadows["NearOffset"].as<float>(settings.ShadowCascadeNearPlaneOffset);
+				settings.ShadowCascadeFarPlaneOffset = shadows["FarOffset"].as<float>(settings.ShadowCascadeFarPlaneOffset);
+				settings.ShadowCascadeTransitionFade = shadows["CascadeFade"].as<float>(settings.ShadowCascadeTransitionFade);
+			}
+
+			if (auto postFX = node["PostFX"])
+			{
+				if (auto bloom = postFX["Bloom"])
+				{
+					settings.BloomEnabled = bloom["Enabled"].as<bool>(settings.BloomEnabled);
+					settings.BloomThreshold = bloom["Threshold"].as<float>(settings.BloomThreshold);
+					settings.BloomKnee = bloom["Knee"].as<float>(settings.BloomKnee);
+					settings.BloomUpsampleScale = bloom["UpsampleScale"].as<float>(settings.BloomUpsampleScale);
+					settings.BloomIntensity = bloom["Intensity"].as<float>(settings.BloomIntensity);
+					settings.BloomDirtIntensity = bloom["DirtIntensity"].as<float>(settings.BloomDirtIntensity);
+				}
+
+				if (auto dof = postFX["DOF"])
+				{
+					settings.DOFEnabled = dof["Enabled"].as<bool>(settings.DOFEnabled);
+					settings.DOFFocusDistance = dof["FocusDistance"].as<float>(settings.DOFFocusDistance);
+					settings.DOFBlurSize = dof["BlurSize"].as<float>(settings.DOFBlurSize);
+				}
+
+				if (auto ssr = postFX["SSR"])
+				{
+					settings.SSRHalfRes = ssr["HalfRes"].as<bool>(settings.SSRHalfRes);
+					settings.SSRMaxSteps = ssr["MaxSteps"].as<int>(settings.SSRMaxSteps);
+					settings.SSRBrightness = ssr["Brightness"].as<float>(settings.SSRBrightness);
+					settings.SSRDepthTolerance = ssr["DepthTolerance"].as<float>(settings.SSRDepthTolerance);
+				}
+			}
+		}
+
+		void WriteSceneRendererRuntimeSettings(FileStreamWriter& serializer, const ProjectSceneRendererSettings& settings)
+		{
+			serializer.WriteRaw(settings.EnableFrustumCulling);
+			serializer.WriteRaw(settings.EnableGPUDrivenRendering);
+			serializer.WriteRaw(settings.EnableGTAO);
+			serializer.WriteRaw(settings.GTAOBentNormals);
+			serializer.WriteRaw(settings.GTAODenoisePasses);
+			serializer.WriteRaw(settings.AOShadowTolerance);
+			serializer.WriteRaw(settings.EnableSSR);
+			serializer.WriteRaw(settings.EnableJumpFlood);
+
+			serializer.WriteRaw(settings.SoftShadows);
+			serializer.WriteRaw(settings.MaxShadowDistance);
+			serializer.WriteRaw(settings.ShadowFade);
+			serializer.WriteRaw(settings.ShadowCascadeSplitLambda);
+			serializer.WriteRaw(settings.ShadowCascadeNearPlaneOffset);
+			serializer.WriteRaw(settings.ShadowCascadeFarPlaneOffset);
+			serializer.WriteRaw(settings.ShadowCascadeTransitionFade);
+
+			serializer.WriteRaw(settings.BloomEnabled);
+			serializer.WriteRaw(settings.BloomThreshold);
+			serializer.WriteRaw(settings.BloomKnee);
+			serializer.WriteRaw(settings.BloomUpsampleScale);
+			serializer.WriteRaw(settings.BloomIntensity);
+			serializer.WriteRaw(settings.BloomDirtIntensity);
+
+			serializer.WriteRaw(settings.DOFEnabled);
+			serializer.WriteRaw(settings.DOFFocusDistance);
+			serializer.WriteRaw(settings.DOFBlurSize);
+
+			serializer.WriteRaw(settings.SSRHalfRes);
+			serializer.WriteRaw(settings.SSRMaxSteps);
+			serializer.WriteRaw(settings.SSRBrightness);
+			serializer.WriteRaw(settings.SSRDepthTolerance);
+		}
+
+		void ReadSceneRendererRuntimeSettings(FileStreamReader& stream, ProjectSceneRendererSettings& settings)
+		{
+			stream.ReadRaw(settings.EnableFrustumCulling);
+			stream.ReadRaw(settings.EnableGPUDrivenRendering);
+			stream.ReadRaw(settings.EnableGTAO);
+			stream.ReadRaw(settings.GTAOBentNormals);
+			stream.ReadRaw(settings.GTAODenoisePasses);
+			stream.ReadRaw(settings.AOShadowTolerance);
+			stream.ReadRaw(settings.EnableSSR);
+			stream.ReadRaw(settings.EnableJumpFlood);
+
+			stream.ReadRaw(settings.SoftShadows);
+			stream.ReadRaw(settings.MaxShadowDistance);
+			stream.ReadRaw(settings.ShadowFade);
+			stream.ReadRaw(settings.ShadowCascadeSplitLambda);
+			stream.ReadRaw(settings.ShadowCascadeNearPlaneOffset);
+			stream.ReadRaw(settings.ShadowCascadeFarPlaneOffset);
+			stream.ReadRaw(settings.ShadowCascadeTransitionFade);
+
+			stream.ReadRaw(settings.BloomEnabled);
+			stream.ReadRaw(settings.BloomThreshold);
+			stream.ReadRaw(settings.BloomKnee);
+			stream.ReadRaw(settings.BloomUpsampleScale);
+			stream.ReadRaw(settings.BloomIntensity);
+			stream.ReadRaw(settings.BloomDirtIntensity);
+
+			stream.ReadRaw(settings.DOFEnabled);
+			stream.ReadRaw(settings.DOFFocusDistance);
+			stream.ReadRaw(settings.DOFBlurSize);
+
+			stream.ReadRaw(settings.SSRHalfRes);
+			stream.ReadRaw(settings.SSRMaxSteps);
+			stream.ReadRaw(settings.SSRBrightness);
+			stream.ReadRaw(settings.SSRDepthTolerance);
+		}
 	}
 
 	ProjectSerializer::ProjectSerializer(Ref<Project> project)
@@ -139,6 +327,7 @@ namespace Lux
 			out << YAML::Key << "AutoSave" << YAML::Value << config.EnableAutoSave;
 			out << YAML::Key << "AutoSaveInterval" << YAML::Value << config.AutoSaveIntervalSeconds;
 			out << YAML::Key << "RenderingTechnique" << YAML::Value << RenderingTechniqueToString(config.RendererTechnique);
+			SerializeSceneRendererSettings(out, config.SceneRenderer);
 
 			out << YAML::Key << "Audio" << YAML::Value;
 			{
@@ -277,6 +466,8 @@ namespace Lux
 			serializer.WriteRaw<uint8_t>((uint8_t)details.LevelFilter);
 		}
 
+		WriteSceneRendererRuntimeSettings(serializer, m_Project->GetConfig().SceneRenderer);
+
 		return true;
 	}
 
@@ -328,6 +519,7 @@ namespace Lux
 			else
 				config.RendererTechnique = renderingTechniqueNode.as<int>((int)RenderingTechnique::Forward) == (int)RenderingTechnique::Deferred ? RenderingTechnique::Deferred : RenderingTechnique::Forward;
 		}
+		DeserializeSceneRendererSettings(projectNode["SceneRenderer"], config.SceneRenderer);
 		config.StartScene.clear();
 		config.StartSceneHandle = 0;
 
@@ -417,7 +609,7 @@ namespace Lux
 			return false;
 		}
 
-		if (projectInfo.HeaderData.Version != current.HeaderData.Version)
+		if (projectInfo.HeaderData.Version == 0 || projectInfo.HeaderData.Version > current.HeaderData.Version)
 		{
 			LUX_CORE_ERROR("Project version {} is not compatible with current version {}", projectInfo.HeaderData.Version, current.HeaderData.Version);
 			return false;
@@ -470,6 +662,9 @@ namespace Lux
 			details.LevelFilter = (Log::Level)levelFilter;
 		}
 
+		if (projectInfo.HeaderData.Version >= 2)
+			ReadSceneRendererRuntimeSettings(stream, config.SceneRenderer);
+
 		const std::filesystem::path overridesFile = filepath.parent_path() / "Project.yaml";
 		if (std::filesystem::exists(overridesFile))
 		{
@@ -491,6 +686,8 @@ namespace Lux
 						details.LevelFilter = Log::LevelFromString(node.second["LevelFilter"].as<std::string>(Log::LevelToString(details.LevelFilter)));
 					}
 				}
+
+				DeserializeSceneRendererSettings(rootNode["SceneRenderer"], config.SceneRenderer);
 			}
 		}
 

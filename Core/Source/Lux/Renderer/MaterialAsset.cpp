@@ -61,9 +61,9 @@ namespace Lux {
 
 #ifndef LUX_HEADLESS
 		if (transparent)
-			m_Material = Material::Create(Renderer::GetShaderLibrary()->Get("LuxPBR_Transparent"));
+			m_Material = Material::Create(Renderer::GetShaderLibrary()->Get("HazelPBR_Transparent"));
 		else
-			m_Material = Material::Create(Renderer::GetShaderLibrary()->Get("LuxPBR_Static"));
+			m_Material = Material::Create(Renderer::GetShaderLibrary()->Get("HazelPBR_Static"));
 #endif
 
 		SetDefaults();

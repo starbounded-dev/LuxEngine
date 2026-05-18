@@ -11,6 +11,20 @@
 
 namespace Lux
 {
+	namespace
+	{
+		std::string NormalizeRuntimeMaterialShaderName(std::string shaderName)
+		{
+			if (shaderName == "LuxPBR_Static")
+				return "HazelPBR_Static";
+
+			if (shaderName == "LuxPBR_Transparent")
+				return "HazelPBR_Transparent";
+
+			return shaderName;
+		}
+	}
+
 	struct MeshMaterial
 	{
 		std::string MaterialName;
@@ -104,7 +118,7 @@ namespace Lux
 
 				material.MaterialName = sourceMaterial->GetName();
 				if (Ref<Shader> shader = sourceMaterial->GetShader())
-					material.ShaderName = shader->GetName();
+					material.ShaderName = NormalizeRuntimeMaterialShaderName(shader->GetName());
 				material.AlbedoColor = materialAsset->GetAlbedoColor();
 				material.Emission = materialAsset->GetEmission();
 				material.Metalness = materialAsset->GetMetalness();
@@ -183,9 +197,16 @@ namespace Lux
 				if (Ref<ShaderLibrary> shaderLibrary = Renderer::GetShaderLibrary())
 				{
 					const auto& shaders = shaderLibrary->GetShaders();
-					if (!meshMaterial.ShaderName.empty())
+					const std::string shaderName = NormalizeRuntimeMaterialShaderName(meshMaterial.ShaderName);
+					if (!shaderName.empty())
 					{
-						if (auto it = shaders.find(meshMaterial.ShaderName); it != shaders.end())
+						if (auto it = shaders.find(shaderName); it != shaders.end())
+							shader = it->second;
+					}
+
+					if (!shader)
+					{
+						if (auto it = shaders.find("HazelPBR_Static"); it != shaders.end())
 							shader = it->second;
 					}
 

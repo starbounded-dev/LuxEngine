@@ -598,6 +598,10 @@ void TextEditor::renderScrollbarMiniMap() {
 		if (window->ScrollbarY) {
 			auto drawList = ImGui::GetWindowDrawList();
 			auto rect = ImGui::GetWindowScrollbarRect(window, ImGuiAxis_Y);
+			if (document.empty() || rect.Min.x > rect.Max.x || rect.Min.y > rect.Max.y) {
+				return;
+			}
+
 			auto lineHeight = rect.GetHeight() / static_cast<float>(document.size());
 			auto offset = (rect.Max.x - rect.Min.x) * 0.3f;
 			auto left = rect.Min.x + offset;

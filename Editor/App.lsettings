@@ -8,6 +8,6 @@ Lux Application Settings:
   Editor.ShowPhysicsColliders: 1
   Editor.TranslationSnapValue: 0.500000
   Editor.UseGizmoSnap: 1
-  Editor.VSync: 1
+  Editor.VSync: 0
   RecentProjects.0: M:/Git/luxengine/Editor/SandboxProject/Sandbox.luxproj
   RecentProjects.Count: 1

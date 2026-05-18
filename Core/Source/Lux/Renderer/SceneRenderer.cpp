@@ -145,16 +145,155 @@ namespace Lux {
 		m_Scene = scene;
 	}
 
+	void SceneRenderer::InitOptions()
+	{
+		using namespace Tiering::Renderer;
+
+		const auto& tiering = m_Specification.Tiering;
+		m_RendererDataUB.SoftShadows = tiering.ShadowQuality == ShadowQualitySetting::High;
+		m_Options.SoftShadows = m_RendererDataUB.SoftShadows;
+		m_Options.EnableGTAO = false;
+
+		if (tiering.EnableAO && tiering.AOType == AmbientOcclusionTypeSetting::GTAO)
+		{
+			switch (tiering.AOQuality)
+			{
+				case AmbientOcclusionQualitySetting::High:
+					m_Options.EnableGTAO = true;
+					m_GTAODataCB.HalfRes = true;
+					break;
+				case AmbientOcclusionQualitySetting::Ultra:
+					m_Options.EnableGTAO = true;
+					m_GTAODataCB.HalfRes = false;
+					break;
+				case AmbientOcclusionQualitySetting::None:
+					break;
+			}
+		}
+
+		m_Options.EnableSSR = false;
+		switch (tiering.SSRQuality)
+		{
+			case SSRQualitySetting::Medium:
+				m_Options.EnableSSR = true;
+				m_SSROptions.HalfRes = true;
+				break;
+			case SSRQualitySetting::High:
+				m_Options.EnableSSR = true;
+				m_SSROptions.HalfRes = false;
+				break;
+			case SSRQualitySetting::Off:
+				break;
+		}
+
+		m_BloomSettings.Enabled = tiering.EnableBloom;
+
+		if (Ref<Project> project = Project::GetActive())
+			ApplyProjectSettings(project->GetConfig().SceneRenderer);
+		else
+			UpdateGTAOData();
+	}
+
+	void SceneRenderer::UpdateGTAOData()
+	{
+		const bool gtaoEnabled = m_Options.EnableGTAO;
+		Renderer::SetGlobalMacroInShaders("__HZ_AO_METHOD", std::to_string((int)ShaderDef::GetAOMethod(gtaoEnabled)));
+		Renderer::SetGlobalMacroInShaders("__HZ_GTAO_COMPUTE_BENT_NORMALS", m_Options.GTAOBentNormals ? "1" : "0");
+
+		m_Options.ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
+		if (gtaoEnabled && m_Options.EnableSSR)
+			m_Options.ReflectionOcclusionMethod = ShaderDef::AOMethod::GTAO;
+
+		Renderer::SetGlobalMacroInShaders("__HZ_REFLECTION_OCCLUSION_METHOD", std::to_string((int)m_Options.ReflectionOcclusionMethod));
+	}
+
+	void SceneRenderer::ApplyProjectSettings(const ProjectSceneRendererSettings& settings)
+	{
+		m_Options.EnableFrustumCulling = settings.EnableFrustumCulling;
+		m_Options.EnableGPUDrivenRendering = settings.EnableGPUDrivenRendering;
+		m_Options.EnableGTAO = settings.EnableGTAO;
+		m_Options.GTAOBentNormals = settings.GTAOBentNormals;
+		m_Options.GTAODenoisePasses = settings.GTAODenoisePasses;
+		m_Options.AOShadowTolerance = settings.AOShadowTolerance;
+		m_Options.EnableSSR = settings.EnableSSR;
+		m_Options.EnableJumpFlood = settings.EnableJumpFlood;
+
+		m_Options.SoftShadows = settings.SoftShadows;
+		m_Options.MaxShadowDistance = settings.MaxShadowDistance;
+		m_Options.ShadowFade = settings.ShadowFade;
+		m_Options.ShadowCascadeSplitLambda = settings.ShadowCascadeSplitLambda;
+		m_Options.ShadowCascadeNearPlaneOffset = settings.ShadowCascadeNearPlaneOffset;
+		m_Options.ShadowCascadeFarPlaneOffset = settings.ShadowCascadeFarPlaneOffset;
+		m_Options.ShadowCascadeTransitionFade = settings.ShadowCascadeTransitionFade;
+
+		m_BloomSettings.Enabled = settings.BloomEnabled;
+		m_BloomSettings.Threshold = settings.BloomThreshold;
+		m_BloomSettings.Knee = settings.BloomKnee;
+		m_BloomSettings.UpsampleScale = settings.BloomUpsampleScale;
+		m_BloomSettings.Intensity = settings.BloomIntensity;
+		m_BloomSettings.DirtIntensity = settings.BloomDirtIntensity;
+
+		m_DOFSettings.Enabled = settings.DOFEnabled;
+		m_DOFSettings.FocusDistance = settings.DOFFocusDistance;
+		m_DOFSettings.BlurSize = settings.DOFBlurSize;
+
+		m_SSROptions.HalfRes = settings.SSRHalfRes;
+		m_SSROptions.MaxSteps = settings.SSRMaxSteps;
+		m_SSROptions.Brightness = settings.SSRBrightness;
+		m_SSROptions.DepthTolerance = settings.SSRDepthTolerance;
+
+		UpdateGTAOData();
+	}
+
+	void SceneRenderer::WriteProjectSettings(ProjectSceneRendererSettings& settings) const
+	{
+		settings.EnableFrustumCulling = m_Options.EnableFrustumCulling;
+		settings.EnableGPUDrivenRendering = m_Options.EnableGPUDrivenRendering;
+		settings.EnableGTAO = m_Options.EnableGTAO;
+		settings.GTAOBentNormals = m_Options.GTAOBentNormals;
+		settings.GTAODenoisePasses = m_Options.GTAODenoisePasses;
+		settings.AOShadowTolerance = m_Options.AOShadowTolerance;
+		settings.EnableSSR = m_Options.EnableSSR;
+		settings.EnableJumpFlood = m_Options.EnableJumpFlood;
+
+		settings.SoftShadows = m_Options.SoftShadows;
+		settings.MaxShadowDistance = m_Options.MaxShadowDistance;
+		settings.ShadowFade = m_Options.ShadowFade;
+		settings.ShadowCascadeSplitLambda = m_Options.ShadowCascadeSplitLambda;
+		settings.ShadowCascadeNearPlaneOffset = m_Options.ShadowCascadeNearPlaneOffset;
+		settings.ShadowCascadeFarPlaneOffset = m_Options.ShadowCascadeFarPlaneOffset;
+		settings.ShadowCascadeTransitionFade = m_Options.ShadowCascadeTransitionFade;
+
+		settings.BloomEnabled = m_BloomSettings.Enabled;
+		settings.BloomThreshold = m_BloomSettings.Threshold;
+		settings.BloomKnee = m_BloomSettings.Knee;
+		settings.BloomUpsampleScale = m_BloomSettings.UpsampleScale;
+		settings.BloomIntensity = m_BloomSettings.Intensity;
+		settings.BloomDirtIntensity = m_BloomSettings.DirtIntensity;
+
+		settings.DOFEnabled = m_DOFSettings.Enabled;
+		settings.DOFFocusDistance = m_DOFSettings.FocusDistance;
+		settings.DOFBlurSize = m_DOFSettings.BlurSize;
+
+		settings.SSRHalfRes = m_SSROptions.HalfRes;
+		settings.SSRMaxSteps = m_SSROptions.MaxSteps;
+		settings.SSRBrightness = m_SSROptions.Brightness;
+		settings.SSRDepthTolerance = m_SSROptions.DepthTolerance;
+	}
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// Init
 	// ─────────────────────────────────────────────────────────────────────────
 
 	void SceneRenderer::Init()
 	{
+		InitOptions();
+
 		m_CommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer",       /*queries=*/true);
 		m_UploadCommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer-Upload", /*queries=*/false);
 
 		m_Renderer2D = Ref<Renderer2D>::Create(Renderer2DSpecification{});
+		m_Renderer2DScreenSpace = Ref<Renderer2D>::Create(Renderer2DSpecification{});
 		m_DebugRenderer = Ref<DebugRenderer>::Create();
 
 		// Use window size if none specified
@@ -485,7 +624,7 @@ namespace Lux {
 			// Opaque PBR pipeline
 			PipelineSpecification pipelineSpec;
 			pipelineSpec.DebugName = "PBR-Static";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("LuxPBR_Static");
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Static");
 			pipelineSpec.TargetFramebuffer = loadFB;
 			pipelineSpec.Layout = vertexLayout;
 			pipelineSpec.DepthOperator = DepthCompareOperator::Equal; // rely on pre-depth
@@ -494,7 +633,7 @@ namespace Lux {
 
 			// Transparent PBR pipeline (alpha-blend, depth-test but no pre-depth Equal trick)
 			pipelineSpec.DebugName = "PBR-Transparent";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("LuxPBR_Transparent");
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Transparent");
 			pipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
 			pipelineSpec.DepthWrite = false;
 			m_TransparentGeometryPipeline = Pipeline::Create(pipelineSpec);
@@ -1410,15 +1549,30 @@ namespace Lux {
 		float cascadeSplits[ShadowCascadeCount]{};
 		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 		{
-			const float p = (cascade + 1.0f) / static_cast<float>(ShadowCascadeCount);
-			const float logSplit = nearClip * std::pow(ratio, p);
-			const float uniformSplit = nearClip + shadowRange * p;
-			const float splitDistance = glm::mix(uniformSplit, logSplit, glm::clamp(m_Options.ShadowCascadeSplitLambda, 0.0f, 1.0f));
-			cascadeSplits[cascade] = (splitDistance - nearClip) / cameraClipRange;
+			if (m_UseManualCascadeSplits)
+			{
+				cascadeSplits[cascade] = glm::clamp(m_ShadowCascadeSplits[cascade], 0.0f, 1.0f);
+			}
+			else
+			{
+				const float p = (cascade + 1.0f) / static_cast<float>(ShadowCascadeCount);
+				const float logSplit = nearClip * std::pow(ratio, p);
+				const float uniformSplit = nearClip + shadowRange * p;
+				const float splitDistance = glm::mix(uniformSplit, logSplit, glm::clamp(m_Options.ShadowCascadeSplitLambda, 0.0f, 1.0f));
+				cascadeSplits[cascade] = (splitDistance - nearClip) / cameraClipRange;
+			}
 		}
-		cascadeSplits[ShadowCascadeCount - 1] = (shadowFar - nearClip) / cameraClipRange;
+		if (!m_UseManualCascadeSplits)
+			cascadeSplits[ShadowCascadeCount - 1] = (shadowFar - nearClip) / cameraClipRange;
 
-		const glm::mat4 viewProjection = sceneCamera.Camera.GetUnReversedProjectionMatrix() * sceneCamera.ViewMatrix;
+		glm::mat4 viewMatrix = sceneCamera.ViewMatrix;
+		if (m_ScaleShadowCascadesToOrigin > 0.0f)
+		{
+			constexpr glm::vec4 origin = glm::vec4(glm::vec3(0.0f), 1.0f);
+			viewMatrix[3] = glm::mix(viewMatrix[3], origin, glm::clamp(m_ScaleShadowCascadesToOrigin, 0.0f, 1.0f));
+		}
+
+		const glm::mat4 viewProjection = sceneCamera.Camera.GetUnReversedProjectionMatrix() * viewMatrix;
 		const glm::mat4 inverseViewProjection = glm::inverse(viewProjection);
 		const float shadowMapResolution = m_ShadowMapPass ? static_cast<float>(m_ShadowMapPass->GetTargetFramebuffer()->GetWidth()) : 4096.0f;
 		const glm::vec3 normalizedLightDirection = glm::normalize(lightDirection);
@@ -1513,6 +1667,7 @@ namespace Lux {
 		m_UploadCommandBuffer->Begin();
 
 		m_SceneData.SceneCamera = camera;
+		m_SceneData.CameraFrustum = Frustum::FromViewProjection(camera.Camera.GetProjectionMatrix() * camera.ViewMatrix);
 
 		// ── Handle viewport resize ────────────────────────────────────────────
 		if (m_NeedsResize)
@@ -1598,7 +1753,7 @@ namespace Lux {
 			m_GTAODataCB.NDCToViewMul_x_PixelSize = m_CameraUB.NDCToViewMul * gtaoPixelSize;
 			m_GTAODataCB.HZBUVFactor = m_SSROptions.HZBUvFactor;
 			m_GTAODataCB.NoiseIndex = (int)(Renderer::GetCurrentFrameIndex() % 64);
-			m_GTAODataCB.ShadowTolerance = 0.0f;
+			m_GTAODataCB.ShadowTolerance = m_Options.AOShadowTolerance;
 		}
 
 		// ── Scene (light) uniform buffer ──────────────────────────────────────
@@ -1999,9 +2154,7 @@ namespace Lux {
 		std::vector<MeshCullDrawData> meshCullDrawData;
 		std::vector<nvrhi::DrawIndexedIndirectArguments> indirectDrawData;
 
-		const glm::mat4 viewProjection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix() * m_SceneData.SceneCamera.ViewMatrix;
-		const Frustum cameraFrustum = Frustum::FromViewProjection(viewProjection);
-		auto isInstanceVisible = [this, &cameraFrustum](uint32_t transformIndex)
+		auto isInstanceVisible = [this](uint32_t transformIndex)
 			{
 				if (!m_Options.EnableFrustumCulling)
 					return true;
@@ -2010,7 +2163,7 @@ namespace Lux {
 					return true;
 
 				const glm::vec4& sphereData = m_InstanceBoundsData[transformIndex].Sphere;
-				return cameraFrustum.IsSphereVisible({ glm::vec3(sphereData), sphereData.w });
+				return m_SceneData.CameraFrustum.IsSphereVisible({ glm::vec3(sphereData), sphereData.w });
 			};
 
 		for (auto& [key, tmd] : m_MeshTransformMap)
@@ -2651,7 +2804,8 @@ namespace Lux {
 		if (!m_Options.EnableGTAO || !m_GTAODenoisePass[0] || !m_GTAODenoisePass[1] || !m_GTAOOutputImage)
 			return;
 
-		if (m_Options.GTAODenoisePasses == 0)
+		const uint32_t denoisePasses = (uint32_t)glm::max(m_Options.GTAODenoisePasses, 0);
+		if (denoisePasses == 0)
 		{
 			m_GTAOFinalImage = m_GTAOOutputImage;
 			if (m_AOCompositePass)
@@ -2665,7 +2819,7 @@ namespace Lux {
 		m_GTAODenoiseConstants.HalfRes = m_GTAODataCB.HalfRes;
 
 		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "GTAO-Denoise");
-		for (uint32_t pass = 0; pass < m_Options.GTAODenoisePasses; pass++)
+		for (uint32_t pass = 0; pass < denoisePasses; pass++)
 		{
 			const uint32_t passIndex = (pass % 2u) != 0u ? 1u : 0u;
 			Ref<ComputePass> denoisePass = m_GTAODenoisePass[passIndex];
@@ -2677,7 +2831,7 @@ namespace Lux {
 			denoisePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, outputImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		}
 
-		m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2u) != 0u ? m_GTAODenoiseImage : m_GTAOOutputImage;
+		m_GTAOFinalImage = (denoisePasses % 2u) != 0u ? m_GTAODenoiseImage : m_GTAOOutputImage;
 		if (m_AOCompositePass)
 			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
@@ -2998,6 +3152,8 @@ namespace Lux {
 		m_Statistics.VisibleInstances = 0;
 		m_Statistics.CulledInstances = 0;
 		m_Statistics.IndirectDraws = 0;
+		m_Statistics.SpotlightShadowcasters = 0;
+		m_Statistics.SpotlightShadowsCulled = 0;
 
 		auto accumulate = [this](const std::map<MeshKey, StaticDrawCommand>& drawList)
 			{
@@ -3034,6 +3190,12 @@ namespace Lux {
 		m_Statistics.CulledInstances = m_Statistics.Instances > m_Statistics.VisibleInstances
 			? m_Statistics.Instances - m_Statistics.VisibleInstances
 			: 0;
+
+		for (const SpotLight& spotLight : m_SceneData.SceneLightEnvironment.SpotLights)
+		{
+			if (spotLight.CastsShadows)
+				m_Statistics.SpotlightShadowcasters++;
+		}
 
 		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(Renderer::GetCurrentFrameIndex());
 	}
@@ -3157,12 +3319,24 @@ namespace Lux {
 
 	Ref<Pipeline> SceneRenderer::GetFinalPipeline()
 	{
-		return m_CompositePass ? m_CompositePass->GetPipeline() : nullptr;
+		Ref<RenderPass> finalPass = GetFinalRenderPass();
+		return finalPass ? finalPass->GetPipeline() : nullptr;
 	}
 
 	Ref<RenderPass> SceneRenderer::GetFinalRenderPass()
 	{
+		if (m_DOFSettings.Enabled && m_DOFPass)
+			return m_DOFPass;
 		return m_CompositePass;
+	}
+
+	Ref<Framebuffer> SceneRenderer::GetExternalCompositeFramebuffer()
+	{
+		Ref<RenderPass> finalPass = GetFinalRenderPass();
+		if (finalPass)
+			return finalPass->GetTargetFramebuffer();
+
+		return m_CompositingFramebuffer;
 	}
 
 	void SceneRenderer::SetLineWidth(float width)

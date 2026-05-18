@@ -1096,7 +1096,7 @@ namespace Lux {
 		{
 			LUX_PROFILE_FUNC("VulkanRenderer::SetSceneEnvironment");
 
-			const auto shader = Renderer::GetShaderLibrary()->Get("LuxPBR_Static");
+			const auto shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Static");
 			Ref<VulkanShader> pbrShader = shader.As<VulkanShader>();
 			const uint32_t bufferIndex = Renderer::RT_GetCurrentFrameIndex();
 

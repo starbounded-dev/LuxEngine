@@ -1,5 +1,16 @@
+﻿/*// -- Hazel Engine PBR shader --
+// -----------------------------
+// Note: this shader is still very much in progress. There are likely many bugs and future additions that will go in.
+//       Currently heavily updated. 
+//
+// References upon which this is based:
+// - Unreal Engine 4 PBR notes (https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf)
+// - Frostbite's SIGGRAPH 2014 paper (https://seblagarde.wordpress.com/2015/07/14/siggraph-2014-moving-frostbite-to-physically-based-rendering/)
+// - Michał Siejak's PBR project (https://github.com/Nadrin)
+// - My implementation from years ago in the Sparky engine (https://github.com/TheCherno/Sparky) 
+*/
 #version 450 core
-#pragma stage : vert
+#pragma stage:vert
 
 #include <Buffers.glslh>
 #include <Lighting.glslh>
@@ -28,14 +39,12 @@ struct VertexOutput
 
 layout(location = 0) out VertexOutput Output;
 
-// Must exactly match the C++ MeshDrawPushConstants + Material data
 layout(push_constant) uniform PushConstants
 {
 	uint ObjectIndexBase;
-	uint LightIndex;
-	uint BoneTransformBase;
-	uint BoneTransformStride;
-
+	uint _pad0;
+	uint _pad1;
+	uint _pad2;
 	vec3 AlbedoColor;
 	float Metalness;
 	float Roughness;
@@ -46,6 +55,8 @@ layout(push_constant) uniform PushConstants
 	bool UseNormalMap;
 } u_MaterialUniforms;
 
+// Make sure both shaders compute the exact same answer(PreDepth).
+// We need to have the same exact calculations to produce the gl_Position value (eg. matrix multiplications).
 invariant gl_Position;
 
 void main()
@@ -79,6 +90,7 @@ void main()
 
 
 #version 450 core 
+
 #pragma stage : frag 
 
 #include <Buffers.glslh>
@@ -88,6 +100,7 @@ void main()
 #include <ShadowMapping.glslh>
 #include <Samplers.glslh>
 
+// Constant normal incidence Fresnel factor for all dielectrics.
 const vec3 Fdielectric = vec3(0.04);
 
 struct VertexOutput
@@ -114,10 +127,9 @@ layout(location = 2) out vec4 o_MetalnessRoughness;
 layout(push_constant) uniform PushConstants
 {
 	uint ObjectIndexBase;
-	uint LightIndex;
-	uint BoneTransformBase;
-	uint BoneTransformStride;
-
+	uint _pad0;
+	uint _pad1;
+	uint _pad2;
 	vec3 AlbedoColor;
 	float Metalness;
 	float Roughness;
@@ -144,6 +156,9 @@ vec3 IBL(vec3 F0, vec3 Lr)
 	return kd * diffuseIBL + specularIBL;
 }
 
+
+/////////////////////////////////////////////
+
 vec3 GetGradient(float value)
 {
 	vec3 zero = vec3(0.0, 0.0, 0.0);
@@ -167,30 +182,39 @@ vec3 GetGradient(float value)
 	return color;
 }
 
+
 void main()
 {
+	// Standard PBR inputs
 	vec4 albedoTexColor = SampleMaterial(u_AlbedoTexture, Input.TexCoord);
-	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;
+	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;   // MaterialUniforms.AlbedoColor is perceptual, must be converted to linear.
 	float alpha = albedoTexColor.a;
-
+	// note: Metalness and roughness could be in the same texture.
+	//       Per GLTF spec, we read metalness from the B channel and roughness from the G channel
+	//       This will still work if metalness and roughness are independent greyscale textures,
+	//       but it will not work if metalness and roughness are independent textures containing only R channel.
 	m_Params.Metalness = SampleMaterial(u_MetalnessTexture, Input.TexCoord).b * u_MaterialUniforms.Metalness;
 	m_Params.Roughness = SampleMaterial(u_RoughnessTexture, Input.TexCoord).g * u_MaterialUniforms.Roughness;
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.f, 1.f);
-	m_Params.Roughness = max(m_Params.Roughness, 0.05);
+	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
+	// Normals (either from vertex or map)
 	m_Params.Normal = normalize(Input.Normal);
 	if (u_MaterialUniforms.UseNormalMap)
 	{
 		m_Params.Normal = normalize(SampleMaterial(u_NormalTexture, Input.TexCoord).rgb * 2.0f - 1.0f);
 		m_Params.Normal = normalize(Input.WorldNormals * m_Params.Normal);
 	}
-	
+	// View normals
 	o_ViewNormalsLuminance.xyz = Input.CameraView * m_Params.Normal;
 
 	m_Params.View = normalize(u_Scene.CameraPosition - Input.WorldPosition);
 	m_Params.NdotV = max(dot(m_Params.Normal, m_Params.View), 0.0);
 
+	// Specular reflection vector
 	vec3 Lr = 2.0 * m_Params.NdotV * m_Params.Normal - m_Params.View;
+
+	// Fresnel reflectance, metals use albedo
 	vec3 F0 = mix(Fdielectric, m_Params.Albedo, m_Params.Metalness);
 
 	uint cascadeIndex = 0;
@@ -202,7 +226,7 @@ void main()
 			cascadeIndex = i + 1;
 	}
 
-	float shadowDistance = u_RendererData.MaxShadowDistance;
+	float shadowDistance = u_RendererData.MaxShadowDistance;//u_CascadeSplits[3];
 	float transitionDistance = u_RendererData.ShadowFade;
 	float distance = length(Input.ViewPosition);
 	ShadowFade = distance - (shadowDistance - transitionDistance);
@@ -221,6 +245,7 @@ void main()
 		float c2 = smoothstep(u_RendererData.CascadeSplits[2] + cascadeTransitionFade * 0.5f, u_RendererData.CascadeSplits[2] - cascadeTransitionFade * 0.5f, Input.ViewPosition.z);
 		if (c0 > 0.0 && c0 < 1.0)
 		{
+			// Sample 0 & 1
 			vec3 shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 0);
 			float shadowAmount0 = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, 0, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, 0, shadowMapCoords);
 			shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 1);
@@ -230,6 +255,7 @@ void main()
 		}
 		else if (c1 > 0.0 && c1 < 1.0)
 		{
+			// Sample 1 & 2
 			vec3 shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 1);
 			float shadowAmount1 = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, 1, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, 1, shadowMapCoords);
 			shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 2);
@@ -239,6 +265,7 @@ void main()
 		}
 		else if (c2 > 0.0 && c2 < 1.0)
 		{
+			// Sample 2 & 3
 			vec3 shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 2);
 			float shadowAmount2 = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, 2, shadowMapCoords, u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, 2, shadowMapCoords);
 			shadowMapCoords = GetShadowMapCoords(Input.ShadowMapCoords, 3);
@@ -260,26 +287,40 @@ void main()
 
 	shadowScale = 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0f, 1.0f);
 
+	// Direct lighting
 	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
 	lightContribution += CalculatePointLights(F0, Input.WorldPosition);
 	lightContribution += CalculateSpotLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += m_Params.Albedo * u_MaterialUniforms.Emission;
 
+	// Indirect lighting
 	vec3 iblContribution = IBL(F0, Lr) * u_Scene.EnvironmentMapIntensity;
 
+	// Final color
 	color = vec4(iblContribution + lightContribution, 1.0);
 
+	// TODO: Temporary bug fix.
 	if (u_Scene.DirectionalLights.Multiplier <= 0.0f)
 		shadowScale = 0.0f;
 
+	// Shadow mask with respect to bright surfaces.
 	o_ViewNormalsLuminance.a = clamp(shadowScale + dot(color.rgb, vec3(0.2125f, 0.7154f, 0.0721f)), 0.0f, 1.0f);
 
 	if (u_RendererData.ShowLightComplexity)
 	{
 		int pointLightCount = GetPointLightCount();
 		int spotLightCount = GetSpotLightCount();
-		color.rgb = (color.rgb * 0.2) + GetGradient(float(pointLightCount + spotLightCount));
+
+		float value = float(pointLightCount + spotLightCount);
+		color.rgb = (color.rgb * 0.2) + GetGradient(value);
 	}
+
+	// TODO(Karim): Have a separate render pass for translucent and transparent objects.
+	// Because we use the pre-depth image for depth test.
+	// color.a = alpha; 
+	
+	// (shading-only)
+	// color.rgb = vec3(1.0) * shadowScale + 0.2f;
 
 	if (u_RendererData.ShowCascades)
 	{
@@ -300,3 +341,5 @@ void main()
 		}
 	}
 }
+
+

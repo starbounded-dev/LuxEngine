@@ -17,6 +17,8 @@
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/DebugRenderer.h"
 #include "Lux/Renderer/RendererTypes.h"
+#include "Lux/Renderer/ShaderDefs.h"
+#include "Lux/Core/Math/Frustum.h"
 #include "Lux/Project/TieringSettings.h"
 #include "Lux/Scene/Scene.h"
 
@@ -27,6 +29,8 @@
 #include <vector>
 
 namespace Lux {
+
+	struct ProjectSceneRendererSettings;
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Light structures
@@ -108,9 +112,20 @@ namespace Lux {
 		bool  ShowGrid = true;
 		bool  ShowSelectedInWireframe = false;
 		bool  ShowPhysicsColliders = false;
+		enum class PhysicsColliderView
+		{
+			SelectedEntity = 0, All = 1
+		};
+		PhysicsColliderView PhysicsColliderMode = PhysicsColliderView::SelectedEntity;
+		bool  ShowPhysicsCollidersOnTop = false;
+		glm::vec4 SimplePhysicsCollidersColor = { 0.2f, 1.0f, 0.2f, 1.0f };
+		glm::vec4 ComplexPhysicsCollidersColor = { 0.5f, 0.5f, 1.0f, 1.0f };
 		bool  ShowShadowCascades = false;
+		bool  ShowCascadeFrustums = false;
 		bool  ShowLightComplexity = false;
 		bool  SoftShadows = true;
+		bool  EnableShadowCulling = true;
+		bool  EnableMainViewCulling = true;
 		float MaxShadowDistance = 200.0f;
 		float ShadowFade = 25.0f;
 		float ShadowCascadeSplitLambda = 0.92f;
@@ -119,8 +134,10 @@ namespace Lux {
 		float ShadowCascadeTransitionFade = 1.0f;
 		bool  EnableGTAO = true;
 		bool  GTAOBentNormals = false;
-		uint32_t GTAODenoisePasses = 4;
+		float AOShadowTolerance = 1.0f;
+		int   GTAODenoisePasses = 4;
 		bool  EnableSSR = true;
+		ShaderDef::AOMethod ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
 		bool  EnableJumpFlood = true;
 		bool  EnableFrustumCulling = true;
 		bool  EnableGPUDrivenRendering = true;
@@ -131,14 +148,15 @@ namespace Lux {
 		bool  Enabled = true;
 		float Threshold = 1.0f;
 		float Knee = 0.1f;
+		float UpsampleScale = 1.0f;
 		float Intensity = 1.0f;
-		float DirtIntensity = 0.0f;
+		float DirtIntensity = 1.0f;
 	};
 
 	struct DOFSettings
 	{
 		bool  Enabled = false;
-		float FocusDistance = 10.0f;
+		float FocusDistance = 0.0f;
 		float BlurSize = 1.0f;
 	};
 
@@ -203,6 +221,8 @@ namespace Lux {
 			uint32_t CulledInstances = 0;
 			uint32_t IndirectDraws = 0;
 			uint32_t SavedDraws = 0;
+			uint32_t SpotlightShadowcasters = 0;
+			uint32_t SpotlightShadowsCulled = 0;
 			float    TotalGPUTime = 0.0f;
 		};
 
@@ -214,9 +234,11 @@ namespace Lux {
 
 		void Init();
 		void Shutdown();
+		void InitOptions();
 
 		void SetScene(Ref<Scene> scene);
 		void SetViewportSize(uint32_t width, uint32_t height);
+		void UpdateGTAOData();
 
 		// ── Per-frame API ────────────────────────────────────────────────────
 
@@ -254,10 +276,11 @@ namespace Lux {
 		Ref<Pipeline>    GetFinalPipeline();
 		Ref<RenderPass>  GetFinalRenderPass();
 		Ref<RenderPass>  GetCompositeRenderPass() { return m_CompositePass; }
-		Ref<Framebuffer> GetExternalCompositeFramebuffer() { return m_CompositingFramebuffer; }
+		Ref<Framebuffer> GetExternalCompositeFramebuffer();
 		Ref<RenderCommandBuffer> GetCommandBuffer() { return m_CommandBuffer; }
 
 		Ref<Renderer2D>    GetRenderer2D() { return m_Renderer2D; }
+		Ref<Renderer2D>    GetScreenSpaceRenderer2D() { return m_Renderer2DScreenSpace ? m_Renderer2DScreenSpace : m_Renderer2D; }
 		Ref<DebugRenderer> GetDebugRenderer() { return m_DebugRenderer; }
 
 		// ── Settings ─────────────────────────────────────────────────────────
@@ -268,7 +291,25 @@ namespace Lux {
 		SSROptionsUB& GetSSROptions() { return m_SSROptions; }
 		RenderingTechnique GetRenderingTechnique() const { return m_RenderingTechnique; }
 		void SetRenderingTechnique(RenderingTechnique technique) { m_RenderingTechnique = technique; }
+		void ApplyProjectSettings(const ProjectSceneRendererSettings& settings);
+		void WriteProjectSettings(ProjectSceneRendererSettings& settings) const;
 		const SceneRendererSpecification& GetSpecification()  const { return m_Specification; }
+		void SetShadowSettings(float nearPlane, float farPlane, float lambda, float scaleShadowToOrigin = 0.0f)
+		{
+			m_Options.ShadowCascadeNearPlaneOffset = nearPlane;
+			m_Options.ShadowCascadeFarPlaneOffset = farPlane;
+			m_Options.ShadowCascadeSplitLambda = lambda;
+			m_ScaleShadowCascadesToOrigin = scaleShadowToOrigin;
+		}
+
+		void SetShadowCascades(float a, float b, float c, float d)
+		{
+			m_UseManualCascadeSplits = true;
+			m_ShadowCascadeSplits[0] = a;
+			m_ShadowCascadeSplits[1] = b;
+			m_ShadowCascadeSplits[2] = c;
+			m_ShadowCascadeSplits[3] = d;
+		}
 
 		void SetLineWidth(float width);
 
@@ -280,6 +321,7 @@ namespace Lux {
 
 		const glm::mat4& GetScreenSpaceProjectionMatrix() const { return m_ScreenSpaceProjectionMatrix; }
 		const Statistics& GetStatistics() const { return m_Statistics; }
+		const Frustum& GetCameraFrustum() const { return m_SceneData.CameraFrustum; }
 
 		bool IsReady() const { return m_ResourcesCreatedGPU; }
 
@@ -528,6 +570,7 @@ namespace Lux {
 		Ref<RenderCommandBuffer>   m_UploadCommandBuffer; // UB/SB data uploads
 
 		Ref<Renderer2D>    m_Renderer2D;
+		Ref<Renderer2D>    m_Renderer2DScreenSpace;
 		Ref<DebugRenderer> m_DebugRenderer;
 
 		glm::mat4 m_ScreenSpaceProjectionMatrix{ 1.0f };
@@ -536,6 +579,7 @@ namespace Lux {
 		struct SceneInfo
 		{
 			SceneRendererCamera SceneCamera;
+			Frustum             CameraFrustum;
 			Ref<Environment>    SceneEnvironment;
 			float               SceneEnvironmentIntensity = 1.0f;
 			float               SkyboxLod = 0.0f;
@@ -726,6 +770,9 @@ namespace Lux {
 
 		float m_LineWidth = 2.0f;
 		float m_Opacity = 1.0f;
+		float m_ScaleShadowCascadesToOrigin = 0.0f;
+		float m_ShadowCascadeSplits[ShadowCascadeCount] = { 0.1f, 0.2f, 0.3f, 1.0f };
+		bool  m_UseManualCascadeSplits = false;
 		BloomSettings m_BloomSettings;
 		DOFSettings m_DOFSettings;
 		SSROptionsUB m_SSROptions;

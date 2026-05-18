@@ -50,6 +50,42 @@ namespace Lux
 		std::vector<ProjectPhysicsLayer> Layers;
 	};
 
+	struct ProjectSceneRendererSettings
+	{
+		bool EnableFrustumCulling = true;
+		bool EnableGPUDrivenRendering = true;
+		bool EnableGTAO = true;
+		bool GTAOBentNormals = false;
+		int GTAODenoisePasses = 4;
+		float AOShadowTolerance = 1.0f;
+		bool EnableSSR = false;
+		bool EnableJumpFlood = true;
+
+		bool SoftShadows = true;
+		float MaxShadowDistance = 200.0f;
+		float ShadowFade = 25.0f;
+		float ShadowCascadeSplitLambda = 0.92f;
+		float ShadowCascadeNearPlaneOffset = 0.0f;
+		float ShadowCascadeFarPlaneOffset = 50.0f;
+		float ShadowCascadeTransitionFade = 1.0f;
+
+		bool BloomEnabled = true;
+		float BloomThreshold = 1.0f;
+		float BloomKnee = 0.1f;
+		float BloomUpsampleScale = 1.0f;
+		float BloomIntensity = 1.0f;
+		float BloomDirtIntensity = 1.0f;
+
+		bool DOFEnabled = false;
+		float DOFFocusDistance = 0.0f;
+		float DOFBlurSize = 1.0f;
+
+		bool SSRHalfRes = true;
+		int SSRMaxSteps = 70;
+		float SSRBrightness = 0.7f;
+		float SSRDepthTolerance = 0.8f;
+	};
+
 	struct ProjectConfig
 	{
 		std::string Name = "Untitled";
@@ -76,6 +112,7 @@ namespace Lux
 
 		ProjectAudioSettings Audio;
 		ProjectPhysicsSettings Physics;
+		ProjectSceneRendererSettings SceneRenderer;
 	};
 
 	class Project : public RefCounted

@@ -5,6 +5,14 @@
 
 namespace Lux::ImGuiEx {
 
+	namespace
+	{
+		bool IsValidClipRect(const ImRect& rect)
+		{
+			return rect.Min.x <= rect.Max.x && rect.Min.y <= rect.Max.y;
+		}
+	}
+
 	ScopedDisable::ScopedDisable(bool disabled /*= true*/)
 	{
 		ImGuiEx::BeginDisabled(disabled);
@@ -24,12 +32,15 @@ namespace Lux::ImGuiEx {
 			// Fill background wiht nice gradient
 			const float padding = ImGui::GetStyle().WindowBorderSize;
 			const ImRect windowRect = ImGuiEx::RectExpanded(ImGui::GetCurrentWindow()->Rect(), -padding, -padding);
-			ImGui::PushClipRect(windowRect.Min, windowRect.Max, false);
-			const ImColor col1 = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);// Colors::Theme::backgroundPopup;
-			const ImColor col2 = ImGuiEx::ColourWithMultipliedValue(col1, 0.8f);
-			ImGui::GetWindowDrawList()->AddRectFilledMultiColor(windowRect.Min, windowRect.Max, col1, col1, col2, col2);
-			ImGui::GetWindowDrawList()->AddRect(windowRect.Min, windowRect.Max, ImGuiEx::ColourWithMultipliedValue(col1, 1.1f));
-			ImGui::PopClipRect();
+			if (IsValidClipRect(windowRect))
+			{
+				ImGui::PushClipRect(windowRect.Min, windowRect.Max, false);
+				const ImColor col1 = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);// Colors::Theme::backgroundPopup;
+				const ImColor col2 = ImGuiEx::ColourWithMultipliedValue(col1, 0.8f);
+				ImGui::GetWindowDrawList()->AddRectFilledMultiColor(windowRect.Min, windowRect.Max, col1, col1, col2, col2);
+				ImGui::GetWindowDrawList()->AddRect(windowRect.Min, windowRect.Max, ImGuiEx::ColourWithMultipliedValue(col1, 1.1f));
+				ImGui::PopClipRect();
+			}
 
 			// Popped in EndPopup()
 			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(0, 0, 0, 80));
@@ -68,6 +79,15 @@ namespace Lux::ImGuiEx {
 			IM_ROUND(ImMax(bar_rect.Min.x + window->Pos.x, bar_rect.Max.x - ImMax(window->WindowRounding, window->WindowBorderSize))), IM_ROUND(bar_rect.Max.y + window->Pos.y));
 
 		clip_rect.ClipWith(window->OuterRectClipped);
+		if (!IsValidClipRect(clip_rect))
+		{
+			ImGuiContext& g = *GImGui;
+			ImGui::PopID();
+			g.GroupStack.back().EmitItem = false;
+			ImGui::EndGroup();
+			return false;
+		}
+
 		ImGui::PushClipRect(clip_rect.Min, clip_rect.Max, false);
 
 		// We overwrite CursorMaxPos because BeginGroup sets it to CursorPos (essentially the .EmitItem hack in EndMenuBar() would need something analogous here, maybe a BeginGroupEx() with flags).
@@ -681,6 +701,9 @@ namespace Lux::ImGuiEx {
 		ImU32 tintNormal, ImU32 tintHovered, ImU32 tintPressed,
 		ImVec2 rectMin, ImVec2 rectMax, ImVec2 uv0, ImVec2 uv1)
 	{
+		if (rectMin.x > rectMax.x || rectMin.y > rectMax.y)
+			return;
+
 		auto* drawList = ImGui::GetWindowDrawList();
 		if (ImGui::IsItemActive())
 			drawList->AddImage(GetTextureID(imagePressed), rectMin, rectMax, uv0, uv1, tintPressed);
@@ -694,6 +717,9 @@ namespace Lux::ImGuiEx {
 		ImU32 tintNormal, ImU32 tintHovered, ImU32 tintPressed,
 		ImVec2 rectMin, ImVec2 rectMax, ImVec2 uv0, ImVec2 uv1)
 	{
+		if (rectMin.x > rectMax.x || rectMin.y > rectMax.y)
+			return;
+
 		auto* drawList = ImGui::GetWindowDrawList();
 		if (ImGui::IsItemActive())
 			drawList->AddImage(GetTextureID(imagePressed), rectMin, rectMax, uv0, uv1, tintPressed);

@@ -175,7 +175,7 @@ vec3 GetGradient(float value)
 void main()
 {
 	// Standard PBR inputs
-	vec4 albedoTexColor = SampleLinear(u_AlbedoTexture, Input.TexCoord);
+	vec4 albedoTexColor = SampleMaterial(u_AlbedoTexture, Input.TexCoord);
 	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;   // MaterialUniforms.AlbedoColor is perceptual, must be converted to linear.
 	float alpha = albedoTexColor.a;
 	m_Params.Metalness = 0.0f;

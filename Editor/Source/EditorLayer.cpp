@@ -573,7 +573,8 @@ namespace Lux {
 
 	void EditorLayer::UI_DrawMenubar()
 	{
-		const ImRect menuBarRect = { ImGui::GetCursorPos(), { ImGui::GetContentRegionAvail().x + ImGui::GetCursorScreenPos().x, ImGui::GetFrameHeightWithSpacing() } };
+		const ImVec2 menuBarMin = ImGui::GetCursorPos();
+		const ImRect menuBarRect = { menuBarMin, { ImGui::GetContentRegionAvail().x + ImGui::GetCursorScreenPos().x, menuBarMin.y + ImGui::GetFrameHeightWithSpacing() } };
 
 		ImGui::BeginGroup();
 
@@ -1558,6 +1559,8 @@ namespace Lux {
 			if (startScene)
 				OpenScene(startScene);
 			m_PanelManager->OnProjectChanged(Project::GetActive());
+			if (m_SceneRenderer)
+				m_SceneRenderer->ApplyProjectSettings(Project::GetActive()->GetConfig().SceneRenderer);
 		}
 	}
 

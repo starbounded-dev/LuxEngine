@@ -277,7 +277,7 @@ void TextDiff::renderSideBySide(const char* title, const ImVec2& size, bool bord
 	// determine view parameters
 	leftLineNumberWidth = glyphSize.x * (leftLineNumberDigits + 4);
 	rightLineNumberWidth = glyphSize.x * (rightLineNumberDigits + 4);
-	textColumnWidth = static_cast<float>(visibleSize.x - leftLineNumberWidth - rightLineNumberWidth) / 2.0f;
+	textColumnWidth = std::max(0.0f, static_cast<float>(visibleSize.x - leftLineNumberWidth - rightLineNumberWidth) / 2.0f);
 
 	leftLineNumberPos = cursorScreenPos.x;
 	leftTextPos = leftLineNumberPos + leftLineNumberWidth;
@@ -367,44 +367,48 @@ void TextDiff::renderSideBySideText() {
 	auto yBottom = drawList->GetClipRectMax().y;
 
 	// render left text
-	drawList->PushClipRect(ImVec2(leftTextPos, yTop), ImVec2(rightLineNumberPos, yBottom), false);
+	if (leftTextPos <= rightLineNumberPos && yTop <= yBottom) {
+		drawList->PushClipRect(ImVec2(leftTextPos, yTop), ImVec2(rightLineNumberPos, yBottom), false);
 
-	for (auto i = firstVisibleLine; i <= lastVisibleLine; i++) {
-		auto& line = lineInfo[i];
-		auto y = cursorScreenPos.y + i * glyphSize.y;
+		for (auto i = firstVisibleLine; i <= lastVisibleLine; i++) {
+			auto& line = lineInfo[i];
+			auto y = cursorScreenPos.y + i * glyphSize.y;
 
-		switch(line.status) {
-			case LineStatus::common:
-			case LineStatus::deleted:
-				renderSideBySideLine(leftTextPos, y, leftDocument[lineInfo[i].leftLine]);
-				break;
+			switch(line.status) {
+				case LineStatus::common:
+				case LineStatus::deleted:
+					renderSideBySideLine(leftTextPos, y, leftDocument[lineInfo[i].leftLine]);
+					break;
 
-			case LineStatus::added:
-				break;
+				case LineStatus::added:
+					break;
+			}
 		}
-	}
 
-	drawList->PopClipRect();
+		drawList->PopClipRect();
+	}
 
 	// render right text
-	drawList->PushClipRect(ImVec2(rightTextPos, yTop), ImVec2(rightTextEnd, yBottom), false);
+	if (rightTextPos <= rightTextEnd && yTop <= yBottom) {
+		drawList->PushClipRect(ImVec2(rightTextPos, yTop), ImVec2(rightTextEnd, yBottom), false);
 
-	for (auto i = firstVisibleLine; i <= lastVisibleLine; i++) {
-		auto& line = lineInfo[i];
-		auto y = cursorScreenPos.y + i * glyphSize.y;
+		for (auto i = firstVisibleLine; i <= lastVisibleLine; i++) {
+			auto& line = lineInfo[i];
+			auto y = cursorScreenPos.y + i * glyphSize.y;
 
-		switch(line.status) {
-			case LineStatus::common:
-			case LineStatus::added:
-				renderSideBySideLine(rightTextPos, y, rightDocument[lineInfo[i].rightLine]);
-				break;
+			switch(line.status) {
+				case LineStatus::common:
+				case LineStatus::added:
+					renderSideBySideLine(rightTextPos, y, rightDocument[lineInfo[i].rightLine]);
+					break;
 
-			case LineStatus::deleted:
-				break;
+				case LineStatus::deleted:
+					break;
+			}
 		}
-	}
 
-	drawList->PopClipRect();
+		drawList->PopClipRect();
+	}
 }
 
 
@@ -555,6 +559,10 @@ void TextDiff::renderSideBySideMiniMap() {
 		if (window->ScrollbarY) {
 			auto drawList = ImGui::GetWindowDrawList();
 			auto rect = ImGui::GetWindowScrollbarRect(window, ImGuiAxis_Y);
+			if (document.empty() || rect.Min.x > rect.Max.x || rect.Min.y > rect.Max.y) {
+				return;
+			}
+
 			auto lineHeight = rect.GetHeight() / static_cast<float>(document.size());
 			auto offset = (rect.Max.x - rect.Min.x) * 0.3f;
 			auto left = rect.Min.x + offset;

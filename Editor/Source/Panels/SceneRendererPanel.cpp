@@ -3,6 +3,7 @@
 
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
+#include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Shader.h"
 
@@ -38,6 +39,45 @@ namespace Lux {
 
 	}
 
+	void SceneRendererPanel::SetContext(const Ref<SceneRenderer>& context)
+	{
+		m_Context = context;
+		ApplyProjectSettingsToContext();
+	}
+
+	void SceneRendererPanel::ApplyProjectSettingsToContext()
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!m_Context || !project)
+			return;
+
+		m_Context->ApplyProjectSettings(project->GetConfig().SceneRenderer);
+	}
+
+	void SceneRendererPanel::SyncProjectSettingsFromContext()
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!m_Context || !project)
+			return;
+
+		m_Context->WriteProjectSettings(project->GetConfig().SceneRenderer);
+		m_ProjectRendererSettingsDirty = true;
+	}
+
+	bool SceneRendererPanel::SaveProjectRendererSettings()
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!m_Context || !project || project->GetProjectFilePath().empty())
+			return false;
+
+		SyncProjectSettingsFromContext();
+		if (!Project::SaveActive(project->GetProjectFilePath()))
+			return false;
+
+		m_ProjectRendererSettingsDirty = false;
+		return true;
+	}
+
 	void SceneRendererPanel::OnImGuiRender(bool& isOpen)
 	{
 		if (!ImGui::Begin("Scene Renderer", &isOpen))
@@ -58,6 +98,7 @@ namespace Lux {
 		auto& bloom = m_Context->GetBloomSettings();
 		auto& dof = m_Context->GetDOFSettings();
 		auto& ssr = m_Context->GetSSROptions();
+		bool projectSettingsChanged = false;
 
 		if (ImGui::BeginTable("##scene_renderer_summary", 2, ImGuiTableFlags_SizingStretchProp))
 		{
@@ -75,6 +116,26 @@ namespace Lux {
 		{
 			ImGui::SameLine();
 			ImGui::TextDisabled("Reloaded %u shader%s", m_LastReloadedShaderCount, m_LastReloadedShaderCount == 1 ? "" : "s");
+		}
+
+		if (Ref<Project> project = Project::GetActive())
+		{
+			ImGui::SameLine();
+			const bool canSaveProject = !project->GetProjectFilePath().empty();
+			if (!canSaveProject)
+				ImGui::BeginDisabled();
+
+			if (ImGui::Button("Save Renderer Settings"))
+				SaveProjectRendererSettings();
+
+			if (!canSaveProject)
+				ImGui::EndDisabled();
+
+			if (m_ProjectRendererSettingsDirty)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("Unsaved renderer settings");
+			}
 		}
 
 		ImGui::Spacing();
@@ -157,11 +218,19 @@ namespace Lux {
 		if (ImGuiEx::PropertyGridHeader("Rendering", true))
 		{
 			ImGuiEx::BeginPropertyGrid();
-			ImGuiEx::Property("Frustum Culling", options.EnableFrustumCulling);
-			ImGuiEx::Property("GPU Driven Indirect", options.EnableGPUDrivenRendering);
-			ImGuiEx::Property("GTAO", options.EnableGTAO);
-			ImGuiEx::Property("SSR", options.EnableSSR);
-			ImGuiEx::Property("Jump Flood Outline", options.EnableJumpFlood);
+			projectSettingsChanged |= ImGuiEx::Property("Frustum Culling", options.EnableFrustumCulling);
+			projectSettingsChanged |= ImGuiEx::Property("GPU Driven Indirect", options.EnableGPUDrivenRendering);
+			bool gtaoSettingsChanged = false;
+			gtaoSettingsChanged |= ImGuiEx::Property("GTAO", options.EnableGTAO);
+			gtaoSettingsChanged |= ImGuiEx::Property("GTAO Bent Normals", options.GTAOBentNormals);
+			projectSettingsChanged |= gtaoSettingsChanged;
+			projectSettingsChanged |= ImGuiEx::Property("GTAO Denoise Passes", options.GTAODenoisePasses, 0, 8);
+			projectSettingsChanged |= ImGuiEx::Property("AO Shadow Tolerance", options.AOShadowTolerance, 0.01f, 0.0f, 4.0f);
+			gtaoSettingsChanged |= ImGuiEx::Property("SSR", options.EnableSSR);
+			projectSettingsChanged |= gtaoSettingsChanged;
+			if (gtaoSettingsChanged)
+				m_Context->UpdateGTAOData();
+			projectSettingsChanged |= ImGuiEx::Property("Jump Flood Outline", options.EnableJumpFlood);
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
 		}
@@ -169,13 +238,13 @@ namespace Lux {
 		if (ImGuiEx::PropertyGridHeader("Shadows", true))
 		{
 			ImGuiEx::BeginPropertyGrid();
-			ImGuiEx::Property("Soft Shadows", options.SoftShadows);
-			ImGuiEx::Property("Max Distance", options.MaxShadowDistance, 1.0f, 1.0f, 1000.0f);
-			ImGuiEx::Property("Distance Fade", options.ShadowFade, 0.25f, 0.01f, 250.0f);
-			ImGuiEx::Property("Split Lambda", options.ShadowCascadeSplitLambda, 0.01f, 0.0f, 1.0f);
-			ImGuiEx::Property("Near Offset", options.ShadowCascadeNearPlaneOffset, 0.1f, 0.0f, 200.0f);
-			ImGuiEx::Property("Far Offset", options.ShadowCascadeFarPlaneOffset, 0.5f, 0.0f, 500.0f);
-			ImGuiEx::Property("Cascade Fade", options.ShadowCascadeTransitionFade, 0.05f, 0.0f, 25.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Soft Shadows", options.SoftShadows);
+			projectSettingsChanged |= ImGuiEx::Property("Max Distance", options.MaxShadowDistance, 1.0f, 1.0f, 1000.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Distance Fade", options.ShadowFade, 0.25f, 0.01f, 250.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Split Lambda", options.ShadowCascadeSplitLambda, 0.01f, 0.0f, 1.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Near Offset", options.ShadowCascadeNearPlaneOffset, 0.1f, 0.0f, 200.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Far Offset", options.ShadowCascadeFarPlaneOffset, 0.5f, 0.0f, 500.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Cascade Fade", options.ShadowCascadeTransitionFade, 0.05f, 0.0f, 25.0f);
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
 		}
@@ -183,22 +252,30 @@ namespace Lux {
 		if (ImGuiEx::PropertyGridHeader("Post FX", false))
 		{
 			ImGuiEx::BeginPropertyGrid();
-			ImGuiEx::Property("Bloom", bloom.Enabled);
-			ImGuiEx::Property("Bloom Threshold", bloom.Threshold, 0.01f, 0.0f, 25.0f);
-			ImGuiEx::Property("Bloom Knee", bloom.Knee, 0.01f, 0.0f, 1.0f);
-			ImGuiEx::Property("Bloom Intensity", bloom.Intensity, 0.01f, 0.0f, 10.0f);
-			ImGuiEx::Property("DOF", dof.Enabled);
-			ImGuiEx::Property("DOF Focus Distance", dof.FocusDistance, 0.1f, 0.0f, 1000.0f);
-			ImGuiEx::Property("DOF Blur Size", dof.BlurSize, 0.05f, 0.0f, 20.0f);
-			ImGuiEx::Property("SSR Half Res", ssr.HalfRes);
+			projectSettingsChanged |= ImGuiEx::Property("Bloom", bloom.Enabled);
+			projectSettingsChanged |= ImGuiEx::Property("Bloom Threshold", bloom.Threshold, 0.01f, 0.0f, 25.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Bloom Knee", bloom.Knee, 0.01f, 0.0f, 1.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Bloom Upsample Scale", bloom.UpsampleScale, 0.01f, 0.0f, 10.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Bloom Intensity", bloom.Intensity, 0.01f, 0.0f, 10.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Bloom Dirt Intensity", bloom.DirtIntensity, 0.01f, 0.0f, 10.0f);
+			projectSettingsChanged |= ImGuiEx::Property("DOF", dof.Enabled);
+			projectSettingsChanged |= ImGuiEx::Property("DOF Focus Distance", dof.FocusDistance, 0.1f, 0.0f, 1000.0f);
+			projectSettingsChanged |= ImGuiEx::Property("DOF Blur Size", dof.BlurSize, 0.05f, 0.0f, 20.0f);
+			projectSettingsChanged |= ImGuiEx::Property("SSR Half Res", ssr.HalfRes);
 			int32_t ssrMaxSteps = ssr.MaxSteps;
 			if (ImGuiEx::Property("SSR Max Steps", ssrMaxSteps, 1, 256))
+			{
 				ssr.MaxSteps = ssrMaxSteps;
-			ImGuiEx::Property("SSR Brightness", ssr.Brightness, 0.01f, 0.0f, 5.0f);
-			ImGuiEx::Property("SSR Depth Tolerance", ssr.DepthTolerance, 0.01f, 0.0f, 5.0f);
+				projectSettingsChanged = true;
+			}
+			projectSettingsChanged |= ImGuiEx::Property("SSR Brightness", ssr.Brightness, 0.01f, 0.0f, 5.0f);
+			projectSettingsChanged |= ImGuiEx::Property("SSR Depth Tolerance", ssr.DepthTolerance, 0.01f, 0.0f, 5.0f);
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
 		}
+
+		if (projectSettingsChanged)
+			SyncProjectSettingsFromContext();
 
 		if (ImGuiEx::PropertyGridHeader("Render Statistics", true))
 		{

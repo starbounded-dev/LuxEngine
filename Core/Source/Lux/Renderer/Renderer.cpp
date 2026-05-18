@@ -452,7 +452,7 @@ namespace Lux {
 
 		s_Data->EmptyEnvironment = Ref<Environment>::Create(s_Data->BlackCubeTexture, s_Data->BlackCubeTexture);
 
-		s_Data->DefaultWhiteMaterial = Material::Create(Renderer::GetShaderLibrary()->Get("LuxPBR_Static"), "Renderer-DefaultWhiteMaterial");
+		s_Data->DefaultWhiteMaterial = Material::Create(Renderer::GetShaderLibrary()->Get("HazelPBR_Static"), "Renderer-DefaultWhiteMaterial");
 		s_Data->DefaultWhiteMaterial->Set("u_MaterialUniforms.AlbedoColor", glm::vec3(1.0f));
 		s_Data->DefaultWhiteMaterial->Set("u_MaterialUniforms.Emission", 0.0f);
 		s_Data->DefaultWhiteMaterial->Set("u_MaterialUniforms.UseNormalMap", false);

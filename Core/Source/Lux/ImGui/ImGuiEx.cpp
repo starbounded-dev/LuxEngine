@@ -135,12 +135,15 @@ namespace Lux::ImGuiEx {
 		window->DC.CurrLineTextBaseOffset = 3.0f;
 		const ImVec2 rowAreaMin = ImGui::TableGetCellBgRect(ImGui::GetCurrentTable(), 0).Min;
 		const ImVec2 rowAreaMax = { ImGui::TableGetCellBgRect(ImGui::GetCurrentTable(), ImGui::TableGetColumnCount() - 1).Max.x, rowAreaMin.y + rowHeight };
+		const ImRect rowArea(rowAreaMin, rowAreaMax);
+		if (rowArea.Min.x > rowArea.Max.x || rowArea.Min.y > rowArea.Max.y)
+			return false;
 
-		ImGui::PushClipRect(rowAreaMin, rowAreaMax, false);
+		ImGui::PushClipRect(rowArea.Min, rowArea.Max, false);
 		ImGui::SetNextItemAllowOverlap();
 
 		bool isRowHovered, held;
-		bool isRowClicked = ImGui::ButtonBehavior(ImRect(rowAreaMin, rowAreaMax), ImGui::GetID(id),
+		bool isRowClicked = ImGui::ButtonBehavior(rowArea, ImGui::GetID(id),
 			&isRowHovered, &held, ImGuiButtonFlags_AllowOverlap);
 
 		ImGui::PopClipRect();

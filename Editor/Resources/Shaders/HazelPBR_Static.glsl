@@ -186,15 +186,15 @@ vec3 GetGradient(float value)
 void main()
 {
 	// Standard PBR inputs
-	vec4 albedoTexColor = SampleLinear(u_AlbedoTexture, Input.TexCoord);
+	vec4 albedoTexColor = SampleMaterial(u_AlbedoTexture, Input.TexCoord);
 	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;   // MaterialUniforms.AlbedoColor is perceptual, must be converted to linear.
 	float alpha = albedoTexColor.a;
 	// note: Metalness and roughness could be in the same texture.
 	//       Per GLTF spec, we read metalness from the B channel and roughness from the G channel
 	//       This will still work if metalness and roughness are independent greyscale textures,
 	//       but it will not work if metalness and roughness are independent textures containing only R channel.
-	m_Params.Metalness = SampleLinear(u_MetalnessTexture, Input.TexCoord).b * u_MaterialUniforms.Metalness;
-	m_Params.Roughness = SampleLinear(u_RoughnessTexture, Input.TexCoord).g * u_MaterialUniforms.Roughness;
+	m_Params.Metalness = SampleMaterial(u_MetalnessTexture, Input.TexCoord).b * u_MaterialUniforms.Metalness;
+	m_Params.Roughness = SampleMaterial(u_RoughnessTexture, Input.TexCoord).g * u_MaterialUniforms.Roughness;
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.f, 1.f);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
@@ -202,7 +202,7 @@ void main()
 	m_Params.Normal = normalize(Input.Normal);
 	if (u_MaterialUniforms.UseNormalMap)
 	{
-		m_Params.Normal = normalize(SampleLinear(u_NormalTexture, Input.TexCoord).rgb * 2.0f - 1.0f);
+		m_Params.Normal = normalize(SampleMaterial(u_NormalTexture, Input.TexCoord).rgb * 2.0f - 1.0f);
 		m_Params.Normal = normalize(Input.WorldNormals * m_Params.Normal);
 	}
 	// View normals

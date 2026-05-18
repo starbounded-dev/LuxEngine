@@ -13,6 +13,41 @@ Project:
   AutoSave: true
   AutoSaveInterval: 300
   RenderingTechnique: Forward
+  SceneRenderer:
+    Rendering:
+      FrustumCulling: true
+      GPUDrivenRendering: true
+      GTAO: true
+      GTAOBentNormals: true
+      GTAODenoisePasses: 8
+      AOShadowTolerance: 4
+      SSR: true
+      JumpFloodOutline: true
+    Shadows:
+      SoftShadows: true
+      MaxDistance: 200
+      DistanceFade: 25
+      SplitLambda: 0.920000017
+      NearOffset: 0
+      FarOffset: 50
+      CascadeFade: 1
+    PostFX:
+      Bloom:
+        Enabled: true
+        Threshold: 1
+        Knee: 0.100000001
+        UpsampleScale: 1
+        Intensity: 1
+        DirtIntensity: 1
+      DOF:
+        Enabled: true
+        FocusDistance: 4
+        BlurSize: 0.75
+      SSR:
+        HalfRes: true
+        MaxSteps: 70
+        Brightness: 0.699999988
+        DepthTolerance: 0.800000012
   Audio:
     FileStreamingDurationThreshold: 1
   Physics:
