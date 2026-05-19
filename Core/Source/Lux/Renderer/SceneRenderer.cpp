@@ -236,7 +236,8 @@ namespace Lux {
 	void SceneRenderer::ApplyProjectSettings(const ProjectSceneRendererSettings& settings)
 	{
 		m_Options.EnableFrustumCulling = settings.EnableFrustumCulling;
-		m_Options.EnableOcclusionCulling = settings.EnableOcclusionCulling;
+		// The current HZB stores closest depth for SSR/GTAO, which is not conservative for mesh occlusion.
+		m_Options.EnableOcclusionCulling = false;
 		m_Options.EnableGPUDrivenRendering = settings.EnableGPUDrivenRendering;
 		m_Options.EnableGTAO = settings.EnableGTAO;
 		m_Options.GTAOBentNormals = settings.GTAOBentNormals;
@@ -276,7 +277,7 @@ namespace Lux {
 	void SceneRenderer::WriteProjectSettings(ProjectSceneRendererSettings& settings) const
 	{
 		settings.EnableFrustumCulling = m_Options.EnableFrustumCulling;
-		settings.EnableOcclusionCulling = m_Options.EnableOcclusionCulling;
+		settings.EnableOcclusionCulling = false;
 		settings.EnableGPUDrivenRendering = m_Options.EnableGPUDrivenRendering;
 		settings.EnableGTAO = m_Options.EnableGTAO;
 		settings.GTAOBentNormals = m_Options.GTAOBentNormals;
@@ -2837,7 +2838,8 @@ namespace Lux {
 		};
 		pushConstants.DrawCount = m_MeshCullDrawCount;
 		pushConstants.FrustumCullingEnabled = m_Options.EnableFrustumCulling ? 1u : 0u;
-		pushConstants.OcclusionCullingEnabled = m_Options.EnableOcclusionCulling && m_HZBPrimed && m_HierarchicalDepthTexture.Texture ? 1u : 0u;
+		constexpr bool enableConservativeHZBOcclusion = false;
+		pushConstants.OcclusionCullingEnabled = enableConservativeHZBOcclusion && m_Options.EnableOcclusionCulling && m_HZBPrimed && m_HierarchicalDepthTexture.Texture ? 1u : 0u;
 		pushConstants.NumDepthMips = m_HierarchicalDepthTexture.Texture ? glm::max(1u, m_HierarchicalDepthTexture.Texture->GetMipLevelCount()) : 1u;
 
 		BeginProfiledGPU("MeshCullingPass");
@@ -3366,9 +3368,12 @@ namespace Lux {
 		m_Statistics.SubmittedInstances = m_FrameCullingStats.SubmittedInstances;
 		m_Statistics.Instances = 0;
 		m_Statistics.VisibleInstances = 0;
+		m_Statistics.GPUVisibleInstances = 0;
 		m_Statistics.CulledInstances = 0;
-		m_Statistics.MainViewCulledInstances = m_FrameCullingStats.MainViewCulledInstances;
+		m_Statistics.FrustumCulledInstances = m_FrameCullingStats.MainViewCulledInstances;
+		m_Statistics.MainViewCulledInstances = m_Statistics.FrustumCulledInstances;
 		m_Statistics.ShadowCulledInstances = m_FrameCullingStats.ShadowCulledInstances;
+		m_Statistics.OcclusionCulledInstances = 0;
 		m_Statistics.FullyCulledInstances = m_FrameCullingStats.FullyCulledInstances;
 		m_Statistics.IndirectDraws = 0;
 		m_Statistics.SavedDraws = 0;
@@ -3410,7 +3415,9 @@ namespace Lux {
 		const uint32_t lateCulledInstances = m_Statistics.Instances > m_Statistics.VisibleInstances
 			? m_Statistics.Instances - m_Statistics.VisibleInstances
 			: 0;
-		m_Statistics.CulledInstances = lateCulledInstances + m_Statistics.MainViewCulledInstances;
+		m_Statistics.GPUVisibleInstances = m_Statistics.VisibleInstances;
+		// Real HZB occlusion rejection counts require reading the post-compute counters back from the GPU.
+		m_Statistics.CulledInstances = lateCulledInstances + m_Statistics.FrustumCulledInstances + m_Statistics.OcclusionCulledInstances;
 
 		for (const SpotLight& spotLight : m_SceneData.SceneLightEnvironment.SpotLights)
 		{

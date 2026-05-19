@@ -244,9 +244,11 @@ namespace Lux {
 				DrawStat("Meshes", stats.Meshes);
 				DrawStat("Instances", stats.Instances);
 				DrawStat("Visible Instances", stats.VisibleInstances);
+				DrawStat("GPU Visible", stats.GPUVisibleInstances);
 				DrawStat("Culled Instances", stats.CulledInstances);
-				DrawStat("Main View Culled", stats.MainViewCulledInstances);
+				DrawStat("Frustum Culled", stats.FrustumCulledInstances);
 				DrawStat("Shadow Culled", stats.ShadowCulledInstances);
+				DrawStat("Occlusion Culled", stats.OcclusionCulledInstances);
 				DrawStat("Fully Culled", stats.FullyCulledInstances);
 				DrawStat("Saved Draws", stats.SavedDraws);
 				DrawStat("Indirect Draws", stats.IndirectDraws);
@@ -356,7 +358,12 @@ namespace Lux {
 		{
 			ImGuiEx::BeginPropertyGrid();
 			projectSettingsChanged |= ImGuiEx::Property("Frustum Culling", options.EnableFrustumCulling);
-			projectSettingsChanged |= ImGuiEx::Property("Occlusion Culling", options.EnableOcclusionCulling);
+			options.EnableOcclusionCulling = false;
+			bool occlusionCulling = false;
+			ImGui::BeginDisabled();
+			ImGuiEx::Property("Occlusion Culling", occlusionCulling);
+			ImGui::EndDisabled();
+			ImGuiEx::SetTooltip("Disabled until Lux has a conservative occlusion depth pyramid.");
 			projectSettingsChanged |= ImGuiEx::Property("GPU Driven Indirect", options.EnableGPUDrivenRendering);
 			bool gtaoSettingsChanged = false;
 			gtaoSettingsChanged |= ImGuiEx::Property("GTAO", options.EnableGTAO);
@@ -424,7 +431,11 @@ namespace Lux {
 				DrawStat("Meshes", stats.Meshes);
 				DrawStat("Instances", stats.Instances);
 				DrawStat("Visible Instances", stats.VisibleInstances);
+				DrawStat("GPU Visible", stats.GPUVisibleInstances);
 				DrawStat("Culled Instances", stats.CulledInstances);
+				DrawStat("Frustum Culled", stats.FrustumCulledInstances);
+				DrawStat("Shadow Culled", stats.ShadowCulledInstances);
+				DrawStat("Occlusion Culled", stats.OcclusionCulledInstances);
 				DrawStat("Saved Draws", stats.SavedDraws);
 				DrawStat("Indirect Draws", stats.IndirectDraws);
 				DrawStat("GPU Time", stats.TotalGPUTime, " ms");

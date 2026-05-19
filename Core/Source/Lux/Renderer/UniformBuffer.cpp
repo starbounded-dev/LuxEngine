@@ -46,8 +46,12 @@ namespace Lux {
 		if (buffer.Size == 0)
 			return;
 
-		cmd->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size, offset);
+		LUX_CORE_ASSERT(offset + buffer.Size <= m_Size);
 
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		uint8_t* mappedBuffer = static_cast<uint8_t*>(device->mapBuffer(m_Handle, nvrhi::CpuAccessMode::Write));
+		std::memcpy(mappedBuffer + offset, buffer.Data, buffer.Size);
+		device->unmapBuffer(m_Handle);
 	}
 
 }

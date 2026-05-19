@@ -53,7 +53,7 @@ namespace Lux
 	struct ProjectSceneRendererSettings
 	{
 		bool EnableFrustumCulling = true;
-		bool EnableOcclusionCulling = true;
+		bool EnableOcclusionCulling = false;
 		bool EnableGPUDrivenRendering = true;
 		bool EnableGTAO = true;
 		bool GTAOBentNormals = false;

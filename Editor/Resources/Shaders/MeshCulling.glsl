@@ -1,6 +1,8 @@
 #version 450 core
 #pragma stage : comp
 
+#include <Samplers.glslh>
+
 layout(std430, set = 1, binding = 0) readonly buffer MeshCullDrawData
 {
 	uvec4 Draws[];
@@ -26,11 +28,18 @@ layout(std430, set = 1, binding = 4) buffer IndirectDrawCommands
 	uint Data[];
 } b_IndirectDrawCommands;
 
+layout(set = 1, binding = 5) uniform texture2D u_HZB;
+
 layout(push_constant) uniform PushConstants
 {
 	mat4 ViewProjection;
+	vec4 HZBUVFactorAndViewportSize;
 	uint DrawCount;
-	uint CullingEnabled;
+	uint FrustumCullingEnabled;
+	uint OcclusionCullingEnabled;
+	uint NumDepthMips;
+	float DepthBias;
+	float BoundsScale;
 	uint _Padding0;
 	uint _Padding1;
 } u_PushConstants;
@@ -46,7 +55,7 @@ vec4 NormalizePlane(vec4 plane)
 
 bool IsSphereVisible(vec4 sphere)
 {
-	if (u_PushConstants.CullingEnabled == 0)
+	if (u_PushConstants.FrustumCullingEnabled == 0)
 		return true;
 
 	mat4 vp = u_PushConstants.ViewProjection;
@@ -65,6 +74,71 @@ bool IsSphereVisible(vec4 sphere)
 	}
 
 	return true;
+}
+
+bool ProjectSphereBounds(vec4 sphere, out vec2 minUV, out vec2 maxUV, out float nearestDeviceZ)
+{
+	vec3 center = sphere.xyz;
+	float radius = max(sphere.w * u_PushConstants.BoundsScale, 0.0001);
+
+	minUV = vec2(1.0);
+	maxUV = vec2(0.0);
+	nearestDeviceZ = 0.0;
+
+	for (uint corner = 0u; corner < 8u; corner++)
+	{
+		vec3 offset = vec3(
+			(corner & 1u) == 0u ? -radius : radius,
+			(corner & 2u) == 0u ? -radius : radius,
+			(corner & 4u) == 0u ? -radius : radius);
+
+		vec4 clip = u_PushConstants.ViewProjection * vec4(center + offset, 1.0);
+		if (clip.w <= 0.0001)
+			return false;
+
+		vec3 ndc = clip.xyz / clip.w;
+		vec2 uv = ndc.xy * 0.5 + 0.5;
+		minUV = min(minUV, uv);
+		maxUV = max(maxUV, uv);
+		nearestDeviceZ = max(nearestDeviceZ, ndc.z);
+	}
+
+	if (maxUV.x <= 0.0 || maxUV.y <= 0.0 || minUV.x >= 1.0 || minUV.y >= 1.0)
+		return false;
+
+	minUV = clamp(minUV, vec2(0.0), vec2(1.0));
+	maxUV = clamp(maxUV, vec2(0.0), vec2(1.0));
+	return maxUV.x > minUV.x && maxUV.y > minUV.y;
+}
+
+bool IsSphereOccluded(vec4 sphere)
+{
+	if (u_PushConstants.OcclusionCullingEnabled == 0 || u_PushConstants.NumDepthMips == 0)
+		return false;
+
+	vec2 minUV;
+	vec2 maxUV;
+	float nearestDeviceZ;
+	if (!ProjectSphereBounds(sphere, minUV, maxUV, nearestDeviceZ))
+		return false;
+
+	vec2 viewportSize = max(u_PushConstants.HZBUVFactorAndViewportSize.zw, vec2(1.0));
+	vec2 rectSize = max((maxUV - minUV) * viewportSize, vec2(1.0));
+	float mip = clamp(ceil(log2(max(rectSize.x, rectSize.y))), 0.0, float(u_PushConstants.NumDepthMips - 1u));
+
+	vec2 hzbUVFactor = u_PushConstants.HZBUVFactorAndViewportSize.xy;
+	vec2 hzbMinUV = minUV * hzbUVFactor;
+	vec2 hzbMaxUV = maxUV * hzbUVFactor;
+	vec2 hzbCenterUV = (hzbMinUV + hzbMaxUV) * 0.5;
+
+	float closestDeviceZ = 0.0;
+	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), hzbMinUV, mip).r);
+	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), vec2(hzbMaxUV.x, hzbMinUV.y), mip).r);
+	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), vec2(hzbMinUV.x, hzbMaxUV.y), mip).r);
+	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), hzbMaxUV, mip).r);
+	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), hzbCenterUV, mip).r);
+
+	return closestDeviceZ > nearestDeviceZ + u_PushConstants.DepthBias;
 }
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
@@ -91,7 +165,7 @@ void main()
 		uint transformIndex = objectIndex / 3u;
 		vec4 boundsSphere = r_InstanceBounds.Spheres[transformIndex];
 
-		if (IsSphereVisible(boundsSphere))
+		if (IsSphereVisible(boundsSphere) && !IsSphereOccluded(boundsSphere))
 		{
 			uint visibleOffset = atomicAdd(b_IndirectDrawCommands.Data[indirectArgsBase + 1u], 1u);
 			o_VisibleObjectIndexes.Indices[visibleObjectIndexBase + visibleOffset] = objectIndex;

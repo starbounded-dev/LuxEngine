@@ -141,7 +141,7 @@ namespace Lux {
 		ShaderDef::AOMethod ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
 		bool  EnableJumpFlood = true;
 		bool  EnableFrustumCulling = true;
-		bool  EnableOcclusionCulling = true;
+		bool  EnableOcclusionCulling = false;
 		bool  EnableGPUDrivenRendering = true;
 	};
 
@@ -230,9 +230,12 @@ namespace Lux {
 			uint32_t SubmittedInstances = 0;
 			uint32_t Instances = 0;
 			uint32_t VisibleInstances = 0;
+			uint32_t GPUVisibleInstances = 0;
 			uint32_t CulledInstances = 0;
+			uint32_t FrustumCulledInstances = 0;
 			uint32_t MainViewCulledInstances = 0;
 			uint32_t ShadowCulledInstances = 0;
+			uint32_t OcclusionCulledInstances = 0;
 			uint32_t FullyCulledInstances = 0;
 			uint32_t IndirectDraws = 0;
 			uint32_t SavedDraws = 0;
