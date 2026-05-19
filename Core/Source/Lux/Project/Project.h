@@ -53,6 +53,7 @@ namespace Lux
 	struct ProjectSceneRendererSettings
 	{
 		bool EnableFrustumCulling = true;
+		bool EnableOcclusionCulling = true;
 		bool EnableGPUDrivenRendering = true;
 		bool EnableGTAO = true;
 		bool GTAOBentNormals = false;
@@ -62,6 +63,7 @@ namespace Lux
 		bool EnableJumpFlood = true;
 
 		bool SoftShadows = true;
+		bool EnableShadowCulling = true;
 		float MaxShadowDistance = 200.0f;
 		float ShadowFade = 25.0f;
 		float ShadowCascadeSplitLambda = 0.92f;

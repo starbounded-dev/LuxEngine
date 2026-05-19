@@ -305,6 +305,12 @@ namespace Lux {
 				ldelete[] buffer;
 		}
 
+		for (auto buffers : m_LineOnTopVertexBufferBases)
+		{
+			for (auto buffer : buffers)
+				ldelete[] buffer;
+		}
+
 		for (auto buffers : m_CircleVertexBufferBases)
 		{
 			for (auto buffer : buffers)

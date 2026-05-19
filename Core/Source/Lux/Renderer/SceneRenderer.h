@@ -141,6 +141,7 @@ namespace Lux {
 		ShaderDef::AOMethod ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
 		bool  EnableJumpFlood = true;
 		bool  EnableFrustumCulling = true;
+		bool  EnableOcclusionCulling = true;
 		bool  EnableGPUDrivenRendering = true;
 	};
 
@@ -226,9 +227,13 @@ namespace Lux {
 		{
 			uint32_t DrawCalls = 0;
 			uint32_t Meshes = 0;
+			uint32_t SubmittedInstances = 0;
 			uint32_t Instances = 0;
 			uint32_t VisibleInstances = 0;
 			uint32_t CulledInstances = 0;
+			uint32_t MainViewCulledInstances = 0;
+			uint32_t ShadowCulledInstances = 0;
+			uint32_t FullyCulledInstances = 0;
 			uint32_t IndirectDraws = 0;
 			uint32_t SavedDraws = 0;
 			uint32_t SpotlightShadowcasters = 0;
@@ -409,6 +414,8 @@ namespace Lux {
 			const glm::mat4& transform,
 			Ref<Material>      overrideMaterial,
 			bool               isSelected);
+		bool IsMainViewVisible(const BoundingSphere& bounds) const;
+		bool IsShadowCasterVisible(const BoundingSphere& bounds) const;
 
 		// ── Render passes ────────────────────────────────────────────────────
 
@@ -786,6 +793,18 @@ namespace Lux {
 			TransformMapData Cascade; // single cascade
 		};
 		std::map<MeshKey, ShadowTransformMapData> m_ShadowMeshTransformMap;
+		std::array<Frustum, ShadowCascadeCount> m_ShadowCascadeFrustums;
+		std::array<Frustum, MaxSpotShadows> m_SpotShadowFrustums;
+		uint32_t m_ShadowCascadeFrustumCount = 0;
+		uint32_t m_SpotShadowFrustumCount = 0;
+
+		struct FrameCullingStats
+		{
+			uint32_t SubmittedInstances = 0;
+			uint32_t MainViewCulledInstances = 0;
+			uint32_t ShadowCulledInstances = 0;
+			uint32_t FullyCulledInstances = 0;
+		} m_FrameCullingStats;
 
 		// ── Viewport / frame state ────────────────────────────────────────────
 		uint32_t m_ViewportWidth = 0;
@@ -796,6 +815,7 @@ namespace Lux {
 		bool     m_Active = false;
 		bool     m_ResourcesCreatedGPU = false;
 		bool     m_ResourcesCreated = false;
+		bool     m_HZBPrimed = false;
 
 		float m_LineWidth = 2.0f;
 		float m_Opacity = 1.0f;

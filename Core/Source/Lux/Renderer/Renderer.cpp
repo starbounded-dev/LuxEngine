@@ -29,6 +29,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <shared_mutex>
@@ -199,12 +200,20 @@ namespace Lux {
 
 	struct ShaderDependencies
 	{
-		std::vector<Ref<PipelineCompute>> ComputePipelines;
-		std::vector<Ref<Pipeline>> Pipelines;
-		std::vector<Ref<Material>> Materials;
+		std::vector<WeakRef<PipelineCompute>> ComputePipelines;
+		std::vector<WeakRef<Pipeline>> Pipelines;
+		std::vector<WeakRef<Material>> Materials;
 	};
 	static std::unordered_map<size_t, ShaderDependencies> s_ShaderDependencies;
 	static std::shared_mutex s_ShaderDependenciesMutex; // ShaderDependencies can be accessed (and modified) from multiple threads, hence require synchronization
+
+	template<typename T>
+	static void PruneDeadDependencies(std::vector<WeakRef<T>>& dependencies)
+	{
+		dependencies.erase(
+			std::remove_if(dependencies.begin(), dependencies.end(), [](const WeakRef<T>& dependency) { return !dependency; }),
+			dependencies.end());
+	}
 
 
 	struct GlobalShaderInfo
@@ -260,19 +269,19 @@ namespace Lux {
 
 	static RendererData* s_RendererData = nullptr;
 
-	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Ref<PipelineCompute> computePipeline)
+	void Renderer::RegisterShaderDependency(Ref<Shader> shader, PipelineCompute* computePipeline)
 	{
 		std::scoped_lock lock(s_ShaderDependenciesMutex);
 		s_ShaderDependencies[shader->GetHash()].ComputePipelines.push_back(computePipeline);
 	}
 
-	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Ref<Pipeline> pipeline)
+	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Pipeline* pipeline)
 	{
 		std::scoped_lock lock(s_ShaderDependenciesMutex);
 		s_ShaderDependencies[shader->GetHash()].Pipelines.push_back(pipeline);
 	}
 
-	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Ref<Material> material)
+	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Material* material)
 	{
 		std::scoped_lock lock(s_ShaderDependenciesMutex);
 		s_ShaderDependencies[shader->GetHash()].Materials.push_back(material);
@@ -282,25 +291,31 @@ namespace Lux {
 	{
 		ShaderDependencies dependencies;
 		{
-			std::shared_lock lock(s_ShaderDependenciesMutex);
+			std::scoped_lock lock(s_ShaderDependenciesMutex);
 			if (auto it = s_ShaderDependencies.find(hash); it != s_ShaderDependencies.end())
 			{
-				dependencies = it->second; // expensive to copy, but we need to release the lock (in particular to avoid potential deadlock if things like material->OnShaderReloaded() happen to ask for the lock)
+				PruneDeadDependencies(it->second.Pipelines);
+				PruneDeadDependencies(it->second.ComputePipelines);
+				PruneDeadDependencies(it->second.Materials);
+				dependencies = it->second; // Copy weak refs so callbacks run outside the registry lock.
 			}
 		}
 		for (auto& pipeline : dependencies.Pipelines)
 		{
-			pipeline->Invalidate();
+			if (pipeline)
+				pipeline->Invalidate();
 		}
 
 		for (auto& computePipeline : dependencies.ComputePipelines)
 		{
-			computePipeline->CreatePipeline();
+			if (computePipeline)
+				computePipeline->CreatePipeline();
 		}
 
 		for (auto& material : dependencies.Materials)
 		{
-			material->OnShaderReloaded();
+			if (material)
+				material->OnShaderReloaded();
 		}
 	}
 

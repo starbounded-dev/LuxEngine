@@ -118,6 +118,7 @@ namespace Lux
 			out << YAML::Key << "Rendering" << YAML::Value;
 			out << YAML::BeginMap;
 			out << YAML::Key << "FrustumCulling" << YAML::Value << settings.EnableFrustumCulling;
+			out << YAML::Key << "OcclusionCulling" << YAML::Value << settings.EnableOcclusionCulling;
 			out << YAML::Key << "GPUDrivenRendering" << YAML::Value << settings.EnableGPUDrivenRendering;
 			out << YAML::Key << "GTAO" << YAML::Value << settings.EnableGTAO;
 			out << YAML::Key << "GTAOBentNormals" << YAML::Value << settings.GTAOBentNormals;
@@ -130,6 +131,7 @@ namespace Lux
 			out << YAML::Key << "Shadows" << YAML::Value;
 			out << YAML::BeginMap;
 			out << YAML::Key << "SoftShadows" << YAML::Value << settings.SoftShadows;
+			out << YAML::Key << "ShadowCulling" << YAML::Value << settings.EnableShadowCulling;
 			out << YAML::Key << "MaxDistance" << YAML::Value << settings.MaxShadowDistance;
 			out << YAML::Key << "DistanceFade" << YAML::Value << settings.ShadowFade;
 			out << YAML::Key << "SplitLambda" << YAML::Value << settings.ShadowCascadeSplitLambda;
@@ -177,6 +179,7 @@ namespace Lux
 			if (auto rendering = node["Rendering"])
 			{
 				settings.EnableFrustumCulling = rendering["FrustumCulling"].as<bool>(settings.EnableFrustumCulling);
+				settings.EnableOcclusionCulling = rendering["OcclusionCulling"].as<bool>(settings.EnableOcclusionCulling);
 				settings.EnableGPUDrivenRendering = rendering["GPUDrivenRendering"].as<bool>(settings.EnableGPUDrivenRendering);
 				settings.EnableGTAO = rendering["GTAO"].as<bool>(settings.EnableGTAO);
 				settings.GTAOBentNormals = rendering["GTAOBentNormals"].as<bool>(settings.GTAOBentNormals);
@@ -189,6 +192,7 @@ namespace Lux
 			if (auto shadows = node["Shadows"])
 			{
 				settings.SoftShadows = shadows["SoftShadows"].as<bool>(settings.SoftShadows);
+				settings.EnableShadowCulling = shadows["ShadowCulling"].as<bool>(settings.EnableShadowCulling);
 				settings.MaxShadowDistance = shadows["MaxDistance"].as<float>(settings.MaxShadowDistance);
 				settings.ShadowFade = shadows["DistanceFade"].as<float>(settings.ShadowFade);
 				settings.ShadowCascadeSplitLambda = shadows["SplitLambda"].as<float>(settings.ShadowCascadeSplitLambda);
@@ -229,6 +233,7 @@ namespace Lux
 		void WriteSceneRendererRuntimeSettings(FileStreamWriter& serializer, const ProjectSceneRendererSettings& settings)
 		{
 			serializer.WriteRaw(settings.EnableFrustumCulling);
+			serializer.WriteRaw(settings.EnableOcclusionCulling);
 			serializer.WriteRaw(settings.EnableGPUDrivenRendering);
 			serializer.WriteRaw(settings.EnableGTAO);
 			serializer.WriteRaw(settings.GTAOBentNormals);
@@ -238,6 +243,7 @@ namespace Lux
 			serializer.WriteRaw(settings.EnableJumpFlood);
 
 			serializer.WriteRaw(settings.SoftShadows);
+			serializer.WriteRaw(settings.EnableShadowCulling);
 			serializer.WriteRaw(settings.MaxShadowDistance);
 			serializer.WriteRaw(settings.ShadowFade);
 			serializer.WriteRaw(settings.ShadowCascadeSplitLambda);
@@ -262,9 +268,11 @@ namespace Lux
 			serializer.WriteRaw(settings.SSRDepthTolerance);
 		}
 
-		void ReadSceneRendererRuntimeSettings(FileStreamReader& stream, ProjectSceneRendererSettings& settings)
+		void ReadSceneRendererRuntimeSettings(FileStreamReader& stream, ProjectSceneRendererSettings& settings, uint32_t version)
 		{
 			stream.ReadRaw(settings.EnableFrustumCulling);
+			if (version >= 3)
+				stream.ReadRaw(settings.EnableOcclusionCulling);
 			stream.ReadRaw(settings.EnableGPUDrivenRendering);
 			stream.ReadRaw(settings.EnableGTAO);
 			stream.ReadRaw(settings.GTAOBentNormals);
@@ -274,6 +282,8 @@ namespace Lux
 			stream.ReadRaw(settings.EnableJumpFlood);
 
 			stream.ReadRaw(settings.SoftShadows);
+			if (version >= 3)
+				stream.ReadRaw(settings.EnableShadowCulling);
 			stream.ReadRaw(settings.MaxShadowDistance);
 			stream.ReadRaw(settings.ShadowFade);
 			stream.ReadRaw(settings.ShadowCascadeSplitLambda);
@@ -663,7 +673,7 @@ namespace Lux
 		}
 
 		if (projectInfo.HeaderData.Version >= 2)
-			ReadSceneRendererRuntimeSettings(stream, config.SceneRenderer);
+			ReadSceneRendererRuntimeSettings(stream, config.SceneRenderer, projectInfo.HeaderData.Version);
 
 		const std::filesystem::path overridesFile = filepath.parent_path() / "Project.yaml";
 		if (std::filesystem::exists(overridesFile))

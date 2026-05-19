@@ -180,9 +180,9 @@ namespace Lux {
 		static Ref<Environment> GetEmptyEnvironment();
 		static Ref<Environment> GetDefaultEnvironment();
 
-		static void RegisterShaderDependency(Ref<Shader> shader, Ref<PipelineCompute> computePipeline);
-		static void RegisterShaderDependency(Ref<Shader> shader, Ref<Pipeline> pipeline);
-		static void RegisterShaderDependency(Ref<Shader> shader, Ref<Material> material);
+		static void RegisterShaderDependency(Ref<Shader> shader, PipelineCompute* computePipeline);
+		static void RegisterShaderDependency(Ref<Shader> shader, Pipeline* pipeline);
+		static void RegisterShaderDependency(Ref<Shader> shader, Material* material);
 		static void OnShaderReloaded(size_t hash);
 
 		static uint32_t GetCurrentFrameIndex();

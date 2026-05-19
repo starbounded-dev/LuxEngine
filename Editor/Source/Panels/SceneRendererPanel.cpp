@@ -239,15 +239,18 @@ namespace Lux {
 			ImGui::TextUnformatted("Scene Workload");
 			if (ImGui::BeginTable("##profiling_workload", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 			{
+				DrawStat("Submitted Instances", stats.SubmittedInstances);
 				DrawStat("Draw Calls", stats.DrawCalls);
 				DrawStat("Meshes", stats.Meshes);
 				DrawStat("Instances", stats.Instances);
 				DrawStat("Visible Instances", stats.VisibleInstances);
 				DrawStat("Culled Instances", stats.CulledInstances);
+				DrawStat("Main View Culled", stats.MainViewCulledInstances);
+				DrawStat("Shadow Culled", stats.ShadowCulledInstances);
+				DrawStat("Fully Culled", stats.FullyCulledInstances);
 				DrawStat("Saved Draws", stats.SavedDraws);
 				DrawStat("Indirect Draws", stats.IndirectDraws);
 				DrawStat("Spot Shadowcasters", stats.SpotlightShadowcasters);
-				DrawStat("Spot Shadows Culled", stats.SpotlightShadowsCulled);
 				ImGui::EndTable();
 			}
 
@@ -353,6 +356,7 @@ namespace Lux {
 		{
 			ImGuiEx::BeginPropertyGrid();
 			projectSettingsChanged |= ImGuiEx::Property("Frustum Culling", options.EnableFrustumCulling);
+			projectSettingsChanged |= ImGuiEx::Property("Occlusion Culling", options.EnableOcclusionCulling);
 			projectSettingsChanged |= ImGuiEx::Property("GPU Driven Indirect", options.EnableGPUDrivenRendering);
 			bool gtaoSettingsChanged = false;
 			gtaoSettingsChanged |= ImGuiEx::Property("GTAO", options.EnableGTAO);
@@ -373,6 +377,7 @@ namespace Lux {
 		{
 			ImGuiEx::BeginPropertyGrid();
 			projectSettingsChanged |= ImGuiEx::Property("Soft Shadows", options.SoftShadows);
+			projectSettingsChanged |= ImGuiEx::Property("Shadow Culling", options.EnableShadowCulling);
 			projectSettingsChanged |= ImGuiEx::Property("Max Distance", options.MaxShadowDistance, 1.0f, 1.0f, 1000.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Distance Fade", options.ShadowFade, 0.25f, 0.01f, 250.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Split Lambda", options.ShadowCascadeSplitLambda, 0.01f, 0.0f, 1.0f);

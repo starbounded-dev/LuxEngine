@@ -236,6 +236,7 @@ namespace Lux {
 	void SceneRenderer::ApplyProjectSettings(const ProjectSceneRendererSettings& settings)
 	{
 		m_Options.EnableFrustumCulling = settings.EnableFrustumCulling;
+		m_Options.EnableOcclusionCulling = settings.EnableOcclusionCulling;
 		m_Options.EnableGPUDrivenRendering = settings.EnableGPUDrivenRendering;
 		m_Options.EnableGTAO = settings.EnableGTAO;
 		m_Options.GTAOBentNormals = settings.GTAOBentNormals;
@@ -245,6 +246,7 @@ namespace Lux {
 		m_Options.EnableJumpFlood = settings.EnableJumpFlood;
 
 		m_Options.SoftShadows = settings.SoftShadows;
+		m_Options.EnableShadowCulling = settings.EnableShadowCulling;
 		m_Options.MaxShadowDistance = settings.MaxShadowDistance;
 		m_Options.ShadowFade = settings.ShadowFade;
 		m_Options.ShadowCascadeSplitLambda = settings.ShadowCascadeSplitLambda;
@@ -274,6 +276,7 @@ namespace Lux {
 	void SceneRenderer::WriteProjectSettings(ProjectSceneRendererSettings& settings) const
 	{
 		settings.EnableFrustumCulling = m_Options.EnableFrustumCulling;
+		settings.EnableOcclusionCulling = m_Options.EnableOcclusionCulling;
 		settings.EnableGPUDrivenRendering = m_Options.EnableGPUDrivenRendering;
 		settings.EnableGTAO = m_Options.EnableGTAO;
 		settings.GTAOBentNormals = m_Options.GTAOBentNormals;
@@ -283,6 +286,7 @@ namespace Lux {
 		settings.EnableJumpFlood = m_Options.EnableJumpFlood;
 
 		settings.SoftShadows = m_Options.SoftShadows;
+		settings.EnableShadowCulling = m_Options.EnableShadowCulling;
 		settings.MaxShadowDistance = m_Options.MaxShadowDistance;
 		settings.ShadowFade = m_Options.ShadowFade;
 		settings.ShadowCascadeSplitLambda = m_Options.ShadowCascadeSplitLambda;
@@ -591,6 +595,8 @@ namespace Lux {
 			m_MeshCullingPass->SetInput("InstanceBounds", m_SBSInstanceBounds);
 			m_MeshCullingPass->SetInput("VisibleObjectIndexes", m_SBSVisibleObjectIndexes);
 			m_MeshCullingPass->SetInput("IndirectDrawCommands", m_SBSIndirectDrawCommands);
+			m_MeshCullingPass->SetInput("u_HZB", m_HierarchicalDepthTexture.Texture);
+			m_MeshCullingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			LUX_CORE_VERIFY(m_MeshCullingPass->Validate());
 			m_MeshCullingPass->Bake();
 		}
@@ -1389,6 +1395,7 @@ namespace Lux {
 			m_SSROptions.HZBUvFactor = glm::vec2(viewportSize) / glm::vec2(hzbWidth, hzbHeight);
 
 			m_HierarchicalDepthTexture.Texture->Resize(hzbWidth, hzbHeight);
+			m_HZBPrimed = false;
 			const uint32_t mipCount = m_HierarchicalDepthTexture.Texture->GetMipLevelCount();
 			m_HierarchicalDepthTexture.ImageViews.resize(mipCount);
 
@@ -1760,6 +1767,9 @@ namespace Lux {
 		LUX_CORE_ASSERT(!m_Active, "BeginScene called twice without EndScene");
 		m_Active = true;
 		ResetProfilingData();
+		m_FrameCullingStats = {};
+		m_ShadowCascadeFrustumCount = 0;
+		m_SpotShadowFrustumCount = 0;
 
 		if (Ref<Project> project = Project::GetActive())
 			m_RenderingTechnique = project->GetConfig().RendererTechnique;
@@ -1957,7 +1967,10 @@ namespace Lux {
 				const float farPlane = glm::max(0.1f, light.Range);
 				const float fov = glm::radians(glm::clamp(light.Angle, 1.0f, 179.0f));
 				const glm::mat4 proj = glm::perspective(fov, 1.0f, nearPlane, farPlane);
-				m_SpotShadowUB.ViewProjection[atlasIndex] = proj * view;
+				const glm::mat4 viewProjection = proj * view;
+				m_SpotShadowUB.ViewProjection[atlasIndex] = viewProjection;
+				m_SpotShadowFrustums[atlasIndex] = Frustum::FromViewProjection(viewProjection);
+				m_SpotShadowFrustumCount = glm::max(m_SpotShadowFrustumCount, atlasIndex + 1u);
 			}
 
 			m_SpotShadowUB.Count = m_SpotShadowCount;
@@ -1987,7 +2000,11 @@ namespace Lux {
 				CascadeData cascades[ShadowCascadeCount];
 				CalculateCascades(cascades, camera, dirLight.Direction);
 				for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+				{
 					m_ShadowUB.ViewProjection[cascade] = cascades[cascade].ViewProj;
+					m_ShadowCascadeFrustums[cascade] = Frustum::FromViewProjection(cascades[cascade].ViewProj);
+				}
+				m_ShadowCascadeFrustumCount = ShadowCascadeCount;
 
 				m_RendererDataUB.CascadeSplits = {
 					cascades[0].SplitDepth,
@@ -2068,6 +2085,37 @@ namespace Lux {
 		SubmitStaticMeshInternal(staticMesh, meshSource, materialTable, transform, overrideMaterial, true);
 	}
 
+	bool SceneRenderer::IsMainViewVisible(const BoundingSphere& bounds) const
+	{
+		if (!m_Options.EnableFrustumCulling || !m_Options.EnableMainViewCulling)
+			return true;
+
+		return m_SceneData.CameraFrustum.IsSphereVisible(bounds);
+	}
+
+	bool SceneRenderer::IsShadowCasterVisible(const BoundingSphere& bounds) const
+	{
+		if (!m_Options.EnableShadowCulling)
+			return true;
+
+		if (m_ShadowCascadeFrustumCount == 0 && m_SpotShadowFrustumCount == 0)
+			return false;
+
+		for (uint32_t cascade = 0; cascade < m_ShadowCascadeFrustumCount; cascade++)
+		{
+			if (m_ShadowCascadeFrustums[cascade].IsSphereVisible(bounds))
+				return true;
+		}
+
+		for (uint32_t shadowIndex = 0; shadowIndex < m_SpotShadowFrustumCount; shadowIndex++)
+		{
+			if (m_SpotShadowFrustums[shadowIndex].IsSphereVisible(bounds))
+				return true;
+		}
+
+		return false;
+	}
+
 	void SceneRenderer::SubmitStaticMeshInternal(
 		Ref<StaticMesh>    staticMesh,
 		Ref<MeshSource>    meshSource,
@@ -2110,48 +2158,68 @@ namespace Lux {
 				: materialHandle;
 			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), keyMaterialHandle, submeshIndex, isSelected };
 
+			// ── Shadow pass list ──────────────────────────────────────────────
+			const bool castsShadows = resolvedOverrideMaterial
+				? true // override materials always cast shadows
+				: (materialAsset && materialAsset->IsShadowCasting());
+
+			const glm::vec4 boundsSphereData = CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform);
+			const BoundingSphere boundsSphere{ glm::vec3(boundsSphereData), boundsSphereData.w };
+			const bool mainViewVisible = IsMainViewVisible(boundsSphere);
+			const bool shadowVisible = castsShadows && IsShadowCasterVisible(boundsSphere);
+
+			m_FrameCullingStats.SubmittedInstances++;
+			if (!mainViewVisible)
+				m_FrameCullingStats.MainViewCulledInstances++;
+			if (castsShadows && !shadowVisible)
+				m_FrameCullingStats.ShadowCulledInstances++;
+			if (!mainViewVisible && !shadowVisible)
+			{
+				m_FrameCullingStats.FullyCulledInstances++;
+				continue;
+			}
+
 			// ── Store transform ───────────────────────────────────────────────
 			const uint32_t transformIndex = (uint32_t)m_TransformData.size();
 			auto& td = m_TransformData.emplace_back();
 			td.MRow[0] = { submeshTransform[0][0], submeshTransform[1][0], submeshTransform[2][0], submeshTransform[3][0] };
 			td.MRow[1] = { submeshTransform[0][1], submeshTransform[1][1], submeshTransform[2][1], submeshTransform[3][1] };
 			td.MRow[2] = { submeshTransform[0][2], submeshTransform[1][2], submeshTransform[2][2], submeshTransform[3][2] };
-			m_InstanceBoundsData.push_back({ CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform) });
+			m_InstanceBoundsData.push_back({ boundsSphereData });
 
-			// ── Main draw list ────────────────────────────────────────────────
-			m_MeshTransformMap[key].ObjectIndices.push_back(transformIndex);
-
-			const bool isTransparent = materialAsset ? materialAsset->IsTransparent() : false;
-			auto& destList = isTransparent ? m_TransparentStaticMeshDrawList : m_StaticMeshDrawList;
-			auto& dc = destList[key];
-			dc.StaticMesh = staticMesh;
-			dc.MeshSource = meshSource;
-			dc.SubmeshIndex = submeshIndex;
-			dc.MaterialHandle = materialHandle;
-			dc.MaterialTable = materialTable;
-			dc.OverrideMaterial = resolvedOverrideMaterial;
-			dc.InstanceCount++;
-
-			// ── Selected list ─────────────────────────────────────────────────
-			if (isSelected)
+			if (mainViewVisible)
 			{
-				auto& selDc = m_SelectedStaticMeshDrawList[key];
-				selDc.StaticMesh = staticMesh;
-				selDc.MeshSource = meshSource;
-				selDc.SubmeshIndex = submeshIndex;
-				selDc.MaterialHandle = materialHandle;
-				selDc.MaterialTable = materialTable;
-				selDc.OverrideMaterial = resolvedOverrideMaterial;
-				selDc.InstanceCount++;
+				// ── Main draw list ────────────────────────────────────────────────
+				m_MeshTransformMap[key].ObjectIndices.push_back(transformIndex);
+
+				const bool isTransparent = materialAsset ? materialAsset->IsTransparent() : false;
+				auto& destList = isTransparent ? m_TransparentStaticMeshDrawList : m_StaticMeshDrawList;
+				auto& dc = destList[key];
+				dc.StaticMesh = staticMesh;
+				dc.MeshSource = meshSource;
+				dc.SubmeshIndex = submeshIndex;
+				dc.MaterialHandle = materialHandle;
+				dc.MaterialTable = materialTable;
+				dc.OverrideMaterial = resolvedOverrideMaterial;
+				dc.InstanceCount++;
+
+				// ── Selected list ─────────────────────────────────────────────────
+				if (isSelected)
+				{
+					auto& selDc = m_SelectedStaticMeshDrawList[key];
+					selDc.StaticMesh = staticMesh;
+					selDc.MeshSource = meshSource;
+					selDc.SubmeshIndex = submeshIndex;
+					selDc.MaterialHandle = materialHandle;
+					selDc.MaterialTable = materialTable;
+					selDc.OverrideMaterial = resolvedOverrideMaterial;
+					selDc.InstanceCount++;
+				}
 			}
 
-			// ── Shadow pass list ──────────────────────────────────────────────
-			const bool castsShadows = resolvedOverrideMaterial
-				? true // override materials always cast shadows
-				: (materialAsset && materialAsset->IsShadowCasting());
-
-			if (castsShadows)
+			if (shadowVisible)
 			{
+				// ── Shadow pass list ──────────────────────────────────────────────
 				m_ShadowMeshTransformMap[key].Cascade.ObjectIndices.push_back(transformIndex);
 
 				auto& shadowDc = m_StaticMeshShadowPassDrawList[key];
@@ -2438,19 +2506,22 @@ namespace Lux {
 		if (m_Options.ShowGrid)
 			GridPass();
 
-		// ── 4. Renderer2D (lines, collider outlines, debug renderer queue) ────
+		// ── 4. Renderer2D debug overlay ───────────────────────────────────────
+		if (m_DebugRenderer && !m_DebugRenderer->GetRenderQueue().empty())
 		{
 			ScopedCPUProfile cpuProfile(*this, "Renderer2D");
 
 			const auto& sceneCamera = m_SceneData.SceneCamera;
 			const glm::mat4 viewProj = sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix;
 
-			m_Renderer2D->SetTargetFramebuffer(m_CompositingFramebuffer);
-			m_Renderer2D->BeginScene(viewProj, sceneCamera.ViewMatrix);
+			Ref<Renderer2D> overlayRenderer = m_Renderer2DScreenSpace ? m_Renderer2DScreenSpace : m_Renderer2D;
+			overlayRenderer->SetTargetFramebuffer(m_CompositingFramebuffer);
+			overlayRenderer->ResetStats();
+			overlayRenderer->BeginScene(viewProj, sceneCamera.ViewMatrix);
 
 			// Flush any queued DebugRenderer work
 			for (auto& fn : m_DebugRenderer->GetRenderQueue())
-				fn(m_Renderer2D);
+				fn(overlayRenderer);
 			m_DebugRenderer->ClearRenderQueue();
 
 			// Physics collider outlines (2D wireframe lines)
@@ -2460,7 +2531,7 @@ namespace Lux {
 				// For now the 3D collider meshes are drawn in GeometryPass via m_StaticColliderDrawList.
 			}
 
-			m_Renderer2D->EndScene();
+			overlayRenderer->EndScene();
 		}
 
 		if (m_DOFSettings.Enabled)
@@ -2676,6 +2747,7 @@ namespace Lux {
 
 		Renderer::EndComputePass(m_CommandBuffer, m_HierarchicalDepthPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+		m_HZBPrimed = true;
 	}
 
 	void SceneRenderer::PreIntegration()
@@ -2745,15 +2817,28 @@ namespace Lux {
 		struct MeshCullingPushConstants
 		{
 			glm::mat4 ViewProjection;
+			glm::vec4 HZBUVFactorAndViewportSize;
 			uint32_t DrawCount = 0;
-			uint32_t CullingEnabled = 1;
+			uint32_t FrustumCullingEnabled = 1;
+			uint32_t OcclusionCullingEnabled = 0;
+			uint32_t NumDepthMips = 1;
+			float DepthBias = 0.001f;
+			float BoundsScale = 1.05f;
 			uint32_t Padding0 = 0;
 			uint32_t Padding1 = 0;
 		} pushConstants;
 
 		pushConstants.ViewProjection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix() * m_SceneData.SceneCamera.ViewMatrix;
+		pushConstants.HZBUVFactorAndViewportSize = {
+			m_SSROptions.HZBUvFactor.x,
+			m_SSROptions.HZBUvFactor.y,
+			(float)glm::max(1u, m_ViewportWidth),
+			(float)glm::max(1u, m_ViewportHeight)
+		};
 		pushConstants.DrawCount = m_MeshCullDrawCount;
-		pushConstants.CullingEnabled = m_Options.EnableFrustumCulling ? 1u : 0u;
+		pushConstants.FrustumCullingEnabled = m_Options.EnableFrustumCulling ? 1u : 0u;
+		pushConstants.OcclusionCullingEnabled = m_Options.EnableOcclusionCulling && m_HZBPrimed && m_HierarchicalDepthTexture.Texture ? 1u : 0u;
+		pushConstants.NumDepthMips = m_HierarchicalDepthTexture.Texture ? glm::max(1u, m_HierarchicalDepthTexture.Texture->GetMipLevelCount()) : 1u;
 
 		BeginProfiledGPU("MeshCullingPass");
 		Renderer::BeginComputePass(m_CommandBuffer, m_MeshCullingPass);
@@ -3278,13 +3363,17 @@ namespace Lux {
 	{
 		m_Statistics.DrawCalls = 0;
 		m_Statistics.Meshes = 0;
+		m_Statistics.SubmittedInstances = m_FrameCullingStats.SubmittedInstances;
 		m_Statistics.Instances = 0;
 		m_Statistics.VisibleInstances = 0;
 		m_Statistics.CulledInstances = 0;
+		m_Statistics.MainViewCulledInstances = m_FrameCullingStats.MainViewCulledInstances;
+		m_Statistics.ShadowCulledInstances = m_FrameCullingStats.ShadowCulledInstances;
+		m_Statistics.FullyCulledInstances = m_FrameCullingStats.FullyCulledInstances;
 		m_Statistics.IndirectDraws = 0;
 		m_Statistics.SavedDraws = 0;
 		m_Statistics.SpotlightShadowcasters = 0;
-		m_Statistics.SpotlightShadowsCulled = 0;
+		m_Statistics.SpotlightShadowsCulled = m_FrameCullingStats.ShadowCulledInstances;
 
 		auto accumulate = [this](const std::map<MeshKey, StaticDrawCommand>& drawList)
 			{
@@ -3318,9 +3407,10 @@ namespace Lux {
 		m_Statistics.SavedDraws = m_Statistics.Instances > m_Statistics.DrawCalls
 			? m_Statistics.Instances - m_Statistics.DrawCalls
 			: 0;
-		m_Statistics.CulledInstances = m_Statistics.Instances > m_Statistics.VisibleInstances
+		const uint32_t lateCulledInstances = m_Statistics.Instances > m_Statistics.VisibleInstances
 			? m_Statistics.Instances - m_Statistics.VisibleInstances
 			: 0;
+		m_Statistics.CulledInstances = lateCulledInstances + m_Statistics.MainViewCulledInstances;
 
 		for (const SpotLight& spotLight : m_SceneData.SceneLightEnvironment.SpotLights)
 		{
