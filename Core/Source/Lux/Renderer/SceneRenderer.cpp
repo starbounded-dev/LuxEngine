@@ -12,6 +12,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -77,6 +78,31 @@ namespace Lux {
 		{
 			return { DivideRoundUp(value.x, divisor), DivideRoundUp(value.y, divisor) };
 		}
+
+		constexpr std::array<const char*, 22> s_ProfiledSceneRendererPasses = {
+			"ShadowMapPass",
+			"SpotShadowMapPass",
+			"MeshCullingPass",
+			"PreDepthPass",
+			"HZB",
+			"PreIntegration",
+			"LightCullingPass",
+			"SkyboxPass",
+			"GeometryPass",
+			"GTAO",
+			"GTAO-Denoise",
+			"AOComposite",
+			"PreConvolution",
+			"SSR",
+			"SSRComposite",
+			"JumpFlood",
+			"BloomCompute",
+			"CompositePass",
+			"JumpFloodComposite",
+			"GridPass",
+			"Renderer2D",
+			"DOF"
+		};
 
 		uint32_t NextPowerOfTwo(uint32_t value)
 		{
@@ -1648,11 +1674,92 @@ namespace Lux {
 	// BeginScene
 	// ─────────────────────────────────────────────────────────────────────────
 
+	SceneRenderer::ScopedCPUProfile::ScopedCPUProfile(SceneRenderer& renderer, const char* name)
+		: Renderer(renderer), Name(name)
+	{
+	}
+
+	SceneRenderer::ScopedCPUProfile::~ScopedCPUProfile()
+	{
+		Renderer.RecordCPUProfile(Name, ProfileTimer.ElapsedMillis());
+	}
+
+	SceneRenderer::PassProfile& SceneRenderer::GetOrCreatePassProfile(const char* name)
+	{
+		for (PassProfile& profile : m_Statistics.PassProfiles)
+		{
+			if (std::strcmp(profile.Name, name) == 0)
+				return profile;
+		}
+
+		PassProfile& profile = m_Statistics.PassProfiles.emplace_back();
+		profile.Name = name;
+		return profile;
+	}
+
+	void SceneRenderer::ResetProfilingData()
+	{
+		if (m_Statistics.PassProfiles.size() != s_ProfiledSceneRendererPasses.size())
+		{
+			m_Statistics.PassProfiles.clear();
+			m_Statistics.PassProfiles.reserve(s_ProfiledSceneRendererPasses.size());
+			for (const char* passName : s_ProfiledSceneRendererPasses)
+			{
+				PassProfile& profile = m_Statistics.PassProfiles.emplace_back();
+				profile.Name = passName;
+			}
+		}
+
+		m_Statistics.TotalCPUTime = 0.0f;
+		for (PassProfile& profile : m_Statistics.PassProfiles)
+		{
+			profile.CPUTime = 0.0f;
+			profile.GPUTime = 0.0f;
+			profile.Active = false;
+			profile.GPUActive = false;
+		}
+	}
+
+	void SceneRenderer::RecordCPUProfile(const char* name, float cpuTime)
+	{
+		PassProfile& profile = GetOrCreatePassProfile(name);
+		profile.CPUTime += cpuTime;
+		profile.Active = true;
+		m_Statistics.TotalCPUTime += cpuTime;
+	}
+
+	void SceneRenderer::BeginProfiledGPU(const char* name)
+	{
+		PassProfile& profile = GetOrCreatePassProfile(name);
+		profile.GPUActive = true;
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, name);
+	}
+
+	void SceneRenderer::EndProfiledGPU()
+	{
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::UpdateGPUProfileTimes()
+	{
+		if (!m_CommandBuffer)
+			return;
+
+		for (PassProfile& profile : m_Statistics.PassProfiles)
+		{
+			if (!profile.GPUActive)
+				continue;
+
+			profile.GPUTime = m_CommandBuffer->GetTimerQueryTime(profile.Name);
+		}
+	}
+
 	void SceneRenderer::BeginScene(const SceneRendererCamera& camera)
 	{
 		LUX_CORE_ASSERT(m_Scene, "No scene attached to SceneRenderer");
 		LUX_CORE_ASSERT(!m_Active, "BeginScene called twice without EndScene");
 		m_Active = true;
+		ResetProfilingData();
 
 		if (Ref<Project> project = Project::GetActive())
 			m_RenderingTechnique = project->GetConfig().RendererTechnique;
@@ -2333,6 +2440,8 @@ namespace Lux {
 
 		// ── 4. Renderer2D (lines, collider outlines, debug renderer queue) ────
 		{
+			ScopedCPUProfile cpuProfile(*this, "Renderer2D");
+
 			const auto& sceneCamera = m_SceneData.SceneCamera;
 			const glm::mat4 viewProj = sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix;
 
@@ -2373,6 +2482,7 @@ namespace Lux {
 
 	void SceneRenderer::ShadowMapPass()
 	{
+		ScopedCPUProfile cpuProfile(*this, "ShadowMapPass");
 		const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
 		if (dirLight.Intensity <= 0.0f || !dirLight.CastShadows)
 		{
@@ -2385,7 +2495,7 @@ namespace Lux {
 			return;
 		}
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "ShadowMapPass");
+		BeginProfiledGPU("ShadowMapPass");
 		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapPasses[cascade], /*explicitClear=*/true);
@@ -2411,11 +2521,12 @@ namespace Lux {
 
 			Renderer::EndRenderPass(m_CommandBuffer);
 		}
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+		EndProfiledGPU();
 	}
 
 	void SceneRenderer::SpotShadowMapPass()
 	{
+		ScopedCPUProfile cpuProfile(*this, "SpotShadowMapPass");
 		if (m_SpotShadowCount == 0)
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
@@ -2423,7 +2534,7 @@ namespace Lux {
 			return;
 		}
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SpotShadowMapPass");
+		BeginProfiledGPU("SpotShadowMapPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
 
 		const uint32_t tilesPerRow = m_SpotShadowAtlasGridSize;
@@ -2463,7 +2574,8 @@ namespace Lux {
 
 	void SceneRenderer::PreDepthPass()
 	{
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "PreDepthPass");
+		ScopedCPUProfile cpuProfile(*this, "PreDepthPass");
+		BeginProfiledGPU("PreDepthPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_PreDepthPass, /*explicitClear=*/true);
 
 		for (auto& [key, dc] : m_StaticMeshDrawList)
@@ -2487,6 +2599,7 @@ namespace Lux {
 
 	void SceneRenderer::HZBCompute()
 	{
+		ScopedCPUProfile cpuProfile(*this, "HZB");
 		if (!m_HierarchicalDepthPass || !m_HierarchicalDepthTexture.Texture || !m_PreDepthPass || m_HZBMaterials.empty())
 			return;
 
@@ -2504,7 +2617,7 @@ namespace Lux {
 			int IsFirstPass = 0;
 		};
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "HZB");
+		BeginProfiledGPU("HZB");
 		Renderer::BeginComputePass(m_CommandBuffer, m_HierarchicalDepthPass);
 
 		auto reduceHZB = [&](uint32_t startDestMip, uint32_t parentMip, const glm::vec2& dispatchThreadIdToBufferUV, const glm::vec2& inputViewportMaxBound, bool isFirstPass)
@@ -2567,6 +2680,7 @@ namespace Lux {
 
 	void SceneRenderer::PreIntegration()
 	{
+		ScopedCPUProfile cpuProfile(*this, "PreIntegration");
 		if (!m_PreIntegrationPass || !m_PreIntegrationVisibilityTexture.Texture || m_PreIntegrationMaterials.empty())
 			return;
 
@@ -2588,7 +2702,7 @@ namespace Lux {
 
 		pushConstants.ProjectionParams = { m_SceneData.SceneCamera.Far, m_SceneData.SceneCamera.Near };
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "PreIntegration");
+		BeginProfiledGPU("PreIntegration");
 		Renderer::BeginComputePass(m_CommandBuffer, m_PreIntegrationPass);
 
 		for (uint32_t mip = 1; mip < mipCount && mip - 1 < m_PreIntegrationMaterials.size(); mip++)
@@ -2613,16 +2727,18 @@ namespace Lux {
 
 	void SceneRenderer::LightCullingPass()
 	{
+		ScopedCPUProfile cpuProfile(*this, "LightCullingPass");
 		if (!m_LightCullingPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "LightCullingPass");
+		BeginProfiledGPU("LightCullingPass");
 		Renderer::LightCulling(m_CommandBuffer, m_LightCullingPass, nullptr, { m_LightTilesCountX, m_LightTilesCountY, 1 });
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+		EndProfiledGPU();
 	}
 
 	void SceneRenderer::MeshCullingPass()
 	{
+		ScopedCPUProfile cpuProfile(*this, "MeshCullingPass");
 		if (!m_Options.EnableGPUDrivenRendering || !m_MeshCullingPass || m_MeshCullDrawCount == 0)
 			return;
 
@@ -2639,7 +2755,7 @@ namespace Lux {
 		pushConstants.DrawCount = m_MeshCullDrawCount;
 		pushConstants.CullingEnabled = m_Options.EnableFrustumCulling ? 1u : 0u;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "MeshCullingPass");
+		BeginProfiledGPU("MeshCullingPass");
 		Renderer::BeginComputePass(m_CommandBuffer, m_MeshCullingPass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_MeshCullingPass, nullptr, { m_MeshCullDrawCount, 1, 1 }, Buffer(&pushConstants, sizeof(pushConstants)));
 		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSVisibleObjectIndexes->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
@@ -2650,11 +2766,12 @@ namespace Lux {
 
 	void SceneRenderer::SkyboxPass()
 	{
+		ScopedCPUProfile cpuProfile(*this, "SkyboxPass");
 		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_SceneData.SceneEnvironment);
 		if (!radianceMap)
 			return;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SkyboxPass");
+		BeginProfiledGPU("SkyboxPass");
 
 		m_SkyboxMaterial->Set("u_Uniforms.TextureLod", m_SceneData.SkyboxLod);
 		m_SkyboxMaterial->Set("u_Uniforms.Intensity", m_SceneData.SceneEnvironmentIntensity);
@@ -2669,7 +2786,8 @@ namespace Lux {
 
 	void SceneRenderer::GeometryPass()
 	{
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "GeometryPass");
+		ScopedCPUProfile cpuProfile(*this, "GeometryPass");
+		BeginProfiledGPU("GeometryPass");
 
 		// Selected geometry mask, matching Hazel's static selected path. Lux does
 		// not run animation or jump-flood outline passes here.
@@ -2787,10 +2905,11 @@ namespace Lux {
 
 	void SceneRenderer::GTAOCompute()
 	{
+		ScopedCPUProfile cpuProfile(*this, "GTAO");
 		if (!m_Options.EnableGTAO || !m_GTAOComputePass || !m_GTAOOutputImage)
 			return;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "GTAO");
+		BeginProfiledGPU("GTAO");
 		Renderer::BeginComputePass(m_CommandBuffer, m_GTAOComputePass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_GTAOComputePass, nullptr, m_GTAOWorkGroups, Buffer(&m_GTAODataCB, sizeof(m_GTAODataCB)));
 		Renderer::EndComputePass(m_CommandBuffer, m_GTAOComputePass);
@@ -2801,6 +2920,7 @@ namespace Lux {
 
 	void SceneRenderer::GTAODenoiseCompute()
 	{
+		ScopedCPUProfile cpuProfile(*this, "GTAO-Denoise");
 		if (!m_Options.EnableGTAO || !m_GTAODenoisePass[0] || !m_GTAODenoisePass[1] || !m_GTAOOutputImage)
 			return;
 
@@ -2818,7 +2938,7 @@ namespace Lux {
 		m_GTAODenoiseConstants.DenoiseBlurBeta = m_GTAODataCB.DenoiseBlurBeta;
 		m_GTAODenoiseConstants.HalfRes = m_GTAODataCB.HalfRes;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "GTAO-Denoise");
+		BeginProfiledGPU("GTAO-Denoise");
 		for (uint32_t pass = 0; pass < denoisePasses; pass++)
 		{
 			const uint32_t passIndex = (pass % 2u) != 0u ? 1u : 0u;
@@ -2842,10 +2962,11 @@ namespace Lux {
 
 	void SceneRenderer::AOComposite()
 	{
+		ScopedCPUProfile cpuProfile(*this, "AOComposite");
 		if (!m_AOCompositePass || !m_AOCompositeMaterial || !m_GTAOFinalImage)
 			return;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "AOComposite");
+		BeginProfiledGPU("AOComposite");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_AOCompositePass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AOCompositePass->GetPipeline(), m_AOCompositeMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
@@ -2854,6 +2975,7 @@ namespace Lux {
 
 	void SceneRenderer::PreConvolutionCompute()
 	{
+		ScopedCPUProfile cpuProfile(*this, "PreConvolution");
 		if (!m_Options.EnableSSR || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
 			return;
 
@@ -2864,7 +2986,7 @@ namespace Lux {
 		} pushConstants;
 
 		Ref<Image2D> preConvolutedImage = m_PreConvolutedTexture.Texture->GetImage();
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "PreConvolution");
+		BeginProfiledGPU("PreConvolution");
 		Renderer::BeginComputePass(m_CommandBuffer, m_PreConvolutionComputePass);
 
 		if (m_PreConvolutionMaterials[0])
@@ -2902,10 +3024,11 @@ namespace Lux {
 
 	void SceneRenderer::SSRCompute()
 	{
+		ScopedCPUProfile cpuProfile(*this, "SSR");
 		if (!m_Options.EnableSSR || !m_SSRPass || !m_SSRImage)
 			return;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SSR");
+		BeginProfiledGPU("SSR");
 		Renderer::BeginComputePass(m_CommandBuffer, m_SSRPass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_SSRPass, nullptr, m_SSRWorkGroups, Buffer(&m_SSROptions, sizeof(m_SSROptions)));
 		Renderer::EndComputePass(m_CommandBuffer, m_SSRPass);
@@ -2915,10 +3038,11 @@ namespace Lux {
 
 	void SceneRenderer::SSRCompositePass()
 	{
+		ScopedCPUProfile cpuProfile(*this, "SSRComposite");
 		if (!m_Options.EnableSSR || !m_SSRCompositePass || !m_SSRCompositeMaterial)
 			return;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SSRComposite");
+		BeginProfiledGPU("SSRComposite");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SSRCompositePass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SSRCompositePass->GetPipeline(), m_SSRCompositeMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
@@ -2927,13 +3051,14 @@ namespace Lux {
 
 	void SceneRenderer::DOFPass()
 	{
+		ScopedCPUProfile cpuProfile(*this, "DOF");
 		if (!m_DOFSettings.Enabled || !m_DOFPass || !m_DOFMaterial)
 			return;
 
 		const float focusDistance = glm::max(0.001f, m_DOFSettings.FocusDistance);
 		m_DOFMaterial->Set("u_Uniforms.DOFParams", glm::vec2(focusDistance, m_DOFSettings.BlurSize));
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "DOF");
+		BeginProfiledGPU("DOF");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_DOFPass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_DOFPass->GetPipeline(), m_DOFMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
@@ -2942,10 +3067,11 @@ namespace Lux {
 
 	void SceneRenderer::JumpFloodPass()
 	{
+		ScopedCPUProfile cpuProfile(*this, "JumpFlood");
 		if (!m_Options.EnableJumpFlood || !m_JumpFloodInitPass || !m_JumpFloodInitMaterial || !m_JumpFloodPasses[0] || !m_JumpFloodPasses[1])
 			return;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "JumpFlood");
+		BeginProfiledGPU("JumpFlood");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_JumpFloodInitPass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_JumpFloodInitPass->GetPipeline(), m_JumpFloodInitMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
@@ -2994,10 +3120,11 @@ namespace Lux {
 
 	void SceneRenderer::JumpFloodCompositePass()
 	{
+		ScopedCPUProfile cpuProfile(*this, "JumpFloodComposite");
 		if (!m_Options.EnableJumpFlood || !m_JumpFloodCompositePass || !m_JumpFloodCompositeMaterial)
 			return;
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "JumpFloodComposite");
+		BeginProfiledGPU("JumpFloodComposite");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_JumpFloodCompositePass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_JumpFloodCompositePass->GetPipeline(), m_JumpFloodCompositeMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
@@ -3006,6 +3133,7 @@ namespace Lux {
 
 	void SceneRenderer::BloomCompute()
 	{
+		ScopedCPUProfile cpuProfile(*this, "BloomCompute");
 		if (!m_BloomSettings.Enabled || !m_BloomComputePass || !m_BloomComputePipeline || !m_BloomComputeMaterials.PrefilterMaterial)
 			return;
 
@@ -3058,7 +3186,7 @@ namespace Lux {
 			Renderer::DispatchCompute(m_CommandBuffer, m_BloomComputePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
 		};
 
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "BloomCompute");
+		BeginProfiledGPU("BloomCompute");
 		Renderer::BeginComputePass(m_CommandBuffer, m_BloomComputePass);
 
 		// Prefilter
@@ -3105,7 +3233,8 @@ namespace Lux {
 
 	void SceneRenderer::CompositePass()
 	{
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "CompositePass");
+		ScopedCPUProfile cpuProfile(*this, "CompositePass");
+		BeginProfiledGPU("CompositePass");
 
 		m_CompositeMaterial->Set("u_Uniforms.Exposure", m_SceneData.SceneCamera.Camera.GetExposure());
 		m_CompositeMaterial->Set("u_Uniforms.BloomIntensity", m_BloomSettings.Enabled ? m_BloomSettings.Intensity : 0.0f);
@@ -3122,7 +3251,8 @@ namespace Lux {
 
 	void SceneRenderer::GridPass()
 	{
-		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "GridPass");
+		ScopedCPUProfile cpuProfile(*this, "GridPass");
+		BeginProfiledGPU("GridPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GridRenderPass);
 		Renderer::RenderQuad(m_CommandBuffer, m_GridRenderPass->GetPipeline(), m_GridMaterial, glm::mat4(1.0f));
 		Renderer::EndRenderPass(m_CommandBuffer);
@@ -3152,6 +3282,7 @@ namespace Lux {
 		m_Statistics.VisibleInstances = 0;
 		m_Statistics.CulledInstances = 0;
 		m_Statistics.IndirectDraws = 0;
+		m_Statistics.SavedDraws = 0;
 		m_Statistics.SpotlightShadowcasters = 0;
 		m_Statistics.SpotlightShadowsCulled = 0;
 
@@ -3197,7 +3328,10 @@ namespace Lux {
 				m_Statistics.SpotlightShadowcasters++;
 		}
 
-		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(Renderer::GetCurrentFrameIndex());
+		const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
+		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(frameIndex);
+		m_Statistics.PipelineStats = m_CommandBuffer->GetPipelineStatistics(frameIndex);
+		UpdateGPUProfileTimes();
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────

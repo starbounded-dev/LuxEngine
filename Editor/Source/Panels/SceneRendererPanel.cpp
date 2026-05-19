@@ -1,6 +1,7 @@
 #include "lpch.h"
 #include "SceneRendererPanel.h"
 
+#include "Lux/Core/Application.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Project/Project.h"
@@ -10,6 +11,7 @@
 #include <imgui/imgui.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -31,10 +33,21 @@ namespace Lux {
 			DrawStat(label, std::to_string(value).c_str());
 		}
 
+		void DrawStat(const char* label, uint64_t value)
+		{
+			DrawStat(label, std::to_string(value).c_str());
+		}
+
 		void DrawStat(const char* label, float value, const char* suffix = "")
 		{
-			const std::string text = std::to_string(value) + suffix;
-			DrawStat(label, text.c_str());
+			char buffer[64];
+			std::snprintf(buffer, sizeof(buffer), "%.3f%s", value, suffix);
+			DrawStat(label, buffer);
+		}
+
+		float PercentOf(float value, float total)
+		{
+			return total > 0.0f ? (value / total) * 100.0f : 0.0f;
 		}
 
 	}
@@ -98,6 +111,7 @@ namespace Lux {
 		auto& bloom = m_Context->GetBloomSettings();
 		auto& dof = m_Context->GetDOFSettings();
 		auto& ssr = m_Context->GetSSROptions();
+		const auto& appTimers = Application::Get().GetPerformanceTimers();
 		bool projectSettingsChanged = false;
 
 		if (ImGui::BeginTable("##scene_renderer_summary", 2, ImGuiTableFlags_SizingStretchProp))
@@ -105,6 +119,7 @@ namespace Lux {
 			DrawStat("Ready", m_Context->IsReady() ? "Yes" : "No");
 			DrawStat("Technique", RenderingTechniqueToString(m_Context->GetRenderingTechnique()));
 			DrawStat("Viewport", (std::to_string(m_Context->GetViewportWidth()) + " x " + std::to_string(m_Context->GetViewportHeight())).c_str());
+			DrawStat("CPU Time", stats.TotalCPUTime, " ms");
 			DrawStat("GPU Time", stats.TotalGPUTime, " ms");
 			ImGui::EndTable();
 		}
@@ -139,6 +154,125 @@ namespace Lux {
 		}
 
 		ImGui::Spacing();
+
+		if (ImGuiEx::PropertyGridHeader("Profiling", true))
+		{
+			uint32_t activePassCount = 0;
+			float profiledGPUTime = 0.0f;
+			for (const auto& passProfile : stats.PassProfiles)
+			{
+				if (!passProfile.Active && passProfile.GPUTime <= 0.0f)
+					continue;
+
+				activePassCount++;
+				profiledGPUTime += passProfile.GPUTime;
+			}
+
+			if (ImGui::BeginTable("##profiling_frame", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+			{
+				DrawStat("Scene CPU Pass Sum", stats.TotalCPUTime, " ms");
+				DrawStat("Scene GPU Command Buffer", stats.TotalGPUTime, " ms");
+				DrawStat("Profiled GPU Pass Sum", profiledGPUTime, " ms");
+				DrawStat("CPU/GPU Delta", stats.TotalCPUTime - stats.TotalGPUTime, " ms");
+				DrawStat("Profiled Passes", activePassCount);
+				DrawStat("Main Thread Work", appTimers.MainThreadWorkTime, " ms");
+				DrawStat("Main Thread Wait", appTimers.MainThreadWaitTime, " ms");
+				DrawStat("Render Thread Work", appTimers.RenderThreadWorkTime, " ms");
+				DrawStat("Render Thread Wait", appTimers.RenderThreadWaitTime, " ms");
+				ImGui::EndTable();
+			}
+
+			ImGui::Spacing();
+			ImGui::TextUnformatted("Pass Timings");
+			if (ImGui::BeginTable("##profiling_passes", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+			{
+				ImGui::TableSetupColumn("Pass");
+				ImGui::TableSetupColumn("CPU ms", ImGuiTableColumnFlags_WidthFixed, 82.0f);
+				ImGui::TableSetupColumn("CPU %", ImGuiTableColumnFlags_WidthFixed, 62.0f);
+				ImGui::TableSetupColumn("GPU ms", ImGuiTableColumnFlags_WidthFixed, 82.0f);
+				ImGui::TableSetupColumn("GPU %", ImGuiTableColumnFlags_WidthFixed, 62.0f);
+				ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+				ImGui::TableHeadersRow();
+
+				for (const auto& passProfile : stats.PassProfiles)
+				{
+					const bool active = passProfile.Active || passProfile.GPUTime > 0.0f;
+					ImGui::TableNextRow();
+					if (!active)
+						ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+
+					ImGui::TableSetColumnIndex(0);
+					ImGui::TextUnformatted(passProfile.Name);
+					ImGui::TableSetColumnIndex(1);
+					ImGui::Text("%.3f", passProfile.CPUTime);
+					ImGui::TableSetColumnIndex(2);
+					ImGui::Text("%.1f%%", PercentOf(passProfile.CPUTime, stats.TotalCPUTime));
+					ImGui::TableSetColumnIndex(3);
+					ImGui::Text("%.3f", passProfile.GPUTime);
+					ImGui::TableSetColumnIndex(4);
+					ImGui::Text("%.1f%%", PercentOf(passProfile.GPUTime, stats.TotalGPUTime));
+					ImGui::TableSetColumnIndex(5);
+					ImGui::TextUnformatted(active ? "Active" : "Idle");
+
+					if (!active)
+						ImGui::PopStyleColor();
+				}
+
+				ImGui::EndTable();
+			}
+
+			ImGui::Spacing();
+			ImGui::TextUnformatted("Pipeline Counters");
+			if (ImGui::BeginTable("##profiling_pipeline", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+			{
+				DrawStat("Input Vertices", stats.PipelineStats.InputAssemblyVertices);
+				DrawStat("Input Primitives", stats.PipelineStats.InputAssemblyPrimitives);
+				DrawStat("Vertex Shader Invocations", stats.PipelineStats.VertexShaderInvocations);
+				DrawStat("Clipping Invocations", stats.PipelineStats.ClippingInvocations);
+				DrawStat("Clipping Primitives", stats.PipelineStats.ClippingPrimitives);
+				DrawStat("Fragment Shader Invocations", stats.PipelineStats.FragmentShaderInvocations);
+				DrawStat("Compute Shader Invocations", stats.PipelineStats.ComputeShaderInvocations);
+				ImGui::EndTable();
+			}
+
+			ImGui::Spacing();
+			ImGui::TextUnformatted("Scene Workload");
+			if (ImGui::BeginTable("##profiling_workload", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+			{
+				DrawStat("Draw Calls", stats.DrawCalls);
+				DrawStat("Meshes", stats.Meshes);
+				DrawStat("Instances", stats.Instances);
+				DrawStat("Visible Instances", stats.VisibleInstances);
+				DrawStat("Culled Instances", stats.CulledInstances);
+				DrawStat("Saved Draws", stats.SavedDraws);
+				DrawStat("Indirect Draws", stats.IndirectDraws);
+				DrawStat("Spot Shadowcasters", stats.SpotlightShadowcasters);
+				DrawStat("Spot Shadows Culled", stats.SpotlightShadowsCulled);
+				ImGui::EndTable();
+			}
+
+			if (Ref<Renderer2D> renderer2D = m_Context->GetRenderer2D())
+			{
+				Renderer2D::DrawStatistics renderer2DDrawStats = renderer2D->GetDrawStats();
+				const Renderer2D::MemoryStatistics renderer2DMemoryStats = renderer2D->GetMemoryStats();
+
+				ImGui::Spacing();
+				ImGui::TextUnformatted("Renderer2D");
+				if (ImGui::BeginTable("##profiling_renderer2d", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+				{
+					DrawStat("2D Draw Calls", renderer2DDrawStats.DrawCalls);
+					DrawStat("Quads", renderer2DDrawStats.QuadCount);
+					DrawStat("Lines", renderer2DDrawStats.LineCount);
+					DrawStat("2D Vertices", renderer2DDrawStats.GetTotalVertexCount());
+					DrawStat("2D Indices", renderer2DDrawStats.GetTotalIndexCount());
+					DrawStat("Memory Used", renderer2DMemoryStats.Used);
+					DrawStat("Memory Allocated/Frame", renderer2DMemoryStats.GetAllocatedPerFrame());
+					ImGui::EndTable();
+				}
+			}
+
+			ImGui::TreePop();
+		}
 
 		if (ImGuiEx::PropertyGridHeader("Shaders", false))
 		{

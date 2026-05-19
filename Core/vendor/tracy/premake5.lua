@@ -28,6 +28,10 @@ project "Tracy"
 		"tracy/public/libbacktrace/state.cpp",
 	}
 
+	removefiles {
+		"tracy/public/client/TracyRocprof.cpp",
+	}
+
 	includedirs { "tracy/public/" }
 
 	filter "system:windows"
@@ -60,7 +64,6 @@ project "Tracy"
 		conformancemode "On"
 
 		defines {
-			"_CRT_SECURE_NO_WARNINGS",
 			"TRACY_ENABLE",
 			"TRACY_ON_DEMAND"
 		}
@@ -71,7 +74,6 @@ project "Tracy"
 		conformancemode "On"
 
 		defines {
-			"_CRT_SECURE_NO_WARNINGS",
 			"TRACY_ENABLE",
 			"TRACY_ON_DEMAND"
 		}

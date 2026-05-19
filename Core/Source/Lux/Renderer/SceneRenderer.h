@@ -19,6 +19,7 @@
 #include "Lux/Renderer/RendererTypes.h"
 #include "Lux/Renderer/ShaderDefs.h"
 #include "Lux/Core/Math/Frustum.h"
+#include "Lux/Core/Timer.h"
 #include "Lux/Project/TieringSettings.h"
 #include "Lux/Scene/Scene.h"
 
@@ -212,6 +213,15 @@ namespace Lux {
 		static constexpr uint32_t MaxSpotShadows = 16;
 		static constexpr uint32_t LightCullingTileSize = 16;
 		static constexpr uint32_t MaxVisibleLightsPerTile = 256;
+		struct PassProfile
+		{
+			const char* Name = "";
+			float CPUTime = 0.0f;
+			float GPUTime = 0.0f;
+			bool Active = false;
+			bool GPUActive = false;
+		};
+
 		struct Statistics
 		{
 			uint32_t DrawCalls = 0;
@@ -223,7 +233,10 @@ namespace Lux {
 			uint32_t SavedDraws = 0;
 			uint32_t SpotlightShadowcasters = 0;
 			uint32_t SpotlightShadowsCulled = 0;
+			float    TotalCPUTime = 0.0f;
 			float    TotalGPUTime = 0.0f;
+			PipelineStatistics PipelineStats;
+			std::vector<PassProfile> PassProfiles;
 		};
 
 	public:
@@ -424,6 +437,12 @@ namespace Lux {
 		void GridPass();
 
 		void UpdateStatistics();
+		void ResetProfilingData();
+		PassProfile& GetOrCreatePassProfile(const char* name);
+		void RecordCPUProfile(const char* name, float cpuTime);
+		void BeginProfiledGPU(const char* name);
+		void EndProfiledGPU();
+		void UpdateGPUProfileTimes();
 		void ResizeLightCullingResources();
 		void ResizeBloomResources();
 		void CreateBloomPassMaterials();
@@ -442,6 +461,16 @@ namespace Lux {
 		void BuildIndirectDrawCommand(const StaticDrawCommand& dc,
 			const TransformMapData& tmd,
 			std::vector<nvrhi::DrawIndexedIndirectArguments>& drawCommands);
+
+		struct ScopedCPUProfile
+		{
+			ScopedCPUProfile(SceneRenderer& renderer, const char* name);
+			~ScopedCPUProfile();
+
+			SceneRenderer& Renderer;
+			const char* Name = "";
+			Timer ProfileTimer;
+		};
 
 		// Render-thread draw helper (must be called inside Renderer::Submit).
 		void RT_DrawStaticMesh(Ref<RenderCommandBuffer> cmd,
