@@ -7,11 +7,14 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Shader.h"
+#include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdio>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -48,6 +51,55 @@ namespace Lux {
 		float PercentOf(float value, float total)
 		{
 			return total > 0.0f ? (value / total) * 100.0f : 0.0f;
+		}
+
+		void PushHistorySample(std::vector<float>& history, float value)
+		{
+			constexpr size_t maxHistorySamples = 240;
+			history.push_back(value);
+			if (history.size() > maxHistorySamples)
+				history.erase(history.begin(), history.begin() + (history.size() - maxHistorySamples));
+		}
+
+		float GetHistoryMax(const std::vector<float>& a, const std::vector<float>& b, float fallback)
+		{
+			float maxValue = fallback;
+			for (float value : a)
+				maxValue = std::max(maxValue, value);
+			for (float value : b)
+				maxValue = std::max(maxValue, value);
+			return maxValue;
+		}
+
+		bool DrawComboProperty(const char* label, int& value, const char* const* options, int optionCount)
+		{
+			bool modified = false;
+			ImGuiEx::ShiftCursor(10.0f, 9.0f);
+			ImGui::TextUnformatted(label);
+			ImGui::NextColumn();
+			ImGuiEx::ShiftCursorY(4.0f);
+			ImGui::PushItemWidth(-1);
+
+			const int clampedValue = std::clamp(value, 0, optionCount - 1);
+			if (ImGui::BeginCombo(std::format("##{0}", label).c_str(), options[clampedValue]))
+			{
+				for (int i = 0; i < optionCount; i++)
+				{
+					const bool selected = value == i;
+					if (ImGui::Selectable(options[i], selected))
+					{
+						value = i;
+						modified = true;
+					}
+					if (selected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+
+			ImGui::PopItemWidth();
+			ImGui::NextColumn();
+			return modified;
 		}
 
 	}
@@ -91,6 +143,68 @@ namespace Lux {
 		return true;
 	}
 
+	void SceneRendererPanel::UpdateProfilingHistory(const SceneRenderer::Statistics& stats)
+	{
+		PushHistorySample(m_FrameCPUHistory, stats.TotalCPUTime);
+		PushHistorySample(m_FrameGPUHistory, stats.TotalGPUTime);
+
+		for (const auto& passProfile : stats.PassProfiles)
+		{
+			PassHistory& history = m_PassHistory[passProfile.Name];
+			PushHistorySample(history.CPU, passProfile.CPUTime);
+			PushHistorySample(history.GPU, passProfile.GPUTime);
+		}
+	}
+
+	void SceneRendererPanel::DrawProfilingHistory(const SceneRenderer::Statistics& stats)
+	{
+		if (!m_FrameCPUHistory.empty())
+		{
+			ImGui::Spacing();
+			ImGui::TextUnformatted("Frame History");
+			const float frameMax = GetHistoryMax(m_FrameCPUHistory, m_FrameGPUHistory, 16.67f);
+			ImGui::PlotLines("CPU##frame_history", m_FrameCPUHistory.data(), (int)m_FrameCPUHistory.size(), 0, nullptr, 0.0f, frameMax, ImVec2(-FLT_MIN, 48.0f));
+			ImGui::PlotLines("GPU##frame_history", m_FrameGPUHistory.data(), (int)m_FrameGPUHistory.size(), 0, nullptr, 0.0f, frameMax, ImVec2(-FLT_MIN, 48.0f));
+		}
+
+		if (stats.PassProfiles.empty())
+			return;
+
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Pass History");
+		if (ImGui::BeginTable("##profiling_pass_history", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+		{
+			ImGui::TableSetupColumn("Pass");
+			ImGui::TableSetupColumn("CPU");
+			ImGui::TableSetupColumn("GPU");
+			ImGui::TableHeadersRow();
+
+			for (const auto& passProfile : stats.PassProfiles)
+			{
+				auto historyIt = m_PassHistory.find(passProfile.Name);
+				if (historyIt == m_PassHistory.end())
+					continue;
+
+				const PassHistory& history = historyIt->second;
+				const float passMax = GetHistoryMax(history.CPU, history.GPU, 1.0f);
+
+				ImGui::PushID(passProfile.Name);
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::TextUnformatted(passProfile.Name);
+				ImGui::TableSetColumnIndex(1);
+				if (!history.CPU.empty())
+					ImGui::PlotLines("##cpu_pass_history", history.CPU.data(), (int)history.CPU.size(), 0, nullptr, 0.0f, passMax, ImVec2(-FLT_MIN, 42.0f));
+				ImGui::TableSetColumnIndex(2);
+				if (!history.GPU.empty())
+					ImGui::PlotLines("##gpu_pass_history", history.GPU.data(), (int)history.GPU.size(), 0, nullptr, 0.0f, passMax, ImVec2(-FLT_MIN, 42.0f));
+				ImGui::PopID();
+			}
+
+			ImGui::EndTable();
+		}
+	}
+
 	void SceneRendererPanel::OnImGuiRender(bool& isOpen)
 	{
 		if (!ImGui::Begin("Scene Renderer", &isOpen))
@@ -113,12 +227,15 @@ namespace Lux {
 		auto& ssr = m_Context->GetSSROptions();
 		const auto& appTimers = Application::Get().GetPerformanceTimers();
 		bool projectSettingsChanged = false;
+		UpdateProfilingHistory(stats);
 
 		if (ImGui::BeginTable("##scene_renderer_summary", 2, ImGuiTableFlags_SizingStretchProp))
 		{
 			DrawStat("Ready", m_Context->IsReady() ? "Yes" : "No");
 			DrawStat("Technique", RenderingTechniqueToString(m_Context->GetRenderingTechnique()));
 			DrawStat("Viewport", (std::to_string(m_Context->GetViewportWidth()) + " x " + std::to_string(m_Context->GetViewportHeight())).c_str());
+			DrawStat("Output Viewport", (std::to_string(m_Context->GetOutputViewportWidth()) + " x " + std::to_string(m_Context->GetOutputViewportHeight())).c_str());
+			DrawStat("Render Scale", m_Context->GetRenderResolutionScale() * 100.0f, "%");
 			DrawStat("CPU Time", stats.TotalCPUTime, " ms");
 			DrawStat("GPU Time", stats.TotalGPUTime, " ms");
 			ImGui::EndTable();
@@ -131,6 +248,15 @@ namespace Lux {
 		{
 			ImGui::SameLine();
 			ImGui::TextDisabled("Reloaded %u shader%s", m_LastReloadedShaderCount, m_LastReloadedShaderCount == 1 ? "" : "s");
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Warm Up Pipelines"))
+			m_LastWarmedPipelineCount = Renderer::WarmUpShaderPipelines();
+		if (m_LastWarmedPipelineCount > 0)
+		{
+			ImGui::SameLine();
+			ImGui::TextDisabled("Warmed %u pipeline%s", m_LastWarmedPipelineCount, m_LastWarmedPipelineCount == 1 ? "" : "s");
 		}
 
 		if (Ref<Project> project = Project::GetActive())
@@ -221,6 +347,8 @@ namespace Lux {
 				ImGui::EndTable();
 			}
 
+			DrawProfilingHistory(stats);
+
 			ImGui::Spacing();
 			ImGui::TextUnformatted("Pipeline Counters");
 			if (ImGui::BeginTable("##profiling_pipeline", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
@@ -232,6 +360,23 @@ namespace Lux {
 				DrawStat("Clipping Primitives", stats.PipelineStats.ClippingPrimitives);
 				DrawStat("Fragment Shader Invocations", stats.PipelineStats.FragmentShaderInvocations);
 				DrawStat("Compute Shader Invocations", stats.PipelineStats.ComputeShaderInvocations);
+				ImGui::EndTable();
+			}
+
+			ImGui::Spacing();
+			ImGui::TextUnformatted("GPU Memory Budget");
+			if (ImGui::BeginTable("##profiling_gpu_memory", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+			{
+				const auto& memory = stats.MemoryStats;
+				const float usedPercent = memory.BudgetBytes > 0
+					? ((float)memory.UsedBytes / (float)memory.BudgetBytes) * 100.0f
+					: 0.0f;
+				DrawStat("Used / Budget", std::format("{} / {} ({:.1f}%)", Utils::BytesToString(memory.UsedBytes), Utils::BytesToString(memory.BudgetBytes), usedPercent).c_str());
+				DrawStat("Textures", std::format("{} ({})", Utils::BytesToString(memory.TextureBytes), memory.TextureCount).c_str());
+				DrawStat("Buffers", std::format("{} ({})", Utils::BytesToString(memory.BufferBytes), memory.BufferCount).c_str());
+				DrawStat("Render Targets", std::format("{} ({})", Utils::BytesToString(memory.RenderTargetBytes), memory.RenderTargetCount).c_str());
+				DrawStat("Framebuffers", memory.FramebufferCount);
+				DrawStat("Descriptor Sets", memory.DescriptorSetCount);
 				ImGui::EndTable();
 			}
 
@@ -294,6 +439,11 @@ namespace Lux {
 
 				ImGui::SameLine();
 				ImGui::TextDisabled("Forces every loaded shader to recompile and reload.");
+
+				if (ImGui::Button("Warm Up Pipelines##section"))
+					m_LastWarmedPipelineCount = Renderer::WarmUpShaderPipelines();
+				ImGui::SameLine();
+				ImGui::TextDisabled("Permutation cache: %u, warmed last run: %u", Renderer::GetShaderPermutationCacheSize(), m_LastWarmedPipelineCount);
 
 				ImGuiEx::Widgets::SearchWidget(m_ShaderSearch, "Search shaders...");
 
@@ -365,6 +515,29 @@ namespace Lux {
 			ImGui::EndDisabled();
 			ImGuiEx::SetTooltip("Disabled until Lux has a conservative occlusion depth pyramid.");
 			projectSettingsChanged |= ImGuiEx::Property("GPU Driven Indirect", options.EnableGPUDrivenRendering);
+			const char* renderScaleLabels[] = { "100%", "75%", "50%", "Dynamic" };
+			int renderScaleMode = static_cast<int>(options.ResolutionScaleMode);
+			if (DrawComboProperty("Render Scale", renderScaleMode, renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels)))
+			{
+				options.ResolutionScaleMode = static_cast<SceneRendererOptions::RenderResolutionScaleMode>(renderScaleMode);
+				m_Context->RefreshRenderResolutionScale();
+				projectSettingsChanged = true;
+			}
+			if (options.ResolutionScaleMode == SceneRendererOptions::RenderResolutionScaleMode::Dynamic)
+			{
+				bool dynamicScaleChanged = false;
+				dynamicScaleChanged |= ImGuiEx::Property("Dynamic Min Scale", options.DynamicResolutionMinScale, 0.01f, 0.25f, 1.0f);
+				dynamicScaleChanged |= ImGuiEx::Property("Dynamic Max Scale", options.DynamicResolutionMaxScale, 0.01f, 0.25f, 1.0f);
+				dynamicScaleChanged |= ImGuiEx::Property("Target GPU ms", options.DynamicResolutionTargetGPUTime, 0.1f, 1.0f, 100.0f);
+				if (dynamicScaleChanged)
+				{
+					options.DynamicResolutionMinScale = std::clamp(options.DynamicResolutionMinScale, 0.25f, 1.0f);
+					options.DynamicResolutionMaxScale = std::clamp(options.DynamicResolutionMaxScale, options.DynamicResolutionMinScale, 1.0f);
+					options.DynamicResolutionScale = std::clamp(options.DynamicResolutionScale, options.DynamicResolutionMinScale, options.DynamicResolutionMaxScale);
+					m_Context->RefreshRenderResolutionScale();
+					projectSettingsChanged = true;
+				}
+			}
 			bool gtaoSettingsChanged = false;
 			gtaoSettingsChanged |= ImGuiEx::Property("GTAO", options.EnableGTAO);
 			gtaoSettingsChanged |= ImGuiEx::Property("GTAO Bent Normals", options.GTAOBentNormals);

@@ -11,6 +11,22 @@
 
 namespace Lux {
 
+	enum class TextureCompressionFormat
+	{
+		None = 0,
+		BC1,
+		BC3,
+		BC5,
+		BC7
+	};
+
+	enum class TextureMipPolicy
+	{
+		FullChain = 0,
+		DistanceBias,
+		Streaming
+	};
+
 	struct TextureSpecification
 	{
 		ImageFormat Format = ImageFormat::RGBA;
@@ -21,9 +37,12 @@ namespace Lux {
 		float MaxAnisotropy = 1.0f;
 
 		bool GenerateMips = true;
+		TextureMipPolicy MipPolicy = TextureMipPolicy::FullChain;
+		float MipBias = 0.0f;
 		bool Storage = false;
 		bool StoreLocally = false;
 		bool FlipVertically = true;
+		TextureCompressionFormat Compression = TextureCompressionFormat::None;
 
 		std::string DebugName;
 	};

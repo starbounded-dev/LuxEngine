@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <unordered_set>
 
 namespace Lux {
 
@@ -77,6 +78,14 @@ namespace Lux {
 		glm::uvec2 DivideRoundUp(const glm::uvec2& value, uint32_t divisor)
 		{
 			return { DivideRoundUp(value.x, divisor), DivideRoundUp(value.y, divisor) };
+		}
+
+		SceneRendererOptions::RenderResolutionScaleMode SanitizeRenderResolutionScaleMode(uint32_t mode)
+		{
+			if (mode > static_cast<uint32_t>(SceneRendererOptions::RenderResolutionScaleMode::Dynamic))
+				return SceneRendererOptions::RenderResolutionScaleMode::Native;
+
+			return static_cast<SceneRendererOptions::RenderResolutionScaleMode>(mode);
 		}
 
 		constexpr std::array<const char*, 22> s_ProfiledSceneRendererPasses = {
@@ -235,6 +244,11 @@ namespace Lux {
 
 	void SceneRenderer::ApplyProjectSettings(const ProjectSceneRendererSettings& settings)
 	{
+		const auto previousScaleMode = m_Options.ResolutionScaleMode;
+		const float previousMinScale = m_Options.DynamicResolutionMinScale;
+		const float previousMaxScale = m_Options.DynamicResolutionMaxScale;
+		const float previousTargetGPUTime = m_Options.DynamicResolutionTargetGPUTime;
+
 		m_Options.EnableFrustumCulling = settings.EnableFrustumCulling;
 		// The current HZB stores closest depth for SSR/GTAO, which is not conservative for mesh occlusion.
 		m_Options.EnableOcclusionCulling = false;
@@ -245,6 +259,11 @@ namespace Lux {
 		m_Options.AOShadowTolerance = settings.AOShadowTolerance;
 		m_Options.EnableSSR = settings.EnableSSR;
 		m_Options.EnableJumpFlood = settings.EnableJumpFlood;
+		m_Options.ResolutionScaleMode = SanitizeRenderResolutionScaleMode(settings.RenderScaleMode);
+		m_Options.DynamicResolutionMinScale = std::clamp(settings.DynamicResolutionMinScale, 0.25f, 1.0f);
+		m_Options.DynamicResolutionMaxScale = std::clamp(settings.DynamicResolutionMaxScale, m_Options.DynamicResolutionMinScale, 1.0f);
+		m_Options.DynamicResolutionTargetGPUTime = std::max(1.0f, settings.DynamicResolutionTargetGPUTime);
+		m_Options.DynamicResolutionScale = std::clamp(m_Options.DynamicResolutionScale, m_Options.DynamicResolutionMinScale, m_Options.DynamicResolutionMaxScale);
 
 		m_Options.SoftShadows = settings.SoftShadows;
 		m_Options.EnableShadowCulling = settings.EnableShadowCulling;
@@ -272,6 +291,14 @@ namespace Lux {
 		m_SSROptions.DepthTolerance = settings.SSRDepthTolerance;
 
 		UpdateGTAOData();
+
+		if (previousScaleMode != m_Options.ResolutionScaleMode
+			|| previousMinScale != m_Options.DynamicResolutionMinScale
+			|| previousMaxScale != m_Options.DynamicResolutionMaxScale
+			|| previousTargetGPUTime != m_Options.DynamicResolutionTargetGPUTime)
+		{
+			RefreshRenderResolutionScale();
+		}
 	}
 
 	void SceneRenderer::WriteProjectSettings(ProjectSceneRendererSettings& settings) const
@@ -285,6 +312,10 @@ namespace Lux {
 		settings.AOShadowTolerance = m_Options.AOShadowTolerance;
 		settings.EnableSSR = m_Options.EnableSSR;
 		settings.EnableJumpFlood = m_Options.EnableJumpFlood;
+		settings.RenderScaleMode = static_cast<uint32_t>(m_Options.ResolutionScaleMode);
+		settings.DynamicResolutionMinScale = m_Options.DynamicResolutionMinScale;
+		settings.DynamicResolutionMaxScale = m_Options.DynamicResolutionMaxScale;
+		settings.DynamicResolutionTargetGPUTime = m_Options.DynamicResolutionTargetGPUTime;
 
 		settings.SoftShadows = m_Options.SoftShadows;
 		settings.EnableShadowCulling = m_Options.EnableShadowCulling;
@@ -330,10 +361,7 @@ namespace Lux {
 		// Use window size if none specified
 		if (m_Specification.ViewportWidth == 0) m_Specification.ViewportWidth = Application::Get().GetWindow().GetWidth();
 		if (m_Specification.ViewportHeight == 0) m_Specification.ViewportHeight = Application::Get().GetWindow().GetHeight();
-		m_ViewportWidth = m_Specification.ViewportWidth;
-		m_ViewportHeight = m_Specification.ViewportHeight;
-		m_InvViewportWidth = m_ViewportWidth > 0 ? 1.0f / (float)m_ViewportWidth : 0.0f;
-		m_InvViewportHeight = m_ViewportHeight > 0 ? 1.0f / (float)m_ViewportHeight : 0.0f;
+		SetViewportSize(m_Specification.ViewportWidth, m_Specification.ViewportHeight);
 
 		// ── Uniform buffer sets ───────────────────────────────────────────────
 		m_UBSCamera = UniformBufferSet::Create(sizeof(UBCamera));
@@ -1251,8 +1279,12 @@ namespace Lux {
 
 	void SceneRenderer::SetViewportSize(uint32_t width, uint32_t height)
 	{
-		width = (uint32_t)(width * m_Specification.Tiering.RendererScale);
-		height = (uint32_t)(height * m_Specification.Tiering.RendererScale);
+		m_OutputViewportWidth = width;
+		m_OutputViewportHeight = height;
+
+		const float renderScale = ResolveRenderResolutionScale();
+		width = glm::max(1u, (uint32_t)std::round((float)width * renderScale));
+		height = glm::max(1u, (uint32_t)std::round((float)height * renderScale));
 
 		if (m_ViewportWidth != width || m_ViewportHeight != height)
 		{
@@ -1262,6 +1294,63 @@ namespace Lux {
 			m_InvViewportHeight = height > 0 ? 1.0f / (float)height : 0.0f;
 			m_NeedsResize = true;
 		}
+	}
+
+	void SceneRenderer::RefreshRenderResolutionScale()
+	{
+		if (m_OutputViewportWidth == 0 || m_OutputViewportHeight == 0)
+			return;
+
+		SetViewportSize(m_OutputViewportWidth, m_OutputViewportHeight);
+	}
+
+	float SceneRenderer::GetRenderResolutionScale() const
+	{
+		return ResolveRenderResolutionScale();
+	}
+
+	float SceneRenderer::ResolveRenderResolutionScale() const
+	{
+		switch (m_Options.ResolutionScaleMode)
+		{
+			case SceneRendererOptions::RenderResolutionScaleMode::Scale75:
+				return 0.75f;
+			case SceneRendererOptions::RenderResolutionScaleMode::Scale50:
+				return 0.50f;
+			case SceneRendererOptions::RenderResolutionScaleMode::Dynamic:
+				return std::clamp(m_Options.DynamicResolutionScale, m_Options.DynamicResolutionMinScale, m_Options.DynamicResolutionMaxScale);
+			case SceneRendererOptions::RenderResolutionScaleMode::Native:
+			default:
+				return 1.0f;
+		}
+	}
+
+	bool SceneRenderer::UpdateDynamicRenderResolution()
+	{
+		if (m_Options.ResolutionScaleMode != SceneRendererOptions::RenderResolutionScaleMode::Dynamic)
+			return false;
+
+		if (m_OutputViewportWidth == 0 || m_OutputViewportHeight == 0 || m_Statistics.TotalGPUTime <= 0.0f)
+			return false;
+
+		const float targetGPUTime = std::max(1.0f, m_Options.DynamicResolutionTargetGPUTime);
+		const float minScale = std::clamp(m_Options.DynamicResolutionMinScale, 0.25f, 1.0f);
+		const float maxScale = std::clamp(m_Options.DynamicResolutionMaxScale, minScale, 1.0f);
+		const float previousScale = std::clamp(m_Options.DynamicResolutionScale, minScale, maxScale);
+		float nextScale = previousScale;
+
+		if (m_Statistics.TotalGPUTime > targetGPUTime * 1.08f)
+			nextScale -= 0.05f;
+		else if (m_Statistics.TotalGPUTime < targetGPUTime * 0.78f)
+			nextScale += 0.05f;
+
+		nextScale = std::clamp(nextScale, minScale, maxScale);
+		if (std::abs(nextScale - previousScale) < 0.005f)
+			return false;
+
+		m_Options.DynamicResolutionScale = nextScale;
+		RefreshRenderResolutionScale();
+		return true;
 	}
 
 	void SceneRenderer::ResizeLightCullingResources()
@@ -1760,6 +1849,133 @@ namespace Lux {
 
 			profile.GPUTime = m_CommandBuffer->GetTimerQueryTime(profile.Name);
 		}
+	}
+
+	void SceneRenderer::UpdateMemoryStatistics()
+	{
+		auto& memoryStats = m_Statistics.MemoryStats;
+		memoryStats = {};
+
+		const GPUMemoryStats gpuStats = Renderer::GetGPUMemoryStats();
+		memoryStats.BudgetBytes = gpuStats.TotalAvailable;
+		memoryStats.UsedBytes = gpuStats.Used;
+		memoryStats.BufferBytes = gpuStats.BufferAllocationSize;
+		memoryStats.BufferCount = static_cast<uint32_t>(gpuStats.BufferAllocationCount);
+
+		std::unordered_set<uint64_t> renderTargetImageHandles;
+		std::unordered_set<const Framebuffer*> framebuffers;
+
+		auto addRenderTargetImage = [&](const Ref<Image2D>& image)
+			{
+				if (!image || image->GetHandle() == nullptr)
+					return;
+
+				const uint64_t handle = reinterpret_cast<uint64_t>(image->GetHandle().Get());
+				if (!renderTargetImageHandles.insert(handle).second)
+					return;
+
+				memoryStats.RenderTargetCount++;
+				memoryStats.RenderTargetBytes += image->GetGPUMemoryUsage();
+			};
+
+		auto addFramebuffer = [&](const Ref<Framebuffer>& framebuffer)
+			{
+				if (!framebuffer || !framebuffers.insert(framebuffer.Raw()).second)
+					return;
+
+				memoryStats.FramebufferCount++;
+				for (uint32_t attachment = 0; attachment < framebuffer->GetColorAttachmentCount(); attachment++)
+					addRenderTargetImage(framebuffer->GetImage(attachment));
+
+				if (framebuffer->HasDepthAttachment())
+					addRenderTargetImage(framebuffer->GetDepthImage());
+			};
+
+		auto addRenderPass = [&](const Ref<RenderPass>& pass)
+			{
+				if (!pass)
+					return;
+
+				addFramebuffer(pass->GetTargetFramebuffer());
+
+				nvrhi::BindingSetVector bindingSets = pass->GetBindingSets(Renderer::GetCurrentFrameIndex());
+				for (const auto& bindingSet : bindingSets)
+				{
+					if (bindingSet != nullptr)
+						memoryStats.DescriptorSetCount++;
+				}
+			};
+
+		auto addComputePass = [&](const Ref<ComputePass>& pass)
+			{
+				if (!pass)
+					return;
+
+				const nvrhi::BindingSetVector& bindingSets = pass->GetBindingSets(Renderer::GetCurrentFrameIndex());
+				for (const auto& bindingSet : bindingSets)
+				{
+					if (bindingSet != nullptr)
+						memoryStats.DescriptorSetCount++;
+				}
+			};
+
+		for (const Ref<RenderPass>& pass : m_ShadowMapPasses)
+			addRenderPass(pass);
+		addRenderPass(m_SpotShadowMapPass);
+		addRenderPass(m_PreDepthPass);
+		addRenderPass(m_AOCompositePass);
+		addRenderPass(m_SSRCompositePass);
+		addRenderPass(m_DOFPass);
+		addRenderPass(m_JumpFloodInitPass);
+		addRenderPass(m_JumpFloodPasses[0]);
+		addRenderPass(m_JumpFloodPasses[1]);
+		addRenderPass(m_JumpFloodCompositePass);
+		addRenderPass(m_GeometryPass);
+		addRenderPass(m_GeometryPassTransparent);
+		addRenderPass(m_SelectedGeometryPass);
+		addRenderPass(m_GeometryWireframePass);
+		addRenderPass(m_SkyboxPass);
+		addRenderPass(m_CompositePass);
+		addRenderPass(m_GridRenderPass);
+
+		addFramebuffer(m_GeometryPassFramebuffer);
+		addFramebuffer(m_CompositingFramebuffer);
+
+		addComputePass(m_MeshCullingPass);
+		addComputePass(m_LightCullingPass);
+		addComputePass(m_HierarchicalDepthPass);
+		addComputePass(m_PreIntegrationPass);
+		addComputePass(m_PreConvolutionComputePass);
+		addComputePass(m_GTAOComputePass);
+		addComputePass(m_GTAODenoisePass[0]);
+		addComputePass(m_GTAODenoisePass[1]);
+		addComputePass(m_SSRPass);
+		addComputePass(m_BloomComputePass);
+
+		if (m_HierarchicalDepthTexture.Texture)
+			addRenderTargetImage(m_HierarchicalDepthTexture.Texture->GetImage());
+		if (m_PreIntegrationVisibilityTexture.Texture)
+			addRenderTargetImage(m_PreIntegrationVisibilityTexture.Texture->GetImage());
+		if (m_PreConvolutedTexture.Texture)
+			addRenderTargetImage(m_PreConvolutedTexture.Texture->GetImage());
+		for (const BloomComputeTextures& bloomTexture : m_BloomComputeTextures)
+		{
+			if (bloomTexture.Texture)
+				addRenderTargetImage(bloomTexture.Texture->GetImage());
+		}
+
+		addRenderTargetImage(m_GTAOOutputImage);
+		addRenderTargetImage(m_GTAODenoiseImage);
+		addRenderTargetImage(m_GTAOFinalImage);
+		addRenderTargetImage(m_GTAOEdgesOutputImage);
+		addRenderTargetImage(m_SSRImage);
+
+		memoryStats.TextureBytes = gpuStats.ImageAllocationSize > memoryStats.RenderTargetBytes
+			? gpuStats.ImageAllocationSize - memoryStats.RenderTargetBytes
+			: gpuStats.ImageAllocationSize;
+		memoryStats.TextureCount = gpuStats.ImageAllocationCount > memoryStats.RenderTargetCount
+			? static_cast<uint32_t>(gpuStats.ImageAllocationCount - memoryStats.RenderTargetCount)
+			: static_cast<uint32_t>(gpuStats.ImageAllocationCount);
 	}
 
 	void SceneRenderer::BeginScene(const SceneRendererCamera& camera)
@@ -3429,6 +3645,8 @@ namespace Lux {
 		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(frameIndex);
 		m_Statistics.PipelineStats = m_CommandBuffer->GetPipelineStatistics(frameIndex);
 		UpdateGPUProfileTimes();
+		UpdateMemoryStatistics();
+		UpdateDynamicRenderResolution();
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────

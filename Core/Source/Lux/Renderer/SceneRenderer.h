@@ -110,6 +110,14 @@ namespace Lux {
 
 	struct SceneRendererOptions
 	{
+		enum class RenderResolutionScaleMode : uint32_t
+		{
+			Native = 0,
+			Scale75 = 1,
+			Scale50 = 2,
+			Dynamic = 3
+		};
+
 		bool  ShowGrid = true;
 		bool  ShowSelectedInWireframe = false;
 		bool  ShowPhysicsColliders = false;
@@ -143,6 +151,11 @@ namespace Lux {
 		bool  EnableFrustumCulling = true;
 		bool  EnableOcclusionCulling = false;
 		bool  EnableGPUDrivenRendering = true;
+		RenderResolutionScaleMode ResolutionScaleMode = RenderResolutionScaleMode::Native;
+		float DynamicResolutionScale = 1.0f;
+		float DynamicResolutionMinScale = 0.5f;
+		float DynamicResolutionMaxScale = 1.0f;
+		float DynamicResolutionTargetGPUTime = 16.67f;
 	};
 
 	struct BloomSettings
@@ -225,6 +238,20 @@ namespace Lux {
 
 		struct Statistics
 		{
+			struct MemoryStatistics
+			{
+				uint64_t BudgetBytes = 0;
+				uint64_t UsedBytes = 0;
+				uint64_t TextureBytes = 0;
+				uint64_t BufferBytes = 0;
+				uint64_t RenderTargetBytes = 0;
+				uint32_t TextureCount = 0;
+				uint32_t BufferCount = 0;
+				uint32_t RenderTargetCount = 0;
+				uint32_t FramebufferCount = 0;
+				uint32_t DescriptorSetCount = 0;
+			};
+
 			uint32_t DrawCalls = 0;
 			uint32_t Meshes = 0;
 			uint32_t SubmittedInstances = 0;
@@ -244,6 +271,7 @@ namespace Lux {
 			float    TotalCPUTime = 0.0f;
 			float    TotalGPUTime = 0.0f;
 			PipelineStatistics PipelineStats;
+			MemoryStatistics MemoryStats;
 			std::vector<PassProfile> PassProfiles;
 		};
 
@@ -259,6 +287,7 @@ namespace Lux {
 
 		void SetScene(Ref<Scene> scene);
 		void SetViewportSize(uint32_t width, uint32_t height);
+		void RefreshRenderResolutionScale();
 		void UpdateGTAOData();
 
 		// ── Per-frame API ────────────────────────────────────────────────────
@@ -336,6 +365,9 @@ namespace Lux {
 
 		uint32_t GetViewportWidth()  const { return m_ViewportWidth; }
 		uint32_t GetViewportHeight() const { return m_ViewportHeight; }
+		uint32_t GetOutputViewportWidth()  const { return m_OutputViewportWidth; }
+		uint32_t GetOutputViewportHeight() const { return m_OutputViewportHeight; }
+		float GetRenderResolutionScale() const;
 
 		float GetOpacity() const { return m_Opacity; }
 		void  SetOpacity(float opacity) { m_Opacity = opacity; }
@@ -453,6 +485,9 @@ namespace Lux {
 		void BeginProfiledGPU(const char* name);
 		void EndProfiledGPU();
 		void UpdateGPUProfileTimes();
+		void UpdateMemoryStatistics();
+		bool UpdateDynamicRenderResolution();
+		float ResolveRenderResolutionScale() const;
 		void ResizeLightCullingResources();
 		void ResizeBloomResources();
 		void CreateBloomPassMaterials();
@@ -810,6 +845,8 @@ namespace Lux {
 		} m_FrameCullingStats;
 
 		// ── Viewport / frame state ────────────────────────────────────────────
+		uint32_t m_OutputViewportWidth = 0;
+		uint32_t m_OutputViewportHeight = 0;
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;
 		float    m_InvViewportWidth = 0.0f;

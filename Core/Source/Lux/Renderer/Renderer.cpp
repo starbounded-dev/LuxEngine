@@ -7,6 +7,7 @@
 #include "RendererAPI.h"
 //#include "SceneRenderer.h"
 #include "ShaderPack.h"
+#include "ShaderPermutationCache.h"
 #include "RenderPass.h"
 #include "ComputePass.h"
 #include "ShaderDefs.h"
@@ -222,6 +223,7 @@ namespace Lux {
 		std::unordered_map<std::string, std::unordered_map<size_t, WeakRef<Shader>>> ShaderGlobalMacrosMap;
 		// Shaders waiting to be reloaded.
 		std::unordered_set<WeakRef<Shader>> DirtyShaders;
+		ShaderPermutationCache PermutationCache;
 	};
 	static GlobalShaderInfo s_GlobalShaderInfo;
 
@@ -628,6 +630,43 @@ namespace Lux {
 		}
 
 		return reloadedCount;
+	}
+
+	uint32_t Renderer::WarmUpShaderPipelines()
+	{
+		std::vector<WeakRef<Pipeline>> graphicsPipelines;
+		std::vector<WeakRef<PipelineCompute>> computePipelines;
+		{
+			std::scoped_lock lock(s_ShaderDependenciesMutex);
+			for (auto& [hash, dependencies] : s_ShaderDependencies)
+			{
+				PruneDeadDependencies(dependencies.Pipelines);
+				PruneDeadDependencies(dependencies.ComputePipelines);
+				graphicsPipelines.insert(graphicsPipelines.end(), dependencies.Pipelines.begin(), dependencies.Pipelines.end());
+				computePipelines.insert(computePipelines.end(), dependencies.ComputePipelines.begin(), dependencies.ComputePipelines.end());
+			}
+		}
+
+		uint32_t warmedCount = 0;
+		for (auto& pipeline : graphicsPipelines)
+		{
+			if (!pipeline)
+				continue;
+
+			pipeline->Invalidate();
+			warmedCount++;
+		}
+
+		for (auto& computePipeline : computePipelines)
+		{
+			if (!computePipeline)
+				continue;
+
+			computePipeline->CreatePipeline();
+			warmedCount++;
+		}
+
+		return warmedCount;
 	}
 
 	void Renderer::RenderThreadFunc(RenderThread* renderThread)
@@ -1627,6 +1666,10 @@ namespace Lux {
 	void Renderer::SetMacroInShader(Ref<Shader> shader, const std::string& name, const std::string& value)
 	{
 		shader->SetMacro(name, value);
+		ShaderPermutationKey key;
+		key.ShaderName = shader->GetName();
+		key.Macros.emplace_back(name, value);
+		s_GlobalShaderInfo.PermutationCache.Add(key);
 		s_GlobalShaderInfo.DirtyShaders.emplace(shader.Raw());
 	}
 
@@ -1650,8 +1693,17 @@ namespace Lux {
 		for (auto& [hash, shader] : s_GlobalShaderInfo.ShaderGlobalMacrosMap.at(name))
 		{
 			LUX_CORE_ASSERT(shader.IsValid(), "Shader is deleted!");
+			ShaderPermutationKey key;
+			key.ShaderName = shader->GetName();
+			key.Macros.emplace_back(name, value);
+			s_GlobalShaderInfo.PermutationCache.Add(key);
 			s_GlobalShaderInfo.DirtyShaders.emplace(shader);
 		}
+	}
+
+	uint32_t Renderer::GetShaderPermutationCacheSize()
+	{
+		return s_GlobalShaderInfo.PermutationCache.GetPermutationCount();
 	}
 
 	bool Renderer::UpdateDirtyShaders()

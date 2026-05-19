@@ -84,6 +84,7 @@ namespace Lux {
 		uint32_t Mips = 1;
 		uint32_t Layers = 1;
 		bool CreateSampler = true;
+		float MipBias = 0.0f;
 	};
 
 	struct ImageInfo

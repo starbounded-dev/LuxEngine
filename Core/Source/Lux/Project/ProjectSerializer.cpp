@@ -110,6 +110,30 @@ namespace Lux
 			return PhysicsCaptureMethod::LiveDebug;
 		}
 
+		const char* RenderScaleModeToString(uint32_t mode)
+		{
+			switch (mode)
+			{
+				case 1: return "Scale75";
+				case 2: return "Scale50";
+				case 3: return "Dynamic";
+				case 0:
+				default:
+					return "Scale100";
+			}
+		}
+
+		uint32_t RenderScaleModeFromString(std::string_view value)
+		{
+			if (value == "75%" || value == "Scale75" || value == "0.75" || value == "1")
+				return 1;
+			if (value == "50%" || value == "Scale50" || value == "0.50" || value == "0.5" || value == "2")
+				return 2;
+			if (value == "Dynamic" || value == "3")
+				return 3;
+			return 0;
+		}
+
 		void SerializeSceneRendererSettings(YAML::Emitter& out, const ProjectSceneRendererSettings& settings)
 		{
 			out << YAML::Key << "SceneRenderer" << YAML::Value;
@@ -126,6 +150,10 @@ namespace Lux
 			out << YAML::Key << "AOShadowTolerance" << YAML::Value << settings.AOShadowTolerance;
 			out << YAML::Key << "SSR" << YAML::Value << settings.EnableSSR;
 			out << YAML::Key << "JumpFloodOutline" << YAML::Value << settings.EnableJumpFlood;
+			out << YAML::Key << "RenderScaleMode" << YAML::Value << RenderScaleModeToString(settings.RenderScaleMode);
+			out << YAML::Key << "DynamicResolutionMinScale" << YAML::Value << settings.DynamicResolutionMinScale;
+			out << YAML::Key << "DynamicResolutionMaxScale" << YAML::Value << settings.DynamicResolutionMaxScale;
+			out << YAML::Key << "DynamicResolutionTargetGPUTime" << YAML::Value << settings.DynamicResolutionTargetGPUTime;
 			out << YAML::EndMap;
 
 			out << YAML::Key << "Shadows" << YAML::Value;
@@ -187,6 +215,10 @@ namespace Lux
 				settings.AOShadowTolerance = rendering["AOShadowTolerance"].as<float>(settings.AOShadowTolerance);
 				settings.EnableSSR = rendering["SSR"].as<bool>(settings.EnableSSR);
 				settings.EnableJumpFlood = rendering["JumpFloodOutline"].as<bool>(settings.EnableJumpFlood);
+				settings.RenderScaleMode = RenderScaleModeFromString(rendering["RenderScaleMode"].as<std::string>(RenderScaleModeToString(settings.RenderScaleMode)));
+				settings.DynamicResolutionMinScale = rendering["DynamicResolutionMinScale"].as<float>(settings.DynamicResolutionMinScale);
+				settings.DynamicResolutionMaxScale = rendering["DynamicResolutionMaxScale"].as<float>(settings.DynamicResolutionMaxScale);
+				settings.DynamicResolutionTargetGPUTime = rendering["DynamicResolutionTargetGPUTime"].as<float>(settings.DynamicResolutionTargetGPUTime);
 			}
 
 			if (auto shadows = node["Shadows"])
@@ -241,6 +273,10 @@ namespace Lux
 			serializer.WriteRaw(settings.AOShadowTolerance);
 			serializer.WriteRaw(settings.EnableSSR);
 			serializer.WriteRaw(settings.EnableJumpFlood);
+			serializer.WriteRaw(settings.RenderScaleMode);
+			serializer.WriteRaw(settings.DynamicResolutionMinScale);
+			serializer.WriteRaw(settings.DynamicResolutionMaxScale);
+			serializer.WriteRaw(settings.DynamicResolutionTargetGPUTime);
 
 			serializer.WriteRaw(settings.SoftShadows);
 			serializer.WriteRaw(settings.EnableShadowCulling);
@@ -280,6 +316,13 @@ namespace Lux
 			stream.ReadRaw(settings.AOShadowTolerance);
 			stream.ReadRaw(settings.EnableSSR);
 			stream.ReadRaw(settings.EnableJumpFlood);
+			if (version >= 4)
+			{
+				stream.ReadRaw(settings.RenderScaleMode);
+				stream.ReadRaw(settings.DynamicResolutionMinScale);
+				stream.ReadRaw(settings.DynamicResolutionMaxScale);
+				stream.ReadRaw(settings.DynamicResolutionTargetGPUTime);
+			}
 
 			stream.ReadRaw(settings.SoftShadows);
 			if (version >= 3)

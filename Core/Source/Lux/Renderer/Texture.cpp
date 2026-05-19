@@ -167,7 +167,13 @@ namespace Lux {
 
 		//specification.GenerateMips = true;
 
-		m_ImageData = TextureImporter::ToBufferFromFile(filepath, m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
+		TextureImportSettings importSettings;
+		importSettings.FlipVertically = m_Specification.FlipVertically;
+		importSettings.GenerateMips = m_Specification.GenerateMips;
+		importSettings.Compression = m_Specification.Compression;
+		importSettings.MipPolicy = m_Specification.MipPolicy;
+		importSettings.MipBias = m_Specification.MipBias;
+		m_ImageData = TextureImporter::ToBufferFromFile(filepath, m_Specification.Format, m_Specification.Width, m_Specification.Height, importSettings);
 		if (!m_ImageData)
 		{
 			// TODO(Yan): move this to asset manager
@@ -183,6 +189,7 @@ namespace Lux {
 		imageSpec.Mips = specification.GenerateMips ? GetMipLevelCount() : 1;
 		imageSpec.DebugName = specification.DebugName;
 		imageSpec.CreateSampler = false;
+		imageSpec.MipBias = specification.MipBias;
 		m_Image = Image2D::Create(imageSpec);
 
 		LUX_CORE_ASSERT(m_Specification.Format != ImageFormat::None);
@@ -194,7 +201,13 @@ namespace Lux {
 	{
 		Utils::ValidateSpecification(specification);
 
-		m_ImageData = TextureImporter::ToBufferFromFile(filepath, m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
+		TextureImportSettings importSettings;
+		importSettings.FlipVertically = m_Specification.FlipVertically;
+		importSettings.GenerateMips = m_Specification.GenerateMips;
+		importSettings.Compression = m_Specification.Compression;
+		importSettings.MipPolicy = m_Specification.MipPolicy;
+		importSettings.MipBias = m_Specification.MipBias;
+		m_ImageData = TextureImporter::ToBufferFromFile(filepath, m_Specification.Format, m_Specification.Width, m_Specification.Height, importSettings);
 		if (!m_ImageData)
 		{
 			// TODO(Yan): move this to asset manager
@@ -209,6 +222,7 @@ namespace Lux {
 		imageSpec.Mips = specification.GenerateMips ? GetMipLevelCount() : 1;
 		imageSpec.DebugName = specification.DebugName;
 		imageSpec.CreateSampler = false;
+		imageSpec.MipBias = specification.MipBias;
 		m_Image = Image2D::Create(imageSpec);
 
 		LUX_CORE_ASSERT(m_Specification.Format != ImageFormat::None);
@@ -227,7 +241,13 @@ namespace Lux {
 
 		if (m_Specification.Height == 0)
 		{
-			m_ImageData = TextureImporter::ToBufferFromMemory(Buffer(data.Data, m_Specification.Width), m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
+			TextureImportSettings importSettings;
+			importSettings.FlipVertically = m_Specification.FlipVertically;
+			importSettings.GenerateMips = m_Specification.GenerateMips;
+			importSettings.Compression = m_Specification.Compression;
+			importSettings.MipPolicy = m_Specification.MipPolicy;
+			importSettings.MipBias = m_Specification.MipBias;
+			m_ImageData = TextureImporter::ToBufferFromMemory(Buffer(data.Data, m_Specification.Width), m_Specification.Format, m_Specification.Width, m_Specification.Height, importSettings);
 			if (!m_ImageData)
 			{
 				// TODO(Yan): move this to asset manager
@@ -257,6 +277,7 @@ namespace Lux {
 		imageSpec.Mips = specification.GenerateMips ? Texture2D::GetMipLevelCount() : 1;
 		imageSpec.DebugName = specification.DebugName;
 		imageSpec.CreateSampler = false;
+		imageSpec.MipBias = specification.MipBias;
 		if (specification.Storage)
 			imageSpec.Usage = ImageUsage::Storage;
 		m_Image = Image2D::Create(imageSpec);
@@ -328,6 +349,7 @@ namespace Lux {
 		samplerDesc.addressU = Utils::NVRHISamplerWrap(m_Specification.SamplerWrap);
 		samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
 		samplerDesc.maxAnisotropy = m_Specification.MaxAnisotropy;
+		samplerDesc.mipBias = m_Specification.MipBias;
 
 		info.Sampler = device->createSampler(samplerDesc);
 
@@ -945,6 +967,7 @@ namespace Lux {
 		imageSpec.Height = m_Specification.Height;
 		imageSpec.Mips = mipCount;
 		imageSpec.Layers = 6;
+		imageSpec.MipBias = m_Specification.MipBias;
 
 		m_Image = Image2D::Create(imageSpec);
 		m_Image->RT_Invalidate();

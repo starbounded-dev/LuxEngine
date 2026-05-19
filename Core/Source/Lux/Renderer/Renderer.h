@@ -199,6 +199,8 @@ namespace Lux {
 		static void SetMacroInShader(Ref<Shader> shader, const std::string& name, const std::string& value = "");
 		static void SetGlobalMacroInShaders(const std::string& name, const std::string& value = "");
 		static uint32_t ReloadShaders(bool forceCompile = true);
+		static uint32_t WarmUpShaderPipelines();
+		static uint32_t GetShaderPermutationCacheSize();
 		// Returns true if any shader is actually updated.
 		static bool UpdateDirtyShaders();
 

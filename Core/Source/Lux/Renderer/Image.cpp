@@ -125,6 +125,7 @@ namespace Lux {
 			samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = !Utils::IsIntegerBased(m_Specification.Format);
 			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToEdge;
 			samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
+			samplerDesc.mipBias = m_Specification.MipBias;
 
 			m_Info.Sampler = device->createSampler(samplerDesc);
 

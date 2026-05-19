@@ -61,6 +61,10 @@ namespace Lux
 		float AOShadowTolerance = 1.0f;
 		bool EnableSSR = false;
 		bool EnableJumpFlood = true;
+		uint32_t RenderScaleMode = 0; // SceneRendererOptions::RenderResolutionScaleMode
+		float DynamicResolutionMinScale = 0.5f;
+		float DynamicResolutionMaxScale = 1.0f;
+		float DynamicResolutionTargetGPUTime = 16.67f;
 
 		bool SoftShadows = true;
 		bool EnableShadowCulling = true;

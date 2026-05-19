@@ -9,6 +9,14 @@
 #include <iostream>
 
 namespace Lux {
+	Buffer TextureImporter::ToBufferFromFile(const std::filesystem::path& path, ImageFormat& outFormat, uint32_t& outWidth, uint32_t& outHeight, const TextureImportSettings& settings)
+	{
+		if (settings.Compression != TextureCompressionFormat::None)
+			LUX_CORE_WARN("Texture compression {} requested for '{}', but the editor BC encoder is not wired yet. Loading source pixels for now.", CompressionFormatToString(settings.Compression), path.string());
+
+		return ToBufferFromFile(path, outFormat, outWidth, outHeight, settings.FlipVertically);
+	}
+
 	Buffer TextureImporter::ToBufferFromFile(const std::filesystem::path& path, ImageFormat& outFormat, uint32_t& outWidth, uint32_t& outHeight, bool flipVertically)
 	{
 		FileStatus fileStatus = FileSystem::TryOpenFileAndWait(path, 100);
@@ -56,6 +64,14 @@ namespace Lux {
 		return imageBuffer;
 	}
 
+	Buffer TextureImporter::ToBufferFromMemory(Buffer buffer, ImageFormat& outFormat, uint32_t& outWidth, uint32_t& outHeight, const TextureImportSettings& settings)
+	{
+		if (settings.Compression != TextureCompressionFormat::None)
+			LUX_CORE_WARN("Texture compression {} requested from memory, but the editor BC encoder is not wired yet. Loading source pixels for now.", CompressionFormatToString(settings.Compression));
+
+		return ToBufferFromMemory(buffer, outFormat, outWidth, outHeight, settings.FlipVertically);
+	}
+
 	Buffer TextureImporter::ToBufferFromMemory(Buffer buffer, ImageFormat& outFormat, uint32_t& outWidth, uint32_t& outHeight, bool flipVertically)
 	{
 		Buffer imageBuffer;
@@ -97,6 +113,35 @@ namespace Lux {
 		outWidth = width;
 		outHeight = height;
 		return imageBuffer;
+	}
+
+	bool TextureImporter::SupportsBlockCompression(TextureCompressionFormat compression)
+	{
+		switch (compression)
+		{
+			case TextureCompressionFormat::BC1:
+			case TextureCompressionFormat::BC3:
+			case TextureCompressionFormat::BC5:
+			case TextureCompressionFormat::BC7:
+				return true;
+			case TextureCompressionFormat::None:
+			default:
+				return false;
+		}
+	}
+
+	const char* TextureImporter::CompressionFormatToString(TextureCompressionFormat compression)
+	{
+		switch (compression)
+		{
+			case TextureCompressionFormat::BC1: return "BC1";
+			case TextureCompressionFormat::BC3: return "BC3";
+			case TextureCompressionFormat::BC5: return "BC5";
+			case TextureCompressionFormat::BC7: return "BC7";
+			case TextureCompressionFormat::None:
+			default:
+				return "None";
+		}
 	}
 
 }
