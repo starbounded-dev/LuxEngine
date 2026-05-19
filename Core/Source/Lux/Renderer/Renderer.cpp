@@ -951,6 +951,7 @@ namespace Lux {
 		// Load the HDR equirectangular texture
 		TextureSpecification equirectSpec;
 		equirectSpec.DebugName = "EnvEquirect";
+		equirectSpec.FlipVertically = false;
 		Ref<Texture2D> envEquirect = Texture2D::Create(equirectSpec, filepath);
 		if (!envEquirect || !envEquirect->Loaded())
 		{
