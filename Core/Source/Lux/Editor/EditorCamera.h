@@ -82,6 +82,7 @@ namespace Lux {
 		void MousePan(const glm::vec2& delta);
 		void MouseRotate(const glm::vec2& delta);
 		void MouseZoom(float delta);
+		bool WrapMousePosition(glm::vec2& mouse) const;
 
 		glm::vec3 CalculatePosition() const;
 
@@ -97,6 +98,7 @@ namespace Lux {
 
 		bool m_IsActive = false;
 		bool m_Panning, m_Rotating;
+		bool m_CameraMouseCaptured = false;
 		glm::vec2 m_InitialMousePosition{};
 		glm::vec3 m_InitialFocalPoint, m_InitialRotation;
 

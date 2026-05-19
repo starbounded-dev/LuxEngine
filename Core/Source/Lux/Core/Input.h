@@ -58,6 +58,7 @@ namespace Lux {
 		static float GetMouseX();
 		static float GetMouseY();
 		static std::pair<float, float> GetMousePosition();
+		static void SetMousePosition(float x, float y);
 
 		static void SetCursorMode(CursorMode mode);
 		static CursorMode GetCursorMode();

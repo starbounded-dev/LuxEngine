@@ -171,8 +171,12 @@ namespace Lux {
 		return { (float)x, (float)y };
 	}
 
-	// TODO: A better way to do this is to handle it internally, and simply move the cursor the opposite side
-	//		of the screen when it reaches the edge
+	void Input::SetMousePosition(float x, float y)
+	{
+		auto& window = static_cast<Window&>(Application::Get().GetWindow());
+		glfwSetCursorPos(static_cast<GLFWwindow*>(window.GetNativeWindow()), x, y);
+	}
+
 	void Input::SetCursorMode(CursorMode mode)
 	{
 		auto& window = static_cast<Window&>(Application::Get().GetWindow());

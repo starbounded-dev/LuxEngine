@@ -36,7 +36,7 @@ namespace Lux {
 
 	static void DisableMouse()
 	{
-		Input::SetCursorMode(CursorMode::Locked);
+		Input::SetCursorMode(CursorMode::Hidden);
 		ImGuiEx::SetInputEnabled(false);
 	}
 
@@ -48,19 +48,39 @@ namespace Lux {
 
 	void EditorCamera::OnUpdate(const Timestep ts)
 	{
-		const glm::vec2& mouse{ Input::GetMouseX(), Input::GetMouseY() };
+		glm::vec2 mouse{ Input::GetMouseX(), Input::GetMouseY() };
+		const bool rightMouseDown = Input::IsMouseButtonDown(MouseButton::Right);
+		const bool altDown = Input::IsKeyDown(KeyCode::LeftAlt);
+		const bool flycamMouseCapture = rightMouseDown && !altDown;
+		const bool arcballMouseCapture = altDown
+			&& (Input::IsMouseButtonDown(MouseButton::Middle)
+				|| Input::IsMouseButtonDown(MouseButton::Left)
+				|| rightMouseDown);
+		const bool cameraMouseCapture = m_IsActive && (flycamMouseCapture || arcballMouseCapture);
+
+		if (cameraMouseCapture && !m_CameraMouseCaptured)
+		{
+			m_InitialMousePosition = mouse;
+			m_CameraMouseCaptured = true;
+		}
+		else if (!cameraMouseCapture)
+		{
+			m_CameraMouseCaptured = false;
+		}
+
 		const glm::vec2 delta = (mouse - m_InitialMousePosition) * 0.002f;
 
 		//LUX_CORE_WARN("EditorCamera=m_IsActive{}", m_IsActive);
 		if (!m_IsActive)
 		{
+			m_CameraMouseCaptured = false;
 			if (!ImGuiEx::IsInputEnabled())
 				ImGuiEx::SetInputEnabled(true);
 
 			return;
 		}
 
-		if (Input::IsMouseButtonDown(MouseButton::Right) && !Input::IsKeyDown(KeyCode::LeftAlt))
+		if (flycamMouseCapture)
 		{
 			m_CameraMode = CameraMode::FLYCAM;
 			DisableMouse();
@@ -94,7 +114,7 @@ namespace Lux {
 			m_FocalPoint = m_Position + GetForwardDirection() * distance;
 			m_Distance = distance;
 		}
-		else if (Input::IsKeyDown(KeyCode::LeftAlt))
+		else if (altDown)
 		{
 			m_CameraMode = CameraMode::ARCBALL;
 
@@ -121,6 +141,9 @@ namespace Lux {
 			EnableMouse();
 		}
 
+		if (cameraMouseCapture)
+			WrapMousePosition(mouse);
+
 		m_InitialMousePosition = mouse;
 		m_Position += m_PositionDelta;
 		m_Yaw += m_YawDelta;
@@ -141,6 +164,35 @@ namespace Lux {
 			speed *= 2 - glm::log(m_NormalSpeed);
 
 		return glm::clamp(speed, MIN_SPEED, MAX_SPEED);
+	}
+
+	bool EditorCamera::WrapMousePosition(glm::vec2& mouse) const
+	{
+		const auto [windowWidth, windowHeight] = Application::Get().GetWindow().GetSize();
+		constexpr float margin = 2.0f;
+		const float maxX = (float)windowWidth - margin;
+		const float maxY = (float)windowHeight - margin;
+
+		if (maxX <= margin || maxY <= margin)
+			return false;
+
+		glm::vec2 wrappedMouse = mouse;
+		if (mouse.x <= margin)
+			wrappedMouse.x = maxX;
+		else if (mouse.x >= maxX)
+			wrappedMouse.x = margin;
+
+		if (mouse.y <= margin)
+			wrappedMouse.y = maxY;
+		else if (mouse.y >= maxY)
+			wrappedMouse.y = margin;
+
+		if (wrappedMouse == mouse)
+			return false;
+
+		Input::SetMousePosition(wrappedMouse.x, wrappedMouse.y);
+		mouse = wrappedMouse;
+		return true;
 	}
 
 	void EditorCamera::UpdateCameraView()
