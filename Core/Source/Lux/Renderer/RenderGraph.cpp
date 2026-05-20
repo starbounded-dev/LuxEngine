@@ -48,11 +48,27 @@ namespace Lux {
 				touchResource(resource);
 		}
 
-		std::vector<uint32_t> aliasLastUse;
-		for (ResourceLifetime& lifetime : lifetimes)
+		std::vector<ResourceHandle> lifetimeOrder;
+		lifetimeOrder.reserve(lifetimes.size());
+		for (ResourceHandle resource = 0; resource < lifetimes.size(); resource++)
 		{
-			if (lifetime.FirstPass == UINT32_MAX)
-				continue;
+			if (lifetimes[resource].FirstPass != UINT32_MAX)
+				lifetimeOrder.push_back(resource);
+		}
+
+		std::sort(lifetimeOrder.begin(), lifetimeOrder.end(), [&](ResourceHandle a, ResourceHandle b)
+			{
+				const ResourceLifetime& lhs = lifetimes[a];
+				const ResourceLifetime& rhs = lifetimes[b];
+				if (lhs.FirstPass != rhs.FirstPass)
+					return lhs.FirstPass < rhs.FirstPass;
+				return lhs.LastPass < rhs.LastPass;
+			});
+
+		std::vector<uint32_t> aliasLastUse;
+		for (ResourceHandle resource : lifetimeOrder)
+		{
+			ResourceLifetime& lifetime = lifetimes[resource];
 
 			for (uint32_t aliasIndex = 0; aliasIndex < aliasLastUse.size(); aliasIndex++)
 			{

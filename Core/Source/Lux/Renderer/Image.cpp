@@ -38,7 +38,14 @@ namespace Lux {
 
 	void Image2D::Release()
 	{
-		s_ImageReferences.erase(m_Info.ImageHandle.Get());
+		if (m_Info.ImageHandle)
+			s_ImageReferences.erase(m_Info.ImageHandle.Get());
+
+		m_Info.ImageHandle = nullptr;
+		m_Info.Sampler = nullptr;
+		m_GPUAllocationSize = 0;
+		m_PerLayerImageViews.clear();
+		m_PerMipImageViews.clear();
 	}
 
 	int Image2D::GetClosestMipLevel(uint32_t width, uint32_t height) const
@@ -105,7 +112,7 @@ namespace Lux {
 		}
 
 		//textureDesc.initialState = textureDesc.initialState | nvrhi::ResourceStates::UnorderedAccess;
-		if (!Utils::IsDepthFormat(m_Specification.Format) && m_Specification.Format != ImageFormat::SRGB && m_Specification.Format != ImageFormat::SRGBA)
+		if (!Utils::IsDepthFormat(m_Specification.Format) && m_Specification.Format != ImageFormat::SRGB && m_Specification.Format != ImageFormat::SRGBA && !Utils::IsBlockCompressed(m_Specification.Format))
 			textureDesc.isUAV = true;
 
 		if (textureDesc.isUAV)
@@ -113,9 +120,11 @@ namespace Lux {
 			LUX_CORE_VERIFY(!Utils::IsDepthFormat(m_Specification.Format));
 			LUX_CORE_VERIFY(m_Specification.Format != ImageFormat::SRGB);
 			LUX_CORE_VERIFY(m_Specification.Format != ImageFormat::SRGBA);
+			LUX_CORE_VERIFY(!Utils::IsBlockCompressed(m_Specification.Format));
 		}
 
 		m_Info.ImageHandle = device->createTexture(textureDesc);
+		m_GPUAllocationSize = Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers);
 
 		s_ImageReferences[m_Info.ImageHandle.Get()] = this;
 

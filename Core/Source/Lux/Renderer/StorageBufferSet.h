@@ -19,6 +19,8 @@ namespace Lux {
 		Ref<StorageBuffer> RT_Get();
 
 		void Set(Ref<StorageBuffer> storageBuffer, uint32_t frame = 0);
+		uint64_t GetAllocatedSize() const;
+		uint32_t GetBufferCount() const { return static_cast<uint32_t>(m_StorageBuffers.size()); }
 	public:
 		StorageBufferSet(const StorageBufferSpecification& specification, uint32_t size, uint32_t framesInFlight);
 		virtual ~StorageBufferSet() = default;

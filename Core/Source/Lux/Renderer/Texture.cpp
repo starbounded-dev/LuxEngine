@@ -35,21 +35,7 @@ namespace Lux {
 
 		static size_t GetMemorySize(ImageFormat format, uint32_t width, uint32_t height)
 		{
-			switch (format)
-			{
-			case ImageFormat::RED16UI: return width * height * sizeof(uint16_t);
-			case ImageFormat::RG16F: return width * height * 2 * sizeof(uint16_t);
-			case ImageFormat::RG32F: return width * height * 2 * sizeof(float);
-			case ImageFormat::RED32F: return width * height * sizeof(float);
-			case ImageFormat::RED8UN: return width * height;
-			case ImageFormat::RED8UI: return width * height;
-			case ImageFormat::RGBA: return width * height * 4;
-			case ImageFormat::SRGBA: return width * height * 4;
-			case ImageFormat::RGBA32F: return width * height * 4 * sizeof(float);
-			case ImageFormat::B10R11G11UF: return width * height * sizeof(float);
-			}
-			LUX_CORE_ASSERT(false);
-			return 0;
+			return ::Lux::Utils::GetImageMemorySize(format, width, height);
 		}
 
 		static bool ValidateSpecification(const TextureSpecification& specification)
@@ -180,13 +166,15 @@ namespace Lux {
 			LUX_CORE_ERROR("Failed to load texture from file: {}", filepath);
 			m_ImageData = TextureImporter::ToBufferFromFile("Resources/Textures/ErrorTexture.png", m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
 		}
+		if (Utils::IsBlockCompressed(m_Specification.Format))
+			m_Specification.GenerateMips = false;
 
 		ImageSpecification imageSpec;
 		imageSpec.DebugName = m_Specification.DebugName;
 		imageSpec.Format = m_Specification.Format;
 		imageSpec.Width = m_Specification.Width;
 		imageSpec.Height = m_Specification.Height;
-		imageSpec.Mips = specification.GenerateMips ? GetMipLevelCount() : 1;
+		imageSpec.Mips = m_Specification.GenerateMips ? GetMipLevelCount() : 1;
 		imageSpec.DebugName = specification.DebugName;
 		imageSpec.CreateSampler = false;
 		imageSpec.MipBias = specification.MipBias;
@@ -214,12 +202,14 @@ namespace Lux {
 			LUX_CORE_ERROR("Failed to load texture from file: {}", filepath);
 			m_ImageData = TextureImporter::ToBufferFromFile("Resources/Textures/ErrorTexture.png", m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.FlipVertically);
 		}
+		if (Utils::IsBlockCompressed(m_Specification.Format))
+			m_Specification.GenerateMips = false;
 
 		ImageSpecification imageSpec;
 		imageSpec.Format = m_Specification.Format;
 		imageSpec.Width = m_Specification.Width;
 		imageSpec.Height = m_Specification.Height;
-		imageSpec.Mips = specification.GenerateMips ? GetMipLevelCount() : 1;
+		imageSpec.Mips = m_Specification.GenerateMips ? GetMipLevelCount() : 1;
 		imageSpec.DebugName = specification.DebugName;
 		imageSpec.CreateSampler = false;
 		imageSpec.MipBias = specification.MipBias;
@@ -269,12 +259,14 @@ namespace Lux {
 			m_ImageData.Allocate(size);
 			m_ImageData.ZeroInitialize();
 		}
+		if (Utils::IsBlockCompressed(m_Specification.Format))
+			m_Specification.GenerateMips = false;
 
 		ImageSpecification imageSpec;
 		imageSpec.Format = m_Specification.Format;
 		imageSpec.Width = m_Specification.Width;
 		imageSpec.Height = m_Specification.Height;
-		imageSpec.Mips = specification.GenerateMips ? Texture2D::GetMipLevelCount() : 1;
+		imageSpec.Mips = m_Specification.GenerateMips ? Texture2D::GetMipLevelCount() : 1;
 		imageSpec.DebugName = specification.DebugName;
 		imageSpec.CreateSampler = false;
 		imageSpec.MipBias = specification.MipBias;
@@ -630,6 +622,12 @@ namespace Lux {
 		{
 			LUX_CORE_WARN("Texture2D::GenerateMips - Skipping compute-based mip generation for SRGB/SRGBA format texture '{}'. "
 				"SRGB formats do not support storage image operations required for compute shaders.", m_Specification.DebugName);
+			return;
+		}
+		if (Utils::IsBlockCompressed(m_Specification.Format))
+		{
+			LUX_CORE_WARN("Texture2D::GenerateMips - Skipping compute-based mip generation for block-compressed texture '{}'. "
+				"Compressed mip chains must be authored by the import pipeline.", m_Specification.DebugName);
 			return;
 		}
 
@@ -1195,6 +1193,13 @@ namespace Lux {
 
 	void TextureCube::GenerateMips()
 	{
+		if (Utils::IsBlockCompressed(m_Specification.Format))
+		{
+			LUX_CORE_WARN("TextureCube::GenerateMips - Skipping compute-based mip generation for block-compressed texture '{}'. "
+				"Compressed mip chains must be authored by the import pipeline.", m_Specification.DebugName);
+			return;
+		}
+
 		Ref<RenderCommandBuffer> renderCommandBuffer = RenderCommandBuffer::Create(1, std::format("TextureCube::GenerateMips - {}", m_Specification.DebugName));
 
 		Ref<Shader> shader = Renderer::GetShaderLibrary()->Get("LinearSample");

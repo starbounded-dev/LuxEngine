@@ -15,6 +15,8 @@ namespace Lux {
 		Ref<UniformBuffer> Get(uint32_t frame);
 
 		void Set(Ref<UniformBuffer> uniformBuffer, uint32_t frame = 0);
+		uint64_t GetAllocatedSize() const;
+		uint32_t GetBufferCount() const { return static_cast<uint32_t>(m_UniformBuffers.size()); }
 	public:
 		UniformBufferSet(uint32_t size, uint32_t framesInFlight);
 		virtual ~UniformBufferSet() = default;

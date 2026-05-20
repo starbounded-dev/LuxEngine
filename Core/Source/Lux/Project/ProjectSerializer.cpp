@@ -154,6 +154,11 @@ namespace Lux
 			out << YAML::Key << "DynamicResolutionMinScale" << YAML::Value << settings.DynamicResolutionMinScale;
 			out << YAML::Key << "DynamicResolutionMaxScale" << YAML::Value << settings.DynamicResolutionMaxScale;
 			out << YAML::Key << "DynamicResolutionTargetGPUTime" << YAML::Value << settings.DynamicResolutionTargetGPUTime;
+			out << YAML::Key << "TextureMipBias" << YAML::Value << settings.TextureMipBias;
+			out << YAML::Key << "DistanceMipBias" << YAML::Value << settings.EnableDistanceMipBias;
+			out << YAML::Key << "DistanceMipBiasStart" << YAML::Value << settings.DistanceMipBiasStart;
+			out << YAML::Key << "DistanceMipBiasEnd" << YAML::Value << settings.DistanceMipBiasEnd;
+			out << YAML::Key << "DistanceMipBiasMax" << YAML::Value << settings.DistanceMipBiasMax;
 			out << YAML::EndMap;
 
 			out << YAML::Key << "Shadows" << YAML::Value;
@@ -219,6 +224,11 @@ namespace Lux
 				settings.DynamicResolutionMinScale = rendering["DynamicResolutionMinScale"].as<float>(settings.DynamicResolutionMinScale);
 				settings.DynamicResolutionMaxScale = rendering["DynamicResolutionMaxScale"].as<float>(settings.DynamicResolutionMaxScale);
 				settings.DynamicResolutionTargetGPUTime = rendering["DynamicResolutionTargetGPUTime"].as<float>(settings.DynamicResolutionTargetGPUTime);
+				settings.TextureMipBias = rendering["TextureMipBias"].as<float>(settings.TextureMipBias);
+				settings.EnableDistanceMipBias = rendering["DistanceMipBias"].as<bool>(settings.EnableDistanceMipBias);
+				settings.DistanceMipBiasStart = rendering["DistanceMipBiasStart"].as<float>(settings.DistanceMipBiasStart);
+				settings.DistanceMipBiasEnd = rendering["DistanceMipBiasEnd"].as<float>(settings.DistanceMipBiasEnd);
+				settings.DistanceMipBiasMax = rendering["DistanceMipBiasMax"].as<float>(settings.DistanceMipBiasMax);
 			}
 
 			if (auto shadows = node["Shadows"])
@@ -277,6 +287,11 @@ namespace Lux
 			serializer.WriteRaw(settings.DynamicResolutionMinScale);
 			serializer.WriteRaw(settings.DynamicResolutionMaxScale);
 			serializer.WriteRaw(settings.DynamicResolutionTargetGPUTime);
+			serializer.WriteRaw(settings.TextureMipBias);
+			serializer.WriteRaw(settings.EnableDistanceMipBias);
+			serializer.WriteRaw(settings.DistanceMipBiasStart);
+			serializer.WriteRaw(settings.DistanceMipBiasEnd);
+			serializer.WriteRaw(settings.DistanceMipBiasMax);
 
 			serializer.WriteRaw(settings.SoftShadows);
 			serializer.WriteRaw(settings.EnableShadowCulling);
@@ -322,6 +337,14 @@ namespace Lux
 				stream.ReadRaw(settings.DynamicResolutionMinScale);
 				stream.ReadRaw(settings.DynamicResolutionMaxScale);
 				stream.ReadRaw(settings.DynamicResolutionTargetGPUTime);
+			}
+			if (version >= 5)
+			{
+				stream.ReadRaw(settings.TextureMipBias);
+				stream.ReadRaw(settings.EnableDistanceMipBias);
+				stream.ReadRaw(settings.DistanceMipBiasStart);
+				stream.ReadRaw(settings.DistanceMipBiasEnd);
+				stream.ReadRaw(settings.DistanceMipBiasMax);
 			}
 
 			stream.ReadRaw(settings.SoftShadows);

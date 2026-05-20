@@ -377,6 +377,9 @@ namespace Lux {
 				DrawStat("Render Targets", std::format("{} ({})", Utils::BytesToString(memory.RenderTargetBytes), memory.RenderTargetCount).c_str());
 				DrawStat("Framebuffers", memory.FramebufferCount);
 				DrawStat("Descriptor Sets", memory.DescriptorSetCount);
+				DrawStat("Render Graph Transients", std::format("{} ({})", Utils::BytesToString(memory.RenderGraphTransientBytes), memory.RenderGraphTransientCount).c_str());
+				DrawStat("Alias Plan", std::format("{} groups, saves {}", memory.RenderGraphAliasGroupCount, Utils::BytesToString(memory.RenderGraphSavedBytes)).c_str());
+				DrawStat("Alias Budget", std::format("{} / {}", Utils::BytesToString(memory.RenderGraphAliasedBytes), Utils::BytesToString(memory.RenderGraphTransientBytes)).c_str());
 				ImGui::EndTable();
 			}
 
@@ -535,6 +538,22 @@ namespace Lux {
 					options.DynamicResolutionMaxScale = std::clamp(options.DynamicResolutionMaxScale, options.DynamicResolutionMinScale, 1.0f);
 					options.DynamicResolutionScale = std::clamp(options.DynamicResolutionScale, options.DynamicResolutionMinScale, options.DynamicResolutionMaxScale);
 					m_Context->RefreshRenderResolutionScale();
+					projectSettingsChanged = true;
+				}
+			}
+			projectSettingsChanged |= ImGuiEx::Property("Texture Mip Bias", options.TextureMipBias, 0.05f, -4.0f, 8.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Distance Mip Bias", options.EnableDistanceMipBias);
+			if (options.EnableDistanceMipBias)
+			{
+				bool mipBiasChanged = false;
+				mipBiasChanged |= ImGuiEx::Property("Mip Bias Start", options.DistanceMipBiasStart, 1.0f, 0.0f, 10000.0f);
+				mipBiasChanged |= ImGuiEx::Property("Mip Bias End", options.DistanceMipBiasEnd, 1.0f, 1.0f, 10000.0f);
+				mipBiasChanged |= ImGuiEx::Property("Mip Bias Max", options.DistanceMipBiasMax, 0.05f, 0.0f, 8.0f);
+				if (mipBiasChanged)
+				{
+					options.DistanceMipBiasStart = std::max(0.0f, options.DistanceMipBiasStart);
+					options.DistanceMipBiasEnd = std::max(options.DistanceMipBiasStart + 1.0f, options.DistanceMipBiasEnd);
+					options.DistanceMipBiasMax = std::clamp(options.DistanceMipBiasMax, 0.0f, 8.0f);
 					projectSettingsChanged = true;
 				}
 			}

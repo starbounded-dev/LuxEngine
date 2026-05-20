@@ -5,6 +5,7 @@
 #include "Lux/Renderer/RenderCommandBuffer.h"
 #include "Lux/Renderer/RenderPass.h"
 #include "Lux/Renderer/ComputePass.h"
+#include "Lux/Renderer/RenderGraph.h"
 #include "Lux/Renderer/Pipeline.h"
 #include "Lux/Renderer/PipelineCompute.h"
 #include "Lux/Renderer/Framebuffer.h"
@@ -156,6 +157,11 @@ namespace Lux {
 		float DynamicResolutionMinScale = 0.5f;
 		float DynamicResolutionMaxScale = 1.0f;
 		float DynamicResolutionTargetGPUTime = 16.67f;
+		float TextureMipBias = 0.0f;
+		bool  EnableDistanceMipBias = false;
+		float DistanceMipBiasStart = 50.0f;
+		float DistanceMipBiasEnd = 250.0f;
+		float DistanceMipBiasMax = 2.0f;
 	};
 
 	struct BloomSettings
@@ -250,6 +256,12 @@ namespace Lux {
 				uint32_t RenderTargetCount = 0;
 				uint32_t FramebufferCount = 0;
 				uint32_t DescriptorSetCount = 0;
+				uint64_t RenderGraphTransientBytes = 0;
+				uint64_t RenderGraphAliasedBytes = 0;
+				uint64_t RenderGraphSavedBytes = 0;
+				uint32_t RenderGraphPassCount = 0;
+				uint32_t RenderGraphTransientCount = 0;
+				uint32_t RenderGraphAliasGroupCount = 0;
 			};
 
 			uint32_t DrawCalls = 0;
@@ -486,6 +498,7 @@ namespace Lux {
 		void EndProfiledGPU();
 		void UpdateGPUProfileTimes();
 		void UpdateMemoryStatistics();
+		void UpdateRenderGraphStatistics();
 		bool UpdateDynamicRenderResolution();
 		float ResolveRenderResolutionScale() const;
 		void ResizeLightCullingResources();
@@ -585,6 +598,12 @@ namespace Lux {
 			float     CascadeTransitionFade = 1.0f;
 			bool      ShowLightComplexity = false;
 			char      Pad3[3] = { 0, 0, 0 };
+			float     TextureMipBias = 0.0f;
+			bool      EnableDistanceMipBias = false;
+			char      Pad4[3] = { 0, 0, 0 };
+			float     DistanceMipBiasStart = 50.0f;
+			float     DistanceMipBiasEnd = 250.0f;
+			float     DistanceMipBiasMax = 2.0f;
 		} m_RendererDataUB;
 
 		struct UBScreenData
@@ -642,6 +661,7 @@ namespace Lux {
 		RenderingTechnique         m_RenderingTechnique = RenderingTechnique::Forward;
 		Ref<RenderCommandBuffer>   m_CommandBuffer;       // render commands
 		Ref<RenderCommandBuffer>   m_UploadCommandBuffer; // UB/SB data uploads
+		RenderGraph                m_RenderGraph;
 
 		Ref<Renderer2D>    m_Renderer2D;
 		Ref<Renderer2D>    m_Renderer2DScreenSpace;

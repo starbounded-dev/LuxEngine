@@ -32,6 +32,15 @@ namespace Lux {
 		SRGB,
 		SRGBA,
 
+		BC1,
+		BC1_SRGB,
+		BC3,
+		BC3_SRGB,
+		BC5,
+		BC5_SNORM,
+		BC7,
+		BC7_SRGB,
+
 		DEPTH32FSTENCIL8UINT,
 		DEPTH32F,
 		DEPTH24STENCIL8,
@@ -238,6 +247,14 @@ namespace Lux {
 			case ImageFormat::RGBA16F:              return nvrhi::Format::RGBA16_FLOAT;
 			case ImageFormat::RGBA32F:              return nvrhi::Format::RGBA32_FLOAT;
 			case ImageFormat::B10R11G11UF:          return nvrhi::Format::R11G11B10_FLOAT;
+			case ImageFormat::BC1:                  return nvrhi::Format::BC1_UNORM;
+			case ImageFormat::BC1_SRGB:             return nvrhi::Format::BC1_UNORM_SRGB;
+			case ImageFormat::BC3:                  return nvrhi::Format::BC3_UNORM;
+			case ImageFormat::BC3_SRGB:             return nvrhi::Format::BC3_UNORM_SRGB;
+			case ImageFormat::BC5:                  return nvrhi::Format::BC5_UNORM;
+			case ImageFormat::BC5_SNORM:            return nvrhi::Format::BC5_SNORM;
+			case ImageFormat::BC7:                  return nvrhi::Format::BC7_UNORM;
+			case ImageFormat::BC7_SRGB:             return nvrhi::Format::BC7_UNORM_SRGB;
 			case ImageFormat::DEPTH32FSTENCIL8UINT: return nvrhi::Format::D32S8;
 			case ImageFormat::DEPTH32F:             return nvrhi::Format::D32;
 			case ImageFormat::DEPTH24STENCIL8:      return nvrhi::Format::D24S8;
@@ -245,6 +262,45 @@ namespace Lux {
 
 			LUX_CORE_ASSERT(false);
 			return nvrhi::Format::UNKNOWN;
+		}
+
+		inline uint32_t GetImageFormatBPP(ImageFormat format);
+
+		inline bool IsBlockCompressed(ImageFormat format)
+		{
+			switch (format)
+			{
+			case ImageFormat::BC1:
+			case ImageFormat::BC1_SRGB:
+			case ImageFormat::BC3:
+			case ImageFormat::BC3_SRGB:
+			case ImageFormat::BC5:
+			case ImageFormat::BC5_SNORM:
+			case ImageFormat::BC7:
+			case ImageFormat::BC7_SRGB:
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		inline uint32_t GetImageFormatBlockSize(ImageFormat format)
+		{
+			switch (format)
+			{
+			case ImageFormat::BC1:
+			case ImageFormat::BC1_SRGB:
+				return 8;
+			case ImageFormat::BC3:
+			case ImageFormat::BC3_SRGB:
+			case ImageFormat::BC5:
+			case ImageFormat::BC5_SNORM:
+			case ImageFormat::BC7:
+			case ImageFormat::BC7_SRGB:
+				return 16;
+			default:
+				return GetImageFormatBPP(format);
+			}
 		}
 
 		inline uint32_t GetImageFormatBPP(ImageFormat format)
@@ -263,6 +319,15 @@ namespace Lux {
 			case ImageFormat::RGBA16F: return 2 * 4;
 			case ImageFormat::RGBA32F: return 4 * 4;
 			case ImageFormat::B10R11G11UF: return 4;
+			case ImageFormat::BC1:
+			case ImageFormat::BC1_SRGB:
+			case ImageFormat::BC3:
+			case ImageFormat::BC3_SRGB:
+			case ImageFormat::BC5:
+			case ImageFormat::BC5_SNORM:
+			case ImageFormat::BC7:
+			case ImageFormat::BC7_SRGB:
+				return 0;
 			}
 			LUX_CORE_ASSERT(false);
 			return 0;
@@ -290,6 +355,14 @@ namespace Lux {
 			case ImageFormat::RGB:
 			case ImageFormat::SRGB:
 			case ImageFormat::SRGBA:
+			case ImageFormat::BC1:
+			case ImageFormat::BC1_SRGB:
+			case ImageFormat::BC3:
+			case ImageFormat::BC3_SRGB:
+			case ImageFormat::BC5:
+			case ImageFormat::BC5_SNORM:
+			case ImageFormat::BC7:
+			case ImageFormat::BC7_SRGB:
 			case ImageFormat::DEPTH24STENCIL8:
 				return false;
 			}
@@ -304,11 +377,32 @@ namespace Lux {
 
 		inline uint32_t GetImageMemorySize(ImageFormat format, uint32_t width, uint32_t height)
 		{
+			if (IsBlockCompressed(format))
+			{
+				const uint32_t blocksWide = glm::max(1u, (width + 3u) / 4u);
+				const uint32_t blocksHigh = glm::max(1u, (height + 3u) / 4u);
+				return blocksWide * blocksHigh * GetImageFormatBlockSize(format);
+			}
 			return width * height * GetImageFormatBPP(format);
+		}
+
+		inline uint64_t GetImageMemorySize(ImageFormat format, uint32_t width, uint32_t height, uint32_t mips, uint32_t layers)
+		{
+			uint64_t size = 0;
+			const uint32_t mipCount = glm::max(1u, mips);
+			for (uint32_t mip = 0; mip < mipCount; mip++)
+			{
+				const uint32_t mipWidth = glm::max(1u, width >> mip);
+				const uint32_t mipHeight = glm::max(1u, height >> mip);
+				size += GetImageMemorySize(format, mipWidth, mipHeight);
+			}
+			return size * glm::max(1u, layers);
 		}
 
 		inline uint32_t GetImageMemoryRowPitch(ImageFormat format, uint32_t width)
 		{
+			if (IsBlockCompressed(format))
+				return glm::max(1u, (width + 3u) / 4u) * GetImageFormatBlockSize(format);
 			return width * GetImageFormatBPP(format);
 		}
 
@@ -340,6 +434,14 @@ namespace Lux {
 			case ImageFormat::B10R11G11UF: return "B10R11G11UF";
 			case ImageFormat::SRGB: return "SRGB";
 			case ImageFormat::SRGBA: return "SRGBA";
+			case ImageFormat::BC1: return "BC1";
+			case ImageFormat::BC1_SRGB: return "BC1_SRGB";
+			case ImageFormat::BC3: return "BC3";
+			case ImageFormat::BC3_SRGB: return "BC3_SRGB";
+			case ImageFormat::BC5: return "BC5";
+			case ImageFormat::BC5_SNORM: return "BC5_SNORM";
+			case ImageFormat::BC7: return "BC7";
+			case ImageFormat::BC7_SRGB: return "BC7_SRGB";
 			case ImageFormat::DEPTH32FSTENCIL8UINT: return "DEPTH32FSTENCIL8UINT";
 			case ImageFormat::DEPTH32F: return "DEPTH32F";
 			case ImageFormat::DEPTH24STENCIL8: return "DEPTH24STENCIL8";

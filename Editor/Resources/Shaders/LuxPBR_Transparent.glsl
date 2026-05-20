@@ -1,4 +1,4 @@
-﻿/*// -- Hazel Engine PBR shader --
+/*// -- Hazel Engine PBR shader --
 // -----------------------------
 // Note: this shader is still very much in progress. There are likely many bugs and future additions that will go in.
 //       Currently heavily updated. 
@@ -172,10 +172,23 @@ vec3 GetGradient(float value)
 }
 
 
+float GetMaterialMipBias()
+{
+	float mipBias = u_RendererData.TextureMipBias;
+	if (u_RendererData.EnableDistanceMipBias)
+	{
+		float distanceToCamera = length(Input.ViewPosition);
+		float biasRange = max(u_RendererData.DistanceMipBiasEnd - u_RendererData.DistanceMipBiasStart, 1.0);
+		float distanceFactor = clamp((distanceToCamera - u_RendererData.DistanceMipBiasStart) / biasRange, 0.0, 1.0);
+		mipBias += distanceFactor * u_RendererData.DistanceMipBiasMax;
+	}
+	return mipBias;
+}
 void main()
 {
 	// Standard PBR inputs
-	vec4 albedoTexColor = SampleMaterial(u_AlbedoTexture, Input.TexCoord);
+	float materialMipBias = GetMaterialMipBias();
+	vec4 albedoTexColor = SampleMaterialBias(u_AlbedoTexture, Input.TexCoord, materialMipBias);
 	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;   // MaterialUniforms.AlbedoColor is perceptual, must be converted to linear.
 	float alpha = albedoTexColor.a;
 	m_Params.Metalness = 0.0f;

@@ -65,6 +65,11 @@ namespace Lux
 		float DynamicResolutionMinScale = 0.5f;
 		float DynamicResolutionMaxScale = 1.0f;
 		float DynamicResolutionTargetGPUTime = 16.67f;
+		float TextureMipBias = 0.0f;
+		bool EnableDistanceMipBias = false;
+		float DistanceMipBiasStart = 50.0f;
+		float DistanceMipBiasEnd = 250.0f;
+		float DistanceMipBiasMax = 2.0f;
 
 		bool SoftShadows = true;
 		bool EnableShadowCulling = true;

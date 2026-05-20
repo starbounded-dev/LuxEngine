@@ -1,4 +1,4 @@
-﻿/*// -- Hazel Engine PBR shader --
+/*// -- Hazel Engine PBR shader --
 // -----------------------------
 // Note: this shader is still very much in progress. There are likely many bugs and future additions that will go in.
 //       Currently heavily updated. 
@@ -183,18 +183,31 @@ vec3 GetGradient(float value)
 }
 
 
+float GetMaterialMipBias()
+{
+	float mipBias = u_RendererData.TextureMipBias;
+	if (u_RendererData.EnableDistanceMipBias)
+	{
+		float distanceToCamera = length(Input.ViewPosition);
+		float biasRange = max(u_RendererData.DistanceMipBiasEnd - u_RendererData.DistanceMipBiasStart, 1.0);
+		float distanceFactor = clamp((distanceToCamera - u_RendererData.DistanceMipBiasStart) / biasRange, 0.0, 1.0);
+		mipBias += distanceFactor * u_RendererData.DistanceMipBiasMax;
+	}
+	return mipBias;
+}
 void main()
 {
 	// Standard PBR inputs
-	vec4 albedoTexColor = SampleMaterial(u_AlbedoTexture, Input.TexCoord);
+	float materialMipBias = GetMaterialMipBias();
+	vec4 albedoTexColor = SampleMaterialBias(u_AlbedoTexture, Input.TexCoord, materialMipBias);
 	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;   // MaterialUniforms.AlbedoColor is perceptual, must be converted to linear.
 	float alpha = albedoTexColor.a;
 	// note: Metalness and roughness could be in the same texture.
 	//       Per GLTF spec, we read metalness from the B channel and roughness from the G channel
 	//       This will still work if metalness and roughness are independent greyscale textures,
 	//       but it will not work if metalness and roughness are independent textures containing only R channel.
-	m_Params.Metalness = SampleMaterial(u_MetalnessTexture, Input.TexCoord).b * u_MaterialUniforms.Metalness;
-	m_Params.Roughness = SampleMaterial(u_RoughnessTexture, Input.TexCoord).g * u_MaterialUniforms.Roughness;
+	m_Params.Metalness = SampleMaterialBias(u_MetalnessTexture, Input.TexCoord, materialMipBias).b * u_MaterialUniforms.Metalness;
+	m_Params.Roughness = SampleMaterialBias(u_RoughnessTexture, Input.TexCoord, materialMipBias).g * u_MaterialUniforms.Roughness;
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.f, 1.f);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
@@ -202,7 +215,7 @@ void main()
 	m_Params.Normal = normalize(Input.Normal);
 	if (u_MaterialUniforms.UseNormalMap)
 	{
-		m_Params.Normal = normalize(SampleMaterial(u_NormalTexture, Input.TexCoord).rgb * 2.0f - 1.0f);
+		m_Params.Normal = normalize(SampleMaterialBias(u_NormalTexture, Input.TexCoord, materialMipBias).rgb * 2.0f - 1.0f);
 		m_Params.Normal = normalize(Input.WorldNormals * m_Params.Normal);
 	}
 	// View normals

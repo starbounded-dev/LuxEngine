@@ -3,6 +3,7 @@
 
 #include "VulkanContext.h"
 
+#include "Lux/Core/Application.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #if LUX_LOG_RENDERER_ALLOCATIONS
@@ -14,6 +15,33 @@
 #define LUX_GPU_TRACK_MEMORY_ALLOCATION 1
 
 namespace Lux {
+	namespace {
+		uint64_t GetNativeDeviceLocalMemoryBudget()
+		{
+			nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+			if (!device)
+				return 0;
+
+			VkPhysicalDevice physicalDevice = (VkPhysicalDevice)device->getNativeObject(nvrhi::ObjectTypes::VK_PhysicalDevice);
+			if (!physicalDevice)
+				return 0;
+
+			VkPhysicalDeviceMemoryProperties memoryProperties{};
+			vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+
+			uint64_t deviceLocalBudget = 0;
+			uint64_t totalBudget = 0;
+			for (uint32_t heap = 0; heap < memoryProperties.memoryHeapCount; heap++)
+			{
+				const VkMemoryHeap& memoryHeap = memoryProperties.memoryHeaps[heap];
+				totalBudget += memoryHeap.size;
+				if (memoryHeap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+					deviceLocalBudget += memoryHeap.size;
+			}
+
+			return deviceLocalBudget > 0 ? deviceLocalBudget : totalBudget;
+		}
+	}
 
 	struct VulkanAllocatorData
 	{
@@ -208,13 +236,21 @@ namespace Lux {
 
 	void VulkanAllocator::DumpStats()
 	{
-		const auto& memoryProps = VulkanContext::GetCurrentDevice()->GetPhysicalDevice()->GetMemoryProperties();
-		std::vector<VmaBudget> budgets(memoryProps.memoryHeapCount);
+		if (!s_Data || !s_Data->Allocator)
+		{
+			LUX_CORE_WARN("VulkanAllocator::DumpStats called before VMA allocator initialization");
+			return;
+		}
+
+		std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
 		vmaGetBudget(s_Data->Allocator, budgets.data());
 
 		LUX_CORE_WARN("-----------------------------------");
 		for (VmaBudget& b : budgets)
 		{
+			if (b.budget == 0 && b.usage == 0 && b.allocationBytes == 0 && b.blockBytes == 0)
+				continue;
+
 			LUX_CORE_WARN("VmaBudget.allocationBytes = {0}", Utils::BytesToString(b.allocationBytes));
 			LUX_CORE_WARN("VmaBudget.blockBytes = {0}", Utils::BytesToString(b.blockBytes));
 			LUX_CORE_WARN("VmaBudget.usage = {0}", Utils::BytesToString(b.usage));
@@ -225,15 +261,23 @@ namespace Lux {
 
 	GPUMemoryStats VulkanAllocator::GetStats()
 	{
-		const auto& memoryProps = VulkanContext::GetCurrentDevice()->GetPhysicalDevice()->GetMemoryProperties();
-		std::vector<VmaBudget> budgets(memoryProps.memoryHeapCount);
+		GPUMemoryStats result;
+
+		if (!s_Data || !s_Data->Allocator)
+		{
+			result.TotalAvailable = GetNativeDeviceLocalMemoryBudget();
+			return result;
+		}
+
+		std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
 		vmaGetBudget(s_Data->Allocator, budgets.data());
 
 		uint64_t budget = 0;
 		for (VmaBudget& b : budgets)
 			budget += b.budget;
+		if (budget == 0)
+			budget = GetNativeDeviceLocalMemoryBudget();
 
-		GPUMemoryStats result;
 		for (const auto& [k, v] : s_AllocationMap)
 		{
 			if (v.Type == AllocationType::Buffer)
@@ -279,6 +323,9 @@ namespace Lux {
 
 	void VulkanAllocator::Shutdown()
 	{
+		if (!s_Data)
+			return;
+
 		vmaDestroyAllocator(s_Data->Allocator);
 
 		delete s_Data;

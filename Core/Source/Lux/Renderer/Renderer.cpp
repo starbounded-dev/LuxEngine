@@ -226,6 +226,7 @@ namespace Lux {
 		ShaderPermutationCache PermutationCache;
 	};
 	static GlobalShaderInfo s_GlobalShaderInfo;
+	static const std::filesystem::path s_ShaderPermutationCachePath = "Resources/Cache/ShaderPermutations.cache";
 
 	struct RendererData
 	{
@@ -359,6 +360,7 @@ namespace Lux {
 	{
 		s_Data = lnew RendererData();
 		s_RendererData = lnew RendererData();
+		s_GlobalShaderInfo.PermutationCache.LoadFromFile(s_ShaderPermutationCachePath);
 
 		s_CommandQueue[0] = lnew RenderCommandQueue();
 		s_CommandQueue[1] = lnew RenderCommandQueue();
@@ -576,6 +578,8 @@ namespace Lux {
 
 	void Renderer::Shutdown()
 	{
+		s_GlobalShaderInfo.PermutationCache.SaveToFile(s_ShaderPermutationCachePath);
+
 		{
 			std::scoped_lock lock(s_ShaderDependenciesMutex);
 			s_ShaderDependencies.clear();

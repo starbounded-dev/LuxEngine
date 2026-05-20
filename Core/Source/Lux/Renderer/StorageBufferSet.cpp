@@ -44,4 +44,15 @@ namespace Lux {
 		m_StorageBuffers[frame] = storageBuffer;
 	}
 
+	uint64_t StorageBufferSet::GetAllocatedSize() const
+	{
+		uint64_t size = 0;
+		for (const auto& [frame, storageBuffer] : m_StorageBuffers)
+		{
+			if (storageBuffer)
+				size += storageBuffer->GetSize();
+		}
+		return size;
+	}
+
 }

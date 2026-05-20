@@ -20,6 +20,11 @@ vec4 SampleMaterial(texture2D tex, vec2 texCoord)
 	return texture(sampler2D(tex, r_MaterialSampler), texCoord);
 }
 
+vec4 SampleMaterialBias(texture2D tex, vec2 texCoord, float mipBias)
+{
+	return texture(sampler2D(tex, r_MaterialSampler), texCoord, mipBias);
+}
+
 vec4 SampleLinear(texture2DArray tex, vec3 texCoord)
 {
 	return texture(sampler2DArray(tex, r_LinearSampler), texCoord);

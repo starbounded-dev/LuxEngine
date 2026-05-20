@@ -38,6 +38,7 @@ namespace Lux {
 		Ref<Image2D> GetOutput(uint32_t index);
 		Ref<Image2D> GetDepthOutput();
 		bool HasDescriptorSets() const;
+		uint32_t GetBindingSetCount() const { return m_DescriptorSetManager.GetBindingSetCount(); }
 		uint32_t GetFirstSetIndex() const;
 
 		bool Validate();

@@ -114,6 +114,11 @@ layout(std140, set = 2, binding = 1) uniform RendererData
 	uniform bool CascadeFading;
 	uniform float CascadeTransitionFade;
 	uniform bool ShowLightComplexity;
+	uniform float TextureMipBias;
+	uniform bool EnableDistanceMipBias;
+	uniform float DistanceMipBiasStart;
+	uniform float DistanceMipBiasEnd;
+	uniform float DistanceMipBiasMax;
 } u_RendererData;
 
 layout(std140, set = 2, binding = 2) uniform ScreenData

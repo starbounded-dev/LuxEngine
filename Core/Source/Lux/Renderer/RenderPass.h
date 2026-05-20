@@ -48,6 +48,7 @@ namespace Lux {
 		void Prepare();
 
 		bool HasDescriptorSets() const;
+		uint32_t GetBindingSetCount() const { return m_DescriptorSetManager.GetBindingSetCount(); }
 		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const { return m_DescriptorSetManager.GetBindingSets(frameIndex); }
 
 		bool IsInputValid(std::string_view name) const;

@@ -1099,6 +1099,20 @@ namespace Lux {
 		return !m_BindingSets.empty() && !m_BindingSets[0].empty();
 	}
 
+	uint32_t DescriptorSetManager::GetBindingSetCount() const
+	{
+		uint32_t count = 0;
+		for (const auto& frameBindingSets : m_BindingSets)
+		{
+			for (const auto& bindingSet : frameBindingSets)
+			{
+				if (bindingSet != nullptr)
+					count++;
+			}
+		}
+		return count;
+	}
+
 	uint32_t DescriptorSetManager::GetFirstSetIndex() const
 	{
 		if (InputResources.empty())
@@ -1115,6 +1129,8 @@ namespace Lux {
 
 		if (frameIndex > 0 && m_BindingSets.size() == 1)
 			frameIndex = 0; // Frame index is irrelevant for this type of render pass
+		else if (frameIndex >= m_BindingSets.size())
+			frameIndex %= static_cast<uint32_t>(m_BindingSets.size());
 
 		if (m_BindingSets[frameIndex].empty())
 			return nullptr;
@@ -1129,6 +1145,8 @@ namespace Lux {
 
 		if (frameIndex > 0 && m_BindingSets.size() == 1)
 			frameIndex = 0; // Frame index is irrelevant for this type of render pass
+		else if (frameIndex >= m_BindingSets.size())
+			frameIndex %= static_cast<uint32_t>(m_BindingSets.size());
 
 		nvrhi::BindingSetVector result(m_BindingSets[frameIndex].size());
 		for (size_t i = 0; i < result.size(); i++)

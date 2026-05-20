@@ -38,5 +38,15 @@ namespace Lux {
 		m_UniformBuffers[frame] = uniformBuffer;
 	}
 
+	uint64_t UniformBufferSet::GetAllocatedSize() const
+	{
+		uint64_t size = 0;
+		for (const auto& [frame, uniformBuffer] : m_UniformBuffers)
+		{
+			if (uniformBuffer)
+				size += uniformBuffer->GetSize();
+		}
+		return size;
+	}
 
 }

@@ -225,6 +225,7 @@ namespace Lux {
 		void InvalidateAndUpdate();
 
 		bool HasDescriptorSets() const;
+		uint32_t GetBindingSetCount() const;
 		uint32_t GetFirstSetIndex() const;
 		nvrhi::BindingSetHandle GetBindingSet(uint32_t frameIndex) const;
 		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const;

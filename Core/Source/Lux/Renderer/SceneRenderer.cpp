@@ -264,6 +264,11 @@ namespace Lux {
 		m_Options.DynamicResolutionMaxScale = std::clamp(settings.DynamicResolutionMaxScale, m_Options.DynamicResolutionMinScale, 1.0f);
 		m_Options.DynamicResolutionTargetGPUTime = std::max(1.0f, settings.DynamicResolutionTargetGPUTime);
 		m_Options.DynamicResolutionScale = std::clamp(m_Options.DynamicResolutionScale, m_Options.DynamicResolutionMinScale, m_Options.DynamicResolutionMaxScale);
+		m_Options.TextureMipBias = std::clamp(settings.TextureMipBias, -4.0f, 8.0f);
+		m_Options.EnableDistanceMipBias = settings.EnableDistanceMipBias;
+		m_Options.DistanceMipBiasStart = std::max(0.0f, settings.DistanceMipBiasStart);
+		m_Options.DistanceMipBiasEnd = std::max(m_Options.DistanceMipBiasStart + 1.0f, settings.DistanceMipBiasEnd);
+		m_Options.DistanceMipBiasMax = std::clamp(settings.DistanceMipBiasMax, 0.0f, 8.0f);
 
 		m_Options.SoftShadows = settings.SoftShadows;
 		m_Options.EnableShadowCulling = settings.EnableShadowCulling;
@@ -316,6 +321,11 @@ namespace Lux {
 		settings.DynamicResolutionMinScale = m_Options.DynamicResolutionMinScale;
 		settings.DynamicResolutionMaxScale = m_Options.DynamicResolutionMaxScale;
 		settings.DynamicResolutionTargetGPUTime = m_Options.DynamicResolutionTargetGPUTime;
+		settings.TextureMipBias = m_Options.TextureMipBias;
+		settings.EnableDistanceMipBias = m_Options.EnableDistanceMipBias;
+		settings.DistanceMipBiasStart = m_Options.DistanceMipBiasStart;
+		settings.DistanceMipBiasEnd = m_Options.DistanceMipBiasEnd;
+		settings.DistanceMipBiasMax = m_Options.DistanceMipBiasMax;
 
 		settings.SoftShadows = m_Options.SoftShadows;
 		settings.EnableShadowCulling = m_Options.EnableShadowCulling;
@@ -1862,6 +1872,45 @@ namespace Lux {
 		memoryStats.BufferBytes = gpuStats.BufferAllocationSize;
 		memoryStats.BufferCount = static_cast<uint32_t>(gpuStats.BufferAllocationCount);
 
+		uint64_t estimatedBufferBytes = 0;
+		uint32_t estimatedBufferCount = 0;
+		auto addUniformBufferSet = [&](const Ref<UniformBufferSet>& bufferSet)
+			{
+				if (!bufferSet)
+					return;
+
+				estimatedBufferBytes += bufferSet->GetAllocatedSize();
+				estimatedBufferCount += bufferSet->GetBufferCount();
+			};
+		auto addStorageBufferSet = [&](const Ref<StorageBufferSet>& bufferSet)
+			{
+				if (!bufferSet)
+					return;
+
+				estimatedBufferBytes += bufferSet->GetAllocatedSize();
+				estimatedBufferCount += bufferSet->GetBufferCount();
+			};
+
+		addUniformBufferSet(m_UBSCamera);
+		addUniformBufferSet(m_UBSScene);
+		addUniformBufferSet(m_UBSShadow);
+		addUniformBufferSet(m_UBSSpotShadow);
+		addUniformBufferSet(m_UBSRendererData);
+		addUniformBufferSet(m_UBSScreenData);
+		addUniformBufferSet(m_UBSPointLights);
+		addUniformBufferSet(m_UBSSpotLights);
+		addStorageBufferSet(m_SBSInstanceTransforms);
+		addStorageBufferSet(m_SBSObjectIndexes);
+		addStorageBufferSet(m_SBSVisibleObjectIndexes);
+		addStorageBufferSet(m_SBSInstanceBounds);
+		addStorageBufferSet(m_SBSMeshCullDrawData);
+		addStorageBufferSet(m_SBSIndirectDrawCommands);
+		addStorageBufferSet(m_SBSVisiblePointLightIndices);
+		addStorageBufferSet(m_SBSVisibleSpotLightIndices);
+
+		memoryStats.BufferBytes = std::max(memoryStats.BufferBytes, estimatedBufferBytes);
+		memoryStats.BufferCount = std::max(memoryStats.BufferCount, estimatedBufferCount);
+
 		std::unordered_set<uint64_t> renderTargetImageHandles;
 		std::unordered_set<const Framebuffer*> framebuffers;
 
@@ -1875,7 +1924,13 @@ namespace Lux {
 					return;
 
 				memoryStats.RenderTargetCount++;
-				memoryStats.RenderTargetBytes += image->GetGPUMemoryUsage();
+				uint64_t imageSize = image->GetGPUMemoryUsage();
+				if (imageSize == 0)
+				{
+					const ImageSpecification& spec = image->GetSpecification();
+					imageSize = Utils::GetImageMemorySize(spec.Format, spec.Width, spec.Height, spec.Mips, spec.Layers);
+				}
+				memoryStats.RenderTargetBytes += imageSize;
 			};
 
 		auto addFramebuffer = [&](const Ref<Framebuffer>& framebuffer)
@@ -1898,12 +1953,7 @@ namespace Lux {
 
 				addFramebuffer(pass->GetTargetFramebuffer());
 
-				nvrhi::BindingSetVector bindingSets = pass->GetBindingSets(Renderer::GetCurrentFrameIndex());
-				for (const auto& bindingSet : bindingSets)
-				{
-					if (bindingSet != nullptr)
-						memoryStats.DescriptorSetCount++;
-				}
+				memoryStats.DescriptorSetCount += pass->GetBindingSetCount();
 			};
 
 		auto addComputePass = [&](const Ref<ComputePass>& pass)
@@ -1911,12 +1961,7 @@ namespace Lux {
 				if (!pass)
 					return;
 
-				const nvrhi::BindingSetVector& bindingSets = pass->GetBindingSets(Renderer::GetCurrentFrameIndex());
-				for (const auto& bindingSet : bindingSets)
-				{
-					if (bindingSet != nullptr)
-						memoryStats.DescriptorSetCount++;
-				}
+				memoryStats.DescriptorSetCount += pass->GetBindingSetCount();
 			};
 
 		for (const Ref<RenderPass>& pass : m_ShadowMapPasses)
@@ -1970,12 +2015,202 @@ namespace Lux {
 		addRenderTargetImage(m_GTAOEdgesOutputImage);
 		addRenderTargetImage(m_SSRImage);
 
-		memoryStats.TextureBytes = gpuStats.ImageAllocationSize > memoryStats.RenderTargetBytes
-			? gpuStats.ImageAllocationSize - memoryStats.RenderTargetBytes
-			: gpuStats.ImageAllocationSize;
-		memoryStats.TextureCount = gpuStats.ImageAllocationCount > memoryStats.RenderTargetCount
-			? static_cast<uint32_t>(gpuStats.ImageAllocationCount - memoryStats.RenderTargetCount)
-			: static_cast<uint32_t>(gpuStats.ImageAllocationCount);
+		uint64_t liveImageBytes = 0;
+		uint32_t liveImageCount = 0;
+		for (const auto& [handle, image] : Image2D::GetImageRefs())
+		{
+			if (!image)
+				continue;
+
+			uint64_t imageSize = image->GetGPUMemoryUsage();
+			if (imageSize == 0)
+			{
+				const ImageSpecification& spec = image->GetSpecification();
+				imageSize = Utils::GetImageMemorySize(spec.Format, spec.Width, spec.Height, spec.Mips, spec.Layers);
+			}
+
+			liveImageBytes += imageSize;
+			liveImageCount++;
+		}
+
+		const uint64_t imageAllocationSize = std::max(gpuStats.ImageAllocationSize, liveImageBytes);
+		const uint32_t imageAllocationCount = std::max<uint32_t>(static_cast<uint32_t>(gpuStats.ImageAllocationCount), liveImageCount);
+		memoryStats.TextureBytes = imageAllocationSize > memoryStats.RenderTargetBytes
+			? imageAllocationSize - memoryStats.RenderTargetBytes
+			: 0;
+		memoryStats.TextureCount = imageAllocationCount > memoryStats.RenderTargetCount
+			? imageAllocationCount - memoryStats.RenderTargetCount
+			: 0;
+
+		UpdateRenderGraphStatistics();
+	}
+
+	void SceneRenderer::UpdateRenderGraphStatistics()
+	{
+		auto& memoryStats = m_Statistics.MemoryStats;
+		memoryStats.RenderGraphTransientBytes = 0;
+		memoryStats.RenderGraphAliasedBytes = 0;
+		memoryStats.RenderGraphSavedBytes = 0;
+		memoryStats.RenderGraphPassCount = 0;
+		memoryStats.RenderGraphTransientCount = 0;
+		memoryStats.RenderGraphAliasGroupCount = 0;
+
+		m_RenderGraph.Reset();
+		std::unordered_map<uint64_t, RenderGraph::ResourceHandle> resourceLookup;
+
+		auto addTexture = [&](const std::string& name, const Ref<Image2D>& image) -> RenderGraph::ResourceHandle
+			{
+				if (!image || image->GetHandle() == nullptr)
+					return RenderGraph::InvalidResource;
+
+				const uint64_t handle = reinterpret_cast<uint64_t>(image->GetHandle().Get());
+				if (auto it = resourceLookup.find(handle); it != resourceLookup.end())
+					return it->second;
+
+				const ImageSpecification& spec = image->GetSpecification();
+				RenderGraph::TextureDesc desc;
+				desc.Name = name;
+				desc.Format = spec.Format;
+				desc.Width = spec.Width;
+				desc.Height = spec.Height;
+				desc.Mips = spec.Mips;
+				desc.Transient = true;
+				const RenderGraph::ResourceHandle resource = m_RenderGraph.AddTransientTexture(desc);
+				resourceLookup[handle] = resource;
+				return resource;
+			};
+
+		auto addFramebufferResources = [&](const std::string& name, const Ref<Framebuffer>& framebuffer)
+			{
+				std::vector<RenderGraph::ResourceHandle> resources;
+				if (!framebuffer)
+					return resources;
+
+				for (uint32_t attachment = 0; attachment < framebuffer->GetColorAttachmentCount(); attachment++)
+					resources.push_back(addTexture(std::format("{} Color {}", name, attachment), framebuffer->GetImage(attachment)));
+				if (framebuffer->HasDepthAttachment())
+					resources.push_back(addTexture(std::format("{} Depth", name), framebuffer->GetDepthImage()));
+
+				return resources;
+			};
+
+		auto addRenderPassResources = [&](const std::string& name, const Ref<RenderPass>& pass)
+			{
+				return pass ? addFramebufferResources(name, pass->GetTargetFramebuffer()) : std::vector<RenderGraph::ResourceHandle>{};
+			};
+
+		auto appendResources = [](std::vector<RenderGraph::ResourceHandle>& dst, const std::vector<RenderGraph::ResourceHandle>& src)
+			{
+				dst.insert(dst.end(), src.begin(), src.end());
+			};
+
+		auto addPass = [&](std::string name, std::vector<RenderGraph::ResourceHandle> reads, std::vector<RenderGraph::ResourceHandle> writes)
+			{
+				auto removeInvalid = [](std::vector<RenderGraph::ResourceHandle>& resources)
+					{
+						resources.erase(std::remove(resources.begin(), resources.end(), RenderGraph::InvalidResource), resources.end());
+					};
+				removeInvalid(reads);
+				removeInvalid(writes);
+				if (reads.empty() && writes.empty())
+					return;
+
+				RenderGraph::PassDesc pass;
+				pass.Name = std::move(name);
+				pass.Reads = std::move(reads);
+				pass.Writes = std::move(writes);
+				m_RenderGraph.AddPass(pass);
+			};
+
+		std::vector<RenderGraph::ResourceHandle> shadowOutputs;
+		shadowOutputs.push_back(addTexture("Directional Shadow Atlas", m_ShadowMapImage));
+		shadowOutputs.push_back(addTexture("Spot Shadow Atlas", m_SpotShadowMapImage));
+		addPass("Shadow Maps", {}, shadowOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> preDepthOutputs = addRenderPassResources("PreDepth", m_PreDepthPass);
+		addPass("PreDepth", {}, preDepthOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> hzbOutputs;
+		hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+		addPass("HZB", preDepthOutputs, hzbOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> preIntegrationOutputs;
+		preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+		addPass("PreIntegration", {}, preIntegrationOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> geometryReads = shadowOutputs;
+		appendResources(geometryReads, hzbOutputs);
+		std::vector<RenderGraph::ResourceHandle> geometryOutputs = addFramebufferResources("Geometry", m_GeometryPassFramebuffer);
+		addPass("Geometry", geometryReads, geometryOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> aoOutputs;
+		aoOutputs.push_back(addTexture("GTAO Output", m_GTAOOutputImage));
+		aoOutputs.push_back(addTexture("GTAO Denoise", m_GTAODenoiseImage));
+		aoOutputs.push_back(addTexture("GTAO Final", m_GTAOFinalImage));
+		aoOutputs.push_back(addTexture("GTAO Edges", m_GTAOEdgesOutputImage));
+		addPass("GTAO", geometryOutputs, aoOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
+		preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+		addPass("Pre-Convolution", geometryOutputs, preConvolutionOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> ssrOutputs;
+		ssrOutputs.push_back(addTexture("SSR", m_SSRImage));
+		std::vector<RenderGraph::ResourceHandle> ssrReads = geometryOutputs;
+		appendResources(ssrReads, preConvolutionOutputs);
+		addPass("SSR", ssrReads, ssrOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> bloomOutputs;
+		for (uint32_t index = 0; index < m_BloomComputeTextures.size(); index++)
+		{
+			if (m_BloomComputeTextures[index].Texture)
+				bloomOutputs.push_back(addTexture(std::format("Bloom {}", index), m_BloomComputeTextures[index].Texture->GetImage()));
+		}
+		addPass("Bloom", geometryOutputs, bloomOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> compositeReads = geometryOutputs;
+		appendResources(compositeReads, aoOutputs);
+		appendResources(compositeReads, ssrOutputs);
+		appendResources(compositeReads, bloomOutputs);
+		std::vector<RenderGraph::ResourceHandle> compositeOutputs = addFramebufferResources("Composite", m_CompositingFramebuffer);
+		addPass("Composite", compositeReads, compositeOutputs);
+
+		addPass("DOF", compositeOutputs, addRenderPassResources("DOF", m_DOFPass));
+		addPass("JumpFlood Init", geometryOutputs, addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass));
+		addPass("JumpFlood A", geometryOutputs, addRenderPassResources("JumpFlood A", m_JumpFloodPasses[0]));
+		addPass("JumpFlood B", geometryOutputs, addRenderPassResources("JumpFlood B", m_JumpFloodPasses[1]));
+		addPass("JumpFlood Composite", compositeOutputs, addRenderPassResources("JumpFlood Composite", m_JumpFloodCompositePass));
+		addPass("Grid", compositeOutputs, addRenderPassResources("Grid", m_GridRenderPass));
+
+		const auto lifetimes = m_RenderGraph.BuildAliasPlan();
+		const auto& textures = m_RenderGraph.GetTextures();
+		std::vector<uint64_t> aliasBytes;
+		for (const RenderGraph::ResourceLifetime& lifetime : lifetimes)
+		{
+			if (lifetime.FirstPass == UINT32_MAX || lifetime.Resource >= textures.size())
+				continue;
+
+			const RenderGraph::TextureDesc& texture = textures[lifetime.Resource];
+			const uint64_t size = Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, 1);
+			memoryStats.RenderGraphTransientBytes += size;
+			memoryStats.RenderGraphTransientCount++;
+
+			if (lifetime.AliasIndex != UINT32_MAX)
+			{
+				if (aliasBytes.size() <= lifetime.AliasIndex)
+					aliasBytes.resize(lifetime.AliasIndex + 1);
+				aliasBytes[lifetime.AliasIndex] = std::max(aliasBytes[lifetime.AliasIndex], size);
+			}
+		}
+
+		for (uint64_t size : aliasBytes)
+			memoryStats.RenderGraphAliasedBytes += size;
+
+		memoryStats.RenderGraphSavedBytes = memoryStats.RenderGraphTransientBytes > memoryStats.RenderGraphAliasedBytes
+			? memoryStats.RenderGraphTransientBytes - memoryStats.RenderGraphAliasedBytes
+			: 0;
+		memoryStats.RenderGraphPassCount = static_cast<uint32_t>(m_RenderGraph.GetPasses().size());
+		memoryStats.RenderGraphAliasGroupCount = static_cast<uint32_t>(aliasBytes.size());
 	}
 
 	void SceneRenderer::BeginScene(const SceneRendererCamera& camera)
@@ -2257,6 +2492,11 @@ namespace Lux {
 			m_RendererDataUB.ShowCascades = m_Options.ShowShadowCascades;
 			m_RendererDataUB.ShowLightComplexity = m_Options.ShowLightComplexity;
 			m_RendererDataUB.TilesCountX = m_LightTilesCountX;
+			m_RendererDataUB.TextureMipBias = m_Options.TextureMipBias;
+			m_RendererDataUB.EnableDistanceMipBias = m_Options.EnableDistanceMipBias;
+			m_RendererDataUB.DistanceMipBiasStart = m_Options.DistanceMipBiasStart;
+			m_RendererDataUB.DistanceMipBiasEnd = glm::max(m_Options.DistanceMipBiasEnd, m_Options.DistanceMipBiasStart + 1.0f);
+			m_RendererDataUB.DistanceMipBiasMax = m_Options.DistanceMipBiasMax;
 
 			auto rdData = m_RendererDataUB;
 			Ref<SceneRenderer> instance = this;
