@@ -38,11 +38,61 @@ namespace Lux {
 
 	void Image2D::Release()
 	{
+		if (m_TransientAliasSource)
+		{
+			m_TransientAliasSource = nullptr;
+			m_Info = {};
+			m_GPUAllocationSize = 0;
+			m_PerLayerImageViews.clear();
+			m_PerMipImageViews.clear();
+			return;
+		}
+
 		if (m_Info.ImageHandle)
 			s_ImageReferences.erase(m_Info.ImageHandle.Get());
 
 		m_Info.ImageHandle = nullptr;
 		m_Info.Sampler = nullptr;
+		m_GPUAllocationSize = 0;
+		m_PerLayerImageViews.clear();
+		m_PerMipImageViews.clear();
+	}
+
+	void Image2D::SetTransientAliasSource(Ref<Image2D> source)
+	{
+		LUX_CORE_VERIFY(source);
+		LUX_CORE_VERIFY(source.Raw() != this);
+		LUX_CORE_VERIFY(!source->IsTransientAlias());
+
+		const ImageSpecification& sourceSpec = source->GetSpecification();
+		LUX_CORE_VERIFY(m_Specification.Format == sourceSpec.Format);
+		LUX_CORE_VERIFY(m_Specification.Usage == sourceSpec.Usage);
+		LUX_CORE_VERIFY(m_Specification.Dimension == sourceSpec.Dimension);
+		LUX_CORE_VERIFY(m_Specification.Width == sourceSpec.Width);
+		LUX_CORE_VERIFY(m_Specification.Height == sourceSpec.Height);
+		LUX_CORE_VERIFY(m_Specification.Mips == sourceSpec.Mips);
+		LUX_CORE_VERIFY(m_Specification.Layers == sourceSpec.Layers);
+
+		if (m_TransientAliasSource == source)
+			return;
+
+		if (m_Info.ImageHandle)
+			s_ImageReferences.erase(m_Info.ImageHandle.Get());
+
+		m_Info = {};
+		m_GPUAllocationSize = 0;
+		m_PerLayerImageViews.clear();
+		m_PerMipImageViews.clear();
+		m_TransientAliasSource = source;
+	}
+
+	void Image2D::ClearTransientAliasSource()
+	{
+		if (!m_TransientAliasSource)
+			return;
+
+		m_TransientAliasSource = nullptr;
+		m_Info = {};
 		m_GPUAllocationSize = 0;
 		m_PerLayerImageViews.clear();
 		m_PerMipImageViews.clear();
@@ -68,6 +118,17 @@ namespace Lux {
 	void Image2D::RT_Invalidate()
 	{
 		LUX_CORE_VERIFY(m_Specification.Width > 0 && m_Specification.Height > 0);
+
+		if (m_TransientAliasSource)
+		{
+			LUX_CORE_VERIFY(m_TransientAliasSource->IsValid());
+			m_Info = {};
+			m_GPUAllocationSize = 0;
+			m_PerLayerImageViews.clear();
+			m_PerMipImageViews.clear();
+			return;
+		}
+
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 
 		Release();
@@ -236,6 +297,12 @@ namespace Lux {
 
 	void Image2D::SetData(Buffer buffer)
 	{
+		if (m_TransientAliasSource)
+		{
+			m_TransientAliasSource->SetData(buffer);
+			return;
+		}
+
 		LUX_CORE_VERIFY(m_Specification.Transfer, "Image must be created with ImageSpecification::Transfer enabled!");
 
 		if (buffer)
@@ -256,6 +323,12 @@ namespace Lux {
 
 	void Image2D::CopyToHostBuffer(Buffer& buffer) const
 	{
+		if (m_TransientAliasSource)
+		{
+			m_TransientAliasSource->CopyToHostBuffer(buffer);
+			return;
+		}
+
 		nvrhi::IDevice* device = Application::Get().GetWindow().GetDeviceManager()->GetDevice();
 
 		if (!m_CommandList)

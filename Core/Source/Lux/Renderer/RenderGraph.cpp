@@ -23,6 +23,19 @@ namespace Lux {
 		return static_cast<uint32_t>(m_Passes.size() - 1);
 	}
 
+	bool RenderGraph::AreAliasCompatible(const TextureDesc& lhs, const TextureDesc& rhs)
+	{
+		return lhs.Transient && rhs.Transient
+			&& lhs.AllowAlias && rhs.AllowAlias
+			&& lhs.Format == rhs.Format
+			&& lhs.Usage == rhs.Usage
+			&& lhs.Dimension == rhs.Dimension
+			&& lhs.Width == rhs.Width
+			&& lhs.Height == rhs.Height
+			&& lhs.Mips == rhs.Mips
+			&& lhs.Layers == rhs.Layers;
+	}
+
 	std::vector<RenderGraph::ResourceLifetime> RenderGraph::BuildAliasPlan() const
 	{
 		std::vector<ResourceLifetime> lifetimes(m_Textures.size());
@@ -65,25 +78,36 @@ namespace Lux {
 				return lhs.LastPass < rhs.LastPass;
 			});
 
-		std::vector<uint32_t> aliasLastUse;
+		struct AliasGroup
+		{
+			ResourceHandle Representative = InvalidResource;
+			uint32_t LastUse = 0;
+		};
+
+		std::vector<AliasGroup> aliasGroups;
 		for (ResourceHandle resource : lifetimeOrder)
 		{
 			ResourceLifetime& lifetime = lifetimes[resource];
+			const TextureDesc& texture = m_Textures[resource];
 
-			for (uint32_t aliasIndex = 0; aliasIndex < aliasLastUse.size(); aliasIndex++)
+			if (!texture.Transient || !texture.AllowAlias)
+				continue;
+
+			for (uint32_t aliasIndex = 0; aliasIndex < aliasGroups.size(); aliasIndex++)
 			{
-				if (aliasLastUse[aliasIndex] < lifetime.FirstPass)
+				AliasGroup& group = aliasGroups[aliasIndex];
+				if (group.LastUse < lifetime.FirstPass && AreAliasCompatible(m_Textures[group.Representative], texture))
 				{
 					lifetime.AliasIndex = aliasIndex;
-					aliasLastUse[aliasIndex] = lifetime.LastPass;
+					group.LastUse = lifetime.LastPass;
 					break;
 				}
 			}
 
 			if (lifetime.AliasIndex == UINT32_MAX)
 			{
-				lifetime.AliasIndex = static_cast<uint32_t>(aliasLastUse.size());
-				aliasLastUse.push_back(lifetime.LastPass);
+				lifetime.AliasIndex = static_cast<uint32_t>(aliasGroups.size());
+				aliasGroups.push_back({ resource, lifetime.LastPass });
 			}
 		}
 

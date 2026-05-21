@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Lux {
@@ -1276,6 +1277,7 @@ namespace Lux {
 		}
 
 		ResizeScreenSpaceEffectResources();
+		ApplyRenderTargetAliasing();
 
 		// Signal render thread that GPU resources are ready
 		Renderer::Submit([instance = Ref<SceneRenderer>(this)]() mutable {
@@ -2045,38 +2047,36 @@ namespace Lux {
 		UpdateRenderGraphStatistics();
 	}
 
-	void SceneRenderer::UpdateRenderGraphStatistics()
+	void SceneRenderer::BuildRenderGraph()
 	{
-		auto& memoryStats = m_Statistics.MemoryStats;
-		memoryStats.RenderGraphTransientBytes = 0;
-		memoryStats.RenderGraphAliasedBytes = 0;
-		memoryStats.RenderGraphSavedBytes = 0;
-		memoryStats.RenderGraphPassCount = 0;
-		memoryStats.RenderGraphTransientCount = 0;
-		memoryStats.RenderGraphAliasGroupCount = 0;
-
 		m_RenderGraph.Reset();
-		std::unordered_map<uint64_t, RenderGraph::ResourceHandle> resourceLookup;
+		std::unordered_map<const Image2D*, RenderGraph::ResourceHandle> resourceLookup;
 
 		auto addTexture = [&](const std::string& name, const Ref<Image2D>& image) -> RenderGraph::ResourceHandle
 			{
-				if (!image || image->GetHandle() == nullptr)
+				if (!image || !image->IsValid())
 					return RenderGraph::InvalidResource;
 
-				const uint64_t handle = reinterpret_cast<uint64_t>(image->GetHandle().Get());
-				if (auto it = resourceLookup.find(handle); it != resourceLookup.end())
+				const Image2D* key = image.Raw();
+				if (auto it = resourceLookup.find(key); it != resourceLookup.end())
 					return it->second;
 
 				const ImageSpecification& spec = image->GetSpecification();
+				const bool allowAlias = IsRenderGraphAliasCandidate(image);
 				RenderGraph::TextureDesc desc;
 				desc.Name = name;
+				desc.Image = image;
 				desc.Format = spec.Format;
+				desc.Usage = spec.Usage;
+				desc.Dimension = spec.Dimension;
 				desc.Width = spec.Width;
 				desc.Height = spec.Height;
 				desc.Mips = spec.Mips;
-				desc.Transient = true;
+				desc.Layers = spec.Layers;
+				desc.Transient = allowAlias;
+				desc.AllowAlias = allowAlias;
 				const RenderGraph::ResourceHandle resource = m_RenderGraph.AddTransientTexture(desc);
-				resourceLookup[handle] = resource;
+				resourceLookup[key] = resource;
 				return resource;
 			};
 
@@ -2127,38 +2127,75 @@ namespace Lux {
 		shadowOutputs.push_back(addTexture("Spot Shadow Atlas", m_SpotShadowMapImage));
 		addPass("Shadow Maps", {}, shadowOutputs);
 
-		std::vector<RenderGraph::ResourceHandle> preDepthOutputs = addRenderPassResources("PreDepth", m_PreDepthPass);
-		addPass("PreDepth", {}, preDepthOutputs);
-
 		std::vector<RenderGraph::ResourceHandle> hzbOutputs;
 		hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+		addPass("Mesh Culling", hzbOutputs, {});
+
+		std::vector<RenderGraph::ResourceHandle> preDepthOutputs = addRenderPassResources("PreDepth", m_PreDepthPass);
+		addPass("PreDepth", {}, preDepthOutputs);
 		addPass("HZB", preDepthOutputs, hzbOutputs);
 
 		std::vector<RenderGraph::ResourceHandle> preIntegrationOutputs;
 		preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-		addPass("PreIntegration", {}, preIntegrationOutputs);
+		addPass("PreIntegration", hzbOutputs, preIntegrationOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> lightCullingReads = preDepthOutputs;
+		appendResources(lightCullingReads, shadowOutputs);
+		addPass("Light Culling", lightCullingReads, {});
+
+		std::vector<RenderGraph::ResourceHandle> geometryOutputs = addFramebufferResources("Geometry", m_GeometryPassFramebuffer);
+		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
+		addPass("Skybox", {}, skyboxOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
+		addPass("SelectedGeometry", preDepthOutputs, selectedOutputs);
 
 		std::vector<RenderGraph::ResourceHandle> geometryReads = shadowOutputs;
-		appendResources(geometryReads, hzbOutputs);
-		std::vector<RenderGraph::ResourceHandle> geometryOutputs = addFramebufferResources("Geometry", m_GeometryPassFramebuffer);
-		addPass("Geometry", geometryReads, geometryOutputs);
+		appendResources(geometryReads, preDepthOutputs);
+		appendResources(geometryReads, skyboxOutputs);
+		addPass("Geometry", geometryReads, addRenderPassResources("Geometry Pass", m_GeometryPass));
+		addPass("Transparent Geometry", geometryOutputs, addRenderPassResources("Transparent Geometry", m_GeometryPassTransparent));
 
-		std::vector<RenderGraph::ResourceHandle> aoOutputs;
-		aoOutputs.push_back(addTexture("GTAO Output", m_GTAOOutputImage));
-		aoOutputs.push_back(addTexture("GTAO Denoise", m_GTAODenoiseImage));
-		aoOutputs.push_back(addTexture("GTAO Final", m_GTAOFinalImage));
-		aoOutputs.push_back(addTexture("GTAO Edges", m_GTAOEdgesOutputImage));
-		addPass("GTAO", geometryOutputs, aoOutputs);
+		std::vector<RenderGraph::ResourceHandle> gtaoOutputs;
+		const RenderGraph::ResourceHandle gtaoOutput = addTexture("GTAO Output", m_GTAOOutputImage);
+		const RenderGraph::ResourceHandle gtaoDenoise = addTexture("GTAO Denoise", m_GTAODenoiseImage);
+		const RenderGraph::ResourceHandle gtaoEdges = addTexture("GTAO Edges", m_GTAOEdgesOutputImage);
+		gtaoOutputs.push_back(gtaoOutput);
+		gtaoOutputs.push_back(gtaoEdges);
+		std::vector<RenderGraph::ResourceHandle> gtaoReads = geometryOutputs;
+		appendResources(gtaoReads, hzbOutputs);
+		addPass("GTAO", gtaoReads, gtaoOutputs);
+		addPass("GTAO Denoise A", { gtaoOutput, gtaoEdges }, { gtaoDenoise });
+		addPass("GTAO Denoise B", { gtaoDenoise, gtaoEdges }, { gtaoOutput });
+
+		std::vector<RenderGraph::ResourceHandle> aoFinalOutputs = { gtaoOutput, gtaoDenoise };
+		std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
+		appendResources(aoCompositeReads, aoFinalOutputs);
+		addPass("AO Composite", aoCompositeReads, addRenderPassResources("AO Composite", m_AOCompositePass));
 
 		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
 		preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-		addPass("Pre-Convolution", geometryOutputs, preConvolutionOutputs);
+		addPass("Pre-Convolution", skyboxOutputs.empty() ? geometryOutputs : skyboxOutputs, preConvolutionOutputs);
 
 		std::vector<RenderGraph::ResourceHandle> ssrOutputs;
 		ssrOutputs.push_back(addTexture("SSR", m_SSRImage));
 		std::vector<RenderGraph::ResourceHandle> ssrReads = geometryOutputs;
+		appendResources(ssrReads, hzbOutputs);
+		appendResources(ssrReads, preIntegrationOutputs);
 		appendResources(ssrReads, preConvolutionOutputs);
+		appendResources(ssrReads, aoFinalOutputs);
 		addPass("SSR", ssrReads, ssrOutputs);
+		std::vector<RenderGraph::ResourceHandle> ssrCompositeReads = geometryOutputs;
+		appendResources(ssrCompositeReads, ssrOutputs);
+		addPass("SSR Composite", ssrCompositeReads, addRenderPassResources("SSR Composite", m_SSRCompositePass));
+
+		std::vector<RenderGraph::ResourceHandle> jumpFloodInitOutputs = addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass);
+		addPass("JumpFlood Init", selectedOutputs, jumpFloodInitOutputs);
+		std::vector<RenderGraph::ResourceHandle> jumpFloodAOutputs = addRenderPassResources("JumpFlood A", m_JumpFloodPasses[0]);
+		std::vector<RenderGraph::ResourceHandle> jumpFloodBOutputs = addRenderPassResources("JumpFlood B", m_JumpFloodPasses[1]);
+		addPass("JumpFlood A", jumpFloodInitOutputs, jumpFloodAOutputs);
+		addPass("JumpFlood B", jumpFloodAOutputs, jumpFloodBOutputs);
+		addPass("JumpFlood A Resolve", jumpFloodBOutputs, jumpFloodAOutputs);
 
 		std::vector<RenderGraph::ResourceHandle> bloomOutputs;
 		for (uint32_t index = 0; index < m_BloomComputeTextures.size(); index++)
@@ -2169,18 +2206,32 @@ namespace Lux {
 		addPass("Bloom", geometryOutputs, bloomOutputs);
 
 		std::vector<RenderGraph::ResourceHandle> compositeReads = geometryOutputs;
-		appendResources(compositeReads, aoOutputs);
 		appendResources(compositeReads, ssrOutputs);
 		appendResources(compositeReads, bloomOutputs);
+		appendResources(compositeReads, preDepthOutputs);
 		std::vector<RenderGraph::ResourceHandle> compositeOutputs = addFramebufferResources("Composite", m_CompositingFramebuffer);
 		addPass("Composite", compositeReads, compositeOutputs);
 
-		addPass("DOF", compositeOutputs, addRenderPassResources("DOF", m_DOFPass));
-		addPass("JumpFlood Init", geometryOutputs, addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass));
-		addPass("JumpFlood A", geometryOutputs, addRenderPassResources("JumpFlood A", m_JumpFloodPasses[0]));
-		addPass("JumpFlood B", geometryOutputs, addRenderPassResources("JumpFlood B", m_JumpFloodPasses[1]));
-		addPass("JumpFlood Composite", compositeOutputs, addRenderPassResources("JumpFlood Composite", m_JumpFloodCompositePass));
+		std::vector<RenderGraph::ResourceHandle> jumpFloodCompositeReads = compositeOutputs;
+		appendResources(jumpFloodCompositeReads, jumpFloodAOutputs);
+		appendResources(jumpFloodCompositeReads, jumpFloodBOutputs);
+		addPass("JumpFlood Composite", jumpFloodCompositeReads, addRenderPassResources("JumpFlood Composite", m_JumpFloodCompositePass));
 		addPass("Grid", compositeOutputs, addRenderPassResources("Grid", m_GridRenderPass));
+		addPass("Renderer2D Overlay", compositeOutputs, compositeOutputs);
+		addPass("DOF", compositeOutputs, addRenderPassResources("DOF", m_DOFPass));
+	}
+
+	void SceneRenderer::UpdateRenderGraphStatistics()
+	{
+		auto& memoryStats = m_Statistics.MemoryStats;
+		memoryStats.RenderGraphTransientBytes = 0;
+		memoryStats.RenderGraphAliasedBytes = 0;
+		memoryStats.RenderGraphSavedBytes = 0;
+		memoryStats.RenderGraphPassCount = 0;
+		memoryStats.RenderGraphTransientCount = 0;
+		memoryStats.RenderGraphAliasGroupCount = 0;
+
+		BuildRenderGraph();
 
 		const auto lifetimes = m_RenderGraph.BuildAliasPlan();
 		const auto& textures = m_RenderGraph.GetTextures();
@@ -2191,7 +2242,10 @@ namespace Lux {
 				continue;
 
 			const RenderGraph::TextureDesc& texture = textures[lifetime.Resource];
-			const uint64_t size = Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, 1);
+			if (!texture.Transient || !texture.AllowAlias)
+				continue;
+
+			const uint64_t size = Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, texture.Layers);
 			memoryStats.RenderGraphTransientBytes += size;
 			memoryStats.RenderGraphTransientCount++;
 
@@ -2211,6 +2265,201 @@ namespace Lux {
 			: 0;
 		memoryStats.RenderGraphPassCount = static_cast<uint32_t>(m_RenderGraph.GetPasses().size());
 		memoryStats.RenderGraphAliasGroupCount = static_cast<uint32_t>(aliasBytes.size());
+	}
+
+	void SceneRenderer::ApplyRenderTargetAliasing()
+	{
+		if (m_RenderTargetAliasingApplied)
+			ClearRenderTargetAliasing(true);
+
+		BuildRenderGraph();
+
+		const auto lifetimes = m_RenderGraph.BuildAliasPlan();
+		const auto& textures = m_RenderGraph.GetTextures();
+
+		std::unordered_map<uint32_t, std::vector<RenderGraph::ResourceLifetime>> aliasGroups;
+		for (const RenderGraph::ResourceLifetime& lifetime : lifetimes)
+		{
+			if (lifetime.FirstPass == UINT32_MAX || lifetime.AliasIndex == UINT32_MAX || lifetime.Resource >= textures.size())
+				continue;
+
+			const RenderGraph::TextureDesc& texture = textures[lifetime.Resource];
+			if (!texture.Image || !texture.Transient || !texture.AllowAlias)
+				continue;
+
+			aliasGroups[lifetime.AliasIndex].push_back(lifetime);
+		}
+
+		m_RenderGraphAliasedImages.clear();
+		for (auto& [aliasIndex, group] : aliasGroups)
+		{
+			if (group.size() < 2)
+				continue;
+
+			std::sort(group.begin(), group.end(), [](const RenderGraph::ResourceLifetime& lhs, const RenderGraph::ResourceLifetime& rhs)
+				{
+					if (lhs.FirstPass != rhs.FirstPass)
+						return lhs.FirstPass < rhs.FirstPass;
+					return lhs.LastPass < rhs.LastPass;
+				});
+
+			Ref<Image2D> aliasSource = textures[group.front().Resource].Image;
+			if (!aliasSource || aliasSource->IsTransientAlias())
+				continue;
+
+			for (size_t i = 1; i < group.size(); i++)
+			{
+				Ref<Image2D> image = textures[group[i].Resource].Image;
+				if (!image || image == aliasSource)
+					continue;
+
+				image->SetTransientAliasSource(aliasSource);
+				m_RenderGraphAliasedImages.push_back(image);
+			}
+		}
+
+		m_RenderTargetAliasingApplied = !m_RenderGraphAliasedImages.empty();
+		if (m_RenderTargetAliasingApplied)
+		{
+			RecreateRenderTargetFramebuffers();
+			RefreshRenderTargetImageViews();
+		}
+	}
+
+	void SceneRenderer::ClearRenderTargetAliasing(bool recreateResources)
+	{
+		if (m_RenderGraphAliasedImages.empty())
+		{
+			m_RenderTargetAliasingApplied = false;
+			return;
+		}
+
+		for (Ref<Image2D>& image : m_RenderGraphAliasedImages)
+		{
+			if (!image)
+				continue;
+
+			image->ClearTransientAliasSource();
+			if (recreateResources)
+				image->RT_Invalidate();
+		}
+
+		m_RenderGraphAliasedImages.clear();
+		m_RenderTargetAliasingApplied = false;
+
+		if (recreateResources)
+		{
+			RecreateRenderTargetFramebuffers();
+			RefreshRenderTargetImageViews();
+		}
+	}
+
+	void SceneRenderer::RecreateRenderTargetFramebuffers()
+	{
+		std::unordered_set<const Framebuffer*> recreated;
+
+		auto recreateFramebuffer = [&](Ref<Framebuffer> framebuffer)
+			{
+				if (!framebuffer || framebuffer->GetSpecification().SwapChainTarget)
+					return;
+
+				if (!recreated.insert(framebuffer.Raw()).second)
+					return;
+
+				framebuffer->Resize(m_ViewportWidth, m_ViewportHeight, true);
+			};
+
+		auto recreatePassFramebuffer = [&](Ref<RenderPass> pass)
+			{
+				if (pass)
+					recreateFramebuffer(pass->GetTargetFramebuffer());
+			};
+
+		recreateFramebuffer(m_GeometryPassFramebuffer);
+		recreateFramebuffer(m_CompositingFramebuffer);
+
+		recreatePassFramebuffer(m_PreDepthPass);
+		recreatePassFramebuffer(m_GeometryPass);
+		recreatePassFramebuffer(m_GeometryPassTransparent);
+		recreatePassFramebuffer(m_SkyboxPass);
+		recreatePassFramebuffer(m_SelectedGeometryPass);
+		recreatePassFramebuffer(m_GeometryWireframePass);
+		recreatePassFramebuffer(m_AOCompositePass);
+		recreatePassFramebuffer(m_SSRCompositePass);
+		recreatePassFramebuffer(m_JumpFloodInitPass);
+		recreatePassFramebuffer(m_JumpFloodPasses[0]);
+		recreatePassFramebuffer(m_JumpFloodPasses[1]);
+		recreatePassFramebuffer(m_JumpFloodCompositePass);
+		recreatePassFramebuffer(m_CompositePass);
+		recreatePassFramebuffer(m_GridRenderPass);
+		recreatePassFramebuffer(m_DOFPass);
+	}
+
+	void SceneRenderer::RefreshRenderTargetImageViews()
+	{
+		auto invalidateViews = [](std::vector<Ref<ImageView>>& imageViews)
+			{
+				for (Ref<ImageView>& imageView : imageViews)
+				{
+					if (imageView)
+						imageView->Invalidate();
+				}
+			};
+
+		invalidateViews(m_HierarchicalDepthTexture.ImageViews);
+		invalidateViews(m_PreIntegrationVisibilityTexture.ImageViews);
+		invalidateViews(m_PreConvolutedTexture.ImageViews);
+		for (BloomComputeTextures& bloomTexture : m_BloomComputeTextures)
+			invalidateViews(bloomTexture.ImageViews);
+	}
+
+	bool SceneRenderer::IsRenderGraphAliasCandidate(const Ref<Image2D>& image)
+	{
+		if (!image || !image->IsValid())
+			return false;
+
+		const ImageSpecification& spec = image->GetSpecification();
+		if (spec.Usage != ImageUsage::Attachment && spec.Usage != ImageUsage::Storage)
+			return false;
+		if (spec.Dimension != nvrhi::TextureDimension::Texture2D || spec.Layers != 1)
+			return false;
+		if (spec.Width == 0 || spec.Height == 0 || spec.Format == ImageFormat::None)
+			return false;
+		if (Utils::IsDepthFormat(spec.Format) || Utils::IsBlockCompressed(spec.Format))
+			return false;
+
+		auto isSameImage = [&](const Ref<Image2D>& other)
+			{
+				return other && other.Raw() == image.Raw();
+			};
+
+		if (isSameImage(m_ShadowMapImage) || isSameImage(m_SpotShadowMapImage))
+			return false;
+		if (m_HierarchicalDepthTexture.Texture && isSameImage(m_HierarchicalDepthTexture.Texture->GetImage()))
+			return false;
+		if (m_PreDepthPass && isSameImage(m_PreDepthPass->GetDepthOutput()))
+			return false;
+		if (m_DOFPass && isSameImage(m_DOFPass->GetOutput(0)))
+			return false;
+
+		auto isFramebufferImage = [&](const Ref<Framebuffer>& framebuffer)
+			{
+				if (!framebuffer)
+					return false;
+
+				for (uint32_t attachment = 0; attachment < framebuffer->GetColorAttachmentCount(); attachment++)
+				{
+					if (isSameImage(framebuffer->GetImage(attachment)))
+						return true;
+				}
+
+				return framebuffer->HasDepthAttachment() && isSameImage(framebuffer->GetDepthImage());
+			};
+
+		if (isFramebufferImage(m_CompositingFramebuffer))
+			return false;
+
+		return true;
 	}
 
 	void SceneRenderer::BeginScene(const SceneRendererCamera& camera)
@@ -2243,6 +2492,7 @@ namespace Lux {
 		{
 			m_NeedsResize = false;
 			m_ScreenSpaceProjectionMatrix = glm::ortho(0.0f, (float)m_ViewportWidth, 0.0f, (float)m_ViewportHeight);
+			ClearRenderTargetAliasing(false);
 
 			m_PreDepthPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -2256,6 +2506,7 @@ namespace Lux {
 			m_GridRenderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			ResizeLightCullingResources();
 			ResizeScreenSpaceEffectResources();
+			ApplyRenderTargetAliasing();
 		}
 
 		// ── Camera uniform buffer ─────────────────────────────────────────────

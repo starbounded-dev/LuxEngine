@@ -17,11 +17,16 @@ namespace Lux {
 		struct TextureDesc
 		{
 			std::string Name;
+			Ref<Image2D> Image;
 			ImageFormat Format = ImageFormat::RGBA;
+			ImageUsage Usage = ImageUsage::Attachment;
+			nvrhi::TextureDimension Dimension = nvrhi::TextureDimension::Texture2D;
 			uint32_t Width = 1;
 			uint32_t Height = 1;
 			uint32_t Mips = 1;
+			uint32_t Layers = 1;
 			bool Transient = true;
+			bool AllowAlias = true;
 		};
 
 		struct PassDesc
@@ -48,6 +53,8 @@ namespace Lux {
 		const std::vector<PassDesc>& GetPasses() const { return m_Passes; }
 
 	private:
+		static bool AreAliasCompatible(const TextureDesc& lhs, const TextureDesc& rhs);
+
 		std::vector<TextureDesc> m_Textures;
 		std::vector<PassDesc> m_Passes;
 	};

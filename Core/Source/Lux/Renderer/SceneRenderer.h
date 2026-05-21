@@ -508,6 +508,12 @@ namespace Lux {
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();
+		void BuildRenderGraph();
+		void ApplyRenderTargetAliasing();
+		void ClearRenderTargetAliasing(bool recreateResources);
+		void RecreateRenderTargetFramebuffers();
+		void RefreshRenderTargetImageViews();
+		bool IsRenderGraphAliasCandidate(const Ref<Image2D>& image);
 
 		struct CascadeData
 		{
@@ -662,6 +668,8 @@ namespace Lux {
 		Ref<RenderCommandBuffer>   m_CommandBuffer;       // render commands
 		Ref<RenderCommandBuffer>   m_UploadCommandBuffer; // UB/SB data uploads
 		RenderGraph                m_RenderGraph;
+		std::vector<Ref<Image2D>>   m_RenderGraphAliasedImages;
+		bool                       m_RenderTargetAliasingApplied = false;
 
 		Ref<Renderer2D>    m_Renderer2D;
 		Ref<Renderer2D>    m_Renderer2DScreenSpace;

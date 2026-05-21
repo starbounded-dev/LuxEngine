@@ -149,7 +149,11 @@ namespace Lux {
 	public:
 		static Ref<Image2D> Create(const ImageSpecification& specification) { return Ref<Image2D>::Create(specification); }
 
-		bool IsValid() const { return m_Info.ImageHandle != nullptr; }
+		bool IsValid() const { return m_TransientAliasSource ? m_TransientAliasSource->IsValid() : m_Info.ImageHandle != nullptr; }
+		bool IsTransientAlias() const { return m_TransientAliasSource != nullptr; }
+		Ref<Image2D> GetTransientAliasSource() const { return m_TransientAliasSource; }
+		void SetTransientAliasSource(Ref<Image2D> source);
+		void ClearTransientAliasSource();
 
 		virtual void Resize(const glm::uvec2& size) override
 		{
@@ -165,7 +169,7 @@ namespace Lux {
 		virtual void Invalidate() override;
 		virtual void Release() override;
 
-		virtual nvrhi::TextureHandle GetHandle() const override { return m_Info.ImageHandle; }
+		virtual nvrhi::TextureHandle GetHandle() const override { return m_TransientAliasSource ? m_TransientAliasSource->GetHandle() : m_Info.ImageHandle; }
 		virtual uint32_t GetWidth() const override { return m_Specification.Width; }
 		virtual uint32_t GetHeight() const override { return m_Specification.Height; }
 		virtual glm::uvec2 GetSize() const override { return { m_Specification.Width, m_Specification.Height }; }
@@ -193,17 +197,17 @@ namespace Lux {
 
 		nvrhi::TextureSubresourceSet GetMipImageView(uint32_t mip);
 
-		ImageInfo& GetImageInfo() { return m_Info; }
-		const ImageInfo& GetImageInfo() const { return m_Info; }
+		ImageInfo& GetImageInfo() { return m_TransientAliasSource ? m_TransientAliasSource->GetImageInfo() : m_Info; }
+		const ImageInfo& GetImageInfo() const { return m_TransientAliasSource ? m_TransientAliasSource->GetImageInfo() : m_Info; }
 
-		virtual ResourceDescriptorInfo GetDescriptorInfo() const override { return (ResourceDescriptorInfo)&m_Info; }
+		virtual ResourceDescriptorInfo GetDescriptorInfo() const override { return m_TransientAliasSource ? m_TransientAliasSource->GetDescriptorInfo() : (ResourceDescriptorInfo)&m_Info; }
 
 		virtual Buffer GetBuffer() const override { return m_ImageData; }
 		virtual Buffer& GetBuffer() override { return m_ImageData; }
 
-		virtual uint64_t GetGPUMemoryUsage() const override { return m_GPUAllocationSize; }
+		virtual uint64_t GetGPUMemoryUsage() const override { return m_TransientAliasSource ? 0 : m_GPUAllocationSize; }
 
-		virtual uint64_t GetHash() const override { return (uint64_t)m_Info.ImageHandle.Get(); }
+		virtual uint64_t GetHash() const override { return (uint64_t)GetHandle().Get(); }
 
 		// Debug
 		static const std::map<nvrhi::ITexture*, WeakRef<Image2D>>& GetImageRefs();
@@ -221,6 +225,7 @@ namespace Lux {
 
 		ImageInfo m_Info;
 		uint64_t m_GPUAllocationSize = 0;
+		Ref<Image2D> m_TransientAliasSource;
 
 		mutable Ref<RenderCommandBuffer> m_CommandList;
 
