@@ -34,6 +34,49 @@ namespace Lux {
 
 	namespace
 	{
+		uint64_t HashCombine(uint64_t seed, uint64_t value)
+		{
+			return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
+		}
+
+		uint64_t HashFloat(float value)
+		{
+			uint32_t bits = 0;
+			std::memcpy(&bits, &value, sizeof(float));
+			return bits;
+		}
+
+		uint64_t HashVec3(uint64_t seed, const glm::vec3& value)
+		{
+			seed = HashCombine(seed, HashFloat(value.x));
+			seed = HashCombine(seed, HashFloat(value.y));
+			seed = HashCombine(seed, HashFloat(value.z));
+			return seed;
+		}
+
+		uint64_t HashVec4(uint64_t seed, const glm::vec4& value)
+		{
+			seed = HashCombine(seed, HashFloat(value.x));
+			seed = HashCombine(seed, HashFloat(value.y));
+			seed = HashCombine(seed, HashFloat(value.z));
+			seed = HashCombine(seed, HashFloat(value.w));
+			return seed;
+		}
+
+		uint64_t SortKeyFromRef(const void* object)
+		{
+			return reinterpret_cast<uint64_t>(object);
+		}
+
+		glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback)
+		{
+			const float lengthSquared = glm::dot(value, value);
+			if (lengthSquared <= 0.000001f)
+				return fallback;
+
+			return value * glm::inversesqrt(lengthSquared);
+		}
+
 		Ref<TextureCube> GetEnvironmentRadianceMap(const Ref<Environment>& environment)
 		{
 			return environment && environment->RadianceMap ? environment->RadianceMap : Renderer::GetBlackCubeTexture();
@@ -1710,7 +1753,7 @@ namespace Lux {
 		const glm::mat4 viewProjection = sceneCamera.Camera.GetUnReversedProjectionMatrix() * viewMatrix;
 		const glm::mat4 inverseViewProjection = glm::inverse(viewProjection);
 		const float shadowMapResolution = m_ShadowMapPass ? static_cast<float>(m_ShadowMapPass->GetTargetFramebuffer()->GetWidth()) : 4096.0f;
-		const glm::vec3 normalizedLightDirection = glm::normalize(lightDirection);
+		const glm::vec3 normalizedLightDirection = NormalizeOrFallback(lightDirection, { 0.0f, -1.0f, 0.0f });
 		const glm::vec3 up = glm::abs(glm::dot(normalizedLightDirection, glm::vec3(0.0f, 1.0f, 0.0f))) < 0.99f
 			? glm::vec3(0.0f, 1.0f, 0.0f)
 			: glm::vec3(1.0f, 0.0f, 0.0f);
@@ -2507,6 +2550,8 @@ namespace Lux {
 			ResizeLightCullingResources();
 			ResizeScreenSpaceEffectResources();
 			ApplyRenderTargetAliasing();
+			m_ShadowCascadeCacheValid = false;
+			m_DirectionalShadowMapNeedsRender = true;
 		}
 
 		// ── Camera uniform buffer ─────────────────────────────────────────────
@@ -2626,12 +2671,20 @@ namespace Lux {
 			m_SpotShadowAtlasGridSize = glm::max(1u, glm::min(m_SpotShadowAtlasGridSize, 4u));
 			m_SpotShadowTileSize = m_SpotShadowMapSize / m_SpotShadowAtlasGridSize;
 
+			bool spotShadowFramebufferResized = false;
 			if (m_SpotShadowMapPass && m_SpotShadowMapPass->GetTargetFramebuffer()
 				&& (m_SpotShadowMapPass->GetTargetFramebuffer()->GetWidth() != m_SpotShadowMapSize
 					|| m_SpotShadowMapPass->GetTargetFramebuffer()->GetHeight() != m_SpotShadowMapSize))
 			{
 				m_SpotShadowMapPass->GetTargetFramebuffer()->Resize(m_SpotShadowMapSize, m_SpotShadowMapSize);
+				spotShadowFramebufferResized = true;
 			}
+
+			uint64_t spotShadowStateHash = 1469598103934665603ull;
+			spotShadowStateHash = HashCombine(spotShadowStateHash, castCount);
+			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowMapSize);
+			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowAtlasGridSize);
+			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowTileSize);
 
 			if (m_SpotLightsUB.Count > 0)
 				std::memcpy(m_SpotLightsUB.SpotLights, spotLights.data(),
@@ -2651,6 +2704,11 @@ namespace Lux {
 						light.CastsShadows = 0;
 					continue;
 				}
+
+				spotShadowStateHash = HashVec3(spotShadowStateHash, light.Position);
+				spotShadowStateHash = HashVec3(spotShadowStateHash, light.Direction);
+				spotShadowStateHash = HashCombine(spotShadowStateHash, HashFloat(light.Range));
+				spotShadowStateHash = HashCombine(spotShadowStateHash, HashFloat(light.Angle));
 
 				const uint32_t atlasIndex = m_SpotShadowCount++;
 				const uint32_t tileX = atlasIndex % m_SpotShadowAtlasGridSize;
@@ -2677,6 +2735,17 @@ namespace Lux {
 			}
 
 			m_SpotShadowUB.Count = m_SpotShadowCount;
+			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowCount);
+
+			if (spotShadowFramebufferResized)
+			{
+				m_SpotShadowMapCacheValid = false;
+				m_SpotShadowMapNeedsRender = true;
+			}
+
+			if (!m_SpotShadowMapCacheValid || spotShadowStateHash != m_LastSpotShadowStateHash)
+				m_SpotShadowMapNeedsRender = true;
+			m_LastSpotShadowStateHash = spotShadowStateHash;
 
 			auto slData = m_SpotLightsUB;
 			uint32_t slSize = (uint32_t)(16ull + sizeof(SpotLight) * slData.Count);
@@ -2700,24 +2769,92 @@ namespace Lux {
 
 			if (dirLight.Intensity > 0.0f && dirLight.CastShadows)
 			{
-				CascadeData cascades[ShadowCascadeCount];
-				CalculateCascades(cascades, camera, dirLight.Direction);
+				constexpr float cameraMoveThreshold = 0.25f;
+				constexpr float directionDotThreshold = 0.9995f;
+				constexpr float floatThreshold = 0.0001f;
+
+				const glm::mat4 viewInverse = glm::inverse(camera.ViewMatrix);
+				const glm::vec3 cameraPosition = glm::vec3(viewInverse[3]);
+				const glm::vec3 cameraForward = NormalizeOrFallback(-glm::vec3(viewInverse[2]), m_CachedShadowCameraForward);
+				const glm::vec3 lightDirection = NormalizeOrFallback(dirLight.Direction, m_CachedShadowLightDirection);
+				const glm::vec3 cachedCameraForward = NormalizeOrFallback(m_CachedShadowCameraForward, cameraForward);
+				const glm::vec3 cachedLightDirection = NormalizeOrFallback(m_CachedShadowLightDirection, lightDirection);
+				const uint32_t shadowMapResolution = m_ShadowMapPass && m_ShadowMapPass->GetTargetFramebuffer()
+					? m_ShadowMapPass->GetTargetFramebuffer()->GetWidth()
+					: 0u;
+
+				bool cascadeSettingsChanged =
+					std::abs(camera.FOV - m_CachedShadowFOV) > floatThreshold ||
+					std::abs(camera.Near - m_CachedShadowNear) > floatThreshold ||
+					std::abs(camera.Far - m_CachedShadowFar) > floatThreshold ||
+					std::abs(m_Options.MaxShadowDistance - m_CachedMaxShadowDistance) > floatThreshold ||
+					std::abs(m_Options.ShadowCascadeSplitLambda - m_CachedShadowCascadeSplitLambda) > floatThreshold ||
+					std::abs(m_Options.ShadowCascadeNearPlaneOffset - m_CachedShadowCascadeNearPlaneOffset) > floatThreshold ||
+					std::abs(m_Options.ShadowCascadeFarPlaneOffset - m_CachedShadowCascadeFarPlaneOffset) > floatThreshold ||
+					std::abs(m_ScaleShadowCascadesToOrigin - m_CachedScaleShadowCascadesToOrigin) > floatThreshold ||
+					m_UseManualCascadeSplits != m_CachedUseManualCascadeSplits ||
+					shadowMapResolution != m_CachedShadowMapResolution;
+
 				for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 				{
-					m_ShadowUB.ViewProjection[cascade] = cascades[cascade].ViewProj;
-					m_ShadowCascadeFrustums[cascade] = Frustum::FromViewProjection(cascades[cascade].ViewProj);
+					if (std::abs(m_ShadowCascadeSplits[cascade] - m_CachedShadowCascadeSplits[cascade]) > floatThreshold)
+					{
+						cascadeSettingsChanged = true;
+						break;
+					}
 				}
-				m_ShadowCascadeFrustumCount = ShadowCascadeCount;
 
-				m_RendererDataUB.CascadeSplits = {
-					cascades[0].SplitDepth,
-					cascades[1].SplitDepth,
-					cascades[2].SplitDepth,
-					cascades[3].SplitDepth
-				};
+				const bool cameraMoved =
+					glm::dot(cameraPosition - m_CachedShadowCameraPosition, cameraPosition - m_CachedShadowCameraPosition)
+					> cameraMoveThreshold * cameraMoveThreshold;
+				const bool cameraRotated = glm::dot(cameraForward, cachedCameraForward) < directionDotThreshold;
+				const bool lightMoved = glm::dot(lightDirection, cachedLightDirection) < directionDotThreshold;
+				const bool shouldRecalculateCascades =
+					!m_ShadowCascadeCacheValid || cascadeSettingsChanged || cameraMoved || cameraRotated || lightMoved;
+
+				if (shouldRecalculateCascades)
+				{
+					CascadeData cascades[ShadowCascadeCount];
+					CalculateCascades(cascades, camera, lightDirection);
+					for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+					{
+						m_ShadowUB.ViewProjection[cascade] = cascades[cascade].ViewProj;
+						m_ShadowCascadeFrustums[cascade] = Frustum::FromViewProjection(cascades[cascade].ViewProj);
+					}
+
+					m_RendererDataUB.CascadeSplits = {
+						cascades[0].SplitDepth,
+						cascades[1].SplitDepth,
+						cascades[2].SplitDepth,
+						cascades[3].SplitDepth
+					};
+
+					m_CachedShadowCameraPosition = cameraPosition;
+					m_CachedShadowCameraForward = cameraForward;
+					m_CachedShadowLightDirection = lightDirection;
+					m_CachedShadowFOV = camera.FOV;
+					m_CachedShadowNear = camera.Near;
+					m_CachedShadowFar = camera.Far;
+					m_CachedMaxShadowDistance = m_Options.MaxShadowDistance;
+					m_CachedShadowCascadeSplitLambda = m_Options.ShadowCascadeSplitLambda;
+					m_CachedShadowCascadeNearPlaneOffset = m_Options.ShadowCascadeNearPlaneOffset;
+					m_CachedShadowCascadeFarPlaneOffset = m_Options.ShadowCascadeFarPlaneOffset;
+					m_CachedScaleShadowCascadesToOrigin = m_ScaleShadowCascadesToOrigin;
+					for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+						m_CachedShadowCascadeSplits[cascade] = m_ShadowCascadeSplits[cascade];
+					m_CachedUseManualCascadeSplits = m_UseManualCascadeSplits;
+					m_CachedShadowMapResolution = shadowMapResolution;
+					m_ShadowCascadeCacheValid = true;
+					m_DirectionalShadowMapNeedsRender = true;
+				}
+
+				m_ShadowCascadeFrustumCount = ShadowCascadeCount;
 			}
 			else
 			{
+				if (m_ShadowCascadeCacheValid || !m_DirectionalShadowMapCacheValid)
+					m_DirectionalShadowMapNeedsRender = true;
+				m_ShadowCascadeCacheValid = false;
 				for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 					m_ShadowUB.ViewProjection[cascade] = glm::mat4(1.0f);
 				m_RendererDataUB.CascadeSplits = glm::vec4(-1000000.0f);
@@ -2824,6 +2961,61 @@ namespace Lux {
 		return false;
 	}
 
+	void SceneRenderer::BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder) const
+	{
+		drawOrder.clear();
+		drawOrder.reserve(drawList.size());
+
+		for (const auto& [key, dc] : drawList)
+			drawOrder.push_back(key);
+
+		std::sort(drawOrder.begin(), drawOrder.end(), [&](const MeshKey& lhsKey, const MeshKey& rhsKey)
+			{
+				const StaticDrawCommand& lhs = drawList.at(lhsKey);
+				const StaticDrawCommand& rhs = drawList.at(rhsKey);
+
+				if (lhs.PipelineSortKey != rhs.PipelineSortKey) return lhs.PipelineSortKey < rhs.PipelineSortKey;
+				if (lhs.ShaderSortKey != rhs.ShaderSortKey) return lhs.ShaderSortKey < rhs.ShaderSortKey;
+				if (lhs.MaterialSortKey != rhs.MaterialSortKey) return lhs.MaterialSortKey < rhs.MaterialSortKey;
+				if (lhs.MeshSortKey != rhs.MeshSortKey) return lhs.MeshSortKey < rhs.MeshSortKey;
+				return lhsKey < rhsKey;
+			});
+	}
+
+	uint64_t SceneRenderer::CalculateShadowCasterHash() const
+	{
+		uint64_t hash = 1469598103934665603ull;
+		for (const MeshKey& key : m_StaticMeshShadowPassDrawOrder)
+		{
+			const auto drawIt = m_StaticMeshShadowPassDrawList.find(key);
+			const auto transformIt = m_ShadowMeshTransformMap.find(key);
+			if (drawIt == m_StaticMeshShadowPassDrawList.end() || transformIt == m_ShadowMeshTransformMap.end())
+				continue;
+
+			const StaticDrawCommand& dc = drawIt->second;
+			const TransformMapData& tmd = transformIt->second.Cascade;
+			hash = HashCombine(hash, (uint64_t)key.MeshHandle);
+			hash = HashCombine(hash, (uint64_t)key.MaterialHandle);
+			hash = HashCombine(hash, key.SubmeshIndex);
+			hash = HashCombine(hash, dc.MeshSortKey);
+			hash = HashCombine(hash, dc.MaterialSortKey);
+			hash = HashCombine(hash, tmd.ObjectIndices.size());
+
+			for (uint32_t transformIndex : tmd.ObjectIndices)
+			{
+				if (transformIndex >= m_TransformData.size())
+					continue;
+
+				const TransformVertexData& transformData = m_TransformData[transformIndex];
+				hash = HashVec4(hash, transformData.MRow[0]);
+				hash = HashVec4(hash, transformData.MRow[1]);
+				hash = HashVec4(hash, transformData.MRow[2]);
+			}
+		}
+
+		return hash;
+	}
+
 	void SceneRenderer::SubmitStaticMeshInternal(
 		Ref<StaticMesh>    staticMesh,
 		Ref<MeshSource>    meshSource,
@@ -2865,6 +3057,27 @@ namespace Lux {
 				? AssetHandle((uint64_t)resolvedOverrideMaterial.Raw())
 				: materialHandle;
 			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), keyMaterialHandle, submeshIndex, isSelected };
+			Ref<Material> sortMaterial = resolvedOverrideMaterial
+				? resolvedOverrideMaterial
+				: (materialAsset ? materialAsset->GetMaterial() : Renderer::GetDefaultWhiteMaterial());
+			const uint64_t meshSortKey = (uint64_t)GetStaticMeshKeyHandle(staticMesh);
+			const uint64_t materialSortKey = sortMaterial ? SortKeyFromRef(sortMaterial.Raw()) : (uint64_t)keyMaterialHandle;
+			Ref<Shader> sortShader = sortMaterial ? sortMaterial->GetShader() : nullptr;
+			const uint64_t shaderSortKey = sortShader ? SortKeyFromRef(sortShader.Raw()) : 0;
+
+			auto populateDrawCommand = [&](StaticDrawCommand& dc, uint64_t pipelineSortKey, uint64_t shaderSortKeyOverride, uint64_t materialSortKeyOverride)
+				{
+					dc.StaticMesh = staticMesh;
+					dc.MeshSource = meshSource;
+					dc.SubmeshIndex = submeshIndex;
+					dc.MaterialHandle = materialHandle;
+					dc.MaterialTable = materialTable;
+					dc.OverrideMaterial = resolvedOverrideMaterial;
+					dc.PipelineSortKey = pipelineSortKey;
+					dc.ShaderSortKey = shaderSortKeyOverride;
+					dc.MaterialSortKey = materialSortKeyOverride;
+					dc.MeshSortKey = meshSortKey;
+				};
 
 			// ── Shadow pass list ──────────────────────────────────────────────
 			const bool castsShadows = resolvedOverrideMaterial
@@ -2903,24 +3116,20 @@ namespace Lux {
 				const bool isTransparent = materialAsset ? materialAsset->IsTransparent() : false;
 				auto& destList = isTransparent ? m_TransparentStaticMeshDrawList : m_StaticMeshDrawList;
 				auto& dc = destList[key];
-				dc.StaticMesh = staticMesh;
-				dc.MeshSource = meshSource;
-				dc.SubmeshIndex = submeshIndex;
-				dc.MaterialHandle = materialHandle;
-				dc.MaterialTable = materialTable;
-				dc.OverrideMaterial = resolvedOverrideMaterial;
+				Ref<Pipeline> geometryPipeline = isTransparent ? m_TransparentGeometryPipeline : m_GeometryPipeline;
+				populateDrawCommand(dc, SortKeyFromRef(geometryPipeline.Raw()), shaderSortKey, materialSortKey);
 				dc.InstanceCount++;
 
 				// ── Selected list ─────────────────────────────────────────────────
 				if (isSelected)
 				{
 					auto& selDc = m_SelectedStaticMeshDrawList[key];
-					selDc.StaticMesh = staticMesh;
-					selDc.MeshSource = meshSource;
-					selDc.SubmeshIndex = submeshIndex;
-					selDc.MaterialHandle = materialHandle;
-					selDc.MaterialTable = materialTable;
-					selDc.OverrideMaterial = resolvedOverrideMaterial;
+					const uint64_t selectedShaderSortKey = m_SelectedGeometryMaterial && m_SelectedGeometryMaterial->GetShader()
+						? SortKeyFromRef(m_SelectedGeometryMaterial->GetShader().Raw()) : 0;
+					populateDrawCommand(selDc,
+						m_SelectedGeometryPass ? SortKeyFromRef(m_SelectedGeometryPass->GetPipeline().Raw()) : 0,
+						selectedShaderSortKey,
+						SortKeyFromRef(m_SelectedGeometryMaterial.Raw()));
 					selDc.InstanceCount++;
 				}
 			}
@@ -2931,12 +3140,12 @@ namespace Lux {
 				m_ShadowMeshTransformMap[key].Cascade.ObjectIndices.push_back(transformIndex);
 
 				auto& shadowDc = m_StaticMeshShadowPassDrawList[key];
-				shadowDc.StaticMesh = staticMesh;
-				shadowDc.MeshSource = meshSource;
-				shadowDc.SubmeshIndex = submeshIndex;
-				shadowDc.MaterialHandle = materialHandle;
-				shadowDc.MaterialTable = materialTable;
-				shadowDc.OverrideMaterial = resolvedOverrideMaterial;
+				const uint64_t shadowShaderSortKey = m_ShadowPassMaterial && m_ShadowPassMaterial->GetShader()
+					? SortKeyFromRef(m_ShadowPassMaterial->GetShader().Raw()) : 0;
+				populateDrawCommand(shadowDc,
+					m_ShadowMapPass ? SortKeyFromRef(m_ShadowMapPass->GetPipeline().Raw()) : 0,
+					shadowShaderSortKey,
+					SortKeyFromRef(m_ShadowPassMaterial.Raw()));
 				shadowDc.InstanceCount++;
 			}
 		}
@@ -2951,7 +3160,7 @@ namespace Lux {
 			isSimpleCollider ? m_SimpleColliderMaterial : m_ComplexColliderMaterial);
 	}
 
-	void SceneRenderer::SubmitStaticDebugMesh(std::map<MeshKey, StaticDrawCommand>& drawList,
+	void SceneRenderer::SubmitStaticDebugMesh(DrawCommandList& drawList,
 		Ref<StaticMesh>  staticMesh,
 		Ref<MeshSource>  meshSource,
 		const glm::mat4& transform,
@@ -2983,6 +3192,10 @@ namespace Lux {
 			dc.SubmeshIndex = submeshIndex;
 			dc.MaterialHandle = fakeHandle;
 			dc.OverrideMaterial = material;
+			dc.PipelineSortKey = SortKeyFromRef(m_GeometryPipeline.Raw());
+			dc.ShaderSortKey = material && material->GetShader() ? SortKeyFromRef(material->GetShader().Raw()) : 0;
+			dc.MaterialSortKey = SortKeyFromRef(material.Raw());
+			dc.MeshSortKey = (uint64_t)GetStaticMeshKeyHandle(staticMesh);
 			dc.InstanceCount++;
 		}
 	}
@@ -3017,6 +3230,11 @@ namespace Lux {
 				m_SelectedStaticMeshDrawList.clear();
 				m_StaticMeshShadowPassDrawList.clear();
 				m_StaticColliderDrawList.clear();
+				m_StaticMeshDrawOrder.clear();
+				m_TransparentStaticMeshDrawOrder.clear();
+				m_SelectedStaticMeshDrawOrder.clear();
+				m_StaticMeshShadowPassDrawOrder.clear();
+				m_StaticColliderDrawOrder.clear();
 				m_MeshCullDrawCount = 0;
 			};
 
@@ -3036,6 +3254,12 @@ namespace Lux {
 		std::vector<uint32_t> visibleObjectIndexData;
 		std::vector<MeshCullDrawData> meshCullDrawData;
 		std::vector<nvrhi::DrawIndexedIndirectArguments> indirectDrawData;
+
+		BuildSortedDrawCommandOrder(m_SelectedStaticMeshDrawList, m_SelectedStaticMeshDrawOrder);
+		BuildSortedDrawCommandOrder(m_StaticMeshDrawList, m_StaticMeshDrawOrder);
+		BuildSortedDrawCommandOrder(m_TransparentStaticMeshDrawList, m_TransparentStaticMeshDrawOrder);
+		BuildSortedDrawCommandOrder(m_StaticColliderDrawList, m_StaticColliderDrawOrder);
+		BuildSortedDrawCommandOrder(m_StaticMeshShadowPassDrawList, m_StaticMeshShadowPassDrawOrder);
 
 		auto isInstanceVisible = [this](uint32_t transformIndex)
 			{
@@ -3081,10 +3305,15 @@ namespace Lux {
 			cursor += (uint32_t)shadowTmd.Cascade.ObjectIndices.size();
 		}
 
-		auto registerIndirectDraws = [this, &meshCullDrawData, &indirectDrawData](const std::map<MeshKey, StaticDrawCommand>& drawList)
+		auto registerIndirectDraws = [this, &meshCullDrawData, &indirectDrawData](const DrawCommandList& drawList, const DrawCommandOrder& drawOrder)
 			{
-				for (const auto& [key, dc] : drawList)
+				for (const MeshKey& key : drawOrder)
 				{
+					const auto drawIt = drawList.find(key);
+					if (drawIt == drawList.end())
+						continue;
+
+					const StaticDrawCommand& dc = drawIt->second;
 					auto transformIt = m_MeshTransformMap.find(key);
 					if (transformIt == m_MeshTransformMap.end())
 						continue;
@@ -3104,11 +3333,20 @@ namespace Lux {
 				}
 			};
 
-		registerIndirectDraws(m_SelectedStaticMeshDrawList);
-		registerIndirectDraws(m_StaticMeshDrawList);
-		registerIndirectDraws(m_TransparentStaticMeshDrawList);
-		registerIndirectDraws(m_StaticColliderDrawList);
+		registerIndirectDraws(m_SelectedStaticMeshDrawList, m_SelectedStaticMeshDrawOrder);
+		registerIndirectDraws(m_StaticMeshDrawList, m_StaticMeshDrawOrder);
+		registerIndirectDraws(m_TransparentStaticMeshDrawList, m_TransparentStaticMeshDrawOrder);
+		registerIndirectDraws(m_StaticColliderDrawList, m_StaticColliderDrawOrder);
 		m_MeshCullDrawCount = (uint32_t)meshCullDrawData.size();
+
+		const uint64_t shadowCasterHash = CalculateShadowCasterHash();
+		const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
+		const bool directionalShadowsEnabled = dirLight.Intensity > 0.0f && dirLight.CastShadows;
+		if (directionalShadowsEnabled && (!m_DirectionalShadowMapCacheValid || shadowCasterHash != m_LastShadowCasterHash))
+			m_DirectionalShadowMapNeedsRender = true;
+		if (m_SpotShadowCount > 0 && (!m_SpotShadowMapCacheValid || shadowCasterHash != m_LastShadowCasterHash))
+			m_SpotShadowMapNeedsRender = true;
+		m_LastShadowCasterHash = shadowCasterHash;
 
 		// ── 2. Upload InstanceTransforms, ObjectIndexes, culling data, and indirect args
 		m_UploadCommandBuffer->Begin();
@@ -3265,22 +3503,32 @@ namespace Lux {
 		const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
 		if (dirLight.Intensity <= 0.0f || !dirLight.CastShadows)
 		{
+			if (m_DirectionalShadowMapCacheValid && !m_DirectionalShadowMapNeedsRender)
+				return;
+
 			// Clear every cascade so geometry doesn't sample stale data.
 			for (auto& shadowMapPass : m_ShadowMapPasses)
 			{
 				Renderer::BeginRenderPass(m_CommandBuffer, shadowMapPass, /*explicitClear=*/true);
 				Renderer::EndRenderPass(m_CommandBuffer);
 			}
+			m_DirectionalShadowMapCacheValid = true;
+			m_DirectionalShadowMapNeedsRender = false;
 			return;
 		}
+
+		if (m_DirectionalShadowMapCacheValid && !m_DirectionalShadowMapNeedsRender)
+			return;
 
 		BeginProfiledGPU("ShadowMapPass");
 		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapPasses[cascade], /*explicitClear=*/true);
 
-			for (auto& [key, dc] : m_StaticMeshShadowPassDrawList)
+			for (const MeshKey& key : m_StaticMeshShadowPassDrawOrder)
 			{
+				const auto drawIt = m_StaticMeshShadowPassDrawList.find(key);
+				if (drawIt == m_StaticMeshShadowPassDrawList.end()) continue;
 				auto it = m_ShadowMeshTransformMap.find(key);
 				if (it == m_ShadowMeshTransformMap.end()) continue;
 
@@ -3288,7 +3536,7 @@ namespace Lux {
 				const uint32_t instCount = (uint32_t)cascadeTmd.ObjectIndices.size();
 				if (instCount == 0) continue;
 
-				StaticDrawCommand drawCmd = dc;
+				StaticDrawCommand drawCmd = drawIt->second;
 				drawCmd.InstanceCount = instCount;
 
 				Ref<SceneRenderer> instance = this;
@@ -3301,6 +3549,8 @@ namespace Lux {
 			Renderer::EndRenderPass(m_CommandBuffer);
 		}
 		EndProfiledGPU();
+		m_DirectionalShadowMapCacheValid = true;
+		m_DirectionalShadowMapNeedsRender = false;
 	}
 
 	void SceneRenderer::SpotShadowMapPass()
@@ -3308,10 +3558,18 @@ namespace Lux {
 		ScopedCPUProfile cpuProfile(*this, "SpotShadowMapPass");
 		if (m_SpotShadowCount == 0)
 		{
+			if (m_SpotShadowMapCacheValid && !m_SpotShadowMapNeedsRender)
+				return;
+
 			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
 			Renderer::EndRenderPass(m_CommandBuffer);
+			m_SpotShadowMapCacheValid = true;
+			m_SpotShadowMapNeedsRender = false;
 			return;
 		}
+
+		if (m_SpotShadowMapCacheValid && !m_SpotShadowMapNeedsRender)
+			return;
 
 		BeginProfiledGPU("SpotShadowMapPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
@@ -3326,15 +3584,17 @@ namespace Lux {
 			const uint32_t tileY = shadowIndex / tilesPerRow;
 			Renderer::SetViewport(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
 
-			for (auto& [key, dc] : m_StaticMeshShadowPassDrawList)
+			for (const MeshKey& key : m_StaticMeshShadowPassDrawOrder)
 			{
+				const auto drawIt = m_StaticMeshShadowPassDrawList.find(key);
+				if (drawIt == m_StaticMeshShadowPassDrawList.end()) continue;
 				auto it = m_ShadowMeshTransformMap.find(key);
 				if (it == m_ShadowMeshTransformMap.end()) continue;
 				const auto& cascadeTmd = it->second.Cascade;
 				const uint32_t instCount = (uint32_t)cascadeTmd.ObjectIndices.size();
 				if (instCount == 0) continue;
 
-				StaticDrawCommand drawCmd = dc;
+				StaticDrawCommand drawCmd = drawIt->second;
 				drawCmd.InstanceCount = instCount;
 
 				Ref<SceneRenderer> instance = this;
@@ -3349,6 +3609,8 @@ namespace Lux {
 
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+		m_SpotShadowMapCacheValid = true;
+		m_SpotShadowMapNeedsRender = false;
 	}
 
 	void SceneRenderer::PreDepthPass()
@@ -3357,13 +3619,15 @@ namespace Lux {
 		BeginProfiledGPU("PreDepthPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_PreDepthPass, /*explicitClear=*/true);
 
-		for (auto& [key, dc] : m_StaticMeshDrawList)
+		for (const MeshKey& key : m_StaticMeshDrawOrder)
 		{
+			const auto drawIt = m_StaticMeshDrawList.find(key);
+			if (drawIt == m_StaticMeshDrawList.end()) continue;
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
 			const auto& tmd = it->second;
-			StaticDrawCommand drawCmd = dc;
+			StaticDrawCommand drawCmd = drawIt->second;
 
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, drawCmd, tmd]() mutable {
@@ -3589,12 +3853,14 @@ namespace Lux {
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_SelectedGeometryPass);
 
-			for (auto& [key, dc] : m_SelectedStaticMeshDrawList)
+			for (const MeshKey& key : m_SelectedStaticMeshDrawOrder)
 			{
+				const auto drawIt = m_SelectedStaticMeshDrawList.find(key);
+				if (drawIt == m_SelectedStaticMeshDrawList.end()) continue;
 				auto it = m_MeshTransformMap.find(key);
 				if (it == m_MeshTransformMap.end()) continue;
 
-				StaticDrawCommand drawCmd = dc;
+				StaticDrawCommand drawCmd = drawIt->second;
 				drawCmd.OverrideMaterial = m_SelectedGeometryMaterial;
 				const auto& tmd = it->second;
 
@@ -3611,12 +3877,14 @@ namespace Lux {
 		// ── Opaque geometry ───────────────────────────────────────────────────
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPass);
 
-		for (auto& [key, dc] : m_StaticMeshDrawList)
+		for (const MeshKey& key : m_StaticMeshDrawOrder)
 		{
+			const auto drawIt = m_StaticMeshDrawList.find(key);
+			if (drawIt == m_StaticMeshDrawList.end()) continue;
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
-			StaticDrawCommand drawCmd = dc;
+			StaticDrawCommand drawCmd = drawIt->second;
 			const auto& tmd = it->second;
 
 			Ref<SceneRenderer> instance = this;
@@ -3629,12 +3897,14 @@ namespace Lux {
 		// Physics debug meshes drawn in the opaque geometry pass
 		if (m_Options.ShowPhysicsColliders)
 		{
-			for (auto& [key, dc] : m_StaticColliderDrawList)
+			for (const MeshKey& key : m_StaticColliderDrawOrder)
 			{
+				const auto drawIt = m_StaticColliderDrawList.find(key);
+				if (drawIt == m_StaticColliderDrawList.end()) continue;
 				auto it = m_MeshTransformMap.find(key);
 				if (it == m_MeshTransformMap.end()) continue;
 
-				StaticDrawCommand drawCmd = dc;
+				StaticDrawCommand drawCmd = drawIt->second;
 				const auto& tmd = it->second;
 
 				Ref<SceneRenderer> instance = this;
@@ -3652,12 +3922,14 @@ namespace Lux {
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPassTransparent);
 
-			for (auto& [key, dc] : m_TransparentStaticMeshDrawList)
+			for (const MeshKey& key : m_TransparentStaticMeshDrawOrder)
 			{
+				const auto drawIt = m_TransparentStaticMeshDrawList.find(key);
+				if (drawIt == m_TransparentStaticMeshDrawList.end()) continue;
 				auto it = m_MeshTransformMap.find(key);
 				if (it == m_MeshTransformMap.end()) continue;
 
-				StaticDrawCommand drawCmd = dc;
+				StaticDrawCommand drawCmd = drawIt->second;
 				const auto& tmd = it->second;
 
 				Ref<SceneRenderer> instance = this;
@@ -3675,12 +3947,14 @@ namespace Lux {
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryWireframePass);
 
-			for (auto& [key, dc] : m_SelectedStaticMeshDrawList)
+			for (const MeshKey& key : m_SelectedStaticMeshDrawOrder)
 			{
+				const auto drawIt = m_SelectedStaticMeshDrawList.find(key);
+				if (drawIt == m_SelectedStaticMeshDrawList.end()) continue;
 				auto it = m_MeshTransformMap.find(key);
 				if (it == m_MeshTransformMap.end()) continue;
 
-				StaticDrawCommand drawCmd = dc;
+				StaticDrawCommand drawCmd = drawIt->second;
 				drawCmd.OverrideMaterial = m_WireframeMaterial;
 				const auto& tmd = it->second;
 
@@ -4087,10 +4361,15 @@ namespace Lux {
 		m_Statistics.SpotlightShadowcasters = 0;
 		m_Statistics.SpotlightShadowsCulled = m_FrameCullingStats.ShadowCulledInstances;
 
-		auto accumulate = [this](const std::map<MeshKey, StaticDrawCommand>& drawList)
+		auto accumulate = [this](const DrawCommandList& drawList, const DrawCommandOrder& drawOrder)
 			{
-				for (const auto& [key, dc] : drawList)
+				for (const MeshKey& key : drawOrder)
 				{
+					const auto drawIt = drawList.find(key);
+					if (drawIt == drawList.end())
+						continue;
+
+					const StaticDrawCommand& dc = drawIt->second;
 					m_Statistics.DrawCalls++;
 					m_Statistics.Meshes++;
 					m_Statistics.Instances += dc.InstanceCount;
@@ -4109,12 +4388,12 @@ namespace Lux {
 				}
 			};
 
-		accumulate(m_SelectedStaticMeshDrawList);
-		accumulate(m_StaticMeshDrawList);
-		accumulate(m_TransparentStaticMeshDrawList);
+		accumulate(m_SelectedStaticMeshDrawList, m_SelectedStaticMeshDrawOrder);
+		accumulate(m_StaticMeshDrawList, m_StaticMeshDrawOrder);
+		accumulate(m_TransparentStaticMeshDrawList, m_TransparentStaticMeshDrawOrder);
 
 		if (m_Options.ShowPhysicsColliders)
-			accumulate(m_StaticColliderDrawList);
+			accumulate(m_StaticColliderDrawList, m_StaticColliderDrawOrder);
 
 		m_Statistics.SavedDraws = m_Statistics.Instances > m_Statistics.DrawCalls
 			? m_Statistics.Instances - m_Statistics.DrawCalls

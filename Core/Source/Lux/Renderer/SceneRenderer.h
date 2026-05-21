@@ -28,6 +28,7 @@
 #include <array>
 #include <limits>
 #include <map>
+#include <unordered_map>
 #include <vector>
 
 namespace Lux {
@@ -407,6 +408,26 @@ namespace Lux {
 				if (MaterialHandle != o.MaterialHandle) return MaterialHandle < o.MaterialHandle;
 				return IsSelected < o.IsSelected;
 			}
+
+			bool operator==(const MeshKey& o) const
+			{
+				return MeshHandle == o.MeshHandle
+					&& MaterialHandle == o.MaterialHandle
+					&& SubmeshIndex == o.SubmeshIndex
+					&& IsSelected == o.IsSelected;
+			}
+		};
+
+		struct MeshKeyHasher
+		{
+			size_t operator()(const MeshKey& key) const
+			{
+				size_t seed = std::hash<uint64_t>{}((uint64_t)key.MeshHandle);
+				seed ^= std::hash<uint64_t>{}((uint64_t)key.MaterialHandle) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+				seed ^= std::hash<uint32_t>{}(key.SubmeshIndex) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+				seed ^= std::hash<bool>{}(key.IsSelected) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+				return seed;
+			}
 		};
 
 		struct StaticDrawCommand
@@ -418,7 +439,14 @@ namespace Lux {
 			Ref<MaterialTable> MaterialTable;
 			Ref<Material>      OverrideMaterial;
 			uint32_t           InstanceCount = 0;
+			uint64_t           PipelineSortKey = 0;
+			uint64_t           ShaderSortKey = 0;
+			uint64_t           MaterialSortKey = 0;
+			uint64_t           MeshSortKey = 0;
 		};
+
+		using DrawCommandList = std::unordered_map<MeshKey, StaticDrawCommand, MeshKeyHasher>;
+		using DrawCommandOrder = std::vector<MeshKey>;
 
 		// Row-major 3×4 transform stored in the InstanceTransforms SSBO.
 		struct TransformVertexData
@@ -449,7 +477,7 @@ namespace Lux {
 		};
 
 		// Internal helper for the debug-mesh submission path.
-		void SubmitStaticDebugMesh(std::map<MeshKey, StaticDrawCommand>& drawList,
+		void SubmitStaticDebugMesh(DrawCommandList& drawList,
 			Ref<StaticMesh>  staticMesh,
 			Ref<MeshSource>  meshSource,
 			const glm::mat4& transform,
@@ -463,6 +491,8 @@ namespace Lux {
 			bool               isSelected);
 		bool IsMainViewVisible(const BoundingSphere& bounds) const;
 		bool IsShadowCasterVisible(const BoundingSphere& bounds) const;
+		void BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder) const;
+		uint64_t CalculateShadowCasterHash() const;
 
 		// ── Render passes ────────────────────────────────────────────────────
 
@@ -841,14 +871,19 @@ namespace Lux {
 		Ref<Material>    m_ComplexColliderMaterial;
 
 		// ── Draw lists ────────────────────────────────────────────────────────
-		std::map<MeshKey, StaticDrawCommand> m_StaticMeshDrawList;
-		std::map<MeshKey, StaticDrawCommand> m_TransparentStaticMeshDrawList;
-		std::map<MeshKey, StaticDrawCommand> m_SelectedStaticMeshDrawList;
-		std::map<MeshKey, StaticDrawCommand> m_StaticMeshShadowPassDrawList;
-		std::map<MeshKey, StaticDrawCommand> m_StaticColliderDrawList;
+		DrawCommandList m_StaticMeshDrawList;
+		DrawCommandList m_TransparentStaticMeshDrawList;
+		DrawCommandList m_SelectedStaticMeshDrawList;
+		DrawCommandList m_StaticMeshShadowPassDrawList;
+		DrawCommandList m_StaticColliderDrawList;
+		DrawCommandOrder m_StaticMeshDrawOrder;
+		DrawCommandOrder m_TransparentStaticMeshDrawOrder;
+		DrawCommandOrder m_SelectedStaticMeshDrawOrder;
+		DrawCommandOrder m_StaticMeshShadowPassDrawOrder;
+		DrawCommandOrder m_StaticColliderDrawOrder;
 
 		// Transform storage for all submitted meshes this frame.
-		std::map<MeshKey, TransformMapData>  m_MeshTransformMap;
+		std::unordered_map<MeshKey, TransformMapData, MeshKeyHasher>  m_MeshTransformMap;
 		std::vector<TransformVertexData>     m_TransformData;
 		std::vector<InstanceBoundsData>      m_InstanceBoundsData;
 
@@ -858,7 +893,7 @@ namespace Lux {
 		{
 			TransformMapData Cascade; // single cascade
 		};
-		std::map<MeshKey, ShadowTransformMapData> m_ShadowMeshTransformMap;
+		std::unordered_map<MeshKey, ShadowTransformMapData, MeshKeyHasher> m_ShadowMeshTransformMap;
 		std::array<Frustum, ShadowCascadeCount> m_ShadowCascadeFrustums;
 		std::array<Frustum, MaxSpotShadows> m_SpotShadowFrustums;
 		uint32_t m_ShadowCascadeFrustumCount = 0;
@@ -890,6 +925,27 @@ namespace Lux {
 		float m_ScaleShadowCascadesToOrigin = 0.0f;
 		float m_ShadowCascadeSplits[ShadowCascadeCount] = { 0.1f, 0.2f, 0.3f, 1.0f };
 		bool  m_UseManualCascadeSplits = false;
+		bool  m_ShadowCascadeCacheValid = false;
+		bool  m_DirectionalShadowMapCacheValid = false;
+		bool  m_DirectionalShadowMapNeedsRender = true;
+		bool  m_SpotShadowMapCacheValid = false;
+		bool  m_SpotShadowMapNeedsRender = true;
+		uint64_t m_LastShadowCasterHash = 0;
+		uint64_t m_LastSpotShadowStateHash = 0;
+		glm::vec3 m_CachedShadowCameraPosition{ 0.0f };
+		glm::vec3 m_CachedShadowCameraForward{ 0.0f, 0.0f, -1.0f };
+		glm::vec3 m_CachedShadowLightDirection{ 0.0f, -1.0f, 0.0f };
+		float m_CachedShadowFOV = 0.0f;
+		float m_CachedShadowNear = 0.0f;
+		float m_CachedShadowFar = 0.0f;
+		float m_CachedMaxShadowDistance = 0.0f;
+		float m_CachedShadowCascadeSplitLambda = 0.0f;
+		float m_CachedShadowCascadeNearPlaneOffset = 0.0f;
+		float m_CachedShadowCascadeFarPlaneOffset = 0.0f;
+		float m_CachedScaleShadowCascadesToOrigin = 0.0f;
+		float m_CachedShadowCascadeSplits[ShadowCascadeCount] = {};
+		bool  m_CachedUseManualCascadeSplits = false;
+		uint32_t m_CachedShadowMapResolution = 0;
 		BloomSettings m_BloomSettings;
 		DOFSettings m_DOFSettings;
 		SSROptionsUB m_SSROptions;
