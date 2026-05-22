@@ -430,6 +430,8 @@ namespace Lux {
 		bool CastShadows = true;
 		bool SoftShadows = true;
 		float LightSize = 0.5f;
+		float ShadowDistance = 0.0f; // 0 = renderer max distance
+		uint32_t ShadowResolutionTier = 2;
 
 		DirectionalLightComponent() = default;
 		DirectionalLightComponent(const DirectionalLightComponent&) = default;
@@ -460,6 +462,8 @@ namespace Lux {
 		float Falloff = 1.0f;
 		bool CastsShadows = false;
 		bool SoftShadows = false;
+		float ShadowDistance = 0.0f; // 0 = Range
+		uint32_t ShadowResolutionTier = 1;
 
 		SpotLightComponent() = default;
 		SpotLightComponent(const SpotLightComponent&) = default;

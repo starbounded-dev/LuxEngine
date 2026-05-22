@@ -88,6 +88,8 @@ namespace Lux {
 				ImGuiEx::Property("Soft Shadows", light.SoftShadows);
 				ImGuiEx::Property("Light Size", light.LightSize, 0.01f, 0.0f, 10.0f);
 				ImGuiEx::Property("Shadow Amount", light.ShadowAmount, 0.01f, 0.0f, 1.0f);
+				ImGuiEx::Property("Shadow Distance", light.ShadowDistance, 1.0f, 0.0f, 10000.0f);
+				ImGuiEx::Property("Shadow Tier", light.ShadowResolutionTier, 0u, 3u);
 
 				ImGuiEx::EndPropertyGrid();
 
@@ -186,6 +188,8 @@ namespace Lux {
 				ImGuiEx::Property("Angle Atten", light.AngleAttenuation, 0.1f, 0.0f, 1.0f);
 				ImGuiEx::Property("Cast Shadows", light.CastsShadows);
 				ImGuiEx::Property("Soft Shadows", light.SoftShadows);
+				ImGuiEx::Property("Shadow Distance", light.ShadowDistance, 1.0f, 0.0f, 10000.0f);
+				ImGuiEx::Property("Shadow Tier", light.ShadowResolutionTier, 0u, 3u);
 
 				ImGuiEx::EndPropertyGrid();
 

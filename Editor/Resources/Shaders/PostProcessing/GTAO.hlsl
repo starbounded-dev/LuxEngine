@@ -24,7 +24,7 @@
 [[vk::binding(2, 1)]] Texture2D<uint>             u_HilbertLut;   // hilbert lookup table
 [[vk::binding(3, 1)]] Texture2D<lpfloat> u_HiZDepth;
 [[vk::binding(6, 1)]] SamplerState u_samplerPointClamp;
-[[vk::binding(4, 1)]] [[vk::image_format("r8ui")]] RWTexture2D<uint> o_AOwBentNormals;   // output AO term (includes bent normals if enabled - packed as R11G11B10 scaled by AO)
+[[vk::binding(4, 1)]] [[vk::image_format("r32ui")]] RWTexture2D<uint> o_AOwBentNormals;   // output AO term with packed bent normals
 [[vk::binding(5, 1)]] [[vk::image_format("r8")]] RWTexture2D<unorm float> o_Edges;   // output depth-based edges used by the denoiser
 
 #define XE_GTAO_DEPTH_MIP_LEVELS                    5                   // this one is hard-coded to 5 for now
@@ -40,7 +40,7 @@ struct GTAOConstants
     float RadiusMultiplier;
     float FinalValuePower;
     float DenoiseBlurBeta;
-    bool HalfRes;
+    uint ResolutionScale;
 
     float SampleDistributionPower;
     float ThinOccluderCompensation;
@@ -49,6 +49,10 @@ struct GTAOConstants
 
     float2 HZBUVFactor;
     float ShadowTolerance;
+    uint SliceCount;
+    uint StepsPerSlice;
+    uint TemporalAccumulation;
+    float TemporalBlend;
     float Padding;
 };
 [[vk::push_constant]] ConstantBuffer<GTAOConstants> u_GTAOConsts;
@@ -468,11 +472,12 @@ lpfloat2 SpatioTemporalNoise(uint2 pixCoord, uint temporalIndex)    // without T
 [numthreads(XE_GTAO_NUMTHREADS_X, XE_GTAO_NUMTHREADS_Y, 1)]
 void main(const uint2 pixCoord : SV_DispatchThreadID)
 {
-    const uint2 outputSize = uint2(u_GTAOConsts.HalfRes ? u_ScreenData.HalfResolution : u_ScreenData.FullResolution);
+    const uint resolutionScale = max(u_GTAOConsts.ResolutionScale, 1u);
+    const uint2 outputSize = (uint2(u_ScreenData.FullResolution) + uint2(resolutionScale - 1u, resolutionScale - 1u)) / uint2(resolutionScale, resolutionScale);
     if (pixCoord.x >= outputSize.x || pixCoord.y >= outputSize.y)
         return;
 
     const int2 outputPixCoords = pixCoord;
-    const int2 inputPixCoords = outputPixCoords * (1 + int(u_GTAOConsts.HalfRes));
-    XeGTAO_MainPass(outputPixCoords, inputPixCoords, 9, 3, SpatioTemporalNoise(inputPixCoords, u_GTAOConsts.NoiseIndex));
+    const int2 inputPixCoords = outputPixCoords * int(resolutionScale);
+    XeGTAO_MainPass(outputPixCoords, inputPixCoords, (lpfloat)max(1u, u_GTAOConsts.SliceCount), (lpfloat)max(1u, u_GTAOConsts.StepsPerSlice), SpatioTemporalNoise(inputPixCoords, u_GTAOConsts.NoiseIndex));
 }

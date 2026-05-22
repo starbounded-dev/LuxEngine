@@ -70,6 +70,14 @@ namespace Lux
 		float DistanceMipBiasStart = 50.0f;
 		float DistanceMipBiasEnd = 250.0f;
 		float DistanceMipBiasMax = 2.0f;
+		float OcclusionDepthBias = 0.003f;
+		float OcclusionBoundsScale = 1.15f;
+		uint32_t GTAOResolutionScale = 2; // SceneRendererOptions::EffectResolutionScale
+		bool GTAOTemporalAccumulation = false;
+		float GTAOTemporalBlend = 0.85f;
+		uint32_t SSRResolutionScale = 2; // SceneRendererOptions::EffectResolutionScale
+		bool SSRTemporalAccumulation = false;
+		float SSRTemporalBlend = 0.90f;
 
 		bool SoftShadows = true;
 		bool EnableShadowCulling = true;
@@ -81,6 +89,7 @@ namespace Lux
 		float ShadowCascadeTransitionFade = 1.0f;
 
 		bool BloomEnabled = true;
+		uint32_t BloomResolutionScale = 2; // SceneRendererOptions::EffectResolutionScale
 		float BloomThreshold = 1.0f;
 		float BloomKnee = 0.1f;
 		float BloomUpsampleScale = 1.0f;
@@ -88,6 +97,7 @@ namespace Lux
 		float BloomDirtIntensity = 1.0f;
 
 		bool DOFEnabled = false;
+		uint32_t DOFResolutionScale = 1; // SceneRendererOptions::EffectResolutionScale
 		float DOFFocusDistance = 0.0f;
 		float DOFBlurSize = 1.0f;
 

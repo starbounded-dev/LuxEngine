@@ -23,6 +23,8 @@
 
 #include <glm/glm.hpp>
 
+#include <thread>
+
 // Box2D
 #include "box2d/b2_world.h"
 #include "box2d/b2_body.h"
@@ -1245,6 +1247,8 @@ namespace Lux {
 				lightEnv.DirectionalLights[dirLightIndex].CastShadows = dirLight.CastShadows;
 				lightEnv.DirectionalLights[dirLightIndex].SoftShadows = dirLight.SoftShadows;
 				lightEnv.DirectionalLights[dirLightIndex].LightSize = dirLight.LightSize;
+				lightEnv.DirectionalLights[dirLightIndex].ShadowDistance = dirLight.ShadowDistance;
+				lightEnv.DirectionalLights[dirLightIndex].ShadowResolutionTier = dirLight.ShadowResolutionTier;
 
 				dirLightIndex++;
 			}
@@ -1291,6 +1295,8 @@ namespace Lux {
 				sl.Falloff = spotLight.Falloff;
 				sl.SoftShadows = spotLight.SoftShadows ? 1u : 0u;
 				sl.CastsShadows = spotLight.CastsShadows ? 1u : 0u;
+				sl.ShadowDistance = spotLight.ShadowDistance;
+				sl.ShadowResolutionTier = spotLight.ShadowResolutionTier;
 
 				lightEnv.SpotLights.push_back(sl);
 			}
@@ -1363,6 +1369,18 @@ namespace Lux {
 	void Scene::SubmitStaticMeshes(Ref<SceneRenderer> renderer,
 		const std::function<bool(Entity)>& isSelected) const
 	{
+		struct StaticMeshSubmission
+		{
+			Ref<StaticMesh> StaticMeshAsset;
+			Ref<MeshSource> MeshSourceAsset;
+			Ref<MaterialTable> Materials;
+			TransformComponent LocalTransform;
+			glm::mat4 WorldTransform{ 1.0f };
+			bool ComputeLocalTransform = false;
+			bool Selected = false;
+		};
+
+		std::vector<StaticMeshSubmission> submissions;
 		auto view = m_Registry.view<const TransformComponent, const StaticMeshComponent>();
 		for (auto e : view)
 		{
@@ -1388,13 +1406,66 @@ namespace Lux {
 				? meshComp.MaterialTable
 				: staticMesh->GetMaterials();
 
-			bool selected = isSelected ? isSelected(entity) : false;
+			StaticMeshSubmission& submission = submissions.emplace_back();
+			submission.StaticMeshAsset = staticMesh;
+			submission.MeshSourceAsset = meshSource;
+			submission.Materials = materialTable;
+			submission.Selected = isSelected ? isSelected(entity) : false;
 
-			const glm::mat4 transform = GetWorldSpaceTransformMatrix(entity);
-			if (selected)
-				renderer->SubmitSelectedStaticMesh(staticMesh, meshSource, materialTable, transform);
+			const bool hasParent = entity.HasComponent<RelationshipComponent>()
+				&& entity.GetComponent<RelationshipComponent>().ParentHandle != 0;
+			if (hasParent)
+				submission.WorldTransform = GetWorldSpaceTransformMatrix(entity);
 			else
-				renderer->SubmitStaticMesh(staticMesh, meshSource, materialTable, transform);
+			{
+				submission.LocalTransform = view.get<const TransformComponent>(e);
+				submission.ComputeLocalTransform = true;
+			}
+		}
+
+		auto computeRange = [&](size_t begin, size_t end)
+			{
+				for (size_t index = begin; index < end; index++)
+				{
+					StaticMeshSubmission& submission = submissions[index];
+					if (submission.ComputeLocalTransform)
+						submission.WorldTransform = submission.LocalTransform.GetTransform();
+				}
+			};
+
+		constexpr size_t parallelTransformThreshold = 512;
+		const uint32_t hardwareThreads = std::max(1u, std::thread::hardware_concurrency());
+		if (submissions.size() >= parallelTransformThreshold && hardwareThreads > 1)
+		{
+			const uint32_t workerCount = std::min<uint32_t>(hardwareThreads, static_cast<uint32_t>((submissions.size() + parallelTransformThreshold - 1) / parallelTransformThreshold));
+			const size_t chunkSize = (submissions.size() + workerCount - 1) / workerCount;
+			std::vector<std::thread> workers;
+			workers.reserve(workerCount);
+
+			for (uint32_t worker = 0; worker < workerCount; worker++)
+			{
+				const size_t begin = worker * chunkSize;
+				const size_t end = std::min(submissions.size(), begin + chunkSize);
+				if (begin >= end)
+					continue;
+
+				workers.emplace_back(computeRange, begin, end);
+			}
+
+			for (std::thread& worker : workers)
+				worker.join();
+		}
+		else
+		{
+			computeRange(0, submissions.size());
+		}
+
+		for (const StaticMeshSubmission& submission : submissions)
+		{
+			if (submission.Selected)
+				renderer->SubmitSelectedStaticMesh(submission.StaticMeshAsset, submission.MeshSourceAsset, submission.Materials, submission.WorldTransform);
+			else
+				renderer->SubmitStaticMesh(submission.StaticMeshAsset, submission.MeshSourceAsset, submission.Materials, submission.WorldTransform);
 		}
 	}
 

@@ -59,6 +59,9 @@ struct SpotLight
 	float AtlasOffsetX;  // Shadow atlas quadrant offset X 
 	float AtlasOffsetY;  // Shadow atlas quadrant offset Y 
 	float AtlasScale;    // Shadow atlas scale (0.5 for 2x2 grid)
+	float ShadowDistance;
+	uint ShadowResolutionTier;
+	vec2 Padding2;
 };
 
 layout(std140, set = 1, binding = 7) uniform SpotLightData
@@ -127,6 +130,8 @@ layout(std140, set = 2, binding = 2) uniform ScreenData
     vec2 FullResolution;
 	vec2 InvHalfResolution;
     vec2 HalfResolution;
+	vec2 InvQuarterResolution;
+    vec2 QuarterResolution;
 } u_ScreenData;
 
 

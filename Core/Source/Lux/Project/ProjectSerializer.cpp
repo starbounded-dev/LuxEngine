@@ -159,6 +159,14 @@ namespace Lux
 			out << YAML::Key << "DistanceMipBiasStart" << YAML::Value << settings.DistanceMipBiasStart;
 			out << YAML::Key << "DistanceMipBiasEnd" << YAML::Value << settings.DistanceMipBiasEnd;
 			out << YAML::Key << "DistanceMipBiasMax" << YAML::Value << settings.DistanceMipBiasMax;
+			out << YAML::Key << "OcclusionDepthBias" << YAML::Value << settings.OcclusionDepthBias;
+			out << YAML::Key << "OcclusionBoundsScale" << YAML::Value << settings.OcclusionBoundsScale;
+			out << YAML::Key << "GTAOResolutionScale" << YAML::Value << settings.GTAOResolutionScale;
+			out << YAML::Key << "GTAOTemporalAccumulation" << YAML::Value << settings.GTAOTemporalAccumulation;
+			out << YAML::Key << "GTAOTemporalBlend" << YAML::Value << settings.GTAOTemporalBlend;
+			out << YAML::Key << "SSRResolutionScale" << YAML::Value << settings.SSRResolutionScale;
+			out << YAML::Key << "SSRTemporalAccumulation" << YAML::Value << settings.SSRTemporalAccumulation;
+			out << YAML::Key << "SSRTemporalBlend" << YAML::Value << settings.SSRTemporalBlend;
 			out << YAML::EndMap;
 
 			out << YAML::Key << "Shadows" << YAML::Value;
@@ -178,6 +186,7 @@ namespace Lux
 			out << YAML::Key << "Bloom" << YAML::Value;
 			out << YAML::BeginMap;
 			out << YAML::Key << "Enabled" << YAML::Value << settings.BloomEnabled;
+			out << YAML::Key << "ResolutionScale" << YAML::Value << settings.BloomResolutionScale;
 			out << YAML::Key << "Threshold" << YAML::Value << settings.BloomThreshold;
 			out << YAML::Key << "Knee" << YAML::Value << settings.BloomKnee;
 			out << YAML::Key << "UpsampleScale" << YAML::Value << settings.BloomUpsampleScale;
@@ -188,6 +197,7 @@ namespace Lux
 			out << YAML::Key << "DOF" << YAML::Value;
 			out << YAML::BeginMap;
 			out << YAML::Key << "Enabled" << YAML::Value << settings.DOFEnabled;
+			out << YAML::Key << "ResolutionScale" << YAML::Value << settings.DOFResolutionScale;
 			out << YAML::Key << "FocusDistance" << YAML::Value << settings.DOFFocusDistance;
 			out << YAML::Key << "BlurSize" << YAML::Value << settings.DOFBlurSize;
 			out << YAML::EndMap;
@@ -229,6 +239,14 @@ namespace Lux
 				settings.DistanceMipBiasStart = rendering["DistanceMipBiasStart"].as<float>(settings.DistanceMipBiasStart);
 				settings.DistanceMipBiasEnd = rendering["DistanceMipBiasEnd"].as<float>(settings.DistanceMipBiasEnd);
 				settings.DistanceMipBiasMax = rendering["DistanceMipBiasMax"].as<float>(settings.DistanceMipBiasMax);
+				settings.OcclusionDepthBias = rendering["OcclusionDepthBias"].as<float>(settings.OcclusionDepthBias);
+				settings.OcclusionBoundsScale = rendering["OcclusionBoundsScale"].as<float>(settings.OcclusionBoundsScale);
+				settings.GTAOResolutionScale = rendering["GTAOResolutionScale"].as<uint32_t>(settings.GTAOResolutionScale);
+				settings.GTAOTemporalAccumulation = rendering["GTAOTemporalAccumulation"].as<bool>(settings.GTAOTemporalAccumulation);
+				settings.GTAOTemporalBlend = rendering["GTAOTemporalBlend"].as<float>(settings.GTAOTemporalBlend);
+				settings.SSRResolutionScale = rendering["SSRResolutionScale"].as<uint32_t>(settings.SSRResolutionScale);
+				settings.SSRTemporalAccumulation = rendering["SSRTemporalAccumulation"].as<bool>(settings.SSRTemporalAccumulation);
+				settings.SSRTemporalBlend = rendering["SSRTemporalBlend"].as<float>(settings.SSRTemporalBlend);
 			}
 
 			if (auto shadows = node["Shadows"])
@@ -248,6 +266,7 @@ namespace Lux
 				if (auto bloom = postFX["Bloom"])
 				{
 					settings.BloomEnabled = bloom["Enabled"].as<bool>(settings.BloomEnabled);
+					settings.BloomResolutionScale = bloom["ResolutionScale"].as<uint32_t>(settings.BloomResolutionScale);
 					settings.BloomThreshold = bloom["Threshold"].as<float>(settings.BloomThreshold);
 					settings.BloomKnee = bloom["Knee"].as<float>(settings.BloomKnee);
 					settings.BloomUpsampleScale = bloom["UpsampleScale"].as<float>(settings.BloomUpsampleScale);
@@ -258,6 +277,7 @@ namespace Lux
 				if (auto dof = postFX["DOF"])
 				{
 					settings.DOFEnabled = dof["Enabled"].as<bool>(settings.DOFEnabled);
+					settings.DOFResolutionScale = dof["ResolutionScale"].as<uint32_t>(settings.DOFResolutionScale);
 					settings.DOFFocusDistance = dof["FocusDistance"].as<float>(settings.DOFFocusDistance);
 					settings.DOFBlurSize = dof["BlurSize"].as<float>(settings.DOFBlurSize);
 				}
@@ -292,6 +312,14 @@ namespace Lux
 			serializer.WriteRaw(settings.DistanceMipBiasStart);
 			serializer.WriteRaw(settings.DistanceMipBiasEnd);
 			serializer.WriteRaw(settings.DistanceMipBiasMax);
+			serializer.WriteRaw(settings.OcclusionDepthBias);
+			serializer.WriteRaw(settings.OcclusionBoundsScale);
+			serializer.WriteRaw(settings.GTAOResolutionScale);
+			serializer.WriteRaw(settings.GTAOTemporalAccumulation);
+			serializer.WriteRaw(settings.GTAOTemporalBlend);
+			serializer.WriteRaw(settings.SSRResolutionScale);
+			serializer.WriteRaw(settings.SSRTemporalAccumulation);
+			serializer.WriteRaw(settings.SSRTemporalBlend);
 
 			serializer.WriteRaw(settings.SoftShadows);
 			serializer.WriteRaw(settings.EnableShadowCulling);
@@ -303,6 +331,7 @@ namespace Lux
 			serializer.WriteRaw(settings.ShadowCascadeTransitionFade);
 
 			serializer.WriteRaw(settings.BloomEnabled);
+			serializer.WriteRaw(settings.BloomResolutionScale);
 			serializer.WriteRaw(settings.BloomThreshold);
 			serializer.WriteRaw(settings.BloomKnee);
 			serializer.WriteRaw(settings.BloomUpsampleScale);
@@ -310,6 +339,7 @@ namespace Lux
 			serializer.WriteRaw(settings.BloomDirtIntensity);
 
 			serializer.WriteRaw(settings.DOFEnabled);
+			serializer.WriteRaw(settings.DOFResolutionScale);
 			serializer.WriteRaw(settings.DOFFocusDistance);
 			serializer.WriteRaw(settings.DOFBlurSize);
 
@@ -346,6 +376,17 @@ namespace Lux
 				stream.ReadRaw(settings.DistanceMipBiasEnd);
 				stream.ReadRaw(settings.DistanceMipBiasMax);
 			}
+			if (version >= 6)
+			{
+				stream.ReadRaw(settings.OcclusionDepthBias);
+				stream.ReadRaw(settings.OcclusionBoundsScale);
+				stream.ReadRaw(settings.GTAOResolutionScale);
+				stream.ReadRaw(settings.GTAOTemporalAccumulation);
+				stream.ReadRaw(settings.GTAOTemporalBlend);
+				stream.ReadRaw(settings.SSRResolutionScale);
+				stream.ReadRaw(settings.SSRTemporalAccumulation);
+				stream.ReadRaw(settings.SSRTemporalBlend);
+			}
 
 			stream.ReadRaw(settings.SoftShadows);
 			if (version >= 3)
@@ -358,6 +399,8 @@ namespace Lux
 			stream.ReadRaw(settings.ShadowCascadeTransitionFade);
 
 			stream.ReadRaw(settings.BloomEnabled);
+			if (version >= 6)
+				stream.ReadRaw(settings.BloomResolutionScale);
 			stream.ReadRaw(settings.BloomThreshold);
 			stream.ReadRaw(settings.BloomKnee);
 			stream.ReadRaw(settings.BloomUpsampleScale);
@@ -365,6 +408,8 @@ namespace Lux
 			stream.ReadRaw(settings.BloomDirtIntensity);
 
 			stream.ReadRaw(settings.DOFEnabled);
+			if (version >= 6)
+				stream.ReadRaw(settings.DOFResolutionScale);
 			stream.ReadRaw(settings.DOFFocusDistance);
 			stream.ReadRaw(settings.DOFBlurSize);
 

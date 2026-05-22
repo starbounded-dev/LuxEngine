@@ -9,14 +9,14 @@
 #include <Buffers.glslh>
 #include <Samplers.glslh>
 
-layout(set = 1, binding = 0, r8ui) uniform writeonly uimage2D o_AOTerm;
+layout(set = 1, binding = 0, r32ui) uniform writeonly uimage2D o_AOTerm;
 layout(set = 1, binding = 1) uniform texture2D u_Edges;
 layout(set = 1, binding = 2) uniform utexture2D u_AOTerm;
  
 layout(push_constant) uniform DenoiseConstants
 {
     float DenoiseBlurBeta;
-    bool HalfRes;
+    uint ResolutionScale;
 } u_Settings;
 
 #if __HZ_GTAO_COMPUTE_BENT_NORMALS
@@ -117,12 +117,13 @@ void main()
 
     // we're computing 2 horizontal pixels at a time (performance optimization)
     ivec2 pixCoordBase = ivec2(gl_GlobalInvocationID.xy * ivec2(2, 1));
-    ivec2 outputSize = ivec2(u_Settings.HalfRes ? u_ScreenData.HalfResolution : u_ScreenData.FullResolution);
+    uint resolutionScale = max(u_Settings.ResolutionScale, 1u);
+    ivec2 outputSize = ivec2((uvec2(u_ScreenData.FullResolution) + uvec2(resolutionScale - 1u)) / uvec2(resolutionScale));
     if (pixCoordBase.x >= outputSize.x || pixCoordBase.y >= outputSize.y)
         return;
 
     // gather edge and visibility quads, used later
-    vec2 gatherCenter = vec2(pixCoordBase) * u_ScreenData.InvFullResolution * (1 + int(u_Settings.HalfRes));
+    vec2 gatherCenter = vec2(pixCoordBase) * u_ScreenData.InvFullResolution * float(resolutionScale);
 
     vec4 edgesQ0        = textureGather(sampler2D(u_Edges, r_LinearSampler), gatherCenter);
     vec4 edgesQ1        = textureGatherOffset(sampler2D(u_Edges, r_LinearSampler), gatherCenter, ivec2(2, 0));

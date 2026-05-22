@@ -391,6 +391,8 @@ namespace Lux {
 				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
 				out << YAML::Key << "LightSize" << YAML::Value << light.LightSize;
 				out << YAML::Key << "ShadowAmount" << YAML::Value << light.ShadowAmount;
+				out << YAML::Key << "ShadowDistance" << YAML::Value << light.ShadowDistance;
+				out << YAML::Key << "ShadowResolutionTier" << YAML::Value << light.ShadowResolutionTier;
 				out << YAML::EndMap;
 			}
 
@@ -423,6 +425,8 @@ namespace Lux {
 				out << YAML::Key << "Falloff" << YAML::Value << light.Falloff;
 				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
 				out << YAML::Key << "Range" << YAML::Value << light.Range;
+				out << YAML::Key << "ShadowDistance" << YAML::Value << light.ShadowDistance;
+				out << YAML::Key << "ShadowResolutionTier" << YAML::Value << light.ShadowResolutionTier;
 				out << YAML::EndMap;
 			}
 
@@ -641,6 +645,8 @@ namespace Lux {
 					component.SoftShadows = light["SoftShadows"].as<bool>(true);
 					component.LightSize = light["LightSize"].as<float>(0.5f);
 					component.ShadowAmount = light["ShadowAmount"].as<float>(1.0f);
+					component.ShadowDistance = light["ShadowDistance"].as<float>(0.0f);
+					component.ShadowResolutionTier = light["ShadowResolutionTier"].as<uint32_t>(2);
 				}
 
 				if (auto light = entity["PointLightComponent"])
@@ -667,6 +673,8 @@ namespace Lux {
 					component.CastsShadows = light["CastsShadows"].as<bool>(false);
 					component.SoftShadows = light["SoftShadows"].as<bool>(false);
 					component.Falloff = light["Falloff"].as<float>(1.0f);
+					component.ShadowDistance = light["ShadowDistance"].as<float>(0.0f);
+					component.ShadowResolutionTier = light["ShadowResolutionTier"].as<uint32_t>(1);
 				}
 
 				if (auto skyLight = entity["SkyLightComponent"])

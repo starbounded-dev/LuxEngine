@@ -102,6 +102,39 @@ namespace Lux {
 			return modified;
 		}
 
+		int EffectScaleToComboIndex(SceneRendererOptions::EffectResolutionScale scale)
+		{
+			switch (scale)
+			{
+				case SceneRendererOptions::EffectResolutionScale::Full: return 0;
+				case SceneRendererOptions::EffectResolutionScale::Half: return 1;
+				case SceneRendererOptions::EffectResolutionScale::Quarter: return 2;
+				default: return 1;
+			}
+		}
+
+		SceneRendererOptions::EffectResolutionScale ComboIndexToEffectScale(int index)
+		{
+			switch (index)
+			{
+				case 0: return SceneRendererOptions::EffectResolutionScale::Full;
+				case 2: return SceneRendererOptions::EffectResolutionScale::Quarter;
+				case 1:
+				default: return SceneRendererOptions::EffectResolutionScale::Half;
+			}
+		}
+
+		bool DrawEffectScaleProperty(const char* label, SceneRendererOptions::EffectResolutionScale& scale)
+		{
+			const char* effectScaleLabels[] = { "100%", "50%", "25%" };
+			int scaleIndex = EffectScaleToComboIndex(scale);
+			if (!DrawComboProperty(label, scaleIndex, effectScaleLabels, IM_ARRAYSIZE(effectScaleLabels)))
+				return false;
+
+			scale = ComboIndexToEffectScale(scaleIndex);
+			return true;
+		}
+
 	}
 
 	void SceneRendererPanel::SetContext(const Ref<SceneRenderer>& context)
@@ -227,6 +260,7 @@ namespace Lux {
 		auto& ssr = m_Context->GetSSROptions();
 		const auto& appTimers = Application::Get().GetPerformanceTimers();
 		bool projectSettingsChanged = false;
+		bool screenSpaceResourcesChanged = false;
 		UpdateProfilingHistory(stats);
 
 		if (ImGui::BeginTable("##scene_renderer_summary", 2, ImGuiTableFlags_SizingStretchProp))
@@ -511,12 +545,12 @@ namespace Lux {
 		{
 			ImGuiEx::BeginPropertyGrid();
 			projectSettingsChanged |= ImGuiEx::Property("Frustum Culling", options.EnableFrustumCulling);
-			options.EnableOcclusionCulling = false;
-			bool occlusionCulling = false;
-			ImGui::BeginDisabled();
-			ImGuiEx::Property("Occlusion Culling", occlusionCulling);
-			ImGui::EndDisabled();
-			ImGuiEx::SetTooltip("Disabled until Lux has a conservative occlusion depth pyramid.");
+			projectSettingsChanged |= ImGuiEx::Property("Occlusion Culling", options.EnableOcclusionCulling);
+			if (options.EnableOcclusionCulling)
+			{
+				projectSettingsChanged |= ImGuiEx::Property("Occlusion Depth Bias", options.OcclusionDepthBias, 0.0005f, 0.0f, 0.1f);
+				projectSettingsChanged |= ImGuiEx::Property("Occlusion Bounds Scale", options.OcclusionBoundsScale, 0.01f, 1.0f, 2.0f);
+			}
 			projectSettingsChanged |= ImGuiEx::Property("GPU Driven Indirect", options.EnableGPUDrivenRendering);
 			const char* renderScaleLabels[] = { "100%", "75%", "50%", "Dynamic" };
 			int renderScaleMode = static_cast<int>(options.ResolutionScaleMode);
@@ -560,10 +594,28 @@ namespace Lux {
 			bool gtaoSettingsChanged = false;
 			gtaoSettingsChanged |= ImGuiEx::Property("GTAO", options.EnableGTAO);
 			gtaoSettingsChanged |= ImGuiEx::Property("GTAO Bent Normals", options.GTAOBentNormals);
+			if (DrawEffectScaleProperty("GTAO Resolution", options.GTAOResolutionScale))
+			{
+				screenSpaceResourcesChanged = true;
+				projectSettingsChanged = true;
+			}
+			projectSettingsChanged |= ImGuiEx::Property("GTAO Temporal", options.EnableGTAOTemporalAccumulation);
+			if (options.EnableGTAOTemporalAccumulation)
+				projectSettingsChanged |= ImGuiEx::Property("GTAO Temporal Blend", options.GTAOTemporalBlend, 0.01f, 0.0f, 0.98f);
 			projectSettingsChanged |= gtaoSettingsChanged;
 			projectSettingsChanged |= ImGuiEx::Property("GTAO Denoise Passes", options.GTAODenoisePasses, 0, 8);
 			projectSettingsChanged |= ImGuiEx::Property("AO Shadow Tolerance", options.AOShadowTolerance, 0.01f, 0.0f, 4.0f);
 			gtaoSettingsChanged |= ImGuiEx::Property("SSR", options.EnableSSR);
+			if (DrawEffectScaleProperty("SSR Resolution", options.SSRResolutionScale))
+			{
+				ssr.HalfRes = static_cast<uint32_t>(options.SSRResolutionScale) > 1u;
+				ssr.ResolutionScale = static_cast<uint32_t>(options.SSRResolutionScale);
+				screenSpaceResourcesChanged = true;
+				projectSettingsChanged = true;
+			}
+			projectSettingsChanged |= ImGuiEx::Property("SSR Temporal", options.EnableSSRTemporalAccumulation);
+			if (options.EnableSSRTemporalAccumulation)
+				projectSettingsChanged |= ImGuiEx::Property("SSR Temporal Blend", options.SSRTemporalBlend, 0.01f, 0.0f, 0.98f);
 			projectSettingsChanged |= gtaoSettingsChanged;
 			if (gtaoSettingsChanged)
 				m_Context->UpdateGTAOData();
@@ -591,15 +643,24 @@ namespace Lux {
 		{
 			ImGuiEx::BeginPropertyGrid();
 			projectSettingsChanged |= ImGuiEx::Property("Bloom", bloom.Enabled);
+			if (DrawEffectScaleProperty("Bloom Resolution", bloom.ResolutionScale))
+			{
+				screenSpaceResourcesChanged = true;
+				projectSettingsChanged = true;
+			}
 			projectSettingsChanged |= ImGuiEx::Property("Bloom Threshold", bloom.Threshold, 0.01f, 0.0f, 25.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Bloom Knee", bloom.Knee, 0.01f, 0.0f, 1.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Bloom Upsample Scale", bloom.UpsampleScale, 0.01f, 0.0f, 10.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Bloom Intensity", bloom.Intensity, 0.01f, 0.0f, 10.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Bloom Dirt Intensity", bloom.DirtIntensity, 0.01f, 0.0f, 10.0f);
 			projectSettingsChanged |= ImGuiEx::Property("DOF", dof.Enabled);
+			if (DrawEffectScaleProperty("DOF Resolution", dof.ResolutionScale))
+			{
+				screenSpaceResourcesChanged = true;
+				projectSettingsChanged = true;
+			}
 			projectSettingsChanged |= ImGuiEx::Property("DOF Focus Distance", dof.FocusDistance, 0.1f, 0.0f, 1000.0f);
 			projectSettingsChanged |= ImGuiEx::Property("DOF Blur Size", dof.BlurSize, 0.05f, 0.0f, 20.0f);
-			projectSettingsChanged |= ImGuiEx::Property("SSR Half Res", ssr.HalfRes);
 			int32_t ssrMaxSteps = ssr.MaxSteps;
 			if (ImGuiEx::Property("SSR Max Steps", ssrMaxSteps, 1, 256))
 			{
@@ -611,6 +672,9 @@ namespace Lux {
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
 		}
+
+		if (screenSpaceResourcesChanged)
+			m_Context->RefreshScreenSpaceEffectResources();
 
 		if (projectSettingsChanged)
 			SyncProjectSettingsFromContext();

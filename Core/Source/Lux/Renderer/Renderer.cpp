@@ -401,6 +401,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Pre-Integration.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/Pre-Convolution.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SSR.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SSR-Temporal.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SSR-Composite.glsl");
 
 		// Environment compute shaders
@@ -435,6 +436,7 @@ namespace Lux {
 		// GTAO
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/GTAO.hlsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/GTAO-Denoise.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/GTAO-Temporal.glsl");
 
 		// AO
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/AO-Composite.glsl");

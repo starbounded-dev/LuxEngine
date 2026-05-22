@@ -25,9 +25,7 @@ layout(set = 1, binding = 6) uniform texture2D u_VisibilityBuffer;
 #define GTAO_REFLECTION_OCCLUSION (__HZ_REFLECTION_OCCLUSION_METHOD & HZ_REFLECTION_OCCLUSION_METHOD_GTAO)
 #define HBAO_REFLECTION_OCCLUSION (__HZ_REFLECTION_OCCLUSION_METHOD & HZ_REFLECTION_OCCLUSION_METHOD_HBAO)
 
-#if GTAO_REFLECTION_OCCLUSION
-	layout(set = 1, binding = 7) uniform usampler2D u_GTAOTex;
-#endif
+layout(set = 1, binding = 7) uniform utexture2D u_GTAOTex;
 
 #if HBAO_REFLECTION_OCCLUSION
 	layout(set = 1, binding = 8) uniform sampler2D u_HBAOTex;
@@ -46,6 +44,10 @@ layout(push_constant) uniform SSRInfo
 	bool HalfRes;
 	bool EnableConeTracing;
 	float LuminanceFactor;
+	uint ResolutionScale;
+	uint TemporalAccumulation;
+	float TemporalBlend;
+	float Padding2;
 } u_SSRInfo;
 
 
@@ -88,7 +90,7 @@ vec4 ConeTracing(float roughness, vec2 rayOriginSS, vec2 rayPosSS)
 {
 	float coneTheta = roughness * M_PI * 0.025;
 
-    vec2 res = u_ScreenData.FullResolution * (1 + int(!u_SSRInfo.HalfRes));
+    vec2 res = vec2(imageSize(outColor));
 
 	/* Cone tracing using an isosceles triangle to approximate a cone in screen space */
 	vec2 deltaPos = rayPosSS - rayOriginSS;
@@ -296,7 +298,8 @@ float ValidateHit(vec3 origin, vec3 ray, vec3 originPosVS, vec3 rayDirVS, float 
 	
 	// Reject the ray if we didnt advance the ray significantly to avoid immediate self reflection
 	vec2 manhattanDist = abs(ray.xy - origin.xy);
-	if (all(lessThan(manhattanDist, u_ScreenData.InvHalfResolution)))
+	vec2 minRayAdvance = u_ScreenData.InvFullResolution * float(max(u_SSRInfo.ResolutionScale, 1u));
+	if (all(lessThan(manhattanDist, minRayAdvance)))
 		return 0;
 
 	// Don't lookup radiance from the background.
@@ -345,7 +348,8 @@ void main()
 	if (base.x >= outputSize.x || base.y >= outputSize.y)
 		return;
 
-	vec2 uv = u_SSRInfo.HalfRes ? u_ScreenData.InvHalfResolution * (vec2(base) + 0.25) : u_ScreenData.InvFullResolution * (vec2(base) + 0.50);
+	float resolutionScale = float(max(u_SSRInfo.ResolutionScale, 1u));
+	vec2 uv = (vec2(base) + 0.5) * resolutionScale * u_ScreenData.InvFullResolution;
 	const ivec2 baseDepthResolution = GetDepthMipResolution(BASE_LOD);
 	const float depth = FetchDepth(ivec2(baseDepthResolution * uv), 0).r;
 
@@ -394,10 +398,11 @@ void main()
 	float ao = 1.0f;
 
 #if GTAO_REFLECTION_OCCLUSION
+	uint gtaoPacked = texture(usampler2D(u_GTAOTex, r_LinearSampler), positionSS.xy).x;
 	#if __HZ_GTAO_COMPUTE_BENT_NORMALS
-		ao = (SampleLinear(u_GTAOTex, positionSS.xy).x >> 24) / 255.f;
+		ao = float(gtaoPacked >> 24) / 255.f;
 	#else
-		ao = SampleLinear(u_GTAOTex, positionSS.xy).x / 255.f;
+		ao = float(gtaoPacked) / 255.f;
 	#endif
 		ao = min(ao * XE_GTAO_OCCLUSION_TERM_SCALE, 1.0f);
 #endif

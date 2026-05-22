@@ -124,6 +124,11 @@ namespace Lux {
 	class ShaderPreprocessor
 	{
 	public:
+		static bool IsRendererSpecialMacro(const std::string& token)
+		{
+			return token.rfind("__LUX_", 0) == 0 || token.rfind("__HZ_", 0) == 0;
+		}
+
 		template<ShaderUtils::SourceLang Lang>
 		static nvrhi::ShaderType PreprocessHeader(std::string& contents, bool& isGuarded, std::unordered_set<std::string>& specialMacros, const std::unordered_set<IncludeData>& includeData, const std::filesystem::path& fullPath);
 		template<ShaderUtils::SourceLang Lang>
@@ -193,7 +198,7 @@ namespace Lux {
 				else if (tokens[index] == "ifdef")
 				{
 					++index;
-					if (tokens[index].rfind("__LUX_", 0) == 0) // Lux special macros start with "__LUX_"
+					if (IsRendererSpecialMacro(tokens[index]))
 					{
 						specialMacros.emplace(tokens[index]);
 					}
@@ -203,7 +208,7 @@ namespace Lux {
 					++index;
 					for (size_t i = index; i < tokens.size(); ++i)
 					{
-						if (tokens[i].rfind("__LUX_", 0) == 0) // Lux special macros start with "__LUX_"
+						if (IsRendererSpecialMacro(tokens[i]))
 						{
 							specialMacros.emplace(tokens[i]);
 						}
@@ -287,7 +292,7 @@ namespace Lux {
 			else if (tokens[index] == "ifdef")
 			{
 				++index;
-				if (tokens[index].rfind("__LUX_", 0) == 0) // Lux special macros start with "__LUX_"
+				if (IsRendererSpecialMacro(tokens[index]))
 				{
 					specialMacros.emplace(tokens[index]);
 				}
@@ -297,7 +302,7 @@ namespace Lux {
 				++index;
 				for (size_t i = index; i < tokens.size(); ++i)
 				{
-					if (tokens[i].rfind("__LUX_", 0) == 0) // Lux special macros start with "__LUX_"
+					if (IsRendererSpecialMacro(tokens[i]))
 					{
 						specialMacros.emplace(tokens[i]);
 					}

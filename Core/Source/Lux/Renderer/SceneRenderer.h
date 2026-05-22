@@ -51,7 +51,8 @@ namespace Lux {
 		bool      CastShadows = true;
 		bool      SoftShadows = true;
 		float     LightSize = 0.5f;
-		float     Padding1 = 0.0f;
+		float     ShadowDistance = 0.0f; // 0 = use renderer MaxShadowDistance
+		uint32_t  ShadowResolutionTier = 2; // 0=1K, 1=2K, 2=4K, 3=8K
 	};
 
 	struct PointLight
@@ -82,10 +83,13 @@ namespace Lux {
 		float     AtlasOffsetX = 0.0f;
 		float     AtlasOffsetY = 0.0f;
 		float     AtlasScale = 1.0f;
+		float     ShadowDistance = 0.0f; // 0 = use Range
+		uint32_t  ShadowResolutionTier = 1; // 0=1K, 1=2K, 2=4K, 3=8K
+		glm::vec2 Padding2 = { 0.0f, 0.0f };
 	};
 
 	static_assert(sizeof(PointLight) == 48, "PointLight must match the GLSL std140 layout.");
-	static_assert(sizeof(SpotLight) == 80, "SpotLight must match the GLSL std140 layout.");
+	static_assert(sizeof(SpotLight) == 96, "SpotLight must match the GLSL std140 layout.");
 
 	struct LightEnvironment
 	{
@@ -120,6 +124,13 @@ namespace Lux {
 			Dynamic = 3
 		};
 
+		enum class EffectResolutionScale : uint32_t
+		{
+			Full = 1,
+			Half = 2,
+			Quarter = 4
+		};
+
 		bool  ShowGrid = true;
 		bool  ShowSelectedInWireframe = false;
 		bool  ShowPhysicsColliders = false;
@@ -152,7 +163,15 @@ namespace Lux {
 		bool  EnableJumpFlood = true;
 		bool  EnableFrustumCulling = true;
 		bool  EnableOcclusionCulling = false;
+		float OcclusionDepthBias = 0.003f;
+		float OcclusionBoundsScale = 1.15f;
 		bool  EnableGPUDrivenRendering = true;
+		EffectResolutionScale GTAOResolutionScale = EffectResolutionScale::Half;
+		EffectResolutionScale SSRResolutionScale = EffectResolutionScale::Half;
+		bool  EnableGTAOTemporalAccumulation = false;
+		float GTAOTemporalBlend = 0.85f;
+		bool  EnableSSRTemporalAccumulation = false;
+		float SSRTemporalBlend = 0.90f;
 		RenderResolutionScaleMode ResolutionScaleMode = RenderResolutionScaleMode::Native;
 		float DynamicResolutionScale = 1.0f;
 		float DynamicResolutionMinScale = 0.5f;
@@ -168,6 +187,7 @@ namespace Lux {
 	struct BloomSettings
 	{
 		bool  Enabled = true;
+		SceneRendererOptions::EffectResolutionScale ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 		float Threshold = 1.0f;
 		float Knee = 0.1f;
 		float UpsampleScale = 1.0f;
@@ -178,6 +198,7 @@ namespace Lux {
 	struct DOFSettings
 	{
 		bool  Enabled = false;
+		SceneRendererOptions::EffectResolutionScale ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 		float FocusDistance = 0.0f;
 		float BlurSize = 1.0f;
 	};
@@ -197,6 +218,10 @@ namespace Lux {
 		bool EnableConeTracing = true;
 		char Padding1[3]{ 0, 0, 0 };
 		float LuminanceFactor = 1.0f;
+		uint32_t ResolutionScale = 2;
+		uint32_t TemporalAccumulation = 0;
+		float TemporalBlend = 0.0f;
+		float Padding2 = 0.0f;
 	};
 
 	struct SceneRendererCamera
@@ -356,6 +381,7 @@ namespace Lux {
 		void SetRenderingTechnique(RenderingTechnique technique) { m_RenderingTechnique = technique; }
 		void ApplyProjectSettings(const ProjectSceneRendererSettings& settings);
 		void WriteProjectSettings(ProjectSceneRendererSettings& settings) const;
+		void RefreshScreenSpaceEffectResources();
 		const SceneRendererSpecification& GetSpecification()  const { return m_Specification; }
 		void SetShadowSettings(float nearPlane, float farPlane, float lambda, float scaleShadowToOrigin = 0.0f)
 		{
@@ -509,9 +535,11 @@ namespace Lux {
 		void GeometryPass();
 		void GTAOCompute();
 		void GTAODenoiseCompute();
+		void GTAOTemporalAccumulationCompute();
 		void AOComposite();
 		void PreConvolutionCompute();
 		void SSRCompute();
+		void SSRTemporalAccumulationCompute();
 		void SSRCompositePass();
 		void BloomCompute();
 		void CompositePass();
@@ -550,7 +578,7 @@ namespace Lux {
 			glm::mat4 ViewProj{ 1.0f };
 			float SplitDepth = 0.0f;
 		};
-		void CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection) const;
+		void CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection, float maxShadowDistance) const;
 
 		void BuildIndirectDrawCommand(const StaticDrawCommand& dc,
 			const TransformMapData& tmd,
@@ -648,6 +676,8 @@ namespace Lux {
 			glm::vec2 FullResolution = { 1.0f, 1.0f };
 			glm::vec2 InvHalfResolution = { 1.0f, 1.0f };
 			glm::vec2 HalfResolution = { 1.0f, 1.0f };
+			glm::vec2 InvQuarterResolution = { 1.0f, 1.0f };
+			glm::vec2 QuarterResolution = { 1.0f, 1.0f };
 		} m_ScreenDataUB;
 
 		struct CBGTAOData
@@ -658,23 +688,34 @@ namespace Lux {
 			float RadiusMultiplier = 1.46f;
 			float FinalValuePower = 2.2f;
 			float DenoiseBlurBeta = 1.2f;
-			bool HalfRes = false;
-			char Padding0[3]{ 0, 0, 0 };
+			uint32_t ResolutionScale = 2;
 			float SampleDistributionPower = 2.0f;
 			float ThinOccluderCompensation = 0.0f;
 			float DepthMIPSamplingOffset = 3.3f;
 			int NoiseIndex = 0;
 			glm::vec2 HZBUVFactor = { 1.0f, 1.0f };
 			float ShadowTolerance = 0.0f;
+			uint32_t SliceCount = 9;
+			uint32_t StepsPerSlice = 3;
+			uint32_t TemporalAccumulation = 0;
+			float TemporalBlend = 0.0f;
 			float Padding = 0.0f;
 		} m_GTAODataCB;
 
 		struct GTAODenoiseConstants
 		{
 			float DenoiseBlurBeta = 1.2f;
-			bool HalfRes = false;
-			char Padding[3]{ 0, 0, 0 };
+			uint32_t ResolutionScale = 2;
 		} m_GTAODenoiseConstants;
+
+		struct TemporalAccumulationConstants
+		{
+			glm::mat4 PreviousViewProjection = glm::mat4(1.0f);
+			float Blend = 0.0f;
+			uint32_t HasHistory = 0;
+			uint32_t BentNormals = 0;
+			uint32_t ResolutionScale = 1;
+		};
 
 		struct UBPointLights
 		{
@@ -787,23 +828,32 @@ namespace Lux {
 		// ── GTAO / AO ────────────────────────────────────────────────────────
 		Ref<ComputePass> m_GTAOComputePass;
 		Ref<ComputePass> m_GTAODenoisePass[2];
+		Ref<ComputePass> m_GTAOTemporalPass;
 		Ref<Material>    m_GTAODenoiseMaterial[2];
 		Ref<Image2D>     m_GTAOOutputImage;
 		Ref<Image2D>     m_GTAODenoiseImage;
 		Ref<Image2D>     m_GTAOFinalImage;
 		Ref<Image2D>     m_GTAOEdgesOutputImage;
+		Ref<Image2D>     m_GTAOHistoryImages[2];
 		glm::uvec3       m_GTAOWorkGroups{ 1 };
 		glm::uvec3       m_GTAODenoiseWorkGroups{ 1 };
+		glm::uvec3       m_GTAOTemporalWorkGroups{ 1 };
+		uint32_t         m_GTAOHistoryIndex = 0;
 
 		Ref<RenderPass>  m_AOCompositePass;
 		Ref<Material>    m_AOCompositeMaterial;
 
 		// ── SSR ──────────────────────────────────────────────────────────────
 		Ref<Image2D>     m_SSRImage;
+		Ref<Image2D>     m_SSRFinalImage;
+		Ref<Image2D>     m_SSRHistoryImages[2];
 		Ref<ComputePass> m_SSRPass;
+		Ref<ComputePass> m_SSRTemporalPass;
 		Ref<RenderPass>  m_SSRCompositePass;
 		Ref<Material>    m_SSRCompositeMaterial;
 		glm::uvec3       m_SSRWorkGroups{ 1 };
+		glm::uvec3       m_SSRTemporalWorkGroups{ 1 };
+		uint32_t         m_SSRHistoryIndex = 0;
 
 		// ── Bloom compute ────────────────────────────────────────────────────
 		Ref<ComputePass>     m_BloomComputePass;
@@ -919,6 +969,9 @@ namespace Lux {
 		bool     m_ResourcesCreatedGPU = false;
 		bool     m_ResourcesCreated = false;
 		bool     m_HZBPrimed = false;
+		bool     m_TemporalHistoryValid = false;
+		glm::mat4 m_CurrentViewProjection = glm::mat4(1.0f);
+		glm::mat4 m_PreviousViewProjection = glm::mat4(1.0f);
 
 		float m_LineWidth = 2.0f;
 		float m_Opacity = 1.0f;
