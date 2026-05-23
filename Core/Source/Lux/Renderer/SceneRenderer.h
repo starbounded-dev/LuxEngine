@@ -28,6 +28,7 @@
 #include <array>
 #include <limits>
 #include <map>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -313,6 +314,46 @@ namespace Lux {
 			std::vector<PassProfile> PassProfiles;
 		};
 
+		struct RenderGraphResourceAccessDebugInfo
+		{
+			uint32_t Resource = RenderGraph::InvalidResource;
+			std::string State;
+		};
+
+		struct RenderGraphTextureDebugInfo
+		{
+			uint32_t Resource = RenderGraph::InvalidResource;
+			std::string Name;
+			ImageFormat Format = ImageFormat::None;
+			ImageUsage Usage = ImageUsage::None;
+			nvrhi::TextureDimension Dimension = nvrhi::TextureDimension::Unknown;
+			uint32_t Width = 0;
+			uint32_t Height = 0;
+			uint32_t Mips = 0;
+			uint32_t Layers = 0;
+			uint64_t EstimatedBytes = 0;
+			uint32_t FirstPass = UINT32_MAX;
+			uint32_t LastPass = UINT32_MAX;
+			uint32_t AliasGroup = UINT32_MAX;
+			bool Transient = false;
+			bool AllowAlias = false;
+			bool AliasedNow = false;
+			nvrhi::ResourceStates CurrentState = nvrhi::ResourceStates::Unknown;
+		};
+
+		struct RenderGraphPassDebugInfo
+		{
+			std::string Name;
+			std::vector<RenderGraphResourceAccessDebugInfo> Inputs;
+			std::vector<RenderGraphResourceAccessDebugInfo> Outputs;
+		};
+
+		struct RenderGraphDebugSnapshot
+		{
+			std::vector<RenderGraphPassDebugInfo> Passes;
+			std::vector<RenderGraphTextureDebugInfo> Textures;
+		};
+
 	public:
 		SceneRenderer() = default;
 		SceneRenderer(Ref<Scene> scene,
@@ -413,6 +454,7 @@ namespace Lux {
 
 		const glm::mat4& GetScreenSpaceProjectionMatrix() const { return m_ScreenSpaceProjectionMatrix; }
 		const Statistics& GetStatistics() const { return m_Statistics; }
+		RenderGraphDebugSnapshot GetRenderGraphDebugSnapshot();
 		const Frustum& GetCameraFrustum() const { return m_SceneData.CameraFrustum; }
 
 		bool IsReady() const { return m_ResourcesCreatedGPU; }

@@ -30,6 +30,7 @@
 #include "Panels/TextEditorPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
+#include "Panels/RendererDebuggerPanel.h"
 #include "Panels/ApplicationSettingsPanel.h"
 #include "Panels/AssetManagerPanel.h"
 #include "Panels/ProjectSettingsWindow.h"
@@ -60,6 +61,7 @@ namespace Lux {
 #define APPLICATION_SETTINGS_PANEL_ID "ApplicationSettingsPanel"
 #define SCRIPT_ENGINE_DEBUG_PANEL_ID "ScriptEngineDebugPanel"
 #define SCENE_RENDERER_PANEL_ID "SceneRendererPanel"
+#define RENDERER_DEBUGGER_PANEL_ID "RendererDebuggerPanel"
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
 
 	namespace {
@@ -176,6 +178,7 @@ namespace Lux {
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
+		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 
 		ApplicationSettingsPanel::EditorPreferencesBindings editorPreferencesBindings{};
 		editorPreferencesBindings.VSync = &m_VSync;
@@ -235,6 +238,8 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
@@ -286,6 +291,7 @@ namespace Lux {
 			m_EditorViewport->Shutdown();
 		m_EditorViewport.reset();
 		m_SceneRenderer.reset();
+		m_RendererDebuggerPanel.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
 		EditorResources::Shutdown();
@@ -1610,6 +1616,8 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OpenScene()
@@ -1641,6 +1649,8 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::SaveScene()
@@ -1689,6 +1699,8 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnSceneSimulate()
@@ -1713,6 +1725,8 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnSceneStop()
@@ -1739,6 +1753,8 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnScenePause()

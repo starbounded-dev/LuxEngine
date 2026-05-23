@@ -25,6 +25,7 @@ namespace Lux
 {
 	class SceneHierarchyPanel;
 	class SceneRendererPanel;
+	class RendererDebuggerPanel;
 
 	class EditorLayer : public Layer
 	{
@@ -94,6 +95,7 @@ namespace Lux
 		Ref<SceneRenderer> m_SceneRenderer;
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
+		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
 
 		// Temp

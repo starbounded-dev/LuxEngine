@@ -15,16 +15,35 @@ Project:
   RenderingTechnique: Forward
   SceneRenderer:
     Rendering:
-      FrustumCulling: true
-      GPUDrivenRendering: true
+      FrustumCulling: false
+      OcclusionCulling: false
+      GPUDrivenRendering: false
       GTAO: true
       GTAOBentNormals: true
       GTAODenoisePasses: 8
       AOShadowTolerance: 4
       SSR: true
       JumpFloodOutline: true
+      RenderScaleMode: Scale100
+      DynamicResolutionMinScale: 0.5
+      DynamicResolutionMaxScale: 1
+      DynamicResolutionTargetGPUTime: 16.6700001
+      TextureMipBias: 0
+      DistanceMipBias: false
+      DistanceMipBiasStart: 50
+      DistanceMipBiasEnd: 250
+      DistanceMipBiasMax: 2
+      OcclusionDepthBias: 0.00300000003
+      OcclusionBoundsScale: 1.14999998
+      GTAOResolutionScale: 1
+      GTAOTemporalAccumulation: true
+      GTAOTemporalBlend: 0.850000024
+      SSRResolutionScale: 1
+      SSRTemporalAccumulation: true
+      SSRTemporalBlend: 0.899999976
     Shadows:
       SoftShadows: true
+      ShadowCulling: true
       MaxDistance: 200
       DistanceFade: 25
       SplitLambda: 0.920000017
@@ -34,6 +53,7 @@ Project:
     PostFX:
       Bloom:
         Enabled: true
+        ResolutionScale: 2
         Threshold: 1
         Knee: 0.100000001
         UpsampleScale: 1
@@ -41,10 +61,11 @@ Project:
         DirtIntensity: 1
       DOF:
         Enabled: true
+        ResolutionScale: 1
         FocusDistance: 4
         BlurSize: 0.75
       SSR:
-        HalfRes: true
+        HalfRes: false
         MaxSteps: 70
         Brightness: 0.699999988
         DepthTolerance: 0.800000012

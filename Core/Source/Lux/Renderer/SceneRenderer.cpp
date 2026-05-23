@@ -2449,6 +2449,86 @@ namespace Lux {
 		addPass("DOF", compositeOutputs, addRenderPassResources("DOF", m_DOFPass));
 	}
 
+	SceneRenderer::RenderGraphDebugSnapshot SceneRenderer::GetRenderGraphDebugSnapshot()
+	{
+		BuildRenderGraph();
+
+		RenderGraphDebugSnapshot snapshot;
+		const auto lifetimes = m_RenderGraph.BuildAliasPlan();
+		const auto& textures = m_RenderGraph.GetTextures();
+		const auto& passes = m_RenderGraph.GetPasses();
+
+		snapshot.Textures.reserve(textures.size());
+		for (uint32_t resource = 0; resource < textures.size(); resource++)
+		{
+			const RenderGraph::TextureDesc& texture = textures[resource];
+			RenderGraphTextureDebugInfo& textureInfo = snapshot.Textures.emplace_back();
+			textureInfo.Resource = resource;
+			textureInfo.Name = texture.Name;
+			textureInfo.Format = texture.Format;
+			textureInfo.Usage = texture.Usage;
+			textureInfo.Dimension = texture.Dimension;
+			textureInfo.Width = texture.Width;
+			textureInfo.Height = texture.Height;
+			textureInfo.Mips = texture.Mips;
+			textureInfo.Layers = texture.Layers;
+			textureInfo.EstimatedBytes = Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, texture.Layers);
+			textureInfo.Transient = texture.Transient;
+			textureInfo.AllowAlias = texture.AllowAlias;
+
+			if (resource < lifetimes.size())
+			{
+				const RenderGraph::ResourceLifetime& lifetime = lifetimes[resource];
+				textureInfo.FirstPass = lifetime.FirstPass;
+				textureInfo.LastPass = lifetime.LastPass;
+				textureInfo.AliasGroup = lifetime.AliasIndex;
+			}
+
+			if (texture.Image)
+			{
+				textureInfo.AliasedNow = texture.Image->IsTransientAlias();
+				textureInfo.CurrentState = texture.Image->GetImageInfo().State;
+			}
+		}
+
+		auto containsResource = [](const std::vector<RenderGraph::ResourceHandle>& resources, RenderGraph::ResourceHandle resource)
+			{
+				return std::find(resources.begin(), resources.end(), resource) != resources.end();
+			};
+
+		auto accessState = [&](const RenderGraph::PassDesc& pass, RenderGraph::ResourceHandle resource, bool asInput)
+			{
+				const bool read = containsResource(pass.Reads, resource);
+				const bool write = containsResource(pass.Writes, resource);
+				if (read && write)
+					return std::string("ReadWrite");
+				return std::string(asInput ? "Read" : "Write");
+			};
+
+		snapshot.Passes.reserve(passes.size());
+		for (const RenderGraph::PassDesc& pass : passes)
+		{
+			RenderGraphPassDebugInfo& passInfo = snapshot.Passes.emplace_back();
+			passInfo.Name = pass.Name;
+
+			for (RenderGraph::ResourceHandle resource : pass.Reads)
+			{
+				if (resource >= textures.size())
+					continue;
+				passInfo.Inputs.push_back({ resource, accessState(pass, resource, true) });
+			}
+
+			for (RenderGraph::ResourceHandle resource : pass.Writes)
+			{
+				if (resource >= textures.size())
+					continue;
+				passInfo.Outputs.push_back({ resource, accessState(pass, resource, false) });
+			}
+		}
+
+		return snapshot;
+	}
+
 	void SceneRenderer::UpdateRenderGraphStatistics()
 	{
 		auto& memoryStats = m_Statistics.MemoryStats;
@@ -4085,6 +4165,17 @@ namespace Lux {
 
 		BeginProfiledGPU("LightCullingPass");
 		Renderer::LightCulling(m_CommandBuffer, m_LightCullingPass, nullptr, { m_LightTilesCountX, m_LightTilesCountY, 1 });
+
+		Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
+		Ref<StorageBufferSet> visiblePointLightIndices = m_SBSVisiblePointLightIndices;
+		Ref<StorageBufferSet> visibleSpotLightIndices = m_SBSVisibleSpotLightIndices;
+		Renderer::Submit([commandBuffer, visiblePointLightIndices, visibleSpotLightIndices]() mutable
+		{
+			nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
+			commandList->setBufferState(visiblePointLightIndices->RT_Get()->GetHandle(), nvrhi::ResourceStates::ShaderResource);
+			commandList->setBufferState(visibleSpotLightIndices->RT_Get()->GetHandle(), nvrhi::ResourceStates::ShaderResource);
+		});
+
 		EndProfiledGPU();
 	}
 
