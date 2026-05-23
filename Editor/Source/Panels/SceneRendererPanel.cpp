@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <format>
 #include <string>
+#include <utility>
 
 namespace Lux {
 
@@ -119,12 +120,35 @@ namespace Lux {
 			}
 		}
 
+		void ResetDebugViews(SceneRendererOptions& options)
+		{
+			options.ShowGrid = false;
+			options.ShowSelectedInWireframe = false;
+			options.ShowPhysicsColliders = false;
+			options.PhysicsColliderMode = SceneRendererOptions::PhysicsColliderView::SelectedEntity;
+			options.ShowPhysicsCollidersOnTop = false;
+			options.ShowShadowCascades = false;
+			options.ShowCascadeFrustums = false;
+			options.ShowLightComplexity = false;
+		}
+
 	}
 
 	void SceneRendererPanel::SetContext(const Ref<SceneRenderer>& context)
 	{
 		m_Context = context;
 		ApplyProjectSettingsToContext();
+	}
+
+	void SceneRendererPanel::SetDebugViewCallbacks(std::function<void()> onResetDebugViews, std::function<void()> onDebugViewsChanged)
+	{
+		m_OnResetDebugViews = std::move(onResetDebugViews);
+		m_OnDebugViewsChanged = std::move(onDebugViewsChanged);
+	}
+
+	void SceneRendererPanel::SetDebugViewsRuntimeSuspended(bool suspended)
+	{
+		m_DebugViewsRuntimeSuspended = suspended;
 	}
 
 	void SceneRendererPanel::ApplyProjectSettingsToContext()
@@ -216,13 +240,41 @@ namespace Lux {
 
 		if (ImGuiEx::PropertyGridHeader("Visualization", true))
 		{
+			ImGui::TextDisabled("Editor-only debug views");
+			ImGui::SameLine();
+			if (m_DebugViewsRuntimeSuspended)
+				ImGui::BeginDisabled();
+			if (ImGui::Button("Reset Debug Views"))
+			{
+				if (m_OnResetDebugViews)
+					m_OnResetDebugViews();
+				else
+					ResetDebugViews(options);
+			}
+			if (m_DebugViewsRuntimeSuspended)
+				ImGui::EndDisabled();
+			if (m_DebugViewsRuntimeSuspended)
+				ImGui::TextDisabled("Suspended while Play is running; restored on Stop.");
+
+			if (m_DebugViewsRuntimeSuspended)
+				ImGui::BeginDisabled();
+
+			bool debugViewsChanged = false;
 			ImGuiEx::BeginPropertyGrid();
-			ImGuiEx::Property("Show Grid", options.ShowGrid);
-			ImGuiEx::Property("Show Selected Wireframe", options.ShowSelectedInWireframe);
-			ImGuiEx::Property("Show Physics Colliders", options.ShowPhysicsColliders);
-			ImGuiEx::Property("Show Shadow Cascades", options.ShowShadowCascades);
-			ImGuiEx::Property("Show Light Complexity", options.ShowLightComplexity);
+			debugViewsChanged |= ImGuiEx::Property("Show Grid", options.ShowGrid);
+			debugViewsChanged |= ImGuiEx::Property("Show Selected Wireframe", options.ShowSelectedInWireframe);
+			debugViewsChanged |= ImGuiEx::Property("Show Physics Colliders", options.ShowPhysicsColliders);
+			debugViewsChanged |= ImGuiEx::Property("Show Shadow Cascades", options.ShowShadowCascades);
+			debugViewsChanged |= ImGuiEx::Property("Show Cascade Frustums", options.ShowCascadeFrustums);
+			debugViewsChanged |= ImGuiEx::Property("Show Light Complexity", options.ShowLightComplexity);
 			ImGuiEx::EndPropertyGrid();
+
+			if (m_DebugViewsRuntimeSuspended)
+				ImGui::EndDisabled();
+
+			if (debugViewsChanged && m_OnDebugViewsChanged)
+				m_OnDebugViewsChanged();
+
 			ImGui::TreePop();
 		}
 

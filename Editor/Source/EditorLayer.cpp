@@ -154,6 +154,18 @@ namespace Lux {
 			spec.DebugName = path.string();
 			return Texture2D::Create(spec, path);
 		}
+
+		void ClearSceneRendererDebugOptions(SceneRendererOptions& options)
+		{
+			options.ShowGrid = false;
+			options.ShowSelectedInWireframe = false;
+			options.ShowPhysicsColliders = false;
+			options.PhysicsColliderMode = SceneRendererOptions::PhysicsColliderView::SelectedEntity;
+			options.ShowPhysicsCollidersOnTop = false;
+			options.ShowShadowCascades = false;
+			options.ShowCascadeFrustums = false;
+			options.ShowLightComplexity = false;
+		}
 	}
 
 	EditorLayer::EditorLayer()
@@ -179,6 +191,12 @@ namespace Lux {
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
+		if (m_SceneRendererPanel)
+		{
+			m_SceneRendererPanel->SetDebugViewCallbacks(
+				[this]() { ResetRendererDebugViews(); },
+				[this]() { SyncEditorDebugViewsFromRenderer(); });
+		}
 
 		ApplicationSettingsPanel::EditorPreferencesBindings editorPreferencesBindings{};
 		editorPreferencesBindings.VSync = &m_VSync;
@@ -960,6 +978,12 @@ namespace Lux {
 			}
 
 			ImGui::Separator();
+			if (m_PlayModeDebugViewsSuspended)
+				ImGui::TextDisabled("Debug views are suspended during Play.");
+
+			if (m_PlayModeDebugViewsSuspended)
+				ImGui::BeginDisabled();
+
 			if (ImGui::Checkbox("Show Bounding Boxes", &m_ShowBoundingBoxes))
 				settingsChanged = true;
 			if (ImGui::Checkbox("Show Entity Icons", &m_ShowEntityIcons))
@@ -979,6 +1003,9 @@ namespace Lux {
 			int displayMode = (int)m_EditorViewport->GetDisplayMode();
 			if (ImGui::Combo("Display Mode", &displayMode, "Lit\0Selected Wireframe\0"))
 				m_EditorViewport->SetDisplayMode((Viewport::DisplayMode)displayMode);
+
+			if (m_PlayModeDebugViewsSuspended)
+				ImGui::EndDisabled();
 
 			if (settingsChanged)
 			{
@@ -1677,11 +1704,95 @@ namespace Lux {
 		serializer.Serialize(Project::GetActiveAssetDirectory() / path);
 	}
 
+	void EditorLayer::ResetRendererDebugViews()
+	{
+		if (m_SceneRenderer)
+			ClearSceneRendererDebugOptions(m_SceneRenderer->GetOptions());
+
+		m_ShowPhysicsColliders = false;
+		m_ShowBoundingBoxes = false;
+		m_ShowEntityIcons = false;
+
+		if (m_EditorViewport)
+			m_EditorViewport->SetDisplayMode(Viewport::DisplayMode::Lit);
+	}
+
+	void EditorLayer::SyncEditorDebugViewsFromRenderer()
+	{
+		if (!m_SceneRenderer)
+			return;
+
+		const auto& options = m_SceneRenderer->GetOptions();
+		m_ShowPhysicsColliders = options.ShowPhysicsColliders;
+
+		if (m_EditorViewport)
+			m_EditorViewport->SetDisplayMode(options.ShowSelectedInWireframe ? Viewport::DisplayMode::SelectedWireframe : Viewport::DisplayMode::Lit);
+	}
+
+	void EditorLayer::SuspendRendererDebugViewsForPlay()
+	{
+		if (m_PlayModeDebugViewsSuspended)
+			return;
+
+		if (m_SceneRenderer)
+		{
+			const auto& options = m_SceneRenderer->GetOptions();
+			m_PlayModeDebugViewState.ShowGrid = options.ShowGrid;
+			m_PlayModeDebugViewState.ShowSelectedInWireframe = options.ShowSelectedInWireframe;
+			m_PlayModeDebugViewState.ShowPhysicsColliders = options.ShowPhysicsColliders;
+			m_PlayModeDebugViewState.PhysicsColliderMode = options.PhysicsColliderMode;
+			m_PlayModeDebugViewState.ShowPhysicsCollidersOnTop = options.ShowPhysicsCollidersOnTop;
+			m_PlayModeDebugViewState.ShowShadowCascades = options.ShowShadowCascades;
+			m_PlayModeDebugViewState.ShowCascadeFrustums = options.ShowCascadeFrustums;
+			m_PlayModeDebugViewState.ShowLightComplexity = options.ShowLightComplexity;
+		}
+		m_PlayModeDebugViewState.ShowBoundingBoxes = m_ShowBoundingBoxes;
+		m_PlayModeDebugViewState.ShowEntityIcons = m_ShowEntityIcons;
+		m_PlayModeDebugViewState.DisplayMode = m_EditorViewport ? m_EditorViewport->GetDisplayMode() : Viewport::DisplayMode::Lit;
+
+		m_PlayModeDebugViewsSuspended = true;
+		ResetRendererDebugViews();
+
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetDebugViewsRuntimeSuspended(true);
+	}
+
+	void EditorLayer::RestoreRendererDebugViewsAfterPlay()
+	{
+		if (!m_PlayModeDebugViewsSuspended)
+			return;
+
+		if (m_SceneRenderer)
+		{
+			auto& options = m_SceneRenderer->GetOptions();
+			options.ShowGrid = m_PlayModeDebugViewState.ShowGrid;
+			options.ShowSelectedInWireframe = m_PlayModeDebugViewState.ShowSelectedInWireframe;
+			options.ShowPhysicsColliders = m_PlayModeDebugViewState.ShowPhysicsColliders;
+			options.PhysicsColliderMode = m_PlayModeDebugViewState.PhysicsColliderMode;
+			options.ShowPhysicsCollidersOnTop = m_PlayModeDebugViewState.ShowPhysicsCollidersOnTop;
+			options.ShowShadowCascades = m_PlayModeDebugViewState.ShowShadowCascades;
+			options.ShowCascadeFrustums = m_PlayModeDebugViewState.ShowCascadeFrustums;
+			options.ShowLightComplexity = m_PlayModeDebugViewState.ShowLightComplexity;
+		}
+
+		m_ShowPhysicsColliders = m_PlayModeDebugViewState.ShowPhysicsColliders;
+		m_ShowBoundingBoxes = m_PlayModeDebugViewState.ShowBoundingBoxes;
+		m_ShowEntityIcons = m_PlayModeDebugViewState.ShowEntityIcons;
+
+		if (m_EditorViewport)
+			m_EditorViewport->SetDisplayMode(m_PlayModeDebugViewState.DisplayMode);
+
+		m_PlayModeDebugViewsSuspended = false;
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetDebugViewsRuntimeSuspended(false);
+	}
+
 	void EditorLayer::OnScenePlay()
 	{
 		if (m_SceneState == SceneState::Simulate)
 			OnSceneStop();
 
+		SuspendRendererDebugViewsForPlay();
 		m_SceneState = SceneState::Play;
 
 		m_ActiveScene = Scene::Copy(m_EditorScene);
@@ -1697,6 +1808,7 @@ namespace Lux {
 			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
 		}
 
+		ResetRendererDebugViews();
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
@@ -1733,6 +1845,7 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(m_SceneState == SceneState::Play || m_SceneState == SceneState::Simulate);
 
+		const bool restoreDebugViews = m_SceneState == SceneState::Play;
 		if (m_SceneState == SceneState::Play)
 			m_ActiveScene->OnRuntimeStop();
 		else if (m_SceneState == SceneState::Simulate)
@@ -1750,6 +1863,9 @@ namespace Lux {
 			m_Framebuffer = m_EditorViewport->GetFramebuffer();
 			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
 		}
+
+		if (restoreDebugViews)
+			RestoreRendererDebugViewsAfterPlay();
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);

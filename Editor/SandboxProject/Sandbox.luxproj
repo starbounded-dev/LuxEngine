@@ -38,6 +38,7 @@ Project:
       GTAOResolutionScale: 1
       GTAOTemporalAccumulation: true
       GTAOTemporalBlend: 0.850000024
+      SSRQuality: Full
       SSRResolutionScale: 1
       SSRTemporalAccumulation: true
       SSRTemporalBlend: 0.899999976

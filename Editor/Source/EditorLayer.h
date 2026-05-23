@@ -71,6 +71,10 @@ namespace Lux
 		void OnSceneSimulate();
 		void OnSceneStop();
 		void OnScenePause();
+		void ResetRendererDebugViews();
+		void SyncEditorDebugViewsFromRenderer();
+		void SuspendRendererDebugViewsForPlay();
+		void RestoreRendererDebugViewsAfterPlay();
 
 		void OnDuplicateEntity();
 
@@ -134,6 +138,23 @@ namespace Lux
 			Edit = 0, Play = 1, Simulate = 2
 		};
 		SceneState m_SceneState = SceneState::Edit;
+
+		struct RendererDebugViewState
+		{
+			bool ShowGrid = false;
+			bool ShowSelectedInWireframe = false;
+			bool ShowPhysicsColliders = false;
+			SceneRendererOptions::PhysicsColliderView PhysicsColliderMode = SceneRendererOptions::PhysicsColliderView::SelectedEntity;
+			bool ShowPhysicsCollidersOnTop = false;
+			bool ShowShadowCascades = false;
+			bool ShowCascadeFrustums = false;
+			bool ShowLightComplexity = false;
+			bool ShowBoundingBoxes = false;
+			bool ShowEntityIcons = true;
+			Viewport::DisplayMode DisplayMode = Viewport::DisplayMode::Lit;
+		};
+		RendererDebugViewState m_PlayModeDebugViewState;
+		bool m_PlayModeDebugViewsSuspended = false;
 
 		ImVec4 m_AnimatedTitlebarColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		ImVec2 m_TitleBarDragRectMin = { 0.0f, 0.0f };
