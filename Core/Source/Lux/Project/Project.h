@@ -75,6 +75,7 @@ namespace Lux
 		uint32_t GTAOResolutionScale = 2; // SceneRendererOptions::EffectResolutionScale
 		bool GTAOTemporalAccumulation = false;
 		float GTAOTemporalBlend = 0.85f;
+		uint32_t SSRQuality = 1; // SceneRendererOptions::SSRQualityPreset
 		uint32_t SSRResolutionScale = 2; // SceneRendererOptions::EffectResolutionScale
 		bool SSRTemporalAccumulation = false;
 		float SSRTemporalBlend = 0.90f;

@@ -145,6 +145,38 @@ namespace Lux {
 			}
 		}
 
+		SceneRendererOptions::SSRQualityPreset SanitizeSSRQualityPreset(uint32_t quality)
+		{
+			switch (quality)
+			{
+				case static_cast<uint32_t>(SceneRendererOptions::SSRQualityPreset::Full):
+				case static_cast<uint32_t>(SceneRendererOptions::SSRQualityPreset::HalfBilateral):
+				case static_cast<uint32_t>(SceneRendererOptions::SSRQualityPreset::QuarterDebug):
+					return static_cast<SceneRendererOptions::SSRQualityPreset>(quality);
+				default:
+					return SceneRendererOptions::SSRQualityPreset::HalfBilateral;
+			}
+		}
+
+		SceneRendererOptions::EffectResolutionScale GetSSRQualityResolutionScale(SceneRendererOptions::SSRQualityPreset quality)
+		{
+			switch (SanitizeSSRQualityPreset(static_cast<uint32_t>(quality)))
+			{
+				case SceneRendererOptions::SSRQualityPreset::Full:
+					return SceneRendererOptions::EffectResolutionScale::Full;
+				case SceneRendererOptions::SSRQualityPreset::QuarterDebug:
+					return SceneRendererOptions::EffectResolutionScale::Quarter;
+				case SceneRendererOptions::SSRQualityPreset::HalfBilateral:
+				default:
+					return SceneRendererOptions::EffectResolutionScale::Half;
+			}
+		}
+
+		bool UsesSSRBilateralUpscale(SceneRendererOptions::SSRQualityPreset quality)
+		{
+			return SanitizeSSRQualityPreset(static_cast<uint32_t>(quality)) != SceneRendererOptions::SSRQualityPreset::Full;
+		}
+
 		uint32_t GetEffectResolutionDivisor(SceneRendererOptions::EffectResolutionScale scale)
 		{
 			return static_cast<uint32_t>(SanitizeEffectResolutionScale(static_cast<uint32_t>(scale)));
@@ -301,13 +333,15 @@ namespace Lux {
 		{
 			case SSRQualitySetting::Medium:
 				m_Options.EnableSSR = true;
-				m_Options.SSRResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+				m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
+				m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 				m_SSROptions.HalfRes = true;
 				m_SSROptions.ResolutionScale = 2;
 				break;
 			case SSRQualitySetting::High:
 				m_Options.EnableSSR = true;
-				m_Options.SSRResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+				m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
+				m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 				m_SSROptions.HalfRes = false;
 				m_SSROptions.ResolutionScale = 1;
 				break;
@@ -343,6 +377,7 @@ namespace Lux {
 		const float previousMaxScale = m_Options.DynamicResolutionMaxScale;
 		const float previousTargetGPUTime = m_Options.DynamicResolutionTargetGPUTime;
 		const auto previousGTAOScale = m_Options.GTAOResolutionScale;
+		const auto previousSSRQuality = m_Options.SSRQuality;
 		const auto previousSSRScale = m_Options.SSRResolutionScale;
 		const bool previousGTAOTemporal = m_Options.EnableGTAOTemporalAccumulation;
 		const bool previousSSRTemporal = m_Options.EnableSSRTemporalAccumulation;
@@ -363,9 +398,8 @@ namespace Lux {
 		m_Options.GTAOResolutionScale = SanitizeEffectResolutionScale(settings.GTAOResolutionScale);
 		m_Options.EnableGTAOTemporalAccumulation = settings.GTAOTemporalAccumulation;
 		m_Options.GTAOTemporalBlend = std::clamp(settings.GTAOTemporalBlend, 0.0f, 0.98f);
-		m_Options.SSRResolutionScale = SanitizeEffectResolutionScale(settings.SSRResolutionScale);
-		if (!settings.SSRHalfRes && settings.SSRResolutionScale == static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Half))
-			m_Options.SSRResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+		m_Options.SSRQuality = SanitizeSSRQualityPreset(settings.SSRQuality);
+		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 		m_Options.EnableSSRTemporalAccumulation = settings.SSRTemporalAccumulation;
 		m_Options.SSRTemporalBlend = std::clamp(settings.SSRTemporalBlend, 0.0f, 0.98f);
 		m_Options.EnableJumpFlood = settings.EnableJumpFlood;
@@ -421,6 +455,7 @@ namespace Lux {
 		}
 
 		if (previousGTAOScale != m_Options.GTAOResolutionScale
+			|| previousSSRQuality != m_Options.SSRQuality
 			|| previousSSRScale != m_Options.SSRResolutionScale
 			|| previousBloomScale != m_BloomSettings.ResolutionScale
 			|| previousDOFScale != m_DOFSettings.ResolutionScale)
@@ -432,6 +467,7 @@ namespace Lux {
 			|| previousSSRTemporal != m_Options.EnableSSRTemporalAccumulation
 			|| previousGTAOBentNormals != m_Options.GTAOBentNormals
 			|| previousGTAOScale != m_Options.GTAOResolutionScale
+			|| previousSSRQuality != m_Options.SSRQuality
 			|| previousSSRScale != m_Options.SSRResolutionScale)
 		{
 			m_TemporalHistoryValid = false;
@@ -453,7 +489,10 @@ namespace Lux {
 		settings.GTAOResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
 		settings.GTAOTemporalAccumulation = m_Options.EnableGTAOTemporalAccumulation;
 		settings.GTAOTemporalBlend = m_Options.GTAOTemporalBlend;
-		settings.SSRResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
+		const SceneRendererOptions::SSRQualityPreset ssrQuality = SanitizeSSRQualityPreset(static_cast<uint32_t>(m_Options.SSRQuality));
+		const SceneRendererOptions::EffectResolutionScale ssrResolutionScale = GetSSRQualityResolutionScale(ssrQuality);
+		settings.SSRQuality = static_cast<uint32_t>(ssrQuality);
+		settings.SSRResolutionScale = GetEffectResolutionDivisor(ssrResolutionScale);
 		settings.SSRTemporalAccumulation = m_Options.EnableSSRTemporalAccumulation;
 		settings.SSRTemporalBlend = m_Options.SSRTemporalBlend;
 		settings.EnableJumpFlood = m_Options.EnableJumpFlood;
@@ -489,7 +528,7 @@ namespace Lux {
 		settings.DOFFocusDistance = m_DOFSettings.FocusDistance;
 		settings.DOFBlurSize = m_DOFSettings.BlurSize;
 
-		settings.SSRHalfRes = GetEffectResolutionDivisor(m_Options.SSRResolutionScale) > 1u;
+		settings.SSRHalfRes = GetEffectResolutionDivisor(ssrResolutionScale) > 1u;
 		settings.SSRMaxSteps = m_SSROptions.MaxSteps;
 		settings.SSRBrightness = m_SSROptions.Brightness;
 		settings.SSRDepthTolerance = m_SSROptions.DepthTolerance;
@@ -1100,6 +1139,9 @@ namespace Lux {
 			ssrRenderPassSpec.Pipeline = Pipeline::Create(ssrCompositePipelineSpec);
 			m_SSRCompositePass = RenderPass::Create(ssrRenderPassSpec);
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRImage);
+			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_SSRCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_SSRCompositePass->SetInput("Camera", m_UBSCamera);
 			m_SSRCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
 			m_SSRCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_SSRCompositePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
@@ -1760,6 +1802,7 @@ namespace Lux {
 		if (m_SSRImage && m_PreConvolutedTexture.Texture)
 		{
 			constexpr uint32_t SSR_WORKGROUP_SIZE = 8u;
+			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 			m_SSROptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
 			m_SSROptions.HalfRes = m_SSROptions.ResolutionScale > 1u;
 			glm::uvec2 ssrSize = GetScaledExtent(viewportSize, m_Options.SSRResolutionScale);
@@ -1779,7 +1822,11 @@ namespace Lux {
 				m_SSRTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
 			}
 			if (m_SSRCompositePass)
+			{
 				m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
+				m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				m_SSRCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			}
 
 			m_PreConvolutedTexture.Texture->Resize(ssrSize.x, ssrSize.y);
 			const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
@@ -2910,6 +2957,7 @@ namespace Lux {
 			m_GTAODataCB.SliceCount = m_Options.EnableGTAOTemporalAccumulation ? 6u : 9u;
 			m_GTAODataCB.StepsPerSlice = m_Options.EnableGTAOTemporalAccumulation ? 2u : 3u;
 
+			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 			m_SSROptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
 			m_SSROptions.HalfRes = m_SSROptions.ResolutionScale > 1u;
 			m_SSROptions.TemporalAccumulation = m_Options.EnableSSRTemporalAccumulation ? 1u : 0u;
@@ -4538,6 +4586,7 @@ namespace Lux {
 			return;
 
 		SSROptionsUB ssrOptions = m_SSROptions;
+		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 		ssrOptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
 		ssrOptions.HalfRes = ssrOptions.ResolutionScale > 1u;
 		ssrOptions.TemporalAccumulation = m_Options.EnableSSRTemporalAccumulation ? 1u : 0u;
@@ -4555,7 +4604,11 @@ namespace Lux {
 		m_SSRPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_SSRImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		m_SSRFinalImage = m_SSRImage;
 		if (m_SSRCompositePass)
+		{
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
+			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_SSRCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+		}
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -4582,6 +4635,7 @@ namespace Lux {
 		constants.Blend = m_Options.SSRTemporalBlend;
 		constants.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
 		constants.BentNormals = 0u;
+		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 		constants.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
 
 		BeginProfiledGPU("SSR-Temporal");
@@ -4594,7 +4648,11 @@ namespace Lux {
 		m_SSRHistoryIndex = writeIndex;
 		m_SSRFinalImage = historyOutput;
 		if (m_SSRCompositePass)
+		{
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
+			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_SSRCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+		}
 	}
 
 	void SceneRenderer::SSRCompositePass()
@@ -4602,6 +4660,13 @@ namespace Lux {
 		ScopedCPUProfile cpuProfile(*this, "SSRComposite");
 		if (!m_Options.EnableSSR || !m_SSRCompositePass || !m_SSRCompositeMaterial)
 			return;
+
+		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
+		m_SSRCompositeMaterial->Set("u_Uniforms.ResolutionScale", GetEffectResolutionDivisor(m_Options.SSRResolutionScale));
+		m_SSRCompositeMaterial->Set("u_Uniforms.BilateralUpscale", UsesSSRBilateralUpscale(m_Options.SSRQuality) ? 1u : 0u);
+		m_SSRCompositeMaterial->Set("u_Uniforms.QuarterDebug", m_Options.SSRQuality == SceneRendererOptions::SSRQualityPreset::QuarterDebug ? 1u : 0u);
+		m_SSRCompositeMaterial->Set("u_Uniforms.DepthSigma", 0.035f);
+		m_SSRCompositeMaterial->Set("u_Uniforms.NormalSigma", 32.0f);
 
 		BeginProfiledGPU("SSRComposite");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SSRCompositePass);

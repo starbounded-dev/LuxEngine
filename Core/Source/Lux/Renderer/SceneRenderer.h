@@ -132,6 +132,13 @@ namespace Lux {
 			Quarter = 4
 		};
 
+		enum class SSRQualityPreset : uint32_t
+		{
+			Full = 0,
+			HalfBilateral = 1,
+			QuarterDebug = 2
+		};
+
 		bool  ShowGrid = true;
 		bool  ShowSelectedInWireframe = false;
 		bool  ShowPhysicsColliders = false;
@@ -168,6 +175,7 @@ namespace Lux {
 		float OcclusionBoundsScale = 1.15f;
 		bool  EnableGPUDrivenRendering = true;
 		EffectResolutionScale GTAOResolutionScale = EffectResolutionScale::Half;
+		SSRQualityPreset SSRQuality = SSRQualityPreset::HalfBilateral;
 		EffectResolutionScale SSRResolutionScale = EffectResolutionScale::Half;
 		bool  EnableGTAOTemporalAccumulation = false;
 		float GTAOTemporalBlend = 0.85f;

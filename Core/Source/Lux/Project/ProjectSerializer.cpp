@@ -134,6 +134,54 @@ namespace Lux
 			return 0;
 		}
 
+		const char* SSRQualityToString(uint32_t quality)
+		{
+			switch (quality)
+			{
+				case 0: return "Full";
+				case 2: return "QuarterDebug";
+				case 1:
+				default:
+					return "HalfBilateral";
+			}
+		}
+
+		uint32_t SSRQualityFromString(std::string_view value)
+		{
+			if (value == "Full" || value == "100%" || value == "0")
+				return 0;
+			if (value == "QuarterDebug" || value == "Quarter Debug Only" || value == "25%" || value == "2")
+				return 2;
+			return 1;
+		}
+
+		uint32_t SSRResolutionScaleFromQuality(uint32_t quality)
+		{
+			switch (quality)
+			{
+				case 0: return 1;
+				case 2: return 4;
+				case 1:
+				default:
+					return 2;
+			}
+		}
+
+		uint32_t SSRQualityFromLegacyScale(uint32_t resolutionScale, bool halfRes)
+		{
+			if (!halfRes && resolutionScale == 2)
+				return 0;
+
+			switch (resolutionScale)
+			{
+				case 1: return 0;
+				case 4: return 2;
+				case 2:
+				default:
+					return 1;
+			}
+		}
+
 		void SerializeSceneRendererSettings(YAML::Emitter& out, const ProjectSceneRendererSettings& settings)
 		{
 			out << YAML::Key << "SceneRenderer" << YAML::Value;
@@ -164,6 +212,7 @@ namespace Lux
 			out << YAML::Key << "GTAOResolutionScale" << YAML::Value << settings.GTAOResolutionScale;
 			out << YAML::Key << "GTAOTemporalAccumulation" << YAML::Value << settings.GTAOTemporalAccumulation;
 			out << YAML::Key << "GTAOTemporalBlend" << YAML::Value << settings.GTAOTemporalBlend;
+			out << YAML::Key << "SSRQuality" << YAML::Value << SSRQualityToString(settings.SSRQuality);
 			out << YAML::Key << "SSRResolutionScale" << YAML::Value << settings.SSRResolutionScale;
 			out << YAML::Key << "SSRTemporalAccumulation" << YAML::Value << settings.SSRTemporalAccumulation;
 			out << YAML::Key << "SSRTemporalBlend" << YAML::Value << settings.SSRTemporalBlend;
@@ -219,6 +268,7 @@ namespace Lux
 			if (!node)
 				return;
 
+			bool hasSSRQuality = false;
 			if (auto rendering = node["Rendering"])
 			{
 				settings.EnableFrustumCulling = rendering["FrustumCulling"].as<bool>(settings.EnableFrustumCulling);
@@ -244,6 +294,8 @@ namespace Lux
 				settings.GTAOResolutionScale = rendering["GTAOResolutionScale"].as<uint32_t>(settings.GTAOResolutionScale);
 				settings.GTAOTemporalAccumulation = rendering["GTAOTemporalAccumulation"].as<bool>(settings.GTAOTemporalAccumulation);
 				settings.GTAOTemporalBlend = rendering["GTAOTemporalBlend"].as<float>(settings.GTAOTemporalBlend);
+				hasSSRQuality = !!rendering["SSRQuality"];
+				settings.SSRQuality = SSRQualityFromString(rendering["SSRQuality"].as<std::string>(SSRQualityToString(settings.SSRQuality)));
 				settings.SSRResolutionScale = rendering["SSRResolutionScale"].as<uint32_t>(settings.SSRResolutionScale);
 				settings.SSRTemporalAccumulation = rendering["SSRTemporalAccumulation"].as<bool>(settings.SSRTemporalAccumulation);
 				settings.SSRTemporalBlend = rendering["SSRTemporalBlend"].as<float>(settings.SSRTemporalBlend);
@@ -290,6 +342,11 @@ namespace Lux
 					settings.SSRDepthTolerance = ssr["DepthTolerance"].as<float>(settings.SSRDepthTolerance);
 				}
 			}
+
+			if (hasSSRQuality)
+				settings.SSRResolutionScale = SSRResolutionScaleFromQuality(settings.SSRQuality);
+			else
+				settings.SSRQuality = SSRQualityFromLegacyScale(settings.SSRResolutionScale, settings.SSRHalfRes);
 		}
 
 		void WriteSceneRendererRuntimeSettings(FileStreamWriter& serializer, const ProjectSceneRendererSettings& settings)
@@ -318,6 +375,7 @@ namespace Lux
 			serializer.WriteRaw(settings.GTAOTemporalAccumulation);
 			serializer.WriteRaw(settings.GTAOTemporalBlend);
 			serializer.WriteRaw(settings.SSRResolutionScale);
+			serializer.WriteRaw(settings.SSRQuality);
 			serializer.WriteRaw(settings.SSRTemporalAccumulation);
 			serializer.WriteRaw(settings.SSRTemporalBlend);
 
@@ -384,6 +442,8 @@ namespace Lux
 				stream.ReadRaw(settings.GTAOTemporalAccumulation);
 				stream.ReadRaw(settings.GTAOTemporalBlend);
 				stream.ReadRaw(settings.SSRResolutionScale);
+				if (version >= 7)
+					stream.ReadRaw(settings.SSRQuality);
 				stream.ReadRaw(settings.SSRTemporalAccumulation);
 				stream.ReadRaw(settings.SSRTemporalBlend);
 			}
@@ -417,6 +477,11 @@ namespace Lux
 			stream.ReadRaw(settings.SSRMaxSteps);
 			stream.ReadRaw(settings.SSRBrightness);
 			stream.ReadRaw(settings.SSRDepthTolerance);
+
+			if (version >= 7)
+				settings.SSRResolutionScale = SSRResolutionScaleFromQuality(settings.SSRQuality);
+			else
+				settings.SSRQuality = SSRQualityFromLegacyScale(settings.SSRResolutionScale, settings.SSRHalfRes);
 		}
 	}
 

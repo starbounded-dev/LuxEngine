@@ -105,6 +105,20 @@ namespace Lux {
 			return true;
 		}
 
+		SceneRendererOptions::EffectResolutionScale ResolutionScaleFromSSRQuality(SceneRendererOptions::SSRQualityPreset quality)
+		{
+			switch (quality)
+			{
+				case SceneRendererOptions::SSRQualityPreset::Full:
+					return SceneRendererOptions::EffectResolutionScale::Full;
+				case SceneRendererOptions::SSRQualityPreset::QuarterDebug:
+					return SceneRendererOptions::EffectResolutionScale::Quarter;
+				case SceneRendererOptions::SSRQualityPreset::HalfBilateral:
+				default:
+					return SceneRendererOptions::EffectResolutionScale::Half;
+			}
+		}
+
 	}
 
 	void SceneRendererPanel::SetContext(const Ref<SceneRenderer>& context)
@@ -277,13 +291,19 @@ namespace Lux {
 			projectSettingsChanged |= ImGuiEx::Property("GTAO Denoise Passes", options.GTAODenoisePasses, 0, 8);
 			projectSettingsChanged |= ImGuiEx::Property("AO Shadow Tolerance", options.AOShadowTolerance, 0.01f, 0.0f, 4.0f);
 			gtaoSettingsChanged |= ImGuiEx::Property("SSR", options.EnableSSR);
-			if (DrawEffectScaleProperty("SSR Resolution", options.SSRResolutionScale))
+			const char* ssrQualityLabels[] = { "Full", "Half + Bilateral Upscale", "Quarter Debug Only" };
+			int ssrQuality = static_cast<int>(options.SSRQuality);
+			if (DrawComboProperty("SSR Quality", ssrQuality, ssrQualityLabels, IM_ARRAYSIZE(ssrQualityLabels)))
 			{
-				ssr.HalfRes = static_cast<uint32_t>(options.SSRResolutionScale) > 1u;
+				options.SSRQuality = static_cast<SceneRendererOptions::SSRQualityPreset>(std::clamp(ssrQuality, 0, 2));
+				options.SSRResolutionScale = ResolutionScaleFromSSRQuality(options.SSRQuality);
+				ssr.HalfRes = options.SSRResolutionScale != SceneRendererOptions::EffectResolutionScale::Full;
 				ssr.ResolutionScale = static_cast<uint32_t>(options.SSRResolutionScale);
 				screenSpaceResourcesChanged = true;
 				projectSettingsChanged = true;
 			}
+			if (options.SSRQuality == SceneRendererOptions::SSRQualityPreset::QuarterDebug)
+				ImGui::TextDisabled("Quarter SSR is debug-only; use Full or Half + Bilateral for normal rendering.");
 			projectSettingsChanged |= ImGuiEx::Property("SSR Temporal", options.EnableSSRTemporalAccumulation);
 			if (options.EnableSSRTemporalAccumulation)
 				projectSettingsChanged |= ImGuiEx::Property("SSR Temporal Blend", options.SSRTemporalBlend, 0.01f, 0.0f, 0.98f);
