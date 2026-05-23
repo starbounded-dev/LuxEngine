@@ -15,9 +15,9 @@ Project:
   RenderingTechnique: Forward
   SceneRenderer:
     Rendering:
-      FrustumCulling: false
-      OcclusionCulling: false
-      GPUDrivenRendering: false
+      FrustumCulling: true
+      OcclusionCulling: true
+      GPUDrivenRendering: true
       GTAO: true
       GTAOBentNormals: true
       GTAODenoisePasses: 8

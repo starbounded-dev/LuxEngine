@@ -16,6 +16,7 @@ namespace Lux {
 		virtual ~RendererDebuggerPanel() = default;
 
 		void SetContext(const Ref<SceneRenderer>& context);
+		void SetDebugViewsRuntimeSuspended(bool suspended) { m_DebugViewsRuntimeSuspended = suspended; }
 		virtual void OnImGuiRender(bool& isOpen) override;
 
 	private:
@@ -32,6 +33,7 @@ namespace Lux {
 		void DrawMemory(const SceneRenderer::Statistics& stats);
 		void DrawWorkload(const SceneRenderer::Statistics& stats);
 		void DrawShaders();
+		void DrawRenderPassIsolation();
 		void DrawRenderGraphInspector();
 
 		Ref<SceneRenderer> m_Context;
@@ -42,6 +44,7 @@ namespace Lux {
 		std::unordered_map<std::string, PassHistory> m_PassHistory;
 		uint32_t m_LastReloadedShaderCount = 0;
 		uint32_t m_LastWarmedPipelineCount = 0;
+		bool m_DebugViewsRuntimeSuspended = false;
 	};
 
 }

@@ -70,6 +70,23 @@ namespace Lux {
 			return maxValue;
 		}
 
+		const char* DebugViewModeToString(SceneRenderer::DebugViewMode mode)
+		{
+			switch (mode)
+			{
+				case SceneRenderer::DebugViewMode::Final: return "Final";
+				case SceneRenderer::DebugViewMode::Geometry: return "Geometry";
+				case SceneRenderer::DebugViewMode::Depth: return "Depth";
+				case SceneRenderer::DebugViewMode::Normals: return "Normals";
+				case SceneRenderer::DebugViewMode::SSR: return "SSR";
+				case SceneRenderer::DebugViewMode::AO: return "AO";
+				case SceneRenderer::DebugViewMode::Bloom: return "Bloom";
+				case SceneRenderer::DebugViewMode::Composite: return "Composite";
+			}
+
+			return "Unknown";
+		}
+
 		const char* ImageUsageToString(ImageUsage usage)
 		{
 			switch (usage)
@@ -526,6 +543,84 @@ namespace Lux {
 		ImGui::TreePop();
 	}
 
+	void RendererDebuggerPanel::DrawRenderPassIsolation()
+	{
+		if (!ImGuiEx::PropertyGridHeader("Render Pass Isolation", true))
+			return;
+
+		struct DebugViewButton
+		{
+			SceneRenderer::DebugViewMode Mode;
+			const char* Label;
+		};
+
+		static constexpr DebugViewButton debugViews[] = {
+			{ SceneRenderer::DebugViewMode::Geometry, "Geometry" },
+			{ SceneRenderer::DebugViewMode::Depth, "Depth" },
+			{ SceneRenderer::DebugViewMode::Normals, "Normals" },
+			{ SceneRenderer::DebugViewMode::SSR, "SSR" },
+			{ SceneRenderer::DebugViewMode::AO, "AO" },
+			{ SceneRenderer::DebugViewMode::Bloom, "Bloom" },
+			{ SceneRenderer::DebugViewMode::Composite, "Composite" },
+			{ SceneRenderer::DebugViewMode::Final, "Final" },
+		};
+
+		if (m_DebugViewsRuntimeSuspended)
+			ImGui::TextDisabled("Suspended while Play is running; restored on Stop.");
+
+		const SceneRenderer::DebugViewMode activeMode = m_Context->GetDebugViewMode();
+		ImGui::BeginDisabled(m_DebugViewsRuntimeSuspended);
+		if (ImGui::BeginTable("##renderer_debugger_pass_isolation", 4, ImGuiTableFlags_SizingStretchSame))
+		{
+			for (const DebugViewButton& debugView : debugViews)
+			{
+				ImGui::TableNextColumn();
+
+				const bool selected = activeMode == debugView.Mode;
+				const bool unavailable = debugView.Mode != SceneRenderer::DebugViewMode::Final && !m_Context->GetDebugViewImage(debugView.Mode);
+
+				if (selected)
+				{
+					ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+					ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+				}
+
+				ImGui::BeginDisabled(unavailable);
+				if (ImGui::Button(debugView.Label, ImVec2(-FLT_MIN, 0.0f)))
+					m_Context->SetDebugViewMode(debugView.Mode);
+				ImGui::EndDisabled();
+
+				if (selected)
+					ImGui::PopStyleColor(2);
+
+				if (unavailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+					ImGui::SetTooltip("Pass output is unavailable with the current renderer settings.");
+			}
+			ImGui::EndTable();
+		}
+		ImGui::EndDisabled();
+
+		const Ref<Image2D> activeImage = m_Context->GetDebugViewImage(activeMode);
+		ImGui::Spacing();
+		ImGui::Text("Active: %s", DebugViewModeToString(activeMode));
+		if (activeImage)
+		{
+			const ImageSpecification& spec = activeImage->GetSpecification();
+			ImGui::TextDisabled("%s, %ux%u, %u mip%s",
+				std::string(Utils::ImageFormatToString(spec.Format)).c_str(),
+				spec.Width,
+				spec.Height,
+				spec.Mips,
+				spec.Mips == 1 ? "" : "s");
+		}
+		else if (activeMode != SceneRenderer::DebugViewMode::Final)
+		{
+			ImGui::TextDisabled("Selected pass is unavailable; viewport falls back to Final.");
+		}
+
+		ImGui::TreePop();
+	}
+
 	void RendererDebuggerPanel::DrawRenderGraphInspector()
 	{
 		if (!ImGuiEx::PropertyGridHeader("Render Graph Inspector", true))
@@ -637,6 +732,7 @@ namespace Lux {
 		UpdateProfilingHistory(stats);
 
 		DrawOverview(stats);
+		DrawRenderPassIsolation();
 		DrawProfiling(stats);
 		DrawMemory(stats);
 		DrawRenderGraphInspector();

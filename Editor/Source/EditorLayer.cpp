@@ -1707,7 +1707,10 @@ namespace Lux {
 	void EditorLayer::ResetRendererDebugViews()
 	{
 		if (m_SceneRenderer)
+		{
 			ClearSceneRendererDebugOptions(m_SceneRenderer->GetOptions());
+			m_SceneRenderer->SetDebugViewMode(SceneRenderer::DebugViewMode::Final);
+		}
 
 		m_ShowPhysicsColliders = false;
 		m_ShowBoundingBoxes = false;
@@ -1745,6 +1748,7 @@ namespace Lux {
 			m_PlayModeDebugViewState.ShowShadowCascades = options.ShowShadowCascades;
 			m_PlayModeDebugViewState.ShowCascadeFrustums = options.ShowCascadeFrustums;
 			m_PlayModeDebugViewState.ShowLightComplexity = options.ShowLightComplexity;
+			m_PlayModeDebugViewState.RendererDebugView = m_SceneRenderer->GetDebugViewMode();
 		}
 		m_PlayModeDebugViewState.ShowBoundingBoxes = m_ShowBoundingBoxes;
 		m_PlayModeDebugViewState.ShowEntityIcons = m_ShowEntityIcons;
@@ -1755,6 +1759,8 @@ namespace Lux {
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetDebugViewsRuntimeSuspended(true);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetDebugViewsRuntimeSuspended(true);
 	}
 
 	void EditorLayer::RestoreRendererDebugViewsAfterPlay()
@@ -1773,6 +1779,7 @@ namespace Lux {
 			options.ShowShadowCascades = m_PlayModeDebugViewState.ShowShadowCascades;
 			options.ShowCascadeFrustums = m_PlayModeDebugViewState.ShowCascadeFrustums;
 			options.ShowLightComplexity = m_PlayModeDebugViewState.ShowLightComplexity;
+			m_SceneRenderer->SetDebugViewMode(m_PlayModeDebugViewState.RendererDebugView);
 		}
 
 		m_ShowPhysicsColliders = m_PlayModeDebugViewState.ShowPhysicsColliders;
@@ -1785,6 +1792,8 @@ namespace Lux {
 		m_PlayModeDebugViewsSuspended = false;
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetDebugViewsRuntimeSuspended(false);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetDebugViewsRuntimeSuspended(false);
 	}
 
 	void EditorLayer::OnScenePlay()

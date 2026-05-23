@@ -1064,6 +1064,29 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_AOCompositePass->Validate());
 			m_AOCompositePass->Bake();
 			m_AOCompositeMaterial = Material::Create(aoPipelineSpec.Shader, "GTAO-Composite");
+
+			FramebufferSpecification aoDebugFramebufferSpec;
+			aoDebugFramebufferSpec.Width = m_ViewportWidth;
+			aoDebugFramebufferSpec.Height = m_ViewportHeight;
+			aoDebugFramebufferSpec.Attachments = { ImageFormat::RGBA32F };
+			aoDebugFramebufferSpec.ClearColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+			aoDebugFramebufferSpec.DebugName = "AO-Debug";
+
+			PipelineSpecification aoDebugPipelineSpec = aoPipelineSpec;
+			aoDebugPipelineSpec.DebugName = "AO-Debug";
+			aoDebugPipelineSpec.TargetFramebuffer = Framebuffer::Create(aoDebugFramebufferSpec);
+
+			RenderPassSpecification aoDebugRenderPassSpec;
+			aoDebugRenderPassSpec.DebugName = "AO-Debug";
+			aoDebugRenderPassSpec.Pipeline = Pipeline::Create(aoDebugPipelineSpec);
+			m_AODebugPass = RenderPass::Create(aoDebugRenderPassSpec);
+			m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AODebugPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_AODebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_AODebugPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_AODebugPass->Validate());
+			m_AODebugPass->Bake();
+			m_AODebugMaterial = Material::Create(aoPipelineSpec.Shader, "AO-Debug");
 		}
 
 		// ── SSR ────────────────────────────────────────────────────────────────
@@ -1706,6 +1729,7 @@ namespace Lux {
 		};
 
 		resizePass(m_AOCompositePass, viewportSize);
+		resizePass(m_AODebugPass, viewportSize);
 		resizePass(m_SSRCompositePass, viewportSize);
 		resizePass(m_JumpFloodInitPass, viewportSize);
 		resizePass(m_JumpFloodPasses[0], viewportSize);
@@ -1790,6 +1814,8 @@ namespace Lux {
 			m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
 			if (m_AOCompositePass)
 				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			if (m_AODebugPass)
+				m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			if (m_GTAOTemporalPass)
@@ -2230,6 +2256,7 @@ namespace Lux {
 		addRenderPass(m_SpotShadowMapPass);
 		addRenderPass(m_PreDepthPass);
 		addRenderPass(m_AOCompositePass);
+		addRenderPass(m_AODebugPass);
 		addRenderPass(m_SSRCompositePass);
 		addRenderPass(m_DOFPass);
 		addRenderPass(m_JumpFloodInitPass);
@@ -2441,6 +2468,7 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
 		appendResources(aoCompositeReads, aoFinalOutputs);
 		addPass("AO Composite", aoCompositeReads, addRenderPassResources("AO Composite", m_AOCompositePass));
+		addPass("AO Debug", aoFinalOutputs, addRenderPassResources("AO Debug", m_AODebugPass));
 
 		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
 		preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
@@ -2740,6 +2768,7 @@ namespace Lux {
 		recreatePassFramebuffer(m_SelectedGeometryPass);
 		recreatePassFramebuffer(m_GeometryWireframePass);
 		recreatePassFramebuffer(m_AOCompositePass);
+		recreatePassFramebuffer(m_AODebugPass);
 		recreatePassFramebuffer(m_SSRCompositePass);
 		recreatePassFramebuffer(m_JumpFloodInitPass);
 		recreatePassFramebuffer(m_JumpFloodPasses[0]);
@@ -3867,6 +3896,8 @@ namespace Lux {
 			GTAODenoiseCompute();
 			GTAOTemporalAccumulationCompute();
 			AOComposite();
+			if (m_DebugViewMode == DebugViewMode::AO)
+				AODebugPass();
 		}
 		PreConvolutionCompute();
 		if (m_Options.EnableSSR)
@@ -4530,6 +4561,21 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::AODebugPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "AODebug");
+		if (!m_AODebugPass || !m_AODebugMaterial || !m_GTAOFinalImage)
+			return;
+
+		m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+
+		BeginProfiledGPU("AODebug");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_AODebugPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AODebugPass->GetPipeline(), m_AODebugMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
 	void SceneRenderer::PreConvolutionCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "PreConvolution");
@@ -5083,10 +5129,53 @@ namespace Lux {
 
 	Ref<Image2D> SceneRenderer::GetFinalPassImage()
 	{
-		if (m_DOFSettings.Enabled && m_DOFPass)
-			return m_DOFPass->GetOutput(0);
-		if (m_CompositePass)
-			return m_CompositePass->GetOutput(0);
+		if (Ref<Image2D> debugImage = GetDebugViewImage(m_DebugViewMode))
+			return debugImage;
+
+		return GetDebugViewImage(DebugViewMode::Final);
+	}
+
+	Ref<Image2D> SceneRenderer::GetDebugViewImage(DebugViewMode mode)
+	{
+		switch (mode)
+		{
+			case DebugViewMode::Final:
+				if (m_DOFSettings.Enabled && m_DOFPass)
+					return m_DOFPass->GetOutput(0);
+				if (m_CompositePass)
+					return m_CompositePass->GetOutput(0);
+				return nullptr;
+
+			case DebugViewMode::Geometry:
+				return m_GeometryPass ? m_GeometryPass->GetOutput(0) : nullptr;
+
+			case DebugViewMode::Depth:
+				return m_PreDepthPass ? m_PreDepthPass->GetDepthOutput() : nullptr;
+
+			case DebugViewMode::Normals:
+				return m_GeometryPass ? m_GeometryPass->GetOutput(1) : nullptr;
+
+			case DebugViewMode::SSR:
+				if (!m_Options.EnableSSR)
+					return nullptr;
+				return m_SSRFinalImage ? m_SSRFinalImage : m_SSRImage;
+
+			case DebugViewMode::AO:
+				if (!m_Options.EnableGTAO)
+					return nullptr;
+				return m_AODebugPass ? m_AODebugPass->GetOutput(0) : nullptr;
+
+			case DebugViewMode::Bloom:
+				if (!m_BloomSettings.Enabled)
+					return nullptr;
+				if (m_BloomComputeTextures.size() > 2 && m_BloomComputeTextures[2].Texture)
+					return m_BloomComputeTextures[2].Texture->GetImage();
+				return nullptr;
+
+			case DebugViewMode::Composite:
+				return m_CompositePass ? m_CompositePass->GetOutput(0) : nullptr;
+		}
+
 		return nullptr;
 	}
 

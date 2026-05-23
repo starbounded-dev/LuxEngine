@@ -409,7 +409,22 @@ namespace Lux {
 
 		// ── Output ────────────────────────────────────────────────────────────
 
+		enum class DebugViewMode : uint32_t
+		{
+			Final = 0,
+			Geometry,
+			Depth,
+			Normals,
+			SSR,
+			AO,
+			Bloom,
+			Composite
+		};
+
 		Ref<Image2D>     GetFinalPassImage();
+		Ref<Image2D>     GetDebugViewImage(DebugViewMode mode);
+		DebugViewMode    GetDebugViewMode() const { return m_DebugViewMode; }
+		void             SetDebugViewMode(DebugViewMode mode) { m_DebugViewMode = mode; }
 		Ref<Pipeline>    GetFinalPipeline();
 		Ref<RenderPass>  GetFinalRenderPass();
 		Ref<RenderPass>  GetCompositeRenderPass() { return m_CompositePass; }
@@ -587,6 +602,7 @@ namespace Lux {
 		void GTAODenoiseCompute();
 		void GTAOTemporalAccumulationCompute();
 		void AOComposite();
+		void AODebugPass();
 		void PreConvolutionCompute();
 		void SSRCompute();
 		void SSRTemporalAccumulationCompute();
@@ -892,6 +908,8 @@ namespace Lux {
 
 		Ref<RenderPass>  m_AOCompositePass;
 		Ref<Material>    m_AOCompositeMaterial;
+		Ref<RenderPass>  m_AODebugPass;
+		Ref<Material>    m_AODebugMaterial;
 
 		// ── SSR ──────────────────────────────────────────────────────────────
 		Ref<Image2D>     m_SSRImage;
@@ -961,6 +979,7 @@ namespace Lux {
 		Ref<Framebuffer> m_CompositingFramebuffer;
 		Ref<Material>    m_CompositeMaterial;
 		Ref<RenderPass>  m_CompositePass;
+		DebugViewMode    m_DebugViewMode = DebugViewMode::Final;
 
 		// ── Editor grid ───────────────────────────────────────────────────────
 		Ref<RenderPass>  m_GridRenderPass;

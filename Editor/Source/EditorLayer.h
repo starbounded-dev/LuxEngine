@@ -151,6 +151,7 @@ namespace Lux
 			bool ShowLightComplexity = false;
 			bool ShowBoundingBoxes = false;
 			bool ShowEntityIcons = true;
+			SceneRenderer::DebugViewMode RendererDebugView = SceneRenderer::DebugViewMode::Final;
 			Viewport::DisplayMode DisplayMode = Viewport::DisplayMode::Lit;
 		};
 		RendererDebugViewState m_PlayModeDebugViewState;
