@@ -15,6 +15,8 @@
 namespace Lux {
 
 	static EditorConsolePanel* s_Instance = nullptr;
+	static std::mutex s_PendingMessageMutex;
+	static std::vector<ConsoleMessage> s_PendingMessages;
 
 	static const ImVec4 s_InfoTint = ImVec4(0.0f, 0.431372549f, 1.0f, 1.0f);
 	static const ImVec4 s_WarningTint = ImVec4(1.0f, 0.890196078f, 0.0588235294f, 1.0f);
@@ -26,6 +28,10 @@ namespace Lux {
 		s_Instance = this;
 
 		m_MessageBuffer.reserve(500);
+
+		std::scoped_lock<std::mutex> lock(s_PendingMessageMutex);
+		m_MessageBuffer.insert(m_MessageBuffer.end(), s_PendingMessages.begin(), s_PendingMessages.end());
+		s_PendingMessages.clear();
 	}
 
 	EditorConsolePanel::~EditorConsolePanel()
@@ -121,16 +127,22 @@ namespace Lux {
 			textColor = (m_MessageFilters & (int16_t)ConsoleMessageFlags::Info) ? s_InfoTint : style.Colors[ImGuiCol_TextDisabled];
 			if (ImGuiEx::ColoredButton(LUX_ICON_INFO_CIRCLE, GetToolbarButtonColor(m_MessageFilters & (int16_t)ConsoleMessageFlags::Info), textColor, buttonSize))
 				m_MessageFilters ^= (int16_t)ConsoleMessageFlags::Info;
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Toggle info messages");
 
 			ImGui::SameLine();
 			textColor = (m_MessageFilters & (int16_t)ConsoleMessageFlags::Warning) ? s_WarningTint : style.Colors[ImGuiCol_TextDisabled];
 			if (ImGuiEx::ColoredButton(LUX_ICON_EXCLAMATION_TRIANGLE, GetToolbarButtonColor(m_MessageFilters & (int16_t)ConsoleMessageFlags::Warning), textColor, buttonSize))
 				m_MessageFilters ^= (int16_t)ConsoleMessageFlags::Warning;
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Toggle warning and Vulkan validation warning messages");
 
 			ImGui::SameLine();
 			textColor = (m_MessageFilters & (int16_t)ConsoleMessageFlags::Error) ? s_ErrorTint : style.Colors[ImGuiCol_TextDisabled];
 			if (ImGuiEx::ColoredButton(LUX_ICON_EXCLAMATION_CIRCLE, GetToolbarButtonColor(m_MessageFilters & (int16_t)ConsoleMessageFlags::Error), textColor, buttonSize))
 				m_MessageFilters ^= (int16_t)ConsoleMessageFlags::Error;
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Toggle error, Vulkan validation error, and shader compile error messages");
 		}
 
 		ImGui::EndChild();
@@ -167,18 +179,18 @@ namespace Lux {
 
 					ImGuiEx::Separator(ImVec2(4.0f, ImGui::CalcTextSize(msg.ShortMessage.c_str()).y), GetMessageColor(msg));
 					ImGui::SameLine();
-					ImGui::Text(GetMessageType(msg));
+					ImGui::TextUnformatted(GetMessageType(msg));
 					ImGui::TableNextColumn();
 					ImGuiEx::ShiftCursorX(4.0f);
 
 					std::stringstream timeString;
 					tm* timeBuffer = localtime(&msg.Time);
 					timeString << std::put_time(timeBuffer, "%T");
-					ImGui::Text(timeString.str().c_str());
+					ImGui::TextUnformatted(timeString.str().c_str());
 
 					ImGui::TableNextColumn();
 					ImGuiEx::ShiftCursorX(4.0f);
-					ImGui::Text(msg.ShortMessage.c_str());
+					ImGui::TextUnformatted(msg.ShortMessage.c_str());
 
 					if (i == m_MessageBuffer.size() - 1 && m_ScrollToLatest)
 					{
@@ -204,13 +216,22 @@ namespace Lux {
 
 						if (ImGui::BeginPopupModal("Detailed Message", &m_DetailedPanelOpen, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
 						{
-							ImGui::TextWrapped(msg.LongMessage.c_str());
-							if (ImGui::Button("Copy To Clipboard", ImVec2(120.0f, 28.0f)))
+							ImGui::TextWrapped("%s", msg.LongMessage.c_str());
+							if (ImGui::Button("Copy Full Message", ImVec2(150.0f, 28.0f)))
 							{
 								ImGui::SetClipboardText(msg.LongMessage.c_str());
 							}
 							ImGui::EndPopup();
 						}
+					}
+
+					if (ImGui::BeginPopupContextItem("ConsoleMessageContext"))
+					{
+						if (ImGui::MenuItem("Copy Full Message"))
+							ImGui::SetClipboardText(msg.LongMessage.c_str());
+						if (ImGui::MenuItem("Copy Short Message"))
+							ImGui::SetClipboardText(msg.ShortMessage.c_str());
+						ImGui::EndPopup();
 					}
 
 					ImGui::PopID();
@@ -243,7 +264,11 @@ namespace Lux {
 	void EditorConsolePanel::PushMessage(const ConsoleMessage& message)
 	{
 		if (s_Instance == nullptr)
+		{
+			std::scoped_lock<std::mutex> lock(s_PendingMessageMutex);
+			s_PendingMessages.push_back(message);
 			return;
+		}
 
 		{
 			std::scoped_lock<std::mutex> lock(s_Instance->m_MessageBufferMutex);

@@ -72,6 +72,12 @@ namespace Lux {
 #endif
 		}
 
+		if (!shader)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Shader '{}' failed to load.", path);
+			return;
+		}
+
 		auto& name = shader->GetName();
 		LUX_CORE_ASSERT(m_Shaders.find(name) == m_Shaders.end());
 		m_Shaders[name] = shader;

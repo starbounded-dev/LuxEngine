@@ -44,8 +44,13 @@ namespace Lux {
 
 		void flush_() override
 		{
-			for (const auto& message : m_MessageBuffer)
+			for (uint32_t i = 0; i < m_MessageCount; i++)
+			{
+				const auto& message = m_MessageBuffer[i];
+				if (message.Flags == (int16_t)ConsoleMessageFlags::None)
+					continue;
 				EditorConsolePanel::PushMessage(message);
+			}
 
 			m_MessageCount = 0;
 		}

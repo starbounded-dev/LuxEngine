@@ -61,6 +61,8 @@ namespace Lux {
 		};
 
 		std::string Compile(std::vector<uint32_t>& outputBinary, const nvrhi::ShaderType stage, CompilationOptions options) const;
+		std::string BuildShaderCompileErrorMessage(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const;
+		void ReportShaderCompileError(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const;
 		bool CompileOrGetVulkanBinaries(std::map<nvrhi::ShaderType, std::vector<uint32_t>>& outputDebugBinary, std::map<nvrhi::ShaderType, std::vector<uint32_t>>& outputBinary, const nvrhi::ShaderType changedStages, const bool forceCompile);
 		bool CompileOrGetVulkanBinary(nvrhi::ShaderType stage, std::vector<uint32_t>& outputBinary, bool debug, nvrhi::ShaderType changedStages, bool forceCompile);
 

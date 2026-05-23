@@ -37,6 +37,19 @@ namespace Lux {
 	struct ProjectSceneRendererSettings;
 
 	// ─────────────────────────────────────────────────────────────────────────
+	// Quality presets
+	// ─────────────────────────────────────────────────────────────────────────
+
+	enum class QualityPreset : uint32_t
+	{
+		Low = 0,
+		Medium = 1,
+		High = 2,
+		Ultra = 3,
+		Cinematic = 4
+	};
+
+	// ─────────────────────────────────────────────────────────────────────────
 	// Light structures
 	// These are NOT yet stored on the Scene; instead they are supplied each
 	// frame via SceneRenderer::SetLightEnvironment() / SetEnvironment().
@@ -139,6 +152,14 @@ namespace Lux {
 			QuarterDebug = 2
 		};
 
+		enum class ShadowResolutionTier : uint32_t
+		{
+			Tier_1K = 0,
+			Tier_2K = 1,
+			Tier_4K = 2,
+			Tier_8K = 3
+		};
+
 		bool  ShowGrid = true;
 		bool  ShowSelectedInWireframe = false;
 		bool  ShowPhysicsColliders = false;
@@ -162,6 +183,7 @@ namespace Lux {
 		float ShadowCascadeNearPlaneOffset = 0.0f;
 		float ShadowCascadeFarPlaneOffset = 50.0f;
 		float ShadowCascadeTransitionFade = 1.0f;
+		ShadowResolutionTier ShadowResolution = ShadowResolutionTier::Tier_4K;
 		bool  EnableGTAO = true;
 		bool  GTAOBentNormals = false;
 		float AOShadowTolerance = 1.0f;
@@ -443,17 +465,18 @@ namespace Lux {
 		SSROptionsUB& GetSSROptions() { return m_SSROptions; }
 		RenderingTechnique GetRenderingTechnique() const { return m_RenderingTechnique; }
 		void SetRenderingTechnique(RenderingTechnique technique) { m_RenderingTechnique = technique; }
-		void ApplyProjectSettings(const ProjectSceneRendererSettings& settings);
-		void WriteProjectSettings(ProjectSceneRendererSettings& settings) const;
-		void RefreshScreenSpaceEffectResources();
-		const SceneRendererSpecification& GetSpecification()  const { return m_Specification; }
-		void SetShadowSettings(float nearPlane, float farPlane, float lambda, float scaleShadowToOrigin = 0.0f)
-		{
-			m_Options.ShadowCascadeNearPlaneOffset = nearPlane;
-			m_Options.ShadowCascadeFarPlaneOffset = farPlane;
-			m_Options.ShadowCascadeSplitLambda = lambda;
-			m_ScaleShadowCascadesToOrigin = scaleShadowToOrigin;
-		}
+	void ApplyProjectSettings(const ProjectSceneRendererSettings& settings);
+	void WriteProjectSettings(ProjectSceneRendererSettings& settings) const;
+	void RefreshScreenSpaceEffectResources();
+	void SetQualityPreset(QualityPreset preset);
+	const SceneRendererSpecification& GetSpecification()  const { return m_Specification; }
+	void SetShadowSettings(float nearPlane, float farPlane, float lambda, float scaleShadowToOrigin = 0.0f)
+	{
+		m_Options.ShadowCascadeNearPlaneOffset = nearPlane;
+		m_Options.ShadowCascadeFarPlaneOffset = farPlane;
+		m_Options.ShadowCascadeSplitLambda = lambda;
+		m_ScaleShadowCascadesToOrigin = scaleShadowToOrigin;
+	}
 
 		void SetShadowCascades(float a, float b, float c, float d)
 		{
@@ -464,13 +487,14 @@ namespace Lux {
 			m_ShadowCascadeSplits[3] = d;
 		}
 
-		void SetLineWidth(float width);
+	void SetLineWidth(float width);
+	void ApplyQualityPreset(QualityPreset preset);
 
-		uint32_t GetViewportWidth()  const { return m_ViewportWidth; }
-		uint32_t GetViewportHeight() const { return m_ViewportHeight; }
-		uint32_t GetOutputViewportWidth()  const { return m_OutputViewportWidth; }
-		uint32_t GetOutputViewportHeight() const { return m_OutputViewportHeight; }
-		float GetRenderResolutionScale() const;
+	uint32_t GetViewportWidth()  const { return m_ViewportWidth; }
+	uint32_t GetViewportHeight() const { return m_ViewportHeight; }
+	uint32_t GetOutputViewportWidth()  const { return m_OutputViewportWidth; }
+	uint32_t GetOutputViewportHeight() const { return m_OutputViewportHeight; }
+	float GetRenderResolutionScale() const;
 
 		float GetOpacity() const { return m_Opacity; }
 		void  SetOpacity(float opacity) { m_Opacity = opacity; }

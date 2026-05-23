@@ -137,12 +137,13 @@ namespace Lux {
 
 		// Vertex input descriptor
 		VertexBufferLayout& vertexLayout = m_Specification.Layout;
+		VertexBufferLayout& instanceLayout = m_Specification.InstanceLayout;
 		VertexBufferLayout& boneInfluenceLayout = m_Specification.BoneInfluenceLayout;
 
 		nvrhi::static_vector<nvrhi::VertexAttributeDesc, nvrhi::c_MaxVertexAttributes> vertexAttributes;
 
 		uint32_t bufferIndex = 0;
-		for (const auto& layout : { vertexLayout, boneInfluenceLayout })
+		for (const auto& layout : { vertexLayout, instanceLayout, boneInfluenceLayout })
 		{
 			for (const VertexBufferElement& element : layout)
 			{
@@ -155,7 +156,8 @@ namespace Lux {
 				attributeDesc.isInstanced = layout.IsInstanced();
 			}
 
-			bufferIndex++;
+			if (layout.GetElementCount() > 0)
+				bufferIndex++;
 		}
 
 		pipelineDesc.inputLayout = device->createInputLayout(vertexAttributes.data(), vertexAttributes.size(), pipelineDesc.VS);

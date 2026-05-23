@@ -351,10 +351,156 @@ namespace Lux {
 
 		m_BloomSettings.Enabled = tiering.EnableBloom;
 
+		// Apply quality preset based on tiering or use Medium as default
+		QualityPreset preset = QualityPreset::Medium;
 		if (Ref<Project> project = Project::GetActive())
+		{
 			ApplyProjectSettings(project->GetConfig().SceneRenderer);
+			
+			// Override with project quality setting if available
+			// For now, we'll use Medium as default since ProjectSceneRendererSettings
+			// doesn't have a quality preset field yet
+			preset = QualityPreset::Medium;
+		}
+		
+		ApplyQualityPreset(preset);
+		UpdateGTAOData();
+	}
+
+	void SceneRenderer::ApplyQualityPreset(QualityPreset preset)
+	{
+		switch (preset)
+		{
+		case QualityPreset::Low:
+			// Low settings
+			m_Options.EnableSSR = false;
+			m_Options.EnableGTAO = false;
+			m_BloomSettings.Enabled = true;
+			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+			m_BloomSettings.Intensity = 0.5f;
+			m_BloomSettings.Threshold = 2.0f;
+			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale75;
+			m_Options.TextureMipBias = 0.5f;
+			m_Options.EnableDistanceMipBias = false;
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_1K;
+			break;
+		case QualityPreset::Medium:
+			// Medium settings
+			m_Options.EnableSSR = true;
+			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
+			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
+			m_Options.EnableGTAO = true;
+			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+			m_GTAODataCB.ResolutionScale = 2;
+			m_BloomSettings.Enabled = true;
+			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+			m_BloomSettings.Intensity = 1.0f;
+			m_BloomSettings.Threshold = 1.0f;
+			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
+			m_Options.TextureMipBias = 0.0f;
+			m_Options.EnableDistanceMipBias = true;
+			m_Options.DistanceMipBiasStart = 50.0f;
+			m_Options.DistanceMipBiasEnd = 250.0f;
+			m_Options.DistanceMipBiasMax = 2.0f;
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
+			break;
+		case QualityPreset::High:
+			// High settings
+			m_Options.EnableSSR = true;
+			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
+			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
+			m_Options.EnableGTAO = true;
+			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+			m_GTAODataCB.ResolutionScale = 1;
+			m_BloomSettings.Enabled = true;
+			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+			m_BloomSettings.Intensity = 1.5f;
+			m_BloomSettings.Threshold = 0.8f;
+			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
+			m_Options.TextureMipBias = -0.5f;
+			m_Options.EnableDistanceMipBias = true;
+			m_Options.DistanceMipBiasStart = 50.0f;
+			m_Options.DistanceMipBiasEnd = 250.0f;
+			m_Options.DistanceMipBiasMax = 2.0f;
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
+			break;
+		case QualityPreset::Ultra:
+			// Ultra settings
+			m_Options.EnableSSR = true;
+			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
+			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
+			m_Options.EnableGTAO = true;
+			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+			m_GTAODataCB.ResolutionScale = 1;
+			m_Options.GTAOBentNormals = true;
+			m_Options.EnableGTAOTemporalAccumulation = true;
+			m_Options.GTAOTemporalBlend = 0.85f;
+			m_BloomSettings.Enabled = true;
+			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+			m_BloomSettings.Intensity = 2.0f;
+			m_BloomSettings.Threshold = 0.6f;
+			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
+			m_Options.TextureMipBias = -1.0f;
+			m_Options.EnableDistanceMipBias = true;
+			m_Options.DistanceMipBiasStart = 25.0f;
+			m_Options.DistanceMipBiasEnd = 150.0f;
+			m_Options.DistanceMipBiasMax = 3.0f;
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_8K;
+			break;
+		case QualityPreset::Cinematic:
+			// Cinematic settings
+			m_Options.EnableSSR = true;
+			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
+			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
+			m_Options.EnableSSRTemporalAccumulation = true;
+			m_Options.SSRTemporalBlend = 0.90f;
+			m_Options.EnableGTAO = true;
+			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+			m_GTAODataCB.ResolutionScale = 1;
+			m_Options.GTAOBentNormals = true;
+			m_Options.EnableGTAOTemporalAccumulation = true;
+			m_Options.GTAOTemporalBlend = 0.90f;
+			m_BloomSettings.Enabled = true;
+			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+			m_BloomSettings.Intensity = 3.0f;
+			m_BloomSettings.Threshold = 0.4f;
+			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
+			m_Options.TextureMipBias = -1.5f;
+			m_Options.EnableDistanceMipBias = true;
+			m_Options.DistanceMipBiasStart = 10.0f;
+			m_Options.DistanceMipBiasEnd = 100.0f;
+			m_Options.DistanceMipBiasMax = 4.0f;
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_8K;
+			break;
+		}
+
+		// Update internal data that depends on the options
+		UpdateGTAOData();
+
+		// Update SSROptions based on SSR settings
+		if (m_Options.EnableSSR)
+		{
+			switch (m_Options.SSRQuality)
+			{
+			case SceneRendererOptions::SSRQualityPreset::HalfBilateral:
+				m_SSROptions.HalfRes = true;
+				m_SSROptions.ResolutionScale = 2;
+				break;
+			case SceneRendererOptions::SSRQualityPreset::Full:
+				m_SSROptions.HalfRes = false;
+				m_SSROptions.ResolutionScale = 1;
+				break;
+			default:
+				m_SSROptions.HalfRes = true;
+				m_SSROptions.ResolutionScale = 2;
+				break;
+			}
+		}
 		else
-			UpdateGTAOData();
+		{
+			m_SSROptions.HalfRes = true;
+			m_SSROptions.ResolutionScale = 2;
+		}
 	}
 
 	void SceneRenderer::UpdateGTAOData()
@@ -1889,7 +2035,15 @@ namespace Lux {
 		for (uint32_t startDestMip = 0; startDestMip < hzbMipCount; startDestMip += maxMipBatchSize)
 		{
 			Ref<Material> material = Material::Create(m_HierarchicalDepthPass->GetShader(), "HZB");
-			material->Set("u_InputDepth", startDestMip == 0 ? m_PreDepthPass->GetDepthOutput() : m_HierarchicalDepthTexture.Texture->GetImage());
+			if (startDestMip == 0)
+			{
+				material->Set("u_InputDepth", m_PreDepthPass->GetDepthOutput());
+			}
+			else
+			{
+				const uint32_t parentMip = startDestMip - 1u;
+				material->Set("u_InputDepth", m_HierarchicalDepthTexture.ImageViews[parentMip]);
+			}
 
 			for (uint32_t outputIndex = 0; outputIndex < maxMipBatchSize; outputIndex++)
 			{
@@ -1917,8 +2071,13 @@ namespace Lux {
 		{
 			Ref<Material> material = Material::Create(m_PreIntegrationPass->GetShader(), "Pre-Integration");
 			material->Set("o_VisibilityImage", m_PreIntegrationVisibilityTexture.ImageViews[mip - 1]);
-			material->Set("u_VisibilityTex", m_PreIntegrationVisibilityTexture.Texture);
-			material->Set("u_HZB", m_HierarchicalDepthTexture.Texture);
+			ImageViewSpecification visibilityInputSpec;
+			visibilityInputSpec.Image = m_PreIntegrationVisibilityTexture.Texture->GetImage();
+			visibilityInputSpec.Mip = mip - 1u;
+			visibilityInputSpec.MipCount = 1;
+			visibilityInputSpec.DebugName = "PreIntegrationVisibilityTexture-Input-" + std::to_string(mip - 1u);
+			material->Set("u_VisibilityTex", ImageView::Create(visibilityInputSpec));
+			material->Set("u_HZB", m_HierarchicalDepthTexture.ImageViews[mip - 1u]);
 			m_PreIntegrationMaterials[mip - 1] = material;
 		}
 	}
@@ -4146,7 +4305,7 @@ namespace Lux {
 				srcSize.x > 0 ? 1.0f / (float)srcSize.x : 1.0f,
 				srcSize.y > 0 ? 1.0f / (float)srcSize.y : 1.0f
 			};
-			pushConstants.FirstLod = (int)startDestMip;
+			pushConstants.FirstLod = 1;
 			pushConstants.IsFirstPass = isFirstPass ? 1 : 0;
 
 			const glm::uvec3 workGroups = {
@@ -4225,7 +4384,7 @@ namespace Lux {
 			const glm::vec2 resFactor = 1.0f / glm::vec2(mipWidth, mipHeight);
 			pushConstants.HZBResFactor = resFactor * m_SSROptions.HZBUvFactor;
 			pushConstants.ResFactor = resFactor;
-			pushConstants.PrevLod = (int)mip - 1;
+			pushConstants.PrevLod = 0;
 
 			const glm::uvec3 workGroups = { DivideRoundUp(mipWidth, 8u), DivideRoundUp(mipHeight, 8u), 1 };
 			Renderer::DispatchCompute(m_CommandBuffer, m_PreIntegrationPass, m_PreIntegrationMaterials[mip - 1], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));

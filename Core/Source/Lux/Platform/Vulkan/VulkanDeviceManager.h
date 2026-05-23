@@ -59,6 +59,8 @@ freely, subject to the following restrictions:
 
 #include <vulkan/vulkan.hpp>
 
+#include <format>
+
 namespace Lux {
 
 	class VulkanDeviceManager : public DeviceManager
@@ -242,7 +244,35 @@ namespace Lux {
 					return VK_FALSE;
 			}
 
-			LUX_CORE_WARN_TAG("Renderer", "[Vulkan: location=0x{0:x} code={1}, layerPrefix='{2}'] {3}\n", location, code, layerPrefix, msg);
+			const bool error = (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) != 0;
+			const bool performance = (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT) != 0;
+			const char* severity = error ? "error" : "warning";
+			const char* type = performance ? "performance validation" : "validation";
+			const std::string fullMessage = std::format(
+				"Vulkan {0} {1}:\n"
+				"Location: 0x{2:x}\n"
+				"Code: {3}\n"
+				"Layer: {4}\n"
+				"{5}",
+				type,
+				severity,
+				location,
+				code,
+				layerPrefix ? layerPrefix : "",
+				msg ? msg : "");
+
+			if (error)
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "{}", fullMessage);
+				if (Log::GetEditorConsoleLogger())
+					Log::GetEditorConsoleLogger()->error("{}", fullMessage);
+			}
+			else
+			{
+				LUX_CORE_WARN_TAG("Renderer", "{}", fullMessage);
+				if (Log::GetEditorConsoleLogger())
+					Log::GetEditorConsoleLogger()->warn("{}", fullMessage);
+			}
 
 			return VK_FALSE;
 		}

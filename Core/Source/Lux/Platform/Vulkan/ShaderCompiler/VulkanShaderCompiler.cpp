@@ -23,6 +23,8 @@
 
 #include <cstdlib>
 #include <format>
+#include <regex>
+#include <sstream>
 
 #if defined(LUX_PLATFORM_LINUX)
 #include <spawn.h>
@@ -48,6 +50,50 @@ namespace Lux {
 
 	static std::unordered_map<uint32_t, std::unordered_map<uint32_t, ShaderResource::UniformBuffer>> s_UniformBuffers; // set -> binding point -> buffer
 	static std::unordered_map<uint32_t, std::unordered_map<uint32_t, ShaderResource::StorageBuffer>> s_StorageBuffers; // set -> binding point -> buffer
+
+	namespace {
+		const char* ShaderSourceLanguageToString(ShaderUtils::SourceLang language)
+		{
+			switch (language)
+			{
+				case ShaderUtils::SourceLang::NONE: return "None";
+				case ShaderUtils::SourceLang::GLSL: return "GLSL";
+				case ShaderUtils::SourceLang::HLSL: return "HLSL";
+			}
+			return "Unknown";
+		}
+
+		uint32_t ExtractCompilerLineNumber(const std::string& compilerError)
+		{
+			std::smatch match;
+
+			const std::regex hlslLineColumnPattern(R"(\((\d+)\s*,\s*\d+\))");
+			if (std::regex_search(compilerError, match, hlslLineColumnPattern) && match.size() > 1)
+				return static_cast<uint32_t>(std::stoul(match[1].str()));
+
+			const std::regex glslLinePattern(R"((?:^|\n)[^\n:]*:(\d+):(?:\d+:)?)");
+			if (std::regex_search(compilerError, match, glslLinePattern) && match.size() > 1)
+				return static_cast<uint32_t>(std::stoul(match[1].str()));
+
+			return 0;
+		}
+
+		std::string GetSourceLine(const std::string& source, uint32_t lineNumber)
+		{
+			if (lineNumber == 0)
+				return {};
+
+			std::istringstream stream(source);
+			std::string line;
+			for (uint32_t currentLine = 1; std::getline(stream, line); currentLine++)
+			{
+				if (currentLine == lineNumber)
+					return line;
+			}
+
+			return {};
+		}
+	}
 
 	namespace Utils {
 
@@ -128,8 +174,6 @@ namespace Lux {
 		bool compileSucceeded = CompileOrGetVulkanBinaries(m_SPIRVDebugData, m_SPIRVData, changedStages, forceCompile);
 		if (!compileSucceeded)
 		{
-		LUX_CORE_ASSERT(false);
-		LUX_CORE_VERIFY(false);
 			return false;
 		}
 
@@ -187,7 +231,15 @@ namespace Lux {
 			options.SetIncluder(std::unique_ptr<GlslIncluder>(includer));
 			const auto preProcessingResult = compiler.PreprocessGlsl(shaderSource, ShaderUtils::ShaderStageToShaderC(stage), m_ShaderSourcePath.string().c_str(), options);
 			if (preProcessingResult.GetCompilationStatus() != shaderc_compilation_status_success)
-				LUX_CORE_ERROR_TAG("Renderer", std::format("Failed to pre-process \"{}\"'s {} shader.\nError: {}", m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage), preProcessingResult.GetErrorMessage()));
+			{
+				const std::string error = std::format("Shader pre-process error\nShader: {}\nStage: {}\nLanguage: GLSL\nCompiler output:\n{}",
+					m_ShaderSourcePath.string(),
+					nvrhi::utils::ShaderStageToString(stage),
+					preProcessingResult.GetErrorMessage());
+				LUX_CORE_ERROR_TAG("Renderer", "{}", error);
+				if (Log::GetEditorConsoleLogger())
+					Log::GetEditorConsoleLogger()->error("{}", error);
+			}
 
 			m_StagesMetadata[stage].HashValue = Hash::GenerateFNVHash(shaderSource);
 			m_StagesMetadata[stage].Headers = std::move(includer->GetIncludeData());
@@ -280,6 +332,11 @@ namespace Lux {
 			else
 			{
 				LUX_CORE_ERROR_TAG("Renderer", error);
+				if (Log::GetEditorConsoleLogger())
+					Log::GetEditorConsoleLogger()->error("Shader pre-process error\nShader: {}\nStage: {}\nLanguage: HLSL\nCompiler output:\n{}",
+						m_ShaderSourcePath.string(),
+						nvrhi::utils::ShaderStageToString(stage),
+						error);
 			}
 
 			m_StagesMetadata[stage].HashValue = Hash::GenerateFNVHash(shaderSource);
@@ -446,6 +503,76 @@ namespace Lux {
 		return "Unknown language!";
 	}
 
+	std::string VulkanShaderCompiler::BuildShaderCompileErrorMessage(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const
+	{
+		const uint32_t lineNumber = ExtractCompilerLineNumber(compilerError);
+		std::string sourceLine;
+		if (const auto sourceIt = m_ShaderSource.find(stage); sourceIt != m_ShaderSource.end())
+			sourceLine = GetSourceLine(sourceIt->second, lineNumber);
+
+		std::ostringstream macroStream;
+		if (m_Language == ShaderUtils::SourceLang::HLSL)
+			macroStream << "  __HLSL__=1\n";
+		else if (m_Language == ShaderUtils::SourceLang::GLSL)
+			macroStream << "  __GLSL__=1\n";
+		else
+			macroStream << "  <unknown source language macro>\n";
+		macroStream << "  " << ShaderUtils::ShaderStageToShaderMacro(stage) << "=1\n";
+
+		const auto& globalMacros = Renderer::GetGlobalShaderMacros();
+		if (!globalMacros.empty())
+		{
+			for (const auto& [name, value] : globalMacros)
+				macroStream << "  " << name << "=" << (value.empty() ? "1" : value) << "\n";
+		}
+		else
+		{
+			macroStream << "  <no global renderer macros>\n";
+		}
+
+		if (!m_AcknowledgedMacros.empty())
+		{
+			macroStream << "Acknowledged shader macros:\n";
+			for (const std::string& macro : m_AcknowledgedMacros)
+				macroStream << "  " << macro << "\n";
+		}
+
+		const std::string lineText = lineNumber > 0 ? std::to_string(lineNumber) : "unavailable";
+		const std::string sourceLineText = !sourceLine.empty() ? std::format("{}: {}", lineNumber, sourceLine) : "unavailable";
+		const std::string cacheStatus = loadedCachedBinary
+			? "A cached binary was loaded, so the old shader can keep running."
+			: "No cached binary was available for this permutation.";
+
+		return std::format(
+			"Shader compile error\n"
+			"Shader: {0}\n"
+			"Stage: {1}\n"
+			"Permutation: {2} {1}\n"
+			"Language: {3}\n"
+			"Exact line: {4}\n"
+			"Source line: {5}\n"
+			"Cache fallback: {6}\n"
+			"Macro set:\n{7}"
+			"Compiler output:\n{8}",
+			m_ShaderSourcePath.string(),
+			nvrhi::utils::ShaderStageToString(stage),
+			debug ? "Debug" : "Optimized",
+			ShaderSourceLanguageToString(m_Language),
+			lineText,
+			sourceLineText,
+			cacheStatus,
+			macroStream.str(),
+			compilerError);
+	}
+
+	void VulkanShaderCompiler::ReportShaderCompileError(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const
+	{
+		const std::string message = BuildShaderCompileErrorMessage(stage, debug, compilerError, loadedCachedBinary);
+		LUX_CORE_ERROR_TAG("Renderer", "{}", message);
+		if (Log::GetEditorConsoleLogger())
+			Log::GetEditorConsoleLogger()->error("{}", message);
+	}
+
 	Ref<VulkanShader> VulkanShaderCompiler::Compile(const std::filesystem::path& shaderSourcePath, bool forceCompile, bool disableOptimization)
 	{
 		// Set name
@@ -461,7 +588,13 @@ namespace Lux {
 		shader->m_DisableOptimization = disableOptimization;
 
 		Ref<VulkanShaderCompiler> compiler = Ref<VulkanShaderCompiler>::Create(shaderSourcePath, disableOptimization);
-		compiler->Reload(forceCompile);
+		if (!compiler->Reload(forceCompile))
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Shader '{}' was not loaded because compilation failed and no usable cache was available.", shaderSourcePath.string());
+			if (Log::GetEditorConsoleLogger())
+				Log::GetEditorConsoleLogger()->error("Shader '{}' was not loaded because compilation failed and no usable cache was available.", shaderSourcePath.string());
+			return nullptr;
+		}
 
 		shader->LoadAndCreateShaders(compiler->GetSPIRVData());
 		shader->SetReflectionData(compiler->m_ReflectionData);
@@ -532,25 +665,10 @@ namespace Lux {
 
 			if (std::string error = Compile(outputBinary, stage, options); error.size())
 			{
-				LUX_CORE_ERROR_TAG("Renderer", "{}", error);
 				TryGetVulkanCachedBinary(cacheDirectory, extension, outputBinary);
-				if (outputBinary.empty())
-				{
-					LUX_CONSOLE_LOG_ERROR("Failed to compile shader and couldn't find a cached version.");
-				}
-				else
-				{
-					LUX_CONSOLE_LOG_ERROR("Failed to compile {}:{} so a cached version was loaded instead.", m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage));
-#if 0
-					if (GImGui) // Guaranteed to be null before first ImGui frame
-					{
-						ImGuiWindow* logWindow = ImGui::FindWindowByName("Log");
-						ImGui::FocusWindow(logWindow);
-					}
-#endif
-				}
-				LUX_CORE_ASSERT(false);
-				return false;
+				const bool loadedCachedBinary = !outputBinary.empty();
+				ReportShaderCompileError(stage, debug, error, loadedCachedBinary);
+				return loadedCachedBinary;
 			}
 			else // Compile success
 			{

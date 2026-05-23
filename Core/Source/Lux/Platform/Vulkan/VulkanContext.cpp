@@ -95,7 +95,34 @@ namespace Lux {
 			}
 		}
 
-		LUX_CORE_WARN("{0} {1} message: \n\t{2}\n {3} {4}", VkDebugUtilsMessageType(messageType), VkDebugUtilsMessageSeverity(messageSeverity), pCallbackData->pMessage, labels, objects);
+		const std::string fullMessage = std::format(
+			"Vulkan {0} {1} message:\n"
+			"{2}\n"
+			"{3}{4}",
+			VkDebugUtilsMessageType(messageType),
+			VkDebugUtilsMessageSeverity(messageSeverity),
+			pCallbackData->pMessage ? pCallbackData->pMessage : "",
+			labels,
+			objects);
+
+		if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+		{
+			LUX_CORE_ERROR("{}", fullMessage);
+			if (Log::GetEditorConsoleLogger())
+				Log::GetEditorConsoleLogger()->error("{}", fullMessage);
+		}
+		else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+		{
+			LUX_CORE_WARN("{}", fullMessage);
+			if (Log::GetEditorConsoleLogger())
+				Log::GetEditorConsoleLogger()->warn("{}", fullMessage);
+		}
+		else
+		{
+			LUX_CORE_INFO("{}", fullMessage);
+			if (Log::GetEditorConsoleLogger())
+				Log::GetEditorConsoleLogger()->info("{}", fullMessage);
+		}
 		[[maybe_unused]] const auto& imageRefs = Image2D::GetImageRefs();
 
 		return VK_FALSE;
