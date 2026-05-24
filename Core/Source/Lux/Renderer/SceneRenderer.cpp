@@ -1206,6 +1206,9 @@ namespace Lux {
 			aoRenderPassSpec.Pipeline = Pipeline::Create(aoPipelineSpec);
 			m_AOCompositePass = RenderPass::Create(aoRenderPassSpec);
 			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_AOCompositePass->SetInput("Camera", m_UBSCamera);
 			m_AOCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
 			m_AOCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_AOCompositePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
@@ -1229,6 +1232,9 @@ namespace Lux {
 			aoDebugRenderPassSpec.Pipeline = Pipeline::Create(aoDebugPipelineSpec);
 			m_AODebugPass = RenderPass::Create(aoDebugRenderPassSpec);
 			m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AODebugPass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_AODebugPass->SetInput("Camera", m_UBSCamera);
 			m_AODebugPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
 			m_AODebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_AODebugPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
@@ -1961,9 +1967,17 @@ namespace Lux {
 
 			m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
 			if (m_AOCompositePass)
+			{
 				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			}
 			if (m_AODebugPass)
+			{
 				m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+				m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				m_AODebugPass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			}
 			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			if (m_GTAOTemporalPass)
@@ -2634,9 +2648,11 @@ namespace Lux {
 
 		std::vector<RenderGraph::ResourceHandle> aoFinalOutputs = { gtaoOutput, gtaoDenoise, gtaoHistoryA, gtaoHistoryB };
 		std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
+		appendResources(aoCompositeReads, preDepthOutputs);
 		appendResources(aoCompositeReads, aoFinalOutputs);
 		addPass("AO Composite", aoCompositeReads, addRenderPassResources("AO Composite", m_AOCompositePass));
-		addPass("AO Debug", aoFinalOutputs, addRenderPassResources("AO Debug", m_AODebugPass));
+		std::vector<RenderGraph::ResourceHandle> aoDebugReads = aoCompositeReads;
+		addPass("AO Debug", aoDebugReads, addRenderPassResources("AO Debug", m_AODebugPass));
 
 		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
 		preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
@@ -4653,7 +4669,11 @@ namespace Lux {
 		{
 			m_GTAOFinalImage = m_GTAOOutputImage;
 			if (m_AOCompositePass)
+			{
 				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			}
 			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			return;
@@ -4677,7 +4697,11 @@ namespace Lux {
 
 		m_GTAOFinalImage = (denoisePasses % 2u) != 0u ? m_GTAODenoiseImage : m_GTAOOutputImage;
 		if (m_AOCompositePass)
+		{
 			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+		}
 		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 
@@ -4719,7 +4743,11 @@ namespace Lux {
 		m_GTAOHistoryIndex = writeIndex;
 		m_GTAOFinalImage = historyOutput;
 		if (m_AOCompositePass)
+		{
 			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+		}
 		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 	}
@@ -4744,6 +4772,8 @@ namespace Lux {
 			return;
 
 		m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+		m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+		m_AODebugPass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
 
 		BeginProfiledGPU("AODebug");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_AODebugPass);
