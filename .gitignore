@@ -30,3 +30,5 @@ Editor/Resources/Cache
 Lux.slnx
 Editor/SandboxProject/Assets/Cache/Thumbnails
 Editor/SandboxProject/Assets/AssetRegistry.lzr
+*.lap
+*.aps

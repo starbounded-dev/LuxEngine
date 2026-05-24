@@ -19,6 +19,8 @@ Entities:
       Falloff: 1
       Intensity: 2.5999999
       Range: 24.5
+      ShadowDistance: 0
+      ShadowResolutionTier: 1
   - Entity: 1639952346674441217
     TagComponent:
       Tag: Camera

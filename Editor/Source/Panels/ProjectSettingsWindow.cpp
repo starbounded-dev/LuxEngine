@@ -180,6 +180,21 @@ namespace Lux {
 			return;
 
 		auto& config = m_Project->GetConfig();
+		auto syncStartupScenePath = [&config](AssetHandle sceneHandle)
+		{
+			config.StartSceneHandle = sceneHandle;
+			config.StartScene.clear();
+
+			if (!sceneHandle)
+				return;
+
+			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+			{
+				const AssetMetadata metadata = editorAssetManager->GetMetadata(sceneHandle);
+				if (metadata.IsValid())
+					config.StartScene = metadata.FilePath.generic_string();
+			}
+		};
 
 		ImGuiEx::BeginPropertyGrid();
 		if (ImGuiEx::Property("Name", m_NameBuffer, sizeof(m_NameBuffer)))
@@ -242,56 +257,19 @@ namespace Lux {
 			config.AutoSaveIntervalSeconds = autoSaveInterval;
 			m_Dirty = true;
 		}
+
+		AssetHandle startupScene = config.StartSceneHandle;
+		ImGuiEx::PropertyAssetReferenceSettings startupSceneSettings;
+		startupSceneSettings.ShowFullFilePath = true;
+		if (ImGuiEx::PropertyAssetReference<Scene>("Startup Scene", startupScene, "Scene loaded when entering play mode and when exporting a runtime build.", nullptr, startupSceneSettings))
+		{
+			m_DefaultScene = startupScene;
+			syncStartupScenePath(startupScene);
+			m_Dirty = true;
+		}
 		ImGuiEx::EndPropertyGrid();
 
 		ImGui::TextDisabled("Path changes affect the active project immediately and are persisted on save.");
-
-		ImGui::Spacing();
-		ImGui::TextUnformatted("Startup Scene");
-
-		std::string sceneLabel = "None";
-		if (m_DefaultScene)
-		{
-			const AssetMetadata metadata = Project::GetEditorAssetManager()->GetMetadata(m_DefaultScene);
-			if (metadata.IsValid())
-				sceneLabel = metadata.FilePath.generic_string();
-		}
-
-		ImGui::Button(sceneLabel.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 0.0f));
-		if (ImGui::BeginDragDropTarget())
-		{
-			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-			{
-				const size_t itemCount = payload->DataSize / sizeof(AssetHandle);
-				if (itemCount > 0)
-				{
-					const AssetHandle droppedHandle = *(const AssetHandle*)payload->Data;
-					if (AssetManager::GetAssetType(droppedHandle) == AssetType::Scene)
-					{
-						const AssetMetadata metadata = Project::GetEditorAssetManager()->GetMetadata(droppedHandle);
-						if (metadata.IsValid())
-						{
-							m_DefaultScene = droppedHandle;
-							config.StartSceneHandle = droppedHandle;
-							config.StartScene = metadata.FilePath.generic_string();
-							m_Dirty = true;
-						}
-					}
-				}
-			}
-			ImGui::EndDragDropTarget();
-		}
-
-		if (m_DefaultScene)
-		{
-			if (ImGui::Button("Clear Startup Scene"))
-			{
-				m_DefaultScene = 0;
-				config.StartSceneHandle = 0;
-				config.StartScene.clear();
-				m_Dirty = true;
-			}
-		}
 
 		ImGui::TreePop();
 	}

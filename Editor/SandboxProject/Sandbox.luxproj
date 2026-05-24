@@ -8,53 +8,55 @@ Project:
   AnimationPath: Animation
   ScriptModulePath: Scripts/Binaries/Sandbox.dll
   DefaultNamespace: Sandbox
-  StartScene: ""
+  StartScene: Scenes/NewSceneSystem.luxscene
   AutomaticallyReloadAssembly: true
   AutoSave: true
   AutoSaveInterval: 300
   RenderingTechnique: Forward
   SceneRenderer:
     Rendering:
+      QualityPreset: Cinematic
       FrustumCulling: true
       OcclusionCulling: true
       GPUDrivenRendering: true
       GTAO: true
       GTAOBentNormals: true
       GTAODenoisePasses: 8
-      AOShadowTolerance: 4
+      AOShadowTolerance: 1
       SSR: true
       JumpFloodOutline: true
       RenderScaleMode: Scale100
       DynamicResolutionMinScale: 0.5
       DynamicResolutionMaxScale: 1
       DynamicResolutionTargetGPUTime: 16.6700001
-      TextureMipBias: 0
-      DistanceMipBias: false
-      DistanceMipBiasStart: 50
-      DistanceMipBiasEnd: 250
-      DistanceMipBiasMax: 2
+      TextureMipBias: -1.5
+      DistanceMipBias: true
+      DistanceMipBiasStart: 10
+      DistanceMipBiasEnd: 100
+      DistanceMipBiasMax: 0.5
       OcclusionDepthBias: 0.00300000003
       OcclusionBoundsScale: 1.14999998
       GTAOResolutionScale: 1
       GTAOTemporalAccumulation: true
-      GTAOTemporalBlend: 0.850000024
+      GTAOTemporalBlend: 0.949999988
       SSRQuality: Full
       SSRResolutionScale: 1
       SSRTemporalAccumulation: true
-      SSRTemporalBlend: 0.899999976
+      SSRTemporalBlend: 0.949999988
     Shadows:
       SoftShadows: true
       ShadowCulling: true
-      MaxDistance: 200
-      DistanceFade: 25
+      MaxDistance: 450
+      DistanceFade: 50
       SplitLambda: 0.920000017
       NearOffset: 0
       FarOffset: 50
       CascadeFade: 1
+      ResolutionLimit: 8K
     PostFX:
       Bloom:
         Enabled: true
-        ResolutionScale: 2
+        ResolutionScale: 1
         Threshold: 1
         Knee: 0.100000001
         UpsampleScale: 1
@@ -67,7 +69,7 @@ Project:
         BlurSize: 0.75
       SSR:
         HalfRes: false
-        MaxSteps: 70
+        MaxSteps: 128
         Brightness: 0.699999988
         DepthTolerance: 0.800000012
   Audio:

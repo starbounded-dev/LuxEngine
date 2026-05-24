@@ -217,6 +217,47 @@ namespace Lux {
 			return {};
 		}
 
+		bool FileExists(const std::filesystem::path& path)
+		{
+			std::error_code ec;
+			return !path.empty() && std::filesystem::exists(path, ec) && std::filesystem::is_regular_file(path, ec);
+		}
+
+		bool IsBuildConfigurationDirectory(const std::filesystem::path& path)
+		{
+			const std::string directoryName = path.filename().string();
+			return path.parent_path().filename() == "bin" && directoryName.find("-windows-x86_64") != std::string::npos;
+		}
+
+		std::filesystem::path FindRepositoryRootFrom(std::filesystem::path start)
+		{
+			if (start.empty())
+				return {};
+
+			std::error_code ec;
+			start = std::filesystem::absolute(start, ec).lexically_normal();
+			if (ec)
+				return {};
+
+			if (std::filesystem::is_regular_file(start, ec))
+				start = start.parent_path();
+
+			for (std::filesystem::path directory = start; !directory.empty(); directory = directory.parent_path())
+			{
+				if (std::filesystem::exists(directory / "premake5.lua", ec)
+					&& std::filesystem::exists(directory / "Core", ec)
+					&& std::filesystem::exists(directory / "Lux-Runtime" / "premake5.lua", ec))
+				{
+					return directory;
+				}
+
+				if (directory == directory.root_path())
+					break;
+			}
+
+			return {};
+		}
+
 		std::filesystem::path GetRuntimeExecutablePath()
 		{
 			std::error_code ec;
@@ -224,15 +265,29 @@ namespace Lux {
 			if (ec)
 				return {};
 
-			const std::filesystem::path siblingRuntime = (current / ".." / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal();
-			if (std::filesystem::exists(siblingRuntime, ec))
-				return siblingRuntime;
+			const std::string runtimeOutputDirectory = std::string(Application::GetConfigurationName()) + "-windows-x86_64";
+			std::vector<std::filesystem::path> candidates;
 
-			const std::filesystem::path rootRuntime = (current / "bin" / (std::string(Application::GetConfigurationName()) + "-windows-x86_64") / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal();
-			if (std::filesystem::exists(rootRuntime, ec))
-				return rootRuntime;
+			if (std::filesystem::path root = FindRepositoryRootFrom(current); !root.empty())
+				candidates.emplace_back((root / "bin" / runtimeOutputDirectory / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal());
 
-			return siblingRuntime;
+			if (Ref<Project> activeProject = Project::GetActive())
+			{
+				if (std::filesystem::path root = FindRepositoryRootFrom(activeProject->GetProjectDirectory()); !root.empty())
+					candidates.emplace_back((root / "bin" / runtimeOutputDirectory / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal());
+			}
+
+			const std::filesystem::path buildConfigDirectory = current.filename() == "Editor" ? current.parent_path() : current;
+			if (IsBuildConfigurationDirectory(buildConfigDirectory))
+				candidates.emplace_back((buildConfigDirectory / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal());
+
+			for (const std::filesystem::path& candidate : candidates)
+			{
+				if (FileExists(candidate))
+					return candidate;
+			}
+
+			return {};
 		}
 
 		std::string GetSceneDisplayName(const std::filesystem::path& scenePath)

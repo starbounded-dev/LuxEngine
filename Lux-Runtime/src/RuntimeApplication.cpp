@@ -48,13 +48,13 @@ namespace Lux
 		specification.WindowHeight = 1080;
 		specification.WindowDecorated = true;
 		specification.Fullscreen = false;
-		specification.Resizable = true;
+		specification.Resizable = false;
 		specification.StartMaximized = false;
 		specification.EnableImGui = false;
 		specification.VSync = true;
 		specification.IconPath = "Resources/Editor/Hazel-IconLogo-2023.png";
 		specification.RenderConfig.FramesInFlight = 3;
-		specification.CoreThreadingPolicy = ThreadingPolicy::MultiThreaded;
+		specification.CoreThreadingPolicy = ThreadingPolicy::SingleThreaded;
 
 		return new RuntimeApplication(specification, projectPath);
 	}
