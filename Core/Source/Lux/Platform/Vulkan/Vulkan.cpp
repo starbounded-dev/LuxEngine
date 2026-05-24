@@ -1,6 +1,8 @@
 #include "lpch.h"
 #include "Vulkan.h"
 
+#include "Lux/Core/Application.h"
+
 #include "VulkanContext.h"
 #include "VulkanDiagnostics.h"
 
@@ -38,10 +40,17 @@ namespace Lux::Utils {
 
 	void RetrieveDiagnosticCheckpoints()
 	{
-		bool supported = VulkanContext::GetCurrentDevice()->GetPhysicalDevice()->IsExtensionSupported(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
-		if (!supported)
+		DeviceManager* deviceManager = Application::GetGraphicsDeviceManager();
+		if (!deviceManager || !deviceManager->IsVulkanDeviceExtensionEnabled(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME))
 			return;
 
+		Ref<VulkanDevice> device = VulkanContext::GetCurrentDevice();
+		if (!device || !device->GetVulkanDevice())
+			return;
+
+		auto vkGetQueueCheckpointData = (PFN_vkGetQueueCheckpointDataNV)vkGetDeviceProcAddr(device->GetVulkanDevice(), "vkGetQueueCheckpointDataNV");
+		if (!vkGetQueueCheckpointData)
+			return;
 
 		{
 			const uint32_t checkpointCount = 4;
@@ -50,7 +59,7 @@ namespace Lux::Utils {
 				data[i].sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
 
 			uint32_t retrievedCount = checkpointCount;
-			vkGetQueueCheckpointDataNV(::Lux::VulkanContext::GetCurrentDevice()->GetGraphicsQueue(), &retrievedCount, data);
+			vkGetQueueCheckpointData(device->GetGraphicsQueue(), &retrievedCount, data);
 			LUX_CORE_ERROR("RetrieveDiagnosticCheckpoints (Graphics Queue):");
 			for (uint32_t i = 0; i < retrievedCount; i++)
 			{
@@ -65,7 +74,7 @@ namespace Lux::Utils {
 				data[i].sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
 
 			uint32_t retrievedCount = checkpointCount;
-			vkGetQueueCheckpointDataNV(::Lux::VulkanContext::GetCurrentDevice()->GetComputeQueue(), &retrievedCount, data);
+			vkGetQueueCheckpointData(device->GetComputeQueue(), &retrievedCount, data);
 			LUX_CORE_ERROR("RetrieveDiagnosticCheckpoints (Compute Queue):");
 			for (uint32_t i = 0; i < retrievedCount; i++)
 			{

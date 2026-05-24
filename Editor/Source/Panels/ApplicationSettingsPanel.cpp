@@ -185,6 +185,9 @@ namespace Lux {
 		if (m_Bindings.ShowEntityIcons && ImGuiEx::Property("Show Entity Icons", *m_Bindings.ShowEntityIcons))
 			notifyBindings = true;
 
+		if (m_Bindings.ShowViewportPerformanceHUD && ImGuiEx::Property("Performance HUD", *m_Bindings.ShowViewportPerformanceHUD))
+			notifyBindings = true;
+
 		if (m_Bindings.ShowPhysicsColliders && ImGuiEx::Property("Show Physics Colliders", *m_Bindings.ShowPhysicsColliders))
 			notifyBindings = true;
 		ImGuiEx::EndPropertyGrid();

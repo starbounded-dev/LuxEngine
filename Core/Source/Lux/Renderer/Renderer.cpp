@@ -861,7 +861,6 @@ namespace Lux {
 
 		Renderer::Submit([renderCommandBuffer, computePass, material, workGroups, pushConstantBuffer]() mutable
 			{
-				const uint32_t frameIndex = Renderer::RT_GetCurrentFrameIndex();
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 
 				nvrhi::ComputeState& computeState = renderCommandBuffer->GetComputeState();
@@ -869,15 +868,7 @@ namespace Lux {
 				// Bind material descriptor set if exists
 				if (material)
 				{
-					material->Prepare();
-					auto bindingSet = material->GetBindingSet(frameIndex);
-					if (bindingSet)
-					{
-						if (computeState.bindings.empty())
-							computeState.bindings.resize(1);
-
-						computeState.bindings[0] = bindingSet;
-					}
+					Renderer::RT_BindMaterialDescriptorSet(computeState.bindings, computePass->GetShader(), material);
 				}
 
 				renderCommandBuffer->RT_CommitComputeState();
@@ -903,6 +894,7 @@ namespace Lux {
 	{
 		Renderer::Submit([renderCommandBuffer, s = label]() mutable
 			{
+				renderCommandBuffer->RT_BeginMarker(s);
 				renderCommandBuffer->RT_BeginTimerQuery(s);
 			});
 	}
@@ -912,17 +904,20 @@ namespace Lux {
 		Renderer::Submit([renderCommandBuffer]() mutable
 			{
 				renderCommandBuffer->RT_EndTimerQuery();
+				renderCommandBuffer->RT_EndMarker();
 			});
 	}
 
 	void Renderer::RT_BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
+		renderCommandBuffer->RT_BeginMarker(label);
 		renderCommandBuffer->RT_BeginTimerQuery(label);
 	}
 
 	void Renderer::RT_EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
 		renderCommandBuffer->RT_EndTimerQuery();
+		renderCommandBuffer->RT_EndMarker();
 	}
 
 	void Renderer::BeginFrame()
@@ -1250,12 +1245,10 @@ namespace Lux {
 				auto& meshMaterialTable = drawCmd.MeshSource->GetMaterials();
 				AssetHandle materialHandle = drawCmd.MaterialTable->HasMaterial(submesh.MaterialIndex) ? drawCmd.MaterialTable->GetMaterial(submesh.MaterialIndex) : meshMaterialTable[submesh.MaterialIndex];
 				Ref<MaterialAsset> materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+				materialAsset->UpdateMaterialComplexityMetadata();
 				Ref<Material> material = materialAsset->GetMaterial();
 
-				material->Prepare();
-				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
-				if (bindingSet)
-					graphicsState.bindings[0] = bindingSet;
+				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
 
 				renderCommandBuffer->RT_CommitGraphicsState();
 
@@ -1300,10 +1293,7 @@ namespace Lux {
 
 				RT_BindMeshBuffers(graphicsState, drawCmd.MeshSource, isRigged);
 
-				material->Prepare();
-				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
-				if (bindingSet)
-					graphicsState.bindings[0] = bindingSet;
+				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
 
 				renderCommandBuffer->RT_CommitGraphicsState();
 
@@ -1361,10 +1351,7 @@ namespace Lux {
 					graphicsState.indexBuffer = indexBufferBinding;
 				}
 
-				material->Prepare();
-				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
-				if (bindingSet)
-					graphicsState.bindings[0] = bindingSet;
+				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
 
 				renderCommandBuffer->RT_CommitGraphicsState();
 
@@ -1401,10 +1388,7 @@ namespace Lux {
 				indexBufferBinding.offset = 0;
 				graphicsState.indexBuffer = indexBufferBinding;
 
-				material->Prepare();
-				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
-				// TODO(Yan): does 0 always exist?
-				graphicsState.bindings[0] = bindingSet;
+				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
 
 				renderCommandBuffer->RT_CommitGraphicsState();
 
@@ -1418,12 +1402,48 @@ namespace Lux {
 			});
 	}
 
+	void Renderer::RT_BindMaterialDescriptorSet(nvrhi::BindingSetVector& bindings, Ref<Shader> pipelineShader, Ref<Material> material, uint32_t set)
+	{
+		if (!material)
+		{
+			if (bindings.size() > set)
+				bindings[set] = nullptr;
+			return;
+		}
+
+		material->Prepare();
+
+		if (!material->IsDescriptorSetCompatible(pipelineShader, set))
+		{
+			if (bindings.size() > set)
+				bindings[set] = nullptr;
+			return;
+		}
+
+		nvrhi::BindingSetHandle bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
+		if (!bindingSet)
+		{
+			if (bindings.size() > set)
+				bindings[set] = nullptr;
+			return;
+		}
+
+		if (bindings.size() <= set)
+			bindings.resize(set + 1);
+
+		bindings[set] = bindingSet;
+	}
+
 	void Renderer::ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, nvrhi::Color clearColor, nvrhi::TextureSubresourceSet subresourceSet)
 	{
 		Renderer::Submit([renderCommandBuffer, image, clearColor, subresourceSet]() mutable
 			{
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+				const auto& spec = image->GetSpecification();
+				const std::string markerName = "ClearImage: " + (spec.DebugName.empty() ? std::string("Image2D") : spec.DebugName);
+				renderCommandBuffer->RT_BeginMarker(markerName);
 				commandList->clearTextureFloat(image->GetHandle(), subresourceSet, clearColor);
+				renderCommandBuffer->RT_EndMarker();
 			});
 	}
 
@@ -1473,10 +1493,7 @@ namespace Lux {
 					graphicsState.indexBuffer = indexBufferBinding;
 				}
 
-				material->Prepare();
-				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
-				if (bindingSet)
-					graphicsState.bindings[0] = bindingSet;
+				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
 
 				renderCommandBuffer->RT_CommitGraphicsState();
 
@@ -1539,10 +1556,7 @@ namespace Lux {
 					graphicsState.indexBuffer = indexBufferBinding;
 				}
 
-				material->Prepare();
-				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
-				if (bindingSet)
-					graphicsState.bindings[0] = bindingSet;
+				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
 
 				renderCommandBuffer->RT_CommitGraphicsState();
 

@@ -127,6 +127,8 @@ layout(push_constant) uniform Material
 	float EnvMapRotation;
 	
 	bool UseNormalMap;
+	float MaterialComplexityScore;
+	uint MaterialDebugFlags;
 } u_MaterialUniforms;
 
 vec3 IBL(vec3 F0, vec3 Lr)
@@ -305,6 +307,20 @@ void main()
 
 		float value = float(pointLightCount + spotLightCount);
 		color.rgb = (color.rgb * 0.2) + GetGradient(value);
+	}
+
+	if (u_RendererData.ShowMaterialComplexity)
+	{
+		float value = u_MaterialUniforms.MaterialComplexityScore;
+		if (value <= 0.0)
+		{
+			value = 5.0;
+			value += u_MaterialUniforms.UseNormalMap ? 2.0 : 0.0;
+			value += 1.0 - clamp(u_MaterialUniforms.Roughness, 0.0, 1.0);
+			value += (1.0 - clamp(u_MaterialUniforms.Transparency, 0.0, 1.0)) * 2.0;
+			value += u_MaterialUniforms.Emission > 0.0 ? 1.0 : 0.0;
+		}
+		color.rgb = (color.rgb * 0.12) + GetGradient(value);
 	}
 
 	// TODO(Karim): Have a separate render pass for translucent and transparent objects.

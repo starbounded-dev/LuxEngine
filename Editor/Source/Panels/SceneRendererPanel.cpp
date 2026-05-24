@@ -130,6 +130,7 @@ namespace Lux {
 			options.ShowShadowCascades = false;
 			options.ShowCascadeFrustums = false;
 			options.ShowLightComplexity = false;
+			options.ShowMaterialComplexity = false;
 		}
 
 	}
@@ -267,6 +268,7 @@ namespace Lux {
 			debugViewsChanged |= ImGuiEx::Property("Show Shadow Cascades", options.ShowShadowCascades);
 			debugViewsChanged |= ImGuiEx::Property("Show Cascade Frustums", options.ShowCascadeFrustums);
 			debugViewsChanged |= ImGuiEx::Property("Show Light Complexity", options.ShowLightComplexity);
+			debugViewsChanged |= ImGuiEx::Property("Show Material Complexity", options.ShowMaterialComplexity);
 			ImGuiEx::EndPropertyGrid();
 
 			if (m_DebugViewsRuntimeSuspended)

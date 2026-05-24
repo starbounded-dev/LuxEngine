@@ -5,6 +5,7 @@
 
 #include "Lux/Asset/AssetManager.h"
 
+#include <algorithm>
 #include <array>
 #include <unordered_map>
 
@@ -16,6 +17,8 @@ namespace Lux {
 	static const std::string s_RoughnessUniform = "u_MaterialUniforms.Roughness";
 	static const std::string s_EmissionUniform = "u_MaterialUniforms.Emission";
 	static const std::string s_TransparencyUniform = "u_MaterialUniforms.Transparency";
+	static const std::string s_MaterialComplexityScoreUniform = "u_MaterialUniforms.MaterialComplexityScore";
+	static const std::string s_MaterialDebugFlagsUniform = "u_MaterialUniforms.MaterialDebugFlags";
 
 	static const std::string s_AlbedoMapUniform = "u_AlbedoTexture";
 	static const std::string s_NormalMapUniform = "u_NormalTexture";
@@ -29,6 +32,16 @@ namespace Lux {
 	};
 
 	static std::unordered_map<AssetHandle, SRGBTextureCacheEntry> s_SRGBAlbedoTextureCache;
+
+	enum MaterialDebugFlags : uint32_t
+	{
+		MaterialDebug_NormalMap = BIT(0),
+		MaterialDebug_Transparent = BIT(1),
+		MaterialDebug_TwoSided = BIT(2),
+		MaterialDebug_AlbedoMap = BIT(3),
+		MaterialDebug_MetalnessMap = BIT(4),
+		MaterialDebug_RoughnessMap = BIT(5)
+	};
 
 	static Ref<Texture2D> GetAlbedoTextureForMaterial(AssetHandle handle, const Ref<Texture2D>& texture)
 	{
@@ -118,6 +131,7 @@ namespace Lux {
 	void MaterialAsset::SetMetalness(float value)
 	{
 		m_Material->Set(s_MetalnessUniform, value);
+		UpdateMaterialComplexityMetadata();
 	}
 
 	float& MaterialAsset::GetRoughness()
@@ -128,6 +142,7 @@ namespace Lux {
 	void MaterialAsset::SetRoughness(float value)
 	{
 		m_Material->Set(s_RoughnessUniform, value);
+		UpdateMaterialComplexityMetadata();
 	}
 
 	float& MaterialAsset::GetEmission()
@@ -138,6 +153,7 @@ namespace Lux {
 	void MaterialAsset::SetEmission(float value)
 	{
 		m_Material->Set(s_EmissionUniform, value);
+		UpdateMaterialComplexityMetadata();
 	}
 
 	Ref<Texture2D> MaterialAsset::GetAlbedoMap()
@@ -169,13 +185,17 @@ namespace Lux {
 		{
 			ClearAlbedoMap();
 		}
+
+		UpdateMaterialComplexityMetadata();
 	}
 
 	void MaterialAsset::ClearAlbedoMap()
 	{
+		m_Maps.AlbedoMap = 0;
 #ifndef LUX_HEADLESS
 		m_Material->Set(s_AlbedoMapUniform, Renderer::GetWhiteTexture());
 #endif
+		UpdateMaterialComplexityMetadata();
 	}
 
 	Ref<Texture2D> MaterialAsset::GetNormalMap()
@@ -199,6 +219,8 @@ namespace Lux {
 		{
 			ClearNormalMap();
 		}
+
+		UpdateMaterialComplexityMetadata();
 	}
 
 	bool MaterialAsset::IsUsingNormalMap()
@@ -209,13 +231,16 @@ namespace Lux {
 	void MaterialAsset::SetUseNormalMap(bool value)
 	{
 		m_Material->Set(s_UseNormalMapUniform, value);
+		UpdateMaterialComplexityMetadata();
 	}
 
 	void MaterialAsset::ClearNormalMap()
 	{
+		m_Maps.NormalMap = 0;
 #ifndef LUX_HEADLESS
 		m_Material->Set(s_NormalMapUniform, Renderer::GetWhiteTexture());
 #endif
+		UpdateMaterialComplexityMetadata();
 	}
 
 	Ref<Texture2D> MaterialAsset::GetMetalnessMap()
@@ -239,13 +264,17 @@ namespace Lux {
 		{
 			ClearMetalnessMap();
 		}
+
+		UpdateMaterialComplexityMetadata();
 	}
 
 	void MaterialAsset::ClearMetalnessMap()
 	{
+		m_Maps.MetalnessMap = 0;
 #ifndef LUX_HEADLESS
 		m_Material->Set(s_MetalnessMapUniform, Renderer::GetWhiteTexture());
 #endif
+		UpdateMaterialComplexityMetadata();
 	}
 
 	Ref<Texture2D> MaterialAsset::GetRoughnessMap()
@@ -269,13 +298,17 @@ namespace Lux {
 		{
 			ClearRoughnessMap();
 		}
+
+		UpdateMaterialComplexityMetadata();
 	}
 
 	void MaterialAsset::ClearRoughnessMap()
 	{
+		m_Maps.RoughnessMap = 0;
 #ifndef LUX_HEADLESS
 		m_Material->Set(s_RoughnessMapUniform, Renderer::GetWhiteTexture());
 #endif
+		UpdateMaterialComplexityMetadata();
 	}
 
 	float& MaterialAsset::GetTransparency()
@@ -286,6 +319,61 @@ namespace Lux {
 	void MaterialAsset::SetTransparency(float transparency)
 	{
 		m_Material->Set(s_TransparencyUniform, transparency);
+		UpdateMaterialComplexityMetadata();
+	}
+
+	void MaterialAsset::UpdateMaterialComplexityMetadata()
+	{
+		if (!m_Material || !m_Material->FindUniformDeclaration(s_MaterialComplexityScoreUniform))
+			return;
+
+		const bool hasNormalUniform = m_Material->FindUniformDeclaration(s_UseNormalMapUniform) != nullptr;
+		const bool usingNormalMap = hasNormalUniform && m_Material->GetBool(s_UseNormalMapUniform) && m_Maps.NormalMap;
+		const bool twoSided = m_Material->GetFlag(MaterialFlag::TwoSided);
+
+		uint32_t flags = 0;
+		uint32_t textureCount = 0;
+		if (m_Maps.AlbedoMap)
+		{
+			flags |= MaterialDebug_AlbedoMap;
+			textureCount++;
+		}
+		if (usingNormalMap)
+		{
+			flags |= MaterialDebug_NormalMap;
+			textureCount++;
+		}
+		if (!m_Transparent && m_Maps.MetalnessMap)
+		{
+			flags |= MaterialDebug_MetalnessMap;
+			textureCount++;
+		}
+		if (!m_Transparent && m_Maps.RoughnessMap)
+		{
+			flags |= MaterialDebug_RoughnessMap;
+			textureCount++;
+		}
+		if (m_Transparent)
+			flags |= MaterialDebug_Transparent;
+		if (twoSided)
+			flags |= MaterialDebug_TwoSided;
+
+		float score = m_Transparent ? 5.0f : 3.0f;
+		score += static_cast<float>(textureCount) * 0.75f;
+		score += usingNormalMap ? 1.5f : 0.0f;
+		score += twoSided ? 1.25f : 0.0f;
+		if (m_Material->FindUniformDeclaration(s_EmissionUniform))
+			score += m_Material->GetFloat(s_EmissionUniform) > 0.0f ? 1.0f : 0.0f;
+		if (m_Material->FindUniformDeclaration(s_MetalnessUniform))
+			score += std::clamp(m_Material->GetFloat(s_MetalnessUniform), 0.0f, 1.0f) * 0.5f;
+		if (m_Material->FindUniformDeclaration(s_RoughnessUniform))
+			score += (1.0f - std::clamp(m_Material->GetFloat(s_RoughnessUniform), 0.0f, 1.0f)) * 0.5f;
+		if (m_Material->FindUniformDeclaration(s_TransparencyUniform))
+			score += (1.0f - std::clamp(m_Material->GetFloat(s_TransparencyUniform), 0.0f, 1.0f)) * 2.0f;
+
+		m_Material->Set(s_MaterialComplexityScoreUniform, score);
+		if (m_Material->FindUniformDeclaration(s_MaterialDebugFlagsUniform))
+			m_Material->Set(s_MaterialDebugFlagsUniform, flags);
 	}
 
 	void MaterialAsset::SetDefaults()
@@ -316,6 +404,8 @@ namespace Lux {
 			ClearMetalnessMap();
 			ClearRoughnessMap();
 		}
+
+		UpdateMaterialComplexityMetadata();
 	}
 
 	MaterialTable::MaterialTable(uint32_t materialCount)

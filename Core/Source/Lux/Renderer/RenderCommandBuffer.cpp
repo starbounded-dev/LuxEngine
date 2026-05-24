@@ -2,6 +2,7 @@
 #include "RenderCommandBuffer.h"
 
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Platform/Vulkan/VulkanDiagnostics.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
 #include <unordered_map>
@@ -231,7 +232,9 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_BeginMarker(const std::string& label)
 	{
-		GetActive()->beginMarker(label.c_str());
+		nvrhi::CommandListHandle commandList = GetActive();
+		commandList->beginMarker(label.c_str());
+		Utils::SetVulkanCheckpoint(VkCommandBuffer(commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer)), label);
 	}
 
 	void RenderCommandBuffer::RT_EndMarker()

@@ -57,6 +57,7 @@ namespace Lux {
 
 		bool IsShadowCasting() const { return !m_Material->GetFlag(MaterialFlag::DisableShadowCasting); }
 		void SetShadowCasting(bool castsShadows) { return m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
+		void UpdateMaterialComplexityMetadata();
 
 		static AssetType GetStaticType() { return AssetType::Material; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }

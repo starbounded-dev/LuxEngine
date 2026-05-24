@@ -3507,6 +3507,7 @@ namespace Lux {
 			m_RendererDataUB.CascadeTransitionFade = m_Options.ShadowCascadeTransitionFade;
 			m_RendererDataUB.ShowCascades = m_Options.ShowShadowCascades;
 			m_RendererDataUB.ShowLightComplexity = m_Options.ShowLightComplexity;
+			m_RendererDataUB.ShowMaterialComplexity = m_Options.ShowMaterialComplexity;
 			m_RendererDataUB.TilesCountX = m_LightTilesCountX;
 			m_RendererDataUB.TextureMipBias = m_Options.TextureMipBias;
 			m_RendererDataUB.EnableDistanceMipBias = m_Options.EnableDistanceMipBias;
@@ -3674,6 +3675,8 @@ namespace Lux {
 
 				if (materialHandle)
 					materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+				if (materialAsset)
+					materialAsset->UpdateMaterialComplexityMetadata();
 
 				if (!materialAsset)
 					resolvedOverrideMaterial = Renderer::GetDefaultWhiteMaterial();
@@ -4515,7 +4518,8 @@ namespace Lux {
 				Ref<SceneRenderer> instance = this;
 				Renderer::Submit([instance, drawCmd, tmd]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+						instance->m_SelectedGeometryPass->GetPipeline()->GetShader());
 					});
 			}
 
@@ -4538,7 +4542,8 @@ namespace Lux {
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, drawCmd, tmd]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
+					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_GeometryPass->GetPipeline()->GetShader());
 				});
 		}
 
@@ -4558,7 +4563,8 @@ namespace Lux {
 				Ref<SceneRenderer> instance = this;
 				Renderer::Submit([instance, drawCmd, tmd]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, false);
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, false,
+						instance->m_GeometryPass->GetPipeline()->GetShader());
 					});
 			}
 		}
@@ -4583,7 +4589,8 @@ namespace Lux {
 				Ref<SceneRenderer> instance = this;
 				Renderer::Submit([instance, drawCmd, tmd]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+						instance->m_GeometryPassTransparent->GetPipeline()->GetShader());
 					});
 			}
 
@@ -4609,7 +4616,8 @@ namespace Lux {
 				Ref<SceneRenderer> instance = this;
 				Renderer::Submit([instance, drawCmd, tmd]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
 					});
 			}
 
@@ -5200,7 +5208,8 @@ namespace Lux {
 		bool                      bindMaterial,
 		uint32_t                  lightIndex,
 		bool                      useVisibleObjectIndexes,
-		bool                      useIndirect)
+		bool                      useIndirect,
+		Ref<Shader>               pipelineShader)
 	{
 		// Non-const copy of the MeshSource Ref: MeshSource::GetVertexBuffer /
 		// GetIndexBuffer / GetMaterials are not marked const, so we cannot call
@@ -5239,7 +5248,10 @@ namespace Lux {
 
 				if (matHandle)
 					if (auto matAsset = AssetManager::GetAsset<MaterialAsset>(matHandle))
+					{
+						matAsset->UpdateMaterialComplexityMetadata();
 						material = matAsset->GetMaterial();
+					}
 			}
 
 			if (!material)
@@ -5247,10 +5259,7 @@ namespace Lux {
 
 			if (material)
 			{
-				material->Prepare();
-				auto bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
-				if (bindingSet)
-					gs.bindings[0] = bindingSet;
+				Renderer::RT_BindMaterialDescriptorSet(gs.bindings, pipelineShader, material);
 			}
 		}
 

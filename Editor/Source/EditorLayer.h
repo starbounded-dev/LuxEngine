@@ -51,6 +51,7 @@ namespace Lux
 		void UI_GizmosToolbar();
 		void UI_CentralToolbar();
 		void UI_ViewportSettings();
+		void UI_ViewportPerformanceHUD();
 		Entity CastMousePick();
 		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
 
@@ -129,6 +130,7 @@ namespace Lux
 		bool m_ShowPhysicsColliders = false;
 		bool m_ShowBoundingBoxes = false;
 		bool m_ShowEntityIcons = true;
+		bool m_ShowViewportPerformanceHUD = true;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;
 		float m_RotationSnapValue = 45.0f;
@@ -149,6 +151,7 @@ namespace Lux
 			bool ShowShadowCascades = false;
 			bool ShowCascadeFrustums = false;
 			bool ShowLightComplexity = false;
+			bool ShowMaterialComplexity = false;
 			bool ShowBoundingBoxes = false;
 			bool ShowEntityIcons = true;
 			SceneRenderer::DebugViewMode RendererDebugView = SceneRenderer::DebugViewMode::Final;

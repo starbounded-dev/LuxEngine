@@ -174,6 +174,7 @@ namespace Lux {
 		bool  ShowShadowCascades = false;
 		bool  ShowCascadeFrustums = false;
 		bool  ShowLightComplexity = false;
+		bool  ShowMaterialComplexity = false;
 		bool  SoftShadows = true;
 		bool  EnableShadowCulling = true;
 		bool  EnableMainViewCulling = true;
@@ -692,7 +693,8 @@ namespace Lux {
 			bool                     bindMaterial,
 			uint32_t                 lightIndex = 0,
 			bool                     useVisibleObjectIndexes = false,
-			bool                     useIndirect = false);
+			bool                     useIndirect = false,
+			Ref<Shader>              pipelineShader = nullptr);
 
 		// ── Uniform buffer GPU structs ────────────────────────────────────────
 
@@ -753,9 +755,11 @@ namespace Lux {
 			float     CascadeTransitionFade = 1.0f;
 			bool      ShowLightComplexity = false;
 			char      Pad3[3] = { 0, 0, 0 };
+			bool      ShowMaterialComplexity = false;
+			char      Pad4[3] = { 0, 0, 0 };
 			float     TextureMipBias = 0.0f;
 			bool      EnableDistanceMipBias = false;
-			char      Pad4[3] = { 0, 0, 0 };
+			char      Pad5[3] = { 0, 0, 0 };
 			float     DistanceMipBiasStart = 50.0f;
 			float     DistanceMipBiasEnd = 250.0f;
 			float     DistanceMipBiasMax = 2.0f;

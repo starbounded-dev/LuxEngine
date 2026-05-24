@@ -118,8 +118,10 @@ namespace Lux {
 		}
 
 		Ref<Shader> GetShader() { return m_Shader; }
+		Ref<Shader> GetShader() const { return m_Shader; }
 		const std::string& GetName() const { return m_Name; }
 
+		bool IsDescriptorSetCompatible(Ref<Shader> pipelineShader, uint32_t set = 0) const;
 		void Prepare();
 		nvrhi::BindingSetHandle GetBindingSet(uint32_t frameIndex) const;
 

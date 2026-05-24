@@ -29,6 +29,7 @@ namespace Lux {
 			float* RotationSnapValue = nullptr;
 			bool* ShowBoundingBoxes = nullptr;
 			bool* ShowEntityIcons = nullptr;
+			bool* ShowViewportPerformanceHUD = nullptr;
 			bool* ShowPhysicsColliders = nullptr;
 			std::function<void()> OnPreferencesChanged;
 		};

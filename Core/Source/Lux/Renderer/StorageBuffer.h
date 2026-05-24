@@ -28,6 +28,7 @@ namespace Lux {
 
 		nvrhi::BufferHandle GetHandle() const { return m_Handle; }
 		uint64_t GetSize() const { return m_BufferDesc.byteSize; }
+		const StorageBufferSpecification& GetSpecification() const { return m_Specification; }
 
 		void SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint32_t offset = 0);
 		void SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint32_t size, uint32_t offset = 0);

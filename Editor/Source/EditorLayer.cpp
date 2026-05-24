@@ -26,6 +26,7 @@
 #include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Utilities/FileDialogs.h"
+#include "Lux/Utilities/StringUtils.h"
 #include "Lux/Math/Math.h"
 #include "Panels/TextEditorPanel.h"
 #include "Panels/ContentBrowserPanel.h"
@@ -165,6 +166,7 @@ namespace Lux {
 			options.ShowShadowCascades = false;
 			options.ShowCascadeFrustums = false;
 			options.ShowLightComplexity = false;
+			options.ShowMaterialComplexity = false;
 		}
 	}
 
@@ -205,6 +207,7 @@ namespace Lux {
 		editorPreferencesBindings.RotationSnapValue = &m_RotationSnapValue;
 		editorPreferencesBindings.ShowBoundingBoxes = &m_ShowBoundingBoxes;
 		editorPreferencesBindings.ShowEntityIcons = &m_ShowEntityIcons;
+		editorPreferencesBindings.ShowViewportPerformanceHUD = &m_ShowViewportPerformanceHUD;
 		editorPreferencesBindings.ShowPhysicsColliders = &m_ShowPhysicsColliders;
 		editorPreferencesBindings.OnPreferencesChanged = [this]()
 			{
@@ -534,6 +537,8 @@ namespace Lux {
 						m_HoveredEntity = CastMousePick();
 					else
 						m_HoveredEntity = {};
+
+					UI_ViewportPerformanceHUD();
 
 					// Gizmos
 					Entity selectedEntity = {};
@@ -938,6 +943,44 @@ namespace Lux {
 		ImGui::PopStyleVar(2);
 	}
 
+	void EditorLayer::UI_ViewportPerformanceHUD()
+	{
+		if (!m_ShowViewportPerformanceHUD || !m_EditorViewport || !m_SceneRenderer)
+			return;
+
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
+			return;
+
+		const auto& stats = m_SceneRenderer->GetStatistics();
+		const auto& memory = stats.MemoryStats;
+		const ImGuiIO& io = ImGui::GetIO();
+		const float fps = io.Framerate;
+		const float frameTimeMs = fps > 0.0f ? 1000.0f / fps : 0.0f;
+		const float renderScale = m_SceneRenderer->GetRenderResolutionScale() * 100.0f;
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
+		ImGui::SetNextWindowBgAlpha(0.48f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
+		ImGui::Begin("##viewport_performance_hud", nullptr, flags);
+		ImGui::Text("FPS %.0f  %.2f ms", fps, frameTimeMs);
+		ImGui::Text("CPU %.2f ms  GPU %.2f ms", stats.TotalCPUTime, stats.TotalGPUTime);
+		ImGui::Text("Draws %u  Visible %u", stats.DrawCalls, stats.VisibleInstances);
+		ImGui::Text("GPU Visible %u", stats.GPUVisibleInstances);
+		if (memory.BudgetBytes > 0)
+			ImGui::Text("VRAM %s / %s", Utils::BytesToString(memory.UsedBytes).c_str(), Utils::BytesToString(memory.BudgetBytes).c_str());
+		else
+			ImGui::Text("VRAM %s", Utils::BytesToString(memory.UsedBytes).c_str());
+		ImGui::Text("Scale %.0f%%  %ux%u", renderScale, m_SceneRenderer->GetOutputViewportWidth(), m_SceneRenderer->GetOutputViewportHeight());
+		ImGui::End();
+		ImGui::PopStyleVar();
+	}
+
 	void EditorLayer::UI_ViewportSettings()
 	{
 		if (!m_EditorViewport)
@@ -999,6 +1042,9 @@ namespace Lux {
 					settingsChanged = true;
 				}
 			}
+
+			if (ImGui::Checkbox("Performance HUD", &m_ShowViewportPerformanceHUD))
+				settingsChanged = true;
 
 			int displayMode = (int)m_EditorViewport->GetDisplayMode();
 			if (ImGui::Combo("Display Mode", &displayMode, "Lit\0Selected Wireframe\0"))
@@ -1391,6 +1437,7 @@ namespace Lux {
 		m_RotationSnapValue = std::max(settings.GetFloat("Editor.RotationSnapValue", 45.0f), 1.0f);
 		m_ShowBoundingBoxes = settings.GetInt("Editor.ShowBoundingBoxes", 0) != 0;
 		m_ShowEntityIcons = settings.GetInt("Editor.ShowEntityIcons", 1) != 0;
+		m_ShowViewportPerformanceHUD = settings.GetInt("Editor.ShowViewportPerformanceHUD", 1) != 0;
 		m_ShowPhysicsColliders = settings.GetInt("Editor.ShowPhysicsColliders", 0) != 0;
 
 		ApplyEditorPreferences();
@@ -1405,6 +1452,7 @@ namespace Lux {
 		settings.SetFloat("Editor.RotationSnapValue", m_RotationSnapValue);
 		settings.SetInt("Editor.ShowBoundingBoxes", m_ShowBoundingBoxes ? 1 : 0);
 		settings.SetInt("Editor.ShowEntityIcons", m_ShowEntityIcons ? 1 : 0);
+		settings.SetInt("Editor.ShowViewportPerformanceHUD", m_ShowViewportPerformanceHUD ? 1 : 0);
 		settings.SetInt("Editor.ShowPhysicsColliders", m_ShowPhysicsColliders ? 1 : 0);
 		settings.Serialize();
 	}
@@ -1748,6 +1796,7 @@ namespace Lux {
 			m_PlayModeDebugViewState.ShowShadowCascades = options.ShowShadowCascades;
 			m_PlayModeDebugViewState.ShowCascadeFrustums = options.ShowCascadeFrustums;
 			m_PlayModeDebugViewState.ShowLightComplexity = options.ShowLightComplexity;
+			m_PlayModeDebugViewState.ShowMaterialComplexity = options.ShowMaterialComplexity;
 			m_PlayModeDebugViewState.RendererDebugView = m_SceneRenderer->GetDebugViewMode();
 		}
 		m_PlayModeDebugViewState.ShowBoundingBoxes = m_ShowBoundingBoxes;
@@ -1779,6 +1828,7 @@ namespace Lux {
 			options.ShowShadowCascades = m_PlayModeDebugViewState.ShowShadowCascades;
 			options.ShowCascadeFrustums = m_PlayModeDebugViewState.ShowCascadeFrustums;
 			options.ShowLightComplexity = m_PlayModeDebugViewState.ShowLightComplexity;
+			options.ShowMaterialComplexity = m_PlayModeDebugViewState.ShowMaterialComplexity;
 			m_SceneRenderer->SetDebugViewMode(m_PlayModeDebugViewState.RendererDebugView);
 		}
 
