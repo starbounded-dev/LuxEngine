@@ -39,7 +39,7 @@ namespace Lux {
 		if (!raw.empty()) projectPath = raw[0];
 
 		Lux::ApplicationSpecification specification;
-		specification.Name = "Sandbox";
+		specification.Name = "Lux Editor";
 		specification.WindowWidth = 1600;
 		specification.WindowHeight = 900;
 		specification.StartMaximized = true;

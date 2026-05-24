@@ -291,6 +291,7 @@ namespace Lux
 
 		static Ref<Project> New();
 		static Ref<Project> Load(const std::filesystem::path& path);
+		static Ref<Project> LoadRuntime(const std::filesystem::path& path, Ref<AssetPack> assetPack);
 		static bool SaveActive(const std::filesystem::path& path);
 
 	private:

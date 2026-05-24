@@ -20,7 +20,7 @@ If the repository was cloned non-recursively previously, use `git submodule upda
 1. Run the [Setup.bat](scripts/Setup.bat) file found in the `scripts` folder. This validates Python packages, checks the Vulkan SDK, pulls Git LFS assets and submodules, and generates project files.
 2. One prerequisite is the Vulkan SDK 1.4.x. If it is not installed, the script will download `VulkanSDK.exe` and prompt the user to install the SDK.
 3. After installation, run [Setup.bat](scripts/Setup.bat) again. Debug builds require the Vulkan SDK shader debug libraries.
-4. The setup script generates the root Visual Studio solution and the Sandbox project files. If changes are made, or if you want to regenerate project files, rerun the [Win-GenProjects.bat](scripts/Win-GenProjects.bat) script file found in the `scripts` folder.
+4. The setup script generates the root Visual Studio solution, Editor project files, and Lux-Runtime project files. If changes are made, or if you want to regenerate project files, rerun the [Win-GenProjects.bat](scripts/Win-GenProjects.bat) script file found in the `scripts` folder.
 
 ***
 

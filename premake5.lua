@@ -86,4 +86,5 @@ group "Tools"
 group ""
 
 group "Runtime"
+	include "Lux-Runtime"
 group ""

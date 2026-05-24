@@ -197,8 +197,12 @@ namespace Lux {
 
 	void ScriptEngine::Shutdown()
 	{
+		if (!s_Data)
+			return;
+
 		ShutdownMono();
 		delete s_Data;
+		s_Data = nullptr;
 	}
 
 	void ScriptEngine::InitMono()
@@ -232,10 +236,16 @@ namespace Lux {
 
 	void ScriptEngine::ShutdownMono()
 	{
+		if (!s_Data || !s_Data->RootDomain)
+			return;
+
 		mono_domain_set(mono_get_root_domain(), false);
 
-		mono_domain_unload(s_Data->AppDomain);
-		s_Data->AppDomain = nullptr;
+		if (s_Data->AppDomain)
+		{
+			mono_domain_unload(s_Data->AppDomain);
+			s_Data->AppDomain = nullptr;
+		}
 
 		mono_jit_cleanup(s_Data->RootDomain);
 		s_Data->RootDomain = nullptr;

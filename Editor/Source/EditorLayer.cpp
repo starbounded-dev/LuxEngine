@@ -5,6 +5,8 @@
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/SceneRenderer.h"
+#include "Lux/Serialization/AssetPack.h"
+#include "Lux/Project/ProjectSerializer.h"
 
 #include "Lux/Utilities/FileSystem.h"
 
@@ -37,6 +39,8 @@
 #include "Panels/ProjectSettingsWindow.h"
 #include "Lux/Editor/SceneHierarchyPanel.h"
 #include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -127,6 +131,108 @@ namespace Lux {
 		{
 			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
 			return imguiRenderer->CreateFrameTexture(image->GetHandle().Get(), nvrhi::AllSubresources);
+		}
+
+		constexpr const char* s_RuntimeProjectFile = "Project.luxruntime";
+		constexpr const char* s_RuntimeAssetPackFile = "AssetPack.lap";
+
+		std::string SanitizeBuildName(std::string value)
+		{
+			if (value.empty())
+				value = "LuxGame";
+
+			for (char& c : value)
+			{
+				const bool valid = std::isalnum((unsigned char)c) || c == '-' || c == '_';
+				if (!valid)
+					c = '_';
+			}
+
+			return value;
+		}
+
+		bool CopyFileIfExists(const std::filesystem::path& source, const std::filesystem::path& destination, bool required = false)
+		{
+			std::error_code ec;
+			if (!std::filesystem::exists(source, ec) || ec)
+			{
+				if (required)
+					LUX_CONSOLE_LOG_ERROR("Missing export file: {}", source.string());
+				return false;
+			}
+
+			std::filesystem::create_directories(destination.parent_path(), ec);
+			ec.clear();
+			std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
+			if (ec)
+			{
+				LUX_CONSOLE_LOG_ERROR("Failed to copy '{}' to '{}': {}", source.string(), destination.string(), ec.message());
+				return false;
+			}
+
+			return true;
+		}
+
+		bool CopyDirectoryRecursive(const std::filesystem::path& source, const std::filesystem::path& destination)
+		{
+			std::error_code ec;
+			if (!std::filesystem::exists(source, ec) || ec)
+				return false;
+
+			for (const auto& entry : std::filesystem::recursive_directory_iterator(source, ec))
+			{
+				if (ec)
+					break;
+
+				const std::filesystem::path relativePath = std::filesystem::relative(entry.path(), source, ec);
+				if (ec)
+					continue;
+
+				if (!relativePath.empty() && *relativePath.begin() == "Cache")
+					continue;
+
+				const std::filesystem::path target = destination / relativePath;
+				if (entry.is_directory(ec))
+				{
+					std::filesystem::create_directories(target, ec);
+					continue;
+				}
+
+				if (entry.is_regular_file(ec))
+					CopyFileIfExists(entry.path(), target);
+			}
+
+			return true;
+		}
+
+		std::filesystem::path FindFirstExistingDirectory(std::initializer_list<std::filesystem::path> candidates)
+		{
+			std::error_code ec;
+			for (const std::filesystem::path& candidate : candidates)
+			{
+				if (!candidate.empty() && std::filesystem::exists(candidate, ec) && std::filesystem::is_directory(candidate, ec))
+					return candidate;
+			}
+
+			return {};
+		}
+
+		std::filesystem::path GetRuntimeExecutablePath()
+		{
+			std::error_code ec;
+			const std::filesystem::path current = std::filesystem::current_path(ec);
+			if (ec)
+				return {};
+
+			const std::filesystem::path siblingRuntime = (current / ".." / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal();
+			if (std::filesystem::exists(siblingRuntime, ec))
+				return siblingRuntime;
+
+			const std::filesystem::path rootRuntime = (current / "bin" / (std::string(Application::GetConfigurationName()) + "-windows-x86_64") / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal();
+			if (std::filesystem::exists(rootRuntime, ec))
+				return rootRuntime;
+
+			return siblingRuntime;
 		}
 
 		std::string GetSceneDisplayName(const std::filesystem::path& scenePath)
@@ -629,6 +735,8 @@ namespace Lux {
 					OpenProject();
 				if (ImGui::MenuItem("Save Project"))
 					SaveProject();
+				if (ImGui::MenuItem("Export Runtime..."))
+					ExportRuntime();
 
 				if (ImGui::BeginMenu("Recent Projects"))
 				{
@@ -1680,6 +1788,101 @@ namespace Lux {
 
 		if (Project::SaveActive(projectFilePath))
 			AddRecentProject(projectFilePath);
+	}
+
+	void EditorLayer::ExportRuntime()
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!project)
+		{
+			LUX_CONSOLE_LOG_ERROR("No active project to export.");
+			return;
+		}
+
+		if (m_SceneState != SceneState::Edit)
+			OnSceneStop();
+
+		SaveScene();
+		SaveProject();
+
+		const std::filesystem::path selectedFolder = FileSystem::OpenFolderDialog(project->GetProjectDirectory().string().c_str());
+		if (selectedFolder.empty())
+			return;
+
+		const std::string buildName = SanitizeBuildName(project->GetConfig().Name);
+		const std::filesystem::path exportRoot = selectedFolder / (buildName + "-Windows-x86_64");
+		const std::filesystem::path exportAssets = exportRoot / "Assets";
+
+		std::error_code ec;
+		std::filesystem::create_directories(exportAssets, ec);
+		if (ec)
+		{
+			LUX_CONSOLE_LOG_ERROR("Failed to create export directory '{}': {}", exportRoot.string(), ec.message());
+			return;
+		}
+
+		std::atomic<float> assetPackProgress = 0.0f;
+		Ref<AssetPack> assetPack = AssetPack::CreateFromActiveProject(assetPackProgress);
+		if (!assetPack)
+		{
+			LUX_CONSOLE_LOG_ERROR("Runtime export failed while building the asset pack.");
+			return;
+		}
+
+		ProjectSerializer serializer(project);
+		const std::filesystem::path runtimeProjectFile = exportAssets / s_RuntimeProjectFile;
+		if (!serializer.SerializeRuntime(runtimeProjectFile))
+		{
+			LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing '{}'.", runtimeProjectFile.string());
+			return;
+		}
+
+		CopyFileIfExists(Project::GetActiveAssetDirectory() / s_RuntimeAssetPackFile, exportAssets / s_RuntimeAssetPackFile, true);
+
+		const std::filesystem::path runtimeExe = GetRuntimeExecutablePath();
+		const std::filesystem::path exportedExe = exportRoot / (buildName + ".exe");
+		if (!CopyFileIfExists(runtimeExe, exportedExe, true))
+			LUX_CONSOLE_LOG_WARN("Build the Lux-Runtime project once before exporting a standalone executable.");
+
+		const std::filesystem::path runtimeDirectory = runtimeExe.parent_path();
+		if (!runtimeDirectory.empty() && std::filesystem::exists(runtimeDirectory, ec))
+		{
+			for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
+			{
+				if (!entry.is_regular_file(ec))
+					continue;
+
+				const std::filesystem::path extension = entry.path().extension();
+				if (extension == ".dll" || extension == ".pdb")
+					CopyFileIfExists(entry.path(), exportRoot / entry.path().filename());
+			}
+		}
+
+		const std::filesystem::path current = std::filesystem::current_path(ec);
+		const std::filesystem::path resourcesSource = FindFirstExistingDirectory({
+			current / "Resources",
+			current / ".." / "Editor" / "Resources",
+			std::filesystem::path("Editor") / "Resources"
+		});
+		if (!resourcesSource.empty())
+			CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources");
+		else
+			LUX_CONSOLE_LOG_WARN("Runtime export could not find an editor Resources directory to copy.");
+
+		const std::filesystem::path monoSource = FindFirstExistingDirectory({
+			current / "mono",
+			current / ".." / "Editor" / "mono",
+			std::filesystem::path("Editor") / "mono"
+		});
+		if (!monoSource.empty())
+			CopyDirectoryRecursive(monoSource, exportRoot / "mono");
+
+		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
+		if (std::filesystem::exists(scriptModule, ec))
+			CopyFileIfExists(scriptModule, exportAssets / project->GetConfig().ScriptModulePath);
+
+		LUX_CONSOLE_LOG_INFO("Runtime export complete: {}", exportRoot.string());
+		FileSystem::OpenDirectoryInExplorer(exportRoot);
 	}
 
 	void EditorLayer::NewScene()

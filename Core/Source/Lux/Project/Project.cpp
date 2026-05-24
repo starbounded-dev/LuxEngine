@@ -69,10 +69,28 @@ namespace Lux
 		if (!s_ActiveProject)
 			return;
 
+		if (s_ActiveProject->m_ProjectDirectory.empty())
+			s_ActiveProject->m_ProjectDirectory = s_ActiveProject->m_Config.ProjectDirectory;
+		if (s_ActiveProject->m_ProjectFilePath.empty() && !s_ActiveProject->m_ProjectDirectory.empty())
+			s_ActiveProject->m_ProjectFilePath = s_ActiveProject->m_ProjectDirectory / s_ActiveProject->m_Config.ProjectFileName;
+
 		s_ActiveProject->m_Config.ProjectDirectory = s_ActiveProject->m_ProjectDirectory;
 		s_ActiveProject->m_Config.ProjectFileName = s_ActiveProject->m_ProjectFilePath.filename().string();
+
+		if (AudioEngine::HasInitializedEngine())
+		{
+			AudioEngine::Shutdown();
+			AudioEngine::SetInitalizedEngine(false);
+		}
+
 		s_AssetManager = Ref<RuntimeAssetManager>::Create();
 		GetRuntimeAssetManager()->SetAssetPack(assetPack);
+
+		if (!AudioEngine::HasInitializedEngine())
+		{
+			AudioEngine::Init();
+			AudioEngine::SetInitalizedEngine(true);
+		}
 	}
 
 	Ref<Project> Project::New()
@@ -80,6 +98,23 @@ namespace Lux
 		Ref<Project> project = Ref<Project>::Create();
 		project->m_Config.DefaultNamespace = project->m_Config.Name;
 		SetActive(project);
+		return s_ActiveProject;
+	}
+
+	Ref<Project> Project::LoadRuntime(const std::filesystem::path& path, Ref<AssetPack> assetPack)
+	{
+		Ref<Project> project = Ref<Project>::Create();
+
+		ProjectSerializer serializer(project);
+		if (!serializer.DeserializeRuntime(path))
+			return nullptr;
+
+		project->m_ProjectFilePath = path.lexically_normal();
+		project->m_ProjectDirectory = path.parent_path();
+		project->m_Config.ProjectDirectory = project->m_ProjectDirectory;
+		project->m_Config.ProjectFileName = project->m_ProjectFilePath.filename().string();
+
+		SetActiveRuntime(project, assetPack);
 		return s_ActiveProject;
 	}
 

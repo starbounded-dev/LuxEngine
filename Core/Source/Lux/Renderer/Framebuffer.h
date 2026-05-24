@@ -117,15 +117,15 @@ namespace Lux {
 		void Resize(uint32_t width, uint32_t height, bool forceRecreate = false);
 		void AddResizeCallback(const std::function<void(Ref<Framebuffer>)>& func);
 
-		virtual uint32_t GetWidth() const { return m_Width; }
-		virtual uint32_t GetHeight() const { return m_Height; }
+		virtual uint32_t GetWidth() const;
+		virtual uint32_t GetHeight() const;
 
 		Ref<Image2D> GetImage(uint32_t attachmentIndex = 0) const { LUX_CORE_ASSERT(attachmentIndex < m_AttachmentImages.size()); return m_AttachmentImages[attachmentIndex]; }
 		Ref<Image2D> GetDepthImage() const { return m_DepthAttachmentImage; }
 		size_t GetColorAttachmentCount() const { return m_Specification.SwapChainTarget ? 1 : m_AttachmentImages.size(); }
 		bool HasDepthAttachment() const { return (bool)m_DepthAttachmentImage; }
 
-		virtual nvrhi::FramebufferHandle GetHandle() const { return m_Handle; }
+		virtual nvrhi::FramebufferHandle GetHandle() const;
 		const nvrhi::FramebufferDesc& GetFramebufferDesc() const { return m_FramebufferDesc; }
 
 		const std::vector<ClearValue>& GetClearValues() const { return m_ClearValues; }
