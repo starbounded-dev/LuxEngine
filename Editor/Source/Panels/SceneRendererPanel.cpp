@@ -281,6 +281,13 @@ namespace Lux {
 		if (ImGuiEx::PropertyGridHeader("Rendering", true))
 		{
 			ImGuiEx::BeginPropertyGrid();
+			const char* qualityPresetLabels[] = { "Low", "Medium", "High", "Ultra", "Cinematic" };
+			int qualityPreset = static_cast<int>(options.Quality);
+			if (DrawComboProperty("Quality Preset", qualityPreset, qualityPresetLabels, IM_ARRAYSIZE(qualityPresetLabels)))
+			{
+				m_Context->SetQualityPreset(static_cast<QualityPreset>(std::clamp(qualityPreset, 0, 4)));
+				projectSettingsChanged = true;
+			}
 			projectSettingsChanged |= ImGuiEx::Property("Frustum Culling", options.EnableFrustumCulling);
 			projectSettingsChanged |= ImGuiEx::Property("Occlusion Culling", options.EnableOcclusionCulling);
 			if (options.EnableOcclusionCulling)
@@ -378,6 +385,13 @@ namespace Lux {
 			projectSettingsChanged |= ImGuiEx::Property("Near Offset", options.ShadowCascadeNearPlaneOffset, 0.1f, 0.0f, 200.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Far Offset", options.ShadowCascadeFarPlaneOffset, 0.5f, 0.0f, 500.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Cascade Fade", options.ShadowCascadeTransitionFade, 0.05f, 0.0f, 25.0f);
+			const char* shadowResolutionLabels[] = { "1K", "2K", "4K", "8K" };
+			int shadowResolution = static_cast<int>(options.ShadowResolution);
+			if (DrawComboProperty("Resolution Limit", shadowResolution, shadowResolutionLabels, IM_ARRAYSIZE(shadowResolutionLabels)))
+			{
+				options.ShadowResolution = static_cast<SceneRendererOptions::ShadowResolutionTier>(std::clamp(shadowResolution, 0, 3));
+				projectSettingsChanged = true;
+			}
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
 		}

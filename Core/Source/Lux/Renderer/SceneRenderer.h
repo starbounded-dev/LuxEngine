@@ -184,6 +184,7 @@ namespace Lux {
 		float ShadowCascadeFarPlaneOffset = 50.0f;
 		float ShadowCascadeTransitionFade = 1.0f;
 		ShadowResolutionTier ShadowResolution = ShadowResolutionTier::Tier_4K;
+		QualityPreset Quality = QualityPreset::Medium;
 		bool  EnableGTAO = true;
 		bool  GTAOBentNormals = false;
 		float AOShadowTolerance = 1.0f;

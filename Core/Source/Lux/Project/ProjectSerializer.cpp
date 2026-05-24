@@ -134,6 +134,57 @@ namespace Lux
 			return 0;
 		}
 
+		const char* QualityPresetToString(uint32_t preset)
+		{
+			switch (preset)
+			{
+				case 0: return "Low";
+				case 1: return "Medium";
+				case 2: return "High";
+				case 3: return "Ultra";
+				case 4: return "Cinematic";
+				default:
+					return "Medium";
+			}
+		}
+
+		uint32_t QualityPresetFromString(std::string_view value)
+		{
+			if (value == "Low" || value == "0")
+				return 0;
+			if (value == "High" || value == "2")
+				return 2;
+			if (value == "Ultra" || value == "3")
+				return 3;
+			if (value == "Cinematic" || value == "4")
+				return 4;
+			return 1;
+		}
+
+		const char* ShadowResolutionToString(uint32_t resolution)
+		{
+			switch (resolution)
+			{
+				case 0: return "1K";
+				case 1: return "2K";
+				case 2: return "4K";
+				case 3: return "8K";
+				default:
+					return "4K";
+			}
+		}
+
+		uint32_t ShadowResolutionFromString(std::string_view value)
+		{
+			if (value == "1K" || value == "1024" || value == "0")
+				return 0;
+			if (value == "2K" || value == "2048" || value == "1")
+				return 1;
+			if (value == "8K" || value == "8192" || value == "3")
+				return 3;
+			return 2;
+		}
+
 		const char* SSRQualityToString(uint32_t quality)
 		{
 			switch (quality)
@@ -189,6 +240,7 @@ namespace Lux
 
 			out << YAML::Key << "Rendering" << YAML::Value;
 			out << YAML::BeginMap;
+			out << YAML::Key << "QualityPreset" << YAML::Value << QualityPresetToString(settings.QualityPreset);
 			out << YAML::Key << "FrustumCulling" << YAML::Value << settings.EnableFrustumCulling;
 			out << YAML::Key << "OcclusionCulling" << YAML::Value << settings.EnableOcclusionCulling;
 			out << YAML::Key << "GPUDrivenRendering" << YAML::Value << settings.EnableGPUDrivenRendering;
@@ -228,6 +280,7 @@ namespace Lux
 			out << YAML::Key << "NearOffset" << YAML::Value << settings.ShadowCascadeNearPlaneOffset;
 			out << YAML::Key << "FarOffset" << YAML::Value << settings.ShadowCascadeFarPlaneOffset;
 			out << YAML::Key << "CascadeFade" << YAML::Value << settings.ShadowCascadeTransitionFade;
+			out << YAML::Key << "ResolutionLimit" << YAML::Value << ShadowResolutionToString(settings.ShadowResolution);
 			out << YAML::EndMap;
 
 			out << YAML::Key << "PostFX" << YAML::Value;
@@ -271,6 +324,7 @@ namespace Lux
 			bool hasSSRQuality = false;
 			if (auto rendering = node["Rendering"])
 			{
+				settings.QualityPreset = QualityPresetFromString(rendering["QualityPreset"].as<std::string>(QualityPresetToString(settings.QualityPreset)));
 				settings.EnableFrustumCulling = rendering["FrustumCulling"].as<bool>(settings.EnableFrustumCulling);
 				settings.EnableOcclusionCulling = rendering["OcclusionCulling"].as<bool>(settings.EnableOcclusionCulling);
 				settings.EnableGPUDrivenRendering = rendering["GPUDrivenRendering"].as<bool>(settings.EnableGPUDrivenRendering);
@@ -311,6 +365,8 @@ namespace Lux
 				settings.ShadowCascadeNearPlaneOffset = shadows["NearOffset"].as<float>(settings.ShadowCascadeNearPlaneOffset);
 				settings.ShadowCascadeFarPlaneOffset = shadows["FarOffset"].as<float>(settings.ShadowCascadeFarPlaneOffset);
 				settings.ShadowCascadeTransitionFade = shadows["CascadeFade"].as<float>(settings.ShadowCascadeTransitionFade);
+				YAML::Node shadowResolution = shadows["ResolutionLimit"] ? shadows["ResolutionLimit"] : shadows["ShadowResolution"];
+				settings.ShadowResolution = ShadowResolutionFromString(shadowResolution.as<std::string>(ShadowResolutionToString(settings.ShadowResolution)));
 			}
 
 			if (auto postFX = node["PostFX"])
@@ -405,6 +461,8 @@ namespace Lux
 			serializer.WriteRaw(settings.SSRMaxSteps);
 			serializer.WriteRaw(settings.SSRBrightness);
 			serializer.WriteRaw(settings.SSRDepthTolerance);
+			serializer.WriteRaw(settings.QualityPreset);
+			serializer.WriteRaw(settings.ShadowResolution);
 		}
 
 		void ReadSceneRendererRuntimeSettings(FileStreamReader& stream, ProjectSceneRendererSettings& settings, uint32_t version)
@@ -477,6 +535,12 @@ namespace Lux
 			stream.ReadRaw(settings.SSRMaxSteps);
 			stream.ReadRaw(settings.SSRBrightness);
 			stream.ReadRaw(settings.SSRDepthTolerance);
+
+			if (version >= 8)
+			{
+				stream.ReadRaw(settings.QualityPreset);
+				stream.ReadRaw(settings.ShadowResolution);
+			}
 
 			if (version >= 7)
 				settings.SSRResolutionScale = SSRResolutionScaleFromQuality(settings.SSRQuality);

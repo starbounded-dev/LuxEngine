@@ -132,6 +132,14 @@ namespace Lux {
 			return static_cast<SceneRendererOptions::RenderResolutionScaleMode>(mode);
 		}
 
+		QualityPreset SanitizeQualityPreset(uint32_t preset)
+		{
+			if (preset > static_cast<uint32_t>(QualityPreset::Cinematic))
+				return QualityPreset::Medium;
+
+			return static_cast<QualityPreset>(preset);
+		}
+
 		SceneRendererOptions::EffectResolutionScale SanitizeEffectResolutionScale(uint32_t scale)
 		{
 			switch (scale)
@@ -143,6 +151,14 @@ namespace Lux {
 				default:
 					return SceneRendererOptions::EffectResolutionScale::Half;
 			}
+		}
+
+		SceneRendererOptions::ShadowResolutionTier SanitizeShadowResolutionTier(uint32_t tier)
+		{
+			if (tier > static_cast<uint32_t>(SceneRendererOptions::ShadowResolutionTier::Tier_8K))
+				return SceneRendererOptions::ShadowResolutionTier::Tier_4K;
+
+			return static_cast<SceneRendererOptions::ShadowResolutionTier>(tier);
 		}
 
 		SceneRendererOptions::SSRQualityPreset SanitizeSSRQualityPreset(uint32_t quality)
@@ -351,156 +367,138 @@ namespace Lux {
 
 		m_BloomSettings.Enabled = tiering.EnableBloom;
 
-		// Apply quality preset based on tiering or use Medium as default
-		QualityPreset preset = QualityPreset::Medium;
 		if (Ref<Project> project = Project::GetActive())
-		{
 			ApplyProjectSettings(project->GetConfig().SceneRenderer);
-			
-			// Override with project quality setting if available
-			// For now, we'll use Medium as default since ProjectSceneRendererSettings
-			// doesn't have a quality preset field yet
-			preset = QualityPreset::Medium;
-		}
-		
-		ApplyQualityPreset(preset);
+
 		UpdateGTAOData();
 	}
 
 	void SceneRenderer::ApplyQualityPreset(QualityPreset preset)
 	{
+		preset = SanitizeQualityPreset(static_cast<uint32_t>(preset));
+		m_Options.Quality = preset;
+
+		m_Options.EnableSSR = true;
+		m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
+		m_Options.EnableSSRTemporalAccumulation = false;
+		m_Options.SSRTemporalBlend = 0.90f;
+		m_Options.EnableGTAO = true;
+		m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+		m_Options.GTAOBentNormals = false;
+		m_Options.EnableGTAOTemporalAccumulation = false;
+		m_Options.GTAOTemporalBlend = 0.85f;
+		m_Options.GTAODenoisePasses = 4;
+		m_Options.AOShadowTolerance = 1.0f;
+		m_BloomSettings.Enabled = true;
+		m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+		m_BloomSettings.Threshold = 1.0f;
+		m_BloomSettings.Knee = 0.1f;
+		m_BloomSettings.UpsampleScale = 1.0f;
+		m_BloomSettings.Intensity = 1.0f;
+		m_BloomSettings.DirtIntensity = 1.0f;
+		m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+		m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
+		m_Options.DynamicResolutionMinScale = 0.5f;
+		m_Options.DynamicResolutionMaxScale = 1.0f;
+		m_Options.DynamicResolutionTargetGPUTime = 16.67f;
+		m_Options.TextureMipBias = 0.0f;
+		m_Options.EnableDistanceMipBias = true;
+		m_Options.DistanceMipBiasStart = 50.0f;
+		m_Options.DistanceMipBiasEnd = 250.0f;
+		m_Options.DistanceMipBiasMax = 2.0f;
+		m_Options.SoftShadows = true;
+		m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
+		m_Options.MaxShadowDistance = 200.0f;
+		m_Options.ShadowFade = 25.0f;
+		m_SSROptions.MaxSteps = 70;
+		m_SSROptions.Brightness = 0.7f;
+		m_SSROptions.DepthTolerance = 0.8f;
+
 		switch (preset)
 		{
 		case QualityPreset::Low:
-			// Low settings
 			m_Options.EnableSSR = false;
 			m_Options.EnableGTAO = false;
-			m_BloomSettings.Enabled = true;
-			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-			m_BloomSettings.Intensity = 0.5f;
-			m_BloomSettings.Threshold = 2.0f;
-			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale75;
-			m_Options.TextureMipBias = 0.5f;
-			m_Options.EnableDistanceMipBias = false;
+			m_Options.GTAODenoisePasses = 0;
+			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Quarter;
+			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale50;
+			m_Options.TextureMipBias = 1.0f;
+			m_Options.DistanceMipBiasStart = 25.0f;
+			m_Options.DistanceMipBiasEnd = 120.0f;
+			m_Options.DistanceMipBiasMax = 3.0f;
+			m_Options.SoftShadows = false;
 			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_1K;
+			m_Options.MaxShadowDistance = 100.0f;
+			m_Options.ShadowFade = 15.0f;
+			m_SSROptions.MaxSteps = 32;
 			break;
 		case QualityPreset::Medium:
-			// Medium settings
-			m_Options.EnableSSR = true;
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
-			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
-			m_Options.EnableGTAO = true;
 			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-			m_GTAODataCB.ResolutionScale = 2;
-			m_BloomSettings.Enabled = true;
 			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-			m_BloomSettings.Intensity = 1.0f;
-			m_BloomSettings.Threshold = 1.0f;
-			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
-			m_Options.TextureMipBias = 0.0f;
-			m_Options.EnableDistanceMipBias = true;
-			m_Options.DistanceMipBiasStart = 50.0f;
-			m_Options.DistanceMipBiasEnd = 250.0f;
-			m_Options.DistanceMipBiasMax = 2.0f;
+			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale75;
+			m_Options.TextureMipBias = 0.25f;
 			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
+			m_Options.MaxShadowDistance = 150.0f;
+			m_SSROptions.MaxSteps = 48;
 			break;
 		case QualityPreset::High:
-			// High settings
-			m_Options.EnableSSR = true;
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
-			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
-			m_Options.EnableGTAO = true;
 			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-			m_GTAODataCB.ResolutionScale = 1;
-			m_BloomSettings.Enabled = true;
 			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-			m_BloomSettings.Intensity = 1.5f;
-			m_BloomSettings.Threshold = 0.8f;
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
 			m_Options.TextureMipBias = -0.5f;
-			m_Options.EnableDistanceMipBias = true;
-			m_Options.DistanceMipBiasStart = 50.0f;
-			m_Options.DistanceMipBiasEnd = 250.0f;
-			m_Options.DistanceMipBiasMax = 2.0f;
+			m_Options.DistanceMipBiasMax = 1.5f;
 			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
 			break;
 		case QualityPreset::Ultra:
-			// Ultra settings
-			m_Options.EnableSSR = true;
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
-			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
-			m_Options.EnableGTAO = true;
+			m_Options.EnableSSRTemporalAccumulation = true;
 			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-			m_GTAODataCB.ResolutionScale = 1;
 			m_Options.GTAOBentNormals = true;
 			m_Options.EnableGTAOTemporalAccumulation = true;
 			m_Options.GTAOTemporalBlend = 0.85f;
-			m_BloomSettings.Enabled = true;
-			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-			m_BloomSettings.Intensity = 2.0f;
-			m_BloomSettings.Threshold = 0.6f;
+			m_Options.GTAODenoisePasses = 6;
+			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
 			m_Options.TextureMipBias = -1.0f;
-			m_Options.EnableDistanceMipBias = true;
 			m_Options.DistanceMipBiasStart = 25.0f;
 			m_Options.DistanceMipBiasEnd = 150.0f;
-			m_Options.DistanceMipBiasMax = 3.0f;
+			m_Options.DistanceMipBiasMax = 1.0f;
 			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_8K;
+			m_Options.MaxShadowDistance = 300.0f;
+			m_SSROptions.MaxSteps = 96;
 			break;
 		case QualityPreset::Cinematic:
-			// Cinematic settings
-			m_Options.EnableSSR = true;
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
-			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 			m_Options.EnableSSRTemporalAccumulation = true;
-			m_Options.SSRTemporalBlend = 0.90f;
-			m_Options.EnableGTAO = true;
+			m_Options.SSRTemporalBlend = 0.95f;
 			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-			m_GTAODataCB.ResolutionScale = 1;
 			m_Options.GTAOBentNormals = true;
 			m_Options.EnableGTAOTemporalAccumulation = true;
-			m_Options.GTAOTemporalBlend = 0.90f;
-			m_BloomSettings.Enabled = true;
-			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-			m_BloomSettings.Intensity = 3.0f;
-			m_BloomSettings.Threshold = 0.4f;
+			m_Options.GTAOTemporalBlend = 0.95f;
+			m_Options.GTAODenoisePasses = 8;
+			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
 			m_Options.TextureMipBias = -1.5f;
-			m_Options.EnableDistanceMipBias = true;
 			m_Options.DistanceMipBiasStart = 10.0f;
 			m_Options.DistanceMipBiasEnd = 100.0f;
-			m_Options.DistanceMipBiasMax = 4.0f;
+			m_Options.DistanceMipBiasMax = 0.5f;
 			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_8K;
+			m_Options.MaxShadowDistance = 450.0f;
+			m_Options.ShadowFade = 50.0f;
+			m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+			m_SSROptions.MaxSteps = 128;
 			break;
 		}
 
-		// Update internal data that depends on the options
+		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
+		m_GTAODataCB.ResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
+		m_SSROptions.HalfRes = GetEffectResolutionDivisor(m_Options.SSRResolutionScale) > 1u;
+		m_SSROptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
+		m_SSROptions.TemporalAccumulation = m_Options.EnableSSRTemporalAccumulation ? 1u : 0u;
+		m_SSROptions.TemporalBlend = m_Options.SSRTemporalBlend;
 		UpdateGTAOData();
-
-		// Update SSROptions based on SSR settings
-		if (m_Options.EnableSSR)
-		{
-			switch (m_Options.SSRQuality)
-			{
-			case SceneRendererOptions::SSRQualityPreset::HalfBilateral:
-				m_SSROptions.HalfRes = true;
-				m_SSROptions.ResolutionScale = 2;
-				break;
-			case SceneRendererOptions::SSRQualityPreset::Full:
-				m_SSROptions.HalfRes = false;
-				m_SSROptions.ResolutionScale = 1;
-				break;
-			default:
-				m_SSROptions.HalfRes = true;
-				m_SSROptions.ResolutionScale = 2;
-				break;
-			}
-		}
-		else
-		{
-			m_SSROptions.HalfRes = true;
-			m_SSROptions.ResolutionScale = 2;
-		}
 	}
 
 	void SceneRenderer::UpdateGTAOData()
@@ -531,6 +529,7 @@ namespace Lux {
 		const auto previousBloomScale = m_BloomSettings.ResolutionScale;
 		const auto previousDOFScale = m_DOFSettings.ResolutionScale;
 
+		m_Options.Quality = SanitizeQualityPreset(settings.QualityPreset);
 		m_Options.EnableFrustumCulling = settings.EnableFrustumCulling;
 		m_Options.EnableOcclusionCulling = settings.EnableOcclusionCulling;
 		m_Options.OcclusionDepthBias = std::clamp(settings.OcclusionDepthBias, 0.0f, 0.1f);
@@ -568,6 +567,7 @@ namespace Lux {
 		m_Options.ShadowCascadeNearPlaneOffset = settings.ShadowCascadeNearPlaneOffset;
 		m_Options.ShadowCascadeFarPlaneOffset = settings.ShadowCascadeFarPlaneOffset;
 		m_Options.ShadowCascadeTransitionFade = settings.ShadowCascadeTransitionFade;
+		m_Options.ShadowResolution = SanitizeShadowResolutionTier(settings.ShadowResolution);
 
 		m_BloomSettings.Enabled = settings.BloomEnabled;
 		m_BloomSettings.ResolutionScale = SanitizeEffectResolutionScale(settings.BloomResolutionScale);
@@ -622,6 +622,7 @@ namespace Lux {
 
 	void SceneRenderer::WriteProjectSettings(ProjectSceneRendererSettings& settings) const
 	{
+		settings.QualityPreset = static_cast<uint32_t>(SanitizeQualityPreset(static_cast<uint32_t>(m_Options.Quality)));
 		settings.EnableFrustumCulling = m_Options.EnableFrustumCulling;
 		settings.EnableOcclusionCulling = m_Options.EnableOcclusionCulling;
 		settings.OcclusionDepthBias = m_Options.OcclusionDepthBias;
@@ -660,6 +661,7 @@ namespace Lux {
 		settings.ShadowCascadeNearPlaneOffset = m_Options.ShadowCascadeNearPlaneOffset;
 		settings.ShadowCascadeFarPlaneOffset = m_Options.ShadowCascadeFarPlaneOffset;
 		settings.ShadowCascadeTransitionFade = m_Options.ShadowCascadeTransitionFade;
+		settings.ShadowResolution = static_cast<uint32_t>(SanitizeShadowResolutionTier(static_cast<uint32_t>(m_Options.ShadowResolution)));
 
 		settings.BloomEnabled = m_BloomSettings.Enabled;
 		settings.BloomResolutionScale = GetEffectResolutionDivisor(m_BloomSettings.ResolutionScale);
@@ -2107,6 +2109,13 @@ namespace Lux {
 	void SceneRenderer::SetLightEnvironment(const LightEnvironment& lightEnvironment)
 	{
 		m_SceneData.SceneLightEnvironment = lightEnvironment;
+
+		const uint32_t shadowResolutionLimit = static_cast<uint32_t>(SanitizeShadowResolutionTier(static_cast<uint32_t>(m_Options.ShadowResolution)));
+		for (DirectionalLight& light : m_SceneData.SceneLightEnvironment.DirectionalLights)
+			light.ShadowResolutionTier = glm::min(light.ShadowResolutionTier, shadowResolutionLimit);
+
+		for (SpotLight& light : m_SceneData.SceneLightEnvironment.SpotLights)
+			light.ShadowResolutionTier = glm::min(light.ShadowResolutionTier, shadowResolutionLimit);
 	}
 
 	void SceneRenderer::SetEnvironment(Ref<Environment> environment, float intensity, float skyboxLod)
@@ -5363,6 +5372,14 @@ namespace Lux {
 	void SceneRenderer::SetLineWidth(float width)
 	{
 		m_LineWidth = width;
+	}
+
+	void SceneRenderer::SetQualityPreset(QualityPreset preset)
+	{
+		ApplyQualityPreset(preset);
+		RefreshRenderResolutionScale();
+		RefreshScreenSpaceEffectResources();
+		m_TemporalHistoryValid = false;
 	}
 
 } // namespace Lux

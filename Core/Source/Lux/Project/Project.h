@@ -52,6 +52,7 @@ namespace Lux
 
 	struct ProjectSceneRendererSettings
 	{
+		uint32_t QualityPreset = 1; // Lux::QualityPreset
 		bool EnableFrustumCulling = true;
 		bool EnableOcclusionCulling = false;
 		bool EnableGPUDrivenRendering = true;
@@ -88,6 +89,7 @@ namespace Lux
 		float ShadowCascadeNearPlaneOffset = 0.0f;
 		float ShadowCascadeFarPlaneOffset = 50.0f;
 		float ShadowCascadeTransitionFade = 1.0f;
+		uint32_t ShadowResolution = 2; // SceneRendererOptions::ShadowResolutionTier
 
 		bool BloomEnabled = true;
 		uint32_t BloomResolutionScale = 2; // SceneRendererOptions::EffectResolutionScale
