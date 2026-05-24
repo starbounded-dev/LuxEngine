@@ -959,6 +959,14 @@ namespace Lux {
 		const float fps = io.Framerate;
 		const float frameTimeMs = fps > 0.0f ? 1000.0f / fps : 0.0f;
 		const float renderScale = m_SceneRenderer->GetRenderResolutionScale() * 100.0f;
+		const auto& appTimers = Application::Get().GetPerformanceTimers();
+		const float wholeCPUTime = appTimers.MainThreadWorkTime + appTimers.RenderThreadWorkTime;
+		float wholeGPUTime = stats.TotalGPUTime;
+		if (ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer())
+		{
+			if (ImGuiRenderer* imguiRenderer = imguiLayer->GetImGuiRenderer())
+				wholeGPUTime += imguiRenderer->GetGPUTime(Renderer::GetCurrentFrameIndex());
+		}
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
@@ -969,7 +977,7 @@ namespace Lux {
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
 		ImGui::Begin("##viewport_performance_hud", nullptr, flags);
 		ImGui::Text("FPS %.0f  %.2f ms", fps, frameTimeMs);
-		ImGui::Text("CPU %.2f ms  GPU %.2f ms", stats.TotalCPUTime, stats.TotalGPUTime);
+		ImGui::Text("CPU %.2f ms  GPU %.2f ms", wholeCPUTime, wholeGPUTime);
 		ImGui::Text("Draws %u  Visible %u", stats.DrawCalls, stats.VisibleInstances);
 		ImGui::Text("GPU Visible %u", stats.GPUVisibleInstances);
 		if (memory.BudgetBytes > 0)

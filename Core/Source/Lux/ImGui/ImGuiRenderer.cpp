@@ -36,7 +36,7 @@ namespace Lux {
 
 		auto device = Application::GetGraphicsDevice();
 
-		m_RenderCommandBuffer = RenderCommandBuffer::Create(0, "ImGuiRenderer");
+		m_RenderCommandBuffer = RenderCommandBuffer::Create(0, "ImGuiRenderer", true);
 
 		Ref<Shader> imguiShader = Renderer::GetShaderLibrary()->Get("ImGui");
 		m_VertexShader = imguiShader->GetHandle(nvrhi::ShaderType::Vertex);
@@ -521,6 +521,11 @@ namespace Lux {
 		return Render(viewport, GetOrCreatePipeline(swapchain),
 			swapchain->GetCurrentFramebuffer(),
 			swapchain->GetAcquiredImageSemaphore());
+	}
+
+	float ImGuiRenderer::GetGPUTime(uint32_t frameIndex) const
+	{
+		return m_RenderCommandBuffer ? m_RenderCommandBuffer->GetExecutionGPUTime(frameIndex) : 0.0f;
 	}
 
 	void ImGuiRenderer::BackbufferResizing()
