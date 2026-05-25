@@ -70,7 +70,7 @@ namespace Lux
 		{
 			const std::filesystem::path runtimeProjectFile = ResolveRuntimeProjectFile(projectPath);
 			const std::filesystem::path exportRoot = runtimeProjectFile.parent_path().parent_path();
-			const std::filesystem::path shaderPackPath = exportRoot / "Resources" / s_RuntimeShaderPackFile;
+			const std::filesystem::path shaderPackPath = exportRoot / "Assets" / s_RuntimeShaderPackFile;
 			if (std::filesystem::exists(shaderPackPath))
 				specification.RenderConfig.ShaderPackPath = shaderPackPath.string();
 		}

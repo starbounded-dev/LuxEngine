@@ -138,6 +138,20 @@ namespace Lux {
 			return {};
 		}
 
+		std::string QuoteCommandArgument(std::string value)
+		{
+			std::string result = "\"";
+			for (char c : value)
+			{
+				if (c == '"')
+					result += "\\\"";
+				else
+					result += c;
+			}
+			result += '"';
+			return result;
+		}
+
 		bool BuildRuntimeExecutable(RuntimeExportTarget target)
 		{
 			std::filesystem::path root = FindRepositoryRootFrom(Project::GetActiveProjectDirectory());
@@ -157,8 +171,13 @@ namespace Lux {
 			}
 
 			const std::filesystem::path msbuildPath = "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe";
-			const std::string msbuild = std::filesystem::exists(msbuildPath) ? ("\"" + msbuildPath.string() + "\"") : "MSBuild.exe";
-			const std::string command = msbuild + " \"" + projectFile.string() + "\" /t:Build /p:Configuration=" + RuntimeExportTargetToString(target) + " /p:Platform=x64 /m:1 /nr:false /v:minimal";
+			const std::string msbuild = std::filesystem::exists(msbuildPath) ? msbuildPath.string() : "MSBuild.exe";
+			const std::string command =
+				"cmd /S /C \""
+				+ QuoteCommandArgument(msbuild) + " "
+				+ QuoteCommandArgument(projectFile.string())
+				+ " /t:Build /p:Configuration=" + RuntimeExportTargetToString(target)
+				+ " /p:Platform=x64 /m:1 /nr:false /v:minimal\"";
 			LUX_CONSOLE_LOG_INFO("Building Lux-Runtime ({})...", RuntimeExportTargetToString(target));
 			const int result = std::system(command.c_str());
 			if (result != 0)

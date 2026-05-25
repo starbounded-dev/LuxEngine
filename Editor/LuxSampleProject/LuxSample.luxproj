@@ -21,7 +21,7 @@ Project:
     VSync: true
     IconPath: Textures/luxLogo.png
     IconHandle: 15308730943713920604
-    TargetConfig: Release
+    TargetConfig: Dist
   SceneRenderer:
     Rendering:
       QualityPreset: Cinematic
