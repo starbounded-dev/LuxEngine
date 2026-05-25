@@ -5,6 +5,7 @@
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/ProjectSerializer.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/Texture.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Utilities/FileDialogs.h"
 
@@ -12,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <sstream>
 
 namespace Lux {
@@ -76,6 +78,98 @@ namespace Lux {
 			RenderingTechnique::Forward,
 			RenderingTechnique::Deferred
 		};
+
+		constexpr RuntimeExportTarget s_RuntimeExportTargets[] = {
+			RuntimeExportTarget::Debug,
+			RuntimeExportTarget::Release,
+			RuntimeExportTarget::Dist
+		};
+
+		std::filesystem::path FindRepositoryRootFrom(std::filesystem::path start)
+		{
+			if (start.empty())
+				return {};
+
+			std::error_code ec;
+			start = std::filesystem::absolute(start, ec).lexically_normal();
+			if (ec)
+				return {};
+
+			if (std::filesystem::is_regular_file(start, ec))
+				start = start.parent_path();
+
+			for (std::filesystem::path directory = start; !directory.empty(); directory = directory.parent_path())
+			{
+				if (std::filesystem::exists(directory / "premake5.lua", ec)
+					&& std::filesystem::exists(directory / "Core", ec)
+					&& std::filesystem::exists(directory / "Lux-Runtime" / "premake5.lua", ec))
+				{
+					return directory;
+				}
+
+				if (directory == directory.root_path())
+					break;
+			}
+
+			return {};
+		}
+
+		std::filesystem::path GetRuntimeExecutablePath(RuntimeExportTarget target)
+		{
+			std::error_code ec;
+			const std::string runtimeOutputDirectory = std::string(RuntimeExportTargetToString(target)) + "-windows-x86_64";
+
+			std::vector<std::filesystem::path> candidates;
+			if (Ref<Project> activeProject = Project::GetActive())
+			{
+				if (std::filesystem::path root = FindRepositoryRootFrom(activeProject->GetProjectDirectory()); !root.empty())
+					candidates.emplace_back((root / "bin" / runtimeOutputDirectory / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal());
+			}
+
+			if (std::filesystem::path root = FindRepositoryRootFrom(std::filesystem::current_path(ec)); !root.empty())
+				candidates.emplace_back((root / "bin" / runtimeOutputDirectory / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal());
+
+			for (const std::filesystem::path& candidate : candidates)
+			{
+				if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
+					return candidate;
+			}
+
+			return {};
+		}
+
+		bool BuildRuntimeExecutable(RuntimeExportTarget target)
+		{
+			std::filesystem::path root = FindRepositoryRootFrom(Project::GetActiveProjectDirectory());
+			if (root.empty())
+				root = FindRepositoryRootFrom(std::filesystem::current_path());
+			if (root.empty())
+			{
+				LUX_CONSOLE_LOG_ERROR("Could not locate repository root for Lux-Runtime build.");
+				return false;
+			}
+
+			const std::filesystem::path projectFile = root / "Lux-Runtime" / "Lux-Runtime.vcxproj";
+			if (!std::filesystem::exists(projectFile))
+			{
+				LUX_CONSOLE_LOG_ERROR("Lux-Runtime project file not found: {}", projectFile.string());
+				return false;
+			}
+
+			const std::filesystem::path msbuildPath = "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe";
+			const std::string msbuild = std::filesystem::exists(msbuildPath) ? ("\"" + msbuildPath.string() + "\"") : "MSBuild.exe";
+			const std::string command = msbuild + " \"" + projectFile.string() + "\" /t:Build /p:Configuration=" + RuntimeExportTargetToString(target) + " /p:Platform=x64 /m:1 /nr:false /v:minimal";
+			LUX_CONSOLE_LOG_INFO("Building Lux-Runtime ({})...", RuntimeExportTargetToString(target));
+			const int result = std::system(command.c_str());
+			if (result != 0)
+			{
+				LUX_CONSOLE_LOG_ERROR("Lux-Runtime build failed with exit code {}.", result);
+				return false;
+			}
+
+			LUX_CONSOLE_LOG_INFO("Lux-Runtime build complete.");
+			return true;
+		}
 	}
 
 	ProjectSettingsWindow::ProjectSettingsWindow()
@@ -93,6 +187,7 @@ namespace Lux {
 		if (ImGui::Begin("Project Settings", &isOpen))
 		{
 			RenderGeneralSettings();
+			RenderRuntimeExportSettings();
 			RenderRendererSettings();
 			RenderAudioSettings();
 			RenderScriptingSettings();
@@ -121,12 +216,15 @@ namespace Lux {
 		if (!m_Project)
 		{
 			m_DefaultScene = 0;
+			m_RuntimeIcon = 0;
 			m_NameBuffer[0] = '\0';
+			m_RuntimeGameNameBuffer[0] = '\0';
 			m_ScriptModulePathBuffer[0] = '\0';
 			return;
 		}
 
 		m_DefaultScene = m_Project->GetConfig().StartSceneHandle;
+		m_RuntimeIcon = m_Project->GetConfig().RuntimeExport.IconHandle;
 		SyncBuffersFromProject();
 	}
 
@@ -142,10 +240,12 @@ namespace Lux {
 			return;
 
 		const std::string& name = m_Project->GetConfig().Name;
+		const std::string runtimeGameName = m_Project->GetConfig().RuntimeExport.GameName.empty() ? name : m_Project->GetConfig().RuntimeExport.GameName;
 		const std::string scriptModulePath = m_Project->GetConfig().ScriptModulePath.generic_string();
 		const std::string& defaultNamespace = m_Project->GetConfig().DefaultNamespace;
 
 		strncpy_s(m_NameBuffer, name.c_str(), _TRUNCATE);
+		strncpy_s(m_RuntimeGameNameBuffer, runtimeGameName.c_str(), _TRUNCATE);
 		strncpy_s(m_ScriptModulePathBuffer, scriptModulePath.c_str(), _TRUNCATE);
 		strncpy_s(m_DefaultNamespaceBuffer, defaultNamespace.c_str(), _TRUNCATE);
 	}
@@ -270,6 +370,115 @@ namespace Lux {
 		ImGuiEx::EndPropertyGrid();
 
 		ImGui::TextDisabled("Path changes affect the active project immediately and are persisted on save.");
+
+		ImGui::TreePop();
+	}
+
+	void ProjectSettingsWindow::RenderRuntimeExportSettings()
+	{
+		if (!ImGuiEx::PropertyGridHeader("Runtime Export", false))
+			return;
+
+		auto& config = m_Project->GetConfig();
+		auto& runtime = config.RuntimeExport;
+
+		auto syncRuntimeIconPath = [&runtime](AssetHandle iconHandle)
+		{
+			runtime.IconHandle = iconHandle;
+			runtime.IconPath.clear();
+
+			if (!iconHandle)
+				return;
+
+			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+			{
+				const AssetMetadata metadata = editorAssetManager->GetMetadata(iconHandle);
+				if (metadata.IsValid())
+					runtime.IconPath = metadata.FilePath.generic_string();
+			}
+		};
+
+		ImGuiEx::BeginPropertyGrid();
+		if (ImGuiEx::Property("Game Name", m_RuntimeGameNameBuffer, sizeof(m_RuntimeGameNameBuffer)))
+		{
+			runtime.GameName = m_RuntimeGameNameBuffer;
+			m_Dirty = true;
+		}
+
+		int32_t width = (int32_t)runtime.WindowWidth;
+		if (ImGuiEx::Property("Window Width", width, 320, 16384))
+		{
+			runtime.WindowWidth = (uint32_t)std::max(width, 320);
+			m_Dirty = true;
+		}
+
+		int32_t height = (int32_t)runtime.WindowHeight;
+		if (ImGuiEx::Property("Window Height", height, 240, 16384))
+		{
+			runtime.WindowHeight = (uint32_t)std::max(height, 240);
+			m_Dirty = true;
+		}
+
+		if (ImGuiEx::Property("Fullscreen", runtime.Fullscreen))
+			m_Dirty = true;
+		if (ImGuiEx::Property("VSync", runtime.VSync))
+			m_Dirty = true;
+
+		AssetHandle icon = runtime.IconHandle;
+		ImGuiEx::PropertyAssetReferenceSettings iconSettings;
+		iconSettings.ShowFullFilePath = true;
+		if (ImGuiEx::PropertyAssetReference<Texture2D>("Icon", icon, "Optional PNG/JPG window icon copied beside exported runtime resources.", nullptr, iconSettings))
+		{
+			m_RuntimeIcon = icon;
+			syncRuntimeIconPath(icon);
+			m_Dirty = true;
+		}
+		ImGuiEx::EndPropertyGrid();
+
+		if (ImGui::BeginCombo("Target Config", RuntimeExportTargetToString(runtime.TargetConfig)))
+		{
+			for (RuntimeExportTarget target : s_RuntimeExportTargets)
+			{
+				const bool selected = runtime.TargetConfig == target;
+				if (ImGui::Selectable(RuntimeExportTargetToString(target), selected))
+				{
+					runtime.TargetConfig = target;
+					m_Dirty = true;
+				}
+				if (selected)
+					ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Export Preflight");
+		ImGui::Separator();
+
+		auto drawStatus = [](const char* label, bool ok, const char* okText, const char* failText)
+		{
+			ImGui::TextColored(ok ? ImVec4(0.35f, 0.85f, 0.45f, 1.0f) : ImVec4(0.95f, 0.55f, 0.35f, 1.0f), "%s: %s", label, ok ? okText : failText);
+		};
+
+		std::error_code ec;
+		const std::filesystem::path runtimeExe = GetRuntimeExecutablePath(runtime.TargetConfig);
+		const std::filesystem::path assetPack = Project::GetActiveAssetDirectory() / "AssetPack.lap";
+		const std::filesystem::path resources = FindRepositoryRootFrom(m_Project->GetProjectDirectory()) / "Editor" / "Resources";
+		const std::filesystem::path mono = FindRepositoryRootFrom(m_Project->GetProjectDirectory()) / "Editor" / "mono";
+		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
+
+		drawStatus("Startup Scene", config.StartSceneHandle != 0, "set", "missing");
+		drawStatus("Lux-Runtime.exe", !runtimeExe.empty(), runtimeExe.empty() ? "" : runtimeExe.string().c_str(), "missing");
+		drawStatus("AssetPack.lap", std::filesystem::exists(assetPack, ec), "created", "will be created during export");
+		drawStatus("Resources", std::filesystem::exists(resources, ec), "found", "missing");
+		drawStatus("Script Module", config.ScriptModulePath.empty() || std::filesystem::exists(scriptModule, ec), "found or optional", "missing");
+		drawStatus("mono", std::filesystem::exists(mono, ec), "found", "missing");
+
+		if (ImGui::Button("Build Runtime"))
+			BuildRuntimeExecutable(runtime.TargetConfig);
+
+		ImGui::SameLine();
+		ImGui::TextDisabled("Dist exports skip .pdb files.");
 
 		ImGui::TreePop();
 	}

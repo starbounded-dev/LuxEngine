@@ -5,6 +5,7 @@
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/SceneRenderer.h"
+#include "Lux/Renderer/ShaderPack.h"
 #include "Lux/Serialization/AssetPack.h"
 #include "Lux/Project/ProjectSerializer.h"
 
@@ -39,9 +40,11 @@
 #include "Panels/ProjectSettingsWindow.h"
 #include "Lux/Editor/SceneHierarchyPanel.h"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <vector>
@@ -135,6 +138,7 @@ namespace Lux {
 
 		constexpr const char* s_RuntimeProjectFile = "Project.luxruntime";
 		constexpr const char* s_RuntimeAssetPackFile = "AssetPack.lap";
+		constexpr const char* s_RuntimeShaderPackFile = "ShaderPack.hsp";
 
 		std::string SanitizeBuildName(std::string value)
 		{
@@ -173,7 +177,7 @@ namespace Lux {
 			return true;
 		}
 
-		bool CopyDirectoryRecursive(const std::filesystem::path& source, const std::filesystem::path& destination)
+		bool CopyDirectoryRecursive(const std::filesystem::path& source, const std::filesystem::path& destination, bool skipDebugFiles = false)
 		{
 			std::error_code ec;
 			if (!std::filesystem::exists(source, ec) || ec)
@@ -199,7 +203,15 @@ namespace Lux {
 				}
 
 				if (entry.is_regular_file(ec))
+				{
+					if (skipDebugFiles)
+					{
+						const std::filesystem::path extension = entry.path().extension();
+						if (extension == ".pdb" || extension == ".ilk" || extension == ".exp")
+							continue;
+					}
 					CopyFileIfExists(entry.path(), target);
+				}
 			}
 
 			return true;
@@ -227,6 +239,11 @@ namespace Lux {
 		{
 			const std::string directoryName = path.filename().string();
 			return path.parent_path().filename() == "bin" && directoryName.find("-windows-x86_64") != std::string::npos;
+		}
+
+		std::filesystem::path GetRuntimeOutputDirectory(RuntimeExportTarget target)
+		{
+			return std::string(RuntimeExportTargetToString(target)) + "-windows-x86_64";
 		}
 
 		std::filesystem::path FindRepositoryRootFrom(std::filesystem::path start)
@@ -258,14 +275,53 @@ namespace Lux {
 			return {};
 		}
 
-		std::filesystem::path GetRuntimeExecutablePath()
+		bool IsRuntimeExecutableOutdated(const std::filesystem::path& runtimeExe, const std::filesystem::path& repositoryRoot)
+		{
+			std::error_code ec;
+			if (runtimeExe.empty() || !std::filesystem::exists(runtimeExe, ec))
+				return true;
+
+			const auto executableWriteTime = std::filesystem::last_write_time(runtimeExe, ec);
+			if (ec)
+				return true;
+
+			const std::array<std::filesystem::path, 2> sourceRoots = {
+				repositoryRoot / "Lux-Runtime",
+				repositoryRoot / "Core" / "Source"
+			};
+
+			for (const auto& sourceRoot : sourceRoots)
+			{
+				if (!std::filesystem::exists(sourceRoot, ec))
+					continue;
+
+				for (const auto& entry : std::filesystem::recursive_directory_iterator(sourceRoot, ec))
+				{
+					if (ec)
+						break;
+					if (!entry.is_regular_file(ec))
+						continue;
+
+					const std::filesystem::path extension = entry.path().extension();
+					if (extension != ".cpp" && extension != ".h" && extension != ".hpp" && extension != ".c" && extension != ".rc" && extension != ".lua")
+						continue;
+
+					if (entry.last_write_time(ec) > executableWriteTime && !ec)
+						return true;
+				}
+			}
+
+			return false;
+		}
+
+		std::filesystem::path GetRuntimeExecutablePath(RuntimeExportTarget target)
 		{
 			std::error_code ec;
 			const std::filesystem::path current = std::filesystem::current_path(ec);
 			if (ec)
 				return {};
 
-			const std::string runtimeOutputDirectory = std::string(Application::GetConfigurationName()) + "-windows-x86_64";
+			const std::filesystem::path runtimeOutputDirectory = GetRuntimeOutputDirectory(target);
 			std::vector<std::filesystem::path> candidates;
 
 			if (std::filesystem::path root = FindRepositoryRootFrom(current); !root.empty())
@@ -288,6 +344,130 @@ namespace Lux {
 			}
 
 			return {};
+		}
+
+		bool BuildRuntimeExecutable(RuntimeExportTarget target)
+		{
+			std::filesystem::path repositoryRoot = FindRepositoryRootFrom(std::filesystem::current_path());
+			if (repositoryRoot.empty())
+			{
+				if (Ref<Project> activeProject = Project::GetActive())
+					repositoryRoot = FindRepositoryRootFrom(activeProject->GetProjectDirectory());
+			}
+
+			if (repositoryRoot.empty())
+			{
+				LUX_CONSOLE_LOG_ERROR("Could not locate repository root for Lux-Runtime build.");
+				return false;
+			}
+
+			const std::filesystem::path projectFile = repositoryRoot / "Lux-Runtime" / "Lux-Runtime.vcxproj";
+			if (!FileExists(projectFile))
+			{
+				LUX_CONSOLE_LOG_ERROR("Lux-Runtime project file not found: {}", projectFile.string());
+				return false;
+			}
+
+			const std::filesystem::path msbuildPath = "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe";
+			const std::string msbuild = FileExists(msbuildPath) ? ("\"" + msbuildPath.string() + "\"") : "MSBuild.exe";
+			const std::string command = msbuild + " \"" + projectFile.string() + "\" /t:Build /p:Configuration=" + RuntimeExportTargetToString(target) + " /p:Platform=x64 /m:1 /nr:false /v:minimal";
+
+			LUX_CONSOLE_LOG_INFO("Building Lux-Runtime ({})...", RuntimeExportTargetToString(target));
+			const int result = std::system(command.c_str());
+			if (result != 0)
+			{
+				LUX_CONSOLE_LOG_ERROR("Lux-Runtime build failed with exit code {}.", result);
+				return false;
+			}
+
+			LUX_CONSOLE_LOG_INFO("Lux-Runtime build complete.");
+			return true;
+		}
+
+		std::filesystem::path ResolveRuntimeIconSource(const ProjectRuntimeExportSettings& settings)
+		{
+			if (settings.IconHandle)
+			{
+				if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+				{
+					const AssetMetadata metadata = editorAssetManager->GetMetadata(settings.IconHandle);
+					if (metadata.IsValid())
+						return editorAssetManager->GetFileSystemPath(metadata);
+				}
+			}
+
+			if (!settings.IconPath.empty())
+				return Project::GetActiveAssetDirectory() / settings.IconPath;
+
+			return {};
+		}
+
+		std::string EscapeYamlQuotedString(std::string_view value)
+		{
+			std::string result;
+			result.reserve(value.size());
+			for (char c : value)
+			{
+				if (c == '\\' || c == '"')
+					result.push_back('\\');
+				result.push_back(c);
+			}
+			return result;
+		}
+
+		bool WriteRuntimeSettingsFile(const std::filesystem::path& filepath, const ProjectRuntimeExportSettings& settings, const std::filesystem::path& runtimeIconPath)
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(filepath.parent_path(), ec);
+			if (ec)
+			{
+				LUX_CONSOLE_LOG_ERROR("Failed to create runtime settings directory '{}': {}", filepath.parent_path().string(), ec.message());
+				return false;
+			}
+
+			std::ofstream out(filepath);
+			if (!out.is_open())
+			{
+				LUX_CONSOLE_LOG_ERROR("Failed to write runtime settings file '{}'.", filepath.string());
+				return false;
+			}
+
+			out << "Runtime:\n";
+			out << "  GameName: \"" << EscapeYamlQuotedString(settings.GameName) << "\"\n";
+			out << "  WindowWidth: " << settings.WindowWidth << "\n";
+			out << "  WindowHeight: " << settings.WindowHeight << "\n";
+			out << "  Fullscreen: " << (settings.Fullscreen ? "true" : "false") << "\n";
+			out << "  VSync: " << (settings.VSync ? "true" : "false") << "\n";
+			out << "  IconPath: \"" << EscapeYamlQuotedString(runtimeIconPath.generic_string()) << "\"\n";
+			return true;
+		}
+
+		bool WriteRuntimeShaderPack(const std::filesystem::path& shaderPackPath)
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(shaderPackPath.parent_path(), ec);
+			if (ec)
+			{
+				LUX_CONSOLE_LOG_ERROR("Failed to create shader pack directory '{}': {}", shaderPackPath.parent_path().string(), ec.message());
+				return false;
+			}
+
+			Ref<ShaderLibrary> shaderLibrary = Renderer::GetShaderLibrary();
+			if (!shaderLibrary)
+			{
+				LUX_CONSOLE_LOG_ERROR("Runtime export failed: renderer shader library is not available.");
+				return false;
+			}
+
+			ShaderPack::CreateFromLibrary(shaderLibrary, shaderPackPath);
+			if (!FileExists(shaderPackPath))
+			{
+				LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing shader pack '{}'.", shaderPackPath.string());
+				return false;
+			}
+
+			LUX_CONSOLE_LOG_INFO("  ShaderPack.hsp: created");
+			return true;
 		}
 
 		std::string GetSceneDisplayName(const std::filesystem::path& scenePath)
@@ -1864,11 +2044,69 @@ namespace Lux {
 		if (selectedFolder.empty())
 			return;
 
-		const std::string buildName = SanitizeBuildName(project->GetConfig().Name);
+		std::error_code ec;
+		ProjectRuntimeExportSettings runtimeSettings = project->GetConfig().RuntimeExport;
+		if (runtimeSettings.GameName.empty())
+			runtimeSettings.GameName = project->GetConfig().Name;
+		runtimeSettings.WindowWidth = std::max<uint32_t>(runtimeSettings.WindowWidth, 320);
+		runtimeSettings.WindowHeight = std::max<uint32_t>(runtimeSettings.WindowHeight, 240);
+
+		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
+		std::filesystem::path runtimeExe = GetRuntimeExecutablePath(targetConfig);
+		std::filesystem::path repositoryRoot = FindRepositoryRootFrom(project->GetProjectDirectory());
+		if (repositoryRoot.empty())
+			repositoryRoot = FindRepositoryRootFrom(std::filesystem::current_path());
+
+		if (runtimeExe.empty() || (!repositoryRoot.empty() && IsRuntimeExecutableOutdated(runtimeExe, repositoryRoot)))
+		{
+			LUX_CONSOLE_LOG_INFO("Lux-Runtime ({}) is missing or older than runtime sources. Building before export...", RuntimeExportTargetToString(targetConfig));
+			if (!BuildRuntimeExecutable(targetConfig))
+				return;
+			runtimeExe = GetRuntimeExecutablePath(targetConfig);
+		}
+
+		const std::filesystem::path current = std::filesystem::current_path(ec);
+		const std::filesystem::path resourcesSource = FindFirstExistingDirectory({
+			current / "Resources",
+			current / ".." / "Editor" / "Resources",
+			repositoryRoot / "Editor" / "Resources",
+			std::filesystem::path("Editor") / "Resources"
+		});
+		const std::filesystem::path monoSource = FindFirstExistingDirectory({
+			current / "mono",
+			current / ".." / "Editor" / "mono",
+			repositoryRoot / "Editor" / "mono",
+			std::filesystem::path("Editor") / "mono"
+		});
+		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
+		const bool hasStartupScene = project->GetConfig().StartSceneHandle != 0;
+		const bool hasRuntimeExe = FileExists(runtimeExe);
+		const bool hasResources = !resourcesSource.empty();
+		const bool hasMono = !monoSource.empty();
+		const bool hasScriptModule = project->GetConfig().ScriptModulePath.empty() || FileExists(scriptModule);
+
+		LUX_CONSOLE_LOG_INFO("Runtime export preflight:");
+		LUX_CONSOLE_LOG_INFO("  Startup Scene: {}", hasStartupScene ? "set" : "missing");
+		LUX_CONSOLE_LOG_INFO("  Lux-Runtime.exe: {}", hasRuntimeExe ? runtimeExe.string() : "missing");
+		LUX_CONSOLE_LOG_INFO("  Resources: {}", hasResources ? resourcesSource.string() : "missing");
+		LUX_CONSOLE_LOG_INFO("  Script Module: {}", hasScriptModule ? (scriptModule.empty() ? "optional" : scriptModule.string()) : "missing");
+		LUX_CONSOLE_LOG_INFO("  mono: {}", hasMono ? monoSource.string() : "missing");
+
+		if (!hasStartupScene || !hasRuntimeExe || !hasResources)
+		{
+			LUX_CONSOLE_LOG_ERROR("Runtime export preflight failed. Set a Startup Scene and make sure Lux-Runtime and Resources are available.");
+			return;
+		}
+
+		if (!hasScriptModule)
+			LUX_CONSOLE_LOG_WARN("Script module is missing. Export will continue, but scripted behaviours will not load.");
+		if (!hasMono)
+			LUX_CONSOLE_LOG_WARN("Mono directory is missing. Export will continue, but scripting will not run.");
+
+		const std::string buildName = SanitizeBuildName(runtimeSettings.GameName.empty() ? project->GetConfig().Name : runtimeSettings.GameName);
 		const std::filesystem::path exportRoot = selectedFolder / (buildName + "-Windows-x86_64");
 		const std::filesystem::path exportAssets = exportRoot / "Assets";
 
-		std::error_code ec;
 		std::filesystem::create_directories(exportAssets, ec);
 		if (ec)
 		{
@@ -1892,9 +2130,10 @@ namespace Lux {
 			return;
 		}
 
-		CopyFileIfExists(Project::GetActiveAssetDirectory() / s_RuntimeAssetPackFile, exportAssets / s_RuntimeAssetPackFile, true);
+		if (!CopyFileIfExists(Project::GetActiveAssetDirectory() / s_RuntimeAssetPackFile, exportAssets / s_RuntimeAssetPackFile, true))
+			return;
+		LUX_CONSOLE_LOG_INFO("  AssetPack.lap: created");
 
-		const std::filesystem::path runtimeExe = GetRuntimeExecutablePath();
 		const std::filesystem::path exportedExe = exportRoot / (buildName + ".exe");
 		if (!CopyFileIfExists(runtimeExe, exportedExe, true))
 			LUX_CONSOLE_LOG_WARN("Build the Lux-Runtime project once before exporting a standalone executable.");
@@ -1908,33 +2147,43 @@ namespace Lux {
 					continue;
 
 				const std::filesystem::path extension = entry.path().extension();
-				if (extension == ".dll" || extension == ".pdb")
+				if (extension == ".dll" || (extension == ".pdb" && targetConfig != RuntimeExportTarget::Dist))
 					CopyFileIfExists(entry.path(), exportRoot / entry.path().filename());
 			}
 		}
 
-		const std::filesystem::path current = std::filesystem::current_path(ec);
-		const std::filesystem::path resourcesSource = FindFirstExistingDirectory({
-			current / "Resources",
-			current / ".." / "Editor" / "Resources",
-			std::filesystem::path("Editor") / "Resources"
-		});
 		if (!resourcesSource.empty())
-			CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources");
+			CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", targetConfig == RuntimeExportTarget::Dist);
 		else
 			LUX_CONSOLE_LOG_WARN("Runtime export could not find an editor Resources directory to copy.");
 
-		const std::filesystem::path monoSource = FindFirstExistingDirectory({
-			current / "mono",
-			current / ".." / "Editor" / "mono",
-			std::filesystem::path("Editor") / "mono"
-		});
-		if (!monoSource.empty())
-			CopyDirectoryRecursive(monoSource, exportRoot / "mono");
+		if (!WriteRuntimeShaderPack(exportRoot / "Resources" / s_RuntimeShaderPackFile))
+			return;
 
-		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
+		if (!monoSource.empty())
+			CopyDirectoryRecursive(monoSource, exportRoot / "mono", targetConfig == RuntimeExportTarget::Dist);
+
 		if (std::filesystem::exists(scriptModule, ec))
 			CopyFileIfExists(scriptModule, exportAssets / project->GetConfig().ScriptModulePath);
+
+		std::filesystem::path runtimeIconPath;
+		if (std::filesystem::path iconSource = ResolveRuntimeIconSource(runtimeSettings); !iconSource.empty())
+		{
+			if (FileExists(iconSource))
+			{
+				const std::filesystem::path iconFilename = "Icon" + iconSource.extension().string();
+				const std::filesystem::path exportedIconPath = exportRoot / "Resources" / "Runtime" / iconFilename;
+				if (CopyFileIfExists(iconSource, exportedIconPath))
+					runtimeIconPath = std::filesystem::path("..") / "Resources" / "Runtime" / iconFilename;
+			}
+			else
+			{
+				LUX_CONSOLE_LOG_WARN("Configured runtime icon is missing: {}", iconSource.string());
+			}
+		}
+
+		if (!WriteRuntimeSettingsFile(exportAssets / "RuntimeSettings.yaml", runtimeSettings, runtimeIconPath))
+			return;
 
 		LUX_CONSOLE_LOG_INFO("Runtime export complete: {}", exportRoot.string());
 		FileSystem::OpenDirectoryInExplorer(exportRoot);

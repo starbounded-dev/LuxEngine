@@ -577,6 +577,19 @@ namespace Lux
 			out << YAML::Key << "AutoSave" << YAML::Value << config.EnableAutoSave;
 			out << YAML::Key << "AutoSaveInterval" << YAML::Value << config.AutoSaveIntervalSeconds;
 			out << YAML::Key << "RenderingTechnique" << YAML::Value << RenderingTechniqueToString(config.RendererTechnique);
+			out << YAML::Key << "RuntimeExport" << YAML::Value;
+			{
+				out << YAML::BeginMap;
+				out << YAML::Key << "GameName" << YAML::Value << config.RuntimeExport.GameName;
+				out << YAML::Key << "WindowWidth" << YAML::Value << config.RuntimeExport.WindowWidth;
+				out << YAML::Key << "WindowHeight" << YAML::Value << config.RuntimeExport.WindowHeight;
+				out << YAML::Key << "Fullscreen" << YAML::Value << config.RuntimeExport.Fullscreen;
+				out << YAML::Key << "VSync" << YAML::Value << config.RuntimeExport.VSync;
+				out << YAML::Key << "IconPath" << YAML::Value << config.RuntimeExport.IconPath.generic_string();
+				out << YAML::Key << "IconHandle" << YAML::Value << (uint64_t)config.RuntimeExport.IconHandle;
+				out << YAML::Key << "TargetConfig" << YAML::Value << RuntimeExportTargetToString(config.RuntimeExport.TargetConfig);
+				out << YAML::EndMap;
+			}
 			SerializeSceneRendererSettings(out, config.SceneRenderer);
 
 			out << YAML::Key << "Audio" << YAML::Value;
@@ -768,6 +781,29 @@ namespace Lux
 				config.RendererTechnique = RenderingTechniqueFromString(renderingTechniqueNode.as<std::string>());
 			else
 				config.RendererTechnique = renderingTechniqueNode.as<int>((int)RenderingTechnique::Forward) == (int)RenderingTechnique::Deferred ? RenderingTechnique::Deferred : RenderingTechnique::Forward;
+		}
+		config.RuntimeExport = {};
+		if (auto runtimeExportNode = projectNode["RuntimeExport"])
+		{
+			config.RuntimeExport.GameName = runtimeExportNode["GameName"].as<std::string>(config.Name);
+			config.RuntimeExport.WindowWidth = runtimeExportNode["WindowWidth"].as<uint32_t>(config.RuntimeExport.WindowWidth);
+			config.RuntimeExport.WindowHeight = runtimeExportNode["WindowHeight"].as<uint32_t>(config.RuntimeExport.WindowHeight);
+			config.RuntimeExport.Fullscreen = runtimeExportNode["Fullscreen"].as<bool>(config.RuntimeExport.Fullscreen);
+			config.RuntimeExport.VSync = runtimeExportNode["VSync"].as<bool>(config.RuntimeExport.VSync);
+			config.RuntimeExport.IconPath = runtimeExportNode["IconPath"].as<std::string>(config.RuntimeExport.IconPath.generic_string());
+			config.RuntimeExport.IconHandle = runtimeExportNode["IconHandle"].as<uint64_t>((uint64_t)config.RuntimeExport.IconHandle);
+
+			if (auto targetConfigNode = runtimeExportNode["TargetConfig"])
+			{
+				if (targetConfigNode.IsScalar() && !IsNumericString(targetConfigNode.Scalar()))
+					config.RuntimeExport.TargetConfig = RuntimeExportTargetFromString(targetConfigNode.as<std::string>());
+				else
+					config.RuntimeExport.TargetConfig = RuntimeExportTargetFromString(std::to_string(targetConfigNode.as<int>((int)RuntimeExportTarget::Release)));
+			}
+		}
+		else
+		{
+			config.RuntimeExport.GameName = config.Name;
 		}
 		DeserializeSceneRendererSettings(projectNode["SceneRenderer"], config.SceneRenderer);
 		config.StartScene.clear();

@@ -126,7 +126,8 @@ namespace Lux
 		if (m_SceneRenderer)
 			m_SceneRenderer->SetScene(m_RuntimeScene);
 
-		Application::Get().GetWindow().SetTitle(m_RuntimeScene->GetName().empty() ? "Lux Runtime" : m_RuntimeScene->GetName());
+		const std::string& applicationName = Application::Get().GetSpecification().Name;
+		Application::Get().GetWindow().SetTitle(applicationName.empty() ? "Lux Runtime" : applicationName);
 		return true;
 	}
 

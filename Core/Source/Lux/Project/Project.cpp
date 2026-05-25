@@ -8,6 +8,27 @@
 
 namespace Lux
 {
+	const char* RuntimeExportTargetToString(RuntimeExportTarget target)
+	{
+		switch (target)
+		{
+			case RuntimeExportTarget::Debug: return "Debug";
+			case RuntimeExportTarget::Release: return "Release";
+			case RuntimeExportTarget::Dist: return "Dist";
+		}
+
+		return "Release";
+	}
+
+	RuntimeExportTarget RuntimeExportTargetFromString(std::string_view value)
+	{
+		if (value == "Debug" || value == "0")
+			return RuntimeExportTarget::Debug;
+		if (value == "Dist" || value == "2")
+			return RuntimeExportTarget::Dist;
+		return RuntimeExportTarget::Release;
+	}
+
 	std::filesystem::path Project::GetAssetAbsolutePath(const std::filesystem::path& path) const
 	{
 		return GetAssetDirectory() / path;
@@ -48,6 +69,15 @@ namespace Lux
 			AssetMetadata startSceneMetadata = GetEditorAssetManager()->GetMetadata(s_ActiveProject->m_Config.StartSceneHandle);
 			if (startSceneMetadata.IsValid())
 				s_ActiveProject->m_Config.StartScene = startSceneMetadata.FilePath.generic_string();
+		}
+
+		if (!s_ActiveProject->m_Config.RuntimeExport.IconPath.empty())
+			s_ActiveProject->m_Config.RuntimeExport.IconHandle = GetEditorAssetManager()->GetAssetHandleFromFilePath(s_ActiveProject->m_Config.RuntimeExport.IconPath);
+		else if (s_ActiveProject->m_Config.RuntimeExport.IconHandle)
+		{
+			AssetMetadata iconMetadata = GetEditorAssetManager()->GetMetadata(s_ActiveProject->m_Config.RuntimeExport.IconHandle);
+			if (iconMetadata.IsValid())
+				s_ActiveProject->m_Config.RuntimeExport.IconPath = iconMetadata.FilePath.generic_string();
 		}
 
 		if (!AudioEngine::HasInitializedEngine())
@@ -141,6 +171,9 @@ namespace Lux
 		if (!s_ActiveProject->m_Config.StartScene.empty() && GetEditorAssetManager())
 			s_ActiveProject->m_Config.StartSceneHandle = GetEditorAssetManager()->GetAssetHandleFromFilePath(s_ActiveProject->m_Config.StartScene);
 
+		if (!s_ActiveProject->m_Config.RuntimeExport.IconPath.empty() && GetEditorAssetManager())
+			s_ActiveProject->m_Config.RuntimeExport.IconHandle = GetEditorAssetManager()->GetAssetHandleFromFilePath(s_ActiveProject->m_Config.RuntimeExport.IconPath);
+
 		if (s_ActiveProject->m_Config.DefaultNamespace.empty())
 			s_ActiveProject->m_Config.DefaultNamespace = s_ActiveProject->m_Config.Name;
 
@@ -167,5 +200,8 @@ namespace Lux
 
 		if (m_Config.ScriptModulePath.empty())
 			m_Config.ScriptModulePath = std::filesystem::path("Scripts/Binaries") / (m_Config.Name + ".dll");
+
+		if (m_Config.RuntimeExport.GameName.empty())
+			m_Config.RuntimeExport.GameName = m_Config.Name;
 	}
 }
