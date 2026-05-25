@@ -13,6 +13,7 @@ Intermediates/
 **.vcxproj.filters
 **.vcxproj.user
 **.csproj
+**.csproj.user
 
 # Directories
 scripts/__pycache__
@@ -25,10 +26,11 @@ Sandbox/Resources/Cache
 Core/vendor/GLAD
 Core/vendor/NFD-Extended
 Core/vendor/tracy
-Editor/SandboxProject/Assets/Scripts/Binaries
+Editor/LuxSampleProject/Assets/Scripts/Binaries
 Editor/Resources/Cache
 Lux.slnx
-Editor/SandboxProject/Assets/Cache/Thumbnails
-Editor/SandboxProject/Assets/AssetRegistry.lzr
+Editor/LuxSampleProject/Assets/Cache/Thumbnails
+Editor/LuxSampleProject/Assets/AssetRegistry.lzr
 *.lap
 *.aps
+*.slnx

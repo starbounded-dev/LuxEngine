@@ -7,7 +7,7 @@ namespace Lux {
 		bool lastWasNamed = false;
 
 		for (int i = 1; i < argc; ++i) {
-			Opt newOpt;
+			Opt newOpt{};
 			bool longopt = false;
 			char* opt = argv[i];
 			char* colon;

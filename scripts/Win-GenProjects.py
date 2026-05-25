@@ -48,5 +48,5 @@ print(
 )
 subprocess.call(["vendor/bin/premake5.exe", selected_generator])
 
-os.chdir('Editor/SandboxProject')
-subprocess.call(["../../vendor/bin/premake5.exe", selected_generator])
+os.chdir('Editor/LuxSampleProject/Assets/Scripts')
+subprocess.call(["../../../../vendor/bin/premake5.exe", selected_generator])

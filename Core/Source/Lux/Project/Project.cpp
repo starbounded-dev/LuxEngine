@@ -66,6 +66,12 @@ namespace Lux
 		}
 
 		s_ActiveProject = project;
+		if (AudioEngine::HasInitializedEngine())
+		{
+			AudioEngine::Shutdown();
+			AudioEngine::SetInitalizedEngine(false);
+		}
+
 		if (!s_ActiveProject)
 			return;
 
@@ -76,12 +82,6 @@ namespace Lux
 
 		s_ActiveProject->m_Config.ProjectDirectory = s_ActiveProject->m_ProjectDirectory;
 		s_ActiveProject->m_Config.ProjectFileName = s_ActiveProject->m_ProjectFilePath.filename().string();
-
-		if (AudioEngine::HasInitializedEngine())
-		{
-			AudioEngine::Shutdown();
-			AudioEngine::SetInitalizedEngine(false);
-		}
 
 		s_AssetManager = Ref<RuntimeAssetManager>::Create();
 		GetRuntimeAssetManager()->SetAssetPack(assetPack);

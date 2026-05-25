@@ -1,9 +1,19 @@
+local gtkLinkOptions = nil
+if os.host() == "linux" then
+	local result, err = os.outputof("pkg-config --libs gtk+-3.0")
+	if result == nil or result:gsub("%s+", "") == "" then
+		error("pkg-config --libs gtk+-3.0 failed for Lux-Runtime: " .. tostring(err))
+	end
+	gtkLinkOptions = result
+end
+
 project "Lux-Runtime"
 	kind "ConsoleApp"
 	targetname "Lux-Runtime"
 
 	targetdir ("../bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
+	debugdir "%{cfg.targetdir}"
 
 	links { "Core" }
 
@@ -33,19 +43,23 @@ project "Lux-Runtime"
 	filter { "system:windows", "configurations:Debug or configurations:Debug-AS" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.dll" "%{cfg.targetdir}"',
+			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
+			'{COPYDIR} "../Editor/mono" "%{cfg.targetdir}/mono"',
 		}
 
 	filter { "system:windows", "configurations:Release or configurations:Dist" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Release/assimp-vc143-mt.dll" "%{cfg.targetdir}"',
+			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
+			'{COPYDIR} "../Editor/mono" "%{cfg.targetdir}/mono"',
 		}
 
 	filter "system:linux"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread" }
-
-		result, err = os.outputof("pkg-config --libs gtk+-3.0")
-		linkoptions { result }
+		if gtkLinkOptions then
+			linkoptions { gtkLinkOptions }
+		end
 
 	filter "configurations:Debug or configurations:Debug-AS"
 		symbols "On"

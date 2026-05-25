@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 using Lux;
 
-namespace Sandbox
+namespace LuxSample
 {
 	public class Player : Entity
 	{

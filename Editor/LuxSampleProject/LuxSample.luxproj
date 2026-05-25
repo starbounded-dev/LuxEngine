@@ -1,13 +1,13 @@
 Project:
-  Name: Sandbox
+  Name: LuxSample
   AssetDirectory: Assets
   AssetRegistry: Assets/AssetRegistry.lzr
   AudioCommandsRegistryPath: AudioCommandsRegistry.lzr
   MeshPath: Meshes
   MeshSourcePath: Meshes/Source
   AnimationPath: Animation
-  ScriptModulePath: Scripts/Binaries/Sandbox.dll
-  DefaultNamespace: Sandbox
+  ScriptModulePath: Scripts/Binaries/LuxSample.dll
+  DefaultNamespace: LuxSample
   StartScene: Scenes/NewSceneSystem.luxscene
   AutomaticallyReloadAssembly: true
   AutoSave: true

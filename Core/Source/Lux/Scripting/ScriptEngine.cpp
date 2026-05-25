@@ -153,16 +153,19 @@ namespace Lux {
 
 	static void OnAppAssemblyFileSystemEvent(const std::string& path, const filewatch::Event change_type)
 	{
-		if (!s_Data->AssemblyReloadPending && change_type == filewatch::Event::modified)
-		{
-			s_Data->AssemblyReloadPending = true;
+		if (!s_Data || !s_Data->RootDomain || change_type != filewatch::Event::modified || s_Data->AssemblyReloadPending)
+			return;
 
-			Application::Get().QueueEvent([]()
-				{
-					s_Data->AppAssemblyFileWatcher.reset();
-					ScriptEngine::ReloadAssembly();
-				});
-		}
+		s_Data->AssemblyReloadPending = true;
+
+		Application::Get().QueueEvent([]()
+			{
+				if (!s_Data || !s_Data->RootDomain)
+					return;
+
+				s_Data->AppAssemblyFileWatcher.reset();
+				ScriptEngine::ReloadAssembly();
+			});
 	}
 
 	void ScriptEngine::Init()
@@ -236,7 +239,13 @@ namespace Lux {
 
 	void ScriptEngine::ShutdownMono()
 	{
-		if (!s_Data || !s_Data->RootDomain)
+		if (!s_Data)
+			return;
+
+		s_Data->AppAssemblyFileWatcher.reset();
+		s_Data->AssemblyReloadPending = false;
+
+		if (!s_Data->RootDomain)
 			return;
 
 		mono_domain_set(mono_get_root_domain(), false);
@@ -283,9 +292,14 @@ namespace Lux {
 
 	void ScriptEngine::ReloadAssembly()
 	{
+		if (!s_Data || !s_Data->RootDomain || !s_Data->AppDomain)
+			return;
+
+		s_Data->AppAssemblyFileWatcher.reset();
 		mono_domain_set(mono_get_root_domain(), false);
 
 		mono_domain_unload(s_Data->AppDomain);
+		s_Data->AppDomain = nullptr;
 
 		LoadAssembly(s_Data->CoreAssemblyFilepath);
 		LoadAppAssembly(s_Data->AppAssemblyFilepath);

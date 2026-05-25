@@ -63,6 +63,13 @@ namespace Lux {
 
 		if (m_Specification.SwapChainTarget)
 		{
+			LUX_CORE_ASSERT(!m_Specification.Attachments.Attachments.empty(), "Swapchain framebuffers require at least one attachment");
+			if (m_Specification.Attachments.Attachments.empty())
+			{
+				LUX_CORE_ERROR("[Framebuffer] Swapchain target '{}' has no attachments; m_ClearValues cannot be populated", m_Specification.DebugName);
+				return;
+			}
+
 			PopulateClearValues(m_Specification, m_ClearValues);
 			return;
 		}

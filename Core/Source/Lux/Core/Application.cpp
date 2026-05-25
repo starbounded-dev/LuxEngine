@@ -88,6 +88,7 @@ namespace Lux {
 		else
 			m_Window->CenterWindow();
 		m_Window->SetResizable(specification.Resizable);
+		m_Window->Show();
 
 		if (m_Specification.EnableImGui)
 		{

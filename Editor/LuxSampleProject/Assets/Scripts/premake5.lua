@@ -1,9 +1,8 @@
 local LuxEngineRootDir = '../../../..'
 include (LuxEngineRootDir .. "/vendor/premake_customization/solution_items.lua")
 
-workspace "Sandbox"
-	architecture "x86_64"
-	startproject "Sandbox"
+workspace "LuxSample"
+	startproject "LuxSample"
 
 	configurations
 	{
@@ -19,7 +18,7 @@ workspace "Sandbox"
 
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
-project "Sandbox"
+project "LuxSample"
 	kind "SharedLib"
 	language "C#"
 	dotnetframework "4.7.2"
@@ -31,6 +30,11 @@ project "Sandbox"
 	{
 		"Source/**.cs",
 		"Properties/**.cs"
+	}
+
+	libdirs
+	{
+		LuxEngineRootDir .. "/Editor/Resources/Scripts"
 	}
 
 	links

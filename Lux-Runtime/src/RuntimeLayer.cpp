@@ -253,13 +253,12 @@ namespace Lux
 	void RuntimeLayer::SubmitCommandBufferToSwapChain()
 	{
 		Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
-		vk::Semaphore acquiredSemaphore = Application::Get().GetWindow().GetSwapChain().GetAcquiredImageSemaphore();
+		VulkanSwapChain* swapChain = &Application::Get().GetWindow().GetSwapChain();
 
-		Renderer::Submit([commandBuffer, acquiredSemaphore]() mutable
+		Renderer::Submit([commandBuffer, swapChain]() mutable
 		{
-			if ((VkSemaphore)acquiredSemaphore)
-				commandBuffer->RT_Wait((VkSemaphore)acquiredSemaphore);
-			commandBuffer->RT_Submit();
+			vk::Semaphore acquiredSemaphore = swapChain->GetAcquiredImageSemaphore();
+			commandBuffer->RT_Submit((VkSemaphore)acquiredSemaphore);
 		});
 	}
 
