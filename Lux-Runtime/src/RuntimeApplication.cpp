@@ -12,7 +12,7 @@ namespace Lux
 	{
 		constexpr const char* s_RuntimeProjectFile = "Project.luxruntime";
 		constexpr const char* s_RuntimeSettingsFile = "RuntimeSettings.yaml";
-		constexpr const char* s_RuntimeShaderPackFile = "ShaderPack.hsp";
+		constexpr const char* s_RuntimeShaderPackFile = "ShaderPack.lsp";
 
 		std::filesystem::path ResolveRuntimeProjectFile(const std::filesystem::path& projectPath)
 		{

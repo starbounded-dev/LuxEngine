@@ -138,7 +138,7 @@ namespace Lux {
 
 		constexpr const char* s_RuntimeProjectFile = "Project.luxruntime";
 		constexpr const char* s_RuntimeAssetPackFile = "AssetPack.lap";
-		constexpr const char* s_RuntimeShaderPackFile = "ShaderPack.hsp";
+		constexpr const char* s_RuntimeShaderPackFile = "ShaderPack.lsp";
 
 		std::string SanitizeBuildName(std::string value)
 		{
@@ -466,7 +466,7 @@ namespace Lux {
 				return false;
 			}
 
-			LUX_CONSOLE_LOG_INFO("  ShaderPack.hsp: created");
+			LUX_CONSOLE_LOG_INFO("  ShaderPack.lsp: created");
 			return true;
 		}
 
@@ -2157,7 +2157,7 @@ namespace Lux {
 		else
 			LUX_CONSOLE_LOG_WARN("Runtime export could not find an editor Resources directory to copy.");
 
-		if (!WriteRuntimeShaderPack(exportRoot / "Resources" / s_RuntimeShaderPackFile))
+		if (!WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile))
 			return;
 
 		if (!monoSource.empty())

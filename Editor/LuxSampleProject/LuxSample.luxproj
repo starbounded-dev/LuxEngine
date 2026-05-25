@@ -13,6 +13,15 @@ Project:
   AutoSave: true
   AutoSaveInterval: 300
   RenderingTechnique: Forward
+  RuntimeExport:
+    GameName: LuxSample
+    WindowWidth: 1920
+    WindowHeight: 1080
+    Fullscreen: false
+    VSync: true
+    IconPath: Textures/luxLogo.png
+    IconHandle: 15308730943713920604
+    TargetConfig: Release
   SceneRenderer:
     Rendering:
       QualityPreset: Cinematic
