@@ -20,6 +20,7 @@ namespace Lux {
 		void SaveProject();
 
 		void RenderGeneralSettings();
+		void RenderRuntimeExportSettings();
 		void RenderRendererSettings();
 		void RenderAudioSettings();
 		void RenderScriptingSettings();
@@ -29,9 +30,11 @@ namespace Lux {
 	private:
 		Ref<Project> m_Project;
 		AssetHandle m_DefaultScene = 0;
+		AssetHandle m_RuntimeIcon = 0;
 		bool m_Dirty = false;
 
 		char m_NameBuffer[256]{};
+		char m_RuntimeGameNameBuffer[256]{};
 		char m_DefaultNamespaceBuffer[256]{};
 		char m_ScriptModulePathBuffer[512]{};
 	};

@@ -10,5 +10,5 @@ Lux Application Settings:
   Editor.TranslationSnapValue: 0.500000
   Editor.UseGizmoSnap: 1
   Editor.VSync: 0
-  RecentProjects.0: M:/Git/luxengine/Editor/SandboxProject/Sandbox.luxproj
+  RecentProjects.0: M:/Git/luxengine/Editor/LuxSampleProject/LuxSample.luxproj
   RecentProjects.Count: 1

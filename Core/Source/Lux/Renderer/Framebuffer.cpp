@@ -3,8 +3,30 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
 namespace Lux {
+
+	namespace
+	{
+		static void PopulateClearValues(const FramebufferSpecification& specification, std::vector<ClearValue>& clearValues)
+		{
+			clearValues.resize(specification.Attachments.Attachments.size());
+
+			for (uint32_t attachmentIndex = 0; attachmentIndex < specification.Attachments.Attachments.size(); attachmentIndex++)
+			{
+				const auto& attachmentSpec = specification.Attachments.Attachments[attachmentIndex];
+				if (Utils::IsDepthFormat(attachmentSpec.Format))
+				{
+					clearValues[attachmentIndex].DepthStencil = { specification.DepthClearValue, 0 };
+					continue;
+				}
+
+				const auto& clearColor = specification.ClearColor;
+				clearValues[attachmentIndex].Color = { { clearColor.r, clearColor.g, clearColor.b, clearColor.a } };
+			}
+		}
+	}
 
 #if WENEEDTODEALWITHTHIS
 	namespace Utils {
@@ -37,6 +59,19 @@ namespace Lux {
 		{
 			m_Width = (uint32_t)(specification.Width * m_Specification.Scale);
 			m_Height = (uint32_t)(specification.Height * m_Specification.Scale);
+		}
+
+		if (m_Specification.SwapChainTarget)
+		{
+			LUX_CORE_ASSERT(!m_Specification.Attachments.Attachments.empty(), "Swapchain framebuffers require at least one attachment");
+			if (m_Specification.Attachments.Attachments.empty())
+			{
+				LUX_CORE_ERROR("[Framebuffer] Swapchain target '{}' has no attachments; m_ClearValues cannot be populated", m_Specification.DebugName);
+				return;
+			}
+
+			PopulateClearValues(m_Specification, m_ClearValues);
+			return;
 		}
 
 		// Create all image objects immediately so we can start referencing them
@@ -94,6 +129,30 @@ namespace Lux {
 	Framebuffer::~Framebuffer()
 	{
 		Release();
+	}
+
+	uint32_t Framebuffer::GetWidth() const
+	{
+		if (m_Specification.SwapChainTarget)
+			return Application::Get().GetWindow().GetSwapChain().GetWidth();
+
+		return m_Width;
+	}
+
+	uint32_t Framebuffer::GetHeight() const
+	{
+		if (m_Specification.SwapChainTarget)
+			return Application::Get().GetWindow().GetSwapChain().GetHeight();
+
+		return m_Height;
+	}
+
+	nvrhi::FramebufferHandle Framebuffer::GetHandle() const
+	{
+		if (m_Specification.SwapChainTarget)
+			return Application::Get().GetWindow().GetSwapChain().GetCurrentFramebuffer();
+
+		return m_Handle;
 	}
 
 	void Framebuffer::Release()
@@ -166,14 +225,10 @@ namespace Lux {
 
 		m_Width = (uint32_t)(width * m_Specification.Scale);
 		m_Height = (uint32_t)(height * m_Specification.Scale);
-		if (!m_Specification.SwapChainTarget)
-		{
-			RT_Invalidate();
-		}
+		if (m_Specification.SwapChainTarget)
+			PopulateClearValues(m_Specification, m_ClearValues);
 		else
-		{
-			LUX_CORE_VERIFY(false);
-		}
+			RT_Invalidate();
 
 		for (auto& callback : m_ResizeCallbacks)
 			callback(this);

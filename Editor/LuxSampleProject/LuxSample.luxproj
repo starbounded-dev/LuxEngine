@@ -1,0 +1,148 @@
+Project:
+  Name: LuxSample
+  AssetDirectory: Assets
+  AssetRegistry: Assets/AssetRegistry.lzr
+  AudioCommandsRegistryPath: AudioCommandsRegistry.lzr
+  MeshPath: Meshes
+  MeshSourcePath: Meshes/Source
+  AnimationPath: Animation
+  ScriptModulePath: Scripts/Binaries/LuxSample.dll
+  DefaultNamespace: LuxSample
+  StartScene: Scenes/NewSceneSystem.luxscene
+  AutomaticallyReloadAssembly: true
+  AutoSave: true
+  AutoSaveInterval: 300
+  RenderingTechnique: Forward
+  RuntimeExport:
+    GameName: LuxSample
+    WindowWidth: 1920
+    WindowHeight: 1080
+    Fullscreen: false
+    VSync: true
+    IconPath: Textures/luxLogo.png
+    IconHandle: 15308730943713920604
+    TargetConfig: Dist
+  SceneRenderer:
+    Rendering:
+      QualityPreset: Cinematic
+      FrustumCulling: true
+      OcclusionCulling: true
+      GPUDrivenRendering: true
+      GTAO: true
+      GTAOBentNormals: true
+      GTAODenoisePasses: 8
+      AOShadowTolerance: 1
+      SSR: true
+      JumpFloodOutline: true
+      RenderScaleMode: Scale100
+      DynamicResolutionMinScale: 0.5
+      DynamicResolutionMaxScale: 1
+      DynamicResolutionTargetGPUTime: 16.6700001
+      TextureMipBias: -1.5
+      DistanceMipBias: true
+      DistanceMipBiasStart: 10
+      DistanceMipBiasEnd: 100
+      DistanceMipBiasMax: 0.5
+      OcclusionDepthBias: 0.00300000003
+      OcclusionBoundsScale: 1.14999998
+      GTAOResolutionScale: 1
+      GTAOTemporalAccumulation: true
+      GTAOTemporalBlend: 0.949999988
+      SSRQuality: Full
+      SSRResolutionScale: 1
+      SSRTemporalAccumulation: true
+      SSRTemporalBlend: 0.949999988
+    Shadows:
+      SoftShadows: true
+      ShadowCulling: true
+      MaxDistance: 450
+      DistanceFade: 50
+      SplitLambda: 0.920000017
+      NearOffset: 0
+      FarOffset: 50
+      CascadeFade: 1
+      ResolutionLimit: 8K
+    PostFX:
+      Bloom:
+        Enabled: true
+        ResolutionScale: 1
+        Threshold: 1
+        Knee: 0.100000001
+        UpsampleScale: 1
+        Intensity: 1
+        DirtIntensity: 1
+      DOF:
+        Enabled: true
+        ResolutionScale: 1
+        FocusDistance: 4
+        BlurSize: 0.75
+      SSR:
+        HalfRes: false
+        MaxSteps: 128
+        Brightness: 0.699999988
+        DepthTolerance: 0.800000012
+  Audio:
+    FileStreamingDurationThreshold: 1
+  Physics:
+    FixedTimestep: 0.0166666675
+    Gravity: [0, -9.81000042, 0]
+    SolverPositionIterations: 8
+    SolverVelocityIterations: 2
+    MaxBodies: 1000
+    CaptureOnPlay: true
+    CaptureMethod: LiveDebug
+  Log:
+    Animation:
+      Enabled: true
+      LevelFilter: Warn
+    Asset Pack:
+      Enabled: true
+      LevelFilter: Warn
+    AssetManager:
+      Enabled: true
+      LevelFilter: Info
+    AssetSystem:
+      Enabled: true
+      LevelFilter: Info
+    Assimp:
+      Enabled: true
+      LevelFilter: Error
+    Audio:
+      Enabled: true
+      LevelFilter: Error
+    Core:
+      Enabled: true
+      LevelFilter: Trace
+    GLFW:
+      Enabled: true
+      LevelFilter: Error
+    Memory:
+      Enabled: true
+      LevelFilter: Error
+    Mesh:
+      Enabled: true
+      LevelFilter: Warn
+    Physics:
+      Enabled: true
+      LevelFilter: Warn
+    Project:
+      Enabled: true
+      LevelFilter: Warn
+    Renderer:
+      Enabled: true
+      LevelFilter: Info
+    Scene:
+      Enabled: true
+      LevelFilter: Info
+    Scripting:
+      Enabled: true
+      LevelFilter: Warn
+    Sound Spatializer:
+      Enabled: true
+      LevelFilter: Warn
+    Timer:
+      Enabled: false
+      LevelFilter: Trace
+    miniaudio:
+      Enabled: true
+      LevelFilter: Error

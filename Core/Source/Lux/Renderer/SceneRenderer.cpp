@@ -1862,7 +1862,7 @@ namespace Lux {
 			m_BloomComputeMaterials.UpsampleMaterials[mip] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-Upsample");
 			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mip]);
 			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
-			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_BloomTexture", m_BloomComputeTextures[2].Texture);
+			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_BloomTexture", m_BloomComputeTextures[2].ImageViews[mip + 1]);
 		}
 	}
 
@@ -2108,7 +2108,7 @@ namespace Lux {
 		{
 			Ref<Material> material = Material::Create(m_PreConvolutionComputePass->GetShader(), "Pre-Convolution");
 			material->Set("o_Image", m_PreConvolutedTexture.ImageViews[mip]);
-			material->Set("u_Input", mip == 0 ? m_SkyboxPass->GetOutput(0) : m_PreConvolutedTexture.Texture->GetImage());
+			material->Set("u_Input", mip == 0 ? m_SkyboxPass->GetOutput(0) : m_PreConvolutedTexture.ImageViews[mip - 1]);
 			m_PreConvolutionMaterials[mip] = material;
 		}
 	}
@@ -4797,6 +4797,19 @@ namespace Lux {
 		} pushConstants;
 
 		Ref<Image2D> preConvolutedImage = m_PreConvolutedTexture.Texture->GetImage();
+		auto transitionMip = [commandBuffer = m_CommandBuffer, preConvolutedImage](uint32_t mip, nvrhi::ResourceStates state, const char* label)
+		{
+			std::string markerName = std::format("Barrier PreConvolution mip {} {}", mip, label);
+			Renderer::Submit([commandBuffer, preConvolutedImage, mip, state, markerName]() mutable
+			{
+				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
+				commandBuffer->RT_BeginMarker(markerName);
+				commandList->setTextureState(preConvolutedImage->GetHandle(), nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
+				commandList->commitBarriers();
+				commandBuffer->RT_EndMarker();
+			});
+		};
+
 		BeginProfiledGPU("PreConvolution");
 		Renderer::BeginComputePass(m_CommandBuffer, m_PreConvolutionComputePass);
 
@@ -4806,8 +4819,9 @@ namespace Lux {
 			const glm::uvec3 workGroups = { DivideRoundUp(glm::max(1u, width), 16u), DivideRoundUp(glm::max(1u, height), 16u), 1 };
 			pushConstants.PrevLod = 0;
 			pushConstants.Mode = 0;
+			transitionMip(0, nvrhi::ResourceStates::UnorderedAccess, "write");
 			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[0], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-			m_PreConvolutionComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, preConvolutedImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+			transitionMip(0, nvrhi::ResourceStates::ShaderResource, "read");
 		}
 
 		const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
@@ -4821,12 +4835,14 @@ namespace Lux {
 			pushConstants.PrevLod = (int)mip - 1;
 
 			pushConstants.Mode = 1;
+			transitionMip(mip, nvrhi::ResourceStates::UnorderedAccess, "write");
 			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[mip], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-			m_PreConvolutionComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, preConvolutedImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+			transitionMip(mip, nvrhi::ResourceStates::ShaderResource, "read");
 
 			pushConstants.Mode = 2;
+			transitionMip(mip, nvrhi::ResourceStates::UnorderedAccess, "write");
 			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[mip], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-			m_PreConvolutionComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, preConvolutedImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+			transitionMip(mip, nvrhi::ResourceStates::ShaderResource, "read");
 		}
 
 		Renderer::EndComputePass(m_CommandBuffer, m_PreConvolutionComputePass);
@@ -5083,6 +5099,23 @@ namespace Lux {
 			Renderer::DispatchCompute(m_CommandBuffer, m_BloomComputePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
 		};
 
+		auto transitionBloomMip = [commandBuffer = m_CommandBuffer, this](uint32_t textureIndex, uint32_t mip, nvrhi::ResourceStates state, const char* label)
+		{
+			if (textureIndex >= m_BloomComputeTextures.size() || !m_BloomComputeTextures[textureIndex].Texture)
+				return;
+
+			Ref<Image2D> image = m_BloomComputeTextures[textureIndex].Texture->GetImage();
+			std::string markerName = std::format("Barrier Bloom {} mip {} {}", textureIndex, mip, label);
+			Renderer::Submit([commandBuffer, image, mip, state, markerName]() mutable
+			{
+				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
+				commandBuffer->RT_BeginMarker(markerName);
+				commandList->setTextureState(image->GetHandle(), nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
+				commandList->commitBarriers();
+				commandBuffer->RT_EndMarker();
+			});
+		};
+
 		BeginProfiledGPU("BloomCompute");
 		Renderer::BeginComputePass(m_CommandBuffer, m_BloomComputePass);
 
@@ -5090,8 +5123,9 @@ namespace Lux {
 		pushConstants.Mode = 0;
 		pushConstants.LOD = 0.0f;
 		setTexSize(0);
+		transitionBloomMip(0, 0, nvrhi::ResourceStates::UnorderedAccess, "write");
 		dispatchForMip(m_BloomComputeMaterials.PrefilterMaterial, 0);
-		m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[0].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		transitionBloomMip(0, 0, nvrhi::ResourceStates::ShaderResource, "read");
 
 		// Downsample, ping-ponging between texture 0 and texture 1.
 		pushConstants.Mode = 1;
@@ -5099,20 +5133,23 @@ namespace Lux {
 		{
 			setTexSize(i);
 			pushConstants.LOD = (float)i - 1.0f;
+			transitionBloomMip(1, i, nvrhi::ResourceStates::UnorderedAccess, "write");
 			dispatchForMip(m_BloomComputeMaterials.DownsampleAMaterials[i], i);
-			m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[1].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+			transitionBloomMip(1, i, nvrhi::ResourceStates::ShaderResource, "read");
 
 			pushConstants.LOD = (float)i;
+			transitionBloomMip(0, i, nvrhi::ResourceStates::UnorderedAccess, "write");
 			dispatchForMip(m_BloomComputeMaterials.DownsampleBMaterials[i], i);
-			m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[0].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+			transitionBloomMip(0, i, nvrhi::ResourceStates::ShaderResource, "read");
 		}
 
 		// First upsample from the smallest downsampled mip.
 		pushConstants.Mode = 2;
 		pushConstants.LOD = (float)mips - 2.0f;
 		setTexSize(mips - 1);
+		transitionBloomMip(2, mips - 2, nvrhi::ResourceStates::UnorderedAccess, "write");
 		dispatchForMip(m_BloomComputeMaterials.FirstUpsampleMaterial, mips - 2);
-		m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[2].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		transitionBloomMip(2, mips - 2, nvrhi::ResourceStates::ShaderResource, "read");
 
 		// Upsample back to mip 0.
 		pushConstants.Mode = 3;
@@ -5120,8 +5157,9 @@ namespace Lux {
 		{
 			pushConstants.LOD = (float)mip;
 			setTexSize((uint32_t)mip + 1u);
+			transitionBloomMip(2, (uint32_t)mip, nvrhi::ResourceStates::UnorderedAccess, "write");
 			dispatchForMip(m_BloomComputeMaterials.UpsampleMaterials[mip], (uint32_t)mip);
-			m_BloomComputePipeline->ImageMemoryBarrier(m_CommandBuffer, m_BloomComputeTextures[2].Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+			transitionBloomMip(2, (uint32_t)mip, nvrhi::ResourceStates::ShaderResource, "read");
 		}
 
 		Renderer::EndComputePass(m_CommandBuffer, m_BloomComputePass);

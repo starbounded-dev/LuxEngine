@@ -83,7 +83,7 @@ jobs:
           $editorItems = @(
             "imgui.ini",
             "App.lsettings",
-            "SandboxProject",
+            "LuxSampleProject",
             "Resources",
             "mono"
           )

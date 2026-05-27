@@ -28,6 +28,7 @@ namespace Lux {
 		void RT_Begin();
 		void RT_End();
 		void RT_Submit();
+		void RT_Submit(VkSemaphore waitSemaphore);
 
 		void RT_Wait(VkSemaphore waitSemaphore);
 

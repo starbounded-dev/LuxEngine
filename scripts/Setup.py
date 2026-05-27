@@ -91,5 +91,5 @@ generator = choose_visual_studio_generator()
 print(f"{Style.BRIGHT}{Back.GREEN}Generating {generator} solution.{Style.RESET_ALL}")
 subprocess.call(["vendor/bin/premake5.exe", generator])
 
-os.chdir('Editor/SandboxProject')
-subprocess.call(["../../vendor/bin/premake5.exe", generator])
+os.chdir('Editor/LuxSampleProject/Assets/Scripts')
+subprocess.call(["../../../../vendor/bin/premake5.exe", generator])

@@ -8,6 +8,27 @@
 
 namespace Lux
 {
+	const char* RuntimeExportTargetToString(RuntimeExportTarget target)
+	{
+		switch (target)
+		{
+			case RuntimeExportTarget::Debug: return "Debug";
+			case RuntimeExportTarget::Release: return "Release";
+			case RuntimeExportTarget::Dist: return "Dist";
+		}
+
+		return "Release";
+	}
+
+	RuntimeExportTarget RuntimeExportTargetFromString(std::string_view value)
+	{
+		if (value == "Debug" || value == "0")
+			return RuntimeExportTarget::Debug;
+		if (value == "Dist" || value == "2")
+			return RuntimeExportTarget::Dist;
+		return RuntimeExportTarget::Release;
+	}
+
 	std::filesystem::path Project::GetAssetAbsolutePath(const std::filesystem::path& path) const
 	{
 		return GetAssetDirectory() / path;
@@ -50,6 +71,15 @@ namespace Lux
 				s_ActiveProject->m_Config.StartScene = startSceneMetadata.FilePath.generic_string();
 		}
 
+		if (!s_ActiveProject->m_Config.RuntimeExport.IconPath.empty())
+			s_ActiveProject->m_Config.RuntimeExport.IconHandle = GetEditorAssetManager()->GetAssetHandleFromFilePath(s_ActiveProject->m_Config.RuntimeExport.IconPath);
+		else if (s_ActiveProject->m_Config.RuntimeExport.IconHandle)
+		{
+			AssetMetadata iconMetadata = GetEditorAssetManager()->GetMetadata(s_ActiveProject->m_Config.RuntimeExport.IconHandle);
+			if (iconMetadata.IsValid())
+				s_ActiveProject->m_Config.RuntimeExport.IconPath = iconMetadata.FilePath.generic_string();
+		}
+
 		if (!AudioEngine::HasInitializedEngine())
 		{
 			AudioEngine::Init();
@@ -66,13 +96,31 @@ namespace Lux
 		}
 
 		s_ActiveProject = project;
+		if (AudioEngine::HasInitializedEngine())
+		{
+			AudioEngine::Shutdown();
+			AudioEngine::SetInitalizedEngine(false);
+		}
+
 		if (!s_ActiveProject)
 			return;
 
+		if (s_ActiveProject->m_ProjectDirectory.empty())
+			s_ActiveProject->m_ProjectDirectory = s_ActiveProject->m_Config.ProjectDirectory;
+		if (s_ActiveProject->m_ProjectFilePath.empty() && !s_ActiveProject->m_ProjectDirectory.empty())
+			s_ActiveProject->m_ProjectFilePath = s_ActiveProject->m_ProjectDirectory / s_ActiveProject->m_Config.ProjectFileName;
+
 		s_ActiveProject->m_Config.ProjectDirectory = s_ActiveProject->m_ProjectDirectory;
 		s_ActiveProject->m_Config.ProjectFileName = s_ActiveProject->m_ProjectFilePath.filename().string();
+
 		s_AssetManager = Ref<RuntimeAssetManager>::Create();
 		GetRuntimeAssetManager()->SetAssetPack(assetPack);
+
+		if (!AudioEngine::HasInitializedEngine())
+		{
+			AudioEngine::Init();
+			AudioEngine::SetInitalizedEngine(true);
+		}
 	}
 
 	Ref<Project> Project::New()
@@ -80,6 +128,23 @@ namespace Lux
 		Ref<Project> project = Ref<Project>::Create();
 		project->m_Config.DefaultNamespace = project->m_Config.Name;
 		SetActive(project);
+		return s_ActiveProject;
+	}
+
+	Ref<Project> Project::LoadRuntime(const std::filesystem::path& path, Ref<AssetPack> assetPack)
+	{
+		Ref<Project> project = Ref<Project>::Create();
+
+		ProjectSerializer serializer(project);
+		if (!serializer.DeserializeRuntime(path))
+			return nullptr;
+
+		project->m_ProjectFilePath = path.lexically_normal();
+		project->m_ProjectDirectory = path.parent_path();
+		project->m_Config.ProjectDirectory = project->m_ProjectDirectory;
+		project->m_Config.ProjectFileName = project->m_ProjectFilePath.filename().string();
+
+		SetActiveRuntime(project, assetPack);
 		return s_ActiveProject;
 	}
 
@@ -105,6 +170,9 @@ namespace Lux
 
 		if (!s_ActiveProject->m_Config.StartScene.empty() && GetEditorAssetManager())
 			s_ActiveProject->m_Config.StartSceneHandle = GetEditorAssetManager()->GetAssetHandleFromFilePath(s_ActiveProject->m_Config.StartScene);
+
+		if (!s_ActiveProject->m_Config.RuntimeExport.IconPath.empty() && GetEditorAssetManager())
+			s_ActiveProject->m_Config.RuntimeExport.IconHandle = GetEditorAssetManager()->GetAssetHandleFromFilePath(s_ActiveProject->m_Config.RuntimeExport.IconPath);
 
 		if (s_ActiveProject->m_Config.DefaultNamespace.empty())
 			s_ActiveProject->m_Config.DefaultNamespace = s_ActiveProject->m_Config.Name;
@@ -132,5 +200,8 @@ namespace Lux
 
 		if (m_Config.ScriptModulePath.empty())
 			m_Config.ScriptModulePath = std::filesystem::path("Scripts/Binaries") / (m_Config.Name + ".dll");
+
+		if (m_Config.RuntimeExport.GameName.empty())
+			m_Config.RuntimeExport.GameName = m_Config.Name;
 	}
 }

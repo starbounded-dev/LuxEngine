@@ -189,6 +189,11 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_Submit()
 	{
+		RT_Submit(VK_NULL_HANDLE);
+	}
+
+	void RenderCommandBuffer::RT_Submit(VkSemaphore waitSemaphore)
+	{
 		LUX_CORE_TRACE_TAG("Renderer", "Submitting Render Command Buffer {}", m_DebugName);
 
 		auto device = Application::GetGraphicsDevice();
@@ -208,8 +213,12 @@ namespace Lux {
 		commandBufferIndex %= m_CommandLists.size();
 
 		LockQueue();
+		if (waitSemaphore)
+		{
+			auto vulkanDevice = (nvrhi::vulkan::IDevice*)device.Get();
+			vulkanDevice->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, waitSemaphore, 0);
+		}
 		device->executeCommandList(m_CommandLists[commandBufferIndex]);
-
 		UnlockQueue();
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES

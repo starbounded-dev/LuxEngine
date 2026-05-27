@@ -26,6 +26,16 @@ namespace Lux
 		CaptureToFile = 1
 	};
 
+	enum class RuntimeExportTarget : uint8_t
+	{
+		Debug = 0,
+		Release = 1,
+		Dist = 2
+	};
+
+	const char* RuntimeExportTargetToString(RuntimeExportTarget target);
+	RuntimeExportTarget RuntimeExportTargetFromString(std::string_view value);
+
 	struct ProjectAudioSettings
 	{
 		double FileStreamingDurationThreshold = 1.0;
@@ -110,6 +120,18 @@ namespace Lux
 		float SSRDepthTolerance = 0.8f;
 	};
 
+	struct ProjectRuntimeExportSettings
+	{
+		std::string GameName;
+		uint32_t WindowWidth = 1920;
+		uint32_t WindowHeight = 1080;
+		bool Fullscreen = false;
+		bool VSync = true;
+		std::filesystem::path IconPath;
+		AssetHandle IconHandle = 0;
+		RuntimeExportTarget TargetConfig = RuntimeExportTarget::Release;
+	};
+
 	struct ProjectConfig
 	{
 		std::string Name = "Untitled";
@@ -137,6 +159,7 @@ namespace Lux
 		ProjectAudioSettings Audio;
 		ProjectPhysicsSettings Physics;
 		ProjectSceneRendererSettings SceneRenderer;
+		ProjectRuntimeExportSettings RuntimeExport;
 	};
 
 	class Project : public RefCounted
@@ -291,6 +314,7 @@ namespace Lux
 
 		static Ref<Project> New();
 		static Ref<Project> Load(const std::filesystem::path& path);
+		static Ref<Project> LoadRuntime(const std::filesystem::path& path, Ref<AssetPack> assetPack);
 		static bool SaveActive(const std::filesystem::path& path);
 
 	private:

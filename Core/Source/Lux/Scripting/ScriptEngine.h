@@ -3,6 +3,8 @@
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Entity.h"
 
+#include "Lux/Core/Buffer.h"
+
 #include <filesystem>
 #include <string>
 #include <map>
@@ -142,11 +144,12 @@ namespace Lux {
 	class ScriptEngine
 	{
 	public:
-		static void Init();
+		static bool Init(Buffer appAssemblyData = {}, const std::string& appAssemblyName = {});
 		static void Shutdown();
 
 		static bool LoadAssembly(const std::filesystem::path& filepath);
 		static bool LoadAppAssembly(const std::filesystem::path& filepath);
+		static bool LoadAppAssembly(Buffer assemblyData, const std::string& assemblyName);
 
 		static void ReloadAssembly();
 

@@ -28,6 +28,7 @@ namespace Lux {
 		bool IsAssetHandleValid(AssetHandle assetHandle) const;
 		bool IsAssetHandleValid(AssetHandle sceneHandle, AssetHandle assetHandle) const;
 
+		bool HasAppBinary() const;
 		Buffer ReadAppBinary();
 		uint64_t GetBuildVersion();
 

@@ -137,7 +137,7 @@ void main()
     {
         vec2 bloomTexSize = u_Uniforms.TexSize.xy;
         float sampleScale = 1.0f;
-        vec3 upsampledTexture = UpsampleTent9(u_BloomTexture, u_Uniforms.LOD + 1.0f, texCoords, 1.0f / bloomTexSize, sampleScale);
+        vec3 upsampledTexture = UpsampleTent9(u_BloomTexture, 0.0f, texCoords, 1.0f / bloomTexSize, sampleScale);
 
         vec3 existing = SampleLinearLOD(u_Texture, texCoords, u_Uniforms.LOD).rgb;
         color.rgb = existing + upsampledTexture;

@@ -513,6 +513,11 @@ namespace Lux {
 		glfwSetWindowPos(m_WindowHandle, x, y);
 	}
 
+	void Window::Show()
+	{
+		glfwShowWindow(m_WindowHandle);
+	}
+
 	void Window::SetTitle(const std::string& title)
 	{
 		m_Data.Title = title;

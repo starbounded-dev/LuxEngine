@@ -39,10 +39,6 @@ fi
 	cp $CORAL_DIR/Build/$BUILD_CONFIG/Coral.Managed.pdb $DOTNET_DIR/Coral.Managed.pdb
 	cp $CORAL_DIR/Build/$BUILD_CONFIG/Coral.Managed.deps.json $DOTNET_DIR/Coral.Managed.deps.json
 
-# Build Sandbox
-	premake5 vs2022 --file=Sandbox/premake5.lua
-	dotnet build -c $BUILD_CONFIG --property WarningLevel=0 Sandbox/Sandbox.sln
-
 # Build Lux
 	premake5 gmake --cc=clang --verbose
 	make config=$(echo "$BUILD_CONFIG" | tr '[:upper:]' '[:lower:]') "$@"

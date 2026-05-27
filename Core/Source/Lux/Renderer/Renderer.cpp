@@ -986,8 +986,6 @@ namespace Lux {
 		if (!Renderer::GetConfig().ComputeEnvironmentMaps)
 			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
 
-		const uint32_t cubemapSize = Renderer::GetConfig().EnvironmentMapResolution;
-
 		// Load the HDR equirectangular texture
 		TextureSpecification equirectSpec;
 		equirectSpec.DebugName = "EnvEquirect";
@@ -999,6 +997,28 @@ namespace Lux {
 			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
 		}
 		LUX_CORE_ASSERT(envEquirect->GetFormat() == ImageFormat::RGBA32F, "Environment texture is not HDR!");
+
+		return CreateEnvironmentMap(envEquirect);
+	}
+
+	std::pair<Ref<TextureCube>, Ref<TextureCube>> Renderer::CreateEnvironmentMap(Ref<Texture2D> envEquirect)
+	{
+		if (!Renderer::GetConfig().ComputeEnvironmentMaps)
+			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
+
+		if (!envEquirect || !envEquirect->Loaded())
+		{
+			LUX_CORE_ERROR("Failed to load environment map from packed texture data");
+			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
+		}
+
+		if (envEquirect->GetFormat() != ImageFormat::RGBA32F)
+		{
+			LUX_CORE_ERROR("Environment texture is not HDR!");
+			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
+		}
+
+		const uint32_t cubemapSize = Renderer::GetConfig().EnvironmentMapResolution;
 
 		// Create cubemap textures
 		TextureSpecification cubemapSpec;
