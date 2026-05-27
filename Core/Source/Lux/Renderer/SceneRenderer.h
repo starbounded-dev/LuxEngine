@@ -636,6 +636,7 @@ namespace Lux {
 		void BloomCompute();
 		void CompositePass();
 		void DOFPass();
+		bool CanCompositeDOFIntoFinalTarget();
 		void JumpFloodPass();
 		void JumpFloodCompositePass();
 		void GridPass();

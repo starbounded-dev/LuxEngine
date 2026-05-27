@@ -508,9 +508,6 @@ namespace Lux {
 		Renderer::SetGlobalMacroInShaders("__HZ_GTAO_COMPUTE_BENT_NORMALS", m_Options.GTAOBentNormals ? "1" : "0");
 
 		m_Options.ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
-		if (gtaoEnabled && m_Options.EnableSSR)
-			m_Options.ReflectionOcclusionMethod = ShaderDef::AOMethod::GTAO;
-
 		Renderer::SetGlobalMacroInShaders("__HZ_REFLECTION_OCCLUSION_METHOD", std::to_string((int)m_Options.ReflectionOcclusionMethod));
 	}
 
@@ -4097,6 +4094,11 @@ namespace Lux {
 			JumpFloodPass();
 		BloomCompute();
 		CompositePass();
+
+		const bool compositeDOFIntoFinalTarget = CanCompositeDOFIntoFinalTarget();
+		if (compositeDOFIntoFinalTarget)
+			DOFPass();
+
 		if (m_Options.EnableJumpFlood && !m_SelectedStaticMeshDrawList.empty())
 			JumpFloodCompositePass();
 
@@ -4131,7 +4133,7 @@ namespace Lux {
 			overlayRenderer->EndScene();
 		}
 
-		if (m_DOFSettings.Enabled)
+		if (m_DOFSettings.Enabled && !compositeDOFIntoFinalTarget)
 			DOFPass();
 
 		m_CommandBuffer->End();
@@ -4940,7 +4942,24 @@ namespace Lux {
 		Renderer::BeginRenderPass(m_CommandBuffer, m_DOFPass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_DOFPass->GetPipeline(), m_DOFMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
+
+		if (CanCompositeDOFIntoFinalTarget())
+			Renderer::CopyImage(m_CommandBuffer, m_DOFPass->GetOutput(0), m_CompositePass->GetOutput(0));
+
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	bool SceneRenderer::CanCompositeDOFIntoFinalTarget()
+	{
+		if (!m_DOFSettings.Enabled || !m_DOFPass || !m_CompositePass)
+			return false;
+
+		Ref<Image2D> dofImage = m_DOFPass->GetOutput(0);
+		Ref<Image2D> compositeImage = m_CompositePass->GetOutput(0);
+		if (!dofImage || !compositeImage)
+			return false;
+
+		return dofImage->GetSize() == compositeImage->GetSize();
 	}
 
 	void SceneRenderer::JumpFloodPass()
@@ -5347,7 +5366,7 @@ namespace Lux {
 		switch (mode)
 		{
 			case DebugViewMode::Final:
-				if (m_DOFSettings.Enabled && m_DOFPass)
+				if (m_DOFSettings.Enabled && m_DOFPass && !CanCompositeDOFIntoFinalTarget())
 					return m_DOFPass->GetOutput(0);
 				if (m_CompositePass)
 					return m_CompositePass->GetOutput(0);
@@ -5394,7 +5413,7 @@ namespace Lux {
 
 	Ref<RenderPass> SceneRenderer::GetFinalRenderPass()
 	{
-		if (m_DOFSettings.Enabled && m_DOFPass)
+		if (m_DOFSettings.Enabled && m_DOFPass && !CanCompositeDOFIntoFinalTarget())
 			return m_DOFPass;
 		return m_CompositePass;
 	}

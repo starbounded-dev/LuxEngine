@@ -60,7 +60,7 @@ namespace Lux
 		bool GTAOBentNormals = false;
 		int GTAODenoisePasses = 4;
 		float AOShadowTolerance = 1.0f;
-		bool EnableSSR = false;
+		bool EnableSSR = true;
 		bool EnableJumpFlood = true;
 		uint32_t RenderScaleMode = 0; // SceneRendererOptions::RenderResolutionScaleMode
 		float DynamicResolutionMinScale = 0.5f;

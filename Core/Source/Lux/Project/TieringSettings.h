@@ -46,7 +46,7 @@ namespace Lux
 				bool EnableAO = true;
 				AmbientOcclusionTypeSetting AOType = AmbientOcclusionTypeSetting::GTAO;
 				AmbientOcclusionQualitySetting AOQuality = AmbientOcclusionQualitySetting::Ultra;
-				SSRQualitySetting SSRQuality = SSRQualitySetting::Off;
+				SSRQualitySetting SSRQuality = SSRQualitySetting::Medium;
 
 				bool EnableBloom = true;
 			};

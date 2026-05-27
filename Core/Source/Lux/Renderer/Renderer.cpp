@@ -1449,7 +1449,29 @@ namespace Lux {
 
 	void Renderer::CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
 	{
-		//s_RendererAPI->CopyImage(renderCommandBuffer, sourceImage, destinationImage);
+		LUX_CORE_VERIFY(renderCommandBuffer);
+		LUX_CORE_VERIFY(sourceImage);
+		LUX_CORE_VERIFY(destinationImage);
+
+		Renderer::Submit([renderCommandBuffer, sourceImage, destinationImage]() mutable
+		{
+			nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+			if (!commandList || !sourceImage->GetHandle() || !destinationImage->GetHandle())
+				return;
+
+			const uint32_t copyWidth = std::min(sourceImage->GetWidth(), destinationImage->GetWidth());
+			const uint32_t copyHeight = std::min(sourceImage->GetHeight(), destinationImage->GetHeight());
+			if (copyWidth == 0 || copyHeight == 0)
+				return;
+
+			nvrhi::TextureSlice srcSlice;
+			srcSlice.setSize(copyWidth, copyHeight, 1);
+
+			nvrhi::TextureSlice dstSlice;
+			dstSlice.setSize(copyWidth, copyHeight, 1);
+
+			commandList->copyTexture(destinationImage->GetHandle(), dstSlice, sourceImage->GetHandle(), srcSlice);
+		});
 	}
 
 	void Renderer::BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)

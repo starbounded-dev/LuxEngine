@@ -14,9 +14,6 @@
 	path = Core/vendor/glm
 	url = ../../g-truc/glm.git
 	branch = master
-[submodule "Core/vendor/yaml-cpp"]
-	path = Core/vendor/yaml-cpp
-	url = https://github.com/sheazywi/yaml-cpp
 [submodule "Core/vendor/imguizmo"]
 	path = Core/vendor/imguizmo
 	url = https://github.com/sheazywi/imguizmo.git
