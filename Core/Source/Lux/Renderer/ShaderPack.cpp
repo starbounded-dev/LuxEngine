@@ -50,11 +50,19 @@ namespace Lux {
 		// Read index
 		FileStreamReader serializer(path);
 		if (!serializer)
+		{
+			LUX_CORE_ERROR("Shader pack file could not be opened: {}", path.string());
 			return;
+		}
 
 		serializer.ReadRaw(m_File.Header);
-		if (memcmp(m_File.Header.HEADER, "HZSP", 4) != 0)
+		const bool isLuxShaderPack = memcmp(m_File.Header.HEADER, "LXSP", 4) == 0;
+		const bool isLegacyHazelShaderPack = memcmp(m_File.Header.HEADER, "HZSP", 4) == 0;
+		if (!isLuxShaderPack && !isLegacyHazelShaderPack)
+		{
+			LUX_CORE_ERROR("Shader pack '{}' has an invalid header. Expected LXSP.", path.string());
 			return;
+		}
 
 		m_Loaded = true;
 		for (uint32_t i = 0; i < m_File.Header.ShaderProgramCount; i++)

@@ -20,12 +20,12 @@ If the repository was cloned non-recursively previously, use `git submodule upda
 1. Run the [Setup.bat](scripts/Setup.bat) file found in the `scripts` folder. This validates Python packages, checks the Vulkan SDK, pulls Git LFS assets and submodules, and generates project files.
 2. One prerequisite is the Vulkan SDK 1.4.x. If it is not installed, the script will download `VulkanSDK.exe` and prompt the user to install the SDK.
 3. After installation, run [Setup.bat](scripts/Setup.bat) again. Debug builds require the Vulkan SDK shader debug libraries.
-4. The setup script generates the root Visual Studio solution and the Sandbox project files. If changes are made, or if you want to regenerate project files, rerun the [Win-GenProjects.bat](scripts/Win-GenProjects.bat) script file found in the `scripts` folder.
+4. The setup script generates the root Visual Studio solution, Editor project files, and Lux-Runtime project files. If changes are made, or if you want to regenerate project files, rerun the [Win-GenProjects.bat](scripts/Win-GenProjects.bat) script file found in the `scripts` folder.
 
 ***
 
 ## Continuous Integration
-The [Build LuxEngine](.github/workflows/main.yml) workflow builds Debug, Release, and Dist on Windows Server 2025. It checks out LFS assets and submodules recursively, installs Python and the Vulkan SDK, generates Visual Studio 2022 project files with `scripts/Setup.py vs2022`, and builds `Lux.sln` for the `Mixed Platforms` solution platform. Debug and Release builds upload an `editor-<configuration>` artifact containing the built Editor output plus `Editor/imgui.ini`, `Editor/App.lsettings`, `Editor/SandboxProject`, `Editor/Resources`, and `Editor/mono`. MSBuild logs are uploaded for each configuration when the workflow runs.
+The [Build LuxEngine](.github/workflows/main.yml) workflow builds Debug, Release, and Dist on Windows Server 2025. It checks out LFS assets and submodules recursively, installs Python and the Vulkan SDK, generates Visual Studio 2022 project files with `scripts/Setup.py vs2022`, and builds `Lux.sln` for the `Mixed Platforms` solution platform. Debug and Release builds upload an `editor-<configuration>` artifact containing the built Editor output plus `Editor/imgui.ini`, `Editor/App.lsettings`, `Editor/LuxSampleProject`, `Editor/Resources`, and `Editor/mono`. MSBuild logs are uploaded for each configuration when the workflow runs.
 
 ***
 

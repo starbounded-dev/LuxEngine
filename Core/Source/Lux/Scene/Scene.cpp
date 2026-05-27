@@ -823,6 +823,12 @@ namespace Lux {
 		m_StepFrames = frames;
 	}
 
+	bool Scene::HasScripts() const
+	{
+		auto view = m_Registry.view<const ScriptComponent>();
+		return view.begin() != view.end();
+	}
+
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
 		using DuplicateComponents =

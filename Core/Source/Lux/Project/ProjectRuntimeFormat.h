@@ -11,7 +11,7 @@ namespace Lux
 		struct FileHeader
 		{
 			char Header[4] = { 'L', 'P', 'R', 'J' };
-			uint32_t Version = 8;
+			uint32_t Version = 9;
 		};
 
 		struct Audio

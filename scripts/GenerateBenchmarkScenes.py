@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT_DIR = ROOT / "Editor" / "SandboxProject" / "Assets" / "Scenes" / "Benchmarks"
+DEFAULT_OUTPUT_DIR = ROOT / "Editor" / "LuxSampleProject" / "Assets" / "Scenes" / "Benchmarks"
 
 CUBE_MESH_SOURCE = 6041298930630833044
 

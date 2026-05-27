@@ -59,6 +59,10 @@ namespace Lux
 		bool OpenProject();
 		void OpenProject(const std::filesystem::path& path);
 		void SaveProject();
+		void ExportRuntime();
+		bool ExportRuntimeNow();
+		void RenderRuntimeExportWindow();
+		void SyncRuntimeExportWindowFromProject();
 
 		void NewScene();
 		void OpenScene();
@@ -131,9 +135,12 @@ namespace Lux
 		bool m_ShowBoundingBoxes = false;
 		bool m_ShowEntityIcons = true;
 		bool m_ShowViewportPerformanceHUD = true;
+		bool m_ShowRuntimeExportWindow = false;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;
 		float m_RotationSnapValue = 45.0f;
+		AssetHandle m_RuntimeExportIcon = 0;
+		char m_RuntimeExportGameNameBuffer[256] = {};
 
 		enum class SceneState
 		{

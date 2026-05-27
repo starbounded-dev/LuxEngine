@@ -1,12 +1,15 @@
 #include "lpch.h"
 #include "MeshSerializer.h"
 
-#include "AssimpMeshImporter.h"
 #include "MeshRuntimeSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Mesh.h"
+
+#ifndef LUX_DIST
+#include "AssimpMeshImporter.h"
+#endif
 
 #include <fstream>
 #include <sstream>
@@ -148,6 +151,10 @@ namespace Lux
 
 	bool MeshSourceSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
 	{
+#ifdef LUX_DIST
+		LUX_CORE_ERROR("MeshSourceSerializer cannot import source meshes in Dist builds: {}", metadata.FilePath.string());
+		return false;
+#else
 		AssimpMeshImporter importer(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
 		Ref<MeshSource> meshSource = importer.ImportToMeshSource();
 		if (!meshSource)
@@ -156,6 +163,7 @@ namespace Lux
 		meshSource->Handle = metadata.Handle;
 		asset = meshSource;
 		return true;
+#endif
 	}
 
 	bool MeshSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const

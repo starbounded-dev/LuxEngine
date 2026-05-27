@@ -29,9 +29,10 @@ struct OutputBlock
 
 layout (location = 0) in OutputBlock Input;
 
-layout (binding = 0) uniform sampler2D u_Texture;
+layout (set = 0, binding = 0) uniform texture2D u_Texture;
+layout (set = 0, binding = 1) uniform sampler u_TextureSampler;
 
 void main()
 {
-	o_Color = texture(u_Texture, Input.TexCoord);
+	o_Color = texture(sampler2D(u_Texture, u_TextureSampler), Input.TexCoord);
 }
