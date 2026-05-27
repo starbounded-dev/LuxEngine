@@ -730,6 +730,8 @@ namespace Lux
 		}
 
 		WriteSceneRendererRuntimeSettings(serializer, m_Project->GetConfig().SceneRenderer);
+		serializer.WriteString(m_Project->GetConfig().Name);
+		serializer.WriteString(m_Project->GetConfig().ScriptModulePath.generic_string());
 
 		return true;
 	}
@@ -904,6 +906,7 @@ namespace Lux
 		auto& config = m_Project->GetConfig();
 		config.ProjectDirectory = filepath.parent_path();
 		config.ProjectFileName = filepath.filename().string();
+		config.AssetDirectory = ".";
 		config.StartSceneHandle = projectInfo.StartScene;
 		config.Audio.FileStreamingDurationThreshold = projectInfo.AudioInfo.FileStreamingDurationThreshold;
 
@@ -950,6 +953,19 @@ namespace Lux
 
 		if (projectInfo.HeaderData.Version >= 2)
 			ReadSceneRendererRuntimeSettings(stream, config.SceneRenderer, projectInfo.HeaderData.Version);
+
+		if (projectInfo.HeaderData.Version >= 9)
+		{
+			std::string projectName;
+			stream.ReadString(projectName);
+			if (!projectName.empty())
+				config.Name = projectName;
+
+			std::string scriptModulePath;
+			stream.ReadString(scriptModulePath);
+			if (!scriptModulePath.empty())
+				config.ScriptModulePath = scriptModulePath;
+		}
 
 		const std::filesystem::path overridesFile = filepath.parent_path() / "Project.yaml";
 		if (std::filesystem::exists(overridesFile))

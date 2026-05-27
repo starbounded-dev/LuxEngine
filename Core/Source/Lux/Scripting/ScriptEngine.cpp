@@ -82,6 +82,25 @@ namespace Lux {
 			return assembly;
 		}
 
+		static MonoAssembly* LoadMonoAssembly(Buffer assemblyData, const std::string& assemblyName)
+		{
+			if (!assemblyData || assemblyData.Size == 0)
+				return nullptr;
+
+			MonoImageOpenStatus status;
+			MonoImage* image = mono_image_open_from_data_full(assemblyData.As<char>(), (uint32_t)assemblyData.Size, 1, &status, 0);
+			if (status != MONO_IMAGE_OK)
+			{
+				const char* errorMessage = mono_image_strerror(status);
+				LUX_CORE_ERROR("[ScriptEngine] Failed to load packed assembly image '{}': {}", assemblyName, errorMessage);
+				return nullptr;
+			}
+
+			MonoAssembly* assembly = mono_assembly_load_from_full(image, assemblyName.c_str(), &status, 0);
+			mono_image_close(image);
+			return assembly;
+		}
+
 		void PrintAssemblyTypes(MonoAssembly* assembly)
 		{
 			MonoImage* image = mono_assembly_get_image(assembly);
@@ -138,6 +157,7 @@ namespace Lux {
 
 		Scope<filewatch::FileWatch<std::string>> AppAssemblyFileWatcher;
 		bool AssemblyReloadPending = false;
+		bool AppAssemblyLoadedFromMemory = false;
 
 		#if LUX_DEBUG
 		bool EnableDebugging = true;
@@ -168,7 +188,7 @@ namespace Lux {
 			});
 	}
 
-	void ScriptEngine::Init()
+	bool ScriptEngine::Init(Buffer appAssemblyData, const std::string& appAssemblyName)
 	{
 		s_Data = new ScriptEngineData();
 
@@ -179,15 +199,24 @@ namespace Lux {
 		if (!status)
 		{
 			LUX_CORE_ERROR("[ScriptEngine] Could not load Lux-ScriptCore assembly.");
-			return;
+			return false;
 		}
 
-		auto scriptModulePath = Project::GetActiveAssetDirectory() / Project::GetActive()->GetConfig().ScriptModulePath;
-		status = LoadAppAssembly(scriptModulePath);
+		if (appAssemblyData)
+		{
+			const std::string assemblyName = appAssemblyName.empty() ? Project::GetActive()->GetConfig().ScriptModulePath.filename().string() : appAssemblyName;
+			status = LoadAppAssembly(appAssemblyData, assemblyName);
+		}
+		else
+		{
+			auto scriptModulePath = Project::GetActiveAssetDirectory() / Project::GetActive()->GetConfig().ScriptModulePath;
+			status = LoadAppAssembly(scriptModulePath);
+		}
+
 		if (!status)
 		{
 			LUX_CORE_ERROR("[ScriptEngine] Could not load app assembly.");
-			return;
+			return false;
 		}
 
 		LoadAssemblyClasses();
@@ -196,6 +225,7 @@ namespace Lux {
 
 		// Retrieve and instantiate class
 		s_Data->EntityClass = ScriptClass("Lux", "Entity", true);
+		return true;
 	}
 
 	void ScriptEngine::Shutdown()
@@ -283,6 +313,7 @@ namespace Lux {
 		if (s_Data->AppAssembly == nullptr)
 			return false;
 		s_Data->AppAssemblyImage = mono_assembly_get_image(s_Data->AppAssembly);
+		s_Data->AppAssemblyLoadedFromMemory = false;
 
 		s_Data->AppAssemblyFileWatcher = CreateScope<filewatch::FileWatch<std::string>>(filepath.string(), OnAppAssemblyFileSystemEvent);
 		s_Data->AssemblyReloadPending = false;
@@ -290,9 +321,25 @@ namespace Lux {
 		return true;
 	}
 
+	bool ScriptEngine::LoadAppAssembly(Buffer assemblyData, const std::string& assemblyName)
+	{
+		s_Data->AppAssemblyFilepath = assemblyName;
+		s_Data->AppAssembly = Utils::LoadMonoAssembly(assemblyData, assemblyName);
+		if (s_Data->AppAssembly == nullptr)
+			return false;
+		s_Data->AppAssemblyImage = mono_assembly_get_image(s_Data->AppAssembly);
+		s_Data->AppAssemblyLoadedFromMemory = true;
+		s_Data->AppAssemblyFileWatcher.reset();
+		s_Data->AssemblyReloadPending = false;
+		return true;
+	}
+
 	void ScriptEngine::ReloadAssembly()
 	{
 		if (!s_Data || !s_Data->RootDomain || !s_Data->AppDomain)
+			return;
+
+		if (s_Data->AppAssemblyLoadedFromMemory)
 			return;
 
 		s_Data->AppAssemblyFileWatcher.reset();

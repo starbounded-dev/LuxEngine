@@ -235,17 +235,17 @@ namespace Lux {
 			return !path.empty() && std::filesystem::exists(path, ec) && std::filesystem::is_regular_file(path, ec);
 		}
 
-		std::string QuoteCommandArgument(std::string value)
+		std::string QuotePowerShellArgument(std::string value)
 		{
-			std::string result = "\"";
+			std::string result = "'";
 			for (char c : value)
 			{
-				if (c == '"')
-					result += "\\\"";
+				if (c == '\'')
+					result += "''";
 				else
 					result += c;
 			}
-			result += '"';
+			result += "'";
 			return result;
 		}
 
@@ -385,9 +385,9 @@ namespace Lux {
 			const std::filesystem::path msbuildPath = "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe";
 			const std::string msbuild = FileExists(msbuildPath) ? msbuildPath.string() : "MSBuild.exe";
 			const std::string command =
-				"cmd /S /C \""
-				+ QuoteCommandArgument(msbuild) + " "
-				+ QuoteCommandArgument(projectFile.string())
+				"powershell -NoProfile -ExecutionPolicy Bypass -Command \"& "
+				+ QuotePowerShellArgument(msbuild) + " "
+				+ QuotePowerShellArgument(projectFile.string())
 				+ " /t:Build /p:Configuration=" + RuntimeExportTargetToString(target)
 				+ " /p:Platform=x64 /m:1 /nr:false /v:minimal\"";
 
@@ -401,6 +401,137 @@ namespace Lux {
 
 			LUX_CONSOLE_LOG_INFO("Lux-Runtime build complete.");
 			return true;
+		}
+
+		std::filesystem::path ResolveScriptProjectFile(Ref<Project> project)
+		{
+			if (!project)
+				return {};
+
+			std::filesystem::path scriptProject = project->GetScriptProjectPath();
+			if (FileExists(scriptProject))
+				return scriptProject;
+
+			std::filesystem::path scriptProjectFilename = project->GetConfig().ScriptModulePath.filename();
+			if (!scriptProjectFilename.empty())
+			{
+				scriptProjectFilename.replace_extension(".csproj");
+				scriptProject = project->GetAssetDirectory() / "Scripts" / scriptProjectFilename;
+			}
+
+			return scriptProject;
+		}
+
+		bool IsScriptModuleOutdated(const std::filesystem::path& scriptModule, const std::filesystem::path& scriptProject)
+		{
+			std::error_code ec;
+			if (!FileExists(scriptModule))
+				return true;
+			if (!FileExists(scriptProject))
+				return false;
+
+			const auto moduleWriteTime = std::filesystem::last_write_time(scriptModule, ec);
+			if (ec)
+				return true;
+
+			ec.clear();
+			if (std::filesystem::last_write_time(scriptProject, ec) > moduleWriteTime && !ec)
+				return true;
+
+			const std::filesystem::path scriptsDirectory = scriptProject.parent_path();
+			if (!std::filesystem::exists(scriptsDirectory, ec))
+				return false;
+
+			for (const auto& entry : std::filesystem::recursive_directory_iterator(scriptsDirectory, ec))
+			{
+				if (ec)
+					break;
+				if (!entry.is_regular_file(ec))
+					continue;
+
+				const std::filesystem::path relativePath = std::filesystem::relative(entry.path(), scriptsDirectory, ec);
+				if (!ec && !relativePath.empty())
+				{
+					const std::filesystem::path first = *relativePath.begin();
+					if (first == "Binaries" || first == "Intermediates")
+						continue;
+				}
+
+				const std::filesystem::path extension = entry.path().extension();
+				if (extension != ".cs" && extension != ".csproj" && extension != ".props" && extension != ".targets" && extension != ".lua")
+					continue;
+
+				ec.clear();
+				if (entry.last_write_time(ec) > moduleWriteTime && !ec)
+					return true;
+			}
+
+			return false;
+		}
+
+		bool BuildScriptModule(RuntimeExportTarget target)
+		{
+			Ref<Project> project = Project::GetActive();
+			if (!project)
+			{
+				LUX_CONSOLE_LOG_ERROR("No active project to build scripts for.");
+				return false;
+			}
+
+			const std::filesystem::path scriptProject = ResolveScriptProjectFile(project);
+			if (!FileExists(scriptProject))
+			{
+				LUX_CONSOLE_LOG_ERROR("Script project file not found: {}", scriptProject.string());
+				return false;
+			}
+
+			const std::filesystem::path msbuildPath = "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe";
+			const std::string msbuild = FileExists(msbuildPath) ? msbuildPath.string() : "MSBuild.exe";
+			const std::string command =
+				"powershell -NoProfile -ExecutionPolicy Bypass -Command \"& "
+				+ QuotePowerShellArgument(msbuild) + " "
+				+ QuotePowerShellArgument(scriptProject.string())
+				+ " /t:Build /p:Configuration=" + RuntimeExportTargetToString(target)
+				+ " /p:Platform=AnyCPU /m:1 /nr:false /v:minimal\"";
+
+			LUX_CONSOLE_LOG_INFO("Building scripts ({})...", RuntimeExportTargetToString(target));
+			const int result = std::system(command.c_str());
+			if (result != 0)
+			{
+				LUX_CONSOLE_LOG_ERROR("Script build failed with exit code {}.", result);
+				return false;
+			}
+
+			const std::filesystem::path scriptModule = project->GetScriptModuleFilePath();
+			if (!FileExists(scriptModule))
+			{
+				LUX_CONSOLE_LOG_ERROR("Script build completed, but the script module was not found: {}", scriptModule.string());
+				return false;
+			}
+
+			LUX_CONSOLE_LOG_INFO("Script build complete: {}", scriptModule.string());
+			return true;
+		}
+
+		bool StartupSceneUsesScripts(Ref<Project> project)
+		{
+			if (!project || !project->GetConfig().StartSceneHandle)
+				return false;
+
+			Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager();
+			if (!editorAssetManager)
+				return false;
+
+			const AssetMetadata metadata = editorAssetManager->GetMetadata(project->GetConfig().StartSceneHandle);
+			if (!metadata.IsValid())
+				return false;
+
+			Ref<Scene> scene = Ref<Scene>::Create();
+			SceneSerializer serializer(scene);
+			if (!serializer.Deserialize(project->GetAssetDirectory() / metadata.FilePath))
+				return false;
+
+			return scene->HasScripts();
 		}
 
 		std::filesystem::path ResolveRuntimeIconSource(const ProjectRuntimeExportSettings& settings)
@@ -2084,6 +2215,17 @@ namespace Lux {
 			runtimeExe = GetRuntimeExecutablePath(targetConfig);
 		}
 
+		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
+		const std::filesystem::path scriptProject = ResolveScriptProjectFile(project);
+		const bool startupSceneUsesScripts = StartupSceneUsesScripts(project);
+		const bool scriptProjectExists = FileExists(scriptProject);
+		if (!project->GetConfig().ScriptModulePath.empty() && scriptProjectExists && IsScriptModuleOutdated(scriptModule, scriptProject))
+		{
+			LUX_CONSOLE_LOG_INFO("Script module is missing or stale. Building scripts before asset pack creation...");
+			if (!BuildScriptModule(targetConfig) && startupSceneUsesScripts)
+				return;
+		}
+
 		const std::filesystem::path current = std::filesystem::current_path(ec);
 		const std::filesystem::path resourcesSource = FindFirstExistingDirectory({
 			current / "Resources",
@@ -2097,18 +2239,24 @@ namespace Lux {
 			repositoryRoot / "Editor" / "mono",
 			std::filesystem::path("Editor") / "mono"
 		});
-		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
 		const bool hasStartupScene = project->GetConfig().StartSceneHandle != 0;
 		const bool hasRuntimeExe = FileExists(runtimeExe);
 		const bool hasResources = !resourcesSource.empty();
 		const bool hasMono = !monoSource.empty();
 		const bool hasScriptModule = project->GetConfig().ScriptModulePath.empty() || FileExists(scriptModule);
+		const bool scriptModuleStale = !project->GetConfig().ScriptModulePath.empty() && hasScriptModule && IsScriptModuleOutdated(scriptModule, scriptProject);
 
 		LUX_CONSOLE_LOG_INFO("Runtime export preflight:");
 		LUX_CONSOLE_LOG_INFO("  Startup Scene: {}", hasStartupScene ? "set" : "missing");
+		LUX_CONSOLE_LOG_INFO("  Startup Scene Uses Scripts: {}", startupSceneUsesScripts ? "yes" : "no");
 		LUX_CONSOLE_LOG_INFO("  Lux-Runtime.exe: {}", hasRuntimeExe ? runtimeExe.string() : "missing");
 		LUX_CONSOLE_LOG_INFO("  Resources: {}", hasResources ? resourcesSource.string() : "missing");
-		LUX_CONSOLE_LOG_INFO("  Script Module: {}", hasScriptModule ? (scriptModule.empty() ? "optional" : scriptModule.string()) : "missing");
+		if (project->GetConfig().ScriptModulePath.empty())
+			LUX_CONSOLE_LOG_INFO("  Script Module: optional");
+		else if (!hasScriptModule)
+			LUX_CONSOLE_LOG_INFO("  Script Module: missing ({})", scriptModule.string());
+		else
+			LUX_CONSOLE_LOG_INFO("  Script Module: {} ({})", scriptModuleStale ? "stale" : "found", scriptModule.string());
 		LUX_CONSOLE_LOG_INFO("  mono: {}", hasMono ? monoSource.string() : "missing");
 
 		if (!hasStartupScene || !hasRuntimeExe || !hasResources)
@@ -2117,8 +2265,14 @@ namespace Lux {
 			return;
 		}
 
+		if (startupSceneUsesScripts && (!hasScriptModule || scriptModuleStale))
+		{
+			LUX_CONSOLE_LOG_ERROR("Runtime export preflight failed. Startup Scene uses scripts, but the script module is {}.", hasScriptModule ? "stale" : "missing");
+			return;
+		}
+
 		if (!hasScriptModule)
-			LUX_CONSOLE_LOG_WARN("Script module is missing. Export will continue, but scripted behaviours will not load.");
+			LUX_CONSOLE_LOG_WARN("Script module is missing. Export will continue because the Startup Scene does not use scripts.");
 		if (!hasMono)
 			LUX_CONSOLE_LOG_WARN("Mono directory is missing. Export will continue, but scripting will not run.");
 

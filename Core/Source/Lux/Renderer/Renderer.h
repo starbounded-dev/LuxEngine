@@ -151,6 +151,7 @@ namespace Lux {
 		
 		//static void SetSceneEnvironment(Ref<SceneRenderer> sceneRenderer, Ref<Environment> environment, Ref<Image2D> shadow, Ref<Image2D> spotShadow);
 		static std::pair<Ref<TextureCube>, Ref<TextureCube>> CreateEnvironmentMap(const std::string& filepath);
+		static std::pair<Ref<TextureCube>, Ref<TextureCube>> CreateEnvironmentMap(Ref<Texture2D> equirectangularTexture);
 		static Ref<TextureCube> CreatePreethamSky(float turbidity, float azimuth, float inclination);
 		static Ref<Environment> CreatePreethamSkyEnvironment(float turbidity, float azimuth, float inclination);
 		

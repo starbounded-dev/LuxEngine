@@ -98,6 +98,7 @@ namespace Lux {
 		bool IsPaused() const { return m_IsPaused; }
 		void SetPaused(bool paused) { m_IsPaused = paused; }
 		void Step(int frames = 1);
+		bool HasScripts() const;
 
 		// ============================================================================
 		// 3D Rendering Support

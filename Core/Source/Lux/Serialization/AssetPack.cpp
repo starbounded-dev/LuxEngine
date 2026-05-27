@@ -160,6 +160,11 @@ namespace Lux
 		return sceneIterator->second.Assets.find(assetHandle) != sceneIterator->second.Assets.end();
 	}
 
+	bool AssetPack::HasAppBinary() const
+	{
+		return m_File.Index.PackedAppBinarySize > sizeof(uint64_t);
+	}
+
 	Buffer AssetPack::ReadAppBinary()
 	{
 		FileStreamReader stream(m_Path);

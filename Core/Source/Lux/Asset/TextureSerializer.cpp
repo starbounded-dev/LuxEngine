@@ -6,6 +6,7 @@
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Serialization/TextureRuntimeSerializer.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Utilities/FileSystem.h"
 
 #include <filesystem>
 
@@ -88,12 +89,17 @@ namespace Lux
 
 		if (AssetManager::GetAssetType(handle) == AssetType::EnvMap)
 		{
-			Ref<Environment> environment = AssetManager::GetAsset<Environment>(handle);
-			if (!environment || !environment->RadianceMap || !environment->IrradianceMap)
+			auto assetManager = Project::GetEditorAssetManager();
+			if (!assetManager)
 				return false;
 
-			TextureRuntimeSerializer::SerializeToFile(environment->RadianceMap, stream);
-			TextureRuntimeSerializer::SerializeToFile(environment->IrradianceMap, stream);
+			const AssetMetadata metadata = assetManager->GetMetadata(handle);
+			Buffer sourceBuffer = FileSystem::ReadBytes(assetManager->GetFileSystemPath(metadata));
+			if (!sourceBuffer)
+				return false;
+
+			stream.WriteBuffer(sourceBuffer);
+			sourceBuffer.Release();
 			outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
 			return true;
 		}
@@ -113,8 +119,24 @@ namespace Lux
 		const AssetType assetType = (AssetType)assetInfo.Type;
 		if (assetType == AssetType::EnvMap)
 		{
-			Ref<TextureCube> radiance = TextureRuntimeSerializer::DeserializeTextureCube(stream);
-			Ref<TextureCube> irradiance = TextureRuntimeSerializer::DeserializeTextureCube(stream);
+			Buffer sourceBuffer;
+			stream.ReadBuffer(sourceBuffer);
+			if (!sourceBuffer)
+				return nullptr;
+
+			TextureSpecification equirectSpec;
+			equirectSpec.DebugName = "PackedEnvEquirect";
+			equirectSpec.FlipVertically = false;
+			equirectSpec.Width = (uint32_t)sourceBuffer.Size;
+			equirectSpec.Height = 0;
+
+			Ref<Texture2D> equirectTexture = Texture2D::Create(equirectSpec, sourceBuffer);
+			sourceBuffer.Release();
+
+			if (!equirectTexture || !equirectTexture->Loaded())
+				return nullptr;
+
+			auto [radiance, irradiance] = Renderer::CreateEnvironmentMap(equirectTexture);
 			if (!radiance || !irradiance)
 				return nullptr;
 
