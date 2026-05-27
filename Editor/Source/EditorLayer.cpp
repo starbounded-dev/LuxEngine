@@ -44,6 +44,7 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <limits>
@@ -139,6 +140,11 @@ namespace Lux {
 		constexpr const char* s_RuntimeProjectFile = "Project.luxruntime";
 		constexpr const char* s_RuntimeAssetPackFile = "AssetPack.lap";
 		constexpr const char* s_RuntimeShaderPackFile = "ShaderPack.lsp";
+		constexpr RuntimeExportTarget s_RuntimeExportTargets[] = {
+			RuntimeExportTarget::Debug,
+			RuntimeExportTarget::Release,
+			RuntimeExportTarget::Dist
+		};
 
 		std::string SanitizeBuildName(std::string value)
 		{
@@ -526,12 +532,18 @@ namespace Lux {
 			if (!metadata.IsValid())
 				return false;
 
-			Ref<Scene> scene = Ref<Scene>::Create();
-			SceneSerializer serializer(scene);
-			if (!serializer.Deserialize(project->GetAssetDirectory() / metadata.FilePath))
+			std::ifstream sceneFile(project->GetAssetDirectory() / metadata.FilePath);
+			if (!sceneFile.is_open())
 				return false;
 
-			return scene->HasScripts();
+			std::string line;
+			while (std::getline(sceneFile, line))
+			{
+				if (line.find("ScriptComponent") != std::string::npos)
+					return true;
+			}
+
+			return false;
 		}
 
 		std::filesystem::path ResolveRuntimeIconSource(const ProjectRuntimeExportSettings& settings)
@@ -944,6 +956,7 @@ namespace Lux {
 			style.WindowMinSize.x = minWinSizeX;
 
 			m_PanelManager->OnImGuiRender();
+			RenderRuntimeExportWindow();
 
 			if (m_ShowImGuiMetrics)
 				ImGui::ShowMetricsWindow(&m_ShowImGuiMetrics);
@@ -2175,13 +2188,185 @@ namespace Lux {
 			AddRecentProject(projectFilePath);
 	}
 
+	void EditorLayer::SyncRuntimeExportWindowFromProject()
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!project)
+			return;
+
+		auto& runtime = project->GetConfig().RuntimeExport;
+		const std::string gameName = runtime.GameName.empty() ? project->GetConfig().Name : runtime.GameName;
+		std::memset(m_RuntimeExportGameNameBuffer, 0, sizeof(m_RuntimeExportGameNameBuffer));
+		std::memcpy(m_RuntimeExportGameNameBuffer, gameName.data(), std::min(gameName.size(), sizeof(m_RuntimeExportGameNameBuffer) - 1));
+		m_RuntimeExportIcon = runtime.IconHandle;
+	}
+
+	void EditorLayer::RenderRuntimeExportWindow()
+	{
+		if (!m_ShowRuntimeExportWindow)
+			return;
+
+		Ref<Project> project = Project::GetActive();
+		if (!project)
+		{
+			m_ShowRuntimeExportWindow = false;
+			return;
+		}
+
+		ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_Appearing);
+		if (!ImGui::Begin("Export Runtime", &m_ShowRuntimeExportWindow, ImGuiWindowFlags_NoCollapse))
+		{
+			ImGui::End();
+			return;
+		}
+
+		auto& config = project->GetConfig();
+		auto& runtime = config.RuntimeExport;
+
+		auto syncRuntimeIconPath = [&runtime](AssetHandle iconHandle)
+		{
+			runtime.IconHandle = iconHandle;
+			runtime.IconPath.clear();
+
+			if (!iconHandle)
+				return;
+
+			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+			{
+				const AssetMetadata metadata = editorAssetManager->GetMetadata(iconHandle);
+				if (metadata.IsValid())
+					runtime.IconPath = metadata.FilePath.generic_string();
+			}
+		};
+
+		ImGuiEx::BeginPropertyGrid();
+		if (ImGuiEx::Property("Game Name", m_RuntimeExportGameNameBuffer, sizeof(m_RuntimeExportGameNameBuffer)))
+			runtime.GameName = m_RuntimeExportGameNameBuffer;
+
+		int32_t width = (int32_t)runtime.WindowWidth;
+		if (ImGuiEx::Property("Window Width", width, 320, 16384))
+			runtime.WindowWidth = (uint32_t)std::max(width, 320);
+
+		int32_t height = (int32_t)runtime.WindowHeight;
+		if (ImGuiEx::Property("Window Height", height, 240, 16384))
+			runtime.WindowHeight = (uint32_t)std::max(height, 240);
+
+		ImGuiEx::Property("Fullscreen", runtime.Fullscreen);
+		ImGuiEx::Property("VSync", runtime.VSync);
+
+		AssetHandle icon = runtime.IconHandle;
+		ImGuiEx::PropertyAssetReferenceSettings iconSettings;
+		iconSettings.ShowFullFilePath = true;
+		if (ImGuiEx::PropertyAssetReference<Texture2D>("Icon", icon, "Optional PNG/JPG window icon copied beside exported runtime resources.", nullptr, iconSettings))
+		{
+			m_RuntimeExportIcon = icon;
+			syncRuntimeIconPath(icon);
+		}
+		ImGuiEx::EndPropertyGrid();
+
+		if (ImGui::BeginCombo("Target Config", RuntimeExportTargetToString(runtime.TargetConfig)))
+		{
+			for (RuntimeExportTarget target : s_RuntimeExportTargets)
+			{
+				const bool selected = runtime.TargetConfig == target;
+				if (ImGui::Selectable(RuntimeExportTargetToString(target), selected))
+					runtime.TargetConfig = target;
+				if (selected)
+					ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Export Preflight");
+		ImGui::Separator();
+
+		auto drawStatus = [](const char* label, bool ok, const std::string& okText, const char* failText)
+		{
+			ImGui::TextColored(ok ? ImVec4(0.35f, 0.85f, 0.45f, 1.0f) : ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
+				"%s: %s", label, ok ? okText.c_str() : failText);
+		};
+
+		std::error_code ec;
+		std::filesystem::path repositoryRoot = FindRepositoryRootFrom(project->GetProjectDirectory());
+		if (repositoryRoot.empty())
+			repositoryRoot = FindRepositoryRootFrom(std::filesystem::current_path());
+
+		const std::filesystem::path current = std::filesystem::current_path(ec);
+		const std::filesystem::path runtimeExe = GetRuntimeExecutablePath(runtime.TargetConfig);
+		const std::filesystem::path assetPack = Project::GetActiveAssetDirectory() / s_RuntimeAssetPackFile;
+		const std::filesystem::path resources = FindFirstExistingDirectory({
+			current / "Resources",
+			current / ".." / "Editor" / "Resources",
+			repositoryRoot / "Editor" / "Resources",
+			std::filesystem::path("Editor") / "Resources"
+		});
+		const std::filesystem::path mono = FindFirstExistingDirectory({
+			current / "mono",
+			current / ".." / "Editor" / "mono",
+			repositoryRoot / "Editor" / "mono",
+			std::filesystem::path("Editor") / "mono"
+		});
+		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
+		const std::filesystem::path scriptProject = ResolveScriptProjectFile(project);
+		const bool startupSceneUsesScripts = StartupSceneUsesScripts(project);
+		const bool scriptModuleExists = config.ScriptModulePath.empty() || FileExists(scriptModule);
+		const bool scriptModuleStale = !config.ScriptModulePath.empty() && scriptModuleExists && IsScriptModuleOutdated(scriptModule, scriptProject);
+
+		drawStatus("Startup Scene", config.StartSceneHandle != 0, "set", "missing");
+		drawStatus("Startup Scene Uses Scripts", true, startupSceneUsesScripts ? "yes" : "no", "");
+		drawStatus("Lux-Runtime.exe", !runtimeExe.empty(), runtimeExe.string(), "missing");
+		drawStatus("AssetPack.lap", std::filesystem::exists(assetPack, ec), "created", "will be created during export");
+		drawStatus("Resources", !resources.empty(), resources.string(), "missing");
+		if (config.ScriptModulePath.empty())
+			ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.45f, 1.0f), "Script Module: optional");
+		else if (!scriptModuleExists)
+			ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f), "Script Module: missing");
+		else
+			ImGui::TextColored(scriptModuleStale ? ImVec4(0.95f, 0.75f, 0.35f, 1.0f) : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
+				"Script Module: %s", scriptModuleStale ? "stale" : "found");
+		drawStatus("mono", !mono.empty(), mono.string(), "missing");
+
+		ImGui::Spacing();
+		if (ImGui::Button("Build Runtime"))
+			BuildRuntimeExecutable(runtime.TargetConfig);
+
+		ImGui::SameLine();
+		if (ImGui::Button("Build Scripts"))
+			BuildScriptModule(runtime.TargetConfig);
+
+		ImGui::Separator();
+		if (ImGui::Button("Export..."))
+		{
+			if (ExportRuntimeNow())
+				m_ShowRuntimeExportWindow = false;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel"))
+			m_ShowRuntimeExportWindow = false;
+
+		ImGui::End();
+	}
+
 	void EditorLayer::ExportRuntime()
+	{
+		if (!Project::GetActive())
+		{
+			LUX_CONSOLE_LOG_ERROR("No active project to export.");
+			return;
+		}
+
+		SyncRuntimeExportWindowFromProject();
+		m_ShowRuntimeExportWindow = true;
+	}
+
+	bool EditorLayer::ExportRuntimeNow()
 	{
 		Ref<Project> project = Project::GetActive();
 		if (!project)
 		{
 			LUX_CONSOLE_LOG_ERROR("No active project to export.");
-			return;
+			return false;
 		}
 
 		if (m_SceneState != SceneState::Edit)
@@ -2192,7 +2377,7 @@ namespace Lux {
 
 		const std::filesystem::path selectedFolder = FileSystem::OpenFolderDialog(project->GetProjectDirectory().string().c_str());
 		if (selectedFolder.empty())
-			return;
+			return false;
 
 		std::error_code ec;
 		ProjectRuntimeExportSettings runtimeSettings = project->GetConfig().RuntimeExport;
@@ -2211,7 +2396,7 @@ namespace Lux {
 		{
 			LUX_CONSOLE_LOG_INFO("Lux-Runtime ({}) is missing or older than runtime sources. Building before export...", RuntimeExportTargetToString(targetConfig));
 			if (!BuildRuntimeExecutable(targetConfig))
-				return;
+				return false;
 			runtimeExe = GetRuntimeExecutablePath(targetConfig);
 		}
 
@@ -2223,7 +2408,7 @@ namespace Lux {
 		{
 			LUX_CONSOLE_LOG_INFO("Script module is missing or stale. Building scripts before asset pack creation...");
 			if (!BuildScriptModule(targetConfig) && startupSceneUsesScripts)
-				return;
+				return false;
 		}
 
 		const std::filesystem::path current = std::filesystem::current_path(ec);
@@ -2262,13 +2447,13 @@ namespace Lux {
 		if (!hasStartupScene || !hasRuntimeExe || !hasResources)
 		{
 			LUX_CONSOLE_LOG_ERROR("Runtime export preflight failed. Set a Startup Scene and make sure Lux-Runtime and Resources are available.");
-			return;
+			return false;
 		}
 
 		if (startupSceneUsesScripts && (!hasScriptModule || scriptModuleStale))
 		{
 			LUX_CONSOLE_LOG_ERROR("Runtime export preflight failed. Startup Scene uses scripts, but the script module is {}.", hasScriptModule ? "stale" : "missing");
-			return;
+			return false;
 		}
 
 		if (!hasScriptModule)
@@ -2284,7 +2469,7 @@ namespace Lux {
 		if (ec)
 		{
 			LUX_CONSOLE_LOG_ERROR("Failed to create export directory '{}': {}", exportRoot.string(), ec.message());
-			return;
+			return false;
 		}
 
 		std::atomic<float> assetPackProgress = 0.0f;
@@ -2292,7 +2477,7 @@ namespace Lux {
 		if (!assetPack)
 		{
 			LUX_CONSOLE_LOG_ERROR("Runtime export failed while building the asset pack.");
-			return;
+			return false;
 		}
 
 		ProjectSerializer serializer(project);
@@ -2300,11 +2485,11 @@ namespace Lux {
 		if (!serializer.SerializeRuntime(runtimeProjectFile))
 		{
 			LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing '{}'.", runtimeProjectFile.string());
-			return;
+			return false;
 		}
 
 		if (!CopyFileIfExists(Project::GetActiveAssetDirectory() / s_RuntimeAssetPackFile, exportAssets / s_RuntimeAssetPackFile, true))
-			return;
+			return false;
 		LUX_CONSOLE_LOG_INFO("  AssetPack.lap: created");
 
 		const std::filesystem::path exportedExe = exportRoot / (buildName + ".exe");
@@ -2331,7 +2516,7 @@ namespace Lux {
 			LUX_CONSOLE_LOG_WARN("Runtime export could not find an editor Resources directory to copy.");
 
 		if (!WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile))
-			return;
+			return false;
 
 		if (!monoSource.empty())
 			CopyDirectoryRecursive(monoSource, exportRoot / "mono", targetConfig == RuntimeExportTarget::Dist);
@@ -2356,10 +2541,11 @@ namespace Lux {
 		}
 
 		if (!WriteRuntimeSettingsFile(exportAssets / "RuntimeSettings.yaml", runtimeSettings, runtimeIconPath))
-			return;
+			return false;
 
 		LUX_CONSOLE_LOG_INFO("Runtime export complete: {}", exportRoot.string());
 		FileSystem::OpenDirectoryInExplorer(exportRoot);
+		return true;
 	}
 
 	void EditorLayer::NewScene()
