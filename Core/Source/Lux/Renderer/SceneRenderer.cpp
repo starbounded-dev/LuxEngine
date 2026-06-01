@@ -1326,10 +1326,13 @@ namespace Lux {
 
 		// ── Selected geometry (isolation for outline) ─────────────────────────
 		{
+			FramebufferTextureSpecification selectedMaskAttachment = ImageFormat::RGBA32F;
+			selectedMaskAttachment.Blend = false;
+
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_ViewportWidth;
 			fbSpec.Height = m_ViewportHeight;
-			fbSpec.Attachments = { ImageFormat::RGBA32F, ImageFormat::Depth };
+			fbSpec.Attachments = { selectedMaskAttachment, ImageFormat::Depth };
 			fbSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			fbSpec.DepthClearValue = 0.0f;
 			fbSpec.DebugName = "SelectedGeometry";
@@ -1356,10 +1359,13 @@ namespace Lux {
 
 		// ── Jump flood outline buffers ────────────────────────────────────────
 		{
+			FramebufferTextureSpecification jumpFloodAttachment = ImageFormat::RGBA32F;
+			jumpFloodAttachment.Blend = false;
+
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_ViewportWidth;
 			fbSpec.Height = m_ViewportHeight;
-			fbSpec.Attachments = { ImageFormat::RGBA32F };
+			fbSpec.Attachments = { jumpFloodAttachment };
 			fbSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			fbSpec.DebugName = "JumpFlood-Init";
 
@@ -4099,6 +4105,18 @@ namespace Lux {
 		if (compositeDOFIntoFinalTarget)
 			DOFPass();
 
+		if (m_WorldOverlayRenderCallback)
+		{
+			m_CommandBuffer->End();
+			m_CommandBuffer->Submit();
+
+			ScopedCPUProfile cpuProfile(*this, "WorldOverlay2D");
+			m_WorldOverlayRenderCallback();
+			m_WorldOverlayRenderCallback = nullptr;
+
+			m_CommandBuffer->Begin();
+		}
+
 		if (m_Options.EnableJumpFlood && !m_SelectedStaticMeshDrawList.empty())
 			JumpFloodCompositePass();
 
@@ -5458,6 +5476,11 @@ namespace Lux {
 		if (finalPass)
 			return finalPass->GetTargetFramebuffer();
 
+		return m_CompositingFramebuffer;
+	}
+
+	Ref<Framebuffer> SceneRenderer::GetDepthCompositeFramebuffer()
+	{
 		return m_CompositingFramebuffer;
 	}
 

@@ -44,7 +44,7 @@ namespace Lux {
 		specification.WindowHeight = 900;
 		specification.StartMaximized = true;
 		specification.VSync = true;
-		specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
+		//specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
 
 		/*specification.ScriptConfig.CoreAssemblyPath = "Resources/Scripts/Hazel-ScriptCore.dll";
 		specification.ScriptConfig.EnableDebugging = true;

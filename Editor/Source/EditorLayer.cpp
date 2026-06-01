@@ -1884,7 +1884,6 @@ namespace Lux {
 			const TransformComponent& transform = selectedEntity.GetComponent<TransformComponent>();
 			const glm::mat4 worldTransform = transform.GetTransform();
 
-			bool drewBoundingBox = false;
 			if (m_ShowBoundingBoxes && selectedEntity.HasComponent<StaticMeshComponent>())
 			{
 				const auto& smc = selectedEntity.GetComponent<StaticMeshComponent>();
@@ -1895,23 +1894,7 @@ namespace Lux {
 					if (meshSource)
 					{
 						m_Renderer2D->DrawAABB(meshSource->GetBoundingBox(), worldTransform, glm::vec4(1.0f, 0.5f, 0.0f, 1.0f), true);
-						drewBoundingBox = true;
 					}
-				}
-			}
-
-			if (!drewBoundingBox)
-			{
-				glm::vec4 color(1.0f, 0.5f, 0.0f, 1.0f);
-				glm::vec4 corners[4] = {
-					{-0.5f, -0.5f, 0.0f, 1.0f}, { 0.5f, -0.5f, 0.0f, 1.0f},
-					{ 0.5f,  0.5f, 0.0f, 1.0f}, {-0.5f,  0.5f, 0.0f, 1.0f}
-				};
-				for (int i = 0; i < 4; i++)
-				{
-					glm::vec3 p0 = worldTransform * corners[i];
-					glm::vec3 p1 = worldTransform * corners[(i + 1) % 4];
-					m_Renderer2D->DrawLine(p0, p1, color);
 				}
 			}
 		}
@@ -2581,7 +2564,18 @@ namespace Lux {
 			OnSceneStop();
 
 		Ref<Scene> readOnlyScene = AssetManager::GetAsset<Scene>(handle);
+		if (!readOnlyScene)
+		{
+			LUX_CORE_ERROR("Failed to open scene asset {0}; scene could not be loaded or uses an incompatible schema.", handle);
+			return;
+		}
+
 		Ref<Scene> newScene = Scene::Copy(readOnlyScene);
+		if (!newScene)
+		{
+			LUX_CORE_ERROR("Failed to open scene asset {0}; scene copy failed.", handle);
+			return;
+		}
 
 		m_EditorScene = newScene;
 		m_ActiveScene = m_EditorScene;

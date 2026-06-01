@@ -194,9 +194,21 @@ namespace Lux {
 			}
 
 			return entity["AudioData"] || entity["AudioSourceComponent"] || entity["AudioListenerComponent"]
-				|| entity["AnimationComponent"] || entity["RigidBodyComponent"] || entity["CharacterControllerComponent"]
-				|| entity["CompoundColliderComponent"] || entity["BoxColliderComponent"] || entity["SphereColliderComponent"]
-				|| entity["CapsuleColliderComponent"] || entity["MeshColliderComponent"];
+				|| entity["AnimationComponent"];
+		}
+
+		static std::string GetEntityNameForLog(const YAML::Node& entity, size_t entityIndex)
+		{
+			try
+			{
+				if (auto tag = entity["TagComponent"])
+					return tag["Tag"].as<std::string>("Entity");
+			}
+			catch (const YAML::Exception&)
+			{
+			}
+
+			return "entity index " + std::to_string(entityIndex);
 		}
 
 		static AssetHandle GetSerializableStaticMeshHandle(AssetHandle handle)
@@ -639,24 +651,61 @@ namespace Lux {
 			if (!entities)
 				return true;
 
+			if (!entities.IsSequence())
+			{
+				LUX_CORE_ERROR("Scene has an invalid Entities block; expected a YAML sequence.");
+				return false;
+			}
+
+			size_t entityIndex = 0;
 			for (auto entity : entities)
 			{
-				if (ContainsLegacyOrDeferredSceneData(entity))
+				try
 				{
-					LUX_CORE_ERROR("Scene contains legacy Lux or deferred scene component data; refusing to deserialize Hazel-only scene schema.");
+					if (!entity || !entity.IsMap())
+					{
+						LUX_CORE_ERROR("Scene contains an invalid entity at index {0}; expected a YAML map.", entityIndex);
+						return false;
+					}
+
+					if (!entity["Entity"])
+					{
+						LUX_CORE_ERROR("Scene contains an entity without an Entity UUID at index {0}.", entityIndex);
+						return false;
+					}
+
+					if (ContainsLegacyOrDeferredSceneData(entity))
+					{
+						LUX_CORE_ERROR("Scene contains unsupported legacy/deferred component data on {0}; refusing to load incompatible scene schema.", GetEntityNameForLog(entity, entityIndex));
+						return false;
+					}
+
+					const UUID uuid = entity["Entity"].as<uint64_t>();
+					std::string name = "Entity";
+					if (auto tag = entity["TagComponent"])
+						name = tag["Tag"].as<std::string>("Entity");
+
+					scene->CreateEntityWithID(uuid, name, false);
+				}
+				catch (const YAML::Exception& e)
+				{
+					LUX_CORE_ERROR("Failed to deserialize scene entity header at index {0}: {1}", entityIndex, e.what());
+					return false;
+				}
+				catch (const std::exception& e)
+				{
+					LUX_CORE_ERROR("Failed to deserialize scene entity header at index {0}: {1}", entityIndex, e.what());
 					return false;
 				}
 
-				const UUID uuid = entity["Entity"].as<uint64_t>();
-				std::string name = "Entity";
-				if (auto tag = entity["TagComponent"])
-					name = tag["Tag"].as<std::string>("Entity");
-
-				scene->CreateEntityWithID(uuid, name, false);
+				entityIndex++;
 			}
 
+			entityIndex = 0;
 			for (auto entity : entities)
 			{
+				try
+				{
 				Entity deserializedEntity = scene->GetEntityWithUUID(entity["Entity"].as<uint64_t>());
 
 				if (auto parent = entity["Parent"])
@@ -940,6 +989,19 @@ namespace Lux {
 					component.Material.Restitution = meshCollider["Restitution"].as<float>(0.0f);
 					component.CollisionComplexity = (ECollisionComplexity)meshCollider["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
 				}
+				}
+				catch (const YAML::Exception& e)
+				{
+					LUX_CORE_ERROR("Failed to deserialize scene components for {0}: {1}", GetEntityNameForLog(entity, entityIndex), e.what());
+					return false;
+				}
+				catch (const std::exception& e)
+				{
+					LUX_CORE_ERROR("Failed to deserialize scene components for {0}: {1}", GetEntityNameForLog(entity, entityIndex), e.what());
+					return false;
+				}
+
+				entityIndex++;
 			}
 
 			scene->SortEntities();
@@ -982,13 +1044,41 @@ namespace Lux {
 
 	bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)
 	{
-		YAML::Node data = YAML::Load(yamlString);
-		if (!data["Scene"])
+		YAML::Node data;
+		try
+		{
+			data = YAML::Load(yamlString);
+		}
+		catch (const YAML::Exception& e)
+		{
+			LUX_CORE_ERROR("Failed to parse scene YAML: {0}", e.what());
 			return false;
+		}
+
+		if (!data || !data.IsMap() || !data["Scene"])
+		{
+			LUX_CORE_ERROR("Scene YAML is missing the required Scene root field.");
+			return false;
+		}
+
+		if (data["Entities"] && !data["Entities"].IsSequence())
+		{
+			LUX_CORE_ERROR("Scene YAML has an invalid Entities field; expected a sequence.");
+			return false;
+		}
 
 		m_Scene->m_Registry.clear();
 		m_Scene->m_EntityMap.clear();
-		m_Scene->SetName(data["Scene"].as<std::string>());
+
+		try
+		{
+			m_Scene->SetName(data["Scene"].as<std::string>());
+		}
+		catch (const YAML::Exception& e)
+		{
+			LUX_CORE_ERROR("Failed to read scene name: {0}", e.what());
+			return false;
+		}
 
 		return DeserializeEntities(data["Entities"], m_Scene);
 	}
@@ -1008,6 +1098,11 @@ namespace Lux {
 				return false;
 		}
 		catch (const YAML::Exception& e)
+		{
+			LUX_CORE_ERROR("Failed to deserialize scene '{0}': {1}", filepath.string(), e.what());
+			return false;
+		}
+		catch (const std::exception& e)
 		{
 			LUX_CORE_ERROR("Failed to deserialize scene '{0}': {1}", filepath.string(), e.what());
 			return false;

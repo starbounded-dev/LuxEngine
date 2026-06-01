@@ -26,6 +26,7 @@
 
 #include <glm/glm.hpp>
 #include <array>
+#include <functional>
 #include <limits>
 #include <map>
 #include <string>
@@ -452,8 +453,10 @@ namespace Lux {
 		Ref<Pipeline>    GetFinalPipeline();
 		Ref<RenderPass>  GetFinalRenderPass();
 		Ref<RenderPass>  GetCompositeRenderPass() { return m_CompositePass; }
+		Ref<Framebuffer> GetDepthCompositeFramebuffer();
 		Ref<Framebuffer> GetExternalCompositeFramebuffer();
 		Ref<RenderCommandBuffer> GetCommandBuffer() { return m_CommandBuffer; }
+		void SetWorldOverlayRenderCallback(std::function<void()> callback) { m_WorldOverlayRenderCallback = std::move(callback); }
 
 		Ref<Renderer2D>    GetRenderer2D() { return m_Renderer2D; }
 		Ref<Renderer2D>    GetScreenSpaceRenderer2D() { return m_Renderer2DScreenSpace ? m_Renderer2DScreenSpace : m_Renderer2D; }
@@ -841,6 +844,7 @@ namespace Lux {
 		Ref<Renderer2D>    m_Renderer2D;
 		Ref<Renderer2D>    m_Renderer2DScreenSpace;
 		Ref<DebugRenderer> m_DebugRenderer;
+		std::function<void()> m_WorldOverlayRenderCallback;
 
 		glm::mat4 m_ScreenSpaceProjectionMatrix{ 1.0f };
 

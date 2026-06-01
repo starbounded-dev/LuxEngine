@@ -36,6 +36,11 @@ void main()
 {
     vec4 pixel = SampleLinear(u_Texture, Input.TexCoords);
 
+    // Keep only the outside edge. Pixels inside the selected mask are rendered
+    // by the normal geometry pass and should not become a flat 2D orange shape.
+    if (pixel.w > 0.5f)
+        discard;
+
     // Signed distance (squared)
     float dist = sqrt(pixel.z);
     float alpha = smoothstep(0.004f, 0.002f, dist);

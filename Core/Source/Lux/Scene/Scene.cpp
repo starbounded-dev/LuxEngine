@@ -1643,65 +1643,63 @@ namespace Lux {
 		// Submit all static meshes for rendering
 		SubmitStaticMeshes(renderer, isSelected);
 
-		// End the frame and execute the render passes
-		renderer->EndScene();
-
-		// Composite 2D content onto the SceneRenderer output so the main viewport
-		// can display a single image containing both 3D and 2D, like Hazel.
-		if (renderer->GetFinalPassImage())
+		renderer->SetWorldOverlayRenderCallback([this, renderer, &camera]() mutable
 		{
 			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
-			if (renderer2D)
+			if (!renderer2D)
+				return;
+
+			renderer2D->ResetStats();
+			renderer2D->BeginScene(camera.GetViewProjection(), camera.GetViewMatrix(), true);
+			renderer2D->SetTargetFramebuffer(renderer->GetDepthCompositeFramebuffer());
+
+			// Draw sprites
 			{
-				renderer2D->SetTargetFramebuffer(renderer->GetExternalCompositeFramebuffer());
-				renderer2D->ResetStats();
-				renderer2D->BeginScene(camera.GetViewProjection(), camera.GetViewMatrix());
-
-				// Draw sprites
+				auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+				for (auto entity : group)
 				{
-					auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-					for (auto entity : group)
-					{
-						auto& sprite = group.get<SpriteRendererComponent>(entity);
+					auto& sprite = group.get<SpriteRendererComponent>(entity);
 
-						Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
-						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
-						if (texture)
-							renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
-						else
-							renderer2D->DrawQuad(worldTransform, sprite.Color);
-					}
+					Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
+					const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
+					if (texture)
+						renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
+					else
+						renderer2D->DrawQuad(worldTransform, sprite.Color);
 				}
-
-				// Draw circles
-				{
-					auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
-					for (auto entity : view)
-					{
-						auto& circle = view.get<CircleRendererComponent>(entity);
-						renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
-					}
-				}
-
-				// Draw text
-				{
-					auto view = m_Registry.view<TransformComponent, TextComponent>();
-					for (auto entity : view)
-					{
-						auto& text = view.get<TextComponent>(entity);
-
-						Ref<Font> font = Font::GetFontAssetForTextComponent(text);
-						if (font)
-						{
-							renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),
-								text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
-						}
-					}
-				}
-
-				renderer2D->EndScene();
 			}
-		}
+
+			// Draw circles
+			{
+				auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+				for (auto entity : view)
+				{
+					auto& circle = view.get<CircleRendererComponent>(entity);
+					renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
+				}
+			}
+
+			// Draw text
+			{
+				auto view = m_Registry.view<TransformComponent, TextComponent>();
+				for (auto entity : view)
+				{
+					auto& text = view.get<TextComponent>(entity);
+
+					Ref<Font> font = Font::GetFontAssetForTextComponent(text);
+					if (font)
+					{
+						renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),
+							text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
+					}
+				}
+			}
+
+			renderer2D->EndScene();
+		});
+
+		// End the frame and execute the render passes
+		renderer->EndScene();
 	}
 
 	void Scene::Render3DRuntime(Ref<SceneRenderer> renderer)
@@ -1737,67 +1735,66 @@ namespace Lux {
 		// Submit all static meshes (no selection highlight in runtime)
 		SubmitStaticMeshes(renderer, nullptr);
 
-		// End the frame
-		renderer->EndScene();
-
-		// Composite 2D content onto the SceneRenderer output.
-		if (renderer->GetFinalPassImage())
+		renderer->SetWorldOverlayRenderCallback([this, renderer, &sceneCamera, &cameraComp]() mutable
 		{
 			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
-			if (renderer2D)
+			if (!renderer2D)
+				return;
+
+			const glm::mat4 view = sceneCamera.ViewMatrix;
+			const glm::mat4 viewProjection = cameraComp.Camera.GetProjectionMatrix() * view;
+
+			renderer2D->ResetStats();
+			renderer2D->BeginScene(viewProjection, view, true);
+			renderer2D->SetTargetFramebuffer(renderer->GetDepthCompositeFramebuffer());
+
+			// Draw sprites
 			{
-				const glm::mat4 view = sceneCamera.ViewMatrix;
-				const glm::mat4 viewProjection = cameraComp.Camera.GetProjectionMatrix() * view;
-
-				renderer2D->SetTargetFramebuffer(renderer->GetExternalCompositeFramebuffer());
-				renderer2D->ResetStats();
-				renderer2D->BeginScene(viewProjection, view);
-
-				// Draw sprites
+				auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+				for (auto entity : group)
 				{
-					auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-					for (auto entity : group)
-					{
-						auto& sprite = group.get<SpriteRendererComponent>(entity);
+					auto& sprite = group.get<SpriteRendererComponent>(entity);
 
-						Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
-						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
-						if (texture)
-							renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
-						else
-							renderer2D->DrawQuad(worldTransform, sprite.Color);
-					}
+					Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
+					const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
+					if (texture)
+						renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
+					else
+						renderer2D->DrawQuad(worldTransform, sprite.Color);
 				}
-
-				// Draw circles
-				{
-					auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
-					for (auto entity : view)
-					{
-						auto& circle = view.get<CircleRendererComponent>(entity);
-						renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
-					}
-				}
-
-				// Draw text
-				{
-					auto view = m_Registry.view<TransformComponent, TextComponent>();
-					for (auto entity : view)
-					{
-						auto& text = view.get<TextComponent>(entity);
-
-						Ref<Font> font = Font::GetFontAssetForTextComponent(text);
-						if (font)
-						{
-							renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),
-								text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
-						}
-					}
-				}
-
-				renderer2D->EndScene();
 			}
-		}
+
+			// Draw circles
+			{
+				auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+				for (auto entity : view)
+				{
+					auto& circle = view.get<CircleRendererComponent>(entity);
+					renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
+				}
+			}
+
+			// Draw text
+			{
+				auto view = m_Registry.view<TransformComponent, TextComponent>();
+				for (auto entity : view)
+				{
+					auto& text = view.get<TextComponent>(entity);
+
+					Ref<Font> font = Font::GetFontAssetForTextComponent(text);
+					if (font)
+					{
+						renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),
+							text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
+					}
+				}
+			}
+
+			renderer2D->EndScene();
+		});
+
+		// End the frame
+		renderer->EndScene();
 	}
 
 	void Scene::OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected)

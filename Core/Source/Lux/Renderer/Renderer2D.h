@@ -220,6 +220,7 @@ namespace Lux {
 		glm::mat4 m_CameraViewProj;
 		glm::mat4 m_CameraView;
 		bool m_DepthTest = true;
+		bool m_PipelineDepthTest = true;
 
 		float m_LineWidth = 1.0f;
 

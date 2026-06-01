@@ -58,6 +58,7 @@ namespace Lux {
 			pipelineSpecification.Shader = Renderer::GetShaderLibrary()->Get("Renderer2D");
 			pipelineSpecification.TargetFramebuffer = framebuffer;
 			pipelineSpecification.BackfaceCulling = false;
+			pipelineSpecification.DepthWrite = false;
 			pipelineSpecification.Layout = {
 				{ ShaderDataType::Float3, "a_Position" },
 				{ ShaderDataType::Float4, "a_Color" },
@@ -186,6 +187,7 @@ namespace Lux {
 			pipelineSpecification.Shader = Renderer::GetShaderLibrary()->Get("Renderer2D_Text");
 			pipelineSpecification.TargetFramebuffer = framebuffer;
 			pipelineSpecification.BackfaceCulling = false;
+			pipelineSpecification.DepthWrite = false;
 			pipelineSpecification.Layout = {
 				{ ShaderDataType::Float3, "a_Position" },
 				{ ShaderDataType::Float4, "a_Color" },
@@ -248,6 +250,7 @@ namespace Lux {
 			pipelineSpecification.Shader = Renderer::GetShaderLibrary()->Get("Renderer2D_Circle");
 			pipelineSpecification.BackfaceCulling = false;
 			pipelineSpecification.TargetFramebuffer = framebuffer;
+			pipelineSpecification.DepthWrite = false;
 			pipelineSpecification.Layout = {
 				{ ShaderDataType::Float3, "a_WorldPosition" },
 				{ ShaderDataType::Float,  "a_Thickness" },
@@ -518,11 +521,14 @@ namespace Lux {
 		if (!framebuffer)
 			return;
 
-		if (framebuffer != m_QuadPass->GetTargetFramebuffer())
+		const bool recreatePipelines = framebuffer != m_QuadPass->GetTargetFramebuffer() || m_PipelineDepthTest != m_DepthTest;
+		if (recreatePipelines)
 		{
 			{
 				PipelineSpecification pipelineSpec = m_QuadPass->GetSpecification().Pipeline->GetSpecification();
 				pipelineSpec.TargetFramebuffer = framebuffer;
+				pipelineSpec.DepthTest = m_DepthTest;
+				pipelineSpec.DepthWrite = false;
 				RenderPassSpecification& renderpassSpec = m_QuadPass->GetSpecification();
 				renderpassSpec.Pipeline = Pipeline::Create(pipelineSpec);
 				// FIX: re-validate and re-bake after pipeline recreation so descriptor sets stay consistent
@@ -534,6 +540,7 @@ namespace Lux {
 			{
 				PipelineSpecification pipelineSpec = m_LinePass->GetSpecification().Pipeline->GetSpecification();
 				pipelineSpec.TargetFramebuffer = framebuffer;
+				pipelineSpec.DepthTest = m_DepthTest;
 				pipelineSpec.LineWidth = m_LineWidth;
 				RenderPassSpecification& renderpassSpec = m_LinePass->GetSpecification();
 				renderpassSpec.Pipeline = Pipeline::Create(pipelineSpec);
@@ -546,6 +553,8 @@ namespace Lux {
 			{
 				PipelineSpecification pipelineSpec = m_TextPass->GetSpecification().Pipeline->GetSpecification();
 				pipelineSpec.TargetFramebuffer = framebuffer;
+				pipelineSpec.DepthTest = m_DepthTest;
+				pipelineSpec.DepthWrite = false;
 				RenderPassSpecification& renderpassSpec = m_TextPass->GetSpecification();
 				renderpassSpec.Pipeline = Pipeline::Create(pipelineSpec);
 				// FIX: re-validate and re-bake
@@ -557,6 +566,8 @@ namespace Lux {
 			{
 				PipelineSpecification pipelineSpec = m_CirclePass->GetSpecification().Pipeline->GetSpecification();
 				pipelineSpec.TargetFramebuffer = framebuffer;
+				pipelineSpec.DepthTest = m_DepthTest;
+				pipelineSpec.DepthWrite = false;
 				RenderPassSpecification& renderpassSpec = m_CirclePass->GetSpecification();
 				renderpassSpec.Pipeline = Pipeline::Create(pipelineSpec);
 				m_CirclePass->SetInput("Camera", m_UBSCamera);
@@ -564,6 +575,8 @@ namespace Lux {
 				m_CirclePass->Bake();
 				m_CirclePipeline = m_CirclePass->GetPipeline();
 			}
+
+			m_PipelineDepthTest = m_DepthTest;
 		}
 	}
 
