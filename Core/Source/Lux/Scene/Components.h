@@ -9,6 +9,7 @@
 #include "Lux/Audio/AudioSource.h"
 #include "Lux/Core/UUID.h"
 #include "Lux/Math/Math.h"
+#include "Lux/Physics/PhysicsTypes.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Texture.h"
 #include "Lux/Renderer/UI/Font.h"
@@ -278,6 +279,100 @@ namespace Lux {
 		CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
 	};
 
+	struct RigidBodyComponent
+	{
+		EBodyType BodyType = EBodyType::Static;
+		uint32_t LayerID = 0;
+		bool EnableDynamicTypeChange = false;
+
+		float Mass = 1.0f;
+		float LinearDrag = 0.01f;
+		float AngularDrag = 0.05f;
+		bool DisableGravity = false;
+		bool IsTrigger = false;
+		ECollisionDetectionType CollisionDetection = ECollisionDetectionType::Discrete;
+
+		glm::vec3 InitialLinearVelocity = glm::vec3(0.0f);
+		glm::vec3 InitialAngularVelocity = glm::vec3(0.0f);
+
+		float MaxLinearVelocity = 500.0f;
+		float MaxAngularVelocity = 50.0f;
+
+		EActorAxis LockedAxes = EActorAxis::None;
+
+		// Storage for runtime
+		void* RuntimeBody = nullptr;
+
+		RigidBodyComponent() = default;
+		RigidBodyComponent(const RigidBodyComponent&) = default;
+	};
+
+	struct CharacterControllerComponent
+	{
+		float SlopeLimitDeg = 45.0f;
+		float StepOffset = 0.5f;
+		uint32_t LayerID = 0;
+		bool DisableGravity = false;
+		bool ControlMovementInAir = false;
+		bool ControlRotationInAir = false;
+
+		CharacterControllerComponent() = default;
+		CharacterControllerComponent(const CharacterControllerComponent&) = default;
+	};
+
+	struct CompoundColliderComponent
+	{
+		bool IncludeStaticChildColliders = true;
+		bool IsImmutable = true;
+		std::vector<UUID> CompoundedColliderEntities;
+
+		CompoundColliderComponent() = default;
+		CompoundColliderComponent(const CompoundColliderComponent&) = default;
+	};
+
+	struct BoxColliderComponent
+	{
+		glm::vec3 HalfSize = { 0.5f, 0.5f, 0.5f };
+		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+		ColliderMaterial Material;
+
+		BoxColliderComponent() = default;
+		BoxColliderComponent(const BoxColliderComponent&) = default;
+	};
+
+	struct SphereColliderComponent
+	{
+		float Radius = 0.5f;
+		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+		ColliderMaterial Material;
+
+		SphereColliderComponent() = default;
+		SphereColliderComponent(const SphereColliderComponent&) = default;
+	};
+
+	struct CapsuleColliderComponent
+	{
+		float Radius = 0.5f;
+		float HalfHeight = 0.5f;
+		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+		ColliderMaterial Material;
+
+		CapsuleColliderComponent() = default;
+		CapsuleColliderComponent(const CapsuleColliderComponent&) = default;
+	};
+
+	struct MeshColliderComponent
+	{
+		AssetHandle ColliderAsset = 0;
+		uint32_t SubmeshIndex = 0;
+		bool UseSharedShape = false;
+		ColliderMaterial Material;
+		ECollisionComplexity CollisionComplexity = ECollisionComplexity::Default;
+
+		MeshColliderComponent() = default;
+		MeshColliderComponent(const MeshColliderComponent&) = default;
+	};
+
 	struct TextComponent
 	{
 		std::string TextString = "";
@@ -492,7 +587,9 @@ namespace Lux {
 		ComponentGroup<TransformComponent, RelationshipComponent, SpriteRendererComponent,
 		CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
-		CircleCollider2DComponent, TextComponent,
+		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,
+		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
+		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
 

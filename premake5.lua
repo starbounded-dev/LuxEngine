@@ -53,6 +53,7 @@ workspace "Lux"
 	filter "configurations:Dist"
 		optimize "Full"
 		symbols "Off"
+		defines { "NDEBUG" }
 
 	filter "system:windows"
 		buildoptions { "/EHsc", "/Zc:preprocessor", "/Zc:__cplusplus" }
@@ -61,6 +62,7 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 group "Dependencies"
 	include "Core/vendor/Box2D"
+	include "Core/vendor/JoltPhysics/JoltPhysicsPremake.lua"
 	include "Core/vendor/GLFW"
 	include "Core/vendor/imgui"
 	include "Core/vendor/tracy"

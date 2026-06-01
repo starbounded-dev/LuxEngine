@@ -13,6 +13,8 @@
 #include <magic_enum.hpp>
 using namespace magic_enum::bitwise_operators;
 
+#include <type_traits>
+
 namespace Lux::ImGuiEx
 {
 	enum class VectorAxis
@@ -23,6 +25,12 @@ namespace Lux::ImGuiEx
 		Z = BIT(2),
 		W = BIT(3)
 	};
+
+	inline constexpr VectorAxis operator&(VectorAxis lhs, VectorAxis rhs)
+	{
+		using Underlying = std::underlying_type_t<VectorAxis>;
+		return static_cast<VectorAxis>(static_cast<Underlying>(lhs) & static_cast<Underlying>(rhs));
+	}
 
 	static bool IsMatchingSearch(const std::string& item, std::string_view searchQuery, bool caseSensitive = false, bool stripWhiteSpaces = false, bool stripUnderscores = false)
 	{

@@ -526,6 +526,111 @@ namespace Lux {
 				out << YAML::EndMap;
 			}
 
+			if (entity.HasComponent<RigidBodyComponent>())
+			{
+				const auto& rb = entity.GetComponent<RigidBodyComponent>();
+				out << YAML::Key << "RigidBodyComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "BodyType" << YAML::Value << (int)rb.BodyType;
+				out << YAML::Key << "LayerID" << YAML::Value << rb.LayerID;
+				out << YAML::Key << "EnableDynamicTypeChange" << YAML::Value << rb.EnableDynamicTypeChange;
+				out << YAML::Key << "Mass" << YAML::Value << rb.Mass;
+				out << YAML::Key << "LinearDrag" << YAML::Value << rb.LinearDrag;
+				out << YAML::Key << "AngularDrag" << YAML::Value << rb.AngularDrag;
+				out << YAML::Key << "DisableGravity" << YAML::Value << rb.DisableGravity;
+				out << YAML::Key << "IsTrigger" << YAML::Value << rb.IsTrigger;
+				out << YAML::Key << "CollisionDetection" << YAML::Value << (int)rb.CollisionDetection;
+				out << YAML::Key << "InitialLinearVelocity" << YAML::Value << rb.InitialLinearVelocity;
+				out << YAML::Key << "InitialAngularVelocity" << YAML::Value << rb.InitialAngularVelocity;
+				out << YAML::Key << "MaxLinearVelocity" << YAML::Value << rb.MaxLinearVelocity;
+				out << YAML::Key << "MaxAngularVelocity" << YAML::Value << rb.MaxAngularVelocity;
+				out << YAML::Key << "LockedAxes" << YAML::Value << (uint32_t)rb.LockedAxes;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<CharacterControllerComponent>())
+			{
+				const auto& controller = entity.GetComponent<CharacterControllerComponent>();
+				out << YAML::Key << "CharacterControllerComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "SlopeLimitDeg" << YAML::Value << controller.SlopeLimitDeg;
+				out << YAML::Key << "StepOffset" << YAML::Value << controller.StepOffset;
+				out << YAML::Key << "LayerID" << YAML::Value << controller.LayerID;
+				out << YAML::Key << "DisableGravity" << YAML::Value << controller.DisableGravity;
+				out << YAML::Key << "ControlMovementInAir" << YAML::Value << controller.ControlMovementInAir;
+				out << YAML::Key << "ControlRotationInAir" << YAML::Value << controller.ControlRotationInAir;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<CompoundColliderComponent>())
+			{
+				const auto& compoundCollider = entity.GetComponent<CompoundColliderComponent>();
+				out << YAML::Key << "CompoundColliderComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "IncludeStaticChildColliders" << YAML::Value << compoundCollider.IncludeStaticChildColliders;
+				out << YAML::Key << "IsImmutable" << YAML::Value << compoundCollider.IsImmutable;
+				out << YAML::Key << "CompoundedColliderEntities" << YAML::Value << YAML::BeginSeq;
+				for (UUID entityID : compoundCollider.CompoundedColliderEntities)
+					out << (uint64_t)entityID;
+				out << YAML::EndSeq;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<BoxColliderComponent>())
+			{
+				const auto& collider = entity.GetComponent<BoxColliderComponent>();
+				out << YAML::Key << "BoxColliderComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "HalfSize" << YAML::Value << collider.HalfSize;
+				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
+				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
+				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
+				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<SphereColliderComponent>())
+			{
+				const auto& collider = entity.GetComponent<SphereColliderComponent>();
+				out << YAML::Key << "SphereColliderComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Radius" << YAML::Value << collider.Radius;
+				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
+				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
+				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
+				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<CapsuleColliderComponent>())
+			{
+				const auto& collider = entity.GetComponent<CapsuleColliderComponent>();
+				out << YAML::Key << "CapsuleColliderComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Radius" << YAML::Value << collider.Radius;
+				out << YAML::Key << "HalfHeight" << YAML::Value << collider.HalfHeight;
+				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
+				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
+				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
+				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<MeshColliderComponent>())
+			{
+				const auto& collider = entity.GetComponent<MeshColliderComponent>();
+				out << YAML::Key << "MeshColliderComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "ColliderAsset" << YAML::Value << collider.ColliderAsset;
+				out << YAML::Key << "SubmeshIndex" << YAML::Value << collider.SubmeshIndex;
+				out << YAML::Key << "UseSharedShape" << YAML::Value << collider.UseSharedShape;
+				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
+				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
+				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
+				out << YAML::Key << "CollisionComplexity" << YAML::Value << (uint8_t)collider.CollisionComplexity;
+				out << YAML::EndMap;
+			}
+
 			out << YAML::EndMap;
 		}
 
@@ -749,6 +854,91 @@ namespace Lux {
 					component.Radius = circleCollider["Radius"].as<float>(1.0f);
 					component.Density = circleCollider["Density"].as<float>(1.0f);
 					component.Friction = circleCollider["Friction"].as<float>(1.0f);
+				}
+
+				if (auto rigidBody = entity["RigidBodyComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<RigidBodyComponent>();
+					component.BodyType = (EBodyType)rigidBody["BodyType"].as<int>((int)EBodyType::Static);
+					component.LayerID = rigidBody["LayerID"].as<uint32_t>(0);
+					component.EnableDynamicTypeChange = rigidBody["EnableDynamicTypeChange"].as<bool>(false);
+					component.Mass = rigidBody["Mass"].as<float>(1.0f);
+					component.LinearDrag = rigidBody["LinearDrag"].as<float>(0.01f);
+					component.AngularDrag = rigidBody["AngularDrag"].as<float>(0.05f);
+					component.DisableGravity = rigidBody["DisableGravity"].as<bool>(false);
+					component.IsTrigger = rigidBody["IsTrigger"].as<bool>(false);
+					component.CollisionDetection = (ECollisionDetectionType)rigidBody["CollisionDetection"].as<int>((int)ECollisionDetectionType::Discrete);
+					component.InitialLinearVelocity = rigidBody["InitialLinearVelocity"].as<glm::vec3>(glm::vec3(0.0f));
+					component.InitialAngularVelocity = rigidBody["InitialAngularVelocity"].as<glm::vec3>(glm::vec3(0.0f));
+					component.MaxLinearVelocity = rigidBody["MaxLinearVelocity"].as<float>(500.0f);
+					component.MaxAngularVelocity = rigidBody["MaxAngularVelocity"].as<float>(50.0f);
+					component.LockedAxes = (EActorAxis)rigidBody["LockedAxes"].as<uint32_t>((uint32_t)EActorAxis::None);
+				}
+
+				if (auto characterController = entity["CharacterControllerComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<CharacterControllerComponent>();
+					component.SlopeLimitDeg = characterController["SlopeLimitDeg"].as<float>(45.0f);
+					component.StepOffset = characterController["StepOffset"].as<float>(0.5f);
+					component.LayerID = characterController["LayerID"].as<uint32_t>(0);
+					component.DisableGravity = characterController["DisableGravity"].as<bool>(false);
+					component.ControlMovementInAir = characterController["ControlMovementInAir"].as<bool>(false);
+					component.ControlRotationInAir = characterController["ControlRotationInAir"].as<bool>(false);
+				}
+
+				if (auto compoundCollider = entity["CompoundColliderComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<CompoundColliderComponent>();
+					component.IncludeStaticChildColliders = compoundCollider["IncludeStaticChildColliders"].as<bool>(true);
+					component.IsImmutable = compoundCollider["IsImmutable"].as<bool>(true);
+					if (auto compoundedEntities = compoundCollider["CompoundedColliderEntities"])
+					{
+						for (auto compoundedEntity : compoundedEntities)
+							component.CompoundedColliderEntities.emplace_back(compoundedEntity.as<uint64_t>(0));
+					}
+				}
+
+				if (auto boxCollider = entity["BoxColliderComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<BoxColliderComponent>();
+					component.HalfSize = boxCollider["HalfSize"].as<glm::vec3>(glm::vec3{ 0.5f, 0.5f, 0.5f });
+					component.Offset = boxCollider["Offset"].as<glm::vec3>(glm::vec3{ 0.0f, 0.0f, 0.0f });
+					component.Material.Density = boxCollider["Density"].as<float>(1.0f);
+					component.Material.Friction = boxCollider["Friction"].as<float>(0.5f);
+					component.Material.Restitution = boxCollider["Restitution"].as<float>(0.0f);
+				}
+
+				if (auto sphereCollider = entity["SphereColliderComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<SphereColliderComponent>();
+					component.Radius = sphereCollider["Radius"].as<float>(0.5f);
+					component.Offset = sphereCollider["Offset"].as<glm::vec3>(glm::vec3{ 0.0f, 0.0f, 0.0f });
+					component.Material.Density = sphereCollider["Density"].as<float>(1.0f);
+					component.Material.Friction = sphereCollider["Friction"].as<float>(0.5f);
+					component.Material.Restitution = sphereCollider["Restitution"].as<float>(0.0f);
+				}
+
+				if (auto capsuleCollider = entity["CapsuleColliderComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<CapsuleColliderComponent>();
+					component.Radius = capsuleCollider["Radius"].as<float>(0.5f);
+					component.HalfHeight = capsuleCollider["HalfHeight"].as<float>(0.5f);
+					component.Offset = capsuleCollider["Offset"].as<glm::vec3>(glm::vec3{ 0.0f, 0.0f, 0.0f });
+					component.Material.Density = capsuleCollider["Density"].as<float>(1.0f);
+					component.Material.Friction = capsuleCollider["Friction"].as<float>(0.5f);
+					component.Material.Restitution = capsuleCollider["Restitution"].as<float>(0.0f);
+				}
+
+				if (auto meshCollider = entity["MeshColliderComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<MeshColliderComponent>();
+					component.ColliderAsset = meshCollider["ColliderAsset"].as<uint64_t>(0);
+					component.SubmeshIndex = meshCollider["SubmeshIndex"].as<uint32_t>(0);
+					component.UseSharedShape = meshCollider["UseSharedShape"].as<bool>(false);
+					component.Material.Density = meshCollider["Density"].as<float>(1.0f);
+					component.Material.Friction = meshCollider["Friction"].as<float>(0.5f);
+					component.Material.Restitution = meshCollider["Restitution"].as<float>(0.0f);
+					component.CollisionComplexity = (ECollisionComplexity)meshCollider["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
 				}
 			}
 

@@ -865,12 +865,49 @@ namespace Lux {
 				}
 			};
 
+			auto addCategoryHeader = [](const char* label)
+			{
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::Dummy(ImVec2(16.0f, 4.0f));
+
+				ImGui::TableSetColumnIndex(1);
+				ImGui::Spacing();
+				ImGui::TextDisabled("%s", label);
+			};
+
 			if (ImGui::BeginTable("##AddComponentTable", 2, ImGuiTableFlags_SizingFixedFit))
 			{
 				ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 24.0f);
 				ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
 
-				if (canAddComponent.template operator()<CameraComponent>())
+				const bool canAddCamera = canAddComponent.template operator()<CameraComponent>();
+				const bool canAddScript = canAddComponent.template operator()<ScriptComponent>();
+				const bool canAddText = canAddComponent.template operator()<TextComponent>();
+				const bool canAddSpriteRenderer = canAddComponent.template operator()<SpriteRendererComponent>();
+				const bool canAddCircleRenderer = canAddComponent.template operator()<CircleRendererComponent>();
+				const bool canAddStaticMesh = canAddComponent.template operator()<StaticMeshComponent>();
+				const bool canAddRigidBody2D = canAddComponent.template operator()<RigidBody2DComponent>();
+				const bool canAddBoxCollider2D = canAddComponent.template operator()<BoxCollider2DComponent>();
+				const bool canAddCircleCollider2D = canAddComponent.template operator()<CircleCollider2DComponent>();
+				const bool canAddRigidBody = canAddComponent.template operator()<RigidBodyComponent>();
+				const bool canAddCharacterController = canAddComponent.template operator()<CharacterControllerComponent>();
+				const bool canAddCompoundCollider = canAddComponent.template operator()<CompoundColliderComponent>();
+				const bool canAddBoxCollider = canAddComponent.template operator()<BoxColliderComponent>();
+				const bool canAddSphereCollider = canAddComponent.template operator()<SphereColliderComponent>();
+				const bool canAddCapsuleCollider = canAddComponent.template operator()<CapsuleColliderComponent>();
+				const bool canAddMeshCollider = canAddComponent.template operator()<MeshColliderComponent>();
+				const bool canAddAudioSource = canAddComponent.template operator()<AudioSourceComponent>();
+				const bool canAddAudioListener = canAddComponent.template operator()<AudioListenerComponent>();
+				const bool canAddDirectionalLight = canAddComponent.template operator()<DirectionalLightComponent>();
+				const bool canAddPointLight = canAddComponent.template operator()<PointLightComponent>();
+				const bool canAddSpotLight = canAddComponent.template operator()<SpotLightComponent>();
+				const bool canAddSkyLight = canAddComponent.template operator()<SkyLightComponent>();
+
+				if (canAddCamera || canAddScript)
+					addCategoryHeader("General");
+
+				if (canAddCamera)
 				{
 					addComponentRow("Camera", EditorResources::CameraIcon, [this, &entityIDs]()
 					{
@@ -883,7 +920,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddComponent.template operator()<ScriptComponent>())
+				if (canAddScript)
 				{
 					addComponentRow("Script", EditorResources::ScriptIcon, [this, &entityIDs]()
 					{
@@ -896,7 +933,10 @@ namespace Lux {
 					});
 				}
 
-				if (canAddComponent.template operator()<TextComponent>())
+				if (canAddText || canAddSpriteRenderer || canAddCircleRenderer || canAddStaticMesh)
+					addCategoryHeader("Rendering");
+
+				if (canAddText)
 				{
 					addComponentRow("Text", EditorResources::TextIcon, [this, &entityIDs]()
 					{
@@ -913,7 +953,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddComponent.template operator()<SpriteRendererComponent>())
+				if (canAddSpriteRenderer)
 				{
 					addComponentRow("Sprite Renderer", EditorResources::SpriteIcon, [this, &entityIDs]()
 					{
@@ -926,7 +966,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddComponent.template operator()<CircleRendererComponent>())
+				if (canAddCircleRenderer)
 				{
 					addComponentRow("Circle Renderer", EditorResources::SpriteIcon, [this, &entityIDs]()
 					{
@@ -939,72 +979,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddComponent.template operator()<RigidBody2DComponent>())
-				{
-					addComponentRow("Rigidbody 2D", EditorResources::RigidBody2DIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<RigidBody2DComponent>())
-								entity.AddComponent<RigidBody2DComponent>();
-						}
-					});
-				}
-
-				if (canAddComponent.template operator()<BoxCollider2DComponent>())
-				{
-					addComponentRow("Box Collider 2D", EditorResources::BoxCollider2DIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<BoxCollider2DComponent>())
-								entity.AddComponent<BoxCollider2DComponent>();
-						}
-					});
-				}
-
-				if (canAddComponent.template operator()<CircleCollider2DComponent>())
-				{
-					addComponentRow("Circle Collider 2D", EditorResources::CircleCollider2DIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<CircleCollider2DComponent>())
-								entity.AddComponent<CircleCollider2DComponent>();
-						}
-					});
-				}
-
-				if (canAddComponent.template operator()<AudioSourceComponent>())
-				{
-					addComponentRow("Audio Source", EditorResources::AudioIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<AudioSourceComponent>())
-								entity.AddComponent<AudioSourceComponent>();
-						}
-					});
-				}
-
-				if (canAddComponent.template operator()<AudioListenerComponent>())
-				{
-					addComponentRow("Audio Listener", EditorResources::AudioListenerIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<AudioListenerComponent>())
-								entity.AddComponent<AudioListenerComponent>();
-						}
-					});
-				}
-
-				if (canAddComponent.template operator()<StaticMeshComponent>())
+				if (canAddStaticMesh)
 				{
 					addComponentRow("Static Mesh", EditorResources::StaticMeshIcon, [this, &entityIDs]()
 					{
@@ -1017,7 +992,175 @@ namespace Lux {
 					});
 				}
 
-				if (canAddComponent.template operator()<DirectionalLightComponent>())
+				if (canAddRigidBody2D || canAddBoxCollider2D || canAddCircleCollider2D)
+					addCategoryHeader("Physics 2D");
+
+				if (canAddRigidBody2D)
+				{
+					addComponentRow("Rigidbody 2D", EditorResources::RigidBody2DIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<RigidBody2DComponent>())
+								entity.AddComponent<RigidBody2DComponent>();
+						}
+					});
+				}
+
+				if (canAddBoxCollider2D)
+				{
+					addComponentRow("Box Collider 2D", EditorResources::BoxCollider2DIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<BoxCollider2DComponent>())
+								entity.AddComponent<BoxCollider2DComponent>();
+						}
+					});
+				}
+
+				if (canAddCircleCollider2D)
+				{
+					addComponentRow("Circle Collider 2D", EditorResources::CircleCollider2DIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<CircleCollider2DComponent>())
+								entity.AddComponent<CircleCollider2DComponent>();
+						}
+					});
+				}
+
+				if (canAddRigidBody || canAddCharacterController || canAddCompoundCollider || canAddBoxCollider || canAddSphereCollider || canAddCapsuleCollider || canAddMeshCollider)
+					addCategoryHeader("Physics");
+
+				if (canAddRigidBody)
+				{
+					addComponentRow("Rigidbody", EditorResources::RigidBodyIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<RigidBodyComponent>())
+								entity.AddComponent<RigidBodyComponent>();
+						}
+					});
+				}
+
+				if (canAddCharacterController)
+				{
+					addComponentRow("Character Controller", EditorResources::CharacterControllerIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<CharacterControllerComponent>())
+								entity.AddComponent<CharacterControllerComponent>();
+						}
+					});
+				}
+
+				if (canAddCompoundCollider)
+				{
+					addComponentRow("Compound Collider", EditorResources::CompoundColliderIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<CompoundColliderComponent>())
+								entity.AddComponent<CompoundColliderComponent>();
+						}
+					});
+				}
+
+				if (canAddBoxCollider)
+				{
+					addComponentRow("Box Collider", EditorResources::BoxColliderIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<BoxColliderComponent>())
+								entity.AddComponent<BoxColliderComponent>();
+						}
+					});
+				}
+
+				if (canAddSphereCollider)
+				{
+					addComponentRow("Sphere Collider", EditorResources::SphereColliderIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<SphereColliderComponent>())
+								entity.AddComponent<SphereColliderComponent>();
+						}
+					});
+				}
+
+				if (canAddCapsuleCollider)
+				{
+					addComponentRow("Capsule Collider", EditorResources::CapsuleColliderIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<CapsuleColliderComponent>())
+								entity.AddComponent<CapsuleColliderComponent>();
+						}
+					});
+				}
+
+				if (canAddMeshCollider)
+				{
+					addComponentRow("Mesh Collider", EditorResources::MeshColliderIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<MeshColliderComponent>())
+								entity.AddComponent<MeshColliderComponent>();
+						}
+					});
+				}
+
+				if (canAddAudioSource || canAddAudioListener)
+					addCategoryHeader("Audio");
+
+				if (canAddAudioSource)
+				{
+					addComponentRow("Audio Source", EditorResources::AudioIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<AudioSourceComponent>())
+								entity.AddComponent<AudioSourceComponent>();
+						}
+					});
+				}
+
+				if (canAddAudioListener)
+				{
+					addComponentRow("Audio Listener", EditorResources::AudioListenerIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<AudioListenerComponent>())
+								entity.AddComponent<AudioListenerComponent>();
+						}
+					});
+				}
+
+				if (canAddDirectionalLight || canAddPointLight || canAddSpotLight || canAddSkyLight)
+					addCategoryHeader("Lighting");
+
+				if (canAddDirectionalLight)
 				{
 					addComponentRow("Directional Light", EditorResources::DirectionalLightIcon, [this, &entityIDs]()
 					{
@@ -1030,7 +1173,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddComponent.template operator()<PointLightComponent>())
+				if (canAddPointLight)
 				{
 					addComponentRow("Point Light", EditorResources::PointLightIcon, [this, &entityIDs]()
 					{
@@ -1043,7 +1186,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddComponent.template operator()<SpotLightComponent>())
+				if (canAddSpotLight)
 				{
 					addComponentRow("Spot Light", EditorResources::SpotLightIcon, [this, &entityIDs]()
 					{
@@ -1056,7 +1199,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddComponent.template operator()<SkyLightComponent>())
+				if (canAddSkyLight)
 				{
 					addComponentRow("Sky Light", EditorResources::SkyLightIcon, [this, &entityIDs]()
 					{
@@ -1515,6 +1658,425 @@ namespace Lux {
 					ApplyToSelection<CircleCollider2DComponent>(m_Context, selectedEntities, [&firstComponent](CircleCollider2DComponent& component, Entity)
 					{
 						component.RestitutionThreshold = firstComponent.RestitutionThreshold;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<RigidBodyComponent>(m_Context, entityIDs, "Rigidbody", EditorResources::RigidBodyIcon,
+			[this](RigidBodyComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
+				int currentBodyType = (int)firstComponent.BodyType;
+				const char* collisionDetectionStrings[] = { "Discrete", "Continuous" };
+				int currentCollisionDetection = (int)firstComponent.CollisionDetection;
+				ImGuiEx::BeginPropertyGrid();
+
+				if (ImGuiEx::PropertyDropdown("Body Type", bodyTypeStrings, 3, &currentBodyType))
+				{
+					firstComponent.BodyType = (EBodyType)currentBodyType;
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [currentBodyType](RigidBodyComponent& component, Entity)
+					{
+						component.BodyType = (EBodyType)currentBodyType;
+					});
+				}
+
+				if (ImGuiEx::Property("Layer ID", firstComponent.LayerID, 0u, 255u))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.LayerID = firstComponent.LayerID;
+					});
+				}
+
+				if (ImGuiEx::Property("Dynamic Type Change", firstComponent.EnableDynamicTypeChange))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.EnableDynamicTypeChange = firstComponent.EnableDynamicTypeChange;
+					});
+				}
+
+				if (ImGuiEx::Property("Mass", firstComponent.Mass, 0.05f, 0.001f))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.Mass = firstComponent.Mass;
+					});
+				}
+
+				if (ImGuiEx::Property("Linear Drag", firstComponent.LinearDrag, 0.01f, 0.0f))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.LinearDrag = firstComponent.LinearDrag;
+					});
+				}
+
+				if (ImGuiEx::Property("Angular Drag", firstComponent.AngularDrag, 0.01f, 0.0f))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.AngularDrag = firstComponent.AngularDrag;
+					});
+				}
+
+				if (ImGuiEx::Property("Disable Gravity", firstComponent.DisableGravity))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.DisableGravity = firstComponent.DisableGravity;
+					});
+				}
+
+				if (ImGuiEx::Property("Is Trigger", firstComponent.IsTrigger))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.IsTrigger = firstComponent.IsTrigger;
+					});
+				}
+
+				if (ImGuiEx::PropertyDropdown("Collision Detection", collisionDetectionStrings, 2, &currentCollisionDetection))
+				{
+					firstComponent.CollisionDetection = (ECollisionDetectionType)currentCollisionDetection;
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [currentCollisionDetection](RigidBodyComponent& component, Entity)
+					{
+						component.CollisionDetection = (ECollisionDetectionType)currentCollisionDetection;
+					});
+				}
+
+				if (ImGuiEx::Property("Initial Linear Velocity", firstComponent.InitialLinearVelocity))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.InitialLinearVelocity = firstComponent.InitialLinearVelocity;
+					});
+				}
+
+				if (ImGuiEx::Property("Initial Angular Velocity", firstComponent.InitialAngularVelocity))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.InitialAngularVelocity = firstComponent.InitialAngularVelocity;
+					});
+				}
+
+				if (ImGuiEx::Property("Max Linear Velocity", firstComponent.MaxLinearVelocity, 1.0f, 0.0f))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.MaxLinearVelocity = firstComponent.MaxLinearVelocity;
+					});
+				}
+
+				if (ImGuiEx::Property("Max Angular Velocity", firstComponent.MaxAngularVelocity, 1.0f, 0.0f))
+				{
+					ApplyToSelection<RigidBodyComponent>(m_Context, selectedEntities, [&firstComponent](RigidBodyComponent& component, Entity)
+					{
+						component.MaxAngularVelocity = firstComponent.MaxAngularVelocity;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<CharacterControllerComponent>(m_Context, entityIDs, "Character Controller", EditorResources::CharacterControllerIcon,
+			[this](CharacterControllerComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				if (ImGuiEx::Property("Layer ID", firstComponent.LayerID, 0u, 255u))
+				{
+					ApplyToSelection<CharacterControllerComponent>(m_Context, selectedEntities, [&firstComponent](CharacterControllerComponent& component, Entity)
+					{
+						component.LayerID = firstComponent.LayerID;
+					});
+				}
+
+				if (ImGuiEx::Property("Disable Gravity", firstComponent.DisableGravity))
+				{
+					ApplyToSelection<CharacterControllerComponent>(m_Context, selectedEntities, [&firstComponent](CharacterControllerComponent& component, Entity)
+					{
+						component.DisableGravity = firstComponent.DisableGravity;
+					});
+				}
+
+				if (ImGuiEx::Property("Control Movement In Air", firstComponent.ControlMovementInAir))
+				{
+					ApplyToSelection<CharacterControllerComponent>(m_Context, selectedEntities, [&firstComponent](CharacterControllerComponent& component, Entity)
+					{
+						component.ControlMovementInAir = firstComponent.ControlMovementInAir;
+					});
+				}
+
+				if (ImGuiEx::Property("Control Rotation In Air", firstComponent.ControlRotationInAir))
+				{
+					ApplyToSelection<CharacterControllerComponent>(m_Context, selectedEntities, [&firstComponent](CharacterControllerComponent& component, Entity)
+					{
+						component.ControlRotationInAir = firstComponent.ControlRotationInAir;
+					});
+				}
+
+				if (ImGuiEx::Property("Slope Limit", firstComponent.SlopeLimitDeg, 0.5f, 0.0f, 89.0f))
+				{
+					ApplyToSelection<CharacterControllerComponent>(m_Context, selectedEntities, [&firstComponent](CharacterControllerComponent& component, Entity)
+					{
+						component.SlopeLimitDeg = firstComponent.SlopeLimitDeg;
+					});
+				}
+
+				if (ImGuiEx::Property("Step Offset", firstComponent.StepOffset, 0.01f, 0.0f))
+				{
+					ApplyToSelection<CharacterControllerComponent>(m_Context, selectedEntities, [&firstComponent](CharacterControllerComponent& component, Entity)
+					{
+						component.StepOffset = firstComponent.StepOffset;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<CompoundColliderComponent>(m_Context, entityIDs, "Compound Collider", EditorResources::CompoundColliderIcon,
+			[this](CompoundColliderComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				if (ImGuiEx::Property("Include Static Children", firstComponent.IncludeStaticChildColliders))
+				{
+					ApplyToSelection<CompoundColliderComponent>(m_Context, selectedEntities, [&firstComponent](CompoundColliderComponent& component, Entity)
+					{
+						component.IncludeStaticChildColliders = firstComponent.IncludeStaticChildColliders;
+					});
+				}
+
+				if (ImGuiEx::Property("Immutable", firstComponent.IsImmutable))
+				{
+					ApplyToSelection<CompoundColliderComponent>(m_Context, selectedEntities, [&firstComponent](CompoundColliderComponent& component, Entity)
+					{
+						component.IsImmutable = firstComponent.IsImmutable;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<BoxColliderComponent>(m_Context, entityIDs, "Box Collider", EditorResources::BoxColliderIcon,
+			[this](BoxColliderComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				if (ImGuiEx::Property("Half Size", firstComponent.HalfSize, 0.05f, 0.001f))
+				{
+					ApplyToSelection<BoxColliderComponent>(m_Context, selectedEntities, [&firstComponent](BoxColliderComponent& component, Entity)
+					{
+						component.HalfSize = firstComponent.HalfSize;
+					});
+				}
+
+				if (ImGuiEx::Property("Offset", firstComponent.Offset))
+				{
+					ApplyToSelection<BoxColliderComponent>(m_Context, selectedEntities, [&firstComponent](BoxColliderComponent& component, Entity)
+					{
+						component.Offset = firstComponent.Offset;
+					});
+				}
+
+				if (ImGuiEx::Property("Density", firstComponent.Material.Density, 0.01f, 0.0f))
+				{
+					ApplyToSelection<BoxColliderComponent>(m_Context, selectedEntities, [&firstComponent](BoxColliderComponent& component, Entity)
+					{
+						component.Material.Density = firstComponent.Material.Density;
+					});
+				}
+
+				if (ImGuiEx::Property("Friction", firstComponent.Material.Friction, 0.01f, 0.0f, 1.0f))
+				{
+					ApplyToSelection<BoxColliderComponent>(m_Context, selectedEntities, [&firstComponent](BoxColliderComponent& component, Entity)
+					{
+						component.Material.Friction = firstComponent.Material.Friction;
+					});
+				}
+
+				if (ImGuiEx::Property("Restitution", firstComponent.Material.Restitution, 0.01f, 0.0f, 1.0f))
+				{
+					ApplyToSelection<BoxColliderComponent>(m_Context, selectedEntities, [&firstComponent](BoxColliderComponent& component, Entity)
+					{
+						component.Material.Restitution = firstComponent.Material.Restitution;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<SphereColliderComponent>(m_Context, entityIDs, "Sphere Collider", EditorResources::SphereColliderIcon,
+			[this](SphereColliderComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				if (ImGuiEx::Property("Radius", firstComponent.Radius, 0.05f, 0.001f))
+				{
+					ApplyToSelection<SphereColliderComponent>(m_Context, selectedEntities, [&firstComponent](SphereColliderComponent& component, Entity)
+					{
+						component.Radius = firstComponent.Radius;
+					});
+				}
+
+				if (ImGuiEx::Property("Offset", firstComponent.Offset))
+				{
+					ApplyToSelection<SphereColliderComponent>(m_Context, selectedEntities, [&firstComponent](SphereColliderComponent& component, Entity)
+					{
+						component.Offset = firstComponent.Offset;
+					});
+				}
+
+				if (ImGuiEx::Property("Density", firstComponent.Material.Density, 0.01f, 0.0f))
+				{
+					ApplyToSelection<SphereColliderComponent>(m_Context, selectedEntities, [&firstComponent](SphereColliderComponent& component, Entity)
+					{
+						component.Material.Density = firstComponent.Material.Density;
+					});
+				}
+
+				if (ImGuiEx::Property("Friction", firstComponent.Material.Friction, 0.01f, 0.0f, 1.0f))
+				{
+					ApplyToSelection<SphereColliderComponent>(m_Context, selectedEntities, [&firstComponent](SphereColliderComponent& component, Entity)
+					{
+						component.Material.Friction = firstComponent.Material.Friction;
+					});
+				}
+
+				if (ImGuiEx::Property("Restitution", firstComponent.Material.Restitution, 0.01f, 0.0f, 1.0f))
+				{
+					ApplyToSelection<SphereColliderComponent>(m_Context, selectedEntities, [&firstComponent](SphereColliderComponent& component, Entity)
+					{
+						component.Material.Restitution = firstComponent.Material.Restitution;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<CapsuleColliderComponent>(m_Context, entityIDs, "Capsule Collider", EditorResources::CapsuleColliderIcon,
+			[this](CapsuleColliderComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				if (ImGuiEx::Property("Radius", firstComponent.Radius, 0.05f, 0.001f))
+				{
+					ApplyToSelection<CapsuleColliderComponent>(m_Context, selectedEntities, [&firstComponent](CapsuleColliderComponent& component, Entity)
+					{
+						component.Radius = firstComponent.Radius;
+					});
+				}
+
+				if (ImGuiEx::Property("Half Height", firstComponent.HalfHeight, 0.05f, 0.001f))
+				{
+					ApplyToSelection<CapsuleColliderComponent>(m_Context, selectedEntities, [&firstComponent](CapsuleColliderComponent& component, Entity)
+					{
+						component.HalfHeight = firstComponent.HalfHeight;
+					});
+				}
+
+				if (ImGuiEx::Property("Offset", firstComponent.Offset))
+				{
+					ApplyToSelection<CapsuleColliderComponent>(m_Context, selectedEntities, [&firstComponent](CapsuleColliderComponent& component, Entity)
+					{
+						component.Offset = firstComponent.Offset;
+					});
+				}
+
+				if (ImGuiEx::Property("Density", firstComponent.Material.Density, 0.01f, 0.0f))
+				{
+					ApplyToSelection<CapsuleColliderComponent>(m_Context, selectedEntities, [&firstComponent](CapsuleColliderComponent& component, Entity)
+					{
+						component.Material.Density = firstComponent.Material.Density;
+					});
+				}
+
+				if (ImGuiEx::Property("Friction", firstComponent.Material.Friction, 0.01f, 0.0f, 1.0f))
+				{
+					ApplyToSelection<CapsuleColliderComponent>(m_Context, selectedEntities, [&firstComponent](CapsuleColliderComponent& component, Entity)
+					{
+						component.Material.Friction = firstComponent.Material.Friction;
+					});
+				}
+
+				if (ImGuiEx::Property("Restitution", firstComponent.Material.Restitution, 0.01f, 0.0f, 1.0f))
+				{
+					ApplyToSelection<CapsuleColliderComponent>(m_Context, selectedEntities, [&firstComponent](CapsuleColliderComponent& component, Entity)
+					{
+						component.Material.Restitution = firstComponent.Material.Restitution;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<MeshColliderComponent>(m_Context, entityIDs, "Mesh Collider", EditorResources::MeshColliderIcon,
+			[this](MeshColliderComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				AssetHandle colliderAsset = firstComponent.ColliderAsset;
+				if (ImGuiEx::PropertyAssetReference<MeshSource>("Collider Mesh", colliderAsset, "Leave empty to use the entity Static Mesh. Mesh colliders are static in Jolt."))
+				{
+					firstComponent.ColliderAsset = colliderAsset;
+					ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [colliderAsset](MeshColliderComponent& component, Entity)
+					{
+						component.ColliderAsset = colliderAsset;
+					});
+				}
+
+				if (ImGuiEx::Property("Submesh Index", firstComponent.SubmeshIndex, 0u))
+				{
+					ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [&firstComponent](MeshColliderComponent& component, Entity)
+					{
+						component.SubmeshIndex = firstComponent.SubmeshIndex;
+					});
+				}
+
+				if (ImGuiEx::Property("Use Shared Shape", firstComponent.UseSharedShape))
+				{
+					ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [&firstComponent](MeshColliderComponent& component, Entity)
+					{
+						component.UseSharedShape = firstComponent.UseSharedShape;
+					});
+				}
+
+				const char* collisionComplexityStrings[] = { "Default", "Simple As Complex", "Complex As Simple" };
+				int currentCollisionComplexity = (int)firstComponent.CollisionComplexity;
+				if (ImGuiEx::PropertyDropdown("Collision Complexity", collisionComplexityStrings, 3, &currentCollisionComplexity))
+				{
+					firstComponent.CollisionComplexity = (ECollisionComplexity)currentCollisionComplexity;
+					ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [currentCollisionComplexity](MeshColliderComponent& component, Entity)
+					{
+						component.CollisionComplexity = (ECollisionComplexity)currentCollisionComplexity;
+					});
+				}
+
+				if (ImGuiEx::Property("Density", firstComponent.Material.Density, 0.01f, 0.0f))
+				{
+					ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [&firstComponent](MeshColliderComponent& component, Entity)
+					{
+						component.Material.Density = firstComponent.Material.Density;
+					});
+				}
+
+				if (ImGuiEx::Property("Friction", firstComponent.Material.Friction, 0.01f, 0.0f, 1.0f))
+				{
+					ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [&firstComponent](MeshColliderComponent& component, Entity)
+					{
+						component.Material.Friction = firstComponent.Material.Friction;
+					});
+				}
+
+				if (ImGuiEx::Property("Restitution", firstComponent.Material.Restitution, 0.01f, 0.0f, 1.0f))
+				{
+					ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [&firstComponent](MeshColliderComponent& component, Entity)
+					{
+						component.Material.Restitution = firstComponent.Material.Restitution;
 					});
 				}
 

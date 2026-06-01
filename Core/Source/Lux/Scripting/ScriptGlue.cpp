@@ -9,7 +9,7 @@
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Entity.h"
 
-#include "Lux/Physics/ContactListener2D.h"
+#include "Lux/Physics2D/ContactListener2D.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"

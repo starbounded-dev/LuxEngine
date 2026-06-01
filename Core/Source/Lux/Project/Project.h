@@ -17,7 +17,8 @@ namespace Lux
 {
 	enum class PhysicsAPIType : uint8_t
 	{
-		Box2D = 0
+		Box2D = 0,
+		Jolt = 1
 	};
 
 	enum class PhysicsCaptureMethod : uint8_t
@@ -150,7 +151,7 @@ namespace Lux
 		bool AutomaticallyReloadAssembly = true;
 		bool EnableAutoSave = false;
 		int AutoSaveIntervalSeconds = 300;
-		PhysicsAPIType CurrentPhysicsAPI = PhysicsAPIType::Box2D;
+		PhysicsAPIType CurrentPhysicsAPI = PhysicsAPIType::Jolt;
 		RenderingTechnique RendererTechnique = RenderingTechnique::Forward;
 
 		std::string ProjectFileName;

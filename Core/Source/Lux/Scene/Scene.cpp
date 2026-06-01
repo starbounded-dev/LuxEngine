@@ -17,24 +17,22 @@
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Renderer/MeshFactory.h"
 #include "Lux/Renderer/MaterialAsset.h"
-#include "Lux/Physics/ContactListener2D.h"
+#include "Lux/Physics/PhysicsScene.h"
+#include "Lux/Physics/PhysicsSystem.h"
+#include "Lux/Physics2D/PhysicsScene2D.h"
 #include "Lux/Project/Project.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <thread>
-
-// Box2D
-#include "box2d/b2_world.h"
-#include "box2d/b2_body.h"
-#include "box2d/b2_fixture.h"
-#include "box2d/b2_polygon_shape.h"
-#include "box2d/b2_circle_shape.h"
+#include <unordered_map>
 
 namespace Lux {
-
-	static ContactListener2D s_Box2DContactListener;
 
 	namespace
 	{
@@ -75,6 +73,86 @@ namespace Lux {
 
 			return audioSource;
 		}
+
+		enum class ColliderDebugPrimitive
+		{
+			Box,
+			Sphere
+		};
+
+		AssetHandle GetColliderDebugPrimitiveMesh(ColliderDebugPrimitive primitive)
+		{
+			static AssetHandle s_BoxMesh = 0;
+			static AssetHandle s_SphereMesh = 0;
+
+			AssetHandle& handle = primitive == ColliderDebugPrimitive::Box ? s_BoxMesh : s_SphereMesh;
+			if (handle && AssetManager::IsAssetHandleValid(handle))
+				return handle;
+
+			switch (primitive)
+			{
+				case ColliderDebugPrimitive::Box:
+					handle = MeshFactory::CreateBox({ 1.0f, 1.0f, 1.0f });
+					break;
+				case ColliderDebugPrimitive::Sphere:
+					handle = MeshFactory::CreateSphere(1.0f);
+					break;
+			}
+
+			return handle;
+		}
+
+		uint64_t PackColliderDimension(float value)
+		{
+			const int64_t packed = (int64_t)std::llround(std::max(value, 0.001f) * 10000.0f);
+			return (uint64_t)std::clamp<int64_t>(packed, 1, 0xffffffffll);
+		}
+
+		AssetHandle GetCapsuleColliderDebugMesh(float radius, float cylinderHeight)
+		{
+			static std::unordered_map<uint64_t, AssetHandle> s_CapsuleMeshes;
+
+			radius = std::max(radius, 0.001f);
+			cylinderHeight = std::max(cylinderHeight, 0.001f);
+
+			const uint64_t key = (PackColliderDimension(radius) << 32) | PackColliderDimension(cylinderHeight);
+			if (auto it = s_CapsuleMeshes.find(key); it != s_CapsuleMeshes.end())
+			{
+				if (it->second && AssetManager::IsAssetHandleValid(it->second))
+					return it->second;
+			}
+
+			AssetHandle handle = MeshFactory::CreateCapsule(radius, cylinderHeight);
+			s_CapsuleMeshes[key] = handle;
+			return handle;
+		}
+
+		bool ResolveStaticMeshDebugAssets(AssetHandle handle, Ref<StaticMesh>& staticMesh, Ref<MeshSource>& meshSource)
+		{
+			staticMesh = StaticMesh::GetOrCreateRuntime(handle);
+			if (!staticMesh)
+				return false;
+
+			meshSource = AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource());
+			return meshSource != nullptr;
+		}
+
+		glm::mat4 GetPhysicsColliderBodyTransform(const TransformComponent& worldTransform)
+		{
+			return glm::translate(glm::mat4(1.0f), worldTransform.Translation)
+				* glm::toMat4(worldTransform.GetRotation());
+		}
+
+		AssetHandle ResolveMeshColliderHandle(Entity entity, const MeshColliderComponent& collider)
+		{
+			if (collider.ColliderAsset)
+				return collider.ColliderAsset;
+
+			if (entity.HasComponent<StaticMeshComponent>())
+				return entity.GetComponent<StaticMeshComponent>().StaticMesh;
+
+			return 0;
+		}
 	}
 
 	Scene::Scene()
@@ -86,7 +164,8 @@ namespace Lux {
 	{
 		ReleaseAllRuntimeAudio();
 		m_EntityMap.clear();
-		delete m_PhysicsWorld;
+		OnPhysics2DStop();
+		OnPhysics3DStop();
 	}
 
 	template<typename... Component>
@@ -274,8 +353,9 @@ namespace Lux {
 		m_IsRunning = true;
 
 		OnPhysics2DStart();
+		OnPhysics3DStart();
 
-		ContactListener2D::m_IsPlaying = true;
+		PhysicsScene2D::SetPlaying(true);
 
 		{
 			auto filter = m_Registry.view<TransformComponent, AudioListenerComponent>();
@@ -365,8 +445,9 @@ namespace Lux {
 	{
 		m_IsRunning = false;
 
-		ContactListener2D::m_IsPlaying = false;
+		PhysicsScene2D::SetPlaying(false);
 
+		OnPhysics3DStop();
 		OnPhysics2DStop();
 
 		{
@@ -424,10 +505,12 @@ namespace Lux {
 	void Scene::OnSimulationStart()
 	{
 		OnPhysics2DStart();
+		OnPhysics3DStart();
 	}
 
 	void Scene::OnSimulationStop()
 	{
+		OnPhysics3DStop();
 		OnPhysics2DStop();
 	}
 
@@ -463,30 +546,7 @@ namespace Lux {
 					});
 			}
 
-			// Physics
-			{
-				const int32_t velocityIterations = 6;
-				const int32_t positionIterations = 2;
-				m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
-
-				// Retrieve transform from Box2D
-				auto view = m_Registry.view<RigidBody2DComponent>();
-				for (auto e : view)
-				{
-					Entity entity = { e, this };
-					auto& transform = entity.GetComponent<TransformComponent>();
-					auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
-
-					b2Body* body = (b2Body*)rb2d.RuntimeBody;
-
-					const auto& position = body->GetPosition();
-					transform.Translation.x = position.x;
-					transform.Translation.y = position.y;
-					glm::vec3 rotation = transform.GetRotationEuler();
-					rotation.z = body->GetAngle();
-					transform.SetRotationEuler(rotation);
-				}
-			}
+			StepPhysics(ts);
 
 			{
 				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioListenerComponent Scope", 0xFF7200);
@@ -739,29 +799,7 @@ namespace Lux {
 	{
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
-			// Physics
-			{
-				const int32_t velocityIterations = 6;
-				const int32_t positionIterations = 2;
-				m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
-
-				// Retrieve transform from Box2D
-				auto view = m_Registry.view<RigidBody2DComponent>();
-				for (auto e : view)
-				{
-					Entity entity = { e, this };
-					auto& transform = entity.GetComponent<TransformComponent>();
-					auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
-
-					b2Body* body = (b2Body*)rb2d.RuntimeBody;
-					const auto& position = body->GetPosition();
-					transform.Translation.x = position.x;
-					transform.Translation.y = position.y;
-					glm::vec3 rotation = transform.GetRotationEuler();
-					rotation.z = body->GetAngle();
-					transform.SetRotationEuler(rotation);
-				}
-			}
+			StepPhysics(ts);
 		}
 
 		// Render
@@ -833,7 +871,8 @@ namespace Lux {
 	{
 		using DuplicateComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
-			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, TextComponent,
+			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
 
@@ -887,7 +926,8 @@ namespace Lux {
 
 		using PrefabInstantiationComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
-			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, TextComponent,
+			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
 
@@ -1109,74 +1149,42 @@ namespace Lux {
 
 	void Scene::OnPhysics2DStart()
 	{
-		// Guard against double-call leak
-		if (m_PhysicsWorld)
-		{
-			delete m_PhysicsWorld;
-			m_PhysicsWorld = nullptr;
-		}
-
-		m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
-
-		auto view = m_Registry.view<RigidBody2DComponent>();
-		for (auto e : view)
-		{
-			Entity entity = { e, this };
-			auto& transform = entity.GetComponent<TransformComponent>();
-			auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
-
-			b2BodyDef bodyDef;
-			bodyDef.type = Utils::RigidBody2DTypeToBox2DBody(rb2d.BodyType);
-			bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
-			bodyDef.angle = transform.GetRotationEuler().z;
-			bodyDef.linearDamping = rb2d.LinearDrag;
-			bodyDef.angularDamping = rb2d.AngularDrag;
-			bodyDef.gravityScale = rb2d.GravityScale;
-			bodyDef.bullet = rb2d.IsBullet;
-
-			b2Body* body = m_PhysicsWorld->CreateBody(&bodyDef);
-			body->SetFixedRotation(rb2d.FixedRotation);
-			rb2d.RuntimeBody = body;
-
-			if (entity.HasComponent<BoxCollider2DComponent>())
-			{
-				auto& bc2d = entity.GetComponent<BoxCollider2DComponent>();
-
-				b2PolygonShape boxShape;
-				boxShape.SetAsBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y, b2Vec2(bc2d.Offset.x, bc2d.Offset.y), 0.0f);
-
-				b2FixtureDef fixtureDef;
-				fixtureDef.shape = &boxShape;
-				fixtureDef.density = bc2d.Density;
-				fixtureDef.friction = bc2d.Friction;
-				fixtureDef.restitution = bc2d.Restitution;
-				fixtureDef.restitutionThreshold = bc2d.RestitutionThreshold;
-				body->CreateFixture(&fixtureDef);
-			}
-
-			if (entity.HasComponent<CircleCollider2DComponent>())
-			{
-				auto& cc2d = entity.GetComponent<CircleCollider2DComponent>();
-
-				b2CircleShape circleShape;
-				circleShape.m_p.Set(cc2d.Offset.x, cc2d.Offset.y);
-				circleShape.m_radius = transform.Scale.x * cc2d.Radius;
-
-				b2FixtureDef fixtureDef;
-				fixtureDef.shape = &circleShape;
-				fixtureDef.density = cc2d.Density;
-				fixtureDef.friction = cc2d.Friction;
-				fixtureDef.restitution = cc2d.Restitution;
-				fixtureDef.restitutionThreshold = cc2d.RestitutionThreshold;
-				body->CreateFixture(&fixtureDef);
-			}
-		}
+		m_PhysicsScene2D = CreateScope<PhysicsScene2D>(this);
+		m_PhysicsScene2D->Start();
 	}
 
 	void Scene::OnPhysics2DStop()
 	{
-		delete m_PhysicsWorld;
-		m_PhysicsWorld = nullptr;
+		if (m_PhysicsScene2D)
+		{
+			m_PhysicsScene2D->Stop();
+			m_PhysicsScene2D.reset();
+		}
+	}
+
+	void Scene::OnPhysics3DStart()
+	{
+		m_PhysicsScene = PhysicsSystem::CreateScene(this);
+		if (m_PhysicsScene)
+			m_PhysicsScene->Start();
+	}
+
+	void Scene::OnPhysics3DStop()
+	{
+		if (m_PhysicsScene)
+		{
+			m_PhysicsScene->Stop();
+			m_PhysicsScene.reset();
+		}
+	}
+
+	void Scene::StepPhysics(Timestep ts)
+	{
+		if (m_PhysicsScene)
+			m_PhysicsScene->Simulate(ts);
+
+		if (m_PhysicsScene2D)
+			m_PhysicsScene2D->Simulate(ts);
 	}
 
 	void Scene::RenderScene(EditorCamera& camera)
@@ -1472,6 +1480,136 @@ namespace Lux {
 				renderer->SubmitSelectedStaticMesh(submission.StaticMeshAsset, submission.MeshSourceAsset, submission.Materials, submission.WorldTransform);
 			else
 				renderer->SubmitStaticMesh(submission.StaticMeshAsset, submission.MeshSourceAsset, submission.Materials, submission.WorldTransform);
+		}
+
+		const SceneRendererOptions& rendererOptions = renderer->GetOptions();
+		if (!rendererOptions.ShowPhysicsColliders)
+			return;
+
+		auto shouldSubmitCollider = [&](Entity entity)
+		{
+			if (rendererOptions.PhysicsColliderMode == SceneRendererOptions::PhysicsColliderView::All)
+				return true;
+
+			return isSelected ? isSelected(entity) : false;
+		};
+
+		auto submitDebugMesh = [&](AssetHandle handle, const glm::mat4& transform, bool isSimpleCollider)
+		{
+			Ref<StaticMesh> staticMesh;
+			Ref<MeshSource> meshSource;
+			if (!ResolveStaticMeshDebugAssets(handle, staticMesh, meshSource))
+				return;
+
+			renderer->SubmitPhysicsStaticDebugMesh(staticMesh, meshSource, transform, isSimpleCollider);
+		};
+
+		{
+			auto colliderView = m_Registry.view<const TransformComponent, const BoxColliderComponent>();
+			for (auto e : colliderView)
+			{
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity))
+					continue;
+
+				const auto& collider = colliderView.get<const BoxColliderComponent>(e);
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const glm::vec3 size = glm::max(collider.HalfSize * 2.0f * physicsScale, glm::vec3(0.001f));
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform)
+					* glm::translate(glm::mat4(1.0f), collider.Offset * physicsScale)
+					* glm::scale(glm::mat4(1.0f), size);
+
+				submitDebugMesh(GetColliderDebugPrimitiveMesh(ColliderDebugPrimitive::Box), transform, true);
+			}
+		}
+
+		{
+			auto colliderView = m_Registry.view<const TransformComponent, const SphereColliderComponent>();
+			for (auto e : colliderView)
+			{
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity))
+					continue;
+
+				const auto& collider = colliderView.get<const SphereColliderComponent>(e);
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const float radius = std::max(0.001f, collider.Radius * std::max({ physicsScale.x, physicsScale.y, physicsScale.z }));
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform)
+					* glm::translate(glm::mat4(1.0f), collider.Offset * physicsScale)
+					* glm::scale(glm::mat4(1.0f), glm::vec3(radius));
+
+				submitDebugMesh(GetColliderDebugPrimitiveMesh(ColliderDebugPrimitive::Sphere), transform, true);
+			}
+		}
+
+		{
+			auto colliderView = m_Registry.view<const TransformComponent, const CapsuleColliderComponent>();
+			for (auto e : colliderView)
+			{
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity))
+					continue;
+
+				const auto& collider = colliderView.get<const CapsuleColliderComponent>(e);
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const float radius = std::max(0.001f, collider.Radius * std::max(physicsScale.x, physicsScale.z));
+				const float halfHeight = std::max(0.001f, collider.HalfHeight * physicsScale.y);
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform)
+					* glm::translate(glm::mat4(1.0f), collider.Offset * physicsScale);
+
+				submitDebugMesh(GetCapsuleColliderDebugMesh(radius, halfHeight * 2.0f), transform, true);
+			}
+		}
+
+		{
+			auto controllerView = m_Registry.view<const TransformComponent, const CharacterControllerComponent>();
+			for (auto e : controllerView)
+			{
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity) || entity.HasComponent<CapsuleColliderComponent>())
+					continue;
+
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const float radius = 0.5f * std::max(physicsScale.x, physicsScale.z);
+				const float halfHeight = 0.5f * physicsScale.y;
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform);
+
+				submitDebugMesh(GetCapsuleColliderDebugMesh(radius, halfHeight * 2.0f), transform, true);
+			}
+		}
+
+		{
+			auto colliderView = m_Registry.view<const TransformComponent, const MeshColliderComponent>();
+			for (auto e : colliderView)
+			{
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity))
+					continue;
+
+				const auto& collider = colliderView.get<const MeshColliderComponent>(e);
+				const AssetHandle colliderHandle = ResolveMeshColliderHandle(entity, collider);
+				if (!colliderHandle)
+					continue;
+
+				Ref<StaticMesh> staticMesh;
+				Ref<MeshSource> meshSource;
+				if (!ResolveStaticMeshDebugAssets(colliderHandle, staticMesh, meshSource))
+					continue;
+
+				if (collider.SubmeshIndex < meshSource->GetSubmeshes().size())
+					staticMesh = Ref<StaticMesh>::Create(staticMesh->GetMeshSource(), std::vector<uint32_t>{ collider.SubmeshIndex }, false);
+
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform)
+					* glm::scale(glm::mat4(1.0f), physicsScale);
+
+				renderer->SubmitPhysicsStaticDebugMesh(staticMesh, meshSource, transform, false);
+			}
 		}
 	}
 
@@ -1794,6 +1932,10 @@ namespace Lux {
 			addMaterialTableDependencies(staticMesh.MaterialTable);
 		}
 
+		auto meshColliderView = m_Registry.view<MeshColliderComponent>();
+		for (auto entity : meshColliderView)
+			addMeshDependencies(meshColliderView.get<MeshColliderComponent>(entity).ColliderAsset);
+
 		auto skyLightView = m_Registry.view<SkyLightComponent>();
 		for (auto entity : skyLightView)
 			addIfValid(skyLightView.get<SkyLightComponent>(entity).SceneEnvironment);
@@ -1875,6 +2017,53 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<CircleCollider2DComponent>(Entity entity, CircleCollider2DComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<RigidBodyComponent>(Entity entity, RigidBodyComponent& component)
+	{
+		(void)component;
+		if (m_PhysicsScene)
+			m_PhysicsScene->CreateBody(entity);
+	}
+
+	template<>
+	void Scene::OnComponentAdded<CharacterControllerComponent>(Entity entity, CharacterControllerComponent& component)
+	{
+		(void)component;
+		if (m_PhysicsScene)
+			m_PhysicsScene->CreateCharacterController(entity);
+	}
+
+	template<>
+	void Scene::OnComponentAdded<CompoundColliderComponent>(Entity entity, CompoundColliderComponent& component)
+	{
+		(void)entity;
+		(void)component;
+	}
+
+	template<>
+	void Scene::OnComponentAdded<BoxColliderComponent>(Entity entity, BoxColliderComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<SphereColliderComponent>(Entity entity, SphereColliderComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<CapsuleColliderComponent>(Entity entity, CapsuleColliderComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<MeshColliderComponent>(Entity entity, MeshColliderComponent& component)
 	{
 
 	}

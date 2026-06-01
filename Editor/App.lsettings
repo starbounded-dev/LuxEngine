@@ -3,8 +3,8 @@ Lux Application Settings:
   ContentBrowser.ThumbnailSize: 101.000000
   Editor.AutoOpenMostRecentProject: 1
   Editor.RotationSnapValue: 10.000000
-  Editor.ShowBoundingBoxes: 1
-  Editor.ShowEntityIcons: 0
+  Editor.ShowBoundingBoxes: 0
+  Editor.ShowEntityIcons: 1
   Editor.ShowPhysicsColliders: 1
   Editor.ShowViewportPerformanceHUD: 1
   Editor.TranslationSnapValue: 0.500000

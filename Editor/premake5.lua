@@ -82,5 +82,12 @@ project "Editor"
 	filter "files:**.hlsl"
 		flags {"ExcludeFromBuild"}
 
-    filter "configurations:Dist"
-        flags { "ExcludeFromBuild" }
+	filter "configurations:Dist"
+		kind "WindowedApp"
+		optimize "Full"
+		symbols "Off"
+		defines { "LUX_DIST" }
+
+		ProcessDependencies("Dist")
+
+		flags { "ExcludeFromBuild" }

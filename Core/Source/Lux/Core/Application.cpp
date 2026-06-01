@@ -16,7 +16,7 @@
 #include "Input.h"
 //#include "FatalSignal.h"
 
-//#include "Lux/Physics/PhysicsSystem.h"
+#include "Lux/Physics/PhysicsSystem.h"
 
 #include "imgui/imgui_internal.h"
 
@@ -80,6 +80,7 @@ namespace Lux {
 
 		// Init renderer and execute command queue to compile all shaders
 		Renderer::Init();
+		PhysicsSystem::Init();
 		// Render one frame (TODO: maybe make a func called Pump or something)
 		m_RenderThread.Pump();
 
@@ -120,6 +121,7 @@ namespace Lux {
 
 		//ScriptEngine::Shutdown();
 		//Project::SetActive(nullptr);
+		PhysicsSystem::Shutdown();
 		Font::Shutdown();
 		//MiniAudioEngine::Shutdown();
 

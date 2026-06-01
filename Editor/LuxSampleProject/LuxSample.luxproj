@@ -20,13 +20,13 @@ Project:
     Fullscreen: false
     VSync: true
     IconPath: Textures/luxLogo.png
-    IconHandle: 15308730943713920604
+    IconHandle: 10706518493978196728
     TargetConfig: Dist
   SceneRenderer:
     Rendering:
       QualityPreset: Cinematic
       FrustumCulling: true
-      OcclusionCulling: true
+      OcclusionCulling: false
       GPUDrivenRendering: true
       GTAO: true
       GTAOBentNormals: true
@@ -72,7 +72,7 @@ Project:
         Intensity: 1
         DirtIntensity: 1
       DOF:
-        Enabled: true
+        Enabled: false
         ResolutionScale: 1
         FocusDistance: 4
         BlurSize: 0.75

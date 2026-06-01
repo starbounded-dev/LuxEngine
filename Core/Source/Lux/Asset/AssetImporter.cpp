@@ -30,6 +30,7 @@ namespace Lux
 			s_Serializers[AssetType::MeshSource] = std::make_unique<MeshSourceSerializer>();
 			s_Serializers[AssetType::Mesh] = std::make_unique<MeshSerializer>();
 			s_Serializers[AssetType::StaticMesh] = std::make_unique<StaticMeshSerializer>();
+			s_Serializers[AssetType::MeshCollider] = std::make_unique<MeshColliderSerializer>();
 			s_Serializers[AssetType::Material] = std::make_unique<MaterialSerializer>();
 		}
 

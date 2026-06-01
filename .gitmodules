@@ -39,3 +39,6 @@
 [submodule "Core/vendor/FastNoise"]
 	path = Core/vendor/FastNoise
 	url = https://github.com/Auburns/FastNoise
+[submodule "Core/vendor/JoltPhysics/JoltPhysics"]
+	path = Core/vendor/JoltPhysics/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics

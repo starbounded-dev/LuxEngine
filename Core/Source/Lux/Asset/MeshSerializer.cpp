@@ -4,6 +4,7 @@
 #include "MeshRuntimeSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Physics/MeshColliderAsset.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Mesh.h"
 
@@ -101,6 +102,40 @@ namespace Lux
 				meshSourceHandle = rootNode["MeshSource"].as<uint64_t>(0);
 
 			AssetManager::RegisterDependency(meshSourceHandle, handle);
+		}
+
+		static std::string SerializeMeshColliderToYAML(const Ref<MeshColliderAsset>& collider)
+		{
+			YAML::Emitter out;
+			out << YAML::BeginMap;
+			out << YAML::Key << "MeshCollider" << YAML::Value;
+			out << YAML::BeginMap;
+			out << YAML::Key << "Mesh" << YAML::Value << collider->Mesh;
+			out << YAML::Key << "CollisionComplexity" << YAML::Value << (uint8_t)collider->CollisionComplexity;
+			out << YAML::EndMap;
+			out << YAML::EndMap;
+			return std::string(out.c_str());
+		}
+
+		static bool DeserializeMeshColliderFromYAML(const YAML::Node& data, Ref<MeshColliderAsset>& targetCollider)
+		{
+			YAML::Node rootNode = data["MeshCollider"];
+			if (!rootNode)
+				return false;
+
+			AssetHandle mesh = rootNode["Mesh"].as<uint64_t>(0);
+			targetCollider = Ref<MeshColliderAsset>::Create(mesh);
+			targetCollider->CollisionComplexity = (ECollisionComplexity)rootNode["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
+			return true;
+		}
+
+		static void RegisterMeshColliderDependencyFromYAML(const YAML::Node& data, AssetHandle handle)
+		{
+			AssetManager::DeregisterDependencies(handle);
+			AssetHandle mesh = 0;
+			if (auto rootNode = data["MeshCollider"])
+				mesh = rootNode["Mesh"].as<uint64_t>(0);
+			AssetManager::RegisterDependency(mesh, handle);
 		}
 
 		static bool DeserializeMeshSelectionFromYAML(const YAML::Node& data, Ref<Mesh>& targetMesh)
@@ -314,5 +349,74 @@ namespace Lux
 			return nullptr;
 
 		return staticMesh;
+	}
+
+	void MeshColliderSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+	{
+		Ref<MeshColliderAsset> collider = asset.As<MeshColliderAsset>();
+		LUX_CORE_ASSERT(collider);
+
+		std::ofstream fout(Project::GetActive()->GetAssetDirectory() / metadata.FilePath);
+		if (!fout.is_open())
+		{
+			LUX_CORE_ERROR("MeshColliderSerializer: failed to open '{}' for writing", metadata.FilePath.string());
+			return;
+		}
+
+		fout << SerializeMeshColliderToYAML(collider);
+	}
+
+	bool MeshColliderSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+	{
+		std::string yaml = ReadMeshYAML(metadata);
+		if (yaml.empty())
+			return false;
+
+		Ref<MeshColliderAsset> collider;
+		YAML::Node data = YAML::Load(yaml);
+		if (!DeserializeMeshColliderFromYAML(data, collider))
+			return false;
+
+		collider->Handle = metadata.Handle;
+		RegisterMeshColliderDependencyFromYAML(data, collider->Handle);
+		asset = collider;
+		return true;
+	}
+
+	void MeshColliderSerializer::RegisterDependencies(const AssetMetadata& metadata) const
+	{
+		const std::string yaml = ReadMeshYAML(metadata);
+		if (yaml.empty())
+		{
+			AssetManager::RegisterDependency(0, metadata.Handle);
+			return;
+		}
+
+		RegisterMeshColliderDependencyFromYAML(YAML::Load(yaml), metadata.Handle);
+	}
+
+	bool MeshColliderSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+	{
+		Ref<MeshColliderAsset> collider = AssetManager::GetAsset<MeshColliderAsset>(handle);
+		if (!collider)
+			return false;
+
+		outInfo.Offset = stream.GetStreamPosition();
+		stream.WriteString(SerializeMeshColliderToYAML(collider));
+		outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+		return true;
+	}
+
+	Ref<Asset> MeshColliderSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+	{
+		stream.SetStreamPosition(assetInfo.PackedOffset);
+		std::string yaml;
+		stream.ReadString(yaml);
+
+		Ref<MeshColliderAsset> collider;
+		if (!DeserializeMeshColliderFromYAML(YAML::Load(yaml), collider))
+			return nullptr;
+
+		return collider;
 	}
 }

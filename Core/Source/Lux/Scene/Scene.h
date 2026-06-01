@@ -3,6 +3,7 @@
 #include "Entity.h"
 
 #include "Lux/Asset/Asset.h"
+#include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
 #include "Lux/Editor/EditorCamera.h"
@@ -15,13 +16,13 @@
 #include <functional>
 #include <unordered_set>
 
-class b2World;
-
 namespace Lux {
 
 	class Entity;
 	class Framebuffer;
 	class Prefab;
+	class PhysicsScene2D;
+	class PhysicsScene;
 	class SceneRenderer;
 	class AudioSource;
 	class Mesh;
@@ -151,6 +152,9 @@ namespace Lux {
 
 		void OnPhysics2DStart();
 		void OnPhysics2DStop();
+		void OnPhysics3DStart();
+		void OnPhysics3DStop();
+		void StepPhysics(Timestep ts);
 		void RenderScene(EditorCamera& camera);
 		Ref<AudioSource> GetOrCreateRuntimeAudioSource(Entity entity, AssetHandle audioHandle);
 		Ref<AudioSource> GetOrCreateRuntimePlaylistSource(Entity entity, uint32_t index, AssetHandle audioHandle);
@@ -166,7 +170,8 @@ namespace Lux {
 		bool m_IsPaused = false;
 		int m_StepFrames = 0;
 
-		b2World* m_PhysicsWorld = nullptr;
+		Scope<PhysicsScene2D> m_PhysicsScene2D;
+		Ref<PhysicsScene> m_PhysicsScene;
 
 		Ref<Renderer2D> m_Renderer2D;
 		std::string m_Name = "Untitled";

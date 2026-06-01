@@ -878,7 +878,7 @@ namespace Lux {
 			m_PreDepthPass = RenderPass::Create(rpSpec);
 			m_PreDepthPass->SetInput("Camera", m_UBSCamera);
 			m_PreDepthPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
-			m_PreDepthPass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
+			m_PreDepthPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_PreDepthPass->Validate());
 			m_PreDepthPass->Bake();
 		}
@@ -1430,7 +1430,7 @@ namespace Lux {
 			m_GeometryWireframePass = RenderPass::Create(rpSpec);
 			m_GeometryWireframePass->SetInput("Camera", m_UBSCamera);
 			m_GeometryWireframePass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
-			m_GeometryWireframePass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
+			m_GeometryWireframePass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_GeometryWireframePass->Validate());
 			m_GeometryWireframePass->Bake();
 
@@ -4067,9 +4067,9 @@ namespace Lux {
 
 		ShadowMapPass();
 		SpotShadowMapPass();
-		MeshCullingPass();
 		PreDepthPass();
 		HZBCompute();
+		MeshCullingPass();
 		PreIntegration();
 		LightCullingPass();
 		SkyboxPass();
@@ -4122,13 +4122,6 @@ namespace Lux {
 			for (auto& fn : m_DebugRenderer->GetRenderQueue())
 				fn(overlayRenderer);
 			m_DebugRenderer->ClearRenderQueue();
-
-			// Physics collider outlines (2D wireframe lines)
-			if (m_Options.ShowPhysicsColliders)
-			{
-				// Future: iterate m_StaticColliderDrawList and draw via Renderer2D AABB
-				// For now the 3D collider meshes are drawn in GeometryPass via m_StaticColliderDrawList.
-			}
 
 			overlayRenderer->EndScene();
 		}
@@ -4288,7 +4281,7 @@ namespace Lux {
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, drawCmd, tmd]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
+					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/false, /*useIndirect=*/false);
 				});
 		}
 
@@ -4565,28 +4558,6 @@ namespace Lux {
 				});
 		}
 
-		// Physics debug meshes drawn in the opaque geometry pass
-		if (m_Options.ShowPhysicsColliders)
-		{
-			for (const MeshKey& key : m_StaticColliderDrawOrder)
-			{
-				const auto drawIt = m_StaticColliderDrawList.find(key);
-				if (drawIt == m_StaticColliderDrawList.end()) continue;
-				auto it = m_MeshTransformMap.find(key);
-				if (it == m_MeshTransformMap.end()) continue;
-
-				StaticDrawCommand drawCmd = drawIt->second;
-				const auto& tmd = it->second;
-
-				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, tmd]() mutable {
-					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, false,
-						instance->m_GeometryPass->GetPipeline()->GetShader());
-					});
-			}
-		}
-
 		Renderer::EndRenderPass(m_CommandBuffer);
 
 		// ── Transparent geometry ──────────────────────────────────────────────
@@ -4616,27 +4587,52 @@ namespace Lux {
 		}
 
 		// ── Selected wireframe overlay ────────────────────────────────────────
-		if (m_Options.ShowSelectedInWireframe && !m_SelectedStaticMeshDrawList.empty())
+		if ((m_Options.ShowSelectedInWireframe && !m_SelectedStaticMeshDrawList.empty())
+			|| (m_Options.ShowPhysicsColliders && !m_StaticColliderDrawList.empty()))
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryWireframePass);
 
-			for (const MeshKey& key : m_SelectedStaticMeshDrawOrder)
+			if (m_Options.ShowSelectedInWireframe)
 			{
-				const auto drawIt = m_SelectedStaticMeshDrawList.find(key);
-				if (drawIt == m_SelectedStaticMeshDrawList.end()) continue;
-				auto it = m_MeshTransformMap.find(key);
-				if (it == m_MeshTransformMap.end()) continue;
+				for (const MeshKey& key : m_SelectedStaticMeshDrawOrder)
+				{
+					const auto drawIt = m_SelectedStaticMeshDrawList.find(key);
+					if (drawIt == m_SelectedStaticMeshDrawList.end()) continue;
+					auto it = m_MeshTransformMap.find(key);
+					if (it == m_MeshTransformMap.end()) continue;
 
-				StaticDrawCommand drawCmd = drawIt->second;
-				drawCmd.OverrideMaterial = m_WireframeMaterial;
-				const auto& tmd = it->second;
+					StaticDrawCommand drawCmd = drawIt->second;
+					drawCmd.OverrideMaterial = m_WireframeMaterial;
+					const auto& tmd = it->second;
 
-				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, tmd]() mutable {
-					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
-						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
-					});
+					Ref<SceneRenderer> instance = this;
+					Renderer::Submit([instance, drawCmd, tmd]() mutable {
+						instance->RT_DrawStaticMesh(
+							instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
+							instance->m_GeometryWireframePass->GetPipeline()->GetShader());
+						});
+				}
+			}
+
+			if (m_Options.ShowPhysicsColliders)
+			{
+				for (const MeshKey& key : m_StaticColliderDrawOrder)
+				{
+					const auto drawIt = m_StaticColliderDrawList.find(key);
+					if (drawIt == m_StaticColliderDrawList.end()) continue;
+					auto it = m_MeshTransformMap.find(key);
+					if (it == m_MeshTransformMap.end()) continue;
+
+					StaticDrawCommand drawCmd = drawIt->second;
+					const auto& tmd = it->second;
+
+					Ref<SceneRenderer> instance = this;
+					Renderer::Submit([instance, drawCmd, tmd]() mutable {
+						instance->RT_DrawStaticMesh(
+							instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
+							instance->m_GeometryWireframePass->GetPipeline()->GetShader());
+						});
+				}
 			}
 
 			Renderer::EndRenderPass(m_CommandBuffer);

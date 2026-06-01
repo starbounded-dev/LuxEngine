@@ -34,3 +34,5 @@ Editor/LuxSampleProject/Assets/AssetRegistry.lzr
 *.lap
 *.aps
 *.slnx
+*.lib
+*.pdb

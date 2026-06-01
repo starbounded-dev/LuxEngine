@@ -182,6 +182,10 @@ Dependencies = {
 		LibName = "Box2D",
 		IncludeDir = "%{wks.location}/Core/vendor/Box2D/include",
 	},
+	JoltPhysics = {
+		LibName = "JoltPhysics",
+		IncludeDir = "%{wks.location}/Core/vendor/JoltPhysics/JoltPhysics",
+	},
 	Tracy = {
 		LibName = "Tracy",
 		IncludeDir = "%{wks.location}/Core/vendor/tracy/tracy/public",
