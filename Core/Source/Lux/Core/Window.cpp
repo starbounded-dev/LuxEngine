@@ -423,6 +423,13 @@ namespace Lux {
 
 	void Window::Shutdown()
 	{
+		if (m_SwapChain)
+		{
+			m_SwapChain->Destroy();
+			ldelete m_SwapChain;
+			m_SwapChain = nullptr;
+		}
+
 		if (m_WindowSurface)
 		{
 			auto vInstance = ((VulkanDeviceManager*)m_DeviceManager)->GetVulkanInstance();
@@ -431,13 +438,21 @@ namespace Lux {
 			m_WindowSurface = nullptr;
 		}
 
-		m_DeviceManager->Shutdown();
-		ldelete m_DeviceManager;
+		if (m_DeviceManager)
+		{
+			m_DeviceManager->Shutdown();
+			ldelete m_DeviceManager;
+			m_DeviceManager = nullptr;
+		}
 
-		// m_SwapChain->Destroy();
-		// hdelete m_SwapChain;
+		if (m_WindowHandle)
+		{
+			glfwDestroyWindow(m_WindowHandle);
+			m_WindowHandle = nullptr;
+		}
+
 		// m_RendererContext.As<VulkanContext>()->GetDevice()->Destroy(); // need to destroy the device _before_ windows window destructor destroys the renderer context (because device Destroy() asks for renderer context...)
-		// glfwTerminate();
+		glfwTerminate();
 		s_GLFWInitialized = false;
 	}
 

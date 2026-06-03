@@ -587,11 +587,13 @@ namespace Lux {
 			s_ShaderDependencies.clear();
 		}
 
-		// Wait for device to become idle before cleanup
 		auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
-		if (deviceManager && deviceManager->GetDevice())
+		nvrhi::DeviceHandle graphicsDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
+
+		// Wait for device to become idle before cleanup.
+		if (graphicsDevice)
 		{
-			VkDevice device = (VkDevice)deviceManager->GetDevice()->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+			VkDevice device = (VkDevice)graphicsDevice->getNativeObject(nvrhi::ObjectTypes::VK_Device);
 			vkDeviceWaitIdle(device);
 		}
 
@@ -604,11 +606,28 @@ namespace Lux {
 
 		delete s_Data;
 
+		// The render thread has already stopped during application shutdown.
+		// Drain any resource-free commands queued by destructors on the main thread
+		// before running the per-frame release queues.
+		for (uint32_t i = 0; i < s_RenderCommandQueueCount; i++)
+		{
+			if (s_CommandQueue[i])
+				s_CommandQueue[i]->Execute();
+		}
+
 		// Resource release queue
 		for (uint32_t i = 0; i < s_Config.FramesInFlight; i++)
 		{
 			auto& queue = Renderer::GetRenderResourceReleaseQueue(i);
 			queue.Execute();
+		}
+
+		if (graphicsDevice)
+		{
+			graphicsDevice->waitForIdle();
+			graphicsDevice->runGarbageCollection();
+			graphicsDevice->waitForIdle();
+			graphicsDevice->runGarbageCollection();
 		}
 
 		delete s_CommandQueue[0];

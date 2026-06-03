@@ -1180,7 +1180,10 @@ namespace Lux {
 
 				ImGui::Separator();
 				if (ImGui::MenuItem("Exit"))
-					Application::Get().DispatchEvent<WindowCloseEvent, true>();
+					Application::Get().QueueEvent([]()
+					{
+						Application::Get().DispatchEvent<WindowCloseEvent, true>();
+					});
 
 				ImGui::EndMenu();
 			}
@@ -1230,28 +1233,32 @@ namespace Lux {
 		const ImVec2 windowPos = window->Pos;
 		const ImVec2 windowMax = ImVec2(window->Pos.x + window->Size.x, window->Pos.y + m_TitlebarHeight);
 
-		ImU32 targetTitlebarColor = Colors::Theme::titlebar;
+		ImU32 stateAccentColor = Colors::Theme::titlebar;
 		if (m_SceneState == SceneState::Play)
-			targetTitlebarColor = Colors::Theme::titlebarOrange;
+			stateAccentColor = Colors::Theme::titlebarGreen;
 		else if (m_SceneState == SceneState::Simulate)
-			targetTitlebarColor = Colors::Theme::titlebarGreen;
+			stateAccentColor = Colors::Theme::titlebarOrange;
 
-		const ImVec4 targetColor = ImGui::ColorConvertU32ToFloat4(targetTitlebarColor);
+		const ImVec4 targetColor = ImGui::ColorConvertU32ToFloat4(stateAccentColor);
 		const float dt = ImGui::GetIO().DeltaTime;
 		m_AnimatedTitlebarColor = ImLerp(m_AnimatedTitlebarColor, targetColor, std::clamp(dt * 8.0f, 0.0f, 1.0f));
-		drawList->AddRectFilled(windowPos, windowMax, ImGui::ColorConvertFloat4ToU32(m_AnimatedTitlebarColor));
+		const ImU32 activeTitlebarColor = ImGui::ColorConvertFloat4ToU32(m_AnimatedTitlebarColor);
+		drawList->AddRectFilled(windowPos, windowMax, Colors::Theme::titlebar);
+		drawList->AddRectFilledMultiColor(windowPos, ImVec2(windowPos.x + 380.0f, windowMax.y),
+			activeTitlebarColor, Colors::Theme::titlebar, Colors::Theme::titlebar, activeTitlebarColor);
 
 		drawList->AddLine(ImVec2(windowPos.x, windowPos.y + m_TitlebarHeight), ImVec2(windowPos.x + window->Size.x, windowPos.y + m_TitlebarHeight), Colors::Theme::backgroundDark);
 
-		const float logoPadding = 16.0f;
-		const float logoSize = 30.0f;
-		const float logoTop = (m_TitlebarHeight - logoSize) * 0.5f;
-		const ImVec2 logoMin(windowPos.x + logoPadding, windowPos.y + logoTop);
-		const ImVec2 logoMax(logoMin.x + logoSize, logoMin.y + logoSize);
 		if (EditorResources::HazelLogoTexture)
+		{
+			const float logoWidth = (float)EditorResources::HazelLogoTexture->GetWidth();
+			const float logoHeight = (float)EditorResources::HazelLogoTexture->GetHeight();
+			const ImVec2 logoMin(windowPos.x + 14.0f, windowPos.y + 6.0f);
+			const ImVec2 logoMax(logoMin.x + logoWidth, logoMin.y + logoHeight);
 			drawList->AddImage(GetImGuiTextureID(EditorResources::HazelLogoTexture), logoMin, logoMax);
+		}
 
-		const float menuBarX = logoPadding * 2.0f + logoSize + 8.0f;
+		const float menuBarX = 16.0f * 2.0f + 41.0f;
 		ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
 		UI_DrawMenubar();
 
@@ -1268,15 +1275,63 @@ namespace Lux {
 		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
 		const bool isMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
 
-		const float controlsWidth = 120.0f;
+		const float iconWidth = 14.0f;
+		const float iconHeight = 14.0f;
+		const float buttonWidth = 46.0f;
+		const float buttonHeight = m_TitlebarHeight;
+		const float buttonY = 0.0f;
+		const float closeButtonX = window->Size.x - buttonWidth;
+		const float maximizeButtonX = closeButtonX - buttonWidth;
+		const float minimizeButtonX = maximizeButtonX - buttonWidth;
+		const float titlebarGap = 12.0f;
+
+		const std::string projectName = GetProjectDisplayName();
+		const float projectBoxPaddingX = 10.0f;
+		const float projectBoxHeight = 26.0f;
+		const float projectBoxMinWidth = 76.0f;
+		const float projectBoxMaxX = minimizeButtonX - titlebarGap;
+		const float sceneNameRightX = ((window->Size.x - sceneNameSize.x) * 0.5f) + sceneNameSize.x;
+		const float projectBoxMinAllowedX = std::max(menuBarX + 280.0f, sceneNameRightX + 28.0f);
+		const float maxProjectBoxWidth = projectBoxMaxX - projectBoxMinAllowedX;
+
+		bool drawProjectBox = maxProjectBoxWidth >= projectBoxMinWidth;
+		std::string displayedProjectName = projectName;
+		float projectBoxWidth = 0.0f;
+		if (drawProjectBox)
+		{
+			const float maxProjectTextWidth = std::max(0.0f, maxProjectBoxWidth - projectBoxPaddingX * 2.0f);
+			if (ImGui::CalcTextSize(displayedProjectName.c_str()).x > maxProjectTextWidth)
+			{
+				const std::string ellipsis = "...";
+				while (!displayedProjectName.empty())
+				{
+					const std::string candidate = displayedProjectName + ellipsis;
+					if (ImGui::CalcTextSize(candidate.c_str()).x <= maxProjectTextWidth)
+					{
+						displayedProjectName = candidate;
+						break;
+					}
+					displayedProjectName.pop_back();
+				}
+				if (displayedProjectName.empty())
+					drawProjectBox = false;
+			}
+
+			if (drawProjectBox)
+				projectBoxWidth = std::min(ImGui::CalcTextSize(displayedProjectName.c_str()).x + projectBoxPaddingX * 2.0f, maxProjectBoxWidth);
+		}
+
+		const float projectBoxMinX = drawProjectBox ? projectBoxMaxX - projectBoxWidth : projectBoxMaxX;
 		const float dragZoneMinX = 70.0f;
-		const float dragZoneMaxX = window->Size.x - controlsWidth - 220.0f;
+		const float dragZoneMaxX = std::max(dragZoneMinX, (drawProjectBox ? projectBoxMinX : minimizeButtonX) - titlebarGap);
 		ImGui::SetCursorPos(ImVec2(dragZoneMinX, 0.0f));
 		ImGui::InvisibleButton("##titleBarDragZone", ImVec2(std::max(0.0f, dragZoneMaxX - dragZoneMinX), m_TitlebarHeight));
 		const ImVec2 dragMin = ImGui::GetItemRectMin();
 		const ImVec2 dragMax = ImGui::GetItemRectMax();
 		m_TitleBarDragRectMin = ImVec2(dragMin.x - windowPos.x, dragMin.y - windowPos.y);
 		m_TitleBarDragRectMax = ImVec2(dragMax.x - windowPos.x, dragMax.y - windowPos.y);
+		m_TitleBarDragRectMin = ImVec2(dragZoneMinX, 0.0f);
+		m_TitleBarDragRectMax = ImVec2(dragZoneMaxX, m_TitlebarHeight);
 
 #if !defined(LUX_PLATFORM_WINDOWS)
 		if (nativeWindow && !isMaximized && ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
@@ -1288,39 +1343,57 @@ namespace Lux {
 		}
 #endif
 
-		const std::string projectName = GetProjectDisplayName();
-		const ImVec2 projectNameSize = ImGui::CalcTextSize(projectName.c_str());
-		const ImVec2 projectBoxMin(windowPos.x + window->Size.x - controlsWidth - projectNameSize.x - 36.0f, windowPos.y + 14.0f);
-		const ImVec2 projectBoxMax(projectBoxMin.x + projectNameSize.x + 20.0f, projectBoxMin.y + 26.0f);
-		drawList->AddRect(projectBoxMin, projectBoxMax, Colors::Theme::muted, 6.0f, 0, 1.0f);
-		drawList->AddText(ImVec2(projectBoxMin.x + 10.0f, projectBoxMin.y + 5.0f), Colors::Theme::text, projectName.c_str());
+		if (drawProjectBox)
+		{
+			const ImVec2 projectBoxMin(windowPos.x + projectBoxMinX, windowPos.y + 14.0f);
+			const ImVec2 projectBoxMax(projectBoxMin.x + projectBoxWidth, projectBoxMin.y + projectBoxHeight);
+			drawList->AddRect(projectBoxMin, projectBoxMax, Colors::Theme::muted, 6.0f, 0, 1.0f);
+			drawList->AddText(ImVec2(projectBoxMin.x + projectBoxPaddingX, projectBoxMin.y + 5.0f), Colors::Theme::text, displayedProjectName.c_str());
+		}
 
-		const float buttonSize = 34.0f;
-		const float buttonY = (m_TitlebarHeight - buttonSize) * 0.5f;
-		const float buttonsStartX = window->Size.x - controlsWidth;
-		const ImU32 normalTint = IM_COL32(220, 220, 220, 220);
-		const ImU32 hoverTint = IM_COL32(255, 255, 255, 255);
-		const ImU32 activeTint = IM_COL32(200, 200, 200, 255);
+		const ImU32 buttonColN = ImGuiEx::ColourWithMultipliedValue(Colors::Theme::text, 0.9f);
+		const ImU32 buttonColH = ImGuiEx::ColourWithMultipliedValue(Colors::Theme::text, 1.2f);
+		const ImU32 buttonColP = Colors::Theme::textDarker;
 
 		auto drawWindowControlButton = [&](const char* id, const Ref<Texture2D>& icon, float localX, auto&& onClick)
 			{
 				ImGui::SetCursorPos(ImVec2(localX, buttonY));
-				ImGui::InvisibleButton(id, ImVec2(buttonSize, buttonSize));
+				ImGui::InvisibleButton(id, ImVec2(buttonWidth, buttonHeight));
 				if (icon)
-					ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+				{
+					const ImVec2 buttonMin = ImGui::GetItemRectMin();
+					const ImVec2 iconMin(
+						buttonMin.x + (buttonWidth - iconWidth) * 0.5f,
+						buttonMin.y + (buttonHeight - iconHeight) * 0.5f);
+					const ImVec2 iconMax(iconMin.x + iconWidth, iconMin.y + iconHeight);
+					ImGuiEx::DrawButtonImage(icon, buttonColN, buttonColH, buttonColP, iconMin, iconMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+				}
 
 				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 					onClick();
 			};
 
-		drawWindowControlButton("##minimizeWindow", EditorResources::MinimizeIcon, buttonsStartX + 4.0f, [nativeWindow]()
-			{
-				if (!nativeWindow)
-					return;
+		ImGui::SetCursorPos(ImVec2(minimizeButtonX, buttonY));
+		ImGui::InvisibleButton("##minimizeWindow", ImVec2(buttonWidth, buttonHeight));
+		if (EditorResources::MinimizeIcon)
+		{
+			const float iconHeight = (float)EditorResources::MinimizeIcon->GetHeight();
+			const ImVec2 buttonMin = ImGui::GetItemRectMin();
+			const float padY = (14.0f - iconHeight) * 0.5f;
+			const ImVec2 iconMin(
+				buttonMin.x + (buttonWidth - iconWidth) * 0.5f,
+				buttonMin.y + (buttonHeight - 14.0f) * 0.5f);
+			const ImVec2 iconMax(iconMin.x + iconWidth, iconMin.y + 14.0f);
+			ImGuiEx::DrawButtonImage(EditorResources::MinimizeIcon, buttonColN, buttonColH, buttonColP,
+				ImGuiEx::RectExpanded(ImRect(iconMin, iconMax), 0.0f, -padY));
+		}
+		if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+		{
+			if (nativeWindow)
 				Application::Get().QueueEvent([nativeWindow]() { glfwIconifyWindow(nativeWindow); });
-			});
+		}
 
-		drawWindowControlButton("##maximizeRestoreWindow", isMaximized ? EditorResources::RestoreIcon : EditorResources::MaximizeIcon, buttonsStartX + 42.0f, [nativeWindow, isMaximized]()
+		drawWindowControlButton("##maximizeRestoreWindow", isMaximized ? EditorResources::RestoreIcon : EditorResources::MaximizeIcon, maximizeButtonX, [nativeWindow, isMaximized]()
 			{
 				if (!nativeWindow)
 					return;
@@ -1329,13 +1402,16 @@ namespace Lux {
 						if (isMaximized)
 							glfwRestoreWindow(nativeWindow);
 						else
-							glfwMaximizeWindow(nativeWindow);
+							Application::Get().GetWindow().Maximize();
 					});
 			});
 
-		drawWindowControlButton("##closeWindow", EditorResources::CloseIcon, buttonsStartX + 80.0f, []()
+		drawWindowControlButton("##closeWindow", EditorResources::CloseIcon, closeButtonX, []()
 			{
-				Application::Get().DispatchEvent<WindowCloseEvent, true>();
+				Application::Get().QueueEvent([]()
+				{
+					Application::Get().DispatchEvent<WindowCloseEvent, true>();
+				});
 			});
 	}
 

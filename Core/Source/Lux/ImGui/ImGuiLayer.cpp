@@ -185,6 +185,15 @@ namespace Lux {
 
 	void ImGuiLayer::OnDetach()
 	{
+		if (ImGui::GetCurrentContext())
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+				ImGui::DestroyPlatformWindows();
+		}
+
+		m_ImGuiRenderer.reset();
+		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
 	}
 

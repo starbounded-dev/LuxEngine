@@ -199,7 +199,14 @@ namespace Lux {
 			ImGui::DestroyContext();
 		});
 #else
-		// Device wait is now handled in Renderer::Shutdown via DeviceManager
+		if (ImGui::GetCurrentContext())
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+				ImGui::DestroyPlatformWindows();
+		}
+
+		// Device wait is handled in Renderer::Shutdown via DeviceManager.
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
 #endif
