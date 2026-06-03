@@ -379,12 +379,16 @@ namespace Lux {
 			std::string Name;
 			std::vector<RenderGraphResourceAccessDebugInfo> Inputs;
 			std::vector<RenderGraphResourceAccessDebugInfo> Outputs;
+			uint32_t Flags = 0;
+			bool Executable = false;
+			bool Culled = false;
 		};
 
 		struct RenderGraphDebugSnapshot
 		{
 			std::vector<RenderGraphPassDebugInfo> Passes;
 			std::vector<RenderGraphTextureDebugInfo> Textures;
+			std::vector<std::string> Diagnostics;
 		};
 
 	public:
@@ -662,7 +666,7 @@ namespace Lux {
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();
-		void BuildRenderGraph();
+		void BuildRenderGraph(bool executable = false);
 		void ApplyRenderTargetAliasing();
 		void ClearRenderTargetAliasing(bool recreateResources);
 		void RecreateRenderTargetFramebuffers();

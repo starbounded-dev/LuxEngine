@@ -201,6 +201,36 @@ namespace Lux {
 				ResourceStateToString(texture.CurrentState));
 		}
 
+		std::string RenderGraphPassFlagsToString(uint32_t flags)
+		{
+			if (flags == 0)
+				return "-";
+
+			std::string result;
+			auto append = [&](RenderGraph::PassFlags flag, const char* name)
+				{
+					if ((flags & static_cast<uint32_t>(flag)) == 0)
+						return;
+					if (!result.empty())
+						result += ", ";
+					result += name;
+				};
+
+			append(RenderGraph::PassFlags::Graphics, "Graphics");
+			append(RenderGraph::PassFlags::Compute, "Compute");
+			append(RenderGraph::PassFlags::Transfer, "Transfer");
+			append(RenderGraph::PassFlags::SideEffect, "Pinned");
+			append(RenderGraph::PassFlags::NeverCull, "NeverCull");
+			return result.empty() ? std::format("0x{:08X}", flags) : result;
+		}
+
+		std::string RenderGraphPassStatusToString(const SceneRenderer::RenderGraphPassDebugInfo& pass)
+		{
+			if (pass.Culled)
+				return "Culled";
+			return pass.Executable ? "Executable" : "Metadata";
+		}
+
 		void DrawResourceList(const SceneRenderer::RenderGraphDebugSnapshot& snapshot, const std::vector<SceneRenderer::RenderGraphResourceAccessDebugInfo>& resources)
 		{
 			if (resources.empty())
@@ -628,12 +658,16 @@ namespace Lux {
 
 		SceneRenderer::RenderGraphDebugSnapshot snapshot = m_Context->GetRenderGraphDebugSnapshot();
 		ImGui::TextDisabled("%zu passes, %zu textures", snapshot.Passes.size(), snapshot.Textures.size());
+		for (const std::string& diagnostic : snapshot.Diagnostics)
+			ImGui::TextWrapped("Diagnostic: %s", diagnostic.c_str());
 		ImGuiEx::Widgets::SearchWidget(m_RenderGraphSearch, "Search passes or textures...");
 
-		if (ImGui::BeginTable("##render_graph_pass_table", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+		if (ImGui::BeginTable("##render_graph_pass_table", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
 		{
 			ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 42.0f);
 			ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 180.0f);
+			ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed, 92.0f);
+			ImGui::TableSetupColumn("Flags", ImGuiTableColumnFlags_WidthFixed, 160.0f);
 			ImGui::TableSetupColumn("Inputs");
 			ImGui::TableSetupColumn("Outputs");
 			ImGui::TableHeadersRow();
@@ -650,8 +684,12 @@ namespace Lux {
 				ImGui::TableSetColumnIndex(1);
 				ImGui::TextUnformatted(pass.Name.c_str());
 				ImGui::TableSetColumnIndex(2);
-				DrawResourceList(snapshot, pass.Inputs);
+				ImGui::TextUnformatted(RenderGraphPassStatusToString(pass).c_str());
 				ImGui::TableSetColumnIndex(3);
+				ImGui::TextUnformatted(RenderGraphPassFlagsToString(pass.Flags).c_str());
+				ImGui::TableSetColumnIndex(4);
+				DrawResourceList(snapshot, pass.Inputs);
+				ImGui::TableSetColumnIndex(5);
 				DrawResourceList(snapshot, pass.Outputs);
 			}
 

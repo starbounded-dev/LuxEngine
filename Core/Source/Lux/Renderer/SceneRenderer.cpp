@@ -2525,10 +2525,21 @@ namespace Lux {
 		UpdateRenderGraphStatistics();
 	}
 
-	void SceneRenderer::BuildRenderGraph()
+	void SceneRenderer::BuildRenderGraph(bool executable)
 	{
 		m_RenderGraph.Reset();
 		std::unordered_map<const Image2D*, RenderGraph::ResourceHandle> resourceLookup;
+
+		auto makeExecute = [&](auto memberFunction) -> RenderGraph::ExecuteCallback
+			{
+				if (!executable)
+					return {};
+
+				return [this, memberFunction]()
+					{
+						(this->*memberFunction)();
+					};
+			};
 
 		auto addTexture = [&](const std::string& name, const Ref<Image2D>& image) -> RenderGraph::ResourceHandle
 			{
@@ -2582,7 +2593,11 @@ namespace Lux {
 				dst.insert(dst.end(), src.begin(), src.end());
 			};
 
-		auto addPass = [&](std::string name, std::vector<RenderGraph::ResourceHandle> reads, std::vector<RenderGraph::ResourceHandle> writes)
+		auto addPass = [&](std::string name,
+			std::vector<RenderGraph::ResourceHandle> reads,
+			std::vector<RenderGraph::ResourceHandle> writes,
+			RenderGraph::PassFlags flags,
+			RenderGraph::ExecuteCallback execute = {})
 			{
 				auto removeInvalid = [](std::vector<RenderGraph::ResourceHandle>& resources)
 					{
@@ -2590,125 +2605,217 @@ namespace Lux {
 					};
 				removeInvalid(reads);
 				removeInvalid(writes);
-				if (reads.empty() && writes.empty())
+				if (reads.empty() && writes.empty() && !execute)
 					return;
 
 				RenderGraph::PassDesc pass;
 				pass.Name = std::move(name);
 				pass.Reads = std::move(reads);
 				pass.Writes = std::move(writes);
-				m_RenderGraph.AddPass(pass);
+				pass.Flags = execute
+					? RenderGraph::CombineFlags(flags, RenderGraph::PassFlags::SideEffect)
+					: flags;
+				pass.Execute = std::move(execute);
+				m_RenderGraph.AddPass(std::move(pass));
 			};
 
-		std::vector<RenderGraph::ResourceHandle> shadowOutputs;
-		shadowOutputs.push_back(addTexture("Directional Shadow Atlas", m_ShadowMapImage));
-		shadowOutputs.push_back(addTexture("Spot Shadow Atlas", m_SpotShadowMapImage));
-		addPass("Shadow Maps", {}, shadowOutputs);
+		std::vector<RenderGraph::ResourceHandle> directionalShadowOutputs = { addTexture("Directional Shadow Atlas", m_ShadowMapImage) };
+		std::vector<RenderGraph::ResourceHandle> spotShadowOutputs = { addTexture("Spot Shadow Atlas", m_SpotShadowMapImage) };
+		addPass("Directional Shadow Maps", {}, directionalShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ShadowMapPass));
+		addPass("Spot Shadow Maps", {}, spotShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SpotShadowMapPass));
+
+		std::vector<RenderGraph::ResourceHandle> shadowOutputs = directionalShadowOutputs;
+		appendResources(shadowOutputs, spotShadowOutputs);
+
+		std::vector<RenderGraph::ResourceHandle> preDepthOutputs = addRenderPassResources("PreDepth", m_PreDepthPass);
+		addPass("PreDepth", {}, preDepthOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::PreDepthPass));
 
 		std::vector<RenderGraph::ResourceHandle> hzbOutputs;
 		hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-		addPass("Mesh Culling", hzbOutputs, {});
-
-		std::vector<RenderGraph::ResourceHandle> preDepthOutputs = addRenderPassResources("PreDepth", m_PreDepthPass);
-		addPass("PreDepth", {}, preDepthOutputs);
-		addPass("HZB", preDepthOutputs, hzbOutputs);
+		addPass("HZB", preDepthOutputs, hzbOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::HZBCompute));
+		addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass));
 
 		std::vector<RenderGraph::ResourceHandle> preIntegrationOutputs;
 		preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-		addPass("PreIntegration", hzbOutputs, preIntegrationOutputs);
+		addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
 
 		std::vector<RenderGraph::ResourceHandle> lightCullingReads = preDepthOutputs;
 		appendResources(lightCullingReads, shadowOutputs);
-		addPass("Light Culling", lightCullingReads, {});
+		addPass("Light Culling", lightCullingReads, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::LightCullingPass));
 
 		std::vector<RenderGraph::ResourceHandle> geometryOutputs = addFramebufferResources("Geometry", m_GeometryPassFramebuffer);
 		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
-		addPass("Skybox", {}, skyboxOutputs);
+		addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
 
 		std::vector<RenderGraph::ResourceHandle> selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
-		addPass("SelectedGeometry", preDepthOutputs, selectedOutputs);
-
 		std::vector<RenderGraph::ResourceHandle> geometryReads = shadowOutputs;
 		appendResources(geometryReads, preDepthOutputs);
 		appendResources(geometryReads, skyboxOutputs);
-		addPass("Geometry", geometryReads, addRenderPassResources("Geometry Pass", m_GeometryPass));
-		addPass("Transparent Geometry", geometryOutputs, addRenderPassResources("Transparent Geometry", m_GeometryPassTransparent));
 
-		std::vector<RenderGraph::ResourceHandle> gtaoOutputs;
-		const RenderGraph::ResourceHandle gtaoOutput = addTexture("GTAO Output", m_GTAOOutputImage);
-		const RenderGraph::ResourceHandle gtaoDenoise = addTexture("GTAO Denoise", m_GTAODenoiseImage);
-		const RenderGraph::ResourceHandle gtaoEdges = addTexture("GTAO Edges", m_GTAOEdgesOutputImage);
-		const RenderGraph::ResourceHandle gtaoHistoryA = addTexture("GTAO History A", m_GTAOHistoryImages[0]);
-		const RenderGraph::ResourceHandle gtaoHistoryB = addTexture("GTAO History B", m_GTAOHistoryImages[1]);
-		gtaoOutputs.push_back(gtaoOutput);
-		gtaoOutputs.push_back(gtaoEdges);
-		std::vector<RenderGraph::ResourceHandle> gtaoReads = geometryOutputs;
-		appendResources(gtaoReads, hzbOutputs);
-		addPass("GTAO", gtaoReads, gtaoOutputs);
-		addPass("GTAO Denoise A", { gtaoOutput, gtaoEdges }, { gtaoDenoise });
-		addPass("GTAO Denoise B", { gtaoDenoise, gtaoEdges }, { gtaoOutput });
-		addPass("GTAO Temporal", { gtaoOutput, gtaoDenoise, gtaoHistoryA }, { gtaoHistoryB });
+		std::vector<RenderGraph::ResourceHandle> geometryPassOutputs = geometryOutputs;
+		appendResources(geometryPassOutputs, selectedOutputs);
+		appendResources(geometryPassOutputs, addRenderPassResources("Transparent Geometry", m_GeometryPassTransparent));
+		appendResources(geometryPassOutputs, addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass));
+		addPass("Geometry", geometryReads, geometryPassOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GeometryPass));
 
-		std::vector<RenderGraph::ResourceHandle> aoFinalOutputs = { gtaoOutput, gtaoDenoise, gtaoHistoryA, gtaoHistoryB };
-		std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
-		appendResources(aoCompositeReads, preDepthOutputs);
-		appendResources(aoCompositeReads, aoFinalOutputs);
-		addPass("AO Composite", aoCompositeReads, addRenderPassResources("AO Composite", m_AOCompositePass));
-		std::vector<RenderGraph::ResourceHandle> aoDebugReads = aoCompositeReads;
-		addPass("AO Debug", aoDebugReads, addRenderPassResources("AO Debug", m_AODebugPass));
+		std::vector<RenderGraph::ResourceHandle> aoFinalOutputs;
+		if (m_Options.EnableGTAO)
+		{
+			const RenderGraph::ResourceHandle gtaoOutput = addTexture("GTAO Output", m_GTAOOutputImage);
+			const RenderGraph::ResourceHandle gtaoDenoise = addTexture("GTAO Denoise", m_GTAODenoiseImage);
+			const RenderGraph::ResourceHandle gtaoEdges = addTexture("GTAO Edges", m_GTAOEdgesOutputImage);
+			const RenderGraph::ResourceHandle gtaoHistoryA = addTexture("GTAO History A", m_GTAOHistoryImages[0]);
+			const RenderGraph::ResourceHandle gtaoHistoryB = addTexture("GTAO History B", m_GTAOHistoryImages[1]);
 
-		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
-		preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-		addPass("Pre-Convolution", skyboxOutputs.empty() ? geometryOutputs : skyboxOutputs, preConvolutionOutputs);
+			std::vector<RenderGraph::ResourceHandle> gtaoReads = geometryOutputs;
+			appendResources(gtaoReads, hzbOutputs);
+			addPass("GTAO", gtaoReads, { gtaoOutput, gtaoEdges }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::GTAOCompute));
+			addPass("GTAO Denoise", { gtaoOutput, gtaoEdges }, { gtaoDenoise, gtaoOutput }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::GTAODenoiseCompute));
+
+			aoFinalOutputs = { gtaoOutput, gtaoDenoise };
+			if (m_Options.EnableGTAOTemporalAccumulation)
+			{
+				addPass("GTAO Temporal", { gtaoOutput, gtaoDenoise, gtaoHistoryA, preDepthOutputs.empty() ? RenderGraph::InvalidResource : preDepthOutputs.front() }, { gtaoHistoryB }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::GTAOTemporalAccumulationCompute));
+				aoFinalOutputs.push_back(gtaoHistoryA);
+				aoFinalOutputs.push_back(gtaoHistoryB);
+			}
+
+			std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
+			appendResources(aoCompositeReads, preDepthOutputs);
+			appendResources(aoCompositeReads, aoFinalOutputs);
+			addPass("AO Composite", aoCompositeReads, addRenderPassResources("AO Composite", m_AOCompositePass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AOComposite));
+
+			if (m_DebugViewMode == DebugViewMode::AO)
+				addPass("AO Debug", aoCompositeReads, addRenderPassResources("AO Debug", m_AODebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AODebugPass));
+		}
 
 		std::vector<RenderGraph::ResourceHandle> ssrOutputs;
-		const RenderGraph::ResourceHandle ssrImage = addTexture("SSR", m_SSRImage);
-		const RenderGraph::ResourceHandle ssrHistoryA = addTexture("SSR History A", m_SSRHistoryImages[0]);
-		const RenderGraph::ResourceHandle ssrHistoryB = addTexture("SSR History B", m_SSRHistoryImages[1]);
-		ssrOutputs.push_back(ssrImage);
-		std::vector<RenderGraph::ResourceHandle> ssrReads = geometryOutputs;
-		appendResources(ssrReads, hzbOutputs);
-		appendResources(ssrReads, preIntegrationOutputs);
-		appendResources(ssrReads, preConvolutionOutputs);
-		appendResources(ssrReads, aoFinalOutputs);
-		addPass("SSR", ssrReads, ssrOutputs);
-		addPass("SSR Temporal", { ssrImage, ssrHistoryA }, { ssrHistoryB });
-		std::vector<RenderGraph::ResourceHandle> ssrCompositeReads = geometryOutputs;
-		appendResources(ssrCompositeReads, ssrOutputs);
-		ssrCompositeReads.push_back(ssrHistoryA);
-		ssrCompositeReads.push_back(ssrHistoryB);
-		addPass("SSR Composite", ssrCompositeReads, addRenderPassResources("SSR Composite", m_SSRCompositePass));
+		if (m_Options.EnableSSR)
+		{
+			std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
+			preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+			addPass("Pre-Convolution", skyboxOutputs.empty() ? geometryOutputs : skyboxOutputs, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
 
-		std::vector<RenderGraph::ResourceHandle> jumpFloodInitOutputs = addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass);
-		addPass("JumpFlood Init", selectedOutputs, jumpFloodInitOutputs);
-		std::vector<RenderGraph::ResourceHandle> jumpFloodAOutputs = addRenderPassResources("JumpFlood A", m_JumpFloodPasses[0]);
-		std::vector<RenderGraph::ResourceHandle> jumpFloodBOutputs = addRenderPassResources("JumpFlood B", m_JumpFloodPasses[1]);
-		addPass("JumpFlood A", jumpFloodInitOutputs, jumpFloodAOutputs);
-		addPass("JumpFlood B", jumpFloodAOutputs, jumpFloodBOutputs);
-		addPass("JumpFlood A Resolve", jumpFloodBOutputs, jumpFloodAOutputs);
+			const RenderGraph::ResourceHandle ssrImage = addTexture("SSR", m_SSRImage);
+			const RenderGraph::ResourceHandle ssrHistoryA = addTexture("SSR History A", m_SSRHistoryImages[0]);
+			const RenderGraph::ResourceHandle ssrHistoryB = addTexture("SSR History B", m_SSRHistoryImages[1]);
+			ssrOutputs.push_back(ssrImage);
+
+			std::vector<RenderGraph::ResourceHandle> ssrReads = geometryOutputs;
+			appendResources(ssrReads, hzbOutputs);
+			appendResources(ssrReads, preIntegrationOutputs);
+			appendResources(ssrReads, preConvolutionOutputs);
+			appendResources(ssrReads, aoFinalOutputs);
+			addPass("SSR", ssrReads, ssrOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::SSRCompute));
+
+			if (m_Options.EnableSSRTemporalAccumulation)
+			{
+				addPass("SSR Temporal", { ssrImage, ssrHistoryA, preDepthOutputs.empty() ? RenderGraph::InvalidResource : preDepthOutputs.front() }, { ssrHistoryB }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::SSRTemporalAccumulationCompute));
+				ssrOutputs.push_back(ssrHistoryA);
+				ssrOutputs.push_back(ssrHistoryB);
+			}
+
+			std::vector<RenderGraph::ResourceHandle> ssrCompositeReads = geometryOutputs;
+			appendResources(ssrCompositeReads, ssrOutputs);
+			addPass("SSR Composite", ssrCompositeReads, addRenderPassResources("SSR Composite", m_SSRCompositePass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SSRCompositePass));
+		}
+
+		std::vector<RenderGraph::ResourceHandle> jumpFloodAOutputs;
+		std::vector<RenderGraph::ResourceHandle> jumpFloodBOutputs;
+		const bool jumpFloodActive = m_Options.EnableJumpFlood && (executable ? !m_SelectedStaticMeshDrawList.empty() : true);
+		if (jumpFloodActive)
+		{
+			std::vector<RenderGraph::ResourceHandle> jumpFloodInitOutputs = addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass);
+			jumpFloodAOutputs = addRenderPassResources("JumpFlood A", m_JumpFloodPasses[0]);
+			jumpFloodBOutputs = addRenderPassResources("JumpFlood B", m_JumpFloodPasses[1]);
+
+			std::vector<RenderGraph::ResourceHandle> jumpFloodWrites = jumpFloodInitOutputs;
+			appendResources(jumpFloodWrites, jumpFloodAOutputs);
+			appendResources(jumpFloodWrites, jumpFloodBOutputs);
+			addPass("JumpFlood", selectedOutputs, jumpFloodWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::JumpFloodPass));
+		}
 
 		std::vector<RenderGraph::ResourceHandle> bloomOutputs;
-		for (uint32_t index = 0; index < m_BloomComputeTextures.size(); index++)
+		if (m_BloomSettings.Enabled)
 		{
-			if (m_BloomComputeTextures[index].Texture)
-				bloomOutputs.push_back(addTexture(std::format("Bloom {}", index), m_BloomComputeTextures[index].Texture->GetImage()));
+			for (uint32_t index = 0; index < m_BloomComputeTextures.size(); index++)
+			{
+				if (m_BloomComputeTextures[index].Texture)
+					bloomOutputs.push_back(addTexture(std::format("Bloom {}", index), m_BloomComputeTextures[index].Texture->GetImage()));
+			}
+			addPass("Bloom", geometryOutputs, bloomOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::BloomCompute));
 		}
-		addPass("Bloom", geometryOutputs, bloomOutputs);
 
 		std::vector<RenderGraph::ResourceHandle> compositeReads = geometryOutputs;
 		appendResources(compositeReads, ssrOutputs);
 		appendResources(compositeReads, bloomOutputs);
 		appendResources(compositeReads, preDepthOutputs);
 		std::vector<RenderGraph::ResourceHandle> compositeOutputs = addFramebufferResources("Composite", m_CompositingFramebuffer);
-		addPass("Composite", compositeReads, compositeOutputs);
+		addPass("Composite", compositeReads, compositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::CompositePass));
 
-		std::vector<RenderGraph::ResourceHandle> jumpFloodCompositeReads = compositeOutputs;
-		appendResources(jumpFloodCompositeReads, jumpFloodAOutputs);
-		appendResources(jumpFloodCompositeReads, jumpFloodBOutputs);
-		addPass("JumpFlood Composite", jumpFloodCompositeReads, addRenderPassResources("JumpFlood Composite", m_JumpFloodCompositePass));
-		addPass("Grid", compositeOutputs, addRenderPassResources("Grid", m_GridRenderPass));
-		addPass("Renderer2D Overlay", compositeOutputs, compositeOutputs);
-		addPass("DOF", compositeOutputs, addRenderPassResources("DOF", m_DOFPass));
+		const bool compositeDOFIntoFinalTarget = CanCompositeDOFIntoFinalTarget();
+		std::vector<RenderGraph::ResourceHandle> dofOutputs = m_DOFSettings.Enabled
+			? addRenderPassResources("DOF", m_DOFPass)
+			: std::vector<RenderGraph::ResourceHandle>{};
+		if (compositeDOFIntoFinalTarget)
+		{
+			std::vector<RenderGraph::ResourceHandle> dofWrites = dofOutputs;
+			appendResources(dofWrites, compositeOutputs);
+			addPass("DOF", compositeOutputs, dofWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DOFPass));
+		}
+
+		if (executable && m_WorldOverlayRenderCallback)
+		{
+			addPass("WorldOverlay2D", compositeOutputs, compositeOutputs, RenderGraph::PassFlags::Graphics,
+				[this]()
+				{
+					m_CommandBuffer->End();
+					m_CommandBuffer->Submit();
+
+					ScopedCPUProfile cpuProfile(*this, "WorldOverlay2D");
+					m_WorldOverlayRenderCallback();
+					m_WorldOverlayRenderCallback = nullptr;
+
+					m_CommandBuffer->Begin();
+				});
+		}
+
+		if (jumpFloodActive)
+		{
+			std::vector<RenderGraph::ResourceHandle> jumpFloodCompositeReads = compositeOutputs;
+			appendResources(jumpFloodCompositeReads, jumpFloodAOutputs);
+			appendResources(jumpFloodCompositeReads, jumpFloodBOutputs);
+			addPass("JumpFlood Composite", jumpFloodCompositeReads, addRenderPassResources("JumpFlood Composite", m_JumpFloodCompositePass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::JumpFloodCompositePass));
+		}
+
+		if (m_Options.ShowGrid)
+			addPass("Grid", compositeOutputs, addRenderPassResources("Grid", m_GridRenderPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GridPass));
+
+		if (executable && m_DebugRenderer && !m_DebugRenderer->GetRenderQueue().empty())
+		{
+			addPass("Renderer2D Overlay", compositeOutputs, compositeOutputs, RenderGraph::PassFlags::Graphics,
+				[this]()
+				{
+					ScopedCPUProfile cpuProfile(*this, "Renderer2D");
+
+					const auto& sceneCamera = m_SceneData.SceneCamera;
+					const glm::mat4 viewProj = sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix;
+
+					Ref<Renderer2D> overlayRenderer = m_Renderer2DScreenSpace ? m_Renderer2DScreenSpace : m_Renderer2D;
+					overlayRenderer->SetTargetFramebuffer(m_CompositingFramebuffer);
+					overlayRenderer->ResetStats();
+					overlayRenderer->BeginScene(viewProj, sceneCamera.ViewMatrix);
+
+					for (auto& fn : m_DebugRenderer->GetRenderQueue())
+						fn(overlayRenderer);
+					m_DebugRenderer->ClearRenderQueue();
+
+					overlayRenderer->EndScene();
+				});
+		}
+
+		if (m_DOFSettings.Enabled && !compositeDOFIntoFinalTarget)
+			addPass("DOF", compositeOutputs, dofOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DOFPass));
 	}
 
 	SceneRenderer::RenderGraphDebugSnapshot SceneRenderer::GetRenderGraphDebugSnapshot()
@@ -2716,9 +2823,11 @@ namespace Lux {
 		BuildRenderGraph();
 
 		RenderGraphDebugSnapshot snapshot;
+		const auto compileResult = m_RenderGraph.Compile();
 		const auto lifetimes = m_RenderGraph.BuildAliasPlan();
 		const auto& textures = m_RenderGraph.GetTextures();
 		const auto& passes = m_RenderGraph.GetPasses();
+		snapshot.Diagnostics = compileResult.Diagnostics;
 
 		snapshot.Textures.reserve(textures.size());
 		for (uint32_t resource = 0; resource < textures.size(); resource++)
@@ -2767,11 +2876,22 @@ namespace Lux {
 				return std::string(asInput ? "Read" : "Write");
 			};
 
-		snapshot.Passes.reserve(passes.size());
-		for (const RenderGraph::PassDesc& pass : passes)
+		std::vector<bool> culledPasses(passes.size(), false);
+		for (uint32_t passIndex : compileResult.CulledPasses)
 		{
+			if (passIndex < culledPasses.size())
+				culledPasses[passIndex] = true;
+		}
+
+		snapshot.Passes.reserve(passes.size());
+		for (uint32_t passIndex = 0; passIndex < passes.size(); passIndex++)
+		{
+			const RenderGraph::PassDesc& pass = passes[passIndex];
 			RenderGraphPassDebugInfo& passInfo = snapshot.Passes.emplace_back();
 			passInfo.Name = pass.Name;
+			passInfo.Flags = static_cast<uint32_t>(pass.Flags);
+			passInfo.Executable = static_cast<bool>(pass.Execute);
+			passInfo.Culled = culledPasses[passIndex];
 
 			for (RenderGraph::ResourceHandle resource : pass.Reads)
 			{
@@ -4071,81 +4191,8 @@ namespace Lux {
 		// ── 3. Execute render passes ──────────────────────────────────────────
 		m_CommandBuffer->Begin();
 
-		ShadowMapPass();
-		SpotShadowMapPass();
-		PreDepthPass();
-		HZBCompute();
-		MeshCullingPass();
-		PreIntegration();
-		LightCullingPass();
-		SkyboxPass();
-		GeometryPass();
-		if (m_Options.EnableGTAO)
-		{
-			GTAOCompute();
-			GTAODenoiseCompute();
-			GTAOTemporalAccumulationCompute();
-			AOComposite();
-			if (m_DebugViewMode == DebugViewMode::AO)
-				AODebugPass();
-		}
-		PreConvolutionCompute();
-		if (m_Options.EnableSSR)
-		{
-			SSRCompute();
-			SSRTemporalAccumulationCompute();
-			SSRCompositePass();
-		}
-		if (m_Options.EnableJumpFlood && !m_SelectedStaticMeshDrawList.empty())
-			JumpFloodPass();
-		BloomCompute();
-		CompositePass();
-
-		const bool compositeDOFIntoFinalTarget = CanCompositeDOFIntoFinalTarget();
-		if (compositeDOFIntoFinalTarget)
-			DOFPass();
-
-		if (m_WorldOverlayRenderCallback)
-		{
-			m_CommandBuffer->End();
-			m_CommandBuffer->Submit();
-
-			ScopedCPUProfile cpuProfile(*this, "WorldOverlay2D");
-			m_WorldOverlayRenderCallback();
-			m_WorldOverlayRenderCallback = nullptr;
-
-			m_CommandBuffer->Begin();
-		}
-
-		if (m_Options.EnableJumpFlood && !m_SelectedStaticMeshDrawList.empty())
-			JumpFloodCompositePass();
-
-		if (m_Options.ShowGrid)
-			GridPass();
-
-		// ── 4. Renderer2D debug overlay ───────────────────────────────────────
-		if (m_DebugRenderer && !m_DebugRenderer->GetRenderQueue().empty())
-		{
-			ScopedCPUProfile cpuProfile(*this, "Renderer2D");
-
-			const auto& sceneCamera = m_SceneData.SceneCamera;
-			const glm::mat4 viewProj = sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix;
-
-			Ref<Renderer2D> overlayRenderer = m_Renderer2DScreenSpace ? m_Renderer2DScreenSpace : m_Renderer2D;
-			overlayRenderer->SetTargetFramebuffer(m_CompositingFramebuffer);
-			overlayRenderer->ResetStats();
-			overlayRenderer->BeginScene(viewProj, sceneCamera.ViewMatrix);
-
-			// Flush any queued DebugRenderer work
-			for (auto& fn : m_DebugRenderer->GetRenderQueue())
-				fn(overlayRenderer);
-			m_DebugRenderer->ClearRenderQueue();
-
-			overlayRenderer->EndScene();
-		}
-
-		if (m_DOFSettings.Enabled && !compositeDOFIntoFinalTarget)
-			DOFPass();
+		BuildRenderGraph(true);
+		m_RenderGraph.Execute();
 
 		m_CommandBuffer->End();
 		m_CommandBuffer->Submit();
