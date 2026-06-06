@@ -413,6 +413,14 @@ namespace Lux {
 			uint32_t UploadedMaterialCount = 0;
 			uint32_t DirtyMaterialCount = 0;
 			uint32_t DirtyMaterialRangeCount = 0;
+			uint32_t PersistentTextureCount = 0;
+			uint32_t TransientTextureCount = 0;
+			uint32_t UploadedTextureCount = 0;
+			uint32_t DirtyTextureCount = 0;
+			uint32_t DirtyTextureRangeCount = 0;
+			uint32_t InvalidTextureIndexCount = 0;
+			uint32_t MissingTextureDescriptorCount = 0;
+			uint32_t TextureTableOverflowCount = 0;
 			uint32_t InvalidObjectIndexCount = 0;
 			uint32_t InvalidVisibleObjectIndexCount = 0;
 			uint32_t InvalidMaterialIDCount = 0;
@@ -1141,6 +1149,7 @@ namespace Lux {
 		Ref<Pipeline>    m_TransparentGeometryPipeline; // transparent PBR
 		Ref<RenderPass>  m_GeometryPass;                // opaque
 		Ref<RenderPass>  m_GeometryPassTransparent;     // transparent (same FB, load)
+		std::vector<Ref<Texture2D>> m_GPUMaterialTextures;
 
 		// ── Selected / wireframe ──────────────────────────────────────────────
 		Ref<RenderPass>  m_SelectedGeometryPass;
@@ -1177,8 +1186,9 @@ namespace Lux {
 		std::vector<GPUSceneInstanceData>    m_TransientGPUSceneInstances;
 		std::vector<GPUMaterialData>         m_TransientGPUMaterials;
 		std::unordered_map<uint64_t, uint32_t> m_TransientGPUMaterialIndexByKey;
+		std::vector<AssetHandle> m_TransientGPUTextureHandles;
 		std::unordered_map<AssetHandle, GPUTextureIndex> m_TransientGPUTextureIndexByHandle;
-		GPUTextureIndex m_NextTransientGPUTextureIndex = 1;
+		GPUTextureIndex m_NextTransientGPUTextureIndex = 0;
 
 		// Shadow-specific per-cascade transform tracking.
 		// Index 0 is the only cascade we use currently.

@@ -74,6 +74,9 @@ namespace Lux {
 		constexpr uint32_t TransientGPUSceneInstanceMask = ~TransientGPUSceneInstanceFlag;
 		constexpr uint32_t TransientRenderMaterialFlag = 0x80000000u;
 		constexpr uint32_t TransientRenderMaterialMask = ~TransientRenderMaterialFlag;
+		constexpr uint32_t TransientGPUTextureFlag = 0x80000000u;
+		constexpr uint32_t TransientGPUTextureMask = ~TransientGPUTextureFlag;
+		constexpr uint32_t MaxGPUTextureSceneTextures = 1024;
 
 		uint32_t EncodeTransientGPUSceneInstanceIndex(uint32_t index)
 		{
@@ -105,6 +108,22 @@ namespace Lux {
 		uint32_t DecodeTransientRenderMaterialIndex(RenderMaterialID materialID)
 		{
 			return materialID & TransientRenderMaterialMask;
+		}
+
+		GPUTextureIndex EncodeTransientGPUTextureIndex(uint32_t index)
+		{
+			LUX_CORE_ASSERT((index & TransientGPUTextureFlag) == 0, "Transient GPU texture index overflow");
+			return TransientGPUTextureFlag | index;
+		}
+
+		bool IsTransientGPUTextureIndex(GPUTextureIndex textureIndex)
+		{
+			return (textureIndex & TransientGPUTextureFlag) != 0;
+		}
+
+		uint32_t DecodeTransientGPUTextureIndex(GPUTextureIndex textureIndex)
+		{
+			return textureIndex & TransientGPUTextureMask;
 		}
 
 		void WriteGPUSceneTransformRows(glm::vec4 (&rows)[3], const glm::mat4& transform)
@@ -1124,6 +1143,15 @@ namespace Lux {
 
 		// ── Geometry render passes ────────────────────────────────────────────
 		{
+			auto bindDefaultGPUTextureScene = [](Ref<RenderPass> renderPass)
+				{
+					if (!renderPass->IsInputValid("u_GPUMaterialTextures"))
+						return;
+
+					for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+						renderPass->SetInput("u_GPUMaterialTextures", Renderer::GetWhiteTexture(), textureIndex);
+				};
+
 			// Opaque pass
 			RenderPassSpecification rpSpec;
 			rpSpec.DebugName = "GeometryPass";
@@ -1147,6 +1175,7 @@ namespace Lux {
 			m_GeometryPass->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPass->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
 			m_GeometryPass->SetInput("r_MaterialSampler", Renderer::GetRepeatSampler());
+			bindDefaultGPUTextureScene(m_GeometryPass);
 			// Shadow map output from the shadow pass above
 			m_GeometryPass->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
 			m_GeometryPass->SetInput("u_SpotShadowTexture", m_SpotShadowMapImage);
@@ -1175,6 +1204,7 @@ namespace Lux {
 			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
 			m_GeometryPassTransparent->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
 			m_GeometryPassTransparent->SetInput("r_MaterialSampler", Renderer::GetRepeatSampler());
+			bindDefaultGPUTextureScene(m_GeometryPassTransparent);
 			// Shadow map output from the shadow pass above
 			m_GeometryPassTransparent->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
 			m_GeometryPassTransparent->SetInput("u_SpotShadowTexture", m_SpotShadowMapImage);
@@ -3884,9 +3914,13 @@ namespace Lux {
 
 		auto [it, inserted] = m_TransientGPUTextureIndexByHandle.try_emplace(textureHandle, InvalidGPUTextureIndex);
 		if (inserted || it->second == InvalidGPUTextureIndex)
-			it->second = m_NextTransientGPUTextureIndex++;
+		{
+			it->second = (GPUTextureIndex)m_TransientGPUTextureHandles.size();
+			m_TransientGPUTextureHandles.push_back(textureHandle);
+			m_NextTransientGPUTextureIndex = (GPUTextureIndex)m_TransientGPUTextureHandles.size();
+		}
 
-		return it->second;
+		return EncodeTransientGPUTextureIndex(it->second);
 	}
 
 	RenderMaterialID SceneRenderer::GetOrCreateTransientRenderMaterialID(
@@ -4002,8 +4036,9 @@ namespace Lux {
 		m_TransientGPUSceneInstances.clear();
 		m_TransientGPUMaterials.clear();
 		m_TransientGPUMaterialIndexByKey.clear();
+		m_TransientGPUTextureHandles.clear();
 		m_TransientGPUTextureIndexByHandle.clear();
-		m_NextTransientGPUTextureIndex = 1;
+		m_NextTransientGPUTextureIndex = 0;
 		m_MeshTransformMap.clear();
 		m_ShadowMeshTransformMap.clear();
 
@@ -4395,6 +4430,57 @@ namespace Lux {
 		const std::vector<GPUSceneInstanceData>* persistentGPUSceneInstances = submittedGPUScene ? &submittedGPUScene->GetInstances() : nullptr;
 		const uint32_t persistentGPUSceneInstanceCount = persistentGPUSceneInstances ? (uint32_t)persistentGPUSceneInstances->size() : 0;
 		const MaterialScene* submittedMaterialScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetMaterialScene() : nullptr;
+		const TextureScene* submittedTextureScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetTextureScene() : nullptr;
+
+		std::vector<AssetHandle> gpuTextureHandles = submittedTextureScene ? submittedTextureScene->GetTextureHandles() : std::vector<AssetHandle>();
+		if (gpuTextureHandles.empty())
+			gpuTextureHandles.push_back(AssetHandle(0));
+		const uint32_t persistentTextureCount = (uint32_t)gpuTextureHandles.size();
+		for (AssetHandle transientTextureHandle : m_TransientGPUTextureHandles)
+			gpuTextureHandles.push_back(transientTextureHandle);
+
+		uint32_t textureTableOverflowCount = 0;
+		if (gpuTextureHandles.size() > MaxGPUTextureSceneTextures)
+		{
+			textureTableOverflowCount = (uint32_t)(gpuTextureHandles.size() - MaxGPUTextureSceneTextures);
+			gpuTextureHandles.resize(MaxGPUTextureSceneTextures);
+		}
+
+		auto resolveMaterialTexture = [](AssetHandle textureHandle) -> Ref<Texture2D>
+			{
+				if (!textureHandle || !Project::GetAssetManager() || !AssetManager::IsAssetHandleValid(textureHandle))
+					return Renderer::GetWhiteTexture();
+
+				if (AssetManager::GetAssetType(textureHandle) != AssetType::Texture)
+					return Renderer::GetWhiteTexture();
+
+				Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(textureHandle);
+				if (!texture || !texture->Loaded())
+					return Renderer::GetWhiteTexture();
+
+				return texture;
+			};
+
+		uint32_t missingTextureDescriptorCount = 0;
+		if (m_GPUMaterialTextures.empty())
+			m_GPUMaterialTextures.assign(MaxGPUTextureSceneTextures, Renderer::GetWhiteTexture());
+
+		for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+		{
+			const AssetHandle textureHandle = textureIndex < gpuTextureHandles.size() ? gpuTextureHandles[textureIndex] : AssetHandle(0);
+			Ref<Texture2D> texture = resolveMaterialTexture(textureHandle);
+			if (textureHandle && texture.Raw() == Renderer::GetWhiteTexture().Raw())
+				missingTextureDescriptorCount++;
+
+			if (m_GPUMaterialTextures[textureIndex].Raw() == texture.Raw())
+				continue;
+
+			m_GPUMaterialTextures[textureIndex] = texture;
+			if (m_GeometryPass && m_GeometryPass->IsInputValid("u_GPUMaterialTextures"))
+				m_GeometryPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
+			if (m_GeometryPassTransparent && m_GeometryPassTransparent->IsInputValid("u_GPUMaterialTextures"))
+				m_GeometryPassTransparent->SetInput("u_GPUMaterialTextures", texture, textureIndex);
+		}
 
 		std::vector<GPUMaterialData> gpuMaterialData = submittedMaterialScene ? submittedMaterialScene->GetMaterials() : std::vector<GPUMaterialData>();
 		if (gpuMaterialData.empty())
@@ -4402,9 +4488,28 @@ namespace Lux {
 		const uint32_t persistentMaterialCount = (uint32_t)gpuMaterialData.size();
 
 		std::vector<GPUMaterialData> transientGPUMaterialData = m_TransientGPUMaterials;
+		auto resolveUploadedTextureIndex = [persistentTextureCount](GPUTextureIndex textureIndex) -> GPUTextureIndex
+			{
+				if (textureIndex == InvalidGPUTextureIndex)
+					return InvalidGPUTextureIndex;
+				if (!IsTransientGPUTextureIndex(textureIndex))
+					return textureIndex;
+
+				const uint32_t transientTextureIndex = DecodeTransientGPUTextureIndex(textureIndex);
+				const uint64_t uploadedTextureIndex = (uint64_t)persistentTextureCount + transientTextureIndex;
+				return uploadedTextureIndex < MaxGPUTextureSceneTextures
+					? (GPUTextureIndex)uploadedTextureIndex
+					: InvalidGPUTextureIndex;
+			};
 		for (uint32_t transientMaterialIndex = 0; transientMaterialIndex < transientGPUMaterialData.size(); transientMaterialIndex++)
-			transientGPUMaterialData[transientMaterialIndex].Metadata.z = persistentMaterialCount + transientMaterialIndex;
+		{
+			GPUMaterialData& materialData = transientGPUMaterialData[transientMaterialIndex];
+			materialData.Metadata.z = persistentMaterialCount + transientMaterialIndex;
+			for (uint32_t textureSlot = 0; textureSlot < 4; textureSlot++)
+				materialData.TextureIndices[textureSlot] = resolveUploadedTextureIndex(materialData.TextureIndices[textureSlot]);
+		}
 		const uint32_t uploadedMaterialCount = persistentMaterialCount + (uint32_t)transientGPUMaterialData.size();
+		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureHandles.size();
 
 		auto resolveInstanceData = [this, persistentGPUSceneInstances](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
 			{
@@ -4551,6 +4656,11 @@ namespace Lux {
 			snapshot.PersistentMaterialCount = persistentMaterialCount;
 			snapshot.TransientMaterialCount = (uint32_t)transientGPUMaterialData.size();
 			snapshot.UploadedMaterialCount = uploadedMaterialCount;
+			snapshot.PersistentTextureCount = persistentTextureCount;
+			snapshot.TransientTextureCount = (uint32_t)m_TransientGPUTextureHandles.size();
+			snapshot.UploadedTextureCount = uploadedTextureCount;
+			snapshot.MissingTextureDescriptorCount = missingTextureDescriptorCount;
+			snapshot.TextureTableOverflowCount = textureTableOverflowCount;
 
 			if (m_SubmittedRenderScene)
 			{
@@ -4569,6 +4679,12 @@ namespace Lux {
 			{
 				snapshot.DirtyMaterialCount = submittedMaterialScene->GetDirtyMaterialCount();
 				snapshot.DirtyMaterialRangeCount = (uint32_t)submittedMaterialScene->GetDirtyRanges().size();
+			}
+
+			if (submittedTextureScene)
+			{
+				snapshot.DirtyTextureCount = submittedTextureScene->GetDirtyTextureCount();
+				snapshot.DirtyTextureRangeCount = (uint32_t)submittedTextureScene->GetDirtyRanges().size();
 			}
 
 			for (uint32_t objectIndex : objectIndexData)
@@ -4622,7 +4738,7 @@ namespace Lux {
 			for (uint32_t transientIndex = 0; transientIndex < transientGPUSceneData.size(); transientIndex++)
 				validateInstance(transientGPUSceneData[transientIndex], persistentGPUSceneInstanceCount + transientIndex, false);
 
-			auto validateMaterial = [&snapshot, &materialReferenceCounts](const GPUMaterialData& data, uint32_t materialID)
+			auto validateMaterial = [&snapshot, &materialReferenceCounts, uploadedTextureCount](const GPUMaterialData& data, uint32_t materialID)
 				{
 					if (materialID == InvalidRenderMaterialID && materialReferenceCounts[materialID] == 0)
 						return;
@@ -4631,6 +4747,13 @@ namespace Lux {
 						snapshot.MissingMaterialCount++;
 					if (HasGPUMaterialFlag(data.Metadata.x, GPUMaterialFlags::MissingTexture))
 						snapshot.MissingTextureCount++;
+
+					for (uint32_t textureSlot = 0; textureSlot < 4; textureSlot++)
+					{
+						const GPUTextureIndex textureIndex = data.TextureIndices[textureSlot];
+						if (textureIndex != InvalidGPUTextureIndex && textureIndex >= uploadedTextureCount)
+							snapshot.InvalidTextureIndexCount++;
+					}
 				};
 
 			for (uint32_t materialIndex = 0; materialIndex < gpuMaterialData.size(); materialIndex++)
@@ -4662,6 +4785,12 @@ namespace Lux {
 				snapshot.Diagnostics.push_back(std::format("{} GPU material row(s) are using the missing-material fallback.", snapshot.MissingMaterialCount));
 			if (snapshot.MissingTextureCount > 0)
 				snapshot.Diagnostics.push_back(std::format("{} GPU material row(s) reference at least one missing texture.", snapshot.MissingTextureCount));
+			if (snapshot.InvalidTextureIndexCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} GPU material texture index reference(s) are outside the uploaded texture table.", snapshot.InvalidTextureIndexCount));
+			if (snapshot.MissingTextureDescriptorCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} GPU texture table slot(s) fell back to the default white texture.", snapshot.MissingTextureDescriptorCount));
+			if (snapshot.TextureTableOverflowCount > 0)
+				snapshot.Diagnostics.push_back(std::format("GPU texture table overflowed by {} texture row(s). Increase MaxGPUTextureSceneTextures before relying on these rows.", snapshot.TextureTableOverflowCount));
 
 			m_GPUSceneDebugSnapshot = std::move(snapshot);
 		}

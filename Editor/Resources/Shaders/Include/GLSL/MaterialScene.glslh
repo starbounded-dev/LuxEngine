@@ -1,5 +1,8 @@
 #pragma once
 
+#define GPU_TEXTURE_SCENE_MAX_TEXTURES 1024
+#define GPU_MATERIAL_SCENE_AVAILABLE 1
+
 struct GPUMaterial
 {
 	vec4 BaseColor;
@@ -12,6 +15,10 @@ layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
 {
 	GPUMaterial Materials[];
 } r_GPUMaterials;
+
+layout(set = 2, binding = 8) uniform texture2D u_GPUMaterialTextures[GPU_TEXTURE_SCENE_MAX_TEXTURES];
+
+const uint GPU_TEXTURE_INVALID_INDEX = 0xffffffffu;
 
 const uint GPU_MATERIAL_FLAG_VALID = 1u << 0u;
 const uint GPU_MATERIAL_FLAG_MISSING = 1u << 1u;
@@ -41,6 +48,16 @@ bool HasGPUMaterialFlag(uint flags, uint flag)
 	return (flags & flag) != 0u;
 }
 
+bool IsGPUTextureIndexValid(uint textureIndex)
+{
+	return textureIndex != GPU_TEXTURE_INVALID_INDEX && textureIndex < uint(GPU_TEXTURE_SCENE_MAX_TEXTURES);
+}
+
+GPUMaterial GetGPUMaterialForObject(uint objectIndex)
+{
+	return r_GPUMaterials.Materials[GetInstanceMaterialIndex(objectIndex)];
+}
+
 vec3 GetMaterialSceneDebugColor(uint objectIndex, uint mode)
 {
 	if (mode < GPU_MATERIAL_DEBUG_TEXTURE_VALIDITY)
@@ -51,7 +68,14 @@ vec3 GetMaterialSceneDebugColor(uint objectIndex, uint mode)
 
 	if (mode == GPU_MATERIAL_DEBUG_TEXTURE_VALIDITY)
 	{
-		if (HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_MISSING_TEXTURE))
+		GPUMaterial material = r_GPUMaterials.Materials[materialID];
+		bool hasInvalidTextureIndex =
+			(HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_ALBEDO_TEXTURE) && !IsGPUTextureIndexValid(material.TextureIndices.x)) ||
+			(HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_NORMAL_TEXTURE) && !IsGPUTextureIndexValid(material.TextureIndices.y)) ||
+			(HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_METALNESS_TEXTURE) && !IsGPUTextureIndexValid(material.TextureIndices.z)) ||
+			(HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE) && !IsGPUTextureIndexValid(material.TextureIndices.w));
+
+		if (HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_MISSING_TEXTURE) || hasInvalidTextureIndex)
 			return vec3(1.0, 0.05, 0.02);
 
 		bool hasTexture =

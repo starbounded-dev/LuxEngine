@@ -96,6 +96,8 @@ void main()
 
 #version 450 core 
 
+#extension GL_EXT_nonuniform_qualifier : enable
+
 #pragma stage : frag 
 
 #include <Buffers.glslh>
@@ -208,15 +210,28 @@ void main()
 {
 	// Standard PBR inputs
 	float materialMipBias = GetMaterialMipBias();
-	vec4 albedoTexColor = SampleMaterialBias(u_AlbedoTexture, Input.TexCoord, materialMipBias);
+	GPUMaterial gpuMaterial = GetGPUMaterialForObject(InputObjectIndex);
+	vec4 albedoTexColor = SampleMaterialSceneTexture(
+		gpuMaterial.TextureIndices.x,
+		Input.TexCoord,
+		materialMipBias,
+		u_AlbedoTexture);
 	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;   // MaterialUniforms.AlbedoColor is perceptual, must be converted to linear.
 	float alpha = albedoTexColor.a;
 	// note: Metalness and roughness could be in the same texture.
 	//       Per GLTF spec, we read metalness from the B channel and roughness from the G channel
 	//       This will still work if metalness and roughness are independent greyscale textures,
 	//       but it will not work if metalness and roughness are independent textures containing only R channel.
-	m_Params.Metalness = SampleMaterialBias(u_MetalnessTexture, Input.TexCoord, materialMipBias).b * u_MaterialUniforms.Metalness;
-	m_Params.Roughness = SampleMaterialBias(u_RoughnessTexture, Input.TexCoord, materialMipBias).g * u_MaterialUniforms.Roughness;
+	m_Params.Metalness = SampleMaterialSceneTexture(
+		gpuMaterial.TextureIndices.z,
+		Input.TexCoord,
+		materialMipBias,
+		u_MetalnessTexture).b * u_MaterialUniforms.Metalness;
+	m_Params.Roughness = SampleMaterialSceneTexture(
+		gpuMaterial.TextureIndices.w,
+		Input.TexCoord,
+		materialMipBias,
+		u_RoughnessTexture).g * u_MaterialUniforms.Roughness;
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.f, 1.f);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
@@ -224,7 +239,12 @@ void main()
 	m_Params.Normal = normalize(Input.Normal);
 	if (u_MaterialUniforms.UseNormalMap)
 	{
-		m_Params.Normal = normalize(SampleMaterialBias(u_NormalTexture, Input.TexCoord, materialMipBias).rgb * 2.0f - 1.0f);
+		vec4 normalTexColor = SampleMaterialSceneTexture(
+			gpuMaterial.TextureIndices.y,
+			Input.TexCoord,
+			materialMipBias,
+			u_NormalTexture);
+		m_Params.Normal = normalize(normalTexColor.rgb * 2.0f - 1.0f);
 		m_Params.Normal = normalize(Input.WorldNormals * m_Params.Normal);
 	}
 	// View normals

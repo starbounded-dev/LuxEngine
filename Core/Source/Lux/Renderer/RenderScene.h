@@ -6,6 +6,7 @@
 #include "Lux/Renderer/MaterialScene.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Renderer/TextureScene.h"
 
 #include <glm/glm.hpp>
 
@@ -54,6 +55,7 @@ namespace Lux {
 		uint32_t SelectionDirtyProxies = 0;
 		uint32_t GPUSceneDirtyInstances = 0;
 		uint32_t MaterialSceneDirtyMaterials = 0;
+		uint32_t TextureSceneDirtyTextures = 0;
 	};
 
 	class RenderScene : public RefCounted
@@ -70,6 +72,8 @@ namespace Lux {
 		GPUScene& GetGPUScene() { return m_GPUScene; }
 		const MaterialScene& GetMaterialScene() const { return m_MaterialScene; }
 		MaterialScene& GetMaterialScene() { return m_MaterialScene; }
+		const TextureScene& GetTextureScene() const { return m_TextureScene; }
+		TextureScene& GetTextureScene() { return m_TextureScene; }
 		const RenderSceneSyncStats& GetLastSyncStats() const { return m_LastSyncStats; }
 		size_t GetStaticMeshProxyCount() const { return m_StaticMeshProxiesByEntity.size(); }
 		size_t GetVisibleStaticMeshProxyCount() const { return m_StaticMeshProxies.size(); }
@@ -86,6 +90,7 @@ namespace Lux {
 		RenderPrimitiveID m_NextPrimitiveID = 1;
 
 		GPUScene m_GPUScene;
+		TextureScene m_TextureScene;
 		MaterialScene m_MaterialScene;
 		RenderSceneSyncStats m_LastSyncStats;
 

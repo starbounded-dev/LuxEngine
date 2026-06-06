@@ -110,6 +110,8 @@ namespace Lux {
 		m_LastSyncStats = {};
 		m_FrameStaticMeshProxyOrder.clear();
 		m_GPUScene.BeginSync(m_FrameIndex);
+		m_TextureScene.BeginSync(m_FrameIndex);
+		m_MaterialScene.SetTextureResolver([this](AssetHandle textureHandle) { return m_TextureScene.UpsertTexture(textureHandle); });
 		m_MaterialScene.BeginSync(m_FrameIndex);
 	}
 
@@ -265,10 +267,12 @@ namespace Lux {
 
 		m_GPUScene.EndSync();
 		m_MaterialScene.EndSync();
+		m_TextureScene.EndSync();
 		m_LastSyncStats.StaticMeshProxyCount = (uint32_t)m_StaticMeshProxiesByEntity.size();
 		m_LastSyncStats.VisibleStaticMeshProxyCount = (uint32_t)m_StaticMeshProxies.size();
 		m_LastSyncStats.GPUSceneDirtyInstances = m_GPUScene.GetDirtyInstanceCount();
 		m_LastSyncStats.MaterialSceneDirtyMaterials = m_MaterialScene.GetDirtyMaterialCount();
+		m_LastSyncStats.TextureSceneDirtyTextures = m_TextureScene.GetDirtyTextureCount();
 	}
 
 	void RenderScene::Clear()
@@ -280,6 +284,7 @@ namespace Lux {
 		m_FrameStaticMeshProxyOrder.clear();
 		m_StaticMeshProxies.clear();
 		m_GPUScene.Clear();
+		m_TextureScene.Clear();
 		m_MaterialScene.Clear();
 		m_LastSyncStats = {};
 	}

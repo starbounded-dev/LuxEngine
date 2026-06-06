@@ -317,6 +317,9 @@ namespace Lux {
 			case ImageFormat::RED16UI: return 2;
 			case ImageFormat::RED32UI: return 4;
 			case ImageFormat::RED32F:  return 4;
+			case ImageFormat::RG8:     return 2;
+			case ImageFormat::RG16F:   return 2 * 2;
+			case ImageFormat::RG32F:   return 4 * 2;
 			case ImageFormat::RGB:
 			case ImageFormat::SRGB:    return 3;
 			case ImageFormat::RGBA:    return 4;
@@ -324,6 +327,9 @@ namespace Lux {
 			case ImageFormat::RGBA16F: return 2 * 4;
 			case ImageFormat::RGBA32F: return 4 * 4;
 			case ImageFormat::B10R11G11UF: return 4;
+			case ImageFormat::DEPTH24STENCIL8: return 4;
+			case ImageFormat::DEPTH32F: return 4;
+			case ImageFormat::DEPTH32FSTENCIL8UINT: return 8;
 			case ImageFormat::BC1:
 			case ImageFormat::BC1_SRGB:
 			case ImageFormat::BC3:

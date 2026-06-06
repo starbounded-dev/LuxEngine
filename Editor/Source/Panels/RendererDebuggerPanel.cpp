@@ -534,6 +534,11 @@ namespace Lux {
 			DrawStat("Uploaded Materials", snapshot.UploadedMaterialCount);
 			DrawStat("Dirty Materials", snapshot.DirtyMaterialCount);
 			DrawStat("Dirty Material Ranges", snapshot.DirtyMaterialRangeCount);
+			DrawStat("Persistent Textures", snapshot.PersistentTextureCount);
+			DrawStat("Transient Textures", snapshot.TransientTextureCount);
+			DrawStat("Uploaded Textures", snapshot.UploadedTextureCount);
+			DrawStat("Dirty Textures", snapshot.DirtyTextureCount);
+			DrawStat("Dirty Texture Ranges", snapshot.DirtyTextureRangeCount);
 			DrawStat("Max Render Material ID", snapshot.MaxMaterialIndex);
 			ImGui::EndTable();
 		}
@@ -551,6 +556,9 @@ namespace Lux {
 			DrawStat("Missing Object IDs", snapshot.MissingPersistentObjectIDCount);
 			DrawStat("Missing Materials", snapshot.MissingMaterialCount);
 			DrawStat("Missing Textures", snapshot.MissingTextureCount);
+			DrawStat("Invalid Texture Indices", snapshot.InvalidTextureIndexCount);
+			DrawStat("Missing Texture Descriptors", snapshot.MissingTextureDescriptorCount);
+			DrawStat("Texture Table Overflow", snapshot.TextureTableOverflowCount);
 			ImGui::EndTable();
 		}
 

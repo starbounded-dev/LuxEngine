@@ -3,12 +3,12 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Renderer/TextureScene.h"
 
 #include <glm/glm.hpp>
 
 #include <cstddef>
 #include <functional>
-#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -16,9 +16,6 @@ namespace Lux {
 
 	using RenderMaterialID = uint32_t;
 	inline constexpr RenderMaterialID InvalidRenderMaterialID = 0;
-
-	using GPUTextureIndex = uint32_t;
-	inline constexpr GPUTextureIndex InvalidGPUTextureIndex = std::numeric_limits<GPUTextureIndex>::max();
 
 	enum class GPUMaterialAlphaMode : uint32_t
 	{
@@ -87,6 +84,7 @@ namespace Lux {
 	public:
 		MaterialScene();
 
+		void SetTextureResolver(std::function<GPUTextureIndex(AssetHandle)> textureResolver);
 		void BeginSync(uint32_t frameIndex);
 		RenderMaterialID UpsertMaterial(AssetHandle materialHandle, bool forceDirty = false);
 		RenderMaterialID UpsertOverrideMaterial(uint64_t overrideKey, const Ref<Material>& material, bool transparent, bool forceDirty = false);
@@ -98,7 +96,7 @@ namespace Lux {
 		bool HasDirtyMaterials() const { return m_DirtyMaterialCount > 0; }
 		uint32_t GetDirtyMaterialCount() const { return m_DirtyMaterialCount; }
 		size_t GetActiveMaterialCount() const { return m_MaterialIDByKey.size(); }
-		uint32_t GetTextureIndexCount() const { return m_NextTextureIndex > 0 ? m_NextTextureIndex - 1 : 0; }
+		uint32_t GetTextureIndexCount() const { return m_TextureResolver ? 0 : (m_NextTextureIndex > 0 ? m_NextTextureIndex - 1 : 0); }
 
 		static GPUMaterialData GetFallbackMaterialData();
 		static GPUMaterialData BuildGPUMaterialData(
@@ -142,6 +140,7 @@ namespace Lux {
 		uint32_t m_FrameIndex = 0;
 		uint32_t m_DirtyMaterialCount = 0;
 		GPUTextureIndex m_NextTextureIndex = 1;
+		std::function<GPUTextureIndex(AssetHandle)> m_TextureResolver;
 
 		std::vector<GPUMaterialData> m_Materials;
 		std::vector<MaterialKey> m_MaterialKeys;

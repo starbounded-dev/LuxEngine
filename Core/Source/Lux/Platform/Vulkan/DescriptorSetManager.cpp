@@ -443,6 +443,8 @@ namespace Lux {
 							for (size_t i = 0; i < input.Input.size(); i++)
 							{
 								Ref<Texture2D> texture = input.Input[i].As<Texture2D>();
+								if (texture == nullptr)
+									texture = Renderer::GetWhiteTexture();
 
 								nvrhi::TextureHandle handle = texture->GetHandle();
 								nvrhi::BindingSetItem bindingSetItem = nvrhi::BindingSetItem::Texture_SRV(binding, handle);
@@ -492,7 +494,7 @@ namespace Lux {
 									? nvrhi::BindingSetItem::Texture_UAV(binding, handle)
 									: nvrhi::BindingSetItem::Texture_SRV(binding, handle);
 
-								bindingSetItem.arrayElement = i;
+								bindingSetItem.arrayElement = (uint32_t)i;
 								bindingSetItem.subresources = imageInfo->ImageView;
 								bindingSetItem.dimension = imageInfo->Dimension;
 
@@ -806,10 +808,7 @@ namespace Lux {
 						{
 							Ref<Texture2D> texture = input.Input[i].As<Texture2D>();
 							if (texture == nullptr)
-							{
 								texture = Renderer::GetWhiteTexture(); // TODO(Yan): error texture
-								LUX_CORE_VERIFY(false);
-							}
 
 							if (texture->GetHandle() != bindingSetHandleArray[i])
 							{

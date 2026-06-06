@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 namespace Lux {
 
@@ -60,13 +61,19 @@ namespace Lux {
 			if (!textureHandle || !Project::GetAssetManager())
 				return false;
 
-			return AssetManager::IsAssetHandleValid(textureHandle);
+			return AssetManager::IsAssetHandleValid(textureHandle)
+				&& AssetManager::GetAssetType(textureHandle) == AssetType::Texture;
 		}
 	}
 
 	MaterialScene::MaterialScene()
 	{
 		EnsureFallbackMaterial();
+	}
+
+	void MaterialScene::SetTextureResolver(std::function<GPUTextureIndex(AssetHandle)> textureResolver)
+	{
+		m_TextureResolver = std::move(textureResolver);
 	}
 
 	GPUMaterialData MaterialScene::GetFallbackMaterialData()
@@ -256,6 +263,9 @@ namespace Lux {
 		if (!textureHandle)
 			return InvalidGPUTextureIndex;
 
+		if (m_TextureResolver)
+			return m_TextureResolver(textureHandle);
+
 		auto [it, inserted] = m_TextureIndexByHandle.try_emplace(textureHandle, InvalidGPUTextureIndex);
 		if (inserted || it->second == InvalidGPUTextureIndex)
 			it->second = m_NextTextureIndex++;
@@ -326,6 +336,7 @@ namespace Lux {
 		m_FreeMaterialIDs.clear();
 		m_MaterialIDByKey.clear();
 		m_TextureIndexByHandle.clear();
+		m_TextureResolver = {};
 		m_DirtyMaterialIDs.clear();
 		m_DirtyRanges.clear();
 		EnsureFallbackMaterial();

@@ -25,6 +25,16 @@ vec4 SampleMaterialBias(texture2D tex, vec2 texCoord, float mipBias)
 	return texture(sampler2D(tex, r_MaterialSampler), texCoord, mipBias);
 }
 
+#ifdef GPU_MATERIAL_SCENE_AVAILABLE
+	vec4 SampleMaterialSceneTexture(uint textureIndex, vec2 texCoord, float mipBias, texture2D fallbackTexture)
+	{
+		if (!IsGPUTextureIndexValid(textureIndex))
+			return SampleMaterialBias(fallbackTexture, texCoord, mipBias);
+
+		return texture(sampler2D(u_GPUMaterialTextures[nonuniformEXT(textureIndex)], r_MaterialSampler), texCoord, mipBias);
+	}
+#endif
+
 vec4 SampleLinear(texture2DArray tex, vec3 texCoord)
 {
 	return texture(sampler2DArray(tex, r_LinearSampler), texCoord);

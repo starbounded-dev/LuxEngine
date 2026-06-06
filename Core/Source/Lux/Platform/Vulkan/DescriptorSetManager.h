@@ -8,6 +8,7 @@
 #include "Lux/Platform/Vulkan/VulkanShader.h"
 
 #include <set>
+#include <vector>
 
 namespace Lux {
 
@@ -17,8 +18,7 @@ namespace Lux {
 
 	struct RenderPassInput
 	{
-		static constexpr uint32_t MAX_ARRAY_ELEMENTS = 32;
-		using InputArray = nvrhi::static_vector<Ref<RefCounted>, MAX_ARRAY_ELEMENTS>;
+		using InputArray = std::vector<Ref<RefCounted>>;
 
 		RenderResourceType Type = RenderResourceType::None;
 		bool IsWriteable = false;
@@ -64,55 +64,71 @@ namespace Lux {
 		void Set(Ref<UniformBuffer> uniformBuffer, uint32_t arrayIndex = 0)
 		{
 			Type = RenderResourceType::UniformBuffer;
+			EnsureSize(arrayIndex);
 			Input[arrayIndex] = uniformBuffer;
 		}
 
 		void Set(Ref<UniformBufferSet> uniformBufferSet, uint32_t arrayIndex = 0)
 		{
 			Type = RenderResourceType::UniformBufferSet;
+			EnsureSize(arrayIndex);
 			Input[arrayIndex] = uniformBufferSet;
 		}
 
 		void Set(Ref<StorageBuffer> storageBuffer, uint32_t arrayIndex = 0)
 		{
 			Type = RenderResourceType::StorageBuffer;
+			EnsureSize(arrayIndex);
 			Input[arrayIndex] = storageBuffer;
 		}
 
 		void Set(Ref<StorageBufferSet> storageBufferSet, uint32_t arrayIndex = 0)
 		{
 			Type = RenderResourceType::StorageBufferSet;
+			EnsureSize(arrayIndex);
 			Input[arrayIndex] = storageBufferSet;
 		}
 
 		void Set(Ref<Texture2D> texture, uint32_t arrayIndex = 0)
 		{
 			Type = RenderResourceType::Texture2D;
+			EnsureSize(arrayIndex);
 			Input[arrayIndex] = texture;
 		}
 
 		void Set(Ref<TextureCube> texture, uint32_t arrayIndex = 0)
 		{
 			Type = RenderResourceType::TextureCube;
+			EnsureSize(arrayIndex);
 			Input[arrayIndex] = texture;
 		}
 
 		void Set(Ref<Image2D> image, uint32_t arrayIndex = 0)
 		{
 			Type = RenderResourceType::Image2D;
+			EnsureSize(arrayIndex);
 			Input[arrayIndex] = image;
 		}
 
 		void Set(Ref<ImageView> image, uint32_t arrayIndex = 0)
 		{
 			Type = RenderResourceType::Image2D;
+			EnsureSize(arrayIndex);
 			Input[arrayIndex] = image;
 		}
 
 		void Set(Ref<Sampler> sampler, uint32_t arrayIndex = 0)
 		{
 			Type = RenderResourceType::Sampler;
+			EnsureSize(arrayIndex);
 			Input[arrayIndex] = sampler;
+		}
+
+	private:
+		void EnsureSize(uint32_t arrayIndex)
+		{
+			if (Input.size() <= arrayIndex)
+				Input.resize((size_t)arrayIndex + 1);
 		}
 
 	};
@@ -240,8 +256,7 @@ namespace Lux {
 		// Per-frame in flight
 		nvrhi::static_vector<nvrhi::static_vector<nvrhi::BindingSetHandle, nvrhi::c_MaxBindingLayouts>, 3> m_BindingSets;
 		// Frame->set->binding
-		static constexpr uint32_t MAX_ARRAY_ELEMENTS = 32;
-		nvrhi::static_vector<std::map<uint32_t, std::map<uint32_t, nvrhi::static_vector<nvrhi::ResourceHandle, MAX_ARRAY_ELEMENTS>>>, 3> m_BindingSetHandles;
+		nvrhi::static_vector<std::map<uint32_t, std::map<uint32_t, std::vector<nvrhi::ResourceHandle>>>, 3> m_BindingSetHandles;
 
 	};
 

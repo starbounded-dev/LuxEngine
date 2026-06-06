@@ -92,6 +92,8 @@ void main()
 
 #version 450 core 
 
+#extension GL_EXT_nonuniform_qualifier : enable
+
 #pragma stage : frag 
 
 #include <Buffers.glslh>
@@ -205,7 +207,12 @@ void main()
 {
 	// Standard PBR inputs
 	float materialMipBias = GetMaterialMipBias();
-	vec4 albedoTexColor = SampleMaterialBias(u_AlbedoTexture, Input.TexCoord, materialMipBias);
+	GPUMaterial gpuMaterial = GetGPUMaterialForObject(InputObjectIndex);
+	vec4 albedoTexColor = SampleMaterialSceneTexture(
+		gpuMaterial.TextureIndices.x,
+		Input.TexCoord,
+		materialMipBias,
+		u_AlbedoTexture);
 	m_Params.Albedo = albedoTexColor.rgb * ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb;   // MaterialUniforms.AlbedoColor is perceptual, must be converted to linear.
 	float alpha = albedoTexColor.a;
 	m_Params.Metalness = 0.0f;
