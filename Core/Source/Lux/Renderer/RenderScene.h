@@ -3,6 +3,7 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Core/Math/Sphere.h"
 #include "Lux/Renderer/GPUScene.h"
+#include "Lux/Renderer/MaterialScene.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
 
@@ -52,6 +53,7 @@ namespace Lux {
 		uint32_t VisibilityDirtyProxies = 0;
 		uint32_t SelectionDirtyProxies = 0;
 		uint32_t GPUSceneDirtyInstances = 0;
+		uint32_t MaterialSceneDirtyMaterials = 0;
 	};
 
 	class RenderScene : public RefCounted
@@ -66,6 +68,8 @@ namespace Lux {
 		const StaticMeshRenderProxy* FindStaticMeshProxy(UUID entityID) const;
 		const GPUScene& GetGPUScene() const { return m_GPUScene; }
 		GPUScene& GetGPUScene() { return m_GPUScene; }
+		const MaterialScene& GetMaterialScene() const { return m_MaterialScene; }
+		MaterialScene& GetMaterialScene() { return m_MaterialScene; }
 		const RenderSceneSyncStats& GetLastSyncStats() const { return m_LastSyncStats; }
 		size_t GetStaticMeshProxyCount() const { return m_StaticMeshProxiesByEntity.size(); }
 		size_t GetVisibleStaticMeshProxyCount() const { return m_StaticMeshProxies.size(); }
@@ -73,6 +77,7 @@ namespace Lux {
 
 	private:
 		RenderPrimitiveID GetOrCreatePrimitiveID(UUID entityID);
+		RenderMaterialID ResolveRenderMaterialID(const StaticMeshRenderProxy& proxy, uint32_t submeshIndex);
 		void RebuildStaticMeshGPUInstances(StaticMeshRenderProxy& proxy, bool forceDirty, const glm::mat4& previousWorldTransform);
 		void RefreshStaticMeshGPUInstances(StaticMeshRenderProxy& proxy);
 
@@ -81,6 +86,7 @@ namespace Lux {
 		RenderPrimitiveID m_NextPrimitiveID = 1;
 
 		GPUScene m_GPUScene;
+		MaterialScene m_MaterialScene;
 		RenderSceneSyncStats m_LastSyncStats;
 
 		std::unordered_map<UUID, RenderPrimitiveID> m_PrimitiveIDsByEntity;

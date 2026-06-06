@@ -82,6 +82,16 @@ namespace Lux {
 				case SceneRenderer::DebugViewMode::AO: return "AO";
 				case SceneRenderer::DebugViewMode::Bloom: return "Bloom";
 				case SceneRenderer::DebugViewMode::Composite: return "Composite";
+				case SceneRenderer::DebugViewMode::GPUScenePrimitiveID: return "GPUScene Primitive ID";
+				case SceneRenderer::DebugViewMode::GPUSceneMaterialIndex: return "GPUScene Material Index";
+				case SceneRenderer::DebugViewMode::GPUSceneObjectID: return "GPUScene Object ID";
+				case SceneRenderer::DebugViewMode::GPUSceneBounds: return "GPUScene Bounds";
+				case SceneRenderer::DebugViewMode::GPUSceneMotion: return "GPUScene Motion";
+				case SceneRenderer::DebugViewMode::GPUMaterialTextureValidity: return "GPU Material Texture Validity";
+				case SceneRenderer::DebugViewMode::GPUMaterialAlphaMode: return "GPU Material Alpha Mode";
+				case SceneRenderer::DebugViewMode::GPUMaterialRoughness: return "GPU Material Roughness";
+				case SceneRenderer::DebugViewMode::GPUMaterialMetalness: return "GPU Material Metalness";
+				case SceneRenderer::DebugViewMode::GPUMaterialMissing: return "GPU Material Missing";
 			}
 
 			return "Unknown";
@@ -500,6 +510,63 @@ namespace Lux {
 		ImGui::TreePop();
 	}
 
+	void RendererDebuggerPanel::DrawGPUScene()
+	{
+		if (!ImGuiEx::PropertyGridHeader("GPU Scene", true))
+			return;
+
+		const SceneRenderer::GPUSceneDebugSnapshot& snapshot = m_Context->GetGPUSceneDebugSnapshot();
+		if (ImGui::BeginTable("##renderer_debugger_gpu_scene", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+		{
+			DrawStat("Persistent Instances", snapshot.PersistentInstanceCount);
+			DrawStat("Transient Instances", snapshot.TransientInstanceCount);
+			DrawStat("Uploaded Instances", snapshot.TotalUploadedInstanceCount);
+			DrawStat("Active Primitives", snapshot.ActivePrimitiveCount);
+			DrawStat("Visible Primitives", snapshot.VisiblePrimitiveCount);
+			DrawStat("Object Indexes", snapshot.ObjectIndexCount);
+			DrawStat("Visible Object Indexes", snapshot.VisibleObjectIndexCount);
+			DrawStat("Mesh Cull Draws", snapshot.MeshCullDrawCount);
+			DrawStat("Indirect Draws", snapshot.IndirectDrawCount);
+			DrawStat("Dirty Instances", snapshot.DirtyInstanceCount);
+			DrawStat("Dirty Ranges", snapshot.DirtyRangeCount);
+			DrawStat("Persistent Materials", snapshot.PersistentMaterialCount);
+			DrawStat("Transient Materials", snapshot.TransientMaterialCount);
+			DrawStat("Uploaded Materials", snapshot.UploadedMaterialCount);
+			DrawStat("Dirty Materials", snapshot.DirtyMaterialCount);
+			DrawStat("Dirty Material Ranges", snapshot.DirtyMaterialRangeCount);
+			DrawStat("Max Render Material ID", snapshot.MaxMaterialIndex);
+			ImGui::EndTable();
+		}
+
+		ImGui::Spacing();
+		if (ImGui::BeginTable("##renderer_debugger_gpu_scene_validation", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+		{
+			DrawStat("Invalid Object Indexes", snapshot.InvalidObjectIndexCount);
+			DrawStat("Invalid Visible Indexes", snapshot.InvalidVisibleObjectIndexCount);
+			DrawStat("Invalid Material IDs", snapshot.InvalidMaterialIDCount);
+			DrawStat("Invalid Bounds", snapshot.InvalidBoundsCount);
+			DrawStat("Invalid Previous Transforms", snapshot.InvalidPreviousTransformCount);
+			DrawStat("Bad Stored Instance IDs", snapshot.InvalidStoredInstanceIDCount);
+			DrawStat("Missing Primitive IDs", snapshot.PersistentInvalidPrimitiveIDCount);
+			DrawStat("Missing Object IDs", snapshot.MissingPersistentObjectIDCount);
+			DrawStat("Missing Materials", snapshot.MissingMaterialCount);
+			DrawStat("Missing Textures", snapshot.MissingTextureCount);
+			ImGui::EndTable();
+		}
+
+		if (snapshot.Diagnostics.empty())
+		{
+			ImGui::TextDisabled("No GPUScene validation diagnostics.");
+		}
+		else
+		{
+			for (const std::string& diagnostic : snapshot.Diagnostics)
+				ImGui::TextWrapped("Diagnostic: %s", diagnostic.c_str());
+		}
+
+		ImGui::TreePop();
+	}
+
 	void RendererDebuggerPanel::DrawShaders()
 	{
 		if (!ImGuiEx::PropertyGridHeader("Shaders", false))
@@ -592,6 +659,16 @@ namespace Lux {
 			{ SceneRenderer::DebugViewMode::AO, "AO" },
 			{ SceneRenderer::DebugViewMode::Bloom, "Bloom" },
 			{ SceneRenderer::DebugViewMode::Composite, "Composite" },
+			{ SceneRenderer::DebugViewMode::GPUScenePrimitiveID, "GPU Prim" },
+			{ SceneRenderer::DebugViewMode::GPUSceneMaterialIndex, "GPU Mat" },
+			{ SceneRenderer::DebugViewMode::GPUSceneObjectID, "GPU Object" },
+			{ SceneRenderer::DebugViewMode::GPUSceneBounds, "GPU Bounds" },
+			{ SceneRenderer::DebugViewMode::GPUSceneMotion, "GPU Motion" },
+			{ SceneRenderer::DebugViewMode::GPUMaterialTextureValidity, "Mat Tex" },
+			{ SceneRenderer::DebugViewMode::GPUMaterialAlphaMode, "Mat Alpha" },
+			{ SceneRenderer::DebugViewMode::GPUMaterialRoughness, "Mat Rough" },
+			{ SceneRenderer::DebugViewMode::GPUMaterialMetalness, "Mat Metal" },
+			{ SceneRenderer::DebugViewMode::GPUMaterialMissing, "Mat Missing" },
 			{ SceneRenderer::DebugViewMode::Final, "Final" },
 		};
 
@@ -774,6 +851,7 @@ namespace Lux {
 		DrawProfiling(stats);
 		DrawMemory(stats);
 		DrawRenderGraphInspector();
+		DrawGPUScene();
 		DrawWorkload(stats);
 		DrawShaders();
 

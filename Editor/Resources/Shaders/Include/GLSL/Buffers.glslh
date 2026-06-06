@@ -123,6 +123,7 @@ layout(std140, set = 2, binding = 1) uniform RendererData
 	uniform float DistanceMipBiasStart;
 	uniform float DistanceMipBiasEnd;
 	uniform float DistanceMipBiasMax;
+	uniform uint GPUSceneDebugMode;
 } u_RendererData;
 
 layout(std140, set = 2, binding = 2) uniform ScreenData
@@ -166,7 +167,7 @@ struct GPUSceneInstance
 	vec4 TransformRows[3];
 	vec4 PreviousTransformRows[3];
 	vec4 BoundsSphere;
-	uvec4 Metadata;   // x = primitive ID, y = submesh index, z = material slot, w = flags
+	uvec4 Metadata;   // x = primitive ID, y = submesh index, z = RenderMaterialID, w = flags
 	uvec4 ObjectData; // x/y = entity UUID low/high, z = GPUScene instance ID, w = reserved
 };
 
@@ -247,4 +248,68 @@ uvec2 GetInstanceEntityID(uint objectIndex)
 uint GetInstanceGPUSceneID(uint objectIndex)
 {
 	return r_GPUSceneInstances.Instances[GetGPUSceneInstanceIndex(objectIndex)].ObjectData.z;
+}
+
+const uint GPU_SCENE_DEBUG_NONE = 0u;
+const uint GPU_SCENE_DEBUG_PRIMITIVE_ID = 1u;
+const uint GPU_SCENE_DEBUG_MATERIAL_INDEX = 2u;
+const uint GPU_SCENE_DEBUG_OBJECT_ID = 3u;
+const uint GPU_SCENE_DEBUG_BOUNDS = 4u;
+const uint GPU_SCENE_DEBUG_MOTION = 5u;
+
+uint HashGPUSceneDebugValue(uint value)
+{
+	value ^= value >> 16u;
+	value *= 2246822519u;
+	value ^= value >> 13u;
+	value *= 3266489917u;
+	value ^= value >> 16u;
+	return value;
+}
+
+vec3 GPUSceneDebugColorFromID(uint value)
+{
+	uint hash = HashGPUSceneDebugValue(value);
+	return vec3(
+		float(hash & 255u) / 255.0,
+		float((hash >> 8u) & 255u) / 255.0,
+		float((hash >> 16u) & 255u) / 255.0);
+}
+
+vec3 GetGPUSceneDebugColor(uint objectIndex, uint mode)
+{
+	uint instanceIndex = GetGPUSceneInstanceIndex(objectIndex);
+
+	if (mode == GPU_SCENE_DEBUG_PRIMITIVE_ID)
+		return GPUSceneDebugColorFromID(r_GPUSceneInstances.Instances[instanceIndex].Metadata.x);
+
+	if (mode == GPU_SCENE_DEBUG_MATERIAL_INDEX)
+		return GPUSceneDebugColorFromID(r_GPUSceneInstances.Instances[instanceIndex].Metadata.z + 1u);
+
+	if (mode == GPU_SCENE_DEBUG_OBJECT_ID)
+		return GPUSceneDebugColorFromID(r_GPUSceneInstances.Instances[instanceIndex].ObjectData.x ^ HashGPUSceneDebugValue(r_GPUSceneInstances.Instances[instanceIndex].ObjectData.y));
+
+	if (mode == GPU_SCENE_DEBUG_BOUNDS)
+	{
+		float radius = max(r_GPUSceneInstances.Instances[instanceIndex].BoundsSphere.w, 0.0);
+		float normalizedRadius = clamp(log2(radius + 1.0) / 8.0, 0.0, 1.0);
+		return vec3(normalizedRadius, 1.0 - abs(normalizedRadius * 2.0 - 1.0), 1.0 - normalizedRadius);
+	}
+
+	if (mode == GPU_SCENE_DEBUG_MOTION)
+	{
+		mat4 currentTransform = BuildTransformFromRows(
+			r_GPUSceneInstances.Instances[instanceIndex].TransformRows[0],
+			r_GPUSceneInstances.Instances[instanceIndex].TransformRows[1],
+			r_GPUSceneInstances.Instances[instanceIndex].TransformRows[2]);
+		mat4 previousTransform = BuildTransformFromRows(
+			r_GPUSceneInstances.Instances[instanceIndex].PreviousTransformRows[0],
+			r_GPUSceneInstances.Instances[instanceIndex].PreviousTransformRows[1],
+			r_GPUSceneInstances.Instances[instanceIndex].PreviousTransformRows[2]);
+		float motion = length(currentTransform[3].xyz - previousTransform[3].xyz);
+		float normalizedMotion = clamp(motion * 10.0, 0.0, 1.0);
+		return mix(vec3(0.02, 0.05, 0.12), vec3(1.0, 0.18, 0.02), normalizedMotion);
+	}
+
+	return vec3(1.0, 0.0, 1.0);
 }

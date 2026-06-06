@@ -2,6 +2,7 @@
 
 #include "Lux/Core/Base.h"
 #include "Lux/Core/UUID.h"
+#include "Lux/Renderer/MaterialScene.h"
 
 #include <glm/glm.hpp>
 
@@ -74,7 +75,7 @@ namespace Lux {
 		glm::vec4 TransformRows[3] = {};
 		glm::vec4 PreviousTransformRows[3] = {};
 		glm::vec4 BoundsSphere = glm::vec4(0.0f);
-		glm::uvec4 Metadata = glm::uvec4(0); // x = primitive ID, y = submesh index, z = material slot, w = flags
+		glm::uvec4 Metadata = glm::uvec4(0); // x = primitive ID, y = submesh index, z = RenderMaterialID, w = flags
 		glm::uvec4 ObjectData = glm::uvec4(0); // x/y = entity UUID low/high, z = GPUScene instance ID, w = reserved
 	};
 
@@ -89,6 +90,11 @@ namespace Lux {
 	}
 
 	inline uint32_t GetGPUSceneMaterialIndex(const GPUSceneInstanceData& data)
+	{
+		return data.Metadata.z;
+	}
+
+	inline RenderMaterialID GetGPUSceneRenderMaterialID(const GPUSceneInstanceData& data)
 	{
 		return data.Metadata.z;
 	}

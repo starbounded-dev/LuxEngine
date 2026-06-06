@@ -72,6 +72,8 @@ namespace Lux {
 
 		constexpr uint32_t TransientGPUSceneInstanceFlag = 0x80000000u;
 		constexpr uint32_t TransientGPUSceneInstanceMask = ~TransientGPUSceneInstanceFlag;
+		constexpr uint32_t TransientRenderMaterialFlag = 0x80000000u;
+		constexpr uint32_t TransientRenderMaterialMask = ~TransientRenderMaterialFlag;
 
 		uint32_t EncodeTransientGPUSceneInstanceIndex(uint32_t index)
 		{
@@ -89,6 +91,22 @@ namespace Lux {
 			return index & TransientGPUSceneInstanceMask;
 		}
 
+		RenderMaterialID EncodeTransientRenderMaterialIndex(uint32_t index)
+		{
+			LUX_CORE_ASSERT((index & TransientRenderMaterialFlag) == 0, "Transient material index overflow");
+			return TransientRenderMaterialFlag | index;
+		}
+
+		bool IsTransientRenderMaterialID(RenderMaterialID materialID)
+		{
+			return (materialID & TransientRenderMaterialFlag) != 0;
+		}
+
+		uint32_t DecodeTransientRenderMaterialIndex(RenderMaterialID materialID)
+		{
+			return materialID & TransientRenderMaterialMask;
+		}
+
 		void WriteGPUSceneTransformRows(glm::vec4 (&rows)[3], const glm::mat4& transform)
 		{
 			rows[0] = { transform[0][0], transform[1][0], transform[2][0], transform[3][0] };
@@ -96,14 +114,45 @@ namespace Lux {
 			rows[2] = { transform[0][2], transform[1][2], transform[2][2], transform[3][2] };
 		}
 
-		GPUSceneInstanceData BuildTransientGPUSceneInstanceData(const glm::mat4& transform, const glm::vec4& boundsSphere, uint32_t submeshIndex, uint32_t materialIndex)
+		GPUSceneInstanceData BuildTransientGPUSceneInstanceData(const glm::mat4& transform, const glm::vec4& boundsSphere, uint32_t submeshIndex, RenderMaterialID materialID)
 		{
 			GPUSceneInstanceData data;
 			WriteGPUSceneTransformRows(data.TransformRows, transform);
 			WriteGPUSceneTransformRows(data.PreviousTransformRows, transform);
 			data.BoundsSphere = boundsSphere;
-			data.Metadata = glm::uvec4(InvalidRenderPrimitiveID, submeshIndex, materialIndex, (uint32_t)GPUSceneInstanceFlags::Visible);
+			data.Metadata = glm::uvec4(InvalidRenderPrimitiveID, submeshIndex, materialID, (uint32_t)GPUSceneInstanceFlags::Visible);
 			return data;
+		}
+
+		bool IsFiniteVec4(const glm::vec4& value)
+		{
+			return std::isfinite(value.x)
+				&& std::isfinite(value.y)
+				&& std::isfinite(value.z)
+				&& std::isfinite(value.w);
+		}
+
+		bool IsFiniteTransformRows(const glm::vec4 (&rows)[3])
+		{
+			return IsFiniteVec4(rows[0]) && IsFiniteVec4(rows[1]) && IsFiniteVec4(rows[2]);
+		}
+
+		uint32_t ResolveGPUSceneDebugMode(SceneRenderer::DebugViewMode mode)
+		{
+			switch (mode)
+			{
+				case SceneRenderer::DebugViewMode::GPUScenePrimitiveID: return 1;
+				case SceneRenderer::DebugViewMode::GPUSceneMaterialIndex: return 2;
+				case SceneRenderer::DebugViewMode::GPUSceneObjectID: return 3;
+				case SceneRenderer::DebugViewMode::GPUSceneBounds: return 4;
+				case SceneRenderer::DebugViewMode::GPUSceneMotion: return 5;
+				case SceneRenderer::DebugViewMode::GPUMaterialTextureValidity: return 6;
+				case SceneRenderer::DebugViewMode::GPUMaterialAlphaMode: return 7;
+				case SceneRenderer::DebugViewMode::GPUMaterialRoughness: return 8;
+				case SceneRenderer::DebugViewMode::GPUMaterialMetalness: return 9;
+				case SceneRenderer::DebugViewMode::GPUMaterialMissing: return 10;
+				default: return 0;
+			}
 		}
 
 		glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback)
@@ -763,6 +812,9 @@ namespace Lux {
 			spec.DebugName = "GPUSceneInstances";
 			m_SBSGPUSceneInstances = StorageBufferSet::Create(spec, sizeof(GPUSceneInstanceData) * 4096);
 
+			spec.DebugName = "GPUMaterials";
+			m_SBSGPUMaterials = StorageBufferSet::Create(spec, sizeof(GPUMaterialData) * 1024);
+
 			spec.DebugName = "MeshCullDrawData";
 			m_SBSMeshCullDrawData = StorageBufferSet::Create(spec, sizeof(MeshCullDrawData) * 4096);
 
@@ -1088,6 +1140,7 @@ namespace Lux {
 			m_GeometryPass->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
 			m_GeometryPass->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
 			m_GeometryPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+			m_GeometryPass->SetInput("GPUMaterials", m_SBSGPUMaterials);
 			m_GeometryPass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			// Environment textures – overridden each frame in BeginScene once env is set
 			m_GeometryPass->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
@@ -1115,6 +1168,7 @@ namespace Lux {
 			m_GeometryPassTransparent->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
 			m_GeometryPassTransparent->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
 			m_GeometryPassTransparent->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+			m_GeometryPassTransparent->SetInput("GPUMaterials", m_SBSGPUMaterials);
 			m_GeometryPassTransparent->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			// Environment textures – overridden each frame in BeginScene once env is set
 			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
@@ -2408,6 +2462,7 @@ namespace Lux {
 		addStorageBufferSet(m_SBSObjectIndexes);
 		addStorageBufferSet(m_SBSVisibleObjectIndexes);
 		addStorageBufferSet(m_SBSGPUSceneInstances);
+		addStorageBufferSet(m_SBSGPUMaterials);
 		addStorageBufferSet(m_SBSMeshCullDrawData);
 		addStorageBufferSet(m_SBSIndirectDrawCommands);
 		addStorageBufferSet(m_SBSVisiblePointLightIndices);
@@ -3688,6 +3743,7 @@ namespace Lux {
 			m_RendererDataUB.DistanceMipBiasStart = m_Options.DistanceMipBiasStart;
 			m_RendererDataUB.DistanceMipBiasEnd = glm::max(m_Options.DistanceMipBiasEnd, m_Options.DistanceMipBiasStart + 1.0f);
 			m_RendererDataUB.DistanceMipBiasMax = m_Options.DistanceMipBiasMax;
+			m_RendererDataUB.GPUSceneDebugMode = ResolveGPUSceneDebugMode(m_DebugViewMode);
 
 			auto rdData = m_RendererDataUB;
 			Ref<SceneRenderer> instance = this;
@@ -3821,6 +3877,67 @@ namespace Lux {
 		return m_MeshPasses[passIndex];
 	}
 
+	GPUTextureIndex SceneRenderer::ResolveTransientGPUTextureIndex(AssetHandle textureHandle)
+	{
+		if (!textureHandle)
+			return InvalidGPUTextureIndex;
+
+		auto [it, inserted] = m_TransientGPUTextureIndexByHandle.try_emplace(textureHandle, InvalidGPUTextureIndex);
+		if (inserted || it->second == InvalidGPUTextureIndex)
+			it->second = m_NextTransientGPUTextureIndex++;
+
+		return it->second;
+	}
+
+	RenderMaterialID SceneRenderer::GetOrCreateTransientRenderMaterialID(
+		AssetHandle materialHandle,
+		const Ref<MaterialAsset>& materialAsset,
+		const Ref<Material>& overrideMaterial,
+		bool transparent)
+	{
+		if (!materialHandle && !materialAsset && !overrideMaterial)
+			return InvalidRenderMaterialID;
+
+		constexpr uint64_t assetMaterialKeySeed = 0x4c55584d41544153ull;
+		constexpr uint64_t overrideMaterialKeySeed = 0x4c55584d41544f56ull;
+		uint64_t materialKey = 0;
+
+		if (overrideMaterial)
+		{
+			materialKey = HashCombine(overrideMaterialKeySeed, SortKeyFromRef(overrideMaterial.Raw()));
+		}
+		else
+		{
+			AssetHandle resolvedHandle = materialHandle;
+			if (!resolvedHandle && materialAsset)
+				resolvedHandle = materialAsset->Handle;
+
+			materialKey = resolvedHandle
+				? HashCombine(assetMaterialKeySeed, (uint64_t)resolvedHandle)
+				: HashCombine(assetMaterialKeySeed, SortKeyFromRef(materialAsset.Raw()));
+		}
+
+		auto materialIt = m_TransientGPUMaterialIndexByKey.find(materialKey);
+		if (materialIt != m_TransientGPUMaterialIndexByKey.end())
+			return EncodeTransientRenderMaterialIndex(materialIt->second);
+
+		GPUMaterialBuildInput input;
+		input.MaterialHandle = materialHandle ? materialHandle : (materialAsset ? materialAsset->Handle : AssetHandle(0));
+		input.MaterialAsset = materialAsset;
+		input.OverrideMaterial = overrideMaterial;
+		input.Transparent = transparent;
+
+		GPUMaterialData materialData = MaterialScene::BuildGPUMaterialData(
+			input,
+			[this](AssetHandle textureHandle) { return ResolveTransientGPUTextureIndex(textureHandle); });
+
+		const uint32_t transientMaterialIndex = (uint32_t)m_TransientGPUMaterials.size();
+		materialData.Metadata.z = EncodeTransientRenderMaterialIndex(transientMaterialIndex);
+		m_TransientGPUMaterialIndexByKey[materialKey] = transientMaterialIndex;
+		m_TransientGPUMaterials.push_back(materialData);
+		return EncodeTransientRenderMaterialIndex(transientMaterialIndex);
+	}
+
 	SceneRenderer::StaticDrawCommand& SceneRenderer::SubmitMeshPassDraw(MeshPassType passType,
 		const MeshKey& key,
 		Ref<StaticMesh> staticMesh,
@@ -3883,6 +4000,10 @@ namespace Lux {
 	void SceneRenderer::ClearFrameMeshPasses()
 	{
 		m_TransientGPUSceneInstances.clear();
+		m_TransientGPUMaterials.clear();
+		m_TransientGPUMaterialIndexByKey.clear();
+		m_TransientGPUTextureIndexByHandle.clear();
+		m_NextTransientGPUTextureIndex = 1;
 		m_MeshTransformMap.clear();
 		m_ShadowMeshTransformMap.clear();
 
@@ -3986,6 +4107,7 @@ namespace Lux {
 			AssetHandle materialHandle = 0;
 			Ref<MaterialAsset> materialAsset;
 			Ref<Material> resolvedOverrideMaterial = overrideMaterial;
+			const bool hasExplicitOverrideMaterial = resolvedOverrideMaterial != nullptr;
 
 			if (!resolvedOverrideMaterial)
 			{
@@ -4001,6 +4123,12 @@ namespace Lux {
 			}
 
 			LUX_CORE_ASSERT(resolvedOverrideMaterial || materialAsset, "No material found for submesh {}", submeshIndex);
+
+			const bool missingMaterialAsset = !hasExplicitOverrideMaterial && materialHandle && !materialAsset;
+			const bool isTransparent = materialAsset ? materialAsset->IsTransparent() : (resolvedOverrideMaterial && resolvedOverrideMaterial->GetFlag(MaterialFlag::Blend));
+			Ref<Material> materialSceneOverride = resolvedOverrideMaterial;
+			if (missingMaterialAsset)
+				materialSceneOverride = nullptr;
 
 			const AssetHandle keyMaterialHandle = resolvedOverrideMaterial
 				? AssetHandle((uint64_t)resolvedOverrideMaterial.Raw())
@@ -4044,8 +4172,13 @@ namespace Lux {
 			}
 			else
 			{
+				const RenderMaterialID transientMaterialID = GetOrCreateTransientRenderMaterialID(
+					materialHandle,
+					materialAsset,
+					materialSceneOverride,
+					isTransparent);
 				const uint32_t transientIndex = (uint32_t)m_TransientGPUSceneInstances.size();
-				GPUSceneInstanceData transientInstance = BuildTransientGPUSceneInstanceData(submeshTransform, boundsSphereData, submeshIndex, submesh.MaterialIndex);
+				GPUSceneInstanceData transientInstance = BuildTransientGPUSceneInstanceData(submeshTransform, boundsSphereData, submeshIndex, transientMaterialID);
 				transientInstance.ObjectData.z = transientIndex;
 				m_TransientGPUSceneInstances.push_back(transientInstance);
 				sceneInstanceIndex = EncodeTransientGPUSceneInstanceIndex(transientIndex);
@@ -4056,7 +4189,6 @@ namespace Lux {
 				// ── Main draw list ────────────────────────────────────────────────
 				m_MeshTransformMap[key].ObjectIndices.push_back(sceneInstanceIndex);
 
-				const bool isTransparent = materialAsset ? materialAsset->IsTransparent() : false;
 				Ref<Pipeline> geometryPipeline = isTransparent ? m_TransparentGeometryPipeline : m_GeometryPipeline;
 				SubmitMeshPassDraw(isTransparent ? MeshPassType::Transparent : MeshPassType::Opaque,
 					key,
@@ -4183,13 +4315,19 @@ namespace Lux {
 			// Use the material pointer as a fake asset handle so each material gets its own MeshKey bucket
 			const AssetHandle fakeHandle = (AssetHandle)(uint64_t)material.Raw();
 			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), fakeHandle, submeshIndex, false };
+			const bool isTransparent = material && material->GetFlag(MaterialFlag::Blend);
+			const RenderMaterialID transientMaterialID = GetOrCreateTransientRenderMaterialID(
+				fakeHandle,
+				nullptr,
+				material,
+				isTransparent);
 
 			const uint32_t transientIndex = (uint32_t)m_TransientGPUSceneInstances.size();
 			GPUSceneInstanceData transientInstance = BuildTransientGPUSceneInstanceData(
 				submeshTransform,
 				CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform),
 				submeshIndex,
-				submesh.MaterialIndex);
+				transientMaterialID);
 			transientInstance.ObjectData.z = transientIndex;
 			m_TransientGPUSceneInstances.push_back(transientInstance);
 			m_MeshTransformMap[key].ObjectIndices.push_back(EncodeTransientGPUSceneInstanceIndex(transientIndex));
@@ -4235,6 +4373,7 @@ namespace Lux {
 
 		if (!m_ResourcesCreated)
 		{
+			m_GPUSceneDebugSnapshot = {};
 			clearAll();
 			return;
 		}
@@ -4255,6 +4394,17 @@ namespace Lux {
 		const GPUScene* submittedGPUScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetGPUScene() : nullptr;
 		const std::vector<GPUSceneInstanceData>* persistentGPUSceneInstances = submittedGPUScene ? &submittedGPUScene->GetInstances() : nullptr;
 		const uint32_t persistentGPUSceneInstanceCount = persistentGPUSceneInstances ? (uint32_t)persistentGPUSceneInstances->size() : 0;
+		const MaterialScene* submittedMaterialScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetMaterialScene() : nullptr;
+
+		std::vector<GPUMaterialData> gpuMaterialData = submittedMaterialScene ? submittedMaterialScene->GetMaterials() : std::vector<GPUMaterialData>();
+		if (gpuMaterialData.empty())
+			gpuMaterialData.push_back(MaterialScene::GetFallbackMaterialData());
+		const uint32_t persistentMaterialCount = (uint32_t)gpuMaterialData.size();
+
+		std::vector<GPUMaterialData> transientGPUMaterialData = m_TransientGPUMaterials;
+		for (uint32_t transientMaterialIndex = 0; transientMaterialIndex < transientGPUMaterialData.size(); transientMaterialIndex++)
+			transientGPUMaterialData[transientMaterialIndex].Metadata.z = persistentMaterialCount + transientMaterialIndex;
+		const uint32_t uploadedMaterialCount = persistentMaterialCount + (uint32_t)transientGPUMaterialData.size();
 
 		auto resolveInstanceData = [this, persistentGPUSceneInstances](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
 			{
@@ -4376,14 +4526,154 @@ namespace Lux {
 
 		std::vector<GPUSceneInstanceData> transientGPUSceneData = m_TransientGPUSceneInstances;
 		for (uint32_t transientIndex = 0; transientIndex < transientGPUSceneData.size(); transientIndex++)
+		{
 			transientGPUSceneData[transientIndex].ObjectData.z = persistentGPUSceneInstanceCount + transientIndex;
+
+			const RenderMaterialID materialID = transientGPUSceneData[transientIndex].Metadata.z;
+			if (IsTransientRenderMaterialID(materialID))
+			{
+				const uint32_t transientMaterialIndex = DecodeTransientRenderMaterialIndex(materialID);
+				transientGPUSceneData[transientIndex].Metadata.z = transientMaterialIndex < transientGPUMaterialData.size()
+					? persistentMaterialCount + transientMaterialIndex
+					: InvalidRenderMaterialID;
+			}
+		}
+
+		{
+			GPUSceneDebugSnapshot snapshot;
+			snapshot.PersistentInstanceCount = persistentGPUSceneInstanceCount;
+			snapshot.TransientInstanceCount = (uint32_t)transientGPUSceneData.size();
+			snapshot.TotalUploadedInstanceCount = snapshot.PersistentInstanceCount + snapshot.TransientInstanceCount;
+			snapshot.ObjectIndexCount = (uint32_t)objectIndexData.size();
+			snapshot.VisibleObjectIndexCount = (uint32_t)visibleObjectIndexData.size();
+			snapshot.MeshCullDrawCount = (uint32_t)meshCullDrawData.size();
+			snapshot.IndirectDrawCount = (uint32_t)indirectDrawData.size();
+			snapshot.PersistentMaterialCount = persistentMaterialCount;
+			snapshot.TransientMaterialCount = (uint32_t)transientGPUMaterialData.size();
+			snapshot.UploadedMaterialCount = uploadedMaterialCount;
+
+			if (m_SubmittedRenderScene)
+			{
+				const RenderSceneSyncStats& syncStats = m_SubmittedRenderScene->GetLastSyncStats();
+				snapshot.ActivePrimitiveCount = syncStats.StaticMeshProxyCount;
+				snapshot.VisiblePrimitiveCount = syncStats.VisibleStaticMeshProxyCount;
+			}
+
+			if (submittedGPUScene)
+			{
+				snapshot.DirtyInstanceCount = submittedGPUScene->GetDirtyInstanceCount();
+				snapshot.DirtyRangeCount = (uint32_t)submittedGPUScene->GetDirtyRanges().size();
+			}
+
+			if (submittedMaterialScene)
+			{
+				snapshot.DirtyMaterialCount = submittedMaterialScene->GetDirtyMaterialCount();
+				snapshot.DirtyMaterialRangeCount = (uint32_t)submittedMaterialScene->GetDirtyRanges().size();
+			}
+
+			for (uint32_t objectIndex : objectIndexData)
+			{
+				if (objectIndex >= snapshot.TotalUploadedInstanceCount)
+					snapshot.InvalidObjectIndexCount++;
+			}
+
+			for (uint32_t objectIndex : visibleObjectIndexData)
+			{
+				if (objectIndex >= snapshot.TotalUploadedInstanceCount)
+					snapshot.InvalidVisibleObjectIndexCount++;
+			}
+
+			std::vector<uint32_t> materialReferenceCounts(uploadedMaterialCount, 0);
+			auto validateInstance = [&snapshot, uploadedMaterialCount, &materialReferenceCounts](const GPUSceneInstanceData& data, uint32_t expectedInstanceID, bool persistent)
+				{
+					snapshot.MaxMaterialIndex = glm::max(snapshot.MaxMaterialIndex, data.Metadata.z);
+
+					if (data.Metadata.z >= uploadedMaterialCount)
+					{
+						snapshot.InvalidMaterialIDCount++;
+					}
+					else
+					{
+						materialReferenceCounts[data.Metadata.z]++;
+					}
+
+					if (!IsFiniteTransformRows(data.PreviousTransformRows))
+						snapshot.InvalidPreviousTransformCount++;
+
+					if (!IsFiniteVec4(data.BoundsSphere) || data.BoundsSphere.w <= 0.0f)
+						snapshot.InvalidBoundsCount++;
+
+					if (data.ObjectData.z != expectedInstanceID)
+						snapshot.InvalidStoredInstanceIDCount++;
+
+					if (!persistent)
+						return;
+
+					if (data.Metadata.x == InvalidRenderPrimitiveID)
+						snapshot.PersistentInvalidPrimitiveIDCount++;
+
+					if (data.ObjectData.x == 0 && data.ObjectData.y == 0)
+						snapshot.MissingPersistentObjectIDCount++;
+				};
+
+			for (uint32_t instanceIndex = 0; instanceIndex < gpuSceneInstanceData.size(); instanceIndex++)
+				validateInstance(gpuSceneInstanceData[instanceIndex], instanceIndex, true);
+
+			for (uint32_t transientIndex = 0; transientIndex < transientGPUSceneData.size(); transientIndex++)
+				validateInstance(transientGPUSceneData[transientIndex], persistentGPUSceneInstanceCount + transientIndex, false);
+
+			auto validateMaterial = [&snapshot, &materialReferenceCounts](const GPUMaterialData& data, uint32_t materialID)
+				{
+					if (materialID == InvalidRenderMaterialID && materialReferenceCounts[materialID] == 0)
+						return;
+
+					if (HasGPUMaterialFlag(data.Metadata.x, GPUMaterialFlags::Missing))
+						snapshot.MissingMaterialCount++;
+					if (HasGPUMaterialFlag(data.Metadata.x, GPUMaterialFlags::MissingTexture))
+						snapshot.MissingTextureCount++;
+				};
+
+			for (uint32_t materialIndex = 0; materialIndex < gpuMaterialData.size(); materialIndex++)
+				validateMaterial(gpuMaterialData[materialIndex], materialIndex);
+			for (uint32_t materialIndex = 0; materialIndex < transientGPUMaterialData.size(); materialIndex++)
+				validateMaterial(transientGPUMaterialData[materialIndex], persistentMaterialCount + materialIndex);
+
+			if (snapshot.InvalidObjectIndexCount > 0 || snapshot.InvalidVisibleObjectIndexCount > 0)
+			{
+				snapshot.Diagnostics.push_back(std::format(
+					"Object index buffer contains out-of-range GPUScene rows: {} total, {} visible.",
+					snapshot.InvalidObjectIndexCount,
+					snapshot.InvalidVisibleObjectIndexCount));
+			}
+
+			if (snapshot.InvalidBoundsCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} GPUScene instance(s) have invalid or empty bounds.", snapshot.InvalidBoundsCount));
+			if (snapshot.InvalidPreviousTransformCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} GPUScene instance(s) have non-finite previous transforms.", snapshot.InvalidPreviousTransformCount));
+			if (snapshot.InvalidStoredInstanceIDCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} GPUScene instance(s) have ObjectData.z that does not match the uploaded row.", snapshot.InvalidStoredInstanceIDCount));
+			if (snapshot.InvalidMaterialIDCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} GPUScene instance(s) reference material rows outside the uploaded material table.", snapshot.InvalidMaterialIDCount));
+			if (snapshot.PersistentInvalidPrimitiveIDCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} persistent GPUScene instance(s) are missing stable primitive IDs.", snapshot.PersistentInvalidPrimitiveIDCount));
+			if (snapshot.MissingPersistentObjectIDCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} persistent GPUScene instance(s) are missing entity object IDs.", snapshot.MissingPersistentObjectIDCount));
+			if (snapshot.MissingMaterialCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} GPU material row(s) are using the missing-material fallback.", snapshot.MissingMaterialCount));
+			if (snapshot.MissingTextureCount > 0)
+				snapshot.Diagnostics.push_back(std::format("{} GPU material row(s) reference at least one missing texture.", snapshot.MissingTextureCount));
+
+			m_GPUSceneDebugSnapshot = std::move(snapshot);
+		}
 
 		if (!objectIndexData.empty()
 			|| !visibleObjectIndexData.empty()
 			|| !meshCullDrawData.empty()
 			|| !indirectDrawData.empty()
 			|| !gpuSceneInstanceData.empty()
-			|| !transientGPUSceneData.empty())
+			|| !transientGPUSceneData.empty()
+			|| !gpuMaterialData.empty()
+			|| !transientGPUMaterialData.empty())
 		{
 			const auto indexData = objectIndexData;
 			const auto visibleIndexData = visibleObjectIndexData;
@@ -4391,10 +4681,13 @@ namespace Lux {
 			const auto indirectCommands = indirectDrawData;
 			const auto gpuSceneData = gpuSceneInstanceData;
 			const auto transientSceneData = transientGPUSceneData;
+			const auto materialData = gpuMaterialData;
+			const auto transientMaterialData = transientGPUMaterialData;
 			const uint32_t persistentSceneCount = persistentGPUSceneInstanceCount;
+			const uint32_t persistentGPUMaterialCount = persistentMaterialCount;
 			Ref<SceneRenderer> instance = this;
 
-			Renderer::Submit([instance, indexData, visibleIndexData, cullDrawData, indirectCommands, gpuSceneData, transientSceneData, persistentSceneCount]() mutable {
+			Renderer::Submit([instance, indexData, visibleIndexData, cullDrawData, indirectCommands, gpuSceneData, transientSceneData, materialData, transientMaterialData, persistentSceneCount, persistentGPUMaterialCount]() mutable {
 
 				Ref<RenderCommandBuffer> cmd = instance->m_UploadCommandBuffer;
 
@@ -4454,6 +4747,27 @@ namespace Lux {
 					const uint32_t uploadBytes = (uint32_t)(transientSceneData.size() * sizeof(GPUSceneInstanceData));
 					const uint32_t uploadOffset = persistentSceneCount * (uint32_t)sizeof(GPUSceneInstanceData);
 					instance->m_SBSGPUSceneInstances->RT_Get()->RT_SetData(cmd, transientSceneData.data(), uploadBytes, uploadOffset);
+				}
+
+				const uint32_t totalGPUMaterials = persistentGPUMaterialCount + (uint32_t)transientMaterialData.size();
+				if (totalGPUMaterials > 0)
+				{
+					const uint32_t gpuMaterialBytes = totalGPUMaterials * (uint32_t)sizeof(GPUMaterialData);
+					if (instance->m_SBSGPUMaterials->RT_Get()->GetHandle()->getDesc().byteSize < gpuMaterialBytes)
+						instance->m_SBSGPUMaterials->Resize(gpuMaterialBytes * 2u);
+				}
+
+				if (!materialData.empty())
+				{
+					const uint32_t uploadBytes = (uint32_t)(materialData.size() * sizeof(GPUMaterialData));
+					instance->m_SBSGPUMaterials->RT_Get()->RT_SetData(cmd, materialData.data(), uploadBytes);
+				}
+
+				if (!transientMaterialData.empty())
+				{
+					const uint32_t uploadBytes = (uint32_t)(transientMaterialData.size() * sizeof(GPUMaterialData));
+					const uint32_t uploadOffset = persistentGPUMaterialCount * (uint32_t)sizeof(GPUMaterialData);
+					instance->m_SBSGPUMaterials->RT_Get()->RT_SetData(cmd, transientMaterialData.data(), uploadBytes, uploadOffset);
 				}
 			});
 		}
@@ -5783,6 +6097,18 @@ namespace Lux {
 
 			case DebugViewMode::Composite:
 				return m_CompositePass ? m_CompositePass->GetOutput(0) : nullptr;
+
+			case DebugViewMode::GPUScenePrimitiveID:
+			case DebugViewMode::GPUSceneMaterialIndex:
+			case DebugViewMode::GPUSceneObjectID:
+			case DebugViewMode::GPUSceneBounds:
+			case DebugViewMode::GPUSceneMotion:
+			case DebugViewMode::GPUMaterialTextureValidity:
+			case DebugViewMode::GPUMaterialAlphaMode:
+			case DebugViewMode::GPUMaterialRoughness:
+			case DebugViewMode::GPUMaterialMetalness:
+			case DebugViewMode::GPUMaterialMissing:
+				return m_GeometryPass ? m_GeometryPass->GetOutput(0) : nullptr;
 		}
 
 		return nullptr;

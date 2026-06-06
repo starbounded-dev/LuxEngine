@@ -1,0 +1,94 @@
+#pragma once
+
+struct GPUMaterial
+{
+	vec4 BaseColor;
+	vec4 Scalars;        // x = metalness, y = roughness, z = emission, w = material complexity
+	uvec4 TextureIndices; // x = albedo, y = normal, z = metalness, w = roughness
+	uvec4 Metadata;       // x = flags, y = alpha mode, z = RenderMaterialID, w = reserved
+};
+
+layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
+{
+	GPUMaterial Materials[];
+} r_GPUMaterials;
+
+const uint GPU_MATERIAL_FLAG_VALID = 1u << 0u;
+const uint GPU_MATERIAL_FLAG_MISSING = 1u << 1u;
+const uint GPU_MATERIAL_FLAG_TRANSPARENT = 1u << 2u;
+const uint GPU_MATERIAL_FLAG_SHADOW_CASTING = 1u << 3u;
+const uint GPU_MATERIAL_FLAG_TWO_SIDED = 1u << 4u;
+const uint GPU_MATERIAL_FLAG_USE_NORMAL_MAP = 1u << 5u;
+const uint GPU_MATERIAL_FLAG_HAS_ALBEDO_TEXTURE = 1u << 6u;
+const uint GPU_MATERIAL_FLAG_HAS_NORMAL_TEXTURE = 1u << 7u;
+const uint GPU_MATERIAL_FLAG_HAS_METALNESS_TEXTURE = 1u << 8u;
+const uint GPU_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE = 1u << 9u;
+const uint GPU_MATERIAL_FLAG_MISSING_TEXTURE = 1u << 10u;
+const uint GPU_MATERIAL_FLAG_OVERRIDE_MATERIAL = 1u << 11u;
+
+const uint GPU_MATERIAL_ALPHA_OPAQUE = 0u;
+const uint GPU_MATERIAL_ALPHA_MASKED = 1u;
+const uint GPU_MATERIAL_ALPHA_BLEND = 2u;
+
+const uint GPU_MATERIAL_DEBUG_TEXTURE_VALIDITY = 6u;
+const uint GPU_MATERIAL_DEBUG_ALPHA_MODE = 7u;
+const uint GPU_MATERIAL_DEBUG_ROUGHNESS = 8u;
+const uint GPU_MATERIAL_DEBUG_METALNESS = 9u;
+const uint GPU_MATERIAL_DEBUG_MISSING = 10u;
+
+bool HasGPUMaterialFlag(uint flags, uint flag)
+{
+	return (flags & flag) != 0u;
+}
+
+vec3 GetMaterialSceneDebugColor(uint objectIndex, uint mode)
+{
+	if (mode < GPU_MATERIAL_DEBUG_TEXTURE_VALIDITY)
+		return GetGPUSceneDebugColor(objectIndex, mode);
+
+	uint materialID = GetInstanceMaterialIndex(objectIndex);
+	uint flags = r_GPUMaterials.Materials[materialID].Metadata.x;
+
+	if (mode == GPU_MATERIAL_DEBUG_TEXTURE_VALIDITY)
+	{
+		if (HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_MISSING_TEXTURE))
+			return vec3(1.0, 0.05, 0.02);
+
+		bool hasTexture =
+			HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_ALBEDO_TEXTURE) ||
+			HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_NORMAL_TEXTURE) ||
+			HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_METALNESS_TEXTURE) ||
+			HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE);
+
+		return hasTexture ? vec3(0.05, 0.85, 0.25) : vec3(0.18, 0.24, 0.34);
+	}
+
+	if (mode == GPU_MATERIAL_DEBUG_ALPHA_MODE)
+	{
+		uint alphaMode = r_GPUMaterials.Materials[materialID].Metadata.y;
+		if (alphaMode == GPU_MATERIAL_ALPHA_BLEND)
+			return vec3(0.95, 0.65, 0.08);
+		if (alphaMode == GPU_MATERIAL_ALPHA_MASKED)
+			return vec3(0.72, 0.25, 1.0);
+		return vec3(0.06, 0.45, 1.0);
+	}
+
+	if (mode == GPU_MATERIAL_DEBUG_ROUGHNESS)
+		return vec3(clamp(r_GPUMaterials.Materials[materialID].Scalars.y, 0.0, 1.0));
+
+	if (mode == GPU_MATERIAL_DEBUG_METALNESS)
+		return vec3(clamp(r_GPUMaterials.Materials[materialID].Scalars.x, 0.0, 1.0));
+
+	if (mode == GPU_MATERIAL_DEBUG_MISSING)
+	{
+		if (HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_MISSING))
+			return vec3(1.0, 0.02, 0.02);
+		if (HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_MISSING_TEXTURE))
+			return vec3(1.0, 0.55, 0.02);
+		if (!HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_VALID))
+			return vec3(1.0, 0.0, 1.0);
+		return vec3(0.05, 0.80, 0.18);
+	}
+
+	return GPUSceneDebugColorFromID(materialID + 1u);
+}

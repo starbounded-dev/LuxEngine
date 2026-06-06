@@ -395,6 +395,38 @@ namespace Lux {
 			std::vector<std::string> Diagnostics;
 		};
 
+		struct GPUSceneDebugSnapshot
+		{
+			uint32_t PersistentInstanceCount = 0;
+			uint32_t TransientInstanceCount = 0;
+			uint32_t TotalUploadedInstanceCount = 0;
+			uint32_t ActivePrimitiveCount = 0;
+			uint32_t VisiblePrimitiveCount = 0;
+			uint32_t ObjectIndexCount = 0;
+			uint32_t VisibleObjectIndexCount = 0;
+			uint32_t MeshCullDrawCount = 0;
+			uint32_t IndirectDrawCount = 0;
+			uint32_t DirtyInstanceCount = 0;
+			uint32_t DirtyRangeCount = 0;
+			uint32_t PersistentMaterialCount = 0;
+			uint32_t TransientMaterialCount = 0;
+			uint32_t UploadedMaterialCount = 0;
+			uint32_t DirtyMaterialCount = 0;
+			uint32_t DirtyMaterialRangeCount = 0;
+			uint32_t InvalidObjectIndexCount = 0;
+			uint32_t InvalidVisibleObjectIndexCount = 0;
+			uint32_t InvalidMaterialIDCount = 0;
+			uint32_t InvalidBoundsCount = 0;
+			uint32_t InvalidPreviousTransformCount = 0;
+			uint32_t InvalidStoredInstanceIDCount = 0;
+			uint32_t PersistentInvalidPrimitiveIDCount = 0;
+			uint32_t MissingPersistentObjectIDCount = 0;
+			uint32_t MissingMaterialCount = 0;
+			uint32_t MissingTextureCount = 0;
+			uint32_t MaxMaterialIndex = 0;
+			std::vector<std::string> Diagnostics;
+		};
+
 	public:
 		SceneRenderer() = default;
 		SceneRenderer(Ref<Scene> scene,
@@ -453,7 +485,17 @@ namespace Lux {
 			SSR,
 			AO,
 			Bloom,
-			Composite
+			Composite,
+			GPUScenePrimitiveID,
+			GPUSceneMaterialIndex,
+			GPUSceneObjectID,
+			GPUSceneBounds,
+			GPUSceneMotion,
+			GPUMaterialTextureValidity,
+			GPUMaterialAlphaMode,
+			GPUMaterialRoughness,
+			GPUMaterialMetalness,
+			GPUMaterialMissing
 		};
 
 		Ref<Image2D>     GetFinalPassImage();
@@ -517,6 +559,7 @@ namespace Lux {
 		const glm::mat4& GetScreenSpaceProjectionMatrix() const { return m_ScreenSpaceProjectionMatrix; }
 		const Statistics& GetStatistics() const { return m_Statistics; }
 		RenderGraphDebugSnapshot GetRenderGraphDebugSnapshot();
+		const GPUSceneDebugSnapshot& GetGPUSceneDebugSnapshot() const { return m_GPUSceneDebugSnapshot; }
 		const Frustum& GetCameraFrustum() const { return m_SceneData.CameraFrustum; }
 
 		bool IsReady() const { return m_ResourcesCreatedGPU; }
@@ -694,6 +737,8 @@ namespace Lux {
 		void BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder) const;
 		MeshPassState& GetMeshPass(MeshPassType passType);
 		const MeshPassState& GetMeshPass(MeshPassType passType) const;
+		RenderMaterialID GetOrCreateTransientRenderMaterialID(AssetHandle materialHandle, const Ref<MaterialAsset>& materialAsset, const Ref<Material>& overrideMaterial, bool transparent);
+		GPUTextureIndex ResolveTransientGPUTextureIndex(AssetHandle textureHandle);
 		StaticDrawCommand& SubmitMeshPassDraw(MeshPassType passType,
 			const MeshKey& key,
 			Ref<StaticMesh> staticMesh,
@@ -863,6 +908,7 @@ namespace Lux {
 			float     DistanceMipBiasStart = 50.0f;
 			float     DistanceMipBiasEnd = 250.0f;
 			float     DistanceMipBiasMax = 2.0f;
+			uint32_t  GPUSceneDebugMode = 0;
 		} m_RendererDataUB;
 
 		struct UBScreenData
@@ -941,6 +987,7 @@ namespace Lux {
 		Ref<Renderer2D>    m_Renderer2DScreenSpace;
 		Ref<DebugRenderer> m_DebugRenderer;
 		Ref<RenderScene>   m_SubmittedRenderScene;
+		GPUSceneDebugSnapshot m_GPUSceneDebugSnapshot;
 		std::function<void()> m_WorldOverlayRenderCallback;
 
 		glm::mat4 m_ScreenSpaceProjectionMatrix{ 1.0f };
@@ -969,6 +1016,7 @@ namespace Lux {
 		Ref<StorageBufferSet> m_SBSObjectIndexes;       // uint32_t[] - maps draw instance to GPUScene instance
 		Ref<StorageBufferSet> m_SBSVisibleObjectIndexes;
 		Ref<StorageBufferSet> m_SBSGPUSceneInstances;
+		Ref<StorageBufferSet> m_SBSGPUMaterials;
 		Ref<StorageBufferSet> m_SBSMeshCullDrawData;
 		Ref<StorageBufferSet> m_SBSIndirectDrawCommands;
 		Ref<StorageBufferSet> m_SBSVisiblePointLightIndices;
@@ -1127,6 +1175,10 @@ namespace Lux {
 		// GPUScene indirection for all submitted meshes this frame.
 		std::unordered_map<MeshKey, TransformMapData, MeshKeyHasher>  m_MeshTransformMap;
 		std::vector<GPUSceneInstanceData>    m_TransientGPUSceneInstances;
+		std::vector<GPUMaterialData>         m_TransientGPUMaterials;
+		std::unordered_map<uint64_t, uint32_t> m_TransientGPUMaterialIndexByKey;
+		std::unordered_map<AssetHandle, GPUTextureIndex> m_TransientGPUTextureIndexByHandle;
+		GPUTextureIndex m_NextTransientGPUTextureIndex = 1;
 
 		// Shadow-specific per-cascade transform tracking.
 		// Index 0 is the only cascade we use currently.

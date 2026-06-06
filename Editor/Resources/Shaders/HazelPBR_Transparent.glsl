@@ -38,6 +38,7 @@ struct VertexOutput
 };
 
 layout(location = 0) out VertexOutput Output;
+layout(location = 18) flat out uint OutputObjectIndex;
 
 layout(push_constant) uniform Material
 {
@@ -65,9 +66,11 @@ invariant gl_Position;
 
 void main()
 {
-	mat4 transform = GetInstanceTransform(u_MaterialUniforms.ObjectIndexBase + gl_InstanceIndex);
+	uint objectIndex = u_MaterialUniforms.ObjectIndexBase + gl_InstanceIndex;
+	mat4 transform = GetInstanceTransform(objectIndex);
 	vec4 worldPosition = transform * vec4(a_Position, 1.0);
 
+	OutputObjectIndex = objectIndex;
 	Output.WorldPosition = worldPosition.xyz;
 	Output.Normal = mat3(transform) * a_Normal;
 	Output.TexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
@@ -92,6 +95,7 @@ void main()
 #pragma stage : frag 
 
 #include <Buffers.glslh>
+#include <MaterialScene.glslh>
 #include <PBR.glslh>
 #include <PBR_Resources.glslh>
 #include <Lighting.glslh>
@@ -117,6 +121,7 @@ struct VertexOutput
 };
  
 layout(location = 0) in VertexOutput Input;
+layout(location = 18) flat in uint InputObjectIndex;
 
 layout(location = 0) out vec4 color;
 layout(location = 1) out vec4 o_ViewNormalsLuminance;
@@ -331,6 +336,13 @@ void main()
 			value += u_MaterialUniforms.Emission > 0.0 ? 1.0 : 0.0;
 		}
 		color.rgb = (color.rgb * 0.12) + GetGradient(value);
+	}
+
+	if (u_RendererData.GPUSceneDebugMode != GPU_SCENE_DEBUG_NONE)
+	{
+		color.rgb = GetMaterialSceneDebugColor(InputObjectIndex, u_RendererData.GPUSceneDebugMode);
+		color.a = 1.0;
+		return;
 	}
 
 	// TODO(Karim): Have a separate render pass for translucent and transparent objects.

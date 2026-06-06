@@ -2,6 +2,8 @@
 
 #include "Lux/Renderer/RenderScene.h"
 
+#include "Lux/Asset/AssetManager.h"
+
 #include <algorithm>
 #include <cstring>
 #include <utility>
@@ -108,6 +110,7 @@ namespace Lux {
 		m_LastSyncStats = {};
 		m_FrameStaticMeshProxyOrder.clear();
 		m_GPUScene.BeginSync(m_FrameIndex);
+		m_MaterialScene.BeginSync(m_FrameIndex);
 	}
 
 	RenderPrimitiveID RenderScene::GetOrCreatePrimitiveID(UUID entityID)
@@ -120,6 +123,39 @@ namespace Lux {
 			it->second = m_NextPrimitiveID++;
 
 		return it->second;
+	}
+
+	RenderMaterialID RenderScene::ResolveRenderMaterialID(const StaticMeshRenderProxy& proxy, uint32_t submeshIndex)
+	{
+		if (!proxy.MeshSource)
+			return InvalidRenderMaterialID;
+
+		const auto& submeshData = proxy.MeshSource->GetSubmeshes();
+		if (submeshIndex >= submeshData.size())
+			return InvalidRenderMaterialID;
+
+		const uint32_t materialIndex = submeshData[submeshIndex].MaterialIndex;
+		AssetHandle materialHandle = 0;
+
+		if (proxy.MaterialTable)
+		{
+			if (proxy.MaterialTable->HasMaterial(materialIndex))
+				materialHandle = proxy.MaterialTable->GetMaterial(materialIndex);
+			else if (proxy.MaterialTable->GetMaterials().size() == 1 && proxy.MaterialTable->HasMaterial(0))
+				materialHandle = proxy.MaterialTable->GetMaterial(0);
+		}
+
+		if (!materialHandle)
+		{
+			Ref<MaterialTable> staticMeshMaterials = proxy.StaticMesh ? proxy.StaticMesh->GetMaterials() : nullptr;
+			if (staticMeshMaterials && staticMeshMaterials->HasMaterial(materialIndex))
+				materialHandle = staticMeshMaterials->GetMaterial(materialIndex);
+		}
+
+		if (!materialHandle && materialIndex < proxy.MeshSource->GetMaterials().size())
+			materialHandle = proxy.MeshSource->GetMaterials()[materialIndex];
+
+		return m_MaterialScene.UpsertMaterial(materialHandle);
 	}
 
 	RenderPrimitiveID RenderScene::UpsertStaticMesh(StaticMeshRenderProxy proxy)
@@ -228,9 +264,11 @@ namespace Lux {
 		}
 
 		m_GPUScene.EndSync();
+		m_MaterialScene.EndSync();
 		m_LastSyncStats.StaticMeshProxyCount = (uint32_t)m_StaticMeshProxiesByEntity.size();
 		m_LastSyncStats.VisibleStaticMeshProxyCount = (uint32_t)m_StaticMeshProxies.size();
 		m_LastSyncStats.GPUSceneDirtyInstances = m_GPUScene.GetDirtyInstanceCount();
+		m_LastSyncStats.MaterialSceneDirtyMaterials = m_MaterialScene.GetDirtyMaterialCount();
 	}
 
 	void RenderScene::Clear()
@@ -242,6 +280,7 @@ namespace Lux {
 		m_FrameStaticMeshProxyOrder.clear();
 		m_StaticMeshProxies.clear();
 		m_GPUScene.Clear();
+		m_MaterialScene.Clear();
 		m_LastSyncStats = {};
 	}
 
@@ -271,12 +310,13 @@ namespace Lux {
 			const Submesh& submesh = submeshData[submeshIndex];
 			const glm::mat4 submeshTransform = proxy.WorldTransform * submesh.Transform;
 			const glm::mat4 previousSubmeshTransform = previousWorldTransform * submesh.Transform;
+			const RenderMaterialID materialID = ResolveRenderMaterialID(proxy, submeshIndex);
 
 			GPUSceneInstanceData instanceData;
 			WriteTransformRows(instanceData.TransformRows, submeshTransform);
 			WriteTransformRows(instanceData.PreviousTransformRows, previousSubmeshTransform);
 			instanceData.BoundsSphere = CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform);
-			instanceData.Metadata = glm::uvec4(proxy.PrimitiveID, submeshIndex, submesh.MaterialIndex, (uint32_t)flags);
+			instanceData.Metadata = glm::uvec4(proxy.PrimitiveID, submeshIndex, materialID, (uint32_t)flags);
 			instanceData.ObjectData = BuildGPUSceneObjectData(proxy.EntityID);
 
 			GPUSceneInstanceRef& instanceRef = proxy.SubmeshInstances.emplace_back();
@@ -292,9 +332,12 @@ namespace Lux {
 		const GPUSceneInstanceFlags flags = BuildGPUSceneInstanceFlags(proxy);
 		for (GPUSceneInstanceRef& instanceRef : proxy.SubmeshInstances)
 		{
+			const uint32_t submeshIndex = GetGPUSceneSubmeshIndex(instanceRef.Data);
+			const RenderMaterialID materialID = ResolveRenderMaterialID(proxy, submeshIndex);
 			instanceRef.Data.PreviousTransformRows[0] = instanceRef.Data.TransformRows[0];
 			instanceRef.Data.PreviousTransformRows[1] = instanceRef.Data.TransformRows[1];
 			instanceRef.Data.PreviousTransformRows[2] = instanceRef.Data.TransformRows[2];
+			instanceRef.Data.Metadata.z = materialID;
 			instanceRef.Data.Metadata.w = (uint32_t)flags;
 			instanceRef.InstanceID = m_GPUScene.UpsertInstance(instanceRef.Data);
 			if (instanceRef.InstanceID != InvalidGPUSceneInstanceID)
