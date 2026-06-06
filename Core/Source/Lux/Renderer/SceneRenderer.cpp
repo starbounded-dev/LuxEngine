@@ -3,6 +3,7 @@
 
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/RenderScene.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Math/Frustum.h"
 #include "Lux/Asset/AssetManager.h"
@@ -18,6 +19,7 @@
 #include <limits>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace Lux {
 
@@ -66,6 +68,42 @@ namespace Lux {
 		uint64_t SortKeyFromRef(const void* object)
 		{
 			return reinterpret_cast<uint64_t>(object);
+		}
+
+		constexpr uint32_t TransientGPUSceneInstanceFlag = 0x80000000u;
+		constexpr uint32_t TransientGPUSceneInstanceMask = ~TransientGPUSceneInstanceFlag;
+
+		uint32_t EncodeTransientGPUSceneInstanceIndex(uint32_t index)
+		{
+			LUX_CORE_ASSERT((index & TransientGPUSceneInstanceFlag) == 0, "Transient GPUScene instance index overflow");
+			return TransientGPUSceneInstanceFlag | index;
+		}
+
+		bool IsTransientGPUSceneInstanceIndex(uint32_t index)
+		{
+			return (index & TransientGPUSceneInstanceFlag) != 0;
+		}
+
+		uint32_t DecodeTransientGPUSceneInstanceIndex(uint32_t index)
+		{
+			return index & TransientGPUSceneInstanceMask;
+		}
+
+		void WriteGPUSceneTransformRows(glm::vec4 (&rows)[3], const glm::mat4& transform)
+		{
+			rows[0] = { transform[0][0], transform[1][0], transform[2][0], transform[3][0] };
+			rows[1] = { transform[0][1], transform[1][1], transform[2][1], transform[3][1] };
+			rows[2] = { transform[0][2], transform[1][2], transform[2][2], transform[3][2] };
+		}
+
+		GPUSceneInstanceData BuildTransientGPUSceneInstanceData(const glm::mat4& transform, const glm::vec4& boundsSphere, uint32_t submeshIndex, uint32_t materialIndex)
+		{
+			GPUSceneInstanceData data;
+			WriteGPUSceneTransformRows(data.TransformRows, transform);
+			WriteGPUSceneTransformRows(data.PreviousTransformRows, transform);
+			data.BoundsSphere = boundsSphere;
+			data.Metadata = glm::uvec4(InvalidRenderPrimitiveID, submeshIndex, materialIndex, (uint32_t)GPUSceneInstanceFlags::Visible);
+			return data;
 		}
 
 		glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback)
@@ -687,6 +725,9 @@ namespace Lux {
 	{
 		InitOptions();
 
+		for (size_t passIndex = 0; passIndex < m_MeshPasses.size(); passIndex++)
+			m_MeshPasses[passIndex].Type = static_cast<MeshPassType>(passIndex);
+
 		m_CommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer",       /*queries=*/true);
 		m_UploadCommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer-Upload", /*queries=*/false);
 
@@ -713,21 +754,14 @@ namespace Lux {
 		{
 			StorageBufferSpecification spec;
 			spec.GPUOnly = false;
-			spec.DebugName = "InstanceTransforms";
-			// Pre-allocate 4096 transform slots  (each is 48 bytes)
-			m_SBSInstanceTransforms = StorageBufferSet::Create(spec, sizeof(TransformVertexData) * 4096);
-		}
-		{
-			StorageBufferSpecification spec;
-			spec.GPUOnly = false;
 			spec.DebugName = "ObjectIndexes";
 			m_SBSObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
 
 			spec.DebugName = "VisibleObjectIndexes";
 			m_SBSVisibleObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
 
-			spec.DebugName = "InstanceBounds";
-			m_SBSInstanceBounds = StorageBufferSet::Create(spec, sizeof(InstanceBoundsData) * 4096);
+			spec.DebugName = "GPUSceneInstances";
+			m_SBSGPUSceneInstances = StorageBufferSet::Create(spec, sizeof(GPUSceneInstanceData) * 4096);
 
 			spec.DebugName = "MeshCullDrawData";
 			m_SBSMeshCullDrawData = StorageBufferSet::Create(spec, sizeof(MeshCullDrawData) * 4096);
@@ -795,7 +829,7 @@ namespace Lux {
 
 				m_ShadowMapPasses[cascade] = RenderPass::Create(rpSpec);
 				m_ShadowMapPasses[cascade]->SetInput("ShadowData", m_UBSShadow);
-				m_ShadowMapPasses[cascade]->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
+				m_ShadowMapPasses[cascade]->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 				m_ShadowMapPasses[cascade]->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 				LUX_CORE_VERIFY(m_ShadowMapPasses[cascade]->Validate());
 				m_ShadowMapPasses[cascade]->Bake();
@@ -843,7 +877,7 @@ namespace Lux {
 
 			m_SpotShadowMapPass = RenderPass::Create(rpSpec);
 			m_SpotShadowMapPass->SetInput("SpotShadowData", m_UBSSpotShadow);
-			m_SpotShadowMapPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
+			m_SpotShadowMapPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_SpotShadowMapPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_SpotShadowMapPass->Validate());
 			m_SpotShadowMapPass->Bake();
@@ -877,7 +911,7 @@ namespace Lux {
 
 			m_PreDepthPass = RenderPass::Create(rpSpec);
 			m_PreDepthPass->SetInput("Camera", m_UBSCamera);
-			m_PreDepthPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
+			m_PreDepthPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_PreDepthPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_PreDepthPass->Validate());
 			m_PreDepthPass->Bake();
@@ -957,7 +991,7 @@ namespace Lux {
 			m_MeshCullingPass = ComputePass::Create(computeSpec);
 			m_MeshCullingPass->SetInput("MeshCullDrawData", m_SBSMeshCullDrawData);
 			m_MeshCullingPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
-			m_MeshCullingPass->SetInput("InstanceBounds", m_SBSInstanceBounds);
+			m_MeshCullingPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_MeshCullingPass->SetInput("VisibleObjectIndexes", m_SBSVisibleObjectIndexes);
 			m_MeshCullingPass->SetInput("IndirectDrawCommands", m_SBSIndirectDrawCommands);
 			m_MeshCullingPass->SetInput("u_HZB", m_HierarchicalDepthTexture.Texture);
@@ -1053,7 +1087,7 @@ namespace Lux {
 			m_GeometryPass->SetInput("SpotShadowData", m_UBSSpotShadow);
 			m_GeometryPass->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
 			m_GeometryPass->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
-			m_GeometryPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
+			m_GeometryPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_GeometryPass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			// Environment textures – overridden each frame in BeginScene once env is set
 			m_GeometryPass->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
@@ -1080,7 +1114,7 @@ namespace Lux {
 			m_GeometryPassTransparent->SetInput("SpotShadowData", m_UBSSpotShadow);
 			m_GeometryPassTransparent->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
 			m_GeometryPassTransparent->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
-			m_GeometryPassTransparent->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
+			m_GeometryPassTransparent->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_GeometryPassTransparent->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			// Environment textures – overridden each frame in BeginScene once env is set
 			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
@@ -1349,7 +1383,7 @@ namespace Lux {
 			rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
 			m_SelectedGeometryPass = RenderPass::Create(rpSpec);
 			m_SelectedGeometryPass->SetInput("Camera", m_UBSCamera);
-			m_SelectedGeometryPass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
+			m_SelectedGeometryPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_SelectedGeometryPass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
 			LUX_CORE_VERIFY(m_SelectedGeometryPass->Validate());
 			m_SelectedGeometryPass->Bake();
@@ -1435,7 +1469,7 @@ namespace Lux {
 			rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
 			m_GeometryWireframePass = RenderPass::Create(rpSpec);
 			m_GeometryWireframePass->SetInput("Camera", m_UBSCamera);
-			m_GeometryWireframePass->SetInput("InstanceTransforms", m_SBSInstanceTransforms);
+			m_GeometryWireframePass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_GeometryWireframePass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_GeometryWireframePass->Validate());
 			m_GeometryWireframePass->Bake();
@@ -2371,10 +2405,9 @@ namespace Lux {
 		addUniformBufferSet(m_UBSScreenData);
 		addUniformBufferSet(m_UBSPointLights);
 		addUniformBufferSet(m_UBSSpotLights);
-		addStorageBufferSet(m_SBSInstanceTransforms);
 		addStorageBufferSet(m_SBSObjectIndexes);
 		addStorageBufferSet(m_SBSVisibleObjectIndexes);
-		addStorageBufferSet(m_SBSInstanceBounds);
+		addStorageBufferSet(m_SBSGPUSceneInstances);
 		addStorageBufferSet(m_SBSMeshCullDrawData);
 		addStorageBufferSet(m_SBSIndirectDrawCommands);
 		addStorageBufferSet(m_SBSVisiblePointLightIndices);
@@ -2722,7 +2755,7 @@ namespace Lux {
 
 		std::vector<RenderGraph::ResourceHandle> jumpFloodAOutputs;
 		std::vector<RenderGraph::ResourceHandle> jumpFloodBOutputs;
-		const bool jumpFloodActive = m_Options.EnableJumpFlood && (executable ? !m_SelectedStaticMeshDrawList.empty() : true);
+		const bool jumpFloodActive = m_Options.EnableJumpFlood && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true);
 		if (jumpFloodActive)
 		{
 			std::vector<RenderGraph::ResourceHandle> jumpFloodInitOutputs = addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass);
@@ -3170,8 +3203,10 @@ namespace Lux {
 		m_Active = true;
 		ResetProfilingData();
 		m_FrameCullingStats = {};
+		m_MeshDrawCommandCacheFrame++;
 		m_ShadowCascadeFrustumCount = 0;
 		m_SpotShadowFrustumCount = 0;
+		m_SubmittedRenderScene = nullptr;
 
 		if (Ref<Project> project = Project::GetActive())
 			m_RenderingTechnique = project->GetConfig().RendererTechnique;
@@ -3678,6 +3713,28 @@ namespace Lux {
 	// Mesh submission
 	// ─────────────────────────────────────────────────────────────────────────
 
+	void SceneRenderer::SubmitRenderScene(const Ref<RenderScene>& renderScene)
+	{
+		LUX_CORE_ASSERT(m_Active, "SubmitRenderScene called outside BeginScene/EndScene");
+
+		m_SubmittedRenderScene = renderScene;
+		if (!renderScene)
+			return;
+
+		for (const StaticMeshRenderProxy* proxy : renderScene->GetStaticMeshProxies())
+		{
+			if (!proxy || !proxy->Visible || !proxy->StaticMesh || !proxy->MeshSource)
+				continue;
+
+			SubmitStaticMeshProxy(*proxy);
+		}
+	}
+
+	void SceneRenderer::SubmitStaticMeshProxy(const StaticMeshRenderProxy& proxy)
+	{
+		SubmitStaticMeshInternal(proxy.StaticMesh, proxy.MeshSource, proxy.MaterialTable, proxy.WorldTransform, nullptr, proxy.Selected, &proxy);
+	}
+
 	void SceneRenderer::SubmitStaticMesh(
 		Ref<StaticMesh>    staticMesh,
 		Ref<MeshSource>    meshSource,
@@ -3750,14 +3807,132 @@ namespace Lux {
 			});
 	}
 
+	SceneRenderer::MeshPassState& SceneRenderer::GetMeshPass(MeshPassType passType)
+	{
+		const size_t passIndex = static_cast<size_t>(passType);
+		LUX_CORE_ASSERT(passIndex < m_MeshPasses.size(), "Invalid mesh pass type");
+		return m_MeshPasses[passIndex];
+	}
+
+	const SceneRenderer::MeshPassState& SceneRenderer::GetMeshPass(MeshPassType passType) const
+	{
+		const size_t passIndex = static_cast<size_t>(passType);
+		LUX_CORE_ASSERT(passIndex < m_MeshPasses.size(), "Invalid mesh pass type");
+		return m_MeshPasses[passIndex];
+	}
+
+	SceneRenderer::StaticDrawCommand& SceneRenderer::SubmitMeshPassDraw(MeshPassType passType,
+		const MeshKey& key,
+		Ref<StaticMesh> staticMesh,
+		Ref<MeshSource> meshSource,
+		Ref<MaterialTable> materialTable,
+		uint32_t submeshIndex,
+		AssetHandle materialHandle,
+		Ref<Material> overrideMaterial,
+		uint64_t pipelineSortKey,
+		uint64_t shaderSortKey,
+		uint64_t materialSortKey,
+		uint64_t meshSortKey)
+	{
+		MeshDrawCommandCacheKey cacheKey;
+		cacheKey.PassType = passType;
+		cacheKey.Key = key;
+		cacheKey.StaticMeshPtr = SortKeyFromRef(staticMesh.Raw());
+		cacheKey.MeshSourcePtr = SortKeyFromRef(meshSource.Raw());
+		cacheKey.MaterialTablePtr = SortKeyFromRef(materialTable.Raw());
+		cacheKey.OverrideMaterialPtr = SortKeyFromRef(overrideMaterial.Raw());
+		cacheKey.PipelineSortKey = pipelineSortKey;
+		cacheKey.ShaderSortKey = shaderSortKey;
+		cacheKey.MaterialSortKey = materialSortKey;
+		cacheKey.MeshSortKey = meshSortKey;
+
+		auto cacheIt = m_MeshDrawCommandCache.find(cacheKey);
+		if (cacheIt == m_MeshDrawCommandCache.end())
+		{
+			CachedStaticDrawCommand cachedCommand;
+			cachedCommand.Command.StaticMesh = staticMesh;
+			cachedCommand.Command.MeshSource = meshSource;
+			cachedCommand.Command.SubmeshIndex = submeshIndex;
+			cachedCommand.Command.MaterialHandle = materialHandle;
+			cachedCommand.Command.MaterialTable = materialTable;
+			cachedCommand.Command.OverrideMaterial = overrideMaterial;
+			cachedCommand.Command.PipelineSortKey = pipelineSortKey;
+			cachedCommand.Command.ShaderSortKey = shaderSortKey;
+			cachedCommand.Command.MaterialSortKey = materialSortKey;
+			cachedCommand.Command.MeshSortKey = meshSortKey;
+			cachedCommand.LastUsedFrame = m_MeshDrawCommandCacheFrame;
+			cacheIt = m_MeshDrawCommandCache.emplace(cacheKey, std::move(cachedCommand)).first;
+		}
+		else
+		{
+			cacheIt->second.LastUsedFrame = m_MeshDrawCommandCacheFrame;
+		}
+
+		MeshPassState& pass = GetMeshPass(passType);
+		auto [drawIt, inserted] = pass.DrawList.try_emplace(key);
+		if (inserted)
+		{
+			drawIt->second = cacheIt->second.Command;
+			drawIt->second.InstanceCount = 0;
+		}
+
+		drawIt->second.InstanceCount++;
+		return drawIt->second;
+	}
+
+	void SceneRenderer::ClearFrameMeshPasses()
+	{
+		m_TransientGPUSceneInstances.clear();
+		m_MeshTransformMap.clear();
+		m_ShadowMeshTransformMap.clear();
+
+		for (MeshPassState& pass : m_MeshPasses)
+		{
+			pass.DrawList.clear();
+			pass.DrawOrder.clear();
+		}
+
+		m_MeshCullDrawCount = 0;
+		PruneMeshDrawCommandCache();
+	}
+
+	void SceneRenderer::PruneMeshDrawCommandCache()
+	{
+		for (auto it = m_MeshDrawCommandCache.begin(); it != m_MeshDrawCommandCache.end();)
+		{
+			if (m_MeshDrawCommandCacheFrame - it->second.LastUsedFrame > MeshDrawCommandCacheRetireAge)
+				it = m_MeshDrawCommandCache.erase(it);
+			else
+				++it;
+		}
+	}
+
 	uint64_t SceneRenderer::CalculateShadowCasterHash() const
 	{
 		uint64_t hash = 1469598103934665603ull;
-		for (const MeshKey& key : m_StaticMeshShadowPassDrawOrder)
+		auto resolveInstanceData = [this](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
+			{
+				if (IsTransientGPUSceneInstanceIndex(sceneInstanceIndex))
+				{
+					const uint32_t transientIndex = DecodeTransientGPUSceneInstanceIndex(sceneInstanceIndex);
+					return transientIndex < m_TransientGPUSceneInstances.size()
+						? &m_TransientGPUSceneInstances[transientIndex]
+						: nullptr;
+				}
+
+				if (!m_SubmittedRenderScene)
+					return nullptr;
+
+				const auto& instances = m_SubmittedRenderScene->GetGPUScene().GetInstances();
+				return sceneInstanceIndex < instances.size() ? &instances[sceneInstanceIndex] : nullptr;
+			};
+
+		const MeshPassState& shadowPass = GetMeshPass(MeshPassType::ShadowDepth);
+		for (const MeshKey& key : shadowPass.DrawOrder)
 		{
-			const auto drawIt = m_StaticMeshShadowPassDrawList.find(key);
+			const auto drawIt = shadowPass.DrawList.find(key);
 			const auto transformIt = m_ShadowMeshTransformMap.find(key);
-			if (drawIt == m_StaticMeshShadowPassDrawList.end() || transformIt == m_ShadowMeshTransformMap.end())
+			if (drawIt == shadowPass.DrawList.end() || transformIt == m_ShadowMeshTransformMap.end())
 				continue;
 
 			const StaticDrawCommand& dc = drawIt->second;
@@ -3769,15 +3944,15 @@ namespace Lux {
 			hash = HashCombine(hash, dc.MaterialSortKey);
 			hash = HashCombine(hash, tmd.ObjectIndices.size());
 
-			for (uint32_t transformIndex : tmd.ObjectIndices)
+			for (uint32_t sceneInstanceIndex : tmd.ObjectIndices)
 			{
-				if (transformIndex >= m_TransformData.size())
+				const GPUSceneInstanceData* instanceData = resolveInstanceData(sceneInstanceIndex);
+				if (!instanceData)
 					continue;
 
-				const TransformVertexData& transformData = m_TransformData[transformIndex];
-				hash = HashVec4(hash, transformData.MRow[0]);
-				hash = HashVec4(hash, transformData.MRow[1]);
-				hash = HashVec4(hash, transformData.MRow[2]);
+				hash = HashVec4(hash, instanceData->TransformRows[0]);
+				hash = HashVec4(hash, instanceData->TransformRows[1]);
+				hash = HashVec4(hash, instanceData->TransformRows[2]);
 			}
 		}
 
@@ -3790,17 +3965,21 @@ namespace Lux {
 		Ref<MaterialTable> materialTable,
 		const glm::mat4& transform,
 		Ref<Material>      overrideMaterial,
-		bool               isSelected)
+		bool               isSelected,
+		const StaticMeshRenderProxy* renderProxy)
 	{
 		LUX_CORE_ASSERT(m_Active, "SubmitStaticMesh called outside BeginScene/EndScene");
 
 		const auto& submeshData = meshSource->GetSubmeshes();
 
-		for (uint32_t submeshIndex : staticMesh->GetSubmeshes())
+		auto submitSubmesh = [&](uint32_t submeshIndex, const GPUSceneInstanceRef* gpuSceneInstanceRef)
 		{
-			const auto& submesh = submeshData[submeshIndex];
+			if (submeshIndex >= submeshData.size())
+				return;
 
-			// Combine the entity transform with the submesh local transform
+			const auto& submesh = submeshData[submeshIndex];
+			const GPUSceneInstanceData* gpuSceneInstance = gpuSceneInstanceRef ? &gpuSceneInstanceRef->Data : nullptr;
+
 			const glm::mat4 submeshTransform = transform * submesh.Transform;
 
 			// Resolve material handle
@@ -3835,26 +4014,14 @@ namespace Lux {
 			Ref<Shader> sortShader = sortMaterial ? sortMaterial->GetShader() : nullptr;
 			const uint64_t shaderSortKey = sortShader ? SortKeyFromRef(sortShader.Raw()) : 0;
 
-			auto populateDrawCommand = [&](StaticDrawCommand& dc, uint64_t pipelineSortKey, uint64_t shaderSortKeyOverride, uint64_t materialSortKeyOverride)
-				{
-					dc.StaticMesh = staticMesh;
-					dc.MeshSource = meshSource;
-					dc.SubmeshIndex = submeshIndex;
-					dc.MaterialHandle = materialHandle;
-					dc.MaterialTable = materialTable;
-					dc.OverrideMaterial = resolvedOverrideMaterial;
-					dc.PipelineSortKey = pipelineSortKey;
-					dc.ShaderSortKey = shaderSortKeyOverride;
-					dc.MaterialSortKey = materialSortKeyOverride;
-					dc.MeshSortKey = meshSortKey;
-				};
-
 			// ── Shadow pass list ──────────────────────────────────────────────
 			const bool castsShadows = resolvedOverrideMaterial
 				? true // override materials always cast shadows
 				: (materialAsset && materialAsset->IsShadowCasting());
 
-			const glm::vec4 boundsSphereData = CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform);
+			const glm::vec4 boundsSphereData = gpuSceneInstance
+				? gpuSceneInstance->BoundsSphere
+				: CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform);
 			const BoundingSphere boundsSphere{ glm::vec3(boundsSphereData), boundsSphereData.w };
 			const bool mainViewVisible = IsMainViewVisible(boundsSphere);
 			const bool shadowVisible = castsShadows && IsShadowCasterVisible(boundsSphere);
@@ -3867,58 +4034,128 @@ namespace Lux {
 			if (!mainViewVisible && !shadowVisible)
 			{
 				m_FrameCullingStats.FullyCulledInstances++;
-				continue;
+				return;
 			}
 
-			// ── Store transform ───────────────────────────────────────────────
-			const uint32_t transformIndex = (uint32_t)m_TransformData.size();
-			auto& td = m_TransformData.emplace_back();
-			td.MRow[0] = { submeshTransform[0][0], submeshTransform[1][0], submeshTransform[2][0], submeshTransform[3][0] };
-			td.MRow[1] = { submeshTransform[0][1], submeshTransform[1][1], submeshTransform[2][1], submeshTransform[3][1] };
-			td.MRow[2] = { submeshTransform[0][2], submeshTransform[1][2], submeshTransform[2][2], submeshTransform[3][2] };
-			m_InstanceBoundsData.push_back({ boundsSphereData });
+			uint32_t sceneInstanceIndex = InvalidGPUSceneInstanceID;
+			if (gpuSceneInstanceRef && gpuSceneInstanceRef->InstanceID != InvalidGPUSceneInstanceID)
+			{
+				sceneInstanceIndex = gpuSceneInstanceRef->InstanceID;
+			}
+			else
+			{
+				const uint32_t transientIndex = (uint32_t)m_TransientGPUSceneInstances.size();
+				GPUSceneInstanceData transientInstance = BuildTransientGPUSceneInstanceData(submeshTransform, boundsSphereData, submeshIndex, submesh.MaterialIndex);
+				transientInstance.ObjectData.z = transientIndex;
+				m_TransientGPUSceneInstances.push_back(transientInstance);
+				sceneInstanceIndex = EncodeTransientGPUSceneInstanceIndex(transientIndex);
+			}
 
 			if (mainViewVisible)
 			{
 				// ── Main draw list ────────────────────────────────────────────────
-				m_MeshTransformMap[key].ObjectIndices.push_back(transformIndex);
+				m_MeshTransformMap[key].ObjectIndices.push_back(sceneInstanceIndex);
 
 				const bool isTransparent = materialAsset ? materialAsset->IsTransparent() : false;
-				auto& destList = isTransparent ? m_TransparentStaticMeshDrawList : m_StaticMeshDrawList;
-				auto& dc = destList[key];
 				Ref<Pipeline> geometryPipeline = isTransparent ? m_TransparentGeometryPipeline : m_GeometryPipeline;
-				populateDrawCommand(dc, SortKeyFromRef(geometryPipeline.Raw()), shaderSortKey, materialSortKey);
-				dc.InstanceCount++;
+				SubmitMeshPassDraw(isTransparent ? MeshPassType::Transparent : MeshPassType::Opaque,
+					key,
+					staticMesh,
+					meshSource,
+					materialTable,
+					submeshIndex,
+					materialHandle,
+					resolvedOverrideMaterial,
+					SortKeyFromRef(geometryPipeline.Raw()),
+					shaderSortKey,
+					materialSortKey,
+					meshSortKey);
+
+				if (!isTransparent)
+				{
+					const uint64_t preDepthShaderSortKey = m_PreDepthMaterial && m_PreDepthMaterial->GetShader()
+						? SortKeyFromRef(m_PreDepthMaterial->GetShader().Raw()) : 0;
+					SubmitMeshPassDraw(MeshPassType::DepthPrepass,
+						key,
+						staticMesh,
+						meshSource,
+						materialTable,
+						submeshIndex,
+						materialHandle,
+						m_PreDepthMaterial,
+						SortKeyFromRef(m_PreDepthPipeline.Raw()),
+						preDepthShaderSortKey,
+						SortKeyFromRef(m_PreDepthMaterial.Raw()),
+						meshSortKey);
+				}
 
 				// ── Selected list ─────────────────────────────────────────────────
 				if (isSelected)
 				{
-					auto& selDc = m_SelectedStaticMeshDrawList[key];
 					const uint64_t selectedShaderSortKey = m_SelectedGeometryMaterial && m_SelectedGeometryMaterial->GetShader()
 						? SortKeyFromRef(m_SelectedGeometryMaterial->GetShader().Raw()) : 0;
-					populateDrawCommand(selDc,
+					SubmitMeshPassDraw(MeshPassType::SelectedMask,
+						key,
+						staticMesh,
+						meshSource,
+						materialTable,
+						submeshIndex,
+						materialHandle,
+						m_SelectedGeometryMaterial,
 						m_SelectedGeometryPass ? SortKeyFromRef(m_SelectedGeometryPass->GetPipeline().Raw()) : 0,
 						selectedShaderSortKey,
-						SortKeyFromRef(m_SelectedGeometryMaterial.Raw()));
-					selDc.InstanceCount++;
+						SortKeyFromRef(m_SelectedGeometryMaterial.Raw()),
+						meshSortKey);
+
+					const uint64_t wireframeShaderSortKey = m_WireframeMaterial && m_WireframeMaterial->GetShader()
+						? SortKeyFromRef(m_WireframeMaterial->GetShader().Raw()) : 0;
+					SubmitMeshPassDraw(MeshPassType::Wireframe,
+						key,
+						staticMesh,
+						meshSource,
+						materialTable,
+						submeshIndex,
+						materialHandle,
+						m_WireframeMaterial,
+						m_GeometryWireframePass ? SortKeyFromRef(m_GeometryWireframePass->GetPipeline().Raw()) : 0,
+						wireframeShaderSortKey,
+						SortKeyFromRef(m_WireframeMaterial.Raw()),
+						meshSortKey);
 				}
 			}
 
 			if (shadowVisible)
 			{
 				// ── Shadow pass list ──────────────────────────────────────────────
-				m_ShadowMeshTransformMap[key].Cascade.ObjectIndices.push_back(transformIndex);
+				m_ShadowMeshTransformMap[key].Cascade.ObjectIndices.push_back(sceneInstanceIndex);
 
-				auto& shadowDc = m_StaticMeshShadowPassDrawList[key];
 				const uint64_t shadowShaderSortKey = m_ShadowPassMaterial && m_ShadowPassMaterial->GetShader()
 					? SortKeyFromRef(m_ShadowPassMaterial->GetShader().Raw()) : 0;
-				populateDrawCommand(shadowDc,
+				SubmitMeshPassDraw(MeshPassType::ShadowDepth,
+					key,
+					staticMesh,
+					meshSource,
+					materialTable,
+					submeshIndex,
+					materialHandle,
+					m_ShadowPassMaterial,
 					m_ShadowMapPass ? SortKeyFromRef(m_ShadowMapPass->GetPipeline().Raw()) : 0,
 					shadowShaderSortKey,
-					SortKeyFromRef(m_ShadowPassMaterial.Raw()));
-				shadowDc.InstanceCount++;
+					SortKeyFromRef(m_ShadowPassMaterial.Raw()),
+					meshSortKey);
 			}
+		};
+
+		if (renderProxy && !renderProxy->SubmeshInstances.empty())
+		{
+			for (const GPUSceneInstanceRef& instanceRef : renderProxy->SubmeshInstances)
+				submitSubmesh(GetGPUSceneSubmeshIndex(instanceRef.Data), &instanceRef);
+
+			return;
 		}
+
+		for (uint32_t submeshIndex : staticMesh->GetSubmeshes())
+			submitSubmesh(submeshIndex, nullptr);
 	}
 
 	void SceneRenderer::SubmitPhysicsStaticDebugMesh(Ref<StaticMesh> staticMesh,
@@ -3926,11 +4163,11 @@ namespace Lux {
 		const glm::mat4& transform,
 		bool isSimpleCollider)
 	{
-		SubmitStaticDebugMesh(m_StaticColliderDrawList, staticMesh, meshSource, transform,
+		SubmitStaticDebugMesh(MeshPassType::PhysicsCollider, staticMesh, meshSource, transform,
 			isSimpleCollider ? m_SimpleColliderMaterial : m_ComplexColliderMaterial);
 	}
 
-	void SceneRenderer::SubmitStaticDebugMesh(DrawCommandList& drawList,
+	void SceneRenderer::SubmitStaticDebugMesh(MeshPassType passType,
 		Ref<StaticMesh>  staticMesh,
 		Ref<MeshSource>  meshSource,
 		const glm::mat4& transform,
@@ -3947,26 +4184,28 @@ namespace Lux {
 			const AssetHandle fakeHandle = (AssetHandle)(uint64_t)material.Raw();
 			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), fakeHandle, submeshIndex, false };
 
-			const uint32_t transformIndex = (uint32_t)m_TransformData.size();
-			m_MeshTransformMap[key].ObjectIndices.push_back(transformIndex);
+			const uint32_t transientIndex = (uint32_t)m_TransientGPUSceneInstances.size();
+			GPUSceneInstanceData transientInstance = BuildTransientGPUSceneInstanceData(
+				submeshTransform,
+				CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform),
+				submeshIndex,
+				submesh.MaterialIndex);
+			transientInstance.ObjectData.z = transientIndex;
+			m_TransientGPUSceneInstances.push_back(transientInstance);
+			m_MeshTransformMap[key].ObjectIndices.push_back(EncodeTransientGPUSceneInstanceIndex(transientIndex));
 
-			auto& td = m_TransformData.emplace_back();
-			td.MRow[0] = { submeshTransform[0][0], submeshTransform[1][0], submeshTransform[2][0], submeshTransform[3][0] };
-			td.MRow[1] = { submeshTransform[0][1], submeshTransform[1][1], submeshTransform[2][1], submeshTransform[3][1] };
-			td.MRow[2] = { submeshTransform[0][2], submeshTransform[1][2], submeshTransform[2][2], submeshTransform[3][2] };
-			m_InstanceBoundsData.push_back({ CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform) });
-
-			auto& dc = drawList[key];
-			dc.StaticMesh = staticMesh;
-			dc.MeshSource = meshSource;
-			dc.SubmeshIndex = submeshIndex;
-			dc.MaterialHandle = fakeHandle;
-			dc.OverrideMaterial = material;
-			dc.PipelineSortKey = SortKeyFromRef(m_GeometryPipeline.Raw());
-			dc.ShaderSortKey = material && material->GetShader() ? SortKeyFromRef(material->GetShader().Raw()) : 0;
-			dc.MaterialSortKey = SortKeyFromRef(material.Raw());
-			dc.MeshSortKey = (uint64_t)GetStaticMeshKeyHandle(staticMesh);
-			dc.InstanceCount++;
+			SubmitMeshPassDraw(passType,
+				key,
+				staticMesh,
+				meshSource,
+				nullptr,
+				submeshIndex,
+				fakeHandle,
+				material,
+				m_GeometryWireframePass ? SortKeyFromRef(m_GeometryWireframePass->GetPipeline().Raw()) : SortKeyFromRef(m_GeometryPipeline.Raw()),
+				material && material->GetShader() ? SortKeyFromRef(material->GetShader().Raw()) : 0,
+				SortKeyFromRef(material.Raw()),
+				(uint64_t)GetStaticMeshKeyHandle(staticMesh));
 		}
 	}
 
@@ -3991,21 +4230,7 @@ namespace Lux {
 		// Clear lists and bail if GPU resources not ready
 		auto clearAll = [this]()
 			{
-				m_TransformData.clear();
-				m_InstanceBoundsData.clear();
-				m_MeshTransformMap.clear();
-				m_ShadowMeshTransformMap.clear();
-				m_StaticMeshDrawList.clear();
-				m_TransparentStaticMeshDrawList.clear();
-				m_SelectedStaticMeshDrawList.clear();
-				m_StaticMeshShadowPassDrawList.clear();
-				m_StaticColliderDrawList.clear();
-				m_StaticMeshDrawOrder.clear();
-				m_TransparentStaticMeshDrawOrder.clear();
-				m_SelectedStaticMeshDrawOrder.clear();
-				m_StaticMeshShadowPassDrawOrder.clear();
-				m_StaticColliderDrawOrder.clear();
-				m_MeshCullDrawCount = 0;
+				ClearFrameMeshPasses();
 			};
 
 		if (!m_ResourcesCreated)
@@ -4015,9 +4240,8 @@ namespace Lux {
 		}
 
 		// ── 1. Build the flat ObjectIndex array and assign base offsets ────────
-		// Each MeshKey in m_MeshTransformMap gets a contiguous block of object indices.
-		// The shader uses  objectIndex = ObjectIndexBase + gl_InstanceIndex
-		// to look up its row in the InstanceTransforms SSBO.
+		// Each MeshKey in m_MeshTransformMap gets a contiguous block of GPUScene instance indices.
+		// The shader uses objectIndex = ObjectIndexBase + gl_InstanceIndex to fetch GPUSceneInstanceData.
 		uint32_t cursor = 0;
 		uint32_t visibleCursor = 0;
 		std::vector<uint32_t> objectIndexData;
@@ -4025,21 +4249,46 @@ namespace Lux {
 		std::vector<MeshCullDrawData> meshCullDrawData;
 		std::vector<nvrhi::DrawIndexedIndirectArguments> indirectDrawData;
 
-		BuildSortedDrawCommandOrder(m_SelectedStaticMeshDrawList, m_SelectedStaticMeshDrawOrder);
-		BuildSortedDrawCommandOrder(m_StaticMeshDrawList, m_StaticMeshDrawOrder);
-		BuildSortedDrawCommandOrder(m_TransparentStaticMeshDrawList, m_TransparentStaticMeshDrawOrder);
-		BuildSortedDrawCommandOrder(m_StaticColliderDrawList, m_StaticColliderDrawOrder);
-		BuildSortedDrawCommandOrder(m_StaticMeshShadowPassDrawList, m_StaticMeshShadowPassDrawOrder);
+		for (MeshPassState& pass : m_MeshPasses)
+			BuildSortedDrawCommandOrder(pass.DrawList, pass.DrawOrder);
 
-		auto isInstanceVisible = [this](uint32_t transformIndex)
+		const GPUScene* submittedGPUScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetGPUScene() : nullptr;
+		const std::vector<GPUSceneInstanceData>* persistentGPUSceneInstances = submittedGPUScene ? &submittedGPUScene->GetInstances() : nullptr;
+		const uint32_t persistentGPUSceneInstanceCount = persistentGPUSceneInstances ? (uint32_t)persistentGPUSceneInstances->size() : 0;
+
+		auto resolveInstanceData = [this, persistentGPUSceneInstances](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
+			{
+				if (IsTransientGPUSceneInstanceIndex(sceneInstanceIndex))
+				{
+					const uint32_t transientIndex = DecodeTransientGPUSceneInstanceIndex(sceneInstanceIndex);
+					return transientIndex < m_TransientGPUSceneInstances.size()
+						? &m_TransientGPUSceneInstances[transientIndex]
+						: nullptr;
+				}
+
+				return persistentGPUSceneInstances && sceneInstanceIndex < persistentGPUSceneInstances->size()
+					? &(*persistentGPUSceneInstances)[sceneInstanceIndex]
+					: nullptr;
+			};
+
+		auto resolveGPUSceneBufferIndex = [persistentGPUSceneInstanceCount](uint32_t sceneInstanceIndex)
+			{
+				if (IsTransientGPUSceneInstanceIndex(sceneInstanceIndex))
+					return persistentGPUSceneInstanceCount + DecodeTransientGPUSceneInstanceIndex(sceneInstanceIndex);
+
+				return sceneInstanceIndex;
+			};
+
+		auto isInstanceVisible = [this, &resolveInstanceData](uint32_t sceneInstanceIndex)
 			{
 				if (!m_Options.EnableFrustumCulling)
 					return true;
 
-				if (transformIndex >= m_InstanceBoundsData.size())
+				const GPUSceneInstanceData* instanceData = resolveInstanceData(sceneInstanceIndex);
+				if (!instanceData)
 					return true;
 
-				const glm::vec4& sphereData = m_InstanceBoundsData[transformIndex].Sphere;
+				const glm::vec4& sphereData = instanceData->BoundsSphere;
 				return m_SceneData.CameraFrustum.IsSphereVisible({ glm::vec3(sphereData), sphereData.w });
 			};
 
@@ -4052,8 +4301,8 @@ namespace Lux {
 
 			for (uint32_t idx : tmd.ObjectIndices)
 			{
-				const uint32_t objectIndex = idx * 3u;
-				objectIndexData.push_back(idx * 3u);
+				const uint32_t objectIndex = resolveGPUSceneBufferIndex(idx);
+				objectIndexData.push_back(objectIndex);
 
 				if (isInstanceVisible(idx))
 				{
@@ -4071,7 +4320,7 @@ namespace Lux {
 		{
 			shadowTmd.Cascade.ObjectIndexBase = cursor;
 			for (uint32_t idx : shadowTmd.Cascade.ObjectIndices)
-				objectIndexData.push_back(idx * 3u);
+				objectIndexData.push_back(resolveGPUSceneBufferIndex(idx));
 			cursor += (uint32_t)shadowTmd.Cascade.ObjectIndices.size();
 		}
 
@@ -4103,10 +4352,10 @@ namespace Lux {
 				}
 			};
 
-		registerIndirectDraws(m_SelectedStaticMeshDrawList, m_SelectedStaticMeshDrawOrder);
-		registerIndirectDraws(m_StaticMeshDrawList, m_StaticMeshDrawOrder);
-		registerIndirectDraws(m_TransparentStaticMeshDrawList, m_TransparentStaticMeshDrawOrder);
-		registerIndirectDraws(m_StaticColliderDrawList, m_StaticColliderDrawOrder);
+		registerIndirectDraws(GetMeshPass(MeshPassType::SelectedMask).DrawList, GetMeshPass(MeshPassType::SelectedMask).DrawOrder);
+		registerIndirectDraws(GetMeshPass(MeshPassType::Opaque).DrawList, GetMeshPass(MeshPassType::Opaque).DrawOrder);
+		registerIndirectDraws(GetMeshPass(MeshPassType::Transparent).DrawList, GetMeshPass(MeshPassType::Transparent).DrawOrder);
+		registerIndirectDraws(GetMeshPass(MeshPassType::PhysicsCollider).DrawList, GetMeshPass(MeshPassType::PhysicsCollider).DrawOrder);
 		m_MeshCullDrawCount = (uint32_t)meshCullDrawData.size();
 
 		const uint64_t shadowCasterHash = CalculateShadowCasterHash();
@@ -4118,36 +4367,36 @@ namespace Lux {
 			m_SpotShadowMapNeedsRender = true;
 		m_LastShadowCasterHash = shadowCasterHash;
 
-		// ── 2. Upload InstanceTransforms, ObjectIndexes, culling data, and indirect args
+		// ── 2. Upload GPUScene tails, ObjectIndexes, culling data, and indirect args
 		m_UploadCommandBuffer->Begin();
 
-		if (!m_TransformData.empty())
+		std::vector<GPUSceneInstanceData> gpuSceneInstanceData;
+		if (submittedGPUScene)
+			gpuSceneInstanceData = submittedGPUScene->GetInstances();
+
+		std::vector<GPUSceneInstanceData> transientGPUSceneData = m_TransientGPUSceneInstances;
+		for (uint32_t transientIndex = 0; transientIndex < transientGPUSceneData.size(); transientIndex++)
+			transientGPUSceneData[transientIndex].ObjectData.z = persistentGPUSceneInstanceCount + transientIndex;
+
+		if (!objectIndexData.empty()
+			|| !visibleObjectIndexData.empty()
+			|| !meshCullDrawData.empty()
+			|| !indirectDrawData.empty()
+			|| !gpuSceneInstanceData.empty()
+			|| !transientGPUSceneData.empty())
 		{
-			const auto transformData = m_TransformData;
-			const auto boundsData = m_InstanceBoundsData;
 			const auto indexData = objectIndexData;
 			const auto visibleIndexData = visibleObjectIndexData;
 			const auto cullDrawData = meshCullDrawData;
 			const auto indirectCommands = indirectDrawData;
+			const auto gpuSceneData = gpuSceneInstanceData;
+			const auto transientSceneData = transientGPUSceneData;
+			const uint32_t persistentSceneCount = persistentGPUSceneInstanceCount;
 			Ref<SceneRenderer> instance = this;
 
-			Renderer::Submit([instance, transformData, boundsData, indexData, visibleIndexData, cullDrawData, indirectCommands]() mutable {
+			Renderer::Submit([instance, indexData, visibleIndexData, cullDrawData, indirectCommands, gpuSceneData, transientSceneData, persistentSceneCount]() mutable {
 
 				Ref<RenderCommandBuffer> cmd = instance->m_UploadCommandBuffer;
-
-				// Grow InstanceTransforms SSBO if needed
-				const uint32_t transformBytes = (uint32_t)(sizeof(TransformVertexData) * transformData.size());
-				if (instance->m_SBSInstanceTransforms->RT_Get()->GetHandle()->getDesc().byteSize < transformBytes)
-					instance->m_SBSInstanceTransforms->Resize(transformBytes * 2u);
-				instance->m_SBSInstanceTransforms->RT_Get()->RT_SetData(cmd, transformData.data(), transformBytes);
-
-				const uint32_t boundsBytes = (uint32_t)(sizeof(InstanceBoundsData) * boundsData.size());
-				if (boundsBytes > 0)
-				{
-					if (instance->m_SBSInstanceBounds->RT_Get()->GetHandle()->getDesc().byteSize < boundsBytes)
-						instance->m_SBSInstanceBounds->Resize(boundsBytes * 2u);
-					instance->m_SBSInstanceBounds->RT_Get()->RT_SetData(cmd, boundsData.data(), boundsBytes);
-				}
 
 				// Grow ObjectIndexes SSBO if needed
 				if (!indexData.empty())
@@ -4181,6 +4430,30 @@ namespace Lux {
 					if (instance->m_SBSIndirectDrawCommands->RT_Get()->GetHandle()->getDesc().byteSize < indirectBytes)
 						instance->m_SBSIndirectDrawCommands->Resize(indirectBytes * 2u);
 					instance->m_SBSIndirectDrawCommands->RT_Get()->RT_SetData(cmd, indirectCommands.data(), indirectBytes);
+				}
+
+				const uint32_t totalGPUSceneInstances = persistentSceneCount + (uint32_t)transientSceneData.size();
+				if (totalGPUSceneInstances > 0)
+				{
+					const uint32_t gpuSceneBytes = totalGPUSceneInstances * (uint32_t)sizeof(GPUSceneInstanceData);
+					if (instance->m_SBSGPUSceneInstances->RT_Get()->GetHandle()->getDesc().byteSize < gpuSceneBytes)
+						instance->m_SBSGPUSceneInstances->Resize(gpuSceneBytes * 2u);
+				}
+
+				// StorageBufferSet owns one buffer per frame-in-flight. Until GPUScene tracks
+				// dirty ranges per frame buffer, upload the persistent scene rows for the
+				// current frame to avoid alternating stale GPUScene data.
+				if (!gpuSceneData.empty())
+				{
+					const uint32_t uploadBytes = (uint32_t)(gpuSceneData.size() * sizeof(GPUSceneInstanceData));
+					instance->m_SBSGPUSceneInstances->RT_Get()->RT_SetData(cmd, gpuSceneData.data(), uploadBytes);
+				}
+
+				if (!transientSceneData.empty())
+				{
+					const uint32_t uploadBytes = (uint32_t)(transientSceneData.size() * sizeof(GPUSceneInstanceData));
+					const uint32_t uploadOffset = persistentSceneCount * (uint32_t)sizeof(GPUSceneInstanceData);
+					instance->m_SBSGPUSceneInstances->RT_Get()->RT_SetData(cmd, transientSceneData.data(), uploadBytes, uploadOffset);
 				}
 			});
 		}
@@ -4235,14 +4508,15 @@ namespace Lux {
 			return;
 
 		BeginProfiledGPU("ShadowMapPass");
+		const MeshPassState& shadowPass = GetMeshPass(MeshPassType::ShadowDepth);
 		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapPasses[cascade], /*explicitClear=*/true);
 
-			for (const MeshKey& key : m_StaticMeshShadowPassDrawOrder)
+			for (const MeshKey& key : shadowPass.DrawOrder)
 			{
-				const auto drawIt = m_StaticMeshShadowPassDrawList.find(key);
-				if (drawIt == m_StaticMeshShadowPassDrawList.end()) continue;
+				const auto drawIt = shadowPass.DrawList.find(key);
+				if (drawIt == shadowPass.DrawList.end()) continue;
 				auto it = m_ShadowMeshTransformMap.find(key);
 				if (it == m_ShadowMeshTransformMap.end()) continue;
 
@@ -4291,6 +4565,7 @@ namespace Lux {
 		const uint32_t tilesPerRow = m_SpotShadowAtlasGridSize;
 		const uint32_t tileSize = m_SpotShadowTileSize;
 		const uint32_t atlasSize = m_SpotShadowMapSize;
+		const MeshPassState& shadowPass = GetMeshPass(MeshPassType::ShadowDepth);
 
 		for (uint32_t shadowIndex = 0; shadowIndex < m_SpotShadowCount; shadowIndex++)
 		{
@@ -4298,10 +4573,10 @@ namespace Lux {
 			const uint32_t tileY = shadowIndex / tilesPerRow;
 			Renderer::SetViewport(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
 
-			for (const MeshKey& key : m_StaticMeshShadowPassDrawOrder)
+			for (const MeshKey& key : shadowPass.DrawOrder)
 			{
-				const auto drawIt = m_StaticMeshShadowPassDrawList.find(key);
-				if (drawIt == m_StaticMeshShadowPassDrawList.end()) continue;
+				const auto drawIt = shadowPass.DrawList.find(key);
+				if (drawIt == shadowPass.DrawList.end()) continue;
 				auto it = m_ShadowMeshTransformMap.find(key);
 				if (it == m_ShadowMeshTransformMap.end()) continue;
 				const auto& cascadeTmd = it->second.Cascade;
@@ -4333,10 +4608,11 @@ namespace Lux {
 		BeginProfiledGPU("PreDepthPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_PreDepthPass, /*explicitClear=*/true);
 
-		for (const MeshKey& key : m_StaticMeshDrawOrder)
+		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
+		for (const MeshKey& key : depthPass.DrawOrder)
 		{
-			const auto drawIt = m_StaticMeshDrawList.find(key);
-			if (drawIt == m_StaticMeshDrawList.end()) continue;
+			const auto drawIt = depthPass.DrawList.find(key);
+			if (drawIt == depthPass.DrawList.end()) continue;
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
@@ -4576,19 +4852,19 @@ namespace Lux {
 
 		// Selected geometry mask, matching Hazel's static selected path. Lux does
 		// not run animation or jump-flood outline passes here.
-		if (!m_SelectedStaticMeshDrawList.empty())
+		const MeshPassState& selectedPass = GetMeshPass(MeshPassType::SelectedMask);
+		if (!selectedPass.DrawList.empty())
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_SelectedGeometryPass);
 
-			for (const MeshKey& key : m_SelectedStaticMeshDrawOrder)
+			for (const MeshKey& key : selectedPass.DrawOrder)
 			{
-				const auto drawIt = m_SelectedStaticMeshDrawList.find(key);
-				if (drawIt == m_SelectedStaticMeshDrawList.end()) continue;
+				const auto drawIt = selectedPass.DrawList.find(key);
+				if (drawIt == selectedPass.DrawList.end()) continue;
 				auto it = m_MeshTransformMap.find(key);
 				if (it == m_MeshTransformMap.end()) continue;
 
 				StaticDrawCommand drawCmd = drawIt->second;
-				drawCmd.OverrideMaterial = m_SelectedGeometryMaterial;
 				const auto& tmd = it->second;
 
 				Ref<SceneRenderer> instance = this;
@@ -4605,10 +4881,11 @@ namespace Lux {
 		// ── Opaque geometry ───────────────────────────────────────────────────
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPass);
 
-		for (const MeshKey& key : m_StaticMeshDrawOrder)
+		const MeshPassState& opaquePass = GetMeshPass(MeshPassType::Opaque);
+		for (const MeshKey& key : opaquePass.DrawOrder)
 		{
-			const auto drawIt = m_StaticMeshDrawList.find(key);
-			if (drawIt == m_StaticMeshDrawList.end()) continue;
+			const auto drawIt = opaquePass.DrawList.find(key);
+			if (drawIt == opaquePass.DrawList.end()) continue;
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
@@ -4626,14 +4903,15 @@ namespace Lux {
 		Renderer::EndRenderPass(m_CommandBuffer);
 
 		// ── Transparent geometry ──────────────────────────────────────────────
-		if (!m_TransparentStaticMeshDrawList.empty())
+		const MeshPassState& transparentPass = GetMeshPass(MeshPassType::Transparent);
+		if (!transparentPass.DrawList.empty())
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPassTransparent);
 
-			for (const MeshKey& key : m_TransparentStaticMeshDrawOrder)
+			for (const MeshKey& key : transparentPass.DrawOrder)
 			{
-				const auto drawIt = m_TransparentStaticMeshDrawList.find(key);
-				if (drawIt == m_TransparentStaticMeshDrawList.end()) continue;
+				const auto drawIt = transparentPass.DrawList.find(key);
+				if (drawIt == transparentPass.DrawList.end()) continue;
 				auto it = m_MeshTransformMap.find(key);
 				if (it == m_MeshTransformMap.end()) continue;
 
@@ -4652,22 +4930,23 @@ namespace Lux {
 		}
 
 		// ── Selected wireframe overlay ────────────────────────────────────────
-		if ((m_Options.ShowSelectedInWireframe && !m_SelectedStaticMeshDrawList.empty())
-			|| (m_Options.ShowPhysicsColliders && !m_StaticColliderDrawList.empty()))
+		const MeshPassState& wireframePass = GetMeshPass(MeshPassType::Wireframe);
+		const MeshPassState& colliderPass = GetMeshPass(MeshPassType::PhysicsCollider);
+		if ((m_Options.ShowSelectedInWireframe && !wireframePass.DrawList.empty())
+			|| (m_Options.ShowPhysicsColliders && !colliderPass.DrawList.empty()))
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryWireframePass);
 
 			if (m_Options.ShowSelectedInWireframe)
 			{
-				for (const MeshKey& key : m_SelectedStaticMeshDrawOrder)
+				for (const MeshKey& key : wireframePass.DrawOrder)
 				{
-					const auto drawIt = m_SelectedStaticMeshDrawList.find(key);
-					if (drawIt == m_SelectedStaticMeshDrawList.end()) continue;
+					const auto drawIt = wireframePass.DrawList.find(key);
+					if (drawIt == wireframePass.DrawList.end()) continue;
 					auto it = m_MeshTransformMap.find(key);
 					if (it == m_MeshTransformMap.end()) continue;
 
 					StaticDrawCommand drawCmd = drawIt->second;
-					drawCmd.OverrideMaterial = m_WireframeMaterial;
 					const auto& tmd = it->second;
 
 					Ref<SceneRenderer> instance = this;
@@ -4681,10 +4960,10 @@ namespace Lux {
 
 			if (m_Options.ShowPhysicsColliders)
 			{
-				for (const MeshKey& key : m_StaticColliderDrawOrder)
+				for (const MeshKey& key : colliderPass.DrawOrder)
 				{
-					const auto drawIt = m_StaticColliderDrawList.find(key);
-					if (drawIt == m_StaticColliderDrawList.end()) continue;
+					const auto drawIt = colliderPass.DrawList.find(key);
+					if (drawIt == colliderPass.DrawList.end()) continue;
 					auto it = m_MeshTransformMap.find(key);
 					if (it == m_MeshTransformMap.end()) continue;
 
@@ -5316,12 +5595,17 @@ namespace Lux {
 				}
 			};
 
-		accumulate(m_SelectedStaticMeshDrawList, m_SelectedStaticMeshDrawOrder);
-		accumulate(m_StaticMeshDrawList, m_StaticMeshDrawOrder);
-		accumulate(m_TransparentStaticMeshDrawList, m_TransparentStaticMeshDrawOrder);
+		const MeshPassState& selectedPass = GetMeshPass(MeshPassType::SelectedMask);
+		const MeshPassState& opaquePass = GetMeshPass(MeshPassType::Opaque);
+		const MeshPassState& transparentPass = GetMeshPass(MeshPassType::Transparent);
+		const MeshPassState& colliderPass = GetMeshPass(MeshPassType::PhysicsCollider);
+
+		accumulate(selectedPass.DrawList, selectedPass.DrawOrder);
+		accumulate(opaquePass.DrawList, opaquePass.DrawOrder);
+		accumulate(transparentPass.DrawList, transparentPass.DrawOrder);
 
 		if (m_Options.ShowPhysicsColliders)
-			accumulate(m_StaticColliderDrawList, m_StaticColliderDrawOrder);
+			accumulate(colliderPass.DrawList, colliderPass.DrawOrder);
 
 		m_Statistics.SavedDraws = m_Statistics.Instances > m_Statistics.DrawCalls
 			? m_Statistics.Instances - m_Statistics.DrawCalls

@@ -161,28 +161,28 @@ layout (std140, set = 2, binding = 4) readonly buffer BoneTransforms
 	mat4 BoneTransforms[MAX_ANIMATED_MESHES * AVG_NUM_BONES];
 } r_BoneTransforms;
 
-// Per object shared data buffer. Stores matrices as 3 contiguous vec4s right now. Use GetInstanceTransform to access
-layout (std430, set = 2, binding = 5) readonly buffer InstanceTransforms
+struct GPUSceneInstance
 {
-	vec4 Rows[];
-} r_InstanceTransforms;
+	vec4 TransformRows[3];
+	vec4 PreviousTransformRows[3];
+	vec4 BoundsSphere;
+	uvec4 Metadata;   // x = primitive ID, y = submesh index, z = material slot, w = flags
+	uvec4 ObjectData; // x/y = entity UUID low/high, z = GPUScene instance ID, w = reserved
+};
 
-// Object index indirection buffer - maps gl_InstanceIndex to offset on r_InstanceTransforms
+layout (std430, set = 2, binding = 5) readonly buffer GPUSceneInstances
+{
+	GPUSceneInstance Instances[];
+} r_GPUSceneInstances;
+
+// Object index indirection buffer - maps gl_InstanceIndex to a GPUScene instance row.
 layout (std430, set = 2, binding = 6) readonly buffer ObjectIndexes
 {
 	uint Indices[];
 } r_ObjectIndexes;
 
-// Fetch instance transform from indirection buffer
-// objectIndex: index into ObjectIndexes SSBO (typically objectIndexBase + gl_InstanceIndex)
-// Returns the 4x4 transform matrix for this instance
-mat4 GetInstanceTransform(uint objectIndex)
+mat4 BuildTransformFromRows(vec4 row0, vec4 row1, vec4 row2)
 {
-	uint transformIndex = r_ObjectIndexes.Indices[objectIndex];
-	vec4 row0 = r_InstanceTransforms.Rows[transformIndex + 0];
-	vec4 row1 = r_InstanceTransforms.Rows[transformIndex + 1];
-	vec4 row2 = r_InstanceTransforms.Rows[transformIndex + 2];
-
 	return mat4(
 		vec4(row0.x, row1.x, row2.x, 0.0),
 		vec4(row0.y, row1.y, row2.y, 0.0),
@@ -191,3 +191,60 @@ mat4 GetInstanceTransform(uint objectIndex)
 	);
 }
 
+uint GetGPUSceneInstanceIndex(uint objectIndex)
+{
+	return r_ObjectIndexes.Indices[objectIndex];
+}
+
+mat4 GetInstanceTransform(uint objectIndex)
+{
+	uint instanceIndex = GetGPUSceneInstanceIndex(objectIndex);
+	return BuildTransformFromRows(
+		r_GPUSceneInstances.Instances[instanceIndex].TransformRows[0],
+		r_GPUSceneInstances.Instances[instanceIndex].TransformRows[1],
+		r_GPUSceneInstances.Instances[instanceIndex].TransformRows[2]);
+}
+
+mat4 GetPreviousInstanceTransform(uint objectIndex)
+{
+	uint instanceIndex = GetGPUSceneInstanceIndex(objectIndex);
+	return BuildTransformFromRows(
+		r_GPUSceneInstances.Instances[instanceIndex].PreviousTransformRows[0],
+		r_GPUSceneInstances.Instances[instanceIndex].PreviousTransformRows[1],
+		r_GPUSceneInstances.Instances[instanceIndex].PreviousTransformRows[2]);
+}
+
+vec4 GetInstanceBoundsSphere(uint objectIndex)
+{
+	return r_GPUSceneInstances.Instances[GetGPUSceneInstanceIndex(objectIndex)].BoundsSphere;
+}
+
+uint GetInstancePrimitiveID(uint objectIndex)
+{
+	return r_GPUSceneInstances.Instances[GetGPUSceneInstanceIndex(objectIndex)].Metadata.x;
+}
+
+uint GetInstanceSubmeshIndex(uint objectIndex)
+{
+	return r_GPUSceneInstances.Instances[GetGPUSceneInstanceIndex(objectIndex)].Metadata.y;
+}
+
+uint GetInstanceMaterialIndex(uint objectIndex)
+{
+	return r_GPUSceneInstances.Instances[GetGPUSceneInstanceIndex(objectIndex)].Metadata.z;
+}
+
+uint GetInstanceFlags(uint objectIndex)
+{
+	return r_GPUSceneInstances.Instances[GetGPUSceneInstanceIndex(objectIndex)].Metadata.w;
+}
+
+uvec2 GetInstanceEntityID(uint objectIndex)
+{
+	return r_GPUSceneInstances.Instances[GetGPUSceneInstanceIndex(objectIndex)].ObjectData.xy;
+}
+
+uint GetInstanceGPUSceneID(uint objectIndex)
+{
+	return r_GPUSceneInstances.Instances[GetGPUSceneInstanceIndex(objectIndex)].ObjectData.z;
+}

@@ -15,6 +15,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Renderer/MeshFactory.h"
@@ -1380,60 +1381,76 @@ namespace Lux {
 		return fallbackEnvironment;
 	}
 
-	void Scene::SubmitStaticMeshes(Ref<SceneRenderer> renderer,
-		const std::function<bool(Entity)>& isSelected) const
+	Ref<::Lux::RenderScene> Scene::SyncRenderScene(const std::function<bool(Entity)>& isSelected) const
 	{
-		struct StaticMeshSubmission
+		struct StaticMeshSyncItem
 		{
-			Ref<StaticMesh> StaticMeshAsset;
-			Ref<MeshSource> MeshSourceAsset;
-			Ref<MaterialTable> Materials;
+			StaticMeshRenderProxy Proxy;
 			TransformComponent LocalTransform;
-			glm::mat4 WorldTransform{ 1.0f };
 			bool ComputeLocalTransform = false;
-			bool Selected = false;
 		};
 
-		std::vector<StaticMeshSubmission> submissions;
+		if (!m_RenderScene)
+			m_RenderScene = Ref<::Lux::RenderScene>::Create();
+
+		m_RenderScene->BeginSync();
+
+		std::vector<StaticMeshSyncItem> syncItems;
 		auto view = m_Registry.view<const TransformComponent, const StaticMeshComponent>();
 		for (auto e : view)
 		{
 			Entity entity = { e, const_cast<Scene*>(this) };
+			const UUID entityID = entity.GetUUID();
 			const auto& meshComp = view.get<const StaticMeshComponent>(e);
-
-			if (!meshComp.Visible)
-				continue;
 
 			if (!meshComp.StaticMesh)
 				continue;
 
-			Ref<StaticMesh> staticMesh = StaticMesh::GetOrCreateRuntime(meshComp.StaticMesh);
-			if (!staticMesh)
-				continue;
+			Ref<StaticMesh> staticMesh;
+			Ref<MeshSource> meshSource;
+			AssetHandle meshSourceHandle = 0;
 
-			AssetHandle meshSourceHandle = staticMesh->GetMeshSource();
-			Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(meshSourceHandle);
-			if (!meshSource)
-				continue;
+			const StaticMeshRenderProxy* previousProxy = m_RenderScene->FindStaticMeshProxy(entityID);
+			if (previousProxy && previousProxy->StaticMeshHandle == meshComp.StaticMesh && previousProxy->StaticMesh && previousProxy->MeshSource)
+			{
+				staticMesh = previousProxy->StaticMesh;
+				meshSource = previousProxy->MeshSource;
+				meshSourceHandle = previousProxy->MeshSourceHandle;
+			}
+			else
+			{
+				staticMesh = StaticMesh::GetOrCreateRuntime(meshComp.StaticMesh);
+				if (!staticMesh)
+					continue;
+
+				meshSourceHandle = staticMesh->GetMeshSource();
+				meshSource = AssetManager::GetAsset<MeshSource>(meshSourceHandle);
+				if (!meshSource)
+					continue;
+			}
 
 			Ref<MaterialTable> materialTable = meshComp.MaterialTable && !meshComp.MaterialTable->GetMaterials().empty()
 				? meshComp.MaterialTable
 				: staticMesh->GetMaterials();
 
-			StaticMeshSubmission& submission = submissions.emplace_back();
-			submission.StaticMeshAsset = staticMesh;
-			submission.MeshSourceAsset = meshSource;
-			submission.Materials = materialTable;
-			submission.Selected = isSelected ? isSelected(entity) : false;
+			StaticMeshSyncItem& syncItem = syncItems.emplace_back();
+			syncItem.Proxy.EntityID = entityID;
+			syncItem.Proxy.StaticMeshHandle = meshComp.StaticMesh;
+			syncItem.Proxy.MeshSourceHandle = meshSourceHandle;
+			syncItem.Proxy.StaticMesh = staticMesh;
+			syncItem.Proxy.MeshSource = meshSource;
+			syncItem.Proxy.MaterialTable = materialTable;
+			syncItem.Proxy.Visible = meshComp.Visible;
+			syncItem.Proxy.Selected = isSelected ? isSelected(entity) : false;
 
 			const bool hasParent = entity.HasComponent<RelationshipComponent>()
 				&& entity.GetComponent<RelationshipComponent>().ParentHandle != 0;
 			if (hasParent)
-				submission.WorldTransform = GetWorldSpaceTransformMatrix(entity);
+				syncItem.Proxy.WorldTransform = GetWorldSpaceTransformMatrix(entity);
 			else
 			{
-				submission.LocalTransform = view.get<const TransformComponent>(e);
-				submission.ComputeLocalTransform = true;
+				syncItem.LocalTransform = view.get<const TransformComponent>(e);
+				syncItem.ComputeLocalTransform = true;
 			}
 		}
 
@@ -1441,25 +1458,28 @@ namespace Lux {
 			{
 				for (size_t index = begin; index < end; index++)
 				{
-					StaticMeshSubmission& submission = submissions[index];
-					if (submission.ComputeLocalTransform)
-						submission.WorldTransform = submission.LocalTransform.GetTransform();
+					StaticMeshSyncItem& syncItem = syncItems[index];
+					if (syncItem.ComputeLocalTransform)
+						syncItem.Proxy.WorldTransform = syncItem.LocalTransform.GetTransform();
+
+					const BoundingSphere localBounds = syncItem.Proxy.MeshSource->GetBoundingBox().ToBoundingSphere();
+					syncItem.Proxy.WorldBounds = BoundingSphere::Transform(localBounds, syncItem.Proxy.WorldTransform);
 				}
 			};
 
 		constexpr size_t parallelTransformThreshold = 512;
 		const uint32_t hardwareThreads = std::max(1u, std::thread::hardware_concurrency());
-		if (submissions.size() >= parallelTransformThreshold && hardwareThreads > 1)
+		if (syncItems.size() >= parallelTransformThreshold && hardwareThreads > 1)
 		{
-			const uint32_t workerCount = std::min<uint32_t>(hardwareThreads, static_cast<uint32_t>((submissions.size() + parallelTransformThreshold - 1) / parallelTransformThreshold));
-			const size_t chunkSize = (submissions.size() + workerCount - 1) / workerCount;
+			const uint32_t workerCount = std::min<uint32_t>(hardwareThreads, static_cast<uint32_t>((syncItems.size() + parallelTransformThreshold - 1) / parallelTransformThreshold));
+			const size_t chunkSize = (syncItems.size() + workerCount - 1) / workerCount;
 			std::vector<std::thread> workers;
 			workers.reserve(workerCount);
 
 			for (uint32_t worker = 0; worker < workerCount; worker++)
 			{
 				const size_t begin = worker * chunkSize;
-				const size_t end = std::min(submissions.size(), begin + chunkSize);
+				const size_t end = std::min(syncItems.size(), begin + chunkSize);
 				if (begin >= end)
 					continue;
 
@@ -1471,16 +1491,20 @@ namespace Lux {
 		}
 		else
 		{
-			computeRange(0, submissions.size());
+			computeRange(0, syncItems.size());
 		}
 
-		for (const StaticMeshSubmission& submission : submissions)
-		{
-			if (submission.Selected)
-				renderer->SubmitSelectedStaticMesh(submission.StaticMeshAsset, submission.MeshSourceAsset, submission.Materials, submission.WorldTransform);
-			else
-				renderer->SubmitStaticMesh(submission.StaticMeshAsset, submission.MeshSourceAsset, submission.Materials, submission.WorldTransform);
-		}
+		for (StaticMeshSyncItem& syncItem : syncItems)
+			m_RenderScene->UpsertStaticMesh(std::move(syncItem.Proxy));
+
+		m_RenderScene->EndSync();
+		return m_RenderScene;
+	}
+
+	void Scene::SubmitStaticMeshes(Ref<SceneRenderer> renderer,
+		const std::function<bool(Entity)>& isSelected) const
+	{
+		renderer->SubmitRenderScene(SyncRenderScene(isSelected));
 
 		const SceneRendererOptions& rendererOptions = renderer->GetOptions();
 		if (!rendererOptions.ShowPhysicsColliders)

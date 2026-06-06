@@ -13,10 +13,19 @@ layout(std430, set = 1, binding = 1) readonly buffer ObjectIndexes
 	uint Indices[];
 } r_ObjectIndexes;
 
-layout(std430, set = 1, binding = 2) readonly buffer InstanceBounds
+struct GPUSceneInstance
 {
-	vec4 Spheres[];
-} r_InstanceBounds;
+	vec4 TransformRows[3];
+	vec4 PreviousTransformRows[3];
+	vec4 BoundsSphere;
+	uvec4 Metadata;
+	uvec4 ObjectData;
+};
+
+layout(std430, set = 1, binding = 2) readonly buffer GPUSceneInstances
+{
+	GPUSceneInstance Instances[];
+} r_GPUSceneInstances;
 
 layout(std430, set = 1, binding = 3) writeonly buffer VisibleObjectIndexes
 {
@@ -162,8 +171,7 @@ void main()
 	for (uint instanceIndex = gl_LocalInvocationIndex; instanceIndex < instanceCount; instanceIndex += gl_WorkGroupSize.x)
 	{
 		uint objectIndex = r_ObjectIndexes.Indices[objectIndexBase + instanceIndex];
-		uint transformIndex = objectIndex / 3u;
-		vec4 boundsSphere = r_InstanceBounds.Spheres[transformIndex];
+		vec4 boundsSphere = r_GPUSceneInstances.Instances[objectIndex].BoundsSphere;
 
 		if (IsSphereVisible(boundsSphere) && !IsSphereOccluded(boundsSphere))
 		{

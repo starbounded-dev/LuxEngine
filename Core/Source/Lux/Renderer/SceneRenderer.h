@@ -9,6 +9,7 @@
 #include "Lux/Renderer/Pipeline.h"
 #include "Lux/Renderer/PipelineCompute.h"
 #include "Lux/Renderer/Framebuffer.h"
+#include "Lux/Renderer/GPUScene.h"
 #include "Lux/Renderer/Material.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Renderer/Texture.h"
@@ -26,6 +27,7 @@
 
 #include <glm/glm.hpp>
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <map>
@@ -36,6 +38,8 @@
 namespace Lux {
 
 	struct ProjectSceneRendererSettings;
+	class RenderScene;
+	struct StaticMeshRenderProxy;
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Quality presets
@@ -415,6 +419,8 @@ namespace Lux {
 		void SetEnvironment(Ref<Environment> environment, float intensity = 1.0f, float skyboxLod = 0.0f);
 
 		// Submit a static (non-animated) mesh for rendering this frame.
+		void SubmitRenderScene(const Ref<RenderScene>& renderScene);
+
 		void SubmitStaticMesh(Ref<StaticMesh>    staticMesh,
 			Ref<MeshSource>    meshSource,
 			Ref<MaterialTable> materialTable,
@@ -572,24 +578,92 @@ namespace Lux {
 		using DrawCommandList = std::unordered_map<MeshKey, StaticDrawCommand, MeshKeyHasher>;
 		using DrawCommandOrder = std::vector<MeshKey>;
 
-		// Row-major 3×4 transform stored in the InstanceTransforms SSBO.
-		struct TransformVertexData
+		enum class MeshPassType : uint8_t
 		{
-			glm::vec4 MRow[3];
+			DepthPrepass = 0,
+			ShadowDepth,
+			Opaque,
+			Transparent,
+			SelectedMask,
+			Wireframe,
+			PhysicsCollider,
+			Count
+		};
+
+		static constexpr size_t MeshPassTypeCount = static_cast<size_t>(MeshPassType::Count);
+		static constexpr uint32_t MeshDrawCommandCacheRetireAge = 300;
+
+		struct MeshPassState
+		{
+			MeshPassType Type = MeshPassType::Opaque;
+			DrawCommandList DrawList;
+			DrawCommandOrder DrawOrder;
+		};
+
+		struct MeshDrawCommandCacheKey
+		{
+			MeshPassType PassType = MeshPassType::Opaque;
+			MeshKey Key{};
+			uint64_t StaticMeshPtr = 0;
+			uint64_t MeshSourcePtr = 0;
+			uint64_t MaterialTablePtr = 0;
+			uint64_t OverrideMaterialPtr = 0;
+			uint64_t PipelineSortKey = 0;
+			uint64_t ShaderSortKey = 0;
+			uint64_t MaterialSortKey = 0;
+			uint64_t MeshSortKey = 0;
+
+			bool operator==(const MeshDrawCommandCacheKey& o) const
+			{
+				return PassType == o.PassType
+					&& Key == o.Key
+					&& StaticMeshPtr == o.StaticMeshPtr
+					&& MeshSourcePtr == o.MeshSourcePtr
+					&& MaterialTablePtr == o.MaterialTablePtr
+					&& OverrideMaterialPtr == o.OverrideMaterialPtr
+					&& PipelineSortKey == o.PipelineSortKey
+					&& ShaderSortKey == o.ShaderSortKey
+					&& MaterialSortKey == o.MaterialSortKey
+					&& MeshSortKey == o.MeshSortKey;
+			}
+		};
+
+		struct MeshDrawCommandCacheKeyHasher
+		{
+			size_t operator()(const MeshDrawCommandCacheKey& key) const
+			{
+				auto combine = [](size_t& seed, uint64_t value)
+					{
+						seed ^= std::hash<uint64_t>{}(value) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+					};
+
+				size_t seed = std::hash<uint8_t>{}(static_cast<uint8_t>(key.PassType));
+				seed ^= MeshKeyHasher{}(key.Key) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+				combine(seed, key.StaticMeshPtr);
+				combine(seed, key.MeshSourcePtr);
+				combine(seed, key.MaterialTablePtr);
+				combine(seed, key.OverrideMaterialPtr);
+				combine(seed, key.PipelineSortKey);
+				combine(seed, key.ShaderSortKey);
+				combine(seed, key.MaterialSortKey);
+				combine(seed, key.MeshSortKey);
+				return seed;
+			}
+		};
+
+		struct CachedStaticDrawCommand
+		{
+			StaticDrawCommand Command;
+			uint32_t LastUsedFrame = 0;
 		};
 
 		struct TransformMapData
 		{
-			std::vector<uint32_t> ObjectIndices;
+			std::vector<uint32_t> ObjectIndices; // persistent GPUScene IDs or encoded transient IDs
 			uint32_t              ObjectIndexBase = 0;  // offset into ObjectIndexes SSBO
 			uint32_t              VisibleObjectIndexBase = 0;
 			uint32_t              VisibleInstanceCount = 0;
 			uint32_t              IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
-		};
-
-		struct InstanceBoundsData
-		{
-			glm::vec4 Sphere; // xyz = world center, w = world radius
 		};
 
 		struct MeshCullDrawData
@@ -601,21 +675,39 @@ namespace Lux {
 		};
 
 		// Internal helper for the debug-mesh submission path.
-		void SubmitStaticDebugMesh(DrawCommandList& drawList,
+		void SubmitStaticDebugMesh(MeshPassType passType,
 			Ref<StaticMesh>  staticMesh,
 			Ref<MeshSource>  meshSource,
 			const glm::mat4& transform,
 			Ref<Material>    material);
 
+		void SubmitStaticMeshProxy(const StaticMeshRenderProxy& proxy);
 		void SubmitStaticMeshInternal(Ref<StaticMesh>    staticMesh,
 			Ref<MeshSource>    meshSource,
 			Ref<MaterialTable> materialTable,
 			const glm::mat4& transform,
 			Ref<Material>      overrideMaterial,
-			bool               isSelected);
+			bool               isSelected,
+			const StaticMeshRenderProxy* renderProxy = nullptr);
 		bool IsMainViewVisible(const BoundingSphere& bounds) const;
 		bool IsShadowCasterVisible(const BoundingSphere& bounds) const;
 		void BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder) const;
+		MeshPassState& GetMeshPass(MeshPassType passType);
+		const MeshPassState& GetMeshPass(MeshPassType passType) const;
+		StaticDrawCommand& SubmitMeshPassDraw(MeshPassType passType,
+			const MeshKey& key,
+			Ref<StaticMesh> staticMesh,
+			Ref<MeshSource> meshSource,
+			Ref<MaterialTable> materialTable,
+			uint32_t submeshIndex,
+			AssetHandle materialHandle,
+			Ref<Material> overrideMaterial,
+			uint64_t pipelineSortKey,
+			uint64_t shaderSortKey,
+			uint64_t materialSortKey,
+			uint64_t meshSortKey);
+		void ClearFrameMeshPasses();
+		void PruneMeshDrawCommandCache();
 		uint64_t CalculateShadowCasterHash() const;
 
 		// ── Render passes ────────────────────────────────────────────────────
@@ -848,6 +940,7 @@ namespace Lux {
 		Ref<Renderer2D>    m_Renderer2D;
 		Ref<Renderer2D>    m_Renderer2DScreenSpace;
 		Ref<DebugRenderer> m_DebugRenderer;
+		Ref<RenderScene>   m_SubmittedRenderScene;
 		std::function<void()> m_WorldOverlayRenderCallback;
 
 		glm::mat4 m_ScreenSpaceProjectionMatrix{ 1.0f };
@@ -873,10 +966,9 @@ namespace Lux {
 		Ref<UniformBufferSet> m_UBSPointLights;
 		Ref<UniformBufferSet> m_UBSSpotLights;
 
-		Ref<StorageBufferSet> m_SBSInstanceTransforms;  // TransformVertexData[]
-		Ref<StorageBufferSet> m_SBSObjectIndexes;       // uint32_t[] – maps draw → transform
+		Ref<StorageBufferSet> m_SBSObjectIndexes;       // uint32_t[] - maps draw instance to GPUScene instance
 		Ref<StorageBufferSet> m_SBSVisibleObjectIndexes;
-		Ref<StorageBufferSet> m_SBSInstanceBounds;
+		Ref<StorageBufferSet> m_SBSGPUSceneInstances;
 		Ref<StorageBufferSet> m_SBSMeshCullDrawData;
 		Ref<StorageBufferSet> m_SBSIndirectDrawCommands;
 		Ref<StorageBufferSet> m_SBSVisiblePointLightIndices;
@@ -1027,22 +1119,14 @@ namespace Lux {
 		Ref<Material>    m_SimpleColliderMaterial;
 		Ref<Material>    m_ComplexColliderMaterial;
 
-		// ── Draw lists ────────────────────────────────────────────────────────
-		DrawCommandList m_StaticMeshDrawList;
-		DrawCommandList m_TransparentStaticMeshDrawList;
-		DrawCommandList m_SelectedStaticMeshDrawList;
-		DrawCommandList m_StaticMeshShadowPassDrawList;
-		DrawCommandList m_StaticColliderDrawList;
-		DrawCommandOrder m_StaticMeshDrawOrder;
-		DrawCommandOrder m_TransparentStaticMeshDrawOrder;
-		DrawCommandOrder m_SelectedStaticMeshDrawOrder;
-		DrawCommandOrder m_StaticMeshShadowPassDrawOrder;
-		DrawCommandOrder m_StaticColliderDrawOrder;
+		// ── Mesh passes ───────────────────────────────────────────────────────
+		std::array<MeshPassState, MeshPassTypeCount> m_MeshPasses;
+		std::unordered_map<MeshDrawCommandCacheKey, CachedStaticDrawCommand, MeshDrawCommandCacheKeyHasher> m_MeshDrawCommandCache;
+		uint32_t m_MeshDrawCommandCacheFrame = 0;
 
-		// Transform storage for all submitted meshes this frame.
+		// GPUScene indirection for all submitted meshes this frame.
 		std::unordered_map<MeshKey, TransformMapData, MeshKeyHasher>  m_MeshTransformMap;
-		std::vector<TransformVertexData>     m_TransformData;
-		std::vector<InstanceBoundsData>      m_InstanceBoundsData;
+		std::vector<GPUSceneInstanceData>    m_TransientGPUSceneInstances;
 
 		// Shadow-specific per-cascade transform tracking.
 		// Index 0 is the only cascade we use currently.

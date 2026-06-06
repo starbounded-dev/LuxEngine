@@ -23,6 +23,7 @@ namespace Lux {
 	class Prefab;
 	class PhysicsScene2D;
 	class PhysicsScene;
+	class RenderScene;
 	class SceneRenderer;
 	class AudioSource;
 	class Mesh;
@@ -117,6 +118,9 @@ namespace Lux {
 		void SubmitStaticMeshes(Ref<SceneRenderer> renderer,
 			const std::function<bool(Entity)>& isSelected = nullptr) const;
 
+		// Synchronize ECS renderable state into the persistent render-side scene.
+		Ref<::Lux::RenderScene> SyncRenderScene(const std::function<bool(Entity)>& isSelected = nullptr) const;
+
 		// High-level 3D rendering method that orchestrates the full 3D pipeline:
 		// - Sets up camera
 		// - Collects and applies light environment
@@ -174,6 +178,7 @@ namespace Lux {
 		Ref<PhysicsScene> m_PhysicsScene;
 
 		Ref<Renderer2D> m_Renderer2D;
+		mutable Ref<::Lux::RenderScene> m_RenderScene;
 		std::string m_Name = "Untitled";
 		mutable Ref<Environment> m_DynamicSkyEnvironment;
 		mutable glm::vec3 m_DynamicSkyParameters = { 2.0f, 0.0f, 0.0f };
