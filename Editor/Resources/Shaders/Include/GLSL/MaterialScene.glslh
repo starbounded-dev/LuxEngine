@@ -121,12 +121,11 @@ bool GetGPUMaterialUsesNormalMap(GPUMaterial material, bool fallbackUseNormalMap
 		: fallbackUseNormalMap;
 }
 
-vec3 GetMaterialSceneDebugColor(uint objectIndex, uint mode)
+vec3 GetMaterialSceneDebugColorForMaterialID(uint materialID, uint mode)
 {
-	if (mode < GPU_MATERIAL_DEBUG_TEXTURE_VALIDITY)
-		return GetGPUSceneDebugColor(objectIndex, mode);
+	if (materialID == GPU_TEXTURE_INVALID_INDEX)
+		return vec3(1.0, 0.0, 1.0);
 
-	uint materialID = GetInstanceMaterialIndex(objectIndex);
 	uint flags = r_GPUMaterials.Materials[materialID].Metadata.x;
 
 	if (mode == GPU_MATERIAL_DEBUG_TEXTURE_VALIDITY)
@@ -178,4 +177,12 @@ vec3 GetMaterialSceneDebugColor(uint objectIndex, uint mode)
 	}
 
 	return GPUSceneDebugColorFromID(materialID + 1u);
+}
+
+vec3 GetMaterialSceneDebugColor(uint objectIndex, uint mode)
+{
+	if (mode < GPU_MATERIAL_DEBUG_TEXTURE_VALIDITY)
+		return GetGPUSceneDebugColor(objectIndex, mode);
+
+	return GetMaterialSceneDebugColorForMaterialID(GetInstanceMaterialIndex(objectIndex), mode);
 }

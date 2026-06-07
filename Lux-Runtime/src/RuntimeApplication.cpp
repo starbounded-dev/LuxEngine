@@ -124,7 +124,7 @@ namespace Lux
 		specification.VSync = true;
 		specification.IconPath = "Resources/Editor/Hazel-IconLogo-2023.png";
 		specification.RenderConfig.FramesInFlight = 3;
-		specification.CoreThreadingPolicy = ThreadingPolicy::SingleThreaded;
+		specification.CoreThreadingPolicy = ThreadingPolicy::MultiThreaded;
 		ApplyRuntimeSettings(specification, projectPath);
 		ApplyRuntimeShaderPack(specification, projectPath);
 

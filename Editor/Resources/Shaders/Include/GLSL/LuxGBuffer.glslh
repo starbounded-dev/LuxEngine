@@ -1,0 +1,77 @@
+#pragma once
+
+#include <Samplers.glslh>
+
+struct LuxGBufferData
+{
+	vec3 BaseColor;
+	float Opacity;
+	vec3 ViewNormal;
+	float Reserved0;
+	float Metalness;
+	float Roughness;
+	float AmbientOcclusion;
+	float Specular;
+	uint MaterialID;
+	uint ObjectID;
+};
+
+void EncodeGBuffer(
+	LuxGBufferData data,
+	out vec4 outBaseColorOpacity,
+	out vec4 outViewNormal,
+	out vec4 outMetalRoughAO,
+	out uint outMaterialID,
+	out uint outObjectID)
+{
+	outBaseColorOpacity = vec4(max(data.BaseColor, vec3(0.0)), clamp(data.Opacity, 0.0, 1.0));
+	outViewNormal = vec4(normalize(data.ViewNormal), data.Reserved0);
+	outMetalRoughAO = vec4(
+		clamp(data.Metalness, 0.0, 1.0),
+		clamp(data.Roughness, 0.0, 1.0),
+		clamp(data.AmbientOcclusion, 0.0, 1.0),
+		clamp(data.Specular, 0.0, 1.0));
+	outMaterialID = data.MaterialID;
+	outObjectID = data.ObjectID;
+}
+
+LuxGBufferData DecodeGBuffer(
+	texture2D gBufferBaseColor,
+	texture2D gBufferNormal,
+	texture2D gBufferMetalRoughAO,
+	utexture2D gBufferMaterialID,
+	utexture2D gBufferObjectID,
+	vec2 uv)
+{
+	LuxGBufferData data;
+	vec4 baseColorOpacity = texture(sampler2D(gBufferBaseColor, r_PointSampler), uv);
+	vec4 normalData = texture(sampler2D(gBufferNormal, r_PointSampler), uv);
+	vec4 metalRoughAO = texture(sampler2D(gBufferMetalRoughAO, r_PointSampler), uv);
+
+	data.BaseColor = baseColorOpacity.rgb;
+	data.Opacity = baseColorOpacity.a;
+	data.ViewNormal = normalize(normalData.xyz);
+	data.Reserved0 = normalData.w;
+	data.Metalness = metalRoughAO.x;
+	data.Roughness = max(metalRoughAO.y, 0.05);
+	data.AmbientOcclusion = metalRoughAO.z;
+	data.Specular = metalRoughAO.w;
+	data.MaterialID = texture(usampler2D(gBufferMaterialID, r_PointSampler), uv).r;
+	data.ObjectID = texture(usampler2D(gBufferObjectID, r_PointSampler), uv).r;
+
+	return data;
+}
+
+vec3 GBufferDebugColorFromID(uint id)
+{
+	id ^= id >> 16u;
+	id *= 0x7feb352du;
+	id ^= id >> 15u;
+	id *= 0x846ca68bu;
+	id ^= id >> 16u;
+
+	return vec3(
+		float((id >> 0u) & 0xffu),
+		float((id >> 8u) & 0xffu),
+		float((id >> 16u) & 0xffu)) / 255.0;
+}

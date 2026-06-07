@@ -174,6 +174,33 @@ namespace Lux {
 			}
 		}
 
+		uint32_t ResolveGBufferDebugMode(SceneRenderer::DebugViewMode mode)
+		{
+			switch (mode)
+			{
+				case SceneRenderer::DebugViewMode::GBufferBaseColor: return 1;
+				case SceneRenderer::DebugViewMode::GBufferNormal: return 2;
+				case SceneRenderer::DebugViewMode::GBufferMetalRough: return 3;
+				case SceneRenderer::DebugViewMode::GBufferMaterialID:
+				case SceneRenderer::DebugViewMode::GPUSceneMaterialIndex: return 4;
+				case SceneRenderer::DebugViewMode::GBufferObjectID:
+				case SceneRenderer::DebugViewMode::GPUScenePrimitiveID:
+				case SceneRenderer::DebugViewMode::GPUSceneObjectID: return 5;
+				case SceneRenderer::DebugViewMode::DeferredLighting: return 6;
+				case SceneRenderer::DebugViewMode::GPUMaterialTextureValidity: return 7;
+				case SceneRenderer::DebugViewMode::GPUMaterialAlphaMode: return 8;
+				case SceneRenderer::DebugViewMode::GPUMaterialRoughness: return 9;
+				case SceneRenderer::DebugViewMode::GPUMaterialMetalness: return 10;
+				case SceneRenderer::DebugViewMode::GPUMaterialMissing: return 11;
+				default: return 0;
+			}
+		}
+
+		bool UsesGBufferDebugPass(SceneRenderer::DebugViewMode mode)
+		{
+			return ResolveGBufferDebugMode(mode) != 0;
+		}
+
 		glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback)
 		{
 			const float lengthSquared = glm::dot(value, value);
@@ -1096,120 +1123,233 @@ namespace Lux {
 			m_LightCullingPass->Bake();
 		}
 
-		// ── Geometry framebuffer (owns the color + normal + material images) ──
+		// ── Scene color, GBuffer, forward fallback, and deferred lighting ─────
 		{
-			FramebufferSpecification geoFBSpec;
-			geoFBSpec.Width = m_ViewportWidth;
-			geoFBSpec.Height = m_ViewportHeight;
-			// color | view-space normals | metalness+roughness | depth (shared with pre-depth)
-			geoFBSpec.Attachments = {
-				ImageFormat::RGBA32F,
-				ImageFormat::RGBA16F,
-				ImageFormat::RGBA,
-				ImageFormat::DEPTH32FSTENCIL8UINT
-			};
-			geoFBSpec.ExistingImages[3] = m_PreDepthPass->GetDepthOutput();
-			geoFBSpec.Attachments.Attachments[0].LoadOp = AttachmentLoadOp::Load; // skybox writes first
-			geoFBSpec.Attachments.Attachments[1].Blend = false;
-			geoFBSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-			geoFBSpec.ClearDepthOnLoad = false;
-			geoFBSpec.DebugName = "Geometry";
-			m_GeometryPassFramebuffer = Framebuffer::Create(geoFBSpec);
+			auto setInputIfValid = [](Ref<RenderPass> renderPass, std::string_view name, auto input)
+				{
+					if (renderPass && renderPass->IsInputValid(name))
+						renderPass->SetInput(name, input);
+				};
 
-			// "Load" variant: subsequent draws share the same images without clearing.
-			geoFBSpec.ClearColorOnLoad = false;
-			geoFBSpec.ExistingImages[0] = m_GeometryPassFramebuffer->GetImage(0);
-			geoFBSpec.ExistingImages[1] = m_GeometryPassFramebuffer->GetImage(1);
-			geoFBSpec.ExistingImages[2] = m_GeometryPassFramebuffer->GetImage(2);
-			Ref<Framebuffer> loadFB = Framebuffer::Create(geoFBSpec);
-
-			// Opaque PBR pipeline
-			PipelineSpecification pipelineSpec;
-			pipelineSpec.DebugName = "PBR-Static";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Static");
-			pipelineSpec.TargetFramebuffer = loadFB;
-			pipelineSpec.Layout = vertexLayout;
-			pipelineSpec.DepthOperator = DepthCompareOperator::Equal; // rely on pre-depth
-			pipelineSpec.DepthWrite = false;
-			m_GeometryPipeline = Pipeline::Create(pipelineSpec);
-
-			// Transparent PBR pipeline (alpha-blend, depth-test but no pre-depth Equal trick)
-			pipelineSpec.DebugName = "PBR-Transparent";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Transparent");
-			pipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
-			pipelineSpec.DepthWrite = false;
-			m_TransparentGeometryPipeline = Pipeline::Create(pipelineSpec);
-		}
-
-		// ── Geometry render passes ────────────────────────────────────────────
-		{
 			auto bindDefaultGPUTextureScene = [](Ref<RenderPass> renderPass)
 				{
-					if (!renderPass->IsInputValid("u_GPUMaterialTextures"))
+					if (!renderPass || !renderPass->IsInputValid("u_GPUMaterialTextures"))
 						return;
 
 					for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
 						renderPass->SetInput("u_GPUMaterialTextures", Renderer::GetWhiteTexture(), textureIndex);
 				};
 
-			// Opaque pass
+			auto bindMaterialSceneInputs = [&](Ref<RenderPass> renderPass)
+				{
+					setInputIfValid(renderPass, "GPUSceneInstances", m_SBSGPUSceneInstances);
+					setInputIfValid(renderPass, "GPUMaterials", m_SBSGPUMaterials);
+					setInputIfValid(renderPass, "ObjectIndexes", m_SBSVisibleObjectIndexes);
+					setInputIfValid(renderPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
+					bindDefaultGPUTextureScene(renderPass);
+				};
+
+			auto bindLightingInputs = [&](Ref<RenderPass> renderPass)
+				{
+					setInputIfValid(renderPass, "Camera", m_UBSCamera);
+					setInputIfValid(renderPass, "SceneData", m_UBSScene);
+					setInputIfValid(renderPass, "ShadowData", m_UBSShadow);
+					setInputIfValid(renderPass, "RendererData", m_UBSRendererData);
+					setInputIfValid(renderPass, "PointLightData", m_UBSPointLights);
+					setInputIfValid(renderPass, "SpotLightData", m_UBSSpotLights);
+					setInputIfValid(renderPass, "SpotShadowData", m_UBSSpotShadow);
+					setInputIfValid(renderPass, "VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
+					setInputIfValid(renderPass, "VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
+					setInputIfValid(renderPass, "u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
+					setInputIfValid(renderPass, "u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
+					setInputIfValid(renderPass, "u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
+					setInputIfValid(renderPass, "u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
+					setInputIfValid(renderPass, "u_SpotShadowTexture", m_SpotShadowMapImage);
+				};
+
+			FramebufferSpecification sceneColorSpec;
+			sceneColorSpec.Width = m_ViewportWidth;
+			sceneColorSpec.Height = m_ViewportHeight;
+			sceneColorSpec.Attachments = { ImageFormat::RGBA16F };
+			sceneColorSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+			sceneColorSpec.DebugName = "SceneColorHDR";
+			m_SceneColorFramebuffer = Framebuffer::Create(sceneColorSpec);
+
+			FramebufferTextureSpecification gbufferBaseColor = ImageFormat::RGBA16F;
+			FramebufferTextureSpecification gbufferNormal = ImageFormat::RGBA16F;
+			FramebufferTextureSpecification gbufferMetalRough = ImageFormat::RGBA;
+			FramebufferTextureSpecification gbufferMaterialID = ImageFormat::RED32UI;
+			FramebufferTextureSpecification gbufferObjectID = ImageFormat::RED32UI;
+			gbufferBaseColor.Blend = false;
+			gbufferNormal.Blend = false;
+			gbufferMetalRough.Blend = false;
+			gbufferMaterialID.Blend = false;
+			gbufferObjectID.Blend = false;
+
+			FramebufferSpecification gbufferSpec;
+			gbufferSpec.Width = m_ViewportWidth;
+			gbufferSpec.Height = m_ViewportHeight;
+			gbufferSpec.Attachments = {
+				gbufferBaseColor,
+				gbufferNormal,
+				gbufferMetalRough,
+				gbufferMaterialID,
+				gbufferObjectID,
+				ImageFormat::DEPTH32FSTENCIL8UINT
+			};
+			gbufferSpec.ExistingImages[5] = m_PreDepthPass->GetDepthOutput();
+			gbufferSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+			gbufferSpec.ClearDepthOnLoad = false;
+			gbufferSpec.Blend = false;
+			gbufferSpec.DebugName = "GBuffer";
+			m_GeometryPassFramebuffer = Framebuffer::Create(gbufferSpec);
+
+			PipelineSpecification pipelineSpec;
+			pipelineSpec.DebugName = "GBuffer-Static";
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("GBuffer_Static");
+			pipelineSpec.TargetFramebuffer = m_GeometryPassFramebuffer;
+			pipelineSpec.Layout = vertexLayout;
+			pipelineSpec.DepthOperator = DepthCompareOperator::Equal;
+			pipelineSpec.DepthWrite = false;
+			m_GeometryPipeline = Pipeline::Create(pipelineSpec);
+
 			RenderPassSpecification rpSpec;
-			rpSpec.DebugName = "GeometryPass";
+			rpSpec.DebugName = "GBufferPass";
 			rpSpec.Pipeline = m_GeometryPipeline;
 			m_GeometryPass = RenderPass::Create(rpSpec);
-
 			m_GeometryPass->SetInput("Camera", m_UBSCamera);
-			m_GeometryPass->SetInput("SceneData", m_UBSScene);
-			m_GeometryPass->SetInput("ShadowData", m_UBSShadow);
 			m_GeometryPass->SetInput("RendererData", m_UBSRendererData);
-			m_GeometryPass->SetInput("PointLightData", m_UBSPointLights);
-			m_GeometryPass->SetInput("SpotLightData", m_UBSSpotLights);
-			m_GeometryPass->SetInput("SpotShadowData", m_UBSSpotShadow);
-			m_GeometryPass->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
-			m_GeometryPass->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
-			m_GeometryPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
-			m_GeometryPass->SetInput("GPUMaterials", m_SBSGPUMaterials);
-			m_GeometryPass->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
-			// Environment textures – overridden each frame in BeginScene once env is set
-			m_GeometryPass->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
-			m_GeometryPass->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
-			m_GeometryPass->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
-			m_GeometryPass->SetInput("r_MaterialSampler", Renderer::GetRepeatSampler());
-			bindDefaultGPUTextureScene(m_GeometryPass);
-			// Shadow map output from the shadow pass above
-			m_GeometryPass->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
-			m_GeometryPass->SetInput("u_SpotShadowTexture", m_SpotShadowMapImage);
+			bindMaterialSceneInputs(m_GeometryPass);
 			LUX_CORE_VERIFY(m_GeometryPass->Validate());
 			m_GeometryPass->Bake();
 
-			// Transparent pass (same bindings, different pipeline)
-			rpSpec.DebugName = "GeometryPass-Transparent";
+			FramebufferTextureSpecification forwardSceneColor = ImageFormat::RGBA16F;
+			FramebufferTextureSpecification forwardNormal = ImageFormat::RGBA16F;
+			FramebufferTextureSpecification forwardMetalRough = ImageFormat::RGBA;
+			forwardSceneColor.Blend = false;
+			forwardNormal.Blend = false;
+			forwardMetalRough.Blend = false;
+
+			FramebufferSpecification forwardSpec;
+			forwardSpec.Width = m_ViewportWidth;
+			forwardSpec.Height = m_ViewportHeight;
+			forwardSpec.Attachments = {
+				forwardSceneColor,
+				forwardNormal,
+				forwardMetalRough,
+				ImageFormat::DEPTH32FSTENCIL8UINT
+			};
+			forwardSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
+			forwardSpec.ExistingImages[1] = m_GeometryPassFramebuffer->GetImage(1);
+			forwardSpec.ExistingImages[2] = m_GeometryPassFramebuffer->GetImage(2);
+			forwardSpec.ExistingImages[3] = m_PreDepthPass->GetDepthOutput();
+			forwardSpec.ClearColorOnLoad = false;
+			forwardSpec.ClearDepthOnLoad = false;
+			forwardSpec.Blend = false;
+			forwardSpec.DebugName = "ForwardGeometry";
+
+			pipelineSpec.DebugName = "ForwardGeometry-Static";
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Static");
+			pipelineSpec.TargetFramebuffer = Framebuffer::Create(forwardSpec);
+			pipelineSpec.DepthOperator = DepthCompareOperator::Equal;
+			pipelineSpec.DepthWrite = false;
+			m_ForwardGeometryPipeline = Pipeline::Create(pipelineSpec);
+
+			rpSpec.DebugName = "ForwardGeometryPass";
+			rpSpec.Pipeline = m_ForwardGeometryPipeline;
+			m_ForwardGeometryPass = RenderPass::Create(rpSpec);
+			bindLightingInputs(m_ForwardGeometryPass);
+			bindMaterialSceneInputs(m_ForwardGeometryPass);
+			LUX_CORE_VERIFY(m_ForwardGeometryPass->Validate());
+			m_ForwardGeometryPass->Bake();
+
+			FramebufferSpecification transparentSpec = forwardSpec;
+			transparentSpec.Blend = true;
+			transparentSpec.BlendMode = FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha;
+			transparentSpec.DebugName = "TransparentForward";
+
+			pipelineSpec.DebugName = "TransparentForward";
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Transparent");
+			pipelineSpec.TargetFramebuffer = Framebuffer::Create(transparentSpec);
+			pipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
+			pipelineSpec.DepthWrite = false;
+			m_TransparentGeometryPipeline = Pipeline::Create(pipelineSpec);
+
+			rpSpec.DebugName = "TransparentForwardPass";
 			rpSpec.Pipeline = m_TransparentGeometryPipeline;
 			m_GeometryPassTransparent = RenderPass::Create(rpSpec);
-
-			m_GeometryPassTransparent->SetInput("Camera", m_UBSCamera);
-			m_GeometryPassTransparent->SetInput("SceneData", m_UBSScene);
-			m_GeometryPassTransparent->SetInput("ShadowData", m_UBSShadow);
-			m_GeometryPassTransparent->SetInput("RendererData", m_UBSRendererData);
-			m_GeometryPassTransparent->SetInput("PointLightData", m_UBSPointLights);
-			m_GeometryPassTransparent->SetInput("SpotLightData", m_UBSSpotLights);
-			m_GeometryPassTransparent->SetInput("SpotShadowData", m_UBSSpotShadow);
-			m_GeometryPassTransparent->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
-			m_GeometryPassTransparent->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
-			m_GeometryPassTransparent->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
-			m_GeometryPassTransparent->SetInput("GPUMaterials", m_SBSGPUMaterials);
-			m_GeometryPassTransparent->SetInput("ObjectIndexes", m_SBSVisibleObjectIndexes);
-			// Environment textures – overridden each frame in BeginScene once env is set
-			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
-			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
-			m_GeometryPassTransparent->SetInput("u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
-			m_GeometryPassTransparent->SetInput("r_MaterialSampler", Renderer::GetRepeatSampler());
-			bindDefaultGPUTextureScene(m_GeometryPassTransparent);
-			// Shadow map output from the shadow pass above
-			m_GeometryPassTransparent->SetInput("u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
-			m_GeometryPassTransparent->SetInput("u_SpotShadowTexture", m_SpotShadowMapImage);
+			bindLightingInputs(m_GeometryPassTransparent);
+			bindMaterialSceneInputs(m_GeometryPassTransparent);
 			LUX_CORE_VERIFY(m_GeometryPassTransparent->Validate());
 			m_GeometryPassTransparent->Bake();
+
+			FramebufferSpecification deferredSpec;
+			deferredSpec.Width = m_ViewportWidth;
+			deferredSpec.Height = m_ViewportHeight;
+			deferredSpec.Attachments = { ImageFormat::RGBA16F };
+			deferredSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
+			deferredSpec.ClearColorOnLoad = false;
+			deferredSpec.Blend = false;
+			deferredSpec.DebugName = "DeferredLighting";
+
+			PipelineSpecification deferredPipelineSpec;
+			deferredPipelineSpec.DebugName = "DeferredLighting";
+			deferredPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("DeferredLighting");
+			deferredPipelineSpec.TargetFramebuffer = Framebuffer::Create(deferredSpec);
+			deferredPipelineSpec.DepthTest = false;
+			deferredPipelineSpec.DepthWrite = false;
+			deferredPipelineSpec.Layout = {
+				{ ShaderDataType::Float3, "a_Position" },
+				{ ShaderDataType::Float2, "a_TexCoord" },
+			};
+			m_DeferredLightingPipeline = Pipeline::Create(deferredPipelineSpec);
+
+			rpSpec.DebugName = "DeferredLightingPass";
+			rpSpec.Pipeline = m_DeferredLightingPipeline;
+			m_DeferredLightingPass = RenderPass::Create(rpSpec);
+			bindLightingInputs(m_DeferredLightingPass);
+			bindMaterialSceneInputs(m_DeferredLightingPass);
+			setInputIfValid(m_DeferredLightingPass, "u_SceneColor", m_SceneColorFramebuffer->GetImage(0));
+			m_DeferredLightingPass->SetInput("u_GBufferBaseColor", m_GeometryPass->GetOutput(0));
+			m_DeferredLightingPass->SetInput("u_GBufferNormal", m_GeometryPass->GetOutput(1));
+			m_DeferredLightingPass->SetInput("u_GBufferMetalRoughAO", m_GeometryPass->GetOutput(2));
+			m_DeferredLightingPass->SetInput("u_GBufferMaterialID", m_GeometryPass->GetOutput(3));
+			m_DeferredLightingPass->SetInput("u_GBufferObjectID", m_GeometryPass->GetOutput(4));
+			m_DeferredLightingPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
+			m_DeferredLightingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_DeferredLightingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_DeferredLightingPass->Validate());
+			m_DeferredLightingPass->Bake();
+			m_DeferredLightingMaterial = Material::Create(deferredPipelineSpec.Shader, "DeferredLighting");
+
+			FramebufferSpecification debugSpec;
+			debugSpec.Width = m_ViewportWidth;
+			debugSpec.Height = m_ViewportHeight;
+			debugSpec.Attachments = { ImageFormat::RGBA16F };
+			debugSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+			debugSpec.DebugName = "GBufferDebug";
+
+			PipelineSpecification debugPipelineSpec = deferredPipelineSpec;
+			debugPipelineSpec.DebugName = "GBufferDebug";
+			debugPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("GBufferDebug");
+			debugPipelineSpec.TargetFramebuffer = Framebuffer::Create(debugSpec);
+
+			rpSpec.DebugName = "GBufferDebugPass";
+			rpSpec.Pipeline = Pipeline::Create(debugPipelineSpec);
+			m_GBufferDebugPass = RenderPass::Create(rpSpec);
+			m_GBufferDebugPass->SetInput("u_GBufferBaseColor", m_GeometryPass->GetOutput(0));
+			m_GBufferDebugPass->SetInput("u_GBufferNormal", m_GeometryPass->GetOutput(1));
+			m_GBufferDebugPass->SetInput("u_GBufferMetalRoughAO", m_GeometryPass->GetOutput(2));
+			m_GBufferDebugPass->SetInput("u_GBufferMaterialID", m_GeometryPass->GetOutput(3));
+			m_GBufferDebugPass->SetInput("u_GBufferObjectID", m_GeometryPass->GetOutput(4));
+			m_GBufferDebugPass->SetInput("u_DeferredLighting", m_SceneColorFramebuffer->GetImage(0));
+			m_GBufferDebugPass->SetInput("GPUMaterials", m_SBSGPUMaterials);
+			m_GBufferDebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			bindDefaultGPUTextureScene(m_GBufferDebugPass);
+			LUX_CORE_VERIFY(m_GBufferDebugPass->Validate());
+			m_GBufferDebugPass->Bake();
+			m_GBufferDebugMaterial = Material::Create(debugPipelineSpec.Shader, "GBufferDebug");
+			m_GBufferDebugMaterial->Set("u_Uniforms.Mode", 0u);
 		}
 
 		// ── GTAO + AO composite ───────────────────────────────────────────────
@@ -1240,7 +1380,7 @@ namespace Lux {
 			m_GTAOComputePass = ComputePass::Create(gtaoSpec);
 			m_GTAOComputePass->SetInput("u_HiZDepth", m_HierarchicalDepthTexture.Texture);
 			m_GTAOComputePass->SetInput("u_HilbertLut", Renderer::GetHilbertLut());
-			m_GTAOComputePass->SetInput("u_ViewNormal", m_GeometryPass->GetOutput(1));
+			m_GTAOComputePass->SetInput("u_ViewNormal", GetGeometryNormalOutput());
 			m_GTAOComputePass->SetInput("o_AOwBentNormals", m_GTAOOutputImage);
 			m_GTAOComputePass->SetInput("o_Edges", m_GTAOEdgesOutputImage);
 			m_GTAOComputePass->SetInput("u_samplerPointClamp", Renderer::GetPointSampler());
@@ -1298,8 +1438,8 @@ namespace Lux {
 			FramebufferSpecification aoFramebufferSpec;
 			aoFramebufferSpec.Width = m_ViewportWidth;
 			aoFramebufferSpec.Height = m_ViewportHeight;
-			aoFramebufferSpec.Attachments = { ImageFormat::RGBA32F };
-			aoFramebufferSpec.ExistingImages[0] = m_GeometryPass->GetOutput(0);
+			aoFramebufferSpec.Attachments = { ImageFormat::RGBA16F };
+			aoFramebufferSpec.ExistingImages[0] = GetSceneColorOutput();
 			aoFramebufferSpec.ClearColorOnLoad = false;
 			aoFramebufferSpec.Blend = true;
 			aoFramebufferSpec.BlendMode = FramebufferBlendMode::Zero_SrcColor;
@@ -1322,7 +1462,7 @@ namespace Lux {
 			m_AOCompositePass = RenderPass::Create(aoRenderPassSpec);
 			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 			m_AOCompositePass->SetInput("Camera", m_UBSCamera);
 			m_AOCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
 			m_AOCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
@@ -1348,7 +1488,7 @@ namespace Lux {
 			m_AODebugPass = RenderPass::Create(aoDebugRenderPassSpec);
 			m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_AODebugPass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_AODebugPass->SetInput("u_Normal", GetGeometryNormalOutput());
 			m_AODebugPass->SetInput("Camera", m_UBSCamera);
 			m_AODebugPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
 			m_AODebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
@@ -1377,9 +1517,9 @@ namespace Lux {
 			m_SSRPass = ComputePass::Create(ssrComputeSpec);
 			m_SSRPass->SetInput("outColor", m_SSRImage);
 			m_SSRPass->SetInput("u_InputColor", m_PreConvolutedTexture.Texture);
-			m_SSRPass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_SSRPass->SetInput("u_Normal", GetGeometryNormalOutput());
 			m_SSRPass->SetInput("u_HiZBuffer", m_HierarchicalDepthTexture.Texture);
-			m_SSRPass->SetInput("u_MetalnessRoughness", m_GeometryPass->GetOutput(2));
+			m_SSRPass->SetInput("u_MetalnessRoughness", GetGeometryMetalRoughOutput());
 			m_SSRPass->SetInput("u_VisibilityBuffer", m_PreIntegrationVisibilityTexture.Texture);
 			if (m_SSRPass->IsInputValid("u_GTAOTex"))
 				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
@@ -1408,8 +1548,8 @@ namespace Lux {
 			FramebufferSpecification ssrCompositeFBSpec;
 			ssrCompositeFBSpec.Width = m_ViewportWidth;
 			ssrCompositeFBSpec.Height = m_ViewportHeight;
-			ssrCompositeFBSpec.Attachments = { ImageFormat::RGBA32F };
-			ssrCompositeFBSpec.ExistingImages[0] = m_GeometryPass->GetOutput(0);
+			ssrCompositeFBSpec.Attachments = { ImageFormat::RGBA16F };
+			ssrCompositeFBSpec.ExistingImages[0] = GetSceneColorOutput();
 			ssrCompositeFBSpec.ClearColorOnLoad = false;
 			ssrCompositeFBSpec.Blend = true;
 			ssrCompositeFBSpec.BlendMode = FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha;
@@ -1432,7 +1572,7 @@ namespace Lux {
 			m_SSRCompositePass = RenderPass::Create(ssrRenderPassSpec);
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRImage);
 			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_SSRCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 			m_SSRCompositePass->SetInput("Camera", m_UBSCamera);
 			m_SSRCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
 			m_SSRCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
@@ -1535,8 +1675,8 @@ namespace Lux {
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_ViewportWidth;
 			fbSpec.Height = m_ViewportHeight;
-			fbSpec.ExistingImages[0] = m_GeometryPassFramebuffer->GetImage(0);
-			fbSpec.Attachments = { ImageFormat::RGBA32F };
+			fbSpec.ExistingImages[0] = GetSceneColorOutput();
+			fbSpec.Attachments = { ImageFormat::RGBA16F };
 			fbSpec.ClearColorOnLoad = false;
 			fbSpec.DebugName = "GeometryWireframe";
 
@@ -1562,13 +1702,13 @@ namespace Lux {
 			m_WireframeMaterial->Set("u_MaterialUniforms.Color", glm::vec4{ 1.0f, 0.5f, 0.0f, 1.0f });
 		}
 
-		// ── Skybox (renders into geometry color attachment before geometry) ────
+		// ── Skybox (renders into the HDR scene color before geometry lighting) ─
 		{
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_ViewportWidth;
 			fbSpec.Height = m_ViewportHeight;
-			fbSpec.ExistingImages[0] = m_GeometryPassFramebuffer->GetImage(0);
-			fbSpec.Attachments = { ImageFormat::RGBA32F };
+			fbSpec.ExistingImages[0] = GetSceneColorOutput();
+			fbSpec.Attachments = { ImageFormat::RGBA16F };
 			fbSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 			fbSpec.DebugName = "Skybox";
 
@@ -1664,8 +1804,8 @@ namespace Lux {
 			rpSpec.DebugName = "CompositePass";
 			rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
 			m_CompositePass = RenderPass::Create(rpSpec);
-			// The geometry color output feeds the composite shader
-			m_CompositePass->SetInput("u_Texture", m_GeometryPass->GetOutput(0));
+			// SceneColorHDR is produced by either deferred lighting or the forward fallback.
+			m_CompositePass->SetInput("u_Texture", GetSceneColorOutput());
 			m_CompositePass->SetInput("u_BloomTexture", m_BloomComputeTextures[2].Texture);
 			m_CompositePass->SetInput("u_BloomDirtTexture", m_BloomDirtTexture);
 			m_CompositePass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
@@ -1940,10 +2080,10 @@ namespace Lux {
 
 	void SceneRenderer::CreateBloomPassMaterials()
 	{
-		if (!m_BloomComputePass || !m_SkyboxPass || !m_BloomComputeTextures[0].Texture)
+		if (!m_BloomComputePass || !GetSceneColorOutput() || !m_BloomComputeTextures[0].Texture)
 			return;
 
-		Ref<Image2D> inputImage = m_SkyboxPass->GetOutput(0);
+		Ref<Image2D> inputImage = GetSceneColorOutput();
 		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
 		if (mipCount < 4)
 			return;
@@ -2006,6 +2146,9 @@ namespace Lux {
 		resizePass(m_AOCompositePass, viewportSize);
 		resizePass(m_AODebugPass, viewportSize);
 		resizePass(m_SSRCompositePass, viewportSize);
+		resizePass(m_ForwardGeometryPass, viewportSize);
+		resizePass(m_DeferredLightingPass, viewportSize);
+		resizePass(m_GBufferDebugPass, viewportSize);
 		resizePass(m_JumpFloodInitPass, viewportSize);
 		resizePass(m_JumpFloodPasses[0], viewportSize);
 		resizePass(m_JumpFloodPasses[1], viewportSize);
@@ -2091,13 +2234,13 @@ namespace Lux {
 			{
 				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-				m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+				m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 			}
 			if (m_AODebugPass)
 			{
 				m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 				m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-				m_AODebugPass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+				m_AODebugPass->SetInput("u_Normal", GetGeometryNormalOutput());
 			}
 			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
@@ -2134,7 +2277,7 @@ namespace Lux {
 			{
 				m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
 				m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-				m_SSRCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+				m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 			}
 
 			m_PreConvolutedTexture.Texture->Resize(ssrSize.x, ssrSize.y);
@@ -2232,7 +2375,7 @@ namespace Lux {
 		{
 			Ref<Material> material = Material::Create(m_PreConvolutionComputePass->GetShader(), "Pre-Convolution");
 			material->Set("o_Image", m_PreConvolutedTexture.ImageViews[mip]);
-			material->Set("u_Input", mip == 0 ? m_SkyboxPass->GetOutput(0) : m_PreConvolutedTexture.ImageViews[mip - 1]);
+			material->Set("u_Input", mip == 0 ? GetSceneColorOutput() : m_PreConvolutedTexture.ImageViews[mip - 1]);
 			m_PreConvolutionMaterials[mip] = material;
 		}
 	}
@@ -2567,7 +2710,10 @@ namespace Lux {
 		addRenderPass(m_JumpFloodPasses[1]);
 		addRenderPass(m_JumpFloodCompositePass);
 		addRenderPass(m_GeometryPass);
+		addRenderPass(m_ForwardGeometryPass);
 		addRenderPass(m_GeometryPassTransparent);
+		addRenderPass(m_DeferredLightingPass);
+		addRenderPass(m_GBufferDebugPass);
 		addRenderPass(m_SelectedGeometryPass);
 		addRenderPass(m_GeometryWireframePass);
 		addRenderPass(m_SkyboxPass);
@@ -2575,6 +2721,7 @@ namespace Lux {
 		addRenderPass(m_GridRenderPass);
 
 		addFramebuffer(m_GeometryPassFramebuffer);
+		addFramebuffer(m_SceneColorFramebuffer);
 		addFramebuffer(m_CompositingFramebuffer);
 
 		addComputePass(m_MeshCullingPass);
@@ -2761,20 +2908,51 @@ namespace Lux {
 		appendResources(lightCullingReads, shadowOutputs);
 		addPass("Light Culling", lightCullingReads, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::LightCullingPass));
 
-		std::vector<RenderGraph::ResourceHandle> geometryOutputs = addFramebufferResources("Geometry", m_GeometryPassFramebuffer);
+		const bool deferredPath = UsesDeferredPath();
+		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
+		std::vector<RenderGraph::ResourceHandle> sceneColorOutputs = addFramebufferResources("SceneColor", m_SceneColorFramebuffer);
 		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
 		addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
 
 		std::vector<RenderGraph::ResourceHandle> selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
-		std::vector<RenderGraph::ResourceHandle> geometryReads = shadowOutputs;
-		appendResources(geometryReads, preDepthOutputs);
-		appendResources(geometryReads, skyboxOutputs);
+		addPass("Selected Geometry", preDepthOutputs, selectedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SelectedGeometryPass));
 
-		std::vector<RenderGraph::ResourceHandle> geometryPassOutputs = geometryOutputs;
-		appendResources(geometryPassOutputs, selectedOutputs);
-		appendResources(geometryPassOutputs, addRenderPassResources("Transparent Geometry", m_GeometryPassTransparent));
-		appendResources(geometryPassOutputs, addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass));
-		addPass("Geometry", geometryReads, geometryPassOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GeometryPass));
+		std::vector<RenderGraph::ResourceHandle> sceneColorCurrent = skyboxOutputs.empty() ? sceneColorOutputs : skyboxOutputs;
+		std::vector<RenderGraph::ResourceHandle> geometryOutputs = gbufferOutputs;
+		appendResources(geometryOutputs, sceneColorCurrent);
+
+		if (deferredPath)
+		{
+			addPass("GBuffer", preDepthOutputs, gbufferOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
+
+			std::vector<RenderGraph::ResourceHandle> deferredReads = gbufferOutputs;
+			appendResources(deferredReads, preDepthOutputs);
+			appendResources(deferredReads, shadowOutputs);
+			appendResources(deferredReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> deferredOutputs = addRenderPassResources("Deferred Lighting", m_DeferredLightingPass);
+			addPass("Deferred Lighting", deferredReads, deferredOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DeferredLightingPass));
+			sceneColorCurrent = deferredOutputs;
+
+			geometryOutputs = gbufferOutputs;
+			appendResources(geometryOutputs, sceneColorCurrent);
+		}
+		else
+		{
+			std::vector<RenderGraph::ResourceHandle> forwardReads = shadowOutputs;
+			appendResources(forwardReads, preDepthOutputs);
+			appendResources(forwardReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> forwardOutputs = addRenderPassResources("Forward Geometry", m_ForwardGeometryPass);
+			addPass("Forward Geometry", forwardReads, forwardOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ForwardGeometryPass));
+			sceneColorCurrent = forwardOutputs;
+			geometryOutputs = forwardOutputs;
+		}
+
+		if (deferredPath && UsesGBufferDebugPass(m_DebugViewMode))
+		{
+			std::vector<RenderGraph::ResourceHandle> debugReads = gbufferOutputs;
+			appendResources(debugReads, sceneColorCurrent);
+			addPass("GBuffer Debug", debugReads, addRenderPassResources("GBuffer Debug", m_GBufferDebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferDebugPass));
+		}
 
 		std::vector<RenderGraph::ResourceHandle> aoFinalOutputs;
 		if (m_Options.EnableGTAO)
@@ -2801,7 +2979,10 @@ namespace Lux {
 			std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
 			appendResources(aoCompositeReads, preDepthOutputs);
 			appendResources(aoCompositeReads, aoFinalOutputs);
-			addPass("AO Composite", aoCompositeReads, addRenderPassResources("AO Composite", m_AOCompositePass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AOComposite));
+			appendResources(aoCompositeReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> aoCompositeOutputs = addRenderPassResources("AO Composite", m_AOCompositePass);
+			addPass("AO Composite", aoCompositeReads, aoCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AOComposite));
+			sceneColorCurrent = aoCompositeOutputs;
 
 			if (m_DebugViewMode == DebugViewMode::AO)
 				addPass("AO Debug", aoCompositeReads, addRenderPassResources("AO Debug", m_AODebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AODebugPass));
@@ -2812,7 +2993,7 @@ namespace Lux {
 		{
 			std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
 			preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-			addPass("Pre-Convolution", skyboxOutputs.empty() ? geometryOutputs : skyboxOutputs, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
+			addPass("Pre-Convolution", sceneColorCurrent, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
 
 			const RenderGraph::ResourceHandle ssrImage = addTexture("SSR", m_SSRImage);
 			const RenderGraph::ResourceHandle ssrHistoryA = addTexture("SSR History A", m_SSRHistoryImages[0]);
@@ -2835,8 +3016,23 @@ namespace Lux {
 
 			std::vector<RenderGraph::ResourceHandle> ssrCompositeReads = geometryOutputs;
 			appendResources(ssrCompositeReads, ssrOutputs);
-			addPass("SSR Composite", ssrCompositeReads, addRenderPassResources("SSR Composite", m_SSRCompositePass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SSRCompositePass));
+			appendResources(ssrCompositeReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> ssrCompositeOutputs = addRenderPassResources("SSR Composite", m_SSRCompositePass);
+			addPass("SSR Composite", ssrCompositeReads, ssrCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SSRCompositePass));
+			sceneColorCurrent = ssrCompositeOutputs;
 		}
+
+		std::vector<RenderGraph::ResourceHandle> transparentReads = shadowOutputs;
+		appendResources(transparentReads, preDepthOutputs);
+		appendResources(transparentReads, sceneColorCurrent);
+		std::vector<RenderGraph::ResourceHandle> transparentOutputs = addRenderPassResources("Transparent Forward", m_GeometryPassTransparent);
+		addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass));
+		sceneColorCurrent = transparentOutputs;
+
+		std::vector<RenderGraph::ResourceHandle> wireframeReads = sceneColorCurrent;
+		std::vector<RenderGraph::ResourceHandle> wireframeOutputs = addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass);
+		addPass("Geometry Wireframe", wireframeReads, wireframeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GeometryWireframePass));
+		sceneColorCurrent = wireframeOutputs;
 
 		std::vector<RenderGraph::ResourceHandle> jumpFloodAOutputs;
 		std::vector<RenderGraph::ResourceHandle> jumpFloodBOutputs;
@@ -2861,10 +3057,11 @@ namespace Lux {
 				if (m_BloomComputeTextures[index].Texture)
 					bloomOutputs.push_back(addTexture(std::format("Bloom {}", index), m_BloomComputeTextures[index].Texture->GetImage()));
 			}
-			addPass("Bloom", geometryOutputs, bloomOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::BloomCompute));
+			addPass("Bloom", sceneColorCurrent, bloomOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::BloomCompute));
 		}
 
-		std::vector<RenderGraph::ResourceHandle> compositeReads = geometryOutputs;
+		std::vector<RenderGraph::ResourceHandle> compositeReads = sceneColorCurrent;
+		appendResources(compositeReads, geometryOutputs);
 		appendResources(compositeReads, ssrOutputs);
 		appendResources(compositeReads, bloomOutputs);
 		appendResources(compositeReads, preDepthOutputs);
@@ -3184,11 +3381,15 @@ namespace Lux {
 			};
 
 		recreateFramebuffer(m_GeometryPassFramebuffer);
+		recreateFramebuffer(m_SceneColorFramebuffer);
 		recreateFramebuffer(m_CompositingFramebuffer);
 
 		recreatePassFramebuffer(m_PreDepthPass);
 		recreatePassFramebuffer(m_GeometryPass);
+		recreatePassFramebuffer(m_ForwardGeometryPass);
 		recreatePassFramebuffer(m_GeometryPassTransparent);
+		recreatePassFramebuffer(m_DeferredLightingPass);
+		recreatePassFramebuffer(m_GBufferDebugPass);
 		recreatePassFramebuffer(m_SkyboxPass);
 		recreatePassFramebuffer(m_SelectedGeometryPass);
 		recreatePassFramebuffer(m_GeometryWireframePass);
@@ -3275,6 +3476,10 @@ namespace Lux {
 				return framebuffer->HasDepthAttachment() && isSameImage(framebuffer->GetDepthImage());
 			};
 
+		if (isFramebufferImage(m_GeometryPassFramebuffer))
+			return false;
+		if (isFramebufferImage(m_SceneColorFramebuffer))
+			return false;
 		if (isFramebufferImage(m_CompositingFramebuffer))
 			return false;
 
@@ -3317,8 +3522,12 @@ namespace Lux {
 
 			m_PreDepthPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_SceneColorFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_ForwardGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassTransparent->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_DeferredLightingPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_SkyboxPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_SelectedGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryWireframePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -3786,10 +3995,21 @@ namespace Lux {
 		// ── Update environment texture bindings in geometry passes ────────────
 		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_SceneData.SceneEnvironment);
 		Ref<TextureCube> irradianceMap = GetEnvironmentIrradianceMap(m_SceneData.SceneEnvironment);
-		m_GeometryPass->SetInput("u_EnvRadianceTex", radianceMap);
-		m_GeometryPass->SetInput("u_EnvIrradianceTex", irradianceMap);
-		m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", radianceMap);
-		m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", irradianceMap);
+		if (m_ForwardGeometryPass)
+		{
+			m_ForwardGeometryPass->SetInput("u_EnvRadianceTex", radianceMap);
+			m_ForwardGeometryPass->SetInput("u_EnvIrradianceTex", irradianceMap);
+		}
+		if (m_DeferredLightingPass)
+		{
+			m_DeferredLightingPass->SetInput("u_EnvRadianceTex", radianceMap);
+			m_DeferredLightingPass->SetInput("u_EnvIrradianceTex", irradianceMap);
+		}
+		if (m_GeometryPassTransparent)
+		{
+			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", radianceMap);
+			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", irradianceMap);
+		}
 
 		m_UploadCommandBuffer->End();
 		m_UploadCommandBuffer->Submit();
@@ -4478,8 +4698,14 @@ namespace Lux {
 			m_GPUMaterialTextures[textureIndex] = texture;
 			if (m_GeometryPass && m_GeometryPass->IsInputValid("u_GPUMaterialTextures"))
 				m_GeometryPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
+			if (m_ForwardGeometryPass && m_ForwardGeometryPass->IsInputValid("u_GPUMaterialTextures"))
+				m_ForwardGeometryPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 			if (m_GeometryPassTransparent && m_GeometryPassTransparent->IsInputValid("u_GPUMaterialTextures"))
 				m_GeometryPassTransparent->SetInput("u_GPUMaterialTextures", texture, textureIndex);
+			if (m_DeferredLightingPass && m_DeferredLightingPass->IsInputValid("u_GPUMaterialTextures"))
+				m_DeferredLightingPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
+			if (m_GBufferDebugPass && m_GBufferDebugPass->IsInputValid("u_GPUMaterialTextures"))
+				m_GBufferDebugPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 		}
 
 		std::vector<GPUMaterialData> gpuMaterialData = submittedMaterialScene ? submittedMaterialScene->GetMaterials() : std::vector<GPUMaterialData>();
@@ -5288,40 +5514,42 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
-	void SceneRenderer::GeometryPass()
+	void SceneRenderer::SelectedGeometryPass()
 	{
-		ScopedCPUProfile cpuProfile(*this, "GeometryPass");
-		BeginProfiledGPU("GeometryPass");
-
-		// Selected geometry mask, matching Hazel's static selected path. Lux does
-		// not run animation or jump-flood outline passes here.
+		ScopedCPUProfile cpuProfile(*this, "SelectedGeometryPass");
 		const MeshPassState& selectedPass = GetMeshPass(MeshPassType::SelectedMask);
-		if (!selectedPass.DrawList.empty())
+		if (selectedPass.DrawList.empty())
+			return;
+
+		BeginProfiledGPU("SelectedGeometryPass");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_SelectedGeometryPass);
+
+		for (const MeshKey& key : selectedPass.DrawOrder)
 		{
-			Renderer::BeginRenderPass(m_CommandBuffer, m_SelectedGeometryPass);
+			const auto drawIt = selectedPass.DrawList.find(key);
+			if (drawIt == selectedPass.DrawList.end()) continue;
+			auto it = m_MeshTransformMap.find(key);
+			if (it == m_MeshTransformMap.end()) continue;
 
-			for (const MeshKey& key : selectedPass.DrawOrder)
-			{
-				const auto drawIt = selectedPass.DrawList.find(key);
-				if (drawIt == selectedPass.DrawList.end()) continue;
-				auto it = m_MeshTransformMap.find(key);
-				if (it == m_MeshTransformMap.end()) continue;
+			StaticDrawCommand drawCmd = drawIt->second;
+			const auto& tmd = it->second;
 
-				StaticDrawCommand drawCmd = drawIt->second;
-				const auto& tmd = it->second;
-
-				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, tmd]() mutable {
-					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
-						instance->m_SelectedGeometryPass->GetPipeline()->GetShader());
-					});
-			}
-
-			Renderer::EndRenderPass(m_CommandBuffer);
+			Ref<SceneRenderer> instance = this;
+			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+				instance->RT_DrawStaticMesh(
+					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_SelectedGeometryPass->GetPipeline()->GetShader());
+				});
 		}
 
-		// ── Opaque geometry ───────────────────────────────────────────────────
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::GBufferPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "GBufferPass");
+		BeginProfiledGPU("GBufferPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPass);
 
 		const MeshPassState& opaquePass = GetMeshPass(MeshPassType::Opaque);
@@ -5344,17 +5572,101 @@ namespace Lux {
 		}
 
 		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
 
-		// ── Transparent geometry ──────────────────────────────────────────────
-		const MeshPassState& transparentPass = GetMeshPass(MeshPassType::Transparent);
-		if (!transparentPass.DrawList.empty())
+	void SceneRenderer::ForwardGeometryPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "ForwardGeometryPass");
+		BeginProfiledGPU("ForwardGeometryPass");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_ForwardGeometryPass);
+
+		const MeshPassState& opaquePass = GetMeshPass(MeshPassType::Opaque);
+		for (const MeshKey& key : opaquePass.DrawOrder)
 		{
-			Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPassTransparent);
+			const auto drawIt = opaquePass.DrawList.find(key);
+			if (drawIt == opaquePass.DrawList.end()) continue;
+			auto it = m_MeshTransformMap.find(key);
+			if (it == m_MeshTransformMap.end()) continue;
 
-			for (const MeshKey& key : transparentPass.DrawOrder)
+			StaticDrawCommand drawCmd = drawIt->second;
+			const auto& tmd = it->second;
+
+			Ref<SceneRenderer> instance = this;
+			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+				instance->RT_DrawStaticMesh(
+					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_ForwardGeometryPass->GetPipeline()->GetShader());
+				});
+		}
+
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::DeferredLightingPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "DeferredLightingPass");
+		if (!m_DeferredLightingPass || !m_DeferredLightingMaterial)
+			return;
+
+		BeginProfiledGPU("DeferredLightingPass");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_DeferredLightingPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_DeferredLightingPass->GetPipeline(), m_DeferredLightingMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::TransparentForwardPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "TransparentForwardPass");
+		const MeshPassState& transparentPass = GetMeshPass(MeshPassType::Transparent);
+		if (transparentPass.DrawList.empty())
+			return;
+
+		BeginProfiledGPU("TransparentForwardPass");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPassTransparent);
+
+		for (const MeshKey& key : transparentPass.DrawOrder)
+		{
+			const auto drawIt = transparentPass.DrawList.find(key);
+			if (drawIt == transparentPass.DrawList.end()) continue;
+			auto it = m_MeshTransformMap.find(key);
+			if (it == m_MeshTransformMap.end()) continue;
+
+			StaticDrawCommand drawCmd = drawIt->second;
+			const auto& tmd = it->second;
+
+			Ref<SceneRenderer> instance = this;
+			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+				instance->RT_DrawStaticMesh(
+					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_GeometryPassTransparent->GetPipeline()->GetShader());
+				});
+		}
+
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::GeometryWireframePass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "GeometryWireframePass");
+		const MeshPassState& wireframePass = GetMeshPass(MeshPassType::Wireframe);
+		const MeshPassState& colliderPass = GetMeshPass(MeshPassType::PhysicsCollider);
+		if ((!m_Options.ShowSelectedInWireframe || wireframePass.DrawList.empty())
+			&& (!m_Options.ShowPhysicsColliders || colliderPass.DrawList.empty()))
+			return;
+
+		BeginProfiledGPU("GeometryWireframePass");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryWireframePass);
+
+		if (m_Options.ShowSelectedInWireframe)
+		{
+			for (const MeshKey& key : wireframePass.DrawOrder)
 			{
-				const auto drawIt = transparentPass.DrawList.find(key);
-				if (drawIt == transparentPass.DrawList.end()) continue;
+				const auto drawIt = wireframePass.DrawList.find(key);
+				if (drawIt == wireframePass.DrawList.end()) continue;
 				auto it = m_MeshTransformMap.find(key);
 				if (it == m_MeshTransformMap.end()) continue;
 
@@ -5364,67 +5676,53 @@ namespace Lux {
 				Ref<SceneRenderer> instance = this;
 				Renderer::Submit([instance, drawCmd, tmd]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
-						instance->m_GeometryPassTransparent->GetPipeline()->GetShader());
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
+						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
 					});
 			}
-
-			Renderer::EndRenderPass(m_CommandBuffer);
 		}
 
-		// ── Selected wireframe overlay ────────────────────────────────────────
-		const MeshPassState& wireframePass = GetMeshPass(MeshPassType::Wireframe);
-		const MeshPassState& colliderPass = GetMeshPass(MeshPassType::PhysicsCollider);
-		if ((m_Options.ShowSelectedInWireframe && !wireframePass.DrawList.empty())
-			|| (m_Options.ShowPhysicsColliders && !colliderPass.DrawList.empty()))
+		if (m_Options.ShowPhysicsColliders)
 		{
-			Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryWireframePass);
-
-			if (m_Options.ShowSelectedInWireframe)
+			for (const MeshKey& key : colliderPass.DrawOrder)
 			{
-				for (const MeshKey& key : wireframePass.DrawOrder)
-				{
-					const auto drawIt = wireframePass.DrawList.find(key);
-					if (drawIt == wireframePass.DrawList.end()) continue;
-					auto it = m_MeshTransformMap.find(key);
-					if (it == m_MeshTransformMap.end()) continue;
+				const auto drawIt = colliderPass.DrawList.find(key);
+				if (drawIt == colliderPass.DrawList.end()) continue;
+				auto it = m_MeshTransformMap.find(key);
+				if (it == m_MeshTransformMap.end()) continue;
 
-					StaticDrawCommand drawCmd = drawIt->second;
-					const auto& tmd = it->second;
+				StaticDrawCommand drawCmd = drawIt->second;
+				const auto& tmd = it->second;
 
-					Ref<SceneRenderer> instance = this;
-					Renderer::Submit([instance, drawCmd, tmd]() mutable {
-						instance->RT_DrawStaticMesh(
-							instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
-							instance->m_GeometryWireframePass->GetPipeline()->GetShader());
-						});
-				}
+				Ref<SceneRenderer> instance = this;
+				Renderer::Submit([instance, drawCmd, tmd]() mutable {
+					instance->RT_DrawStaticMesh(
+						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
+						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
+					});
 			}
-
-			if (m_Options.ShowPhysicsColliders)
-			{
-				for (const MeshKey& key : colliderPass.DrawOrder)
-				{
-					const auto drawIt = colliderPass.DrawList.find(key);
-					if (drawIt == colliderPass.DrawList.end()) continue;
-					auto it = m_MeshTransformMap.find(key);
-					if (it == m_MeshTransformMap.end()) continue;
-
-					StaticDrawCommand drawCmd = drawIt->second;
-					const auto& tmd = it->second;
-
-					Ref<SceneRenderer> instance = this;
-					Renderer::Submit([instance, drawCmd, tmd]() mutable {
-						instance->RT_DrawStaticMesh(
-							instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
-							instance->m_GeometryWireframePass->GetPipeline()->GetShader());
-						});
-				}
-			}
-
-			Renderer::EndRenderPass(m_CommandBuffer);
 		}
 
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::GBufferDebugPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "GBufferDebugPass");
+		if (!m_GBufferDebugPass || !m_GBufferDebugMaterial)
+			return;
+
+		const uint32_t debugMode = ResolveGBufferDebugMode(m_DebugViewMode);
+		if (debugMode == 0)
+			return;
+
+		m_GBufferDebugMaterial->Set("u_Uniforms.Mode", debugMode);
+
+		BeginProfiledGPU("GBufferDebugPass");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_GBufferDebugPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_GBufferDebugPass->GetPipeline(), m_GBufferDebugMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -5457,7 +5755,7 @@ namespace Lux {
 			{
 				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-				m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+				m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 			}
 			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
@@ -5485,7 +5783,7 @@ namespace Lux {
 		{
 			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 		}
 		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
@@ -5531,7 +5829,7 @@ namespace Lux {
 		{
 			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_AOCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 		}
 		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
@@ -5558,7 +5856,7 @@ namespace Lux {
 
 		m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 		m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-		m_AODebugPass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+		m_AODebugPass->SetInput("u_Normal", GetGeometryNormalOutput());
 
 		BeginProfiledGPU("AODebug");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_AODebugPass);
@@ -5660,7 +5958,7 @@ namespace Lux {
 		{
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
 			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_SSRCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 		}
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
@@ -5704,7 +6002,7 @@ namespace Lux {
 		{
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
 			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_SSRCompositePass->SetInput("u_Normal", m_GeometryPass->GetOutput(1));
+			m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 		}
 	}
 
@@ -6179,6 +6477,41 @@ namespace Lux {
 	// Output accessors
 	// ─────────────────────────────────────────────────────────────────────────
 
+	bool SceneRenderer::UsesDeferredPath() const
+	{
+		return m_RenderingTechnique == RenderingTechnique::Deferred;
+	}
+
+	Ref<Image2D> SceneRenderer::GetSceneColorOutput() const
+	{
+		return m_SceneColorFramebuffer ? m_SceneColorFramebuffer->GetImage(0) : nullptr;
+	}
+
+	Ref<Image2D> SceneRenderer::GetGeometryBaseColorOutput() const
+	{
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(0) : nullptr;
+	}
+
+	Ref<Image2D> SceneRenderer::GetGeometryNormalOutput() const
+	{
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(1) : nullptr;
+	}
+
+	Ref<Image2D> SceneRenderer::GetGeometryMetalRoughOutput() const
+	{
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(2) : nullptr;
+	}
+
+	Ref<Image2D> SceneRenderer::GetGeometryMaterialIDOutput() const
+	{
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(3) : nullptr;
+	}
+
+	Ref<Image2D> SceneRenderer::GetGeometryObjectIDOutput() const
+	{
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(4) : nullptr;
+	}
+
 	Ref<Image2D> SceneRenderer::GetFinalPassImage()
 	{
 		if (Ref<Image2D> debugImage = GetDebugViewImage(m_DebugViewMode))
@@ -6199,13 +6532,13 @@ namespace Lux {
 				return nullptr;
 
 			case DebugViewMode::Geometry:
-				return m_GeometryPass ? m_GeometryPass->GetOutput(0) : nullptr;
+				return GetSceneColorOutput();
 
 			case DebugViewMode::Depth:
 				return m_PreDepthPass ? m_PreDepthPass->GetDepthOutput() : nullptr;
 
 			case DebugViewMode::Normals:
-				return m_GeometryPass ? m_GeometryPass->GetOutput(1) : nullptr;
+				return GetGeometryNormalOutput();
 
 			case DebugViewMode::SSR:
 				if (!m_Options.EnableSSR)
@@ -6227,6 +6560,22 @@ namespace Lux {
 			case DebugViewMode::Composite:
 				return m_CompositePass ? m_CompositePass->GetOutput(0) : nullptr;
 
+			case DebugViewMode::GBufferBaseColor:
+				return UsesDeferredPath() ? GetGeometryBaseColorOutput() : nullptr;
+
+			case DebugViewMode::GBufferNormal:
+				return UsesDeferredPath() ? GetGeometryNormalOutput() : nullptr;
+
+			case DebugViewMode::GBufferMetalRough:
+				return UsesDeferredPath() ? GetGeometryMetalRoughOutput() : nullptr;
+
+			case DebugViewMode::GBufferMaterialID:
+			case DebugViewMode::GBufferObjectID:
+				return UsesDeferredPath() && m_GBufferDebugPass ? m_GBufferDebugPass->GetOutput(0) : nullptr;
+
+			case DebugViewMode::DeferredLighting:
+				return UsesDeferredPath() && m_GBufferDebugPass ? m_GBufferDebugPass->GetOutput(0) : nullptr;
+
 			case DebugViewMode::GPUScenePrimitiveID:
 			case DebugViewMode::GPUSceneMaterialIndex:
 			case DebugViewMode::GPUSceneObjectID:
@@ -6237,7 +6586,9 @@ namespace Lux {
 			case DebugViewMode::GPUMaterialRoughness:
 			case DebugViewMode::GPUMaterialMetalness:
 			case DebugViewMode::GPUMaterialMissing:
-				return m_GeometryPass ? m_GeometryPass->GetOutput(0) : nullptr;
+				if (UsesDeferredPath() && UsesGBufferDebugPass(mode))
+					return m_GBufferDebugPass ? m_GBufferDebugPass->GetOutput(0) : nullptr;
+				return GetSceneColorOutput();
 		}
 
 		return nullptr;

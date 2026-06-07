@@ -82,6 +82,12 @@ namespace Lux {
 				case SceneRenderer::DebugViewMode::AO: return "AO";
 				case SceneRenderer::DebugViewMode::Bloom: return "Bloom";
 				case SceneRenderer::DebugViewMode::Composite: return "Composite";
+				case SceneRenderer::DebugViewMode::GBufferBaseColor: return "GBuffer Base Color";
+				case SceneRenderer::DebugViewMode::GBufferNormal: return "GBuffer Normal";
+				case SceneRenderer::DebugViewMode::GBufferMetalRough: return "GBuffer Metal/Rough";
+				case SceneRenderer::DebugViewMode::GBufferMaterialID: return "GBuffer Material ID";
+				case SceneRenderer::DebugViewMode::GBufferObjectID: return "GBuffer Object ID";
+				case SceneRenderer::DebugViewMode::DeferredLighting: return "Deferred Lighting";
 				case SceneRenderer::DebugViewMode::GPUScenePrimitiveID: return "GPUScene Primitive ID";
 				case SceneRenderer::DebugViewMode::GPUSceneMaterialIndex: return "GPUScene Material Index";
 				case SceneRenderer::DebugViewMode::GPUSceneObjectID: return "GPUScene Object ID";
@@ -667,6 +673,12 @@ namespace Lux {
 			{ SceneRenderer::DebugViewMode::AO, "AO" },
 			{ SceneRenderer::DebugViewMode::Bloom, "Bloom" },
 			{ SceneRenderer::DebugViewMode::Composite, "Composite" },
+			{ SceneRenderer::DebugViewMode::GBufferBaseColor, "GBuf Base" },
+			{ SceneRenderer::DebugViewMode::GBufferNormal, "GBuf Norm" },
+			{ SceneRenderer::DebugViewMode::GBufferMetalRough, "GBuf MR" },
+			{ SceneRenderer::DebugViewMode::GBufferMaterialID, "GBuf MatID" },
+			{ SceneRenderer::DebugViewMode::GBufferObjectID, "GBuf ObjID" },
+			{ SceneRenderer::DebugViewMode::DeferredLighting, "Deferred" },
 			{ SceneRenderer::DebugViewMode::GPUScenePrimitiveID, "GPU Prim" },
 			{ SceneRenderer::DebugViewMode::GPUSceneMaterialIndex, "GPU Mat" },
 			{ SceneRenderer::DebugViewMode::GPUSceneObjectID, "GPU Object" },
@@ -718,6 +730,15 @@ namespace Lux {
 		const Ref<Image2D> activeImage = m_Context->GetDebugViewImage(activeMode);
 		ImGui::Spacing();
 		ImGui::Text("Active: %s", DebugViewModeToString(activeMode));
+		ImGui::TextDisabled("Path: %s, viewport: %ux%u",
+			RenderingTechniqueToString(m_Context->GetRenderingTechnique()),
+			m_Context->GetViewportWidth(),
+			m_Context->GetViewportHeight());
+		const bool materialIDValid = m_Context->GetDebugViewImage(SceneRenderer::DebugViewMode::GBufferMaterialID) != nullptr;
+		const bool objectIDValid = m_Context->GetDebugViewImage(SceneRenderer::DebugViewMode::GBufferObjectID) != nullptr;
+		ImGui::TextDisabled("GBuffer: A RGBA16F, B RGBA16F, C RGBA8, MaterialID RED32UI %s, ObjectID RED32UI %s",
+			materialIDValid ? "valid" : "unavailable",
+			objectIDValid ? "valid" : "unavailable");
 		if (activeImage)
 		{
 			const ImageSpecification& spec = activeImage->GetSpecification();

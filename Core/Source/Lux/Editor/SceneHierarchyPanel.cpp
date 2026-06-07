@@ -344,6 +344,51 @@ namespace Lux {
 			SelectionManager::Deselect(m_SelectionContext, entityID);
 	}
 
+	void SceneHierarchyPanel::QueueEntityDeletion(const std::vector<UUID>& entityIDs)
+	{
+		if (!m_Context)
+			return;
+
+		for (UUID entityID : entityIDs)
+		{
+			if (std::find(m_QueuedEntityDeletions.begin(), m_QueuedEntityDeletions.end(), entityID) != m_QueuedEntityDeletions.end())
+				continue;
+
+			m_QueuedEntityDeletions.emplace_back(entityID);
+		}
+	}
+
+	void SceneHierarchyPanel::FlushQueuedEntityDeletions()
+	{
+		if (!m_Context || m_QueuedEntityDeletions.empty())
+			return;
+
+		std::vector<UUID> entitiesToDeselect;
+		for (UUID entityID : m_QueuedEntityDeletions)
+		{
+			Entity entity = m_Context->GetEntityByUUID(entityID);
+			if (!entity)
+				continue;
+
+			entitiesToDeselect.emplace_back(entityID);
+
+			std::vector<UUID> childIDs = m_Context->GetAllChildren(entity);
+			entitiesToDeselect.insert(entitiesToDeselect.end(), childIDs.begin(), childIDs.end());
+		}
+
+		for (UUID entityID : entitiesToDeselect)
+			SelectionManager::Deselect(m_SelectionContext, entityID);
+
+		for (UUID entityID : m_QueuedEntityDeletions)
+		{
+			Entity entity = m_Context->GetEntityByUUID(entityID);
+			if (entity)
+				m_Context->DestroyEntity(entity);
+		}
+
+		m_QueuedEntityDeletions.clear();
+	}
+
 	void SceneHierarchyPanel::OnImGuiRender(bool& isOpen)
 	{
 		if (!isOpen)
@@ -438,6 +483,8 @@ namespace Lux {
 
 		if (!isOpen)
 			return;
+
+		FlushQueuedEntityDeletions();
 
 		ImGui::Begin("Properties", &isOpen);
 		m_IsHierarchyOrPropertiesFocused = m_IsHierarchyFocused || ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -738,7 +785,8 @@ namespace Lux {
 
 		if (opened)
 		{
-			for (UUID childID : relationship.Children)
+			const std::vector<UUID> childIDs = relationship.Children;
+			for (UUID childID : childIDs)
 			{
 				Entity childEntity = m_Context->GetEntityByUUID(childID);
 				if (childEntity)
@@ -756,14 +804,7 @@ namespace Lux {
 			else
 				entitiesToDelete = { entity.GetUUID() };
 
-			for (UUID entityID : entitiesToDelete)
-			{
-				Entity entityToDelete = m_Context->GetEntityByUUID(entityID);
-				if (entityToDelete)
-					m_Context->DestroyEntity(entityToDelete);
-
-				SelectionManager::Deselect(s_ActiveSelectionContext, entityID);
-			}
+			QueueEntityDeletion(entitiesToDelete);
 		}
 	}
 

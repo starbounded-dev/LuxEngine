@@ -494,6 +494,12 @@ namespace Lux {
 			AO,
 			Bloom,
 			Composite,
+			GBufferBaseColor,
+			GBufferNormal,
+			GBufferMetalRough,
+			GBufferMaterialID,
+			GBufferObjectID,
+			DeferredLighting,
 			GPUScenePrimitiveID,
 			GPUSceneMaterialIndex,
 			GPUSceneObjectID,
@@ -775,7 +781,13 @@ namespace Lux {
 		void MeshCullingPass();
 		void LightCullingPass();
 		void SkyboxPass();
-		void GeometryPass();
+		void SelectedGeometryPass();
+		void GBufferPass();
+		void ForwardGeometryPass();
+		void DeferredLightingPass();
+		void TransparentForwardPass();
+		void GeometryWireframePass();
+		void GBufferDebugPass();
 		void GTAOCompute();
 		void GTAODenoiseCompute();
 		void GTAOTemporalAccumulationCompute();
@@ -808,6 +820,13 @@ namespace Lux {
 		void ResizeBloomResources();
 		void CreateBloomPassMaterials();
 		void ResizeScreenSpaceEffectResources();
+		bool UsesDeferredPath() const;
+		Ref<Image2D> GetSceneColorOutput() const;
+		Ref<Image2D> GetGeometryBaseColorOutput() const;
+		Ref<Image2D> GetGeometryNormalOutput() const;
+		Ref<Image2D> GetGeometryMetalRoughOutput() const;
+		Ref<Image2D> GetGeometryMaterialIDOutput() const;
+		Ref<Image2D> GetGeometryObjectIDOutput() const;
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();
@@ -1144,11 +1163,19 @@ namespace Lux {
 		Ref<Material>   m_JumpFloodCompositeMaterial;
 
 		// ── Geometry pass ─────────────────────────────────────────────────────
-		Ref<Framebuffer> m_GeometryPassFramebuffer;     // owns the attachments
-		Ref<Pipeline>    m_GeometryPipeline;            // opaque PBR
-		Ref<Pipeline>    m_TransparentGeometryPipeline; // transparent PBR
-		Ref<RenderPass>  m_GeometryPass;                // opaque
-		Ref<RenderPass>  m_GeometryPassTransparent;     // transparent (same FB, load)
+		Ref<Framebuffer> m_GeometryPassFramebuffer;     // GBuffer attachments
+		Ref<Framebuffer> m_SceneColorFramebuffer;       // HDR scene color shared by deferred/forward lighting
+		Ref<Pipeline>    m_GeometryPipeline;            // opaque GBuffer
+		Ref<Pipeline>    m_ForwardGeometryPipeline;     // opaque forward fallback
+		Ref<Pipeline>    m_TransparentGeometryPipeline; // transparent forward PBR
+		Ref<Pipeline>    m_DeferredLightingPipeline;    // fullscreen deferred lighting
+		Ref<RenderPass>  m_GeometryPass;                // opaque GBuffer
+		Ref<RenderPass>  m_ForwardGeometryPass;         // opaque forward fallback
+		Ref<RenderPass>  m_GeometryPassTransparent;     // transparent forward
+		Ref<RenderPass>  m_DeferredLightingPass;        // fullscreen deferred lighting
+		Ref<Material>    m_DeferredLightingMaterial;
+		Ref<RenderPass>  m_GBufferDebugPass;
+		Ref<Material>    m_GBufferDebugMaterial;
 		std::vector<Ref<Texture2D>> m_GPUMaterialTextures;
 
 		// ── Selected / wireframe ──────────────────────────────────────────────

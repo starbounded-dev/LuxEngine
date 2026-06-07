@@ -12,16 +12,16 @@ Project:
   AutomaticallyReloadAssembly: true
   AutoSave: true
   AutoSaveInterval: 300
-  RenderingTechnique: Forward
+  RenderingTechnique: Deferred
   RuntimeExport:
     GameName: LuxSample
-    WindowWidth: 1920
-    WindowHeight: 1080
-    Fullscreen: false
+    WindowWidth: 3840
+    WindowHeight: 2160
+    Fullscreen: true
     VSync: true
     IconPath: Textures/luxLogo.png
     IconHandle: 10706518493978196728
-    TargetConfig: Dist
+    TargetConfig: Release
   SceneRenderer:
     Rendering:
       QualityPreset: Cinematic
@@ -38,7 +38,7 @@ Project:
       DynamicResolutionMinScale: 0.5
       DynamicResolutionMaxScale: 1
       DynamicResolutionTargetGPUTime: 16.6700001
-      TextureMipBias: -1.5
+      TextureMipBias: -4
       DistanceMipBias: true
       DistanceMipBiasStart: 10
       DistanceMipBiasEnd: 100
@@ -72,7 +72,7 @@ Project:
         Intensity: 1
         DirtIntensity: 1
       DOF:
-        Enabled: false
+        Enabled: true
         ResolutionScale: 1
         FocusDistance: 4
         BlurSize: 0.75

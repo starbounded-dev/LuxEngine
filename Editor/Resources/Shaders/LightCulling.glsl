@@ -183,7 +183,7 @@ void main()
 		float distance = 0.0;
 		for (uint j = 0; j < 6; j++)
 		{
-			distance = dot(vec4(light.Position - light.Direction * (light.Range * 0.7), 1.0), frustumPlanes[j]) + radius * 1.3;
+			distance = dot(vec4(light.Position + light.Direction * (light.Range * 0.7), 1.0), frustumPlanes[j]) + radius * 1.3;
 			if (distance < 0.0) // No intersection
 				break;
 		}

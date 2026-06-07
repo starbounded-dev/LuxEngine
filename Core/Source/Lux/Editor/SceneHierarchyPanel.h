@@ -30,6 +30,8 @@ namespace Lux {
 		static SelectionContext GetActiveSelectionContext() { return s_ActiveSelectionContext; }
 	private:
 		void PruneInvalidSelection();
+		void QueueEntityDeletion(const std::vector<UUID>& entityIDs);
+		void FlushQueuedEntityDeletions();
 		void DrawEntityCreateMenu(Entity parent = {});
 		void DrawEntityNode(Entity entity, const std::string& searchFilter = {});
 		void DrawComponents(const std::vector<UUID>& entityIDs);
@@ -42,6 +44,7 @@ namespace Lux {
 		bool m_IsHierarchyFocused = false;
 		bool m_IsHierarchyOrPropertiesFocused = false;
 		bool m_ActivateSearchWidget = false;
+		std::vector<UUID> m_QueuedEntityDeletions;
 
 		static SelectionContext s_ActiveSelectionContext;
 	};
