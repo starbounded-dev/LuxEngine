@@ -397,6 +397,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Skybox.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SkyAtmosphere.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/VolumetricClouds.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/VolumetricCloudComposite.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/AtmosphericFog.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap_Anim.glsl");

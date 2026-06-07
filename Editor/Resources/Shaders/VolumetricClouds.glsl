@@ -163,13 +163,17 @@ void main()
 
 	uint marchSteps = GetCloudMarchStepCount(t0, t1);
 	float stepLength = (t1 - t0) / float(marchSteps);
-	float jitter = Hash12(v_ClipPosition * u_ScreenData.FullResolution + vec2(float(u_Atmosphere.Steps.z % 256u), 41.0));
+	float cloudRenderScale = max(u_Atmosphere.CloudRenderParams2.x, 1.0);
+	vec2 cloudResolution = max(u_ScreenData.FullResolution / cloudRenderScale, vec2(1.0));
+	float jitter = Hash12(v_ClipPosition * cloudResolution + vec2(float(u_Atmosphere.Steps.z % 256u), 41.0));
 	vec3 sunDirection = GetAtmosphereSunDirection();
 	vec3 sunColor = u_Scene.DirectionalLights.Radiance * max(u_Scene.DirectionalLights.Multiplier, 0.0) * u_Atmosphere.SunParams.x;
 	vec3 ambientSky = EvaluateSkyAtmosphere(vec3(0.0, 1.0, 0.0)) * u_Atmosphere.CloudColor.w;
 
 	vec3 accumulatedLight = vec3(0.0);
 	float transmittance = 1.0;
+	float cachedShadow = 1.0;
+	uint shadowReuseInterval = u_Atmosphere.Steps.y <= 1u ? 4u : 2u;
 
 	for (uint i = 0u; i < 128u; i++)
 	{
@@ -184,7 +188,9 @@ void main()
 			continue;
 
 		float powder = 1.0 - exp(-density * stepLength * 0.0025);
-		float shadow = TraceCloudShadow(samplePosition, sunDirection, t, sampleLOD);
+		if ((i % shadowReuseInterval) == 0u)
+			cachedShadow = TraceCloudShadow(samplePosition, sunDirection, t, sampleLOD);
+		float shadow = cachedShadow;
 		float silver = pow(max(dot(viewDirection, sunDirection), 0.0), 16.0) * u_Atmosphere.CloudParams2.w;
 		vec3 lighting = ambientSky + sunColor * (shadow + silver) * powder;
 		vec3 scattering = lighting * u_Atmosphere.CloudColor.xyz * density;

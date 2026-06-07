@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LUX_BUFFERS_GLSLH
+#define LUX_BUFFERS_GLSLH
 
 //
 // SET 1
@@ -150,6 +151,7 @@ layout(std140, set = 2, binding = 3) uniform AtmosphereData
 	vec4 CloudParams2;              // x = detail scale, y = detail strength, z = absorption, w = silver lining
 	vec4 CloudColor;                // xyz = albedo, w = ambient boost
 	vec4 CloudRenderParams;         // x = max trace distance, y = fade distance, z = lod start distance, w = shadow trace distance
+	vec4 CloudRenderParams2;        // x = render scale divisor, yzw = reserved
 	vec4 FogColorDensity;           // xyz = color, w = density
 	vec4 FogParams0;                // x = height falloff, y = start distance, z = max opacity, w = cutoff distance
 	vec4 FogDirectionalInscattering;// xyz = directional color, w = directional exponent
@@ -335,3 +337,5 @@ vec3 GetGPUSceneDebugColor(uint objectIndex, uint mode)
 
 	return vec3(1.0, 0.0, 1.0);
 }
+
+#endif // LUX_BUFFERS_GLSLH

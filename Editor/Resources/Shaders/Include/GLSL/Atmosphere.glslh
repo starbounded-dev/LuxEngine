@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LUX_ATMOSPHERE_GLSLH
+#define LUX_ATMOSPHERE_GLSLH
 
 #include <Buffers.glslh>
 #include <Common.glslh>
@@ -263,3 +264,5 @@ vec3 ApplyHeightFog(vec3 sceneColor, vec3 worldPosition, vec3 viewDirection, flo
 	float fogAmount = fog.a;
 	return mix(sceneColor, fogColor, fogAmount);
 }
+
+#endif // LUX_ATMOSPHERE_GLSLH

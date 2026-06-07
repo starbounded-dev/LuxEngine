@@ -508,6 +508,7 @@ namespace Lux {
 				out << YAML::Key << "ShadowTraceDistance" << YAML::Value << settings.ShadowTraceDistance;
 				out << YAML::Key << "MarchSteps" << YAML::Value << settings.MarchSteps;
 				out << YAML::Key << "ShadowSteps" << YAML::Value << settings.ShadowSteps;
+				out << YAML::Key << "RenderScale" << YAML::Value << settings.RenderScale;
 				out << YAML::EndMap;
 			}
 
@@ -965,6 +966,7 @@ namespace Lux {
 					settings.ShadowTraceDistance = volumetricCloud["ShadowTraceDistance"].as<float>(settings.ShadowTraceDistance);
 					settings.MarchSteps = volumetricCloud["MarchSteps"].as<uint32_t>(settings.MarchSteps);
 					settings.ShadowSteps = volumetricCloud["ShadowSteps"].as<uint32_t>(settings.ShadowSteps);
+					settings.RenderScale = volumetricCloud["RenderScale"].as<uint32_t>(settings.RenderScale);
 				}
 
 				if (auto heightFog = entity["ExponentialHeightFogComponent"])

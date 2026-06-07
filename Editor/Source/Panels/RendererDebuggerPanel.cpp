@@ -345,6 +345,14 @@ namespace Lux {
 			DrawStat("Viewport", std::format("{} x {}", m_Context->GetViewportWidth(), m_Context->GetViewportHeight()).c_str());
 			DrawStat("Output Viewport", std::format("{} x {}", m_Context->GetOutputViewportWidth(), m_Context->GetOutputViewportHeight()).c_str());
 			DrawStat("Render Scale", m_Context->GetRenderResolutionScale() * 100.0f, "%");
+			const auto& atmosphere = m_Context->GetAtmosphereEnvironment();
+			const glm::uvec2& cloudTargetSize = m_Context->GetVolumetricCloudRenderSize();
+			DrawStat("Cloud Render Scale", std::format("1/{}", m_Context->GetVolumetricCloudRenderScale()).c_str());
+			DrawStat("Cloud Target", std::format("{} x {}", cloudTargetSize.x, cloudTargetSize.y).c_str());
+			DrawStat("Cloud Steps", std::format("{} / {}", atmosphere.VolumetricClouds.MarchSteps, atmosphere.VolumetricClouds.ShadowSteps).c_str());
+			DrawStat("Cloud Max Distance", atmosphere.VolumetricClouds.MaxTraceDistance, " m");
+			DrawStat("Fog Steps", atmosphere.HeightFog.VolumetricFog ? atmosphere.HeightFog.VolumetricFogSteps : 0u);
+			DrawStat("Fog Cutoff", atmosphere.HeightFog.CutoffDistance, " m");
 			DrawStat("CPU Time", stats.TotalCPUTime, " ms");
 			DrawStat("GPU Time", stats.TotalGPUTime, " ms");
 			ImGui::EndTable();

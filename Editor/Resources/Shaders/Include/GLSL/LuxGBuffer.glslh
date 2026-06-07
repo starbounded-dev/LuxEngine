@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LUX_GBUFFER_GLSLH
+#define LUX_GBUFFER_GLSLH
 
 #include <Samplers.glslh>
 
@@ -75,3 +76,5 @@ vec3 GBufferDebugColorFromID(uint id)
 		float((id >> 8u) & 0xffu),
 		float((id >> 16u) & 0xffu)) / 255.0;
 }
+
+#endif // LUX_GBUFFER_GLSLH

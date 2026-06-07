@@ -25,10 +25,12 @@
 #include <imgui/misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace Lux {
@@ -96,6 +98,19 @@ namespace Lux {
 				return 0;
 
 			return handle;
+		}
+
+		void DeselectEntityEverywhere(UUID entityID)
+		{
+			constexpr std::array<SelectionContext, 4> contexts = {
+				SelectionContext::Global,
+				SelectionContext::Scene,
+				SelectionContext::ContentBrowser,
+				SelectionContext::PrefabEditor
+			};
+
+			for (SelectionContext context : contexts)
+				SelectionManager::Deselect(context, entityID);
 		}
 
 		template<typename TComponent>
@@ -363,8 +378,21 @@ namespace Lux {
 		if (!m_Context || m_QueuedEntityDeletions.empty())
 			return;
 
+		std::vector<UUID> queuedDeletions = std::move(m_QueuedEntityDeletions);
+		m_QueuedEntityDeletions.clear();
+		auto sortUUIDs = [](std::vector<UUID>& ids)
+		{
+			std::sort(ids.begin(), ids.end(), [](UUID lhs, UUID rhs)
+			{
+				return (uint64_t)lhs < (uint64_t)rhs;
+			});
+		};
+
+		sortUUIDs(queuedDeletions);
+		queuedDeletions.erase(std::unique(queuedDeletions.begin(), queuedDeletions.end()), queuedDeletions.end());
+
 		std::vector<UUID> entitiesToDeselect;
-		for (UUID entityID : m_QueuedEntityDeletions)
+		for (UUID entityID : queuedDeletions)
 		{
 			Entity entity = m_Context->GetEntityByUUID(entityID);
 			if (!entity)
@@ -376,17 +404,20 @@ namespace Lux {
 			entitiesToDeselect.insert(entitiesToDeselect.end(), childIDs.begin(), childIDs.end());
 		}
 
-		for (UUID entityID : entitiesToDeselect)
-			SelectionManager::Deselect(m_SelectionContext, entityID);
+		sortUUIDs(entitiesToDeselect);
+		entitiesToDeselect.erase(std::unique(entitiesToDeselect.begin(), entitiesToDeselect.end()), entitiesToDeselect.end());
 
-		for (UUID entityID : m_QueuedEntityDeletions)
+		for (UUID entityID : entitiesToDeselect)
+			DeselectEntityEverywhere(entityID);
+
+		for (UUID entityID : queuedDeletions)
 		{
 			Entity entity = m_Context->GetEntityByUUID(entityID);
 			if (entity)
 				m_Context->DestroyEntity(entity);
 		}
 
-		m_QueuedEntityDeletions.clear();
+		PruneInvalidSelection();
 	}
 
 	void SceneHierarchyPanel::OnImGuiRender(bool& isOpen)
@@ -2871,6 +2902,7 @@ namespace Lux {
 					});
 				};
 
+				ImGui::TextDisabled("Sky");
 				ImGuiEx::BeginPropertyGrid();
 				if (ImGuiEx::Property("Enabled", settings.Enabled)) applySettings();
 				if (ImGuiEx::Property("Planet Radius", settings.PlanetRadius, 1.0f, 1.0f, 100000.0f)) applySettings();
@@ -2906,6 +2938,7 @@ namespace Lux {
 					});
 				};
 
+				ImGui::TextDisabled("Clouds Shape");
 				ImGuiEx::BeginPropertyGrid();
 				if (ImGuiEx::Property("Enabled", settings.Enabled)) applySettings();
 				if (ImGuiEx::Property("Coverage", settings.Coverage, 0.01f, 0.0f, 1.0f)) applySettings();
@@ -2917,10 +2950,27 @@ namespace Lux {
 				if (ImGuiEx::Property("Shape Scale", settings.ShapeScale, 0.00001f, 0.000001f, 1.0f)) applySettings();
 				if (ImGuiEx::Property("Detail Scale", settings.DetailScale, 0.00001f, 0.000001f, 1.0f)) applySettings();
 				if (ImGuiEx::Property("Detail Strength", settings.DetailStrength, 0.01f, 0.0f, 1.0f)) applySettings();
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::Spacing();
+				ImGui::TextDisabled("Clouds Lighting");
+				ImGuiEx::BeginPropertyGrid();
 				if (ImGuiEx::Property("Absorption", settings.Absorption, 0.01f, 0.001f, 16.0f)) applySettings();
 				if (ImGuiEx::Property("Silver Intensity", settings.SilverIntensity, 0.01f, 0.0f, 8.0f)) applySettings();
 				if (ImGuiEx::PropertyColor("Albedo", settings.Albedo)) applySettings();
 				if (ImGuiEx::Property("Ambient Boost", settings.AmbientBoost, 0.01f, 0.0f, 8.0f)) applySettings();
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::Spacing();
+				ImGui::TextDisabled("Clouds Performance");
+				ImGuiEx::BeginPropertyGrid();
+				const char* renderScaleLabels[] = { "Full", "Half", "Quarter" };
+				int32_t renderScaleIndex = settings.RenderScale == 1u ? 0 : (settings.RenderScale == 4u ? 2 : 1);
+				if (ImGuiEx::PropertyDropdown("Render Scale", renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels), &renderScaleIndex))
+				{
+					settings.RenderScale = renderScaleIndex == 0 ? 1u : (renderScaleIndex == 2 ? 4u : 2u);
+					applySettings();
+				}
 				if (ImGuiEx::Property("Max Distance", settings.MaxTraceDistance, 100.0f, 500.0f, 100000.0f)) applySettings();
 				if (ImGuiEx::Property("Fade Distance", settings.DistanceFade, 100.0f, 0.0f, 100000.0f)) applySettings();
 				if (ImGuiEx::Property("LOD Start", settings.LODStartDistance, 100.0f, 0.0f, 100000.0f)) applySettings();
@@ -2942,6 +2992,7 @@ namespace Lux {
 					});
 				};
 
+				ImGui::TextDisabled("Fog");
 				ImGuiEx::BeginPropertyGrid();
 				if (ImGuiEx::Property("Enabled", settings.Enabled)) applySettings();
 				if (ImGuiEx::PropertyColor("Fog Color", settings.FogColor)) applySettings();
@@ -2953,6 +3004,11 @@ namespace Lux {
 				if (ImGuiEx::PropertyColor("Directional Color", settings.DirectionalInscatteringColor)) applySettings();
 				if (ImGuiEx::Property("Directional Exponent", settings.DirectionalInscatteringExponent, 0.1f, 0.01f, 128.0f)) applySettings();
 				if (ImGuiEx::Property("Directional Start", settings.DirectionalInscatteringStartDistance, 1.0f, 0.0f, 100000.0f)) applySettings();
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::Spacing();
+				ImGui::TextDisabled("Fog Performance");
+				ImGuiEx::BeginPropertyGrid();
 				if (ImGuiEx::Property("Volumetric Fog", settings.VolumetricFog)) applySettings();
 				if (ImGuiEx::Property("Volumetric Scattering", settings.VolumetricScatteringIntensity, 0.01f, 0.0f, 16.0f)) applySettings();
 				if (ImGuiEx::Property("Anisotropy", settings.Anisotropy, 0.01f, -0.8f, 0.8f)) applySettings();

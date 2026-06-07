@@ -1,5 +1,5 @@
-
-#pragma once
+#ifndef LUX_SHADOW_MAPPING_GLSLH
+#define LUX_SHADOW_MAPPING_GLSLH
 
 #if defined(__FRAGMENT_STAGE__) || defined(__COMPUTE_STAGE__)
 #include <Buffers.glslh>
@@ -441,3 +441,5 @@ vec3 CalculateSpotLightsShadowed(in vec3 F0, vec3 worldPos, texture2D SpotAtlas)
 }
 
 #endif // defined(__FRAGMENT_STAGE) || defined(__COMPUTE_STAGE)
+
+#endif // LUX_SHADOW_MAPPING_GLSLH

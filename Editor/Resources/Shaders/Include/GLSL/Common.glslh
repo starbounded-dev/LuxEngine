@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LUX_COMMON_GLSLH
+#define LUX_COMMON_GLSLH
 
 const float PI = 3.141592;
 const float TwoPI = 2 * PI;
@@ -28,3 +29,5 @@ vec4 ToLinear(vec4 sRGB)
 
 	return mix(higher, lower, cutoff);
 }
+
+#endif // LUX_COMMON_GLSLH

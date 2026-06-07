@@ -568,6 +568,9 @@ namespace Lux {
 	uint32_t GetOutputViewportWidth()  const { return m_OutputViewportWidth; }
 	uint32_t GetOutputViewportHeight() const { return m_OutputViewportHeight; }
 	float GetRenderResolutionScale() const;
+	uint32_t GetVolumetricCloudRenderScale() const { return m_CloudRenderScale; }
+	const glm::uvec2& GetVolumetricCloudRenderSize() const { return m_CloudRenderSize; }
+	const AtmosphereEnvironment& GetAtmosphereEnvironment() const { return m_SceneData.Atmosphere; }
 
 		float GetOpacity() const { return m_Opacity; }
 		void  SetOpacity(float opacity) { m_Opacity = opacity; }
@@ -785,6 +788,7 @@ namespace Lux {
 		void SkyboxPass();
 		void SkyAtmospherePass();
 		void VolumetricCloudPass();
+		void VolumetricCloudCompositePass();
 		void AtmosphericFogPass();
 		void SelectedGeometryPass();
 		void GBufferPass();
@@ -825,6 +829,9 @@ namespace Lux {
 		void ResizeBloomResources();
 		void CreateBloomPassMaterials();
 		void ResizeScreenSpaceEffectResources();
+		void ResizeVolumetricCloudResources(bool forceRecreate = false);
+		glm::uvec2 CalculateVolumetricCloudRenderSize() const;
+		void BindCommonSceneRenderPassInputs(Ref<RenderPass> renderPass, bool bindDepth = false);
 		bool UsesDeferredPath() const;
 		Ref<Image2D> GetSceneColorOutput() const;
 		Ref<Image2D> GetGeometryBaseColorOutput() const;
@@ -962,17 +969,18 @@ namespace Lux {
 			glm::vec4 GroundAlbedo = { 0.18f, 0.18f, 0.18f, 0.15f };
 			glm::vec4 AtmosphereParams = { 6360.0f, 100.0f, 8.0f, 1.2f };
 			glm::vec4 SunParams = { 20.0f, 0.00935f, 0.35f, 1.0f };
-			glm::vec4 CloudParams0 = { 0.55f, 0.55f, 1500.0f, 1200.0f };
+			glm::vec4 CloudParams0 = { 0.58f, 0.35f, 1800.0f, 650.0f };
 			glm::vec4 CloudParams1 = { 1.0f, 0.15f, 15.0f, 0.00065f };
-			glm::vec4 CloudParams2 = { 0.0045f, 0.35f, 1.2f, 0.35f };
-			glm::vec4 CloudColor = { 1.0f, 0.98f, 0.92f, 0.25f };
-			glm::vec4 CloudRenderParams = { 12000.0f, 3000.0f, 2500.0f, 4000.0f };
+			glm::vec4 CloudParams2 = { 0.0045f, 0.35f, 0.85f, 0.35f };
+			glm::vec4 CloudColor = { 1.0f, 0.98f, 0.92f, 0.35f };
+			glm::vec4 CloudRenderParams = { 6000.0f, 2500.0f, 2000.0f, 2500.0f };
+			glm::vec4 CloudRenderParams2 = { 2.0f, 0.0f, 0.0f, 0.0f };
 			glm::vec4 FogColorDensity = { 0.52f, 0.62f, 0.72f, 0.015f };
 			glm::vec4 FogParams0 = { 0.12f, 0.0f, 0.85f, 10000.0f };
 			glm::vec4 FogDirectionalInscattering = { 1.0f, 0.88f, 0.65f, 8.0f };
 			glm::vec4 FogParams1 = { 50.0f, 1.0f, 0.2f, 0.0f };
 			glm::uvec4 Flags = { 1u, 0u, 0u, 0u };
-			glm::uvec4 Steps = { 32u, 2u, 0u, 32u };
+			glm::uvec4 Steps = { 24u, 1u, 0u, 16u };
 		} m_AtmosphereUB;
 
 		struct CBGTAOData
@@ -1223,9 +1231,14 @@ namespace Lux {
 		Ref<Pipeline>    m_VolumetricCloudPipeline;
 		Ref<Material>    m_VolumetricCloudMaterial;
 		Ref<RenderPass>  m_VolumetricCloudPass;
+		Ref<Pipeline>    m_VolumetricCloudCompositePipeline;
+		Ref<Material>    m_VolumetricCloudCompositeMaterial;
+		Ref<RenderPass>  m_VolumetricCloudCompositePass;
 		Ref<Pipeline>    m_AtmosphericFogPipeline;
 		Ref<Material>    m_AtmosphericFogMaterial;
 		Ref<RenderPass>  m_AtmosphericFogPass;
+		uint32_t         m_CloudRenderScale = 2;
+		glm::uvec2       m_CloudRenderSize = { 1, 1 };
 
 		// ── Composite (tone-map + opacity) ────────────────────────────────────
 		Ref<Framebuffer> m_CompositingFramebuffer;

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef LUX_LIGHTING_GLSLH
+#define LUX_LIGHTING_GLSLH
 
 #pragma stage : frag
 #include <Common.glslh>
@@ -213,4 +214,5 @@ vec3 CalculateSpotLights(in vec3 F0, vec3 worldPos)
 	return result;
 }
 
+#endif // LUX_LIGHTING_GLSLH
 

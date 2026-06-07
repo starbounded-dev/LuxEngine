@@ -32,25 +32,26 @@ namespace Lux {
 	struct VolumetricCloudSettings
 	{
 		bool Enabled = false;
-		float Coverage = 0.55f;
-		float Density = 0.55f;
-		float Altitude = 1500.0f;
-		float Thickness = 1200.0f;
+		float Coverage = 0.58f;
+		float Density = 0.35f;
+		float Altitude = 1800.0f;
+		float Thickness = 650.0f;
 		glm::vec2 WindDirection = { 1.0f, 0.15f };
 		float WindSpeed = 15.0f;
 		float ShapeScale = 0.00065f;
 		float DetailScale = 0.0045f;
 		float DetailStrength = 0.35f;
-		float Absorption = 1.2f;
+		float Absorption = 0.85f;
 		float SilverIntensity = 0.35f;
 		glm::vec3 Albedo = { 1.0f, 0.98f, 0.92f };
-		float AmbientBoost = 0.25f;
-		float MaxTraceDistance = 12000.0f;
-		float DistanceFade = 3000.0f;
-		float LODStartDistance = 2500.0f;
-		float ShadowTraceDistance = 4000.0f;
-		uint32_t MarchSteps = 32;
-		uint32_t ShadowSteps = 2;
+		float AmbientBoost = 0.35f;
+		float MaxTraceDistance = 6000.0f;
+		float DistanceFade = 2500.0f;
+		float LODStartDistance = 2000.0f;
+		float ShadowTraceDistance = 2500.0f;
+		uint32_t MarchSteps = 24;
+		uint32_t ShadowSteps = 1;
+		uint32_t RenderScale = 2; // 1 = full, 2 = half, 4 = quarter
 	};
 
 	struct ExponentialHeightFogSettings
@@ -68,7 +69,7 @@ namespace Lux {
 		bool VolumetricFog = false;
 		float VolumetricScatteringIntensity = 1.0f;
 		float Anisotropy = 0.2f;
-		uint32_t VolumetricFogSteps = 32;
+		uint32_t VolumetricFogSteps = 16;
 	};
 
 	struct AtmosphereEnvironment
