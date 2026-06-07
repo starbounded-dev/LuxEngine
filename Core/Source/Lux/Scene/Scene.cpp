@@ -1381,6 +1381,43 @@ namespace Lux {
 		return fallbackEnvironment;
 	}
 
+	AtmosphereEnvironment Scene::CollectAtmosphereEnvironment() const
+	{
+		AtmosphereEnvironment atmosphereEnvironment;
+		atmosphereEnvironment.SkyAtmosphere.Enabled = false;
+
+		{
+			auto view = m_Registry.view<const SkyAtmosphereComponent>();
+			for (auto entity : view)
+			{
+				atmosphereEnvironment.SkyAtmosphere = view.get<const SkyAtmosphereComponent>(entity).Settings;
+				break;
+			}
+		}
+
+		{
+			auto view = m_Registry.view<const VolumetricCloudComponent>();
+			for (auto entity : view)
+			{
+				atmosphereEnvironment.VolumetricClouds = view.get<const VolumetricCloudComponent>(entity).Settings;
+				if (glm::dot(atmosphereEnvironment.VolumetricClouds.WindDirection, atmosphereEnvironment.VolumetricClouds.WindDirection) > 0.0001f)
+					atmosphereEnvironment.VolumetricClouds.WindDirection = glm::normalize(atmosphereEnvironment.VolumetricClouds.WindDirection);
+				break;
+			}
+		}
+
+		{
+			auto view = m_Registry.view<const ExponentialHeightFogComponent>();
+			for (auto entity : view)
+			{
+				atmosphereEnvironment.HeightFog = view.get<const ExponentialHeightFogComponent>(entity).Settings;
+				break;
+			}
+		}
+
+		return atmosphereEnvironment;
+	}
+
 	Ref<::Lux::RenderScene> Scene::SyncRenderScene(const std::function<bool(Entity)>& isSelected) const
 	{
 		struct StaticMeshSyncItem
@@ -1660,6 +1697,7 @@ namespace Lux {
 		float envLod = 0.0f;
 		Ref<Environment> environment = CollectEnvironment(envIntensity, envLod);
 		renderer->SetEnvironment(environment, envIntensity, envLod);
+		renderer->SetAtmosphereEnvironment(CollectAtmosphereEnvironment());
 
 		// Begin the 3D rendering frame after scene lighting/environment state is prepared
 		renderer->BeginScene(sceneCamera);
@@ -1752,6 +1790,7 @@ namespace Lux {
 		float envLod = 0.0f;
 		Ref<Environment> environment = CollectEnvironment(envIntensity, envLod);
 		renderer->SetEnvironment(environment, envIntensity, envLod);
+		renderer->SetAtmosphereEnvironment(CollectAtmosphereEnvironment());
 
 		// Begin the 3D rendering frame after scene lighting/environment state is prepared
 		renderer->BeginScene(sceneCamera);
@@ -2159,6 +2198,21 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<SkyLightComponent>(Entity entity, SkyLightComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<SkyAtmosphereComponent>(Entity entity, SkyAtmosphereComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<VolumetricCloudComponent>(Entity entity, VolumetricCloudComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<ExponentialHeightFogComponent>(Entity entity, ExponentialHeightFogComponent& component)
 	{
 	}
 }

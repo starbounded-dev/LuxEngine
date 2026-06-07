@@ -1,0 +1,95 @@
+Scene: New Scene
+Entities:
+  - Entity: 9794274547667202947
+    TagComponent:
+      Tag: Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 45
+        PerspectiveNear: 0.100000001
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 6168369163063502366
+    TagComponent:
+      Tag: Plane
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [25, 1, 25]
+    StaticMeshComponent:
+      AssetID: 14646092683700145589
+      MaterialTable:
+        {}
+      Visible: true
+  - Entity: 1476272877445675703
+    TagComponent:
+      Tag: Volumetric Clouds
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    VolumetricCloudComponent:
+      Enabled: true
+      Coverage: 0.550000012
+      Density: 0.550000012
+      Altitude: 1500
+      Thickness: 1200
+      WindDirection: [1, 0.150000006]
+      WindSpeed: 15
+      ShapeScale: 0.000650000002
+      DetailScale: 0.00449999981
+      DetailStrength: 0.349999994
+      Absorption: 1.20000005
+      SilverIntensity: 0.349999994
+      Albedo: [1, 0.980000019, 0.920000017]
+      AmbientBoost: 0.25
+      MarchSteps: 48
+      ShadowSteps: 4
+  - Entity: 3571305917015597857
+    TagComponent:
+      Tag: Sky Atmosphere
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyAtmosphereComponent:
+      Enabled: true
+      PlanetRadius: 6360
+      AtmosphereHeight: 100
+      RayleighScaleHeight: 8
+      MieScaleHeight: 1.20000005
+      RayleighScattering: [5.80200005, 13.5579996, 33.0999985]
+      RayleighScatteringScale: 0.00249999994
+      MieScattering: [3.99600005, 3.99600005, 3.99600005]
+      MieScatteringScale: 0.00150000001
+      MieAbsorption: [4.4000001, 4.4000001, 4.4000001]
+      MieAnisotropy: 0.75999999
+      Absorption: [0.649999976, 1.88100004, 0.0850000009]
+      AbsorptionScale: 0.000650000002
+      GroundAlbedo: [0.180000007, 0.180000007, 0.180000007]
+      GroundContribution: 0.150000006
+      SunIntensity: 20
+      SunAngularRadius: 0.00934999995
+      MultiScattering: 0.349999994
+      AerialPerspectiveViewDistanceScale: 1

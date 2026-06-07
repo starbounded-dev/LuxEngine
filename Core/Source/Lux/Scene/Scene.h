@@ -34,6 +34,7 @@ namespace Lux {
 	struct DirectionalLight;
 	struct PointLight;
 	struct SpotLight;
+	struct AtmosphereEnvironment;
 
 	class Scene : public Asset
 	{
@@ -112,6 +113,9 @@ namespace Lux {
 		// Collect environment/skybox from the first SkyLightComponent entity.
 		// Falls back to the renderer default environment when no explicit skylight is configured.
 		Ref<Environment> CollectEnvironment(float& outIntensity, float& outLod) const;
+
+		// Collect atmosphere, volumetric cloud and fog settings from scene components.
+		AtmosphereEnvironment CollectAtmosphereEnvironment() const;
 
 		// Submit all StaticMeshComponent entities to the SceneRenderer
 		// Optional predicate to determine if an entity is selected (for highlight rendering)

@@ -6,6 +6,7 @@
 #include "Lux/Renderer/RenderPass.h"
 #include "Lux/Renderer/ComputePass.h"
 #include "Lux/Renderer/RenderGraph.h"
+#include "Lux/Renderer/Atmosphere.h"
 #include "Lux/Renderer/Pipeline.h"
 #include "Lux/Renderer/PipelineCompute.h"
 #include "Lux/Renderer/Framebuffer.h"
@@ -457,6 +458,7 @@ namespace Lux {
 		// Call before BeginScene to update the scene state consumed by the render passes.
 		void SetLightEnvironment(const LightEnvironment& lightEnvironment);
 		void SetEnvironment(Ref<Environment> environment, float intensity = 1.0f, float skyboxLod = 0.0f);
+		void SetAtmosphereEnvironment(const AtmosphereEnvironment& atmosphereEnvironment);
 
 		// Submit a static (non-animated) mesh for rendering this frame.
 		void SubmitRenderScene(const Ref<RenderScene>& renderScene);
@@ -781,6 +783,9 @@ namespace Lux {
 		void MeshCullingPass();
 		void LightCullingPass();
 		void SkyboxPass();
+		void SkyAtmospherePass();
+		void VolumetricCloudPass();
+		void AtmosphericFogPass();
 		void SelectedGeometryPass();
 		void GBufferPass();
 		void ForwardGeometryPass();
@@ -948,6 +953,28 @@ namespace Lux {
 			glm::vec2 QuarterResolution = { 1.0f, 1.0f };
 		} m_ScreenDataUB;
 
+		struct UBAtmosphere
+		{
+			glm::vec4 RayleighScattering = { 5.802f, 13.558f, 33.100f, 0.0025f };
+			glm::vec4 MieScattering = { 3.996f, 3.996f, 3.996f, 0.0015f };
+			glm::vec4 MieAbsorption = { 4.400f, 4.400f, 4.400f, 0.76f };
+			glm::vec4 Absorption = { 0.650f, 1.881f, 0.085f, 0.00065f };
+			glm::vec4 GroundAlbedo = { 0.18f, 0.18f, 0.18f, 0.15f };
+			glm::vec4 AtmosphereParams = { 6360.0f, 100.0f, 8.0f, 1.2f };
+			glm::vec4 SunParams = { 20.0f, 0.00935f, 0.35f, 1.0f };
+			glm::vec4 CloudParams0 = { 0.55f, 0.55f, 1500.0f, 1200.0f };
+			glm::vec4 CloudParams1 = { 1.0f, 0.15f, 15.0f, 0.00065f };
+			glm::vec4 CloudParams2 = { 0.0045f, 0.35f, 1.2f, 0.35f };
+			glm::vec4 CloudColor = { 1.0f, 0.98f, 0.92f, 0.25f };
+			glm::vec4 CloudRenderParams = { 12000.0f, 3000.0f, 2500.0f, 4000.0f };
+			glm::vec4 FogColorDensity = { 0.52f, 0.62f, 0.72f, 0.015f };
+			glm::vec4 FogParams0 = { 0.12f, 0.0f, 0.85f, 10000.0f };
+			glm::vec4 FogDirectionalInscattering = { 1.0f, 0.88f, 0.65f, 8.0f };
+			glm::vec4 FogParams1 = { 50.0f, 1.0f, 0.2f, 0.0f };
+			glm::uvec4 Flags = { 1u, 0u, 0u, 0u };
+			glm::uvec4 Steps = { 32u, 2u, 0u, 32u };
+		} m_AtmosphereUB;
+
 		struct CBGTAOData
 		{
 			glm::vec2 NDCToViewMul_x_PixelSize = { 1.0f, 1.0f };
@@ -1027,6 +1054,7 @@ namespace Lux {
 			Ref<Environment>    SceneEnvironment;
 			float               SceneEnvironmentIntensity = 1.0f;
 			float               SkyboxLod = 0.0f;
+			AtmosphereEnvironment Atmosphere;
 			LightEnvironment    SceneLightEnvironment;
 		} m_SceneData;
 
@@ -1037,6 +1065,7 @@ namespace Lux {
 		Ref<UniformBufferSet> m_UBSSpotShadow;
 		Ref<UniformBufferSet> m_UBSRendererData;
 		Ref<UniformBufferSet> m_UBSScreenData;
+		Ref<UniformBufferSet> m_UBSAtmosphere;
 		Ref<UniformBufferSet> m_UBSPointLights;
 		Ref<UniformBufferSet> m_UBSSpotLights;
 
@@ -1188,6 +1217,15 @@ namespace Lux {
 		Ref<Pipeline>    m_SkyboxPipeline;
 		Ref<Material>    m_SkyboxMaterial;
 		Ref<RenderPass>  m_SkyboxPass;
+		Ref<Pipeline>    m_SkyAtmospherePipeline;
+		Ref<Material>    m_SkyAtmosphereMaterial;
+		Ref<RenderPass>  m_SkyAtmospherePass;
+		Ref<Pipeline>    m_VolumetricCloudPipeline;
+		Ref<Material>    m_VolumetricCloudMaterial;
+		Ref<RenderPass>  m_VolumetricCloudPass;
+		Ref<Pipeline>    m_AtmosphericFogPipeline;
+		Ref<Material>    m_AtmosphericFogMaterial;
+		Ref<RenderPass>  m_AtmosphericFogPass;
 
 		// ── Composite (tone-map + opacity) ────────────────────────────────────
 		Ref<Framebuffer> m_CompositingFramebuffer;

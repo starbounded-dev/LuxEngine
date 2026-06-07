@@ -136,6 +136,28 @@ layout(std140, set = 2, binding = 2) uniform ScreenData
     vec2 QuarterResolution;
 } u_ScreenData;
 
+layout(std140, set = 2, binding = 3) uniform AtmosphereData
+{
+	vec4 RayleighScattering;        // xyz = scattering, w = scale
+	vec4 MieScattering;             // xyz = scattering, w = scale
+	vec4 MieAbsorption;             // xyz = absorption, w = anisotropy
+	vec4 Absorption;                // xyz = ozone/absorption tint, w = scale
+	vec4 GroundAlbedo;              // xyz = albedo, w = ground contribution
+	vec4 AtmosphereParams;          // x = planet radius, y = atmosphere height, z = rayleigh scale height, w = mie scale height
+	vec4 SunParams;                 // x = intensity, y = angular radius, z = multi scattering, w = aerial perspective scale
+	vec4 CloudParams0;              // x = coverage, y = density, z = altitude, w = thickness
+	vec4 CloudParams1;              // x/y = wind dir, z = wind speed, w = shape scale
+	vec4 CloudParams2;              // x = detail scale, y = detail strength, z = absorption, w = silver lining
+	vec4 CloudColor;                // xyz = albedo, w = ambient boost
+	vec4 CloudRenderParams;         // x = max trace distance, y = fade distance, z = lod start distance, w = shadow trace distance
+	vec4 FogColorDensity;           // xyz = color, w = density
+	vec4 FogParams0;                // x = height falloff, y = start distance, z = max opacity, w = cutoff distance
+	vec4 FogDirectionalInscattering;// xyz = directional color, w = directional exponent
+	vec4 FogParams1;                // x = directional start distance, y = volumetric scattering, z = anisotropy, w = reserved
+	uvec4 Flags;                    // x = sky, y = clouds, z = fog, w = volumetric fog
+	uvec4 Steps;                    // x = cloud march, y = cloud shadow, z = frame index, w = fog march
+} u_Atmosphere;
+
 
 //layout(std140, set = 2, binding = 3) uniform HBAOData
 //{

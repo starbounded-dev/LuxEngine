@@ -1,0 +1,265 @@
+#pragma once
+
+#include <Buffers.glslh>
+#include <Common.glslh>
+
+const float LUX_ATMOSPHERE_HORIZON_FADE = 0.075;
+
+vec3 GetAtmosphereSunDirection()
+{
+	vec3 sunDirection = u_Scene.DirectionalLights.Direction;
+	if (dot(sunDirection, sunDirection) < 0.0001)
+		return normalize(vec3(0.25, 0.85, 0.35));
+
+	return normalize(sunDirection);
+}
+
+vec3 GetAtmosphereCameraPosition()
+{
+	return u_Scene.CameraPosition;
+}
+
+vec3 ReconstructAtmosphereWorldPosition(vec2 clipPosition, float deviceDepth)
+{
+	vec4 world = u_Camera.InverseViewProjectionMatrix * vec4(clipPosition, deviceDepth, 1.0);
+	float invW = abs(world.w) > 0.000001 ? 1.0 / world.w : 0.0;
+	return world.xyz * invW;
+}
+
+vec3 GetAtmosphereViewDirection(vec2 clipPosition)
+{
+	vec3 world = ReconstructAtmosphereWorldPosition(clipPosition, 0.0);
+	return normalize(world - GetAtmosphereCameraPosition());
+}
+
+float RayleighPhase(float cosTheta)
+{
+	return 3.0 / (16.0 * PI) * (1.0 + cosTheta * cosTheta);
+}
+
+float CornetteShanksMiePhase(float cosTheta, float g)
+{
+	g = clamp(g, -0.95, 0.95);
+	float g2 = g * g;
+	float denominator = pow(max(1.0 + g2 - 2.0 * g * cosTheta, 0.0001), 1.5);
+	return 3.0 / (8.0 * PI) * ((1.0 - g2) * (1.0 + cosTheta * cosTheta)) / (max(2.0 + g2, 0.0001) * denominator);
+}
+
+vec3 EvaluateSkyAtmosphere(vec3 viewDirection)
+{
+	vec3 sunDirection = GetAtmosphereSunDirection();
+	float sunCos = dot(viewDirection, sunDirection);
+	float viewHeight = clamp(viewDirection.y * 0.5 + 0.5, 0.0, 1.0);
+	float horizon = smoothstep(-LUX_ATMOSPHERE_HORIZON_FADE, 0.45, viewDirection.y);
+
+	vec3 rayleigh = max(u_Atmosphere.RayleighScattering.xyz * u_Atmosphere.RayleighScattering.w, vec3(0.0));
+	vec3 mie = max(u_Atmosphere.MieScattering.xyz * u_Atmosphere.MieScattering.w, vec3(0.0));
+	vec3 absorption = max(u_Atmosphere.Absorption.xyz * u_Atmosphere.Absorption.w, vec3(0.0));
+
+	float rayleighPhase = RayleighPhase(sunCos);
+	float miePhase = CornetteShanksMiePhase(sunCos, u_Atmosphere.MieAbsorption.w);
+	float horizonBoost = pow(1.0 - viewHeight, 2.0);
+	float multiScattering = clamp(u_Atmosphere.SunParams.z, 0.0, 2.0);
+
+	vec3 opticalDepthTint = exp(-absorption * mix(0.25, 4.0, horizonBoost));
+	vec3 scattering = (rayleigh * rayleighPhase * (0.6 + horizonBoost * 2.0) + mie * miePhase * (0.25 + horizonBoost));
+	scattering *= opticalDepthTint;
+	scattering += rayleigh * multiScattering * vec3(0.025, 0.035, 0.055);
+
+	vec3 zenithTint = normalize(max(rayleigh, vec3(0.0001)));
+	vec3 horizonTint = mix(vec3(1.0, 0.78, 0.48), vec3(0.55, 0.68, 0.85), clamp(sunDirection.y * 0.5 + 0.5, 0.0, 1.0));
+	vec3 baseSky = mix(horizonTint, zenithTint, smoothstep(0.0, 1.0, viewHeight));
+	vec3 sky = baseSky * scattering * u_Atmosphere.SunParams.x * 18.0;
+
+	float sunAngularRadius = max(u_Atmosphere.SunParams.y, 0.0005);
+	float sunDisk = smoothstep(cos(sunAngularRadius * 4.0), cos(sunAngularRadius), sunCos);
+	vec3 sunColor = u_Scene.DirectionalLights.Radiance * u_Atmosphere.SunParams.x;
+	sky += sunColor * sunDisk * 2.0;
+
+	vec3 ground = u_Atmosphere.GroundAlbedo.xyz * u_Atmosphere.GroundAlbedo.w * u_Atmosphere.SunParams.x;
+	return max(mix(ground, sky, horizon), vec3(0.0));
+}
+
+float Hash12(vec2 p)
+{
+	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+	p3 += dot(p3, p3.yzx + 33.33);
+	return fract((p3.x + p3.y) * p3.z);
+}
+
+float ValueNoise3D(vec3 p)
+{
+	vec3 i = floor(p);
+	vec3 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+
+	float n000 = Hash12(i.xy + vec2(37.0, 17.0) * i.z);
+	float n100 = Hash12(i.xy + vec2(1.0, 0.0) + vec2(37.0, 17.0) * i.z);
+	float n010 = Hash12(i.xy + vec2(0.0, 1.0) + vec2(37.0, 17.0) * i.z);
+	float n110 = Hash12(i.xy + vec2(1.0, 1.0) + vec2(37.0, 17.0) * i.z);
+	float n001 = Hash12(i.xy + vec2(37.0, 17.0) * (i.z + 1.0));
+	float n101 = Hash12(i.xy + vec2(1.0, 0.0) + vec2(37.0, 17.0) * (i.z + 1.0));
+	float n011 = Hash12(i.xy + vec2(0.0, 1.0) + vec2(37.0, 17.0) * (i.z + 1.0));
+	float n111 = Hash12(i.xy + vec2(1.0, 1.0) + vec2(37.0, 17.0) * (i.z + 1.0));
+
+	float nx00 = mix(n000, n100, f.x);
+	float nx10 = mix(n010, n110, f.x);
+	float nx01 = mix(n001, n101, f.x);
+	float nx11 = mix(n011, n111, f.x);
+	float nxy0 = mix(nx00, nx10, f.y);
+	float nxy1 = mix(nx01, nx11, f.y);
+	return mix(nxy0, nxy1, f.z);
+}
+
+float FBMCloudNoiseLOD(vec3 p, uint octaveCount)
+{
+	float result = 0.0;
+	float amplitude = 0.5;
+	octaveCount = clamp(octaveCount, 1u, 5u);
+	for (uint octave = 0u; octave < 5u; octave++)
+	{
+		if (octave >= octaveCount)
+			break;
+
+		result += ValueNoise3D(p) * amplitude;
+		p = p * 2.07 + vec3(17.3, 9.2, 5.7);
+		amplitude *= 0.5;
+	}
+	return result;
+}
+
+float FBMCloudNoise(vec3 p)
+{
+	return FBMCloudNoiseLOD(p, 5u);
+}
+
+float EvaluateCloudDensityLOD(vec3 worldPosition, float lodFactor)
+{
+	float bottom = u_Atmosphere.CloudParams0.z;
+	float thickness = max(u_Atmosphere.CloudParams0.w, 1.0);
+	float height01 = clamp((worldPosition.y - bottom) / thickness, 0.0, 1.0);
+	float heightProfile = smoothstep(0.0, 0.15, height01) * (1.0 - smoothstep(0.72, 1.0, height01));
+
+	vec2 windDirection = u_Atmosphere.CloudParams1.xy;
+	if (dot(windDirection, windDirection) < 0.0001)
+		windDirection = vec2(1.0, 0.0);
+	windDirection = normalize(windDirection);
+
+	float time = float(u_Atmosphere.Steps.z) * (1.0 / 60.0);
+	vec3 windOffset = vec3(windDirection.x, 0.0, windDirection.y) * u_Atmosphere.CloudParams1.z * time;
+	vec3 shapeCoord = (worldPosition + windOffset) * max(u_Atmosphere.CloudParams1.w, 0.000001);
+	vec3 detailCoord = (worldPosition + windOffset * 2.3) * max(u_Atmosphere.CloudParams2.x, 0.000001);
+
+	lodFactor = clamp(lodFactor, 0.0, 1.0);
+	uint shapeOctaves = lodFactor > 0.66 ? 3u : (lodFactor > 0.33 ? 4u : 5u);
+	uint detailOctaves = lodFactor > 0.5 ? 2u : 4u;
+	float detailWeight = 1.0 - smoothstep(0.35, 0.95, lodFactor);
+
+	float shape = FBMCloudNoiseLOD(shapeCoord, shapeOctaves);
+	float coverage = clamp(u_Atmosphere.CloudParams0.x, 0.0, 1.0);
+	float density = smoothstep(coverage, 1.0, shape);
+	float detailStrength = clamp(u_Atmosphere.CloudParams2.y, 0.0, 1.0) * detailWeight;
+	if (detailStrength > 0.001)
+	{
+		float detail = FBMCloudNoiseLOD(detailCoord, detailOctaves);
+		density -= (detail - 0.5) * detailStrength;
+	}
+	return clamp(density, 0.0, 1.0) * heightProfile * max(u_Atmosphere.CloudParams0.y, 0.0);
+}
+
+float EvaluateCloudDensity(vec3 worldPosition)
+{
+	return EvaluateCloudDensityLOD(worldPosition, 0.0);
+}
+
+float LinearizeAtmosphereDepth(float screenDepth)
+{
+	return u_Camera.DepthUnpackConsts.x / (u_Camera.DepthUnpackConsts.y - screenDepth);
+}
+
+float EvaluateHeightFogDensity(vec3 worldPosition)
+{
+	float heightFalloff = max(u_Atmosphere.FogParams0.x, 0.0001);
+	float heightTerm = exp2(-max(worldPosition.y, 0.0) * heightFalloff * 0.01);
+	return max(u_Atmosphere.FogColorDensity.w, 0.0) * heightTerm;
+}
+
+vec3 EvaluateHeightFogInscattering(vec3 viewDirection, float distanceToCamera)
+{
+	vec3 sunDirection = GetAtmosphereSunDirection();
+	float directional = pow(max(dot(viewDirection, sunDirection), 0.0), max(u_Atmosphere.FogDirectionalInscattering.w, 0.01));
+	directional *= smoothstep(u_Atmosphere.FogParams1.x, u_Atmosphere.FogParams1.x + 250.0, distanceToCamera);
+
+	float anisotropy = clamp(u_Atmosphere.FogParams1.z, -0.8, 0.8);
+	float phase = CornetteShanksMiePhase(dot(viewDirection, sunDirection), anisotropy) * 4.0 * PI;
+	vec3 fogColor = u_Atmosphere.FogColorDensity.xyz;
+	fogColor += u_Atmosphere.FogDirectionalInscattering.xyz * directional * phase * u_Atmosphere.FogParams1.y;
+	return max(fogColor, vec3(0.0));
+}
+
+vec4 EvaluateAnalyticHeightFog(vec3 worldPosition, vec3 viewDirection, float distanceToCamera)
+{
+	float startDistance = max(u_Atmosphere.FogParams0.y, 0.0);
+	float cutoffDistance = max(u_Atmosphere.FogParams0.w, startDistance + 1.0);
+	float fogDistance = clamp(distanceToCamera - startDistance, 0.0, cutoffDistance);
+	float cameraDensity = EvaluateHeightFogDensity(GetAtmosphereCameraPosition());
+	float sampleDensity = EvaluateHeightFogDensity(worldPosition);
+	float density = max(cameraDensity, sampleDensity);
+	float fogAmount = 1.0 - exp(-density * fogDistance);
+	fogAmount = clamp(fogAmount, 0.0, clamp(u_Atmosphere.FogParams0.z, 0.0, 1.0));
+	return vec4(EvaluateHeightFogInscattering(viewDirection, distanceToCamera), fogAmount);
+}
+
+vec4 EvaluateVolumetricHeightFog(vec3 viewDirection, float distanceToCamera, vec2 clipPosition)
+{
+	float startDistance = max(u_Atmosphere.FogParams0.y, 0.0);
+	float cutoffDistance = max(u_Atmosphere.FogParams0.w, startDistance + 1.0);
+	float endDistance = min(max(distanceToCamera, 0.0), cutoffDistance);
+	if (endDistance <= startDistance)
+		return vec4(u_Atmosphere.FogColorDensity.xyz, 0.0);
+
+	uint stepCount = clamp(u_Atmosphere.Steps.w, 4u, 96u);
+	float stepLength = (endDistance - startDistance) / float(stepCount);
+	float jitter = Hash12(clipPosition * vec2(153.17, 91.73) + vec2(float(u_Atmosphere.Steps.z % 256u), 17.0));
+	vec3 cameraPosition = GetAtmosphereCameraPosition();
+
+	vec3 scatteredLight = vec3(0.0);
+	float transmittance = 1.0;
+	float maxOpacity = clamp(u_Atmosphere.FogParams0.z, 0.0, 1.0);
+
+	for (uint stepIndex = 0u; stepIndex < 96u; stepIndex++)
+	{
+		if (stepIndex >= stepCount || transmittance <= 1.0 - maxOpacity)
+			break;
+
+		float sampleDistance = startDistance + (float(stepIndex) + jitter) * stepLength;
+		vec3 samplePosition = cameraPosition + viewDirection * sampleDistance;
+		float density = EvaluateHeightFogDensity(samplePosition) * max(u_Atmosphere.FogParams1.y, 0.0);
+		float extinction = density * stepLength;
+		float sampleOpacity = clamp(1.0 - exp(-extinction), 0.0, 1.0);
+		vec3 inscattering = EvaluateHeightFogInscattering(viewDirection, sampleDistance);
+
+		scatteredLight += transmittance * inscattering * sampleOpacity;
+		transmittance *= 1.0 - sampleOpacity;
+	}
+
+	float fogAmount = clamp(1.0 - transmittance, 0.0, maxOpacity);
+	vec3 fogColor = fogAmount > 0.0001 ? scatteredLight / fogAmount : u_Atmosphere.FogColorDensity.xyz;
+	return vec4(fogColor, fogAmount);
+}
+
+vec4 EvaluateHeightFog(vec3 worldPosition, vec3 viewDirection, float distanceToCamera, vec2 clipPosition)
+{
+	if (u_Atmosphere.Flags.w != 0u)
+		return EvaluateVolumetricHeightFog(viewDirection, distanceToCamera, clipPosition);
+
+	return EvaluateAnalyticHeightFog(worldPosition, viewDirection, distanceToCamera);
+}
+
+vec3 ApplyHeightFog(vec3 sceneColor, vec3 worldPosition, vec3 viewDirection, float distanceToCamera, vec2 clipPosition)
+{
+	vec4 fog = EvaluateHeightFog(worldPosition, viewDirection, distanceToCamera, clipPosition);
+	vec3 fogColor = fog.rgb;
+	float fogAmount = fog.a;
+	return mix(sceneColor, fogColor, fogAmount);
+}
