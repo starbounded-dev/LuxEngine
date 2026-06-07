@@ -2971,6 +2971,23 @@ namespace Lux {
 		m_RenderGraph.Reset();
 		std::unordered_map<const Image2D*, RenderGraph::ResourceHandle> resourceLookup;
 
+		auto reportGraphDiagnostic = [&](RenderGraph::DiagnosticSeverity severity,
+			RenderGraph::DiagnosticCode code,
+			std::string passName,
+			std::string resourceName,
+			std::string message,
+			RenderGraph::ResourceHandle resource = RenderGraph::InvalidResource)
+			{
+				RenderGraph::Diagnostic diagnostic;
+				diagnostic.Severity = severity;
+				diagnostic.Code = code;
+				diagnostic.PassName = std::move(passName);
+				diagnostic.Resource = resource;
+				diagnostic.ResourceName = std::move(resourceName);
+				diagnostic.Message = std::move(message);
+				m_RenderGraph.AddDiagnostic(std::move(diagnostic));
+			};
+
 		auto makeExecute = [&](auto memberFunction) -> RenderGraph::ExecuteCallback
 			{
 				if (!executable)
@@ -2984,8 +3001,25 @@ namespace Lux {
 
 		auto addTexture = [&](const std::string& name, const Ref<Image2D>& image) -> RenderGraph::ResourceHandle
 			{
-				if (!image || !image->IsValid())
+				if (!image)
+				{
+					reportGraphDiagnostic(RenderGraph::DiagnosticSeverity::Error,
+						RenderGraph::DiagnosticCode::NullTexture,
+						{},
+						name,
+						std::format("Render graph resource '{}' is missing an Image2D reference.", name));
 					return RenderGraph::InvalidResource;
+				}
+
+				if (!image->IsValid())
+				{
+					reportGraphDiagnostic(RenderGraph::DiagnosticSeverity::Error,
+						RenderGraph::DiagnosticCode::NullTexture,
+						{},
+						name,
+						std::format("Render graph resource '{}' has no valid GPU image handle.", name));
+					return RenderGraph::InvalidResource;
+				}
 
 				const Image2D* key = image.Raw();
 				if (auto it = resourceLookup.find(key); it != resourceLookup.end())
@@ -3014,7 +3048,14 @@ namespace Lux {
 			{
 				std::vector<RenderGraph::ResourceHandle> resources;
 				if (!framebuffer)
+				{
+					reportGraphDiagnostic(RenderGraph::DiagnosticSeverity::Error,
+						RenderGraph::DiagnosticCode::NullTexture,
+						name,
+						name,
+						std::format("Render graph pass '{}' has no target framebuffer.", name));
 					return resources;
+				}
 
 				for (uint32_t attachment = 0; attachment < framebuffer->GetColorAttachmentCount(); attachment++)
 					resources.push_back(addTexture(std::format("{} Color {}", name, attachment), framebuffer->GetImage(attachment)));
@@ -3026,7 +3067,17 @@ namespace Lux {
 
 		auto addRenderPassResources = [&](const std::string& name, const Ref<RenderPass>& pass)
 			{
-				return pass ? addFramebufferResources(name, pass->GetTargetFramebuffer()) : std::vector<RenderGraph::ResourceHandle>{};
+				if (!pass)
+				{
+					reportGraphDiagnostic(RenderGraph::DiagnosticSeverity::Error,
+						RenderGraph::DiagnosticCode::NullTexture,
+						name,
+						name,
+						std::format("Render graph pass '{}' is missing its RenderPass object.", name));
+					return std::vector<RenderGraph::ResourceHandle>{};
+				}
+
+				return addFramebufferResources(name, pass->GetTargetFramebuffer());
 			};
 
 		auto appendResources = [](std::vector<RenderGraph::ResourceHandle>& dst, const std::vector<RenderGraph::ResourceHandle>& src)
@@ -3040,12 +3091,6 @@ namespace Lux {
 			RenderGraph::PassFlags flags,
 			RenderGraph::ExecuteCallback execute = {})
 			{
-				auto removeInvalid = [](std::vector<RenderGraph::ResourceHandle>& resources)
-					{
-						resources.erase(std::remove(resources.begin(), resources.end(), RenderGraph::InvalidResource), resources.end());
-					};
-				removeInvalid(reads);
-				removeInvalid(writes);
 				if (reads.empty() && writes.empty() && !execute)
 					return;
 
@@ -3347,10 +3392,57 @@ namespace Lux {
 
 		RenderGraphDebugSnapshot snapshot;
 		const auto compileResult = m_RenderGraph.Compile();
-		const auto lifetimes = m_RenderGraph.BuildAliasPlan();
 		const auto& textures = m_RenderGraph.GetTextures();
 		const auto& passes = m_RenderGraph.GetPasses();
-		snapshot.Diagnostics = compileResult.Diagnostics;
+		snapshot.ErrorCount = compileResult.ErrorCount;
+		snapshot.WarningCount = compileResult.WarningCount;
+		snapshot.InfoCount = compileResult.InfoCount;
+		snapshot.ExecutedPassCount = static_cast<uint32_t>(compileResult.ExecutionOrder.size());
+		snapshot.CulledPassCount = static_cast<uint32_t>(compileResult.CulledPasses.size());
+
+		auto findProfile = [&](const std::string& passName) -> const PassProfile*
+			{
+				auto remapProfileName = [](const std::string& name) -> const char*
+					{
+						if (name == "Directional Shadow Maps") return "ShadowMapPass";
+						if (name == "Spot Shadow Maps") return "SpotShadowMapPass";
+						if (name == "PreDepth") return "PreDepthPass";
+						if (name == "Mesh Culling") return "MeshCullingPass";
+						if (name == "Skybox") return "SkyboxPass";
+						if (name == "Sky Atmosphere") return "SkyAtmospherePass";
+						if (name == "Volumetric Clouds") return "VolumetricCloudPass";
+						if (name == "Volumetric Cloud Composite") return "VolumetricCloudCompositePass";
+						if (name == "Atmospheric Fog") return "AtmosphericFogPass";
+						if (name == "Selected Geometry") return "SelectedGeometryPass";
+						if (name == "GBuffer") return "GBufferPass";
+						if (name == "Forward Geometry") return "ForwardGeometryPass";
+						if (name == "Deferred Lighting") return "DeferredLightingPass";
+						if (name == "Transparent Forward") return "TransparentForwardPass";
+						if (name == "Geometry Wireframe") return "GeometryWireframePass";
+						if (name == "GBuffer Debug") return "GBufferDebugPass";
+						if (name == "GTAO Denoise") return "GTAO-Denoise";
+						if (name == "GTAO Temporal") return "GTAO-Temporal";
+						if (name == "AO Composite") return "AOComposite";
+						if (name == "AO Debug") return "AODebug";
+						if (name == "Pre-Convolution") return "PreConvolution";
+						if (name == "SSR Temporal") return "SSR-Temporal";
+						if (name == "SSR Composite") return "SSRComposite";
+						if (name == "JumpFlood Composite") return "JumpFloodComposite";
+						if (name == "Bloom") return "BloomCompute";
+						if (name == "Composite") return "CompositePass";
+						if (name == "Grid") return "GridPass";
+						if (name == "Light Culling") return "LightCullingPass";
+						return name.c_str();
+					};
+
+				const char* profileName = remapProfileName(passName);
+				for (const PassProfile& profile : m_Statistics.PassProfiles)
+				{
+					if (profile.Name && std::strcmp(profile.Name, profileName) == 0)
+						return &profile;
+				}
+				return nullptr;
+			};
 
 		snapshot.Textures.reserve(textures.size());
 		for (uint32_t resource = 0; resource < textures.size(); resource++)
@@ -3370,19 +3462,62 @@ namespace Lux {
 			textureInfo.Transient = texture.Transient;
 			textureInfo.AllowAlias = texture.AllowAlias;
 
-			if (resource < lifetimes.size())
+			if (resource < compileResult.Lifetimes.size())
 			{
-				const RenderGraph::ResourceLifetime& lifetime = lifetimes[resource];
+				const RenderGraph::ResourceLifetime& lifetime = compileResult.Lifetimes[resource];
 				textureInfo.FirstPass = lifetime.FirstPass;
 				textureInfo.LastPass = lifetime.LastPass;
 				textureInfo.AliasGroup = lifetime.AliasIndex;
 			}
+
+			if (resource < compileResult.ResourceFirstWriter.size())
+				textureInfo.FirstWriter = compileResult.ResourceFirstWriter[resource];
+			if (resource < compileResult.ResourceLastReader.size())
+				textureInfo.LastReader = compileResult.ResourceLastReader[resource];
+			if (resource < compileResult.ResourceConsumers.size())
+				textureInfo.Consumers = compileResult.ResourceConsumers[resource];
 
 			if (texture.Image)
 			{
 				textureInfo.AliasedNow = texture.Image->IsTransientAlias();
 				textureInfo.CurrentState = texture.Image->GetImageInfo().State;
 			}
+		}
+
+		for (const RenderGraph::ResourceLifetime& lifetime : compileResult.Lifetimes)
+		{
+			if (lifetime.FirstPass == UINT32_MAX || lifetime.Resource >= textures.size())
+				continue;
+
+			const RenderGraph::TextureDesc& texture = textures[lifetime.Resource];
+			if (!texture.Transient || !texture.AllowAlias)
+				continue;
+
+			snapshot.TransientBytes += Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, texture.Layers);
+		}
+
+		snapshot.AliasGroups.reserve(compileResult.AliasGroups.size());
+		for (const RenderGraph::AliasGroupSummary& aliasGroup : compileResult.AliasGroups)
+		{
+			RenderGraphAliasGroupDebugInfo& aliasInfo = snapshot.AliasGroups.emplace_back();
+			aliasInfo.AliasGroup = aliasGroup.AliasIndex;
+			aliasInfo.Compatible = aliasGroup.Compatible;
+
+			for (RenderGraph::ResourceHandle resource : aliasGroup.Resources)
+			{
+				if (resource >= textures.size())
+					continue;
+
+				aliasInfo.Resources.push_back(resource);
+				const RenderGraph::TextureDesc& texture = textures[resource];
+				const uint64_t size = Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, texture.Layers);
+				aliasInfo.EstimatedBytes += size;
+				aliasInfo.BackingBytes = std::max(aliasInfo.BackingBytes, size);
+			}
+
+			aliasInfo.SavedBytes = aliasInfo.EstimatedBytes > aliasInfo.BackingBytes ? aliasInfo.EstimatedBytes - aliasInfo.BackingBytes : 0;
+			snapshot.AliasedBytes += aliasInfo.BackingBytes;
+			snapshot.SavedBytes += aliasInfo.SavedBytes;
 		}
 
 		auto containsResource = [](const std::vector<RenderGraph::ResourceHandle>& resources, RenderGraph::ResourceHandle resource)
@@ -3411,23 +3546,52 @@ namespace Lux {
 		{
 			const RenderGraph::PassDesc& pass = passes[passIndex];
 			RenderGraphPassDebugInfo& passInfo = snapshot.Passes.emplace_back();
+			passInfo.Index = passIndex;
 			passInfo.Name = pass.Name;
 			passInfo.Flags = static_cast<uint32_t>(pass.Flags);
 			passInfo.Executable = static_cast<bool>(pass.Execute);
 			passInfo.Culled = culledPasses[passIndex];
+			if (const PassProfile* profile = findProfile(pass.Name))
+			{
+				passInfo.CPUTime = profile->CPUTime;
+				passInfo.GPUTime = profile->GPUTime;
+			}
 
 			for (RenderGraph::ResourceHandle resource : pass.Reads)
 			{
-				if (resource >= textures.size())
-					continue;
 				passInfo.Inputs.push_back({ resource, accessState(pass, resource, true) });
 			}
 
 			for (RenderGraph::ResourceHandle resource : pass.Writes)
 			{
-				if (resource >= textures.size())
-					continue;
 				passInfo.Outputs.push_back({ resource, accessState(pass, resource, false) });
+			}
+		}
+
+		snapshot.Diagnostics.reserve(compileResult.Diagnostics.size());
+		for (uint32_t diagnosticIndex = 0; diagnosticIndex < compileResult.Diagnostics.size(); diagnosticIndex++)
+		{
+			const RenderGraph::Diagnostic& diagnostic = compileResult.Diagnostics[diagnosticIndex];
+			RenderGraphDiagnosticDebugInfo& debugDiagnostic = snapshot.Diagnostics.emplace_back();
+			debugDiagnostic.Severity = diagnostic.Severity;
+			debugDiagnostic.Code = diagnostic.Code;
+			debugDiagnostic.PassIndex = diagnostic.PassIndex;
+			debugDiagnostic.PassName = diagnostic.PassName;
+			debugDiagnostic.Resource = diagnostic.Resource;
+			debugDiagnostic.ResourceName = diagnostic.ResourceName;
+			debugDiagnostic.Message = diagnostic.Message;
+
+			if (diagnostic.PassIndex < snapshot.Passes.size())
+				snapshot.Passes[diagnostic.PassIndex].Diagnostics.push_back(diagnosticIndex);
+
+			if (diagnostic.Resource < snapshot.Textures.size())
+			{
+				RenderGraphTextureDebugInfo& textureInfo = snapshot.Textures[diagnostic.Resource];
+				textureInfo.DiagnosticCount++;
+				if (diagnostic.Severity == RenderGraph::DiagnosticSeverity::Error)
+					textureInfo.ErrorCount++;
+				else if (diagnostic.Severity == RenderGraph::DiagnosticSeverity::Warning)
+					textureInfo.WarningCount++;
 			}
 		}
 
@@ -5449,7 +5613,52 @@ namespace Lux {
 		m_CommandBuffer->Begin();
 
 		BuildRenderGraph(true);
-		m_RenderGraph.Execute();
+		const RenderGraph::CompileResult renderGraphResult = m_RenderGraph.Compile();
+		if (renderGraphResult.ErrorCount > 0 || renderGraphResult.WarningCount > 0)
+		{
+			size_t diagnosticHash = renderGraphResult.ErrorCount;
+			diagnosticHash = HashCombine(diagnosticHash, renderGraphResult.WarningCount);
+			for (const RenderGraph::Diagnostic& diagnostic : renderGraphResult.Diagnostics)
+			{
+				if (diagnostic.Severity == RenderGraph::DiagnosticSeverity::Info)
+					continue;
+
+				diagnosticHash = HashCombine(diagnosticHash, static_cast<uint64_t>(diagnostic.Code));
+				diagnosticHash = HashCombine(diagnosticHash, diagnostic.PassIndex);
+				diagnosticHash = HashCombine(diagnosticHash, diagnostic.Resource);
+				diagnosticHash = HashCombine(diagnosticHash, std::hash<std::string>{}(diagnostic.Message));
+			}
+
+			if (diagnosticHash != m_LastRenderGraphDiagnosticHash)
+			{
+				m_LastRenderGraphDiagnosticHash = diagnosticHash;
+				if (renderGraphResult.ErrorCount > 0)
+					LUX_CORE_ERROR_TAG("RenderGraph", "Validation found {} error(s) and {} warning(s). Rendering will continue.", renderGraphResult.ErrorCount, renderGraphResult.WarningCount);
+				else
+					LUX_CORE_WARN_TAG("RenderGraph", "Validation found {} warning(s). Rendering will continue.", renderGraphResult.WarningCount);
+
+				uint32_t loggedDiagnostics = 0;
+				for (const RenderGraph::Diagnostic& diagnostic : renderGraphResult.Diagnostics)
+				{
+					if (diagnostic.Severity == RenderGraph::DiagnosticSeverity::Info)
+						continue;
+
+					if (loggedDiagnostics++ >= 8)
+					{
+						LUX_CORE_WARN_TAG("RenderGraph", "Additional diagnostics hidden. Open the Renderer Debugger Render Graph inspector for the full list.");
+						break;
+					}
+
+					const char* severity = diagnostic.Severity == RenderGraph::DiagnosticSeverity::Error ? "Error" : "Warning";
+					LUX_CORE_WARN_TAG("RenderGraph", "{}: {}", severity, diagnostic.Message);
+				}
+			}
+		}
+		else
+		{
+			m_LastRenderGraphDiagnosticHash = 0;
+		}
+		m_RenderGraph.Execute(renderGraphResult);
 
 		m_CommandBuffer->End();
 		m_CommandBuffer->Submit();

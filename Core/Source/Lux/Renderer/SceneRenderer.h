@@ -377,23 +377,63 @@ namespace Lux {
 			bool AllowAlias = false;
 			bool AliasedNow = false;
 			nvrhi::ResourceStates CurrentState = nvrhi::ResourceStates::Unknown;
+			uint32_t FirstWriter = UINT32_MAX;
+			uint32_t LastReader = UINT32_MAX;
+			std::vector<uint32_t> Consumers;
+			uint32_t DiagnosticCount = 0;
+			uint32_t ErrorCount = 0;
+			uint32_t WarningCount = 0;
 		};
 
 		struct RenderGraphPassDebugInfo
 		{
+			uint32_t Index = UINT32_MAX;
 			std::string Name;
 			std::vector<RenderGraphResourceAccessDebugInfo> Inputs;
 			std::vector<RenderGraphResourceAccessDebugInfo> Outputs;
 			uint32_t Flags = 0;
 			bool Executable = false;
 			bool Culled = false;
+			float CPUTime = 0.0f;
+			float GPUTime = 0.0f;
+			std::vector<uint32_t> Diagnostics;
+		};
+
+		struct RenderGraphDiagnosticDebugInfo
+		{
+			RenderGraph::DiagnosticSeverity Severity = RenderGraph::DiagnosticSeverity::Info;
+			RenderGraph::DiagnosticCode Code = RenderGraph::DiagnosticCode::InvalidResource;
+			uint32_t PassIndex = UINT32_MAX;
+			std::string PassName;
+			uint32_t Resource = RenderGraph::InvalidResource;
+			std::string ResourceName;
+			std::string Message;
+		};
+
+		struct RenderGraphAliasGroupDebugInfo
+		{
+			uint32_t AliasGroup = UINT32_MAX;
+			std::vector<uint32_t> Resources;
+			uint64_t EstimatedBytes = 0;
+			uint64_t BackingBytes = 0;
+			uint64_t SavedBytes = 0;
+			bool Compatible = true;
 		};
 
 		struct RenderGraphDebugSnapshot
 		{
 			std::vector<RenderGraphPassDebugInfo> Passes;
 			std::vector<RenderGraphTextureDebugInfo> Textures;
-			std::vector<std::string> Diagnostics;
+			std::vector<RenderGraphDiagnosticDebugInfo> Diagnostics;
+			std::vector<RenderGraphAliasGroupDebugInfo> AliasGroups;
+			uint32_t ErrorCount = 0;
+			uint32_t WarningCount = 0;
+			uint32_t InfoCount = 0;
+			uint32_t ExecutedPassCount = 0;
+			uint32_t CulledPassCount = 0;
+			uint64_t TransientBytes = 0;
+			uint64_t AliasedBytes = 0;
+			uint64_t SavedBytes = 0;
 		};
 
 		struct GPUSceneDebugSnapshot
@@ -1044,6 +1084,7 @@ namespace Lux {
 		RenderGraph                m_RenderGraph;
 		std::vector<Ref<Image2D>>   m_RenderGraphAliasedImages;
 		bool                       m_RenderTargetAliasingApplied = false;
+		size_t                     m_LastRenderGraphDiagnosticHash = 0;
 
 		Ref<Renderer2D>    m_Renderer2D;
 		Ref<Renderer2D>    m_Renderer2DScreenSpace;

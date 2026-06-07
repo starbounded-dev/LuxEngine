@@ -247,6 +247,91 @@ namespace Lux {
 			return pass.Executable ? "Executable" : "Metadata";
 		}
 
+		const char* RenderGraphDiagnosticSeverityToString(RenderGraph::DiagnosticSeverity severity)
+		{
+			switch (severity)
+			{
+				case RenderGraph::DiagnosticSeverity::Info: return "Info";
+				case RenderGraph::DiagnosticSeverity::Warning: return "Warning";
+				case RenderGraph::DiagnosticSeverity::Error: return "Error";
+			}
+			return "Unknown";
+		}
+
+		ImVec4 RenderGraphDiagnosticColor(RenderGraph::DiagnosticSeverity severity)
+		{
+			switch (severity)
+			{
+				case RenderGraph::DiagnosticSeverity::Error: return ImVec4(0.95f, 0.25f, 0.25f, 1.0f);
+				case RenderGraph::DiagnosticSeverity::Warning: return ImVec4(0.95f, 0.72f, 0.20f, 1.0f);
+				case RenderGraph::DiagnosticSeverity::Info: return ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
+			}
+			return ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+		}
+
+		const char* RenderGraphDiagnosticCodeToString(RenderGraph::DiagnosticCode code)
+		{
+			switch (code)
+			{
+				case RenderGraph::DiagnosticCode::InvalidResource: return "InvalidResource";
+				case RenderGraph::DiagnosticCode::NullTexture: return "NullTexture";
+				case RenderGraph::DiagnosticCode::InvalidTextureDesc: return "InvalidTextureDesc";
+				case RenderGraph::DiagnosticCode::ReadBeforeWrite: return "ReadBeforeWrite";
+				case RenderGraph::DiagnosticCode::UnwrittenExternalRead: return "UnwrittenExternalRead";
+				case RenderGraph::DiagnosticCode::DeadWrite: return "DeadWrite";
+				case RenderGraph::DiagnosticCode::ReadWriteSameResource: return "ReadWriteSameResource";
+				case RenderGraph::DiagnosticCode::DuplicatePassName: return "DuplicatePassName";
+				case RenderGraph::DiagnosticCode::DuplicateTextureName: return "DuplicateTextureName";
+				case RenderGraph::DiagnosticCode::InvalidPassFlags: return "InvalidPassFlags";
+				case RenderGraph::DiagnosticCode::EmptyExecutablePass: return "EmptyExecutablePass";
+				case RenderGraph::DiagnosticCode::EmptyMetadataPass: return "EmptyMetadataPass";
+				case RenderGraph::DiagnosticCode::AliasLifetimeConflict: return "AliasLifetimeConflict";
+				case RenderGraph::DiagnosticCode::AliasIncompatibleResource: return "AliasIncompatibleResource";
+			}
+			return "Unknown";
+		}
+
+		bool RenderGraphDiagnosticVisible(const SceneRenderer::RenderGraphDiagnosticDebugInfo& diagnostic, bool errorsOnly, bool showWarnings)
+		{
+			if (errorsOnly)
+				return diagnostic.Severity == RenderGraph::DiagnosticSeverity::Error;
+			if (!showWarnings && diagnostic.Severity == RenderGraph::DiagnosticSeverity::Warning)
+				return false;
+			return true;
+		}
+
+		bool RenderGraphPassHasSeverity(const SceneRenderer::RenderGraphDebugSnapshot& snapshot, const SceneRenderer::RenderGraphPassDebugInfo& pass, RenderGraph::DiagnosticSeverity severity)
+		{
+			return std::any_of(pass.Diagnostics.begin(), pass.Diagnostics.end(), [&](uint32_t diagnosticIndex)
+				{
+					return diagnosticIndex < snapshot.Diagnostics.size() && snapshot.Diagnostics[diagnosticIndex].Severity == severity;
+				});
+		}
+
+		std::string RenderGraphPassIndexToString(const SceneRenderer::RenderGraphDebugSnapshot& snapshot, uint32_t passIndex)
+		{
+			if (passIndex == UINT32_MAX)
+				return "-";
+			if (passIndex >= snapshot.Passes.size())
+				return std::format("Invalid({})", passIndex);
+			return std::format("#{} {}", passIndex, snapshot.Passes[passIndex].Name);
+		}
+
+		std::string RenderGraphConsumerListToString(const SceneRenderer::RenderGraphDebugSnapshot& snapshot, const std::vector<uint32_t>& consumers)
+		{
+			if (consumers.empty())
+				return "-";
+
+			std::string result;
+			for (uint32_t passIndex : consumers)
+			{
+				if (!result.empty())
+					result += ", ";
+				result += RenderGraphPassIndexToString(snapshot, passIndex);
+			}
+			return result;
+		}
+
 		void DrawResourceList(const SceneRenderer::RenderGraphDebugSnapshot& snapshot, const std::vector<SceneRenderer::RenderGraphResourceAccessDebugInfo>& resources)
 		{
 			if (resources.empty())
@@ -258,7 +343,10 @@ namespace Lux {
 			for (const auto& resource : resources)
 			{
 				if (resource.Resource >= snapshot.Textures.size())
+				{
+					ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "#%u [%s] Invalid", resource.Resource, resource.State.c_str());
 					continue;
+				}
 				const auto& texture = snapshot.Textures[resource.Resource];
 				ImGui::TextWrapped("%s", ResourceSummary(texture, resource.State).c_str());
 			}
@@ -771,19 +859,146 @@ namespace Lux {
 			return;
 
 		SceneRenderer::RenderGraphDebugSnapshot snapshot = m_Context->GetRenderGraphDebugSnapshot();
-		ImGui::TextDisabled("%zu passes, %zu textures", snapshot.Passes.size(), snapshot.Textures.size());
-		for (const std::string& diagnostic : snapshot.Diagnostics)
-			ImGui::TextWrapped("Diagnostic: %s", diagnostic.c_str());
+		if (m_RenderGraphSelectedPass >= snapshot.Passes.size())
+			m_RenderGraphSelectedPass = UINT32_MAX;
+		if (m_RenderGraphSelectedResource >= snapshot.Textures.size())
+			m_RenderGraphSelectedResource = UINT32_MAX;
+
+		ImGui::TextDisabled("%u error(s), %u warning(s), %zu passes (%u executed, %u culled), %zu textures, %zu alias group(s), transient %s, saved %s",
+			snapshot.ErrorCount,
+			snapshot.WarningCount,
+			snapshot.Passes.size(),
+			snapshot.ExecutedPassCount,
+			snapshot.CulledPassCount,
+			snapshot.Textures.size(),
+			snapshot.AliasGroups.size(),
+			Utils::BytesToString(snapshot.TransientBytes).c_str(),
+			Utils::BytesToString(snapshot.SavedBytes).c_str());
+
+		if (ImGui::Button("Run RenderGraph Self Tests"))
+		{
+			m_RenderGraphSelfTestFailures.clear();
+			m_RenderGraphSelfTestPassed = RenderGraph::RunValidationSelfTests(&m_RenderGraphSelfTestFailures);
+			m_RenderGraphSelfTestRan = true;
+		}
+		if (m_RenderGraphSelfTestRan)
+		{
+			ImGui::SameLine();
+			if (m_RenderGraphSelfTestPassed)
+			{
+				ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.35f, 1.0f), "Self tests passed");
+			}
+			else
+			{
+				ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "Self tests failed (%zu)", m_RenderGraphSelfTestFailures.size());
+				for (const std::string& failure : m_RenderGraphSelfTestFailures)
+					ImGui::TextWrapped("%s", failure.c_str());
+			}
+		}
+
 		ImGuiEx::Widgets::SearchWidget(m_RenderGraphSearch, "Search passes or textures...");
 
-		if (ImGui::BeginTable("##render_graph_pass_table", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+		ImGui::Checkbox("Errors Only", &m_RenderGraphErrorsOnly);
+		ImGui::SameLine();
+		ImGui::Checkbox("Warnings", &m_RenderGraphShowWarnings);
+		ImGui::SameLine();
+		ImGui::Checkbox("Culled", &m_RenderGraphShowCulled);
+		ImGui::SameLine();
+		ImGui::Checkbox("Aliased", &m_RenderGraphShowAliased);
+		ImGui::SameLine();
+		ImGui::Checkbox("Transient", &m_RenderGraphShowTransient);
+		ImGui::SameLine();
+		ImGui::Checkbox("External", &m_RenderGraphShowExternal);
+		ImGui::SameLine();
+		ImGui::Checkbox("Graphics", &m_RenderGraphShowGraphics);
+		ImGui::SameLine();
+		ImGui::Checkbox("Compute", &m_RenderGraphShowCompute);
+
+		if (ImGui::TreeNodeEx("Diagnostics", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			if (snapshot.Diagnostics.empty())
+			{
+				ImGui::TextDisabled("No render graph diagnostics.");
+			}
+			else if (ImGui::BeginTable("##render_graph_diagnostics", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+			{
+				ImGui::TableSetupColumn("Severity", ImGuiTableColumnFlags_WidthFixed, 78.0f);
+				ImGui::TableSetupColumn("Code", ImGuiTableColumnFlags_WidthFixed, 170.0f);
+				ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+				ImGui::TableSetupColumn("Resource", ImGuiTableColumnFlags_WidthFixed, 220.0f);
+				ImGui::TableSetupColumn("Message");
+				ImGui::TableHeadersRow();
+
+				static constexpr RenderGraph::DiagnosticSeverity severityOrder[] = {
+					RenderGraph::DiagnosticSeverity::Error,
+					RenderGraph::DiagnosticSeverity::Warning,
+					RenderGraph::DiagnosticSeverity::Info
+				};
+
+				for (RenderGraph::DiagnosticSeverity severity : severityOrder)
+				{
+					for (uint32_t diagnosticIndex = 0; diagnosticIndex < snapshot.Diagnostics.size(); diagnosticIndex++)
+					{
+						const auto& diagnostic = snapshot.Diagnostics[diagnosticIndex];
+						if (diagnostic.Severity != severity || !RenderGraphDiagnosticVisible(diagnostic, m_RenderGraphErrorsOnly, m_RenderGraphShowWarnings))
+							continue;
+
+						if (!m_RenderGraphSearch.empty()
+							&& !ImGuiEx::IsMatchingSearch(diagnostic.Message, m_RenderGraphSearch, false, false, true)
+							&& !ImGuiEx::IsMatchingSearch(diagnostic.PassName, m_RenderGraphSearch, false, false, true)
+							&& !ImGuiEx::IsMatchingSearch(diagnostic.ResourceName, m_RenderGraphSearch, false, false, true))
+						{
+							continue;
+						}
+
+						ImGui::TableNextRow();
+						ImGui::TableSetColumnIndex(0);
+						ImGui::TextColored(RenderGraphDiagnosticColor(diagnostic.Severity), "%s", RenderGraphDiagnosticSeverityToString(diagnostic.Severity));
+						ImGui::TableSetColumnIndex(1);
+						ImGui::TextUnformatted(RenderGraphDiagnosticCodeToString(diagnostic.Code));
+						ImGui::TableSetColumnIndex(2);
+						if (diagnostic.PassIndex < snapshot.Passes.size())
+						{
+							if (ImGui::Selectable(RenderGraphPassIndexToString(snapshot, diagnostic.PassIndex).c_str(), m_RenderGraphSelectedPass == diagnostic.PassIndex, ImGuiSelectableFlags_SpanAllColumns))
+								m_RenderGraphSelectedPass = diagnostic.PassIndex;
+						}
+						else
+						{
+							ImGui::TextDisabled("%s", diagnostic.PassName.empty() ? "-" : diagnostic.PassName.c_str());
+						}
+						ImGui::TableSetColumnIndex(3);
+						if (diagnostic.Resource < snapshot.Textures.size())
+						{
+							const auto& texture = snapshot.Textures[diagnostic.Resource];
+							if (ImGui::Selectable(std::format("#{} {}", diagnostic.Resource, texture.Name).c_str(), m_RenderGraphSelectedResource == diagnostic.Resource, ImGuiSelectableFlags_SpanAllColumns))
+								m_RenderGraphSelectedResource = diagnostic.Resource;
+						}
+						else
+						{
+							ImGui::TextDisabled("%s", diagnostic.ResourceName.empty() ? "-" : diagnostic.ResourceName.c_str());
+						}
+						ImGui::TableSetColumnIndex(4);
+						ImGui::TextWrapped("%s", diagnostic.Message.c_str());
+					}
+				}
+
+				ImGui::EndTable();
+			}
+			ImGui::TreePop();
+		}
+
+		ImGui::Spacing();
+		if (ImGui::BeginTable("##render_graph_pass_table", 9, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX))
 		{
 			ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 42.0f);
 			ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 180.0f);
 			ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed, 92.0f);
 			ImGui::TableSetupColumn("Flags", ImGuiTableColumnFlags_WidthFixed, 160.0f);
+			ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+			ImGui::TableSetupColumn("GPU", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			ImGui::TableSetupColumn("Inputs");
 			ImGui::TableSetupColumn("Outputs");
+			ImGui::TableSetupColumn("Diagnostics", ImGuiTableColumnFlags_WidthFixed, 90.0f);
 			ImGui::TableHeadersRow();
 
 			for (uint32_t passIndex = 0; passIndex < snapshot.Passes.size(); passIndex++)
@@ -791,75 +1006,223 @@ namespace Lux {
 				const auto& pass = snapshot.Passes[passIndex];
 				if (!MatchesRenderGraphSearch(snapshot, pass, m_RenderGraphSearch))
 					continue;
+				if (m_RenderGraphErrorsOnly && !RenderGraphPassHasSeverity(snapshot, pass, RenderGraph::DiagnosticSeverity::Error))
+					continue;
+				if (!m_RenderGraphShowCulled && pass.Culled)
+					continue;
+				if (m_RenderGraphShowGraphics && (pass.Flags & static_cast<uint32_t>(RenderGraph::PassFlags::Graphics)) == 0)
+					continue;
+				if (m_RenderGraphShowCompute && (pass.Flags & static_cast<uint32_t>(RenderGraph::PassFlags::Compute)) == 0)
+					continue;
 
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("%u", passIndex);
 				ImGui::TableSetColumnIndex(1);
-				ImGui::TextUnformatted(pass.Name.c_str());
+				const bool selected = m_RenderGraphSelectedPass == passIndex;
+				if (RenderGraphPassHasSeverity(snapshot, pass, RenderGraph::DiagnosticSeverity::Error))
+					ImGui::PushStyleColor(ImGuiCol_Text, RenderGraphDiagnosticColor(RenderGraph::DiagnosticSeverity::Error));
+				else if (RenderGraphPassHasSeverity(snapshot, pass, RenderGraph::DiagnosticSeverity::Warning))
+					ImGui::PushStyleColor(ImGuiCol_Text, RenderGraphDiagnosticColor(RenderGraph::DiagnosticSeverity::Warning));
+				else
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
+				if (ImGui::Selectable(pass.Name.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns))
+					m_RenderGraphSelectedPass = passIndex;
+				ImGui::PopStyleColor();
 				ImGui::TableSetColumnIndex(2);
 				ImGui::TextUnformatted(RenderGraphPassStatusToString(pass).c_str());
 				ImGui::TableSetColumnIndex(3);
 				ImGui::TextUnformatted(RenderGraphPassFlagsToString(pass.Flags).c_str());
 				ImGui::TableSetColumnIndex(4);
-				DrawResourceList(snapshot, pass.Inputs);
+				ImGui::Text("%.3f ms", pass.CPUTime);
 				ImGui::TableSetColumnIndex(5);
+				ImGui::Text("%.3f ms", pass.GPUTime);
+				ImGui::TableSetColumnIndex(6);
+				DrawResourceList(snapshot, pass.Inputs);
+				ImGui::TableSetColumnIndex(7);
 				DrawResourceList(snapshot, pass.Outputs);
+				ImGui::TableSetColumnIndex(8);
+				ImGui::Text("%zu", pass.Diagnostics.size());
 			}
 
 			ImGui::EndTable();
 		}
 
 		ImGui::Spacing();
-		if (ImGui::BeginTable("##render_graph_texture_table", 12, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX))
+		if (ImGui::BeginTable("##render_graph_texture_table", 11, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX))
 		{
 			ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 42.0f);
 			ImGui::TableSetupColumn("Texture", ImGuiTableColumnFlags_WidthFixed, 210.0f);
-			ImGui::TableSetupColumn("Format", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-			ImGui::TableSetupColumn("Usage", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-			ImGui::TableSetupColumn("Dim", ImGuiTableColumnFlags_WidthFixed, 72.0f);
-			ImGui::TableSetupColumn("Resolution", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-			ImGui::TableSetupColumn("Mip", ImGuiTableColumnFlags_WidthFixed, 62.0f);
-			ImGui::TableSetupColumn("Layers", ImGuiTableColumnFlags_WidthFixed, 64.0f);
+			ImGui::TableSetupColumn("Producer", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+			ImGui::TableSetupColumn("Consumers", ImGuiTableColumnFlags_WidthFixed, 240.0f);
 			ImGui::TableSetupColumn("Lifetime", ImGuiTableColumnFlags_WidthFixed, 82.0f);
 			ImGui::TableSetupColumn("Alias", ImGuiTableColumnFlags_WidthFixed, 72.0f);
-			ImGui::TableSetupColumn("Current State", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+			ImGui::TableSetupColumn("Live", ImGuiTableColumnFlags_WidthFixed, 64.0f);
+			ImGui::TableSetupColumn("Format", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+			ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 120.0f);
 			ImGui::TableSetupColumn("Memory", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("Validation", ImGuiTableColumnFlags_WidthFixed, 90.0f);
 			ImGui::TableHeadersRow();
 
 			for (const auto& texture : snapshot.Textures)
 			{
 				if (!m_RenderGraphSearch.empty() && !ImGuiEx::IsMatchingSearch(texture.Name, m_RenderGraphSearch, false, false, true))
 					continue;
+				if (m_RenderGraphErrorsOnly && texture.ErrorCount == 0)
+					continue;
+				if (!m_RenderGraphShowWarnings && texture.ErrorCount == 0 && texture.WarningCount > 0)
+					continue;
+				if (m_RenderGraphShowAliased && texture.AliasGroup == UINT32_MAX)
+					continue;
+				if (m_RenderGraphShowTransient && !texture.Transient)
+					continue;
+				if (m_RenderGraphShowExternal && texture.Transient)
+					continue;
 
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Text("%u", texture.Resource);
 				ImGui::TableSetColumnIndex(1);
-				ImGui::TextUnformatted(texture.Name.c_str());
+				if (texture.ErrorCount > 0)
+					ImGui::PushStyleColor(ImGuiCol_Text, RenderGraphDiagnosticColor(RenderGraph::DiagnosticSeverity::Error));
+				else if (texture.WarningCount > 0)
+					ImGui::PushStyleColor(ImGuiCol_Text, RenderGraphDiagnosticColor(RenderGraph::DiagnosticSeverity::Warning));
+				else
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
+				if (ImGui::Selectable(texture.Name.c_str(), m_RenderGraphSelectedResource == texture.Resource, ImGuiSelectableFlags_SpanAllColumns))
+					m_RenderGraphSelectedResource = texture.Resource;
+				ImGui::PopStyleColor();
 				ImGui::TableSetColumnIndex(2);
-				ImGui::TextUnformatted(std::string(Utils::ImageFormatToString(texture.Format)).c_str());
+				ImGui::TextWrapped("%s", RenderGraphPassIndexToString(snapshot, texture.FirstWriter).c_str());
 				ImGui::TableSetColumnIndex(3);
-				ImGui::TextUnformatted(ImageUsageToString(texture.Usage));
+				ImGui::TextWrapped("%s", RenderGraphConsumerListToString(snapshot, texture.Consumers).c_str());
 				ImGui::TableSetColumnIndex(4);
-				ImGui::TextUnformatted(TextureDimensionToString(texture.Dimension));
-				ImGui::TableSetColumnIndex(5);
-				ImGui::Text("%u x %u", texture.Width, texture.Height);
-				ImGui::TableSetColumnIndex(6);
-				ImGui::Text("0-%u", texture.Mips > 0 ? texture.Mips - 1 : 0);
-				ImGui::TableSetColumnIndex(7);
-				ImGui::Text("%u", texture.Layers);
-				ImGui::TableSetColumnIndex(8);
 				ImGui::TextUnformatted(LifetimeToString(texture).c_str());
-				ImGui::TableSetColumnIndex(9);
+				ImGui::TableSetColumnIndex(5);
 				ImGui::Text("%s%s", AliasToString(texture.AliasGroup).c_str(), texture.AliasedNow ? " live" : "");
-				ImGui::TableSetColumnIndex(10);
-				ImGui::TextUnformatted(ResourceStateToString(texture.CurrentState).c_str());
-				ImGui::TableSetColumnIndex(11);
+				ImGui::TableSetColumnIndex(6);
+				ImGui::TextUnformatted(texture.Transient ? "Transient" : "External");
+				ImGui::TableSetColumnIndex(7);
+				ImGui::TextUnformatted(std::string(Utils::ImageFormatToString(texture.Format)).c_str());
+				ImGui::TableSetColumnIndex(8);
+				ImGui::Text("%u x %u, %s, mips %u, layers %u", texture.Width, texture.Height, TextureDimensionToString(texture.Dimension), texture.Mips, texture.Layers);
+				ImGui::TableSetColumnIndex(9);
 				ImGui::TextUnformatted(Utils::BytesToString(texture.EstimatedBytes).c_str());
+				ImGui::TableSetColumnIndex(10);
+				if (texture.ErrorCount > 0)
+					ImGui::TextColored(RenderGraphDiagnosticColor(RenderGraph::DiagnosticSeverity::Error), "%u error(s)", texture.ErrorCount);
+				else if (texture.WarningCount > 0)
+					ImGui::TextColored(RenderGraphDiagnosticColor(RenderGraph::DiagnosticSeverity::Warning), "%u warning(s)", texture.WarningCount);
+				else
+					ImGui::TextDisabled("OK");
 			}
 
 			ImGui::EndTable();
+		}
+
+		ImGui::Spacing();
+		if (ImGui::TreeNode("Alias Groups"))
+		{
+			if (snapshot.AliasGroups.empty())
+			{
+				ImGui::TextDisabled("No transient alias groups.");
+			}
+			else
+			{
+				for (const auto& aliasGroup : snapshot.AliasGroups)
+				{
+					const std::string label = std::format("Group #{}: {} texture(s), backing {}, saved {}", aliasGroup.AliasGroup, aliasGroup.Resources.size(), Utils::BytesToString(aliasGroup.BackingBytes), Utils::BytesToString(aliasGroup.SavedBytes));
+					if (ImGui::TreeNode(label.c_str()))
+					{
+						ImGui::TextColored(aliasGroup.Compatible ? ImVec4(0.35f, 0.85f, 0.35f, 1.0f) : RenderGraphDiagnosticColor(RenderGraph::DiagnosticSeverity::Error),
+							"%s",
+							aliasGroup.Compatible ? "Compatible: same descriptor shape and non-overlapping lifetimes." : "Invalid: incompatible descriptors or overlapping lifetimes.");
+						for (uint32_t resource : aliasGroup.Resources)
+						{
+							if (resource >= snapshot.Textures.size())
+								continue;
+							const auto& texture = snapshot.Textures[resource];
+							if (ImGui::Selectable(std::format("#{} {} life {}", resource, texture.Name, LifetimeToString(texture)).c_str(), m_RenderGraphSelectedResource == resource))
+								m_RenderGraphSelectedResource = resource;
+						}
+						ImGui::TreePop();
+					}
+				}
+			}
+			ImGui::TreePop();
+		}
+
+		ImGui::Spacing();
+		if (m_RenderGraphSelectedPass < snapshot.Passes.size())
+		{
+			const auto& pass = snapshot.Passes[m_RenderGraphSelectedPass];
+			if (ImGui::TreeNodeEx("Selected Pass", ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				ImGui::Text("#%u %s", pass.Index, pass.Name.c_str());
+				ImGui::TextDisabled("Status: %s, flags: %s, CPU %.3f ms, GPU %.3f ms", RenderGraphPassStatusToString(pass).c_str(), RenderGraphPassFlagsToString(pass.Flags).c_str(), pass.CPUTime, pass.GPUTime);
+				ImGui::TextUnformatted("Inputs");
+				DrawResourceList(snapshot, pass.Inputs);
+				ImGui::TextUnformatted("Outputs");
+				DrawResourceList(snapshot, pass.Outputs);
+				if (!pass.Diagnostics.empty())
+				{
+					ImGui::TextUnformatted("Diagnostics");
+					for (uint32_t diagnosticIndex : pass.Diagnostics)
+					{
+						if (diagnosticIndex >= snapshot.Diagnostics.size())
+							continue;
+						const auto& diagnostic = snapshot.Diagnostics[diagnosticIndex];
+						ImGui::TextColored(RenderGraphDiagnosticColor(diagnostic.Severity), "%s %s: %s",
+							RenderGraphDiagnosticSeverityToString(diagnostic.Severity),
+							RenderGraphDiagnosticCodeToString(diagnostic.Code),
+							diagnostic.Message.c_str());
+					}
+				}
+				ImGui::TreePop();
+			}
+		}
+
+		if (m_RenderGraphSelectedResource < snapshot.Textures.size())
+		{
+			const auto& texture = snapshot.Textures[m_RenderGraphSelectedResource];
+			if (ImGui::TreeNodeEx("Selected Texture", ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				ImGui::Text("#%u %s", texture.Resource, texture.Name.c_str());
+				ImGui::TextDisabled("Format: %s, usage: %s, dimension: %s, size: %u x %u, mips: %u, layers: %u",
+					std::string(Utils::ImageFormatToString(texture.Format)).c_str(),
+					ImageUsageToString(texture.Usage),
+					TextureDimensionToString(texture.Dimension),
+					texture.Width,
+					texture.Height,
+					texture.Mips,
+					texture.Layers);
+				ImGui::TextDisabled("Lifetime: %s, first writer: %s, last reader: %s, alias: %s, live state: %s",
+					LifetimeToString(texture).c_str(),
+					RenderGraphPassIndexToString(snapshot, texture.FirstWriter).c_str(),
+					RenderGraphPassIndexToString(snapshot, texture.LastReader).c_str(),
+					AliasToString(texture.AliasGroup).c_str(),
+					ResourceStateToString(texture.CurrentState).c_str());
+				ImGui::TextDisabled("Consumers: %s", RenderGraphConsumerListToString(snapshot, texture.Consumers).c_str());
+				ImGui::TextDisabled("Memory: %s, transient: %s, aliasable: %s, currently aliased: %s",
+					Utils::BytesToString(texture.EstimatedBytes).c_str(),
+					texture.Transient ? "yes" : "no",
+					texture.AllowAlias ? "yes" : "no",
+					texture.AliasedNow ? "yes" : "no");
+				if (texture.DiagnosticCount > 0)
+				{
+					ImGui::TextUnformatted("Diagnostics");
+					for (const auto& diagnostic : snapshot.Diagnostics)
+					{
+						if (diagnostic.Resource != texture.Resource)
+							continue;
+						ImGui::TextColored(RenderGraphDiagnosticColor(diagnostic.Severity), "%s %s: %s",
+							RenderGraphDiagnosticSeverityToString(diagnostic.Severity),
+							RenderGraphDiagnosticCodeToString(diagnostic.Code),
+							diagnostic.Message.c_str());
+					}
+				}
+				ImGui::TreePop();
+			}
 		}
 
 		ImGui::TreePop();
