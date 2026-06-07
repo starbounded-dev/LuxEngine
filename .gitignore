@@ -36,3 +36,5 @@ Editor/LuxSampleProject/Assets/AssetRegistry.lzr
 *.slnx
 *.lib
 *.pdb
+Core/vendor/JoltPhysics/bin/Debug-windows-x86_64/JoltPhysics/JoltPhysics.idb
+AGENTS.md

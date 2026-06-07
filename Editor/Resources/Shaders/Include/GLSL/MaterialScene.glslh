@@ -58,6 +58,69 @@ GPUMaterial GetGPUMaterialForObject(uint objectIndex)
 	return r_GPUMaterials.Materials[GetInstanceMaterialIndex(objectIndex)];
 }
 
+bool IsGPUMaterialRowUsable(GPUMaterial material)
+{
+	uint flags = material.Metadata.x;
+	return HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_VALID)
+		&& !HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_MISSING);
+}
+
+vec3 GetGPUMaterialBaseColor(GPUMaterial material, vec3 fallbackLinearBaseColor)
+{
+	return IsGPUMaterialRowUsable(material)
+		? clamp(material.BaseColor.rgb, vec3(0.0), vec3(128.0))
+		: fallbackLinearBaseColor;
+}
+
+float GetGPUMaterialOpacity(GPUMaterial material, float fallbackOpacity)
+{
+	return IsGPUMaterialRowUsable(material)
+		? clamp(material.BaseColor.a, 0.0, 1.0)
+		: clamp(fallbackOpacity, 0.0, 1.0);
+}
+
+float GetGPUMaterialMetalness(GPUMaterial material, float fallbackMetalness)
+{
+	return IsGPUMaterialRowUsable(material)
+		? clamp(material.Scalars.x, 0.0, 1.0)
+		: clamp(fallbackMetalness, 0.0, 1.0);
+}
+
+float GetGPUMaterialRoughness(GPUMaterial material, float fallbackRoughness)
+{
+	return IsGPUMaterialRowUsable(material)
+		? clamp(material.Scalars.y, 0.0, 1.0)
+		: clamp(fallbackRoughness, 0.0, 1.0);
+}
+
+float GetGPUMaterialEmission(GPUMaterial material, float fallbackEmission)
+{
+	return IsGPUMaterialRowUsable(material)
+		? max(material.Scalars.z, 0.0)
+		: max(fallbackEmission, 0.0);
+}
+
+float GetGPUMaterialComplexity(GPUMaterial material, float fallbackComplexity)
+{
+	return IsGPUMaterialRowUsable(material)
+		? max(material.Scalars.w, 0.0)
+		: max(fallbackComplexity, 0.0);
+}
+
+uint GetGPUMaterialAlphaMode(GPUMaterial material, uint fallbackAlphaMode)
+{
+	return IsGPUMaterialRowUsable(material)
+		? material.Metadata.y
+		: fallbackAlphaMode;
+}
+
+bool GetGPUMaterialUsesNormalMap(GPUMaterial material, bool fallbackUseNormalMap)
+{
+	return IsGPUMaterialRowUsable(material)
+		? HasGPUMaterialFlag(material.Metadata.x, GPU_MATERIAL_FLAG_USE_NORMAL_MAP)
+		: fallbackUseNormalMap;
+}
+
 vec3 GetMaterialSceneDebugColor(uint objectIndex, uint mode)
 {
 	if (mode < GPU_MATERIAL_DEBUG_TEXTURE_VALIDITY)
