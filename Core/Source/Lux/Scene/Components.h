@@ -12,6 +12,7 @@
 #include "Lux/Physics/PhysicsTypes.h"
 #include "Lux/Renderer/Atmosphere.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Renderer/RenderVolumes.h"
 #include "Lux/Renderer/Texture.h"
 #include "Lux/Renderer/UI/Font.h"
 
@@ -617,6 +618,7 @@ namespace Lux {
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-		SkyAtmosphereComponent, VolumetricCloudComponent, ExponentialHeightFogComponent>;
+		SkyAtmosphereComponent, VolumetricCloudComponent, ExponentialHeightFogComponent,
+		RenderVolumeComponent, PostProcessVolumeComponent, AtmosphereVolumeComponent, LocalFogVolumeComponent>;
 
 }

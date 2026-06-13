@@ -460,6 +460,8 @@ namespace Lux {
 	SceneRenderer::SceneRenderer(Ref<Scene> scene, SceneRendererSpecification specification)
 		: m_Scene(scene), m_Specification(specification)
 	{
+		static const bool renderVolumeSelfTestsPassed = RenderVolumeEvaluator::RunSelfTests();
+		(void)renderVolumeSelfTestsPassed;
 		Init();
 	}
 
@@ -1156,40 +1158,6 @@ namespace Lux {
 
 		// ── Scene color, GBuffer, forward fallback, and deferred lighting ─────
 		{
-			auto setInputIfValid = [](Ref<RenderPass> renderPass, std::string_view name, auto input)
-				{
-					if (renderPass && renderPass->IsInputValid(name))
-						renderPass->SetInput(name, input);
-				};
-
-			auto bindDefaultGPUTextureScene = [](Ref<RenderPass> renderPass)
-				{
-					if (!renderPass || !renderPass->IsInputValid("u_GPUMaterialTextures"))
-						return;
-
-					for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
-						renderPass->SetInput("u_GPUMaterialTextures", Renderer::GetWhiteTexture(), textureIndex);
-				};
-
-			auto bindMaterialSceneInputs = [&](Ref<RenderPass> renderPass)
-				{
-					setInputIfValid(renderPass, "GPUSceneInstances", m_SBSGPUSceneInstances);
-					setInputIfValid(renderPass, "GPUMaterials", m_SBSGPUMaterials);
-					setInputIfValid(renderPass, "ObjectIndexes", m_SBSVisibleObjectIndexes);
-					setInputIfValid(renderPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
-					bindDefaultGPUTextureScene(renderPass);
-				};
-
-			auto bindLightingInputs = [&](Ref<RenderPass> renderPass, bool bindDepth = false)
-				{
-					BindCommonSceneRenderPassInputs(renderPass, bindDepth);
-					setInputIfValid(renderPass, "u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
-					setInputIfValid(renderPass, "u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
-					setInputIfValid(renderPass, "u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
-					setInputIfValid(renderPass, "u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
-					setInputIfValid(renderPass, "u_SpotShadowTexture", m_SpotShadowMapImage);
-				};
-
 			FramebufferSpecification sceneColorSpec;
 			sceneColorSpec.Width = m_ViewportWidth;
 			sceneColorSpec.Height = m_ViewportHeight;
@@ -1240,9 +1208,7 @@ namespace Lux {
 			rpSpec.DebugName = "GBufferPass";
 			rpSpec.Pipeline = m_GeometryPipeline;
 			m_GeometryPass = RenderPass::Create(rpSpec);
-			m_GeometryPass->SetInput("Camera", m_UBSCamera);
-			m_GeometryPass->SetInput("RendererData", m_UBSRendererData);
-			bindMaterialSceneInputs(m_GeometryPass);
+			BindSceneRenderPassInputs(m_GeometryPass, PassInputCamera | PassInputRenderer | PassInputMaterialScene);
 			LUX_CORE_VERIFY(m_GeometryPass->Validate());
 			m_GeometryPass->Bake();
 
@@ -1281,8 +1247,7 @@ namespace Lux {
 			rpSpec.DebugName = "ForwardGeometryPass";
 			rpSpec.Pipeline = m_ForwardGeometryPipeline;
 			m_ForwardGeometryPass = RenderPass::Create(rpSpec);
-			bindLightingInputs(m_ForwardGeometryPass);
-			bindMaterialSceneInputs(m_ForwardGeometryPass);
+			BindSceneRenderPassInputs(m_ForwardGeometryPass, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth);
 			LUX_CORE_VERIFY(m_ForwardGeometryPass->Validate());
 			m_ForwardGeometryPass->Bake();
 
@@ -1301,8 +1266,7 @@ namespace Lux {
 			rpSpec.DebugName = "TransparentForwardPass";
 			rpSpec.Pipeline = m_TransparentGeometryPipeline;
 			m_GeometryPassTransparent = RenderPass::Create(rpSpec);
-			bindLightingInputs(m_GeometryPassTransparent);
-			bindMaterialSceneInputs(m_GeometryPassTransparent);
+			BindSceneRenderPassInputs(m_GeometryPassTransparent, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth);
 			LUX_CORE_VERIFY(m_GeometryPassTransparent->Validate());
 			m_GeometryPassTransparent->Bake();
 
@@ -1330,14 +1294,7 @@ namespace Lux {
 			rpSpec.DebugName = "DeferredLightingPass";
 			rpSpec.Pipeline = m_DeferredLightingPipeline;
 			m_DeferredLightingPass = RenderPass::Create(rpSpec);
-			bindLightingInputs(m_DeferredLightingPass, true);
-			bindMaterialSceneInputs(m_DeferredLightingPass);
-			setInputIfValid(m_DeferredLightingPass, "u_SceneColor", m_SceneColorFramebuffer->GetImage(0));
-			m_DeferredLightingPass->SetInput("u_GBufferBaseColor", m_GeometryPass->GetOutput(0));
-			m_DeferredLightingPass->SetInput("u_GBufferNormal", m_GeometryPass->GetOutput(1));
-			m_DeferredLightingPass->SetInput("u_GBufferMetalRoughAO", m_GeometryPass->GetOutput(2));
-			m_DeferredLightingPass->SetInput("u_GBufferMaterialID", m_GeometryPass->GetOutput(3));
-			m_DeferredLightingPass->SetInput("u_GBufferObjectID", m_GeometryPass->GetOutput(4));
+			BindSceneRenderPassInputs(m_DeferredLightingPass, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth | PassInputGBuffer | PassInputSceneColor);
 			m_DeferredLightingPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			m_DeferredLightingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_DeferredLightingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
@@ -1360,16 +1317,8 @@ namespace Lux {
 			rpSpec.DebugName = "GBufferDebugPass";
 			rpSpec.Pipeline = Pipeline::Create(debugPipelineSpec);
 			m_GBufferDebugPass = RenderPass::Create(rpSpec);
-			BindCommonSceneRenderPassInputs(m_GBufferDebugPass);
-			m_GBufferDebugPass->SetInput("u_GBufferBaseColor", m_GeometryPass->GetOutput(0));
-			m_GBufferDebugPass->SetInput("u_GBufferNormal", m_GeometryPass->GetOutput(1));
-			m_GBufferDebugPass->SetInput("u_GBufferMetalRoughAO", m_GeometryPass->GetOutput(2));
-			m_GBufferDebugPass->SetInput("u_GBufferMaterialID", m_GeometryPass->GetOutput(3));
-			m_GBufferDebugPass->SetInput("u_GBufferObjectID", m_GeometryPass->GetOutput(4));
-			m_GBufferDebugPass->SetInput("u_DeferredLighting", m_SceneColorFramebuffer->GetImage(0));
-			m_GBufferDebugPass->SetInput("GPUMaterials", m_SBSGPUMaterials);
+			BindSceneRenderPassInputs(m_GBufferDebugPass, PassInputCommonScene | PassInputGBuffer | PassInputMaterialScene);
 			m_GBufferDebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			bindDefaultGPUTextureScene(m_GBufferDebugPass);
 			LUX_CORE_VERIFY(m_GBufferDebugPass->Validate());
 			m_GBufferDebugPass->Bake();
 			m_GBufferDebugMaterial = Material::Create(debugPipelineSpec.Shader, "GBufferDebug");
@@ -1809,7 +1758,7 @@ namespace Lux {
 			m_SkyAtmospherePass = skyPass;
 			m_SkyAtmosphereMaterial = Material::Create(skyPipeline->GetShader(), "SkyAtmosphere");
 
-			m_CloudRenderScale = SanitizeCloudRenderScale(m_SceneData.Atmosphere.VolumetricClouds.RenderScale);
+			m_CloudRenderScale = SanitizeCloudRenderScale(ResolveFrameEnvironment().Atmosphere.VolumetricClouds.RenderScale);
 			m_CloudRenderSize = CalculateVolumetricCloudRenderSize();
 
 			FramebufferSpecification cloudSpec;
@@ -2091,7 +2040,7 @@ namespace Lux {
 	glm::uvec2 SceneRenderer::CalculateVolumetricCloudRenderSize() const
 	{
 		const glm::uvec2 viewportSize{ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) };
-		return GetScaledExtent(viewportSize, CloudRenderScaleToEffectScale(m_SceneData.Atmosphere.VolumetricClouds.RenderScale));
+		return GetScaledExtent(viewportSize, CloudRenderScaleToEffectScale(ResolveFrameEnvironment().Atmosphere.VolumetricClouds.RenderScale));
 	}
 
 	void SceneRenderer::ResizeVolumetricCloudResources(bool forceRecreate)
@@ -2099,7 +2048,7 @@ namespace Lux {
 		if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
 
-		const uint32_t renderScale = SanitizeCloudRenderScale(m_SceneData.Atmosphere.VolumetricClouds.RenderScale);
+		const uint32_t renderScale = SanitizeCloudRenderScale(ResolveFrameEnvironment().Atmosphere.VolumetricClouds.RenderScale);
 		const glm::uvec2 cloudSize = CalculateVolumetricCloudRenderSize();
 		const glm::uvec2 viewportSize{ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) };
 		const bool cloudSizeChanged = forceRecreate || m_CloudRenderScale != renderScale || m_CloudRenderSize != cloudSize;
@@ -2123,23 +2072,84 @@ namespace Lux {
 
 	void SceneRenderer::BindCommonSceneRenderPassInputs(Ref<RenderPass> renderPass, bool bindDepth)
 	{
-		SetRenderPassInputIfValid(renderPass, "Camera", m_UBSCamera);
-		SetRenderPassInputIfValid(renderPass, "SceneData", m_UBSScene);
-		SetRenderPassInputIfValid(renderPass, "ScreenData", m_UBSScreenData);
-		SetRenderPassInputIfValid(renderPass, "RendererData", m_UBSRendererData);
-		SetRenderPassInputIfValid(renderPass, "AtmosphereData", m_UBSAtmosphere);
-		SetRenderPassInputIfValid(renderPass, "ShadowData", m_UBSShadow);
-		SetRenderPassInputIfValid(renderPass, "PointLightData", m_UBSPointLights);
-		SetRenderPassInputIfValid(renderPass, "SpotLightData", m_UBSSpotLights);
-		SetRenderPassInputIfValid(renderPass, "SpotShadowData", m_UBSSpotShadow);
-		SetRenderPassInputIfValid(renderPass, "VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
-		SetRenderPassInputIfValid(renderPass, "VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
-		SetRenderPassInputIfValid(renderPass, "r_DefaultSampler", Renderer::GetDefaultSampler());
-		SetRenderPassInputIfValid(renderPass, "r_PointSampler", Renderer::GetPointSampler());
-		SetRenderPassInputIfValid(renderPass, "r_LinearSampler", Renderer::GetClampSampler());
+		BindSceneRenderPassInputs(renderPass, PassInputCommonScene | (bindDepth ? PassInputDepth : PassInputNone));
+	}
 
-		if (bindDepth && m_PreDepthPass)
+	void SceneRenderer::BindSceneRenderPassInputs(Ref<RenderPass> renderPass, uint32_t inputMask)
+	{
+		if (!renderPass)
+			return;
+
+		auto hasInput = [inputMask](SceneRenderPassInput input)
+			{
+				return (inputMask & input) != 0;
+			};
+
+		if (hasInput(PassInputCamera))
+			SetRenderPassInputIfValid(renderPass, "Camera", m_UBSCamera);
+		if (hasInput(PassInputScene))
+			SetRenderPassInputIfValid(renderPass, "SceneData", m_UBSScene);
+		if (hasInput(PassInputScreen))
+			SetRenderPassInputIfValid(renderPass, "ScreenData", m_UBSScreenData);
+		if (hasInput(PassInputRenderer))
+			SetRenderPassInputIfValid(renderPass, "RendererData", m_UBSRendererData);
+		if (hasInput(PassInputAtmosphere))
+			SetRenderPassInputIfValid(renderPass, "AtmosphereData", m_UBSAtmosphere);
+		if (hasInput(PassInputShadowData))
+		{
+			SetRenderPassInputIfValid(renderPass, "ShadowData", m_UBSShadow);
+			SetRenderPassInputIfValid(renderPass, "SpotShadowData", m_UBSSpotShadow);
+		}
+		if (hasInput(PassInputLights))
+		{
+			SetRenderPassInputIfValid(renderPass, "PointLightData", m_UBSPointLights);
+			SetRenderPassInputIfValid(renderPass, "SpotLightData", m_UBSSpotLights);
+			SetRenderPassInputIfValid(renderPass, "VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
+			SetRenderPassInputIfValid(renderPass, "VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
+		}
+		if (hasInput(PassInputSamplers))
+		{
+			SetRenderPassInputIfValid(renderPass, "r_DefaultSampler", Renderer::GetDefaultSampler());
+			SetRenderPassInputIfValid(renderPass, "r_PointSampler", Renderer::GetPointSampler());
+			SetRenderPassInputIfValid(renderPass, "r_LinearSampler", Renderer::GetClampSampler());
+		}
+		if (hasInput(PassInputDepth) && m_PreDepthPass)
 			SetRenderPassInputIfValid(renderPass, "u_DepthTexture", m_PreDepthPass->GetDepthOutput());
+		if (hasInput(PassInputEnvironment))
+		{
+			SetRenderPassInputIfValid(renderPass, "u_EnvRadianceTex", Renderer::GetBlackCubeTexture());
+			SetRenderPassInputIfValid(renderPass, "u_EnvIrradianceTex", Renderer::GetBlackCubeTexture());
+			SetRenderPassInputIfValid(renderPass, "u_BRDFLUTTexture", Renderer::GetBRDFLutTexture());
+		}
+		if (hasInput(PassInputShadowMaps))
+		{
+			if (m_ShadowMapPass)
+				SetRenderPassInputIfValid(renderPass, "u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
+			SetRenderPassInputIfValid(renderPass, "u_SpotShadowTexture", m_SpotShadowMapImage);
+		}
+		if (hasInput(PassInputMaterialScene))
+		{
+			SetRenderPassInputIfValid(renderPass, "GPUSceneInstances", m_SBSGPUSceneInstances);
+			SetRenderPassInputIfValid(renderPass, "GPUMaterials", m_SBSGPUMaterials);
+			SetRenderPassInputIfValid(renderPass, "ObjectIndexes", m_SBSVisibleObjectIndexes);
+			SetRenderPassInputIfValid(renderPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
+			if (renderPass->IsInputValid("u_GPUMaterialTextures"))
+			{
+				for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+					renderPass->SetInput("u_GPUMaterialTextures", Renderer::GetWhiteTexture(), textureIndex);
+			}
+		}
+		if (hasInput(PassInputGBuffer) && m_GeometryPass)
+		{
+			SetRenderPassInputIfValid(renderPass, "u_GBufferBaseColor", m_GeometryPass->GetOutput(0));
+			SetRenderPassInputIfValid(renderPass, "u_GBufferNormal", m_GeometryPass->GetOutput(1));
+			SetRenderPassInputIfValid(renderPass, "u_GBufferMetalRoughAO", m_GeometryPass->GetOutput(2));
+			SetRenderPassInputIfValid(renderPass, "u_GBufferMaterialID", m_GeometryPass->GetOutput(3));
+			SetRenderPassInputIfValid(renderPass, "u_GBufferObjectID", m_GeometryPass->GetOutput(4));
+			SetRenderPassInputIfValid(renderPass, "u_DeferredLighting", GetSceneColorOutput());
+		}
+		if (hasInput(PassInputSceneColor))
+			SetRenderPassInputIfValid(renderPass, "u_SceneColor", GetSceneColorOutput());
 	}
 
 	float SceneRenderer::GetRenderResolutionScale() const
@@ -2560,6 +2570,8 @@ namespace Lux {
 
 		for (SpotLight& light : m_SceneData.SceneLightEnvironment.SpotLights)
 			light.ShadowResolutionTier = glm::min(light.ShadowResolutionTier, shadowResolutionLimit);
+
+		RefreshFrameEnvironment();
 	}
 
 	void SceneRenderer::SetEnvironment(Ref<Environment> environment, float intensity, float skyboxLod)
@@ -2567,11 +2579,108 @@ namespace Lux {
 		m_SceneData.SceneEnvironment = environment;
 		m_SceneData.SceneEnvironmentIntensity = intensity;
 		m_SceneData.SkyboxLod = skyboxLod;
+		RefreshFrameEnvironment();
 	}
 
 	void SceneRenderer::SetAtmosphereEnvironment(const AtmosphereEnvironment& atmosphereEnvironment)
 	{
 		m_SceneData.Atmosphere = atmosphereEnvironment;
+		m_RenderVolumeEnvironment = {};
+		m_RenderVolumeEnvironment.Atmosphere = atmosphereEnvironment;
+		m_HasRenderVolumeEnvironment = false;
+		RefreshFrameEnvironment();
+	}
+
+	void SceneRenderer::SetRenderVolumeEnvironment(const RenderVolumeEnvironment& renderVolumeEnvironment)
+	{
+		m_RenderVolumeEnvironment = renderVolumeEnvironment;
+		m_SceneData.Atmosphere = renderVolumeEnvironment.Atmosphere;
+		m_HasRenderVolumeEnvironment = true;
+		RefreshFrameEnvironment();
+	}
+
+	RenderVolumeBaseSettings SceneRenderer::GetBaseRenderVolumeSettings(float cameraExposure) const
+	{
+		RenderVolumeBaseSettings settings;
+		settings.Atmosphere = m_SceneData.Atmosphere;
+		settings.PostProcess.Exposure = cameraExposure;
+		settings.PostProcess.BloomEnabled = m_BloomSettings.Enabled;
+		settings.PostProcess.BloomThreshold = m_BloomSettings.Threshold;
+		settings.PostProcess.BloomKnee = m_BloomSettings.Knee;
+		settings.PostProcess.BloomUpsampleScale = m_BloomSettings.UpsampleScale;
+		settings.PostProcess.BloomIntensity = m_BloomSettings.Intensity;
+		settings.PostProcess.BloomDirtIntensity = m_BloomSettings.DirtIntensity;
+		settings.PostProcess.DOFEnabled = m_DOFSettings.Enabled;
+		settings.PostProcess.DOFFocusDistance = m_DOFSettings.FocusDistance;
+		settings.PostProcess.DOFBlurSize = m_DOFSettings.BlurSize;
+		return settings;
+	}
+
+	RenderVolumePostProcessSettings SceneRenderer::GetResolvedPostProcessSettings() const
+	{
+		return ResolveFrameEnvironment().PostProcess;
+	}
+
+	SceneRenderer::ResolvedFrameEnvironment SceneRenderer::ResolveFrameEnvironment() const
+	{
+		ResolvedFrameEnvironment frame;
+		frame.Technique = m_RenderingTechnique;
+		frame.DeferredPath = UsesDeferredPath(frame.Technique);
+		frame.Environment = m_SceneData.SceneEnvironment;
+		frame.EnvironmentIntensity = m_SceneData.SceneEnvironmentIntensity;
+		frame.SkyboxLod = m_SceneData.SkyboxLod;
+		frame.HasRenderVolumeEnvironment = m_HasRenderVolumeEnvironment;
+
+		if (m_HasRenderVolumeEnvironment)
+		{
+			frame.Volumes = m_RenderVolumeEnvironment;
+			frame.Atmosphere = m_RenderVolumeEnvironment.Atmosphere;
+			frame.PostProcess = m_RenderVolumeEnvironment.PostProcess;
+		}
+		else
+		{
+			frame.Atmosphere = m_SceneData.Atmosphere;
+			frame.Volumes = {};
+			frame.Volumes.Atmosphere = frame.Atmosphere;
+			frame.PostProcess = GetBaseRenderVolumeSettings(m_SceneData.SceneCamera.Camera.GetExposure()).PostProcess;
+		}
+
+		frame.SkyAtmosphereEnabled = frame.Atmosphere.SkyAtmosphere.Enabled;
+		frame.VolumetricCloudsEnabled = frame.Atmosphere.VolumetricClouds.Enabled;
+		frame.HeightFogEnabled = frame.Atmosphere.HeightFog.Enabled;
+		frame.LocalFogEnabled = frame.Volumes.LocalFogVolumeCount > 0;
+		frame.BloomEnabled = frame.PostProcess.BloomEnabled;
+		frame.DOFEnabled = frame.PostProcess.DOFEnabled;
+		return frame;
+	}
+
+	void SceneRenderer::RefreshFrameEnvironment()
+	{
+		m_FrameEnvironment = ResolveFrameEnvironment();
+	}
+
+	SceneRenderer::RendererFrameDebugSnapshot SceneRenderer::GetRendererFrameDebugSnapshot() const
+	{
+		const ResolvedFrameEnvironment frame = ResolveFrameEnvironment();
+
+		RendererFrameDebugSnapshot snapshot;
+		snapshot.Technique = frame.Technique;
+		snapshot.DeferredPath = frame.DeferredPath;
+		snapshot.HasRenderScene = m_SubmittedRenderScene != nullptr;
+		snapshot.HasRenderVolumeEnvironment = frame.HasRenderVolumeEnvironment;
+		snapshot.SkyAtmosphereEnabled = frame.SkyAtmosphereEnabled;
+		snapshot.VolumetricCloudsEnabled = frame.VolumetricCloudsEnabled;
+		snapshot.HeightFogEnabled = frame.HeightFogEnabled;
+		snapshot.LocalFogEnabled = frame.LocalFogEnabled;
+		snapshot.BloomEnabled = frame.BloomEnabled;
+		snapshot.DOFEnabled = frame.DOFEnabled;
+		snapshot.ActiveVolumeCount = frame.Volumes.ActiveVolumeCount;
+		snapshot.ActivePostProcessVolumeCount = frame.Volumes.ActivePostProcessVolumeCount;
+		snapshot.ActiveAtmosphereVolumeCount = frame.Volumes.ActiveAtmosphereVolumeCount;
+		snapshot.LocalFogVolumeCount = frame.Volumes.LocalFogVolumeCount;
+		snapshot.CulledLocalFogVolumeCount = frame.Volumes.CulledLocalFogVolumeCount;
+		snapshot.DroppedLocalFogVolumeCount = frame.Volumes.DroppedLocalFogVolumeCount;
+		return snapshot;
 	}
 
 	void SceneRenderer::CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection, float maxShadowDistance) const
@@ -2969,6 +3078,7 @@ namespace Lux {
 	void SceneRenderer::BuildRenderGraph(bool executable)
 	{
 		m_RenderGraph.Reset();
+		const ResolvedFrameEnvironment frame = ResolveFrameEnvironment();
 		std::unordered_map<const Image2D*, RenderGraph::ResourceHandle> resourceLookup;
 
 		auto reportGraphDiagnostic = [&](RenderGraph::DiagnosticSeverity severity,
@@ -3129,13 +3239,13 @@ namespace Lux {
 		appendResources(lightCullingReads, shadowOutputs);
 		addPass("Light Culling", lightCullingReads, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::LightCullingPass));
 
-		const bool deferredPath = UsesDeferredPath();
+		const bool deferredPath = frame.DeferredPath;
 		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
 		std::vector<RenderGraph::ResourceHandle> sceneColorOutputs = addFramebufferResources("SceneColor", m_SceneColorFramebuffer);
 		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
 		addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
 
-		const bool skyAtmosphereEnabled = m_SceneData.Atmosphere.SkyAtmosphere.Enabled && m_SkyAtmospherePass;
+		const bool skyAtmosphereEnabled = frame.SkyAtmosphereEnabled && m_SkyAtmospherePass;
 		std::vector<RenderGraph::ResourceHandle> sceneColorCurrent = skyboxOutputs.empty() ? sceneColorOutputs : skyboxOutputs;
 		if (skyAtmosphereEnabled)
 		{
@@ -3251,7 +3361,7 @@ namespace Lux {
 			sceneColorCurrent = ssrCompositeOutputs;
 		}
 
-		if (m_SceneData.Atmosphere.VolumetricClouds.Enabled && m_VolumetricCloudPass && m_VolumetricCloudCompositePass)
+		if (frame.VolumetricCloudsEnabled && m_VolumetricCloudPass && m_VolumetricCloudCompositePass)
 		{
 			std::vector<RenderGraph::ResourceHandle> cloudReads;
 			appendResources(cloudReads, preDepthOutputs);
@@ -3266,7 +3376,7 @@ namespace Lux {
 			sceneColorCurrent = cloudCompositeOutputs;
 		}
 
-		if (m_SceneData.Atmosphere.HeightFog.Enabled && m_AtmosphericFogPass)
+		if ((frame.HeightFogEnabled || frame.LocalFogEnabled) && m_AtmosphericFogPass)
 		{
 			std::vector<RenderGraph::ResourceHandle> fogReads = sceneColorCurrent;
 			appendResources(fogReads, preDepthOutputs);
@@ -3302,8 +3412,9 @@ namespace Lux {
 			addPass("JumpFlood", selectedOutputs, jumpFloodWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::JumpFloodPass));
 		}
 
+		const RenderVolumePostProcessSettings& postProcessSettings = frame.PostProcess;
 		std::vector<RenderGraph::ResourceHandle> bloomOutputs;
-		if (m_BloomSettings.Enabled)
+		if (postProcessSettings.BloomEnabled)
 		{
 			for (uint32_t index = 0; index < m_BloomComputeTextures.size(); index++)
 			{
@@ -3322,7 +3433,7 @@ namespace Lux {
 		addPass("Composite", compositeReads, compositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::CompositePass));
 
 		const bool compositeDOFIntoFinalTarget = CanCompositeDOFIntoFinalTarget();
-		std::vector<RenderGraph::ResourceHandle> dofOutputs = m_DOFSettings.Enabled
+		std::vector<RenderGraph::ResourceHandle> dofOutputs = postProcessSettings.DOFEnabled
 			? addRenderPassResources("DOF", m_DOFPass)
 			: std::vector<RenderGraph::ResourceHandle>{};
 		if (compositeDOFIntoFinalTarget)
@@ -3382,7 +3493,7 @@ namespace Lux {
 				});
 		}
 
-		if (m_DOFSettings.Enabled && !compositeDOFIntoFinalTarget)
+		if (postProcessSettings.DOFEnabled && !compositeDOFIntoFinalTarget)
 			addPass("DOF", compositeOutputs, dofOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DOFPass));
 	}
 
@@ -3888,6 +3999,7 @@ namespace Lux {
 
 		m_SceneData.SceneCamera = camera;
 		m_SceneData.CameraFrustum = Frustum::FromViewProjection(camera.Camera.GetProjectionMatrix() * camera.ViewMatrix);
+		RefreshFrameEnvironment();
 
 		// ── Handle viewport resize ────────────────────────────────────────────
 		if (m_NeedsResize)
@@ -4018,7 +4130,7 @@ namespace Lux {
 			m_SceneUB.Lights.Intensity = dirLight.Intensity;
 			m_SceneUB.Lights.ShadowAmount = dirLight.ShadowAmount;
 			m_SceneUB.CameraPosition = glm::vec3(glm::inverse(camera.ViewMatrix)[3]);
-			m_SceneUB.EnvironmentMapIntensity = m_SceneData.SceneEnvironmentIntensity;
+			m_SceneUB.EnvironmentMapIntensity = m_FrameEnvironment.EnvironmentIntensity;
 
 			auto sceneData = m_SceneUB;
 			Ref<SceneRenderer> instance = this;
@@ -4030,9 +4142,9 @@ namespace Lux {
 
 		// ── Atmosphere uniform buffer ────────────────────────────────────────
 		{
-			const SkyAtmosphereSettings& sky = m_SceneData.Atmosphere.SkyAtmosphere;
-			const VolumetricCloudSettings& clouds = m_SceneData.Atmosphere.VolumetricClouds;
-			const ExponentialHeightFogSettings& fog = m_SceneData.Atmosphere.HeightFog;
+			const SkyAtmosphereSettings& sky = m_FrameEnvironment.Atmosphere.SkyAtmosphere;
+			const VolumetricCloudSettings& clouds = m_FrameEnvironment.Atmosphere.VolumetricClouds;
+			const ExponentialHeightFogSettings& fog = m_FrameEnvironment.Atmosphere.HeightFog;
 
 			glm::vec2 windDirection = clouds.WindDirection;
 			if (glm::dot(windDirection, windDirection) > 0.0001f)
@@ -4117,6 +4229,22 @@ namespace Lux {
 				(uint32_t)glm::max(0.0f, Application::Get().GetTime() * 60.0f),
 				glm::clamp(fog.VolumetricFogSteps, 4u, 96u)
 			};
+			m_AtmosphereUB.LocalFogParams = {
+				m_FrameEnvironment.Volumes.LocalFogVolumeCount,
+				m_FrameEnvironment.Volumes.DroppedLocalFogVolumeCount,
+				m_FrameEnvironment.Volumes.CulledLocalFogVolumeCount,
+				m_FrameEnvironment.Volumes.ActiveLocalFogVolumeCount
+			};
+			for (uint32_t index = 0; index < m_FrameEnvironment.Volumes.LocalFogVolumeCount; index++)
+			{
+				const LocalFogVolumeGPUData& source = m_FrameEnvironment.Volumes.LocalFogVolumes[index];
+				auto& destination = m_AtmosphereUB.LocalFogVolumes[index];
+				destination.WorldToLocal = source.WorldToLocal;
+				destination.ColorDensity = source.ColorDensity;
+				destination.Params0 = source.Params0;
+				destination.Params1 = source.Params1;
+				destination.Metadata = source.Metadata;
+			}
 
 			auto atmosphereData = m_AtmosphereUB;
 			Ref<SceneRenderer> instance = this;
@@ -4472,8 +4600,8 @@ namespace Lux {
 		}
 
 		// ── Update environment texture bindings in geometry passes ────────────
-		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_SceneData.SceneEnvironment);
-		Ref<TextureCube> irradianceMap = GetEnvironmentIrradianceMap(m_SceneData.SceneEnvironment);
+		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_FrameEnvironment.Environment);
+		Ref<TextureCube> irradianceMap = GetEnvironmentIrradianceMap(m_FrameEnvironment.Environment);
 		if (m_ForwardGeometryPass)
 		{
 			m_ForwardGeometryPass->SetInput("u_EnvRadianceTex", radianceMap);
@@ -6021,14 +6149,14 @@ namespace Lux {
 	void SceneRenderer::SkyboxPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SkyboxPass");
-		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_SceneData.SceneEnvironment);
+		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_FrameEnvironment.Environment);
 		if (!radianceMap)
 			return;
 
 		BeginProfiledGPU("SkyboxPass");
 
-		m_SkyboxMaterial->Set("u_Uniforms.TextureLod", m_SceneData.SkyboxLod);
-		m_SkyboxMaterial->Set("u_Uniforms.Intensity", m_SceneData.SceneEnvironmentIntensity);
+		m_SkyboxMaterial->Set("u_Uniforms.TextureLod", m_FrameEnvironment.SkyboxLod);
+		m_SkyboxMaterial->Set("u_Uniforms.Intensity", m_FrameEnvironment.EnvironmentIntensity);
 		m_SkyboxMaterial->Set("u_Texture", radianceMap);
 
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SkyboxPass);
@@ -6041,7 +6169,7 @@ namespace Lux {
 	void SceneRenderer::SkyAtmospherePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SkyAtmospherePass");
-		if (!m_SkyAtmospherePass || !m_SkyAtmosphereMaterial || !m_SceneData.Atmosphere.SkyAtmosphere.Enabled)
+		if (!m_SkyAtmospherePass || !m_SkyAtmosphereMaterial || !m_FrameEnvironment.SkyAtmosphereEnabled)
 			return;
 
 		BeginProfiledGPU("SkyAtmospherePass");
@@ -6054,7 +6182,7 @@ namespace Lux {
 	void SceneRenderer::VolumetricCloudPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "VolumetricCloudPass");
-		if (!m_VolumetricCloudPass || !m_VolumetricCloudMaterial || !m_SceneData.Atmosphere.VolumetricClouds.Enabled)
+		if (!m_VolumetricCloudPass || !m_VolumetricCloudMaterial || !m_FrameEnvironment.VolumetricCloudsEnabled)
 			return;
 
 		BeginProfiledGPU("VolumetricCloudPass");
@@ -6067,7 +6195,7 @@ namespace Lux {
 	void SceneRenderer::VolumetricCloudCompositePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "VolumetricCloudCompositePass");
-		if (!m_VolumetricCloudCompositePass || !m_VolumetricCloudCompositeMaterial || !m_VolumetricCloudPass || !m_SceneData.Atmosphere.VolumetricClouds.Enabled)
+		if (!m_VolumetricCloudCompositePass || !m_VolumetricCloudCompositeMaterial || !m_VolumetricCloudPass || !m_FrameEnvironment.VolumetricCloudsEnabled)
 			return;
 
 		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudTexture", m_VolumetricCloudPass->GetOutput(0));
@@ -6082,8 +6210,10 @@ namespace Lux {
 	void SceneRenderer::AtmosphericFogPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "AtmosphericFogPass");
-		if (!m_AtmosphericFogPass || !m_AtmosphericFogMaterial || !m_SceneData.Atmosphere.HeightFog.Enabled)
+		if (!m_AtmosphericFogPass || !m_AtmosphericFogMaterial || (!m_FrameEnvironment.HeightFogEnabled && !m_FrameEnvironment.LocalFogEnabled))
 			return;
+
+		m_AtmosphericFogMaterial->Set("u_Uniforms.DebugMode", m_DebugViewMode == DebugViewMode::LocalFogDensity ? 1u : 0u);
 
 		BeginProfiledGPU("AtmosphericFogPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_AtmosphericFogPass);
@@ -6607,11 +6737,12 @@ namespace Lux {
 	void SceneRenderer::DOFPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "DOF");
-		if (!m_DOFSettings.Enabled || !m_DOFPass || !m_DOFMaterial)
+		const RenderVolumePostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		if (!postProcessSettings.DOFEnabled || !m_DOFPass || !m_DOFMaterial)
 			return;
 
-		const float focusDistance = glm::max(0.001f, m_DOFSettings.FocusDistance);
-		m_DOFMaterial->Set("u_Uniforms.DOFParams", glm::vec2(focusDistance, m_DOFSettings.BlurSize));
+		const float focusDistance = glm::max(0.001f, postProcessSettings.DOFFocusDistance);
+		m_DOFMaterial->Set("u_Uniforms.DOFParams", glm::vec2(focusDistance, postProcessSettings.DOFBlurSize));
 
 		BeginProfiledGPU("DOF");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_DOFPass);
@@ -6626,7 +6757,7 @@ namespace Lux {
 
 	bool SceneRenderer::CanCompositeDOFIntoFinalTarget()
 	{
-		if (!m_DOFSettings.Enabled || !m_DOFPass || !m_CompositePass)
+		if (!GetResolvedPostProcessSettings().DOFEnabled || !m_DOFPass || !m_CompositePass)
 			return false;
 
 		Ref<Image2D> dofImage = m_DOFPass->GetOutput(0);
@@ -6706,7 +6837,8 @@ namespace Lux {
 	void SceneRenderer::BloomCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "BloomCompute");
-		if (!m_BloomSettings.Enabled || !m_BloomComputePass || !m_BloomComputePipeline || !m_BloomComputeMaterials.PrefilterMaterial)
+		const RenderVolumePostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		if (!postProcessSettings.BloomEnabled || !m_BloomComputePass || !m_BloomComputePipeline || !m_BloomComputeMaterials.PrefilterMaterial)
 			return;
 
 		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
@@ -6725,10 +6857,10 @@ namespace Lux {
 			int Mode = 0;
 		} pushConstants;
 
-		const float knee = glm::max(m_BloomSettings.Knee, 0.0001f);
+		const float knee = glm::max(postProcessSettings.BloomKnee, 0.0001f);
 		pushConstants.Params = {
-			m_BloomSettings.Threshold,
-			m_BloomSettings.Threshold - knee,
+			postProcessSettings.BloomThreshold,
+			postProcessSettings.BloomThreshold - knee,
 			knee * 2.0f,
 			0.25f / knee
 		};
@@ -6830,11 +6962,14 @@ namespace Lux {
 		ScopedCPUProfile cpuProfile(*this, "CompositePass");
 		BeginProfiledGPU("CompositePass");
 
-		m_CompositeMaterial->Set("u_Uniforms.Exposure", m_SceneData.SceneCamera.Camera.GetExposure());
-		m_CompositeMaterial->Set("u_Uniforms.BloomIntensity", m_BloomSettings.Enabled ? m_BloomSettings.Intensity : 0.0f);
-		m_CompositeMaterial->Set("u_Uniforms.BloomDirtIntensity", m_BloomSettings.Enabled ? m_BloomSettings.DirtIntensity : 0.0f);
+		const RenderVolumePostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		m_CompositeMaterial->Set("u_Uniforms.Exposure", postProcessSettings.Exposure);
+		m_CompositeMaterial->Set("u_Uniforms.BloomIntensity", postProcessSettings.BloomEnabled ? postProcessSettings.BloomIntensity : 0.0f);
+		m_CompositeMaterial->Set("u_Uniforms.BloomDirtIntensity", postProcessSettings.BloomEnabled ? postProcessSettings.BloomDirtIntensity : 0.0f);
 		m_CompositeMaterial->Set("u_Uniforms.Opacity", m_Opacity);
 		m_CompositeMaterial->Set("u_Uniforms.Time", Application::Get().GetTime());
+		m_CompositeMaterial->Set("u_Uniforms.ColorFilterSaturation", glm::vec4(glm::max(postProcessSettings.ColorFilter, glm::vec3(0.0f)), glm::max(postProcessSettings.Saturation, 0.0f)));
+		m_CompositeMaterial->Set("u_Uniforms.ContrastGamma", glm::vec2(glm::max(postProcessSettings.Contrast, 0.0f), glm::max(postProcessSettings.Gamma, 0.01f)));
 
 		Renderer::BeginRenderPass(m_CommandBuffer, m_CompositePass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_CompositePass->GetPipeline(), m_CompositeMaterial);
@@ -7057,7 +7192,12 @@ namespace Lux {
 
 	bool SceneRenderer::UsesDeferredPath() const
 	{
-		return m_RenderingTechnique == RenderingTechnique::Deferred;
+		return UsesDeferredPath(m_RenderingTechnique);
+	}
+
+	bool SceneRenderer::UsesDeferredPath(RenderingTechnique technique) const
+	{
+		return technique == RenderingTechnique::Deferred;
 	}
 
 	Ref<Image2D> SceneRenderer::GetSceneColorOutput() const
@@ -7103,7 +7243,7 @@ namespace Lux {
 		switch (mode)
 		{
 			case DebugViewMode::Final:
-				if (m_DOFSettings.Enabled && m_DOFPass && !CanCompositeDOFIntoFinalTarget())
+				if (GetResolvedPostProcessSettings().DOFEnabled && m_DOFPass && !CanCompositeDOFIntoFinalTarget())
 					return m_DOFPass->GetOutput(0);
 				if (m_CompositePass)
 					return m_CompositePass->GetOutput(0);
@@ -7129,7 +7269,7 @@ namespace Lux {
 				return m_AODebugPass ? m_AODebugPass->GetOutput(0) : nullptr;
 
 			case DebugViewMode::Bloom:
-				if (!m_BloomSettings.Enabled)
+				if (!GetResolvedPostProcessSettings().BloomEnabled)
 					return nullptr;
 				if (m_BloomComputeTextures.size() > 2 && m_BloomComputeTextures[2].Texture)
 					return m_BloomComputeTextures[2].Texture->GetImage();
@@ -7137,6 +7277,11 @@ namespace Lux {
 
 			case DebugViewMode::Composite:
 				return m_CompositePass ? m_CompositePass->GetOutput(0) : nullptr;
+
+			case DebugViewMode::LocalFogDensity:
+				if (!ResolveFrameEnvironment().LocalFogEnabled)
+					return nullptr;
+				return m_AtmosphericFogPass ? m_AtmosphericFogPass->GetOutput(0) : nullptr;
 
 			case DebugViewMode::GBufferBaseColor:
 				return UsesDeferredPath() ? GetGeometryBaseColorOutput() : nullptr;

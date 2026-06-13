@@ -534,6 +534,138 @@ namespace Lux {
 				out << YAML::EndMap;
 			}
 
+			if (entity.HasComponent<RenderVolumeComponent>())
+			{
+				const auto& volume = entity.GetComponent<RenderVolumeComponent>();
+				out << YAML::Key << "RenderVolumeComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Enabled" << YAML::Value << volume.Enabled;
+				out << YAML::Key << "Shape" << YAML::Value << static_cast<uint32_t>(volume.Shape);
+				out << YAML::Key << "Unbound" << YAML::Value << volume.Unbound;
+				out << YAML::Key << "BlendDistance" << YAML::Value << volume.BlendDistance;
+				out << YAML::Key << "BlendWeight" << YAML::Value << volume.BlendWeight;
+				out << YAML::Key << "Priority" << YAML::Value << volume.Priority;
+				out << YAML::Key << "DebugColor" << YAML::Value << volume.DebugColor;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<PostProcessVolumeComponent>())
+			{
+				const auto& component = entity.GetComponent<PostProcessVolumeComponent>();
+				const auto& settings = component.Settings;
+				out << YAML::Key << "PostProcessVolumeComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "OverrideMask" << YAML::Value << component.OverrideMask;
+				out << YAML::Key << "Exposure" << YAML::Value << settings.Exposure;
+				out << YAML::Key << "BloomEnabled" << YAML::Value << settings.BloomEnabled;
+				out << YAML::Key << "BloomThreshold" << YAML::Value << settings.BloomThreshold;
+				out << YAML::Key << "BloomKnee" << YAML::Value << settings.BloomKnee;
+				out << YAML::Key << "BloomUpsampleScale" << YAML::Value << settings.BloomUpsampleScale;
+				out << YAML::Key << "BloomIntensity" << YAML::Value << settings.BloomIntensity;
+				out << YAML::Key << "BloomDirtIntensity" << YAML::Value << settings.BloomDirtIntensity;
+				out << YAML::Key << "DOFEnabled" << YAML::Value << settings.DOFEnabled;
+				out << YAML::Key << "DOFFocusDistance" << YAML::Value << settings.DOFFocusDistance;
+				out << YAML::Key << "DOFBlurSize" << YAML::Value << settings.DOFBlurSize;
+				out << YAML::Key << "ColorFilter" << YAML::Value << settings.ColorFilter;
+				out << YAML::Key << "Saturation" << YAML::Value << settings.Saturation;
+				out << YAML::Key << "Contrast" << YAML::Value << settings.Contrast;
+				out << YAML::Key << "Gamma" << YAML::Value << settings.Gamma;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<AtmosphereVolumeComponent>())
+			{
+				const auto& component = entity.GetComponent<AtmosphereVolumeComponent>();
+				out << YAML::Key << "AtmosphereVolumeComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "SkyOverrideMask" << YAML::Value << component.SkyOverrideMask;
+				out << YAML::Key << "CloudOverrideMask" << YAML::Value << component.CloudOverrideMask;
+				out << YAML::Key << "FogOverrideMask" << YAML::Value << component.FogOverrideMask;
+
+				const auto& sky = component.Settings.SkyAtmosphere;
+				out << YAML::Key << "SkyAtmosphere" << YAML::Value << YAML::BeginMap;
+				out << YAML::Key << "Enabled" << YAML::Value << sky.Enabled;
+				out << YAML::Key << "PlanetRadius" << YAML::Value << sky.PlanetRadius;
+				out << YAML::Key << "AtmosphereHeight" << YAML::Value << sky.AtmosphereHeight;
+				out << YAML::Key << "RayleighScaleHeight" << YAML::Value << sky.RayleighScaleHeight;
+				out << YAML::Key << "MieScaleHeight" << YAML::Value << sky.MieScaleHeight;
+				out << YAML::Key << "RayleighScattering" << YAML::Value << sky.RayleighScattering;
+				out << YAML::Key << "RayleighScatteringScale" << YAML::Value << sky.RayleighScatteringScale;
+				out << YAML::Key << "MieScattering" << YAML::Value << sky.MieScattering;
+				out << YAML::Key << "MieScatteringScale" << YAML::Value << sky.MieScatteringScale;
+				out << YAML::Key << "MieAbsorption" << YAML::Value << sky.MieAbsorption;
+				out << YAML::Key << "MieAnisotropy" << YAML::Value << sky.MieAnisotropy;
+				out << YAML::Key << "Absorption" << YAML::Value << sky.Absorption;
+				out << YAML::Key << "AbsorptionScale" << YAML::Value << sky.AbsorptionScale;
+				out << YAML::Key << "GroundAlbedo" << YAML::Value << sky.GroundAlbedo;
+				out << YAML::Key << "GroundContribution" << YAML::Value << sky.GroundContribution;
+				out << YAML::Key << "SunIntensity" << YAML::Value << sky.SunIntensity;
+				out << YAML::Key << "SunAngularRadius" << YAML::Value << sky.SunAngularRadius;
+				out << YAML::Key << "MultiScattering" << YAML::Value << sky.MultiScattering;
+				out << YAML::Key << "AerialPerspectiveViewDistanceScale" << YAML::Value << sky.AerialPerspectiveViewDistanceScale;
+				out << YAML::EndMap;
+
+				const auto& clouds = component.Settings.VolumetricClouds;
+				out << YAML::Key << "VolumetricClouds" << YAML::Value << YAML::BeginMap;
+				out << YAML::Key << "Enabled" << YAML::Value << clouds.Enabled;
+				out << YAML::Key << "Coverage" << YAML::Value << clouds.Coverage;
+				out << YAML::Key << "Density" << YAML::Value << clouds.Density;
+				out << YAML::Key << "Altitude" << YAML::Value << clouds.Altitude;
+				out << YAML::Key << "Thickness" << YAML::Value << clouds.Thickness;
+				out << YAML::Key << "WindDirection" << YAML::Value << clouds.WindDirection;
+				out << YAML::Key << "WindSpeed" << YAML::Value << clouds.WindSpeed;
+				out << YAML::Key << "ShapeScale" << YAML::Value << clouds.ShapeScale;
+				out << YAML::Key << "DetailScale" << YAML::Value << clouds.DetailScale;
+				out << YAML::Key << "DetailStrength" << YAML::Value << clouds.DetailStrength;
+				out << YAML::Key << "Absorption" << YAML::Value << clouds.Absorption;
+				out << YAML::Key << "SilverIntensity" << YAML::Value << clouds.SilverIntensity;
+				out << YAML::Key << "Albedo" << YAML::Value << clouds.Albedo;
+				out << YAML::Key << "AmbientBoost" << YAML::Value << clouds.AmbientBoost;
+				out << YAML::Key << "MaxTraceDistance" << YAML::Value << clouds.MaxTraceDistance;
+				out << YAML::Key << "DistanceFade" << YAML::Value << clouds.DistanceFade;
+				out << YAML::Key << "LODStartDistance" << YAML::Value << clouds.LODStartDistance;
+				out << YAML::Key << "ShadowTraceDistance" << YAML::Value << clouds.ShadowTraceDistance;
+				out << YAML::Key << "MarchSteps" << YAML::Value << clouds.MarchSteps;
+				out << YAML::Key << "ShadowSteps" << YAML::Value << clouds.ShadowSteps;
+				out << YAML::Key << "RenderScale" << YAML::Value << clouds.RenderScale;
+				out << YAML::EndMap;
+
+				const auto& fog = component.Settings.HeightFog;
+				out << YAML::Key << "HeightFog" << YAML::Value << YAML::BeginMap;
+				out << YAML::Key << "Enabled" << YAML::Value << fog.Enabled;
+				out << YAML::Key << "FogColor" << YAML::Value << fog.FogColor;
+				out << YAML::Key << "FogDensity" << YAML::Value << fog.FogDensity;
+				out << YAML::Key << "FogHeightFalloff" << YAML::Value << fog.FogHeightFalloff;
+				out << YAML::Key << "StartDistance" << YAML::Value << fog.StartDistance;
+				out << YAML::Key << "MaxOpacity" << YAML::Value << fog.MaxOpacity;
+				out << YAML::Key << "CutoffDistance" << YAML::Value << fog.CutoffDistance;
+				out << YAML::Key << "DirectionalInscatteringColor" << YAML::Value << fog.DirectionalInscatteringColor;
+				out << YAML::Key << "DirectionalInscatteringExponent" << YAML::Value << fog.DirectionalInscatteringExponent;
+				out << YAML::Key << "DirectionalInscatteringStartDistance" << YAML::Value << fog.DirectionalInscatteringStartDistance;
+				out << YAML::Key << "VolumetricFog" << YAML::Value << fog.VolumetricFog;
+				out << YAML::Key << "VolumetricScatteringIntensity" << YAML::Value << fog.VolumetricScatteringIntensity;
+				out << YAML::Key << "Anisotropy" << YAML::Value << fog.Anisotropy;
+				out << YAML::Key << "VolumetricFogSteps" << YAML::Value << fog.VolumetricFogSteps;
+				out << YAML::EndMap;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<LocalFogVolumeComponent>())
+			{
+				const auto& fog = entity.GetComponent<LocalFogVolumeComponent>();
+				out << YAML::Key << "LocalFogVolumeComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Color" << YAML::Value << fog.Color;
+				out << YAML::Key << "Density" << YAML::Value << fog.Density;
+				out << YAML::Key << "Anisotropy" << YAML::Value << fog.Anisotropy;
+				out << YAML::Key << "HeightFalloff" << YAML::Value << fog.HeightFalloff;
+				out << YAML::Key << "NoiseScale" << YAML::Value << fog.NoiseScale;
+				out << YAML::Key << "NoiseStrength" << YAML::Value << fog.NoiseStrength;
+				out << YAML::Key << "MaxDistance" << YAML::Value << fog.MaxDistance;
+				out << YAML::Key << "Falloff" << YAML::Value << fog.Falloff;
+				out << YAML::EndMap;
+			}
+
 			if (entity.HasComponent<SpriteRendererComponent>())
 			{
 				const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
@@ -986,6 +1118,130 @@ namespace Lux {
 					settings.VolumetricScatteringIntensity = heightFog["VolumetricScatteringIntensity"].as<float>(settings.VolumetricScatteringIntensity);
 					settings.Anisotropy = heightFog["Anisotropy"].as<float>(settings.Anisotropy);
 					settings.VolumetricFogSteps = heightFog["VolumetricFogSteps"].as<uint32_t>(settings.VolumetricFogSteps);
+				}
+
+				if (auto renderVolume = entity["RenderVolumeComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<RenderVolumeComponent>();
+					component.Enabled = renderVolume["Enabled"].as<bool>(component.Enabled);
+					const uint32_t shape = renderVolume["Shape"].as<uint32_t>(static_cast<uint32_t>(component.Shape));
+					component.Shape = shape == static_cast<uint32_t>(RenderVolumeShape::Sphere) ? RenderVolumeShape::Sphere : RenderVolumeShape::Box;
+					component.Unbound = renderVolume["Unbound"].as<bool>(component.Unbound);
+					component.BlendDistance = renderVolume["BlendDistance"].as<float>(component.BlendDistance);
+					component.BlendWeight = renderVolume["BlendWeight"].as<float>(component.BlendWeight);
+					component.Priority = renderVolume["Priority"].as<int32_t>(component.Priority);
+					component.DebugColor = renderVolume["DebugColor"].as<glm::vec4>(component.DebugColor);
+				}
+
+				if (auto postProcessVolume = entity["PostProcessVolumeComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<PostProcessVolumeComponent>();
+					auto& settings = component.Settings;
+					component.OverrideMask = postProcessVolume["OverrideMask"].as<uint64_t>(component.OverrideMask);
+					settings.Exposure = postProcessVolume["Exposure"].as<float>(settings.Exposure);
+					settings.BloomEnabled = postProcessVolume["BloomEnabled"].as<bool>(settings.BloomEnabled);
+					settings.BloomThreshold = postProcessVolume["BloomThreshold"].as<float>(settings.BloomThreshold);
+					settings.BloomKnee = postProcessVolume["BloomKnee"].as<float>(settings.BloomKnee);
+					settings.BloomUpsampleScale = postProcessVolume["BloomUpsampleScale"].as<float>(settings.BloomUpsampleScale);
+					settings.BloomIntensity = postProcessVolume["BloomIntensity"].as<float>(settings.BloomIntensity);
+					settings.BloomDirtIntensity = postProcessVolume["BloomDirtIntensity"].as<float>(settings.BloomDirtIntensity);
+					settings.DOFEnabled = postProcessVolume["DOFEnabled"].as<bool>(settings.DOFEnabled);
+					settings.DOFFocusDistance = postProcessVolume["DOFFocusDistance"].as<float>(settings.DOFFocusDistance);
+					settings.DOFBlurSize = postProcessVolume["DOFBlurSize"].as<float>(settings.DOFBlurSize);
+					settings.ColorFilter = postProcessVolume["ColorFilter"].as<glm::vec3>(settings.ColorFilter);
+					settings.Saturation = postProcessVolume["Saturation"].as<float>(settings.Saturation);
+					settings.Contrast = postProcessVolume["Contrast"].as<float>(settings.Contrast);
+					settings.Gamma = postProcessVolume["Gamma"].as<float>(settings.Gamma);
+				}
+
+				if (auto atmosphereVolume = entity["AtmosphereVolumeComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<AtmosphereVolumeComponent>();
+					component.SkyOverrideMask = atmosphereVolume["SkyOverrideMask"].as<uint64_t>(component.SkyOverrideMask);
+					component.CloudOverrideMask = atmosphereVolume["CloudOverrideMask"].as<uint64_t>(component.CloudOverrideMask);
+					component.FogOverrideMask = atmosphereVolume["FogOverrideMask"].as<uint64_t>(component.FogOverrideMask);
+
+					if (auto skyAtmosphere = atmosphereVolume["SkyAtmosphere"])
+					{
+						auto& settings = component.Settings.SkyAtmosphere;
+						settings.Enabled = skyAtmosphere["Enabled"].as<bool>(settings.Enabled);
+						settings.PlanetRadius = skyAtmosphere["PlanetRadius"].as<float>(settings.PlanetRadius);
+						settings.AtmosphereHeight = skyAtmosphere["AtmosphereHeight"].as<float>(settings.AtmosphereHeight);
+						settings.RayleighScaleHeight = skyAtmosphere["RayleighScaleHeight"].as<float>(settings.RayleighScaleHeight);
+						settings.MieScaleHeight = skyAtmosphere["MieScaleHeight"].as<float>(settings.MieScaleHeight);
+						settings.RayleighScattering = skyAtmosphere["RayleighScattering"].as<glm::vec3>(settings.RayleighScattering);
+						settings.RayleighScatteringScale = skyAtmosphere["RayleighScatteringScale"].as<float>(settings.RayleighScatteringScale);
+						settings.MieScattering = skyAtmosphere["MieScattering"].as<glm::vec3>(settings.MieScattering);
+						settings.MieScatteringScale = skyAtmosphere["MieScatteringScale"].as<float>(settings.MieScatteringScale);
+						settings.MieAbsorption = skyAtmosphere["MieAbsorption"].as<glm::vec3>(settings.MieAbsorption);
+						settings.MieAnisotropy = skyAtmosphere["MieAnisotropy"].as<float>(settings.MieAnisotropy);
+						settings.Absorption = skyAtmosphere["Absorption"].as<glm::vec3>(settings.Absorption);
+						settings.AbsorptionScale = skyAtmosphere["AbsorptionScale"].as<float>(settings.AbsorptionScale);
+						settings.GroundAlbedo = skyAtmosphere["GroundAlbedo"].as<glm::vec3>(settings.GroundAlbedo);
+						settings.GroundContribution = skyAtmosphere["GroundContribution"].as<float>(settings.GroundContribution);
+						settings.SunIntensity = skyAtmosphere["SunIntensity"].as<float>(settings.SunIntensity);
+						settings.SunAngularRadius = skyAtmosphere["SunAngularRadius"].as<float>(settings.SunAngularRadius);
+						settings.MultiScattering = skyAtmosphere["MultiScattering"].as<float>(settings.MultiScattering);
+						settings.AerialPerspectiveViewDistanceScale = skyAtmosphere["AerialPerspectiveViewDistanceScale"].as<float>(settings.AerialPerspectiveViewDistanceScale);
+					}
+
+					if (auto volumetricCloud = atmosphereVolume["VolumetricClouds"])
+					{
+						auto& settings = component.Settings.VolumetricClouds;
+						settings.Enabled = volumetricCloud["Enabled"].as<bool>(settings.Enabled);
+						settings.Coverage = volumetricCloud["Coverage"].as<float>(settings.Coverage);
+						settings.Density = volumetricCloud["Density"].as<float>(settings.Density);
+						settings.Altitude = volumetricCloud["Altitude"].as<float>(settings.Altitude);
+						settings.Thickness = volumetricCloud["Thickness"].as<float>(settings.Thickness);
+						settings.WindDirection = volumetricCloud["WindDirection"].as<glm::vec2>(settings.WindDirection);
+						settings.WindSpeed = volumetricCloud["WindSpeed"].as<float>(settings.WindSpeed);
+						settings.ShapeScale = volumetricCloud["ShapeScale"].as<float>(settings.ShapeScale);
+						settings.DetailScale = volumetricCloud["DetailScale"].as<float>(settings.DetailScale);
+						settings.DetailStrength = volumetricCloud["DetailStrength"].as<float>(settings.DetailStrength);
+						settings.Absorption = volumetricCloud["Absorption"].as<float>(settings.Absorption);
+						settings.SilverIntensity = volumetricCloud["SilverIntensity"].as<float>(settings.SilverIntensity);
+						settings.Albedo = volumetricCloud["Albedo"].as<glm::vec3>(settings.Albedo);
+						settings.AmbientBoost = volumetricCloud["AmbientBoost"].as<float>(settings.AmbientBoost);
+						settings.MaxTraceDistance = volumetricCloud["MaxTraceDistance"].as<float>(settings.MaxTraceDistance);
+						settings.DistanceFade = volumetricCloud["DistanceFade"].as<float>(settings.DistanceFade);
+						settings.LODStartDistance = volumetricCloud["LODStartDistance"].as<float>(settings.LODStartDistance);
+						settings.ShadowTraceDistance = volumetricCloud["ShadowTraceDistance"].as<float>(settings.ShadowTraceDistance);
+						settings.MarchSteps = volumetricCloud["MarchSteps"].as<uint32_t>(settings.MarchSteps);
+						settings.ShadowSteps = volumetricCloud["ShadowSteps"].as<uint32_t>(settings.ShadowSteps);
+						settings.RenderScale = volumetricCloud["RenderScale"].as<uint32_t>(settings.RenderScale);
+					}
+
+					if (auto heightFog = atmosphereVolume["HeightFog"])
+					{
+						auto& settings = component.Settings.HeightFog;
+						settings.Enabled = heightFog["Enabled"].as<bool>(settings.Enabled);
+						settings.FogColor = heightFog["FogColor"].as<glm::vec3>(settings.FogColor);
+						settings.FogDensity = heightFog["FogDensity"].as<float>(settings.FogDensity);
+						settings.FogHeightFalloff = heightFog["FogHeightFalloff"].as<float>(settings.FogHeightFalloff);
+						settings.StartDistance = heightFog["StartDistance"].as<float>(settings.StartDistance);
+						settings.MaxOpacity = heightFog["MaxOpacity"].as<float>(settings.MaxOpacity);
+						settings.CutoffDistance = heightFog["CutoffDistance"].as<float>(settings.CutoffDistance);
+						settings.DirectionalInscatteringColor = heightFog["DirectionalInscatteringColor"].as<glm::vec3>(settings.DirectionalInscatteringColor);
+						settings.DirectionalInscatteringExponent = heightFog["DirectionalInscatteringExponent"].as<float>(settings.DirectionalInscatteringExponent);
+						settings.DirectionalInscatteringStartDistance = heightFog["DirectionalInscatteringStartDistance"].as<float>(settings.DirectionalInscatteringStartDistance);
+						settings.VolumetricFog = heightFog["VolumetricFog"].as<bool>(settings.VolumetricFog);
+						settings.VolumetricScatteringIntensity = heightFog["VolumetricScatteringIntensity"].as<float>(settings.VolumetricScatteringIntensity);
+						settings.Anisotropy = heightFog["Anisotropy"].as<float>(settings.Anisotropy);
+						settings.VolumetricFogSteps = heightFog["VolumetricFogSteps"].as<uint32_t>(settings.VolumetricFogSteps);
+					}
+				}
+
+				if (auto localFogVolume = entity["LocalFogVolumeComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<LocalFogVolumeComponent>();
+					component.Color = localFogVolume["Color"].as<glm::vec3>(component.Color);
+					component.Density = localFogVolume["Density"].as<float>(component.Density);
+					component.Anisotropy = localFogVolume["Anisotropy"].as<float>(component.Anisotropy);
+					component.HeightFalloff = localFogVolume["HeightFalloff"].as<float>(component.HeightFalloff);
+					component.NoiseScale = localFogVolume["NoiseScale"].as<float>(component.NoiseScale);
+					component.NoiseStrength = localFogVolume["NoiseStrength"].as<float>(component.NoiseStrength);
+					component.MaxDistance = localFogVolume["MaxDistance"].as<float>(component.MaxDistance);
+					component.Falloff = localFogVolume["Falloff"].as<float>(component.Falloff);
 				}
 
 				if (auto sprite = entity["SpriteRendererComponent"])

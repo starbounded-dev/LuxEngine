@@ -53,6 +53,8 @@ layout(push_constant) uniform Uniforms
 	float BloomDirtIntensity;
 	float Opacity;
 	float Time;
+	vec4 ColorFilterSaturation;
+	vec2 ContrastGamma;
 } u_Uniforms;
 
 float LinearizeDepth(const float screenDepth)
@@ -114,7 +116,7 @@ vec3 GammaCorrect(vec3 color, float gamma)
 
 void main()
 {
-	const float gamma     = 2.2;
+	const float gamma     = max(u_Uniforms.ContrastGamma.y, 0.01);
 	const float pureWhite = 1.0;
 	float sampleScale = 0.5;
 
@@ -196,6 +198,11 @@ void main()
 	color += bloom;
 	color += bloom * bloomDirt;
 	color *= u_Uniforms.Exposure;
+	color *= max(u_Uniforms.ColorFilterSaturation.rgb, vec3(0.0));
+
+	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	color = mix(vec3(luminance), color, clamp(u_Uniforms.ColorFilterSaturation.a, 0.0, 2.0));
+	color = max((color - vec3(0.18)) * max(u_Uniforms.ContrastGamma.x, 0.0) + vec3(0.18), vec3(0.0));
 
 	// Grain
 	float strength = 5.0;

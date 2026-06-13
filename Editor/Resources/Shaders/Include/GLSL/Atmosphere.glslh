@@ -180,9 +180,76 @@ float LinearizeAtmosphereDepth(float screenDepth)
 
 float EvaluateHeightFogDensity(vec3 worldPosition)
 {
+	if (u_Atmosphere.Flags.z == 0u)
+		return 0.0;
+
 	float heightFalloff = max(u_Atmosphere.FogParams0.x, 0.0001);
 	float heightTerm = exp2(-max(worldPosition.y, 0.0) * heightFalloff * 0.01);
 	return max(u_Atmosphere.FogColorDensity.w, 0.0) * heightTerm;
+}
+
+float EvaluateLocalFogShape(LocalFogVolumeData volume, vec3 localPosition)
+{
+	const float halfExtent = 0.5;
+	float falloff = clamp(volume.Params1.y, 0.001, 1.0);
+	if (volume.Metadata.x == 1u)
+	{
+		float radius01 = length(localPosition) / halfExtent;
+		return 1.0 - smoothstep(1.0 - falloff, 1.0, radius01);
+	}
+
+	vec3 extent01 = abs(localPosition) / halfExtent;
+	float edge = max(max(extent01.x, extent01.y), extent01.z);
+	return 1.0 - smoothstep(1.0 - falloff, 1.0, edge);
+}
+
+vec4 EvaluateLocalFogAtPosition(vec3 worldPosition, vec3 viewDirection, float distanceToCamera)
+{
+	uint count = min(u_Atmosphere.LocalFogParams.x, 64u);
+	if (count == 0u)
+		return vec4(0.0);
+
+	vec3 accumulatedColor = vec3(0.0);
+	float accumulatedDensity = 0.0;
+	for (uint index = 0u; index < 64u; index++)
+	{
+		if (index >= count)
+			break;
+
+		LocalFogVolumeData volume = u_Atmosphere.LocalFogVolumes[index];
+		float maxDistance = max(volume.Params1.x, 0.0);
+		if (maxDistance > 0.0 && distanceToCamera > maxDistance)
+			continue;
+
+		vec3 localPosition = (volume.WorldToLocal * vec4(worldPosition, 1.0)).xyz;
+		float shape = EvaluateLocalFogShape(volume, localPosition);
+		if (shape <= 0.0001)
+			continue;
+
+		float heightFalloff = max(volume.Params0.y, 0.0);
+		if (heightFalloff > 0.0001)
+		{
+			float height01 = clamp(localPosition.y + 0.5, 0.0, 1.0);
+			shape *= exp2(-height01 * heightFalloff);
+		}
+
+		float noiseStrength = clamp(volume.Params0.w, 0.0, 1.0);
+		if (noiseStrength > 0.0001)
+		{
+			float noise = ValueNoise3D(worldPosition * max(volume.Params0.z, 0.000001));
+			shape *= mix(1.0, noise, noiseStrength);
+		}
+
+		float distanceFade = maxDistance > 0.0 ? 1.0 - smoothstep(maxDistance * 0.75, maxDistance, distanceToCamera) : 1.0;
+		float density = max(volume.ColorDensity.w, 0.0) * shape * distanceFade;
+		accumulatedColor += max(volume.ColorDensity.xyz, vec3(0.0)) * density;
+		accumulatedDensity += density;
+	}
+
+	if (accumulatedDensity <= 0.000001)
+		return vec4(0.0);
+
+	return vec4(accumulatedColor / accumulatedDensity, accumulatedDensity);
 }
 
 vec3 EvaluateHeightFogInscattering(vec3 viewDirection, float distanceToCamera)
@@ -205,10 +272,13 @@ vec4 EvaluateAnalyticHeightFog(vec3 worldPosition, vec3 viewDirection, float dis
 	float fogDistance = clamp(distanceToCamera - startDistance, 0.0, cutoffDistance);
 	float cameraDensity = EvaluateHeightFogDensity(GetAtmosphereCameraPosition());
 	float sampleDensity = EvaluateHeightFogDensity(worldPosition);
-	float density = max(cameraDensity, sampleDensity);
+	vec4 localFog = EvaluateLocalFogAtPosition(worldPosition, viewDirection, distanceToCamera);
+	float density = max(cameraDensity, sampleDensity) + localFog.a;
 	float fogAmount = 1.0 - exp(-density * fogDistance);
 	fogAmount = clamp(fogAmount, 0.0, clamp(u_Atmosphere.FogParams0.z, 0.0, 1.0));
-	return vec4(EvaluateHeightFogInscattering(viewDirection, distanceToCamera), fogAmount);
+	vec3 heightColor = EvaluateHeightFogInscattering(viewDirection, distanceToCamera);
+	vec3 fogColor = localFog.a > 0.0001 ? mix(heightColor, localFog.rgb, clamp(localFog.a / max(density, 0.0001), 0.0, 1.0)) : heightColor;
+	return vec4(fogColor, fogAmount);
 }
 
 vec4 EvaluateVolumetricHeightFog(vec3 viewDirection, float distanceToCamera, vec2 clipPosition)
@@ -235,10 +305,13 @@ vec4 EvaluateVolumetricHeightFog(vec3 viewDirection, float distanceToCamera, vec
 
 		float sampleDistance = startDistance + (float(stepIndex) + jitter) * stepLength;
 		vec3 samplePosition = cameraPosition + viewDirection * sampleDistance;
-		float density = EvaluateHeightFogDensity(samplePosition) * max(u_Atmosphere.FogParams1.y, 0.0);
+		float heightDensity = EvaluateHeightFogDensity(samplePosition) * max(u_Atmosphere.FogParams1.y, 0.0);
+		vec4 localFog = EvaluateLocalFogAtPosition(samplePosition, viewDirection, sampleDistance);
+		float density = heightDensity + localFog.a;
 		float extinction = density * stepLength;
 		float sampleOpacity = clamp(1.0 - exp(-extinction), 0.0, 1.0);
-		vec3 inscattering = EvaluateHeightFogInscattering(viewDirection, sampleDistance);
+		vec3 heightInscattering = EvaluateHeightFogInscattering(viewDirection, sampleDistance);
+		vec3 inscattering = localFog.a > 0.0001 ? mix(heightInscattering, localFog.rgb, clamp(localFog.a / max(density, 0.0001), 0.0, 1.0)) : heightInscattering;
 
 		scatteredLight += transmittance * inscattering * sampleOpacity;
 		transmittance *= 1.0 - sampleOpacity;
@@ -251,7 +324,7 @@ vec4 EvaluateVolumetricHeightFog(vec3 viewDirection, float distanceToCamera, vec
 
 vec4 EvaluateHeightFog(vec3 worldPosition, vec3 viewDirection, float distanceToCamera, vec2 clipPosition)
 {
-	if (u_Atmosphere.Flags.w != 0u)
+	if (u_Atmosphere.Flags.w != 0u || u_Atmosphere.LocalFogParams.x != 0u)
 		return EvaluateVolumetricHeightFog(viewDirection, distanceToCamera, clipPosition);
 
 	return EvaluateAnalyticHeightFog(worldPosition, viewDirection, distanceToCamera);

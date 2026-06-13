@@ -6,6 +6,7 @@ Lux Application Settings:
   Editor.ShowBoundingBoxes: 0
   Editor.ShowEntityIcons: 0
   Editor.ShowPhysicsColliders: 0
+  Editor.ShowRenderVolumes: 0
   Editor.ShowViewportPerformanceHUD: 1
   Editor.TranslationSnapValue: 0.500000
   Editor.UseGizmoSnap: 1

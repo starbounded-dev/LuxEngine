@@ -133,6 +133,7 @@ namespace Lux
 
 		bool m_ShowPhysicsColliders = false;
 		bool m_ShowBoundingBoxes = false;
+		bool m_ShowRenderVolumes = true;
 		bool m_ShowEntityIcons = true;
 		bool m_ShowViewportPerformanceHUD = true;
 		bool m_ShowRuntimeExportWindow = false;
@@ -160,6 +161,7 @@ namespace Lux
 			bool ShowLightComplexity = false;
 			bool ShowMaterialComplexity = false;
 			bool ShowBoundingBoxes = false;
+			bool ShowRenderVolumes = true;
 			bool ShowEntityIcons = true;
 			SceneRenderer::DebugViewMode RendererDebugView = SceneRenderer::DebugViewMode::Final;
 			Viewport::DisplayMode DisplayMode = Viewport::DisplayMode::Lit;

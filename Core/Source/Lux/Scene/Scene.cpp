@@ -1418,6 +1418,36 @@ namespace Lux {
 		return atmosphereEnvironment;
 	}
 
+	RenderVolumeEnvironment Scene::CollectRenderVolumeEnvironment(
+		const glm::vec3& cameraPosition,
+		const Frustum* cameraFrustum,
+		const RenderVolumeBaseSettings& baseSettings,
+		const std::function<bool(Entity)>& isSelected) const
+	{
+		std::vector<RenderVolumeEvaluationInput> volumes;
+
+		auto view = m_Registry.view<const TransformComponent, const RenderVolumeComponent>();
+		for (auto e : view)
+		{
+			Entity entity = { e, const_cast<Scene*>(this) };
+			RenderVolumeEvaluationInput input;
+			input.EntityID = entity.GetUUID();
+			input.WorldTransform = GetWorldSpaceTransformMatrix(entity);
+			input.Volume = view.get<const RenderVolumeComponent>(e);
+			input.PostProcess = entity.TryGetComponent<PostProcessVolumeComponent>();
+			input.Atmosphere = entity.TryGetComponent<AtmosphereVolumeComponent>();
+			input.LocalFog = entity.TryGetComponent<LocalFogVolumeComponent>();
+			input.Selected = isSelected ? isSelected(entity) : false;
+
+			if (!input.PostProcess && !input.Atmosphere && !input.LocalFog)
+				continue;
+
+			volumes.push_back(input);
+		}
+
+		return RenderVolumeEvaluator::Evaluate(volumes, cameraPosition, cameraFrustum, baseSettings);
+	}
+
 	Ref<::Lux::RenderScene> Scene::SyncRenderScene(const std::function<bool(Entity)>& isSelected) const
 	{
 		struct StaticMeshSyncItem
@@ -1697,7 +1727,12 @@ namespace Lux {
 		float envLod = 0.0f;
 		Ref<Environment> environment = CollectEnvironment(envIntensity, envLod);
 		renderer->SetEnvironment(environment, envIntensity, envLod);
-		renderer->SetAtmosphereEnvironment(CollectAtmosphereEnvironment());
+		const AtmosphereEnvironment atmosphereEnvironment = CollectAtmosphereEnvironment();
+		renderer->SetAtmosphereEnvironment(atmosphereEnvironment);
+		RenderVolumeBaseSettings volumeBaseSettings = renderer->GetBaseRenderVolumeSettings(sceneCamera.Camera.GetExposure());
+		volumeBaseSettings.Atmosphere = atmosphereEnvironment;
+		const Frustum cameraFrustum = Frustum::FromViewProjection(sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix);
+		renderer->SetRenderVolumeEnvironment(CollectRenderVolumeEnvironment(camera.GetPosition(), &cameraFrustum, volumeBaseSettings, isSelected));
 
 		// Begin the 3D rendering frame after scene lighting/environment state is prepared
 		renderer->BeginScene(sceneCamera);
@@ -1790,7 +1825,13 @@ namespace Lux {
 		float envLod = 0.0f;
 		Ref<Environment> environment = CollectEnvironment(envIntensity, envLod);
 		renderer->SetEnvironment(environment, envIntensity, envLod);
-		renderer->SetAtmosphereEnvironment(CollectAtmosphereEnvironment());
+		const AtmosphereEnvironment atmosphereEnvironment = CollectAtmosphereEnvironment();
+		renderer->SetAtmosphereEnvironment(atmosphereEnvironment);
+		RenderVolumeBaseSettings volumeBaseSettings = renderer->GetBaseRenderVolumeSettings(sceneCamera.Camera.GetExposure());
+		volumeBaseSettings.Atmosphere = atmosphereEnvironment;
+		const glm::vec3 cameraPosition = glm::vec3(GetWorldSpaceTransformMatrix(cameraEntity)[3]);
+		const Frustum cameraFrustum = Frustum::FromViewProjection(sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix);
+		renderer->SetRenderVolumeEnvironment(CollectRenderVolumeEnvironment(cameraPosition, &cameraFrustum, volumeBaseSettings));
 
 		// Begin the 3D rendering frame after scene lighting/environment state is prepared
 		renderer->BeginScene(sceneCamera);
@@ -2214,5 +2255,31 @@ namespace Lux {
 	template<>
 	void Scene::OnComponentAdded<ExponentialHeightFogComponent>(Entity entity, ExponentialHeightFogComponent& component)
 	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<RenderVolumeComponent>(Entity entity, RenderVolumeComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<PostProcessVolumeComponent>(Entity entity, PostProcessVolumeComponent& component)
+	{
+		if (!entity.HasComponent<RenderVolumeComponent>())
+			entity.AddComponent<RenderVolumeComponent>();
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AtmosphereVolumeComponent>(Entity entity, AtmosphereVolumeComponent& component)
+	{
+		if (!entity.HasComponent<RenderVolumeComponent>())
+			entity.AddComponent<RenderVolumeComponent>();
+	}
+
+	template<>
+	void Scene::OnComponentAdded<LocalFogVolumeComponent>(Entity entity, LocalFogVolumeComponent& component)
+	{
+		if (!entity.HasComponent<RenderVolumeComponent>())
+			entity.AddComponent<RenderVolumeComponent>();
 	}
 }

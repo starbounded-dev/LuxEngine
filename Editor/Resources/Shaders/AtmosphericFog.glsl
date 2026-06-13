@@ -26,9 +26,14 @@ layout(location = 0) in vec2 v_TexCoord;
 layout(location = 1) in vec2 v_ClipPosition;
 layout(location = 0) out vec4 o_Color;
 
+layout(push_constant) uniform Uniforms
+{
+	uint DebugMode;
+} u_Uniforms;
+
 void main()
 {
-	if (u_Atmosphere.Flags.z == 0u)
+	if (u_Atmosphere.Flags.z == 0u && u_Atmosphere.LocalFogParams.x == 0u)
 	{
 		o_Color = vec4(0.0);
 		return;
@@ -49,6 +54,13 @@ void main()
 	{
 		distanceToCamera = max(u_Atmosphere.FogParams0.w, 1000.0);
 		worldPosition = cameraPosition + viewDirection * distanceToCamera;
+	}
+
+	if (u_Uniforms.DebugMode == 1u)
+	{
+		float localDensity = EvaluateLocalFogAtPosition(worldPosition, viewDirection, distanceToCamera).a;
+		o_Color = vec4(vec3(clamp(localDensity * 8.0, 0.0, 1.0)), 1.0);
+		return;
 	}
 
 	vec4 fog = EvaluateHeightFog(worldPosition, viewDirection, distanceToCamera, v_ClipPosition);

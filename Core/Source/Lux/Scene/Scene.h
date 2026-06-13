@@ -8,6 +8,7 @@
 #include "Lux/Core/UUID.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/RenderVolumes.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 
 #include "entt/entt.hpp"
@@ -116,6 +117,13 @@ namespace Lux {
 
 		// Collect atmosphere, volumetric cloud and fog settings from scene components.
 		AtmosphereEnvironment CollectAtmosphereEnvironment() const;
+
+		// Resolve rendering volumes for the camera using the scene atmosphere and renderer post-process defaults as the base layer.
+		RenderVolumeEnvironment CollectRenderVolumeEnvironment(
+			const glm::vec3& cameraPosition,
+			const Frustum* cameraFrustum,
+			const RenderVolumeBaseSettings& baseSettings,
+			const std::function<bool(Entity)>& isSelected = nullptr) const;
 
 		// Submit all StaticMeshComponent entities to the SceneRenderer
 		// Optional predicate to determine if an entity is selected (for highlight rendering)

@@ -8,6 +8,8 @@
 
 #include <fstream>
 #include <sstream>
+#include <charconv>
+#include <system_error>
 
 #include <yaml-cpp/yaml.h>
 
@@ -15,6 +17,12 @@ namespace Lux
 {
 	namespace
 	{
+		enum class TextureReferenceSerialization
+		{
+			AssetHandles,
+			AssetPaths
+		};
+
 		static void WriteVec3(YAML::Emitter& out, const glm::vec3& value)
 		{
 			out << YAML::Flow << YAML::BeginSeq << value.x << value.y << value.z << YAML::EndSeq;
@@ -39,7 +47,92 @@ namespace Lux
 			return strStream.str();
 		}
 
-		static std::string SerializeMaterialToYAML(Ref<MaterialAsset> materialAsset)
+		static bool TryParseAssetHandle(std::string_view value, AssetHandle& handle)
+		{
+			if (value.empty())
+				return false;
+
+			uint64_t parsedHandle = 0;
+			const char* begin = value.data();
+			const char* end = value.data() + value.size();
+			const auto [ptr, error] = std::from_chars(begin, end, parsedHandle);
+			if (error != std::errc() || ptr != end)
+				return false;
+
+			handle = parsedHandle;
+			return true;
+		}
+
+		static AssetHandle ResolveTextureHandle(AssetHandle textureHandle)
+		{
+			if (!textureHandle || !Project::GetAssetManager() || !AssetManager::IsAssetHandleValid(textureHandle))
+				return 0;
+
+			const AssetType assetType = AssetManager::GetAssetType(textureHandle);
+			return assetType == AssetType::Texture ? textureHandle : AssetHandle(0);
+		}
+
+		static AssetHandle ResolveTexturePath(const std::filesystem::path& texturePath)
+		{
+			if (texturePath.empty())
+				return 0;
+
+			Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager();
+			if (!editorAssetManager)
+				return 0;
+
+			AssetHandle textureHandle = editorAssetManager->GetAssetHandleFromFilePath(texturePath);
+			if (!textureHandle)
+				textureHandle = editorAssetManager->ImportAsset(texturePath);
+
+			return ResolveTextureHandle(textureHandle);
+		}
+
+		static AssetHandle ResolveTextureReference(const YAML::Node& node)
+		{
+			if (!node)
+				return 0;
+
+			if (node.IsMap())
+			{
+				if (AssetHandle textureHandle = ResolveTexturePath(node["Path"].as<std::string>("")))
+					return textureHandle;
+
+				return ResolveTextureReference(node["Handle"]);
+			}
+
+			if (!node.IsScalar())
+				return 0;
+
+			const std::string reference = node.as<std::string>("");
+			AssetHandle textureHandle = 0;
+			if (TryParseAssetHandle(reference, textureHandle))
+				return ResolveTextureHandle(textureHandle);
+
+			return ResolveTexturePath(reference);
+		}
+
+		static void WriteTextureReference(YAML::Emitter& out, const char* key, AssetHandle textureHandle, TextureReferenceSerialization textureReferenceSerialization)
+		{
+			out << YAML::Key << key << YAML::Value;
+
+			if (textureReferenceSerialization == TextureReferenceSerialization::AssetPaths && textureHandle)
+			{
+				if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+				{
+					AssetMetadata metadata = editorAssetManager->GetMetadata(textureHandle);
+					if (metadata.IsValid() && metadata.Type == AssetType::Texture && !metadata.FilePath.empty())
+					{
+						out << metadata.FilePath.generic_string();
+						return;
+					}
+				}
+			}
+
+			out << textureHandle;
+		}
+
+		static std::string SerializeMaterialToYAML(Ref<MaterialAsset> materialAsset, TextureReferenceSerialization textureReferenceSerialization)
 		{
 			if (!materialAsset || !materialAsset->GetMaterial())
 				return {};
@@ -78,10 +171,10 @@ namespace Lux
 				out << YAML::Key << "Transparency" << YAML::Value << transparency;
 			}
 
-			out << YAML::Key << "AlbedoMap" << YAML::Value << albedoMap;
-			out << YAML::Key << "NormalMap" << YAML::Value << normalMap;
-			out << YAML::Key << "MetalnessMap" << YAML::Value << metalnessMap;
-			out << YAML::Key << "RoughnessMap" << YAML::Value << roughnessMap;
+			WriteTextureReference(out, "AlbedoMap", albedoMap, textureReferenceSerialization);
+			WriteTextureReference(out, "NormalMap", normalMap, textureReferenceSerialization);
+			WriteTextureReference(out, "MetalnessMap", metalnessMap, textureReferenceSerialization);
+			WriteTextureReference(out, "RoughnessMap", roughnessMap, textureReferenceSerialization);
 			out << YAML::Key << "MaterialFlags" << YAML::Value << materialFlags;
 
 			out << YAML::EndMap;
@@ -102,10 +195,10 @@ namespace Lux
 			YAML::Node root = YAML::Load(yamlString);
 			YAML::Node materialNode = root["Material"];
 
-			const AssetHandle albedoMap = materialNode["AlbedoMap"].as<uint64_t>(0);
-			const AssetHandle normalMap = materialNode["NormalMap"].as<uint64_t>(0);
-			const AssetHandle metalnessMap = materialNode["MetalnessMap"].as<uint64_t>(0);
-			const AssetHandle roughnessMap = materialNode["RoughnessMap"].as<uint64_t>(0);
+			const AssetHandle albedoMap = ResolveTextureReference(materialNode["AlbedoMap"]);
+			const AssetHandle normalMap = ResolveTextureReference(materialNode["NormalMap"]);
+			const AssetHandle metalnessMap = ResolveTextureReference(materialNode["MetalnessMap"]);
+			const AssetHandle roughnessMap = ResolveTextureReference(materialNode["RoughnessMap"]);
 
 			AssetManager::RegisterDependency(albedoMap, handle);
 			AssetManager::RegisterDependency(normalMap, handle);
@@ -148,16 +241,16 @@ namespace Lux
 				targetMaterialAsset->SetTransparency(materialNode["Transparency"].as<float>(1.0f));
 			}
 
-			const auto tryAssignTexture = [&targetMaterialAsset](AssetHandle textureHandle, auto&& assignFn)
+			const auto tryAssignTexture = [&targetMaterialAsset](const YAML::Node& textureNode, auto&& assignFn)
 			{
-				if (textureHandle && AssetManager::IsAssetHandleValid(textureHandle))
+				if (AssetHandle textureHandle = ResolveTextureReference(textureNode))
 					assignFn(textureHandle);
 			};
 
-			tryAssignTexture(materialNode["AlbedoMap"].as<uint64_t>(0), [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetAlbedoMap(handle); });
-			tryAssignTexture(materialNode["NormalMap"].as<uint64_t>(0), [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetNormalMap(handle); });
-			tryAssignTexture(materialNode["MetalnessMap"].as<uint64_t>(0), [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetMetalnessMap(handle); });
-			tryAssignTexture(materialNode["RoughnessMap"].as<uint64_t>(0), [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetRoughnessMap(handle); });
+			tryAssignTexture(materialNode["AlbedoMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetAlbedoMap(handle); });
+			tryAssignTexture(materialNode["NormalMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetNormalMap(handle); });
+			tryAssignTexture(materialNode["MetalnessMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetMetalnessMap(handle); });
+			tryAssignTexture(materialNode["RoughnessMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetRoughnessMap(handle); });
 
 			if (materialNode["MaterialFlags"])
 				targetMaterialAsset->GetMaterial()->SetFlags(materialNode["MaterialFlags"].as<uint32_t>());
@@ -176,6 +269,13 @@ namespace Lux
 			return;
 		}
 
+		const std::string serializedMaterial = SerializeMaterialToYAML(materialAsset, TextureReferenceSerialization::AssetPaths);
+		if (serializedMaterial.empty())
+			return;
+
+		if (ReadMaterialYAML(metadata) == serializedMaterial)
+			return;
+
 		std::ofstream fout(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
 		if (!fout.is_open())
 		{
@@ -183,7 +283,7 @@ namespace Lux
 			return;
 		}
 
-		fout << SerializeMaterialToYAML(materialAsset);
+		fout << serializedMaterial;
 	}
 
 	bool MaterialSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -208,7 +308,7 @@ namespace Lux
 			return false;
 
 		outInfo.Offset = stream.GetStreamPosition();
-		stream.WriteString(SerializeMaterialToYAML(materialAsset));
+		stream.WriteString(SerializeMaterialToYAML(materialAsset, TextureReferenceSerialization::AssetHandles));
 		outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
 		return true;
 	}

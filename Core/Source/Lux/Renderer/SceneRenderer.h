@@ -7,6 +7,7 @@
 #include "Lux/Renderer/ComputePass.h"
 #include "Lux/Renderer/RenderGraph.h"
 #include "Lux/Renderer/Atmosphere.h"
+#include "Lux/Renderer/RenderVolumes.h"
 #include "Lux/Renderer/Pipeline.h"
 #include "Lux/Renderer/PipelineCompute.h"
 #include "Lux/Renderer/Framebuffer.h"
@@ -436,6 +437,26 @@ namespace Lux {
 			uint64_t SavedBytes = 0;
 		};
 
+		struct RendererFrameDebugSnapshot
+		{
+			RenderingTechnique Technique = RenderingTechnique::Forward;
+			bool DeferredPath = false;
+			bool HasRenderScene = false;
+			bool HasRenderVolumeEnvironment = false;
+			bool SkyAtmosphereEnabled = false;
+			bool VolumetricCloudsEnabled = false;
+			bool HeightFogEnabled = false;
+			bool LocalFogEnabled = false;
+			bool BloomEnabled = false;
+			bool DOFEnabled = false;
+			uint32_t ActiveVolumeCount = 0;
+			uint32_t ActivePostProcessVolumeCount = 0;
+			uint32_t ActiveAtmosphereVolumeCount = 0;
+			uint32_t LocalFogVolumeCount = 0;
+			uint32_t CulledLocalFogVolumeCount = 0;
+			uint32_t DroppedLocalFogVolumeCount = 0;
+		};
+
 		struct GPUSceneDebugSnapshot
 		{
 			uint32_t PersistentInstanceCount = 0;
@@ -499,6 +520,7 @@ namespace Lux {
 		void SetLightEnvironment(const LightEnvironment& lightEnvironment);
 		void SetEnvironment(Ref<Environment> environment, float intensity = 1.0f, float skyboxLod = 0.0f);
 		void SetAtmosphereEnvironment(const AtmosphereEnvironment& atmosphereEnvironment);
+		void SetRenderVolumeEnvironment(const RenderVolumeEnvironment& renderVolumeEnvironment);
 
 		// Submit a static (non-animated) mesh for rendering this frame.
 		void SubmitRenderScene(const Ref<RenderScene>& renderScene);
@@ -536,6 +558,7 @@ namespace Lux {
 			AO,
 			Bloom,
 			Composite,
+			LocalFogDensity,
 			GBufferBaseColor,
 			GBufferNormal,
 			GBufferMetalRough,
@@ -575,6 +598,8 @@ namespace Lux {
 		SceneRendererOptions& GetOptions() { return m_Options; }
 		BloomSettings& GetBloomSettings() { return m_BloomSettings; }
 		DOFSettings& GetDOFSettings() { return m_DOFSettings; }
+		RenderVolumeBaseSettings GetBaseRenderVolumeSettings(float cameraExposure) const;
+		const RenderVolumeEnvironment& GetRenderVolumeEnvironment() const { return m_RenderVolumeEnvironment; }
 		SSROptionsUB& GetSSROptions() { return m_SSROptions; }
 		RenderingTechnique GetRenderingTechnique() const { return m_RenderingTechnique; }
 		void SetRenderingTechnique(RenderingTechnique technique) { m_RenderingTechnique = technique; }
@@ -610,7 +635,7 @@ namespace Lux {
 	float GetRenderResolutionScale() const;
 	uint32_t GetVolumetricCloudRenderScale() const { return m_CloudRenderScale; }
 	const glm::uvec2& GetVolumetricCloudRenderSize() const { return m_CloudRenderSize; }
-	const AtmosphereEnvironment& GetAtmosphereEnvironment() const { return m_SceneData.Atmosphere; }
+	const AtmosphereEnvironment& GetAtmosphereEnvironment() const { return m_FrameEnvironment.Atmosphere; }
 
 		float GetOpacity() const { return m_Opacity; }
 		void  SetOpacity(float opacity) { m_Opacity = opacity; }
@@ -618,6 +643,7 @@ namespace Lux {
 		const glm::mat4& GetScreenSpaceProjectionMatrix() const { return m_ScreenSpaceProjectionMatrix; }
 		const Statistics& GetStatistics() const { return m_Statistics; }
 		RenderGraphDebugSnapshot GetRenderGraphDebugSnapshot();
+		RendererFrameDebugSnapshot GetRendererFrameDebugSnapshot() const;
 		const GPUSceneDebugSnapshot& GetGPUSceneDebugSnapshot() const { return m_GPUSceneDebugSnapshot; }
 		const Frustum& GetCameraFrustum() const { return m_SceneData.CameraFrustum; }
 
@@ -871,8 +897,32 @@ namespace Lux {
 		void ResizeScreenSpaceEffectResources();
 		void ResizeVolumetricCloudResources(bool forceRecreate = false);
 		glm::uvec2 CalculateVolumetricCloudRenderSize() const;
+		enum SceneRenderPassInput : uint32_t
+		{
+			PassInputNone = 0,
+			PassInputCamera = 1u << 0,
+			PassInputScene = 1u << 1,
+			PassInputScreen = 1u << 2,
+			PassInputRenderer = 1u << 3,
+			PassInputAtmosphere = 1u << 4,
+			PassInputShadowData = 1u << 5,
+			PassInputLights = 1u << 6,
+			PassInputSamplers = 1u << 7,
+			PassInputDepth = 1u << 8,
+			PassInputEnvironment = 1u << 9,
+			PassInputShadowMaps = 1u << 10,
+			PassInputMaterialScene = 1u << 11,
+			PassInputGBuffer = 1u << 12,
+			PassInputSceneColor = 1u << 13
+		};
+		static constexpr uint32_t PassInputFrameUniforms = PassInputCamera | PassInputScene | PassInputScreen | PassInputRenderer | PassInputAtmosphere;
+		static constexpr uint32_t PassInputLightingBuffers = PassInputShadowData | PassInputLights;
+		static constexpr uint32_t PassInputCommonScene = PassInputFrameUniforms | PassInputLightingBuffers | PassInputSamplers;
+		static constexpr uint32_t PassInputPBRLighting = PassInputCommonScene | PassInputEnvironment | PassInputShadowMaps;
+		void BindSceneRenderPassInputs(Ref<RenderPass> renderPass, uint32_t inputMask);
 		void BindCommonSceneRenderPassInputs(Ref<RenderPass> renderPass, bool bindDepth = false);
 		bool UsesDeferredPath() const;
+		bool UsesDeferredPath(RenderingTechnique technique) const;
 		Ref<Image2D> GetSceneColorOutput() const;
 		Ref<Image2D> GetGeometryBaseColorOutput() const;
 		Ref<Image2D> GetGeometryNormalOutput() const;
@@ -888,6 +938,27 @@ namespace Lux {
 		void RecreateRenderTargetFramebuffers();
 		void RefreshRenderTargetImageViews();
 		bool IsRenderGraphAliasCandidate(const Ref<Image2D>& image);
+		struct ResolvedFrameEnvironment
+		{
+			RenderingTechnique Technique = RenderingTechnique::Forward;
+			bool DeferredPath = false;
+			Ref<Environment> Environment;
+			float EnvironmentIntensity = 1.0f;
+			float SkyboxLod = 0.0f;
+			AtmosphereEnvironment Atmosphere;
+			RenderVolumeEnvironment Volumes;
+			RenderVolumePostProcessSettings PostProcess;
+			bool HasRenderVolumeEnvironment = false;
+			bool SkyAtmosphereEnabled = false;
+			bool VolumetricCloudsEnabled = false;
+			bool HeightFogEnabled = false;
+			bool LocalFogEnabled = false;
+			bool BloomEnabled = false;
+			bool DOFEnabled = false;
+		};
+		ResolvedFrameEnvironment ResolveFrameEnvironment() const;
+		void RefreshFrameEnvironment();
+		RenderVolumePostProcessSettings GetResolvedPostProcessSettings() const;
 
 		struct CascadeData
 		{
@@ -1002,6 +1073,15 @@ namespace Lux {
 
 		struct UBAtmosphere
 		{
+			struct LocalFogVolumeData
+			{
+				glm::mat4 WorldToLocal = glm::mat4(1.0f);
+				glm::vec4 ColorDensity = { 0.52f, 0.62f, 0.72f, 0.0f };
+				glm::vec4 Params0 = { 0.2f, 0.0f, 0.025f, 0.0f };
+				glm::vec4 Params1 = { 120.0f, 1.0f, 0.0f, 0.0f };
+				glm::uvec4 Metadata = { 0u, 0u, 0u, 0u };
+			};
+
 			glm::vec4 RayleighScattering = { 5.802f, 13.558f, 33.100f, 0.0025f };
 			glm::vec4 MieScattering = { 3.996f, 3.996f, 3.996f, 0.0015f };
 			glm::vec4 MieAbsorption = { 4.400f, 4.400f, 4.400f, 0.76f };
@@ -1021,6 +1101,8 @@ namespace Lux {
 			glm::vec4 FogParams1 = { 50.0f, 1.0f, 0.2f, 0.0f };
 			glm::uvec4 Flags = { 1u, 0u, 0u, 0u };
 			glm::uvec4 Steps = { 24u, 1u, 0u, 16u };
+			glm::uvec4 LocalFogParams = { 0u, 0u, 0u, 0u };
+			std::array<LocalFogVolumeData, MaxVisibleLocalFogVolumes> LocalFogVolumes{};
 		} m_AtmosphereUB;
 
 		struct CBGTAOData
@@ -1106,6 +1188,7 @@ namespace Lux {
 			AtmosphereEnvironment Atmosphere;
 			LightEnvironment    SceneLightEnvironment;
 		} m_SceneData;
+		ResolvedFrameEnvironment m_FrameEnvironment;
 
 		// ── Uniform / Storage buffer sets ─────────────────────────────────────
 		Ref<UniformBufferSet> m_UBSCamera;
@@ -1373,6 +1456,8 @@ namespace Lux {
 		uint32_t m_CachedShadowMapResolution = 0;
 		BloomSettings m_BloomSettings;
 		DOFSettings m_DOFSettings;
+		RenderVolumeEnvironment m_RenderVolumeEnvironment;
+		bool m_HasRenderVolumeEnvironment = false;
 		SSROptionsUB m_SSROptions;
 
 		SceneRendererOptions m_Options;

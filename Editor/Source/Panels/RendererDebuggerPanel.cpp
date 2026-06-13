@@ -82,6 +82,7 @@ namespace Lux {
 				case SceneRenderer::DebugViewMode::AO: return "AO";
 				case SceneRenderer::DebugViewMode::Bloom: return "Bloom";
 				case SceneRenderer::DebugViewMode::Composite: return "Composite";
+				case SceneRenderer::DebugViewMode::LocalFogDensity: return "Local Fog Density";
 				case SceneRenderer::DebugViewMode::GBufferBaseColor: return "GBuffer Base Color";
 				case SceneRenderer::DebugViewMode::GBufferNormal: return "GBuffer Normal";
 				case SceneRenderer::DebugViewMode::GBufferMetalRough: return "GBuffer Metal/Rough";
@@ -769,6 +770,7 @@ namespace Lux {
 			{ SceneRenderer::DebugViewMode::AO, "AO" },
 			{ SceneRenderer::DebugViewMode::Bloom, "Bloom" },
 			{ SceneRenderer::DebugViewMode::Composite, "Composite" },
+			{ SceneRenderer::DebugViewMode::LocalFogDensity, "Fog Density" },
 			{ SceneRenderer::DebugViewMode::GBufferBaseColor, "GBuf Base" },
 			{ SceneRenderer::DebugViewMode::GBufferNormal, "GBuf Norm" },
 			{ SceneRenderer::DebugViewMode::GBufferMetalRough, "GBuf MR" },
@@ -824,17 +826,38 @@ namespace Lux {
 		ImGui::EndDisabled();
 
 		const Ref<Image2D> activeImage = m_Context->GetDebugViewImage(activeMode);
+		const SceneRenderer::RendererFrameDebugSnapshot frame = m_Context->GetRendererFrameDebugSnapshot();
 		ImGui::Spacing();
 		ImGui::Text("Active: %s", DebugViewModeToString(activeMode));
 		ImGui::TextDisabled("Path: %s, viewport: %ux%u",
-			RenderingTechniqueToString(m_Context->GetRenderingTechnique()),
+			RenderingTechniqueToString(frame.Technique),
 			m_Context->GetViewportWidth(),
 			m_Context->GetViewportHeight());
+		ImGui::TextDisabled("Frame Contract: %s path, RenderScene %s, volumes %s, sky %s, clouds %s, fog %s, local fog %s, bloom %s, DOF %s",
+			frame.DeferredPath ? "Deferred" : "Forward",
+			frame.HasRenderScene ? "yes" : "no",
+			frame.HasRenderVolumeEnvironment ? "yes" : "no",
+			frame.SkyAtmosphereEnabled ? "on" : "off",
+			frame.VolumetricCloudsEnabled ? "on" : "off",
+			frame.HeightFogEnabled ? "on" : "off",
+			frame.LocalFogEnabled ? "on" : "off",
+			frame.BloomEnabled ? "on" : "off",
+			frame.DOFEnabled ? "on" : "off");
 		const bool materialIDValid = m_Context->GetDebugViewImage(SceneRenderer::DebugViewMode::GBufferMaterialID) != nullptr;
 		const bool objectIDValid = m_Context->GetDebugViewImage(SceneRenderer::DebugViewMode::GBufferObjectID) != nullptr;
 		ImGui::TextDisabled("GBuffer: A RGBA16F, B RGBA16F, C RGBA8, MaterialID RED32UI %s, ObjectID RED32UI %s",
 			materialIDValid ? "valid" : "unavailable",
 			objectIDValid ? "valid" : "unavailable");
+		const RenderVolumeEnvironment& volumeEnvironment = m_Context->GetRenderVolumeEnvironment();
+		ImGui::TextDisabled("Volumes: active %u, post %u, atmosphere %u, local fog rows %u/%u, culled %u, dropped %u, selected influence %.2f",
+			volumeEnvironment.ActiveVolumeCount,
+			volumeEnvironment.ActivePostProcessVolumeCount,
+			volumeEnvironment.ActiveAtmosphereVolumeCount,
+			volumeEnvironment.LocalFogVolumeCount,
+			volumeEnvironment.ActiveLocalFogVolumeCount,
+			volumeEnvironment.CulledLocalFogVolumeCount,
+			volumeEnvironment.DroppedLocalFogVolumeCount,
+			volumeEnvironment.SelectedVolumeInfluence);
 		if (activeImage)
 		{
 			const ImageSpecification& spec = activeImage->GetSpecification();

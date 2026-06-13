@@ -137,6 +137,15 @@ layout(std140, set = 2, binding = 2) uniform ScreenData
     vec2 QuarterResolution;
 } u_ScreenData;
 
+struct LocalFogVolumeData
+{
+	mat4 WorldToLocal;
+	vec4 ColorDensity; // xyz = color, w = density
+	vec4 Params0;      // x = anisotropy, y = height falloff, z = noise scale, w = noise strength
+	vec4 Params1;      // x = max distance, y = edge falloff, zw = reserved
+	uvec4 Metadata;    // x = shape, y = entity low bits, z = priority, w = reserved
+};
+
 layout(std140, set = 2, binding = 3) uniform AtmosphereData
 {
 	vec4 RayleighScattering;        // xyz = scattering, w = scale
@@ -158,6 +167,8 @@ layout(std140, set = 2, binding = 3) uniform AtmosphereData
 	vec4 FogParams1;                // x = directional start distance, y = volumetric scattering, z = anisotropy, w = reserved
 	uvec4 Flags;                    // x = sky, y = clouds, z = fog, w = volumetric fog
 	uvec4 Steps;                    // x = cloud march, y = cloud shadow, z = frame index, w = fog march
+	uvec4 LocalFogParams;           // x = visible count, y = dropped count, z = culled count, w = active local fog count
+	LocalFogVolumeData LocalFogVolumes[64];
 } u_Atmosphere;
 
 
