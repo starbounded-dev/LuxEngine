@@ -104,9 +104,6 @@ void main()
 #include <ShadowMapping.glslh>
 #include <Samplers.glslh>
 
-// Constant normal incidence Fresnel factor for all dielectrics.
-const vec3 Fdielectric = vec3(0.04);
-
 struct VertexOutput
 {
 	vec3 WorldPosition;
@@ -150,18 +147,18 @@ layout(push_constant) uniform Material
 
 vec3 IBL(vec3 F0, vec3 Lr)
 {
-	vec3 irradiance = SampleLinear(u_EnvIrradianceTex, m_Params.Normal).rgb;
-	vec3 F = FresnelSchlickRoughness(F0, m_Params.NdotV, m_Params.Roughness);
-	vec3 kd = (1.0 - F) * (1.0 - m_Params.Metalness);
-	vec3 diffuseIBL = m_Params.Albedo * irradiance;
-
-	int envRadianceTexLevels = textureQueryLevels(samplerCube(u_EnvRadianceTex, r_LinearSampler));
-	vec3 specularIrradiance = SampleLinearLOD(u_EnvRadianceTex, RotateVectorAboutY(u_MaterialUniforms.EnvMapRotation, Lr), m_Params.Roughness * envRadianceTexLevels).rgb;
-
-	vec2 specularBRDF = SampleLinear(u_BRDFLUTTexture, vec2(m_Params.NdotV, m_Params.Roughness)).rg;
-	vec3 specularIBL = specularIrradiance * (F0 * specularBRDF.x + specularBRDF.y);
-
-	return kd * diffuseIBL + specularIBL;
+	return LuxEvaluateImageBasedLighting(
+		u_EnvRadianceTex,
+		u_EnvIrradianceTex,
+		u_BRDFLUTTexture,
+		m_Params.Normal,
+		Lr,
+		m_Params.Albedo,
+		m_Params.Roughness,
+		m_Params.Metalness,
+		m_Params.NdotV,
+		F0,
+		u_MaterialUniforms.EnvMapRotation);
 }
 
 
@@ -227,23 +224,37 @@ void main()
 	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < 0.5)
 		discard;
 	m_Params.Metalness = materialMetalness;
-	m_Params.Roughness = materialRoughness;
+	m_Params.Roughness = SampleMaterialSceneTexture(
+		gpuMaterial.TextureIndices.w,
+		Input.TexCoord,
+		materialMipBias,
+		u_RoughnessTexture).g * materialRoughness;
+	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.0, 1.0);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
 	// Normals (either from vertex or map)
 	m_Params.Normal = normalize(Input.Normal);
+	if (materialUseNormalMap)
+	{
+		vec4 normalTexColor = SampleMaterialSceneTexture(
+			gpuMaterial.TextureIndices.y,
+			Input.TexCoord,
+			materialMipBias,
+			u_NormalTexture);
+		m_Params.Normal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb);
+	}
 
 	// View normals
-	//o_ViewNormalsLuminance.xyz = vec3(0.0);
+	o_ViewNormalsLuminance.xyz = Input.CameraView * m_Params.Normal;
 
 	m_Params.View = normalize(u_Scene.CameraPosition - Input.WorldPosition);
 	m_Params.NdotV = max(dot(m_Params.Normal, m_Params.View), 0.0);
 
 	// Specular reflection vector
-	vec3 Lr = 2.0 * m_Params.NdotV * m_Params.Normal - m_Params.View;
+	vec3 Lr = reflect(-m_Params.View, m_Params.Normal);
 
 	// Fresnel reflectance, metals use albedo
-	vec3 F0 = mix(Fdielectric, m_Params.Albedo, m_Params.Metalness);
+	vec3 F0 = mix(LuxDielectricF0(0.5), m_Params.Albedo, m_Params.Metalness);
 
 	uint cascadeIndex = 0;
 
@@ -323,15 +334,14 @@ void main()
 	// Indirect lighting
 	vec3 iblContribution = IBL(F0, Lr) * u_Scene.EnvironmentMapIntensity;
 
-	//color = vec4(iblContribution + lightContribution, 1.0);
-	color = vec4(m_Params.Albedo, materialAlphaMode == GPU_MATERIAL_ALPHA_OPAQUE ? 1.0 : alpha);
+	color = vec4(iblContribution + lightContribution, materialAlphaMode == GPU_MATERIAL_ALPHA_OPAQUE ? 1.0 : alpha);
 
 	// TODO: Temporary bug fix.
 	if (u_Scene.DirectionalLights.Multiplier <= 0.0f)
 		shadowScale = 0.0f;
 
 	// Shadow mask with respect to bright surfaces.
-	//o_ViewNormalsLuminance.a = clamp(shadowScale + dot(color.rgb, vec3(0.2125f, 0.7154f, 0.0721f)), 0.0f, 1.0f);
+	o_ViewNormalsLuminance.a = clamp(shadowScale + dot(color.rgb, vec3(0.2125f, 0.7154f, 0.0721f)), 0.0f, 1.0f);
 
 	if (u_RendererData.ShowLightComplexity)
 	{

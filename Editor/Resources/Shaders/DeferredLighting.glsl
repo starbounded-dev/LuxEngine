@@ -45,8 +45,6 @@ layout(set = 1, binding = 17) uniform texture2D u_DepthTexture;
 
 layout(set = 3, binding = 5) uniform texture2D u_BRDFLUTTexture;
 
-const vec3 Fdielectric = vec3(0.04);
-
 bool ReconstructPositionFromDepth(float deviceDepth, out vec3 worldPosition, out vec3 viewPosition)
 {
 	vec4 world = u_Camera.InverseViewProjectionMatrix * vec4(v_ClipPosition, deviceDepth, 1.0);
@@ -60,17 +58,18 @@ bool ReconstructPositionFromDepth(float deviceDepth, out vec3 worldPosition, out
 
 vec3 IBL(vec3 F0, vec3 Lr)
 {
-	vec3 irradiance = SampleLinear(u_EnvIrradianceTex, m_Params.Normal).rgb;
-	vec3 F = FresnelSchlickRoughness(F0, m_Params.NdotV, m_Params.Roughness);
-	vec3 kd = (1.0 - F) * (1.0 - m_Params.Metalness);
-	vec3 diffuseIBL = m_Params.Albedo * irradiance;
-
-	int textureSamples = textureQueryLevels(samplerCube(u_EnvRadianceTex, r_LinearSampler));
-	vec3 specularIrradiance = textureLod(samplerCube(u_EnvRadianceTex, r_LinearSampler), Lr, m_Params.Roughness * textureSamples).rgb;
-	vec2 specularBRDF = SampleLinear(u_BRDFLUTTexture, vec2(m_Params.NdotV, m_Params.Roughness)).rg;
-	vec3 specularIBL = specularIrradiance * (F0 * specularBRDF.x + specularBRDF.y);
-
-	return kd * diffuseIBL + specularIBL;
+	return LuxEvaluateImageBasedLighting(
+		u_EnvRadianceTex,
+		u_EnvIrradianceTex,
+		u_BRDFLUTTexture,
+		m_Params.Normal,
+		Lr,
+		m_Params.Albedo,
+		m_Params.Roughness,
+		m_Params.Metalness,
+		m_Params.NdotV,
+		F0,
+		0.0);
 }
 
 float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition)
@@ -186,8 +185,8 @@ void main()
 	m_Params.View = normalize(u_Scene.CameraPosition - worldPosition);
 	m_Params.NdotV = max(dot(m_Params.Normal, m_Params.View), 0.0);
 
-	vec3 F0 = mix(Fdielectric, m_Params.Albedo, m_Params.Metalness);
-	vec3 Lr = 2.0 * m_Params.NdotV * m_Params.Normal - m_Params.View;
+	vec3 F0 = mix(LuxDielectricF0(gbuffer.Specular), m_Params.Albedo, m_Params.Metalness);
+	vec3 Lr = reflect(-m_Params.View, m_Params.Normal);
 
 	float shadowScale = CalculateDirectionalShadow(worldPosition, viewPosition);
 	vec3 directLighting = CalculateDirLights(F0) * shadowScale;

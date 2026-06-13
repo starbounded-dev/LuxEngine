@@ -1,0 +1,37 @@
+#ifndef LUX_MATERIAL_SURFACE_GLSLH
+#define LUX_MATERIAL_SURFACE_GLSLH
+
+mat3 LuxBuildTangentFrame(vec3 normal, vec3 tangent, vec3 binormal)
+{
+	vec3 N = normalize(normal);
+	vec3 T = tangent - N * dot(tangent, N);
+	if (dot(T, T) < 0.000001)
+	{
+		vec3 axis = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+		T = normalize(cross(axis, N));
+	}
+	else
+	{
+		T = normalize(T);
+	}
+
+	float handedness = dot(cross(N, T), binormal) < 0.0 ? -1.0 : 1.0;
+	vec3 B = normalize(cross(N, T)) * handedness;
+	return mat3(T, B, N);
+}
+
+vec3 LuxDecodeTangentNormal(vec3 normalSample)
+{
+	vec3 tangentNormal = normalSample * 2.0 - 1.0;
+	tangentNormal.xy = clamp(tangentNormal.xy, vec2(-1.0), vec2(1.0));
+	tangentNormal.z = max(tangentNormal.z, 0.0);
+	return normalize(tangentNormal);
+}
+
+vec3 LuxApplyNormalMap(vec3 vertexNormal, mat3 tangentFrame, vec3 normalSample)
+{
+	mat3 tbn = LuxBuildTangentFrame(vertexNormal, tangentFrame[0], tangentFrame[1]);
+	return normalize(tbn * LuxDecodeTangentNormal(normalSample));
+}
+
+#endif // LUX_MATERIAL_SURFACE_GLSLH

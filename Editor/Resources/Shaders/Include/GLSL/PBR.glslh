@@ -2,6 +2,8 @@
 #define LUX_PBR_GLSLH
 
 #include <Common.glslh>
+#include <Samplers.glslh>
+#include <MaterialSurface.glslh>
 
 // GGX/Towbridge-Reitz normal distribution function.
 // Uses Disney's reparametrization of alpha = roughness^2
@@ -58,6 +60,49 @@ vec3 FresnelSchlick(vec3 F0, float cosTheta)
 vec3 FresnelSchlickRoughness(vec3 F0, float cosTheta, float roughness)
 {
 	return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+vec3 LuxDielectricF0(float specular)
+{
+	return vec3(0.08 * clamp(specular, 0.0, 1.0));
+}
+
+float LuxRoughnessToReflectionMip(float roughness, int mipCount)
+{
+	float maxMip = max(float(mipCount - 1), 0.0);
+	return clamp(roughness * maxMip, 0.0, maxMip);
+}
+
+vec3 LuxEvaluateImageBasedLighting(
+	textureCube envRadiance,
+	textureCube envIrradiance,
+	texture2D brdfLut,
+	vec3 normal,
+	vec3 reflectionDirection,
+	vec3 albedo,
+	float roughness,
+	float metalness,
+	float NdotV,
+	vec3 F0,
+	float envMapRotation)
+{
+	roughness = clamp(roughness, 0.045, 1.0);
+	metalness = clamp(metalness, 0.0, 1.0);
+	NdotV = clamp(NdotV, 0.0, 1.0);
+
+	vec3 irradiance = SampleLinear(envIrradiance, normal).rgb;
+	vec3 F = FresnelSchlickRoughness(F0, NdotV, roughness);
+	vec3 kd = (1.0 - F) * (1.0 - metalness);
+	vec3 diffuseIBL = kd * albedo * irradiance;
+
+	int envRadianceMipCount = textureQueryLevels(samplerCube(envRadiance, r_LinearSampler));
+	float reflectionMip = LuxRoughnessToReflectionMip(roughness, envRadianceMipCount);
+	vec3 reflectionVector = RotateVectorAboutY(envMapRotation, normalize(reflectionDirection));
+	vec3 specularIrradiance = SampleLinearLOD(envRadiance, reflectionVector, reflectionMip).rgb;
+	vec2 specularBRDF = SampleLinear(brdfLut, vec2(NdotV, roughness)).rg;
+	vec3 specularIBL = specularIrradiance * (F0 * specularBRDF.x + specularBRDF.y);
+
+	return diffuseIBL + specularIBL;
 }
 
 #endif // LUX_PBR_GLSLH

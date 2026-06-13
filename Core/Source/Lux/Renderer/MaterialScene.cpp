@@ -150,14 +150,13 @@ namespace Lux {
 		{
 			assignTexture(materialAsset->GetAlbedoMapHandle(), GPUMaterialFlags::HasAlbedoTexture, 0);
 
-			const bool useNormalMap = !transparent
-				&& ReadMaterialBool(material, s_UseNormalMapUniform, false)
+			const bool useNormalMap = ReadMaterialBool(material, s_UseNormalMapUniform, false)
 				&& materialAsset->GetNormalMapHandle();
 			if (useNormalMap)
 				flags |= GPUMaterialFlags::UseNormalMap;
 			assignTexture(useNormalMap ? materialAsset->GetNormalMapHandle() : AssetHandle(0), GPUMaterialFlags::HasNormalTexture, 1);
 			assignTexture(!transparent ? materialAsset->GetMetalnessMapHandle() : AssetHandle(0), GPUMaterialFlags::HasMetalnessTexture, 2);
-			assignTexture(!transparent ? materialAsset->GetRoughnessMapHandle() : AssetHandle(0), GPUMaterialFlags::HasRoughnessTexture, 3);
+			assignTexture(materialAsset->GetRoughnessMapHandle(), GPUMaterialFlags::HasRoughnessTexture, 3);
 		}
 
 		data.Metadata = glm::uvec4(

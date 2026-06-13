@@ -63,7 +63,7 @@ vec4 SampleLinearLOD(texture2DArray tex, vec3 texCoord, float lod)
 
 vec4 SampleLinearLOD(textureCube tex, vec3 texCoord, float lod)
 {
-	return texture(samplerCube(tex, r_LinearSampler), texCoord, lod);
+	return textureLod(samplerCube(tex, r_LinearSampler), texCoord, lod);
 }
 
 ivec2 GetTextureSize(texture2D tex)

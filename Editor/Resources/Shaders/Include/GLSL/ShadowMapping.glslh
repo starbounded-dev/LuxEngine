@@ -424,7 +424,7 @@ vec3 CalculateSpotLightsShadowed(in vec3 F0, vec3 worldPos, texture2D SpotAtlas)
 		float cosLi = max(0.0, dot(m_Params.Normal, Li));
 		float cosLh = max(0.0, dot(m_Params.Normal, Lh));
 
-		vec3 F = FresnelSchlickRoughness(F0, max(0.0, dot(Lh, m_Params.View)), m_Params.Roughness);
+		vec3 F = FresnelSchlick(F0, max(0.0, dot(Lh, m_Params.View)));
 		float D = NdfGGX(cosLh, m_Params.Roughness);
 		float G = GaSchlickGGX(cosLi, m_Params.NdotV, m_Params.Roughness);
 

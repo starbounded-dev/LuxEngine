@@ -66,6 +66,7 @@ void main()
 #include <Buffers.glslh>
 #include <MaterialScene.glslh>
 #include <Samplers.glslh>
+#include <MaterialSurface.glslh>
 #include <LuxGBuffer.glslh>
 
 layout(set = 0, binding = 0) uniform texture2D u_AlbedoTexture;
@@ -156,8 +157,7 @@ void main()
 	if (materialUseNormalMap)
 	{
 		vec4 normalTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.y, Input.TexCoord, materialMipBias, u_NormalTexture);
-		vec3 tangentNormal = normalize(normalTexColor.rgb * 2.0 - 1.0);
-		worldNormal = normalize(Input.WorldNormals * tangentNormal);
+		worldNormal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb);
 	}
 
 	LuxGBufferData gbuffer;
