@@ -873,6 +873,8 @@ namespace Lux {
 		void SSRTemporalAccumulationCompute();
 		void SSRCompositePass();
 		void BloomCompute();
+		void AutoExposurePass();
+		float ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const;
 		void CompositePass();
 		void DOFPass();
 		bool CanCompositeDOFIntoFinalTarget();
@@ -1005,6 +1007,12 @@ namespace Lux {
 			glm::vec2 NDCToViewAdd;
 			glm::vec2 DepthUnpackConsts;
 			glm::vec2 CameraTanHalfFOV;
+			// TAA: unjittered current + previous VP for motion-vector reprojection,
+			// and the sub-pixel clip-space jitter applied to the rasterized VP above.
+			glm::mat4 UnjitteredViewProjection = glm::mat4(1.0f);
+			glm::mat4 PreviousViewProjection = glm::mat4(1.0f);
+			glm::vec2 Jitter = { 0.0f, 0.0f };
+			glm::vec2 PreviousJitter = { 0.0f, 0.0f };
 		} m_CameraUB;
 
 		struct DirLightGPU
@@ -1369,6 +1377,20 @@ namespace Lux {
 		Ref<Material>    m_CompositeMaterial;
 		Ref<RenderPass>  m_CompositePass;
 		DebugViewMode    m_DebugViewMode = DebugViewMode::Final;
+
+		// Latest histogram auto-exposure result (linear multiplier). Driven by the
+		// auto-exposure passes; consumed when ExposureMode::Automatic is active.
+		float            m_AutoExposure = 1.0f;
+		bool             m_AutoExposureValid = false;
+
+		// ── Histogram auto-exposure ───────────────────────────────────────────
+		Ref<ComputePass> m_LuminanceHistogramPass;
+		Ref<ComputePass> m_LuminanceAveragePass;
+		Ref<StorageBufferSet> m_SBSLuminanceHistogram;   // 256-bin histogram (per-frame)
+		Ref<StorageBufferSet> m_SBSExposureState;        // { adapted luminance, exposure }
+		static constexpr uint32_t s_LuminanceHistogramBins = 256;
+		static constexpr float s_AutoExposureMinLogLuminance = -10.0f; // log2 luminance for bin 1
+		static constexpr float s_AutoExposureMaxLogLuminance = 2.0f;   // log2 luminance for bin 255
 
 		// ── Editor grid ───────────────────────────────────────────────────────
 		Ref<RenderPass>  m_GridRenderPass;

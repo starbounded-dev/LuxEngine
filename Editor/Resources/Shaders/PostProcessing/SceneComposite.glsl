@@ -46,6 +46,14 @@ layout (set = 1, binding = 4) uniform texture2D u_TransparentDepthTexture;
 layout (set = 1, binding = 5) uniform texture2D u_EdgeTexture;
 #endif
 
+// Histogram auto-exposure result (written by LuminanceAverage.glsl). Sampled only
+// when UseAutoExposure is set; otherwise the manual/camera exposure push constant is used.
+layout(std430, set = 1, binding = 6) readonly buffer ExposureStateBuffer
+{
+	float AdaptedLuminance;
+	float Exposure;
+} b_Exposure;
+
 layout(push_constant) uniform Uniforms
 {
 	float Exposure;
@@ -55,7 +63,16 @@ layout(push_constant) uniform Uniforms
 	float Time;
 	vec4 ColorFilterSaturation;
 	vec2 ContrastGamma;
+	int UseAutoExposure;
+	int TonemapOperator; // 0 = ACES, 1 = AgX, 2 = None
+	vec4 Lift;           // rgb = lift (shadows)
+	vec4 GradeGamma;     // rgb = grading gamma (midtones)
+	vec4 Gain;           // rgb = gain (highlights)
 } u_Uniforms;
+
+#define TONEMAP_ACES 0
+#define TONEMAP_AGX  1
+#define TONEMAP_NONE 2
 
 float LinearizeDepth(const float screenDepth)
 {
@@ -107,6 +124,49 @@ vec3 ACESTonemap(vec3 color)
 	vec3 a = v * (v + 0.0245786) - 0.000090537;
 	vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
 	return clamp(m2 * (a / b), 0.0, 1.0);
+}
+
+// AgX tonemapper (minimal approximation). Returns a ~linear result so the shared
+// display-gamma encoding can be applied afterwards, matching the ACES path.
+// Reference: Troy Sobotka's AgX; minimal fit popularised by Benjamin Wrensch.
+const mat3 AgXInsetMatrix = mat3(
+	0.8566271533159830, 0.0951212405381588, 0.0482516061458583,
+	0.1373189729298470, 0.7612419906025910, 0.1014390364675620,
+	0.1118982129999500, 0.0767994186031903, 0.8113023683968590);
+const mat3 AgXOutsetMatrix = mat3(
+	1.1271005818144368, -0.1106066430966032, -0.0164939387178346,
+	-0.1413297634984383,  1.1578237022162720, -0.0164939387178343,
+	-0.1413297634984383, -0.1106066430966029,  1.2519364065950405);
+const float AgXMinEV = -12.47393;
+const float AgXMaxEV = 4.026069;
+
+vec3 AgXDefaultContrastApprox(vec3 x)
+{
+	vec3 x2 = x * x;
+	vec3 x4 = x2 * x2;
+	return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+}
+
+vec3 AgXTonemap(vec3 color)
+{
+	color = AgXInsetMatrix * color;
+	color = max(color, 1e-10);
+	color = clamp(log2(color), AgXMinEV, AgXMaxEV);
+	color = (color - AgXMinEV) / (AgXMaxEV - AgXMinEV);
+	color = AgXDefaultContrastApprox(color);
+
+	// EOTF: back to a linear-ish range for the shared gamma encoding below.
+	color = AgXOutsetMatrix * color;
+	color = pow(max(color, 0.0), vec3(2.2));
+	return color;
+}
+
+// Lift / Gamma / Gain colour grading (DaVinci-style), applied pre-tonemap in linear.
+vec3 ApplyLiftGammaGain(vec3 color, vec3 lift, vec3 gamma, vec3 gain)
+{
+	color = color * gain + lift * (vec3(1.0) - color);
+	color = pow(max(color, vec3(0.0)), vec3(1.0) / max(gamma, vec3(1e-3)));
+	return color;
 }
 
 vec3 GammaCorrect(vec3 color, float gamma)
@@ -197,7 +257,8 @@ void main()
 
 	color += bloom;
 	color += bloom * bloomDirt;
-	color *= u_Uniforms.Exposure;
+	float exposure = (u_Uniforms.UseAutoExposure != 0) ? b_Exposure.Exposure : u_Uniforms.Exposure;
+	color *= exposure;
 	color *= max(u_Uniforms.ColorFilterSaturation.rgb, vec3(0.0));
 
 	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -211,7 +272,18 @@ void main()
 	float grain = mod((mod(x, 13.0) + 1.0) * (mod(x, 123.0) + 1.0), 0.01) - 0.006;
     
     //color += grain * strength;
-	color = ACESTonemap(color);
+
+	// Colour grading: lift / gamma / gain (pre-tonemap, linear).
+	color = ApplyLiftGammaGain(color, u_Uniforms.Lift.rgb, u_Uniforms.GradeGamma.rgb, u_Uniforms.Gain.rgb);
+
+	// Tonemap (selectable operator). All operators return a ~linear result that the
+	// shared display-gamma encoding below converts to display space.
+	if (u_Uniforms.TonemapOperator == TONEMAP_AGX)
+		color = AgXTonemap(color);
+	else if (u_Uniforms.TonemapOperator == TONEMAP_NONE)
+		color = clamp(color, 0.0, 1.0);
+	else
+		color = ACESTonemap(color);
 
 	color = GammaCorrect(color.rgb, gamma);
 

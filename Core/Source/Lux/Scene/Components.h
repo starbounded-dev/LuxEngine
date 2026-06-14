@@ -519,10 +519,24 @@ namespace Lux {
 			: Mesh(mesh), SubmeshIndex(submeshIndex) {}
 	};
 
+	// Physical unit a light's Intensity is expressed in. Unitless preserves the
+	// legacy behaviour (Intensity used directly as a multiplier) so existing
+	// scenes are unaffected until an artist opts into physical units.
+	enum class LightUnit : uint32_t
+	{
+		Unitless = 0, // legacy multiplier
+		Lux = 1,      // directional illuminance
+		Lumens = 2,   // point / spot luminous power
+		Candela = 3   // point / spot luminous intensity
+	};
+
 	struct DirectionalLightComponent
 	{
 		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
 		float Intensity = 1.0f;
+		LightUnit Unit = LightUnit::Unitless; // Unitless or Lux
+		float ColorTemperature = 6500.0f;     // Kelvin
+		bool UseColorTemperature = false;
 		float ShadowAmount = 1.0f;
 		bool CastShadows = true;
 		bool SoftShadows = true;
@@ -538,6 +552,9 @@ namespace Lux {
 	{
 		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
 		float Intensity = 1.0f;
+		LightUnit Unit = LightUnit::Unitless; // Unitless, Lumens or Candela
+		float ColorTemperature = 6500.0f;     // Kelvin
+		bool UseColorTemperature = false;
 		float LightSize = 0.5f;
 		float MinRadius = 1.0f;
 		float Radius = 10.0f;
@@ -553,6 +570,9 @@ namespace Lux {
 	{
 		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
 		float Intensity = 1.0f;
+		LightUnit Unit = LightUnit::Unitless; // Unitless, Lumens or Candela
+		float ColorTemperature = 6500.0f;     // Kelvin
+		bool UseColorTemperature = false;
 		float Range = 10.0f;
 		float Angle = 45.0f;
 		float AngleAttenuation = 1.0f;

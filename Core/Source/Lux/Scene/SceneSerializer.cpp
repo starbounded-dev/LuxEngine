@@ -399,6 +399,9 @@ namespace Lux {
 				out << YAML::BeginMap;
 				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
 				out << YAML::Key << "Radiance" << YAML::Value << light.Radiance;
+				out << YAML::Key << "Unit" << YAML::Value << static_cast<uint32_t>(light.Unit);
+				out << YAML::Key << "ColorTemperature" << YAML::Value << light.ColorTemperature;
+				out << YAML::Key << "UseColorTemperature" << YAML::Value << light.UseColorTemperature;
 				out << YAML::Key << "CastShadows" << YAML::Value << light.CastShadows;
 				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
 				out << YAML::Key << "LightSize" << YAML::Value << light.LightSize;
@@ -415,6 +418,9 @@ namespace Lux {
 				out << YAML::BeginMap;
 				out << YAML::Key << "Radiance" << YAML::Value << light.Radiance;
 				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
+				out << YAML::Key << "Unit" << YAML::Value << static_cast<uint32_t>(light.Unit);
+				out << YAML::Key << "ColorTemperature" << YAML::Value << light.ColorTemperature;
+				out << YAML::Key << "UseColorTemperature" << YAML::Value << light.UseColorTemperature;
 				out << YAML::Key << "CastShadows" << YAML::Value << light.CastsShadows;
 				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
 				out << YAML::Key << "MinRadius" << YAML::Value << light.MinRadius;
@@ -436,6 +442,9 @@ namespace Lux {
 				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
 				out << YAML::Key << "Falloff" << YAML::Value << light.Falloff;
 				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
+				out << YAML::Key << "Unit" << YAML::Value << static_cast<uint32_t>(light.Unit);
+				out << YAML::Key << "ColorTemperature" << YAML::Value << light.ColorTemperature;
+				out << YAML::Key << "UseColorTemperature" << YAML::Value << light.UseColorTemperature;
 				out << YAML::Key << "Range" << YAML::Value << light.Range;
 				out << YAML::Key << "ShadowDistance" << YAML::Value << light.ShadowDistance;
 				out << YAML::Key << "ShadowResolutionTier" << YAML::Value << light.ShadowResolutionTier;
@@ -557,6 +566,16 @@ namespace Lux {
 				out << YAML::BeginMap;
 				out << YAML::Key << "OverrideMask" << YAML::Value << component.OverrideMask;
 				out << YAML::Key << "Exposure" << YAML::Value << settings.Exposure;
+				out << YAML::Key << "ExposureMode" << YAML::Value << static_cast<uint32_t>(settings.ExposureControl);
+				out << YAML::Key << "Aperture" << YAML::Value << settings.Aperture;
+				out << YAML::Key << "ShutterSpeed" << YAML::Value << settings.ShutterSpeed;
+				out << YAML::Key << "ISO" << YAML::Value << settings.ISO;
+				out << YAML::Key << "ExposureEV100" << YAML::Value << settings.ExposureEV100;
+				out << YAML::Key << "ExposureCompensation" << YAML::Value << settings.ExposureCompensation;
+				out << YAML::Key << "AutoMinEV100" << YAML::Value << settings.AutoMinEV100;
+				out << YAML::Key << "AutoMaxEV100" << YAML::Value << settings.AutoMaxEV100;
+				out << YAML::Key << "AutoAdaptationSpeedUp" << YAML::Value << settings.AutoAdaptationSpeedUp;
+				out << YAML::Key << "AutoAdaptationSpeedDown" << YAML::Value << settings.AutoAdaptationSpeedDown;
 				out << YAML::Key << "BloomEnabled" << YAML::Value << settings.BloomEnabled;
 				out << YAML::Key << "BloomThreshold" << YAML::Value << settings.BloomThreshold;
 				out << YAML::Key << "BloomKnee" << YAML::Value << settings.BloomKnee;
@@ -570,6 +589,12 @@ namespace Lux {
 				out << YAML::Key << "Saturation" << YAML::Value << settings.Saturation;
 				out << YAML::Key << "Contrast" << YAML::Value << settings.Contrast;
 				out << YAML::Key << "Gamma" << YAML::Value << settings.Gamma;
+				out << YAML::Key << "Tonemap" << YAML::Value << static_cast<uint32_t>(settings.Tonemap);
+				out << YAML::Key << "WhiteTemperature" << YAML::Value << settings.WhiteTemperature;
+				out << YAML::Key << "WhiteTint" << YAML::Value << settings.WhiteTint;
+				out << YAML::Key << "Lift" << YAML::Value << settings.Lift;
+				out << YAML::Key << "GradeGamma" << YAML::Value << settings.GradeGamma;
+				out << YAML::Key << "Gain" << YAML::Value << settings.Gain;
 				out << YAML::EndMap;
 			}
 
@@ -1005,6 +1030,9 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<DirectionalLightComponent>();
 					component.Intensity = light["Intensity"].as<float>(1.0f);
 					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
+					component.Unit = static_cast<LightUnit>(light["Unit"].as<uint32_t>(static_cast<uint32_t>(LightUnit::Unitless)));
+					component.ColorTemperature = light["ColorTemperature"].as<float>(6500.0f);
+					component.UseColorTemperature = light["UseColorTemperature"].as<bool>(false);
 					component.CastShadows = light["CastShadows"].as<bool>(true);
 					component.SoftShadows = light["SoftShadows"].as<bool>(true);
 					component.LightSize = light["LightSize"].as<float>(0.5f);
@@ -1018,6 +1046,9 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<PointLightComponent>();
 					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
 					component.Intensity = light["Intensity"].as<float>(1.0f);
+					component.Unit = static_cast<LightUnit>(light["Unit"].as<uint32_t>(static_cast<uint32_t>(LightUnit::Unitless)));
+					component.ColorTemperature = light["ColorTemperature"].as<float>(6500.0f);
+					component.UseColorTemperature = light["UseColorTemperature"].as<bool>(false);
 					component.CastsShadows = light["CastShadows"].as<bool>(true);
 					component.SoftShadows = light["SoftShadows"].as<bool>(true);
 					component.MinRadius = light["MinRadius"].as<float>(1.0f);
@@ -1031,6 +1062,9 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<SpotLightComponent>();
 					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
 					component.Intensity = light["Intensity"].as<float>(1.0f);
+					component.Unit = static_cast<LightUnit>(light["Unit"].as<uint32_t>(static_cast<uint32_t>(LightUnit::Unitless)));
+					component.ColorTemperature = light["ColorTemperature"].as<float>(6500.0f);
+					component.UseColorTemperature = light["UseColorTemperature"].as<bool>(false);
 					component.Range = light["Range"].as<float>(10.0f);
 					component.Angle = light["Angle"].as<float>(60.0f);
 					component.AngleAttenuation = light["AngleAttenuation"].as<float>(5.0f);
@@ -1139,6 +1173,16 @@ namespace Lux {
 					auto& settings = component.Settings;
 					component.OverrideMask = postProcessVolume["OverrideMask"].as<uint64_t>(component.OverrideMask);
 					settings.Exposure = postProcessVolume["Exposure"].as<float>(settings.Exposure);
+					settings.ExposureControl = static_cast<ExposureMode>(postProcessVolume["ExposureMode"].as<uint32_t>(static_cast<uint32_t>(settings.ExposureControl)));
+					settings.Aperture = postProcessVolume["Aperture"].as<float>(settings.Aperture);
+					settings.ShutterSpeed = postProcessVolume["ShutterSpeed"].as<float>(settings.ShutterSpeed);
+					settings.ISO = postProcessVolume["ISO"].as<float>(settings.ISO);
+					settings.ExposureEV100 = postProcessVolume["ExposureEV100"].as<float>(settings.ExposureEV100);
+					settings.ExposureCompensation = postProcessVolume["ExposureCompensation"].as<float>(settings.ExposureCompensation);
+					settings.AutoMinEV100 = postProcessVolume["AutoMinEV100"].as<float>(settings.AutoMinEV100);
+					settings.AutoMaxEV100 = postProcessVolume["AutoMaxEV100"].as<float>(settings.AutoMaxEV100);
+					settings.AutoAdaptationSpeedUp = postProcessVolume["AutoAdaptationSpeedUp"].as<float>(settings.AutoAdaptationSpeedUp);
+					settings.AutoAdaptationSpeedDown = postProcessVolume["AutoAdaptationSpeedDown"].as<float>(settings.AutoAdaptationSpeedDown);
 					settings.BloomEnabled = postProcessVolume["BloomEnabled"].as<bool>(settings.BloomEnabled);
 					settings.BloomThreshold = postProcessVolume["BloomThreshold"].as<float>(settings.BloomThreshold);
 					settings.BloomKnee = postProcessVolume["BloomKnee"].as<float>(settings.BloomKnee);
@@ -1152,6 +1196,12 @@ namespace Lux {
 					settings.Saturation = postProcessVolume["Saturation"].as<float>(settings.Saturation);
 					settings.Contrast = postProcessVolume["Contrast"].as<float>(settings.Contrast);
 					settings.Gamma = postProcessVolume["Gamma"].as<float>(settings.Gamma);
+					settings.Tonemap = static_cast<TonemapOperator>(postProcessVolume["Tonemap"].as<uint32_t>(static_cast<uint32_t>(settings.Tonemap)));
+					settings.WhiteTemperature = postProcessVolume["WhiteTemperature"].as<float>(settings.WhiteTemperature);
+					settings.WhiteTint = postProcessVolume["WhiteTint"].as<float>(settings.WhiteTint);
+					settings.Lift = postProcessVolume["Lift"].as<glm::vec3>(settings.Lift);
+					settings.GradeGamma = postProcessVolume["GradeGamma"].as<glm::vec3>(settings.GradeGamma);
+					settings.Gain = postProcessVolume["Gain"].as<glm::vec3>(settings.Gain);
 				}
 
 				if (auto atmosphereVolume = entity["AtmosphereVolumeComponent"])

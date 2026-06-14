@@ -4,6 +4,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/RenderScene.h"
+#include "Lux/Renderer/Exposure.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Math/Frustum.h"
 #include "Lux/Asset/AssetManager.h"
@@ -911,6 +912,19 @@ namespace Lux {
 			m_SBSVisibleSpotLightIndices = StorageBufferSet::Create(indexSpec, sizeof(int32_t) * MaxVisibleLightsPerTile);
 			ResizeLightCullingResources();
 		}
+		{
+			// Auto-exposure: a 256-bin luminance histogram and a tiny persistent
+			// exposure state buffer ({ adapted luminance, exposure }).
+			StorageBufferSpecification histogramSpec;
+			histogramSpec.GPUOnly = true;
+			histogramSpec.DebugName = "LuminanceHistogram";
+			m_SBSLuminanceHistogram = StorageBufferSet::Create(histogramSpec, sizeof(uint32_t) * s_LuminanceHistogramBins);
+
+			StorageBufferSpecification exposureSpec;
+			exposureSpec.GPUOnly = true;
+			exposureSpec.DebugName = "ExposureState";
+			m_SBSExposureState = StorageBufferSet::Create(exposureSpec, sizeof(float) * 2);
+		}
 
 		// Common vertex layout for all opaque mesh pipelines
 		VertexBufferLayout vertexLayout = {
@@ -1171,11 +1185,13 @@ namespace Lux {
 			FramebufferTextureSpecification gbufferMetalRough = ImageFormat::RGBA;
 			FramebufferTextureSpecification gbufferMaterialID = ImageFormat::RED32UI;
 			FramebufferTextureSpecification gbufferObjectID = ImageFormat::RED32UI;
+			FramebufferTextureSpecification gbufferVelocity = ImageFormat::RG16F;
 			gbufferBaseColor.Blend = false;
 			gbufferNormal.Blend = false;
 			gbufferMetalRough.Blend = false;
 			gbufferMaterialID.Blend = false;
 			gbufferObjectID.Blend = false;
+			gbufferVelocity.Blend = false;
 
 			FramebufferSpecification gbufferSpec;
 			gbufferSpec.Width = m_ViewportWidth;
@@ -1186,9 +1202,10 @@ namespace Lux {
 				gbufferMetalRough,
 				gbufferMaterialID,
 				gbufferObjectID,
+				gbufferVelocity,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
-			gbufferSpec.ExistingImages[5] = m_PreDepthPass->GetDepthOutput();
+			gbufferSpec.ExistingImages[6] = m_PreDepthPass->GetDepthOutput();
 			gbufferSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			gbufferSpec.ClearDepthOnLoad = false;
 			gbufferSpec.Blend = false;
@@ -1826,6 +1843,30 @@ namespace Lux {
 			CreateBloomPassMaterials();
 		}
 
+		// ── Histogram auto-exposure compute passes ────────────────────────────
+		{
+			ComputePassSpecification histogramSpec;
+			histogramSpec.DebugName = "LuminanceHistogram";
+			histogramSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("LuminanceHistogram"));
+			m_LuminanceHistogramPass = ComputePass::Create(histogramSpec);
+			m_LuminanceHistogramPass->SetInput("u_SceneColor", GetSceneColorOutput());
+			m_LuminanceHistogramPass->SetInput("LuminanceHistogramBuffer", m_SBSLuminanceHistogram);
+			m_LuminanceHistogramPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_LuminanceHistogramPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_LuminanceHistogramPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_LuminanceHistogramPass->Validate());
+			m_LuminanceHistogramPass->Bake();
+
+			ComputePassSpecification averageSpec;
+			averageSpec.DebugName = "LuminanceAverage";
+			averageSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("LuminanceAverage"));
+			m_LuminanceAveragePass = ComputePass::Create(averageSpec);
+			m_LuminanceAveragePass->SetInput("LuminanceHistogramBuffer", m_SBSLuminanceHistogram);
+			m_LuminanceAveragePass->SetInput("ExposureStateBuffer", m_SBSExposureState);
+			LUX_CORE_VERIFY(m_LuminanceAveragePass->Validate());
+			m_LuminanceAveragePass->Bake();
+		}
+
 		// ── Scene composite (tone-map + exposure + opacity) ───────────────────
 		{
 			FramebufferSpecification fbSpec;
@@ -1867,6 +1908,7 @@ namespace Lux {
 			m_CompositePass->SetInput("u_BloomDirtTexture", m_BloomDirtTexture);
 			m_CompositePass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			m_CompositePass->SetInput("u_TransparentDepthTexture", m_GeometryPassTransparent->GetDepthOutput());
+			m_CompositePass->SetInput("ExposureStateBuffer", m_SBSExposureState);
 			LUX_CORE_VERIFY(m_CompositePass->Validate());
 			m_CompositePass->Bake();
 		}
@@ -3413,6 +3455,16 @@ namespace Lux {
 		}
 
 		const RenderVolumePostProcessSettings& postProcessSettings = frame.PostProcess;
+
+		// Histogram auto-exposure reads the final scene color and writes the exposure
+		// state buffer (a side effect not tracked as a graph texture, so it is pinned).
+		if (postProcessSettings.ExposureControl == ExposureMode::Automatic)
+		{
+			constexpr auto autoExposureFlags = static_cast<RenderGraph::PassFlags>(
+				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::SideEffect));
+			addPass("Auto Exposure", sceneColorCurrent, {}, autoExposureFlags, makeExecute(&SceneRenderer::AutoExposurePass));
+		}
+
 		std::vector<RenderGraph::ResourceHandle> bloomOutputs;
 		if (postProcessSettings.BloomEnabled)
 		{
@@ -6957,19 +7009,126 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::AutoExposurePass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "AutoExposurePass");
+		if (!m_LuminanceHistogramPass || !m_LuminanceAveragePass)
+			return;
+
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		if (!sceneColor)
+			return;
+
+		const RenderVolumePostProcessSettings settings = GetResolvedPostProcessSettings();
+		if (settings.ExposureControl != ExposureMode::Automatic)
+			return;
+
+		const uint32_t width = glm::max(1u, sceneColor->GetWidth());
+		const uint32_t height = glm::max(1u, sceneColor->GetHeight());
+		const float minLog = s_AutoExposureMinLogLuminance;
+		const float maxLog = s_AutoExposureMaxLogLuminance;
+		const float logRange = maxLog - minLog;
+
+		BeginProfiledGPU("AutoExposurePass");
+
+		// 1) Build the log-luminance histogram of the HDR scene color.
+		struct HistogramPushConstants
+		{
+			float MinLogLuminance;
+			float InverseLogLuminanceRange;
+			uint32_t InputWidth;
+			uint32_t InputHeight;
+		} histogramPush;
+		histogramPush.MinLogLuminance = minLog;
+		histogramPush.InverseLogLuminanceRange = logRange > 0.0f ? 1.0f / logRange : 0.0f;
+		histogramPush.InputWidth = width;
+		histogramPush.InputHeight = height;
+
+		const glm::uvec3 histogramGroups = { AlignUp(width, 16u) / 16u, AlignUp(height, 16u) / 16u, 1u };
+		Renderer::BeginComputePass(m_CommandBuffer, m_LuminanceHistogramPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_LuminanceHistogramPass, nullptr, histogramGroups, Buffer(&histogramPush, sizeof(histogramPush)));
+		m_LuminanceHistogramPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(m_CommandBuffer, m_LuminanceHistogramPass);
+
+		// 2) Reduce to an average luminance, temporally adapt, write the exposure
+		//    multiplier, and clear the histogram for the next frame.
+		struct AveragePushConstants
+		{
+			float MinLogLuminance;
+			float LogLuminanceRange;
+			float TimeDelta;
+			float SpeedUp;
+			float SpeedDown;
+			float MinEV100;
+			float MaxEV100;
+			uint32_t PixelCount;
+		} averagePush;
+		averagePush.MinLogLuminance = minLog;
+		averagePush.LogLuminanceRange = logRange;
+		averagePush.TimeDelta = Application::Get().GetFrametime().GetSeconds();
+		averagePush.SpeedUp = glm::max(settings.AutoAdaptationSpeedUp, 0.0f);
+		averagePush.SpeedDown = glm::max(settings.AutoAdaptationSpeedDown, 0.0f);
+		averagePush.MinEV100 = settings.AutoMinEV100;
+		averagePush.MaxEV100 = glm::max(settings.AutoMaxEV100, settings.AutoMinEV100);
+		averagePush.PixelCount = width * height;
+
+		Renderer::BeginComputePass(m_CommandBuffer, m_LuminanceAveragePass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_LuminanceAveragePass, nullptr, { 1u, 1u, 1u }, Buffer(&averagePush, sizeof(averagePush)));
+		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSExposureState->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(m_CommandBuffer, m_LuminanceAveragePass);
+
+		m_AutoExposureValid = true;
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	float SceneRenderer::ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const
+	{
+		switch (settings.ExposureControl)
+		{
+			case ExposureMode::ManualEV:
+				return Exposure::ExposureFromEV100(settings.ExposureEV100 - settings.ExposureCompensation);
+			case ExposureMode::Camera:
+				return Exposure::ExposureFromCamera(settings.Aperture, settings.ShutterSpeed, settings.ISO, settings.ExposureCompensation);
+			case ExposureMode::Automatic:
+				// Driven by the histogram auto-exposure passes; falls back to the manual
+				// multiplier until the first auto-exposure result is available.
+				return m_AutoExposureValid ? m_AutoExposure : settings.Exposure;
+			case ExposureMode::Manual:
+			default:
+				return settings.Exposure;
+		}
+	}
+
 	void SceneRenderer::CompositePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "CompositePass");
 		BeginProfiledGPU("CompositePass");
 
 		const RenderVolumePostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
-		m_CompositeMaterial->Set("u_Uniforms.Exposure", postProcessSettings.Exposure);
+		const bool useAutoExposure = postProcessSettings.ExposureControl == ExposureMode::Automatic && m_AutoExposureValid;
+		m_CompositeMaterial->Set("u_Uniforms.Exposure", ComputeFinalExposure(postProcessSettings));
+		m_CompositeMaterial->Set("u_Uniforms.UseAutoExposure", useAutoExposure ? 1 : 0);
 		m_CompositeMaterial->Set("u_Uniforms.BloomIntensity", postProcessSettings.BloomEnabled ? postProcessSettings.BloomIntensity : 0.0f);
 		m_CompositeMaterial->Set("u_Uniforms.BloomDirtIntensity", postProcessSettings.BloomEnabled ? postProcessSettings.BloomDirtIntensity : 0.0f);
 		m_CompositeMaterial->Set("u_Uniforms.Opacity", m_Opacity);
 		m_CompositeMaterial->Set("u_Uniforms.Time", Application::Get().GetTime());
-		m_CompositeMaterial->Set("u_Uniforms.ColorFilterSaturation", glm::vec4(glm::max(postProcessSettings.ColorFilter, glm::vec3(0.0f)), glm::max(postProcessSettings.Saturation, 0.0f)));
+
+		// White balance is a tint multiplier, folded into the colour filter.
+		auto whiteBalanceToRGB = [](float temperature, float tint) -> glm::vec3
+		{
+			const float t = glm::clamp(temperature, -1.0f, 1.0f);
+			const float g = glm::clamp(tint, -1.0f, 1.0f);
+			return glm::max(glm::vec3(1.0f + 0.30f * t, 1.0f + 0.15f * g, 1.0f - 0.30f * t), glm::vec3(0.0f));
+		};
+		const glm::vec3 whiteBalance = whiteBalanceToRGB(postProcessSettings.WhiteTemperature, postProcessSettings.WhiteTint);
+		const glm::vec3 colorFilter = glm::max(postProcessSettings.ColorFilter, glm::vec3(0.0f)) * whiteBalance;
+		m_CompositeMaterial->Set("u_Uniforms.ColorFilterSaturation", glm::vec4(colorFilter, glm::max(postProcessSettings.Saturation, 0.0f)));
 		m_CompositeMaterial->Set("u_Uniforms.ContrastGamma", glm::vec2(glm::max(postProcessSettings.Contrast, 0.0f), glm::max(postProcessSettings.Gamma, 0.01f)));
+		m_CompositeMaterial->Set("u_Uniforms.TonemapOperator", static_cast<int>(postProcessSettings.Tonemap));
+		m_CompositeMaterial->Set("u_Uniforms.Lift", glm::vec4(postProcessSettings.Lift, 0.0f));
+		m_CompositeMaterial->Set("u_Uniforms.GradeGamma", glm::vec4(glm::max(postProcessSettings.GradeGamma, glm::vec3(1e-3f)), 0.0f));
+		m_CompositeMaterial->Set("u_Uniforms.Gain", glm::vec4(postProcessSettings.Gain, 0.0f));
 
 		Renderer::BeginRenderPass(m_CommandBuffer, m_CompositePass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_CompositePass->GetPipeline(), m_CompositeMaterial);

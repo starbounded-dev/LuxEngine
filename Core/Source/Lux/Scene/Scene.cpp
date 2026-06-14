@@ -17,6 +17,7 @@
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/SceneRenderer.h"
+#include "Lux/Renderer/PhysicalLight.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Renderer/MeshFactory.h"
 #include "Lux/Renderer/MaterialAsset.h"
@@ -1256,8 +1257,8 @@ namespace Lux {
 				glm::vec3 direction = glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 
 				lightEnv.DirectionalLights[dirLightIndex].Direction = direction;
-				lightEnv.DirectionalLights[dirLightIndex].Radiance = dirLight.Radiance;
-				lightEnv.DirectionalLights[dirLightIndex].Intensity = dirLight.Intensity;
+				lightEnv.DirectionalLights[dirLightIndex].Radiance = PhysicalLight::EffectiveRadiance(dirLight.Radiance, dirLight.UseColorTemperature, dirLight.ColorTemperature);
+				lightEnv.DirectionalLights[dirLightIndex].Intensity = PhysicalLight::DirectionalIntensity(dirLight.Unit, dirLight.Intensity);
 				lightEnv.DirectionalLights[dirLightIndex].ShadowAmount = dirLight.ShadowAmount;
 				lightEnv.DirectionalLights[dirLightIndex].CastShadows = dirLight.CastShadows;
 				lightEnv.DirectionalLights[dirLightIndex].SoftShadows = dirLight.SoftShadows;
@@ -1279,8 +1280,8 @@ namespace Lux {
 
 				PointLight pl;
 				pl.Position = glm::vec3(worldTransform[3]);
-				pl.Radiance = pointLight.Radiance;
-				pl.Intensity = pointLight.Intensity;
+				pl.Radiance = PhysicalLight::EffectiveRadiance(pointLight.Radiance, pointLight.UseColorTemperature, pointLight.ColorTemperature);
+				pl.Intensity = PhysicalLight::PointIntensity(pointLight.Unit, pointLight.Intensity);
 				pl.Radius = pointLight.Radius;
 				pl.Falloff = pointLight.Falloff;
 				pl.MinRadius = pointLight.MinRadius;
@@ -1302,8 +1303,8 @@ namespace Lux {
 				SpotLight sl;
 				sl.Position = glm::vec3(worldTransform[3]);
 				sl.Direction = glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
-				sl.Radiance = spotLight.Radiance;
-				sl.Intensity = spotLight.Intensity;
+				sl.Radiance = PhysicalLight::EffectiveRadiance(spotLight.Radiance, spotLight.UseColorTemperature, spotLight.ColorTemperature);
+				sl.Intensity = PhysicalLight::SpotIntensity(spotLight.Unit, spotLight.Intensity, spotLight.Angle);
 				sl.Range = spotLight.Range;
 				sl.Angle = spotLight.Angle;
 				sl.AngleAttenuation = spotLight.AngleAttenuation;

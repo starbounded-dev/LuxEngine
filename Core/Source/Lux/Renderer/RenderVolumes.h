@@ -22,6 +22,23 @@ namespace Lux {
 		Sphere = 1
 	};
 
+	// How the final scene exposure (linear HDR multiplier applied before tonemapping) is determined.
+	enum class ExposureMode : uint32_t
+	{
+		Manual = 0,    // Exposure is used directly as a linear multiplier (legacy default).
+		ManualEV = 1,  // ExposureEV100 sets the exposure value directly.
+		Camera = 2,    // EV100 computed from physical Aperture / ShutterSpeed / ISO.
+		Automatic = 3  // Histogram auto-exposure (see SceneRenderer auto-exposure passes).
+	};
+
+	// Tonemapping operator applied in the scene composite.
+	enum class TonemapOperator : uint32_t
+	{
+		ACES = 0,  // ACES filmic (default)
+		AgX = 1,   // AgX (neutral highlights, less hue-shift on saturated brights)
+		None = 2   // No tonemap (clamp); useful for debugging
+	};
+
 	enum RenderVolumePostProcessOverride : uint64_t
 	{
 		PostProcessOverride_None = 0,
@@ -38,7 +55,20 @@ namespace Lux {
 		PostProcessOverride_ColorFilter = 1ull << 10,
 		PostProcessOverride_Saturation = 1ull << 11,
 		PostProcessOverride_Contrast = 1ull << 12,
-		PostProcessOverride_Gamma = 1ull << 13
+		PostProcessOverride_Gamma = 1ull << 13,
+		PostProcessOverride_ExposureMode = 1ull << 14,
+		PostProcessOverride_Aperture = 1ull << 15,
+		PostProcessOverride_ShutterSpeed = 1ull << 16,
+		PostProcessOverride_ISO = 1ull << 17,
+		PostProcessOverride_ExposureEV100 = 1ull << 18,
+		PostProcessOverride_ExposureCompensation = 1ull << 19,
+		PostProcessOverride_AutoMinEV100 = 1ull << 20,
+		PostProcessOverride_AutoMaxEV100 = 1ull << 21,
+		PostProcessOverride_AutoAdaptationSpeedUp = 1ull << 22,
+		PostProcessOverride_AutoAdaptationSpeedDown = 1ull << 23,
+		PostProcessOverride_Tonemap = 1ull << 24,
+		PostProcessOverride_WhiteBalance = 1ull << 25,
+		PostProcessOverride_LiftGammaGain = 1ull << 26
 	};
 
 	enum RenderVolumeSkyOverride : uint64_t
@@ -124,6 +154,21 @@ namespace Lux {
 	struct RenderVolumePostProcessSettings
 	{
 		float Exposure = 1.0f;
+
+		// Physical / photographic exposure (Filament-style EV100 model).
+		ExposureMode ExposureControl = ExposureMode::Manual;
+		float Aperture = 16.0f;             // f-stops (N)
+		float ShutterSpeed = 1.0f / 125.0f; // seconds (t)
+		float ISO = 100.0f;                 // sensor sensitivity (S)
+		float ExposureEV100 = 12.0f;        // used in ManualEV mode
+		float ExposureCompensation = 0.0f;  // EV offset applied in all physical modes (+ = brighter)
+
+		// Auto-exposure (histogram) parameters; used when ExposureControl == Automatic.
+		float AutoMinEV100 = -2.0f;
+		float AutoMaxEV100 = 16.0f;
+		float AutoAdaptationSpeedUp = 3.0f;   // EV/sec when scene gets brighter
+		float AutoAdaptationSpeedDown = 1.0f; // EV/sec when scene gets darker
+
 		bool BloomEnabled = true;
 		float BloomThreshold = 1.0f;
 		float BloomKnee = 0.1f;
@@ -136,7 +181,15 @@ namespace Lux {
 		glm::vec3 ColorFilter = { 1.0f, 1.0f, 1.0f };
 		float Saturation = 1.0f;
 		float Contrast = 1.0f;
-		float Gamma = 2.2f;
+		float Gamma = 2.2f; // display gamma applied after tonemapping
+
+		// Tonemapping + color grading.
+		TonemapOperator Tonemap = TonemapOperator::ACES;
+		float WhiteTemperature = 0.0f; // [-1, 1] relative (cool -> warm)
+		float WhiteTint = 0.0f;        // [-1, 1] relative (magenta -> green)
+		glm::vec3 Lift = { 0.0f, 0.0f, 0.0f }; // shadows (additive)
+		glm::vec3 GradeGamma = { 1.0f, 1.0f, 1.0f }; // midtones (power)
+		glm::vec3 Gain = { 1.0f, 1.0f, 1.0f };       // highlights (multiplicative)
 	};
 
 	struct PostProcessVolumeComponent

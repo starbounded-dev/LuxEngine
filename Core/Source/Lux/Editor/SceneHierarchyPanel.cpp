@@ -2700,6 +2700,37 @@ namespace Lux {
 					});
 				}
 
+				{
+					static const char* unitNames[] = { "Unitless", "Lux" };
+					static const LightUnit unitValues[] = { LightUnit::Unitless, LightUnit::Lux };
+					int32_t current = 0;
+					for (int32_t i = 0; i < 2; i++) if (unitValues[i] == firstComponent.Unit) current = i;
+					if (ImGuiEx::PropertyDropdown("Unit", unitNames, 2, &current))
+					{
+						firstComponent.Unit = unitValues[current];
+						ApplyToSelection<DirectionalLightComponent>(m_Context, selectedEntities, [&firstComponent](DirectionalLightComponent& component, Entity)
+						{
+							component.Unit = firstComponent.Unit;
+						});
+					}
+				}
+
+				if (ImGuiEx::Property("Use Color Temperature", firstComponent.UseColorTemperature))
+				{
+					ApplyToSelection<DirectionalLightComponent>(m_Context, selectedEntities, [&firstComponent](DirectionalLightComponent& component, Entity)
+					{
+						component.UseColorTemperature = firstComponent.UseColorTemperature;
+					});
+				}
+
+				if (ImGuiEx::Property("Temperature (K)", firstComponent.ColorTemperature, 50.0f, 1000.0f, 15000.0f))
+				{
+					ApplyToSelection<DirectionalLightComponent>(m_Context, selectedEntities, [&firstComponent](DirectionalLightComponent& component, Entity)
+					{
+						component.ColorTemperature = firstComponent.ColorTemperature;
+					});
+				}
+
 				if (ImGuiEx::Property("Shadow Amount", firstComponent.ShadowAmount, 0.01f, 0.0f, 1.0f))
 				{
 					ApplyToSelection<DirectionalLightComponent>(m_Context, selectedEntities, [&firstComponent](DirectionalLightComponent& component, Entity)
@@ -2748,11 +2779,42 @@ namespace Lux {
 					});
 				}
 
-				if (ImGuiEx::Property("Intensity", firstComponent.Intensity, 0.1f, 0.0f, 100.0f))
+				if (ImGuiEx::Property("Intensity", firstComponent.Intensity, 0.1f, 0.0f, 100000.0f))
 				{
 					ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
 					{
 						component.Intensity = firstComponent.Intensity;
+					});
+				}
+
+				{
+					static const char* unitNames[] = { "Unitless", "Lumens", "Candela" };
+					static const LightUnit unitValues[] = { LightUnit::Unitless, LightUnit::Lumens, LightUnit::Candela };
+					int32_t current = 0;
+					for (int32_t i = 0; i < 3; i++) if (unitValues[i] == firstComponent.Unit) current = i;
+					if (ImGuiEx::PropertyDropdown("Unit", unitNames, 3, &current))
+					{
+						firstComponent.Unit = unitValues[current];
+						ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
+						{
+							component.Unit = firstComponent.Unit;
+						});
+					}
+				}
+
+				if (ImGuiEx::Property("Use Color Temperature", firstComponent.UseColorTemperature))
+				{
+					ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
+					{
+						component.UseColorTemperature = firstComponent.UseColorTemperature;
+					});
+				}
+
+				if (ImGuiEx::Property("Temperature (K)", firstComponent.ColorTemperature, 50.0f, 1000.0f, 15000.0f))
+				{
+					ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
+					{
+						component.ColorTemperature = firstComponent.ColorTemperature;
 					});
 				}
 
@@ -2820,11 +2882,42 @@ namespace Lux {
 					});
 				}
 
-				if (ImGuiEx::Property("Intensity", firstComponent.Intensity, 0.1f, 0.0f, 100.0f))
+				if (ImGuiEx::Property("Intensity", firstComponent.Intensity, 0.1f, 0.0f, 100000.0f))
 				{
 					ApplyToSelection<SpotLightComponent>(m_Context, selectedEntities, [&firstComponent](SpotLightComponent& component, Entity)
 					{
 						component.Intensity = firstComponent.Intensity;
+					});
+				}
+
+				{
+					static const char* unitNames[] = { "Unitless", "Lumens", "Candela" };
+					static const LightUnit unitValues[] = { LightUnit::Unitless, LightUnit::Lumens, LightUnit::Candela };
+					int32_t current = 0;
+					for (int32_t i = 0; i < 3; i++) if (unitValues[i] == firstComponent.Unit) current = i;
+					if (ImGuiEx::PropertyDropdown("Unit", unitNames, 3, &current))
+					{
+						firstComponent.Unit = unitValues[current];
+						ApplyToSelection<SpotLightComponent>(m_Context, selectedEntities, [&firstComponent](SpotLightComponent& component, Entity)
+						{
+							component.Unit = firstComponent.Unit;
+						});
+					}
+				}
+
+				if (ImGuiEx::Property("Use Color Temperature", firstComponent.UseColorTemperature))
+				{
+					ApplyToSelection<SpotLightComponent>(m_Context, selectedEntities, [&firstComponent](SpotLightComponent& component, Entity)
+					{
+						component.UseColorTemperature = firstComponent.UseColorTemperature;
+					});
+				}
+
+				if (ImGuiEx::Property("Temperature (K)", firstComponent.ColorTemperature, 50.0f, 1000.0f, 15000.0f))
+				{
+					ApplyToSelection<SpotLightComponent>(m_Context, selectedEntities, [&firstComponent](SpotLightComponent& component, Entity)
+					{
+						component.ColorTemperature = firstComponent.ColorTemperature;
 					});
 				}
 
@@ -3160,10 +3253,52 @@ namespace Lux {
 				};
 
 				ImGui::TextDisabled("Exposure");
+				const bool exposureModeOverride = drawOverride("Override Exposure Mode", PostProcessOverride_ExposureMode);
 				const bool exposureOverride = drawOverride("Override Exposure", PostProcessOverride_Exposure);
+				const bool apertureOverride = drawOverride("Override Aperture", PostProcessOverride_Aperture);
+				const bool shutterOverride = drawOverride("Override Shutter Speed", PostProcessOverride_ShutterSpeed);
+				const bool isoOverride = drawOverride("Override ISO", PostProcessOverride_ISO);
+				const bool ev100Override = drawOverride("Override EV100", PostProcessOverride_ExposureEV100);
+				const bool exposureCompOverride = drawOverride("Override Exposure Compensation", PostProcessOverride_ExposureCompensation);
+				const bool autoMinOverride = drawOverride("Override Auto Min EV", PostProcessOverride_AutoMinEV100);
+				const bool autoMaxOverride = drawOverride("Override Auto Max EV", PostProcessOverride_AutoMaxEV100);
+				const bool autoUpOverride = drawOverride("Override Auto Adapt Up", PostProcessOverride_AutoAdaptationSpeedUp);
+				const bool autoDownOverride = drawOverride("Override Auto Adapt Down", PostProcessOverride_AutoAdaptationSpeedDown);
+
+				static const char* s_ExposureModes[] = { "Manual", "Manual EV100", "Camera", "Automatic" };
 				ImGuiEx::BeginPropertyGrid();
+				ImGui::BeginDisabled(!exposureModeOverride);
+				if (ImGuiEx::PropertyDropdown("Mode", s_ExposureModes, 4, settings.ExposureControl)) applySettings();
+				ImGui::EndDisabled();
 				ImGui::BeginDisabled(!exposureOverride);
 				if (ImGuiEx::Property("Exposure", settings.Exposure, 0.01f, 0.0f, 100.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGui::BeginDisabled(!apertureOverride);
+				if (ImGuiEx::Property("Aperture (f-stop)", settings.Aperture, 0.1f, 0.5f, 64.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGui::BeginDisabled(!shutterOverride);
+				if (ImGuiEx::Property("Shutter Speed (s)", settings.ShutterSpeed, 0.0001f, 0.00001f, 10.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGui::BeginDisabled(!isoOverride);
+				if (ImGuiEx::Property("ISO", settings.ISO, 1.0f, 1.0f, 409600.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGui::BeginDisabled(!ev100Override);
+				if (ImGuiEx::Property("EV100", settings.ExposureEV100, 0.05f, -10.0f, 20.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGui::BeginDisabled(!exposureCompOverride);
+				if (ImGuiEx::Property("Exposure Compensation", settings.ExposureCompensation, 0.05f, -10.0f, 10.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGui::BeginDisabled(!autoMinOverride);
+				if (ImGuiEx::Property("Auto Min EV", settings.AutoMinEV100, 0.1f, -10.0f, 20.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGui::BeginDisabled(!autoMaxOverride);
+				if (ImGuiEx::Property("Auto Max EV", settings.AutoMaxEV100, 0.1f, -10.0f, 20.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGui::BeginDisabled(!autoUpOverride);
+				if (ImGuiEx::Property("Auto Adapt Up (EV/s)", settings.AutoAdaptationSpeedUp, 0.05f, 0.0f, 20.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGui::BeginDisabled(!autoDownOverride);
+				if (ImGuiEx::Property("Auto Adapt Down (EV/s)", settings.AutoAdaptationSpeedDown, 0.05f, 0.0f, 20.0f)) applySettings();
 				ImGui::EndDisabled();
 				ImGuiEx::EndPropertyGrid();
 
@@ -3231,6 +3366,37 @@ namespace Lux {
 				ImGui::EndDisabled();
 				ImGui::BeginDisabled(!gammaOverride);
 				if (ImGuiEx::Property("Gamma", settings.Gamma, 0.01f, 0.01f, 8.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::Spacing();
+				ImGui::TextDisabled("Tonemapping");
+				const bool tonemapOverride = drawOverride("Override Tonemap", PostProcessOverride_Tonemap);
+				static const char* s_TonemapOperators[] = { "ACES", "AgX", "None" };
+				ImGuiEx::BeginPropertyGrid();
+				ImGui::BeginDisabled(!tonemapOverride);
+				if (ImGuiEx::PropertyDropdown("Operator", s_TonemapOperators, 3, settings.Tonemap)) applySettings();
+				ImGui::EndDisabled();
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::Spacing();
+				ImGui::TextDisabled("White Balance");
+				const bool whiteBalanceOverride = drawOverride("Override White Balance", PostProcessOverride_WhiteBalance);
+				ImGuiEx::BeginPropertyGrid();
+				ImGui::BeginDisabled(!whiteBalanceOverride);
+				if (ImGuiEx::Property("Temperature", settings.WhiteTemperature, 0.01f, -1.0f, 1.0f)) applySettings();
+				if (ImGuiEx::Property("Tint", settings.WhiteTint, 0.01f, -1.0f, 1.0f)) applySettings();
+				ImGui::EndDisabled();
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::Spacing();
+				ImGui::TextDisabled("Lift / Gamma / Gain");
+				const bool liftGammaGainOverride = drawOverride("Override Lift/Gamma/Gain", PostProcessOverride_LiftGammaGain);
+				ImGuiEx::BeginPropertyGrid();
+				ImGui::BeginDisabled(!liftGammaGainOverride);
+				if (ImGuiEx::Property("Lift", settings.Lift, 0.005f, -1.0f, 1.0f)) applySettings();
+				if (ImGuiEx::Property("Grade Gamma", settings.GradeGamma, 0.01f, 0.01f, 4.0f)) applySettings();
+				if (ImGuiEx::Property("Gain", settings.Gain, 0.01f, 0.0f, 4.0f)) applySettings();
 				ImGui::EndDisabled();
 				ImGuiEx::EndPropertyGrid();
 			});

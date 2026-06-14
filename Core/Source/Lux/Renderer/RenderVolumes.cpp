@@ -62,6 +62,39 @@ namespace Lux {
 				target.Contrast = BlendValue(target.Contrast, settings.Contrast, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_Gamma))
 				target.Gamma = BlendValue(target.Gamma, settings.Gamma, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_ExposureMode))
+				target.ExposureControl = weight >= 0.5f ? settings.ExposureControl : target.ExposureControl;
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_Aperture))
+				target.Aperture = BlendValue(target.Aperture, settings.Aperture, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_ShutterSpeed))
+				target.ShutterSpeed = BlendValue(target.ShutterSpeed, settings.ShutterSpeed, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_ISO))
+				target.ISO = BlendValue(target.ISO, settings.ISO, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_ExposureEV100))
+				target.ExposureEV100 = BlendValue(target.ExposureEV100, settings.ExposureEV100, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_ExposureCompensation))
+				target.ExposureCompensation = BlendValue(target.ExposureCompensation, settings.ExposureCompensation, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_AutoMinEV100))
+				target.AutoMinEV100 = BlendValue(target.AutoMinEV100, settings.AutoMinEV100, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_AutoMaxEV100))
+				target.AutoMaxEV100 = BlendValue(target.AutoMaxEV100, settings.AutoMaxEV100, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_AutoAdaptationSpeedUp))
+				target.AutoAdaptationSpeedUp = BlendValue(target.AutoAdaptationSpeedUp, settings.AutoAdaptationSpeedUp, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_AutoAdaptationSpeedDown))
+				target.AutoAdaptationSpeedDown = BlendValue(target.AutoAdaptationSpeedDown, settings.AutoAdaptationSpeedDown, weight);
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_Tonemap))
+				target.Tonemap = weight >= 0.5f ? settings.Tonemap : target.Tonemap;
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_WhiteBalance))
+			{
+				target.WhiteTemperature = BlendValue(target.WhiteTemperature, settings.WhiteTemperature, weight);
+				target.WhiteTint = BlendValue(target.WhiteTint, settings.WhiteTint, weight);
+			}
+			if (RenderVolumeEvaluator::HasOverride(mask, PostProcessOverride_LiftGammaGain))
+			{
+				target.Lift = BlendValue(target.Lift, settings.Lift, weight);
+				target.GradeGamma = BlendValue(target.GradeGamma, settings.GradeGamma, weight);
+				target.Gain = BlendValue(target.Gain, settings.Gain, weight);
+			}
 		}
 
 		void BlendSky(SkyAtmosphereSettings& target, const SkyAtmosphereSettings& settings, uint64_t mask, float weight)
