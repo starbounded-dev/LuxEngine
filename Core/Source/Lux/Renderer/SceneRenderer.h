@@ -212,6 +212,8 @@ namespace Lux {
 		float GTAOTemporalBlend = 0.85f;
 		bool  EnableSSRTemporalAccumulation = false;
 		float SSRTemporalBlend = 0.90f;
+		bool  EnableTAA = false;
+		float TAAHistoryBlend = 0.90f; // fraction of history kept per frame
 		RenderResolutionScaleMode ResolutionScaleMode = RenderResolutionScaleMode::Native;
 		float DynamicResolutionScale = 1.0f;
 		float DynamicResolutionMinScale = 0.5f;
@@ -874,6 +876,7 @@ namespace Lux {
 		void SSRCompositePass();
 		void BloomCompute();
 		void AutoExposurePass();
+		void TAAResolvePass();
 		float ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const;
 		void CompositePass();
 		void DOFPass();
@@ -931,6 +934,7 @@ namespace Lux {
 		Ref<Image2D> GetGeometryMetalRoughOutput() const;
 		Ref<Image2D> GetGeometryMaterialIDOutput() const;
 		Ref<Image2D> GetGeometryObjectIDOutput() const;
+		Ref<Image2D> GetGeometryVelocityOutput() const;
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();
@@ -1388,6 +1392,11 @@ namespace Lux {
 		Ref<ComputePass> m_LuminanceAveragePass;
 		Ref<StorageBufferSet> m_SBSLuminanceHistogram;   // 256-bin histogram (per-frame)
 		Ref<StorageBufferSet> m_SBSExposureState;        // { adapted luminance, exposure }
+
+		// ── TAA resolve ───────────────────────────────────────────────────────
+		Ref<ComputePass> m_TAAResolvePass;
+		Ref<Image2D>     m_TAAHistoryImages[2]; // ping-pong resolved-color history
+		uint32_t         m_TAAHistoryIndex = 0;
 		static constexpr uint32_t s_LuminanceHistogramBins = 256;
 		static constexpr float s_AutoExposureMinLogLuminance = -10.0f; // log2 luminance for bin 1
 		static constexpr float s_AutoExposureMaxLogLuminance = 2.0f;   // log2 luminance for bin 255
@@ -1447,8 +1456,11 @@ namespace Lux {
 		bool     m_ResourcesCreated = false;
 		bool     m_HZBPrimed = false;
 		bool     m_TemporalHistoryValid = false;
-		glm::mat4 m_CurrentViewProjection = glm::mat4(1.0f);
-		glm::mat4 m_PreviousViewProjection = glm::mat4(1.0f);
+		glm::mat4 m_CurrentViewProjection = glm::mat4(1.0f); // unjittered
+		glm::mat4 m_PreviousViewProjection = glm::mat4(1.0f); // unjittered
+		glm::vec2 m_CurrentJitter = { 0.0f, 0.0f };  // clip-space sub-pixel offset this frame
+		glm::vec2 m_PreviousJitter = { 0.0f, 0.0f };
+		uint32_t  m_TAAJitterIndex = 0;              // Halton sequence index
 
 		float m_LineWidth = 2.0f;
 		float m_Opacity = 1.0f;

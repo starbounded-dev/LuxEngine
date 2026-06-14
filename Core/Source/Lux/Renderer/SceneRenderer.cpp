@@ -1232,9 +1232,11 @@ namespace Lux {
 			FramebufferTextureSpecification forwardSceneColor = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification forwardNormal = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification forwardMetalRough = ImageFormat::RGBA;
+			FramebufferTextureSpecification forwardVelocity = ImageFormat::RG16F;
 			forwardSceneColor.Blend = false;
 			forwardNormal.Blend = false;
 			forwardMetalRough.Blend = false;
+			forwardVelocity.Blend = false;
 
 			FramebufferSpecification forwardSpec;
 			forwardSpec.Width = m_ViewportWidth;
@@ -1243,12 +1245,14 @@ namespace Lux {
 				forwardSceneColor,
 				forwardNormal,
 				forwardMetalRough,
+				forwardVelocity,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
 			forwardSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
 			forwardSpec.ExistingImages[1] = m_GeometryPassFramebuffer->GetImage(1);
 			forwardSpec.ExistingImages[2] = m_GeometryPassFramebuffer->GetImage(2);
-			forwardSpec.ExistingImages[3] = m_PreDepthPass->GetDepthOutput();
+			forwardSpec.ExistingImages[3] = m_GeometryPassFramebuffer->GetImage(5); // shared velocity buffer
+			forwardSpec.ExistingImages[4] = m_PreDepthPass->GetDepthOutput();
 			forwardSpec.ClearColorOnLoad = false;
 			forwardSpec.ClearDepthOnLoad = false;
 			forwardSpec.Blend = false;
@@ -1268,7 +1272,18 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_ForwardGeometryPass->Validate());
 			m_ForwardGeometryPass->Bake();
 
+			// Transparent does not write motion vectors (layering/blending make them
+			// ill-defined), so drop the velocity attachment; transparent pixels keep the
+			// opaque-behind velocity and fall back to camera reprojection in TAA.
 			FramebufferSpecification transparentSpec = forwardSpec;
+			transparentSpec.Attachments = {
+				forwardSceneColor,
+				forwardNormal,
+				forwardMetalRough,
+				ImageFormat::DEPTH32FSTENCIL8UINT
+			};
+			transparentSpec.ExistingImages.erase(4);
+			transparentSpec.ExistingImages[3] = m_PreDepthPass->GetDepthOutput();
 			transparentSpec.Blend = true;
 			transparentSpec.BlendMode = FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha;
 			transparentSpec.DebugName = "TransparentForward";
@@ -1865,6 +1880,32 @@ namespace Lux {
 			m_LuminanceAveragePass->SetInput("ExposureStateBuffer", m_SBSExposureState);
 			LUX_CORE_VERIFY(m_LuminanceAveragePass->Validate());
 			m_LuminanceAveragePass->Bake();
+		}
+
+		// ── TAA resolve (history ping-pong, copied back into scene color) ──────
+		{
+			ImageSpecification taaSpec;
+			taaSpec.Format = ImageFormat::RGBA16F;
+			taaSpec.Usage = ImageUsage::Storage;
+			taaSpec.DebugName = "TAA-History-A";
+			m_TAAHistoryImages[0] = Image2D::Create(taaSpec);
+			taaSpec.DebugName = "TAA-History-B";
+			m_TAAHistoryImages[1] = Image2D::Create(taaSpec);
+
+			ComputePassSpecification taaPassSpec;
+			taaPassSpec.DebugName = "TAA";
+			taaPassSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("TAA"));
+			m_TAAResolvePass = ComputePass::Create(taaPassSpec);
+			m_TAAResolvePass->SetInput("u_SceneColor", GetSceneColorOutput());
+			m_TAAResolvePass->SetInput("u_History", m_TAAHistoryImages[0]);
+			m_TAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
+			m_TAAResolvePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_TAAResolvePass->SetInput("o_Resolved", m_TAAHistoryImages[1]);
+			m_TAAResolvePass->SetInput("Camera", m_UBSCamera);
+			m_TAAResolvePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_TAAResolvePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_TAAResolvePass->Validate());
+			m_TAAResolvePass->Bake();
 		}
 
 		// ── Scene composite (tone-map + exposure + opacity) ───────────────────
@@ -2467,6 +2508,13 @@ namespace Lux {
 				m_GTAOTemporalPass->SetInput("u_CurrentAO", m_GTAOFinalImage);
 				m_GTAOTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
 			}
+		}
+
+		// TAA history runs at full scene-color (viewport) resolution.
+		for (Ref<Image2D>& historyImage : m_TAAHistoryImages)
+		{
+			if (historyImage)
+				historyImage->Resize(viewportSize.x, viewportSize.y);
 		}
 
 		if (m_SSRImage && m_PreConvolutedTexture.Texture)
@@ -3456,6 +3504,16 @@ namespace Lux {
 
 		const RenderVolumePostProcessSettings& postProcessSettings = frame.PostProcess;
 
+		// TAA resolves the final scene color in place (copies its result back over
+		// scene color), so it runs before bloom / auto-exposure / composite. The
+		// scene-color write is a side effect not tracked as a graph texture.
+		if (m_Options.EnableTAA)
+		{
+			constexpr auto taaFlags = static_cast<RenderGraph::PassFlags>(
+				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::SideEffect));
+			addPass("TAA", sceneColorCurrent, {}, taaFlags, makeExecute(&SceneRenderer::TAAResolvePass));
+		}
+
 		// Histogram auto-exposure reads the final scene color and writes the exposure
 		// state buffer (a side effect not tracked as a graph texture, so it is pinned).
 		if (postProcessSettings.ExposureControl == ExposureMode::Automatic)
@@ -4088,20 +4146,56 @@ namespace Lux {
 
 		// ── Camera uniform buffer ─────────────────────────────────────────────
 		{
-			const glm::mat4 viewProj = camera.Camera.GetProjectionMatrix() * camera.ViewMatrix;
-			const glm::mat4 viewInverse = glm::inverse(camera.ViewMatrix);
-			const glm::mat4 projInverse = glm::inverse(camera.Camera.GetProjectionMatrix());
+			const glm::mat4 unjitteredProj = camera.Camera.GetProjectionMatrix();
+			const glm::mat4 unjitteredViewProj = unjitteredProj * camera.ViewMatrix;
 
-			m_CurrentViewProjection = viewProj;
+			// TAA sub-pixel jitter (Halton 2,3) applied to the rasterized projection only.
+			// The unjittered VP is kept for motion-vector reprojection / history sampling.
+			glm::vec2 jitter(0.0f);
+			if (m_Options.EnableTAA)
+			{
+				auto halton = [](uint32_t index, uint32_t base) -> float
+				{
+					float result = 0.0f, invBase = 1.0f / float(base), fraction = invBase;
+					for (uint32_t i = index; i > 0u; i /= base)
+					{
+						result += float(i % base) * fraction;
+						fraction *= invBase;
+					}
+					return result;
+				};
+				const uint32_t sampleIndex = (m_TAAJitterIndex % 8u) + 1u;
+				const float jx = halton(sampleIndex, 2u) - 0.5f;
+				const float jy = halton(sampleIndex, 3u) - 0.5f;
+				jitter = glm::vec2(jx * 2.0f / float(glm::max(1u, m_ViewportWidth)),
+				                   jy * 2.0f / float(glm::max(1u, m_ViewportHeight)));
+			}
+
+			glm::mat4 jitteredProj = unjitteredProj;
+			jitteredProj[2][0] += jitter.x;
+			jitteredProj[2][1] += jitter.y;
+			const glm::mat4 viewProj = jitteredProj * camera.ViewMatrix;
+			const glm::mat4 viewInverse = glm::inverse(camera.ViewMatrix);
+			const glm::mat4 projInverse = glm::inverse(jitteredProj);
+
+			m_CurrentViewProjection = unjitteredViewProj; // history/reprojection use unjittered
+			m_CurrentJitter = jitter;
 			if (!m_TemporalHistoryValid)
-				m_PreviousViewProjection = viewProj;
+			{
+				m_PreviousViewProjection = unjitteredViewProj;
+				m_PreviousJitter = jitter;
+			}
 
 			m_CameraUB.ViewProjection = viewProj;
 			m_CameraUB.InverseViewProjection = viewInverse * projInverse;
-			m_CameraUB.Projection = camera.Camera.GetProjectionMatrix();
+			m_CameraUB.Projection = jitteredProj;
 			m_CameraUB.InverseProjection = projInverse;
 			m_CameraUB.View = camera.ViewMatrix;
 			m_CameraUB.InverseView = viewInverse;
+			m_CameraUB.UnjitteredViewProjection = unjitteredViewProj;
+			m_CameraUB.PreviousViewProjection = m_PreviousViewProjection;
+			m_CameraUB.Jitter = jitter;
+			m_CameraUB.PreviousJitter = m_PreviousJitter;
 
 			// Depth linearization for GTAO-style effects (kept for forward compat)
 			float depthLinearizeMul = -m_CameraUB.Projection[3][2];
@@ -5844,6 +5938,8 @@ namespace Lux {
 		m_CommandBuffer->Submit();
 
 		m_PreviousViewProjection = m_CurrentViewProjection;
+		m_PreviousJitter = m_CurrentJitter;
+		m_TAAJitterIndex++;
 		m_TemporalHistoryValid = true;
 
 		// ── 5. Update statistics ──────────────────────────────────────────────
@@ -7082,6 +7178,59 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::TAAResolvePass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "TAA");
+		if (!m_Options.EnableTAA || !m_TAAResolvePass || !m_TAAHistoryImages[0] || !m_TAAHistoryImages[1])
+			return;
+
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		if (!sceneColor)
+			return;
+
+		const uint32_t readIndex = m_TAAHistoryIndex & 1u;
+		const uint32_t writeIndex = readIndex ^ 1u;
+		Ref<Image2D> historyInput = m_TAAHistoryImages[readIndex];
+		Ref<Image2D> historyOutput = m_TAAHistoryImages[writeIndex];
+
+		m_TAAResolvePass->SetInput("u_SceneColor", sceneColor);
+		m_TAAResolvePass->SetInput("u_History", historyInput);
+		m_TAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
+		m_TAAResolvePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+		m_TAAResolvePass->SetInput("o_Resolved", historyOutput);
+
+		struct TAAPushConstants
+		{
+			float Blend;
+			uint32_t HasHistory;
+			uint32_t Padding0;
+			uint32_t Padding1;
+		} push;
+		push.Blend = glm::clamp(m_Options.TAAHistoryBlend, 0.0f, 0.98f);
+		push.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
+		push.Padding0 = 0u;
+		push.Padding1 = 0u;
+
+		const glm::uvec3 groups = {
+			(glm::max(1u, sceneColor->GetWidth()) + 7u) / 8u,
+			(glm::max(1u, sceneColor->GetHeight()) + 7u) / 8u,
+			1u
+		};
+
+		BeginProfiledGPU("TAA");
+		Renderer::BeginComputePass(m_CommandBuffer, m_TAAResolvePass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_TAAResolvePass, nullptr, groups, Buffer(&push, sizeof(push)));
+		Renderer::EndComputePass(m_CommandBuffer, m_TAAResolvePass);
+		m_TAAResolvePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, historyOutput, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+
+		// Copy the resolved frame back into scene color so downstream passes
+		// (bloom / auto-exposure / composite) consume the anti-aliased result.
+		Renderer::CopyImage(m_CommandBuffer, historyOutput, sceneColor);
+
+		m_TAAHistoryIndex = writeIndex;
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
 	float SceneRenderer::ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const
 	{
 		switch (settings.ExposureControl)
@@ -7387,6 +7536,11 @@ namespace Lux {
 	Ref<Image2D> SceneRenderer::GetGeometryObjectIDOutput() const
 	{
 		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(4) : nullptr;
+	}
+
+	Ref<Image2D> SceneRenderer::GetGeometryVelocityOutput() const
+	{
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(5) : nullptr;
 	}
 
 	Ref<Image2D> SceneRenderer::GetFinalPassImage()

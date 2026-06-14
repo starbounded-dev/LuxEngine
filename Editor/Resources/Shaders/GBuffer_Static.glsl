@@ -21,6 +21,9 @@ struct VertexOutput
 
 layout(location = 0) out VertexOutput Output;
 layout(location = 18) flat out uint OutputObjectIndex;
+// TAA motion vectors: unjittered current + previous clip-space positions.
+layout(location = 19) out vec4 OutputCurrentClip;
+layout(location = 20) out vec4 OutputPreviousClip;
 
 layout(push_constant) uniform PushConstants
 {
@@ -45,6 +48,11 @@ void main()
 	uint objectIndex = u_MaterialUniforms.ObjectIndexBase + gl_InstanceIndex;
 	mat4 transform = GetInstanceTransform(objectIndex);
 	vec4 worldPosition = transform * vec4(a_Position, 1.0);
+
+	mat4 previousTransform = GetPreviousInstanceTransform(objectIndex);
+	vec4 previousWorldPosition = previousTransform * vec4(a_Position, 1.0);
+	OutputCurrentClip = u_Camera.UnjitteredViewProjectionMatrix * worldPosition;
+	OutputPreviousClip = u_Camera.PreviousViewProjectionMatrix * previousWorldPosition;
 
 	OutputObjectIndex = objectIndex;
 	Output.WorldPosition = worldPosition.xyz;
@@ -86,12 +94,15 @@ struct VertexOutput
 
 layout(location = 0) in VertexOutput Input;
 layout(location = 18) flat in uint InputObjectIndex;
+layout(location = 19) in vec4 InputCurrentClip;
+layout(location = 20) in vec4 InputPreviousClip;
 
 layout(location = 0) out vec4 o_GBufferBaseColor;
 layout(location = 1) out vec4 o_GBufferViewNormal;
 layout(location = 2) out vec4 o_GBufferMetalRoughAO;
 layout(location = 3) out uint o_GBufferMaterialID;
 layout(location = 4) out uint o_GBufferObjectID;
+layout(location = 5) out vec2 o_GBufferVelocity;
 
 layout(push_constant) uniform PushConstants
 {
@@ -173,4 +184,9 @@ void main()
 	gbuffer.ObjectID = GetInstancePrimitiveID(InputObjectIndex);
 
 	EncodeGBuffer(gbuffer, o_GBufferBaseColor, o_GBufferViewNormal, o_GBufferMetalRoughAO, o_GBufferMaterialID, o_GBufferObjectID);
+
+	// Screen-space motion vector (UV delta, current - previous), jitter removed.
+	vec2 currentUV = (InputCurrentClip.xy / InputCurrentClip.w) * 0.5 + 0.5;
+	vec2 previousUV = (InputPreviousClip.xy / InputPreviousClip.w) * 0.5 + 0.5;
+	o_GBufferVelocity = currentUV - previousUV;
 }

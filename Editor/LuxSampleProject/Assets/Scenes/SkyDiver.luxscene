@@ -1,66 +1,5 @@
 Scene: New Scene
 Entities:
-  - Entity: 3571305917015597857
-    TagComponent:
-      Tag: Sky Atmosphere
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SkyAtmosphereComponent:
-      Enabled: false
-      PlanetRadius: 5719
-      AtmosphereHeight: 100
-      RayleighScaleHeight: 8
-      MieScaleHeight: 1.20000005
-      RayleighScattering: [5.80200005, 13.5579996, 33.0999985]
-      RayleighScatteringScale: 0.00249999994
-      MieScattering: [3.99600005, 3.99600005, 3.99600005]
-      MieScatteringScale: 0.00150000001
-      MieAbsorption: [4.4000001, 4.4000001, 4.4000001]
-      MieAnisotropy: 0.75999999
-      Absorption: [0.649999976, 1.88100004, 0.0850000009]
-      AbsorptionScale: 0.000650000002
-      GroundAlbedo: [0.180000007, 0.180000007, 0.180000007]
-      GroundContribution: 0.150000006
-      SunIntensity: 20
-      SunAngularRadius: 0.00934999995
-      MultiScattering: 0.349999994
-      AerialPerspectiveViewDistanceScale: 1
-  - Entity: 1476272877445675703
-    TagComponent:
-      Tag: Volumetric Clouds
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    VolumetricCloudComponent:
-      Enabled: true
-      Coverage: 0.550000012
-      Density: 0.550000012
-      Altitude: 1500
-      Thickness: 1200
-      WindDirection: [1, 0.150000006]
-      WindSpeed: 15
-      ShapeScale: 0.000650000002
-      DetailScale: 0.00449999981
-      DetailStrength: 0.349999994
-      Absorption: 1.20000005
-      SilverIntensity: 0.349999994
-      Albedo: [1, 0.980000019, 0.920000017]
-      AmbientBoost: 0.25
-      MaxTraceDistance: 31100
-      DistanceFade: 55100
-      LODStartDistance: 0
-      ShadowTraceDistance: 4000
-      MarchSteps: 32
-      ShadowSteps: 2
   - Entity: 6168369163063502366
     TagComponent:
       Tag: Plane
@@ -97,3 +36,132 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
+  - Entity: 12220422107279600932
+    TagComponent:
+      Tag: Post Process Volume
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RenderVolumeComponent:
+      Enabled: true
+      Shape: 0
+      Unbound: true
+      BlendDistance: 10
+      BlendWeight: 1
+      Priority: 0
+      DebugColor: [0.349999994, 0.649999976, 1, 1]
+    PostProcessVolumeComponent:
+      OverrideMask: 134217727
+      Exposure: 1.87
+      ExposureMode: 3
+      Aperture: 16
+      ShutterSpeed: 0.00800000038
+      ISO: 100
+      ExposureEV100: 12
+      ExposureCompensation: 0
+      AutoMinEV100: -2
+      AutoMaxEV100: 16
+      AutoAdaptationSpeedUp: 3
+      AutoAdaptationSpeedDown: 1
+      BloomEnabled: true
+      BloomThreshold: 1
+      BloomKnee: 0.100000001
+      BloomUpsampleScale: 1
+      BloomIntensity: 1
+      BloomDirtIntensity: 1
+      DOFEnabled: true
+      DOFFocusDistance: 3.9000001
+      DOFBlurSize: 1
+      ColorFilter: [1, 1, 1]
+      Saturation: 1
+      Contrast: 1
+      Gamma: 2.20000005
+      Tonemap: 1
+      WhiteTemperature: 0.980000019
+      WhiteTint: -0.600000024
+      Lift: [0.00999999978, 0, 0]
+      GradeGamma: [1, 1, 1]
+      Gain: [1, 1, 1]
+  - Entity: 6482835098082788819
+    TagComponent:
+      Tag: Atmosphere Volume
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RenderVolumeComponent:
+      Enabled: true
+      Shape: 1
+      Unbound: true
+      BlendDistance: 10
+      BlendWeight: 1
+      Priority: 0
+      DebugColor: [0.649999976, 0.550000012, 1, 1]
+    AtmosphereVolumeComponent:
+      SkyOverrideMask: 172033
+      CloudOverrideMask: 1327111
+      FogOverrideMask: 0
+      SkyAtmosphere:
+        Enabled: true
+        PlanetRadius: 6360
+        AtmosphereHeight: 100
+        RayleighScaleHeight: 8
+        MieScaleHeight: 1.20000005
+        RayleighScattering: [5.80200005, 13.5579996, 33.0999985]
+        RayleighScatteringScale: 0.00249999994
+        MieScattering: [3.99600005, 3.99600005, 3.99600005]
+        MieScatteringScale: 0.00150000001
+        MieAbsorption: [4.4000001, 4.4000001, 4.4000001]
+        MieAnisotropy: 0.75999999
+        Absorption: [0.649999976, 1.88100004, 0.0850000009]
+        AbsorptionScale: 0.000650000002
+        GroundAlbedo: [0.180000007, 0.180000007, 0.180000007]
+        GroundContribution: 0.150000006
+        SunIntensity: 12.8000002
+        SunAngularRadius: 0.00934999995
+        MultiScattering: 0.0799999982
+        AerialPerspectiveViewDistanceScale: 1
+      VolumetricClouds:
+        Enabled: true
+        Coverage: 0
+        Density: 0.239999995
+        Altitude: 1800
+        Thickness: 650
+        WindDirection: [1, 0.150000006]
+        WindSpeed: 15
+        ShapeScale: 0.000650000002
+        DetailScale: 0.00449999981
+        DetailStrength: 0.349999994
+        Absorption: 0.850000024
+        SilverIntensity: 0.349999994
+        Albedo: [1, 0.980000019, 0.920000017]
+        AmbientBoost: 0.349999994
+        MaxTraceDistance: 97600
+        DistanceFade: 2500
+        LODStartDistance: 2000
+        ShadowTraceDistance: 2500
+        MarchSteps: 107
+        ShadowSteps: 1
+        RenderScale: 1
+      HeightFog:
+        Enabled: true
+        FogColor: [0.519999981, 0.620000005, 0.720000029]
+        FogDensity: 0
+        FogHeightFalloff: 0.119999997
+        StartDistance: 0
+        MaxOpacity: 0.850000024
+        CutoffDistance: 10000
+        DirectionalInscatteringColor: [1, 0.879999995, 0.649999976]
+        DirectionalInscatteringExponent: 8
+        DirectionalInscatteringStartDistance: 50
+        VolumetricFog: false
+        VolumetricScatteringIntensity: 1
+        Anisotropy: 0.200000003
+        VolumetricFogSteps: 16

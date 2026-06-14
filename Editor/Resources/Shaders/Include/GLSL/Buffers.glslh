@@ -104,6 +104,11 @@ layout(std140, set = 2, binding = 0) uniform Camera
 	vec2 NDCToViewAdd;
 	vec2 DepthUnpackConsts;
 	vec2 CameraTanHalfFOV;
+	// TAA motion-vector support (see SceneRenderer UBCamera).
+	mat4 UnjitteredViewProjectionMatrix;
+	mat4 PreviousViewProjectionMatrix;
+	vec2 Jitter;
+	vec2 PreviousJitter;
 } u_Camera;
 
 layout(std140, set = 2, binding = 1) uniform RendererData

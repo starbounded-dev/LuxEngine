@@ -39,6 +39,9 @@ struct VertexOutput
 
 layout(location = 0) out VertexOutput Output;
 layout(location = 18) flat out uint OutputObjectIndex;
+// TAA motion vectors: unjittered current + previous clip-space positions.
+layout(location = 19) out vec4 OutputCurrentClip;
+layout(location = 20) out vec4 OutputPreviousClip;
 
 layout(push_constant) uniform PushConstants
 {
@@ -67,6 +70,11 @@ void main()
 	uint objectIndex = u_MaterialUniforms.ObjectIndexBase + gl_InstanceIndex;
 	mat4 transform = GetInstanceTransform(objectIndex);
 	vec4 worldPosition = transform * vec4(a_Position, 1.0);
+
+	mat4 previousTransform = GetPreviousInstanceTransform(objectIndex);
+	vec4 previousWorldPosition = previousTransform * vec4(a_Position, 1.0);
+	OutputCurrentClip = u_Camera.UnjitteredViewProjectionMatrix * worldPosition;
+	OutputPreviousClip = u_Camera.PreviousViewProjectionMatrix * previousWorldPosition;
 
 	OutputObjectIndex = objectIndex;
 	Output.WorldPosition = worldPosition.xyz;
@@ -125,10 +133,13 @@ struct VertexOutput
  
 layout(location = 0) in VertexOutput Input;
 layout(location = 18) flat in uint InputObjectIndex;
+layout(location = 19) in vec4 InputCurrentClip;
+layout(location = 20) in vec4 InputPreviousClip;
 
 layout(location = 0) out vec4 color;
 layout(location = 1) out vec4 o_ViewNormalsLuminance;
 layout(location = 2) out vec4 o_MetalnessRoughness;
+layout(location = 3) out vec2 o_Velocity;
 
 layout(push_constant) uniform PushConstants
 {
@@ -205,6 +216,10 @@ float GetMaterialMipBias()
 }
 void main()
 {
+	// Screen-space motion vector (written first so early-outs below still produce it).
+	o_Velocity = (InputCurrentClip.xy / InputCurrentClip.w) * 0.5 + 0.5
+	           - ((InputPreviousClip.xy / InputPreviousClip.w) * 0.5 + 0.5);
+
 	// Standard PBR inputs
 	float materialMipBias = GetMaterialMipBias();
 	GPUMaterial gpuMaterial = GetGPUMaterialForObject(InputObjectIndex);
