@@ -23,6 +23,7 @@
 
 #include <cstdlib>
 #include <format>
+#include <mutex>
 #include <regex>
 #include <sstream>
 
@@ -50,6 +51,8 @@ namespace Lux {
 
 	static std::unordered_map<uint32_t, std::unordered_map<uint32_t, ShaderResource::UniformBuffer>> s_UniformBuffers; // set -> binding point -> buffer
 	static std::unordered_map<uint32_t, std::unordered_map<uint32_t, ShaderResource::StorageBuffer>> s_StorageBuffers; // set -> binding point -> buffer
+	// Guards the shared (set,binding) registries above; they are process-global statics.
+	static std::mutex s_ShaderBuffersMutex;
 
 	namespace {
 		const char* ShaderSourceLanguageToString(ShaderUtils::SourceLang language)
@@ -190,6 +193,7 @@ namespace Lux {
 
 	void VulkanShaderCompiler::ClearUniformBuffers()
 	{
+		std::lock_guard<std::mutex> bufferRegistryLock(s_ShaderBuffersMutex);
 		s_UniformBuffers.clear();
 		s_StorageBuffers.clear();
 	}
@@ -808,6 +812,10 @@ namespace Lux {
 		spirv_cross::Compiler compiler(shaderData);
 		auto resources = compiler.get_shader_resources();
 
+		// The shared (set,binding) registries are process-global statics; guard access so
+		// reflection stays correct if shaders are ever compiled off the main thread.
+		std::lock_guard<std::mutex> bufferRegistryLock(s_ShaderBuffersMutex);
+
 		LUX_SHADER_REFLECTION_INFO("Uniform Buffers:");
 		for (const auto& resource : resources.uniform_buffers)
 		{
@@ -838,6 +846,11 @@ namespace Lux {
 				else
 				{
 					ShaderResource::UniformBuffer& uniformBuffer = s_UniformBuffers.at(descriptorSet).at(binding);
+					// (set,binding) is a GLOBAL namespace shared by every shader. Same-name buffers are
+					// intentionally merged (shared renderer UBOs); a DIFFERENT name at the same slot is an
+					// accidental collision that silently corrupts the other shader's binding.
+					if (uniformBuffer.Name != name)
+						LUX_CORE_ERROR_TAG("Renderer", "Uniform buffer binding collision at (set={0}, binding={1}): existing '{2}' vs '{3}' in '{4}'. Give this buffer a unique (set,binding).", descriptorSet, binding, uniformBuffer.Name, name, m_ShaderSourcePath.string());
 					if (size > uniformBuffer.Size)
 						uniformBuffer.Size = size;
 				}
@@ -882,6 +895,10 @@ namespace Lux {
 				else
 				{
 					ShaderResource::StorageBuffer& storageBuffer = s_StorageBuffers.at(descriptorSet).at(binding);
+					// See the uniform-buffer note above: a different name at the same (set,binding) is an
+					// accidental collision in the global storage-buffer namespace.
+					if (storageBuffer.Name != name)
+						LUX_CORE_ERROR_TAG("Renderer", "Storage buffer binding collision at (set={0}, binding={1}): existing '{2}' vs '{3}' in '{4}'. Give this buffer a unique (set,binding).", descriptorSet, binding, storageBuffer.Name, name, m_ShaderSourcePath.string());
 					if (size > storageBuffer.Size)
 						storageBuffer.Size = size;
 					// If any stage marks it as non-readonly, it's not readonly
