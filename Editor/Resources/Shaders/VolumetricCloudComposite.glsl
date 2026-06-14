@@ -22,43 +22,87 @@ void main()
 
 layout(set = 1, binding = 0) uniform texture2D u_CloudTexture;
 layout(set = 1, binding = 1) uniform texture2D u_DepthTexture;
+layout(set = 1, binding = 2) uniform texture2D u_CloudDepthTexture;
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 1) in vec2 v_ClipPosition;
 layout(location = 0) out vec4 o_Color;
 
-bool IntersectCompositeCloudLayer(vec3 origin, vec3 direction, out float t0, out float t1)
+const float LUX_CLOUD_MAX_DEPTH = 65000.0;
+
+float GetSceneDistance()
 {
-	float bottom = u_Atmosphere.CloudParams0.z;
-	float top = bottom + max(u_Atmosphere.CloudParams0.w, 1.0);
-
-	if (abs(direction.y) < 0.0001)
-		return false;
-
-	float a = (bottom - origin.y) / direction.y;
-	float b = (top - origin.y) / direction.y;
-	t0 = max(min(a, b), 0.0);
-	t1 = max(a, b);
-	return t1 > t0;
-}
-
-float ComputeCloudDepthVisibility()
-{
-	float t0;
-	float t1;
-	vec3 cameraPosition = GetAtmosphereCameraPosition();
-	vec3 viewDirection = GetAtmosphereViewDirection(v_ClipPosition);
-	if (!IntersectCompositeCloudLayer(cameraPosition, viewDirection, t0, t1))
-		return 0.0;
-
 	float depth = texture(sampler2D(u_DepthTexture, r_PointSampler), v_TexCoord).r;
 	if (depth <= 0.000001)
+		return LUX_CLOUD_MAX_DEPTH;
+
+	vec3 cameraPosition = GetAtmosphereCameraPosition();
+	vec3 scenePosition = ReconstructAtmosphereWorldPosition(v_ClipPosition, depth);
+	return min(length(scenePosition - cameraPosition), LUX_CLOUD_MAX_DEPTH);
+}
+
+float ComputeDepthVisibility(float cloudFrontDistance, float sceneDistance)
+{
+	if (cloudFrontDistance >= LUX_CLOUD_MAX_DEPTH * 0.99)
+		return 0.0;
+	if (sceneDistance >= LUX_CLOUD_MAX_DEPTH * 0.99)
 		return 1.0;
 
-	vec3 scenePosition = ReconstructAtmosphereWorldPosition(v_ClipPosition, depth);
-	float sceneDistance = length(scenePosition - cameraPosition);
-	float edgeWidth = max(40.0, t0 * 0.01);
-	return smoothstep(t0 + edgeWidth, t0 + edgeWidth * 4.0, sceneDistance);
+	float edgeWidth = max(35.0, cloudFrontDistance * 0.0125);
+	return smoothstep(cloudFrontDistance - edgeWidth, cloudFrontDistance + edgeWidth, sceneDistance);
+}
+
+void AccumulateCloudTap(vec2 uv, float bilinearWeight, float sceneDistance, inout vec4 weightedCloud, inout float totalWeight)
+{
+	vec4 cloud = texture(sampler2D(u_CloudTexture, r_PointSampler), uv);
+	if (cloud.a <= 0.0001)
+		return;
+
+	vec4 cloudDepth = texture(sampler2D(u_CloudDepthTexture, r_PointSampler), uv);
+	float visibility = ComputeDepthVisibility(cloudDepth.x, sceneDistance);
+	if (visibility <= 0.0001)
+		return;
+
+	float sceneDepthError = abs(cloudDepth.y - sceneDistance);
+	float acceptanceDistance = max(120.0, min(sceneDistance, cloudDepth.y) * 0.08);
+	float depthWeight = sceneDistance >= LUX_CLOUD_MAX_DEPTH * 0.99 ? 1.0 : exp(-sceneDepthError / acceptanceDistance);
+
+	float weight = bilinearWeight * depthWeight * visibility;
+	weightedCloud += vec4(cloud.rgb * cloud.a, cloud.a) * weight;
+	totalWeight += weight;
+}
+
+vec4 ReconstructCloud(float sceneDistance)
+{
+	ivec2 cloudSizeI = textureSize(sampler2D(u_CloudTexture, r_PointSampler), 0);
+	vec2 cloudSize = vec2(max(cloudSizeI, ivec2(1)));
+	vec2 coord = v_TexCoord * cloudSize - vec2(0.5);
+	vec2 base = floor(coord);
+	vec2 fraction = clamp(coord - base, vec2(0.0), vec2(1.0));
+
+	vec2 uv00 = (base + vec2(0.5, 0.5)) / cloudSize;
+	vec2 uv10 = (base + vec2(1.5, 0.5)) / cloudSize;
+	vec2 uv01 = (base + vec2(0.5, 1.5)) / cloudSize;
+	vec2 uv11 = (base + vec2(1.5, 1.5)) / cloudSize;
+
+	uv00 = clamp(uv00, vec2(0.0), vec2(1.0));
+	uv10 = clamp(uv10, vec2(0.0), vec2(1.0));
+	uv01 = clamp(uv01, vec2(0.0), vec2(1.0));
+	uv11 = clamp(uv11, vec2(0.0), vec2(1.0));
+
+	vec4 weightedCloud = vec4(0.0);
+	float totalWeight = 0.0;
+	AccumulateCloudTap(uv00, (1.0 - fraction.x) * (1.0 - fraction.y), sceneDistance, weightedCloud, totalWeight);
+	AccumulateCloudTap(uv10, fraction.x * (1.0 - fraction.y), sceneDistance, weightedCloud, totalWeight);
+	AccumulateCloudTap(uv01, (1.0 - fraction.x) * fraction.y, sceneDistance, weightedCloud, totalWeight);
+	AccumulateCloudTap(uv11, fraction.x * fraction.y, sceneDistance, weightedCloud, totalWeight);
+
+	if (totalWeight <= 0.0001 || weightedCloud.a <= 0.0001)
+		return vec4(0.0);
+
+	float alpha = clamp(weightedCloud.a / totalWeight, 0.0, 1.0);
+	vec3 color = weightedCloud.rgb / max(weightedCloud.a, 0.0001);
+	return vec4(color, alpha);
 }
 
 void main()
@@ -69,7 +113,6 @@ void main()
 		return;
 	}
 
-	vec4 cloud = texture(sampler2D(u_CloudTexture, r_LinearSampler), v_TexCoord);
-	cloud.a *= ComputeCloudDepthVisibility();
+	vec4 cloud = ReconstructCloud(GetSceneDistance());
 	o_Color = vec4(cloud.rgb, clamp(cloud.a, 0.0, 1.0));
 }

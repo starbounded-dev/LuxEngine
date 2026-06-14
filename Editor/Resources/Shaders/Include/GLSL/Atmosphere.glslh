@@ -5,6 +5,7 @@
 #include <Common.glslh>
 
 const float LUX_ATMOSPHERE_HORIZON_FADE = 0.075;
+const float LUX_FOG_DENSITY_TO_EXTINCTION = 0.001;
 
 vec3 GetAtmosphereSunDirection()
 {
@@ -134,11 +135,27 @@ float FBMCloudNoise(vec3 p)
 	return FBMCloudNoiseLOD(p, 5u);
 }
 
+float GetAtmospherePlanetRadiusMeters()
+{
+	float radius = max(u_Atmosphere.AtmosphereParams.x, 1.0);
+	return radius < 100000.0 ? radius * 1000.0 : radius;
+}
+
+vec3 GetAtmospherePlanetCenter()
+{
+	return vec3(0.0, -GetAtmospherePlanetRadiusMeters(), 0.0);
+}
+
+float GetAtmosphereAltitude(vec3 worldPosition)
+{
+	return length(worldPosition - GetAtmospherePlanetCenter()) - GetAtmospherePlanetRadiusMeters();
+}
+
 float EvaluateCloudDensityLOD(vec3 worldPosition, float lodFactor)
 {
 	float bottom = u_Atmosphere.CloudParams0.z;
 	float thickness = max(u_Atmosphere.CloudParams0.w, 1.0);
-	float height01 = clamp((worldPosition.y - bottom) / thickness, 0.0, 1.0);
+	float height01 = clamp((GetAtmosphereAltitude(worldPosition) - bottom) / thickness, 0.0, 1.0);
 	float heightProfile = smoothstep(0.0, 0.15, height01) * (1.0 - smoothstep(0.72, 1.0, height01));
 
 	vec2 windDirection = u_Atmosphere.CloudParams1.xy;
@@ -255,13 +272,15 @@ vec4 EvaluateLocalFogAtPosition(vec3 worldPosition, vec3 viewDirection, float di
 vec3 EvaluateHeightFogInscattering(vec3 viewDirection, float distanceToCamera)
 {
 	vec3 sunDirection = GetAtmosphereSunDirection();
+	float anisotropy = clamp(u_Atmosphere.FogParams1.z, -0.8, 0.8);
+	float phase = CornetteShanksMiePhase(dot(viewDirection, sunDirection), anisotropy) * 4.0 * PI;
 	float directional = pow(max(dot(viewDirection, sunDirection), 0.0), max(u_Atmosphere.FogDirectionalInscattering.w, 0.01));
 	directional *= smoothstep(u_Atmosphere.FogParams1.x, u_Atmosphere.FogParams1.x + 250.0, distanceToCamera);
 
-	float anisotropy = clamp(u_Atmosphere.FogParams1.z, -0.8, 0.8);
-	float phase = CornetteShanksMiePhase(dot(viewDirection, sunDirection), anisotropy) * 4.0 * PI;
-	vec3 fogColor = u_Atmosphere.FogColorDensity.xyz;
-	fogColor += u_Atmosphere.FogDirectionalInscattering.xyz * directional * phase * u_Atmosphere.FogParams1.y;
+	vec3 sunColor = u_Scene.DirectionalLights.Radiance * max(u_Scene.DirectionalLights.Multiplier, 0.0) * u_Atmosphere.SunParams.x;
+	vec3 ambientSky = EvaluateSkyAtmosphere(vec3(0.0, 1.0, 0.0));
+	vec3 fogColor = mix(u_Atmosphere.FogColorDensity.xyz, ambientSky, 0.18);
+	fogColor += sunColor * u_Atmosphere.FogDirectionalInscattering.xyz * directional * phase * u_Atmosphere.FogParams1.y * 0.035;
 	return max(fogColor, vec3(0.0));
 }
 
@@ -274,7 +293,7 @@ vec4 EvaluateAnalyticHeightFog(vec3 worldPosition, vec3 viewDirection, float dis
 	float sampleDensity = EvaluateHeightFogDensity(worldPosition);
 	vec4 localFog = EvaluateLocalFogAtPosition(worldPosition, viewDirection, distanceToCamera);
 	float density = max(cameraDensity, sampleDensity) + localFog.a;
-	float fogAmount = 1.0 - exp(-density * fogDistance);
+	float fogAmount = 1.0 - exp(-density * fogDistance * LUX_FOG_DENSITY_TO_EXTINCTION);
 	fogAmount = clamp(fogAmount, 0.0, clamp(u_Atmosphere.FogParams0.z, 0.0, 1.0));
 	vec3 heightColor = EvaluateHeightFogInscattering(viewDirection, distanceToCamera);
 	vec3 fogColor = localFog.a > 0.0001 ? mix(heightColor, localFog.rgb, clamp(localFog.a / max(density, 0.0001), 0.0, 1.0)) : heightColor;
@@ -308,7 +327,7 @@ vec4 EvaluateVolumetricHeightFog(vec3 viewDirection, float distanceToCamera, vec
 		float heightDensity = EvaluateHeightFogDensity(samplePosition) * max(u_Atmosphere.FogParams1.y, 0.0);
 		vec4 localFog = EvaluateLocalFogAtPosition(samplePosition, viewDirection, sampleDistance);
 		float density = heightDensity + localFog.a;
-		float extinction = density * stepLength;
+		float extinction = density * stepLength * LUX_FOG_DENSITY_TO_EXTINCTION;
 		float sampleOpacity = clamp(1.0 - exp(-extinction), 0.0, 1.0);
 		vec3 heightInscattering = EvaluateHeightFogInscattering(viewDirection, sampleDistance);
 		vec3 inscattering = localFog.a > 0.0001 ? mix(heightInscattering, localFog.rgb, clamp(localFog.a / max(density, 0.0001), 0.0, 1.0)) : heightInscattering;

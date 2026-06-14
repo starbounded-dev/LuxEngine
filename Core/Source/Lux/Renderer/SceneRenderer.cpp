@@ -1796,7 +1796,10 @@ namespace Lux {
 			FramebufferSpecification cloudSpec;
 			cloudSpec.Width = m_CloudRenderSize.x;
 			cloudSpec.Height = m_CloudRenderSize.y;
-			cloudSpec.Attachments = { ImageFormat::RGBA16F };
+			cloudSpec.Attachments = {
+				ImageFormat::RGBA16F, // cloud color + transmittance
+				ImageFormat::RGBA16F  // front depth, scene depth, trace min/max
+			};
 			cloudSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			cloudSpec.ClearColorOnLoad = true;
 			cloudSpec.ClearDepthOnLoad = false;
@@ -1813,6 +1816,7 @@ namespace Lux {
 				[&](const Ref<RenderPass>& pass)
 				{
 					SetRenderPassInputIfValid(pass, "u_CloudTexture", m_VolumetricCloudPass->GetOutput(0));
+					SetRenderPassInputIfValid(pass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
 				});
 			m_VolumetricCloudCompositePipeline = cloudCompositePipeline;
 			m_VolumetricCloudCompositePass = cloudCompositePass;
@@ -2150,7 +2154,10 @@ namespace Lux {
 		m_CloudRenderSize = cloudSize;
 
 		if (m_VolumetricCloudCompositePass && m_VolumetricCloudPass)
+		{
 			SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudTexture", m_VolumetricCloudPass->GetOutput(0));
+			SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
+		}
 	}
 
 	void SceneRenderer::BindCommonSceneRenderPassInputs(Ref<RenderPass> renderPass, bool bindDepth)
@@ -6347,6 +6354,7 @@ namespace Lux {
 			return;
 
 		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudTexture", m_VolumetricCloudPass->GetOutput(0));
+		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
 
 		BeginProfiledGPU("VolumetricCloudCompositePass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_VolumetricCloudCompositePass);
