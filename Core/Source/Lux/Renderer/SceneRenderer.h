@@ -214,6 +214,7 @@ namespace Lux {
 		float SSRTemporalBlend = 0.90f;
 		bool  EnableTAA = false;
 		float TAAHistoryBlend = 0.90f; // fraction of history kept per frame
+		float TAASharpness = 0.3f;     // post-resolve unsharp strength (0 = off)
 		RenderResolutionScaleMode ResolutionScaleMode = RenderResolutionScaleMode::Native;
 		float DynamicResolutionScale = 1.0f;
 		float DynamicResolutionMinScale = 0.5f;

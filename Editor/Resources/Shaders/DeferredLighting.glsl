@@ -56,7 +56,7 @@ bool ReconstructPositionFromDepth(float deviceDepth, out vec3 worldPosition, out
 	return true;
 }
 
-vec3 IBL(vec3 F0, vec3 Lr)
+vec3 IBL(vec3 F0, vec3 Lr, float ao)
 {
 	return LuxEvaluateImageBasedLighting(
 		u_EnvRadianceTex,
@@ -69,7 +69,8 @@ vec3 IBL(vec3 F0, vec3 Lr)
 		m_Params.Metalness,
 		m_Params.NdotV,
 		F0,
-		0.0);
+		0.0,
+		ao);
 }
 
 float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition)
@@ -197,8 +198,11 @@ void main()
 	if (gbuffer.MaterialID != GPU_TEXTURE_INVALID_INDEX)
 		emission = GetGPUMaterialEmission(r_GPUMaterials.Materials[gbuffer.MaterialID], 0.0);
 
-	vec3 iblLighting = IBL(F0, Lr) * u_Scene.EnvironmentMapIntensity;
-	vec3 color = (directLighting + iblLighting) * max(gbuffer.AmbientOcclusion, 0.0);
+	// Material AO occludes the ambient/IBL term only (specular via specular occlusion
+	// inside the IBL evaluation), not direct lighting. Screen-space GTAO is applied
+	// separately in the AO composite pass.
+	vec3 iblLighting = IBL(F0, Lr, max(gbuffer.AmbientOcclusion, 0.0)) * u_Scene.EnvironmentMapIntensity;
+	vec3 color = directLighting + iblLighting;
 	color += m_Params.Albedo * emission;
 
 	if (u_RendererData.ShowLightComplexity)

@@ -73,6 +73,70 @@ float LuxRoughnessToReflectionMip(float roughness, int mipCount)
 	return clamp(roughness * maxMip, 0.0, maxMip);
 }
 
+// Lagarde's specular occlusion (Moving Frostbite to PBR). Keeps ambient specular
+// from leaking through occluded/concave geometry. Pass ao = 1.0 for no occlusion.
+float LuxSpecularOcclusion(float NdotV, float ao, float roughness)
+{
+	return clamp(pow(NdotV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
+}
+
+// Energy-preserving image-based lighting (single + multiple scattering), after
+// Carmelo J. Fdez-Agera, "A Multiple-Scattering Microfacet Model for Real-Time
+// Image-based Lighting". The multiple-scattering term re-introduces the energy a
+// single specular bounce loses, which is what otherwise leaves rough metals and
+// dielectrics looking dull and flat. 'ambientOcclusion' attenuates the diffuse
+// term and drives specular occlusion; pass 1.0 for none.
+vec3 LuxEvaluateImageBasedLighting(
+	textureCube envRadiance,
+	textureCube envIrradiance,
+	texture2D brdfLut,
+	vec3 normal,
+	vec3 reflectionDirection,
+	vec3 albedo,
+	float roughness,
+	float metalness,
+	float NdotV,
+	vec3 F0,
+	float envMapRotation,
+	float ambientOcclusion)
+{
+	roughness = clamp(roughness, 0.045, 1.0);
+	metalness = clamp(metalness, 0.0, 1.0);
+	NdotV = clamp(NdotV, 0.0, 1.0);
+	float ao = clamp(ambientOcclusion, 0.0, 1.0);
+
+	vec3 irradiance = SampleLinear(envIrradiance, normal).rgb;
+
+	int envRadianceMipCount = textureQueryLevels(samplerCube(envRadiance, r_LinearSampler));
+	float reflectionMip = LuxRoughnessToReflectionMip(roughness, envRadianceMipCount);
+	vec3 reflectionVector = RotateVectorAboutY(envMapRotation, normalize(reflectionDirection));
+	vec3 specularIrradiance = SampleLinearLOD(envRadiance, reflectionVector, reflectionMip).rgb;
+
+	vec2 brdf = SampleLinear(brdfLut, vec2(NdotV, roughness)).rg;
+
+	// Single-scattering specular reflectance (FssEss) and white-furnace energy (Ess).
+	vec3 Fr = max(vec3(1.0 - roughness), F0) - F0;
+	vec3 kS = F0 + Fr * pow(1.0 - NdotV, 5.0);
+	vec3 FssEss = kS * brdf.x + brdf.y;
+	float Ess = brdf.x + brdf.y;
+	float Ems = 1.0 - Ess;
+
+	// Multiple-scattering specular energy compensation.
+	vec3 Favg = F0 + (1.0 - F0) / 21.0;
+	vec3 Fms = FssEss * Favg / (1.0 - Ems * Favg);
+
+	// Diffuse receives the remaining (non-specular) energy.
+	vec3 Edss = 1.0 - (FssEss + Fms * Ems);
+	vec3 kD = albedo * (1.0 - metalness) * Edss;
+
+	float specularOcclusion = LuxSpecularOcclusion(NdotV, ao, roughness);
+	vec3 specularIBL = FssEss * specularIrradiance * specularOcclusion;
+	vec3 diffuseIBL = (Fms * Ems + kD) * irradiance * ao;
+
+	return diffuseIBL + specularIBL;
+}
+
+// Backwards-compatible overload without explicit occlusion (ao = 1.0).
 vec3 LuxEvaluateImageBasedLighting(
 	textureCube envRadiance,
 	textureCube envIrradiance,
@@ -86,23 +150,9 @@ vec3 LuxEvaluateImageBasedLighting(
 	vec3 F0,
 	float envMapRotation)
 {
-	roughness = clamp(roughness, 0.045, 1.0);
-	metalness = clamp(metalness, 0.0, 1.0);
-	NdotV = clamp(NdotV, 0.0, 1.0);
-
-	vec3 irradiance = SampleLinear(envIrradiance, normal).rgb;
-	vec3 F = FresnelSchlickRoughness(F0, NdotV, roughness);
-	vec3 kd = (1.0 - F) * (1.0 - metalness);
-	vec3 diffuseIBL = kd * albedo * irradiance;
-
-	int envRadianceMipCount = textureQueryLevels(samplerCube(envRadiance, r_LinearSampler));
-	float reflectionMip = LuxRoughnessToReflectionMip(roughness, envRadianceMipCount);
-	vec3 reflectionVector = RotateVectorAboutY(envMapRotation, normalize(reflectionDirection));
-	vec3 specularIrradiance = SampleLinearLOD(envRadiance, reflectionVector, reflectionMip).rgb;
-	vec2 specularBRDF = SampleLinear(brdfLut, vec2(NdotV, roughness)).rg;
-	vec3 specularIBL = specularIrradiance * (F0 * specularBRDF.x + specularBRDF.y);
-
-	return diffuseIBL + specularIBL;
+	return LuxEvaluateImageBasedLighting(
+		envRadiance, envIrradiance, brdfLut, normal, reflectionDirection, albedo,
+		roughness, metalness, NdotV, F0, envMapRotation, 1.0);
 }
 
 #endif // LUX_PBR_GLSLH

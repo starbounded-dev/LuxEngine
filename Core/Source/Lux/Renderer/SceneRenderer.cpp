@@ -4737,7 +4737,9 @@ namespace Lux {
 			m_RendererDataUB.ShowLightComplexity = m_Options.ShowLightComplexity;
 			m_RendererDataUB.ShowMaterialComplexity = m_Options.ShowMaterialComplexity;
 			m_RendererDataUB.TilesCountX = m_LightTilesCountX;
-			m_RendererDataUB.TextureMipBias = m_Options.TextureMipBias;
+			// TAA jitter supersamples sub-pixel detail, so bias texture LOD down while it
+			// is active to recover the texture sharpness the resolve is meant to resolve.
+			m_RendererDataUB.TextureMipBias = m_Options.TextureMipBias + (m_Options.EnableTAA ? -1.0f : 0.0f);
 			m_RendererDataUB.EnableDistanceMipBias = m_Options.EnableDistanceMipBias;
 			m_RendererDataUB.DistanceMipBiasStart = m_Options.DistanceMipBiasStart;
 			m_RendererDataUB.DistanceMipBiasEnd = glm::max(m_Options.DistanceMipBiasEnd, m_Options.DistanceMipBiasStart + 1.0f);
@@ -7211,12 +7213,12 @@ namespace Lux {
 		{
 			float Blend;
 			uint32_t HasHistory;
-			uint32_t Padding0;
+			float Sharpness;
 			uint32_t Padding1;
 		} push;
 		push.Blend = glm::clamp(m_Options.TAAHistoryBlend, 0.0f, 0.98f);
 		push.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
-		push.Padding0 = 0u;
+		push.Sharpness = glm::max(m_Options.TAASharpness, 0.0f);
 		push.Padding1 = 0u;
 
 		const glm::uvec3 groups = {

@@ -371,6 +371,8 @@ namespace Lux {
 			projectSettingsChanged |= ImGuiEx::Property("TAA", options.EnableTAA);
 			if (options.EnableTAA)
 				projectSettingsChanged |= ImGuiEx::Property("TAA History Blend", options.TAAHistoryBlend, 0.01f, 0.0f, 0.98f);
+				if (options.EnableTAA)
+					projectSettingsChanged |= ImGuiEx::Property("TAA Sharpness", options.TAASharpness, 0.01f, 0.0f, 1.0f);
 			projectSettingsChanged |= gtaoSettingsChanged;
 			if (gtaoSettingsChanged)
 				m_Context->UpdateGTAOData();

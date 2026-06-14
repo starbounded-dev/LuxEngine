@@ -21,7 +21,7 @@ layout(push_constant) uniform TAASettings
 {
 	float Blend;     // fraction of history retained
 	uint HasHistory; // 0 on the first frame / after a cut
-	uint Padding0;
+	float Sharpness; // post-resolve unsharp strength (0 = off)
 	uint Padding1;
 } u_Settings;
 
@@ -48,6 +48,37 @@ vec3 ClipToAABB(vec3 aabbMin, vec3 aabbMax, vec3 history)
 	vec3 ts = extent / max(abs(dir), vec3(1e-4));
 	float t = min(ts.x, min(ts.y, ts.z));
 	return center + dir * min(t, 1.0);
+}
+
+// 5-tap optimized Catmull-Rom history sampling. Plain bilinear reprojection
+// re-blurs the accumulated image a little every frame, which is the dominant
+// source of TAA softness; a bicubic (Catmull-Rom) fetch keeps the history sharp.
+vec3 SampleHistoryCatmullRom(vec2 uv, vec2 texSize)
+{
+	vec2 samplePos = uv * texSize;
+	vec2 texPos1 = floor(samplePos - 0.5) + 0.5;
+	vec2 f = samplePos - texPos1;
+
+	vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+	vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+	vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+	vec2 w3 = f * f * (-0.5 + 0.5 * f);
+
+	vec2 w12 = w1 + w2;
+	vec2 offset12 = w2 / w12;
+
+	vec2 texPos0 = (texPos1 - 1.0) / texSize;
+	vec2 texPos3 = (texPos1 + 2.0) / texSize;
+	vec2 texPos12 = (texPos1 + offset12) / texSize;
+
+	vec3 result = vec3(0.0);
+	result += textureLod(sampler2D(u_History, r_LinearSampler), vec2(texPos12.x, texPos0.y), 0.0).rgb * w12.x * w0.y;
+	result += textureLod(sampler2D(u_History, r_LinearSampler), vec2(texPos0.x, texPos12.y), 0.0).rgb * w0.x * w12.y;
+	result += textureLod(sampler2D(u_History, r_LinearSampler), vec2(texPos12.x, texPos12.y), 0.0).rgb * w12.x * w12.y;
+	result += textureLod(sampler2D(u_History, r_LinearSampler), vec2(texPos3.x, texPos12.y), 0.0).rgb * w3.x * w12.y;
+	result += textureLod(sampler2D(u_History, r_LinearSampler), vec2(texPos12.x, texPos3.y), 0.0).rgb * w12.x * w3.y;
+
+	return max(result, vec3(0.0));
 }
 
 // Camera-only reprojection from depth (background / pixels without a motion vector).
@@ -116,13 +147,26 @@ void main()
 		&& all(greaterThanEqual(historyUV, vec2(0.0)))
 		&& all(lessThanEqual(historyUV, vec2(1.0)));
 
-	vec3 resolved = current;
+	vec3 currentY = RGBToYCoCg(current);
+	vec3 resolvedY = currentY;
 	if (validHistory)
 	{
-		vec3 history = RGBToYCoCg(texture(sampler2D(u_History, r_LinearSampler), historyUV).rgb);
+		vec3 history = RGBToYCoCg(SampleHistoryCatmullRom(historyUV, vec2(size)));
 		history = ClipToAABB(aabbMin, aabbMax, history);
-		resolved = YCoCgToRGB(mix(RGBToYCoCg(current), history, clamp(u_Settings.Blend, 0.0, 0.97)));
+
+		// Tonemap-weighted blend (Karis): weight each sample by 1/(1+luma) so bright
+		// pixels don't dominate the history and cause flicker, without the blur of a
+		// naive average. YCoCg .x is luma.
+		float blend = clamp(u_Settings.Blend, 0.0, 0.97);
+		float wCurrent = (1.0 - blend) / (1.0 + max(currentY.x, 0.0));
+		float wHistory = blend / (1.0 + max(history.x, 0.0));
+		resolvedY = (currentY * wCurrent + history * wHistory) / max(wCurrent + wHistory, 1e-5);
+
+		// Unsharp the luma against the current-frame neighbourhood low-pass (m1) to
+		// restore the micro-contrast that temporal accumulation softens.
+		resolvedY.x += u_Settings.Sharpness * (resolvedY.x - m1.x);
 	}
 
+	vec3 resolved = max(YCoCgToRGB(resolvedY), vec3(0.0));
 	imageStore(o_Resolved, pixel, vec4(resolved, 1.0));
 }
