@@ -7,12 +7,14 @@
 
 #define HISTOGRAM_BINS 256
 
-layout(std430, set = 1, binding = 0) buffer LuminanceHistogramBuffer
+// Storage-buffer (set,binding) slots are global in this engine (see LuminanceHistogram.glsl).
+// 5 = luminance histogram, 6 = exposure state — must match every other shader that uses them.
+layout(std430, set = 1, binding = 5) buffer LuminanceHistogramBuffer
 {
 	uint Bins[HISTOGRAM_BINS];
 } b_Histogram;
 
-layout(std430, set = 1, binding = 1) buffer ExposureStateBuffer
+layout(std430, set = 1, binding = 6) buffer ExposureStateBuffer
 {
 	float AdaptedLuminance;
 	float Exposure;

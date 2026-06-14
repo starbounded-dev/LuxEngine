@@ -12,7 +12,11 @@
 
 layout(set = 1, binding = 0) uniform texture2D u_SceneColor;
 
-layout(std430, set = 1, binding = 1) buffer LuminanceHistogramBuffer
+// NOTE: storage-buffer (set,binding) slots are a GLOBAL namespace in this engine
+// (VulkanShaderCompiler dedupes via static s_StorageBuffers keyed by set+binding),
+// so each distinct buffer must use a binding no other shader reuses. set=1 bindings
+// 0-4 = mesh culling, 9-10 = light culling; 5 = luminance histogram, 6 = exposure state.
+layout(std430, set = 1, binding = 5) buffer LuminanceHistogramBuffer
 {
 	uint Bins[HISTOGRAM_BINS];
 } b_Histogram;
