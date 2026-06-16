@@ -77,6 +77,7 @@ namespace Lux {
 	{
 		None = 0,
 		Texture2D,
+		Texture3D,
 		TextureCube
 	};
 
@@ -90,6 +91,7 @@ namespace Lux {
 		bool Transfer = false; // Will it be used for transfer ops?
 		uint32_t Width = 1;
 		uint32_t Height = 1;
+		uint32_t Depth = 1; // Only used when Dimension == Texture3D
 		uint32_t Mips = 1;
 		uint32_t Layers = 1;
 		bool CreateSampler = true;

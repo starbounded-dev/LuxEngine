@@ -273,6 +273,119 @@ namespace Lux {
 			return handle;
 		}
 
+		static void SerializeCloudLayer(YAML::Emitter& out, const CloudLayerSettings& layer)
+		{
+			out << YAML::BeginMap;
+			out << YAML::Key << "Enabled" << YAML::Value << layer.Enabled;
+			out << YAML::Key << "Type" << YAML::Value << (uint32_t)layer.Type;
+			out << YAML::Key << "Tier" << YAML::Value << (uint32_t)layer.Tier;
+			out << YAML::Key << "BottomAltitude" << YAML::Value << layer.BottomAltitude;
+			out << YAML::Key << "Thickness" << YAML::Value << layer.Thickness;
+			out << YAML::Key << "Coverage" << YAML::Value << layer.Coverage;
+			out << YAML::Key << "CloudShape" << YAML::Value << layer.CloudShape;
+			out << YAML::Key << "DensityScale" << YAML::Value << layer.DensityScale;
+			out << YAML::Key << "ShapeScale" << YAML::Value << layer.ShapeScale;
+			out << YAML::Key << "DetailScale" << YAML::Value << layer.DetailScale;
+			out << YAML::Key << "DetailStrength" << YAML::Value << layer.DetailStrength;
+			out << YAML::Key << "WindSpeedScale" << YAML::Value << layer.WindSpeedScale;
+			out << YAML::Key << "WindAngleOffset" << YAML::Value << layer.WindAngleOffset;
+			out << YAML::Key << "AnvilBias" << YAML::Value << layer.AnvilBias;
+			out << YAML::Key << "ErosionStrength" << YAML::Value << layer.ErosionStrength;
+			out << YAML::Key << "CoverageBias" << YAML::Value << layer.CoverageBias;
+			out << YAML::Key << "HeightSkew" << YAML::Value << layer.HeightSkew;
+			out << YAML::EndMap;
+		}
+
+		static void DeserializeCloudLayer(const YAML::Node& node, CloudLayerSettings& layer)
+		{
+			if (!node)
+				return;
+			layer.Enabled = node["Enabled"].as<bool>(layer.Enabled);
+			layer.Type = (CloudType)node["Type"].as<uint32_t>((uint32_t)layer.Type);
+			layer.Tier = (CloudTier)node["Tier"].as<uint32_t>((uint32_t)layer.Tier);
+			layer.BottomAltitude = node["BottomAltitude"].as<float>(layer.BottomAltitude);
+			layer.Thickness = node["Thickness"].as<float>(layer.Thickness);
+			layer.Coverage = node["Coverage"].as<float>(layer.Coverage);
+			layer.CloudShape = node["CloudShape"].as<float>(layer.CloudShape);
+			layer.DensityScale = node["DensityScale"].as<float>(layer.DensityScale);
+			layer.ShapeScale = node["ShapeScale"].as<float>(layer.ShapeScale);
+			layer.DetailScale = node["DetailScale"].as<float>(layer.DetailScale);
+			layer.DetailStrength = node["DetailStrength"].as<float>(layer.DetailStrength);
+			layer.WindSpeedScale = node["WindSpeedScale"].as<float>(layer.WindSpeedScale);
+			layer.WindAngleOffset = node["WindAngleOffset"].as<float>(layer.WindAngleOffset);
+			layer.AnvilBias = node["AnvilBias"].as<float>(layer.AnvilBias);
+			layer.ErosionStrength = node["ErosionStrength"].as<float>(layer.ErosionStrength);
+			layer.CoverageBias = node["CoverageBias"].as<float>(layer.CoverageBias);
+			layer.HeightSkew = node["HeightSkew"].as<float>(layer.HeightSkew);
+		}
+
+		static void SerializeCloudSettings(YAML::Emitter& out, const VolumetricCloudSettings& clouds)
+		{
+			out << YAML::Key << "Enabled" << YAML::Value << clouds.Enabled;
+			out << YAML::Key << "Coverage" << YAML::Value << clouds.Coverage;
+			out << YAML::Key << "Density" << YAML::Value << clouds.Density;
+			out << YAML::Key << "WindDirection" << YAML::Value << clouds.WindDirection;
+			out << YAML::Key << "WindSpeed" << YAML::Value << clouds.WindSpeed;
+			out << YAML::Key << "WeatherScale" << YAML::Value << clouds.WeatherScale;
+			out << YAML::Key << "Albedo" << YAML::Value << clouds.Albedo;
+			out << YAML::Key << "AmbientBoost" << YAML::Value << clouds.AmbientBoost;
+			out << YAML::Key << "Extinction" << YAML::Value << clouds.Extinction;
+			out << YAML::Key << "ScatterMultiplier" << YAML::Value << clouds.ScatterMultiplier;
+			out << YAML::Key << "SilverIntensity" << YAML::Value << clouds.SilverIntensity;
+			out << YAML::Key << "PowderStrength" << YAML::Value << clouds.PowderStrength;
+			out << YAML::Key << "PhaseG0" << YAML::Value << clouds.PhaseG0;
+			out << YAML::Key << "PhaseG1" << YAML::Value << clouds.PhaseG1;
+			out << YAML::Key << "PhaseBlend" << YAML::Value << clouds.PhaseBlend;
+			out << YAML::Key << "MultiScatter" << YAML::Value << clouds.MultiScatter;
+			out << YAML::Key << "AerialPerspective" << YAML::Value << clouds.AerialPerspective;
+			out << YAML::Key << "MaxTraceDistance" << YAML::Value << clouds.MaxTraceDistance;
+			out << YAML::Key << "DistanceFade" << YAML::Value << clouds.DistanceFade;
+			out << YAML::Key << "LODStartDistance" << YAML::Value << clouds.LODStartDistance;
+			out << YAML::Key << "ShadowTraceDistance" << YAML::Value << clouds.ShadowTraceDistance;
+			out << YAML::Key << "MarchSteps" << YAML::Value << clouds.MarchSteps;
+			out << YAML::Key << "ShadowSteps" << YAML::Value << clouds.ShadowSteps;
+			out << YAML::Key << "RenderScale" << YAML::Value << clouds.RenderScale;
+			out << YAML::Key << "Layers" << YAML::Value << YAML::BeginSeq;
+			for (const CloudLayerSettings& layer : clouds.Layers)
+				SerializeCloudLayer(out, layer);
+			out << YAML::EndSeq;
+		}
+
+		static void DeserializeCloudSettings(const YAML::Node& node, VolumetricCloudSettings& clouds)
+		{
+			if (!node)
+				return;
+			clouds.Enabled = node["Enabled"].as<bool>(clouds.Enabled);
+			clouds.Coverage = node["Coverage"].as<float>(clouds.Coverage);
+			clouds.Density = node["Density"].as<float>(clouds.Density);
+			clouds.WindDirection = node["WindDirection"].as<glm::vec2>(clouds.WindDirection);
+			clouds.WindSpeed = node["WindSpeed"].as<float>(clouds.WindSpeed);
+			clouds.WeatherScale = node["WeatherScale"].as<float>(clouds.WeatherScale);
+			clouds.Albedo = node["Albedo"].as<glm::vec3>(clouds.Albedo);
+			clouds.AmbientBoost = node["AmbientBoost"].as<float>(clouds.AmbientBoost);
+			clouds.Extinction = node["Extinction"].as<float>(clouds.Extinction);
+			clouds.ScatterMultiplier = node["ScatterMultiplier"].as<float>(clouds.ScatterMultiplier);
+			clouds.SilverIntensity = node["SilverIntensity"].as<float>(clouds.SilverIntensity);
+			clouds.PowderStrength = node["PowderStrength"].as<float>(clouds.PowderStrength);
+			clouds.PhaseG0 = node["PhaseG0"].as<float>(clouds.PhaseG0);
+			clouds.PhaseG1 = node["PhaseG1"].as<float>(clouds.PhaseG1);
+			clouds.PhaseBlend = node["PhaseBlend"].as<float>(clouds.PhaseBlend);
+			clouds.MultiScatter = node["MultiScatter"].as<float>(clouds.MultiScatter);
+			clouds.AerialPerspective = node["AerialPerspective"].as<float>(clouds.AerialPerspective);
+			clouds.MaxTraceDistance = node["MaxTraceDistance"].as<float>(clouds.MaxTraceDistance);
+			clouds.DistanceFade = node["DistanceFade"].as<float>(clouds.DistanceFade);
+			clouds.LODStartDistance = node["LODStartDistance"].as<float>(clouds.LODStartDistance);
+			clouds.ShadowTraceDistance = node["ShadowTraceDistance"].as<float>(clouds.ShadowTraceDistance);
+			clouds.MarchSteps = node["MarchSteps"].as<uint32_t>(clouds.MarchSteps);
+			clouds.ShadowSteps = node["ShadowSteps"].as<uint32_t>(clouds.ShadowSteps);
+			clouds.RenderScale = node["RenderScale"].as<uint32_t>(clouds.RenderScale);
+			if (auto layers = node["Layers"])
+			{
+				for (size_t i = 0; i < clouds.Layers.size() && i < layers.size(); i++)
+					DeserializeCloudLayer(layers[i], clouds.Layers[i]);
+			}
+		}
+
 		static void SerializeEntity(YAML::Emitter& out, Entity entity)
 		{
 			LUX_CORE_ASSERT(entity.HasComponent<IDComponent>());
@@ -497,27 +610,7 @@ namespace Lux {
 				const auto& settings = entity.GetComponent<VolumetricCloudComponent>().Settings;
 				out << YAML::Key << "VolumetricCloudComponent";
 				out << YAML::BeginMap;
-				out << YAML::Key << "Enabled" << YAML::Value << settings.Enabled;
-				out << YAML::Key << "Coverage" << YAML::Value << settings.Coverage;
-				out << YAML::Key << "Density" << YAML::Value << settings.Density;
-				out << YAML::Key << "Altitude" << YAML::Value << settings.Altitude;
-				out << YAML::Key << "Thickness" << YAML::Value << settings.Thickness;
-				out << YAML::Key << "WindDirection" << YAML::Value << settings.WindDirection;
-				out << YAML::Key << "WindSpeed" << YAML::Value << settings.WindSpeed;
-				out << YAML::Key << "ShapeScale" << YAML::Value << settings.ShapeScale;
-				out << YAML::Key << "DetailScale" << YAML::Value << settings.DetailScale;
-				out << YAML::Key << "DetailStrength" << YAML::Value << settings.DetailStrength;
-				out << YAML::Key << "Absorption" << YAML::Value << settings.Absorption;
-				out << YAML::Key << "SilverIntensity" << YAML::Value << settings.SilverIntensity;
-				out << YAML::Key << "Albedo" << YAML::Value << settings.Albedo;
-				out << YAML::Key << "AmbientBoost" << YAML::Value << settings.AmbientBoost;
-				out << YAML::Key << "MaxTraceDistance" << YAML::Value << settings.MaxTraceDistance;
-				out << YAML::Key << "DistanceFade" << YAML::Value << settings.DistanceFade;
-				out << YAML::Key << "LODStartDistance" << YAML::Value << settings.LODStartDistance;
-				out << YAML::Key << "ShadowTraceDistance" << YAML::Value << settings.ShadowTraceDistance;
-				out << YAML::Key << "MarchSteps" << YAML::Value << settings.MarchSteps;
-				out << YAML::Key << "ShadowSteps" << YAML::Value << settings.ShadowSteps;
-				out << YAML::Key << "RenderScale" << YAML::Value << settings.RenderScale;
+				SerializeCloudSettings(out, settings);
 				out << YAML::EndMap;
 			}
 
@@ -632,27 +725,7 @@ namespace Lux {
 
 				const auto& clouds = component.Settings.VolumetricClouds;
 				out << YAML::Key << "VolumetricClouds" << YAML::Value << YAML::BeginMap;
-				out << YAML::Key << "Enabled" << YAML::Value << clouds.Enabled;
-				out << YAML::Key << "Coverage" << YAML::Value << clouds.Coverage;
-				out << YAML::Key << "Density" << YAML::Value << clouds.Density;
-				out << YAML::Key << "Altitude" << YAML::Value << clouds.Altitude;
-				out << YAML::Key << "Thickness" << YAML::Value << clouds.Thickness;
-				out << YAML::Key << "WindDirection" << YAML::Value << clouds.WindDirection;
-				out << YAML::Key << "WindSpeed" << YAML::Value << clouds.WindSpeed;
-				out << YAML::Key << "ShapeScale" << YAML::Value << clouds.ShapeScale;
-				out << YAML::Key << "DetailScale" << YAML::Value << clouds.DetailScale;
-				out << YAML::Key << "DetailStrength" << YAML::Value << clouds.DetailStrength;
-				out << YAML::Key << "Absorption" << YAML::Value << clouds.Absorption;
-				out << YAML::Key << "SilverIntensity" << YAML::Value << clouds.SilverIntensity;
-				out << YAML::Key << "Albedo" << YAML::Value << clouds.Albedo;
-				out << YAML::Key << "AmbientBoost" << YAML::Value << clouds.AmbientBoost;
-				out << YAML::Key << "MaxTraceDistance" << YAML::Value << clouds.MaxTraceDistance;
-				out << YAML::Key << "DistanceFade" << YAML::Value << clouds.DistanceFade;
-				out << YAML::Key << "LODStartDistance" << YAML::Value << clouds.LODStartDistance;
-				out << YAML::Key << "ShadowTraceDistance" << YAML::Value << clouds.ShadowTraceDistance;
-				out << YAML::Key << "MarchSteps" << YAML::Value << clouds.MarchSteps;
-				out << YAML::Key << "ShadowSteps" << YAML::Value << clouds.ShadowSteps;
-				out << YAML::Key << "RenderScale" << YAML::Value << clouds.RenderScale;
+				SerializeCloudSettings(out, clouds);
 				out << YAML::EndMap;
 
 				const auto& fog = component.Settings.HeightFog;
@@ -1112,27 +1185,7 @@ namespace Lux {
 				if (auto volumetricCloud = entity["VolumetricCloudComponent"])
 				{
 					auto& settings = deserializedEntity.AddComponent<VolumetricCloudComponent>().Settings;
-					settings.Enabled = volumetricCloud["Enabled"].as<bool>(settings.Enabled);
-					settings.Coverage = volumetricCloud["Coverage"].as<float>(settings.Coverage);
-					settings.Density = volumetricCloud["Density"].as<float>(settings.Density);
-					settings.Altitude = volumetricCloud["Altitude"].as<float>(settings.Altitude);
-					settings.Thickness = volumetricCloud["Thickness"].as<float>(settings.Thickness);
-					settings.WindDirection = volumetricCloud["WindDirection"].as<glm::vec2>(settings.WindDirection);
-					settings.WindSpeed = volumetricCloud["WindSpeed"].as<float>(settings.WindSpeed);
-					settings.ShapeScale = volumetricCloud["ShapeScale"].as<float>(settings.ShapeScale);
-					settings.DetailScale = volumetricCloud["DetailScale"].as<float>(settings.DetailScale);
-					settings.DetailStrength = volumetricCloud["DetailStrength"].as<float>(settings.DetailStrength);
-					settings.Absorption = volumetricCloud["Absorption"].as<float>(settings.Absorption);
-					settings.SilverIntensity = volumetricCloud["SilverIntensity"].as<float>(settings.SilverIntensity);
-					settings.Albedo = volumetricCloud["Albedo"].as<glm::vec3>(settings.Albedo);
-					settings.AmbientBoost = volumetricCloud["AmbientBoost"].as<float>(settings.AmbientBoost);
-					settings.MaxTraceDistance = volumetricCloud["MaxTraceDistance"].as<float>(settings.MaxTraceDistance);
-					settings.DistanceFade = volumetricCloud["DistanceFade"].as<float>(settings.DistanceFade);
-					settings.LODStartDistance = volumetricCloud["LODStartDistance"].as<float>(settings.LODStartDistance);
-					settings.ShadowTraceDistance = volumetricCloud["ShadowTraceDistance"].as<float>(settings.ShadowTraceDistance);
-					settings.MarchSteps = volumetricCloud["MarchSteps"].as<uint32_t>(settings.MarchSteps);
-					settings.ShadowSteps = volumetricCloud["ShadowSteps"].as<uint32_t>(settings.ShadowSteps);
-					settings.RenderScale = volumetricCloud["RenderScale"].as<uint32_t>(settings.RenderScale);
+					DeserializeCloudSettings(volumetricCloud, settings);
 				}
 
 				if (auto heightFog = entity["ExponentialHeightFogComponent"])
@@ -1238,27 +1291,7 @@ namespace Lux {
 					if (auto volumetricCloud = atmosphereVolume["VolumetricClouds"])
 					{
 						auto& settings = component.Settings.VolumetricClouds;
-						settings.Enabled = volumetricCloud["Enabled"].as<bool>(settings.Enabled);
-						settings.Coverage = volumetricCloud["Coverage"].as<float>(settings.Coverage);
-						settings.Density = volumetricCloud["Density"].as<float>(settings.Density);
-						settings.Altitude = volumetricCloud["Altitude"].as<float>(settings.Altitude);
-						settings.Thickness = volumetricCloud["Thickness"].as<float>(settings.Thickness);
-						settings.WindDirection = volumetricCloud["WindDirection"].as<glm::vec2>(settings.WindDirection);
-						settings.WindSpeed = volumetricCloud["WindSpeed"].as<float>(settings.WindSpeed);
-						settings.ShapeScale = volumetricCloud["ShapeScale"].as<float>(settings.ShapeScale);
-						settings.DetailScale = volumetricCloud["DetailScale"].as<float>(settings.DetailScale);
-						settings.DetailStrength = volumetricCloud["DetailStrength"].as<float>(settings.DetailStrength);
-						settings.Absorption = volumetricCloud["Absorption"].as<float>(settings.Absorption);
-						settings.SilverIntensity = volumetricCloud["SilverIntensity"].as<float>(settings.SilverIntensity);
-						settings.Albedo = volumetricCloud["Albedo"].as<glm::vec3>(settings.Albedo);
-						settings.AmbientBoost = volumetricCloud["AmbientBoost"].as<float>(settings.AmbientBoost);
-						settings.MaxTraceDistance = volumetricCloud["MaxTraceDistance"].as<float>(settings.MaxTraceDistance);
-						settings.DistanceFade = volumetricCloud["DistanceFade"].as<float>(settings.DistanceFade);
-						settings.LODStartDistance = volumetricCloud["LODStartDistance"].as<float>(settings.LODStartDistance);
-						settings.ShadowTraceDistance = volumetricCloud["ShadowTraceDistance"].as<float>(settings.ShadowTraceDistance);
-						settings.MarchSteps = volumetricCloud["MarchSteps"].as<uint32_t>(settings.MarchSteps);
-						settings.ShadowSteps = volumetricCloud["ShadowSteps"].as<uint32_t>(settings.ShadowSteps);
-						settings.RenderScale = volumetricCloud["RenderScale"].as<uint32_t>(settings.RenderScale);
+						DeserializeCloudSettings(volumetricCloud, settings);
 					}
 
 					if (auto heightFog = atmosphereVolume["HeightFog"])

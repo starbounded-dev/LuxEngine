@@ -849,7 +849,19 @@ namespace Lux {
 					// (set,binding) is a GLOBAL namespace shared by every shader. Same-name buffers are
 					// intentionally merged (shared renderer UBOs); a DIFFERENT name at the same slot is an
 					// accidental collision that silently corrupts the other shader's binding.
-					if (uniformBuffer.Name != name)
+					//
+					// SPIRV-Cross names HLSL constant buffers "type.ConstantBuffer.<Type>", so an HLSL
+					// shader that legitimately shares a renderer UBO (e.g. GTAO.hlsl reading 'Camera' /
+					// 'ScreenData') would otherwise false-positive against the GLSL block name. Compare
+					// the names with that prefix stripped so only genuine collisions are reported.
+					auto normalizeBufferName = [](const std::string& bufferName) -> std::string
+						{
+							static const std::string kHLSLConstantBufferPrefix = "type.ConstantBuffer.";
+							if (bufferName.rfind(kHLSLConstantBufferPrefix, 0) == 0)
+								return bufferName.substr(kHLSLConstantBufferPrefix.size());
+							return bufferName;
+						};
+					if (normalizeBufferName(uniformBuffer.Name) != normalizeBufferName(name))
 						LUX_CORE_ERROR_TAG("Renderer", "Uniform buffer binding collision at (set={0}, binding={1}): existing '{2}' vs '{3}' in '{4}'. Give this buffer a unique (set,binding).", descriptorSet, binding, uniformBuffer.Name, name, m_ShaderSourcePath.string());
 					if (size > uniformBuffer.Size)
 						uniformBuffer.Size = size;
@@ -974,6 +986,8 @@ namespace Lux {
 					dimension = 2;
 					break;
 				case spv::Dim::Dim3D:
+					dimension = 4; // true 3D volume (distinct from cubemap)
+					break;
 				case spv::Dim::DimCube:
 					dimension = 3;
 					break;
@@ -1016,6 +1030,8 @@ namespace Lux {
 					dimension = 2;
 					break;
 				case spv::Dim::Dim3D:
+					dimension = 4; // true 3D volume (distinct from cubemap)
+					break;
 				case spv::Dim::DimCube:
 					dimension = 3;
 					break;
@@ -1059,6 +1075,8 @@ namespace Lux {
 					dimension = 2;
 					break;
 				case spv::Dim::Dim3D:
+					dimension = 4; // true 3D volume (distinct from cubemap)
+					break;
 				case spv::Dim::DimCube:
 					dimension = 3;
 					break;
@@ -1101,6 +1119,8 @@ namespace Lux {
 					dimension = 2;
 					break;
 				case spv::Dim::Dim3D:
+					dimension = 4; // true 3D volume (distinct from cubemap)
+					break;
 				case spv::Dim::DimCube:
 					dimension = 3;
 					break;

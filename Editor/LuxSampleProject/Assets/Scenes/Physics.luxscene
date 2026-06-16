@@ -1,53 +1,38 @@
 Scene: New Scene
 Entities:
-  - Entity: 928254539072550922
+  - Entity: 12861676996967277326
     TagComponent:
-      Tag: Plane
+      Tag: Camera
     Parent: 0
     Children:
       []
     TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [10, 1, 10]
-    StaticMeshComponent:
-      AssetID: 14646092683700145589
-      MaterialTable:
-        {}
-      Visible: true
-    BoxColliderComponent:
-      HalfSize: [1, 0, 1]
-      Offset: [0, 0, 0]
-      Density: 1
-      Friction: 0.5
-      Restitution: 0
-  - Entity: 9190678118781008970
+      Position: [0, 1, -5]
+      Rotation: [3.1415925, -0.000486984849, 3.1415925]
+      Scale: [1.00000334, 1, 1.00000334]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 45
+        PerspectiveNear: 0.100000001
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 4335521865413871958
     TagComponent:
-      Tag: Sky Light
+      Tag: Sphere
     Parent: 0
     Children:
       []
     TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [-1.47654855, -1.35263014, 0]
-      Scale: [1, 1, 1]
-    SkyLightComponent:
-      EnvironmentMap: 16912336775507277160
-      Intensity: 0.920000017
-      Lod: 0
-      DynamicSky: false
-  - Entity: 11428934107303258785
-    TagComponent:
-      Tag: Capsule
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 1.5, 0]
+      Position: [0, 5.5, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 4942382394650059223
+      AssetID: 14692274218111311545
       MaterialTable:
         {}
       Visible: true
@@ -60,15 +45,14 @@ Entities:
       AngularDrag: 0.0500000007
       DisableGravity: false
       IsTrigger: false
-      CollisionDetection: 1
+      CollisionDetection: 0
       InitialLinearVelocity: [0, 0, 0]
       InitialAngularVelocity: [0, 0, 0]
       MaxLinearVelocity: 500
       MaxAngularVelocity: 50
       LockedAxes: 0
-    CapsuleColliderComponent:
+    SphereColliderComponent:
       Radius: 0.5
-      HalfHeight: 0.5
       Offset: [0, 0, 0]
       Density: 1
       Friction: 0.5
@@ -109,18 +93,18 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-  - Entity: 4335521865413871958
+  - Entity: 11428934107303258785
     TagComponent:
-      Tag: Sphere
+      Tag: Capsule
     Parent: 0
     Children:
       []
     TransformComponent:
-      Position: [0, 5.5, 0]
+      Position: [0, 1.5, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 14692274218111311545
+      AssetID: 4942382394650059223
       MaterialTable:
         {}
       Visible: true
@@ -133,36 +117,53 @@ Entities:
       AngularDrag: 0.0500000007
       DisableGravity: false
       IsTrigger: false
-      CollisionDetection: 0
+      CollisionDetection: 1
       InitialLinearVelocity: [0, 0, 0]
       InitialAngularVelocity: [0, 0, 0]
       MaxLinearVelocity: 500
       MaxAngularVelocity: 50
       LockedAxes: 0
-    SphereColliderComponent:
+    CapsuleColliderComponent:
       Radius: 0.5
+      HalfHeight: 0.5
       Offset: [0, 0, 0]
       Density: 1
       Friction: 0.5
       Restitution: 0
-  - Entity: 12861676996967277326
+  - Entity: 9190678118781008970
     TagComponent:
-      Tag: Camera
+      Tag: Sky Light
     Parent: 0
     Children:
       []
     TransformComponent:
-      Position: [0, 1, -5]
-      Rotation: [3.1415925, -0.000486984849, 3.1415925]
-      Scale: [1.00000334, 1, 1.00000334]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 45
-        PerspectiveNear: 0.100000001
-        PerspectiveFar: 1000
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
+      Position: [0, 0, 0]
+      Rotation: [-1.47654855, -1.35263014, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.920000017
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2.57999992, 1.00999999, 1.47000003]
+  - Entity: 928254539072550922
+    TagComponent:
+      Tag: Plane
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [10, 1, 10]
+    StaticMeshComponent:
+      AssetID: 14646092683700145589
+      MaterialTable:
+        {}
+      Visible: true
+    BoxColliderComponent:
+      HalfSize: [1, 0, 1]
+      Offset: [0, 0, 0]
+      Density: 1
+      Friction: 0.5
+      Restitution: 0

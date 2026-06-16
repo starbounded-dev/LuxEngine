@@ -15,13 +15,15 @@ namespace Lux {
 		{
 			switch (inputType)
 			{
-				case RenderInputType::ImageSampler:   return RenderResourceType::Sampler;
-				case RenderInputType::ImageSampler2D: return RenderResourceType::Texture2D;
-				case RenderInputType::ImageSampler3D: return RenderResourceType::TextureCube;
-				case RenderInputType::StorageImage2D: return RenderResourceType::Image2D;
-				case RenderInputType::StorageImage3D: return RenderResourceType::TextureCube;
-				case RenderInputType::UniformBuffer:  return RenderResourceType::UniformBuffer;
-				case RenderInputType::StorageBuffer:  return RenderResourceType::StorageBuffer;
+				case RenderInputType::ImageSampler:         return RenderResourceType::Sampler;
+				case RenderInputType::ImageSampler2D:       return RenderResourceType::Texture2D;
+				case RenderInputType::ImageSampler3D:       return RenderResourceType::TextureCube;   // cubemap
+				case RenderInputType::ImageSampler3DVolume: return RenderResourceType::Image2D;        // true 3D volume (SRV)
+				case RenderInputType::StorageImage2D:       return RenderResourceType::Image2D;
+				case RenderInputType::StorageImage3D:       return RenderResourceType::TextureCube;   // cubemap storage
+				case RenderInputType::StorageImage3DVolume: return RenderResourceType::Image2D;        // true 3D volume (UAV)
+				case RenderInputType::UniformBuffer:        return RenderResourceType::UniformBuffer;
+				case RenderInputType::StorageBuffer:        return RenderResourceType::StorageBuffer;
 			}
 
 			LUX_CORE_ASSERT(false);
@@ -33,6 +35,7 @@ namespace Lux {
 			return inputType == RenderInputType::StorageImage1D
 				|| inputType == RenderInputType::StorageImage2D
 				|| inputType == RenderInputType::StorageImage3D
+				|| inputType == RenderInputType::StorageImage3DVolume
 				|| inputType == RenderInputType::StorageBuffer;
 		}
 
@@ -628,7 +631,7 @@ namespace Lux {
 						case RenderResourceType::UniformBufferSet:
 						{
 							Ref<UniformBufferSet> buffer = input.Input[0].As<UniformBufferSet>();
-							// TODO: replace 0 with current frame in flight (i.e. create bindings for all frames)
+							// Per-frame binding: Get(frameIndex) selects this frame's buffer (a descriptor set is allocated per frame in flight in the loop above).
 							writeDescriptor.pBufferInfo = &buffer->Get(frameIndex).As<VulkanUniformBuffer>()->GetDescriptorBufferInfo();
 							storedWriteDescriptor.ResourceHandles[0] = writeDescriptor.pBufferInfo->buffer;
 
@@ -653,7 +656,7 @@ namespace Lux {
 						case RenderResourceType::StorageBufferSet:
 						{
 							Ref<StorageBufferSet> buffer = input.Input[0].As<StorageBufferSet>();
-							// TODO: replace 0 with current frame in flight (i.e. create bindings for all frames)
+							// Per-frame binding: Get(frameIndex) selects this frame's buffer (a descriptor set is allocated per frame in flight in the loop above).
 							writeDescriptor.pBufferInfo = &buffer->Get(frameIndex).As<VulkanStorageBuffer>()->GetDescriptorBufferInfo();
 							storedWriteDescriptor.ResourceHandles[0] = writeDescriptor.pBufferInfo->buffer;
 

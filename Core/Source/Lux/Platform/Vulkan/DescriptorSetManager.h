@@ -147,7 +147,14 @@ namespace Lux {
 			}
 			case RenderInputType::ImageSampler3D:
 			{
-				return inputResource == RenderResourceType::TextureCube;
+				// Lux currently represents both sampled cubemaps and sampled 3D
+				// volume textures with ImageSampler3D reflection metadata.
+				return inputResource == RenderResourceType::TextureCube || inputResource == RenderResourceType::Image2D;
+			}
+			case RenderInputType::ImageSampler3DVolume:
+			{
+				// True 3D volume sampled texture (distinct from cubemap).
+				return inputResource == RenderResourceType::Image2D;
 			}
 			case RenderInputType::StorageImage2D:
 			{
@@ -157,6 +164,11 @@ namespace Lux {
 			{
 				// Image2D is also valid here because ImageView can reference a cubemap subresource
 				return inputResource == RenderResourceType::TextureCube || inputResource == RenderResourceType::Image2D;
+			}
+			case RenderInputType::StorageImage3DVolume:
+			{
+				// True 3D volume storage image (UAV).
+				return inputResource == RenderResourceType::Image2D;
 			}
 			case RenderInputType::UniformBuffer:
 			{

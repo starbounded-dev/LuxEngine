@@ -5,6 +5,7 @@ layout (set = 3, binding = 0) uniform sampler r_DefaultSampler;
 layout (set = 3, binding = 1) uniform sampler r_PointSampler;
 layout (set = 3, binding = 2) uniform sampler r_LinearSampler;
 layout (set = 3, binding = 3) uniform sampler r_MaterialSampler;
+layout (set = 3, binding = 4) uniform sampler r_RepeatSampler; // linear + wrap, for tiling noise volumes
 
 vec4 SampleDefault(texture2D tex, vec2 texCoord)
 {

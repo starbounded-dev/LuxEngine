@@ -148,6 +148,13 @@ namespace Lux {
 		textureDesc.mipLevels = m_Specification.Mips;
 		textureDesc.arraySize = m_Specification.Layers;
 
+		// Volume (3D) textures use the depth field and a single array slice.
+		if (m_Specification.Dimension == nvrhi::TextureDimension::Texture3D)
+		{
+			textureDesc.depth = glm::max(m_Specification.Depth, 1u);
+			textureDesc.arraySize = 1;
+		}
+
 		// NOTE(Yan): tiling?
 
 		textureDesc.isRenderTarget = m_Specification.Usage == ImageUsage::Attachment;
@@ -186,6 +193,8 @@ namespace Lux {
 
 		m_Info.ImageHandle = device->createTexture(textureDesc);
 		m_GPUAllocationSize = Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers);
+		if (m_Specification.Dimension == nvrhi::TextureDimension::Texture3D)
+			m_GPUAllocationSize *= glm::max(m_Specification.Depth, 1u);
 
 		s_ImageReferences[m_Info.ImageHandle.Get()] = this;
 

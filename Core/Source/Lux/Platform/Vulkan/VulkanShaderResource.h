@@ -33,10 +33,12 @@ namespace Lux {
 		ImageSampler,
 		ImageSampler1D,
 		ImageSampler2D,
-		ImageSampler3D, // NOTE(Yan): 3D vs Cube?
+		ImageSampler3D,         // SPIR-V DimCube (cubemap) — bound as TextureCube
+		ImageSampler3DVolume,   // SPIR-V Dim3D (true volume) — bound as a 3D Image2D
 		StorageImage1D,
 		StorageImage2D,
-		StorageImage3D
+		StorageImage3D,         // SPIR-V DimCube storage (cubemap)
+		StorageImage3DVolume    // SPIR-V Dim3D storage (true volume)
 	};
 
 	struct RenderInputDeclaration

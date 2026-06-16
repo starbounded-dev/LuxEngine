@@ -18,6 +18,9 @@ Entities:
       SoftShadows: true
       Falloff: 1
       Intensity: 2.5999999
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
       Range: 24.5
       ShadowDistance: 0
       ShadowResolutionTier: 1

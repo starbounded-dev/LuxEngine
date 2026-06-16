@@ -780,6 +780,7 @@ namespace Lux {
 			|| previousSSRScale != m_Options.SSRResolutionScale)
 		{
 			m_TemporalHistoryValid = false;
+		m_CloudHistoryValid = false;
 		}
 	}
 
@@ -1793,6 +1794,56 @@ namespace Lux {
 			m_CloudRenderScale = SanitizeCloudRenderScale(ResolveFrameEnvironment().Atmosphere.VolumetricClouds.RenderScale);
 			m_CloudRenderSize = CalculateVolumetricCloudRenderSize();
 
+			// Baked tileable 3D noise volumes (generated once on the first frame).
+			{
+				auto createNoiseVolume = [](const char* debugName, uint32_t size)
+				{
+					ImageSpecification spec;
+					spec.DebugName = debugName;
+					spec.Dimension = nvrhi::TextureDimension::Texture3D;
+					spec.Format = ImageFormat::RGBA16F;
+					spec.Usage = ImageUsage::Storage;
+					spec.Width = size;
+					spec.Height = size;
+					spec.Depth = size;
+					spec.Mips = 1;
+					spec.Layers = 1;
+					spec.CreateSampler = false;
+					Ref<Image2D> image = Image2D::Create(spec);
+					image->Invalidate();
+					return image;
+				};
+				m_CloudBaseShapeVolume = createNoiseVolume("CloudBaseShape", 128);
+				m_CloudDetailVolume = createNoiseVolume("CloudDetail", 32);
+				m_CloudCurlVolume = createNoiseVolume("CloudCurl", 32);
+
+				ComputePassSpecification baseBakeSpec;
+				baseBakeSpec.DebugName = "CloudNoiseBaseShapeBake";
+				baseBakeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("CloudNoiseBaseShape"));
+				m_CloudBaseShapeBakePass = ComputePass::Create(baseBakeSpec);
+				m_CloudBaseShapeBakePass->SetInput("o_NoiseVolume", m_CloudBaseShapeVolume);
+
+				ComputePassSpecification detailBakeSpec;
+				detailBakeSpec.DebugName = "CloudNoiseDetailBake";
+				detailBakeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("CloudNoiseDetail"));
+				m_CloudDetailBakePass = ComputePass::Create(detailBakeSpec);
+				m_CloudDetailBakePass->SetInput("o_NoiseVolume", m_CloudDetailVolume);
+
+				ComputePassSpecification curlBakeSpec;
+				curlBakeSpec.DebugName = "CloudNoiseCurlBake";
+				curlBakeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("CloudNoiseCurl"));
+				m_CloudCurlBakePass = ComputePass::Create(curlBakeSpec);
+				m_CloudCurlBakePass->SetInput("o_NoiseVolume", m_CloudCurlVolume);
+
+				if (m_CloudBaseShapeBakePass->Validate())
+					m_CloudBaseShapeBakePass->Bake();
+				if (m_CloudDetailBakePass->Validate())
+					m_CloudDetailBakePass->Bake();
+				if (m_CloudCurlBakePass->Validate())
+					m_CloudCurlBakePass->Bake();
+				m_CloudNoiseBaked = false;
+			}
+
 			FramebufferSpecification cloudSpec;
 			cloudSpec.Width = m_CloudRenderSize.x;
 			cloudSpec.Height = m_CloudRenderSize.y;
@@ -1807,15 +1858,55 @@ namespace Lux {
 			cloudSpec.BlendMode = FramebufferBlendMode::OneZero;
 			cloudSpec.DebugName = "VolumetricClouds";
 
-			auto [cloudPipeline, cloudPass] = createFullscreenPass("VolumetricClouds", "VolumetricClouds", cloudSpec, true, {});
+			auto [cloudPipeline, cloudPass] = createFullscreenPass("VolumetricClouds", "VolumetricClouds", cloudSpec, true,
+				[&](const Ref<RenderPass>& pass)
+				{
+					SetRenderPassInputIfValid(pass, "u_CloudBaseShape", m_CloudBaseShapeVolume);
+					SetRenderPassInputIfValid(pass, "u_CloudDetail", m_CloudDetailVolume);
+					SetRenderPassInputIfValid(pass, "u_CloudCurl", m_CloudCurlVolume);
+				});
 			m_VolumetricCloudPipeline = cloudPipeline;
 			m_VolumetricCloudPass = cloudPass;
 			m_VolumetricCloudMaterial = Material::Create(cloudPipeline->GetShader(), "VolumetricClouds");
 
+			// Temporal scattering integration: half-res history (ping-pong) + resolve pass.
+			{
+				auto createCloudHistory = [&](const char* debugName)
+				{
+					ImageSpecification spec;
+					spec.DebugName = debugName;
+					spec.Format = ImageFormat::RGBA16F;
+					spec.Usage = ImageUsage::Storage;
+					spec.Width = glm::max(m_CloudRenderSize.x, 1u);
+					spec.Height = glm::max(m_CloudRenderSize.y, 1u);
+					Ref<Image2D> image = Image2D::Create(spec);
+					image->Invalidate();
+					return image;
+				};
+				m_CloudHistoryImages[0] = createCloudHistory("CloudHistory-A");
+				m_CloudHistoryImages[1] = createCloudHistory("CloudHistory-B");
+
+				ComputePassSpecification temporalSpec;
+				temporalSpec.DebugName = "VolumetricCloudTemporal";
+				temporalSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("VolumetricCloudTemporal"));
+				m_VolumetricCloudTemporalPass = ComputePass::Create(temporalSpec);
+				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloud", m_VolumetricCloudPass->GetOutput(0));
+				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloudDepth", m_VolumetricCloudPass->GetOutput(1));
+				m_VolumetricCloudTemporalPass->SetInput("u_HistoryCloud", m_CloudHistoryImages[0]);
+				m_VolumetricCloudTemporalPass->SetInput("o_ResolvedCloud", m_CloudHistoryImages[1]);
+				m_VolumetricCloudTemporalPass->SetInput("Camera", m_UBSCamera);
+				m_VolumetricCloudTemporalPass->SetInput("SceneData", m_UBSScene);
+				m_VolumetricCloudTemporalPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+				m_VolumetricCloudTemporalPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+				if (m_VolumetricCloudTemporalPass->Validate())
+					m_VolumetricCloudTemporalPass->Bake();
+				m_CloudHistoryValid = false;
+			}
+
 			auto [cloudCompositePipeline, cloudCompositePass] = createFullscreenPass("VolumetricCloudComposite", "VolumetricCloudComposite", createSceneColorFramebufferSpec("VolumetricCloudComposite", true), true,
 				[&](const Ref<RenderPass>& pass)
 				{
-					SetRenderPassInputIfValid(pass, "u_CloudTexture", m_VolumetricCloudPass->GetOutput(0));
+					SetRenderPassInputIfValid(pass, "u_CloudTexture", m_CloudHistoryImages[1]);
 					SetRenderPassInputIfValid(pass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
 				});
 			m_VolumetricCloudCompositePipeline = cloudCompositePipeline;
@@ -2153,6 +2244,21 @@ namespace Lux {
 		m_CloudRenderScale = renderScale;
 		m_CloudRenderSize = cloudSize;
 
+		if (cloudSizeChanged)
+		{
+			for (Ref<Image2D>& historyImage : m_CloudHistoryImages)
+			{
+				if (historyImage)
+					historyImage->Resize(cloudSize.x, cloudSize.y);
+			}
+			m_CloudHistoryValid = false;
+			if (m_VolumetricCloudTemporalPass && m_VolumetricCloudPass)
+			{
+				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloud", m_VolumetricCloudPass->GetOutput(0));
+				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloudDepth", m_VolumetricCloudPass->GetOutput(1));
+			}
+		}
+
 		if (m_VolumetricCloudCompositePass && m_VolumetricCloudPass)
 		{
 			SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudTexture", m_VolumetricCloudPass->GetOutput(0));
@@ -2202,6 +2308,7 @@ namespace Lux {
 			SetRenderPassInputIfValid(renderPass, "r_DefaultSampler", Renderer::GetDefaultSampler());
 			SetRenderPassInputIfValid(renderPass, "r_PointSampler", Renderer::GetPointSampler());
 			SetRenderPassInputIfValid(renderPass, "r_LinearSampler", Renderer::GetClampSampler());
+			SetRenderPassInputIfValid(renderPass, "r_RepeatSampler", Renderer::GetRepeatSampler());
 		}
 		if (hasInput(PassInputDepth) && m_PreDepthPass)
 			SetRenderPassInputIfValid(renderPass, "u_DepthTexture", m_PreDepthPass->GetDepthOutput());
@@ -2573,6 +2680,7 @@ namespace Lux {
 		ResizeBloomResources();
 		CreateBloomPassMaterials();
 		m_TemporalHistoryValid = false;
+		m_CloudHistoryValid = false;
 	}
 
 	void SceneRenderer::CreateHZBPassMaterials()
@@ -3468,6 +3576,16 @@ namespace Lux {
 			std::vector<RenderGraph::ResourceHandle> cloudCompositeReads = sceneColorCurrent;
 			appendResources(cloudCompositeReads, preDepthOutputs);
 			appendResources(cloudCompositeReads, cloudOutputs);
+
+			// Temporal scattering integration (compute) between raymarch and composite.
+			if (m_VolumetricCloudTemporalPass && m_CloudHistoryImages[0] && m_CloudHistoryImages[1])
+			{
+				const uint32_t resolvedIndex = (m_CloudHistoryIndex & 1u) ^ 1u;
+				const RenderGraph::ResourceHandle cloudResolved = addTexture("Volumetric Cloud Resolved", m_CloudHistoryImages[resolvedIndex]);
+				addPass("Volumetric Cloud Temporal", cloudOutputs, { cloudResolved }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::VolumetricCloudTemporalPass));
+				appendResources(cloudCompositeReads, { cloudResolved });
+			}
+
 			std::vector<RenderGraph::ResourceHandle> cloudCompositeOutputs = addRenderPassResources("Volumetric Cloud Composite", m_VolumetricCloudCompositePass);
 			addPass("Volumetric Cloud Composite", cloudCompositeReads, cloudCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::VolumetricCloudCompositePass));
 			sceneColorCurrent = cloudCompositeOutputs;
@@ -3639,6 +3757,7 @@ namespace Lux {
 						if (name == "Skybox") return "SkyboxPass";
 						if (name == "Sky Atmosphere") return "SkyAtmospherePass";
 						if (name == "Volumetric Clouds") return "VolumetricCloudPass";
+						if (name == "Volumetric Cloud Temporal") return "VolumetricCloudTemporalPass";
 						if (name == "Volumetric Cloud Composite") return "VolumetricCloudCompositePass";
 						if (name == "Atmospheric Fog") return "AtmosphericFogPass";
 						if (name == "Selected Geometry") return "SelectedGeometryPass";
@@ -4063,6 +4182,11 @@ namespace Lux {
 			if (isSameImage(historyImage))
 				return false;
 		}
+		for (const Ref<Image2D>& historyImage : m_CloudHistoryImages)
+		{
+			if (isSameImage(historyImage))
+				return false;
+		}
 		if (m_DOFPass && isSameImage(m_DOFPass->GetOutput(0)))
 			return false;
 
@@ -4322,38 +4446,73 @@ namespace Lux {
 				glm::max(sky.MultiScattering, 0.0f),
 				glm::max(sky.AerialPerspectiveViewDistanceScale, 0.0f)
 			};
-			m_AtmosphereUB.CloudParams0 = {
+			m_AtmosphereUB.CloudGlobal0 = {
 				glm::clamp(clouds.Coverage, 0.0f, 1.0f),
 				glm::max(clouds.Density, 0.0f),
-				clouds.Altitude,
-				glm::max(clouds.Thickness, 1.0f)
-			};
-			m_AtmosphereUB.CloudParams1 = {
 				windDirection.x,
-				windDirection.y,
+				windDirection.y
+			};
+			m_AtmosphereUB.CloudGlobal1 = {
 				clouds.WindSpeed,
-				glm::max(clouds.ShapeScale, 0.000001f)
+				glm::max(0.0f, Application::Get().GetTime()),
+				glm::max(clouds.WeatherScale, 1.0e-7f),
+				glm::clamp(clouds.AerialPerspective, 0.0f, 1.0f)
 			};
-			m_AtmosphereUB.CloudParams2 = {
-				glm::max(clouds.DetailScale, 0.000001f),
-				glm::clamp(clouds.DetailStrength, 0.0f, 1.0f),
-				glm::max(clouds.Absorption, 0.001f),
-				glm::max(clouds.SilverIntensity, 0.0f)
+			m_AtmosphereUB.CloudLighting0 = glm::vec4(glm::max(clouds.Albedo, glm::vec3(0.0f)), glm::max(clouds.AmbientBoost, 0.0f));
+			m_AtmosphereUB.CloudLighting1 = {
+				glm::max(clouds.Extinction, 1.0e-4f),
+				glm::max(clouds.ScatterMultiplier, 0.0f),
+				glm::max(clouds.SilverIntensity, 0.0f),
+				glm::clamp(clouds.PowderStrength, 0.0f, 2.0f)
 			};
-			m_AtmosphereUB.CloudColor = glm::vec4(glm::max(clouds.Albedo, glm::vec3(0.0f)), glm::max(clouds.AmbientBoost, 0.0f));
+			m_AtmosphereUB.CloudLighting2 = {
+				glm::clamp(clouds.PhaseG0, -0.95f, 0.95f),
+				glm::clamp(clouds.PhaseG1, -0.95f, 0.95f),
+				glm::clamp(clouds.PhaseBlend, 0.0f, 1.0f),
+				glm::clamp(clouds.MultiScatter, 0.0f, 1.0f)
+			};
 			const float cloudMaxTraceDistance = glm::max(clouds.MaxTraceDistance, 1.0f);
-			m_AtmosphereUB.CloudRenderParams = {
+			m_AtmosphereUB.CloudRender0 = {
 				cloudMaxTraceDistance,
 				glm::clamp(clouds.DistanceFade, 0.0f, cloudMaxTraceDistance),
 				glm::clamp(clouds.LODStartDistance, 0.0f, cloudMaxTraceDistance),
 				glm::max(clouds.ShadowTraceDistance, 0.0f)
 			};
-			m_AtmosphereUB.CloudRenderParams2 = {
+			m_AtmosphereUB.CloudRender1 = {
 				(float)SanitizeCloudRenderScale(clouds.RenderScale),
-				0.0f,
-				0.0f,
-				0.0f
+				(float)glm::clamp(clouds.MarchSteps, 16u, 128u),
+				(float)glm::clamp(clouds.ShadowSteps, 1u, 8u),
+				(float)glm::clamp(clouds.ShadowSteps, 1u, 8u)
 			};
+			for (uint32_t layerIndex = 0; layerIndex < 3u; layerIndex++)
+			{
+				const CloudLayerSettings& layer = clouds.Layers[layerIndex];
+				UBAtmosphere::CloudLayerData& gpu = m_AtmosphereUB.CloudLayers[layerIndex];
+				gpu.Params0 = {
+					layer.BottomAltitude,
+					glm::max(layer.Thickness, 1.0f),
+					glm::clamp(layer.Coverage, 0.0f, 1.0f),
+					glm::clamp(layer.CloudShape, 0.0f, 1.0f)
+				};
+				gpu.Params1 = {
+					glm::max(layer.DensityScale, 0.0f),
+					glm::max(layer.ShapeScale, 1.0e-3f),
+					glm::max(layer.DetailScale, 1.0e-3f),
+					glm::clamp(layer.DetailStrength, 0.0f, 1.0f)
+				};
+				gpu.Params2 = {
+					glm::max(layer.WindSpeedScale, 0.0f),
+					layer.WindAngleOffset,
+					glm::clamp(layer.AnvilBias, 0.0f, 1.0f),
+					glm::clamp(layer.ErosionStrength, 0.0f, 1.0f)
+				};
+				gpu.Params3 = {
+					(float)(uint32_t)layer.Tier,
+					layer.Enabled ? 1.0f : 0.0f,
+					glm::clamp(layer.CoverageBias, -1.0f, 1.0f),
+					layer.HeightSkew
+				};
+			}
 			m_AtmosphereUB.FogColorDensity = glm::vec4(glm::max(fog.FogColor, glm::vec3(0.0f)), glm::max(fog.FogDensity, 0.0f));
 			m_AtmosphereUB.FogParams0 = {
 				glm::max(fog.FogHeightFalloff, 0.0001f),
@@ -6084,6 +6243,33 @@ namespace Lux {
 	{
 		ScopedCPUProfile cpuProfile(*this, "PreDepthPass");
 		BeginProfiledGPU("PreDepthPass");
+
+		// Correct an NVRHI depth-layout tracking desync. The PreDepth depth is sampled
+		// every frame by later passes (deferred lighting / AO / SSR / TAA / composite /
+		// DOF / fog / clouds) which leave it in SHADER_READ_ONLY, but NVRHI's tracked
+		// state falls out of sync so the depth-write passes don't transition it back,
+		// tripping a validation error at vkCmdBeginRendering. Tell NVRHI the real current
+		// state (ShaderResource) and transition it to DepthWrite before the depth pass.
+		// Only do this once the image has persisted a frame (i.e. it was actually
+		// sampled); the first frame after (re)creation it is already in DepthWrite.
+		if (m_PreDepthPass && m_PreDepthPass->GetDepthOutput())
+		{
+			nvrhi::TextureHandle depthHandle = m_PreDepthPass->GetDepthOutput()->GetHandle();
+			void* depthRaw = depthHandle.Get();
+			if (depthHandle && depthRaw == m_PreDepthBarrierLastHandle)
+			{
+				Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
+				Renderer::Submit([commandBuffer, depthHandle]()
+					{
+						nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
+						commandList->beginTrackingTextureState(depthHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+						commandList->setTextureState(depthHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::DepthWrite);
+						commandList->commitBarriers();
+					});
+			}
+			m_PreDepthBarrierLastHandle = depthRaw;
+		}
+
 		Renderer::BeginRenderPass(m_CommandBuffer, m_PreDepthPass, /*explicitClear=*/true);
 
 		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
@@ -6336,11 +6522,38 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::BakeCloudNoise()
+	{
+		if (m_CloudNoiseBaked || !m_CloudBaseShapeBakePass || !m_CloudDetailBakePass || !m_CloudCurlBakePass)
+			return;
+
+		BeginProfiledGPU("CloudNoiseBake");
+		Renderer::BeginComputePass(m_CommandBuffer, m_CloudBaseShapeBakePass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_CloudBaseShapeBakePass, nullptr, { 16u, 16u, 16u }, Buffer());
+		Renderer::EndComputePass(m_CommandBuffer, m_CloudBaseShapeBakePass);
+		m_CloudBaseShapeBakePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_CloudBaseShapeVolume, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+
+		Renderer::BeginComputePass(m_CommandBuffer, m_CloudDetailBakePass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_CloudDetailBakePass, nullptr, { 4u, 4u, 4u }, Buffer());
+		Renderer::EndComputePass(m_CommandBuffer, m_CloudDetailBakePass);
+		m_CloudDetailBakePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_CloudDetailVolume, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+
+		Renderer::BeginComputePass(m_CommandBuffer, m_CloudCurlBakePass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_CloudCurlBakePass, nullptr, { 4u, 4u, 4u }, Buffer());
+		Renderer::EndComputePass(m_CommandBuffer, m_CloudCurlBakePass);
+		m_CloudCurlBakePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_CloudCurlVolume, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+
+		m_CloudNoiseBaked = true;
+	}
+
 	void SceneRenderer::VolumetricCloudPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "VolumetricCloudPass");
 		if (!m_VolumetricCloudPass || !m_VolumetricCloudMaterial || !m_FrameEnvironment.VolumetricCloudsEnabled)
 			return;
+
+		BakeCloudNoise();
 
 		BeginProfiledGPU("VolumetricCloudPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_VolumetricCloudPass);
@@ -6349,13 +6562,62 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::VolumetricCloudTemporalPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "VolumetricCloudTemporalPass");
+		if (!m_VolumetricCloudTemporalPass || !m_VolumetricCloudPass || !m_FrameEnvironment.VolumetricCloudsEnabled)
+			return;
+
+		const uint32_t readIndex = m_CloudHistoryIndex & 1u;
+		const uint32_t writeIndex = readIndex ^ 1u;
+		Ref<Image2D> historyInput = m_CloudHistoryImages[readIndex];
+		Ref<Image2D> historyOutput = m_CloudHistoryImages[writeIndex];
+		if (!historyInput || !historyOutput)
+			return;
+
+		m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloud", m_VolumetricCloudPass->GetOutput(0));
+		m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloudDepth", m_VolumetricCloudPass->GetOutput(1));
+		m_VolumetricCloudTemporalPass->SetInput("u_HistoryCloud", historyInput);
+		m_VolumetricCloudTemporalPass->SetInput("o_ResolvedCloud", historyOutput);
+
+		struct CloudTemporalPushConstants
+		{
+			float Blend;
+			uint32_t HasHistory;
+			glm::vec2 Padding;
+		} push;
+		push.Blend = 0.92f;
+		push.HasHistory = m_CloudHistoryValid ? 1u : 0u;
+		push.Padding = { 0.0f, 0.0f };
+
+		const glm::uvec3 groups = {
+			(glm::max(m_CloudRenderSize.x, 1u) + 7u) / 8u,
+			(glm::max(m_CloudRenderSize.y, 1u) + 7u) / 8u,
+			1u
+		};
+
+		BeginProfiledGPU("VolumetricCloudTemporalPass");
+		Renderer::BeginComputePass(m_CommandBuffer, m_VolumetricCloudTemporalPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_VolumetricCloudTemporalPass, nullptr, groups, Buffer(&push, sizeof(push)));
+		Renderer::EndComputePass(m_CommandBuffer, m_VolumetricCloudTemporalPass);
+		m_VolumetricCloudTemporalPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, historyOutput, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+
+		m_CloudHistoryIndex = writeIndex;
+		m_CloudHistoryValid = true;
+	}
+
 	void SceneRenderer::VolumetricCloudCompositePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "VolumetricCloudCompositePass");
 		if (!m_VolumetricCloudCompositePass || !m_VolumetricCloudCompositeMaterial || !m_VolumetricCloudPass || !m_FrameEnvironment.VolumetricCloudsEnabled)
 			return;
 
-		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudTexture", m_VolumetricCloudPass->GetOutput(0));
+		// Prefer the temporally-resolved half-res buffer; fall back to the raw raymarch.
+		Ref<Image2D> cloudColor = (m_VolumetricCloudTemporalPass && m_CloudHistoryImages[m_CloudHistoryIndex & 1u])
+			? m_CloudHistoryImages[m_CloudHistoryIndex & 1u]
+			: m_VolumetricCloudPass->GetOutput(0);
+		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudTexture", cloudColor);
 		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
 
 		BeginProfiledGPU("VolumetricCloudCompositePass");
@@ -7678,6 +7940,7 @@ namespace Lux {
 		RefreshRenderResolutionScale();
 		RefreshScreenSpaceEffectResources();
 		m_TemporalHistoryValid = false;
+		m_CloudHistoryValid = false;
 	}
 
 } // namespace Lux

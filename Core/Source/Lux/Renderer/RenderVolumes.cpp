@@ -147,22 +147,23 @@ namespace Lux {
 				target.Coverage = BlendValue(target.Coverage, settings.Coverage, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_Density))
 				target.Density = BlendValue(target.Density, settings.Density, weight);
+			// Altitude / Thickness / shape / detail overrides target the primary (low) tier.
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_Altitude))
-				target.Altitude = BlendValue(target.Altitude, settings.Altitude, weight);
+				target.Layers[0].BottomAltitude = BlendValue(target.Layers[0].BottomAltitude, settings.Layers[0].BottomAltitude, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_Thickness))
-				target.Thickness = BlendValue(target.Thickness, settings.Thickness, weight);
+				target.Layers[0].Thickness = BlendValue(target.Layers[0].Thickness, settings.Layers[0].Thickness, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_WindDirection))
 				target.WindDirection = BlendValue(target.WindDirection, settings.WindDirection, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_WindSpeed))
 				target.WindSpeed = BlendValue(target.WindSpeed, settings.WindSpeed, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_ShapeScale))
-				target.ShapeScale = BlendValue(target.ShapeScale, settings.ShapeScale, weight);
+				target.Layers[0].ShapeScale = BlendValue(target.Layers[0].ShapeScale, settings.Layers[0].ShapeScale, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_DetailScale))
-				target.DetailScale = BlendValue(target.DetailScale, settings.DetailScale, weight);
+				target.Layers[0].DetailScale = BlendValue(target.Layers[0].DetailScale, settings.Layers[0].DetailScale, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_DetailStrength))
-				target.DetailStrength = BlendValue(target.DetailStrength, settings.DetailStrength, weight);
+				target.Layers[0].DetailStrength = BlendValue(target.Layers[0].DetailStrength, settings.Layers[0].DetailStrength, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_Absorption))
-				target.Absorption = BlendValue(target.Absorption, settings.Absorption, weight);
+				target.Extinction = BlendValue(target.Extinction, settings.Extinction, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_SilverIntensity))
 				target.SilverIntensity = BlendValue(target.SilverIntensity, settings.SilverIntensity, weight);
 			if (RenderVolumeEvaluator::HasOverride(mask, CloudOverride_Albedo))

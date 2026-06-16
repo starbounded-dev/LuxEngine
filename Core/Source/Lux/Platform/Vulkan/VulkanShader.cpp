@@ -413,6 +413,9 @@ namespace Lux {
 					case 3:
 						inputDecl.Type = RenderInputType::ImageSampler3D;
 						break;
+					case 4:
+						inputDecl.Type = RenderInputType::ImageSampler3DVolume;
+						break;
 					default:
 						LUX_CORE_ASSERT(false);
 				}
@@ -444,6 +447,9 @@ namespace Lux {
 						break;
 					case 3:
 						inputDecl.Type = RenderInputType::ImageSampler3D;
+						break;
+					case 4:
+						inputDecl.Type = RenderInputType::ImageSampler3DVolume;
 						break;
 					default:
 						LUX_CORE_ASSERT(false);
@@ -481,6 +487,9 @@ namespace Lux {
 					case 3:
 						inputDecl.Type = RenderInputType::ImageSampler3D;
 						break;
+					case 4:
+						inputDecl.Type = RenderInputType::ImageSampler3DVolume;
+						break;
 					default:
 						LUX_CORE_ASSERT(false);
 
@@ -513,6 +522,9 @@ namespace Lux {
 						break;
 					case 3:
 						inputDecl.Type = RenderInputType::StorageImage3D;
+						break;
+					case 4:
+						inputDecl.Type = RenderInputType::StorageImage3DVolume;
 						break;
 					default:
 						LUX_CORE_ASSERT(false);

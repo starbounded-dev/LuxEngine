@@ -856,7 +856,9 @@ namespace Lux {
 		void LightCullingPass();
 		void SkyboxPass();
 		void SkyAtmospherePass();
+		void BakeCloudNoise();
 		void VolumetricCloudPass();
+		void VolumetricCloudTemporalPass();
 		void VolumetricCloudCompositePass();
 		void AtmosphericFogPass();
 		void SelectedGeometryPass();
@@ -1095,6 +1097,14 @@ namespace Lux {
 				glm::uvec4 Metadata = { 0u, 0u, 0u, 0u };
 			};
 
+			struct CloudLayerData
+			{
+				glm::vec4 Params0 = { 1200.0f, 1500.0f, 0.5f, 0.85f };
+				glm::vec4 Params1 = { 1.0f, 1.0f, 1.0f, 0.5f };
+				glm::vec4 Params2 = { 1.0f, 0.0f, 0.0f, 0.5f };
+				glm::vec4 Params3 = { 0.0f, 1.0f, 0.0f, 0.0f };
+			};
+
 			glm::vec4 RayleighScattering = { 5.802f, 13.558f, 33.100f, 0.0025f };
 			glm::vec4 MieScattering = { 3.996f, 3.996f, 3.996f, 0.0015f };
 			glm::vec4 MieAbsorption = { 4.400f, 4.400f, 4.400f, 0.76f };
@@ -1102,12 +1112,14 @@ namespace Lux {
 			glm::vec4 GroundAlbedo = { 0.18f, 0.18f, 0.18f, 0.15f };
 			glm::vec4 AtmosphereParams = { 6360.0f, 100.0f, 8.0f, 1.2f };
 			glm::vec4 SunParams = { 20.0f, 0.00935f, 0.35f, 1.0f };
-			glm::vec4 CloudParams0 = { 0.58f, 0.35f, 1800.0f, 650.0f };
-			glm::vec4 CloudParams1 = { 1.0f, 0.15f, 15.0f, 0.00065f };
-			glm::vec4 CloudParams2 = { 0.0045f, 0.35f, 0.85f, 0.35f };
-			glm::vec4 CloudColor = { 1.0f, 0.98f, 0.92f, 0.35f };
-			glm::vec4 CloudRenderParams = { 6000.0f, 2500.0f, 2000.0f, 2500.0f };
-			glm::vec4 CloudRenderParams2 = { 2.0f, 0.0f, 0.0f, 0.0f };
+			glm::vec4 CloudGlobal0 = { 0.5f, 1.0f, 1.0f, 0.15f };
+			glm::vec4 CloudGlobal1 = { 15.0f, 0.0f, 0.00004f, 0.0f };
+			glm::vec4 CloudLighting0 = { 1.0f, 0.98f, 0.92f, 0.35f };
+			glm::vec4 CloudLighting1 = { 0.08f, 1.0f, 0.4f, 1.0f };
+			glm::vec4 CloudLighting2 = { 0.62f, -0.15f, 0.5f, 0.5f };
+			glm::vec4 CloudRender0 = { 9000.0f, 3000.0f, 3000.0f, 3000.0f };
+			glm::vec4 CloudRender1 = { 2.0f, 48.0f, 6.0f, 6.0f };
+			std::array<CloudLayerData, 3> CloudLayers{};
 			glm::vec4 FogColorDensity = { 0.52f, 0.62f, 0.72f, 0.015f };
 			glm::vec4 FogParams0 = { 0.12f, 0.0f, 0.85f, 10000.0f };
 			glm::vec4 FogDirectionalInscattering = { 1.0f, 0.88f, 0.65f, 8.0f };
@@ -1376,6 +1388,25 @@ namespace Lux {
 		Ref<RenderPass>  m_AtmosphericFogPass;
 		uint32_t         m_CloudRenderScale = 2;
 		glm::uvec2       m_CloudRenderSize = { 1, 1 };
+
+		// Baked tileable cloud noise volumes (generated once via compute).
+		Ref<Image2D>     m_CloudBaseShapeVolume; // 128^3 Perlin-Worley + Worley FBM
+		Ref<Image2D>     m_CloudDetailVolume;    // 32^3  Worley FBM (erosion)
+		Ref<Image2D>     m_CloudCurlVolume;      // 32^3  curl noise (detail advection)
+		Ref<ComputePass> m_CloudBaseShapeBakePass;
+		Ref<ComputePass> m_CloudDetailBakePass;
+		Ref<ComputePass> m_CloudCurlBakePass;
+		bool             m_CloudNoiseBaked = false;
+
+		// Temporal scattering integration (reproject + EMA over half-res history).
+		Ref<ComputePass> m_VolumetricCloudTemporalPass;
+		Ref<Image2D>     m_CloudHistoryImages[2];
+		uint32_t         m_CloudHistoryIndex = 0;
+		bool             m_CloudHistoryValid = false;
+
+		// Tracks the PreDepth depth handle across frames so we only correct its NVRHI
+		// state desync once it has actually been sampled (see PreDepthPass).
+		void*            m_PreDepthBarrierLastHandle = nullptr;
 
 		// ── Composite (tone-map + opacity) ────────────────────────────────────
 		Ref<Framebuffer> m_CompositingFramebuffer;

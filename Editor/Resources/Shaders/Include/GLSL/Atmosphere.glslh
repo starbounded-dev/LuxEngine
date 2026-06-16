@@ -151,44 +151,9 @@ float GetAtmosphereAltitude(vec3 worldPosition)
 	return length(worldPosition - GetAtmospherePlanetCenter()) - GetAtmospherePlanetRadiusMeters();
 }
 
-float EvaluateCloudDensityLOD(vec3 worldPosition, float lodFactor)
-{
-	float bottom = u_Atmosphere.CloudParams0.z;
-	float thickness = max(u_Atmosphere.CloudParams0.w, 1.0);
-	float height01 = clamp((GetAtmosphereAltitude(worldPosition) - bottom) / thickness, 0.0, 1.0);
-	float heightProfile = smoothstep(0.0, 0.15, height01) * (1.0 - smoothstep(0.72, 1.0, height01));
-
-	vec2 windDirection = u_Atmosphere.CloudParams1.xy;
-	if (dot(windDirection, windDirection) < 0.0001)
-		windDirection = vec2(1.0, 0.0);
-	windDirection = normalize(windDirection);
-
-	float time = float(u_Atmosphere.Steps.z) * (1.0 / 60.0);
-	vec3 windOffset = vec3(windDirection.x, 0.0, windDirection.y) * u_Atmosphere.CloudParams1.z * time;
-	vec3 shapeCoord = (worldPosition + windOffset) * max(u_Atmosphere.CloudParams1.w, 0.000001);
-	vec3 detailCoord = (worldPosition + windOffset * 2.3) * max(u_Atmosphere.CloudParams2.x, 0.000001);
-
-	lodFactor = clamp(lodFactor, 0.0, 1.0);
-	uint shapeOctaves = lodFactor > 0.66 ? 3u : (lodFactor > 0.33 ? 4u : 5u);
-	uint detailOctaves = lodFactor > 0.5 ? 2u : 4u;
-	float detailWeight = 1.0 - smoothstep(0.35, 0.95, lodFactor);
-
-	float shape = FBMCloudNoiseLOD(shapeCoord, shapeOctaves);
-	float coverage = clamp(u_Atmosphere.CloudParams0.x, 0.0, 1.0);
-	float density = smoothstep(coverage, 1.0, shape);
-	float detailStrength = clamp(u_Atmosphere.CloudParams2.y, 0.0, 1.0) * detailWeight;
-	if (detailStrength > 0.001)
-	{
-		float detail = FBMCloudNoiseLOD(detailCoord, detailOctaves);
-		density -= (detail - 0.5) * detailStrength;
-	}
-	return clamp(density, 0.0, 1.0) * heightProfile * max(u_Atmosphere.CloudParams0.y, 0.0);
-}
-
-float EvaluateCloudDensity(vec3 worldPosition)
-{
-	return EvaluateCloudDensityLOD(worldPosition, 0.0);
-}
+// NOTE: Volumetric cloud density is now evaluated directly in VolumetricClouds.glsl
+// using the baked 3D noise volumes (see CloudNoise.glslh / CloudNoiseBaseShape.glsl).
+// The old procedural FBM density evaluator was removed from this shared header.
 
 float LinearizeAtmosphereDepth(float screenDepth)
 {

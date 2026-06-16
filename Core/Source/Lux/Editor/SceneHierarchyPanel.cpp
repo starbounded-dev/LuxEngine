@@ -55,6 +55,98 @@ namespace Lux {
 			}
 		}
 
+		inline void DrawCloudLayerUI(const char* label, CloudLayerSettings& layer, const std::function<void()>& applySettings)
+		{
+			if (!ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_SpanAvailWidth))
+				return;
+
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("Enabled", layer.Enabled)) applySettings();
+
+			static const char* kTypeLabels[] = {
+				"Stratus", "Stratocumulus", "Cumulus", "Cumulonimbus",
+				"Altocumulus", "Altostratus", "Cirrus", "Cirrocumulus", "Cirrostratus"
+			};
+			int32_t typeIndex = (int32_t)layer.Type;
+			if (ImGuiEx::PropertyDropdown("Cloud Type", kTypeLabels, IM_ARRAYSIZE(kTypeLabels), &typeIndex))
+			{
+				ApplyCloudTypePreset(layer, (CloudType)typeIndex);
+				applySettings();
+			}
+
+			if (ImGuiEx::Property("Bottom Altitude (m)", layer.BottomAltitude, 10.0f, 0.0f, 20000.0f)) applySettings();
+			if (ImGuiEx::Property("Thickness (m)", layer.Thickness, 10.0f, 1.0f, 12000.0f)) applySettings();
+			if (ImGuiEx::Property("Coverage", layer.Coverage, 0.01f, 0.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Shape (flat<->towering)", layer.CloudShape, 0.01f, 0.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Density Scale", layer.DensityScale, 0.01f, 0.0f, 4.0f)) applySettings();
+			if (ImGuiEx::Property("Base Noise Scale", layer.ShapeScale, 0.01f, 0.05f, 8.0f)) applySettings();
+			if (ImGuiEx::Property("Detail Noise Scale", layer.DetailScale, 0.01f, 0.05f, 8.0f)) applySettings();
+			if (ImGuiEx::Property("Detail Strength", layer.DetailStrength, 0.01f, 0.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Erosion", layer.ErosionStrength, 0.01f, 0.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Anvil Bias", layer.AnvilBias, 0.01f, 0.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Coverage Bias", layer.CoverageBias, 0.01f, -1.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Wind Speed Scale", layer.WindSpeedScale, 0.01f, 0.0f, 8.0f)) applySettings();
+			if (ImGuiEx::Property("Wind Angle Offset", layer.WindAngleOffset, 0.01f, -3.14159f, 3.14159f)) applySettings();
+			ImGuiEx::EndPropertyGrid();
+
+			ImGui::TreePop();
+		}
+
+		// Shared UI for VolumetricCloudSettings, used by both the standalone cloud
+		// component and the atmosphere render-volume's embedded settings.
+		inline void DrawCloudSettingsUI(VolumetricCloudSettings& settings, const std::function<void()>& applySettings)
+		{
+			ImGui::TextDisabled("Global");
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("Enabled", settings.Enabled)) applySettings();
+			if (ImGuiEx::Property("Coverage", settings.Coverage, 0.01f, 0.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Density", settings.Density, 0.01f, 0.0f, 4.0f)) applySettings();
+			if (ImGuiEx::Property("Wind Direction", settings.WindDirection, 0.01f, -1.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Wind Speed", settings.WindSpeed, 0.1f, -1000.0f, 1000.0f)) applySettings();
+			if (ImGuiEx::Property("Weather Scale", settings.WeatherScale, 0.000001f, 0.000001f, 0.01f)) applySettings();
+			ImGuiEx::EndPropertyGrid();
+
+			ImGui::Spacing();
+			ImGui::TextDisabled("Cloud Tiers");
+			DrawCloudLayerUI("Low Tier", settings.Layers[0], applySettings);
+			DrawCloudLayerUI("Mid Tier", settings.Layers[1], applySettings);
+			DrawCloudLayerUI("High Tier", settings.Layers[2], applySettings);
+
+			ImGui::Spacing();
+			ImGui::TextDisabled("Lighting");
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::PropertyColor("Albedo", settings.Albedo)) applySettings();
+			if (ImGuiEx::Property("Ambient Boost", settings.AmbientBoost, 0.01f, 0.0f, 8.0f)) applySettings();
+			if (ImGuiEx::Property("Extinction", settings.Extinction, 0.001f, 0.0001f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Scatter Multiplier", settings.ScatterMultiplier, 0.01f, 0.0f, 8.0f)) applySettings();
+			if (ImGuiEx::Property("Silver Intensity", settings.SilverIntensity, 0.01f, 0.0f, 8.0f)) applySettings();
+			if (ImGuiEx::Property("Powder Strength", settings.PowderStrength, 0.01f, 0.0f, 2.0f)) applySettings();
+			if (ImGuiEx::Property("Phase Forward (g0)", settings.PhaseG0, 0.01f, -0.95f, 0.95f)) applySettings();
+			if (ImGuiEx::Property("Phase Back (g1)", settings.PhaseG1, 0.01f, -0.95f, 0.95f)) applySettings();
+			if (ImGuiEx::Property("Phase Blend", settings.PhaseBlend, 0.01f, 0.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Multi-Scatter", settings.MultiScatter, 0.01f, 0.0f, 1.0f)) applySettings();
+			if (ImGuiEx::Property("Aerial Perspective", settings.AerialPerspective, 0.01f, 0.0f, 1.0f)) applySettings();
+			ImGuiEx::EndPropertyGrid();
+
+			ImGui::Spacing();
+			ImGui::TextDisabled("Performance");
+			ImGuiEx::BeginPropertyGrid();
+			const char* renderScaleLabels[] = { "Full", "Half", "Quarter" };
+			int32_t renderScaleIndex = settings.RenderScale == 1u ? 0 : (settings.RenderScale == 4u ? 2 : 1);
+			if (ImGuiEx::PropertyDropdown("Render Scale", renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels), &renderScaleIndex))
+			{
+				settings.RenderScale = renderScaleIndex == 0 ? 1u : (renderScaleIndex == 2 ? 4u : 2u);
+				applySettings();
+			}
+			if (ImGuiEx::Property("Max Distance", settings.MaxTraceDistance, 100.0f, 500.0f, 100000.0f)) applySettings();
+			if (ImGuiEx::Property("Fade Distance", settings.DistanceFade, 100.0f, 0.0f, 100000.0f)) applySettings();
+			if (ImGuiEx::Property("LOD Start", settings.LODStartDistance, 100.0f, 0.0f, 100000.0f)) applySettings();
+			if (ImGuiEx::Property("Shadow Distance", settings.ShadowTraceDistance, 100.0f, 0.0f, 100000.0f)) applySettings();
+			if (ImGuiEx::Property("March Steps", settings.MarchSteps, 16u, 128u)) applySettings();
+			if (ImGuiEx::Property("Light Cone Steps", settings.ShadowSteps, 1u, 8u)) applySettings();
+			ImGuiEx::EndPropertyGrid();
+		}
+
 		template<typename TValue, typename Getter>
 		bool IsSelectionInconsistent(const Ref<Scene>& scene, const std::vector<UUID>& entityIDs, Getter&& getter)
 		{
@@ -3119,46 +3211,7 @@ namespace Lux {
 					});
 				};
 
-				ImGui::TextDisabled("Clouds Shape");
-				ImGuiEx::BeginPropertyGrid();
-				if (ImGuiEx::Property("Enabled", settings.Enabled)) applySettings();
-				if (ImGuiEx::Property("Coverage", settings.Coverage, 0.01f, 0.0f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Density", settings.Density, 0.01f, 0.0f, 4.0f)) applySettings();
-				if (ImGuiEx::Property("Altitude", settings.Altitude, 10.0f, -100000.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("Thickness", settings.Thickness, 10.0f, 1.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("Wind Direction", settings.WindDirection, 0.01f, -1.0f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Wind Speed", settings.WindSpeed, 0.1f, -1000.0f, 1000.0f)) applySettings();
-				if (ImGuiEx::Property("Shape Scale", settings.ShapeScale, 0.00001f, 0.000001f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Detail Scale", settings.DetailScale, 0.00001f, 0.000001f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Detail Strength", settings.DetailStrength, 0.01f, 0.0f, 1.0f)) applySettings();
-				ImGuiEx::EndPropertyGrid();
-
-				ImGui::Spacing();
-				ImGui::TextDisabled("Clouds Lighting");
-				ImGuiEx::BeginPropertyGrid();
-				if (ImGuiEx::Property("Absorption", settings.Absorption, 0.01f, 0.001f, 16.0f)) applySettings();
-				if (ImGuiEx::Property("Silver Intensity", settings.SilverIntensity, 0.01f, 0.0f, 8.0f)) applySettings();
-				if (ImGuiEx::PropertyColor("Albedo", settings.Albedo)) applySettings();
-				if (ImGuiEx::Property("Ambient Boost", settings.AmbientBoost, 0.01f, 0.0f, 8.0f)) applySettings();
-				ImGuiEx::EndPropertyGrid();
-
-				ImGui::Spacing();
-				ImGui::TextDisabled("Clouds Performance");
-				ImGuiEx::BeginPropertyGrid();
-				const char* renderScaleLabels[] = { "Full", "Half", "Quarter" };
-				int32_t renderScaleIndex = settings.RenderScale == 1u ? 0 : (settings.RenderScale == 4u ? 2 : 1);
-				if (ImGuiEx::PropertyDropdown("Render Scale", renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels), &renderScaleIndex))
-				{
-					settings.RenderScale = renderScaleIndex == 0 ? 1u : (renderScaleIndex == 2 ? 4u : 2u);
-					applySettings();
-				}
-				if (ImGuiEx::Property("Max Distance", settings.MaxTraceDistance, 100.0f, 500.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("Fade Distance", settings.DistanceFade, 100.0f, 0.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("LOD Start", settings.LODStartDistance, 100.0f, 0.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("Shadow Distance", settings.ShadowTraceDistance, 100.0f, 0.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("March Steps", settings.MarchSteps, 8u, 128u)) applySettings();
-				if (ImGuiEx::Property("Shadow Steps", settings.ShadowSteps, 0u, 16u)) applySettings();
-				ImGuiEx::EndPropertyGrid();
+				DrawCloudSettingsUI(settings, applySettings);
 			});
 
 		DrawComponentSection<ExponentialHeightFogComponent>(m_Context, entityIDs, "Exponential Height Fog", EditorResources::SkyLightIcon,

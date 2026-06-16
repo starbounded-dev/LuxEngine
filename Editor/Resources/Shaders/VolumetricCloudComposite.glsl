@@ -114,5 +114,22 @@ void main()
 	}
 
 	vec4 cloud = ReconstructCloud(GetSceneDistance());
+
+	// Aerial perspective: tint distant clouds toward the atmosphere so they sit
+	// inside the sky instead of being pasted on top of it (Frostbite §5.9).
+	float aerialStrength = clamp(u_Atmosphere.CloudGlobal1.w, 0.0, 1.0);
+	if (cloud.a > 0.0001 && aerialStrength > 0.0001)
+	{
+		float frontDistance = texture(sampler2D(u_CloudDepthTexture, r_PointSampler), v_TexCoord).x;
+		float maxTrace = max(u_Atmosphere.CloudRender0.x, 1.0);
+		vec3 viewDirection = GetAtmosphereViewDirection(v_ClipPosition);
+		vec3 skyColor = EvaluateSkyAtmosphere(viewDirection);
+
+		// Exponential fade over the cloud trace range; far clouds blend toward sky.
+		float fade = 1.0 - exp(-frontDistance / maxTrace * 2.5);
+		fade = clamp(fade * aerialStrength, 0.0, 1.0);
+		cloud.rgb = mix(cloud.rgb, skyColor, fade);
+	}
+
 	o_Color = vec4(cloud.rgb, clamp(cloud.a, 0.0, 1.0));
 }

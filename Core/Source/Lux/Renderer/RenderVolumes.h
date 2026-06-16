@@ -156,6 +156,13 @@ namespace Lux {
 		float Exposure = 1.0f;
 
 		// Physical / photographic exposure (Filament-style EV100 model).
+		// NOTE: Camera and Automatic modes assume scene lighting is in physical units
+		// (lux / nits). With arbitrary (non-physical) light intensities, the "sunny-16"
+		// Camera defaults below (f/16, 1/125s, ISO 100 ~= EV100 15) yield an exposure
+		// multiplier ~2.6e-5, i.e. a near-black image. To use Camera mode with such lights,
+		// raise ExposureCompensation to calibrate; otherwise prefer Automatic (adapts to the
+		// rendered scene luminance via the histogram) or Manual. Manual is the default and is
+		// unit-agnostic.
 		ExposureMode ExposureControl = ExposureMode::Manual;
 		float Aperture = 16.0f;             // f-stops (N)
 		float ShutterSpeed = 1.0f / 125.0f; // seconds (t)
