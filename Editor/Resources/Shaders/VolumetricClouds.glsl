@@ -417,19 +417,25 @@ void main()
 	float firstHitDistance = LUX_CLOUD_MAX_DEPTH;
 	float lastHitDistance = LUX_CLOUD_MAX_DEPTH;
 
-	// Empty-space skipping: when we hit a void, take larger steps until we
-	// re-enter cloud, then refine.
+	// Empty-space skipping: stride through voids with large steps; when we
+	// re-enter cloud while striding, rewind and resume at fine resolution so the
+	// boundary isn't overshot. 't' is accumulated (NOT derived from the loop
+	// index) so step lengths can vary, and density is only ever integrated on a
+	// fine (1x) step — the integration distance therefore always equals the
+	// sample spacing, keeping the scattering energy-conserving. 'marchSteps' sets
+	// the fine step length (cloud sampling density); the loop index is only a
+	// safety bound so a noisy boundary can't spin forever.
+	const float kEmptyStepScale = 2.0;
 	int emptySteps = 0;
+	float t = traceStart + jitter * baseStepLength;
 
-	for (uint i = 0u; i < 128u; i++)
+	for (uint i = 0u; i < 256u; i++)
 	{
-		if (i >= marchSteps || transmittance < 0.01)
+		if (transmittance < 0.01 || t >= traceEnd)
 			break;
 
-		float stepScale = emptySteps > 2 ? 2.0 : 1.0;
-		float t = traceStart + (float(i) + jitter) * baseStepLength;
-		if (t >= traceEnd)
-			break;
+		float stepScale = emptySteps > 2 ? kEmptyStepScale : 1.0;
+		float stepLength = baseStepLength * stepScale;
 
 		vec3 samplePosition = cameraPosition + viewDirection * t;
 		float lod = GetCloudLODFactor(t);
@@ -438,6 +444,17 @@ void main()
 		if (density <= LUX_CLOUD_MIN_DENSITY)
 		{
 			emptySteps++;
+			t += stepLength;
+			continue;
+		}
+
+		// Re-entered cloud on a coarse stride: rewind to the last empty position
+		// and re-approach finely instead of integrating the coarse step.
+		if (stepScale > 1.0)
+		{
+			emptySteps = 0;
+			t -= stepLength;        // back to the last known-empty sample
+			t += baseStepLength;    // ...and step in at fine resolution
 			continue;
 		}
 		emptySteps = 0;
@@ -473,13 +490,16 @@ void main()
 		vec3 ambient = ambientSky * (0.4 + 0.6 * heightFraction);
 		vec3 luminance = (sunLuminance * powder * scatterMul + ambient) * albedo;
 
-		// Energy-conserving scattering integration (Hillaire).
+		// Energy-conserving scattering integration (Hillaire). Reached only on a
+		// fine step (stepScale == 1), so stepLength == baseStepLength and the
+		// integration distance matches the sample spacing.
 		float sigmaT = density * extinction;
-		float stepLength = baseStepLength * stepScale;
 		float stepTransmittance = exp(-sigmaT * stepLength);
 		vec3 integScatter = (luminance * density - luminance * density * stepTransmittance) / max(sigmaT, 1.0e-5);
 		scatteredLight += transmittance * integScatter;
 		transmittance *= stepTransmittance;
+
+		t += stepLength;
 	}
 
 	float rawAlpha = clamp((1.0 - transmittance) * distanceFade, 0.0, 1.0);
