@@ -33,6 +33,10 @@ namespace Lux {
 		//ScriptEngineConfig ScriptConfig;
 		RendererConfig RenderConfig;
 		ThreadingPolicy CoreThreadingPolicy = ThreadingPolicy::MultiThreaded;
+		// Opt-in: run game simulation on a dedicated thread (a frame ahead of render submission).
+		// Only honored when CoreThreadingPolicy == MultiThreaded. Default off - it is experimental and
+		// requires the layer to feed render state through a FrameRenderPacket (see RuntimeLayer).
+		bool EnableSimulationThread = false;
 		std::filesystem::path IconPath;
 	};
 

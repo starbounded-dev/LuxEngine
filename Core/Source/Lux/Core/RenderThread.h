@@ -3,6 +3,7 @@
 #include "Thread.h"
 
 #include <atomic>
+#include <string_view>
 
 namespace Lux {
 
@@ -13,6 +14,26 @@ namespace Lux {
 		// MultiThreaded will create a Render Thread
 		None = 0, SingleThreaded, MultiThreaded
 	};
+
+	// Canonical string forms used when persisting the policy in settings files.
+	inline const char* ThreadingPolicyToString(ThreadingPolicy policy)
+	{
+		switch (policy)
+		{
+			case ThreadingPolicy::SingleThreaded: return "Single";
+			case ThreadingPolicy::MultiThreaded:  return "Multi";
+			default:                              return "Multi";
+		}
+	}
+
+	// Parses a persisted policy string. Anything that isn't explicitly single-threaded
+	// (including legacy/empty values) resolves to MultiThreaded.
+	inline ThreadingPolicy ThreadingPolicyFromString(std::string_view str)
+	{
+		if (str == "Single" || str == "single" || str == "SingleThreaded")
+			return ThreadingPolicy::SingleThreaded;
+		return ThreadingPolicy::MultiThreaded;
+	}
 
 	class RenderThread
 	{

@@ -160,8 +160,12 @@ namespace Lux {
 	static void ImGuiRenderer_RenderWindow(ImGuiViewport* viewport, void*)
 	{
 		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
+		ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer();
+		ImGuiRenderer* mainRenderer = imguiLayer ? imguiLayer->GetImGuiRenderer() : nullptr;
+		auto snapshot = ImGuiDrawDataSnapshot::Create(
+			viewport->DrawData, mainRenderer ? mainRenderer->GetRegistry() : nullptr);
 		vd->SC->BeginFrame();
-		vd->Renderer->RenderToSwapchain(viewport, vd->SC.get());
+		vd->Renderer->RenderToSwapchain(snapshot, vd->SC.get());
 	}
 
 	static void ImGuiRenderer_SwapBuffers(ImGuiViewport* viewport, void*)
@@ -199,6 +203,9 @@ namespace Lux {
 
 	void ImGuiLayer::Begin()
 	{
+		LUX_CORE_ASSERT(Application::GetMainThreadID() == std::this_thread::get_id(),
+			"ImGui frame construction must run on the window-owning main thread");
+
 		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
 
 		if (auto registry = m_ImGuiRenderer->GetRegistry())
@@ -213,16 +220,57 @@ namespace Lux {
 
 	void ImGuiLayer::End()
 	{
+		LUX_CORE_ASSERT(Application::GetMainThreadID() == std::this_thread::get_id(),
+			"ImGui frame finalization must run on the window-owning main thread");
+
 		ImGui::Render();
 
-		m_ImGuiRenderer->RenderToSwapchain(ImGui::GetMainViewport(), &Application::Get().GetWindow().GetSwapChain());
+		// Platform window creation, sizing, and style changes are GLFW/Win32 operations
+		// and must stay on the main thread. GPU rendering is captured and deferred.
+		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+			ImGui::UpdatePlatformWindows();
 
-		// Update and Render additional Platform Windows
+		m_PendingRenderTasks.clear();
+		const auto registry = m_ImGuiRenderer->GetRegistry();
+
+		if (auto snapshot = ImGuiDrawDataSnapshot::Create(ImGui::GetDrawData(), registry))
+		{
+			ImGuiRenderer* renderer = m_ImGuiRenderer.get();
+			VulkanSwapChain* swapchain = &Application::Get().GetWindow().GetSwapChain();
+			m_PendingRenderTasks.emplace_back([renderer, swapchain, snapshot]()
+			{
+				renderer->RenderToSwapchain(snapshot, swapchain);
+			});
+		}
+
 		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
-			ImGui::UpdatePlatformWindows();
-			ImGui::RenderPlatformWindowsDefault();
+			ImGuiPlatformIO& platformIO = ImGui::GetPlatformIO();
+			for (int32_t i = 1; i < platformIO.Viewports.Size; i++)
+			{
+				ImGuiViewport* viewport = platformIO.Viewports[i];
+				auto* viewportData = static_cast<ImGuiViewportData*>(viewport->RendererUserData);
+				auto snapshot = ImGuiDrawDataSnapshot::Create(viewport->DrawData, registry);
+				if (!viewportData || !viewportData->SC || !viewportData->Renderer || !snapshot)
+					continue;
+
+				m_PendingRenderTasks.emplace_back([viewportData, snapshot]()
+				{
+					if (viewportData->SC->BeginFrame())
+					{
+						viewportData->Renderer->RenderToSwapchain(snapshot, viewportData->SC.get());
+						viewportData->SC->Present();
+					}
+				});
+			}
 		}
+	}
+
+	void ImGuiLayer::SubmitDrawData()
+	{
+		for (std::function<void()>& renderTask : m_PendingRenderTasks)
+			Renderer::Submit(std::move(renderTask));
+		m_PendingRenderTasks.clear();
 	}
 
 	void ImGuiLayer::SetDarkThemeColors()

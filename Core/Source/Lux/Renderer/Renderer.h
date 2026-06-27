@@ -18,6 +18,8 @@
 #include "RendererConfig.h"
 
 #include "GPUStats.h"
+
+#include <functional>
 #include "Material.h"
 #include "SceneEnvironment.h"
 #include "Texture.h"
@@ -70,18 +72,47 @@ namespace Lux {
 		template<typename FuncT>
 		static void Submit(FuncT&& func)
 		{
-			auto renderCmd = [](void* ptr) {
-				auto pFunc = (FuncT*)ptr;
-				(*pFunc)();
+			// Fast path: the application/main thread is the sole owner of the submission command queue,
+			// so it can fill it lock-free. This is the overwhelmingly common case.
+			if (Application::IsMainThread())
+			{
+				auto renderCmd = [](void* ptr) {
+					auto pFunc = (FuncT*)ptr;
+					(*pFunc)();
 
-				// NOTE: Instead of destroying we could try and enforce all items to be trivally destructible
-				// however some items like uniforms which contain std::strings still exist for now
-				// static_assert(std::is_trivially_destructible_v<FuncT>, "FuncT must be trivially destructible");
-				pFunc->~FuncT();
-				};
-			auto storageBuffer = GetRenderCommandQueue().Allocate(renderCmd, sizeof(func));
-			new (storageBuffer) FuncT(std::forward<FuncT>(func));
+					// NOTE: Instead of destroying we could try and enforce all items to be trivally destructible
+					// however some items like uniforms which contain std::strings still exist for now
+					// static_assert(std::is_trivially_destructible_v<FuncT>, "FuncT must be trivially destructible");
+					pFunc->~FuncT();
+					};
+				auto storageBuffer = GetRenderCommandQueue().Allocate(renderCmd, sizeof(func));
+				new (storageBuffer) FuncT(std::forward<FuncT>(func));
+				return;
+			}
+
+			// Already on the render thread (e.g. GPU work triggered from ImGui rendering, which runs as
+			// a render command): run inline. Queuing here would race the application thread filling the
+			// same submission queue and corrupt the command buffer. Mirrors SubmitResourceFree.
+			if (RenderThread::IsCurrentThreadRT())
+			{
+				func();
+				return;
+			}
+
+			// A background thread (e.g. the asset worker creating GPU resources for a streamed texture or
+			// mesh): the render command queue is a single-producer structure, so we must not write it from
+			// here. Defer to a thread-safe queue that the main thread drains and re-submits in
+			// single-producer context (see ExecuteBackgroundThreadSubmits, called once per frame).
+			SubmitBackgroundThreadWork(std::function<void()>(std::forward<FuncT>(func)));
 		}
+
+		// Thread-safe entry point for render work originating off the main/render threads. The work is
+		// queued and replayed on the main thread via ExecuteBackgroundThreadSubmits().
+		static void SubmitBackgroundThreadWork(std::function<void()>&& func);
+
+		// Drains the background-thread submission queue and re-submits it on the main thread. MUST be
+		// called from the main thread, once per frame, before the frame's render work is submitted.
+		static void ExecuteBackgroundThreadSubmits();
 
 		template<typename FuncT>
 		static void SubmitResourceFree(FuncT&& func)

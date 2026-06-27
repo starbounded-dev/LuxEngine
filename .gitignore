@@ -40,3 +40,5 @@ Core/vendor/JoltPhysics/bin/Debug-windows-x86_64/JoltPhysics/JoltPhysics.idb
 AGENTS.md
 *.lmat
 Editor/assets/AssetRegistry.lzr
+Editor/dbg_trace.txt
+Editor/dbg_ctor.txt

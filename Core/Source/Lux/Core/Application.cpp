@@ -24,6 +24,7 @@
 
 #include "Lux/Utilities/StringUtils.h"
 #include "Lux/Debug/Profiler.h"
+#include "Lux/Core/JobSystem.h"
 
 //#include "Lux/Editor/EditorApplicationSettings.h"
 
@@ -51,6 +52,16 @@ namespace Lux {
 		s_MainThreadID = std::this_thread::get_id();
 
 		m_AppSettings.Deserialize();
+
+		// Spin up the data-parallel job pool. It mirrors the render-thread policy: single-threaded
+		// runs every job inline (zero workers), multi-threaded reserves cores for the main and render
+		// threads (and leaves headroom for Jolt's own physics pool).
+		{
+			uint32_t jobWorkers = 0;
+			if (specification.CoreThreadingPolicy == ThreadingPolicy::MultiThreaded)
+				jobWorkers = std::max(1u, std::thread::hardware_concurrency() > 2 ? std::thread::hardware_concurrency() - 2 : 1u);
+			JobSystem::Init(jobWorkers);
+		}
 
 		m_RenderThread.Run();
 
@@ -127,6 +138,8 @@ namespace Lux {
 
 		Renderer::Shutdown();
 
+		JobSystem::Shutdown();
+
 		delete m_Profiler;
 		m_Profiler = nullptr;
 	}
@@ -200,6 +213,15 @@ namespace Lux {
 			m_ProfilerPreviousFrameData = m_Profiler->GetPerFrameData();
 			m_Profiler->Clear();
 
+			// Dear ImGui's GLFW backend performs native window operations that must run on
+			// the thread that owns the window. Build and snapshot the UI while the render
+			// thread is idle; only immutable GPU draw work is submitted below.
+			if (!m_Minimized && m_Specification.EnableImGui)
+			{
+				RenderImGui();
+				m_ImGuiLayer->End();
+			}
+
 			m_RenderThread.NextFrame();
 
 			// Start rendering previous frame
@@ -217,6 +239,12 @@ namespace Lux {
 					});
 
 				Renderer::BeginFrame();
+
+				// Replay GPU work that background threads (e.g. the asset worker loading streamed
+				// textures/meshes) deferred, now that we're on the main thread building this frame's
+				// queue. Done before layer updates so the resources exist before any draw that uses them.
+				Renderer::ExecuteBackgroundThreadSubmits();
+
 				{
 					LUX_SCOPE_PERF("Application Layer::OnUpdate");
 					for (Layer* layer : m_LayerStack)
@@ -230,13 +258,8 @@ namespace Lux {
 					m_PerformanceTimers.PhysicsStepTime = activeScene->GetPerformanceTimers().PhysicsStep;
 				}*/
 
-				// Render ImGui on render thread
-				Application* app = this;
 				if (m_Specification.EnableImGui)
-				{
-					Renderer::Submit([app]() { app->RenderImGui(); });
-					Renderer::Submit([=]() { m_ImGuiLayer->End(); });
-				}
+					m_ImGuiLayer->SubmitDrawData();
 				Renderer::EndFrame();
 
 				// On Render thread

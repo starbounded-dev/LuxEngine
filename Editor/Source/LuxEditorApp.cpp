@@ -1,6 +1,7 @@
 #include "EditorLayer.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/CommandLineParser.h"
+#include "Lux/Core/ApplicationSettings.h"
 
 #include "Lux/EntryPoint.h"
 
@@ -50,7 +51,13 @@ namespace Lux {
 		specification.ScriptConfig.EnableDebugging = true;
 		specification.ScriptConfig.EnableProfiling = true;*/
 
-		specification.CoreThreadingPolicy = Lux::ThreadingPolicy::SingleThreaded;
+		// Threading policy is a user setting persisted in App.lsettings (read here because the
+		// RenderThread is constructed with it before the Application object exists). Defaults to
+		// multi-threaded; the "Application Settings" panel lets the user force single-threaded.
+		{
+			Lux::ApplicationSettings settings("App.lsettings");
+			specification.CoreThreadingPolicy = Lux::ThreadingPolicyFromString(settings.Get("Core.ThreadingPolicy", "Multi"));
+		}
 
 		return new LuxEditor(specification);
 	}

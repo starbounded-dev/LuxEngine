@@ -37,6 +37,9 @@ namespace Lux {
 	struct SpotLight;
 	struct AtmosphereEnvironment;
 
+	// Captured render state for one frame (defined in Renderer/FrameRenderPacket.h)
+	struct FrameRenderPacket;
+
 	class Scene : public Asset
 	{
 	public:
@@ -144,6 +147,19 @@ namespace Lux {
 
 		// Render 3D content using a runtime camera (for Play mode)
 		void Render3DRuntime(Ref<SceneRenderer> renderer);
+
+		// --- Frame render packet (decouples render submission from the live ECS) -----------------
+		// Build* capture all renderer-relevant ECS state into a packet (read-only on the registry);
+		// SubmitRenderPacket replays that packet to the SceneRenderer without touching the registry.
+		// Build* read the ECS (non-const: EnTT owning groups reorder the registry); SubmitRenderPacket
+		// only touches the packet + renderer and stays const.
+		void BuildRenderPacketEditor(FrameRenderPacket& packet, const EditorCamera& camera,
+			Ref<SceneRenderer> renderer, const std::function<bool(Entity)>& isSelected);
+		bool BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer);
+		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
+		void CaptureDraw2D(FrameRenderPacket& packet);
+		void CaptureColliderDebug(FrameRenderPacket& packet,
+			Ref<SceneRenderer> renderer, const std::function<bool(Entity)>& isSelected);
 		void OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
 		void OnRenderSimulation(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
 		void OnRenderRuntime(Ref<SceneRenderer> renderer);

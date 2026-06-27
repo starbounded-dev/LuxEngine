@@ -4,6 +4,7 @@
 
 #if LUX_ENABLE_PROFILING
 #include <tracy/Tracy.hpp>
+#include <tracy/TracyC.h>
 #endif
 
 #if LUX_ENABLE_PROFILING

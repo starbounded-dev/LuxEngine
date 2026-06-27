@@ -105,6 +105,28 @@ namespace Lux {
 			m_Bindings.OnPreferencesChanged();
 
 		ImGui::Spacing();
+		ImGui::TextUnformatted("Threading");
+		ImGui::Separator();
+
+		{
+			auto& settings = Application::Get().GetSettings();
+			const ThreadingPolicy currentPolicy = ThreadingPolicyFromString(settings.Get("Core.ThreadingPolicy", "Multi"));
+			int32_t selected = (currentPolicy == ThreadingPolicy::SingleThreaded) ? 1 : 0;
+
+			static const char* s_ThreadingOptions[] = { "Multi-threaded", "Single-threaded" };
+
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::PropertyDropdown("Threading Mode", s_ThreadingOptions, 2, &selected))
+			{
+				settings.Set("Core.ThreadingPolicy", selected == 1 ? "Single" : "Multi");
+				settings.Serialize();
+			}
+			ImGuiEx::EndPropertyGrid();
+
+			ImGui::TextDisabled("Applies after restarting the editor.");
+		}
+
+		ImGui::Spacing();
 		ImGui::TextUnformatted("Startup Project");
 		ImGui::Separator();
 

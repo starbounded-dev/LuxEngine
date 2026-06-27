@@ -4,6 +4,8 @@
 
 #include "ImGuiRenderer.h"
 
+#include <functional>
+
 namespace Lux {
 
 	class ImGuiLayer : public Layer
@@ -16,6 +18,7 @@ namespace Lux {
 
 		void Begin();
 		void End();
+		void SubmitDrawData();
 
 		void SetDarkThemeColors();
 		void SetDarkThemeV2Colors();
@@ -30,6 +33,7 @@ namespace Lux {
 		void InitPlatformInterface();
 	private:
 		std::unique_ptr<ImGuiRenderer> m_ImGuiRenderer;
+		std::vector<std::function<void()>> m_PendingRenderTasks;
 	};
 
 

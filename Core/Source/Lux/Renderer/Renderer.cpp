@@ -346,6 +346,11 @@ namespace Lux {
 	static std::atomic<uint32_t> s_RenderCommandQueueSubmissionIndex = 0;
 	static RenderCommandQueue s_ResourceFreeQueue[3];
 
+	// Work submitted from background threads (e.g. the asset worker) is parked here and replayed on the
+	// main thread, since the render command queue is single-producer. See Renderer::Submit.
+	static std::vector<std::function<void()>> s_BackgroundThreadSubmitQueue;
+	static std::mutex s_BackgroundThreadSubmitMutex;
+
 	static RendererAPI* InitRendererAPI()
 	{
 		switch (RendererAPI::Current())
@@ -743,6 +748,29 @@ namespace Lux {
 	void Renderer::SwapQueues()
 	{
 		s_RenderCommandQueueSubmissionIndex = (s_RenderCommandQueueSubmissionIndex + 1) % s_RenderCommandQueueCount;
+	}
+
+	void Renderer::SubmitBackgroundThreadWork(std::function<void()>&& func)
+	{
+		std::scoped_lock lock(s_BackgroundThreadSubmitMutex);
+		s_BackgroundThreadSubmitQueue.push_back(std::move(func));
+	}
+
+	void Renderer::ExecuteBackgroundThreadSubmits()
+	{
+		LUX_CORE_ASSERT(Application::IsMainThread(), "ExecuteBackgroundThreadSubmits must run on the main thread");
+
+		std::vector<std::function<void()>> pending;
+		{
+			std::scoped_lock lock(s_BackgroundThreadSubmitMutex);
+			if (s_BackgroundThreadSubmitQueue.empty())
+				return;
+			pending.swap(s_BackgroundThreadSubmitQueue);
+		}
+
+		// Now on the main thread: replay through the normal lock-free submission path.
+		for (auto& func : pending)
+			Submit(std::move(func));
 	}
 
 	uint32_t Renderer::GetRenderQueueIndex()

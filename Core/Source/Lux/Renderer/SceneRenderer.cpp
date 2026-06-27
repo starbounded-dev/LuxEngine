@@ -3002,10 +3002,23 @@ namespace Lux {
 	SceneRenderer::ScopedCPUProfile::ScopedCPUProfile(SceneRenderer& renderer, const char* name)
 		: Renderer(renderer), Name(name)
 	{
+#if LUX_ENABLE_PROFILING
+		// Open a Tracy zone whose name is the pass name. Because every SceneRenderer
+		// pass already wraps itself in a ScopedCPUProfile, this single chokepoint makes
+		// the entire render pipeline visible in a Tracy capture (no per-pass edits).
+		const uint64_t srcloc = ___tracy_alloc_srcloc_name(
+			(uint32_t)__LINE__, __FILE__, sizeof(__FILE__) - 1,
+			"SceneRenderer::Pass", 19,
+			name, std::strlen(name), 0);
+		ProfileZone = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+#endif
 	}
 
 	SceneRenderer::ScopedCPUProfile::~ScopedCPUProfile()
 	{
+#if LUX_ENABLE_PROFILING
+		___tracy_emit_zone_end(ProfileZone);
+#endif
 		Renderer.RecordCPUProfile(Name, ProfileTimer.ElapsedMillis());
 	}
 
@@ -4216,6 +4229,7 @@ namespace Lux {
 
 	void SceneRenderer::BeginScene(const SceneRendererCamera& camera)
 	{
+		LUX_PROFILE_FUNCTION("SceneRenderer::BeginScene");
 		LUX_CORE_ASSERT(m_Scene, "No scene attached to SceneRenderer");
 		LUX_CORE_ASSERT(!m_Active, "BeginScene called twice without EndScene");
 		m_Active = true;
@@ -5529,6 +5543,7 @@ namespace Lux {
 
 	void SceneRenderer::EndScene()
 	{
+		LUX_PROFILE_FUNCTION("SceneRenderer::EndScene");
 		LUX_CORE_ASSERT(m_Active);
 		FlushDrawList();
 		m_Active = false;
@@ -5536,11 +5551,15 @@ namespace Lux {
 
 	void SceneRenderer::WaitForThreads()
 	{
-		AssetManager::SyncWithAssetThread();
+		// The editor can run without an active project (welcome screen, project closed,
+		// or startup-project loading disabled), in which case there is no asset worker.
+		if (Ref<AssetManagerBase> assetManager = Project::GetAssetManager())
+			assetManager->SyncWithAssetThread();
 	}
 
 	void SceneRenderer::FlushDrawList()
 	{
+		LUX_PROFILE_FUNCTION("SceneRenderer::FlushDrawList");
 		// Clear lists and bail if GPU resources not ready
 		auto clearAll = [this]()
 			{
@@ -6054,8 +6073,15 @@ namespace Lux {
 		// ── 3. Execute render passes ──────────────────────────────────────────
 		m_CommandBuffer->Begin();
 
-		BuildRenderGraph(true);
-		const RenderGraph::CompileResult renderGraphResult = m_RenderGraph.Compile();
+		// NOTE(perf): currently rebuilt + recompiled every frame regardless of whether
+		// pass topology changed. This zone isolates that cost — the Phase 1 target is to
+		// skip it when the graph is unchanged.
+		RenderGraph::CompileResult renderGraphResult;
+		{
+			LUX_PROFILE_SCOPE("RenderGraph::BuildAndCompile");
+			BuildRenderGraph(true);
+			renderGraphResult = m_RenderGraph.Compile();
+		}
 		if (renderGraphResult.ErrorCount > 0 || renderGraphResult.WarningCount > 0)
 		{
 			size_t diagnosticHash = renderGraphResult.ErrorCount;

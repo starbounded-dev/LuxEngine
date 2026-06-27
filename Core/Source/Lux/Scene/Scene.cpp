@@ -8,6 +8,7 @@
 #include "Lux/Audio/AudioSource.h"
 #include "Lux/Audio/AudioListener.h"
 
+#include "Lux/Core/JobSystem.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Prefab.h"
@@ -17,6 +18,7 @@
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/SceneRenderer.h"
+#include "Lux/Renderer/FrameRenderPacket.h"
 #include "Lux/Renderer/PhysicalLight.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Renderer/MeshFactory.h"
@@ -1454,8 +1456,8 @@ namespace Lux {
 		struct StaticMeshSyncItem
 		{
 			StaticMeshRenderProxy Proxy;
-			TransformComponent LocalTransform;
-			bool ComputeLocalTransform = false;
+			Entity EntityHandle;
+			bool HasParent = false;
 		};
 
 		if (!m_RenderScene)
@@ -1511,56 +1513,34 @@ namespace Lux {
 			syncItem.Proxy.Visible = meshComp.Visible;
 			syncItem.Proxy.Selected = isSelected ? isSelected(entity) : false;
 
-			const bool hasParent = entity.HasComponent<RelationshipComponent>()
+			// Defer world-transform computation to the parallel pass below (it's the expensive,
+			// write-disjoint part). Just record the entity and whether it needs a hierarchy walk.
+			syncItem.EntityHandle = entity;
+			syncItem.HasParent = entity.HasComponent<RelationshipComponent>()
 				&& entity.GetComponent<RelationshipComponent>().ParentHandle != 0;
-			if (hasParent)
-				syncItem.Proxy.WorldTransform = GetWorldSpaceTransformMatrix(entity);
-			else
-			{
-				syncItem.LocalTransform = view.get<const TransformComponent>(e);
-				syncItem.ComputeLocalTransform = true;
-			}
 		}
 
-		auto computeRange = [&](size_t begin, size_t end)
+		auto computeItem = [&](size_t index)
 			{
-				for (size_t index = begin; index < end; index++)
-				{
-					StaticMeshSyncItem& syncItem = syncItems[index];
-					if (syncItem.ComputeLocalTransform)
-						syncItem.Proxy.WorldTransform = syncItem.LocalTransform.GetTransform();
+				StaticMeshSyncItem& syncItem = syncItems[index];
 
-					const BoundingSphere localBounds = syncItem.Proxy.MeshSource->GetBoundingBox().ToBoundingSphere();
-					syncItem.Proxy.WorldBounds = BoundingSphere::Transform(localBounds, syncItem.Proxy.WorldTransform);
-				}
+				// Parented entities walk the relationship hierarchy (GetWorldSpaceTransformMatrix is
+				// read-only); others just decompose their local transform. SyncRenderScene is const and
+				// runs with no concurrent registry writes, so these registry reads are safe across threads.
+				if (syncItem.HasParent)
+					syncItem.Proxy.WorldTransform = GetWorldSpaceTransformMatrix(syncItem.EntityHandle);
+				else
+					syncItem.Proxy.WorldTransform = syncItem.EntityHandle.GetComponent<TransformComponent>().GetTransform();
+
+				const BoundingSphere localBounds = syncItem.Proxy.MeshSource->GetBoundingBox().ToBoundingSphere();
+				syncItem.Proxy.WorldBounds = BoundingSphere::Transform(localBounds, syncItem.Proxy.WorldTransform);
 			};
 
+		// Fan out the per-proxy transform/bounds math across the job pool. Each index writes only its
+		// own syncItem, so the indices are disjoint and safe to process concurrently. The minimum chunk
+		// keeps small scenes on the calling thread (JobSystem runs inline when single-threaded anyway).
 		constexpr size_t parallelTransformThreshold = 512;
-		const uint32_t hardwareThreads = std::max(1u, std::thread::hardware_concurrency());
-		if (syncItems.size() >= parallelTransformThreshold && hardwareThreads > 1)
-		{
-			const uint32_t workerCount = std::min<uint32_t>(hardwareThreads, static_cast<uint32_t>((syncItems.size() + parallelTransformThreshold - 1) / parallelTransformThreshold));
-			const size_t chunkSize = (syncItems.size() + workerCount - 1) / workerCount;
-			std::vector<std::thread> workers;
-			workers.reserve(workerCount);
-
-			for (uint32_t worker = 0; worker < workerCount; worker++)
-			{
-				const size_t begin = worker * chunkSize;
-				const size_t end = std::min(syncItems.size(), begin + chunkSize);
-				if (begin >= end)
-					continue;
-
-				workers.emplace_back(computeRange, begin, end);
-			}
-
-			for (std::thread& worker : workers)
-				worker.join();
-		}
-		else
-		{
-			computeRange(0, syncItems.size());
-		}
+		JobSystem::ParallelFor(syncItems.size(), computeItem, parallelTransformThreshold);
 
 		for (StaticMeshSyncItem& syncItem : syncItems)
 			m_RenderScene->UpsertStaticMesh(std::move(syncItem.Proxy));
@@ -1711,85 +1691,152 @@ namespace Lux {
 		if (!renderer || !renderer->IsReady())
 			return;
 
+		FrameRenderPacket packet;
+		BuildRenderPacketEditor(packet, camera, renderer, isSelected);
+		SubmitRenderPacket(renderer, packet);
+	}
+
+	void Scene::BuildRenderPacketEditor(FrameRenderPacket& packet, const EditorCamera& camera,
+		Ref<SceneRenderer> renderer, const std::function<bool(Entity)>& isSelected)
+	{
 		// Set up the SceneRendererCamera from the EditorCamera
-		SceneRendererCamera sceneCamera;
+		SceneRendererCamera& sceneCamera = packet.Camera;
 		sceneCamera.Camera.SetProjectionMatrix(camera.GetProjectionMatrix(), camera.GetUnReversedProjectionMatrix());
 		sceneCamera.ViewMatrix = camera.GetViewMatrix();
 		sceneCamera.Near = camera.GetNearClip();
 		sceneCamera.Far = camera.GetFarClip();
 		sceneCamera.FOV = camera.GetVerticalFOV();
 
-		// Collect and set light environment from DirectionalLight and PointLight components
-		LightEnvironment lightEnv = CollectLightEnvironment();
-		renderer->SetLightEnvironment(lightEnv);
+		packet.Overlay2DView = camera.GetViewMatrix();
+		packet.Overlay2DViewProjection = camera.GetViewProjection();
 
-		// Collect and set skybox/IBL environment from SkyLightComponent
-		float envIntensity = 1.0f;
-		float envLod = 0.0f;
-		Ref<Environment> environment = CollectEnvironment(envIntensity, envLod);
-		renderer->SetEnvironment(environment, envIntensity, envLod);
-		const AtmosphereEnvironment atmosphereEnvironment = CollectAtmosphereEnvironment();
-		renderer->SetAtmosphereEnvironment(atmosphereEnvironment);
+		// Collect light / environment / atmosphere / volumes (all read-only on the registry)
+		packet.Lights = CollectLightEnvironment();
+		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod);
+		packet.Atmosphere = CollectAtmosphereEnvironment();
+
 		RenderVolumeBaseSettings volumeBaseSettings = renderer->GetBaseRenderVolumeSettings(sceneCamera.Camera.GetExposure());
-		volumeBaseSettings.Atmosphere = atmosphereEnvironment;
+		volumeBaseSettings.Atmosphere = packet.Atmosphere;
 		const Frustum cameraFrustum = Frustum::FromViewProjection(sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix);
-		renderer->SetRenderVolumeEnvironment(CollectRenderVolumeEnvironment(camera.GetPosition(), &cameraFrustum, volumeBaseSettings, isSelected));
+		packet.Volumes = CollectRenderVolumeEnvironment(camera.GetPosition(), &cameraFrustum, volumeBaseSettings, isSelected);
 
-		// Begin the 3D rendering frame after scene lighting/environment state is prepared
-		renderer->BeginScene(sceneCamera);
+		// Mesh proxies, 2D overlay items and physics-collider debug meshes
+		packet.Meshes = SyncRenderScene(isSelected);
+		CaptureDraw2D(packet);
+		CaptureColliderDebug(packet, renderer, isSelected);
 
-		// Submit all static meshes for rendering
-		SubmitStaticMeshes(renderer, isSelected);
+		packet.Valid = true;
+	}
 
-		renderer->SetWorldOverlayRenderCallback([this, renderer, &camera]() mutable
+	void Scene::CaptureDraw2D(FrameRenderPacket& packet)
+	{
+		using Draw2DItem = FrameRenderPacket::Draw2DItem;
+
+		// Draw sprites
+		{
+			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+			for (auto entity : group)
+			{
+				auto& sprite = group.get<SpriteRendererComponent>(entity);
+
+				Draw2DItem item;
+				item.Transform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
+				item.Color = sprite.Color;
+				item.Texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
+				item.TilingFactor = sprite.TilingFactor;
+				item.Type = item.Texture ? Draw2DItem::Kind::TexturedQuad : Draw2DItem::Kind::Quad;
+				packet.Draw2D.push_back(std::move(item));
+			}
+		}
+
+		// Draw circles
+		{
+			auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+			for (auto entity : view)
+			{
+				auto& circle = view.get<CircleRendererComponent>(entity);
+
+				Draw2DItem item;
+				item.Type = Draw2DItem::Kind::Circle;
+				item.Transform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
+				item.Color = circle.Color;
+				packet.Draw2D.push_back(std::move(item));
+			}
+		}
+
+		// Draw text
+		{
+			auto view = m_Registry.view<TransformComponent, TextComponent>();
+			for (auto entity : view)
+			{
+				auto& text = view.get<TextComponent>(entity);
+
+				Ref<Font> font = Font::GetFontAssetForTextComponent(text);
+				if (!font)
+					continue;
+
+				Draw2DItem item;
+				item.Type = Draw2DItem::Kind::Text;
+				item.Transform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
+				item.Color = text.Color;
+				item.FontAsset = font;
+				item.Text = text.TextString;
+				item.MaxWidth = text.MaxWidth;
+				item.LineSpacing = text.LineSpacing;
+				item.Kerning = text.Kerning;
+				packet.Draw2D.push_back(std::move(item));
+			}
+		}
+	}
+
+	void Scene::SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const
+	{
+		if (!renderer || !renderer->IsReady() || !packet.Valid)
+			return;
+
+		renderer->SetLightEnvironment(packet.Lights);
+		renderer->SetEnvironment(packet.SkyEnvironment, packet.EnvironmentIntensity, packet.EnvironmentLod);
+		renderer->SetAtmosphereEnvironment(packet.Atmosphere);
+		renderer->SetRenderVolumeEnvironment(packet.Volumes);
+
+		renderer->BeginScene(packet.Camera);
+
+		renderer->SubmitRenderScene(packet.Meshes);
+		for (const FrameRenderPacket::ColliderDebugItem& collider : packet.ColliderDebug)
+			renderer->SubmitPhysicsStaticDebugMesh(collider.Mesh, collider.Source, collider.Transform, collider.SimpleCollider);
+
+		// The 2D overlay runs as a deferred render-graph pass (possibly off the submitting thread), so the
+		// callback owns its own copy of the captured draw items - it never touches the live registry.
+		std::vector<FrameRenderPacket::Draw2DItem> draw2D = packet.Draw2D;
+		const glm::mat4 overlayView = packet.Overlay2DView;
+		const glm::mat4 overlayViewProjection = packet.Overlay2DViewProjection;
+		renderer->SetWorldOverlayRenderCallback([renderer, draw2D = std::move(draw2D), overlayView, overlayViewProjection]() mutable
 		{
 			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
 			if (!renderer2D)
 				return;
 
 			renderer2D->ResetStats();
-			renderer2D->BeginScene(camera.GetViewProjection(), camera.GetViewMatrix(), true);
+			renderer2D->BeginScene(overlayViewProjection, overlayView, true);
 			renderer2D->SetTargetFramebuffer(renderer->GetDepthCompositeFramebuffer());
 
-			// Draw sprites
+			for (const FrameRenderPacket::Draw2DItem& item : draw2D)
 			{
-				auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-				for (auto entity : group)
+				switch (item.Type)
 				{
-					auto& sprite = group.get<SpriteRendererComponent>(entity);
-
-					Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
-					const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
-					if (texture)
-						renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
-					else
-						renderer2D->DrawQuad(worldTransform, sprite.Color);
-				}
-			}
-
-			// Draw circles
-			{
-				auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
-				for (auto entity : view)
-				{
-					auto& circle = view.get<CircleRendererComponent>(entity);
-					renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
-				}
-			}
-
-			// Draw text
-			{
-				auto view = m_Registry.view<TransformComponent, TextComponent>();
-				for (auto entity : view)
-				{
-					auto& text = view.get<TextComponent>(entity);
-
-					Ref<Font> font = Font::GetFontAssetForTextComponent(text);
-					if (font)
-					{
-						renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),
-							text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
-					}
+					case FrameRenderPacket::Draw2DItem::Kind::TexturedQuad:
+						renderer2D->DrawQuad(item.Transform, item.Texture, item.TilingFactor, item.Color);
+						break;
+					case FrameRenderPacket::Draw2DItem::Kind::Quad:
+						renderer2D->DrawQuad(item.Transform, item.Color);
+						break;
+					case FrameRenderPacket::Draw2DItem::Kind::Circle:
+						renderer2D->DrawCircle(item.Transform, item.Color);
+						break;
+					case FrameRenderPacket::Draw2DItem::Kind::Text:
+						if (item.FontAsset)
+							renderer2D->DrawString(item.Text, item.FontAsset, item.Transform, item.MaxWidth, item.Color, item.LineSpacing, item.Kerning);
+						break;
 				}
 			}
 
@@ -1805,101 +1852,190 @@ namespace Lux {
 		if (!renderer || !renderer->IsReady())
 			return;
 
+		FrameRenderPacket packet;
+		if (!BuildRenderPacketRuntime(packet, renderer))
+			return;
+		SubmitRenderPacket(renderer, packet);
+	}
+
+	bool Scene::BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer)
+	{
 		// Find the primary camera entity
 		Entity cameraEntity = GetPrimaryCameraEntity();
 		if (!cameraEntity)
-			return;
+			return false;
 
 		const auto& cameraComp = cameraEntity.GetComponent<CameraComponent>();
 
 		// Set up the SceneRendererCamera from the runtime camera
-		SceneRendererCamera sceneCamera;
+		SceneRendererCamera& sceneCamera = packet.Camera;
 		sceneCamera.Camera.SetProjectionMatrix(cameraComp.Camera.GetProjectionMatrix(), cameraComp.Camera.GetUnReversedProjectionMatrix());
 		sceneCamera.ViewMatrix = glm::inverse(GetWorldSpaceTransformMatrix(cameraEntity));
 
-		// Collect and set light environment
-		LightEnvironment lightEnv = CollectLightEnvironment();
-		renderer->SetLightEnvironment(lightEnv);
+		packet.Overlay2DView = sceneCamera.ViewMatrix;
+		packet.Overlay2DViewProjection = cameraComp.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix;
 
-		// Collect and set skybox/IBL environment
-		float envIntensity = 1.0f;
-		float envLod = 0.0f;
-		Ref<Environment> environment = CollectEnvironment(envIntensity, envLod);
-		renderer->SetEnvironment(environment, envIntensity, envLod);
-		const AtmosphereEnvironment atmosphereEnvironment = CollectAtmosphereEnvironment();
-		renderer->SetAtmosphereEnvironment(atmosphereEnvironment);
+		packet.Lights = CollectLightEnvironment();
+		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod);
+		packet.Atmosphere = CollectAtmosphereEnvironment();
+
 		RenderVolumeBaseSettings volumeBaseSettings = renderer->GetBaseRenderVolumeSettings(sceneCamera.Camera.GetExposure());
-		volumeBaseSettings.Atmosphere = atmosphereEnvironment;
+		volumeBaseSettings.Atmosphere = packet.Atmosphere;
 		const glm::vec3 cameraPosition = glm::vec3(GetWorldSpaceTransformMatrix(cameraEntity)[3]);
 		const Frustum cameraFrustum = Frustum::FromViewProjection(sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix);
-		renderer->SetRenderVolumeEnvironment(CollectRenderVolumeEnvironment(cameraPosition, &cameraFrustum, volumeBaseSettings));
-
-		// Begin the 3D rendering frame after scene lighting/environment state is prepared
-		renderer->BeginScene(sceneCamera);
+		packet.Volumes = CollectRenderVolumeEnvironment(cameraPosition, &cameraFrustum, volumeBaseSettings);
 
 		// Submit all static meshes (no selection highlight in runtime)
-		SubmitStaticMeshes(renderer, nullptr);
+		packet.Meshes = SyncRenderScene(nullptr);
+		CaptureDraw2D(packet);
+		CaptureColliderDebug(packet, renderer, nullptr);
 
-		renderer->SetWorldOverlayRenderCallback([this, renderer, &sceneCamera, &cameraComp]() mutable
+		packet.Valid = true;
+		return true;
+	}
+
+	void Scene::CaptureColliderDebug(FrameRenderPacket& packet, Ref<SceneRenderer> renderer,
+		const std::function<bool(Entity)>& isSelected)
+	{
+		const SceneRendererOptions& rendererOptions = renderer->GetOptions();
+		if (!rendererOptions.ShowPhysicsColliders)
+			return;
+
+		auto shouldSubmitCollider = [&](Entity entity)
 		{
-			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
-			if (!renderer2D)
+			if (rendererOptions.PhysicsColliderMode == SceneRendererOptions::PhysicsColliderView::All)
+				return true;
+
+			return isSelected ? isSelected(entity) : false;
+		};
+
+		auto pushDebugMesh = [&](AssetHandle handle, const glm::mat4& transform, bool isSimpleCollider)
+		{
+			Ref<StaticMesh> staticMesh;
+			Ref<MeshSource> meshSource;
+			if (!ResolveStaticMeshDebugAssets(handle, staticMesh, meshSource))
 				return;
 
-			const glm::mat4 view = sceneCamera.ViewMatrix;
-			const glm::mat4 viewProjection = cameraComp.Camera.GetProjectionMatrix() * view;
+			FrameRenderPacket::ColliderDebugItem item;
+			item.Mesh = staticMesh;
+			item.Source = meshSource;
+			item.Transform = transform;
+			item.SimpleCollider = isSimpleCollider;
+			packet.ColliderDebug.push_back(std::move(item));
+		};
 
-			renderer2D->ResetStats();
-			renderer2D->BeginScene(viewProjection, view, true);
-			renderer2D->SetTargetFramebuffer(renderer->GetDepthCompositeFramebuffer());
-
-			// Draw sprites
+		{
+			auto colliderView = m_Registry.view<const TransformComponent, const BoxColliderComponent>();
+			for (auto e : colliderView)
 			{
-				auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-				for (auto entity : group)
-				{
-					auto& sprite = group.get<SpriteRendererComponent>(entity);
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity))
+					continue;
 
-					Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
-					const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
-					if (texture)
-						renderer2D->DrawQuad(worldTransform, texture, sprite.TilingFactor, sprite.Color);
-					else
-						renderer2D->DrawQuad(worldTransform, sprite.Color);
-				}
+				const auto& collider = colliderView.get<const BoxColliderComponent>(e);
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const glm::vec3 size = glm::max(collider.HalfSize * 2.0f * physicsScale, glm::vec3(0.001f));
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform)
+					* glm::translate(glm::mat4(1.0f), collider.Offset * physicsScale)
+					* glm::scale(glm::mat4(1.0f), size);
+
+				pushDebugMesh(GetColliderDebugPrimitiveMesh(ColliderDebugPrimitive::Box), transform, true);
 			}
+		}
 
-			// Draw circles
+		{
+			auto colliderView = m_Registry.view<const TransformComponent, const SphereColliderComponent>();
+			for (auto e : colliderView)
 			{
-				auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
-				for (auto entity : view)
-				{
-					auto& circle = view.get<CircleRendererComponent>(entity);
-					renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
-				}
-			}
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity))
+					continue;
 
-			// Draw text
+				const auto& collider = colliderView.get<const SphereColliderComponent>(e);
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const float radius = std::max(0.001f, collider.Radius * std::max({ physicsScale.x, physicsScale.y, physicsScale.z }));
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform)
+					* glm::translate(glm::mat4(1.0f), collider.Offset * physicsScale)
+					* glm::scale(glm::mat4(1.0f), glm::vec3(radius));
+
+				pushDebugMesh(GetColliderDebugPrimitiveMesh(ColliderDebugPrimitive::Sphere), transform, true);
+			}
+		}
+
+		{
+			auto colliderView = m_Registry.view<const TransformComponent, const CapsuleColliderComponent>();
+			for (auto e : colliderView)
 			{
-				auto view = m_Registry.view<TransformComponent, TextComponent>();
-				for (auto entity : view)
-				{
-					auto& text = view.get<TextComponent>(entity);
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity))
+					continue;
 
-					Ref<Font> font = Font::GetFontAssetForTextComponent(text);
-					if (font)
-					{
-						renderer2D->DrawString(text.TextString, font, GetWorldSpaceTransformMatrix(Entity{ entity, this }),
-							text.MaxWidth, text.Color, text.LineSpacing, text.Kerning);
-					}
-				}
+				const auto& collider = colliderView.get<const CapsuleColliderComponent>(e);
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const float radius = std::max(0.001f, collider.Radius * std::max(physicsScale.x, physicsScale.z));
+				const float halfHeight = std::max(0.001f, collider.HalfHeight * physicsScale.y);
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform)
+					* glm::translate(glm::mat4(1.0f), collider.Offset * physicsScale);
+
+				pushDebugMesh(GetCapsuleColliderDebugMesh(radius, halfHeight * 2.0f), transform, true);
 			}
+		}
 
-			renderer2D->EndScene();
-		});
+		{
+			auto controllerView = m_Registry.view<const TransformComponent, const CharacterControllerComponent>();
+			for (auto e : controllerView)
+			{
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity) || entity.HasComponent<CapsuleColliderComponent>())
+					continue;
 
-		// End the frame
-		renderer->EndScene();
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const float radius = 0.5f * std::max(physicsScale.x, physicsScale.z);
+				const float halfHeight = 0.5f * physicsScale.y;
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform);
+
+				pushDebugMesh(GetCapsuleColliderDebugMesh(radius, halfHeight * 2.0f), transform, true);
+			}
+		}
+
+		{
+			auto colliderView = m_Registry.view<const TransformComponent, const MeshColliderComponent>();
+			for (auto e : colliderView)
+			{
+				Entity entity = { e, const_cast<Scene*>(this) };
+				if (!shouldSubmitCollider(entity))
+					continue;
+
+				const auto& collider = colliderView.get<const MeshColliderComponent>(e);
+				const AssetHandle colliderHandle = ResolveMeshColliderHandle(entity, collider);
+				if (!colliderHandle)
+					continue;
+
+				Ref<StaticMesh> staticMesh;
+				Ref<MeshSource> meshSource;
+				if (!ResolveStaticMeshDebugAssets(colliderHandle, staticMesh, meshSource))
+					continue;
+
+				if (collider.SubmeshIndex < meshSource->GetSubmeshes().size())
+					staticMesh = Ref<StaticMesh>::Create(staticMesh->GetMeshSource(), std::vector<uint32_t>{ collider.SubmeshIndex }, false);
+
+				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform)
+					* glm::scale(glm::mat4(1.0f), physicsScale);
+
+				FrameRenderPacket::ColliderDebugItem item;
+				item.Mesh = staticMesh;
+				item.Source = meshSource;
+				item.Transform = transform;
+				item.SimpleCollider = false;
+				packet.ColliderDebug.push_back(std::move(item));
+			}
+		}
 	}
 
 	void Scene::OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected)

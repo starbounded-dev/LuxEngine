@@ -8,7 +8,7 @@
 #include <filesystem>
 
 namespace Lux
-{
+{    
 	class Project;
 
 	class RuntimeLayer : public Layer

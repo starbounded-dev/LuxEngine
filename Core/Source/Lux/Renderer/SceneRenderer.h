@@ -24,6 +24,7 @@
 #include "Lux/Renderer/ShaderDefs.h"
 #include "Lux/Core/Math/Frustum.h"
 #include "Lux/Core/Timer.h"
+#include "Lux/Debug/Profiler.h"
 #include "Lux/Project/TieringSettings.h"
 #include "Lux/Scene/Scene.h"
 
@@ -988,6 +989,9 @@ namespace Lux {
 			SceneRenderer& Renderer;
 			const char* Name = "";
 			Timer ProfileTimer;
+#if LUX_ENABLE_PROFILING
+			TracyCZoneCtx ProfileZone;   // Tracy zone spanning this object's lifetime
+#endif
 		};
 
 		// Render-thread draw helper (must be called inside Renderer::Submit).

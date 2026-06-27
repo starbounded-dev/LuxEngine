@@ -3,6 +3,7 @@
 #include "Lux/EntryPoint.h"
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Utilities/FileSystem.h"
+#include "Lux/Core/ApplicationSettings.h"
 
 #include <yaml-cpp/yaml.h>
 
@@ -56,6 +57,11 @@ namespace Lux
 			specification.WindowHeight = runtimeNode["WindowHeight"].as<uint32_t>(specification.WindowHeight);
 			specification.Fullscreen = runtimeNode["Fullscreen"].as<bool>(specification.Fullscreen);
 			specification.VSync = runtimeNode["VSync"].as<bool>(specification.VSync);
+
+			// Optional per-game threading override (defaults to whatever CreateApplication resolved).
+			const std::string threadingPolicy = runtimeNode["ThreadingPolicy"].as<std::string>("");
+			if (!threadingPolicy.empty())
+				specification.CoreThreadingPolicy = ThreadingPolicyFromString(threadingPolicy);
 
 			std::filesystem::path iconPath = runtimeNode["IconPath"].as<std::string>("");
 			if (!iconPath.empty())
@@ -124,7 +130,11 @@ namespace Lux
 		specification.VSync = true;
 		specification.IconPath = "Resources/Editor/Hazel-IconLogo-2023.png";
 		specification.RenderConfig.FramesInFlight = 3;
-		specification.CoreThreadingPolicy = ThreadingPolicy::MultiThreaded;
+		// Base policy from App.lsettings (defaults to multi-threaded); RuntimeSettings.yaml may override per-game.
+		{
+			ApplicationSettings settings("App.lsettings");
+			specification.CoreThreadingPolicy = ThreadingPolicyFromString(settings.Get("Core.ThreadingPolicy", "Multi"));
+		}
 		ApplyRuntimeSettings(specification, projectPath);
 		ApplyRuntimeShaderPack(specification, projectPath);
 

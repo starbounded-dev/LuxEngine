@@ -142,6 +142,32 @@ namespace Lux
 		}
 	};
 
+	// Immutable CPU-side copy of an ImGui viewport's draw data and texture table.
+	// ImGui owns the source lists only until the next NewFrame(), so render-thread
+	// consumption must not retain ImGuiViewport::DrawData directly.
+	class ImGuiDrawDataSnapshot
+	{
+	public:
+		static std::shared_ptr<ImGuiDrawDataSnapshot> Create(
+			const ImDrawData* drawData,
+			const std::shared_ptr<ImGuiTextureRegistry>& registry);
+
+		~ImGuiDrawDataSnapshot();
+
+		ImDrawData* GetDrawData() { return &m_DrawData; }
+		const ImGuiTextureInfo& ResolveTexture(uint64_t handle) const;
+
+	private:
+		ImGuiDrawDataSnapshot() = default;
+
+		ImDrawData m_DrawData;
+		std::vector<ImDrawList*> m_OwnedDrawLists;
+		std::vector<ImGuiTextureInfo> m_PersistentTextures;
+		std::vector<ImGuiTextureInfo> m_FrameTextures;
+		std::vector<nvrhi::TextureHandle> m_TextureKeepAlives;
+		uint32_t m_FrameCounter = 0;
+	};
+
 	// --------------------------------------------------------------------
 	// ImGuiRenderer
 	// --------------------------------------------------------------------
@@ -158,8 +184,8 @@ namespace Lux
 		bool Init(std::shared_ptr<ImGuiTextureRegistry> sharedRegistry = nullptr);
 
 		bool UpdateFontTexture();
-		bool Render(ImGuiViewport* viewport, nvrhi::GraphicsPipelineHandle pipeline, nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore = nullptr);
-		bool RenderToSwapchain(ImGuiViewport* viewport, VulkanSwapChain* swapchain);
+		bool Render(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, nvrhi::GraphicsPipelineHandle pipeline, nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore = nullptr);
+		bool RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain);
 		void BackbufferResizing();
 		float GetGPUTime(uint32_t frameIndex) const;
 

@@ -17,6 +17,78 @@
 
 namespace Lux {
 
+	std::shared_ptr<ImGuiDrawDataSnapshot> ImGuiDrawDataSnapshot::Create(
+		const ImDrawData* drawData,
+		const std::shared_ptr<ImGuiTextureRegistry>& registry)
+	{
+		if (!drawData || !drawData->Valid || !registry)
+			return nullptr;
+
+		auto snapshot = std::shared_ptr<ImGuiDrawDataSnapshot>(new ImGuiDrawDataSnapshot());
+		snapshot->m_DrawData.Valid = true;
+		snapshot->m_DrawData.DisplayPos = drawData->DisplayPos;
+		snapshot->m_DrawData.DisplaySize = drawData->DisplaySize;
+		snapshot->m_DrawData.FramebufferScale = drawData->FramebufferScale;
+		snapshot->m_DrawData.OwnerViewport = nullptr;
+		snapshot->m_DrawData.Textures = nullptr;
+
+		snapshot->m_OwnedDrawLists.reserve(drawData->CmdListsCount);
+		for (const ImDrawList* drawList : drawData->CmdLists)
+		{
+			ImDrawList* clonedDrawList = drawList->CloneOutput();
+			snapshot->m_OwnedDrawLists.push_back(clonedDrawList);
+			snapshot->m_DrawData.AddDrawList(clonedDrawList);
+		}
+
+		// The registry is rebuilt every main-thread ImGui frame. Copy it with the draw
+		// lists so the render thread never races the next frame's NewFrame()/Image calls.
+		snapshot->m_PersistentTextures = registry->PersistentTextures;
+		snapshot->m_FrameTextures = registry->FrameTextures;
+		snapshot->m_FrameCounter = registry->FrameCounter;
+
+		// ImGuiTextureInfo intentionally stores a non-owning pointer. The source UI can
+		// release an icon or viewport texture before this snapshot reaches the render
+		// thread, so retain the underlying NVRHI resources for the snapshot lifetime.
+		snapshot->m_TextureKeepAlives.reserve(
+			snapshot->m_PersistentTextures.size() + snapshot->m_FrameTextures.size());
+		for (const ImGuiTextureInfo& texture : snapshot->m_PersistentTextures)
+		{
+			if (texture.Texture)
+				snapshot->m_TextureKeepAlives.emplace_back(texture.Texture);
+		}
+		for (const ImGuiTextureInfo& texture : snapshot->m_FrameTextures)
+		{
+			if (texture.Texture)
+				snapshot->m_TextureKeepAlives.emplace_back(texture.Texture);
+		}
+		return snapshot;
+	}
+
+	ImGuiDrawDataSnapshot::~ImGuiDrawDataSnapshot()
+	{
+		for (ImDrawList* drawList : m_OwnedDrawLists)
+			IM_DELETE(drawList);
+	}
+
+	const ImGuiTextureInfo& ImGuiDrawDataSnapshot::ResolveTexture(uint64_t handle) const
+	{
+		const uint32_t textureIndex = static_cast<uint32_t>(handle & 0xFFFFFFFFull);
+		const uint32_t frameCounter = static_cast<uint32_t>(handle >> 32);
+
+		if (textureIndex < ImGuiTextureRegistry::PersistentHandleCount)
+		{
+			LUX_CORE_ASSERT(frameCounter == 0, "Persistent ImGui texture handle has a frame counter");
+			LUX_CORE_ASSERT(textureIndex < m_PersistentTextures.size(), "Invalid persistent ImGui texture handle");
+			return m_PersistentTextures[textureIndex];
+		}
+
+		LUX_CORE_ASSERT(frameCounter == m_FrameCounter,
+			"Stale ImGui texture handle: from frame {}, snapshot frame {}", frameCounter, m_FrameCounter);
+		const uint32_t frameTextureIndex = textureIndex - ImGuiTextureRegistry::PersistentHandleCount;
+		LUX_CORE_ASSERT(frameTextureIndex < m_FrameTextures.size(), "Invalid frame ImGui texture handle");
+		return m_FrameTextures[frameTextureIndex];
+	}
+
 	struct VERTEX_CONSTANT_BUFFER
 	{
 		float mvp[4][4];
@@ -364,13 +436,15 @@ namespace Lux {
 	// run after the main renderer can still resolve their texture handles.
 	// -----------------------------------------------------------------------
 
-	bool ImGuiRenderer::Render(ImGuiViewport* viewport, nvrhi::GraphicsPipelineHandle pipeline,
+	bool ImGuiRenderer::Render(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, nvrhi::GraphicsPipelineHandle pipeline,
 		nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore)
 	{
 		LUX_PROFILE_FUNC("ImGuiRenderer::Render");
+		if (!snapshot)
+			return false;
 
 		nvrhi::IDevice* device = Application::GetGraphicsDevice();
-		ImDrawData* drawData = viewport->DrawData;
+		ImDrawData* drawData = snapshot->GetDrawData();
 
 		m_RenderCommandBuffer->RT_Begin();
 		nvrhi::CommandListHandle commandList = m_RenderCommandBuffer->GetActive();
@@ -443,31 +517,8 @@ namespace Lux {
 				// All per-viewport renderers share the same registry so a
 				// handle produced by the main renderer is always resolvable.
 				// --------------------------------------------------------
-				uint64_t handle = (uint64_t)pCmd->GetTexID();
-				uint32_t texIndex = (uint32_t)(handle & 0xFFFFFFFF);
-				uint32_t frameCounter = (uint32_t)(handle >> 32);
-
-				ImGuiTextureInfo texInfo;
-
-				if (texIndex < PersistentHandleCount)
-				{
-					LUX_CORE_ASSERT(frameCounter == 0,
-						"Persistent handle should have frame counter 0");
-					LUX_CORE_ASSERT(texIndex < m_Registry->PersistentTextures.size(),
-						"Invalid persistent texture handle");
-					texInfo = m_Registry->PersistentTextures[texIndex];
-				}
-				else
-				{
-					LUX_CORE_ASSERT(frameCounter == m_Registry->FrameCounter,
-						"Stale texture handle: from frame {}, current frame {}",
-						frameCounter, m_Registry->FrameCounter);
-
-					uint32_t frameIndex = texIndex - PersistentHandleCount;
-					LUX_CORE_ASSERT(frameIndex < m_Registry->FrameTextures.size(),
-						"Invalid frame texture handle");
-					texInfo = m_Registry->FrameTextures[frameIndex];
-				}
+				const uint64_t handle = static_cast<uint64_t>(pCmd->GetTexID());
+				const ImGuiTextureInfo& texInfo = snapshot->ResolveTexture(handle);
 
 				LUX_CORE_ASSERT(texInfo.Texture, "Texture is null in ImGuiTextureInfo!");
 				drawState.bindings = { GetBindingSet(texInfo) };
@@ -516,9 +567,9 @@ namespace Lux {
 		return true;
 	}
 
-	bool ImGuiRenderer::RenderToSwapchain(ImGuiViewport* viewport, VulkanSwapChain* swapchain)
+	bool ImGuiRenderer::RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain)
 	{
-		return Render(viewport, GetOrCreatePipeline(swapchain),
+		return Render(snapshot, GetOrCreatePipeline(swapchain),
 			swapchain->GetCurrentFramebuffer(),
 			swapchain->GetAcquiredImageSemaphore());
 	}
