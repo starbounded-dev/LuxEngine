@@ -25,6 +25,7 @@ namespace Lux {
 
 	void Image2D::Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 #if INVESTIGATE
 		Ref<Image2D> instance = this;
 		Renderer::Submit([instance]() mutable
@@ -38,6 +39,7 @@ namespace Lux {
 
 	void Image2D::Release()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_TransientAliasSource)
 		{
 			m_TransientAliasSource = nullptr;
@@ -60,6 +62,7 @@ namespace Lux {
 
 	void Image2D::SetTransientAliasSource(Ref<Image2D> source)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(source);
 		LUX_CORE_VERIFY(source.Raw() != this);
 		LUX_CORE_VERIFY(!source->IsTransientAlias());
@@ -88,6 +91,7 @@ namespace Lux {
 
 	void Image2D::ClearTransientAliasSource()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_TransientAliasSource)
 			return;
 
@@ -100,6 +104,7 @@ namespace Lux {
 
 	int Image2D::GetClosestMipLevel(uint32_t width, uint32_t height) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (width > m_Specification.Width / 2 || height > m_Specification.Height / 2)
 			return 0;
 
@@ -110,6 +115,7 @@ namespace Lux {
 
 	std::pair<uint32_t, uint32_t> Image2D::GetMipLevelSize(int mipLevel) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t width = m_Specification.Width;
 		uint32_t height = m_Specification.Height;
 		return { width >> mipLevel, height >> mipLevel };
@@ -117,6 +123,7 @@ namespace Lux {
 
 	void Image2D::RT_Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(m_Specification.Width > 0 && m_Specification.Height > 0);
 
 		if (m_TransientAliasSource)
@@ -216,6 +223,7 @@ namespace Lux {
 
 	void Image2D::CreatePerLayerImageViews()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Image2D> instance = this;
 		Renderer::Submit([instance]() mutable
 			{
@@ -226,6 +234,7 @@ namespace Lux {
 
 	void Image2D::RT_CreatePerLayerImageViews()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_Specification.Layers > 1);
 
 		m_PerLayerImageViews.resize(m_Specification.Layers);
@@ -270,6 +279,7 @@ namespace Lux {
 
 	nvrhi::TextureSubresourceSet Image2D::GetMipImageView(uint32_t mip)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto it = m_PerMipImageViews.find(mip);
 		if (it != m_PerMipImageViews.end())
 			return it->second;
@@ -284,6 +294,7 @@ namespace Lux {
 
 	void Image2D::RT_CreatePerSpecificLayerImageViews(const std::vector<uint32_t>& layerIndices)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_Specification.Layers > 1);
 
 		if (m_PerLayerImageViews.empty())
@@ -301,11 +312,13 @@ namespace Lux {
 
 	const std::map<nvrhi::ITexture*, WeakRef<Image2D>>& Image2D::GetImageRefs()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_ImageReferences;
 	}
 
 	void Image2D::SetData(Buffer buffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_TransientAliasSource)
 		{
 			m_TransientAliasSource->SetData(buffer);
@@ -332,6 +345,7 @@ namespace Lux {
 
 	void Image2D::CopyToHostBuffer(Buffer& buffer) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_TransientAliasSource)
 		{
 			m_TransientAliasSource->CopyToHostBuffer(buffer);
@@ -497,11 +511,13 @@ namespace Lux {
 
 	void ImageView::Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		RT_Invalidate();
 	}
 
 	void ImageView::RT_Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_ImageInfo = m_Specification.Image->GetImageInfo();
 
 		m_TextureSubresourceSet.baseMipLevel = m_Specification.Mip;
@@ -526,6 +542,7 @@ namespace Lux {
 
 	void Sampler::Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const auto desc = nvrhi::SamplerDesc()
 			.setMipBias(m_Specification.MipBias)
 			.setMaxAnisotropy(m_Specification.MaxAnisotropy)

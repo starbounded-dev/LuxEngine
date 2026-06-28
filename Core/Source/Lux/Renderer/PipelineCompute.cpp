@@ -140,6 +140,7 @@ namespace Lux {
 
 	void PipelineCompute::RT_CreatePipeline()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_INFO_TAG("Renderer", "[PipelineCompute] Creating compute pipeline: {}", m_Shader->GetName());
 
 		nvrhi::ComputePipelineDesc desc;
@@ -155,26 +156,31 @@ namespace Lux {
 
 	void PipelineCompute::Begin(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 
 	}
 
 	void PipelineCompute::RT_Begin(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 
 	}
 
 	void PipelineCompute::End()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 
 	}
 
 	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		BufferMemoryBarrier(renderCommandBuffer, storageBuffer, PipelineStage::ComputeShader, fromAccess, PipelineStage::AllCommands, toAccess);
 	}
 
 	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const std::string markerName = BuildBarrierMarkerName("Buffer", m_Shader ? m_Shader->GetName() : "PipelineCompute", GetStorageBufferDebugName(storageBuffer), fromStage, fromAccess, toStage, toAccess);
 		Renderer::Submit([renderCommandBuffer, storageBuffer, toAccess, markerName]() mutable
 			{
@@ -189,11 +195,13 @@ namespace Lux {
 
 	void PipelineCompute::ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		ImageMemoryBarrier(renderCommandBuffer, image, PipelineStage::ComputeShader, fromAccess, PipelineStage::AllCommands, toAccess);
 	}
 
 	void PipelineCompute::ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const std::string markerName = BuildBarrierMarkerName("Image", m_Shader ? m_Shader->GetName() : "PipelineCompute", GetImageDebugName(image), fromStage, fromAccess, toStage, toAccess);
 		Renderer::Submit([renderCommandBuffer, image, toAccess, markerName]() mutable
 			{
@@ -208,6 +216,7 @@ namespace Lux {
 
 	void PipelineCompute::Execute(void* descriptorSets, uint32_t descriptorSetCount, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 
 		nvrhi::ComputeState computeState;
@@ -223,11 +232,13 @@ namespace Lux {
 
 	void PipelineCompute::SetPushConstants(Buffer constants) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 
 	}
 
 	void PipelineCompute::CreatePipeline()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<PipelineCompute> instance = this;
 		Renderer::Submit([instance]() mutable
 			{

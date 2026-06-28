@@ -78,6 +78,7 @@ namespace Lux {
 
 	Ref<Texture2D> Texture2D::CreateFromSRGB(Ref<Texture2D> texture)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// The source texture should already have mipmaps generated (it's RGBA, which supports compute-based mip generation)
 		// We copy all mip levels from the source and disable mip generation on the SRGBA texture
 		// because SRGB formats cannot be used as storage images in compute shaders
@@ -147,6 +148,7 @@ namespace Lux {
 
 	void Texture2D::CreateFromFile(const TextureSpecification& specification, const std::filesystem::path& filepath)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Utils::ValidateSpecification(specification);
 
 		::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Info, "loading image {}", filepath);
@@ -187,6 +189,7 @@ namespace Lux {
 
 	void Texture2D::ReplaceFromFile(const TextureSpecification& specification, const std::filesystem::path& filepath)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Utils::ValidateSpecification(specification);
 
 		TextureImportSettings importSettings;
@@ -226,6 +229,7 @@ namespace Lux {
 
 	void Texture2D::CreateFromBuffer(const TextureSpecification& specification, Buffer data)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		::Lux::Log::PrintMessage(::Lux::Log::Type::Core, ::Lux::Log::Level::Info, "loading image from buffer");
 
 
@@ -287,11 +291,13 @@ namespace Lux {
 
 	void Texture2D::Resize(const glm::uvec2& size)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Resize(size.x, size.y);
 	}
 
 	void Texture2D::Resize(const uint32_t width, const uint32_t height)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Specification.Width = width;
 		m_Specification.Height = height;
 
@@ -306,6 +312,7 @@ namespace Lux {
 
 	void Texture2D::Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 
 		m_Image->Release();
@@ -414,6 +421,7 @@ namespace Lux {
 
 	void Texture2D::SetData(Buffer buffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 #if 0
 		nvrhi::IDevice* device = Application::Get().GetWindow().GetDeviceManager()->GetDevice();
 
@@ -573,6 +581,7 @@ namespace Lux {
 
 	void Texture2D::Lock()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_ImageData)
 		{
 			auto size = (uint32_t)Utils::GetMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height);
@@ -582,26 +591,31 @@ namespace Lux {
 
 	void Texture2D::Unlock()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		SetData(m_ImageData);
 	}
 
 	Buffer Texture2D::GetWriteableBuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_ImageData;
 	}
 
 	const std::filesystem::path& Texture2D::GetPath() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Path;
 	}
 
 	uint32_t Texture2D::GetMipLevelCount() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return Utils::CalculateMipCount(m_Specification.Width, m_Specification.Height);
 	}
 
 	std::pair<uint32_t, uint32_t> Texture2D::GetMipSize(uint32_t mip) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t width = m_Specification.Width;
 		uint32_t height = m_Specification.Height;
 		while (mip != 0)
@@ -616,6 +630,7 @@ namespace Lux {
 
 	void Texture2D::GenerateMips()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// SRGB/SRGBA formats cannot be used as storage images in compute shaders
 		// Skip compute-based mip generation for these formats
 		if (m_Specification.Format == ImageFormat::SRGB || m_Specification.Format == ImageFormat::SRGBA)
@@ -890,6 +905,7 @@ namespace Lux {
 
 	void Texture2D::CopyToHostBuffer(Buffer& buffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_Image)
 			m_Image->CopyToHostBuffer(buffer);
 	}
@@ -919,6 +935,7 @@ namespace Lux {
 
 	void TextureCube::Release()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_Image == nullptr)
 			return;
 #if DEAL
@@ -952,6 +969,7 @@ namespace Lux {
 
 	void TextureCube::Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Release();
 
 		uint32_t mipCount = m_Specification.GenerateMips ? GetMipLevelCount() : 1;
@@ -1164,11 +1182,13 @@ namespace Lux {
 
 	uint32_t TextureCube::GetMipLevelCount() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return Utils::CalculateMipCount(m_Specification.Width, m_Specification.Height);
 	}
 
 	std::pair<uint32_t, uint32_t> TextureCube::GetMipSize(uint32_t mip) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t width = m_Specification.Width;
 		uint32_t height = m_Specification.Height;
 		while (mip != 0)
@@ -1183,6 +1203,7 @@ namespace Lux {
 
 	nvrhi::TextureSubresourceSet TextureCube::CreateImageViewSingleMip(uint32_t mip)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::TextureSubresourceSet tss;
 		tss.baseMipLevel = mip;
 		tss.numMipLevels = 1;
@@ -1193,6 +1214,7 @@ namespace Lux {
 
 	void TextureCube::GenerateMips()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (Utils::IsBlockCompressed(m_Specification.Format))
 		{
 			LUX_CORE_WARN("TextureCube::GenerateMips - Skipping compute-based mip generation for block-compressed texture '{}'. "
@@ -1295,6 +1317,7 @@ namespace Lux {
 #if 0
 	void TextureCube::CopyToHostBuffer(Buffer& buffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto device = VulkanContext::GetCurrentDevice();
 		auto vulkanDevice = device->GetVulkanDevice();
 		VulkanAllocator allocator("TextureCube");
@@ -1383,6 +1406,7 @@ namespace Lux {
 
 	void TextureCube::CopyToHostBuffer(Buffer& buffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		//HZ_CORE_VERIFY(false);
 #if DEAL
 		auto device = VulkanContext::GetCurrentDevice();
@@ -1476,6 +1500,7 @@ namespace Lux {
 
 	void TextureCube::CopyFromBuffer(const Buffer& buffer, uint32_t mips)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		//HZ_CORE_VERIFY(false);
 #if DEAL
 		// HZ_CORE_VERIFY(buffer.Size == m_GPUAllocationSize);

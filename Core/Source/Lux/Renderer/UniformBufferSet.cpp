@@ -17,29 +17,34 @@ namespace Lux {
 
 	Ref<UniformBuffer> UniformBufferSet::Get()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frame = Renderer::GetCurrentFrameIndex();
 		return Get(frame);
 	}
 
 	Ref<UniformBuffer> UniformBufferSet::RT_Get()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frame = Renderer::RT_GetCurrentFrameIndex();
 		return Get(frame);
 	}
 
 	Ref<UniformBuffer> UniformBufferSet::Get(uint32_t frame)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_UniformBuffers.find(frame) != m_UniformBuffers.end());
 		return m_UniformBuffers.at(frame);
 	}
 
 	void UniformBufferSet::Set(Ref<UniformBuffer> uniformBuffer, uint32_t frame)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_UniformBuffers[frame] = uniformBuffer;
 	}
 
 	uint64_t UniformBufferSet::GetAllocatedSize() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint64_t size = 0;
 		for (const auto& [frame, uniformBuffer] : m_UniformBuffers)
 		{

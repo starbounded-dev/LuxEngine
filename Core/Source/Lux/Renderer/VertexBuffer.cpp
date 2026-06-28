@@ -46,6 +46,7 @@ namespace Lux {
 
 	void VertexBuffer::SetData(Buffer buffer, uint64_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (buffer.Size == 0)
 			return;
 
@@ -64,11 +65,13 @@ namespace Lux {
 
 	void VertexBuffer::SetData(const void* data, uint64_t size, uint64_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		SetData(Buffer(data, size), offset);
 	}
 
 	void VertexBuffer::RT_SetData(Buffer buffer, uint64_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (buffer.Size == 0)
 			return;
 
@@ -83,6 +86,7 @@ namespace Lux {
 
 	void VertexBuffer::RT_SetData(const void* data, uint64_t size, uint64_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		RT_SetData(Buffer(data, size), offset);
 	}
 

@@ -54,6 +54,7 @@ namespace Lux
 
 	AssetHandle MeshFactory::CreateBox(const glm::vec3& size)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::vector<Vertex> vertices(8);
 		vertices[0].Position = { -size.x * 0.5f, -size.y * 0.5f,  size.z * 0.5f };
 		vertices[1].Position = {  size.x * 0.5f, -size.y * 0.5f,  size.z * 0.5f };
@@ -81,6 +82,7 @@ namespace Lux
 
 	AssetHandle MeshFactory::CreateSphere(float radius)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::vector<Vertex> vertices;
 		std::vector<Index> indices;
 
@@ -127,6 +129,7 @@ namespace Lux
 
 	AssetHandle MeshFactory::CreateCapsule(float radius, float height)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		constexpr size_t subdivisionsHeight = 8;
 		constexpr size_t ringsBody = subdivisionsHeight + 1;
 		constexpr size_t ringsTotal = subdivisionsHeight + ringsBody;

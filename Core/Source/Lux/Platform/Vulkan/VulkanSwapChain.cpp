@@ -31,6 +31,7 @@ namespace Lux {
 
 	bool VulkanSwapChain::Create(uint32_t width, uint32_t height)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Width = width;
 		m_Height = height;
 
@@ -145,6 +146,7 @@ namespace Lux {
 
 	void VulkanSwapChain::Destroy()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
 		if (vulkanDeviceManager->m_VulkanDevice)
 		{
@@ -181,6 +183,7 @@ namespace Lux {
 
 	void VulkanSwapChain::OnResize(uint32_t width, uint32_t height)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Width = width;
 		m_Height = height;
 		BackBufferResizing();
@@ -189,6 +192,7 @@ namespace Lux {
 
 	void VulkanSwapChain::Resize()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Destroy();
 		Create(m_Width, m_Height);
 	}
@@ -310,11 +314,13 @@ namespace Lux {
 
 	void VulkanSwapChain::BackBufferResizing()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_SwapChainFramebuffers.clear();
 	}
 
 	void VulkanSwapChain::BackBufferResized()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto device = Application::Get().GetGraphicsDevice();
 		uint32_t backBufferCount = GetBackBufferCount();
 		m_SwapChainFramebuffers.resize(backBufferCount);
@@ -327,11 +333,13 @@ namespace Lux {
 
 	nvrhi::ITexture* VulkanSwapChain::GetCurrentBackBuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_SwapChainImages[m_SwapChainIndex].rhiHandle;
 	}
 
 	nvrhi::ITexture* VulkanSwapChain::GetBackBuffer(uint32_t index)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (index < m_SwapChainImages.size())
 			return m_SwapChainImages[index].rhiHandle;
 		return nullptr;
@@ -339,21 +347,25 @@ namespace Lux {
 
 	uint32_t VulkanSwapChain::GetCurrentBackBufferIndex()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_SwapChainIndex;
 	}
 
 	uint32_t VulkanSwapChain::GetBackBufferCount()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return uint32_t(m_SwapChainImages.size());
 	}
 
 	nvrhi::IFramebuffer* VulkanSwapChain::GetCurrentFramebuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return GetFramebuffer(GetCurrentBackBufferIndex());
 	}
 
 	nvrhi::IFramebuffer* VulkanSwapChain::GetFramebuffer(uint32_t index)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (index < m_SwapChainFramebuffers.size())
 			return m_SwapChainFramebuffers[index];
 

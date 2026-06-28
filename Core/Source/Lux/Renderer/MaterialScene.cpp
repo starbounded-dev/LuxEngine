@@ -73,11 +73,13 @@ namespace Lux {
 
 	void MaterialScene::SetTextureResolver(std::function<GPUTextureIndex(AssetHandle)> textureResolver)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_TextureResolver = std::move(textureResolver);
 	}
 
 	GPUMaterialData MaterialScene::GetFallbackMaterialData()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		GPUMaterialData data;
 		data.BaseColor = glm::vec4(1.0f);
 		data.Scalars = glm::vec4(0.0f, 0.5f, 0.0f, 0.0f);
@@ -90,6 +92,7 @@ namespace Lux {
 		const GPUMaterialBuildInput& input,
 		const std::function<GPUTextureIndex(AssetHandle)>& resolveTextureIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		GPUMaterialData data = GetFallbackMaterialData();
 
 		Ref<MaterialAsset> materialAsset = input.MaterialAsset;
@@ -169,6 +172,7 @@ namespace Lux {
 
 	void MaterialScene::EnsureFallbackMaterial()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_Materials.empty())
 			return;
 
@@ -179,6 +183,7 @@ namespace Lux {
 
 	void MaterialScene::BeginSync(uint32_t frameIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex = frameIndex;
 		m_DirtyMaterialCount = 0;
 		m_DirtyMaterialIDs.clear();
@@ -189,6 +194,7 @@ namespace Lux {
 
 	RenderMaterialID MaterialScene::UpsertMaterial(AssetHandle materialHandle, bool forceDirty)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!materialHandle)
 			return InvalidRenderMaterialID;
 
@@ -203,6 +209,7 @@ namespace Lux {
 
 	RenderMaterialID MaterialScene::UpsertOverrideMaterial(uint64_t overrideKey, const Ref<Material>& material, bool transparent, bool forceDirty)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!overrideKey || !material)
 			return InvalidRenderMaterialID;
 
@@ -215,6 +222,7 @@ namespace Lux {
 
 	RenderMaterialID MaterialScene::UpsertMaterial(MaterialKey key, GPUMaterialData data, bool forceDirty)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!key.SourceID)
 			return InvalidRenderMaterialID;
 
@@ -259,6 +267,7 @@ namespace Lux {
 
 	GPUTextureIndex MaterialScene::ResolveTextureIndex(AssetHandle textureHandle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!textureHandle)
 			return InvalidGPUTextureIndex;
 
@@ -274,6 +283,7 @@ namespace Lux {
 
 	void MaterialScene::EndSync()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		for (RenderMaterialID materialID = 1; materialID < m_Materials.size(); materialID++)
 		{
 			if (m_LastTouchedFrames[materialID] == m_FrameIndex)
@@ -326,6 +336,7 @@ namespace Lux {
 
 	void MaterialScene::Clear()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex = 0;
 		m_DirtyMaterialCount = 0;
 		m_NextTextureIndex = 1;
@@ -343,6 +354,7 @@ namespace Lux {
 
 	void MaterialScene::MarkMaterialDirty(RenderMaterialID materialID)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (materialID >= m_Materials.size())
 			return;
 

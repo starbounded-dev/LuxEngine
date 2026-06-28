@@ -161,6 +161,7 @@ namespace Lux {
 
 	void VulkanContext::Init()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_INFO_TAG("Renderer", "VulkanContext::Create");
 
 		LUX_CORE_ASSERT(glfwVulkanSupported(), "GLFW must support Vulkan!");

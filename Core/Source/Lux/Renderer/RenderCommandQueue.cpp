@@ -21,6 +21,7 @@ namespace Lux {
 
 	void* RenderCommandQueue::Allocate(RenderCommandFn fn, uint32_t size)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// NOTE(Yan): for debugging
 		// HZ_CORE_VERIFY(!RenderThread::IsCurrentThreadRT());
 
@@ -39,6 +40,7 @@ namespace Lux {
 
 	void RenderCommandQueue::Execute()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		//LUX_CORE_TRACE_TAG("RenderQueue", "Execute -- {} commands, {} bytes", m_CommandCount, (m_CommandBufferPtr - m_CommandBuffer));
 
 		byte* buffer = m_CommandBuffer;

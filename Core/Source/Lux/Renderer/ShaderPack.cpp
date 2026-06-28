@@ -80,11 +80,13 @@ namespace Lux {
 
 	bool ShaderPack::Contains(std::string_view name) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_File.Index.ShaderPrograms.find(Hash::GenerateFNVHash(name)) != m_File.Index.ShaderPrograms.end();
 	}
 
 	Ref<Shader> ShaderPack::LoadShader(std::string_view name)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t nameHash = Hash::GenerateFNVHash(name);
 		LUX_CORE_VERIFY(Contains(name));
 
@@ -133,6 +135,7 @@ namespace Lux {
 
 	Ref<ShaderPack> ShaderPack::CreateFromLibrary(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& path)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<ShaderPack> shaderPack = Ref<ShaderPack>::Create();
 
 		const auto& shaderMap = shaderLibrary->GetShaders();
@@ -223,6 +226,7 @@ namespace Lux {
 #if 0
 	void ShaderPack::CompileAndStoreShader(std::string_view shaderSourcePath)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t hash = Hash::GenerateFNVHash(shaderSourcePath);
 		m_File.Index.ShaderPrograms[hash];
 
@@ -232,6 +236,7 @@ namespace Lux {
 
 	void ShaderPack::AddShader(Ref<Shader> shader)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 	}
 #endif
 

@@ -25,11 +25,13 @@ namespace Lux {
 
 	void UniformBuffer::SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint64_t size, uint64_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		SetData(cmd, Buffer(data, size), offset);
 	}
 
 	void UniformBuffer::SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint64_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_LocalData.Write(buffer);
 
 		Ref<UniformBuffer> instance = this;
@@ -38,11 +40,13 @@ namespace Lux {
 
 	void UniformBuffer::RT_SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint64_t size, uint64_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		RT_SetData(cmd, Buffer(data, size), offset);
 	}
 
 	void UniformBuffer::RT_SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint64_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (buffer.Size == 0)
 			return;
 

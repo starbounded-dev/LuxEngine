@@ -23,6 +23,7 @@ namespace Lux {
 
 	void StorageBuffer::Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 		m_Handle = device->createBuffer(m_BufferDesc);
 
@@ -32,6 +33,7 @@ namespace Lux {
 
 	void StorageBuffer::SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint32_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_LocalStorage.Write(buffer);
 
 		Ref<StorageBuffer> instance = this;
@@ -43,11 +45,13 @@ namespace Lux {
 
 	void StorageBuffer::SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint32_t size, uint32_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		SetData(cmd, Buffer(data, size), offset);
 	}
 
 	void StorageBuffer::RT_SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint32_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (buffer.Size == 0)
 			return;
 
@@ -67,11 +71,13 @@ namespace Lux {
 
 	void StorageBuffer::RT_SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint32_t size, uint32_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		RT_SetData(cmd, Buffer(data, size), offset);
 	}
 
 	void StorageBuffer::Resize(uint32_t size)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_BufferDesc.setByteSize(size);
 		Invalidate();
 	}

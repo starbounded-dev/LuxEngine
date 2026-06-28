@@ -76,6 +76,7 @@ namespace Lux {
 #if 0
 	void VulkanAllocator::Allocate(VkMemoryRequirements requirements, VkDeviceMemory* dest, VkMemoryPropertyFlags flags /*= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT*/)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_Device);
 
 		// TODO: Tracking
@@ -97,6 +98,7 @@ namespace Lux {
 
 	VmaAllocation VulkanAllocator::AllocateBuffer(VkBufferCreateInfo bufferCreateInfo, VmaMemoryUsage usage, VkBuffer& outBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(bufferCreateInfo.size > 0);
 
 		VmaAllocationCreateInfo allocCreateInfo = {};
@@ -134,6 +136,7 @@ namespace Lux {
 
 	VmaAllocation VulkanAllocator::AllocateImage(VkImageCreateInfo imageCreateInfo, VmaMemoryUsage usage, VkImage& outImage, VkDeviceSize* allocatedSize)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		VmaAllocationCreateInfo allocCreateInfo = {};
 		allocCreateInfo.usage = usage;
 
@@ -173,6 +176,7 @@ namespace Lux {
 
 	void VulkanAllocator::Free(VmaAllocation allocation)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		vmaFreeMemory(s_Data->Allocator, allocation);
 
 #if LUX_GPU_TRACK_MEMORY_ALLOCATION
@@ -191,6 +195,7 @@ namespace Lux {
 
 	void VulkanAllocator::DestroyImage(VkImage image, VmaAllocation allocation)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(image);
 		LUX_CORE_ASSERT(allocation);
 		vmaDestroyImage(s_Data->Allocator, image, allocation);
@@ -211,6 +216,7 @@ namespace Lux {
 
 	void VulkanAllocator::DestroyBuffer(VkBuffer buffer, VmaAllocation allocation)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(buffer);
 		LUX_CORE_ASSERT(allocation);
 		vmaDestroyBuffer(s_Data->Allocator, buffer, allocation);
@@ -231,11 +237,13 @@ namespace Lux {
 
 	void VulkanAllocator::UnmapMemory(VmaAllocation allocation)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		vmaUnmapMemory(s_Data->Allocator, allocation);
 	}
 
 	void VulkanAllocator::DumpStats()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_Data || !s_Data->Allocator)
 		{
 			LUX_CORE_WARN("VulkanAllocator::DumpStats called before VMA allocator initialization");
@@ -261,6 +269,7 @@ namespace Lux {
 
 	GPUMemoryStats VulkanAllocator::GetStats()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		GPUMemoryStats result;
 
 		if (!s_Data || !s_Data->Allocator)
@@ -309,6 +318,7 @@ namespace Lux {
 
 	void VulkanAllocator::Init(Ref<VulkanDevice> device)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_Data = lnew VulkanAllocatorData();
 
 		// Initialize VulkanMemoryAllocator
@@ -323,6 +333,7 @@ namespace Lux {
 
 	void VulkanAllocator::Shutdown()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_Data)
 			return;
 
@@ -334,6 +345,7 @@ namespace Lux {
 
 	VmaAllocator& VulkanAllocator::GetVMAAllocator()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->Allocator;
 	}
 

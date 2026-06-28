@@ -10,6 +10,7 @@ namespace Lux
 {
 	HRESULT HlslIncluder::LoadSource(LPCWSTR pFilename, IDxcBlob** ppIncludeSource)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		static IDxcUtils* pUtils = nullptr;
 		if (!pUtils)
 		{

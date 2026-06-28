@@ -43,6 +43,7 @@ namespace Lux {
 
 	void IndexBuffer::SetData(void* buffer, uint64_t size, uint64_t offset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(false, "Not implemented!");
 	}
 

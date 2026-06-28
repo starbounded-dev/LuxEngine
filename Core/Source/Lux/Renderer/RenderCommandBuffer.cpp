@@ -80,6 +80,7 @@ namespace Lux {
 
 	void RenderCommandBuffer::Begin()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<RenderCommandBuffer> instance = this;
 		Renderer::Submit([instance]() mutable {
 			instance->RT_Begin();
@@ -88,18 +89,21 @@ namespace Lux {
 
 	void RenderCommandBuffer::End()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<RenderCommandBuffer> instance = this;
 		Renderer::Submit([instance]() mutable { instance->RT_End(); });
 	}
 
 	void RenderCommandBuffer::Submit()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<RenderCommandBuffer> instance = this;
 		Renderer::Submit([instance]() mutable { instance->RT_Submit(); });
 	}
 
 	void RenderCommandBuffer::RT_Begin()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
 		commandBufferIndex %= m_CommandLists.size();
 
@@ -165,6 +169,7 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_End()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		RT_EndMarker();
 
 		if (m_QueryEnabled)
@@ -189,11 +194,13 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_Submit()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		RT_Submit(VK_NULL_HANDLE);
 	}
 
 	void RenderCommandBuffer::RT_Submit(VkSemaphore waitSemaphore)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_TRACE_TAG("Renderer", "Submitting Render Command Buffer {}", m_DebugName);
 
 		auto device = Application::GetGraphicsDevice();
@@ -233,6 +240,7 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_Wait(VkSemaphore waitSemaphore)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto device = (nvrhi::vulkan::IDevice*)Application::GetGraphicsDevice().Get();
 		LockQueue();
 		device->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, waitSemaphore, 0);
@@ -241,6 +249,7 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_BeginMarker(const std::string& label)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::CommandListHandle commandList = GetActive();
 		commandList->beginMarker(label.c_str());
 		Utils::SetVulkanCheckpoint(VkCommandBuffer(commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer)), label);
@@ -248,21 +257,25 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_EndMarker()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		GetActive()->endMarker();
 	}
 
 	void RenderCommandBuffer::RT_CommitGraphicsState()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_ActiveCommandBuffer->setGraphicsState(m_GraphicsState);
 	}
 
 	void RenderCommandBuffer::RT_CommitComputeState()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_ActiveCommandBuffer->setComputeState(m_ComputeState);
 	}
 
 	float RenderCommandBuffer::GetExecutionGPUTime(uint32_t frameIndex) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_QueryEnabled)
 		{
 			// Use the frame-level timer query
@@ -278,11 +291,13 @@ namespace Lux {
 
 	const Lux::PipelineStatistics& RenderCommandBuffer::GetPipelineStatistics(uint32_t frameIndex) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_PipelineStatisticsQueryResults[frameIndex % m_PipelineStatisticsQueryResults.size()];
 	}
 
 	void RenderCommandBuffer::RT_BeginTimerQuery(const std::string& name)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_QueryEnabled)
 		{
 			return;
@@ -316,6 +331,7 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_EndTimerQuery()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_QueryEnabled)
 		{
 			return;
@@ -348,6 +364,7 @@ namespace Lux {
 
 	float RenderCommandBuffer::GetTimerQueryTime(const std::string& name) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_QueryEnabled)
 		{
 			auto it = m_NamedTimerQueryResults.find(name);
@@ -360,11 +377,13 @@ namespace Lux {
 
 	void RenderCommandBuffer::LockQueue()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_GraphicsQueueMutex.lock();
 	}
 
 	void RenderCommandBuffer::UnlockQueue()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_GraphicsQueueMutex.unlock();
 	}
 }

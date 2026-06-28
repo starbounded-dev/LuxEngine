@@ -1692,7 +1692,10 @@ namespace Lux {
 			return;
 
 		FrameRenderPacket packet;
-		BuildRenderPacketEditor(packet, camera, renderer, isSelected);
+		{
+			LUX_PROFILE_SCOPE("Scene::BuildRenderPacket");
+			BuildRenderPacketEditor(packet, camera, renderer, isSelected);
+		}
 		SubmitRenderPacket(renderer, packet);
 	}
 
@@ -1791,6 +1794,7 @@ namespace Lux {
 
 	void Scene::SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const
 	{
+		LUX_PROFILE_FUNCTION("Scene::SubmitRenderPacket");
 		if (!renderer || !renderer->IsReady() || !packet.Valid)
 			return;
 
@@ -1801,9 +1805,12 @@ namespace Lux {
 
 		renderer->BeginScene(packet.Camera);
 
-		renderer->SubmitRenderScene(packet.Meshes);
-		for (const FrameRenderPacket::ColliderDebugItem& collider : packet.ColliderDebug)
-			renderer->SubmitPhysicsStaticDebugMesh(collider.Mesh, collider.Source, collider.Transform, collider.SimpleCollider);
+		{
+			LUX_PROFILE_SCOPE("Scene::SubmitMeshes");
+			renderer->SubmitRenderScene(packet.Meshes);
+			for (const FrameRenderPacket::ColliderDebugItem& collider : packet.ColliderDebug)
+				renderer->SubmitPhysicsStaticDebugMesh(collider.Mesh, collider.Source, collider.Transform, collider.SimpleCollider);
+		}
 
 		// The 2D overlay runs as a deferred render-graph pass (possibly off the submitting thread), so the
 		// callback owns its own copy of the captured draw items - it never touches the live registry.

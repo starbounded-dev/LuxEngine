@@ -82,6 +82,7 @@ namespace Lux {
 
 	void VulkanRenderer::Init()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_Data = lnew VulkanRendererData();
 		const auto& config = Renderer::GetConfig();
 		s_Data->DescriptorPools.resize(config.FramesInFlight);
@@ -163,6 +164,7 @@ namespace Lux {
 
 	void VulkanRenderer::Shutdown()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
 		vkDeviceWaitIdle(device);
 
@@ -186,11 +188,13 @@ namespace Lux {
 
 	RendererCapabilities& VulkanRenderer::GetCapabilities()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->RenderCaps;
 	}
 
 	VkSampler VulkanRenderer::GetClampSampler()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (s_Data->SamplerClamp)
 			return s_Data->SamplerClamp;
 
@@ -216,6 +220,7 @@ namespace Lux {
 
 	VkSampler VulkanRenderer::GetPointSampler()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (s_Data->SamplerPoint)
 			return s_Data->SamplerPoint;
 
@@ -241,11 +246,13 @@ namespace Lux {
 
 	int32_t& VulkanRenderer::GetSelectedDrawCall()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->SelectedDrawCall;
 	}
 
 	void VulkanRenderer::RenderStaticMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<StaticMesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<MaterialTable> materialTable, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(mesh);
 		LUX_CORE_VERIFY(meshSource);
 		LUX_CORE_VERIFY(materialTable);
@@ -307,6 +314,7 @@ namespace Lux {
 
 	void VulkanRenderer::RenderSubmeshInstanced(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Mesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<MaterialTable> materialTable, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t boneTransformsOffset, uint32_t boneTransformsStride, uint32_t instanceCount)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(mesh);
 		LUX_CORE_VERIFY(meshSource);
 		LUX_CORE_VERIFY(materialTable);
@@ -386,6 +394,7 @@ namespace Lux {
 
 	void VulkanRenderer::RenderMeshWithMaterial(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Mesh> mesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<Material> material, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t boneTransformsOffset, uint32_t boneTransformsStride, uint32_t instanceCount, Buffer additionalUniforms)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(mesh);
 		LUX_CORE_VERIFY(meshSource);
 		LUX_CORE_VERIFY(material);
@@ -471,6 +480,7 @@ namespace Lux {
 
 	void VulkanRenderer::RenderStaticMeshWithMaterial(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<StaticMesh> staticMesh, Ref<MeshSource> meshSource, uint32_t submeshIndex, Ref<Material> material, Ref<VertexBuffer> transformBuffer, uint32_t transformOffset, uint32_t instanceCount, Buffer additionalUniforms /*= Buffer()*/)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(staticMesh);
 		LUX_CORE_ASSERT(meshSource);
 		LUX_CORE_ASSERT(material);
@@ -540,6 +550,7 @@ namespace Lux {
 
 	void VulkanRenderer::RenderQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, const glm::mat4& transform)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<VulkanMaterial> vulkanMaterial = material.As<VulkanMaterial>();
 		Renderer::Submit([renderCommandBuffer, pipeline, vulkanMaterial, transform]() mutable
 		{
@@ -571,6 +582,7 @@ namespace Lux {
 
 	void VulkanRenderer::RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount /*= 0*/)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<VulkanMaterial> vulkanMaterial = material.As<VulkanMaterial>();
 		if (indexCount == 0)
 			indexCount = indexBuffer->GetCount();
@@ -637,6 +649,7 @@ namespace Lux {
 #if 0
 	void VulkanRenderer::SetUniformBuffer(Ref<UniformBuffer> uniformBuffer, uint32_t set)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([uniformBuffer, set]()
 		{
 
@@ -662,6 +675,7 @@ namespace Lux {
 
 	void VulkanRenderer::ClearImage(Ref<RenderCommandBuffer> commandBuffer, Ref<Image2D> image, const ImageClearValue& clearValue, ImageSubresourceRange subresourceRange)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([commandBuffer, image = image.As<VulkanImage2D>(), clearValue, subresourceRange]
 		{
 			const auto vulkanCommandBuffer = commandBuffer.As<VulkanRenderCommandBuffer>()->GetCommandBuffer(Renderer::RT_GetCurrentFrameIndex());
@@ -680,6 +694,7 @@ namespace Lux {
 
 	void VulkanRenderer::CopyImage(Ref<RenderCommandBuffer> commandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(sourceImage);
 		LUX_CORE_VERIFY(destinationImage);
 
@@ -799,6 +814,7 @@ namespace Lux {
 
 	void VulkanRenderer::BlitImage(Ref<RenderCommandBuffer> commandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(sourceImage);
 		LUX_CORE_VERIFY(destinationImage);
 
@@ -937,6 +953,7 @@ namespace Lux {
 
 	void VulkanRenderer::LightCulling(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto vulkanMaterial = material.As<VulkanMaterial>();
 		Renderer::Submit([renderCommandBuffer, computePass, vulkanMaterial, workGroups]() mutable
 		{
@@ -998,6 +1015,7 @@ namespace Lux {
 
 	void VulkanRenderer::SubmitFullscreenQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<VulkanMaterial> vulkanMaterial = material.As<VulkanMaterial>();
 		Renderer::Submit([renderCommandBuffer, pipeline, vulkanMaterial]() mutable
 		{
@@ -1036,6 +1054,7 @@ namespace Lux {
 
 	void VulkanRenderer::SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Buffer vertexPushConstantBuffer;
 		if (vertexShaderOverrides)
 		{
@@ -1089,6 +1108,7 @@ namespace Lux {
 
 	void VulkanRenderer::SetSceneEnvironment(Ref<SceneRenderer> sceneRenderer, Ref<Environment> environment, Ref<Image2D> shadow, Ref<Image2D> spotShadow)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!environment)
 			environment = Renderer::GetEmptyEnvironment();
 
@@ -1149,6 +1169,7 @@ namespace Lux {
 
 	void VulkanRenderer::BeginFrame()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([]()
 		{
 			LUX_PROFILE_FUNC("VulkanRenderer::BeginFrame");
@@ -1179,6 +1200,7 @@ namespace Lux {
 
 	void VulkanRenderer::EndFrame()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 #if 0
 		Renderer::Submit([]()
 		{
@@ -1190,6 +1212,7 @@ namespace Lux {
 
 	void VulkanRenderer::InsertGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([this, renderCommandBuffer, label, color]()
 		{
 			RT_InsertGPUPerfMarker(renderCommandBuffer, label, color);
@@ -1198,6 +1221,7 @@ namespace Lux {
 
 	void VulkanRenderer::BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([this, renderCommandBuffer, label, markerColor]()
 		{
 			RT_BeginGPUPerfMarker(renderCommandBuffer, label, markerColor);
@@ -1206,6 +1230,7 @@ namespace Lux {
 
 	void VulkanRenderer::EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([this, renderCommandBuffer]()
 		{
 			RT_EndGPUPerfMarker(renderCommandBuffer);
@@ -1214,6 +1239,7 @@ namespace Lux {
 
 	void VulkanRenderer::RT_InsertGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const uint32_t bufferIndex = Renderer::RT_GetCurrentFrameIndex();
 		VkCommandBuffer commandBuffer = renderCommandBuffer.As<VulkanRenderCommandBuffer>()->GetCommandBuffer(bufferIndex);
 		VkDebugUtilsLabelEXT debugLabel{};
@@ -1225,6 +1251,7 @@ namespace Lux {
 
 	void VulkanRenderer::RT_BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const uint32_t bufferIndex = Renderer::RT_GetCurrentFrameIndex();
 		VkCommandBuffer commandBuffer = renderCommandBuffer.As<VulkanRenderCommandBuffer>()->GetCommandBuffer(bufferIndex);
 		VkDebugUtilsLabelEXT debugLabel{};
@@ -1236,6 +1263,7 @@ namespace Lux {
 
 	void VulkanRenderer::RT_EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const uint32_t bufferIndex = Renderer::RT_GetCurrentFrameIndex();
 		VkCommandBuffer commandBuffer = renderCommandBuffer.As<VulkanRenderCommandBuffer>()->GetCommandBuffer(bufferIndex);
 		fpCmdEndDebugUtilsLabelEXT(commandBuffer);
@@ -1243,6 +1271,7 @@ namespace Lux {
 
 	void VulkanRenderer::BeginRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, bool explicitClear)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, renderPass, explicitClear]()
 		{
 			LUX_PROFILE_SCOPE_DYNAMIC(std::format("VulkanRenderer::BeginRenderPass ({})", renderPass->GetSpecification().DebugName).c_str());
@@ -1389,6 +1418,7 @@ namespace Lux {
 
 	void VulkanRenderer::EndRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer]()
 		{
 			LUX_PROFILE_FUNC("VulkanRenderer::EndRenderPass");
@@ -1403,6 +1433,7 @@ namespace Lux {
 
 	void VulkanRenderer::BeginComputePass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, computePass]() mutable
 		{
 			Ref<VulkanComputePass> vulkanComputePass = computePass.As<VulkanComputePass>();
@@ -1431,6 +1462,7 @@ namespace Lux {
 
 	void VulkanRenderer::EndComputePass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, computePass]() mutable
 		{
 			Ref<VulkanComputePass> vulkanComputePass = computePass.As<VulkanComputePass>();
@@ -1442,6 +1474,7 @@ namespace Lux {
 
 	void VulkanRenderer::DispatchCompute(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups, Buffer constants)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Buffer constantsBuffer;
 		if (constants)
 			constantsBuffer = Buffer::Copy(constants);
@@ -1475,6 +1508,7 @@ namespace Lux {
 
 	std::pair<Ref<TextureCube>, Ref<TextureCube>> VulkanRenderer::CreateEnvironmentMap(const std::string& filepath)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!Renderer::GetConfig().ComputeEnvironmentMaps)
 			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
 
@@ -1631,6 +1665,7 @@ namespace Lux {
 
 	Ref<TextureCube> VulkanRenderer::CreatePreethamSky(float turbidity, float azimuth, float inclination)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const uint32_t cubemapSize = Renderer::GetConfig().EnvironmentMapResolution;
 		const uint32_t irradianceMapSize = 32;
 	
@@ -1686,6 +1721,7 @@ namespace Lux {
 
 	uint32_t VulkanRenderer::GetDescriptorAllocationCount(uint32_t frameIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->DescriptorPoolAllocationCount[frameIndex];
 	}
 

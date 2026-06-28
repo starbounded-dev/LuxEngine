@@ -161,6 +161,7 @@ namespace Lux {
 
 	void Font::CreateAtlas(Buffer buffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		int result = 0;
 		FontInput fontInput = { };
 		Configuration config = { };
@@ -370,28 +371,33 @@ namespace Lux {
 
 	void Font::Init()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_DefaultFont = Ref<Font>::Create("Resources/Fonts/opensans/OpenSans-Regular.ttf");
 		s_DefaultMonoSpacedFont = Ref<Font>::Create("Resources/Fonts/SourceCodePro/static/SourceCodePro-Medium.ttf");
 	}
 
 	void Font::Shutdown()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_DefaultMonoSpacedFont.Reset();
 		s_DefaultFont.Reset();
 	}
 
 	Ref<Font> Font::GetDefaultFont()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_DefaultFont;
 	}
 
 	Ref<Font> Font::GetDefaultMonoSpacedFont()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_DefaultMonoSpacedFont;
 	}
 
 	Ref<Font> Font::GetFontAssetForTextComponent(const TextComponent& textComponent)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_DefaultFont)
 			return nullptr;
 

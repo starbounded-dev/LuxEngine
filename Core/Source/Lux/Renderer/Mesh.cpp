@@ -105,6 +105,7 @@ namespace Lux
 
 	void MeshSource::DumpVertexBuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// TODO: Convert to ImGui
 		LUX_MESH_LOG("------------------------------------------------------");
 		LUX_MESH_LOG("Vertex Buffer Dump");
@@ -127,6 +128,7 @@ namespace Lux
 	// TODO (0x): this is temporary.. and will eventually be replaced with some kind of skeleton retargeting
 	bool MeshSource::IsCompatibleSkeleton(const std::string_view animationName, const Skeleton& skeleton) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_Skeleton)
 		{
 			HZ_CORE_VERIFY(!m_Runtime);
@@ -141,12 +143,14 @@ namespace Lux
 
 	std::vector<std::string> MeshSource::GetAnimationNames() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_AnimationNames;
 	}
 
 
 	const Animation* MeshSource::GetAnimation(const std::string& animationName, const Skeleton& skeleton, bool extractRootMotion, uint32_t rootBoneIndex, const glm::bvec3& rootTranslationMask, const glm::bvec3& rootRotationMask, bool discardRootMotion) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::size_t hash = 0;
 		JPH::HashCombine(hash, animationName, extractRootMotion, rootBoneIndex, rootTranslationMask.x, rootTranslationMask.y, rootTranslationMask.z, rootRotationMask.x, rootRotationMask.y, rootRotationMask.z, discardRootMotion);
 
@@ -210,11 +214,13 @@ namespace Lux
 	}
 	void Mesh::OnDependencyUpdated(AssetHandle handle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		AssetManager::ReloadDataAsync(Handle);
 	}
 
 	void Mesh::SetSubmeshes(const std::vector<uint32_t>& submeshes, Ref<MeshSource> meshSource)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!submeshes.empty())
 		{
 			m_Submeshes = submeshes;
@@ -281,11 +287,13 @@ namespace Lux
 	}
 	void StaticMesh::OnDependencyUpdated(AssetHandle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		AssetManager::ReloadDataAsync(Handle);
 	}
 
 	Ref<StaticMesh> StaticMesh::GetOrCreateRuntime(AssetHandle staticMeshOrMeshSource)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!staticMeshOrMeshSource || !Project::GetAssetManager())
 			return nullptr;
 
@@ -312,6 +320,7 @@ namespace Lux
 
 	void StaticMesh::SetSubmeshes(const std::vector<uint32_t>& submeshes, Ref<MeshSource> meshSource)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!submeshes.empty())
 		{
 			m_Submeshes = submeshes;

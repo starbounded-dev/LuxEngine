@@ -274,24 +274,28 @@ namespace Lux {
 
 	void Renderer::RegisterShaderDependency(Ref<Shader> shader, PipelineCompute* computePipeline)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::scoped_lock lock(s_ShaderDependenciesMutex);
 		s_ShaderDependencies[shader->GetHash()].ComputePipelines.push_back(computePipeline);
 	}
 
 	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Pipeline* pipeline)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::scoped_lock lock(s_ShaderDependenciesMutex);
 		s_ShaderDependencies[shader->GetHash()].Pipelines.push_back(pipeline);
 	}
 
 	void Renderer::RegisterShaderDependency(Ref<Shader> shader, Material* material)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::scoped_lock lock(s_ShaderDependenciesMutex);
 		s_ShaderDependencies[shader->GetHash()].Materials.push_back(material);
 	}
 
 	void Renderer::OnShaderReloaded(size_t hash)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		ShaderDependencies dependencies;
 		{
 			std::scoped_lock lock(s_ShaderDependenciesMutex);
@@ -324,16 +328,19 @@ namespace Lux {
 
 	uint32_t Renderer::RT_GetCurrentFrameIndex()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return Application::Get().GetWindow().GetSwapChain().GetCurrentBackBufferIndex();
 	}
 
 	uint32_t Renderer::GetCurrentFrameIndex()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return Application::Get().GetCurrentFrameIndex();
 	}
 
 	void RendererAPI::SetAPI(RendererAPIType api)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// TODO: make sure this is called at a valid time
 		LUX_CORE_VERIFY(api == RendererAPIType::Vulkan, "Vulkan is currently the only supported Renderer API");
 		s_CurrentRendererAPI = api;
@@ -363,6 +370,7 @@ namespace Lux {
 
 	void Renderer::Init()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_Data = lnew RendererData();
 		s_RendererData = lnew RendererData();
 		s_GlobalShaderInfo.PermutationCache.LoadFromFile(s_ShaderPermutationCachePath);
@@ -599,6 +607,7 @@ namespace Lux {
 
 	void Renderer::Shutdown()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_GlobalShaderInfo.PermutationCache.SaveToFile(s_ShaderPermutationCachePath);
 
 		{
@@ -655,11 +664,13 @@ namespace Lux {
 
 	Ref<ShaderLibrary> Renderer::GetShaderLibrary()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->m_ShaderLibrary;
 	}
 
 	uint32_t Renderer::ReloadShaders(bool forceCompile)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_Data || !s_Data->m_ShaderLibrary)
 			return 0;
 
@@ -678,6 +689,7 @@ namespace Lux {
 
 	uint32_t Renderer::WarmUpShaderPipelines()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::vector<WeakRef<Pipeline>> graphicsPipelines;
 		std::vector<WeakRef<PipelineCompute>> computePipelines;
 		{
@@ -747,17 +759,20 @@ namespace Lux {
 
 	void Renderer::SwapQueues()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_RenderCommandQueueSubmissionIndex = (s_RenderCommandQueueSubmissionIndex + 1) % s_RenderCommandQueueCount;
 	}
 
 	void Renderer::SubmitBackgroundThreadWork(std::function<void()>&& func)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::scoped_lock lock(s_BackgroundThreadSubmitMutex);
 		s_BackgroundThreadSubmitQueue.push_back(std::move(func));
 	}
 
 	void Renderer::ExecuteBackgroundThreadSubmits()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(Application::IsMainThread(), "ExecuteBackgroundThreadSubmits must run on the main thread");
 
 		std::vector<std::function<void()>> pending;
@@ -775,16 +790,19 @@ namespace Lux {
 
 	uint32_t Renderer::GetRenderQueueIndex()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return (s_RenderCommandQueueSubmissionIndex + 1) % s_RenderCommandQueueCount;
 	}
 
 	uint32_t Renderer::GetRenderQueueSubmissionIndex()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_RenderCommandQueueSubmissionIndex;
 	}
 
 	void Renderer::BeginRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, bool explicitClear)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, renderPass, explicitClear]() mutable
 			{
 				renderCommandBuffer->RT_BeginMarker(renderPass->GetSpecification().DebugName);
@@ -845,6 +863,7 @@ namespace Lux {
 
 	void Renderer::EndRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer]() mutable
 			{
 				renderCommandBuffer->RT_EndMarker();
@@ -853,6 +872,7 @@ namespace Lux {
 
 	void Renderer::SetViewport(Ref<RenderCommandBuffer> renderCommandBuffer, uint32_t x, uint32_t y, uint32_t width, uint32_t height)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, x, y, width, height]() mutable
 			{
 				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
@@ -869,6 +889,7 @@ namespace Lux {
 
 	void Renderer::SetScissor(Ref<RenderCommandBuffer> renderCommandBuffer, uint32_t x, uint32_t y, uint32_t width, uint32_t height)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, x, y, width, height]() mutable
 			{
 				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
@@ -884,6 +905,7 @@ namespace Lux {
 
 	void Renderer::BeginComputePass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(computePass, "ComputePass cannot be null!");
 
 		Renderer::Submit([renderCommandBuffer, computePass]() mutable
@@ -909,6 +931,7 @@ namespace Lux {
 
 	void Renderer::EndComputePass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, computePass]() mutable
 			{
 				renderCommandBuffer->RT_EndMarker();
@@ -916,6 +939,7 @@ namespace Lux {
 	}
 	void Renderer::DispatchCompute(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups, Buffer constants)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Buffer pushConstantBuffer;
 		if (constants)
 			pushConstantBuffer = Buffer::Copy(constants);
@@ -946,6 +970,7 @@ namespace Lux {
 
 	void Renderer::LightCulling(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::BeginComputePass(renderCommandBuffer, computePass);
 		Renderer::DispatchCompute(renderCommandBuffer, computePass, material, workGroups);
 		Renderer::EndComputePass(renderCommandBuffer, computePass);
@@ -953,6 +978,7 @@ namespace Lux {
 
 	void Renderer::BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, s = label]() mutable
 			{
 				renderCommandBuffer->RT_BeginMarker(s);
@@ -962,6 +988,7 @@ namespace Lux {
 
 	void Renderer::EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer]() mutable
 			{
 				renderCommandBuffer->RT_EndTimerQuery();
@@ -971,29 +998,34 @@ namespace Lux {
 
 	void Renderer::RT_BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		renderCommandBuffer->RT_BeginMarker(label);
 		renderCommandBuffer->RT_BeginTimerQuery(label);
 	}
 
 	void Renderer::RT_EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		renderCommandBuffer->RT_EndTimerQuery();
 		renderCommandBuffer->RT_EndMarker();
 	}
 
 	void Renderer::BeginFrame()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_Data->DrawInstanceCount = 0;
 		s_Data->DrawCallCount = 0;
 	}
 
 	void Renderer::EndFrame()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 
 	}
 	/*
 	void Renderer::SetSceneEnvironment(Ref<SceneRenderer> sceneRenderer, Ref<Environment> environment, Ref<Image2D> shadow, Ref<Image2D> spotShadow)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 
 	}*/
 
@@ -1044,6 +1076,7 @@ namespace Lux {
 	
 	std::pair<Ref<TextureCube>, Ref<TextureCube>> Renderer::CreateEnvironmentMap(const std::string& filepath)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!Renderer::GetConfig().ComputeEnvironmentMaps)
 			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
 
@@ -1064,6 +1097,7 @@ namespace Lux {
 
 	std::pair<Ref<TextureCube>, Ref<TextureCube>> Renderer::CreateEnvironmentMap(Ref<Texture2D> envEquirect)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!Renderer::GetConfig().ComputeEnvironmentMaps)
 			return { Renderer::GetBlackCubeTexture(), Renderer::GetBlackCubeTexture() };
 
@@ -1219,6 +1253,7 @@ namespace Lux {
 
 	Ref<TextureCube> Renderer::CreatePreethamSky(float turbidity, float azimuth, float inclination)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const uint32_t cubemapSize = Renderer::GetConfig().EnvironmentMapResolution;
 
 		TextureSpecification cubemapSpec;
@@ -1263,6 +1298,7 @@ namespace Lux {
 
 	Ref<Environment> Renderer::CreatePreethamSkyEnvironment(float turbidity, float azimuth, float inclination)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!Renderer::GetConfig().ComputeEnvironmentMaps)
 			return GetEmptyEnvironment();
 
@@ -1280,6 +1316,7 @@ namespace Lux {
 #if 0
 	void Renderer::RT_BindMeshBuffers(nvrhi::GraphicsState& graphicsState, Ref<MeshSource> meshSource, bool bindBoneInfluences)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::VertexBufferBinding vertexBufferBinding;
 		vertexBufferBinding.buffer = meshSource->GetVertexBuffer()->GetHandle();
 		vertexBufferBinding.slot = 0;
@@ -1307,6 +1344,7 @@ namespace Lux {
 
 	void Renderer::RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		HZ_CORE_ASSERT(drawCmd.MeshSource);
 		HZ_CORE_ASSERT(drawCmd.MaterialTable);
 
@@ -1357,6 +1395,7 @@ namespace Lux {
 
 	void Renderer::RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd, Ref<Material> material, int32_t lightIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		HZ_CORE_ASSERT(drawCmd.MeshSource);
 		HZ_CORE_ASSERT(material);
 
@@ -1403,6 +1442,7 @@ namespace Lux {
 #endif
 	void Renderer::RenderQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, const glm::mat4& transform)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(renderCommandBuffer);
 		LUX_CORE_VERIFY(pipeline);
 
@@ -1451,6 +1491,7 @@ namespace Lux {
 
 	void Renderer::RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount /*= 0*/)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, pipeline, material, vertexBuffer, indexBuffer, transform, indexCount]() mutable
 			{
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
@@ -1485,6 +1526,7 @@ namespace Lux {
 
 	void Renderer::RT_BindMaterialDescriptorSet(nvrhi::BindingSetVector& bindings, Ref<Shader> pipelineShader, Ref<Material> material, uint32_t set)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!material)
 		{
 			if (bindings.size() > set)
@@ -1517,6 +1559,7 @@ namespace Lux {
 
 	void Renderer::ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, nvrhi::Color clearColor, nvrhi::TextureSubresourceSet subresourceSet)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, image, clearColor, subresourceSet]() mutable
 			{
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
@@ -1530,6 +1573,7 @@ namespace Lux {
 
 	void Renderer::CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(renderCommandBuffer);
 		LUX_CORE_VERIFY(sourceImage);
 		LUX_CORE_VERIFY(destinationImage);
@@ -1557,11 +1601,13 @@ namespace Lux {
 
 	void Renderer::BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		//s_RendererAPI->BlitImage(renderCommandBuffer, sourceImage, destinationImage);
 	}
 
 	void Renderer::SubmitFullscreenQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(renderCommandBuffer);
 		LUX_CORE_VERIFY(pipeline);
 
@@ -1615,6 +1661,7 @@ namespace Lux {
 
 	void Renderer::SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(renderCommandBuffer);
 		LUX_CORE_VERIFY(pipeline);
 
@@ -1702,42 +1749,50 @@ namespace Lux {
 
 	Ref<Texture2D> Renderer::GetWhiteTexture()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->WhiteTexture;
 	}
 
 	Ref<Texture2D> Renderer::GetBlackTexture()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->BlackTexture;
 	}
 
 	Ref<Texture2D> Renderer::GetHilbertLut()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->HilbertLut;
 	}
 
 	Ref<Texture2D> Renderer::GetBRDFLutTexture()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->BRDFLutTexture;
 	}
 	
 	Ref<TextureCube> Renderer::GetBlackCubeTexture()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->BlackCubeTexture;
 	}
 
 	Ref<Material> Renderer::GetDefaultWhiteMaterial()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->DefaultWhiteMaterial;
 	}
 
 	
 	Ref<Environment> Renderer::GetEmptyEnvironment()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->EmptyEnvironment;
 	}
 
 	Ref<Environment> Renderer::GetDefaultEnvironment()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_Data->DefaultEnvironment)
 		{
 			constexpr float defaultTurbidity = 3.0f;
@@ -1754,32 +1809,38 @@ namespace Lux {
 
 	RenderCommandQueue& Renderer::GetRenderCommandQueue()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return *s_CommandQueue[s_RenderCommandQueueSubmissionIndex];
 	}
 
 	RenderCommandQueue& Renderer::GetRenderResourceReleaseQueue(uint32_t index)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_ResourceFreeQueue[index];
 	}
 
 
 	const std::unordered_map<std::string, std::string>& Renderer::GetGlobalShaderMacros()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->GlobalShaderMacros;
 	}
 
 	RendererConfig& Renderer::GetConfig()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Config;
 	}
 
 	void Renderer::SetConfig(const RendererConfig& config)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		s_Config = config;
 	}
 
 	void Renderer::AcknowledgeParsedGlobalMacros(const std::unordered_set<std::string>& macros, Ref<Shader> shader)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		for (const std::string& macro : macros)
 		{
 			s_GlobalShaderInfo.ShaderGlobalMacrosMap[macro][shader->GetHash()] = shader;
@@ -1788,6 +1849,7 @@ namespace Lux {
 
 	void Renderer::SetMacroInShader(Ref<Shader> shader, const std::string& name, const std::string& value)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		shader->SetMacro(name, value);
 		ShaderPermutationKey key;
 		key.ShaderName = shader->GetName();
@@ -1798,6 +1860,7 @@ namespace Lux {
 
 	void Renderer::SetGlobalMacroInShaders(const std::string& name, const std::string& value)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (s_Data->GlobalShaderMacros.find(name) != s_Data->GlobalShaderMacros.end())
 		{
 			if (s_Data->GlobalShaderMacros.at(name) == value)
@@ -1826,11 +1889,13 @@ namespace Lux {
 
 	uint32_t Renderer::GetShaderPermutationCacheSize()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_GlobalShaderInfo.PermutationCache.GetPermutationCount();
 	}
 
 	bool Renderer::UpdateDirtyShaders()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// TODO(Yan): how is this going to work for dist?
 		const bool updatedAnyShaders = s_GlobalShaderInfo.DirtyShaders.size();
 		for (WeakRef<Shader> shader : s_GlobalShaderInfo.DirtyShaders)
@@ -1845,11 +1910,13 @@ namespace Lux {
 
 	GPUMemoryStats Renderer::GetGPUMemoryStats()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return VulkanAllocator::GetStats();
 	}
 
 	Ref<Sampler> Renderer::GetClampSampler()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_RendererData->SamplerClamp)
 			s_RendererData->SamplerClamp = Sampler::Create();
 
@@ -1858,6 +1925,7 @@ namespace Lux {
 
 	Ref<Sampler> Renderer::GetPointSampler()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_RendererData->SamplerPoint)
 		{
 			SamplerSpecification spec;
@@ -1870,6 +1938,7 @@ namespace Lux {
 
 	Ref<Sampler> Renderer::GetRepeatSampler()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_RendererData->SamplerRepeat)
 		{
 			SamplerSpecification spec;
@@ -1883,11 +1952,13 @@ namespace Lux {
 
 	int Renderer::GetDrawcallCount()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->DrawCallCount;
 	}
 
 	int Renderer::GetInstanceCount()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->DrawInstanceCount;
 	}
 

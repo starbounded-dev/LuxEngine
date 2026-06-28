@@ -16,6 +16,7 @@ namespace Lux {
 
 	nvrhi::ShaderType VulkanShaderCache::HasChanged(Ref<VulkanShaderCompiler> shader)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::map<std::string, std::map<nvrhi::ShaderType, StageData>> shaderCache;
 
 		Deserialize(shaderCache);
@@ -46,6 +47,7 @@ namespace Lux {
 
 	void VulkanShaderCache::Serialize(const std::map<std::string, std::map<nvrhi::ShaderType, StageData>>& shaderCache)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		YAML::Emitter out;
 
 		out << YAML::BeginMap << YAML::Key << "ShaderRegistry" << YAML::BeginSeq;// ShaderRegistry_
@@ -96,6 +98,7 @@ namespace Lux {
 
 	void VulkanShaderCache::Deserialize(std::map<std::string, std::map<nvrhi::ShaderType, StageData>>& shaderCache)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// Read registry
 		std::ifstream stream(s_ShaderRegistryPath);
 		if (!stream.good())

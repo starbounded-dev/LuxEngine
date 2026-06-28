@@ -71,12 +71,14 @@ namespace Lux {
 
 	DescriptorSetManager DescriptorSetManager::Copy(const DescriptorSetManager& other)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		DescriptorSetManager result(other);
 		return result;
 	}
 
 	void DescriptorSetManager::Init()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const auto& shaderDescriptorSets = m_Specification.Shader->GetShaderDescriptorSets();
 		uint32_t framesInFlight = Renderer::GetConfig().FramesInFlight;
 		m_BindingSetHandles.resize(framesInFlight);
@@ -134,6 +136,7 @@ namespace Lux {
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderInputDeclaration* decl = GetInputDeclaration(name);
 		if (decl)
 		{
@@ -148,6 +151,7 @@ namespace Lux {
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<UniformBuffer> uniformBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderInputDeclaration* decl = GetInputDeclaration(name);
 		if (decl)
 		{
@@ -162,6 +166,7 @@ namespace Lux {
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<StorageBufferSet> storageBufferSet)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderInputDeclaration* decl = GetInputDeclaration(name);
 		if (decl)
 		{
@@ -176,6 +181,7 @@ namespace Lux {
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<StorageBuffer> storageBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderInputDeclaration* decl = GetInputDeclaration(name);
 		if (decl)
 		{
@@ -190,6 +196,7 @@ namespace Lux {
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<Texture2D> texture, uint32_t arrayIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderInputDeclaration* decl = GetInputDeclaration(name);
 		if (decl)
 		{
@@ -204,6 +211,7 @@ namespace Lux {
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<TextureCube> textureCube)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderInputDeclaration* decl = GetInputDeclaration(name);
 		if (decl)
 		{
@@ -218,6 +226,7 @@ namespace Lux {
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<Image2D> image, uint32_t arrayIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderInputDeclaration* decl = GetInputDeclaration(name);
 		if (decl)
 		{
@@ -232,6 +241,7 @@ namespace Lux {
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<ImageView> image, uint32_t arrayIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderInputDeclaration* decl = GetInputDeclaration(name);
 		if (decl)
 			InputResources.at(decl->Set).at(decl->Binding).Set(image, arrayIndex);
@@ -241,6 +251,7 @@ namespace Lux {
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<Sampler> sampler)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderInputDeclaration* decl = GetInputDeclaration(name);
 		if (decl)
 		{
@@ -255,6 +266,7 @@ namespace Lux {
 
 	bool DescriptorSetManager::IsInvalidated(uint32_t set, uint32_t binding) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (InvalidatedInputResources.find(set) != InvalidatedInputResources.end())
 		{
 			const auto& resources = InvalidatedInputResources.at(set);
@@ -266,6 +278,7 @@ namespace Lux {
 
 	std::set<uint32_t> DescriptorSetManager::HasBufferSets() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// Find all descriptor sets that have either UniformBufferSet or StorageBufferSet descriptors
 		std::set<uint32_t> sets;
 
@@ -286,6 +299,7 @@ namespace Lux {
 
 	bool DescriptorSetManager::Validate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// Go through pipeline requirements to make sure we have all required resource
 		const auto& shaderDescriptorSets = m_Specification.Shader->GetShaderDescriptorSets();
 
@@ -343,6 +357,7 @@ namespace Lux {
 	// TODO(Yan): revisit resources not existing at this time, since we now (mostly) create them immediately
 	void DescriptorSetManager::Bake()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// Make sure all resources are present and we can properly bake
 		if (!Validate())
 		{
@@ -1098,11 +1113,13 @@ namespace Lux {
 
 	bool DescriptorSetManager::HasDescriptorSets() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return !m_BindingSets.empty() && !m_BindingSets[0].empty();
 	}
 
 	uint32_t DescriptorSetManager::GetBindingSetCount() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t count = 0;
 		for (const auto& frameBindingSets : m_BindingSets)
 		{
@@ -1117,6 +1134,7 @@ namespace Lux {
 
 	uint32_t DescriptorSetManager::GetFirstSetIndex() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (InputResources.empty())
 			return UINT32_MAX;
 
@@ -1126,6 +1144,7 @@ namespace Lux {
 
 	nvrhi::BindingSetHandle DescriptorSetManager::GetBindingSet(uint32_t frameIndex) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_BindingSets.empty())
 			return nullptr;
 
@@ -1142,6 +1161,7 @@ namespace Lux {
 
 	nvrhi::BindingSetVector DescriptorSetManager::GetBindingSets(uint32_t frameIndex) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_BindingSets.empty())
 			return {};
 
@@ -1159,12 +1179,14 @@ namespace Lux {
 
 	bool DescriptorSetManager::IsInputValid(std::string_view name) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::string nameStr(name);
 		return InputDeclarations.find(nameStr) != InputDeclarations.end();
 	}
 
 	const RenderInputDeclaration* DescriptorSetManager::GetInputDeclaration(std::string_view name) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::string nameStr(name);
 		if (InputDeclarations.find(nameStr) == InputDeclarations.end())
 			return nullptr;

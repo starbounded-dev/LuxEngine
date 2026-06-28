@@ -889,8 +889,14 @@ namespace Lux {
 		}
 		}
 
-		OnOverlayRender();
-		SceneRenderer::WaitForThreads();
+		{
+			LUX_PROFILE_SCOPE("EditorLayer::OnOverlayRender");
+			OnOverlayRender();
+		}
+		{
+			LUX_PROFILE_SCOPE("SceneRenderer::WaitForThreads");
+			SceneRenderer::WaitForThreads();
+		}
 	}
 
 	void EditorLayer::OnImGuiRender()

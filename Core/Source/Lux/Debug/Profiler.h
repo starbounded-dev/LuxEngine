@@ -16,6 +16,9 @@
 	#define LUX_PROFILE_SCOPE_COLOR(name, ...)		LUX_PROFILE_FUNCTION_COLOR(name, __VA_ARGS__)
 	#define LUX_PROFILE_SCOPE_DYNAMIC(NAME)			ZoneScoped; ZoneName(NAME, strlen(NAME))
 	#define LUX_PROFILE_THREAD(...)					tracy::SetThreadName(__VA_ARGS__)
+	// Auto-named zone: Tracy captures the enclosing function name/file/line from the
+	// source location, so no name string is needed. Used for broad function-level coverage.
+	#define LUX_PROFILE_FUNCTION_AUTO				ZoneScoped
 		#else
 #define LUX_PROFILE_MARK_FRAME
 #define LUX_PROFILE_FUNCTION(...)
@@ -25,5 +28,6 @@
 #define LUX_PROFILE_SCOPE_COLOR(name, ...)
 #define LUX_PROFILE_SCOPE_DYNAMIC(NAME)
 #define LUX_PROFILE_THREAD(...)
+#define LUX_PROFILE_FUNCTION_AUTO
 #endif
 

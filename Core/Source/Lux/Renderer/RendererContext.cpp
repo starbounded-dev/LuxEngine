@@ -9,6 +9,7 @@ namespace Lux {
 
 	Ref<RendererContext> RendererContext::Create()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		switch (RendererAPI::Current())
 		{
 			case RendererAPIType::None:    return nullptr;

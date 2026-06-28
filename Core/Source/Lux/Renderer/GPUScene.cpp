@@ -24,6 +24,7 @@ namespace Lux {
 
 	void GPUScene::BeginSync(uint32_t frameIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex = frameIndex;
 		m_DirtyInstanceCount = 0;
 		m_DirtyInstanceIDs.clear();
@@ -32,6 +33,7 @@ namespace Lux {
 
 	GPUSceneInstanceID GPUScene::UpsertInstance(const GPUSceneInstanceData& data, bool forceDirty)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const RenderPrimitiveID primitiveID = GetGPUScenePrimitiveID(data);
 		if (primitiveID == InvalidRenderPrimitiveID)
 			return InvalidGPUSceneInstanceID;
@@ -72,6 +74,7 @@ namespace Lux {
 
 	void GPUScene::RemovePrimitive(RenderPrimitiveID primitiveID)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (primitiveID == InvalidRenderPrimitiveID)
 			return;
 
@@ -102,6 +105,7 @@ namespace Lux {
 
 	void GPUScene::EndSync()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_DirtyInstanceIDs.empty())
 			return;
 
@@ -131,6 +135,7 @@ namespace Lux {
 
 	void GPUScene::Clear()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex = 0;
 		m_DirtyInstanceCount = 0;
 		m_Instances.clear();
@@ -143,6 +148,7 @@ namespace Lux {
 
 	void GPUScene::MarkInstanceDirty(GPUSceneInstanceID instanceID)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (instanceID == InvalidGPUSceneInstanceID)
 			return;
 

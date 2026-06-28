@@ -17,6 +17,7 @@ namespace Lux {
 
 	Ref<Shader> Shader::Create(const std::string& filepath, bool forceCompile, bool disableOptimization)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Shader> result = nullptr;
 
 		switch (RendererAPI::Current())
@@ -31,6 +32,7 @@ namespace Lux {
 
 	Ref<Shader> Shader::CreateFromString(const std::string& source)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Shader> result = nullptr;
 
 		switch (RendererAPI::Current())
@@ -50,6 +52,7 @@ namespace Lux {
 
 	void ShaderLibrary::Add(const Lux::Ref<Shader>& shader)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto& name = shader->GetName();
 		LUX_CORE_ASSERT(m_Shaders.find(name) == m_Shaders.end());
 		m_Shaders[name] = shader;
@@ -57,6 +60,7 @@ namespace Lux {
 
 	void ShaderLibrary::Load(std::string_view path, bool forceCompile, bool disableOptimization)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Shader> shader;
 		if (!forceCompile && m_ShaderPack)
 		{
@@ -85,12 +89,14 @@ namespace Lux {
 
 	void ShaderLibrary::Load(std::string_view name, const std::string& path)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_Shaders.find(std::string(name)) == m_Shaders.end());
 		m_Shaders[std::string(name)] = Shader::Create(path);
 	}
 
 	void ShaderLibrary::LoadShaderPack(const std::filesystem::path& path)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_ShaderPack = Ref<ShaderPack>::Create(path);
 		if (!m_ShaderPack->IsLoaded())
 		{
@@ -101,6 +107,7 @@ namespace Lux {
 
 	const Ref<Shader>& ShaderLibrary::Get(const std::string& name) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_Shaders.find(name) != m_Shaders.end());
 		return m_Shaders.at(name);
 	}

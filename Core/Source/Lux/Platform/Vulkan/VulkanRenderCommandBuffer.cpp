@@ -154,6 +154,7 @@ namespace Lux {
 
 	void VulkanRenderCommandBuffer::Begin()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_TimestampNextAvailableQuery = 2;
 
 
@@ -193,6 +194,7 @@ namespace Lux {
 
 	void VulkanRenderCommandBuffer::End()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<VulkanRenderCommandBuffer> instance = this;
 		Renderer::Submit([instance]() mutable
 		{
@@ -211,6 +213,7 @@ namespace Lux {
 
 	void VulkanRenderCommandBuffer::Submit()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_OwnedBySwapChain)
 			return;
 
@@ -256,6 +259,7 @@ namespace Lux {
 
 	uint32_t VulkanRenderCommandBuffer::BeginTimestampQuery()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t queryIndex = m_TimestampNextAvailableQuery;
 		m_TimestampNextAvailableQuery += 2;
 		Ref<VulkanRenderCommandBuffer> instance = this;
@@ -270,6 +274,7 @@ namespace Lux {
 
 	void VulkanRenderCommandBuffer::EndTimestampQuery(uint32_t queryID)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<VulkanRenderCommandBuffer> instance = this;
 		Renderer::Submit([instance, queryID]()
 		{

@@ -256,6 +256,7 @@ namespace Lux {
 
 	float RenderVolumeEvaluator::ComputeWeight(const RenderVolumeComponent& volume, const glm::mat4& worldTransform, const glm::vec3& cameraPosition)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!volume.Enabled)
 			return 0.0f;
 
@@ -299,6 +300,7 @@ namespace Lux {
 		const Frustum* viewFrustum,
 		const RenderVolumeBaseSettings& baseSettings)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		RenderVolumeEnvironment result;
 		result.PostProcess = baseSettings.PostProcess;
 		result.Atmosphere = baseSettings.Atmosphere;
@@ -405,6 +407,7 @@ namespace Lux {
 
 	bool RenderVolumeEvaluator::RunSelfTests()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		RenderVolumeComponent box;
 		box.Shape = RenderVolumeShape::Box;
 		box.BlendDistance = 2.0f;

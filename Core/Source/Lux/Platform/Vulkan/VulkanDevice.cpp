@@ -137,6 +137,7 @@ namespace Lux {
 
 	VkFormat VulkanPhysicalDevice::FindDepthFormat() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// Since all depth formats may be optional, we need to find a suitable depth format to use
 		// Start with the highest precision packed format
 		std::vector<VkFormat> depthFormats = {
@@ -161,11 +162,13 @@ namespace Lux {
 
 	bool VulkanPhysicalDevice::IsExtensionSupported(const std::string& extensionName) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_SupportedExtensions.find(extensionName) != m_SupportedExtensions.end();
 	}
 
 	VulkanPhysicalDevice::QueueFamilyIndices VulkanPhysicalDevice::GetQueueFamilyIndices(int flags)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		QueueFamilyIndices indices;
 
 		// Dedicated queue for compute
@@ -225,6 +228,7 @@ namespace Lux {
 
 	uint32_t VulkanPhysicalDevice::GetMemoryTypeIndex(uint32_t typeBits, VkMemoryPropertyFlags properties) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// Iterate over all memory types available for the device used in this example
 		for (uint32_t i = 0; i < m_MemoryProperties.memoryTypeCount; i++)
 		{
@@ -242,6 +246,7 @@ namespace Lux {
 
 	Ref<VulkanPhysicalDevice> VulkanPhysicalDevice::Select()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return Ref<VulkanPhysicalDevice>::Create();
 	}
 
@@ -323,6 +328,7 @@ namespace Lux {
 
 	void VulkanDevice::Destroy()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_CommandPools.clear();
 		vkDeviceWaitIdle(m_LogicalDevice);
 		vkDestroyDevice(m_LogicalDevice, nullptr);
@@ -330,6 +336,7 @@ namespace Lux {
 
 	void VulkanDevice::LockQueue(bool compute)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (compute)
 			m_ComputeQueueMutex.lock();
 		else 
@@ -338,6 +345,7 @@ namespace Lux {
 
 	void VulkanDevice::UnlockQueue(bool compute)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (compute)
 			m_ComputeQueueMutex.unlock();
 		else
@@ -346,21 +354,25 @@ namespace Lux {
 
 	VkCommandBuffer VulkanDevice::GetCommandBuffer(bool begin, bool compute)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return GetOrCreateThreadLocalCommandPool()->AllocateCommandBuffer(begin, compute);
 	}
 
 	void VulkanDevice::FlushCommandBuffer(VkCommandBuffer commandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		GetThreadLocalCommandPool()->FlushCommandBuffer(commandBuffer);
 	}
 
 	void VulkanDevice::FlushCommandBuffer(VkCommandBuffer commandBuffer, VkQueue queue)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		GetThreadLocalCommandPool()->FlushCommandBuffer(commandBuffer);
 	}
 
 	VkCommandBuffer VulkanDevice::CreateSecondaryCommandBuffer(const char* debugName)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		VkCommandBuffer cmdBuffer;
 
 		VkCommandBufferAllocateInfo cmdBufAllocateInfo = {};
@@ -376,6 +388,7 @@ namespace Lux {
 
 	Ref<VulkanCommandPool> VulkanDevice::GetThreadLocalCommandPool()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto threadID = std::this_thread::get_id();
 		LUX_CORE_VERIFY(m_CommandPools.find(threadID) != m_CommandPools.end());
 
@@ -384,6 +397,7 @@ namespace Lux {
 
 	Ref<VulkanCommandPool> VulkanDevice::GetOrCreateThreadLocalCommandPool()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto threadID = std::this_thread::get_id();
 		auto commandPoolIt = m_CommandPools.find(threadID);
 		if (commandPoolIt != m_CommandPools.end())
@@ -420,6 +434,7 @@ namespace Lux {
 
 	VkCommandBuffer VulkanCommandPool::AllocateCommandBuffer(bool begin, bool compute)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto device = VulkanContext::GetCurrentDevice();
 		auto vulkanDevice = device->GetVulkanDevice();
 
@@ -446,12 +461,14 @@ namespace Lux {
 
 	void VulkanCommandPool::FlushCommandBuffer(VkCommandBuffer commandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto device = VulkanContext::GetCurrentDevice();
 		FlushCommandBuffer(commandBuffer, device->GetGraphicsQueue());
 	}
 
 	void VulkanCommandPool::FlushCommandBuffer(VkCommandBuffer commandBuffer, VkQueue queue)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto device = VulkanContext::GetCurrentDevice();
 		LUX_CORE_VERIFY(queue == device->GetGraphicsQueue());
 		auto vulkanDevice = device->GetVulkanDevice();

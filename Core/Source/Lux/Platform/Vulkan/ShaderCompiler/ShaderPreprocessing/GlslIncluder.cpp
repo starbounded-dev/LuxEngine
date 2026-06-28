@@ -18,6 +18,7 @@ namespace Lux {
 
 	shaderc_include_result* GlslIncluder::GetInclude(const char* requestedPath, const shaderc_include_type type, const char* requestingPath, const size_t includeDepth)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const std::filesystem::path requestedFullPath = (type == shaderc_include_type_relative)
 			? m_FileFinder.FindRelativeReadableFilepath(requestingPath, requestedPath)
 			: m_FileFinder.FindReadableFilepath(requestedPath);
@@ -60,6 +61,7 @@ namespace Lux {
 
 	void GlslIncluder::ReleaseInclude(shaderc_include_result* data)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		delete static_cast<std::array<std::string, 2>*>(data->user_data);
 		delete data;
 	}

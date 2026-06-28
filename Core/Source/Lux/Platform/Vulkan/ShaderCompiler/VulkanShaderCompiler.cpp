@@ -148,6 +148,7 @@ namespace Lux {
 
 	bool VulkanShaderCompiler::Reload(bool forceCompile)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_ShaderSource.clear();
 		m_StagesMetadata.clear();
 		m_SPIRVDebugData.clear();
@@ -193,6 +194,7 @@ namespace Lux {
 
 	void VulkanShaderCompiler::ClearUniformBuffers()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::lock_guard<std::mutex> bufferRegistryLock(s_ShaderBuffersMutex);
 		s_UniformBuffers.clear();
 		s_StorageBuffers.clear();
@@ -200,6 +202,7 @@ namespace Lux {
 
 	std::map<nvrhi::ShaderType, std::string> VulkanShaderCompiler::PreProcess(const std::string& source)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		switch (m_Language)
 		{
 			case ShaderUtils::SourceLang::GLSL: return PreProcessGLSL(source);
@@ -212,6 +215,7 @@ namespace Lux {
 
 	std::map<nvrhi::ShaderType, std::string> VulkanShaderCompiler::PreProcessGLSL(const std::string& source)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::map<nvrhi::ShaderType, std::string> shaderSources = ShaderPreprocessor::PreprocessShader<ShaderUtils::SourceLang::GLSL>(source, m_AcknowledgedMacros);
 
 		static shaderc::Compiler compiler;
@@ -257,6 +261,7 @@ namespace Lux {
 
 	std::map<nvrhi::ShaderType, std::string> VulkanShaderCompiler::PreProcessHLSL(const std::string& source)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::map<nvrhi::ShaderType, std::string> shaderSources = ShaderPreprocessor::PreprocessShader<ShaderUtils::SourceLang::HLSL>(source, m_AcknowledgedMacros);
 
 #ifdef LUX_PLATFORM_WINDOWS
@@ -356,6 +361,7 @@ namespace Lux {
 
 	std::string VulkanShaderCompiler::Compile(std::vector<uint32_t>& outputBinary, const nvrhi::ShaderType stage, CompilationOptions options) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const std::string& stageSource = m_ShaderSource.at(stage);
 
 		if (m_Language == ShaderUtils::SourceLang::GLSL)
@@ -509,6 +515,7 @@ namespace Lux {
 
 	std::string VulkanShaderCompiler::BuildShaderCompileErrorMessage(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const uint32_t lineNumber = ExtractCompilerLineNumber(compilerError);
 		std::string sourceLine;
 		if (const auto sourceIt = m_ShaderSource.find(stage); sourceIt != m_ShaderSource.end())
@@ -571,6 +578,7 @@ namespace Lux {
 
 	void VulkanShaderCompiler::ReportShaderCompileError(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const std::string message = BuildShaderCompileErrorMessage(stage, debug, compilerError, loadedCachedBinary);
 		LUX_CORE_ERROR_TAG("Renderer", "{}", message);
 		if (Log::GetEditorConsoleLogger())
@@ -579,6 +587,7 @@ namespace Lux {
 
 	Ref<VulkanShader> VulkanShaderCompiler::Compile(const std::filesystem::path& shaderSourcePath, bool forceCompile, bool disableOptimization)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// Set name
 		std::string path = shaderSourcePath.string();
 		size_t found = path.find_last_of("/\\");
@@ -611,6 +620,7 @@ namespace Lux {
 
 	bool VulkanShaderCompiler::TryRecompile(Ref<VulkanShader> shader)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<VulkanShaderCompiler> compiler = Ref<VulkanShaderCompiler>::Create(shader->m_AssetPath, shader->m_DisableOptimization);
 		bool compileSucceeded = compiler->Reload(true);
 		if (!compileSucceeded)
@@ -630,6 +640,7 @@ namespace Lux {
 
 	bool VulkanShaderCompiler::CompileOrGetVulkanBinaries(std::map<nvrhi::ShaderType, std::vector<uint32_t>>& outputDebugBinary, std::map<nvrhi::ShaderType, std::vector<uint32_t>>& outputBinary, const nvrhi::ShaderType changedStages, const bool forceCompile)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		for (auto [stage, source] : m_ShaderSource)
 		{
 			if (!CompileOrGetVulkanBinary(stage, outputDebugBinary[stage], true, changedStages, forceCompile))
@@ -643,6 +654,7 @@ namespace Lux {
 
 	bool VulkanShaderCompiler::CompileOrGetVulkanBinary(nvrhi::ShaderType stage, std::vector<uint32_t>& outputBinary, bool debug, nvrhi::ShaderType changedStages, bool forceCompile)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
 
 		// Compile shader with debug info so we can reflect
@@ -692,6 +704,7 @@ namespace Lux {
 
 	void VulkanShaderCompiler::ClearReflectionData()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_ReflectionData.ShaderDescriptorSets.clear();
 		m_ReflectionData.Resources.clear();
 		m_ReflectionData.ConstantBuffers.clear();
@@ -700,6 +713,7 @@ namespace Lux {
 
 	void VulkanShaderCompiler::TryGetVulkanCachedBinary(const std::filesystem::path& cacheDirectory, const std::string& extension, std::vector<uint32_t>& outputBinary) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const auto path = cacheDirectory / (m_ShaderSourcePath.filename().string() + extension);
 		const std::string cachedFilePath = path.string();
 
@@ -717,6 +731,7 @@ namespace Lux {
 
 	bool VulkanShaderCompiler::TryReadCachedReflectionData()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		struct ReflectionFileHeader
 		{
 			char Header[4] = { 'L','X','S','R' };
@@ -761,6 +776,7 @@ namespace Lux {
 
 	void VulkanShaderCompiler::SerializeReflectionData()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		struct ReflectionFileHeader
 		{
 			char Header[4] = { 'L','X','S','R' };
@@ -775,6 +791,7 @@ namespace Lux {
 
 	void VulkanShaderCompiler::SerializeReflectionData(StreamWriter* serializer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		serializer->WriteRaw<uint32_t>((uint32_t)m_ReflectionData.ShaderDescriptorSets.size());
 		for (const auto& descriptorSet : m_ReflectionData.ShaderDescriptorSets)
 		{
@@ -794,6 +811,7 @@ namespace Lux {
 
 	void VulkanShaderCompiler::ReflectAllShaderStages(const std::map<nvrhi::ShaderType, std::vector<uint32_t>>& shaderData)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		ClearReflectionData();
 
 		for (auto [stage, data] : shaderData)
@@ -804,6 +822,7 @@ namespace Lux {
 
 	void VulkanShaderCompiler::Reflect(nvrhi::ShaderType shaderStage, const std::vector<uint32_t>& shaderData)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_SHADER_REFLECTION_INFO("===========================");
 		LUX_SHADER_REFLECTION_INFO(" Vulkan Shader Reflection");
 		LUX_SHADER_REFLECTION_INFO("===========================");

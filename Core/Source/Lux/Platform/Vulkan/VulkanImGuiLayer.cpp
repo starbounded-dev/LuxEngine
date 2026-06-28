@@ -39,6 +39,7 @@ namespace Lux {
 
 	void VulkanImGuiLayer::OnAttach()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// Setup Dear ImGui context
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
@@ -189,6 +190,7 @@ namespace Lux {
 
 	void VulkanImGuiLayer::OnDetach()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 #if OLD
 		Renderer::Submit([]()
 		{
@@ -214,6 +216,7 @@ namespace Lux {
 
 	void VulkanImGuiLayer::Begin()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		ImGui::SetMouseCursor(Input::GetCursorMode() == CursorMode::Normal ? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
 
 		ImGui_ImplGlfw_NewFrame();
@@ -223,6 +226,7 @@ namespace Lux {
 
 	void VulkanImGuiLayer::End()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 #if OLD
 		ImGui::Render();
 
@@ -313,6 +317,7 @@ namespace Lux {
 
 	void VulkanImGuiLayer::OnImGuiRender()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 	}
 
 }

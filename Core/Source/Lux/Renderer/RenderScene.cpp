@@ -99,6 +99,7 @@ namespace Lux {
 
 	void RenderScene::BeginSync()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex++;
 		if (m_FrameIndex == 0)
 		{
@@ -117,6 +118,7 @@ namespace Lux {
 
 	RenderPrimitiveID RenderScene::GetOrCreatePrimitiveID(UUID entityID)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if ((uint64_t)entityID == 0)
 			return InvalidRenderPrimitiveID;
 
@@ -129,6 +131,7 @@ namespace Lux {
 
 	RenderMaterialID RenderScene::ResolveRenderMaterialID(const StaticMeshRenderProxy& proxy, uint32_t submeshIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!proxy.MeshSource)
 			return InvalidRenderMaterialID;
 
@@ -162,6 +165,7 @@ namespace Lux {
 
 	RenderPrimitiveID RenderScene::UpsertStaticMesh(StaticMeshRenderProxy proxy)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if ((uint64_t)proxy.EntityID == 0)
 			return InvalidRenderPrimitiveID;
 
@@ -234,6 +238,7 @@ namespace Lux {
 
 	void RenderScene::EndSync()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		for (auto it = m_StaticMeshProxiesByEntity.begin(); it != m_StaticMeshProxiesByEntity.end();)
 		{
 			if (it->second.LastTouchedFrame != m_FrameIndex)
@@ -277,6 +282,7 @@ namespace Lux {
 
 	void RenderScene::Clear()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex = 0;
 		m_NextPrimitiveID = 1;
 		m_PrimitiveIDsByEntity.clear();
@@ -291,6 +297,7 @@ namespace Lux {
 
 	const StaticMeshRenderProxy* RenderScene::FindStaticMeshProxy(UUID entityID) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto it = m_StaticMeshProxiesByEntity.find(entityID);
 		if (it == m_StaticMeshProxiesByEntity.end())
 			return nullptr;
@@ -300,6 +307,7 @@ namespace Lux {
 
 	void RenderScene::RebuildStaticMeshGPUInstances(StaticMeshRenderProxy& proxy, bool forceDirty, const glm::mat4& previousWorldTransform)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		proxy.SubmeshInstances.clear();
 		if (!proxy.StaticMesh || !proxy.MeshSource)
 			return;
@@ -334,6 +342,7 @@ namespace Lux {
 
 	void RenderScene::RefreshStaticMeshGPUInstances(StaticMeshRenderProxy& proxy)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const GPUSceneInstanceFlags flags = BuildGPUSceneInstanceFlags(proxy);
 		for (GPUSceneInstanceRef& instanceRef : proxy.SubmeshInstances)
 		{

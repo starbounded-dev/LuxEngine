@@ -42,3 +42,6 @@ AGENTS.md
 Editor/assets/AssetRegistry.lzr
 Editor/dbg_trace.txt
 Editor/dbg_ctor.txt
+
+# Tracy CSV-export tool build (perf tooling)
+.tracytools/

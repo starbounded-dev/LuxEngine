@@ -76,6 +76,7 @@ namespace Lux {
 
 	void Pipeline::Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Pipeline> instance = this;
 		Renderer::Submit([instance]() mutable
 			{
@@ -85,6 +86,7 @@ namespace Lux {
 
 	void Pipeline::RT_Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_INFO_TAG("Renderer", "[Pipeline] Creating graphics pipeline: {}", m_Specification.Shader->GetName());
 
 		nvrhi::IDevice* device = Application::Get().GetWindow().GetDeviceManager()->GetDevice();
@@ -233,6 +235,7 @@ namespace Lux {
 
 	bool Pipeline::IsDynamicLineWidth() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Specification.Topology == PrimitiveTopology::Lines || m_Specification.Topology == PrimitiveTopology::LineStrip || m_Specification.Wireframe;
 	}
 

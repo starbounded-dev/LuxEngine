@@ -33,6 +33,7 @@ namespace Lux {
 
 	void VulkanShader::Release()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto& pipelineCIs = m_PipelineShaderStageCreateInfos;
 		Renderer::SubmitResourceFree([pipelineCIs]()
 		{
@@ -72,6 +73,7 @@ namespace Lux {
 
 	void VulkanShader::RT_Reload(const bool forceCompile)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 #if LUX_HAS_SHADER_COMPILER 
 		if (!VulkanShaderCompiler::TryRecompile(this))
 		{
@@ -82,6 +84,7 @@ namespace Lux {
 
 	void VulkanShader::Reload(bool forceCompile)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([instance = Ref(this), forceCompile]() mutable
 		{
 			instance->RT_Reload(forceCompile);
@@ -90,11 +93,13 @@ namespace Lux {
 
 	size_t VulkanShader::GetHash() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return Hash::GenerateFNVHash(m_AssetPath.string());
 	}
 
 	void VulkanShader::LoadAndCreateShaders(const std::map<nvrhi::ShaderType, std::vector<uint32_t>>& shaderData)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_ShaderData = shaderData;
 
 		nvrhi::IDevice* device = Application::Get().GetWindow().GetDeviceManager()->GetDevice();
@@ -139,6 +144,7 @@ namespace Lux {
 	
 	void VulkanShader::CreateDescriptors()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		//LUX_CORE_VERIFY(false);
 #if OLD
 		VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
@@ -554,6 +560,7 @@ namespace Lux {
 
 	VulkanShader::ShaderMaterialDescriptorSet VulkanShader::AllocateDescriptorSet(uint32_t set)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(set < m_DescriptorSetLayouts.size());
 		ShaderMaterialDescriptorSet result;
 
@@ -575,6 +582,7 @@ namespace Lux {
 
 	VulkanShader::ShaderMaterialDescriptorSet VulkanShader::CreateDescriptorSets(uint32_t set)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		ShaderMaterialDescriptorSet result;
 
 		VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
@@ -604,6 +612,7 @@ namespace Lux {
 
 	VulkanShader::ShaderMaterialDescriptorSet VulkanShader::CreateDescriptorSets(uint32_t set, uint32_t numberOfSets)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		ShaderMaterialDescriptorSet result;
 
 		VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
@@ -695,6 +704,7 @@ namespace Lux {
 
 	const VkWriteDescriptorSet* VulkanShader::GetDescriptorSet(const std::string& name, uint32_t set) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(set < m_ReflectionData.ShaderDescriptorSets.size());
 		LUX_CORE_ASSERT(m_ReflectionData.ShaderDescriptorSets[set]);
 		if (m_ReflectionData.ShaderDescriptorSets.at(set).WriteDescriptorSets.find(name) == m_ReflectionData.ShaderDescriptorSets.at(set).WriteDescriptorSets.end())
@@ -709,15 +719,18 @@ namespace Lux {
 
 	const std::unordered_map<std::string, ShaderResourceDeclaration>& VulkanShader::GetResources() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_ReflectionData.Resources;
 	}
 
 	void VulkanShader::AddShaderReloadedCallback(const ShaderReloadedCallback& callback)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 	}
 
 	bool VulkanShader::TryReadReflectionData(StreamReader* serializer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t shaderDescriptorSetCount;
 		serializer->ReadRaw<uint32_t>(shaderDescriptorSetCount);
 
@@ -742,6 +755,7 @@ namespace Lux {
 
 	void VulkanShader::SerializeReflectionData(StreamWriter* serializer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		serializer->WriteRaw<uint32_t>((uint32_t)m_ReflectionData.ShaderDescriptorSets.size());
 		for (const auto& descriptorSet : m_ReflectionData.ShaderDescriptorSets)
 		{
@@ -761,11 +775,13 @@ namespace Lux {
 
 	void VulkanShader::SetReflectionData(const ReflectionData& reflectionData)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_ReflectionData = reflectionData;
 	}
 
 	nvrhi::ShaderHandle VulkanShader::GetHandle(nvrhi::ShaderType type) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(m_ShaderHandles.contains(type));
 		return m_ShaderHandles.at(type);
 	}

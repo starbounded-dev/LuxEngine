@@ -67,6 +67,7 @@ namespace Lux {
 
 	bool VulkanDeviceManager::createInstance()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_DeviceParams.headlessDevice)
 		{
 			if (!glfwVulkanSupported())
@@ -221,6 +222,7 @@ namespace Lux {
 
 	void VulkanDeviceManager::installDebugCallback()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto info = vk::DebugReportCallbackCreateInfoEXT()
 			.setFlags(vk::DebugReportFlagBitsEXT::eError |
 					  vk::DebugReportFlagBitsEXT::eWarning |
@@ -235,6 +237,7 @@ namespace Lux {
 
 	bool VulkanDeviceManager::pickPhysicalDevice()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		VkFormat requestedFormat = nvrhi::vulkan::convertFormat(m_DeviceParams.swapChainFormat);
 		vk::Extent2D requestedExtent(m_DeviceParams.backBufferWidth, m_DeviceParams.backBufferHeight);
 
@@ -341,6 +344,7 @@ namespace Lux {
 
 	bool VulkanDeviceManager::FindQueueFamilies(vk::PhysicalDevice physicalDevice)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto props = physicalDevice.getQueueFamilyProperties();
 
 		for (int i = 0; i < int(props.size()); i++)
@@ -400,6 +404,7 @@ namespace Lux {
 
 	bool VulkanDeviceManager::createDevice()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// figure out which optional extensions are supported
 		auto deviceExtensions = m_VulkanPhysicalDevice.enumerateDeviceExtensionProperties();
 		for (const auto& ext : deviceExtensions)
@@ -595,6 +600,7 @@ namespace Lux {
 
 	bool VulkanDeviceManager::CreateInstanceInternal()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_DeviceParams.enableDebugRuntime)
 		{
 			enabledExtensions.instance.insert("VK_EXT_debug_report");
@@ -610,6 +616,7 @@ namespace Lux {
 
 	bool VulkanDeviceManager::EnumerateAdapters(std::vector<AdapterInfo>& outAdapters)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_VulkanInstance)
 			return false;
 
@@ -646,6 +653,7 @@ namespace Lux {
 
 	bool VulkanDeviceManager::CreateDevice()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_DeviceParams.enableDebugRuntime)
 		{
 			installDebugCallback();
@@ -713,6 +721,7 @@ namespace Lux {
 
 	bool VulkanDeviceManager::InitSurfaceCapabilities(uint64_t surfaceHandle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 #if TODO
 		vk::SurfaceKHR windowSurface = (VkSurfaceKHR)surfaceHandle;
 
@@ -776,6 +785,7 @@ namespace Lux {
 
 	void VulkanDeviceManager::DestroyDevice()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_NvrhiDevice = nullptr;
 		m_ValidationLayer = nullptr;
 		m_RendererString.clear();
@@ -800,6 +810,7 @@ namespace Lux {
 
 	DeviceManager* DeviceManager::CreateVK(GLFWwindow* windowHandle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return new VulkanDeviceManager(windowHandle);
 	}
 

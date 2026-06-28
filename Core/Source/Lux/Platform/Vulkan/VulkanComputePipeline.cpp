@@ -27,6 +27,7 @@ namespace Lux {
 
 	void VulkanComputePipeline::CreatePipeline()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([instance = Ref(this)]() mutable
 		{
 			instance->RT_CreatePipeline();
@@ -35,11 +36,13 @@ namespace Lux {
 
 	void VulkanComputePipeline::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		BufferMemoryBarrier(renderCommandBuffer, storageBuffer, PipelineStage::ComputeShader, fromAccess, PipelineStage::ComputeShader, toAccess);
 	}
 
 	void VulkanComputePipeline::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([vulkanRenderCommandBuffer = renderCommandBuffer.As<VulkanRenderCommandBuffer>(), vulkanStorageBuffer = storageBuffer.As<VulkanStorageBuffer>(), fromStage, fromAccess, toStage, toAccess]() mutable
 		{
 			VkBufferMemoryBarrier bufferMemoryBarrier = {};
@@ -62,11 +65,13 @@ namespace Lux {
 
 	void VulkanComputePipeline::ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		ImageMemoryBarrier(renderCommandBuffer, image, PipelineStage::ComputeShader, fromAccess, PipelineStage::ComputeShader, toAccess);
 	}
 
 	void VulkanComputePipeline::ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([vulkanRenderCommandBuffer = renderCommandBuffer.As<VulkanRenderCommandBuffer>(), vulkanImage = image.As<VulkanImage2D>(), fromStage, fromAccess, toStage, toAccess]() mutable
 		{
 			VkImageLayout imageLayout = vulkanImage->GetDescriptorInfoVulkan().imageLayout;
@@ -93,6 +98,7 @@ namespace Lux {
 
 	void VulkanComputePipeline::RT_CreatePipeline()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
 
 		// TODO: Abstract into some sort of compute pipeline
@@ -143,6 +149,7 @@ namespace Lux {
 
 	void VulkanComputePipeline::Execute(VkDescriptorSet* descriptorSets, uint32_t descriptorSetCount, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
 
 		VkQueue computeQueue = VulkanContext::GetCurrentDevice()->GetComputeQueue();
@@ -191,6 +198,7 @@ namespace Lux {
 
 	void VulkanComputePipeline::Begin(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(!m_ActiveComputeCommandBuffer);
 
 		if (renderCommandBuffer)
@@ -209,6 +217,7 @@ namespace Lux {
 
 	void VulkanComputePipeline::RT_Begin(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(!m_ActiveComputeCommandBuffer);
 
 		if (renderCommandBuffer)
@@ -228,6 +237,7 @@ namespace Lux {
 
 	void VulkanComputePipeline::Dispatch(const glm::uvec3& workGroups) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_ActiveComputeCommandBuffer);
 
 		vkCmdDispatch(m_ActiveComputeCommandBuffer, workGroups.x, workGroups.y, workGroups.z);
@@ -235,6 +245,7 @@ namespace Lux {
 
 	void VulkanComputePipeline::End()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_ActiveComputeCommandBuffer);
 
 		VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
@@ -273,6 +284,7 @@ namespace Lux {
 
 	void VulkanComputePipeline::SetPushConstants(Buffer constants) const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		vkCmdPushConstants(m_ActiveComputeCommandBuffer, m_ComputePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, constants.Size, constants.Data);
 	}
 

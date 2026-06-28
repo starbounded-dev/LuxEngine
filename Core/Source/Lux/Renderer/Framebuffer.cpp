@@ -133,6 +133,7 @@ namespace Lux {
 
 	uint32_t Framebuffer::GetWidth() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_Specification.SwapChainTarget)
 			return Application::Get().GetWindow().GetSwapChain().GetWidth();
 
@@ -141,6 +142,7 @@ namespace Lux {
 
 	uint32_t Framebuffer::GetHeight() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_Specification.SwapChainTarget)
 			return Application::Get().GetWindow().GetSwapChain().GetHeight();
 
@@ -149,6 +151,7 @@ namespace Lux {
 
 	nvrhi::FramebufferHandle Framebuffer::GetHandle() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_Specification.SwapChainTarget)
 			return Application::Get().GetWindow().GetSwapChain().GetCurrentFramebuffer();
 
@@ -157,6 +160,7 @@ namespace Lux {
 
 	void Framebuffer::Release()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 #if DEAL
 		if (m_Handle)
 		{
@@ -195,6 +199,7 @@ namespace Lux {
 
 	void Framebuffer::Resize(uint32_t width, uint32_t height, bool forceRecreate)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!forceRecreate && (m_Width == width && m_Height == height))
 			return;
 
@@ -236,11 +241,13 @@ namespace Lux {
 
 	void Framebuffer::AddResizeCallback(const std::function<void(Ref<Framebuffer>)>& func)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_ResizeCallbacks.push_back(func);
 	}
 
 	void Framebuffer::Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		Ref< Framebuffer> instance = this;
 		Renderer::Submit([instance]() mutable
 			{
@@ -251,6 +258,7 @@ namespace Lux {
 
 	void Framebuffer::RT_Invalidate()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// LUX_CORE_TRACE("Framebuffer::RT_Invalidate ({})", m_Specification.DebugName);
 
 		Release();

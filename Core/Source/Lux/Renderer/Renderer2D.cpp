@@ -35,6 +35,7 @@ namespace Lux {
 
 	void Renderer2D::Init()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_RenderCommandBuffer = RenderCommandBuffer::Create(0, "Renderer2D");
 
 		m_UBSCamera = UniformBufferSet::Create(sizeof(UBCamera));
@@ -290,6 +291,7 @@ namespace Lux {
 
 	void Renderer2D::Shutdown()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		for (auto buffers : m_QuadVertexBufferBases)
 		{
 			for (auto buffer : buffers)
@@ -323,6 +325,7 @@ namespace Lux {
 
 	void Renderer2D::BeginScene(const glm::mat4& viewProj, const glm::mat4& view, bool depthTest)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
 
 		const bool updatedAnyShaders = Renderer::UpdateDirtyShaders();
@@ -385,6 +388,7 @@ namespace Lux {
 
 	void Renderer2D::EndScene()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
 
 		m_RenderCommandBuffer->Begin();
@@ -508,16 +512,19 @@ namespace Lux {
 
 	void Renderer2D::Flush()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// TODO(Yan)
 	}
 
 	Ref<RenderPass> Renderer2D::GetTargetRenderPass()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_QuadPass;
 	}
 
 	void Renderer2D::SetTargetFramebuffer(Ref<Framebuffer> framebuffer)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!framebuffer)
 			return;
 
@@ -582,11 +589,13 @@ namespace Lux {
 
 	void Renderer2D::OnRecreateSwapchain()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(false);
 	}
 
 	void Renderer2D::AddQuadBuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t framesInFlight = Renderer::GetConfig().FramesInFlight;
 
 		VertexBufferPerFrame& newVertexBuffer = m_QuadVertexBuffers.emplace_back();
@@ -605,6 +614,7 @@ namespace Lux {
 
 	void Renderer2D::AddLineBuffer(const bool onTop)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t framesInFlight = Renderer::GetConfig().FramesInFlight;
 
 		VertexBufferPerFrame& newVertexBuffer = onTop ? m_LineOnTopVertexBuffers.emplace_back() : m_LineVertexBuffers.emplace_back();
@@ -623,6 +633,7 @@ namespace Lux {
 
 	void Renderer2D::AddTextBuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t framesInFlight = Renderer::GetConfig().FramesInFlight;
 
 		VertexBufferPerFrame& newVertexBuffer = m_TextVertexBuffers.emplace_back();
@@ -641,6 +652,7 @@ namespace Lux {
 
 	void Renderer2D::AddCircleBuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t framesInFlight = Renderer::GetConfig().FramesInFlight;
 
 		VertexBufferPerFrame& newVertexBuffer = m_CircleVertexBuffers.emplace_back();
@@ -659,6 +671,7 @@ namespace Lux {
 
 	Renderer2D::QuadVertex*& Renderer2D::GetWriteableQuadBuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
 
 		m_QuadBufferWriteIndex = m_QuadIndexCount / c_MaxIndices;
@@ -674,6 +687,7 @@ namespace Lux {
 
 	Renderer2D::LineVertex*& Renderer2D::GetWriteableLineBuffer(const bool onTop)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
 
 		if (onTop)
@@ -704,6 +718,7 @@ namespace Lux {
 
 	Renderer2D::TextVertex*& Renderer2D::GetWriteableTextBuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
 
 		m_TextBufferWriteIndex = m_TextIndexCount / c_MaxIndices;
@@ -719,6 +734,7 @@ namespace Lux {
 
 	Renderer2D::CircleVertex*& Renderer2D::GetWriteableCircleBuffer()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
 
 		m_CircleBufferWriteIndex = m_CircleIndexCount / c_MaxIndices;
@@ -734,6 +750,7 @@ namespace Lux {
 
 	void Renderer2D::DrawQuad(const glm::mat4& transform, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
 
 		constexpr size_t quadVertexCount = 4;
@@ -759,6 +776,7 @@ namespace Lux {
 
 	void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor, glm::vec2 uv0, glm::vec2 uv1)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		constexpr size_t quadVertexCount = 4;
 		glm::vec2 textureCoords[] = { uv0, { uv1.x, uv0.y }, uv1, { uv0.x, uv1.y } };
 
@@ -800,11 +818,13 @@ namespace Lux {
 
 	void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		DrawQuad({ position.x, position.y, 0.0f }, size, color);
 	}
 
 	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const float textureIndex = 0.0f; // White Texture
 		const float tilingFactor = 1.0f;
 
@@ -847,11 +867,13 @@ namespace Lux {
 
 	void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor, glm::vec2 uv0, glm::vec2 uv1)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		DrawQuad({ position.x, position.y, 0.0f }, size, texture, tilingFactor, tintColor, uv0, uv1);
 	}
 
 	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor, glm::vec2 uv0, glm::vec2 uv1)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		float textureIndex = 0.0f;
 		for (uint32_t i = 1; i < m_TextureSlotIndex; i++)
 		{
@@ -910,6 +932,7 @@ namespace Lux {
 
 	void Renderer2D::DrawQuadBillboard(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const float textureIndex = 0.0f; // White Texture
 		const float tilingFactor = 1.0f;
 
@@ -952,6 +975,7 @@ namespace Lux {
 
 	void Renderer2D::DrawQuadBillboard(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		float textureIndex = 0.0f;
 		for (uint32_t i = 1; i < m_TextureSlotIndex; i++)
 		{
@@ -1008,11 +1032,13 @@ namespace Lux {
 
 	void Renderer2D::DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		DrawRotatedQuad({ position.x, position.y, 0.0f }, size, rotation, color);
 	}
 
 	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const float textureIndex = 0.0f; // White Texture
 		const float tilingFactor = 1.0f;
 
@@ -1056,11 +1082,13 @@ namespace Lux {
 
 	void Renderer2D::DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		DrawRotatedQuad({ position.x, position.y, 0.0f }, size, rotation, texture, tilingFactor, tintColor);
 	}
 
 	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		float textureIndex = 0.0f;
 		for (uint32_t i = 1; i < m_TextureSlotIndex; i++)
 		{
@@ -1118,11 +1146,13 @@ namespace Lux {
 
 	void Renderer2D::DrawRotatedRect(const glm::vec2& position, const glm::vec2& size, float rotation, const glm::vec4& color, const bool onTop)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		DrawRotatedRect({ position.x, position.y, 0.0f }, size, rotation, color, onTop);
 	}
 
 	void Renderer2D::DrawRotatedRect(const glm::vec3& position, const glm::vec2& size, float rotation, const glm::vec4& color, const bool onTop)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		glm::mat4 transform = glm::translate(glm::mat4(1.0f), position)
 			* glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f })
 			* glm::scale(glm::mat4(1.0f), { size.x, size.y, 1.0f });
@@ -1160,11 +1190,13 @@ namespace Lux {
 
 	void Renderer2D::FillCircle(const glm::vec2& position, float radius, const glm::vec4& color, const float thickness)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		FillCircle({ position.x, position.y, 0.0f }, radius, color, thickness);
 	}
 
 	void Renderer2D::FillCircle(const glm::vec3& position, float radius, const glm::vec4& color, const float thickness)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		glm::mat4 transform = glm::translate(glm::mat4(1.0f), position)
 			* glm::scale(glm::mat4(1.0f), { radius * 2.0f, radius * 2.0f, 1.0f });
 
@@ -1184,6 +1216,7 @@ namespace Lux {
 
 	void Renderer2D::DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, const bool onTop)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		auto& bufferPtr = GetWriteableLineBuffer(onTop);
 		bufferPtr->Position = p0;
 		bufferPtr->Color = color;
@@ -1203,6 +1236,7 @@ namespace Lux {
 
 	void Renderer2D::DrawTransform(const glm::mat4& transform, float scale /*= 1.0f*/, const bool onTop)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		glm::vec3 p0 = transform * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		glm::vec3 p1 = transform * glm::vec4(scale, 0.0f, 0.0f, 1.0f);
 		DrawLine(p0, p1, { 1.0f, 0.0f, 0.0f, 1.0f }, onTop);
@@ -1216,6 +1250,7 @@ namespace Lux {
 
 	void Renderer2D::DrawCircle(const glm::vec3& position, const glm::vec3& rotation, float radius, const glm::vec4& color, const bool onTop)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		const glm::mat4 transform = glm::translate(glm::mat4(1.0f), position)
 			* glm::rotate(glm::mat4(1.0f), rotation.x, { 1.0f, 0.0f, 0.0f })
 			* glm::rotate(glm::mat4(1.0f), rotation.y, { 0.0f, 1.0f, 0.0f })
@@ -1227,6 +1262,7 @@ namespace Lux {
 
 	void Renderer2D::DrawCircle(const glm::mat4& transform, const glm::vec4& color, const bool onTop)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		int segments = 32;
 		for (int i = 0; i < segments; i++)
 		{
@@ -1243,6 +1279,7 @@ namespace Lux {
 
 	void Renderer2D::DrawAABB(const AABB& aabb, const glm::mat4& transform, const glm::vec4& color /*= glm::vec4(1.0f)*/, const bool onTop)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		glm::vec4 corners[8] =
 		{
 			transform * glm::vec4 { aabb.Min.x, aabb.Min.y, aabb.Max.z, 1.0f },
@@ -1278,11 +1315,13 @@ namespace Lux {
 
 	void Renderer2D::DrawString(const std::string& string, const glm::vec3& position, float maxWidth, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		DrawString(string, Font::GetDefaultFont(), position, maxWidth, color);
 	}
 
 	void Renderer2D::DrawString(const std::string& string, const Ref<Font>& font, const glm::vec3& position, float maxWidth, const glm::vec4& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		DrawString(string, font, glm::translate(glm::mat4(1.0f), position), maxWidth, color);
 	}
 
@@ -1298,6 +1337,7 @@ namespace Lux {
 
 	void Renderer2D::DrawString(const std::string& string, const Ref<Font>& font, const glm::mat4& transform, float maxWidth, const glm::vec4& color, float lineHeightOffset, float kerningOffset)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (string.empty())
 			return;
 
@@ -1450,11 +1490,13 @@ namespace Lux {
 
 	float Renderer2D::GetLineWidth()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_LineWidth;
 	}
 
 	void Renderer2D::SetLineWidth(float lineWidth)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_LineWidth = lineWidth;
 
 		if (m_LinePass)
@@ -1463,22 +1505,26 @@ namespace Lux {
 
 	void Renderer2D::ResetStats()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		memset(&m_DrawStats, 0, sizeof(DrawStatistics));
 		m_MemoryStats.Used = 0;
 	}
 
 	Renderer2D::DrawStatistics Renderer2D::GetDrawStats()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_DrawStats;
 	}
 
 	Renderer2D::MemoryStatistics Renderer2D::GetMemoryStats()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_MemoryStats;
 	}
 
 	uint64_t Renderer2D::MemoryStatistics::GetAllocatedPerFrame() const
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return TotalAllocated / Renderer::GetConfig().FramesInFlight;
 	}
 

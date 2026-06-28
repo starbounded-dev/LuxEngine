@@ -28,6 +28,7 @@ namespace Lux {
 
 	void TextureScene::EnsureFallbackTexture()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_TextureHandles.empty())
 			return;
 
@@ -37,6 +38,7 @@ namespace Lux {
 
 	void TextureScene::BeginSync(uint32_t frameIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex = frameIndex;
 		m_DirtyTextureCount = 0;
 		m_DirtyTextureIndices.clear();
@@ -47,6 +49,7 @@ namespace Lux {
 
 	GPUTextureIndex TextureScene::UpsertTexture(AssetHandle textureHandle, bool forceDirty)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!IsTextureHandleValid(textureHandle))
 			return InvalidGPUTextureIndex;
 
@@ -87,6 +90,7 @@ namespace Lux {
 
 	void TextureScene::EndSync()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		for (GPUTextureIndex textureIndex = 1; textureIndex < m_TextureHandles.size(); textureIndex++)
 		{
 			if (m_LastTouchedFrames[textureIndex] == m_FrameIndex)
@@ -137,6 +141,7 @@ namespace Lux {
 
 	void TextureScene::Clear()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex = 0;
 		m_DirtyTextureCount = 0;
 		m_TextureHandles.clear();
@@ -150,6 +155,7 @@ namespace Lux {
 
 	void TextureScene::MarkTextureDirty(GPUTextureIndex textureIndex)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (textureIndex >= m_TextureHandles.size())
 			return;
 

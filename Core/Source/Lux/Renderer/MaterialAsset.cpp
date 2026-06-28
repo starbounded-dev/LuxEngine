@@ -94,6 +94,7 @@ namespace Lux {
 
 	void MaterialAsset::OnDependencyUpdated(AssetHandle handle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (handle == m_Maps.AlbedoMap)
 		{
 			SetAlbedoMap(handle);
@@ -115,49 +116,58 @@ namespace Lux {
 
 	glm::vec3& MaterialAsset::GetAlbedoColor()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Material->GetVector3(s_AlbedoColorUniform);
 	}
 
 	void MaterialAsset::SetAlbedoColor(const glm::vec3& color)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Material->Set(s_AlbedoColorUniform, color);
 	}
 
 	float& MaterialAsset::GetMetalness()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Material->GetFloat(s_MetalnessUniform);
 	}
 
 	void MaterialAsset::SetMetalness(float value)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Material->Set(s_MetalnessUniform, value);
 		UpdateMaterialComplexityMetadata();
 	}
 
 	float& MaterialAsset::GetRoughness()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Material->GetFloat(s_RoughnessUniform);
 	}
 
 	void MaterialAsset::SetRoughness(float value)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Material->Set(s_RoughnessUniform, value);
 		UpdateMaterialComplexityMetadata();
 	}
 
 	float& MaterialAsset::GetEmission()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Material->GetFloat(s_EmissionUniform);
 	}
 
 	void MaterialAsset::SetEmission(float value)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Material->Set(s_EmissionUniform, value);
 		UpdateMaterialComplexityMetadata();
 	}
 
 	Ref<Texture2D> MaterialAsset::GetAlbedoMap()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// QUESTION: Is there a reason we need to go to the material here?
 		//           Don't we already have the texture handle in m_Maps.AlbedoMap?
 		auto texture = m_Material->TryGetTexture2D(s_AlbedoMapUniform);
@@ -166,6 +176,7 @@ namespace Lux {
 
 	void MaterialAsset::SetAlbedoMap(AssetHandle handle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.AlbedoMap = handle;
 		if (!m_Material)
 			return;
@@ -191,6 +202,7 @@ namespace Lux {
 
 	void MaterialAsset::ClearAlbedoMap()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.AlbedoMap = 0;
 #ifndef LUX_HEADLESS
 		m_Material->Set(s_AlbedoMapUniform, Renderer::GetWhiteTexture());
@@ -200,11 +212,13 @@ namespace Lux {
 
 	Ref<Texture2D> MaterialAsset::GetNormalMap()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Material->TryGetTexture2D(s_NormalMapUniform);
 	}
 
 	void MaterialAsset::SetNormalMap(AssetHandle handle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.NormalMap = handle;
 
 		if (handle)
@@ -225,17 +239,20 @@ namespace Lux {
 
 	bool MaterialAsset::IsUsingNormalMap()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Material->GetBool(s_UseNormalMapUniform);
 	}
 
 	void MaterialAsset::SetUseNormalMap(bool value)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Material->Set(s_UseNormalMapUniform, value);
 		UpdateMaterialComplexityMetadata();
 	}
 
 	void MaterialAsset::ClearNormalMap()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.NormalMap = 0;
 #ifndef LUX_HEADLESS
 		m_Material->Set(s_NormalMapUniform, Renderer::GetWhiteTexture());
@@ -245,11 +262,13 @@ namespace Lux {
 
 	Ref<Texture2D> MaterialAsset::GetMetalnessMap()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Material->TryGetTexture2D(s_MetalnessMapUniform);
 	}
 
 	void MaterialAsset::SetMetalnessMap(AssetHandle handle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.MetalnessMap = handle;
 
 		if (handle)
@@ -270,6 +289,7 @@ namespace Lux {
 
 	void MaterialAsset::ClearMetalnessMap()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.MetalnessMap = 0;
 #ifndef LUX_HEADLESS
 		m_Material->Set(s_MetalnessMapUniform, Renderer::GetWhiteTexture());
@@ -279,11 +299,13 @@ namespace Lux {
 
 	Ref<Texture2D> MaterialAsset::GetRoughnessMap()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Material->TryGetTexture2D(s_RoughnessMapUniform);
 	}
 
 	void MaterialAsset::SetRoughnessMap(AssetHandle handle)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.RoughnessMap = handle;
 
 		if (handle)
@@ -304,6 +326,7 @@ namespace Lux {
 
 	void MaterialAsset::ClearRoughnessMap()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.RoughnessMap = 0;
 #ifndef LUX_HEADLESS
 		m_Material->Set(s_RoughnessMapUniform, Renderer::GetWhiteTexture());
@@ -313,17 +336,20 @@ namespace Lux {
 
 	float& MaterialAsset::GetTransparency()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Material->GetFloat(s_TransparencyUniform);
 	}
 
 	void MaterialAsset::SetTransparency(float transparency)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Material->Set(s_TransparencyUniform, transparency);
 		UpdateMaterialComplexityMetadata();
 	}
 
 	void MaterialAsset::UpdateMaterialComplexityMetadata()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_Material || !m_Material->FindUniformDeclaration(s_MaterialComplexityScoreUniform))
 			return;
 
@@ -378,6 +404,7 @@ namespace Lux {
 
 	void MaterialAsset::SetDefaults()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_Material)
 			return;
 
@@ -423,6 +450,7 @@ namespace Lux {
 
 	void MaterialTable::SetMaterial(uint32_t index, AssetHandle material)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Materials[index] = material;
 		if (index >= m_MaterialCount)
 			m_MaterialCount = index + 1;
@@ -430,6 +458,7 @@ namespace Lux {
 
 	void MaterialTable::ClearMaterial(uint32_t index)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(HasMaterial(index));
 		m_Materials.erase(index);
 		if (index >= m_MaterialCount)
@@ -438,6 +467,7 @@ namespace Lux {
 
 	void MaterialTable::Clear()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		m_Materials.clear();
 	}
 
