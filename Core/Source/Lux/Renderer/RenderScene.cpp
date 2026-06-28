@@ -221,7 +221,14 @@ namespace Lux {
 		else if (!created)
 		{
 			proxy.SubmeshInstances = existingIt->second.SubmeshInstances;
-			RefreshStaticMeshGPUInstances(proxy);
+			// The GPUScene is persistent — EndSync only re-uploads instances that were marked
+			// dirty, and never prunes untouched ones. So a fully static proxy does not need a
+			// per-frame refresh (this ran every frame for every static mesh — ~1.3ms on Sponza).
+			// Refresh only when the proxy changed this frame, OR changed last frame: that one
+			// settle frame lets a mesh that just stopped moving zero its motion-vector
+			// previous-transform before we stop refreshing it (avoids lingering TAA ghosting).
+			if (dirtyFlags != RenderProxyDirtyFlags::None || existingIt->second.DirtyFlags != RenderProxyDirtyFlags::None)
+				RefreshStaticMeshGPUInstances(proxy);
 		}
 
 		proxy.DirtyFlags = dirtyFlags;
