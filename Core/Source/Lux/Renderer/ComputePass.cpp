@@ -89,7 +89,6 @@ namespace Lux {
 
 	bool ComputePass::HasDescriptorSets() const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return m_DescriptorSetManager.HasDescriptorSets();
 	}
 
@@ -125,14 +124,12 @@ namespace Lux {
 
 	bool ComputePass::IsInputValid(std::string_view name) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		std::string nameStr(name);
 		return m_DescriptorSetManager.InputDeclarations.find(nameStr) != m_DescriptorSetManager.InputDeclarations.end();
 	}
 
 	const RenderInputDeclaration* ComputePass::GetInputDeclaration(std::string_view name) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return m_DescriptorSetManager.GetInputDeclaration(name);
 	}
 

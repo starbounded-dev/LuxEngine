@@ -17,7 +17,6 @@ namespace Lux {
 
 	Ref<UniformBuffer> UniformBufferSet::Get()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frame = Renderer::GetCurrentFrameIndex();
 		return Get(frame);
 	}
@@ -31,7 +30,6 @@ namespace Lux {
 
 	Ref<UniformBuffer> UniformBufferSet::Get(uint32_t frame)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_UniformBuffers.find(frame) != m_UniformBuffers.end());
 		return m_UniformBuffers.at(frame);
 	}

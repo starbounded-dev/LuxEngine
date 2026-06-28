@@ -781,7 +781,6 @@ namespace Lux {
 
 	nvrhi::ShaderHandle VulkanShader::GetHandle(nvrhi::ShaderType type) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(m_ShaderHandles.contains(type));
 		return m_ShaderHandles.at(type);
 	}

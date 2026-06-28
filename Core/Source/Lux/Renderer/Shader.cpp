@@ -107,7 +107,6 @@ namespace Lux {
 
 	const Ref<Shader>& ShaderLibrary::Get(const std::string& name) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_Shaders.find(name) != m_Shaders.end());
 		return m_Shaders.at(name);
 	}

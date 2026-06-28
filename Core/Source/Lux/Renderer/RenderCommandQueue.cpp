@@ -21,7 +21,6 @@ namespace Lux {
 
 	void* RenderCommandQueue::Allocate(RenderCommandFn fn, uint32_t size)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		// NOTE(Yan): for debugging
 		// HZ_CORE_VERIFY(!RenderThread::IsCurrentThreadRT());
 

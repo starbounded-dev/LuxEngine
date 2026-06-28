@@ -1113,7 +1113,6 @@ namespace Lux {
 
 	bool DescriptorSetManager::HasDescriptorSets() const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return !m_BindingSets.empty() && !m_BindingSets[0].empty();
 	}
 
@@ -1144,7 +1143,6 @@ namespace Lux {
 
 	nvrhi::BindingSetHandle DescriptorSetManager::GetBindingSet(uint32_t frameIndex) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_BindingSets.empty())
 			return nullptr;
 
@@ -1179,14 +1177,12 @@ namespace Lux {
 
 	bool DescriptorSetManager::IsInputValid(std::string_view name) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		std::string nameStr(name);
 		return InputDeclarations.find(nameStr) != InputDeclarations.end();
 	}
 
 	const RenderInputDeclaration* DescriptorSetManager::GetInputDeclaration(std::string_view name) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		std::string nameStr(name);
 		if (InputDeclarations.find(nameStr) == InputDeclarations.end())
 			return nullptr;

@@ -146,7 +146,6 @@ namespace Lux {
 
 	const ShaderUniform* Material::FindUniformDeclaration(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		const auto& shaderBuffers = m_Shader->GetShaderBuffers();
 
 		LUX_CORE_ASSERT(shaderBuffers.size() <= 1, "We currently only support ONE material buffer!");
@@ -289,55 +288,46 @@ namespace Lux {
 
 	float& Material::GetFloat(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Get<float>(name);
 	}
 
 	int32_t& Material::GetInt(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Get<int32_t>(name);
 	}
 
 	uint32_t& Material::GetUInt(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Get<uint32_t>(name);
 	}
 
 	bool& Material::GetBool(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Get<bool>(name);
 	}
 
 	glm::vec2& Material::GetVector2(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Get<glm::vec2>(name);
 	}
 
 	glm::vec3& Material::GetVector3(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Get<glm::vec3>(name);
 	}
 
 	glm::vec4& Material::GetVector4(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Get<glm::vec4>(name);
 	}
 
 	glm::mat3& Material::GetMatrix3(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Get<glm::mat3>(name);
 	}
 
 	glm::mat4& Material::GetMatrix4(const std::string& name)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Get<glm::mat4>(name);
 	}
 
@@ -367,7 +357,6 @@ namespace Lux {
 
 	bool Material::IsDescriptorSetCompatible(Ref<Shader> pipelineShader, uint32_t set) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		const nvrhi::BindingLayoutDesc* materialLayout = GetDescriptorSetLayoutDesc(m_Shader, set);
 		const nvrhi::BindingLayoutDesc* pipelineLayout = GetDescriptorSetLayoutDesc(pipelineShader, set);
 		if (!materialLayout || !pipelineLayout)
@@ -384,7 +373,6 @@ namespace Lux {
 
 	nvrhi::BindingSetHandle Material::GetBindingSet(uint32_t frameIndex) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return m_DescriptorSetManager.GetBindingSet(frameIndex);
 	}
 

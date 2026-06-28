@@ -137,20 +137,17 @@ namespace Lux {
 
 	bool RenderPass::HasDescriptorSets() const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return m_DescriptorSetManager.HasDescriptorSets();
 	}
 
 	bool RenderPass::IsInputValid(std::string_view name) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		std::string nameStr(name);
 		return m_DescriptorSetManager.InputDeclarations.find(nameStr) != m_DescriptorSetManager.InputDeclarations.end();
 	}
 
 	const RenderInputDeclaration* RenderPass::GetInputDeclaration(std::string_view name) const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		std::string nameStr(name);
 		if (m_DescriptorSetManager.InputDeclarations.find(nameStr) == m_DescriptorSetManager.InputDeclarations.end())
 			return nullptr;

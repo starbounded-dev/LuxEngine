@@ -49,7 +49,6 @@ namespace Lux {
 
 	GPUTextureIndex TextureScene::UpsertTexture(AssetHandle textureHandle, bool forceDirty)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		if (!IsTextureHandleValid(textureHandle))
 			return InvalidGPUTextureIndex;
 

@@ -267,7 +267,6 @@ namespace Lux {
 
 	GPUTextureIndex MaterialScene::ResolveTextureIndex(AssetHandle textureHandle)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		if (!textureHandle)
 			return InvalidGPUTextureIndex;
 

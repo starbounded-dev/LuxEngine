@@ -328,13 +328,11 @@ namespace Lux {
 
 	uint32_t Renderer::RT_GetCurrentFrameIndex()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Application::Get().GetWindow().GetSwapChain().GetCurrentBackBufferIndex();
 	}
 
 	uint32_t Renderer::GetCurrentFrameIndex()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return Application::Get().GetCurrentFrameIndex();
 	}
 
@@ -1749,25 +1747,21 @@ namespace Lux {
 
 	Ref<Texture2D> Renderer::GetWhiteTexture()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->WhiteTexture;
 	}
 
 	Ref<Texture2D> Renderer::GetBlackTexture()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->BlackTexture;
 	}
 
 	Ref<Texture2D> Renderer::GetHilbertLut()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->HilbertLut;
 	}
 
 	Ref<Texture2D> Renderer::GetBRDFLutTexture()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->BRDFLutTexture;
 	}
 	
@@ -1809,7 +1803,6 @@ namespace Lux {
 
 	RenderCommandQueue& Renderer::GetRenderCommandQueue()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return *s_CommandQueue[s_RenderCommandQueueSubmissionIndex];
 	}
 

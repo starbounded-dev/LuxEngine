@@ -76,7 +76,6 @@ namespace Lux {
 #if 0
 	void VulkanAllocator::Allocate(VkMemoryRequirements requirements, VkDeviceMemory* dest, VkMemoryPropertyFlags flags /*= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT*/)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_Device);
 
 		// TODO: Tracking

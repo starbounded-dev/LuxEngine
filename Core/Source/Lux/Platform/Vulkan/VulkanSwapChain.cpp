@@ -347,7 +347,6 @@ namespace Lux {
 
 	uint32_t VulkanSwapChain::GetCurrentBackBufferIndex()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return m_SwapChainIndex;
 	}
 

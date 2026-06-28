@@ -24,7 +24,6 @@ namespace Lux {
 
 	Ref<StorageBuffer> StorageBufferSet::Get()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frame = Renderer::GetCurrentFrameIndex();
 		return Get(frame);
 	}
@@ -38,7 +37,6 @@ namespace Lux {
 
 	Ref<StorageBuffer> StorageBufferSet::Get(uint32_t frame)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(m_StorageBuffers.find(frame) != m_StorageBuffers.end());
 		return m_StorageBuffers.at(frame);
 	}

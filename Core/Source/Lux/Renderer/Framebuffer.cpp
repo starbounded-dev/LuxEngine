@@ -151,7 +151,6 @@ namespace Lux {
 
 	nvrhi::FramebufferHandle Framebuffer::GetHandle() const
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_Specification.SwapChainTarget)
 			return Application::Get().GetWindow().GetSwapChain().GetCurrentFramebuffer();
 
