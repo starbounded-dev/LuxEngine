@@ -540,6 +540,60 @@ namespace Lux {
 		return result;
 	}
 
+	uint64_t RenderGraph::ComputeStructureHash() const
+	{
+		// FNV-1a fold over everything Compile() reads. ExecutionOrder/Lifetimes/
+		// AliasGroups depend only on pass topology (reads/writes/flags) and texture
+		// metadata — NOT on live GPU handles — so an unchanged hash means the cached
+		// CompileResult stays valid even if the underlying images were reallocated.
+		uint64_t hash = 1469598103934665603ull;
+		const auto fold = [&hash](uint64_t value)
+			{
+				hash ^= value;
+				hash *= 1099511628211ull;
+			};
+		const auto foldString = [&](const std::string& s)
+			{
+				for (const char c : s)
+					fold(static_cast<unsigned char>(c));
+				fold(s.size());
+			};
+
+		fold(m_Textures.size());
+		for (const TextureDesc& texture : m_Textures)
+		{
+			foldString(texture.Name);
+			fold(static_cast<uint64_t>(texture.Format));
+			fold(static_cast<uint64_t>(texture.Usage));
+			fold(static_cast<uint64_t>(texture.Dimension));
+			fold(texture.Width);
+			fold(texture.Height);
+			fold(texture.Mips);
+			fold(texture.Layers);
+			fold(texture.Transient ? 1u : 0u);
+			fold(texture.AllowAlias ? 1u : 0u);
+			// Validity flips drive null/invalid-texture diagnostics, so fold it too.
+			fold((texture.Image && texture.Image->IsValid()) ? 1u : 0u);
+		}
+
+		fold(m_Passes.size());
+		for (const PassDesc& pass : m_Passes)
+		{
+			foldString(pass.Name);
+			fold(static_cast<uint64_t>(pass.Flags));
+			fold(pass.Execute ? 1u : 0u);
+			fold(pass.Reads.size());
+			for (const ResourceHandle resource : pass.Reads)
+				fold(resource);
+			fold(pass.Writes.size());
+			for (const ResourceHandle resource : pass.Writes)
+				fold(resource);
+		}
+
+		fold(m_ExternalDiagnostics.size());
+		return hash;
+	}
+
 	RenderGraph::CompileResult RenderGraph::Execute() const
 	{
 		CompileResult result = Compile();

@@ -124,6 +124,10 @@ namespace Lux {
 		uint32_t AddPass(PassDesc desc);
 		uint32_t AddPass(PassDesc desc, ExecuteCallback execute);
 		CompileResult Compile() const;
+		// Folds every field Compile()/Execute() depend on (pass topology + texture
+		// metadata) into one key. Equal hashes ⇒ equivalent CompileResult, so callers
+		// may cache and reuse a compiled result while this value is unchanged.
+		uint64_t ComputeStructureHash() const;
 		CompileResult Execute() const;
 		void Execute(const CompileResult& compileResult) const;
 		std::vector<ResourceLifetime> BuildAliasPlan() const;

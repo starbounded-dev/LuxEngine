@@ -3094,6 +3094,17 @@ namespace Lux {
 
 	void SceneRenderer::UpdateMemoryStatistics()
 	{
+		// Memory statistics are display-only (Render Stats / Renderer Debugger panels) and
+		// are gathered with a full VMA allocation walk (vmaCalculateStats) plus a render-graph
+		// alias-plan pass — far too heavy to run every frame for numbers that change slowly.
+		// Refresh a few times per second and keep the previous values in between.
+		if (m_MemoryStatsCountdown > 0)
+		{
+			m_MemoryStatsCountdown--;
+			return;
+		}
+		m_MemoryStatsCountdown = MemoryStatsRefreshFrameInterval;
+
 		auto& memoryStats = m_Statistics.MemoryStats;
 		memoryStats = {};
 
@@ -3299,6 +3310,17 @@ namespace Lux {
 		const ResolvedFrameEnvironment frame = ResolveFrameEnvironment();
 		std::unordered_map<const Image2D*, RenderGraph::ResourceHandle> resourceLookup;
 
+		// Resource/pass names are only consumed by diagnostics and the Renderer Debugger
+		// snapshot (which builds the graph with executable=false). The per-frame executable
+		// build never feeds the debugger, so skip all name materialization there — names are
+		// passed as string_view and only copied into a std::string when captured. This avoids
+		// dozens of per-frame heap allocations (long literals + the std::format'd names).
+		const bool captureNames = !executable;
+		const auto graphName = [captureNames](std::string_view name) -> std::string
+			{
+				return captureNames ? std::string(name) : std::string{};
+			};
+
 		auto reportGraphDiagnostic = [&](RenderGraph::DiagnosticSeverity severity,
 			RenderGraph::DiagnosticCode code,
 			std::string passName,
@@ -3327,14 +3349,14 @@ namespace Lux {
 					};
 			};
 
-		auto addTexture = [&](const std::string& name, const Ref<Image2D>& image) -> RenderGraph::ResourceHandle
+		auto addTexture = [&](std::string_view name, const Ref<Image2D>& image) -> RenderGraph::ResourceHandle
 			{
 				if (!image)
 				{
 					reportGraphDiagnostic(RenderGraph::DiagnosticSeverity::Error,
 						RenderGraph::DiagnosticCode::NullTexture,
 						{},
-						name,
+						std::string(name),
 						std::format("Render graph resource '{}' is missing an Image2D reference.", name));
 					return RenderGraph::InvalidResource;
 				}
@@ -3344,7 +3366,7 @@ namespace Lux {
 					reportGraphDiagnostic(RenderGraph::DiagnosticSeverity::Error,
 						RenderGraph::DiagnosticCode::NullTexture,
 						{},
-						name,
+						std::string(name),
 						std::format("Render graph resource '{}' has no valid GPU image handle.", name));
 					return RenderGraph::InvalidResource;
 				}
@@ -3356,7 +3378,7 @@ namespace Lux {
 				const ImageSpecification& spec = image->GetSpecification();
 				const bool allowAlias = IsRenderGraphAliasCandidate(image);
 				RenderGraph::TextureDesc desc;
-				desc.Name = name;
+				desc.Name = graphName(name);
 				desc.Image = image;
 				desc.Format = spec.Format;
 				desc.Usage = spec.Usage;
@@ -3372,35 +3394,41 @@ namespace Lux {
 				return resource;
 			};
 
-		auto addFramebufferResources = [&](const std::string& name, const Ref<Framebuffer>& framebuffer)
+		auto addFramebufferResources = [&](std::string_view name, const Ref<Framebuffer>& framebuffer)
 			{
 				std::vector<RenderGraph::ResourceHandle> resources;
 				if (!framebuffer)
 				{
 					reportGraphDiagnostic(RenderGraph::DiagnosticSeverity::Error,
 						RenderGraph::DiagnosticCode::NullTexture,
-						name,
-						name,
+						std::string(name),
+						std::string(name),
 						std::format("Render graph pass '{}' has no target framebuffer.", name));
 					return resources;
 				}
 
 				for (uint32_t attachment = 0; attachment < framebuffer->GetColorAttachmentCount(); attachment++)
-					resources.push_back(addTexture(std::format("{} Color {}", name, attachment), framebuffer->GetImage(attachment)));
+				{
+					std::string childName = captureNames ? std::format("{} Color {}", name, attachment) : std::string{};
+					resources.push_back(addTexture(childName, framebuffer->GetImage(attachment)));
+				}
 				if (framebuffer->HasDepthAttachment())
-					resources.push_back(addTexture(std::format("{} Depth", name), framebuffer->GetDepthImage()));
+				{
+					std::string depthName = captureNames ? std::format("{} Depth", name) : std::string{};
+					resources.push_back(addTexture(depthName, framebuffer->GetDepthImage()));
+				}
 
 				return resources;
 			};
 
-		auto addRenderPassResources = [&](const std::string& name, const Ref<RenderPass>& pass)
+		auto addRenderPassResources = [&](std::string_view name, const Ref<RenderPass>& pass)
 			{
 				if (!pass)
 				{
 					reportGraphDiagnostic(RenderGraph::DiagnosticSeverity::Error,
 						RenderGraph::DiagnosticCode::NullTexture,
-						name,
-						name,
+						std::string(name),
+						std::string(name),
 						std::format("Render graph pass '{}' is missing its RenderPass object.", name));
 					return std::vector<RenderGraph::ResourceHandle>{};
 				}
@@ -3413,7 +3441,7 @@ namespace Lux {
 				dst.insert(dst.end(), src.begin(), src.end());
 			};
 
-		auto addPass = [&](std::string name,
+		auto addPass = [&](std::string_view name,
 			std::vector<RenderGraph::ResourceHandle> reads,
 			std::vector<RenderGraph::ResourceHandle> writes,
 			RenderGraph::PassFlags flags,
@@ -3423,7 +3451,7 @@ namespace Lux {
 					return;
 
 				RenderGraph::PassDesc pass;
-				pass.Name = std::move(name);
+				pass.Name = graphName(name);
 				pass.Reads = std::move(reads);
 				pass.Writes = std::move(writes);
 				pass.Flags = execute
@@ -3667,7 +3695,10 @@ namespace Lux {
 			for (uint32_t index = 0; index < m_BloomComputeTextures.size(); index++)
 			{
 				if (m_BloomComputeTextures[index].Texture)
-					bloomOutputs.push_back(addTexture(std::format("Bloom {}", index), m_BloomComputeTextures[index].Texture->GetImage()));
+				{
+					std::string bloomName = captureNames ? std::format("Bloom {}", index) : std::string{};
+					bloomOutputs.push_back(addTexture(bloomName, m_BloomComputeTextures[index].Texture->GetImage()));
+				}
 			}
 			addPass("Bloom", sceneColorCurrent, bloomOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::BloomCompute));
 		}
@@ -3968,7 +3999,10 @@ namespace Lux {
 		memoryStats.RenderGraphTransientCount = 0;
 		memoryStats.RenderGraphAliasGroupCount = 0;
 
-		BuildRenderGraph();
+		// Reuse the executable graph already built and rendered this frame (this runs
+		// from UpdateStatistics, after Build/Execute). Memory stats only read texture
+		// descs and the alias plan — never names or execute callbacks — so a second
+		// full BuildRenderGraph() here was pure per-frame waste.
 
 		const auto lifetimes = m_RenderGraph.BuildAliasPlan();
 		const auto& textures = m_RenderGraph.GetTextures();
@@ -5578,10 +5612,16 @@ namespace Lux {
 		// The shader uses objectIndex = ObjectIndexBase + gl_InstanceIndex to fetch GPUSceneInstanceData.
 		uint32_t cursor = 0;
 		uint32_t visibleCursor = 0;
-		std::vector<uint32_t> objectIndexData;
-		std::vector<uint32_t> visibleObjectIndexData;
-		std::vector<MeshCullDrawData> meshCullDrawData;
-		std::vector<nvrhi::DrawIndexedIndirectArguments> indirectDrawData;
+		// Reuse persistent scratch storage (capacity retained) instead of allocating
+		// fresh vectors every frame.
+		std::vector<uint32_t>& objectIndexData = m_ScratchObjectIndexData;
+		std::vector<uint32_t>& visibleObjectIndexData = m_ScratchVisibleObjectIndexData;
+		std::vector<MeshCullDrawData>& meshCullDrawData = m_ScratchMeshCullDrawData;
+		std::vector<nvrhi::DrawIndexedIndirectArguments>& indirectDrawData = m_ScratchIndirectDrawData;
+		objectIndexData.clear();
+		visibleObjectIndexData.clear();
+		meshCullDrawData.clear();
+		indirectDrawData.clear();
 
 		for (MeshPassState& pass : m_MeshPasses)
 			BuildSortedDrawCommandOrder(pass.DrawList, pass.DrawOrder);
@@ -5592,7 +5632,16 @@ namespace Lux {
 		const MaterialScene* submittedMaterialScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetMaterialScene() : nullptr;
 		const TextureScene* submittedTextureScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetTextureScene() : nullptr;
 
-		std::vector<AssetHandle> gpuTextureHandles = submittedTextureScene ? submittedTextureScene->GetTextureHandles() : std::vector<AssetHandle>();
+		std::vector<AssetHandle>& gpuTextureHandles = m_ScratchTextureHandles;
+		if (submittedTextureScene)
+		{
+			const std::vector<AssetHandle>& src = submittedTextureScene->GetTextureHandles();
+			gpuTextureHandles.assign(src.begin(), src.end());
+		}
+		else
+		{
+			gpuTextureHandles.clear();
+		}
 		if (gpuTextureHandles.empty())
 			gpuTextureHandles.push_back(AssetHandle(0));
 		const uint32_t persistentTextureCount = (uint32_t)gpuTextureHandles.size();
@@ -5648,12 +5697,22 @@ namespace Lux {
 				m_GBufferDebugPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 		}
 
-		std::vector<GPUMaterialData> gpuMaterialData = submittedMaterialScene ? submittedMaterialScene->GetMaterials() : std::vector<GPUMaterialData>();
+		std::vector<GPUMaterialData>& gpuMaterialData = m_ScratchMaterialData;
+		if (submittedMaterialScene)
+		{
+			const std::vector<GPUMaterialData>& src = submittedMaterialScene->GetMaterials();
+			gpuMaterialData.assign(src.begin(), src.end());
+		}
+		else
+		{
+			gpuMaterialData.clear();
+		}
 		if (gpuMaterialData.empty())
 			gpuMaterialData.push_back(MaterialScene::GetFallbackMaterialData());
 		const uint32_t persistentMaterialCount = (uint32_t)gpuMaterialData.size();
 
-		std::vector<GPUMaterialData> transientGPUMaterialData = m_TransientGPUMaterials;
+		std::vector<GPUMaterialData>& transientGPUMaterialData = m_ScratchTransientMaterialData;
+		transientGPUMaterialData.assign(m_TransientGPUMaterials.begin(), m_TransientGPUMaterials.end());
 		auto resolveUploadedTextureIndex = [persistentTextureCount](GPUTextureIndex textureIndex) -> GPUTextureIndex
 			{
 				if (textureIndex == InvalidGPUTextureIndex)
@@ -6073,15 +6132,25 @@ namespace Lux {
 		// ── 3. Execute render passes ──────────────────────────────────────────
 		m_CommandBuffer->Begin();
 
-		// NOTE(perf): currently rebuilt + recompiled every frame regardless of whether
-		// pass topology changed. This zone isolates that cost — the Phase 1 target is to
-		// skip it when the graph is unchanged.
-		RenderGraph::CompileResult renderGraphResult;
+		// The graph is rebuilt every frame (cheap — keeps execute callbacks and image
+		// refs current), but Compile() — the lifetime/alias analysis, by far the heavier
+		// half — is skipped while the graph's structure is unchanged. Execute() consumes
+		// only ExecutionOrder, which is a pure function of that structure, so reusing the
+		// cached result is correct even if the underlying GPU images were reallocated.
 		{
-			LUX_PROFILE_SCOPE("RenderGraph::BuildAndCompile");
+			LUX_PROFILE_SCOPE("RenderGraph::Build");
 			BuildRenderGraph(true);
-			renderGraphResult = m_RenderGraph.Compile();
 		}
+
+		const uint64_t structureHash = m_RenderGraph.ComputeStructureHash();
+		if (!m_RenderGraphResultValid || structureHash != m_RenderGraphStructureHash)
+		{
+			LUX_PROFILE_SCOPE("RenderGraph::Compile");
+			m_CachedRenderGraphResult = m_RenderGraph.Compile();
+			m_RenderGraphStructureHash = structureHash;
+			m_RenderGraphResultValid = true;
+		}
+		const RenderGraph::CompileResult& renderGraphResult = m_CachedRenderGraphResult;
 		if (renderGraphResult.ErrorCount > 0 || renderGraphResult.WarningCount > 0)
 		{
 			size_t diagnosticHash = renderGraphResult.ErrorCount;
@@ -6126,7 +6195,10 @@ namespace Lux {
 		{
 			m_LastRenderGraphDiagnosticHash = 0;
 		}
-		m_RenderGraph.Execute(renderGraphResult);
+		{
+			LUX_PROFILE_SCOPE("RenderGraph::Execute");
+			m_RenderGraph.Execute(renderGraphResult);
+		}
 
 		m_CommandBuffer->End();
 		m_CommandBuffer->Submit();
@@ -6137,7 +6209,10 @@ namespace Lux {
 		m_TemporalHistoryValid = true;
 
 		// ── 5. Update statistics ──────────────────────────────────────────────
-		UpdateStatistics();
+		{
+			LUX_PROFILE_SCOPE("UpdateStatistics");
+			UpdateStatistics();
+		}
 
 		// ── 6. Clear draw lists for next frame ────────────────────────────────
 		clearAll();
@@ -7707,20 +7782,31 @@ namespace Lux {
 		// GetIndexBuffer / GetMaterials are not marked const, so we cannot call
 		// them through a const Ref (which is what we get from a const StaticDrawCommand&).
 		Ref<MeshSource> meshSource = dc.MeshSource;
+		if (!meshSource || dc.SubmeshIndex >= meshSource->GetSubmeshes().size())
+			return;
+
+		// The GPU vertex/index buffers may not be uploaded yet (assets stream in
+		// asynchronously). Skip the draw until both are ready rather than binding a
+		// null buffer — doing so trips Vulkan validation (vkCmdBindVertexBuffers:
+		// pBuffers[0] is VK_NULL_HANDLE) and then crashes on the null dereference.
+		Ref<VertexBuffer> vertexBuffer = meshSource->GetVertexBuffer();
+		Ref<IndexBuffer>  indexBuffer = meshSource->GetIndexBuffer();
+		if (!vertexBuffer || !indexBuffer || !vertexBuffer->GetHandle() || !indexBuffer->GetHandle())
+			return;
 
 		const auto& submesh = meshSource->GetSubmeshes()[dc.SubmeshIndex];
 		nvrhi::GraphicsState& gs = cmd->GetGraphicsState();
 
 		// ── Vertex buffer ─────────────────────────────────────────────────────
 		nvrhi::VertexBufferBinding vbb;
-		vbb.buffer = meshSource->GetVertexBuffer()->GetHandle();
+		vbb.buffer = vertexBuffer->GetHandle();
 		vbb.slot = 0;
 		vbb.offset = 0;
 		gs.vertexBuffers = { vbb };
 
 		// ── Index buffer ──────────────────────────────────────────────────────
 		nvrhi::IndexBufferBinding ibb;
-		ibb.buffer = meshSource->GetIndexBuffer()->GetHandle();
+		ibb.buffer = indexBuffer->GetHandle();
 		ibb.format = nvrhi::Format::R32_UINT;
 		ibb.offset = 0;
 		gs.indexBuffer = ibb;

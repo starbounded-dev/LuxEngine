@@ -1196,6 +1196,16 @@ namespace Lux {
 		std::vector<Ref<Image2D>>   m_RenderGraphAliasedImages;
 		bool                       m_RenderTargetAliasingApplied = false;
 		size_t                     m_LastRenderGraphDiagnosticHash = 0;
+		// Cached render-graph compilation. The graph is rebuilt every frame (cheap),
+		// but Compile() (the lifetime/alias analysis) is skipped and the cached result
+		// reused while the graph's structure hash is unchanged.
+		RenderGraph::CompileResult m_CachedRenderGraphResult;
+		uint64_t                   m_RenderGraphStructureHash = 0;
+		bool                       m_RenderGraphResultValid = false;
+
+		// Display-only memory statistics are refreshed every N frames, not every frame.
+		static constexpr uint32_t  MemoryStatsRefreshFrameInterval = 8;
+		uint32_t                   m_MemoryStatsCountdown = 0;
 
 		Ref<Renderer2D>    m_Renderer2D;
 		Ref<Renderer2D>    m_Renderer2DScreenSpace;
@@ -1458,6 +1468,16 @@ namespace Lux {
 		std::vector<AssetHandle> m_TransientGPUTextureHandles;
 		std::unordered_map<AssetHandle, GPUTextureIndex> m_TransientGPUTextureIndexByHandle;
 		GPUTextureIndex m_NextTransientGPUTextureIndex = 0;
+
+		// Per-frame scratch buffers reused across frames (cleared, capacity retained)
+		// so FlushDrawList does not reallocate them every frame.
+		std::vector<uint32_t>                          m_ScratchObjectIndexData;
+		std::vector<uint32_t>                          m_ScratchVisibleObjectIndexData;
+		std::vector<MeshCullDrawData>                  m_ScratchMeshCullDrawData;
+		std::vector<nvrhi::DrawIndexedIndirectArguments> m_ScratchIndirectDrawData;
+		std::vector<AssetHandle>                       m_ScratchTextureHandles;
+		std::vector<GPUMaterialData>                   m_ScratchMaterialData;
+		std::vector<GPUMaterialData>                   m_ScratchTransientMaterialData;
 
 		// Shadow-specific per-cascade transform tracking.
 		// Index 0 is the only cascade we use currently.
