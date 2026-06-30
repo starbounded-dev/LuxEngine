@@ -4,20 +4,58 @@
 #pragma stage : frag
 #include <Common.glslh>
 #include <Buffers.glslh>
+#include <Cluster.glslh>
 #include <PBR.glslh>
 
-layout(std430, set = 1, binding = 9) readonly buffer VisiblePointLightIndicesBuffer
+// Clustered (froxel) light lists, produced by ClusterLightCulling.glsl.
+layout(std430, set = 1, binding = 22) readonly buffer PointLightGridBuffer
 {
-	int Indices[];
-} s_VisiblePointLightIndicesBuffer;
+	uvec2 Grid[]; // (offset, count)
+} s_PointLightGrid;
 
-layout(std430, set = 1, binding = 10) readonly buffer VisibleSpotLightIndicesBuffer
+layout(std430, set = 1, binding = 23) readonly buffer SpotLightGridBuffer
 {
-	int Indices[];
-} s_VisibleSpotLightIndicesBuffer;
+	uvec2 Grid[];
+} s_SpotLightGrid;
 
-const int LIGHT_CULLING_TILE_SIZE = 16;
-const int MAX_VISIBLE_LIGHTS_PER_TILE = 256;
+layout(std430, set = 1, binding = 24) readonly buffer PointLightIndexListBuffer
+{
+	uint Indices[];
+} s_PointLightIndexList;
+
+layout(std430, set = 1, binding = 25) readonly buffer SpotLightIndexListBuffer
+{
+	uint Indices[];
+} s_SpotLightIndexList;
+
+// Per-fragment cluster light ranges, populated by SetupClusterLights().
+uint g_PointLightOffset = 0u;
+uint g_PointLightCount  = 0u;
+uint g_SpotLightOffset  = 0u;
+uint g_SpotLightCount   = 0u;
+
+// Resolve the froxel for this fragment from its world position and cache the
+// per-cluster point/spot light ranges. Must be called before GetPoint/Spot*().
+void SetupClusterLights(vec3 worldPos)
+{
+	// Positive linear view depth (camera looks down -Z), matching ClusterBuild.
+	float linearDepth = -(u_Camera.ViewMatrix * vec4(worldPos, 1.0)).z;
+	uint zSlice = ClusterZSlice(linearDepth, u_RendererData.ClusterZParams.x, u_RendererData.ClusterZParams.y);
+
+	vec2 clusterPx = u_ScreenData.FullResolution / vec2(float(CLUSTER_GRID_X), float(CLUSTER_GRID_Y));
+	uvec2 xy = uvec2(clamp(gl_FragCoord.xy / clusterPx,
+		vec2(0.0), vec2(float(CLUSTER_GRID_X - 1), float(CLUSTER_GRID_Y - 1))));
+
+	uint cluster = ClusterFlatten(uvec3(xy, zSlice));
+
+	uvec2 pointRange = s_PointLightGrid.Grid[cluster];
+	g_PointLightOffset = pointRange.x;
+	g_PointLightCount  = pointRange.y;
+
+	uvec2 spotRange = s_SpotLightGrid.Grid[cluster];
+	g_SpotLightOffset = spotRange.x;
+	g_SpotLightCount  = spotRange.y;
+}
 
 // Used in PBR shader
 struct PBRParameters
@@ -67,36 +105,21 @@ vec3 CalculateDirLights(vec3 F0)
 //////////////////////////////////////////
 
 
-int GetPointLightBufferIndex(int i)
-{
-	if (u_RendererData.TilesCountX == 0)
-		return i;
-
-	ivec2 tileID = ivec2(gl_FragCoord.xy) / LIGHT_CULLING_TILE_SIZE;
-	tileID.x = clamp(tileID.x, 0, int(u_RendererData.TilesCountX) - 1);
-	int tileIndex = tileID.y * int(u_RendererData.TilesCountX) + tileID.x;
-	return s_VisiblePointLightIndicesBuffer.Indices[tileIndex * MAX_VISIBLE_LIGHTS_PER_TILE + i];
-}
-
 int GetPointLightCount()
 {
-	if (u_RendererData.TilesCountX == 0)
-		return int(u_PointLights.LightCount);
+	return int(g_PointLightCount);
+}
 
-	int result = 0;
-	for (int i = 0; i < MAX_VISIBLE_LIGHTS_PER_TILE; i++)
-	{
-		if (GetPointLightBufferIndex(i) < 0)
-			break;
-
-		result++;
-	}
-
-	return result;
+int GetPointLightBufferIndex(int i)
+{
+	if (uint(i) >= g_PointLightCount)
+		return -1;
+	return int(s_PointLightIndexList.Indices[g_PointLightOffset + uint(i)]);
 }
 
 vec3 CalculatePointLights(in vec3 F0, vec3 worldPos)
 {
+	SetupClusterLights(worldPos);
 	vec3 result = vec3(0.0);
 	for (int i = 0; i < GetPointLightCount(); i++)
 	{
@@ -140,37 +163,21 @@ vec3 CalculatePointLights(in vec3 F0, vec3 worldPos)
 // SPOT LIGHT
 //////////////////////////////////////////
 
-int GetSpotLightBufferIndex(int i)
-{
-	if (u_RendererData.TilesCountX == 0)
-		return i;
-
-	ivec2 tileID = ivec2(gl_FragCoord.xy) / LIGHT_CULLING_TILE_SIZE;
-	tileID.x = clamp(tileID.x, 0, int(u_RendererData.TilesCountX) - 1);
-	int tileIndex = tileID.y * int(u_RendererData.TilesCountX) + tileID.x;
-	return s_VisibleSpotLightIndicesBuffer.Indices[tileIndex * MAX_VISIBLE_LIGHTS_PER_TILE + i];
-}
-
-
 int GetSpotLightCount()
 {
-	if (u_RendererData.TilesCountX == 0)
-		return int(u_SpotLights.LightCount);
+	return int(g_SpotLightCount);
+}
 
-	int result = 0;
-	for (int i = 0; i < MAX_VISIBLE_LIGHTS_PER_TILE; i++)
-	{
-		if (GetSpotLightBufferIndex(i) < 0)
-			break;
-
-		result++;
-	}
-
-	return result;
+int GetSpotLightBufferIndex(int i)
+{
+	if (uint(i) >= g_SpotLightCount)
+		return -1;
+	return int(s_SpotLightIndexList.Indices[g_SpotLightOffset + uint(i)]);
 }
 
 vec3 CalculateSpotLights(in vec3 F0, vec3 worldPos)
 {
+	SetupClusterLights(worldPos);
 	vec3 result = vec3(0.0);
 	for (int i = 0; i < GetSpotLightCount(); i++)
 	{

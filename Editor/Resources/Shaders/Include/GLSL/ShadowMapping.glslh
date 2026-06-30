@@ -372,6 +372,7 @@ float PCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, ve
 
 vec3 CalculateSpotLightsShadowed(in vec3 F0, vec3 worldPos, texture2D SpotAtlas)
 {
+	SetupClusterLights(worldPos);
 	vec3 result = vec3(0.0);
 	for (int i = 0; i < GetSpotLightCount(); i++)
 	{

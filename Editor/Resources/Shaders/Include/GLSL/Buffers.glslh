@@ -130,6 +130,7 @@ layout(std140, set = 2, binding = 1) uniform RendererData
 	uniform float DistanceMipBiasEnd;
 	uniform float DistanceMipBiasMax;
 	uniform uint GPUSceneDebugMode;
+	uniform vec4 ClusterZParams; // x = zNear, y = zFar (clustered light culling)
 } u_RendererData;
 
 layout(std140, set = 2, binding = 2) uniform ScreenData
