@@ -103,6 +103,7 @@ namespace Lux {
 
 		Ref<RendererContext> m_RendererContext;
 		VulkanSwapChain* m_SwapChain;
+		bool m_VSyncDirty = false; // pending VSync change, applied in ProcessEvents
 
 		VkSurfaceKHR m_WindowSurface;
 

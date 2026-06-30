@@ -205,7 +205,10 @@ namespace Lux
         [[nodiscard]] double GetPreviousFrameTimestamp() const { return m_PreviousFrameTimestamp; }
         void SetFrameTimeUpdateInterval(double seconds) { m_AverageTimeUpdateInterval = seconds; }
         [[nodiscard]] bool IsVsyncEnabled() const { return m_DeviceParams.vsyncEnabled; }
-        virtual void SetVsyncEnabled(bool enabled) { m_RequestedVSync = enabled; /* will be processed later */ }
+        // Updates the present-mode source for the swapchain. The swapchain reads
+        // m_DeviceParams.vsyncEnabled when it is (re)created, so the caller must
+        // recreate the swapchain afterwards for this to take effect (see Window::SetVSync).
+        virtual void SetVsyncEnabled(bool enabled) { m_RequestedVSync = enabled; m_DeviceParams.vsyncEnabled = enabled; }
         virtual void ReportLiveObjects() {}
         void SetEnableRenderDuringWindowMovement(bool val) {m_EnableRenderDuringWindowMovement = val;} 
 
