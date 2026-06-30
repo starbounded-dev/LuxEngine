@@ -445,7 +445,8 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Anim.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/MeshCulling.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LightCulling.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterBuild.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterLightCulling.glsl");
 
 		// Renderer2D Shaders
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Renderer2D.glsl");
