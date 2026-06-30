@@ -265,6 +265,14 @@ vec4 EvaluateAnalyticHeightFog(vec3 worldPosition, vec3 viewDirection, float dis
 	return vec4(fogColor, fogAmount);
 }
 
+// Optional per-sample local-light (clustered point/spot) in-scattering hook.
+// AtmosphericFog.glsl defines LUX_FOG_CLUSTER_LIGHTS and supplies the body via
+// FogClusterLights.glslh; other includers of this header (sky, etc.) skip it and
+// avoid binding the froxel light lists.
+#ifdef LUX_FOG_CLUSTER_LIGHTS
+vec3 EvaluateFogClusterLights(vec3 samplePosition, vec3 viewDirection, vec2 fragCoord);
+#endif
+
 vec4 EvaluateVolumetricHeightFog(vec3 viewDirection, float distanceToCamera, vec2 clipPosition)
 {
 	float startDistance = max(u_Atmosphere.FogParams0.y, 0.0);
@@ -296,6 +304,11 @@ vec4 EvaluateVolumetricHeightFog(vec3 viewDirection, float distanceToCamera, vec
 		float sampleOpacity = clamp(1.0 - exp(-extinction), 0.0, 1.0);
 		vec3 heightInscattering = EvaluateHeightFogInscattering(viewDirection, sampleDistance);
 		vec3 inscattering = localFog.a > 0.0001 ? mix(heightInscattering, localFog.rgb, clamp(localFog.a / max(density, 0.0001), 0.0, 1.0)) : heightInscattering;
+
+#ifdef LUX_FOG_CLUSTER_LIGHTS
+		// Clustered point/spot light shafts/glow, density modulated by sampleOpacity.
+		inscattering += EvaluateFogClusterLights(samplePosition, viewDirection, gl_FragCoord.xy);
+#endif
 
 		scatteredLight += transmittance * inscattering * sampleOpacity;
 		transmittance *= 1.0 - sampleOpacity;

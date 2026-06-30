@@ -17,10 +17,17 @@ void main()
 #version 450 core
 #pragma stage : frag
 
+#define LUX_FOG_CLUSTER_LIGHTS
 #include <Samplers.glslh>
 #include <Atmosphere.glslh>
 
 layout(set = 1, binding = 1) uniform texture2D u_DepthTexture;
+layout(set = 1, binding = 3) uniform texture2D u_SpotShadowTexture;
+
+// Supplies EvaluateFogClusterLights() — the local-light in-scattering hook the
+// volumetric march in Atmosphere.glslh calls (gated by LUX_FOG_CLUSTER_LIGHTS).
+// Must come after u_SpotShadowTexture is declared.
+#include <FogClusterLights.glslh>
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 1) in vec2 v_ClipPosition;
