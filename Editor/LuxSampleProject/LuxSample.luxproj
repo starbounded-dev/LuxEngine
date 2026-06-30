@@ -12,7 +12,6 @@ Project:
   AutomaticallyReloadAssembly: true
   AutoSave: true
   AutoSaveInterval: 300
-  RenderingTechnique: Deferred
   RuntimeExport:
     GameName: LuxSample
     WindowWidth: 3840
@@ -128,6 +127,9 @@ Project:
     Project:
       Enabled: true
       LevelFilter: Warn
+    RenderGraph:
+      Enabled: true
+      LevelFilter: Trace
     Renderer:
       Enabled: true
       LevelFilter: Info

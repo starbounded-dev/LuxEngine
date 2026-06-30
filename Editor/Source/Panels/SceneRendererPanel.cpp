@@ -210,7 +210,6 @@ namespace Lux {
 		if (ImGui::BeginTable("##scene_renderer_summary", 2, ImGuiTableFlags_SizingStretchProp))
 		{
 			DrawStat("Ready", m_Context->IsReady() ? "Yes" : "No");
-			DrawStat("Technique", RenderingTechniqueToString(m_Context->GetRenderingTechnique()));
 			DrawStat("Viewport", (std::to_string(m_Context->GetViewportWidth()) + " x " + std::to_string(m_Context->GetViewportHeight())).c_str());
 			DrawStat("Output Viewport", (std::to_string(m_Context->GetOutputViewportWidth()) + " x " + std::to_string(m_Context->GetOutputViewportHeight())).c_str());
 			DrawStat("Render Scale", m_Context->GetRenderResolutionScale() * 100.0f, "%");

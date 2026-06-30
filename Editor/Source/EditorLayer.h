@@ -55,7 +55,7 @@ namespace Lux
 		Entity CastMousePick();
 		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
 
-		void NewProject(RenderingTechnique renderingTechnique = RenderingTechnique::Forward);
+		void NewProject();
 		bool OpenProject();
 		void OpenProject(const std::filesystem::path& path);
 		void SaveProject();

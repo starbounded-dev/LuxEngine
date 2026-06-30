@@ -576,7 +576,6 @@ namespace Lux
 			out << YAML::Key << "AutomaticallyReloadAssembly" << YAML::Value << config.AutomaticallyReloadAssembly;
 			out << YAML::Key << "AutoSave" << YAML::Value << config.EnableAutoSave;
 			out << YAML::Key << "AutoSaveInterval" << YAML::Value << config.AutoSaveIntervalSeconds;
-			out << YAML::Key << "RenderingTechnique" << YAML::Value << RenderingTechniqueToString(config.RendererTechnique);
 			out << YAML::Key << "RuntimeExport" << YAML::Value;
 			{
 				out << YAML::BeginMap;
@@ -776,14 +775,8 @@ namespace Lux
 		config.AutomaticallyReloadAssembly = projectNode["AutomaticallyReloadAssembly"].as<bool>(true);
 		config.EnableAutoSave = projectNode["AutoSave"].as<bool>(false);
 		config.AutoSaveIntervalSeconds = projectNode["AutoSaveInterval"].as<int>(300);
-		config.RendererTechnique = RenderingTechnique::Forward;
-		if (auto renderingTechniqueNode = projectNode["RenderingTechnique"])
-		{
-			if (renderingTechniqueNode.IsScalar() && !IsNumericString(renderingTechniqueNode.Scalar()))
-				config.RendererTechnique = RenderingTechniqueFromString(renderingTechniqueNode.as<std::string>());
-			else
-				config.RendererTechnique = renderingTechniqueNode.as<int>((int)RenderingTechnique::Forward) == (int)RenderingTechnique::Deferred ? RenderingTechnique::Deferred : RenderingTechnique::Forward;
-		}
+		// "RenderingTechnique" key is obsolete (deferred is the only path now) and
+		// is intentionally ignored when present in legacy project files.
 		config.RuntimeExport = {};
 		if (auto runtimeExportNode = projectNode["RuntimeExport"])
 		{

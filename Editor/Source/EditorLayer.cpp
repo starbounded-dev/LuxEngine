@@ -1128,14 +1128,8 @@ namespace Lux {
 		{
 			if (ImGui::BeginMenu("File"))
 			{
-				if (ImGui::BeginMenu("Create Project"))
-				{
-					if (ImGui::MenuItem("Forward"))
-						NewProject(RenderingTechnique::Forward);
-					if (ImGui::MenuItem("Deferred"))
-						NewProject(RenderingTechnique::Deferred);
-					ImGui::EndMenu();
-				}
+				if (ImGui::MenuItem("Create Project"))
+					NewProject();
 				if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
 					OpenProject();
 				if (ImGui::MenuItem("Save Project"))
@@ -2245,10 +2239,9 @@ namespace Lux {
 		return {};
 	}
 
-	void EditorLayer::NewProject(RenderingTechnique renderingTechnique)
+	void EditorLayer::NewProject()
 	{
 		Project::New();
-		Project::GetActive()->GetConfig().RendererTechnique = renderingTechnique;
 		m_PanelManager->OnProjectChanged(Project::GetActive());
 		NewScene();
 	}

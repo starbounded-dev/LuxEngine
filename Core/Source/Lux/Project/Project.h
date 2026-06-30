@@ -152,7 +152,6 @@ namespace Lux
 		bool EnableAutoSave = false;
 		int AutoSaveIntervalSeconds = 300;
 		PhysicsAPIType CurrentPhysicsAPI = PhysicsAPIType::Jolt;
-		RenderingTechnique RendererTechnique = RenderingTechnique::Forward;
 
 		std::string ProjectFileName;
 		std::filesystem::path ProjectDirectory;

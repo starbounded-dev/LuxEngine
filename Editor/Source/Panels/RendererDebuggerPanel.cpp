@@ -430,7 +430,6 @@ namespace Lux {
 		if (ImGui::BeginTable("##renderer_debugger_overview", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 		{
 			DrawStat("Ready", m_Context->IsReady() ? "Yes" : "No");
-			DrawStat("Technique", RenderingTechniqueToString(m_Context->GetRenderingTechnique()));
 			DrawStat("Viewport", std::format("{} x {}", m_Context->GetViewportWidth(), m_Context->GetViewportHeight()).c_str());
 			DrawStat("Output Viewport", std::format("{} x {}", m_Context->GetOutputViewportWidth(), m_Context->GetOutputViewportHeight()).c_str());
 			DrawStat("Render Scale", m_Context->GetRenderResolutionScale() * 100.0f, "%");
@@ -829,8 +828,7 @@ namespace Lux {
 		const SceneRenderer::RendererFrameDebugSnapshot frame = m_Context->GetRendererFrameDebugSnapshot();
 		ImGui::Spacing();
 		ImGui::Text("Active: %s", DebugViewModeToString(activeMode));
-		ImGui::TextDisabled("Path: %s, viewport: %ux%u",
-			RenderingTechniqueToString(frame.Technique),
+		ImGui::TextDisabled("Viewport: %ux%u",
 			m_Context->GetViewportWidth(),
 			m_Context->GetViewportHeight());
 		ImGui::TextDisabled("Frame Contract: %s path, RenderScene %s, volumes %s, sky %s, clouds %s, fog %s, local fog %s, bloom %s, DOF %s",
