@@ -1,0 +1,67 @@
+#ifndef LUX_CLUSTER_GLSLH
+#define LUX_CLUSTER_GLSLH
+
+// Froxel (clustered) light-culling grid. Single source of truth shared by the
+// cluster-build / light-assignment compute passes and the lighting consumers.
+//
+// View-space convention: the camera looks down -Z (right-handed), so cluster
+// AABBs have negative Z. Linear scene depth is the positive distance in front
+// of the camera (matches u_Camera.DepthUnpackConsts linearization).
+
+#define CLUSTER_GRID_X 16
+#define CLUSTER_GRID_Y 9
+#define CLUSTER_GRID_Z 32
+#define CLUSTER_COUNT (CLUSTER_GRID_X * CLUSTER_GRID_Y * CLUSTER_GRID_Z)
+
+struct ClusterAABB
+{
+	vec4 MinPoint; // view space (xyz), w unused
+	vec4 MaxPoint; // view space (xyz), w unused
+};
+
+// Per-cluster light grid entry: (offset, count) into the packed index list.
+// Stored as uvec2 so point and spot grids share this layout.
+
+// Global packed light-index list capacities. The lists are dynamically packed:
+// each cluster reserves a contiguous range via an atomic counter, so memory is
+// spent only where lights overlap (vs. the tiled path's numTiles*256). Sized for
+// an average overlap of 16 lights/froxel — tune the C++ MaxCluster*Indices constants.
+#define CLUSTER_AVG_LIGHTS_PER_CLUSTER 16u
+#define CLUSTER_MAX_POINT_INDICES (uint(CLUSTER_COUNT) * CLUSTER_AVG_LIGHTS_PER_CLUSTER)
+#define CLUSTER_MAX_SPOT_INDICES  (uint(CLUSTER_COUNT) * CLUSTER_AVG_LIGHTS_PER_CLUSTER)
+
+// Squared distance from a point to an AABB (0 if inside). Used for sphere-vs-AABB
+// light culling in view space.
+float ClusterSqDistPointAABB(vec3 p, vec3 mn, vec3 mx)
+{
+	float sq = 0.0;
+	for (int i = 0; i < 3; ++i)
+	{
+		float v = p[i];
+		if (v < mn[i]) { float d = mn[i] - v; sq += d * d; }
+		if (v > mx[i]) { float d = v - mx[i]; sq += d * d; }
+	}
+	return sq;
+}
+
+bool ClusterSphereIntersectsAABB(vec3 center, float radius, vec3 mn, vec3 mx)
+{
+	return ClusterSqDistPointAABB(center, mn, mx) <= radius * radius;
+}
+
+// Flatten a 3D cluster coordinate into the linear buffer index.
+uint ClusterFlatten(uvec3 c)
+{
+	return c.x + CLUSTER_GRID_X * (c.y + CLUSTER_GRID_Y * c.z);
+}
+
+// Map a positive linear view-depth to a Z slice using the exponential
+// (Doom-2016 / Olsson-Assarsson) distribution.
+uint ClusterZSlice(float linearDepth, float zNear, float zFar)
+{
+	float d = max(linearDepth, zNear);
+	float slice = log(d / zNear) * (float(CLUSTER_GRID_Z) / log(zFar / zNear));
+	return uint(clamp(slice, 0.0, float(CLUSTER_GRID_Z - 1)));
+}
+
+#endif // LUX_CLUSTER_GLSLH
