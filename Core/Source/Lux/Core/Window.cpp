@@ -6,6 +6,7 @@
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
 
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RendererAPI.h"
 
 #include "Lux/Platform/Vulkan/VulkanContext.h"
@@ -14,6 +15,8 @@
 
 #include <imgui.h>
 #include "stb_image.h"
+
+#include <algorithm>
 
 #include <GLFW/glfw3.h>
 
@@ -92,11 +95,11 @@ namespace Lux {
 		deviceParams.Decorated = m_Specification.Decorated;
 		deviceParams.swapChainBufferCount = 3;
 		deviceParams.enableRayTracingExtensions = true;
-		deviceParams.maxFramesInFlight = 1;
+		deviceParams.maxFramesInFlight = std::max(1u, Renderer::GetConfig().FramesInFlight);
 		deviceParams.backBufferWidth = m_Specification.Width;
 		deviceParams.backBufferHeight = m_Specification.Height;
-		deviceParams.vsyncEnabled = false;
-		deviceParams.enableDebugRuntime = true;
+		deviceParams.vsyncEnabled = m_Specification.VSync;
+		deviceParams.enableDebugRuntime = Renderer::GetConfig().EnableGraphicsValidation;
 		// 0xc81ad50e: pre-existing ignored message.
 		// The remaining three are the PreDepth depth/stencil attachment layout-transition
 		// VUIDs (vkCmdBeginRendering depth/stencil + the matching vkQueueSubmit). They are a

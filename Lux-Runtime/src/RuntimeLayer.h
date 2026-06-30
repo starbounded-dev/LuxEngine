@@ -6,15 +6,26 @@
 #include "Lux/Serialization/AssetPack.h"
 
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace Lux
 {    
 	class Project;
 
+	struct RuntimeBenchmarkConfig
+	{
+		bool Enabled = false;
+		std::string Name;
+		uint32_t WarmupFrames = 120;
+		uint32_t CaptureFrames = 600;
+		std::filesystem::path OutputPath = "RuntimeBenchmark-Sponza.csv";
+	};
+
 	class RuntimeLayer : public Layer
 	{
 	public:
-		explicit RuntimeLayer(std::filesystem::path projectPath);
+		explicit RuntimeLayer(std::filesystem::path projectPath, RuntimeBenchmarkConfig benchmarkConfig = {});
 		virtual ~RuntimeLayer() = default;
 
 		void OnAttach() override;
@@ -40,9 +51,37 @@ namespace Lux
 		void UpdateFPSStat();
 		void UpdatePerformanceTimers();
 		bool ShouldShowIntroVersion() const;
+		bool ShouldShowVersionInfo() const;
+		void ApplyBenchmarkRendererSettings();
+		void UpdateBenchmarkCamera();
+		void UpdateBenchmark(Timestep ts);
+		void FinishBenchmark();
+		void WriteBenchmarkResults() const;
 
 	private:
+		struct BenchmarkFrameSample
+		{
+			uint32_t Frame = 0;
+			float FrameTimeMS = 0.0f;
+			float CPUTimeMS = 0.0f;
+			float GPUTimeMS = 0.0f;
+			uint32_t RenderGraphPassCount = 0;
+			uint32_t DrawCalls = 0;
+			uint32_t IndirectDraws = 0;
+			uint32_t VisibleInstances = 0;
+			float RenderScale = 1.0f;
+			bool SSR = false;
+			bool GTAO = false;
+			bool Bloom = false;
+			bool TAA = false;
+			bool DOF = false;
+			bool JumpFlood = false;
+		};
+
 		std::filesystem::path m_ProjectPath;
+		RuntimeBenchmarkConfig m_BenchmarkConfig;
+		std::vector<BenchmarkFrameSample> m_BenchmarkSamples;
+		uint32_t m_BenchmarkFrameIndex = 0;
 
 		Ref<Project> m_RuntimeProject;
 		Ref<Scene> m_RuntimeScene;
@@ -69,5 +108,7 @@ namespace Lux
 
 		bool m_SceneRunning = false;
 		bool m_ShowDebugDisplay = false;
+		bool m_ShowVersionInfo = false;
+		bool m_BenchmarkComplete = false;
 	};
 }

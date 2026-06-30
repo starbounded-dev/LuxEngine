@@ -34,6 +34,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -737,6 +738,15 @@ namespace Lux {
 			DrawCommandOrder DrawOrder;
 		};
 
+		struct MeshDrawSortEntry
+		{
+			MeshKey Key{};
+			uint64_t PipelineSortKey = 0;
+			uint64_t ShaderSortKey = 0;
+			uint64_t MaterialSortKey = 0;
+			uint64_t MeshSortKey = 0;
+		};
+
 		struct MeshDrawCommandCacheKey
 		{
 			MeshPassType PassType = MeshPassType::Opaque;
@@ -828,7 +838,7 @@ namespace Lux {
 			const StaticMeshRenderProxy* renderProxy = nullptr);
 		bool IsMainViewVisible(const BoundingSphere& bounds) const;
 		bool IsShadowCasterVisible(const BoundingSphere& bounds) const;
-		void BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder) const;
+		void BuildSortedDrawCommandOrder(MeshPassState& pass);
 		MeshPassState& GetMeshPass(MeshPassType passType);
 		const MeshPassState& GetMeshPass(MeshPassType passType) const;
 		RenderMaterialID GetOrCreateTransientRenderMaterialID(AssetHandle materialHandle, const Ref<MaterialAsset>& materialAsset, const Ref<Material>& overrideMaterial, bool transparent);
@@ -847,7 +857,10 @@ namespace Lux {
 			uint64_t meshSortKey);
 		void ClearFrameMeshPasses();
 		void PruneMeshDrawCommandCache();
+		void InvalidateShadowMapCaches();
+		void InvalidateTemporalHistory();
 		uint64_t CalculateShadowCasterHash() const;
+		uint64_t CalculateClusterAABBStateHash() const;
 
 		// ── Render passes ────────────────────────────────────────────────────
 
@@ -990,8 +1003,10 @@ namespace Lux {
 
 			SceneRenderer& Renderer;
 			const char* Name = "";
-			Timer ProfileTimer;
+			bool Active = false;
+			std::optional<Timer> ProfileTimer;
 #if LUX_ENABLE_PROFILING
+			bool TracyActive = false;
 			TracyCZoneCtx ProfileZone;   // Tracy zone spanning this object's lifetime
 #endif
 		};
@@ -1478,6 +1493,13 @@ namespace Lux {
 		std::vector<AssetHandle>                       m_ScratchTextureHandles;
 		std::vector<GPUMaterialData>                   m_ScratchMaterialData;
 		std::vector<GPUMaterialData>                   m_ScratchTransientMaterialData;
+		std::vector<MeshDrawSortEntry>                 m_ScratchDrawSortEntries;
+
+		uint32_t m_PersistentGPUSceneUploadFramesRemaining = 0;
+		uint32_t m_PersistentMaterialUploadFramesRemaining = 0;
+		uint32_t m_PersistentGPUSceneUploadedInstanceCount = 0;
+		uint32_t m_PersistentMaterialUploadedCount = 0;
+		uint32_t m_GPUMaterialTextureBoundCount = 0;
 
 		// Shadow-specific per-cascade transform tracking.
 		// Index 0 is the only cascade we use currently.
@@ -1511,7 +1533,9 @@ namespace Lux {
 		bool     m_ResourcesCreatedGPU = false;
 		bool     m_ResourcesCreated = false;
 		bool     m_HZBPrimed = false;
+		bool     m_ClusterAABBsDirty = true;
 		bool     m_TemporalHistoryValid = false;
+		uint64_t m_ClusterAABBStateHash = 0;
 		glm::mat4 m_CurrentViewProjection = glm::mat4(1.0f); // unjittered
 		glm::mat4 m_PreviousViewProjection = glm::mat4(1.0f); // unjittered
 		glm::vec2 m_CurrentJitter = { 0.0f, 0.0f };  // clip-space sub-pixel offset this frame

@@ -68,6 +68,7 @@ namespace Lux {
 		}
 
 		m_InstanceIDByKey[key] = instanceID;
+		m_InstanceIDsByPrimitive[primitiveID].push_back(instanceID);
 		MarkInstanceDirty(instanceID);
 		return instanceID;
 	}
@@ -78,20 +79,23 @@ namespace Lux {
 		if (primitiveID == InvalidRenderPrimitiveID)
 			return;
 
-		std::vector<InstanceKey> removedKeys;
-		for (const auto& [key, instanceID] : m_InstanceIDByKey)
-		{
-			if (key.PrimitiveID == primitiveID)
-				removedKeys.push_back(key);
-		}
+		auto primitiveIt = m_InstanceIDsByPrimitive.find(primitiveID);
+		if (primitiveIt == m_InstanceIDsByPrimitive.end())
+			return;
 
-		for (const InstanceKey& key : removedKeys)
+		for (GPUSceneInstanceID instanceID : primitiveIt->second)
 		{
-			auto it = m_InstanceIDByKey.find(key);
-			if (it == m_InstanceIDByKey.end())
+			if (instanceID == InvalidGPUSceneInstanceID || instanceID >= m_InstanceKeys.size())
 				continue;
 
-			const GPUSceneInstanceID instanceID = it->second;
+			const InstanceKey key = m_InstanceKeys[instanceID];
+			if (key.PrimitiveID != primitiveID)
+				continue;
+
+			auto it = m_InstanceIDByKey.find(key);
+			if (it == m_InstanceIDByKey.end() || it->second != instanceID)
+				continue;
+
 			GPUSceneInstanceData clearedData;
 			clearedData.Metadata = glm::uvec4(primitiveID, key.SubmeshIndex, 0, (uint32_t)GPUSceneInstanceFlags::None);
 			clearedData.ObjectData.z = instanceID;
@@ -101,6 +105,8 @@ namespace Lux {
 			MarkInstanceDirty(instanceID);
 			m_InstanceIDByKey.erase(it);
 		}
+
+		m_InstanceIDsByPrimitive.erase(primitiveIt);
 	}
 
 	void GPUScene::EndSync()
@@ -142,6 +148,7 @@ namespace Lux {
 		m_InstanceKeys.clear();
 		m_FreeInstanceIDs.clear();
 		m_InstanceIDByKey.clear();
+		m_InstanceIDsByPrimitive.clear();
 		m_DirtyInstanceIDs.clear();
 		m_DirtyRanges.clear();
 	}

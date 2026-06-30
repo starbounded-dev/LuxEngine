@@ -979,6 +979,9 @@ namespace Lux {
 	void Renderer::BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		if (!ShouldCollectBasicRendererDiagnostics(GetConfig()))
+			return;
+
 		Renderer::Submit([renderCommandBuffer, s = label]() mutable
 			{
 				renderCommandBuffer->RT_BeginMarker(s);
@@ -989,6 +992,9 @@ namespace Lux {
 	void Renderer::EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		if (!ShouldCollectBasicRendererDiagnostics(GetConfig()))
+			return;
+
 		Renderer::Submit([renderCommandBuffer]() mutable
 			{
 				renderCommandBuffer->RT_EndTimerQuery();
@@ -999,6 +1005,9 @@ namespace Lux {
 	void Renderer::RT_BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		if (!ShouldCollectBasicRendererDiagnostics(GetConfig()))
+			return;
+
 		renderCommandBuffer->RT_BeginMarker(label);
 		renderCommandBuffer->RT_BeginTimerQuery(label);
 	}
@@ -1006,6 +1015,9 @@ namespace Lux {
 	void Renderer::RT_EndGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		if (!ShouldCollectBasicRendererDiagnostics(GetConfig()))
+			return;
+
 		renderCommandBuffer->RT_EndTimerQuery();
 		renderCommandBuffer->RT_EndMarker();
 	}
@@ -1775,7 +1787,6 @@ namespace Lux {
 
 	Ref<Material> Renderer::GetDefaultWhiteMaterial()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Data->DefaultWhiteMaterial;
 	}
 
@@ -1823,7 +1834,6 @@ namespace Lux {
 
 	RendererConfig& Renderer::GetConfig()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		return s_Config;
 	}
 
@@ -1911,7 +1921,6 @@ namespace Lux {
 
 	Ref<Sampler> Renderer::GetClampSampler()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_RendererData->SamplerClamp)
 			s_RendererData->SamplerClamp = Sampler::Create();
 
@@ -1920,7 +1929,6 @@ namespace Lux {
 
 	Ref<Sampler> Renderer::GetPointSampler()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		if (!s_RendererData->SamplerPoint)
 		{
 			SamplerSpecification spec;

@@ -1,13 +1,17 @@
 #pragma once
 
-#define LUX_ENABLE_PROFILING !LUX_DIST
+#ifndef LUX_ENABLE_TRACY
+	#define LUX_ENABLE_TRACY 0
+#endif
 
-#if LUX_ENABLE_PROFILING
+#define LUX_ENABLE_PROFILING LUX_ENABLE_TRACY
+
+#if LUX_ENABLE_TRACY
 #include <tracy/Tracy.hpp>
 #include <tracy/TracyC.h>
 #endif
 
-#if LUX_ENABLE_PROFILING
+#if LUX_ENABLE_TRACY
 	#define LUX_PROFILE_MARK_FRAME					FrameMark;
 	#define LUX_PROFILE_FUNCTION(...)				ZoneScopedN(__VA_ARGS__)
 	#define LUX_PROFILE_FUNC(...)					LUX_PROFILE_FUNCTION(__VA_ARGS__)

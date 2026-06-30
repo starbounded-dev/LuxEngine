@@ -60,13 +60,15 @@ namespace Lux {
 		static void UnlockQueue();
 	public:
 		RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName);
-		virtual ~RenderCommandBuffer() = default;
+		virtual ~RenderCommandBuffer();
 	private:
 		nvrhi::static_vector<nvrhi::CommandListHandle, 3> m_CommandLists;
 		nvrhi::static_vector<nvrhi::TimerQueryHandle, 3> m_TimerQueries;
 		nvrhi::static_vector<float, 3> m_GPUWorkTimes;
 
-		bool m_QueryEnabled;
+		bool m_TimerQueriesEnabled = false;
+		bool m_PipelineStatisticsEnabled = false;
+		bool m_DebugMarkersEnabled = false;
 
 		std::string m_DebugName;
 

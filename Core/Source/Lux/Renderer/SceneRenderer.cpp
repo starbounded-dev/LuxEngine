@@ -67,6 +67,13 @@ namespace Lux {
 			return seed;
 		}
 
+		uint64_t HashMat4(uint64_t seed, const glm::mat4& value)
+		{
+			for (uint32_t column = 0; column < 4; column++)
+				seed = HashVec4(seed, value[column]);
+			return seed;
+		}
+
 		uint64_t SortKeyFromRef(const void* object)
 		{
 			return reinterpret_cast<uint64_t>(object);
@@ -481,6 +488,32 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(!m_Active, "Cannot change scene while rendering");
 		m_Scene = scene;
+		InvalidateShadowMapCaches();
+		InvalidateTemporalHistory();
+	}
+
+	void SceneRenderer::InvalidateShadowMapCaches()
+	{
+		m_ShadowCascadeCacheValid = false;
+		m_DirectionalShadowMapCacheValid = false;
+		m_DirectionalShadowMapNeedsRender = true;
+		m_SpotShadowMapCacheValid = false;
+		m_SpotShadowMapNeedsRender = true;
+		m_LastShadowCasterHash = 0;
+		m_LastSpotShadowStateHash = 0;
+	}
+
+	void SceneRenderer::InvalidateTemporalHistory()
+	{
+		m_TemporalHistoryValid = false;
+		m_CloudHistoryValid = false;
+		m_GTAOHistoryIndex = 0;
+		m_SSRHistoryIndex = 0;
+		m_TAAJitterIndex = 0;
+		m_CurrentJitter = { 0.0f, 0.0f };
+		m_PreviousJitter = { 0.0f, 0.0f };
+		m_CurrentViewProjection = glm::mat4(1.0f);
+		m_PreviousViewProjection = glm::mat4(1.0f);
 	}
 
 	void SceneRenderer::InitOptions()
@@ -554,6 +587,8 @@ namespace Lux {
 		m_Options.GTAOBentNormals = false;
 		m_Options.EnableGTAOTemporalAccumulation = false;
 		m_Options.GTAOTemporalBlend = 0.85f;
+		m_Options.EnableJumpFlood = true;
+		m_Options.EnableTAA = false;
 		m_Options.GTAODenoisePasses = 4;
 		m_Options.AOShadowTolerance = 1.0f;
 		m_BloomSettings.Enabled = true;
@@ -563,6 +598,7 @@ namespace Lux {
 		m_BloomSettings.UpsampleScale = 1.0f;
 		m_BloomSettings.Intensity = 1.0f;
 		m_BloomSettings.DirtIntensity = 1.0f;
+		m_DOFSettings.Enabled = false;
 		m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 		m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
 		m_Options.DynamicResolutionMinScale = 0.5f;
@@ -586,6 +622,7 @@ namespace Lux {
 		case QualityPreset::Low:
 			m_Options.EnableSSR = false;
 			m_Options.EnableGTAO = false;
+			m_Options.EnableJumpFlood = false;
 			m_Options.GTAODenoisePasses = 0;
 			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Quarter;
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale50;
@@ -600,6 +637,7 @@ namespace Lux {
 			m_SSROptions.MaxSteps = 32;
 			break;
 		case QualityPreset::Medium:
+			m_Options.EnableJumpFlood = false;
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
 			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
@@ -2998,24 +3036,35 @@ namespace Lux {
 	SceneRenderer::ScopedCPUProfile::ScopedCPUProfile(SceneRenderer& renderer, const char* name)
 		: Renderer(renderer), Name(name)
 	{
+		const RendererConfig& rendererConfig = Lux::Renderer::GetConfig();
+		Active = ShouldCollectBasicRendererDiagnostics(rendererConfig);
+		if (Active)
+			ProfileTimer.emplace();
+
 #if LUX_ENABLE_PROFILING
 		// Open a Tracy zone whose name is the pass name. Because every SceneRenderer
 		// pass already wraps itself in a ScopedCPUProfile, this single chokepoint makes
 		// the entire render pipeline visible in a Tracy capture (no per-pass edits).
-		const uint64_t srcloc = ___tracy_alloc_srcloc_name(
-			(uint32_t)__LINE__, __FILE__, sizeof(__FILE__) - 1,
-			"SceneRenderer::Pass", 19,
-			name, std::strlen(name), 0);
-		ProfileZone = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+		TracyActive = ShouldCollectFullRendererDiagnostics(rendererConfig);
+		if (TracyActive)
+		{
+			const uint64_t srcloc = ___tracy_alloc_srcloc_name(
+				(uint32_t)__LINE__, __FILE__, sizeof(__FILE__) - 1,
+				"SceneRenderer::Pass", 19,
+				name, std::strlen(name), 0);
+			ProfileZone = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+		}
 #endif
 	}
 
 	SceneRenderer::ScopedCPUProfile::~ScopedCPUProfile()
 	{
 #if LUX_ENABLE_PROFILING
-		___tracy_emit_zone_end(ProfileZone);
+		if (TracyActive)
+			___tracy_emit_zone_end(ProfileZone);
 #endif
-		Renderer.RecordCPUProfile(Name, ProfileTimer.ElapsedMillis());
+		if (Active && ProfileTimer)
+			Renderer.RecordCPUProfile(Name, ProfileTimer->ElapsedMillis());
 	}
 
 	SceneRenderer::PassProfile& SceneRenderer::GetOrCreatePassProfile(const char* name)
@@ -3033,6 +3082,12 @@ namespace Lux {
 
 	void SceneRenderer::ResetProfilingData()
 	{
+		if (!ShouldCollectBasicRendererDiagnostics(Renderer::GetConfig()))
+		{
+			m_Statistics.TotalCPUTime = 0.0f;
+			return;
+		}
+
 		if (m_Statistics.PassProfiles.size() != s_ProfiledSceneRendererPasses.size())
 		{
 			m_Statistics.PassProfiles.clear();
@@ -3461,10 +3516,37 @@ namespace Lux {
 				m_RenderGraph.AddPass(std::move(pass));
 			};
 
+		const bool selectedMaskActive = !executable || !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty();
+		const bool transparentForwardActive = !executable || !GetMeshPass(MeshPassType::Transparent).DrawList.empty();
+		const bool wireframeActive = !executable
+			|| ((m_Options.ShowSelectedInWireframe && !GetMeshPass(MeshPassType::Wireframe).DrawList.empty())
+				|| (m_Options.ShowPhysicsColliders && !GetMeshPass(MeshPassType::PhysicsCollider).DrawList.empty()));
+		const auto& directionalLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
+		const bool directionalShadowsEnabled = directionalLight.Intensity > 0.0f && directionalLight.CastShadows;
+		const bool directionalShadowPassActive = !executable
+			|| (directionalShadowsEnabled && m_DirectionalShadowMapNeedsRender);
+		const bool spotShadowPassActive = !executable
+			|| (m_SpotShadowCount > 0 && m_SpotShadowMapNeedsRender);
+		constexpr uint32_t MinGPUCullDraws = 32;
+		const bool meshCullingActive = !executable
+			|| (m_Options.EnableGPUDrivenRendering
+				&& m_MeshCullDrawCount >= MinGPUCullDraws
+				&& (m_Options.EnableFrustumCulling || m_Options.EnableOcclusionCulling));
+		const bool hzbActive = !executable
+			|| m_Options.EnableGTAO
+			|| m_Options.EnableSSR
+			|| (meshCullingActive && m_Options.EnableOcclusionCulling);
+		const bool preIntegrationActive = !executable || m_Options.EnableSSR;
+		const bool clusteredLightingActive = !executable || m_PointLightsUB.Count > 0 || m_SpotLightsUB.Count > 0;
+		const bool clusterBuildActive = !executable || (clusteredLightingActive && m_ClusterAABBsDirty);
+		const bool skyboxActive = !executable || frame.Environment != nullptr;
+
 		std::vector<RenderGraph::ResourceHandle> directionalShadowOutputs = { addTexture("Directional Shadow Atlas", m_ShadowMapImage) };
 		std::vector<RenderGraph::ResourceHandle> spotShadowOutputs = { addTexture("Spot Shadow Atlas", m_SpotShadowMapImage) };
-		addPass("Directional Shadow Maps", {}, directionalShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ShadowMapPass));
-		addPass("Spot Shadow Maps", {}, spotShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SpotShadowMapPass));
+		if (directionalShadowPassActive)
+			addPass("Directional Shadow Maps", {}, directionalShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ShadowMapPass));
+		if (spotShadowPassActive)
+			addPass("Spot Shadow Maps", {}, spotShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SpotShadowMapPass));
 
 		std::vector<RenderGraph::ResourceHandle> shadowOutputs = directionalShadowOutputs;
 		appendResources(shadowOutputs, spotShadowOutputs);
@@ -3473,26 +3555,39 @@ namespace Lux {
 		addPass("PreDepth", {}, preDepthOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::PreDepthPass));
 
 		std::vector<RenderGraph::ResourceHandle> hzbOutputs;
-		hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-		addPass("HZB", preDepthOutputs, hzbOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::HZBCompute));
-		addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass));
+		if (hzbActive)
+		{
+			hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+			addPass("HZB", preDepthOutputs, hzbOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::HZBCompute));
+		}
+		if (meshCullingActive)
+			addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass));
 
 		std::vector<RenderGraph::ResourceHandle> preIntegrationOutputs;
-		preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-		addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
+		if (preIntegrationActive)
+		{
+			preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+			addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
+		}
 
 		// Cluster build runs before light culling; it only depends on the camera
 		// projection (SSBO synchronized via a manual barrier inside the pass).
-		addPass("Cluster Build", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterBuildPass));
+		if (clusterBuildActive)
+			addPass("Cluster Build", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterBuildPass));
 
 		// Cluster light assignment depends on the cluster AABBs + the light UBOs;
 		// it is depth-independent (SSBOs synchronized via manual barriers).
-		addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass));
+		if (clusteredLightingActive)
+			addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass));
 
 		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
 		std::vector<RenderGraph::ResourceHandle> sceneColorOutputs = addFramebufferResources("SceneColor", m_SceneColorFramebuffer);
-		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
-		addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
+		std::vector<RenderGraph::ResourceHandle> skyboxOutputs;
+		if (skyboxActive)
+		{
+			skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
+			addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
+		}
 
 		const bool skyAtmosphereEnabled = frame.SkyAtmosphereEnabled && m_SkyAtmospherePass;
 		std::vector<RenderGraph::ResourceHandle> sceneColorCurrent = skyboxOutputs.empty() ? sceneColorOutputs : skyboxOutputs;
@@ -3503,8 +3598,12 @@ namespace Lux {
 			sceneColorCurrent = skyAtmosphereOutputs;
 		}
 
-		std::vector<RenderGraph::ResourceHandle> selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
-		addPass("Selected Geometry", preDepthOutputs, selectedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SelectedGeometryPass));
+		std::vector<RenderGraph::ResourceHandle> selectedOutputs;
+		if (selectedMaskActive)
+		{
+			selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
+			addPass("Selected Geometry", preDepthOutputs, selectedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SelectedGeometryPass));
+		}
 
 		std::vector<RenderGraph::ResourceHandle> geometryOutputs = gbufferOutputs;
 		appendResources(geometryOutputs, sceneColorCurrent);
@@ -3633,21 +3732,27 @@ namespace Lux {
 			sceneColorCurrent = fogOutputs;
 		}
 
-		std::vector<RenderGraph::ResourceHandle> transparentReads = shadowOutputs;
-		appendResources(transparentReads, preDepthOutputs);
-		appendResources(transparentReads, sceneColorCurrent);
-		std::vector<RenderGraph::ResourceHandle> transparentOutputs = addRenderPassResources("Transparent Forward", m_GeometryPassTransparent);
-		addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass));
-		sceneColorCurrent = transparentOutputs;
+		if (transparentForwardActive)
+		{
+			std::vector<RenderGraph::ResourceHandle> transparentReads = shadowOutputs;
+			appendResources(transparentReads, preDepthOutputs);
+			appendResources(transparentReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> transparentOutputs = addRenderPassResources("Transparent Forward", m_GeometryPassTransparent);
+			addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass));
+			sceneColorCurrent = transparentOutputs;
+		}
 
-		std::vector<RenderGraph::ResourceHandle> wireframeReads = sceneColorCurrent;
-		std::vector<RenderGraph::ResourceHandle> wireframeOutputs = addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass);
-		addPass("Geometry Wireframe", wireframeReads, wireframeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GeometryWireframePass));
-		sceneColorCurrent = wireframeOutputs;
+		if (wireframeActive)
+		{
+			std::vector<RenderGraph::ResourceHandle> wireframeReads = sceneColorCurrent;
+			std::vector<RenderGraph::ResourceHandle> wireframeOutputs = addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass);
+			addPass("Geometry Wireframe", wireframeReads, wireframeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GeometryWireframePass));
+			sceneColorCurrent = wireframeOutputs;
+		}
 
 		std::vector<RenderGraph::ResourceHandle> jumpFloodAOutputs;
 		std::vector<RenderGraph::ResourceHandle> jumpFloodBOutputs;
-		const bool jumpFloodActive = m_Options.EnableJumpFlood && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true);
+		const bool jumpFloodActive = m_Options.EnableJumpFlood && selectedMaskActive;
 		if (jumpFloodActive)
 		{
 			std::vector<RenderGraph::ResourceHandle> jumpFloodInitOutputs = addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass);
@@ -4305,6 +4410,7 @@ namespace Lux {
 			ApplyRenderTargetAliasing();
 			m_ShadowCascadeCacheValid = false;
 			m_DirectionalShadowMapNeedsRender = true;
+			m_ClusterAABBsDirty = true;
 		}
 
 		ResizeVolumetricCloudResources();
@@ -4379,6 +4485,13 @@ namespace Lux {
 				instance->m_UBSCamera->RT_Get()->RT_SetData(
 					instance->m_UploadCommandBuffer, &cameraData, sizeof(UBCamera));
 				});
+
+			const uint64_t clusterAABBStateHash = CalculateClusterAABBStateHash();
+			if (clusterAABBStateHash != m_ClusterAABBStateHash)
+			{
+				m_ClusterAABBStateHash = clusterAABBStateHash;
+				m_ClusterAABBsDirty = true;
+			}
 		}
 
 		// ── Screen uniform buffer ─────────────────────────────────────────────
@@ -5049,25 +5162,39 @@ namespace Lux {
 		return false;
 	}
 
-	void SceneRenderer::BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder) const
+	void SceneRenderer::BuildSortedDrawCommandOrder(MeshPassState& pass)
 	{
+		const DrawCommandList& drawList = pass.DrawList;
+		DrawCommandOrder& drawOrder = pass.DrawOrder;
 		drawOrder.clear();
 		drawOrder.reserve(drawList.size());
 
+		std::vector<MeshDrawSortEntry>& sortEntries = m_ScratchDrawSortEntries;
+		sortEntries.clear();
+		sortEntries.reserve(drawList.size());
+
 		for (const auto& [key, dc] : drawList)
-			drawOrder.push_back(key);
+		{
+			sortEntries.push_back({
+				key,
+				dc.PipelineSortKey,
+				dc.ShaderSortKey,
+				dc.MaterialSortKey,
+				dc.MeshSortKey
+			});
+		}
 
-		std::sort(drawOrder.begin(), drawOrder.end(), [&](const MeshKey& lhsKey, const MeshKey& rhsKey)
+		std::sort(sortEntries.begin(), sortEntries.end(), [](const MeshDrawSortEntry& lhs, const MeshDrawSortEntry& rhs)
 			{
-				const StaticDrawCommand& lhs = drawList.at(lhsKey);
-				const StaticDrawCommand& rhs = drawList.at(rhsKey);
-
 				if (lhs.PipelineSortKey != rhs.PipelineSortKey) return lhs.PipelineSortKey < rhs.PipelineSortKey;
 				if (lhs.ShaderSortKey != rhs.ShaderSortKey) return lhs.ShaderSortKey < rhs.ShaderSortKey;
 				if (lhs.MaterialSortKey != rhs.MaterialSortKey) return lhs.MaterialSortKey < rhs.MaterialSortKey;
 				if (lhs.MeshSortKey != rhs.MeshSortKey) return lhs.MeshSortKey < rhs.MeshSortKey;
-				return lhsKey < rhsKey;
+				return lhs.Key < rhs.Key;
 			});
+
+		for (const MeshDrawSortEntry& entry : sortEntries)
+			drawOrder.push_back(entry.Key);
 	}
 
 	SceneRenderer::MeshPassState& SceneRenderer::GetMeshPass(MeshPassType passType)
@@ -5289,6 +5416,17 @@ namespace Lux {
 			}
 		}
 
+		return hash;
+	}
+
+	uint64_t SceneRenderer::CalculateClusterAABBStateHash() const
+	{
+		uint64_t hash = 1469598103934665603ull;
+		hash = HashCombine(hash, m_ViewportWidth);
+		hash = HashCombine(hash, m_ViewportHeight);
+		hash = HashCombine(hash, HashFloat(m_SceneData.SceneCamera.Near));
+		hash = HashCombine(hash, HashFloat(m_SceneData.SceneCamera.Far));
+		hash = HashMat4(hash, m_CameraUB.Projection);
 		return hash;
 	}
 
@@ -5612,7 +5750,7 @@ namespace Lux {
 		indirectDrawData.clear();
 
 		for (MeshPassState& pass : m_MeshPasses)
-			BuildSortedDrawCommandOrder(pass.DrawList, pass.DrawOrder);
+			BuildSortedDrawCommandOrder(pass);
 
 		const GPUScene* submittedGPUScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetGPUScene() : nullptr;
 		const std::vector<GPUSceneInstanceData>* persistentGPUSceneInstances = submittedGPUScene ? &submittedGPUScene->GetInstances() : nullptr;
@@ -5642,6 +5780,8 @@ namespace Lux {
 			textureTableOverflowCount = (uint32_t)(gpuTextureHandles.size() - MaxGPUTextureSceneTextures);
 			gpuTextureHandles.resize(MaxGPUTextureSceneTextures);
 		}
+		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureHandles.size();
+		const uint32_t persistentUploadFrameCount = glm::max(1u, Renderer::GetConfig().FramesInFlight);
 
 		auto resolveMaterialTexture = [](AssetHandle textureHandle) -> Ref<Texture2D>
 			{
@@ -5662,7 +5802,10 @@ namespace Lux {
 		if (m_GPUMaterialTextures.empty())
 			m_GPUMaterialTextures.assign(MaxGPUTextureSceneTextures, Renderer::GetWhiteTexture());
 
-		for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+		const uint32_t textureDescriptorUpdateCount = glm::min(
+			MaxGPUTextureSceneTextures,
+			glm::max(uploadedTextureCount, m_GPUMaterialTextureBoundCount));
+		for (uint32_t textureIndex = 0; textureIndex < textureDescriptorUpdateCount; textureIndex++)
 		{
 			const AssetHandle textureHandle = textureIndex < gpuTextureHandles.size() ? gpuTextureHandles[textureIndex] : AssetHandle(0);
 			Ref<Texture2D> texture = resolveMaterialTexture(textureHandle);
@@ -5682,6 +5825,7 @@ namespace Lux {
 			if (m_GBufferDebugPass && m_GBufferDebugPass->IsInputValid("u_GPUMaterialTextures"))
 				m_GBufferDebugPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 		}
+		m_GPUMaterialTextureBoundCount = uploadedTextureCount;
 
 		std::vector<GPUMaterialData>& gpuMaterialData = m_ScratchMaterialData;
 		if (submittedMaterialScene)
@@ -5696,6 +5840,15 @@ namespace Lux {
 		if (gpuMaterialData.empty())
 			gpuMaterialData.push_back(MaterialScene::GetFallbackMaterialData());
 		const uint32_t persistentMaterialCount = (uint32_t)gpuMaterialData.size();
+		if (persistentMaterialCount != m_PersistentMaterialUploadedCount
+			|| (submittedMaterialScene && submittedMaterialScene->HasDirtyMaterials()))
+		{
+			m_PersistentMaterialUploadFramesRemaining = persistentUploadFrameCount;
+		}
+		const bool uploadPersistentMaterials = m_PersistentMaterialUploadFramesRemaining > 0;
+		std::vector<GPUMaterialData> gpuMaterialUploadData;
+		if (uploadPersistentMaterials)
+			gpuMaterialUploadData.assign(gpuMaterialData.begin(), gpuMaterialData.end());
 
 		std::vector<GPUMaterialData>& transientGPUMaterialData = m_ScratchTransientMaterialData;
 		transientGPUMaterialData.assign(m_TransientGPUMaterials.begin(), m_TransientGPUMaterials.end());
@@ -5720,7 +5873,6 @@ namespace Lux {
 				materialData.TextureIndices[textureSlot] = resolveUploadedTextureIndex(materialData.TextureIndices[textureSlot]);
 		}
 		const uint32_t uploadedMaterialCount = persistentMaterialCount + (uint32_t)transientGPUMaterialData.size();
-		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureHandles.size();
 
 		auto resolveInstanceData = [this, persistentGPUSceneInstances](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
 			{
@@ -5836,9 +5988,21 @@ namespace Lux {
 		// ── 2. Upload GPUScene tails, ObjectIndexes, culling data, and indirect args
 		m_UploadCommandBuffer->Begin();
 
-		std::vector<GPUSceneInstanceData> gpuSceneInstanceData;
 		if (submittedGPUScene)
-			gpuSceneInstanceData = submittedGPUScene->GetInstances();
+		{
+			if (persistentGPUSceneInstanceCount != m_PersistentGPUSceneUploadedInstanceCount || submittedGPUScene->HasDirtyInstances())
+				m_PersistentGPUSceneUploadFramesRemaining = persistentUploadFrameCount;
+		}
+		else
+		{
+			m_PersistentGPUSceneUploadFramesRemaining = 0;
+			m_PersistentGPUSceneUploadedInstanceCount = 0;
+		}
+
+		const bool uploadPersistentGPUScene = submittedGPUScene && m_PersistentGPUSceneUploadFramesRemaining > 0;
+		std::vector<GPUSceneInstanceData> gpuSceneInstanceData;
+		if (uploadPersistentGPUScene && persistentGPUSceneInstances)
+			gpuSceneInstanceData.assign(persistentGPUSceneInstances->begin(), persistentGPUSceneInstances->end());
 
 		std::vector<GPUSceneInstanceData> transientGPUSceneData = m_TransientGPUSceneInstances;
 		for (uint32_t transientIndex = 0; transientIndex < transientGPUSceneData.size(); transientIndex++)
@@ -5855,6 +6019,7 @@ namespace Lux {
 			}
 		}
 
+		if (ShouldCollectFullRendererDiagnostics(Renderer::GetConfig()))
 		{
 			GPUSceneDebugSnapshot snapshot;
 			snapshot.PersistentInstanceCount = persistentGPUSceneInstanceCount;
@@ -5943,8 +6108,11 @@ namespace Lux {
 						snapshot.MissingPersistentObjectIDCount++;
 				};
 
-			for (uint32_t instanceIndex = 0; instanceIndex < gpuSceneInstanceData.size(); instanceIndex++)
-				validateInstance(gpuSceneInstanceData[instanceIndex], instanceIndex, true);
+			if (persistentGPUSceneInstances)
+			{
+				for (uint32_t instanceIndex = 0; instanceIndex < persistentGPUSceneInstances->size(); instanceIndex++)
+					validateInstance((*persistentGPUSceneInstances)[instanceIndex], instanceIndex, true);
+			}
 
 			for (uint32_t transientIndex = 0; transientIndex < transientGPUSceneData.size(); transientIndex++)
 				validateInstance(transientGPUSceneData[transientIndex], persistentGPUSceneInstanceCount + transientIndex, false);
@@ -6005,6 +6173,10 @@ namespace Lux {
 
 			m_GPUSceneDebugSnapshot = std::move(snapshot);
 		}
+		else
+		{
+			m_GPUSceneDebugSnapshot = {};
+		}
 
 		if (!objectIndexData.empty()
 			|| !visibleObjectIndexData.empty()
@@ -6012,22 +6184,34 @@ namespace Lux {
 			|| !indirectDrawData.empty()
 			|| !gpuSceneInstanceData.empty()
 			|| !transientGPUSceneData.empty()
-			|| !gpuMaterialData.empty()
+			|| !gpuMaterialUploadData.empty()
 			|| !transientGPUMaterialData.empty())
 		{
-			const auto indexData = objectIndexData;
-			const auto visibleIndexData = visibleObjectIndexData;
-			const auto cullDrawData = meshCullDrawData;
-			const auto indirectCommands = indirectDrawData;
-			const auto gpuSceneData = gpuSceneInstanceData;
-			const auto transientSceneData = transientGPUSceneData;
-			const auto materialData = gpuMaterialData;
-			const auto transientMaterialData = transientGPUMaterialData;
+			auto indexData = objectIndexData;
+			auto visibleIndexData = visibleObjectIndexData;
+			auto cullDrawData = meshCullDrawData;
+			auto indirectCommands = indirectDrawData;
+			auto gpuSceneData = std::move(gpuSceneInstanceData);
+			auto transientSceneData = std::move(transientGPUSceneData);
+			auto materialData = std::move(gpuMaterialUploadData);
+			auto transientMaterialData = transientGPUMaterialData;
 			const uint32_t persistentSceneCount = persistentGPUSceneInstanceCount;
 			const uint32_t persistentGPUMaterialCount = persistentMaterialCount;
 			Ref<SceneRenderer> instance = this;
 
-			Renderer::Submit([instance, indexData, visibleIndexData, cullDrawData, indirectCommands, gpuSceneData, transientSceneData, materialData, transientMaterialData, persistentSceneCount, persistentGPUMaterialCount]() mutable {
+			Renderer::Submit([
+				instance,
+				indexData = std::move(indexData),
+				visibleIndexData = std::move(visibleIndexData),
+				cullDrawData = std::move(cullDrawData),
+				indirectCommands = std::move(indirectCommands),
+				gpuSceneData = std::move(gpuSceneData),
+				transientSceneData = std::move(transientSceneData),
+				materialData = std::move(materialData),
+				transientMaterialData = std::move(transientMaterialData),
+				persistentSceneCount,
+				persistentGPUMaterialCount
+			]() mutable {
 
 				Ref<RenderCommandBuffer> cmd = instance->m_UploadCommandBuffer;
 
@@ -6073,9 +6257,8 @@ namespace Lux {
 						instance->m_SBSGPUSceneInstances->Resize(gpuSceneBytes * 2u);
 				}
 
-				// StorageBufferSet owns one buffer per frame-in-flight. Until GPUScene tracks
-				// dirty ranges per frame buffer, upload the persistent scene rows for the
-				// current frame to avoid alternating stale GPUScene data.
+				// StorageBufferSet owns one buffer per frame-in-flight. Persistent rows are
+				// uploaded for each backing frame after creation or dirties, then left resident.
 				if (!gpuSceneData.empty())
 				{
 					const uint32_t uploadBytes = (uint32_t)(gpuSceneData.size() * sizeof(GPUSceneInstanceData));
@@ -6110,6 +6293,17 @@ namespace Lux {
 					instance->m_SBSGPUMaterials->RT_Get()->RT_SetData(cmd, transientMaterialData.data(), uploadBytes, uploadOffset);
 				}
 			});
+		}
+
+		if (uploadPersistentGPUScene)
+		{
+			m_PersistentGPUSceneUploadFramesRemaining--;
+			m_PersistentGPUSceneUploadedInstanceCount = persistentGPUSceneInstanceCount;
+		}
+		if (uploadPersistentMaterials)
+		{
+			m_PersistentMaterialUploadFramesRemaining--;
+			m_PersistentMaterialUploadedCount = persistentMaterialCount;
 		}
 
 		m_UploadCommandBuffer->End();
@@ -6228,9 +6422,6 @@ namespace Lux {
 			return;
 		}
 
-		if (m_DirectionalShadowMapCacheValid && !m_DirectionalShadowMapNeedsRender)
-			return;
-
 		BeginProfiledGPU("ShadowMapPass");
 		const MeshPassState& shadowPass = GetMeshPass(MeshPassType::ShadowDepth);
 		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
@@ -6280,9 +6471,6 @@ namespace Lux {
 			return;
 		}
 
-		if (m_SpotShadowMapCacheValid && !m_SpotShadowMapNeedsRender)
-			return;
-
 		BeginProfiledGPU("SpotShadowMapPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
 
@@ -6296,6 +6484,7 @@ namespace Lux {
 			const uint32_t tileX = shadowIndex % tilesPerRow;
 			const uint32_t tileY = shadowIndex / tilesPerRow;
 			Renderer::SetViewport(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
+			Renderer::SetScissor(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
 
 			for (const MeshKey& key : shadowPass.DrawOrder)
 			{
@@ -6319,6 +6508,7 @@ namespace Lux {
 		}
 
 		Renderer::SetViewport(m_CommandBuffer, 0, 0, atlasSize, atlasSize);
+		Renderer::SetScissor(m_CommandBuffer, 0, 0, atlasSize, atlasSize);
 
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
@@ -6489,6 +6679,8 @@ namespace Lux {
 		ScopedCPUProfile cpuProfile(*this, "ClusterBuildPass");
 		if (!m_ClusterBuildPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
+		if (!m_ClusterAABBsDirty)
+			return;
 
 		struct ClusterBuildPushConstants
 		{
@@ -6504,8 +6696,8 @@ namespace Lux {
 		};
 		push.GridSize = { ClusterGridX, ClusterGridY, ClusterGridZ, 0u };
 
-		// TODO(clustered): cache — only rebuild on resize / projection change.
-		// Rebuilt every frame for now (4608 froxels, negligible cost).
+		// The froxel AABBs depend only on render size and projection. Light assignment
+		// remains per-frame; this grid is rebuilt only when that projection state changes.
 		constexpr uint32_t kThreadsPerGroup = 64;
 		const glm::uvec3 groups = { (ClusterCount + kThreadsPerGroup - 1u) / kThreadsPerGroup, 1u, 1u };
 
@@ -6515,6 +6707,7 @@ namespace Lux {
 		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSClusterAABBs->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_ClusterBuildPass);
 		EndProfiledGPU();
+		m_ClusterAABBsDirty = false;
 	}
 
 	void SceneRenderer::ClusterLightCullingPass()
@@ -7730,8 +7923,14 @@ namespace Lux {
 		const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
 		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(frameIndex);
 		m_Statistics.PipelineStats = m_CommandBuffer->GetPipelineStatistics(frameIndex);
-		UpdateGPUProfileTimes();
-		UpdateMemoryStatistics();
+		const RendererConfig& rendererConfig = Renderer::GetConfig();
+		if (ShouldCollectBasicRendererDiagnostics(rendererConfig))
+		{
+			UpdateGPUProfileTimes();
+			m_Statistics.MemoryStats.RenderGraphPassCount = static_cast<uint32_t>(m_RenderGraph.GetPasses().size());
+		}
+		if (ShouldCollectFullRendererDiagnostics(rendererConfig))
+			UpdateMemoryStatistics();
 		UpdateDynamicRenderResolution();
 	}
 
