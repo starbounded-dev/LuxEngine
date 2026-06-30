@@ -301,8 +301,16 @@ namespace Lux {
 	public:
 		static constexpr uint32_t ShadowCascadeCount = 4;
 		static constexpr uint32_t MaxSpotShadows = 16;
-		static constexpr uint32_t LightCullingTileSize = 16;
-		static constexpr uint32_t MaxVisibleLightsPerTile = 256;
+		// Clustered (froxel) light culling grid — see CLUSTERED_DEFERRED_PLAN.md.
+		static constexpr uint32_t ClusterGridX = 16;
+		static constexpr uint32_t ClusterGridY = 9;
+		static constexpr uint32_t ClusterGridZ = 32;
+		static constexpr uint32_t ClusterCount = ClusterGridX * ClusterGridY * ClusterGridZ;
+		// Global packed light-index list caps (dynamic packing). Must match the
+		// CLUSTER_MAX_*_INDICES defines in Cluster.glslh.
+		static constexpr uint32_t ClusterAvgLightsPerCluster = 16;
+		static constexpr uint32_t MaxClusterPointIndices = ClusterCount * ClusterAvgLightsPerCluster;
+		static constexpr uint32_t MaxClusterSpotIndices = ClusterCount * ClusterAvgLightsPerCluster;
 		struct PassProfile
 		{
 			const char* Name = "";
@@ -443,8 +451,7 @@ namespace Lux {
 
 		struct RendererFrameDebugSnapshot
 		{
-			RenderingTechnique Technique = RenderingTechnique::Forward;
-			bool DeferredPath = false;
+			bool DeferredPath = true;
 			bool HasRenderScene = false;
 			bool HasRenderVolumeEnvironment = false;
 			bool SkyAtmosphereEnabled = false;
@@ -605,8 +612,6 @@ namespace Lux {
 		RenderVolumeBaseSettings GetBaseRenderVolumeSettings(float cameraExposure) const;
 		const RenderVolumeEnvironment& GetRenderVolumeEnvironment() const { return m_RenderVolumeEnvironment; }
 		SSROptionsUB& GetSSROptions() { return m_SSROptions; }
-		RenderingTechnique GetRenderingTechnique() const { return m_RenderingTechnique; }
-		void SetRenderingTechnique(RenderingTechnique technique) { m_RenderingTechnique = technique; }
 	void ApplyProjectSettings(const ProjectSceneRendererSettings& settings);
 	void WriteProjectSettings(ProjectSceneRendererSettings& settings) const;
 	void RefreshScreenSpaceEffectResources();
@@ -854,7 +859,8 @@ namespace Lux {
 		void HZBCompute();
 		void PreIntegration();
 		void MeshCullingPass();
-		void LightCullingPass();
+		void ClusterBuildPass();
+		void ClusterLightCullingPass();
 		void SkyboxPass();
 		void SkyAtmospherePass();
 		void BakeCloudNoise();
@@ -864,7 +870,6 @@ namespace Lux {
 		void AtmosphericFogPass();
 		void SelectedGeometryPass();
 		void GBufferPass();
-		void ForwardGeometryPass();
 		void DeferredLightingPass();
 		void TransparentForwardPass();
 		void GeometryWireframePass();
@@ -900,7 +905,6 @@ namespace Lux {
 		void UpdateRenderGraphStatistics();
 		bool UpdateDynamicRenderResolution();
 		float ResolveRenderResolutionScale() const;
-		void ResizeLightCullingResources();
 		void ResizeBloomResources();
 		void CreateBloomPassMaterials();
 		void ResizeScreenSpaceEffectResources();
@@ -931,7 +935,6 @@ namespace Lux {
 		void BindSceneRenderPassInputs(Ref<RenderPass> renderPass, uint32_t inputMask);
 		void BindCommonSceneRenderPassInputs(Ref<RenderPass> renderPass, bool bindDepth = false);
 		bool UsesDeferredPath() const;
-		bool UsesDeferredPath(RenderingTechnique technique) const;
 		Ref<Image2D> GetSceneColorOutput() const;
 		Ref<Image2D> GetGeometryBaseColorOutput() const;
 		Ref<Image2D> GetGeometryNormalOutput() const;
@@ -950,8 +953,7 @@ namespace Lux {
 		bool IsRenderGraphAliasCandidate(const Ref<Image2D>& image);
 		struct ResolvedFrameEnvironment
 		{
-			RenderingTechnique Technique = RenderingTechnique::Forward;
-			bool DeferredPath = false;
+			bool DeferredPath = true;
 			Ref<Environment> Environment;
 			float EnvironmentIntensity = 1.0f;
 			float SkyboxLod = 0.0f;
@@ -1078,6 +1080,7 @@ namespace Lux {
 			float     DistanceMipBiasEnd = 250.0f;
 			float     DistanceMipBiasMax = 2.0f;
 			uint32_t  GPUSceneDebugMode = 0;
+			glm::vec4 ClusterZParams = { 0.1f, 1000.0f, 0.0f, 0.0f }; // x=zNear, y=zFar
 		} m_RendererDataUB;
 
 		struct UBScreenData
@@ -1189,7 +1192,6 @@ namespace Lux {
 
 		Ref<Scene>                 m_Scene;
 		SceneRendererSpecification m_Specification;
-		RenderingTechnique         m_RenderingTechnique = RenderingTechnique::Forward;
 		Ref<RenderCommandBuffer>   m_CommandBuffer;       // render commands
 		Ref<RenderCommandBuffer>   m_UploadCommandBuffer; // UB/SB data uploads
 		RenderGraph                m_RenderGraph;
@@ -1246,11 +1248,14 @@ namespace Lux {
 		Ref<StorageBufferSet> m_SBSGPUMaterials;
 		Ref<StorageBufferSet> m_SBSMeshCullDrawData;
 		Ref<StorageBufferSet> m_SBSIndirectDrawCommands;
-		Ref<StorageBufferSet> m_SBSVisiblePointLightIndices;
-		Ref<StorageBufferSet> m_SBSVisibleSpotLightIndices;
-		uint32_t              m_LightTilesCountX = 1;
-		uint32_t              m_LightTilesCountY = 1;
-		uint32_t              m_VisibleLightIndexBufferSize = 0;
+		Ref<StorageBufferSet> m_SBSClusterAABBs; // per-cluster view-space AABB grid
+		// Clustered light assignment outputs (parallel point/spot grids + packed
+		// index lists, dynamically allocated via m_SBSClusterLightCounter).
+		Ref<StorageBufferSet> m_SBSPointLightGrid;
+		Ref<StorageBufferSet> m_SBSSpotLightGrid;
+		Ref<StorageBufferSet> m_SBSPointLightIndexList;
+		Ref<StorageBufferSet> m_SBSSpotLightIndexList;
+		Ref<StorageBufferSet> m_SBSClusterLightCounter;
 
 		// ── Directional shadow maps ─────────────────────────────────────────
 		Ref<Image2D>     m_ShadowMapImage;
@@ -1274,7 +1279,8 @@ namespace Lux {
 
 		// ── Tiled light culling ──────────────────────────────────────────────
 		Ref<ComputePass> m_MeshCullingPass;
-		Ref<ComputePass> m_LightCullingPass;
+		Ref<ComputePass> m_ClusterBuildPass;        // builds m_SBSClusterAABBs
+		Ref<ComputePass> m_ClusterLightCullingPass; // assigns lights to clusters
 		uint32_t         m_MeshCullDrawCount = 0;
 
 		struct MippedTexture
@@ -1366,11 +1372,9 @@ namespace Lux {
 		Ref<Framebuffer> m_GeometryPassFramebuffer;     // GBuffer attachments
 		Ref<Framebuffer> m_SceneColorFramebuffer;       // HDR scene color shared by deferred/forward lighting
 		Ref<Pipeline>    m_GeometryPipeline;            // opaque GBuffer
-		Ref<Pipeline>    m_ForwardGeometryPipeline;     // opaque forward fallback
 		Ref<Pipeline>    m_TransparentGeometryPipeline; // transparent forward PBR
 		Ref<Pipeline>    m_DeferredLightingPipeline;    // fullscreen deferred lighting
 		Ref<RenderPass>  m_GeometryPass;                // opaque GBuffer
-		Ref<RenderPass>  m_ForwardGeometryPass;         // opaque forward fallback
 		Ref<RenderPass>  m_GeometryPassTransparent;     // transparent forward
 		Ref<RenderPass>  m_DeferredLightingPass;        // fullscreen deferred lighting
 		Ref<Material>    m_DeferredLightingMaterial;
@@ -1417,10 +1421,6 @@ namespace Lux {
 		Ref<Image2D>     m_CloudHistoryImages[2];
 		uint32_t         m_CloudHistoryIndex = 0;
 		bool             m_CloudHistoryValid = false;
-
-		// Tracks the PreDepth depth handle across frames so we only correct its NVRHI
-		// state desync once it has actually been sampled (see PreDepthPass).
-		void*            m_PreDepthBarrierLastHandle = nullptr;
 
 		// ── Composite (tone-map + opacity) ────────────────────────────────────
 		Ref<Framebuffer> m_CompositingFramebuffer;

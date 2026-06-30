@@ -841,6 +841,15 @@ namespace Lux {
 				graphicsState.framebuffer = framebuffer->GetHandle();
 				LUX_CORE_ASSERT(graphicsState.framebuffer);
 
+				// The graphics state persists on the command buffer across passes.
+				// Clear any vertex/index bindings left by a previous draw before we
+				// commit here: pass-begin does not draw, and a stale binding whose
+				// buffer handle has since been released would commit VK_NULL_HANDLE
+				// (vkCmdBindVertexBuffers: pBuffers[0] is VK_NULL_HANDLE). Each draw
+				// sets its own vertex/index buffers immediately before drawing.
+				graphicsState.vertexBuffers = {};
+				graphicsState.indexBuffer = nvrhi::IndexBufferBinding{};
+
 				// Viewport and scissor
 				float fbWidth = (float)framebuffer->GetWidth();
 				float fbHeight = (float)framebuffer->GetHeight();
@@ -964,14 +973,6 @@ namespace Lux {
 
 				commandList->dispatch(workGroups.x, workGroups.y, workGroups.z);
 			});
-	}
-
-	void Renderer::LightCulling(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass, Ref<Material> material, const glm::uvec3& workGroups)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		Renderer::BeginComputePass(renderCommandBuffer, computePass);
-		Renderer::DispatchCompute(renderCommandBuffer, computePass, material, workGroups);
-		Renderer::EndComputePass(renderCommandBuffer, computePass);
 	}
 
 	void Renderer::BeginGPUPerfMarker(Ref<RenderCommandBuffer> renderCommandBuffer, const std::string& label, const glm::vec4& markerColor)

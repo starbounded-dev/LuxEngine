@@ -382,14 +382,15 @@ namespace Lux {
 			return glm::dot(glm::max(radiance, glm::vec3(0.0f)), glm::vec3(0.2126f, 0.7152f, 0.0722f));
 		}
 
-		constexpr std::array<const char*, 28> s_ProfiledSceneRendererPasses = {
+		constexpr std::array<const char*, 29> s_ProfiledSceneRendererPasses = {
 			"ShadowMapPass",
 			"SpotShadowMapPass",
 			"MeshCullingPass",
 			"PreDepthPass",
 			"HZB",
 			"PreIntegration",
-			"LightCullingPass",
+			"ClusterBuildPass",
+			"ClusterLightCullingPass",
 			"SkyboxPass",
 			"SkyAtmospherePass",
 			"VolumetricCloudPass",
@@ -906,12 +907,24 @@ namespace Lux {
 		{
 			StorageBufferSpecification indexSpec;
 			indexSpec.GPUOnly = true;
-			indexSpec.DebugName = "VisiblePointLightIndices";
-			m_SBSVisiblePointLightIndices = StorageBufferSet::Create(indexSpec, sizeof(int32_t) * MaxVisibleLightsPerTile);
 
-			indexSpec.DebugName = "VisibleSpotLightIndices";
-			m_SBSVisibleSpotLightIndices = StorageBufferSet::Create(indexSpec, sizeof(int32_t) * MaxVisibleLightsPerTile);
-			ResizeLightCullingResources();
+			// Clustered light culling: per-cluster view-space AABB grid. Fixed size
+			// (independent of viewport); rebuilt by ClusterBuildPass on the GPU.
+			indexSpec.DebugName = "ClusterAABBs";
+			m_SBSClusterAABBs = StorageBufferSet::Create(indexSpec, sizeof(glm::vec4) * 2 * ClusterCount);
+
+			// Clustered light assignment outputs (parallel point/spot). Grids are
+			// (offset,count) per cluster; index lists are dynamically packed.
+			indexSpec.DebugName = "PointLightGrid";
+			m_SBSPointLightGrid = StorageBufferSet::Create(indexSpec, sizeof(glm::uvec2) * ClusterCount);
+			indexSpec.DebugName = "SpotLightGrid";
+			m_SBSSpotLightGrid = StorageBufferSet::Create(indexSpec, sizeof(glm::uvec2) * ClusterCount);
+			indexSpec.DebugName = "PointLightIndexList";
+			m_SBSPointLightIndexList = StorageBufferSet::Create(indexSpec, sizeof(uint32_t) * MaxClusterPointIndices);
+			indexSpec.DebugName = "SpotLightIndexList";
+			m_SBSSpotLightIndexList = StorageBufferSet::Create(indexSpec, sizeof(uint32_t) * MaxClusterSpotIndices);
+			indexSpec.DebugName = "ClusterLightCounter";
+			m_SBSClusterLightCounter = StorageBufferSet::Create(indexSpec, sizeof(uint32_t) * 4);
 		}
 		{
 			// Auto-exposure: a 256-bin luminance histogram and a tiny persistent
@@ -1146,29 +1159,37 @@ namespace Lux {
 			m_MeshCullingPass->Bake();
 		}
 
-		// ── Tiled light culling pass ─────────────────────────────────────────
+		// ── Cluster build pass (froxel AABB grid) ────────────────────────────
 		{
 			ComputePassSpecification computeSpec;
-			computeSpec.DebugName = "LightCulling";
-			computeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("LightCulling"));
+			computeSpec.DebugName = "ClusterBuild";
+			computeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("ClusterBuild"));
 
-			m_LightCullingPass = ComputePass::Create(computeSpec);
-			m_LightCullingPass->SetInput("u_DepthMap", m_PreDepthPass->GetDepthOutput());
-			m_LightCullingPass->SetInput("ShadowData", m_UBSShadow);
-			m_LightCullingPass->SetInput("SceneData", m_UBSScene);
-			m_LightCullingPass->SetInput("PointLightData", m_UBSPointLights);
-			m_LightCullingPass->SetInput("SpotLightData", m_UBSSpotLights);
-			m_LightCullingPass->SetInput("SpotShadowData", m_UBSSpotShadow);
-			m_LightCullingPass->SetInput("VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
-			m_LightCullingPass->SetInput("VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
-			m_LightCullingPass->SetInput("Camera", m_UBSCamera);
-			m_LightCullingPass->SetInput("RendererData", m_UBSRendererData);
-			m_LightCullingPass->SetInput("ScreenData", m_UBSScreenData);
-			m_LightCullingPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
-			m_LightCullingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_LightCullingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_LightCullingPass->Validate());
-			m_LightCullingPass->Bake();
+			m_ClusterBuildPass = ComputePass::Create(computeSpec);
+			m_ClusterBuildPass->SetInput("Camera", m_UBSCamera);
+			m_ClusterBuildPass->SetInput("ClusterAABBBuffer", m_SBSClusterAABBs);
+			LUX_CORE_VERIFY(m_ClusterBuildPass->Validate());
+			m_ClusterBuildPass->Bake();
+		}
+
+		// ── Cluster light assignment pass ────────────────────────────────────
+		{
+			ComputePassSpecification computeSpec;
+			computeSpec.DebugName = "ClusterLightCulling";
+			computeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("ClusterLightCulling"));
+
+			m_ClusterLightCullingPass = ComputePass::Create(computeSpec);
+			m_ClusterLightCullingPass->SetInput("Camera", m_UBSCamera);
+			m_ClusterLightCullingPass->SetInput("PointLightData", m_UBSPointLights);
+			m_ClusterLightCullingPass->SetInput("SpotLightData", m_UBSSpotLights);
+			m_ClusterLightCullingPass->SetInput("ClusterAABBBuffer", m_SBSClusterAABBs);
+			m_ClusterLightCullingPass->SetInput("ClusterCounterBuffer", m_SBSClusterLightCounter);
+			m_ClusterLightCullingPass->SetInput("PointLightGridBuffer", m_SBSPointLightGrid);
+			m_ClusterLightCullingPass->SetInput("SpotLightGridBuffer", m_SBSSpotLightGrid);
+			m_ClusterLightCullingPass->SetInput("PointLightIndexListBuffer", m_SBSPointLightIndexList);
+			m_ClusterLightCullingPass->SetInput("SpotLightIndexListBuffer", m_SBSSpotLightIndexList);
+			LUX_CORE_VERIFY(m_ClusterLightCullingPass->Validate());
+			m_ClusterLightCullingPass->Bake();
 		}
 
 		// ── Scene color, GBuffer, forward fallback, and deferred lighting ─────
@@ -1257,21 +1278,7 @@ namespace Lux {
 			forwardSpec.ClearColorOnLoad = false;
 			forwardSpec.ClearDepthOnLoad = false;
 			forwardSpec.Blend = false;
-			forwardSpec.DebugName = "ForwardGeometry";
-
-			pipelineSpec.DebugName = "ForwardGeometry-Static";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Static");
-			pipelineSpec.TargetFramebuffer = Framebuffer::Create(forwardSpec);
-			pipelineSpec.DepthOperator = DepthCompareOperator::Equal;
-			pipelineSpec.DepthWrite = false;
-			m_ForwardGeometryPipeline = Pipeline::Create(pipelineSpec);
-
-			rpSpec.DebugName = "ForwardGeometryPass";
-			rpSpec.Pipeline = m_ForwardGeometryPipeline;
-			m_ForwardGeometryPass = RenderPass::Create(rpSpec);
-			BindSceneRenderPassInputs(m_ForwardGeometryPass, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth);
-			LUX_CORE_VERIFY(m_ForwardGeometryPass->Validate());
-			m_ForwardGeometryPass->Bake();
+			forwardSpec.DebugName = "TransparentForwardShared";
 
 			// Transparent does not write motion vectors (layering/blending make them
 			// ill-defined), so drop the velocity attachment; transparent pixels keep the
@@ -1913,7 +1920,14 @@ namespace Lux {
 			m_VolumetricCloudCompositePass = cloudCompositePass;
 			m_VolumetricCloudCompositeMaterial = Material::Create(cloudCompositePipeline->GetShader(), "VolumetricCloudComposite");
 
-			auto [fogPipeline, fogPass] = createFullscreenPass("AtmosphericFog", "AtmosphericFog", createSceneColorFramebufferSpec("AtmosphericFog", true), true, {});
+			auto [fogPipeline, fogPass] = createFullscreenPass("AtmosphericFog", "AtmosphericFog", createSceneColorFramebufferSpec("AtmosphericFog", true), true,
+				[&](const Ref<RenderPass>& pass)
+				{
+					// Volumetric fog now scatters clustered point/spot lights (FogClusterLights.glslh);
+					// the cluster lists + light UBOs already come from PassInputCommonScene, this adds
+					// the spot shadow atlas so the in-fog spot shafts are shadowed.
+					BindSceneRenderPassInputs(pass, PassInputShadowMaps);
+				});
 			m_AtmosphericFogPipeline = fogPipeline;
 			m_AtmosphericFogPass = fogPass;
 			m_AtmosphericFogMaterial = Material::Create(fogPipeline->GetShader(), "AtmosphericFog");
@@ -2300,8 +2314,11 @@ namespace Lux {
 		{
 			SetRenderPassInputIfValid(renderPass, "PointLightData", m_UBSPointLights);
 			SetRenderPassInputIfValid(renderPass, "SpotLightData", m_UBSSpotLights);
-			SetRenderPassInputIfValid(renderPass, "VisiblePointLightIndicesBuffer", m_SBSVisiblePointLightIndices);
-			SetRenderPassInputIfValid(renderPass, "VisibleSpotLightIndicesBuffer", m_SBSVisibleSpotLightIndices);
+			// Clustered light lists (consumed by Lighting.glslh).
+			SetRenderPassInputIfValid(renderPass, "PointLightGridBuffer", m_SBSPointLightGrid);
+			SetRenderPassInputIfValid(renderPass, "SpotLightGridBuffer", m_SBSSpotLightGrid);
+			SetRenderPassInputIfValid(renderPass, "PointLightIndexListBuffer", m_SBSPointLightIndexList);
+			SetRenderPassInputIfValid(renderPass, "SpotLightIndexListBuffer", m_SBSSpotLightIndexList);
 		}
 		if (hasInput(PassInputSamplers))
 		{
@@ -2396,24 +2413,6 @@ namespace Lux {
 		m_Options.DynamicResolutionScale = nextScale;
 		RefreshRenderResolutionScale();
 		return true;
-	}
-
-	void SceneRenderer::ResizeLightCullingResources()
-	{
-		m_LightTilesCountX = glm::max(1u, (m_ViewportWidth + LightCullingTileSize - 1u) / LightCullingTileSize);
-		m_LightTilesCountY = glm::max(1u, (m_ViewportHeight + LightCullingTileSize - 1u) / LightCullingTileSize);
-
-		const uint64_t tileCount = static_cast<uint64_t>(m_LightTilesCountX) * static_cast<uint64_t>(m_LightTilesCountY);
-		const uint64_t bufferSize = tileCount * MaxVisibleLightsPerTile * sizeof(int32_t);
-		LUX_CORE_ASSERT(bufferSize <= std::numeric_limits<uint32_t>::max(), "Light culling index buffer is too large");
-
-		const uint32_t newSize = static_cast<uint32_t>(bufferSize);
-		if (newSize == m_VisibleLightIndexBufferSize)
-			return;
-
-		m_VisibleLightIndexBufferSize = newSize;
-		m_SBSVisiblePointLightIndices->Resize(newSize);
-		m_SBSVisibleSpotLightIndices->Resize(newSize);
 	}
 
 	void SceneRenderer::ResizeBloomResources()
@@ -2515,7 +2514,6 @@ namespace Lux {
 		resizePass(m_AOCompositePass, viewportSize);
 		resizePass(m_AODebugPass, viewportSize);
 		resizePass(m_SSRCompositePass, viewportSize);
-		resizePass(m_ForwardGeometryPass, viewportSize);
 		resizePass(m_DeferredLightingPass, viewportSize);
 		resizePass(m_GBufferDebugPass, viewportSize);
 		resizePass(m_SkyAtmospherePass, viewportSize);
@@ -2829,8 +2827,7 @@ namespace Lux {
 	SceneRenderer::ResolvedFrameEnvironment SceneRenderer::ResolveFrameEnvironment() const
 	{
 		ResolvedFrameEnvironment frame;
-		frame.Technique = m_RenderingTechnique;
-		frame.DeferredPath = UsesDeferredPath(frame.Technique);
+		frame.DeferredPath = true;
 		frame.Environment = m_SceneData.SceneEnvironment;
 		frame.EnvironmentIntensity = m_SceneData.SceneEnvironmentIntensity;
 		frame.SkyboxLod = m_SceneData.SkyboxLod;
@@ -2869,7 +2866,6 @@ namespace Lux {
 		const ResolvedFrameEnvironment frame = ResolveFrameEnvironment();
 
 		RendererFrameDebugSnapshot snapshot;
-		snapshot.Technique = frame.Technique;
 		snapshot.DeferredPath = frame.DeferredPath;
 		snapshot.HasRenderScene = m_SubmittedRenderScene != nullptr;
 		snapshot.HasRenderVolumeEnvironment = frame.HasRenderVolumeEnvironment;
@@ -3148,8 +3144,12 @@ namespace Lux {
 		addStorageBufferSet(m_SBSGPUMaterials);
 		addStorageBufferSet(m_SBSMeshCullDrawData);
 		addStorageBufferSet(m_SBSIndirectDrawCommands);
-		addStorageBufferSet(m_SBSVisiblePointLightIndices);
-		addStorageBufferSet(m_SBSVisibleSpotLightIndices);
+		addStorageBufferSet(m_SBSClusterAABBs);
+		addStorageBufferSet(m_SBSPointLightGrid);
+		addStorageBufferSet(m_SBSSpotLightGrid);
+		addStorageBufferSet(m_SBSPointLightIndexList);
+		addStorageBufferSet(m_SBSSpotLightIndexList);
+		addStorageBufferSet(m_SBSClusterLightCounter);
 
 		memoryStats.BufferBytes = std::max(memoryStats.BufferBytes, estimatedBufferBytes);
 		memoryStats.BufferCount = std::max(memoryStats.BufferCount, estimatedBufferCount);
@@ -3220,7 +3220,6 @@ namespace Lux {
 		addRenderPass(m_JumpFloodPasses[1]);
 		addRenderPass(m_JumpFloodCompositePass);
 		addRenderPass(m_GeometryPass);
-		addRenderPass(m_ForwardGeometryPass);
 		addRenderPass(m_GeometryPassTransparent);
 		addRenderPass(m_DeferredLightingPass);
 		addRenderPass(m_GBufferDebugPass);
@@ -3239,7 +3238,8 @@ namespace Lux {
 		addFramebuffer(m_CompositingFramebuffer);
 
 		addComputePass(m_MeshCullingPass);
-		addComputePass(m_LightCullingPass);
+		addComputePass(m_ClusterBuildPass);
+		addComputePass(m_ClusterLightCullingPass);
 		addComputePass(m_HierarchicalDepthPass);
 		addComputePass(m_PreIntegrationPass);
 		addComputePass(m_PreConvolutionComputePass);
@@ -3481,11 +3481,14 @@ namespace Lux {
 		preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
 		addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
 
-		std::vector<RenderGraph::ResourceHandle> lightCullingReads = preDepthOutputs;
-		appendResources(lightCullingReads, shadowOutputs);
-		addPass("Light Culling", lightCullingReads, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::LightCullingPass));
+		// Cluster build runs before light culling; it only depends on the camera
+		// projection (SSBO synchronized via a manual barrier inside the pass).
+		addPass("Cluster Build", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterBuildPass));
 
-		const bool deferredPath = frame.DeferredPath;
+		// Cluster light assignment depends on the cluster AABBs + the light UBOs;
+		// it is depth-independent (SSBOs synchronized via manual barriers).
+		addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass));
+
 		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
 		std::vector<RenderGraph::ResourceHandle> sceneColorOutputs = addFramebufferResources("SceneColor", m_SceneColorFramebuffer);
 		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
@@ -3506,7 +3509,6 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> geometryOutputs = gbufferOutputs;
 		appendResources(geometryOutputs, sceneColorCurrent);
 
-		if (deferredPath)
 		{
 			addPass("GBuffer", preDepthOutputs, gbufferOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
 
@@ -3521,18 +3523,8 @@ namespace Lux {
 			geometryOutputs = gbufferOutputs;
 			appendResources(geometryOutputs, sceneColorCurrent);
 		}
-		else
-		{
-			std::vector<RenderGraph::ResourceHandle> forwardReads = shadowOutputs;
-			appendResources(forwardReads, preDepthOutputs);
-			appendResources(forwardReads, sceneColorCurrent);
-			std::vector<RenderGraph::ResourceHandle> forwardOutputs = addRenderPassResources("Forward Geometry", m_ForwardGeometryPass);
-			addPass("Forward Geometry", forwardReads, forwardOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ForwardGeometryPass));
-			sceneColorCurrent = forwardOutputs;
-			geometryOutputs = forwardOutputs;
-		}
 
-		if (deferredPath && UsesGBufferDebugPass(m_DebugViewMode))
+		if (UsesGBufferDebugPass(m_DebugViewMode))
 		{
 			std::vector<RenderGraph::ResourceHandle> debugReads = gbufferOutputs;
 			appendResources(debugReads, sceneColorCurrent);
@@ -3806,7 +3798,6 @@ namespace Lux {
 						if (name == "Atmospheric Fog") return "AtmosphericFogPass";
 						if (name == "Selected Geometry") return "SelectedGeometryPass";
 						if (name == "GBuffer") return "GBufferPass";
-						if (name == "Forward Geometry") return "ForwardGeometryPass";
 						if (name == "Deferred Lighting") return "DeferredLightingPass";
 						if (name == "Transparent Forward") return "TransparentForwardPass";
 						if (name == "Geometry Wireframe") return "GeometryWireframePass";
@@ -3822,7 +3813,8 @@ namespace Lux {
 						if (name == "Bloom") return "BloomCompute";
 						if (name == "Composite") return "CompositePass";
 						if (name == "Grid") return "GridPass";
-						if (name == "Light Culling") return "LightCullingPass";
+						if (name == "Cluster Build") return "ClusterBuildPass";
+						if (name == "Cluster Light Culling") return "ClusterLightCullingPass";
 						return name.c_str();
 					};
 
@@ -4152,7 +4144,6 @@ namespace Lux {
 
 		recreatePassFramebuffer(m_PreDepthPass);
 		recreatePassFramebuffer(m_GeometryPass);
-		recreatePassFramebuffer(m_ForwardGeometryPass);
 		recreatePassFramebuffer(m_GeometryPassTransparent);
 		recreatePassFramebuffer(m_DeferredLightingPass);
 		recreatePassFramebuffer(m_GBufferDebugPass);
@@ -4274,9 +4265,6 @@ namespace Lux {
 		m_SpotShadowFrustumCount = 0;
 		m_SubmittedRenderScene = nullptr;
 
-		if (Ref<Project> project = Project::GetActive())
-			m_RenderingTechnique = project->GetConfig().RendererTechnique;
-
 		if (m_ResourcesCreatedGPU)
 			m_ResourcesCreated = true;
 
@@ -4301,7 +4289,6 @@ namespace Lux {
 			m_GeometryPassFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_SceneColorFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_ForwardGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassTransparent->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_DeferredLightingPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -4314,7 +4301,6 @@ namespace Lux {
 			m_CompositingFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GridRenderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			ResizeLightCullingResources();
 			ResizeScreenSpaceEffectResources();
 			ApplyRenderTargetAliasing();
 			m_ShadowCascadeCacheValid = false;
@@ -4943,7 +4929,14 @@ namespace Lux {
 			m_RendererDataUB.ShowCascades = m_Options.ShowShadowCascades;
 			m_RendererDataUB.ShowLightComplexity = m_Options.ShowLightComplexity;
 			m_RendererDataUB.ShowMaterialComplexity = m_Options.ShowMaterialComplexity;
-			m_RendererDataUB.TilesCountX = m_LightTilesCountX;
+			// Clustered light culling: near/far drive the exponential Z-slice mapping
+			// (must match ClusterBuildPass). Grid dims are compile-time in Cluster.glslh.
+			m_RendererDataUB.ClusterZParams = {
+				m_SceneData.SceneCamera.Near,
+				m_SceneData.SceneCamera.Far,
+				0.0f,
+				0.0f
+			};
 			// TAA jitter supersamples sub-pixel detail, so bias texture LOD down while it
 			// is active to recover the texture sharpness the resolve is meant to resolve.
 			m_RendererDataUB.TextureMipBias = m_Options.TextureMipBias + (m_Options.EnableTAA ? -1.0f : 0.0f);
@@ -4964,11 +4957,6 @@ namespace Lux {
 		// ── Update environment texture bindings in geometry passes ────────────
 		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_FrameEnvironment.Environment);
 		Ref<TextureCube> irradianceMap = GetEnvironmentIrradianceMap(m_FrameEnvironment.Environment);
-		if (m_ForwardGeometryPass)
-		{
-			m_ForwardGeometryPass->SetInput("u_EnvRadianceTex", radianceMap);
-			m_ForwardGeometryPass->SetInput("u_EnvIrradianceTex", irradianceMap);
-		}
 		if (m_DeferredLightingPass)
 		{
 			m_DeferredLightingPass->SetInput("u_EnvRadianceTex", radianceMap);
@@ -5687,8 +5675,6 @@ namespace Lux {
 			m_GPUMaterialTextures[textureIndex] = texture;
 			if (m_GeometryPass && m_GeometryPass->IsInputValid("u_GPUMaterialTextures"))
 				m_GeometryPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
-			if (m_ForwardGeometryPass && m_ForwardGeometryPass->IsInputValid("u_GPUMaterialTextures"))
-				m_ForwardGeometryPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 			if (m_GeometryPassTransparent && m_GeometryPassTransparent->IsInputValid("u_GPUMaterialTextures"))
 				m_GeometryPassTransparent->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 			if (m_DeferredLightingPass && m_DeferredLightingPass->IsInputValid("u_GPUMaterialTextures"))
@@ -6345,32 +6331,6 @@ namespace Lux {
 		ScopedCPUProfile cpuProfile(*this, "PreDepthPass");
 		BeginProfiledGPU("PreDepthPass");
 
-		// Correct an NVRHI depth-layout tracking desync. The PreDepth depth is sampled
-		// every frame by later passes (deferred lighting / AO / SSR / TAA / composite /
-		// DOF / fog / clouds) which leave it in SHADER_READ_ONLY, but NVRHI's tracked
-		// state falls out of sync so the depth-write passes don't transition it back,
-		// tripping a validation error at vkCmdBeginRendering. Tell NVRHI the real current
-		// state (ShaderResource) and transition it to DepthWrite before the depth pass.
-		// Only do this once the image has persisted a frame (i.e. it was actually
-		// sampled); the first frame after (re)creation it is already in DepthWrite.
-		if (m_PreDepthPass && m_PreDepthPass->GetDepthOutput())
-		{
-			nvrhi::TextureHandle depthHandle = m_PreDepthPass->GetDepthOutput()->GetHandle();
-			void* depthRaw = depthHandle.Get();
-			if (depthHandle && depthRaw == m_PreDepthBarrierLastHandle)
-			{
-				Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
-				Renderer::Submit([commandBuffer, depthHandle]()
-					{
-						nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
-						commandList->beginTrackingTextureState(depthHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-						commandList->setTextureState(depthHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::DepthWrite);
-						commandList->commitBarriers();
-					});
-			}
-			m_PreDepthBarrierLastHandle = depthRaw;
-		}
-
 		Renderer::BeginRenderPass(m_CommandBuffer, m_PreDepthPass, /*explicitClear=*/true);
 
 		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
@@ -6524,25 +6484,67 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
-	void SceneRenderer::LightCullingPass()
+	void SceneRenderer::ClusterBuildPass()
 	{
-		ScopedCPUProfile cpuProfile(*this, "LightCullingPass");
-		if (!m_LightCullingPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
+		ScopedCPUProfile cpuProfile(*this, "ClusterBuildPass");
+		if (!m_ClusterBuildPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
 
-		BeginProfiledGPU("LightCullingPass");
-		Renderer::LightCulling(m_CommandBuffer, m_LightCullingPass, nullptr, { m_LightTilesCountX, m_LightTilesCountY, 1 });
-
-		Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
-		Ref<StorageBufferSet> visiblePointLightIndices = m_SBSVisiblePointLightIndices;
-		Ref<StorageBufferSet> visibleSpotLightIndices = m_SBSVisibleSpotLightIndices;
-		Renderer::Submit([commandBuffer, visiblePointLightIndices, visibleSpotLightIndices]() mutable
+		struct ClusterBuildPushConstants
 		{
-			nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
-			commandList->setBufferState(visiblePointLightIndices->RT_Get()->GetHandle(), nvrhi::ResourceStates::ShaderResource);
-			commandList->setBufferState(visibleSpotLightIndices->RT_Get()->GetHandle(), nvrhi::ResourceStates::ShaderResource);
+			glm::vec4  ScreenSizeNearFar; // xy = render resolution (px), z = zNear, w = zFar
+			glm::uvec4 GridSize;          // xyz = cluster grid dims
+		} push;
+
+		push.ScreenSizeNearFar = {
+			static_cast<float>(glm::max(1u, m_ViewportWidth)),
+			static_cast<float>(glm::max(1u, m_ViewportHeight)),
+			m_SceneData.SceneCamera.Near,
+			m_SceneData.SceneCamera.Far
+		};
+		push.GridSize = { ClusterGridX, ClusterGridY, ClusterGridZ, 0u };
+
+		// TODO(clustered): cache — only rebuild on resize / projection change.
+		// Rebuilt every frame for now (4608 froxels, negligible cost).
+		constexpr uint32_t kThreadsPerGroup = 64;
+		const glm::uvec3 groups = { (ClusterCount + kThreadsPerGroup - 1u) / kThreadsPerGroup, 1u, 1u };
+
+		BeginProfiledGPU("ClusterBuildPass");
+		Renderer::BeginComputePass(m_CommandBuffer, m_ClusterBuildPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_ClusterBuildPass, nullptr, groups, Buffer(&push, sizeof(push)));
+		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSClusterAABBs->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(m_CommandBuffer, m_ClusterBuildPass);
+		EndProfiledGPU();
+	}
+
+	void SceneRenderer::ClusterLightCullingPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "ClusterLightCullingPass");
+		if (!m_ClusterLightCullingPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
+			return;
+
+		// Reset the dynamic-allocation cursors ([0]=point, [1]=spot) before the
+		// assignment dispatch atomically appends into the packed index lists.
+		Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
+		Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
+		Renderer::Submit([commandBuffer, counter]() mutable
+		{
+			commandBuffer->GetActive()->clearBufferUInt(counter->RT_Get()->GetHandle(), 0u);
 		});
 
+		constexpr uint32_t kThreadsPerGroup = 64;
+		const glm::uvec3 groups = { (ClusterCount + kThreadsPerGroup - 1u) / kThreadsPerGroup, 1u, 1u };
+
+		BeginProfiledGPU("ClusterLightCullingPass");
+		Renderer::BeginComputePass(m_CommandBuffer, m_ClusterLightCullingPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_ClusterLightCullingPass, nullptr, groups, Buffer());
+
+		Ref<PipelineCompute> pipeline = m_ClusterLightCullingPass->GetPipeline();
+		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSPointLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSSpotLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSPointLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSSpotLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(m_CommandBuffer, m_ClusterLightCullingPass);
 		EndProfiledGPU();
 	}
 
@@ -6797,35 +6799,6 @@ namespace Lux {
 				instance->RT_DrawStaticMesh(
 					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
 					instance->m_GeometryPass->GetPipeline()->GetShader());
-				});
-		}
-
-		Renderer::EndRenderPass(m_CommandBuffer);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
-	void SceneRenderer::ForwardGeometryPass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "ForwardGeometryPass");
-		BeginProfiledGPU("ForwardGeometryPass");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_ForwardGeometryPass);
-
-		const MeshPassState& opaquePass = GetMeshPass(MeshPassType::Opaque);
-		for (const MeshKey& key : opaquePass.DrawOrder)
-		{
-			const auto drawIt = opaquePass.DrawList.find(key);
-			if (drawIt == opaquePass.DrawList.end()) continue;
-			auto it = m_MeshTransformMap.find(key);
-			if (it == m_MeshTransformMap.end()) continue;
-
-			StaticDrawCommand drawCmd = drawIt->second;
-			const auto& tmd = it->second;
-
-			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
-				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
-					instance->m_ForwardGeometryPass->GetPipeline()->GetShader());
 				});
 		}
 
@@ -7884,12 +7857,8 @@ namespace Lux {
 
 	bool SceneRenderer::UsesDeferredPath() const
 	{
-		return UsesDeferredPath(m_RenderingTechnique);
-	}
-
-	bool SceneRenderer::UsesDeferredPath(RenderingTechnique technique) const
-	{
-		return technique == RenderingTechnique::Deferred;
+		// Deferred is now the only path (forward renderer removed).
+		return true;
 	}
 
 	Ref<Image2D> SceneRenderer::GetSceneColorOutput() const
