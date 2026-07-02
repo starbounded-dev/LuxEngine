@@ -2226,7 +2226,18 @@ namespace Lux {
 
 	void SceneRenderer::RefreshScreenSpaceEffectResources()
 	{
-		ResizeScreenSpaceEffectResources();
+		// Defer to the BeginScene m_NeedsResize block instead of resizing here.
+		// Resizing immediately is unsafe: render-target aliasing is still applied
+		// and the main framebuffers (SceneColor/GBuffer/PreDepth) have not been
+		// resized yet, so effect framebuffers that wrap them via ExistingImages
+		// bake the soon-to-be-orphaned texture handles into their FramebufferDesc.
+		// The resize block's Framebuffer::Resize then early-outs (size already
+		// matches) and never repairs them — meshes disappear permanently until
+		// the renderer is recreated.
+		if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
+			return;
+
+		m_NeedsResize = true;
 	}
 
 	glm::uvec2 SceneRenderer::CalculateVolumetricCloudRenderSize() const
@@ -4103,8 +4114,11 @@ namespace Lux {
 				continue;
 
 			image->ClearTransientAliasSource();
-			if (recreateResources)
-				image->RT_Invalidate();
+			// Always restore real storage: ApplyRenderTargetAliasing() excludes
+			// invalid images from the rebuilt alias graph, so a dead image is never
+			// re-aliased and never recovers — and it feeds a null texture handle
+			// into DescriptorSetManager::Bake, silently no-oping its passes.
+			image->RT_Invalidate();
 		}
 
 		m_RenderGraphAliasedImages.clear();
