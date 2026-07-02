@@ -6251,10 +6251,11 @@ namespace Lux {
 				StaticDrawCommand drawCmd = drawIt->second;
 				drawCmd.InstanceCount = instCount;
 
+				const MeshDrawParams params(cascadeTmd);
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, cascadeTmd, cascade]() mutable {
+				Renderer::Submit([instance, drawCmd, params, cascade]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, cascadeTmd, /*bindMaterial=*/false, cascade);
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, cascade);
 					});
 			}
 
@@ -6310,10 +6311,11 @@ namespace Lux {
 				StaticDrawCommand drawCmd = drawIt->second;
 				drawCmd.InstanceCount = instCount;
 
+				const MeshDrawParams params(cascadeTmd);
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, cascadeTmd, shadowIndex]() mutable {
+				Renderer::Submit([instance, drawCmd, params, shadowIndex]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, cascadeTmd, /*bindMaterial=*/false, shadowIndex);
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, shadowIndex);
 					});
 			}
 		}
@@ -6341,13 +6343,13 @@ namespace Lux {
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
-			const auto& tmd = it->second;
+			const MeshDrawParams params(it->second);
 			StaticDrawCommand drawCmd = drawIt->second;
 
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/false, /*useIndirect=*/false);
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/false, /*useIndirect=*/false);
 				});
 		}
 
@@ -6763,12 +6765,12 @@ namespace Lux {
 			if (it == m_MeshTransformMap.end()) continue;
 
 			StaticDrawCommand drawCmd = drawIt->second;
-			const auto& tmd = it->second;
+			const MeshDrawParams params(it->second);
 
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
 					instance->m_SelectedGeometryPass->GetPipeline()->GetShader());
 				});
 		}
@@ -6792,12 +6794,12 @@ namespace Lux {
 			if (it == m_MeshTransformMap.end()) continue;
 
 			StaticDrawCommand drawCmd = drawIt->second;
-			const auto& tmd = it->second;
+			const MeshDrawParams params(it->second);
 
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
 					instance->m_GeometryPass->GetPipeline()->GetShader());
 				});
 		}
@@ -6837,12 +6839,12 @@ namespace Lux {
 			if (it == m_MeshTransformMap.end()) continue;
 
 			StaticDrawCommand drawCmd = drawIt->second;
-			const auto& tmd = it->second;
+			const MeshDrawParams params(it->second);
 
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
 					instance->m_GeometryPassTransparent->GetPipeline()->GetShader());
 				});
 		}
@@ -6873,12 +6875,12 @@ namespace Lux {
 				if (it == m_MeshTransformMap.end()) continue;
 
 				StaticDrawCommand drawCmd = drawIt->second;
-				const auto& tmd = it->second;
+				const MeshDrawParams params(it->second);
 
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, tmd]() mutable {
+				Renderer::Submit([instance, drawCmd, params]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
 						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
 					});
 			}
@@ -6894,12 +6896,12 @@ namespace Lux {
 				if (it == m_MeshTransformMap.end()) continue;
 
 				StaticDrawCommand drawCmd = drawIt->second;
-				const auto& tmd = it->second;
+				const MeshDrawParams params(it->second);
 
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, tmd]() mutable {
+				Renderer::Submit([instance, drawCmd, params]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
 						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
 					});
 			}
@@ -7744,7 +7746,7 @@ namespace Lux {
 	void SceneRenderer::RT_DrawStaticMesh(
 		Ref<RenderCommandBuffer>  cmd,
 		const StaticDrawCommand& dc,
-		const TransformMapData& tmd,
+		MeshDrawParams            params,
 		bool                      bindMaterial,
 		uint32_t                  lightIndex,
 		bool                      useVisibleObjectIndexes,
@@ -7830,21 +7832,21 @@ namespace Lux {
 			std::memcpy(pushConstants.data(), materialUniforms.Data, materialUniforms.Size);
 
 		auto& pc = *reinterpret_cast<MeshDrawPushConstants*>(pushConstants.data());
-		pc.ObjectIndexBase = useVisibleObjectIndexes ? tmd.VisibleObjectIndexBase : tmd.ObjectIndexBase;
+		pc.ObjectIndexBase = useVisibleObjectIndexes ? params.VisibleObjectIndexBase : params.ObjectIndexBase;
 		pc.LightIndex = lightIndex;
 		pc.BoneTransformBase = 0;
 		pc.BoneTransformStride = 0;
 		cmd->GetActive()->setPushConstants(pushConstants.data(), pushConstants.size());
 
-		if (useIndirect && tmd.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
+		if (useIndirect && params.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
 		{
 			gs.indirectParams = m_SBSIndirectDrawCommands->RT_Get()->GetHandle();
 			cmd->RT_CommitGraphicsState();
-			cmd->GetActive()->drawIndexedIndirect(tmd.IndirectDrawOffsetBytes, 1);
+			cmd->GetActive()->drawIndexedIndirect(params.IndirectDrawOffsetBytes, 1);
 			return;
 		}
 
-		const uint32_t instanceCount = useVisibleObjectIndexes ? tmd.VisibleInstanceCount : dc.InstanceCount;
+		const uint32_t instanceCount = useVisibleObjectIndexes ? params.VisibleInstanceCount : dc.InstanceCount;
 		if (instanceCount == 0)
 			return;
 

@@ -803,6 +803,28 @@ namespace Lux {
 			uint32_t              IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
 		};
 
+		// Snapshot of the TransformMapData scalars RT_DrawStaticMesh needs.
+		// Captured by value into the render-command lambda instead of the full
+		// TransformMapData, which would copy the ObjectIndices heap vector per draw.
+		// Must be a snapshot: ClearFrameMeshPasses wipes the transform map on the
+		// main thread while the render thread executes a frame behind.
+		struct MeshDrawParams
+		{
+			uint32_t ObjectIndexBase = 0;
+			uint32_t VisibleObjectIndexBase = 0;
+			uint32_t VisibleInstanceCount = 0;
+			uint32_t IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
+
+			MeshDrawParams() = default;
+			explicit MeshDrawParams(const TransformMapData& tmd)
+				: ObjectIndexBase(tmd.ObjectIndexBase)
+				, VisibleObjectIndexBase(tmd.VisibleObjectIndexBase)
+				, VisibleInstanceCount(tmd.VisibleInstanceCount)
+				, IndirectDrawOffsetBytes(tmd.IndirectDrawOffsetBytes)
+			{
+			}
+		};
+
 		struct MeshCullDrawData
 		{
 			uint32_t ObjectIndexBase = 0;
@@ -999,7 +1021,7 @@ namespace Lux {
 		// Render-thread draw helper (must be called inside Renderer::Submit).
 		void RT_DrawStaticMesh(Ref<RenderCommandBuffer> cmd,
 			const StaticDrawCommand& dc,
-			const TransformMapData& tmd,
+			MeshDrawParams           params,
 			bool                     bindMaterial,
 			uint32_t                 lightIndex = 0,
 			bool                     useVisibleObjectIndexes = false,
