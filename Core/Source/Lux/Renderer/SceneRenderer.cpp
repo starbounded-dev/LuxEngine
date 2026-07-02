@@ -6015,19 +6015,24 @@ namespace Lux {
 			|| !gpuMaterialData.empty()
 			|| !transientGPUMaterialData.empty())
 		{
-			const auto indexData = objectIndexData;
-			const auto visibleIndexData = visibleObjectIndexData;
-			const auto cullDrawData = meshCullDrawData;
-			const auto indirectCommands = indirectDrawData;
-			const auto gpuSceneData = gpuSceneInstanceData;
-			const auto transientSceneData = transientGPUSceneData;
-			const auto materialData = gpuMaterialData;
-			const auto transientMaterialData = transientGPUMaterialData;
 			const uint32_t persistentSceneCount = persistentGPUSceneInstanceCount;
 			const uint32_t persistentGPUMaterialCount = persistentMaterialCount;
 			Ref<SceneRenderer> instance = this;
 
-			Renderer::Submit([instance, indexData, visibleIndexData, cullDrawData, indirectCommands, gpuSceneData, transientSceneData, materialData, transientMaterialData, persistentSceneCount, persistentGPUMaterialCount]() mutable {
+			// Init-captures: one copy per vector instead of the previous
+			// local-copy-then-capture-copy. Scratch-backed vectors (reused next
+			// frame) are copied; the frame-local GPUScene vectors are moved —
+			// nothing reads them after this block.
+			Renderer::Submit([instance,
+				indexData = objectIndexData,
+				visibleIndexData = visibleObjectIndexData,
+				cullDrawData = meshCullDrawData,
+				indirectCommands = indirectDrawData,
+				gpuSceneData = std::move(gpuSceneInstanceData),
+				transientSceneData = std::move(transientGPUSceneData),
+				materialData = gpuMaterialData,
+				transientMaterialData = transientGPUMaterialData,
+				persistentSceneCount, persistentGPUMaterialCount]() mutable {
 
 				Ref<RenderCommandBuffer> cmd = instance->m_UploadCommandBuffer;
 
