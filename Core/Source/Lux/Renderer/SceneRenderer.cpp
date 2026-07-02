@@ -5621,18 +5621,38 @@ namespace Lux {
 		const TextureScene* submittedTextureScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetTextureScene() : nullptr;
 
 		std::vector<AssetHandle>& gpuTextureHandles = m_ScratchTextureHandles;
-		if (submittedTextureScene)
+		// Skip re-copying the whole texture table when the same TextureScene is
+		// submitted with an unchanged version — the scratch already holds the
+		// persistent rows (plus last frame's transients, truncated below).
+		const bool textureTableChanged = !submittedTextureScene
+			|| (const void*)submittedTextureScene != m_ScratchTextureSceneKey
+			|| submittedTextureScene->GetVersion() != m_ScratchTextureSceneVersion;
+		if (textureTableChanged)
 		{
-			const std::vector<AssetHandle>& src = submittedTextureScene->GetTextureHandles();
-			gpuTextureHandles.assign(src.begin(), src.end());
+			if (submittedTextureScene)
+			{
+				const std::vector<AssetHandle>& src = submittedTextureScene->GetTextureHandles();
+				gpuTextureHandles.assign(src.begin(), src.end());
+			}
+			else
+			{
+				gpuTextureHandles.clear();
+			}
+			if (gpuTextureHandles.empty())
+				gpuTextureHandles.push_back(AssetHandle(0));
+
+			m_ScratchTextureSceneKey = (const void*)submittedTextureScene;
+			m_ScratchTextureSceneVersion = submittedTextureScene
+				? submittedTextureScene->GetVersion()
+				: std::numeric_limits<uint64_t>::max();
+			m_ScratchPersistentTextureCount = (uint32_t)gpuTextureHandles.size();
 		}
 		else
 		{
-			gpuTextureHandles.clear();
+			// Unchanged table: just drop the transient handles appended last frame.
+			gpuTextureHandles.resize(m_ScratchPersistentTextureCount);
 		}
-		if (gpuTextureHandles.empty())
-			gpuTextureHandles.push_back(AssetHandle(0));
-		const uint32_t persistentTextureCount = (uint32_t)gpuTextureHandles.size();
+		const uint32_t persistentTextureCount = m_ScratchPersistentTextureCount;
 		for (AssetHandle transientTextureHandle : m_TransientGPUTextureHandles)
 			gpuTextureHandles.push_back(transientTextureHandle);
 
@@ -5684,17 +5704,31 @@ namespace Lux {
 		}
 
 		std::vector<GPUMaterialData>& gpuMaterialData = m_ScratchMaterialData;
-		if (submittedMaterialScene)
+		// Same version gate as the texture table. Unlike the texture scratch,
+		// nothing is appended to this one, so an unchanged frame skips the copy
+		// entirely and the scratch contents carry over bit-identical.
+		const bool materialTableChanged = !submittedMaterialScene
+			|| (const void*)submittedMaterialScene != m_ScratchMaterialSceneKey
+			|| submittedMaterialScene->GetVersion() != m_ScratchMaterialSceneVersion;
+		if (materialTableChanged)
 		{
-			const std::vector<GPUMaterialData>& src = submittedMaterialScene->GetMaterials();
-			gpuMaterialData.assign(src.begin(), src.end());
+			if (submittedMaterialScene)
+			{
+				const std::vector<GPUMaterialData>& src = submittedMaterialScene->GetMaterials();
+				gpuMaterialData.assign(src.begin(), src.end());
+			}
+			else
+			{
+				gpuMaterialData.clear();
+			}
+			if (gpuMaterialData.empty())
+				gpuMaterialData.push_back(MaterialScene::GetFallbackMaterialData());
+
+			m_ScratchMaterialSceneKey = (const void*)submittedMaterialScene;
+			m_ScratchMaterialSceneVersion = submittedMaterialScene
+				? submittedMaterialScene->GetVersion()
+				: std::numeric_limits<uint64_t>::max();
 		}
-		else
-		{
-			gpuMaterialData.clear();
-		}
-		if (gpuMaterialData.empty())
-			gpuMaterialData.push_back(MaterialScene::GetFallbackMaterialData());
 		const uint32_t persistentMaterialCount = (uint32_t)gpuMaterialData.size();
 
 		std::vector<GPUMaterialData>& transientGPUMaterialData = m_ScratchTransientMaterialData;

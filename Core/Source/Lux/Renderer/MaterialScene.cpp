@@ -348,6 +348,7 @@ namespace Lux {
 		m_TextureResolver = {};
 		m_DirtyMaterialIDs.clear();
 		m_DirtyRanges.clear();
+		m_Version++;
 		EnsureFallbackMaterial();
 	}
 
@@ -358,6 +359,7 @@ namespace Lux {
 			return;
 
 		m_DirtyMaterialIDs.push_back(materialID);
+		m_Version++;
 	}
 
 }

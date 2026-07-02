@@ -29,6 +29,10 @@ namespace Lux {
 		void Clear();
 
 		const std::vector<AssetHandle>& GetTextureHandles() const { return m_TextureHandles; }
+		// Monotonic change counter: bumped whenever the texture table mutates
+		// (MarkTextureDirty / Clear). Lets consumers skip re-copying the table on
+		// frames where nothing changed. Never reset.
+		uint64_t GetVersion() const { return m_Version; }
 		const std::vector<TextureSceneDirtyRange>& GetDirtyRanges() const { return m_DirtyRanges; }
 		bool HasDirtyTextures() const { return m_DirtyTextureCount > 0; }
 		uint32_t GetDirtyTextureCount() const { return m_DirtyTextureCount; }
@@ -41,6 +45,7 @@ namespace Lux {
 	private:
 		uint32_t m_FrameIndex = 0;
 		uint32_t m_DirtyTextureCount = 0;
+		uint64_t m_Version = 0;
 
 		std::vector<AssetHandle> m_TextureHandles;
 		std::vector<uint32_t> m_LastTouchedFrames;

@@ -1507,6 +1507,16 @@ namespace Lux {
 		// Never touch this from the main thread.
 		std::vector<uint8_t>                           m_RTPushConstantScratch;
 
+		// Change tracking for the texture/material table scratches above: the copy
+		// from the submitted scene is skipped when the same scene instance is
+		// submitted with an unchanged version. Version sentinels start at max so
+		// the first frame always copies.
+		const void* m_ScratchTextureSceneKey = nullptr;
+		uint64_t    m_ScratchTextureSceneVersion = std::numeric_limits<uint64_t>::max();
+		uint32_t    m_ScratchPersistentTextureCount = 0;
+		const void* m_ScratchMaterialSceneKey = nullptr;
+		uint64_t    m_ScratchMaterialSceneVersion = std::numeric_limits<uint64_t>::max();
+
 		// Shadow-specific per-cascade transform tracking.
 		// Index 0 is the only cascade we use currently.
 		struct ShadowTransformMapData
