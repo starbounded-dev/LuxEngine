@@ -1479,6 +1479,12 @@ namespace Lux {
 		std::vector<GPUMaterialData>                   m_ScratchMaterialData;
 		std::vector<GPUMaterialData>                   m_ScratchTransientMaterialData;
 
+		// Render-thread-only scratch for RT_DrawStaticMesh push constants. RT_*
+		// helpers execute serially inside render-command execution (only lambda
+		// construction happens on the main thread), so no synchronization is needed.
+		// Never touch this from the main thread.
+		std::vector<uint8_t>                           m_RTPushConstantScratch;
+
 		// Shadow-specific per-cascade transform tracking.
 		// Index 0 is the only cascade we use currently.
 		struct ShadowTransformMapData

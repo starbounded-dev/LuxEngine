@@ -7819,7 +7819,12 @@ namespace Lux {
 		// ── Push constants ────────────────────────────────────────────────────
 		Buffer materialUniforms = material ? material->GetUniformStorageBuffer() : Buffer();
 		const uint64_t pushConstantSize = std::max<uint64_t>(sizeof(MeshDrawPushConstants), materialUniforms.Size);
-		std::vector<uint8_t> pushConstants(pushConstantSize);
+		// Reuse the render-thread scratch instead of heap-allocating per draw.
+		// assign() zero-fills while retaining capacity; the zero-fill matters for
+		// the tail bytes when materialUniforms.Size and sizeof(MeshDrawPushConstants)
+		// differ.
+		std::vector<uint8_t>& pushConstants = m_RTPushConstantScratch;
+		pushConstants.assign(pushConstantSize, 0);
 
 		if (materialUniforms)
 			std::memcpy(pushConstants.data(), materialUniforms.Data, materialUniforms.Size);
