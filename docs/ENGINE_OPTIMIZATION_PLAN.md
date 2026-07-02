@@ -13,6 +13,42 @@ things slower or just move the cost. We already started this (Tracy + `csvexport
 
 ---
 
+## Status ledger
+
+| Phase | Status | Result |
+|---|---|---|
+| **Phase 0** — measurement infra | ✅ Done | Tracy CPU zones on all 39 passes; in-engine GPU per-pass timing documented; baseline protocol in `RENDERER_PERF_BASELINE.md`. |
+| **Phase 1** — render-graph recompile cache + scratch reuse | ✅ Done | `RenderGraph::Compile` 996/996 frames → 1/3403; `FlushDrawList` 3.09 → 2.56 ms. |
+| **Phase 1.5** — lazy graph names, removed double `BuildRenderGraph` | ✅ Done | `FlushDrawList` 2.56 → 2.11 ms (**cumulative −31.7%**). |
+| **Phase 2** — submission-path allocations + build config | ✅ Implemented, awaiting Windows measurement | Six fixes below. |
+
+**Phase 2 fixes (2026-07-02, one commit each):**
+
+1. **Dist build config** (`Core/premake5.lua`, `premake5.lua`) — Core's Dist filter no
+   longer overrides `optimize "Full"` down to `"On"`; `LinkTimeOptimization` (/GL+/LTCG)
+   added workspace-wide for Dist. Release untouched (Tracy baseline build).
+   *Verify:* regenerate projects, check vcxproj for /GL, FPS spot-check (no Tracy in Dist).
+2. **Push-constant scratch** (`SceneRenderer.cpp` `RT_DrawStaticMesh`) — the per-draw
+   per-pass `std::vector<uint8_t>` heap allocation on the render thread is now a reused
+   render-thread-only member. *Verify:* render-thread `RenderCommandQueue::Execute` zone.
+3. **`MeshDrawParams` capture** (`SceneRenderer.cpp`, 8 submit sites) — draw lambdas no
+   longer copy `TransformMapData` (with its `ObjectIndices` heap vector) per draw; they
+   capture a 4-scalar POD snapshot. *Verify:* per-pass CPU zones (ShadowMapPass,
+   PreDepthPass, GBufferPass, TransparentForwardPass).
+4. **Upload-lambda init-captures** (`SceneRenderer.cpp` FlushDrawList) — removed the
+   local-copy-then-capture-copy of 8 vectors/frame; GPUScene instance vectors are moved.
+   *Verify:* `FlushDrawList` zone.
+5. **`SyncRenderScene` scratch** (`Scene.cpp`) — sync-item vector is thread_local scratch,
+   cleared at both ends. *Verify:* `Scene::SyncRenderScene` zone.
+6. **Version-gated table copies** (`TextureScene`, `MaterialScene`, `SceneRenderer`) — the
+   full texture/material table copies are skipped when the submitted scene's monotonic
+   version is unchanged. The texture *resolve loop* intentionally still runs every frame
+   (it picks up async texture-load completions, which don't mark the scene dirty).
+   *Verify:* `FlushDrawList` zone; add/remove a material + texture at runtime and confirm
+   the change appears.
+
+---
+
 ## 0. Where LuxEngine actually stands
 
 **Already has (genuinely modern):**
@@ -79,11 +115,26 @@ This is where LuxEngine's measured cost actually is right now (light scenes are 
 
 ### A1. Persistent draw-command caching (Unreal's biggest CPU win)
 Unreal's **`FMeshDrawCommand`** pipeline caches the per-draw state and only rebuilds when a
-primitive actually changes. LuxEngine rebuilds draw lists every frame. There's already a
-`MeshDrawCommandCache` scaffold in `SceneRenderer` — finish it: hash (mesh, material,
-pass-state) and only re-record on change. **Win:** removes most of the remaining
-`FlushDrawList` CPU.
+primitive actually changes. **Status correction:** the `MeshDrawCommandCache` is *not* a
+scaffold — it is implemented and live (`SubmitMeshPassDraw`, with age-based pruning at
+`MeshDrawCommandCacheRetireAge = 300`). What remains of A1 is **retaining the draw lists
+across frames**: `ClearFrameMeshPasses` wipes every pass's `DrawList`/`DrawOrder` each frame
+and `BuildSortedDrawCommandOrder` re-sorts every pass every frame. Gate that on
+`RenderSceneSyncStats` dirty counts. Three blockers make this a measure-validated change,
+not an inspection-safe one:
+1. per-frame camera-dependent CPU frustum culling (`isInstanceVisible`) feeds the lists;
+2. transient (debug/collider) submissions are interleaved with cached ones;
+3. `m_MeshTransformMap` offset assignment assumes a fresh build.
+**Win:** removes most of the remaining `FlushDrawList` CPU.
 **Reference:** Unreal *"Mesh Drawing Pipeline"* docs; The Cherno's Hazel render-pass videos.
+
+### A2-prime. Dirty-range GPUScene uploads
+After Phase 2, the largest remaining per-frame memcpy is the **full persistent GPUScene
+instance re-upload** in the FlushDrawList upload lambda (the code comment there is explicit:
+`StorageBufferSet` owns one buffer per frame-in-flight, so per-slot dirty tracking is needed
+before partial uploads are correct). Implement per-frame-in-flight dirty ranges in `GPUScene`
+(the `TextureSceneDirtyRange`/`MaterialSceneDirtyRange` machinery is the in-repo pattern to
+copy), then upload only dirty rows. Runtime-verification only — do with Tracy running.
 
 ### A2. Job-ify the frame, don't just have a render thread
 LuxEngine has a render thread + JobSystem but the frame is largely serial
@@ -186,14 +237,21 @@ streaming).
 
 ## Priority order (what to actually do, in sequence)
 
-1. **Phase 0 GPU timing** (RenderDoc/Nsight now; Tracy-Vk later) — unblocks everything GPU.
-2. **A1 draw-command caching** + **A2/A4 parallel recording** — biggest *measured* CPU win.
-3. **B1 async compute** — biggest GPU win for least risk; the graph already models dependencies.
-4. **E structural split + Dist stripping** — makes the rest safe and ships lean.
-5. **B2 VRS** — cheap GPU win on the heavy full-screen passes.
-6. **D streaming/PSO** — kills hitching (perceived performance).
-7. **B3 mesh shaders**, **C clustered shading** — larger architectural upgrades.
-8. **B4 ray tracing** — last, largest, most optional.
+1. ~~**Phase 0 GPU timing**~~ — done (see Status ledger).
+2. ~~**Phase 1/1.5 render-graph caching**~~ — done (−31.7% FlushDrawList).
+3. ~~**Phase 2 submission-path allocations + build config**~~ — implemented; validate on
+   Windows against the baseline before proceeding.
+4. **A1 completion (retained draw lists)** — biggest remaining *measured* CPU win; needs
+   Tracy before/after (see A1 blockers).
+5. **A2-prime dirty-range GPUScene uploads** — kills the largest remaining per-frame memcpy.
+6. **B1 async compute** — biggest GPU win for least risk; the graph already models dependencies.
+7. **E structural split + Dist stripping** — makes the rest safe and ships lean.
+8. **B2 VRS** — cheap GPU win on the heavy full-screen passes.
+9. **D streaming/PSO** — kills hitching (perceived performance).
+10. **B3 mesh shaders**, **C clustered shading** — larger architectural upgrades.
+    (Note: clustered froxel light culling has since landed in the renderer core — validate
+    it with GPU timing, then retire the C-bonus item.)
+11. **B4 ray tracing** — last, largest, most optional.
 
 ## What NOT to do (the discipline part)
 - Don't chase Nanite/Lumen clones — they're multi-year efforts and overkill here.
