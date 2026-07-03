@@ -1531,6 +1531,14 @@ namespace Lux {
 		// Never touch this from the main thread.
 		std::vector<uint8_t>                           m_RTPushConstantScratch;
 
+		// Bindless texture resolve: slots waiting on streaming textures retry per
+		// frame; everything else re-resolves only on table changes or the
+		// periodic safety sweep (hot-reload coverage).
+		std::vector<uint32_t> m_PendingTextureResolveSlots;
+		std::vector<uint32_t> m_PendingTextureResolveScratch;
+		uint32_t m_TextureResolveSweepCountdown = 0;
+		uint32_t m_MissingTextureDescriptorCount = 0;
+
 		// Dirty-range GPUScene uploads: each sync's dirty ranges replay once per
 		// frame-in-flight buffer ("epochs"); full uploads run on scene switch /
 		// instance-count growth (high-water tracked, which also covers buffer

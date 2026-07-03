@@ -5836,19 +5836,37 @@ namespace Lux {
 				return texture;
 			};
 
+		// Resolving all bindless slots costs an asset-manager lookup per slot per
+		// frame. Steady state re-resolves only: slots still waiting on a
+		// streaming texture (pending list), the per-frame transient region, and
+		// a periodic full sweep as a safety net for asset hot-reloads that swap
+		// a texture's contents without touching the table version.
+		constexpr uint32_t TextureResolveSweepInterval = 32;
+		const bool fullTextureResolve = textureTableChanged || m_TextureResolveSweepCountdown == 0;
+		if (fullTextureResolve)
+			m_TextureResolveSweepCountdown = TextureResolveSweepInterval;
+		else
+			m_TextureResolveSweepCountdown--;
+
 		uint32_t missingTextureDescriptorCount = 0;
 		if (m_GPUMaterialTextures.empty())
 			m_GPUMaterialTextures.assign(MaxGPUTextureSceneTextures, Renderer::GetWhiteTexture());
 
-		for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+		m_PendingTextureResolveScratch.swap(m_PendingTextureResolveSlots);
+		m_PendingTextureResolveSlots.clear();
+
+		auto resolveSlot = [&](uint32_t textureIndex)
 		{
 			const AssetHandle textureHandle = textureIndex < gpuTextureHandles.size() ? gpuTextureHandles[textureIndex] : AssetHandle(0);
 			Ref<Texture2D> texture = resolveMaterialTexture(textureHandle);
 			if (textureHandle && texture.Raw() == Renderer::GetWhiteTexture().Raw())
+			{
 				missingTextureDescriptorCount++;
+				m_PendingTextureResolveSlots.push_back(textureIndex); // still streaming — retry next frame
+			}
 
 			if (m_GPUMaterialTextures[textureIndex].Raw() == texture.Raw())
-				continue;
+				return;
 
 			m_GPUMaterialTextures[textureIndex] = texture;
 			if (m_GeometryPass && m_GeometryPass->IsInputValid("u_GPUMaterialTextures"))
@@ -5859,6 +5877,31 @@ namespace Lux {
 				m_DeferredLightingPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 			if (m_GBufferDebugPass && m_GBufferDebugPass->IsInputValid("u_GPUMaterialTextures"))
 				m_GBufferDebugPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
+		};
+
+		if (fullTextureResolve)
+		{
+			for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+				resolveSlot(textureIndex);
+			m_MissingTextureDescriptorCount = missingTextureDescriptorCount;
+		}
+		else
+		{
+			// Persistent pending slots (transient-region entries are re-added by
+			// the transient loop below, avoiding duplicates in the pending list).
+			for (uint32_t textureIndex : m_PendingTextureResolveScratch)
+			{
+				if (textureIndex < persistentTextureCount)
+					resolveSlot(textureIndex);
+			}
+
+			// Transient slots change every frame; always resolve their region.
+			const uint32_t transientEnd = glm::min((uint32_t)gpuTextureHandles.size(), MaxGPUTextureSceneTextures);
+			for (uint32_t textureIndex = persistentTextureCount; textureIndex < transientEnd; textureIndex++)
+				resolveSlot(textureIndex);
+
+			// The missing-slot statistic refreshes on full sweeps.
+			missingTextureDescriptorCount = m_MissingTextureDescriptorCount;
 		}
 
 		std::vector<GPUMaterialData>& gpuMaterialData = m_ScratchMaterialData;
