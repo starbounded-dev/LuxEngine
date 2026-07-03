@@ -212,3 +212,22 @@ Phase 2 (submission-path allocations + build config, 2026-07-02) predicts:
 Renderer Debugger on the same scene, zero new Vulkan validation messages, and (for the
 version-gated tables) verify a runtime material edit and a texture add/remove still show
 up on screen.
+
+## Phase 3 hypotheses (rendering audit, 2026-07-03)
+
+- **Frame-time variance drops** (descriptor re-Bake fix): the
+  `DescriptorSetManager::InvalidateAndUpdate (...) - updating N descriptors` trace log
+  must stop repeating every frame once past startup/resize. Watch the frame-time history
+  graph in the Renderer Debugger — this fix targets the *instability*, not just the mean.
+- **`FlushDrawList` CPU drops** with the Renderer Debugger closed (GPUScene snapshot is
+  now on-request).
+- **GPU frame time drops** on scenes with no point/spot lights (cluster passes skip) and
+  with SSR off (PreIntegration gated), visible per-pass in the Renderer Debugger.
+- **VRAM drops ~200 MB** at the default/High preset (2K shadow cascades) — check the
+  memory HUD; shadow quality visual check, Ultra restores 4K.
+- **Atmosphere-disabled scenes** lose the per-frame atmosphere UBO rebuild+upload
+  (BeginScene zone).
+- **Correctness gates:** toggle lights on/off at runtime (cluster skip must not leave
+  stale lighting), toggle sky/fog/clouds on/off (atmosphere idle path), open/close the
+  Renderer Debugger GPU Scene section (snapshot request path), resize + preset cycle
+  with validation on.

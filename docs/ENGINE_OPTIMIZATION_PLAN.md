@@ -21,6 +21,7 @@ things slower or just move the cost. We already started this (Tracy + `csvexport
 | **Phase 1** — render-graph recompile cache + scratch reuse | ✅ Done | `RenderGraph::Compile` 996/996 frames → 1/3403; `FlushDrawList` 3.09 → 2.56 ms. |
 | **Phase 1.5** — lazy graph names, removed double `BuildRenderGraph` | ✅ Done | `FlushDrawList` 2.56 → 2.11 ms (**cumulative −31.7%**). |
 | **Phase 2** — submission-path allocations + build config | ✅ Implemented, awaiting Windows measurement | Six fixes below. |
+| **Phase 3** — full rendering audit: stability + zero-cost-when-off | ✅ Implemented, awaiting Windows measurement | Seven fixes below (A8 deferred). |
 
 **Phase 2 fixes (2026-07-02, one commit each):**
 
@@ -46,6 +47,58 @@ things slower or just move the cost. We already started this (Tracy + `csvexport
    (it picks up async texture-load completions, which don't mark the scene dirty).
    *Verify:* `FlushDrawList` zone; add/remove a material + texture at runtime and confirm
    the change appears.
+
+**Phase 3 fixes (2026-07-03, one commit each) — from the full rendering audit:**
+
+1. **Descriptor re-Bake bug** (`Platform/Vulkan/DescriptorSetManager.cpp`) —
+   `InvalidatedInputResources` was never cleared in the live path, so the first
+   invalidation (guaranteed by the startup resize) made every dynamic pass rebuild ALL
+   its binding sets × frames-in-flight, every frame, forever. Now cleared at the top of
+   `InvalidateAndUpdate`. **Prime frame-time-instability suspect.** *Verify:* the
+   `DescriptorSetManager::InvalidateAndUpdate ... updating N descriptors` trace log stops
+   repeating after warm-up/resize; frame-time graph flattens.
+2. **GPUScene debug snapshot on-request** (`SceneRenderer` + `RendererDebuggerPanel`) —
+   the O(instances+materials) validation loops now run only on frames where the panel's
+   GPU Scene section requests them. *Verify:* `FlushDrawList` CPU with the panel closed.
+3. **PreIntegration gated behind SSR** — its visibility pyramid is consumed only by SSR.
+4. **Cluster froxel passes skip with zero local lights** — build early-outs; culling
+   zero-fills the grids instead of dispatching.
+5. **Atmosphere UBO idles when sky/clouds/fog are all off** — disabled-flags UB written
+   once per frame-in-flight buffer, then no rebuild/upload until a feature activates.
+6. **Shadow default 4K→2K** (options + project defaults + High preset; Ultra=4K,
+   Cinematic=8K) — saves ~200 MB VRAM and shadow-render bandwidth.
+7. **GPU timer/pipeline queries disabled in Dist** (`RenderCommandBuffer.cpp`).
+
+*(A8 — JumpFlood RGBA32F→smaller format — was investigated and deferred: the algorithm
+uses all four channels (xy=seed offset, z=distance, w=inside/outside), so only a
+precision-reduction to RGBA16F is possible and that needs visual verification.)*
+
+**Phase 4 candidates (audit findings that need build/measure or shader edits — do with
+Tracy + validation on):**
+
+- **Blanket `isUAV = true` on every color image** (`Image.cpp:190-199`) adds STORAGE usage
+  to all render targets, likely disabling framebuffer compression → bandwidth tax on every
+  full-res pass. Audit shaders for storage-image bindings first, then restrict to
+  `Usage == Storage` + explicit opt-ins. Biggest GPU-bandwidth suspect.
+- **Synchronous per-resource GPU uploads** — every mesh/texture load creates its own
+  command list and submits immediately under a global queue mutex
+  (`VertexBuffer.cpp:23-27` etc.), and the command list is retained per buffer forever.
+  Batch into a per-frame upload list / transfer queue. Biggest streaming-hitch suspect.
+- Format diets needing shader edits: Bloom + PreConvolution pyramids RGBA32F→RGBA16F;
+  JumpFlood RGBA32F→RGBA16F (see A8 note); GBuffer normal → octahedral RG16F; merge the
+  two R32UI id targets.
+- Editor-target lazy creation (SelectedGeometry / AO-Debug / GBufferDebug ≈ 80 MB
+  always resident; JumpFlood ≈ 100 MB).
+- Cluster grid caching on resize/projection change (currently rebuilt per frame while
+  lights exist).
+- Empty-pass graph gating (Transparent/Selected/Wireframe still open + clear render
+  passes when their draw lists are empty) — interacts with render-target aliasing.
+- Composite-chain merging: Skybox→Deferred→AO→SSR→Cloud→Fog→Composite→DOF each do a
+  full-res scene-color read-modify-write; several are mergeable.
+- Memory HUD reads a vestigial VMA tracker (`VulkanAllocator.cpp`) — live allocations go
+  through NVRHI; re-source the stats.
+- Correctness/sync audit (thread handoff, upload races, barrier semantics) — still
+  pending; the audit session for it was cut short.
 
 ---
 
