@@ -282,6 +282,12 @@ namespace Lux {
 		uint32_t ViewportWidth = 0;   // 0 = use window size
 		uint32_t ViewportHeight = 0;
 		Tiering::Renderer::RendererTieringSettings Tiering;
+
+		// Editor-only render targets (selection outline, wireframe, AO/GBuffer
+		// debug views) cost ~180 MB of full-viewport images. The standalone
+		// runtime sets this false so they are never created; their passes
+		// null-guard and never execute there.
+		bool EnableEditorRenderTargets = true;
 	};
 
 	// ─────────────────────────────────────────────────────────────────────────

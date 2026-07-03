@@ -1347,27 +1347,31 @@ namespace Lux {
 			m_DeferredLightingPass->Bake();
 			m_DeferredLightingMaterial = Material::Create(deferredPipelineSpec.Shader, "DeferredLighting");
 
-			FramebufferSpecification debugSpec;
-			debugSpec.Width = m_ViewportWidth;
-			debugSpec.Height = m_ViewportHeight;
-			debugSpec.Attachments = { ImageFormat::RGBA16F };
-			debugSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-			debugSpec.DebugName = "GBufferDebug";
+			// Editor-only debug view target — not created in the standalone runtime.
+			if (m_Specification.EnableEditorRenderTargets)
+			{
+				FramebufferSpecification debugSpec;
+				debugSpec.Width = m_ViewportWidth;
+				debugSpec.Height = m_ViewportHeight;
+				debugSpec.Attachments = { ImageFormat::RGBA16F };
+				debugSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+				debugSpec.DebugName = "GBufferDebug";
 
-			PipelineSpecification debugPipelineSpec = deferredPipelineSpec;
-			debugPipelineSpec.DebugName = "GBufferDebug";
-			debugPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("GBufferDebug");
-			debugPipelineSpec.TargetFramebuffer = Framebuffer::Create(debugSpec);
+				PipelineSpecification debugPipelineSpec = deferredPipelineSpec;
+				debugPipelineSpec.DebugName = "GBufferDebug";
+				debugPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("GBufferDebug");
+				debugPipelineSpec.TargetFramebuffer = Framebuffer::Create(debugSpec);
 
-			rpSpec.DebugName = "GBufferDebugPass";
-			rpSpec.Pipeline = Pipeline::Create(debugPipelineSpec);
-			m_GBufferDebugPass = RenderPass::Create(rpSpec);
-			BindSceneRenderPassInputs(m_GBufferDebugPass, PassInputCommonScene | PassInputGBuffer | PassInputMaterialScene);
-			m_GBufferDebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			LUX_CORE_VERIFY(m_GBufferDebugPass->Validate());
-			m_GBufferDebugPass->Bake();
-			m_GBufferDebugMaterial = Material::Create(debugPipelineSpec.Shader, "GBufferDebug");
-			m_GBufferDebugMaterial->Set("u_Uniforms.Mode", 0u);
+				rpSpec.DebugName = "GBufferDebugPass";
+				rpSpec.Pipeline = Pipeline::Create(debugPipelineSpec);
+				m_GBufferDebugPass = RenderPass::Create(rpSpec);
+				BindSceneRenderPassInputs(m_GBufferDebugPass, PassInputCommonScene | PassInputGBuffer | PassInputMaterialScene);
+				m_GBufferDebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+				LUX_CORE_VERIFY(m_GBufferDebugPass->Validate());
+				m_GBufferDebugPass->Bake();
+				m_GBufferDebugMaterial = Material::Create(debugPipelineSpec.Shader, "GBufferDebug");
+				m_GBufferDebugMaterial->Set("u_Uniforms.Mode", 0u);
+			}
 		}
 
 		// ── GTAO + AO composite ───────────────────────────────────────────────
@@ -1489,6 +1493,9 @@ namespace Lux {
 			m_AOCompositePass->Bake();
 			m_AOCompositeMaterial = Material::Create(aoPipelineSpec.Shader, "GTAO-Composite");
 
+			// Editor-only AO debug view target — not created in the standalone runtime.
+			if (m_Specification.EnableEditorRenderTargets)
+			{
 			FramebufferSpecification aoDebugFramebufferSpec;
 			aoDebugFramebufferSpec.Width = m_ViewportWidth;
 			aoDebugFramebufferSpec.Height = m_ViewportHeight;
@@ -1514,6 +1521,7 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_AODebugPass->Validate());
 			m_AODebugPass->Bake();
 			m_AODebugMaterial = Material::Create(aoPipelineSpec.Shader, "AO-Debug");
+			}
 		}
 
 		// ── SSR ────────────────────────────────────────────────────────────────
@@ -1601,6 +1609,8 @@ namespace Lux {
 		}
 
 		// ── Selected geometry (isolation for outline) ─────────────────────────
+		// Editor-only (selection outline) — not created in the standalone runtime.
+		if (m_Specification.EnableEditorRenderTargets)
 		{
 			FramebufferTextureSpecification selectedMaskAttachment = ImageFormat::RGBA32F;
 			selectedMaskAttachment.Blend = false;
@@ -1634,6 +1644,9 @@ namespace Lux {
 		}
 
 		// ── Jump flood outline buffers ────────────────────────────────────────
+		// Editor-only (selection outline; 3 full-viewport RGBA32F targets) — not
+		// created in the standalone runtime.
+		if (m_Specification.EnableEditorRenderTargets)
 		{
 			FramebufferTextureSpecification jumpFloodAttachment = ImageFormat::RGBA32F;
 			jumpFloodAttachment.Blend = false;
@@ -1689,6 +1702,9 @@ namespace Lux {
 		}
 
 		// ── Wireframe pass (on top of geometry, for selected meshes) ──────────
+		// Editor-only (selection wireframe / collider view) — not created in the
+		// standalone runtime.
+		if (m_Specification.EnableEditorRenderTargets)
 		{
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_ViewportWidth;
@@ -2104,6 +2120,10 @@ namespace Lux {
 			m_DOFPass->Bake();
 			m_DOFMaterial = Material::Create(dofPipelineSpec.Shader, "DepthOfField");
 
+			// Editor-only (selection outline composite) — not created in the
+			// standalone runtime. References m_JumpFloodPasses, gated by the same flag.
+			if (m_Specification.EnableEditorRenderTargets)
+			{
 			FramebufferSpecification jfCompositeFBSpec;
 			jfCompositeFBSpec.Width = m_ViewportWidth;
 			jfCompositeFBSpec.Height = m_ViewportHeight;
@@ -2138,6 +2158,7 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_JumpFloodCompositePass->Validate());
 			m_JumpFloodCompositePass->Bake();
 			m_JumpFloodCompositeMaterial = Material::Create(jfCompositePipelineSpec.Shader, "JumpFlood-Composite");
+			}
 		}
 
 		// ── Editor grid (renders into composite output, preserves depth) ──────
@@ -3527,8 +3548,12 @@ namespace Lux {
 			sceneColorCurrent = skyAtmosphereOutputs;
 		}
 
-		std::vector<RenderGraph::ResourceHandle> selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
-		addPass("Selected Geometry", preDepthOutputs, selectedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SelectedGeometryPass));
+		std::vector<RenderGraph::ResourceHandle> selectedOutputs;
+		if (m_SelectedGeometryPass)
+		{
+			selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
+			addPass("Selected Geometry", preDepthOutputs, selectedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SelectedGeometryPass));
+		}
 
 		std::vector<RenderGraph::ResourceHandle> geometryOutputs = gbufferOutputs;
 		appendResources(geometryOutputs, sceneColorCurrent);
@@ -3548,7 +3573,7 @@ namespace Lux {
 			appendResources(geometryOutputs, sceneColorCurrent);
 		}
 
-		if (UsesGBufferDebugPass(m_DebugViewMode))
+		if (UsesGBufferDebugPass(m_DebugViewMode) && m_GBufferDebugPass)
 		{
 			std::vector<RenderGraph::ResourceHandle> debugReads = gbufferOutputs;
 			appendResources(debugReads, sceneColorCurrent);
@@ -3585,7 +3610,7 @@ namespace Lux {
 			addPass("AO Composite", aoCompositeReads, aoCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AOComposite));
 			sceneColorCurrent = aoCompositeOutputs;
 
-			if (m_DebugViewMode == DebugViewMode::AO)
+			if (m_DebugViewMode == DebugViewMode::AO && m_AODebugPass)
 				addPass("AO Debug", aoCompositeReads, addRenderPassResources("AO Debug", m_AODebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AODebugPass));
 		}
 
@@ -3664,14 +3689,17 @@ namespace Lux {
 		addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass));
 		sceneColorCurrent = transparentOutputs;
 
-		std::vector<RenderGraph::ResourceHandle> wireframeReads = sceneColorCurrent;
-		std::vector<RenderGraph::ResourceHandle> wireframeOutputs = addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass);
-		addPass("Geometry Wireframe", wireframeReads, wireframeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GeometryWireframePass));
-		sceneColorCurrent = wireframeOutputs;
+		if (m_GeometryWireframePass)
+		{
+			std::vector<RenderGraph::ResourceHandle> wireframeReads = sceneColorCurrent;
+			std::vector<RenderGraph::ResourceHandle> wireframeOutputs = addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass);
+			addPass("Geometry Wireframe", wireframeReads, wireframeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GeometryWireframePass));
+			sceneColorCurrent = wireframeOutputs;
+		}
 
 		std::vector<RenderGraph::ResourceHandle> jumpFloodAOutputs;
 		std::vector<RenderGraph::ResourceHandle> jumpFloodBOutputs;
-		const bool jumpFloodActive = m_Options.EnableJumpFlood && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true);
+		const bool jumpFloodActive = m_Options.EnableJumpFlood && m_JumpFloodInitPass && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true);
 		if (jumpFloodActive)
 		{
 			std::vector<RenderGraph::ResourceHandle> jumpFloodInitOutputs = addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass);
@@ -4318,13 +4346,17 @@ namespace Lux {
 			m_GeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassTransparent->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_DeferredLightingPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			// Editor-only passes may not exist (EnableEditorRenderTargets=false).
+			if (m_GBufferDebugPass)
+				m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_SkyboxPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_SkyAtmospherePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_VolumetricCloudCompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_AtmosphericFogPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_SelectedGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_GeometryWireframePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_SelectedGeometryPass)
+				m_SelectedGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_GeometryWireframePass)
+				m_GeometryWireframePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositingFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GridRenderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -6922,6 +6954,9 @@ namespace Lux {
 	void SceneRenderer::SelectedGeometryPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SelectedGeometryPass");
+		if (!m_SelectedGeometryPass) // editor-only target not created (runtime)
+			return;
+
 		const MeshPassState& selectedPass = GetMeshPass(MeshPassType::SelectedMask);
 		if (selectedPass.DrawList.empty())
 			return;
@@ -7028,6 +7063,9 @@ namespace Lux {
 	void SceneRenderer::GeometryWireframePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "GeometryWireframePass");
+		if (!m_GeometryWireframePass) // editor-only target not created (runtime)
+			return;
+
 		const MeshPassState& wireframePass = GetMeshPass(MeshPassType::Wireframe);
 		const MeshPassState& colliderPass = GetMeshPass(MeshPassType::PhysicsCollider);
 		if ((!m_Options.ShowSelectedInWireframe || wireframePass.DrawList.empty())

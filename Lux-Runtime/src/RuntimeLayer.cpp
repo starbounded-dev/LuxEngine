@@ -50,6 +50,8 @@ namespace Lux
 		SceneRendererSpecification rendererSpec;
 		rendererSpec.ViewportWidth = Application::Get().GetWindow().GetWidth();
 		rendererSpec.ViewportHeight = Application::Get().GetWindow().GetHeight();
+		// No selection/debug views in the shipped game — skip their render targets.
+		rendererSpec.EnableEditorRenderTargets = false;
 
 		m_SceneRenderer = Ref<SceneRenderer>::Create(m_RuntimeScene, rendererSpec);
 		m_SceneRenderer->ApplyProjectSettings(m_RuntimeProject->GetConfig().SceneRenderer);
