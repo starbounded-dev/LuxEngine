@@ -364,27 +364,48 @@ namespace Lux {
 			LUX_CORE_ERROR_TAG("Renderer", "[RenderPass] Bake - Validate failed! {}", m_Specification.DebugName);
 			return;
 		}
-		
-		// If valid, we can create descriptor sets
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 
-		auto bufferSets = HasBufferSets();
-		bool perFrameInFlight = !bufferSets.empty();
-		perFrameInFlight = true; // always
 		uint32_t descriptorSetCount = Renderer::GetConfig().FramesInFlight;
-		if (!perFrameInFlight)
-			descriptorSetCount = 1;
 
 		m_BindingSets.resize(descriptorSetCount);
 		for (auto& set : m_BindingSets)
 			set = {};
 
-		// for (auto& set : m_BindingSetHandles)
-		// 	set.clear();
-
 		for (const auto& [set, setData] : InputResources)
+			BakeSet(set);
+
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+#if 1
+		for (uint32_t frameIndex = 0; frameIndex < descriptorSetCount; frameIndex++)
 		{
-			uint32_t descriptorCountInSet = bufferSets.find(set) != bufferSets.end() ? descriptorSetCount : 1;
+			if (!m_BindingSets[frameIndex].empty() && m_BindingSets[frameIndex][0] == nullptr)
+			{
+				nvrhi::BindingLayoutHandle bindingLayout = m_Specification.Shader->GetDescriptorSetLayout(0);
+
+				nvrhi::BindingSetDesc bindingSetDesc;
+				m_BindingSets[frameIndex][0] = device->createBindingSet(bindingSetDesc, bindingLayout);
+			}
+		}
+#endif
+	}
+
+	// Rebuilds the binding sets for one descriptor-set index across all frames
+	// in flight. Bake() calls this for every set; InvalidateAndUpdate calls it
+	// only for the sets whose inputs actually changed, instead of re-creating
+	// every binding set of every set on any single change.
+	void DescriptorSetManager::BakeSet(uint32_t set)
+	{
+		auto setIt = InputResources.find(set);
+		if (setIt == InputResources.end())
+			return;
+		const auto& setData = setIt->second;
+
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		const uint32_t descriptorSetCount = Renderer::GetConfig().FramesInFlight;
+		if (m_BindingSets.size() < descriptorSetCount)
+			m_BindingSets.resize(descriptorSetCount);
+
+		{
 			for (uint32_t frameIndex = 0; frameIndex < descriptorSetCount; frameIndex++)
 			{
 				nvrhi::BindingLayoutHandle bindingLayout = m_Specification.Shader->GetDescriptorSetLayout(set);
@@ -547,19 +568,6 @@ namespace Lux {
 				}
 			}
 		}
-
-#if 1
-		for (uint32_t frameIndex = 0; frameIndex < descriptorSetCount; frameIndex++)
-		{
-			if (!m_BindingSets[frameIndex].empty() && m_BindingSets[frameIndex][0] == nullptr)
-			{
-				nvrhi::BindingLayoutHandle bindingLayout = m_Specification.Shader->GetDescriptorSetLayout(0);
-
-				nvrhi::BindingSetDesc bindingSetDesc;
-				m_BindingSets[frameIndex][0] = device->createBindingSet(bindingSetDesc, bindingLayout);
-			}
-		}
-#endif
 
 
 #if TODO
@@ -885,7 +893,16 @@ namespace Lux {
 		if (!InvalidatedInputResources.empty())
 		{
 			LUX_CORE_TRACE_TAG("Renderer", "DescriptorSetManager::InvalidateAndUpdate ({}) - updating {} descriptors (frameIndex={})", m_Specification.DebugName, InvalidatedInputResources.size(), currentFrameIndex);
-			Bake();
+
+			// Rebake only the affected descriptor sets. Snapshot the set indexes
+			// first: BakeSet may re-insert still-null deferred inputs into
+			// InvalidatedInputResources while we iterate.
+			std::vector<uint32_t> setsToBake;
+			setsToBake.reserve(InvalidatedInputResources.size());
+			for (const auto& [set, bindings] : InvalidatedInputResources)
+				setsToBake.push_back(set);
+			for (uint32_t set : setsToBake)
+				BakeSet(set);
 		}
 
 		if (!m_Specification.IsDynamic)

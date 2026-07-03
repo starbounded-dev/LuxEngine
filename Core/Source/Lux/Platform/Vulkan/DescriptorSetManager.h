@@ -248,6 +248,9 @@ namespace Lux {
 		bool IsInvalidated(uint32_t set, uint32_t binding) const;
 		bool Validate();
 		void Bake();
+		// Rebuilds the binding sets of a single descriptor-set index across all
+		// frames in flight (granular alternative to a full Bake).
+		void BakeSet(uint32_t set);
 
 		std::set<uint32_t> HasBufferSets() const;
 		void InvalidateAndUpdate();
