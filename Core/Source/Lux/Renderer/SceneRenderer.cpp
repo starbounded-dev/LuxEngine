@@ -4340,7 +4340,9 @@ namespace Lux {
 		// first: repairing one recreates its images, and the wrappers checked
 		// afterwards pick the new handles up in the same sweep.
 		{
-			auto repairIfStale = [](const Ref<Framebuffer>& framebuffer, const char* name)
+			// By value: Ref<> propagates constness to the pointee, and both
+			// Invalidate() and GetTargetFramebuffer() are non-const.
+			auto repairIfStale = [](Ref<Framebuffer> framebuffer, const char* name)
 			{
 				if (framebuffer && framebuffer->HasStaleAttachments())
 				{
@@ -4348,7 +4350,7 @@ namespace Lux {
 					framebuffer->Invalidate();
 				}
 			};
-			auto repairPassIfStale = [&repairIfStale](const auto& pass, const char* name)
+			auto repairPassIfStale = [&repairIfStale](auto pass, const char* name)
 			{
 				if (pass)
 					repairIfStale(pass->GetTargetFramebuffer(), name);
