@@ -6557,6 +6557,14 @@ namespace Lux {
 		if (!m_ClusterBuildPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
 
+		// The cluster AABBs are consumed only by the light-culling dispatch, which
+		// is skipped when there are no local lights (it zero-fills the grids
+		// instead) — so with no lights the froxel rebuild has no consumer either.
+		// The grid is rebuilt every frame while lights exist, so lights appearing
+		// next frame regenerate it before it is read.
+		if (m_PointLightsUB.Count == 0 && m_SpotLightsUB.Count == 0)
+			return;
+
 		struct ClusterBuildPushConstants
 		{
 			glm::vec4  ScreenSizeNearFar; // xy = render resolution (px), z = zNear, w = zFar
@@ -6589,6 +6597,24 @@ namespace Lux {
 		ScopedCPUProfile cpuProfile(*this, "ClusterLightCullingPass");
 		if (!m_ClusterLightCullingPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
+
+		// With no local lights, skip the cull dispatch entirely: zero-fill the
+		// per-cluster grids so the lighting shaders read count=0 everywhere. The
+		// index lists need no clear — nothing reads past a zero count.
+		if (m_PointLightsUB.Count == 0 && m_SpotLightsUB.Count == 0)
+		{
+			Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
+			Ref<StorageBufferSet> pointGrid = m_SBSPointLightGrid;
+			Ref<StorageBufferSet> spotGrid = m_SBSSpotLightGrid;
+			Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
+			Renderer::Submit([commandBuffer, pointGrid, spotGrid, counter]() mutable
+			{
+				commandBuffer->GetActive()->clearBufferUInt(pointGrid->RT_Get()->GetHandle(), 0u);
+				commandBuffer->GetActive()->clearBufferUInt(spotGrid->RT_Get()->GetHandle(), 0u);
+				commandBuffer->GetActive()->clearBufferUInt(counter->RT_Get()->GetHandle(), 0u);
+			});
+			return;
+		}
 
 		// Reset the dynamic-allocation cursors ([0]=point, [1]=spot) before the
 		// assignment dispatch atomically appends into the packed index lists.
