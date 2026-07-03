@@ -130,6 +130,29 @@ silent afterwards.
    (SSR, GTAO, debug views, TAA), leaving no dead window to alias into. Do not extend
    aliasing to these.
 
+**Phase 4 progress — CPU frame cost (2026-07-04):**
+
+1. **Sort-order cache (A1-lite)** — per-pass draw sorting skipped when the draw-list key
+   set fingerprint is unchanged (MeshKey embeds all sort inputs). *Verify:*
+   `FlushDrawList` CPU on a static-membership scene; visuals identical while
+   adding/removing/selecting meshes. Full FMeshDrawCommand retention remains future work
+   (camera-driven CPU culling changes list membership every frame on moving cameras).
+2. **Dirty-range GPUScene uploads (A2-prime)** — per-sync dirty ranges replayed once per
+   frame-in-flight buffer; full uploads only on scene switch/count growth or when dirty
+   volume exceeds a full array. *Verify:* upload closure cost in Tracy; GPUScene debug
+   snapshot diagnostics stay clean while moving objects.
+3. **Pending-slot bindless resolve** — steady state resolves only streaming-pending slots
+   + transients, with a 32-frame full-sweep hot-reload safety net. *Verify:* texture
+   streaming still flips white→real; editor texture hot-reload updates within ~32 frames.
+4. **Granular descriptor rebake** — `BakeSet` rebuilds only the changed set indexes
+   instead of every binding set on any invalidation.
+5. **Small always-on trims** — spot-shadow machinery skips with zero spot lights;
+   directional shadow UBO idles when cascades are unchanged (memcmp + per-FIF counter);
+   the statistics draw-list re-walk compiles out of Dist.
+6. **Parallel command recording — NOT attempted here:** the render command queue is
+   single-producer and NVRHI multi-command-list recording changes the threading model;
+   needs a build+validation cycle. Revisit with the async-compute (B1) work.
+
 **Phase 4 candidates (audit findings that need build/measure or shader edits — do with
 Tracy + validation on):**
 
