@@ -1079,6 +1079,12 @@ namespace Lux {
 			glm::mat4 ViewProjection[ShadowCascadeCount];
 		} m_ShadowUB;
 
+		// Shadow UBO upload gate: last uploaded contents + how many more uploads
+		// remain (one per frame-in-flight buffer after a change; starts above any
+		// realistic frames-in-flight count so startup initializes every buffer).
+		UBShadow m_LastUploadedShadowUB{};
+		uint32_t m_ShadowUBUploadsRemaining = 8;
+
 		struct UBSpotShadow
 		{
 			glm::mat4 ViewProjection[MaxSpotShadows];

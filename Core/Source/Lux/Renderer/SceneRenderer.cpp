@@ -4768,6 +4768,10 @@ namespace Lux {
 				uint32_t ResolutionTier = 0;
 			};
 
+			// Candidate scoring/sorting and atlas sizing only matter when spot
+			// lights exist; with none, skip straight to the (16-byte) UBO upload.
+			if (m_SpotLightsUB.Count > 0)
+			{
 			std::vector<SpotShadowCandidate> shadowCandidates;
 			shadowCandidates.reserve(m_SpotLightsUB.Count);
 
@@ -4900,6 +4904,14 @@ namespace Lux {
 			if (!m_SpotShadowMapCacheValid || spotShadowStateHash != m_LastSpotShadowStateHash)
 				m_SpotShadowMapNeedsRender = true;
 			m_LastSpotShadowStateHash = spotShadowStateHash;
+			}
+			else
+			{
+				// No spot lights: shaders read Count=0; reset the state hash so
+				// lights reappearing always retrigger a shadow render.
+				m_SpotShadowUB.Count = 0;
+				m_LastSpotShadowStateHash = 0;
+			}
 
 			auto slData = m_SpotLightsUB;
 			uint32_t slSize = (uint32_t)(16ull + sizeof(SpotLight) * slData.Count);
@@ -5041,12 +5053,25 @@ namespace Lux {
 				m_RendererDataUB.CascadeSplits = glm::vec4(-1000000.0f);
 			}
 
-			auto shadowData = m_ShadowUB;
-			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, shadowData]() mutable {
-				instance->m_UBSShadow->RT_Get()->RT_SetData(
-					instance->m_UploadCommandBuffer, &shadowData, sizeof(UBShadow));
-				});
+			// Upload only when the cascade matrices actually changed, then once per
+			// frame-in-flight buffer so every copy converges before going idle.
+			if (std::memcmp(&m_ShadowUB, &m_LastUploadedShadowUB, sizeof(UBShadow)) != 0)
+			{
+				m_LastUploadedShadowUB = m_ShadowUB;
+				m_ShadowUBUploadsRemaining = Renderer::GetConfig().FramesInFlight;
+			}
+
+			if (m_ShadowUBUploadsRemaining > 0)
+			{
+				m_ShadowUBUploadsRemaining--;
+
+				auto shadowData = m_ShadowUB;
+				Ref<SceneRenderer> instance = this;
+				Renderer::Submit([instance, shadowData]() mutable {
+					instance->m_UBSShadow->RT_Get()->RT_SetData(
+						instance->m_UploadCommandBuffer, &shadowData, sizeof(UBShadow));
+					});
+			}
 		}
 
 		// ── Renderer data uniform buffer ──────────────────────────────────────
@@ -7888,6 +7913,10 @@ namespace Lux {
 		m_Statistics.SpotlightShadowcasters = 0;
 		m_Statistics.SpotlightShadowsCulled = m_FrameCullingStats.ShadowCulledInstances;
 
+#ifndef LUX_DIST
+		// Stats-panel counters only: re-walking every draw list has no consumer
+		// in shipping builds. (UpdateDynamicRenderResolution below is functional
+		// and stays in all builds.)
 		auto accumulate = [this](const DrawCommandList& drawList, const DrawCommandOrder& drawOrder)
 			{
 				for (const MeshKey& key : drawOrder)
@@ -7938,6 +7967,7 @@ namespace Lux {
 		m_Statistics.CulledInstances = lateCulledInstances + m_Statistics.FrustumCulledInstances + m_Statistics.OcclusionCulledInstances;
 
 		m_Statistics.SpotlightShadowcasters = m_SpotShadowCount;
+#endif
 
 		const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
 		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(frameIndex);
