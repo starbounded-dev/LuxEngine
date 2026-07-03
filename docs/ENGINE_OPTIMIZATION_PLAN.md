@@ -73,6 +73,15 @@ things slower or just move the cost. We already started this (Tracy + `csvexport
 uses all four channels (xy=seed offset, z=distance, w=inside/outside), so only a
 precision-reduction to RGBA16F is possible and that needs visual verification.)*
 
+**Post-Phase-3 bugfix — stale wrapped-framebuffer self-heal (2026-07-03):** framebuffers
+wrapping shared images via `ExistingImages` bake the image's nvrhi handle and were never
+re-checked — the runtime-fullscreen "black geometry, bright sky" bug (deferred lighting
+writing into an orphaned SceneColor). `Framebuffer::HasStaleAttachments()` + a per-frame
+repair sweep in `BeginScene` now self-heals the whole class. *Verify:* fullscreen export
+lights correctly; the `had stale attachment handles` warning names the trigger framebuffer
+on the first fullscreen frames (report it for the targeted root-cause follow-up) and stays
+silent afterwards.
+
 **Phase 4 candidates (audit findings that need build/measure or shader edits — do with
 Tracy + validation on):**
 
