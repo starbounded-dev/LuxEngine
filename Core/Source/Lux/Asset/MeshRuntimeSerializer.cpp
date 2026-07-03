@@ -252,27 +252,9 @@ namespace Lux
 		if (!meshSource->m_Indices.empty())
 			meshSource->m_IndexBuffer = IndexBuffer::Create(Buffer(meshSource->m_Indices.data(), (uint32_t)(meshSource->m_Indices.size() * sizeof(Index))));
 
-		for (uint32_t i = 0; i < (uint32_t)meshSource->m_Submeshes.size(); i++)
-		{
-			const Submesh& submesh = meshSource->m_Submeshes[i];
-			const uint32_t firstTriangle = submesh.BaseIndex / 3;
-			const uint32_t triangleCount = submesh.IndexCount / 3;
-			for (uint32_t triangle = 0; triangle < triangleCount; triangle++)
-			{
-				const uint32_t indexOffset = firstTriangle + triangle;
-				if (indexOffset >= meshSource->m_Indices.size())
-					break;
-
-				const Index& index = meshSource->m_Indices[indexOffset];
-				const uint32_t v0 = submesh.BaseVertex + index.V1;
-				const uint32_t v1 = submesh.BaseVertex + index.V2;
-				const uint32_t v2 = submesh.BaseVertex + index.V3;
-				if (v0 >= meshSource->m_Vertices.size() || v1 >= meshSource->m_Vertices.size() || v2 >= meshSource->m_Vertices.size())
-					continue;
-
-				meshSource->m_TriangleCache[i].emplace_back(meshSource->m_Vertices[v0], meshSource->m_Vertices[v1], meshSource->m_Vertices[v2]);
-			}
-		}
+		// In the standalone runtime, drop the full CPU vertex array now that the
+		// GPU has it (positions + indices are kept for physics cooking).
+		meshSource->CompactCPUGeometry();
 
 		return meshSource;
 	}

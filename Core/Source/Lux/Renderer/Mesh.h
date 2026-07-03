@@ -212,6 +212,19 @@ namespace Lux {
 		const std::vector<Vertex>& GetVertices() const { return m_Vertices; }
 		const std::vector<Index>& GetIndices() const { return m_Indices; }
 
+		// CPU-side position access that works whether or not the full vertex
+		// array was compacted away (the standalone runtime keeps positions only —
+		// physics cooking is the sole CPU consumer and reads positions + indices).
+		size_t GetVertexCount() const { return m_Vertices.empty() ? m_CollisionPositions.size() : m_Vertices.size(); }
+		glm::vec3 GetVertexPosition(size_t index) const { return m_Vertices.empty() ? m_CollisionPositions[index] : m_Vertices[index].Position; }
+
+		// When retention is disabled (set once at startup by the standalone
+		// runtime), CompactCPUGeometry frees the full CPU vertex array after GPU
+		// upload, keeping positions + indices for physics. The editor retains
+		// everything (mesh export/serialization reads the full vertices).
+		static void SetRetainFullCPUGeometry(bool retain) { s_RetainFullCPUGeometry = retain; }
+		void CompactCPUGeometry();
+
 		//bool HasSkeleton() const { return (bool)m_Skeleton; }
 		//bool IsSubmeshRigged(uint32_t submeshIndex) const { return m_Submeshes[submeshIndex].IsRigged; }
 		//const Skeleton* GetSkeleton() const { return m_Skeleton.get(); }
@@ -225,8 +238,6 @@ namespace Lux {
 		std::vector<AssetHandle>& GetMaterials() { return m_Materials; }
 		const std::vector<AssetHandle>& GetMaterials() const { return m_Materials; }
 		const std::string& GetFilePath() const { return m_FilePath; }
-
-		const std::vector<Triangle> GetTriangleCache(uint32_t index) const { return m_TriangleCache.at(index); }
 
 		Ref<VertexBuffer> GetVertexBuffer() { return m_VertexBuffer; }
 		Ref<VertexBuffer> GetBoneInfluenceBuffer() { return m_BoneInfluenceBuffer; }
@@ -250,6 +261,11 @@ namespace Lux {
 		std::vector<Vertex> m_Vertices;
 		std::vector<Index> m_Indices;
 
+		// Positions-only fallback populated by CompactCPUGeometry when m_Vertices
+		// is released (runtime); read via GetVertexPosition/GetVertexCount.
+		std::vector<glm::vec3> m_CollisionPositions;
+		static bool s_RetainFullCPUGeometry;
+
 		//std::vector<BoneInfluence> m_BoneInfluences;
 		//std::vector<BoneInfo> m_BoneInfo;
 		//mutable Scope<Skeleton> m_Skeleton;
@@ -257,8 +273,6 @@ namespace Lux {
 		//mutable std::unordered_map<size_t, Scope<Animation>> m_Animations;
 
 		std::vector<AssetHandle> m_Materials;
-
-		std::unordered_map<uint32_t, std::vector<Triangle>> m_TriangleCache;
 
 		AABB m_BoundingBox;
 
