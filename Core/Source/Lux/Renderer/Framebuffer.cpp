@@ -238,6 +238,24 @@ namespace Lux {
 			callback(this);
 	}
 
+	bool Framebuffer::HasStaleAttachments() const
+	{
+		if (!m_Handle)
+			return false;
+
+		for (size_t i = 0; i < m_AttachmentImages.size() && i < m_FramebufferDesc.colorAttachments.size(); i++)
+		{
+			const Ref<Image2D>& image = m_AttachmentImages[i];
+			if (image && image->GetHandle().Get() != m_FramebufferDesc.colorAttachments[i].texture)
+				return true;
+		}
+
+		if (m_DepthAttachmentImage && m_DepthAttachmentImage->GetHandle().Get() != m_FramebufferDesc.depthAttachment.texture)
+			return true;
+
+		return false;
+	}
+
 	void Framebuffer::AddResizeCallback(const std::function<void(Ref<Framebuffer>)>& func)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

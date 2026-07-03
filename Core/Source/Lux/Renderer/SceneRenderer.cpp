@@ -4330,6 +4330,51 @@ namespace Lux {
 			m_DirectionalShadowMapNeedsRender = true;
 		}
 
+		// ── Self-heal framebuffers with stale attachment handles ─────────────
+		// Shared images (FramebufferSpecification::ExistingImages) are recreated
+		// in place on resize/aliasing changes; a framebuffer wrapping one keeps
+		// its old baked handle and silently renders into the orphaned texture
+		// (e.g. runtime-fullscreen startup: deferred lighting writes into a dead
+		// SceneColor → black geometry under a bright sky). Cheap pointer compares
+		// per frame; re-invalidation only fires when actually stale. Owners come
+		// first: repairing one recreates its images, and the wrappers checked
+		// afterwards pick the new handles up in the same sweep.
+		{
+			auto repairIfStale = [](const Ref<Framebuffer>& framebuffer, const char* name)
+			{
+				if (framebuffer && framebuffer->HasStaleAttachments())
+				{
+					LUX_CORE_WARN_TAG("Renderer", "Framebuffer '{}' had stale attachment handles - re-invalidating", name);
+					framebuffer->Invalidate();
+				}
+			};
+			auto repairPassIfStale = [&repairIfStale](const auto& pass, const char* name)
+			{
+				if (pass)
+					repairIfStale(pass->GetTargetFramebuffer(), name);
+			};
+
+			repairPassIfStale(m_PreDepthPass, "PreDepth");
+			repairIfStale(m_GeometryPassFramebuffer, "GBuffer (owner)");
+			repairIfStale(m_SceneColorFramebuffer, "SceneColor");
+			repairIfStale(m_CompositingFramebuffer, "Compositing");
+			repairPassIfStale(m_GeometryPass, "GBuffer");
+			repairPassIfStale(m_GeometryPassTransparent, "TransparentForward");
+			repairPassIfStale(m_DeferredLightingPass, "DeferredLighting");
+			repairPassIfStale(m_AOCompositePass, "AO-Composite");
+			repairPassIfStale(m_SSRCompositePass, "SSR-Composite");
+			repairPassIfStale(m_SkyboxPass, "Skybox");
+			repairPassIfStale(m_SkyAtmospherePass, "SkyAtmosphere");
+			repairPassIfStale(m_VolumetricCloudCompositePass, "VolumetricCloudComposite");
+			repairPassIfStale(m_AtmosphericFogPass, "AtmosphericFog");
+			repairPassIfStale(m_GBufferDebugPass, "GBufferDebug");
+			repairPassIfStale(m_SelectedGeometryPass, "SelectedGeometry");
+			repairPassIfStale(m_GeometryWireframePass, "GeometryWireframe");
+			repairPassIfStale(m_CompositePass, "Composite");
+			repairPassIfStale(m_GridRenderPass, "Grid");
+			repairPassIfStale(m_JumpFloodCompositePass, "JumpFloodComposite");
+		}
+
 		ResizeVolumetricCloudResources();
 
 		// ── Camera uniform buffer ─────────────────────────────────────────────

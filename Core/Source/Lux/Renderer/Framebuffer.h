@@ -125,6 +125,13 @@ namespace Lux {
 		size_t GetColorAttachmentCount() const { return m_Specification.SwapChainTarget ? 1 : m_AttachmentImages.size(); }
 		bool HasDepthAttachment() const { return (bool)m_DepthAttachmentImage; }
 
+		// True when an attachment image's current GPU texture no longer matches the
+		// handle baked into this framebuffer's desc. Images are recreated in place
+		// (same Ref, new nvrhi handle) on resize/aliasing changes; a framebuffer
+		// that shares them (ExistingImages) keeps rendering into the orphaned old
+		// texture until it is re-invalidated — this detects that state.
+		bool HasStaleAttachments() const;
+
 		virtual nvrhi::FramebufferHandle GetHandle() const;
 		const nvrhi::FramebufferDesc& GetFramebufferDesc() const { return m_FramebufferDesc; }
 
