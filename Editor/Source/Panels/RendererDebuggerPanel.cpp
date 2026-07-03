@@ -617,6 +617,9 @@ namespace Lux {
 		if (!ImGuiEx::PropertyGridHeader("GPU Scene", true))
 			return;
 
+		// The snapshot is only built on frames where someone asks for it; keep
+		// requesting while this section is open so next frame's data is fresh.
+		m_Context->RequestGPUSceneDebugSnapshot();
 		const SceneRenderer::GPUSceneDebugSnapshot& snapshot = m_Context->GetGPUSceneDebugSnapshot();
 		if (ImGui::BeginTable("##renderer_debugger_gpu_scene", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 		{

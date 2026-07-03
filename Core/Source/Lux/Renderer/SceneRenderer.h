@@ -654,6 +654,9 @@ namespace Lux {
 		RenderGraphDebugSnapshot GetRenderGraphDebugSnapshot();
 		RendererFrameDebugSnapshot GetRendererFrameDebugSnapshot() const;
 		const GPUSceneDebugSnapshot& GetGPUSceneDebugSnapshot() const { return m_GPUSceneDebugSnapshot; }
+		// The snapshot's validation loops cost O(instances + materials) CPU, so it
+		// is only built on frames where a consumer (Renderer Debugger panel) asks.
+		void RequestGPUSceneDebugSnapshot() { m_GPUSceneDebugSnapshotRequested = true; }
 		const Frustum& GetCameraFrustum() const { return m_SceneData.CameraFrustum; }
 
 		bool IsReady() const { return m_ResourcesCreatedGPU; }
@@ -1236,6 +1239,7 @@ namespace Lux {
 		Ref<DebugRenderer> m_DebugRenderer;
 		Ref<RenderScene>   m_SubmittedRenderScene;
 		GPUSceneDebugSnapshot m_GPUSceneDebugSnapshot;
+		bool m_GPUSceneDebugSnapshotRequested = false;
 		std::function<void()> m_WorldOverlayRenderCallback;
 
 		glm::mat4 m_ScreenSpaceProjectionMatrix{ 1.0f };

@@ -5903,7 +5903,13 @@ namespace Lux {
 			}
 		}
 
+		// Built only when the Renderer Debugger panel asked for it this frame —
+		// the validation loops below are O(instances + materials) CPU work that
+		// exists purely to populate that panel.
+		if (m_GPUSceneDebugSnapshotRequested)
 		{
+			m_GPUSceneDebugSnapshotRequested = false;
+
 			GPUSceneDebugSnapshot snapshot;
 			snapshot.PersistentInstanceCount = persistentGPUSceneInstanceCount;
 			snapshot.TransientInstanceCount = (uint32_t)transientGPUSceneData.size();
