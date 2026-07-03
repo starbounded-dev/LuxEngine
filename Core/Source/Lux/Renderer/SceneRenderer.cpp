@@ -6028,9 +6028,85 @@ namespace Lux {
 		// ── 2. Upload GPUScene tails, ObjectIndexes, culling data, and indirect args
 		m_UploadCommandBuffer->Begin();
 
+		// Persistent GPUScene rows: upload only the rows dirtied by recent syncs
+		// instead of the full instance array every frame. A dirty range must be
+		// written once per frame-in-flight buffer, so each sync's ranges are
+		// queued as an "epoch" replayed FramesInFlight times with fresh row data
+		// (newer content in an older slot is still correct — everything converges
+		// to latest). Full uploads run on scene switch / instance-count change /
+		// buffer growth (high-water tracked, so a mid-steady-state Resize is
+		// impossible), and adaptively when the dirty volume exceeds a full array.
 		std::vector<GPUSceneInstanceData> gpuSceneInstanceData;
+		std::vector<GPUSceneDirtyRange> gpuSceneRangeList;
+		std::vector<GPUSceneInstanceData> gpuSceneRangeRows;
 		if (submittedGPUScene)
-			gpuSceneInstanceData = submittedGPUScene->GetInstances();
+		{
+			const std::vector<GPUSceneInstanceData>& instances = submittedGPUScene->GetInstances();
+
+			const uint32_t totalInstancesThisFrame = persistentGPUSceneInstanceCount + (uint32_t)m_TransientGPUSceneInstances.size();
+			const bool sceneChanged = (const void*)submittedGPUScene != m_LastGPUSceneKey
+				|| persistentGPUSceneInstanceCount != m_LastGPUSceneInstanceCount
+				|| totalInstancesThisFrame > m_GPUSceneMaxTotalInstancesSeen;
+			if (sceneChanged)
+			{
+				m_GPUSceneFullUploadsRemaining = glm::max(m_GPUSceneFullUploadsRemaining, Renderer::GetConfig().FramesInFlight);
+				m_LastGPUSceneKey = (const void*)submittedGPUScene;
+				m_LastGPUSceneInstanceCount = persistentGPUSceneInstanceCount;
+				m_GPUSceneMaxTotalInstancesSeen = glm::max(m_GPUSceneMaxTotalInstancesSeen, totalInstancesThisFrame);
+				m_PendingGPUSceneRangeUploads.clear();
+			}
+
+			if (m_GPUSceneFullUploadsRemaining == 0)
+			{
+				const std::vector<GPUSceneDirtyRange>& dirtyRanges = submittedGPUScene->GetDirtyRanges();
+				if (!dirtyRanges.empty())
+				{
+					GPUSceneRangeUploadEpoch& epoch = m_PendingGPUSceneRangeUploads.emplace_back();
+					epoch.RemainingUploads = Renderer::GetConfig().FramesInFlight;
+					epoch.Ranges.assign(dirtyRanges.begin(), dirtyRanges.end());
+				}
+
+				// Flatten all pending epochs into one range list + row payload
+				// (rows re-copied from the current arrays: freshest data wins).
+				size_t pendingRows = 0;
+				for (const GPUSceneRangeUploadEpoch& epoch : m_PendingGPUSceneRangeUploads)
+					for (const GPUSceneDirtyRange& range : epoch.Ranges)
+						pendingRows += range.InstanceCount;
+
+				if (pendingRows >= instances.size() && !instances.empty())
+				{
+					// Cheaper to re-upload everything.
+					m_GPUSceneFullUploadsRemaining = Renderer::GetConfig().FramesInFlight;
+					m_PendingGPUSceneRangeUploads.clear();
+				}
+				else if (pendingRows > 0)
+				{
+					gpuSceneRangeRows.reserve(pendingRows);
+					for (GPUSceneRangeUploadEpoch& epoch : m_PendingGPUSceneRangeUploads)
+					{
+						for (const GPUSceneDirtyRange& range : epoch.Ranges)
+						{
+							const uint32_t first = glm::min(range.FirstInstance, (uint32_t)instances.size());
+							const uint32_t count = glm::min(range.InstanceCount, (uint32_t)instances.size() - first);
+							if (count == 0)
+								continue;
+
+							gpuSceneRangeList.push_back({ first, count });
+							gpuSceneRangeRows.insert(gpuSceneRangeRows.end(), instances.begin() + first, instances.begin() + first + count);
+						}
+						epoch.RemainingUploads--;
+					}
+					std::erase_if(m_PendingGPUSceneRangeUploads, [](const GPUSceneRangeUploadEpoch& epoch) { return epoch.RemainingUploads == 0; });
+				}
+			}
+
+			if (m_GPUSceneFullUploadsRemaining > 0)
+			{
+				m_GPUSceneFullUploadsRemaining--;
+				m_PendingGPUSceneRangeUploads.clear();
+				gpuSceneInstanceData = instances;
+			}
+		}
 
 		std::vector<GPUSceneInstanceData> transientGPUSceneData = m_TransientGPUSceneInstances;
 		for (uint32_t transientIndex = 0; transientIndex < transientGPUSceneData.size(); transientIndex++)
@@ -6141,8 +6217,13 @@ namespace Lux {
 						snapshot.MissingPersistentObjectIDCount++;
 				};
 
-			for (uint32_t instanceIndex = 0; instanceIndex < gpuSceneInstanceData.size(); instanceIndex++)
-				validateInstance(gpuSceneInstanceData[instanceIndex], instanceIndex, true);
+			// Validate against the GPUScene source array directly — the local
+			// full-copy vector is empty on dirty-range-only frames.
+			if (persistentGPUSceneInstances)
+			{
+				for (uint32_t instanceIndex = 0; instanceIndex < (uint32_t)persistentGPUSceneInstances->size(); instanceIndex++)
+					validateInstance((*persistentGPUSceneInstances)[instanceIndex], instanceIndex, true);
+			}
 
 			for (uint32_t transientIndex = 0; transientIndex < transientGPUSceneData.size(); transientIndex++)
 				validateInstance(transientGPUSceneData[transientIndex], persistentGPUSceneInstanceCount + transientIndex, false);
@@ -6209,6 +6290,7 @@ namespace Lux {
 			|| !meshCullDrawData.empty()
 			|| !indirectDrawData.empty()
 			|| !gpuSceneInstanceData.empty()
+			|| !gpuSceneRangeRows.empty()
 			|| !transientGPUSceneData.empty()
 			|| !gpuMaterialData.empty()
 			|| !transientGPUMaterialData.empty())
@@ -6227,6 +6309,8 @@ namespace Lux {
 				cullDrawData = meshCullDrawData,
 				indirectCommands = indirectDrawData,
 				gpuSceneData = std::move(gpuSceneInstanceData),
+				sceneRangeList = std::move(gpuSceneRangeList),
+				sceneRangeRows = std::move(gpuSceneRangeRows),
 				transientSceneData = std::move(transientGPUSceneData),
 				materialData = gpuMaterialData,
 				transientMaterialData = transientGPUMaterialData,
@@ -6276,13 +6360,27 @@ namespace Lux {
 						instance->m_SBSGPUSceneInstances->Resize(gpuSceneBytes * 2u);
 				}
 
-				// StorageBufferSet owns one buffer per frame-in-flight. Until GPUScene tracks
-				// dirty ranges per frame buffer, upload the persistent scene rows for the
-				// current frame to avoid alternating stale GPUScene data.
+				// Full persistent upload (startup / scene switch / count change /
+				// dirty volume exceeding a full array), repeated once per
+				// frame-in-flight buffer by the main-thread counter.
 				if (!gpuSceneData.empty())
 				{
 					const uint32_t uploadBytes = (uint32_t)(gpuSceneData.size() * sizeof(GPUSceneInstanceData));
 					instance->m_SBSGPUSceneInstances->RT_Get()->RT_SetData(cmd, gpuSceneData.data(), uploadBytes);
+				}
+
+				// Steady state: write only the dirty ranges (flattened epoch
+				// payload; each sync's ranges replay once per frame in flight).
+				if (!sceneRangeRows.empty())
+				{
+					size_t sourceRow = 0;
+					for (const GPUSceneDirtyRange& range : sceneRangeList)
+					{
+						const uint32_t uploadBytes = range.InstanceCount * (uint32_t)sizeof(GPUSceneInstanceData);
+						const uint32_t uploadOffset = range.FirstInstance * (uint32_t)sizeof(GPUSceneInstanceData);
+						instance->m_SBSGPUSceneInstances->RT_Get()->RT_SetData(cmd, sceneRangeRows.data() + sourceRow, uploadBytes, uploadOffset);
+						sourceRow += range.InstanceCount;
+					}
 				}
 
 				if (!transientSceneData.empty())

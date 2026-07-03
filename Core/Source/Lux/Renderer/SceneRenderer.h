@@ -1531,6 +1531,21 @@ namespace Lux {
 		// Never touch this from the main thread.
 		std::vector<uint8_t>                           m_RTPushConstantScratch;
 
+		// Dirty-range GPUScene uploads: each sync's dirty ranges replay once per
+		// frame-in-flight buffer ("epochs"); full uploads run on scene switch /
+		// instance-count growth (high-water tracked, which also covers buffer
+		// resizes) and start above any realistic frames-in-flight count.
+		struct GPUSceneRangeUploadEpoch
+		{
+			std::vector<GPUSceneDirtyRange> Ranges;
+			uint32_t RemainingUploads = 0;
+		};
+		std::vector<GPUSceneRangeUploadEpoch> m_PendingGPUSceneRangeUploads;
+		uint32_t    m_GPUSceneFullUploadsRemaining = 8;
+		const void* m_LastGPUSceneKey = nullptr;
+		uint32_t    m_LastGPUSceneInstanceCount = 0;
+		uint32_t    m_GPUSceneMaxTotalInstancesSeen = 0;
+
 		// Change tracking for the texture/material table scratches above: the copy
 		// from the submitted scene is skipped when the same scene instance is
 		// submitted with an unchanged version. Version sentinels start at max so
