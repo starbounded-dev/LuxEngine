@@ -82,6 +82,30 @@ lights correctly; the `had stale attachment handles` warning names the trigger f
 on the first fullscreen frames (report it for the targeted root-cause follow-up) and stays
 silent afterwards.
 
+**Phase 4 progress (2026-07-03, Loading & Stutter session):**
+
+1. **Batched resource uploads** (`Renderer::RecordResourceUpload/FlushResourceUploads`;
+   converted: `VertexBuffer`, `IndexBuffer`, `Image2D::SetData`, `TextureCube`) — one
+   shared command list replaces a vkQueueSubmit per mesh/texture; the batch flushes
+   automatically before every `RenderCommandBuffer::RT_Submit`, so uploads always land
+   ahead of any consumer. Also stops retaining a command list per buffer forever.
+   *Verify:* load a heavy scene / stream assets while watching the frame-time graph —
+   load-time spikes should shrink dramatically; visuals identical.
+2. **Bloom + SSR pre-convolution pyramids RGBA32F→RGBA16F** (+ shader storage layouts) —
+   half the bandwidth on every down/upsample. *Verify:* bloom/SSR before-after eyeball.
+3. **PSO disk cache — investigated, blocked:** graphics/compute pipelines are created
+   inside NVRHI (`PipelineCompute` etc. hold nvrhi handles); the vendored `nvrhi` submodule
+   wasn't checked out in this environment, so whether the fork exposes a
+   `VkPipelineCache` hook couldn't be verified. Next session with the submodule present:
+   check `nvrhi::vulkan::DeviceDesc` for a pipeline-cache field; if absent, patch the
+   fork to create/serialize one (`~/.lux/pipeline.cache`-style). The legacy
+   `VulkanComputePipeline.cpp` per-pipeline `vkCreatePipelineCache` is dead code (live
+   compute goes through nvrhi) — remove during the SceneRenderer split.
+4. **Upload-race note:** with batched uploads the content-vs-consumer ordering is now
+   structural. The remaining race is only "buffer object not yet created" on async loads,
+   which the existing null-guards handle (mesh appears a frame later). A per-mesh ready
+   flag is the polish item if the one-frame pop-in ever bothers.
+
 **Phase 4 candidates (audit findings that need build/measure or shader edits — do with
 Tracy + validation on):**
 
