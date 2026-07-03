@@ -574,7 +574,7 @@ namespace Lux {
 		m_Options.DistanceMipBiasEnd = 250.0f;
 		m_Options.DistanceMipBiasMax = 2.0f;
 		m_Options.SoftShadows = true;
-		m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
+		m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
 		m_Options.MaxShadowDistance = 200.0f;
 		m_Options.ShadowFade = 25.0f;
 		m_SSROptions.MaxSteps = 70;
@@ -616,7 +616,10 @@ namespace Lux {
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
 			m_Options.TextureMipBias = -0.5f;
 			m_Options.DistanceMipBiasMax = 1.5f;
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
+			// 2K + soft shadows as the realtime default; a 4-layer 4K array costs
+			// ~268 MB and a lot of shadow-render bandwidth. Ultra raises to 4K,
+			// Cinematic to 8K.
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
 			break;
 		case QualityPreset::Ultra:
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
@@ -632,7 +635,7 @@ namespace Lux {
 			m_Options.DistanceMipBiasStart = 25.0f;
 			m_Options.DistanceMipBiasEnd = 150.0f;
 			m_Options.DistanceMipBiasMax = 1.0f;
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_8K;
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
 			m_Options.MaxShadowDistance = 300.0f;
 			m_SSROptions.MaxSteps = 96;
 			break;
