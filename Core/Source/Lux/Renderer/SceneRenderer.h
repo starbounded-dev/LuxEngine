@@ -1162,6 +1162,14 @@ namespace Lux {
 			std::array<LocalFogVolumeData, MaxVisibleLocalFogVolumes> LocalFogVolumes{};
 		} m_AtmosphereUB;
 
+		// While no atmosphere feature is active, the atmosphere UB is written this
+		// many more times (once per frame-in-flight buffer, so all copies hold the
+		// disabled-flags data) and then the whole rebuild+upload goes idle. Active
+		// frames re-arm it to FramesInFlight. Starts above any realistic
+		// frames-in-flight count so a scene that begins inactive still initializes
+		// every buffer.
+		uint32_t m_AtmosphereIdleUploadsRemaining = 8;
+
 		struct CBGTAOData
 		{
 			glm::vec2 NDCToViewMul_x_PixelSize = { 1.0f, 1.0f };

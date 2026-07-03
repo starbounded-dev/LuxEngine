@@ -4472,7 +4472,34 @@ namespace Lux {
 		}
 
 		// ── Atmosphere uniform buffer ────────────────────────────────────────
+		// The full rebuild + upload only runs while any atmosphere feature is
+		// active (the struct has per-frame time fields, so it legitimately changes
+		// every frame then). When everything is off, a disabled-flags UB is
+		// written once per frame-in-flight buffer and the block goes idle —
+		// shaders gate all reads of this UB on Flags/LocalFogParams.
+		const bool atmosphereActive = m_FrameEnvironment.SkyAtmosphereEnabled
+			|| m_FrameEnvironment.VolumetricCloudsEnabled
+			|| m_FrameEnvironment.HeightFogEnabled
+			|| m_FrameEnvironment.LocalFogEnabled;
+		if (!atmosphereActive && m_AtmosphereIdleUploadsRemaining > 0)
 		{
+			m_AtmosphereUB.Flags = { 0u, 0u, 0u, 0u };
+			m_AtmosphereUB.LocalFogParams = { 0u, 0u, 0u, 0u };
+			m_AtmosphereIdleUploadsRemaining--;
+
+			auto atmosphereData = m_AtmosphereUB;
+			Ref<SceneRenderer> instance = this;
+			Renderer::Submit([instance, atmosphereData]() mutable {
+				instance->m_UBSAtmosphere->RT_Get()->RT_SetData(
+					instance->m_UploadCommandBuffer, &atmosphereData, sizeof(UBAtmosphere));
+				});
+		}
+		else if (atmosphereActive)
+		{
+			// Re-arm so the next transition to inactive rewrites every
+			// frame-in-flight buffer before going idle.
+			m_AtmosphereIdleUploadsRemaining = Renderer::GetConfig().FramesInFlight;
+
 			const SkyAtmosphereSettings& sky = m_FrameEnvironment.Atmosphere.SkyAtmosphere;
 			const VolumetricCloudSettings& clouds = m_FrameEnvironment.Atmosphere.VolumetricClouds;
 			const ExponentialHeightFogSettings& fog = m_FrameEnvironment.Atmosphere.HeightFog;
