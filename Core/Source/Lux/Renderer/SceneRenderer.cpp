@@ -3488,9 +3488,15 @@ namespace Lux {
 		addPass("HZB", preDepthOutputs, hzbOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::HZBCompute));
 		addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass));
 
+		// PreIntegration's visibility pyramid is consumed only by SSR — skip the
+		// whole pass (and its per-mip dispatches) when SSR is off. The vector stays
+		// in scope because the SSR node below appends it as a read dependency.
 		std::vector<RenderGraph::ResourceHandle> preIntegrationOutputs;
-		preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-		addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
+		if (m_Options.EnableSSR)
+		{
+			preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+			addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
+		}
 
 		// Cluster build runs before light culling; it only depends on the camera
 		// projection (SSBO synchronized via a manual barrier inside the pass).
