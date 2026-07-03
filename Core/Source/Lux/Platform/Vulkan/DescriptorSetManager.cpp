@@ -768,6 +768,13 @@ namespace Lux {
 		if (m_State == State::Ready)
 			return;
 
+		// Start each update from a clean slate. Entries are re-added below by the
+		// handle-comparison loop (and by Bake() for still-null deferred resources);
+		// without this clear the set stays non-empty after the first invalidation,
+		// so every subsequent frame re-Bakes ALL binding sets for ALL frames in
+		// flight — permanent per-frame descriptor churn across every dynamic pass.
+		InvalidatedInputResources.clear();
+
 		uint32_t currentFrameIndex = Renderer::RT_GetCurrentFrameIndex();
 
 		// Check for invalidated resources
