@@ -106,6 +106,30 @@ silent afterwards.
    which the existing null-guards handle (mesh appears a frame later). A per-mesh ready
    flag is the polish item if the one-frame pop-in ever bothers.
 
+**Phase 4 progress — memory diet (2026-07-04):**
+
+1. **Editor render targets skipped in runtime (~180 MB)** —
+   `SceneRendererSpecification::EnableEditorRenderTargets` (runtime sets false) gates
+   SelectedGeometry, JumpFlood ×3, AO-Debug, GBufferDebug, wireframe target creation; all
+   references null-guard. *Verify:* runtime VRAM drop; editor selection/debug views
+   unchanged.
+2. **Mesh CPU memory** — removed `m_TriangleCache` entirely (3 full Vertex structs per
+   triangle, built by importer + runtime deserializer, **zero consumers**); the runtime
+   additionally compacts every MeshSource after GPU upload to positions + indices
+   (physics cooking is the only CPU consumer and reads exactly that). Editor retains full
+   data for export. *Verify:* runtime RAM drop; mesh colliders (incl. spawned at runtime)
+   identical; editor mesh import/export identical.
+3. **Truthful memory HUD** — `VulkanAllocator::GetStats` now reports device-local
+   usage/budget from `VK_EXT_memory_budget` (driver-truth incl. NVRHI's allocations)
+   instead of a dead VMA-side tracker that showed ~0. *Verify:* HUD ≈ GPU-Z dedicated
+   VRAM numbers.
+4. **Aliasing coverage of big targets — investigated, REJECTED:** the exclusions in
+   `IsRenderGraphAliasCandidate` are correctness, not oversight. GTAO/SSR/Cloud history
+   buffers persist across frames (temporal accumulation reads last frame's result) and
+   can never be transient; PreDepth/GBuffer/SceneColor are read throughout the frame
+   (SSR, GTAO, debug views, TAA), leaving no dead window to alias into. Do not extend
+   aliasing to these.
+
 **Phase 4 candidates (audit findings that need build/measure or shader edits — do with
 Tracy + validation on):**
 
@@ -120,16 +144,12 @@ Tracy + validation on):**
 - Format diets needing shader edits: Bloom + PreConvolution pyramids RGBA32F→RGBA16F;
   JumpFlood RGBA32F→RGBA16F (see A8 note); GBuffer normal → octahedral RG16F; merge the
   two R32UI id targets.
-- Editor-target lazy creation (SelectedGeometry / AO-Debug / GBufferDebug ≈ 80 MB
-  always resident; JumpFlood ≈ 100 MB).
 - Cluster grid caching on resize/projection change (currently rebuilt per frame while
   lights exist).
 - Empty-pass graph gating (Transparent/Selected/Wireframe still open + clear render
   passes when their draw lists are empty) — interacts with render-target aliasing.
 - Composite-chain merging: Skybox→Deferred→AO→SSR→Cloud→Fog→Composite→DOF each do a
   full-res scene-color read-modify-write; several are mergeable.
-- Memory HUD reads a vestigial VMA tracker (`VulkanAllocator.cpp`) — live allocations go
-  through NVRHI; re-source the stats.
 - Correctness/sync audit (thread handoff, upload races, barrier semantics) — still
   pending; the audit session for it was cut short.
 
