@@ -29,6 +29,11 @@ namespace Lux {
 			m_PipelineStatisticsQueryResults.emplace_back();
 		}
 
+#ifdef LUX_DIST
+		// GPU timer/statistics queries exist to feed the editor's profiling
+		// panels; shipping builds skip the per-frame query begin/end/poll cost.
+		enableQueries = false;
+#endif
 		m_QueryEnabled = enableQueries;
 
 		if (enableQueries)
