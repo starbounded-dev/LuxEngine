@@ -329,15 +329,12 @@ namespace Lux {
 
 		if (buffer)
 		{
-			if (!m_CommandList)
-				m_CommandList = RenderCommandBuffer::Create(1, "Image2D");
-
-			m_CommandList->RT_Begin();
-
-			m_CommandList->GetActive()->writeTexture(m_Info.ImageHandle, 0, 0, buffer.Data, Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width));
-
-			m_CommandList->RT_End();
-			m_CommandList->RT_Submit();
+			// Shared upload batch — one vkQueueSubmit per texture causes load
+			// hitches; see Renderer::RecordResourceUpload.
+			Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+			{
+				uploadList->writeTexture(m_Info.ImageHandle, 0, 0, buffer.Data, Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width));
+			});
 
 			m_Info.State = nvrhi::ResourceStates::ShaderResource;
 		}

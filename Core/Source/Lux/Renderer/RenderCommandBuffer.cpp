@@ -208,6 +208,11 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_TRACE_TAG("Renderer", "Submitting Render Command Buffer {}", m_DebugName);
 
+		// Flush batched resource uploads first: anything this command list may
+		// consume (mesh buffers, texture data) must reach the queue ahead of it.
+		// Cheap no-op when nothing is pending.
+		Renderer::FlushResourceUploads();
+
 		auto device = Application::GetGraphicsDevice();
 
 		if (m_QueryEnabled)

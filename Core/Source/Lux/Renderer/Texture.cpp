@@ -989,29 +989,22 @@ namespace Lux {
 		m_Image->RT_Invalidate();
 
 		s_TextureCubeReferences[GetHandle().Get()] = this;
-		LUX_CORE_WARN("Creating TextureCube (LIVE REFS={})", s_TextureCubeReferences.size());
+		LUX_CORE_TRACE_TAG("Renderer", "Creating TextureCube (LIVE REFS={})", s_TextureCubeReferences.size());
 
 		if (m_LocalStorage)
 		{
-			if (!m_CommandList)
-				m_CommandList = RenderCommandBuffer::Create(1, "TextureCube");
-
-			m_CommandList->RT_Begin();
-
-			// nvrhi::StagingTextureHandle stagingTexture = device->createStagingTexture(textureDesc, nvrhi::CpuAccessMode::Write);
-			// device->mapStagingTexture(stagingTexture, );
-
-			// NOTE(Yan): ONLY WORKS FOR MIP 0!
-			const uint8_t* data = m_LocalStorage.As<uint8_t>();
-			uint64_t stride = m_LocalStorage.Size / 6;
-			for (uint32_t i = 0; i < 6; i++)
+			// Shared upload batch — see Renderer::RecordResourceUpload.
+			Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
 			{
-				m_CommandList->GetActive()->writeTexture(GetHandle(), i, 0, data, Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width));
-				data += stride;
-			}
-
-			m_CommandList->RT_End();
-			m_CommandList->RT_Submit();
+				// NOTE(Yan): ONLY WORKS FOR MIP 0!
+				const uint8_t* data = m_LocalStorage.As<uint8_t>();
+				uint64_t stride = m_LocalStorage.Size / 6;
+				for (uint32_t i = 0; i < 6; i++)
+				{
+					uploadList->writeTexture(GetHandle(), i, 0, data, Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width));
+					data += stride;
+				}
+			});
 		}
 
 #if OLD

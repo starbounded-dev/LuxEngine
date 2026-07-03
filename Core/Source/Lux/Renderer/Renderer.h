@@ -114,6 +114,19 @@ namespace Lux {
 		// called from the main thread, once per frame, before the frame's render work is submitted.
 		static void ExecuteBackgroundThreadSubmits();
 
+		// ── Batched resource uploads ──────────────────────────────────────────
+		// Buffer/texture constructors record their initial-data uploads into one
+		// shared command list instead of creating and submitting a dedicated
+		// command list per resource (a vkQueueSubmit per mesh/texture is a load
+		// hitch and contends the graphics queue against the render thread). The
+		// batch is flushed automatically before every RenderCommandBuffer
+		// submission (see RT_Submit), so uploads always reach the GPU queue ahead
+		// of any command list that could consume them. Thread-safe; the record
+		// callback runs synchronously, so callers may free their CPU data on
+		// return (nvrhi stages it into the command list at record time).
+		static void RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record);
+		static void FlushResourceUploads();
+
 		template<typename FuncT>
 		static void SubmitResourceFree(FuncT&& func)
 		{

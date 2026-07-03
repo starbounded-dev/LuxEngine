@@ -624,6 +624,10 @@ namespace Lux {
 			vkDeviceWaitIdle(device);
 		}
 
+		// Execute any batched uploads still pending, then release the shared list.
+		FlushResourceUploads();
+		s_ResourceUploadCommandList = nullptr;
+
 
 #if LUX_HAS_SHADER_COMPILER
 		VulkanShaderCompiler::ClearUniformBuffers();
@@ -785,6 +789,47 @@ namespace Lux {
 		// Now on the main thread: replay through the normal lock-free submission path.
 		for (auto& func : pending)
 			Submit(std::move(func));
+	}
+
+	// ── Batched resource uploads ─────────────────────────────────────────────
+	// One shared command list accumulates initial-data uploads from any thread;
+	// FlushResourceUploads submits it once. See the declaration in Renderer.h for
+	// the ordering guarantee (flush runs before every RenderCommandBuffer submit).
+
+	static std::mutex s_ResourceUploadMutex;
+	static nvrhi::CommandListHandle s_ResourceUploadCommandList;
+	static bool s_ResourceUploadListOpen = false;
+
+	void Renderer::RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		std::scoped_lock lock(s_ResourceUploadMutex);
+
+		if (!s_ResourceUploadCommandList)
+			s_ResourceUploadCommandList = Application::GetGraphicsDevice()->createCommandList();
+
+		if (!s_ResourceUploadListOpen)
+		{
+			s_ResourceUploadCommandList->open();
+			s_ResourceUploadListOpen = true;
+		}
+
+		record(s_ResourceUploadCommandList);
+	}
+
+	void Renderer::FlushResourceUploads()
+	{
+		std::scoped_lock lock(s_ResourceUploadMutex);
+		if (!s_ResourceUploadListOpen)
+			return;
+
+		LUX_PROFILE_SCOPE("Renderer::FlushResourceUploads");
+		s_ResourceUploadCommandList->close();
+		s_ResourceUploadListOpen = false;
+
+		RenderCommandBuffer::LockQueue();
+		Application::GetGraphicsDevice()->executeCommandList(s_ResourceUploadCommandList);
+		RenderCommandBuffer::UnlockQueue();
 	}
 
 	uint32_t Renderer::GetRenderQueueIndex()
