@@ -1124,7 +1124,9 @@ namespace Lux {
 			m_PreIntegrationPass->Bake();
 
 			TextureSpecification preConvolutionSpec;
-			preConvolutionSpec.Format = ImageFormat::RGBA32F;
+			// 16F: a blurred scene-color mip chain for SSR needs HDR range, not
+			// fp32 precision — half the bandwidth/memory. Matches Pre-Convolution.glsl.
+			preConvolutionSpec.Format = ImageFormat::RGBA16F;
 			preConvolutionSpec.Width = 1;
 			preConvolutionSpec.Height = 1;
 			preConvolutionSpec.SamplerWrap = TextureWrap::Clamp;
@@ -1942,7 +1944,9 @@ namespace Lux {
 			m_BloomComputePipeline = PipelineCompute::Create(shader);
 
 			TextureSpecification spec;
-			spec.Format = ImageFormat::RGBA32F;
+			// 16F: bloom is a blurred HDR pyramid — fp32 is 2x the bandwidth for
+			// no visual gain. Matches Bloom.glsl's image layout.
+			spec.Format = ImageFormat::RGBA16F;
 			spec.Width = 1;
 			spec.Height = 1;
 			spec.SamplerWrap = TextureWrap::Clamp;

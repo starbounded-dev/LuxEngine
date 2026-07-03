@@ -3,7 +3,7 @@
 
 #include <Samplers.glslh>
 
-layout(binding = 0, rgba32f) restrict writeonly uniform image2D o_Image;
+layout(binding = 0, rgba16f) restrict writeonly uniform image2D o_Image;
 layout(binding = 1)  uniform texture2D u_Input;
 
 layout(push_constant) uniform Uniforms
