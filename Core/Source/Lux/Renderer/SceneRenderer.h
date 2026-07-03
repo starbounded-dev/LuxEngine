@@ -744,6 +744,10 @@ namespace Lux {
 			MeshPassType Type = MeshPassType::Opaque;
 			DrawCommandList DrawList;
 			DrawCommandOrder DrawOrder;
+			// Fingerprint of the key set DrawOrder was sorted for; when the set
+			// is unchanged, last frame's sorted order is reused (DrawOrder is
+			// intentionally retained across frames for this).
+			uint64_t OrderCacheHash = 0;
 		};
 
 		struct MeshDrawCommandCacheKey
@@ -859,7 +863,7 @@ namespace Lux {
 			const StaticMeshRenderProxy* renderProxy = nullptr);
 		bool IsMainViewVisible(const BoundingSphere& bounds) const;
 		bool IsShadowCasterVisible(const BoundingSphere& bounds) const;
-		void BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder) const;
+		void BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder, uint64_t& orderCacheHash) const;
 		MeshPassState& GetMeshPass(MeshPassType passType);
 		const MeshPassState& GetMeshPass(MeshPassType passType) const;
 		RenderMaterialID GetOrCreateTransientRenderMaterialID(AssetHandle materialHandle, const Ref<MaterialAsset>& materialAsset, const Ref<Material>& overrideMaterial, bool transparent);

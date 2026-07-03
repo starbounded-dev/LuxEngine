@@ -5207,8 +5207,26 @@ namespace Lux {
 		return false;
 	}
 
-	void SceneRenderer::BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder) const
+	void SceneRenderer::BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder, uint64_t& orderCacheHash) const
 	{
+		// Order-independent fingerprint of the draw-list key set. MeshKey's hash
+		// covers every sort input (pipeline/shader/material/mesh sort keys), so
+		// an unchanged fingerprint means an unchanged sorted order — reuse last
+		// frame's DrawOrder instead of re-sorting each pass every frame.
+		uint64_t hashSum = 0;
+		uint64_t hashXor = 0;
+		for (const auto& [key, dc] : drawList)
+		{
+			const uint64_t keyHash = (uint64_t)MeshKeyHasher{}(key);
+			hashSum += keyHash;
+			hashXor ^= keyHash;
+		}
+		const uint64_t fingerprint = hashSum ^ (hashXor * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)drawList.size() << 48);
+
+		if (fingerprint == orderCacheHash && drawOrder.size() == drawList.size())
+			return;
+		orderCacheHash = fingerprint;
+
 		drawOrder.clear();
 		drawOrder.reserve(drawList.size());
 
@@ -5380,7 +5398,9 @@ namespace Lux {
 		for (MeshPassState& pass : m_MeshPasses)
 		{
 			pass.DrawList.clear();
-			pass.DrawOrder.clear();
+			// DrawOrder is intentionally retained: BuildSortedDrawCommandOrder
+			// reuses it when the rebuilt DrawList has the same key set (stale
+			// keys are harmless — every consumer looks keys up with find()).
 		}
 
 		m_MeshCullDrawCount = 0;
@@ -5770,7 +5790,7 @@ namespace Lux {
 		indirectDrawData.clear();
 
 		for (MeshPassState& pass : m_MeshPasses)
-			BuildSortedDrawCommandOrder(pass.DrawList, pass.DrawOrder);
+			BuildSortedDrawCommandOrder(pass.DrawList, pass.DrawOrder, pass.OrderCacheHash);
 
 		const GPUScene* submittedGPUScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetGPUScene() : nullptr;
 		const std::vector<GPUSceneInstanceData>* persistentGPUSceneInstances = submittedGPUScene ? &submittedGPUScene->GetInstances() : nullptr;
