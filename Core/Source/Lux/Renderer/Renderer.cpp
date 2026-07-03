@@ -356,6 +356,10 @@ namespace Lux {
 	static std::vector<std::function<void()>> s_BackgroundThreadSubmitQueue;
 	static std::mutex s_BackgroundThreadSubmitMutex;
 
+	static std::mutex s_ResourceUploadMutex;
+	static nvrhi::CommandListHandle s_ResourceUploadCommandList;
+	static bool s_ResourceUploadListOpen = false;
+
 	static RendererAPI* InitRendererAPI()
 	{
 		switch (RendererAPI::Current())
@@ -796,10 +800,6 @@ namespace Lux {
 	// FlushResourceUploads submits it once. See the declaration in Renderer.h for
 	// the ordering guarantee (flush runs before every RenderCommandBuffer submit).
 
-	static std::mutex s_ResourceUploadMutex;
-	static nvrhi::CommandListHandle s_ResourceUploadCommandList;
-	static bool s_ResourceUploadListOpen = false;
-
 	void Renderer::RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -860,7 +860,8 @@ namespace Lux {
 
 					if (explicitClear || framebuffer->GetSpecification().ClearColorOnLoad)
 					{
-						for (size_t i = 0; i < framebuffer->GetColorAttachmentCount(); i++)
+						const uint32_t colorAttachmentCount = static_cast<uint32_t>(framebuffer->GetColorAttachmentCount());
+						for (uint32_t i = 0; i < colorAttachmentCount; i++)
 						{
 							nvrhi::Color color = nvrhi::Color(clearValues[i].Color.float32[0], clearValues[i].Color.float32[1],
 								clearValues[i].Color.float32[2], clearValues[i].Color.float32[3]);
@@ -897,10 +898,12 @@ namespace Lux {
 				graphicsState.indexBuffer = nvrhi::IndexBufferBinding{};
 
 				// Viewport and scissor
-				float fbWidth = (float)framebuffer->GetWidth();
-				float fbHeight = (float)framebuffer->GetHeight();
+				const uint32_t framebufferWidth = framebuffer->GetWidth();
+				const uint32_t framebufferHeight = framebuffer->GetHeight();
+				float fbWidth = (float)framebufferWidth;
+				float fbHeight = (float)framebufferHeight;
 				graphicsState.viewport.viewports = { nvrhi::Viewport(fbWidth, fbHeight) };
-				graphicsState.viewport.scissorRects = { nvrhi::Rect(fbWidth, fbHeight) };
+				graphicsState.viewport.scissorRects = { nvrhi::Rect(static_cast<int>(framebufferWidth), static_cast<int>(framebufferHeight)) };
 
 				graphicsState.lineWidth = 0.0f;
 				if (renderPass->GetPipeline()->IsDynamicLineWidth())
