@@ -3549,7 +3549,7 @@ namespace Lux {
 		}
 
 		std::vector<RenderGraph::ResourceHandle> selectedOutputs;
-		if (m_SelectedGeometryPass)
+		if (m_SelectedGeometryPass && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true))
 		{
 			selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
 			addPass("Selected Geometry", preDepthOutputs, selectedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SelectedGeometryPass));
@@ -3682,14 +3682,24 @@ namespace Lux {
 			sceneColorCurrent = fogOutputs;
 		}
 
-		std::vector<RenderGraph::ResourceHandle> transparentReads = shadowOutputs;
-		appendResources(transparentReads, preDepthOutputs);
-		appendResources(transparentReads, sceneColorCurrent);
-		std::vector<RenderGraph::ResourceHandle> transparentOutputs = addRenderPassResources("Transparent Forward", m_GeometryPassTransparent);
-		addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass));
-		sceneColorCurrent = transparentOutputs;
+		// Executable graphs skip the node entirely when nothing transparent was
+		// submitted (avoids the render-pass open/clear); non-executable (debug
+		// snapshot) graphs keep the full topology.
+		if (executable ? !GetMeshPass(MeshPassType::Transparent).DrawList.empty() : true)
+		{
+			std::vector<RenderGraph::ResourceHandle> transparentReads = shadowOutputs;
+			appendResources(transparentReads, preDepthOutputs);
+			appendResources(transparentReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> transparentOutputs = addRenderPassResources("Transparent Forward", m_GeometryPassTransparent);
+			addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass));
+			sceneColorCurrent = transparentOutputs;
+		}
 
-		if (m_GeometryWireframePass)
+		const bool wireframeActive = executable
+			? ((m_Options.ShowSelectedInWireframe && !GetMeshPass(MeshPassType::Wireframe).DrawList.empty())
+				|| (m_Options.ShowPhysicsColliders && !GetMeshPass(MeshPassType::PhysicsCollider).DrawList.empty()))
+			: true;
+		if (m_GeometryWireframePass && wireframeActive)
 		{
 			std::vector<RenderGraph::ResourceHandle> wireframeReads = sceneColorCurrent;
 			std::vector<RenderGraph::ResourceHandle> wireframeOutputs = addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass);
