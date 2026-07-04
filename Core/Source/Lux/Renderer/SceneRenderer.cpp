@@ -1214,14 +1214,14 @@ namespace Lux {
 			FramebufferTextureSpecification gbufferBaseColor = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification gbufferNormal = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification gbufferMetalRough = ImageFormat::RGBA;
-			FramebufferTextureSpecification gbufferMaterialID = ImageFormat::RED32UI;
-			FramebufferTextureSpecification gbufferObjectID = ImageFormat::RED32UI;
+			// Material + object IDs packed into one RG32UI target (one fewer
+			// full-res attachment write/clear per frame).
+			FramebufferTextureSpecification gbufferMaterialObjectID = ImageFormat::RG32UI;
 			FramebufferTextureSpecification gbufferVelocity = ImageFormat::RG16F;
 			gbufferBaseColor.Blend = false;
 			gbufferNormal.Blend = false;
 			gbufferMetalRough.Blend = false;
-			gbufferMaterialID.Blend = false;
-			gbufferObjectID.Blend = false;
+			gbufferMaterialObjectID.Blend = false;
 			gbufferVelocity.Blend = false;
 
 			FramebufferSpecification gbufferSpec;
@@ -1231,12 +1231,11 @@ namespace Lux {
 				gbufferBaseColor,
 				gbufferNormal,
 				gbufferMetalRough,
-				gbufferMaterialID,
-				gbufferObjectID,
+				gbufferMaterialObjectID,
 				gbufferVelocity,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
-			gbufferSpec.ExistingImages[6] = m_PreDepthPass->GetDepthOutput();
+			gbufferSpec.ExistingImages[5] = m_PreDepthPass->GetDepthOutput();
 			gbufferSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			gbufferSpec.ClearDepthOnLoad = false;
 			gbufferSpec.Blend = false;
@@ -1282,7 +1281,7 @@ namespace Lux {
 			forwardSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
 			forwardSpec.ExistingImages[1] = m_GeometryPassFramebuffer->GetImage(1);
 			forwardSpec.ExistingImages[2] = m_GeometryPassFramebuffer->GetImage(2);
-			forwardSpec.ExistingImages[3] = m_GeometryPassFramebuffer->GetImage(5); // shared velocity buffer
+			forwardSpec.ExistingImages[3] = m_GeometryPassFramebuffer->GetImage(4); // shared velocity buffer
 			forwardSpec.ExistingImages[4] = m_PreDepthPass->GetDepthOutput();
 			forwardSpec.ClearColorOnLoad = false;
 			forwardSpec.ClearDepthOnLoad = false;
@@ -2379,8 +2378,7 @@ namespace Lux {
 			SetRenderPassInputIfValid(renderPass, "u_GBufferBaseColor", m_GeometryPass->GetOutput(0));
 			SetRenderPassInputIfValid(renderPass, "u_GBufferNormal", m_GeometryPass->GetOutput(1));
 			SetRenderPassInputIfValid(renderPass, "u_GBufferMetalRoughAO", m_GeometryPass->GetOutput(2));
-			SetRenderPassInputIfValid(renderPass, "u_GBufferMaterialID", m_GeometryPass->GetOutput(3));
-			SetRenderPassInputIfValid(renderPass, "u_GBufferObjectID", m_GeometryPass->GetOutput(4));
+			SetRenderPassInputIfValid(renderPass, "u_GBufferMaterialObjectID", m_GeometryPass->GetOutput(3));
 			SetRenderPassInputIfValid(renderPass, "u_DeferredLighting", GetSceneColorOutput());
 		}
 		if (hasInput(PassInputSceneColor))
@@ -8250,17 +8248,19 @@ namespace Lux {
 
 	Ref<Image2D> SceneRenderer::GetGeometryMaterialIDOutput() const
 	{
+		// Packed RG32UI target: material ID in .x, object ID in .y.
 		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(3) : nullptr;
 	}
 
 	Ref<Image2D> SceneRenderer::GetGeometryObjectIDOutput() const
 	{
-		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(4) : nullptr;
+		// Same packed RG32UI target as the material IDs (object ID in .y).
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(3) : nullptr;
 	}
 
 	Ref<Image2D> SceneRenderer::GetGeometryVelocityOutput() const
 	{
-		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(5) : nullptr;
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(4) : nullptr;
 	}
 
 	Ref<Image2D> SceneRenderer::GetFinalPassImage()

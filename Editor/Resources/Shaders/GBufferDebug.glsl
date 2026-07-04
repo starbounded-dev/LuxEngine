@@ -28,8 +28,7 @@ layout(location = 0) out vec4 o_Color;
 layout(set = 1, binding = 0) uniform texture2D u_GBufferBaseColor;
 layout(set = 1, binding = 1) uniform texture2D u_GBufferNormal;
 layout(set = 1, binding = 2) uniform texture2D u_GBufferMetalRoughAO;
-layout(set = 1, binding = 3) uniform utexture2D u_GBufferMaterialID;
-layout(set = 1, binding = 4) uniform utexture2D u_GBufferObjectID;
+layout(set = 1, binding = 3) uniform utexture2D u_GBufferMaterialObjectID;
 layout(set = 1, binding = 5) uniform texture2D u_DeferredLighting;
 
 layout(push_constant) uniform Uniforms
@@ -54,7 +53,7 @@ const uint GBUFFER_DEBUG_GPU_MATERIAL_MISSING = 11u;
 
 void main()
 {
-	LuxGBufferData gbuffer = DecodeGBuffer(u_GBufferBaseColor, u_GBufferNormal, u_GBufferMetalRoughAO, u_GBufferMaterialID, u_GBufferObjectID, v_TexCoord);
+	LuxGBufferData gbuffer = DecodeGBuffer(u_GBufferBaseColor, u_GBufferNormal, u_GBufferMetalRoughAO, u_GBufferMaterialObjectID, v_TexCoord);
 
 	if (u_Uniforms.Mode == GBUFFER_DEBUG_BASE_COLOR)
 	{

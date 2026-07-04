@@ -18,6 +18,7 @@ namespace Lux {
 		RED8UI,
 		RED16UI,
 		RED32UI,
+		RG32UI,
 		RED32F,
 		RG8,
 		RG16F,
@@ -245,6 +246,7 @@ namespace Lux {
 			case ImageFormat::RED8UI:               return nvrhi::Format::R8_UINT;
 			case ImageFormat::RED16UI:              return nvrhi::Format::R16_UINT;
 			case ImageFormat::RED32UI:              return nvrhi::Format::R32_UINT;
+			case ImageFormat::RG32UI:               return nvrhi::Format::RG32_UINT;
 			case ImageFormat::RED32F:               return nvrhi::Format::R32_FLOAT;
 			case ImageFormat::RG8:                  return nvrhi::Format::RG8_UNORM;
 			case ImageFormat::RG16F:                return nvrhi::Format::RG16_FLOAT;
@@ -318,6 +320,7 @@ namespace Lux {
 			case ImageFormat::RED8UI:  return 1;
 			case ImageFormat::RED16UI: return 2;
 			case ImageFormat::RED32UI: return 4;
+			case ImageFormat::RG32UI: return 8;
 			case ImageFormat::RED32F:  return 4;
 			case ImageFormat::RG8:     return 2;
 			case ImageFormat::RG16F:   return 2 * 2;
@@ -352,6 +355,7 @@ namespace Lux {
 			{
 			case ImageFormat::RED16UI:
 			case ImageFormat::RED32UI:
+			case ImageFormat::RG32UI:
 			case ImageFormat::RED8UI:
 			case ImageFormat::DEPTH32FSTENCIL8UINT:
 				return true;

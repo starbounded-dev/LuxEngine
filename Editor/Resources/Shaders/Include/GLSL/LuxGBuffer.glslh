@@ -22,8 +22,7 @@ void EncodeGBuffer(
 	out vec4 outBaseColorOpacity,
 	out vec4 outViewNormal,
 	out vec4 outMetalRoughAO,
-	out uint outMaterialID,
-	out uint outObjectID)
+	out uvec2 outMaterialObjectID)
 {
 	outBaseColorOpacity = vec4(max(data.BaseColor, vec3(0.0)), clamp(data.Opacity, 0.0, 1.0));
 	outViewNormal = vec4(normalize(data.ViewNormal), data.Reserved0);
@@ -32,16 +31,14 @@ void EncodeGBuffer(
 		clamp(data.Roughness, 0.0, 1.0),
 		clamp(data.AmbientOcclusion, 0.0, 1.0),
 		clamp(data.Specular, 0.0, 1.0));
-	outMaterialID = data.MaterialID;
-	outObjectID = data.ObjectID;
+	outMaterialObjectID = uvec2(data.MaterialID, data.ObjectID);
 }
 
 LuxGBufferData DecodeGBuffer(
 	texture2D gBufferBaseColor,
 	texture2D gBufferNormal,
 	texture2D gBufferMetalRoughAO,
-	utexture2D gBufferMaterialID,
-	utexture2D gBufferObjectID,
+	utexture2D gBufferMaterialObjectID,
 	vec2 uv)
 {
 	LuxGBufferData data;
@@ -57,8 +54,9 @@ LuxGBufferData DecodeGBuffer(
 	data.Roughness = max(metalRoughAO.y, 0.05);
 	data.AmbientOcclusion = metalRoughAO.z;
 	data.Specular = metalRoughAO.w;
-	data.MaterialID = texture(usampler2D(gBufferMaterialID, r_PointSampler), uv).r;
-	data.ObjectID = texture(usampler2D(gBufferObjectID, r_PointSampler), uv).r;
+	uvec2 materialObjectID = texture(usampler2D(gBufferMaterialObjectID, r_PointSampler), uv).rg;
+	data.MaterialID = materialObjectID.x;
+	data.ObjectID = materialObjectID.y;
 
 	return data;
 }

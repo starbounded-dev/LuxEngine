@@ -45,8 +45,7 @@ layout(set = 1, binding = 11) uniform texture2D u_SceneColor;
 layout(set = 1, binding = 12) uniform texture2D u_GBufferBaseColor;
 layout(set = 1, binding = 13) uniform texture2D u_GBufferNormal;
 layout(set = 1, binding = 14) uniform texture2D u_GBufferMetalRoughAO;
-layout(set = 1, binding = 15) uniform utexture2D u_GBufferMaterialID;
-layout(set = 1, binding = 16) uniform utexture2D u_GBufferObjectID;
+layout(set = 1, binding = 15) uniform utexture2D u_GBufferMaterialObjectID;
 layout(set = 1, binding = 17) uniform texture2D u_DepthTexture;
 
 layout(set = 3, binding = 5) uniform texture2D u_BRDFLUTTexture;
@@ -269,7 +268,7 @@ void main()
 		discard;
 	}
 
-	LuxGBufferData gbuffer = DecodeGBuffer(u_GBufferBaseColor, u_GBufferNormal, u_GBufferMetalRoughAO, u_GBufferMaterialID, u_GBufferObjectID, v_TexCoord);
+	LuxGBufferData gbuffer = DecodeGBuffer(u_GBufferBaseColor, u_GBufferNormal, u_GBufferMetalRoughAO, u_GBufferMaterialObjectID, v_TexCoord);
 	vec3 worldNormal = normalize(mat3(u_Camera.InverseViewMatrix) * gbuffer.ViewNormal);
 
 	m_Params.Albedo = gbuffer.BaseColor;
