@@ -186,8 +186,21 @@ namespace Lux {
 			textureDesc.keepInitialState = true;
 		}
 
-		//textureDesc.initialState = textureDesc.initialState | nvrhi::ResourceStates::UnorderedAccess;
-		if (!Utils::IsDepthFormat(m_Specification.Format) && m_Specification.Format != ImageFormat::SRGB && m_Specification.Format != ImageFormat::SRGBA && !Utils::IsBlockCompressed(m_Specification.Format))
+		// UAV (STORAGE usage) disables framebuffer/delta-color compression on many
+		// GPUs — a bandwidth tax on every render-target read/write. Grant it only
+		// to images actually written by compute shaders: Storage-usage images, and
+		// sampled textures with mip chains (Texture2D::GenerateMips is a compute
+		// pass that writes each level as a storage image). Attachments never
+		// qualify; every compute-written image in the engine is created with
+		// Usage::Storage (verified against all shader storage-image bindings).
+		const bool formatSupportsUAV = !Utils::IsDepthFormat(m_Specification.Format)
+			&& m_Specification.Format != ImageFormat::SRGB
+			&& m_Specification.Format != ImageFormat::SRGBA
+			&& !Utils::IsBlockCompressed(m_Specification.Format);
+		const bool isComputeMipTarget = m_Specification.Usage != ImageUsage::Attachment
+			&& m_Specification.Usage != ImageUsage::HostRead
+			&& m_Specification.Mips > 1;
+		if (formatSupportsUAV && (m_Specification.Usage == ImageUsage::Storage || isComputeMipTarget))
 			textureDesc.isUAV = true;
 
 		if (textureDesc.isUAV)
