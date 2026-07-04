@@ -1778,189 +1778,14 @@ namespace Lux {
 		}
 
 		// ── Atmosphere, procedural clouds and fog ────────────────────────────
-		{
-			auto createFullscreenPass = [&](const char* debugName, const char* shaderName, const FramebufferSpecification& framebufferSpec, bool bindDepth, const std::function<void(const Ref<RenderPass>&)>& bindExtra)
-			{
-				PipelineSpecification pipelineSpec;
-				pipelineSpec.DebugName = debugName;
-				pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get(shaderName);
-				pipelineSpec.TargetFramebuffer = Framebuffer::Create(framebufferSpec);
-				pipelineSpec.DepthWrite = false;
-				pipelineSpec.DepthTest = false;
-				pipelineSpec.Layout = {
-					{ ShaderDataType::Float3, "a_Position" },
-					{ ShaderDataType::Float2, "a_TexCoord" }
-				};
-
-				Ref<Pipeline> pipeline = Pipeline::Create(pipelineSpec);
-
-				RenderPassSpecification rpSpec;
-				rpSpec.DebugName = debugName;
-				rpSpec.Pipeline = pipeline;
-				Ref<RenderPass> pass = RenderPass::Create(rpSpec);
-				BindCommonSceneRenderPassInputs(pass, bindDepth);
-				if (bindExtra)
-					bindExtra(pass);
-				LUX_CORE_VERIFY(pass->Validate());
-				pass->Bake();
-
-				return std::pair<Ref<Pipeline>, Ref<RenderPass>>{ pipeline, pass };
-			};
-
-			auto createSceneColorFramebufferSpec = [&](const char* debugName, bool enableBlending)
-			{
-				FramebufferSpecification fbSpec;
-				fbSpec.Width = m_ViewportWidth;
-				fbSpec.Height = m_ViewportHeight;
-				fbSpec.ExistingImages[0] = GetSceneColorOutput();
-				fbSpec.Attachments = { ImageFormat::RGBA16F };
-				fbSpec.ClearColorOnLoad = false;
-				fbSpec.ClearDepthOnLoad = false;
-				fbSpec.Blend = enableBlending;
-				fbSpec.BlendMode = enableBlending ? FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha : FramebufferBlendMode::OneZero;
-				fbSpec.DebugName = debugName;
-				return fbSpec;
-			};
-
-			auto [skyPipeline, skyPass] = createFullscreenPass("SkyAtmosphere", "SkyAtmosphere", createSceneColorFramebufferSpec("SkyAtmosphere", false), false, {});
-			m_SkyAtmospherePipeline = skyPipeline;
-			m_SkyAtmospherePass = skyPass;
-			m_SkyAtmosphereMaterial = Material::Create(skyPipeline->GetShader(), "SkyAtmosphere");
-
-			m_CloudRenderScale = SanitizeCloudRenderScale(ResolveFrameEnvironment().Atmosphere.VolumetricClouds.RenderScale);
-			m_CloudRenderSize = CalculateVolumetricCloudRenderSize();
-
-			// Baked tileable 3D noise volumes (generated once on the first frame).
-			{
-				auto createNoiseVolume = [](const char* debugName, uint32_t size)
-				{
-					ImageSpecification spec;
-					spec.DebugName = debugName;
-					spec.Dimension = nvrhi::TextureDimension::Texture3D;
-					spec.Format = ImageFormat::RGBA16F;
-					spec.Usage = ImageUsage::Storage;
-					spec.Width = size;
-					spec.Height = size;
-					spec.Depth = size;
-					spec.Mips = 1;
-					spec.Layers = 1;
-					spec.CreateSampler = false;
-					Ref<Image2D> image = Image2D::Create(spec);
-					image->Invalidate();
-					return image;
-				};
-				m_CloudBaseShapeVolume = createNoiseVolume("CloudBaseShape", 128);
-				m_CloudDetailVolume = createNoiseVolume("CloudDetail", 32);
-				m_CloudCurlVolume = createNoiseVolume("CloudCurl", 32);
-
-				ComputePassSpecification baseBakeSpec;
-				baseBakeSpec.DebugName = "CloudNoiseBaseShapeBake";
-				baseBakeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("CloudNoiseBaseShape"));
-				m_CloudBaseShapeBakePass = ComputePass::Create(baseBakeSpec);
-				m_CloudBaseShapeBakePass->SetInput("o_NoiseVolume", m_CloudBaseShapeVolume);
-
-				ComputePassSpecification detailBakeSpec;
-				detailBakeSpec.DebugName = "CloudNoiseDetailBake";
-				detailBakeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("CloudNoiseDetail"));
-				m_CloudDetailBakePass = ComputePass::Create(detailBakeSpec);
-				m_CloudDetailBakePass->SetInput("o_NoiseVolume", m_CloudDetailVolume);
-
-				ComputePassSpecification curlBakeSpec;
-				curlBakeSpec.DebugName = "CloudNoiseCurlBake";
-				curlBakeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("CloudNoiseCurl"));
-				m_CloudCurlBakePass = ComputePass::Create(curlBakeSpec);
-				m_CloudCurlBakePass->SetInput("o_NoiseVolume", m_CloudCurlVolume);
-
-				if (m_CloudBaseShapeBakePass->Validate())
-					m_CloudBaseShapeBakePass->Bake();
-				if (m_CloudDetailBakePass->Validate())
-					m_CloudDetailBakePass->Bake();
-				if (m_CloudCurlBakePass->Validate())
-					m_CloudCurlBakePass->Bake();
-				m_CloudNoiseBaked = false;
-			}
-
-			FramebufferSpecification cloudSpec;
-			cloudSpec.Width = m_CloudRenderSize.x;
-			cloudSpec.Height = m_CloudRenderSize.y;
-			cloudSpec.Attachments = {
-				ImageFormat::RGBA16F, // cloud color + transmittance
-				ImageFormat::RGBA16F  // front depth, scene depth, trace min/max
-			};
-			cloudSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-			cloudSpec.ClearColorOnLoad = true;
-			cloudSpec.ClearDepthOnLoad = false;
-			cloudSpec.Blend = false;
-			cloudSpec.BlendMode = FramebufferBlendMode::OneZero;
-			cloudSpec.DebugName = "VolumetricClouds";
-
-			auto [cloudPipeline, cloudPass] = createFullscreenPass("VolumetricClouds", "VolumetricClouds", cloudSpec, true,
-				[&](const Ref<RenderPass>& pass)
-				{
-					SetRenderPassInputIfValid(pass, "u_CloudBaseShape", m_CloudBaseShapeVolume);
-					SetRenderPassInputIfValid(pass, "u_CloudDetail", m_CloudDetailVolume);
-					SetRenderPassInputIfValid(pass, "u_CloudCurl", m_CloudCurlVolume);
-				});
-			m_VolumetricCloudPipeline = cloudPipeline;
-			m_VolumetricCloudPass = cloudPass;
-			m_VolumetricCloudMaterial = Material::Create(cloudPipeline->GetShader(), "VolumetricClouds");
-
-			// Temporal scattering integration: half-res history (ping-pong) + resolve pass.
-			{
-				auto createCloudHistory = [&](const char* debugName)
-				{
-					ImageSpecification spec;
-					spec.DebugName = debugName;
-					spec.Format = ImageFormat::RGBA16F;
-					spec.Usage = ImageUsage::Storage;
-					spec.Width = glm::max(m_CloudRenderSize.x, 1u);
-					spec.Height = glm::max(m_CloudRenderSize.y, 1u);
-					Ref<Image2D> image = Image2D::Create(spec);
-					image->Invalidate();
-					return image;
-				};
-				m_CloudHistoryImages[0] = createCloudHistory("CloudHistory-A");
-				m_CloudHistoryImages[1] = createCloudHistory("CloudHistory-B");
-
-				ComputePassSpecification temporalSpec;
-				temporalSpec.DebugName = "VolumetricCloudTemporal";
-				temporalSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("VolumetricCloudTemporal"));
-				m_VolumetricCloudTemporalPass = ComputePass::Create(temporalSpec);
-				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloud", m_VolumetricCloudPass->GetOutput(0));
-				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloudDepth", m_VolumetricCloudPass->GetOutput(1));
-				m_VolumetricCloudTemporalPass->SetInput("u_HistoryCloud", m_CloudHistoryImages[0]);
-				m_VolumetricCloudTemporalPass->SetInput("o_ResolvedCloud", m_CloudHistoryImages[1]);
-				m_VolumetricCloudTemporalPass->SetInput("Camera", m_UBSCamera);
-				m_VolumetricCloudTemporalPass->SetInput("SceneData", m_UBSScene);
-				m_VolumetricCloudTemporalPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-				m_VolumetricCloudTemporalPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-				if (m_VolumetricCloudTemporalPass->Validate())
-					m_VolumetricCloudTemporalPass->Bake();
-				m_CloudHistoryValid = false;
-			}
-
-			auto [cloudCompositePipeline, cloudCompositePass] = createFullscreenPass("VolumetricCloudComposite", "VolumetricCloudComposite", createSceneColorFramebufferSpec("VolumetricCloudComposite", true), true,
-				[&](const Ref<RenderPass>& pass)
-				{
-					SetRenderPassInputIfValid(pass, "u_CloudTexture", m_CloudHistoryImages[1]);
-					SetRenderPassInputIfValid(pass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
-				});
-			m_VolumetricCloudCompositePipeline = cloudCompositePipeline;
-			m_VolumetricCloudCompositePass = cloudCompositePass;
-			m_VolumetricCloudCompositeMaterial = Material::Create(cloudCompositePipeline->GetShader(), "VolumetricCloudComposite");
-
-			auto [fogPipeline, fogPass] = createFullscreenPass("AtmosphericFog", "AtmosphericFog", createSceneColorFramebufferSpec("AtmosphericFog", true), true,
-				[&](const Ref<RenderPass>& pass)
-				{
-					// Volumetric fog now scatters clustered point/spot lights (FogClusterLights.glslh);
-					// the cluster lists + light UBOs already come from PassInputCommonScene, this adds
-					// the spot shadow atlas so the in-fog spot shafts are shadowed.
-					BindSceneRenderPassInputs(pass, PassInputShadowMaps);
-				});
-			m_AtmosphericFogPipeline = fogPipeline;
-			m_AtmosphericFogPass = fogPass;
-			m_AtmosphericFogMaterial = Material::Create(fogPipeline->GetShader(), "AtmosphericFog");
-		}
+		// REMOVED: Sky Atmosphere, Volumetric Clouds, and Atmospheric/Height Fog
+		// are cut. Their passes, pipelines, materials, 3D cloud-noise volumes,
+		// cloud history buffers and framebuffers are no longer created; the
+		// members stay null and every path goes inert -- the render-graph nodes
+		// (gated on the pass existing), the execute functions (early-return on
+		// null) and the resize/repair sweeps (all null-guarded). This reclaims
+		// their VRAM and per-frame GPU cost. The shaders and pass functions are
+		// kept on disk; recreate this block to restore.
 
 		// ── Bloom compute (feeds the scene composite) ─────────────────────────
 		{
@@ -4365,9 +4190,14 @@ namespace Lux {
 			if (m_GBufferDebugPass)
 				m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_SkyboxPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_SkyAtmospherePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_VolumetricCloudCompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_AtmosphericFogPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			// Sky Atmosphere / Volumetric Clouds / Atmospheric Fog removed — may be
+			// null now, so guard the resize (the other sweeps already null-check).
+			if (m_SkyAtmospherePass)
+				m_SkyAtmospherePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_VolumetricCloudCompositePass)
+				m_VolumetricCloudCompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_AtmosphericFogPass)
+				m_AtmosphericFogPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			if (m_SelectedGeometryPass)
 				m_SelectedGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			if (m_GeometryWireframePass)
