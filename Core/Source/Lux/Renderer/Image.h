@@ -440,6 +440,7 @@ namespace Lux {
 			case ImageFormat::RED8UI: return "RED8UI";
 			case ImageFormat::RED16UI: return "RED16UI";
 			case ImageFormat::RED32UI: return "RED32UI";
+			case ImageFormat::RG32UI: return "RG32UI";
 			case ImageFormat::RED32F: return "RED32F";
 			case ImageFormat::RG8: return "RG8";
 			case ImageFormat::RG16F: return "RG16F";
