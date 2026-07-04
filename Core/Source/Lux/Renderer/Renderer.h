@@ -232,6 +232,12 @@ namespace Lux {
 		static void RegisterShaderDependency(Ref<Shader> shader, ComputePass* computePass);
 		static void OnShaderReloaded(size_t hash);
 
+		// Returns a process-wide cached compute pipeline for the given shader,
+		// creating it on first use. Used by Texture GenerateMips so the
+		// LinearSample / LinearSampleUInt mip generator is built once instead of
+		// once per texture (was hundreds of redundant pipeline builds at load).
+		static Ref<PipelineCompute> GetOrCreateMipGenPipeline(Ref<Shader> shader);
+
 		static uint32_t GetCurrentFrameIndex();
 		static uint32_t RT_GetCurrentFrameIndex();
 

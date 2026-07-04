@@ -199,6 +199,12 @@ namespace Lux {
 
 	static std::unordered_map<size_t, Ref<Pipeline>> s_PipelineCache;
 
+	// Cache of compute pipelines keyed by shader hash, shared across the whole
+	// process. Currently only the mip generator (LinearSample / LinearSampleUInt)
+	// uses it; before, GenerateMips built a fresh pipeline per texture.
+	static std::unordered_map<size_t, Ref<PipelineCompute>> s_MipGenPipelineCache;
+	static std::mutex s_MipGenPipelineCacheMutex;
+
 	struct ShaderDependencies
 	{
 		std::vector<WeakRef<PipelineCompute>> ComputePipelines;
@@ -307,6 +313,19 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		std::scoped_lock lock(s_ShaderDependenciesMutex);
 		s_ShaderDependencies[shader->GetHash()].ComputePasses.push_back(computePass);
+	}
+
+	Ref<PipelineCompute> Renderer::GetOrCreateMipGenPipeline(Ref<Shader> shader)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		const size_t hash = shader->GetHash();
+		std::scoped_lock lock(s_MipGenPipelineCacheMutex);
+		if (auto it = s_MipGenPipelineCache.find(hash); it != s_MipGenPipelineCache.end())
+			return it->second;
+
+		Ref<PipelineCompute> pipeline = PipelineCompute::Create(shader);
+		s_MipGenPipelineCache[hash] = pipeline;
+		return pipeline;
 	}
 
 	void Renderer::OnShaderReloaded(size_t hash)
@@ -649,6 +668,13 @@ namespace Lux {
 		{
 			std::scoped_lock lock(s_ShaderDependenciesMutex);
 			s_ShaderDependencies.clear();
+		}
+
+		{
+			// Release the cached mip-gen compute pipelines before device teardown
+			// (their deferred frees are drained by the release queues below).
+			std::scoped_lock lock(s_MipGenPipelineCacheMutex);
+			s_MipGenPipelineCache.clear();
 		}
 
 		auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();

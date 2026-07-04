@@ -652,7 +652,7 @@ namespace Lux {
 
 		ComputePassSpecification spec;
 		spec.DebugName = "LinearSample";
-		spec.Pipeline = PipelineCompute::Create(shader);
+		spec.Pipeline = Renderer::GetOrCreateMipGenPipeline(shader); // cached: built once, not per texture
 		Ref<ComputePass> computePass = ComputePass::Create(spec);
 
 		renderCommandBuffer->Begin();
@@ -1223,7 +1223,7 @@ namespace Lux {
 
 		ComputePassSpecification spec;
 		spec.DebugName = "LinearSample";
-		spec.Pipeline = PipelineCompute::Create(shader);
+		spec.Pipeline = Renderer::GetOrCreateMipGenPipeline(shader); // cached: built once, not per texture
 		Ref<ComputePass> computePass = ComputePass::Create(spec);
 
 		renderCommandBuffer->Begin();
