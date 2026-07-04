@@ -1318,6 +1318,32 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_GeometryPassTransparent->Validate());
 			m_GeometryPassTransparent->Bake();
 
+			// GTAO images are created before the deferred-lighting pass: the AO
+			// multiply is folded into DeferredLighting.glsl (u_GTAOTex), so the
+			// pass validates against them at creation.
+			{
+				ImageSpecification gtaoImageSpec;
+				gtaoImageSpec.Format = ImageFormat::RED32UI;
+				gtaoImageSpec.Usage = ImageUsage::Storage;
+				gtaoImageSpec.DebugName = "GTAO";
+				m_GTAOOutputImage = Image2D::Create(gtaoImageSpec);
+
+				gtaoImageSpec.DebugName = "GTAO-Denoise";
+				m_GTAODenoiseImage = Image2D::Create(gtaoImageSpec);
+
+				gtaoImageSpec.Format = ImageFormat::RED8UN;
+				gtaoImageSpec.DebugName = "GTAO-Edges";
+				m_GTAOEdgesOutputImage = Image2D::Create(gtaoImageSpec);
+
+				gtaoImageSpec.Format = ImageFormat::RED32UI;
+				gtaoImageSpec.DebugName = "GTAO-History-A";
+				m_GTAOHistoryImages[0] = Image2D::Create(gtaoImageSpec);
+				gtaoImageSpec.DebugName = "GTAO-History-B";
+				m_GTAOHistoryImages[1] = Image2D::Create(gtaoImageSpec);
+
+				m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
+			}
+
 			FramebufferSpecification deferredSpec;
 			deferredSpec.Width = m_ViewportWidth;
 			deferredSpec.Height = m_ViewportHeight;
@@ -1346,6 +1372,8 @@ namespace Lux {
 			m_DeferredLightingPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			m_DeferredLightingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_DeferredLightingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			if (m_DeferredLightingPass->IsInputValid("u_GTAOTex"))
+				m_DeferredLightingPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			LUX_CORE_VERIFY(m_DeferredLightingPass->Validate());
 			m_DeferredLightingPass->Bake();
 			m_DeferredLightingMaterial = Material::Create(deferredPipelineSpec.Shader, "DeferredLighting");
@@ -1378,26 +1406,9 @@ namespace Lux {
 		}
 
 		// ── GTAO + AO composite ───────────────────────────────────────────────
+		// (The GTAO images themselves are created earlier, before the
+		// deferred-lighting pass that samples u_GTAOTex validates.)
 		{
-			ImageSpecification imageSpec;
-			imageSpec.Format = ImageFormat::RED32UI;
-			imageSpec.Usage = ImageUsage::Storage;
-			imageSpec.DebugName = "GTAO";
-			m_GTAOOutputImage = Image2D::Create(imageSpec);
-
-			imageSpec.DebugName = "GTAO-Denoise";
-			m_GTAODenoiseImage = Image2D::Create(imageSpec);
-
-			imageSpec.Format = ImageFormat::RED8UN;
-			imageSpec.DebugName = "GTAO-Edges";
-			m_GTAOEdgesOutputImage = Image2D::Create(imageSpec);
-
-			imageSpec.Format = ImageFormat::RED32UI;
-			imageSpec.DebugName = "GTAO-History-A";
-			m_GTAOHistoryImages[0] = Image2D::Create(imageSpec);
-			imageSpec.DebugName = "GTAO-History-B";
-			m_GTAOHistoryImages[1] = Image2D::Create(imageSpec);
-
 			Ref<Shader> gtaoShader = Renderer::GetShaderLibrary()->Get("GTAO");
 			ComputePassSpecification gtaoSpec;
 			gtaoSpec.DebugName = "GTAO-ComputePass";
@@ -1443,8 +1454,6 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_GTAODenoisePass[1]->Validate());
 			m_GTAODenoisePass[1]->Bake();
 
-			m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
-
 			Ref<Shader> gtaoTemporalShader = Renderer::GetShaderLibrary()->Get("GTAO-Temporal");
 			ComputePassSpecification gtaoTemporalSpec;
 			gtaoTemporalSpec.DebugName = "GTAO-Temporal";
@@ -1461,11 +1470,9 @@ namespace Lux {
 			m_GTAOTemporalPass->Bake();
 
 			// The screen-space AO multiply is folded into the deferred lighting
-			// shader (u_GTAOTex below) — the former AO-Composite full-res
-			// read-modify-write pass is gone. The AO-Composite shader remains in
-			// use by the editor's AO debug view.
-			if (m_DeferredLightingPass && m_DeferredLightingPass->IsInputValid("u_GTAOTex"))
-				m_DeferredLightingPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			// shader (u_GTAOTex, bound at deferred-pass creation) — the former
+			// AO-Composite full-res read-modify-write pass is gone. The
+			// AO-Composite shader remains in use by the editor's AO debug view.
 
 			// Editor-only AO debug view target — not created in the standalone runtime.
 			if (m_Specification.EnableEditorRenderTargets)

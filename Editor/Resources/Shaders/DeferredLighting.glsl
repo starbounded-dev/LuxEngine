@@ -39,7 +39,9 @@ layout(set = 1, binding = 1) uniform textureCube u_EnvIrradianceTex;
 layout(set = 1, binding = 2) uniform texture2DArray u_ShadowMapTexture;
 layout(set = 1, binding = 3) uniform texture2D u_SpotShadowTexture;
 #if ENABLED_GTAO
-layout(set = 1, binding = 4) uniform utexture2D u_GTAOTex;
+// Binding 18: 4-10 are taken by the Buffers.glslh UBOs (ShadowData at 4!),
+// 22-25 by the Lighting.glslh cluster buffers, 11-17 by the GBuffer inputs.
+layout(set = 1, binding = 18) uniform utexture2D u_GTAOTex;
 #endif
 layout(set = 1, binding = 11) uniform texture2D u_SceneColor;
 layout(set = 1, binding = 12) uniform texture2D u_GBufferBaseColor;
