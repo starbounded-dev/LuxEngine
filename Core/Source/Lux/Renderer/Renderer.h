@@ -238,6 +238,13 @@ namespace Lux {
 		// once per texture (was hundreds of redundant pipeline builds at load).
 		static Ref<PipelineCompute> GetOrCreateMipGenPipeline(Ref<Shader> shader);
 
+		// Cross-queue ordering: make the next submission on waitQueue wait until
+		// the given execution instance (from RenderCommandBuffer::GetLastExecutionInstance,
+		// i.e. executeCommandList's return) on executionQueue has completed. Must be
+		// called on the render thread, between the two queues' submits. Used to build
+		// async-compute overlap (e.g. graphics waits for the compute light-cull).
+		static void QueueWaitForCommandList(nvrhi::CommandQueue waitQueue, nvrhi::CommandQueue executionQueue, uint64_t instance);
+
 		static uint32_t GetCurrentFrameIndex();
 		static uint32_t RT_GetCurrentFrameIndex();
 

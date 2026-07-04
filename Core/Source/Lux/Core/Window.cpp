@@ -92,6 +92,11 @@ namespace Lux {
 		deviceParams.Decorated = m_Specification.Decorated;
 		deviceParams.swapChainBufferCount = 3;
 		deviceParams.enableRayTracingExtensions = true;
+		// Give nvrhi a dedicated compute queue so render passes can be scheduled
+		// async on it (GTAO / SSR / light-cull / bloom overlapping graphics work).
+		// Desktop NVIDIA always exposes a compute-capable queue family, so device
+		// creation still succeeds; nothing submits async until EnableAsyncCompute.
+		deviceParams.enableComputeQueue = true;
 		deviceParams.maxFramesInFlight = 1;
 		deviceParams.backBufferWidth = m_Specification.Width;
 		deviceParams.backBufferHeight = m_Specification.Height;

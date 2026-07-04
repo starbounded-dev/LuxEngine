@@ -315,6 +315,14 @@ namespace Lux {
 		s_ShaderDependencies[shader->GetHash()].ComputePasses.push_back(computePass);
 	}
 
+	void Renderer::QueueWaitForCommandList(nvrhi::CommandQueue waitQueue, nvrhi::CommandQueue executionQueue, uint64_t instance)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		// nvrhi tracks a completion timeline per queue; this inserts the wait on
+		// waitQueue for executionQueue's instance without any manual semaphores.
+		Application::GetGraphicsDevice()->queueWaitForCommandList(waitQueue, executionQueue, instance);
+	}
+
 	Ref<PipelineCompute> Renderer::GetOrCreateMipGenPipeline(Ref<Shader> shader)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

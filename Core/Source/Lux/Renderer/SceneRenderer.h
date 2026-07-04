@@ -216,6 +216,11 @@ namespace Lux {
 		bool  EnableTAA = false;
 		float TAAHistoryBlend = 0.90f; // fraction of history kept per frame
 		float TAASharpness = 0.3f;     // post-resolve unsharp strength (0 = off)
+		// Schedule independent compute passes (cluster light-cull, GTAO, SSR,
+		// bloom) on the async compute queue overlapping graphics work. Off by
+		// default while the cross-queue path is brought up one pass at a time;
+		// nothing submits async until a pass is wired to honor this flag.
+		bool  EnableAsyncCompute = false;
 		RenderResolutionScaleMode ResolutionScaleMode = RenderResolutionScaleMode::Native;
 		float DynamicResolutionScale = 1.0f;
 		float DynamicResolutionMinScale = 0.5f;
