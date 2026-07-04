@@ -3472,6 +3472,7 @@ namespace Lux {
 
 				RenderGraph::PassDesc pass;
 				pass.Name = graphName(name);
+				pass.DebugName = name.data(); // string-literal backed; valid for the process lifetime
 				pass.Reads = std::move(reads);
 				pass.Writes = std::move(writes);
 				pass.Flags = execute

@@ -603,6 +603,13 @@ namespace Lux {
 
 	void RenderGraph::Execute(const CompileResult& compileResult) const
 	{
+		// TEMP crash diagnostic: log the full pass sequence on the first executed
+		// frame only. The last "Executing pass" line before a crash names the
+		// pass whose execute callback faulted. Remove once the frame-1 crash is
+		// resolved.
+		static bool s_LoggedFirstExecute = false;
+		const bool logThisExecute = !s_LoggedFirstExecute;
+
 		for (uint32_t passIndex : compileResult.ExecutionOrder)
 		{
 			if (passIndex >= m_Passes.size())
@@ -610,7 +617,17 @@ namespace Lux {
 
 			const PassDesc& pass = m_Passes[passIndex];
 			if (pass.Execute)
+			{
+				if (logThisExecute)
+					LUX_CORE_INFO_TAG("RenderGraph", "Executing pass [{}] {}", passIndex, pass.DebugName ? pass.DebugName : "<unnamed>");
 				pass.Execute();
+			}
+		}
+
+		if (logThisExecute)
+		{
+			LUX_CORE_INFO_TAG("RenderGraph", "First render-graph frame executed without crashing.");
+			s_LoggedFirstExecute = true;
 		}
 	}
 

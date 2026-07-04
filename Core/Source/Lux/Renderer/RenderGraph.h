@@ -80,6 +80,10 @@ namespace Lux {
 		struct PassDesc
 		{
 			std::string Name;
+			// Always-set pointer to the pass's string-literal name (zero-alloc,
+			// unlike Name which is skipped on the per-frame executable path).
+			// Used for crash diagnostics in Execute().
+			const char* DebugName = nullptr;
 			std::vector<ResourceHandle> Reads;
 			std::vector<ResourceHandle> Writes;
 			PassFlags Flags = PassFlags::None;
