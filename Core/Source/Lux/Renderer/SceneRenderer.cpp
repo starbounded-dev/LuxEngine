@@ -554,7 +554,8 @@ namespace Lux {
 		m_Options.GTAOBentNormals = false;
 		m_Options.EnableGTAOTemporalAccumulation = false;
 		m_Options.GTAOTemporalBlend = 0.85f;
-		m_Options.GTAODenoisePasses = 4;
+		// 2 denoise passes as the realtime baseline (Ultra/Cinematic raise to 6/8).
+		m_Options.GTAODenoisePasses = 2;
 		m_Options.AOShadowTolerance = 1.0f;
 		m_BloomSettings.Enabled = true;
 		m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
@@ -611,6 +612,10 @@ namespace Lux {
 			break;
 		case QualityPreset::High:
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
+			// Temporal accumulation amortizes SSR/GTAO cost across frames; was
+			// Ultra-only.
+			m_Options.EnableSSRTemporalAccumulation = true;
+			m_Options.EnableGTAOTemporalAccumulation = true;
 			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
