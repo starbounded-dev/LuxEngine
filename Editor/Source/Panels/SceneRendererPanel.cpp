@@ -374,6 +374,9 @@ namespace Lux {
 			if (gtaoSettingsChanged)
 				m_Context->UpdateGTAOData();
 			projectSettingsChanged |= ImGuiEx::Property("Jump Flood Outline", options.EnableJumpFlood);
+			// Experimental: schedule cluster light-culling on the async compute
+			// queue. Correctness-first for now (no graphics overlap yet).
+			projectSettingsChanged |= ImGuiEx::Property("Async Compute (experimental)", options.EnableAsyncCompute);
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
 		}
