@@ -44,6 +44,9 @@ namespace Lux {
 		bool Validate();
 		void Bake();
 		void Prepare();
+		// Called by the Renderer after this pass's shader is recompiled in
+		// place; re-bakes the descriptor sets against the new binding layouts.
+		void OnShaderReloaded();
 
 		const nvrhi::BindingSetVector& GetBindingSets(uint32_t frameIndex) const { return m_DescriptorSetManager.GetBindingSets(frameIndex); }
 

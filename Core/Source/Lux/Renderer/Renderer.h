@@ -228,6 +228,8 @@ namespace Lux {
 		static void RegisterShaderDependency(Ref<Shader> shader, PipelineCompute* computePipeline);
 		static void RegisterShaderDependency(Ref<Shader> shader, Pipeline* pipeline);
 		static void RegisterShaderDependency(Ref<Shader> shader, Material* material);
+		static void RegisterShaderDependency(Ref<Shader> shader, RenderPass* renderPass);
+		static void RegisterShaderDependency(Ref<Shader> shader, ComputePass* computePass);
 		static void OnShaderReloaded(size_t hash);
 
 		static uint32_t GetCurrentFrameIndex();

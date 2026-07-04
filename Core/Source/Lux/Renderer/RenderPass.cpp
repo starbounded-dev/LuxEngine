@@ -17,6 +17,14 @@ namespace Lux {
 		dmSpec.Shader = spec.Pipeline->GetSpecification().Shader.As<VulkanShader>();
 		dmSpec.StartSet = spec.StartSet;
 		m_DescriptorSetManager = DescriptorSetManager(dmSpec);
+
+		Renderer::RegisterShaderDependency(spec.Pipeline->GetSpecification().Shader, this);
+	}
+
+	void RenderPass::OnShaderReloaded()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		m_DescriptorSetManager.OnShaderReloaded();
 	}
 
 	bool RenderPass::IsInvalidated(uint32_t set, uint32_t binding) const

@@ -204,6 +204,8 @@ namespace Lux {
 		std::vector<WeakRef<PipelineCompute>> ComputePipelines;
 		std::vector<WeakRef<Pipeline>> Pipelines;
 		std::vector<WeakRef<Material>> Materials;
+		std::vector<WeakRef<RenderPass>> Passes;
+		std::vector<WeakRef<ComputePass>> ComputePasses;
 	};
 	static std::unordered_map<size_t, ShaderDependencies> s_ShaderDependencies;
 	static std::shared_mutex s_ShaderDependenciesMutex; // ShaderDependencies can be accessed (and modified) from multiple threads, hence require synchronization
@@ -293,6 +295,20 @@ namespace Lux {
 		s_ShaderDependencies[shader->GetHash()].Materials.push_back(material);
 	}
 
+	void Renderer::RegisterShaderDependency(Ref<Shader> shader, RenderPass* renderPass)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		std::scoped_lock lock(s_ShaderDependenciesMutex);
+		s_ShaderDependencies[shader->GetHash()].Passes.push_back(renderPass);
+	}
+
+	void Renderer::RegisterShaderDependency(Ref<Shader> shader, ComputePass* computePass)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		std::scoped_lock lock(s_ShaderDependenciesMutex);
+		s_ShaderDependencies[shader->GetHash()].ComputePasses.push_back(computePass);
+	}
+
 	void Renderer::OnShaderReloaded(size_t hash)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -304,6 +320,8 @@ namespace Lux {
 				PruneDeadDependencies(it->second.Pipelines);
 				PruneDeadDependencies(it->second.ComputePipelines);
 				PruneDeadDependencies(it->second.Materials);
+				PruneDeadDependencies(it->second.Passes);
+				PruneDeadDependencies(it->second.ComputePasses);
 				dependencies = it->second; // Copy weak refs so callbacks run outside the registry lock.
 			}
 		}
@@ -323,6 +341,21 @@ namespace Lux {
 		{
 			if (material)
 				material->OnShaderReloaded();
+		}
+
+		// Passes re-bake after the pipelines above are rebuilt: an in-place
+		// recompile released the binding layouts their baked descriptor sets
+		// were created against, so drawing with them is a use-after-free.
+		for (auto& renderPass : dependencies.Passes)
+		{
+			if (renderPass)
+				renderPass->OnShaderReloaded();
+		}
+
+		for (auto& computePass : dependencies.ComputePasses)
+		{
+			if (computePass)
+				computePass->OnShaderReloaded();
 		}
 	}
 

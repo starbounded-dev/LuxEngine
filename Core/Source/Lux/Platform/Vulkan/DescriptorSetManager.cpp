@@ -134,6 +134,57 @@ namespace Lux {
 		}
 	}
 
+	void DescriptorSetManager::OnShaderReloaded()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+
+		// An in-place shader recompile released the binding layouts the baked
+		// sets were created against and may have changed the reflected set/
+		// binding map. Rebuild everything from the new reflection, keeping the
+		// previously bound inputs — names are the stable key across
+		// permutations, set/binding indexes are not.
+		std::map<std::string, RenderPassInput> savedInputs;
+		for (const auto& [name, decl] : InputDeclarations)
+		{
+			auto setIt = InputResources.find(decl.Set);
+			if (setIt == InputResources.end())
+				continue;
+			auto bindingIt = setIt->second.find(decl.Binding);
+			if (bindingIt != setIt->second.end())
+				savedInputs[name] = bindingIt->second;
+		}
+
+		InputDeclarations.clear();
+		InputResources.clear();
+		InvalidatedInputResources.clear();
+		for (auto& frameHandles : m_BindingSetHandles)
+			frameHandles.clear();
+		for (auto& set : m_BindingSets)
+			set = {};
+
+		Init();
+
+		// Re-apply the saved inputs wherever the new reflection still declares
+		// them. Bindings that vanished from this permutation are dropped; new
+		// ones keep Init's defaults until the usual SetInput calls fill them.
+		for (auto& [name, input] : savedInputs)
+		{
+			auto declIt = InputDeclarations.find(name);
+			if (declIt == InputDeclarations.end())
+				continue;
+			const RenderInputDeclaration& decl = declIt->second;
+			if (input.Input.size() != (size_t)decl.Count)
+				continue;
+
+			RenderPassInput& target = InputResources[decl.Set][decl.Binding];
+			const bool isWriteable = target.IsWriteable; // from the new reflection
+			target = input;
+			target.IsWriteable = isWriteable;
+		}
+
+		Bake();
+	}
+
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

@@ -251,6 +251,11 @@ namespace Lux {
 		// Rebuilds the binding sets of a single descriptor-set index across all
 		// frames in flight (granular alternative to a full Bake).
 		void BakeSet(uint32_t set);
+		// Rebuilds declarations, input maps and binding sets from the shader's
+		// current reflection after an in-place shader recompile, preserving
+		// previously bound inputs by name. Without this, baked binding sets keep
+		// referencing the binding layouts the recompile released.
+		void OnShaderReloaded();
 
 		std::set<uint32_t> HasBufferSets() const;
 		void InvalidateAndUpdate();
