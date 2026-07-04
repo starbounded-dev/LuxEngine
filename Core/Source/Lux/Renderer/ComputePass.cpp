@@ -24,7 +24,15 @@ namespace Lux {
 	void ComputePass::OnShaderReloaded()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_DescriptorSetManager.OnShaderReloaded();
+		// Deferred to the render thread, same as Pipeline::Invalidate and
+		// PipelineCompute::CreatePipeline: the render thread may still have
+		// queued GPU work reading this pass's descriptor sets, so rebaking
+		// them here directly would race with that work.
+		Ref<ComputePass> instance = this;
+		Renderer::Submit([instance]() mutable
+			{
+				instance->m_DescriptorSetManager.OnShaderReloaded();
+			});
 	}
 
 	bool ComputePass::IsInvalidated(uint32_t set, uint32_t binding) const
