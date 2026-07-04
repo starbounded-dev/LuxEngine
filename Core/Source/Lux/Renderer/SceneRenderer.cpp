@@ -871,6 +871,10 @@ namespace Lux {
 
 		m_CommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer",       /*queries=*/true);
 		m_UploadCommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer-Upload", /*queries=*/false);
+		// Async-compute queue command buffer. Created unconditionally (the compute
+		// queue is enabled at device creation); only used when EnableAsyncCompute
+		// routes independent compute passes onto it.
+		m_ComputeCommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer-AsyncCompute", /*queries=*/false, nvrhi::CommandQueue::Compute);
 
 		m_Renderer2D = Ref<Renderer2D>::Create(Renderer2DSpecification{});
 		m_Renderer2DScreenSpace = Ref<Renderer2D>::Create(Renderer2DSpecification{});
@@ -3346,13 +3350,22 @@ namespace Lux {
 			addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
 		}
 
-		// Cluster build runs before light culling; it only depends on the camera
-		// projection (SSBO synchronized via a manual barrier inside the pass).
-		addPass("Cluster Build", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterBuildPass));
+		// Cluster build + light culling are depth-independent (they only need the
+		// camera + light UBOs), so with EnableAsyncCompute they run on the compute
+		// queue in FlushDrawList *before* this graphics graph and are omitted here.
+		// Their SSBO outputs (light grids/index lists) feed deferred lighting; the
+		// cross-queue ordering is a queueWaitForCommandList, not a graph edge (the
+		// graph never modeled these SSBOs — the nodes had no declared inputs/outputs).
+		if (!m_Options.EnableAsyncCompute)
+		{
+			// Cluster build runs before light culling; it only depends on the camera
+			// projection (SSBO synchronized via a manual barrier inside the pass).
+			addPass("Cluster Build", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterBuildPass));
 
-		// Cluster light assignment depends on the cluster AABBs + the light UBOs;
-		// it is depth-independent (SSBOs synchronized via manual barriers).
-		addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass));
+			// Cluster light assignment depends on the cluster AABBs + the light UBOs;
+			// it is depth-independent (SSBOs synchronized via manual barriers).
+			addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass));
+		}
 
 		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
 		std::vector<RenderGraph::ResourceHandle> sceneColorOutputs = addFramebufferResources("SceneColor", m_SceneColorFramebuffer);
@@ -6327,6 +6340,23 @@ namespace Lux {
 		m_UploadCommandBuffer->End();
 		m_UploadCommandBuffer->Submit();
 
+		// ── 2b. Async compute (cluster build + light culling) ─────────────────
+		// Depth-independent and dependent only on the camera/light UBOs uploaded
+		// above, so they run on the compute queue. Their SSBO outputs feed deferred
+		// lighting on the graphics queue; the graphics submit below waits on this
+		// compute submission (QueueWaitForCommandList) so the reads are safe.
+		// Correctness-first: the graphics queue waits up front, so this does not yet
+		// overlap graphics work — that split comes later. Gated + off by default.
+		const bool asyncCompute = m_Options.EnableAsyncCompute && m_ComputeCommandBuffer;
+		if (asyncCompute)
+		{
+			m_ComputeCommandBuffer->Begin();
+			ClusterBuildPass();
+			ClusterLightCullingPass();
+			m_ComputeCommandBuffer->End();
+			m_ComputeCommandBuffer->Submit();
+		}
+
 		// ── 3. Execute render passes ──────────────────────────────────────────
 		m_CommandBuffer->Begin();
 
@@ -6399,6 +6429,20 @@ namespace Lux {
 		}
 
 		m_CommandBuffer->End();
+
+		// Make the graphics submit wait for the async compute cluster work so
+		// deferred lighting reads valid light grids/index lists. Enqueued on the
+		// render thread before the graphics submit; reads the compute execution
+		// instance at that point (it was set when the compute buffer submitted above).
+		if (asyncCompute)
+		{
+			Ref<RenderCommandBuffer> computeCB = m_ComputeCommandBuffer;
+			Renderer::Submit([computeCB]()
+			{
+				Renderer::QueueWaitForCommandList(nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Compute, computeCB->GetLastExecutionInstance());
+			});
+		}
+
 		m_CommandBuffer->Submit();
 
 		m_PreviousViewProjection = m_CurrentViewProjection;
@@ -6731,12 +6775,18 @@ namespace Lux {
 		constexpr uint32_t kThreadsPerGroup = 64;
 		const glm::uvec3 groups = { (ClusterCount + kThreadsPerGroup - 1u) / kThreadsPerGroup, 1u, 1u };
 
-		BeginProfiledGPU("ClusterBuildPass");
-		Renderer::BeginComputePass(m_CommandBuffer, m_ClusterBuildPass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_ClusterBuildPass, nullptr, groups, Buffer(&push, sizeof(push)));
-		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSClusterAABBs->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		Renderer::EndComputePass(m_CommandBuffer, m_ClusterBuildPass);
-		EndProfiledGPU();
+		// When async, this records onto the compute-queue command buffer (submitted
+		// separately in FlushDrawList); the GPU perf markers/timer queries target the
+		// graphics command buffer, so skip them on the async path.
+		const bool async = m_Options.EnableAsyncCompute;
+		Ref<RenderCommandBuffer> cb = async ? m_ComputeCommandBuffer : m_CommandBuffer;
+
+		if (!async) BeginProfiledGPU("ClusterBuildPass");
+		Renderer::BeginComputePass(cb, m_ClusterBuildPass);
+		Renderer::DispatchCompute(cb, m_ClusterBuildPass, nullptr, groups, Buffer(&push, sizeof(push)));
+		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(cb, m_SBSClusterAABBs->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(cb, m_ClusterBuildPass);
+		if (!async) EndProfiledGPU();
 	}
 
 	void SceneRenderer::ClusterLightCullingPass()
@@ -6745,12 +6795,16 @@ namespace Lux {
 		if (!m_ClusterLightCullingPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
 
+		// When async, record onto the compute-queue command buffer (see ClusterBuildPass).
+		const bool async = m_Options.EnableAsyncCompute;
+		Ref<RenderCommandBuffer> cb = async ? m_ComputeCommandBuffer : m_CommandBuffer;
+
 		// With no local lights, skip the cull dispatch entirely: zero-fill the
 		// per-cluster grids so the lighting shaders read count=0 everywhere. The
 		// index lists need no clear — nothing reads past a zero count.
 		if (m_PointLightsUB.Count == 0 && m_SpotLightsUB.Count == 0)
 		{
-			Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
+			Ref<RenderCommandBuffer> commandBuffer = cb;
 			Ref<StorageBufferSet> pointGrid = m_SBSPointLightGrid;
 			Ref<StorageBufferSet> spotGrid = m_SBSSpotLightGrid;
 			Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
@@ -6765,7 +6819,7 @@ namespace Lux {
 
 		// Reset the dynamic-allocation cursors ([0]=point, [1]=spot) before the
 		// assignment dispatch atomically appends into the packed index lists.
-		Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
+		Ref<RenderCommandBuffer> commandBuffer = cb;
 		Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
 		Renderer::Submit([commandBuffer, counter]() mutable
 		{
@@ -6775,17 +6829,17 @@ namespace Lux {
 		constexpr uint32_t kThreadsPerGroup = 64;
 		const glm::uvec3 groups = { (ClusterCount + kThreadsPerGroup - 1u) / kThreadsPerGroup, 1u, 1u };
 
-		BeginProfiledGPU("ClusterLightCullingPass");
-		Renderer::BeginComputePass(m_CommandBuffer, m_ClusterLightCullingPass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_ClusterLightCullingPass, nullptr, groups, Buffer());
+		if (!async) BeginProfiledGPU("ClusterLightCullingPass");
+		Renderer::BeginComputePass(cb, m_ClusterLightCullingPass);
+		Renderer::DispatchCompute(cb, m_ClusterLightCullingPass, nullptr, groups, Buffer());
 
 		Ref<PipelineCompute> pipeline = m_ClusterLightCullingPass->GetPipeline();
-		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSPointLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSSpotLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSPointLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSSpotLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		Renderer::EndComputePass(m_CommandBuffer, m_ClusterLightCullingPass);
-		EndProfiledGPU();
+		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(cb, m_ClusterLightCullingPass);
+		if (!async) EndProfiledGPU();
 	}
 
 	void SceneRenderer::MeshCullingPass()

@@ -1246,8 +1246,9 @@ namespace Lux {
 
 		Ref<Scene>                 m_Scene;
 		SceneRendererSpecification m_Specification;
-		Ref<RenderCommandBuffer>   m_CommandBuffer;       // render commands
+		Ref<RenderCommandBuffer>   m_CommandBuffer;       // render commands (graphics queue)
 		Ref<RenderCommandBuffer>   m_UploadCommandBuffer; // UB/SB data uploads
+		Ref<RenderCommandBuffer>   m_ComputeCommandBuffer; // async-compute queue (EnableAsyncCompute)
 		RenderGraph                m_RenderGraph;
 		std::vector<Ref<Image2D>>   m_RenderGraphAliasedImages;
 		bool                       m_RenderTargetAliasingApplied = false;
