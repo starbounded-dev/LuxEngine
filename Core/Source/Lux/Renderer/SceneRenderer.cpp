@@ -659,7 +659,10 @@ namespace Lux {
 			m_Options.DistanceMipBiasStart = 10.0f;
 			m_Options.DistanceMipBiasEnd = 100.0f;
 			m_Options.DistanceMipBiasMax = 0.5f;
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_8K;
+			// Shadow atlas capped at 2K even on Cinematic — an 8K directional atlas
+			// is a large per-frame shadow-pass cost for little visible gain at this
+			// scene scale. Bump back to Tier_8K here if you need crisper distant shadows.
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
 			m_Options.MaxShadowDistance = 450.0f;
 			m_Options.ShadowFade = 50.0f;
 			m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
