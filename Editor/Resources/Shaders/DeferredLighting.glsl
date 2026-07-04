@@ -26,6 +26,9 @@ void main()
 #include <Lighting.glslh>
 #include <ShadowMapping.glslh>
 #include <LuxGBuffer.glslh>
+#include <GTAO.slh>
+
+#define ENABLED_GTAO (__HZ_AO_METHOD & HZ_AO_METHOD_GTAO)
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 1) in vec2 v_ClipPosition;
@@ -35,6 +38,9 @@ layout(set = 1, binding = 0) uniform textureCube u_EnvRadianceTex;
 layout(set = 1, binding = 1) uniform textureCube u_EnvIrradianceTex;
 layout(set = 1, binding = 2) uniform texture2DArray u_ShadowMapTexture;
 layout(set = 1, binding = 3) uniform texture2D u_SpotShadowTexture;
+#if ENABLED_GTAO
+layout(set = 1, binding = 4) uniform utexture2D u_GTAOTex;
+#endif
 layout(set = 1, binding = 11) uniform texture2D u_SceneColor;
 layout(set = 1, binding = 12) uniform texture2D u_GBufferBaseColor;
 layout(set = 1, binding = 13) uniform texture2D u_GBufferNormal;
@@ -44,6 +50,93 @@ layout(set = 1, binding = 16) uniform utexture2D u_GBufferObjectID;
 layout(set = 1, binding = 17) uniform texture2D u_DepthTexture;
 
 layout(set = 3, binding = 5) uniform texture2D u_BRDFLUTTexture;
+
+#if ENABLED_GTAO
+// Screen-space AO sampling, folded in from the former AO-Composite pass (it
+// multiplied the whole scene color in a separate full-res read-modify-write).
+// Helpers mirror AO-Composite.glsl, adapted to this pass's bindings.
+float GTAO_LinearizeDepth(float screenDepth)
+{
+    float depthLinearizeMul = u_Camera.DepthUnpackConsts.x;
+    float depthLinearizeAdd = u_Camera.DepthUnpackConsts.y;
+    return depthLinearizeMul / (depthLinearizeAdd - screenDepth);
+}
+
+float GTAO_ReadDepth(vec2 uv)
+{
+    return GTAO_LinearizeDepth(texture(sampler2D(u_DepthTexture, r_PointSampler), uv).r);
+}
+
+vec3 GTAO_ReadNormal(vec2 uv)
+{
+    vec3 normal = texture(sampler2D(u_GBufferNormal, r_PointSampler), uv).xyz;
+    float normalLength = length(normal);
+    if (normalLength < 0.0001)
+        return vec3(0.0, 0.0, 1.0);
+
+    return normal / normalLength;
+}
+
+float DecodeGTAO(uint packedValue)
+{
+    #if __HZ_GTAO_COMPUTE_BENT_NORMALS
+        return float(packedValue >> 24u) / 255.0;
+    #else
+        return float(packedValue) / 255.0;
+    #endif
+}
+
+float FetchGTAO(ivec2 texel)
+{
+    ivec2 aoSize = textureSize(usampler2D(u_GTAOTex, r_PointSampler), 0);
+    texel = clamp(texel, ivec2(0), max(aoSize - ivec2(1), ivec2(0)));
+    return DecodeGTAO(texelFetch(usampler2D(u_GTAOTex, r_PointSampler), texel, 0).x);
+}
+
+float UpscaleGTAO(vec2 uv)
+{
+    ivec2 aoSize = textureSize(usampler2D(u_GTAOTex, r_PointSampler), 0);
+    ivec2 depthSize = textureSize(sampler2D(u_DepthTexture, r_PointSampler), 0);
+    if (aoSize.x >= depthSize.x && aoSize.y >= depthSize.y)
+        return FetchGTAO(ivec2(clamp(uv * vec2(aoSize), vec2(0.0), vec2(aoSize - ivec2(1)))));
+
+    vec2 aoTexel = uv * vec2(aoSize) - vec2(0.5);
+    ivec2 baseTexel = ivec2(floor(aoTexel));
+    float centerDepth = GTAO_ReadDepth(uv);
+    vec3 centerNormal = GTAO_ReadNormal(uv);
+
+    float weightedAO = 0.0;
+    float totalWeight = 0.0;
+
+    for (int y = -1; y <= 2; y++)
+    {
+        for (int x = -1; x <= 2; x++)
+        {
+            ivec2 sampleTexel = baseTexel + ivec2(x, y);
+            ivec2 clampedTexel = clamp(sampleTexel, ivec2(0), max(aoSize - ivec2(1), ivec2(0)));
+            vec2 sampleUV = (vec2(clampedTexel) + vec2(0.5)) / vec2(aoSize);
+
+            float sampleDepth = GTAO_ReadDepth(sampleUV);
+            vec3 sampleNormal = GTAO_ReadNormal(sampleUV);
+            vec2 spatialOffset = (vec2(sampleTexel) + vec2(0.5)) - aoTexel;
+
+            float relativeDepthDelta = abs(sampleDepth - centerDepth) / max(abs(centerDepth), 1.0);
+            float depthWeight = exp(-relativeDepthDelta / 0.035);
+            float normalWeight = pow(clamp(dot(centerNormal, sampleNormal), 0.0, 1.0), 24.0);
+            float spatialWeight = exp(-dot(spatialOffset, spatialOffset) * 0.55);
+            float weight = depthWeight * normalWeight * spatialWeight;
+
+            weightedAO += FetchGTAO(clampedTexel) * weight;
+            totalWeight += weight;
+        }
+    }
+
+    if (totalWeight <= 0.0001)
+        return FetchGTAO(ivec2(round(aoTexel)));
+
+    return weightedAO / totalWeight;
+}
+#endif
 
 bool ReconstructPositionFromDepth(float deviceDepth, out vec3 worldPosition, out vec3 viewPosition)
 {
@@ -207,6 +300,12 @@ void main()
 
 	if (u_RendererData.ShowLightComplexity)
 		color = (color * 0.2) + DebugGradient(float(GetPointLightCount() + GetSpotLightCount()));
+
+#if ENABLED_GTAO
+	// Matches the former AO-Composite Zero_SrcColor multiply of the whole scene
+	// color. Sky pixels discard above (their GTAO term is ~1 anyway).
+	color *= min(UpscaleGTAO(v_TexCoord) * XE_GTAO_OCCLUSION_TERM_SCALE, 1.0);
+#endif
 
 	o_Color = vec4(color, 1.0);
 }
