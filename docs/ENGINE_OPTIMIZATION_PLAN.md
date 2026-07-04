@@ -153,6 +153,44 @@ silent afterwards.
    single-producer and NVRHI multi-command-list recording changes the threading model;
    needs a build+validation cycle. Revisit with the async-compute (B1) work.
 
+**Phase 4 progress — GPU frame cost & bandwidth (2026-07-04):**
+
+1. **Surgical UAV flag** — STORAGE usage now granted only to Storage-usage images and
+   mip-chained sampled textures (the compute mip generator); all framebuffer attachments
+   lose it so framebuffer/DCC compression can re-engage. **The item to measure first**
+   (RenderDoc: GBuffer/SceneColor no longer report STORAGE; GPU frame time on heavy scenes).
+2. **AO composite folded into deferred lighting** — the full-res Zero_SrcColor multiply
+   pass is gone; deferred samples u_GTAOTex itself (same upscale/decode, same
+   __HZ_AO_METHOD permutation). GTAO chain now registers between GBuffer and Deferred.
+   AO debug view unchanged (keeps the AO-Composite shader standalone).
+3. **GBuffer ID merge** — material+object IDs packed into one RG32UI attachment
+   (6→5 color targets; velocity slot 4, depth wrap slot 5).
+4. **Empty-pass graph gating** — Selected/Transparent/Wireframe nodes skip registration
+   when their draw lists are empty (executable graphs only).
+5. **Effect defaults** — GTAO denoise baseline 4→2 passes; High preset enables SSR+GTAO
+   temporal accumulation.
+
+**Deferred from this batch (design notes):**
+- **Octahedral GBuffer normals (RG16F)** — opted-in but deliberately held for its own
+  session: the normal attachment is read *raw* (`.xyz`) by GTAO.hlsl (HLSL!), SSR.glsl,
+  SSR-Composite.glsl, AO-Composite.glsl (debug), DeferredLighting's fold helpers, and
+  written raw by the forward/transparent shader — every one needs the encode/decode pair
+  landed together, which deserves a fresh, focused diff rather than the tail of this one.
+  Encode/decode belong in LuxGBuffer.glslh; writers: GBuffer_Static (via EncodeGBuffer)
+  + the forward PBR shader; readers listed above.
+- **B1 async compute (design)**: move GTAO+denoise, cluster light-cull, bloom, and the
+  cloud raymarch to nvrhi's compute queue, overlapping ShadowMap/PreDepth/GBuffer on
+  graphics. The render graph already carries the dependency edges — the work is (a) verify
+  the vendored nvrhi fork's multi-queue API (`CommandQueue::Compute` command lists +
+  queue semaphores / `executeCommandLists` overloads; submodule wasn't checked out here),
+  (b) split RT_Submit's single-queue mutex model per queue, (c) insert cross-queue waits
+  at the graph edges (GTAO→Deferred, cull→lighting, bloom→composite). Validate with the
+  Renderer Debugger per-pass GPU times: shadow+GBuffer time should absorb the compute.
+- **B2 VRS (design)**: raster passes only (cloud/fog/atmosphere composites — the compute
+  passes can't use VRS); needs the nvrhi fork's variable-rate-shading state API verified.
+  2x2 rate on the volumetric composites is the standard cheap win.
+- **#8 mesh shaders / ray tracing** — roadmap-final, unchanged.
+
 **Phase 4 candidates (audit findings that need build/measure or shader edits — do with
 Tracy + validation on):**
 
