@@ -48,7 +48,7 @@ namespace Lux {
 		// place; re-bakes the descriptor sets against the new binding layouts.
 		void OnShaderReloaded();
 
-		const nvrhi::BindingSetVector& GetBindingSets(uint32_t frameIndex) const { return m_DescriptorSetManager.GetBindingSets(frameIndex); }
+		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const { return m_DescriptorSetManager.GetBindingSets(frameIndex); }
 
 		virtual Ref<PipelineCompute> GetPipeline() const;
 

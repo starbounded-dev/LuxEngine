@@ -912,6 +912,7 @@ namespace Lux {
 		void GTAOCompute();
 		void GTAODenoiseCompute();
 		void GTAOTemporalAccumulationCompute();
+		void AOComposite();
 		void AODebugPass();
 		void PreConvolutionCompute();
 		void SSRCompute();
@@ -1366,6 +1367,8 @@ namespace Lux {
 		glm::uvec3       m_GTAOTemporalWorkGroups{ 1 };
 		uint32_t         m_GTAOHistoryIndex = 0;
 
+		Ref<RenderPass>  m_AOCompositePass;
+		Ref<Material>    m_AOCompositeMaterial;
 		Ref<RenderPass>  m_AODebugPass;
 		Ref<Material>    m_AODebugMaterial;
 

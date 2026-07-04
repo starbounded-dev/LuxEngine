@@ -400,6 +400,7 @@ namespace Lux {
 			"GTAO",
 			"GTAO-Denoise",
 			"GTAO-Temporal",
+			"AOComposite",
 			"PreConvolution",
 			"SSR",
 			"SSR-Temporal",
@@ -1318,9 +1319,8 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_GeometryPassTransparent->Validate());
 			m_GeometryPassTransparent->Bake();
 
-			// GTAO images are created before the deferred-lighting pass: the AO
-			// multiply is folded into DeferredLighting.glsl (u_GTAOTex), so the
-			// pass validates against them at creation.
+			// GTAO images are shared by the compute chain, AO composite, and debug
+			// views. Keep them alive independently of the optional AO composite pass.
 			{
 				ImageSpecification gtaoImageSpec;
 				gtaoImageSpec.Format = ImageFormat::RED32UI;
@@ -1372,8 +1372,6 @@ namespace Lux {
 			m_DeferredLightingPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			m_DeferredLightingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_DeferredLightingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			if (m_DeferredLightingPass->IsInputValid("u_GTAOTex"))
-				m_DeferredLightingPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			LUX_CORE_VERIFY(m_DeferredLightingPass->Validate());
 			m_DeferredLightingPass->Bake();
 			m_DeferredLightingMaterial = Material::Create(deferredPipelineSpec.Shader, "DeferredLighting");
@@ -1406,8 +1404,6 @@ namespace Lux {
 		}
 
 		// ── GTAO + AO composite ───────────────────────────────────────────────
-		// (The GTAO images themselves are created earlier, before the
-		// deferred-lighting pass that samples u_GTAOTex validates.)
 		{
 			Ref<Shader> gtaoShader = Renderer::GetShaderLibrary()->Get("GTAO");
 			ComputePassSpecification gtaoSpec;
@@ -1469,10 +1465,41 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_GTAOTemporalPass->Validate());
 			m_GTAOTemporalPass->Bake();
 
-			// The screen-space AO multiply is folded into the deferred lighting
-			// shader (u_GTAOTex, bound at deferred-pass creation) — the former
-			// AO-Composite full-res read-modify-write pass is gone. The
-			// AO-Composite shader remains in use by the editor's AO debug view.
+			FramebufferSpecification aoFramebufferSpec;
+			aoFramebufferSpec.Width = m_ViewportWidth;
+			aoFramebufferSpec.Height = m_ViewportHeight;
+			aoFramebufferSpec.Attachments = { ImageFormat::RGBA16F };
+			aoFramebufferSpec.ExistingImages[0] = GetSceneColorOutput();
+			aoFramebufferSpec.ClearColorOnLoad = false;
+			aoFramebufferSpec.Blend = true;
+			aoFramebufferSpec.BlendMode = FramebufferBlendMode::Zero_SrcColor;
+			aoFramebufferSpec.DebugName = "AO-Composite";
+
+			PipelineSpecification aoPipelineSpec;
+			aoPipelineSpec.DebugName = "AO-Composite";
+			aoPipelineSpec.TargetFramebuffer = Framebuffer::Create(aoFramebufferSpec);
+			aoPipelineSpec.DepthTest = false;
+			aoPipelineSpec.DepthWrite = false;
+			aoPipelineSpec.Layout = {
+				{ ShaderDataType::Float3, "a_Position" },
+				{ ShaderDataType::Float2, "a_TexCoord" },
+			};
+			aoPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("AO-Composite");
+
+			RenderPassSpecification aoRenderPassSpec;
+			aoRenderPassSpec.DebugName = "AO-Composite";
+			aoRenderPassSpec.Pipeline = Pipeline::Create(aoPipelineSpec);
+			m_AOCompositePass = RenderPass::Create(aoRenderPassSpec);
+			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+			m_AOCompositePass->SetInput("Camera", m_UBSCamera);
+			m_AOCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			m_AOCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_AOCompositePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_AOCompositePass->Validate());
+			m_AOCompositePass->Bake();
+			m_AOCompositeMaterial = Material::Create(aoPipelineSpec.Shader, "GTAO-Composite");
 
 			// Editor-only AO debug view target — not created in the standalone runtime.
 			if (m_Specification.EnableEditorRenderTargets)
@@ -1484,16 +1511,9 @@ namespace Lux {
 			aoDebugFramebufferSpec.ClearColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 			aoDebugFramebufferSpec.DebugName = "AO-Debug";
 
-			PipelineSpecification aoDebugPipelineSpec;
+			PipelineSpecification aoDebugPipelineSpec = aoPipelineSpec;
 			aoDebugPipelineSpec.DebugName = "AO-Debug";
 			aoDebugPipelineSpec.TargetFramebuffer = Framebuffer::Create(aoDebugFramebufferSpec);
-			aoDebugPipelineSpec.DepthTest = false;
-			aoDebugPipelineSpec.DepthWrite = false;
-			aoDebugPipelineSpec.Layout = {
-				{ ShaderDataType::Float3, "a_Position" },
-				{ ShaderDataType::Float2, "a_TexCoord" },
-			};
-			aoDebugPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("AO-Composite");
 
 			RenderPassSpecification aoDebugRenderPassSpec;
 			aoDebugRenderPassSpec.DebugName = "AO-Debug";
@@ -1508,7 +1528,7 @@ namespace Lux {
 			m_AODebugPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
 			LUX_CORE_VERIFY(m_AODebugPass->Validate());
 			m_AODebugPass->Bake();
-			m_AODebugMaterial = Material::Create(aoDebugPipelineSpec.Shader, "AO-Debug");
+			m_AODebugMaterial = Material::Create(aoPipelineSpec.Shader, "AO-Debug");
 			}
 		}
 
@@ -2537,6 +2557,7 @@ namespace Lux {
 				pass->GetTargetFramebuffer()->Resize(size.x, size.y);
 		};
 
+		resizePass(m_AOCompositePass, viewportSize);
 		resizePass(m_AODebugPass, viewportSize);
 		resizePass(m_SSRCompositePass, viewportSize);
 		resizePass(m_DeferredLightingPass, viewportSize);
@@ -2626,8 +2647,12 @@ namespace Lux {
 			};
 
 			m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
-			if (m_DeferredLightingPass && m_DeferredLightingPass->IsInputValid("u_GTAOTex"))
-				m_DeferredLightingPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			if (m_AOCompositePass)
+			{
+				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+			}
 			if (m_AODebugPass)
 			{
 				m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
@@ -3232,6 +3257,7 @@ namespace Lux {
 			addRenderPass(pass);
 		addRenderPass(m_SpotShadowMapPass);
 		addRenderPass(m_PreDepthPass);
+		addRenderPass(m_AOCompositePass);
 		addRenderPass(m_AODebugPass);
 		addRenderPass(m_SSRCompositePass);
 		addRenderPass(m_DOFPass);
@@ -3542,9 +3568,21 @@ namespace Lux {
 
 		addPass("GBuffer", preDepthOutputs, gbufferOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
 
-		// GTAO runs on GBuffer depth/normals and is consumed by the deferred
-		// lighting shader (the former AO-Composite full-res multiply is folded
-		// into it), so the GTAO chain registers between GBuffer and Deferred.
+		{
+			std::vector<RenderGraph::ResourceHandle> deferredReads = gbufferOutputs;
+			appendResources(deferredReads, preDepthOutputs);
+			appendResources(deferredReads, shadowOutputs);
+			appendResources(deferredReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> deferredOutputs = addRenderPassResources("Deferred Lighting", m_DeferredLightingPass);
+			addPass("Deferred Lighting", deferredReads, deferredOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DeferredLightingPass));
+			sceneColorCurrent = deferredOutputs;
+
+			geometryOutputs = gbufferOutputs;
+			appendResources(geometryOutputs, sceneColorCurrent);
+		}
+
+		// GTAO runs on GBuffer depth/normals. The fullscreen AO composite then
+		// multiplies the deferred scene color using the resolved AO image.
 		std::vector<RenderGraph::ResourceHandle> aoFinalOutputs;
 		if (m_Options.EnableGTAO)
 		{
@@ -3566,17 +3604,17 @@ namespace Lux {
 				aoFinalOutputs.push_back(gtaoHistoryA);
 				aoFinalOutputs.push_back(gtaoHistoryB);
 			}
-		}
 
-		{
-			std::vector<RenderGraph::ResourceHandle> deferredReads = gbufferOutputs;
-			appendResources(deferredReads, preDepthOutputs);
-			appendResources(deferredReads, shadowOutputs);
-			appendResources(deferredReads, sceneColorCurrent);
-			appendResources(deferredReads, aoFinalOutputs);
-			std::vector<RenderGraph::ResourceHandle> deferredOutputs = addRenderPassResources("Deferred Lighting", m_DeferredLightingPass);
-			addPass("Deferred Lighting", deferredReads, deferredOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DeferredLightingPass));
-			sceneColorCurrent = deferredOutputs;
+			if (m_AOCompositePass)
+			{
+				std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
+				appendResources(aoCompositeReads, preDepthOutputs);
+				appendResources(aoCompositeReads, aoFinalOutputs);
+				appendResources(aoCompositeReads, sceneColorCurrent);
+				std::vector<RenderGraph::ResourceHandle> aoCompositeOutputs = addRenderPassResources("AO Composite", m_AOCompositePass);
+				addPass("AO Composite", aoCompositeReads, aoCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AOComposite));
+				sceneColorCurrent = aoCompositeOutputs;
+			}
 
 			geometryOutputs = gbufferOutputs;
 			appendResources(geometryOutputs, sceneColorCurrent);
@@ -3849,6 +3887,7 @@ namespace Lux {
 						if (name == "GBuffer Debug") return "GBufferDebugPass";
 						if (name == "GTAO Denoise") return "GTAO-Denoise";
 						if (name == "GTAO Temporal") return "GTAO-Temporal";
+						if (name == "AO Composite") return "AOComposite";
 						if (name == "AO Debug") return "AODebug";
 						if (name == "Pre-Convolution") return "PreConvolution";
 						if (name == "SSR Temporal") return "SSR-Temporal";
@@ -4200,6 +4239,7 @@ namespace Lux {
 		recreatePassFramebuffer(m_AtmosphericFogPass);
 		recreatePassFramebuffer(m_SelectedGeometryPass);
 		recreatePassFramebuffer(m_GeometryWireframePass);
+		recreatePassFramebuffer(m_AOCompositePass);
 		recreatePassFramebuffer(m_AODebugPass);
 		recreatePassFramebuffer(m_SSRCompositePass);
 		recreatePassFramebuffer(m_JumpFloodInitPass);
@@ -4390,6 +4430,7 @@ namespace Lux {
 			repairPassIfStale(m_GeometryPass, "GBuffer");
 			repairPassIfStale(m_GeometryPassTransparent, "TransparentForward");
 			repairPassIfStale(m_DeferredLightingPass, "DeferredLighting");
+			repairPassIfStale(m_AOCompositePass, "AO-Composite");
 			repairPassIfStale(m_SSRCompositePass, "SSR-Composite");
 			repairPassIfStale(m_SkyboxPass, "Skybox");
 			repairPassIfStale(m_SkyAtmospherePass, "SkyAtmosphere");
@@ -7341,8 +7382,12 @@ namespace Lux {
 		if (denoisePasses == 0)
 		{
 			m_GTAOFinalImage = m_GTAOOutputImage;
-			if (m_DeferredLightingPass && m_DeferredLightingPass->IsInputValid("u_GTAOTex"))
-				m_DeferredLightingPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			if (m_AOCompositePass)
+			{
+				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+			}
 			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			return;
@@ -7365,8 +7410,12 @@ namespace Lux {
 		}
 
 		m_GTAOFinalImage = (denoisePasses % 2u) != 0u ? m_GTAODenoiseImage : m_GTAOOutputImage;
-		if (m_DeferredLightingPass && m_DeferredLightingPass->IsInputValid("u_GTAOTex"))
-			m_DeferredLightingPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+		if (m_AOCompositePass)
+		{
+			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+		}
 		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 
@@ -7407,10 +7456,31 @@ namespace Lux {
 
 		m_GTAOHistoryIndex = writeIndex;
 		m_GTAOFinalImage = historyOutput;
-		if (m_DeferredLightingPass && m_DeferredLightingPass->IsInputValid("u_GTAOTex"))
-			m_DeferredLightingPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+		if (m_AOCompositePass)
+		{
+			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+		}
 		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+	}
+
+	void SceneRenderer::AOComposite()
+	{
+		ScopedCPUProfile cpuProfile(*this, "AOComposite");
+		if (!m_AOCompositePass || !m_AOCompositeMaterial || !m_GTAOFinalImage)
+			return;
+
+		m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+		m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+		m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+
+		BeginProfiledGPU("AOComposite");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_AOCompositePass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AOCompositePass->GetPipeline(), m_AOCompositeMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
 	void SceneRenderer::AODebugPass()
