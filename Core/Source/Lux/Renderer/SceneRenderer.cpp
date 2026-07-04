@@ -8189,15 +8189,6 @@ namespace Lux {
 		if (!vertexBuffer || !indexBuffer || !vertexBuffer->GetHandle() || !indexBuffer->GetHandle())
 			return;
 
-		// TEMP crash diagnostic: bracket the GBuffer draw sub-steps (gated to the
-		// GBuffer shader + a small budget so it self-terminates). The last "[DRAW]"
-		// line before a crash names the faulting sub-step. Remove once resolved.
-		static std::atomic<int> s_DrawLogBudget = 16;
-		const bool drawLog = pipelineShader && pipelineShader->GetName() == "GBuffer_Static"
-			&& s_DrawLogBudget.fetch_sub(1, std::memory_order_relaxed) > 0;
-		if (drawLog)
-			LUX_CORE_INFO_TAG("Renderer", "[DRAW] GBuffer submesh {} enter", dc.SubmeshIndex);
-
 		const auto& submesh = meshSource->GetSubmeshes()[dc.SubmeshIndex];
 		nvrhi::GraphicsState& gs = cmd->GetGraphicsState();
 
@@ -8241,14 +8232,10 @@ namespace Lux {
 
 			if (material)
 			{
-				if (drawLog)
-					LUX_CORE_INFO_TAG("Renderer", "[DRAW] GBuffer bind material descriptor set");
 				Renderer::RT_BindMaterialDescriptorSet(gs.bindings, pipelineShader, material);
 			}
 		}
 
-		if (drawLog)
-			LUX_CORE_INFO_TAG("Renderer", "[DRAW] GBuffer commit graphics state");
 		cmd->RT_CommitGraphicsState();
 
 		// ── Push constants ────────────────────────────────────────────────────
@@ -8273,8 +8260,6 @@ namespace Lux {
 
 		if (useIndirect && params.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
 		{
-			if (drawLog)
-				LUX_CORE_INFO_TAG("Renderer", "[DRAW] GBuffer drawIndexedIndirect");
 			gs.indirectParams = m_SBSIndirectDrawCommands->RT_Get()->GetHandle();
 			cmd->RT_CommitGraphicsState();
 			cmd->GetActive()->drawIndexedIndirect(params.IndirectDrawOffsetBytes, 1);
@@ -8285,8 +8270,6 @@ namespace Lux {
 		if (instanceCount == 0)
 			return;
 
-		if (drawLog)
-			LUX_CORE_INFO_TAG("Renderer", "[DRAW] GBuffer drawIndexed");
 		nvrhi::DrawArguments drawArgs{};
 		drawArgs.vertexCount = submesh.IndexCount;
 		drawArgs.startIndexLocation = submesh.BaseIndex;

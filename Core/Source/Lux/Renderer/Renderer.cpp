@@ -887,15 +887,6 @@ namespace Lux {
 				Ref<Pipeline> pipeline = renderPass->GetSpecification().Pipeline;
 				Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
 
-				// TEMP crash diagnostic (budget-gated so it self-terminates and cannot
-				// spam later frames). The last "[BRP]" line before a crash names the
-				// exact sub-step that faulted. Remove once the frame-1 crash is found.
-				static std::atomic<int> s_BrpLogBudget = 400;
-				const bool brpLog = s_BrpLogBudget.fetch_sub(1, std::memory_order_relaxed) > 0;
-				const std::string& brpName = renderPass->GetSpecification().DebugName;
-				if (brpLog)
-					LUX_CORE_INFO_TAG("Renderer", "[BRP] '{}' enter", brpName);
-
 				if (explicitClear || framebuffer->GetSpecification().ClearColorOnLoad || framebuffer->GetSpecification().ClearDepthOnLoad)
 				{
 					const auto& clearValues = framebuffer->GetClearValues();
@@ -903,12 +894,8 @@ namespace Lux {
 					if (explicitClear || framebuffer->GetSpecification().ClearColorOnLoad)
 					{
 						const uint32_t colorAttachmentCount = static_cast<uint32_t>(framebuffer->GetColorAttachmentCount());
-						if (brpLog)
-							LUX_CORE_INFO_TAG("Renderer", "[BRP] '{}' clearing {} color attachment(s), {} clearValues", brpName, colorAttachmentCount, clearValues.size());
 						for (uint32_t i = 0; i < colorAttachmentCount; i++)
 						{
-							if (brpLog)
-								LUX_CORE_INFO_TAG("Renderer", "[BRP] '{}'   clear color attachment {}", brpName, i);
 							nvrhi::Color color = nvrhi::Color(clearValues[i].Color.float32[0], clearValues[i].Color.float32[1],
 								clearValues[i].Color.float32[2], clearValues[i].Color.float32[3]);
 
@@ -920,16 +907,11 @@ namespace Lux {
 					{
 						if (framebuffer->HasDepthAttachment())
 						{
-							if (brpLog)
-								LUX_CORE_INFO_TAG("Renderer", "[BRP] '{}'   clear depth", brpName);
 							const auto& depthStencil = clearValues[clearValues.size() - 1].DepthStencil;
 							nvrhi::utils::ClearDepthStencilAttachment(renderCommandBuffer->GetActive(), framebuffer->GetHandle(), depthStencil.Depth, depthStencil.Stencil);
 						}
 					}
 				}
-
-				if (brpLog)
-					LUX_CORE_INFO_TAG("Renderer", "[BRP] '{}' clears done, committing state", brpName);
 
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 
@@ -960,19 +942,11 @@ namespace Lux {
 				if (renderPass->GetPipeline()->IsDynamicLineWidth())
 					graphicsState.lineWidth = renderPass->GetPipeline()->GetSpecification().LineWidth;
 
-				if (brpLog)
-					LUX_CORE_INFO_TAG("Renderer", "[BRP] '{}' Prepare()", brpName);
 				renderPass->Prepare();
-				if (brpLog)
-					LUX_CORE_INFO_TAG("Renderer", "[BRP] '{}' GetBindingSets", brpName);
 				auto bindingSets = renderPass->GetBindingSets(Renderer::RT_GetCurrentFrameIndex());
 				graphicsState.bindings = bindingSets;
 
-				if (brpLog)
-					LUX_CORE_INFO_TAG("Renderer", "[BRP] '{}' RT_CommitGraphicsState", brpName);
 				renderCommandBuffer->RT_CommitGraphicsState();
-				if (brpLog)
-					LUX_CORE_INFO_TAG("Renderer", "[BRP] '{}' done", brpName);
 			});
 	}
 
