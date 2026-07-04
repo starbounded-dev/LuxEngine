@@ -367,11 +367,9 @@ namespace Lux {
 			projectSettingsChanged |= ImGuiEx::Property("SSR Temporal", options.EnableSSRTemporalAccumulation);
 			if (options.EnableSSRTemporalAccumulation)
 				projectSettingsChanged |= ImGuiEx::Property("SSR Temporal Blend", options.SSRTemporalBlend, 0.01f, 0.0f, 0.98f);
-			projectSettingsChanged |= ImGuiEx::Property("TAA", options.EnableTAA);
-			if (options.EnableTAA)
-				projectSettingsChanged |= ImGuiEx::Property("TAA History Blend", options.TAAHistoryBlend, 0.01f, 0.0f, 0.98f);
-				if (options.EnableTAA)
-					projectSettingsChanged |= ImGuiEx::Property("TAA Sharpness", options.TAASharpness, 0.01f, 0.0f, 1.0f);
+				// TAA removed: resolve pass + history buffers are no longer created,
+				// so the toggle and its blend/sharpness sub-options are gone. EnableTAA
+				// stays false; re-add these to restore.
 			projectSettingsChanged |= gtaoSettingsChanged;
 			if (gtaoSettingsChanged)
 				m_Context->UpdateGTAOData();

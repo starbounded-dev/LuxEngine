@@ -2022,31 +2022,15 @@ namespace Lux {
 			m_LuminanceAveragePass->Bake();
 		}
 
-		// ── TAA resolve (history ping-pong, copied back into scene color) ──────
-		{
-			ImageSpecification taaSpec;
-			taaSpec.Format = ImageFormat::RGBA16F;
-			taaSpec.Usage = ImageUsage::Storage;
-			taaSpec.DebugName = "TAA-History-A";
-			m_TAAHistoryImages[0] = Image2D::Create(taaSpec);
-			taaSpec.DebugName = "TAA-History-B";
-			m_TAAHistoryImages[1] = Image2D::Create(taaSpec);
-
-			ComputePassSpecification taaPassSpec;
-			taaPassSpec.DebugName = "TAA";
-			taaPassSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("TAA"));
-			m_TAAResolvePass = ComputePass::Create(taaPassSpec);
-			m_TAAResolvePass->SetInput("u_SceneColor", GetSceneColorOutput());
-			m_TAAResolvePass->SetInput("u_History", m_TAAHistoryImages[0]);
-			m_TAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
-			m_TAAResolvePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_TAAResolvePass->SetInput("o_Resolved", m_TAAHistoryImages[1]);
-			m_TAAResolvePass->SetInput("Camera", m_UBSCamera);
-			m_TAAResolvePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_TAAResolvePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_TAAResolvePass->Validate());
-			m_TAAResolvePass->Bake();
-		}
+		// ── TAA resolve ───────────────────────────────────────────────────────
+		// TAA removed: the resolve compute pass and its two full-viewport history
+		// images are no longer created (saves the pipeline + ~2×viewport RGBA16F
+		// of VRAM). m_TAAResolvePass / m_TAAHistoryImages stay null; every TAA
+		// path is gated on m_Options.EnableTAA (render-graph node, camera jitter,
+		// texture mip bias, resolve dispatch) and its editor toggle was removed,
+		// so the flag stays false and all of them are inert. Every consumer of the
+		// pass/history images is null-guarded (resize sweep + TAAResolvePass early
+		// return). To restore TAA: recreate the pass here and re-add the toggle.
 
 		// ── Scene composite (tone-map + exposure + opacity) ───────────────────
 		{
