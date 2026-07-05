@@ -2,7 +2,7 @@
 
 ![LuxEngine](/Resources/Branding/LuxEngineLogo.png?raw=true "LuxEngine")
 
-LuxEngine is a C++20, Vulkan-based 3D game engine and editor for Windows, in active development. Its architecture descends from [Hazel](https://github.com/TheCherno/Hazel), but it has grown well beyond that starting point: a deferred, clustered PBR renderer with a render graph, volumetric clouds and physically-based sky, Jolt physics, C# scripting, a UUID-based asset pipeline with runtime asset packs, and a docking ImGui editor with a standalone runtime player.
+LuxEngine is a C++20, Vulkan-based 3D game engine and editor for Windows, in active development. Its architecture descends from [Hazel](https://github.com/TheCherno/Hazel), but it has grown well beyond that starting point: a deferred, clustered PBR renderer with a render graph, Jolt physics, C# scripting, a UUID-based asset pipeline with runtime asset packs, and a docking ImGui editor with a standalone runtime player.
 
 This is a solo project that doubles as a learning vehicle for engine architecture. It is not production-ready and does not pretend to be — the sections below say plainly what works, what is partial, and what does not exist yet.
 
