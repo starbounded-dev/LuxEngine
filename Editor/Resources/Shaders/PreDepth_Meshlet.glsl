@@ -86,17 +86,15 @@ void main()
 		const float scale = max(length(transform[0].xyz), max(length(transform[1].xyz), length(transform[2].xyz)));
 		const float worldRadius = meshlet.BoundsSphere.w * scale;
 
-		bool visible = IsSphereVisible(worldCenter, worldRadius);
+		const bool visible = IsSphereVisible(worldCenter, worldRadius);
 
-		// Backface cone (meshoptimizer-style test). Disabled when cutoff >= 1.
-		if (visible && meshlet.Cone.w < 1.0)
-		{
-			const vec3 coneAxis = normalize(mat3(transform) * meshlet.Cone.xyz);
-			const vec3 cameraPosition = u_Camera.InverseViewMatrix[3].xyz;
-			const vec3 toCenter = worldCenter - cameraPosition;
-			if (dot(toCenter, coneAxis) >= meshlet.Cone.w * length(toCenter) + worldRadius)
-				visible = false;
-		}
+		// NOTE: the per-meshlet backface-cone data (meshlet.Cone) is intentionally
+		// NOT used. The cone test assumes the geometric (cross-product) winding
+		// matches the rasterizer's front-face convention; with the projection
+		// Y-flip and mirrored instance transforms that inverts and culls visible
+		// meshlets (chunks of geometry disappear). Backfacing meshlets are cheap
+		// for a depth-only pass anyway - the rasterizer's backface cull handles
+		// them. Re-enable only after validating winding per-instance.
 
 		if (visible)
 		{
