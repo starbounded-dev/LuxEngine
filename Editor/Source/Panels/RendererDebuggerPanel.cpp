@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cstdio>
+#include <cstring>
 #include <format>
 #include <string>
 #include <vector>
@@ -482,18 +483,51 @@ namespace Lux {
 
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Pass Timings");
-		if (ImGui::BeginTable("##renderer_debugger_passes", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+		if (ImGui::BeginTable("##renderer_debugger_passes", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortTristate))
 		{
 			ImGui::TableSetupColumn("Pass");
-			ImGui::TableSetupColumn("CPU ms", ImGuiTableColumnFlags_WidthFixed, 82.0f);
-			ImGui::TableSetupColumn("CPU %", ImGuiTableColumnFlags_WidthFixed, 62.0f);
-			ImGui::TableSetupColumn("GPU ms", ImGuiTableColumnFlags_WidthFixed, 82.0f);
-			ImGui::TableSetupColumn("GPU %", ImGuiTableColumnFlags_WidthFixed, 62.0f);
+			ImGui::TableSetupColumn("CPU ms", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 82.0f);
+			ImGui::TableSetupColumn("CPU %", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 62.0f);
+			ImGui::TableSetupColumn("GPU ms", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 82.0f);
+			ImGui::TableSetupColumn("GPU %", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 62.0f);
 			ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, 60.0f);
 			ImGui::TableHeadersRow();
 
-			for (const auto& passProfile : stats.PassProfiles)
+			// Default is registration order (SortTristate → no sort until a header is
+			// clicked). Clicking a column sorts a display-index list, leaving the
+			// underlying stats untouched, so the heaviest passes can be surfaced at a
+			// glance — click "GPU ms" to find the frame's real bottlenecks.
+			std::vector<size_t> order;
+			order.reserve(stats.PassProfiles.size());
+			for (size_t i = 0; i < stats.PassProfiles.size(); i++)
+				order.push_back(i);
+
+			if (ImGuiTableSortSpecs* sortSpecs = ImGui::TableGetSortSpecs())
 			{
+				if (sortSpecs->SpecsCount > 0)
+				{
+					const ImGuiTableColumnSortSpecs& spec = sortSpecs->Specs[0];
+					const bool ascending = spec.SortDirection == ImGuiSortDirection_Ascending;
+					std::sort(order.begin(), order.end(), [&](size_t a, size_t b)
+						{
+							const auto& pa = stats.PassProfiles[a];
+							const auto& pb = stats.PassProfiles[b];
+							switch (spec.ColumnIndex)
+							{
+								case 0: { const int c = std::strcmp(pa.Name, pb.Name); return ascending ? c < 0 : c > 0; }
+								case 1:
+								case 2: return ascending ? pa.CPUTime < pb.CPUTime : pa.CPUTime > pb.CPUTime;
+								case 3:
+								case 4: return ascending ? pa.GPUTime < pb.GPUTime : pa.GPUTime > pb.GPUTime;
+								default: return ascending ? a < b : a > b;
+							}
+						});
+				}
+			}
+
+			for (size_t idx : order)
+			{
+				const auto& passProfile = stats.PassProfiles[idx];
 				const bool active = passProfile.Active || passProfile.GPUTime > 0.0f;
 				ImGui::TableNextRow();
 				if (!active)
