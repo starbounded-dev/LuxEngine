@@ -47,6 +47,15 @@ taskPayloadSharedEXT TaskPayload o_Payload;
 
 shared uint s_VisibleCount;
 
+// Signed-distance plane test for UNNORMALIZED planes: dot(plane, p) measures
+// distance in units of length(plane.xyz), so the radius must be scaled by it.
+// Comparing against the bare radius over-culls wherever the plane normal is
+// longer than 1 (visible meshlets popping out at the viewport edges).
+bool OutsidePlane(vec4 plane, vec4 position, float radius)
+{
+	return dot(plane, position) < -radius * length(plane.xyz);
+}
+
 bool IsSphereVisible(vec3 center, float radius)
 {
 	// Gribb-Hartmann plane extraction from the world -> clip matrix.
@@ -57,12 +66,12 @@ bool IsSphereVisible(vec3 center, float radius)
 	vec4 row2 = vec4(m[0][2], m[1][2], m[2][2], m[3][2]);
 
 	vec4 position = vec4(center, 1.0);
-	if (dot(row3 + row0, position) < -radius) return false; // left
-	if (dot(row3 - row0, position) < -radius) return false; // right
-	if (dot(row3 + row1, position) < -radius) return false; // bottom
-	if (dot(row3 - row1, position) < -radius) return false; // top
-	if (dot(row3 - row2, position) < -radius) return false; // far
-	if (dot(row2, position) < -radius) return false;        // near (reverse-Z)
+	if (OutsidePlane(row3 + row0, position, radius)) return false; // left
+	if (OutsidePlane(row3 - row0, position, radius)) return false; // right
+	if (OutsidePlane(row3 + row1, position, radius)) return false; // bottom
+	if (OutsidePlane(row3 - row1, position, radius)) return false; // top
+	if (OutsidePlane(row3 - row2, position, radius)) return false; // far
+	if (OutsidePlane(row2, position, radius)) return false;        // near (reverse-Z)
 	return true;
 }
 
