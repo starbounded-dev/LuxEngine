@@ -136,10 +136,6 @@ namespace Lux {
 		uint64_t ComputeStructureHash() const;
 		CompileResult Execute() const;
 		void Execute(const CompileResult& compileResult) const;
-		// Executes the half-open range [beginIndex, endIndex) of the compiled
-		// ExecutionOrder. Used to split a frame across two command-buffer submits so a
-		// cross-queue wait can be inserted between them (async compute overlap).
-		void Execute(const CompileResult& compileResult, size_t beginIndex, size_t endIndex) const;
 		std::vector<ResourceLifetime> BuildAliasPlan() const;
 		static bool RunValidationSelfTests(std::vector<std::string>* failures = nullptr);
 

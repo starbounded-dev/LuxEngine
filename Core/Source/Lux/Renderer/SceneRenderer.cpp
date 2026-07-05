@@ -6423,87 +6423,27 @@ namespace Lux {
 		{
 			m_LastRenderGraphDiagnosticHash = 0;
 		}
-		// When async compute is on, split the graphics recording into two submits so the
-		// cross-queue wait sits BETWEEN them: the pre-lighting graphics work runs without
-		// waiting (overlapping the compute cluster culling), and only the deferred-lighting
-		// half — which reads the cluster light grids/index lists — waits on the compute
-		// submission. The split point is the first pass that consumes that output
-		// ("Deferred Lighting"). If it isn't present this frame (e.g. a debug view), fall
-		// back to the single-submit path with an up-front wait.
-		size_t asyncSplitIndex = SIZE_MAX;
+		{
+			LUX_PROFILE_SCOPE("RenderGraph::Execute");
+			m_RenderGraph.Execute(renderGraphResult);
+		}
+
+		m_CommandBuffer->End();
+
+		// Make the graphics submit wait for the async compute cluster work so
+		// deferred lighting reads valid light grids/index lists. Enqueued on the
+		// render thread before the graphics submit; reads the compute execution
+		// instance at that point (it was set when the compute buffer submitted above).
 		if (asyncCompute)
 		{
-			const std::vector<RenderGraph::PassDesc>& passes = m_RenderGraph.GetPasses();
-			for (size_t i = 0; i < renderGraphResult.ExecutionOrder.size(); i++)
+			Ref<RenderCommandBuffer> computeCB = m_ComputeCommandBuffer;
+			Renderer::Submit([computeCB]()
 			{
-				uint32_t passIndex = renderGraphResult.ExecutionOrder[i];
-				if (passIndex < passes.size() && passes[passIndex].DebugName &&
-					strcmp(passes[passIndex].DebugName, "Deferred Lighting") == 0)
-				{
-					asyncSplitIndex = i;
-					break;
-				}
-			}
+				Renderer::QueueWaitForCommandList(nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Compute, computeCB->GetLastExecutionInstance());
+			});
 		}
 
-		const bool splitSubmit = asyncCompute && asyncSplitIndex != SIZE_MAX && asyncSplitIndex > 0;
-
-		if (splitSubmit)
-		{
-			// First graphics submit: everything before deferred lighting. No wait yet, so
-			// it overlaps the compute cluster culling on the compute queue.
-			{
-				LUX_PROFILE_SCOPE("RenderGraph::Execute (pre-lighting)");
-				m_RenderGraph.Execute(renderGraphResult, 0, asyncSplitIndex);
-			}
-			m_CommandBuffer->End();
-			m_CommandBuffer->Submit();
-
-			// Cross-queue wait between the two graphics submits: the second submit will
-			// not begin until the compute cluster culling has completed.
-			{
-				Ref<RenderCommandBuffer> computeCB = m_ComputeCommandBuffer;
-				Renderer::Submit([computeCB]()
-				{
-					Renderer::QueueWaitForCommandList(nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Compute, computeCB->GetLastExecutionInstance());
-				});
-			}
-
-			// Second graphics submit: deferred lighting onward. recordFrameQueries=false so
-			// it does not re-reset the frame timer / pipeline-stat pool the first half
-			// already bracketed (per-pass named queries still record here).
-			m_CommandBuffer->Begin(/*recordFrameQueries=*/false);
-			{
-				LUX_PROFILE_SCOPE("RenderGraph::Execute (post-lighting)");
-				m_RenderGraph.Execute(renderGraphResult, asyncSplitIndex, renderGraphResult.ExecutionOrder.size());
-			}
-			m_CommandBuffer->End(/*recordFrameQueries=*/false);
-			m_CommandBuffer->Submit();
-		}
-		else
-		{
-			{
-				LUX_PROFILE_SCOPE("RenderGraph::Execute");
-				m_RenderGraph.Execute(renderGraphResult);
-			}
-
-			m_CommandBuffer->End();
-
-			// Make the graphics submit wait for the async compute cluster work so
-			// deferred lighting reads valid light grids/index lists. Enqueued on the
-			// render thread before the graphics submit; reads the compute execution
-			// instance at that point (it was set when the compute buffer submitted above).
-			if (asyncCompute)
-			{
-				Ref<RenderCommandBuffer> computeCB = m_ComputeCommandBuffer;
-				Renderer::Submit([computeCB]()
-				{
-					Renderer::QueueWaitForCommandList(nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Compute, computeCB->GetLastExecutionInstance());
-				});
-			}
-
-			m_CommandBuffer->Submit();
-		}
+		m_CommandBuffer->Submit();
 
 		m_PreviousViewProjection = m_CurrentViewProjection;
 		m_PreviousJitter = m_CurrentJitter;

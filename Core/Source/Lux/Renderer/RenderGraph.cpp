@@ -603,15 +603,8 @@ namespace Lux {
 
 	void RenderGraph::Execute(const CompileResult& compileResult) const
 	{
-		Execute(compileResult, 0, compileResult.ExecutionOrder.size());
-	}
-
-	void RenderGraph::Execute(const CompileResult& compileResult, size_t beginIndex, size_t endIndex) const
-	{
-		endIndex = std::min(endIndex, compileResult.ExecutionOrder.size());
-		for (size_t i = beginIndex; i < endIndex; i++)
+		for (uint32_t passIndex : compileResult.ExecutionOrder)
 		{
-			uint32_t passIndex = compileResult.ExecutionOrder[i];
 			if (passIndex >= m_Passes.size())
 				continue;
 

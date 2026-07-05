@@ -89,20 +89,20 @@ namespace Lux {
 		}
 	}
 
-	void RenderCommandBuffer::Begin(bool recordFrameQueries)
+	void RenderCommandBuffer::Begin()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<RenderCommandBuffer> instance = this;
-		Renderer::Submit([instance, recordFrameQueries]() mutable {
-			instance->RT_Begin(recordFrameQueries);
+		Renderer::Submit([instance]() mutable {
+			instance->RT_Begin();
 			});
 	}
 
-	void RenderCommandBuffer::End(bool recordFrameQueries)
+	void RenderCommandBuffer::End()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<RenderCommandBuffer> instance = this;
-		Renderer::Submit([instance, recordFrameQueries]() mutable { instance->RT_End(recordFrameQueries); });
+		Renderer::Submit([instance]() mutable { instance->RT_End(); });
 	}
 
 	void RenderCommandBuffer::Submit()
@@ -112,7 +112,7 @@ namespace Lux {
 		Renderer::Submit([instance]() mutable { instance->RT_Submit(); });
 	}
 
-	void RenderCommandBuffer::RT_Begin(bool recordFrameQueries)
+	void RenderCommandBuffer::RT_Begin()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
@@ -126,7 +126,7 @@ namespace Lux {
 
 		auto device = Application::GetGraphicsDevice();
 
-		if (m_QueryEnabled && recordFrameQueries)
+		if (m_QueryEnabled)
 		{
 			m_ActiveTimerQuery = m_TimerQueries[commandBufferIndex];
 
@@ -167,7 +167,7 @@ namespace Lux {
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES
 
-		if (m_QueryEnabled && recordFrameQueries)
+		if (m_QueryEnabled)
 		{
 			vk::CommandBuffer cmd = vk::CommandBuffer(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
 
@@ -178,12 +178,12 @@ namespace Lux {
 #endif
 	}
 
-	void RenderCommandBuffer::RT_End(bool recordFrameQueries)
+	void RenderCommandBuffer::RT_End()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		RT_EndMarker();
 
-		if (m_QueryEnabled && recordFrameQueries)
+		if (m_QueryEnabled)
 		{
 			m_ActiveCommandBuffer->endTimerQuery(m_ActiveTimerQuery);
 
