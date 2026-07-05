@@ -9,7 +9,7 @@ struct GPUMaterial
 	vec4 BaseColor;
 	vec4 Scalars;        // x = metalness, y = roughness, z = emission, w = material complexity
 	uvec4 TextureIndices; // x = albedo, y = normal, z = metalness, w = roughness
-	uvec4 Metadata;       // x = flags, y = alpha mode, z = RenderMaterialID, w = reserved
+	uvec4 Metadata;       // x = flags, y = alpha mode, z = RenderMaterialID, w = floatBits(env map rotation)
 };
 
 layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
@@ -106,6 +106,13 @@ float GetGPUMaterialComplexity(GPUMaterial material, float fallbackComplexity)
 	return IsGPUMaterialRowUsable(material)
 		? max(material.Scalars.w, 0.0)
 		: max(fallbackComplexity, 0.0);
+}
+
+float GetGPUMaterialEnvMapRotation(GPUMaterial material, float fallbackRotation)
+{
+	return IsGPUMaterialRowUsable(material)
+		? uintBitsToFloat(material.Metadata.w)
+		: fallbackRotation;
 }
 
 uint GetGPUMaterialAlphaMode(GPUMaterial material, uint fallbackAlphaMode)

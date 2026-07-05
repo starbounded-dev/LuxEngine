@@ -46,18 +46,6 @@ layout(push_constant) uniform Material
 	uint _pad;
 	uint BoneBase;
 	uint BoneStride;
-
-	vec3 AlbedoColor;
-	float Metalness;
-	float Roughness;
-	float Emission;
-	float Transparency;
-
-	float EnvMapRotation;
-
-	bool UseNormalMap;
-	float MaterialComplexityScore;
-	uint MaterialDebugFlags;
 } u_MaterialUniforms;
 
 // Make sure both shaders compute the exact same answer(PreDepth). 
@@ -99,6 +87,7 @@ void main()
 #include <Buffers.glslh>
 #include <MaterialScene.glslh>
 #include <PBR.glslh>
+#define LUX_BINDLESS_MATERIAL_TEXTURES 1
 #include <PBR_Resources.glslh>
 #include <Lighting.glslh>
 #include <ShadowMapping.glslh>
@@ -132,20 +121,9 @@ layout(push_constant) uniform Material
 	uint _pad;
 	uint BoneBase;
 	uint BoneStride;	
-
-	vec3 AlbedoColor;
-	float Transparency;
-	float Roughness;
-	float Emission;
-
-	float EnvMapRotation;
-	
-	bool UseNormalMap;
-	float MaterialComplexityScore;
-	uint MaterialDebugFlags;
 } u_MaterialUniforms;
 
-vec3 IBL(vec3 F0, vec3 Lr)
+vec3 IBL(vec3 F0, vec3 Lr, float envMapRotation)
 {
 	return LuxEvaluateImageBasedLighting(
 		u_EnvRadianceTex,
@@ -158,7 +136,7 @@ vec3 IBL(vec3 F0, vec3 Lr)
 		m_Params.Metalness,
 		m_Params.NdotV,
 		F0,
-		u_MaterialUniforms.EnvMapRotation);
+		envMapRotation);
 }
 
 
@@ -205,20 +183,20 @@ void main()
 	// Standard PBR inputs
 	float materialMipBias = GetMaterialMipBias();
 	GPUMaterial gpuMaterial = GetGPUMaterialForObject(InputObjectIndex);
-	vec3 materialBaseColor = GetGPUMaterialBaseColor(gpuMaterial, ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb);
-	float materialOpacity = GetGPUMaterialOpacity(gpuMaterial, u_MaterialUniforms.Transparency);
+	vec3 materialBaseColor = GetGPUMaterialBaseColor(gpuMaterial, vec3(1.0));
+	float materialOpacity = GetGPUMaterialOpacity(gpuMaterial, 1.0);
 	float materialMetalness = GetGPUMaterialMetalness(gpuMaterial, 0.0);
-	float materialRoughness = GetGPUMaterialRoughness(gpuMaterial, u_MaterialUniforms.Roughness);
-	float materialEmission = GetGPUMaterialEmission(gpuMaterial, u_MaterialUniforms.Emission);
-	float materialComplexity = GetGPUMaterialComplexity(gpuMaterial, u_MaterialUniforms.MaterialComplexityScore);
+	float materialRoughness = GetGPUMaterialRoughness(gpuMaterial, 0.5);
+	float materialEmission = GetGPUMaterialEmission(gpuMaterial, 0.0);
+	float materialComplexity = GetGPUMaterialComplexity(gpuMaterial, 5.0);
+	float materialEnvMapRotation = GetGPUMaterialEnvMapRotation(gpuMaterial, 0.0);
 	uint materialAlphaMode = GetGPUMaterialAlphaMode(gpuMaterial, GPU_MATERIAL_ALPHA_BLEND);
-	bool materialUseNormalMap = GetGPUMaterialUsesNormalMap(gpuMaterial, u_MaterialUniforms.UseNormalMap);
+	bool materialUseNormalMap = GetGPUMaterialUsesNormalMap(gpuMaterial, false);
 
 	vec4 albedoTexColor = SampleMaterialSceneTexture(
 		gpuMaterial.TextureIndices.x,
 		Input.TexCoord,
-		materialMipBias,
-		u_AlbedoTexture);
+		materialMipBias);
 	m_Params.Albedo = albedoTexColor.rgb * materialBaseColor;
 	float alpha = albedoTexColor.a * materialOpacity;
 	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < 0.5)
@@ -227,8 +205,7 @@ void main()
 	m_Params.Roughness = SampleMaterialSceneTexture(
 		gpuMaterial.TextureIndices.w,
 		Input.TexCoord,
-		materialMipBias,
-		u_RoughnessTexture).g * materialRoughness;
+		materialMipBias).g * materialRoughness;
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.0, 1.0);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
@@ -239,8 +216,7 @@ void main()
 		vec4 normalTexColor = SampleMaterialSceneTexture(
 			gpuMaterial.TextureIndices.y,
 			Input.TexCoord,
-			materialMipBias,
-			u_NormalTexture);
+			materialMipBias);
 		m_Params.Normal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb);
 	}
 
@@ -332,7 +308,7 @@ void main()
 	lightContribution += m_Params.Albedo * materialEmission;
 
 	// Indirect lighting
-	vec3 iblContribution = IBL(F0, Lr) * u_Scene.EnvironmentMapIntensity;
+	vec3 iblContribution = IBL(F0, Lr, materialEnvMapRotation) * u_Scene.EnvironmentMapIntensity;
 
 	color = vec4(iblContribution + lightContribution, materialAlphaMode == GPU_MATERIAL_ALPHA_OPAQUE ? 1.0 : alpha);
 

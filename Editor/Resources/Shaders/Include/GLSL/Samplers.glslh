@@ -28,6 +28,12 @@ vec4 SampleMaterialBias(texture2D tex, vec2 texCoord, float mipBias)
 }
 
 #ifdef GPU_MATERIAL_SCENE_AVAILABLE
+	vec4 SampleMaterialSceneTexture(uint textureIndex, vec2 texCoord, float mipBias)
+	{
+		uint resolvedTextureIndex = IsGPUTextureIndexValid(textureIndex) ? textureIndex : 0u;
+		return texture(sampler2D(u_GPUMaterialTextures[nonuniformEXT(resolvedTextureIndex)], r_MaterialSampler), texCoord, mipBias);
+	}
+
 	vec4 SampleMaterialSceneTexture(uint textureIndex, vec2 texCoord, float mipBias, texture2D fallbackTexture)
 	{
 		if (!IsGPUTextureIndexValid(textureIndex))

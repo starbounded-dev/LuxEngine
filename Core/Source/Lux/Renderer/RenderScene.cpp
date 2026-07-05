@@ -229,6 +229,8 @@ namespace Lux {
 			// previous-transform before we stop refreshing it (avoids lingering TAA ghosting).
 			if (dirtyFlags != RenderProxyDirtyFlags::None || existingIt->second.DirtyFlags != RenderProxyDirtyFlags::None)
 				RefreshStaticMeshGPUInstances(proxy);
+			else if (proxy.Visible)
+				TouchStaticMeshMaterials(proxy);
 		}
 
 		proxy.DirtyFlags = dirtyFlags;
@@ -360,6 +362,23 @@ namespace Lux {
 			instanceRef.Data.PreviousTransformRows[2] = instanceRef.Data.TransformRows[2];
 			instanceRef.Data.Metadata.z = materialID;
 			instanceRef.Data.Metadata.w = (uint32_t)flags;
+			instanceRef.InstanceID = m_GPUScene.UpsertInstance(instanceRef.Data);
+			if (instanceRef.InstanceID != InvalidGPUSceneInstanceID)
+				instanceRef.Data = m_GPUScene.GetInstance(instanceRef.InstanceID);
+		}
+	}
+
+	void RenderScene::TouchStaticMeshMaterials(StaticMeshRenderProxy& proxy)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		for (GPUSceneInstanceRef& instanceRef : proxy.SubmeshInstances)
+		{
+			const uint32_t submeshIndex = GetGPUSceneSubmeshIndex(instanceRef.Data);
+			const RenderMaterialID materialID = ResolveRenderMaterialID(proxy, submeshIndex);
+			if (materialID == instanceRef.Data.Metadata.z)
+				continue;
+
+			instanceRef.Data.Metadata.z = materialID;
 			instanceRef.InstanceID = m_GPUScene.UpsertInstance(instanceRef.Data);
 			if (instanceRef.InstanceID != InvalidGPUSceneInstanceID)
 				instanceRef.Data = m_GPUScene.GetInstance(instanceRef.InstanceID);

@@ -84,6 +84,7 @@ namespace Lux {
 		RenderMaterialID ResolveRenderMaterialID(const StaticMeshRenderProxy& proxy, uint32_t submeshIndex);
 		void RebuildStaticMeshGPUInstances(StaticMeshRenderProxy& proxy, bool forceDirty, const glm::mat4& previousWorldTransform);
 		void RefreshStaticMeshGPUInstances(StaticMeshRenderProxy& proxy);
+		void TouchStaticMeshMaterials(StaticMeshRenderProxy& proxy);
 
 	private:
 		uint32_t m_FrameIndex = 0;

@@ -26,8 +26,8 @@
 namespace Lux {
 
 	// Push-constant layout that every mesh-draw shader in this engine expects.
-	// Must match the push_constant block declared in HazelPBR_Static, PreDepth,
-	// DirShadowMap, SelectedGeometry, and Wireframe shaders.
+	// Must match the first four fields of the mesh draw push_constant blocks.
+	// Material data for scene geometry lives in GPUScene/GPUMaterials.
 	struct MeshDrawPushConstants
 	{
 		uint32_t ObjectIndexBase = 0; // first index into ObjectIndexes SSBO
@@ -7065,8 +7065,7 @@ namespace Lux {
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
-					instance->m_SelectedGeometryPass->GetPipeline()->GetShader());
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
 				});
 		}
 
@@ -7094,8 +7093,7 @@ namespace Lux {
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
-					instance->m_GeometryPass->GetPipeline()->GetShader());
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
 				});
 		}
 
@@ -7139,8 +7137,7 @@ namespace Lux {
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
-					instance->m_GeometryPassTransparent->GetPipeline()->GetShader());
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
 				});
 		}
 
@@ -8094,7 +8091,7 @@ namespace Lux {
 		gs.indexBuffer = ibb;
 		gs.indirectParams = nullptr;
 
-		// ── Material (descriptor set 0) ───────────────────────────────────────
+		// ── Legacy material descriptor set 0 ─────────────────────────────────
 		Ref<Material> material;
 		if (bindMaterial)
 		{

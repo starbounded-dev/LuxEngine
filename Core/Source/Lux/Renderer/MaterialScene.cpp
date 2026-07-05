@@ -19,11 +19,19 @@ namespace Lux {
 		static const std::string s_RoughnessUniform = "u_MaterialUniforms.Roughness";
 		static const std::string s_EmissionUniform = "u_MaterialUniforms.Emission";
 		static const std::string s_TransparencyUniform = "u_MaterialUniforms.Transparency";
+		static const std::string s_EnvMapRotationUniform = "u_MaterialUniforms.EnvMapRotation";
 		static const std::string s_MaterialComplexityScoreUniform = "u_MaterialUniforms.MaterialComplexityScore";
 
 		bool MaterialDataEquals(const GPUMaterialData& lhs, const GPUMaterialData& rhs)
 		{
 			return std::memcmp(&lhs, &rhs, sizeof(GPUMaterialData)) == 0;
+		}
+
+		uint32_t PackFloatBits(float value)
+		{
+			uint32_t bits = 0;
+			std::memcpy(&bits, &value, sizeof(float));
+			return bits;
 		}
 
 		glm::vec3 ToLinearColor(glm::vec3 color)
@@ -118,6 +126,7 @@ namespace Lux {
 		const float roughness = glm::clamp(ReadMaterialFloat(material, s_RoughnessUniform, transparent ? 0.5f : 0.4f), 0.0f, 1.0f);
 		const float emission = glm::max(ReadMaterialFloat(material, s_EmissionUniform, 0.0f), 0.0f);
 		const float opacity = transparent ? glm::clamp(ReadMaterialFloat(material, s_TransparencyUniform, 1.0f), 0.0f, 1.0f) : 1.0f;
+		const float envMapRotation = ReadMaterialFloat(material, s_EnvMapRotationUniform, 0.0f);
 		const float complexity = glm::max(ReadMaterialFloat(material, s_MaterialComplexityScoreUniform, transparent ? 5.0f : 3.0f), 0.0f);
 
 		data.BaseColor = glm::vec4(ToLinearColor(albedoColor), opacity);
@@ -166,7 +175,7 @@ namespace Lux {
 			(uint32_t)flags,
 			(uint32_t)(transparent ? GPUMaterialAlphaMode::Blend : GPUMaterialAlphaMode::Opaque),
 			InvalidRenderMaterialID,
-			0);
+			PackFloatBits(envMapRotation));
 		return data;
 	}
 

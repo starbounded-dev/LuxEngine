@@ -31,14 +31,6 @@ layout(push_constant) uniform PushConstants
 	uint _pad0;
 	uint _pad1;
 	uint _pad2;
-	vec3 AlbedoColor;
-	float Metalness;
-	float Roughness;
-	float Emission;
-	float EnvMapRotation;
-	bool UseNormalMap;
-	float MaterialComplexityScore;
-	uint MaterialDebugFlags;
 } u_MaterialUniforms;
 
 invariant gl_Position;
@@ -77,11 +69,6 @@ void main()
 #include <MaterialSurface.glslh>
 #include <LuxGBuffer.glslh>
 
-layout(set = 0, binding = 0) uniform texture2D u_AlbedoTexture;
-layout(set = 0, binding = 1) uniform texture2D u_NormalTexture;
-layout(set = 0, binding = 2) uniform texture2D u_MetalnessTexture;
-layout(set = 0, binding = 3) uniform texture2D u_RoughnessTexture;
-
 struct VertexOutput
 {
 	vec3 WorldPosition;
@@ -109,14 +96,6 @@ layout(push_constant) uniform PushConstants
 	uint _pad0;
 	uint _pad1;
 	uint _pad2;
-	vec3 AlbedoColor;
-	float Metalness;
-	float Roughness;
-	float Emission;
-	float EnvMapRotation;
-	bool UseNormalMap;
-	float MaterialComplexityScore;
-	uint MaterialDebugFlags;
 } u_MaterialUniforms;
 
 vec4 ToLinear(vec4 sRGB)
@@ -146,27 +125,27 @@ void main()
 	const float materialMipBias = GetMaterialMipBias();
 	GPUMaterial gpuMaterial = GetGPUMaterialForObject(InputObjectIndex);
 
-	vec3 materialBaseColor = GetGPUMaterialBaseColor(gpuMaterial, ToLinear(vec4(u_MaterialUniforms.AlbedoColor, 1.0)).rgb);
+	vec3 materialBaseColor = GetGPUMaterialBaseColor(gpuMaterial, vec3(1.0));
 	float materialOpacity = GetGPUMaterialOpacity(gpuMaterial, 1.0);
-	float materialMetalness = GetGPUMaterialMetalness(gpuMaterial, u_MaterialUniforms.Metalness);
-	float materialRoughness = GetGPUMaterialRoughness(gpuMaterial, u_MaterialUniforms.Roughness);
+	float materialMetalness = GetGPUMaterialMetalness(gpuMaterial, 0.0);
+	float materialRoughness = GetGPUMaterialRoughness(gpuMaterial, 0.5);
 	uint materialAlphaMode = GetGPUMaterialAlphaMode(gpuMaterial, GPU_MATERIAL_ALPHA_OPAQUE);
-	bool materialUseNormalMap = GetGPUMaterialUsesNormalMap(gpuMaterial, u_MaterialUniforms.UseNormalMap);
+	bool materialUseNormalMap = GetGPUMaterialUsesNormalMap(gpuMaterial, false);
 
-	vec4 albedoTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.x, Input.TexCoord, materialMipBias, u_AlbedoTexture);
+	vec4 albedoTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.x, Input.TexCoord, materialMipBias);
 	vec3 baseColor = albedoTexColor.rgb * materialBaseColor;
 	float alpha = albedoTexColor.a * materialOpacity;
 	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < 0.5)
 		discard;
 
-	float metalness = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.z, Input.TexCoord, materialMipBias, u_MetalnessTexture).b * materialMetalness;
-	float roughness = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.w, Input.TexCoord, materialMipBias, u_RoughnessTexture).g * materialRoughness;
+	float metalness = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.z, Input.TexCoord, materialMipBias).b * materialMetalness;
+	float roughness = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.w, Input.TexCoord, materialMipBias).g * materialRoughness;
 	roughness = max(roughness, 0.05);
 
 	vec3 worldNormal = normalize(Input.Normal);
 	if (materialUseNormalMap)
 	{
-		vec4 normalTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.y, Input.TexCoord, materialMipBias, u_NormalTexture);
+		vec4 normalTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.y, Input.TexCoord, materialMipBias);
 		worldNormal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb);
 	}
 

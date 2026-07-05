@@ -62,7 +62,7 @@ namespace Lux {
 		glm::vec4 BaseColor = glm::vec4(1.0f); // linear RGB, alpha = opacity/transparency
 		glm::vec4 Scalars = glm::vec4(0.0f, 0.5f, 0.0f, 1.0f); // x metalness, y roughness, z emission, w material complexity
 		glm::uvec4 TextureIndices = glm::uvec4(InvalidGPUTextureIndex);
-		glm::uvec4 Metadata = glm::uvec4(0); // x flags, y alpha mode, z render material ID, w reserved
+		glm::uvec4 Metadata = glm::uvec4(0); // x flags, y alpha mode, z render material ID, w floatBits(env map rotation)
 	};
 
 	struct GPUMaterialBuildInput
