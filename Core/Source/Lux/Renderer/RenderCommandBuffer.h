@@ -19,7 +19,7 @@ namespace Lux {
 	class RenderCommandBuffer : public RefCounted
 	{
 	public:
-		static Ref<RenderCommandBuffer> Create(uint32_t count = 0, const std::string& debugName = "", bool enableQueries = false) { return Ref<RenderCommandBuffer>::Create(count, enableQueries, debugName); }
+		static Ref<RenderCommandBuffer> Create(uint32_t count = 0, const std::string& debugName = "", bool enableQueries = false, nvrhi::CommandQueue queue = nvrhi::CommandQueue::Graphics) { return Ref<RenderCommandBuffer>::Create(count, enableQueries, debugName, queue); }
 
 		void Begin();
 		void End();
@@ -48,6 +48,13 @@ namespace Lux {
 		nvrhi::CommandListHandle GetActive() const { return m_ActiveCommandBuffer; }
 		nvrhi::CommandListHandle Get(uint32_t index = 0) const { LUX_CORE_VERIFY(index < m_CommandLists.size());  return m_CommandLists[index]; }
 
+		// The queue this command buffer records/submits on (Graphics by default).
+		nvrhi::CommandQueue GetQueue() const { return m_Queue; }
+		// The nvrhi execution-instance id returned by the most recent submit on this
+		// buffer's queue. Feed it to Renderer::QueueWaitForCommandList so another
+		// queue can wait for this buffer's work to finish (cross-queue sync).
+		uint64_t GetLastExecutionInstance() const { return m_LastExecutionInstance; }
+
 		float GetExecutionGPUTime(uint32_t frameIndex) const;
 		const PipelineStatistics& GetPipelineStatistics(uint32_t frameIndex) const;
 
@@ -62,6 +69,9 @@ namespace Lux {
 		RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName);
 		virtual ~RenderCommandBuffer();
 	private:
+		nvrhi::CommandQueue m_Queue = nvrhi::CommandQueue::Graphics;
+		uint64_t m_LastExecutionInstance = 0;
+
 		nvrhi::static_vector<nvrhi::CommandListHandle, 3> m_CommandLists;
 		nvrhi::static_vector<nvrhi::TimerQueryHandle, 3> m_TimerQueries;
 		nvrhi::static_vector<float, 3> m_GPUWorkTimes;

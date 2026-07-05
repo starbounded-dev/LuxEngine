@@ -114,6 +114,19 @@ namespace Lux {
 		// called from the main thread, once per frame, before the frame's render work is submitted.
 		static void ExecuteBackgroundThreadSubmits();
 
+		// ── Batched resource uploads ──────────────────────────────────────────
+		// Buffer/texture constructors record their initial-data uploads into one
+		// shared command list instead of creating and submitting a dedicated
+		// command list per resource (a vkQueueSubmit per mesh/texture is a load
+		// hitch and contends the graphics queue against the render thread). The
+		// batch is flushed automatically before every RenderCommandBuffer
+		// submission (see RT_Submit), so uploads always reach the GPU queue ahead
+		// of any command list that could consume them. Thread-safe; the record
+		// callback runs synchronously, so callers may free their CPU data on
+		// return (nvrhi stages it into the command list at record time).
+		static void RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record);
+		static void FlushResourceUploads();
+
 		template<typename FuncT>
 		static void SubmitResourceFree(FuncT&& func)
 		{
@@ -215,7 +228,22 @@ namespace Lux {
 		static void RegisterShaderDependency(Ref<Shader> shader, PipelineCompute* computePipeline);
 		static void RegisterShaderDependency(Ref<Shader> shader, Pipeline* pipeline);
 		static void RegisterShaderDependency(Ref<Shader> shader, Material* material);
+		static void RegisterShaderDependency(Ref<Shader> shader, RenderPass* renderPass);
+		static void RegisterShaderDependency(Ref<Shader> shader, ComputePass* computePass);
 		static void OnShaderReloaded(size_t hash);
+
+		// Returns a process-wide cached compute pipeline for the given shader,
+		// creating it on first use. Used by Texture GenerateMips so the
+		// LinearSample / LinearSampleUInt mip generator is built once instead of
+		// once per texture (was hundreds of redundant pipeline builds at load).
+		static Ref<PipelineCompute> GetOrCreateMipGenPipeline(Ref<Shader> shader);
+
+		// Cross-queue ordering: make the next submission on waitQueue wait until
+		// the given execution instance (from RenderCommandBuffer::GetLastExecutionInstance,
+		// i.e. executeCommandList's return) on executionQueue has completed. Must be
+		// called on the render thread, between the two queues' submits. Used to build
+		// async-compute overlap (e.g. graphics waits for the compute light-cull).
+		static void QueueWaitForCommandList(nvrhi::CommandQueue waitQueue, nvrhi::CommandQueue executionQueue, uint64_t instance);
 
 		static uint32_t GetCurrentFrameIndex();
 		static uint32_t RT_GetCurrentFrameIndex();

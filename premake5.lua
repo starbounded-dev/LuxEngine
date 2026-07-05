@@ -55,6 +55,7 @@ workspace "Lux"
 		optimize "Full"
 		symbols "Off"
 		defines { "NDEBUG" }
+		linktimeoptimization "On"
 
 	filter "system:windows"
 		buildoptions { "/EHsc", "/Zc:preprocessor", "/Zc:__cplusplus" }

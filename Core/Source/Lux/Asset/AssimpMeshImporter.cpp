@@ -569,20 +569,6 @@ namespace Lux
 
 		ImportAssimpMaterials(m_Path, scene, meshSource);
 
-		// ── Triangle cache ────────────────────────────────────────────────────
-		for (uint32_t i = 0; i < (uint32_t)meshSource->m_Submeshes.size(); i++)
-		{
-			const Submesh& sm = meshSource->m_Submeshes[i];
-			for (uint32_t f = 0; f < sm.IndexCount / 3; f++)
-			{
-				const Index& idx = meshSource->m_Indices[sm.BaseIndex / 3 + f];
-				meshSource->m_TriangleCache[i].emplace_back(
-					meshSource->m_Vertices[sm.BaseVertex + idx.V1],
-					meshSource->m_Vertices[sm.BaseVertex + idx.V2],
-					meshSource->m_Vertices[sm.BaseVertex + idx.V3]);
-			}
-		}
-
 		// ── GPU buffers ───────────────────────────────────────────────────────
 		meshSource->m_VertexBuffer = VertexBuffer::Create(
 			Buffer(meshSource->m_Vertices.data(),

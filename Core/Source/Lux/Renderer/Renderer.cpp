@@ -199,11 +199,19 @@ namespace Lux {
 
 	static std::unordered_map<size_t, Ref<Pipeline>> s_PipelineCache;
 
+	// Cache of compute pipelines keyed by shader hash, shared across the whole
+	// process. Currently only the mip generator (LinearSample / LinearSampleUInt)
+	// uses it; before, GenerateMips built a fresh pipeline per texture.
+	static std::unordered_map<size_t, Ref<PipelineCompute>> s_MipGenPipelineCache;
+	static std::mutex s_MipGenPipelineCacheMutex;
+
 	struct ShaderDependencies
 	{
 		std::vector<WeakRef<PipelineCompute>> ComputePipelines;
 		std::vector<WeakRef<Pipeline>> Pipelines;
 		std::vector<WeakRef<Material>> Materials;
+		std::vector<WeakRef<RenderPass>> Passes;
+		std::vector<WeakRef<ComputePass>> ComputePasses;
 	};
 	static std::unordered_map<size_t, ShaderDependencies> s_ShaderDependencies;
 	static std::shared_mutex s_ShaderDependenciesMutex; // ShaderDependencies can be accessed (and modified) from multiple threads, hence require synchronization
@@ -293,6 +301,41 @@ namespace Lux {
 		s_ShaderDependencies[shader->GetHash()].Materials.push_back(material);
 	}
 
+	void Renderer::RegisterShaderDependency(Ref<Shader> shader, RenderPass* renderPass)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		std::scoped_lock lock(s_ShaderDependenciesMutex);
+		s_ShaderDependencies[shader->GetHash()].Passes.push_back(renderPass);
+	}
+
+	void Renderer::RegisterShaderDependency(Ref<Shader> shader, ComputePass* computePass)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		std::scoped_lock lock(s_ShaderDependenciesMutex);
+		s_ShaderDependencies[shader->GetHash()].ComputePasses.push_back(computePass);
+	}
+
+	void Renderer::QueueWaitForCommandList(nvrhi::CommandQueue waitQueue, nvrhi::CommandQueue executionQueue, uint64_t instance)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		// nvrhi tracks a completion timeline per queue; this inserts the wait on
+		// waitQueue for executionQueue's instance without any manual semaphores.
+		Application::GetGraphicsDevice()->queueWaitForCommandList(waitQueue, executionQueue, instance);
+	}
+
+	Ref<PipelineCompute> Renderer::GetOrCreateMipGenPipeline(Ref<Shader> shader)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		const size_t hash = shader->GetHash();
+		std::scoped_lock lock(s_MipGenPipelineCacheMutex);
+		if (auto it = s_MipGenPipelineCache.find(hash); it != s_MipGenPipelineCache.end())
+			return it->second;
+
+		Ref<PipelineCompute> pipeline = PipelineCompute::Create(shader);
+		s_MipGenPipelineCache[hash] = pipeline;
+		return pipeline;
+	}
+
 	void Renderer::OnShaderReloaded(size_t hash)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -304,6 +347,8 @@ namespace Lux {
 				PruneDeadDependencies(it->second.Pipelines);
 				PruneDeadDependencies(it->second.ComputePipelines);
 				PruneDeadDependencies(it->second.Materials);
+				PruneDeadDependencies(it->second.Passes);
+				PruneDeadDependencies(it->second.ComputePasses);
 				dependencies = it->second; // Copy weak refs so callbacks run outside the registry lock.
 			}
 		}
@@ -323,6 +368,21 @@ namespace Lux {
 		{
 			if (material)
 				material->OnShaderReloaded();
+		}
+
+		// Passes re-bake after the pipelines above are rebuilt: an in-place
+		// recompile released the binding layouts their baked descriptor sets
+		// were created against, so drawing with them is a use-after-free.
+		for (auto& renderPass : dependencies.Passes)
+		{
+			if (renderPass)
+				renderPass->OnShaderReloaded();
+		}
+
+		for (auto& computePass : dependencies.ComputePasses)
+		{
+			if (computePass)
+				computePass->OnShaderReloaded();
 		}
 	}
 
@@ -355,6 +415,10 @@ namespace Lux {
 	// main thread, since the render command queue is single-producer. See Renderer::Submit.
 	static std::vector<std::function<void()>> s_BackgroundThreadSubmitQueue;
 	static std::mutex s_BackgroundThreadSubmitMutex;
+
+	static std::mutex s_ResourceUploadMutex;
+	static nvrhi::CommandListHandle s_ResourceUploadCommandList;
+	static bool s_ResourceUploadListOpen = false;
 
 	static RendererAPI* InitRendererAPI()
 	{
@@ -614,6 +678,13 @@ namespace Lux {
 			s_ShaderDependencies.clear();
 		}
 
+		{
+			// Release the cached mip-gen compute pipelines before device teardown
+			// (their deferred frees are drained by the release queues below).
+			std::scoped_lock lock(s_MipGenPipelineCacheMutex);
+			s_MipGenPipelineCache.clear();
+		}
+
 		auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
 		nvrhi::DeviceHandle graphicsDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
 
@@ -623,6 +694,10 @@ namespace Lux {
 			VkDevice device = (VkDevice)graphicsDevice->getNativeObject(nvrhi::ObjectTypes::VK_Device);
 			vkDeviceWaitIdle(device);
 		}
+
+		// Execute any batched uploads still pending, then release the shared list.
+		FlushResourceUploads();
+		s_ResourceUploadCommandList = nullptr;
 
 
 #if LUX_HAS_SHADER_COMPILER
@@ -787,6 +862,43 @@ namespace Lux {
 			Submit(std::move(func));
 	}
 
+	// ── Batched resource uploads ─────────────────────────────────────────────
+	// One shared command list accumulates initial-data uploads from any thread;
+	// FlushResourceUploads submits it once. See the declaration in Renderer.h for
+	// the ordering guarantee (flush runs before every RenderCommandBuffer submit).
+
+	void Renderer::RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		std::scoped_lock lock(s_ResourceUploadMutex);
+
+		if (!s_ResourceUploadCommandList)
+			s_ResourceUploadCommandList = Application::GetGraphicsDevice()->createCommandList();
+
+		if (!s_ResourceUploadListOpen)
+		{
+			s_ResourceUploadCommandList->open();
+			s_ResourceUploadListOpen = true;
+		}
+
+		record(s_ResourceUploadCommandList);
+	}
+
+	void Renderer::FlushResourceUploads()
+	{
+		std::scoped_lock lock(s_ResourceUploadMutex);
+		if (!s_ResourceUploadListOpen)
+			return;
+
+		LUX_PROFILE_SCOPE("Renderer::FlushResourceUploads");
+		s_ResourceUploadCommandList->close();
+		s_ResourceUploadListOpen = false;
+
+		RenderCommandBuffer::LockQueue();
+		Application::GetGraphicsDevice()->executeCommandList(s_ResourceUploadCommandList);
+		RenderCommandBuffer::UnlockQueue();
+	}
+
 	uint32_t Renderer::GetRenderQueueIndex()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -815,7 +927,8 @@ namespace Lux {
 
 					if (explicitClear || framebuffer->GetSpecification().ClearColorOnLoad)
 					{
-						for (size_t i = 0; i < framebuffer->GetColorAttachmentCount(); i++)
+						const uint32_t colorAttachmentCount = static_cast<uint32_t>(framebuffer->GetColorAttachmentCount());
+						for (uint32_t i = 0; i < colorAttachmentCount; i++)
 						{
 							nvrhi::Color color = nvrhi::Color(clearValues[i].Color.float32[0], clearValues[i].Color.float32[1],
 								clearValues[i].Color.float32[2], clearValues[i].Color.float32[3]);
@@ -852,10 +965,12 @@ namespace Lux {
 				graphicsState.indexBuffer = nvrhi::IndexBufferBinding{};
 
 				// Viewport and scissor
-				float fbWidth = (float)framebuffer->GetWidth();
-				float fbHeight = (float)framebuffer->GetHeight();
+				const uint32_t framebufferWidth = framebuffer->GetWidth();
+				const uint32_t framebufferHeight = framebuffer->GetHeight();
+				float fbWidth = (float)framebufferWidth;
+				float fbHeight = (float)framebufferHeight;
 				graphicsState.viewport.viewports = { nvrhi::Viewport(fbWidth, fbHeight) };
-				graphicsState.viewport.scissorRects = { nvrhi::Rect(fbWidth, fbHeight) };
+				graphicsState.viewport.scissorRects = { nvrhi::Rect(static_cast<int>(framebufferWidth), static_cast<int>(framebufferHeight)) };
 
 				graphicsState.lineWidth = 0.0f;
 				if (renderPass->GetPipeline()->IsDynamicLineWidth())

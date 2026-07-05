@@ -100,7 +100,7 @@ namespace Lux
 		float ShadowCascadeNearPlaneOffset = 0.0f;
 		float ShadowCascadeFarPlaneOffset = 50.0f;
 		float ShadowCascadeTransitionFade = 1.0f;
-		uint32_t ShadowResolution = 2; // SceneRendererOptions::ShadowResolutionTier
+		uint32_t ShadowResolution = 1; // SceneRendererOptions::ShadowResolutionTier (Tier_2K)
 
 		bool BloomEnabled = true;
 		uint32_t BloomResolutionScale = 2; // SceneRendererOptions::EffectResolutionScale

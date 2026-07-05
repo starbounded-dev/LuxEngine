@@ -34,6 +34,23 @@ namespace Lux
 	////////////////////////////////////////////////////////
 	// MeshSource //////////////////////////////////////////
 	////////////////////////////////////////////////////////
+
+	bool MeshSource::s_RetainFullCPUGeometry = true;
+
+	void MeshSource::CompactCPUGeometry()
+	{
+		if (s_RetainFullCPUGeometry || m_Vertices.empty())
+			return;
+
+		// Keep positions (physics cooking) and indices (Jolt triangle lists);
+		// drop the full vertex array — the GPU already has its copy.
+		m_CollisionPositions.resize(m_Vertices.size());
+		for (size_t i = 0; i < m_Vertices.size(); i++)
+			m_CollisionPositions[i] = m_Vertices[i].Position;
+
+		std::vector<Vertex>().swap(m_Vertices);
+	}
+
 	MeshSource::MeshSource(const std::vector<Vertex>& vertices, const std::vector<Index>& indices, const glm::mat4& transform)
 		: m_Vertices(vertices), m_Indices(indices)
 	{
@@ -65,6 +82,8 @@ namespace Lux
 			m_BoundingBox.Max.y = glm::max(vertex.Position.y, m_BoundingBox.Max.y);
 			m_BoundingBox.Max.z = glm::max(vertex.Position.z, m_BoundingBox.Max.z);
 		}
+
+		CompactCPUGeometry();
 	}
 
 	MeshSource::MeshSource(const std::vector<Vertex>& vertices, const std::vector<Index>& indices, const std::vector<Submesh>& submeshes)
@@ -89,6 +108,8 @@ namespace Lux
 			m_BoundingBox.Max.y = glm::max(vertex.Position.y, m_BoundingBox.Max.y);
 			m_BoundingBox.Max.z = glm::max(vertex.Position.z, m_BoundingBox.Max.z);
 		}
+
+		CompactCPUGeometry();
 	}
 
 	MeshSource::~MeshSource()

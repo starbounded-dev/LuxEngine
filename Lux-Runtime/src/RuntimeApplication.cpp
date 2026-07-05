@@ -1,6 +1,7 @@
 #include "RuntimeLayer.h"
 
 #include "Lux/EntryPoint.h"
+#include "Lux/Renderer/Mesh.h"
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Core/ApplicationSettings.h"
@@ -138,6 +139,10 @@ namespace Lux
 			: Application(specification), m_ProjectPath(std::move(projectPath)), m_BenchmarkConfig(std::move(benchmarkConfig))
 		{
 			s_IsRuntime = true;
+
+			// The runtime never exports/serializes meshes, so meshes keep only
+			// positions + indices on the CPU (physics cooking) after GPU upload.
+			MeshSource::SetRetainFullCPUGeometry(false);
 		}
 
 		void OnInit() override

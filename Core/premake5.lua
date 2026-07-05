@@ -77,7 +77,7 @@ project "Core"
 		}
 
 	filter "configurations:Dist"
-		optimize "On"
+		optimize "Full"
 		symbols "Off"
 		vectorextensions "AVX2"
 		isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }

@@ -12,8 +12,8 @@ namespace Lux {
 
 	static std::mutex s_GraphicsQueueMutex;
 
-	RenderCommandBuffer::RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName)
-		: m_DebugName(debugName)
+	RenderCommandBuffer::RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, nvrhi::CommandQueue queue)
+		: m_Queue(queue), m_DebugName(debugName)
 	{
 		if (count == 0)
 		{
@@ -23,9 +23,15 @@ namespace Lux {
 
 		auto device = Application::GetGraphicsDevice();
 
+		// Command lists are bound to a queue type at creation; a Compute list can
+		// only be executed on the compute queue (COPY/COMPUTE expose a subset of
+		// methods). Graphics (the default) is unchanged from before.
+		nvrhi::CommandListParameters clParams;
+		clParams.setQueueType(m_Queue);
+
 		for (uint32_t i = 0; i < count; i++)
 		{
-			m_CommandLists.push_back(device->createCommandList());
+			m_CommandLists.push_back(device->createCommandList(clParams));
 			m_PipelineStatisticsQueryResults.emplace_back();
 		}
 
@@ -223,6 +229,11 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_TRACE_TAG("Renderer", "Submitting Render Command Buffer {}", m_DebugName);
 
+		// Flush batched resource uploads first: anything this command list may
+		// consume (mesh buffers, texture data) must reach the queue ahead of it.
+		// Cheap no-op when nothing is pending.
+		Renderer::FlushResourceUploads();
+
 		auto device = Application::GetGraphicsDevice();
 
 		if (m_TimerQueriesEnabled)
@@ -243,9 +254,12 @@ namespace Lux {
 		if (waitSemaphore)
 		{
 			auto vulkanDevice = (nvrhi::vulkan::IDevice*)device.Get();
-			vulkanDevice->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, waitSemaphore, 0);
+			vulkanDevice->queueWaitForSemaphore(m_Queue, waitSemaphore, 0);
 		}
-		device->executeCommandList(m_CommandLists[commandBufferIndex]);
+		// Execute on this buffer's queue (Graphics unless this is a compute
+		// command buffer) and keep the returned instance id so another queue can
+		// wait on it via Renderer::QueueWaitForCommandList.
+		m_LastExecutionInstance = device->executeCommandList(m_CommandLists[commandBufferIndex], m_Queue);
 		UnlockQueue();
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES

@@ -134,6 +134,57 @@ namespace Lux {
 		}
 	}
 
+	void DescriptorSetManager::OnShaderReloaded()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+
+		// An in-place shader recompile released the binding layouts the baked
+		// sets were created against and may have changed the reflected set/
+		// binding map. Rebuild everything from the new reflection, keeping the
+		// previously bound inputs — names are the stable key across
+		// permutations, set/binding indexes are not.
+		std::map<std::string, RenderPassInput> savedInputs;
+		for (const auto& [name, decl] : InputDeclarations)
+		{
+			auto setIt = InputResources.find(decl.Set);
+			if (setIt == InputResources.end())
+				continue;
+			auto bindingIt = setIt->second.find(decl.Binding);
+			if (bindingIt != setIt->second.end())
+				savedInputs[name] = bindingIt->second;
+		}
+
+		InputDeclarations.clear();
+		InputResources.clear();
+		InvalidatedInputResources.clear();
+		for (auto& frameHandles : m_BindingSetHandles)
+			frameHandles.clear();
+		for (auto& set : m_BindingSets)
+			set = {};
+
+		Init();
+
+		// Re-apply the saved inputs wherever the new reflection still declares
+		// them. Bindings that vanished from this permutation are dropped; new
+		// ones keep Init's defaults until the usual SetInput calls fill them.
+		for (auto& [name, input] : savedInputs)
+		{
+			auto declIt = InputDeclarations.find(name);
+			if (declIt == InputDeclarations.end())
+				continue;
+			const RenderInputDeclaration& decl = declIt->second;
+			if (input.Input.size() != (size_t)decl.Count)
+				continue;
+
+			RenderPassInput& target = InputResources[decl.Set][decl.Binding];
+			const bool isWriteable = target.IsWriteable; // from the new reflection
+			target = input;
+			target.IsWriteable = isWriteable;
+		}
+
+		Bake();
+	}
+
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -364,27 +415,48 @@ namespace Lux {
 			LUX_CORE_ERROR_TAG("Renderer", "[RenderPass] Bake - Validate failed! {}", m_Specification.DebugName);
 			return;
 		}
-		
-		// If valid, we can create descriptor sets
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 
-		auto bufferSets = HasBufferSets();
-		bool perFrameInFlight = !bufferSets.empty();
-		perFrameInFlight = true; // always
 		uint32_t descriptorSetCount = Renderer::GetConfig().FramesInFlight;
-		if (!perFrameInFlight)
-			descriptorSetCount = 1;
 
 		m_BindingSets.resize(descriptorSetCount);
 		for (auto& set : m_BindingSets)
 			set = {};
 
-		// for (auto& set : m_BindingSetHandles)
-		// 	set.clear();
-
 		for (const auto& [set, setData] : InputResources)
+			BakeSet(set);
+
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+#if 1
+		for (uint32_t frameIndex = 0; frameIndex < descriptorSetCount; frameIndex++)
 		{
-			uint32_t descriptorCountInSet = bufferSets.find(set) != bufferSets.end() ? descriptorSetCount : 1;
+			if (!m_BindingSets[frameIndex].empty() && m_BindingSets[frameIndex][0] == nullptr)
+			{
+				nvrhi::BindingLayoutHandle bindingLayout = m_Specification.Shader->GetDescriptorSetLayout(0);
+
+				nvrhi::BindingSetDesc bindingSetDesc;
+				m_BindingSets[frameIndex][0] = device->createBindingSet(bindingSetDesc, bindingLayout);
+			}
+		}
+#endif
+	}
+
+	// Rebuilds the binding sets for one descriptor-set index across all frames
+	// in flight. Bake() calls this for every set; InvalidateAndUpdate calls it
+	// only for the sets whose inputs actually changed, instead of re-creating
+	// every binding set of every set on any single change.
+	void DescriptorSetManager::BakeSet(uint32_t set)
+	{
+		auto setIt = InputResources.find(set);
+		if (setIt == InputResources.end())
+			return;
+		const auto& setData = setIt->second;
+
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		const uint32_t descriptorSetCount = Renderer::GetConfig().FramesInFlight;
+		if (m_BindingSets.size() < descriptorSetCount)
+			m_BindingSets.resize(descriptorSetCount);
+
+		{
 			for (uint32_t frameIndex = 0; frameIndex < descriptorSetCount; frameIndex++)
 			{
 				nvrhi::BindingLayoutHandle bindingLayout = m_Specification.Shader->GetDescriptorSetLayout(set);
@@ -547,19 +619,6 @@ namespace Lux {
 				}
 			}
 		}
-
-#if 1
-		for (uint32_t frameIndex = 0; frameIndex < descriptorSetCount; frameIndex++)
-		{
-			if (!m_BindingSets[frameIndex].empty() && m_BindingSets[frameIndex][0] == nullptr)
-			{
-				nvrhi::BindingLayoutHandle bindingLayout = m_Specification.Shader->GetDescriptorSetLayout(0);
-
-				nvrhi::BindingSetDesc bindingSetDesc;
-				m_BindingSets[frameIndex][0] = device->createBindingSet(bindingSetDesc, bindingLayout);
-			}
-		}
-#endif
 
 
 #if TODO
@@ -768,6 +827,13 @@ namespace Lux {
 		if (m_State == State::Ready)
 			return;
 
+		// Start each update from a clean slate. Entries are re-added below by the
+		// handle-comparison loop (and by Bake() for still-null deferred resources);
+		// without this clear the set stays non-empty after the first invalidation,
+		// so every subsequent frame re-Bakes ALL binding sets for ALL frames in
+		// flight — permanent per-frame descriptor churn across every dynamic pass.
+		InvalidatedInputResources.clear();
+
 		uint32_t currentFrameIndex = Renderer::RT_GetCurrentFrameIndex();
 
 		// Check for invalidated resources
@@ -878,7 +944,16 @@ namespace Lux {
 		if (!InvalidatedInputResources.empty())
 		{
 			LUX_CORE_TRACE_TAG("Renderer", "DescriptorSetManager::InvalidateAndUpdate ({}) - updating {} descriptors (frameIndex={})", m_Specification.DebugName, InvalidatedInputResources.size(), currentFrameIndex);
-			Bake();
+
+			// Rebake only the affected descriptor sets. Snapshot the set indexes
+			// first: BakeSet may re-insert still-null deferred inputs into
+			// InvalidatedInputResources while we iterate.
+			std::vector<uint32_t> setsToBake;
+			setsToBake.reserve(InvalidatedInputResources.size());
+			for (const auto& [set, bindings] : InvalidatedInputResources)
+				setsToBake.push_back(set);
+			for (uint32_t set : setsToBake)
+				BakeSet(set);
 		}
 
 		if (!m_Specification.IsDynamic)

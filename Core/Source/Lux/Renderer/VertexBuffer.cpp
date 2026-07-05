@@ -2,6 +2,7 @@
 #include "VertexBuffer.h"
 
 #include "Lux/Core/Application.h"
+#include "Lux/Renderer/Renderer.h"
 
 namespace Lux {
 
@@ -20,11 +21,14 @@ namespace Lux {
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 		m_Handle = device->createBuffer(vertexBufferDesc);
 
-		m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
-		m_CommandList->RT_Begin();
-		m_CommandList->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size);
-		m_CommandList->RT_End();
-		m_CommandList->RT_Submit();
+		// Record into the shared upload batch instead of creating and submitting
+		// a dedicated command list per buffer (one vkQueueSubmit per mesh causes
+		// load hitches, and the list used to be retained for the buffer's whole
+		// lifetime).
+		Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+		{
+			uploadList->writeBuffer(m_Handle, buffer.Data, buffer.Size);
+		});
 	}
 
 	VertexBuffer::VertexBuffer(uint64_t size)

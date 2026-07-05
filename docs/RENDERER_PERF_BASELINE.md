@@ -118,12 +118,14 @@ Fill this in once, on the build/scene/camera above. This is the bar Phase 1 must
 
 Mean per-frame CPU times (from `tracy-csvexport`, 996 frames):
 
-| Metric | Source | Baseline (mean/frame) | After Phase 1 |
-|---|---|---|---|
-| `SceneRenderer::FlushDrawList` / `EndScene` | Tracy zone | **3.09 ms** | **2.56 ms (−17.4%)** |
-| ↳ render-graph cost | Tracy zone | `BuildAndCompile` **0.853 ms** | `Build` 0.408 + `Compile` ~0 = **0.408 ms (−52%)** |
-| ↳ `RenderGraph::Compile` invocations | Tracy count | **996 / 996 frames** | **1 / 3403 frames** |
-| `SceneRenderer::BeginScene` | Tracy zone | 0.115 ms | 0.089 ms |
+| Metric | Source | Baseline (mean/frame) | After Phase 1 | After Phase 2 |
+|---|---|---|---|---|
+| `SceneRenderer::FlushDrawList` / `EndScene` | Tracy zone | **3.09 ms** | **2.56 ms (−17.4%)** | |
+| ↳ render-graph cost | Tracy zone | `BuildAndCompile` **0.853 ms** | `Build` 0.408 + `Compile` ~0 = **0.408 ms (−52%)** | |
+| ↳ `RenderGraph::Compile` invocations | Tracy count | **996 / 996 frames** | **1 / 3403 frames** | |
+| `SceneRenderer::BeginScene` | Tracy zone | 0.115 ms | 0.089 ms | |
+| Per-pass CPU zones (ShadowMap/PreDepth/GBuffer) | Tracy zones | | (see per-pass table) | |
+| `Scene::SyncRenderScene` | Tracy zone | | | |
 
 **Phase 1 result (after-trace `traceProfiler2026-06-28-12-45.tracy`, 3403 frames):**
 - `RenderGraph::Compile` ran **exactly once** for the whole capture instead of every
@@ -181,6 +183,51 @@ These are the predicted wins; the baseline exists to prove or disprove them:
   local `std::vector`s reallocated each frame.
 - **Bindless table re-bind** — a `MaxGPUTextureSceneTextures`-wide loop calls
   string-keyed `SetInput` across 5 passes every frame.
+  *(Resolved before Phase 2: the loop already skips `SetInput` when the resolved
+  texture is unchanged.)*
 
 Re-capture with the identical protocol after each Phase 1 change and fill the
 "After Phase 1" column.
+
+## Phase 2 hypotheses to confirm against this baseline
+
+Phase 2 (submission-path allocations + build config, 2026-07-02) predicts:
+
+- **Per-pass CPU submission zones drop** (`ShadowMapPass`, `PreDepthPass`, `GBufferPass`,
+  `TransparentForwardPass`): draw lambdas no longer heap-copy
+  `TransformMapData::ObjectIndices` per draw (`MeshDrawParams` snapshot instead).
+  Effect scales with draw count — measure on a Sponza-class scene, not just the
+  2-light sample.
+- **`FlushDrawList` drops**: the upload submit no longer double-copies 8 vectors per
+  frame (init-captures + moves), and the full texture/material table copies are skipped
+  on frames where the scene version is unchanged.
+- **Render-thread cost drops** (`RenderCommandQueue::Execute` / render-thread zones):
+  `RT_DrawStaticMesh` reuses a push-constant scratch instead of a per-draw heap
+  allocation.
+- **`Scene::SyncRenderScene` drops**: sync-item vector is now reused scratch.
+- **Dist FPS uplift** from `optimize "Full"` + LTO — FPS-only comparison (Tracy is
+  compiled out of Dist). Regenerate projects first (`scripts/Win-GenProjects.py`).
+
+**Correctness gates before reading perf numbers:** identical draw/instance counts in the
+Renderer Debugger on the same scene, zero new Vulkan validation messages, and (for the
+version-gated tables) verify a runtime material edit and a texture add/remove still show
+up on screen.
+
+## Phase 3 hypotheses (rendering audit, 2026-07-03)
+
+- **Frame-time variance drops** (descriptor re-Bake fix): the
+  `DescriptorSetManager::InvalidateAndUpdate (...) - updating N descriptors` trace log
+  must stop repeating every frame once past startup/resize. Watch the frame-time history
+  graph in the Renderer Debugger — this fix targets the *instability*, not just the mean.
+- **`FlushDrawList` CPU drops** with the Renderer Debugger closed (GPUScene snapshot is
+  now on-request).
+- **GPU frame time drops** on scenes with no point/spot lights (cluster passes skip) and
+  with SSR off (PreIntegration gated), visible per-pass in the Renderer Debugger.
+- **VRAM drops ~200 MB** at the default/High preset (2K shadow cascades) — check the
+  memory HUD; shadow quality visual check, Ultra restores 4K.
+- **Atmosphere-disabled scenes** lose the per-frame atmosphere UBO rebuild+upload
+  (BeginScene zone).
+- **Correctness gates:** toggle lights on/off at runtime (cluster skip must not leave
+  stale lighting), toggle sky/fog/clouds on/off (atmosphere idle path), open/close the
+  Renderer Debugger GPU Scene section (snapshot request path), resize + preset cycle
+  with validation on.

@@ -92,6 +92,10 @@ namespace Lux {
 		void Clear();
 
 		const std::vector<GPUMaterialData>& GetMaterials() const { return m_Materials; }
+		// Monotonic change counter: bumped whenever the material table mutates
+		// (MarkMaterialDirty / Clear). Lets consumers skip re-copying the table on
+		// frames where nothing changed. Never reset.
+		uint64_t GetVersion() const { return m_Version; }
 		const std::vector<MaterialSceneDirtyRange>& GetDirtyRanges() const { return m_DirtyRanges; }
 		bool HasDirtyMaterials() const { return m_DirtyMaterialCount > 0; }
 		uint32_t GetDirtyMaterialCount() const { return m_DirtyMaterialCount; }
@@ -139,6 +143,7 @@ namespace Lux {
 	private:
 		uint32_t m_FrameIndex = 0;
 		uint32_t m_DirtyMaterialCount = 0;
+		uint64_t m_Version = 0;
 		GPUTextureIndex m_NextTextureIndex = 1;
 		std::function<GPUTextureIndex(AssetHandle)> m_TextureResolver;
 

@@ -84,6 +84,12 @@ namespace Lux {
 			std::vector<ResourceHandle> Writes;
 			PassFlags Flags = PassFlags::None;
 			ExecuteCallback Execute;
+			// Always-set pointer to the pass's string-literal name (zero-alloc,
+			// unlike Name which is skipped on the per-frame executable path).
+			// Used for crash diagnostics in Execute(). Kept LAST so the
+			// positional aggregate initializers in the self-tests still map to
+			// Name/Reads/Writes/Flags.
+			const char* DebugName = nullptr;
 		};
 
 		struct ResourceLifetime

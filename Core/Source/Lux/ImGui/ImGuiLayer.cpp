@@ -104,7 +104,13 @@ namespace Lux {
 			style.WindowRounding = 0.0f;
 			style.Colors[ImGuiCol_WindowBg].w = 1.0f;
 		}
-		style.Colors[ImGuiCol_WindowBg] = ImVec4(0.15f, 0.15f, 0.15f, style.Colors[ImGuiCol_WindowBg].w);
+		// Docked/window backgrounds sit a touch above the titlebar; use the theme's
+		// graphite surface (not a flat gray) so it stays cohesive with the palette.
+		{
+			ImVec4 windowBg = ImGui::ColorConvertU32ToFloat4(Colors::Theme::background);
+			windowBg.w = style.Colors[ImGuiCol_WindowBg].w;
+			style.Colors[ImGuiCol_WindowBg] = windowBg;
+		}
 
 		ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)Application::Get().GetWindow().GetNativeWindow(), true);
 
@@ -348,10 +354,10 @@ namespace Lux {
 		colors[ImGuiCol_FrameBgHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
 		colors[ImGuiCol_FrameBgActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
 
-		// Tabs
+		// Tabs (accent-tinted so the active tab reads as "selected" on-brand)
 		colors[ImGuiCol_Tab] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-		colors[ImGuiCol_TabHovered] = ImColor(255, 225, 135, 30);
-		colors[ImGuiCol_TabActive] = ImColor(255, 225, 135, 60);
+		colors[ImGuiCol_TabHovered] = ImColor(124, 131, 248, 45);
+		colors[ImGuiCol_TabActive] = ImColor(124, 131, 248, 90);
 		colors[ImGuiCol_TabUnfocused] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		colors[ImGuiCol_TabUnfocusedActive] = colors[ImGuiCol_TabHovered];
 
@@ -371,23 +377,21 @@ namespace Lux {
 		colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.41f, 0.41f, 1.0f);
 		colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.51f, 0.51f, 0.51f, 1.0f);
 
-		// Check Mark
-		colors[ImGuiCol_CheckMark] = ImColor(200, 200, 200, 255);
+		// Check Mark (accent so ticks pop cleanly against the deep frame bg)
+		colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
 
-		// Slider
-		colors[ImGuiCol_SliderGrab] = ImVec4(0.51f, 0.51f, 0.51f, 0.7f);
-		colors[ImGuiCol_SliderGrabActive] = ImVec4(0.66f, 0.66f, 0.66f, 1.0f);
+		// Slider (neutral grab, accent when actively dragged)
+		colors[ImGuiCol_SliderGrab] = ImVec4(0.42f, 0.44f, 0.52f, 0.9f);
+		colors[ImGuiCol_SliderGrabActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
 
 		// Text
 		colors[ImGuiCol_Text] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
+		colors[ImGuiCol_TextDisabled] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker);
 
-		// Checkbox
-		colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
-
-		// Separator
+		// Separator (subtle by default, accent when active/hovered)
 		colors[ImGuiCol_Separator] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
-		colors[ImGuiCol_SeparatorActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::highlight);
-		colors[ImGuiCol_SeparatorHovered] = ImColor(39, 185, 242, 150);
+		colors[ImGuiCol_SeparatorActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
+		colors[ImGuiCol_SeparatorHovered] = ImColor(124, 131, 248, 150);
 
 		// Window Background
 		colors[ImGuiCol_WindowBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
@@ -402,10 +406,25 @@ namespace Lux {
 		// Menubar
 		colors[ImGuiCol_MenuBarBg] = ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
 
+		// Accent-driven interaction feedback (text selection, drag/drop, keyboard nav)
+		colors[ImGuiCol_TextSelectedBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::selectionMuted);
+		colors[ImGuiCol_DragDropTarget] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
+		colors[ImGuiCol_NavHighlight] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
+
 		//========================================================
-		/// Style
-		style.FrameRounding = 2.5f;
+		/// Style — softer, rounder, cleaner than the default. Rounding is applied to the
+		/// widgets that read as "controls" (frames, grabs, tabs, scrollbars, popups);
+		/// spacing/padding are left alone so the panels' hand-tuned cursor offsets still line up.
+		style.FrameRounding = 4.0f;
 		style.FrameBorderSize = 1.0f;
+		style.GrabRounding = 4.0f;
+		style.GrabMinSize = 7.0f;
+		style.TabRounding = 4.0f;
+		style.ScrollbarRounding = 9.0f;
+		style.ScrollbarSize = 13.0f;
+		style.PopupRounding = 6.0f;
+		style.ChildRounding = 6.0f;
+		style.PopupBorderSize = 1.0f;
 		style.IndentSpacing = 11.0f;
 	}
 

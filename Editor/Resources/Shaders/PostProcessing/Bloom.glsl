@@ -3,7 +3,7 @@
 
 #include <Samplers.glslh>
 
-layout(binding = 0, rgba32f) restrict writeonly uniform image2D o_Image;
+layout(binding = 0, rgba16f) restrict writeonly uniform image2D o_Image;
 
 const float Epsilon = 1.0e-4;
 

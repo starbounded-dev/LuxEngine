@@ -149,6 +149,7 @@ namespace Lux {
 		m_TextureIndexByHandle.clear();
 		m_DirtyTextureIndices.clear();
 		m_DirtyRanges.clear();
+		m_Version++;
 		EnsureFallbackTexture();
 	}
 
@@ -159,6 +160,7 @@ namespace Lux {
 			return;
 
 		m_DirtyTextureIndices.push_back(textureIndex);
+		m_Version++;
 	}
 
 }

@@ -46,6 +46,9 @@ namespace Lux {
 		bool Validate();
 		void Bake();
 		void Prepare();
+		// Called by the Renderer after this pass's shader is recompiled in
+		// place; re-bakes the descriptor sets against the new binding layouts.
+		void OnShaderReloaded();
 
 		bool HasDescriptorSets() const;
 		uint32_t GetBindingSetCount() const { return m_DescriptorSetManager.GetBindingSetCount(); }

@@ -52,7 +52,9 @@ namespace Lux {
 
 		static void AppendSubmeshTriangles(const MeshSource& meshSource, const Submesh& submesh, const glm::vec3& scale, JPH::TriangleList& triangles)
 		{
-			const auto& vertices = meshSource.GetVertices();
+			// Position accessors work whether the mesh kept its full CPU vertex
+			// array (editor) or was compacted to positions-only (runtime).
+			const size_t vertexCount = meshSource.GetVertexCount();
 			const auto& indices = meshSource.GetIndices();
 			const uint32_t firstTriangle = submesh.BaseIndex / 3;
 			const uint32_t triangleCount = submesh.IndexCount / 3;
@@ -64,12 +66,12 @@ namespace Lux {
 				const uint32_t i0 = submesh.BaseVertex + index.V1;
 				const uint32_t i1 = submesh.BaseVertex + index.V2;
 				const uint32_t i2 = submesh.BaseVertex + index.V3;
-				if (i0 >= vertices.size() || i1 >= vertices.size() || i2 >= vertices.size())
+				if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
 					continue;
 
-				const glm::vec3 p0 = glm::vec3(submesh.Transform * glm::vec4(vertices[i0].Position, 1.0f)) * scale;
-				const glm::vec3 p1 = glm::vec3(submesh.Transform * glm::vec4(vertices[i1].Position, 1.0f)) * scale;
-				const glm::vec3 p2 = glm::vec3(submesh.Transform * glm::vec4(vertices[i2].Position, 1.0f)) * scale;
+				const glm::vec3 p0 = glm::vec3(submesh.Transform * glm::vec4(meshSource.GetVertexPosition(i0), 1.0f)) * scale;
+				const glm::vec3 p1 = glm::vec3(submesh.Transform * glm::vec4(meshSource.GetVertexPosition(i1), 1.0f)) * scale;
+				const glm::vec3 p2 = glm::vec3(submesh.Transform * glm::vec4(meshSource.GetVertexPosition(i2), 1.0f)) * scale;
 				triangles.emplace_back(JoltUtils::ToJoltVector(p0), JoltUtils::ToJoltVector(p1), JoltUtils::ToJoltVector(p2));
 			}
 		}

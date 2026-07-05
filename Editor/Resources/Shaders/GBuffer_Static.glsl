@@ -100,9 +100,8 @@ layout(location = 20) in vec4 InputPreviousClip;
 layout(location = 0) out vec4 o_GBufferBaseColor;
 layout(location = 1) out vec4 o_GBufferViewNormal;
 layout(location = 2) out vec4 o_GBufferMetalRoughAO;
-layout(location = 3) out uint o_GBufferMaterialID;
-layout(location = 4) out uint o_GBufferObjectID;
-layout(location = 5) out vec2 o_GBufferVelocity;
+layout(location = 3) out uvec2 o_GBufferMaterialObjectID;
+layout(location = 4) out vec2 o_GBufferVelocity;
 
 layout(push_constant) uniform PushConstants
 {
@@ -183,7 +182,7 @@ void main()
 	gbuffer.MaterialID = GetInstanceMaterialIndex(InputObjectIndex);
 	gbuffer.ObjectID = GetInstancePrimitiveID(InputObjectIndex);
 
-	EncodeGBuffer(gbuffer, o_GBufferBaseColor, o_GBufferViewNormal, o_GBufferMetalRoughAO, o_GBufferMaterialID, o_GBufferObjectID);
+	EncodeGBuffer(gbuffer, o_GBufferBaseColor, o_GBufferViewNormal, o_GBufferMetalRoughAO, o_GBufferMaterialObjectID);
 
 	// Screen-space motion vector (UV delta, current - previous), jitter removed.
 	vec2 currentUV = (InputCurrentClip.xy / InputCurrentClip.w) * 0.5 + 0.5;

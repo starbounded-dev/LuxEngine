@@ -17,6 +17,22 @@ namespace Lux {
 		dmSpec.Shader = spec.Pipeline->GetSpecification().Shader.As<VulkanShader>();
 		dmSpec.StartSet = spec.StartSet;
 		m_DescriptorSetManager = DescriptorSetManager(dmSpec);
+
+		Renderer::RegisterShaderDependency(spec.Pipeline->GetSpecification().Shader, this);
+	}
+
+	void RenderPass::OnShaderReloaded()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		// Deferred to the render thread, same as Pipeline::Invalidate and
+		// PipelineCompute::CreatePipeline: the render thread may still have
+		// queued GPU work reading this pass's descriptor sets, so rebaking
+		// them here directly would race with that work.
+		Ref<RenderPass> instance = this;
+		Renderer::Submit([instance]() mutable
+			{
+				instance->m_DescriptorSetManager.OnShaderReloaded();
+			});
 	}
 
 	bool RenderPass::IsInvalidated(uint32_t set, uint32_t binding) const

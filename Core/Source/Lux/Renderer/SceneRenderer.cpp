@@ -175,7 +175,7 @@ namespace Lux {
 		m_Options.DistanceMipBiasEnd = 250.0f;
 		m_Options.DistanceMipBiasMax = 2.0f;
 		m_Options.SoftShadows = true;
-		m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
+		m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
 		m_Options.MaxShadowDistance = 200.0f;
 		m_Options.ShadowFade = 25.0f;
 		m_SSROptions.MaxSteps = 70;
@@ -214,12 +214,19 @@ namespace Lux {
 			break;
 		case QualityPreset::High:
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
+			// Temporal accumulation amortizes SSR/GTAO cost across frames; was
+			// Ultra-only.
+			m_Options.EnableSSRTemporalAccumulation = true;
+			m_Options.EnableGTAOTemporalAccumulation = true;
 			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
 			m_Options.TextureMipBias = -0.5f;
 			m_Options.DistanceMipBiasMax = 1.5f;
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
+			// 2K + soft shadows as the realtime default; a 4-layer 4K array costs
+			// ~268 MB and a lot of shadow-render bandwidth. Ultra raises to 4K,
+			// Cinematic to 8K.
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
 			break;
 		case QualityPreset::Ultra:
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
@@ -235,7 +242,7 @@ namespace Lux {
 			m_Options.DistanceMipBiasStart = 25.0f;
 			m_Options.DistanceMipBiasEnd = 150.0f;
 			m_Options.DistanceMipBiasMax = 1.0f;
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_8K;
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
 			m_Options.MaxShadowDistance = 300.0f;
 			m_SSROptions.MaxSteps = 96;
 			break;
@@ -254,7 +261,10 @@ namespace Lux {
 			m_Options.DistanceMipBiasStart = 10.0f;
 			m_Options.DistanceMipBiasEnd = 100.0f;
 			m_Options.DistanceMipBiasMax = 0.5f;
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_8K;
+			// Shadow atlas capped at 2K even on Cinematic — an 8K directional atlas
+			// is a large per-frame shadow-pass cost for little visible gain at this
+			// scene scale. Bump back to Tier_8K here if you need crisper distant shadows.
+			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
 			m_Options.MaxShadowDistance = 450.0f;
 			m_Options.ShadowFade = 50.0f;
 			m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
@@ -453,6 +463,10 @@ namespace Lux {
 
 		m_CommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer",       /*queries=*/true);
 		m_UploadCommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer-Upload", /*queries=*/false);
+		// Async-compute queue command buffer. Created unconditionally (the compute
+		// queue is enabled at device creation); only used when EnableAsyncCompute
+		// routes independent compute passes onto it.
+		m_ComputeCommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer-AsyncCompute", /*queries=*/false, nvrhi::CommandQueue::Compute);
 
 		m_Renderer2D = Ref<Renderer2D>::Create(Renderer2DSpecification{});
 		m_Renderer2DScreenSpace = Ref<Renderer2D>::Create(Renderer2DSpecification{});
@@ -714,7 +728,9 @@ namespace Lux {
 			m_PreIntegrationPass->Bake();
 
 			TextureSpecification preConvolutionSpec;
-			preConvolutionSpec.Format = ImageFormat::RGBA32F;
+			// 16F: a blurred scene-color mip chain for SSR needs HDR range, not
+			// fp32 precision — half the bandwidth/memory. Matches Pre-Convolution.glsl.
+			preConvolutionSpec.Format = ImageFormat::RGBA16F;
 			preConvolutionSpec.Width = 1;
 			preConvolutionSpec.Height = 1;
 			preConvolutionSpec.SamplerWrap = TextureWrap::Clamp;
@@ -798,14 +814,14 @@ namespace Lux {
 			FramebufferTextureSpecification gbufferBaseColor = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification gbufferNormal = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification gbufferMetalRough = ImageFormat::RGBA;
-			FramebufferTextureSpecification gbufferMaterialID = ImageFormat::RED32UI;
-			FramebufferTextureSpecification gbufferObjectID = ImageFormat::RED32UI;
+			// Material + object IDs packed into one RG32UI target (one fewer
+			// full-res attachment write/clear per frame).
+			FramebufferTextureSpecification gbufferMaterialObjectID = ImageFormat::RG32UI;
 			FramebufferTextureSpecification gbufferVelocity = ImageFormat::RG16F;
 			gbufferBaseColor.Blend = false;
 			gbufferNormal.Blend = false;
 			gbufferMetalRough.Blend = false;
-			gbufferMaterialID.Blend = false;
-			gbufferObjectID.Blend = false;
+			gbufferMaterialObjectID.Blend = false;
 			gbufferVelocity.Blend = false;
 
 			FramebufferSpecification gbufferSpec;
@@ -815,12 +831,11 @@ namespace Lux {
 				gbufferBaseColor,
 				gbufferNormal,
 				gbufferMetalRough,
-				gbufferMaterialID,
-				gbufferObjectID,
+				gbufferMaterialObjectID,
 				gbufferVelocity,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
-			gbufferSpec.ExistingImages[6] = m_PreDepthPass->GetDepthOutput();
+			gbufferSpec.ExistingImages[5] = m_PreDepthPass->GetDepthOutput();
 			gbufferSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			gbufferSpec.ClearDepthOnLoad = false;
 			gbufferSpec.Blend = false;
@@ -866,7 +881,7 @@ namespace Lux {
 			forwardSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
 			forwardSpec.ExistingImages[1] = m_GeometryPassFramebuffer->GetImage(1);
 			forwardSpec.ExistingImages[2] = m_GeometryPassFramebuffer->GetImage(2);
-			forwardSpec.ExistingImages[3] = m_GeometryPassFramebuffer->GetImage(5); // shared velocity buffer
+			forwardSpec.ExistingImages[3] = m_GeometryPassFramebuffer->GetImage(4); // shared velocity buffer
 			forwardSpec.ExistingImages[4] = m_PreDepthPass->GetDepthOutput();
 			forwardSpec.ClearColorOnLoad = false;
 			forwardSpec.ClearDepthOnLoad = false;
@@ -903,6 +918,31 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_GeometryPassTransparent->Validate());
 			m_GeometryPassTransparent->Bake();
 
+			// GTAO images are shared by the compute chain, AO composite, and debug
+			// views. Keep them alive independently of the optional AO composite pass.
+			{
+				ImageSpecification gtaoImageSpec;
+				gtaoImageSpec.Format = ImageFormat::RED32UI;
+				gtaoImageSpec.Usage = ImageUsage::Storage;
+				gtaoImageSpec.DebugName = "GTAO";
+				m_GTAOOutputImage = Image2D::Create(gtaoImageSpec);
+
+				gtaoImageSpec.DebugName = "GTAO-Denoise";
+				m_GTAODenoiseImage = Image2D::Create(gtaoImageSpec);
+
+				gtaoImageSpec.Format = ImageFormat::RED8UN;
+				gtaoImageSpec.DebugName = "GTAO-Edges";
+				m_GTAOEdgesOutputImage = Image2D::Create(gtaoImageSpec);
+
+				gtaoImageSpec.Format = ImageFormat::RED32UI;
+				gtaoImageSpec.DebugName = "GTAO-History-A";
+				m_GTAOHistoryImages[0] = Image2D::Create(gtaoImageSpec);
+				gtaoImageSpec.DebugName = "GTAO-History-B";
+				m_GTAOHistoryImages[1] = Image2D::Create(gtaoImageSpec);
+
+				m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
+			}
+
 			FramebufferSpecification deferredSpec;
 			deferredSpec.Width = m_ViewportWidth;
 			deferredSpec.Height = m_ViewportHeight;
@@ -935,50 +975,35 @@ namespace Lux {
 			m_DeferredLightingPass->Bake();
 			m_DeferredLightingMaterial = Material::Create(deferredPipelineSpec.Shader, "DeferredLighting");
 
-			FramebufferSpecification debugSpec;
-			debugSpec.Width = m_ViewportWidth;
-			debugSpec.Height = m_ViewportHeight;
-			debugSpec.Attachments = { ImageFormat::RGBA16F };
-			debugSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-			debugSpec.DebugName = "GBufferDebug";
+			// Editor-only debug view target — not created in the standalone runtime.
+			if (m_Specification.EnableEditorRenderTargets)
+			{
+				FramebufferSpecification debugSpec;
+				debugSpec.Width = m_ViewportWidth;
+				debugSpec.Height = m_ViewportHeight;
+				debugSpec.Attachments = { ImageFormat::RGBA16F };
+				debugSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+				debugSpec.DebugName = "GBufferDebug";
 
-			PipelineSpecification debugPipelineSpec = deferredPipelineSpec;
-			debugPipelineSpec.DebugName = "GBufferDebug";
-			debugPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("GBufferDebug");
-			debugPipelineSpec.TargetFramebuffer = Framebuffer::Create(debugSpec);
+				PipelineSpecification debugPipelineSpec = deferredPipelineSpec;
+				debugPipelineSpec.DebugName = "GBufferDebug";
+				debugPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("GBufferDebug");
+				debugPipelineSpec.TargetFramebuffer = Framebuffer::Create(debugSpec);
 
-			rpSpec.DebugName = "GBufferDebugPass";
-			rpSpec.Pipeline = Pipeline::Create(debugPipelineSpec);
-			m_GBufferDebugPass = RenderPass::Create(rpSpec);
-			BindSceneRenderPassInputs(m_GBufferDebugPass, PassInputCommonScene | PassInputGBuffer | PassInputMaterialScene);
-			m_GBufferDebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			LUX_CORE_VERIFY(m_GBufferDebugPass->Validate());
-			m_GBufferDebugPass->Bake();
-			m_GBufferDebugMaterial = Material::Create(debugPipelineSpec.Shader, "GBufferDebug");
-			m_GBufferDebugMaterial->Set("u_Uniforms.Mode", 0u);
+				rpSpec.DebugName = "GBufferDebugPass";
+				rpSpec.Pipeline = Pipeline::Create(debugPipelineSpec);
+				m_GBufferDebugPass = RenderPass::Create(rpSpec);
+				BindSceneRenderPassInputs(m_GBufferDebugPass, PassInputCommonScene | PassInputGBuffer | PassInputMaterialScene);
+				m_GBufferDebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+				LUX_CORE_VERIFY(m_GBufferDebugPass->Validate());
+				m_GBufferDebugPass->Bake();
+				m_GBufferDebugMaterial = Material::Create(debugPipelineSpec.Shader, "GBufferDebug");
+				m_GBufferDebugMaterial->Set("u_Uniforms.Mode", 0u);
+			}
 		}
 
 		// ── GTAO + AO composite ───────────────────────────────────────────────
 		{
-			ImageSpecification imageSpec;
-			imageSpec.Format = ImageFormat::RED32UI;
-			imageSpec.Usage = ImageUsage::Storage;
-			imageSpec.DebugName = "GTAO";
-			m_GTAOOutputImage = Image2D::Create(imageSpec);
-
-			imageSpec.DebugName = "GTAO-Denoise";
-			m_GTAODenoiseImage = Image2D::Create(imageSpec);
-
-			imageSpec.Format = ImageFormat::RED8UN;
-			imageSpec.DebugName = "GTAO-Edges";
-			m_GTAOEdgesOutputImage = Image2D::Create(imageSpec);
-
-			imageSpec.Format = ImageFormat::RED32UI;
-			imageSpec.DebugName = "GTAO-History-A";
-			m_GTAOHistoryImages[0] = Image2D::Create(imageSpec);
-			imageSpec.DebugName = "GTAO-History-B";
-			m_GTAOHistoryImages[1] = Image2D::Create(imageSpec);
-
 			Ref<Shader> gtaoShader = Renderer::GetShaderLibrary()->Get("GTAO");
 			ComputePassSpecification gtaoSpec;
 			gtaoSpec.DebugName = "GTAO-ComputePass";
@@ -1023,8 +1048,6 @@ namespace Lux {
 			m_GTAODenoisePass[1]->SetInput("r_LinearSampler", Renderer::GetClampSampler());
 			LUX_CORE_VERIFY(m_GTAODenoisePass[1]->Validate());
 			m_GTAODenoisePass[1]->Bake();
-
-			m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
 
 			Ref<Shader> gtaoTemporalShader = Renderer::GetShaderLibrary()->Get("GTAO-Temporal");
 			ComputePassSpecification gtaoTemporalSpec;
@@ -1077,6 +1100,9 @@ namespace Lux {
 			m_AOCompositePass->Bake();
 			m_AOCompositeMaterial = Material::Create(aoPipelineSpec.Shader, "GTAO-Composite");
 
+			// Editor-only AO debug view target — not created in the standalone runtime.
+			if (m_Specification.EnableEditorRenderTargets)
+			{
 			FramebufferSpecification aoDebugFramebufferSpec;
 			aoDebugFramebufferSpec.Width = m_ViewportWidth;
 			aoDebugFramebufferSpec.Height = m_ViewportHeight;
@@ -1102,6 +1128,7 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_AODebugPass->Validate());
 			m_AODebugPass->Bake();
 			m_AODebugMaterial = Material::Create(aoPipelineSpec.Shader, "AO-Debug");
+			}
 		}
 
 		// ── SSR ────────────────────────────────────────────────────────────────
@@ -1189,6 +1216,8 @@ namespace Lux {
 		}
 
 		// ── Selected geometry (isolation for outline) ─────────────────────────
+		// Editor-only (selection outline) — not created in the standalone runtime.
+		if (m_Specification.EnableEditorRenderTargets)
 		{
 			FramebufferTextureSpecification selectedMaskAttachment = ImageFormat::RGBA32F;
 			selectedMaskAttachment.Blend = false;
@@ -1222,6 +1251,9 @@ namespace Lux {
 		}
 
 		// ── Jump flood outline buffers ────────────────────────────────────────
+		// Editor-only (selection outline; 3 full-viewport RGBA32F targets) — not
+		// created in the standalone runtime.
+		if (m_Specification.EnableEditorRenderTargets)
 		{
 			FramebufferTextureSpecification jumpFloodAttachment = ImageFormat::RGBA32F;
 			jumpFloodAttachment.Blend = false;
@@ -1277,6 +1309,9 @@ namespace Lux {
 		}
 
 		// ── Wireframe pass (on top of geometry, for selected meshes) ──────────
+		// Editor-only (selection wireframe / collider view) — not created in the
+		// standalone runtime.
+		if (m_Specification.EnableEditorRenderTargets)
 		{
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_ViewportWidth;
@@ -1342,189 +1377,14 @@ namespace Lux {
 		}
 
 		// ── Atmosphere, procedural clouds and fog ────────────────────────────
-		{
-			auto createFullscreenPass = [&](const char* debugName, const char* shaderName, const FramebufferSpecification& framebufferSpec, bool bindDepth, const std::function<void(const Ref<RenderPass>&)>& bindExtra)
-			{
-				PipelineSpecification pipelineSpec;
-				pipelineSpec.DebugName = debugName;
-				pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get(shaderName);
-				pipelineSpec.TargetFramebuffer = Framebuffer::Create(framebufferSpec);
-				pipelineSpec.DepthWrite = false;
-				pipelineSpec.DepthTest = false;
-				pipelineSpec.Layout = {
-					{ ShaderDataType::Float3, "a_Position" },
-					{ ShaderDataType::Float2, "a_TexCoord" }
-				};
-
-				Ref<Pipeline> pipeline = Pipeline::Create(pipelineSpec);
-
-				RenderPassSpecification rpSpec;
-				rpSpec.DebugName = debugName;
-				rpSpec.Pipeline = pipeline;
-				Ref<RenderPass> pass = RenderPass::Create(rpSpec);
-				BindCommonSceneRenderPassInputs(pass, bindDepth);
-				if (bindExtra)
-					bindExtra(pass);
-				LUX_CORE_VERIFY(pass->Validate());
-				pass->Bake();
-
-				return std::pair<Ref<Pipeline>, Ref<RenderPass>>{ pipeline, pass };
-			};
-
-			auto createSceneColorFramebufferSpec = [&](const char* debugName, bool enableBlending)
-			{
-				FramebufferSpecification fbSpec;
-				fbSpec.Width = m_ViewportWidth;
-				fbSpec.Height = m_ViewportHeight;
-				fbSpec.ExistingImages[0] = GetSceneColorOutput();
-				fbSpec.Attachments = { ImageFormat::RGBA16F };
-				fbSpec.ClearColorOnLoad = false;
-				fbSpec.ClearDepthOnLoad = false;
-				fbSpec.Blend = enableBlending;
-				fbSpec.BlendMode = enableBlending ? FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha : FramebufferBlendMode::OneZero;
-				fbSpec.DebugName = debugName;
-				return fbSpec;
-			};
-
-			auto [skyPipeline, skyPass] = createFullscreenPass("SkyAtmosphere", "SkyAtmosphere", createSceneColorFramebufferSpec("SkyAtmosphere", false), false, {});
-			m_SkyAtmospherePipeline = skyPipeline;
-			m_SkyAtmospherePass = skyPass;
-			m_SkyAtmosphereMaterial = Material::Create(skyPipeline->GetShader(), "SkyAtmosphere");
-
-			m_CloudRenderScale = SanitizeCloudRenderScale(ResolveFrameEnvironment().Atmosphere.VolumetricClouds.RenderScale);
-			m_CloudRenderSize = CalculateVolumetricCloudRenderSize();
-
-			// Baked tileable 3D noise volumes (generated once on the first frame).
-			{
-				auto createNoiseVolume = [](const char* debugName, uint32_t size)
-				{
-					ImageSpecification spec;
-					spec.DebugName = debugName;
-					spec.Dimension = nvrhi::TextureDimension::Texture3D;
-					spec.Format = ImageFormat::RGBA16F;
-					spec.Usage = ImageUsage::Storage;
-					spec.Width = size;
-					spec.Height = size;
-					spec.Depth = size;
-					spec.Mips = 1;
-					spec.Layers = 1;
-					spec.CreateSampler = false;
-					Ref<Image2D> image = Image2D::Create(spec);
-					image->Invalidate();
-					return image;
-				};
-				m_CloudBaseShapeVolume = createNoiseVolume("CloudBaseShape", 128);
-				m_CloudDetailVolume = createNoiseVolume("CloudDetail", 32);
-				m_CloudCurlVolume = createNoiseVolume("CloudCurl", 32);
-
-				ComputePassSpecification baseBakeSpec;
-				baseBakeSpec.DebugName = "CloudNoiseBaseShapeBake";
-				baseBakeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("CloudNoiseBaseShape"));
-				m_CloudBaseShapeBakePass = ComputePass::Create(baseBakeSpec);
-				m_CloudBaseShapeBakePass->SetInput("o_NoiseVolume", m_CloudBaseShapeVolume);
-
-				ComputePassSpecification detailBakeSpec;
-				detailBakeSpec.DebugName = "CloudNoiseDetailBake";
-				detailBakeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("CloudNoiseDetail"));
-				m_CloudDetailBakePass = ComputePass::Create(detailBakeSpec);
-				m_CloudDetailBakePass->SetInput("o_NoiseVolume", m_CloudDetailVolume);
-
-				ComputePassSpecification curlBakeSpec;
-				curlBakeSpec.DebugName = "CloudNoiseCurlBake";
-				curlBakeSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("CloudNoiseCurl"));
-				m_CloudCurlBakePass = ComputePass::Create(curlBakeSpec);
-				m_CloudCurlBakePass->SetInput("o_NoiseVolume", m_CloudCurlVolume);
-
-				if (m_CloudBaseShapeBakePass->Validate())
-					m_CloudBaseShapeBakePass->Bake();
-				if (m_CloudDetailBakePass->Validate())
-					m_CloudDetailBakePass->Bake();
-				if (m_CloudCurlBakePass->Validate())
-					m_CloudCurlBakePass->Bake();
-				m_CloudNoiseBaked = false;
-			}
-
-			FramebufferSpecification cloudSpec;
-			cloudSpec.Width = m_CloudRenderSize.x;
-			cloudSpec.Height = m_CloudRenderSize.y;
-			cloudSpec.Attachments = {
-				ImageFormat::RGBA16F, // cloud color + transmittance
-				ImageFormat::RGBA16F  // front depth, scene depth, trace min/max
-			};
-			cloudSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-			cloudSpec.ClearColorOnLoad = true;
-			cloudSpec.ClearDepthOnLoad = false;
-			cloudSpec.Blend = false;
-			cloudSpec.BlendMode = FramebufferBlendMode::OneZero;
-			cloudSpec.DebugName = "VolumetricClouds";
-
-			auto [cloudPipeline, cloudPass] = createFullscreenPass("VolumetricClouds", "VolumetricClouds", cloudSpec, true,
-				[&](const Ref<RenderPass>& pass)
-				{
-					SetRenderPassInputIfValid(pass, "u_CloudBaseShape", m_CloudBaseShapeVolume);
-					SetRenderPassInputIfValid(pass, "u_CloudDetail", m_CloudDetailVolume);
-					SetRenderPassInputIfValid(pass, "u_CloudCurl", m_CloudCurlVolume);
-				});
-			m_VolumetricCloudPipeline = cloudPipeline;
-			m_VolumetricCloudPass = cloudPass;
-			m_VolumetricCloudMaterial = Material::Create(cloudPipeline->GetShader(), "VolumetricClouds");
-
-			// Temporal scattering integration: half-res history (ping-pong) + resolve pass.
-			{
-				auto createCloudHistory = [&](const char* debugName)
-				{
-					ImageSpecification spec;
-					spec.DebugName = debugName;
-					spec.Format = ImageFormat::RGBA16F;
-					spec.Usage = ImageUsage::Storage;
-					spec.Width = glm::max(m_CloudRenderSize.x, 1u);
-					spec.Height = glm::max(m_CloudRenderSize.y, 1u);
-					Ref<Image2D> image = Image2D::Create(spec);
-					image->Invalidate();
-					return image;
-				};
-				m_CloudHistoryImages[0] = createCloudHistory("CloudHistory-A");
-				m_CloudHistoryImages[1] = createCloudHistory("CloudHistory-B");
-
-				ComputePassSpecification temporalSpec;
-				temporalSpec.DebugName = "VolumetricCloudTemporal";
-				temporalSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("VolumetricCloudTemporal"));
-				m_VolumetricCloudTemporalPass = ComputePass::Create(temporalSpec);
-				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloud", m_VolumetricCloudPass->GetOutput(0));
-				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloudDepth", m_VolumetricCloudPass->GetOutput(1));
-				m_VolumetricCloudTemporalPass->SetInput("u_HistoryCloud", m_CloudHistoryImages[0]);
-				m_VolumetricCloudTemporalPass->SetInput("o_ResolvedCloud", m_CloudHistoryImages[1]);
-				m_VolumetricCloudTemporalPass->SetInput("Camera", m_UBSCamera);
-				m_VolumetricCloudTemporalPass->SetInput("SceneData", m_UBSScene);
-				m_VolumetricCloudTemporalPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-				m_VolumetricCloudTemporalPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-				if (m_VolumetricCloudTemporalPass->Validate())
-					m_VolumetricCloudTemporalPass->Bake();
-				m_CloudHistoryValid = false;
-			}
-
-			auto [cloudCompositePipeline, cloudCompositePass] = createFullscreenPass("VolumetricCloudComposite", "VolumetricCloudComposite", createSceneColorFramebufferSpec("VolumetricCloudComposite", true), true,
-				[&](const Ref<RenderPass>& pass)
-				{
-					SetRenderPassInputIfValid(pass, "u_CloudTexture", m_CloudHistoryImages[1]);
-					SetRenderPassInputIfValid(pass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
-				});
-			m_VolumetricCloudCompositePipeline = cloudCompositePipeline;
-			m_VolumetricCloudCompositePass = cloudCompositePass;
-			m_VolumetricCloudCompositeMaterial = Material::Create(cloudCompositePipeline->GetShader(), "VolumetricCloudComposite");
-
-			auto [fogPipeline, fogPass] = createFullscreenPass("AtmosphericFog", "AtmosphericFog", createSceneColorFramebufferSpec("AtmosphericFog", true), true,
-				[&](const Ref<RenderPass>& pass)
-				{
-					// Volumetric fog now scatters clustered point/spot lights (FogClusterLights.glslh);
-					// the cluster lists + light UBOs already come from PassInputCommonScene, this adds
-					// the spot shadow atlas so the in-fog spot shafts are shadowed.
-					BindSceneRenderPassInputs(pass, PassInputShadowMaps);
-				});
-			m_AtmosphericFogPipeline = fogPipeline;
-			m_AtmosphericFogPass = fogPass;
-			m_AtmosphericFogMaterial = Material::Create(fogPipeline->GetShader(), "AtmosphericFog");
-		}
+		// REMOVED: Sky Atmosphere, Volumetric Clouds, and Atmospheric/Height Fog
+		// are cut. Their passes, pipelines, materials, 3D cloud-noise volumes,
+		// cloud history buffers and framebuffers are no longer created; the
+		// members stay null and every path goes inert -- the render-graph nodes
+		// (gated on the pass existing), the execute functions (early-return on
+		// null) and the resize/repair sweeps (all null-guarded). This reclaims
+		// their VRAM and per-frame GPU cost. The shaders and pass functions are
+		// kept on disk; recreate this block to restore.
 
 		// ── Bloom compute (feeds the scene composite) ─────────────────────────
 		{
@@ -1532,7 +1392,9 @@ namespace Lux {
 			m_BloomComputePipeline = PipelineCompute::Create(shader);
 
 			TextureSpecification spec;
-			spec.Format = ImageFormat::RGBA32F;
+			// 16F: bloom is a blurred HDR pyramid — fp32 is 2x the bandwidth for
+			// no visual gain. Matches Bloom.glsl's image layout.
+			spec.Format = ImageFormat::RGBA16F;
 			spec.Width = 1;
 			spec.Height = 1;
 			spec.SamplerWrap = TextureWrap::Clamp;
@@ -1584,31 +1446,15 @@ namespace Lux {
 			m_LuminanceAveragePass->Bake();
 		}
 
-		// ── TAA resolve (history ping-pong, copied back into scene color) ──────
-		{
-			ImageSpecification taaSpec;
-			taaSpec.Format = ImageFormat::RGBA16F;
-			taaSpec.Usage = ImageUsage::Storage;
-			taaSpec.DebugName = "TAA-History-A";
-			m_TAAHistoryImages[0] = Image2D::Create(taaSpec);
-			taaSpec.DebugName = "TAA-History-B";
-			m_TAAHistoryImages[1] = Image2D::Create(taaSpec);
-
-			ComputePassSpecification taaPassSpec;
-			taaPassSpec.DebugName = "TAA";
-			taaPassSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("TAA"));
-			m_TAAResolvePass = ComputePass::Create(taaPassSpec);
-			m_TAAResolvePass->SetInput("u_SceneColor", GetSceneColorOutput());
-			m_TAAResolvePass->SetInput("u_History", m_TAAHistoryImages[0]);
-			m_TAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
-			m_TAAResolvePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_TAAResolvePass->SetInput("o_Resolved", m_TAAHistoryImages[1]);
-			m_TAAResolvePass->SetInput("Camera", m_UBSCamera);
-			m_TAAResolvePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_TAAResolvePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_TAAResolvePass->Validate());
-			m_TAAResolvePass->Bake();
-		}
+		// ── TAA resolve ───────────────────────────────────────────────────────
+		// TAA removed: the resolve compute pass and its two full-viewport history
+		// images are no longer created (saves the pipeline + ~2×viewport RGBA16F
+		// of VRAM). m_TAAResolvePass / m_TAAHistoryImages stay null; every TAA
+		// path is gated on m_Options.EnableTAA (render-graph node, camera jitter,
+		// texture mip bias, resolve dispatch) and its editor toggle was removed,
+		// so the flag stays false and all of them are inert. Every consumer of the
+		// pass/history images is null-guarded (resize sweep + TAAResolvePass early
+		// return). To restore TAA: recreate the pass here and re-add the toggle.
 
 		// ── Scene composite (tone-map + exposure + opacity) ───────────────────
 		{
@@ -1690,6 +1536,10 @@ namespace Lux {
 			m_DOFPass->Bake();
 			m_DOFMaterial = Material::Create(dofPipelineSpec.Shader, "DepthOfField");
 
+			// Editor-only (selection outline composite) — not created in the
+			// standalone runtime. References m_JumpFloodPasses, gated by the same flag.
+			if (m_Specification.EnableEditorRenderTargets)
+			{
 			FramebufferSpecification jfCompositeFBSpec;
 			jfCompositeFBSpec.Width = m_ViewportWidth;
 			jfCompositeFBSpec.Height = m_ViewportHeight;
@@ -1724,6 +1574,7 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_JumpFloodCompositePass->Validate());
 			m_JumpFloodCompositePass->Bake();
 			m_JumpFloodCompositeMaterial = Material::Create(jfCompositePipelineSpec.Shader, "JumpFlood-Composite");
+			}
 		}
 
 		// ── Editor grid (renders into composite output, preserves depth) ──────
@@ -1819,7 +1670,18 @@ namespace Lux {
 
 	void SceneRenderer::RefreshScreenSpaceEffectResources()
 	{
-		ResizeScreenSpaceEffectResources();
+		// Defer to the BeginScene m_NeedsResize block instead of resizing here.
+		// Resizing immediately is unsafe: render-target aliasing is still applied
+		// and the main framebuffers (SceneColor/GBuffer/PreDepth) have not been
+		// resized yet, so effect framebuffers that wrap them via ExistingImages
+		// bake the soon-to-be-orphaned texture handles into their FramebufferDesc.
+		// The resize block's Framebuffer::Resize then early-outs (size already
+		// matches) and never repairs them — meshes disappear permanently until
+		// the renderer is recreated.
+		if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
+			return;
+
+		m_NeedsResize = true;
 	}
 
 	glm::uvec2 SceneRenderer::CalculateVolumetricCloudRenderSize() const
@@ -1951,8 +1813,7 @@ namespace Lux {
 			SetRenderPassInputIfValid(renderPass, "u_GBufferBaseColor", m_GeometryPass->GetOutput(0));
 			SetRenderPassInputIfValid(renderPass, "u_GBufferNormal", m_GeometryPass->GetOutput(1));
 			SetRenderPassInputIfValid(renderPass, "u_GBufferMetalRoughAO", m_GeometryPass->GetOutput(2));
-			SetRenderPassInputIfValid(renderPass, "u_GBufferMaterialID", m_GeometryPass->GetOutput(3));
-			SetRenderPassInputIfValid(renderPass, "u_GBufferObjectID", m_GeometryPass->GetOutput(4));
+			SetRenderPassInputIfValid(renderPass, "u_GBufferMaterialObjectID", m_GeometryPass->GetOutput(3));
 			SetRenderPassInputIfValid(renderPass, "u_DeferredLighting", GetSceneColorOutput());
 		}
 		if (hasInput(PassInputSceneColor))
@@ -2612,6 +2473,7 @@ namespace Lux {
 
 				RenderGraph::PassDesc pass;
 				pass.Name = graphName(name);
+				pass.DebugName = name.data(); // string-literal backed; valid for the process lifetime
 				pass.Reads = std::move(reads);
 				pass.Writes = std::move(writes);
 				pass.Flags = execute
@@ -2670,6 +2532,9 @@ namespace Lux {
 		if (meshCullingActive)
 			addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass));
 
+		// PreIntegration's visibility pyramid is consumed only by SSR — skip the
+		// whole pass (and its per-mip dispatches) when SSR is off. The vector stays
+		// in scope because the SSR node below appends it as a read dependency.
 		std::vector<RenderGraph::ResourceHandle> preIntegrationOutputs;
 		if (preIntegrationActive)
 		{
@@ -2715,9 +2580,9 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> geometryOutputs = gbufferOutputs;
 		appendResources(geometryOutputs, sceneColorCurrent);
 
-		{
-			addPass("GBuffer", preDepthOutputs, gbufferOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
+		addPass("GBuffer", preDepthOutputs, gbufferOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
 
+		{
 			std::vector<RenderGraph::ResourceHandle> deferredReads = gbufferOutputs;
 			appendResources(deferredReads, preDepthOutputs);
 			appendResources(deferredReads, shadowOutputs);
@@ -2730,13 +2595,8 @@ namespace Lux {
 			appendResources(geometryOutputs, sceneColorCurrent);
 		}
 
-		if (UsesGBufferDebugPass(m_DebugViewMode))
-		{
-			std::vector<RenderGraph::ResourceHandle> debugReads = gbufferOutputs;
-			appendResources(debugReads, sceneColorCurrent);
-			addPass("GBuffer Debug", debugReads, addRenderPassResources("GBuffer Debug", m_GBufferDebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferDebugPass));
-		}
-
+		// GTAO runs on GBuffer depth/normals. The fullscreen AO composite then
+		// multiplies the deferred scene color using the resolved AO image.
 		std::vector<RenderGraph::ResourceHandle> aoFinalOutputs;
 		if (m_Options.EnableGTAO)
 		{
@@ -2759,16 +2619,34 @@ namespace Lux {
 				aoFinalOutputs.push_back(gtaoHistoryB);
 			}
 
-			std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
-			appendResources(aoCompositeReads, preDepthOutputs);
-			appendResources(aoCompositeReads, aoFinalOutputs);
-			appendResources(aoCompositeReads, sceneColorCurrent);
-			std::vector<RenderGraph::ResourceHandle> aoCompositeOutputs = addRenderPassResources("AO Composite", m_AOCompositePass);
-			addPass("AO Composite", aoCompositeReads, aoCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AOComposite));
-			sceneColorCurrent = aoCompositeOutputs;
+			if (m_AOCompositePass)
+			{
+				std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
+				appendResources(aoCompositeReads, preDepthOutputs);
+				appendResources(aoCompositeReads, aoFinalOutputs);
+				appendResources(aoCompositeReads, sceneColorCurrent);
+				std::vector<RenderGraph::ResourceHandle> aoCompositeOutputs = addRenderPassResources("AO Composite", m_AOCompositePass);
+				addPass("AO Composite", aoCompositeReads, aoCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AOComposite));
+				sceneColorCurrent = aoCompositeOutputs;
+			}
 
-			if (m_DebugViewMode == DebugViewMode::AO)
-				addPass("AO Debug", aoCompositeReads, addRenderPassResources("AO Debug", m_AODebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AODebugPass));
+			geometryOutputs = gbufferOutputs;
+			appendResources(geometryOutputs, sceneColorCurrent);
+		}
+
+		if (UsesGBufferDebugPass(m_DebugViewMode) && m_GBufferDebugPass)
+		{
+			std::vector<RenderGraph::ResourceHandle> debugReads = gbufferOutputs;
+			appendResources(debugReads, sceneColorCurrent);
+			addPass("GBuffer Debug", debugReads, addRenderPassResources("GBuffer Debug", m_GBufferDebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferDebugPass));
+		}
+
+		if (m_Options.EnableGTAO && m_DebugViewMode == DebugViewMode::AO && m_AODebugPass)
+		{
+			std::vector<RenderGraph::ResourceHandle> aoDebugReads = geometryOutputs;
+			appendResources(aoDebugReads, preDepthOutputs);
+			appendResources(aoDebugReads, aoFinalOutputs);
+			addPass("AO Debug", aoDebugReads, addRenderPassResources("AO Debug", m_AODebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AODebugPass));
 		}
 
 		std::vector<RenderGraph::ResourceHandle> ssrOutputs;
@@ -3053,8 +2931,11 @@ namespace Lux {
 				continue;
 
 			image->ClearTransientAliasSource();
-			if (recreateResources)
-				image->RT_Invalidate();
+			// Always restore real storage: ApplyRenderTargetAliasing() excludes
+			// invalid images from the rebuilt alias graph, so a dead image is never
+			// re-aliased and never recovers — and it feeds a null texture handle
+			// into DescriptorSetManager::Bake, silently no-oping its passes.
+			image->RT_Invalidate();
 		}
 
 		m_RenderGraphAliasedImages.clear();
@@ -3241,13 +3122,22 @@ namespace Lux {
 			m_GeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassTransparent->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_DeferredLightingPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			// Editor-only passes may not exist (EnableEditorRenderTargets=false).
+			if (m_GBufferDebugPass)
+				m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_SkyboxPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_SkyAtmospherePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_VolumetricCloudCompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_AtmosphericFogPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_SelectedGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_GeometryWireframePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			// Sky Atmosphere / Volumetric Clouds / Atmospheric Fog removed — may be
+			// null now, so guard the resize (the other sweeps already null-check).
+			if (m_SkyAtmospherePass)
+				m_SkyAtmospherePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_VolumetricCloudCompositePass)
+				m_VolumetricCloudCompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_AtmosphericFogPass)
+				m_AtmosphericFogPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_SelectedGeometryPass)
+				m_SelectedGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_GeometryWireframePass)
+				m_GeometryWireframePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositingFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GridRenderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -3256,6 +3146,53 @@ namespace Lux {
 			m_ShadowCascadeCacheValid = false;
 			m_DirectionalShadowMapNeedsRender = true;
 			m_ClusterAABBsDirty = true;
+		}
+
+		// ── Self-heal framebuffers with stale attachment handles ─────────────
+		// Shared images (FramebufferSpecification::ExistingImages) are recreated
+		// in place on resize/aliasing changes; a framebuffer wrapping one keeps
+		// its old baked handle and silently renders into the orphaned texture
+		// (e.g. runtime-fullscreen startup: deferred lighting writes into a dead
+		// SceneColor → black geometry under a bright sky). Cheap pointer compares
+		// per frame; re-invalidation only fires when actually stale. Owners come
+		// first: repairing one recreates its images, and the wrappers checked
+		// afterwards pick the new handles up in the same sweep.
+		{
+			// By value: Ref<> propagates constness to the pointee, and both
+			// Invalidate() and GetTargetFramebuffer() are non-const.
+			auto repairIfStale = [](Ref<Framebuffer> framebuffer, const char* name)
+			{
+				if (framebuffer && framebuffer->HasStaleAttachments())
+				{
+					LUX_CORE_WARN_TAG("Renderer", "Framebuffer '{}' had stale attachment handles - re-invalidating", name);
+					framebuffer->Invalidate();
+				}
+			};
+			auto repairPassIfStale = [&repairIfStale](auto pass, const char* name)
+			{
+				if (pass)
+					repairIfStale(pass->GetTargetFramebuffer(), name);
+			};
+
+			repairPassIfStale(m_PreDepthPass, "PreDepth");
+			repairIfStale(m_GeometryPassFramebuffer, "GBuffer (owner)");
+			repairIfStale(m_SceneColorFramebuffer, "SceneColor");
+			repairIfStale(m_CompositingFramebuffer, "Compositing");
+			repairPassIfStale(m_GeometryPass, "GBuffer");
+			repairPassIfStale(m_GeometryPassTransparent, "TransparentForward");
+			repairPassIfStale(m_DeferredLightingPass, "DeferredLighting");
+			repairPassIfStale(m_AOCompositePass, "AO-Composite");
+			repairPassIfStale(m_SSRCompositePass, "SSR-Composite");
+			repairPassIfStale(m_SkyboxPass, "Skybox");
+			repairPassIfStale(m_SkyAtmospherePass, "SkyAtmosphere");
+			repairPassIfStale(m_VolumetricCloudCompositePass, "VolumetricCloudComposite");
+			repairPassIfStale(m_AtmosphericFogPass, "AtmosphericFog");
+			repairPassIfStale(m_GBufferDebugPass, "GBufferDebug");
+			repairPassIfStale(m_SelectedGeometryPass, "SelectedGeometry");
+			repairPassIfStale(m_GeometryWireframePass, "GeometryWireframe");
+			repairPassIfStale(m_CompositePass, "Composite");
+			repairPassIfStale(m_GridRenderPass, "Grid");
+			repairPassIfStale(m_JumpFloodCompositePass, "JumpFloodComposite");
 		}
 
 		ResizeVolumetricCloudResources();
@@ -3410,7 +3347,34 @@ namespace Lux {
 		}
 
 		// ── Atmosphere uniform buffer ────────────────────────────────────────
+		// The full rebuild + upload only runs while any atmosphere feature is
+		// active (the struct has per-frame time fields, so it legitimately changes
+		// every frame then). When everything is off, a disabled-flags UB is
+		// written once per frame-in-flight buffer and the block goes idle —
+		// shaders gate all reads of this UB on Flags/LocalFogParams.
+		const bool atmosphereActive = m_FrameEnvironment.SkyAtmosphereEnabled
+			|| m_FrameEnvironment.VolumetricCloudsEnabled
+			|| m_FrameEnvironment.HeightFogEnabled
+			|| m_FrameEnvironment.LocalFogEnabled;
+		if (!atmosphereActive && m_AtmosphereIdleUploadsRemaining > 0)
 		{
+			m_AtmosphereUB.Flags = { 0u, 0u, 0u, 0u };
+			m_AtmosphereUB.LocalFogParams = { 0u, 0u, 0u, 0u };
+			m_AtmosphereIdleUploadsRemaining--;
+
+			auto atmosphereData = m_AtmosphereUB;
+			Ref<SceneRenderer> instance = this;
+			Renderer::Submit([instance, atmosphereData]() mutable {
+				instance->m_UBSAtmosphere->RT_Get()->RT_SetData(
+					instance->m_UploadCommandBuffer, &atmosphereData, sizeof(UBAtmosphere));
+				});
+		}
+		else if (atmosphereActive)
+		{
+			// Re-arm so the next transition to inactive rewrites every
+			// frame-in-flight buffer before going idle.
+			m_AtmosphereIdleUploadsRemaining = Renderer::GetConfig().FramesInFlight;
+
 			const SkyAtmosphereSettings& sky = m_FrameEnvironment.Atmosphere.SkyAtmosphere;
 			const VolumetricCloudSettings& clouds = m_FrameEnvironment.Atmosphere.VolumetricClouds;
 			const ExponentialHeightFogSettings& fog = m_FrameEnvironment.Atmosphere.HeightFog;
@@ -3593,6 +3557,10 @@ namespace Lux {
 				uint32_t ResolutionTier = 0;
 			};
 
+			// Candidate scoring/sorting and atlas sizing only matter when spot
+			// lights exist; with none, skip straight to the (16-byte) UBO upload.
+			if (m_SpotLightsUB.Count > 0)
+			{
 			std::vector<SpotShadowCandidate> shadowCandidates;
 			shadowCandidates.reserve(m_SpotLightsUB.Count);
 
@@ -3725,6 +3693,14 @@ namespace Lux {
 			if (!m_SpotShadowMapCacheValid || spotShadowStateHash != m_LastSpotShadowStateHash)
 				m_SpotShadowMapNeedsRender = true;
 			m_LastSpotShadowStateHash = spotShadowStateHash;
+			}
+			else
+			{
+				// No spot lights: shaders read Count=0; reset the state hash so
+				// lights reappearing always retrigger a shadow render.
+				m_SpotShadowUB.Count = 0;
+				m_LastSpotShadowStateHash = 0;
+			}
 
 			auto slData = m_SpotLightsUB;
 			uint32_t slSize = (uint32_t)(16ull + sizeof(SpotLight) * slData.Count);
@@ -3866,12 +3842,25 @@ namespace Lux {
 				m_RendererDataUB.CascadeSplits = glm::vec4(-1000000.0f);
 			}
 
-			auto shadowData = m_ShadowUB;
-			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, shadowData]() mutable {
-				instance->m_UBSShadow->RT_Get()->RT_SetData(
-					instance->m_UploadCommandBuffer, &shadowData, sizeof(UBShadow));
-				});
+			// Upload only when the cascade matrices actually changed, then once per
+			// frame-in-flight buffer so every copy converges before going idle.
+			if (std::memcmp(&m_ShadowUB, &m_LastUploadedShadowUB, sizeof(UBShadow)) != 0)
+			{
+				m_LastUploadedShadowUB = m_ShadowUB;
+				m_ShadowUBUploadsRemaining = Renderer::GetConfig().FramesInFlight;
+			}
+
+			if (m_ShadowUBUploadsRemaining > 0)
+			{
+				m_ShadowUBUploadsRemaining--;
+
+				auto shadowData = m_ShadowUB;
+				Ref<SceneRenderer> instance = this;
+				Renderer::Submit([instance, shadowData]() mutable {
+					instance->m_UBSShadow->RT_Get()->RT_SetData(
+						instance->m_UploadCommandBuffer, &shadowData, sizeof(UBShadow));
+					});
+			}
 		}
 
 		// ── Renderer data uniform buffer ──────────────────────────────────────
@@ -4194,7 +4183,9 @@ namespace Lux {
 		for (MeshPassState& pass : m_MeshPasses)
 		{
 			pass.DrawList.clear();
-			pass.DrawOrder.clear();
+			// DrawOrder is intentionally retained: BuildSortedDrawCommandOrder
+			// reuses it when the rebuilt DrawList has the same key set (stale
+			// keys are harmless — every consumer looks keys up with find()).
 		}
 
 		m_MeshCullDrawCount = 0;
@@ -4604,18 +4595,38 @@ namespace Lux {
 		const TextureScene* submittedTextureScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetTextureScene() : nullptr;
 
 		std::vector<AssetHandle>& gpuTextureHandles = m_ScratchTextureHandles;
-		if (submittedTextureScene)
+		// Skip re-copying the whole texture table when the same TextureScene is
+		// submitted with an unchanged version — the scratch already holds the
+		// persistent rows (plus last frame's transients, truncated below).
+		const bool textureTableChanged = !submittedTextureScene
+			|| (const void*)submittedTextureScene != m_ScratchTextureSceneKey
+			|| submittedTextureScene->GetVersion() != m_ScratchTextureSceneVersion;
+		if (textureTableChanged)
 		{
-			const std::vector<AssetHandle>& src = submittedTextureScene->GetTextureHandles();
-			gpuTextureHandles.assign(src.begin(), src.end());
+			if (submittedTextureScene)
+			{
+				const std::vector<AssetHandle>& src = submittedTextureScene->GetTextureHandles();
+				gpuTextureHandles.assign(src.begin(), src.end());
+			}
+			else
+			{
+				gpuTextureHandles.clear();
+			}
+			if (gpuTextureHandles.empty())
+				gpuTextureHandles.push_back(AssetHandle(0));
+
+			m_ScratchTextureSceneKey = (const void*)submittedTextureScene;
+			m_ScratchTextureSceneVersion = submittedTextureScene
+				? submittedTextureScene->GetVersion()
+				: std::numeric_limits<uint64_t>::max();
+			m_ScratchPersistentTextureCount = (uint32_t)gpuTextureHandles.size();
 		}
 		else
 		{
-			gpuTextureHandles.clear();
+			// Unchanged table: just drop the transient handles appended last frame.
+			gpuTextureHandles.resize(m_ScratchPersistentTextureCount);
 		}
-		if (gpuTextureHandles.empty())
-			gpuTextureHandles.push_back(AssetHandle(0));
-		const uint32_t persistentTextureCount = (uint32_t)gpuTextureHandles.size();
+		const uint32_t persistentTextureCount = m_ScratchPersistentTextureCount;
 		for (AssetHandle transientTextureHandle : m_TransientGPUTextureHandles)
 			gpuTextureHandles.push_back(transientTextureHandle);
 
@@ -4643,6 +4654,18 @@ namespace Lux {
 				return texture;
 			};
 
+		// Resolving all bindless slots costs an asset-manager lookup per slot per
+		// frame. Steady state re-resolves only: slots still waiting on a
+		// streaming texture (pending list), the per-frame transient region, and
+		// a periodic full sweep as a safety net for asset hot-reloads that swap
+		// a texture's contents without touching the table version.
+		constexpr uint32_t TextureResolveSweepInterval = 32;
+		const bool fullTextureResolve = textureTableChanged || m_TextureResolveSweepCountdown == 0;
+		if (fullTextureResolve)
+			m_TextureResolveSweepCountdown = TextureResolveSweepInterval;
+		else
+			m_TextureResolveSweepCountdown--;
+
 		uint32_t missingTextureDescriptorCount = 0;
 		if (m_GPUMaterialTextures.empty())
 			m_GPUMaterialTextures.assign(MaxGPUTextureSceneTextures, Renderer::GetWhiteTexture());
@@ -4655,10 +4678,13 @@ namespace Lux {
 			const AssetHandle textureHandle = textureIndex < gpuTextureHandles.size() ? gpuTextureHandles[textureIndex] : AssetHandle(0);
 			Ref<Texture2D> texture = resolveMaterialTexture(textureHandle);
 			if (textureHandle && texture.Raw() == Renderer::GetWhiteTexture().Raw())
+			{
 				missingTextureDescriptorCount++;
+				m_PendingTextureResolveSlots.push_back(textureIndex); // still streaming — retry next frame
+			}
 
 			if (m_GPUMaterialTextures[textureIndex].Raw() == texture.Raw())
-				continue;
+				return;
 
 			m_GPUMaterialTextures[textureIndex] = texture;
 			if (m_GeometryPass && m_GeometryPass->IsInputValid("u_GPUMaterialTextures"))
@@ -4672,18 +4698,57 @@ namespace Lux {
 		}
 		m_GPUMaterialTextureBoundCount = uploadedTextureCount;
 
-		std::vector<GPUMaterialData>& gpuMaterialData = m_ScratchMaterialData;
-		if (submittedMaterialScene)
+		if (fullTextureResolve)
 		{
-			const std::vector<GPUMaterialData>& src = submittedMaterialScene->GetMaterials();
-			gpuMaterialData.assign(src.begin(), src.end());
+			for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+				resolveSlot(textureIndex);
+			m_MissingTextureDescriptorCount = missingTextureDescriptorCount;
 		}
 		else
 		{
-			gpuMaterialData.clear();
+			// Persistent pending slots (transient-region entries are re-added by
+			// the transient loop below, avoiding duplicates in the pending list).
+			for (uint32_t textureIndex : m_PendingTextureResolveScratch)
+			{
+				if (textureIndex < persistentTextureCount)
+					resolveSlot(textureIndex);
+			}
+
+			// Transient slots change every frame; always resolve their region.
+			const uint32_t transientEnd = glm::min((uint32_t)gpuTextureHandles.size(), MaxGPUTextureSceneTextures);
+			for (uint32_t textureIndex = persistentTextureCount; textureIndex < transientEnd; textureIndex++)
+				resolveSlot(textureIndex);
+
+			// The missing-slot statistic refreshes on full sweeps.
+			missingTextureDescriptorCount = m_MissingTextureDescriptorCount;
 		}
-		if (gpuMaterialData.empty())
-			gpuMaterialData.push_back(MaterialScene::GetFallbackMaterialData());
+
+		std::vector<GPUMaterialData>& gpuMaterialData = m_ScratchMaterialData;
+		// Same version gate as the texture table. Unlike the texture scratch,
+		// nothing is appended to this one, so an unchanged frame skips the copy
+		// entirely and the scratch contents carry over bit-identical.
+		const bool materialTableChanged = !submittedMaterialScene
+			|| (const void*)submittedMaterialScene != m_ScratchMaterialSceneKey
+			|| submittedMaterialScene->GetVersion() != m_ScratchMaterialSceneVersion;
+		if (materialTableChanged)
+		{
+			if (submittedMaterialScene)
+			{
+				const std::vector<GPUMaterialData>& src = submittedMaterialScene->GetMaterials();
+				gpuMaterialData.assign(src.begin(), src.end());
+			}
+			else
+			{
+				gpuMaterialData.clear();
+			}
+			if (gpuMaterialData.empty())
+				gpuMaterialData.push_back(MaterialScene::GetFallbackMaterialData());
+
+			m_ScratchMaterialSceneKey = (const void*)submittedMaterialScene;
+			m_ScratchMaterialSceneVersion = submittedMaterialScene
+				? submittedMaterialScene->GetVersion()
+				: std::numeric_limits<uint64_t>::max();
+		}
 		const uint32_t persistentMaterialCount = (uint32_t)gpuMaterialData.size();
 		if (persistentMaterialCount != m_PersistentMaterialUploadedCount
 			|| (submittedMaterialScene && submittedMaterialScene->HasDirtyMaterials()))
@@ -4866,6 +4931,8 @@ namespace Lux {
 
 		if (ShouldCollectFullRendererDiagnostics(Renderer::GetConfig()))
 		{
+			m_GPUSceneDebugSnapshotRequested = false;
+
 			GPUSceneDebugSnapshot snapshot;
 			snapshot.PersistentInstanceCount = persistentGPUSceneInstanceCount;
 			snapshot.TransientInstanceCount = (uint32_t)transientGPUSceneData.size();
@@ -5028,6 +5095,7 @@ namespace Lux {
 			|| !meshCullDrawData.empty()
 			|| !indirectDrawData.empty()
 			|| !gpuSceneInstanceData.empty()
+			|| !gpuSceneRangeRows.empty()
 			|| !transientGPUSceneData.empty()
 			|| !gpuMaterialUploadData.empty()
 			|| !transientGPUMaterialData.empty())
@@ -5110,6 +5178,20 @@ namespace Lux {
 					instance->m_SBSGPUSceneInstances->RT_Get()->RT_SetData(cmd, gpuSceneData.data(), uploadBytes);
 				}
 
+				// Steady state: write only the dirty ranges (flattened epoch
+				// payload; each sync's ranges replay once per frame in flight).
+				if (!sceneRangeRows.empty())
+				{
+					size_t sourceRow = 0;
+					for (const GPUSceneDirtyRange& range : sceneRangeList)
+					{
+						const uint32_t uploadBytes = range.InstanceCount * (uint32_t)sizeof(GPUSceneInstanceData);
+						const uint32_t uploadOffset = range.FirstInstance * (uint32_t)sizeof(GPUSceneInstanceData);
+						instance->m_SBSGPUSceneInstances->RT_Get()->RT_SetData(cmd, sceneRangeRows.data() + sourceRow, uploadBytes, uploadOffset);
+						sourceRow += range.InstanceCount;
+					}
+				}
+
 				if (!transientSceneData.empty())
 				{
 					const uint32_t uploadBytes = (uint32_t)(transientSceneData.size() * sizeof(GPUSceneInstanceData));
@@ -5153,6 +5235,23 @@ namespace Lux {
 
 		m_UploadCommandBuffer->End();
 		m_UploadCommandBuffer->Submit();
+
+		// ── 2b. Async compute (cluster build + light culling) ─────────────────
+		// Depth-independent and dependent only on the camera/light UBOs uploaded
+		// above, so they run on the compute queue. Their SSBO outputs feed deferred
+		// lighting on the graphics queue; the graphics submit below waits on this
+		// compute submission (QueueWaitForCommandList) so the reads are safe.
+		// Correctness-first: the graphics queue waits up front, so this does not yet
+		// overlap graphics work — that split comes later. Gated + off by default.
+		const bool asyncCompute = m_Options.EnableAsyncCompute && m_ComputeCommandBuffer;
+		if (asyncCompute)
+		{
+			m_ComputeCommandBuffer->Begin();
+			ClusterBuildPass();
+			ClusterLightCullingPass();
+			m_ComputeCommandBuffer->End();
+			m_ComputeCommandBuffer->Submit();
+		}
 
 		// ── 3. Execute render passes ──────────────────────────────────────────
 		m_CommandBuffer->Begin();
@@ -5226,6 +5325,20 @@ namespace Lux {
 		}
 
 		m_CommandBuffer->End();
+
+		// Make the graphics submit wait for the async compute cluster work so
+		// deferred lighting reads valid light grids/index lists. Enqueued on the
+		// render thread before the graphics submit; reads the compute execution
+		// instance at that point (it was set when the compute buffer submitted above).
+		if (asyncCompute)
+		{
+			Ref<RenderCommandBuffer> computeCB = m_ComputeCommandBuffer;
+			Renderer::Submit([computeCB]()
+			{
+				Renderer::QueueWaitForCommandList(nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Compute, computeCB->GetLastExecutionInstance());
+			});
+		}
+
 		m_CommandBuffer->Submit();
 
 		m_PreviousViewProjection = m_CurrentViewProjection;
@@ -5286,10 +5399,11 @@ namespace Lux {
 				StaticDrawCommand drawCmd = drawIt->second;
 				drawCmd.InstanceCount = instCount;
 
+				const MeshDrawParams params(cascadeTmd);
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, cascadeTmd, cascade]() mutable {
+				Renderer::Submit([instance, drawCmd, params, cascade]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, cascadeTmd, /*bindMaterial=*/false, cascade);
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, cascade);
 					});
 			}
 
@@ -5339,10 +5453,11 @@ namespace Lux {
 				StaticDrawCommand drawCmd = drawIt->second;
 				drawCmd.InstanceCount = instCount;
 
+				const MeshDrawParams params(cascadeTmd);
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, cascadeTmd, shadowIndex]() mutable {
+				Renderer::Submit([instance, drawCmd, params, shadowIndex]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, cascadeTmd, /*bindMaterial=*/false, shadowIndex);
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, shadowIndex);
 					});
 			}
 		}
@@ -5369,13 +5484,13 @@ namespace Lux {
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
-			const auto& tmd = it->second;
+			const MeshDrawParams params(it->second);
 			StaticDrawCommand drawCmd = drawIt->second;
 
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/false, /*useIndirect=*/false);
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/false, /*useIndirect=*/false);
 				});
 		}
 
@@ -5520,6 +5635,14 @@ namespace Lux {
 		if (!m_ClusterAABBsDirty)
 			return;
 
+		// The cluster AABBs are consumed only by the light-culling dispatch, which
+		// is skipped when there are no local lights (it zero-fills the grids
+		// instead) — so with no lights the froxel rebuild has no consumer either.
+		// The grid is rebuilt every frame while lights exist, so lights appearing
+		// next frame regenerate it before it is read.
+		if (m_PointLightsUB.Count == 0 && m_SpotLightsUB.Count == 0)
+			return;
+
 		struct ClusterBuildPushConstants
 		{
 			glm::vec4  ScreenSizeNearFar; // xy = render resolution (px), z = zNear, w = zFar
@@ -5554,9 +5677,31 @@ namespace Lux {
 		if (!m_ClusterLightCullingPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
 
+		// When async, record onto the compute-queue command buffer (see ClusterBuildPass).
+		const bool async = m_Options.EnableAsyncCompute;
+		Ref<RenderCommandBuffer> cb = async ? m_ComputeCommandBuffer : m_CommandBuffer;
+
+		// With no local lights, skip the cull dispatch entirely: zero-fill the
+		// per-cluster grids so the lighting shaders read count=0 everywhere. The
+		// index lists need no clear — nothing reads past a zero count.
+		if (m_PointLightsUB.Count == 0 && m_SpotLightsUB.Count == 0)
+		{
+			Ref<RenderCommandBuffer> commandBuffer = cb;
+			Ref<StorageBufferSet> pointGrid = m_SBSPointLightGrid;
+			Ref<StorageBufferSet> spotGrid = m_SBSSpotLightGrid;
+			Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
+			Renderer::Submit([commandBuffer, pointGrid, spotGrid, counter]() mutable
+			{
+				commandBuffer->GetActive()->clearBufferUInt(pointGrid->RT_Get()->GetHandle(), 0u);
+				commandBuffer->GetActive()->clearBufferUInt(spotGrid->RT_Get()->GetHandle(), 0u);
+				commandBuffer->GetActive()->clearBufferUInt(counter->RT_Get()->GetHandle(), 0u);
+			});
+			return;
+		}
+
 		// Reset the dynamic-allocation cursors ([0]=point, [1]=spot) before the
 		// assignment dispatch atomically appends into the packed index lists.
-		Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
+		Ref<RenderCommandBuffer> commandBuffer = cb;
 		Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
 		Renderer::Submit([commandBuffer, counter]() mutable
 		{
@@ -5566,17 +5711,17 @@ namespace Lux {
 		constexpr uint32_t kThreadsPerGroup = 64;
 		const glm::uvec3 groups = { (ClusterCount + kThreadsPerGroup - 1u) / kThreadsPerGroup, 1u, 1u };
 
-		BeginProfiledGPU("ClusterLightCullingPass");
-		Renderer::BeginComputePass(m_CommandBuffer, m_ClusterLightCullingPass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_ClusterLightCullingPass, nullptr, groups, Buffer());
+		if (!async) BeginProfiledGPU("ClusterLightCullingPass");
+		Renderer::BeginComputePass(cb, m_ClusterLightCullingPass);
+		Renderer::DispatchCompute(cb, m_ClusterLightCullingPass, nullptr, groups, Buffer());
 
 		Ref<PipelineCompute> pipeline = m_ClusterLightCullingPass->GetPipeline();
-		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSPointLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSSpotLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSPointLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(m_CommandBuffer, m_SBSSpotLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		Renderer::EndComputePass(m_CommandBuffer, m_ClusterLightCullingPass);
-		EndProfiledGPU();
+		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(cb, m_ClusterLightCullingPass);
+		if (!async) EndProfiledGPU();
 	}
 
 	void SceneRenderer::MeshCullingPass()
@@ -5779,6 +5924,9 @@ namespace Lux {
 	void SceneRenderer::SelectedGeometryPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SelectedGeometryPass");
+		if (!m_SelectedGeometryPass) // editor-only target not created (runtime)
+			return;
+
 		const MeshPassState& selectedPass = GetMeshPass(MeshPassType::SelectedMask);
 		if (selectedPass.DrawList.empty())
 			return;
@@ -5794,12 +5942,12 @@ namespace Lux {
 			if (it == m_MeshTransformMap.end()) continue;
 
 			StaticDrawCommand drawCmd = drawIt->second;
-			const auto& tmd = it->second;
+			const MeshDrawParams params(it->second);
 
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
 					instance->m_SelectedGeometryPass->GetPipeline()->GetShader());
 				});
 		}
@@ -5823,12 +5971,12 @@ namespace Lux {
 			if (it == m_MeshTransformMap.end()) continue;
 
 			StaticDrawCommand drawCmd = drawIt->second;
-			const auto& tmd = it->second;
+			const MeshDrawParams params(it->second);
 
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
 					instance->m_GeometryPass->GetPipeline()->GetShader());
 				});
 		}
@@ -5868,12 +6016,12 @@ namespace Lux {
 			if (it == m_MeshTransformMap.end()) continue;
 
 			StaticDrawCommand drawCmd = drawIt->second;
-			const auto& tmd = it->second;
+			const MeshDrawParams params(it->second);
 
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, tmd]() mutable {
+			Renderer::Submit([instance, drawCmd, params]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering,
 					instance->m_GeometryPassTransparent->GetPipeline()->GetShader());
 				});
 		}
@@ -5885,6 +6033,9 @@ namespace Lux {
 	void SceneRenderer::GeometryWireframePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "GeometryWireframePass");
+		if (!m_GeometryWireframePass) // editor-only target not created (runtime)
+			return;
+
 		const MeshPassState& wireframePass = GetMeshPass(MeshPassType::Wireframe);
 		const MeshPassState& colliderPass = GetMeshPass(MeshPassType::PhysicsCollider);
 		if ((!m_Options.ShowSelectedInWireframe || wireframePass.DrawList.empty())
@@ -5904,12 +6055,12 @@ namespace Lux {
 				if (it == m_MeshTransformMap.end()) continue;
 
 				StaticDrawCommand drawCmd = drawIt->second;
-				const auto& tmd = it->second;
+				const MeshDrawParams params(it->second);
 
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, tmd]() mutable {
+				Renderer::Submit([instance, drawCmd, params]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
 						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
 					});
 			}
@@ -5925,12 +6076,12 @@ namespace Lux {
 				if (it == m_MeshTransformMap.end()) continue;
 
 				StaticDrawCommand drawCmd = drawIt->second;
-				const auto& tmd = it->second;
+				const MeshDrawParams params(it->second);
 
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, tmd]() mutable {
+				Renderer::Submit([instance, drawCmd, params]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, tmd, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
 						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
 					});
 			}
@@ -6030,7 +6181,7 @@ namespace Lux {
 	void SceneRenderer::RT_DrawStaticMesh(
 		Ref<RenderCommandBuffer>  cmd,
 		const StaticDrawCommand& dc,
-		const TransformMapData& tmd,
+		MeshDrawParams            params,
 		bool                      bindMaterial,
 		uint32_t                  lightIndex,
 		bool                      useVisibleObjectIndexes,
@@ -6105,27 +6256,32 @@ namespace Lux {
 		// ── Push constants ────────────────────────────────────────────────────
 		Buffer materialUniforms = material ? material->GetUniformStorageBuffer() : Buffer();
 		const uint64_t pushConstantSize = std::max<uint64_t>(sizeof(MeshDrawPushConstants), materialUniforms.Size);
-		std::vector<uint8_t> pushConstants(pushConstantSize);
+		// Reuse the render-thread scratch instead of heap-allocating per draw.
+		// assign() zero-fills while retaining capacity; the zero-fill matters for
+		// the tail bytes when materialUniforms.Size and sizeof(MeshDrawPushConstants)
+		// differ.
+		std::vector<uint8_t>& pushConstants = m_RTPushConstantScratch;
+		pushConstants.assign(pushConstantSize, 0);
 
 		if (materialUniforms)
 			std::memcpy(pushConstants.data(), materialUniforms.Data, materialUniforms.Size);
 
 		auto& pc = *reinterpret_cast<MeshDrawPushConstants*>(pushConstants.data());
-		pc.ObjectIndexBase = useVisibleObjectIndexes ? tmd.VisibleObjectIndexBase : tmd.ObjectIndexBase;
+		pc.ObjectIndexBase = useVisibleObjectIndexes ? params.VisibleObjectIndexBase : params.ObjectIndexBase;
 		pc.LightIndex = lightIndex;
 		pc.BoneTransformBase = 0;
 		pc.BoneTransformStride = 0;
 		cmd->GetActive()->setPushConstants(pushConstants.data(), pushConstants.size());
 
-		if (useIndirect && tmd.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
+		if (useIndirect && params.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
 		{
 			gs.indirectParams = m_SBSIndirectDrawCommands->RT_Get()->GetHandle();
 			cmd->RT_CommitGraphicsState();
-			cmd->GetActive()->drawIndexedIndirect(tmd.IndirectDrawOffsetBytes, 1);
+			cmd->GetActive()->drawIndexedIndirect(params.IndirectDrawOffsetBytes, 1);
 			return;
 		}
 
-		const uint32_t instanceCount = useVisibleObjectIndexes ? tmd.VisibleInstanceCount : dc.InstanceCount;
+		const uint32_t instanceCount = useVisibleObjectIndexes ? params.VisibleInstanceCount : dc.InstanceCount;
 		if (instanceCount == 0)
 			return;
 
@@ -6169,17 +6325,19 @@ namespace Lux {
 
 	Ref<Image2D> SceneRenderer::GetGeometryMaterialIDOutput() const
 	{
+		// Packed RG32UI target: material ID in .x, object ID in .y.
 		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(3) : nullptr;
 	}
 
 	Ref<Image2D> SceneRenderer::GetGeometryObjectIDOutput() const
 	{
-		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(4) : nullptr;
+		// Same packed RG32UI target as the material IDs (object ID in .y).
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(3) : nullptr;
 	}
 
 	Ref<Image2D> SceneRenderer::GetGeometryVelocityOutput() const
 	{
-		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(5) : nullptr;
+		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(4) : nullptr;
 	}
 
 	Ref<Image2D> SceneRenderer::GetFinalPassImage()

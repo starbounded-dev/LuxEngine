@@ -1465,7 +1465,11 @@ namespace Lux {
 
 		m_RenderScene->BeginSync();
 
-		std::vector<StaticMeshSyncItem> syncItems;
+		// Per-call scratch: thread_local (not a Scene member) because Scene.h only
+		// forward-declares the render types. Cleared at both ends of the call so no
+		// Ref<>s outlive it — only raw capacity is retained across frames.
+		static thread_local std::vector<StaticMeshSyncItem> syncItems;
+		syncItems.clear();
 		auto view = m_Registry.view<const TransformComponent, const StaticMeshComponent>();
 		for (auto e : view)
 		{
@@ -1544,6 +1548,10 @@ namespace Lux {
 
 		for (StaticMeshSyncItem& syncItem : syncItems)
 			m_RenderScene->UpsertStaticMesh(std::move(syncItem.Proxy));
+
+		// Release the Ref<>s now rather than at thread_local destruction, which
+		// would race engine shutdown (asset manager teardown, LUX_TRACK_MEMORY).
+		syncItems.clear();
 
 		m_RenderScene->EndSync();
 		return m_RenderScene;

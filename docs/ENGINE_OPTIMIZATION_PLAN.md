@@ -13,6 +13,209 @@ things slower or just move the cost. We already started this (Tracy + `csvexport
 
 ---
 
+## Status ledger
+
+| Phase | Status | Result |
+|---|---|---|
+| **Phase 0** — measurement infra | ✅ Done | Tracy CPU zones on all 39 passes; in-engine GPU per-pass timing documented; baseline protocol in `RENDERER_PERF_BASELINE.md`. |
+| **Phase 1** — render-graph recompile cache + scratch reuse | ✅ Done | `RenderGraph::Compile` 996/996 frames → 1/3403; `FlushDrawList` 3.09 → 2.56 ms. |
+| **Phase 1.5** — lazy graph names, removed double `BuildRenderGraph` | ✅ Done | `FlushDrawList` 2.56 → 2.11 ms (**cumulative −31.7%**). |
+| **Phase 2** — submission-path allocations + build config | ✅ Implemented, awaiting Windows measurement | Six fixes below. |
+| **Phase 3** — full rendering audit: stability + zero-cost-when-off | ✅ Implemented, awaiting Windows measurement | Seven fixes below (A8 deferred). |
+
+**Phase 2 fixes (2026-07-02, one commit each):**
+
+1. **Dist build config** (`Core/premake5.lua`, `premake5.lua`) — Core's Dist filter no
+   longer overrides `optimize "Full"` down to `"On"`; `LinkTimeOptimization` (/GL+/LTCG)
+   added workspace-wide for Dist. Release untouched (Tracy baseline build).
+   *Verify:* regenerate projects, check vcxproj for /GL, FPS spot-check (no Tracy in Dist).
+2. **Push-constant scratch** (`SceneRenderer.cpp` `RT_DrawStaticMesh`) — the per-draw
+   per-pass `std::vector<uint8_t>` heap allocation on the render thread is now a reused
+   render-thread-only member. *Verify:* render-thread `RenderCommandQueue::Execute` zone.
+3. **`MeshDrawParams` capture** (`SceneRenderer.cpp`, 8 submit sites) — draw lambdas no
+   longer copy `TransformMapData` (with its `ObjectIndices` heap vector) per draw; they
+   capture a 4-scalar POD snapshot. *Verify:* per-pass CPU zones (ShadowMapPass,
+   PreDepthPass, GBufferPass, TransparentForwardPass).
+4. **Upload-lambda init-captures** (`SceneRenderer.cpp` FlushDrawList) — removed the
+   local-copy-then-capture-copy of 8 vectors/frame; GPUScene instance vectors are moved.
+   *Verify:* `FlushDrawList` zone.
+5. **`SyncRenderScene` scratch** (`Scene.cpp`) — sync-item vector is thread_local scratch,
+   cleared at both ends. *Verify:* `Scene::SyncRenderScene` zone.
+6. **Version-gated table copies** (`TextureScene`, `MaterialScene`, `SceneRenderer`) — the
+   full texture/material table copies are skipped when the submitted scene's monotonic
+   version is unchanged. The texture *resolve loop* intentionally still runs every frame
+   (it picks up async texture-load completions, which don't mark the scene dirty).
+   *Verify:* `FlushDrawList` zone; add/remove a material + texture at runtime and confirm
+   the change appears.
+
+**Phase 3 fixes (2026-07-03, one commit each) — from the full rendering audit:**
+
+1. **Descriptor re-Bake bug** (`Platform/Vulkan/DescriptorSetManager.cpp`) —
+   `InvalidatedInputResources` was never cleared in the live path, so the first
+   invalidation (guaranteed by the startup resize) made every dynamic pass rebuild ALL
+   its binding sets × frames-in-flight, every frame, forever. Now cleared at the top of
+   `InvalidateAndUpdate`. **Prime frame-time-instability suspect.** *Verify:* the
+   `DescriptorSetManager::InvalidateAndUpdate ... updating N descriptors` trace log stops
+   repeating after warm-up/resize; frame-time graph flattens.
+2. **GPUScene debug snapshot on-request** (`SceneRenderer` + `RendererDebuggerPanel`) —
+   the O(instances+materials) validation loops now run only on frames where the panel's
+   GPU Scene section requests them. *Verify:* `FlushDrawList` CPU with the panel closed.
+3. **PreIntegration gated behind SSR** — its visibility pyramid is consumed only by SSR.
+4. **Cluster froxel passes skip with zero local lights** — build early-outs; culling
+   zero-fills the grids instead of dispatching.
+5. **Atmosphere UBO idles when sky/clouds/fog are all off** — disabled-flags UB written
+   once per frame-in-flight buffer, then no rebuild/upload until a feature activates.
+6. **Shadow default 4K→2K** (options + project defaults + High preset; Ultra=4K,
+   Cinematic=8K) — saves ~200 MB VRAM and shadow-render bandwidth.
+7. **GPU timer/pipeline queries disabled in Dist** (`RenderCommandBuffer.cpp`).
+
+*(A8 — JumpFlood RGBA32F→smaller format — was investigated and deferred: the algorithm
+uses all four channels (xy=seed offset, z=distance, w=inside/outside), so only a
+precision-reduction to RGBA16F is possible and that needs visual verification.)*
+
+**Post-Phase-3 bugfix — stale wrapped-framebuffer self-heal (2026-07-03):** framebuffers
+wrapping shared images via `ExistingImages` bake the image's nvrhi handle and were never
+re-checked — the runtime-fullscreen "black geometry, bright sky" bug (deferred lighting
+writing into an orphaned SceneColor). `Framebuffer::HasStaleAttachments()` + a per-frame
+repair sweep in `BeginScene` now self-heals the whole class. *Verify:* fullscreen export
+lights correctly; the `had stale attachment handles` warning names the trigger framebuffer
+on the first fullscreen frames (report it for the targeted root-cause follow-up) and stays
+silent afterwards.
+
+**Phase 4 progress (2026-07-03, Loading & Stutter session):**
+
+1. **Batched resource uploads** (`Renderer::RecordResourceUpload/FlushResourceUploads`;
+   converted: `VertexBuffer`, `IndexBuffer`, `Image2D::SetData`, `TextureCube`) — one
+   shared command list replaces a vkQueueSubmit per mesh/texture; the batch flushes
+   automatically before every `RenderCommandBuffer::RT_Submit`, so uploads always land
+   ahead of any consumer. Also stops retaining a command list per buffer forever.
+   *Verify:* load a heavy scene / stream assets while watching the frame-time graph —
+   load-time spikes should shrink dramatically; visuals identical.
+2. **Bloom + SSR pre-convolution pyramids RGBA32F→RGBA16F** (+ shader storage layouts) —
+   half the bandwidth on every down/upsample. *Verify:* bloom/SSR before-after eyeball.
+3. **PSO disk cache — investigated, blocked:** graphics/compute pipelines are created
+   inside NVRHI (`PipelineCompute` etc. hold nvrhi handles); the vendored `nvrhi` submodule
+   wasn't checked out in this environment, so whether the fork exposes a
+   `VkPipelineCache` hook couldn't be verified. Next session with the submodule present:
+   check `nvrhi::vulkan::DeviceDesc` for a pipeline-cache field; if absent, patch the
+   fork to create/serialize one (`~/.lux/pipeline.cache`-style). The legacy
+   `VulkanComputePipeline.cpp` per-pipeline `vkCreatePipelineCache` is dead code (live
+   compute goes through nvrhi) — remove during the SceneRenderer split.
+4. **Upload-race note:** with batched uploads the content-vs-consumer ordering is now
+   structural. The remaining race is only "buffer object not yet created" on async loads,
+   which the existing null-guards handle (mesh appears a frame later). A per-mesh ready
+   flag is the polish item if the one-frame pop-in ever bothers.
+
+**Phase 4 progress — memory diet (2026-07-04):**
+
+1. **Editor render targets skipped in runtime (~180 MB)** —
+   `SceneRendererSpecification::EnableEditorRenderTargets` (runtime sets false) gates
+   SelectedGeometry, JumpFlood ×3, AO-Debug, GBufferDebug, wireframe target creation; all
+   references null-guard. *Verify:* runtime VRAM drop; editor selection/debug views
+   unchanged.
+2. **Mesh CPU memory** — removed `m_TriangleCache` entirely (3 full Vertex structs per
+   triangle, built by importer + runtime deserializer, **zero consumers**); the runtime
+   additionally compacts every MeshSource after GPU upload to positions + indices
+   (physics cooking is the only CPU consumer and reads exactly that). Editor retains full
+   data for export. *Verify:* runtime RAM drop; mesh colliders (incl. spawned at runtime)
+   identical; editor mesh import/export identical.
+3. **Truthful memory HUD** — `VulkanAllocator::GetStats` now reports device-local
+   usage/budget from `VK_EXT_memory_budget` (driver-truth incl. NVRHI's allocations)
+   instead of a dead VMA-side tracker that showed ~0. *Verify:* HUD ≈ GPU-Z dedicated
+   VRAM numbers.
+4. **Aliasing coverage of big targets — investigated, REJECTED:** the exclusions in
+   `IsRenderGraphAliasCandidate` are correctness, not oversight. GTAO/SSR/Cloud history
+   buffers persist across frames (temporal accumulation reads last frame's result) and
+   can never be transient; PreDepth/GBuffer/SceneColor are read throughout the frame
+   (SSR, GTAO, debug views, TAA), leaving no dead window to alias into. Do not extend
+   aliasing to these.
+
+**Phase 4 progress — CPU frame cost (2026-07-04):**
+
+1. **Sort-order cache (A1-lite)** — per-pass draw sorting skipped when the draw-list key
+   set fingerprint is unchanged (MeshKey embeds all sort inputs). *Verify:*
+   `FlushDrawList` CPU on a static-membership scene; visuals identical while
+   adding/removing/selecting meshes. Full FMeshDrawCommand retention remains future work
+   (camera-driven CPU culling changes list membership every frame on moving cameras).
+2. **Dirty-range GPUScene uploads (A2-prime)** — per-sync dirty ranges replayed once per
+   frame-in-flight buffer; full uploads only on scene switch/count growth or when dirty
+   volume exceeds a full array. *Verify:* upload closure cost in Tracy; GPUScene debug
+   snapshot diagnostics stay clean while moving objects.
+3. **Pending-slot bindless resolve** — steady state resolves only streaming-pending slots
+   + transients, with a 32-frame full-sweep hot-reload safety net. *Verify:* texture
+   streaming still flips white→real; editor texture hot-reload updates within ~32 frames.
+4. **Granular descriptor rebake** — `BakeSet` rebuilds only the changed set indexes
+   instead of every binding set on any invalidation.
+5. **Small always-on trims** — spot-shadow machinery skips with zero spot lights;
+   directional shadow UBO idles when cascades are unchanged (memcmp + per-FIF counter);
+   the statistics draw-list re-walk compiles out of Dist.
+6. **Parallel command recording — NOT attempted here:** the render command queue is
+   single-producer and NVRHI multi-command-list recording changes the threading model;
+   needs a build+validation cycle. Revisit with the async-compute (B1) work.
+
+**Phase 4 progress — GPU frame cost & bandwidth (2026-07-04):**
+
+1. **Surgical UAV flag** — STORAGE usage now granted only to Storage-usage images and
+   mip-chained sampled textures (the compute mip generator); all framebuffer attachments
+   lose it so framebuffer/DCC compression can re-engage. **The item to measure first**
+   (RenderDoc: GBuffer/SceneColor no longer report STORAGE; GPU frame time on heavy scenes).
+2. **AO composite folded into deferred lighting** — the full-res Zero_SrcColor multiply
+   pass is gone; deferred samples u_GTAOTex itself (same upscale/decode, same
+   __HZ_AO_METHOD permutation). GTAO chain now registers between GBuffer and Deferred.
+   AO debug view unchanged (keeps the AO-Composite shader standalone).
+3. **GBuffer ID merge** — material+object IDs packed into one RG32UI attachment
+   (6→5 color targets; velocity slot 4, depth wrap slot 5).
+4. **Empty-pass graph gating** — Selected/Transparent/Wireframe nodes skip registration
+   when their draw lists are empty (executable graphs only).
+5. **Effect defaults** — GTAO denoise baseline 4→2 passes; High preset enables SSR+GTAO
+   temporal accumulation.
+
+**Deferred from this batch (design notes):**
+- **Octahedral GBuffer normals (RG16F)** — opted-in but deliberately held for its own
+  session: the normal attachment is read *raw* (`.xyz`) by GTAO.hlsl (HLSL!), SSR.glsl,
+  SSR-Composite.glsl, AO-Composite.glsl (debug), DeferredLighting's fold helpers, and
+  written raw by the forward/transparent shader — every one needs the encode/decode pair
+  landed together, which deserves a fresh, focused diff rather than the tail of this one.
+  Encode/decode belong in LuxGBuffer.glslh; writers: GBuffer_Static (via EncodeGBuffer)
+  + the forward PBR shader; readers listed above.
+- **B1 async compute (design)**: move GTAO+denoise, cluster light-cull, bloom, and the
+  cloud raymarch to nvrhi's compute queue, overlapping ShadowMap/PreDepth/GBuffer on
+  graphics. The render graph already carries the dependency edges — the work is (a) verify
+  the vendored nvrhi fork's multi-queue API (`CommandQueue::Compute` command lists +
+  queue semaphores / `executeCommandLists` overloads; submodule wasn't checked out here),
+  (b) split RT_Submit's single-queue mutex model per queue, (c) insert cross-queue waits
+  at the graph edges (GTAO→Deferred, cull→lighting, bloom→composite). Validate with the
+  Renderer Debugger per-pass GPU times: shadow+GBuffer time should absorb the compute.
+- **B2 VRS (design)**: raster passes only (cloud/fog/atmosphere composites — the compute
+  passes can't use VRS); needs the nvrhi fork's variable-rate-shading state API verified.
+  2x2 rate on the volumetric composites is the standard cheap win.
+- **#8 mesh shaders / ray tracing** — roadmap-final, unchanged.
+
+**Phase 4 candidates (audit findings that need build/measure or shader edits — do with
+Tracy + validation on):**
+
+- **Blanket `isUAV = true` on every color image** (`Image.cpp:190-199`) adds STORAGE usage
+  to all render targets, likely disabling framebuffer compression → bandwidth tax on every
+  full-res pass. Audit shaders for storage-image bindings first, then restrict to
+  `Usage == Storage` + explicit opt-ins. Biggest GPU-bandwidth suspect.
+- **Synchronous per-resource GPU uploads** — every mesh/texture load creates its own
+  command list and submits immediately under a global queue mutex
+  (`VertexBuffer.cpp:23-27` etc.), and the command list is retained per buffer forever.
+  Batch into a per-frame upload list / transfer queue. Biggest streaming-hitch suspect.
+- Format diets needing shader edits: Bloom + PreConvolution pyramids RGBA32F→RGBA16F;
+  JumpFlood RGBA32F→RGBA16F (see A8 note); GBuffer normal → octahedral RG16F; merge the
+  two R32UI id targets.
+- Cluster grid caching on resize/projection change (currently rebuilt per frame while
+  lights exist).
+- Empty-pass graph gating (Transparent/Selected/Wireframe still open + clear render
+  passes when their draw lists are empty) — interacts with render-target aliasing.
+- Composite-chain merging: Skybox→Deferred→AO→SSR→Cloud→Fog→Composite→DOF each do a
+  full-res scene-color read-modify-write; several are mergeable.
+- Correctness/sync audit (thread handoff, upload races, barrier semantics) — still
+  pending; the audit session for it was cut short.
+
+---
+
 ## 0. Where LuxEngine actually stands
 
 **Already has (genuinely modern):**
@@ -79,11 +282,26 @@ This is where LuxEngine's measured cost actually is right now (light scenes are 
 
 ### A1. Persistent draw-command caching (Unreal's biggest CPU win)
 Unreal's **`FMeshDrawCommand`** pipeline caches the per-draw state and only rebuilds when a
-primitive actually changes. LuxEngine rebuilds draw lists every frame. There's already a
-`MeshDrawCommandCache` scaffold in `SceneRenderer` — finish it: hash (mesh, material,
-pass-state) and only re-record on change. **Win:** removes most of the remaining
-`FlushDrawList` CPU.
+primitive actually changes. **Status correction:** the `MeshDrawCommandCache` is *not* a
+scaffold — it is implemented and live (`SubmitMeshPassDraw`, with age-based pruning at
+`MeshDrawCommandCacheRetireAge = 300`). What remains of A1 is **retaining the draw lists
+across frames**: `ClearFrameMeshPasses` wipes every pass's `DrawList`/`DrawOrder` each frame
+and `BuildSortedDrawCommandOrder` re-sorts every pass every frame. Gate that on
+`RenderSceneSyncStats` dirty counts. Three blockers make this a measure-validated change,
+not an inspection-safe one:
+1. per-frame camera-dependent CPU frustum culling (`isInstanceVisible`) feeds the lists;
+2. transient (debug/collider) submissions are interleaved with cached ones;
+3. `m_MeshTransformMap` offset assignment assumes a fresh build.
+**Win:** removes most of the remaining `FlushDrawList` CPU.
 **Reference:** Unreal *"Mesh Drawing Pipeline"* docs; The Cherno's Hazel render-pass videos.
+
+### A2-prime. Dirty-range GPUScene uploads
+After Phase 2, the largest remaining per-frame memcpy is the **full persistent GPUScene
+instance re-upload** in the FlushDrawList upload lambda (the code comment there is explicit:
+`StorageBufferSet` owns one buffer per frame-in-flight, so per-slot dirty tracking is needed
+before partial uploads are correct). Implement per-frame-in-flight dirty ranges in `GPUScene`
+(the `TextureSceneDirtyRange`/`MaterialSceneDirtyRange` machinery is the in-repo pattern to
+copy), then upload only dirty rows. Runtime-verification only — do with Tracy running.
 
 ### A2. Job-ify the frame, don't just have a render thread
 LuxEngine has a render thread + JobSystem but the frame is largely serial
@@ -186,14 +404,21 @@ streaming).
 
 ## Priority order (what to actually do, in sequence)
 
-1. **Phase 0 GPU timing** (RenderDoc/Nsight now; Tracy-Vk later) — unblocks everything GPU.
-2. **A1 draw-command caching** + **A2/A4 parallel recording** — biggest *measured* CPU win.
-3. **B1 async compute** — biggest GPU win for least risk; the graph already models dependencies.
-4. **E structural split + Dist stripping** — makes the rest safe and ships lean.
-5. **B2 VRS** — cheap GPU win on the heavy full-screen passes.
-6. **D streaming/PSO** — kills hitching (perceived performance).
-7. **B3 mesh shaders**, **C clustered shading** — larger architectural upgrades.
-8. **B4 ray tracing** — last, largest, most optional.
+1. ~~**Phase 0 GPU timing**~~ — done (see Status ledger).
+2. ~~**Phase 1/1.5 render-graph caching**~~ — done (−31.7% FlushDrawList).
+3. ~~**Phase 2 submission-path allocations + build config**~~ — implemented; validate on
+   Windows against the baseline before proceeding.
+4. **A1 completion (retained draw lists)** — biggest remaining *measured* CPU win; needs
+   Tracy before/after (see A1 blockers).
+5. **A2-prime dirty-range GPUScene uploads** — kills the largest remaining per-frame memcpy.
+6. **B1 async compute** — biggest GPU win for least risk; the graph already models dependencies.
+7. **E structural split + Dist stripping** — makes the rest safe and ships lean.
+8. **B2 VRS** — cheap GPU win on the heavy full-screen passes.
+9. **D streaming/PSO** — kills hitching (perceived performance).
+10. **B3 mesh shaders**, **C clustered shading** — larger architectural upgrades.
+    (Note: clustered froxel light culling has since landed in the renderer core — validate
+    it with GPU timing, then retire the C-bonus item.)
+11. **B4 ray tracing** — last, largest, most optional.
 
 ## What NOT to do (the discipline part)
 - Don't chase Nanite/Lumen clones — they're multi-year efforts and overkill here.

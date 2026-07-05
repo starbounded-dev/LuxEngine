@@ -2,6 +2,7 @@
 #include "IndexBuffer.h"
 
 #include "Lux/Core/Application.h"
+#include "Lux/Renderer/Renderer.h"
 
 namespace Lux {
 
@@ -20,11 +21,11 @@ namespace Lux {
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 		m_Handle = device->createBuffer(indexBufferDesc);
 
-		m_CommandList = RenderCommandBuffer::Create(1, "IndexBuffer");
-		m_CommandList->RT_Begin();
-		m_CommandList->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size);
-		m_CommandList->RT_End();
-		m_CommandList->RT_Submit();
+		// Shared upload batch — see VertexBuffer(Buffer) for rationale.
+		Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+		{
+			uploadList->writeBuffer(m_Handle, buffer.Data, buffer.Size);
+		});
 	}
 
 	IndexBuffer::IndexBuffer(uint64_t size)

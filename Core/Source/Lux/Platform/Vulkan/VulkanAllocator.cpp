@@ -41,6 +41,65 @@ namespace Lux {
 
 			return deviceLocalBudget > 0 ? deviceLocalBudget : totalBudget;
 		}
+
+		// Driver-reported per-heap usage/budget via VK_EXT_memory_budget. This is
+		// process-wide truth and therefore INCLUDES allocations made by NVRHI's
+		// internal allocator, which bypass this VMA instance entirely (the local
+		// tracking below only ever sees the legacy #if OLD paths, i.e. ~nothing).
+		// Physical-device-level functionality of a device extension only requires
+		// the extension to be *supported*, not enabled on the device.
+		bool QueryDeviceLocalMemoryBudget(uint64_t& outUsed, uint64_t& outBudget)
+		{
+			nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+			if (!device)
+				return false;
+
+			VkPhysicalDevice physicalDevice = (VkPhysicalDevice)device->getNativeObject(nvrhi::ObjectTypes::VK_PhysicalDevice);
+			if (!physicalDevice)
+				return false;
+
+			static int s_MemoryBudgetSupport = -1; // -1 unknown, 0 no, 1 yes
+			if (s_MemoryBudgetSupport == -1)
+			{
+				s_MemoryBudgetSupport = 0;
+				uint32_t extensionCount = 0;
+				vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
+				std::vector<VkExtensionProperties> extensions(extensionCount);
+				vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, extensions.data());
+				for (const VkExtensionProperties& extension : extensions)
+				{
+					if (strcmp(extension.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0)
+					{
+						s_MemoryBudgetSupport = 1;
+						break;
+					}
+				}
+			}
+
+			if (s_MemoryBudgetSupport != 1)
+				return false;
+
+			VkPhysicalDeviceMemoryBudgetPropertiesEXT budgetProperties{};
+			budgetProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+
+			VkPhysicalDeviceMemoryProperties2 memoryProperties{};
+			memoryProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+			memoryProperties.pNext = &budgetProperties;
+			vkGetPhysicalDeviceMemoryProperties2(physicalDevice, &memoryProperties);
+
+			outUsed = 0;
+			outBudget = 0;
+			for (uint32_t heap = 0; heap < memoryProperties.memoryProperties.memoryHeapCount; heap++)
+			{
+				if ((memoryProperties.memoryProperties.memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0)
+					continue;
+
+				outUsed += budgetProperties.heapUsage[heap];
+				outBudget += budgetProperties.heapBudget[heap];
+			}
+
+			return outBudget > 0;
+		}
 	}
 
 	struct VulkanAllocatorData
@@ -271,20 +330,31 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		GPUMemoryStats result;
 
+		// Preferred: driver-reported device-local usage/budget (VK_EXT_memory_budget).
+		// Real allocations go through NVRHI, not this VMA instance, so the local
+		// tracking below cannot see them — only the driver numbers are truthful.
+		uint64_t deviceUsed = 0;
+		uint64_t deviceBudget = 0;
+		const bool haveDeviceBudget = QueryDeviceLocalMemoryBudget(deviceUsed, deviceBudget);
+
 		if (!s_Data || !s_Data->Allocator)
 		{
-			result.TotalAvailable = GetNativeDeviceLocalMemoryBudget();
+			result.Used = haveDeviceBudget ? deviceUsed : 0;
+			result.TotalAvailable = haveDeviceBudget ? deviceBudget : GetNativeDeviceLocalMemoryBudget();
 			return result;
 		}
 
-		std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
-		vmaGetBudget(s_Data->Allocator, budgets.data());
-
 		uint64_t budget = 0;
-		for (VmaBudget& b : budgets)
-			budget += b.budget;
-		if (budget == 0)
-			budget = GetNativeDeviceLocalMemoryBudget();
+		if (!haveDeviceBudget)
+		{
+			std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
+			vmaGetBudget(s_Data->Allocator, budgets.data());
+
+			for (VmaBudget& b : budgets)
+				budget += b.budget;
+			if (budget == 0)
+				budget = GetNativeDeviceLocalMemoryBudget();
+		}
 
 		for (const auto& [k, v] : s_AllocationMap)
 		{
@@ -301,8 +371,8 @@ namespace Lux {
 		}
 
 		result.AllocationCount = s_AllocationMap.size();
-		result.Used = s_Data->MemoryUsage;
-		result.TotalAvailable = budget;
+		result.Used = haveDeviceBudget ? deviceUsed : s_Data->MemoryUsage;
+		result.TotalAvailable = haveDeviceBudget ? deviceBudget : budget;
 		return result;
 #if 0
 		VmaStats stats;

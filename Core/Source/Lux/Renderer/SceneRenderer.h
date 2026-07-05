@@ -193,7 +193,7 @@ namespace Lux {
 		float ShadowCascadeNearPlaneOffset = 0.0f;
 		float ShadowCascadeFarPlaneOffset = 50.0f;
 		float ShadowCascadeTransitionFade = 1.0f;
-		ShadowResolutionTier ShadowResolution = ShadowResolutionTier::Tier_4K;
+		ShadowResolutionTier ShadowResolution = ShadowResolutionTier::Tier_2K;
 		QualityPreset Quality = QualityPreset::Medium;
 		bool  EnableGTAO = true;
 		bool  GTAOBentNormals = false;
@@ -217,6 +217,11 @@ namespace Lux {
 		bool  EnableTAA = false;
 		float TAAHistoryBlend = 0.90f; // fraction of history kept per frame
 		float TAASharpness = 0.3f;     // post-resolve unsharp strength (0 = off)
+		// Schedule independent compute passes (cluster light-cull, GTAO, SSR,
+		// bloom) on the async compute queue overlapping graphics work. Off by
+		// default while the cross-queue path is brought up one pass at a time;
+		// nothing submits async until a pass is wired to honor this flag.
+		bool  EnableAsyncCompute = false;
 		RenderResolutionScaleMode ResolutionScaleMode = RenderResolutionScaleMode::Native;
 		float DynamicResolutionScale = 1.0f;
 		float DynamicResolutionMinScale = 0.5f;
@@ -283,6 +288,12 @@ namespace Lux {
 		uint32_t ViewportWidth = 0;   // 0 = use window size
 		uint32_t ViewportHeight = 0;
 		Tiering::Renderer::RendererTieringSettings Tiering;
+
+		// Editor-only render targets (selection outline, wireframe, AO/GBuffer
+		// debug views) cost ~180 MB of full-viewport images. The standalone
+		// runtime sets this false so they are never created; their passes
+		// null-guard and never execute there.
+		bool EnableEditorRenderTargets = true;
 	};
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -655,6 +666,9 @@ namespace Lux {
 		RenderGraphDebugSnapshot GetRenderGraphDebugSnapshot();
 		RendererFrameDebugSnapshot GetRendererFrameDebugSnapshot() const;
 		const GPUSceneDebugSnapshot& GetGPUSceneDebugSnapshot() const { return m_GPUSceneDebugSnapshot; }
+		// The snapshot's validation loops cost O(instances + materials) CPU, so it
+		// is only built on frames where a consumer (Renderer Debugger panel) asks.
+		void RequestGPUSceneDebugSnapshot() { m_GPUSceneDebugSnapshotRequested = true; }
 		const Frustum& GetCameraFrustum() const { return m_SceneData.CameraFrustum; }
 
 		bool IsReady() const { return m_ResourcesCreatedGPU; }
@@ -736,6 +750,10 @@ namespace Lux {
 			MeshPassType Type = MeshPassType::Opaque;
 			DrawCommandList DrawList;
 			DrawCommandOrder DrawOrder;
+			// Fingerprint of the key set DrawOrder was sorted for; when the set
+			// is unchanged, last frame's sorted order is reused (DrawOrder is
+			// intentionally retained across frames for this).
+			uint64_t OrderCacheHash = 0;
 		};
 
 		struct MeshDrawSortEntry
@@ -811,6 +829,28 @@ namespace Lux {
 			uint32_t              VisibleObjectIndexBase = 0;
 			uint32_t              VisibleInstanceCount = 0;
 			uint32_t              IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
+		};
+
+		// Snapshot of the TransformMapData scalars RT_DrawStaticMesh needs.
+		// Captured by value into the render-command lambda instead of the full
+		// TransformMapData, which would copy the ObjectIndices heap vector per draw.
+		// Must be a snapshot: ClearFrameMeshPasses wipes the transform map on the
+		// main thread while the render thread executes a frame behind.
+		struct MeshDrawParams
+		{
+			uint32_t ObjectIndexBase = 0;
+			uint32_t VisibleObjectIndexBase = 0;
+			uint32_t VisibleInstanceCount = 0;
+			uint32_t IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
+
+			MeshDrawParams() = default;
+			explicit MeshDrawParams(const TransformMapData& tmd)
+				: ObjectIndexBase(tmd.ObjectIndexBase)
+				, VisibleObjectIndexBase(tmd.VisibleObjectIndexBase)
+				, VisibleInstanceCount(tmd.VisibleInstanceCount)
+				, IndirectDrawOffsetBytes(tmd.IndirectDrawOffsetBytes)
+			{
+			}
 		};
 
 		struct MeshCullDrawData
@@ -1014,7 +1054,7 @@ namespace Lux {
 		// Render-thread draw helper (must be called inside Renderer::Submit).
 		void RT_DrawStaticMesh(Ref<RenderCommandBuffer> cmd,
 			const StaticDrawCommand& dc,
-			const TransformMapData& tmd,
+			MeshDrawParams           params,
 			bool                     bindMaterial,
 			uint32_t                 lightIndex = 0,
 			bool                     useVisibleObjectIndexes = false,
@@ -1062,6 +1102,12 @@ namespace Lux {
 		{
 			glm::mat4 ViewProjection[ShadowCascadeCount];
 		} m_ShadowUB;
+
+		// Shadow UBO upload gate: last uploaded contents + how many more uploads
+		// remain (one per frame-in-flight buffer after a change; starts above any
+		// realistic frames-in-flight count so startup initializes every buffer).
+		UBShadow m_LastUploadedShadowUB{};
+		uint32_t m_ShadowUBUploadsRemaining = 8;
 
 		struct UBSpotShadow
 		{
@@ -1152,6 +1198,14 @@ namespace Lux {
 			std::array<LocalFogVolumeData, MaxVisibleLocalFogVolumes> LocalFogVolumes{};
 		} m_AtmosphereUB;
 
+		// While no atmosphere feature is active, the atmosphere UB is written this
+		// many more times (once per frame-in-flight buffer, so all copies hold the
+		// disabled-flags data) and then the whole rebuild+upload goes idle. Active
+		// frames re-arm it to FramesInFlight. Starts above any realistic
+		// frames-in-flight count so a scene that begins inactive still initializes
+		// every buffer.
+		uint32_t m_AtmosphereIdleUploadsRemaining = 8;
+
 		struct CBGTAOData
 		{
 			glm::vec2 NDCToViewMul_x_PixelSize = { 1.0f, 1.0f };
@@ -1207,8 +1261,9 @@ namespace Lux {
 
 		Ref<Scene>                 m_Scene;
 		SceneRendererSpecification m_Specification;
-		Ref<RenderCommandBuffer>   m_CommandBuffer;       // render commands
+		Ref<RenderCommandBuffer>   m_CommandBuffer;       // render commands (graphics queue)
 		Ref<RenderCommandBuffer>   m_UploadCommandBuffer; // UB/SB data uploads
+		Ref<RenderCommandBuffer>   m_ComputeCommandBuffer; // async-compute queue (EnableAsyncCompute)
 		RenderGraph                m_RenderGraph;
 		std::vector<Ref<Image2D>>   m_RenderGraphAliasedImages;
 		bool                       m_RenderTargetAliasingApplied = false;
@@ -1229,6 +1284,7 @@ namespace Lux {
 		Ref<DebugRenderer> m_DebugRenderer;
 		Ref<RenderScene>   m_SubmittedRenderScene;
 		GPUSceneDebugSnapshot m_GPUSceneDebugSnapshot;
+		bool m_GPUSceneDebugSnapshotRequested = false;
 		std::function<void()> m_WorldOverlayRenderCallback;
 
 		glm::mat4 m_ScreenSpaceProjectionMatrix{ 1.0f };
@@ -1500,6 +1556,45 @@ namespace Lux {
 		uint32_t m_PersistentGPUSceneUploadedInstanceCount = 0;
 		uint32_t m_PersistentMaterialUploadedCount = 0;
 		uint32_t m_GPUMaterialTextureBoundCount = 0;
+
+		// Render-thread-only scratch for RT_DrawStaticMesh push constants. RT_*
+		// helpers execute serially inside render-command execution (only lambda
+		// construction happens on the main thread), so no synchronization is needed.
+		// Never touch this from the main thread.
+		std::vector<uint8_t>                           m_RTPushConstantScratch;
+
+		// Bindless texture resolve: slots waiting on streaming textures retry per
+		// frame; everything else re-resolves only on table changes or the
+		// periodic safety sweep (hot-reload coverage).
+		std::vector<uint32_t> m_PendingTextureResolveSlots;
+		std::vector<uint32_t> m_PendingTextureResolveScratch;
+		uint32_t m_TextureResolveSweepCountdown = 0;
+		uint32_t m_MissingTextureDescriptorCount = 0;
+
+		// Dirty-range GPUScene uploads: each sync's dirty ranges replay once per
+		// frame-in-flight buffer ("epochs"); full uploads run on scene switch /
+		// instance-count growth (high-water tracked, which also covers buffer
+		// resizes) and start above any realistic frames-in-flight count.
+		struct GPUSceneRangeUploadEpoch
+		{
+			std::vector<GPUSceneDirtyRange> Ranges;
+			uint32_t RemainingUploads = 0;
+		};
+		std::vector<GPUSceneRangeUploadEpoch> m_PendingGPUSceneRangeUploads;
+		uint32_t    m_GPUSceneFullUploadsRemaining = 8;
+		const void* m_LastGPUSceneKey = nullptr;
+		uint32_t    m_LastGPUSceneInstanceCount = 0;
+		uint32_t    m_GPUSceneMaxTotalInstancesSeen = 0;
+
+		// Change tracking for the texture/material table scratches above: the copy
+		// from the submitted scene is skipped when the same scene instance is
+		// submitted with an unchanged version. Version sentinels start at max so
+		// the first frame always copies.
+		const void* m_ScratchTextureSceneKey = nullptr;
+		uint64_t    m_ScratchTextureSceneVersion = std::numeric_limits<uint64_t>::max();
+		uint32_t    m_ScratchPersistentTextureCount = 0;
+		const void* m_ScratchMaterialSceneKey = nullptr;
+		uint64_t    m_ScratchMaterialSceneVersion = std::numeric_limits<uint64_t>::max();
 
 		// Shadow-specific per-cascade transform tracking.
 		// Index 0 is the only cascade we use currently.
