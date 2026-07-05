@@ -35,12 +35,14 @@ namespace Lux {
 			m_PipelineStatisticsQueryResults.emplace_back();
 		}
 
-		const RendererConfig& rendererConfig = Renderer::GetConfig();
-		m_TimerQueriesEnabled = enableQueries && ShouldCollectBasicRendererDiagnostics(rendererConfig);
-		m_PipelineStatisticsEnabled = enableQueries && ShouldCollectFullRendererDiagnostics(rendererConfig);
-		m_DebugMarkersEnabled = ShouldCollectFullRendererDiagnostics(rendererConfig);
+#ifdef LUX_DIST
+		// GPU timer/statistics queries exist to feed the editor's profiling
+		// panels; shipping builds skip the per-frame query begin/end/poll cost.
+		enableQueries = false;
+#endif
+		m_QueryEnabled = enableQueries;
 
-		if (m_TimerQueriesEnabled)
+		if (enableQueries)
 		{
 			for (uint32_t i = 0; i < count; i++)
 			{
@@ -49,11 +51,9 @@ namespace Lux {
 				m_NamedTimerQueries.emplace_back();
 				m_GPUWorkTimes.push_back(0.f);
 			}
-		}
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES
-		if (m_PipelineStatisticsEnabled)
-		{
+
 			vk::QueryPoolCreateInfo queryPoolCreateInfo = {};
 
 			// Pipeline statistics queries
@@ -75,6 +75,7 @@ namespace Lux {
 			for (auto& pipelineStatisticsQueryPool : m_PipelineStatisticsQueryPools)
 			{
 				vk::QueryPool qp;
+				//@TODO we are not destroying these cleanly
 				auto r = vkdevice.createQueryPool(&queryPoolCreateInfo, nullptr, &qp);
 
 				pipelineStatisticsQueryPool = qp;
@@ -84,23 +85,8 @@ namespace Lux {
 			vk::QueryPoolCreateInfo timestampQueryPoolCreateInfo = {};
 			timestampQueryPoolCreateInfo.queryType = vk::QueryType::eTimestamp;
 			timestampQueryPoolCreateInfo.queryCount = 2; // Begin and end timestamps
-		}
 #endif
-	}
-
-	RenderCommandBuffer::~RenderCommandBuffer()
-	{
-#ifdef CMD_BUFFER_USE_VULKAN_QUERIES
-		if (m_PipelineStatisticsQueryPools.empty())
-			return;
-
-		vk::Device vkdevice = vk::Device(Application::GetGraphicsDevice()->getNativeObject(nvrhi::ObjectTypes::VK_Device));
-		for (VkQueryPool queryPool : m_PipelineStatisticsQueryPools)
-		{
-			if (queryPool != VK_NULL_HANDLE)
-				vkdevice.destroyQueryPool(queryPool);
 		}
-#endif
 	}
 
 	void RenderCommandBuffer::Begin()
@@ -140,7 +126,7 @@ namespace Lux {
 
 		auto device = Application::GetGraphicsDevice();
 
-		if (m_TimerQueriesEnabled)
+		if (m_QueryEnabled)
 		{
 			m_ActiveTimerQuery = m_TimerQueries[commandBufferIndex];
 
@@ -165,7 +151,7 @@ namespace Lux {
 					if (it != m_NamedTimerQueryResults.end())
 					{
 						//moving average
-						m_NamedTimerQueryResults[name] = timeInMs * 0.1f + it->second * 0.9f;
+						m_NamedTimerQueryResults[name] = timeInMs * 0.1 + it->second * 0.9;
 					}
 					else
 					{
@@ -181,7 +167,7 @@ namespace Lux {
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES
 
-		if (m_PipelineStatisticsEnabled)
+		if (m_QueryEnabled)
 		{
 			vk::CommandBuffer cmd = vk::CommandBuffer(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
 
@@ -197,21 +183,20 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		RT_EndMarker();
 
-		if (m_TimerQueriesEnabled)
+		if (m_QueryEnabled)
 		{
 			m_ActiveCommandBuffer->endTimerQuery(m_ActiveTimerQuery);
-			m_ActiveTimerQuery = nullptr;
-		}
-#ifdef CMD_BUFFER_USE_VULKAN_QUERIES
-		if (m_PipelineStatisticsEnabled)
-		{
+
+
 			uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
 			commandBufferIndex %= m_CommandLists.size();
+#ifdef CMD_BUFFER_USE_VULKAN_QUERIES
 			vk::CommandBuffer cmd = vk::CommandBuffer(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
 
 			cmd.endQuery(m_PipelineStatisticsQueryPools[commandBufferIndex], 0);
-		}
 #endif
+			m_ActiveTimerQuery = nullptr;
+		}
 		m_ActiveCommandBuffer->close();
 
 		m_ActiveCommandBuffer = nullptr;
@@ -236,7 +221,7 @@ namespace Lux {
 
 		auto device = Application::GetGraphicsDevice();
 
-		if (m_TimerQueriesEnabled)
+		if (m_QueryEnabled)
 		{
 			if (m_TimerQueryStack.size() > 0)
 			{
@@ -263,13 +248,11 @@ namespace Lux {
 		UnlockQueue();
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES
-		if (m_PipelineStatisticsEnabled)
+		if (m_QueryEnabled)
 		{
 			vk::Device vkdevice = vk::Device(device->getNativeObject(nvrhi::ObjectTypes::VK_Device));
-			const vk::Result queryResult = vkdevice.getQueryPoolResults(m_PipelineStatisticsQueryPools[commandBufferIndex], 0, 1,
+			vkdevice.getQueryPoolResults(m_PipelineStatisticsQueryPools[commandBufferIndex], 0, 1,
 				sizeof(PipelineStatistics), (void*)&m_PipelineStatisticsQueryResults[commandBufferIndex], vk::DeviceSize(sizeof(uint64_t)), vk::QueryResultFlagBits::e64);
-			if (queryResult != vk::Result::eSuccess && queryResult != vk::Result::eNotReady)
-				LUX_CORE_WARN_TAG("Renderer", "Pipeline statistics query returned {}.", vk::to_string(queryResult));
 		}
 #endif
 	}
@@ -286,9 +269,6 @@ namespace Lux {
 	void RenderCommandBuffer::RT_BeginMarker(const std::string& label)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_DebugMarkersEnabled)
-			return;
-
 		nvrhi::CommandListHandle commandList = GetActive();
 		commandList->beginMarker(label.c_str());
 		Utils::SetVulkanCheckpoint(VkCommandBuffer(commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer)), label);
@@ -297,9 +277,6 @@ namespace Lux {
 	void RenderCommandBuffer::RT_EndMarker()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_DebugMarkersEnabled)
-			return;
-
 		GetActive()->endMarker();
 	}
 
@@ -318,7 +295,7 @@ namespace Lux {
 	float RenderCommandBuffer::GetExecutionGPUTime(uint32_t frameIndex) const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (m_TimerQueriesEnabled)
+		if (m_QueryEnabled)
 		{
 			// Use the frame-level timer query
 			frameIndex %= m_TimerQueries.size();
@@ -340,7 +317,7 @@ namespace Lux {
 	void RenderCommandBuffer::RT_BeginTimerQuery(const std::string& name)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_TimerQueriesEnabled)
+		if (!m_QueryEnabled)
 		{
 			return;
 		}
@@ -374,7 +351,7 @@ namespace Lux {
 	void RenderCommandBuffer::RT_EndTimerQuery()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_TimerQueriesEnabled)
+		if (!m_QueryEnabled)
 		{
 			return;
 		}
@@ -406,7 +383,8 @@ namespace Lux {
 
 	float RenderCommandBuffer::GetTimerQueryTime(const std::string& name) const
 	{
-		if (m_TimerQueriesEnabled)
+		LUX_PROFILE_FUNCTION_AUTO;
+		if (m_QueryEnabled)
 		{
 			auto it = m_NamedTimerQueryResults.find(name);
 			if (it != m_NamedTimerQueryResults.end())

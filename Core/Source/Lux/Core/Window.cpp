@@ -6,7 +6,6 @@
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
 
-#include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RendererAPI.h"
 
 #include "Lux/Platform/Vulkan/VulkanContext.h"
@@ -15,8 +14,6 @@
 
 #include <imgui.h>
 #include "stb_image.h"
-
-#include <algorithm>
 
 #include <GLFW/glfw3.h>
 
@@ -95,11 +92,29 @@ namespace Lux {
 		deviceParams.Decorated = m_Specification.Decorated;
 		deviceParams.swapChainBufferCount = 3;
 		deviceParams.enableRayTracingExtensions = true;
-		deviceParams.maxFramesInFlight = std::max(1u, Renderer::GetConfig().FramesInFlight);
+		// Give nvrhi a dedicated compute queue so render passes can be scheduled
+		// async on it (GTAO / SSR / light-cull / bloom overlapping graphics work).
+		// Desktop NVIDIA always exposes a compute-capable queue family, so device
+		// creation still succeeds; nothing submits async until EnableAsyncCompute.
+		deviceParams.enableComputeQueue = true;
+		// Let the CPU stay one frame ahead of the GPU. The swapchain is triple-buffered
+		// and every per-frame resource (command lists, UBO/SSBO sets, descriptor pools)
+		// is already sized for RendererConfig::FramesInFlight (3), so the CPU and GPU can
+		// safely overlap. At 1 the present loop blocked on full GPU completion every
+		// frame — serializing the two and wasting the triple-buffering. 2 is the
+		// low-latency sweet spot (one frame ahead); 3 trades latency for more throughput.
+		deviceParams.maxFramesInFlight = 2;
 		deviceParams.backBufferWidth = m_Specification.Width;
 		deviceParams.backBufferHeight = m_Specification.Height;
-		deviceParams.vsyncEnabled = m_Specification.VSync;
-		deviceParams.enableDebugRuntime = Renderer::GetConfig().EnableGraphicsValidation;
+		deviceParams.vsyncEnabled = false;
+		// The Khronos validation layer intercepts every Vulkan call — a large CPU tax in
+		// draw-heavy scenes. Keep it only in Debug builds; Release/Dist (where FPS is
+		// measured and shipped) run without it.
+#ifdef LUX_DEBUG
+		deviceParams.enableDebugRuntime = true;
+#else
+		deviceParams.enableDebugRuntime = false;
+#endif
 		// 0xc81ad50e: pre-existing ignored message.
 		// The remaining three are the PreDepth depth/stencil attachment layout-transition
 		// VUIDs (vkCmdBeginRendering depth/stencil + the matching vkQueueSubmit). They are a

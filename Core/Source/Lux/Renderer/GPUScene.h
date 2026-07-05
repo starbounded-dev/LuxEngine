@@ -169,7 +169,6 @@ namespace Lux {
 		std::vector<InstanceKey> m_InstanceKeys;
 		std::vector<GPUSceneInstanceID> m_FreeInstanceIDs;
 		std::unordered_map<InstanceKey, GPUSceneInstanceID, InstanceKeyHasher> m_InstanceIDByKey;
-		std::unordered_map<RenderPrimitiveID, std::vector<GPUSceneInstanceID>> m_InstanceIDsByPrimitive;
 
 		std::vector<GPUSceneInstanceID> m_DirtyInstanceIDs;
 		std::vector<GPUSceneDirtyRange> m_DirtyRanges;

@@ -30,6 +30,7 @@ namespace Lux {
 
 	Ref<StorageBuffer> StorageBufferSet::RT_Get()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t frame = Renderer::RT_GetCurrentFrameIndex();
 		return Get(frame);
 	}

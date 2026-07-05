@@ -96,15 +96,9 @@ vec3 EvaluateFogClusterLights(vec3 samplePosition, vec3 viewDirection, vec2 frag
 
 	// Point lights (unshadowed — no point-light shadow maps in the engine).
 	uvec2 pointRange = s_FogPointLightGrid.Grid[cluster];
-	pointRange.x = min(pointRange.x, CLUSTER_MAX_POINT_INDICES);
-	pointRange.y = (u_PointLights.LightCount > 0u && pointRange.x < CLUSTER_MAX_POINT_INDICES)
-		? min(pointRange.y, CLUSTER_MAX_POINT_INDICES - pointRange.x)
-		: 0u;
 	for (uint i = 0u; i < pointRange.y; ++i)
 	{
 		uint lightIndex = s_FogPointLightIndexList.Indices[pointRange.x + i];
-		if (lightIndex >= u_PointLights.LightCount)
-			continue;
 		PointLight light = u_PointLights.Lights[lightIndex];
 
 		vec3 toLight = light.Position - samplePosition;
@@ -122,15 +116,9 @@ vec3 EvaluateFogClusterLights(vec3 samplePosition, vec3 viewDirection, vec2 frag
 
 	// Spot lights (shadow-sampled against the spot atlas).
 	uvec2 spotRange = s_FogSpotLightGrid.Grid[cluster];
-	spotRange.x = min(spotRange.x, CLUSTER_MAX_SPOT_INDICES);
-	spotRange.y = (u_SpotLights.LightCount > 0u && spotRange.x < CLUSTER_MAX_SPOT_INDICES)
-		? min(spotRange.y, CLUSTER_MAX_SPOT_INDICES - spotRange.x)
-		: 0u;
 	for (uint i = 0u; i < spotRange.y; ++i)
 	{
 		uint lightIndex = s_FogSpotLightIndexList.Indices[spotRange.x + i];
-		if (lightIndex >= u_SpotLights.LightCount)
-			continue;
 		SpotLight light = u_SpotLights.Lights[lightIndex];
 
 		vec3 toLight = light.Position - samplePosition;

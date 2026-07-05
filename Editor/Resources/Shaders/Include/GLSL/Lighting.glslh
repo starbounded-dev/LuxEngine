@@ -49,16 +49,12 @@ void SetupClusterLights(vec3 worldPos)
 	uint cluster = ClusterFlatten(uvec3(xy, zSlice));
 
 	uvec2 pointRange = s_PointLightGrid.Grid[cluster];
-	g_PointLightOffset = min(pointRange.x, CLUSTER_MAX_POINT_INDICES);
-	g_PointLightCount = 0u;
-	if (u_PointLights.LightCount > 0u && g_PointLightOffset < CLUSTER_MAX_POINT_INDICES)
-		g_PointLightCount = min(pointRange.y, CLUSTER_MAX_POINT_INDICES - g_PointLightOffset);
+	g_PointLightOffset = pointRange.x;
+	g_PointLightCount  = pointRange.y;
 
 	uvec2 spotRange = s_SpotLightGrid.Grid[cluster];
-	g_SpotLightOffset = min(spotRange.x, CLUSTER_MAX_SPOT_INDICES);
-	g_SpotLightCount = 0u;
-	if (u_SpotLights.LightCount > 0u && g_SpotLightOffset < CLUSTER_MAX_SPOT_INDICES)
-		g_SpotLightCount = min(spotRange.y, CLUSTER_MAX_SPOT_INDICES - g_SpotLightOffset);
+	g_SpotLightOffset = spotRange.x;
+	g_SpotLightCount  = spotRange.y;
 }
 
 // Used in PBR shader
@@ -118,10 +114,7 @@ int GetPointLightBufferIndex(int i)
 {
 	if (uint(i) >= g_PointLightCount)
 		return -1;
-	uint lightIndex = s_PointLightIndexList.Indices[g_PointLightOffset + uint(i)];
-	if (lightIndex >= u_PointLights.LightCount)
-		return -1;
-	return int(lightIndex);
+	return int(s_PointLightIndexList.Indices[g_PointLightOffset + uint(i)]);
 }
 
 vec3 CalculatePointLights(in vec3 F0, vec3 worldPos)
@@ -179,10 +172,7 @@ int GetSpotLightBufferIndex(int i)
 {
 	if (uint(i) >= g_SpotLightCount)
 		return -1;
-	uint lightIndex = s_SpotLightIndexList.Indices[g_SpotLightOffset + uint(i)];
-	if (lightIndex >= u_SpotLights.LightCount)
-		return -1;
-	return int(lightIndex);
+	return int(s_SpotLightIndexList.Indices[g_SpotLightOffset + uint(i)]);
 }
 
 vec3 CalculateSpotLights(in vec3 F0, vec3 worldPos)

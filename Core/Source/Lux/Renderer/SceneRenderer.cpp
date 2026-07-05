@@ -22,10 +22,438 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include "SceneRendererInternal.h"
 
 namespace Lux {
 
+	// Push-constant layout that every mesh-draw shader in this engine expects.
+	// Must match the push_constant block declared in HazelPBR_Static, PreDepth,
+	// DirShadowMap, SelectedGeometry, and Wireframe shaders.
+	struct MeshDrawPushConstants
+	{
+		uint32_t ObjectIndexBase = 0; // first index into ObjectIndexes SSBO
+		uint32_t LightIndex = 0; // shadow cascade index (0 = single cascade)
+		uint32_t BoneTransformBase = 0; // unused (no animation)
+		uint32_t BoneTransformStride = 0; // unused
+	};
+
+	namespace
+	{
+		uint64_t HashCombine(uint64_t seed, uint64_t value)
+		{
+			return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
+		}
+
+		uint64_t HashFloat(float value)
+		{
+			uint32_t bits = 0;
+			std::memcpy(&bits, &value, sizeof(float));
+			return bits;
+		}
+
+		uint64_t HashVec3(uint64_t seed, const glm::vec3& value)
+		{
+			seed = HashCombine(seed, HashFloat(value.x));
+			seed = HashCombine(seed, HashFloat(value.y));
+			seed = HashCombine(seed, HashFloat(value.z));
+			return seed;
+		}
+
+		uint64_t HashVec4(uint64_t seed, const glm::vec4& value)
+		{
+			seed = HashCombine(seed, HashFloat(value.x));
+			seed = HashCombine(seed, HashFloat(value.y));
+			seed = HashCombine(seed, HashFloat(value.z));
+			seed = HashCombine(seed, HashFloat(value.w));
+			return seed;
+		}
+
+		uint64_t SortKeyFromRef(const void* object)
+		{
+			return reinterpret_cast<uint64_t>(object);
+		}
+
+		constexpr uint32_t TransientGPUSceneInstanceFlag = 0x80000000u;
+		constexpr uint32_t TransientGPUSceneInstanceMask = ~TransientGPUSceneInstanceFlag;
+		constexpr uint32_t TransientRenderMaterialFlag = 0x80000000u;
+		constexpr uint32_t TransientRenderMaterialMask = ~TransientRenderMaterialFlag;
+		constexpr uint32_t TransientGPUTextureFlag = 0x80000000u;
+		constexpr uint32_t TransientGPUTextureMask = ~TransientGPUTextureFlag;
+		constexpr uint32_t MaxGPUTextureSceneTextures = 1024;
+
+		uint32_t EncodeTransientGPUSceneInstanceIndex(uint32_t index)
+		{
+			LUX_CORE_ASSERT((index & TransientGPUSceneInstanceFlag) == 0, "Transient GPUScene instance index overflow");
+			return TransientGPUSceneInstanceFlag | index;
+		}
+
+		bool IsTransientGPUSceneInstanceIndex(uint32_t index)
+		{
+			return (index & TransientGPUSceneInstanceFlag) != 0;
+		}
+
+		uint32_t DecodeTransientGPUSceneInstanceIndex(uint32_t index)
+		{
+			return index & TransientGPUSceneInstanceMask;
+		}
+
+		RenderMaterialID EncodeTransientRenderMaterialIndex(uint32_t index)
+		{
+			LUX_CORE_ASSERT((index & TransientRenderMaterialFlag) == 0, "Transient material index overflow");
+			return TransientRenderMaterialFlag | index;
+		}
+
+		bool IsTransientRenderMaterialID(RenderMaterialID materialID)
+		{
+			return (materialID & TransientRenderMaterialFlag) != 0;
+		}
+
+		uint32_t DecodeTransientRenderMaterialIndex(RenderMaterialID materialID)
+		{
+			return materialID & TransientRenderMaterialMask;
+		}
+
+		GPUTextureIndex EncodeTransientGPUTextureIndex(uint32_t index)
+		{
+			LUX_CORE_ASSERT((index & TransientGPUTextureFlag) == 0, "Transient GPU texture index overflow");
+			return TransientGPUTextureFlag | index;
+		}
+
+		bool IsTransientGPUTextureIndex(GPUTextureIndex textureIndex)
+		{
+			return (textureIndex & TransientGPUTextureFlag) != 0;
+		}
+
+		uint32_t DecodeTransientGPUTextureIndex(GPUTextureIndex textureIndex)
+		{
+			return textureIndex & TransientGPUTextureMask;
+		}
+
+		void WriteGPUSceneTransformRows(glm::vec4 (&rows)[3], const glm::mat4& transform)
+		{
+			rows[0] = { transform[0][0], transform[1][0], transform[2][0], transform[3][0] };
+			rows[1] = { transform[0][1], transform[1][1], transform[2][1], transform[3][1] };
+			rows[2] = { transform[0][2], transform[1][2], transform[2][2], transform[3][2] };
+		}
+
+		GPUSceneInstanceData BuildTransientGPUSceneInstanceData(const glm::mat4& transform, const glm::vec4& boundsSphere, uint32_t submeshIndex, RenderMaterialID materialID)
+		{
+			GPUSceneInstanceData data;
+			WriteGPUSceneTransformRows(data.TransformRows, transform);
+			WriteGPUSceneTransformRows(data.PreviousTransformRows, transform);
+			data.BoundsSphere = boundsSphere;
+			data.Metadata = glm::uvec4(InvalidRenderPrimitiveID, submeshIndex, materialID, (uint32_t)GPUSceneInstanceFlags::Visible);
+			return data;
+		}
+
+		bool IsFiniteVec4(const glm::vec4& value)
+		{
+			return std::isfinite(value.x)
+				&& std::isfinite(value.y)
+				&& std::isfinite(value.z)
+				&& std::isfinite(value.w);
+		}
+
+		bool IsFiniteTransformRows(const glm::vec4 (&rows)[3])
+		{
+			return IsFiniteVec4(rows[0]) && IsFiniteVec4(rows[1]) && IsFiniteVec4(rows[2]);
+		}
+
+		uint32_t ResolveGPUSceneDebugMode(SceneRenderer::DebugViewMode mode)
+		{
+			switch (mode)
+			{
+				case SceneRenderer::DebugViewMode::GPUScenePrimitiveID: return 1;
+				case SceneRenderer::DebugViewMode::GPUSceneMaterialIndex: return 2;
+				case SceneRenderer::DebugViewMode::GPUSceneObjectID: return 3;
+				case SceneRenderer::DebugViewMode::GPUSceneBounds: return 4;
+				case SceneRenderer::DebugViewMode::GPUSceneMotion: return 5;
+				case SceneRenderer::DebugViewMode::GPUMaterialTextureValidity: return 6;
+				case SceneRenderer::DebugViewMode::GPUMaterialAlphaMode: return 7;
+				case SceneRenderer::DebugViewMode::GPUMaterialRoughness: return 8;
+				case SceneRenderer::DebugViewMode::GPUMaterialMetalness: return 9;
+				case SceneRenderer::DebugViewMode::GPUMaterialMissing: return 10;
+				default: return 0;
+			}
+		}
+
+		uint32_t ResolveGBufferDebugMode(SceneRenderer::DebugViewMode mode)
+		{
+			switch (mode)
+			{
+				case SceneRenderer::DebugViewMode::GBufferBaseColor: return 1;
+				case SceneRenderer::DebugViewMode::GBufferNormal: return 2;
+				case SceneRenderer::DebugViewMode::GBufferMetalRough: return 3;
+				case SceneRenderer::DebugViewMode::GBufferMaterialID:
+				case SceneRenderer::DebugViewMode::GPUSceneMaterialIndex: return 4;
+				case SceneRenderer::DebugViewMode::GBufferObjectID:
+				case SceneRenderer::DebugViewMode::GPUScenePrimitiveID:
+				case SceneRenderer::DebugViewMode::GPUSceneObjectID: return 5;
+				case SceneRenderer::DebugViewMode::DeferredLighting: return 6;
+				case SceneRenderer::DebugViewMode::GPUMaterialTextureValidity: return 7;
+				case SceneRenderer::DebugViewMode::GPUMaterialAlphaMode: return 8;
+				case SceneRenderer::DebugViewMode::GPUMaterialRoughness: return 9;
+				case SceneRenderer::DebugViewMode::GPUMaterialMetalness: return 10;
+				case SceneRenderer::DebugViewMode::GPUMaterialMissing: return 11;
+				default: return 0;
+			}
+		}
+
+		bool UsesGBufferDebugPass(SceneRenderer::DebugViewMode mode)
+		{
+			return ResolveGBufferDebugMode(mode) != 0;
+		}
+
+		glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback)
+		{
+			const float lengthSquared = glm::dot(value, value);
+			if (lengthSquared <= 0.000001f)
+				return fallback;
+
+			return value * glm::inversesqrt(lengthSquared);
+		}
+
+		Ref<TextureCube> GetEnvironmentRadianceMap(const Ref<Environment>& environment)
+		{
+			return environment && environment->RadianceMap ? environment->RadianceMap : Renderer::GetBlackCubeTexture();
+		}
+
+		Ref<TextureCube> GetEnvironmentIrradianceMap(const Ref<Environment>& environment)
+		{
+			return environment && environment->IrradianceMap ? environment->IrradianceMap : Renderer::GetBlackCubeTexture();
+		}
+
+		AssetHandle GetStaticMeshKeyHandle(const Ref<StaticMesh>& staticMesh)
+		{
+			if (!staticMesh)
+				return 0;
+
+			return staticMesh->Handle ? staticMesh->Handle : staticMesh->GetMeshSource();
+		}
+
+		glm::vec4 CalculateWorldBoundsSphere(const AABB& localBounds, const glm::mat4& transform)
+		{
+			const BoundingSphere localSphere = localBounds.ToBoundingSphere();
+			const glm::vec3 worldCenter = glm::vec3(transform * glm::vec4(localSphere.Center, 1.0f));
+			const float maxScale = glm::max(
+				glm::length(glm::vec3(transform[0])),
+				glm::max(glm::length(glm::vec3(transform[1])), glm::length(glm::vec3(transform[2]))));
+
+			return { worldCenter, localSphere.Radius * maxScale };
+		}
+
+		uint32_t AlignUp(uint32_t value, uint32_t alignment)
+		{
+			if (alignment == 0)
+				return value;
+
+			return ((value + alignment - 1u) / alignment) * alignment;
+		}
+
+		uint32_t DivideRoundUp(uint32_t value, uint32_t divisor)
+		{
+			return divisor == 0 ? value : (value + divisor - 1u) / divisor;
+		}
+
+		glm::uvec2 DivideRoundUp(const glm::uvec2& value, uint32_t divisor)
+		{
+			return { DivideRoundUp(value.x, divisor), DivideRoundUp(value.y, divisor) };
+		}
+
+		SceneRendererOptions::RenderResolutionScaleMode SanitizeRenderResolutionScaleMode(uint32_t mode)
+		{
+			if (mode > static_cast<uint32_t>(SceneRendererOptions::RenderResolutionScaleMode::Dynamic))
+				return SceneRendererOptions::RenderResolutionScaleMode::Native;
+
+			return static_cast<SceneRendererOptions::RenderResolutionScaleMode>(mode);
+		}
+
+		QualityPreset SanitizeQualityPreset(uint32_t preset)
+		{
+			if (preset > static_cast<uint32_t>(QualityPreset::Cinematic))
+				return QualityPreset::Medium;
+
+			return static_cast<QualityPreset>(preset);
+		}
+
+		SceneRendererOptions::EffectResolutionScale SanitizeEffectResolutionScale(uint32_t scale)
+		{
+			switch (scale)
+			{
+				case static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Full):
+				case static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Half):
+				case static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Quarter):
+					return static_cast<SceneRendererOptions::EffectResolutionScale>(scale);
+				default:
+					return SceneRendererOptions::EffectResolutionScale::Half;
+			}
+		}
+
+		uint32_t SanitizeCloudRenderScale(uint32_t scale)
+		{
+			switch (scale)
+			{
+				case static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Full):
+				case static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Half):
+				case static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Quarter):
+					return scale;
+				default:
+					return static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Half);
+			}
+		}
+
+		SceneRendererOptions::EffectResolutionScale CloudRenderScaleToEffectScale(uint32_t scale)
+		{
+			return static_cast<SceneRendererOptions::EffectResolutionScale>(SanitizeCloudRenderScale(scale));
+		}
+
+		template<typename TInput>
+		void SetRenderPassInputIfValid(Ref<RenderPass> renderPass, std::string_view name, TInput&& input)
+		{
+			if (renderPass && renderPass->IsInputValid(name))
+				renderPass->SetInput(name, std::forward<TInput>(input));
+		}
+
+		SceneRendererOptions::ShadowResolutionTier SanitizeShadowResolutionTier(uint32_t tier)
+		{
+			if (tier > static_cast<uint32_t>(SceneRendererOptions::ShadowResolutionTier::Tier_8K))
+				return SceneRendererOptions::ShadowResolutionTier::Tier_4K;
+
+			return static_cast<SceneRendererOptions::ShadowResolutionTier>(tier);
+		}
+
+		SceneRendererOptions::SSRQualityPreset SanitizeSSRQualityPreset(uint32_t quality)
+		{
+			switch (quality)
+			{
+				case static_cast<uint32_t>(SceneRendererOptions::SSRQualityPreset::Full):
+				case static_cast<uint32_t>(SceneRendererOptions::SSRQualityPreset::HalfBilateral):
+				case static_cast<uint32_t>(SceneRendererOptions::SSRQualityPreset::QuarterDebug):
+					return static_cast<SceneRendererOptions::SSRQualityPreset>(quality);
+				default:
+					return SceneRendererOptions::SSRQualityPreset::HalfBilateral;
+			}
+		}
+
+		SceneRendererOptions::EffectResolutionScale GetSSRQualityResolutionScale(SceneRendererOptions::SSRQualityPreset quality)
+		{
+			switch (SanitizeSSRQualityPreset(static_cast<uint32_t>(quality)))
+			{
+				case SceneRendererOptions::SSRQualityPreset::Full:
+					return SceneRendererOptions::EffectResolutionScale::Full;
+				case SceneRendererOptions::SSRQualityPreset::QuarterDebug:
+					return SceneRendererOptions::EffectResolutionScale::Quarter;
+				case SceneRendererOptions::SSRQualityPreset::HalfBilateral:
+				default:
+					return SceneRendererOptions::EffectResolutionScale::Half;
+			}
+		}
+
+		bool UsesSSRBilateralUpscale(SceneRendererOptions::SSRQualityPreset quality)
+		{
+			return SanitizeSSRQualityPreset(static_cast<uint32_t>(quality)) != SceneRendererOptions::SSRQualityPreset::Full;
+		}
+
+		uint32_t GetEffectResolutionDivisor(SceneRendererOptions::EffectResolutionScale scale)
+		{
+			return static_cast<uint32_t>(SanitizeEffectResolutionScale(static_cast<uint32_t>(scale)));
+		}
+
+		glm::uvec2 GetScaledExtent(const glm::uvec2& fullExtent, SceneRendererOptions::EffectResolutionScale scale)
+		{
+			const uint32_t divisor = GetEffectResolutionDivisor(scale);
+			const glm::uvec2 extent = DivideRoundUp(fullExtent, divisor);
+			return { glm::max(1u, extent.x), glm::max(1u, extent.y) };
+		}
+
+		uint32_t ResolveShadowResolutionTier(uint32_t tier)
+		{
+			constexpr std::array<uint32_t, 4> resolutions = { 1024u, 2048u, 4096u, 8192u };
+			return resolutions[glm::min(tier, (uint32_t)resolutions.size() - 1u)];
+		}
+
+		float ResolveShadowDistance(float perLightDistance, float fallbackDistance)
+		{
+			const float resolved = perLightDistance > 0.0f ? perLightDistance : fallbackDistance;
+			return glm::max(0.1f, resolved);
+		}
+
+		float CalculateLightLuminance(const glm::vec3& radiance)
+		{
+			return glm::dot(glm::max(radiance, glm::vec3(0.0f)), glm::vec3(0.2126f, 0.7152f, 0.0722f));
+		}
+
+		constexpr std::array<const char*, 29> s_ProfiledSceneRendererPasses = {
+			"ShadowMapPass",
+			"SpotShadowMapPass",
+			"MeshCullingPass",
+			"PreDepthPass",
+			"HZB",
+			"PreIntegration",
+			"ClusterBuildPass",
+			"ClusterLightCullingPass",
+			"SkyboxPass",
+			"SkyAtmospherePass",
+			"VolumetricCloudPass",
+			"VolumetricCloudCompositePass",
+			"AtmosphericFogPass",
+			"GeometryPass",
+			"GTAO",
+			"GTAO-Denoise",
+			"GTAO-Temporal",
+			"AOComposite",
+			"PreConvolution",
+			"SSR",
+			"SSR-Temporal",
+			"SSRComposite",
+			"JumpFlood",
+			"BloomCompute",
+			"CompositePass",
+			"JumpFloodComposite",
+			"GridPass",
+			"Renderer2D",
+			"DOF"
+		};
+
+		uint32_t NextPowerOfTwo(uint32_t value)
+		{
+			if (value <= 1)
+				return 1;
+
+			value--;
+			value |= value >> 1;
+			value |= value >> 2;
+			value |= value >> 4;
+			value |= value >> 8;
+			value |= value >> 16;
+			return value + 1;
+		}
+
+		AssetHandle ResolveStaticMeshMaterialHandle(
+			const Ref<MaterialTable>& materialTable,
+			const Ref<StaticMesh>& staticMesh,
+			const Ref<MeshSource>& meshSource,
+			uint32_t materialIndex)
+		{
+			if (materialTable)
+			{
+				if (materialTable->HasMaterial(materialIndex))
+					return materialTable->GetMaterial(materialIndex);
+
+				const auto& overrides = materialTable->GetMaterials();
+				if (overrides.size() == 1 && materialTable->HasMaterial(0))
+					return materialTable->GetMaterial(0);
+			}
+
+			Ref<MaterialTable> staticMeshMaterials = staticMesh ? staticMesh->GetMaterials() : nullptr;
+			if (staticMeshMaterials && staticMeshMaterials->HasMaterial(materialIndex))
+				return staticMeshMaterials->GetMaterial(materialIndex);
+
+			if (meshSource && materialIndex < meshSource->GetMaterials().size())
+				return meshSource->GetMaterials()[materialIndex];
+
+			return 0;
+		}
+	}
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Construction / destruction
@@ -53,32 +481,6 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(!m_Active, "Cannot change scene while rendering");
 		m_Scene = scene;
-		InvalidateShadowMapCaches();
-		InvalidateTemporalHistory();
-	}
-
-	void SceneRenderer::InvalidateShadowMapCaches()
-	{
-		m_ShadowCascadeCacheValid = false;
-		m_DirectionalShadowMapCacheValid = false;
-		m_DirectionalShadowMapNeedsRender = true;
-		m_SpotShadowMapCacheValid = false;
-		m_SpotShadowMapNeedsRender = true;
-		m_LastShadowCasterHash = 0;
-		m_LastSpotShadowStateHash = 0;
-	}
-
-	void SceneRenderer::InvalidateTemporalHistory()
-	{
-		m_TemporalHistoryValid = false;
-		m_CloudHistoryValid = false;
-		m_GTAOHistoryIndex = 0;
-		m_SSRHistoryIndex = 0;
-		m_TAAJitterIndex = 0;
-		m_CurrentJitter = { 0.0f, 0.0f };
-		m_PreviousJitter = { 0.0f, 0.0f };
-		m_CurrentViewProjection = glm::mat4(1.0f);
-		m_PreviousViewProjection = glm::mat4(1.0f);
 	}
 
 	void SceneRenderer::InitOptions()
@@ -152,9 +554,8 @@ namespace Lux {
 		m_Options.GTAOBentNormals = false;
 		m_Options.EnableGTAOTemporalAccumulation = false;
 		m_Options.GTAOTemporalBlend = 0.85f;
-		m_Options.EnableJumpFlood = true;
-		m_Options.EnableTAA = false;
-		m_Options.GTAODenoisePasses = 4;
+		// 2 denoise passes as the realtime baseline (Ultra/Cinematic raise to 6/8).
+		m_Options.GTAODenoisePasses = 2;
 		m_Options.AOShadowTolerance = 1.0f;
 		m_BloomSettings.Enabled = true;
 		m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
@@ -163,7 +564,6 @@ namespace Lux {
 		m_BloomSettings.UpsampleScale = 1.0f;
 		m_BloomSettings.Intensity = 1.0f;
 		m_BloomSettings.DirtIntensity = 1.0f;
-		m_DOFSettings.Enabled = false;
 		m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 		m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
 		m_Options.DynamicResolutionMinScale = 0.5f;
@@ -187,7 +587,6 @@ namespace Lux {
 		case QualityPreset::Low:
 			m_Options.EnableSSR = false;
 			m_Options.EnableGTAO = false;
-			m_Options.EnableJumpFlood = false;
 			m_Options.GTAODenoisePasses = 0;
 			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Quarter;
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale50;
@@ -202,7 +601,6 @@ namespace Lux {
 			m_SSROptions.MaxSteps = 32;
 			break;
 		case QualityPreset::Medium:
-			m_Options.EnableJumpFlood = false;
 			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
 			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
@@ -279,6 +677,16 @@ namespace Lux {
 		m_SSROptions.TemporalAccumulation = m_Options.EnableSSRTemporalAccumulation ? 1u : 0u;
 		m_SSROptions.TemporalBlend = m_Options.SSRTemporalBlend;
 		UpdateGTAOData();
+	}
+
+	void SceneRenderer::UpdateGTAOData()
+	{
+		const bool gtaoEnabled = m_Options.EnableGTAO;
+		Renderer::SetGlobalMacroInShaders("__HZ_AO_METHOD", std::to_string((int)ShaderDef::GetAOMethod(gtaoEnabled)));
+		Renderer::SetGlobalMacroInShaders("__HZ_GTAO_COMPUTE_BENT_NORMALS", m_Options.GTAOBentNormals ? "1" : "0");
+
+		m_Options.ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
+		Renderer::SetGlobalMacroInShaders("__HZ_REFLECTION_OCCLUSION_METHOD", std::to_string((int)m_Options.ReflectionOcclusionMethod));
 	}
 
 	void SceneRenderer::ApplyProjectSettings(const ProjectSceneRendererSettings& settings)
@@ -1869,6 +2277,89 @@ namespace Lux {
 		return true;
 	}
 
+	void SceneRenderer::ResizeBloomResources()
+	{
+		if (!m_BloomComputePass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
+			return;
+
+		glm::uvec2 bloomSize = GetScaledExtent({ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) }, m_BloomSettings.ResolutionScale);
+		bloomSize.x = glm::max(m_BloomComputeWorkgroupSize, AlignUp(bloomSize.x, m_BloomComputeWorkgroupSize));
+		bloomSize.y = glm::max(m_BloomComputeWorkgroupSize, AlignUp(bloomSize.y, m_BloomComputeWorkgroupSize));
+
+		ImageViewSpecification imageViewSpec;
+		imageViewSpec.MipCount = 1;
+
+		for (uint32_t i = 0; i < (uint32_t)m_BloomComputeTextures.size(); i++)
+		{
+			auto& bloomTexture = m_BloomComputeTextures[i];
+			bloomTexture.Texture->Resize(bloomSize);
+
+			const uint32_t mipCount = bloomTexture.Texture->GetMipLevelCount();
+			bloomTexture.ImageViews.resize(mipCount);
+
+			imageViewSpec.Image = bloomTexture.Texture->GetImage();
+			imageViewSpec.DebugName = "BloomCompute-" + std::to_string(i);
+
+			for (uint32_t mip = 0; mip < mipCount; mip++)
+			{
+				imageViewSpec.Mip = mip;
+				bloomTexture.ImageViews[mip] = ImageView::Create(imageViewSpec);
+			}
+		}
+	}
+
+	void SceneRenderer::CreateBloomPassMaterials()
+	{
+		if (!m_BloomComputePass || !GetSceneColorOutput() || !m_BloomComputeTextures[0].Texture)
+			return;
+
+		Ref<Image2D> inputImage = GetSceneColorOutput();
+		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
+		if (mipCount < 4)
+			return;
+
+		const uint32_t mips = mipCount - 2;
+
+		m_BloomComputeMaterials.PrefilterMaterial = Material::Create(m_BloomComputePass->GetShader(), "Bloom-Prefilter");
+		m_BloomComputeMaterials.PrefilterMaterial->Set("o_Image", m_BloomComputeTextures[0].ImageViews[0]);
+		m_BloomComputeMaterials.PrefilterMaterial->Set("u_Texture", inputImage);
+		m_BloomComputeMaterials.PrefilterMaterial->Set("u_BloomTexture", inputImage);
+
+		m_BloomComputeMaterials.DownsampleAMaterials.clear();
+		m_BloomComputeMaterials.DownsampleBMaterials.clear();
+		m_BloomComputeMaterials.DownsampleAMaterials.resize(mips);
+		m_BloomComputeMaterials.DownsampleBMaterials.resize(mips);
+
+		for (uint32_t i = 1; i < mips; i++)
+		{
+			m_BloomComputeMaterials.DownsampleAMaterials[i] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-DownsampleA");
+			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("o_Image", m_BloomComputeTextures[1].ImageViews[i]);
+			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
+			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("u_BloomTexture", inputImage);
+
+			m_BloomComputeMaterials.DownsampleBMaterials[i] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-DownsampleB");
+			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("o_Image", m_BloomComputeTextures[0].ImageViews[i]);
+			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("u_Texture", m_BloomComputeTextures[1].Texture);
+			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("u_BloomTexture", inputImage);
+		}
+
+		m_BloomComputeMaterials.FirstUpsampleMaterial = Material::Create(m_BloomComputePass->GetShader(), "Bloom-FirstUpsample");
+		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mips - 2]);
+		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("u_Texture", m_BloomComputeTextures[0].Texture);
+		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("u_BloomTexture", inputImage);
+
+		m_BloomComputeMaterials.UpsampleMaterials.clear();
+		m_BloomComputeMaterials.UpsampleMaterials.resize(mips - 2);
+
+		for (int32_t mip = (int32_t)mips - 3; mip >= 0; mip--)
+		{
+			m_BloomComputeMaterials.UpsampleMaterials[mip] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-Upsample");
+			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mip]);
+			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
+			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_BloomTexture", m_BloomComputeTextures[2].ImageViews[mip + 1]);
+		}
+	}
+
 	void SceneRenderer::ResizeScreenSpaceEffectResources()
 	{
 		if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
@@ -2112,6 +2603,24 @@ namespace Lux {
 		}
 	}
 
+	void SceneRenderer::CreatePreConvolutionPassMaterials()
+	{
+		if (!m_PreConvolutionComputePass || !m_SkyboxPass || !m_PreConvolutedTexture.Texture)
+			return;
+
+		const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
+		m_PreConvolutionMaterials.clear();
+		m_PreConvolutionMaterials.resize(mipCount);
+
+		for (uint32_t mip = 0; mip < mipCount; mip++)
+		{
+			Ref<Material> material = Material::Create(m_PreConvolutionComputePass->GetShader(), "Pre-Convolution");
+			material->Set("o_Image", m_PreConvolutedTexture.ImageViews[mip]);
+			material->Set("u_Input", mip == 0 ? GetSceneColorOutput() : m_PreConvolutedTexture.ImageViews[mip - 1]);
+			m_PreConvolutionMaterials[mip] = material;
+		}
+	}
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// Per-frame scene data setters (call between BeginScene and EndScene)
 	// ─────────────────────────────────────────────────────────────────────────
@@ -2212,6 +2721,29 @@ namespace Lux {
 	void SceneRenderer::RefreshFrameEnvironment()
 	{
 		m_FrameEnvironment = ResolveFrameEnvironment();
+	}
+
+	SceneRenderer::RendererFrameDebugSnapshot SceneRenderer::GetRendererFrameDebugSnapshot() const
+	{
+		const ResolvedFrameEnvironment frame = ResolveFrameEnvironment();
+
+		RendererFrameDebugSnapshot snapshot;
+		snapshot.DeferredPath = frame.DeferredPath;
+		snapshot.HasRenderScene = m_SubmittedRenderScene != nullptr;
+		snapshot.HasRenderVolumeEnvironment = frame.HasRenderVolumeEnvironment;
+		snapshot.SkyAtmosphereEnabled = frame.SkyAtmosphereEnabled;
+		snapshot.VolumetricCloudsEnabled = frame.VolumetricCloudsEnabled;
+		snapshot.HeightFogEnabled = frame.HeightFogEnabled;
+		snapshot.LocalFogEnabled = frame.LocalFogEnabled;
+		snapshot.BloomEnabled = frame.BloomEnabled;
+		snapshot.DOFEnabled = frame.DOFEnabled;
+		snapshot.ActiveVolumeCount = frame.Volumes.ActiveVolumeCount;
+		snapshot.ActivePostProcessVolumeCount = frame.Volumes.ActivePostProcessVolumeCount;
+		snapshot.ActiveAtmosphereVolumeCount = frame.Volumes.ActiveAtmosphereVolumeCount;
+		snapshot.LocalFogVolumeCount = frame.Volumes.LocalFogVolumeCount;
+		snapshot.CulledLocalFogVolumeCount = frame.Volumes.CulledLocalFogVolumeCount;
+		snapshot.DroppedLocalFogVolumeCount = frame.Volumes.DroppedLocalFogVolumeCount;
+		return snapshot;
 	}
 
 	void SceneRenderer::CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection, float maxShadowDistance) const
@@ -2324,6 +2856,315 @@ namespace Lux {
 	// ─────────────────────────────────────────────────────────────────────────
 	// BeginScene
 	// ─────────────────────────────────────────────────────────────────────────
+
+	SceneRenderer::ScopedCPUProfile::ScopedCPUProfile(SceneRenderer& renderer, const char* name)
+		: Renderer(renderer), Name(name)
+	{
+#if LUX_ENABLE_PROFILING
+		// Open a Tracy zone whose name is the pass name. Because every SceneRenderer
+		// pass already wraps itself in a ScopedCPUProfile, this single chokepoint makes
+		// the entire render pipeline visible in a Tracy capture (no per-pass edits).
+		const uint64_t srcloc = ___tracy_alloc_srcloc_name(
+			(uint32_t)__LINE__, __FILE__, sizeof(__FILE__) - 1,
+			"SceneRenderer::Pass", 19,
+			name, std::strlen(name), 0);
+		ProfileZone = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+#endif
+	}
+
+	SceneRenderer::ScopedCPUProfile::~ScopedCPUProfile()
+	{
+#if LUX_ENABLE_PROFILING
+		___tracy_emit_zone_end(ProfileZone);
+#endif
+		Renderer.RecordCPUProfile(Name, ProfileTimer.ElapsedMillis());
+	}
+
+	SceneRenderer::PassProfile& SceneRenderer::GetOrCreatePassProfile(const char* name)
+	{
+		for (PassProfile& profile : m_Statistics.PassProfiles)
+		{
+			if (std::strcmp(profile.Name, name) == 0)
+				return profile;
+		}
+
+		PassProfile& profile = m_Statistics.PassProfiles.emplace_back();
+		profile.Name = name;
+		return profile;
+	}
+
+	void SceneRenderer::ResetProfilingData()
+	{
+		if (m_Statistics.PassProfiles.size() != s_ProfiledSceneRendererPasses.size())
+		{
+			m_Statistics.PassProfiles.clear();
+			m_Statistics.PassProfiles.reserve(s_ProfiledSceneRendererPasses.size());
+			for (const char* passName : s_ProfiledSceneRendererPasses)
+			{
+				PassProfile& profile = m_Statistics.PassProfiles.emplace_back();
+				profile.Name = passName;
+			}
+		}
+
+		m_Statistics.TotalCPUTime = 0.0f;
+		for (PassProfile& profile : m_Statistics.PassProfiles)
+		{
+			profile.CPUTime = 0.0f;
+			profile.GPUTime = 0.0f;
+			profile.Active = false;
+			profile.GPUActive = false;
+		}
+	}
+
+	void SceneRenderer::RecordCPUProfile(const char* name, float cpuTime)
+	{
+		PassProfile& profile = GetOrCreatePassProfile(name);
+		profile.CPUTime += cpuTime;
+		profile.Active = true;
+		m_Statistics.TotalCPUTime += cpuTime;
+	}
+
+	void SceneRenderer::BeginProfiledGPU(const char* name)
+	{
+		PassProfile& profile = GetOrCreatePassProfile(name);
+		profile.GPUActive = true;
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, name);
+	}
+
+	void SceneRenderer::EndProfiledGPU()
+	{
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::UpdateGPUProfileTimes()
+	{
+		if (!m_CommandBuffer)
+			return;
+
+		for (PassProfile& profile : m_Statistics.PassProfiles)
+		{
+			if (!profile.GPUActive)
+				continue;
+
+			profile.GPUTime = m_CommandBuffer->GetTimerQueryTime(profile.Name);
+		}
+	}
+
+	void SceneRenderer::UpdateMemoryStatistics()
+	{
+		// Memory statistics are display-only (Render Stats / Renderer Debugger panels) and
+		// are gathered with a full VMA allocation walk (vmaCalculateStats) plus a render-graph
+		// alias-plan pass — far too heavy to run every frame for numbers that change slowly.
+		// Refresh a few times per second and keep the previous values in between.
+		if (m_MemoryStatsCountdown > 0)
+		{
+			m_MemoryStatsCountdown--;
+			return;
+		}
+		m_MemoryStatsCountdown = MemoryStatsRefreshFrameInterval;
+
+		auto& memoryStats = m_Statistics.MemoryStats;
+		memoryStats = {};
+
+		const GPUMemoryStats gpuStats = Renderer::GetGPUMemoryStats();
+		memoryStats.BudgetBytes = gpuStats.TotalAvailable;
+		memoryStats.UsedBytes = gpuStats.Used;
+		memoryStats.BufferBytes = gpuStats.BufferAllocationSize;
+		memoryStats.BufferCount = static_cast<uint32_t>(gpuStats.BufferAllocationCount);
+
+		uint64_t estimatedBufferBytes = 0;
+		uint32_t estimatedBufferCount = 0;
+		auto addUniformBufferSet = [&](const Ref<UniformBufferSet>& bufferSet)
+			{
+				if (!bufferSet)
+					return;
+
+				estimatedBufferBytes += bufferSet->GetAllocatedSize();
+				estimatedBufferCount += bufferSet->GetBufferCount();
+			};
+		auto addStorageBufferSet = [&](const Ref<StorageBufferSet>& bufferSet)
+			{
+				if (!bufferSet)
+					return;
+
+				estimatedBufferBytes += bufferSet->GetAllocatedSize();
+				estimatedBufferCount += bufferSet->GetBufferCount();
+			};
+
+		addUniformBufferSet(m_UBSCamera);
+		addUniformBufferSet(m_UBSScene);
+		addUniformBufferSet(m_UBSShadow);
+		addUniformBufferSet(m_UBSSpotShadow);
+		addUniformBufferSet(m_UBSRendererData);
+		addUniformBufferSet(m_UBSScreenData);
+		addUniformBufferSet(m_UBSAtmosphere);
+		addUniformBufferSet(m_UBSPointLights);
+		addUniformBufferSet(m_UBSSpotLights);
+		addStorageBufferSet(m_SBSObjectIndexes);
+		addStorageBufferSet(m_SBSVisibleObjectIndexes);
+		addStorageBufferSet(m_SBSGPUSceneInstances);
+		addStorageBufferSet(m_SBSGPUMaterials);
+		addStorageBufferSet(m_SBSMeshCullDrawData);
+		addStorageBufferSet(m_SBSIndirectDrawCommands);
+		addStorageBufferSet(m_SBSClusterAABBs);
+		addStorageBufferSet(m_SBSPointLightGrid);
+		addStorageBufferSet(m_SBSSpotLightGrid);
+		addStorageBufferSet(m_SBSPointLightIndexList);
+		addStorageBufferSet(m_SBSSpotLightIndexList);
+		addStorageBufferSet(m_SBSClusterLightCounter);
+
+		memoryStats.BufferBytes = std::max(memoryStats.BufferBytes, estimatedBufferBytes);
+		memoryStats.BufferCount = std::max(memoryStats.BufferCount, estimatedBufferCount);
+
+		std::unordered_set<uint64_t> renderTargetImageHandles;
+		std::unordered_set<const Framebuffer*> framebuffers;
+
+		auto addRenderTargetImage = [&](const Ref<Image2D>& image)
+			{
+				if (!image || image->GetHandle() == nullptr)
+					return;
+
+				const uint64_t handle = reinterpret_cast<uint64_t>(image->GetHandle().Get());
+				if (!renderTargetImageHandles.insert(handle).second)
+					return;
+
+				memoryStats.RenderTargetCount++;
+				uint64_t imageSize = image->GetGPUMemoryUsage();
+				if (imageSize == 0)
+				{
+					const ImageSpecification& spec = image->GetSpecification();
+					imageSize = Utils::GetImageMemorySize(spec.Format, spec.Width, spec.Height, spec.Mips, spec.Layers);
+				}
+				memoryStats.RenderTargetBytes += imageSize;
+			};
+
+		auto addFramebuffer = [&](const Ref<Framebuffer>& framebuffer)
+			{
+				if (!framebuffer || !framebuffers.insert(framebuffer.Raw()).second)
+					return;
+
+				memoryStats.FramebufferCount++;
+				for (uint32_t attachment = 0; attachment < framebuffer->GetColorAttachmentCount(); attachment++)
+					addRenderTargetImage(framebuffer->GetImage(attachment));
+
+				if (framebuffer->HasDepthAttachment())
+					addRenderTargetImage(framebuffer->GetDepthImage());
+			};
+
+		auto addRenderPass = [&](const Ref<RenderPass>& pass)
+			{
+				if (!pass)
+					return;
+
+				addFramebuffer(pass->GetTargetFramebuffer());
+
+				memoryStats.DescriptorSetCount += pass->GetBindingSetCount();
+			};
+
+		auto addComputePass = [&](const Ref<ComputePass>& pass)
+			{
+				if (!pass)
+					return;
+
+				memoryStats.DescriptorSetCount += pass->GetBindingSetCount();
+			};
+
+		for (const Ref<RenderPass>& pass : m_ShadowMapPasses)
+			addRenderPass(pass);
+		addRenderPass(m_SpotShadowMapPass);
+		addRenderPass(m_PreDepthPass);
+		addRenderPass(m_AOCompositePass);
+		addRenderPass(m_AODebugPass);
+		addRenderPass(m_SSRCompositePass);
+		addRenderPass(m_DOFPass);
+		addRenderPass(m_JumpFloodInitPass);
+		addRenderPass(m_JumpFloodPasses[0]);
+		addRenderPass(m_JumpFloodPasses[1]);
+		addRenderPass(m_JumpFloodCompositePass);
+		addRenderPass(m_GeometryPass);
+		addRenderPass(m_GeometryPassTransparent);
+		addRenderPass(m_DeferredLightingPass);
+		addRenderPass(m_GBufferDebugPass);
+		addRenderPass(m_SelectedGeometryPass);
+		addRenderPass(m_GeometryWireframePass);
+		addRenderPass(m_SkyboxPass);
+		addRenderPass(m_SkyAtmospherePass);
+		addRenderPass(m_VolumetricCloudPass);
+		addRenderPass(m_VolumetricCloudCompositePass);
+		addRenderPass(m_AtmosphericFogPass);
+		addRenderPass(m_CompositePass);
+		addRenderPass(m_GridRenderPass);
+
+		addFramebuffer(m_GeometryPassFramebuffer);
+		addFramebuffer(m_SceneColorFramebuffer);
+		addFramebuffer(m_CompositingFramebuffer);
+
+		addComputePass(m_MeshCullingPass);
+		addComputePass(m_ClusterBuildPass);
+		addComputePass(m_ClusterLightCullingPass);
+		addComputePass(m_HierarchicalDepthPass);
+		addComputePass(m_PreIntegrationPass);
+		addComputePass(m_PreConvolutionComputePass);
+		addComputePass(m_GTAOComputePass);
+		addComputePass(m_GTAODenoisePass[0]);
+		addComputePass(m_GTAODenoisePass[1]);
+		addComputePass(m_GTAOTemporalPass);
+		addComputePass(m_SSRPass);
+		addComputePass(m_SSRTemporalPass);
+		addComputePass(m_BloomComputePass);
+
+		if (m_HierarchicalDepthTexture.Texture)
+			addRenderTargetImage(m_HierarchicalDepthTexture.Texture->GetImage());
+		if (m_PreIntegrationVisibilityTexture.Texture)
+			addRenderTargetImage(m_PreIntegrationVisibilityTexture.Texture->GetImage());
+		if (m_PreConvolutedTexture.Texture)
+			addRenderTargetImage(m_PreConvolutedTexture.Texture->GetImage());
+		for (const BloomComputeTextures& bloomTexture : m_BloomComputeTextures)
+		{
+			if (bloomTexture.Texture)
+				addRenderTargetImage(bloomTexture.Texture->GetImage());
+		}
+
+		addRenderTargetImage(m_GTAOOutputImage);
+		addRenderTargetImage(m_GTAODenoiseImage);
+		addRenderTargetImage(m_GTAOFinalImage);
+		for (const Ref<Image2D>& historyImage : m_GTAOHistoryImages)
+			addRenderTargetImage(historyImage);
+		addRenderTargetImage(m_GTAOEdgesOutputImage);
+		addRenderTargetImage(m_SSRImage);
+		addRenderTargetImage(m_SSRFinalImage);
+		for (const Ref<Image2D>& historyImage : m_SSRHistoryImages)
+			addRenderTargetImage(historyImage);
+
+		uint64_t liveImageBytes = 0;
+		uint32_t liveImageCount = 0;
+		for (const auto& [handle, image] : Image2D::GetImageRefs())
+		{
+			if (!image)
+				continue;
+
+			uint64_t imageSize = image->GetGPUMemoryUsage();
+			if (imageSize == 0)
+			{
+				const ImageSpecification& spec = image->GetSpecification();
+				imageSize = Utils::GetImageMemorySize(spec.Format, spec.Width, spec.Height, spec.Mips, spec.Layers);
+			}
+
+			liveImageBytes += imageSize;
+			liveImageCount++;
+		}
+
+		const uint64_t imageAllocationSize = std::max(gpuStats.ImageAllocationSize, liveImageBytes);
+		const uint32_t imageAllocationCount = std::max<uint32_t>(static_cast<uint32_t>(gpuStats.ImageAllocationCount), liveImageCount);
+		memoryStats.TextureBytes = imageAllocationSize > memoryStats.RenderTargetBytes
+			? imageAllocationSize - memoryStats.RenderTargetBytes
+			: 0;
+		memoryStats.TextureCount = imageAllocationCount > memoryStats.RenderTargetCount
+			? imageAllocationCount - memoryStats.RenderTargetCount
+			: 0;
+
+		UpdateRenderGraphStatistics();
+	}
 
 	void SceneRenderer::BuildRenderGraph(bool executable)
 	{
@@ -2483,39 +3324,10 @@ namespace Lux {
 				m_RenderGraph.AddPass(std::move(pass));
 			};
 
-		const bool selectedMaskActive = !executable || !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty();
-		const bool transparentForwardActive = !executable || !GetMeshPass(MeshPassType::Transparent).DrawList.empty();
-		const bool wireframeActive = !executable
-			|| ((m_Options.ShowSelectedInWireframe && !GetMeshPass(MeshPassType::Wireframe).DrawList.empty())
-				|| (m_Options.ShowPhysicsColliders && !GetMeshPass(MeshPassType::PhysicsCollider).DrawList.empty()));
-		const auto& directionalLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
-		const bool directionalShadowsEnabled = directionalLight.Intensity > 0.0f && directionalLight.CastShadows;
-		// Hazel-style: the shadow passes are always part of the graph and run every frame
-		// (rendering, or clearing when idle). No cache-driven pass toggling, so the graph
-		// topology and the depth-attachment barriers stay stable -> no mesh/shadow flicker.
-		const bool directionalShadowPassActive = true;
-		const bool spotShadowPassActive = true;
-		(void)directionalShadowsEnabled;
-		constexpr uint32_t MinGPUCullDraws = 32;
-		const bool meshCullingActive = !executable
-			|| (m_Options.EnableGPUDrivenRendering
-				&& m_MeshCullDrawCount >= MinGPUCullDraws
-				&& (m_Options.EnableFrustumCulling || m_Options.EnableOcclusionCulling));
-		const bool hzbActive = !executable
-			|| m_Options.EnableGTAO
-			|| m_Options.EnableSSR
-			|| (meshCullingActive && m_Options.EnableOcclusionCulling);
-		const bool preIntegrationActive = !executable || m_Options.EnableSSR;
-		const bool clusteredLightingActive = !executable || m_PointLightsUB.Count > 0 || m_SpotLightsUB.Count > 0;
-		const bool clusterBuildActive = !executable || (clusteredLightingActive && m_ClusterAABBsDirty);
-		const bool skyboxActive = !executable || frame.Environment != nullptr;
-
 		std::vector<RenderGraph::ResourceHandle> directionalShadowOutputs = { addTexture("Directional Shadow Atlas", m_ShadowMapImage) };
 		std::vector<RenderGraph::ResourceHandle> spotShadowOutputs = { addTexture("Spot Shadow Atlas", m_SpotShadowMapImage) };
-		if (directionalShadowPassActive)
-			addPass("Directional Shadow Maps", {}, directionalShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ShadowMapPass));
-		if (spotShadowPassActive)
-			addPass("Spot Shadow Maps", {}, spotShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SpotShadowMapPass));
+		addPass("Directional Shadow Maps", {}, directionalShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ShadowMapPass));
+		addPass("Spot Shadow Maps", {}, spotShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SpotShadowMapPass));
 
 		std::vector<RenderGraph::ResourceHandle> shadowOutputs = directionalShadowOutputs;
 		appendResources(shadowOutputs, spotShadowOutputs);
@@ -2524,42 +3336,41 @@ namespace Lux {
 		addPass("PreDepth", {}, preDepthOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::PreDepthPass));
 
 		std::vector<RenderGraph::ResourceHandle> hzbOutputs;
-		if (hzbActive)
-		{
-			hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-			addPass("HZB", preDepthOutputs, hzbOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::HZBCompute));
-		}
-		if (meshCullingActive)
-			addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass));
+		hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+		addPass("HZB", preDepthOutputs, hzbOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::HZBCompute));
+		addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass));
 
 		// PreIntegration's visibility pyramid is consumed only by SSR — skip the
 		// whole pass (and its per-mip dispatches) when SSR is off. The vector stays
 		// in scope because the SSR node below appends it as a read dependency.
 		std::vector<RenderGraph::ResourceHandle> preIntegrationOutputs;
-		if (preIntegrationActive)
+		if (m_Options.EnableSSR)
 		{
 			preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
 			addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
 		}
 
-		// Cluster build runs before light culling; it only depends on the camera
-		// projection (SSBO synchronized via a manual barrier inside the pass).
-		if (clusterBuildActive)
+		// Cluster build + light culling are depth-independent (they only need the
+		// camera + light UBOs), so with EnableAsyncCompute they run on the compute
+		// queue in FlushDrawList *before* this graphics graph and are omitted here.
+		// Their SSBO outputs (light grids/index lists) feed deferred lighting; the
+		// cross-queue ordering is a queueWaitForCommandList, not a graph edge (the
+		// graph never modeled these SSBOs — the nodes had no declared inputs/outputs).
+		if (!m_Options.EnableAsyncCompute)
+		{
+			// Cluster build runs before light culling; it only depends on the camera
+			// projection (SSBO synchronized via a manual barrier inside the pass).
 			addPass("Cluster Build", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterBuildPass));
 
-		// Cluster light assignment depends on the cluster AABBs + the light UBOs;
-		// it is depth-independent (SSBOs synchronized via manual barriers).
-		if (clusteredLightingActive)
+			// Cluster light assignment depends on the cluster AABBs + the light UBOs;
+			// it is depth-independent (SSBOs synchronized via manual barriers).
 			addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass));
+		}
 
 		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
 		std::vector<RenderGraph::ResourceHandle> sceneColorOutputs = addFramebufferResources("SceneColor", m_SceneColorFramebuffer);
-		std::vector<RenderGraph::ResourceHandle> skyboxOutputs;
-		if (skyboxActive)
-		{
-			skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
-			addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
-		}
+		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
+		addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
 
 		const bool skyAtmosphereEnabled = frame.SkyAtmosphereEnabled && m_SkyAtmospherePass;
 		std::vector<RenderGraph::ResourceHandle> sceneColorCurrent = skyboxOutputs.empty() ? sceneColorOutputs : skyboxOutputs;
@@ -2571,7 +3382,7 @@ namespace Lux {
 		}
 
 		std::vector<RenderGraph::ResourceHandle> selectedOutputs;
-		if (selectedMaskActive)
+		if (m_SelectedGeometryPass && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true))
 		{
 			selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
 			addPass("Selected Geometry", preDepthOutputs, selectedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SelectedGeometryPass));
@@ -2717,7 +3528,10 @@ namespace Lux {
 			sceneColorCurrent = fogOutputs;
 		}
 
-		if (transparentForwardActive)
+		// Executable graphs skip the node entirely when nothing transparent was
+		// submitted (avoids the render-pass open/clear); non-executable (debug
+		// snapshot) graphs keep the full topology.
+		if (executable ? !GetMeshPass(MeshPassType::Transparent).DrawList.empty() : true)
 		{
 			std::vector<RenderGraph::ResourceHandle> transparentReads = shadowOutputs;
 			appendResources(transparentReads, preDepthOutputs);
@@ -2727,7 +3541,11 @@ namespace Lux {
 			sceneColorCurrent = transparentOutputs;
 		}
 
-		if (wireframeActive)
+		const bool wireframeActive = executable
+			? ((m_Options.ShowSelectedInWireframe && !GetMeshPass(MeshPassType::Wireframe).DrawList.empty())
+				|| (m_Options.ShowPhysicsColliders && !GetMeshPass(MeshPassType::PhysicsCollider).DrawList.empty()))
+			: true;
+		if (m_GeometryWireframePass && wireframeActive)
 		{
 			std::vector<RenderGraph::ResourceHandle> wireframeReads = sceneColorCurrent;
 			std::vector<RenderGraph::ResourceHandle> wireframeOutputs = addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass);
@@ -2737,7 +3555,7 @@ namespace Lux {
 
 		std::vector<RenderGraph::ResourceHandle> jumpFloodAOutputs;
 		std::vector<RenderGraph::ResourceHandle> jumpFloodBOutputs;
-		const bool jumpFloodActive = m_Options.EnableJumpFlood && selectedMaskActive;
+		const bool jumpFloodActive = m_Options.EnableJumpFlood && m_JumpFloodInitPass && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true);
 		if (jumpFloodActive)
 		{
 			std::vector<RenderGraph::ResourceHandle> jumpFloodInitOutputs = addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass);
@@ -2856,6 +3674,268 @@ namespace Lux {
 
 		if (postProcessSettings.DOFEnabled && !compositeDOFIntoFinalTarget)
 			addPass("DOF", compositeOutputs, dofOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DOFPass));
+	}
+
+	SceneRenderer::RenderGraphDebugSnapshot SceneRenderer::GetRenderGraphDebugSnapshot()
+	{
+		BuildRenderGraph();
+
+		RenderGraphDebugSnapshot snapshot;
+		const auto compileResult = m_RenderGraph.Compile();
+		const auto& textures = m_RenderGraph.GetTextures();
+		const auto& passes = m_RenderGraph.GetPasses();
+		snapshot.ErrorCount = compileResult.ErrorCount;
+		snapshot.WarningCount = compileResult.WarningCount;
+		snapshot.InfoCount = compileResult.InfoCount;
+		snapshot.ExecutedPassCount = static_cast<uint32_t>(compileResult.ExecutionOrder.size());
+		snapshot.CulledPassCount = static_cast<uint32_t>(compileResult.CulledPasses.size());
+
+		auto findProfile = [&](const std::string& passName) -> const PassProfile*
+			{
+				auto remapProfileName = [](const std::string& name) -> const char*
+					{
+						if (name == "Directional Shadow Maps") return "ShadowMapPass";
+						if (name == "Spot Shadow Maps") return "SpotShadowMapPass";
+						if (name == "PreDepth") return "PreDepthPass";
+						if (name == "Mesh Culling") return "MeshCullingPass";
+						if (name == "Skybox") return "SkyboxPass";
+						if (name == "Sky Atmosphere") return "SkyAtmospherePass";
+						if (name == "Volumetric Clouds") return "VolumetricCloudPass";
+						if (name == "Volumetric Cloud Temporal") return "VolumetricCloudTemporalPass";
+						if (name == "Volumetric Cloud Composite") return "VolumetricCloudCompositePass";
+						if (name == "Atmospheric Fog") return "AtmosphericFogPass";
+						if (name == "Selected Geometry") return "SelectedGeometryPass";
+						if (name == "GBuffer") return "GBufferPass";
+						if (name == "Deferred Lighting") return "DeferredLightingPass";
+						if (name == "Transparent Forward") return "TransparentForwardPass";
+						if (name == "Geometry Wireframe") return "GeometryWireframePass";
+						if (name == "GBuffer Debug") return "GBufferDebugPass";
+						if (name == "GTAO Denoise") return "GTAO-Denoise";
+						if (name == "GTAO Temporal") return "GTAO-Temporal";
+						if (name == "AO Composite") return "AOComposite";
+						if (name == "AO Debug") return "AODebug";
+						if (name == "Pre-Convolution") return "PreConvolution";
+						if (name == "SSR Temporal") return "SSR-Temporal";
+						if (name == "SSR Composite") return "SSRComposite";
+						if (name == "JumpFlood Composite") return "JumpFloodComposite";
+						if (name == "Bloom") return "BloomCompute";
+						if (name == "Composite") return "CompositePass";
+						if (name == "Grid") return "GridPass";
+						if (name == "Cluster Build") return "ClusterBuildPass";
+						if (name == "Cluster Light Culling") return "ClusterLightCullingPass";
+						return name.c_str();
+					};
+
+				const char* profileName = remapProfileName(passName);
+				for (const PassProfile& profile : m_Statistics.PassProfiles)
+				{
+					if (profile.Name && std::strcmp(profile.Name, profileName) == 0)
+						return &profile;
+				}
+				return nullptr;
+			};
+
+		snapshot.Textures.reserve(textures.size());
+		for (uint32_t resource = 0; resource < textures.size(); resource++)
+		{
+			const RenderGraph::TextureDesc& texture = textures[resource];
+			RenderGraphTextureDebugInfo& textureInfo = snapshot.Textures.emplace_back();
+			textureInfo.Resource = resource;
+			textureInfo.Name = texture.Name;
+			textureInfo.Format = texture.Format;
+			textureInfo.Usage = texture.Usage;
+			textureInfo.Dimension = texture.Dimension;
+			textureInfo.Width = texture.Width;
+			textureInfo.Height = texture.Height;
+			textureInfo.Mips = texture.Mips;
+			textureInfo.Layers = texture.Layers;
+			textureInfo.EstimatedBytes = Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, texture.Layers);
+			textureInfo.Transient = texture.Transient;
+			textureInfo.AllowAlias = texture.AllowAlias;
+
+			if (resource < compileResult.Lifetimes.size())
+			{
+				const RenderGraph::ResourceLifetime& lifetime = compileResult.Lifetimes[resource];
+				textureInfo.FirstPass = lifetime.FirstPass;
+				textureInfo.LastPass = lifetime.LastPass;
+				textureInfo.AliasGroup = lifetime.AliasIndex;
+			}
+
+			if (resource < compileResult.ResourceFirstWriter.size())
+				textureInfo.FirstWriter = compileResult.ResourceFirstWriter[resource];
+			if (resource < compileResult.ResourceLastReader.size())
+				textureInfo.LastReader = compileResult.ResourceLastReader[resource];
+			if (resource < compileResult.ResourceConsumers.size())
+				textureInfo.Consumers = compileResult.ResourceConsumers[resource];
+
+			if (texture.Image)
+			{
+				textureInfo.AliasedNow = texture.Image->IsTransientAlias();
+				textureInfo.CurrentState = texture.Image->GetImageInfo().State;
+			}
+		}
+
+		for (const RenderGraph::ResourceLifetime& lifetime : compileResult.Lifetimes)
+		{
+			if (lifetime.FirstPass == UINT32_MAX || lifetime.Resource >= textures.size())
+				continue;
+
+			const RenderGraph::TextureDesc& texture = textures[lifetime.Resource];
+			if (!texture.Transient || !texture.AllowAlias)
+				continue;
+
+			snapshot.TransientBytes += Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, texture.Layers);
+		}
+
+		snapshot.AliasGroups.reserve(compileResult.AliasGroups.size());
+		for (const RenderGraph::AliasGroupSummary& aliasGroup : compileResult.AliasGroups)
+		{
+			RenderGraphAliasGroupDebugInfo& aliasInfo = snapshot.AliasGroups.emplace_back();
+			aliasInfo.AliasGroup = aliasGroup.AliasIndex;
+			aliasInfo.Compatible = aliasGroup.Compatible;
+
+			for (RenderGraph::ResourceHandle resource : aliasGroup.Resources)
+			{
+				if (resource >= textures.size())
+					continue;
+
+				aliasInfo.Resources.push_back(resource);
+				const RenderGraph::TextureDesc& texture = textures[resource];
+				const uint64_t size = Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, texture.Layers);
+				aliasInfo.EstimatedBytes += size;
+				aliasInfo.BackingBytes = std::max(aliasInfo.BackingBytes, size);
+			}
+
+			aliasInfo.SavedBytes = aliasInfo.EstimatedBytes > aliasInfo.BackingBytes ? aliasInfo.EstimatedBytes - aliasInfo.BackingBytes : 0;
+			snapshot.AliasedBytes += aliasInfo.BackingBytes;
+			snapshot.SavedBytes += aliasInfo.SavedBytes;
+		}
+
+		auto containsResource = [](const std::vector<RenderGraph::ResourceHandle>& resources, RenderGraph::ResourceHandle resource)
+			{
+				return std::find(resources.begin(), resources.end(), resource) != resources.end();
+			};
+
+		auto accessState = [&](const RenderGraph::PassDesc& pass, RenderGraph::ResourceHandle resource, bool asInput)
+			{
+				const bool read = containsResource(pass.Reads, resource);
+				const bool write = containsResource(pass.Writes, resource);
+				if (read && write)
+					return std::string("ReadWrite");
+				return std::string(asInput ? "Read" : "Write");
+			};
+
+		std::vector<bool> culledPasses(passes.size(), false);
+		for (uint32_t passIndex : compileResult.CulledPasses)
+		{
+			if (passIndex < culledPasses.size())
+				culledPasses[passIndex] = true;
+		}
+
+		snapshot.Passes.reserve(passes.size());
+		for (uint32_t passIndex = 0; passIndex < passes.size(); passIndex++)
+		{
+			const RenderGraph::PassDesc& pass = passes[passIndex];
+			RenderGraphPassDebugInfo& passInfo = snapshot.Passes.emplace_back();
+			passInfo.Index = passIndex;
+			passInfo.Name = pass.Name;
+			passInfo.Flags = static_cast<uint32_t>(pass.Flags);
+			passInfo.Executable = static_cast<bool>(pass.Execute);
+			passInfo.Culled = culledPasses[passIndex];
+			if (const PassProfile* profile = findProfile(pass.Name))
+			{
+				passInfo.CPUTime = profile->CPUTime;
+				passInfo.GPUTime = profile->GPUTime;
+			}
+
+			for (RenderGraph::ResourceHandle resource : pass.Reads)
+			{
+				passInfo.Inputs.push_back({ resource, accessState(pass, resource, true) });
+			}
+
+			for (RenderGraph::ResourceHandle resource : pass.Writes)
+			{
+				passInfo.Outputs.push_back({ resource, accessState(pass, resource, false) });
+			}
+		}
+
+		snapshot.Diagnostics.reserve(compileResult.Diagnostics.size());
+		for (uint32_t diagnosticIndex = 0; diagnosticIndex < compileResult.Diagnostics.size(); diagnosticIndex++)
+		{
+			const RenderGraph::Diagnostic& diagnostic = compileResult.Diagnostics[diagnosticIndex];
+			RenderGraphDiagnosticDebugInfo& debugDiagnostic = snapshot.Diagnostics.emplace_back();
+			debugDiagnostic.Severity = diagnostic.Severity;
+			debugDiagnostic.Code = diagnostic.Code;
+			debugDiagnostic.PassIndex = diagnostic.PassIndex;
+			debugDiagnostic.PassName = diagnostic.PassName;
+			debugDiagnostic.Resource = diagnostic.Resource;
+			debugDiagnostic.ResourceName = diagnostic.ResourceName;
+			debugDiagnostic.Message = diagnostic.Message;
+
+			if (diagnostic.PassIndex < snapshot.Passes.size())
+				snapshot.Passes[diagnostic.PassIndex].Diagnostics.push_back(diagnosticIndex);
+
+			if (diagnostic.Resource < snapshot.Textures.size())
+			{
+				RenderGraphTextureDebugInfo& textureInfo = snapshot.Textures[diagnostic.Resource];
+				textureInfo.DiagnosticCount++;
+				if (diagnostic.Severity == RenderGraph::DiagnosticSeverity::Error)
+					textureInfo.ErrorCount++;
+				else if (diagnostic.Severity == RenderGraph::DiagnosticSeverity::Warning)
+					textureInfo.WarningCount++;
+			}
+		}
+
+		return snapshot;
+	}
+
+	void SceneRenderer::UpdateRenderGraphStatistics()
+	{
+		auto& memoryStats = m_Statistics.MemoryStats;
+		memoryStats.RenderGraphTransientBytes = 0;
+		memoryStats.RenderGraphAliasedBytes = 0;
+		memoryStats.RenderGraphSavedBytes = 0;
+		memoryStats.RenderGraphPassCount = 0;
+		memoryStats.RenderGraphTransientCount = 0;
+		memoryStats.RenderGraphAliasGroupCount = 0;
+
+		// Reuse the executable graph already built and rendered this frame (this runs
+		// from UpdateStatistics, after Build/Execute). Memory stats only read texture
+		// descs and the alias plan — never names or execute callbacks — so a second
+		// full BuildRenderGraph() here was pure per-frame waste.
+
+		const auto lifetimes = m_RenderGraph.BuildAliasPlan();
+		const auto& textures = m_RenderGraph.GetTextures();
+		std::vector<uint64_t> aliasBytes;
+		for (const RenderGraph::ResourceLifetime& lifetime : lifetimes)
+		{
+			if (lifetime.FirstPass == UINT32_MAX || lifetime.Resource >= textures.size())
+				continue;
+
+			const RenderGraph::TextureDesc& texture = textures[lifetime.Resource];
+			if (!texture.Transient || !texture.AllowAlias)
+				continue;
+
+			const uint64_t size = Utils::GetImageMemorySize(texture.Format, texture.Width, texture.Height, texture.Mips, texture.Layers);
+			memoryStats.RenderGraphTransientBytes += size;
+			memoryStats.RenderGraphTransientCount++;
+
+			if (lifetime.AliasIndex != UINT32_MAX)
+			{
+				if (aliasBytes.size() <= lifetime.AliasIndex)
+					aliasBytes.resize(lifetime.AliasIndex + 1);
+				aliasBytes[lifetime.AliasIndex] = std::max(aliasBytes[lifetime.AliasIndex], size);
+			}
+		}
+
+		for (uint64_t size : aliasBytes)
+			memoryStats.RenderGraphAliasedBytes += size;
+
+		memoryStats.RenderGraphSavedBytes = memoryStats.RenderGraphTransientBytes > memoryStats.RenderGraphAliasedBytes
+			? memoryStats.RenderGraphTransientBytes - memoryStats.RenderGraphAliasedBytes
+			: 0;
+		memoryStats.RenderGraphPassCount = static_cast<uint32_t>(m_RenderGraph.GetPasses().size());
+		memoryStats.RenderGraphAliasGroupCount = static_cast<uint32_t>(aliasBytes.size());
 	}
 
 	void SceneRenderer::ApplyRenderTargetAliasing()
@@ -3145,7 +4225,6 @@ namespace Lux {
 			ApplyRenderTargetAliasing();
 			m_ShadowCascadeCacheValid = false;
 			m_DirectionalShadowMapNeedsRender = true;
-			m_ClusterAABBsDirty = true;
 		}
 
 		// ── Self-heal framebuffers with stale attachment handles ─────────────
@@ -3267,13 +4346,6 @@ namespace Lux {
 				instance->m_UBSCamera->RT_Get()->RT_SetData(
 					instance->m_UploadCommandBuffer, &cameraData, sizeof(UBCamera));
 				});
-
-			const uint64_t clusterAABBStateHash = CalculateClusterAABBStateHash();
-			if (clusterAABBStateHash != m_ClusterAABBStateHash)
-			{
-				m_ClusterAABBStateHash = clusterAABBStateHash;
-				m_ClusterAABBsDirty = true;
-			}
 		}
 
 		// ── Screen uniform buffer ─────────────────────────────────────────────
@@ -3996,39 +5068,43 @@ namespace Lux {
 		return false;
 	}
 
-	void SceneRenderer::BuildSortedDrawCommandOrder(MeshPassState& pass)
+	void SceneRenderer::BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder, uint64_t& orderCacheHash) const
 	{
-		const DrawCommandList& drawList = pass.DrawList;
-		DrawCommandOrder& drawOrder = pass.DrawOrder;
+		// Order-independent fingerprint of the draw-list key set. MeshKey's hash
+		// covers every sort input (pipeline/shader/material/mesh sort keys), so
+		// an unchanged fingerprint means an unchanged sorted order — reuse last
+		// frame's DrawOrder instead of re-sorting each pass every frame.
+		uint64_t hashSum = 0;
+		uint64_t hashXor = 0;
+		for (const auto& [key, dc] : drawList)
+		{
+			const uint64_t keyHash = (uint64_t)MeshKeyHasher{}(key);
+			hashSum += keyHash;
+			hashXor ^= keyHash;
+		}
+		const uint64_t fingerprint = hashSum ^ (hashXor * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)drawList.size() << 48);
+
+		if (fingerprint == orderCacheHash && drawOrder.size() == drawList.size())
+			return;
+		orderCacheHash = fingerprint;
+
 		drawOrder.clear();
 		drawOrder.reserve(drawList.size());
 
-		std::vector<MeshDrawSortEntry>& sortEntries = m_ScratchDrawSortEntries;
-		sortEntries.clear();
-		sortEntries.reserve(drawList.size());
-
 		for (const auto& [key, dc] : drawList)
-		{
-			sortEntries.push_back({
-				key,
-				dc.PipelineSortKey,
-				dc.ShaderSortKey,
-				dc.MaterialSortKey,
-				dc.MeshSortKey
-			});
-		}
+			drawOrder.push_back(key);
 
-		std::sort(sortEntries.begin(), sortEntries.end(), [](const MeshDrawSortEntry& lhs, const MeshDrawSortEntry& rhs)
+		std::sort(drawOrder.begin(), drawOrder.end(), [&](const MeshKey& lhsKey, const MeshKey& rhsKey)
 			{
+				const StaticDrawCommand& lhs = drawList.at(lhsKey);
+				const StaticDrawCommand& rhs = drawList.at(rhsKey);
+
 				if (lhs.PipelineSortKey != rhs.PipelineSortKey) return lhs.PipelineSortKey < rhs.PipelineSortKey;
 				if (lhs.ShaderSortKey != rhs.ShaderSortKey) return lhs.ShaderSortKey < rhs.ShaderSortKey;
 				if (lhs.MaterialSortKey != rhs.MaterialSortKey) return lhs.MaterialSortKey < rhs.MaterialSortKey;
 				if (lhs.MeshSortKey != rhs.MeshSortKey) return lhs.MeshSortKey < rhs.MeshSortKey;
-				return lhs.Key < rhs.Key;
+				return lhsKey < rhsKey;
 			});
-
-		for (const MeshDrawSortEntry& entry : sortEntries)
-			drawOrder.push_back(entry.Key);
 	}
 
 	SceneRenderer::MeshPassState& SceneRenderer::GetMeshPass(MeshPassType passType)
@@ -4252,17 +5328,6 @@ namespace Lux {
 			}
 		}
 
-		return hash;
-	}
-
-	uint64_t SceneRenderer::CalculateClusterAABBStateHash() const
-	{
-		uint64_t hash = 1469598103934665603ull;
-		hash = HashCombine(hash, m_ViewportWidth);
-		hash = HashCombine(hash, m_ViewportHeight);
-		hash = HashCombine(hash, HashFloat(m_SceneData.SceneCamera.Near));
-		hash = HashCombine(hash, HashFloat(m_SceneData.SceneCamera.Far));
-		hash = HashMat4(hash, m_CameraUB.Projection);
 		return hash;
 	}
 
@@ -4586,7 +5651,7 @@ namespace Lux {
 		indirectDrawData.clear();
 
 		for (MeshPassState& pass : m_MeshPasses)
-			BuildSortedDrawCommandOrder(pass);
+			BuildSortedDrawCommandOrder(pass.DrawList, pass.DrawOrder, pass.OrderCacheHash);
 
 		const GPUScene* submittedGPUScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetGPUScene() : nullptr;
 		const std::vector<GPUSceneInstanceData>* persistentGPUSceneInstances = submittedGPUScene ? &submittedGPUScene->GetInstances() : nullptr;
@@ -4636,8 +5701,6 @@ namespace Lux {
 			textureTableOverflowCount = (uint32_t)(gpuTextureHandles.size() - MaxGPUTextureSceneTextures);
 			gpuTextureHandles.resize(MaxGPUTextureSceneTextures);
 		}
-		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureHandles.size();
-		const uint32_t persistentUploadFrameCount = glm::max(1u, Renderer::GetConfig().FramesInFlight);
 
 		auto resolveMaterialTexture = [](AssetHandle textureHandle) -> Ref<Texture2D>
 			{
@@ -4670,10 +5733,10 @@ namespace Lux {
 		if (m_GPUMaterialTextures.empty())
 			m_GPUMaterialTextures.assign(MaxGPUTextureSceneTextures, Renderer::GetWhiteTexture());
 
-		const uint32_t textureDescriptorUpdateCount = glm::min(
-			MaxGPUTextureSceneTextures,
-			glm::max(uploadedTextureCount, m_GPUMaterialTextureBoundCount));
-		for (uint32_t textureIndex = 0; textureIndex < textureDescriptorUpdateCount; textureIndex++)
+		m_PendingTextureResolveScratch.swap(m_PendingTextureResolveSlots);
+		m_PendingTextureResolveSlots.clear();
+
+		auto resolveSlot = [&](uint32_t textureIndex)
 		{
 			const AssetHandle textureHandle = textureIndex < gpuTextureHandles.size() ? gpuTextureHandles[textureIndex] : AssetHandle(0);
 			Ref<Texture2D> texture = resolveMaterialTexture(textureHandle);
@@ -4695,8 +5758,7 @@ namespace Lux {
 				m_DeferredLightingPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 			if (m_GBufferDebugPass && m_GBufferDebugPass->IsInputValid("u_GPUMaterialTextures"))
 				m_GBufferDebugPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
-		}
-		m_GPUMaterialTextureBoundCount = uploadedTextureCount;
+		};
 
 		if (fullTextureResolve)
 		{
@@ -4750,15 +5812,6 @@ namespace Lux {
 				: std::numeric_limits<uint64_t>::max();
 		}
 		const uint32_t persistentMaterialCount = (uint32_t)gpuMaterialData.size();
-		if (persistentMaterialCount != m_PersistentMaterialUploadedCount
-			|| (submittedMaterialScene && submittedMaterialScene->HasDirtyMaterials()))
-		{
-			m_PersistentMaterialUploadFramesRemaining = persistentUploadFrameCount;
-		}
-		const bool uploadPersistentMaterials = m_PersistentMaterialUploadFramesRemaining > 0;
-		std::vector<GPUMaterialData> gpuMaterialUploadData;
-		if (uploadPersistentMaterials)
-			gpuMaterialUploadData.assign(gpuMaterialData.begin(), gpuMaterialData.end());
 
 		std::vector<GPUMaterialData>& transientGPUMaterialData = m_ScratchTransientMaterialData;
 		transientGPUMaterialData.assign(m_TransientGPUMaterials.begin(), m_TransientGPUMaterials.end());
@@ -4783,6 +5836,7 @@ namespace Lux {
 				materialData.TextureIndices[textureSlot] = resolveUploadedTextureIndex(materialData.TextureIndices[textureSlot]);
 		}
 		const uint32_t uploadedMaterialCount = persistentMaterialCount + (uint32_t)transientGPUMaterialData.size();
+		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureHandles.size();
 
 		auto resolveInstanceData = [this, persistentGPUSceneInstances](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
 			{
@@ -4898,21 +5952,85 @@ namespace Lux {
 		// ── 2. Upload GPUScene tails, ObjectIndexes, culling data, and indirect args
 		m_UploadCommandBuffer->Begin();
 
+		// Persistent GPUScene rows: upload only the rows dirtied by recent syncs
+		// instead of the full instance array every frame. A dirty range must be
+		// written once per frame-in-flight buffer, so each sync's ranges are
+		// queued as an "epoch" replayed FramesInFlight times with fresh row data
+		// (newer content in an older slot is still correct — everything converges
+		// to latest). Full uploads run on scene switch / instance-count change /
+		// buffer growth (high-water tracked, so a mid-steady-state Resize is
+		// impossible), and adaptively when the dirty volume exceeds a full array.
+		std::vector<GPUSceneInstanceData> gpuSceneInstanceData;
+		std::vector<GPUSceneDirtyRange> gpuSceneRangeList;
+		std::vector<GPUSceneInstanceData> gpuSceneRangeRows;
 		if (submittedGPUScene)
 		{
-			if (persistentGPUSceneInstanceCount != m_PersistentGPUSceneUploadedInstanceCount || submittedGPUScene->HasDirtyInstances())
-				m_PersistentGPUSceneUploadFramesRemaining = persistentUploadFrameCount;
-		}
-		else
-		{
-			m_PersistentGPUSceneUploadFramesRemaining = 0;
-			m_PersistentGPUSceneUploadedInstanceCount = 0;
-		}
+			const std::vector<GPUSceneInstanceData>& instances = submittedGPUScene->GetInstances();
 
-		const bool uploadPersistentGPUScene = submittedGPUScene && m_PersistentGPUSceneUploadFramesRemaining > 0;
-		std::vector<GPUSceneInstanceData> gpuSceneInstanceData;
-		if (uploadPersistentGPUScene && persistentGPUSceneInstances)
-			gpuSceneInstanceData.assign(persistentGPUSceneInstances->begin(), persistentGPUSceneInstances->end());
+			const uint32_t totalInstancesThisFrame = persistentGPUSceneInstanceCount + (uint32_t)m_TransientGPUSceneInstances.size();
+			const bool sceneChanged = (const void*)submittedGPUScene != m_LastGPUSceneKey
+				|| persistentGPUSceneInstanceCount != m_LastGPUSceneInstanceCount
+				|| totalInstancesThisFrame > m_GPUSceneMaxTotalInstancesSeen;
+			if (sceneChanged)
+			{
+				m_GPUSceneFullUploadsRemaining = glm::max(m_GPUSceneFullUploadsRemaining, Renderer::GetConfig().FramesInFlight);
+				m_LastGPUSceneKey = (const void*)submittedGPUScene;
+				m_LastGPUSceneInstanceCount = persistentGPUSceneInstanceCount;
+				m_GPUSceneMaxTotalInstancesSeen = glm::max(m_GPUSceneMaxTotalInstancesSeen, totalInstancesThisFrame);
+				m_PendingGPUSceneRangeUploads.clear();
+			}
+
+			if (m_GPUSceneFullUploadsRemaining == 0)
+			{
+				const std::vector<GPUSceneDirtyRange>& dirtyRanges = submittedGPUScene->GetDirtyRanges();
+				if (!dirtyRanges.empty())
+				{
+					GPUSceneRangeUploadEpoch& epoch = m_PendingGPUSceneRangeUploads.emplace_back();
+					epoch.RemainingUploads = Renderer::GetConfig().FramesInFlight;
+					epoch.Ranges.assign(dirtyRanges.begin(), dirtyRanges.end());
+				}
+
+				// Flatten all pending epochs into one range list + row payload
+				// (rows re-copied from the current arrays: freshest data wins).
+				size_t pendingRows = 0;
+				for (const GPUSceneRangeUploadEpoch& epoch : m_PendingGPUSceneRangeUploads)
+					for (const GPUSceneDirtyRange& range : epoch.Ranges)
+						pendingRows += range.InstanceCount;
+
+				if (pendingRows >= instances.size() && !instances.empty())
+				{
+					// Cheaper to re-upload everything.
+					m_GPUSceneFullUploadsRemaining = Renderer::GetConfig().FramesInFlight;
+					m_PendingGPUSceneRangeUploads.clear();
+				}
+				else if (pendingRows > 0)
+				{
+					gpuSceneRangeRows.reserve(pendingRows);
+					for (GPUSceneRangeUploadEpoch& epoch : m_PendingGPUSceneRangeUploads)
+					{
+						for (const GPUSceneDirtyRange& range : epoch.Ranges)
+						{
+							const uint32_t first = glm::min(range.FirstInstance, (uint32_t)instances.size());
+							const uint32_t count = glm::min(range.InstanceCount, (uint32_t)instances.size() - first);
+							if (count == 0)
+								continue;
+
+							gpuSceneRangeList.push_back({ first, count });
+							gpuSceneRangeRows.insert(gpuSceneRangeRows.end(), instances.begin() + first, instances.begin() + first + count);
+						}
+						epoch.RemainingUploads--;
+					}
+					std::erase_if(m_PendingGPUSceneRangeUploads, [](const GPUSceneRangeUploadEpoch& epoch) { return epoch.RemainingUploads == 0; });
+				}
+			}
+
+			if (m_GPUSceneFullUploadsRemaining > 0)
+			{
+				m_GPUSceneFullUploadsRemaining--;
+				m_PendingGPUSceneRangeUploads.clear();
+				gpuSceneInstanceData = instances;
+			}
+		}
 
 		std::vector<GPUSceneInstanceData> transientGPUSceneData = m_TransientGPUSceneInstances;
 		for (uint32_t transientIndex = 0; transientIndex < transientGPUSceneData.size(); transientIndex++)
@@ -4929,7 +6047,10 @@ namespace Lux {
 			}
 		}
 
-		if (ShouldCollectFullRendererDiagnostics(Renderer::GetConfig()))
+		// Built only when the Renderer Debugger panel asked for it this frame —
+		// the validation loops below are O(instances + materials) CPU work that
+		// exists purely to populate that panel.
+		if (m_GPUSceneDebugSnapshotRequested)
 		{
 			m_GPUSceneDebugSnapshotRequested = false;
 
@@ -5020,9 +6141,11 @@ namespace Lux {
 						snapshot.MissingPersistentObjectIDCount++;
 				};
 
+			// Validate against the GPUScene source array directly — the local
+			// full-copy vector is empty on dirty-range-only frames.
 			if (persistentGPUSceneInstances)
 			{
-				for (uint32_t instanceIndex = 0; instanceIndex < persistentGPUSceneInstances->size(); instanceIndex++)
+				for (uint32_t instanceIndex = 0; instanceIndex < (uint32_t)persistentGPUSceneInstances->size(); instanceIndex++)
 					validateInstance((*persistentGPUSceneInstances)[instanceIndex], instanceIndex, true);
 			}
 
@@ -5085,10 +6208,6 @@ namespace Lux {
 
 			m_GPUSceneDebugSnapshot = std::move(snapshot);
 		}
-		else
-		{
-			m_GPUSceneDebugSnapshot = {};
-		}
 
 		if (!objectIndexData.empty()
 			|| !visibleObjectIndexData.empty()
@@ -5097,34 +6216,29 @@ namespace Lux {
 			|| !gpuSceneInstanceData.empty()
 			|| !gpuSceneRangeRows.empty()
 			|| !transientGPUSceneData.empty()
-			|| !gpuMaterialUploadData.empty()
+			|| !gpuMaterialData.empty()
 			|| !transientGPUMaterialData.empty())
 		{
-			auto indexData = objectIndexData;
-			auto visibleIndexData = visibleObjectIndexData;
-			auto cullDrawData = meshCullDrawData;
-			auto indirectCommands = indirectDrawData;
-			auto gpuSceneData = std::move(gpuSceneInstanceData);
-			auto transientSceneData = std::move(transientGPUSceneData);
-			auto materialData = std::move(gpuMaterialUploadData);
-			auto transientMaterialData = transientGPUMaterialData;
 			const uint32_t persistentSceneCount = persistentGPUSceneInstanceCount;
 			const uint32_t persistentGPUMaterialCount = persistentMaterialCount;
 			Ref<SceneRenderer> instance = this;
 
-			Renderer::Submit([
-				instance,
-				indexData = std::move(indexData),
-				visibleIndexData = std::move(visibleIndexData),
-				cullDrawData = std::move(cullDrawData),
-				indirectCommands = std::move(indirectCommands),
-				gpuSceneData = std::move(gpuSceneData),
-				transientSceneData = std::move(transientSceneData),
-				materialData = std::move(materialData),
-				transientMaterialData = std::move(transientMaterialData),
-				persistentSceneCount,
-				persistentGPUMaterialCount
-			]() mutable {
+			// Init-captures: one copy per vector instead of the previous
+			// local-copy-then-capture-copy. Scratch-backed vectors (reused next
+			// frame) are copied; the frame-local GPUScene vectors are moved —
+			// nothing reads them after this block.
+			Renderer::Submit([instance,
+				indexData = objectIndexData,
+				visibleIndexData = visibleObjectIndexData,
+				cullDrawData = meshCullDrawData,
+				indirectCommands = indirectDrawData,
+				gpuSceneData = std::move(gpuSceneInstanceData),
+				sceneRangeList = std::move(gpuSceneRangeList),
+				sceneRangeRows = std::move(gpuSceneRangeRows),
+				transientSceneData = std::move(transientGPUSceneData),
+				materialData = gpuMaterialData,
+				transientMaterialData = transientGPUMaterialData,
+				persistentSceneCount, persistentGPUMaterialCount]() mutable {
 
 				Ref<RenderCommandBuffer> cmd = instance->m_UploadCommandBuffer;
 
@@ -5170,8 +6284,9 @@ namespace Lux {
 						instance->m_SBSGPUSceneInstances->Resize(gpuSceneBytes * 2u);
 				}
 
-				// StorageBufferSet owns one buffer per frame-in-flight. Persistent rows are
-				// uploaded for each backing frame after creation or dirties, then left resident.
+				// Full persistent upload (startup / scene switch / count change /
+				// dirty volume exceeding a full array), repeated once per
+				// frame-in-flight buffer by the main-thread counter.
 				if (!gpuSceneData.empty())
 				{
 					const uint32_t uploadBytes = (uint32_t)(gpuSceneData.size() * sizeof(GPUSceneInstanceData));
@@ -5220,17 +6335,6 @@ namespace Lux {
 					instance->m_SBSGPUMaterials->RT_Get()->RT_SetData(cmd, transientMaterialData.data(), uploadBytes, uploadOffset);
 				}
 			});
-		}
-
-		if (uploadPersistentGPUScene)
-		{
-			m_PersistentGPUSceneUploadFramesRemaining--;
-			m_PersistentGPUSceneUploadedInstanceCount = persistentGPUSceneInstanceCount;
-		}
-		if (uploadPersistentMaterials)
-		{
-			m_PersistentMaterialUploadFramesRemaining--;
-			m_PersistentMaterialUploadedCount = persistentMaterialCount;
 		}
 
 		m_UploadCommandBuffer->End();
@@ -5364,20 +6468,24 @@ namespace Lux {
 	{
 		ScopedCPUProfile cpuProfile(*this, "ShadowMapPass");
 		const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
-
-		// Hazel-style: no shadow-map caching. Render the cascades every frame (or clear them if
-		// there is no directional shadow). Doing the same work every frame keeps the render-graph
-		// topology and the depth-attachment barriers stable, which is what fixes the mesh/shadow
-		// flicker that the cache-driven pass toggling introduced.
 		if (dirLight.Intensity <= 0.0f || !dirLight.CastShadows)
 		{
+			if (m_DirectionalShadowMapCacheValid && !m_DirectionalShadowMapNeedsRender)
+				return;
+
+			// Clear every cascade so geometry doesn't sample stale data.
 			for (auto& shadowMapPass : m_ShadowMapPasses)
 			{
 				Renderer::BeginRenderPass(m_CommandBuffer, shadowMapPass, /*explicitClear=*/true);
 				Renderer::EndRenderPass(m_CommandBuffer);
 			}
+			m_DirectionalShadowMapCacheValid = true;
+			m_DirectionalShadowMapNeedsRender = false;
 			return;
 		}
+
+		if (m_DirectionalShadowMapCacheValid && !m_DirectionalShadowMapNeedsRender)
+			return;
 
 		BeginProfiledGPU("ShadowMapPass");
 		const MeshPassState& shadowPass = GetMeshPass(MeshPassType::ShadowDepth);
@@ -5410,20 +6518,27 @@ namespace Lux {
 			Renderer::EndRenderPass(m_CommandBuffer);
 		}
 		EndProfiledGPU();
+		m_DirectionalShadowMapCacheValid = true;
+		m_DirectionalShadowMapNeedsRender = false;
 	}
 
 	void SceneRenderer::SpotShadowMapPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SpotShadowMapPass");
-
-		// Hazel-style: render the spot-shadow atlas every frame, or clear it when there are no
-		// shadow-casting spotlights. No caching -> stable topology/barriers, no flicker.
 		if (m_SpotShadowCount == 0)
 		{
+			if (m_SpotShadowMapCacheValid && !m_SpotShadowMapNeedsRender)
+				return;
+
 			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
 			Renderer::EndRenderPass(m_CommandBuffer);
+			m_SpotShadowMapCacheValid = true;
+			m_SpotShadowMapNeedsRender = false;
 			return;
 		}
+
+		if (m_SpotShadowMapCacheValid && !m_SpotShadowMapNeedsRender)
+			return;
 
 		BeginProfiledGPU("SpotShadowMapPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
@@ -5438,7 +6553,6 @@ namespace Lux {
 			const uint32_t tileX = shadowIndex % tilesPerRow;
 			const uint32_t tileY = shadowIndex / tilesPerRow;
 			Renderer::SetViewport(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
-			Renderer::SetScissor(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
 
 			for (const MeshKey& key : shadowPass.DrawOrder)
 			{
@@ -5463,10 +6577,11 @@ namespace Lux {
 		}
 
 		Renderer::SetViewport(m_CommandBuffer, 0, 0, atlasSize, atlasSize);
-		Renderer::SetScissor(m_CommandBuffer, 0, 0, atlasSize, atlasSize);
 
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+		m_SpotShadowMapCacheValid = true;
+		m_SpotShadowMapNeedsRender = false;
 	}
 
 	void SceneRenderer::PreDepthPass()
@@ -5632,8 +6747,6 @@ namespace Lux {
 		ScopedCPUProfile cpuProfile(*this, "ClusterBuildPass");
 		if (!m_ClusterBuildPass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
-		if (!m_ClusterAABBsDirty)
-			return;
 
 		// The cluster AABBs are consumed only by the light-culling dispatch, which
 		// is skipped when there are no local lights (it zero-fills the grids
@@ -5657,18 +6770,23 @@ namespace Lux {
 		};
 		push.GridSize = { ClusterGridX, ClusterGridY, ClusterGridZ, 0u };
 
-		// The froxel AABBs depend only on render size and projection. Light assignment
-		// remains per-frame; this grid is rebuilt only when that projection state changes.
+		// TODO(clustered): cache — only rebuild on resize / projection change.
+		// Rebuilt every frame for now (4608 froxels, negligible cost).
 		constexpr uint32_t kThreadsPerGroup = 64;
 		const glm::uvec3 groups = { (ClusterCount + kThreadsPerGroup - 1u) / kThreadsPerGroup, 1u, 1u };
 
-		BeginProfiledGPU("ClusterBuildPass");
-		Renderer::BeginComputePass(m_CommandBuffer, m_ClusterBuildPass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_ClusterBuildPass, nullptr, groups, Buffer(&push, sizeof(push)));
-		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSClusterAABBs->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		Renderer::EndComputePass(m_CommandBuffer, m_ClusterBuildPass);
-		EndProfiledGPU();
-		m_ClusterAABBsDirty = false;
+		// When async, this records onto the compute-queue command buffer (submitted
+		// separately in FlushDrawList); the GPU perf markers/timer queries target the
+		// graphics command buffer, so skip them on the async path.
+		const bool async = m_Options.EnableAsyncCompute;
+		Ref<RenderCommandBuffer> cb = async ? m_ComputeCommandBuffer : m_CommandBuffer;
+
+		if (!async) BeginProfiledGPU("ClusterBuildPass");
+		Renderer::BeginComputePass(cb, m_ClusterBuildPass);
+		Renderer::DispatchCompute(cb, m_ClusterBuildPass, nullptr, groups, Buffer(&push, sizeof(push)));
+		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(cb, m_SBSClusterAABBs->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(cb, m_ClusterBuildPass);
+		if (!async) EndProfiledGPU();
 	}
 
 	void SceneRenderer::ClusterLightCullingPass()
@@ -6110,6 +7228,677 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::GTAOCompute()
+	{
+		ScopedCPUProfile cpuProfile(*this, "GTAO");
+		if (!m_Options.EnableGTAO || !m_GTAOComputePass || !m_GTAOOutputImage)
+			return;
+
+		BeginProfiledGPU("GTAO");
+		Renderer::BeginComputePass(m_CommandBuffer, m_GTAOComputePass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_GTAOComputePass, nullptr, m_GTAOWorkGroups, Buffer(&m_GTAODataCB, sizeof(m_GTAODataCB)));
+		Renderer::EndComputePass(m_CommandBuffer, m_GTAOComputePass);
+		m_GTAOComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_GTAOOutputImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_GTAOComputePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_GTAOEdgesOutputImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::GTAODenoiseCompute()
+	{
+		ScopedCPUProfile cpuProfile(*this, "GTAO-Denoise");
+		if (!m_Options.EnableGTAO || !m_GTAODenoisePass[0] || !m_GTAODenoisePass[1] || !m_GTAOOutputImage)
+			return;
+
+		const uint32_t denoisePasses = (uint32_t)glm::max(m_Options.GTAODenoisePasses, 0);
+		if (denoisePasses == 0)
+		{
+			m_GTAOFinalImage = m_GTAOOutputImage;
+			if (m_AOCompositePass)
+			{
+				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+			}
+			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
+				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			return;
+		}
+
+		m_GTAODenoiseConstants.DenoiseBlurBeta = m_GTAODataCB.DenoiseBlurBeta;
+		m_GTAODenoiseConstants.ResolutionScale = m_GTAODataCB.ResolutionScale;
+
+		BeginProfiledGPU("GTAO-Denoise");
+		for (uint32_t pass = 0; pass < denoisePasses; pass++)
+		{
+			const uint32_t passIndex = (pass % 2u) != 0u ? 1u : 0u;
+			Ref<ComputePass> denoisePass = m_GTAODenoisePass[passIndex];
+			Ref<Image2D> outputImage = passIndex == 0 ? m_GTAODenoiseImage : m_GTAOOutputImage;
+
+			Renderer::BeginComputePass(m_CommandBuffer, denoisePass);
+			Renderer::DispatchCompute(m_CommandBuffer, denoisePass, nullptr, m_GTAODenoiseWorkGroups, Buffer(&m_GTAODenoiseConstants, sizeof(m_GTAODenoiseConstants)));
+			Renderer::EndComputePass(m_CommandBuffer, denoisePass);
+			denoisePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, outputImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		}
+
+		m_GTAOFinalImage = (denoisePasses % 2u) != 0u ? m_GTAODenoiseImage : m_GTAOOutputImage;
+		if (m_AOCompositePass)
+		{
+			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+		}
+		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
+			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::GTAOTemporalAccumulationCompute()
+	{
+		ScopedCPUProfile cpuProfile(*this, "GTAO-Temporal");
+		if (!m_Options.EnableGTAO || !m_Options.EnableGTAOTemporalAccumulation)
+			return;
+		if (!m_GTAOTemporalPass || !m_GTAOFinalImage || !m_GTAOHistoryImages[0] || !m_GTAOHistoryImages[1])
+			return;
+
+		const uint32_t readIndex = m_GTAOHistoryIndex & 1u;
+		const uint32_t writeIndex = readIndex ^ 1u;
+		Ref<Image2D> historyInput = m_GTAOHistoryImages[readIndex];
+		Ref<Image2D> historyOutput = m_GTAOHistoryImages[writeIndex];
+
+		m_GTAOTemporalPass->SetInput("u_CurrentAO", m_GTAOFinalImage);
+		m_GTAOTemporalPass->SetInput("u_HistoryAO", historyInput);
+		m_GTAOTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+		m_GTAOTemporalPass->SetInput("o_HistoryAO", historyOutput);
+
+		TemporalAccumulationConstants constants;
+		constants.PreviousViewProjection = m_PreviousViewProjection;
+		constants.Blend = m_Options.GTAOTemporalBlend;
+		constants.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
+		constants.BentNormals = m_Options.GTAOBentNormals ? 1u : 0u;
+		constants.ResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
+
+		BeginProfiledGPU("GTAO-Temporal");
+		Renderer::BeginComputePass(m_CommandBuffer, m_GTAOTemporalPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_GTAOTemporalPass, nullptr, m_GTAOTemporalWorkGroups, Buffer(&constants, sizeof(constants)));
+		Renderer::EndComputePass(m_CommandBuffer, m_GTAOTemporalPass);
+		m_GTAOTemporalPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, historyOutput, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+
+		m_GTAOHistoryIndex = writeIndex;
+		m_GTAOFinalImage = historyOutput;
+		if (m_AOCompositePass)
+		{
+			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+		}
+		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
+			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+	}
+
+	void SceneRenderer::AOComposite()
+	{
+		ScopedCPUProfile cpuProfile(*this, "AOComposite");
+		if (!m_AOCompositePass || !m_AOCompositeMaterial || !m_GTAOFinalImage)
+			return;
+
+		m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+		m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+		m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+
+		BeginProfiledGPU("AOComposite");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_AOCompositePass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AOCompositePass->GetPipeline(), m_AOCompositeMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::AODebugPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "AODebug");
+		if (!m_AODebugPass || !m_AODebugMaterial || !m_GTAOFinalImage)
+			return;
+
+		m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+		m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+		m_AODebugPass->SetInput("u_Normal", GetGeometryNormalOutput());
+
+		BeginProfiledGPU("AODebug");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_AODebugPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AODebugPass->GetPipeline(), m_AODebugMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::PreConvolutionCompute()
+	{
+		ScopedCPUProfile cpuProfile(*this, "PreConvolution");
+		if (!m_Options.EnableSSR || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
+			return;
+
+		struct PreConvolutionComputePushConstants
+		{
+			int PrevLod = 0;
+			int Mode = 0;
+		} pushConstants;
+
+		Ref<Image2D> preConvolutedImage = m_PreConvolutedTexture.Texture->GetImage();
+		auto transitionMip = [commandBuffer = m_CommandBuffer, preConvolutedImage](uint32_t mip, nvrhi::ResourceStates state, const char* label)
+		{
+			std::string markerName = std::format("Barrier PreConvolution mip {} {}", mip, label);
+			Renderer::Submit([commandBuffer, preConvolutedImage, mip, state, markerName]() mutable
+			{
+				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
+				commandBuffer->RT_BeginMarker(markerName);
+				commandList->setTextureState(preConvolutedImage->GetHandle(), nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
+				commandList->commitBarriers();
+				commandBuffer->RT_EndMarker();
+			});
+		};
+
+		BeginProfiledGPU("PreConvolution");
+		Renderer::BeginComputePass(m_CommandBuffer, m_PreConvolutionComputePass);
+
+		if (m_PreConvolutionMaterials[0])
+		{
+			auto [width, height] = m_PreConvolutedTexture.Texture->GetMipSize(0);
+			const glm::uvec3 workGroups = { DivideRoundUp(glm::max(1u, width), 16u), DivideRoundUp(glm::max(1u, height), 16u), 1 };
+			pushConstants.PrevLod = 0;
+			pushConstants.Mode = 0;
+			transitionMip(0, nvrhi::ResourceStates::UnorderedAccess, "write");
+			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[0], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			transitionMip(0, nvrhi::ResourceStates::ShaderResource, "read");
+		}
+
+		const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
+		for (uint32_t mip = 1; mip < mipCount && mip < m_PreConvolutionMaterials.size(); mip++)
+		{
+			if (!m_PreConvolutionMaterials[mip])
+				continue;
+
+			auto [mipWidth, mipHeight] = m_PreConvolutedTexture.Texture->GetMipSize(mip);
+			const glm::uvec3 workGroups = { DivideRoundUp(glm::max(1u, mipWidth), 16u), DivideRoundUp(glm::max(1u, mipHeight), 16u), 1 };
+			pushConstants.PrevLod = (int)mip - 1;
+
+			pushConstants.Mode = 1;
+			transitionMip(mip, nvrhi::ResourceStates::UnorderedAccess, "write");
+			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[mip], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			transitionMip(mip, nvrhi::ResourceStates::ShaderResource, "read");
+
+			pushConstants.Mode = 2;
+			transitionMip(mip, nvrhi::ResourceStates::UnorderedAccess, "write");
+			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[mip], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			transitionMip(mip, nvrhi::ResourceStates::ShaderResource, "read");
+		}
+
+		Renderer::EndComputePass(m_CommandBuffer, m_PreConvolutionComputePass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::SSRCompute()
+	{
+		ScopedCPUProfile cpuProfile(*this, "SSR");
+		if (!m_Options.EnableSSR || !m_SSRPass || !m_SSRImage)
+			return;
+
+		SSROptionsUB ssrOptions = m_SSROptions;
+		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
+		ssrOptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
+		ssrOptions.HalfRes = ssrOptions.ResolutionScale > 1u;
+		ssrOptions.TemporalAccumulation = m_Options.EnableSSRTemporalAccumulation ? 1u : 0u;
+		ssrOptions.TemporalBlend = m_Options.SSRTemporalBlend;
+		if (m_Options.EnableSSRTemporalAccumulation)
+			ssrOptions.MaxSteps = glm::max(8, ssrOptions.MaxSteps / 2);
+
+		if (m_SSRPass->IsInputValid("u_GTAOTex") && m_GTAOFinalImage)
+			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+
+		BeginProfiledGPU("SSR");
+		Renderer::BeginComputePass(m_CommandBuffer, m_SSRPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_SSRPass, nullptr, m_SSRWorkGroups, Buffer(&ssrOptions, sizeof(ssrOptions)));
+		Renderer::EndComputePass(m_CommandBuffer, m_SSRPass);
+		m_SSRPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_SSRImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_SSRFinalImage = m_SSRImage;
+		if (m_SSRCompositePass)
+		{
+			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
+			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+		}
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::SSRTemporalAccumulationCompute()
+	{
+		ScopedCPUProfile cpuProfile(*this, "SSR-Temporal");
+		if (!m_Options.EnableSSR || !m_Options.EnableSSRTemporalAccumulation)
+			return;
+		if (!m_SSRTemporalPass || !m_SSRImage || !m_SSRHistoryImages[0] || !m_SSRHistoryImages[1])
+			return;
+
+		const uint32_t readIndex = m_SSRHistoryIndex & 1u;
+		const uint32_t writeIndex = readIndex ^ 1u;
+		Ref<Image2D> historyInput = m_SSRHistoryImages[readIndex];
+		Ref<Image2D> historyOutput = m_SSRHistoryImages[writeIndex];
+
+		m_SSRTemporalPass->SetInput("u_CurrentSSR", m_SSRImage);
+		m_SSRTemporalPass->SetInput("u_HistorySSR", historyInput);
+		m_SSRTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+		m_SSRTemporalPass->SetInput("o_HistorySSR", historyOutput);
+
+		TemporalAccumulationConstants constants;
+		constants.PreviousViewProjection = m_PreviousViewProjection;
+		constants.Blend = m_Options.SSRTemporalBlend;
+		constants.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
+		constants.BentNormals = 0u;
+		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
+		constants.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
+
+		BeginProfiledGPU("SSR-Temporal");
+		Renderer::BeginComputePass(m_CommandBuffer, m_SSRTemporalPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_SSRTemporalPass, nullptr, m_SSRTemporalWorkGroups, Buffer(&constants, sizeof(constants)));
+		Renderer::EndComputePass(m_CommandBuffer, m_SSRTemporalPass);
+		m_SSRTemporalPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, historyOutput, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+
+		m_SSRHistoryIndex = writeIndex;
+		m_SSRFinalImage = historyOutput;
+		if (m_SSRCompositePass)
+		{
+			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
+			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+		}
+	}
+
+	void SceneRenderer::SSRCompositePass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "SSRComposite");
+		if (!m_Options.EnableSSR || !m_SSRCompositePass || !m_SSRCompositeMaterial)
+			return;
+
+		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
+		m_SSRCompositeMaterial->Set("u_Uniforms.ResolutionScale", GetEffectResolutionDivisor(m_Options.SSRResolutionScale));
+		m_SSRCompositeMaterial->Set("u_Uniforms.BilateralUpscale", UsesSSRBilateralUpscale(m_Options.SSRQuality) ? 1u : 0u);
+		m_SSRCompositeMaterial->Set("u_Uniforms.QuarterDebug", m_Options.SSRQuality == SceneRendererOptions::SSRQualityPreset::QuarterDebug ? 1u : 0u);
+		m_SSRCompositeMaterial->Set("u_Uniforms.DepthSigma", 0.035f);
+		m_SSRCompositeMaterial->Set("u_Uniforms.NormalSigma", 32.0f);
+
+		BeginProfiledGPU("SSRComposite");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_SSRCompositePass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SSRCompositePass->GetPipeline(), m_SSRCompositeMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::DOFPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "DOF");
+		const RenderVolumePostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		if (!postProcessSettings.DOFEnabled || !m_DOFPass || !m_DOFMaterial)
+			return;
+
+		const float focusDistance = glm::max(0.001f, postProcessSettings.DOFFocusDistance);
+		m_DOFMaterial->Set("u_Uniforms.DOFParams", glm::vec2(focusDistance, postProcessSettings.DOFBlurSize));
+
+		BeginProfiledGPU("DOF");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_DOFPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_DOFPass->GetPipeline(), m_DOFMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+
+		if (CanCompositeDOFIntoFinalTarget())
+			Renderer::CopyImage(m_CommandBuffer, m_DOFPass->GetOutput(0), m_CompositePass->GetOutput(0));
+
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	bool SceneRenderer::CanCompositeDOFIntoFinalTarget()
+	{
+		if (!GetResolvedPostProcessSettings().DOFEnabled || !m_DOFPass || !m_CompositePass)
+			return false;
+
+		Ref<Image2D> dofImage = m_DOFPass->GetOutput(0);
+		Ref<Image2D> compositeImage = m_CompositePass->GetOutput(0);
+		if (!dofImage || !compositeImage)
+			return false;
+
+		return dofImage->GetSize() == compositeImage->GetSize();
+	}
+
+	void SceneRenderer::JumpFloodPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "JumpFlood");
+		if (!m_Options.EnableJumpFlood || !m_JumpFloodInitPass || !m_JumpFloodInitMaterial || !m_JumpFloodPasses[0] || !m_JumpFloodPasses[1])
+			return;
+
+		BeginProfiledGPU("JumpFlood");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_JumpFloodInitPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_JumpFloodInitPass->GetPipeline(), m_JumpFloodInitMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+
+		int step = 4;
+		uint32_t passIndex = 0;
+		Ref<Image2D> input = m_JumpFloodInitPass->GetOutput(0);
+		Ref<Image2D> output = input;
+
+		Ref<Framebuffer> passFramebuffer = m_JumpFloodPasses[0]->GetTargetFramebuffer();
+		const glm::vec2 texelSize = {
+			passFramebuffer && passFramebuffer->GetWidth() > 0 ? 1.0f / (float)passFramebuffer->GetWidth() : 1.0f,
+			passFramebuffer && passFramebuffer->GetHeight() > 0 ? 1.0f / (float)passFramebuffer->GetHeight() : 1.0f
+		};
+
+		Buffer vertexOverrides;
+		vertexOverrides.Allocate(sizeof(glm::vec2) + sizeof(int));
+		vertexOverrides.Write(glm::value_ptr(texelSize), sizeof(glm::vec2));
+
+		while (step > 0)
+		{
+			Ref<RenderPass> jumpFloodPass = m_JumpFloodPasses[passIndex];
+			if (!jumpFloodPass || !m_JumpFloodPassMaterials[passIndex])
+				break;
+
+			jumpFloodPass->SetInput("u_Texture", input);
+			vertexOverrides.Write(&step, sizeof(int), sizeof(glm::vec2));
+
+			Renderer::BeginRenderPass(m_CommandBuffer, jumpFloodPass);
+			Renderer::SubmitFullscreenQuadWithOverrides(m_CommandBuffer, jumpFloodPass->GetPipeline(), m_JumpFloodPassMaterials[passIndex], vertexOverrides, Buffer());
+			Renderer::EndRenderPass(m_CommandBuffer);
+
+			output = jumpFloodPass->GetOutput(0);
+			input = output;
+			passIndex = (passIndex + 1u) % 2u;
+			step /= 2;
+		}
+
+		vertexOverrides.Release();
+
+		if (m_JumpFloodCompositePass && output)
+			m_JumpFloodCompositePass->SetInput("u_Texture", output);
+
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::JumpFloodCompositePass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "JumpFloodComposite");
+		if (!m_Options.EnableJumpFlood || !m_JumpFloodCompositePass || !m_JumpFloodCompositeMaterial)
+			return;
+
+		BeginProfiledGPU("JumpFloodComposite");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_JumpFloodCompositePass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_JumpFloodCompositePass->GetPipeline(), m_JumpFloodCompositeMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::BloomCompute()
+	{
+		ScopedCPUProfile cpuProfile(*this, "BloomCompute");
+		const RenderVolumePostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		if (!postProcessSettings.BloomEnabled || !m_BloomComputePass || !m_BloomComputePipeline || !m_BloomComputeMaterials.PrefilterMaterial)
+			return;
+
+		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
+		if (mipCount < 4)
+			return;
+
+		const uint32_t mips = mipCount - 2;
+		if (mips < 3 || !m_BloomComputeMaterials.FirstUpsampleMaterial)
+			return;
+
+		struct BloomComputePushConstants
+		{
+			glm::vec4 Params;
+			glm::vec4 TexSize;
+			float LOD = 0.0f;
+			int Mode = 0;
+		} pushConstants;
+
+		const float knee = glm::max(postProcessSettings.BloomKnee, 0.0001f);
+		pushConstants.Params = {
+			postProcessSettings.BloomThreshold,
+			postProcessSettings.BloomThreshold - knee,
+			knee * 2.0f,
+			0.25f / knee
+		};
+
+		auto setTexSize = [&](uint32_t mip)
+		{
+			auto [mipWidth, mipHeight] = m_BloomComputeTextures[0].Texture->GetMipSize(mip);
+			pushConstants.TexSize = {
+				(float)mipWidth,
+				(float)mipHeight,
+				mipWidth > 0 ? 1.0f / (float)mipWidth : 0.0f,
+				mipHeight > 0 ? 1.0f / (float)mipHeight : 0.0f
+			};
+		};
+
+		auto dispatchForMip = [&](Ref<Material> material, uint32_t mip)
+		{
+			if (!material)
+				return;
+
+			auto [mipWidth, mipHeight] = m_BloomComputeTextures[0].Texture->GetMipSize(mip);
+			const glm::uvec3 workGroups = {
+				AlignUp(glm::max(1u, mipWidth), m_BloomComputeWorkgroupSize) / m_BloomComputeWorkgroupSize,
+				AlignUp(glm::max(1u, mipHeight), m_BloomComputeWorkgroupSize) / m_BloomComputeWorkgroupSize,
+				1
+			};
+			Renderer::DispatchCompute(m_CommandBuffer, m_BloomComputePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+		};
+
+		auto transitionBloomMip = [commandBuffer = m_CommandBuffer, this](uint32_t textureIndex, uint32_t mip, nvrhi::ResourceStates state, const char* label)
+		{
+			if (textureIndex >= m_BloomComputeTextures.size() || !m_BloomComputeTextures[textureIndex].Texture)
+				return;
+
+			Ref<Image2D> image = m_BloomComputeTextures[textureIndex].Texture->GetImage();
+			std::string markerName = std::format("Barrier Bloom {} mip {} {}", textureIndex, mip, label);
+			Renderer::Submit([commandBuffer, image, mip, state, markerName]() mutable
+			{
+				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
+				commandBuffer->RT_BeginMarker(markerName);
+				commandList->setTextureState(image->GetHandle(), nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
+				commandList->commitBarriers();
+				commandBuffer->RT_EndMarker();
+			});
+		};
+
+		BeginProfiledGPU("BloomCompute");
+		Renderer::BeginComputePass(m_CommandBuffer, m_BloomComputePass);
+
+		// Prefilter
+		pushConstants.Mode = 0;
+		pushConstants.LOD = 0.0f;
+		setTexSize(0);
+		transitionBloomMip(0, 0, nvrhi::ResourceStates::UnorderedAccess, "write");
+		dispatchForMip(m_BloomComputeMaterials.PrefilterMaterial, 0);
+		transitionBloomMip(0, 0, nvrhi::ResourceStates::ShaderResource, "read");
+
+		// Downsample, ping-ponging between texture 0 and texture 1.
+		pushConstants.Mode = 1;
+		for (uint32_t i = 1; i < mips; i++)
+		{
+			setTexSize(i);
+			pushConstants.LOD = (float)i - 1.0f;
+			transitionBloomMip(1, i, nvrhi::ResourceStates::UnorderedAccess, "write");
+			dispatchForMip(m_BloomComputeMaterials.DownsampleAMaterials[i], i);
+			transitionBloomMip(1, i, nvrhi::ResourceStates::ShaderResource, "read");
+
+			pushConstants.LOD = (float)i;
+			transitionBloomMip(0, i, nvrhi::ResourceStates::UnorderedAccess, "write");
+			dispatchForMip(m_BloomComputeMaterials.DownsampleBMaterials[i], i);
+			transitionBloomMip(0, i, nvrhi::ResourceStates::ShaderResource, "read");
+		}
+
+		// First upsample from the smallest downsampled mip.
+		pushConstants.Mode = 2;
+		pushConstants.LOD = (float)mips - 2.0f;
+		setTexSize(mips - 1);
+		transitionBloomMip(2, mips - 2, nvrhi::ResourceStates::UnorderedAccess, "write");
+		dispatchForMip(m_BloomComputeMaterials.FirstUpsampleMaterial, mips - 2);
+		transitionBloomMip(2, mips - 2, nvrhi::ResourceStates::ShaderResource, "read");
+
+		// Upsample back to mip 0.
+		pushConstants.Mode = 3;
+		for (int32_t mip = (int32_t)mips - 3; mip >= 0; mip--)
+		{
+			pushConstants.LOD = (float)mip;
+			setTexSize((uint32_t)mip + 1u);
+			transitionBloomMip(2, (uint32_t)mip, nvrhi::ResourceStates::UnorderedAccess, "write");
+			dispatchForMip(m_BloomComputeMaterials.UpsampleMaterials[mip], (uint32_t)mip);
+			transitionBloomMip(2, (uint32_t)mip, nvrhi::ResourceStates::ShaderResource, "read");
+		}
+
+		Renderer::EndComputePass(m_CommandBuffer, m_BloomComputePass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::AutoExposurePass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "AutoExposurePass");
+		if (!m_LuminanceHistogramPass || !m_LuminanceAveragePass)
+			return;
+
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		if (!sceneColor)
+			return;
+
+		const RenderVolumePostProcessSettings settings = GetResolvedPostProcessSettings();
+		if (settings.ExposureControl != ExposureMode::Automatic)
+			return;
+
+		const uint32_t width = glm::max(1u, sceneColor->GetWidth());
+		const uint32_t height = glm::max(1u, sceneColor->GetHeight());
+		const float minLog = s_AutoExposureMinLogLuminance;
+		const float maxLog = s_AutoExposureMaxLogLuminance;
+		const float logRange = maxLog - minLog;
+
+		BeginProfiledGPU("AutoExposurePass");
+
+		// 1) Build the log-luminance histogram of the HDR scene color.
+		struct HistogramPushConstants
+		{
+			float MinLogLuminance;
+			float InverseLogLuminanceRange;
+			uint32_t InputWidth;
+			uint32_t InputHeight;
+		} histogramPush;
+		histogramPush.MinLogLuminance = minLog;
+		histogramPush.InverseLogLuminanceRange = logRange > 0.0f ? 1.0f / logRange : 0.0f;
+		histogramPush.InputWidth = width;
+		histogramPush.InputHeight = height;
+
+		const glm::uvec3 histogramGroups = { AlignUp(width, 16u) / 16u, AlignUp(height, 16u) / 16u, 1u };
+		Renderer::BeginComputePass(m_CommandBuffer, m_LuminanceHistogramPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_LuminanceHistogramPass, nullptr, histogramGroups, Buffer(&histogramPush, sizeof(histogramPush)));
+		m_LuminanceHistogramPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(m_CommandBuffer, m_LuminanceHistogramPass);
+
+		// 2) Reduce to an average luminance, temporally adapt, write the exposure
+		//    multiplier, and clear the histogram for the next frame.
+		struct AveragePushConstants
+		{
+			float MinLogLuminance;
+			float LogLuminanceRange;
+			float TimeDelta;
+			float SpeedUp;
+			float SpeedDown;
+			float MinEV100;
+			float MaxEV100;
+			uint32_t PixelCount;
+		} averagePush;
+		averagePush.MinLogLuminance = minLog;
+		averagePush.LogLuminanceRange = logRange;
+		averagePush.TimeDelta = Application::Get().GetFrametime().GetSeconds();
+		averagePush.SpeedUp = glm::max(settings.AutoAdaptationSpeedUp, 0.0f);
+		averagePush.SpeedDown = glm::max(settings.AutoAdaptationSpeedDown, 0.0f);
+		averagePush.MinEV100 = settings.AutoMinEV100;
+		averagePush.MaxEV100 = glm::max(settings.AutoMaxEV100, settings.AutoMinEV100);
+		averagePush.PixelCount = width * height;
+
+		Renderer::BeginComputePass(m_CommandBuffer, m_LuminanceAveragePass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_LuminanceAveragePass, nullptr, { 1u, 1u, 1u }, Buffer(&averagePush, sizeof(averagePush)));
+		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSExposureState->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		Renderer::EndComputePass(m_CommandBuffer, m_LuminanceAveragePass);
+
+		m_AutoExposureValid = true;
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::TAAResolvePass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "TAA");
+		if (!m_Options.EnableTAA || !m_TAAResolvePass || !m_TAAHistoryImages[0] || !m_TAAHistoryImages[1])
+			return;
+
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		if (!sceneColor)
+			return;
+
+		const uint32_t readIndex = m_TAAHistoryIndex & 1u;
+		const uint32_t writeIndex = readIndex ^ 1u;
+		Ref<Image2D> historyInput = m_TAAHistoryImages[readIndex];
+		Ref<Image2D> historyOutput = m_TAAHistoryImages[writeIndex];
+
+		m_TAAResolvePass->SetInput("u_SceneColor", sceneColor);
+		m_TAAResolvePass->SetInput("u_History", historyInput);
+		m_TAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
+		m_TAAResolvePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+		m_TAAResolvePass->SetInput("o_Resolved", historyOutput);
+
+		struct TAAPushConstants
+		{
+			float Blend;
+			uint32_t HasHistory;
+			float Sharpness;
+			uint32_t Padding1;
+		} push;
+		push.Blend = glm::clamp(m_Options.TAAHistoryBlend, 0.0f, 0.98f);
+		push.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
+		push.Sharpness = glm::max(m_Options.TAASharpness, 0.0f);
+		push.Padding1 = 0u;
+
+		const glm::uvec3 groups = {
+			(glm::max(1u, sceneColor->GetWidth()) + 7u) / 8u,
+			(glm::max(1u, sceneColor->GetHeight()) + 7u) / 8u,
+			1u
+		};
+
+		BeginProfiledGPU("TAA");
+		Renderer::BeginComputePass(m_CommandBuffer, m_TAAResolvePass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_TAAResolvePass, nullptr, groups, Buffer(&push, sizeof(push)));
+		Renderer::EndComputePass(m_CommandBuffer, m_TAAResolvePass);
+		m_TAAResolvePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, historyOutput, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+
+		// Copy the resolved frame back into scene color so downstream passes
+		// (bloom / auto-exposure / composite) consume the anti-aliased result.
+		Renderer::CopyImage(m_CommandBuffer, historyOutput, sceneColor);
+
+		m_TAAHistoryIndex = writeIndex;
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	float SceneRenderer::ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const
+	{
+		switch (settings.ExposureControl)
+		{
+			case ExposureMode::ManualEV:
+				return Exposure::ExposureFromEV100(settings.ExposureEV100 - settings.ExposureCompensation);
+			case ExposureMode::Camera:
+				return Exposure::ExposureFromCamera(settings.Aperture, settings.ShutterSpeed, settings.ISO, settings.ExposureCompensation);
+			case ExposureMode::Automatic:
+				// Driven by the histogram auto-exposure passes; falls back to the manual
+				// multiplier until the first auto-exposure result is available.
+				return m_AutoExposureValid ? m_AutoExposure : settings.Exposure;
+			case ExposureMode::Manual:
+			default:
+				return settings.Exposure;
+		}
+	}
+
 	void SceneRenderer::CompositePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "CompositePass");
@@ -6170,6 +7959,89 @@ namespace Lux {
 		args.baseVertexLocation = (int32_t)submesh.BaseVertex;
 		args.startInstanceLocation = 0;
 		drawCommands.push_back(args);
+	}
+
+	void SceneRenderer::UpdateStatistics()
+	{
+		m_Statistics.DrawCalls = 0;
+		m_Statistics.Meshes = 0;
+		m_Statistics.SubmittedInstances = m_FrameCullingStats.SubmittedInstances;
+		m_Statistics.Instances = 0;
+		m_Statistics.VisibleInstances = 0;
+		m_Statistics.GPUVisibleInstances = 0;
+		m_Statistics.CulledInstances = 0;
+		m_Statistics.FrustumCulledInstances = m_FrameCullingStats.MainViewCulledInstances;
+		m_Statistics.MainViewCulledInstances = m_Statistics.FrustumCulledInstances;
+		m_Statistics.ShadowCulledInstances = m_FrameCullingStats.ShadowCulledInstances;
+		m_Statistics.OcclusionCulledInstances = 0;
+		m_Statistics.FullyCulledInstances = m_FrameCullingStats.FullyCulledInstances;
+		m_Statistics.IndirectDraws = 0;
+		m_Statistics.SavedDraws = 0;
+		m_Statistics.SpotlightShadowcasters = 0;
+		m_Statistics.SpotlightShadowsCulled = m_FrameCullingStats.ShadowCulledInstances;
+
+#ifndef LUX_DIST
+		// Stats-panel counters only: re-walking every draw list has no consumer
+		// in shipping builds. (UpdateDynamicRenderResolution below is functional
+		// and stays in all builds.)
+		auto accumulate = [this](const DrawCommandList& drawList, const DrawCommandOrder& drawOrder)
+			{
+				for (const MeshKey& key : drawOrder)
+				{
+					const auto drawIt = drawList.find(key);
+					if (drawIt == drawList.end())
+						continue;
+
+					const StaticDrawCommand& dc = drawIt->second;
+					m_Statistics.DrawCalls++;
+					m_Statistics.Meshes++;
+					m_Statistics.Instances += dc.InstanceCount;
+
+					auto transformIt = m_MeshTransformMap.find(key);
+					if (transformIt != m_MeshTransformMap.end())
+					{
+						m_Statistics.VisibleInstances += transformIt->second.VisibleInstanceCount;
+						if (m_Options.EnableGPUDrivenRendering && transformIt->second.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
+							m_Statistics.IndirectDraws++;
+					}
+					else
+					{
+						m_Statistics.VisibleInstances += dc.InstanceCount;
+					}
+				}
+			};
+
+		const MeshPassState& selectedPass = GetMeshPass(MeshPassType::SelectedMask);
+		const MeshPassState& opaquePass = GetMeshPass(MeshPassType::Opaque);
+		const MeshPassState& transparentPass = GetMeshPass(MeshPassType::Transparent);
+		const MeshPassState& colliderPass = GetMeshPass(MeshPassType::PhysicsCollider);
+
+		accumulate(selectedPass.DrawList, selectedPass.DrawOrder);
+		accumulate(opaquePass.DrawList, opaquePass.DrawOrder);
+		accumulate(transparentPass.DrawList, transparentPass.DrawOrder);
+
+		if (m_Options.ShowPhysicsColliders)
+			accumulate(colliderPass.DrawList, colliderPass.DrawOrder);
+
+		m_Statistics.SavedDraws = m_Statistics.Instances > m_Statistics.DrawCalls
+			? m_Statistics.Instances - m_Statistics.DrawCalls
+			: 0;
+		const uint32_t lateCulledInstances = m_Statistics.Instances > m_Statistics.VisibleInstances
+			? m_Statistics.Instances - m_Statistics.VisibleInstances
+			: 0;
+		m_Statistics.GPUVisibleInstances = m_Statistics.VisibleInstances;
+		// Real HZB occlusion rejection counts require reading the post-compute counters back from the GPU.
+		m_Statistics.CulledInstances = lateCulledInstances + m_Statistics.FrustumCulledInstances + m_Statistics.OcclusionCulledInstances;
+
+		m_Statistics.SpotlightShadowcasters = m_SpotShadowCount;
+#endif
+
+		const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
+		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(frameIndex);
+		m_Statistics.PipelineStats = m_CommandBuffer->GetPipelineStatistics(frameIndex);
+		UpdateGPUProfileTimes();
+		UpdateMemoryStatistics();
+		UpdateDynamicRenderResolution();
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
