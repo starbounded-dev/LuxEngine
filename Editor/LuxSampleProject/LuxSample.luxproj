@@ -65,21 +65,21 @@ Project:
       Bloom:
         Enabled: true
         ResolutionScale: 1
-        Threshold: 1
-        Knee: 0.100000001
-        UpsampleScale: 1
-        Intensity: 1
-        DirtIntensity: 1
+        Threshold: 0.200000003
+        Knee: 0.159999996
+        UpsampleScale: 0
+        Intensity: 1.01999998
+        DirtIntensity: 2.6099999
       DOF:
         Enabled: true
         ResolutionScale: 1
-        FocusDistance: 4
-        BlurSize: 0.75
+        FocusDistance: 5.0999999
+        BlurSize: 0.600000024
       SSR:
         HalfRes: false
-        MaxSteps: 128
-        Brightness: 0.699999988
-        DepthTolerance: 0.800000012
+        MaxSteps: 256
+        Brightness: 1.07000005
+        DepthTolerance: 0.629999995
   Audio:
     FileStreamingDurationThreshold: 1
   Physics:

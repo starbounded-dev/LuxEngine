@@ -19,10 +19,10 @@
 
 namespace Lux {
 
-#if defined(LUX_DEBUG) || defined(LUX_RELEASE)
+#if defined(LUX_DEBUG)
 	static bool s_Validation = true;
 #else
-	static bool s_Validation = false; // Let's leave this on for now...
+	static bool s_Validation = false;
 #endif
 
 #if 0
