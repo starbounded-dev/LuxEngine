@@ -244,6 +244,8 @@ namespace Lux
 			out << YAML::Key << "FrustumCulling" << YAML::Value << settings.EnableFrustumCulling;
 			out << YAML::Key << "OcclusionCulling" << YAML::Value << settings.EnableOcclusionCulling;
 			out << YAML::Key << "GPUDrivenRendering" << YAML::Value << settings.EnableGPUDrivenRendering;
+			out << YAML::Key << "MeshLODs" << YAML::Value << settings.EnableMeshLODs;
+			out << YAML::Key << "MeshLODDistanceScale" << YAML::Value << settings.MeshLODDistanceScale;
 			out << YAML::Key << "GTAO" << YAML::Value << settings.EnableGTAO;
 			out << YAML::Key << "GTAOBentNormals" << YAML::Value << settings.GTAOBentNormals;
 			out << YAML::Key << "GTAODenoisePasses" << YAML::Value << settings.GTAODenoisePasses;
@@ -328,6 +330,8 @@ namespace Lux
 				settings.EnableFrustumCulling = rendering["FrustumCulling"].as<bool>(settings.EnableFrustumCulling);
 				settings.EnableOcclusionCulling = rendering["OcclusionCulling"].as<bool>(settings.EnableOcclusionCulling);
 				settings.EnableGPUDrivenRendering = rendering["GPUDrivenRendering"].as<bool>(settings.EnableGPUDrivenRendering);
+				settings.EnableMeshLODs = rendering["MeshLODs"].as<bool>(settings.EnableMeshLODs);
+				settings.MeshLODDistanceScale = rendering["MeshLODDistanceScale"].as<float>(settings.MeshLODDistanceScale);
 				settings.EnableGTAO = rendering["GTAO"].as<bool>(settings.EnableGTAO);
 				settings.GTAOBentNormals = rendering["GTAOBentNormals"].as<bool>(settings.GTAOBentNormals);
 				settings.GTAODenoisePasses = rendering["GTAODenoisePasses"].as<int>(settings.GTAODenoisePasses);
@@ -410,6 +414,8 @@ namespace Lux
 			serializer.WriteRaw(settings.EnableFrustumCulling);
 			serializer.WriteRaw(settings.EnableOcclusionCulling);
 			serializer.WriteRaw(settings.EnableGPUDrivenRendering);
+			serializer.WriteRaw(settings.EnableMeshLODs);
+			serializer.WriteRaw(settings.MeshLODDistanceScale);
 			serializer.WriteRaw(settings.EnableGTAO);
 			serializer.WriteRaw(settings.GTAOBentNormals);
 			serializer.WriteRaw(settings.GTAODenoisePasses);
@@ -471,6 +477,11 @@ namespace Lux
 			if (version >= 3)
 				stream.ReadRaw(settings.EnableOcclusionCulling);
 			stream.ReadRaw(settings.EnableGPUDrivenRendering);
+			if (version >= 10)
+			{
+				stream.ReadRaw(settings.EnableMeshLODs);
+				stream.ReadRaw(settings.MeshLODDistanceScale);
+			}
 			stream.ReadRaw(settings.EnableGTAO);
 			stream.ReadRaw(settings.GTAOBentNormals);
 			stream.ReadRaw(settings.GTAODenoisePasses);

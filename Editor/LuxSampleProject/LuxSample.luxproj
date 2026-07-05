@@ -27,6 +27,8 @@ Project:
       FrustumCulling: true
       OcclusionCulling: true
       GPUDrivenRendering: true
+      MeshLODs: true
+      MeshLODDistanceScale: 1
       GTAO: true
       GTAOBentNormals: true
       GTAODenoisePasses: 8

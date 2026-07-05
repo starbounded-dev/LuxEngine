@@ -162,6 +162,15 @@ namespace Lux {
 		}
 	};
 
+	struct SubmeshLOD
+	{
+		uint32_t BaseVertex = 0;
+		uint32_t BaseIndex = 0;
+		uint32_t IndexCount = 0;
+		uint32_t VertexCount = 0;
+		float DistanceMultiplier = 0.0f;
+	};
+
 	struct MeshNode
 	{
 		uint32_t Parent = 0xffffffff;
@@ -211,6 +220,8 @@ namespace Lux {
 
 		const std::vector<Vertex>& GetVertices() const { return m_Vertices; }
 		const std::vector<Index>& GetIndices() const { return m_Indices; }
+		uint32_t GetSubmeshLODCount(uint32_t submeshIndex) const;
+		SubmeshLOD GetSubmeshLOD(uint32_t submeshIndex, uint32_t lodIndex) const;
 
 		// CPU-side position access that works whether or not the full vertex
 		// array was compacted away (the standalone runtime keeps positions only —
@@ -224,6 +235,7 @@ namespace Lux {
 		// everything (mesh export/serialization reads the full vertices).
 		static void SetRetainFullCPUGeometry(bool retain) { s_RetainFullCPUGeometry = retain; }
 		void CompactCPUGeometry();
+		void BuildRenderGeometry();
 
 		//bool HasSkeleton() const { return (bool)m_Skeleton; }
 		//bool IsSubmeshRigged(uint32_t submeshIndex) const { return m_Submeshes[submeshIndex].IsRigged; }
@@ -260,6 +272,7 @@ namespace Lux {
 
 		std::vector<Vertex> m_Vertices;
 		std::vector<Index> m_Indices;
+		std::vector<std::vector<SubmeshLOD>> m_SubmeshLODs;
 
 		// Positions-only fallback populated by CompactCPUGeometry when m_Vertices
 		// is released (runtime); read via GetVertexPosition/GetVertexCount.

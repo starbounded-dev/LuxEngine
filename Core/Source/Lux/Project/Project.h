@@ -67,6 +67,8 @@ namespace Lux
 		bool EnableFrustumCulling = true;
 		bool EnableOcclusionCulling = true;
 		bool EnableGPUDrivenRendering = true;
+		bool EnableMeshLODs = true;
+		float MeshLODDistanceScale = 1.0f;
 		bool EnableGTAO = true;
 		bool GTAOBentNormals = false;
 		int GTAODenoisePasses = 4;

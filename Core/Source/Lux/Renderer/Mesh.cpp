@@ -16,8 +16,10 @@
 
 #include "imgui/imgui.h"
 
+#include <array>
 #include <filesystem>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Lux
 {
@@ -30,6 +32,173 @@ namespace Lux
 #define LUX_MESH_LOG(...)
 #define LUX_MESH_ERROR(...)
 #endif
+
+	namespace
+	{
+		struct TriangleKey
+		{
+			uint32_t A = 0;
+			uint32_t B = 0;
+			uint32_t C = 0;
+
+			bool operator==(const TriangleKey& other) const
+			{
+				return A == other.A && B == other.B && C == other.C;
+			}
+		};
+
+		struct TriangleKeyHasher
+		{
+			size_t operator()(const TriangleKey& key) const
+			{
+				size_t seed = std::hash<uint32_t>{}(key.A);
+				seed ^= std::hash<uint32_t>{}(key.B) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+				seed ^= std::hash<uint32_t>{}(key.C) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+				return seed;
+			}
+		};
+
+		struct VertexCluster
+		{
+			Vertex Sum{};
+			uint32_t Count = 0;
+		};
+
+		static glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback)
+		{
+			const float lengthSq = glm::dot(value, value);
+			return lengthSq > 0.000001f ? value * glm::inversesqrt(lengthSq) : fallback;
+		}
+
+		static uint64_t PackClusterCell(uint32_t x, uint32_t y, uint32_t z)
+		{
+			return (uint64_t)x | ((uint64_t)y << 21u) | ((uint64_t)z << 42u);
+		}
+
+		static uint32_t QuantizeAxis(float value, float minValue, float extent, uint32_t resolution)
+		{
+			if (extent <= 0.000001f || resolution <= 1)
+				return 0;
+
+			const float normalized = std::clamp((value - minValue) / extent, 0.0f, 1.0f);
+			return (uint32_t)std::clamp((int)glm::floor(normalized * (float)(resolution - 1u)), 0, (int)resolution - 1);
+		}
+
+		static bool BuildClusteredSubmeshLOD(
+			const std::vector<Vertex>& sourceVertices,
+			const std::vector<Index>& sourceIndices,
+			const Submesh& submesh,
+			float targetRatio,
+			std::vector<Vertex>& renderVertices,
+			std::vector<Index>& renderIndices,
+			SubmeshLOD& outLOD)
+		{
+			if (submesh.VertexCount < 64 || submesh.IndexCount < 300 || submesh.BaseVertex + submesh.VertexCount > sourceVertices.size())
+				return false;
+
+			const uint32_t firstTriangle = submesh.BaseIndex / 3u;
+			const uint32_t triangleCount = submesh.IndexCount / 3u;
+			if (triangleCount == 0 || firstTriangle + triangleCount > sourceIndices.size())
+				return false;
+
+			const glm::vec3 boundsMin = submesh.BoundingBox.Min;
+			const glm::vec3 boundsExtent = glm::max(submesh.BoundingBox.Max - submesh.BoundingBox.Min, glm::vec3(0.000001f));
+			const uint32_t targetVertexCount = glm::max(16u, (uint32_t)glm::ceil((float)submesh.VertexCount * targetRatio));
+			const uint32_t gridResolution = std::clamp((uint32_t)glm::ceil(glm::pow((float)targetVertexCount, 1.0f / 3.0f) * 1.25f), 2u, 64u);
+
+			std::vector<uint32_t> localToCluster(submesh.VertexCount, std::numeric_limits<uint32_t>::max());
+			std::vector<VertexCluster> clusters;
+			clusters.reserve(targetVertexCount);
+
+			std::unordered_map<uint64_t, uint32_t> clusterIndexByCell;
+			clusterIndexByCell.reserve(targetVertexCount);
+
+			for (uint32_t localVertex = 0; localVertex < submesh.VertexCount; localVertex++)
+			{
+				const Vertex& vertex = sourceVertices[submesh.BaseVertex + localVertex];
+				const uint32_t cellX = QuantizeAxis(vertex.Position.x, boundsMin.x, boundsExtent.x, gridResolution);
+				const uint32_t cellY = QuantizeAxis(vertex.Position.y, boundsMin.y, boundsExtent.y, gridResolution);
+				const uint32_t cellZ = QuantizeAxis(vertex.Position.z, boundsMin.z, boundsExtent.z, gridResolution);
+				const uint64_t cellKey = PackClusterCell(cellX, cellY, cellZ);
+
+				auto [clusterIt, inserted] = clusterIndexByCell.try_emplace(cellKey, (uint32_t)clusters.size());
+				if (inserted)
+					clusters.emplace_back();
+
+				const uint32_t clusterIndex = clusterIt->second;
+				localToCluster[localVertex] = clusterIndex;
+
+				VertexCluster& cluster = clusters[clusterIndex];
+				cluster.Sum.Position += vertex.Position;
+				cluster.Sum.Normal += vertex.Normal;
+				cluster.Sum.Tangent += vertex.Tangent;
+				cluster.Sum.Binormal += vertex.Binormal;
+				cluster.Sum.Texcoord += vertex.Texcoord;
+				cluster.Count++;
+			}
+
+			if (clusters.size() >= submesh.VertexCount)
+				return false;
+
+			const uint32_t baseVertex = (uint32_t)renderVertices.size();
+			const uint32_t baseIndex = (uint32_t)renderIndices.size() * 3u;
+
+			for (const VertexCluster& cluster : clusters)
+			{
+				const float invCount = cluster.Count > 0 ? 1.0f / (float)cluster.Count : 1.0f;
+				Vertex vertex{};
+				vertex.Position = cluster.Sum.Position * invCount;
+				vertex.Normal = NormalizeOrFallback(cluster.Sum.Normal * invCount, { 0.0f, 1.0f, 0.0f });
+				vertex.Tangent = NormalizeOrFallback(cluster.Sum.Tangent * invCount, { 1.0f, 0.0f, 0.0f });
+				const glm::vec3 fallbackBinormal = NormalizeOrFallback(glm::cross(vertex.Normal, vertex.Tangent), { 0.0f, 0.0f, 1.0f });
+				vertex.Binormal = NormalizeOrFallback(cluster.Sum.Binormal * invCount, fallbackBinormal);
+				vertex.Texcoord = cluster.Sum.Texcoord * invCount;
+				renderVertices.push_back(vertex);
+			}
+
+			std::unordered_set<TriangleKey, TriangleKeyHasher> emittedTriangles;
+			emittedTriangles.reserve(triangleCount);
+
+			for (uint32_t triangle = 0; triangle < triangleCount; triangle++)
+			{
+				const Index& sourceIndex = sourceIndices[firstTriangle + triangle];
+				if (sourceIndex.V1 >= submesh.VertexCount || sourceIndex.V2 >= submesh.VertexCount || sourceIndex.V3 >= submesh.VertexCount)
+					continue;
+
+				Index lodIndex{
+					localToCluster[sourceIndex.V1],
+					localToCluster[sourceIndex.V2],
+					localToCluster[sourceIndex.V3]
+				};
+
+				if (lodIndex.V1 == lodIndex.V2 || lodIndex.V1 == lodIndex.V3 || lodIndex.V2 == lodIndex.V3)
+					continue;
+
+				std::array<uint32_t, 3> sorted = { lodIndex.V1, lodIndex.V2, lodIndex.V3 };
+				std::sort(sorted.begin(), sorted.end());
+				TriangleKey key{ sorted[0], sorted[1], sorted[2] };
+				if (!emittedTriangles.insert(key).second)
+					continue;
+
+				renderIndices.push_back(lodIndex);
+			}
+
+			const uint32_t generatedIndexCount = (uint32_t)(renderIndices.size() * 3u - baseIndex);
+			const bool usefulReduction = generatedIndexCount >= 3u && generatedIndexCount < (uint32_t)((float)submesh.IndexCount * 0.92f);
+			if (!usefulReduction)
+			{
+				renderVertices.resize(baseVertex);
+				renderIndices.resize(baseIndex / 3u);
+				return false;
+			}
+
+			outLOD.BaseVertex = baseVertex;
+			outLOD.BaseIndex = baseIndex;
+			outLOD.IndexCount = generatedIndexCount;
+			outLOD.VertexCount = (uint32_t)clusters.size();
+			return true;
+		}
+	}
 
 	////////////////////////////////////////////////////////
 	// MeshSource //////////////////////////////////////////
@@ -66,9 +235,6 @@ namespace Lux
 		submesh.Transform = transform;
 		m_Submeshes.push_back(submesh);
 
-		m_VertexBuffer = VertexBuffer::Create(Buffer(m_Vertices.data(), (uint32_t)(m_Vertices.size() * sizeof(Vertex))));
-		m_IndexBuffer = IndexBuffer::Create(Buffer(m_Indices.data(), (uint32_t)(m_Indices.size() * sizeof(Index))));
-
 		// Calculate bounding box
 		m_BoundingBox.Min = { FLT_MAX, FLT_MAX, FLT_MAX };
 		m_BoundingBox.Max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
@@ -83,6 +249,7 @@ namespace Lux
 			m_BoundingBox.Max.z = glm::max(vertex.Position.z, m_BoundingBox.Max.z);
 		}
 
+		BuildRenderGeometry();
 		CompactCPUGeometry();
 	}
 
@@ -92,9 +259,6 @@ namespace Lux
 		// Generate a new asset handle
 		Handle = {};
 
-		m_VertexBuffer = VertexBuffer::Create(Buffer(m_Vertices.data(), (uint32_t)(m_Vertices.size() * sizeof(Vertex))));
-		m_IndexBuffer = IndexBuffer::Create(Buffer(m_Indices.data(), (uint32_t)(m_Indices.size() * sizeof(Index))));
-
 		// Calculate bounding box
 		m_BoundingBox.Min = { FLT_MAX, FLT_MAX, FLT_MAX };
 		m_BoundingBox.Max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
@@ -109,11 +273,102 @@ namespace Lux
 			m_BoundingBox.Max.z = glm::max(vertex.Position.z, m_BoundingBox.Max.z);
 		}
 
+		BuildRenderGeometry();
 		CompactCPUGeometry();
 	}
 
 	MeshSource::~MeshSource()
 	{
+	}
+
+	uint32_t MeshSource::GetSubmeshLODCount(uint32_t submeshIndex) const
+	{
+		if (submeshIndex >= m_SubmeshLODs.size() || m_SubmeshLODs[submeshIndex].empty())
+			return 1;
+
+		return (uint32_t)m_SubmeshLODs[submeshIndex].size();
+	}
+
+	SubmeshLOD MeshSource::GetSubmeshLOD(uint32_t submeshIndex, uint32_t lodIndex) const
+	{
+		if (submeshIndex >= m_Submeshes.size())
+			return {};
+
+		if (submeshIndex < m_SubmeshLODs.size() && !m_SubmeshLODs[submeshIndex].empty())
+		{
+			const std::vector<SubmeshLOD>& lods = m_SubmeshLODs[submeshIndex];
+			return lods[glm::min(lodIndex, (uint32_t)lods.size() - 1u)];
+		}
+
+		// MeshSource that never went through BuildRenderGeometry: LOD 0 is the
+		// submesh itself.
+		const Submesh& submesh = m_Submeshes[submeshIndex];
+		return { submesh.BaseVertex, submesh.BaseIndex, submesh.IndexCount, submesh.VertexCount, 0.0f };
+	}
+
+	void MeshSource::BuildRenderGeometry()
+	{
+		m_SubmeshLODs.clear();
+		m_SubmeshLODs.resize(m_Submeshes.size());
+
+		if (m_Vertices.empty() || m_Indices.empty())
+		{
+			m_VertexBuffer.Reset();
+			m_IndexBuffer.Reset();
+			return;
+		}
+
+		std::vector<Vertex> renderVertices = m_Vertices;
+		std::vector<Index> renderIndices = m_Indices;
+
+		constexpr std::array<float, 3> lodRatios = { 0.50f, 0.25f, 0.125f };
+		constexpr std::array<float, 3> lodDistanceMultipliers = { 24.0f, 48.0f, 96.0f };
+
+		uint32_t generatedLODCount = 0;
+		uint64_t removedIndexCount = 0;
+		for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)m_Submeshes.size(); submeshIndex++)
+		{
+			const Submesh& submesh = m_Submeshes[submeshIndex];
+			std::vector<SubmeshLOD>& lods = m_SubmeshLODs[submeshIndex];
+			lods.push_back({
+				submesh.BaseVertex,
+				submesh.BaseIndex,
+				submesh.IndexCount,
+				submesh.VertexCount,
+				0.0f
+			});
+
+			if (submesh.IsRigged)
+				continue;
+
+			uint32_t previousIndexCount = submesh.IndexCount;
+			for (size_t lodLevel = 0; lodLevel < lodRatios.size(); lodLevel++)
+			{
+				SubmeshLOD lod{};
+				if (!BuildClusteredSubmeshLOD(m_Vertices, m_Indices, submesh, lodRatios[lodLevel], renderVertices, renderIndices, lod))
+					continue;
+
+				if (lod.IndexCount >= previousIndexCount)
+					continue;
+
+				lod.DistanceMultiplier = lodDistanceMultipliers[lodLevel];
+				lods.push_back(lod);
+				generatedLODCount++;
+				removedIndexCount += previousIndexCount - lod.IndexCount;
+				previousIndexCount = lod.IndexCount;
+			}
+		}
+
+		m_VertexBuffer = VertexBuffer::Create(Buffer(renderVertices.data(), (uint32_t)(renderVertices.size() * sizeof(Vertex))));
+		m_IndexBuffer = IndexBuffer::Create(Buffer(renderIndices.data(), (uint32_t)(renderIndices.size() * sizeof(Index))));
+
+		if (generatedLODCount > 0)
+		{
+			LUX_CORE_INFO("MeshSource: generated {} auto LOD level(s) for '{}' ({} fewer indices across selected levels)",
+				generatedLODCount,
+				m_FilePath.empty() ? "<memory>" : m_FilePath,
+				removedIndexCount);
+		}
 	}
 
 	static std::string LevelToSpaces(uint32_t level)

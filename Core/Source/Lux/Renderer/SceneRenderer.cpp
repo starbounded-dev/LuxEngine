@@ -710,6 +710,8 @@ namespace Lux {
 		m_Options.OcclusionDepthBias = std::clamp(settings.OcclusionDepthBias, 0.0f, 0.1f);
 		m_Options.OcclusionBoundsScale = std::clamp(settings.OcclusionBoundsScale, 1.0f, 2.0f);
 		m_Options.EnableGPUDrivenRendering = settings.EnableGPUDrivenRendering;
+		m_Options.EnableMeshLODs = settings.EnableMeshLODs;
+		m_Options.MeshLODDistanceScale = std::clamp(settings.MeshLODDistanceScale, 0.25f, 4.0f);
 		m_Options.EnableGTAO = settings.EnableGTAO;
 		m_Options.GTAOBentNormals = settings.GTAOBentNormals;
 		m_Options.GTAODenoisePasses = settings.GTAODenoisePasses;
@@ -804,6 +806,8 @@ namespace Lux {
 		settings.OcclusionDepthBias = m_Options.OcclusionDepthBias;
 		settings.OcclusionBoundsScale = m_Options.OcclusionBoundsScale;
 		settings.EnableGPUDrivenRendering = m_Options.EnableGPUDrivenRendering;
+		settings.EnableMeshLODs = m_Options.EnableMeshLODs;
+		settings.MeshLODDistanceScale = m_Options.MeshLODDistanceScale;
 		settings.EnableGTAO = m_Options.EnableGTAO;
 		settings.GTAOBentNormals = m_Options.GTAOBentNormals;
 		settings.GTAODenoisePasses = m_Options.GTAODenoisePasses;
@@ -4187,6 +4191,7 @@ namespace Lux {
 
 		m_SceneData.SceneCamera = camera;
 		m_SceneData.CameraFrustum = Frustum::FromViewProjection(camera.Camera.GetProjectionMatrix() * camera.ViewMatrix);
+		m_SceneData.CameraPosition = glm::vec3(glm::inverse(camera.ViewMatrix)[3]);
 		RefreshFrameEnvironment();
 
 		// ── Handle viewport resize ────────────────────────────────────────────
@@ -5045,6 +5050,33 @@ namespace Lux {
 		return m_SceneData.CameraFrustum.IsSphereVisible(bounds);
 	}
 
+	uint32_t SceneRenderer::SelectStaticMeshLOD(const MeshSource& meshSource, uint32_t submeshIndex, const BoundingSphere& bounds) const
+	{
+		if (!m_Options.EnableMeshLODs)
+			return 0;
+
+		const uint32_t lodCount = meshSource.GetSubmeshLODCount(submeshIndex);
+		if (lodCount <= 1)
+			return 0;
+
+		// Distance from the camera to the bounding-sphere surface, measured in
+		// radii: a large object keeps its detail further out than a small one at
+		// the same world distance. MeshLODDistanceScale > 1 pushes every switch
+		// further away (more detail), < 1 pulls it closer (more aggressive).
+		const float radius = glm::max(bounds.Radius, 0.001f);
+		const float distance = glm::max(glm::distance(m_SceneData.CameraPosition, bounds.Center) - radius, 0.0f);
+		const float lodMetric = distance / (radius * m_Options.MeshLODDistanceScale);
+
+		uint32_t selectedLOD = 0;
+		for (uint32_t lodIndex = 1; lodIndex < lodCount; lodIndex++)
+		{
+			if (lodMetric < meshSource.GetSubmeshLOD(submeshIndex, lodIndex).DistanceMultiplier)
+				break;
+			selectedLOD = lodIndex;
+		}
+		return selectedLOD;
+	}
+
 	bool SceneRenderer::IsShadowCasterVisible(const BoundingSphere& bounds) const
 	{
 		if (!m_Options.EnableShadowCulling)
@@ -5192,6 +5224,7 @@ namespace Lux {
 		Ref<MeshSource> meshSource,
 		Ref<MaterialTable> materialTable,
 		uint32_t submeshIndex,
+		uint32_t lodIndex,
 		AssetHandle materialHandle,
 		Ref<Material> overrideMaterial,
 		uint64_t pipelineSortKey,
@@ -5218,6 +5251,7 @@ namespace Lux {
 			cachedCommand.Command.StaticMesh = staticMesh;
 			cachedCommand.Command.MeshSource = meshSource;
 			cachedCommand.Command.SubmeshIndex = submeshIndex;
+			cachedCommand.Command.LODIndex = lodIndex;
 			cachedCommand.Command.MaterialHandle = materialHandle;
 			cachedCommand.Command.MaterialTable = materialTable;
 			cachedCommand.Command.OverrideMaterial = overrideMaterial;
@@ -5385,9 +5419,6 @@ namespace Lux {
 			const AssetHandle keyMaterialHandle = resolvedOverrideMaterial
 				? AssetHandle((uint64_t)resolvedOverrideMaterial.Raw())
 				: materialHandle;
-			const MeshKey materialKey{ meshKeyHandle, keyMaterialHandle, submeshIndex, false };
-			const MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, false };
-			const MeshKey selectedMeshKey{ meshKeyHandle, 0, submeshIndex, true };
 			Ref<Material> sortMaterial = resolvedOverrideMaterial
 				? resolvedOverrideMaterial
 				: (materialAsset ? materialAsset->GetMaterial() : Renderer::GetDefaultWhiteMaterial());
@@ -5407,6 +5438,10 @@ namespace Lux {
 			const BoundingSphere boundsSphere{ glm::vec3(boundsSphereData), boundsSphereData.w };
 			const bool mainViewVisible = IsMainViewVisible(boundsSphere);
 			const bool shadowVisible = castsShadows && IsShadowCasterVisible(boundsSphere);
+			const uint32_t lodIndex = SelectStaticMeshLOD(*meshSource, submeshIndex, boundsSphere);
+			const MeshKey materialKey{ meshKeyHandle, keyMaterialHandle, submeshIndex, lodIndex, false };
+			const MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false };
+			const MeshKey selectedMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, true };
 
 			m_FrameCullingStats.SubmittedInstances++;
 			if (!mainViewVisible)
@@ -5451,6 +5486,7 @@ namespace Lux {
 					meshSource,
 					isTransparent ? materialTable : nullptr,
 					submeshIndex,
+					lodIndex,
 					isTransparent ? materialHandle : AssetHandle(0),
 					isTransparent ? resolvedOverrideMaterial : nullptr,
 					SortKeyFromRef(geometryPipeline.Raw()),
@@ -5468,6 +5504,7 @@ namespace Lux {
 						meshSource,
 						nullptr,
 						submeshIndex,
+						lodIndex,
 						AssetHandle(0),
 						m_PreDepthMaterial,
 						SortKeyFromRef(m_PreDepthPipeline.Raw()),
@@ -5489,6 +5526,7 @@ namespace Lux {
 						meshSource,
 						nullptr,
 						submeshIndex,
+						lodIndex,
 						AssetHandle(0),
 						m_SelectedGeometryMaterial,
 						m_SelectedGeometryPass ? SortKeyFromRef(m_SelectedGeometryPass->GetPipeline().Raw()) : 0,
@@ -5504,6 +5542,7 @@ namespace Lux {
 						meshSource,
 						nullptr,
 						submeshIndex,
+						lodIndex,
 						AssetHandle(0),
 						m_WireframeMaterial,
 						m_GeometryWireframePass ? SortKeyFromRef(m_GeometryWireframePass->GetPipeline().Raw()) : 0,
@@ -5526,6 +5565,7 @@ namespace Lux {
 					meshSource,
 					nullptr,
 					submeshIndex,
+					lodIndex,
 					AssetHandle(0),
 					m_ShadowPassMaterial,
 					m_ShadowMapPass ? SortKeyFromRef(m_ShadowMapPass->GetPipeline().Raw()) : 0,
@@ -5571,7 +5611,7 @@ namespace Lux {
 
 			// Use the material pointer as a fake asset handle so each material gets its own MeshKey bucket
 			const AssetHandle fakeHandle = (AssetHandle)(uint64_t)material.Raw();
-			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), fakeHandle, submeshIndex, false };
+			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), fakeHandle, submeshIndex, 0, false };
 			const bool isTransparent = material && material->GetFlag(MaterialFlag::Blend);
 			const RenderMaterialID transientMaterialID = GetOrCreateTransientRenderMaterialID(
 				fakeHandle,
@@ -5595,6 +5635,7 @@ namespace Lux {
 				meshSource,
 				nullptr,
 				submeshIndex,
+				0,
 				fakeHandle,
 				material,
 				m_GeometryWireframePass ? SortKeyFromRef(m_GeometryWireframePass->GetPipeline().Raw()) : SortKeyFromRef(m_GeometryPipeline.Raw()),
@@ -7954,13 +7995,13 @@ namespace Lux {
 		const TransformMapData& tmd,
 		std::vector<nvrhi::DrawIndexedIndirectArguments>& drawCommands)
 	{
-		const auto& submesh = dc.MeshSource->GetSubmeshes()[dc.SubmeshIndex];
+		const SubmeshLOD lod = dc.MeshSource->GetSubmeshLOD(dc.SubmeshIndex, dc.LODIndex);
 
 		nvrhi::DrawIndexedIndirectArguments args{};
-		args.indexCount = submesh.IndexCount;
+		args.indexCount = lod.IndexCount;
 		args.instanceCount = tmd.VisibleInstanceCount;
-		args.startIndexLocation = submesh.BaseIndex;
-		args.baseVertexLocation = (int32_t)submesh.BaseVertex;
+		args.startIndexLocation = lod.BaseIndex;
+		args.baseVertexLocation = (int32_t)lod.BaseVertex;
 		args.startInstanceLocation = 0;
 		drawCommands.push_back(args);
 	}
@@ -8161,10 +8202,12 @@ namespace Lux {
 		if (instanceCount == 0)
 			return;
 
+		const SubmeshLOD lod = meshSource->GetSubmeshLOD(dc.SubmeshIndex, dc.LODIndex);
+
 		nvrhi::DrawArguments drawArgs{};
-		drawArgs.vertexCount = submesh.IndexCount;
-		drawArgs.startIndexLocation = submesh.BaseIndex;
-		drawArgs.startVertexLocation = submesh.BaseVertex;
+		drawArgs.vertexCount = lod.IndexCount;
+		drawArgs.startIndexLocation = lod.BaseIndex;
+		drawArgs.startVertexLocation = lod.BaseVertex;
 		drawArgs.instanceCount = instanceCount;
 		cmd->GetActive()->drawIndexed(drawArgs);
 	}

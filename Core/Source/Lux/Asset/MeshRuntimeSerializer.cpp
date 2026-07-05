@@ -246,11 +246,7 @@ namespace Lux
 		stream.SetStreamPosition(streamOffset + metadata.IndexBufferOffset);
 		stream.ReadArray(meshSource->m_Indices);
 
-		if (!meshSource->m_Vertices.empty())
-			meshSource->m_VertexBuffer = VertexBuffer::Create(Buffer(meshSource->m_Vertices.data(), (uint32_t)(meshSource->m_Vertices.size() * sizeof(Vertex))));
-
-		if (!meshSource->m_Indices.empty())
-			meshSource->m_IndexBuffer = IndexBuffer::Create(Buffer(meshSource->m_Indices.data(), (uint32_t)(meshSource->m_Indices.size() * sizeof(Index))));
+		meshSource->BuildRenderGeometry();
 
 		// In the standalone runtime, drop the full CPU vertex array now that the
 		// GPU has it (positions + indices are kept for physics cooking).

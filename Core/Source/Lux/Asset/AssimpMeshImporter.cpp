@@ -570,13 +570,7 @@ namespace Lux
 		ImportAssimpMaterials(m_Path, scene, meshSource);
 
 		// ── GPU buffers ───────────────────────────────────────────────────────
-		meshSource->m_VertexBuffer = VertexBuffer::Create(
-			Buffer(meshSource->m_Vertices.data(),
-				(uint32_t)(meshSource->m_Vertices.size() * sizeof(Vertex))));
-
-		meshSource->m_IndexBuffer = IndexBuffer::Create(
-			Buffer(meshSource->m_Indices.data(),
-				(uint32_t)(meshSource->m_Indices.size() * sizeof(Index))));
+		meshSource->BuildRenderGeometry();
 
 		LUX_CORE_INFO("AssimpMeshImporter: Loaded '{}' – {} submeshes, {} vertices, {} indices",
 			m_Path.filename().string(),

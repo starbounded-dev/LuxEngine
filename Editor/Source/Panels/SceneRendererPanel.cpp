@@ -297,6 +297,17 @@ namespace Lux {
 				projectSettingsChanged |= ImGuiEx::Property("Occlusion Bounds Scale", options.OcclusionBoundsScale, 0.01f, 1.0f, 2.0f);
 			}
 			projectSettingsChanged |= ImGuiEx::Property("GPU Driven Indirect", options.EnableGPUDrivenRendering);
+			projectSettingsChanged |= ImGuiEx::Property("Mesh LODs", options.EnableMeshLODs);
+			if (options.EnableMeshLODs)
+			{
+				bool lodSettingsChanged = false;
+				lodSettingsChanged |= ImGuiEx::Property("LOD Distance Scale", options.MeshLODDistanceScale, 0.05f, 0.25f, 4.0f);
+				if (lodSettingsChanged)
+				{
+					options.MeshLODDistanceScale = std::clamp(options.MeshLODDistanceScale, 0.25f, 4.0f);
+					projectSettingsChanged = true;
+				}
+			}
 			const char* renderScaleLabels[] = { "100%", "75%", "50%", "Dynamic" };
 			int renderScaleMode = static_cast<int>(options.ResolutionScaleMode);
 			if (DrawComboProperty("Render Scale", renderScaleMode, renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels)))

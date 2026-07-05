@@ -206,6 +206,8 @@ namespace Lux {
 		float OcclusionDepthBias = 0.003f;
 		float OcclusionBoundsScale = 1.15f;
 		bool  EnableGPUDrivenRendering = true;
+		bool  EnableMeshLODs = true;
+		float MeshLODDistanceScale = 1.0f;
 		EffectResolutionScale GTAOResolutionScale = EffectResolutionScale::Half;
 		SSRQualityPreset SSRQuality = SSRQualityPreset::HalfBilateral;
 		EffectResolutionScale SSRResolutionScale = EffectResolutionScale::Half;
@@ -682,12 +684,14 @@ namespace Lux {
 			// GPUMaterials or use a fixed pass material; nonzero for material-bound buckets.
 			AssetHandle MaterialHandle;
 			uint32_t    SubmeshIndex;
+			uint32_t    LODIndex;
 			bool        IsSelected;
 
 			bool operator<(const MeshKey& o) const
 			{
 				if (MeshHandle != o.MeshHandle)     return MeshHandle < o.MeshHandle;
 				if (SubmeshIndex != o.SubmeshIndex)   return SubmeshIndex < o.SubmeshIndex;
+				if (LODIndex != o.LODIndex)       return LODIndex < o.LODIndex;
 				if (MaterialHandle != o.MaterialHandle) return MaterialHandle < o.MaterialHandle;
 				return IsSelected < o.IsSelected;
 			}
@@ -697,6 +701,7 @@ namespace Lux {
 				return MeshHandle == o.MeshHandle
 					&& MaterialHandle == o.MaterialHandle
 					&& SubmeshIndex == o.SubmeshIndex
+					&& LODIndex == o.LODIndex
 					&& IsSelected == o.IsSelected;
 			}
 		};
@@ -708,6 +713,7 @@ namespace Lux {
 				size_t seed = std::hash<uint64_t>{}((uint64_t)key.MeshHandle);
 				seed ^= std::hash<uint64_t>{}((uint64_t)key.MaterialHandle) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
 				seed ^= std::hash<uint32_t>{}(key.SubmeshIndex) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+				seed ^= std::hash<uint32_t>{}(key.LODIndex) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
 				seed ^= std::hash<bool>{}(key.IsSelected) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
 				return seed;
 			}
@@ -718,6 +724,7 @@ namespace Lux {
 			Ref<StaticMesh>    StaticMesh;
 			Ref<MeshSource>    MeshSource;
 			uint32_t           SubmeshIndex = 0;
+			uint32_t           LODIndex = 0;
 			AssetHandle        MaterialHandle = 0;
 			Ref<MaterialTable> MaterialTable;
 			Ref<Material>      OverrideMaterial;
@@ -870,6 +877,7 @@ namespace Lux {
 			const StaticMeshRenderProxy* renderProxy = nullptr);
 		bool IsMainViewVisible(const BoundingSphere& bounds) const;
 		bool IsShadowCasterVisible(const BoundingSphere& bounds) const;
+		uint32_t SelectStaticMeshLOD(const MeshSource& meshSource, uint32_t submeshIndex, const BoundingSphere& bounds) const;
 		void BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder, uint64_t& orderCacheHash) const;
 		MeshPassState& GetMeshPass(MeshPassType passType);
 		const MeshPassState& GetMeshPass(MeshPassType passType) const;
@@ -881,6 +889,7 @@ namespace Lux {
 			Ref<MeshSource> meshSource,
 			Ref<MaterialTable> materialTable,
 			uint32_t submeshIndex,
+			uint32_t lodIndex,
 			AssetHandle materialHandle,
 			Ref<Material> overrideMaterial,
 			uint64_t pipelineSortKey,
@@ -1281,6 +1290,7 @@ namespace Lux {
 		{
 			SceneRendererCamera SceneCamera;
 			Frustum             CameraFrustum;
+			glm::vec3           CameraPosition{ 0.0f };
 			Ref<Environment>    SceneEnvironment;
 			float               SceneEnvironmentIntensity = 1.0f;
 			float               SkyboxLod = 0.0f;
