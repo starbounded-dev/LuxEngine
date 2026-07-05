@@ -194,7 +194,6 @@ namespace Lux {
 
 	VkSampler VulkanRenderer::GetClampSampler()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		if (s_Data->SamplerClamp)
 			return s_Data->SamplerClamp;
 
@@ -220,7 +219,6 @@ namespace Lux {
 
 	VkSampler VulkanRenderer::GetPointSampler()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		if (s_Data->SamplerPoint)
 			return s_Data->SamplerPoint;
 

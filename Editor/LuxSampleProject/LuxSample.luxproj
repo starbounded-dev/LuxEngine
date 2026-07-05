@@ -17,10 +17,10 @@ Project:
     WindowWidth: 3840
     WindowHeight: 2160
     Fullscreen: true
-    VSync: true
+    VSync: false
     IconPath: Textures/luxLogo.png
     IconHandle: 10706518493978196728
-    TargetConfig: Release
+    TargetConfig: Dist
   SceneRenderer:
     Rendering:
       QualityPreset: Cinematic

@@ -3,6 +3,7 @@
 
 #include "Vulkan.h"
 #include "Lux/Renderer/Image.h"
+#include "Lux/Renderer/Renderer.h"
 
 #include <GLFW/glfw3.h>
 
@@ -163,6 +164,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_INFO_TAG("Renderer", "VulkanContext::Create");
+		s_Validation = Renderer::GetConfig().EnableGraphicsValidation;
 
 		LUX_CORE_ASSERT(glfwVulkanSupported(), "GLFW must support Vulkan!");
 

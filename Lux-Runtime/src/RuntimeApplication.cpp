@@ -8,6 +8,8 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <charconv>
+
 namespace Lux
 {
 	namespace
@@ -81,13 +83,60 @@ namespace Lux
 			if (std::filesystem::exists(shaderPackPath))
 				specification.RenderConfig.ShaderPackPath = shaderPackPath.string();
 		}
+
+		uint32_t ParseUIntOption(CommandLineParser& cli, const std::string& optionName, uint32_t fallback)
+		{
+			const std::string_view value = cli.GetOpt(optionName);
+			if (value.empty())
+				return fallback;
+
+			uint32_t parsed = fallback;
+			const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+			if (result.ec != std::errc{} || result.ptr != value.data() + value.size())
+			{
+				LUX_CORE_WARN("Ignoring invalid --{} value '{}'.", optionName, value);
+				return fallback;
+			}
+
+			return parsed;
+		}
+
+		RendererDiagnosticsMode ParseRendererDiagnosticsMode(std::string_view value, RendererDiagnosticsMode fallback)
+		{
+			if (value.empty())
+				return fallback;
+
+			if (value == "off")
+				return RendererDiagnosticsMode::Off;
+			if (value == "basic")
+				return RendererDiagnosticsMode::Basic;
+			if (value == "full")
+				return RendererDiagnosticsMode::Full;
+
+			LUX_CORE_WARN("Unknown renderer diagnostics mode '{}'. Expected off, basic, or full.", value);
+			return fallback;
+		}
+
+		bool ParseBoolOption(std::string_view value, bool fallback, std::string_view optionName)
+		{
+			if (value.empty())
+				return fallback;
+
+			if (value == "on" || value == "true" || value == "1" || value == "yes")
+				return true;
+			if (value == "off" || value == "false" || value == "0" || value == "no")
+				return false;
+
+			LUX_CORE_WARN("Unknown {} value '{}'. Expected on/off, true/false, or 1/0.", optionName, value);
+			return fallback;
+		}
 	}
 
 	class RuntimeApplication : public Application
 	{
 	public:
-		RuntimeApplication(const ApplicationSpecification& specification, std::filesystem::path projectPath)
-			: Application(specification), m_ProjectPath(std::move(projectPath))
+		RuntimeApplication(const ApplicationSpecification& specification, std::filesystem::path projectPath, RuntimeBenchmarkConfig benchmarkConfig)
+			: Application(specification), m_ProjectPath(std::move(projectPath)), m_BenchmarkConfig(std::move(benchmarkConfig))
 		{
 			s_IsRuntime = true;
 
@@ -98,11 +147,12 @@ namespace Lux
 
 		void OnInit() override
 		{
-			PushLayer(new RuntimeLayer(m_ProjectPath));
+			PushLayer(new RuntimeLayer(m_ProjectPath, m_BenchmarkConfig));
 		}
 
 	private:
 		std::filesystem::path m_ProjectPath;
+		RuntimeBenchmarkConfig m_BenchmarkConfig;
 	};
 
 	Application* CreateApplication(int argc, char** argv)
@@ -132,7 +182,7 @@ namespace Lux
 		specification.Resizable = false;
 		specification.StartMaximized = false;
 		specification.EnableImGui = false;
-		specification.VSync = true;
+		specification.VSync = false;
 		specification.IconPath = "Resources/Editor/Hazel-IconLogo-2023.png";
 		specification.RenderConfig.FramesInFlight = 3;
 		// Base policy from App.lsettings (defaults to multi-threaded); RuntimeSettings.yaml may override per-game.
@@ -143,6 +193,39 @@ namespace Lux
 		ApplyRuntimeSettings(specification, projectPath);
 		ApplyRuntimeShaderPack(specification, projectPath);
 
-		return new RuntimeApplication(specification, projectPath);
+		RuntimeBenchmarkConfig benchmarkConfig;
+		if (const std::string_view benchmark = cli.GetOpt("benchmark"); !benchmark.empty())
+		{
+			if (benchmark != "sponza")
+			{
+				LUX_CORE_WARN("Unknown benchmark '{}'. Only 'sponza' is currently supported.", benchmark);
+			}
+			else
+			{
+				benchmarkConfig.Enabled = true;
+				benchmarkConfig.Name = "sponza";
+				benchmarkConfig.WarmupFrames = ParseUIntOption(cli, "benchmark-warmup", benchmarkConfig.WarmupFrames);
+				benchmarkConfig.CaptureFrames = ParseUIntOption(cli, "benchmark-frames", benchmarkConfig.CaptureFrames);
+				if (const std::string_view outputPath = cli.GetOpt("benchmark-output"); !outputPath.empty())
+					benchmarkConfig.OutputPath = outputPath;
+
+				specification.Name = "Lux Runtime Benchmark - Sponza";
+				specification.WindowWidth = 1920;
+				specification.WindowHeight = 1080;
+				specification.Fullscreen = false;
+				specification.Resizable = false;
+				specification.StartMaximized = false;
+				specification.VSync = false;
+				specification.RenderConfig.DiagnosticsMode = RendererDiagnosticsMode::Basic;
+				specification.RenderConfig.EnableGraphicsValidation = false;
+			}
+		}
+
+		specification.RenderConfig.DiagnosticsMode = ParseRendererDiagnosticsMode(
+			cli.GetOpt("renderer-diagnostics"),
+			specification.RenderConfig.DiagnosticsMode);
+		specification.VSync = ParseBoolOption(cli.GetOpt("vsync"), specification.VSync, "--vsync");
+
+		return new RuntimeApplication(specification, projectPath, benchmarkConfig);
 	}
 }
