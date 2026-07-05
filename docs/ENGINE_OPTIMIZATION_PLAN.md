@@ -337,6 +337,24 @@ passes to async.
 2017) — covers async-compute scheduling on a graph exactly like LuxEngine's; RDR2 / Decima
 SIGGRAPH course notes on async compute.
 
+**Progress (branch `claude/lux-engine-performance-q69zu4`, gated behind `EnableAsyncCompute`, off by default):**
+- (1/N) Compute queue enabled + cross-queue plumbing (`RenderCommandBuffer` queue param,
+  `Renderer::QueueWaitForCommandList`).
+- (2/N) Cluster build + light culling moved to the compute command buffer. Correctness-first:
+  a single up-front `queueWaitForCommandList` made the graphics queue wait before recording,
+  so it validated cross-queue SSBO sharing but did **not** overlap yet.
+- (3/N) **Graphics-submit split.** `FlushDrawList` now splits the frame's graphics recording at
+  the first consumer of the compute output ("Deferred Lighting"): the pre-lighting half submits
+  with no wait (overlapping the compute cluster culling), then `queueWaitForCommandList` is
+  inserted, then the deferred-lighting-onward half submits and waits. `RenderGraph::Execute`
+  gained a `[begin,end)` range overload; `RenderCommandBuffer::Begin/End` gained a
+  `recordFrameQueries` flag so the second half doesn't re-reset the per-frame timer pool. This
+  is the reusable foundation — the measurable win arrives once the *expensive* passes (GTAO/SSR)
+  move to compute and shadows are reordered after the GBuffer so real work overlaps.
+- **Next (4/N):** move GTAO (needs GBuffer) to the compute queue and reorder the directional/spot
+  shadow passes to run *after* the GBuffer, so graphics has shadow work to chew on while GTAO
+  runs on compute. Then SSR after scene color.
+
 ### B2. Variable Rate Shading (cheap, big GPU win on the heavy passes)
 `VK_KHR_fragment_shading_rate` is enabled and unused. Apply VRS to volumetric clouds, fog,
 SSR, and bloom — the low-frequency full-screen passes — for a large GPU saving at almost no

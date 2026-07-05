@@ -21,12 +21,19 @@ namespace Lux {
 	public:
 		static Ref<RenderCommandBuffer> Create(uint32_t count = 0, const std::string& debugName = "", bool enableQueries = false, nvrhi::CommandQueue queue = nvrhi::CommandQueue::Graphics) { return Ref<RenderCommandBuffer>::Create(count, enableQueries, debugName, queue); }
 
-		void Begin();
-		void End();
+		// recordFrameQueries controls the frame-level timer/pipeline-statistics query
+		// bracketing. It must stay true for a normal single-submit frame. When a frame
+		// is split into two graphics submits (async compute), only ONE of the two
+		// Begin/End pairs may carry the frame query (the pool is per-frame-in-flight and
+		// re-resetting it while the first submit is still in flight trips validation);
+		// pass false on the second pair. Per-pass named queries are independent and keep
+		// working in both halves.
+		void Begin(bool recordFrameQueries = true);
+		void End(bool recordFrameQueries = true);
 		void Submit();
 
-		void RT_Begin();
-		void RT_End();
+		void RT_Begin(bool recordFrameQueries = true);
+		void RT_End(bool recordFrameQueries = true);
 		void RT_Submit();
 		void RT_Submit(VkSemaphore waitSemaphore);
 
