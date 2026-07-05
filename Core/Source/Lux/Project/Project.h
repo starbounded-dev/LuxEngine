@@ -65,7 +65,7 @@ namespace Lux
 	{
 		uint32_t QualityPreset = 1; // Lux::QualityPreset
 		bool EnableFrustumCulling = true;
-		bool EnableOcclusionCulling = false;
+		bool EnableOcclusionCulling = true;
 		bool EnableGPUDrivenRendering = true;
 		bool EnableGTAO = true;
 		bool GTAOBentNormals = false;

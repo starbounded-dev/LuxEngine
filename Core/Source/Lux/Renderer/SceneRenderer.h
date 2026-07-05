@@ -202,7 +202,7 @@ namespace Lux {
 		ShaderDef::AOMethod ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
 		bool  EnableJumpFlood = true;
 		bool  EnableFrustumCulling = true;
-		bool  EnableOcclusionCulling = false;
+		bool  EnableOcclusionCulling = true;
 		float OcclusionDepthBias = 0.003f;
 		float OcclusionBoundsScale = 1.15f;
 		bool  EnableGPUDrivenRendering = true;
@@ -678,6 +678,8 @@ namespace Lux {
 		struct MeshKey
 		{
 			AssetHandle MeshHandle;
+			// Zero for passes whose shaders fetch per-instance material data from
+			// GPUMaterials or use a fixed pass material; nonzero for material-bound buckets.
 			AssetHandle MaterialHandle;
 			uint32_t    SubmeshIndex;
 			bool        IsSelected;

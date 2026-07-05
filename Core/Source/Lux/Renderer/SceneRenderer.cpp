@@ -5381,14 +5381,17 @@ namespace Lux {
 			if (missingMaterialAsset)
 				materialSceneOverride = nullptr;
 
+			const AssetHandle meshKeyHandle = GetStaticMeshKeyHandle(staticMesh);
 			const AssetHandle keyMaterialHandle = resolvedOverrideMaterial
 				? AssetHandle((uint64_t)resolvedOverrideMaterial.Raw())
 				: materialHandle;
-			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), keyMaterialHandle, submeshIndex, isSelected };
+			const MeshKey materialKey{ meshKeyHandle, keyMaterialHandle, submeshIndex, false };
+			const MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, false };
+			const MeshKey selectedMeshKey{ meshKeyHandle, 0, submeshIndex, true };
 			Ref<Material> sortMaterial = resolvedOverrideMaterial
 				? resolvedOverrideMaterial
 				: (materialAsset ? materialAsset->GetMaterial() : Renderer::GetDefaultWhiteMaterial());
-			const uint64_t meshSortKey = (uint64_t)GetStaticMeshKeyHandle(staticMesh);
+			const uint64_t meshSortKey = (uint64_t)meshKeyHandle;
 			const uint64_t materialSortKey = sortMaterial ? SortKeyFromRef(sortMaterial.Raw()) : (uint64_t)keyMaterialHandle;
 			Ref<Shader> sortShader = sortMaterial ? sortMaterial->GetShader() : nullptr;
 			const uint64_t shaderSortKey = sortShader ? SortKeyFromRef(sortShader.Raw()) : 0;
@@ -5438,20 +5441,21 @@ namespace Lux {
 			if (mainViewVisible)
 			{
 				// ── Main draw list ────────────────────────────────────────────────
-				m_MeshTransformMap[key].ObjectIndices.push_back(sceneInstanceIndex);
+				const MeshKey mainPassKey = isTransparent ? materialKey : bindlessMeshKey;
+				m_MeshTransformMap[mainPassKey].ObjectIndices.push_back(sceneInstanceIndex);
 
 				Ref<Pipeline> geometryPipeline = isTransparent ? m_TransparentGeometryPipeline : m_GeometryPipeline;
 				SubmitMeshPassDraw(isTransparent ? MeshPassType::Transparent : MeshPassType::Opaque,
-					key,
+					mainPassKey,
 					staticMesh,
 					meshSource,
-					materialTable,
+					isTransparent ? materialTable : nullptr,
 					submeshIndex,
-					materialHandle,
-					resolvedOverrideMaterial,
+					isTransparent ? materialHandle : AssetHandle(0),
+					isTransparent ? resolvedOverrideMaterial : nullptr,
 					SortKeyFromRef(geometryPipeline.Raw()),
-					shaderSortKey,
-					materialSortKey,
+					isTransparent ? shaderSortKey : 0,
+					isTransparent ? materialSortKey : 0,
 					meshSortKey);
 
 				if (!isTransparent)
@@ -5459,12 +5463,12 @@ namespace Lux {
 					const uint64_t preDepthShaderSortKey = m_PreDepthMaterial && m_PreDepthMaterial->GetShader()
 						? SortKeyFromRef(m_PreDepthMaterial->GetShader().Raw()) : 0;
 					SubmitMeshPassDraw(MeshPassType::DepthPrepass,
-						key,
+						bindlessMeshKey,
 						staticMesh,
 						meshSource,
-						materialTable,
+						nullptr,
 						submeshIndex,
-						materialHandle,
+						AssetHandle(0),
 						m_PreDepthMaterial,
 						SortKeyFromRef(m_PreDepthPipeline.Raw()),
 						preDepthShaderSortKey,
@@ -5475,15 +5479,17 @@ namespace Lux {
 				// ── Selected list ─────────────────────────────────────────────────
 				if (isSelected)
 				{
+					m_MeshTransformMap[selectedMeshKey].ObjectIndices.push_back(sceneInstanceIndex);
+
 					const uint64_t selectedShaderSortKey = m_SelectedGeometryMaterial && m_SelectedGeometryMaterial->GetShader()
 						? SortKeyFromRef(m_SelectedGeometryMaterial->GetShader().Raw()) : 0;
 					SubmitMeshPassDraw(MeshPassType::SelectedMask,
-						key,
+						selectedMeshKey,
 						staticMesh,
 						meshSource,
-						materialTable,
+						nullptr,
 						submeshIndex,
-						materialHandle,
+						AssetHandle(0),
 						m_SelectedGeometryMaterial,
 						m_SelectedGeometryPass ? SortKeyFromRef(m_SelectedGeometryPass->GetPipeline().Raw()) : 0,
 						selectedShaderSortKey,
@@ -5493,12 +5499,12 @@ namespace Lux {
 					const uint64_t wireframeShaderSortKey = m_WireframeMaterial && m_WireframeMaterial->GetShader()
 						? SortKeyFromRef(m_WireframeMaterial->GetShader().Raw()) : 0;
 					SubmitMeshPassDraw(MeshPassType::Wireframe,
-						key,
+						selectedMeshKey,
 						staticMesh,
 						meshSource,
-						materialTable,
+						nullptr,
 						submeshIndex,
-						materialHandle,
+						AssetHandle(0),
 						m_WireframeMaterial,
 						m_GeometryWireframePass ? SortKeyFromRef(m_GeometryWireframePass->GetPipeline().Raw()) : 0,
 						wireframeShaderSortKey,
@@ -5510,17 +5516,17 @@ namespace Lux {
 			if (shadowVisible)
 			{
 				// ── Shadow pass list ──────────────────────────────────────────────
-				m_ShadowMeshTransformMap[key].Cascade.ObjectIndices.push_back(sceneInstanceIndex);
+				m_ShadowMeshTransformMap[bindlessMeshKey].Cascade.ObjectIndices.push_back(sceneInstanceIndex);
 
 				const uint64_t shadowShaderSortKey = m_ShadowPassMaterial && m_ShadowPassMaterial->GetShader()
 					? SortKeyFromRef(m_ShadowPassMaterial->GetShader().Raw()) : 0;
 				SubmitMeshPassDraw(MeshPassType::ShadowDepth,
-					key,
+					bindlessMeshKey,
 					staticMesh,
 					meshSource,
-					materialTable,
+					nullptr,
 					submeshIndex,
-					materialHandle,
+					AssetHandle(0),
 					m_ShadowPassMaterial,
 					m_ShadowMapPass ? SortKeyFromRef(m_ShadowMapPass->GetPipeline().Raw()) : 0,
 					shadowShaderSortKey,
@@ -6871,9 +6877,10 @@ namespace Lux {
 		};
 		pushConstants.DrawCount = m_MeshCullDrawCount;
 		pushConstants.FrustumCullingEnabled = m_Options.EnableFrustumCulling ? 1u : 0u;
-		constexpr bool enableConservativeHZBOcclusion = true;
-		pushConstants.OcclusionCullingEnabled = enableConservativeHZBOcclusion && m_Options.EnableOcclusionCulling && m_HZBPrimed && m_HierarchicalDepthTexture.Texture ? 1u : 0u;
-		pushConstants.NumDepthMips = m_HierarchicalDepthTexture.Texture ? glm::max(1u, m_HierarchicalDepthTexture.Texture->GetMipLevelCount()) : 1u;
+		const uint32_t hzbMipCount = m_HierarchicalDepthTexture.Texture ? m_HierarchicalDepthTexture.Texture->GetMipLevelCount() : 0u;
+		const bool hzbOcclusionReady = m_Options.EnableOcclusionCulling && m_HZBPrimed && hzbMipCount > 1;
+		pushConstants.OcclusionCullingEnabled = hzbOcclusionReady ? 1u : 0u;
+		pushConstants.NumDepthMips = hzbOcclusionReady ? hzbMipCount : 0u;
 		pushConstants.DepthBias = m_Options.OcclusionDepthBias;
 		pushConstants.BoundsScale = m_Options.OcclusionBoundsScale;
 

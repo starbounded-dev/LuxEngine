@@ -25,7 +25,7 @@ Project:
     Rendering:
       QualityPreset: Cinematic
       FrustumCulling: true
-      OcclusionCulling: false
+      OcclusionCulling: true
       GPUDrivenRendering: true
       GTAO: true
       GTAOBentNormals: true
