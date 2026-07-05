@@ -100,6 +100,7 @@ namespace Lux {
 		pipelineDesc.bindingLayouts = vulkanShader->GetAllDescriptorSetLayouts();
 
 		const auto& shaderHandles = vulkanShader->GetHandles();
+		const bool isMeshletPipeline = shaderHandles.contains(nvrhi::ShaderType::Mesh);
 		if (shaderHandles.contains(nvrhi::ShaderType::Vertex))
 			pipelineDesc.VS = shaderHandles.at(nvrhi::ShaderType::Vertex);
 		if (shaderHandles.contains(nvrhi::ShaderType::Pixel))
@@ -162,7 +163,8 @@ namespace Lux {
 				bufferIndex++;
 		}
 
-		pipelineDesc.inputLayout = device->createInputLayout(vertexAttributes.data(), vertexAttributes.size(), pipelineDesc.VS);
+		if (!isMeshletPipeline)
+			pipelineDesc.inputLayout = device->createInputLayout(vertexAttributes.data(), vertexAttributes.size(), pipelineDesc.VS);
 
 #pragma endregion
 
@@ -229,6 +231,24 @@ namespace Lux {
 #pragma endregion
 
 		pipelineDesc.dynamicLineWidth = IsDynamicLineWidth();
+
+		if (isMeshletPipeline)
+		{
+			// Mesh-shader pipeline: same render state, no vertex input; task
+			// (amplification) stage is optional.
+			nvrhi::MeshletPipelineDesc meshletDesc;
+			meshletDesc.bindingLayouts = pipelineDesc.bindingLayouts;
+			if (shaderHandles.contains(nvrhi::ShaderType::Amplification))
+				meshletDesc.AS = shaderHandles.at(nvrhi::ShaderType::Amplification);
+			meshletDesc.MS = shaderHandles.at(nvrhi::ShaderType::Mesh);
+			meshletDesc.PS = pipelineDesc.PS;
+			meshletDesc.primType = pipelineDesc.primType;
+			meshletDesc.renderState = pipelineDesc.renderState;
+
+			m_Handle = nullptr;
+			m_MeshletHandle = device->createMeshletPipeline(meshletDesc, m_Specification.TargetFramebuffer->GetHandle());
+			return;
+		}
 
 		m_Handle = device->createGraphicsPipeline(pipelineDesc, m_Specification.TargetFramebuffer->GetHandle());
 	}

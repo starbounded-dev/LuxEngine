@@ -25,6 +25,11 @@ namespace Lux {
 
 		nvrhi::GraphicsPipelineHandle GetHandle() { return m_Handle; }
 
+		// Meshlet pipelines (shader has a mesh stage) get a MeshletPipeline
+		// instead of a graphics pipeline; GetHandle() stays null for them.
+		nvrhi::MeshletPipelineHandle GetMeshletHandle() { return m_MeshletHandle; }
+		bool IsMeshletPipeline() const { return m_MeshletHandle != nullptr; }
+
 		void Invalidate();
 		void RT_Invalidate();
 
@@ -38,6 +43,7 @@ namespace Lux {
 		virtual ~Pipeline() = default;
 	private:
 		nvrhi::GraphicsPipelineHandle m_Handle = nullptr;
+		nvrhi::MeshletPipelineHandle m_MeshletHandle = nullptr;
 		PipelineSpecification m_Specification;
 	};
 

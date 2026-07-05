@@ -208,6 +208,9 @@ namespace Lux {
 		bool  EnableGPUDrivenRendering = true;
 		bool  EnableMeshLODs = true;
 		float MeshLODDistanceScale = 1.0f;
+		// Experimental: task/mesh-shader PreDepth with per-meshlet culling.
+		// Requires VK_EXT_mesh_shader; ignored (classic path) when unsupported.
+		bool  EnableMeshShaders = false;
 		EffectResolutionScale GTAOResolutionScale = EffectResolutionScale::Half;
 		SSRQualityPreset SSRQuality = SSRQualityPreset::HalfBilateral;
 		EffectResolutionScale SSRResolutionScale = EffectResolutionScale::Half;
@@ -1057,6 +1060,12 @@ namespace Lux {
 			bool                     useIndirect = false,
 			Ref<Shader>              pipelineShader = nullptr);
 
+		// Mesh-shader PreDepth (task/mesh culled meshlets).
+		void PreDepthMeshletPass();
+		void RT_DrawStaticMeshMeshlets(Ref<RenderCommandBuffer> cmd,
+			const StaticDrawCommand& dc,
+			MeshDrawParams           params);
+
 		// ── Uniform buffer GPU structs ────────────────────────────────────────
 
 		struct UBCamera
@@ -1344,6 +1353,9 @@ namespace Lux {
 		Ref<Pipeline>    m_PreDepthPipeline;
 		Ref<Material>    m_PreDepthMaterial;
 		Ref<RenderPass>  m_PreDepthPass;
+		// Mesh-shader variant (created only when VK_EXT_mesh_shader is available).
+		Ref<Pipeline>    m_PreDepthMeshletPipeline;
+		Ref<RenderPass>  m_PreDepthMeshletPass;
 
 		// ── Tiled light culling ──────────────────────────────────────────────
 		Ref<ComputePass> m_MeshCullingPass;

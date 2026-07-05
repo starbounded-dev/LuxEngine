@@ -169,6 +169,21 @@ namespace Lux {
 		uint32_t IndexCount = 0;
 		uint32_t VertexCount = 0;
 		float DistanceMultiplier = 0.0f;
+		// Range into the MeshSource meshlet buffers (mesh-shader path).
+		uint32_t MeshletOffset = 0;
+		uint32_t MeshletCount = 0;
+	};
+
+	// GPU meshlet descriptor (std430; mirrored by the meshlet shaders as
+	// { vec4 BoundsSphere; vec4 Cone; uvec4 Counts; }).
+	struct MeshletDesc
+	{
+		glm::vec4 BoundsSphere{ 0.0f };              // xyz = mesh-local center, w = radius
+		glm::vec4 Cone{ 0.0f, 0.0f, 0.0f, 1.0f };    // xyz = axis, w = cutoff (>= 1 disables cone culling)
+		uint32_t VertexOffset = 0;                   // into the meshlet-vertex buffer
+		uint32_t TriangleOffset = 0;                 // into the meshlet-triangle buffer
+		uint32_t VertexCount = 0;
+		uint32_t TriangleCount = 0;
 	};
 
 	struct MeshNode
@@ -223,6 +238,14 @@ namespace Lux {
 		uint32_t GetSubmeshLODCount(uint32_t submeshIndex) const;
 		SubmeshLOD GetSubmeshLOD(uint32_t submeshIndex, uint32_t lodIndex) const;
 
+		// Meshlet data for the mesh-shader path. Built by BuildRenderGeometry when
+		// meshlet building is enabled (set once at startup from GPU support).
+		static void SetBuildMeshlets(bool build) { s_BuildMeshlets = build; }
+		bool HasMeshlets() const { return m_MeshletBuffer != nullptr; }
+		// Render-thread only: binding set for the meshlet SSBOs (set 0 of the
+		// meshlet shader), created lazily against the shader's binding layout.
+		nvrhi::BindingSetHandle RT_GetOrCreateMeshletBindingSet(nvrhi::IBindingLayout* layout);
+
 		// CPU-side position access that works whether or not the full vertex
 		// array was compacted away (the standalone runtime keeps positions only —
 		// physics cooking is the sole CPU consumer and reads positions + indices).
@@ -273,6 +296,15 @@ namespace Lux {
 		std::vector<Vertex> m_Vertices;
 		std::vector<Index> m_Indices;
 		std::vector<std::vector<SubmeshLOD>> m_SubmeshLODs;
+
+		// Meshlet SSBOs (mesh-shader path); null when meshlets were not built.
+		nvrhi::BufferHandle m_MeshletBuffer;
+		nvrhi::BufferHandle m_MeshletVertexBuffer;
+		nvrhi::BufferHandle m_MeshletTriangleBuffer;
+		nvrhi::BindingSetHandle m_MeshletBindingSet;
+		nvrhi::IBindingLayout* m_MeshletBindingSetLayout = nullptr;
+
+		inline static bool s_BuildMeshlets = false;
 
 		// Positions-only fallback populated by CompactCPUGeometry when m_Vertices
 		// is released (runtime); read via GetVertexPosition/GetVertexCount.

@@ -9,6 +9,9 @@
 #include "Lux/Core/Math/Frustum.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Platform/Vulkan/VulkanShader.h"
+
+#include <nvrhi/utils.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -712,6 +715,7 @@ namespace Lux {
 		m_Options.EnableGPUDrivenRendering = settings.EnableGPUDrivenRendering;
 		m_Options.EnableMeshLODs = settings.EnableMeshLODs;
 		m_Options.MeshLODDistanceScale = std::clamp(settings.MeshLODDistanceScale, 0.25f, 4.0f);
+		m_Options.EnableMeshShaders = settings.EnableMeshShaders;
 		m_Options.EnableGTAO = settings.EnableGTAO;
 		m_Options.GTAOBentNormals = settings.GTAOBentNormals;
 		m_Options.GTAODenoisePasses = settings.GTAODenoisePasses;
@@ -808,6 +812,7 @@ namespace Lux {
 		settings.EnableGPUDrivenRendering = m_Options.EnableGPUDrivenRendering;
 		settings.EnableMeshLODs = m_Options.EnableMeshLODs;
 		settings.MeshLODDistanceScale = m_Options.MeshLODDistanceScale;
+		settings.EnableMeshShaders = m_Options.EnableMeshShaders;
 		settings.EnableGTAO = m_Options.EnableGTAO;
 		settings.GTAOBentNormals = m_Options.GTAOBentNormals;
 		settings.GTAODenoisePasses = m_Options.GTAODenoisePasses;
@@ -1093,6 +1098,29 @@ namespace Lux {
 			m_PreDepthPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_PreDepthPass->Validate());
 			m_PreDepthPass->Bake();
+
+			// Mesh-shader variant on the same framebuffer (used when the
+			// EnableMeshShaders option is on and the GPU supports it).
+			if (Renderer::SupportsMeshShaders())
+			{
+				PipelineSpecification meshletPipelineSpec;
+				meshletPipelineSpec.DebugName = "PreDepth-Meshlet";
+				meshletPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("PreDepth_Meshlet");
+				meshletPipelineSpec.TargetFramebuffer = pipelineSpec.TargetFramebuffer;
+				meshletPipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
+				m_PreDepthMeshletPipeline = Pipeline::Create(meshletPipelineSpec);
+
+				RenderPassSpecification meshletRPSpec;
+				meshletRPSpec.DebugName = "PreDepthMeshletPass";
+				meshletRPSpec.Pipeline = m_PreDepthMeshletPipeline;
+
+				m_PreDepthMeshletPass = RenderPass::Create(meshletRPSpec);
+				m_PreDepthMeshletPass->SetInput("Camera", m_UBSCamera);
+				m_PreDepthMeshletPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+				m_PreDepthMeshletPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+				LUX_CORE_VERIFY(m_PreDepthMeshletPass->Validate());
+				m_PreDepthMeshletPass->Bake();
+			}
 		}
 
 		// ── Hierarchical depth + SSR pre-integration ──────────────────────────
@@ -6633,6 +6661,12 @@ namespace Lux {
 
 	void SceneRenderer::PreDepthPass()
 	{
+		if (m_Options.EnableMeshShaders && m_PreDepthMeshletPass && m_PreDepthMeshletPipeline && m_PreDepthMeshletPipeline->IsMeshletPipeline())
+		{
+			PreDepthMeshletPass();
+			return;
+		}
+
 		ScopedCPUProfile cpuProfile(*this, "PreDepthPass");
 		BeginProfiledGPU("PreDepthPass");
 
@@ -6658,6 +6692,105 @@ namespace Lux {
 
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::PreDepthMeshletPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "PreDepthPass");
+		BeginProfiledGPU("PreDepthPass");
+
+		Ref<SceneRenderer> instance = this;
+
+		// Pass begin: marker, explicit depth clear, descriptor prepare. The
+		// per-draw meshlet state carries the framebuffer/viewport, so there is no
+		// graphics-state commit here (this is not a vertex-pipeline pass).
+		Renderer::Submit([instance]() mutable {
+			Ref<RenderCommandBuffer> cmd = instance->m_CommandBuffer;
+			cmd->RT_BeginMarker("PreDepthMeshletPass");
+
+			Ref<Framebuffer> framebuffer = instance->m_PreDepthMeshletPipeline->GetSpecification().TargetFramebuffer;
+			if (framebuffer->HasDepthAttachment())
+			{
+				const auto& clearValues = framebuffer->GetClearValues();
+				const auto& depthStencil = clearValues[clearValues.size() - 1].DepthStencil;
+				nvrhi::utils::ClearDepthStencilAttachment(cmd->GetActive(), framebuffer->GetHandle(), depthStencil.Depth, depthStencil.Stencil);
+			}
+
+			instance->m_PreDepthMeshletPass->Prepare();
+		});
+
+		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
+		for (const MeshKey& key : depthPass.DrawOrder)
+		{
+			const auto drawIt = depthPass.DrawList.find(key);
+			if (drawIt == depthPass.DrawList.end()) continue;
+			auto it = m_MeshTransformMap.find(key);
+			if (it == m_MeshTransformMap.end()) continue;
+
+			const MeshDrawParams params(it->second);
+			StaticDrawCommand drawCmd = drawIt->second;
+
+			Renderer::Submit([instance, drawCmd, params]() mutable {
+				instance->RT_DrawStaticMeshMeshlets(instance->m_CommandBuffer, drawCmd, params);
+				});
+		}
+
+		Renderer::Submit([instance]() mutable {
+			instance->m_CommandBuffer->RT_EndMarker();
+		});
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::RT_DrawStaticMeshMeshlets(Ref<RenderCommandBuffer> cmd, const StaticDrawCommand& dc, MeshDrawParams params)
+	{
+		Ref<MeshSource> meshSource = dc.MeshSource;
+		if (!meshSource || dc.SubmeshIndex >= meshSource->GetSubmeshes().size())
+			return;
+		if (dc.InstanceCount == 0)
+			return;
+
+		const SubmeshLOD lod = meshSource->GetSubmeshLOD(dc.SubmeshIndex, dc.LODIndex);
+		if (lod.MeshletCount == 0 || !meshSource->HasMeshlets())
+			return; // still streaming, or built before meshlet support was known
+
+		Ref<Pipeline> pipeline = m_PreDepthMeshletPipeline;
+		Ref<VulkanShader> shader = Ref<VulkanShader>(pipeline->GetShader());
+		const auto& bindingLayouts = shader->GetAllDescriptorSetLayouts();
+		if (bindingLayouts.empty())
+			return;
+
+		nvrhi::BindingSetHandle meshletBindingSet = meshSource->RT_GetOrCreateMeshletBindingSet(bindingLayouts[0]);
+		if (!meshletBindingSet)
+			return;
+
+		Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
+
+		nvrhi::MeshletState meshletState;
+		meshletState.pipeline = pipeline->GetMeshletHandle();
+		meshletState.framebuffer = framebuffer->GetHandle();
+		meshletState.viewport.addViewport(nvrhi::Viewport((float)framebuffer->GetWidth(), (float)framebuffer->GetHeight()));
+		meshletState.viewport.addScissorRect(nvrhi::Rect((int)framebuffer->GetWidth(), (int)framebuffer->GetHeight()));
+		meshletState.bindings = m_PreDepthMeshletPass->GetBindingSets(Renderer::RT_GetCurrentFrameIndex());
+		if (meshletState.bindings.empty())
+			meshletState.bindings.resize(1);
+		meshletState.bindings[0] = meshletBindingSet;
+
+		cmd->GetActive()->setMeshletState(meshletState);
+
+		struct MeshletPushConstants
+		{
+			uint32_t ObjectIndexBase = 0;
+			uint32_t MeshletOffset = 0;
+			uint32_t MeshletCount = 0;
+			uint32_t _pad0 = 0;
+		} pushConstants;
+		pushConstants.ObjectIndexBase = params.ObjectIndexBase;
+		pushConstants.MeshletOffset = lod.MeshletOffset;
+		pushConstants.MeshletCount = lod.MeshletCount;
+		cmd->GetActive()->setPushConstants(&pushConstants, sizeof(pushConstants));
+
+		// One task workgroup culls 32 meshlets; Y = instance index.
+		cmd->GetActive()->dispatchMesh(DivideRoundUp(lod.MeshletCount, 32u), dc.InstanceCount, 1);
 	}
 
 	void SceneRenderer::HZBCompute()

@@ -447,6 +447,9 @@ namespace Lux {
 		Renderer::SetGlobalMacroInShaders("__HZ_AO_METHOD", std::format("{}", (int)ShaderDef::GetAOMethod(true)));
 		Renderer::SetGlobalMacroInShaders("__HZ_GTAO_COMPUTE_BENT_NORMALS", "0");
 
+		// Meshlet data is only built when the GPU can consume it (VK_EXT_mesh_shader).
+		MeshSource::SetBuildMeshlets(Renderer::SupportsMeshShaders());
+
 		s_Data->m_ShaderLibrary = Ref<ShaderLibrary>::Create();
 
 		if (!s_Config.ShaderPackPath.empty())
@@ -508,6 +511,8 @@ namespace Lux {
 		// Light-culling
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Anim.glsl");
+		if (Renderer::SupportsMeshShaders())
+			Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Meshlet.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/MeshCulling.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterBuild.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterLightCulling.glsl");
@@ -1946,6 +1951,12 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		s_Config = config;
+	}
+
+	bool Renderer::SupportsMeshShaders()
+	{
+		static const bool s_Supported = Application::GetGraphicsDevice()->queryFeatureSupport(nvrhi::Feature::Meshlets);
+		return s_Supported;
 	}
 
 	void Renderer::AcknowledgeParsedGlobalMacros(const std::unordered_set<std::string>& macros, Ref<Shader> shader)

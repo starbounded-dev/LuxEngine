@@ -14,6 +14,8 @@ namespace Lux {
 		auto vertexBufferDesc = nvrhi::BufferDesc()
 			.setByteSize(buffer.Size)
 			.setIsVertexBuffer(true)
+			// Raw SRV so the mesh-shader path can fetch vertices directly.
+			.setCanHaveRawViews(true)
 			.setInitialState(nvrhi::ResourceStates::VertexBuffer)
 			.setKeepInitialState(true) // enable fully automatic state tracking
 			.setDebugName("VertexBuffer");

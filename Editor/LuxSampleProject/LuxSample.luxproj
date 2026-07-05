@@ -29,6 +29,7 @@ Project:
       GPUDrivenRendering: true
       MeshLODs: true
       MeshLODDistanceScale: 1
+      MeshShaders: false
       GTAO: true
       GTAOBentNormals: true
       GTAODenoisePasses: 8

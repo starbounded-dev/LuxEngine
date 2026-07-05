@@ -13,7 +13,7 @@ namespace Lux {
 
 		enum class ShaderStage : uint8_t
 		{
-			None = 0, Vertex = 1, Fragment = 2, Compute = 3
+			None = 0, Vertex = 1, Fragment = 2, Compute = 3, Task = 4, Mesh = 5
 		};
 
 		VkShaderStageFlagBits ShaderStageToVkShaderStage(ShaderStage stage)
@@ -23,6 +23,8 @@ namespace Lux {
 			case ShaderStage::Vertex:   return VK_SHADER_STAGE_VERTEX_BIT;
 			case ShaderStage::Fragment: return VK_SHADER_STAGE_FRAGMENT_BIT;
 			case ShaderStage::Compute:  return VK_SHADER_STAGE_COMPUTE_BIT;
+			case ShaderStage::Task:     return VK_SHADER_STAGE_TASK_BIT_EXT;
+			case ShaderStage::Mesh:     return VK_SHADER_STAGE_MESH_BIT_EXT;
 			}
 
 			LUX_CORE_VERIFY(false);
@@ -36,6 +38,8 @@ namespace Lux {
 			case VK_SHADER_STAGE_VERTEX_BIT:   return ShaderStage::Vertex;
 			case VK_SHADER_STAGE_FRAGMENT_BIT: return ShaderStage::Fragment;
 			case VK_SHADER_STAGE_COMPUTE_BIT:  return ShaderStage::Compute;
+			case VK_SHADER_STAGE_TASK_BIT_EXT: return ShaderStage::Task;
+			case VK_SHADER_STAGE_MESH_BIT_EXT: return ShaderStage::Mesh;
 			}
 
 			LUX_CORE_VERIFY(false);

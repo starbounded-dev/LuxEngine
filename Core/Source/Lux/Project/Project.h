@@ -69,6 +69,7 @@ namespace Lux
 		bool EnableGPUDrivenRendering = true;
 		bool EnableMeshLODs = true;
 		float MeshLODDistanceScale = 1.0f;
+		bool EnableMeshShaders = false;
 		bool EnableGTAO = true;
 		bool GTAOBentNormals = false;
 		int GTAODenoisePasses = 4;

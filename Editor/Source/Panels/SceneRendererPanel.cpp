@@ -3,6 +3,7 @@
 
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Renderer/Renderer.h"
 
 #include <imgui/imgui.h>
 
@@ -307,6 +308,17 @@ namespace Lux {
 					options.MeshLODDistanceScale = std::clamp(options.MeshLODDistanceScale, 0.25f, 4.0f);
 					projectSettingsChanged = true;
 				}
+			}
+			if (Renderer::SupportsMeshShaders())
+			{
+				projectSettingsChanged |= ImGuiEx::Property("Mesh Shaders (Experimental)", options.EnableMeshShaders);
+			}
+			else
+			{
+				ImGui::BeginDisabled();
+				bool unsupported = false;
+				ImGuiEx::Property("Mesh Shaders (Unsupported)", unsupported);
+				ImGui::EndDisabled();
 			}
 			const char* renderScaleLabels[] = { "100%", "75%", "50%", "Dynamic" };
 			int renderScaleMode = static_cast<int>(options.ResolutionScaleMode);

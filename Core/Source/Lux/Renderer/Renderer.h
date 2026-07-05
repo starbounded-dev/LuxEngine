@@ -251,6 +251,9 @@ namespace Lux {
 		static RendererConfig& GetConfig();
 		static void SetConfig(const RendererConfig& config);
 
+		// True when the device supports mesh/task shaders (VK_EXT_mesh_shader).
+		static bool SupportsMeshShaders();
+
 		static RenderCommandQueue& GetRenderResourceReleaseQueue(uint32_t index);
 
 		// Add known macro from shader.

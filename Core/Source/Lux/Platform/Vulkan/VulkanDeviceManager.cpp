@@ -451,7 +451,7 @@ namespace Lux {
 				rayPipelineSupported = true;
 			else if (ext == VK_KHR_RAY_QUERY_EXTENSION_NAME)
 				rayQuerySupported = true;
-			else if (ext == VK_NV_MESH_SHADER_EXTENSION_NAME)
+			else if (ext == VK_EXT_MESH_SHADER_EXTENSION_NAME)
 				meshletsSupported = true;
 			else if (ext == VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME)
 				vrsSupported = true;
@@ -510,7 +510,9 @@ namespace Lux {
 			.setRayTraversalPrimitiveCulling(true);
 		auto rayQueryFeatures = vk::PhysicalDeviceRayQueryFeaturesKHR()
 			.setRayQuery(true);
-		auto meshletFeatures = vk::PhysicalDeviceMeshShaderFeaturesNV()
+		// NVRHI's Vulkan backend implements meshlets via VK_EXT_mesh_shader
+		// (Feature::Meshlets checks EXT, dispatchMesh calls drawMeshTasksEXT).
+		auto meshletFeatures = vk::PhysicalDeviceMeshShaderFeaturesEXT()
 			.setTaskShader(true)
 			.setMeshShader(true);
 		auto vrsFeatures = vk::PhysicalDeviceFragmentShadingRateFeaturesKHR()

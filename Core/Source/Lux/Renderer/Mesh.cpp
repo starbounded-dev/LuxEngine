@@ -1,6 +1,7 @@
 #include "lpch.h" 
 #include "Mesh.h"
 
+#include "Lux/Core/Application.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Math/Math.h"
 #include "Lux/Renderer/Renderer.h"
@@ -198,6 +199,151 @@ namespace Lux
 			outLOD.VertexCount = (uint32_t)clusters.size();
 			return true;
 		}
+
+		// Split one submesh LOD range into meshlets (<= 64 vertices, <= 124
+		// triangles each) with a bounding sphere and a backface cone per meshlet
+		// for task-shader culling.
+		static void BuildSubmeshLODMeshlets(
+			const std::vector<Vertex>& renderVertices,
+			const std::vector<Index>& renderIndices,
+			SubmeshLOD& lod,
+			std::vector<MeshletDesc>& meshlets,
+			std::vector<uint32_t>& meshletVertices,
+			std::vector<uint32_t>& meshletTriangles)
+		{
+			constexpr uint32_t MaxMeshletVertices = 64;
+			constexpr uint32_t MaxMeshletTriangles = 124;
+
+			lod.MeshletOffset = (uint32_t)meshlets.size();
+			lod.MeshletCount = 0;
+
+			const uint32_t firstTriangle = lod.BaseIndex / 3u;
+			const uint32_t triangleCount = lod.IndexCount / 3u;
+			if (triangleCount == 0 || firstTriangle + triangleCount > renderIndices.size())
+				return;
+
+			MeshletDesc current{};
+			current.VertexOffset = (uint32_t)meshletVertices.size();
+			current.TriangleOffset = (uint32_t)meshletTriangles.size();
+
+			// Local vertex index (relative to lod.BaseVertex) -> slot in the current meshlet.
+			std::unordered_map<uint32_t, uint8_t> vertexSlots;
+			vertexSlots.reserve(MaxMeshletVertices);
+
+			glm::vec3 coneAxisAccum{ 0.0f };
+			std::vector<glm::vec3> triangleNormals;
+			triangleNormals.reserve(MaxMeshletTriangles);
+
+			auto flushMeshlet = [&]()
+			{
+				if (current.TriangleCount == 0)
+					return;
+
+				// Bounding sphere over the meshlet's vertices (mesh-local space).
+				glm::vec3 center{ 0.0f };
+				for (uint32_t i = 0; i < current.VertexCount; i++)
+					center += renderVertices[meshletVertices[current.VertexOffset + i]].Position;
+				center /= (float)current.VertexCount;
+
+				float radiusSq = 0.0f;
+				for (uint32_t i = 0; i < current.VertexCount; i++)
+				{
+					const glm::vec3 toVertex = renderVertices[meshletVertices[current.VertexOffset + i]].Position - center;
+					radiusSq = glm::max(radiusSq, glm::dot(toVertex, toVertex));
+				}
+				current.BoundsSphere = glm::vec4(center, glm::sqrt(radiusSq));
+
+				// Backface cone: axis = mean triangle normal; cutoff from the widest
+				// deviation. cutoff >= 1 disables the test (spread too wide or
+				// degenerate triangles present).
+				const glm::vec3 axis = NormalizeOrFallback(coneAxisAccum, { 0.0f, 0.0f, 0.0f });
+				float minAxisDot = 1.0f;
+				bool coneValid = glm::dot(axis, axis) > 0.5f && triangleNormals.size() == current.TriangleCount;
+				for (const glm::vec3& normal : triangleNormals)
+					minAxisDot = glm::min(minAxisDot, glm::dot(axis, normal));
+				if (coneValid && minAxisDot > 0.0f)
+					current.Cone = glm::vec4(axis, glm::sqrt(glm::max(0.0f, 1.0f - minAxisDot * minAxisDot)));
+				else
+					current.Cone = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+
+				meshlets.push_back(current);
+				lod.MeshletCount++;
+
+				current = MeshletDesc{};
+				current.VertexOffset = (uint32_t)meshletVertices.size();
+				current.TriangleOffset = (uint32_t)meshletTriangles.size();
+				vertexSlots.clear();
+				coneAxisAccum = glm::vec3(0.0f);
+				triangleNormals.clear();
+			};
+
+			for (uint32_t triangle = 0; triangle < triangleCount; triangle++)
+			{
+				const Index& triangleIndices = renderIndices[firstTriangle + triangle];
+				const uint32_t localIndices[3] = { triangleIndices.V1, triangleIndices.V2, triangleIndices.V3 };
+				if (localIndices[0] >= lod.VertexCount || localIndices[1] >= lod.VertexCount || localIndices[2] >= lod.VertexCount)
+					continue;
+
+				const uint32_t newVertexCount =
+					(uint32_t)(!vertexSlots.contains(localIndices[0])) +
+					(uint32_t)(!vertexSlots.contains(localIndices[1])) +
+					(uint32_t)(!vertexSlots.contains(localIndices[2]));
+
+				if (current.VertexCount + newVertexCount > MaxMeshletVertices || current.TriangleCount + 1 > MaxMeshletTriangles)
+					flushMeshlet();
+
+				uint8_t slots[3];
+				for (int corner = 0; corner < 3; corner++)
+				{
+					auto [slotIt, inserted] = vertexSlots.try_emplace(localIndices[corner], (uint8_t)current.VertexCount);
+					if (inserted)
+					{
+						meshletVertices.push_back(lod.BaseVertex + localIndices[corner]);
+						current.VertexCount++;
+					}
+					slots[corner] = slotIt->second;
+				}
+
+				meshletTriangles.push_back((uint32_t)slots[0] | ((uint32_t)slots[1] << 8u) | ((uint32_t)slots[2] << 16u));
+				current.TriangleCount++;
+
+				const glm::vec3& p0 = renderVertices[lod.BaseVertex + localIndices[0]].Position;
+				const glm::vec3& p1 = renderVertices[lod.BaseVertex + localIndices[1]].Position;
+				const glm::vec3& p2 = renderVertices[lod.BaseVertex + localIndices[2]].Position;
+				const glm::vec3 faceNormal = glm::cross(p1 - p0, p2 - p0);
+				if (glm::dot(faceNormal, faceNormal) > 0.000000001f)
+				{
+					const glm::vec3 normalized = glm::normalize(faceNormal);
+					coneAxisAccum += normalized;
+					triangleNormals.push_back(normalized);
+				}
+			}
+
+			flushMeshlet();
+		}
+
+		static nvrhi::BufferHandle CreateMeshletStorageBuffer(const void* data, uint64_t size, const char* debugName)
+		{
+			if (size == 0)
+				return nullptr;
+
+			auto bufferDesc = nvrhi::BufferDesc()
+				.setByteSize(size)
+				.setCanHaveRawViews(true)
+				.setInitialState(nvrhi::ResourceStates::ShaderResource)
+				.setKeepInitialState(true)
+				.setDebugName(debugName);
+
+			nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+			nvrhi::BufferHandle handle = device->createBuffer(bufferDesc);
+
+			// The record callback runs immediately; reading from stack-local data is safe.
+			Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+			{
+				uploadList->writeBuffer(handle, data, size);
+			});
+			return handle;
+		}
 	}
 
 	////////////////////////////////////////////////////////
@@ -359,6 +505,31 @@ namespace Lux
 			}
 		}
 
+		// Meshlet data for the mesh-shader path (built per submesh per LOD so the
+		// two systems compose). Only when the GPU supports mesh shaders.
+		m_MeshletBuffer = nullptr;
+		m_MeshletVertexBuffer = nullptr;
+		m_MeshletTriangleBuffer = nullptr;
+		m_MeshletBindingSet = nullptr;
+		m_MeshletBindingSetLayout = nullptr;
+		if (s_BuildMeshlets)
+		{
+			std::vector<MeshletDesc> meshlets;
+			std::vector<uint32_t> meshletVertices;
+			std::vector<uint32_t> meshletTriangles;
+
+			for (std::vector<SubmeshLOD>& lods : m_SubmeshLODs)
+				for (SubmeshLOD& lod : lods)
+					BuildSubmeshLODMeshlets(renderVertices, renderIndices, lod, meshlets, meshletVertices, meshletTriangles);
+
+			if (!meshlets.empty())
+			{
+				m_MeshletBuffer = CreateMeshletStorageBuffer(meshlets.data(), meshlets.size() * sizeof(MeshletDesc), "MeshletDescs");
+				m_MeshletVertexBuffer = CreateMeshletStorageBuffer(meshletVertices.data(), meshletVertices.size() * sizeof(uint32_t), "MeshletVertices");
+				m_MeshletTriangleBuffer = CreateMeshletStorageBuffer(meshletTriangles.data(), meshletTriangles.size() * sizeof(uint32_t), "MeshletTriangles");
+			}
+		}
+
 		m_VertexBuffer = VertexBuffer::Create(Buffer(renderVertices.data(), (uint32_t)(renderVertices.size() * sizeof(Vertex))));
 		m_IndexBuffer = IndexBuffer::Create(Buffer(renderIndices.data(), (uint32_t)(renderIndices.size() * sizeof(Index))));
 
@@ -369,6 +540,55 @@ namespace Lux
 				m_FilePath.empty() ? "<memory>" : m_FilePath,
 				removedIndexCount);
 		}
+	}
+
+	nvrhi::BindingSetHandle MeshSource::RT_GetOrCreateMeshletBindingSet(nvrhi::IBindingLayout* layout)
+	{
+		if (m_MeshletBindingSet && m_MeshletBindingSetLayout == layout)
+			return m_MeshletBindingSet;
+
+		if (!layout || !m_MeshletBuffer || !m_MeshletVertexBuffer || !m_MeshletTriangleBuffer || !m_VertexBuffer || !m_VertexBuffer->GetHandle())
+			return nullptr;
+
+		const nvrhi::BindingLayoutDesc* layoutDesc = layout->getDesc();
+		if (!layoutDesc)
+			return nullptr;
+
+		// Mirror the meshlet shader's set-0 layout: raw-buffer SRVs at
+		// binding 0 = meshlet descs, 1 = meshlet vertices, 2 = meshlet triangles,
+		// 3 = the shared render vertex buffer.
+		nvrhi::BindingSetDesc setDesc;
+		for (const nvrhi::BindingLayoutItem& item : layoutDesc->bindings)
+		{
+			switch (item.type)
+			{
+				case nvrhi::ResourceType::PushConstants:
+					setDesc.addItem(nvrhi::BindingSetItem::PushConstants(item.slot, item.size));
+					break;
+				case nvrhi::ResourceType::RawBuffer_SRV:
+				{
+					nvrhi::IBuffer* buffer = nullptr;
+					switch (item.slot)
+					{
+						case 0: buffer = m_MeshletBuffer; break;
+						case 1: buffer = m_MeshletVertexBuffer; break;
+						case 2: buffer = m_MeshletTriangleBuffer; break;
+						case 3: buffer = m_VertexBuffer->GetHandle(); break;
+					}
+					if (!buffer)
+						return nullptr;
+					setDesc.addItem(nvrhi::BindingSetItem::RawBuffer_SRV(item.slot, buffer));
+					break;
+				}
+				default:
+					LUX_CORE_ERROR("MeshSource: unexpected resource type in the meshlet binding layout (slot {})", item.slot);
+					return nullptr;
+			}
+		}
+
+		m_MeshletBindingSet = Application::GetGraphicsDevice()->createBindingSet(setDesc, layout);
+		m_MeshletBindingSetLayout = layout;
+		return m_MeshletBindingSet;
 	}
 
 	static std::string LevelToSpaces(uint32_t level)
