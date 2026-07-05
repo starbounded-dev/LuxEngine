@@ -14,10 +14,10 @@ This is a solo project that doubles as a learning vehicle for engine architectur
 - **Deferred PBR pipeline** with a G-buffer, clustered (froxel) light culling for point/spot lights, and a separate forward pass for transparents.
 - **Render graph** with compile caching and scratch-resource reuse; passes are skipped when their feature is off (zero-cost-when-disabled is an explicit goal).
 - **Shadows** — cascaded directional shadow maps (2K default) and spot-light shadow maps.
-- **Sky & atmosphere** — physically-based sky atmosphere, Preetham sky, HDR environment maps (equirect → cubemap, irradiance + prefiltered mips), skybox pass.
-- **Volumetric clouds** — Nubis/RDR2-style system with baked 3D noise textures (base shape, detail, curl), temporal reprojection, and a composite pass.
-- **Volumetric / atmospheric fog** — froxel fog with clustered local-light in-scattering, exponential height fog, and local fog volumes.
-- **Post-processing** — GTAO (with temporal + denoise), screen-space reflections (with temporal + composite), TAA, bloom, depth of field, and HZB generation used for occlusion and SSR pre-integration.
+- **Sky** — Preetham sky, HDR environment maps (equirect → cubemap, irradiance + prefiltered mips), skybox pass.
+- **Sky atmosphere / volumetric clouds / fog** — currently removed as part of the renderer simplification pass.
+- **Post-processing** — GTAO (with temporal + denoise), screen-space reflections (with temporal + composite), bloom, depth of field, and HZB generation used for occlusion and SSR pre-integration.
+- **TAA** — currently removed (resolve pass + history buffers are not created).
 - **Physical imaging** — exposure as manual multiplier, manual EV100, physical camera (aperture/shutter/ISO), or histogram auto-exposure; ACES and AgX tonemapping; physical light units.
 - **Volume system** — blendable post-process, atmosphere, and fog volumes (box/sphere) that override settings per region.
 - **GPU-driven bits** — GPU scene buffers, compute mesh culling, per-pass GPU timing.
