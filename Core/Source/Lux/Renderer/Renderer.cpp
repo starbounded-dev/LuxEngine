@@ -1709,13 +1709,22 @@ namespace Lux {
 			if (copyWidth == 0 || copyHeight == 0)
 				return;
 
-			nvrhi::TextureSlice srcSlice;
-			srcSlice.setSize(copyWidth, copyHeight, 1);
+			const uint32_t sourceLayerCount = glm::max(1u, sourceImage->GetSpecification().Layers);
+			const uint32_t destinationLayerCount = glm::max(1u, destinationImage->GetSpecification().Layers);
+			const uint32_t copyLayerCount = glm::min(sourceLayerCount, destinationLayerCount);
 
-			nvrhi::TextureSlice dstSlice;
-			dstSlice.setSize(copyWidth, copyHeight, 1);
+			for (uint32_t layer = 0; layer < copyLayerCount; layer++)
+			{
+				nvrhi::TextureSlice srcSlice;
+				srcSlice.setSize(copyWidth, copyHeight, 1);
+				srcSlice.setArraySlice(layer);
 
-			commandList->copyTexture(destinationImage->GetHandle(), dstSlice, sourceImage->GetHandle(), srcSlice);
+				nvrhi::TextureSlice dstSlice;
+				dstSlice.setSize(copyWidth, copyHeight, 1);
+				dstSlice.setArraySlice(layer);
+
+				commandList->copyTexture(destinationImage->GetHandle(), dstSlice, sourceImage->GetHandle(), srcSlice);
+			}
 		});
 	}
 

@@ -689,6 +689,7 @@ namespace Lux {
 			uint32_t    SubmeshIndex;
 			uint32_t    LODIndex;
 			bool        IsSelected;
+			bool        StaticShadowCaster;
 
 			bool operator<(const MeshKey& o) const
 			{
@@ -696,6 +697,7 @@ namespace Lux {
 				if (SubmeshIndex != o.SubmeshIndex)   return SubmeshIndex < o.SubmeshIndex;
 				if (LODIndex != o.LODIndex)       return LODIndex < o.LODIndex;
 				if (MaterialHandle != o.MaterialHandle) return MaterialHandle < o.MaterialHandle;
+				if (StaticShadowCaster != o.StaticShadowCaster) return StaticShadowCaster < o.StaticShadowCaster;
 				return IsSelected < o.IsSelected;
 			}
 
@@ -705,7 +707,8 @@ namespace Lux {
 					&& MaterialHandle == o.MaterialHandle
 					&& SubmeshIndex == o.SubmeshIndex
 					&& LODIndex == o.LODIndex
-					&& IsSelected == o.IsSelected;
+					&& IsSelected == o.IsSelected
+					&& StaticShadowCaster == o.StaticShadowCaster;
 			}
 		};
 
@@ -718,6 +721,7 @@ namespace Lux {
 				seed ^= std::hash<uint32_t>{}(key.SubmeshIndex) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
 				seed ^= std::hash<uint32_t>{}(key.LODIndex) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
 				seed ^= std::hash<bool>{}(key.IsSelected) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+				seed ^= std::hash<bool>{}(key.StaticShadowCaster) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
 				return seed;
 			}
 		};
@@ -901,7 +905,9 @@ namespace Lux {
 			uint64_t meshSortKey);
 		void ClearFrameMeshPasses();
 		void PruneMeshDrawCommandCache();
-		uint64_t CalculateShadowCasterHash() const;
+		void CalculateShadowCasterHashes(uint64_t& outStaticHash, uint64_t& outDynamicHash) const;
+		bool UpdateShadowCasterMotion(uint32_t sceneInstanceIndex, const GPUSceneInstanceData* instanceData);
+		bool IsShadowCasterStatic(uint32_t sceneInstanceIndex) const;
 
 		// ── Render passes ────────────────────────────────────────────────────
 
@@ -1339,10 +1345,19 @@ namespace Lux {
 		std::array<Ref<RenderPass>, ShadowCascadeCount> m_ShadowMapPasses;
 		Ref<RenderPass>  m_ShadowMapPass; // Alias for cascade 0, used for shared shadow texture binding
 		Ref<Material>    m_ShadowPassMaterial;
+		// Static shadow caching: static casters render into a cached depth array
+		// only when the static set changes; per frame the cache is copied into the
+		// live map and only dynamic casters render on top (no-clear passes).
+		Ref<Image2D>     m_ShadowMapStaticCacheImage;
+		std::array<Ref<RenderPass>, ShadowCascadeCount> m_ShadowMapStaticCachePasses;
+		std::array<Ref<RenderPass>, ShadowCascadeCount> m_ShadowMapDynamicPasses;
 
 		// ── Spot shadow atlas ───────────────────────────────────────────────
 		Ref<Image2D>     m_SpotShadowMapImage;
 		Ref<RenderPass>  m_SpotShadowMapPass;
+		Ref<Image2D>     m_SpotShadowStaticCacheImage;
+		Ref<RenderPass>  m_SpotShadowStaticCachePass;
+		Ref<RenderPass>  m_SpotShadowDynamicPass;
 		Ref<Material>    m_SpotShadowPassMaterial;
 		uint32_t         m_SpotShadowMapSize = 2048;
 		uint32_t         m_SpotShadowAtlasGridSize = 1;
@@ -1645,9 +1660,25 @@ namespace Lux {
 		bool  m_ShadowCascadeCacheValid = false;
 		bool  m_DirectionalShadowMapCacheValid = false;
 		bool  m_DirectionalShadowMapNeedsRender = true;
+		bool  m_StaticShadowMapCacheValid = false;
 		bool  m_SpotShadowMapCacheValid = false;
 		bool  m_SpotShadowMapNeedsRender = true;
-		uint64_t m_LastShadowCasterHash = 0;
+		bool  m_StaticSpotShadowMapCacheValid = false;
+		uint64_t m_LastStaticShadowCasterHash = 0;
+		uint64_t m_LastDynamicShadowCasterHash = 0;
+
+		// Per-caster motion tracking (keyed by GPUScene row). A caster is static
+		// once its transform is unchanged for StaticShadowCasterStableFrames
+		// consecutive frames; transient instances are always dynamic.
+		static constexpr uint32_t StaticShadowCasterStableFrames = 4;
+		struct ShadowCasterMotionState
+		{
+			uint64_t TransformHash = 0;
+			uint32_t StableFrames = 0;
+			uint32_t LastTouchedFrame = 0;
+		};
+		std::unordered_map<uint32_t, ShadowCasterMotionState> m_ShadowCasterMotion;
+		uint32_t m_ShadowMotionFrameIndex = 0;
 		uint64_t m_LastSpotShadowStateHash = 0;
 		glm::vec3 m_CachedShadowCameraPosition{ 0.0f };
 		glm::vec3 m_CachedShadowCameraForward{ 0.0f, 0.0f, -1.0f };

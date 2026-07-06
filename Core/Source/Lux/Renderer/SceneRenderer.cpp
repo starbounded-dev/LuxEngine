@@ -986,6 +986,11 @@ namespace Lux {
 			m_ShadowMapImage = Image2D::Create(shadowMapSpec);
 			m_ShadowMapImage->RT_Invalidate();
 
+			ImageSpecification staticShadowMapSpec = shadowMapSpec;
+			staticShadowMapSpec.DebugName = "StaticShadowMapCacheArray";
+			m_ShadowMapStaticCacheImage = Image2D::Create(staticShadowMapSpec);
+			m_ShadowMapStaticCacheImage->RT_Invalidate();
+
 			Ref<Shader> shadowPassShader = Renderer::GetShaderLibrary()->Get("DirShadowMap");
 			for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 			{
@@ -1016,6 +1021,44 @@ namespace Lux {
 				m_ShadowMapPasses[cascade]->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 				LUX_CORE_VERIFY(m_ShadowMapPasses[cascade]->Validate());
 				m_ShadowMapPasses[cascade]->Bake();
+
+				FramebufferSpecification staticFBSpec = fbSpec;
+				staticFBSpec.DebugName = "StaticShadowMapCache-Cascade" + std::to_string(cascade);
+				staticFBSpec.ExistingImage = m_ShadowMapStaticCacheImage;
+
+				PipelineSpecification staticPipelineSpec = pipelineSpec;
+				staticPipelineSpec.DebugName = "StaticDirShadowMap-Cascade" + std::to_string(cascade);
+				staticPipelineSpec.TargetFramebuffer = Framebuffer::Create(staticFBSpec);
+
+				RenderPassSpecification staticRPSpec;
+				staticRPSpec.DebugName = "StaticShadowMapCachePass-Cascade" + std::to_string(cascade);
+				staticRPSpec.Pipeline = Pipeline::Create(staticPipelineSpec);
+
+				m_ShadowMapStaticCachePasses[cascade] = RenderPass::Create(staticRPSpec);
+				m_ShadowMapStaticCachePasses[cascade]->SetInput("ShadowData", m_UBSShadow);
+				m_ShadowMapStaticCachePasses[cascade]->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+				m_ShadowMapStaticCachePasses[cascade]->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+				LUX_CORE_VERIFY(m_ShadowMapStaticCachePasses[cascade]->Validate());
+				m_ShadowMapStaticCachePasses[cascade]->Bake();
+
+				FramebufferSpecification dynamicFBSpec = fbSpec;
+				dynamicFBSpec.DebugName = "DynamicShadowMap-Cascade" + std::to_string(cascade);
+				dynamicFBSpec.ClearDepthOnLoad = false;
+
+				PipelineSpecification dynamicPipelineSpec = pipelineSpec;
+				dynamicPipelineSpec.DebugName = "DynamicDirShadowMap-Cascade" + std::to_string(cascade);
+				dynamicPipelineSpec.TargetFramebuffer = Framebuffer::Create(dynamicFBSpec);
+
+				RenderPassSpecification dynamicRPSpec;
+				dynamicRPSpec.DebugName = "DynamicShadowMapPass-Cascade" + std::to_string(cascade);
+				dynamicRPSpec.Pipeline = Pipeline::Create(dynamicPipelineSpec);
+
+				m_ShadowMapDynamicPasses[cascade] = RenderPass::Create(dynamicRPSpec);
+				m_ShadowMapDynamicPasses[cascade]->SetInput("ShadowData", m_UBSShadow);
+				m_ShadowMapDynamicPasses[cascade]->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+				m_ShadowMapDynamicPasses[cascade]->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+				LUX_CORE_VERIFY(m_ShadowMapDynamicPasses[cascade]->Validate());
+				m_ShadowMapDynamicPasses[cascade]->Bake();
 			}
 
 			m_ShadowMapPass = m_ShadowMapPasses[0];
@@ -1037,6 +1080,11 @@ namespace Lux {
 			spotShadowSpec.Height = m_SpotShadowMapSize;
 			m_SpotShadowMapImage = Image2D::Create(spotShadowSpec);
 			m_SpotShadowMapImage->RT_Invalidate();
+
+			ImageSpecification staticSpotShadowSpec = spotShadowSpec;
+			staticSpotShadowSpec.DebugName = "StaticSpotShadowAtlas";
+			m_SpotShadowStaticCacheImage = Image2D::Create(staticSpotShadowSpec);
+			m_SpotShadowStaticCacheImage->RT_Invalidate();
 
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_SpotShadowMapSize;
@@ -1064,6 +1112,44 @@ namespace Lux {
 			m_SpotShadowMapPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_SpotShadowMapPass->Validate());
 			m_SpotShadowMapPass->Bake();
+
+			FramebufferSpecification staticFBSpec = fbSpec;
+			staticFBSpec.DebugName = "StaticSpotShadowAtlas";
+			staticFBSpec.ExistingImage = m_SpotShadowStaticCacheImage;
+
+			PipelineSpecification staticPipelineSpec = pipelineSpec;
+			staticPipelineSpec.DebugName = "StaticSpotShadowMap";
+			staticPipelineSpec.TargetFramebuffer = Framebuffer::Create(staticFBSpec);
+
+			RenderPassSpecification staticRPSpec;
+			staticRPSpec.DebugName = "StaticSpotShadowMapPass";
+			staticRPSpec.Pipeline = Pipeline::Create(staticPipelineSpec);
+
+			m_SpotShadowStaticCachePass = RenderPass::Create(staticRPSpec);
+			m_SpotShadowStaticCachePass->SetInput("SpotShadowData", m_UBSSpotShadow);
+			m_SpotShadowStaticCachePass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+			m_SpotShadowStaticCachePass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			LUX_CORE_VERIFY(m_SpotShadowStaticCachePass->Validate());
+			m_SpotShadowStaticCachePass->Bake();
+
+			FramebufferSpecification dynamicFBSpec = fbSpec;
+			dynamicFBSpec.DebugName = "DynamicSpotShadowAtlas";
+			dynamicFBSpec.ClearDepthOnLoad = false;
+
+			PipelineSpecification dynamicPipelineSpec = pipelineSpec;
+			dynamicPipelineSpec.DebugName = "DynamicSpotShadowMap";
+			dynamicPipelineSpec.TargetFramebuffer = Framebuffer::Create(dynamicFBSpec);
+
+			RenderPassSpecification dynamicRPSpec;
+			dynamicRPSpec.DebugName = "DynamicSpotShadowMapPass";
+			dynamicRPSpec.Pipeline = Pipeline::Create(dynamicPipelineSpec);
+
+			m_SpotShadowDynamicPass = RenderPass::Create(dynamicRPSpec);
+			m_SpotShadowDynamicPass->SetInput("SpotShadowData", m_UBSSpotShadow);
+			m_SpotShadowDynamicPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+			m_SpotShadowDynamicPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			LUX_CORE_VERIFY(m_SpotShadowDynamicPass->Validate());
+			m_SpotShadowDynamicPass->Bake();
 
 			m_SpotShadowPassMaterial = Material::Create(pipelineSpec.Shader, "SpotShadowPass");
 		}
@@ -3103,7 +3189,13 @@ namespace Lux {
 
 		for (const Ref<RenderPass>& pass : m_ShadowMapPasses)
 			addRenderPass(pass);
+		for (const Ref<RenderPass>& pass : m_ShadowMapStaticCachePasses)
+			addRenderPass(pass);
+		for (const Ref<RenderPass>& pass : m_ShadowMapDynamicPasses)
+			addRenderPass(pass);
 		addRenderPass(m_SpotShadowMapPass);
+		addRenderPass(m_SpotShadowStaticCachePass);
+		addRenderPass(m_SpotShadowDynamicPass);
 		addRenderPass(m_PreDepthPass);
 		addRenderPass(m_AOCompositePass);
 		addRenderPass(m_AODebugPass);
@@ -4204,6 +4296,7 @@ namespace Lux {
 		ResetProfilingData();
 		m_FrameCullingStats = {};
 		m_MeshDrawCommandCacheFrame++;
+		m_ShadowMotionFrameIndex++;
 		m_ShadowCascadeFrustumCount = 0;
 		m_SpotShadowFrustumCount = 0;
 		m_SubmittedRenderScene = nullptr;
@@ -4257,6 +4350,7 @@ namespace Lux {
 			ResizeScreenSpaceEffectResources();
 			ApplyRenderTargetAliasing();
 			m_ShadowCascadeCacheValid = false;
+			m_StaticShadowMapCacheValid = false;
 			m_DirectionalShadowMapNeedsRender = true;
 		}
 
@@ -4725,11 +4819,30 @@ namespace Lux {
 				m_SpotShadowMapImage->Resize(m_SpotShadowMapSize, m_SpotShadowMapSize);
 				spotShadowFramebufferResized = true;
 			}
+			if (m_SpotShadowStaticCacheImage && m_SpotShadowStaticCacheImage->GetSize().x != m_SpotShadowMapSize)
+			{
+				m_SpotShadowStaticCacheImage->Resize(m_SpotShadowMapSize, m_SpotShadowMapSize);
+				spotShadowFramebufferResized = true;
+			}
 			if (m_SpotShadowMapPass && m_SpotShadowMapPass->GetTargetFramebuffer()
 				&& (m_SpotShadowMapPass->GetTargetFramebuffer()->GetWidth() != m_SpotShadowMapSize
 					|| m_SpotShadowMapPass->GetTargetFramebuffer()->GetHeight() != m_SpotShadowMapSize))
 			{
 				m_SpotShadowMapPass->GetTargetFramebuffer()->Resize(m_SpotShadowMapSize, m_SpotShadowMapSize);
+				spotShadowFramebufferResized = true;
+			}
+			if (m_SpotShadowStaticCachePass && m_SpotShadowStaticCachePass->GetTargetFramebuffer()
+				&& (m_SpotShadowStaticCachePass->GetTargetFramebuffer()->GetWidth() != m_SpotShadowMapSize
+					|| m_SpotShadowStaticCachePass->GetTargetFramebuffer()->GetHeight() != m_SpotShadowMapSize))
+			{
+				m_SpotShadowStaticCachePass->GetTargetFramebuffer()->Resize(m_SpotShadowMapSize, m_SpotShadowMapSize);
+				spotShadowFramebufferResized = true;
+			}
+			if (m_SpotShadowDynamicPass && m_SpotShadowDynamicPass->GetTargetFramebuffer()
+				&& (m_SpotShadowDynamicPass->GetTargetFramebuffer()->GetWidth() != m_SpotShadowMapSize
+					|| m_SpotShadowDynamicPass->GetTargetFramebuffer()->GetHeight() != m_SpotShadowMapSize))
+			{
+				m_SpotShadowDynamicPass->GetTargetFramebuffer()->Resize(m_SpotShadowMapSize, m_SpotShadowMapSize);
 				spotShadowFramebufferResized = true;
 			}
 
@@ -4792,11 +4905,16 @@ namespace Lux {
 			if (spotShadowFramebufferResized)
 			{
 				m_SpotShadowMapCacheValid = false;
+				m_StaticSpotShadowMapCacheValid = false;
 				m_SpotShadowMapNeedsRender = true;
 			}
 
 			if (!m_SpotShadowMapCacheValid || spotShadowStateHash != m_LastSpotShadowStateHash)
+			{
+				if (spotShadowStateHash != m_LastSpotShadowStateHash)
+					m_StaticSpotShadowMapCacheValid = false;
 				m_SpotShadowMapNeedsRender = true;
+			}
 			m_LastSpotShadowStateHash = spotShadowStateHash;
 			}
 			else
@@ -4805,6 +4923,7 @@ namespace Lux {
 				// lights reappearing always retrigger a shadow render.
 				m_SpotShadowUB.Count = 0;
 				m_LastSpotShadowStateHash = 0;
+				m_StaticSpotShadowMapCacheValid = false;
 			}
 
 			auto slData = m_SpotLightsUB;
@@ -4835,22 +4954,34 @@ namespace Lux {
 				m_ShadowMapImage->Resize(directionalShadowResolution, directionalShadowResolution);
 				directionalShadowFramebufferResized = true;
 			}
-
-			for (Ref<RenderPass>& shadowMapPass : m_ShadowMapPasses)
+			if (m_ShadowMapStaticCacheImage && m_ShadowMapStaticCacheImage->GetSize().x != directionalShadowResolution)
 			{
-				if (shadowMapPass && shadowMapPass->GetTargetFramebuffer()
-					&& (shadowMapPass->GetTargetFramebuffer()->GetWidth() != directionalShadowResolution
-						|| shadowMapPass->GetTargetFramebuffer()->GetHeight() != directionalShadowResolution))
-				{
-					shadowMapPass->GetTargetFramebuffer()->Resize(directionalShadowResolution, directionalShadowResolution);
-					directionalShadowFramebufferResized = true;
-				}
+				m_ShadowMapStaticCacheImage->Resize(directionalShadowResolution, directionalShadowResolution);
+				directionalShadowFramebufferResized = true;
 			}
+
+			auto resizeShadowPasses = [&](std::array<Ref<RenderPass>, ShadowCascadeCount>& passes)
+			{
+				for (Ref<RenderPass>& shadowMapPass : passes)
+				{
+					if (shadowMapPass && shadowMapPass->GetTargetFramebuffer()
+						&& (shadowMapPass->GetTargetFramebuffer()->GetWidth() != directionalShadowResolution
+							|| shadowMapPass->GetTargetFramebuffer()->GetHeight() != directionalShadowResolution))
+					{
+						shadowMapPass->GetTargetFramebuffer()->Resize(directionalShadowResolution, directionalShadowResolution);
+						directionalShadowFramebufferResized = true;
+					}
+				}
+			};
+			resizeShadowPasses(m_ShadowMapPasses);
+			resizeShadowPasses(m_ShadowMapStaticCachePasses);
+			resizeShadowPasses(m_ShadowMapDynamicPasses);
 
 			if (directionalShadowFramebufferResized)
 			{
 				m_ShadowCascadeCacheValid = false;
 				m_DirectionalShadowMapCacheValid = false;
+				m_StaticShadowMapCacheValid = false;
 				m_DirectionalShadowMapNeedsRender = true;
 			}
 
@@ -4932,6 +5063,7 @@ namespace Lux {
 					m_CachedUseManualCascadeSplits = m_UseManualCascadeSplits;
 					m_CachedShadowMapResolution = shadowMapResolution;
 					m_ShadowCascadeCacheValid = true;
+					m_StaticShadowMapCacheValid = false;
 					m_DirectionalShadowMapNeedsRender = true;
 				}
 
@@ -5341,9 +5473,44 @@ namespace Lux {
 		}
 	}
 
-	uint64_t SceneRenderer::CalculateShadowCasterHash() const
+	bool SceneRenderer::UpdateShadowCasterMotion(uint32_t sceneInstanceIndex, const GPUSceneInstanceData* instanceData)
 	{
-		uint64_t hash = 1469598103934665603ull;
+		if (!instanceData || IsTransientGPUSceneInstanceIndex(sceneInstanceIndex))
+			return true;
+
+		uint64_t transformHash = 1469598103934665603ull;
+		transformHash = HashVec4(transformHash, instanceData->TransformRows[0]);
+		transformHash = HashVec4(transformHash, instanceData->TransformRows[1]);
+		transformHash = HashVec4(transformHash, instanceData->TransformRows[2]);
+
+		ShadowCasterMotionState& state = m_ShadowCasterMotion[sceneInstanceIndex];
+		if (state.TransformHash != transformHash)
+		{
+			state.TransformHash = transformHash;
+			state.StableFrames = 0;
+		}
+		else
+		{
+			state.StableFrames = glm::min(state.StableFrames + 1u, StaticShadowCasterStableFrames);
+		}
+
+		state.LastTouchedFrame = m_ShadowMotionFrameIndex;
+		return state.StableFrames < StaticShadowCasterStableFrames;
+	}
+
+	bool SceneRenderer::IsShadowCasterStatic(uint32_t sceneInstanceIndex) const
+	{
+		if (IsTransientGPUSceneInstanceIndex(sceneInstanceIndex))
+			return false;
+
+		const auto it = m_ShadowCasterMotion.find(sceneInstanceIndex);
+		return it != m_ShadowCasterMotion.end() && it->second.StableFrames >= StaticShadowCasterStableFrames;
+	}
+
+	void SceneRenderer::CalculateShadowCasterHashes(uint64_t& outStaticHash, uint64_t& outDynamicHash) const
+	{
+		outStaticHash = 1469598103934665603ull;
+		outDynamicHash = 1469598103934665603ull;
 		auto resolveInstanceData = [this](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
 			{
 				if (IsTransientGPUSceneInstanceIndex(sceneInstanceIndex))
@@ -5371,9 +5538,11 @@ namespace Lux {
 
 			const StaticDrawCommand& dc = drawIt->second;
 			const TransformMapData& tmd = transformIt->second.Cascade;
+			uint64_t& hash = key.StaticShadowCaster ? outStaticHash : outDynamicHash;
 			hash = HashCombine(hash, (uint64_t)key.MeshHandle);
 			hash = HashCombine(hash, (uint64_t)key.MaterialHandle);
 			hash = HashCombine(hash, key.SubmeshIndex);
+			hash = HashCombine(hash, key.LODIndex);
 			hash = HashCombine(hash, dc.MeshSortKey);
 			hash = HashCombine(hash, dc.MaterialSortKey);
 			hash = HashCombine(hash, tmd.ObjectIndices.size());
@@ -5389,8 +5558,6 @@ namespace Lux {
 				hash = HashVec4(hash, instanceData->TransformRows[2]);
 			}
 		}
-
-		return hash;
 	}
 
 	void SceneRenderer::SubmitStaticMeshInternal(
@@ -5467,9 +5634,9 @@ namespace Lux {
 			const bool mainViewVisible = IsMainViewVisible(boundsSphere);
 			const bool shadowVisible = castsShadows && IsShadowCasterVisible(boundsSphere);
 			const uint32_t lodIndex = SelectStaticMeshLOD(*meshSource, submeshIndex, boundsSphere);
-			const MeshKey materialKey{ meshKeyHandle, keyMaterialHandle, submeshIndex, lodIndex, false };
-			const MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false };
-			const MeshKey selectedMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, true };
+			const MeshKey materialKey{ meshKeyHandle, keyMaterialHandle, submeshIndex, lodIndex, false, false };
+			const MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, false };
+			const MeshKey selectedMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, true, false };
 
 			m_FrameCullingStats.SubmittedInstances++;
 			if (!mainViewVisible)
@@ -5583,12 +5750,16 @@ namespace Lux {
 			if (shadowVisible)
 			{
 				// ── Shadow pass list ──────────────────────────────────────────────
-				m_ShadowMeshTransformMap[bindlessMeshKey].Cascade.ObjectIndices.push_back(sceneInstanceIndex);
+				const bool dynamicShadowCaster = gpuSceneInstance && !IsTransientGPUSceneInstanceIndex(sceneInstanceIndex)
+					? UpdateShadowCasterMotion(sceneInstanceIndex, gpuSceneInstance)
+					: true;
+				const MeshKey shadowKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, !dynamicShadowCaster };
+				m_ShadowMeshTransformMap[shadowKey].Cascade.ObjectIndices.push_back(sceneInstanceIndex);
 
 				const uint64_t shadowShaderSortKey = m_ShadowPassMaterial && m_ShadowPassMaterial->GetShader()
 					? SortKeyFromRef(m_ShadowPassMaterial->GetShader().Raw()) : 0;
 				SubmitMeshPassDraw(MeshPassType::ShadowDepth,
-					bindlessMeshKey,
+					shadowKey,
 					staticMesh,
 					meshSource,
 					nullptr,
@@ -5639,7 +5810,7 @@ namespace Lux {
 
 			// Use the material pointer as a fake asset handle so each material gets its own MeshKey bucket
 			const AssetHandle fakeHandle = (AssetHandle)(uint64_t)material.Raw();
-			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), fakeHandle, submeshIndex, 0, false };
+			const MeshKey key{ GetStaticMeshKeyHandle(staticMesh), fakeHandle, submeshIndex, 0, false, false };
 			const bool isTransparent = material && material->GetFlag(MaterialFlag::Blend);
 			const RenderMaterialID transientMaterialID = GetOrCreateTransientRenderMaterialID(
 				fakeHandle,
@@ -6015,14 +6186,43 @@ namespace Lux {
 		registerIndirectDraws(GetMeshPass(MeshPassType::PhysicsCollider).DrawList, GetMeshPass(MeshPassType::PhysicsCollider).DrawOrder);
 		m_MeshCullDrawCount = (uint32_t)meshCullDrawData.size();
 
-		const uint64_t shadowCasterHash = CalculateShadowCasterHash();
+		uint64_t staticShadowCasterHash = 0;
+		uint64_t dynamicShadowCasterHash = 0;
+		CalculateShadowCasterHashes(staticShadowCasterHash, dynamicShadowCasterHash);
+
+		for (auto it = m_ShadowCasterMotion.begin(); it != m_ShadowCasterMotion.end();)
+		{
+			if (m_ShadowMotionFrameIndex - it->second.LastTouchedFrame > Renderer::GetConfig().FramesInFlight + StaticShadowCasterStableFrames)
+				it = m_ShadowCasterMotion.erase(it);
+			else
+				++it;
+		}
+
 		const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
 		const bool directionalShadowsEnabled = dirLight.Intensity > 0.0f && dirLight.CastShadows;
-		if (directionalShadowsEnabled && (!m_DirectionalShadowMapCacheValid || shadowCasterHash != m_LastShadowCasterHash))
+		const bool staticShadowCastersChanged = staticShadowCasterHash != m_LastStaticShadowCasterHash;
+		const bool dynamicShadowCastersChanged = dynamicShadowCasterHash != m_LastDynamicShadowCasterHash;
+		if (staticShadowCastersChanged)
+		{
+			m_StaticShadowMapCacheValid = false;
+			m_StaticSpotShadowMapCacheValid = false;
+		}
+		if (directionalShadowsEnabled
+			&& (!m_DirectionalShadowMapCacheValid
+				|| !m_StaticShadowMapCacheValid
+				|| dynamicShadowCastersChanged))
+		{
 			m_DirectionalShadowMapNeedsRender = true;
-		if (m_SpotShadowCount > 0 && (!m_SpotShadowMapCacheValid || shadowCasterHash != m_LastShadowCasterHash))
+		}
+		if (m_SpotShadowCount > 0
+			&& (!m_SpotShadowMapCacheValid
+				|| staticShadowCastersChanged
+				|| dynamicShadowCastersChanged))
+		{
 			m_SpotShadowMapNeedsRender = true;
-		m_LastShadowCasterHash = shadowCasterHash;
+		}
+		m_LastStaticShadowCasterHash = staticShadowCasterHash;
+		m_LastDynamicShadowCasterHash = dynamicShadowCasterHash;
 
 		// ── 2. Upload GPUScene tails, ObjectIndexes, culling data, and indirect args
 		m_UploadCommandBuffer->Begin();
@@ -6554,7 +6754,13 @@ namespace Lux {
 				Renderer::BeginRenderPass(m_CommandBuffer, shadowMapPass, /*explicitClear=*/true);
 				Renderer::EndRenderPass(m_CommandBuffer);
 			}
+			for (auto& shadowMapPass : m_ShadowMapStaticCachePasses)
+			{
+				Renderer::BeginRenderPass(m_CommandBuffer, shadowMapPass, /*explicitClear=*/true);
+				Renderer::EndRenderPass(m_CommandBuffer);
+			}
 			m_DirectionalShadowMapCacheValid = true;
+			m_StaticShadowMapCacheValid = true;
 			m_DirectionalShadowMapNeedsRender = false;
 			return;
 		}
@@ -6564,12 +6770,30 @@ namespace Lux {
 
 		BeginProfiledGPU("ShadowMapPass");
 		const MeshPassState& shadowPass = GetMeshPass(MeshPassType::ShadowDepth);
-		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+
+		auto hasShadowCasters = [&](bool staticCasters)
 		{
-			Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapPasses[cascade], /*explicitClear=*/true);
+			for (const MeshKey& key : shadowPass.DrawOrder)
+			{
+				if (key.StaticShadowCaster != staticCasters)
+					continue;
+
+				const auto transformIt = m_ShadowMeshTransformMap.find(key);
+				if (transformIt != m_ShadowMeshTransformMap.end() && !transformIt->second.Cascade.ObjectIndices.empty())
+					return true;
+			}
+			return false;
+		};
+
+		auto drawShadowCasters = [&](uint32_t cascade, bool staticCasters)
+		{
+			bool drewCaster = false;
 
 			for (const MeshKey& key : shadowPass.DrawOrder)
 			{
+				if (key.StaticShadowCaster != staticCasters)
+					continue;
+
 				const auto drawIt = shadowPass.DrawList.find(key);
 				if (drawIt == shadowPass.DrawList.end()) continue;
 				auto it = m_ShadowMeshTransformMap.find(key);
@@ -6588,10 +6812,36 @@ namespace Lux {
 					instance->RT_DrawStaticMesh(
 						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, cascade);
 					});
+				drewCaster = true;
 			}
 
-			Renderer::EndRenderPass(m_CommandBuffer);
+			return drewCaster;
+		};
+
+		if (!m_StaticShadowMapCacheValid)
+		{
+			for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+			{
+				Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapStaticCachePasses[cascade], /*explicitClear=*/true);
+				drawShadowCasters(cascade, true);
+				Renderer::EndRenderPass(m_CommandBuffer);
+			}
+			m_StaticShadowMapCacheValid = true;
 		}
+
+		const bool hasDynamicCasters = hasShadowCasters(false);
+		Renderer::CopyImage(m_CommandBuffer, m_ShadowMapStaticCacheImage, m_ShadowMapImage);
+
+		if (hasDynamicCasters)
+		{
+			for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+			{
+				Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapDynamicPasses[cascade], /*explicitClear=*/false);
+				drawShadowCasters(cascade, false);
+				Renderer::EndRenderPass(m_CommandBuffer);
+			}
+		}
+
 		EndProfiledGPU();
 		m_DirectionalShadowMapCacheValid = true;
 		m_DirectionalShadowMapNeedsRender = false;
@@ -6607,7 +6857,10 @@ namespace Lux {
 
 			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
 			Renderer::EndRenderPass(m_CommandBuffer);
+			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowStaticCachePass, /*explicitClear=*/true);
+			Renderer::EndRenderPass(m_CommandBuffer);
 			m_SpotShadowMapCacheValid = true;
+			m_StaticSpotShadowMapCacheValid = true;
 			m_SpotShadowMapNeedsRender = false;
 			return;
 		}
@@ -6616,21 +6869,33 @@ namespace Lux {
 			return;
 
 		BeginProfiledGPU("SpotShadowMapPass");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowMapPass, /*explicitClear=*/true);
 
 		const uint32_t tilesPerRow = m_SpotShadowAtlasGridSize;
 		const uint32_t tileSize = m_SpotShadowTileSize;
 		const uint32_t atlasSize = m_SpotShadowMapSize;
 		const MeshPassState& shadowPass = GetMeshPass(MeshPassType::ShadowDepth);
 
-		for (uint32_t shadowIndex = 0; shadowIndex < m_SpotShadowCount; shadowIndex++)
+		auto hasShadowCasters = [&](bool staticCasters)
 		{
-			const uint32_t tileX = shadowIndex % tilesPerRow;
-			const uint32_t tileY = shadowIndex / tilesPerRow;
-			Renderer::SetViewport(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
-
 			for (const MeshKey& key : shadowPass.DrawOrder)
 			{
+				if (key.StaticShadowCaster != staticCasters)
+					continue;
+
+				const auto transformIt = m_ShadowMeshTransformMap.find(key);
+				if (transformIt != m_ShadowMeshTransformMap.end() && !transformIt->second.Cascade.ObjectIndices.empty())
+					return true;
+			}
+			return false;
+		};
+
+		auto drawSpotShadowCasters = [&](uint32_t shadowIndex, bool staticCasters)
+		{
+			for (const MeshKey& key : shadowPass.DrawOrder)
+			{
+				if (key.StaticShadowCaster != staticCasters)
+					continue;
+
 				const auto drawIt = shadowPass.DrawList.find(key);
 				if (drawIt == shadowPass.DrawList.end()) continue;
 				auto it = m_ShadowMeshTransformMap.find(key);
@@ -6649,11 +6914,39 @@ namespace Lux {
 						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, shadowIndex);
 					});
 			}
+		};
+
+		auto drawSpotAtlas = [&](bool staticCasters)
+		{
+			for (uint32_t shadowIndex = 0; shadowIndex < m_SpotShadowCount; shadowIndex++)
+			{
+				const uint32_t tileX = shadowIndex % tilesPerRow;
+				const uint32_t tileY = shadowIndex / tilesPerRow;
+				Renderer::SetViewport(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
+				drawSpotShadowCasters(shadowIndex, staticCasters);
+			}
+
+			Renderer::SetViewport(m_CommandBuffer, 0, 0, atlasSize, atlasSize);
+		};
+
+		if (!m_StaticSpotShadowMapCacheValid)
+		{
+			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowStaticCachePass, /*explicitClear=*/true);
+			drawSpotAtlas(true);
+			Renderer::EndRenderPass(m_CommandBuffer);
+			m_StaticSpotShadowMapCacheValid = true;
 		}
 
-		Renderer::SetViewport(m_CommandBuffer, 0, 0, atlasSize, atlasSize);
+		const bool hasDynamicCasters = hasShadowCasters(false);
+		Renderer::CopyImage(m_CommandBuffer, m_SpotShadowStaticCacheImage, m_SpotShadowMapImage);
 
-		Renderer::EndRenderPass(m_CommandBuffer);
+		if (hasDynamicCasters)
+		{
+			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowDynamicPass, /*explicitClear=*/false);
+			drawSpotAtlas(false);
+			Renderer::EndRenderPass(m_CommandBuffer);
+		}
+
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 		m_SpotShadowMapCacheValid = true;
 		m_SpotShadowMapNeedsRender = false;
