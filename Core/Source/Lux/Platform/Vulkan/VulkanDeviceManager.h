@@ -95,6 +95,8 @@ namespace Lux {
 		bool EnumerateAdapters(std::vector<AdapterInfo>& outAdapters) override;
 
 		vk::Instance GetVulkanInstance() const { return m_VulkanInstance; }
+
+		[[nodiscard]] bool IsTransferQueueAvailable() const override { return m_TransferQueueAvailable; }
 	protected:
 		virtual bool CreateInstanceInternal() override;
 		virtual bool CreateDevice() override;
@@ -220,6 +222,8 @@ namespace Lux {
 
 		bool m_SwapChainMutableFormatSupported = false;
 		bool m_BufferDeviceAddressSupported = false;
+		// True once the logical device was created with a dedicated transfer queue.
+		bool m_TransferQueueAvailable = false;
 
 		vk::detail::DynamicLoader m_dynamicLoader;
 

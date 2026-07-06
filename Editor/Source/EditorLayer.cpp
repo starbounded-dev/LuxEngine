@@ -687,6 +687,13 @@ namespace Lux {
 		LoadEditorPreferences();
 		LoadUserPreferences();
 
+		// Apply the persisted async transfer-queue preference (default on). The
+		// setting only takes effect where the GPU exposes a dedicated transfer
+		// queue; otherwise uploads fall back to the graphics queue. See
+		// Renderer::UseAsyncTransferQueue / ApplicationSettingsPanel Threading page.
+		Renderer::SetAsyncTransferQueueEnabled(
+			Application::Get().GetSettings().Get("Renderer.AsyncTransferQueue", "true") != "false");
+
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();
 

@@ -393,11 +393,14 @@ namespace Lux {
 
 		if (m_QueueFamilyIndices.Graphics == -1 ||
 			m_QueueFamilyIndices.Present == -1 && !m_DeviceParams.headlessDevice ||
-			(m_QueueFamilyIndices.Compute == -1 && m_DeviceParams.enableComputeQueue) ||
-			(m_QueueFamilyIndices.Transfer == -1 && m_DeviceParams.enableCopyQueue))
+			(m_QueueFamilyIndices.Compute == -1 && m_DeviceParams.enableComputeQueue))
 		{
 			return false;
 		}
+
+		// A dedicated transfer family is OPTIONAL: many GPUs expose one, but device
+		// selection must not fail when they don't. When absent, async asset uploads
+		// fall back to the graphics queue (see Renderer::FlushResourceUploads).
 
 		return true;
 	}
@@ -489,7 +492,9 @@ namespace Lux {
 		if (m_DeviceParams.enableComputeQueue)
 			uniqueQueueFamilies.insert(m_QueueFamilyIndices.Compute);
 
-		if (m_DeviceParams.enableCopyQueue)
+		// The transfer family is optional — only request it when the GPU actually
+		// exposed a dedicated one (FindQueueFamilies leaves it at -1 otherwise).
+		if (m_DeviceParams.enableCopyQueue && m_QueueFamilyIndices.Transfer != -1)
 			uniqueQueueFamilies.insert(m_QueueFamilyIndices.Transfer);
 
 		float priority = 1.f;
@@ -583,7 +588,8 @@ namespace Lux {
 		m_VulkanDevice.getQueue(m_QueueFamilyIndices.Graphics, 0, &m_GraphicsQueue);
 		if (m_DeviceParams.enableComputeQueue)
 			m_VulkanDevice.getQueue(m_QueueFamilyIndices.Compute, 0, &m_ComputeQueue);
-		if (m_DeviceParams.enableCopyQueue)
+		m_TransferQueueAvailable = m_DeviceParams.enableCopyQueue && m_QueueFamilyIndices.Transfer != -1;
+		if (m_TransferQueueAvailable)
 			m_VulkanDevice.getQueue(m_QueueFamilyIndices.Transfer, 0, &m_TransferQueue);
 		if (!m_DeviceParams.headlessDevice)
 			m_VulkanDevice.getQueue(m_QueueFamilyIndices.Present, 0, &m_PresentQueue);
@@ -700,10 +706,15 @@ namespace Lux {
 			deviceDesc.computeQueue = m_ComputeQueue;
 			deviceDesc.computeQueueIndex = m_QueueFamilyIndices.Compute;
 		}
-		if (m_DeviceParams.enableCopyQueue)
+		if (m_TransferQueueAvailable)
 		{
 			deviceDesc.transferQueue = m_TransferQueue;
 			deviceDesc.transferQueueIndex = m_QueueFamilyIndices.Transfer;
+			LUX_CORE_INFO_TAG("Renderer", "Dedicated transfer queue enabled (family {}) for async asset uploads.", m_QueueFamilyIndices.Transfer);
+		}
+		else if (m_DeviceParams.enableCopyQueue)
+		{
+			LUX_CORE_INFO_TAG("Renderer", "No dedicated transfer queue on this GPU; asset uploads use the graphics queue.");
 		}
 		deviceDesc.instanceExtensions = vecInstanceExt.data();
 		deviceDesc.numInstanceExtensions = vecInstanceExt.size();

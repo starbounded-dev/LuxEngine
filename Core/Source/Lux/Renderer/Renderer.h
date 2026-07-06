@@ -138,6 +138,18 @@ namespace Lux {
 		static void RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record);
 		static void FlushResourceUploads();
 
+		// Async transfer queue: when enabled AND the device has a dedicated transfer
+		// queue, the upload batch is submitted on the copy queue so streaming/asset
+		// loads don't stall the graphics queue. Toggle is live (Renderer.AsyncTransferQueue).
+		static void SetAsyncTransferQueueEnabled(bool enabled);
+		static bool IsAsyncTransferQueueEnabled();
+		// Effective mode: the setting is on AND a dedicated transfer queue exists.
+		static bool UseAsyncTransferQueue();
+		// If an async upload flush happened that consumingQueue hasn't yet waited on,
+		// returns true and sets outInstance to the copy-queue execution instance to
+		// wait on. Records the wait so it isn't re-issued. See RenderCommandBuffer::RT_Submit.
+		static bool ConsumePendingUpload(nvrhi::CommandQueue consumingQueue, uint64_t& outInstance);
+
 		template<typename FuncT>
 		static void SubmitResourceFree(FuncT&& func)
 		{

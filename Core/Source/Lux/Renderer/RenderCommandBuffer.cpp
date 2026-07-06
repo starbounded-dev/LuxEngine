@@ -241,6 +241,14 @@ namespace Lux {
 			auto vulkanDevice = (nvrhi::vulkan::IDevice*)device.Get();
 			vulkanDevice->queueWaitForSemaphore(m_Queue, waitSemaphore, 0);
 		}
+
+		// If asset uploads were flushed on the dedicated transfer queue, make this
+		// queue wait for that copy to complete before it reads the uploaded mesh/
+		// texture data. No-op in graphics-queue fallback mode (nothing pending).
+		uint64_t uploadInstance = 0;
+		if (Renderer::ConsumePendingUpload(m_Queue, uploadInstance))
+			Renderer::QueueWaitForCommandList(m_Queue, nvrhi::CommandQueue::Copy, uploadInstance);
+
 		// Execute on this buffer's queue (Graphics unless this is a compute
 		// command buffer) and keep the returned instance id so another queue can
 		// wait on it via Renderer::QueueWaitForCommandList.

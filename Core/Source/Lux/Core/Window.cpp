@@ -97,6 +97,14 @@ namespace Lux {
 		// Desktop NVIDIA always exposes a compute-capable queue family, so device
 		// creation still succeeds; nothing submits async until EnableAsyncCompute.
 		deviceParams.enableComputeQueue = true;
+		// Give nvrhi a dedicated transfer (copy) queue so mesh/texture uploads and
+		// asset streaming don't contend with the graphics queue against frame
+		// rendering. This only *requests* the queue; it is optional — device
+		// creation still succeeds when the GPU has no dedicated transfer family
+		// (see VulkanDeviceManager::FindQueueFamilies), and uploads then fall back
+		// to the graphics queue. Routing is gated at runtime by
+		// Renderer::SetAsyncTransferQueueEnabled (setting Renderer.AsyncTransferQueue).
+		deviceParams.enableCopyQueue = true;
 		// Let the CPU stay one frame ahead of the GPU. The swapchain is triple-buffered
 		// and every per-frame resource (command lists, UBO/SSBO sets, descriptor pools)
 		// is already sized for RendererConfig::FramesInFlight (3), so the CPU and GPU can

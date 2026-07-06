@@ -6,6 +6,7 @@
 #include "Lux/Core/Application.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/FileSystem.h"
 
 #include <imgui/imgui.h>
@@ -124,6 +125,27 @@ namespace Lux {
 			ImGuiEx::EndPropertyGrid();
 
 			ImGui::TextDisabled("Applies after restarting the editor.");
+
+			// Async transfer queue — routes mesh/texture uploads onto the GPU's
+			// dedicated copy queue so asset streaming doesn't stall rendering.
+			// Applies live; no-op when the GPU has no dedicated transfer queue.
+			bool asyncTransfer = settings.Get("Renderer.AsyncTransferQueue", "true") != "false";
+			const bool transferAvailable = Application::GetGraphicsDeviceManager() &&
+				Application::GetGraphicsDeviceManager()->IsTransferQueueAvailable();
+
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("Async Transfer Queue", asyncTransfer))
+			{
+				settings.Set("Renderer.AsyncTransferQueue", asyncTransfer ? "true" : "false");
+				settings.Serialize();
+				Renderer::SetAsyncTransferQueueEnabled(asyncTransfer);
+			}
+			ImGuiEx::EndPropertyGrid();
+
+			if (transferAvailable)
+				ImGui::TextDisabled("Uploads meshes/textures on the GPU's dedicated copy queue.");
+			else
+				ImGui::TextDisabled("No dedicated transfer queue on this GPU; uploads use the graphics queue.");
 		}
 
 		ImGui::Spacing();

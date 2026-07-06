@@ -205,6 +205,10 @@ namespace Lux
         [[nodiscard]] double GetPreviousFrameTimestamp() const { return m_PreviousFrameTimestamp; }
         void SetFrameTimeUpdateInterval(double seconds) { m_AverageTimeUpdateInterval = seconds; }
         [[nodiscard]] bool IsVsyncEnabled() const { return m_DeviceParams.vsyncEnabled; }
+        // True when the device was created with a dedicated transfer (copy) queue.
+        // False when enableCopyQueue was off or the GPU exposed no dedicated
+        // transfer family; async asset uploads fall back to the graphics queue.
+        [[nodiscard]] virtual bool IsTransferQueueAvailable() const { return false; }
         // Updates the present-mode source for the swapchain. The swapchain reads
         // m_DeviceParams.vsyncEnabled when it is (re)created, so the caller must
         // recreate the swapchain afterwards for this to take effect (see Window::SetVSync).

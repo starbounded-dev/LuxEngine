@@ -419,6 +419,20 @@ namespace Lux {
 	static std::mutex s_ResourceUploadMutex;
 	static nvrhi::CommandListHandle s_ResourceUploadCommandList;
 	static bool s_ResourceUploadListOpen = false;
+	// Queue type the currently-cached upload list was created for. Command lists
+	// are bound to a queue at creation, so a live toggle of async transfer means
+	// retiring the list and making a new one of the other type.
+	static bool s_ResourceUploadListIsCopyQueue = false;
+	// Setting (Renderer.AsyncTransferQueue). Effective only when the device also
+	// has a dedicated transfer queue — see Renderer::UseAsyncTransferQueue.
+	static std::atomic<bool> s_AsyncTransferEnabled = true;
+	// Copy-queue execution instance of the most recent async upload flush (0 = none
+	// yet). Consumers wait on it before reading uploaded resources.
+	static std::atomic<uint64_t> s_LastUploadInstance = 0;
+	// Highest upload instance each consuming queue has already inserted a wait for,
+	// indexed by nvrhi::CommandQueue (Graphics=0, Compute=1, Copy=2). Avoids
+	// redundant per-submit waits on an upload that's already been synchronized.
+	static std::atomic<uint64_t> s_QueueWaitedUploadInstance[(size_t)nvrhi::CommandQueue::Count] = {};
 
 	static nvrhi::VariableShadingRate ToNVRHIShadingRate(FragmentShadingRate rate)
 	{
@@ -901,13 +915,45 @@ namespace Lux {
 	// FlushResourceUploads submits it once. See the declaration in Renderer.h for
 	// the ordering guarantee (flush runs before every RenderCommandBuffer submit).
 
+	bool Renderer::UseAsyncTransferQueue()
+	{
+		if (!s_AsyncTransferEnabled.load(std::memory_order_relaxed))
+			return false;
+		auto* deviceManager = Application::GetGraphicsDeviceManager();
+		return deviceManager && deviceManager->IsTransferQueueAvailable();
+	}
+
+	void Renderer::SetAsyncTransferQueueEnabled(bool enabled)
+	{
+		s_AsyncTransferEnabled.store(enabled, std::memory_order_relaxed);
+	}
+
+	bool Renderer::IsAsyncTransferQueueEnabled()
+	{
+		return s_AsyncTransferEnabled.load(std::memory_order_relaxed);
+	}
+
 	void Renderer::RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		std::scoped_lock lock(s_ResourceUploadMutex);
 
+		const bool useCopyQueue = UseAsyncTransferQueue();
+
+		// If the effective queue changed since the cached list was made (a live
+		// toggle), retire it so we recreate on the right queue. Only when idle —
+		// a list mid-batch keeps its queue until it is flushed.
+		if (s_ResourceUploadCommandList && !s_ResourceUploadListOpen &&
+			s_ResourceUploadListIsCopyQueue != useCopyQueue)
+			s_ResourceUploadCommandList = nullptr;
+
 		if (!s_ResourceUploadCommandList)
-			s_ResourceUploadCommandList = Application::GetGraphicsDevice()->createCommandList();
+		{
+			nvrhi::CommandListParameters clParams;
+			clParams.setQueueType(useCopyQueue ? nvrhi::CommandQueue::Copy : nvrhi::CommandQueue::Graphics);
+			s_ResourceUploadCommandList = Application::GetGraphicsDevice()->createCommandList(clParams);
+			s_ResourceUploadListIsCopyQueue = useCopyQueue;
+		}
 
 		if (!s_ResourceUploadListOpen)
 		{
@@ -928,9 +974,43 @@ namespace Lux {
 		s_ResourceUploadCommandList->close();
 		s_ResourceUploadListOpen = false;
 
+		auto device = Application::GetGraphicsDevice();
+
+		// All queue submissions in the engine are serialized by the single queue
+		// mutex (nvrhi command-list execution is not internally thread-safe), so we
+		// take it here too even though the copy queue is a distinct GPU queue.
 		RenderCommandBuffer::LockQueue();
-		Application::GetGraphicsDevice()->executeCommandList(s_ResourceUploadCommandList);
+		if (s_ResourceUploadListIsCopyQueue)
+		{
+			// Submit on the dedicated transfer queue and record its execution
+			// instance. Consumers (graphics/compute) wait on it before reading the
+			// uploaded resources — see RenderCommandBuffer::RT_Submit.
+			const uint64_t instance = device->executeCommandList(s_ResourceUploadCommandList, nvrhi::CommandQueue::Copy);
+			s_LastUploadInstance.store(instance, std::memory_order_release);
+		}
+		else
+		{
+			// Fallback: inline on the graphics queue. Same-queue submission order
+			// guarantees the following render command list sees the uploads, so no
+			// cross-queue wait is needed.
+			device->executeCommandList(s_ResourceUploadCommandList);
+		}
 		RenderCommandBuffer::UnlockQueue();
+	}
+
+	bool Renderer::ConsumePendingUpload(nvrhi::CommandQueue consumingQueue, uint64_t& outInstance)
+	{
+		const uint64_t last = s_LastUploadInstance.load(std::memory_order_acquire);
+		if (last == 0)
+			return false; // no async upload has been submitted (or fallback mode)
+
+		auto& waited = s_QueueWaitedUploadInstance[(size_t)consumingQueue];
+		if (waited.load(std::memory_order_relaxed) >= last)
+			return false; // this queue already waits for this upload (or a newer one)
+
+		waited.store(last, std::memory_order_relaxed);
+		outInstance = last;
+		return true;
 	}
 
 	uint32_t Renderer::GetRenderQueueIndex()

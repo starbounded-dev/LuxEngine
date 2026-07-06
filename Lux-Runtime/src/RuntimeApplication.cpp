@@ -2,6 +2,7 @@
 
 #include "Lux/EntryPoint.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Core/ApplicationSettings.h"
@@ -63,6 +64,10 @@ namespace Lux
 			const std::string threadingPolicy = runtimeNode["ThreadingPolicy"].as<std::string>("");
 			if (!threadingPolicy.empty())
 				specification.CoreThreadingPolicy = ThreadingPolicyFromString(threadingPolicy);
+
+			// Optional per-game async transfer-queue override (default on). No-op when
+			// the GPU lacks a dedicated transfer queue — see Renderer::UseAsyncTransferQueue.
+			Renderer::SetAsyncTransferQueueEnabled(runtimeNode["AsyncTransferQueue"].as<bool>(true));
 
 			std::filesystem::path iconPath = runtimeNode["IconPath"].as<std::string>("");
 			if (!iconPath.empty())
