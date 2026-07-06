@@ -411,10 +411,21 @@ namespace Lux {
 			projectSettingsChanged |= ImGuiEx::Property("Shadow Culling", options.EnableShadowCulling);
 			projectSettingsChanged |= ImGuiEx::Property("Max Distance", options.MaxShadowDistance, 1.0f, 1.0f, 1000.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Distance Fade", options.ShadowFade, 0.25f, 0.01f, 250.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Active Cascades", options.ActiveShadowCascadeCount, 1u, SceneRenderer::ShadowCascadeCount);
 			projectSettingsChanged |= ImGuiEx::Property("Split Lambda", options.ShadowCascadeSplitLambda, 0.01f, 0.0f, 1.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Near Offset", options.ShadowCascadeNearPlaneOffset, 0.1f, 0.0f, 200.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Far Offset", options.ShadowCascadeFarPlaneOffset, 0.5f, 0.0f, 500.0f);
 			projectSettingsChanged |= ImGuiEx::Property("Cascade Fade", options.ShadowCascadeTransitionFade, 0.05f, 0.0f, 25.0f);
+			const char* shadowFilterLabels[] = { "Tuned PCF", "PCSS", "Hybrid" };
+			int shadowFilter = static_cast<int>(options.ShadowFilter);
+			if (DrawComboProperty("Filter", shadowFilter, shadowFilterLabels, IM_ARRAYSIZE(shadowFilterLabels)))
+			{
+				options.ShadowFilter = static_cast<SceneRendererOptions::ShadowFilterMode>(std::clamp(shadowFilter, 0, 2));
+				projectSettingsChanged = true;
+			}
+			projectSettingsChanged |= ImGuiEx::Property("PCSS Cascades", options.DirectionalPCSSCascadeCount, 0u, options.ActiveShadowCascadeCount);
+			projectSettingsChanged |= ImGuiEx::Property("PCF Radius", options.ShadowPCFRadiusTexels, 0.05f, 0.25f, 8.0f);
+			projectSettingsChanged |= ImGuiEx::Property("Spot PCF Radius", options.SpotShadowPCFRadiusTexels, 0.05f, 0.25f, 8.0f);
 			const char* shadowResolutionLabels[] = { "1K", "2K", "4K", "8K" };
 			int shadowResolution = static_cast<int>(options.ShadowResolution);
 			if (DrawComboProperty("Resolution Limit", shadowResolution, shadowResolutionLabels, IM_ARRAYSIZE(shadowResolutionLabels)))

@@ -12,6 +12,16 @@
 
 float ShadowFade = 1.0; //TODO(Karim): A better placement of this?
 
+const uint LUX_SHADOW_FILTER_TUNED_PCF = 0u;
+const uint LUX_SHADOW_FILTER_PCSS = 1u;
+const uint LUX_SHADOW_FILTER_HYBRID = 2u;
+
+uint ClampDirectionalCascade(uint cascade)
+{
+	uint activeCascadeCount = clamp(u_RendererData.ActiveShadowCascadeCount, 1u, 4u);
+	return min(cascade, activeCascadeCount - 1u);
+}
+
 vec3 GetShadowMapCoords(vec3 shadowMapCoords[4], uint cascade)
 {
 	// NOTE(Yan): this exists because AMD doesn't seem to like indexing of varyings (causes artifacts)
@@ -62,12 +72,14 @@ float SampleDirectionalShadowVisibility(texture2DArray shadowMap, uint cascade, 
 	if (!IsDirectionalShadowSampleValid(shadowCoords, uv))
 		return 1.0;
 
+	cascade = ClampDirectionalCascade(cascade);
 	float shadowMapDepth = SampleLinearLOD(shadowMap, vec3(uv, cascade), 0).r;
 	return step(shadowCoords.z - bias, shadowMapDepth);
 }
 
 float HardShadows_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords)
 {
+	cascade = ClampDirectionalCascade(cascade);
 	float bias = GetDirShadowBias();
 	vec2 uv = ShadowCoordsToUV(shadowCoords.xy);
 	float visibility = SampleDirectionalShadowVisibility(shadowMap, cascade, shadowCoords, uv, bias);
@@ -187,6 +199,7 @@ vec2 SamplePoisson(int index)
 
 float FindBlockerDistance_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvLightSize)
 {
+	cascade = ClampDirectionalCascade(cascade);
 	float bias = GetDirShadowBias();
 
 	int numBlockerSearchSamples = 64;
@@ -220,6 +233,7 @@ float FindBlockerDistance_DirectionalLight(texture2DArray shadowMap, uint cascad
 
 float PCF_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvRadius)
 {
+	cascade = ClampDirectionalCascade(cascade);
 	float bias = GetDirShadowBias();
 	int numPCFSamples = 64;
 	vec2 uv = ShadowCoordsToUV(shadowCoords.xy);
@@ -237,6 +251,7 @@ float PCF_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCo
 
 float NV_PCF_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvRadius)
 {
+	cascade = ClampDirectionalCascade(cascade);
 	float bias = GetDirShadowBias();
 	vec2 uv = ShadowCoordsToUV(shadowCoords.xy);
 	if (!IsDirectionalShadowSampleValid(shadowCoords, uv))
@@ -251,8 +266,31 @@ float NV_PCF_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shado
 	return ApplyDirectionalShadowFades(sum / 16.0f, uv);
 }
 
-float PCSS_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvLightSize)
+float TunedPCF_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords)
 {
+	cascade = ClampDirectionalCascade(cascade);
+	float bias = GetDirShadowBias();
+	vec2 uv = ShadowCoordsToUV(shadowCoords.xy);
+	if (!IsDirectionalShadowSampleValid(shadowCoords, uv))
+		return 1.0;
+
+	ivec3 shadowMapSize = textureSize(sampler2DArray(shadowMap, r_LinearSampler), 0);
+	float texelRadius = u_RendererData.ShadowFilterParams.x * mix(1.0, 1.75, clamp(float(cascade) / 3.0, 0.0, 1.0));
+	float uvRadius = texelRadius / max(float(shadowMapSize.x), 1.0);
+
+	float sum = SampleDirectionalShadowVisibility(shadowMap, cascade, shadowCoords, uv, bias) * 2.0;
+	for (int i = 0; i < 16; i++)
+	{
+		vec2 offset = poissonDisk[i] * uvRadius;
+		sum += SampleDirectionalShadowVisibility(shadowMap, cascade, shadowCoords, uv + offset, bias);
+	}
+
+	return ApplyDirectionalShadowFades(sum / 18.0, uv);
+}
+
+float RawPCSS_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvLightSize)
+{
+	cascade = ClampDirectionalCascade(cascade);
 	float blockerDistance = FindBlockerDistance_DirectionalLight(shadowMap, cascade, shadowCoords, uvLightSize);
 	if (blockerDistance == -1) // No occlusion
 		return 1.0f;
@@ -264,6 +302,18 @@ float PCSS_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowC
 	uvRadius = min(uvRadius, 0.002f);
 	return PCF_DirectionalLight(shadowMap, cascade, shadowCoords, uvRadius);
 } 
+
+float PCSS_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvLightSize)
+{
+	cascade = ClampDirectionalCascade(cascade);
+	if (u_RendererData.ShadowFilterMode == LUX_SHADOW_FILTER_PCSS)
+		return RawPCSS_DirectionalLight(shadowMap, cascade, shadowCoords, uvLightSize);
+
+	if (u_RendererData.ShadowFilterMode == LUX_SHADOW_FILTER_HYBRID && cascade < u_RendererData.DirectionalPCSSCascadeCount)
+		return RawPCSS_DirectionalLight(shadowMap, cascade, shadowCoords, uvLightSize);
+
+	return TunedPCF_DirectionalLight(shadowMap, cascade, shadowCoords);
+}
 
 /////////////////////////////////////////////
 // Spot light Shadows (with dynamic atlas support)
@@ -356,7 +406,25 @@ float PCF_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec
 }
 
 
-float PCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float uvLightSize)
+float TunedPCF_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords)
+{
+	if (!IsSpotShadowSampleValid(shadowCoords, shadowCoords.xy))
+		return 1.0;
+
+	ivec2 atlasSize = textureSize(sampler2D(shadowMap, r_LinearSampler), 0);
+	float localRadius = u_RendererData.ShadowFilterParams.y / max(float(atlasSize.x) * max(atlasScale, 0.001), 1.0);
+
+	float sum = SampleSpotShadowVisibility(shadowMap, atlasOffset, atlasScale, shadowCoords, shadowCoords.xy) * 2.0;
+	for (int i = 0; i < 16; i++)
+	{
+		vec2 sampleUV = shadowCoords.xy + poissonDisk[i] * localRadius;
+		sum += SampleSpotShadowVisibility(shadowMap, atlasOffset, atlasScale, shadowCoords, sampleUV);
+	}
+
+	return ApplySpotShadowFades(sum / 18.0, shadowCoords.xy);
+}
+
+float RawPCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float uvLightSize)
 {
 	float blockerDistance = FindBlockerDistance_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords, uvLightSize);
 	if (blockerDistance == -1) // No occlusion
@@ -368,6 +436,14 @@ float PCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, ve
 	float uvRadius = penumbraWidth * uvLightSize * NEAR / max(shadowCoords.z, 0.001f);
 	uvRadius = min(uvRadius, 0.002f);
 	return PCF_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords, uvRadius);
+}
+
+float PCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float uvLightSize)
+{
+	if (u_RendererData.ShadowFilterMode == LUX_SHADOW_FILTER_PCSS)
+		return RawPCSS_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords, uvLightSize);
+
+	return TunedPCF_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords);
 }
 
 vec3 CalculateSpotLightsShadowed(in vec3 F0, vec3 worldPos, texture2D SpotAtlas)

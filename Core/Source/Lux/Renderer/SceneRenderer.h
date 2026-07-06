@@ -168,6 +168,13 @@ namespace Lux {
 			Tier_8K = 3
 		};
 
+		enum class ShadowFilterMode : uint32_t
+		{
+			TunedPCF = 0,
+			PCSS = 1,
+			Hybrid = 2
+		};
+
 		bool  ShowGrid = true;
 		bool  ShowSelectedInWireframe = false;
 		bool  ShowPhysicsColliders = false;
@@ -188,10 +195,15 @@ namespace Lux {
 		bool  EnableMainViewCulling = true;
 		float MaxShadowDistance = 200.0f;
 		float ShadowFade = 25.0f;
-		float ShadowCascadeSplitLambda = 0.92f;
+		uint32_t ActiveShadowCascadeCount = 3;
+		float ShadowCascadeSplitLambda = 0.82f;
 		float ShadowCascadeNearPlaneOffset = 0.0f;
 		float ShadowCascadeFarPlaneOffset = 50.0f;
 		float ShadowCascadeTransitionFade = 1.0f;
+		ShadowFilterMode ShadowFilter = ShadowFilterMode::Hybrid;
+		uint32_t DirectionalPCSSCascadeCount = 1;
+		float ShadowPCFRadiusTexels = 1.25f;
+		float SpotShadowPCFRadiusTexels = 1.5f;
 		ShadowResolutionTier ShadowResolution = ShadowResolutionTier::Tier_2K;
 		QualityPreset Quality = QualityPreset::Medium;
 		bool  EnableGTAO = true;
@@ -1039,7 +1051,7 @@ namespace Lux {
 			glm::mat4 ViewProj{ 1.0f };
 			float SplitDepth = 0.0f;
 		};
-		void CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection, float maxShadowDistance) const;
+		void CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection, float maxShadowDistance, uint32_t activeCascadeCount) const;
 
 		void BuildIndirectDrawCommand(const StaticDrawCommand& dc,
 			const TransformMapData& tmd,
@@ -1155,6 +1167,11 @@ namespace Lux {
 			float     DistanceMipBiasMax = 2.0f;
 			uint32_t  GPUSceneDebugMode = 0;
 			glm::vec4 ClusterZParams = { 0.1f, 1000.0f, 0.0f, 0.0f }; // x=zNear, y=zFar
+			uint32_t  ActiveShadowCascadeCount = 3;
+			uint32_t  ShadowFilterMode = (uint32_t)SceneRendererOptions::ShadowFilterMode::Hybrid;
+			uint32_t  DirectionalPCSSCascadeCount = 1;
+			uint32_t  ShadowFilterPadding = 0;
+			glm::vec4 ShadowFilterParams = { 1.25f, 1.5f, 0.0f, 0.0f }; // x=dir PCF texels, y=spot PCF texels
 		} m_RendererDataUB;
 
 		struct UBScreenData
@@ -1699,6 +1716,7 @@ namespace Lux {
 		float m_CachedScaleShadowCascadesToOrigin = 0.0f;
 		float m_CachedShadowCascadeSplits[ShadowCascadeCount] = {};
 		bool  m_CachedUseManualCascadeSplits = false;
+		uint32_t m_CachedActiveShadowCascadeCount = 0;
 		uint32_t m_CachedShadowMapResolution = 0;
 		BloomSettings m_BloomSettings;
 		DOFSettings m_DOFSettings;

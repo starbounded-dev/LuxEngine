@@ -324,6 +324,24 @@ namespace Lux {
 			return static_cast<SceneRendererOptions::ShadowResolutionTier>(tier);
 		}
 
+		SceneRendererOptions::ShadowFilterMode SanitizeShadowFilterMode(uint32_t mode)
+		{
+			switch (mode)
+			{
+				case static_cast<uint32_t>(SceneRendererOptions::ShadowFilterMode::TunedPCF):
+				case static_cast<uint32_t>(SceneRendererOptions::ShadowFilterMode::PCSS):
+				case static_cast<uint32_t>(SceneRendererOptions::ShadowFilterMode::Hybrid):
+					return static_cast<SceneRendererOptions::ShadowFilterMode>(mode);
+				default:
+					return SceneRendererOptions::ShadowFilterMode::Hybrid;
+			}
+		}
+
+		uint32_t SanitizeActiveShadowCascadeCount(uint32_t count)
+		{
+			return glm::clamp(count, 1u, SceneRenderer::ShadowCascadeCount);
+		}
+
 		SceneRendererOptions::SSRQualityPreset SanitizeSSRQualityPreset(uint32_t quality)
 		{
 			switch (quality)
@@ -578,6 +596,12 @@ namespace Lux {
 		m_Options.DistanceMipBiasEnd = 250.0f;
 		m_Options.DistanceMipBiasMax = 2.0f;
 		m_Options.SoftShadows = true;
+		m_Options.ActiveShadowCascadeCount = 3;
+		m_Options.ShadowCascadeSplitLambda = 0.82f;
+		m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
+		m_Options.DirectionalPCSSCascadeCount = 1;
+		m_Options.ShadowPCFRadiusTexels = 1.25f;
+		m_Options.SpotShadowPCFRadiusTexels = 1.5f;
 		m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
 		m_Options.MaxShadowDistance = 200.0f;
 		m_Options.ShadowFade = 25.0f;
@@ -598,6 +622,11 @@ namespace Lux {
 			m_Options.DistanceMipBiasEnd = 120.0f;
 			m_Options.DistanceMipBiasMax = 3.0f;
 			m_Options.SoftShadows = false;
+			m_Options.ActiveShadowCascadeCount = 2;
+			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::TunedPCF;
+			m_Options.DirectionalPCSSCascadeCount = 0;
+			m_Options.ShadowPCFRadiusTexels = 1.0f;
+			m_Options.SpotShadowPCFRadiusTexels = 1.0f;
 			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_1K;
 			m_Options.MaxShadowDistance = 100.0f;
 			m_Options.ShadowFade = 15.0f;
@@ -609,6 +638,9 @@ namespace Lux {
 			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale75;
 			m_Options.TextureMipBias = 0.25f;
+			m_Options.ActiveShadowCascadeCount = 3;
+			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
+			m_Options.DirectionalPCSSCascadeCount = 1;
 			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
 			m_Options.MaxShadowDistance = 150.0f;
 			m_SSROptions.MaxSteps = 48;
@@ -624,6 +656,9 @@ namespace Lux {
 			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
 			m_Options.TextureMipBias = -0.5f;
 			m_Options.DistanceMipBiasMax = 1.5f;
+			m_Options.ActiveShadowCascadeCount = 3;
+			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
+			m_Options.DirectionalPCSSCascadeCount = 1;
 			// 2K + soft shadows as the realtime default; a 4-layer 4K array costs
 			// ~268 MB and a lot of shadow-render bandwidth. Ultra raises to 4K,
 			// Cinematic to 8K.
@@ -643,6 +678,11 @@ namespace Lux {
 			m_Options.DistanceMipBiasStart = 25.0f;
 			m_Options.DistanceMipBiasEnd = 150.0f;
 			m_Options.DistanceMipBiasMax = 1.0f;
+			m_Options.ActiveShadowCascadeCount = 4;
+			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
+			m_Options.DirectionalPCSSCascadeCount = 2;
+			m_Options.ShadowPCFRadiusTexels = 1.5f;
+			m_Options.SpotShadowPCFRadiusTexels = 1.75f;
 			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
 			m_Options.MaxShadowDistance = 300.0f;
 			m_SSROptions.MaxSteps = 96;
@@ -662,6 +702,11 @@ namespace Lux {
 			m_Options.DistanceMipBiasStart = 10.0f;
 			m_Options.DistanceMipBiasEnd = 100.0f;
 			m_Options.DistanceMipBiasMax = 0.5f;
+			m_Options.ActiveShadowCascadeCount = 4;
+			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
+			m_Options.DirectionalPCSSCascadeCount = 2;
+			m_Options.ShadowPCFRadiusTexels = 1.75f;
+			m_Options.SpotShadowPCFRadiusTexels = 2.0f;
 			// Shadow atlas capped at 2K even on Cinematic — an 8K directional atlas
 			// is a large per-frame shadow-pass cost for little visible gain at this
 			// scene scale. Bump back to Tier_8K here if you need crisper distant shadows.
@@ -744,10 +789,15 @@ namespace Lux {
 		m_Options.EnableShadowCulling = settings.EnableShadowCulling;
 		m_Options.MaxShadowDistance = settings.MaxShadowDistance;
 		m_Options.ShadowFade = settings.ShadowFade;
-		m_Options.ShadowCascadeSplitLambda = settings.ShadowCascadeSplitLambda;
-		m_Options.ShadowCascadeNearPlaneOffset = settings.ShadowCascadeNearPlaneOffset;
-		m_Options.ShadowCascadeFarPlaneOffset = settings.ShadowCascadeFarPlaneOffset;
-		m_Options.ShadowCascadeTransitionFade = settings.ShadowCascadeTransitionFade;
+		m_Options.ActiveShadowCascadeCount = SanitizeActiveShadowCascadeCount(settings.ActiveShadowCascadeCount);
+		m_Options.ShadowCascadeSplitLambda = std::clamp(settings.ShadowCascadeSplitLambda, 0.0f, 1.0f);
+		m_Options.ShadowCascadeNearPlaneOffset = std::max(0.0f, settings.ShadowCascadeNearPlaneOffset);
+		m_Options.ShadowCascadeFarPlaneOffset = std::max(0.0f, settings.ShadowCascadeFarPlaneOffset);
+		m_Options.ShadowCascadeTransitionFade = std::max(0.0f, settings.ShadowCascadeTransitionFade);
+		m_Options.ShadowFilter = SanitizeShadowFilterMode(settings.ShadowFilterMode);
+		m_Options.DirectionalPCSSCascadeCount = glm::min(settings.DirectionalPCSSCascadeCount, m_Options.ActiveShadowCascadeCount);
+		m_Options.ShadowPCFRadiusTexels = std::clamp(settings.ShadowPCFRadiusTexels, 0.25f, 8.0f);
+		m_Options.SpotShadowPCFRadiusTexels = std::clamp(settings.SpotShadowPCFRadiusTexels, 0.25f, 8.0f);
 		m_Options.ShadowResolution = SanitizeShadowResolutionTier(settings.ShadowResolution);
 
 		m_BloomSettings.Enabled = settings.BloomEnabled;
@@ -842,10 +892,15 @@ namespace Lux {
 		settings.EnableShadowCulling = m_Options.EnableShadowCulling;
 		settings.MaxShadowDistance = m_Options.MaxShadowDistance;
 		settings.ShadowFade = m_Options.ShadowFade;
+		settings.ActiveShadowCascadeCount = SanitizeActiveShadowCascadeCount(m_Options.ActiveShadowCascadeCount);
 		settings.ShadowCascadeSplitLambda = m_Options.ShadowCascadeSplitLambda;
 		settings.ShadowCascadeNearPlaneOffset = m_Options.ShadowCascadeNearPlaneOffset;
 		settings.ShadowCascadeFarPlaneOffset = m_Options.ShadowCascadeFarPlaneOffset;
 		settings.ShadowCascadeTransitionFade = m_Options.ShadowCascadeTransitionFade;
+		settings.ShadowFilterMode = static_cast<uint32_t>(SanitizeShadowFilterMode(static_cast<uint32_t>(m_Options.ShadowFilter)));
+		settings.DirectionalPCSSCascadeCount = glm::min(m_Options.DirectionalPCSSCascadeCount, settings.ActiveShadowCascadeCount);
+		settings.ShadowPCFRadiusTexels = m_Options.ShadowPCFRadiusTexels;
+		settings.SpotShadowPCFRadiusTexels = m_Options.SpotShadowPCFRadiusTexels;
 		settings.ShadowResolution = static_cast<uint32_t>(SanitizeShadowResolutionTier(static_cast<uint32_t>(m_Options.ShadowResolution)));
 
 		settings.BloomEnabled = m_BloomSettings.Enabled;
@@ -2864,8 +2919,9 @@ namespace Lux {
 		return snapshot;
 	}
 
-	void SceneRenderer::CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection, float maxShadowDistance) const
+	void SceneRenderer::CalculateCascades(CascadeData* cascades, const SceneRendererCamera& sceneCamera, const glm::vec3& lightDirection, float maxShadowDistance, uint32_t activeCascadeCount) const
 	{
+		activeCascadeCount = SanitizeActiveShadowCascadeCount(activeCascadeCount);
 		const float nearClip = glm::max(sceneCamera.Near, 0.001f);
 		const float cameraFar = glm::max(sceneCamera.Far, nearClip + 0.001f);
 		const float shadowFar = glm::clamp(maxShadowDistance, nearClip + 0.001f, cameraFar);
@@ -2874,7 +2930,7 @@ namespace Lux {
 		const float ratio = shadowFar / nearClip;
 
 		float cascadeSplits[ShadowCascadeCount]{};
-		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+		for (uint32_t cascade = 0; cascade < activeCascadeCount; cascade++)
 		{
 			if (m_UseManualCascadeSplits)
 			{
@@ -2882,7 +2938,7 @@ namespace Lux {
 			}
 			else
 			{
-				const float p = (cascade + 1.0f) / static_cast<float>(ShadowCascadeCount);
+				const float p = (cascade + 1.0f) / static_cast<float>(activeCascadeCount);
 				const float logSplit = nearClip * std::pow(ratio, p);
 				const float uniformSplit = nearClip + shadowRange * p;
 				const float splitDistance = glm::mix(uniformSplit, logSplit, glm::clamp(m_Options.ShadowCascadeSplitLambda, 0.0f, 1.0f));
@@ -2890,7 +2946,9 @@ namespace Lux {
 			}
 		}
 		if (!m_UseManualCascadeSplits)
-			cascadeSplits[ShadowCascadeCount - 1] = (shadowFar - nearClip) / cameraClipRange;
+			cascadeSplits[activeCascadeCount - 1] = (shadowFar - nearClip) / cameraClipRange;
+		for (uint32_t cascade = activeCascadeCount; cascade < ShadowCascadeCount; cascade++)
+			cascadeSplits[cascade] = cascadeSplits[activeCascadeCount - 1];
 
 		glm::mat4 viewMatrix = sceneCamera.ViewMatrix;
 		if (m_ScaleShadowCascadesToOrigin > 0.0f)
@@ -2908,7 +2966,7 @@ namespace Lux {
 			: glm::vec3(1.0f, 0.0f, 0.0f);
 
 		float lastSplitDist = 0.0f;
-		for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+		for (uint32_t cascade = 0; cascade < activeCascadeCount; cascade++)
 		{
 			const float splitDist = cascadeSplits[cascade];
 
@@ -2969,6 +3027,9 @@ namespace Lux {
 
 			lastSplitDist = splitDist;
 		}
+
+		for (uint32_t cascade = activeCascadeCount; cascade < ShadowCascadeCount; cascade++)
+			cascades[cascade] = cascades[activeCascadeCount - 1];
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -5000,12 +5061,14 @@ namespace Lux {
 				const uint32_t shadowMapResolution = m_ShadowMapPass && m_ShadowMapPass->GetTargetFramebuffer()
 					? m_ShadowMapPass->GetTargetFramebuffer()->GetWidth()
 					: 0u;
+				const uint32_t activeShadowCascadeCount = SanitizeActiveShadowCascadeCount(m_Options.ActiveShadowCascadeCount);
 
 				bool cascadeSettingsChanged =
 					std::abs(camera.FOV - m_CachedShadowFOV) > floatThreshold ||
 					std::abs(camera.Near - m_CachedShadowNear) > floatThreshold ||
 					std::abs(camera.Far - m_CachedShadowFar) > floatThreshold ||
 					std::abs(directionalShadowDistance - m_CachedMaxShadowDistance) > floatThreshold ||
+					activeShadowCascadeCount != m_CachedActiveShadowCascadeCount ||
 					std::abs(m_Options.ShadowCascadeSplitLambda - m_CachedShadowCascadeSplitLambda) > floatThreshold ||
 					std::abs(m_Options.ShadowCascadeNearPlaneOffset - m_CachedShadowCascadeNearPlaneOffset) > floatThreshold ||
 					std::abs(m_Options.ShadowCascadeFarPlaneOffset - m_CachedShadowCascadeFarPlaneOffset) > floatThreshold ||
@@ -5033,11 +5096,13 @@ namespace Lux {
 				if (shouldRecalculateCascades)
 				{
 					CascadeData cascades[ShadowCascadeCount];
-					CalculateCascades(cascades, camera, lightDirection, directionalShadowDistance);
+					CalculateCascades(cascades, camera, lightDirection, directionalShadowDistance, activeShadowCascadeCount);
 					for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 					{
 						m_ShadowUB.ViewProjection[cascade] = cascades[cascade].ViewProj;
-						m_ShadowCascadeFrustums[cascade] = Frustum::FromViewProjection(cascades[cascade].ViewProj);
+						m_ShadowCascadeFrustums[cascade] = cascade < activeShadowCascadeCount
+							? Frustum::FromViewProjection(cascades[cascade].ViewProj)
+							: Frustum{};
 					}
 
 					m_RendererDataUB.CascadeSplits = {
@@ -5061,13 +5126,14 @@ namespace Lux {
 					for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 						m_CachedShadowCascadeSplits[cascade] = m_ShadowCascadeSplits[cascade];
 					m_CachedUseManualCascadeSplits = m_UseManualCascadeSplits;
+					m_CachedActiveShadowCascadeCount = activeShadowCascadeCount;
 					m_CachedShadowMapResolution = shadowMapResolution;
 					m_ShadowCascadeCacheValid = true;
 					m_StaticShadowMapCacheValid = false;
 					m_DirectionalShadowMapNeedsRender = true;
 				}
 
-				m_ShadowCascadeFrustumCount = ShadowCascadeCount;
+				m_ShadowCascadeFrustumCount = activeShadowCascadeCount;
 			}
 			else
 			{
@@ -5110,6 +5176,15 @@ namespace Lux {
 			m_RendererDataUB.ShadowFade = m_Options.ShadowFade;
 			m_RendererDataUB.CascadeFading = true;
 			m_RendererDataUB.CascadeTransitionFade = m_Options.ShadowCascadeTransitionFade;
+			m_RendererDataUB.ActiveShadowCascadeCount = SanitizeActiveShadowCascadeCount(m_Options.ActiveShadowCascadeCount);
+			m_RendererDataUB.ShadowFilterMode = static_cast<uint32_t>(SanitizeShadowFilterMode(static_cast<uint32_t>(m_Options.ShadowFilter)));
+			m_RendererDataUB.DirectionalPCSSCascadeCount = glm::min(m_Options.DirectionalPCSSCascadeCount, m_RendererDataUB.ActiveShadowCascadeCount);
+			m_RendererDataUB.ShadowFilterParams = {
+				std::clamp(m_Options.ShadowPCFRadiusTexels, 0.25f, 8.0f),
+				std::clamp(m_Options.SpotShadowPCFRadiusTexels, 0.25f, 8.0f),
+				0.0f,
+				0.0f
+			};
 			m_RendererDataUB.ShowCascades = m_Options.ShowShadowCascades;
 			m_RendererDataUB.ShowLightComplexity = m_Options.ShowLightComplexity;
 			m_RendererDataUB.ShowMaterialComplexity = m_Options.ShowMaterialComplexity;
@@ -6836,6 +6911,7 @@ namespace Lux {
 
 		BeginProfiledGPU("ShadowMapPass");
 		const MeshPassState& shadowPass = GetMeshPass(MeshPassType::ShadowDepth);
+		const uint32_t activeShadowCascadeCount = SanitizeActiveShadowCascadeCount(m_Options.ActiveShadowCascadeCount);
 
 		auto hasShadowCasters = [&](bool staticCasters)
 		{
@@ -6848,7 +6924,7 @@ namespace Lux {
 				if (transformIt == m_ShadowMeshTransformMap.end())
 					continue;
 
-				for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+				for (uint32_t cascade = 0; cascade < activeShadowCascadeCount; cascade++)
 				{
 					if (!transformIt->second.Cascades[cascade].ObjectIndices.empty())
 						return true;
@@ -6906,7 +6982,7 @@ namespace Lux {
 
 		if (!m_StaticShadowMapCacheValid)
 		{
-			for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+			for (uint32_t cascade = 0; cascade < activeShadowCascadeCount; cascade++)
 			{
 				Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapStaticCachePasses[cascade], /*explicitClear=*/true);
 				drawShadowCasters(cascade, true);
@@ -6920,7 +6996,7 @@ namespace Lux {
 
 		if (hasDynamicCasters)
 		{
-			for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+			for (uint32_t cascade = 0; cascade < activeShadowCascadeCount; cascade++)
 			{
 				if (!hasShadowCastersForCascade(cascade, false))
 					continue;

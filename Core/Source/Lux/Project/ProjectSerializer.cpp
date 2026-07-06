@@ -279,10 +279,15 @@ namespace Lux
 			out << YAML::Key << "ShadowCulling" << YAML::Value << settings.EnableShadowCulling;
 			out << YAML::Key << "MaxDistance" << YAML::Value << settings.MaxShadowDistance;
 			out << YAML::Key << "DistanceFade" << YAML::Value << settings.ShadowFade;
+			out << YAML::Key << "ActiveCascadeCount" << YAML::Value << settings.ActiveShadowCascadeCount;
 			out << YAML::Key << "SplitLambda" << YAML::Value << settings.ShadowCascadeSplitLambda;
 			out << YAML::Key << "NearOffset" << YAML::Value << settings.ShadowCascadeNearPlaneOffset;
 			out << YAML::Key << "FarOffset" << YAML::Value << settings.ShadowCascadeFarPlaneOffset;
 			out << YAML::Key << "CascadeFade" << YAML::Value << settings.ShadowCascadeTransitionFade;
+			out << YAML::Key << "FilterMode" << YAML::Value << settings.ShadowFilterMode;
+			out << YAML::Key << "DirectionalPCSSCascades" << YAML::Value << settings.DirectionalPCSSCascadeCount;
+			out << YAML::Key << "PCFRadiusTexels" << YAML::Value << settings.ShadowPCFRadiusTexels;
+			out << YAML::Key << "SpotPCFRadiusTexels" << YAML::Value << settings.SpotShadowPCFRadiusTexels;
 			out << YAML::Key << "ResolutionLimit" << YAML::Value << ShadowResolutionToString(settings.ShadowResolution);
 			out << YAML::EndMap;
 
@@ -367,10 +372,15 @@ namespace Lux
 				settings.EnableShadowCulling = shadows["ShadowCulling"].as<bool>(settings.EnableShadowCulling);
 				settings.MaxShadowDistance = shadows["MaxDistance"].as<float>(settings.MaxShadowDistance);
 				settings.ShadowFade = shadows["DistanceFade"].as<float>(settings.ShadowFade);
+				settings.ActiveShadowCascadeCount = shadows["ActiveCascadeCount"].as<uint32_t>(settings.ActiveShadowCascadeCount);
 				settings.ShadowCascadeSplitLambda = shadows["SplitLambda"].as<float>(settings.ShadowCascadeSplitLambda);
 				settings.ShadowCascadeNearPlaneOffset = shadows["NearOffset"].as<float>(settings.ShadowCascadeNearPlaneOffset);
 				settings.ShadowCascadeFarPlaneOffset = shadows["FarOffset"].as<float>(settings.ShadowCascadeFarPlaneOffset);
 				settings.ShadowCascadeTransitionFade = shadows["CascadeFade"].as<float>(settings.ShadowCascadeTransitionFade);
+				settings.ShadowFilterMode = shadows["FilterMode"].as<uint32_t>(settings.ShadowFilterMode);
+				settings.DirectionalPCSSCascadeCount = shadows["DirectionalPCSSCascades"].as<uint32_t>(settings.DirectionalPCSSCascadeCount);
+				settings.ShadowPCFRadiusTexels = shadows["PCFRadiusTexels"].as<float>(settings.ShadowPCFRadiusTexels);
+				settings.SpotShadowPCFRadiusTexels = shadows["SpotPCFRadiusTexels"].as<float>(settings.SpotShadowPCFRadiusTexels);
 				YAML::Node shadowResolution = shadows["ResolutionLimit"] ? shadows["ResolutionLimit"] : shadows["ShadowResolution"];
 				settings.ShadowResolution = ShadowResolutionFromString(shadowResolution.as<std::string>(ShadowResolutionToString(settings.ShadowResolution)));
 			}
@@ -472,6 +482,11 @@ namespace Lux
 			serializer.WriteRaw(settings.SSRDepthTolerance);
 			serializer.WriteRaw(settings.QualityPreset);
 			serializer.WriteRaw(settings.ShadowResolution);
+			serializer.WriteRaw(settings.ActiveShadowCascadeCount);
+			serializer.WriteRaw(settings.ShadowFilterMode);
+			serializer.WriteRaw(settings.DirectionalPCSSCascadeCount);
+			serializer.WriteRaw(settings.ShadowPCFRadiusTexels);
+			serializer.WriteRaw(settings.SpotShadowPCFRadiusTexels);
 		}
 
 		void ReadSceneRendererRuntimeSettings(FileStreamReader& stream, ProjectSceneRendererSettings& settings, uint32_t version)
@@ -556,6 +571,15 @@ namespace Lux
 			{
 				stream.ReadRaw(settings.QualityPreset);
 				stream.ReadRaw(settings.ShadowResolution);
+			}
+
+			if (version >= 12)
+			{
+				stream.ReadRaw(settings.ActiveShadowCascadeCount);
+				stream.ReadRaw(settings.ShadowFilterMode);
+				stream.ReadRaw(settings.DirectionalPCSSCascadeCount);
+				stream.ReadRaw(settings.ShadowPCFRadiusTexels);
+				stream.ReadRaw(settings.SpotShadowPCFRadiusTexels);
 			}
 
 			if (version >= 7)

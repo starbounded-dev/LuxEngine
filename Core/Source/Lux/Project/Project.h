@@ -99,10 +99,15 @@ namespace Lux
 		bool EnableShadowCulling = true;
 		float MaxShadowDistance = 200.0f;
 		float ShadowFade = 25.0f;
-		float ShadowCascadeSplitLambda = 0.92f;
+		uint32_t ActiveShadowCascadeCount = 3;
+		float ShadowCascadeSplitLambda = 0.82f;
 		float ShadowCascadeNearPlaneOffset = 0.0f;
 		float ShadowCascadeFarPlaneOffset = 50.0f;
 		float ShadowCascadeTransitionFade = 1.0f;
+		uint32_t ShadowFilterMode = 2; // SceneRendererOptions::ShadowFilterMode::Hybrid
+		uint32_t DirectionalPCSSCascadeCount = 1;
+		float ShadowPCFRadiusTexels = 1.25f;
+		float SpotShadowPCFRadiusTexels = 1.5f;
 		uint32_t ShadowResolution = 1; // SceneRendererOptions::ShadowResolutionTier (Tier_2K)
 
 		bool BloomEnabled = true;
