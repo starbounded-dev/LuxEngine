@@ -883,7 +883,9 @@ namespace Lux {
 			bool               isSelected,
 			const StaticMeshRenderProxy* renderProxy = nullptr);
 		bool IsMainViewVisible(const BoundingSphere& bounds) const;
-		bool IsShadowCasterVisible(const BoundingSphere& bounds) const;
+		uint32_t GetDirectionalShadowCascadeMask(const BoundingSphere& bounds) const;
+		bool IsSpotShadowCasterVisible(const BoundingSphere& bounds) const;
+		bool ShouldCullTinyDirectionalShadowCaster(const BoundingSphere& bounds, uint32_t cascade) const;
 		uint32_t SelectStaticMeshLOD(const MeshSource& meshSource, uint32_t submeshIndex, const BoundingSphere& bounds) const;
 		void BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder, uint64_t& orderCacheHash) const;
 		MeshPassState& GetMeshPass(MeshPassType passType);
@@ -905,7 +907,7 @@ namespace Lux {
 			uint64_t meshSortKey);
 		void ClearFrameMeshPasses();
 		void PruneMeshDrawCommandCache();
-		void CalculateShadowCasterHashes(uint64_t& outStaticHash, uint64_t& outDynamicHash) const;
+		void CalculateShadowCasterHashes(uint64_t& outStaticDirectionalHash, uint64_t& outDynamicDirectionalHash, uint64_t& outStaticSpotHash, uint64_t& outDynamicSpotHash) const;
 		bool UpdateShadowCasterMotion(uint32_t sceneInstanceIndex, const GPUSceneInstanceData* instanceData);
 		bool IsShadowCasterStatic(uint32_t sceneInstanceIndex) const;
 
@@ -1613,11 +1615,13 @@ namespace Lux {
 		const void* m_ScratchMaterialSceneKey = nullptr;
 		uint64_t    m_ScratchMaterialSceneVersion = std::numeric_limits<uint64_t>::max();
 
-		// Shadow-specific per-cascade transform tracking.
-		// Index 0 is the only cascade we use currently.
+		// Shadow-specific transform tracking. Directional shadows are bucketed
+		// per cascade; spot shadows keep one atlas-wide list because a caster can
+		// affect any selected spot tile.
 		struct ShadowTransformMapData
 		{
-			TransformMapData Cascade; // single cascade
+			std::array<TransformMapData, ShadowCascadeCount> Cascades;
+			TransformMapData Spot;
 		};
 		std::unordered_map<MeshKey, ShadowTransformMapData, MeshKeyHasher> m_ShadowMeshTransformMap;
 		std::array<Frustum, ShadowCascadeCount> m_ShadowCascadeFrustums;
@@ -1666,6 +1670,8 @@ namespace Lux {
 		bool  m_StaticSpotShadowMapCacheValid = false;
 		uint64_t m_LastStaticShadowCasterHash = 0;
 		uint64_t m_LastDynamicShadowCasterHash = 0;
+		uint64_t m_LastStaticSpotShadowCasterHash = 0;
+		uint64_t m_LastDynamicSpotShadowCasterHash = 0;
 
 		// Per-caster motion tracking (keyed by GPUScene row). A caster is static
 		// once its transform is unchanged for StaticShadowCasterStableFrames
