@@ -107,6 +107,13 @@ namespace Lux {
 			pipelineDesc.PS = shaderHandles.at(nvrhi::ShaderType::Pixel);
 
 		pipelineDesc.primType = Utils::GetNVRHIPrimitiveType(m_Specification.Topology);
+		if (Renderer::SupportsVariableRateShading())
+		{
+			pipelineDesc.shadingRateState.enabled = true;
+			pipelineDesc.shadingRateState.shadingRate = nvrhi::VariableShadingRate::e1x1;
+			pipelineDesc.shadingRateState.pipelinePrimitiveCombiner = nvrhi::ShadingRateCombiner::Override;
+			pipelineDesc.shadingRateState.imageCombiner = nvrhi::ShadingRateCombiner::Override;
+		}
 
 #pragma endregion
 

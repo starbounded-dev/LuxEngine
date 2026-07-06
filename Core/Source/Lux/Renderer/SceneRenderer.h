@@ -220,6 +220,7 @@ namespace Lux {
 		bool  EnableGPUDrivenRendering = true;
 		bool  EnableMeshLODs = true;
 		float MeshLODDistanceScale = 1.0f;
+		bool  EnableVariableRateShading = true;
 		// Experimental: task/mesh-shader PreDepth with per-meshlet culling.
 		// Requires VK_EXT_mesh_shader; ignored (classic path) when unsupported.
 		bool  EnableMeshShaders = false;
@@ -899,6 +900,7 @@ namespace Lux {
 		bool IsSpotShadowCasterVisible(const BoundingSphere& bounds) const;
 		bool ShouldCullTinyDirectionalShadowCaster(const BoundingSphere& bounds, uint32_t cascade) const;
 		uint32_t SelectStaticMeshLOD(const MeshSource& meshSource, uint32_t submeshIndex, const BoundingSphere& bounds) const;
+		void ApplyCoarseFragmentShadingRate();
 		void BuildSortedDrawCommandOrder(const DrawCommandList& drawList, DrawCommandOrder& drawOrder, uint64_t& orderCacheHash) const;
 		MeshPassState& GetMeshPass(MeshPassType passType);
 		const MeshPassState& GetMeshPass(MeshPassType passType) const;

@@ -246,6 +246,7 @@ namespace Lux
 			out << YAML::Key << "GPUDrivenRendering" << YAML::Value << settings.EnableGPUDrivenRendering;
 			out << YAML::Key << "MeshLODs" << YAML::Value << settings.EnableMeshLODs;
 			out << YAML::Key << "MeshLODDistanceScale" << YAML::Value << settings.MeshLODDistanceScale;
+			out << YAML::Key << "VariableRateShading" << YAML::Value << settings.EnableVariableRateShading;
 			out << YAML::Key << "MeshShaders" << YAML::Value << settings.EnableMeshShaders;
 			out << YAML::Key << "GTAO" << YAML::Value << settings.EnableGTAO;
 			out << YAML::Key << "GTAOBentNormals" << YAML::Value << settings.GTAOBentNormals;
@@ -338,6 +339,7 @@ namespace Lux
 				settings.EnableGPUDrivenRendering = rendering["GPUDrivenRendering"].as<bool>(settings.EnableGPUDrivenRendering);
 				settings.EnableMeshLODs = rendering["MeshLODs"].as<bool>(settings.EnableMeshLODs);
 				settings.MeshLODDistanceScale = rendering["MeshLODDistanceScale"].as<float>(settings.MeshLODDistanceScale);
+				settings.EnableVariableRateShading = rendering["VariableRateShading"].as<bool>(settings.EnableVariableRateShading);
 				settings.EnableMeshShaders = rendering["MeshShaders"].as<bool>(settings.EnableMeshShaders);
 				settings.EnableGTAO = rendering["GTAO"].as<bool>(settings.EnableGTAO);
 				settings.GTAOBentNormals = rendering["GTAOBentNormals"].as<bool>(settings.GTAOBentNormals);
@@ -428,6 +430,7 @@ namespace Lux
 			serializer.WriteRaw(settings.EnableGPUDrivenRendering);
 			serializer.WriteRaw(settings.EnableMeshLODs);
 			serializer.WriteRaw(settings.MeshLODDistanceScale);
+			serializer.WriteRaw(settings.EnableVariableRateShading);
 			serializer.WriteRaw(settings.EnableMeshShaders);
 			serializer.WriteRaw(settings.EnableGTAO);
 			serializer.WriteRaw(settings.GTAOBentNormals);
@@ -500,6 +503,8 @@ namespace Lux
 				stream.ReadRaw(settings.EnableMeshLODs);
 				stream.ReadRaw(settings.MeshLODDistanceScale);
 			}
+			if (version >= 13)
+				stream.ReadRaw(settings.EnableVariableRateShading);
 			if (version >= 11)
 				stream.ReadRaw(settings.EnableMeshShaders);
 			stream.ReadRaw(settings.EnableGTAO);

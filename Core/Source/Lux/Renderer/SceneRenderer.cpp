@@ -760,6 +760,7 @@ namespace Lux {
 		m_Options.EnableGPUDrivenRendering = settings.EnableGPUDrivenRendering;
 		m_Options.EnableMeshLODs = settings.EnableMeshLODs;
 		m_Options.MeshLODDistanceScale = std::clamp(settings.MeshLODDistanceScale, 0.25f, 4.0f);
+		m_Options.EnableVariableRateShading = settings.EnableVariableRateShading;
 		m_Options.EnableMeshShaders = settings.EnableMeshShaders;
 		m_Options.EnableGTAO = settings.EnableGTAO;
 		m_Options.GTAOBentNormals = settings.GTAOBentNormals;
@@ -862,6 +863,7 @@ namespace Lux {
 		settings.EnableGPUDrivenRendering = m_Options.EnableGPUDrivenRendering;
 		settings.EnableMeshLODs = m_Options.EnableMeshLODs;
 		settings.MeshLODDistanceScale = m_Options.MeshLODDistanceScale;
+		settings.EnableVariableRateShading = m_Options.EnableVariableRateShading;
 		settings.EnableMeshShaders = m_Options.EnableMeshShaders;
 		settings.EnableGTAO = m_Options.EnableGTAO;
 		settings.GTAOBentNormals = m_Options.GTAOBentNormals;
@@ -5312,6 +5314,14 @@ namespace Lux {
 		return selectedLOD;
 	}
 
+	void SceneRenderer::ApplyCoarseFragmentShadingRate()
+	{
+		if (!m_Options.EnableVariableRateShading || !Renderer::SupportsVariableRateShading())
+			return;
+
+		Renderer::SetFragmentShadingRate(m_CommandBuffer, FragmentShadingRate::Rate2x2);
+	}
+
 	bool SceneRenderer::ShouldCullTinyDirectionalShadowCaster(const BoundingSphere& bounds, uint32_t cascade) const
 	{
 		if (cascade < 2)
@@ -7552,6 +7562,7 @@ namespace Lux {
 
 		BeginProfiledGPU("SkyAtmospherePass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SkyAtmospherePass);
+		ApplyCoarseFragmentShadingRate();
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SkyAtmospherePass->GetPipeline(), m_SkyAtmosphereMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
@@ -7592,6 +7603,7 @@ namespace Lux {
 
 		BeginProfiledGPU("VolumetricCloudPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_VolumetricCloudPass);
+		ApplyCoarseFragmentShadingRate();
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_VolumetricCloudPass->GetPipeline(), m_VolumetricCloudMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
@@ -7657,6 +7669,7 @@ namespace Lux {
 
 		BeginProfiledGPU("VolumetricCloudCompositePass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_VolumetricCloudCompositePass);
+		ApplyCoarseFragmentShadingRate();
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_VolumetricCloudCompositePass->GetPipeline(), m_VolumetricCloudCompositeMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
@@ -7672,6 +7685,7 @@ namespace Lux {
 
 		BeginProfiledGPU("AtmosphericFogPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_AtmosphericFogPass);
+		ApplyCoarseFragmentShadingRate();
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AtmosphericFogPass->GetPipeline(), m_AtmosphericFogMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
@@ -7984,6 +7998,7 @@ namespace Lux {
 
 		BeginProfiledGPU("AOComposite");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_AOCompositePass);
+		ApplyCoarseFragmentShadingRate();
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AOCompositePass->GetPipeline(), m_AOCompositeMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
@@ -8162,6 +8177,7 @@ namespace Lux {
 
 		BeginProfiledGPU("SSRComposite");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SSRCompositePass);
+		ApplyCoarseFragmentShadingRate();
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SSRCompositePass->GetPipeline(), m_SSRCompositeMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
@@ -8179,6 +8195,7 @@ namespace Lux {
 
 		BeginProfiledGPU("DOF");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_DOFPass);
+		ApplyCoarseFragmentShadingRate();
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_DOFPass->GetPipeline(), m_DOFMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
 

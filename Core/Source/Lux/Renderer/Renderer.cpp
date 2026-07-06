@@ -420,6 +420,35 @@ namespace Lux {
 	static nvrhi::CommandListHandle s_ResourceUploadCommandList;
 	static bool s_ResourceUploadListOpen = false;
 
+	static nvrhi::VariableShadingRate ToNVRHIShadingRate(FragmentShadingRate rate)
+	{
+		switch (rate)
+		{
+			case FragmentShadingRate::Rate1x2: return nvrhi::VariableShadingRate::e1x2;
+			case FragmentShadingRate::Rate2x1: return nvrhi::VariableShadingRate::e2x1;
+			case FragmentShadingRate::Rate2x2: return nvrhi::VariableShadingRate::e2x2;
+			case FragmentShadingRate::Rate2x4: return nvrhi::VariableShadingRate::e2x4;
+			case FragmentShadingRate::Rate4x2: return nvrhi::VariableShadingRate::e4x2;
+			case FragmentShadingRate::Rate4x4: return nvrhi::VariableShadingRate::e4x4;
+			case FragmentShadingRate::Rate1x1:
+			default:
+				return nvrhi::VariableShadingRate::e1x1;
+		}
+	}
+
+	static nvrhi::VariableRateShadingState MakeFragmentShadingRateState(FragmentShadingRate rate)
+	{
+		nvrhi::VariableRateShadingState state;
+		if (!Renderer::SupportsVariableRateShading())
+			return state;
+
+		state.enabled = true;
+		state.shadingRate = ToNVRHIShadingRate(rate);
+		state.pipelinePrimitiveCombiner = nvrhi::ShadingRateCombiner::Override;
+		state.imageCombiner = nvrhi::ShadingRateCombiner::Override;
+		return state;
+	}
+
 	static RendererAPI* InitRendererAPI()
 	{
 		switch (RendererAPI::Current())
@@ -980,6 +1009,7 @@ namespace Lux {
 				graphicsState.lineWidth = 0.0f;
 				if (renderPass->GetPipeline()->IsDynamicLineWidth())
 					graphicsState.lineWidth = renderPass->GetPipeline()->GetSpecification().LineWidth;
+				graphicsState.shadingRateState = MakeFragmentShadingRateState(FragmentShadingRate::Rate1x1);
 
 				renderPass->Prepare();
 				auto bindingSets = renderPass->GetBindingSets(Renderer::RT_GetCurrentFrameIndex());
@@ -987,6 +1017,21 @@ namespace Lux {
 
 				renderCommandBuffer->RT_CommitGraphicsState();
 			});
+	}
+
+	void Renderer::SetFragmentShadingRate(Ref<RenderCommandBuffer> renderCommandBuffer, FragmentShadingRate rate)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		LUX_CORE_VERIFY(renderCommandBuffer);
+
+		Renderer::Submit([renderCommandBuffer, rate]() mutable
+		{
+			nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+			graphicsState.shadingRateState = MakeFragmentShadingRateState(rate);
+
+			if (graphicsState.pipeline && graphicsState.framebuffer)
+				renderCommandBuffer->RT_CommitGraphicsState();
+		});
 	}
 
 	void Renderer::EndRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer)
@@ -1965,6 +2010,12 @@ namespace Lux {
 	bool Renderer::SupportsMeshShaders()
 	{
 		static const bool s_Supported = Application::GetGraphicsDevice()->queryFeatureSupport(nvrhi::Feature::Meshlets);
+		return s_Supported;
+	}
+
+	bool Renderer::SupportsVariableRateShading()
+	{
+		static const bool s_Supported = Application::GetGraphicsDevice()->queryFeatureSupport(nvrhi::Feature::VariableRateShading);
 		return s_Supported;
 	}
 

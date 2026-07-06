@@ -320,6 +320,17 @@ namespace Lux {
 				ImGuiEx::Property("Mesh Shaders (Unsupported)", unsupported);
 				ImGui::EndDisabled();
 			}
+			if (Renderer::SupportsVariableRateShading())
+			{
+				projectSettingsChanged |= ImGuiEx::Property("Variable Rate Shading", options.EnableVariableRateShading);
+			}
+			else
+			{
+				ImGui::BeginDisabled();
+				bool unsupported = false;
+				ImGuiEx::Property("Variable Rate Shading (Unsupported)", unsupported);
+				ImGui::EndDisabled();
+			}
 			const char* renderScaleLabels[] = { "100%", "75%", "50%", "Dynamic" };
 			int renderScaleMode = static_cast<int>(options.ResolutionScaleMode);
 			if (DrawComboProperty("Render Scale", renderScaleMode, renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels)))

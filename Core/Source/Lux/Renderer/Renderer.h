@@ -51,6 +51,17 @@ namespace Lux {
 
 		bool IsRigged = false;
 	};
+
+	enum class FragmentShadingRate : uint8_t
+	{
+		Rate1x1 = 0,
+		Rate1x2,
+		Rate2x1,
+		Rate2x2,
+		Rate2x4,
+		Rate4x2,
+		Rate4x4
+	};
 	
 	class Renderer
 	{
@@ -178,6 +189,7 @@ namespace Lux {
 		// Dynamic viewport/scissor control
 		static void SetViewport(Ref<RenderCommandBuffer> renderCommandBuffer, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
 		static void SetScissor(Ref<RenderCommandBuffer> renderCommandBuffer, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
+		static void SetFragmentShadingRate(Ref<RenderCommandBuffer> renderCommandBuffer, FragmentShadingRate rate);
 
 		// Compute Pass API
 		static void BeginComputePass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<ComputePass> computePass);
@@ -253,6 +265,8 @@ namespace Lux {
 
 		// True when the device supports mesh/task shaders (VK_EXT_mesh_shader).
 		static bool SupportsMeshShaders();
+		// True when the active graphics device exposes variable-rate fragment shading.
+		static bool SupportsVariableRateShading();
 
 		static RenderCommandQueue& GetRenderResourceReleaseQueue(uint32_t index);
 

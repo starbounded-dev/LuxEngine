@@ -283,6 +283,14 @@ namespace Lux {
 	void RenderCommandBuffer::RT_CommitGraphicsState()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		if (Renderer::SupportsVariableRateShading() && m_GraphicsState.pipeline)
+		{
+			m_GraphicsState.shadingRateState.enabled = true;
+			if (m_GraphicsState.shadingRateState.pipelinePrimitiveCombiner == nvrhi::ShadingRateCombiner::Passthrough)
+				m_GraphicsState.shadingRateState.pipelinePrimitiveCombiner = nvrhi::ShadingRateCombiner::Override;
+			if (m_GraphicsState.shadingRateState.imageCombiner == nvrhi::ShadingRateCombiner::Passthrough)
+				m_GraphicsState.shadingRateState.imageCombiner = nvrhi::ShadingRateCombiner::Override;
+		}
 		m_ActiveCommandBuffer->setGraphicsState(m_GraphicsState);
 	}
 
