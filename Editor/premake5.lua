@@ -10,6 +10,10 @@ project "Editor"
 
 	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE", }
 
+	if _OPTIONS["discord"] then
+		defines { "LUX_ENABLE_DISCORD" }
+	end
+
 	files  { 
 		"Source/**.h",
 		"Source/**.c",
@@ -34,6 +38,14 @@ project "Editor"
 	filter "system:windows"
 		systemversion "latest"
 		defines { "LUX_PLATFORM_WINDOWS" }
+
+		-- We link the release SDK in every configuration, so copy that DLL everywhere too.
+		-- discord_krisp.dll is deliberately not copied: it's only needed for voice chat.
+		if _OPTIONS["discord"] then
+			postbuildcommands {
+				'{COPY} "../Core/vendor/discord_social_sdk/bin/release/discord_partner_sdk.dll" "%{cfg.targetdir}"',
+			}
+		end
 
 	filter { "system:windows", "configurations:Debug or configurations:Debug-AS" }
 		postbuildcommands {

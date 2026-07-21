@@ -72,6 +72,8 @@ namespace Lux
 
 		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& filepath);
 
+		void UpdateDiscordPresence();
+
 		void OnScenePlay();
 		void OnSceneSimulate();
 		void OnSceneStop();

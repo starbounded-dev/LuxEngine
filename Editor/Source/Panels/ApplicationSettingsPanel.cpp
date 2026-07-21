@@ -7,6 +7,7 @@
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Social/DiscordSocial.h"
 #include "Lux/Utilities/FileSystem.h"
 
 #include <imgui/imgui.h>
@@ -24,6 +25,9 @@ namespace Lux {
 		m_Pages.push_back({ "Editor", [this]() { DrawEditorPage(); } });
 		m_Pages.push_back({ "Viewport", [this]() { DrawViewportPage(); } });
 		m_Pages.push_back({ "Content Browser", [this]() { DrawContentBrowserPage(); } });
+		m_Pages.push_back({ "Discord", [this]() { DrawDiscordPage(); } });
+
+		m_DiscordApplicationID = Application::Get().GetSettings().Get("Discord.ApplicationID", "");
 	}
 
 	void ApplicationSettingsPanel::OnImGuiRender(bool& isOpen)
@@ -264,6 +268,99 @@ namespace Lux {
 
 		ImGui::Spacing();
 		ImGui::TextDisabled("Changes apply immediately and are stored in the editor settings file.");
+	}
+
+	void ApplicationSettingsPanel::DrawDiscordPage()
+	{
+		ImGui::TextUnformatted("Discord Rich Presence");
+		ImGui::Separator();
+
+		// Note this is IsAvailable(), not GetState() - a build with the SDK compiled in still
+		// reports State::Disabled while the integration is switched off, and bailing out here on
+		// that would hide the very toggle needed to switch it on.
+		if (!DiscordSocial::IsAvailable())
+		{
+			ImGui::TextDisabled("The Discord integration is not compiled into this build.");
+			ImGui::TextDisabled("Regenerate projects with \"Win-GenProjects.bat --discord\" to enable it.");
+			return;
+		}
+
+		auto& settings = Application::Get().GetSettings();
+		bool enabled = settings.Get("Discord.RichPresenceEnabled", "false") == "true";
+
+		ImGuiEx::BeginPropertyGrid();
+		if (ImGuiEx::Property("Enable Rich Presence", enabled))
+		{
+			settings.Set("Discord.RichPresenceEnabled", enabled ? "true" : "false");
+			settings.Serialize();
+		}
+
+		if (ImGuiEx::Property("Application ID", m_DiscordApplicationID))
+		{
+			settings.Set("Discord.ApplicationID", m_DiscordApplicationID);
+			settings.Serialize();
+		}
+		ImGuiEx::EndPropertyGrid();
+
+		ImGui::TextDisabled("Applies after restarting the editor.");
+		ImGui::TextDisabled("Create an application at discord.com/developers to get an ID.");
+
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Connection");
+		ImGui::Separator();
+
+		// The subsystem only initializes during Application startup, so anything changed above
+		// needs a restart before there's a client to connect with. Say which thing is missing
+		// rather than offering a Connect button that would silently do nothing.
+		if (DiscordSocial::GetState() == DiscordSocial::State::Disabled)
+		{
+			if (!enabled)
+				ImGui::TextDisabled("Turn on 'Enable Rich Presence' above, then restart the editor.");
+			else if (m_DiscordApplicationID.empty())
+				ImGui::TextDisabled("Set an Application ID above, then restart the editor.");
+			else
+				ImGui::TextDisabled("Enabled. Restart the editor to initialize Discord.");
+			return;
+		}
+
+		switch (DiscordSocial::GetState())
+		{
+			case DiscordSocial::State::Ready:
+			{
+				const std::string& username = DiscordSocial::GetUsername();
+				ImGui::Text("Connected as %s", username.empty() ? "<unknown>" : username.c_str());
+
+				if (ImGui::Button("Disconnect"))
+					DiscordSocial::Disconnect();
+				break;
+			}
+			case DiscordSocial::State::Authenticating:
+				ImGui::TextDisabled("Waiting for authorization in your browser...");
+				break;
+			case DiscordSocial::State::Connecting:
+				ImGui::TextDisabled("Connecting...");
+				break;
+			case DiscordSocial::State::Failed:
+			{
+				const std::string& error = DiscordSocial::GetLastError();
+				ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.4f, 1.0f), "Failed: %s", error.empty() ? "unknown error" : error.c_str());
+
+				if (ImGui::Button("Retry"))
+					DiscordSocial::Connect();
+				break;
+			}
+			default:
+			{
+				ImGui::TextDisabled("Not connected.");
+
+				if (ImGui::Button("Connect"))
+					DiscordSocial::Connect();
+
+				ImGui::SameLine();
+				ImGui::TextDisabled("Opens your browser to authorize Lux.");
+				break;
+			}
+		}
 	}
 
 	void ApplicationSettingsPanel::SaveAutoOpenMostRecentProjectSetting(bool enabled) const

@@ -124,6 +124,14 @@ Dependencies = {
 		Linux = { LibName = "assimp", LibDir = "%{wks.location}/Core/vendor/assimp/bin/linux/" },
 		Configurations = "Debug,Release"
 	},
+	-- Opt-in, enabled with the "--discord" premake option. The SDK ships both debug and release
+	-- binaries, but we link release in every configuration: it's a C ABI boundary behind a DLL,
+	-- so there's no CRT mismatch, and the debug build is only useful for debugging the SDK itself.
+	-- See Core/vendor/discord_social_sdk/DISCORD_SDK_SETUP.md.
+	DiscordSocial = _OPTIONS["discord"] and {
+		IncludeDir = "%{wks.location}/Core/vendor/discord_social_sdk/include",
+		Windows = { LibName = "discord_partner_sdk", LibDir = "%{wks.location}/Core/vendor/discord_social_sdk/lib/release/" },
+	} or nil,
 	ACL = {
 		IncludeDir = "%{wks.location}/Core/vendor/acl/include"
 	},

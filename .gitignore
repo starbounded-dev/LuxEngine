@@ -42,6 +42,8 @@ Editor/assets/AssetRegistry.lzr
 Editor/dbg_trace.txt
 Editor/dbg_ctor.txt
 
+!Core/vendor/discord_social_sdk/**
+
 # Tracy CSV-export tool build (perf tooling)
 .tracytools/
 

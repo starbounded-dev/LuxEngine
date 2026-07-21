@@ -37,6 +37,9 @@ namespace Lux {
 		// Only honored when CoreThreadingPolicy == MultiThreaded. Default off - it is experimental and
 		// requires the layer to feed render state through a FrameRenderPacket (see RuntimeLayer).
 		bool EnableSimulationThread = false;
+		// Allows the app to refuse the Discord integration outright. Even when true it stays gated
+		// on the "Discord.RichPresenceEnabled" setting, which defaults to off.
+		bool EnableDiscordRichPresence = true;
 		std::filesystem::path IconPath;
 	};
 

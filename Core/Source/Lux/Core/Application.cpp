@@ -25,6 +25,7 @@
 #include "Lux/Utilities/StringUtils.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Core/JobSystem.h"
+#include "Lux/Social/DiscordSocial.h"
 
 //#include "Lux/Editor/EditorApplicationSettings.h"
 
@@ -110,6 +111,9 @@ namespace Lux {
 
 		//MiniAudioEngine::Init();
 		Font::Init();
+
+		if (m_Specification.EnableDiscordRichPresence)
+			DiscordSocial::Init();
 	}
 
 	Application::~Application()
@@ -137,6 +141,8 @@ namespace Lux {
 		//MiniAudioEngine::Shutdown();
 
 		Renderer::Shutdown();
+
+		DiscordSocial::Shutdown();
 
 		JobSystem::Shutdown();
 
@@ -249,6 +255,13 @@ namespace Lux {
 					LUX_SCOPE_PERF("Application Layer::OnUpdate");
 					for (Layer* layer : m_LayerStack)
 						layer->OnUpdate(m_TimeStep);
+				}
+
+				{
+					// Dispatches every Discord SDK callback on this thread, so presence state
+					// mutates only here and needs no locking.
+					LUX_SCOPE_PERF("Discord::Update");
+					DiscordSocial::Update();
 				}
 				/*
 				Ref<Scene> activeScene = ScriptEngine::GetInstance().GetCurrentScene();

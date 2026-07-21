@@ -45,6 +45,7 @@ namespace Lux {
 		void DrawEditorPage();
 		void DrawViewportPage();
 		void DrawContentBrowserPage();
+		void DrawDiscordPage();
 
 		void SaveAutoOpenMostRecentProjectSetting(bool enabled) const;
 		bool LoadAutoOpenMostRecentProjectSetting() const;
@@ -58,6 +59,9 @@ namespace Lux {
 
 		uint32_t m_CurrentPage = 0;
 		std::vector<SettingsPage> m_Pages;
+
+		// Edited in the Discord page; only committed to settings when it actually changes.
+		std::string m_DiscordApplicationID;
 	};
 
 }

@@ -8,8 +8,11 @@
 #include "Lux/Renderer/ShaderPack.h"
 #include "Lux/Serialization/AssetPack.h"
 #include "Lux/Project/ProjectSerializer.h"
+#include "Lux/Social/DiscordSocial.h"
 
 #include "Lux/Utilities/FileSystem.h"
+
+#include <format>
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Core/Math/AABB.h"
@@ -832,6 +835,9 @@ namespace Lux {
 	void EditorLayer::OnUpdate(Timestep ts)
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnUpdate");
+
+		// Before the early-out below: presence should still reflect "no project open".
+		UpdateDiscordPresence();
 
 		if (!m_ActiveScene || !m_EditorViewport)
 			return;
@@ -2840,6 +2846,33 @@ namespace Lux {
 			m_SceneRendererPanel->SetDebugViewsRuntimeSuspended(false);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetDebugViewsRuntimeSuspended(false);
+	}
+
+	void EditorLayer::UpdateDiscordPresence()
+	{
+		if (!DiscordSocial::IsReady())
+			return;
+
+		// Driven from OnUpdate rather than the scene-state transitions so that project loads,
+		// scene switches and renames are all covered by one path. DiscordSocial::SetPresence
+		// drops unchanged text, so this costs two string compares on a steady frame.
+		const char* verb = "Editing";
+		switch (m_SceneState)
+		{
+			case SceneState::Play:		verb = "Playing"; break;
+			case SceneState::Simulate:	verb = "Simulating"; break;
+			default:					break;
+		}
+
+		if (!Project::GetActive())
+		{
+			DiscordSocial::SetPresence("In the editor", "No project open");
+			return;
+		}
+
+		DiscordSocial::SetPresence(
+			std::format("{} {}", verb, Project::GetProjectName()),
+			m_ActiveScene ? m_ActiveScene->GetName() : std::string("No scene"));
 	}
 
 	void EditorLayer::OnScenePlay()
