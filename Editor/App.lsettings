@@ -1,6 +1,8 @@
 Lux Application Settings:
   ContentBrowser.ShowAssetTypes: 1
   ContentBrowser.ThumbnailSize: 101.000000
+  Discord.ApplicationID: 1528995178407399654
+  Discord.RichPresenceEnabled: true
   Editor.AutoOpenMostRecentProject: 1
   Editor.RotationSnapValue: 10.000000
   Editor.ShowBoundingBoxes: 0

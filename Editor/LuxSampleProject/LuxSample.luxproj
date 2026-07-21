@@ -25,10 +25,11 @@ Project:
     Rendering:
       QualityPreset: Cinematic
       FrustumCulling: true
-      OcclusionCulling: true
+      OcclusionCulling: false
       GPUDrivenRendering: true
       MeshLODs: true
       MeshLODDistanceScale: 1
+      VariableRateShading: true
       MeshShaders: false
       GTAO: true
       GTAOBentNormals: true
@@ -59,10 +60,15 @@ Project:
       ShadowCulling: true
       MaxDistance: 450
       DistanceFade: 50
+      ActiveCascadeCount: 3
       SplitLambda: 0.920000017
       NearOffset: 0
       FarOffset: 50
       CascadeFade: 1
+      FilterMode: 2
+      DirectionalPCSSCascades: 1
+      PCFRadiusTexels: 1.25
+      SpotPCFRadiusTexels: 1.5
       ResolutionLimit: 8K
     PostFX:
       Bloom:
