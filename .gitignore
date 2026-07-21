@@ -44,3 +44,6 @@ Editor/dbg_ctor.txt
 
 # Tracy CSV-export tool build (perf tooling)
 .tracytools/
+
+# Remembered Setup/Win-GenProjects choices (per-machine)
+scripts/.luxsetup.json

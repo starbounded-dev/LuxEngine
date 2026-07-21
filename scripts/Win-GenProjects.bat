@@ -1,3 +1,5 @@
 @echo off
-python Win-GenProjects.py
+pushd %~dp0
+python Win-GenProjects.py %*
+popd
 PAUSE

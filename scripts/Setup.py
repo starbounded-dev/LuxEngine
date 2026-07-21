@@ -1,95 +1,65 @@
 import os
-import sys
 import subprocess
+import sys
+
 import CheckPython
 
 # Make sure everything we need is installed
 CheckPython.ValidatePackages()
 
-import Vulkan
-import Utils
 import colorama
-from colorama import Fore
-from colorama import Back
-from colorama import Style
+from colorama import Back, Style
+
+import Configure
+import Vulkan
 
 colorama.init()
 
-
-def choose_visual_studio_generator():
-    options = ["vs2022", "vs2026"]
-
-    if len(sys.argv) > 1:
-        selected = sys.argv[1].lower().strip()
-        if selected in options:
-            return selected
-
-    try:
-        import msvcrt
-    except ImportError:
-        while True:
-            choice = input("Choose Visual Studio generator (vs2022/vs2026): ").strip().lower()
-            if choice in options:
-                return choice
-            print(f"{Fore.RED}Invalid choice. Please enter vs2022 or vs2026.{Style.RESET_ALL}")
-
-    selected_index = 0
-
-    def render_menu():
-        os.system("cls")
-        print(f"{Style.BRIGHT}{Back.GREEN}Choose Visual Studio generator{Style.RESET_ALL}")
-        print()
-        print("Use the arrow keys to move, then press Enter to confirm.")
-        print()
-
-        for index, option in enumerate(options):
-            prefix = ">" if index == selected_index else " "
-            if index == selected_index:
-                print(f"{Fore.CYAN}{Style.BRIGHT}{prefix} {option}{Style.RESET_ALL}")
-            else:
-                print(f"  {option}")
-
-    while True:
-        render_menu()
-        key = msvcrt.getch()
-
-        if key in (b"\r", b"\n"):
-            os.system("cls")
-            return options[selected_index]
-
-        if key in (b"\x00", b"\xe0"):
-            arrow = msvcrt.getch()
-            if arrow == b"H":  # Up
-                selected_index = (selected_index - 1) % len(options)
-            elif arrow == b"P":  # Down
-                selected_index = (selected_index + 1) % len(options)
-
+PREMAKE = "vendor/bin/premake5.exe"
 
 # Change from Scripts directory to root
 os.chdir('../')
+ROOT = os.getcwd()
+
+config = Configure.run(sys.argv[1:], title="Lux setup")
+if config is None:
+    print("Cancelled.")
+    sys.exit(1)
 
 # Set LUX_DIR environment variable to current LUX root directory
-print(f"{Style.BRIGHT}{Back.GREEN}Setting LUX_DIR to {os.getcwd()}{Style.RESET_ALL}")
-subprocess.call(["setx", "LUX_DIR", os.getcwd()])
-os.environ['LUX_DIR'] = os.getcwd()
+print(f"{Style.BRIGHT}{Back.GREEN}Setting LUX_DIR to {ROOT}{Style.RESET_ALL}")
+subprocess.call(["setx", "LUX_DIR", ROOT])
+os.environ['LUX_DIR'] = ROOT
 
-if (not Vulkan.CheckVulkanSDK()):
-    print("Vulkan SDK not installed.")
-    exit()
+if config.enabled("skip-vulkan-check"):
+    print(f"{Style.DIM}Skipping Vulkan SDK check.{Style.RESET_ALL}")
+else:
+    if not Vulkan.CheckVulkanSDK():
+        print("Vulkan SDK not installed.")
+        sys.exit(1)
 
-if (Vulkan.CheckVulkanSDKDebugLibs()):
-    print(f"{Style.BRIGHT}{Back.GREEN}Vulkan SDK debug libs located.{Style.RESET_ALL}")
+    if Vulkan.CheckVulkanSDKDebugLibs():
+        print(f"{Style.BRIGHT}{Back.GREEN}Vulkan SDK debug libs located.{Style.RESET_ALL}")
 
-subprocess.call(["git", "lfs", "pull"])
-subprocess.call(["git", "submodule", "update", "--init", "--recursive"])
+if config.enabled("skip-submodules"):
+    print(f"{Style.DIM}Skipping git lfs pull and submodule update.{Style.RESET_ALL}")
+else:
+    subprocess.call(["git", "lfs", "pull"])
+    subprocess.call(["git", "submodule", "update", "--init", "--recursive"])
+
+Configure.warn_missing_discord_sdk(config, ROOT)
 
 if not os.path.exists("Editor/DotNet/"):
     os.makedirs("Editor/DotNet/")
 
-generator = choose_visual_studio_generator()
+print(f"{Style.BRIGHT}{Back.GREEN}Generating {config.generator} solution.{Style.RESET_ALL}")
+result = Configure.run_premake(config, PREMAKE)
+if result != 0:
+    print(f"{Style.BRIGHT}{Back.RED}Project generation failed.{Style.RESET_ALL}")
+    sys.exit(result)
 
-print(f"{Style.BRIGHT}{Back.GREEN}Generating {generator} solution.{Style.RESET_ALL}")
-subprocess.call(["vendor/bin/premake5.exe", generator])
+if not config.enabled("skip-scripts"):
+    scripts_dir = os.path.join("Editor", "LuxSampleProject", "Assets", "Scripts")
+    Configure.run_premake(config, os.path.join(ROOT, PREMAKE), cwd=scripts_dir, include_options=False)
 
-os.chdir('Editor/LuxSampleProject/Assets/Scripts')
-subprocess.call(["../../../../vendor/bin/premake5.exe", generator])
+print(f"{Style.BRIGHT}{Back.GREEN}Setup complete.{Style.RESET_ALL}")

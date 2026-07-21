@@ -1,4 +1,22 @@
 include "./vendor/premake_customization/solution_items.lua"
+
+-- Opt-in integrations. These stay out of the build entirely unless requested, so
+-- the default build never depends on an SDK that isn't checked out.
+newoption {
+	trigger = "discord",
+	description = "Enable the Discord Social SDK integration (requires Core/vendor/discord_social_sdk)"
+}
+
+newoption {
+	trigger = "no-tracy",
+	description = "Build without Tracy profiler instrumentation"
+}
+
+newoption {
+	trigger = "no-aftermath",
+	description = "Build without the Nvidia Aftermath GPU crash tracker"
+}
+
 include "Dependencies.lua"
 
 workspace "Lux"
@@ -20,15 +38,28 @@ workspace "Lux"
 		"NOMINMAX",
 		"SPDLOG_USE_STD_FORMAT",
 		"_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING",
-		"TRACY_ENABLE",
-		"TRACY_ON_DEMAND",
-		"TRACY_CALLSTACK=10",
-		
+
 		"LUX_HAS_VULKAN",
 		"VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1",
 		"IMGUI_DEFINE_MATH_OPERATORS",
 		"YAML_CPP_STATIC_DEFINE",
 	}
+
+	-- Tracy stays on by default. With "--no-tracy" the defines are omitted, which turns
+	-- the vendored Tracy library into a stub and makes Profiler.h compile every
+	-- LUX_PROFILE_* macro away - the same path Dist builds already take.
+	if not _OPTIONS["no-tracy"] then
+		defines {
+			"TRACY_ENABLE",
+			"TRACY_ON_DEMAND",
+			"TRACY_CALLSTACK=10",
+		}
+	end
+
+	-- Aftermath is already compiled out of Dist builds; this lets the other configs opt out too.
+	if _OPTIONS["no-aftermath"] then
+		defines { "LUX_DISABLE_AFTERMATH" }
+	end
 
     filter "action:vs*"
         linkoptions { "/ignore:4099" } -- NOTE(Peter): Disable no PDB found warning

@@ -34,6 +34,12 @@ project "Core"
 		"Source/Lux/Platform/DX12/**.cpp",
 	}
 
+	-- The crash-tracker sources include GFSDK_Aftermath.h unconditionally, so they have to be
+	-- dropped from the build, not just #ifdef'd out. Dist does the same below.
+	if _OPTIONS["no-aftermath"] then
+		removefiles { "Source/Lux/Platform/Vulkan/Debug/**.cpp" }
+	end
+
 	includedirs { "Source/", "vendor/", }
 
 	IncludeDependencies()

@@ -4,7 +4,8 @@
 #include "VulkanContext.h"
 #include "VulkanMemoryAllocator/vk_mem_alloc.h"
 
-#define LUX_HAS_AFTERMATH !LUX_DIST
+// Off in Dist, and off entirely when the projects were generated with "--no-aftermath".
+#define LUX_HAS_AFTERMATH (!LUX_DIST && !LUX_DISABLE_AFTERMATH)
 
 #if LUX_HAS_AFTERMATH
 #include "Debug/NsightAftermathGpuCrashTracker.h"

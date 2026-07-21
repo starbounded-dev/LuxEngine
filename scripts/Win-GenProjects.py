@@ -1,52 +1,42 @@
 import os
-import subprocess
+import sys
+
 import CheckPython
 
 # Make sure everything we need is installed
 CheckPython.ValidatePackages()
 
-import Utils
 import colorama
+from colorama import Back, Style
 
-from colorama import Fore
-from colorama import Back
-from colorama import Style
+import Configure
 
 colorama.init()
 
-
-def select_visual_studio_generator():
-    generators = {
-        "2022": "vs2022",
-        "2026": "vs2026"
-    }
-
-    while True:
-        choice = input(
-            f"{Style.BRIGHT}{Fore.CYAN}Which Visual Studio version do you want to generate? "
-            f"(2022/2026): {Style.RESET_ALL}"
-        ).strip()
-
-        if choice in generators:
-            return generators[choice]
-
-        print(
-            f"{Style.BRIGHT}{Fore.RED}Invalid choice. Please enter 2022 or 2026.{Style.RESET_ALL}"
-        )
-
+PREMAKE = "vendor/bin/premake5.exe"
 
 # Change from Scripts directory to root
 os.chdir('../')
+ROOT = os.getcwd()
+
+config = Configure.run(sys.argv[1:], title="Lux project generation")
+if config is None:
+    print("Cancelled.")
+    sys.exit(1)
+
+Configure.warn_missing_discord_sdk(config, ROOT)
 
 if not os.path.exists("Editor/DotNet/"):
     os.makedirs("Editor/DotNet/")
 
-selected_generator = select_visual_studio_generator()
+print(f"{Style.BRIGHT}{Back.GREEN}Generating {config.generator} solution.{Style.RESET_ALL}")
+result = Configure.run_premake(config, PREMAKE)
+if result != 0:
+    print(f"{Style.BRIGHT}{Back.RED}Project generation failed.{Style.RESET_ALL}")
+    sys.exit(result)
 
-print(
-    f"{Style.BRIGHT}{Back.GREEN}Generating Visual Studio {selected_generator[2:]} solution.{Style.RESET_ALL}"
-)
-subprocess.call(["vendor/bin/premake5.exe", selected_generator])
+if not config.enabled("skip-scripts"):
+    scripts_dir = os.path.join("Editor", "LuxSampleProject", "Assets", "Scripts")
+    Configure.run_premake(config, os.path.join(ROOT, PREMAKE), cwd=scripts_dir, include_options=False)
 
-os.chdir('Editor/LuxSampleProject/Assets/Scripts')
-subprocess.call(["../../../../vendor/bin/premake5.exe", selected_generator])
+print(f"{Style.BRIGHT}{Back.GREEN}Done.{Style.RESET_ALL}")

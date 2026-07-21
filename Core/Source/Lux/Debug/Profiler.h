@@ -1,6 +1,8 @@
 #pragma once
 
-#define LUX_ENABLE_PROFILING !LUX_DIST
+// Off in Dist, and off entirely when the projects were generated with "--no-tracy"
+// (which omits TRACY_ENABLE, reducing the vendored Tracy library to a stub).
+#define LUX_ENABLE_PROFILING (!LUX_DIST && TRACY_ENABLE)
 
 #if LUX_ENABLE_PROFILING
 #include <tracy/Tracy.hpp>

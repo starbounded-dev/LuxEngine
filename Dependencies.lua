@@ -72,12 +72,13 @@ Dependencies = {
 	Bcrypt = {
 		LibName = "Bcrypt"
 	},
-	NvidiaAftermath = {
+	-- Dropped entirely with "--no-aftermath"; the code side is gated on LUX_DISABLE_AFTERMATH.
+	NvidiaAftermath = (not _OPTIONS["no-aftermath"]) and {
 		LibName = "GFSDK_Aftermath_Lib.x64",
 		IncludeDir = "%{wks.location}/Core/vendor/NvidiaAftermath/include",
 		Windows = { LibDir = "%{wks.location}/Core/vendor/NvidiaAftermath/lib/x64/windows/" },
 		Linux = { LibDir = "%{wks.location}/Core/vendor/NvidiaAftermath/lib/x64/linux/" },
-	},
+	} or nil,
 	ShaderC = {
 		LibName = "shaderc_shared",
 		Windows = { DebugLibName = "shaderc_sharedd", },
