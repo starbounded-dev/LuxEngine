@@ -2855,24 +2855,47 @@ namespace Lux {
 
 		// Driven from OnUpdate rather than the scene-state transitions so that project loads,
 		// scene switches and renames are all covered by one path. DiscordSocial::SetPresence
-		// drops unchanged text, so this costs two string compares on a steady frame.
+		// drops an unchanged payload, so this costs a struct compare on a steady frame.
+
+		// Image keys reference assets uploaded to the Discord application's Art Assets page
+		// (Developer Portal -> your app -> Rich Presence -> Art Assets). Upload:
+		//   "lux_logo"        - the large square icon (the only asset that really matters)
+		//   "mode_play"       - small badge shown while playing
+		//   "mode_simulate"   - small badge shown while simulating
+		// A missing key just renders no image, so partial uploads degrade gracefully.
+		DiscordSocial::PresenceInfo presence;
+		presence.LargeImage = "lux_logo";
+		presence.LargeText = "Lux Engine " LUX_VERSION;
+
 		const char* verb = "Editing";
 		switch (m_SceneState)
 		{
-			case SceneState::Play:		verb = "Playing"; break;
-			case SceneState::Simulate:	verb = "Simulating"; break;
-			default:					break;
+			case SceneState::Play:
+				verb = "Playing";
+				presence.SmallImage = "mode_play";
+				presence.SmallText = "Play mode";
+				break;
+			case SceneState::Simulate:
+				verb = "Simulating";
+				presence.SmallImage = "mode_simulate";
+				presence.SmallText = "Simulate mode";
+				break;
+			default:
+				break;
 		}
 
 		if (!Project::GetActive())
 		{
-			DiscordSocial::SetPresence("In the editor", "No project open");
-			return;
+			presence.Details = "In the editor";
+			presence.State = "No project open";
+		}
+		else
+		{
+			presence.Details = std::format("{} {}", verb, Project::GetProjectName());
+			presence.State = m_ActiveScene ? m_ActiveScene->GetName() : std::string("No scene");
 		}
 
-		DiscordSocial::SetPresence(
-			std::format("{} {}", verb, Project::GetProjectName()),
-			m_ActiveScene ? m_ActiveScene->GetName() : std::string("No scene"));
+		DiscordSocial::SetPresence(presence);
 	}
 
 	void EditorLayer::OnScenePlay()

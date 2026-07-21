@@ -8,6 +8,7 @@
 	// The SDK's implementation lives in DiscordppImpl.cpp; here we only need the declarations.
 	#include <discordpp.h>
 
+	#include <chrono>
 	#include <format>
 #endif
 
@@ -34,6 +35,7 @@ namespace Lux {
 	const std::string& DiscordSocial::GetUsername() { return s_EmptyString; }
 	const std::string& DiscordSocial::GetLastError() { return s_EmptyString; }
 
+	void DiscordSocial::SetPresence(const PresenceInfo&) {}
 	void DiscordSocial::SetPresence(const std::string&, const std::string&) {}
 	void DiscordSocial::ClearPresence() {}
 
@@ -50,50 +52,78 @@ namespace Lux {
 			std::string Username;
 			std::string LastError;
 
+			// Milliseconds since the Unix epoch, captured at Init(). Sent as the activity start so
+			// Discord renders a count-up "elapsed" timer for the whole session; kept constant across
+			// presence changes so switching scenes doesn't reset it.
+			uint64_t SessionStartMs = 0;
+
 			// Last presence we actually sent, so repeat calls can be dropped. Discord rate-limits
 			// presence updates, and the editor would otherwise push one every frame.
-			std::string SentDetails;
-			std::string SentState;
+			DiscordSocial::PresenceInfo Sent;
 			bool HasSentPresence = false;
 
 			// Presence requested before the client reached Ready, flushed on ready.
-			std::string PendingDetails;
-			std::string PendingState;
+			DiscordSocial::PresenceInfo Pending;
 			bool HasPendingPresence = false;
 		};
 
 		DiscordData* s_Data = nullptr;
+
+		// A persisted session. The access token authenticates directly (valid ~7 days), so on a
+		// normal restart it can be reused with no network round trip; the refresh token is the
+		// fallback for when it has expired.
+		struct SavedSession
+		{
+			std::string AccessToken;
+			std::string RefreshToken;
+			uint64_t ExpiresAtMs = 0;   // access-token expiry, ms since epoch; 0 = unknown
+		};
 
 		std::filesystem::path GetTokenPath()
 		{
 			return FileSystem::GetPersistentStoragePath() / "DiscordToken.txt";
 		}
 
-		// NOTE: the refresh token is stored in plaintext under the user's roaming AppData. The
-		// Social SDK offers no encrypted credential store, and this matches what other engines do,
-		// but it is worth being explicit: anything that can read the user's profile can read this
-		// token. It is deleted on Disconnect().
-		std::string LoadSavedToken()
+		uint64_t NowMs()
+		{
+			return (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::system_clock::now().time_since_epoch()).count();
+		}
+
+		// NOTE: tokens are stored in plaintext under the user's roaming AppData. The Social SDK
+		// offers no encrypted credential store, and this matches what other engines do, but it is
+		// worth being explicit: anything that can read the user's profile can read these. Deleted
+		// on Disconnect(). Format is three lines: access, refresh, expiry-ms.
+		SavedSession LoadSavedSession()
 		{
 			std::ifstream stream(GetTokenPath());
 			if (!stream)
 				return {};
 
-			std::string token;
-			std::getline(stream, token);
-			return token;
+			SavedSession session;
+			std::string expiresLine;
+			std::getline(stream, session.AccessToken);
+			std::getline(stream, session.RefreshToken);
+			if (std::getline(stream, expiresLine) && !expiresLine.empty())
+			{
+				try { session.ExpiresAtMs = std::stoull(expiresLine); }
+				catch (const std::exception&) { session.ExpiresAtMs = 0; }
+			}
+			return session;
 		}
 
-		void SaveToken(const std::string& refreshToken)
+		void SaveSession(const SavedSession& session)
 		{
 			std::ofstream stream(GetTokenPath(), std::ios::trunc);
 			if (!stream)
 			{
-				LUX_CORE_WARN_TAG("Discord", "Failed to persist refresh token to {}", GetTokenPath().string());
+				LUX_CORE_WARN_TAG("Discord", "Failed to persist session to {}", GetTokenPath().string());
 				return;
 			}
 
-			stream << refreshToken;
+			stream << session.AccessToken << '\n'
+			       << session.RefreshToken << '\n'
+			       << session.ExpiresAtMs << '\n';
 		}
 
 		void ClearSavedToken()
@@ -160,17 +190,16 @@ namespace Lux {
 				return;
 
 			s_Data->HasPendingPresence = false;
-			DiscordSocial::SetPresence(s_Data->PendingDetails, s_Data->PendingState);
+			DiscordSocial::SetPresence(s_Data->Pending);
 		}
 
-		// Exchanges an authorization code (or a saved refresh token) for a live session.
-		void ApplyToken(const std::string& accessToken, const std::string& refreshToken)
+		// Hands an access token to the client and connects. persistSession controls whether the
+		// session is (re)written to disk - true for freshly issued tokens (login/refresh), false
+		// when we're just reusing what's already saved.
+		void ConnectWithAccessToken(const std::string& accessToken, bool logSuccess)
 		{
-			if (!refreshToken.empty())
-				SaveToken(refreshToken);
-
 			s_Data->Client->UpdateToken(discordpp::AuthorizationTokenType::Bearer, accessToken,
-				[](discordpp::ClientResult result)
+				[logSuccess](discordpp::ClientResult result)
 				{
 					if (!s_Data)
 						return;
@@ -183,9 +212,25 @@ namespace Lux {
 						return;
 					}
 
+					if (logSuccess)
+						LUX_CORE_INFO_TAG("Discord", "Resuming saved session");
+
 					s_Data->State = DiscordSocial::State::Connecting;
 					s_Data->Client->Connect();
 				});
+		}
+
+		// Persists a freshly issued token set (from login or refresh) and connects with it.
+		// expiresInSeconds comes straight from the token-exchange callback.
+		void ApplyToken(const std::string& accessToken, const std::string& refreshToken, int32_t expiresInSeconds)
+		{
+			SavedSession session;
+			session.AccessToken = accessToken;
+			session.RefreshToken = refreshToken;
+			session.ExpiresAtMs = expiresInSeconds > 0 ? NowMs() + (uint64_t)expiresInSeconds * 1000ull : 0;
+			SaveSession(session);
+
+			ConnectWithAccessToken(accessToken, false);
 		}
 
 	}
@@ -218,6 +263,8 @@ namespace Lux {
 
 		s_Data = lnew DiscordData();
 		s_Data->State = State::Disconnected;
+		s_Data->SessionStartMs = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::system_clock::now().time_since_epoch()).count();
 
 		try
 		{
@@ -236,32 +283,54 @@ namespace Lux {
 
 		// Resume a previous session if we have one. This deliberately does not open a browser -
 		// an unattended launch must never steal focus.
-		const std::string refreshToken = LoadSavedToken();
-		if (refreshToken.empty())
+		const SavedSession session = LoadSavedSession();
+		if (session.AccessToken.empty() && session.RefreshToken.empty())
 		{
 			LUX_CORE_TRACE_TAG("Discord", "No saved session; waiting for an explicit Connect()");
 			return;
 		}
 
 		s_Data->State = State::Connecting;
-		s_Data->Client->RefreshToken(s_Data->ApplicationID, refreshToken,
+
+		// Prefer reusing the access token directly - it's valid for ~7 days, so a normal restart
+		// needs no token exchange at all. Only fall back to a refresh once it's expired (or its
+		// expiry is unknown). A 60s margin avoids racing an about-to-expire token.
+		const bool accessUsable = !session.AccessToken.empty() &&
+			session.ExpiresAtMs > NowMs() + 60'000;
+
+		if (accessUsable)
+		{
+			ConnectWithAccessToken(session.AccessToken, true);
+			return;
+		}
+
+		if (session.RefreshToken.empty())
+		{
+			LUX_CORE_TRACE_TAG("Discord", "Saved access token expired and no refresh token; sign in again");
+			ClearSavedToken();
+			s_Data->State = State::Disconnected;
+			return;
+		}
+
+		s_Data->Client->RefreshToken(s_Data->ApplicationID, session.RefreshToken,
 			[](discordpp::ClientResult result, std::string accessToken, std::string newRefreshToken,
-			   discordpp::AuthorizationTokenType, int32_t, std::string)
+			   discordpp::AuthorizationTokenType, int32_t expiresIn, std::string)
 			{
 				if (!s_Data)
 					return;
 
 				if (!result.Successful())
 				{
-					// A stale token is not an error worth surfacing loudly - drop it and fall back
-					// to the disconnected state so the user can reconnect from the settings panel.
-					LUX_CORE_WARN_TAG("Discord", "Saved session expired, sign in again to restore presence");
+					// Surface the real reason - "invalid_grant" (token truly stale) vs
+					// "unauthorized_client" (app isn't a Public Client on the OAuth2 page) need
+					// very different fixes, and hiding it behind a generic message cost a debug cycle.
+					LUX_CORE_WARN_TAG("Discord", "Token refresh failed ({}); sign in again to restore presence", result.Error());
 					ClearSavedToken();
 					s_Data->State = State::Disconnected;
 					return;
 				}
 
-				ApplyToken(accessToken, newRefreshToken);
+				ApplyToken(accessToken, newRefreshToken, expiresIn);
 			});
 	}
 
@@ -331,7 +400,7 @@ namespace Lux {
 
 				s_Data->Client->GetToken(s_Data->ApplicationID, code, codeVerifier.Verifier(), redirectUri,
 					[](discordpp::ClientResult tokenResult, std::string accessToken, std::string refreshToken,
-					   discordpp::AuthorizationTokenType, int32_t, std::string)
+					   discordpp::AuthorizationTokenType, int32_t expiresIn, std::string)
 					{
 						if (!s_Data)
 							return;
@@ -344,7 +413,7 @@ namespace Lux {
 							return;
 						}
 
-						ApplyToken(accessToken, refreshToken);
+						ApplyToken(accessToken, refreshToken, expiresIn);
 					});
 			});
 	}
@@ -394,29 +463,58 @@ namespace Lux {
 
 	void DiscordSocial::SetPresence(const std::string& details, const std::string& state)
 	{
+		SetPresence(PresenceInfo{ details, state });
+	}
+
+	void DiscordSocial::SetPresence(const PresenceInfo& presence)
+	{
 		if (!s_Data)
 			return;
 
 		if (s_Data->State != State::Ready)
 		{
 			// Hold the most recent request; it is flushed once the client reaches Ready.
-			s_Data->PendingDetails = details;
-			s_Data->PendingState = state;
+			s_Data->Pending = presence;
 			s_Data->HasPendingPresence = true;
 			return;
 		}
 
-		if (s_Data->HasSentPresence && s_Data->SentDetails == details && s_Data->SentState == state)
+		// The session timer is constant, so it isn't part of this comparison - only the
+		// content the caller controls.
+		if (s_Data->HasSentPresence && s_Data->Sent == presence)
 			return;
 
-		s_Data->SentDetails = details;
-		s_Data->SentState = state;
+		s_Data->Sent = presence;
 		s_Data->HasSentPresence = true;
 
 		discordpp::Activity activity;
 		activity.SetType(discordpp::ActivityTypes::Playing);
-		activity.SetDetails(details);
-		activity.SetState(state);
+		activity.SetDetails(presence.Details);
+		activity.SetState(presence.State);
+
+		// Count-up "elapsed" timer since the session began.
+		if (s_Data->SessionStartMs != 0)
+		{
+			discordpp::ActivityTimestamps timestamps;
+			timestamps.SetStart(s_Data->SessionStartMs);
+			activity.SetTimestamps(std::move(timestamps));
+		}
+
+		// Artwork. Discord rejects an assets object with an empty image key, so only attach one
+		// when at least one image is set, and leave each individual field unset when empty.
+		if (!presence.LargeImage.empty() || !presence.SmallImage.empty())
+		{
+			discordpp::ActivityAssets assets;
+			if (!presence.LargeImage.empty())
+				assets.SetLargeImage(presence.LargeImage);
+			if (!presence.LargeText.empty())
+				assets.SetLargeText(presence.LargeText);
+			if (!presence.SmallImage.empty())
+				assets.SetSmallImage(presence.SmallImage);
+			if (!presence.SmallText.empty())
+				assets.SetSmallText(presence.SmallText);
+			activity.SetAssets(std::move(assets));
+		}
 
 		s_Data->Client->UpdateRichPresence(std::move(activity),
 			[](discordpp::ClientResult result)
