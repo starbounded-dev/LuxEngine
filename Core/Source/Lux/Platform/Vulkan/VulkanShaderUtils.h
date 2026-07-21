@@ -11,34 +11,6 @@
 
 namespace Lux { namespace ShaderUtils {
 
-#if 0
-		inline static std::string_view VKStageToShaderMacro(const VkShaderStageFlagBits stage)
-		{
-			if (stage == VK_SHADER_STAGE_VERTEX_BIT)   return "__VERTEX_STAGE__";
-			if (stage == VK_SHADER_STAGE_FRAGMENT_BIT) return "__FRAGMENT_STAGE__";
-			if (stage == VK_SHADER_STAGE_COMPUTE_BIT)  return "__COMPUTE_STAGE__";
-			LUX_CORE_VERIFY(false, "Unknown shader stage.");
-			return "";
-		}
-
-		inline static std::string_view StageToShaderMacro(const std::string_view stage)
-		{
-			if (stage == "vert") return "__VERTEX_STAGE__";
-			if (stage == "frag") return "__FRAGMENT_STAGE__";
-			if (stage == "comp") return "__COMPUTE_STAGE__";
-			LUX_CORE_VERIFY(false, "Unknown shader stage.");
-			return "";
-		}
-
-		inline static VkShaderStageFlagBits StageToVKShaderStage(const std::string_view stage)
-		{
-			if (stage == "vert") return VK_SHADER_STAGE_VERTEX_BIT;
-			if (stage == "frag") return VK_SHADER_STAGE_FRAGMENT_BIT;
-			if (stage == "comp") return VK_SHADER_STAGE_COMPUTE_BIT;
-			LUX_CORE_VERIFY(false, "Unknown shader stage.");
-			return VK_SHADER_STAGE_ALL;
-		}
-#endif
 		inline static nvrhi::ShaderType PreprocessorStageToShaderStage(const std::string_view stage)
 		{
 			if (stage == "vert") return nvrhi::ShaderType::Vertex;

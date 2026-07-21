@@ -77,11 +77,6 @@ namespace Lux {
 			std::vector<VkDescriptorSet> DescriptorSets;
 		};
 
-#if OLD
-		ShaderMaterialDescriptorSet AllocateDescriptorSet(uint32_t set = 0);
-		ShaderMaterialDescriptorSet CreateDescriptorSets(uint32_t set = 0);
-		ShaderMaterialDescriptorSet CreateDescriptorSets(uint32_t set, uint32_t numberOfSets);
-#endif
 
 		const VkWriteDescriptorSet* GetDescriptorSet(const std::string& name, uint32_t set = 0) const;
 	private:

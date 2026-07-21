@@ -30,9 +30,6 @@ namespace Lux {
 
 		// Vulkan instance
 		inline static VkInstance s_VulkanInstance;
-#if 0
-		VkDebugReportCallbackEXT m_DebugReportCallback = VK_NULL_HANDLE;
-#endif
 		VkDebugUtilsMessengerEXT m_DebugUtilsMessenger = VK_NULL_HANDLE;
 		VkPipelineCache m_PipelineCache = nullptr;
 

@@ -132,27 +132,6 @@ namespace Lux {
 	{
 	}
 
-#if 0
-	void VulkanAllocator::Allocate(VkMemoryRequirements requirements, VkDeviceMemory* dest, VkMemoryPropertyFlags flags /*= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT*/)
-	{
-		LUX_CORE_ASSERT(m_Device);
-
-		// TODO: Tracking
-		LUX_CORE_TRACE("VulkanAllocator ({0}): allocating {1}", m_Tag, Utils::BytesToString(requirements.size));
-
-		{
-			static uint64_t totalAllocatedBytes = 0;
-			totalAllocatedBytes += requirements.size;
-			LUX_CORE_TRACE("VulkanAllocator ({0}): total allocated since start is {1}", m_Tag, Utils::BytesToString(totalAllocatedBytes));
-		}
-
-		VkMemoryAllocateInfo memAlloc = {};
-		memAlloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		memAlloc.allocationSize = requirements.size;
-		memAlloc.memoryTypeIndex = m_Device->GetPhysicalDevice()->GetMemoryTypeIndex(requirements.memoryTypeBits, flags);
-		VK_CHECK_RESULT(vkAllocateMemory(m_Device->GetVulkanDevice(), &memAlloc, nullptr, dest));
-	}
-#endif
 
 	VmaAllocation VulkanAllocator::AllocateBuffer(VkBufferCreateInfo bufferCreateInfo, VmaMemoryUsage usage, VkBuffer& outBuffer)
 	{
@@ -374,15 +353,6 @@ namespace Lux {
 		result.Used = haveDeviceBudget ? deviceUsed : s_Data->MemoryUsage;
 		result.TotalAvailable = haveDeviceBudget ? deviceBudget : budget;
 		return result;
-#if 0
-		VmaStats stats;
-		vmaCalculateStats(s_Data->Allocator, &stats);
-
-		uint64_t usedMemory = stats.total.usedBytes;
-		uint64_t freeMemory = stats.total.unusedBytes;
-
-		return { usedMemory, freeMemory };
-#endif
 	}
 
 	void VulkanAllocator::Init(Ref<VulkanDevice> device)

@@ -25,19 +25,6 @@ namespace Lux {
 	static bool s_Validation = false;
 #endif
 
-#if 0
-	static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object, size_t location, int32_t messageCode, const char* pLayerPrefix, const char* pMessage, void* pUserData)
-	{
-		(void)flags; (void)object; (void)location; (void)messageCode; (void)pUserData; (void)pLayerPrefix; // Unused arguments
-		LUX_CORE_WARN_TAG("Renderer", "VulkanDebugCallback:\n  Object Type: {0}\n  Message: {1}", objectType, pMessage);
-
-		const auto& imageRefs = VulkanImage2D::GetImageRefs();
-		if (strstr(pMessage, "CoreValidation-DrawState-InvalidImageLayout"))
-			LUX_CORE_ASSERT(false);
-
-		return VK_FALSE;
-	}
-#endif
 
 	constexpr const char* VkDebugUtilsMessageType(const VkDebugUtilsMessageTypeFlagsEXT type)
 	{
@@ -254,16 +241,6 @@ namespace Lux {
 
 		if (s_Validation)
 		{
-#if 0
-			auto vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(s_VulkanInstance, "vkCreateDebugReportCallbackEXT");
-			LUX_CORE_ASSERT(vkCreateDebugReportCallbackEXT != NULL, "");
-			VkDebugReportCallbackCreateInfoEXT debug_report_ci = {};
-			debug_report_ci.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
-			debug_report_ci.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
-			debug_report_ci.pfnCallback = VulkanDebugReportCallback;
-			debug_report_ci.pUserData = VK_NULL_HANDLE;
-			VK_CHECK_RESULT(vkCreateDebugReportCallbackEXT(s_VulkanInstance, &debug_report_ci, nullptr, &m_DebugReportCallback));
-#endif
 
 			auto vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(s_VulkanInstance, "vkCreateDebugUtilsMessengerEXT");
 			LUX_CORE_ASSERT(vkCreateDebugUtilsMessengerEXT != NULL, "");

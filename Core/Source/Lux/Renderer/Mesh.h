@@ -331,7 +331,6 @@ namespace Lux {
 		friend class Scene;
 		friend class SceneRenderer;
 		friend class Renderer;
-		friend class VulkanRenderer;
 		friend class SceneHierarchyPanel;
 		friend class MeshViewerPanel;
 		friend class Mesh;
@@ -375,7 +374,6 @@ namespace Lux {
 
 		friend class Scene;
 		friend class Renderer;
-		friend class VulkanRenderer;
 		friend class SceneHierarchyPanel;
 		friend class MeshViewerPanel;
 	};
@@ -417,7 +415,6 @@ namespace Lux {
 
 		friend class Scene;
 		friend class Renderer;
-		friend class VulkanRenderer;
 		friend class SceneHierarchyPanel;
 		friend class MeshViewerPanel;
 	};

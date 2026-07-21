@@ -735,62 +735,6 @@ namespace Lux {
 	bool VulkanDeviceManager::InitSurfaceCapabilities(uint64_t surfaceHandle)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-#if TODO
-		vk::SurfaceKHR windowSurface = (VkSurfaceKHR)surfaceHandle;
-
-		if (windowSurface)
-		{
-			// check that this device supports our intended swap chain creation parameters
-			auto surfaceCaps = dev.getSurfaceCapabilitiesKHR(windowSurface);
-			auto surfaceFmts = dev.getSurfaceFormatsKHR(windowSurface);
-			auto surfacePModes = dev.getSurfacePresentModesKHR(windowSurface);
-
-			if (surfaceCaps.minImageCount > m_DeviceParams.swapChainBufferCount ||
-				(surfaceCaps.maxImageCount < m_DeviceParams.swapChainBufferCount && surfaceCaps.maxImageCount > 0))
-			{
-				errorStream << std::endl << "  - cannot support the requested swap chain image count:";
-				errorStream << " requested " << m_DeviceParams.swapChainBufferCount << ", available " << surfaceCaps.minImageCount << " - " << surfaceCaps.maxImageCount;
-				deviceIsGood = false;
-			}
-
-			if (surfaceCaps.minImageExtent.width > requestedExtent.width ||
-				surfaceCaps.minImageExtent.height > requestedExtent.height ||
-				surfaceCaps.maxImageExtent.width < requestedExtent.width ||
-				surfaceCaps.maxImageExtent.height < requestedExtent.height)
-			{
-				errorStream << std::endl << "  - cannot support the requested swap chain size:";
-				errorStream << " requested " << requestedExtent.width << "x" << requestedExtent.height << ", ";
-				errorStream << " available " << surfaceCaps.minImageExtent.width << "x" << surfaceCaps.minImageExtent.height;
-				errorStream << " - " << surfaceCaps.maxImageExtent.width << "x" << surfaceCaps.maxImageExtent.height;
-				deviceIsGood = false;
-			}
-
-			bool surfaceFormatPresent = false;
-			for (const vk::SurfaceFormatKHR& surfaceFmt : surfaceFmts)
-			{
-				if (surfaceFmt.format == vk::Format(requestedFormat))
-				{
-					surfaceFormatPresent = true;
-					break;
-				}
-			}
-
-			if (!surfaceFormatPresent)
-			{
-				// can't create a swap chain using the format requested
-				errorStream << std::endl << "  - does not support the requested swap chain format";
-				deviceIsGood = false;
-			}
-
-			// check that we can present from the graphics queue
-			uint32_t canPresent = dev.getSurfaceSupportKHR(m_QueueFamilyIndices.Graphics, windowSurface);
-			if (!canPresent)
-			{
-				errorStream << std::endl << "  - cannot present";
-				deviceIsGood = false;
-			}
-		}
-#endif
 		return true;
 	}
 

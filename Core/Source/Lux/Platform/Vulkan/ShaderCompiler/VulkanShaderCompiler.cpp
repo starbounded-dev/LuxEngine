@@ -1084,23 +1084,6 @@ namespace Lux {
 			uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
 			uint32_t descriptorSet = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
 			uint32_t dimension = 0;
-#if 0
-			switch (baseType.image.dim)
-			{
-				case spv::Dim::Dim1D:
-					dimension = 1;
-					break;
-				case spv::Dim::Dim2D:
-					dimension = 2;
-					break;
-				case spv::Dim::Dim3D:
-					dimension = 4; // true 3D volume (distinct from cubemap)
-					break;
-				case spv::Dim::DimCube:
-					dimension = 3;
-					break;
-			}
-#endif
 			uint32_t arraySize = type.array.size() > 0 ? type.array[0] : 1;
 			if (arraySize == 0)
 				arraySize = 1;
