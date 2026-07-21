@@ -23,7 +23,6 @@ scripts/__pycache__
 Editor/assets/cache
 Editor/Resources/Scripts/**
 Sandbox/Resources/Cache
-Core/vendor/GLAD
 Core/vendor/NFD-Extended
 Core/vendor/tracy
 Editor/LuxSampleProject/Assets/Scripts/Binaries

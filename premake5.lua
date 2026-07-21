@@ -76,7 +76,6 @@ group ""
 
 group "Dependencies/Renderer"
 	include "Core/vendor/NVRHI"
-	include "Core/vendor/GLAD"
 group ""
 
 group "Core"

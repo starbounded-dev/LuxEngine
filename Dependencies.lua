@@ -110,10 +110,6 @@ Dependencies = {
 		LibName = "GLFW",
 		IncludeDir = "%{wks.location}/Core/vendor/GLFW/include",
 	},
-	GLAD = {
-		LibName = "GLAD",
-		IncludeDir = "%{wks.location}/Core/vendor/GLAD/include",
-	},
 	Mono = {
 		LibName = "%{wks.location}/Core/vendor/mono/lib/%{cfg.buildcfg}/libmono-static-sgen.lib",
 		IncludeDir = "%{wks.location}/Core/vendor/mono/include",
