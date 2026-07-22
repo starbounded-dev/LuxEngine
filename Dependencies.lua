@@ -111,9 +111,9 @@ Dependencies = {
 		LibName = "GLFW",
 		IncludeDir = "%{wks.location}/Core/vendor/GLFW/include",
 	},
-	Mono = {
-		LibName = "%{wks.location}/Core/vendor/mono/lib/%{cfg.buildcfg}/libmono-static-sgen.lib",
-		IncludeDir = "%{wks.location}/Core/vendor/mono/include",
+	Coral = {
+		LibName = "Coral.Native",
+		IncludeDir = "%{wks.location}/Core/vendor/Coral/Coral.Native/Include",
 	},
 	FastNoise = {
 		IncludeDir = "%{wks.location}/Core/vendor/FastNoise",

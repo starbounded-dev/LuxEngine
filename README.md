@@ -27,7 +27,7 @@ This is a solo project that doubles as a learning vehicle for engine architectur
 ### Engine systems
 - **ECS scenes** (EnTT) with entity hierarchies, prefabs, YAML scene serialization, and editor Play / Simulate / Stop.
 - **3D physics** (Jolt) — rigid bodies, box/sphere/capsule/mesh/compound colliders, a character controller, physics layers, and a mesh-cooking cache. **2D physics** (Box2D) — rigid bodies, box and circle colliders.
-- **C# scripting** (Mono) — script components with a managed `ScriptCore` assembly; entity, transform, and input bindings.
+- **C# scripting** (.NET 9 via [Coral](https://github.com/StudioCherno/Coral)) — script components with a managed `ScriptCore` assembly; entity, transform, and input bindings, with hot reload.
 - **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, and binary **asset packs + shader packs** for shipping runtime builds.
 - **Audio** (miniaudio) — audio source and listener components; play/stop with basic controls.
 - **Standalone runtime** — `Lux-Runtime` plays a packaged project without the editor.
@@ -84,7 +84,8 @@ If you cloned non-recursively, run `git submodule update --init --recursive`.
 
 1. Run [Setup.bat](scripts/Setup.bat) in the `scripts` folder. It validates Python packages, checks the Vulkan SDK, pulls Git LFS assets and submodules, and generates project files.
 2. The **Vulkan SDK 1.4.x** is required. If missing, the script downloads the installer and prompts you; Debug builds additionally need the SDK's shader debug libraries.
-3. After installing the SDK, run [Setup.bat](scripts/Setup.bat) again.
+3. The **.NET 9 SDK** is required for C# scripting — Coral loads the runtime via hostfxr and hardcodes .NET major version 9, and `ScriptCore`/`Coral.Managed` target `net9.0`. Setup.py builds these with the `dotnet` CLI into `Editor/DotNet` and `Editor/Resources/Scripts`.
+4. After installing the SDKs, run [Setup.bat](scripts/Setup.bat) again.
 4. To regenerate project files later, run [Win-GenProjects.bat](scripts/Win-GenProjects.bat).
 
 Then open `Lux.sln` and build. `Editor` is the main workspace app; `Lux-Runtime` is the standalone player.
@@ -105,7 +106,7 @@ The [Build LuxEngine](.github/workflows/main.yml) workflow builds Debug, Release
 | Windowing / UI | GLFW, Dear ImGui (docking), ImGuizmo |
 | Physics | Jolt Physics (3D), Box2D (2D) |
 | ECS | EnTT |
-| Scripting | Mono (C#) |
+| Scripting | Coral (.NET 9 / C#) |
 | Assets | Assimp, stb, yaml-cpp |
 | Text | msdf-atlas-gen / msdfgen, FreeType |
 | Audio | miniaudio |

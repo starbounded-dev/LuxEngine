@@ -23,21 +23,12 @@ if [ -n "${VULKAN_SDK+set}" ]
 		export VULKAN_SDK=$(realpath Core/vendor/VulkanSDK/x86_64)
 fi
 
-# Build Coral.Managed and Script Core
-	premake5 vs2022 --file=Core/ScriptCore/premake5-dotnet.lua
-	dotnet build -c $BUILD_CONFIG --property WarningLevel=0 Core/ScriptCore/Core-ScriptCore.sln
-
-# Copy Coral Files
-	CORAL_DIR=$LUX_DIR/Core/vendor/Coral
-	LUX_DIR=$LUX_DIR
-	DOTNET_DIR=$LUX_DIR/DotNet
-
-	mkdir -p $DOTNET_DIR
-
-	cp $CORAL_DIR/Coral.Managed/Coral.Managed.runtimeconfig.json $DOTNET_DIR/Coral.Managed.runtimeconfig.json
-	cp $CORAL_DIR/Build/$BUILD_CONFIG/Coral.Managed.dll $DOTNET_DIR/Coral.Managed.dll
-	cp $CORAL_DIR/Build/$BUILD_CONFIG/Coral.Managed.pdb $DOTNET_DIR/Coral.Managed.pdb
-	cp $CORAL_DIR/Build/$BUILD_CONFIG/Coral.Managed.deps.json $DOTNET_DIR/Coral.Managed.deps.json
+# Build Coral.Managed (the C# host assembly) into Editor/DotNet, and the ScriptCore
+# assembly into Editor/Resources/Scripts. Both are SDK-style net9.0 projects built with
+# the dotnet CLI. ScriptCore references Coral.Managed, so building it also builds Coral.Managed.
+	dotnet build -c Release --property WarningLevel=0 \
+		Core/vendor/Coral/Coral.Managed/Coral.Managed-Static.csproj -o Editor/DotNet
+	dotnet build -c $BUILD_CONFIG --property WarningLevel=0 ScriptCore/ScriptCore.csproj
 
 # Build Lux
 	premake5 gmake --cc=clang --verbose

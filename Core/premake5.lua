@@ -1,8 +1,24 @@
 project "Core"
 	kind "StaticLib"
+	dependson "Coral.Managed"
 
 	targetdir ("../bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
+
+	-- Deploy the Coral.Managed host assembly next to the editor (Editor/DotNet), which is the
+	-- CoralDirectory ScriptEngine points HostInstance at. Mirrors Hazel's Hazel-project postbuild.
+	postbuildcommands {
+		'{MKDIR} "%{wks.location}/Editor/DotNet"',
+		'{COPYFILE} "%{wks.location}/Core/vendor/Coral/Build/%{cfg.buildcfg}/Coral.Managed.dll" "%{wks.location}/Editor/DotNet/Coral.Managed.dll"',
+		'{COPYFILE} "%{wks.location}/Core/vendor/Coral/Build/%{cfg.buildcfg}/Coral.Managed.runtimeconfig.json" "%{wks.location}/Editor/DotNet/Coral.Managed.runtimeconfig.json"',
+		'{COPYFILE} "%{wks.location}/Core/vendor/Coral/Build/%{cfg.buildcfg}/Coral.Managed.deps.json" "%{wks.location}/Editor/DotNet/Coral.Managed.deps.json"',
+	}
+
+	filter { "configurations:Debug or configurations:Debug-AS or configurations:Release" }
+		postbuildcommands {
+			'{COPYFILE} "%{wks.location}/Core/vendor/Coral/Build/%{cfg.buildcfg}/Coral.Managed.pdb" "%{wks.location}/Editor/DotNet/Coral.Managed.pdb"',
+		}
+	filter {}
 
 	pchheader "lpch.h"
 	pchsource "Source/lpch.cpp"

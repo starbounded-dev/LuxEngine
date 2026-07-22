@@ -2,7 +2,11 @@
 #include "ImGuiEx.h"
 
 #include "ImGuiUtilities.h"
-//#include "Lux/Script/ScriptEngine.h"
+#include "Lux/Scripting/ScriptEngine.h"
+
+#include <algorithm>
+#include <cctype>
+#include <vector>
 
 #include <imgui_internal.h>
 
@@ -206,8 +210,7 @@ namespace Lux::ImGuiEx {
 		ImGui::EndTooltip();
 	}
 
-#if 0
-	bool PropertyScriptReference(const char* label, UUID& outScriptID, EntityDomain entityDomain, const PropertyAssetReferenceSettings& settings, bool doPushUndo)
+	bool PropertyScriptReference(const char* label, UUID& outScriptID, std::string& outClassName, const PropertyAssetReferenceSettings& settings)
 	{
 		bool modified = false;
 
@@ -218,9 +221,19 @@ namespace Lux::ImGuiEx {
 		ShiftCursorY(4.0f);
 		ImGui::PushItemWidth(-1);
 
-		auto hold = outScriptID;
-
 		const auto& scriptEngine = ScriptEngine::GetInstance();
+
+		std::string buttonText = "None";
+		bool valid = false;
+		if (scriptEngine.IsValidScript(outScriptID))
+		{
+			buttonText = scriptEngine.GetScriptMetadata(outScriptID).FullName;
+			valid = true;
+		}
+		else if (!outClassName.empty())
+		{
+			buttonText = outClassName; // set but not (yet) a valid/loaded script
+		}
 
 		ImVec2 originalButtonTextAlign = ImGui::GetStyle().ButtonTextAlign;
 		{
@@ -228,76 +241,60 @@ namespace Lux::ImGuiEx {
 			float width = ImGui::GetContentRegionAvail().x - settings.WidthOffset;
 			float itemHeight = 28.0f;
 
-			std::string buttonText = "None";
-			bool valid = true;
-			if (scriptEngine.IsValidScript(entityDomain, outScriptID))
-			{
-				const auto& metadata = scriptEngine.GetScriptMetadata(outScriptID);
-				buttonText = metadata.FullName;
-			}
-
-			if ((GImGui->CurrentItemFlags & ImGuiItemFlags_MixedValue) != 0)
-				buttonText = "---";
-
-			// PropertyAssetReference could be called multiple times in same "context"
-			// and so we need a unique id for the asset search popup each time.
-			// notes
-			// - don't use GenerateID(), that's inviting id clashes, which would be super confusing.
-			// - don't store return from GenerateLabelId in a const char* here. Because its pointing to an internal
-			//   buffer which may get overwritten by the time you want to use it later on.
-			std::string assetSearchPopupID = GenerateLabelID("ARSP");
+			std::string scriptSearchPopupID = GenerateLabelID("SCRSP");
 			{
 				ImGuiEx::ScopedColour buttonLabelColor(ImGuiCol_Text, valid ? settings.ButtonLabelColor : settings.ButtonLabelColorError);
 				ImGui::Button(GenerateLabelID(buttonText), { width, itemHeight });
 
-				const bool isHovered = ImGui::IsItemHovered();
-
-				if (isHovered)
-				{
-					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-					{
-						// TODO(Peter): Open script in default editor
-					}
-					else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-					{
-						ImGui::OpenPopup(assetSearchPopupID.c_str());
-					}
-				}
+				if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+					ImGui::OpenPopup(scriptSearchPopupID.c_str());
 			}
 
 			ImGui::GetStyle().ButtonTextAlign = originalButtonTextAlign;
 
-			bool clear = false;
-			if (Widgets::ScriptSearchPopup(assetSearchPopupID.c_str(), scriptEngine, outScriptID, entityDomain, &clear))
+			if (ImGui::BeginPopup(scriptSearchPopupID.c_str()))
 			{
-				if (clear)
-					outScriptID = 0;
-				modified = true;
-				//s_PropertyAssetReferenceAssetHandle = outScriptID;
-			}
-		}
+				static char s_SearchBuffer[256];
+				if (ImGui::IsWindowAppearing())
+					memset(s_SearchBuffer, 0, sizeof(s_SearchBuffer));
 
-		/*if (!IsItemDisabled())
-		{
-			if (ImGui::BeginDragDropTarget())
-			{
-				auto data = ImGui::AcceptDragDropPayload("asset_payload");
+				ImGui::SetNextItemWidth(-1.0f);
+				ImGui::InputTextWithHint(GenerateLabelID(""), "Search...", s_SearchBuffer, sizeof(s_SearchBuffer));
 
-				if (data)
+				auto toLower = [](std::string s) { std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); }); return s; };
+				std::string search = toLower(s_SearchBuffer);
+
+				if (ImGui::Selectable("None", outScriptID == 0))
 				{
-					AssetHandle assetHandle = *(AssetHandle*)data->Data;
-					s_PropertyAssetReferenceAssetHandle = assetHandle;
-					Ref<Asset> asset = AssetManager::GetAsset<Asset>(assetHandle);
-					if (asset && asset->GetAssetType() == T::GetStaticType())
+					outScriptID = 0;
+					outClassName.clear();
+					modified = true;
+					ImGui::CloseCurrentPopup();
+				}
+
+				// Sort the discovered script classes by full name for a stable list.
+				std::vector<std::pair<UUID, std::string>> scripts;
+				for (const auto& [id, metadata] : scriptEngine.GetAllScripts())
+					scripts.emplace_back(id, metadata.FullName);
+				std::sort(scripts.begin(), scripts.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+
+				for (const auto& [id, fullName] : scripts)
+				{
+					if (!search.empty() && toLower(fullName).find(search) == std::string::npos)
+						continue;
+
+					if (ImGui::Selectable(GenerateLabelID(fullName), id == outScriptID))
 					{
-						outHandle = assetHandle;
+						outScriptID = id;
+						outClassName = fullName;
 						modified = true;
+						ImGui::CloseCurrentPopup();
 					}
 				}
 
-				ImGui::EndDragDropTarget();
+				ImGui::EndPopup();
 			}
-		}*/
+		}
 
 		ImGui::PopItemWidth();
 		if (settings.AdvanceToNextColumn)
@@ -306,12 +303,8 @@ namespace Lux::ImGuiEx {
 			Draw::Underline();
 		}
 
-		if (modified && doPushUndo)
-			EditorStack::Get().PushCopy<decltype(hold)>(&outScriptID, hold);
-
 		return modified;
 	}
-#endif
 #if 0
 	bool DrawFieldValue(Ref<Scene> sceneContext, std::string_view fieldName, FieldStorage& storage)
 	{

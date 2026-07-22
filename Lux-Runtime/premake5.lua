@@ -56,14 +56,14 @@ project "Lux-Runtime"
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.dll" "%{cfg.targetdir}"',
 			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
-			'{COPYDIR} "../Editor/mono" "%{cfg.targetdir}/mono"',
+			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}/DotNet"',
 		}
 
 	filter { "system:windows", "configurations:Release or configurations:Dist" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Release/assimp-vc143-mt.dll" "%{cfg.targetdir}"',
 			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
-			'{COPYDIR} "../Editor/mono" "%{cfg.targetdir}/mono"',
+			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}/DotNet"',
 		}
 
 	filter "system:linux"

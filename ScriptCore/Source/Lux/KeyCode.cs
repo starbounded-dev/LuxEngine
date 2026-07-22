@@ -1,6 +1,7 @@
 ﻿namespace Lux
 {
-	public enum KeyCode
+	// ushort-backed to match the native KeyCode (enum class KeyCode : uint16_t).
+	public enum KeyCode : ushort
 	{
 		// From glfw3.h
 		Space = 32,

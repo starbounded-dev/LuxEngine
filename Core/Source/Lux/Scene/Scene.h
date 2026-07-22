@@ -11,6 +11,9 @@
 #include "Lux/Renderer/RenderVolumes.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 
+#include "Lux/Scripting/ScriptEntityStorage.hpp"
+#include "Lux/Scripting/CSharpObject.h"
+
 #include "entt/entt.hpp"
 
 #include <glm/glm.hpp>
@@ -217,6 +220,18 @@ namespace Lux {
 		std::unordered_map<UUID, Ref<AudioSource>> m_RuntimeAudioSources;
 		std::unordered_map<UUID, std::vector<Ref<AudioSource>>> m_RuntimeAudioPlaylists;
 
+		// Per-entity C# script field values (serialized with the scene) and live instances.
+		ScriptStorage m_ScriptStorage;
+		std::unordered_map<UUID, CSharpObject> m_ScriptInstances;
+
+	public:
+		ScriptStorage& GetScriptStorage() { return m_ScriptStorage; }
+		const ScriptStorage& GetScriptStorage() const { return m_ScriptStorage; }
+
+		// Defined out-of-line (PhysicsScene need not be complete in this header).
+		Ref<PhysicsScene> GetPhysicsScene() const;
+
+	private:
 		friend class Entity;
 		friend class SceneSerializer;
 		friend class SceneHierarchyPanel;

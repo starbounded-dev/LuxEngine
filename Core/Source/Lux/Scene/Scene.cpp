@@ -297,6 +297,25 @@ namespace Lux {
 		if (Entity parent = entity.GetParent())
 			parent.RemoveChild(entity);
 
+		// Fire the managed OnDestroy before the entity leaves the registry, so scripts can
+		// still read their own components. Only relevant while the runtime is playing.
+		if (m_IsRunning && entity.HasComponent<ScriptComponent>())
+		{
+			UUID entityID = entity.GetUUID();
+			auto it = m_ScriptInstances.find(entityID);
+			if (it != m_ScriptInstances.end())
+			{
+				ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+				const auto& sc = entity.GetComponent<ScriptComponent>();
+				if (scriptEngine.IsValidScript(sc.ScriptID) &&
+					scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnDestroy"))
+					it->second.Invoke("OnDestroy");
+
+				scriptEngine.DestroyInstance(entityID, m_ScriptStorage);
+				m_ScriptInstances.erase(it);
+			}
+		}
+
 		ReleaseRuntimeAudio(entity);
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
@@ -430,19 +449,30 @@ namespace Lux {
 					}
 				});
 		}
-		/*
-		// Scripting
+		// Scripting: instantiate every script entity and fire OnCreate.
 		{
-			ScriptEngine::OnRuntimeStart(this);
-			// Instantiate all scripts entities
+			ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+			scriptEngine.SetCurrentScene(this);
 
 			auto view = m_Registry.view<ScriptComponent>();
 			for (auto e : view)
 			{
 				Entity entity = { e, this };
-				ScriptEngine::OnCreateEntity(entity);
+				const auto& sc = entity.GetComponent<ScriptComponent>();
+				if (!scriptEngine.IsValidScript(sc.ScriptID))
+					continue;
+
+				UUID entityID = entity.GetUUID();
+				if (!m_ScriptStorage.EntityStorage.contains(entityID))
+					m_ScriptStorage.InitializeEntityStorage(sc.ScriptID, entityID);
+
+				CSharpObject instance = scriptEngine.Instantiate(entityID, m_ScriptStorage, (uint64_t)entityID);
+				m_ScriptInstances[entityID] = instance;
+
+				if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnCreate"))
+					instance.Invoke("OnCreate");
 			}
-		}*/
+		}
 	}
 
 	void Scene::OnRuntimeStop()
@@ -503,7 +533,24 @@ namespace Lux {
 				alc.Listener.reset();
 			});
 
-		//ScriptEngine::OnRuntimeStop();
+		// Scripting: fire OnDestroy and tear down live managed instances (values stay in storage).
+		{
+			ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+			for (auto& [entityID, instance] : m_ScriptInstances)
+			{
+				auto it = m_ScriptStorage.EntityStorage.find(entityID);
+				if (it == m_ScriptStorage.EntityStorage.end())
+					continue;
+
+				if (scriptEngine.IsValidScript(it->second.ScriptID) &&
+					scriptEngine.GetScriptMetadata(it->second.ScriptID).HasMethod("OnDestroy"))
+					instance.Invoke("OnDestroy");
+
+				scriptEngine.DestroyInstance(entityID, m_ScriptStorage);
+			}
+			m_ScriptInstances.clear();
+			scriptEngine.SetCurrentScene(nullptr);
+		}
 	}
 
 	void Scene::OnSimulationStart()
@@ -524,11 +571,19 @@ namespace Lux {
 		{
 			// Update scripts
 			{
+				ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
 				auto view = m_Registry.view<ScriptComponent>();
 				for (auto e : view)
 				{
 					Entity entity = { e, this };
-					ScriptEngine::OnUpdateEntity(entity, ts);
+					UUID entityID = entity.GetUUID();
+					auto it = m_ScriptInstances.find(entityID);
+					if (it == m_ScriptInstances.end())
+						continue;
+
+					const auto& sc = entity.GetComponent<ScriptComponent>();
+					if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnUpdate"))
+						it->second.Invoke("OnUpdate", (float)ts);
 				}
 
 				m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
@@ -869,6 +924,11 @@ namespace Lux {
 	{
 		auto view = m_Registry.view<const ScriptComponent>();
 		return view.begin() != view.end();
+	}
+
+	Ref<PhysicsScene> Scene::GetPhysicsScene() const
+	{
+		return m_PhysicsScene;
 	}
 
 	Entity Scene::DuplicateEntity(Entity entity)

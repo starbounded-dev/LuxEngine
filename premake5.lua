@@ -99,6 +99,34 @@ group "Dependencies"
 	include "Core/vendor/imgui"
 	include "Core/vendor/tracy"
 	include "Core/vendor/NFD-Extended"
+	include "Core/vendor/Coral/Coral.Native"
+	include "Core/vendor/Coral/Coral.Managed"
+
+	-- Coral's upstream premake only defines Debug/Release, and Coral.Managed dependson a
+	-- Coral.Generator project that doesn't exist at our pinned commit. Rather than patch the
+	-- vendored submodule (those edits wouldn't travel with the repo / would break fresh
+	-- submodule checkouts), we re-open the projects here to add Lux's Debug-AS/Dist configs and
+	-- a stub Coral.Generator so the dependson resolves.
+	project "Coral.Native"
+		filter { "configurations:Debug-AS" }
+			runtime "Debug"
+			symbols "On"
+		filter { "system:windows", "configurations:Debug-AS" }
+			sanitize { "Address" }
+			flags { "NoRuntimeChecks", "NoIncrementalLink" }
+			editandcontinue "Off" -- /ZI is incompatible with /fsanitize=address
+		filter { "configurations:Dist" }
+			runtime "Release"
+			symbols "Off"
+			optimize "On"
+		filter {}
+
+	-- Stub so Coral.Managed's `dependson { "Coral.Generator" }` resolves (the real generator
+	-- isn't present at our pinned Coral commit; Coral.Managed builds fine without it).
+	project "Coral.Generator"
+		kind "Utility"
+		targetdir "Core/vendor/Coral/Build/%{cfg.buildcfg}"
+		objdir "Core/vendor/Coral/Intermediates/%{cfg.buildcfg}"
 group ""
 
 group "Dependencies/Text"

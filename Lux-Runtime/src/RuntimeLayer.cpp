@@ -109,20 +109,23 @@ namespace Lux
 
 		const std::string scriptModuleName = m_RuntimeProject->GetConfig().ScriptModulePath.filename().string();
 		const bool startupSceneUsesScripts = m_RuntimeScene && m_RuntimeScene->HasScripts();
-		bool scriptsLoaded = false;
+
+		ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+		scriptEngine.InitializeHost();
+		scriptEngine.Initialize(m_RuntimeProject);
 
 		if (m_AssetPack->HasAppBinary())
 		{
 			Buffer appBinary = m_AssetPack->ReadAppBinary();
-			scriptsLoaded = ScriptEngine::Init(appBinary, scriptModuleName);
+			scriptEngine.LoadProjectAssemblyRuntime(appBinary);
 			appBinary.Release();
 		}
 		else
 		{
-			scriptsLoaded = ScriptEngine::Init();
+			scriptEngine.LoadProjectAssembly();
 		}
 
-		if (!scriptsLoaded && startupSceneUsesScripts)
+		if (!scriptEngine.IsAppAssemblyLoaded() && startupSceneUsesScripts)
 		{
 			LUX_CORE_ERROR("Failed to load game scripts: {}", scriptModuleName.empty() ? "App.dll" : scriptModuleName);
 			return false;

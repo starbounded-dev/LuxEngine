@@ -26,6 +26,9 @@ Sandbox/Resources/Cache
 Core/vendor/NFD-Extended
 Core/vendor/tracy
 Editor/LuxSampleProject/Assets/Scripts/Binaries
+ScriptCore/obj/
+Editor/LuxSampleProject/Assets/Scripts/obj/
+Editor/DotNet/
 Editor/Resources/Cache
 Lux.slnx
 Editor/LuxSampleProject/Assets/Cache/Thumbnails

@@ -2,65 +2,48 @@
 #include "ContactListener2D.h"
 
 #include "Lux/Scene/Entity.h"
+#include "Lux/Scene/Scene.h"
 #include "Lux/Scripting/ScriptEngine.h"
-#include "Lux/Scene/ScriptableEntity.h"
 
 namespace Lux {
 
-	void ContactListener2D::BeginContact(b2Contact* contact)
+	// Invokes the managed collision bridge on `entity`'s live script instance, passing `other`.
+	static void InvokeCollision(Entity entity, Entity other, const char* method)
 	{
-		if (m_IsPlaying)
-		{
-			Entity& a = *(Entity*)contact->GetFixtureA()->GetBody()->GetUserData().pointer;
-			Entity& b = *(Entity*)contact->GetFixtureB()->GetBody()->GetUserData().pointer;
+		Scene* scene = ScriptEngine::GetInstance().GetCurrentScene().Raw();
+		if (!scene)
+			return;
 
-			if (a.HasComponent<ScriptComponent>() && a.HasComponent<RigidBody2DComponent>())
-			{
-				auto& scriptComponent = a.GetComponent<ScriptComponent>();
-				if (scriptComponent.Instance) // Ensure the shared_ptr is not null
-				{
-					scriptComponent.Instance->Invoke("OnCollisionBegin");
-				}
-			}
+		auto& storage = scene->GetScriptStorage();
+		auto it = storage.EntityStorage.find(entity.GetUUID());
+		if (it == storage.EntityStorage.end() || !it->second.Instance)
+			return;
 
-			if (b.HasComponent<ScriptComponent>() && b.HasComponent<RigidBody2DComponent>())
-			{
-				auto& scriptComponent = b.GetComponent<ScriptComponent>();
-				if (scriptComponent.Instance) // Ensure the shared_ptr is not null
-				{
-					scriptComponent.Instance->Invoke("OnCollisionBegin");
-				}
-			}
-
-		}
+		it->second.Instance->InvokeMethod(method, (uint64_t)other.GetUUID());
 	}
 
-	/// Called when two fixtures cease to touch.
+	void ContactListener2D::BeginContact(b2Contact* contact)
+	{
+		if (!m_IsPlaying)
+			return;
+
+		Entity& a = *(Entity*)contact->GetFixtureA()->GetBody()->GetUserData().pointer;
+		Entity& b = *(Entity*)contact->GetFixtureB()->GetBody()->GetUserData().pointer;
+
+		InvokeCollision(a, b, "OnCollisionBeginInternal");
+		InvokeCollision(b, a, "OnCollisionBeginInternal");
+	}
+
 	void ContactListener2D::EndContact(b2Contact* contact)
 	{
-		if (m_IsPlaying)
-		{
-			Entity& a = *(Entity*)contact->GetFixtureA()->GetBody()->GetUserData().pointer;
-			Entity& b = *(Entity*)contact->GetFixtureB()->GetBody()->GetUserData().pointer;
+		if (!m_IsPlaying)
+			return;
 
-			if (a.HasComponent<ScriptComponent>() && a.HasComponent<RigidBody2DComponent>())
-			{
-				auto& scriptComponent = a.GetComponent<ScriptComponent>();
-				if (scriptComponent.Instance) // Ensure the shared_ptr is not null
-				{
-					scriptComponent.Instance->Invoke("OnCollisionEnd");
-				}
-			}
+		Entity& a = *(Entity*)contact->GetFixtureA()->GetBody()->GetUserData().pointer;
+		Entity& b = *(Entity*)contact->GetFixtureB()->GetBody()->GetUserData().pointer;
 
-			if (b.HasComponent<ScriptComponent>() && b.HasComponent<RigidBody2DComponent>())
-			{
-				auto& scriptComponent = b.GetComponent<ScriptComponent>();
-				if (scriptComponent.Instance) // Ensure the shared_ptr is not null
-				{
-					scriptComponent.Instance->Invoke("OnCollisionEnd");
-				}
-			}
-		}
+		InvokeCollision(a, b, "OnCollisionEndInternal");
+		InvokeCollision(b, a, "OnCollisionEndInternal");
 	}
 
 }

@@ -17,6 +17,7 @@
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Core/Hash.h"
 
 #include <entt/entt.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -38,6 +39,36 @@ namespace Lux {
 	SelectionContext SceneHierarchyPanel::s_ActiveSelectionContext = SelectionContext::Scene;
 
 	namespace {
+
+		// Draws the ImGui control for one script field via its dual-mode FieldStorage (edits the
+		// serializable buffer when idle, the live managed field when playing). Returns true if changed.
+		bool DrawScriptFieldControl(const std::string& name, DataType type, FieldStorage& storage)
+		{
+			switch (type)
+			{
+				case DataType::Float:   { float v = storage.GetValue<float>();     if (ImGui::DragFloat(name.c_str(), &v, 0.1f)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Double:  { double v = storage.GetValue<double>();    if (ImGui::DragScalar(name.c_str(), ImGuiDataType_Double, &v, 0.1f)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Bool:    { bool v = storage.GetValue<uint32_t>() != 0; if (ImGui::Checkbox(name.c_str(), &v)) { storage.SetValue<uint32_t>(v ? 1u : 0u); return true; } return false; }
+				case DataType::SByte:   { int8_t v = storage.GetValue<int8_t>();    if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S8, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Byte:    { uint8_t v = storage.GetValue<uint8_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U8, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Short:   { int16_t v = storage.GetValue<int16_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S16, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::UShort:  { uint16_t v = storage.GetValue<uint16_t>(); if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U16, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Int:     { int32_t v = storage.GetValue<int32_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S32, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::UInt:    { uint32_t v = storage.GetValue<uint32_t>(); if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U32, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Long:    { int64_t v = storage.GetValue<int64_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S64, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::ULong:   { uint64_t v = storage.GetValue<uint64_t>(); if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U64, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Vector2: { glm::vec2 v = storage.GetValue<glm::vec2>(); if (ImGui::DragFloat2(name.c_str(), &v.x, 0.1f)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Vector3: { glm::vec3 v = storage.GetValue<glm::vec3>(); if (ImGui::DragFloat3(name.c_str(), &v.x, 0.1f)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Vector4: { glm::vec4 v = storage.GetValue<glm::vec4>(); if (ImGui::DragFloat4(name.c_str(), &v.x, 0.1f)) { storage.SetValue(v); return true; } return false; }
+				default:
+				{
+					// Entity + asset-refs are UUID-backed; editable as a raw handle (drag-drop is TODO).
+					uint64_t v = storage.GetValue<uint64_t>();
+					if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U64, &v)) { storage.SetValue(v); return true; }
+					return false;
+				}
+			}
+		}
 
 		template<typename TComponent, typename Fn>
 		void ApplyToSelection(const Ref<Scene>& scene, const std::vector<UUID>& entityIDs, Fn&& fn)
@@ -1688,80 +1719,59 @@ namespace Lux {
 		DrawComponentSection<ScriptComponent>(m_Context, entityIDs, "Script", EditorResources::ScriptIcon,
 			[this, firstEntity](ScriptComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool isMultiEdit) mutable
 			{
-				std::string className = firstComponent.ClassName;
-
 				ImGuiEx::BeginPropertyGrid();
-				if (ImGuiEx::Property("Class", className))
+				UUID scriptID = firstComponent.ScriptID;
+				std::string className = firstComponent.ClassName;
+				if (ImGuiEx::PropertyScriptReference("Class", scriptID, className))
 				{
+					firstComponent.ScriptID = scriptID;
 					firstComponent.ClassName = className;
-					ApplyToSelection<ScriptComponent>(m_Context, selectedEntities, [&className](ScriptComponent& component, Entity)
+					ApplyToSelection<ScriptComponent>(m_Context, selectedEntities, [&](ScriptComponent& component, Entity)
 					{
+						component.ScriptID = scriptID;
 						component.ClassName = className;
 					});
 				}
 				ImGuiEx::EndPropertyGrid();
 
-				const bool scriptClassExists = ScriptEngine::EntityClassExists(firstComponent.ClassName);
-				if (!scriptClassExists && !firstComponent.ClassName.empty())
+				const auto& scriptEngine = ScriptEngine::GetInstance();
+				const bool valid = scriptEngine.IsValidScript(firstComponent.ScriptID);
+				if (!valid && !firstComponent.ClassName.empty())
 					ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.3f, 1.0f), "Script class not found.");
 
 				if (isMultiEdit)
-				{
 					ImGui::TextDisabled("Script field editing is shown for the first selected entity.");
-				}
 
-				if (!scriptClassExists || firstComponent.ClassName.empty())
+				if (!valid)
 					return;
 
-				if (m_Context->IsRunning())
+				// Ensure per-entity storage exists (and matches the current script).
+				UUID entityID = firstEntity.GetUUID();
+				ScriptStorage& storage = m_Context->GetScriptStorage();
+				auto storageIt = storage.EntityStorage.find(entityID);
+				if (storageIt != storage.EntityStorage.end() && storageIt->second.ScriptID != firstComponent.ScriptID)
 				{
-					Ref<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(firstEntity.GetUUID());
-					if (!scriptInstance)
-						return;
-
-					const auto& fields = scriptInstance->GetScriptClass()->GetFields();
-					for (const auto& [name, field] : fields)
-					{
-						if (field.Type != ScriptFieldType::Float)
-							continue;
-
-						float data = scriptInstance->GetFieldValue<float>(name);
-						if (ImGui::DragFloat(name.c_str(), &data))
-							scriptInstance->SetFieldValue(name, data);
-					}
+					storage.ShutdownEntityStorage(storageIt->second.ScriptID, entityID);
+					storageIt = storage.EntityStorage.end();
 				}
-				else
+				if (storageIt == storage.EntityStorage.end())
+					storage.InitializeEntityStorage(firstComponent.ScriptID, entityID);
+
+				auto& entityStorage = storage.EntityStorage.at(entityID);
+				const auto& metadata = scriptEngine.GetScriptMetadata(firstComponent.ScriptID);
+				for (const auto& [fieldID, fieldMetadata] : metadata.Fields)
 				{
-					Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(firstComponent.ClassName);
-					if (!entityClass)
-						return;
+					auto it = entityStorage.Fields.find(fieldID);
+					if (it == entityStorage.Fields.end())
+						continue;
 
-					const auto& fields = entityClass->GetFields();
-					auto& entityFields = ScriptEngine::GetScriptFieldMap(firstEntity);
-
-					for (const auto& [name, field] : fields)
+					FieldStorage& fs = it->second;
+					if (fs.IsArray())
 					{
-						if (field.Type != ScriptFieldType::Float)
-							continue;
-
-						if (entityFields.find(name) != entityFields.end())
-						{
-							ScriptFieldInstance& scriptField = entityFields.at(name);
-							float data = scriptField.GetValue<float>();
-							if (ImGui::DragFloat(name.c_str(), &data))
-								scriptField.SetValue(data);
-						}
-						else
-						{
-							float data = 0.0f;
-							if (ImGui::DragFloat(name.c_str(), &data))
-							{
-								ScriptFieldInstance& fieldInstance = entityFields[name];
-								fieldInstance.Field = field;
-								fieldInstance.SetValue(data);
-							}
-						}
+						ImGui::TextDisabled("%s (array)", fieldMetadata.Name.c_str());
+						continue;
 					}
+					DrawScriptFieldControl(fieldMetadata.Name, fieldMetadata.Type, fs);
 				}
 			});
 

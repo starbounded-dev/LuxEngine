@@ -1,614 +1,407 @@
 #include "lpch.h"
 #include "ScriptEngine.h"
-
 #include "ScriptGlue.h"
-
-#include "mono/jit/jit.h"
-#include "mono/metadata/assembly.h"
-#include "mono/metadata/object.h"
-#include "mono/metadata/tabledefs.h"
-#include "mono/metadata/mono-debug.h"
-#include "mono/metadata/threads.h"
-
-#include "filewatch/FileWatch.h"
+#include "ScriptAsset.h"
 
 #include "Lux/Core/Application.h"
-#include "Lux/Core/Timer.h"
-#include "Lux/Core/Buffer.h"
-
+#include "Lux/Core/Hash.h"
 #include "Lux/Project/Project.h"
-
-#include <format>
-
+#include "Lux/Scene/Scene.h"
 #include "Lux/Utilities/FileSystem.h"
+
+#include <Coral/HostInstance.hpp>
+#include <Coral/StringHelper.hpp>
+#include <Coral/Attribute.hpp>
+#include <Coral/TypeCache.hpp>
+#include <Coral/GC.hpp>
+
+#include <algorithm>
+#include <ranges>
 
 namespace Lux {
 
-	static std::unordered_map<std::string, ScriptFieldType> s_ScriptFieldTypeMap =
-	{
-		{ "System.Single", ScriptFieldType::Float },
-		{ "System.Double", ScriptFieldType::Double },
-		{ "System.Boolean", ScriptFieldType::Bool },
-		{ "System.Char", ScriptFieldType::Char },
-		{ "System.Int16", ScriptFieldType::Short },
-		{ "System.Int32", ScriptFieldType::Int },
-		{ "System.Int64", ScriptFieldType::Long },
-		{ "System.Byte", ScriptFieldType::Byte },
-		{ "System.UInt16", ScriptFieldType::UShort },
-		{ "System.UInt32", ScriptFieldType::UInt },
-		{ "System.UInt64", ScriptFieldType::ULong },
-
-		{ "Lux.Vector2", ScriptFieldType::Vector2 },
-		{ "Lux.Vector3", ScriptFieldType::Vector3 },
-		{ "Lux.Vector4", ScriptFieldType::Vector4 },
-
-		{ "Lux.Entity", ScriptFieldType::Entity },
+	static std::unordered_map<std::string, DataType> s_DataTypeLookup = {
+		{ "System.SByte", DataType::SByte },
+		{ "System.Byte", DataType::Byte },
+		{ "System.Int16", DataType::Short },
+		{ "System.UInt16", DataType::UShort },
+		{ "System.Int32", DataType::Int },
+		{ "System.UInt32", DataType::UInt },
+		{ "System.Int64", DataType::Long },
+		{ "System.UInt64", DataType::ULong },
+		{ "System.Single", DataType::Float },
+		{ "System.Double", DataType::Double },
+		{ "Lux.Vector2", DataType::Vector2 },
+		{ "Lux.Vector3", DataType::Vector3 },
+		{ "Lux.Vector4", DataType::Vector4 },
+		{ "System.Boolean", DataType::Bool },
+		{ "Lux.Entity", DataType::Entity },
+		{ "Lux.Prefab", DataType::Prefab },
+		{ "Lux.Mesh", DataType::Mesh },
+		{ "Lux.StaticMesh", DataType::StaticMesh },
+		{ "Lux.Material", DataType::Material },
+		{ "Lux.Texture2D", DataType::Texture2D },
+		{ "Lux.Scene", DataType::Scene },
 	};
 
-	namespace Utils {
-
-		static MonoAssembly* LoadMonoAssembly(const std::filesystem::path& assemblyPath, bool loadPDB = false)
+	static void OnCoralMessage(std::string_view message, Coral::MessageLevel level)
+	{
+		switch (level)
 		{
-			ScopedBuffer fileData = FileSystem::ReadBytes(assemblyPath);
-
-			// NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
-			MonoImageOpenStatus status;
-			MonoImage* image = mono_image_open_from_data_full(fileData.As<char>(), fileData.Size(), 1, &status, 0);
-
-			if (status != MONO_IMAGE_OK)
-			{
-				const char* errorMessage = mono_image_strerror(status);
-				// Log some error message using the errorMessage data
-				return nullptr;
-			}
-
-			if (loadPDB)
-			{
-				std::filesystem::path pdbPath = assemblyPath;
-				pdbPath.replace_extension(".pdb");
-
-				if (std::filesystem::exists(pdbPath))
-				{
-					ScopedBuffer pdbFileData = FileSystem::ReadBytes(pdbPath);
-					mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), pdbFileData.Size());
-					LUX_CORE_INFO("Loaded PDB {}", pdbPath);
-				}
-			}
-
-			std::string pathString = assemblyPath.string();
-			MonoAssembly* assembly = mono_assembly_load_from_full(image, pathString.c_str(), &status, 0);
-			mono_image_close(image);
-
-			return assembly;
+			case Coral::MessageLevel::Info:    LUX_CORE_INFO("[Scripting] {}", message); break;
+			case Coral::MessageLevel::Warning: LUX_CORE_WARN("[Scripting] {}", message); break;
+			case Coral::MessageLevel::Error:   LUX_CORE_ERROR("[Scripting] {}", message); break;
+			default:                           LUX_CORE_TRACE("[Scripting] {}", message); break;
 		}
-
-		static MonoAssembly* LoadMonoAssembly(Buffer assemblyData, const std::string& assemblyName)
-		{
-			if (!assemblyData || assemblyData.Size == 0)
-				return nullptr;
-
-			MonoImageOpenStatus status;
-			MonoImage* image = mono_image_open_from_data_full(assemblyData.As<char>(), (uint32_t)assemblyData.Size, 1, &status, 0);
-			if (status != MONO_IMAGE_OK)
-			{
-				const char* errorMessage = mono_image_strerror(status);
-				LUX_CORE_ERROR("[ScriptEngine] Failed to load packed assembly image '{}': {}", assemblyName, errorMessage);
-				return nullptr;
-			}
-
-			MonoAssembly* assembly = mono_assembly_load_from_full(image, assemblyName.c_str(), &status, 0);
-			mono_image_close(image);
-			return assembly;
-		}
-
-		void PrintAssemblyTypes(MonoAssembly* assembly)
-		{
-			MonoImage* image = mono_assembly_get_image(assembly);
-			const MonoTableInfo* typeDefinitionsTable = mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
-			int32_t numTypes = mono_table_info_get_rows(typeDefinitionsTable);
-
-			for (int32_t i = 0; i < numTypes; i++)
-			{
-				uint32_t cols[MONO_TYPEDEF_SIZE];
-				mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
-
-				const char* nameSpace = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
-				const char* name = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAME]);
-				LUX_CORE_TRACE("{}.{}", nameSpace, name);
-			}
-		}
-
-		ScriptFieldType MonoTypeToScriptFieldType(MonoType* monoType)
-		{
-			std::string typeName = mono_type_get_name(monoType);
-
-			auto it = s_ScriptFieldTypeMap.find(typeName);
-			if (it == s_ScriptFieldTypeMap.end())
-			{
-				LUX_CORE_ERROR("Unknown type: {}", typeName);
-				return ScriptFieldType::None;
-			}
-
-			return it->second;
-		}
-
 	}
 
-
-	struct ScriptEngineData
+	static void OnCSharpException(std::string_view message)
 	{
-		MonoDomain* RootDomain = nullptr;
-		MonoDomain* AppDomain = nullptr;
+		LUX_CORE_ERROR("[Scripting] C# Exception: {}", message);
+	}
 
-		MonoAssembly* CoreAssembly = nullptr;
-		MonoImage* CoreAssemblyImage = nullptr;
+	const ScriptEngine& ScriptEngine::GetInstance() { return GetMutable(); }
 
-		MonoAssembly* AppAssembly = nullptr;
-		MonoImage* AppAssemblyImage = nullptr;
+	Ref<Scene> ScriptEngine::GetCurrentScene() const { return m_CurrentScene; }
+	void ScriptEngine::SetCurrentScene(Ref<Scene> scene) { m_CurrentScene = scene; }
 
-		std::filesystem::path CoreAssemblyFilepath;
-		std::filesystem::path AppAssemblyFilepath;
-
-		ScriptClass EntityClass;
-
-		std::unordered_map<std::string, Ref<ScriptClass>> EntityClasses;
-		std::unordered_map<UUID, Ref<ScriptInstance>> EntityInstances;
-		std::unordered_map<UUID, ScriptFieldMap> EntityScriptFields;
-
-		Scope<filewatch::FileWatch<std::string>> AppAssemblyFileWatcher;
-		bool AssemblyReloadPending = false;
-		bool AppAssemblyLoadedFromMemory = false;
-
-		#if LUX_DEBUG
-		bool EnableDebugging = true;
-		#else
-		bool EnableDebugging = false;
-		#endif // LUX_DEBUG
-
-		// Runtime
-		Scene* SceneContext = nullptr;
-	};
-
-	static ScriptEngineData* s_Data = nullptr;
-
-	static void OnAppAssemblyFileSystemEvent(const std::string& path, const filewatch::Event change_type)
+	ScriptEngine& ScriptEngine::GetMutable()
 	{
-		if (!s_Data || !s_Data->RootDomain || change_type != filewatch::Event::modified || s_Data->AssemblyReloadPending)
+		static ScriptEngine s_Instance;
+		return s_Instance;
+	}
+
+	void ScriptEngine::InitializeHost()
+	{
+		m_Host = std::make_unique<Coral::HostInstance>();
+
+		Coral::HostSettings settings =
+		{
+			.CoralDirectory = std::filesystem::absolute(FileSystem::GetWorkingDirectory() / "DotNet").string(),
+			.MessageCallback = OnCoralMessage,
+			.ExceptionCallback = OnCSharpException
+		};
+
+		Coral::CoralInitStatus initStatus = m_Host->Initialize(settings);
+		if (initStatus == Coral::CoralInitStatus::Success)
 			return;
 
-		s_Data->AssemblyReloadPending = true;
+		switch (initStatus)
+		{
+			case Coral::CoralInitStatus::CoralManagedNotFound:
+				LUX_CORE_ERROR("[Scripting] Could not find Coral.Managed.dll in '{}'.", settings.CoralDirectory); break;
+			case Coral::CoralInitStatus::CoralManagedInitError:
+				LUX_CORE_ERROR("[Scripting] Failed to initialize Coral.Managed."); break;
+			case Coral::CoralInitStatus::DotNetNotFound:
+				LUX_CORE_ERROR("[Scripting] .NET 9 runtime not found. Install it from https://dotnet.microsoft.com/download/dotnet/9.0"); break;
+			default: break;
+		}
 
-		Application::Get().QueueEvent([]()
-			{
-				if (!s_Data || !s_Data->RootDomain)
-					return;
-
-				s_Data->AppAssemblyFileWatcher.reset();
-				ScriptEngine::ReloadAssembly();
-			});
+		// Non-fatal: leave the host null so scripting is simply disabled this session.
+		m_Host.reset();
 	}
 
-	bool ScriptEngine::Init(Buffer appAssemblyData, const std::string& appAssemblyName)
+	void ScriptEngine::ShutdownHost()
 	{
-		s_Data = new ScriptEngineData();
+		if (!m_Host)
+			return;
 
-		InitMono();
-		ScriptGlue::RegisterFunctions();
+		Coral::TypeCache::Get().Clear();
+		m_Host->Shutdown();
+		m_Host.reset();
 
-		bool status = LoadAssembly("Resources/Scripts/ScriptCore.dll");
-		if (!status)
+		std::error_code ec;
+		if (!m_ShadowDirRoot.empty())
+			std::filesystem::remove_all(m_ShadowDirRoot, ec);
+	}
+
+	void ScriptEngine::Initialize(Ref<Project> project)
+	{
+		if (!m_Host)
+			return;
+
+		m_LoadContext = std::make_unique<Coral::AssemblyLoadContext>(std::move(m_Host->CreateAssemblyLoadContext("LuxScriptRuntime")));
+
+		auto scriptCorePath = std::filesystem::absolute(FileSystem::GetWorkingDirectory() / "Resources" / "Scripts" / "ScriptCore.dll").string();
+		m_CoreAssemblyData = CreateScope<AssemblyData>();
+		m_CoreAssemblyData->Assembly = &m_LoadContext->LoadAssembly(scriptCorePath);
+		if (m_CoreAssemblyData->Assembly->GetLoadStatus() != Coral::AssemblyLoadStatus::Success)
 		{
-			LUX_CORE_ERROR("[ScriptEngine] Could not load Lux-ScriptCore assembly.");
-			return false;
+			LUX_CORE_ERROR("[Scripting] Failed to load ScriptCore.dll from '{}'.", scriptCorePath);
+			return;
 		}
 
-		if (appAssemblyData)
-		{
-			const std::string assemblyName = appAssemblyName.empty() ? Project::GetActive()->GetConfig().ScriptModulePath.filename().string() : appAssemblyName;
-			status = LoadAppAssembly(appAssemblyData, assemblyName);
-		}
-		else
-		{
-			auto scriptModulePath = Project::GetActiveAssetDirectory() / Project::GetActive()->GetConfig().ScriptModulePath;
-			status = LoadAppAssembly(scriptModulePath);
-		}
+		BuildAssemblyCache(m_CoreAssemblyData.get());
 
-		if (!status)
-		{
-			LUX_CORE_ERROR("[ScriptEngine] Could not load app assembly.");
-			return false;
-		}
-
-		LoadAssemblyClasses();
-
-		ScriptGlue::RegisterComponents();
-
-		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("Lux", "Entity", true);
-		return true;
+		ScriptGlue::RegisterGlue(*m_CoreAssemblyData->Assembly);
+		// The app assembly is loaded by the caller (LoadProjectAssembly for the editor,
+		// LoadProjectAssemblyRuntime for a packed runtime build).
 	}
 
 	void ScriptEngine::Shutdown()
 	{
-		if (!s_Data)
-			return;
+		m_ManagedObjects.Clear();
 
-		ShutdownMono();
-		delete s_Data;
-		s_Data = nullptr;
+		for (auto& [scriptID, scriptMetadata] : m_ScriptMetadata)
+		{
+			for (auto& [fieldID, fieldMetadata] : scriptMetadata.Fields)
+				fieldMetadata.DefaultValue.Release();
+		}
+		m_ScriptMetadata.clear();
+
+		m_AppAssemblyData.reset();
+		m_CoreAssemblyData.reset();
+
+		if (m_Host && m_LoadContext)
+			m_Host->UnloadAssemblyLoadContext(*m_LoadContext);
+		m_LoadContext.reset();
+
+		Coral::TypeCache::Get().Clear();
+		m_CurrentScene = nullptr;
 	}
 
-	void ScriptEngine::InitMono()
+	std::filesystem::path ScriptEngine::ShadowCopyAssembly(const std::filesystem::path& originalAbsolute)
 	{
-		mono_set_assemblies_path("mono/lib");
+		std::error_code ec;
+		if (m_ShadowDirRoot.empty())
+			m_ShadowDirRoot = std::filesystem::temp_directory_path() / "LuxScriptShadow";
 
-		if (s_Data->EnableDebugging)
+		std::filesystem::path shadowDir = m_ShadowDirRoot / std::to_string(m_ShadowCounter++);
+		std::filesystem::create_directories(shadowDir, ec);
+		if (ec)
+			return originalAbsolute;
+
+		std::filesystem::path stem = originalAbsolute;
+		stem.replace_extension();
+		const char* sidecars[] = { ".dll", ".pdb", ".deps.json", ".runtimeconfig.json" };
+		for (const char* ext : sidecars)
 		{
-			const char* argv[2] = {
-				"--debugger-agent=transport=dt_socket,address=127.0.0.1:2550,server=y,suspend=n,loglevel=3,logfile=MonoDebugger.log",
-				"--soft-breakpoints"
-			};
-
-			mono_jit_parse_options(2, (char**)argv);
-			mono_debug_init(MONO_DEBUG_FORMAT_MONO);
+			std::filesystem::path src = stem;
+			src += ext;
+			if (!std::filesystem::exists(src, ec))
+				continue;
+			std::filesystem::copy_file(src, shadowDir / src.filename(), std::filesystem::copy_options::overwrite_existing, ec);
+			if (ec && std::string(ext) == ".dll")
+				return originalAbsolute;
 		}
 
-		MonoDomain* rootDomain = mono_jit_init("LuxJITRuntime");
-		LUX_CORE_ASSERT(rootDomain);
-
-		// Store the root domain pointer
-		s_Data->RootDomain = rootDomain;
-
-		if (s_Data->EnableDebugging)
-			mono_debug_domain_create(s_Data->RootDomain);
-
-		mono_thread_set_main(mono_thread_current());
+		return shadowDir / originalAbsolute.filename();
 	}
 
-
-
-	void ScriptEngine::ShutdownMono()
+	void ScriptEngine::LoadProjectAssembly()
 	{
-		if (!s_Data)
-			return;
+		m_AppAssemblyData.reset();
 
-		s_Data->AppAssemblyFileWatcher.reset();
-		s_Data->AssemblyReloadPending = false;
-
-		if (!s_Data->RootDomain)
-			return;
-
-		mono_domain_set(mono_get_root_domain(), false);
-
-		if (s_Data->AppDomain)
+		auto original = std::filesystem::absolute(Project::GetActiveScriptModuleFilePath());
+		if (!std::filesystem::exists(original))
 		{
-			mono_domain_unload(s_Data->AppDomain);
-			s_Data->AppDomain = nullptr;
+			LUX_CORE_WARN("[Scripting] Script module not found at '{}'. Build the script project to enable scripting.", original.string());
+			return;
 		}
 
-		mono_jit_cleanup(s_Data->RootDomain);
-		s_Data->RootDomain = nullptr;
-	}
+		// Shadow-copy so the original stays unlocked for rebuilds and the PDB stays associated.
+		auto loadPath = ShadowCopyAssembly(original);
 
-	bool ScriptEngine::LoadAssembly(const std::filesystem::path& filepath)
-	{
-		// Create an App Domain
-		s_Data->AppDomain = mono_domain_create_appdomain(const_cast<char*>("LuxScriptRuntime"), nullptr);
-		mono_domain_set(s_Data->AppDomain, true);
+		m_AppAssemblyData = CreateScope<AssemblyData>();
+		m_AppAssemblyData->Assembly = &m_LoadContext->LoadAssembly(loadPath.string());
 
-		s_Data->CoreAssemblyFilepath = filepath;
-		s_Data->CoreAssembly = Utils::LoadMonoAssembly(filepath, s_Data->EnableDebugging);
-		if (s_Data->CoreAssembly == nullptr)
-			return false;
-
-		s_Data->CoreAssemblyImage = mono_assembly_get_image(s_Data->CoreAssembly);
-		return true;
-	}
-
-
-	bool ScriptEngine::LoadAppAssembly(const std::filesystem::path& filepath)
-	{
-		s_Data->AppAssemblyFilepath = filepath;
-		s_Data->AppAssembly = Utils::LoadMonoAssembly(filepath, s_Data->EnableDebugging);
-		if (s_Data->AppAssembly == nullptr)
-			return false;
-		s_Data->AppAssemblyImage = mono_assembly_get_image(s_Data->AppAssembly);
-		s_Data->AppAssemblyLoadedFromMemory = false;
-
-		s_Data->AppAssemblyFileWatcher = CreateScope<filewatch::FileWatch<std::string>>(filepath.string(), OnAppAssemblyFileSystemEvent);
-		s_Data->AssemblyReloadPending = false;
-
-		return true;
-	}
-
-	bool ScriptEngine::LoadAppAssembly(Buffer assemblyData, const std::string& assemblyName)
-	{
-		s_Data->AppAssemblyFilepath = assemblyName;
-		s_Data->AppAssembly = Utils::LoadMonoAssembly(assemblyData, assemblyName);
-		if (s_Data->AppAssembly == nullptr)
-			return false;
-		s_Data->AppAssemblyImage = mono_assembly_get_image(s_Data->AppAssembly);
-		s_Data->AppAssemblyLoadedFromMemory = true;
-		s_Data->AppAssemblyFileWatcher.reset();
-		s_Data->AssemblyReloadPending = false;
-		return true;
-	}
-
-	void ScriptEngine::ReloadAssembly()
-	{
-		if (!s_Data || !s_Data->RootDomain || !s_Data->AppDomain)
-			return;
-
-		if (s_Data->AppAssemblyLoadedFromMemory)
-			return;
-
-		s_Data->AppAssemblyFileWatcher.reset();
-		mono_domain_set(mono_get_root_domain(), false);
-
-		mono_domain_unload(s_Data->AppDomain);
-		s_Data->AppDomain = nullptr;
-
-		LoadAssembly(s_Data->CoreAssemblyFilepath);
-		LoadAppAssembly(s_Data->AppAssemblyFilepath);
-		LoadAssemblyClasses();
-
-		ScriptGlue::RegisterComponents();
-
-		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("Lux", "Entity", true);
-	}
-
-	void ScriptEngine::OnRuntimeStart(Scene* scene)
-	{
-		s_Data->SceneContext = scene;
-	}
-
-	bool ScriptEngine::EntityClassExists(const std::string& fullClassName)
-	{
-		return s_Data->EntityClasses.find(fullClassName) != s_Data->EntityClasses.end();
-	}
-
-	void ScriptEngine::OnCreateEntity(Entity entity)
-	{
-		const auto& sc = entity.GetComponent<ScriptComponent>();
-		if (ScriptEngine::EntityClassExists(sc.ClassName))
+		if (m_AppAssemblyData->Assembly->GetLoadStatus() != Coral::AssemblyLoadStatus::Success)
 		{
-			UUID entityID = entity.GetUUID();
+			LUX_CORE_ERROR("[Scripting] Failed to load app assembly '{}'.", loadPath.string());
+			m_AppAssemblyData.reset();
+			return;
+		}
 
-			Ref<ScriptInstance> instance = CreateRef<ScriptInstance>(s_Data->EntityClasses[sc.ClassName], entity);
-			s_Data->EntityInstances[entityID] = instance;
+		BuildAssemblyCache(m_AppAssemblyData.get());
+	}
 
-			// Copy field values
-			if (s_Data->EntityScriptFields.find(entityID) != s_Data->EntityScriptFields.end())
+	void ScriptEngine::LoadProjectAssemblyRuntime(Buffer data)
+	{
+		m_AppAssemblyData.reset();
+
+		m_AppAssemblyData = CreateScope<AssemblyData>();
+		m_AppAssemblyData->Assembly = &m_LoadContext->LoadAssemblyFromMemory(reinterpret_cast<const std::byte*>(data.Data), (int64_t)data.Size);
+
+		if (m_AppAssemblyData->Assembly->GetLoadStatus() != Coral::AssemblyLoadStatus::Success)
+		{
+			LUX_CORE_ERROR("[Scripting] Failed to load packed app assembly.");
+			m_AppAssemblyData.reset();
+			return;
+		}
+
+		BuildAssemblyCache(m_AppAssemblyData.get());
+	}
+
+	void ScriptEngine::ReloadAppAssembly()
+	{
+		if (!m_Host || !m_LoadContext)
+			return;
+
+		// Drop all live handles + metadata before unloading the context; any survivor pins it.
+		m_ManagedObjects.Clear();
+
+		for (auto& [scriptID, scriptMetadata] : m_ScriptMetadata)
+		{
+			for (auto& [fieldID, fieldMetadata] : scriptMetadata.Fields)
+				fieldMetadata.DefaultValue.Release();
+		}
+		m_ScriptMetadata.clear();
+
+		m_AppAssemblyData.reset();
+		m_CoreAssemblyData.reset();
+
+		m_Host->UnloadAssemblyLoadContext(*m_LoadContext);
+		Coral::TypeCache::Get().Clear();
+		Coral::GC::Collect();
+
+		m_LoadContext = std::make_unique<Coral::AssemblyLoadContext>(std::move(m_Host->CreateAssemblyLoadContext("LuxScriptRuntime")));
+
+		auto scriptCorePath = std::filesystem::absolute(FileSystem::GetWorkingDirectory() / "Resources" / "Scripts" / "ScriptCore.dll").string();
+		m_CoreAssemblyData = CreateScope<AssemblyData>();
+		m_CoreAssemblyData->Assembly = &m_LoadContext->LoadAssembly(scriptCorePath);
+		BuildAssemblyCache(m_CoreAssemblyData.get());
+
+		ScriptGlue::RegisterGlue(*m_CoreAssemblyData->Assembly);
+
+		LoadProjectAssembly();
+	}
+
+	bool ScriptEngine::IsValidScript(UUID scriptID) const
+	{
+		if (!m_AppAssemblyData)
+			return false;
+
+		return m_AppAssemblyData->CachedTypes.contains(scriptID) && m_ScriptMetadata.contains(scriptID);
+	}
+
+	const ScriptMetadata& ScriptEngine::GetScriptMetadata(UUID scriptID) const
+	{
+		LUX_CORE_VERIFY(m_ScriptMetadata.contains(scriptID));
+		return m_ScriptMetadata.at(scriptID);
+	}
+
+	const Coral::Type* ScriptEngine::GetTypeByName(std::string_view name) const
+	{
+		if (m_CoreAssemblyData)
+		{
+			for (const auto& [id, type] : m_CoreAssemblyData->CachedTypes)
 			{
-				const ScriptFieldMap& fieldMap = s_Data->EntityScriptFields.at(entityID);
-				for (const auto& [name, fieldInstance] : fieldMap)
-					instance->SetFieldValueInternal(name, fieldInstance.m_Buffer);
+				Coral::ScopedString typeName = type->GetFullName();
+				if (typeName == name)
+					return type;
 			}
-			instance->InvokeOnCreate();
 		}
-	}
 
-	void ScriptEngine::OnUpdateEntity(Entity entity, Timestep ts)
-	{
-		UUID entityUUID = entity.GetUUID();
-		if (s_Data->EntityInstances.find(entityUUID) != s_Data->EntityInstances.end())
+		if (m_AppAssemblyData)
 		{
-			Ref<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
-			instance->InvokeOnUpdate((float)ts);
-		}
-		else
-		{
-			LUX_CORE_ERROR("Could not find ScriptInstance for entity {0}", entityUUID);
-		}
-	}
-
-	Scene* ScriptEngine::GetSceneContext()
-	{
-		return s_Data->SceneContext;
-	}
-
-	Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
-	{
-		auto it = s_Data->EntityInstances.find(entityID);
-		if (it == s_Data->EntityInstances.end())
-			return nullptr;
-
-		return it->second;
-	}
-
-	Ref<ScriptClass> ScriptEngine::GetEntityClass(const std::string& name)
-	{
-		if (s_Data->EntityClasses.find(name) == s_Data->EntityClasses.end())
-			return nullptr;
-
-		return s_Data->EntityClasses.at(name);
-	}
-
-	void ScriptEngine::OnRuntimeStop()
-	{
-		s_Data->SceneContext = nullptr;
-
-		s_Data->EntityInstances.clear();
-		s_Data->EntityScriptFields.clear();
-	}
-
-	std::unordered_map<std::string, Ref<ScriptClass>> ScriptEngine::GetEntityClasses()
-	{
-		return s_Data->EntityClasses;
-	}
-
-	ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity entity)
-	{
-		LUX_CORE_ASSERT(entity);
-
-		UUID entityID = entity.GetUUID();
-		return s_Data->EntityScriptFields[entityID];
-	}
-
-	void ScriptEngine::LoadAssemblyClasses()
-	{
-		s_Data->EntityClasses.clear();
-
-		const MonoTableInfo* typeDefinitionsTable = mono_image_get_table_info(s_Data->AppAssemblyImage, MONO_TABLE_TYPEDEF);
-		int32_t numTypes = mono_table_info_get_rows(typeDefinitionsTable);
-		MonoClass* entityClass = mono_class_from_name(s_Data->CoreAssemblyImage, "Lux", "Entity");
-
-		for (int32_t i = 0; i < numTypes; i++)
-		{
-			uint32_t cols[MONO_TYPEDEF_SIZE];
-			mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
-
-			const char* nameSpace = mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAMESPACE]);
-			const char* className = mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAME]);
-			std::string fullName;
-			if (strlen(nameSpace) != 0)
-				fullName = std::format("{}.{}", nameSpace, className);
-			else
-				fullName = className;
-
-			MonoClass* monoClass = mono_class_from_name(s_Data->AppAssemblyImage, nameSpace, className);
-
-			if (monoClass == entityClass)
-				continue;
-
-			bool isEntity = mono_class_is_subclass_of(monoClass, entityClass, false);
-			if (!isEntity)
-				continue;
-
-			Ref<ScriptClass> scriptClass = CreateRef<ScriptClass>(nameSpace, className);
-			s_Data->EntityClasses[fullName] = scriptClass;
-
-
-			// This routine is an iterator routine for retrieving the fields in a class.
-			// You must pass a gpointer that points to zero and is treated as an opaque handle
-			// to iterate over all of the elements. When no more values are available, the return value is NULL.
-
-			int fieldCount = mono_class_num_fields(monoClass);
-			LUX_CORE_WARN("{} has {} fields:", className, fieldCount);
-			void* iterator = nullptr;
-			while (MonoClassField* field = mono_class_get_fields(monoClass, &iterator))
+			for (const auto& [id, type] : m_AppAssemblyData->CachedTypes)
 			{
-				const char* fieldName = mono_field_get_name(field);
-				uint32_t flags = mono_field_get_flags(field);
-				if (flags & FIELD_ATTRIBUTE_PUBLIC)
-				{
-					MonoType* type = mono_field_get_type(field);
-					ScriptFieldType fieldType = Utils::MonoTypeToScriptFieldType(type);
-					LUX_CORE_WARN("  {} ({})", fieldName, Utils::ScriptFieldTypeToString(fieldType));
+				Coral::ScopedString typeName = type->GetFullName();
+				if (typeName == name)
+					return type;
+			}
+		}
 
-					scriptClass->m_Fields[fieldName] = { fieldType, fieldName, field };
+		return nullptr;
+	}
+
+	void ScriptEngine::BuildAssemblyCache(AssemblyData* assemblyData)
+	{
+		const std::vector<Coral::Type>& types = assemblyData->Assembly->GetLocalTypes();
+
+		// Lux.Entity lives in ScriptCore, so resolve the base type from the CORE assembly, not
+		// the assembly being cached (the app assembly has no local Lux.Entity). Both share one
+		// ALC, so cross-assembly IsSubclassOf works.
+		Coral::Type& entityType = m_CoreAssemblyData->Assembly->GetLocalType("Lux.Entity");
+
+		for (const Coral::Type& constType : types)
+		{
+			Coral::Type& type = const_cast<Coral::Type&>(constType);
+
+			Coral::ScopedString fullNameScoped = type.GetFullName();
+			std::string fullName = fullNameScoped;
+			UUID scriptID = Hash::GenerateFNVHash(fullName);
+
+			assemblyData->CachedTypes[scriptID] = &type;
+
+			if (!entityType || !type.IsSubclassOf(entityType))
+				continue;
+
+			auto& metadata = m_ScriptMetadata[scriptID];
+			metadata.FullName = fullName;
+
+			for (auto& methodInfo : type.GetMethods())
+			{
+				Coral::ScopedString methodName = methodInfo.GetName();
+				metadata.Methods.insert(std::string(methodName));
+			}
+
+			auto temp = type.CreateInstance();
+
+			for (auto& fieldInfo : type.GetFields())
+			{
+				Coral::ScopedString fieldNameScoped = fieldInfo.GetName();
+				std::string fieldNameStr = fieldNameScoped;
+
+				if (fieldNameStr.find("k__BackingField") != std::string::npos)
+					continue;
+
+				auto* fieldType = &fieldInfo.GetType();
+				if (fieldType->IsSZArray())
+					fieldType = &fieldType->GetElementType();
+
+				Coral::ScopedString typeNameScoped = fieldType->GetFullName();
+				std::string typeName = typeNameScoped;
+
+				if (!s_DataTypeLookup.contains(typeName))
+					continue;
+
+				if (fieldInfo.GetAccessibility() != Coral::TypeAccessibility::Public)
+				{
+					auto attributes = fieldInfo.GetAttributes();
+					auto found = std::ranges::find_if(attributes, [](Coral::Attribute& attribute)
+					{
+						Coral::ScopedString name = attribute.GetType().GetFullName();
+						return name == "Lux.ShowInEditorAttribute";
+					});
+
+					if (found == attributes.end())
+						continue;
+				}
+
+				// Entity.ID is inherited by every script; not an editable field.
+				if (fieldNameStr == "ID")
+					continue;
+
+				std::string fullFieldName = std::format("{}.{}", fullName, fieldNameStr);
+				uint32_t fieldID = Hash::GenerateFNVHash(fullFieldName);
+
+				auto& fieldMetadata = metadata.Fields[fieldID];
+				fieldMetadata.Name = fieldNameStr;
+				fieldMetadata.Type = s_DataTypeLookup.at(typeName);
+				fieldMetadata.ManagedType = &fieldInfo.GetType();
+
+				switch (fieldMetadata.Type)
+				{
+					case DataType::SByte:   fieldMetadata.SetDefaultValue<int8_t>(temp); break;
+					case DataType::Byte:    fieldMetadata.SetDefaultValue<uint8_t>(temp); break;
+					case DataType::Short:   fieldMetadata.SetDefaultValue<int16_t>(temp); break;
+					case DataType::UShort:  fieldMetadata.SetDefaultValue<uint16_t>(temp); break;
+					case DataType::Int:     fieldMetadata.SetDefaultValue<int32_t>(temp); break;
+					case DataType::UInt:    fieldMetadata.SetDefaultValue<uint32_t>(temp); break;
+					case DataType::Long:    fieldMetadata.SetDefaultValue<int64_t>(temp); break;
+					case DataType::ULong:   fieldMetadata.SetDefaultValue<uint64_t>(temp); break;
+					case DataType::Float:   fieldMetadata.SetDefaultValue<float>(temp); break;
+					case DataType::Double:  fieldMetadata.SetDefaultValue<double>(temp); break;
+					case DataType::Vector2: fieldMetadata.SetDefaultValue<glm::vec2>(temp); break;
+					case DataType::Vector3: fieldMetadata.SetDefaultValue<glm::vec3>(temp); break;
+					case DataType::Vector4: fieldMetadata.SetDefaultValue<glm::vec4>(temp); break;
+					default: break; // Bool + asset-refs default to zero-initialized storage.
 				}
 			}
 
+			temp.Destroy();
 		}
-
-		auto& entityClasses = s_Data->EntityClasses;
-
-		//mono_field_get_value()
-
-	}
-
-	MonoImage* ScriptEngine::GetCoreAssemblyImage()
-	{
-		return s_Data->CoreAssemblyImage;
-	}
-
-	MonoObject* ScriptEngine::GetManagedInstance(UUID uuid)
-	{
-		LUX_CORE_ASSERT(s_Data->EntityInstances.find(uuid) != s_Data->EntityInstances.end());
-		return s_Data->EntityInstances.at(uuid)->GetManagedObject();
-	}
-
-	MonoString* ScriptEngine::CreateString(const char* string)
-	{
-		return mono_string_new(s_Data->AppDomain, string);
-	}
-
-	MonoObject* ScriptEngine::InstantiateClass(MonoClass* monoClass)
-	{
-		MonoObject* instance = mono_object_new(s_Data->AppDomain, monoClass);
-		mono_runtime_object_init(instance);
-		return instance;
-	}
-
-	ScriptClass::ScriptClass(const std::string& classNamespace, const std::string& className, bool isCore)
-		: m_ClassNamespace(classNamespace), m_ClassName(className)
-	{
-		m_MonoClass = mono_class_from_name(isCore ? s_Data->CoreAssemblyImage : s_Data->AppAssemblyImage, classNamespace.c_str(), className.c_str());
-	}
-
-	MonoObject* ScriptClass::Instantiate()
-	{
-		return ScriptEngine::InstantiateClass(m_MonoClass);
-	}
-
-	MonoMethod* ScriptClass::GetMethod(const std::string& name, int parameterCount)
-	{
-		return mono_class_get_method_from_name(m_MonoClass, name.c_str(), parameterCount);
-	}
-
-	MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** params)
-	{
-		MonoObject* exception = nullptr;
-		return mono_runtime_invoke(method, instance, params, &exception);
-	}
-
-	ScriptInstance::ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity)
-		: m_ScriptClass(scriptClass)
-	{
-		m_Instance = scriptClass->Instantiate();
-
-		m_Constructor = s_Data->EntityClass.GetMethod(".ctor", 1);
-		m_OnCreateMethod = scriptClass->GetMethod("OnCreate", 0);
-		m_OnUpdateMethod = scriptClass->GetMethod("OnUpdate", 1);
-
-		// Call Entity constructor
-		{
-			UUID entityID = entity.GetUUID();
-			void* param = &entityID;
-			m_ScriptClass->InvokeMethod(m_Instance, m_Constructor, &param);
-		}
-	}
-
-	void ScriptInstance::InvokeOnCreate()
-	{
-		if (m_OnCreateMethod)
-			m_ScriptClass->InvokeMethod(m_Instance, m_OnCreateMethod);
-	}
-
-	void ScriptInstance::InvokeOnUpdate(float ts)
-	{
-		if (m_OnUpdateMethod)
-		{
-			void* param = &ts;
-			m_ScriptClass->InvokeMethod(m_Instance, m_OnUpdateMethod, &param);
-		}
-	}
-
-
-	bool ScriptInstance::GetFieldValueInternal(const std::string& name, void* buffer)
-	{
-		const auto& fields = m_ScriptClass->GetFields();
-		auto it = fields.find(name);
-		if (it == fields.end())
-			return false;
-
-		const ScriptField& field = it->second;
-		mono_field_get_value(m_Instance, field.ClassField, buffer);
-		return true;
-	}
-
-	bool ScriptInstance::SetFieldValueInternal(const std::string& name, const void* value)
-	{
-		const auto& fields = m_ScriptClass->GetFields();
-		auto it = fields.find(name);
-		if (it == fields.end())
-			return false;
-
-		const ScriptField& field = it->second;
-		mono_field_set_value(m_Instance, field.ClassField, (void*)value);
-		return true;
 	}
 
 }
