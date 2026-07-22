@@ -308,7 +308,11 @@ namespace Lux {
 	void ScriptEngine::BuildAssemblyCache(AssemblyData* assemblyData)
 	{
 		const std::vector<Coral::Type>& types = assemblyData->Assembly->GetLocalTypes();
-		Coral::Type& entityType = assemblyData->Assembly->GetLocalType("Lux.Entity");
+
+		// Lux.Entity lives in ScriptCore, so resolve the base type from the CORE assembly, not
+		// the assembly being cached (the app assembly has no local Lux.Entity). Both share one
+		// ALC, so cross-assembly IsSubclassOf works.
+		Coral::Type& entityType = m_CoreAssemblyData->Assembly->GetLocalType("Lux.Entity");
 
 		for (const Coral::Type& constType : types)
 		{
