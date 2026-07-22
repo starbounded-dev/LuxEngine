@@ -61,8 +61,10 @@ project "Editor"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread" }
 
-		result, err = os.outputof("pkg-config --libs gtk+-3.0")
-		linkoptions { result }
+		-- os.outputof runs at parse time on every host; pkg-config only exists on Linux.
+		if os.host() == "linux" then
+			linkoptions { os.outputof("pkg-config --libs gtk+-3.0") }
+		end
 
 	filter "configurations:Debug or configurations:Debug-AS"
 		symbols "On"

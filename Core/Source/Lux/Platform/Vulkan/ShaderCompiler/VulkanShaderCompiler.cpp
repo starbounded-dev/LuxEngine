@@ -353,7 +353,11 @@ namespace Lux {
 
 			m_AcknowledgedMacros.merge(includer->GetParsedSpecialMacros());
 #else
+			// Linux resolves HLSL includes in the dxc CLI at compile time (via -I flags), so it
+			// skips the DXC-based preprocessor here. Still hash the raw source so the shader cache
+			// invalidates correctly when a shader changes.
 			m_StagesMetadata[stage] = StageData{};
+			m_StagesMetadata[stage].HashValue = Hash::GenerateFNVHash(shaderSource);
 #endif
 		}
 		return shaderSources;
@@ -445,9 +449,9 @@ namespace Lux {
 			return error;
 #elif defined(LUX_PLATFORM_LINUX)
 			// Note(Emily): This is *atrocious* but dxc's integration refuses to process builtin HLSL without ICE'ing
-			//				from the integration.
+			//				from the integration. So we shell out to the dxc CLI instead.
 
-			char tempfileName[] = "hazel-hlsl-XXXXXX.spv";
+			char tempfileName[] = "lux-hlsl-XXXXXX.spv";
 			int outfile = mkstemps(tempfileName, 4);
 
 			std::string dxc = std::format("{}/bin/dxc", FileSystem::GetEnvironmentVariable("VULKAN_SDK"));
@@ -476,7 +480,7 @@ namespace Lux {
 				exec.push_back("-Zi");
 			}
 
-			if (stage & (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT | VK_SHADER_STAGE_GEOMETRY_BIT))
+			if ((uint16_t)stage & ((uint16_t)nvrhi::ShaderType::Vertex | (uint16_t)nvrhi::ShaderType::Hull | (uint16_t)nvrhi::ShaderType::Geometry))
 				exec.push_back("-fvk-invert-y");
 
 			exec.push_back(NULL);
@@ -490,14 +494,14 @@ namespace Lux {
 			char* env[] = { ld_lib_path.data(), NULL };
 			if (posix_spawn(&pid, exec[0], NULL, &attr, (char**)exec.data(), env))
 			{
-				return std::format("Could not execute `{}` for shader compilation: {} {}", exec[0], m_ShaderSourcePath.string(), ShaderUtils::ShaderStageToString(stage));
+				return std::format("Could not execute `{}` for shader compilation: {} {}", exec[0], m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage));
 			}
 			int status;
 			waitpid(pid, &status, 0);
 
 			if (WEXITSTATUS(status))
 			{
-				return std::format("Compilation failed\nWhile compiling shader file: {} \nAt stage: {}", m_ShaderSourcePath.string(), ShaderUtils::ShaderStageToString(stage));
+				return std::format("Compilation failed\nWhile compiling shader file: {} \nAt stage: {}", m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage));
 			}
 
 			off_t size = lseek(outfile, 0, SEEK_END);

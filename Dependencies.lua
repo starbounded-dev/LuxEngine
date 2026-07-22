@@ -55,22 +55,24 @@ Dependencies = {
 		},
 	},
 	DirectXCompiler = {
-		LibName = "dxcompiler",
+		-- Linux compiles HLSL by shelling out to the `dxc` binary (see VulkanShaderCompiler.cpp),
+		-- so libdxcompiler is only linked on Windows.
+		Windows = { LibName = "dxcompiler" },
 	},
 	TBB = {
 		Linux = { LibName = "tbb" },
 	},
 	WinSock = {
-		LibName = "Ws2_32"
+		Windows = { LibName = "Ws2_32" },
 	},
 	WinMM = {
-		LibName = "Winmm"
+		Windows = { LibName = "Winmm" },
 	},
 	WinVersion = {
-		LibName = "Version"
+		Windows = { LibName = "Version" },
 	},
 	Bcrypt = {
-		LibName = "Bcrypt"
+		Windows = { LibName = "Bcrypt" },
 	},
 	-- Dropped entirely with "--no-aftermath"; the code side is gated on LUX_DISABLE_AFTERMATH.
 	NvidiaAftermath = (not _OPTIONS["no-aftermath"]) and {
@@ -148,18 +150,6 @@ Dependencies = {
 		LibName = "NFD-Extended",
 		IncludeDir = "%{wks.location}/Core/vendor/NFD-Extended/NFD-Extended/src/include"
 	},
-	ShaderC = {
-		LibName = "shaderc_shared",
-		Windows = { DebugLibName = "shaderc_sharedd", },
-		IncludeDir = "%{wks.location}/Core/vendor/shaderc/include",
-		Configurations = "Debug,Release"
-	},
-	ShaderCUtil = {
-		LibName = "shaderc_util",
-		Windows = { DebugLibName = "shaderc_utild", },
-		IncludeDir = "%{wks.location}/Core/vendor/shaderc/libshaderc_util/include",
-		Configurations = "Debug,Release"
-	},
 	GLM = {
 		IncludeDir = "%{wks.location}/Core/vendor/glm",
 	},
@@ -167,7 +157,7 @@ Dependencies = {
 		IncludeDir = "%{wks.location}/Core/vendor/entt/include",
 	},
 	ImGuizmo = {
-		IncludeDir = "%{wks.location}/Core/vendor/ImGuizmo",
+		IncludeDir = "%{wks.location}/Core/vendor/imguizmo",
 	},
 	STB = {
 		IncludeDir = "%{wks.location}/Core/vendor/stb/include",
@@ -178,7 +168,7 @@ Dependencies = {
 	},
 	NVRHI = {
 		LibName = "NVRHI",
-		IncludeDir = "%{wks.location}/Core/vendor/NVRHI/include"
+		IncludeDir = "%{wks.location}/Core/vendor/nvrhi/include"
 	},
 	MiniAudio = {
 		IncludeDir = "%{wks.location}/Core/vendor/miniaudio/include",
@@ -206,9 +196,6 @@ Dependencies = {
 	Freetype = {
 		LibName = "freetype"
 	},
-	STB = {
-		IncludeDir = "%{wks.location}/Core/vendor/stb/include",
-	},
 	YAML_CPP = {
 		IncludeDir = "%{wks.location}/Core/vendor/yaml-cpp/include",
 	},
@@ -219,7 +206,7 @@ Dependencies = {
 		Windows = { LibName = "ws2_32", },
 	},
 	Dbghelp = {
-		Windows = { LibName = "	Dbghelp" },
+		Windows = { LibName = "Dbghelp" },
 	},
 }
 

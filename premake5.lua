@@ -134,7 +134,7 @@ group "Dependencies/Text"
 group ""
 
 group "Dependencies/Renderer"
-	include "Core/vendor/NVRHI"
+	include "Core/vendor/nvrhi"
 group ""
 
 group "Core"

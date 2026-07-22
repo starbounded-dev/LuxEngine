@@ -121,7 +121,8 @@ void __CRTDECL operator delete[](void* memory, const char* file, int line);
 #define ldelete delete
 
 #else
-#warning "Memory tracking not available on non-Windows platform"
+// Memory tracking relies on MSVC-specific global operator new/delete overloads, so it's a no-op
+// on non-Windows platforms. lnew/ldelete fall back to plain new/delete (tracking simply disabled).
 #define lnew new
 #define ldelete delete
 

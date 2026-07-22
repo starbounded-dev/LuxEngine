@@ -13,13 +13,13 @@ namespace Lux {
 			return false;
 		}
 
-		// Route through PowerShell so quoting of the (possibly spaced) path is handled uniformly.
-		std::string quotedPath = "'" + projectPath.string() + "'";
+		// Invoke dotnet directly. std::system routes through cmd.exe on Windows and /bin/sh on
+		// Linux; double-quoting the (possibly spaced) path is honoured by both, whereas a PowerShell
+		// wrapper is Windows-only.
 		std::string command =
-			"powershell -NoProfile -ExecutionPolicy Bypass -Command \"& dotnet build "
-			+ quotedPath
+			"dotnet build \"" + projectPath.string() + "\""
 			+ " -c " + configuration
-			+ " --nologo --verbosity minimal\"";
+			+ " --nologo --verbosity minimal";
 
 		LUX_CORE_INFO("[ScriptBuilder] Building scripts ({})...", configuration);
 		int result = std::system(command.c_str());
