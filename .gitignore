@@ -3,6 +3,30 @@ bin-int/
 Intermediates/
 /bin
 
+# Generated Makefiles (Linux/gmake2)
+Makefile
+*.make
+Core/Makefile
+Editor/Makefile
+Lux-Runtime/Makefile
+ScriptCore/Makefile
+
+# Vendored Vulkan SDK (local install)
+Core/vendor/VulkanSDK/
+
+# JoltPhysics build artifacts
+Core/vendor/JoltPhysics/Makefile
+Core/vendor/JoltPhysics/bin/
+
+# TypeScript (local)
+typescript
+
+# Premake binary (platform-specific)
+premake5
+
+# Claude Code local settings
+.claude/
+
 # Lux files
 *.log
 
