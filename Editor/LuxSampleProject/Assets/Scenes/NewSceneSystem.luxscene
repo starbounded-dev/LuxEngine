@@ -72,6 +72,22 @@ Entities:
       Position: [-6, 0.400000006, 0.902999997]
       Rotation: [0.164060935, -1.30515718, 0]
       Scale: [0.999999881, 1, 0.999999881]
+    ScriptComponent:
+      ClassName: LuxSample.FlyCamera
+      ScriptID: 3987114672
+      StoredFields:
+        - ID: 3495151719
+          Name: Speed
+          Type: Float
+          Data: 5
+        - ID: 978505095
+          Name: SprintMultiplier
+          Type: Float
+          Data: 3
+        - ID: 2911448432
+          Name: MouseSensitivity
+          Type: Float
+          Data: 0.00249999994
     CameraComponent:
       Camera:
         ProjectionType: 0
