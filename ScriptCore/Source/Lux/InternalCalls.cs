@@ -1,61 +1,60 @@
-﻿using System;
-using System.Runtime.CompilerServices;
+using System;
+
+using Coral.Managed.Interop;
 
 namespace Lux
 {
-	public static class InternalCalls
+	// Static function-pointer fields filled in by native ScriptGlue::RegisterGlue via
+	// AddInternalCall + UploadInternalCalls. Field names MUST match the second argument to
+	// AddInternalCall on the native side ("Lux.InternalCalls" + field name).
+	internal static unsafe class InternalCalls
 	{
+#pragma warning disable CS0649 // assigned from native code
+
+		#region Log
+		internal static delegate*<NativeString, int, void> NativeLog;
+		#endregion
+
 		#region Entity
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static bool Entity_HasComponent(ulong entityID, Type componentType);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static ulong Entity_FindEntityByName(string name);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static object GetScriptInstance(ulong entityID);
+		internal static delegate*<ulong, IntPtr> GetScriptInstance;
+		internal static delegate*<ulong, ReflectionType, Bool32> Entity_HasComponent;
+		internal static delegate*<ulong, ReflectionType, void> Entity_AddComponent;
+		internal static delegate*<ulong, ReflectionType, void> Entity_RemoveComponent;
+		internal static delegate*<NativeString, ulong> Entity_FindEntityByName;
+		internal static delegate*<ulong, NativeString> Entity_GetName;
 		#endregion
 
 		#region TransformComponent
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_GetTranslation(ulong entityID, out Vector3 translation);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TransformComponent_SetTranslation(ulong entityID, ref Vector3 translation);
+		internal static delegate*<ulong, Vector3*, void> TransformComponent_GetTranslation;
+		internal static delegate*<ulong, Vector3*, void> TransformComponent_SetTranslation;
+		internal static delegate*<ulong, Vector3*, void> TransformComponent_GetScale;
+		internal static delegate*<ulong, Vector3*, void> TransformComponent_SetScale;
 		#endregion
 
-		#region Rigidbody2DComponent
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void RigidBody2DComponent_ApplyLinearImpulse(ulong entityID, ref Vector2 impulse, ref Vector2 point, bool wake);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void RigidBody2DComponent_GetLinearVelocity(ulong entityID, out Vector2 linearVelocity);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static RigidBody2DComponent.BodyType RigidBody2DComponent_GetType(ulong entityID);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void RigidBody2DComponent_SetType(ulong entityID, RigidBody2DComponent.BodyType type);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void RigidBody2DComponent_ApplyLinearImpulseToCenter(ulong entityID, ref Vector2 impulse, bool wake);
+		#region RigidBody2DComponent
+		internal static delegate*<ulong, Vector2*, Vector2*, Bool32, void> RigidBody2DComponent_ApplyLinearImpulse;
+		internal static delegate*<ulong, Vector2*, Bool32, void> RigidBody2DComponent_ApplyLinearImpulseToCenter;
+		internal static delegate*<ulong, Vector2*, void> RigidBody2DComponent_GetLinearVelocity;
+		internal static delegate*<ulong, RigidBody2DComponent.BodyType> RigidBody2DComponent_GetType;
+		internal static delegate*<ulong, RigidBody2DComponent.BodyType, void> RigidBody2DComponent_SetType;
 		#endregion
 
 		#region TextComponent
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static string TextComponent_GetText(ulong entityID);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TextComponent_SetText(ulong entityID, string text);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TextComponent_GetColor(ulong entityID, out Vector4 color);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TextComponent_SetColor(ulong entityID, ref Vector4 color);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static float TextComponent_GetKerning(ulong entityID);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TextComponent_SetKerning(ulong entityID, float kerning);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static float TextComponent_GetLineSpacing(ulong entityID);
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void TextComponent_SetLineSpacing(ulong entityID, float lineSpacing);
+		internal static delegate*<ulong, NativeString> TextComponent_GetText;
+		internal static delegate*<ulong, NativeString, void> TextComponent_SetText;
+		internal static delegate*<ulong, Vector4*, void> TextComponent_GetColor;
+		internal static delegate*<ulong, Vector4*, void> TextComponent_SetColor;
+		internal static delegate*<ulong, float> TextComponent_GetKerning;
+		internal static delegate*<ulong, float, void> TextComponent_SetKerning;
+		internal static delegate*<ulong, float> TextComponent_GetLineSpacing;
+		internal static delegate*<ulong, float, void> TextComponent_SetLineSpacing;
 		#endregion
 
-		#region Rigidbody2DComponent
-		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static bool Input_IsKeyDown(KeyCode keycode);
+		#region Input
+		internal static delegate*<KeyCode, Bool32> Input_IsKeyDown;
+		internal static delegate*<MouseButton, Bool32> Input_IsMouseButtonDown;
 		#endregion
+
+#pragma warning restore CS0649
 	}
 }

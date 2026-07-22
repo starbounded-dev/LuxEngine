@@ -1,9 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Lux;
+using Coral.Managed.Interop;
 
 namespace Lux
 {
@@ -14,17 +9,26 @@ namespace Lux
 
 	public class TransformComponent : Component
 	{
-		public Vector3 Translation
+		public unsafe Vector3 Translation
 		{
 			get
 			{
-				InternalCalls.TransformComponent_GetTranslation(Entity.ID, out Vector3 translation);
+				Vector3 translation;
+				InternalCalls.TransformComponent_GetTranslation(Entity.ID, &translation);
 				return translation;
 			}
-			set
+			set { InternalCalls.TransformComponent_SetTranslation(Entity.ID, &value); }
+		}
+
+		public unsafe Vector3 Scale
+		{
+			get
 			{
-				InternalCalls.TransformComponent_SetTranslation(Entity.ID, ref value);
+				Vector3 scale;
+				InternalCalls.TransformComponent_GetScale(Entity.ID, &scale);
+				return scale;
 			}
+			set { InternalCalls.TransformComponent_SetScale(Entity.ID, &value); }
 		}
 	}
 
@@ -32,54 +36,50 @@ namespace Lux
 	{
 		public enum BodyType { Static = 0, Dynamic, Kinematic }
 
-		public Vector2 LinearVelocity
+		public unsafe Vector2 LinearVelocity
 		{
 			get
 			{
-				InternalCalls.RigidBody2DComponent_GetLinearVelocity(Entity.ID, out Vector2 velocity);
+				Vector2 velocity;
+				InternalCalls.RigidBody2DComponent_GetLinearVelocity(Entity.ID, &velocity);
 				return velocity;
 			}
 		}
 
-		public BodyType Type
-
+		public unsafe BodyType Type
 		{
 			get => InternalCalls.RigidBody2DComponent_GetType(Entity.ID);
 			set => InternalCalls.RigidBody2DComponent_SetType(Entity.ID, value);
 		}
-		public void ApplyLinearImpulse(Vector2 impulse, Vector2 worldPosition, bool wake)
+
+		public unsafe void ApplyLinearImpulse(Vector2 impulse, Vector2 worldPosition, bool wake)
 		{
-			InternalCalls.RigidBody2DComponent_ApplyLinearImpulse(Entity.ID, ref impulse, ref worldPosition, wake);
+			InternalCalls.RigidBody2DComponent_ApplyLinearImpulse(Entity.ID, &impulse, &worldPosition, wake);
 		}
 
-		public void ApplyLinearImpulse(Vector2 impulse, bool wake)
+		public unsafe void ApplyLinearImpulse(Vector2 impulse, bool wake)
 		{
-			InternalCalls.RigidBody2DComponent_ApplyLinearImpulseToCenter(Entity.ID, ref impulse, wake);
+			InternalCalls.RigidBody2DComponent_ApplyLinearImpulseToCenter(Entity.ID, &impulse, wake);
 		}
-
 	}
 
-	public class TextComponent : Component
+	public unsafe class TextComponent : Component
 	{
-
 		public string Text
 		{
 			get => InternalCalls.TextComponent_GetText(Entity.ID);
 			set => InternalCalls.TextComponent_SetText(Entity.ID, value);
 		}
 
-		public Vector4 Color
+		public unsafe Vector4 Color
 		{
 			get
 			{
-				InternalCalls.TextComponent_GetColor(Entity.ID, out Vector4 color);
+				Vector4 color;
+				InternalCalls.TextComponent_GetColor(Entity.ID, &color);
 				return color;
 			}
-
-			set
-			{
-				InternalCalls.TextComponent_SetColor(Entity.ID, ref value);
-			}
+			set { InternalCalls.TextComponent_SetColor(Entity.ID, &value); }
 		}
 
 		public float Kerning
@@ -93,56 +93,15 @@ namespace Lux
 			get => InternalCalls.TextComponent_GetLineSpacing(Entity.ID);
 			set => InternalCalls.TextComponent_SetLineSpacing(Entity.ID, value);
 		}
-
 	}
 
-	public class SpriteRendererComponent
-	{
-
-	}
-
-	public class CircleRendererComponent
-	{
-
-	}
-
-	public class CameraComponent
-	{
-
-	}
-
-	public class ScriptComponent
-	{
-
-	}
-
-	public class NativeScriptComponent
-	{
-
-	}
-
-	public class BoxCollider2DComponent
-	{
-
-	}
-
-	public class CircleCollider2DComponent
-	{
-
-	}
-
-	public class AudioData
-	{
-
-	}
-
-	public class AudioSourceComponent
-	{
-
-	}
-
-	public class AudioListenerComponent
-	{
-
-	}
+	// Query/add/remove-able components with no scriptable surface yet. Each must have a matching
+	// native component registered in ScriptGlue::RegisterComponentTypes.
+	public class SpriteRendererComponent : Component { }
+	public class CircleRendererComponent : Component { }
+	public class CameraComponent : Component { }
+	public class BoxCollider2DComponent : Component { }
+	public class CircleCollider2DComponent : Component { }
+	public class AudioSourceComponent : Component { }
+	public class AudioListenerComponent : Component { }
 }

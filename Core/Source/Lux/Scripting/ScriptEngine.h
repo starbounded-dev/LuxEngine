@@ -1,240 +1,238 @@
 #pragma once
 
-#include "Lux/Scene/Scene.h"
-#include "Lux/Scene/Entity.h"
+#include "CSharpObject.h"
+#include "ScriptEntityStorage.hpp"
 
+#include "Lux/Core/Ref.h"
 #include "Lux/Core/Buffer.h"
 
-#include <filesystem>
-#include <string>
-#include <map>
+#include <Coral/Assembly.hpp>
+#include <Coral/Type.hpp>
+#include <Coral/StableVector.hpp>
+#include <Coral/Attribute.hpp>
+#include <Coral/Array.hpp>
 
-extern "C" {
-	typedef struct _MonoClass MonoClass;
-	typedef struct _MonoObject MonoObject;
-	typedef struct _MonoMethod MonoMethod;
-	typedef struct _MonoAssembly MonoAssembly;
-	typedef struct _MonoImage MonoImage;
-	typedef struct _MonoClassField MonoClassField;
-	typedef struct _MonoString MonoString;
+#include <filesystem>
+#include <unordered_set>
+
+namespace Coral {
+	class HostInstance;
+	class ManagedAssembly;
+	class AssemblyLoadContext;
 }
 
 namespace Lux {
 
-	enum class ScriptFieldType
+	class Scene;
+	class Project;
+
+	struct AssemblyData
 	{
-		None = 0,
-		Float, Double,
-		Bool, Char, Byte, Short, Int, Long,
-		UByte, UShort, UInt, ULong,
-		Vector2, Vector3, Vector4,
-		Entity
+		Coral::ManagedAssembly* Assembly = nullptr;
+		std::unordered_map<UUID, Coral::Type*> CachedTypes;
 	};
 
-	struct ScriptField
+	struct FieldMetadata
 	{
-		ScriptFieldType Type;
 		std::string Name;
+		DataType Type = DataType::Float;
+		Coral::Type* ManagedType = nullptr;
 
-		MonoClassField* ClassField;
-	};
+		Buffer DefaultValue;
 
-	// ScriptField + data storage
-	struct ScriptFieldInstance
-	{
-		ScriptField Field;
-
-		ScriptFieldInstance()
-		{
-			memset(m_Buffer, 0, sizeof(m_Buffer));
-		}
-
-		template<typename T>
-		T GetValue()
-		{
-			static_assert(sizeof(T) <= 16, "Type too large!");
-			return *(T*)m_Buffer;
-		}
-
-		template<typename T>
-		void SetValue(T value)
-		{
-			static_assert(sizeof(T) <= 16, "Type too large!");
-			memcpy(m_Buffer, &value, sizeof(T));
-		}
 	private:
-		uint8_t m_Buffer[16];
-
-		friend class ScriptEngine;
-		friend class ScriptInstance;
-	};
-
-	using ScriptFieldMap = std::unordered_map<std::string, ScriptFieldInstance>;
-
-	class ScriptClass : public RefCounted
-	{
-	public:
-		ScriptClass() = default;
-		ScriptClass(const std::string& classNamespace, const std::string& className, bool isCore = false);
-
-		MonoObject* Instantiate();
-		MonoMethod* GetMethod(const std::string& name, int parameterCount);
-		MonoObject* InvokeMethod(MonoObject* instance, MonoMethod* method, void** params = nullptr);
-
-		const std::map<std::string, ScriptField>& GetFields() const { return m_Fields; }
-	private:
-		std::string m_ClassNamespace;
-		std::string m_ClassName;
-
-		std::map<std::string, ScriptField> m_Fields;
-
-		MonoClass* m_MonoClass = nullptr;
+		template<typename T>
+		void SetDefaultValue(Coral::ManagedObject& temp)
+		{
+			if (ManagedType->IsSZArray())
+			{
+				auto value = temp.GetFieldValue<Coral::Array<T>>(Name);
+				DefaultValue = Buffer::Copy(value.Data(), value.ByteLength());
+				Coral::Array<T>::Free(value);
+			}
+			else
+			{
+				DefaultValue.Allocate(sizeof(T));
+				auto value = temp.GetFieldValue<T>(Name);
+				DefaultValue.Write(&value, sizeof(T));
+			}
+		}
 
 		friend class ScriptEngine;
 	};
 
-	class ScriptInstance : public RefCounted
+	struct ScriptMetadata
 	{
-	public:
-		ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity);
+		std::string FullName;
+		std::unordered_map<uint32_t, FieldMetadata> Fields;
 
-		void InvokeOnCreate();
-		void InvokeOnUpdate(float ts);
+		// Names of methods the user's class declares (incl. OnCreate/OnUpdate/OnDestroy). Used to
+		// avoid invoking lifecycle hooks the script doesn't define.
+		std::unordered_set<std::string> Methods;
 
-		Ref<ScriptClass> GetScriptClass() { return m_ScriptClass; }
-
-		template<typename T>
-		T GetFieldValue(const std::string& name)
-		{
-			static_assert(sizeof(T) <= 16, "Type too large!");
-
-			bool success = GetFieldValueInternal(name, s_FieldValueBuffer);
-			if (!success)
-				return T();
-
-			return *(T*)s_FieldValueBuffer;
-		}
-
-		template<typename T>
-		void SetFieldValue(const std::string& name, T value)
-		{
-			static_assert(sizeof(T) <= 16, "Type too large!");
-
-			SetFieldValueInternal(name, &value);
-		}
-
-		MonoObject* GetManagedObject() { return m_Instance; }
-	private:
-		bool GetFieldValueInternal(const std::string& name, void* buffer);
-		bool SetFieldValueInternal(const std::string& name, const void* value);
-	private:
-		Ref<ScriptClass> m_ScriptClass;
-
-		MonoObject* m_Instance = nullptr;
-		MonoMethod* m_Constructor = nullptr;
-		MonoMethod* m_OnCreateMethod = nullptr;
-		MonoMethod* m_OnUpdateMethod = nullptr;
-
-		inline static char s_FieldValueBuffer[16];
-
-		friend class ScriptEngine;
-		friend struct ScriptFieldInstance;
+		bool HasMethod(const std::string& name) const { return Methods.contains(name); }
 	};
 
 	class ScriptEngine
 	{
 	public:
-		static bool Init(Buffer appAssemblyData = {}, const std::string& appAssemblyName = {});
-		static void Shutdown();
+		// Defined out-of-line so Scene need not be complete in this header.
+		Ref<Scene> GetCurrentScene() const;
+		void SetCurrentScene(Ref<Scene> scene);
 
-		static bool LoadAssembly(const std::filesystem::path& filepath);
-		static bool LoadAppAssembly(const std::filesystem::path& filepath);
-		static bool LoadAppAssembly(Buffer assemblyData, const std::string& assemblyName);
+		bool IsValidScript(UUID scriptID) const;
 
-		static void ReloadAssembly();
+		const ScriptMetadata& GetScriptMetadata(UUID scriptID) const;
+		const std::unordered_map<UUID, ScriptMetadata>& GetAllScripts() const { return m_ScriptMetadata; }
 
-		static void OnRuntimeStart(Scene* scene);
-		static void OnRuntimeStop();
+		const Coral::Type* GetTypeByName(std::string_view name) const;
 
-		static bool EntityClassExists(const std::string& fullClassName);
-		static void OnCreateEntity(Entity entity);
-		static void OnUpdateEntity(Entity entity, Timestep ts);
+		bool IsHostInitialized() const { return m_Host != nullptr; }
+		bool IsAppAssemblyLoaded() const { return m_AppAssemblyData != nullptr && m_AppAssemblyData->Assembly != nullptr; }
 
-		static Scene* GetSceneContext();
-		static Ref<ScriptInstance> GetEntityScriptInstance(UUID entityID);
+		Coral::ManagedAssembly& GetCoreAssembly() const { return *m_CoreAssemblyData->Assembly; }
 
-		static Ref<ScriptClass> GetEntityClass(const std::string& name);
-		static std::unordered_map<std::string, Ref<ScriptClass>> GetEntityClasses();
-		static ScriptFieldMap& GetScriptFieldMap(Entity entity);
+	public:
+		static const ScriptEngine& GetInstance();
 
-		static MonoImage* GetCoreAssemblyImage();
-
-		static MonoObject* GetManagedInstance(UUID uuid);
-
-		static MonoString* CreateString(const char* string);
 	private:
-		static void InitMono();
-		static void ShutdownMono();
+		void InitializeHost();
+		void ShutdownHost();
 
-		static MonoObject* InstantiateClass(MonoClass* monoClass);
-		static void LoadAssemblyClasses();
+		void Initialize(Ref<Project> project);
+		void Shutdown();
 
-		friend class ScriptClass;
-		friend class ScriptGlue;
-	};
+		void LoadProjectAssembly();
+		void LoadProjectAssemblyRuntime(Buffer data);
 
-	namespace Utils {
+		// Editor hot reload: unload the ALC, reload core + app, rebuild caches, re-register glue.
+		void ReloadAppAssembly();
 
-		inline const char* ScriptFieldTypeToString(ScriptFieldType fieldType)
+		void BuildAssemblyCache(AssemblyData* assemblyData);
+
+		std::filesystem::path ShadowCopyAssembly(const std::filesystem::path& originalAbsolute);
+
+		template<typename... TArgs>
+		CSharpObject Instantiate(UUID entityID, ScriptStorage& storage, TArgs&&... args)
 		{
-			switch (fieldType)
+			LUX_CORE_VERIFY(storage.EntityStorage.contains(entityID));
+
+			auto& entityStorage = storage.EntityStorage.at(entityID);
+
+			if (!IsValidScript(entityStorage.ScriptID))
+				return {};
+
+			auto* type = m_AppAssemblyData->CachedTypes[entityStorage.ScriptID];
+			auto instance = type->CreateInstance(std::forward<TArgs>(args)...);
+			auto [index, handle] = m_ManagedObjects.Insert(std::move(instance));
+
+			entityStorage.Instance = &handle;
+
+			auto& editorAssignableAttribType = m_CoreAssemblyData->Assembly->GetLocalType("Lux.EditorAssignableAttribute");
+
+			for (auto& [fieldID, fieldStorage] : entityStorage.Fields)
 			{
-			case ScriptFieldType::None:    return "None";
-			case ScriptFieldType::Float:   return "Float";
-			case ScriptFieldType::Double:  return "Double";
-			case ScriptFieldType::Bool:    return "Bool";
-			case ScriptFieldType::Char:    return "Char";
-			case ScriptFieldType::Byte:    return "Byte";
-			case ScriptFieldType::Short:   return "Short";
-			case ScriptFieldType::Int:     return "Int";
-			case ScriptFieldType::Long:    return "Long";
-			case ScriptFieldType::UByte:   return "UByte";
-			case ScriptFieldType::UShort:  return "UShort";
-			case ScriptFieldType::UInt:    return "UInt";
-			case ScriptFieldType::ULong:   return "ULong";
-			case ScriptFieldType::Vector2: return "Vector2";
-			case ScriptFieldType::Vector3: return "Vector3";
-			case ScriptFieldType::Vector4: return "Vector4";
-			case ScriptFieldType::Entity:  return "Entity";
+				const auto& fieldMetadata = m_ScriptMetadata[entityStorage.ScriptID].Fields[fieldID];
+
+				if (editorAssignableAttribType && fieldMetadata.ManagedType->HasAttribute(editorAssignableAttribType))
+				{
+					Coral::ManagedObject value = fieldMetadata.ManagedType->CreateInstance(fieldStorage.GetValue<uint64_t>());
+					handle.SetFieldValue(fieldStorage.GetName(), value);
+					value.Destroy();
+				}
+				else if (fieldMetadata.ManagedType->IsSZArray())
+				{
+					if (editorAssignableAttribType && fieldMetadata.ManagedType->GetElementType().HasAttribute(editorAssignableAttribType))
+					{
+						Coral::Array<Coral::ManagedObject> arr = Coral::Array<Coral::ManagedObject>::New((int32_t)fieldStorage.GetLength());
+
+						for (int32_t i = 0; i < (int32_t)fieldStorage.GetLength(); i++)
+							arr[i] = fieldMetadata.ManagedType->GetElementType().CreateInstance(fieldStorage.GetValue<uint64_t>(i));
+
+						handle.SetFieldValue(fieldStorage.GetName(), arr);
+
+						for (int32_t i = 0; i < (int32_t)fieldStorage.GetLength(); i++)
+							arr[i].Destroy();
+
+						Coral::Array<Coral::ManagedObject>::Free(arr);
+					}
+					else
+					{
+						struct ArrayContainer
+						{
+							void* Data;
+							int32_t Length;
+						} array;
+
+						array.Data = fieldStorage.m_ValueBuffer.Data;
+						array.Length = static_cast<int32_t>(fieldStorage.GetLength());
+
+						handle.SetFieldValueRaw(fieldStorage.GetName(), &array);
+					}
+				}
+				else
+				{
+					handle.SetFieldValueRaw(fieldStorage.GetName(), fieldStorage.m_ValueBuffer.Data);
+				}
+
+				fieldStorage.m_Instance = &handle;
 			}
-			LUX_CORE_ASSERT(false, "Unknown ScriptFieldType");
-			return "None";
+
+			CSharpObject result;
+			result.m_Handle = &handle;
+			return result;
 		}
 
-		inline ScriptFieldType ScriptFieldTypeFromString(std::string_view fieldType)
+		void DestroyInstance(UUID entityID, ScriptStorage& storage)
 		{
-			if (fieldType == "None")    return ScriptFieldType::None;
-			if (fieldType == "Float")   return ScriptFieldType::Float;
-			if (fieldType == "Double")  return ScriptFieldType::Double;
-			if (fieldType == "Bool")    return ScriptFieldType::Bool;
-			if (fieldType == "Char")    return ScriptFieldType::Char;
-			if (fieldType == "Byte")    return ScriptFieldType::Byte;
-			if (fieldType == "Short")   return ScriptFieldType::Short;
-			if (fieldType == "Int")     return ScriptFieldType::Int;
-			if (fieldType == "Long")    return ScriptFieldType::Long;
-			if (fieldType == "UByte")   return ScriptFieldType::UByte;
-			if (fieldType == "UShort")  return ScriptFieldType::UShort;
-			if (fieldType == "UInt")    return ScriptFieldType::UInt;
-			if (fieldType == "ULong")   return ScriptFieldType::ULong;
-			if (fieldType == "Vector2") return ScriptFieldType::Vector2;
-			if (fieldType == "Vector3") return ScriptFieldType::Vector3;
-			if (fieldType == "Vector4") return ScriptFieldType::Vector4;
-			if (fieldType == "Entity")  return ScriptFieldType::Entity;
+			LUX_CORE_VERIFY(storage.EntityStorage.contains(entityID));
 
-			LUX_CORE_ASSERT(false, "Unknown ScriptFieldType");
-			return ScriptFieldType::None;
+			auto& entityStorage = storage.EntityStorage.at(entityID);
+
+			if (!IsValidScript(entityStorage.ScriptID) || !entityStorage.Instance)
+				return;
+
+			for (auto& [fieldID, fieldStorage] : entityStorage.Fields)
+				fieldStorage.m_Instance = nullptr;
+
+			entityStorage.Instance->Destroy();
+			entityStorage.Instance = nullptr;
 		}
 
-	}
+	private:
+		static ScriptEngine& GetMutable();
+
+	private:
+		ScriptEngine() = default;
+
+		ScriptEngine(const ScriptEngine&) = delete;
+		ScriptEngine(ScriptEngine&&) = delete;
+		ScriptEngine& operator=(const ScriptEngine&) = delete;
+		ScriptEngine& operator=(ScriptEngine&&) = delete;
+
+	private:
+		std::unique_ptr<Coral::HostInstance> m_Host;
+		std::unique_ptr<Coral::AssemblyLoadContext> m_LoadContext;
+		Scope<AssemblyData> m_CoreAssemblyData = nullptr;
+		Scope<AssemblyData> m_AppAssemblyData = nullptr;
+
+		std::unordered_map<UUID, ScriptMetadata> m_ScriptMetadata;
+
+		Ref<Scene> m_CurrentScene = nullptr;
+		Coral::StableVector<Coral::ManagedObject> m_ManagedObjects;
+
+		std::filesystem::path m_ShadowDirRoot;
+		uint32_t m_ShadowCounter = 0;
+
+	private:
+		friend class Application;
+		friend class Project;
+		friend class Scene;
+		friend class SceneHierarchyPanel;
+		friend class SceneSerializer;
+		friend class EditorLayer;
+		friend class RuntimeLayer;
+		friend struct ScriptStorage;
+	};
 
 }

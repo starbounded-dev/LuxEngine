@@ -52,6 +52,9 @@ Configure.warn_missing_discord_sdk(config, ROOT)
 if not os.path.exists("Editor/DotNet/"):
     os.makedirs("Editor/DotNet/")
 
+# Coral.Managed and ScriptCore are now premake-generated C# projects inside Lux.sln (built by
+# MSBuild alongside the C++ projects). Coral.Managed is deployed to Editor/DotNet by the Core
+# project's postbuild step. The .NET 9 SDK is still required for MSBuild to build them.
 print(f"{Style.BRIGHT}{Back.GREEN}Generating {config.generator} solution.{Style.RESET_ALL}")
 result = Configure.run_premake(config, PREMAKE)
 if result != 0:
@@ -59,6 +62,8 @@ if result != 0:
     sys.exit(result)
 
 if not config.enabled("skip-scripts"):
+    # Generate the LuxSample script workspace (premake C# project). It's built on demand by the
+    # editor's ScriptBuilder against the already-built ScriptCore.dll.
     scripts_dir = os.path.join("Editor", "LuxSampleProject", "Assets", "Scripts")
     Configure.run_premake(config, os.path.join(ROOT, PREMAKE), cwd=scripts_dir, include_options=False)
 

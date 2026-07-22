@@ -58,6 +58,13 @@ jobs:
         with:
           msbuild-architecture: 'x64'
 
+      # Coral hardcodes hostfxr major version 9, and ScriptCore/Coral.Managed target net9.0,
+      # so the .NET 9 SDK is required for the dotnet builds run by Setup.py.
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
       - name: Setup
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
@@ -85,7 +92,7 @@ jobs:
             "App.lsettings",
             "LuxSampleProject",
             "Resources",
-            "mono"
+            "DotNet"
           )
 
           if (!(Test-Path $editorOutput)) {

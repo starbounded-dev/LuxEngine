@@ -112,13 +112,17 @@ namespace Lux {
 		//MiniAudioEngine::Init();
 		Font::Init();
 
+		// Bring up the .NET host once; per-project assemblies are loaded in Project::SetActive.
+		ScriptEngine::GetMutable().InitializeHost();
+
 		if (m_Specification.EnableDiscordRichPresence)
 			DiscordSocial::Init();
 	}
 
 	Application::~Application()
 	{
-		ScriptEngine::Shutdown();
+		ScriptEngine::GetMutable().Shutdown();
+		ScriptEngine::GetMutable().ShutdownHost();
 
 		NFD::Quit();
 

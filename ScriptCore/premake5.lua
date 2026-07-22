@@ -1,25 +1,26 @@
+-- ScriptCore is a premake-generated C# project built inside Lux.sln, mirroring Hazel-ScriptCore.
+-- It links Coral.Managed (the C# host assembly) and lands in Editor/Resources/Scripts, where
+-- ScriptEngine loads the core assembly from.
 project "ScriptCore"
 	kind "SharedLib"
 	language "C#"
-	dotnetframework "4.7.2"
+	dotnetframework "net9.0"
+	clr "Unsafe"
 
 	targetdir ("../Editor/Resources/Scripts")
 	objdir ("../Editor/Resources/Scripts/Intermediates")
 
-	files 
-	{
-		"Source/**.cs",
-		"Properties/**.cs"
+	links { "Coral.Managed" }
+
+	-- EnableDynamicLoading emits ScriptCore.deps.json so the assembly is loadable into a Coral
+	-- AssemblyLoadContext. AppendTargetFrameworkToOutputPath keeps ScriptCore.dll directly in
+	-- the target dir (no net9.0/ subfolder).
+	vsprops {
+		AppendTargetFrameworkToOutputPath = "false",
+		Nullable = "enable",
+		EnableDynamicLoading = "true",
 	}
-	
-	filter "configurations:Debug"
-		optimize "Off"
-		symbols "Default"
 
-	filter "configurations:Release"
-		optimize "On"
-		symbols "Default"
-
-	filter "configurations:Dist"
-		optimize "Full"
-		symbols "Off"
+	files {
+		"Source/**.cs"
+	}

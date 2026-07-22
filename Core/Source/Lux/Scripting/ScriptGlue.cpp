@@ -11,311 +11,339 @@
 
 #include "Lux/Physics2D/ContactListener2D.h"
 
-#include "mono/metadata/object.h"
-#include "mono/metadata/reflection.h"
+#include <Coral/Assembly.hpp>
+#include <Coral/Type.hpp>
+#include <Coral/String.hpp>
 
 #include "box2d/b2_body.h"
 
 #include <format>
-#include <iostream>
-
-// Note: std::formatter<glm::vec3> is defined in Lux/Core/LogCustomFormatters.h
 
 namespace Lux {
 
-	namespace Utils {
+	// Component dispatch maps, keyed by Coral::TypeId (== managed typeof(T) cache id).
+	static std::unordered_map<Coral::TypeId, std::function<bool(Entity)>> s_HasComponentFuncs;
+	static std::unordered_map<Coral::TypeId, std::function<void(Entity)>> s_AddComponentFuncs;
+	static std::unordered_map<Coral::TypeId, std::function<void(Entity)>> s_RemoveComponentFuncs;
 
-		std::string MonoStringToString(MonoString* string)
+#define LUX_ADD_INTERNAL_CALL(Name) coreAssembly.AddInternalCall("Lux.InternalCalls", #Name, reinterpret_cast<void*>(&Name))
+
+	static Scene* GetScene()
+	{
+		Scene* scene = ScriptEngine::GetInstance().GetCurrentScene().Raw();
+		LUX_CORE_ASSERT(scene, "No active scene bound to ScriptEngine");
+		return scene;
+	}
+
+	#pragma region Log
+
+	static void NativeLog(Coral::String message, int32_t level)
+	{
+		std::string str = message;
+		switch (level)
 		{
-			char* cStr = mono_string_to_utf8(string);
-			std::string str(cStr);
-			mono_free(cStr);
-			return str;
+			case 0: LUX_CORE_TRACE("[Script] {}", str); break;
+			case 1: LUX_CORE_INFO("[Script] {}", str); break;
+			case 2: LUX_CORE_WARN("[Script] {}", str); break;
+			default: LUX_CORE_ERROR("[Script] {}", str); break;
 		}
-
 	}
 
-	static std::unordered_map<MonoType*, std::function<bool(Entity)>> s_EntityHasComponentFuncs;
+	#pragma endregion
 
-#define LUX_ADD_INTERNAL_CALL(Name) mono_add_internal_call("Lux.InternalCalls::" #Name, Name)
+	#pragma region Entity
 
-	static void NativeLog(MonoString* string, int parameter)
+	static void* GetScriptInstance(uint64_t entityID)
 	{
-		std::string str = Utils::MonoStringToString(string);
-		std::cout << str << ", " << parameter << std::endl;
+		Scene* scene = GetScene();
+		auto& storage = scene->GetScriptStorage();
+		auto it = storage.EntityStorage.find(entityID);
+		if (it == storage.EntityStorage.end() || !it->second.Instance)
+			return nullptr;
+		return it->second.Instance->m_Handle;
 	}
 
-	static void NativeLog_Vector(glm::vec3* parameter, glm::vec3* outResult)
+	static Coral::Bool32 Entity_HasComponent(uint64_t entityID, Coral::ReflectionType componentType)
 	{
-		LUX_CORE_WARN("Value: {}", *parameter);
-		*outResult = glm::normalize(*parameter);
-	}
-
-	static float NativeLog_VectorDot(glm::vec3* parameter)
-	{
-		LUX_CORE_WARN("Value: {}", *parameter);
-		return glm::dot(*parameter, *parameter);
-	}
-
-	static MonoObject* GetScriptInstance(UUID entityID)
-	{
-		return ScriptEngine::GetManagedInstance(entityID);
-	}
-
-	static bool Entity_HasComponent(UUID entityID, MonoReflectionType* componentType)
-	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
 		LUX_CORE_ASSERT(entity);
 
-		MonoType* managedType = mono_reflection_type_get_type(componentType);
-		LUX_CORE_ASSERT(s_EntityHasComponentFuncs.find(managedType) != s_EntityHasComponentFuncs.end());
-		return s_EntityHasComponentFuncs.at(managedType)(entity);
+		auto it = s_HasComponentFuncs.find(componentType.m_TypeID);
+		if (it == s_HasComponentFuncs.end())
+			return false;
+		return it->second(entity);
 	}
 
-	static uint64_t Entity_FindEntityByName(MonoString* name)
+	static void Entity_AddComponent(uint64_t entityID, Coral::ReflectionType componentType)
 	{
-		char* nameCStr = mono_string_to_utf8(name);
+		Scene* scene = GetScene();
+		Entity entity = scene->GetEntityByUUID(entityID);
+		LUX_CORE_ASSERT(entity);
 
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
-		Entity entity = scene->FindEntityByName(nameCStr);
-		mono_free(nameCStr);
+		auto it = s_AddComponentFuncs.find(componentType.m_TypeID);
+		if (it != s_AddComponentFuncs.end())
+			it->second(entity);
+	}
 
+	static void Entity_RemoveComponent(uint64_t entityID, Coral::ReflectionType componentType)
+	{
+		Scene* scene = GetScene();
+		Entity entity = scene->GetEntityByUUID(entityID);
+		LUX_CORE_ASSERT(entity);
+
+		auto it = s_RemoveComponentFuncs.find(componentType.m_TypeID);
+		if (it != s_RemoveComponentFuncs.end())
+			it->second(entity);
+	}
+
+	static uint64_t Entity_FindEntityByName(Coral::String name)
+	{
+		std::string nameStr = name;
+		Scene* scene = GetScene();
+		Entity entity = scene->FindEntityByName(nameStr);
 		if (!entity)
 			return 0;
-
 		return entity.GetUUID();
 	}
 
-	static void TransformComponent_GetTranslation(UUID entityID, glm::vec3* outTranslation)
+	static Coral::String Entity_GetName(uint64_t entityID)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
 		LUX_CORE_ASSERT(entity);
+		return Coral::String::New(entity.GetName());
+	}
 
+	#pragma endregion
+
+	#pragma region TransformComponent
+
+	static void TransformComponent_GetTranslation(uint64_t entityID, glm::vec3* outTranslation)
+	{
+		Scene* scene = GetScene();
+		Entity entity = scene->GetEntityByUUID(entityID);
+		LUX_CORE_ASSERT(entity);
 		*outTranslation = entity.GetComponent<TransformComponent>().Translation;
 	}
 
-	static void TransformComponent_SetTranslation(UUID entityID, glm::vec3* translation)
+	static void TransformComponent_SetTranslation(uint64_t entityID, glm::vec3* translation)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
 		LUX_CORE_ASSERT(entity);
-
 		entity.GetComponent<TransformComponent>().Translation = *translation;
 	}
 
-	static void RigidBody2DComponent_ApplyLinearImpulse(UUID entityID, glm::vec2* impulse, glm::vec2* point, bool wake)
+	static void TransformComponent_GetScale(uint64_t entityID, glm::vec3* outScale)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
 		LUX_CORE_ASSERT(entity);
+		*outScale = entity.GetComponent<TransformComponent>().Scale;
+	}
 
+	static void TransformComponent_SetScale(uint64_t entityID, glm::vec3* scale)
+	{
+		Scene* scene = GetScene();
+		Entity entity = scene->GetEntityByUUID(entityID);
+		LUX_CORE_ASSERT(entity);
+		entity.GetComponent<TransformComponent>().Scale = *scale;
+	}
+
+	#pragma endregion
+
+	#pragma region RigidBody2DComponent
+
+	static void RigidBody2DComponent_ApplyLinearImpulse(uint64_t entityID, glm::vec2* impulse, glm::vec2* point, Coral::Bool32 wake)
+	{
+		Scene* scene = GetScene();
+		Entity entity = scene->GetEntityByUUID(entityID);
+		LUX_CORE_ASSERT(entity);
 		auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
 		b2Body* body = (b2Body*)rb2d.RuntimeBody;
 		body->ApplyLinearImpulse(b2Vec2(impulse->x, impulse->y), b2Vec2(point->x, point->y), wake);
 	}
 
-	static void RigidBody2DComponent_ApplyLinearImpulseToCenter(UUID entityID, glm::vec2* impulse, bool wake)
+	static void RigidBody2DComponent_ApplyLinearImpulseToCenter(uint64_t entityID, glm::vec2* impulse, Coral::Bool32 wake)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
 		LUX_CORE_ASSERT(entity);
-
 		auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
 		b2Body* body = (b2Body*)rb2d.RuntimeBody;
 		body->ApplyLinearImpulseToCenter(b2Vec2(impulse->x, impulse->y), wake);
 	}
 
-	static void RigidBody2DComponent_GetLinearVelocity(UUID entityID, glm::vec2* outLinearVelocity)
+	static void RigidBody2DComponent_GetLinearVelocity(uint64_t entityID, glm::vec2* outLinearVelocity)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
 		LUX_CORE_ASSERT(entity);
-
 		auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
 		b2Body* body = (b2Body*)rb2d.RuntimeBody;
 		const b2Vec2& linearVelocity = body->GetLinearVelocity();
 		*outLinearVelocity = glm::vec2(linearVelocity.x, linearVelocity.y);
 	}
 
-	static RigidBody2DComponent::Type RigidBody2DComponent_GetType(UUID entityID)
+	static RigidBody2DComponent::Type RigidBody2DComponent_GetType(uint64_t entityID)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
 		LUX_CORE_ASSERT(entity);
-
 		auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
 		b2Body* body = (b2Body*)rb2d.RuntimeBody;
 		return Utils::RigidBody2DTypeFromBox2DBody(body->GetType());
 	}
 
-	static void RigidBody2DComponent_SetType(UUID entityID, RigidBody2DComponent::Type bodyType)
+	static void RigidBody2DComponent_SetType(uint64_t entityID, RigidBody2DComponent::Type bodyType)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
 		LUX_CORE_ASSERT(entity);
-
 		auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
 		b2Body* body = (b2Body*)rb2d.RuntimeBody;
 		body->SetType(Utils::RigidBody2DTypeToBox2DBody(bodyType));
 	}
 
-	static MonoString* TextComponent_GetText(UUID entityID)
-	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
-		Entity entity = scene->GetEntityByUUID(entityID);
-		LUX_CORE_ASSERT(entity);
-		LUX_CORE_ASSERT(entity.HasComponent<TextComponent>());
+	#pragma endregion
 
-		auto& tc = entity.GetComponent<TextComponent>();
-		return ScriptEngine::CreateString(tc.TextString.c_str());
+	#pragma region TextComponent
+
+	static Coral::String TextComponent_GetText(uint64_t entityID)
+	{
+		Scene* scene = GetScene();
+		Entity entity = scene->GetEntityByUUID(entityID);
+		LUX_CORE_ASSERT(entity && entity.HasComponent<TextComponent>());
+		return Coral::String::New(entity.GetComponent<TextComponent>().TextString);
 	}
 
-	static void TextComponent_SetText(UUID entityID, MonoString* textString)
+	static void TextComponent_SetText(uint64_t entityID, Coral::String textString)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
-		LUX_CORE_ASSERT(entity);
-		LUX_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-		auto& tc = entity.GetComponent<TextComponent>();
-		tc.TextString = Utils::MonoStringToString(textString);
+		LUX_CORE_ASSERT(entity && entity.HasComponent<TextComponent>());
+		entity.GetComponent<TextComponent>().TextString = textString;
 	}
 
-	static void TextComponent_GetColor(UUID entityID, glm::vec4* color)
+	static void TextComponent_GetColor(uint64_t entityID, glm::vec4* color)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
-		LUX_CORE_ASSERT(entity);
-		LUX_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-		auto& tc = entity.GetComponent<TextComponent>();
-		*color = tc.Color;
+		LUX_CORE_ASSERT(entity && entity.HasComponent<TextComponent>());
+		*color = entity.GetComponent<TextComponent>().Color;
 	}
 
-	static void TextComponent_SetColor(UUID entityID, glm::vec4* color)
+	static void TextComponent_SetColor(uint64_t entityID, glm::vec4* color)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
-		LUX_CORE_ASSERT(entity);
-		LUX_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-		auto& tc = entity.GetComponent<TextComponent>();
-		tc.Color = *color;
+		LUX_CORE_ASSERT(entity && entity.HasComponent<TextComponent>());
+		entity.GetComponent<TextComponent>().Color = *color;
 	}
 
-	static float TextComponent_GetKerning(UUID entityID)
+	static float TextComponent_GetKerning(uint64_t entityID)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
-		LUX_CORE_ASSERT(entity);
-		LUX_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-		auto& tc = entity.GetComponent<TextComponent>();
-		return tc.Kerning;
+		LUX_CORE_ASSERT(entity && entity.HasComponent<TextComponent>());
+		return entity.GetComponent<TextComponent>().Kerning;
 	}
 
-	static void TextComponent_SetKerning(UUID entityID, float kerning)
+	static void TextComponent_SetKerning(uint64_t entityID, float kerning)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
-		LUX_CORE_ASSERT(entity);
-		LUX_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-		auto& tc = entity.GetComponent<TextComponent>();
-		tc.Kerning = kerning;
+		LUX_CORE_ASSERT(entity && entity.HasComponent<TextComponent>());
+		entity.GetComponent<TextComponent>().Kerning = kerning;
 	}
 
-	static float TextComponent_GetLineSpacing(UUID entityID)
+	static float TextComponent_GetLineSpacing(uint64_t entityID)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
-		LUX_CORE_ASSERT(entity);
-		LUX_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-		auto& tc = entity.GetComponent<TextComponent>();
-		return tc.LineSpacing;
+		LUX_CORE_ASSERT(entity && entity.HasComponent<TextComponent>());
+		return entity.GetComponent<TextComponent>().LineSpacing;
 	}
 
-	static void TextComponent_SetLineSpacing(UUID entityID, float lineSpacing)
+	static void TextComponent_SetLineSpacing(uint64_t entityID, float lineSpacing)
 	{
-		Scene* scene = ScriptEngine::GetSceneContext();
-		LUX_CORE_ASSERT(scene);
+		Scene* scene = GetScene();
 		Entity entity = scene->GetEntityByUUID(entityID);
-		LUX_CORE_ASSERT(entity);
-		LUX_CORE_ASSERT(entity.HasComponent<TextComponent>());
-
-		auto& tc = entity.GetComponent<TextComponent>();
-		tc.LineSpacing = lineSpacing;
+		LUX_CORE_ASSERT(entity && entity.HasComponent<TextComponent>());
+		entity.GetComponent<TextComponent>().LineSpacing = lineSpacing;
 	}
 
-	static bool Input_IsKeyDown(KeyCode keycode)
+	#pragma endregion
+
+	#pragma region Input
+
+	static Coral::Bool32 Input_IsKeyDown(KeyCode keycode)
 	{
 		return Input::IsKeyPressed(keycode);
 	}
 
-	template<typename... Component>
-	static void RegisterComponent()
+	static Coral::Bool32 Input_IsMouseButtonDown(MouseButton button)
 	{
-		([]()
-			{
-				std::string_view typeName = typeid(Component).name();
-				size_t pos = typeName.find_last_of(':');
-				std::string_view structName = typeName.substr(pos + 1);
-				std::string managedTypename = std::format("Lux.{}", structName);
-
-				MonoType* managedType = mono_reflection_type_from_name(managedTypename.data(), ScriptEngine::GetCoreAssemblyImage());
-				if (!managedType)
-				{
-					LUX_CORE_ERROR("Could not find component type {}", managedTypename);
-					return;
-				}
-				s_EntityHasComponentFuncs[managedType] = [](Entity entity) { return entity.HasComponent<Component>(); };
-			}(), ...);
+		return Input::IsMouseButtonPressed(button);
 	}
 
-	template<typename... Component>
-	static void RegisterComponent(ComponentGroup<Component...>)
+	#pragma endregion
+
+	template<typename TComponent>
+	static void RegisterManagedComponent(Coral::ManagedAssembly& coreAssembly)
 	{
-		RegisterComponent<Component...>();
+		std::string_view typeName = typeid(TComponent).name();
+		size_t pos = typeName.find_last_of(':');
+		std::string_view structName = typeName.substr(pos + 1);
+		std::string managedTypename = std::format("Lux.{}", structName);
+
+		Coral::Type& managedType = coreAssembly.GetLocalType(managedTypename);
+		if (!managedType)
+		{
+			LUX_CORE_TRACE("[ScriptGlue] No managed component type {} (skipping).", managedTypename);
+			return;
+		}
+
+		Coral::TypeId id = managedType.GetTypeId();
+		s_HasComponentFuncs[id] = [](Entity entity) { return entity.HasComponent<TComponent>(); };
+		s_AddComponentFuncs[id] = [](Entity entity) { if (!entity.HasComponent<TComponent>()) entity.AddComponent<TComponent>(); };
+		s_RemoveComponentFuncs[id] = [](Entity entity) { entity.RemoveComponentIfExists<TComponent>(); };
 	}
 
-	void ScriptGlue::RegisterComponents()
+	static void RegisterComponentTypes(Coral::ManagedAssembly& coreAssembly)
 	{
-		s_EntityHasComponentFuncs.clear();
-		RegisterComponent(AllComponents{});
+		s_HasComponentFuncs.clear();
+		s_AddComponentFuncs.clear();
+		s_RemoveComponentFuncs.clear();
+
+		RegisterManagedComponent<TransformComponent>(coreAssembly);
+		RegisterManagedComponent<SpriteRendererComponent>(coreAssembly);
+		RegisterManagedComponent<CircleRendererComponent>(coreAssembly);
+		RegisterManagedComponent<CameraComponent>(coreAssembly);
+		RegisterManagedComponent<RigidBody2DComponent>(coreAssembly);
+		RegisterManagedComponent<BoxCollider2DComponent>(coreAssembly);
+		RegisterManagedComponent<CircleCollider2DComponent>(coreAssembly);
+		RegisterManagedComponent<TextComponent>(coreAssembly);
+		RegisterManagedComponent<AudioSourceComponent>(coreAssembly);
+		RegisterManagedComponent<AudioListenerComponent>(coreAssembly);
 	}
 
-	void ScriptGlue::RegisterFunctions()
+	static void RegisterInternalCalls(Coral::ManagedAssembly& coreAssembly)
 	{
 		LUX_ADD_INTERNAL_CALL(NativeLog);
-		LUX_ADD_INTERNAL_CALL(NativeLog_Vector);
-		LUX_ADD_INTERNAL_CALL(NativeLog_VectorDot);
 
 		LUX_ADD_INTERNAL_CALL(GetScriptInstance);
-
 		LUX_ADD_INTERNAL_CALL(Entity_HasComponent);
+		LUX_ADD_INTERNAL_CALL(Entity_AddComponent);
+		LUX_ADD_INTERNAL_CALL(Entity_RemoveComponent);
 		LUX_ADD_INTERNAL_CALL(Entity_FindEntityByName);
+		LUX_ADD_INTERNAL_CALL(Entity_GetName);
 
 		LUX_ADD_INTERNAL_CALL(TransformComponent_GetTranslation);
 		LUX_ADD_INTERNAL_CALL(TransformComponent_SetTranslation);
+		LUX_ADD_INTERNAL_CALL(TransformComponent_GetScale);
+		LUX_ADD_INTERNAL_CALL(TransformComponent_SetScale);
 
 		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_ApplyLinearImpulse);
 		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_ApplyLinearImpulseToCenter);
@@ -333,6 +361,14 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(TextComponent_SetLineSpacing);
 
 		LUX_ADD_INTERNAL_CALL(Input_IsKeyDown);
+		LUX_ADD_INTERNAL_CALL(Input_IsMouseButtonDown);
+	}
+
+	void ScriptGlue::RegisterGlue(Coral::ManagedAssembly& coreAssembly)
+	{
+		RegisterComponentTypes(coreAssembly);
+		RegisterInternalCalls(coreAssembly);
+		coreAssembly.UploadInternalCalls();
 	}
 
 }

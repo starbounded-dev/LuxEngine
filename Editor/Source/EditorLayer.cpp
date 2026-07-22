@@ -3,6 +3,7 @@
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Scripting/ScriptBuilder.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/ShaderPack.h"
@@ -495,22 +496,8 @@ namespace Lux {
 				return false;
 			}
 
-			const std::filesystem::path msbuildPath = "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe";
-			const std::string msbuild = FileExists(msbuildPath) ? msbuildPath.string() : "MSBuild.exe";
-			const std::string command =
-				"powershell -NoProfile -ExecutionPolicy Bypass -Command \"& "
-				+ QuotePowerShellArgument(msbuild) + " "
-				+ QuotePowerShellArgument(scriptProject.string())
-				+ " /t:Build /p:Configuration=" + RuntimeExportTargetToString(target)
-				+ " /p:Platform=AnyCPU /m:1 /nr:false /v:minimal\"";
-
-			LUX_CONSOLE_LOG_INFO("Building scripts ({})...", RuntimeExportTargetToString(target));
-			const int result = std::system(command.c_str());
-			if (result != 0)
-			{
-				LUX_CONSOLE_LOG_ERROR("Script build failed with exit code {}.", result);
+			if (!ScriptBuilder::BuildProject(scriptProject, RuntimeExportTargetToString(target)))
 				return false;
-			}
 
 			const std::filesystem::path scriptModule = project->GetScriptModuleFilePath();
 			if (!FileExists(scriptModule))
@@ -1205,7 +1192,11 @@ namespace Lux {
 			if (ImGui::BeginMenu("Edit"))
 			{
 				if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
-					ScriptEngine::ReloadAssembly();
+				{
+					Project::GetActive()->ReloadScriptEngine();
+					if (m_ActiveScene)
+						m_ActiveScene->GetScriptStorage().SynchronizeStorage();
+				}
 				if (ImGui::MenuItem("Reload All Shaders", "Ctrl+Shift+R"))
 					Renderer::ReloadShaders(true);
 				ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
@@ -1715,7 +1706,12 @@ namespace Lux {
 		case Key::E: if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::ROTATE;   break;
 		case Key::R:
 			if (control && shift) Renderer::ReloadShaders(true);
-			else if (control) ScriptEngine::ReloadAssembly();
+			else if (control)
+			{
+				Project::GetActive()->ReloadScriptEngine();
+				if (m_ActiveScene)
+					m_ActiveScene->GetScriptStorage().SynchronizeStorage();
+			}
 			else if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::SCALE;
 			break;
 
@@ -2415,11 +2411,11 @@ namespace Lux {
 			repositoryRoot / "Editor" / "Resources",
 			std::filesystem::path("Editor") / "Resources"
 		});
-		const std::filesystem::path mono = FindFirstExistingDirectory({
-			current / "mono",
-			current / ".." / "Editor" / "mono",
-			repositoryRoot / "Editor" / "mono",
-			std::filesystem::path("Editor") / "mono"
+		const std::filesystem::path dotnet = FindFirstExistingDirectory({
+			current / "DotNet",
+			current / ".." / "Editor" / "DotNet",
+			repositoryRoot / "Editor" / "DotNet",
+			std::filesystem::path("Editor") / "DotNet"
 		});
 		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
 		const std::filesystem::path scriptProject = ResolveScriptProjectFile(project);
@@ -2439,7 +2435,7 @@ namespace Lux {
 		else
 			ImGui::TextColored(scriptModuleStale ? ImVec4(0.95f, 0.75f, 0.35f, 1.0f) : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
 				"Script Module: %s", scriptModuleStale ? "stale" : "found");
-		drawStatus("mono", !mono.empty(), mono.string(), "missing");
+		drawStatus("DotNet", !dotnet.empty(), dotnet.string(), "missing");
 
 		ImGui::Spacing();
 		if (ImGui::Button("Build Runtime"))
@@ -2532,16 +2528,16 @@ namespace Lux {
 			repositoryRoot / "Editor" / "Resources",
 			std::filesystem::path("Editor") / "Resources"
 		});
-		const std::filesystem::path monoSource = FindFirstExistingDirectory({
-			current / "mono",
-			current / ".." / "Editor" / "mono",
-			repositoryRoot / "Editor" / "mono",
-			std::filesystem::path("Editor") / "mono"
+		const std::filesystem::path dotnetSource = FindFirstExistingDirectory({
+			current / "DotNet",
+			current / ".." / "Editor" / "DotNet",
+			repositoryRoot / "Editor" / "DotNet",
+			std::filesystem::path("Editor") / "DotNet"
 		});
 		const bool hasStartupScene = project->GetConfig().StartSceneHandle != 0;
 		const bool hasRuntimeExe = FileExists(runtimeExe);
 		const bool hasResources = !resourcesSource.empty();
-		const bool hasMono = !monoSource.empty();
+		const bool hasDotNet = !dotnetSource.empty();
 		const bool hasScriptModule = project->GetConfig().ScriptModulePath.empty() || FileExists(scriptModule);
 		const bool scriptModuleStale = !project->GetConfig().ScriptModulePath.empty() && hasScriptModule && IsScriptModuleOutdated(scriptModule, scriptProject);
 
@@ -2556,7 +2552,7 @@ namespace Lux {
 			LUX_CONSOLE_LOG_INFO("  Script Module: missing ({})", scriptModule.string());
 		else
 			LUX_CONSOLE_LOG_INFO("  Script Module: {} ({})", scriptModuleStale ? "stale" : "found", scriptModule.string());
-		LUX_CONSOLE_LOG_INFO("  mono: {}", hasMono ? monoSource.string() : "missing");
+		LUX_CONSOLE_LOG_INFO("  DotNet: {}", hasDotNet ? dotnetSource.string() : "missing");
 
 		if (!hasStartupScene || !hasRuntimeExe || !hasResources)
 		{
@@ -2572,8 +2568,8 @@ namespace Lux {
 
 		if (!hasScriptModule)
 			LUX_CONSOLE_LOG_WARN("Script module is missing. Export will continue because the Startup Scene does not use scripts.");
-		if (!hasMono)
-			LUX_CONSOLE_LOG_WARN("Mono directory is missing. Export will continue, but scripting will not run.");
+		if (!hasDotNet)
+			LUX_CONSOLE_LOG_WARN("DotNet directory (Coral.Managed) is missing. Export will continue, but scripting will not run.");
 
 		const std::string buildName = SanitizeBuildName(runtimeSettings.GameName.empty() ? project->GetConfig().Name : runtimeSettings.GameName);
 		const std::filesystem::path exportRoot = selectedFolder / (buildName + "-Windows-x86_64");
@@ -2632,8 +2628,8 @@ namespace Lux {
 		if (!WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile))
 			return false;
 
-		if (!monoSource.empty())
-			CopyDirectoryRecursive(monoSource, exportRoot / "mono", targetConfig == RuntimeExportTarget::Dist);
+		if (!dotnetSource.empty())
+			CopyDirectoryRecursive(dotnetSource, exportRoot / "DotNet", targetConfig == RuntimeExportTarget::Dist);
 
 		if (std::filesystem::exists(scriptModule, ec))
 			CopyFileIfExists(scriptModule, exportAssets / project->GetConfig().ScriptModulePath);

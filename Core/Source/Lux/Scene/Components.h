@@ -197,7 +197,12 @@ namespace Lux {
 	{
 		std::string ClassName;
 
-		// Add the missing Instance member
+		// FNV hash of the full class name; the runtime script identity that keys ScriptEngine's
+		// metadata and the Scene's ScriptStorage. Kept in sync with ClassName by the inspector
+		// and serializer (Hash::GenerateFNVHash(ClassName)).
+		UUID ScriptID = 0;
+
+		// Legacy native-scripting instance (ScriptableEntity path); unused by managed scripting.
 		Ref<ScriptableEntity> Instance;
 
 		ScriptComponent();

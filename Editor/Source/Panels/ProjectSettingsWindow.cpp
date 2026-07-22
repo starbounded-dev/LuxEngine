@@ -7,6 +7,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Texture.h"
 #include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Scripting/ScriptBuilder.h"
 #include "Lux/Utilities/FileDialogs.h"
 
 #include <imgui/imgui.h>
@@ -274,21 +275,8 @@ namespace Lux {
 				return false;
 			}
 
-			const std::filesystem::path msbuildPath = "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe";
-			const std::string msbuild = FileExists(msbuildPath) ? msbuildPath.string() : "MSBuild.exe";
-			const std::string command =
-				"powershell -NoProfile -ExecutionPolicy Bypass -Command \"& "
-				+ QuotePowerShellArgument(msbuild) + " "
-				+ QuotePowerShellArgument(scriptProject.string())
-				+ " /t:Build /p:Configuration=" + RuntimeExportTargetToString(target)
-				+ " /p:Platform=AnyCPU /m:1 /nr:false /v:minimal\"";
-			LUX_CONSOLE_LOG_INFO("Building scripts ({})...", RuntimeExportTargetToString(target));
-			const int result = std::system(command.c_str());
-			if (result != 0)
-			{
-				LUX_CONSOLE_LOG_ERROR("Script build failed with exit code {}.", result);
+			if (!ScriptBuilder::BuildProject(scriptProject, RuntimeExportTargetToString(target)))
 				return false;
-			}
 
 			const std::filesystem::path scriptModule = project->GetScriptModuleFilePath();
 			if (!FileExists(scriptModule))
@@ -594,7 +582,7 @@ namespace Lux {
 		const std::filesystem::path runtimeExe = GetRuntimeExecutablePath(runtime.TargetConfig);
 		const std::filesystem::path assetPack = Project::GetActiveAssetDirectory() / "AssetPack.lap";
 		const std::filesystem::path resources = FindRepositoryRootFrom(m_Project->GetProjectDirectory()) / "Editor" / "Resources";
-		const std::filesystem::path mono = FindRepositoryRootFrom(m_Project->GetProjectDirectory()) / "Editor" / "mono";
+		const std::filesystem::path dotnet = FindRepositoryRootFrom(m_Project->GetProjectDirectory()) / "Editor" / "DotNet";
 		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
 		const std::filesystem::path scriptProject = ResolveScriptProjectFile(m_Project);
 		const bool scriptModuleExists = config.ScriptModulePath.empty() || FileExists(scriptModule);
@@ -611,7 +599,7 @@ namespace Lux {
 		else
 			ImGui::TextColored(scriptModuleStale ? ImVec4(0.95f, 0.75f, 0.35f, 1.0f) : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
 				"Script Module: %s", scriptModuleStale ? "stale" : "found");
-		drawStatus("mono", std::filesystem::exists(mono, ec), "found", "missing");
+		drawStatus("DotNet", std::filesystem::exists(dotnet, ec), "found", "missing");
 
 		if (ImGui::Button("Build Runtime"))
 			BuildRuntimeExecutable(runtime.TargetConfig);
@@ -720,7 +708,7 @@ namespace Lux {
 		}
 
 		if (ImGui::Button("Reload Assembly"))
-			ScriptEngine::ReloadAssembly();
+			Project::GetActive()->ReloadScriptEngine();
 
 		ImGui::TreePop();
 	}

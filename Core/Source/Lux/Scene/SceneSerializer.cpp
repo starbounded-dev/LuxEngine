@@ -9,6 +9,7 @@
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Core/Hash.h"
 
 #include <filesystem>
 #include <fstream>
@@ -442,6 +443,58 @@ namespace Lux {
 				out << YAML::Key << "ScriptComponent";
 				out << YAML::BeginMap;
 				out << YAML::Key << "ClassName" << YAML::Value << script.ClassName;
+				out << YAML::Key << "ScriptID" << YAML::Value << (uint64_t)script.ScriptID;
+
+				// Serialize the per-entity FieldStorage buffers (owned by the Scene).
+				const ScriptStorage& storage = entity.GetScene()->GetScriptStorage();
+				auto storageIt = storage.EntityStorage.find(entity.GetUUID());
+				if (storageIt != storage.EntityStorage.end() && !storageIt->second.Fields.empty())
+				{
+					out << YAML::Key << "StoredFields" << YAML::Value << YAML::BeginSeq;
+					for (const auto& [fieldID, fieldStorage] : storageIt->second.Fields)
+					{
+						out << YAML::BeginMap;
+						out << YAML::Key << "ID" << YAML::Value << fieldID;
+						out << YAML::Key << "Name" << YAML::Value << std::string(fieldStorage.GetName());
+						out << YAML::Key << "Type" << YAML::Value << DataTypeToString(fieldStorage.GetType());
+
+						if (fieldStorage.IsArray())
+						{
+							// Arrays serialize as a raw byte sequence to stay lossless.
+							out << YAML::Key << "Array" << YAML::Value << true;
+							out << YAML::Key << "Data" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+							const Buffer& buf = fieldStorage.ValueBuffer();
+							for (uint64_t i = 0; i < buf.Size; i++)
+								out << (uint32_t)((uint8_t*)buf.Data)[i];
+							out << YAML::EndSeq;
+						}
+						else
+						{
+							out << YAML::Key << "Data" << YAML::Value;
+							switch (fieldStorage.GetType())
+							{
+								case DataType::SByte:      out << (int32_t)fieldStorage.GetValue<int8_t>(); break;
+								case DataType::Byte:       out << (uint32_t)fieldStorage.GetValue<uint8_t>(); break;
+								case DataType::Short:      out << fieldStorage.GetValue<int16_t>(); break;
+								case DataType::UShort:     out << fieldStorage.GetValue<uint16_t>(); break;
+								case DataType::Int:        out << fieldStorage.GetValue<int32_t>(); break;
+								case DataType::UInt:       out << fieldStorage.GetValue<uint32_t>(); break;
+								case DataType::Long:       out << fieldStorage.GetValue<int64_t>(); break;
+								case DataType::ULong:      out << fieldStorage.GetValue<uint64_t>(); break;
+								case DataType::Float:      out << fieldStorage.GetValue<float>(); break;
+								case DataType::Double:     out << fieldStorage.GetValue<double>(); break;
+								case DataType::Vector2:    out << fieldStorage.GetValue<glm::vec2>(); break;
+								case DataType::Vector3:    out << fieldStorage.GetValue<glm::vec3>(); break;
+								case DataType::Vector4:    out << fieldStorage.GetValue<glm::vec4>(); break;
+								case DataType::Bool:       out << (fieldStorage.GetValue<uint32_t>() != 0); break;
+								default:                   out << (uint64_t)fieldStorage.GetValue<uint64_t>(); break; // Entity + asset-refs (UUID)
+							}
+						}
+						out << YAML::EndMap;
+					}
+					out << YAML::EndSeq;
+				}
+
 				out << YAML::EndMap;
 			}
 
@@ -1052,6 +1105,63 @@ namespace Lux {
 				{
 					auto& component = deserializedEntity.AddComponent<ScriptComponent>();
 					component.ClassName = script["ClassName"].as<std::string>("");
+					component.ScriptID = script["ScriptID"].as<uint64_t>(
+						component.ClassName.empty() ? 0 : (uint64_t)Hash::GenerateFNVHash(component.ClassName));
+
+					const auto& scriptEngine = ScriptEngine::GetInstance();
+					UUID entityID = deserializedEntity.GetUUID();
+
+					if (scriptEngine.IsValidScript(component.ScriptID))
+					{
+						auto& storage = scene->GetScriptStorage();
+						if (!storage.EntityStorage.contains(entityID))
+							storage.InitializeEntityStorage(component.ScriptID, entityID);
+						auto& entityStorage = storage.EntityStorage.at(entityID);
+
+						if (auto storedFields = script["StoredFields"])
+						{
+							for (auto sf : storedFields)
+							{
+								uint32_t fieldID = sf["ID"].as<uint32_t>(0);
+								DataType type = DataTypeFromString(sf["Type"].as<std::string>("Float"));
+								auto fieldIt = entityStorage.Fields.find(fieldID);
+								if (fieldIt == entityStorage.Fields.end())
+									continue;
+
+								FieldStorage& fs = fieldIt->second;
+								auto dataNode = sf["Data"];
+
+								if (sf["Array"] && sf["Array"].as<bool>(false))
+								{
+									size_t n = dataNode.size();
+									Buffer& buf = fs.ValueBuffer();
+									buf.Allocate(n);
+									for (size_t i = 0; i < n; i++)
+										((uint8_t*)buf.Data)[i] = (uint8_t)dataNode[i].as<uint32_t>(0);
+									continue;
+								}
+
+								switch (type)
+								{
+									case DataType::SByte:   fs.SetValue<int8_t>((int8_t)dataNode.as<int32_t>(0)); break;
+									case DataType::Byte:    fs.SetValue<uint8_t>((uint8_t)dataNode.as<uint32_t>(0)); break;
+									case DataType::Short:   fs.SetValue<int16_t>(dataNode.as<int16_t>(0)); break;
+									case DataType::UShort:  fs.SetValue<uint16_t>(dataNode.as<uint16_t>(0)); break;
+									case DataType::Int:     fs.SetValue<int32_t>(dataNode.as<int32_t>(0)); break;
+									case DataType::UInt:    fs.SetValue<uint32_t>(dataNode.as<uint32_t>(0)); break;
+									case DataType::Long:    fs.SetValue<int64_t>(dataNode.as<int64_t>(0)); break;
+									case DataType::ULong:   fs.SetValue<uint64_t>(dataNode.as<uint64_t>(0)); break;
+									case DataType::Float:   fs.SetValue<float>(dataNode.as<float>(0.0f)); break;
+									case DataType::Double:  fs.SetValue<double>(dataNode.as<double>(0.0)); break;
+									case DataType::Vector2: fs.SetValue<glm::vec2>(dataNode.as<glm::vec2>(glm::vec2(0.0f))); break;
+									case DataType::Vector3: fs.SetValue<glm::vec3>(dataNode.as<glm::vec3>(glm::vec3(0.0f))); break;
+									case DataType::Vector4: fs.SetValue<glm::vec4>(dataNode.as<glm::vec4>(glm::vec4(0.0f))); break;
+									case DataType::Bool:    fs.SetValue<uint32_t>(dataNode.as<bool>(false) ? 1u : 0u); break;
+									default:                fs.SetValue<uint64_t>(dataNode.as<uint64_t>(0)); break; // Entity + asset-refs
+								}
+							}
+						}
+					}
 				}
 
 				if (auto mesh = entity["MeshComponent"])

@@ -36,3 +36,6 @@
 [submodule "Core/vendor/JoltPhysics/JoltPhysics"]
 	path = Core/vendor/JoltPhysics/JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics
+[submodule "Core/vendor/Coral"]
+	path = Core/vendor/Coral
+	url = https://github.com/StudioCherno/Coral

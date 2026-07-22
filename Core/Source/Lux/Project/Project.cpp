@@ -36,7 +36,7 @@ namespace Lux
 
 	void Project::ReloadScriptEngine()
 	{
-		ScriptEngine::ReloadAssembly();
+		ScriptEngine::GetMutable().ReloadAppAssembly();
 	}
 
 	void Project::SetActive(Ref<Project> project)
@@ -85,6 +85,14 @@ namespace Lux
 			AudioEngine::Init();
 			AudioEngine::SetInitalizedEngine(true);
 		}
+
+		// (Re)load scripting assemblies for the newly active project. Shutdown unloads any
+		// previous ALC (safe no-op on first activation). The host itself is initialized once by
+		// Application. This is the editor path; the runtime loads via RuntimeLayer.
+		ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+		scriptEngine.Shutdown();
+		scriptEngine.Initialize(s_ActiveProject);
+		scriptEngine.LoadProjectAssembly();
 	}
 
 	void Project::SetActiveRuntime(Ref<Project> project, Ref<AssetPack> assetPack)

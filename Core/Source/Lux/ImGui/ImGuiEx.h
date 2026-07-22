@@ -1924,7 +1924,10 @@ namespace Lux::ImGuiEx {
 	}
 #endif
 
-	//bool PropertyScriptReference(const char* label, UUID& outScriptID, EntityDomain entityDomain, const PropertyAssetReferenceSettings& settings = {}, bool doPushUndo = true);
+	// Script-class picker: shows the current class as a button that opens a searchable list of
+	// all discovered Entity-derived script classes (ScriptEngine::GetAllScripts). Updates both
+	// the scriptID and the class name. Returns true if changed.
+	bool PropertyScriptReference(const char* label, UUID& outScriptID, std::string& outClassName, const PropertyAssetReferenceSettings& settings = {});
 #if 0
 	template<AssetType... TAssetTypes>
 	static bool PropertyMultiAssetReference(const char* label, AssetHandle& outHandle, const char* helpText = "", PropertyAssetReferenceError* outError = nullptr, const PropertyAssetReferenceSettings& settings = PropertyAssetReferenceSettings(), bool doPushUndo = true)
