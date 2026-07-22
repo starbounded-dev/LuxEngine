@@ -19,11 +19,14 @@ namespace Lux
 
 		public readonly ulong ID;
 
-		public unsafe string Name => InternalCalls.Entity_GetName(ID);
+		public unsafe string Name
+		{
+			get => InternalCalls.Entity_GetName(ID);
+			set => InternalCalls.Entity_SetName(ID, value);
+		}
 
-		// OnCreate / OnUpdate / OnDestroy are matched by NAME (not override); declaring them on
-		// this base would make every subclass appear to define them. Collision hooks take an
-		// Entity, which can't cross the boundary, so the engine invokes the ulong bridges below.
+		// OnCreate / OnUpdate / OnDestroy are matched by NAME (not override). Collision hooks take
+		// an Entity, which can't cross the native boundary, so the engine invokes the ulong bridges.
 		protected virtual void OnCollisionBegin(Entity other) { }
 		protected virtual void OnCollisionEnd(Entity other) { }
 
@@ -32,24 +35,42 @@ namespace Lux
 
 		public unsafe Vector3 Translation
 		{
-			get
-			{
-				Vector3 result;
-				InternalCalls.TransformComponent_GetTranslation(ID, &result);
-				return result;
-			}
+			get { Vector3 r; InternalCalls.TransformComponent_GetTranslation(ID, &r); return r; }
 			set { InternalCalls.TransformComponent_SetTranslation(ID, &value); }
+		}
+
+		public unsafe Vector3 Rotation
+		{
+			get { Vector3 r; InternalCalls.TransformComponent_GetRotation(ID, &r); return r; }
+			set { InternalCalls.TransformComponent_SetRotation(ID, &value); }
 		}
 
 		public unsafe Vector3 Scale
 		{
+			get { Vector3 r; InternalCalls.TransformComponent_GetScale(ID, &r); return r; }
+			set { InternalCalls.TransformComponent_SetScale(ID, &value); }
+		}
+
+		public unsafe Entity Parent
+		{
 			get
 			{
-				Vector3 result;
-				InternalCalls.TransformComponent_GetScale(ID, &result);
-				return result;
+				ulong parentID = InternalCalls.Entity_GetParent(ID);
+				return parentID == 0 ? null : new Entity(parentID);
 			}
-			set { InternalCalls.TransformComponent_SetScale(ID, &value); }
+			set => InternalCalls.Entity_SetParent(ID, value != null ? value.ID : 0);
+		}
+
+		public unsafe Entity[] Children
+		{
+			get
+			{
+				using NativeArray<ulong> ids = InternalCalls.Entity_GetChildren(ID);
+				Entity[] children = new Entity[ids.Length];
+				for (int i = 0; i < ids.Length; i++)
+					children[i] = new Entity(ids[i]);
+				return children;
+			}
 		}
 
 		public unsafe bool HasComponent<T>() where T : Component, new()
@@ -87,6 +108,19 @@ namespace Lux
 			if (handle == IntPtr.Zero)
 				return null;
 			return GCHandle.FromIntPtr(handle).Target as T;
+		}
+
+		public unsafe void Destroy() => InternalCalls.Scene_DestroyEntity(ID);
+
+		public static unsafe Entity Create(string name = "Entity")
+		{
+			return new Entity(InternalCalls.Scene_CreateEntity(name));
+		}
+
+		public static unsafe void Destroy(Entity entity)
+		{
+			if (entity != null)
+				InternalCalls.Scene_DestroyEntity(entity.ID);
 		}
 	}
 }
