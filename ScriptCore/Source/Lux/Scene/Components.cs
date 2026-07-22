@@ -249,7 +249,123 @@ namespace Lux
 		}
 	}
 
+	public enum ForceMode { Force = 0, Impulse, VelocityChange, Acceleration }
+
+	public unsafe class RigidBodyComponent : Component
+	{
+		public Vector3 LinearVelocity
+		{
+			get { Vector3 v; InternalCalls.RigidBodyComponent_GetLinearVelocity(Entity.ID, &v); return v; }
+			set { InternalCalls.RigidBodyComponent_SetLinearVelocity(Entity.ID, &value); }
+		}
+
+		public Vector3 AngularVelocity
+		{
+			get { Vector3 v; InternalCalls.RigidBodyComponent_GetAngularVelocity(Entity.ID, &v); return v; }
+			set { InternalCalls.RigidBodyComponent_SetAngularVelocity(Entity.ID, &value); }
+		}
+
+		public Vector3 Translation
+		{
+			get { Vector3 v; InternalCalls.RigidBodyComponent_GetTranslation(Entity.ID, &v); return v; }
+			set { InternalCalls.RigidBodyComponent_SetTranslation(Entity.ID, &value); }
+		}
+
+		public Vector3 Rotation
+		{
+			get { Vector3 v; InternalCalls.RigidBodyComponent_GetRotation(Entity.ID, &v); return v; }
+			set { InternalCalls.RigidBodyComponent_SetRotation(Entity.ID, &value); }
+		}
+
+		public float Mass
+		{
+			get => InternalCalls.RigidBodyComponent_GetMass(Entity.ID);
+			set => InternalCalls.RigidBodyComponent_SetMass(Entity.ID, value);
+		}
+
+		public bool IsSleeping => InternalCalls.RigidBodyComponent_IsSleeping(Entity.ID);
+
+		public void SetGravityEnabled(bool enabled) => InternalCalls.RigidBodyComponent_SetGravityEnabled(Entity.ID, enabled);
+		public void SetSleepState(bool sleep) => InternalCalls.RigidBodyComponent_SetSleepState(Entity.ID, sleep);
+
+		public void AddForce(Vector3 force, ForceMode mode = ForceMode.Force, bool wake = true)
+			=> InternalCalls.RigidBodyComponent_AddForce(Entity.ID, &force, mode, wake);
+
+		public void AddForce(Vector3 force, Vector3 location, ForceMode mode = ForceMode.Force, bool wake = true)
+			=> InternalCalls.RigidBodyComponent_AddForceAtLocation(Entity.ID, &force, &location, mode, wake);
+
+		public void AddTorque(Vector3 torque, bool wake = true)
+			=> InternalCalls.RigidBodyComponent_AddTorque(Entity.ID, &torque, wake);
+	}
+
+	public unsafe class CharacterControllerComponent : Component
+	{
+		public bool IsGrounded => InternalCalls.CharacterControllerComponent_IsGrounded(Entity.ID);
+
+		public Vector3 LinearVelocity
+		{
+			get { Vector3 v; InternalCalls.CharacterControllerComponent_GetLinearVelocity(Entity.ID, &v); return v; }
+			set { InternalCalls.CharacterControllerComponent_SetLinearVelocity(Entity.ID, &value); }
+		}
+
+		public void Move(Vector3 displacement) => InternalCalls.CharacterControllerComponent_Move(Entity.ID, &displacement);
+		public void Jump(float power) => InternalCalls.CharacterControllerComponent_Jump(Entity.ID, power);
+		public void SetGravityEnabled(bool enabled) => InternalCalls.CharacterControllerComponent_SetGravityEnabled(Entity.ID, enabled);
+	}
+
+	public unsafe class BoxColliderComponent : Component
+	{
+		public Vector3 HalfSize
+		{
+			get { Vector3 v; InternalCalls.BoxColliderComponent_GetHalfSize(Entity.ID, &v); return v; }
+			set { InternalCalls.BoxColliderComponent_SetHalfSize(Entity.ID, &value); }
+		}
+
+		public Vector3 Offset
+		{
+			get { Vector3 v; InternalCalls.BoxColliderComponent_GetOffset(Entity.ID, &v); return v; }
+			set { InternalCalls.BoxColliderComponent_SetOffset(Entity.ID, &value); }
+		}
+	}
+
+	public unsafe class SphereColliderComponent : Component
+	{
+		public float Radius
+		{
+			get => InternalCalls.SphereColliderComponent_GetRadius(Entity.ID);
+			set => InternalCalls.SphereColliderComponent_SetRadius(Entity.ID, value);
+		}
+
+		public Vector3 Offset
+		{
+			get { Vector3 v; InternalCalls.SphereColliderComponent_GetOffset(Entity.ID, &v); return v; }
+			set { InternalCalls.SphereColliderComponent_SetOffset(Entity.ID, &value); }
+		}
+	}
+
+	public unsafe class CapsuleColliderComponent : Component
+	{
+		public float Radius
+		{
+			get => InternalCalls.CapsuleColliderComponent_GetRadius(Entity.ID);
+			set => InternalCalls.CapsuleColliderComponent_SetRadius(Entity.ID, value);
+		}
+
+		public float HalfHeight
+		{
+			get => InternalCalls.CapsuleColliderComponent_GetHalfHeight(Entity.ID);
+			set => InternalCalls.CapsuleColliderComponent_SetHalfHeight(Entity.ID, value);
+		}
+
+		public Vector3 Offset
+		{
+			get { Vector3 v; InternalCalls.CapsuleColliderComponent_GetOffset(Entity.ID, &v); return v; }
+			set { InternalCalls.CapsuleColliderComponent_SetOffset(Entity.ID, &value); }
+		}
+	}
+
 	// Registered for HasComponent/AddComponent/RemoveComponent; no scriptable surface yet.
+	public class MeshColliderComponent : Component { }
 	public class AudioSourceComponent : Component { }
 	public class AudioListenerComponent : Component { }
 }

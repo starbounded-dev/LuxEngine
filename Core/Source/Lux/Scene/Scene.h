@@ -228,6 +228,9 @@ namespace Lux {
 		ScriptStorage& GetScriptStorage() { return m_ScriptStorage; }
 		const ScriptStorage& GetScriptStorage() const { return m_ScriptStorage; }
 
+		// Defined out-of-line (PhysicsScene need not be complete in this header).
+		Ref<PhysicsScene> GetPhysicsScene() const;
+
 	private:
 		friend class Entity;
 		friend class SceneSerializer;

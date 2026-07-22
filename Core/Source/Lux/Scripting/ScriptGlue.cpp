@@ -11,6 +11,13 @@
 
 #include "Lux/Physics2D/ContactListener2D.h"
 
+#include "Lux/Physics/PhysicsScene.h"
+#include "Lux/Physics/PhysicsBody.h"
+#include "Lux/Physics/CharacterController.h"
+#include "Lux/Physics/PhysicsTypes.h"
+
+#include <glm/gtc/quaternion.hpp>
+
 #include <Coral/Assembly.hpp>
 #include <Coral/Type.hpp>
 #include <Coral/String.hpp>
@@ -396,6 +403,183 @@ namespace Lux {
 
 	#pragma endregion
 
+	#pragma region RigidBodyComponent (3D)
+
+	static Ref<PhysicsBody> GetPhysicsBody(uint64_t entityID)
+	{
+		Scene* scene = GetScene();
+		if (!scene->GetPhysicsScene())
+			return nullptr;
+		return scene->GetPhysicsScene()->GetBodyByEntityID(entityID);
+	}
+
+	static void RigidBodyComponent_AddForce(uint64_t entityID, glm::vec3* force, int32_t forceMode, Coral::Bool32 wake)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->AddForce(*force, (EForceMode)forceMode, wake);
+	}
+
+	static void RigidBodyComponent_AddForceAtLocation(uint64_t entityID, glm::vec3* force, glm::vec3* location, int32_t forceMode, Coral::Bool32 wake)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->AddForce(*force, *location, (EForceMode)forceMode, wake);
+	}
+
+	static void RigidBodyComponent_AddTorque(uint64_t entityID, glm::vec3* torque, Coral::Bool32 wake)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->AddTorque(*torque, wake);
+	}
+
+	static void RigidBodyComponent_GetLinearVelocity(uint64_t entityID, glm::vec3* out)
+	{
+		Ref<PhysicsBody> body = GetPhysicsBody(entityID);
+		*out = body ? body->GetLinearVelocity() : glm::vec3(0.0f);
+	}
+
+	static void RigidBodyComponent_SetLinearVelocity(uint64_t entityID, glm::vec3* v)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->SetLinearVelocity(*v);
+	}
+
+	static void RigidBodyComponent_GetAngularVelocity(uint64_t entityID, glm::vec3* out)
+	{
+		Ref<PhysicsBody> body = GetPhysicsBody(entityID);
+		*out = body ? body->GetAngularVelocity() : glm::vec3(0.0f);
+	}
+
+	static void RigidBodyComponent_SetAngularVelocity(uint64_t entityID, glm::vec3* v)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->SetAngularVelocity(*v);
+	}
+
+	static void RigidBodyComponent_GetTranslation(uint64_t entityID, glm::vec3* out)
+	{
+		Ref<PhysicsBody> body = GetPhysicsBody(entityID);
+		*out = body ? body->GetTranslation() : glm::vec3(0.0f);
+	}
+
+	static void RigidBodyComponent_SetTranslation(uint64_t entityID, glm::vec3* t)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->SetTranslation(*t);
+	}
+
+	static void RigidBodyComponent_GetRotation(uint64_t entityID, glm::vec3* outEuler)
+	{
+		Ref<PhysicsBody> body = GetPhysicsBody(entityID);
+		*outEuler = body ? glm::eulerAngles(body->GetRotation()) : glm::vec3(0.0f);
+	}
+
+	static void RigidBodyComponent_SetRotation(uint64_t entityID, glm::vec3* euler)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->SetRotation(glm::quat(*euler));
+	}
+
+	static float RigidBodyComponent_GetMass(uint64_t entityID)
+	{
+		Ref<PhysicsBody> body = GetPhysicsBody(entityID);
+		return body ? body->GetMass() : 0.0f;
+	}
+
+	static void RigidBodyComponent_SetMass(uint64_t entityID, float mass)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->SetMass(mass);
+	}
+
+	static void RigidBodyComponent_SetGravityEnabled(uint64_t entityID, Coral::Bool32 enabled)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->SetGravityEnabled(enabled);
+	}
+
+	static Coral::Bool32 RigidBodyComponent_IsSleeping(uint64_t entityID)
+	{
+		Ref<PhysicsBody> body = GetPhysicsBody(entityID);
+		return body ? (Coral::Bool32)body->IsSleeping() : false;
+	}
+
+	static void RigidBodyComponent_SetSleepState(uint64_t entityID, Coral::Bool32 sleep)
+	{
+		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
+			body->SetSleepState(sleep);
+	}
+
+	#pragma endregion
+
+	#pragma region CharacterControllerComponent
+
+	static Ref<CharacterController> GetCharacterController(uint64_t entityID)
+	{
+		Scene* scene = GetScene();
+		if (!scene->GetPhysicsScene())
+			return nullptr;
+		return scene->GetPhysicsScene()->GetCharacterControllerByEntityID(entityID);
+	}
+
+	static void CharacterControllerComponent_Move(uint64_t entityID, glm::vec3* displacement)
+	{
+		if (Ref<CharacterController> cc = GetCharacterController(entityID))
+			cc->Move(*displacement);
+	}
+
+	static void CharacterControllerComponent_Jump(uint64_t entityID, float power)
+	{
+		if (Ref<CharacterController> cc = GetCharacterController(entityID))
+			cc->Jump(power);
+	}
+
+	static Coral::Bool32 CharacterControllerComponent_IsGrounded(uint64_t entityID)
+	{
+		Ref<CharacterController> cc = GetCharacterController(entityID);
+		return cc ? (Coral::Bool32)cc->IsGrounded() : false;
+	}
+
+	static void CharacterControllerComponent_GetLinearVelocity(uint64_t entityID, glm::vec3* out)
+	{
+		Ref<CharacterController> cc = GetCharacterController(entityID);
+		*out = cc ? cc->GetLinearVelocity() : glm::vec3(0.0f);
+	}
+
+	static void CharacterControllerComponent_SetLinearVelocity(uint64_t entityID, glm::vec3* v)
+	{
+		if (Ref<CharacterController> cc = GetCharacterController(entityID))
+			cc->SetLinearVelocity(*v);
+	}
+
+	static void CharacterControllerComponent_SetGravityEnabled(uint64_t entityID, Coral::Bool32 enabled)
+	{
+		if (Ref<CharacterController> cc = GetCharacterController(entityID))
+			cc->SetGravityEnabled(enabled);
+	}
+
+	#pragma endregion
+
+	#pragma region 3D Colliders
+
+	static void BoxColliderComponent_GetHalfSize(uint64_t entityID, glm::vec3* out) { *out = GetEntity(entityID).GetComponent<BoxColliderComponent>().HalfSize; }
+	static void BoxColliderComponent_SetHalfSize(uint64_t entityID, glm::vec3* in)  { GetEntity(entityID).GetComponent<BoxColliderComponent>().HalfSize = *in; }
+	static void BoxColliderComponent_GetOffset(uint64_t entityID, glm::vec3* out)   { *out = GetEntity(entityID).GetComponent<BoxColliderComponent>().Offset; }
+	static void BoxColliderComponent_SetOffset(uint64_t entityID, glm::vec3* in)    { GetEntity(entityID).GetComponent<BoxColliderComponent>().Offset = *in; }
+
+	static float SphereColliderComponent_GetRadius(uint64_t entityID)          { return GetEntity(entityID).GetComponent<SphereColliderComponent>().Radius; }
+	static void SphereColliderComponent_SetRadius(uint64_t entityID, float v)  { GetEntity(entityID).GetComponent<SphereColliderComponent>().Radius = v; }
+	static void SphereColliderComponent_GetOffset(uint64_t entityID, glm::vec3* out) { *out = GetEntity(entityID).GetComponent<SphereColliderComponent>().Offset; }
+	static void SphereColliderComponent_SetOffset(uint64_t entityID, glm::vec3* in)  { GetEntity(entityID).GetComponent<SphereColliderComponent>().Offset = *in; }
+
+	static float CapsuleColliderComponent_GetRadius(uint64_t entityID)             { return GetEntity(entityID).GetComponent<CapsuleColliderComponent>().Radius; }
+	static void CapsuleColliderComponent_SetRadius(uint64_t entityID, float v)     { GetEntity(entityID).GetComponent<CapsuleColliderComponent>().Radius = v; }
+	static float CapsuleColliderComponent_GetHalfHeight(uint64_t entityID)         { return GetEntity(entityID).GetComponent<CapsuleColliderComponent>().HalfHeight; }
+	static void CapsuleColliderComponent_SetHalfHeight(uint64_t entityID, float v) { GetEntity(entityID).GetComponent<CapsuleColliderComponent>().HalfHeight = v; }
+	static void CapsuleColliderComponent_GetOffset(uint64_t entityID, glm::vec3* out) { *out = GetEntity(entityID).GetComponent<CapsuleColliderComponent>().Offset; }
+	static void CapsuleColliderComponent_SetOffset(uint64_t entityID, glm::vec3* in)  { GetEntity(entityID).GetComponent<CapsuleColliderComponent>().Offset = *in; }
+
+	#pragma endregion
+
 	template<typename TComponent>
 	static void RegisterManagedComponent(Coral::ManagedAssembly& coreAssembly)
 	{
@@ -434,6 +618,14 @@ namespace Lux {
 		RegisterManagedComponent<TextComponent>(coreAssembly);
 		RegisterManagedComponent<AudioSourceComponent>(coreAssembly);
 		RegisterManagedComponent<AudioListenerComponent>(coreAssembly);
+
+		// 3D physics
+		RegisterManagedComponent<RigidBodyComponent>(coreAssembly);
+		RegisterManagedComponent<CharacterControllerComponent>(coreAssembly);
+		RegisterManagedComponent<BoxColliderComponent>(coreAssembly);
+		RegisterManagedComponent<SphereColliderComponent>(coreAssembly);
+		RegisterManagedComponent<CapsuleColliderComponent>(coreAssembly);
+		RegisterManagedComponent<MeshColliderComponent>(coreAssembly);
 	}
 
 	static void RegisterInternalCalls(Coral::ManagedAssembly& coreAssembly)
@@ -549,6 +741,46 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(TextComponent_SetLineSpacing);
 		LUX_ADD_INTERNAL_CALL(TextComponent_GetMaxWidth);
 		LUX_ADD_INTERNAL_CALL(TextComponent_SetMaxWidth);
+
+		// 3D physics
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_AddForce);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_AddForceAtLocation);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_AddTorque);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetLinearVelocity);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetLinearVelocity);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetAngularVelocity);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetAngularVelocity);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetTranslation);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetTranslation);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetRotation);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetRotation);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetMass);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetMass);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetGravityEnabled);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_IsSleeping);
+		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetSleepState);
+
+		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_Move);
+		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_Jump);
+		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_IsGrounded);
+		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_GetLinearVelocity);
+		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_SetLinearVelocity);
+		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_SetGravityEnabled);
+
+		LUX_ADD_INTERNAL_CALL(BoxColliderComponent_GetHalfSize);
+		LUX_ADD_INTERNAL_CALL(BoxColliderComponent_SetHalfSize);
+		LUX_ADD_INTERNAL_CALL(BoxColliderComponent_GetOffset);
+		LUX_ADD_INTERNAL_CALL(BoxColliderComponent_SetOffset);
+		LUX_ADD_INTERNAL_CALL(SphereColliderComponent_GetRadius);
+		LUX_ADD_INTERNAL_CALL(SphereColliderComponent_SetRadius);
+		LUX_ADD_INTERNAL_CALL(SphereColliderComponent_GetOffset);
+		LUX_ADD_INTERNAL_CALL(SphereColliderComponent_SetOffset);
+		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_GetRadius);
+		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_SetRadius);
+		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_GetHalfHeight);
+		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_SetHalfHeight);
+		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_GetOffset);
+		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_SetOffset);
 	}
 
 	void ScriptGlue::RegisterGlue(Coral::ManagedAssembly& coreAssembly)

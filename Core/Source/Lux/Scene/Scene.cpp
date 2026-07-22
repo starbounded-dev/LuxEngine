@@ -926,6 +926,11 @@ namespace Lux {
 		return view.begin() != view.end();
 	}
 
+	Ref<PhysicsScene> Scene::GetPhysicsScene() const
+	{
+		return m_PhysicsScene;
+	}
+
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
 		using DuplicateComponents =

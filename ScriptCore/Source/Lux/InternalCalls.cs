@@ -148,6 +148,51 @@ namespace Lux
 		internal static delegate*<ulong, float, void> TextComponent_SetMaxWidth;
 		#endregion
 
+		#region RigidBodyComponent (3D)
+		internal static delegate*<ulong, Vector3*, ForceMode, Bool32, void> RigidBodyComponent_AddForce;
+		internal static delegate*<ulong, Vector3*, Vector3*, ForceMode, Bool32, void> RigidBodyComponent_AddForceAtLocation;
+		internal static delegate*<ulong, Vector3*, Bool32, void> RigidBodyComponent_AddTorque;
+		internal static delegate*<ulong, Vector3*, void> RigidBodyComponent_GetLinearVelocity;
+		internal static delegate*<ulong, Vector3*, void> RigidBodyComponent_SetLinearVelocity;
+		internal static delegate*<ulong, Vector3*, void> RigidBodyComponent_GetAngularVelocity;
+		internal static delegate*<ulong, Vector3*, void> RigidBodyComponent_SetAngularVelocity;
+		internal static delegate*<ulong, Vector3*, void> RigidBodyComponent_GetTranslation;
+		internal static delegate*<ulong, Vector3*, void> RigidBodyComponent_SetTranslation;
+		internal static delegate*<ulong, Vector3*, void> RigidBodyComponent_GetRotation;
+		internal static delegate*<ulong, Vector3*, void> RigidBodyComponent_SetRotation;
+		internal static delegate*<ulong, float> RigidBodyComponent_GetMass;
+		internal static delegate*<ulong, float, void> RigidBodyComponent_SetMass;
+		internal static delegate*<ulong, Bool32, void> RigidBodyComponent_SetGravityEnabled;
+		internal static delegate*<ulong, Bool32> RigidBodyComponent_IsSleeping;
+		internal static delegate*<ulong, Bool32, void> RigidBodyComponent_SetSleepState;
+		#endregion
+
+		#region CharacterControllerComponent
+		internal static delegate*<ulong, Vector3*, void> CharacterControllerComponent_Move;
+		internal static delegate*<ulong, float, void> CharacterControllerComponent_Jump;
+		internal static delegate*<ulong, Bool32> CharacterControllerComponent_IsGrounded;
+		internal static delegate*<ulong, Vector3*, void> CharacterControllerComponent_GetLinearVelocity;
+		internal static delegate*<ulong, Vector3*, void> CharacterControllerComponent_SetLinearVelocity;
+		internal static delegate*<ulong, Bool32, void> CharacterControllerComponent_SetGravityEnabled;
+		#endregion
+
+		#region 3D Colliders
+		internal static delegate*<ulong, Vector3*, void> BoxColliderComponent_GetHalfSize;
+		internal static delegate*<ulong, Vector3*, void> BoxColliderComponent_SetHalfSize;
+		internal static delegate*<ulong, Vector3*, void> BoxColliderComponent_GetOffset;
+		internal static delegate*<ulong, Vector3*, void> BoxColliderComponent_SetOffset;
+		internal static delegate*<ulong, float> SphereColliderComponent_GetRadius;
+		internal static delegate*<ulong, float, void> SphereColliderComponent_SetRadius;
+		internal static delegate*<ulong, Vector3*, void> SphereColliderComponent_GetOffset;
+		internal static delegate*<ulong, Vector3*, void> SphereColliderComponent_SetOffset;
+		internal static delegate*<ulong, float> CapsuleColliderComponent_GetRadius;
+		internal static delegate*<ulong, float, void> CapsuleColliderComponent_SetRadius;
+		internal static delegate*<ulong, float> CapsuleColliderComponent_GetHalfHeight;
+		internal static delegate*<ulong, float, void> CapsuleColliderComponent_SetHalfHeight;
+		internal static delegate*<ulong, Vector3*, void> CapsuleColliderComponent_GetOffset;
+		internal static delegate*<ulong, Vector3*, void> CapsuleColliderComponent_SetOffset;
+		#endregion
+
 #pragma warning restore CS0649
 	}
 }
