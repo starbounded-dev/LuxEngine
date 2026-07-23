@@ -16,6 +16,8 @@ namespace Lux::ImGuiEx {
 
 	ImTextureID GetTextureID(Ref<Image2D> image, ImageMode mode)
 	{
+		if (!image)
+			return (ImTextureID)0;
 		return Application::Get().GetImGuiLayer()->GetImGuiRenderer()->CreateFrameTexture(
 			image->GetHandle().Get(), nvrhi::AllSubresources, (mode == ImageMode::Opaque), (mode == ImageMode::Depth));
 	}
@@ -36,6 +38,8 @@ namespace Lux::ImGuiEx {
 
 	ImTextureID GetTextureID(Ref<Texture2D> texture)
 	{
+		if (!texture || !texture->GetImage())
+			return (ImTextureID)0;
 		return GetTextureID(texture->GetImage(), ImageMode::Normal);
 	}
 
