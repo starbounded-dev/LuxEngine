@@ -3,7 +3,7 @@
 
 #include "JoltUtils.h"
 
-#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Scene.h"
 
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyInterface.h>

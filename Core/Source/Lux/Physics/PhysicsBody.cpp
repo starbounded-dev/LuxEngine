@@ -1,7 +1,7 @@
 #include "lpch.h"
 #include "PhysicsBody.h"
 
-#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Scene.h"
 
 namespace Lux {
 

@@ -4,7 +4,7 @@
 #include "JoltUtils.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Renderer/Mesh.h"
-#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Scene.h"
 
 #include <Jolt/Geometry/Triangle.h>

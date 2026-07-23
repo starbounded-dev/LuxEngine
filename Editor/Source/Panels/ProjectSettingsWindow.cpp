@@ -362,10 +362,10 @@ namespace Lux {
 		const std::string scriptModulePath = m_Project->GetConfig().ScriptModulePath.generic_string();
 		const std::string& defaultNamespace = m_Project->GetConfig().DefaultNamespace;
 
-		strncpy_s(m_NameBuffer, name.c_str(), _TRUNCATE);
-		strncpy_s(m_RuntimeGameNameBuffer, runtimeGameName.c_str(), _TRUNCATE);
-		strncpy_s(m_ScriptModulePathBuffer, scriptModulePath.c_str(), _TRUNCATE);
-		strncpy_s(m_DefaultNamespaceBuffer, defaultNamespace.c_str(), _TRUNCATE);
+		std::strncpy(m_NameBuffer, name.c_str(), sizeof(m_NameBuffer) - 1);
+		std::strncpy(m_RuntimeGameNameBuffer, runtimeGameName.c_str(), sizeof(m_RuntimeGameNameBuffer) - 1);
+		std::strncpy(m_ScriptModulePathBuffer, scriptModulePath.c_str(), sizeof(m_ScriptModulePathBuffer) - 1);
+		std::strncpy(m_DefaultNamespaceBuffer, defaultNamespace.c_str(), sizeof(m_DefaultNamespaceBuffer) - 1);
 	}
 
 	void ProjectSettingsWindow::SaveProject()

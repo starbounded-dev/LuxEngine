@@ -3,7 +3,7 @@
 
 #include "ContactListener2D.h"
 
-#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
 

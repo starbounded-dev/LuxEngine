@@ -14,7 +14,7 @@ project "Core"
 		'{COPYFILE} "%{wks.location}/Core/vendor/Coral/Build/%{cfg.buildcfg}/Coral.Managed.deps.json" "%{wks.location}/Editor/DotNet/Coral.Managed.deps.json"',
 	}
 
-	filter { "configurations:Debug or configurations:Debug-AS or configurations:Release" }
+	filter { "system:windows", "configurations:Debug or configurations:Debug-AS or configurations:Release" }
 		postbuildcommands {
 			'{COPYFILE} "%{wks.location}/Core/vendor/Coral/Build/%{cfg.buildcfg}/Coral.Managed.pdb" "%{wks.location}/Editor/DotNet/Coral.Managed.pdb"',
 		}

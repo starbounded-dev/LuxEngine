@@ -167,7 +167,7 @@ Dependencies = {
 		IncludeDir = "%{wks.location}/Core/vendor/imgui",
 	},
 	NVRHI = {
-		LibName = "NVRHI",
+		LibName = { "NVRHI", "NVRHI-Vulkan" },
 		IncludeDir = "%{wks.location}/Core/vendor/nvrhi/include"
 	},
 	MiniAudio = {

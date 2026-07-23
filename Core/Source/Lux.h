@@ -7,7 +7,7 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Log.h"
 #include "Lux/Core/Input.h"
-#include "Lux/Core/TimeStep.h"
+#include "Lux/Core/Timestep.h"
 #include "Lux/Core/Timer.h"
 //#include "Lux/Core/Platform.h"
 #include "Lux/Core/Version.h"

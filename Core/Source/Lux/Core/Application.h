@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Lux/Core/Base.h"
-#include "Lux/Core/TimeStep.h"
+#include "Lux/Core/Timestep.h"
 #include "Lux/Core/Timer.h"
 #include "Lux/Core/Window.h"
 #include "Lux/Core/LayerStack.h"

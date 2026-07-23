@@ -128,17 +128,22 @@ namespace Lux {
 		m_SwapChainIndex = 0;
 
 		// Create acquire semaphores (for frame synchronization)
-		for (uint32_t i = 0; i < 3; ++i)
 		{
-			m_AcquireSemaphores[i] = vulkanDeviceManager->m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo());
-		}
+			vk::SemaphoreCreateInfo semCI;
+			for (uint32_t i = 0; i < 3; ++i)
+			{
+				const vk::Result semRes = vulkanDeviceManager->m_VulkanDevice.createSemaphore(&semCI, nullptr, &m_AcquireSemaphores[i]);
+				LUX_CORE_VERIFY(semRes == vk::Result::eSuccess);
+			}
 
-		// Create one present semaphore per swapchain image to avoid reuse conflicts
-		// (see: https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html)
-		m_PresentSemaphores.resize(m_SwapChainImages.size());
-		for (size_t i = 0; i < m_SwapChainImages.size(); ++i)
-		{
-			m_PresentSemaphores[i] = vulkanDeviceManager->m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo());
+			// Create one present semaphore per swapchain image to avoid reuse conflicts
+			// (see: https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html)
+			m_PresentSemaphores.resize(m_SwapChainImages.size());
+			for (size_t i = 0; i < m_SwapChainImages.size(); ++i)
+			{
+				const vk::Result semRes = vulkanDeviceManager->m_VulkanDevice.createSemaphore(&semCI, nullptr, &m_PresentSemaphores[i]);
+				LUX_CORE_VERIFY(semRes == vk::Result::eSuccess);
+			}
 		}
 
 		BackBufferResized();
@@ -273,9 +278,9 @@ namespace Lux {
 		RenderCommandBuffer::UnlockQueue();
 
 #ifndef _WIN32
-		if (deviceParams.vsyncEnabled)
+		if (vulkanDeviceManager->m_DeviceParams.vsyncEnabled)
 		{
-			m_PresentQueue.waitIdle();
+			vulkanDeviceManager->m_PresentQueue.waitIdle();
 		}
 #endif
 

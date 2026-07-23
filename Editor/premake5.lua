@@ -59,11 +59,18 @@ project "Editor"
 
 	filter "system:linux"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
-		links { "dw", "dl", "unwind", "pthread" }
+		links { "dw", "dl", "unwind", "pthread", "X11" }
+		linkoptions { "-Wl,--start-group" }
+
+		-- Link nethost for Coral .NET hosting
+		if os.host() == "linux" then
+			LinkNethost()
+		end
 
 		-- os.outputof runs at parse time on every host; pkg-config only exists on Linux.
 		if os.host() == "linux" then
-			linkoptions { os.outputof("pkg-config --libs gtk+-3.0") }
+			local gtklibs, _ = os.outputof("pkg-config --libs gtk+-3.0")
+			linkoptions { gtklibs }
 		end
 
 	filter "configurations:Debug or configurations:Debug-AS"

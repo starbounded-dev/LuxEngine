@@ -1,7 +1,7 @@
 #include "lpch.h"
 #include "JoltCharacterController.h"
 
-#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Scene.h"
 
 #include <glm/gtx/quaternion.hpp>
 
