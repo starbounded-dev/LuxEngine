@@ -1341,10 +1341,7 @@ namespace Lux {
 #if !defined(LUX_PLATFORM_WINDOWS)
 		if (nativeWindow && !isMaximized && ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 		{
-			int windowX = 0, windowY = 0;
-			glfwGetWindowPos(nativeWindow, &windowX, &windowY);
-			const ImVec2 delta = ImGui::GetIO().MouseDelta;
-			glfwSetWindowPos(nativeWindow, windowX + (int)delta.x, windowY + (int)delta.y);
+			glfwDragWindow(nativeWindow);
 		}
 #endif
 

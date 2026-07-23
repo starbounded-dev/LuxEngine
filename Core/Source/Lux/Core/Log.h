@@ -144,7 +144,10 @@ namespace Lux {
 	template<typename... Args>
 	void Log::PrintMessage(Log::Type type, Log::Level level, std::format_string<Args...> format, Args&&... args)
 	{
-		auto detail = s_EnabledTags[""];
+		auto it = s_EnabledTags.find("");
+		if (it == s_EnabledTags.end())
+			return;
+		const auto& detail = it->second;
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
@@ -173,7 +176,10 @@ namespace Lux {
 	template<typename... Args>
 	void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::format_string<Args...> format, Args&&... args)
 	{
-		auto detail = s_EnabledTags[std::string(tag)];
+		auto it = s_EnabledTags.find(std::string(tag));
+		if (it == s_EnabledTags.end())
+			return;
+		const auto& detail = it->second;
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
@@ -202,7 +208,10 @@ namespace Lux {
 
 	inline void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message)
 	{
-		auto detail = s_EnabledTags[std::string(tag)];
+		auto it = s_EnabledTags.find(std::string(tag));
+		if (it == s_EnabledTags.end())
+			return;
+		const auto& detail = it->second;
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
