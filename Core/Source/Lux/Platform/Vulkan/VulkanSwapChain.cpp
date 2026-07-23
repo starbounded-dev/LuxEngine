@@ -104,9 +104,11 @@ namespace Lux {
 			LUX_CORE_ERROR("Failed to create a Vulkan swap chain, error code = {}", nvrhi::vulkan::resultToString(VkResult(res)));
 			return false;
 		}
-
 		// retrieve swap chain images
-		auto images = vulkanDeviceManager->m_VulkanDevice.getSwapchainImagesKHR(m_SwapChain);
+		uint32_t imageCount = 0;
+		vulkanDeviceManager->m_VulkanDevice.getSwapchainImagesKHR(m_SwapChain, &imageCount, nullptr);
+		std::vector<vk::Image> images(imageCount);
+		vulkanDeviceManager->m_VulkanDevice.getSwapchainImagesKHR(m_SwapChain, &imageCount, images.data());
 		for (auto image : images)
 		{
 			SwapChainImage sci;
@@ -147,6 +149,7 @@ namespace Lux {
 		}
 
 		BackBufferResized();
+		return true;
 	}
 
 	void VulkanSwapChain::Destroy()

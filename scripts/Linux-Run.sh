@@ -36,6 +36,7 @@ if [ -n "${BUILD_CONFIG+set}" ]
 fi
 export VULKAN_SDK=$(realpath Core/vendor/VulkanSDK/x86_64)
 export VK_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d"
+export PATH="$VULKAN_SDK/bin:$PATH"
 export LD_LIBRARY_PATH="$VULKAN_SDK/lib:$LUX_DIR/Core/vendor/assimp/bin/linux:$LUX_DIR/Core/vendor/NvidiaAftermath/lib/x64/linux"
 
 cd Editor
