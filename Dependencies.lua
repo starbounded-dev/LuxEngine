@@ -5,8 +5,9 @@ function firstToUpper(str)
 	return (str:gsub("^%l", string.upper))
 end
 
--- Grab Vulkan SDK path
-VULKAN_SDK = os.getenv("VULKAN_SDK")
+-- Grab Vulkan SDK path (fall back to the repo-bundled SDK so premake generation
+-- works without the environment variable that Linux-Run.sh sets at runtime).
+VULKAN_SDK = os.getenv("VULKAN_SDK") or path.getabsolute("Core/vendor/VulkanSDK/x86_64")
 
 --[[
 	If you're adding a new dependency all you have to do to get it linking

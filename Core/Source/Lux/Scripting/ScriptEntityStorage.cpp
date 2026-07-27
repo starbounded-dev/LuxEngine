@@ -1,5 +1,6 @@
 #include "lpch.h"
 #include "ScriptEntityStorage.hpp"
+#include "Lux/Scene/Scene.h"
 #include "ScriptEngine.h"
 
 namespace Lux {

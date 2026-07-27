@@ -242,10 +242,11 @@ namespace Lux {
 				Timer cpuTimer;
 
 				// On Render thread
+				bool frameBeginSuccess = true;
 				Renderer::Submit([&]()
 					{
-						//m_Window->GetSwapChain().BeginFrame();
-						m_Window->BeginFrame();
+						if (!m_Window->BeginFrame())
+							frameBeginSuccess = false;
 					});
 
 				Renderer::BeginFrame();
@@ -282,9 +283,10 @@ namespace Lux {
 				// On Render thread
 				Renderer::Submit([&]()
 					{
-						// m_Window->GetSwapChain().BeginFrame();
-						// Renderer::WaitAndRender();
-						m_Window->Present();
+						if (frameBeginSuccess)
+						{
+							m_Window->Present();
+						}
 						GetGraphicsDevice()->runGarbageCollection();
 					});
 

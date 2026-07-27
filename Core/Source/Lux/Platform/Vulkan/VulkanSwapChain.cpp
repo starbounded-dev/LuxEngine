@@ -42,6 +42,17 @@ namespace Lux {
 
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
 
+		// Query actual surface pixel dimensions — on Wayland with HiDPI the
+		// caller may pass screen-coordinate sizes that differ from the real
+		// framebuffer extent.
+		vk::SurfaceCapabilitiesKHR surfaceCaps;
+		vk::Result capsRes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface, &surfaceCaps);
+		if (capsRes == vk::Result::eSuccess && surfaceCaps.currentExtent.width != 0xFFFFFFFF)
+		{
+			m_Width = surfaceCaps.currentExtent.width;
+			m_Height = surfaceCaps.currentExtent.height;
+		}
+
 		m_SwapChainFormat = {
 			vk::Format(nvrhi::vulkan::convertFormat(deviceParams.swapChainFormat)),
 			vk::ColorSpaceKHR::eSrgbNonlinear
@@ -228,13 +239,23 @@ namespace Lux {
 
 			m_AcquiredSemaphore = semaphore;
 
-			if (res == vk::Result::eErrorOutOfDateKHR && attempt < maxAttempts)
+			if ((res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR) && attempt < maxAttempts)
 			{
 				BackBufferResizing();
-				auto surfaceCaps = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface);
+
+				vk::SurfaceCapabilitiesKHR surfaceCaps;
+				vk::Result capsRes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface, &surfaceCaps);
+				if (capsRes != vk::Result::eSuccess)
+				{
+					LUX_CORE_ERROR("VulkanSwapChain::BeginFrame - getSurfaceCapabilitiesKHR failed: {}", (int)capsRes);
+					return false;
+				}
 
 				m_Width = surfaceCaps.currentExtent.width;
 				m_Height = surfaceCaps.currentExtent.height;
+
+				if (m_Width == 0 || m_Height == 0)
+					return false;
 
 				Resize();
 				BackBufferResized();
@@ -247,7 +268,7 @@ namespace Lux {
 
 		m_AcquireSemaphoreIndex = (m_AcquireSemaphoreIndex + 1) % m_AcquireSemaphores.size();
 
-		return res == vk::Result::eSuccess;
+		return res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR;
 	}
 
 	void VulkanSwapChain::Present()
@@ -275,7 +296,7 @@ namespace Lux {
 				.setPImageIndices(&m_SwapChainIndex);
 
 			const vk::Result res = vulkanDeviceManager->m_PresentQueue.presentKHR(&info);
-			LUX_CORE_VERIFY(res == vk::Result::eSuccess || res == vk::Result::eErrorOutOfDateKHR);
+			LUX_CORE_VERIFY(res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR || res == vk::Result::eErrorOutOfDateKHR);
 		}
 
 		RenderCommandBuffer::UnlockQueue();

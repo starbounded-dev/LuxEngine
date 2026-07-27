@@ -91,6 +91,11 @@ workspace "Lux"
 	filter "system:windows"
 		buildoptions { "/EHsc", "/Zc:preprocessor", "/Zc:__cplusplus" }
 
+	filter "system:linux"
+		buildoptions { "-Wno-changes-meaning", "-Wno-delete-incomplete" }
+
+	filter {}
+
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 group "Dependencies"
@@ -102,6 +107,13 @@ group "Dependencies"
 	include "Core/vendor/NFD-Extended"
 	include "Core/vendor/Coral/Coral.Native"
 	include "Core/vendor/Coral/Coral.Managed"
+
+	-- Tracy's TracyFastVector.hpp uses memcpy in a template that gets instantiated
+	-- before <string.h> is fully parsed on GCC.  Force-include <cstring> to fix.
+	project "Tracy"
+		filter "system:linux"
+			forceincludes { "cstring" }
+		filter {}
 
 	-- Coral's upstream premake only defines Debug/Release, and Coral.Managed dependson a
 	-- Coral.Generator project that doesn't exist at our pinned commit. Rather than patch the
@@ -135,7 +147,42 @@ group "Dependencies/Text"
 group ""
 
 group "Dependencies/Renderer"
+	-- nvrhi's cmake-branch premake5.lua expects these symbols from the original Hazel
+	-- build system.  Define them here so we don't have to modify the submodule.
+	HazelRootDirectory = path.getabsolute("scripts/compat")
+
+	function DefaultTargetParams(preserveFilter)
+		filter "configurations:Debug or configurations:Debug-AS"
+			runtime "Debug"
+		filter "configurations:Release or configurations:Dist"
+			runtime "Release"
+		if preserveFilter then
+			filter {}
+		end
+	end
+
 	include "Core/vendor/nvrhi"
+
+	-- Override nvrhi projects to add Vulkan headers, defines, and fix X11 macro pollution.
+	-- Use the same VULKAN_SDK path as Dependencies.lua so nvrhi and Core compile against
+	-- the same Vulkan header version (avoids C++ wrapper ABI mismatches).
+	project "NVRHI-Vulkan"
+		defines { "NVRHI_WITH_RTXMU=1" }
+		filter "system:windows"
+			defines { "VK_USE_PLATFORM_WIN32_KHR" }
+			includedirs { "%{VULKAN_SDK}/Include" }
+		filter "system:linux"
+			includedirs { "%{VULKAN_SDK}/include" }
+		filter {}
+
+	project "NVRHI-D3D11"
+		defines { "NVRHI_WITH_RTXMU=1" }
+
+	project "NVRHI-D3D12"
+		defines { "NVRHI_WITH_RTXMU=1" }
+
+	project "NVRHI"
+		defines { "NVRHI_WITH_RTXMU=1" }
 group ""
 
 group "Core"

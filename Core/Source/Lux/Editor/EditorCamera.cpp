@@ -36,7 +36,11 @@ namespace Lux {
 
 	static void DisableMouse()
 	{
+#ifdef LUX_PLATFORM_LINUX
+		Input::SetCursorMode(CursorMode::Locked);
+#else
 		Input::SetCursorMode(CursorMode::Hidden);
+#endif
 		ImGuiEx::SetInputEnabled(false);
 	}
 

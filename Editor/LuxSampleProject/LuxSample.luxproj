@@ -19,7 +19,7 @@ Project:
     Fullscreen: true
     VSync: true
     IconPath: Textures/luxLogo.png
-    IconHandle: 10706518493978196728
+    IconHandle: 12258613209527478073
     TargetConfig: Release
   SceneRenderer:
     Rendering:

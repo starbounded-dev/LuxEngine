@@ -328,6 +328,13 @@ namespace Lux {
 			data.EventCallback(event);
 			data.Width = width;
 			data.Height = height;
+			data.SizeDirty = true;
+		});
+
+		glfwSetFramebufferSizeCallback(m_WindowHandle, [](GLFWwindow* window, int, int)
+		{
+			auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+			data.SizeDirty = true;
 		});
 
 		glfwSetWindowCloseCallback(m_WindowHandle, [](GLFWwindow* window)
@@ -506,17 +513,10 @@ namespace Lux {
 		glfwPollEvents();
 		Input::Update();
 
-		// m_DeviceManager->UpdateWindowSize();
-		int width;
-		int height;
-		glfwGetWindowSize(m_WindowHandle, &width, &height);
-
-		if (m_Data.Width != width || m_Data.Height != height)
+		if (m_Data.SizeDirty)
 		{
-			m_Data.Width = width;
-			m_Data.Height = height;
-
-			m_SwapChain->OnResize(width, height);
+			m_Data.SizeDirty = false;
+			m_SwapChain->OnResize(m_Data.Width, m_Data.Height);
 		}
 
 		// Apply a pending VSync change. ProcessEvents runs when both the main and
@@ -558,10 +558,10 @@ namespace Lux {
 		glfwSetWindowAttrib(m_WindowHandle, GLFW_RESIZABLE, resizable ? GLFW_TRUE : GLFW_FALSE);
 	}
 
-	void Window::BeginFrame()
+	bool Window::BeginFrame()
 	{
 		LUX_CORE_VERIFY(m_SwapChain);
-		m_SwapChain->BeginFrame();
+		return m_SwapChain->BeginFrame();
 	}
 
 	void Window::Maximize()

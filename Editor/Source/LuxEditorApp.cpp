@@ -54,9 +54,15 @@ namespace Lux {
 		// Threading policy is a user setting persisted in App.lsettings (read here because the
 		// RenderThread is constructed with it before the Application object exists). Defaults to
 		// multi-threaded; the "Application Settings" panel lets the user force single-threaded.
+		// On Linux, default to single-threaded to avoid render thread race conditions with
+		// Wayland/Vulkan swapchain management until those are resolved.
 		{
 			Lux::ApplicationSettings settings("App.lsettings");
+#ifdef LUX_PLATFORM_LINUX
+			specification.CoreThreadingPolicy = Lux::ThreadingPolicyFromString(settings.Get("Core.ThreadingPolicy", "Single"));
+#else
 			specification.CoreThreadingPolicy = Lux::ThreadingPolicyFromString(settings.Get("Core.ThreadingPolicy", "Multi"));
+#endif
 		}
 
 		return new LuxEditor(specification);

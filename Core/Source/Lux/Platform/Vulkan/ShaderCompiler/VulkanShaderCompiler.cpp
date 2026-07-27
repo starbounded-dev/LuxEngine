@@ -355,10 +355,18 @@ namespace Lux {
 			m_AcknowledgedMacros.merge(includer->GetParsedSpecialMacros());
 #else
 			// Linux resolves HLSL includes in the dxc CLI at compile time (via -I flags), so it
-			// skips the DXC-based preprocessor here. Still hash the raw source so the shader cache
-			// invalidates correctly when a shader changes.
+			// skips the DXC-based preprocessor here. Hash source + global macros so the shader
+			// cache invalidates when either changes.
 			m_StagesMetadata[stage] = StageData{};
-			m_StagesMetadata[stage].HashValue = Hash::GenerateFNVHash(shaderSource);
+			std::string hashInput = shaderSource;
+			for (const auto& [name, value] : Renderer::GetGlobalShaderMacros())
+			{
+				hashInput += name;
+				hashInput += '=';
+				hashInput += value;
+				hashInput += ';';
+			}
+			m_StagesMetadata[stage].HashValue = Hash::GenerateFNVHash(hashInput);
 #endif
 		}
 		return shaderSources;
@@ -478,6 +486,19 @@ namespace Lux {
 
 				"-Fo", outTempName
 			};
+
+			const auto& globalMacros = Renderer::GetGlobalShaderMacros();
+			std::vector<std::string> macroDefs;
+			macroDefs.reserve(globalMacros.size());
+			for (const auto& [name, value] : globalMacros)
+			{
+				exec.push_back("-D");
+				if (value.size())
+					macroDefs.push_back(std::format("{}={}", name, value));
+				else
+					macroDefs.push_back(name);
+				exec.push_back(macroDefs.back().c_str());
+			}
 
 			if (options.GenerateDebugInfo)
 			{
@@ -779,7 +800,7 @@ namespace Lux {
 
 		serializer.ReadRaw(header);
 
-		bool validHeader = memcmp(&header, "HZSR", 4) == 0;
+		bool validHeader = memcmp(&header, "LXSR", 4) == 0;
 		LUX_CORE_VERIFY(validHeader);
 		if (!validHeader)
 			return false;

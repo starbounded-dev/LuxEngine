@@ -1263,23 +1263,10 @@ namespace Lux {
 			drawList->AddImage(GetImGuiTextureID(EditorResources::HazelLogoTexture), logoMin, logoMax);
 		}
 
-		const float menuBarX = 16.0f * 2.0f + 41.0f;
-		ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
-		UI_DrawMenubar();
-
-		const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
-		const ImVec2 sceneNameSize = ImGui::CalcTextSize(sceneName.c_str());
-		const float sceneNameX = windowPos.x + (window->Size.x - sceneNameSize.x) * 0.5f;
-		const float sceneNameY = windowPos.y + (m_TitlebarHeight - sceneNameSize.y) * 0.5f;
-		drawList->AddText(ImVec2(sceneNameX, sceneNameY), Colors::Theme::textBrighter, sceneName.c_str());
-		drawList->AddLine(
-			ImVec2(sceneNameX - 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
-			ImVec2(sceneNameX + sceneNameSize.x + 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
-			Colors::Theme::accent, 1.5f);
-
 		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
 		const bool isMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
 
+		const float menuBarX = 16.0f * 2.0f + 41.0f;
 		const float iconWidth = 14.0f;
 		const float iconHeight = 14.0f;
 		const float buttonWidth = 46.0f;
@@ -1289,6 +1276,9 @@ namespace Lux {
 		const float maximizeButtonX = closeButtonX - buttonWidth;
 		const float minimizeButtonX = maximizeButtonX - buttonWidth;
 		const float titlebarGap = 12.0f;
+
+		const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
+		const ImVec2 sceneNameSize = ImGui::CalcTextSize(sceneName.c_str());
 
 		const std::string projectName = GetProjectDisplayName();
 		const float projectBoxPaddingX = 10.0f;
@@ -1329,21 +1319,40 @@ namespace Lux {
 		const float projectBoxMinX = drawProjectBox ? projectBoxMaxX - projectBoxWidth : projectBoxMaxX;
 		const float dragZoneMinX = 70.0f;
 		const float dragZoneMaxX = std::max(dragZoneMinX, (drawProjectBox ? projectBoxMinX : minimizeButtonX) - titlebarGap);
-		ImGui::SetCursorPos(ImVec2(dragZoneMinX, 0.0f));
-		ImGui::InvisibleButton("##titleBarDragZone", ImVec2(std::max(0.0f, dragZoneMaxX - dragZoneMinX), m_TitlebarHeight));
-		const ImVec2 dragMin = ImGui::GetItemRectMin();
-		const ImVec2 dragMax = ImGui::GetItemRectMax();
-		m_TitleBarDragRectMin = ImVec2(dragMin.x - windowPos.x, dragMin.y - windowPos.y);
-		m_TitleBarDragRectMax = ImVec2(dragMax.x - windowPos.x, dragMax.y - windowPos.y);
+
+#ifdef LUX_PLATFORM_LINUX
+		// On Linux/Wayland, the compositor handles window dragging via
+		// glfwSetTitlebarHitTestCallback — no InvisibleButton needed.
+		// Draw the menu bar first, then set the drag zone to start AFTER it
+		// so menu clicks aren't intercepted as window drags.
+		ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
+		UI_DrawMenubar();
+		const float menuBarRight = ImGui::GetItemRectMax().x - windowPos.x;
+		m_TitleBarDragRectMin = ImVec2(menuBarRight, 0.0f);
+		m_TitleBarDragRectMax = ImVec2(dragZoneMaxX, m_TitlebarHeight);
+#else
 		m_TitleBarDragRectMin = ImVec2(dragZoneMinX, 0.0f);
 		m_TitleBarDragRectMax = ImVec2(dragZoneMaxX, m_TitlebarHeight);
 
-#if !defined(LUX_PLATFORM_WINDOWS)
-		if (nativeWindow && !isMaximized && ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		ImGui::SetNextItemAllowOverlap();
+		ImGui::SetCursorPos(ImVec2(dragZoneMinX, 0.0f));
+		ImGui::InvisibleButton("##titleBarDragZone", ImVec2(std::max(0.0f, dragZoneMaxX - dragZoneMinX), m_TitlebarHeight));
+
+		ImGui::SuspendLayout();
 		{
-			glfwDragWindow(nativeWindow);
+			ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
+			UI_DrawMenubar();
 		}
+		ImGui::ResumeLayout();
 #endif
+
+		const float sceneNameX = windowPos.x + (window->Size.x - sceneNameSize.x) * 0.5f;
+		const float sceneNameY = windowPos.y + (m_TitlebarHeight - sceneNameSize.y) * 0.5f;
+		drawList->AddText(ImVec2(sceneNameX, sceneNameY), Colors::Theme::textBrighter, sceneName.c_str());
+		drawList->AddLine(
+			ImVec2(sceneNameX - 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
+			ImVec2(sceneNameX + sceneNameSize.x + 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
+			Colors::Theme::accent, 1.5f);
 
 		if (drawProjectBox)
 		{
