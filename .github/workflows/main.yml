@@ -176,11 +176,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang make pkg-config \
+            clang llvm make pkg-config \
             libgtk-3-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
-            libdw-dev libunwind-dev
+            libdw-dev libunwind-dev libtbb-dev zlib1g-dev
+
+          # The Dist configuration compiles with -flto, and premake's clang toolset then archives
+          # with llvm-ar because GNU ar cannot index LLVM bitcode. Ubuntu ships that binary
+          # version-suffixed, so make sure an unversioned llvm-ar resolves on PATH.
+          if ! command -v llvm-ar >/dev/null 2>&1; then
+            sudo ln -sf "$(ls -1 /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/bin/llvm-ar
+          fi
+          llvm-ar --version | head -1
 
       # Sets VULKAN_SDK, which Dependencies.lua and Linux-Build.sh both honour in preference
       # to the (gitignored) vendored SDK path.
