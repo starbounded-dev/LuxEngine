@@ -211,7 +211,10 @@ namespace Lux {
 			glfwSetWindowMonitor(m_WindowHandle, glfwGetPrimaryMonitor(), 0, 0,
 				m_Specification.Width, m_Specification.Height, deviceParams.refreshRate);
 		}
-		else
+
+		// The compositor/monitor decides the final surface size — in fullscreen it is the
+		// monitor mode, not the requested size. Always reconcile against the real framebuffer,
+		// otherwise the swap chain is created with an extent the surface doesn't allow.
 		{
 			int fbWidth = 0, fbHeight = 0;
 			glfwGetFramebufferSize(m_WindowHandle, &fbWidth, &fbHeight);
@@ -295,7 +298,7 @@ namespace Lux {
 		m_DeviceManager->InitSurfaceCapabilities(*(uint64_t*)&m_WindowSurface);
 
 		m_SwapChain = lnew VulkanSwapChain(m_WindowSurface);
-		m_SwapChain->Create(m_Specification.Width, m_Specification.Height);
+		m_SwapChain->Create(m_Data.Width, m_Data.Height);
 
 #if OLD
 		// Create Renderer Context

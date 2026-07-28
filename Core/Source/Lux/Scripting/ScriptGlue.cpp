@@ -27,6 +27,11 @@
 
 #include <format>
 
+#if !defined(LUX_PLATFORM_WINDOWS)
+#include <cxxabi.h>
+#include <cstdlib>
+#endif
+
 namespace Lux {
 
 	// Component dispatch maps, keyed by Coral::TypeId (== managed typeof(T) cache id).
@@ -580,12 +585,35 @@ namespace Lux {
 
 	#pragma endregion
 
+	// typeid().name() is implementation-defined. MSVC returns a readable
+	// "struct Lux::TransformComponent", while the Itanium ABI (GCC/Clang) returns the mangled
+	// "N3Lux18TransformComponentE" - which contains no ':', so the namespace strip below would
+	// otherwise keep the whole mangled string and no component would ever resolve.
+	static std::string DemangleTypeName(const char* name)
+	{
+#if defined(LUX_PLATFORM_WINDOWS)
+		return name;
+#else
+		int status = 0;
+		char* demangled = abi::__cxa_demangle(name, nullptr, nullptr, &status);
+		if (status != 0 || demangled == nullptr)
+		{
+			std::free(demangled);
+			return name;
+		}
+
+		std::string result = demangled;
+		std::free(demangled);
+		return result;
+#endif
+	}
+
 	template<typename TComponent>
 	static void RegisterManagedComponent(Coral::ManagedAssembly& coreAssembly)
 	{
-		std::string_view typeName = typeid(TComponent).name();
+		const std::string typeName = DemangleTypeName(typeid(TComponent).name());
 		size_t pos = typeName.find_last_of(':');
-		std::string_view structName = typeName.substr(pos + 1);
+		std::string_view structName = std::string_view(typeName).substr(pos + 1);
 		std::string managedTypename = std::format("Lux.{}", structName);
 
 		Coral::Type& managedType = coreAssembly.GetLocalType(managedTypename);

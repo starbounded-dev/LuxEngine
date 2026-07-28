@@ -1,0 +1,9 @@
+<Project>
+	<!-- BaseIntermediateOutputPath must be set before Microsoft.Common.props is imported,
+	     otherwise NuGet still writes restore assets to obj/ (MSBuild warning MSB3539).
+	     Keeping intermediates in Intermediates/ matches premake5.lua and keeps the folder
+	     out of the editor's script-staleness scan. -->
+	<PropertyGroup>
+		<BaseIntermediateOutputPath>Intermediates/</BaseIntermediateOutputPath>
+	</PropertyGroup>
+</Project>

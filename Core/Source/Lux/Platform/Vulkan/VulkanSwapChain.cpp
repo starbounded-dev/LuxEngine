@@ -50,11 +50,19 @@ namespace Lux {
 			return false;
 		}
 
+		// currentExtent == 0xFFFFFFFF means "the surface size is whatever the swap chain
+		// asks for" (typical on Wayland). Otherwise the surface dictates the size and the
+		// requested one must be ignored.
 		if (surfaceCaps.currentExtent.width != 0xFFFFFFFF)
 		{
 			m_Width = surfaceCaps.currentExtent.width;
 			m_Height = surfaceCaps.currentExtent.height;
 		}
+
+		// imageExtent must lie within [minImageExtent, maxImageExtent] (VUID-01274).
+		// Violating this is reported as VK_ERROR_OUT_OF_DEVICE_MEMORY by some drivers.
+		m_Width = std::clamp(m_Width, surfaceCaps.minImageExtent.width, surfaceCaps.maxImageExtent.width);
+		m_Height = std::clamp(m_Height, surfaceCaps.minImageExtent.height, surfaceCaps.maxImageExtent.height);
 
 		if (m_Width == 0 || m_Height == 0)
 		{
@@ -311,8 +319,13 @@ namespace Lux {
 					return false;
 				}
 
-				m_Width = surfaceCaps.currentExtent.width;
-				m_Height = surfaceCaps.currentExtent.height;
+				// 0xFFFFFFFF means the surface takes its size from the swap chain
+				// (Wayland); keep the current extent and let Create() clamp it.
+				if (surfaceCaps.currentExtent.width != 0xFFFFFFFF)
+				{
+					m_Width = surfaceCaps.currentExtent.width;
+					m_Height = surfaceCaps.currentExtent.height;
+				}
 
 				if (m_Width == 0 || m_Height == 0)
 					return false;

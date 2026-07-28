@@ -218,9 +218,41 @@ namespace Lux {
 	void ScriptEngine::LoadProjectAssemblyRuntime(Buffer data)
 	{
 		m_AppAssemblyData.reset();
-
 		m_AppAssemblyData = CreateScope<AssemblyData>();
-		m_AppAssemblyData->Assembly = &m_LoadContext->LoadAssemblyFromMemory(reinterpret_cast<const std::byte*>(data.Data), (int64_t)data.Size);
+
+		// An assembly loaded from a byte[] has an empty Assembly.Location, and Coral enumerates
+		// local types by location - so LoadAssemblyFromMemory yields zero types, BuildAssemblyCache
+		// caches nothing, and every script silently fails to register. Stage the packed binary on
+		// disk and use the same path-based load the editor uses (which does report its types).
+		std::error_code ec;
+		if (m_ShadowDirRoot.empty())
+			m_ShadowDirRoot = std::filesystem::temp_directory_path() / "LuxScriptShadow";
+
+		const std::filesystem::path stagedDir = m_ShadowDirRoot / std::to_string(m_ShadowCounter++);
+		std::filesystem::create_directories(stagedDir, ec);
+
+		bool staged = false;
+		const std::filesystem::path stagedAssembly = stagedDir / "App.dll";
+		if (!ec)
+		{
+			std::ofstream out(stagedAssembly, std::ios::binary | std::ios::trunc);
+			if (out.is_open())
+			{
+				out.write(reinterpret_cast<const char*>(data.Data), (std::streamsize)data.Size);
+				staged = out.good();
+			}
+		}
+
+		if (staged)
+		{
+			m_AppAssemblyData->Assembly = &m_LoadContext->LoadAssembly(stagedAssembly.string());
+		}
+		else
+		{
+			LUX_CORE_WARN("[Scripting] Could not stage the packed app assembly to disk; falling back to an in-memory load, "
+				"which may not expose any script types.");
+			m_AppAssemblyData->Assembly = &m_LoadContext->LoadAssemblyFromMemory(reinterpret_cast<const std::byte*>(data.Data), (int64_t)data.Size);
+		}
 
 		if (m_AppAssemblyData->Assembly->GetLoadStatus() != Coral::AssemblyLoadStatus::Success)
 		{
@@ -313,6 +345,10 @@ namespace Lux {
 		// the assembly being cached (the app assembly has no local Lux.Entity). Both share one
 		// ALC, so cross-assembly IsSubclassOf works.
 		Coral::Type& entityType = m_CoreAssemblyData->Assembly->GetLocalType("Lux.Entity");
+		if (!entityType)
+			LUX_CORE_ERROR("[Scripting] Could not resolve 'Lux.Entity' in ScriptCore - no script will be registered.");
+
+		uint32_t scriptCount = 0;
 
 		for (const Coral::Type& constType : types)
 		{
@@ -325,7 +361,19 @@ namespace Lux {
 			assemblyData->CachedTypes[scriptID] = &type;
 
 			if (!entityType || !type.IsSubclassOf(entityType))
+			{
+				// Only interesting for the app assembly - ScriptCore is nearly all non-script types.
+				// A game type landing here usually means a duplicate ScriptCore was resolved, giving
+				// two distinct Lux.Entity identities; the script would otherwise vanish silently.
+				if (assemblyData != m_CoreAssemblyData.get())
+				{
+					LUX_CORE_TRACE("[Scripting] Type '{}' (ID {}) is not a Lux.Entity subclass; not registered as a script.",
+						fullName, (uint64_t)scriptID);
+				}
 				continue;
+			}
+
+			scriptCount++;
 
 			auto& metadata = m_ScriptMetadata[scriptID];
 			metadata.FullName = fullName;
@@ -402,6 +450,9 @@ namespace Lux {
 
 			temp.Destroy();
 		}
+
+		LUX_CORE_INFO("[Scripting] Cached {} type(s), {} registered as scripts (Lux.Entity subclasses).",
+			types.size(), scriptCount);
 	}
 
 }

@@ -460,7 +460,14 @@ namespace Lux {
 				Entity entity = { e, this };
 				const auto& sc = entity.GetComponent<ScriptComponent>();
 				if (!scriptEngine.IsValidScript(sc.ScriptID))
+				{
+					// Without this the entity is skipped here AND every frame in OnUpdateRuntime
+					// (which drops entities with no instance), so the script silently never runs.
+					LUX_CORE_ERROR("[Scripting] Script '{}' (ID {}) is not present in the loaded app assembly - it will not run. "
+						"Rebuild the script project and re-export so the assembly matches the scene.",
+						sc.ClassName.empty() ? "<unnamed>" : sc.ClassName, (uint64_t)sc.ScriptID);
 					continue;
+				}
 
 				UUID entityID = entity.GetUUID();
 				if (!m_ScriptStorage.EntityStorage.contains(entityID))

@@ -39,6 +39,11 @@ premake5
 **.csproj
 **.csproj.user
 
+# ...except the hand-authored SDK-style projects. These are sources, not premake output:
+# the Linux build drives them with `dotnet build` (premake's C# generator needs csc).
+!ScriptCore/ScriptCore.csproj
+!Editor/LuxSampleProject/Assets/Scripts/LuxSample.csproj
+
 # Directories
 scripts/__pycache__
 
@@ -52,6 +57,9 @@ Core/vendor/tracy
 Editor/LuxSampleProject/Assets/Scripts/Binaries
 ScriptCore/obj/
 Editor/LuxSampleProject/Assets/Scripts/obj/
+# Exported standalone game builds (produced by the editor's Export Runtime)
+Editor/LuxSampleProject/*-Linux-x86_64/
+Editor/LuxSampleProject/*-Windows-x86_64/
 Editor/DotNet/
 Editor/Resources/Cache
 Lux.slnx
