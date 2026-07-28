@@ -93,11 +93,17 @@ jobs:
           $editorOutput = Join-Path "bin" "$configuration-windows-x86_64\Editor"
           $artifactRoot = Join-Path "artifacts" "Editor-$configuration"
           $editorItems = @(
-            "imgui.ini",
-            "App.lsettings",
             "LuxSampleProject",
             "Resources",
             "DotNet"
+          )
+
+          # Editor state, not build input: both are regenerated on first run (ApplicationSettings
+          # falls back to defaults when App.lsettings is absent) and are gitignored, so they do
+          # not exist in a clean checkout. Copy them when present, never fail on them.
+          $optionalEditorItems = @(
+            "imgui.ini",
+            "App.lsettings"
           )
 
           if (!(Test-Path $editorOutput)) {
@@ -116,6 +122,15 @@ jobs:
             }
 
             Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
+          }
+
+          foreach ($item in $optionalEditorItems) {
+            $source = Join-Path "Editor" $item
+            if (Test-Path $source) {
+              Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
+            } else {
+              Write-Host "Skipping optional editor state file (not present): $source"
+            }
           }
 
       - name: Upload editor artifact
