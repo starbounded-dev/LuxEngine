@@ -1,13 +1,21 @@
 #!/bin/sh
+#
+# One-shot Linux build: submodules, C# projects, native engine, and the sample game's scripts.
+# Safe to re-run; every step is idempotent.
+#
+#   ./scripts/Linux-Build.sh              # prompts for a configuration
+#   ./scripts/Linux-Build.sh release      # non-interactive
+#   JOBS=1 ./scripts/Linux-Build.sh dist  # serial build
+#
+# Extra arguments are forwarded to the first make invocation.
 
 set -e
 
-if [ -n "${LUX_DIR+set}" ]
-	then
-		true
-	else
-		export LUX_DIR=$(realpath .)
-fi
+# Resolve the repo root from this script's own location so the script works from any directory.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+LUX_DIR=${LUX_DIR:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}
+export LUX_DIR
+cd "$LUX_DIR"
 
 if [ -n "${BUILD_CONFIG+set}" ]
 	then
@@ -43,30 +51,98 @@ if [ -n "${BUILD_CONFIG+set}" ]
 		esac
 fi
 
+CONFIG=$(echo "$BUILD_CONFIG" | tr '[:upper:]' '[:lower:]')
+JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
+
+step() { echo; echo "==> $1"; }
+
+# ---------------------------------------------------------------------------
+step "Checking prerequisites"
+
+missing=""
+for tool in dotnet make clang pkg-config; do
+	command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
+done
+if [ -n "$missing" ]; then
+	echo "Missing required tool(s):$missing"
+	echo "On Arch: sudo pacman -S --needed dotnet-sdk make clang pkgconf"
+	exit 1
+fi
+
+if ! pkg-config --exists gtk+-3.0; then
+	echo "gtk+-3.0 development files not found (needed by NFD-Extended for file dialogs)."
+	echo "On Arch: sudo pacman -S --needed gtk3"
+	exit 1
+fi
+
+# ---------------------------------------------------------------------------
+step "Syncing submodules"
+
+if [ -d .git ] && command -v git >/dev/null 2>&1; then
+	git submodule update --init --recursive
+else
+	echo "Not a git checkout - skipping."
+fi
+
 if [ -n "${VULKAN_SDK+set}" ]
 	then
 		true
 	else
-		export VULKAN_SDK=$(realpath Core/vendor/VulkanSDK/x86_64)
+		export VULKAN_SDK="$LUX_DIR/Core/vendor/VulkanSDK/x86_64"
 fi
 
-# Build Coral.Managed (the C# host assembly) into Editor/DotNet, and the ScriptCore
-# assembly into Editor/Resources/Scripts. Both are SDK-style net9.0 projects built with
-# the dotnet CLI. ScriptCore references Coral.Managed, so building it also builds Coral.Managed.
-	dotnet build -c Release --property WarningLevel=0 \
-		Core/vendor/Coral/Coral.Managed/Coral.Managed-Static.csproj -o Editor/DotNet
-	dotnet build -c $BUILD_CONFIG --property WarningLevel=0 ScriptCore/ScriptCore.csproj
+if [ ! -d "$VULKAN_SDK" ]; then
+	echo "Vulkan SDK not found at: $VULKAN_SDK"
+	echo "Set VULKAN_SDK to a valid SDK, or check out the vendored one."
+	exit 1
+fi
 
-# Ensure Coral build artifacts exist where the Core postbuild step expects them
-	mkdir -p Core/vendor/Coral/Build/Release
-	cp -f Editor/DotNet/Coral.Managed.dll Core/vendor/Coral/Build/Release/
-	cp -f Editor/DotNet/Coral.Managed.runtimeconfig.json Core/vendor/Coral/Build/Release/ 2>/dev/null || true
-	cp -f Editor/DotNet/Coral.Managed.deps.json Core/vendor/Coral/Build/Release/ 2>/dev/null || true
+# ---------------------------------------------------------------------------
+step "Generating C# projects"
 
-# Build Lux (skip the gmake ScriptCore target — it was already built above via dotnet)
-	./premake5 gmake2 --cc=clang
-	CONFIG=$(echo "$BUILD_CONFIG" | tr '[:upper:]' '[:lower:]')
-	make config=$CONFIG Dependencies Dependencies/Renderer "$@"
-	make -C Core -f Makefile config=$CONFIG
-	make -C Editor -f Makefile config=$CONFIG
-	make -C Lux-Runtime -f Makefile config=$CONFIG
+# premake's gmake2 C# generator shells out to `csc`, which the .NET SDK does not put on PATH,
+# so use the vs2022 action instead - it emits SDK-style .csproj files that `dotnet build`
+# consumes on any platform. --os=linux is required: without it os.target() reports "windows"
+# and Coral's nethost probe looks for win-* runtime packs and aborts.
+./premake5 --os=linux vs2022
+
+# ---------------------------------------------------------------------------
+step "Building managed assemblies ($BUILD_CONFIG)"
+
+# Coral.Managed is the C# host assembly; ScriptCore is the scripting API that games reference.
+dotnet build -c Release --property WarningLevel=0 \
+	Core/vendor/Coral/Coral.Managed/Coral.Managed-Static.csproj -o Editor/DotNet
+dotnet build -c "$BUILD_CONFIG" --property WarningLevel=0 ScriptCore/ScriptCore.csproj
+
+# Core's postbuild step expects Coral's artifacts here.
+mkdir -p Core/vendor/Coral/Build/Release
+cp -f Editor/DotNet/Coral.Managed.dll Core/vendor/Coral/Build/Release/
+cp -f Editor/DotNet/Coral.Managed.runtimeconfig.json Core/vendor/Coral/Build/Release/ 2>/dev/null || true
+cp -f Editor/DotNet/Coral.Managed.deps.json Core/vendor/Coral/Build/Release/ 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+step "Building engine ($BUILD_CONFIG, -j$JOBS)"
+
+# ScriptCore is skipped by the gmake action on Linux (built above via dotnet).
+./premake5 gmake2 --cc=clang
+make -j"$JOBS" config="$CONFIG" Dependencies Dependencies/Renderer "$@"
+make -j"$JOBS" -C Core -f Makefile config="$CONFIG"
+make -j"$JOBS" -C Editor -f Makefile config="$CONFIG"
+make -j"$JOBS" -C Lux-Runtime -f Makefile config="$CONFIG"
+
+# ---------------------------------------------------------------------------
+# The sample game's scripts are a standalone premake workspace, so the root generation above
+# does not cover them. Without this the editor reports "Script project file not found" on a
+# fresh clone, because the .csproj is generated output and is not checked in.
+SAMPLE_SCRIPTS="$LUX_DIR/Editor/LuxSampleProject/Assets/Scripts"
+if [ -f "$SAMPLE_SCRIPTS/premake5.lua" ]; then
+	step "Building sample project scripts ($BUILD_CONFIG)"
+	"$SAMPLE_SCRIPTS/Linux-GenProjects.sh" >/dev/null
+	dotnet build -c "$BUILD_CONFIG" --property WarningLevel=0 "$SAMPLE_SCRIPTS/LuxSample.csproj"
+fi
+
+# ---------------------------------------------------------------------------
+echo
+echo "==> Done ($BUILD_CONFIG)"
+echo "    Editor:  ./scripts/Linux-Run.sh $CONFIG"
+echo "    Runtime: ./scripts/Linux-RunRuntime.sh $CONFIG"

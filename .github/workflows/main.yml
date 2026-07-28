@@ -75,10 +75,15 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: New-Item -ItemType Directory -Force logs
 
+      # /restore runs the Restore target before the build. ScriptCore and Coral.Managed are
+      # SDK-style C# projects inside Lux.sln, and those cannot build without the
+      # obj/project.assets.json that a NuGet restore produces (error NETSDK1004). The same
+      # properties are passed as for the build, so the solution's per-project platform mapping
+      # resolves identically for both.
       - name: Build
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
-          MSBuild "${{ env.SOLUTION_FILE_PATH }}" /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
+          MSBuild "${{ env.SOLUTION_FILE_PATH }}" /restore /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
 
       - name: Package editor artifact
         if: matrix.configuration != 'Dist'
