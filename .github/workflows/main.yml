@@ -148,3 +148,66 @@ jobs:
           name: build-logs-${{ matrix.configuration }}
           path: logs/*.log
           if-no-files-found: ignore
+
+  build-linux:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release, Dist]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          submodules: recursive
+          lfs: true
+
+      # Coral hardcodes hostfxr major version 9, and ScriptCore targets net9.0.
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # GLFW is built with both the X11 and Wayland backends and runs wayland-scanner during
+      # the build (wayland-scanner lives in libwayland-bin). NFD-Extended needs GTK3 for file
+      # dialogs, and backward-cpp resolves symbols through libdw/libunwind.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang make pkg-config \
+            libgtk-3-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
+            libdw-dev libunwind-dev
+
+      # Sets VULKAN_SDK, which Dependencies.lua and Linux-Build.sh both honour in preference
+      # to the (gitignored) vendored SDK path.
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1.4.0
+        with:
+          vulkan_version: 1.4.335.0
+          optional_components: com.lunarg.vulkan.vma, com.lunarg.vulkan.debug, com.lunarg.vulkan.glm
+          install_runtime: true
+          cache: true
+
+      # Single entry point: generates the C# projects, builds the managed assemblies, the
+      # native engine, and the sample game's scripts.
+      - name: Build
+        run: ./scripts/Linux-Build.sh ${{ matrix.configuration }}
+
+      # The build script is `set -e`, but assert the artifacts exist so a step that silently
+      # produces nothing cannot pass.
+      - name: Verify build output
+        run: |
+          out="bin/${{ matrix.configuration }}-linux-x86_64"
+          fail=0
+          for f in "$out/Editor/Editor" "$out/Lux-Runtime/Lux-Runtime"; do
+            if [ -x "$f" ]; then
+              echo "ok   $f"
+            else
+              echo "MISSING $f"; fail=1
+            fi
+          done
+          exit $fail
