@@ -11,10 +11,17 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PREMAKE="$(cd "$SCRIPT_DIR/../../../.." && pwd)/premake5"
+ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
-if [ ! -x "$PREMAKE" ]; then
-	echo "premake5 not found or not executable at: $PREMAKE"
+# Only vendor/bin/premake5.exe is committed, so the Linux binary is either a local build at the
+# repo root or the pinned one that scripts/Linux-Build.sh downloads into vendor/bin.
+if [ -x "$ROOT/premake5" ]; then
+	PREMAKE="$ROOT/premake5"
+elif [ -x "$ROOT/vendor/bin/premake5" ]; then
+	PREMAKE="$ROOT/vendor/bin/premake5"
+else
+	echo "No Linux premake5 found (looked in $ROOT and $ROOT/vendor/bin)."
+	echo "Run ./scripts/Linux-Build.sh once - it downloads a pinned build."
 	exit 1
 fi
 

@@ -10,7 +10,10 @@ LuxEngine is a C++20, Vulkan-only 3D game engine and editor. It is a solo projec
 
 ## Build System
 
-Premake5 is used to generate build files. The binary is checked in at `./premake5`.
+Premake5 is used to generate build files. Only the Windows binary is committed
+(`vendor/bin/premake5.exe`); any file named `premake5` is gitignored, so a clean checkout has no
+Linux binary. `scripts/Linux-Build.sh` downloads a pinned, checksum-verified build into
+`vendor/bin/premake5` on first run — prefer that script over invoking premake directly.
 
 **Generate Makefiles (Linux):**
 ```bash
