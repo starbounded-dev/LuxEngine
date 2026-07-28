@@ -51,7 +51,13 @@ namespace Lux {
 		static void SetDefaultTagSettings();
 
 		template<typename... Args>
-		static void PrintMessage(Log::Type type, Log::Level level, std::format_string<Args...> format, Args&&... args);
+		// spdlog::format_string_t rather than std::format_string: this format string is forwarded
+		// straight to spdlog, and spdlog only aliases it to std::format_string when the standard
+		// library advertises __cpp_lib_format >= 202207L. On older libstdc++ (e.g. Ubuntu 24.04)
+		// it falls back to std::string_view, which a std::format_string will not convert to.
+		// PrintMessageTag/PrintAssertMessage below stay on std::format_string - they call
+		// std::format themselves and hand spdlog an already-formatted string.
+		static void PrintMessage(Log::Type type, Log::Level level, spdlog::format_string_t<Args...> format, Args&&... args);
 
 		template<typename... Args>
 		static void PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::format_string<Args...> format, Args&&... args);
@@ -142,7 +148,7 @@ namespace Lux {
 namespace Lux {
 
 	template<typename... Args>
-	void Log::PrintMessage(Log::Type type, Log::Level level, std::format_string<Args...> format, Args&&... args)
+	void Log::PrintMessage(Log::Type type, Log::Level level, spdlog::format_string_t<Args...> format, Args&&... args)
 	{
 		auto it = s_EnabledTags.find("");
 		if (it == s_EnabledTags.end())
