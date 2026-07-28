@@ -200,7 +200,9 @@ namespace Lux {
 	}
 }
 
-#if LUX_TRACK_MEMORY && LUX_PLATFORM_WINDOWS
+#if LUX_TRACK_MEMORY
+
+#ifdef LUX_PLATFORM_WINDOWS
 
 _NODISCARD _Ret_notnull_ _Post_writable_byte_size_(size) _VCRT_ALLOCATOR
 void* __CRTDECL operator new(size_t size)
@@ -272,5 +274,74 @@ void __CRTDECL operator delete[](void* memory, const char* file, int line)
 {
 	return Lux::Allocator::Free(memory);
 }
+
+#elif defined(LUX_PLATFORM_LINUX)
+
+void* operator new(size_t size)
+{
+	return Lux::Allocator::Allocate(size);
+}
+
+void* operator new[](size_t size)
+{
+	return Lux::Allocator::Allocate(size);
+}
+
+void* operator new(size_t size, const char* desc)
+{
+	return Lux::Allocator::Allocate(size, desc);
+}
+
+void* operator new[](size_t size, const char* desc)
+{
+	return Lux::Allocator::Allocate(size, desc);
+}
+
+void* operator new(size_t size, const char* file, int line)
+{
+	return Lux::Allocator::Allocate(size, file, line);
+}
+
+void* operator new[](size_t size, const char* file, int line)
+{
+	return Lux::Allocator::Allocate(size, file, line);
+}
+
+void operator delete(void* memory) noexcept
+{
+	Lux::Allocator::Free(memory);
+}
+
+void operator delete(void* memory, size_t size) noexcept
+{
+	Lux::Allocator::Free(memory, size);
+}
+
+void operator delete(void* memory, const char* desc)
+{
+	Lux::Allocator::Free(memory);
+}
+
+void operator delete(void* memory, const char* file, int line)
+{
+	Lux::Allocator::Free(memory);
+}
+
+void operator delete[](void* memory) noexcept
+{
+	Lux::Allocator::Free(memory);
+}
+
+void operator delete[](void* memory, const char* desc)
+{
+	Lux::Allocator::Free(memory);
+}
+
+void operator delete[](void* memory, const char* file, int line)
+{
+	Lux::Allocator::Free(memory);
+}
+
+#endif
 
 #endif

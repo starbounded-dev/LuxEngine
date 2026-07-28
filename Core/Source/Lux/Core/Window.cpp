@@ -114,7 +114,7 @@ namespace Lux {
 		deviceParams.maxFramesInFlight = 2;
 		deviceParams.backBufferWidth = m_Specification.Width;
 		deviceParams.backBufferHeight = m_Specification.Height;
-		deviceParams.vsyncEnabled = false;
+		deviceParams.vsyncEnabled = m_Specification.VSync;
 		// The Khronos validation layer intercepts every Vulkan call — a large CPU tax in
 		// draw-heavy scenes. Keep it only in Debug builds; Release/Dist (where FPS is
 		// measured and shipped) run without it.
@@ -311,7 +311,21 @@ namespace Lux {
 		m_SwapChain->Create(&m_Data.Width, &m_Data.Height, m_Specification.VSync);
 #endif
 		//glfwMaximizeWindow(m_Window);
+		m_Data.Self = this;
 		glfwSetWindowUserPointer(m_WindowHandle, &m_Data);
+
+		{
+			float xscale = 1.0f, yscale = 1.0f;
+			glfwGetWindowContentScale(m_WindowHandle, &xscale, &yscale);
+			m_DeviceManager->SetDPIScale(xscale, yscale);
+		}
+
+		glfwSetWindowContentScaleCallback(m_WindowHandle, [](GLFWwindow* window, float xscale, float yscale)
+		{
+			auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+			if (data.Self && data.Self->m_DeviceManager)
+				data.Self->m_DeviceManager->SetDPIScale(xscale, yscale);
+		});
 
 		bool isRawMouseMotionSupported = glfwRawMouseMotionSupported();
 		if (isRawMouseMotionSupported)

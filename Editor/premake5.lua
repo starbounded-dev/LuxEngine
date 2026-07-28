@@ -60,7 +60,7 @@ project "Editor"
 	filter "system:linux"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread", "X11" }
-		linkoptions { "-Wl,--start-group" }
+		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'" }
 
 		-- Link nethost for Coral .NET hosting
 		if os.host() == "linux" then

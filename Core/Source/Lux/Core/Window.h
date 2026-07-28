@@ -97,6 +97,7 @@ namespace Lux {
 			bool SizeDirty = false;
 
 			EventCallbackFn EventCallback;
+			Window* Self = nullptr;
 		};
 
 		WindowData m_Data;

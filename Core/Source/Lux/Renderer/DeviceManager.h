@@ -158,6 +158,11 @@ namespace Lux
             x = m_DPIScaleFactorX;
             y = m_DPIScaleFactorY;
         }
+        void SetDPIScale(float x, float y)
+        {
+            m_DPIScaleFactorX = x;
+            m_DPIScaleFactorY = y;
+        }
 
 		Window* GetWindowContext() { return m_LuxWindow; }
 		void SetWindowContext(Window* window) { m_LuxWindow = window; }

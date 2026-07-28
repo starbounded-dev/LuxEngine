@@ -69,3 +69,4 @@ fi
 	make config=$CONFIG Dependencies Dependencies/Renderer "$@"
 	make -C Core -f Makefile config=$CONFIG
 	make -C Editor -f Makefile config=$CONFIG
+	make -C Lux-Runtime -f Makefile config=$CONFIG
