@@ -703,11 +703,13 @@ namespace Lux::ImGuiEx {
 	{
 		if (rectMin.x > rectMax.x || rectMin.y > rectMax.y)
 			return;
+		if (!imageNormal)
+			return;
 
 		auto* drawList = ImGui::GetWindowDrawList();
-		if (ImGui::IsItemActive())
+		if (ImGui::IsItemActive() && imagePressed)
 			drawList->AddImage(GetTextureID(imagePressed), rectMin, rectMax, uv0, uv1, tintPressed);
-		else if (ImGui::IsItemHovered())
+		else if (ImGui::IsItemHovered() && imageHovered)
 			drawList->AddImage(GetTextureID(imageHovered), rectMin, rectMax, uv0, uv1, tintHovered);
 		else
 			drawList->AddImage(GetTextureID(imageNormal), rectMin, rectMax, uv0, uv1, tintNormal);
@@ -719,11 +721,13 @@ namespace Lux::ImGuiEx {
 	{
 		if (rectMin.x > rectMax.x || rectMin.y > rectMax.y)
 			return;
+		if (!imageNormal)
+			return;
 
 		auto* drawList = ImGui::GetWindowDrawList();
-		if (ImGui::IsItemActive())
+		if (ImGui::IsItemActive() && imagePressed)
 			drawList->AddImage(GetTextureID(imagePressed), rectMin, rectMax, uv0, uv1, tintPressed);
-		else if (ImGui::IsItemHovered())
+		else if (ImGui::IsItemHovered() && imageHovered)
 			drawList->AddImage(GetTextureID(imageHovered), rectMin, rectMax, uv0, uv1, tintHovered);
 		else
 			drawList->AddImage(GetTextureID(imageNormal), rectMin, rectMax, uv0, uv1, tintNormal);

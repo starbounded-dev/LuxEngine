@@ -14,12 +14,12 @@ Project:
   AutoSaveInterval: 300
   RuntimeExport:
     GameName: LuxSample
-    WindowWidth: 3840
-    WindowHeight: 2160
-    Fullscreen: true
-    VSync: true
+    WindowWidth: 1920
+    WindowHeight: 1080
+    Fullscreen: false
+    VSync: false
     IconPath: Textures/luxLogo.png
-    IconHandle: 10706518493978196728
+    IconHandle: 12258613209527478073
     TargetConfig: Release
   SceneRenderer:
     Rendering:

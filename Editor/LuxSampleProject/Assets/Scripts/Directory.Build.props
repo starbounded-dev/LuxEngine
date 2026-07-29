@@ -1,0 +1,21 @@
+<Project>
+	<!-- BaseIntermediateOutputPath must be set before Microsoft.Common.props is imported,
+	     otherwise NuGet still writes restore assets to obj/ (MSBuild warning MSB3539).
+	     Keeping intermediates in Intermediates/ matches premake5.lua and keeps the folder
+	     out of the editor's script-staleness scan. -->
+	<PropertyGroup>
+		<BaseIntermediateOutputPath>Intermediates/</BaseIntermediateOutputPath>
+	</PropertyGroup>
+
+	<!-- Copy Local = off for every assembly reference, applied here rather than in the .csproj
+	     because that file is premake-generated and premake cannot emit <Private>.
+	     The host already has ScriptCore and Coral.Managed loaded; copying them next to the game
+	     assembly makes the load context resolve a SECOND ScriptCore, so a script's base
+	     Lux.Entity is a different type identity than the host's. IsSubclassOf(Lux.Entity) then
+	     fails in ScriptEngine::BuildAssemblyCache and the script silently never runs. -->
+	<ItemDefinitionGroup>
+		<Reference>
+			<Private>false</Private>
+		</Reference>
+	</ItemDefinitionGroup>
+</Project>

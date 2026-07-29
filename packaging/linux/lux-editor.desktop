@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Lux Editor
+Comment=Lux Engine Editor
+Exec=run-lux-editor.sh
+Icon=lux-editor
+Terminal=false
+Categories=Development;IDE;
+MimeType=application/x-luxproject;

@@ -3,7 +3,7 @@
 #include <glm/detail/type_quat.hpp>
 
 #include "Lux/Renderer/Camera.h"
-#include "Lux/Core/TimeStep.h"
+#include "Lux/Core/Timestep.h"
 #include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/Core/Events/MouseEvent.h"
 

@@ -42,12 +42,55 @@ namespace Lux {
 
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
 
+		vk::SurfaceCapabilitiesKHR surfaceCaps;
+		vk::Result capsRes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface, &surfaceCaps);
+		if (capsRes != vk::Result::eSuccess)
+		{
+			LUX_CORE_ERROR("VulkanSwapChain::Create - getSurfaceCapabilitiesKHR failed: {}", nvrhi::vulkan::resultToString(VkResult(capsRes)));
+			return false;
+		}
+
+		// currentExtent == 0xFFFFFFFF means "the surface size is whatever the swap chain
+		// asks for" (typical on Wayland). Otherwise the surface dictates the size and the
+		// requested one must be ignored.
+		if (surfaceCaps.currentExtent.width != 0xFFFFFFFF)
+		{
+			m_Width = surfaceCaps.currentExtent.width;
+			m_Height = surfaceCaps.currentExtent.height;
+		}
+
+		// imageExtent must lie within [minImageExtent, maxImageExtent] (VUID-01274).
+		// Violating this is reported as VK_ERROR_OUT_OF_DEVICE_MEMORY by some drivers.
+		m_Width = std::clamp(m_Width, surfaceCaps.minImageExtent.width, surfaceCaps.maxImageExtent.width);
+		m_Height = std::clamp(m_Height, surfaceCaps.minImageExtent.height, surfaceCaps.maxImageExtent.height);
+
+		if (m_Width == 0 || m_Height == 0)
+		{
+			LUX_CORE_WARN("VulkanSwapChain::Create - surface extent is 0x0, deferring swap chain creation.");
+			return false;
+		}
+
+		LUX_CORE_INFO("VulkanSwapChain::Create - extent={}x{}, surfaceCaps: minImages={}, maxImages={}, supportedTransforms={:#x}, supportedCompositeAlpha={:#x}, supportedUsageFlags={:#x}",
+			m_Width, m_Height,
+			surfaceCaps.minImageCount, surfaceCaps.maxImageCount,
+			(uint32_t)surfaceCaps.supportedTransforms,
+			(uint32_t)surfaceCaps.supportedCompositeAlpha,
+			(uint32_t)surfaceCaps.supportedUsageFlags);
+
 		m_SwapChainFormat = {
 			vk::Format(nvrhi::vulkan::convertFormat(deviceParams.swapChainFormat)),
 			vk::ColorSpaceKHR::eSrgbNonlinear
 		};
 
 		vk::Extent2D extent = vk::Extent2D(m_Width, m_Height);
+
+		uint32_t minImages = deviceParams.swapChainBufferCount;
+		if (capsRes == vk::Result::eSuccess)
+		{
+			minImages = std::max(minImages, surfaceCaps.minImageCount);
+			if (surfaceCaps.maxImageCount > 0)
+				minImages = std::min(minImages, surfaceCaps.maxImageCount);
+		}
 
 		std::unordered_set<uint32_t> uniqueQueues = {
 			uint32_t(vulkanDeviceManager->m_QueueFamilyIndices.Graphics),
@@ -57,21 +100,53 @@ namespace Lux {
 
 		const bool enableSwapChainSharing = queues.size() > 1;
 
+		vk::SurfaceTransformFlagBitsKHR preTransform = surfaceCaps.currentTransform;
+
+		vk::CompositeAlphaFlagBitsKHR compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
+		if (!(surfaceCaps.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eOpaque))
+		{
+			if (surfaceCaps.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eInherit)
+				compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eInherit;
+			else if (surfaceCaps.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePreMultiplied)
+				compositeAlpha = vk::CompositeAlphaFlagBitsKHR::ePreMultiplied;
+			else if (surfaceCaps.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePostMultiplied)
+				compositeAlpha = vk::CompositeAlphaFlagBitsKHR::ePostMultiplied;
+		}
+
+		vk::ImageUsageFlags imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+		imageUsage &= surfaceCaps.supportedUsageFlags;
+
+		vk::PresentModeKHR presentMode = deviceParams.vsyncEnabled ? vk::PresentModeKHR::eFifo : vk::PresentModeKHR::eImmediate;
+		{
+			auto availableModes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfacePresentModesKHR(m_Surface);
+			bool modeSupported = false;
+			for (auto mode : availableModes)
+			{
+				if (mode == presentMode)
+				{
+					modeSupported = true;
+					break;
+				}
+			}
+			if (!modeSupported)
+				presentMode = vk::PresentModeKHR::eFifo;
+		}
+
 		auto desc = vk::SwapchainCreateInfoKHR()
 			.setSurface(m_Surface)
-			.setMinImageCount(deviceParams.swapChainBufferCount)
+			.setMinImageCount(minImages)
 			.setImageFormat(m_SwapChainFormat.format)
 			.setImageColorSpace(m_SwapChainFormat.colorSpace)
 			.setImageExtent(extent)
 			.setImageArrayLayers(1)
-			.setImageUsage(vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
+			.setImageUsage(imageUsage)
 			.setImageSharingMode(enableSwapChainSharing ? vk::SharingMode::eConcurrent : vk::SharingMode::eExclusive)
 			.setFlags(vulkanDeviceManager->m_SwapChainMutableFormatSupported ? vk::SwapchainCreateFlagBitsKHR::eMutableFormat : vk::SwapchainCreateFlagBitsKHR(0))
 			.setQueueFamilyIndexCount(enableSwapChainSharing ? uint32_t(queues.size()) : 0)
 			.setPQueueFamilyIndices(enableSwapChainSharing ? queues.data() : nullptr)
-			.setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity)
-			.setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
-			.setPresentMode(deviceParams.vsyncEnabled ? vk::PresentModeKHR::eFifo : vk::PresentModeKHR::eImmediate)
+			.setPreTransform(preTransform)
+			.setCompositeAlpha(compositeAlpha)
+			.setPresentMode(presentMode)
 			.setClipped(true)
 			.setOldSwapchain(nullptr);
 
@@ -101,12 +176,18 @@ namespace Lux {
 		const vk::Result res = vulkanDeviceManager->m_VulkanDevice.createSwapchainKHR(&desc, nullptr, &m_SwapChain);
 		if (res != vk::Result::eSuccess)
 		{
-			LUX_CORE_ERROR("Failed to create a Vulkan swap chain, error code = {}", nvrhi::vulkan::resultToString(VkResult(res)));
+			LUX_CORE_ERROR("Failed to create a Vulkan swap chain, error code = {}. extent={}x{}, minImages={}, format={}, preTransform={:#x}, compositeAlpha={:#x}, presentMode={}, mutableFormat={}",
+				nvrhi::vulkan::resultToString(VkResult(res)),
+				m_Width, m_Height, minImages, (int)m_SwapChainFormat.format,
+				(uint32_t)preTransform, (uint32_t)compositeAlpha,
+				(int)desc.presentMode, vulkanDeviceManager->m_SwapChainMutableFormatSupported);
 			return false;
 		}
-
 		// retrieve swap chain images
-		auto images = vulkanDeviceManager->m_VulkanDevice.getSwapchainImagesKHR(m_SwapChain);
+		uint32_t imageCount = 0;
+		vulkanDeviceManager->m_VulkanDevice.getSwapchainImagesKHR(m_SwapChain, &imageCount, nullptr);
+		std::vector<vk::Image> images(imageCount);
+		vulkanDeviceManager->m_VulkanDevice.getSwapchainImagesKHR(m_SwapChain, &imageCount, images.data());
 		for (auto image : images)
 		{
 			SwapChainImage sci;
@@ -128,20 +209,26 @@ namespace Lux {
 		m_SwapChainIndex = 0;
 
 		// Create acquire semaphores (for frame synchronization)
-		for (uint32_t i = 0; i < 3; ++i)
 		{
-			m_AcquireSemaphores[i] = vulkanDeviceManager->m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo());
-		}
+			vk::SemaphoreCreateInfo semCI;
+			for (uint32_t i = 0; i < 3; ++i)
+			{
+				const vk::Result semRes = vulkanDeviceManager->m_VulkanDevice.createSemaphore(&semCI, nullptr, &m_AcquireSemaphores[i]);
+				LUX_CORE_VERIFY(semRes == vk::Result::eSuccess);
+			}
 
-		// Create one present semaphore per swapchain image to avoid reuse conflicts
-		// (see: https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html)
-		m_PresentSemaphores.resize(m_SwapChainImages.size());
-		for (size_t i = 0; i < m_SwapChainImages.size(); ++i)
-		{
-			m_PresentSemaphores[i] = vulkanDeviceManager->m_VulkanDevice.createSemaphore(vk::SemaphoreCreateInfo());
+			// Create one present semaphore per swapchain image to avoid reuse conflicts
+			// (see: https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html)
+			m_PresentSemaphores.resize(m_SwapChainImages.size());
+			for (size_t i = 0; i < m_SwapChainImages.size(); ++i)
+			{
+				const vk::Result semRes = vulkanDeviceManager->m_VulkanDevice.createSemaphore(&semCI, nullptr, &m_PresentSemaphores[i]);
+				LUX_CORE_VERIFY(semRes == vk::Result::eSuccess);
+			}
 		}
 
 		BackBufferResized();
+		return true;
 	}
 
 	void VulkanSwapChain::Destroy()
@@ -220,13 +307,28 @@ namespace Lux {
 
 			m_AcquiredSemaphore = semaphore;
 
-			if (res == vk::Result::eErrorOutOfDateKHR && attempt < maxAttempts)
+			if ((res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR) && attempt < maxAttempts)
 			{
 				BackBufferResizing();
-				auto surfaceCaps = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface);
 
-				m_Width = surfaceCaps.currentExtent.width;
-				m_Height = surfaceCaps.currentExtent.height;
+				vk::SurfaceCapabilitiesKHR surfaceCaps;
+				vk::Result capsRes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface, &surfaceCaps);
+				if (capsRes != vk::Result::eSuccess)
+				{
+					LUX_CORE_ERROR("VulkanSwapChain::BeginFrame - getSurfaceCapabilitiesKHR failed: {}", (int)capsRes);
+					return false;
+				}
+
+				// 0xFFFFFFFF means the surface takes its size from the swap chain
+				// (Wayland); keep the current extent and let Create() clamp it.
+				if (surfaceCaps.currentExtent.width != 0xFFFFFFFF)
+				{
+					m_Width = surfaceCaps.currentExtent.width;
+					m_Height = surfaceCaps.currentExtent.height;
+				}
+
+				if (m_Width == 0 || m_Height == 0)
+					return false;
 
 				Resize();
 				BackBufferResized();
@@ -239,7 +341,7 @@ namespace Lux {
 
 		m_AcquireSemaphoreIndex = (m_AcquireSemaphoreIndex + 1) % m_AcquireSemaphores.size();
 
-		return res == vk::Result::eSuccess;
+		return res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR;
 	}
 
 	void VulkanSwapChain::Present()
@@ -267,15 +369,15 @@ namespace Lux {
 				.setPImageIndices(&m_SwapChainIndex);
 
 			const vk::Result res = vulkanDeviceManager->m_PresentQueue.presentKHR(&info);
-			LUX_CORE_VERIFY(res == vk::Result::eSuccess || res == vk::Result::eErrorOutOfDateKHR);
+			LUX_CORE_VERIFY(res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR || res == vk::Result::eErrorOutOfDateKHR);
 		}
 
 		RenderCommandBuffer::UnlockQueue();
 
 #ifndef _WIN32
-		if (deviceParams.vsyncEnabled)
+		if (vulkanDeviceManager->m_DeviceParams.vsyncEnabled)
 		{
-			m_PresentQueue.waitIdle();
+			vulkanDeviceManager->m_PresentQueue.waitIdle();
 		}
 #endif
 

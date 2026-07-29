@@ -50,13 +50,14 @@ namespace Lux {
 		static std::map<std::string, TagDetails>& EnabledTags() { return s_EnabledTags; }
 		static void SetDefaultTagSettings();
 
-#if defined(LUX_PLATFORM_WINDOWS)
 		template<typename... Args>
-		static void PrintMessage(Log::Type type, Log::Level level, std::format_string<Args...> format, Args&&... args);
-#else
-		template<typename... Args>
-		static void PrintMessage(Log::Type type, Log::Level level, const std::string_view format, Args&&... args);
-#endif
+		// spdlog::format_string_t rather than std::format_string: this format string is forwarded
+		// straight to spdlog, and spdlog only aliases it to std::format_string when the standard
+		// library advertises __cpp_lib_format >= 202207L. On older libstdc++ (e.g. Ubuntu 24.04)
+		// it falls back to std::string_view, which a std::format_string will not convert to.
+		// PrintMessageTag/PrintAssertMessage below stay on std::format_string - they call
+		// std::format themselves and hand spdlog an already-formatted string.
+		static void PrintMessage(Log::Type type, Log::Level level, spdlog::format_string_t<Args...> format, Args&&... args);
 
 		template<typename... Args>
 		static void PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::format_string<Args...> format, Args&&... args);
@@ -146,15 +147,13 @@ namespace Lux {
 
 namespace Lux {
 
-#if defined(LUX_PLATFORM_WINDOWS)
 	template<typename... Args>
-	void Log::PrintMessage(Log::Type type, Log::Level level, std::format_string<Args...> format, Args&&... args)
-#else
-	template<typename... Args>
-	void Log::PrintMessage(Log::Type type, Log::Level level, const std::string_view format, Args&&... args)
-#endif
+	void Log::PrintMessage(Log::Type type, Log::Level level, spdlog::format_string_t<Args...> format, Args&&... args)
 	{
-		auto detail = s_EnabledTags[""];
+		auto it = s_EnabledTags.find("");
+		if (it == s_EnabledTags.end())
+			return;
+		const auto& detail = it->second;
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
@@ -183,7 +182,10 @@ namespace Lux {
 	template<typename... Args>
 	void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::format_string<Args...> format, Args&&... args)
 	{
-		auto detail = s_EnabledTags[std::string(tag)];
+		auto it = s_EnabledTags.find(std::string(tag));
+		if (it == s_EnabledTags.end())
+			return;
+		const auto& detail = it->second;
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
@@ -212,7 +214,10 @@ namespace Lux {
 
 	inline void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message)
 	{
-		auto detail = s_EnabledTags[std::string(tag)];
+		auto it = s_EnabledTags.find(std::string(tag));
+		if (it == s_EnabledTags.end())
+			return;
+		const auto& detail = it->second;
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();

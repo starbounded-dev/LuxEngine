@@ -39,5 +39,6 @@ export VK_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d"
 export PATH="$VULKAN_SDK/bin:$PATH"
 export LD_LIBRARY_PATH="$VULKAN_SDK/lib:$LUX_DIR/Core/vendor/assimp/bin/linux:$LUX_DIR/Core/vendor/NvidiaAftermath/lib/x64/linux"
 
-cd Editor
-"$LUX_DIR/bin/$BUILD_CONFIG-linux-x86_64/Editor/Editor" "$@"
+RUNTIME_DIR="$LUX_DIR/bin/$BUILD_CONFIG-linux-x86_64/Lux-Runtime"
+cd "$RUNTIME_DIR"
+"$RUNTIME_DIR/Lux-Runtime" "$@"

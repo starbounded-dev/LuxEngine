@@ -75,24 +75,35 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: New-Item -ItemType Directory -Force logs
 
+      # /restore runs the Restore target before the build. ScriptCore and Coral.Managed are
+      # SDK-style C# projects inside Lux.sln, and those cannot build without the
+      # obj/project.assets.json that a NuGet restore produces (error NETSDK1004). The same
+      # properties are passed as for the build, so the solution's per-project platform mapping
+      # resolves identically for both.
       - name: Build
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
-          MSBuild "${{ env.SOLUTION_FILE_PATH }}" /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
+          MSBuild "${{ env.SOLUTION_FILE_PATH }}" /restore /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
 
       - name: Package editor artifact
-        if: matrix.configuration != 'Dist'
+        if: matrix.configuration == 'Release'
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
           $configuration = "${{ matrix.configuration }}"
           $editorOutput = Join-Path "bin" "$configuration-windows-x86_64\Editor"
           $artifactRoot = Join-Path "artifacts" "Editor-$configuration"
           $editorItems = @(
-            "imgui.ini",
-            "App.lsettings",
             "LuxSampleProject",
             "Resources",
             "DotNet"
+          )
+
+          # Editor state, not build input: both are regenerated on first run (ApplicationSettings
+          # falls back to defaults when App.lsettings is absent) and are gitignored, so they do
+          # not exist in a clean checkout. Copy them when present, never fail on them.
+          $optionalEditorItems = @(
+            "imgui.ini",
+            "App.lsettings"
           )
 
           if (!(Test-Path $editorOutput)) {
@@ -113,8 +124,17 @@ jobs:
             Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
           }
 
+          foreach ($item in $optionalEditorItems) {
+            $source = Join-Path "Editor" $item
+            if (Test-Path $source) {
+              Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
+            } else {
+              Write-Host "Skipping optional editor state file (not present): $source"
+            }
+          }
+
       - name: Upload editor artifact
-        if: matrix.configuration != 'Dist'
+        if: matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
         with:
           name: editor-${{ matrix.configuration }}
@@ -122,9 +142,172 @@ jobs:
           if-no-files-found: error
 
       - name: Upload build logs
-        if: always()
+        if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-${{ matrix.configuration }}
+          path: logs/*.log
+          if-no-files-found: ignore
+
+  build-linux:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release, Dist]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          submodules: recursive
+          lfs: true
+
+      # Coral hardcodes hostfxr major version 9, and ScriptCore targets net9.0.
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # GLFW is built with both the X11 and Wayland backends and runs wayland-scanner during
+      # the build (wayland-scanner lives in libwayland-bin). NFD-Extended needs GTK3 for file
+      # dialogs, and backward-cpp resolves symbols through libdw/libunwind.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang llvm make pkg-config \
+            libgtk-3-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
+            libdw-dev libunwind-dev libtbb-dev zlib1g-dev
+
+          # The Dist configuration compiles with -flto, and premake's clang toolset then archives
+          # with llvm-ar because GNU ar cannot index LLVM bitcode. Ubuntu ships that binary
+          # version-suffixed, so make sure an unversioned llvm-ar resolves on PATH.
+          if ! command -v llvm-ar >/dev/null 2>&1; then
+            sudo ln -sf "$(ls -1 /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/bin/llvm-ar
+          fi
+          llvm-ar --version | head -1
+
+      # Sets VULKAN_SDK, which Dependencies.lua and Linux-Build.sh both honour in preference
+      # to the (gitignored) vendored SDK path.
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1.4.0
+        with:
+          vulkan_version: 1.4.335.0
+          optional_components: com.lunarg.vulkan.vma, com.lunarg.vulkan.debug, com.lunarg.vulkan.glm
+          install_runtime: true
+          cache: true
+          stripdown: true
+
+      # Single entry point: generates the C# projects, builds the managed assemblies, the
+      # native engine, and the sample game's scripts.
+      - name: Build
+        shell: bash
+        run: |
+          # pipefail so a build failure is not masked by tee's exit status.
+          set -o pipefail
+          mkdir -p logs
+          ./scripts/Linux-Build.sh ${{ matrix.configuration }} 2>&1 \
+            | tee "logs/Build-${{ matrix.configuration }}.log"
+
+      # The build script is `set -e`, but assert the artifacts exist so a step that silently
+      # produces nothing cannot pass.
+      - name: Verify build output
+        run: |
+          out="bin/${{ matrix.configuration }}-linux-x86_64"
+          fail=0
+          for f in "$out/Editor/Editor" "$out/Lux-Runtime/Lux-Runtime"; do
+            if [ -x "$f" ]; then
+              echo "ok   $f"
+            else
+              echo "MISSING $f"; fail=1
+            fi
+          done
+          exit $fail
+
+      # Unlike Windows, the Linux build output holds only the executable, and the binary is
+      # linked with RPATH $ORIGIN/lib - so the vendored shared libraries have to be bundled
+      # into lib/ for the artifact to be runnable at all.
+      - name: Package editor artifact
+        if: matrix.configuration == 'Release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="bin/${{ matrix.configuration }}-linux-x86_64/Editor"
+          root="artifacts/Editor-linux-${{ matrix.configuration }}"
+
+          rm -rf "$root"
+          mkdir -p "$root/lib"
+          cp -a "$out/." "$root/"
+
+          for item in LuxSampleProject Resources DotNet; do
+            if [ ! -e "Editor/$item" ]; then
+              echo "Editor artifact input was not found: Editor/$item" >&2
+              exit 1
+            fi
+            cp -a "Editor/$item" "$root/"
+          done
+
+          # Drop build intermediates and asset caches that the build regenerates. Scripts/Binaries
+          # is deliberately kept - it holds the sample game's compiled script assembly.
+          find "$root/LuxSampleProject" -type d \
+            \( -name Intermediates -o -name obj -o -name Cache \) -prune -exec rm -rf {} + 2>/dev/null || true
+
+          # Editor state, regenerated on first run and gitignored, so absent in a clean checkout.
+          for item in imgui.ini App.lsettings; do
+            [ -e "Editor/$item" ] && cp -a "Editor/$item" "$root/" \
+              || echo "Skipping optional editor state file (not present): Editor/$item"
+          done
+
+          # Bundle only the libraries the binary actually resolves out of our vendored
+          # directories. Globbing every *.so from the Vulkan SDK pulled in ~780 MB of
+          # validation layers and SPIRV tooling that the editor never loads; ldd reports the
+          # full transitive closure, so filtering it keeps exactly what is needed.
+          vendor_dirs=""
+          for dir in "Core/vendor/assimp/bin/linux" \
+                     "Core/vendor/NvidiaAftermath/lib/x64/linux" \
+                     "${VULKAN_SDK:-}/lib"; do
+            if [ -d "$dir" ]; then
+              vendor_dirs="$vendor_dirs $(cd "$dir" && pwd)"
+            fi
+          done
+
+          # So ldd can resolve the vendored libraries, which are not on the default search path.
+          export LD_LIBRARY_PATH="$(echo $vendor_dirs | tr ' ' ':')"
+
+          for lib in $(ldd "$root/Editor" | awk '$3 ~ /^\// {print $3}' | sort -u); do
+            for dir in $vendor_dirs; do
+              case "$lib" in
+                "$dir"/*) cp -aL "$lib" "$root/lib/"; break ;;
+              esac
+            done
+          done
+
+          echo "Bundled $(find "$root/lib" -type f | wc -l) shared libraries ($(du -sh "$root/lib" | cut -f1))."
+
+          # The binary's RPATH is $ORIGIN/lib, so the bundle must resolve with no
+          # LD_LIBRARY_PATH set - otherwise we would ship an artifact that only runs on a
+          # machine that already has these libraries.
+          if env -u LD_LIBRARY_PATH ldd "$root/Editor" | grep -q 'not found'; then
+            echo "Editor artifact has unresolved libraries:" >&2
+            env -u LD_LIBRARY_PATH ldd "$root/Editor" | grep 'not found' >&2
+            exit 1
+          fi
+
+      - name: Upload editor artifact
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-linux-${{ matrix.configuration }}
+          path: artifacts/Editor-linux-${{ matrix.configuration }}/
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always() && matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-linux-${{ matrix.configuration }}
           path: logs/*.log
           if-no-files-found: ignore

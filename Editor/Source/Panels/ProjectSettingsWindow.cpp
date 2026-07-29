@@ -1,5 +1,6 @@
 #include "lpch.h"
 #include "ProjectSettingsWindow.h"
+#include "RuntimeExportUtils.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/ImGui/ImGuiEx.h"
@@ -76,218 +77,19 @@ namespace Lux {
 		}
 
 
+		using RuntimeExport::FileExists;
+		using RuntimeExport::FindRepositoryRootFrom;
+		using RuntimeExport::GetRuntimeExecutablePath;
+		using RuntimeExport::BuildRuntimeExecutable;
+		using RuntimeExport::ResolveScriptProjectFile;
+		using RuntimeExport::IsScriptModuleOutdated;
+		using RuntimeExport::BuildScriptModule;
+
 		constexpr RuntimeExportTarget s_RuntimeExportTargets[] = {
 			RuntimeExportTarget::Debug,
 			RuntimeExportTarget::Release,
 			RuntimeExportTarget::Dist
 		};
-
-		std::filesystem::path FindRepositoryRootFrom(std::filesystem::path start)
-		{
-			if (start.empty())
-				return {};
-
-			std::error_code ec;
-			start = std::filesystem::absolute(start, ec).lexically_normal();
-			if (ec)
-				return {};
-
-			if (std::filesystem::is_regular_file(start, ec))
-				start = start.parent_path();
-
-			for (std::filesystem::path directory = start; !directory.empty(); directory = directory.parent_path())
-			{
-				if (std::filesystem::exists(directory / "premake5.lua", ec)
-					&& std::filesystem::exists(directory / "Core", ec)
-					&& std::filesystem::exists(directory / "Lux-Runtime" / "premake5.lua", ec))
-				{
-					return directory;
-				}
-
-				if (directory == directory.root_path())
-					break;
-			}
-
-			return {};
-		}
-
-		std::filesystem::path GetRuntimeExecutablePath(RuntimeExportTarget target)
-		{
-			std::error_code ec;
-			const std::string runtimeOutputDirectory = std::string(RuntimeExportTargetToString(target)) + "-windows-x86_64";
-
-			std::vector<std::filesystem::path> candidates;
-			if (Ref<Project> activeProject = Project::GetActive())
-			{
-				if (std::filesystem::path root = FindRepositoryRootFrom(activeProject->GetProjectDirectory()); !root.empty())
-					candidates.emplace_back((root / "bin" / runtimeOutputDirectory / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal());
-			}
-
-			if (std::filesystem::path root = FindRepositoryRootFrom(std::filesystem::current_path(ec)); !root.empty())
-				candidates.emplace_back((root / "bin" / runtimeOutputDirectory / "Lux-Runtime" / "Lux-Runtime.exe").lexically_normal());
-
-			for (const std::filesystem::path& candidate : candidates)
-			{
-				if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
-					return candidate;
-			}
-
-			return {};
-		}
-
-		std::string QuotePowerShellArgument(std::string value)
-		{
-			std::string result = "'";
-			for (char c : value)
-			{
-				if (c == '\'')
-					result += "''";
-				else
-					result += c;
-			}
-			result += "'";
-			return result;
-		}
-
-		bool FileExists(const std::filesystem::path& path)
-		{
-			std::error_code ec;
-			return !path.empty() && std::filesystem::exists(path, ec) && std::filesystem::is_regular_file(path, ec);
-		}
-
-		bool BuildRuntimeExecutable(RuntimeExportTarget target)
-		{
-			std::filesystem::path root = FindRepositoryRootFrom(Project::GetActiveProjectDirectory());
-			if (root.empty())
-				root = FindRepositoryRootFrom(std::filesystem::current_path());
-			if (root.empty())
-			{
-				LUX_CONSOLE_LOG_ERROR("Could not locate repository root for Lux-Runtime build.");
-				return false;
-			}
-
-			const std::filesystem::path projectFile = root / "Lux-Runtime" / "Lux-Runtime.vcxproj";
-			if (!std::filesystem::exists(projectFile))
-			{
-				LUX_CONSOLE_LOG_ERROR("Lux-Runtime project file not found: {}", projectFile.string());
-				return false;
-			}
-
-			const std::filesystem::path msbuildPath = "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe";
-			const std::string msbuild = std::filesystem::exists(msbuildPath) ? msbuildPath.string() : "MSBuild.exe";
-			const std::string command =
-				"powershell -NoProfile -ExecutionPolicy Bypass -Command \"& "
-				+ QuotePowerShellArgument(msbuild) + " "
-				+ QuotePowerShellArgument(projectFile.string())
-				+ " /t:Build /p:Configuration=" + RuntimeExportTargetToString(target)
-				+ " /p:Platform=x64 /m:1 /nr:false /v:minimal\"";
-			LUX_CONSOLE_LOG_INFO("Building Lux-Runtime ({})...", RuntimeExportTargetToString(target));
-			const int result = std::system(command.c_str());
-			if (result != 0)
-			{
-				LUX_CONSOLE_LOG_ERROR("Lux-Runtime build failed with exit code {}.", result);
-				return false;
-			}
-
-			LUX_CONSOLE_LOG_INFO("Lux-Runtime build complete.");
-			return true;
-		}
-
-		std::filesystem::path ResolveScriptProjectFile(Ref<Project> project)
-		{
-			if (!project)
-				return {};
-
-			std::filesystem::path scriptProject = project->GetScriptProjectPath();
-			if (FileExists(scriptProject))
-				return scriptProject;
-
-			std::filesystem::path scriptProjectFilename = project->GetConfig().ScriptModulePath.filename();
-			if (!scriptProjectFilename.empty())
-			{
-				scriptProjectFilename.replace_extension(".csproj");
-				scriptProject = project->GetAssetDirectory() / "Scripts" / scriptProjectFilename;
-			}
-
-			return scriptProject;
-		}
-
-		bool IsScriptModuleOutdated(const std::filesystem::path& scriptModule, const std::filesystem::path& scriptProject)
-		{
-			std::error_code ec;
-			if (!FileExists(scriptModule))
-				return true;
-			if (!FileExists(scriptProject))
-				return false;
-
-			const auto moduleWriteTime = std::filesystem::last_write_time(scriptModule, ec);
-			if (ec)
-				return true;
-
-			ec.clear();
-			if (std::filesystem::last_write_time(scriptProject, ec) > moduleWriteTime && !ec)
-				return true;
-
-			const std::filesystem::path scriptsDirectory = scriptProject.parent_path();
-			if (!std::filesystem::exists(scriptsDirectory, ec))
-				return false;
-
-			for (const auto& entry : std::filesystem::recursive_directory_iterator(scriptsDirectory, ec))
-			{
-				if (ec)
-					break;
-				if (!entry.is_regular_file(ec))
-					continue;
-
-				const std::filesystem::path relativePath = std::filesystem::relative(entry.path(), scriptsDirectory, ec);
-				if (!ec && !relativePath.empty())
-				{
-					const std::filesystem::path first = *relativePath.begin();
-					if (first == "Binaries" || first == "Intermediates")
-						continue;
-				}
-
-				const std::filesystem::path extension = entry.path().extension();
-				if (extension != ".cs" && extension != ".csproj" && extension != ".props" && extension != ".targets" && extension != ".lua")
-					continue;
-
-				ec.clear();
-				if (entry.last_write_time(ec) > moduleWriteTime && !ec)
-					return true;
-			}
-
-			return false;
-		}
-
-		bool BuildScriptModule(RuntimeExportTarget target)
-		{
-			Ref<Project> project = Project::GetActive();
-			if (!project)
-			{
-				LUX_CONSOLE_LOG_ERROR("No active project to build scripts for.");
-				return false;
-			}
-
-			const std::filesystem::path scriptProject = ResolveScriptProjectFile(project);
-			if (!FileExists(scriptProject))
-			{
-				LUX_CONSOLE_LOG_ERROR("Script project file not found: {}", scriptProject.string());
-				return false;
-			}
-
-			if (!ScriptBuilder::BuildProject(scriptProject, RuntimeExportTargetToString(target)))
-				return false;
-
-			const std::filesystem::path scriptModule = project->GetScriptModuleFilePath();
-			if (!FileExists(scriptModule))
-			{
-				LUX_CONSOLE_LOG_ERROR("Script build completed, but the script module was not found: {}", scriptModule.string());
-				return false;
-			}
-
-			LUX_CONSOLE_LOG_INFO("Script build complete: {}", scriptModule.string());
-			return true;
-		}
 	}
 
 	ProjectSettingsWindow::ProjectSettingsWindow()
@@ -362,10 +164,10 @@ namespace Lux {
 		const std::string scriptModulePath = m_Project->GetConfig().ScriptModulePath.generic_string();
 		const std::string& defaultNamespace = m_Project->GetConfig().DefaultNamespace;
 
-		strncpy_s(m_NameBuffer, name.c_str(), _TRUNCATE);
-		strncpy_s(m_RuntimeGameNameBuffer, runtimeGameName.c_str(), _TRUNCATE);
-		strncpy_s(m_ScriptModulePathBuffer, scriptModulePath.c_str(), _TRUNCATE);
-		strncpy_s(m_DefaultNamespaceBuffer, defaultNamespace.c_str(), _TRUNCATE);
+		std::strncpy(m_NameBuffer, name.c_str(), sizeof(m_NameBuffer) - 1);
+		std::strncpy(m_RuntimeGameNameBuffer, runtimeGameName.c_str(), sizeof(m_RuntimeGameNameBuffer) - 1);
+		std::strncpy(m_ScriptModulePathBuffer, scriptModulePath.c_str(), sizeof(m_ScriptModulePathBuffer) - 1);
+		std::strncpy(m_DefaultNamespaceBuffer, defaultNamespace.c_str(), sizeof(m_DefaultNamespaceBuffer) - 1);
 	}
 
 	void ProjectSettingsWindow::SaveProject()

@@ -22,6 +22,10 @@
 
 #include "backends/imgui_impl_glfw.h"
 
+#include <GLFW/glfw3.h>
+
+#include <cstdlib>
+
 // TODO(Yan): WIP
 // Defined in imgui_impl_glfw.cpp
 // extern bool g_DisableImGuiEvents;
@@ -37,7 +41,65 @@ namespace Lux {
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
 		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
+#ifndef LUX_PLATFORM_LINUX
 		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+#endif
+
+		// ---------------------------------------------------------------------------------
+		// HiDPI / fractional scaling.
+		//
+		// Two quantities matter and they are not the same thing:
+		//   contentScale - what the desktop asks for (1.5 on a "150%" monitor).
+		//   fbScale      - framebuffer pixels per DisplaySize unit, i.e. how much scaling the
+		//                  windowing system already applies for us.
+		//
+		// On X11/Windows GLFW reports the window size in physical pixels, so fbScale is 1 and
+		// nothing is scaled for us - the UI ends up tiny on a 4K panel. On Wayland the window
+		// size is logical and fbScale is 1.5, so geometry is already the right physical size but
+		// a font baked at 15px gets stretched 1.5x and looks blurry.
+		//
+		// Our ImGui renderer does not advertise ImGuiBackendFlags_RendererHasTextures, so the
+		// font atlas is static and ImGui cannot re-bake glyphs on the fly. That rules out
+		// io.ConfigDpiScaleFonts (it would just stretch the existing atlas). Instead bake the
+		// glyphs at the physical size they will be drawn at, then divide back out.
+		//
+		//   bake at  size * contentScale        -> rasterised at true physical pixels (crisp)
+		//   FontScaleMain = 1 / fbScale         -> undo scaling the compositor already does
+		//   ScaleAllSizes(uiScale)              -> padding/rounding follow DisplaySize units
+		//
+		// LUX_UI_SCALE overrides the detected value, for testing or when detection is wrong.
+		float contentScale = 1.0f;
+		float fbScale = 1.0f;
+		{
+			auto* window = (GLFWwindow*)Application::Get().GetWindow().GetNativeWindow();
+			if (window)
+			{
+				float sx = 1.0f, sy = 1.0f;
+				glfwGetWindowContentScale(window, &sx, &sy);
+				if (sx > 0.0f)
+					contentScale = sx;
+
+				int winW = 0, winH = 0, fbW = 0, fbH = 0;
+				glfwGetWindowSize(window, &winW, &winH);
+				glfwGetFramebufferSize(window, &fbW, &fbH);
+				if (winW > 0 && fbW > 0)
+					fbScale = (float)fbW / (float)winW;
+			}
+
+			if (const char* env = std::getenv("LUX_UI_SCALE"))
+			{
+				const float override = std::strtof(env, nullptr);
+				if (override > 0.0f)
+					contentScale = override;
+			}
+		}
+
+		const float uiScale = (fbScale > 0.0f) ? (contentScale / fbScale) : contentScale;
+		LUX_CORE_INFO("[ImGui] contentScale={:.2f} framebufferScale={:.2f} -> uiScale={:.2f}",
+			contentScale, fbScale, uiScale);
+
+		// Every font is baked at its declared size multiplied by this.
+		ImGuiEx::Fonts::SetScale(contentScale);
 
 		// Configure Fonts
 		{
@@ -111,6 +173,17 @@ namespace Lux {
 			windowBg.w = style.Colors[ImGuiCol_WindowBg].w;
 			style.Colors[ImGuiCol_WindowBg] = windowBg;
 		}
+
+		// Apply the DPI scaling worked out above. Must come after the style is fully configured:
+		// ScaleAllSizes multiplies the current padding/rounding/spacing values in place, so any
+		// size assigned afterwards would escape the scaling.
+		//
+		// Fonts were baked at contentScale, while ImGui lays out in DisplaySize units - divide
+		// out whatever the windowing system already scales so text is the right size on both a
+		// physical-pixel (X11/Windows) and a logical-unit (Wayland) surface.
+		style.FontScaleMain = (fbScale > 0.0f) ? (1.0f / fbScale) : 1.0f;
+		if (uiScale != 1.0f)
+			style.ScaleAllSizes(uiScale);
 
 		ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)Application::Get().GetWindow().GetNativeWindow(), true);
 

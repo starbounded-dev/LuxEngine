@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Lux/Core/Events/Event.h"
-#include "Lux/Core/TimeStep.h"
+#include "Lux/Core/Timestep.h"
 
 #include <string>
 

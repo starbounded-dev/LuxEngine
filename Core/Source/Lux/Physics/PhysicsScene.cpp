@@ -10,7 +10,7 @@
 #include "Lux/Physics/PhysicsBody.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Mesh.h"
-#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
 

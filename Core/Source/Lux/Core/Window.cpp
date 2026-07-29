@@ -114,7 +114,7 @@ namespace Lux {
 		deviceParams.maxFramesInFlight = 2;
 		deviceParams.backBufferWidth = m_Specification.Width;
 		deviceParams.backBufferHeight = m_Specification.Height;
-		deviceParams.vsyncEnabled = false;
+		deviceParams.vsyncEnabled = m_Specification.VSync;
 		// The Khronos validation layer intercepts every Vulkan call — a large CPU tax in
 		// draw-heavy scenes. Keep it only in Debug builds; Release/Dist (where FPS is
 		// measured and shipped) run without it.
@@ -211,7 +211,10 @@ namespace Lux {
 			glfwSetWindowMonitor(m_WindowHandle, glfwGetPrimaryMonitor(), 0, 0,
 				m_Specification.Width, m_Specification.Height, deviceParams.refreshRate);
 		}
-		else
+
+		// The compositor/monitor decides the final surface size — in fullscreen it is the
+		// monitor mode, not the requested size. Always reconcile against the real framebuffer,
+		// otherwise the swap chain is created with an extent the surface doesn't allow.
 		{
 			int fbWidth = 0, fbHeight = 0;
 			glfwGetFramebufferSize(m_WindowHandle, &fbWidth, &fbHeight);
@@ -295,7 +298,7 @@ namespace Lux {
 		m_DeviceManager->InitSurfaceCapabilities(*(uint64_t*)&m_WindowSurface);
 
 		m_SwapChain = lnew VulkanSwapChain(m_WindowSurface);
-		m_SwapChain->Create(m_Specification.Width, m_Specification.Height);
+		m_SwapChain->Create(m_Data.Width, m_Data.Height);
 
 #if OLD
 		// Create Renderer Context
@@ -311,7 +314,21 @@ namespace Lux {
 		m_SwapChain->Create(&m_Data.Width, &m_Data.Height, m_Specification.VSync);
 #endif
 		//glfwMaximizeWindow(m_Window);
+		m_Data.Self = this;
 		glfwSetWindowUserPointer(m_WindowHandle, &m_Data);
+
+		{
+			float xscale = 1.0f, yscale = 1.0f;
+			glfwGetWindowContentScale(m_WindowHandle, &xscale, &yscale);
+			m_DeviceManager->SetDPIScale(xscale, yscale);
+		}
+
+		glfwSetWindowContentScaleCallback(m_WindowHandle, [](GLFWwindow* window, float xscale, float yscale)
+		{
+			auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+			if (data.Self && data.Self->m_DeviceManager)
+				data.Self->m_DeviceManager->SetDPIScale(xscale, yscale);
+		});
 
 		bool isRawMouseMotionSupported = glfwRawMouseMotionSupported();
 		if (isRawMouseMotionSupported)
@@ -328,6 +345,13 @@ namespace Lux {
 			data.EventCallback(event);
 			data.Width = width;
 			data.Height = height;
+			data.SizeDirty = true;
+		});
+
+		glfwSetFramebufferSizeCallback(m_WindowHandle, [](GLFWwindow* window, int, int)
+		{
+			auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+			data.SizeDirty = true;
 		});
 
 		glfwSetWindowCloseCallback(m_WindowHandle, [](GLFWwindow* window)
@@ -506,17 +530,10 @@ namespace Lux {
 		glfwPollEvents();
 		Input::Update();
 
-		// m_DeviceManager->UpdateWindowSize();
-		int width;
-		int height;
-		glfwGetWindowSize(m_WindowHandle, &width, &height);
-
-		if (m_Data.Width != width || m_Data.Height != height)
+		if (m_Data.SizeDirty)
 		{
-			m_Data.Width = width;
-			m_Data.Height = height;
-
-			m_SwapChain->OnResize(width, height);
+			m_Data.SizeDirty = false;
+			m_SwapChain->OnResize(m_Data.Width, m_Data.Height);
 		}
 
 		// Apply a pending VSync change. ProcessEvents runs when both the main and
@@ -558,10 +575,10 @@ namespace Lux {
 		glfwSetWindowAttrib(m_WindowHandle, GLFW_RESIZABLE, resizable ? GLFW_TRUE : GLFW_FALSE);
 	}
 
-	void Window::BeginFrame()
+	bool Window::BeginFrame()
 	{
 		LUX_CORE_VERIFY(m_SwapChain);
-		m_SwapChain->BeginFrame();
+		return m_SwapChain->BeginFrame();
 	}
 
 	void Window::Maximize()

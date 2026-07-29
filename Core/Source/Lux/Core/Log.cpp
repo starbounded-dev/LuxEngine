@@ -16,6 +16,7 @@ namespace Lux {
 	std::shared_ptr<spdlog::logger> Log::s_EditorConsoleLogger;
 
 	std::map<std::string, Log::TagDetails> Log::s_DefaultTagDetails = {
+		{ "",                  TagDetails{  true, Level::Trace } },
 		{ "Animation",         TagDetails{  true, Level::Warn  } },
 		{ "Asset Pack",        TagDetails{  true, Level::Warn  } },
 		{ "AssetManager",      TagDetails{  true, Level::Info  } },

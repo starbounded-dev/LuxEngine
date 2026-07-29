@@ -53,7 +53,7 @@ namespace Lux {
 		virtual bool IsVSync() const;
 		virtual void SetResizable(bool resizable) const;
 
-		void BeginFrame();
+		bool BeginFrame();
 
 		virtual void Maximize();
 		virtual void CenterWindow();
@@ -94,8 +94,10 @@ namespace Lux {
 		{
 			std::string Title;
 			uint32_t Width, Height;
+			bool SizeDirty = false;
 
 			EventCallbackFn EventCallback;
+			Window* Self = nullptr;
 		};
 
 		WindowData m_Data;

@@ -7,6 +7,10 @@
 #define LUX_DEBUG_BREAK __debugbreak()
 #elif defined(LUX_COMPILER_CLANG)
 #define LUX_DEBUG_BREAK __builtin_debugtrap()
+#elif defined(LUX_COMPILER_GCC) && (defined(__i386__) || defined(__x86_64__))
+#define LUX_DEBUG_BREAK __asm__ volatile("int $0x03")
+#elif defined(LUX_COMPILER_GCC)
+#define LUX_DEBUG_BREAK __builtin_trap()
 #else
 #define LUX_DEBUG_BREAK
 #endif

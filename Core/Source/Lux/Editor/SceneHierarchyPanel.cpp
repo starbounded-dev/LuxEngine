@@ -14,7 +14,7 @@
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/UI/Font.h"
-#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Core/Hash.h"

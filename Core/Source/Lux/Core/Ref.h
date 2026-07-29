@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstddef>
 #include <type_traits>
+#include <typeinfo>
 
 namespace Lux {
 
@@ -170,7 +171,7 @@ namespace Lux {
 		template<typename... Args>
 		static Ref<T> Create(Args&&... args)
 		{
-#if LUX_TRACK_MEMORY && defined(LUX_PLATFORM_WINDOWS)
+#if LUX_TRACK_MEMORY
 			return Ref<T>(new(typeid(T).name()) T(std::forward<Args>(args)...));
 #else
 			return Ref<T>(new T(std::forward<Args>(args)...));

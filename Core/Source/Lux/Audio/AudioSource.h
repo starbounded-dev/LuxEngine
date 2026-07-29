@@ -84,6 +84,6 @@ namespace Lux {
 		std::filesystem::path m_FilePath;
 		bool m_Spatialization = false;
 		bool m_IsLoaded = false;
-		uint64_t m_CursorPos = 0;
+		ma_uint64 m_CursorPos = 0;
 	};
 }

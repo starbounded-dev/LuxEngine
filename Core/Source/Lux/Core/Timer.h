@@ -49,6 +49,7 @@ namespace Lux {
 			inline PerFrameData& operator+=(float time)
 			{
 				Time += time;
+				return *this;
 			}
 		};
 	public:

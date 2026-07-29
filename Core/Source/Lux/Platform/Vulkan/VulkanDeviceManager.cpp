@@ -612,7 +612,7 @@ namespace Lux {
 		if (m_DeviceParams.enableDebugRuntime)
 		{
 			enabledExtensions.instance.insert("VK_EXT_debug_report");
-			enabledExtensions.layers.insert("VK_LAYER_KHRONOS_validation");
+			optionalExtensions.layers.insert("VK_LAYER_KHRONOS_validation");
 		}
 
 		PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =

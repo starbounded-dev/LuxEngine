@@ -3,6 +3,30 @@ bin-int/
 Intermediates/
 /bin
 
+# Generated Makefiles (Linux/gmake2)
+Makefile
+*.make
+Core/Makefile
+Editor/Makefile
+Lux-Runtime/Makefile
+ScriptCore/Makefile
+
+# Vendored Vulkan SDK (local install)
+Core/vendor/VulkanSDK/
+
+# JoltPhysics build artifacts
+Core/vendor/JoltPhysics/Makefile
+Core/vendor/JoltPhysics/bin/
+
+# TypeScript (local)
+typescript
+
+# Premake binary (platform-specific)
+premake5
+
+# Claude Code local settings
+.claude/
+
 # Lux files
 *.log
 
@@ -28,6 +52,9 @@ Core/vendor/tracy
 Editor/LuxSampleProject/Assets/Scripts/Binaries
 ScriptCore/obj/
 Editor/LuxSampleProject/Assets/Scripts/obj/
+# Exported standalone game builds (produced by the editor's Export Runtime)
+Editor/LuxSampleProject/*-Linux-x86_64/
+Editor/LuxSampleProject/*-Windows-x86_64/
 Editor/DotNet/
 Editor/Resources/Cache
 Lux.slnx
@@ -41,6 +68,8 @@ Editor/LuxSampleProject/Assets/AssetRegistry.lzr
 Core/vendor/JoltPhysics/bin/Debug-windows-x86_64/JoltPhysics/JoltPhysics.idb
 AGENTS.md
 *.lmat
+*.lmesh
+*.lsettings
 Editor/assets/AssetRegistry.lzr
 Editor/dbg_trace.txt
 Editor/dbg_ctor.txt

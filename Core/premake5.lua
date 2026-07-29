@@ -14,7 +14,7 @@ project "Core"
 		'{COPYFILE} "%{wks.location}/Core/vendor/Coral/Build/%{cfg.buildcfg}/Coral.Managed.deps.json" "%{wks.location}/Editor/DotNet/Coral.Managed.deps.json"',
 	}
 
-	filter { "configurations:Debug or configurations:Debug-AS or configurations:Release" }
+	filter { "system:windows", "configurations:Debug or configurations:Debug-AS or configurations:Release" }
 		postbuildcommands {
 			'{COPYFILE} "%{wks.location}/Core/vendor/Coral/Build/%{cfg.buildcfg}/Coral.Managed.pdb" "%{wks.location}/Editor/DotNet/Coral.Managed.pdb"',
 		}
@@ -76,6 +76,11 @@ project "Core"
 	filter "system:linux"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread" }
+
+		-- HlslIncluder calls DxcCreateInstance (libdxcompiler), which Linux doesn't link: HLSL
+		-- include resolution happens in the dxc CLI at compile time, and the preprocessor no-op
+		-- on Linux never instantiates it. Drop it so the symbol isn't required at link time.
+		removefiles { "Source/Lux/Platform/Vulkan/ShaderCompiler/ShaderPreprocessing/HlslIncluder.cpp" }
 
 	filter "configurations:Debug or configurations:Debug-AS"
 		symbols "On"

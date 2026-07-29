@@ -1808,6 +1808,8 @@ namespace Lux {
 		Renderer::Submit([renderCommandBuffer, image, clearColor, subresourceSet]() mutable
 			{
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+				if (!commandList || !image || !image->GetHandle())
+					return;
 				const auto& spec = image->GetSpecification();
 				const std::string markerName = "ClearImage: " + (spec.DebugName.empty() ? std::string("Image2D") : spec.DebugName);
 				renderCommandBuffer->RT_BeginMarker(markerName);

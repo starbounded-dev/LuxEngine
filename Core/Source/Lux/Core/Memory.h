@@ -117,15 +117,27 @@ void __CRTDECL operator delete[](void* memory);
 void __CRTDECL operator delete[](void* memory, const char* desc);
 void __CRTDECL operator delete[](void* memory, const char* file, int line);
 
-#define lnew new(__FILE__, __LINE__)
-#define ldelete delete
+#elif defined(LUX_PLATFORM_LINUX)
 
-#else
-#warning "Memory tracking not available on non-Windows platform"
-#define lnew new
-#define ldelete delete
+[[nodiscard]] void* operator new(size_t size);
+[[nodiscard]] void* operator new[](size_t size);
+[[nodiscard]] void* operator new(size_t size, const char* desc);
+[[nodiscard]] void* operator new[](size_t size, const char* desc);
+[[nodiscard]] void* operator new(size_t size, const char* file, int line);
+[[nodiscard]] void* operator new[](size_t size, const char* file, int line);
+
+void operator delete(void* memory) noexcept;
+void operator delete(void* memory, size_t size) noexcept;
+void operator delete(void* memory, const char* desc);
+void operator delete(void* memory, const char* file, int line);
+void operator delete[](void* memory) noexcept;
+void operator delete[](void* memory, const char* desc);
+void operator delete[](void* memory, const char* file, int line);
 
 #endif
+
+#define lnew new(__FILE__, __LINE__)
+#define ldelete delete
 
 #else
 

@@ -28,6 +28,7 @@
 #include <sstream>
 
 #if defined(LUX_PLATFORM_LINUX)
+#include <fcntl.h>
 #include <spawn.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -353,7 +354,19 @@ namespace Lux {
 
 			m_AcknowledgedMacros.merge(includer->GetParsedSpecialMacros());
 #else
+			// Linux resolves HLSL includes in the dxc CLI at compile time (via -I flags), so it
+			// skips the DXC-based preprocessor here. Hash source + global macros so the shader
+			// cache invalidates when either changes.
 			m_StagesMetadata[stage] = StageData{};
+			std::string hashInput = shaderSource;
+			for (const auto& [name, value] : Renderer::GetGlobalShaderMacros())
+			{
+				hashInput += name;
+				hashInput += '=';
+				hashInput += value;
+				hashInput += ';';
+			}
+			m_StagesMetadata[stage].HashValue = Hash::GenerateFNVHash(hashInput);
 #endif
 		}
 		return shaderSources;
@@ -444,18 +457,22 @@ namespace Lux {
 
 			return error;
 #elif defined(LUX_PLATFORM_LINUX)
-			// Note(Emily): This is *atrocious* but dxc's integration refuses to process builtin HLSL without ICE'ing
-			//				from the integration.
+			// Write stage-specific source to a temp file so dxc only sees one stage
+			// (the preprocessor already split the multi-stage .hlsl by #pragma stage).
+			char srcTempName[] = "/tmp/lux-hlsl-src-XXXXXX.hlsl";
+			int srcFd = mkstemps(srcTempName, 5);
+			write(srcFd, stageSource.c_str(), stageSource.size());
+			close(srcFd);
 
-			char tempfileName[] = "hazel-hlsl-XXXXXX.spv";
-			int outfile = mkstemps(tempfileName, 4);
+			char outTempName[] = "/tmp/lux-hlsl-out-XXXXXX.spv";
+			int outFd = mkstemps(outTempName, 4);
+			close(outFd);
 
 			std::string dxc = std::format("{}/bin/dxc", FileSystem::GetEnvironmentVariable("VULKAN_SDK"));
-			std::string sourcePath = m_ShaderSourcePath.string();
 
 			std::vector<const char*> exec{
 				dxc.c_str(),
-				sourcePath.c_str(),
+				srcTempName,
 
 				"-E", "main",
 				"-T", ShaderUtils::HLSLShaderProfile(stage),
@@ -467,8 +484,21 @@ namespace Lux {
 				"-I", "Resources/Shaders/Include/Common",
 				"-I", "Resources/Shaders/Include/HLSL",
 
-				"-Fo", tempfileName
+				"-Fo", outTempName
 			};
+
+			const auto& globalMacros = Renderer::GetGlobalShaderMacros();
+			std::vector<std::string> macroDefs;
+			macroDefs.reserve(globalMacros.size());
+			for (const auto& [name, value] : globalMacros)
+			{
+				exec.push_back("-D");
+				if (value.size())
+					macroDefs.push_back(std::format("{}={}", name, value));
+				else
+					macroDefs.push_back(name);
+				exec.push_back(macroDefs.back().c_str());
+			}
 
 			if (options.GenerateDebugInfo)
 			{
@@ -476,36 +506,61 @@ namespace Lux {
 				exec.push_back("-Zi");
 			}
 
-			if (stage & (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT | VK_SHADER_STAGE_GEOMETRY_BIT))
+			if ((uint16_t)stage & ((uint16_t)nvrhi::ShaderType::Vertex | (uint16_t)nvrhi::ShaderType::Hull | (uint16_t)nvrhi::ShaderType::Geometry))
 				exec.push_back("-fvk-invert-y");
 
 			exec.push_back(NULL);
 
-			// TODO(Emily): Error handling
-			pid_t pid;
-			posix_spawnattr_t attr;
-			posix_spawnattr_init(&attr);
+			// Capture stderr from dxc for error messages
+			int errPipe[2];
+			pipe(errPipe);
 
-			std::string ld_lib_path = std::format("LD_LIBRARY_PATH={}", getenv("LD_LIBRARY_PATH"));
-			char* env[] = { ld_lib_path.data(), NULL };
-			if (posix_spawn(&pid, exec[0], NULL, &attr, (char**)exec.data(), env))
+			posix_spawn_file_actions_t fileActions;
+			posix_spawn_file_actions_init(&fileActions);
+			posix_spawn_file_actions_adddup2(&fileActions, errPipe[1], STDERR_FILENO);
+			posix_spawn_file_actions_addclose(&fileActions, errPipe[0]);
+
+			pid_t pid;
+			std::string ld_lib_path = std::format("LD_LIBRARY_PATH={}", getenv("LD_LIBRARY_PATH") ? getenv("LD_LIBRARY_PATH") : "");
+			char* spawnEnv[] = { ld_lib_path.data(), NULL };
+			int spawnErr = posix_spawn(&pid, exec[0], &fileActions, nullptr, (char**)exec.data(), spawnEnv);
+			close(errPipe[1]);
+
+			if (spawnErr)
 			{
-				return std::format("Could not execute `{}` for shader compilation: {} {}", exec[0], m_ShaderSourcePath.string(), ShaderUtils::ShaderStageToString(stage));
+				close(errPipe[0]);
+				unlink(srcTempName);
+				unlink(outTempName);
+				return std::format("Could not execute `{}` for shader compilation: {} {}", exec[0], m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage));
 			}
+
+			// Read dxc stderr
+			std::string dxcErrors;
+			char buf[4096];
+			ssize_t n;
+			while ((n = read(errPipe[0], buf, sizeof(buf))) > 0)
+				dxcErrors.append(buf, n);
+			close(errPipe[0]);
+
 			int status;
 			waitpid(pid, &status, 0);
+			posix_spawn_file_actions_destroy(&fileActions);
+
+			unlink(srcTempName);
 
 			if (WEXITSTATUS(status))
 			{
-				return std::format("Compilation failed\nWhile compiling shader file: {} \nAt stage: {}", m_ShaderSourcePath.string(), ShaderUtils::ShaderStageToString(stage));
+				unlink(outTempName);
+				return std::format("{}\nWhile compiling shader file: {} \nAt stage: {}", dxcErrors, m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage));
 			}
 
+			int outfile = open(outTempName, O_RDONLY);
 			off_t size = lseek(outfile, 0, SEEK_END);
 			lseek(outfile, 0, SEEK_SET);
 			outputBinary.resize(size / sizeof(uint32_t));
 			read(outfile, outputBinary.data(), size);
 			close(outfile);
-			unlink(tempfileName);
+			unlink(outTempName);
 
 			return {};
 #endif
@@ -745,7 +800,7 @@ namespace Lux {
 
 		serializer.ReadRaw(header);
 
-		bool validHeader = memcmp(&header, "HZSR", 4) == 0;
+		bool validHeader = memcmp(&header, "LXSR", 4) == 0;
 		LUX_CORE_VERIFY(validHeader);
 		if (!validHeader)
 			return false;

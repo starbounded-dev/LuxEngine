@@ -22,7 +22,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     SkyLightComponent:
-      EnvironmentMap: 16912336775507277160
+      EnvironmentMap: 17181252949308778436
       Intensity: 0.239999995
       Lod: 0
       DynamicSky: false

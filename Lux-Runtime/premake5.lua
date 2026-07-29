@@ -68,10 +68,26 @@ project "Lux-Runtime"
 
 	filter "system:linux"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
-		links { "dw", "dl", "unwind", "pthread" }
+		links { "dw", "dl", "unwind", "pthread", "X11" }
+		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'" }
 		if gtkLinkOptions then
 			linkoptions { gtkLinkOptions }
 		end
+		if os.host() == "linux" then
+			LinkNethost()
+		end
+
+	filter { "system:linux", "configurations:Debug or configurations:Debug-AS" }
+		postbuildcommands {
+			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
+			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}/DotNet"',
+		}
+
+	filter { "system:linux", "configurations:Release or configurations:Dist" }
+		postbuildcommands {
+			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
+			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}/DotNet"',
+		}
 
 	filter "configurations:Debug or configurations:Debug-AS"
 		symbols "On"

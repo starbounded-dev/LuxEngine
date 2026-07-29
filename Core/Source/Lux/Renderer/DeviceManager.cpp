@@ -307,20 +307,14 @@ const DeviceCreationParameters& DeviceManager::GetDeviceParams()
 
 void DeviceManager::WindowPosCallback(int x, int y)
 {
-#if defined(LUX_PLATFORM_WINDOWS)
-    if (m_DeviceParams.enablePerMonitorDPI)
+    if (m_DeviceParams.enablePerMonitorDPI && m_WindowHandle)
     {
-        HWND hwnd = glfwGetWin32Window(m_WindowHandle);
-        auto monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-
-        unsigned int dpiX;
-        unsigned int dpiY;
-        GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
-
-        m_DPIScaleFactorX = dpiX / 96.f;
-        m_DPIScaleFactorY = dpiY / 96.f;
+        float xscale = 1.0f, yscale = 1.0f;
+        glfwGetWindowContentScale(m_WindowHandle, &xscale, &yscale);
+        m_DPIScaleFactorX = xscale;
+        m_DPIScaleFactorY = yscale;
     }
-#endif    
+
 
 #if 0
     if (m_EnableRenderDuringWindowMovement && m_SwapChainFramebuffers.size() > 0)
