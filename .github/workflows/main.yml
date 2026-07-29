@@ -86,7 +86,7 @@ jobs:
           MSBuild "${{ env.SOLUTION_FILE_PATH }}" /restore /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
 
       - name: Package editor artifact
-        if: matrix.configuration != 'Dist'
+        if: matrix.configuration == 'Release'
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
           $configuration = "${{ matrix.configuration }}"
@@ -134,7 +134,7 @@ jobs:
           }
 
       - name: Upload editor artifact
-        if: matrix.configuration != 'Dist'
+        if: matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
         with:
           name: editor-${{ matrix.configuration }}
@@ -142,7 +142,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload build logs
-        if: always()
+        if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-${{ matrix.configuration }}
@@ -203,7 +203,13 @@ jobs:
       # Single entry point: generates the C# projects, builds the managed assemblies, the
       # native engine, and the sample game's scripts.
       - name: Build
-        run: ./scripts/Linux-Build.sh ${{ matrix.configuration }}
+        shell: bash
+        run: |
+          # pipefail so a build failure is not masked by tee's exit status.
+          set -o pipefail
+          mkdir -p logs
+          ./scripts/Linux-Build.sh ${{ matrix.configuration }} 2>&1 \
+            | tee "logs/Build-${{ matrix.configuration }}.log"
 
       # The build script is `set -e`, but assert the artifacts exist so a step that silently
       # produces nothing cannot pass.
@@ -219,3 +225,57 @@ jobs:
             fi
           done
           exit $fail
+
+      # Unlike Windows, the Linux build output holds only the executable, and the binary is
+      # linked with RPATH $ORIGIN/lib - so the vendored shared libraries have to be bundled
+      # into lib/ for the artifact to be runnable at all.
+      - name: Package editor artifact
+        if: matrix.configuration == 'Release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="bin/${{ matrix.configuration }}-linux-x86_64/Editor"
+          root="artifacts/Editor-linux-${{ matrix.configuration }}"
+
+          rm -rf "$root"
+          mkdir -p "$root/lib"
+          cp -a "$out/." "$root/"
+
+          for item in LuxSampleProject Resources DotNet; do
+            if [ ! -e "Editor/$item" ]; then
+              echo "Editor artifact input was not found: Editor/$item" >&2
+              exit 1
+            fi
+            cp -a "Editor/$item" "$root/"
+          done
+
+          # Editor state, regenerated on first run and gitignored, so absent in a clean checkout.
+          for item in imgui.ini App.lsettings; do
+            [ -e "Editor/$item" ] && cp -a "Editor/$item" "$root/" \
+              || echo "Skipping optional editor state file (not present): Editor/$item"
+          done
+
+          for dir in "Core/vendor/assimp/bin/linux" \
+                     "Core/vendor/NvidiaAftermath/lib/x64/linux" \
+                     "${VULKAN_SDK:-}/lib"; do
+            [ -d "$dir" ] || continue
+            find "$dir" -maxdepth 1 -name '*.so*' -exec cp -aP {} "$root/lib/" \;
+          done
+
+          echo "Bundled $(find "$root/lib" -name '*.so*' | wc -l) shared libraries."
+
+      - name: Upload editor artifact
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-linux-${{ matrix.configuration }}
+          path: artifacts/Editor-linux-${{ matrix.configuration }}/
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always() && matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-linux-${{ matrix.configuration }}
+          path: logs/*.log
+          if-no-files-found: ignore
