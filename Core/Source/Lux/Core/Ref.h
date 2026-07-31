@@ -24,9 +24,12 @@ namespace Lux {
 		{
 			++m_RefCount;
 		}
-		void DecRefCount() const
+		// Returns the new (post-decrement) count so callers can decide deletion from the atomic
+		// operation itself. Decrementing and then separately loading the count is a double-free
+		// race: two threads can both observe 0 and both delete.
+		uint32_t DecRefCount() const
 		{
-			--m_RefCount;
+			return --m_RefCount;
 		}
 
 		uint32_t GetRefCount() const { return m_RefCount.load(); }
@@ -209,12 +212,13 @@ namespace Lux {
 		{
 			if (m_Instance)
 			{
-				m_Instance->DecRefCount();
-				
-				if (m_Instance->GetRefCount() == 0)
+				// Delete only if THIS decrement produced 0. Using the atomic decrement's own result
+				// (instead of a separate GetRefCount()==0 load) is what makes cross-thread releases
+				// safe: two threads can't both see 0 and double-delete.
+				if (m_Instance->DecRefCount() == 0)
 				{
-					delete m_Instance;
 					RefUtils::RemoveFromLiveReferences((void*)m_Instance);
+					delete m_Instance;
 					m_Instance = nullptr;
 				}
 			}
