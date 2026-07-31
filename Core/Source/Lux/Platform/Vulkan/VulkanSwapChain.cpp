@@ -228,6 +228,8 @@ namespace Lux {
 		}
 
 		BackBufferResized();
+
+		m_NeedsRecreate = false;
 		return true;
 	}
 
@@ -293,55 +295,38 @@ namespace Lux {
 
 		const auto& semaphore = m_AcquireSemaphores[m_AcquireSemaphoreIndex];
 
-		vk::Result res;
+		const vk::Result res = vulkanDeviceManager->m_VulkanDevice.acquireNextImageKHR(
+			m_SwapChain,
+			std::numeric_limits<uint64_t>::max(), // timeout
+			semaphore,
+			vk::Fence(),
+			&m_SwapChainIndex);
 
-		int const maxAttempts = 3;
-		for (int attempt = 0; attempt < maxAttempts; ++attempt)
-		{
-			res = vulkanDeviceManager->m_VulkanDevice.acquireNextImageKHR(
-				m_SwapChain,
-				std::numeric_limits<uint64_t>::max(), // timeout
-				semaphore,
-				vk::Fence(),
-				&m_SwapChainIndex);
-
-			m_AcquiredSemaphore = semaphore;
-
-			if ((res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR) && attempt < maxAttempts)
-			{
-				BackBufferResizing();
-
-				vk::SurfaceCapabilitiesKHR surfaceCaps;
-				vk::Result capsRes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface, &surfaceCaps);
-				if (capsRes != vk::Result::eSuccess)
-				{
-					LUX_CORE_ERROR("VulkanSwapChain::BeginFrame - getSurfaceCapabilitiesKHR failed: {}", (int)capsRes);
-					return false;
-				}
-
-				// 0xFFFFFFFF means the surface takes its size from the swap chain
-				// (Wayland); keep the current extent and let Create() clamp it.
-				if (surfaceCaps.currentExtent.width != 0xFFFFFFFF)
-				{
-					m_Width = surfaceCaps.currentExtent.width;
-					m_Height = surfaceCaps.currentExtent.height;
-				}
-
-				if (m_Width == 0 || m_Height == 0)
-					return false;
-
-				Resize();
-				BackBufferResized();
-			}
-			else
-			{
-				break;
-			}
-		}
-
+		m_AcquiredSemaphore = semaphore;
 		m_AcquireSemaphoreIndex = (m_AcquireSemaphoreIndex + 1) % m_AcquireSemaphores.size();
 
-		return res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR;
+		// Recreation is NEVER done here: destroying the swapchain would waitIdle and then destroy
+		// the acquire semaphores, but vkAcquireNextImageKHR signals a binary semaphore from the
+		// presentation engine and waitIdle does not clear that pending signal — destroying it is
+		// undefined behaviour and crashes the driver (the resize crash). Instead flag it and let
+		// Window::ProcessEvents recreate at the next point where both threads are idle.
+		if (res == vk::Result::eErrorOutOfDateKHR)
+		{
+			// The acquire failed: no image, and 'semaphore' was NOT signaled. We cannot render this
+			// frame — skip it. The swapchain is rebuilt before the next acquire.
+			m_NeedsRecreate = true;
+			return false;
+		}
+
+		if (res == vk::Result::eSuboptimalKHR)
+		{
+			// The acquire SUCCEEDED and signaled 'semaphore'; the image is still presentable. Render
+			// and present this frame as usual, and rebuild afterwards at the safe boundary.
+			m_NeedsRecreate = true;
+			return true;
+		}
+
+		return res == vk::Result::eSuccess;
 	}
 
 	void VulkanSwapChain::Present()
@@ -369,7 +354,12 @@ namespace Lux {
 				.setPImageIndices(&m_SwapChainIndex);
 
 			const vk::Result res = vulkanDeviceManager->m_PresentQueue.presentKHR(&info);
-			LUX_CORE_VERIFY(res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR || res == vk::Result::eErrorOutOfDateKHR);
+			// eSuboptimal/eOutOfDate here just mean the surface changed size (resize); flag for a
+			// deferred recreate rather than tearing down the swapchain from inside Present.
+			if (res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR)
+				m_NeedsRecreate = true;
+			else
+				LUX_CORE_VERIFY(res == vk::Result::eSuccess);
 		}
 
 		RenderCommandBuffer::UnlockQueue();

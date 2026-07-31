@@ -72,6 +72,14 @@ namespace Lux {
 
 	const ImGuiTextureInfo& ImGuiDrawDataSnapshot::ResolveTexture(uint64_t handle) const
 	{
+		// Returned by reference for any handle we can't resolve. Its Texture is null, so the draw
+		// loop skips the command. The asserts below still fire in Debug to pinpoint the bad handle,
+		// but in Release they are compiled out — without the explicit bounds checks an out-of-range
+		// or stale handle would read the vector out of bounds and hand null/garbage to nvrhi
+		// (the requireTextureState crash). ImGui 1.92 makes this reachable: a draw cmd can reference
+		// an ImTextureData whose TexID this legacy backend never set (GetTexID() == invalid).
+		static const ImGuiTextureInfo s_InvalidTexture{};
+
 		const uint32_t textureIndex = static_cast<uint32_t>(handle & 0xFFFFFFFFull);
 		const uint32_t frameCounter = static_cast<uint32_t>(handle >> 32);
 
@@ -79,13 +87,20 @@ namespace Lux {
 		{
 			LUX_CORE_ASSERT(frameCounter == 0, "Persistent ImGui texture handle has a frame counter");
 			LUX_CORE_ASSERT(textureIndex < m_PersistentTextures.size(), "Invalid persistent ImGui texture handle");
+			if (textureIndex >= m_PersistentTextures.size())
+				return s_InvalidTexture;
 			return m_PersistentTextures[textureIndex];
 		}
 
 		LUX_CORE_ASSERT(frameCounter == m_FrameCounter,
 			"Stale ImGui texture handle: from frame {}, snapshot frame {}", frameCounter, m_FrameCounter);
+		if (frameCounter != m_FrameCounter)
+			return s_InvalidTexture;
+
 		const uint32_t frameTextureIndex = textureIndex - ImGuiTextureRegistry::PersistentHandleCount;
 		LUX_CORE_ASSERT(frameTextureIndex < m_FrameTextures.size(), "Invalid frame ImGui texture handle");
+		if (frameTextureIndex >= m_FrameTextures.size())
+			return s_InvalidTexture;
 		return m_FrameTextures[frameTextureIndex];
 	}
 
@@ -183,54 +198,125 @@ namespace Lux {
 
 	// -----------------------------------------------------------------------
 	// UpdateFontTexture
-	// Only creates and registers the font texture if it hasn't been done yet.
-	// Because the registry is shared, the font persistent slot (index 0) is
-	// populated once and visible to all renderer instances.
+	// Advertises backend capabilities. Must run before ImGui::NewFrame() so ImGui knows the
+	// backend services ImTextureData (RendererHasTextures). The font atlas itself is no longer
+	// created here — under ImGui 1.92 the atlas is an ImGui-owned ImTextureData that is created,
+	// updated and destroyed by ProcessTextures().
 	// -----------------------------------------------------------------------
 
 	bool ImGuiRenderer::UpdateFontTexture()
 	{
-		nvrhi::IDevice* device = Application::GetGraphicsDevice();
-
 		ImGuiIO& io = ImGui::GetIO();
 		io.BackendRendererName = "LuxImGuiRenderer";
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+		io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+		return true;
+	}
 
-		if (m_FontTexture)
-			return true;
+	// -----------------------------------------------------------------------
+	// ProcessTextures
+	// Services the ImGui-owned texture list (font atlas + any custom atlas). Runs once per frame
+	// on the main thread from ImGuiLayer::End(), after ImGui::Render() (so statuses/pixels are
+	// final) and before draw data is snapshotted (so the render thread only sees ready textures).
+	// The registry is only ever touched on the main thread, so no locking is needed.
+	// -----------------------------------------------------------------------
 
-		unsigned char* pixels;
-		int width, height;
-		io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-		if (!pixels)
-			return false;
+	void ImGuiRenderer::ProcessTextures()
+	{
+		for (ImTextureData* tex : ImGui::GetPlatformIO().Textures)
+		{
+			switch (tex->Status)
+			{
+				case ImTextureStatus_WantCreate:
+				case ImTextureStatus_WantUpdates:
+					CreateOrUpdateImGuiTexture(tex);
+					break;
+				case ImTextureStatus_WantDestroy:
+					// UnusedFrames > 0 guarantees the texture isn't referenced by the draw data we
+					// just snapshotted, so releasing our reference now is safe.
+					if (tex->UnusedFrames > 0)
+						DestroyImGuiTexture(tex);
+					break;
+				default:
+					break;
+			}
+		}
+	}
 
-		nvrhi::TextureDesc textureDesc;
-		textureDesc.width = width;
-		textureDesc.height = height;
-		textureDesc.format = nvrhi::Format::RGBA8_UNORM;
-		textureDesc.debugName = "ImGui font texture";
+	void ImGuiRenderer::CreateOrUpdateImGuiTexture(ImTextureData* tex)
+	{
+		nvrhi::IDevice* device = Application::GetGraphicsDevice();
+		const bool create = (tex->Status == ImTextureStatus_WantCreate);
 
-		m_FontTexture = device->createTexture(textureDesc);
-		if (!m_FontTexture)
-			return false;
+		nvrhi::TextureHandle handle;
+		uint32_t slot;
 
+		if (create)
+		{
+			nvrhi::TextureDesc textureDesc;
+			textureDesc.width = (uint32_t)tex->Width;
+			textureDesc.height = (uint32_t)tex->Height;
+			textureDesc.format = (tex->Format == ImTextureFormat_Alpha8)
+				? nvrhi::Format::R8_UNORM : nvrhi::Format::RGBA8_UNORM;
+			textureDesc.debugName = "ImGui atlas texture";
+			// keepInitialState lets nvrhi assume the texture is ShaderResource entering any command
+			// list (incl. the render-thread draw), so sampling it never trips "Unknown prior state".
+			textureDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+			textureDesc.keepInitialState = true;
+
+			handle = device->createTexture(textureDesc);
+			if (!handle)
+				return;
+
+			slot = (uint32_t)RegisterPersistentTexture(handle.Get(), nvrhi::AllSubresources);
+			m_Registry->ImGuiOwnedTextures[slot] = handle; // keep alive
+		}
+		else // WantUpdates: re-upload into the existing texture
+		{
+			slot = (uint32_t)tex->TexID;
+			auto it = m_Registry->ImGuiOwnedTextures.find(slot);
+			if (it == m_Registry->ImGuiOwnedTextures.end())
+			{
+				// No record of this texture (e.g. a stale TexID) — recreate from scratch.
+				tex->SetStatus(ImTextureStatus_WantCreate);
+				CreateOrUpdateImGuiTexture(tex);
+				return;
+			}
+			handle = it->second;
+		}
+
+		// Upload the whole pixel buffer. ImTextureData::Updates[] rects are an optimization we skip:
+		// the editor's fonts are baked at load, so full re-uploads are rare.
 		m_RenderCommandBuffer->RT_Begin();
 		nvrhi::CommandListHandle commandList = m_RenderCommandBuffer->GetActive();
-
-		commandList->beginTrackingTextureState(m_FontTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
-		commandList->writeTexture(m_FontTexture, 0, 0, pixels, width * 4);
-		commandList->setPermanentTextureState(m_FontTexture, nvrhi::ResourceStates::ShaderResource);
+		commandList->beginTrackingTextureState(handle, nvrhi::AllSubresources,
+			create ? nvrhi::ResourceStates::Common : nvrhi::ResourceStates::ShaderResource);
+		commandList->writeTexture(handle, 0, 0, tex->GetPixels(), (size_t)tex->GetPitch());
+		commandList->setTextureState(handle, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
 		commandList->commitBarriers();
-
 		m_RenderCommandBuffer->RT_End();
 		m_RenderCommandBuffer->RT_Submit();
 
-		// Registers into the shared registry - index 0, visible to ALL renderers.
-		io.Fonts->TexID = RegisterPersistentTexture(m_FontTexture.Get(), nvrhi::AllSubresources);
+		tex->SetTexID((ImTextureID)slot);
+		tex->SetStatus(ImTextureStatus_OK);
+	}
 
-		return true;
+	void ImGuiRenderer::DestroyImGuiTexture(ImTextureData* tex)
+	{
+		const uint32_t slot = (uint32_t)tex->TexID;
+		auto it = m_Registry->ImGuiOwnedTextures.find(slot);
+		if (it != m_Registry->ImGuiOwnedTextures.end())
+		{
+			// Release our reference. Any in-flight snapshot holds its own ref (m_TextureKeepAlives),
+			// so the GPU resource survives until the render thread is done with it.
+			m_Registry->ImGuiOwnedTextures.erase(it);
+			if (slot < m_Registry->PersistentTextures.size())
+				m_Registry->PersistentTextures[slot] = {}; // stop resolving to a freed texture
+			m_Registry->FreePersistentSlots.push_back(slot); // reclaim for reuse
+		}
+		tex->SetTexID(ImTextureID_Invalid);
+		tex->SetStatus(ImTextureStatus_Destroyed);
 	}
 
 	// -----------------------------------------------------------------------
@@ -240,8 +326,6 @@ namespace Lux {
 	ImTextureID ImGuiRenderer::RegisterPersistentTexture(nvrhi::ITexture* texture,
 		nvrhi::TextureSubresourceSet subresources)
 	{
-		LUX_CORE_ASSERT(m_Registry->NextPersistentIndex < PersistentHandleCount,
-			"Too many persistent textures!");
 		LUX_CORE_ASSERT(texture, "RegisterPersistentTexture called with null texture!");
 
 		nvrhi::TextureSubresourceSet resolved = subresources;
@@ -252,7 +336,18 @@ namespace Lux {
 		if (resolved.numArraySlices == nvrhi::TextureSubresourceSet::AllArraySlices)
 			resolved.numArraySlices = texDesc.arraySize - resolved.baseArraySlice;
 
-		uint32_t index = m_Registry->NextPersistentIndex++;
+		uint32_t index;
+		if (!m_Registry->FreePersistentSlots.empty())
+		{
+			index = m_Registry->FreePersistentSlots.back();
+			m_Registry->FreePersistentSlots.pop_back();
+		}
+		else
+		{
+			LUX_CORE_ASSERT(m_Registry->NextPersistentIndex < PersistentHandleCount,
+				"Too many persistent textures!");
+			index = m_Registry->NextPersistentIndex++;
+		}
 
 		if (m_Registry->PersistentTextures.size() <= index)
 			m_Registry->PersistentTextures.resize(index + 1);
@@ -520,7 +615,14 @@ namespace Lux {
 				const uint64_t handle = static_cast<uint64_t>(pCmd->GetTexID());
 				const ImGuiTextureInfo& texInfo = snapshot->ResolveTexture(handle);
 
+				// In Release the assert is compiled out; a handle we couldn't resolve (see
+				// ResolveTexture) yields a null texture. GetBindingSet would deref it, and even a
+				// cached binding set feeds a null texture into nvrhi's requireTextureState and
+				// crashes. Skip the command instead of drawing garbage.
 				LUX_CORE_ASSERT(texInfo.Texture, "Texture is null in ImGuiTextureInfo!");
+				if (!texInfo.Texture)
+					continue;
+
 				drawState.bindings = { GetBindingSet(texInfo) };
 				LUX_CORE_ASSERT(drawState.bindings[0]);
 

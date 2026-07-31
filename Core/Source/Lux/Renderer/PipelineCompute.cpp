@@ -184,10 +184,16 @@ namespace Lux {
 		const std::string markerName = BuildBarrierMarkerName("Buffer", m_Shader ? m_Shader->GetName() : "PipelineCompute", GetStorageBufferDebugName(storageBuffer), fromStage, fromAccess, toStage, toAccess);
 		Renderer::Submit([renderCommandBuffer, storageBuffer, toAccess, markerName]() mutable
 			{
+				// See ImageMemoryBarrier: a buffer can be null/mid-recreation during a resize; a
+				// barrier on an unallocated resource is a no-op, so skip it instead of dereferencing
+				// null in nvrhi.
+				nvrhi::BufferHandle handle = storageBuffer ? storageBuffer->GetHandle() : nullptr;
+				if (!handle)
+					return;
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 				nvrhi::ResourceStates targetState = MapAccessFlagsToResourceState(toAccess);
 				renderCommandBuffer->RT_BeginMarker(markerName);
-				commandList->setBufferState(storageBuffer->GetHandle(), targetState);
+				commandList->setBufferState(handle, targetState);
 				commandList->commitBarriers();
 				renderCommandBuffer->RT_EndMarker();
 			});
@@ -205,10 +211,19 @@ namespace Lux {
 		const std::string markerName = BuildBarrierMarkerName("Image", m_Shader ? m_Shader->GetName() : "PipelineCompute", GetImageDebugName(image), fromStage, fromAccess, toStage, toAccess);
 		Renderer::Submit([renderCommandBuffer, image, toAccess, markerName]() mutable
 			{
+				// During a viewport/window resize the image can be mid-recreation: RT_Invalidate()
+				// calls Release() (nulling the handle) before allocating the new texture, so its GPU
+				// handle is momentarily null. A barrier on a resource that isn't currently allocated
+				// is meaningless (it gets its initial state when recreated), so skip it rather than
+				// passing null into nvrhi, which crashed on the render thread (requireTextureState).
+				// Reading into a local also keeps the texture alive across the barrier.
+				nvrhi::TextureHandle handle = image ? image->GetHandle() : nullptr;
+				if (!handle)
+					return;
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 				nvrhi::ResourceStates targetState = MapAccessFlagsToResourceState(toAccess);
 				renderCommandBuffer->RT_BeginMarker(markerName);
-				commandList->setTextureState(image->GetHandle(), nvrhi::AllSubresources, targetState);
+				commandList->setTextureState(handle, nvrhi::AllSubresources, targetState);
 				commandList->commitBarriers();
 				renderCommandBuffer->RT_EndMarker();
 			});

@@ -124,6 +124,14 @@ namespace Lux
 		std::vector<ImGuiTextureInfo> PersistentTextures;
 		uint32_t NextPersistentIndex = 0;
 
+		// Persistent slots reclaimed by DestroyImGuiTexture, reused before growing NextPersistentIndex.
+		// Lets ImGui's create/destroy of atlas textures recycle slots instead of exhausting the 64.
+		std::vector<uint32_t> FreePersistentSlots;
+
+		// GPU textures ImGui owns (font atlas etc.), serviced via the 1.92 texture system and kept
+		// alive here — PersistentTextures stores only a non-owning pointer. Keyed by persistent slot.
+		std::unordered_map<uint32_t, nvrhi::TextureHandle> ImGuiOwnedTextures;
+
 		// Per-frame textures: indices PersistentHandleCount .. N
 		// Cleared at the start of each new frame by NewFrame().
 		std::vector<ImGuiTextureInfo> FrameTextures;
@@ -183,7 +191,15 @@ namespace Lux
 		// Pass the main renderer's registry to all per-viewport renderers.
 		bool Init(std::shared_ptr<ImGuiTextureRegistry> sharedRegistry = nullptr);
 
+		// Advertises this backend's capabilities (incl. RendererHasTextures). Call once per frame
+		// before ImGui::NewFrame(). Despite the legacy name it no longer creates the font texture —
+		// ImGui owns atlas textures now; see ProcessTextures().
 		bool UpdateFontTexture();
+
+		// Service ImGui-owned textures (create/update/destroy the font atlas etc.). Call once per
+		// frame on the main thread AFTER ImGui::Render() and before snapshotting draw data.
+		void ProcessTextures();
+
 		bool Render(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, nvrhi::GraphicsPipelineHandle pipeline, nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore = nullptr);
 		bool RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain);
 		void BackbufferResizing();
@@ -209,6 +225,11 @@ namespace Lux
 		nvrhi::IBindingSet* GetBindingSet(const ImGuiTextureInfo& texInfo);
 		bool UpdateGeometry(ImDrawData* drawData);
 
+		// Helpers for ProcessTextures(). Create/update uploads the full pixel buffer into an nvrhi
+		// texture registered in the shared registry; destroy releases it and reclaims the slot.
+		void CreateOrUpdateImGuiTexture(ImTextureData* tex);
+		void DestroyImGuiTexture(ImTextureData* tex);
+
 	private:
 		// Shared across all ImGuiRenderer instances for this ImGui context.
 		std::shared_ptr<ImGuiTextureRegistry> m_Registry;
@@ -219,7 +240,6 @@ namespace Lux
 		nvrhi::ShaderHandle       m_PixelShader;
 		nvrhi::InputLayoutHandle  m_ShaderAttribLayout;
 
-		nvrhi::TextureHandle      m_FontTexture;
 		nvrhi::SamplerHandle      m_FontSampler;
 
 		nvrhi::BufferHandle       m_VertexBuffer;

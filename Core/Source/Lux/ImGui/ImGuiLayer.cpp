@@ -304,6 +304,12 @@ namespace Lux {
 
 		ImGui::Render();
 
+		// Service ImGui-owned textures (font atlas etc.) now that ImGui::Render() has finalized the
+		// texture list and pixel data, and before the draw-data snapshots below capture the registry.
+		// This is the only place the ImGui-owned textures are created/updated, so the render thread
+		// always sees fully-uploaded, registered textures.
+		m_ImGuiRenderer->ProcessTextures();
+
 		// Platform window creation, sizing, and style changes are GLFW/Win32 operations
 		// and must stay on the main thread. GPU rendering is captured and deferred.
 		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)

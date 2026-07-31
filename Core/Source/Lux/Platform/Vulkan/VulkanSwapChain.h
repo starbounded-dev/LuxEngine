@@ -40,6 +40,12 @@ namespace Lux {
 		uint32_t GetWidth() const { return m_Width; }
 		uint32_t GetHeight() const { return m_Height; }
 
+		// True when the surface reported eSuboptimal/eOutOfDate (typically after a resize) and the
+		// swapchain must be recreated. Recreation is deferred to a point where both threads are idle
+		// (Window::ProcessEvents) — never mid-BeginFrame, which would orphan a signaled acquire
+		// semaphore and crash. Cleared by Create().
+		bool NeedsRecreate() const { return m_NeedsRecreate; }
+
 		void BackBufferResizing();
 		void BackBufferResized();
 	public:
@@ -58,6 +64,7 @@ namespace Lux {
 		vk::SwapchainKHR m_SwapChain;
 
 		uint32_t m_AcquireSemaphoreIndex = 0;
+		bool m_NeedsRecreate = false;
 
 		struct SwapChainImage
 		{

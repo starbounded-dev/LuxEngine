@@ -138,7 +138,13 @@ namespace Lux {
 
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 
-		Release();
+		// NOTE: deliberately no Release() here. Release() nulls m_Info.ImageHandle before the
+		// replacement texture exists, and Invalidate() runs RT_Invalidate on the MAIN thread while
+		// the render thread reads GetHandle() (e.g. deferred compute-pass barriers). That null
+		// window is what crashed the render thread when resizing a dockspace/viewport panel.
+		// Instead the new texture is built into locals below and swapped into m_Info in a single
+		// store, so a concurrent reader always sees a valid handle — the old one or the new one,
+		// never null. The old texture is released after the swap.
 
 		// Safety net since nvrhi has both Texture2D and Texture2DArray, but we should
 		// use the latter if image has many layers since subresource resolution will
@@ -211,13 +217,11 @@ namespace Lux {
 			LUX_CORE_VERIFY(!Utils::IsBlockCompressed(m_Specification.Format));
 		}
 
-		m_Info.ImageHandle = device->createTexture(textureDesc);
-		m_GPUAllocationSize = Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers);
-		if (m_Specification.Dimension == nvrhi::TextureDimension::Texture3D)
-			m_GPUAllocationSize *= glm::max(m_Specification.Depth, 1u);
+		// Build the new texture (and sampler) into locals while the old handle is still live and
+		// readable by other threads.
+		nvrhi::TextureHandle newHandle = device->createTexture(textureDesc);
 
-		s_ImageReferences[m_Info.ImageHandle.Get()] = this;
-
+		nvrhi::SamplerHandle newSampler;
 		if (m_Specification.CreateSampler)
 		{
 			nvrhi::SamplerDesc samplerDesc;
@@ -226,12 +230,33 @@ namespace Lux {
 			samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
 			samplerDesc.mipBias = m_Specification.MipBias;
 
-			m_Info.Sampler = device->createSampler(samplerDesc);
+			newSampler = device->createSampler(samplerDesc);
 
-			// VKUtils::SetDebugUtilsObjectName(device, VK_OBJECT_TYPE_SAMPLER, std::format("{} default sampler", m_Specification.DebugName), m_Info.Sampler);
+			// VKUtils::SetDebugUtilsObjectName(device, VK_OBJECT_TYPE_SAMPLER, std::format("{} default sampler", m_Specification.DebugName), newSampler);
 		}
 
+		auto newAllocationSize = Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers);
+		if (m_Specification.Dimension == nvrhi::TextureDimension::Texture3D)
+			newAllocationSize *= glm::max(m_Specification.Depth, 1u);
+
+		// Swap the freshly-built resources in. Assign ImageHandle first, as a single store, so a
+		// concurrent render-thread reader (GetHandle) observes either the old texture or the new
+		// one — never a null handle mid-recreation.
+		const nvrhi::TextureHandle oldHandle = m_Info.ImageHandle;
+		m_Info.ImageHandle = newHandle;
+		m_Info.Sampler = newSampler;
 		m_Info.Dimension = textureDesc.dimension;
+		m_GPUAllocationSize = newAllocationSize;
+
+		if (oldHandle)
+			s_ImageReferences.erase(oldHandle.Get());
+		s_ImageReferences[newHandle.Get()] = this;
+
+		// The per-layer/per-mip views wrapped the old texture; drop them so they are rebuilt
+		// against the new texture on demand. Done after the handle swap so the old views (which
+		// still hold their own refs to the old texture) stay valid until this point.
+		m_PerLayerImageViews.clear();
+		m_PerMipImageViews.clear();
 	}
 
 	void Image2D::CreatePerLayerImageViews()

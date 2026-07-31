@@ -530,7 +530,12 @@ namespace Lux {
 		glfwPollEvents();
 		Input::Update();
 
-		if (m_Data.SizeDirty)
+		// Recreate the swapchain here — this runs only after BlockUntilRenderComplete(), so both
+		// the main and render threads are idle and no acquire/present semaphore has a pending
+		// signal. NeedsRecreate() covers eSuboptimal/eOutOfDate reported by BeginFrame/Present
+		// (e.g. a resize the size callback didn't catch, or a DPI change); SizeDirty covers the
+		// window/framebuffer size callbacks. Create() re-queries the surface extent regardless.
+		if (m_Data.SizeDirty || m_SwapChain->NeedsRecreate())
 		{
 			m_Data.SizeDirty = false;
 			m_SwapChain->OnResize(m_Data.Width, m_Data.Height);
