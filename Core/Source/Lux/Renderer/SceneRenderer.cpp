@@ -8039,9 +8039,16 @@ namespace Lux {
 			std::string markerName = std::format("Barrier PreConvolution mip {} {}", mip, label);
 			Renderer::Submit([commandBuffer, preConvolutedImage, mip, state, markerName]() mutable
 			{
+				// During a viewport resize the pre-convolution image can be mid-recreation with a
+				// null GPU handle; a barrier on an unallocated resource is meaningless, so skip it
+				// rather than passing null into nvrhi (crashes in requireTextureState). Reading into
+				// a local also keeps the texture alive across the barrier.
+				nvrhi::TextureHandle handle = preConvolutedImage ? preConvolutedImage->GetHandle() : nullptr;
+				if (!handle)
+					return;
 				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
 				commandBuffer->RT_BeginMarker(markerName);
-				commandList->setTextureState(preConvolutedImage->GetHandle(), nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
+				commandList->setTextureState(handle, nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
 				commandList->commitBarriers();
 				commandBuffer->RT_EndMarker();
 			});
@@ -8351,7 +8358,10 @@ namespace Lux {
 			{
 				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
 				commandBuffer->RT_BeginMarker(markerName);
-				commandList->setTextureState(image->GetHandle(), nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
+				// Skip a null handle: during a resize the bloom mip image can be mid-recreation,
+					// and passing null to nvrhi crashes in requireTextureState (see PreConvolutionCompute).
+					if (nvrhi::TextureHandle handle = image->GetHandle())
+						commandList->setTextureState(handle, nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
 				commandList->commitBarriers();
 				commandBuffer->RT_EndMarker();
 			});
