@@ -116,20 +116,27 @@ namespace Lux {
 		vk::ImageUsageFlags imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
 		imageUsage &= surfaceCaps.supportedUsageFlags;
 
-		vk::PresentModeKHR presentMode = deviceParams.vsyncEnabled ? vk::PresentModeKHR::eFifo : vk::PresentModeKHR::eImmediate;
+		// Present mode:
+		//  - VSync on  -> FIFO: blocks on vblank, no tearing (guaranteed available by the spec).
+		//  - VSync off -> prefer MAILBOX (uncapped AND tear-free), then IMMEDIATE (uncapped, may
+		//                 tear), falling back to FIFO if neither is exposed. Immediate-only used to
+		//                 mean the choice was tear-or-vsync; Mailbox gives uncapped fps without tearing.
+		vk::PresentModeKHR presentMode = vk::PresentModeKHR::eFifo;
 		{
-			auto availableModes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfacePresentModesKHR(m_Surface);
-			bool modeSupported = false;
-			for (auto mode : availableModes)
+			const auto availableModes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfacePresentModesKHR(m_Surface);
+			const auto isSupported = [&](vk::PresentModeKHR mode)
 			{
-				if (mode == presentMode)
-				{
-					modeSupported = true;
-					break;
-				}
+				return std::find(availableModes.begin(), availableModes.end(), mode) != availableModes.end();
+			};
+
+			if (!deviceParams.vsyncEnabled)
+			{
+				if (isSupported(vk::PresentModeKHR::eMailbox))
+					presentMode = vk::PresentModeKHR::eMailbox;
+				else if (isSupported(vk::PresentModeKHR::eImmediate))
+					presentMode = vk::PresentModeKHR::eImmediate;
+				// else: neither uncapped mode available — stay on FIFO.
 			}
-			if (!modeSupported)
-				presentMode = vk::PresentModeKHR::eFifo;
 		}
 
 		auto desc = vk::SwapchainCreateInfoKHR()
