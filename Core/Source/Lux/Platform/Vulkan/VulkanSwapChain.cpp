@@ -139,6 +139,18 @@ namespace Lux {
 			}
 		}
 
+		// Diagnostic: log the chosen present mode and everything the surface exposes. A hard 120fps
+		// (or refresh-rate) cap means FIFO — either vsync is on, or Immediate/Mailbox aren't exposed
+		// for this windowed surface and it fell back to FIFO.
+		{
+			const auto modes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfacePresentModesKHR(m_Surface);
+			std::string supported;
+			for (auto m : modes)
+				supported += vk::to_string(m) + " ";
+			LUX_CORE_INFO("VulkanSwapChain::Create - present mode = {} (vsync={}); surface supports: {}",
+				vk::to_string(presentMode), deviceParams.vsyncEnabled, supported);
+		}
+
 		auto desc = vk::SwapchainCreateInfoKHR()
 			.setSurface(m_Surface)
 			.setMinImageCount(minImages)
