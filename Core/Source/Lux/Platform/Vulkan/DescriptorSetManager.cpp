@@ -645,6 +645,16 @@ namespace Lux {
 		{
 			for (const auto& [binding, input] : inputs)
 			{
+				// A declared input may have no resource bound yet — e.g. a pass that
+				// just recompiled into a variant which newly declares a resource (the
+				// AO passes newly declare Camera when GTAO is toggled on) before the
+				// owning pass has rebound it. Dereferencing the null Ref below would
+				// crash the render thread, so skip it here and let the pass's rebind +
+				// Bake() pick it up once the resource is available. Validate() likewise
+				// treats a null resource as a soft failure rather than crashing.
+				if (input.Input.empty() || input.Input[0] == nullptr)
+					continue;
+
 				const auto& bindingSetHandleArray = m_BindingSetHandles[currentFrameIndex].at(set).at(binding);
 				const auto& bindingSetHandle = bindingSetHandleArray[0];
 
@@ -652,6 +662,7 @@ namespace Lux {
 				{
 					case RenderResourceType::UniformBuffer:
 					{
+
 						nvrhi::BufferHandle handle = input.Input[0].As<UniformBuffer>()->GetHandle();
 						if (handle != bindingSetHandle)
 						{

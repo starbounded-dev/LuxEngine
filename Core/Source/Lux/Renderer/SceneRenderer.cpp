@@ -730,8 +730,23 @@ namespace Lux {
 	void SceneRenderer::UpdateGTAOData()
 	{
 		const bool gtaoEnabled = m_Options.EnableGTAO;
-		Renderer::SetGlobalMacroInShaders("__HZ_AO_METHOD", std::to_string((int)ShaderDef::GetAOMethod(gtaoEnabled)));
-		Renderer::SetGlobalMacroInShaders("__HZ_GTAO_COMPUTE_BENT_NORMALS", m_Options.GTAOBentNormals ? "1" : "0");
+		const int aoMethod = (int)ShaderDef::GetAOMethod(gtaoEnabled);
+		const int bentNormals = m_Options.GTAOBentNormals ? 1 : 0;
+		// __HZ_AO_METHOD (GTAO on/off) recompiles the AO-Composite/AO-Debug shaders
+		// into a new variant. The reload can't restore inputs (Camera/samplers/GTAO
+		// textures) that weren't declared in the prior variant, so flag a full rebind
+		// + rebake. The rebake self-gates on the new variant being live, so flagging is
+		// always safe. (Bent-normals no longer recompiles these passes — they decode
+		// the visibility byte at runtime from u_AOSettings.BentNormals — but it's kept
+		// in the check as a harmless belt-and-suspenders rebake.)
+		if (aoMethod != m_AppliedAOMethod || bentNormals != m_AppliedGTAOBentNormals)
+		{
+			m_AppliedAOMethod = aoMethod;
+			m_AppliedGTAOBentNormals = bentNormals;
+			m_AOPassInputsDirty = true;
+		}
+		Renderer::SetGlobalMacroInShaders("__HZ_AO_METHOD", std::to_string(aoMethod));
+		Renderer::SetGlobalMacroInShaders("__HZ_GTAO_COMPUTE_BENT_NORMALS", bentNormals ? "1" : "0");
 
 		m_Options.ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
 		Renderer::SetGlobalMacroInShaders("__HZ_REFLECTION_OCCLUSION_METHOD", std::to_string((int)m_Options.ReflectionOcclusionMethod));
@@ -1672,9 +1687,12 @@ namespace Lux {
 			aoRenderPassSpec.DebugName = "AO-Composite";
 			aoRenderPassSpec.Pipeline = Pipeline::Create(aoPipelineSpec);
 			m_AOCompositePass = RenderPass::Create(aoRenderPassSpec);
-			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
-			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+			if (m_AOCompositePass->IsInputValid("u_GTAOTex"))
+			{
+				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+			}
 			m_AOCompositePass->SetInput("Camera", m_UBSCamera);
 			m_AOCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
 			m_AOCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
@@ -1701,9 +1719,12 @@ namespace Lux {
 			aoDebugRenderPassSpec.DebugName = "AO-Debug";
 			aoDebugRenderPassSpec.Pipeline = Pipeline::Create(aoDebugPipelineSpec);
 			m_AODebugPass = RenderPass::Create(aoDebugRenderPassSpec);
-			m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
-			m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_AODebugPass->SetInput("u_Normal", GetGeometryNormalOutput());
+			if (m_AODebugPass->IsInputValid("u_GTAOTex"))
+			{
+				m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+				m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				m_AODebugPass->SetInput("u_Normal", GetGeometryNormalOutput());
+			}
 			m_AODebugPass->SetInput("Camera", m_UBSCamera);
 			m_AODebugPass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
 			m_AODebugPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
@@ -2638,13 +2659,13 @@ namespace Lux {
 			};
 
 			m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
-			if (m_AOCompositePass)
+			if (m_AOCompositePass && m_AOCompositePass->IsInputValid("u_GTAOTex"))
 			{
 				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
 				m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
 			}
-			if (m_AODebugPass)
+			if (m_AODebugPass && m_AODebugPass->IsInputValid("u_GTAOTex"))
 			{
 				m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 				m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
@@ -7902,7 +7923,7 @@ namespace Lux {
 		if (denoisePasses == 0)
 		{
 			m_GTAOFinalImage = m_GTAOOutputImage;
-			if (m_AOCompositePass)
+			if (m_AOCompositePass && m_AOCompositePass->IsInputValid("u_GTAOTex"))
 			{
 				m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 				m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
@@ -7930,7 +7951,7 @@ namespace Lux {
 		}
 
 		m_GTAOFinalImage = (denoisePasses % 2u) != 0u ? m_GTAODenoiseImage : m_GTAOOutputImage;
-		if (m_AOCompositePass)
+		if (m_AOCompositePass && m_AOCompositePass->IsInputValid("u_GTAOTex"))
 		{
 			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
@@ -7976,7 +7997,7 @@ namespace Lux {
 
 		m_GTAOHistoryIndex = writeIndex;
 		m_GTAOFinalImage = historyOutput;
-		if (m_AOCompositePass)
+		if (m_AOCompositePass && m_AOCompositePass->IsInputValid("u_GTAOTex"))
 		{
 			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
@@ -7986,15 +8007,61 @@ namespace Lux {
 			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 	}
 
+	void SceneRenderer::RebakeAOPassInputs()
+	{
+		// The GTAO-on variant newly declares Camera (set 2), the samplers, and the
+		// GTAO textures. Rebind the full set and rebake so the pass validates. No-ops
+		// until the recompiled variant is live (Camera declared), so it's safe to call
+		// while the shader reload is still pending — it just retries next frame.
+		auto rebind = [&](Ref<RenderPass>& pass) -> bool
+		{
+			if (!pass || !pass->IsInputValid("Camera"))
+				return false;
+
+			pass->SetInput("Camera", m_UBSCamera);
+			pass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			pass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			pass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			if (pass->IsInputValid("u_GTAOTex"))
+			{
+				pass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+				pass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+				pass->SetInput("u_Normal", GetGeometryNormalOutput());
+			}
+			pass->Bake();
+			return true;
+		};
+
+		const bool compositeReady = rebind(m_AOCompositePass);
+		rebind(m_AODebugPass);
+
+		// Clear only once the composite pass's new variant is live; otherwise leave the
+		// flag set and retry next frame (the shader reload may not have landed yet).
+		if (compositeReady)
+			m_AOPassInputsDirty = false;
+	}
+
 	void SceneRenderer::AOComposite()
 	{
 		ScopedCPUProfile cpuProfile(*this, "AOComposite");
 		if (!m_AOCompositePass || !m_AOCompositeMaterial || !m_GTAOFinalImage)
 			return;
 
-		m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
-		m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-		m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+		if (m_AOPassInputsDirty)
+			RebakeAOPassInputs();
+
+		if (m_AOCompositePass->IsInputValid("u_GTAOTex"))
+		{
+			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
+		}
+
+		// Tell the shader which byte the visibility term lives in (high byte for
+		// bent normals, low byte otherwise). Sourced from the same option that
+		// drives the GTAO producer's packing so the decode can't desync.
+		if (m_Options.EnableGTAO)
+			m_AOCompositeMaterial->Set("u_AOSettings.BentNormals", m_Options.GTAOBentNormals ? 1u : 0u);
 
 		BeginProfiledGPU("AOComposite");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_AOCompositePass);
@@ -8010,9 +8077,15 @@ namespace Lux {
 		if (!m_AODebugPass || !m_AODebugMaterial || !m_GTAOFinalImage)
 			return;
 
-		m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
-		m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-		m_AODebugPass->SetInput("u_Normal", GetGeometryNormalOutput());
+		if (m_AODebugPass->IsInputValid("u_GTAOTex"))
+		{
+			m_AODebugPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
+			m_AODebugPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
+			m_AODebugPass->SetInput("u_Normal", GetGeometryNormalOutput());
+		}
+
+		if (m_Options.EnableGTAO)
+			m_AODebugMaterial->Set("u_AOSettings.BentNormals", m_Options.GTAOBentNormals ? 1u : 0u);
 
 		BeginProfiledGPU("AODebug");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_AODebugPass);
@@ -8107,6 +8180,7 @@ namespace Lux {
 		ssrOptions.TemporalBlend = m_Options.SSRTemporalBlend;
 		if (m_Options.EnableSSRTemporalAccumulation)
 			ssrOptions.MaxSteps = glm::max(8, ssrOptions.MaxSteps / 2);
+		ssrOptions.BentNormals = m_Options.GTAOBentNormals ? 1u : 0u;
 
 		if (m_SSRPass->IsInputValid("u_GTAOTex") && m_GTAOFinalImage)
 			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);

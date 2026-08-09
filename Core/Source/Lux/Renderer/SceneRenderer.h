@@ -288,7 +288,10 @@ namespace Lux {
 		uint32_t ResolutionScale = 2;
 		uint32_t TemporalAccumulation = 0;
 		float TemporalBlend = 0.0f;
-		float Padding2 = 0.0f;
+		// Which byte the GTAO visibility term lives in (high byte for bent normals,
+		// low byte otherwise). Decoded at runtime in SSR.glsl so it can't desync
+		// from the GTAO producer's packing. Was previously named Padding2.
+		uint32_t BentNormals = 0;
 	};
 
 	struct SceneRendererCamera
@@ -551,6 +554,9 @@ namespace Lux {
 		void SetViewportSize(uint32_t width, uint32_t height);
 		void RefreshRenderResolutionScale();
 		void UpdateGTAOData();
+		// Rebinds Camera/samplers/GTAO inputs and rebakes the AO passes after the AO
+		// shader recompiles into the GTAO-on variant. No-ops until that variant is live.
+		void RebakeAOPassInputs();
 
 		// ── Per-frame API ────────────────────────────────────────────────────
 
@@ -1437,6 +1443,15 @@ namespace Lux {
 		Ref<Material>    m_AOCompositeMaterial;
 		Ref<RenderPass>  m_AODebugPass;
 		Ref<Material>    m_AODebugMaterial;
+
+		// Tracks the AO shader variant (__HZ_AO_METHOD) currently applied. Toggling
+		// GTAO on recompiles AO-Composite/AO-Debug into a variant that newly declares
+		// Camera/samplers/GTAO textures; the reload preserves inputs by name but can't
+		// restore ones absent from the previous variant, so we must rebind + rebake
+		// the full set once the new variant is live. See RebakeAOPassInputs().
+		int  m_AppliedAOMethod = -1;
+		int  m_AppliedGTAOBentNormals = -1;
+		bool m_AOPassInputsDirty = false;
 
 		// ── SSR ──────────────────────────────────────────────────────────────
 		Ref<Image2D>     m_SSRImage;

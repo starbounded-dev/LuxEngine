@@ -47,7 +47,7 @@ layout(push_constant) uniform SSRInfo
 	uint ResolutionScale;
 	uint TemporalAccumulation;
 	float TemporalBlend;
-	float Padding2;
+	uint BentNormals;
 } u_SSRInfo;
 
 
@@ -399,11 +399,12 @@ void main()
 
 #if GTAO_REFLECTION_OCCLUSION
 	uint gtaoPacked = texture(usampler2D(u_GTAOTex, r_LinearSampler), positionSS.xy).x;
-	#if __HZ_GTAO_COMPUTE_BENT_NORMALS
+	// Runtime byte select (see u_SSRInfo.BentNormals) so this can't desync from the
+	// GTAO producer's packing the way a compile-time #if could.
+	if (u_SSRInfo.BentNormals != 0u)
 		ao = float(gtaoPacked >> 24) / 255.f;
-	#else
+	else
 		ao = float(gtaoPacked) / 255.f;
-	#endif
 		ao = min(ao * XE_GTAO_OCCLUSION_TERM_SCALE, 1.0f);
 #endif
 

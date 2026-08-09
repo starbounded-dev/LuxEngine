@@ -35,6 +35,14 @@ layout(location = 0) out vec4 o_Occlusion;
 layout(location = 0) in vec2 vs_TexCoord;
 
 #if ENABLED_GTAO
+layout(push_constant) uniform AOSettings
+{
+    uint BentNormals;
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
+} u_AOSettings;
+
 float LinearizeDepth(float screenDepth)
 {
     float depthLinearizeMul = u_Camera.DepthUnpackConsts.x;
@@ -59,11 +67,18 @@ vec3 ReadNormal(vec2 uv)
 
 float DecodeGTAO(uint packedValue)
 {
-    #if __HZ_GTAO_COMPUTE_BENT_NORMALS
+    // The visibility byte position depends on how the GTAO/denoise passes packed
+    // the value: bent-normals mode stores visibility in the high byte (the low
+    // three bytes hold the packed bent normal), non-bent stores it in the low
+    // byte. Select the byte at runtime from u_AOSettings.BentNormals (fed from the
+    // same m_Options.GTAOBentNormals that drives the producer's packing) instead
+    // of a compile-time #if. The compile-time macro could fall out of sync with
+    // the actual buffer packing, making this pass read the (zero) high byte for
+    // non-bent data -> occlusion 0 -> the whole scene multiplied to black. The
+    // GTAO temporal pass already decodes this way for the same reason.
+    if (u_AOSettings.BentNormals != 0u)
         return float(packedValue >> 24u) / 255.0;
-    #else
-        return float(packedValue) / 255.0;
-    #endif
+    return float(packedValue) / 255.0;
 }
 
 float FetchGTAO(ivec2 texel)
