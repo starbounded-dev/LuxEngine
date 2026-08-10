@@ -4,11 +4,11 @@
 	branch = v1.x
 [submodule "Core/vendor/GLFW"]
 	path = Core/vendor/GLFW
-	url = https://github.com/TheCherno/glfw
+	url = https://github.com/luckyrobots/glfw
 	branch = master
 [submodule "Core/vendor/imgui"]
 	path = Core/vendor/imgui
-	url = https://github.com/StudioCherno/imgui
+	url = https://github.com/luckyrobots/imgui
 	branch = hazel
 [submodule "Core/vendor/glm"]
 	path = Core/vendor/glm

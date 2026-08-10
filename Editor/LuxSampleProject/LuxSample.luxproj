@@ -19,7 +19,7 @@ Project:
     Fullscreen: false
     VSync: false
     IconPath: Textures/luxLogo.png
-    IconHandle: 12258613209527478073
+    IconHandle: 10706518493978196728
     TargetConfig: Release
   SceneRenderer:
     Rendering:
@@ -30,7 +30,7 @@ Project:
       MeshLODs: true
       MeshLODDistanceScale: 1
       VariableRateShading: true
-      MeshShaders: false
+      MeshShaders: true
       GTAO: true
       GTAOBentNormals: true
       GTAODenoisePasses: 8
@@ -41,15 +41,15 @@ Project:
       DynamicResolutionMinScale: 0.5
       DynamicResolutionMaxScale: 1
       DynamicResolutionTargetGPUTime: 16.6700001
-      TextureMipBias: -4
+      TextureMipBias: 0
       DistanceMipBias: true
-      DistanceMipBiasStart: 10
-      DistanceMipBiasEnd: 100
-      DistanceMipBiasMax: 0.5
+      DistanceMipBiasStart: 0
+      DistanceMipBiasEnd: 495
+      DistanceMipBiasMax: 0
       OcclusionDepthBias: 0.00300000003
       OcclusionBoundsScale: 1.14999998
       GTAOResolutionScale: 1
-      GTAOTemporalAccumulation: true
+      GTAOTemporalAccumulation: false
       GTAOTemporalBlend: 0.949999988
       SSRQuality: Full
       SSRResolutionScale: 1
@@ -60,25 +60,25 @@ Project:
       ShadowCulling: true
       MaxDistance: 450
       DistanceFade: 50
-      ActiveCascadeCount: 3
-      SplitLambda: 0.920000017
+      ActiveCascadeCount: 4
+      SplitLambda: 1
       NearOffset: 0
       FarOffset: 50
-      CascadeFade: 1
-      FilterMode: 2
-      DirectionalPCSSCascades: 1
-      PCFRadiusTexels: 1.25
-      SpotPCFRadiusTexels: 1.5
+      CascadeFade: 0
+      FilterMode: 0
+      DirectionalPCSSCascades: 2
+      PCFRadiusTexels: 1.75
+      SpotPCFRadiusTexels: 2
       ResolutionLimit: 8K
     PostFX:
       Bloom:
         Enabled: true
         ResolutionScale: 1
-        Threshold: 0.200000003
-        Knee: 0.159999996
-        UpsampleScale: 0
-        Intensity: 1.01999998
-        DirtIntensity: 2.6099999
+        Threshold: 1
+        Knee: 0.100000001
+        UpsampleScale: 1
+        Intensity: 1
+        DirtIntensity: 1
       DOF:
         Enabled: true
         ResolutionScale: 1
@@ -86,9 +86,9 @@ Project:
         BlurSize: 0.600000024
       SSR:
         HalfRes: false
-        MaxSteps: 256
-        Brightness: 1.07000005
-        DepthTolerance: 0.629999995
+        MaxSteps: 128
+        Brightness: 0.699999988
+        DepthTolerance: 0.800000012
   Audio:
     FileStreamingDurationThreshold: 1
   Physics:
