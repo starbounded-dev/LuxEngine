@@ -65,9 +65,11 @@ namespace Lux
 			if (!threadingPolicy.empty())
 				specification.CoreThreadingPolicy = ThreadingPolicyFromString(threadingPolicy);
 
-			// Optional per-game async transfer-queue override (default on). No-op when
+			// Optional per-game async transfer-queue override (default off). No-op when
 			// the GPU lacks a dedicated transfer queue — see Renderer::UseAsyncTransferQueue.
-			Renderer::SetAsyncTransferQueueEnabled(runtimeNode["AsyncTransferQueue"].as<bool>(true));
+			// Off by default: the copy path emits transfer-queue-illegal barriers for
+			// keepInitialState resources (see Renderer.cpp s_AsyncTransferEnabled).
+			Renderer::SetAsyncTransferQueueEnabled(runtimeNode["AsyncTransferQueue"].as<bool>(false));
 
 			std::filesystem::path iconPath = runtimeNode["IconPath"].as<std::string>("");
 			if (!iconPath.empty())

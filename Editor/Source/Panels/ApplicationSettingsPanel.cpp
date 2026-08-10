@@ -133,7 +133,7 @@ namespace Lux {
 			// Async transfer queue — routes mesh/texture uploads onto the GPU's
 			// dedicated copy queue so asset streaming doesn't stall rendering.
 			// Applies live; no-op when the GPU has no dedicated transfer queue.
-			bool asyncTransfer = settings.Get("Renderer.AsyncTransferQueue", "true") != "false";
+			bool asyncTransfer = settings.Get("Renderer.AsyncTransferQueue", "false") != "false";
 			const bool transferAvailable = Application::GetGraphicsDeviceManager() &&
 				Application::GetGraphicsDeviceManager()->IsTransferQueueAvailable();
 

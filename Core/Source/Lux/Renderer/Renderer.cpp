@@ -425,7 +425,13 @@ namespace Lux {
 	static bool s_ResourceUploadListIsCopyQueue = false;
 	// Setting (Renderer.AsyncTransferQueue). Effective only when the device also
 	// has a dedicated transfer queue — see Renderer::UseAsyncTransferQueue.
-	static std::atomic<bool> s_AsyncTransferEnabled = true;
+	// Default OFF: keepInitialState resources (vertex/index buffers, textures) are
+	// restored to their graphics state (VertexBuffer/ShaderResource) at upload-list
+	// close, which emits VERTEX_INPUT / SHADER_READ|WRITE barriers that are illegal
+	// on a transfer-only queue (validation VUID-*Barrier2-*). Uploading on the
+	// graphics queue instead is spec-correct. Opt back in via the setting once the
+	// copy path does proper queue-family-ownership transfers.
+	static std::atomic<bool> s_AsyncTransferEnabled = false;
 	// Copy-queue execution instance of the most recent async upload flush (0 = none
 	// yet). Consumers wait on it before reading uploaded resources.
 	static std::atomic<uint64_t> s_LastUploadInstance = 0;
@@ -2134,7 +2140,11 @@ namespace Lux {
 
 		if (s_GlobalShaderInfo.ShaderGlobalMacrosMap.find(name) == s_GlobalShaderInfo.ShaderGlobalMacrosMap.end())
 		{
-			LUX_CORE_WARN_TAG("Renderer", "No shaders with {} macro found", name);
+			// Not an error: a global macro is frequently set before the shaders that
+			// consume it are registered (e.g. the AO/GTAO macros at startup). The
+			// value is cached in the permutation map and applied when those shaders
+			// load, so this is a trace, not a warning — it was firing every launch.
+			LUX_CORE_TRACE_TAG("Renderer", "No shaders with {} macro found (set before any consumer registered)", name);
 			return;
 		}
 

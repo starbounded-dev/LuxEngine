@@ -119,10 +119,15 @@ namespace Lux
 	{
 		static constexpr uint32_t PersistentHandleCount = 64;
 
-		// Persistent textures: indices 0 .. PersistentHandleCount-1
+		// Persistent textures: indices 1 .. PersistentHandleCount-1
 		// Never cleared, survive across frames (e.g. font atlas).
 		std::vector<ImGuiTextureInfo> PersistentTextures;
-		uint32_t NextPersistentIndex = 0;
+		// Starts at 1: slot 0 is reserved because ImGui treats TexID 0 as
+		// ImTextureID_Invalid (GetTexID() asserts tex_id != 0). If the font atlas —
+		// the first ImGui-owned texture — were handed slot 0, SetTexID(0) would look
+		// identical to "never uploaded" and trip that assert. Slot 0 stays empty and
+		// resolves to the invalid texture (draw cmd skipped), matching the sentinel.
+		uint32_t NextPersistentIndex = 1;
 
 		// Persistent slots reclaimed by DestroyImGuiTexture, reused before growing NextPersistentIndex.
 		// Lets ImGui's create/destroy of atlas textures recycle slots instead of exhausting the 64.

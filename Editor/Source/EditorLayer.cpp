@@ -341,7 +341,7 @@ namespace Lux {
 		// queue; otherwise uploads fall back to the graphics queue. See
 		// Renderer::UseAsyncTransferQueue / ApplicationSettingsPanel Threading page.
 		Renderer::SetAsyncTransferQueueEnabled(
-			Application::Get().GetSettings().Get("Renderer.AsyncTransferQueue", "true") != "false");
+			Application::Get().GetSettings().Get("Renderer.AsyncTransferQueue", "false") != "false");
 
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();

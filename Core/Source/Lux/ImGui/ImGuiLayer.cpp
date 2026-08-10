@@ -58,10 +58,11 @@ namespace Lux {
 		// size is logical and fbScale is 1.5, so geometry is already the right physical size but
 		// a font baked at 15px gets stretched 1.5x and looks blurry.
 		//
-		// Our ImGui renderer does not advertise ImGuiBackendFlags_RendererHasTextures, so the
-		// font atlas is static and ImGui cannot re-bake glyphs on the fly. That rules out
-		// io.ConfigDpiScaleFonts (it would just stretch the existing atlas). Instead bake the
-		// glyphs at the physical size they will be drawn at, then divide back out.
+		// We deliberately bake the font atlas at the physical pixel size rather than relying
+		// on io.ConfigDpiScaleFonts: baking glyphs at the size they're actually drawn keeps them
+		// crisp, whereas DPI font scaling stretches an atlas baked at a different size. (The
+		// backend does advertise RendererHasTextures, so ImGui can re-bake on the fly — this is
+		// a quality choice, not a limitation.) Bake at the physical size, then divide back out.
 		//
 		//   bake at  size * contentScale        -> rasterised at true physical pixels (crisp)
 		//   FontScaleMain = 1 / fbScale         -> undo scaling the compositor already does

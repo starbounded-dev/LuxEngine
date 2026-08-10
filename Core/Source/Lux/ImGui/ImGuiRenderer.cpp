@@ -36,6 +36,17 @@ namespace Lux {
 		for (const ImDrawList* drawList : drawData->CmdLists)
 		{
 			ImDrawList* clonedDrawList = drawList->CloneOutput();
+
+			// CloneOutput() copies the finished Cmd/Idx/Vtx buffers but leaves the
+			// transient build pointers (_VtxWritePtr/_IdxWritePtr/_VtxCurrentIdx) at
+			// their IM_NEW defaults (null/0). AddDrawList() runs a draw-list integrity
+			// assert that expects those pointers to sit at the end of the buffers, so
+			// without this fix-up it aborts in Debug (IM_ASSERT) every frame. The
+			// cloned buffers are complete, so point the write cursors at their ends.
+			clonedDrawList->_VtxWritePtr = clonedDrawList->VtxBuffer.Data + clonedDrawList->VtxBuffer.Size;
+			clonedDrawList->_IdxWritePtr = clonedDrawList->IdxBuffer.Data + clonedDrawList->IdxBuffer.Size;
+			clonedDrawList->_VtxCurrentIdx = (unsigned int)clonedDrawList->VtxBuffer.Size;
+
 			snapshot->m_OwnedDrawLists.push_back(clonedDrawList);
 			snapshot->m_DrawData.AddDrawList(clonedDrawList);
 		}
