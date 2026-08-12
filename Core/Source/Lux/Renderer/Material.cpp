@@ -82,7 +82,6 @@ namespace Lux {
 		dmSpec.StartSet = 0;
 		dmSpec.EndSet = 0;
 		dmSpec.IsDynamic = false;
-		dmSpec.DefaultResources = true;
 		m_DescriptorSetManager = DescriptorSetManager(dmSpec);
 
 		// TODO(Yan): I don't think we need this

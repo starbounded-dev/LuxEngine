@@ -191,7 +191,6 @@ namespace Lux {
 		uint32_t StartSet = 0, EndSet = 3;
 
 		bool IsDynamic = true; // Automatically check resources for change
-		bool DefaultResources = false;
 	};
 
 	struct DescriptorSetManager

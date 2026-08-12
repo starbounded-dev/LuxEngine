@@ -100,8 +100,13 @@ namespace Lux {
 
 				uint32_t binding = inputDecl.Binding;
 
-				// Insert default resources (useful for materials)
-				if (m_Specification.DefaultResources || true)
+				// Always insert default resources. This block creates the RenderPassInput entry
+				// itself - not just the fallback sampler/texture - so every declared input needs
+				// it, not only materials. The condition here used to read
+				// `m_Specification.DefaultResources || true`, i.e. unconditional: the flag had a
+				// single setter (Material) and never actually gated anything. Honouring it would
+				// have left every render/compute pass without input entries, so the flag is gone
+				// and the behaviour is stated plainly instead.
 				{
 					// Create RenderPassInput
 					RenderPassInput& input = InputResources[set][binding];
