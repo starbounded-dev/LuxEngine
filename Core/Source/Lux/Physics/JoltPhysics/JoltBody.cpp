@@ -67,6 +67,11 @@ namespace Lux {
 
 	void JoltBody::MoveKinematic(const glm::vec3& targetPosition, const glm::quat& targetRotation, float deltaSeconds)
 	{
+		// MoveKinematic() sets velocity = (target - position) / deltaSeconds; a zero (or negative)
+		// step divides by zero and sends the body to NaN, which hard-crashes Jolt (FP exceptions).
+		if (deltaSeconds <= 0.0f)
+			return;
+
 		if (m_BodyInterface)
 			m_BodyInterface->MoveKinematic(m_BodyID, JoltUtils::ToJoltRVec3(targetPosition), JoltUtils::ToJoltQuat(targetRotation), deltaSeconds);
 	}

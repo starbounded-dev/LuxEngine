@@ -558,6 +558,12 @@ namespace Lux {
 
 		static void PreSimulate(Scene* scene, PhysicsScene::Impl& impl, float timestep)
 		{
+			// MoveKinematic() sets velocity = (target - current) / timestep, so a zero/negative step
+			// divides by zero and drives the body to NaN - which hard-crashes Jolt on the next Update()
+			// because it is built with floating-point exceptions enabled in every non-Dist config.
+			if (timestep <= 0.0f)
+				return;
+
 			JPH::BodyInterface& bodyInterface = impl.System.GetBodyInterface();
 			const JPH::BodyLockInterface& bodyLockInterface = impl.System.GetBodyLockInterface();
 
@@ -600,7 +606,15 @@ namespace Lux {
 				if (!writeLock.Succeeded())
 					continue;
 
-				writeLock.GetBody().MoveKinematic(ToJoltVector(targetTranslation), ToJoltQuat(targetRotation), timestep);
+				JPH::Body& kinematicBody = writeLock.GetBody();
+				kinematicBody.MoveKinematic(ToJoltVector(targetTranslation), ToJoltQuat(targetRotation), timestep);
+
+				// Safety net: clamp the velocity MoveKinematic() just set to the body's configured max
+				// linear/angular velocity. If a bad target or timestep ever produces a huge chase velocity,
+				// the body lags toward its target instead of exploding to NaN (and crashing Jolt). Normal
+				// per-frame tracking stays well under these limits, so this is a no-op in the common case.
+				kinematicBody.SetLinearVelocityClamped(kinematicBody.GetLinearVelocity());
+				kinematicBody.SetAngularVelocityClamped(kinematicBody.GetAngularVelocity());
 			}
 		}
 
