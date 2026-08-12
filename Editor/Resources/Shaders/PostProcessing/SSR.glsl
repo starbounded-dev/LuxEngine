@@ -405,7 +405,9 @@ void main()
 		ao = float(gtaoPacked >> 24) / 255.f;
 	else
 		ao = float(gtaoPacked) / 255.f;
-		ao = min(ao * XE_GTAO_OCCLUSION_TERM_SCALE, 1.0f);
+
+	// Applies to both branches (was indented under the else, which read as if it didn't)
+	ao = min(ao * XE_GTAO_OCCLUSION_TERM_SCALE, 1.0f);
 #endif
 
 #if HBAO_REFLECTION_OCCLUSION

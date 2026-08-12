@@ -369,11 +369,6 @@ namespace Lux {
 			}
 		}
 
-		bool UsesSSRBilateralUpscale(SceneRendererOptions::SSRQualityPreset quality)
-		{
-			return SanitizeSSRQualityPreset(static_cast<uint32_t>(quality)) != SceneRendererOptions::SSRQualityPreset::Full;
-		}
-
 		uint32_t GetEffectResolutionDivisor(SceneRendererOptions::EffectResolutionScale scale)
 		{
 			return static_cast<uint32_t>(SanitizeEffectResolutionScale(static_cast<uint32_t>(scale)));
@@ -1807,13 +1802,16 @@ namespace Lux {
 			ssrRenderPassSpec.DebugName = "SSR-Composite";
 			ssrRenderPassSpec.Pipeline = Pipeline::Create(ssrCompositePipelineSpec);
 			m_SSRCompositePass = RenderPass::Create(ssrRenderPassSpec);
+			// Hazel's composite only samples the SSR buffer - no depth/normal/Camera, since the
+			// bilateral upscale (the one thing that needed them) is gone. Guarded so a shader
+			// that no longer declares an input is skipped instead of erroring.
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRImage);
-			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
-			m_SSRCompositePass->SetInput("Camera", m_UBSCamera);
-			m_SSRCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
-			m_SSRCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_SSRCompositePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			if (m_SSRCompositePass->IsInputValid("r_DefaultSampler"))
+				m_SSRCompositePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
+			if (m_SSRCompositePass->IsInputValid("r_PointSampler"))
+				m_SSRCompositePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			if (m_SSRCompositePass->IsInputValid("r_LinearSampler"))
+				m_SSRCompositePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
 			LUX_CORE_VERIFY(m_SSRCompositePass->Validate());
 			m_SSRCompositePass->Bake();
 			m_SSRCompositeMaterial = Material::Create(ssrCompositePipelineSpec.Shader, "SSR-Composite");
@@ -2710,11 +2708,7 @@ namespace Lux {
 				m_SSRTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
 			}
 			if (m_SSRCompositePass)
-			{
 				m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
-				m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-				m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
-			}
 
 			m_PreConvolutedTexture.Texture->Resize(ssrSize.x, ssrSize.y);
 			const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
@@ -8192,11 +8186,7 @@ namespace Lux {
 		m_SSRPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_SSRImage, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		m_SSRFinalImage = m_SSRImage;
 		if (m_SSRCompositePass)
-		{
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
-			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
-		}
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -8236,11 +8226,7 @@ namespace Lux {
 		m_SSRHistoryIndex = writeIndex;
 		m_SSRFinalImage = historyOutput;
 		if (m_SSRCompositePass)
-		{
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
-			m_SSRCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_SSRCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
-		}
 	}
 
 	void SceneRenderer::SSRCompositePass()
@@ -8249,12 +8235,12 @@ namespace Lux {
 		if (!m_Options.EnableSSR || !m_SSRCompositePass || !m_SSRCompositeMaterial)
 			return;
 
+		// The composite is a straight upsampling sample of the SSR buffer, matching Hazel.
+		// The bilateral upscale that used to live here weighted each tap by its own alpha and
+		// then normalised, so a pixel with no reflection (alpha 0) inherited the colour AND
+		// the alpha of a neighbour that did have one - bleeding dark, high-confidence samples
+		// a texel wide and producing blocky dark patches at reduced SSR resolution.
 		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
-		m_SSRCompositeMaterial->Set("u_Uniforms.ResolutionScale", GetEffectResolutionDivisor(m_Options.SSRResolutionScale));
-		m_SSRCompositeMaterial->Set("u_Uniforms.BilateralUpscale", UsesSSRBilateralUpscale(m_Options.SSRQuality) ? 1u : 0u);
-		m_SSRCompositeMaterial->Set("u_Uniforms.QuarterDebug", m_Options.SSRQuality == SceneRendererOptions::SSRQualityPreset::QuarterDebug ? 1u : 0u);
-		m_SSRCompositeMaterial->Set("u_Uniforms.DepthSigma", 0.035f);
-		m_SSRCompositeMaterial->Set("u_Uniforms.NormalSigma", 32.0f);
 
 		BeginProfiledGPU("SSRComposite");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SSRCompositePass);
