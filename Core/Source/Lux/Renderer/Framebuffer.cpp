@@ -322,6 +322,8 @@ namespace Lux {
 					depthAttachmentImage->RT_Invalidate(); // Create immediately
 				}
 
+				LUX_CORE_VERIFY(m_DepthAttachmentImage->GetHandle(), "Framebuffer \"{}\" depth attachment {} has no valid image", m_Specification.DebugName, attachmentIndex);
+
 				nvrhi::FramebufferAttachment& depthAttachment = framebufferDesc.depthAttachment;
 				depthAttachment.texture = m_DepthAttachmentImage->GetHandle();
 				depthAttachment.format = Utils::NVRHIFormat(attachmentSpec.Format);
@@ -410,6 +412,8 @@ namespace Lux {
 					}
 
 				}
+
+				LUX_CORE_VERIFY(colorAttachmentImage->GetHandle(), "Framebuffer \"{}\" color attachment {} has no valid image", m_Specification.DebugName, attachmentIndex);
 
 				nvrhi::FramebufferAttachment& colorAttachment = framebufferDesc.colorAttachments.emplace_back();
 				colorAttachment.texture = colorAttachmentImage->GetHandle();

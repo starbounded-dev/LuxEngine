@@ -221,6 +221,14 @@ namespace Lux {
 		// readable by other threads.
 		nvrhi::TextureHandle newHandle = device->createTexture(textureDesc);
 
+		// nvrhi silently returns nullptr when the underlying vkCreateImage or its memory allocation
+		// fails, which otherwise only shows up much later as an access violation deep inside nvrhi
+		// once the null texture reaches createFramebuffer/BindingSet. Fail here, where the image and
+		// its size are still known, instead of at an unrelated call site.
+		LUX_CORE_VERIFY(newHandle, "Failed to create image \"{}\" ({}x{}, {} mip(s), {} layer(s), ~{} MB) - the GPU is most likely out of memory",
+			m_Specification.DebugName, textureDesc.width, textureDesc.height, textureDesc.mipLevels, textureDesc.arraySize,
+			Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers) / (1024 * 1024));
+
 		nvrhi::SamplerHandle newSampler;
 		if (m_Specification.CreateSampler)
 		{

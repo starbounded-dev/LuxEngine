@@ -743,6 +743,15 @@ namespace Lux {
 	void VulkanDeviceManager::DestroyDevice()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+
+		// nvrhi defers the actual destruction of released resources until garbage collection runs,
+		// so without a final pass here they are still alive when vkDestroyDevice is called
+		if (m_NvrhiDevice)
+		{
+			m_NvrhiDevice->waitForIdle();
+			m_NvrhiDevice->runGarbageCollection();
+		}
+
 		m_NvrhiDevice = nullptr;
 		m_ValidationLayer = nullptr;
 		m_RendererString.clear();

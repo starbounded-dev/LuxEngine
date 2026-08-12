@@ -261,13 +261,22 @@ namespace Lux {
 			vulkanDeviceManager->m_VulkanDevice.waitIdle();
 		}
 
+		// The nvrhi framebuffers and texture handles own image views onto the swap chain's images,
+		// so they have to be released - and actually collected, since nvrhi defers destruction -
+		// before vkDestroySwapchainKHR takes those images away.
+		// NOTE: BackBufferResizing() also clears the framebuffers on the OnResize() path; doing it
+		//       here as well keeps Destroy() correct on every path (shutdown, Resize(), re-entry).
+		m_SwapChainFramebuffers.clear();
+		m_SwapChainImages.clear();
+
+		if (nvrhi::IDevice* device = vulkanDeviceManager->GetDevice())
+			device->runGarbageCollection();
+
 		if (m_SwapChain)
 		{
 			vulkanDeviceManager->m_VulkanDevice.destroySwapchainKHR(m_SwapChain);
 			m_SwapChain = nullptr;
 		}
-
-		m_SwapChainImages.clear();
 
 		for (auto& semaphore : m_PresentSemaphores)
 		{
@@ -287,6 +296,8 @@ namespace Lux {
 			}
 		}
 
+		// Aliases one of m_AcquireSemaphores, so it dangles once those are destroyed
+		m_AcquiredSemaphore = vk::Semaphore();
 	}
 
 	void VulkanSwapChain::OnResize(uint32_t width, uint32_t height)

@@ -112,8 +112,22 @@ namespace Lux {
 					// Set default textures and samplers
 					if (inputDecl.Type == RenderInputType::ImageSampler)
 					{
+						// Pick the default from the sampler's name. Defaulting everything to the
+						// clamp sampler means a pass that declares r_RepeatSampler but never binds
+						// it silently samples tiling content clamped (and r_PointSampler filtered),
+						// which is wrong in a way nothing reports - the binding is "valid", just
+						// the wrong sampler. r_MaterialSampler follows the repeat sampler because
+						// that is what BindCommonSceneRenderPassInputs binds it to.
+						Ref<Sampler> defaultSampler = Renderer::GetDefaultSampler();
+						if (name == "r_RepeatSampler" || name == "r_MaterialSampler")
+							defaultSampler = Renderer::GetRepeatSampler();
+						else if (name == "r_PointSampler")
+							defaultSampler = Renderer::GetPointSampler();
+						else if (name == "r_LinearSampler")
+							defaultSampler = Renderer::GetClampSampler();
+
 						for (size_t i = 0; i < input.Input.size(); i++)
-							input.Input[i] = Renderer::GetDefaultSampler();
+							input.Input[i] = defaultSampler;
 					}
 					if (inputDecl.Type == RenderInputType::ImageSampler2D)
 					{
