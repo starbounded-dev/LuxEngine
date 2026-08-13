@@ -240,6 +240,12 @@ namespace Lux {
 		bool  EnableTAA = false;
 		float TAAHistoryBlend = 0.90f; // fraction of history kept per frame
 		float TAASharpness = 0.3f;     // post-resolve unsharp strength (0 = off)
+		// SMAA 1x. Runs on the tone-mapped image at the very end of the post chain, unlike TAA
+		// which resolves HDR scene colour before bloom. Purely spatial: it cleans up staircase
+		// edges within a frame but cannot address temporal shimmer the way TAA does.
+		bool  EnableSMAA = false;
+		float SMAAThreshold = 0.1f;                        // edge sensitivity; lower catches more
+		float SMAALocalContrastAdaptationFactor = 2.0f;    // suppresses doubled edges on silhouettes
 		// Schedule independent compute passes (cluster light-cull, GTAO, SSR,
 		// bloom) on the async compute queue overlapping graphics work. Off by
 		// default while the cross-queue path is brought up one pass at a time;
@@ -651,6 +657,11 @@ namespace Lux {
 		// ── Settings ─────────────────────────────────────────────────────────
 
 		SceneRendererOptions& GetOptions() { return m_Options; }
+		// True only when the SMAA passes exist *and* the reference lookup textures were
+		// vendored. Everything SMAA-related is gated on this, so a missing AreaTex/SearchTex
+		// degrades to "no antialiasing" rather than a wrong image or a failed validate. Public
+		// so the renderer panel can explain why the toggle is having no effect.
+		bool IsSMAAReady() const;
 		BloomSettings& GetBloomSettings() { return m_BloomSettings; }
 		DOFSettings& GetDOFSettings() { return m_DOFSettings; }
 		RenderVolumeBaseSettings GetBaseRenderVolumeSettings(float cameraExposure) const;
@@ -980,6 +991,12 @@ namespace Lux {
 		float ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const;
 		void CompositePass();
 		void DOFPass();
+		void SMAAEdgeDetectionPass();
+		void SMAABlendWeightPass();
+		void SMAANeighborhoodBlendingPass();
+		// Image SMAA reads and replaces: the DOF output when DOF is resolving separately,
+		// otherwise the composite output.
+		Ref<Image2D> GetPostProcessInputImage();
 		bool CanCompositeDOFIntoFinalTarget();
 		void JumpFloodPass();
 		void JumpFloodCompositePass();
@@ -1036,6 +1053,10 @@ namespace Lux {
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();
+		// Creates the three SMAA passes and loads the reference lookup textures. Safe to call
+		// when the vendored SMAA headers are absent: the lookup textures stay null, the
+		// blending-weight pass is not created, and IsSMAAReady() reports false.
+		void CreateSMAAPasses();
 		void BuildRenderGraph(bool executable = false);
 		void ApplyRenderTargetAliasing();
 		void ClearRenderTargetAliasing(bool recreateResources);
@@ -1499,6 +1520,20 @@ namespace Lux {
 		// ── DOF ──────────────────────────────────────────────────────────────
 		Ref<RenderPass> m_DOFPass;
 		Ref<Material>   m_DOFMaterial;
+
+		// SMAA 1x - three full-screen passes at the end of the post chain:
+		// edge detection -> blending weights -> neighbourhood blending.
+		Ref<RenderPass> m_SMAAEdgePass;
+		Ref<Material>   m_SMAAEdgeMaterial;
+		Ref<RenderPass> m_SMAABlendWeightPass;
+		Ref<Material>   m_SMAABlendWeightMaterial;
+		Ref<RenderPass> m_SMAANeighborhoodPass;
+		Ref<Material>   m_SMAANeighborhoodMaterial;
+		// Precomputed lookup tables from the SMAA reference implementation. Null until the
+		// vendored headers are present, in which case the blending-weight pass is skipped and
+		// SMAA falls through to the un-antialiased image rather than producing garbage.
+		Ref<Texture2D>  m_SMAAAreaTexture;
+		Ref<Texture2D>  m_SMAASearchTexture;
 
 		// ── Jump flood selected outline ──────────────────────────────────────
 		Ref<RenderPass> m_JumpFloodInitPass;

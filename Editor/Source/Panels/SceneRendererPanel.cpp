@@ -449,6 +449,14 @@ namespace Lux {
 				projectSettingsChanged |= ImGuiEx::Property("TAA History Blend", options.TAAHistoryBlend, 0.01f, 0.0f, 0.98f);
 				projectSettingsChanged |= ImGuiEx::Property("TAA Sharpness", options.TAASharpness, 0.01f, 0.0f, 1.0f);
 			}
+			projectSettingsChanged |= ImGuiEx::Property("SMAA", options.EnableSMAA);
+			if (options.EnableSMAA)
+			{
+				projectSettingsChanged |= ImGuiEx::Property("SMAA Threshold", options.SMAAThreshold, 0.005f, 0.01f, 0.5f);
+				projectSettingsChanged |= ImGuiEx::Property("SMAA Local Contrast", options.SMAALocalContrastAdaptationFactor, 0.05f, 1.0f, 8.0f);
+				if (!m_Context->IsSMAAReady())
+					ImGui::TextDisabled("SMAA lookup textures missing - see Core/vendor/smaa");
+			}
 			projectSettingsChanged |= gtaoSettingsChanged;
 			if (gtaoSettingsChanged)
 				m_Context->UpdateGTAOData();
