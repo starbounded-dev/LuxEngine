@@ -99,6 +99,13 @@ namespace Lux
 		bool SSRTemporalAccumulation = false;
 		float SSRTemporalBlend = 0.90f;
 
+		// Antialiasing. SMAA needs the vendored lookup tables (Core/vendor/smaa) to be
+		// present; without them these load but the renderer reports SMAA unavailable.
+		bool EnableSMAA = false;
+		bool SMAATemporal = false; // T2x
+		float SMAAThreshold = 0.1f;
+		float SMAALocalContrastAdaptationFactor = 2.0f;
+
 		bool SoftShadows = true;
 		bool EnableShadowCulling = true;
 		float MaxShadowDistance = 200.0f;

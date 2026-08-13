@@ -798,6 +798,10 @@ namespace Lux {
 		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 		m_Options.EnableSSRTemporalAccumulation = settings.SSRTemporalAccumulation;
 		m_Options.SSRTemporalBlend = std::clamp(settings.SSRTemporalBlend, 0.0f, 0.98f);
+		m_Options.EnableSMAA = settings.EnableSMAA;
+		m_Options.SMAATemporal = settings.SMAATemporal;
+		m_Options.SMAAThreshold = std::clamp(settings.SMAAThreshold, 0.01f, 0.5f);
+		m_Options.SMAALocalContrastAdaptationFactor = std::clamp(settings.SMAALocalContrastAdaptationFactor, 1.0f, 8.0f);
 		m_Options.EnableJumpFlood = settings.EnableJumpFlood;
 		m_Options.ResolutionScaleMode = SanitizeRenderResolutionScaleMode(settings.RenderScaleMode);
 		m_Options.FixedRenderWidth = std::clamp(settings.FixedRenderWidth, 64u, 16384u);
@@ -905,6 +909,10 @@ namespace Lux {
 		settings.SSRResolutionScale = GetEffectResolutionDivisor(ssrResolutionScale);
 		settings.SSRTemporalAccumulation = m_Options.EnableSSRTemporalAccumulation;
 		settings.SSRTemporalBlend = m_Options.SSRTemporalBlend;
+		settings.EnableSMAA = m_Options.EnableSMAA;
+		settings.SMAATemporal = m_Options.SMAATemporal;
+		settings.SMAAThreshold = m_Options.SMAAThreshold;
+		settings.SMAALocalContrastAdaptationFactor = m_Options.SMAALocalContrastAdaptationFactor;
 		settings.EnableJumpFlood = m_Options.EnableJumpFlood;
 		settings.RenderScaleMode = static_cast<uint32_t>(m_Options.ResolutionScaleMode);
 		settings.FixedRenderWidth = m_Options.FixedRenderWidth;

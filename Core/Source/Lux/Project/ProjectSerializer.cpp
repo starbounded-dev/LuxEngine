@@ -277,6 +277,10 @@ namespace Lux
 			out << YAML::Key << "SSRResolutionScale" << YAML::Value << settings.SSRResolutionScale;
 			out << YAML::Key << "SSRTemporalAccumulation" << YAML::Value << settings.SSRTemporalAccumulation;
 			out << YAML::Key << "SSRTemporalBlend" << YAML::Value << settings.SSRTemporalBlend;
+			out << YAML::Key << "SMAA" << YAML::Value << settings.EnableSMAA;
+			out << YAML::Key << "SMAATemporal" << YAML::Value << settings.SMAATemporal;
+			out << YAML::Key << "SMAAThreshold" << YAML::Value << settings.SMAAThreshold;
+			out << YAML::Key << "SMAALocalContrastAdaptationFactor" << YAML::Value << settings.SMAALocalContrastAdaptationFactor;
 			out << YAML::EndMap;
 
 			out << YAML::Key << "Shadows" << YAML::Value;
@@ -373,6 +377,10 @@ namespace Lux
 				settings.SSRResolutionScale = rendering["SSRResolutionScale"].as<uint32_t>(settings.SSRResolutionScale);
 				settings.SSRTemporalAccumulation = rendering["SSRTemporalAccumulation"].as<bool>(settings.SSRTemporalAccumulation);
 				settings.SSRTemporalBlend = rendering["SSRTemporalBlend"].as<float>(settings.SSRTemporalBlend);
+				settings.EnableSMAA = rendering["SMAA"].as<bool>(settings.EnableSMAA);
+				settings.SMAATemporal = rendering["SMAATemporal"].as<bool>(settings.SMAATemporal);
+				settings.SMAAThreshold = rendering["SMAAThreshold"].as<float>(settings.SMAAThreshold);
+				settings.SMAALocalContrastAdaptationFactor = rendering["SMAALocalContrastAdaptationFactor"].as<float>(settings.SMAALocalContrastAdaptationFactor);
 			}
 
 			if (auto shadows = node["Shadows"])
@@ -463,6 +471,10 @@ namespace Lux
 			serializer.WriteRaw(settings.SSRQuality);
 			serializer.WriteRaw(settings.SSRTemporalAccumulation);
 			serializer.WriteRaw(settings.SSRTemporalBlend);
+			serializer.WriteRaw(settings.EnableSMAA);
+			serializer.WriteRaw(settings.SMAATemporal);
+			serializer.WriteRaw(settings.SMAAThreshold);
+			serializer.WriteRaw(settings.SMAALocalContrastAdaptationFactor);
 
 			serializer.WriteRaw(settings.SoftShadows);
 			serializer.WriteRaw(settings.EnableShadowCulling);
@@ -547,6 +559,16 @@ namespace Lux
 					stream.ReadRaw(settings.SSRQuality);
 				stream.ReadRaw(settings.SSRTemporalAccumulation);
 				stream.ReadRaw(settings.SSRTemporalBlend);
+			}
+
+			// Guarded so packs written before the SMAA settings existed still load; they
+			// simply keep the defaults.
+			if (version >= 14)
+			{
+				stream.ReadRaw(settings.EnableSMAA);
+				stream.ReadRaw(settings.SMAATemporal);
+				stream.ReadRaw(settings.SMAAThreshold);
+				stream.ReadRaw(settings.SMAALocalContrastAdaptationFactor);
 			}
 
 			stream.ReadRaw(settings.SoftShadows);
