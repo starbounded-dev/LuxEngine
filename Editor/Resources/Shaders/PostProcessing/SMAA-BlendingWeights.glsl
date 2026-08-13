@@ -68,6 +68,9 @@ layout(push_constant) uniform SMAASettings
 // Reference constants (SMAA.hlsl lines 517-523). These describe how the lookup
 // tables are laid out and must match the vendored AreaTex/SearchTex exactly.
 #define SMAA_AREATEX_MAX_DISTANCE 16.0
+#define SMAA_AREATEX_MAX_DISTANCE_DIAG 20.0
+// Matches SMAA_MAX_SEARCH_STEPS 16 above: both are the reference's High preset.
+#define SMAA_MAX_SEARCH_STEPS_DIAG 8
 #define SMAA_AREATEX_PIXEL_SIZE (1.0 / vec2(160.0, 560.0))
 #define SMAA_AREATEX_SUBTEX_SIZE (1.0 / 7.0)
 #define SMAA_SEARCHTEX_SIZE vec2(66.0, 33.0)
@@ -89,6 +92,145 @@ vec2 SampleEdges(vec2 uv)
 {
 	return textureLod(sampler2D(u_Edges, r_LinearSampler), uv, 0.0).rg;
 }
+
+//-----------------------------------------------------------------------------
+// Diagonal search
+//
+// Diagonal edges are handled before the horizontal/vertical pass and take priority:
+// a staircase running at 45 degrees is one long diagonal, not a series of tiny
+// horizontal steps, and treating it as the latter leaves it visibly ragged.
+
+// Decodes two binary values out of one bilinear fetch. The fetch sits at a 0.25
+// offset, so an active edge reads back as 0.25/1.0 (red) or 0.75/1.0 (green); this
+// unpacks that back to 0/1.
+vec2 SMAADecodeDiagBilinearAccess(vec2 e)
+{
+	e.r = e.r * abs(5.0 * e.r - 5.0 * 0.75);
+	return round(e);
+}
+
+vec4 SMAADecodeDiagBilinearAccess(vec4 e)
+{
+	e.rb = e.rb * abs(5.0 * e.rb - 5.0 * 0.75);
+	return round(e);
+}
+
+vec2 SMAASearchDiag1(vec2 texcoord, vec2 dir, out vec2 e)
+{
+	vec4 coord = vec4(texcoord, -1.0, 1.0);
+	vec3 t = vec3(u_SMAA.RTMetrics.xy, 1.0);
+	e = vec2(0.0);
+	while (coord.z < float(SMAA_MAX_SEARCH_STEPS_DIAG - 1) && coord.w > 0.9)
+	{
+		coord.xyz = t * vec3(dir, 1.0) + coord.xyz;
+		e = textureLod(sampler2D(u_Edges, r_LinearSampler), coord.xy, 0.0).rg;
+		coord.w = dot(e, vec2(0.5));
+	}
+	return coord.zw;
+}
+
+vec2 SMAASearchDiag2(vec2 texcoord, vec2 dir, out vec2 e)
+{
+	vec4 coord = vec4(texcoord, -1.0, 1.0);
+	coord.x += 0.25 * u_SMAA.RTMetrics.x; // @SearchDiag2Optimization
+	vec3 t = vec3(u_SMAA.RTMetrics.xy, 1.0);
+	e = vec2(0.0);
+	while (coord.z < float(SMAA_MAX_SEARCH_STEPS_DIAG - 1) && coord.w > 0.9)
+	{
+		coord.xyz = t * vec3(dir, 1.0) + coord.xyz;
+
+		// Fetch both edges at once using bilinear filtering, then unpack.
+		e = textureLod(sampler2D(u_Edges, r_LinearSampler), coord.xy, 0.0).rg;
+		e = SMAADecodeDiagBilinearAccess(e);
+
+		coord.w = dot(e, vec2(0.5));
+	}
+	return coord.zw;
+}
+
+// As SMAAArea, but for diagonal patterns. The diagonal areas live in the second
+// half of AreaTex, hence the 0.5 shift in x.
+vec2 SMAAAreaDiag(vec2 dist, vec2 e, float offset)
+{
+	vec2 texcoord = vec2(SMAA_AREATEX_MAX_DISTANCE_DIAG, SMAA_AREATEX_MAX_DISTANCE_DIAG) * e + dist;
+
+	texcoord = SMAA_AREATEX_PIXEL_SIZE * texcoord + (0.5 * SMAA_AREATEX_PIXEL_SIZE);
+	texcoord.x += 0.5;
+	texcoord.y += SMAA_AREATEX_SUBTEX_SIZE * offset;
+
+	return textureLod(sampler2D(u_AreaTex, r_LinearSampler), texcoord, 0.0).rg;
+}
+
+vec2 SMAACalculateDiagWeights(vec2 texcoord, vec2 e)
+{
+	vec2 weights = vec2(0.0);
+
+	vec4 d;
+	vec2 end;
+
+	// First diagonal direction (top-left / bottom-right).
+	if (e.r > 0.0)
+	{
+		d.xz = SMAASearchDiag1(texcoord, vec2(-1.0, 1.0), end);
+		d.x += float(end.y > 0.9);
+	}
+	else
+	{
+		d.xz = vec2(0.0);
+	}
+	d.yw = SMAASearchDiag1(texcoord, vec2(1.0, -1.0), end);
+
+	if (d.x + d.y > 2.0) // d.x + d.y + 1 > 3
+	{
+		vec4 coords = vec4(-d.x + 0.25, d.x, d.y, -d.y - 0.25) * u_SMAA.RTMetrics.xyxy + texcoord.xyxy;
+		vec4 c;
+		c.xy = textureLodOffset(sampler2D(u_Edges, r_LinearSampler), coords.xy, 0.0, ivec2(-1, 0)).rg;
+		c.zw = textureLodOffset(sampler2D(u_Edges, r_LinearSampler), coords.zw, 0.0, ivec2(1, 0)).rg;
+		c.yxwz = SMAADecodeDiagBilinearAccess(c.xyzw);
+
+		// Merge the crossing edges on each side into one value.
+		vec2 cc = vec2(2.0) * c.xz + c.yw;
+
+		// Discard the crossing edge where the end of the line was never found.
+		if (step(0.9, d.z) != 0.0) cc.x = 0.0;
+		if (step(0.9, d.w) != 0.0) cc.y = 0.0;
+
+		weights += SMAAAreaDiag(d.xy, cc, 0.0);
+	}
+
+	// Second diagonal direction (top-right / bottom-left).
+	d.xz = SMAASearchDiag2(texcoord, vec2(-1.0, -1.0), end);
+	if (textureLodOffset(sampler2D(u_Edges, r_LinearSampler), texcoord, 0.0, ivec2(1, 0)).r > 0.0)
+	{
+		d.yw = SMAASearchDiag2(texcoord, vec2(1.0, 1.0), end);
+		d.y += float(end.y > 0.9);
+	}
+	else
+	{
+		d.yw = vec2(0.0);
+	}
+
+	if (d.x + d.y > 2.0)
+	{
+		vec4 coords = vec4(-d.x, -d.x, d.y, d.y) * u_SMAA.RTMetrics.xyxy + texcoord.xyxy;
+		vec4 c;
+		c.x = textureLodOffset(sampler2D(u_Edges, r_LinearSampler), coords.xy, 0.0, ivec2(-1, 0)).g;
+		c.y = textureLodOffset(sampler2D(u_Edges, r_LinearSampler), coords.xy, 0.0, ivec2(0, -1)).r;
+		c.zw = textureLodOffset(sampler2D(u_Edges, r_LinearSampler), coords.zw, 0.0, ivec2(1, 0)).gr;
+		vec2 cc = vec2(2.0) * c.xz + c.yw;
+
+		if (step(0.9, d.z) != 0.0) cc.x = 0.0;
+		if (step(0.9, d.w) != 0.0) cc.y = 0.0;
+
+		// Note the .gr swizzle - this direction's areas come back transposed.
+		weights += SMAAAreaDiag(d.xy, cc, 0.0).gr;
+	}
+
+	return weights;
+}
+
+//-----------------------------------------------------------------------------
+// Horizontal/vertical search
 
 // How much length to add in the final step of a search. Takes the bilinearly
 // interpolated edge and returns 0, 1 or 2 depending on which edges are active.
@@ -223,6 +365,14 @@ void main()
 
 	if (e.g > 0.0) // edge at north
 	{
+		// Diagonals have both a north and a west edge, so searching one boundary is
+		// enough to find them. They take priority: if this pixel is on a diagonal,
+		// the horizontal/vertical treatment below would fight it.
+		weights.rg = SMAACalculateDiagWeights(vs_TexCoord, e);
+
+		if (weights.r == -weights.g) // i.e. weights.r + weights.g == 0 - no diagonal found
+		{
+
 		vec2 d;
 		vec3 coords;
 
@@ -251,6 +401,12 @@ void main()
 
 		coords.y = vs_TexCoord.y;
 		SMAADetectHorizontalCornerPattern(weights.rg, vec4(coords.x, coords.y, coords.z, coords.y), d);
+
+		}
+		else
+		{
+			e.r = 0.0; // a diagonal was found - skip the vertical pass below
+		}
 	}
 
 	if (e.r > 0.0) // edge at west

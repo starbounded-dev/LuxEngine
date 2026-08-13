@@ -38,6 +38,8 @@ Project:
       SSR: false
       JumpFloodOutline: true
       RenderScaleMode: Scale100
+      FixedRenderWidth: 1920
+      FixedRenderHeight: 1080
       DynamicResolutionMinScale: 0.5
       DynamicResolutionMaxScale: 1
       DynamicResolutionTargetGPUTime: 16.6700001
