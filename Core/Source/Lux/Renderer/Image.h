@@ -95,6 +95,11 @@ namespace Lux {
 		uint32_t Depth = 1; // Only used when Dimension == Texture3D
 		uint32_t Mips = 1;
 		uint32_t Layers = 1;
+		// MSAA sample count. 1 = no multisampling. Anything above 1 makes this a
+		// multisampled image: it can be rendered into and resolved, but it cannot be
+		// sampled with an ordinary sampler2D - shaders need sampler2DMS and an explicit
+		// sample index. Only valid for ImageUsage::Attachment, and mips must be 1.
+		uint32_t Samples = 1;
 		bool CreateSampler = true;
 		float MipBias = 0.0f;
 	};

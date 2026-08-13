@@ -103,6 +103,7 @@ namespace Lux {
 					spec.Transfer = m_Specification.Transfer;
 					spec.Width = (uint32_t)(m_Width * m_Specification.Scale);
 					spec.Height = (uint32_t)(m_Height * m_Specification.Scale);
+					spec.Samples = m_Specification.Samples;
 					spec.DebugName = std::format("{0}-DepthAttachment{1}", m_Specification.DebugName.empty() ? "Unnamed FB" : m_Specification.DebugName, attachmentIndex);
 					m_DepthAttachmentImage = Image2D::Create(spec);
 				}
@@ -114,6 +115,7 @@ namespace Lux {
 					spec.Transfer = m_Specification.Transfer;
 					spec.Width = (uint32_t)(m_Width * m_Specification.Scale);
 					spec.Height = (uint32_t)(m_Height * m_Specification.Scale);
+					spec.Samples = m_Specification.Samples;
 					spec.DebugName = std::format("{0}-ColorAttachment{1}", m_Specification.DebugName.empty() ? "Unnamed FB" : m_Specification.DebugName, attachmentIndex);
 					m_AttachmentImages.emplace_back(Image2D::Create(spec));
 				}

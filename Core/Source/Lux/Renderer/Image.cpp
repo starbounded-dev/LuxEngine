@@ -160,6 +160,15 @@ namespace Lux {
 		textureDesc.height = m_Specification.Height;
 		textureDesc.mipLevels = m_Specification.Mips;
 		textureDesc.arraySize = m_Specification.Layers;
+		// A multisampled image has no mip chain and must be a render target - the API
+		// cannot generate mips for one, and a sampled-only MS texture is not useful.
+		textureDesc.sampleCount = glm::max(1u, m_Specification.Samples);
+		if (textureDesc.sampleCount > 1)
+		{
+			LUX_CORE_VERIFY(m_Specification.Usage == ImageUsage::Attachment,
+				"Image \"{}\": multisampling is only valid for attachments", m_Specification.DebugName);
+			textureDesc.mipLevels = 1;
+		}
 
 		// Volume (3D) textures use the depth field and a single array slice.
 		if (m_Specification.Dimension == nvrhi::TextureDimension::Texture3D)

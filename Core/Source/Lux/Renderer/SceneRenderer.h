@@ -246,6 +246,11 @@ namespace Lux {
 		bool  EnableSMAA = false;
 		float SMAAThreshold = 0.1f;                        // edge sensitivity; lower catches more
 		float SMAALocalContrastAdaptationFactor = 2.0f;    // suppresses doubled edges on silhouettes
+		// MSAA sample count: 1 (off), 2, 4, 8 or 16. Unlike SMAA this is not a post
+		// process - it multisamples the G-buffer itself, which in a deferred renderer
+		// means every attachment plus depth is allocated N times over and the lighting
+		// pass has to evaluate (or classify) per sample. See MSAASamplesSupported.
+		uint32_t MSAASamples = 1;
 		// Schedule independent compute passes (cluster light-cull, GTAO, SSR,
 		// bloom) on the async compute queue overlapping graphics work. Off by
 		// default while the cross-queue path is brought up one pass at a time;
