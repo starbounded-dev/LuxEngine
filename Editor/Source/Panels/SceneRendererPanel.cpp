@@ -452,10 +452,13 @@ namespace Lux {
 			projectSettingsChanged |= ImGuiEx::Property("SMAA", options.EnableSMAA);
 			if (options.EnableSMAA)
 			{
+				projectSettingsChanged |= ImGuiEx::Property("SMAA Temporal (T2x)", options.SMAATemporal);
 				projectSettingsChanged |= ImGuiEx::Property("SMAA Threshold", options.SMAAThreshold, 0.005f, 0.01f, 0.5f);
 				projectSettingsChanged |= ImGuiEx::Property("SMAA Local Contrast", options.SMAALocalContrastAdaptationFactor, 0.05f, 1.0f, 8.0f);
 				if (!m_Context->IsSMAAReady())
 					ImGui::TextDisabled("SMAA lookup textures missing - see Core/vendor/smaa");
+				else if (options.SMAATemporal)
+					ImGui::TextDisabled("T2x: 2 jittered samples/pixel, resolved along velocity");
 			}
 			projectSettingsChanged |= gtaoSettingsChanged;
 			if (gtaoSettingsChanged)

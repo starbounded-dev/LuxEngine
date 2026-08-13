@@ -19,6 +19,10 @@ layout(location = 1) in vec2 a_TexCoord;
 layout(push_constant) uniform SMAASettings
 {
 	vec4 RTMetrics; // (1/width, 1/height, width, height)
+	// Selects which AreaTex subtexture to sample, so each jittered frame gets areas
+	// computed for its own subpixel offset. Zero for SMAA 1x; for T2x the reference
+	// specifies (1,1,1,0) and (2,2,2,0) for the two jitter positions (@SUBSAMPLE_INDICES).
+	vec4 SubsampleIndices;
 } u_SMAA;
 
 // SMAA_MAX_SEARCH_STEPS 16 == the reference's High/Ultra presets. This bounds how far
@@ -61,6 +65,10 @@ layout(set = 1, binding = 2) uniform texture2D u_SearchTex; // R8 lookup, 64x16
 layout(push_constant) uniform SMAASettings
 {
 	vec4 RTMetrics; // (1/width, 1/height, width, height)
+	// Selects which AreaTex subtexture to sample, so each jittered frame gets areas
+	// computed for its own subpixel offset. Zero for SMAA 1x; for T2x the reference
+	// specifies (1,1,1,0) and (2,2,2,0) for the two jitter positions (@SUBSAMPLE_INDICES).
+	vec4 SubsampleIndices;
 } u_SMAA;
 
 #define SMAA_MAX_SEARCH_STEPS 16
@@ -195,7 +203,7 @@ vec2 SMAACalculateDiagWeights(vec2 texcoord, vec2 e)
 		if (step(0.9, d.z) != 0.0) cc.x = 0.0;
 		if (step(0.9, d.w) != 0.0) cc.y = 0.0;
 
-		weights += SMAAAreaDiag(d.xy, cc, 0.0);
+		weights += SMAAAreaDiag(d.xy, cc, u_SMAA.SubsampleIndices.z);
 	}
 
 	// Second diagonal direction (top-right / bottom-left).
@@ -223,7 +231,7 @@ vec2 SMAACalculateDiagWeights(vec2 texcoord, vec2 e)
 		if (step(0.9, d.w) != 0.0) cc.y = 0.0;
 
 		// Note the .gr swizzle - this direction's areas come back transposed.
-		weights += SMAAAreaDiag(d.xy, cc, 0.0).gr;
+		weights += SMAAAreaDiag(d.xy, cc, u_SMAA.SubsampleIndices.w).gr;
 	}
 
 	return weights;
@@ -397,7 +405,7 @@ void main()
 
 		float e2 = textureLodOffset(sampler2D(u_Edges, r_LinearSampler), vec2(coords.z, coords.y), 0.0, ivec2(1, 0)).r;
 
-		weights.rg = SMAAArea(sqrt_d, e1, e2, 0.0);
+		weights.rg = SMAAArea(sqrt_d, e1, e2, u_SMAA.SubsampleIndices.y);
 
 		coords.y = vs_TexCoord.y;
 		SMAADetectHorizontalCornerPattern(weights.rg, vec4(coords.x, coords.y, coords.z, coords.y), d);
@@ -431,7 +439,7 @@ void main()
 
 		float e2 = textureLodOffset(sampler2D(u_Edges, r_LinearSampler), vec2(coords.x, coords.z), 0.0, ivec2(0, 1)).g;
 
-		weights.ba = SMAAArea(sqrt_d, e1, e2, 0.0);
+		weights.ba = SMAAArea(sqrt_d, e1, e2, u_SMAA.SubsampleIndices.x);
 
 		coords.x = vs_TexCoord.x;
 		SMAADetectVerticalCornerPattern(weights.ba, vec4(coords.x, coords.y, coords.x, coords.z), d);

@@ -246,6 +246,11 @@ namespace Lux {
 		bool  EnableSMAA = false;
 		float SMAAThreshold = 0.1f;                        // edge sensitivity; lower catches more
 		float SMAALocalContrastAdaptationFactor = 2.0f;    // suppresses doubled edges on silhouettes
+		// SMAA T2x: jitter the projection between two subpixel positions on alternating
+		// frames, run SMAA 1x on each, and resolve the pair along the velocity buffer.
+		// Two geometric samples per pixel, so unlike 1x it also suppresses the temporal
+		// shimmer that purely spatial AA cannot see.
+		bool  SMAATemporal = false;
 		// MSAA sample count: 1 (off), 2, 4, 8 or 16. Unlike SMAA this is not a post
 		// process - it multisamples the G-buffer itself, which in a deferred renderer
 		// means every attachment plus depth is allocated N times over and the lighting
@@ -999,6 +1004,10 @@ namespace Lux {
 		void SMAAEdgeDetectionPass();
 		void SMAABlendWeightPass();
 		void SMAANeighborhoodBlendingPass();
+		void SMAAResolvePass();
+		// True when SMAA is running in T2x mode - drives the projection jitter, the
+		// subsample indices, and whether the resolve pass runs.
+		bool IsSMAATemporalActive() const;
 		// Image SMAA reads and replaces: the DOF output when DOF is resolving separately,
 		// otherwise the composite output.
 		Ref<Image2D> GetPostProcessInputImage();
@@ -1539,6 +1548,15 @@ namespace Lux {
 		// SMAA falls through to the un-antialiased image rather than producing garbage.
 		Ref<Texture2D>  m_SMAAAreaTexture;
 		Ref<Texture2D>  m_SMAASearchTexture;
+
+		// T2x only: temporal resolve of the two jittered frames.
+		Ref<RenderPass> m_SMAAResolvePass;
+		Ref<Material>   m_SMAAResolveMaterial;
+		Ref<Image2D>    m_SMAAHistoryImages[2]; // ping-pong resolved history
+		uint32_t        m_SMAAHistoryIndex = 0;
+		// Which of the two jitter positions this frame is on, as the AreaTex subtexture
+		// selector the reference specifies: (1,1,1,0) or (2,2,2,0). Zero for plain 1x.
+		glm::vec4       m_SMAASubsampleIndices = glm::vec4(0.0f);
 
 		// ── Jump flood selected outline ──────────────────────────────────────
 		Ref<RenderPass> m_JumpFloodInitPass;

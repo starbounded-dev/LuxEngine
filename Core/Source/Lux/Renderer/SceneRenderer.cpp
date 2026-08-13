@@ -408,7 +408,7 @@ namespace Lux {
 			return glm::dot(glm::max(radiance, glm::vec3(0.0f)), glm::vec3(0.2126f, 0.7152f, 0.0722f));
 		}
 
-		constexpr std::array<const char*, 32> s_ProfiledSceneRendererPasses = {
+		constexpr std::array<const char*, 33> s_ProfiledSceneRendererPasses = {
 			"ShadowMapPass",
 			"SpotShadowMapPass",
 			"MeshCullingPass",
@@ -440,7 +440,8 @@ namespace Lux {
 			"DOF",
 			"SMAA-EdgeDetection",
 			"SMAA-BlendingWeights",
-			"SMAA-NeighborhoodBlending"
+			"SMAA-NeighborhoodBlending",
+			"SMAA-Resolve"
 		};
 
 		uint32_t NextPowerOfTwo(uint32_t value)
@@ -2628,6 +2629,12 @@ namespace Lux {
 		resizePass(m_SMAAEdgePass, viewportSize);
 		resizePass(m_SMAABlendWeightPass, viewportSize);
 		resizePass(m_SMAANeighborhoodPass, viewportSize);
+		resizePass(m_SMAAResolvePass, viewportSize);
+		for (Ref<Image2D>& historyImage : m_SMAAHistoryImages)
+		{
+			if (historyImage)
+				historyImage->Resize(viewportSize.x, viewportSize.y);
+		}
 		resizePass(m_SSRCompositePass, viewportSize);
 		resizePass(m_DeferredLightingPass, viewportSize);
 		resizePass(m_GBufferDebugPass, viewportSize);
@@ -2920,7 +2927,7 @@ namespace Lux {
 		// missing. Check every shader up front and disable SMAA if any is absent.
 		{
 			const auto& shaders = Renderer::GetShaderLibrary()->GetShaders();
-			for (const char* required : { "SMAA-EdgeDetection", "SMAA-BlendingWeights", "SMAA-NeighborhoodBlending" })
+			for (const char* required : { "SMAA-EdgeDetection", "SMAA-BlendingWeights", "SMAA-NeighborhoodBlending", "SMAA-Resolve" })
 			{
 				if (shaders.find(required) == shaders.end())
 				{
@@ -2991,7 +2998,34 @@ namespace Lux {
 			m_SMAANeighborhoodPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
 			LUX_CORE_VERIFY(m_SMAANeighborhoodPass->Validate());
 			m_SMAANeighborhoodPass->Bake();
+
+			// T2x temporal resolve. Created unconditionally so the mode can be toggled at
+			// runtime without rebuilding passes; it only executes when T2x is active.
+			ImageSpecification historySpec;
+			historySpec.Format = ImageFormat::RGBA;
+			historySpec.Usage = ImageUsage::Attachment;
+			historySpec.Width = width;
+			historySpec.Height = height;
+			historySpec.DebugName = "SMAA-History-A";
+			m_SMAAHistoryImages[0] = Image2D::Create(historySpec);
+			historySpec.DebugName = "SMAA-History-B";
+			m_SMAAHistoryImages[1] = Image2D::Create(historySpec);
+
+			m_SMAAResolvePass = createFullscreenPass("SMAA-Resolve", ImageFormat::RGBA, m_SMAAResolveMaterial);
+			m_SMAAResolvePass->SetInput("u_Current", m_SMAANeighborhoodPass->GetOutput(0));
+			m_SMAAResolvePass->SetInput("u_Previous", m_SMAAHistoryImages[0]);
+			m_SMAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
+			m_SMAAResolvePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			m_SMAAResolvePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_SMAAResolvePass->Validate());
+			m_SMAAResolvePass->Bake();
 		}
+	}
+
+	bool SceneRenderer::IsSMAATemporalActive() const
+	{
+		return IsSMAAReady() && m_Options.SMAATemporal && m_SMAAResolvePass
+			&& m_SMAAHistoryImages[0] && m_SMAAHistoryImages[1];
 	}
 
 	bool SceneRenderer::IsSMAAReady() const
@@ -4099,6 +4133,14 @@ namespace Lux {
 			std::vector<RenderGraph::ResourceHandle> blendWrites = addRenderPassResources("SMAA-NeighborhoodBlending", m_SMAANeighborhoodPass);
 			appendResources(blendWrites, smaaInput);
 			addPass("SMAA-NeighborhoodBlending", blendReads, blendWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SMAANeighborhoodBlendingPass));
+
+			if (IsSMAATemporalActive())
+			{
+				std::vector<RenderGraph::ResourceHandle> resolveReads = blendWrites;
+				std::vector<RenderGraph::ResourceHandle> resolveWrites = addRenderPassResources("SMAA-Resolve", m_SMAAResolvePass);
+				appendResources(resolveWrites, smaaInput);
+				addPass("SMAA-Resolve", resolveReads, resolveWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SMAAResolvePass));
+			}
 		}
 	}
 
@@ -4713,8 +4755,24 @@ namespace Lux {
 			// TAA sub-pixel jitter (Halton 2,3) applied to the rasterized projection only.
 			// The unjittered VP is kept for motion-vector reprojection / history sampling.
 			glm::vec2 jitter(0.0f);
-			if (m_Options.EnableTAA)
+			if (IsSMAATemporalActive())
 			{
+				// SMAA T2x alternates between exactly two subpixel positions, each paired
+				// with the AreaTex subtexture computed for it (@SUBSAMPLE_INDICES):
+				//   S0 ( 0.25, -0.25) -> (1,1,1,0)
+				//   S1 (-0.25,  0.25) -> (2,2,2,0)
+				// The reference's table assumes a bottom-to-top Y axis, so Y is negated
+				// here for Vulkan's top-to-bottom clip space.
+				const bool secondSample = (m_TAAJitterIndex & 1u) != 0u;
+				const glm::vec2 offsetPixels = secondSample ? glm::vec2(-0.25f, 0.25f) : glm::vec2(0.25f, -0.25f);
+				jitter = glm::vec2(offsetPixels.x * 2.0f / float(glm::max(1u, m_ViewportWidth)),
+				                  -offsetPixels.y * 2.0f / float(glm::max(1u, m_ViewportHeight)));
+				m_SMAASubsampleIndices = secondSample ? glm::vec4(2.0f, 2.0f, 2.0f, 0.0f)
+				                                     : glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+			}
+			else if (m_Options.EnableTAA)
+			{
+				m_SMAASubsampleIndices = glm::vec4(0.0f);
 				auto halton = [](uint32_t index, uint32_t base) -> float
 				{
 					float result = 0.0f, invBase = 1.0f / float(base), fraction = invBase;
@@ -4730,6 +4788,10 @@ namespace Lux {
 				const float jy = halton(sampleIndex, 3u) - 0.5f;
 				jitter = glm::vec2(jx * 2.0f / float(glm::max(1u, m_ViewportWidth)),
 				                   jy * 2.0f / float(glm::max(1u, m_ViewportHeight)));
+			}
+			else
+			{
+				m_SMAASubsampleIndices = glm::vec4(0.0f);
 			}
 
 			glm::mat4 jitteredProj = unjitteredProj;
@@ -8528,6 +8590,8 @@ namespace Lux {
 		// full RT metrics rather than just the inverse used by passes 1 and 3.
 		m_SMAABlendWeightMaterial->Set("u_SMAA.RTMetrics", glm::vec4(
 			m_InvViewportWidth, m_InvViewportHeight, (float)m_ViewportWidth, (float)m_ViewportHeight));
+		// Zero for 1x; for T2x this selects the AreaTex subtexture matching this frame's jitter.
+		m_SMAABlendWeightMaterial->Set("u_SMAA.SubsampleIndices", m_SMAASubsampleIndices);
 
 		BeginProfiledGPU("SMAA-BlendingWeights");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SMAABlendWeightPass);
@@ -8556,7 +8620,41 @@ namespace Lux {
 
 		// Resolve back over the image the rest of the engine treats as final, so nothing
 		// downstream (debug views, the viewport, screenshots) has to know SMAA ran.
-		Renderer::CopyImage(m_CommandBuffer, m_SMAANeighborhoodPass->GetOutput(0), input);
+		// In T2x the resolve pass owns that copy instead - this frame's result is only
+		// half the answer until it has been combined with the previous jitter position.
+		if (!IsSMAATemporalActive())
+			Renderer::CopyImage(m_CommandBuffer, m_SMAANeighborhoodPass->GetOutput(0), input);
+
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::SMAAResolvePass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "SMAA-Resolve");
+		if (!IsSMAATemporalActive() || !m_SMAAResolveMaterial)
+			return;
+
+		Ref<Image2D> input = GetPostProcessInputImage();
+		if (!input)
+			return;
+
+		const uint32_t readIndex = m_SMAAHistoryIndex & 1u;
+		const uint32_t writeIndex = readIndex ^ 1u;
+
+		m_SMAAResolvePass->SetInput("u_Current", m_SMAANeighborhoodPass->GetOutput(0));
+		m_SMAAResolvePass->SetInput("u_Previous", m_SMAAHistoryImages[readIndex]);
+		m_SMAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
+		m_SMAAResolveMaterial->Set("u_Resolve.HasHistory", m_TemporalHistoryValid ? 1u : 0u);
+
+		BeginProfiledGPU("SMAA-Resolve");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_SMAAResolvePass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SMAAResolvePass->GetPipeline(), m_SMAAResolveMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+
+		// The resolve output becomes both the displayed image and next frame's history.
+		Renderer::CopyImage(m_CommandBuffer, m_SMAAResolvePass->GetOutput(0), input);
+		Renderer::CopyImage(m_CommandBuffer, m_SMAAResolvePass->GetOutput(0), m_SMAAHistoryImages[writeIndex]);
+		m_SMAAHistoryIndex = writeIndex;
 
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
