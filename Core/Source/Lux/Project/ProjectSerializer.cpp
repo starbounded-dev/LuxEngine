@@ -117,6 +117,7 @@ namespace Lux
 				case 1: return "Scale75";
 				case 2: return "Scale50";
 				case 3: return "Dynamic";
+				case 4: return "FixedResolution";
 				case 0:
 				default:
 					return "Scale100";
@@ -131,6 +132,8 @@ namespace Lux
 				return 2;
 			if (value == "Dynamic" || value == "3")
 				return 3;
+			if (value == "FixedResolution" || value == "Fixed" || value == "4")
+				return 4;
 			return 0;
 		}
 
@@ -255,6 +258,8 @@ namespace Lux
 			out << YAML::Key << "SSR" << YAML::Value << settings.EnableSSR;
 			out << YAML::Key << "JumpFloodOutline" << YAML::Value << settings.EnableJumpFlood;
 			out << YAML::Key << "RenderScaleMode" << YAML::Value << RenderScaleModeToString(settings.RenderScaleMode);
+			out << YAML::Key << "FixedRenderWidth" << YAML::Value << settings.FixedRenderWidth;
+			out << YAML::Key << "FixedRenderHeight" << YAML::Value << settings.FixedRenderHeight;
 			out << YAML::Key << "DynamicResolutionMinScale" << YAML::Value << settings.DynamicResolutionMinScale;
 			out << YAML::Key << "DynamicResolutionMaxScale" << YAML::Value << settings.DynamicResolutionMaxScale;
 			out << YAML::Key << "DynamicResolutionTargetGPUTime" << YAML::Value << settings.DynamicResolutionTargetGPUTime;
@@ -348,6 +353,8 @@ namespace Lux
 				settings.EnableSSR = rendering["SSR"].as<bool>(settings.EnableSSR);
 				settings.EnableJumpFlood = rendering["JumpFloodOutline"].as<bool>(settings.EnableJumpFlood);
 				settings.RenderScaleMode = RenderScaleModeFromString(rendering["RenderScaleMode"].as<std::string>(RenderScaleModeToString(settings.RenderScaleMode)));
+				settings.FixedRenderWidth = rendering["FixedRenderWidth"].as<uint32_t>(settings.FixedRenderWidth);
+				settings.FixedRenderHeight = rendering["FixedRenderHeight"].as<uint32_t>(settings.FixedRenderHeight);
 				settings.DynamicResolutionMinScale = rendering["DynamicResolutionMinScale"].as<float>(settings.DynamicResolutionMinScale);
 				settings.DynamicResolutionMaxScale = rendering["DynamicResolutionMaxScale"].as<float>(settings.DynamicResolutionMaxScale);
 				settings.DynamicResolutionTargetGPUTime = rendering["DynamicResolutionTargetGPUTime"].as<float>(settings.DynamicResolutionTargetGPUTime);

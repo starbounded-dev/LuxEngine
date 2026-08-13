@@ -667,8 +667,19 @@ namespace Lux {
 					bool renderedViewportImage = false;
 					if (viewportImage)
 					{
+						// Draw into the letterboxed rect rather than filling the panel, so a render
+						// whose aspect differs from the panel (a fixed 1920x1080 target on a 4K or
+						// ultrawide viewport) keeps its framing instead of being stretched. The
+						// panel background shows through as the bars.
+						const glm::vec2* imageBounds = m_EditorViewport->GetImageBounds();
+						const glm::vec2 imageSize = m_EditorViewport->GetImageSize();
+						const ImVec2 cursor = ImGui::GetCursorPos();
+						ImGui::SetCursorPos(ImVec2{
+							cursor.x + (imageBounds[0].x - viewportBounds[0].x),
+							cursor.y + (imageBounds[0].y - viewportBounds[0].y) });
+
 						ImTextureID texID = GetImGuiTextureID(viewportImage);
-						ImGui::Image(texID, ImVec2{ viewportSize.x, viewportSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
+						ImGui::Image(texID, ImVec2{ imageSize.x, imageSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
 						renderedViewportImage = true;
 					}
 
@@ -718,9 +729,12 @@ namespace Lux {
 					{
 						ImGuizmo::SetOrthographic(false);
 						ImGuizmo::SetDrawlist();
-						ImGuizmo::SetRect(viewportBounds[0].x, viewportBounds[0].y,
-							viewportBounds[1].x - viewportBounds[0].x,
-							viewportBounds[1].y - viewportBounds[0].y);
+						// The image rect, not the panel rect - the gizmo has to line up with the
+						// rendered image, which is inset by the letterbox bars when the render
+						// aspect differs from the panel's.
+						const glm::vec2* gizmoBounds = m_EditorViewport->GetImageBounds();
+						const glm::vec2 gizmoSize = m_EditorViewport->GetImageSize();
+						ImGuizmo::SetRect(gizmoBounds[0].x, gizmoBounds[0].y, gizmoSize.x, gizmoSize.y);
 
 						EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
 						const glm::mat4& cameraProjection = viewportCamera.GetProjectionMatrix();
@@ -1405,7 +1419,11 @@ namespace Lux {
 		if (!m_ActiveScene || !m_EditorViewport)
 			return {};
 
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		// NDC has to be derived from the rendered image, not the panel: when the render aspect
+		// differs from the panel's the image is letterboxed, so panel-relative coordinates are
+		// offset by the bars and the picked ray misses what the cursor is actually over. Clicks
+		// that land on a bar fall outside the image and correctly pick nothing.
+		const glm::vec2* viewportBounds = m_EditorViewport->GetImageBounds();
 		const float viewportWidth = viewportBounds[1].x - viewportBounds[0].x;
 		const float viewportHeight = viewportBounds[1].y - viewportBounds[0].y;
 		if (viewportWidth <= 1.0f || viewportHeight <= 1.0f)

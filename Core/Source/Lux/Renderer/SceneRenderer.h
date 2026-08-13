@@ -143,7 +143,13 @@ namespace Lux {
 			Native = 0,
 			Scale75 = 1,
 			Scale50 = 2,
-			Dynamic = 3
+			Dynamic = 3,
+			// Render at an absolute resolution (FixedRenderWidth x FixedRenderHeight) regardless of
+			// how large the output viewport is, then scale the result to fit. Lets a 4K editor
+			// display show the exact pixel count - and therefore the cost - of a 1080p target.
+			// Unlike the modes above this is not a fraction of the output, so the render aspect can
+			// differ from the viewport's; the presenter is expected to letterbox rather than stretch.
+			FixedResolution = 4
 		};
 
 		enum class EffectResolutionScale : uint32_t
@@ -240,6 +246,9 @@ namespace Lux {
 		// nothing submits async until a pass is wired to honor this flag.
 		bool  EnableAsyncCompute = false;
 		RenderResolutionScaleMode ResolutionScaleMode = RenderResolutionScaleMode::Native;
+		// Only meaningful for RenderResolutionScaleMode::FixedResolution.
+		uint32_t FixedRenderWidth = 1920;
+		uint32_t FixedRenderHeight = 1080;
 		float DynamicResolutionScale = 1.0f;
 		float DynamicResolutionMinScale = 0.5f;
 		float DynamicResolutionMaxScale = 1.0f;

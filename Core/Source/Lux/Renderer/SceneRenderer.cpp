@@ -264,7 +264,7 @@ namespace Lux {
 
 		SceneRendererOptions::RenderResolutionScaleMode SanitizeRenderResolutionScaleMode(uint32_t mode)
 		{
-			if (mode > static_cast<uint32_t>(SceneRendererOptions::RenderResolutionScaleMode::Dynamic))
+			if (mode > static_cast<uint32_t>(SceneRendererOptions::RenderResolutionScaleMode::FixedResolution))
 				return SceneRendererOptions::RenderResolutionScaleMode::Native;
 
 			return static_cast<SceneRendererOptions::RenderResolutionScaleMode>(mode);
@@ -786,6 +786,8 @@ namespace Lux {
 		m_Options.SSRTemporalBlend = std::clamp(settings.SSRTemporalBlend, 0.0f, 0.98f);
 		m_Options.EnableJumpFlood = settings.EnableJumpFlood;
 		m_Options.ResolutionScaleMode = SanitizeRenderResolutionScaleMode(settings.RenderScaleMode);
+		m_Options.FixedRenderWidth = std::clamp(settings.FixedRenderWidth, 64u, 16384u);
+		m_Options.FixedRenderHeight = std::clamp(settings.FixedRenderHeight, 64u, 16384u);
 		m_Options.DynamicResolutionMinScale = std::clamp(settings.DynamicResolutionMinScale, 0.25f, 1.0f);
 		m_Options.DynamicResolutionMaxScale = std::clamp(settings.DynamicResolutionMaxScale, m_Options.DynamicResolutionMinScale, 1.0f);
 		m_Options.DynamicResolutionTargetGPUTime = std::max(1.0f, settings.DynamicResolutionTargetGPUTime);
@@ -891,6 +893,8 @@ namespace Lux {
 		settings.SSRTemporalBlend = m_Options.SSRTemporalBlend;
 		settings.EnableJumpFlood = m_Options.EnableJumpFlood;
 		settings.RenderScaleMode = static_cast<uint32_t>(m_Options.ResolutionScaleMode);
+		settings.FixedRenderWidth = m_Options.FixedRenderWidth;
+		settings.FixedRenderHeight = m_Options.FixedRenderHeight;
 		settings.DynamicResolutionMinScale = m_Options.DynamicResolutionMinScale;
 		settings.DynamicResolutionMaxScale = m_Options.DynamicResolutionMaxScale;
 		settings.DynamicResolutionTargetGPUTime = m_Options.DynamicResolutionTargetGPUTime;
@@ -2248,9 +2252,20 @@ namespace Lux {
 		m_OutputViewportWidth = width;
 		m_OutputViewportHeight = height;
 
-		const float renderScale = ResolveRenderResolutionScale();
-		width = glm::max(1u, (uint32_t)std::round((float)width * renderScale));
-		height = glm::max(1u, (uint32_t)std::round((float)height * renderScale));
+		if (m_Options.ResolutionScaleMode == SceneRendererOptions::RenderResolutionScaleMode::FixedResolution)
+		{
+			// An absolute target, so it cannot be expressed as a fraction of the output the way the
+			// other modes are - the render aspect is whatever the fixed size says, independent of
+			// the viewport. Presenters must letterbox this rather than stretch it to fill.
+			width = glm::max(1u, m_Options.FixedRenderWidth);
+			height = glm::max(1u, m_Options.FixedRenderHeight);
+		}
+		else
+		{
+			const float renderScale = ResolveRenderResolutionScale();
+			width = glm::max(1u, (uint32_t)std::round((float)width * renderScale));
+			height = glm::max(1u, (uint32_t)std::round((float)height * renderScale));
+		}
 
 		if (m_ViewportWidth != width || m_ViewportHeight != height)
 		{
@@ -2437,6 +2452,16 @@ namespace Lux {
 				return 0.50f;
 			case SceneRendererOptions::RenderResolutionScaleMode::Dynamic:
 				return std::clamp(m_Options.DynamicResolutionScale, m_Options.DynamicResolutionMinScale, m_Options.DynamicResolutionMaxScale);
+			case SceneRendererOptions::RenderResolutionScaleMode::FixedResolution:
+			{
+				// SetViewportSize does not route through this for the fixed mode - it sets the
+				// absolute size directly. Report the equivalent linear ratio so the stats HUD and
+				// any other reader still show a meaningful "scale" figure.
+				if (m_OutputViewportHeight == 0)
+					return 1.0f;
+
+				return (float)glm::max(1u, m_Options.FixedRenderHeight) / (float)m_OutputViewportHeight;
+			}
 			case SceneRendererOptions::RenderResolutionScaleMode::Native:
 			default:
 				return 1.0f;

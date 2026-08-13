@@ -331,13 +331,55 @@ namespace Lux {
 				ImGuiEx::Property("Variable Rate Shading (Unsupported)", unsupported);
 				ImGui::EndDisabled();
 			}
-			const char* renderScaleLabels[] = { "100%", "75%", "50%", "Dynamic" };
+			const char* renderScaleLabels[] = { "100%", "75%", "50%", "Dynamic", "Fixed Resolution" };
 			int renderScaleMode = static_cast<int>(options.ResolutionScaleMode);
 			if (DrawComboProperty("Render Scale", renderScaleMode, renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels)))
 			{
 				options.ResolutionScaleMode = static_cast<SceneRendererOptions::RenderResolutionScaleMode>(renderScaleMode);
 				m_Context->RefreshRenderResolutionScale();
 				projectSettingsChanged = true;
+			}
+			if (options.ResolutionScaleMode == SceneRendererOptions::RenderResolutionScaleMode::FixedResolution)
+			{
+				// Renders at this exact size no matter how big the viewport is, so a 4K editor
+				// display shows the pixel cost of the target resolution. The viewport letterboxes
+				// the result when its aspect differs.
+				int32_t fixedWidth = (int32_t)options.FixedRenderWidth;
+				int32_t fixedHeight = (int32_t)options.FixedRenderHeight;
+				bool fixedResolutionChanged = false;
+				fixedResolutionChanged |= ImGuiEx::Property("Fixed Render Width", fixedWidth, 64, 16384);
+				fixedResolutionChanged |= ImGuiEx::Property("Fixed Render Height", fixedHeight, 64, 16384);
+				if (fixedResolutionChanged)
+				{
+					options.FixedRenderWidth = (uint32_t)std::clamp(fixedWidth, 64, 16384);
+					options.FixedRenderHeight = (uint32_t)std::clamp(fixedHeight, 64, 16384);
+					m_Context->RefreshRenderResolutionScale();
+					projectSettingsChanged = true;
+				}
+
+				if (ImGui::Button("1920x1080"))
+				{
+					options.FixedRenderWidth = 1920;
+					options.FixedRenderHeight = 1080;
+					m_Context->RefreshRenderResolutionScale();
+					projectSettingsChanged = true;
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("2560x1440"))
+				{
+					options.FixedRenderWidth = 2560;
+					options.FixedRenderHeight = 1440;
+					m_Context->RefreshRenderResolutionScale();
+					projectSettingsChanged = true;
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("1280x720"))
+				{
+					options.FixedRenderWidth = 1280;
+					options.FixedRenderHeight = 720;
+					m_Context->RefreshRenderResolutionScale();
+					projectSettingsChanged = true;
+				}
 			}
 			if (options.ResolutionScaleMode == SceneRendererOptions::RenderResolutionScaleMode::Dynamic)
 			{

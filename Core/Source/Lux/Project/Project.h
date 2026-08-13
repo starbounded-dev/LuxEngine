@@ -78,6 +78,9 @@ namespace Lux
 		bool EnableSSR = true;
 		bool EnableJumpFlood = true;
 		uint32_t RenderScaleMode = 0; // SceneRendererOptions::RenderResolutionScaleMode
+		// Only used when RenderScaleMode is FixedResolution.
+		uint32_t FixedRenderWidth = 1920;
+		uint32_t FixedRenderHeight = 1080;
 		float DynamicResolutionMinScale = 0.5f;
 		float DynamicResolutionMaxScale = 1.0f;
 		float DynamicResolutionTargetGPUTime = 16.67f;
