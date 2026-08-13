@@ -2634,7 +2634,6 @@ namespace Lux {
 		if (m_SMAAEdgesImage)
 		{
 			m_SMAAEdgesImage->Resize(viewportSize.x, viewportSize.y);
-			m_SMAABlendImage->Resize(viewportSize.x, viewportSize.y);
 			m_SMAAOutputImage->Resize(viewportSize.x, viewportSize.y);
 			for (Ref<Image2D>& historyImage : m_SMAAHistoryImages)
 				historyImage->Resize(viewportSize.x, viewportSize.y);
@@ -2937,7 +2936,7 @@ namespace Lux {
 		// missing. Check every shader up front and disable SMAA if any is absent.
 		{
 			const auto& shaders = Renderer::GetShaderLibrary()->GetShaders();
-			for (const char* required : { "SMAA-EdgeDetection", "SMAA-BlendingWeights", "SMAA-NeighborhoodBlending", "SMAA-Resolve" })
+			for (const char* required : { "SMAA-EdgeDetection", "SMAA-WeightAndBlend", "SMAA-Resolve" })
 			{
 				if (shaders.find(required) == shaders.end())
 				{
@@ -2967,7 +2966,6 @@ namespace Lux {
 		};
 
 		m_SMAAEdgesImage = createStorageImage(ImageFormat::RG8, "SMAA-Edges");
-		m_SMAABlendImage = createStorageImage(ImageFormat::RGBA, "SMAA-BlendWeights");
 		m_SMAAOutputImage = createStorageImage(ImageFormat::RGBA, "SMAA-Output");
 		m_SMAAHistoryImages[0] = createStorageImage(ImageFormat::RGBA, "SMAA-History-A");
 		m_SMAAHistoryImages[1] = createStorageImage(ImageFormat::RGBA, "SMAA-History-B");
@@ -2987,22 +2985,17 @@ namespace Lux {
 		LUX_CORE_VERIFY(m_SMAAEdgeComputePass->Validate());
 		m_SMAAEdgeComputePass->Bake();
 
-		// Pass 2: blending weights, driven by the AreaTex/SearchTex lookups.
-		m_SMAAWeightComputePass = createComputePass("SMAA-BlendingWeights");
-		m_SMAAWeightComputePass->SetInput("o_BlendWeights", m_SMAABlendImage);
-		m_SMAAWeightComputePass->SetInput("u_EdgeTex", m_SMAAEdgesImage);
-		m_SMAAWeightComputePass->SetInput("u_AreaTex", m_SMAAAreaTexture);
-		m_SMAAWeightComputePass->SetInput("u_SearchTex", m_SMAASearchTexture);
-		LUX_CORE_VERIFY(m_SMAAWeightComputePass->Validate());
-		m_SMAAWeightComputePass->Bake();
-
-		// Pass 3: neighbourhood blending, resolving the antialiased image.
-		m_SMAABlendComputePass = createComputePass("SMAA-NeighborhoodBlending");
-		m_SMAABlendComputePass->SetInput("o_Output", m_SMAAOutputImage);
-		m_SMAABlendComputePass->SetInput("u_InputTex", m_CompositePass->GetOutput(0));
-		m_SMAABlendComputePass->SetInput("u_BlendTex", m_SMAABlendImage);
-		LUX_CORE_VERIFY(m_SMAABlendComputePass->Validate());
-		m_SMAABlendComputePass->Bake();
+		// Pass 2: blending weights (driven by the AreaTex/SearchTex lookups) followed by
+		// neighbourhood blending, in one dispatch. The weights never leave shared memory,
+		// so there is no intermediate blend-weights target to allocate or round-trip.
+		m_SMAAWeightAndBlendComputePass = createComputePass("SMAA-WeightAndBlend");
+		m_SMAAWeightAndBlendComputePass->SetInput("o_Output", m_SMAAOutputImage);
+		m_SMAAWeightAndBlendComputePass->SetInput("u_InputTex", m_CompositePass->GetOutput(0));
+		m_SMAAWeightAndBlendComputePass->SetInput("u_EdgeTex", m_SMAAEdgesImage);
+		m_SMAAWeightAndBlendComputePass->SetInput("u_AreaTex", m_SMAAAreaTexture);
+		m_SMAAWeightAndBlendComputePass->SetInput("u_SearchTex", m_SMAASearchTexture);
+		LUX_CORE_VERIFY(m_SMAAWeightAndBlendComputePass->Validate());
+		m_SMAAWeightAndBlendComputePass->Bake();
 
 		// T2x temporal resolve. Created unconditionally so the mode can be toggled at
 		// runtime; it only dispatches when T2x is active.
@@ -3030,7 +3023,7 @@ namespace Lux {
 	bool SceneRenderer::IsSMAAReady() const
 	{
 		return m_Options.EnableSMAA
-			&& m_SMAAEdgeComputePass && m_SMAAWeightComputePass && m_SMAABlendComputePass
+			&& m_SMAAEdgeComputePass && m_SMAAWeightAndBlendComputePass
 			&& m_SMAAAreaTexture && m_SMAASearchTexture;
 	}
 
@@ -8556,7 +8549,7 @@ namespace Lux {
 		// Rebound per frame: the image SMAA antialiases is the composite output, or the
 		// DOF output when DOF resolves into its own target.
 		m_SMAAEdgeComputePass->SetInput("u_InputTex", input);
-		m_SMAABlendComputePass->SetInput("u_InputTex", input);
+		m_SMAAWeightAndBlendComputePass->SetInput("u_InputTex", input);
 
 		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SMAA");
 
@@ -8574,31 +8567,22 @@ namespace Lux {
 			Renderer::EndComputePass(m_CommandBuffer, m_SMAAEdgeComputePass);
 		}
 
-		// Pass 2: blending weights. SubsampleIndices is zero for 1x; for T2x it selects
-		// the AreaTex subtexture matching this frame's jitter position.
+		// Pass 2: blending weights followed by neighbourhood blending, merged into one
+		// dispatch. SubsampleIndices is zero for 1x; for T2x it selects the AreaTex
+		// subtexture matching this frame's jitter position.
 		{
 			struct { glm::vec4 RTMetrics; glm::vec4 SubsampleIndices; } constants;
 			constants.RTMetrics = rtMetrics;
 			constants.SubsampleIndices = IsSMAATemporalActive() ? m_SMAASubsampleIndices : glm::vec4(0.0f);
 
-			Renderer::BeginComputePass(m_CommandBuffer, m_SMAAWeightComputePass);
-			Renderer::DispatchCompute(m_CommandBuffer, m_SMAAWeightComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
-			Renderer::EndComputePass(m_CommandBuffer, m_SMAAWeightComputePass);
-		}
-
-		// Pass 3: neighbourhood blending.
-		{
-			struct { glm::vec4 RTMetrics; } constants;
-			constants.RTMetrics = rtMetrics;
-
-			Renderer::BeginComputePass(m_CommandBuffer, m_SMAABlendComputePass);
-			Renderer::DispatchCompute(m_CommandBuffer, m_SMAABlendComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
-			Renderer::EndComputePass(m_CommandBuffer, m_SMAABlendComputePass);
+			Renderer::BeginComputePass(m_CommandBuffer, m_SMAAWeightAndBlendComputePass);
+			Renderer::DispatchCompute(m_CommandBuffer, m_SMAAWeightAndBlendComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
+			Renderer::EndComputePass(m_CommandBuffer, m_SMAAWeightAndBlendComputePass);
 		}
 
 		Ref<Image2D> resolved = m_SMAAOutputImage;
 
-		// Pass 4 (T2x only): combine this jittered frame with the previous one.
+		// Pass 3 (T2x only): combine this jittered frame with the previous one.
 		if (IsSMAATemporalActive())
 		{
 			const uint32_t readIndex = m_SMAAHistoryIndex & 1u;

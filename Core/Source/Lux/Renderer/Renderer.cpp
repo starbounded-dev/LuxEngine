@@ -554,8 +554,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/LuminanceAverage.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/TAA.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-EdgeDetection.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-BlendingWeights.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-NeighborhoodBlending.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-WeightAndBlend.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-Resolve.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/DOF.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/EdgeDetection.glsl");

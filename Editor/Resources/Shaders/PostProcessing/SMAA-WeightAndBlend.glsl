@@ -1,23 +1,37 @@
-// SMAA 1x - pass 2 of 3: blending weight calculation.
+// SMAA 1x - passes 2 and 3 of 3, merged: blending weight calculation followed by
+// neighbourhood blending.
 // Based on SMAA by Jorge Jimenez et al. (MIT), ported from Core/vendor/smaa/SMAA.hlsl
 // and kept structurally identical to it so the two can be diffed.
 //
 // Compute rather than a fullscreen quad, matching the GTAO/SSR pattern. The reference's
-// vertex-shader offsets are computed in main().
+// vertex-shader offsets are computed in ComputeBlendWeights().
 //
 // For each edge pixel this walks along the edge to find where it ends in both
 // directions, then looks up the analytic coverage area for that pattern in AreaTex.
 // The walk is bilinear-accelerated: sampling *between* texels fetches two edges per
 // tap, and SearchTex decodes how far the last (partial) step actually reached.
+//
+// The weights are then consumed in-place instead of round-tripping through an
+// intermediate RGBA8 target: neighbourhood blending only ever reads the current pixel's
+// weights plus its right and bottom neighbours, so an 8x8 group needs a 9x9 tile. The
+// group computes that tile into shared memory, barriers, and blends. The four reads the
+// separate pass did with a linear sampler all landed exactly on texel centres, where
+// bilinear degenerates to a point fetch - so this is numerically identical to the
+// two-pass version, not an approximation.
+//
+// The cost of the merge is the 17 extra border pixels per group (81 weights computed for
+// 64 output pixels, ~27% more of the search/corner work) traded against one full-screen
+// RGBA8 store and load.
 #version 450 core
 #pragma stage : comp
 
 #include <Samplers.glslh>
 
-layout(set = 1, binding = 0, rgba8) restrict writeonly uniform image2D o_BlendWeights;
-layout(set = 1, binding = 1) uniform texture2D u_EdgeTex;
-layout(set = 1, binding = 2) uniform texture2D u_AreaTex;
-layout(set = 1, binding = 3) uniform texture2D u_SearchTex;
+layout(set = 1, binding = 0, rgba8) restrict writeonly uniform image2D o_Output;
+layout(set = 1, binding = 1) uniform texture2D u_InputTex;
+layout(set = 1, binding = 2) uniform texture2D u_EdgeTex;
+layout(set = 1, binding = 3) uniform texture2D u_AreaTex;
+layout(set = 1, binding = 4) uniform texture2D u_SearchTex;
 
 layout(push_constant) uniform PushConstants
 {
@@ -29,6 +43,9 @@ layout(push_constant) uniform PushConstants
 } u_Uniforms;
 
 layout(local_size_x = 8, local_size_y = 8) in;
+
+// Blend weights for this group's 8x8 pixels plus a one-pixel right/bottom apron.
+shared vec4 s_BlendWeights[9][9];
 
 // High preset.
 #define SMAA_MAX_SEARCH_STEPS 16
@@ -313,13 +330,15 @@ void SMAADetectVerticalCornerPattern(inout vec2 weights, vec4 texcoord, vec2 d)
 
 //-----------------------------------------------------------------------------
 
-void main()
+// Blending weights for a single pixel. Out-of-bounds pixels resolve to zero weights,
+// which is what the separate pass produced for them via the sampler's zero border - the
+// apron threads rely on that rather than on a bounds test at the read site.
+vec4 ComputeBlendWeights(ivec2 pixelCoord)
 {
-	const ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
 	const ivec2 size = ivec2(u_Uniforms.SMAA_RT_METRICS.zw);
 
-	if (pixelCoord.x >= size.x || pixelCoord.y >= size.y)
-		return;
+	if (pixelCoord.x < 0 || pixelCoord.y < 0 || pixelCoord.x >= size.x || pixelCoord.y >= size.y)
+		return vec4(0.0);
 
 	const vec2 texcoord = (vec2(pixelCoord) + 0.5) * u_Uniforms.SMAA_RT_METRICS.xy;
 	const vec2 pixcoord = texcoord * u_Uniforms.SMAA_RT_METRICS.zw;
@@ -398,5 +417,75 @@ void main()
 		SMAADetectVerticalCornerPattern(weights.ba, coords.xyxz, d);
 	}
 
-	imageStore(o_BlendWeights, pixelCoord, weights);
+	return weights;
+}
+
+//-----------------------------------------------------------------------------
+
+void main()
+{
+	const ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 size = ivec2(u_Uniforms.SMAA_RT_METRICS.zw);
+	const uvec2 localID = gl_LocalInvocationID.xy;
+	const uint localIdx = gl_LocalInvocationIndex;
+	const ivec2 groupBase = ivec2(gl_WorkGroupID.xy) * 8;
+
+	// --- Weight calculation: fill the 9x9 tile -------------------------------
+	// Every thread computes its own pixel; 17 of them each compute one apron pixel
+	// as well (8 down the right column, 9 along the bottom row incl. the corner).
+	s_BlendWeights[localID.y][localID.x] = ComputeBlendWeights(groupBase + ivec2(localID));
+
+	if (localIdx < 17u)
+	{
+		uvec2 apron;
+		if (localIdx < 8u)
+			apron = uvec2(8u, localIdx);        // right column:  (8, 0)..(8, 7)
+		else
+			apron = uvec2(localIdx - 8u, 8u);   // bottom row:    (0, 8)..(8, 8)
+
+		s_BlendWeights[apron.y][apron.x] = ComputeBlendWeights(groupBase + ivec2(apron));
+	}
+
+	// Every thread reaches this - the bounds test below is deliberately after it, so
+	// edge-of-screen groups cannot leave some threads waiting on a barrier they skip.
+	barrier();
+
+	// --- Neighbourhood blending ----------------------------------------------
+	if (pixelCoord.x >= size.x || pixelCoord.y >= size.y)
+		return;
+
+	const vec2 texcoord = (vec2(pixelCoord) + 0.5) * u_Uniforms.SMAA_RT_METRICS.xy;
+
+	// Same four weights the separate pass gathered, now straight out of the tile.
+	vec4 a;
+	a.x  = s_BlendWeights[localID.y][localID.x + 1u].a;  // right
+	a.y  = s_BlendWeights[localID.y + 1u][localID.x].g;  // top
+	a.wz = s_BlendWeights[localID.y][localID.x].xz;      // bottom / left
+
+	// No weight anywhere means no edge touched this pixel: pass the colour through
+	// rather than paying for a blend that would resolve to itself.
+	if (dot(a, vec4(1.0)) < 1e-5)
+	{
+		imageStore(o_Output, pixelCoord, SampleLinearZero(u_InputTex, texcoord));
+		return;
+	}
+
+	// Pick the dominant axis: true means this pixel blends sideways, not vertically.
+	const bool h = max(a.x, a.z) > max(a.y, a.w);
+
+	// Fold the weights into two signed offsets along the winning axis, then let
+	// bilinear filtering perform the actual interpolation between the two texels.
+	vec4 blendingOffset = vec4(0.0, a.y, 0.0, a.w);
+	vec2 blendingWeight = a.yw;
+	SMAAMovc(bvec4(h, h, h, h), blendingOffset, vec4(a.x, 0.0, a.z, 0.0));
+	SMAAMovc(bvec2(h, h), blendingWeight, a.xz);
+	blendingWeight /= dot(blendingWeight, vec2(1.0));
+
+	const vec4 blendingCoord = fma(blendingOffset,
+		vec4(u_Uniforms.SMAA_RT_METRICS.xy, -u_Uniforms.SMAA_RT_METRICS.xy), texcoord.xyxy);
+
+	vec4 color = blendingWeight.x * SampleLinearZero(u_InputTex, blendingCoord.xy);
+	color += blendingWeight.y * SampleLinearZero(u_InputTex, blendingCoord.zw);
+
+	imageStore(o_Output, pixelCoord, color);
 }

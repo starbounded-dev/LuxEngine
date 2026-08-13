@@ -1066,9 +1066,9 @@ namespace Lux {
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();
-		// Creates the three SMAA passes and loads the reference lookup textures. Safe to call
+		// Creates the SMAA passes and loads the reference lookup textures. Safe to call
 		// when the vendored SMAA headers are absent: the lookup textures stay null, the
-		// blending-weight pass is not created, and IsSMAAReady() reports false.
+		// weight-and-blend pass is not created, and IsSMAAReady() reports false.
 		void CreateSMAAPasses();
 		void BuildRenderGraph(bool executable = false);
 		void ApplyRenderTargetAliasing();
@@ -1537,11 +1537,11 @@ namespace Lux {
 		// SMAA - compute passes writing storage images, matching the GTAO/SSR pattern:
 		// edge detection -> blending weights -> neighbourhood blending (-> T2x resolve).
 		Ref<ComputePass> m_SMAAEdgeComputePass;
-		Ref<ComputePass> m_SMAAWeightComputePass;
-		Ref<ComputePass> m_SMAABlendComputePass;
+		// Weight calculation and neighbourhood blending are one dispatch: the blending
+		// weights stay in shared memory instead of a full-screen intermediate target.
+		Ref<ComputePass> m_SMAAWeightAndBlendComputePass;
 		Ref<ComputePass> m_SMAAResolveComputePass; // T2x only
 		Ref<Image2D>     m_SMAAEdgesImage;         // RG8, storage
-		Ref<Image2D>     m_SMAABlendImage;         // RGBA8, storage
 		Ref<Image2D>     m_SMAAOutputImage;        // RGBA8, storage
 		Ref<Image2D>     m_SMAAHistoryImages[2];   // T2x ping-pong resolved history
 		// Precomputed lookup tables from the SMAA reference implementation. Null until the
