@@ -227,6 +227,22 @@ namespace Lux {
 			});
 #endif
 
+		// RT_Invalidate destroys and recreates the nvrhi images and framebuffer immediately, on
+		// whichever thread called Resize - despite the RT_ prefix, this is the main thread. If the
+		// render thread is still draining its queue it can be issuing commands against the very
+		// resources being freed, which surfaces either as heap corruption when the old framebuffer
+		// handle is finally released, or as a near-null dereference inside the driver's
+		// vkCmdPipelineBarrier2 when commitBarriers touches a destroyed image. Dragging a dock
+		// splitter resizes every frame, so the window is wide open.
+		//
+		// Drain the render thread first, the same way swap chain recreation does (see Window.cpp).
+		// This only waits for State::Idle - it does not advance the frame or swap queues - so it is
+		// safe mid-frame, and it is a no-op under the single-threaded policy or when the render
+		// thread is already idle. Skipped when called *from* the render thread, where waiting on
+		// ourselves would deadlock and the work is already correctly ordered.
+		if (!RenderThread::IsCurrentThreadRT())
+			Application::Get().GetRenderThread().BlockUntilRenderComplete();
+
 		m_Width = (uint32_t)(width * m_Specification.Scale);
 		m_Height = (uint32_t)(height * m_Specification.Scale);
 		if (m_Specification.SwapChainTarget)
