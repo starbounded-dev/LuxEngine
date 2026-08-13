@@ -35,7 +35,7 @@ Project:
       GTAOBentNormals: true
       GTAODenoisePasses: 8
       AOShadowTolerance: 1
-      SSR: true
+      SSR: false
       JumpFloodOutline: true
       RenderScaleMode: Scale100
       DynamicResolutionMinScale: 0.5
@@ -49,11 +49,11 @@ Project:
       OcclusionDepthBias: 0.00300000003
       OcclusionBoundsScale: 1.14999998
       GTAOResolutionScale: 1
-      GTAOTemporalAccumulation: true
+      GTAOTemporalAccumulation: false
       GTAOTemporalBlend: 0.949999988
       SSRQuality: Full
       SSRResolutionScale: 1
-      SSRTemporalAccumulation: true
+      SSRTemporalAccumulation: false
       SSRTemporalBlend: 0.949999988
     Shadows:
       SoftShadows: true
