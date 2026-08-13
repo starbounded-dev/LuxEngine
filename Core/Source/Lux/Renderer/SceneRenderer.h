@@ -1001,10 +1001,9 @@ namespace Lux {
 		float ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const;
 		void CompositePass();
 		void DOFPass();
-		void SMAAEdgeDetectionPass();
-		void SMAABlendWeightPass();
-		void SMAANeighborhoodBlendingPass();
-		void SMAAResolvePass();
+		// One entry point: the three (or four, with T2x) dispatches are sequential and
+		// share push constants, so splitting them across graph nodes bought nothing.
+		void SMAAPass();
 		// True when SMAA is running in T2x mode - drives the projection jitter, the
 		// subsample indices, and whether the resolve pass runs.
 		bool IsSMAATemporalActive() const;
@@ -1535,28 +1534,26 @@ namespace Lux {
 		Ref<RenderPass> m_DOFPass;
 		Ref<Material>   m_DOFMaterial;
 
-		// SMAA 1x - three full-screen passes at the end of the post chain:
-		// edge detection -> blending weights -> neighbourhood blending.
-		Ref<RenderPass> m_SMAAEdgePass;
-		Ref<Material>   m_SMAAEdgeMaterial;
-		Ref<RenderPass> m_SMAABlendWeightPass;
-		Ref<Material>   m_SMAABlendWeightMaterial;
-		Ref<RenderPass> m_SMAANeighborhoodPass;
-		Ref<Material>   m_SMAANeighborhoodMaterial;
+		// SMAA - compute passes writing storage images, matching the GTAO/SSR pattern:
+		// edge detection -> blending weights -> neighbourhood blending (-> T2x resolve).
+		Ref<ComputePass> m_SMAAEdgeComputePass;
+		Ref<ComputePass> m_SMAAWeightComputePass;
+		Ref<ComputePass> m_SMAABlendComputePass;
+		Ref<ComputePass> m_SMAAResolveComputePass; // T2x only
+		Ref<Image2D>     m_SMAAEdgesImage;         // RG8, storage
+		Ref<Image2D>     m_SMAABlendImage;         // RGBA8, storage
+		Ref<Image2D>     m_SMAAOutputImage;        // RGBA8, storage
+		Ref<Image2D>     m_SMAAHistoryImages[2];   // T2x ping-pong resolved history
 		// Precomputed lookup tables from the SMAA reference implementation. Null until the
-		// vendored headers are present, in which case the blending-weight pass is skipped and
-		// SMAA falls through to the un-antialiased image rather than producing garbage.
-		Ref<Texture2D>  m_SMAAAreaTexture;
-		Ref<Texture2D>  m_SMAASearchTexture;
-
-		// T2x only: temporal resolve of the two jittered frames.
-		Ref<RenderPass> m_SMAAResolvePass;
-		Ref<Material>   m_SMAAResolveMaterial;
-		Ref<Image2D>    m_SMAAHistoryImages[2]; // ping-pong resolved history
-		uint32_t        m_SMAAHistoryIndex = 0;
+		// vendored headers are present, in which case no SMAA resources are created at all
+		// and the renderer reports SMAA unavailable rather than producing garbage.
+		Ref<Texture2D>   m_SMAAAreaTexture;
+		Ref<Texture2D>   m_SMAASearchTexture;
+		glm::uvec3       m_SMAAWorkGroups{ 1 };
+		uint32_t         m_SMAAHistoryIndex = 0;
 		// Which of the two jitter positions this frame is on, as the AreaTex subtexture
 		// selector the reference specifies: (1,1,1,0) or (2,2,2,0). Zero for plain 1x.
-		glm::vec4       m_SMAASubsampleIndices = glm::vec4(0.0f);
+		glm::vec4        m_SMAASubsampleIndices = glm::vec4(0.0f);
 
 		// ── Jump flood selected outline ──────────────────────────────────────
 		Ref<RenderPass> m_JumpFloodInitPass;

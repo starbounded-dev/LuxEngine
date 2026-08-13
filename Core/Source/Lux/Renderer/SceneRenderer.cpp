@@ -408,7 +408,7 @@ namespace Lux {
 			return glm::dot(glm::max(radiance, glm::vec3(0.0f)), glm::vec3(0.2126f, 0.7152f, 0.0722f));
 		}
 
-		constexpr std::array<const char*, 33> s_ProfiledSceneRendererPasses = {
+		constexpr std::array<const char*, 30> s_ProfiledSceneRendererPasses = {
 			"ShadowMapPass",
 			"SpotShadowMapPass",
 			"MeshCullingPass",
@@ -438,10 +438,7 @@ namespace Lux {
 			"GridPass",
 			"Renderer2D",
 			"DOF",
-			"SMAA-EdgeDetection",
-			"SMAA-BlendingWeights",
-			"SMAA-NeighborhoodBlending",
-			"SMAA-Resolve"
+			"SMAA"
 		};
 
 		uint32_t NextPowerOfTwo(uint32_t value)
@@ -2633,15 +2630,20 @@ namespace Lux {
 
 		resizePass(m_AOCompositePass, viewportSize);
 		resizePass(m_AODebugPass, viewportSize);
-		// SMAA targets track the viewport; all three are null when SMAA is unavailable.
-		resizePass(m_SMAAEdgePass, viewportSize);
-		resizePass(m_SMAABlendWeightPass, viewportSize);
-		resizePass(m_SMAANeighborhoodPass, viewportSize);
-		resizePass(m_SMAAResolvePass, viewportSize);
-		for (Ref<Image2D>& historyImage : m_SMAAHistoryImages)
+		// SMAA storage images track the viewport; all are null when SMAA is unavailable.
+		if (m_SMAAEdgesImage)
 		{
-			if (historyImage)
+			m_SMAAEdgesImage->Resize(viewportSize.x, viewportSize.y);
+			m_SMAABlendImage->Resize(viewportSize.x, viewportSize.y);
+			m_SMAAOutputImage->Resize(viewportSize.x, viewportSize.y);
+			for (Ref<Image2D>& historyImage : m_SMAAHistoryImages)
 				historyImage->Resize(viewportSize.x, viewportSize.y);
+
+			m_SMAAWorkGroups = {
+				(uint32_t)glm::ceil(viewportSize.x / 8.0f),
+				(uint32_t)glm::ceil(viewportSize.y / 8.0f),
+				1
+			};
 		}
 		resizePass(m_SSRCompositePass, viewportSize);
 		resizePass(m_DeferredLightingPass, viewportSize);
@@ -2950,96 +2952,85 @@ namespace Lux {
 		const uint32_t width = glm::max(1u, m_ViewportWidth);
 		const uint32_t height = glm::max(1u, m_ViewportHeight);
 
-		auto createFullscreenPass = [&](const char* name, ImageFormat format, Ref<Material>& outMaterial) -> Ref<RenderPass>
+		// Storage images for the intermediate results, mirroring how GTAO/SSR are built.
+		auto createStorageImage = [&](ImageFormat format, const char* debugName) -> Ref<Image2D>
 		{
-			FramebufferSpecification fbSpec;
-			fbSpec.Width = width;
-			fbSpec.Height = height;
-			fbSpec.Attachments = { format };
-			fbSpec.ClearColorOnLoad = true;
-			fbSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-			fbSpec.DebugName = name;
-
-			PipelineSpecification pipelineSpec;
-			pipelineSpec.DebugName = name;
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get(name);
-			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
-			pipelineSpec.DepthTest = false;
-			pipelineSpec.DepthWrite = false;
-			pipelineSpec.Layout = {
-				{ ShaderDataType::Float3, "a_Position" },
-				{ ShaderDataType::Float2, "a_TexCoord" }
-			};
-
-			RenderPassSpecification passSpec;
-			passSpec.DebugName = name;
-			passSpec.Pipeline = Pipeline::Create(pipelineSpec);
-			Ref<RenderPass> pass = RenderPass::Create(passSpec);
-			outMaterial = Material::Create(pipelineSpec.Shader, name);
-			return pass;
+			ImageSpecification imageSpec;
+			imageSpec.Format = format;
+			imageSpec.Usage = ImageUsage::Storage;
+			imageSpec.Width = width;
+			imageSpec.Height = height;
+			imageSpec.DebugName = debugName;
+			Ref<Image2D> image = Image2D::Create(imageSpec);
+			image->Invalidate();
+			return image;
 		};
 
-		// Pass 1: edge detection. RG8 - x is a left edge, y a top edge.
-		m_SMAAEdgePass = createFullscreenPass("SMAA-EdgeDetection", ImageFormat::RG8, m_SMAAEdgeMaterial);
-		m_SMAAEdgePass->SetInput("u_Color", m_CompositePass->GetOutput(0));
-		m_SMAAEdgePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-		m_SMAAEdgePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-		LUX_CORE_VERIFY(m_SMAAEdgePass->Validate());
-		m_SMAAEdgePass->Bake();
+		m_SMAAEdgesImage = createStorageImage(ImageFormat::RG8, "SMAA-Edges");
+		m_SMAABlendImage = createStorageImage(ImageFormat::RGBA, "SMAA-BlendWeights");
+		m_SMAAOutputImage = createStorageImage(ImageFormat::RGBA, "SMAA-Output");
+		m_SMAAHistoryImages[0] = createStorageImage(ImageFormat::RGBA, "SMAA-History-A");
+		m_SMAAHistoryImages[1] = createStorageImage(ImageFormat::RGBA, "SMAA-History-B");
 
-		// Pass 2: blending weights, and pass 3 which consumes it.
+		auto createComputePass = [&](const char* name) -> Ref<ComputePass>
 		{
-			m_SMAABlendWeightPass = createFullscreenPass("SMAA-BlendingWeights", ImageFormat::RGBA, m_SMAABlendWeightMaterial);
-			m_SMAABlendWeightPass->SetInput("u_Edges", m_SMAAEdgePass->GetOutput(0));
-			m_SMAABlendWeightPass->SetInput("u_AreaTex", m_SMAAAreaTexture);
-			m_SMAABlendWeightPass->SetInput("u_SearchTex", m_SMAASearchTexture);
-			m_SMAABlendWeightPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_SMAABlendWeightPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_SMAABlendWeightPass->Validate());
-			m_SMAABlendWeightPass->Bake();
+			ComputePassSpecification passSpec;
+			passSpec.DebugName = name;
+			passSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get(name));
+			return ComputePass::Create(passSpec);
+		};
 
-			// Pass 3: neighbourhood blending, resolving into the final image.
-			m_SMAANeighborhoodPass = createFullscreenPass("SMAA-NeighborhoodBlending", ImageFormat::RGBA, m_SMAANeighborhoodMaterial);
-			m_SMAANeighborhoodPass->SetInput("u_Color", m_CompositePass->GetOutput(0));
-			m_SMAANeighborhoodPass->SetInput("u_BlendWeights", m_SMAABlendWeightPass->GetOutput(0));
-			m_SMAANeighborhoodPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_SMAANeighborhoodPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_SMAANeighborhoodPass->Validate());
-			m_SMAANeighborhoodPass->Bake();
+		// Pass 1: edge detection on the tone-mapped image.
+		m_SMAAEdgeComputePass = createComputePass("SMAA-EdgeDetection");
+		m_SMAAEdgeComputePass->SetInput("o_Edges", m_SMAAEdgesImage);
+		m_SMAAEdgeComputePass->SetInput("u_InputTex", m_CompositePass->GetOutput(0));
+		LUX_CORE_VERIFY(m_SMAAEdgeComputePass->Validate());
+		m_SMAAEdgeComputePass->Bake();
 
-			// T2x temporal resolve. Created unconditionally so the mode can be toggled at
-			// runtime without rebuilding passes; it only executes when T2x is active.
-			ImageSpecification historySpec;
-			historySpec.Format = ImageFormat::RGBA;
-			historySpec.Usage = ImageUsage::Attachment;
-			historySpec.Width = width;
-			historySpec.Height = height;
-			historySpec.DebugName = "SMAA-History-A";
-			m_SMAAHistoryImages[0] = Image2D::Create(historySpec);
-			historySpec.DebugName = "SMAA-History-B";
-			m_SMAAHistoryImages[1] = Image2D::Create(historySpec);
+		// Pass 2: blending weights, driven by the AreaTex/SearchTex lookups.
+		m_SMAAWeightComputePass = createComputePass("SMAA-BlendingWeights");
+		m_SMAAWeightComputePass->SetInput("o_BlendWeights", m_SMAABlendImage);
+		m_SMAAWeightComputePass->SetInput("u_EdgeTex", m_SMAAEdgesImage);
+		m_SMAAWeightComputePass->SetInput("u_AreaTex", m_SMAAAreaTexture);
+		m_SMAAWeightComputePass->SetInput("u_SearchTex", m_SMAASearchTexture);
+		LUX_CORE_VERIFY(m_SMAAWeightComputePass->Validate());
+		m_SMAAWeightComputePass->Bake();
 
-			m_SMAAResolvePass = createFullscreenPass("SMAA-Resolve", ImageFormat::RGBA, m_SMAAResolveMaterial);
-			m_SMAAResolvePass->SetInput("u_Current", m_SMAANeighborhoodPass->GetOutput(0));
-			m_SMAAResolvePass->SetInput("u_Previous", m_SMAAHistoryImages[0]);
-			m_SMAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
-			m_SMAAResolvePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_SMAAResolvePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_SMAAResolvePass->Validate());
-			m_SMAAResolvePass->Bake();
-		}
+		// Pass 3: neighbourhood blending, resolving the antialiased image.
+		m_SMAABlendComputePass = createComputePass("SMAA-NeighborhoodBlending");
+		m_SMAABlendComputePass->SetInput("o_Output", m_SMAAOutputImage);
+		m_SMAABlendComputePass->SetInput("u_InputTex", m_CompositePass->GetOutput(0));
+		m_SMAABlendComputePass->SetInput("u_BlendTex", m_SMAABlendImage);
+		LUX_CORE_VERIFY(m_SMAABlendComputePass->Validate());
+		m_SMAABlendComputePass->Bake();
+
+		// T2x temporal resolve. Created unconditionally so the mode can be toggled at
+		// runtime; it only dispatches when T2x is active.
+		m_SMAAResolveComputePass = createComputePass("SMAA-Resolve");
+		m_SMAAResolveComputePass->SetInput("o_Output", m_SMAAHistoryImages[1]);
+		m_SMAAResolveComputePass->SetInput("u_CurrentTex", m_SMAAOutputImage);
+		m_SMAAResolveComputePass->SetInput("u_PreviousTex", m_SMAAHistoryImages[0]);
+		m_SMAAResolveComputePass->SetInput("u_VelocityTex", GetGeometryVelocityOutput());
+		LUX_CORE_VERIFY(m_SMAAResolveComputePass->Validate());
+		m_SMAAResolveComputePass->Bake();
+
+		m_SMAAWorkGroups = {
+			(uint32_t)glm::ceil(width / 8.0f),
+			(uint32_t)glm::ceil(height / 8.0f),
+			1
+		};
 	}
 
 	bool SceneRenderer::IsSMAATemporalActive() const
 	{
-		return IsSMAAReady() && m_Options.SMAATemporal && m_SMAAResolvePass
+		return IsSMAAReady() && m_Options.SMAATemporal && m_SMAAResolveComputePass
 			&& m_SMAAHistoryImages[0] && m_SMAAHistoryImages[1];
 	}
 
 	bool SceneRenderer::IsSMAAReady() const
 	{
 		return m_Options.EnableSMAA
-			&& m_SMAAEdgePass && m_SMAABlendWeightPass && m_SMAANeighborhoodPass
+			&& m_SMAAEdgeComputePass && m_SMAAWeightComputePass && m_SMAABlendComputePass
 			&& m_SMAAAreaTexture && m_SMAASearchTexture;
 	}
 
@@ -4055,6 +4046,18 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> compositeOutputs = addFramebufferResources("Composite", m_CompositingFramebuffer);
 		addPass("Composite", compositeReads, compositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::CompositePass));
 
+		// SMAA sits directly after the composite and before DOF: morphological AA keys off
+		// perceived edges so it needs post-tonemap colour, and depth of field should blur an
+		// already-antialiased image rather than SMAA chewing on a blurred one. The three
+		// compute dispatches copy their result back over the composite output, which the
+		// graph sees as a side effect on compositeOutputs.
+		if (IsSMAAReady())
+		{
+			constexpr auto smaaFlags = static_cast<RenderGraph::PassFlags>(
+				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::SideEffect));
+			addPass("SMAA", compositeOutputs, compositeOutputs, smaaFlags, makeExecute(&SceneRenderer::SMAAPass));
+		}
+
 		const bool compositeDOFIntoFinalTarget = CanCompositeDOFIntoFinalTarget();
 		std::vector<RenderGraph::ResourceHandle> dofOutputs = postProcessSettings.DOFEnabled
 			? addRenderPassResources("DOF", m_DOFPass)
@@ -4119,37 +4122,6 @@ namespace Lux {
 		if (postProcessSettings.DOFEnabled && !compositeDOFIntoFinalTarget)
 			addPass("DOF", compositeOutputs, dofOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DOFPass));
 
-		// SMAA runs last, on the tone-mapped image. Morphological AA keys off perceived
-		// edges, so it has to see post-tonemap colour - the opposite of TAA, which resolves
-		// HDR scene colour before bloom. Running after the overlays means the grid and
-		// selection outline get antialiased too, which is what you want for a final image.
-		if (IsSMAAReady())
-		{
-			const std::vector<RenderGraph::ResourceHandle>& smaaInput =
-				(postProcessSettings.DOFEnabled && !compositeDOFIntoFinalTarget) ? dofOutputs : compositeOutputs;
-
-			std::vector<RenderGraph::ResourceHandle> edgeOutputs = addRenderPassResources("SMAA-EdgeDetection", m_SMAAEdgePass);
-			addPass("SMAA-EdgeDetection", smaaInput, edgeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SMAAEdgeDetectionPass));
-
-			std::vector<RenderGraph::ResourceHandle> weightOutputs = addRenderPassResources("SMAA-BlendingWeights", m_SMAABlendWeightPass);
-			addPass("SMAA-BlendingWeights", edgeOutputs, weightOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SMAABlendWeightPass));
-
-			std::vector<RenderGraph::ResourceHandle> blendReads = weightOutputs;
-			appendResources(blendReads, smaaInput);
-			// The resolve copies back over the image it read, so declare that write - the
-			// graph must not treat the input as untouched after this pass.
-			std::vector<RenderGraph::ResourceHandle> blendWrites = addRenderPassResources("SMAA-NeighborhoodBlending", m_SMAANeighborhoodPass);
-			appendResources(blendWrites, smaaInput);
-			addPass("SMAA-NeighborhoodBlending", blendReads, blendWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SMAANeighborhoodBlendingPass));
-
-			if (IsSMAATemporalActive())
-			{
-				std::vector<RenderGraph::ResourceHandle> resolveReads = blendWrites;
-				std::vector<RenderGraph::ResourceHandle> resolveWrites = addRenderPassResources("SMAA-Resolve", m_SMAAResolvePass);
-				appendResources(resolveWrites, smaaInput);
-				addPass("SMAA-Resolve", resolveReads, resolveWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SMAAResolvePass));
-			}
-		}
 	}
 
 	SceneRenderer::RenderGraphDebugSnapshot SceneRenderer::GetRenderGraphDebugSnapshot()
@@ -8566,103 +8538,93 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
-	void SceneRenderer::SMAAEdgeDetectionPass()
+	void SceneRenderer::SMAAPass()
 	{
-		ScopedCPUProfile cpuProfile(*this, "SMAA-EdgeDetection");
-		if (!IsSMAAReady() || !m_SMAAEdgeMaterial)
-			return;
-
-		// Rebound per frame: the image SMAA antialiases is the composite output, or the DOF
-		// output when DOF resolves into its own target.
-		if (Ref<Image2D> input = GetPostProcessInputImage())
-			m_SMAAEdgePass->SetInput("u_Color", input);
-
-		m_SMAAEdgeMaterial->Set("u_SMAA.InvResolution", glm::vec2(m_InvViewportWidth, m_InvViewportHeight));
-		m_SMAAEdgeMaterial->Set("u_SMAA.Threshold", glm::max(0.001f, m_Options.SMAAThreshold));
-		m_SMAAEdgeMaterial->Set("u_SMAA.LocalContrastAdaptationFactor", glm::max(1.0f, m_Options.SMAALocalContrastAdaptationFactor));
-
-		BeginProfiledGPU("SMAA-EdgeDetection");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_SMAAEdgePass);
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SMAAEdgePass->GetPipeline(), m_SMAAEdgeMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
-	void SceneRenderer::SMAABlendWeightPass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "SMAA-BlendingWeights");
-		if (!IsSMAAReady() || !m_SMAABlendWeightMaterial)
-			return;
-
-		// The search maths needs both the texel size and the resolution, so this pass takes
-		// full RT metrics rather than just the inverse used by passes 1 and 3.
-		m_SMAABlendWeightMaterial->Set("u_SMAA.RTMetrics", glm::vec4(
-			m_InvViewportWidth, m_InvViewportHeight, (float)m_ViewportWidth, (float)m_ViewportHeight));
-		// Zero for 1x; for T2x this selects the AreaTex subtexture matching this frame's jitter.
-		m_SMAABlendWeightMaterial->Set("u_SMAA.SubsampleIndices", m_SMAASubsampleIndices);
-
-		BeginProfiledGPU("SMAA-BlendingWeights");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_SMAABlendWeightPass);
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SMAABlendWeightPass->GetPipeline(), m_SMAABlendWeightMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
-	void SceneRenderer::SMAANeighborhoodBlendingPass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "SMAA-NeighborhoodBlending");
-		if (!IsSMAAReady() || !m_SMAANeighborhoodMaterial)
+		ScopedCPUProfile cpuProfile(*this, "SMAA");
+		if (!IsSMAAReady())
 			return;
 
 		Ref<Image2D> input = GetPostProcessInputImage();
 		if (!input)
 			return;
 
-		m_SMAANeighborhoodPass->SetInput("u_Color", input);
-		m_SMAANeighborhoodMaterial->Set("u_SMAA.InvResolution", glm::vec2(m_InvViewportWidth, m_InvViewportHeight));
+		const glm::vec4 rtMetrics = {
+			m_InvViewportWidth, m_InvViewportHeight,
+			(float)m_ViewportWidth, (float)m_ViewportHeight
+		};
 
-		BeginProfiledGPU("SMAA-NeighborhoodBlending");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_SMAANeighborhoodPass);
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SMAANeighborhoodPass->GetPipeline(), m_SMAANeighborhoodMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
+		// Rebound per frame: the image SMAA antialiases is the composite output, or the
+		// DOF output when DOF resolves into its own target.
+		m_SMAAEdgeComputePass->SetInput("u_InputTex", input);
+		m_SMAABlendComputePass->SetInput("u_InputTex", input);
 
-		// Resolve back over the image the rest of the engine treats as final, so nothing
-		// downstream (debug views, the viewport, screenshots) has to know SMAA ran.
-		// In T2x the resolve pass owns that copy instead - this frame's result is only
-		// half the answer until it has been combined with the previous jitter position.
-		if (!IsSMAATemporalActive())
-			Renderer::CopyImage(m_CommandBuffer, m_SMAANeighborhoodPass->GetOutput(0), input);
+		Renderer::BeginGPUPerfMarker(m_CommandBuffer, "SMAA");
 
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
+		// Pass 1: edge detection.
+		{
+			struct { glm::vec4 RTMetrics; float Threshold; float LocalContrast; float Pad0; float Pad1; } constants;
+			constants.RTMetrics = rtMetrics;
+			constants.Threshold = glm::max(0.001f, m_Options.SMAAThreshold);
+			constants.LocalContrast = glm::max(1.0f, m_Options.SMAALocalContrastAdaptationFactor);
+			constants.Pad0 = 0.0f;
+			constants.Pad1 = 0.0f;
 
-	void SceneRenderer::SMAAResolvePass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "SMAA-Resolve");
-		if (!IsSMAATemporalActive() || !m_SMAAResolveMaterial)
-			return;
+			Renderer::BeginComputePass(m_CommandBuffer, m_SMAAEdgeComputePass);
+			Renderer::DispatchCompute(m_CommandBuffer, m_SMAAEdgeComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
+			Renderer::EndComputePass(m_CommandBuffer, m_SMAAEdgeComputePass);
+		}
 
-		Ref<Image2D> input = GetPostProcessInputImage();
-		if (!input)
-			return;
+		// Pass 2: blending weights. SubsampleIndices is zero for 1x; for T2x it selects
+		// the AreaTex subtexture matching this frame's jitter position.
+		{
+			struct { glm::vec4 RTMetrics; glm::vec4 SubsampleIndices; } constants;
+			constants.RTMetrics = rtMetrics;
+			constants.SubsampleIndices = IsSMAATemporalActive() ? m_SMAASubsampleIndices : glm::vec4(0.0f);
 
-		const uint32_t readIndex = m_SMAAHistoryIndex & 1u;
-		const uint32_t writeIndex = readIndex ^ 1u;
+			Renderer::BeginComputePass(m_CommandBuffer, m_SMAAWeightComputePass);
+			Renderer::DispatchCompute(m_CommandBuffer, m_SMAAWeightComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
+			Renderer::EndComputePass(m_CommandBuffer, m_SMAAWeightComputePass);
+		}
 
-		m_SMAAResolvePass->SetInput("u_Current", m_SMAANeighborhoodPass->GetOutput(0));
-		m_SMAAResolvePass->SetInput("u_Previous", m_SMAAHistoryImages[readIndex]);
-		m_SMAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
-		m_SMAAResolveMaterial->Set("u_Resolve.HasHistory", m_TemporalHistoryValid ? 1u : 0u);
+		// Pass 3: neighbourhood blending.
+		{
+			struct { glm::vec4 RTMetrics; } constants;
+			constants.RTMetrics = rtMetrics;
 
-		BeginProfiledGPU("SMAA-Resolve");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_SMAAResolvePass);
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SMAAResolvePass->GetPipeline(), m_SMAAResolveMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
+			Renderer::BeginComputePass(m_CommandBuffer, m_SMAABlendComputePass);
+			Renderer::DispatchCompute(m_CommandBuffer, m_SMAABlendComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
+			Renderer::EndComputePass(m_CommandBuffer, m_SMAABlendComputePass);
+		}
 
-		// The resolve output becomes both the displayed image and next frame's history.
-		Renderer::CopyImage(m_CommandBuffer, m_SMAAResolvePass->GetOutput(0), input);
-		Renderer::CopyImage(m_CommandBuffer, m_SMAAResolvePass->GetOutput(0), m_SMAAHistoryImages[writeIndex]);
-		m_SMAAHistoryIndex = writeIndex;
+		Ref<Image2D> resolved = m_SMAAOutputImage;
+
+		// Pass 4 (T2x only): combine this jittered frame with the previous one.
+		if (IsSMAATemporalActive())
+		{
+			const uint32_t readIndex = m_SMAAHistoryIndex & 1u;
+			const uint32_t writeIndex = readIndex ^ 1u;
+
+			m_SMAAResolveComputePass->SetInput("o_Output", m_SMAAHistoryImages[writeIndex]);
+			m_SMAAResolveComputePass->SetInput("u_CurrentTex", m_SMAAOutputImage);
+			m_SMAAResolveComputePass->SetInput("u_PreviousTex", m_SMAAHistoryImages[readIndex]);
+			m_SMAAResolveComputePass->SetInput("u_VelocityTex", GetGeometryVelocityOutput());
+
+			struct { glm::vec4 RTMetrics; uint32_t HasHistory; uint32_t Pad0; uint32_t Pad1; uint32_t Pad2; } constants;
+			constants.RTMetrics = rtMetrics;
+			constants.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
+			constants.Pad0 = constants.Pad1 = constants.Pad2 = 0u;
+
+			Renderer::BeginComputePass(m_CommandBuffer, m_SMAAResolveComputePass);
+			Renderer::DispatchCompute(m_CommandBuffer, m_SMAAResolveComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
+			Renderer::EndComputePass(m_CommandBuffer, m_SMAAResolveComputePass);
+
+			resolved = m_SMAAHistoryImages[writeIndex];
+			m_SMAAHistoryIndex = writeIndex;
+		}
+
+		// Copy back over the image the rest of the engine treats as final, so nothing
+		// downstream (DOF, debug views, the viewport) has to know SMAA ran.
+		Renderer::CopyImage(m_CommandBuffer, resolved, input);
 
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
