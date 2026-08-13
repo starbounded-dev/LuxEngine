@@ -24,8 +24,15 @@ typescript
 # Premake binary (platform-specific)
 premake5
 
-# Claude Code local settings
-.claude/
+# Claude Code / shared agent guidance.
+# Tracked: .claude/docs (Conventions, Building, Threading, Rendering, Architecture) and
+# .claude/skills (dev, cr, send-pr) - these are the single source of truth for agent workflows.
+# Ignored: local settings, agent worktrees, scratch backups.
+# NOTE: this must be ".claude/*", not ".claude/". Git will not descend into an excluded
+# directory, so a trailing-slash exclude makes the negations below unreachable.
+.claude/*
+!.claude/docs/
+!.claude/skills/
 
 # Lux files
 *.log
@@ -66,7 +73,6 @@ Editor/LuxSampleProject/Assets/AssetRegistry.lzr
 *.lib
 *.pdb
 Core/vendor/JoltPhysics/bin/Debug-windows-x86_64/JoltPhysics/JoltPhysics.idb
-AGENTS.md
 *.lmat
 *.lmesh
 *.lsettings

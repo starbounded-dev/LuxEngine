@@ -8,6 +8,76 @@ LuxEngine is a C++20, Vulkan-only 3D game engine and editor. It is a solo projec
 
 ---
 
+## Shared Context — read before substantive work
+
+Detailed, source-grounded guidance lives in `.claude/docs/`. This file is the index; those are the
+authority for their subject.
+
+| Doc | Read before |
+|---|---|
+| `.claude/docs/Conventions.md` | writing or reviewing any C++ — style, and which helper already exists |
+| `.claude/docs/Threading.md` | touching threads, `Renderer::Submit`, the JobSystem, asset loading, or events |
+| `.claude/docs/Rendering.md` | anything in `Renderer/`, `Platform/Vulkan/`, or `Editor/Resources/Shaders/` |
+| `.claude/docs/Building.md` | adding/removing files, changing premake, or diagnosing a build failure |
+| `.claude/docs/Architecture-LuxEngine.md` | changing a system boundary, interface, ownership rule, or integration point |
+
+The three facts most often gotten wrong by assuming this engine behaves like other Hazel-derived
+codebases:
+
+- **Shaders are GLSL-first**, not HLSL-only (`Editor/Resources/Shaders/*.glsl`).
+- **The editor runs a real render thread by default on Windows** (single-threaded on Linux) — main
+  and render are *not* the same thread.
+- **Premake does not regenerate itself.** Adding a source file requires
+  `scripts\Win-GenProjects.bat`, or you get an unresolved-external link error.
+
+---
+
+## Coding Workflow Skills
+
+Two skills bracket a substantive coding session:
+
+- **`/dev`** — preflight. Invoke once at the start to prime conventions, the threading model,
+  renderer invariants, and the architecture index, so subsequent code respects them from the first
+  line. `/dev <task>` primes and immediately executes.
+- **`/cr`** — postflight. Invoke before committing to scan working-tree changes, auto-apply
+  must-fix and should-fix issues, and report consider-tier nits. **Local only** — it does not
+  commit, push, or open PRs.
+
+**`/send-pr`** is the PR-time gate: same rule list, plus build verification, then it creates the PR.
+
+The shared rule list lives in `.claude/skills/send-pr/SKILL.md` and is used by all three.
+
+---
+
+## Architecture Doc Maintenance
+
+When implementation work changes an interface, adds an integration point, or modifies a dependency
+between systems, you MUST update `.claude/docs/Architecture-LuxEngine.md` in the same change. It is
+the single source of truth — there is no duplicate copy under `docs/`.
+
+The same rule applies to the other shared docs when a change invalidates them: a new threading
+primitive updates `Threading.md`, a new renderer invariant updates `Rendering.md`, a new build
+toggle updates `Building.md`, a new canonical helper updates `Conventions.md`.
+
+A stale architecture doc is worse than none, because it gets trusted.
+
+**Not part of this repo:** `docs/` at the root holds point-in-time planning documents
+(`ENGINE_OPTIMIZATION_PLAN.md`, `RENDERER_PERF_BASELINE.md`), not current architecture. Do not treat
+them as authoritative, and do not update them to match code changes.
+
+---
+
+## Codex Compatibility
+
+`AGENTS.md` is the Codex entry point. Codex-native skill adapters live under `.agents/skills/`,
+while the complete shared workflows remain under `.claude/skills/` as the single source of truth.
+
+When adding, renaming, or removing a skill under `.claude/skills/`, update the matching
+`.agents/skills/<name>/SKILL.md` adapter in the same change. Keep Codex-specific content limited to
+discovery metadata and tool/invocation translation, so the workflow itself does not fork.
+
+---
+
 ## Build System
 
 Premake5 is used to generate build files. Only the Windows binary is committed
