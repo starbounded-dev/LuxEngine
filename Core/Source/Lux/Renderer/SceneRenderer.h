@@ -48,14 +48,60 @@ namespace Lux {
 	// Quality presets
 	// ─────────────────────────────────────────────────────────────────────────
 
+	// One quality tier. Used both for the overall preset and for each individual
+	// category, so a project can say "High overall, but Shadows at Ultra".
+	//
+	// Custom means "this category's knobs were edited by hand" - the values are then
+	// owned by the project file rather than by a tier, and nothing will overwrite them.
+	// It is only ever entered explicitly; no tier resolves to it.
 	enum class QualityPreset : uint32_t
 	{
 		Low = 0,
 		Medium = 1,
 		High = 2,
 		Ultra = 3,
-		Cinematic = 4
+		Cinematic = 4,
+		Custom = 5
 	};
+
+	// The groups a user picks a tier for, mirroring a game's graphics menu. Each group
+	// owns a disjoint set of SceneRendererOptions fields; see the Apply*Quality methods
+	// on SceneRenderer for exactly which.
+	enum class QualityCategory : uint32_t
+	{
+		Shadows = 0,
+		AmbientOcclusion,
+		Reflections,
+		AntiAliasing,
+		Textures,
+		ResolutionScale,
+		PostProcessing,
+		COUNT
+	};
+
+	// Per-category tiers. The overall preset is just "set every category to this tier",
+	// so the two can never disagree in a way the UI cannot show.
+	struct RendererQualityCategories
+	{
+		QualityPreset Shadows = QualityPreset::Medium;
+		QualityPreset AmbientOcclusion = QualityPreset::Medium;
+		QualityPreset Reflections = QualityPreset::Medium;
+		QualityPreset AntiAliasing = QualityPreset::Medium;
+		QualityPreset Textures = QualityPreset::Medium;
+		QualityPreset ResolutionScale = QualityPreset::Medium;
+		QualityPreset PostProcessing = QualityPreset::Medium;
+
+		QualityPreset& Get(QualityCategory category);
+		QualityPreset Get(QualityCategory category) const;
+		void SetAll(QualityPreset level);
+
+		// The tier every category shares, or Custom when they differ - which is what the
+		// overall "Quality" dropdown displays.
+		QualityPreset Unified() const;
+	};
+
+	const char* QualityPresetToDisplayString(QualityPreset preset);
+	const char* QualityCategoryToDisplayString(QualityCategory category);
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Light structures
@@ -211,7 +257,10 @@ namespace Lux {
 		float ShadowPCFRadiusTexels = 1.25f;
 		float SpotShadowPCFRadiusTexels = 1.5f;
 		ShadowResolutionTier ShadowResolution = ShadowResolutionTier::Tier_2K;
+		// Overall tier. Kept in sync with QualityCategories: it is whatever every
+		// category agrees on, or Custom when they differ.
 		QualityPreset Quality = QualityPreset::Medium;
+		RendererQualityCategories QualityCategories;
 		bool  EnableGTAO = true;
 		bool  GTAOBentNormals = false;
 		float AOShadowTolerance = 1.0f;
@@ -233,24 +282,18 @@ namespace Lux {
 		EffectResolutionScale GTAOResolutionScale = EffectResolutionScale::Half;
 		SSRQualityPreset SSRQuality = SSRQualityPreset::HalfBilateral;
 		EffectResolutionScale SSRResolutionScale = EffectResolutionScale::Half;
-		bool  EnableGTAOTemporalAccumulation = false;
-		float GTAOTemporalBlend = 0.85f;
-		bool  EnableSSRTemporalAccumulation = false;
-		float SSRTemporalBlend = 0.90f;
-		bool  EnableTAA = false;
-		float TAAHistoryBlend = 0.90f; // fraction of history kept per frame
-		float TAASharpness = 0.3f;     // post-resolve unsharp strength (0 = off)
-		// SMAA 1x. Runs on the tone-mapped image at the very end of the post chain, unlike TAA
-		// which resolves HDR scene colour before bloom. Purely spatial: it cleans up staircase
-		// edges within a frame but cannot address temporal shimmer the way TAA does.
+		// NOTE: this engine ships no temporal/reprojection techniques. TAA, SMAA T2x, and
+		// GTAO/SSR/cloud temporal accumulation were removed outright rather than left
+		// off-by-default, because every one of them trades ghosting and smearing behind
+		// moving geometry for its performance win. Quality is bought spatially instead:
+		// more denoise passes, higher effect resolution, more ray steps, lower SMAA
+		// threshold. Do not reintroduce them.
+		//
+		// SMAA 1x. Runs on the tone-mapped image at the very end of the post chain. Purely
+		// spatial: it cleans up staircase edges within a frame, and cannot smear.
 		bool  EnableSMAA = false;
 		float SMAAThreshold = 0.1f;                        // edge sensitivity; lower catches more
 		float SMAALocalContrastAdaptationFactor = 2.0f;    // suppresses doubled edges on silhouettes
-		// SMAA T2x: jitter the projection between two subpixel positions on alternating
-		// frames, run SMAA 1x on each, and resolve the pair along the velocity buffer.
-		// Two geometric samples per pixel, so unlike 1x it also suppresses the temporal
-		// shimmer that purely spatial AA cannot see.
-		bool  SMAATemporal = false;
 		// MSAA sample count: 1 (off), 2, 4, 8 or 16. Unlike SMAA this is not a post
 		// process - it multisamples the G-buffer itself, which in a deferred renderer
 		// means every attachment plus depth is allocated N times over and the lighting
@@ -311,11 +354,10 @@ namespace Lux {
 		char Padding1[3]{ 0, 0, 0 };
 		float LuminanceFactor = 1.0f;
 		uint32_t ResolutionScale = 2;
-		uint32_t TemporalAccumulation = 0;
-		float TemporalBlend = 0.0f;
 		// Which byte the GTAO visibility term lives in (high byte for bent normals,
 		// low byte otherwise). Decoded at runtime in SSR.glsl so it can't desync
 		// from the GTAO producer's packing. Was previously named Padding2.
+		// NOTE: mirrors the u_SSRInfo block in SSR.glsl field-for-field - edit both.
 		uint32_t BentNormals = 0;
 	};
 
@@ -579,6 +621,23 @@ namespace Lux {
 		void SetViewportSize(uint32_t width, uint32_t height);
 		void RefreshRenderResolutionScale();
 		void UpdateGTAOData();
+
+		// Per-category tier appliers. Each owns a disjoint slice of SceneRendererOptions
+		// (plus the matching m_BloomSettings / m_DOFSettings / m_SSROptions fields) and
+		// writes every field it owns on every call, so a tier is fully described by its
+		// own branch and never inherits a stray value from the previously-applied tier.
+		// A level of Custom is a no-op: the values stay as the project left them.
+		void ApplyShadowQuality(QualityPreset level);
+		void ApplyAmbientOcclusionQuality(QualityPreset level);
+		void ApplyReflectionQuality(QualityPreset level);
+		void ApplyAntiAliasingQuality(QualityPreset level);
+		void ApplyTextureQuality(QualityPreset level);
+		void ApplyResolutionScaleQuality(QualityPreset level);
+		void ApplyPostProcessQuality(QualityPreset level);
+
+		// Recomputes the derived SSR/GTAO scratch values the appliers feed into, and
+		// refreshes m_Options.Quality from the category tiers.
+		void FinalizeQualityChange();
 		// Rebinds Camera/samplers/GTAO inputs and rebakes the AO passes after the AO
 		// shader recompiles into the GTAO-on variant. No-ops until that variant is live.
 		void RebakeAOPassInputs();
@@ -700,7 +759,24 @@ namespace Lux {
 		}
 
 	void SetLineWidth(float width);
+
+	// Sets every category to `preset` and applies all of them. Custom is ignored here:
+	// "set everything to Custom" is meaningless, since Custom means "leave the values
+	// alone". Use SetCategoryQuality to move a single group.
 	void ApplyQualityPreset(QualityPreset preset);
+
+	// Applies one category's tier, leaving every other category untouched. A tier of
+	// Custom applies nothing - the current values simply become the project's own.
+	void SetCategoryQuality(QualityCategory category, QualityPreset level);
+	QualityPreset GetCategoryQuality(QualityCategory category) const { return m_Options.QualityCategories.Get(category); }
+
+	// Marks a category as hand-edited. Call this from any UI that writes a raw option
+	// so the value stops being owned - and overwritten - by a tier.
+	void MarkCategoryCustom(QualityCategory category);
+
+	// Re-applies whatever tier each category currently holds. Used after the categories
+	// are loaded from a project.
+	void ApplyAllCategoryQuality();
 
 	uint32_t GetViewportWidth()  const { return m_ViewportWidth; }
 	uint32_t GetViewportHeight() const { return m_ViewportHeight; }
@@ -977,7 +1053,6 @@ namespace Lux {
 		void SkyAtmospherePass();
 		void BakeCloudNoise();
 		void VolumetricCloudPass();
-		void VolumetricCloudTemporalPass();
 		void VolumetricCloudCompositePass();
 		void AtmosphericFogPass();
 		void SelectedGeometryPass();
@@ -988,25 +1063,19 @@ namespace Lux {
 		void GBufferDebugPass();
 		void GTAOCompute();
 		void GTAODenoiseCompute();
-		void GTAOTemporalAccumulationCompute();
 		void AOComposite();
 		void AODebugPass();
 		void PreConvolutionCompute();
 		void SSRCompute();
-		void SSRTemporalAccumulationCompute();
 		void SSRCompositePass();
 		void BloomCompute();
 		void AutoExposurePass();
-		void TAAResolvePass();
 		float ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const;
 		void CompositePass();
 		void DOFPass();
 		// One entry point: the three (or four, with T2x) dispatches are sequential and
 		// share push constants, so splitting them across graph nodes bought nothing.
 		void SMAAPass();
-		// True when SMAA is running in T2x mode - drives the projection jitter, the
-		// subsample indices, and whether the resolve pass runs.
-		bool IsSMAATemporalActive() const;
 		// Image SMAA reads and replaces: the DOF output when DOF is resolving separately,
 		// otherwise the composite output.
 		Ref<Image2D> GetPostProcessInputImage();
@@ -1304,8 +1373,6 @@ namespace Lux {
 			float ShadowTolerance = 0.0f;
 			uint32_t SliceCount = 9;
 			uint32_t StepsPerSlice = 3;
-			uint32_t TemporalAccumulation = 0;
-			float TemporalBlend = 0.0f;
 			float Padding = 0.0f;
 		} m_GTAODataCB;
 
@@ -1314,15 +1381,6 @@ namespace Lux {
 			float DenoiseBlurBeta = 1.2f;
 			uint32_t ResolutionScale = 2;
 		} m_GTAODenoiseConstants;
-
-		struct TemporalAccumulationConstants
-		{
-			glm::mat4 PreviousViewProjection = glm::mat4(1.0f);
-			float Blend = 0.0f;
-			uint32_t HasHistory = 0;
-			uint32_t BentNormals = 0;
-			uint32_t ResolutionScale = 1;
-		};
 
 		struct UBPointLights
 		{
@@ -1470,17 +1528,13 @@ namespace Lux {
 		// ── GTAO / AO ────────────────────────────────────────────────────────
 		Ref<ComputePass> m_GTAOComputePass;
 		Ref<ComputePass> m_GTAODenoisePass[2];
-		Ref<ComputePass> m_GTAOTemporalPass;
 		Ref<Material>    m_GTAODenoiseMaterial[2];
 		Ref<Image2D>     m_GTAOOutputImage;
 		Ref<Image2D>     m_GTAODenoiseImage;
 		Ref<Image2D>     m_GTAOFinalImage;
 		Ref<Image2D>     m_GTAOEdgesOutputImage;
-		Ref<Image2D>     m_GTAOHistoryImages[2];
 		glm::uvec3       m_GTAOWorkGroups{ 1 };
 		glm::uvec3       m_GTAODenoiseWorkGroups{ 1 };
-		glm::uvec3       m_GTAOTemporalWorkGroups{ 1 };
-		uint32_t         m_GTAOHistoryIndex = 0;
 
 		Ref<RenderPass>  m_AOCompositePass;
 		Ref<Material>    m_AOCompositeMaterial;
@@ -1499,14 +1553,10 @@ namespace Lux {
 		// ── SSR ──────────────────────────────────────────────────────────────
 		Ref<Image2D>     m_SSRImage;
 		Ref<Image2D>     m_SSRFinalImage;
-		Ref<Image2D>     m_SSRHistoryImages[2];
 		Ref<ComputePass> m_SSRPass;
-		Ref<ComputePass> m_SSRTemporalPass;
 		Ref<RenderPass>  m_SSRCompositePass;
 		Ref<Material>    m_SSRCompositeMaterial;
 		glm::uvec3       m_SSRWorkGroups{ 1 };
-		glm::uvec3       m_SSRTemporalWorkGroups{ 1 };
-		uint32_t         m_SSRHistoryIndex = 0;
 
 		// ── Bloom compute ────────────────────────────────────────────────────
 		Ref<ComputePass>     m_BloomComputePass;
@@ -1540,20 +1590,14 @@ namespace Lux {
 		// Weight calculation and neighbourhood blending are one dispatch: the blending
 		// weights stay in shared memory instead of a full-screen intermediate target.
 		Ref<ComputePass> m_SMAAWeightAndBlendComputePass;
-		Ref<ComputePass> m_SMAAResolveComputePass; // T2x only
 		Ref<Image2D>     m_SMAAEdgesImage;         // RG8, storage
 		Ref<Image2D>     m_SMAAOutputImage;        // RGBA8, storage
-		Ref<Image2D>     m_SMAAHistoryImages[2];   // T2x ping-pong resolved history
 		// Precomputed lookup tables from the SMAA reference implementation. Null until the
 		// vendored headers are present, in which case no SMAA resources are created at all
 		// and the renderer reports SMAA unavailable rather than producing garbage.
 		Ref<Texture2D>   m_SMAAAreaTexture;
 		Ref<Texture2D>   m_SMAASearchTexture;
 		glm::uvec3       m_SMAAWorkGroups{ 1 };
-		uint32_t         m_SMAAHistoryIndex = 0;
-		// Which of the two jitter positions this frame is on, as the AreaTex subtexture
-		// selector the reference specifies: (1,1,1,0) or (2,2,2,0). Zero for plain 1x.
-		glm::vec4        m_SMAASubsampleIndices = glm::vec4(0.0f);
 
 		// ── Jump flood selected outline ──────────────────────────────────────
 		Ref<RenderPass> m_JumpFloodInitPass;
@@ -1611,11 +1655,6 @@ namespace Lux {
 		Ref<ComputePass> m_CloudCurlBakePass;
 		bool             m_CloudNoiseBaked = false;
 
-		// Temporal scattering integration (reproject + EMA over half-res history).
-		Ref<ComputePass> m_VolumetricCloudTemporalPass;
-		Ref<Image2D>     m_CloudHistoryImages[2];
-		uint32_t         m_CloudHistoryIndex = 0;
-		bool             m_CloudHistoryValid = false;
 
 		// ── Composite (tone-map + opacity) ────────────────────────────────────
 		Ref<Framebuffer> m_CompositingFramebuffer;
@@ -1634,10 +1673,6 @@ namespace Lux {
 		Ref<StorageBufferSet> m_SBSLuminanceHistogram;   // 256-bin histogram (per-frame)
 		Ref<StorageBufferSet> m_SBSExposureState;        // { adapted luminance, exposure }
 
-		// ── TAA resolve ───────────────────────────────────────────────────────
-		Ref<ComputePass> m_TAAResolvePass;
-		Ref<Image2D>     m_TAAHistoryImages[2]; // ping-pong resolved-color history
-		uint32_t         m_TAAHistoryIndex = 0;
 		static constexpr uint32_t s_LuminanceHistogramBins = 256;
 		static constexpr float s_AutoExposureMinLogLuminance = -10.0f; // log2 luminance for bin 1
 		static constexpr float s_AutoExposureMaxLogLuminance = 2.0f;   // log2 luminance for bin 255
@@ -1747,12 +1782,10 @@ namespace Lux {
 		bool     m_ResourcesCreatedGPU = false;
 		bool     m_ResourcesCreated = false;
 		bool     m_HZBPrimed = false;
-		bool     m_TemporalHistoryValid = false;
 		glm::mat4 m_CurrentViewProjection = glm::mat4(1.0f); // unjittered
 		glm::mat4 m_PreviousViewProjection = glm::mat4(1.0f); // unjittered
 		glm::vec2 m_CurrentJitter = { 0.0f, 0.0f };  // clip-space sub-pixel offset this frame
 		glm::vec2 m_PreviousJitter = { 0.0f, 0.0f };
-		uint32_t  m_TAAJitterIndex = 0;              // Halton sequence index
 
 		float m_LineWidth = 2.0f;
 		float m_Opacity = 1.0f;

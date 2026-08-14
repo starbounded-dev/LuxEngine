@@ -271,14 +271,9 @@ namespace Lux
 			out << YAML::Key << "OcclusionDepthBias" << YAML::Value << settings.OcclusionDepthBias;
 			out << YAML::Key << "OcclusionBoundsScale" << YAML::Value << settings.OcclusionBoundsScale;
 			out << YAML::Key << "GTAOResolutionScale" << YAML::Value << settings.GTAOResolutionScale;
-			out << YAML::Key << "GTAOTemporalAccumulation" << YAML::Value << settings.GTAOTemporalAccumulation;
-			out << YAML::Key << "GTAOTemporalBlend" << YAML::Value << settings.GTAOTemporalBlend;
 			out << YAML::Key << "SSRQuality" << YAML::Value << SSRQualityToString(settings.SSRQuality);
 			out << YAML::Key << "SSRResolutionScale" << YAML::Value << settings.SSRResolutionScale;
-			out << YAML::Key << "SSRTemporalAccumulation" << YAML::Value << settings.SSRTemporalAccumulation;
-			out << YAML::Key << "SSRTemporalBlend" << YAML::Value << settings.SSRTemporalBlend;
 			out << YAML::Key << "SMAA" << YAML::Value << settings.EnableSMAA;
-			out << YAML::Key << "SMAATemporal" << YAML::Value << settings.SMAATemporal;
 			out << YAML::Key << "SMAAThreshold" << YAML::Value << settings.SMAAThreshold;
 			out << YAML::Key << "SMAALocalContrastAdaptationFactor" << YAML::Value << settings.SMAALocalContrastAdaptationFactor;
 			out << YAML::EndMap;
@@ -370,15 +365,10 @@ namespace Lux
 				settings.OcclusionDepthBias = rendering["OcclusionDepthBias"].as<float>(settings.OcclusionDepthBias);
 				settings.OcclusionBoundsScale = rendering["OcclusionBoundsScale"].as<float>(settings.OcclusionBoundsScale);
 				settings.GTAOResolutionScale = rendering["GTAOResolutionScale"].as<uint32_t>(settings.GTAOResolutionScale);
-				settings.GTAOTemporalAccumulation = rendering["GTAOTemporalAccumulation"].as<bool>(settings.GTAOTemporalAccumulation);
-				settings.GTAOTemporalBlend = rendering["GTAOTemporalBlend"].as<float>(settings.GTAOTemporalBlend);
 				hasSSRQuality = !!rendering["SSRQuality"];
 				settings.SSRQuality = SSRQualityFromString(rendering["SSRQuality"].as<std::string>(SSRQualityToString(settings.SSRQuality)));
 				settings.SSRResolutionScale = rendering["SSRResolutionScale"].as<uint32_t>(settings.SSRResolutionScale);
-				settings.SSRTemporalAccumulation = rendering["SSRTemporalAccumulation"].as<bool>(settings.SSRTemporalAccumulation);
-				settings.SSRTemporalBlend = rendering["SSRTemporalBlend"].as<float>(settings.SSRTemporalBlend);
 				settings.EnableSMAA = rendering["SMAA"].as<bool>(settings.EnableSMAA);
-				settings.SMAATemporal = rendering["SMAATemporal"].as<bool>(settings.SMAATemporal);
 				settings.SMAAThreshold = rendering["SMAAThreshold"].as<float>(settings.SMAAThreshold);
 				settings.SMAALocalContrastAdaptationFactor = rendering["SMAALocalContrastAdaptationFactor"].as<float>(settings.SMAALocalContrastAdaptationFactor);
 			}
@@ -465,14 +455,9 @@ namespace Lux
 			serializer.WriteRaw(settings.OcclusionDepthBias);
 			serializer.WriteRaw(settings.OcclusionBoundsScale);
 			serializer.WriteRaw(settings.GTAOResolutionScale);
-			serializer.WriteRaw(settings.GTAOTemporalAccumulation);
-			serializer.WriteRaw(settings.GTAOTemporalBlend);
 			serializer.WriteRaw(settings.SSRResolutionScale);
 			serializer.WriteRaw(settings.SSRQuality);
-			serializer.WriteRaw(settings.SSRTemporalAccumulation);
-			serializer.WriteRaw(settings.SSRTemporalBlend);
 			serializer.WriteRaw(settings.EnableSMAA);
-			serializer.WriteRaw(settings.SMAATemporal);
 			serializer.WriteRaw(settings.SMAAThreshold);
 			serializer.WriteRaw(settings.SMAALocalContrastAdaptationFactor);
 
@@ -552,13 +537,25 @@ namespace Lux
 				stream.ReadRaw(settings.OcclusionDepthBias);
 				stream.ReadRaw(settings.OcclusionBoundsScale);
 				stream.ReadRaw(settings.GTAOResolutionScale);
-				stream.ReadRaw(settings.GTAOTemporalAccumulation);
-				stream.ReadRaw(settings.GTAOTemporalBlend);
+				// v15 removed GTAO temporal accumulation. Older packs still carry the two
+				// fields in the stream, so they must be read past or every value after this
+				// point is misaligned.
+				if (version < 15)
+				{
+					bool discardTemporal = false; float discardBlend = 0.0f;
+					stream.ReadRaw(discardTemporal);
+					stream.ReadRaw(discardBlend);
+				}
 				stream.ReadRaw(settings.SSRResolutionScale);
 				if (version >= 7)
 					stream.ReadRaw(settings.SSRQuality);
-				stream.ReadRaw(settings.SSRTemporalAccumulation);
-				stream.ReadRaw(settings.SSRTemporalBlend);
+				// v15 removed SSR temporal accumulation - same stream-alignment reason.
+				if (version < 15)
+				{
+					bool discardTemporal = false; float discardBlend = 0.0f;
+					stream.ReadRaw(discardTemporal);
+					stream.ReadRaw(discardBlend);
+				}
 			}
 
 			// Guarded so packs written before the SMAA settings existed still load; they
@@ -566,7 +563,12 @@ namespace Lux
 			if (version >= 14)
 			{
 				stream.ReadRaw(settings.EnableSMAA);
-				stream.ReadRaw(settings.SMAATemporal);
+				// v15 removed SMAA T2x - same stream-alignment reason.
+				if (version < 15)
+				{
+					bool discardSMAATemporal = false;
+					stream.ReadRaw(discardSMAATemporal);
+				}
 				stream.ReadRaw(settings.SMAAThreshold);
 				stream.ReadRaw(settings.SMAALocalContrastAdaptationFactor);
 			}

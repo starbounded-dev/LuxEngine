@@ -45,8 +45,6 @@ layout(push_constant) uniform SSRInfo
 	bool EnableConeTracing;
 	float LuminanceFactor;
 	uint ResolutionScale;
-	uint TemporalAccumulation;
-	float TemporalBlend;
 	uint BentNormals;
 } u_SSRInfo;
 

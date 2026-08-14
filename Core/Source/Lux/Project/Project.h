@@ -92,17 +92,12 @@ namespace Lux
 		float OcclusionDepthBias = 0.003f;
 		float OcclusionBoundsScale = 1.15f;
 		uint32_t GTAOResolutionScale = 2; // SceneRendererOptions::EffectResolutionScale
-		bool GTAOTemporalAccumulation = false;
-		float GTAOTemporalBlend = 0.85f;
 		uint32_t SSRQuality = 1; // SceneRendererOptions::SSRQualityPreset
 		uint32_t SSRResolutionScale = 2; // SceneRendererOptions::EffectResolutionScale
-		bool SSRTemporalAccumulation = false;
-		float SSRTemporalBlend = 0.90f;
 
 		// Antialiasing. SMAA needs the vendored lookup tables (Core/vendor/smaa) to be
 		// present; without them these load but the renderer reports SMAA unavailable.
 		bool EnableSMAA = false;
-		bool SMAATemporal = false; // T2x
 		float SMAAThreshold = 0.1f;
 		float SMAALocalContrastAdaptationFactor = 2.0f;
 

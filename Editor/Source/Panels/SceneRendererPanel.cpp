@@ -420,9 +420,6 @@ namespace Lux {
 				screenSpaceResourcesChanged = true;
 				projectSettingsChanged = true;
 			}
-			projectSettingsChanged |= ImGuiEx::Property("GTAO Temporal", options.EnableGTAOTemporalAccumulation);
-			if (options.EnableGTAOTemporalAccumulation)
-				projectSettingsChanged |= ImGuiEx::Property("GTAO Temporal Blend", options.GTAOTemporalBlend, 0.01f, 0.0f, 0.98f);
 			projectSettingsChanged |= gtaoSettingsChanged;
 			projectSettingsChanged |= ImGuiEx::Property("GTAO Denoise Passes", options.GTAODenoisePasses, 0, 8);
 			projectSettingsChanged |= ImGuiEx::Property("AO Shadow Tolerance", options.AOShadowTolerance, 0.01f, 0.0f, 4.0f);
@@ -440,25 +437,13 @@ namespace Lux {
 			}
 			if (options.SSRQuality == SceneRendererOptions::SSRQualityPreset::QuarterDebug)
 				ImGui::TextDisabled("Quarter SSR is debug-only; use Full or Half + Bilateral for normal rendering.");
-			projectSettingsChanged |= ImGuiEx::Property("SSR Temporal", options.EnableSSRTemporalAccumulation);
-			if (options.EnableSSRTemporalAccumulation)
-				projectSettingsChanged |= ImGuiEx::Property("SSR Temporal Blend", options.SSRTemporalBlend, 0.01f, 0.0f, 0.98f);
-			projectSettingsChanged |= ImGuiEx::Property("TAA", options.EnableTAA);
-			if (options.EnableTAA)
-			{
-				projectSettingsChanged |= ImGuiEx::Property("TAA History Blend", options.TAAHistoryBlend, 0.01f, 0.0f, 0.98f);
-				projectSettingsChanged |= ImGuiEx::Property("TAA Sharpness", options.TAASharpness, 0.01f, 0.0f, 1.0f);
-			}
 			projectSettingsChanged |= ImGuiEx::Property("SMAA", options.EnableSMAA);
 			if (options.EnableSMAA)
 			{
-				projectSettingsChanged |= ImGuiEx::Property("SMAA Temporal (T2x)", options.SMAATemporal);
 				projectSettingsChanged |= ImGuiEx::Property("SMAA Threshold", options.SMAAThreshold, 0.005f, 0.01f, 0.5f);
 				projectSettingsChanged |= ImGuiEx::Property("SMAA Local Contrast", options.SMAALocalContrastAdaptationFactor, 0.05f, 1.0f, 8.0f);
 				if (!m_Context->IsSMAAReady())
 					ImGui::TextDisabled("SMAA lookup textures missing - see Core/vendor/smaa");
-				else if (options.SMAATemporal)
-					ImGui::TextDisabled("T2x: 2 jittered samples/pixel, resolved along velocity");
 			}
 			projectSettingsChanged |= gtaoSettingsChanged;
 			if (gtaoSettingsChanged)

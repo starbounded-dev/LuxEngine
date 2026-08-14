@@ -527,7 +527,6 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/CloudNoiseDetail.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/CloudNoiseCurl.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/VolumetricClouds.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/VolumetricCloudTemporal.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/VolumetricCloudComposite.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/AtmosphericFog.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap.glsl");
@@ -539,7 +538,6 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Pre-Integration.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/Pre-Convolution.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SSR.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SSR-Temporal.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SSR-Composite.glsl");
 
 		// Environment compute shaders
@@ -552,10 +550,8 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/Bloom.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/LuminanceHistogram.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/LuminanceAverage.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/TAA.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-EdgeDetection.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-WeightAndBlend.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-Resolve.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/DOF.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/EdgeDetection.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SceneComposite.glsl");
@@ -583,7 +579,6 @@ namespace Lux {
 		// GTAO
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/GTAO.hlsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/GTAO-Denoise.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/GTAO-Temporal.glsl");
 
 		// AO
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/AO-Composite.glsl");

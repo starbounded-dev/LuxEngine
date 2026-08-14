@@ -51,8 +51,6 @@ struct GTAOConstants
     float ShadowTolerance;
     uint SliceCount;
     uint StepsPerSlice;
-    uint TemporalAccumulation;
-    float TemporalBlend;
     float Padding;
 };
 [[vk::push_constant]] ConstantBuffer<GTAOConstants> u_GTAOConsts;

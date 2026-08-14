@@ -282,7 +282,9 @@ namespace Lux {
 
 		QualityPreset SanitizeQualityPreset(uint32_t preset)
 		{
-			if (preset > static_cast<uint32_t>(QualityPreset::Cinematic))
+			// Custom is a legal stored value (a hand-edited category), so the valid range
+			// runs to Custom, not Cinematic.
+			if (preset > static_cast<uint32_t>(QualityPreset::Custom))
 				return QualityPreset::Medium;
 
 			return static_cast<QualityPreset>(preset);
@@ -567,170 +569,446 @@ namespace Lux {
 		UpdateGTAOData();
 	}
 
-	void SceneRenderer::ApplyQualityPreset(QualityPreset preset)
+	QualityPreset& RendererQualityCategories::Get(QualityCategory category)
 	{
-		preset = SanitizeQualityPreset(static_cast<uint32_t>(preset));
-		m_Options.Quality = preset;
+		switch (category)
+		{
+			case QualityCategory::Shadows:          return Shadows;
+			case QualityCategory::AmbientOcclusion: return AmbientOcclusion;
+			case QualityCategory::Reflections:      return Reflections;
+			case QualityCategory::AntiAliasing:     return AntiAliasing;
+			case QualityCategory::Textures:         return Textures;
+			case QualityCategory::ResolutionScale:  return ResolutionScale;
+			case QualityCategory::PostProcessing:   return PostProcessing;
+			default: break;
+		}
+
+		LUX_CORE_VERIFY(false, "Unhandled QualityCategory");
+		return Shadows;
+	}
+
+	QualityPreset RendererQualityCategories::Get(QualityCategory category) const
+	{
+		return const_cast<RendererQualityCategories*>(this)->Get(category);
+	}
+
+	void RendererQualityCategories::SetAll(QualityPreset level)
+	{
+		for (uint32_t i = 0; i < static_cast<uint32_t>(QualityCategory::COUNT); ++i)
+			Get(static_cast<QualityCategory>(i)) = level;
+	}
+
+	QualityPreset RendererQualityCategories::Unified() const
+	{
+		const QualityPreset first = Get(static_cast<QualityCategory>(0));
+		for (uint32_t i = 1; i < static_cast<uint32_t>(QualityCategory::COUNT); ++i)
+		{
+			if (Get(static_cast<QualityCategory>(i)) != first)
+				return QualityPreset::Custom;
+		}
+
+		return first;
+	}
+
+	const char* QualityPresetToDisplayString(QualityPreset preset)
+	{
+		switch (preset)
+		{
+			case QualityPreset::Low:       return "Low";
+			case QualityPreset::Medium:    return "Medium";
+			case QualityPreset::High:      return "High";
+			case QualityPreset::Ultra:     return "Ultra";
+			case QualityPreset::Cinematic: return "Cinematic";
+			case QualityPreset::Custom:    return "Custom";
+		}
+
+		return "Unknown";
+	}
+
+	const char* QualityCategoryToDisplayString(QualityCategory category)
+	{
+		switch (category)
+		{
+			case QualityCategory::Shadows:          return "Shadows";
+			case QualityCategory::AmbientOcclusion: return "Ambient Occlusion";
+			case QualityCategory::Reflections:      return "Reflections";
+			case QualityCategory::AntiAliasing:     return "Anti-Aliasing";
+			case QualityCategory::Textures:         return "Textures";
+			case QualityCategory::ResolutionScale:  return "Resolution Scale";
+			case QualityCategory::PostProcessing:   return "Post-Processing";
+			default: break;
+		}
+
+		return "Unknown";
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// Per-category quality
+	//
+	// Each applier writes every field it owns, for every tier, so a tier is fully
+	// described by reading its own branch - no field silently carries over from
+	// whichever tier happened to be applied before. Categories own disjoint fields,
+	// which is what lets them be mixed freely.
+	// ─────────────────────────────────────────────────────────────────────────
+
+	void SceneRenderer::ApplyShadowQuality(QualityPreset level)
+	{
+		if (level == QualityPreset::Custom)
+			return;
+
+		// Shared across tiers; only the fields listed per-tier below differ.
+		m_Options.SoftShadows = true;
+		m_Options.ShadowCascadeSplitLambda = 0.82f;
+		m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
+		m_Options.ShadowPCFRadiusTexels = 1.25f;
+		m_Options.SpotShadowPCFRadiusTexels = 1.5f;
+		m_Options.ShadowFade = 25.0f;
+
+		switch (level)
+		{
+			case QualityPreset::Low:
+				m_Options.SoftShadows = false;
+				m_Options.ActiveShadowCascadeCount = 2;
+				m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::TunedPCF;
+				m_Options.DirectionalPCSSCascadeCount = 0;
+				m_Options.ShadowPCFRadiusTexels = 1.0f;
+				m_Options.SpotShadowPCFRadiusTexels = 1.0f;
+				m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_1K;
+				m_Options.MaxShadowDistance = 100.0f;
+				m_Options.ShadowFade = 15.0f;
+				break;
+			case QualityPreset::Medium:
+				m_Options.ActiveShadowCascadeCount = 3;
+				m_Options.DirectionalPCSSCascadeCount = 1;
+				m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
+				m_Options.MaxShadowDistance = 150.0f;
+				break;
+			case QualityPreset::High:
+				m_Options.ActiveShadowCascadeCount = 3;
+				m_Options.DirectionalPCSSCascadeCount = 1;
+				// 2K + soft shadows as the realtime default; a 4-layer 4K array costs
+				// ~268 MB and a lot of shadow-render bandwidth. Ultra raises to 4K.
+				m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
+				m_Options.MaxShadowDistance = 200.0f;
+				break;
+			case QualityPreset::Ultra:
+				m_Options.ActiveShadowCascadeCount = 4;
+				m_Options.DirectionalPCSSCascadeCount = 2;
+				m_Options.ShadowPCFRadiusTexels = 1.5f;
+				m_Options.SpotShadowPCFRadiusTexels = 1.75f;
+				m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
+				m_Options.MaxShadowDistance = 300.0f;
+				break;
+			case QualityPreset::Cinematic:
+				m_Options.ActiveShadowCascadeCount = 4;
+				m_Options.DirectionalPCSSCascadeCount = 2;
+				m_Options.ShadowPCFRadiusTexels = 1.75f;
+				m_Options.SpotShadowPCFRadiusTexels = 2.0f;
+				// Deliberately 2K, not 8K: an 8K directional atlas is a large per-frame
+				// shadow-pass cost for little visible gain at typical scene scale. Users
+				// who want more can set the resolution by hand, which moves this category
+				// to Custom and stops the tier overwriting it - which is exactly what the
+				// old single-preset path got wrong.
+				m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
+				m_Options.MaxShadowDistance = 450.0f;
+				m_Options.ShadowFade = 50.0f;
+				break;
+			default:
+				break;
+		}
+	}
+
+	void SceneRenderer::ApplyAmbientOcclusionQuality(QualityPreset level)
+	{
+		if (level == QualityPreset::Custom)
+			return;
+
+		m_Options.EnableGTAO = true;
+		m_Options.GTAOBentNormals = false;
+		// NEVER enabled by a tier. Temporal accumulation reprojects last frame's AO, which
+		// smears ghosting behind anything that moves. Cost is paid with spatial denoise
+		// passes and full-resolution AO instead - see the denoise counts below.
+		m_Options.AOShadowTolerance = 1.0f;
+
+		switch (level)
+		{
+			case QualityPreset::Low:
+				m_Options.EnableGTAO = false;
+				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+				m_Options.GTAODenoisePasses = 0;
+				break;
+			case QualityPreset::Medium:
+				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+				m_Options.GTAODenoisePasses = 2;
+				break;
+			case QualityPreset::High:
+				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+				// 4 rather than 2: with temporal accumulation off, spatial denoising is the
+				// only thing cleaning up GTAO's noise.
+				m_Options.GTAODenoisePasses = 4;
+				break;
+			case QualityPreset::Ultra:
+				m_Options.GTAOBentNormals = true;
+				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+				m_Options.GTAODenoisePasses = 6;
+				break;
+			case QualityPreset::Cinematic:
+				m_Options.GTAOBentNormals = true;
+				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+				m_Options.GTAODenoisePasses = 8;
+				break;
+			default:
+				break;
+		}
+	}
+
+	void SceneRenderer::ApplyReflectionQuality(QualityPreset level)
+	{
+		if (level == QualityPreset::Custom)
+			return;
 
 		m_Options.EnableSSR = true;
-		m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
-		m_Options.EnableSSRTemporalAccumulation = false;
-		m_Options.SSRTemporalBlend = 0.90f;
-		m_Options.EnableGTAO = true;
-		m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-		m_Options.GTAOBentNormals = false;
-		m_Options.EnableGTAOTemporalAccumulation = false;
-		m_Options.GTAOTemporalBlend = 0.85f;
-		// 2 denoise passes as the realtime baseline (Ultra/Cinematic raise to 6/8).
-		m_Options.GTAODenoisePasses = 2;
-		m_Options.AOShadowTolerance = 1.0f;
+		// NEVER enabled by a tier. Reprojected reflections ghost badly on moving geometry
+		// and on the camera cut. Ray count carries the quality instead.
+		m_SSROptions.Brightness = 0.7f;
+		m_SSROptions.DepthTolerance = 0.8f;
+
+		switch (level)
+		{
+			case QualityPreset::Low:
+				m_Options.EnableSSR = false;
+				m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
+				m_SSROptions.MaxSteps = 32;
+				break;
+			case QualityPreset::Medium:
+				m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
+				m_SSROptions.MaxSteps = 48;
+				break;
+			case QualityPreset::High:
+				m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
+				m_SSROptions.MaxSteps = 70;
+				break;
+			case QualityPreset::Ultra:
+				m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
+				m_SSROptions.MaxSteps = 96;
+				break;
+			case QualityPreset::Cinematic:
+				m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
+				m_SSROptions.MaxSteps = 128;
+				break;
+			default:
+				break;
+		}
+	}
+
+	void SceneRenderer::ApplyAntiAliasingQuality(QualityPreset level)
+	{
+		if (level == QualityPreset::Custom)
+			return;
+
+		// NOTE: the previous single-preset path did not touch anti-aliasing at all, so
+		// SMAA stayed at whatever the project last saved regardless of tier. Tiers now
+		// drive it, which is a deliberate behaviour change.
+		//
+		// SMAA 1x only - never T2x, and never TAA. Both jitter the projection and resolve
+		// against reprojected history, which is precisely the ghosting/smearing this engine
+		// refuses to ship. SMAA 1x is purely spatial: it analyses edges within the current
+		// frame and cannot smear.
+		//
+		// MSAASamples is intentionally NOT owned here: it is an expensive opt-in that
+		// interacts with the deferred path, so it stays a manual choice.
+		m_Options.SMAALocalContrastAdaptationFactor = 2.0f;
+
+		switch (level)
+		{
+			case QualityPreset::Low:
+				m_Options.EnableSMAA = false;
+				m_Options.SMAAThreshold = 0.1f;
+				break;
+			case QualityPreset::Medium:
+				m_Options.EnableSMAA = true;
+				m_Options.SMAAThreshold = 0.1f;
+				break;
+			case QualityPreset::High:
+			case QualityPreset::Ultra:
+			case QualityPreset::Cinematic:
+				m_Options.EnableSMAA = true;
+				// Lower threshold catches more edges - the spatial way to buy quality,
+				// since the temporal route is off the table.
+				m_Options.SMAAThreshold = 0.05f;
+				break;
+			default:
+				break;
+		}
+	}
+
+	void SceneRenderer::ApplyTextureQuality(QualityPreset level)
+	{
+		if (level == QualityPreset::Custom)
+			return;
+
+		m_Options.EnableDistanceMipBias = true;
+
+		switch (level)
+		{
+			case QualityPreset::Low:
+				m_Options.TextureMipBias = 1.0f;
+				m_Options.DistanceMipBiasStart = 25.0f;
+				m_Options.DistanceMipBiasEnd = 120.0f;
+				m_Options.DistanceMipBiasMax = 3.0f;
+				break;
+			case QualityPreset::Medium:
+				m_Options.TextureMipBias = 0.25f;
+				m_Options.DistanceMipBiasStart = 50.0f;
+				m_Options.DistanceMipBiasEnd = 250.0f;
+				m_Options.DistanceMipBiasMax = 2.0f;
+				break;
+			case QualityPreset::High:
+				m_Options.TextureMipBias = -0.5f;
+				m_Options.DistanceMipBiasStart = 50.0f;
+				m_Options.DistanceMipBiasEnd = 250.0f;
+				m_Options.DistanceMipBiasMax = 1.5f;
+				break;
+			case QualityPreset::Ultra:
+				m_Options.TextureMipBias = -1.0f;
+				m_Options.DistanceMipBiasStart = 25.0f;
+				m_Options.DistanceMipBiasEnd = 150.0f;
+				m_Options.DistanceMipBiasMax = 1.0f;
+				break;
+			case QualityPreset::Cinematic:
+				m_Options.TextureMipBias = -1.5f;
+				m_Options.DistanceMipBiasStart = 10.0f;
+				m_Options.DistanceMipBiasEnd = 100.0f;
+				m_Options.DistanceMipBiasMax = 0.5f;
+				break;
+			default:
+				break;
+		}
+	}
+
+	void SceneRenderer::ApplyResolutionScaleQuality(QualityPreset level)
+	{
+		if (level == QualityPreset::Custom)
+			return;
+
+		m_Options.DynamicResolutionMinScale = 0.5f;
+		m_Options.DynamicResolutionMaxScale = 1.0f;
+		m_Options.DynamicResolutionTargetGPUTime = 16.67f;
+
+		switch (level)
+		{
+			case QualityPreset::Low:
+				m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale50;
+				break;
+			case QualityPreset::Medium:
+				m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale75;
+				break;
+			case QualityPreset::High:
+			case QualityPreset::Ultra:
+			case QualityPreset::Cinematic:
+				m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
+				break;
+			default:
+				break;
+		}
+	}
+
+	void SceneRenderer::ApplyPostProcessQuality(QualityPreset level)
+	{
+		if (level == QualityPreset::Custom)
+			return;
+
 		m_BloomSettings.Enabled = true;
-		m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 		m_BloomSettings.Threshold = 1.0f;
 		m_BloomSettings.Knee = 0.1f;
 		m_BloomSettings.UpsampleScale = 1.0f;
 		m_BloomSettings.Intensity = 1.0f;
 		m_BloomSettings.DirtIntensity = 1.0f;
 		m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-		m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
-		m_Options.DynamicResolutionMinScale = 0.5f;
-		m_Options.DynamicResolutionMaxScale = 1.0f;
-		m_Options.DynamicResolutionTargetGPUTime = 16.67f;
-		m_Options.TextureMipBias = 0.0f;
-		m_Options.EnableDistanceMipBias = true;
-		m_Options.DistanceMipBiasStart = 50.0f;
-		m_Options.DistanceMipBiasEnd = 250.0f;
-		m_Options.DistanceMipBiasMax = 2.0f;
-		m_Options.SoftShadows = true;
-		m_Options.ActiveShadowCascadeCount = 3;
-		m_Options.ShadowCascadeSplitLambda = 0.82f;
-		m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
-		m_Options.DirectionalPCSSCascadeCount = 1;
-		m_Options.ShadowPCFRadiusTexels = 1.25f;
-		m_Options.SpotShadowPCFRadiusTexels = 1.5f;
-		m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
-		m_Options.MaxShadowDistance = 200.0f;
-		m_Options.ShadowFade = 25.0f;
-		m_SSROptions.MaxSteps = 70;
-		m_SSROptions.Brightness = 0.7f;
-		m_SSROptions.DepthTolerance = 0.8f;
 
-		switch (preset)
+		switch (level)
 		{
-		case QualityPreset::Low:
-			m_Options.EnableSSR = false;
-			m_Options.EnableGTAO = false;
-			m_Options.GTAODenoisePasses = 0;
-			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Quarter;
-			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale50;
-			m_Options.TextureMipBias = 1.0f;
-			m_Options.DistanceMipBiasStart = 25.0f;
-			m_Options.DistanceMipBiasEnd = 120.0f;
-			m_Options.DistanceMipBiasMax = 3.0f;
-			m_Options.SoftShadows = false;
-			m_Options.ActiveShadowCascadeCount = 2;
-			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::TunedPCF;
-			m_Options.DirectionalPCSSCascadeCount = 0;
-			m_Options.ShadowPCFRadiusTexels = 1.0f;
-			m_Options.SpotShadowPCFRadiusTexels = 1.0f;
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_1K;
-			m_Options.MaxShadowDistance = 100.0f;
-			m_Options.ShadowFade = 15.0f;
-			m_SSROptions.MaxSteps = 32;
-			break;
-		case QualityPreset::Medium:
-			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::HalfBilateral;
-			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Scale75;
-			m_Options.TextureMipBias = 0.25f;
-			m_Options.ActiveShadowCascadeCount = 3;
-			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
-			m_Options.DirectionalPCSSCascadeCount = 1;
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
-			m_Options.MaxShadowDistance = 150.0f;
-			m_SSROptions.MaxSteps = 48;
-			break;
-		case QualityPreset::High:
-			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
-			// Temporal accumulation amortizes SSR/GTAO cost across frames; was
-			// Ultra-only.
-			m_Options.EnableSSRTemporalAccumulation = true;
-			m_Options.EnableGTAOTemporalAccumulation = true;
-			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
-			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
-			m_Options.TextureMipBias = -0.5f;
-			m_Options.DistanceMipBiasMax = 1.5f;
-			m_Options.ActiveShadowCascadeCount = 3;
-			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
-			m_Options.DirectionalPCSSCascadeCount = 1;
-			// 2K + soft shadows as the realtime default; a 4-layer 4K array costs
-			// ~268 MB and a lot of shadow-render bandwidth. Ultra raises to 4K,
-			// Cinematic to 8K.
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
-			break;
-		case QualityPreset::Ultra:
-			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
-			m_Options.EnableSSRTemporalAccumulation = true;
-			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-			m_Options.GTAOBentNormals = true;
-			m_Options.EnableGTAOTemporalAccumulation = true;
-			m_Options.GTAOTemporalBlend = 0.85f;
-			m_Options.GTAODenoisePasses = 6;
-			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
-			m_Options.TextureMipBias = -1.0f;
-			m_Options.DistanceMipBiasStart = 25.0f;
-			m_Options.DistanceMipBiasEnd = 150.0f;
-			m_Options.DistanceMipBiasMax = 1.0f;
-			m_Options.ActiveShadowCascadeCount = 4;
-			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
-			m_Options.DirectionalPCSSCascadeCount = 2;
-			m_Options.ShadowPCFRadiusTexels = 1.5f;
-			m_Options.SpotShadowPCFRadiusTexels = 1.75f;
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
-			m_Options.MaxShadowDistance = 300.0f;
-			m_SSROptions.MaxSteps = 96;
-			break;
-		case QualityPreset::Cinematic:
-			m_Options.SSRQuality = SceneRendererOptions::SSRQualityPreset::Full;
-			m_Options.EnableSSRTemporalAccumulation = true;
-			m_Options.SSRTemporalBlend = 0.95f;
-			m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-			m_Options.GTAOBentNormals = true;
-			m_Options.EnableGTAOTemporalAccumulation = true;
-			m_Options.GTAOTemporalBlend = 0.95f;
-			m_Options.GTAODenoisePasses = 8;
-			m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-			m_Options.ResolutionScaleMode = SceneRendererOptions::RenderResolutionScaleMode::Native;
-			m_Options.TextureMipBias = -1.5f;
-			m_Options.DistanceMipBiasStart = 10.0f;
-			m_Options.DistanceMipBiasEnd = 100.0f;
-			m_Options.DistanceMipBiasMax = 0.5f;
-			m_Options.ActiveShadowCascadeCount = 4;
-			m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::Hybrid;
-			m_Options.DirectionalPCSSCascadeCount = 2;
-			m_Options.ShadowPCFRadiusTexels = 1.75f;
-			m_Options.SpotShadowPCFRadiusTexels = 2.0f;
-			// Shadow atlas capped at 2K even on Cinematic — an 8K directional atlas
-			// is a large per-frame shadow-pass cost for little visible gain at this
-			// scene scale. Bump back to Tier_8K here if you need crisper distant shadows.
-			m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_2K;
-			m_Options.MaxShadowDistance = 450.0f;
-			m_Options.ShadowFade = 50.0f;
-			m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
-			m_SSROptions.MaxSteps = 128;
-			break;
+			case QualityPreset::Low:
+				m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Quarter;
+				break;
+			case QualityPreset::Medium:
+			case QualityPreset::High:
+				m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
+				break;
+			case QualityPreset::Ultra:
+			case QualityPreset::Cinematic:
+				m_BloomSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
+				break;
+			default:
+				break;
 		}
+	}
 
+	void SceneRenderer::FinalizeQualityChange()
+	{
+		// Derived scratch values the appliers feed. Recomputed once after any tier change
+		// rather than inside each applier, since SSR spans two of them.
 		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 		m_GTAODataCB.ResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
 		m_SSROptions.HalfRes = GetEffectResolutionDivisor(m_Options.SSRResolutionScale) > 1u;
 		m_SSROptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
-		m_SSROptions.TemporalAccumulation = m_Options.EnableSSRTemporalAccumulation ? 1u : 0u;
-		m_SSROptions.TemporalBlend = m_Options.SSRTemporalBlend;
+
+		// The overall tier is a view onto the categories, never stored independently.
+		m_Options.Quality = m_Options.QualityCategories.Unified();
+
 		UpdateGTAOData();
+	}
+
+	void SceneRenderer::ApplyAllCategoryQuality()
+	{
+		ApplyShadowQuality(m_Options.QualityCategories.Shadows);
+		ApplyAmbientOcclusionQuality(m_Options.QualityCategories.AmbientOcclusion);
+		ApplyReflectionQuality(m_Options.QualityCategories.Reflections);
+		ApplyAntiAliasingQuality(m_Options.QualityCategories.AntiAliasing);
+		ApplyTextureQuality(m_Options.QualityCategories.Textures);
+		ApplyResolutionScaleQuality(m_Options.QualityCategories.ResolutionScale);
+		ApplyPostProcessQuality(m_Options.QualityCategories.PostProcessing);
+
+		FinalizeQualityChange();
+	}
+
+	void SceneRenderer::SetCategoryQuality(QualityCategory category, QualityPreset level)
+	{
+		level = SanitizeQualityPreset(static_cast<uint32_t>(level));
+		m_Options.QualityCategories.Get(category) = level;
+
+		switch (category)
+		{
+			case QualityCategory::Shadows:          ApplyShadowQuality(level); break;
+			case QualityCategory::AmbientOcclusion: ApplyAmbientOcclusionQuality(level); break;
+			case QualityCategory::Reflections:      ApplyReflectionQuality(level); break;
+			case QualityCategory::AntiAliasing:     ApplyAntiAliasingQuality(level); break;
+			case QualityCategory::Textures:         ApplyTextureQuality(level); break;
+			case QualityCategory::ResolutionScale:  ApplyResolutionScaleQuality(level); break;
+			case QualityCategory::PostProcessing:   ApplyPostProcessQuality(level); break;
+			default: break;
+		}
+
+		FinalizeQualityChange();
+	}
+
+	void SceneRenderer::MarkCategoryCustom(QualityCategory category)
+	{
+		m_Options.QualityCategories.Get(category) = QualityPreset::Custom;
+		m_Options.Quality = m_Options.QualityCategories.Unified();
+	}
+
+	void SceneRenderer::ApplyQualityPreset(QualityPreset preset)
+	{
+		preset = SanitizeQualityPreset(static_cast<uint32_t>(preset));
+
+		// "Everything Custom" is meaningless - Custom means "leave these values alone",
+		// so there is nothing to apply. Keep the categories as they are.
+		if (preset == QualityPreset::Custom)
+			return;
+
+		m_Options.QualityCategories.SetAll(preset);
+		ApplyAllCategoryQuality();
 	}
 
 	void SceneRenderer::UpdateGTAOData()
@@ -767,13 +1045,17 @@ namespace Lux {
 		const auto previousGTAOScale = m_Options.GTAOResolutionScale;
 		const auto previousSSRQuality = m_Options.SSRQuality;
 		const auto previousSSRScale = m_Options.SSRResolutionScale;
-		const bool previousGTAOTemporal = m_Options.EnableGTAOTemporalAccumulation;
-		const bool previousSSRTemporal = m_Options.EnableSSRTemporalAccumulation;
 		const bool previousGTAOBentNormals = m_Options.GTAOBentNormals;
 		const auto previousBloomScale = m_BloomSettings.ResolutionScale;
 		const auto previousDOFScale = m_DOFSettings.ResolutionScale;
 
-		m_Options.Quality = SanitizeQualityPreset(settings.QualityPreset);
+		// Legacy path: the project file still stores every resolved value, so the tier is
+		// only a label here and the raw assignments below are what actually take effect.
+		// Seed the categories from it so Quality == QualityCategories.Unified() holds; once
+		// the per-category tiers are serialized this is replaced by applying them.
+		// TODO: read per-category tiers and only take raw values for Custom categories.
+		m_Options.QualityCategories.SetAll(SanitizeQualityPreset(settings.QualityPreset));
+		m_Options.Quality = m_Options.QualityCategories.Unified();
 		m_Options.EnableFrustumCulling = settings.EnableFrustumCulling;
 		m_Options.EnableOcclusionCulling = settings.EnableOcclusionCulling;
 		m_Options.OcclusionDepthBias = std::clamp(settings.OcclusionDepthBias, 0.0f, 0.1f);
@@ -789,14 +1071,9 @@ namespace Lux {
 		m_Options.AOShadowTolerance = settings.AOShadowTolerance;
 		m_Options.EnableSSR = settings.EnableSSR;
 		m_Options.GTAOResolutionScale = SanitizeEffectResolutionScale(settings.GTAOResolutionScale);
-		m_Options.EnableGTAOTemporalAccumulation = settings.GTAOTemporalAccumulation;
-		m_Options.GTAOTemporalBlend = std::clamp(settings.GTAOTemporalBlend, 0.0f, 0.98f);
 		m_Options.SSRQuality = SanitizeSSRQualityPreset(settings.SSRQuality);
 		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
-		m_Options.EnableSSRTemporalAccumulation = settings.SSRTemporalAccumulation;
-		m_Options.SSRTemporalBlend = std::clamp(settings.SSRTemporalBlend, 0.0f, 0.98f);
 		m_Options.EnableSMAA = settings.EnableSMAA;
-		m_Options.SMAATemporal = settings.SMAATemporal;
 		m_Options.SMAAThreshold = std::clamp(settings.SMAAThreshold, 0.01f, 0.5f);
 		m_Options.SMAALocalContrastAdaptationFactor = std::clamp(settings.SMAALocalContrastAdaptationFactor, 1.0f, 8.0f);
 		m_Options.EnableJumpFlood = settings.EnableJumpFlood;
@@ -846,8 +1123,6 @@ namespace Lux {
 		m_SSROptions.MaxSteps = settings.SSRMaxSteps;
 		m_SSROptions.Brightness = settings.SSRBrightness;
 		m_SSROptions.DepthTolerance = settings.SSRDepthTolerance;
-		m_SSROptions.TemporalAccumulation = m_Options.EnableSSRTemporalAccumulation ? 1u : 0u;
-		m_SSROptions.TemporalBlend = m_Options.SSRTemporalBlend;
 
 		UpdateGTAOData();
 
@@ -868,16 +1143,6 @@ namespace Lux {
 			RefreshScreenSpaceEffectResources();
 		}
 
-		if (previousGTAOTemporal != m_Options.EnableGTAOTemporalAccumulation
-			|| previousSSRTemporal != m_Options.EnableSSRTemporalAccumulation
-			|| previousGTAOBentNormals != m_Options.GTAOBentNormals
-			|| previousGTAOScale != m_Options.GTAOResolutionScale
-			|| previousSSRQuality != m_Options.SSRQuality
-			|| previousSSRScale != m_Options.SSRResolutionScale)
-		{
-			m_TemporalHistoryValid = false;
-		m_CloudHistoryValid = false;
-		}
 	}
 
 	void SceneRenderer::WriteProjectSettings(ProjectSceneRendererSettings& settings) const
@@ -898,16 +1163,11 @@ namespace Lux {
 		settings.AOShadowTolerance = m_Options.AOShadowTolerance;
 		settings.EnableSSR = m_Options.EnableSSR;
 		settings.GTAOResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
-		settings.GTAOTemporalAccumulation = m_Options.EnableGTAOTemporalAccumulation;
-		settings.GTAOTemporalBlend = m_Options.GTAOTemporalBlend;
 		const SceneRendererOptions::SSRQualityPreset ssrQuality = SanitizeSSRQualityPreset(static_cast<uint32_t>(m_Options.SSRQuality));
 		const SceneRendererOptions::EffectResolutionScale ssrResolutionScale = GetSSRQualityResolutionScale(ssrQuality);
 		settings.SSRQuality = static_cast<uint32_t>(ssrQuality);
 		settings.SSRResolutionScale = GetEffectResolutionDivisor(ssrResolutionScale);
-		settings.SSRTemporalAccumulation = m_Options.EnableSSRTemporalAccumulation;
-		settings.SSRTemporalBlend = m_Options.SSRTemporalBlend;
 		settings.EnableSMAA = m_Options.EnableSMAA;
-		settings.SMAATemporal = m_Options.SMAATemporal;
 		settings.SMAAThreshold = m_Options.SMAAThreshold;
 		settings.SMAALocalContrastAdaptationFactor = m_Options.SMAALocalContrastAdaptationFactor;
 		settings.EnableJumpFlood = m_Options.EnableJumpFlood;
@@ -1552,9 +1812,7 @@ namespace Lux {
 
 				gtaoImageSpec.Format = ImageFormat::RED32UI;
 				gtaoImageSpec.DebugName = "GTAO-History-A";
-				m_GTAOHistoryImages[0] = Image2D::Create(gtaoImageSpec);
 				gtaoImageSpec.DebugName = "GTAO-History-B";
-				m_GTAOHistoryImages[1] = Image2D::Create(gtaoImageSpec);
 
 				m_GTAOFinalImage = (m_Options.GTAODenoisePasses % 2 != 0) ? m_GTAODenoiseImage : m_GTAOOutputImage;
 			}
@@ -1665,21 +1923,6 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_GTAODenoisePass[1]->Validate());
 			m_GTAODenoisePass[1]->Bake();
 
-			Ref<Shader> gtaoTemporalShader = Renderer::GetShaderLibrary()->Get("GTAO-Temporal");
-			ComputePassSpecification gtaoTemporalSpec;
-			gtaoTemporalSpec.DebugName = "GTAO-Temporal";
-			gtaoTemporalSpec.Pipeline = PipelineCompute::Create(gtaoTemporalShader);
-			m_GTAOTemporalPass = ComputePass::Create(gtaoTemporalSpec);
-			m_GTAOTemporalPass->SetInput("u_CurrentAO", m_GTAOFinalImage);
-			m_GTAOTemporalPass->SetInput("u_HistoryAO", m_GTAOHistoryImages[0]);
-			m_GTAOTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_GTAOTemporalPass->SetInput("o_HistoryAO", m_GTAOHistoryImages[1]);
-			m_GTAOTemporalPass->SetInput("Camera", m_UBSCamera);
-			m_GTAOTemporalPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_GTAOTemporalPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_GTAOTemporalPass->Validate());
-			m_GTAOTemporalPass->Bake();
-
 			FramebufferSpecification aoFramebufferSpec;
 			aoFramebufferSpec.Width = m_ViewportWidth;
 			aoFramebufferSpec.Height = m_ViewportHeight;
@@ -1761,9 +2004,7 @@ namespace Lux {
 			ssrImageSpec.DebugName = "SSR";
 			m_SSRImage = Image2D::Create(ssrImageSpec);
 			ssrImageSpec.DebugName = "SSR-History-A";
-			m_SSRHistoryImages[0] = Image2D::Create(ssrImageSpec);
 			ssrImageSpec.DebugName = "SSR-History-B";
-			m_SSRHistoryImages[1] = Image2D::Create(ssrImageSpec);
 			m_SSRFinalImage = m_SSRImage;
 
 			ComputePassSpecification ssrComputeSpec;
@@ -1785,20 +2026,6 @@ namespace Lux {
 			m_SSRPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
 			LUX_CORE_VERIFY(m_SSRPass->Validate());
 			m_SSRPass->Bake();
-
-			ComputePassSpecification ssrTemporalSpec;
-			ssrTemporalSpec.DebugName = "SSR-Temporal";
-			ssrTemporalSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("SSR-Temporal"));
-			m_SSRTemporalPass = ComputePass::Create(ssrTemporalSpec);
-			m_SSRTemporalPass->SetInput("u_CurrentSSR", m_SSRImage);
-			m_SSRTemporalPass->SetInput("u_HistorySSR", m_SSRHistoryImages[0]);
-			m_SSRTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_SSRTemporalPass->SetInput("o_HistorySSR", m_SSRHistoryImages[1]);
-			m_SSRTemporalPass->SetInput("Camera", m_UBSCamera);
-			m_SSRTemporalPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_SSRTemporalPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_SSRTemporalPass->Validate());
-			m_SSRTemporalPass->Bake();
 
 			FramebufferSpecification ssrCompositeFBSpec;
 			ssrCompositeFBSpec.Width = m_ViewportWidth;
@@ -2077,24 +2304,11 @@ namespace Lux {
 			taaSpec.Format = ImageFormat::RGBA16F;
 			taaSpec.Usage = ImageUsage::Storage;
 			taaSpec.DebugName = "TAA-History-A";
-			m_TAAHistoryImages[0] = Image2D::Create(taaSpec);
 			taaSpec.DebugName = "TAA-History-B";
-			m_TAAHistoryImages[1] = Image2D::Create(taaSpec);
 
 			ComputePassSpecification taaPassSpec;
 			taaPassSpec.DebugName = "TAA";
 			taaPassSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("TAA"));
-			m_TAAResolvePass = ComputePass::Create(taaPassSpec);
-			m_TAAResolvePass->SetInput("u_SceneColor", GetSceneColorOutput());
-			m_TAAResolvePass->SetInput("u_History", m_TAAHistoryImages[0]);
-			m_TAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
-			m_TAAResolvePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_TAAResolvePass->SetInput("o_Resolved", m_TAAHistoryImages[1]);
-			m_TAAResolvePass->SetInput("Camera", m_UBSCamera);
-			m_TAAResolvePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_TAAResolvePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_TAAResolvePass->Validate());
-			m_TAAResolvePass->Bake();
 		}
 
 		// ── Scene composite (tone-map + exposure + opacity) ───────────────────
@@ -2368,17 +2582,6 @@ namespace Lux {
 
 		if (cloudSizeChanged)
 		{
-			for (Ref<Image2D>& historyImage : m_CloudHistoryImages)
-			{
-				if (historyImage)
-					historyImage->Resize(cloudSize.x, cloudSize.y);
-			}
-			m_CloudHistoryValid = false;
-			if (m_VolumetricCloudTemporalPass && m_VolumetricCloudPass)
-			{
-				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloud", m_VolumetricCloudPass->GetOutput(0));
-				m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloudDepth", m_VolumetricCloudPass->GetOutput(1));
-			}
 		}
 
 		if (m_VolumetricCloudCompositePass && m_VolumetricCloudPass)
@@ -2635,8 +2838,6 @@ namespace Lux {
 		{
 			m_SMAAEdgesImage->Resize(viewportSize.x, viewportSize.y);
 			m_SMAAOutputImage->Resize(viewportSize.x, viewportSize.y);
-			for (Ref<Image2D>& historyImage : m_SMAAHistoryImages)
-				historyImage->Resize(viewportSize.x, viewportSize.y);
 
 			m_SMAAWorkGroups = {
 				(uint32_t)glm::ceil(viewportSize.x / 8.0f),
@@ -2714,14 +2915,8 @@ namespace Lux {
 			constexpr uint32_t GTAO_WORKGROUP_SIZE = 16u;
 			m_GTAOOutputImage->Resize(gtaoSize.x, gtaoSize.y);
 			m_GTAOEdgesOutputImage->Resize(gtaoSize.x, gtaoSize.y);
-			for (Ref<Image2D>& historyImage : m_GTAOHistoryImages)
-			{
-				if (historyImage)
-					historyImage->Resize(gtaoSize.x, gtaoSize.y);
-			}
 
 			m_GTAOWorkGroups = { DivideRoundUp(gtaoSize.x, GTAO_WORKGROUP_SIZE), DivideRoundUp(gtaoSize.y, GTAO_WORKGROUP_SIZE), 1 };
-			m_GTAOTemporalWorkGroups = { DivideRoundUp(gtaoSize.x, 8u), DivideRoundUp(gtaoSize.y, 8u), 1 };
 
 			constexpr uint32_t DENOISE_WORKGROUP_SIZE = 8u;
 			m_GTAODenoiseImage->Resize(denoiseSize.x, denoiseSize.y);
@@ -2746,19 +2941,9 @@ namespace Lux {
 			}
 			if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
 				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
-			if (m_GTAOTemporalPass)
-			{
-				m_GTAOTemporalPass->SetInput("u_CurrentAO", m_GTAOFinalImage);
-				m_GTAOTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			}
 		}
 
 		// TAA history runs at full scene-color (viewport) resolution.
-		for (Ref<Image2D>& historyImage : m_TAAHistoryImages)
-		{
-			if (historyImage)
-				historyImage->Resize(viewportSize.x, viewportSize.y);
-		}
 
 		if (m_SSRImage && m_PreConvolutedTexture.Texture)
 		{
@@ -2769,19 +2954,8 @@ namespace Lux {
 			glm::uvec2 ssrSize = GetScaledExtent(viewportSize, m_Options.SSRResolutionScale);
 
 			m_SSRImage->Resize(ssrSize.x, ssrSize.y);
-			for (Ref<Image2D>& historyImage : m_SSRHistoryImages)
-			{
-				if (historyImage)
-					historyImage->Resize(ssrSize.x, ssrSize.y);
-			}
 			m_SSRFinalImage = m_SSRImage;
 			m_SSRWorkGroups = { DivideRoundUp(ssrSize.x, SSR_WORKGROUP_SIZE), DivideRoundUp(ssrSize.y, SSR_WORKGROUP_SIZE), 1 };
-			m_SSRTemporalWorkGroups = m_SSRWorkGroups;
-			if (m_SSRTemporalPass)
-			{
-				m_SSRTemporalPass->SetInput("u_CurrentSSR", m_SSRImage);
-				m_SSRTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			}
 			if (m_SSRCompositePass)
 				m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
 
@@ -2804,8 +2978,6 @@ namespace Lux {
 
 		ResizeBloomResources();
 		CreateBloomPassMaterials();
-		m_TemporalHistoryValid = false;
-		m_CloudHistoryValid = false;
 	}
 
 	void SceneRenderer::CreateHZBPassMaterials()
@@ -2936,7 +3108,7 @@ namespace Lux {
 		// missing. Check every shader up front and disable SMAA if any is absent.
 		{
 			const auto& shaders = Renderer::GetShaderLibrary()->GetShaders();
-			for (const char* required : { "SMAA-EdgeDetection", "SMAA-WeightAndBlend", "SMAA-Resolve" })
+			for (const char* required : { "SMAA-EdgeDetection", "SMAA-WeightAndBlend" })
 			{
 				if (shaders.find(required) == shaders.end())
 				{
@@ -2967,8 +3139,6 @@ namespace Lux {
 
 		m_SMAAEdgesImage = createStorageImage(ImageFormat::RG8, "SMAA-Edges");
 		m_SMAAOutputImage = createStorageImage(ImageFormat::RGBA, "SMAA-Output");
-		m_SMAAHistoryImages[0] = createStorageImage(ImageFormat::RGBA, "SMAA-History-A");
-		m_SMAAHistoryImages[1] = createStorageImage(ImageFormat::RGBA, "SMAA-History-B");
 
 		auto createComputePass = [&](const char* name) -> Ref<ComputePass>
 		{
@@ -2999,25 +3169,12 @@ namespace Lux {
 
 		// T2x temporal resolve. Created unconditionally so the mode can be toggled at
 		// runtime; it only dispatches when T2x is active.
-		m_SMAAResolveComputePass = createComputePass("SMAA-Resolve");
-		m_SMAAResolveComputePass->SetInput("o_Output", m_SMAAHistoryImages[1]);
-		m_SMAAResolveComputePass->SetInput("u_CurrentTex", m_SMAAOutputImage);
-		m_SMAAResolveComputePass->SetInput("u_PreviousTex", m_SMAAHistoryImages[0]);
-		m_SMAAResolveComputePass->SetInput("u_VelocityTex", GetGeometryVelocityOutput());
-		LUX_CORE_VERIFY(m_SMAAResolveComputePass->Validate());
-		m_SMAAResolveComputePass->Bake();
 
 		m_SMAAWorkGroups = {
 			(uint32_t)glm::ceil(width / 8.0f),
 			(uint32_t)glm::ceil(height / 8.0f),
 			1
 		};
-	}
-
-	bool SceneRenderer::IsSMAATemporalActive() const
-	{
-		return IsSMAAReady() && m_Options.SMAATemporal && m_SMAAResolveComputePass
-			&& m_SMAAHistoryImages[0] && m_SMAAHistoryImages[1];
 	}
 
 	bool SceneRenderer::IsSMAAReady() const
@@ -3536,9 +3693,7 @@ namespace Lux {
 		addComputePass(m_GTAOComputePass);
 		addComputePass(m_GTAODenoisePass[0]);
 		addComputePass(m_GTAODenoisePass[1]);
-		addComputePass(m_GTAOTemporalPass);
 		addComputePass(m_SSRPass);
-		addComputePass(m_SSRTemporalPass);
 		addComputePass(m_BloomComputePass);
 
 		if (m_HierarchicalDepthTexture.Texture)
@@ -3556,13 +3711,9 @@ namespace Lux {
 		addRenderTargetImage(m_GTAOOutputImage);
 		addRenderTargetImage(m_GTAODenoiseImage);
 		addRenderTargetImage(m_GTAOFinalImage);
-		for (const Ref<Image2D>& historyImage : m_GTAOHistoryImages)
-			addRenderTargetImage(historyImage);
 		addRenderTargetImage(m_GTAOEdgesOutputImage);
 		addRenderTargetImage(m_SSRImage);
 		addRenderTargetImage(m_SSRFinalImage);
-		for (const Ref<Image2D>& historyImage : m_SSRHistoryImages)
-			addRenderTargetImage(historyImage);
 
 		uint64_t liveImageBytes = 0;
 		uint32_t liveImageCount = 0;
@@ -3842,8 +3993,6 @@ namespace Lux {
 			const RenderGraph::ResourceHandle gtaoOutput = addTexture("GTAO Output", m_GTAOOutputImage);
 			const RenderGraph::ResourceHandle gtaoDenoise = addTexture("GTAO Denoise", m_GTAODenoiseImage);
 			const RenderGraph::ResourceHandle gtaoEdges = addTexture("GTAO Edges", m_GTAOEdgesOutputImage);
-			const RenderGraph::ResourceHandle gtaoHistoryA = addTexture("GTAO History A", m_GTAOHistoryImages[0]);
-			const RenderGraph::ResourceHandle gtaoHistoryB = addTexture("GTAO History B", m_GTAOHistoryImages[1]);
 
 			std::vector<RenderGraph::ResourceHandle> gtaoReads = geometryOutputs;
 			appendResources(gtaoReads, hzbOutputs);
@@ -3851,12 +4000,6 @@ namespace Lux {
 			addPass("GTAO Denoise", { gtaoOutput, gtaoEdges }, { gtaoDenoise, gtaoOutput }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::GTAODenoiseCompute));
 
 			aoFinalOutputs = { gtaoOutput, gtaoDenoise };
-			if (m_Options.EnableGTAOTemporalAccumulation)
-			{
-				addPass("GTAO Temporal", { gtaoOutput, gtaoDenoise, gtaoHistoryA, preDepthOutputs.empty() ? RenderGraph::InvalidResource : preDepthOutputs.front() }, { gtaoHistoryB }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::GTAOTemporalAccumulationCompute));
-				aoFinalOutputs.push_back(gtaoHistoryA);
-				aoFinalOutputs.push_back(gtaoHistoryB);
-			}
 
 			if (m_AOCompositePass)
 			{
@@ -3896,8 +4039,6 @@ namespace Lux {
 			addPass("Pre-Convolution", sceneColorCurrent, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
 
 			const RenderGraph::ResourceHandle ssrImage = addTexture("SSR", m_SSRImage);
-			const RenderGraph::ResourceHandle ssrHistoryA = addTexture("SSR History A", m_SSRHistoryImages[0]);
-			const RenderGraph::ResourceHandle ssrHistoryB = addTexture("SSR History B", m_SSRHistoryImages[1]);
 			ssrOutputs.push_back(ssrImage);
 
 			std::vector<RenderGraph::ResourceHandle> ssrReads = geometryOutputs;
@@ -3907,12 +4048,6 @@ namespace Lux {
 			appendResources(ssrReads, aoFinalOutputs);
 			addPass("SSR", ssrReads, ssrOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::SSRCompute));
 
-			if (m_Options.EnableSSRTemporalAccumulation)
-			{
-				addPass("SSR Temporal", { ssrImage, ssrHistoryA, preDepthOutputs.empty() ? RenderGraph::InvalidResource : preDepthOutputs.front() }, { ssrHistoryB }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::SSRTemporalAccumulationCompute));
-				ssrOutputs.push_back(ssrHistoryA);
-				ssrOutputs.push_back(ssrHistoryB);
-			}
 
 			std::vector<RenderGraph::ResourceHandle> ssrCompositeReads = geometryOutputs;
 			appendResources(ssrCompositeReads, ssrOutputs);
@@ -3934,13 +4069,6 @@ namespace Lux {
 			appendResources(cloudCompositeReads, cloudOutputs);
 
 			// Temporal scattering integration (compute) between raymarch and composite.
-			if (m_VolumetricCloudTemporalPass && m_CloudHistoryImages[0] && m_CloudHistoryImages[1])
-			{
-				const uint32_t resolvedIndex = (m_CloudHistoryIndex & 1u) ^ 1u;
-				const RenderGraph::ResourceHandle cloudResolved = addTexture("Volumetric Cloud Resolved", m_CloudHistoryImages[resolvedIndex]);
-				addPass("Volumetric Cloud Temporal", cloudOutputs, { cloudResolved }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::VolumetricCloudTemporalPass));
-				appendResources(cloudCompositeReads, { cloudResolved });
-			}
 
 			std::vector<RenderGraph::ResourceHandle> cloudCompositeOutputs = addRenderPassResources("Volumetric Cloud Composite", m_VolumetricCloudCompositePass);
 			addPass("Volumetric Cloud Composite", cloudCompositeReads, cloudCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::VolumetricCloudCompositePass));
@@ -4001,12 +4129,6 @@ namespace Lux {
 		// TAA resolves the final scene color in place (copies its result back over
 		// scene color), so it runs before bloom / auto-exposure / composite. The
 		// scene-color write is a side effect not tracked as a graph texture.
-		if (m_Options.EnableTAA)
-		{
-			constexpr auto taaFlags = static_cast<RenderGraph::PassFlags>(
-				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::SideEffect));
-			addPass("TAA", sceneColorCurrent, {}, taaFlags, makeExecute(&SceneRenderer::TAAResolvePass));
-		}
 
 		// Histogram auto-exposure reads the final scene color and writes the exposure
 		// state buffer (a side effect not tracked as a graph texture, so it is pinned).
@@ -4142,8 +4264,7 @@ namespace Lux {
 						if (name == "Skybox") return "SkyboxPass";
 						if (name == "Sky Atmosphere") return "SkyAtmospherePass";
 						if (name == "Volumetric Clouds") return "VolumetricCloudPass";
-						if (name == "Volumetric Cloud Temporal") return "VolumetricCloudTemporalPass";
-						if (name == "Volumetric Cloud Composite") return "VolumetricCloudCompositePass";
+							if (name == "Volumetric Cloud Composite") return "VolumetricCloudCompositePass";
 						if (name == "Atmospheric Fog") return "AtmosphericFogPass";
 						if (name == "Selected Geometry") return "SelectedGeometryPass";
 						if (name == "GBuffer") return "GBufferPass";
@@ -4562,21 +4683,6 @@ namespace Lux {
 			return false;
 		if (m_PreDepthPass && isSameImage(m_PreDepthPass->GetDepthOutput()))
 			return false;
-		for (const Ref<Image2D>& historyImage : m_GTAOHistoryImages)
-		{
-			if (isSameImage(historyImage))
-				return false;
-		}
-		for (const Ref<Image2D>& historyImage : m_SSRHistoryImages)
-		{
-			if (isSameImage(historyImage))
-				return false;
-		}
-		for (const Ref<Image2D>& historyImage : m_CloudHistoryImages)
-		{
-			if (isSameImage(historyImage))
-				return false;
-		}
 		if (m_DOFPass && isSameImage(m_DOFPass->GetOutput(0)))
 			return false;
 
@@ -4725,73 +4831,30 @@ namespace Lux {
 			const glm::mat4 unjitteredProj = camera.Camera.GetProjectionMatrix();
 			const glm::mat4 unjitteredViewProj = unjitteredProj * camera.ViewMatrix;
 
-			// TAA sub-pixel jitter (Halton 2,3) applied to the rasterized projection only.
-			// The unjittered VP is kept for motion-vector reprojection / history sampling.
-			glm::vec2 jitter(0.0f);
-			if (IsSMAATemporalActive())
-			{
-				// SMAA T2x alternates between exactly two subpixel positions, each paired
-				// with the AreaTex subtexture computed for it (@SUBSAMPLE_INDICES):
-				//   S0 ( 0.25, -0.25) -> (1,1,1,0)
-				//   S1 (-0.25,  0.25) -> (2,2,2,0)
-				// The reference's table assumes a bottom-to-top Y axis, so Y is negated
-				// here for Vulkan's top-to-bottom clip space.
-				const bool secondSample = (m_TAAJitterIndex & 1u) != 0u;
-				const glm::vec2 offsetPixels = secondSample ? glm::vec2(-0.25f, 0.25f) : glm::vec2(0.25f, -0.25f);
-				jitter = glm::vec2(offsetPixels.x * 2.0f / float(glm::max(1u, m_ViewportWidth)),
-				                  -offsetPixels.y * 2.0f / float(glm::max(1u, m_ViewportHeight)));
-				m_SMAASubsampleIndices = secondSample ? glm::vec4(2.0f, 2.0f, 2.0f, 0.0f)
-				                                     : glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
-			}
-			else if (m_Options.EnableTAA)
-			{
-				m_SMAASubsampleIndices = glm::vec4(0.0f);
-				auto halton = [](uint32_t index, uint32_t base) -> float
-				{
-					float result = 0.0f, invBase = 1.0f / float(base), fraction = invBase;
-					for (uint32_t i = index; i > 0u; i /= base)
-					{
-						result += float(i % base) * fraction;
-						fraction *= invBase;
-					}
-					return result;
-				};
-				const uint32_t sampleIndex = (m_TAAJitterIndex % 8u) + 1u;
-				const float jx = halton(sampleIndex, 2u) - 0.5f;
-				const float jy = halton(sampleIndex, 3u) - 0.5f;
-				jitter = glm::vec2(jx * 2.0f / float(glm::max(1u, m_ViewportWidth)),
-				                   jy * 2.0f / float(glm::max(1u, m_ViewportHeight)));
-			}
-			else
-			{
-				m_SMAASubsampleIndices = glm::vec4(0.0f);
-			}
-
-			glm::mat4 jitteredProj = unjitteredProj;
-			jitteredProj[2][0] += jitter.x;
-			jitteredProj[2][1] += jitter.y;
-			const glm::mat4 viewProj = jitteredProj * camera.ViewMatrix;
+			// No sub-pixel jitter: the only consumers were TAA and SMAA T2x, both removed.
+			// The projection is rasterized exactly as authored, so jittered == unjittered.
+			// UnjitteredViewProjectionMatrix and the zeroed Jitter fields stay in UBCamera
+			// because PreviousViewProjectionMatrix still feeds the G-buffer velocity target,
+			// and that block is shared by nearly every shader.
+			const glm::mat4 viewProj = unjitteredViewProj;
 			const glm::mat4 viewInverse = glm::inverse(camera.ViewMatrix);
-			const glm::mat4 projInverse = glm::inverse(jitteredProj);
+			const glm::mat4 projInverse = glm::inverse(unjitteredProj);
 
-			m_CurrentViewProjection = unjitteredViewProj; // history/reprojection use unjittered
-			m_CurrentJitter = jitter;
-			if (!m_TemporalHistoryValid)
-			{
-				m_PreviousViewProjection = unjitteredViewProj;
-				m_PreviousJitter = jitter;
-			}
+			m_CurrentViewProjection = unjitteredViewProj;
+			m_CurrentJitter = glm::vec2(0.0f);
 
 			m_CameraUB.ViewProjection = viewProj;
 			m_CameraUB.InverseViewProjection = viewInverse * projInverse;
-			m_CameraUB.Projection = jitteredProj;
+			m_CameraUB.Projection = unjitteredProj;
 			m_CameraUB.InverseProjection = projInverse;
 			m_CameraUB.View = camera.ViewMatrix;
 			m_CameraUB.InverseView = viewInverse;
 			m_CameraUB.UnjitteredViewProjection = unjitteredViewProj;
+			// Still written: the G-buffer velocity target reprojects against it.
 			m_CameraUB.PreviousViewProjection = m_PreviousViewProjection;
-			m_CameraUB.Jitter = jitter;
-			m_CameraUB.PreviousJitter = m_PreviousJitter;
+			// Permanently zero now that nothing jitters the projection.
+			m_CameraUB.Jitter = glm::vec2(0.0f);
+			m_CameraUB.PreviousJitter = glm::vec2(0.0f);
 
 			// Depth linearization for GTAO-style effects (kept for forward compat)
 			float depthLinearizeMul = -m_CameraUB.Projection[3][2];
@@ -4852,16 +4915,10 @@ namespace Lux {
 			m_GTAODataCB.HZBUVFactor = m_SSROptions.HZBUvFactor;
 			m_GTAODataCB.NoiseIndex = (int)(Renderer::GetCurrentFrameIndex() % 64);
 			m_GTAODataCB.ShadowTolerance = m_Options.AOShadowTolerance;
-			m_GTAODataCB.TemporalAccumulation = m_Options.EnableGTAOTemporalAccumulation ? 1u : 0u;
-			m_GTAODataCB.TemporalBlend = m_Options.GTAOTemporalBlend;
-			m_GTAODataCB.SliceCount = m_Options.EnableGTAOTemporalAccumulation ? 6u : 9u;
-			m_GTAODataCB.StepsPerSlice = m_Options.EnableGTAOTemporalAccumulation ? 2u : 3u;
 
 			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 			m_SSROptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
 			m_SSROptions.HalfRes = m_SSROptions.ResolutionScale > 1u;
-			m_SSROptions.TemporalAccumulation = m_Options.EnableSSRTemporalAccumulation ? 1u : 0u;
-			m_SSROptions.TemporalBlend = m_Options.SSRTemporalBlend;
 		}
 
 		// ── Scene (light) uniform buffer ──────────────────────────────────────
@@ -5474,7 +5531,6 @@ namespace Lux {
 			};
 			// TAA jitter supersamples sub-pixel detail, so bias texture LOD down while it
 			// is active to recover the texture sharpness the resolve is meant to resolve.
-			m_RendererDataUB.TextureMipBias = m_Options.TextureMipBias + (m_Options.EnableTAA ? -1.0f : 0.0f);
 			m_RendererDataUB.EnableDistanceMipBias = m_Options.EnableDistanceMipBias;
 			m_RendererDataUB.DistanceMipBiasStart = m_Options.DistanceMipBiasStart;
 			m_RendererDataUB.DistanceMipBiasEnd = glm::max(m_Options.DistanceMipBiasEnd, m_Options.DistanceMipBiasStart + 1.0f);
@@ -7147,8 +7203,6 @@ namespace Lux {
 
 		m_PreviousViewProjection = m_CurrentViewProjection;
 		m_PreviousJitter = m_CurrentJitter;
-		m_TAAJitterIndex++;
-		m_TemporalHistoryValid = true;
 
 		// ── 5. Update statistics ──────────────────────────────────────────────
 		{
@@ -7883,61 +7937,15 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
-	void SceneRenderer::VolumetricCloudTemporalPass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "VolumetricCloudTemporalPass");
-		if (!m_VolumetricCloudTemporalPass || !m_VolumetricCloudPass || !m_FrameEnvironment.VolumetricCloudsEnabled)
-			return;
-
-		const uint32_t readIndex = m_CloudHistoryIndex & 1u;
-		const uint32_t writeIndex = readIndex ^ 1u;
-		Ref<Image2D> historyInput = m_CloudHistoryImages[readIndex];
-		Ref<Image2D> historyOutput = m_CloudHistoryImages[writeIndex];
-		if (!historyInput || !historyOutput)
-			return;
-
-		m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloud", m_VolumetricCloudPass->GetOutput(0));
-		m_VolumetricCloudTemporalPass->SetInput("u_CurrentCloudDepth", m_VolumetricCloudPass->GetOutput(1));
-		m_VolumetricCloudTemporalPass->SetInput("u_HistoryCloud", historyInput);
-		m_VolumetricCloudTemporalPass->SetInput("o_ResolvedCloud", historyOutput);
-
-		struct CloudTemporalPushConstants
-		{
-			float Blend;
-			uint32_t HasHistory;
-			glm::vec2 Padding;
-		} push;
-		push.Blend = 0.92f;
-		push.HasHistory = m_CloudHistoryValid ? 1u : 0u;
-		push.Padding = { 0.0f, 0.0f };
-
-		const glm::uvec3 groups = {
-			(glm::max(m_CloudRenderSize.x, 1u) + 7u) / 8u,
-			(glm::max(m_CloudRenderSize.y, 1u) + 7u) / 8u,
-			1u
-		};
-
-		BeginProfiledGPU("VolumetricCloudTemporalPass");
-		Renderer::BeginComputePass(m_CommandBuffer, m_VolumetricCloudTemporalPass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_VolumetricCloudTemporalPass, nullptr, groups, Buffer(&push, sizeof(push)));
-		Renderer::EndComputePass(m_CommandBuffer, m_VolumetricCloudTemporalPass);
-		m_VolumetricCloudTemporalPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, historyOutput, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-
-		m_CloudHistoryIndex = writeIndex;
-		m_CloudHistoryValid = true;
-	}
-
 	void SceneRenderer::VolumetricCloudCompositePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "VolumetricCloudCompositePass");
 		if (!m_VolumetricCloudCompositePass || !m_VolumetricCloudCompositeMaterial || !m_VolumetricCloudPass || !m_FrameEnvironment.VolumetricCloudsEnabled)
 			return;
 
-		// Prefer the temporally-resolved half-res buffer; fall back to the raw raymarch.
-		Ref<Image2D> cloudColor = (m_VolumetricCloudTemporalPass && m_CloudHistoryImages[m_CloudHistoryIndex & 1u])
-			? m_CloudHistoryImages[m_CloudHistoryIndex & 1u]
-			: m_VolumetricCloudPass->GetOutput(0);
+		// Always the raw half-res raymarch. The temporally-accumulated variant is gone, so
+		// clouds are softer but cannot trail behind camera or cloud motion.
+		Ref<Image2D> cloudColor = m_VolumetricCloudPass->GetOutput(0);
 		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudTexture", cloudColor);
 		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
 
@@ -8216,50 +8224,6 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
-	void SceneRenderer::GTAOTemporalAccumulationCompute()
-	{
-		ScopedCPUProfile cpuProfile(*this, "GTAO-Temporal");
-		if (!m_Options.EnableGTAO || !m_Options.EnableGTAOTemporalAccumulation)
-			return;
-		if (!m_GTAOTemporalPass || !m_GTAOFinalImage || !m_GTAOHistoryImages[0] || !m_GTAOHistoryImages[1])
-			return;
-
-		const uint32_t readIndex = m_GTAOHistoryIndex & 1u;
-		const uint32_t writeIndex = readIndex ^ 1u;
-		Ref<Image2D> historyInput = m_GTAOHistoryImages[readIndex];
-		Ref<Image2D> historyOutput = m_GTAOHistoryImages[writeIndex];
-
-		m_GTAOTemporalPass->SetInput("u_CurrentAO", m_GTAOFinalImage);
-		m_GTAOTemporalPass->SetInput("u_HistoryAO", historyInput);
-		m_GTAOTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-		m_GTAOTemporalPass->SetInput("o_HistoryAO", historyOutput);
-
-		TemporalAccumulationConstants constants;
-		constants.PreviousViewProjection = m_PreviousViewProjection;
-		constants.Blend = m_Options.GTAOTemporalBlend;
-		constants.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
-		constants.BentNormals = m_Options.GTAOBentNormals ? 1u : 0u;
-		constants.ResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
-
-		BeginProfiledGPU("GTAO-Temporal");
-		Renderer::BeginComputePass(m_CommandBuffer, m_GTAOTemporalPass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_GTAOTemporalPass, nullptr, m_GTAOTemporalWorkGroups, Buffer(&constants, sizeof(constants)));
-		Renderer::EndComputePass(m_CommandBuffer, m_GTAOTemporalPass);
-		m_GTAOTemporalPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, historyOutput, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-
-		m_GTAOHistoryIndex = writeIndex;
-		m_GTAOFinalImage = historyOutput;
-		if (m_AOCompositePass && m_AOCompositePass->IsInputValid("u_GTAOTex"))
-		{
-			m_AOCompositePass->SetInput("u_GTAOTex", m_GTAOFinalImage);
-			m_AOCompositePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-			m_AOCompositePass->SetInput("u_Normal", GetGeometryNormalOutput());
-		}
-		if (m_SSRPass && m_SSRPass->IsInputValid("u_GTAOTex"))
-			m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
-	}
-
 	void SceneRenderer::RebakeAOPassInputs()
 	{
 		// The GTAO-on variant newly declares Camera (set 2), the samplers, and the
@@ -8429,10 +8393,6 @@ namespace Lux {
 		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 		ssrOptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
 		ssrOptions.HalfRes = ssrOptions.ResolutionScale > 1u;
-		ssrOptions.TemporalAccumulation = m_Options.EnableSSRTemporalAccumulation ? 1u : 0u;
-		ssrOptions.TemporalBlend = m_Options.SSRTemporalBlend;
-		if (m_Options.EnableSSRTemporalAccumulation)
-			ssrOptions.MaxSteps = glm::max(8, ssrOptions.MaxSteps / 2);
 		ssrOptions.BentNormals = m_Options.GTAOBentNormals ? 1u : 0u;
 
 		if (m_SSRPass->IsInputValid("u_GTAOTex") && m_GTAOFinalImage)
@@ -8447,45 +8407,6 @@ namespace Lux {
 		if (m_SSRCompositePass)
 			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
-	void SceneRenderer::SSRTemporalAccumulationCompute()
-	{
-		ScopedCPUProfile cpuProfile(*this, "SSR-Temporal");
-		if (!m_Options.EnableSSR || !m_Options.EnableSSRTemporalAccumulation)
-			return;
-		if (!m_SSRTemporalPass || !m_SSRImage || !m_SSRHistoryImages[0] || !m_SSRHistoryImages[1])
-			return;
-
-		const uint32_t readIndex = m_SSRHistoryIndex & 1u;
-		const uint32_t writeIndex = readIndex ^ 1u;
-		Ref<Image2D> historyInput = m_SSRHistoryImages[readIndex];
-		Ref<Image2D> historyOutput = m_SSRHistoryImages[writeIndex];
-
-		m_SSRTemporalPass->SetInput("u_CurrentSSR", m_SSRImage);
-		m_SSRTemporalPass->SetInput("u_HistorySSR", historyInput);
-		m_SSRTemporalPass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-		m_SSRTemporalPass->SetInput("o_HistorySSR", historyOutput);
-
-		TemporalAccumulationConstants constants;
-		constants.PreviousViewProjection = m_PreviousViewProjection;
-		constants.Blend = m_Options.SSRTemporalBlend;
-		constants.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
-		constants.BentNormals = 0u;
-		m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
-		constants.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);
-
-		BeginProfiledGPU("SSR-Temporal");
-		Renderer::BeginComputePass(m_CommandBuffer, m_SSRTemporalPass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_SSRTemporalPass, nullptr, m_SSRTemporalWorkGroups, Buffer(&constants, sizeof(constants)));
-		Renderer::EndComputePass(m_CommandBuffer, m_SSRTemporalPass);
-		m_SSRTemporalPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, historyOutput, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-
-		m_SSRHistoryIndex = writeIndex;
-		m_SSRFinalImage = historyOutput;
-		if (m_SSRCompositePass)
-			m_SSRCompositePass->SetInput("u_SSR", m_SSRFinalImage);
 	}
 
 	void SceneRenderer::SSRCompositePass()
@@ -8573,7 +8494,6 @@ namespace Lux {
 		{
 			struct { glm::vec4 RTMetrics; glm::vec4 SubsampleIndices; } constants;
 			constants.RTMetrics = rtMetrics;
-			constants.SubsampleIndices = IsSMAATemporalActive() ? m_SMAASubsampleIndices : glm::vec4(0.0f);
 
 			Renderer::BeginComputePass(m_CommandBuffer, m_SMAAWeightAndBlendComputePass);
 			Renderer::DispatchCompute(m_CommandBuffer, m_SMAAWeightAndBlendComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
@@ -8583,28 +8503,6 @@ namespace Lux {
 		Ref<Image2D> resolved = m_SMAAOutputImage;
 
 		// Pass 3 (T2x only): combine this jittered frame with the previous one.
-		if (IsSMAATemporalActive())
-		{
-			const uint32_t readIndex = m_SMAAHistoryIndex & 1u;
-			const uint32_t writeIndex = readIndex ^ 1u;
-
-			m_SMAAResolveComputePass->SetInput("o_Output", m_SMAAHistoryImages[writeIndex]);
-			m_SMAAResolveComputePass->SetInput("u_CurrentTex", m_SMAAOutputImage);
-			m_SMAAResolveComputePass->SetInput("u_PreviousTex", m_SMAAHistoryImages[readIndex]);
-			m_SMAAResolveComputePass->SetInput("u_VelocityTex", GetGeometryVelocityOutput());
-
-			struct { glm::vec4 RTMetrics; uint32_t HasHistory; uint32_t Pad0; uint32_t Pad1; uint32_t Pad2; } constants;
-			constants.RTMetrics = rtMetrics;
-			constants.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
-			constants.Pad0 = constants.Pad1 = constants.Pad2 = 0u;
-
-			Renderer::BeginComputePass(m_CommandBuffer, m_SMAAResolveComputePass);
-			Renderer::DispatchCompute(m_CommandBuffer, m_SMAAResolveComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
-			Renderer::EndComputePass(m_CommandBuffer, m_SMAAResolveComputePass);
-
-			resolved = m_SMAAHistoryImages[writeIndex];
-			m_SMAAHistoryIndex = writeIndex;
-		}
 
 		// Copy back over the image the rest of the engine treats as final, so nothing
 		// downstream (DOF, debug views, the viewport) has to know SMAA ran.
@@ -8888,59 +8786,6 @@ namespace Lux {
 		Renderer::EndComputePass(m_CommandBuffer, m_LuminanceAveragePass);
 
 		m_AutoExposureValid = true;
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
-	void SceneRenderer::TAAResolvePass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "TAA");
-		if (!m_Options.EnableTAA || !m_TAAResolvePass || !m_TAAHistoryImages[0] || !m_TAAHistoryImages[1])
-			return;
-
-		Ref<Image2D> sceneColor = GetSceneColorOutput();
-		if (!sceneColor)
-			return;
-
-		const uint32_t readIndex = m_TAAHistoryIndex & 1u;
-		const uint32_t writeIndex = readIndex ^ 1u;
-		Ref<Image2D> historyInput = m_TAAHistoryImages[readIndex];
-		Ref<Image2D> historyOutput = m_TAAHistoryImages[writeIndex];
-
-		m_TAAResolvePass->SetInput("u_SceneColor", sceneColor);
-		m_TAAResolvePass->SetInput("u_History", historyInput);
-		m_TAAResolvePass->SetInput("u_Velocity", GetGeometryVelocityOutput());
-		m_TAAResolvePass->SetInput("u_Depth", m_PreDepthPass->GetDepthOutput());
-		m_TAAResolvePass->SetInput("o_Resolved", historyOutput);
-
-		struct TAAPushConstants
-		{
-			float Blend;
-			uint32_t HasHistory;
-			float Sharpness;
-			uint32_t Padding1;
-		} push;
-		push.Blend = glm::clamp(m_Options.TAAHistoryBlend, 0.0f, 0.98f);
-		push.HasHistory = m_TemporalHistoryValid ? 1u : 0u;
-		push.Sharpness = glm::max(m_Options.TAASharpness, 0.0f);
-		push.Padding1 = 0u;
-
-		const glm::uvec3 groups = {
-			(glm::max(1u, sceneColor->GetWidth()) + 7u) / 8u,
-			(glm::max(1u, sceneColor->GetHeight()) + 7u) / 8u,
-			1u
-		};
-
-		BeginProfiledGPU("TAA");
-		Renderer::BeginComputePass(m_CommandBuffer, m_TAAResolvePass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_TAAResolvePass, nullptr, groups, Buffer(&push, sizeof(push)));
-		Renderer::EndComputePass(m_CommandBuffer, m_TAAResolvePass);
-		m_TAAResolvePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, historyOutput, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-
-		// Copy the resolved frame back into scene color so downstream passes
-		// (bloom / auto-exposure / composite) consume the anti-aliased result.
-		Renderer::CopyImage(m_CommandBuffer, historyOutput, sceneColor);
-
-		m_TAAHistoryIndex = writeIndex;
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -9401,8 +9246,6 @@ namespace Lux {
 		ApplyQualityPreset(preset);
 		RefreshRenderResolutionScale();
 		RefreshScreenSpaceEffectResources();
-		m_TemporalHistoryValid = false;
-		m_CloudHistoryValid = false;
 	}
 
 } // namespace Lux
