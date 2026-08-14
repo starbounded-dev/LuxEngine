@@ -410,7 +410,12 @@ namespace Lux {
 			return glm::dot(glm::max(radiance, glm::vec3(0.0f)), glm::vec3(0.2126f, 0.7152f, 0.0722f));
 		}
 
-		constexpr std::array<const char*, 30> s_ProfiledSceneRendererPasses = {
+		// Size is deduced, never written out: a std::array<T, N> initialised with fewer than
+		// N elements is legal and silently value-initialises the tail to nullptr. Those nulls
+		// reach ResetProfilingData, which stores them as PassProfile::Name, and the next
+		// GetOrCreatePassProfile strcmps against a null pointer. Removing a pass from this
+		// list without also editing the count is exactly how that happened once already.
+		constexpr auto s_ProfiledSceneRendererPasses = std::to_array<const char*>({
 			"ShadowMapPass",
 			"SpotShadowMapPass",
 			"MeshCullingPass",
@@ -427,11 +432,9 @@ namespace Lux {
 			"GeometryPass",
 			"GTAO",
 			"GTAO-Denoise",
-			"GTAO-Temporal",
 			"AOComposite",
 			"PreConvolution",
 			"SSR",
-			"SSR-Temporal",
 			"SSRComposite",
 			"JumpFlood",
 			"BloomCompute",
@@ -441,7 +444,7 @@ namespace Lux {
 			"Renderer2D",
 			"DOF",
 			"SMAA"
-		};
+		});
 
 		uint32_t NextPowerOfTwo(uint32_t value)
 		{
@@ -2298,19 +2301,6 @@ namespace Lux {
 			m_LuminanceAveragePass->Bake();
 		}
 
-		// ── TAA resolve (history ping-pong, copied back into scene color) ──────
-		{
-			ImageSpecification taaSpec;
-			taaSpec.Format = ImageFormat::RGBA16F;
-			taaSpec.Usage = ImageUsage::Storage;
-			taaSpec.DebugName = "TAA-History-A";
-			taaSpec.DebugName = "TAA-History-B";
-
-			ComputePassSpecification taaPassSpec;
-			taaPassSpec.DebugName = "TAA";
-			taaPassSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("TAA"));
-		}
-
 		// ── Scene composite (tone-map + exposure + opacity) ───────────────────
 		{
 			FramebufferSpecification fbSpec;
@@ -2943,7 +2933,6 @@ namespace Lux {
 				m_SSRPass->SetInput("u_GTAOTex", m_GTAOFinalImage);
 		}
 
-		// TAA history runs at full scene-color (viewport) resolution.
 
 		if (m_SSRImage && m_PreConvolutedTexture.Texture)
 		{
@@ -3166,9 +3155,6 @@ namespace Lux {
 		m_SMAAWeightAndBlendComputePass->SetInput("u_SearchTex", m_SMAASearchTexture);
 		LUX_CORE_VERIFY(m_SMAAWeightAndBlendComputePass->Validate());
 		m_SMAAWeightAndBlendComputePass->Bake();
-
-		// T2x temporal resolve. Created unconditionally so the mode can be toggled at
-		// runtime; it only dispatches when T2x is active.
 
 		m_SMAAWorkGroups = {
 			(uint32_t)glm::ceil(width / 8.0f),
@@ -4068,7 +4054,6 @@ namespace Lux {
 			appendResources(cloudCompositeReads, preDepthOutputs);
 			appendResources(cloudCompositeReads, cloudOutputs);
 
-			// Temporal scattering integration (compute) between raymarch and composite.
 
 			std::vector<RenderGraph::ResourceHandle> cloudCompositeOutputs = addRenderPassResources("Volumetric Cloud Composite", m_VolumetricCloudCompositePass);
 			addPass("Volumetric Cloud Composite", cloudCompositeReads, cloudCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::VolumetricCloudCompositePass));
@@ -4125,10 +4110,6 @@ namespace Lux {
 		}
 
 		const RenderVolumePostProcessSettings& postProcessSettings = frame.PostProcess;
-
-		// TAA resolves the final scene color in place (copies its result back over
-		// scene color), so it runs before bloom / auto-exposure / composite. The
-		// scene-color write is a side effect not tracked as a graph texture.
 
 		// Histogram auto-exposure reads the final scene color and writes the exposure
 		// state buffer (a side effect not tracked as a graph texture, so it is pinned).
@@ -4273,11 +4254,9 @@ namespace Lux {
 						if (name == "Geometry Wireframe") return "GeometryWireframePass";
 						if (name == "GBuffer Debug") return "GBufferDebugPass";
 						if (name == "GTAO Denoise") return "GTAO-Denoise";
-						if (name == "GTAO Temporal") return "GTAO-Temporal";
 						if (name == "AO Composite") return "AOComposite";
 						if (name == "AO Debug") return "AODebug";
 						if (name == "Pre-Convolution") return "PreConvolution";
-						if (name == "SSR Temporal") return "SSR-Temporal";
 						if (name == "SSR Composite") return "SSRComposite";
 						if (name == "JumpFlood Composite") return "JumpFloodComposite";
 						if (name == "Bloom") return "BloomCompute";
@@ -8489,24 +8468,25 @@ namespace Lux {
 		}
 
 		// Pass 2: blending weights followed by neighbourhood blending, merged into one
-		// dispatch. SubsampleIndices is zero for 1x; for T2x it selects the AreaTex
-		// subtexture matching this frame's jitter position.
+		// dispatch.
 		{
 			struct { glm::vec4 RTMetrics; glm::vec4 SubsampleIndices; } constants;
 			constants.RTMetrics = rtMetrics;
+			// Always zero: that is the SMAA 1x value. The reference only uses a non-zero
+			// subsample index for the jittered T2x variant, which this engine does not
+			// ship. It must still be written - the shader feeds it to SMAAArea as an
+			// AreaTex subtexture offset, so leaving it uninitialised uploads stack
+			// garbage and the lookup reads far outside the table.
+			constants.SubsampleIndices = glm::vec4(0.0f);
 
 			Renderer::BeginComputePass(m_CommandBuffer, m_SMAAWeightAndBlendComputePass);
 			Renderer::DispatchCompute(m_CommandBuffer, m_SMAAWeightAndBlendComputePass, nullptr, m_SMAAWorkGroups, Buffer(&constants, sizeof(constants)));
 			Renderer::EndComputePass(m_CommandBuffer, m_SMAAWeightAndBlendComputePass);
 		}
 
-		Ref<Image2D> resolved = m_SMAAOutputImage;
-
-		// Pass 3 (T2x only): combine this jittered frame with the previous one.
-
 		// Copy back over the image the rest of the engine treats as final, so nothing
 		// downstream (DOF, debug views, the viewport) has to know SMAA ran.
-		Renderer::CopyImage(m_CommandBuffer, resolved, input);
+		Renderer::CopyImage(m_CommandBuffer, m_SMAAOutputImage, input);
 
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}

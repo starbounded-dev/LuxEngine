@@ -73,7 +73,9 @@ namespace Lux {
 		void Set(const std::string& name, const T& value)
 		{
 			auto decl = FindUniformDeclaration(name);
-			LUX_CORE_ASSERT(decl, "Could not find uniform!");
+			// Name the uniform and the material: a bare "not found" is unactionable when
+			// a shader edit silently drops a member that C++ still writes.
+			LUX_CORE_ASSERT(decl, "Could not find uniform '{}' on material '{}'", name, GetName());
 			if (!decl)
 				return;
 
@@ -85,7 +87,7 @@ namespace Lux {
 		T& Get(const std::string& name)
 		{
 			auto decl = FindUniformDeclaration(name);
-			LUX_CORE_ASSERT(decl, "Could not find uniform with name 'x'");
+			LUX_CORE_ASSERT(decl, "Could not find uniform '{}' on material '{}'", name, GetName());
 			auto& buffer = m_UniformStorageBuffer;
 			return buffer.Read<T>(decl->GetOffset());
 		}
