@@ -303,24 +303,6 @@ namespace Lux {
 			}
 		}
 
-		uint32_t SanitizeCloudRenderScale(uint32_t scale)
-		{
-			switch (scale)
-			{
-				case static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Full):
-				case static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Half):
-				case static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Quarter):
-					return scale;
-				default:
-					return static_cast<uint32_t>(SceneRendererOptions::EffectResolutionScale::Half);
-			}
-		}
-
-		SceneRendererOptions::EffectResolutionScale CloudRenderScaleToEffectScale(uint32_t scale)
-		{
-			return static_cast<SceneRendererOptions::EffectResolutionScale>(SanitizeCloudRenderScale(scale));
-		}
-
 		template<typename TInput>
 		void SetRenderPassInputIfValid(Ref<RenderPass> renderPass, std::string_view name, TInput&& input)
 		{
@@ -425,10 +407,6 @@ namespace Lux {
 			"ClusterBuildPass",
 			"ClusterLightCullingPass",
 			"SkyboxPass",
-			"SkyAtmospherePass",
-			"VolumetricCloudPass",
-			"VolumetricCloudCompositePass",
-			"AtmosphericFogPass",
 			"GeometryPass",
 			"GTAO",
 			"GTAO-Denoise",
@@ -1256,7 +1234,6 @@ namespace Lux {
 		m_UBSSpotLights = UniformBufferSet::Create(sizeof(UBSpotLights));
 		m_UBSSpotShadow = UniformBufferSet::Create(sizeof(UBSpotShadow));
 		m_UBSScreenData = UniformBufferSet::Create(sizeof(UBScreenData));
-		m_UBSAtmosphere = UniformBufferSet::Create(sizeof(UBAtmosphere));
 
 		// ── Storage buffer sets (start with generous initial capacity) ─────────
 		{
@@ -2231,16 +2208,6 @@ namespace Lux {
 			m_SkyboxPass->Bake();
 		}
 
-		// ── Atmosphere, procedural clouds and fog ────────────────────────────
-		// REMOVED: Sky Atmosphere, Volumetric Clouds, and Atmospheric/Height Fog
-		// are cut. Their passes, pipelines, materials, 3D cloud-noise volumes,
-		// cloud history buffers and framebuffers are no longer created; the
-		// members stay null and every path goes inert -- the render-graph nodes
-		// (gated on the pass existing), the execute functions (early-return on
-		// null) and the resize/repair sweeps (all null-guarded). This reclaims
-		// their VRAM and per-frame GPU cost. The shaders and pass functions are
-		// kept on disk; recreate this block to restore.
-
 		// ── Bloom compute (feeds the scene composite) ─────────────────────────
 		{
 			Ref<Shader> shader = Renderer::GetShaderLibrary()->Get("Bloom");
@@ -2541,46 +2508,6 @@ namespace Lux {
 		m_NeedsResize = true;
 	}
 
-	glm::uvec2 SceneRenderer::CalculateVolumetricCloudRenderSize() const
-	{
-		const glm::uvec2 viewportSize{ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) };
-		return GetScaledExtent(viewportSize, CloudRenderScaleToEffectScale(ResolveFrameEnvironment().Atmosphere.VolumetricClouds.RenderScale));
-	}
-
-	void SceneRenderer::ResizeVolumetricCloudResources(bool forceRecreate)
-	{
-		if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
-			return;
-
-		const uint32_t renderScale = SanitizeCloudRenderScale(ResolveFrameEnvironment().Atmosphere.VolumetricClouds.RenderScale);
-		const glm::uvec2 cloudSize = CalculateVolumetricCloudRenderSize();
-		const glm::uvec2 viewportSize{ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) };
-		const bool cloudSizeChanged = forceRecreate || m_CloudRenderScale != renderScale || m_CloudRenderSize != cloudSize;
-
-		if (m_VolumetricCloudPass && m_VolumetricCloudPass->GetTargetFramebuffer() && cloudSizeChanged)
-			m_VolumetricCloudPass->GetTargetFramebuffer()->Resize(cloudSize.x, cloudSize.y, forceRecreate);
-
-		if (m_VolumetricCloudCompositePass && m_VolumetricCloudCompositePass->GetTargetFramebuffer())
-		{
-			Ref<Framebuffer> framebuffer = m_VolumetricCloudCompositePass->GetTargetFramebuffer();
-			if (forceRecreate || framebuffer->GetWidth() != viewportSize.x || framebuffer->GetHeight() != viewportSize.y)
-				framebuffer->Resize(viewportSize.x, viewportSize.y, forceRecreate);
-		}
-
-		m_CloudRenderScale = renderScale;
-		m_CloudRenderSize = cloudSize;
-
-		if (cloudSizeChanged)
-		{
-		}
-
-		if (m_VolumetricCloudCompositePass && m_VolumetricCloudPass)
-		{
-			SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudTexture", m_VolumetricCloudPass->GetOutput(0));
-			SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
-		}
-	}
-
 	void SceneRenderer::BindCommonSceneRenderPassInputs(Ref<RenderPass> renderPass, bool bindDepth)
 	{
 		BindSceneRenderPassInputs(renderPass, PassInputCommonScene | (bindDepth ? PassInputDepth : PassInputNone));
@@ -2604,8 +2531,6 @@ namespace Lux {
 			SetRenderPassInputIfValid(renderPass, "ScreenData", m_UBSScreenData);
 		if (hasInput(PassInputRenderer))
 			SetRenderPassInputIfValid(renderPass, "RendererData", m_UBSRendererData);
-		if (hasInput(PassInputAtmosphere))
-			SetRenderPassInputIfValid(renderPass, "AtmosphereData", m_UBSAtmosphere);
 		if (hasInput(PassInputShadowData))
 		{
 			SetRenderPassInputIfValid(renderPass, "ShadowData", m_UBSShadow);
@@ -2838,15 +2763,11 @@ namespace Lux {
 		resizePass(m_SSRCompositePass, viewportSize);
 		resizePass(m_DeferredLightingPass, viewportSize);
 		resizePass(m_GBufferDebugPass, viewportSize);
-		resizePass(m_SkyAtmospherePass, viewportSize);
-		resizePass(m_VolumetricCloudCompositePass, viewportSize);
-		resizePass(m_AtmosphericFogPass, viewportSize);
 		resizePass(m_JumpFloodInitPass, viewportSize);
 		resizePass(m_JumpFloodPasses[0], viewportSize);
 		resizePass(m_JumpFloodPasses[1], viewportSize);
 		resizePass(m_JumpFloodCompositePass, viewportSize);
 		resizePass(m_DOFPass, GetScaledExtent(viewportSize, m_DOFSettings.ResolutionScale));
-		ResizeVolumetricCloudResources();
 
 		// HZB uses a power-of-two texture with UV factor back to the real viewport.
 		if (m_HierarchicalDepthTexture.Texture)
@@ -3206,19 +3127,9 @@ namespace Lux {
 		RefreshFrameEnvironment();
 	}
 
-	void SceneRenderer::SetAtmosphereEnvironment(const AtmosphereEnvironment& atmosphereEnvironment)
-	{
-		m_SceneData.Atmosphere = atmosphereEnvironment;
-		m_RenderVolumeEnvironment = {};
-		m_RenderVolumeEnvironment.Atmosphere = atmosphereEnvironment;
-		m_HasRenderVolumeEnvironment = false;
-		RefreshFrameEnvironment();
-	}
-
 	void SceneRenderer::SetRenderVolumeEnvironment(const RenderVolumeEnvironment& renderVolumeEnvironment)
 	{
 		m_RenderVolumeEnvironment = renderVolumeEnvironment;
-		m_SceneData.Atmosphere = renderVolumeEnvironment.Atmosphere;
 		m_HasRenderVolumeEnvironment = true;
 		RefreshFrameEnvironment();
 	}
@@ -3226,7 +3137,6 @@ namespace Lux {
 	RenderVolumeBaseSettings SceneRenderer::GetBaseRenderVolumeSettings(float cameraExposure) const
 	{
 		RenderVolumeBaseSettings settings;
-		settings.Atmosphere = m_SceneData.Atmosphere;
 		settings.PostProcess.Exposure = cameraExposure;
 		settings.PostProcess.BloomEnabled = m_BloomSettings.Enabled;
 		settings.PostProcess.BloomThreshold = m_BloomSettings.Threshold;
@@ -3257,21 +3167,14 @@ namespace Lux {
 		if (m_HasRenderVolumeEnvironment)
 		{
 			frame.Volumes = m_RenderVolumeEnvironment;
-			frame.Atmosphere = m_RenderVolumeEnvironment.Atmosphere;
 			frame.PostProcess = m_RenderVolumeEnvironment.PostProcess;
 		}
 		else
 		{
-			frame.Atmosphere = m_SceneData.Atmosphere;
 			frame.Volumes = {};
-			frame.Volumes.Atmosphere = frame.Atmosphere;
 			frame.PostProcess = GetBaseRenderVolumeSettings(m_SceneData.SceneCamera.Camera.GetExposure()).PostProcess;
 		}
 
-		frame.SkyAtmosphereEnabled = frame.Atmosphere.SkyAtmosphere.Enabled;
-		frame.VolumetricCloudsEnabled = frame.Atmosphere.VolumetricClouds.Enabled;
-		frame.HeightFogEnabled = frame.Atmosphere.HeightFog.Enabled;
-		frame.LocalFogEnabled = frame.Volumes.LocalFogVolumeCount > 0;
 		frame.BloomEnabled = frame.PostProcess.BloomEnabled;
 		frame.DOFEnabled = frame.PostProcess.DOFEnabled;
 		return frame;
@@ -3290,18 +3193,10 @@ namespace Lux {
 		snapshot.DeferredPath = frame.DeferredPath;
 		snapshot.HasRenderScene = m_SubmittedRenderScene != nullptr;
 		snapshot.HasRenderVolumeEnvironment = frame.HasRenderVolumeEnvironment;
-		snapshot.SkyAtmosphereEnabled = frame.SkyAtmosphereEnabled;
-		snapshot.VolumetricCloudsEnabled = frame.VolumetricCloudsEnabled;
-		snapshot.HeightFogEnabled = frame.HeightFogEnabled;
-		snapshot.LocalFogEnabled = frame.LocalFogEnabled;
 		snapshot.BloomEnabled = frame.BloomEnabled;
 		snapshot.DOFEnabled = frame.DOFEnabled;
 		snapshot.ActiveVolumeCount = frame.Volumes.ActiveVolumeCount;
 		snapshot.ActivePostProcessVolumeCount = frame.Volumes.ActivePostProcessVolumeCount;
-		snapshot.ActiveAtmosphereVolumeCount = frame.Volumes.ActiveAtmosphereVolumeCount;
-		snapshot.LocalFogVolumeCount = frame.Volumes.LocalFogVolumeCount;
-		snapshot.CulledLocalFogVolumeCount = frame.Volumes.CulledLocalFogVolumeCount;
-		snapshot.DroppedLocalFogVolumeCount = frame.Volumes.DroppedLocalFogVolumeCount;
 		return snapshot;
 	}
 
@@ -3562,7 +3457,6 @@ namespace Lux {
 		addUniformBufferSet(m_UBSSpotShadow);
 		addUniformBufferSet(m_UBSRendererData);
 		addUniformBufferSet(m_UBSScreenData);
-		addUniformBufferSet(m_UBSAtmosphere);
 		addUniformBufferSet(m_UBSPointLights);
 		addUniformBufferSet(m_UBSSpotLights);
 		addStorageBufferSet(m_SBSObjectIndexes);
@@ -3659,10 +3553,6 @@ namespace Lux {
 		addRenderPass(m_SelectedGeometryPass);
 		addRenderPass(m_GeometryWireframePass);
 		addRenderPass(m_SkyboxPass);
-		addRenderPass(m_SkyAtmospherePass);
-		addRenderPass(m_VolumetricCloudPass);
-		addRenderPass(m_VolumetricCloudCompositePass);
-		addRenderPass(m_AtmosphericFogPass);
 		addRenderPass(m_CompositePass);
 		addRenderPass(m_GridRenderPass);
 
@@ -3937,14 +3827,7 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
 		addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
 
-		const bool skyAtmosphereEnabled = frame.SkyAtmosphereEnabled && m_SkyAtmospherePass;
 		std::vector<RenderGraph::ResourceHandle> sceneColorCurrent = skyboxOutputs.empty() ? sceneColorOutputs : skyboxOutputs;
-		if (skyAtmosphereEnabled)
-		{
-			std::vector<RenderGraph::ResourceHandle> skyAtmosphereOutputs = addRenderPassResources("Sky Atmosphere", m_SkyAtmospherePass);
-			addPass("Sky Atmosphere", sceneColorCurrent, skyAtmosphereOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyAtmospherePass));
-			sceneColorCurrent = skyAtmosphereOutputs;
-		}
 
 		std::vector<RenderGraph::ResourceHandle> selectedOutputs;
 		if (m_SelectedGeometryPass && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true))
@@ -4041,32 +3924,6 @@ namespace Lux {
 			std::vector<RenderGraph::ResourceHandle> ssrCompositeOutputs = addRenderPassResources("SSR Composite", m_SSRCompositePass);
 			addPass("SSR Composite", ssrCompositeReads, ssrCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SSRCompositePass));
 			sceneColorCurrent = ssrCompositeOutputs;
-		}
-
-		if (frame.VolumetricCloudsEnabled && m_VolumetricCloudPass && m_VolumetricCloudCompositePass)
-		{
-			std::vector<RenderGraph::ResourceHandle> cloudReads;
-			appendResources(cloudReads, preDepthOutputs);
-			std::vector<RenderGraph::ResourceHandle> cloudOutputs = addRenderPassResources("Volumetric Clouds", m_VolumetricCloudPass);
-			addPass("Volumetric Clouds", cloudReads, cloudOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::VolumetricCloudPass));
-
-			std::vector<RenderGraph::ResourceHandle> cloudCompositeReads = sceneColorCurrent;
-			appendResources(cloudCompositeReads, preDepthOutputs);
-			appendResources(cloudCompositeReads, cloudOutputs);
-
-
-			std::vector<RenderGraph::ResourceHandle> cloudCompositeOutputs = addRenderPassResources("Volumetric Cloud Composite", m_VolumetricCloudCompositePass);
-			addPass("Volumetric Cloud Composite", cloudCompositeReads, cloudCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::VolumetricCloudCompositePass));
-			sceneColorCurrent = cloudCompositeOutputs;
-		}
-
-		if ((frame.HeightFogEnabled || frame.LocalFogEnabled) && m_AtmosphericFogPass)
-		{
-			std::vector<RenderGraph::ResourceHandle> fogReads = sceneColorCurrent;
-			appendResources(fogReads, preDepthOutputs);
-			std::vector<RenderGraph::ResourceHandle> fogOutputs = addRenderPassResources("Atmospheric Fog", m_AtmosphericFogPass);
-			addPass("Atmospheric Fog", fogReads, fogOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AtmosphericFogPass));
-			sceneColorCurrent = fogOutputs;
 		}
 
 		// Executable graphs skip the node entirely when nothing transparent was
@@ -4243,10 +4100,6 @@ namespace Lux {
 						if (name == "PreDepth") return "PreDepthPass";
 						if (name == "Mesh Culling") return "MeshCullingPass";
 						if (name == "Skybox") return "SkyboxPass";
-						if (name == "Sky Atmosphere") return "SkyAtmospherePass";
-						if (name == "Volumetric Clouds") return "VolumetricCloudPass";
-							if (name == "Volumetric Cloud Composite") return "VolumetricCloudCompositePass";
-						if (name == "Atmospheric Fog") return "AtmosphericFogPass";
 						if (name == "Selected Geometry") return "SelectedGeometryPass";
 						if (name == "GBuffer") return "GBufferPass";
 						if (name == "Deferred Lighting") return "DeferredLightingPass";
@@ -4600,9 +4453,6 @@ namespace Lux {
 		recreatePassFramebuffer(m_DeferredLightingPass);
 		recreatePassFramebuffer(m_GBufferDebugPass);
 		recreatePassFramebuffer(m_SkyboxPass);
-		recreatePassFramebuffer(m_SkyAtmospherePass);
-		recreatePassFramebuffer(m_VolumetricCloudCompositePass);
-		recreatePassFramebuffer(m_AtmosphericFogPass);
 		recreatePassFramebuffer(m_SelectedGeometryPass);
 		recreatePassFramebuffer(m_GeometryWireframePass);
 		recreatePassFramebuffer(m_AOCompositePass);
@@ -4615,7 +4465,6 @@ namespace Lux {
 		recreatePassFramebuffer(m_CompositePass);
 		recreatePassFramebuffer(m_GridRenderPass);
 		recreatePassFramebuffer(m_DOFPass);
-		ResizeVolumetricCloudResources(true);
 	}
 
 	void SceneRenderer::RefreshRenderTargetImageViews()
@@ -4734,14 +4583,6 @@ namespace Lux {
 			if (m_GBufferDebugPass)
 				m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_SkyboxPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			// Sky Atmosphere / Volumetric Clouds / Atmospheric Fog removed — may be
-			// null now, so guard the resize (the other sweeps already null-check).
-			if (m_SkyAtmospherePass)
-				m_SkyAtmospherePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			if (m_VolumetricCloudCompositePass)
-				m_VolumetricCloudCompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
-			if (m_AtmosphericFogPass)
-				m_AtmosphericFogPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			if (m_SelectedGeometryPass)
 				m_SelectedGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			if (m_GeometryWireframePass)
@@ -4792,9 +4633,6 @@ namespace Lux {
 			repairPassIfStale(m_AOCompositePass, "AO-Composite");
 			repairPassIfStale(m_SSRCompositePass, "SSR-Composite");
 			repairPassIfStale(m_SkyboxPass, "Skybox");
-			repairPassIfStale(m_SkyAtmospherePass, "SkyAtmosphere");
-			repairPassIfStale(m_VolumetricCloudCompositePass, "VolumetricCloudComposite");
-			repairPassIfStale(m_AtmosphericFogPass, "AtmosphericFog");
 			repairPassIfStale(m_GBufferDebugPass, "GBufferDebug");
 			repairPassIfStale(m_SelectedGeometryPass, "SelectedGeometry");
 			repairPassIfStale(m_GeometryWireframePass, "GeometryWireframe");
@@ -4803,7 +4641,6 @@ namespace Lux {
 			repairPassIfStale(m_JumpFloodCompositePass, "JumpFloodComposite");
 		}
 
-		ResizeVolumetricCloudResources();
 
 		// ── Camera uniform buffer ─────────────────────────────────────────────
 		{
@@ -4918,181 +4755,6 @@ namespace Lux {
 				});
 		}
 
-		// ── Atmosphere uniform buffer ────────────────────────────────────────
-		// The full rebuild + upload only runs while any atmosphere feature is
-		// active (the struct has per-frame time fields, so it legitimately changes
-		// every frame then). When everything is off, a disabled-flags UB is
-		// written once per frame-in-flight buffer and the block goes idle —
-		// shaders gate all reads of this UB on Flags/LocalFogParams.
-		const bool atmosphereActive = m_FrameEnvironment.SkyAtmosphereEnabled
-			|| m_FrameEnvironment.VolumetricCloudsEnabled
-			|| m_FrameEnvironment.HeightFogEnabled
-			|| m_FrameEnvironment.LocalFogEnabled;
-		if (!atmosphereActive && m_AtmosphereIdleUploadsRemaining > 0)
-		{
-			m_AtmosphereUB.Flags = { 0u, 0u, 0u, 0u };
-			m_AtmosphereUB.LocalFogParams = { 0u, 0u, 0u, 0u };
-			m_AtmosphereIdleUploadsRemaining--;
-
-			auto atmosphereData = m_AtmosphereUB;
-			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, atmosphereData]() mutable {
-				instance->m_UBSAtmosphere->RT_Get()->RT_SetData(
-					instance->m_UploadCommandBuffer, &atmosphereData, sizeof(UBAtmosphere));
-				});
-		}
-		else if (atmosphereActive)
-		{
-			// Re-arm so the next transition to inactive rewrites every
-			// frame-in-flight buffer before going idle.
-			m_AtmosphereIdleUploadsRemaining = Renderer::GetConfig().FramesInFlight;
-
-			const SkyAtmosphereSettings& sky = m_FrameEnvironment.Atmosphere.SkyAtmosphere;
-			const VolumetricCloudSettings& clouds = m_FrameEnvironment.Atmosphere.VolumetricClouds;
-			const ExponentialHeightFogSettings& fog = m_FrameEnvironment.Atmosphere.HeightFog;
-
-			glm::vec2 windDirection = clouds.WindDirection;
-			if (glm::dot(windDirection, windDirection) > 0.0001f)
-				windDirection = glm::normalize(windDirection);
-			else
-				windDirection = { 1.0f, 0.0f };
-
-			m_AtmosphereUB.RayleighScattering = glm::vec4(glm::max(sky.RayleighScattering, glm::vec3(0.0f)), glm::max(sky.RayleighScatteringScale, 0.0f));
-			m_AtmosphereUB.MieScattering = glm::vec4(glm::max(sky.MieScattering, glm::vec3(0.0f)), glm::max(sky.MieScatteringScale, 0.0f));
-			m_AtmosphereUB.MieAbsorption = glm::vec4(glm::max(sky.MieAbsorption, glm::vec3(0.0f)), glm::clamp(sky.MieAnisotropy, -0.95f, 0.95f));
-			m_AtmosphereUB.Absorption = glm::vec4(glm::max(sky.Absorption, glm::vec3(0.0f)), glm::max(sky.AbsorptionScale, 0.0f));
-			m_AtmosphereUB.GroundAlbedo = glm::vec4(glm::clamp(sky.GroundAlbedo, glm::vec3(0.0f), glm::vec3(1.0f)), glm::clamp(sky.GroundContribution, 0.0f, 1.0f));
-			m_AtmosphereUB.AtmosphereParams = {
-				glm::max(sky.PlanetRadius, 1.0f),
-				glm::max(sky.AtmosphereHeight, 1.0f),
-				glm::max(sky.RayleighScaleHeight, 0.01f),
-				glm::max(sky.MieScaleHeight, 0.01f)
-			};
-			m_AtmosphereUB.SunParams = {
-				glm::max(sky.SunIntensity, 0.0f),
-				glm::max(sky.SunAngularRadius, 0.0001f),
-				glm::max(sky.MultiScattering, 0.0f),
-				glm::max(sky.AerialPerspectiveViewDistanceScale, 0.0f)
-			};
-			m_AtmosphereUB.CloudGlobal0 = {
-				glm::clamp(clouds.Coverage, 0.0f, 1.0f),
-				glm::max(clouds.Density, 0.0f),
-				windDirection.x,
-				windDirection.y
-			};
-			m_AtmosphereUB.CloudGlobal1 = {
-				clouds.WindSpeed,
-				glm::max(0.0f, Application::Get().GetTime()),
-				glm::max(clouds.WeatherScale, 1.0e-7f),
-				glm::clamp(clouds.AerialPerspective, 0.0f, 1.0f)
-			};
-			m_AtmosphereUB.CloudLighting0 = glm::vec4(glm::max(clouds.Albedo, glm::vec3(0.0f)), glm::max(clouds.AmbientBoost, 0.0f));
-			m_AtmosphereUB.CloudLighting1 = {
-				glm::max(clouds.Extinction, 1.0e-4f),
-				glm::max(clouds.ScatterMultiplier, 0.0f),
-				glm::max(clouds.SilverIntensity, 0.0f),
-				glm::clamp(clouds.PowderStrength, 0.0f, 2.0f)
-			};
-			m_AtmosphereUB.CloudLighting2 = {
-				glm::clamp(clouds.PhaseG0, -0.95f, 0.95f),
-				glm::clamp(clouds.PhaseG1, -0.95f, 0.95f),
-				glm::clamp(clouds.PhaseBlend, 0.0f, 1.0f),
-				glm::clamp(clouds.MultiScatter, 0.0f, 1.0f)
-			};
-			const float cloudMaxTraceDistance = glm::max(clouds.MaxTraceDistance, 1.0f);
-			m_AtmosphereUB.CloudRender0 = {
-				cloudMaxTraceDistance,
-				glm::clamp(clouds.DistanceFade, 0.0f, cloudMaxTraceDistance),
-				glm::clamp(clouds.LODStartDistance, 0.0f, cloudMaxTraceDistance),
-				glm::max(clouds.ShadowTraceDistance, 0.0f)
-			};
-			m_AtmosphereUB.CloudRender1 = {
-				(float)SanitizeCloudRenderScale(clouds.RenderScale),
-				(float)glm::clamp(clouds.MarchSteps, 16u, 128u),
-				(float)glm::clamp(clouds.ShadowSteps, 1u, 8u),
-				(float)glm::clamp(clouds.ShadowSteps, 1u, 8u)
-			};
-			for (uint32_t layerIndex = 0; layerIndex < 3u; layerIndex++)
-			{
-				const CloudLayerSettings& layer = clouds.Layers[layerIndex];
-				UBAtmosphere::CloudLayerData& gpu = m_AtmosphereUB.CloudLayers[layerIndex];
-				gpu.Params0 = {
-					layer.BottomAltitude,
-					glm::max(layer.Thickness, 1.0f),
-					glm::clamp(layer.Coverage, 0.0f, 1.0f),
-					glm::clamp(layer.CloudShape, 0.0f, 1.0f)
-				};
-				gpu.Params1 = {
-					glm::max(layer.DensityScale, 0.0f),
-					glm::max(layer.ShapeScale, 1.0e-3f),
-					glm::max(layer.DetailScale, 1.0e-3f),
-					glm::clamp(layer.DetailStrength, 0.0f, 1.0f)
-				};
-				gpu.Params2 = {
-					glm::max(layer.WindSpeedScale, 0.0f),
-					layer.WindAngleOffset,
-					glm::clamp(layer.AnvilBias, 0.0f, 1.0f),
-					glm::clamp(layer.ErosionStrength, 0.0f, 1.0f)
-				};
-				gpu.Params3 = {
-					(float)(uint32_t)layer.Tier,
-					layer.Enabled ? 1.0f : 0.0f,
-					glm::clamp(layer.CoverageBias, -1.0f, 1.0f),
-					layer.HeightSkew
-				};
-			}
-			m_AtmosphereUB.FogColorDensity = glm::vec4(glm::max(fog.FogColor, glm::vec3(0.0f)), glm::max(fog.FogDensity, 0.0f));
-			m_AtmosphereUB.FogParams0 = {
-				glm::max(fog.FogHeightFalloff, 0.0001f),
-				glm::max(fog.StartDistance, 0.0f),
-				glm::clamp(fog.MaxOpacity, 0.0f, 1.0f),
-				glm::max(fog.CutoffDistance, fog.StartDistance + 1.0f)
-			};
-			m_AtmosphereUB.FogDirectionalInscattering = glm::vec4(
-				glm::max(fog.DirectionalInscatteringColor, glm::vec3(0.0f)),
-				glm::max(fog.DirectionalInscatteringExponent, 0.01f));
-			m_AtmosphereUB.FogParams1 = {
-				glm::max(fog.DirectionalInscatteringStartDistance, 0.0f),
-				glm::max(fog.VolumetricScatteringIntensity, 0.0f),
-				glm::clamp(fog.Anisotropy, -0.8f, 0.8f),
-				0.0f
-			};
-			m_AtmosphereUB.Flags = {
-				sky.Enabled ? 1u : 0u,
-				clouds.Enabled ? 1u : 0u,
-				fog.Enabled ? 1u : 0u,
-				fog.VolumetricFog ? 1u : 0u
-			};
-			m_AtmosphereUB.Steps = {
-				glm::clamp(clouds.MarchSteps, 8u, 128u),
-				glm::clamp(clouds.ShadowSteps, 0u, 16u),
-				(uint32_t)glm::max(0.0f, Application::Get().GetTime() * 60.0f),
-				glm::clamp(fog.VolumetricFogSteps, 4u, 96u)
-			};
-			m_AtmosphereUB.LocalFogParams = {
-				m_FrameEnvironment.Volumes.LocalFogVolumeCount,
-				m_FrameEnvironment.Volumes.DroppedLocalFogVolumeCount,
-				m_FrameEnvironment.Volumes.CulledLocalFogVolumeCount,
-				m_FrameEnvironment.Volumes.ActiveLocalFogVolumeCount
-			};
-			for (uint32_t index = 0; index < m_FrameEnvironment.Volumes.LocalFogVolumeCount; index++)
-			{
-				const LocalFogVolumeGPUData& source = m_FrameEnvironment.Volumes.LocalFogVolumes[index];
-				auto& destination = m_AtmosphereUB.LocalFogVolumes[index];
-				destination.WorldToLocal = source.WorldToLocal;
-				destination.ColorDensity = source.ColorDensity;
-				destination.Params0 = source.Params0;
-				destination.Params1 = source.Params1;
-				destination.Metadata = source.Metadata;
-			}
-
-			auto atmosphereData = m_AtmosphereUB;
-			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, atmosphereData]() mutable {
-				instance->m_UBSAtmosphere->RT_Get()->RT_SetData(
-					instance->m_UploadCommandBuffer, &atmosphereData, sizeof(UBAtmosphere));
-				});
-		}
 
 		// ── Point lights uniform buffer ───────────────────────────────────────
 		{
@@ -7861,97 +7523,6 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
-	void SceneRenderer::SkyAtmospherePass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "SkyAtmospherePass");
-		if (!m_SkyAtmospherePass || !m_SkyAtmosphereMaterial || !m_FrameEnvironment.SkyAtmosphereEnabled)
-			return;
-
-		BeginProfiledGPU("SkyAtmospherePass");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_SkyAtmospherePass);
-		ApplyCoarseFragmentShadingRate();
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SkyAtmospherePass->GetPipeline(), m_SkyAtmosphereMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
-	void SceneRenderer::BakeCloudNoise()
-	{
-		if (m_CloudNoiseBaked || !m_CloudBaseShapeBakePass || !m_CloudDetailBakePass || !m_CloudCurlBakePass)
-			return;
-
-		BeginProfiledGPU("CloudNoiseBake");
-		Renderer::BeginComputePass(m_CommandBuffer, m_CloudBaseShapeBakePass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_CloudBaseShapeBakePass, nullptr, { 16u, 16u, 16u }, Buffer());
-		Renderer::EndComputePass(m_CommandBuffer, m_CloudBaseShapeBakePass);
-		m_CloudBaseShapeBakePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_CloudBaseShapeVolume, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-
-		Renderer::BeginComputePass(m_CommandBuffer, m_CloudDetailBakePass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_CloudDetailBakePass, nullptr, { 4u, 4u, 4u }, Buffer());
-		Renderer::EndComputePass(m_CommandBuffer, m_CloudDetailBakePass);
-		m_CloudDetailBakePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_CloudDetailVolume, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-
-		Renderer::BeginComputePass(m_CommandBuffer, m_CloudCurlBakePass);
-		Renderer::DispatchCompute(m_CommandBuffer, m_CloudCurlBakePass, nullptr, { 4u, 4u, 4u }, Buffer());
-		Renderer::EndComputePass(m_CommandBuffer, m_CloudCurlBakePass);
-		m_CloudCurlBakePass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_CloudCurlVolume, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-
-		m_CloudNoiseBaked = true;
-	}
-
-	void SceneRenderer::VolumetricCloudPass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "VolumetricCloudPass");
-		if (!m_VolumetricCloudPass || !m_VolumetricCloudMaterial || !m_FrameEnvironment.VolumetricCloudsEnabled)
-			return;
-
-		BakeCloudNoise();
-
-		BeginProfiledGPU("VolumetricCloudPass");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_VolumetricCloudPass);
-		ApplyCoarseFragmentShadingRate();
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_VolumetricCloudPass->GetPipeline(), m_VolumetricCloudMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
-	void SceneRenderer::VolumetricCloudCompositePass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "VolumetricCloudCompositePass");
-		if (!m_VolumetricCloudCompositePass || !m_VolumetricCloudCompositeMaterial || !m_VolumetricCloudPass || !m_FrameEnvironment.VolumetricCloudsEnabled)
-			return;
-
-		// Always the raw half-res raymarch. The temporally-accumulated variant is gone, so
-		// clouds are softer but cannot trail behind camera or cloud motion.
-		Ref<Image2D> cloudColor = m_VolumetricCloudPass->GetOutput(0);
-		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudTexture", cloudColor);
-		SetRenderPassInputIfValid(m_VolumetricCloudCompositePass, "u_CloudDepthTexture", m_VolumetricCloudPass->GetOutput(1));
-
-		BeginProfiledGPU("VolumetricCloudCompositePass");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_VolumetricCloudCompositePass);
-		ApplyCoarseFragmentShadingRate();
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_VolumetricCloudCompositePass->GetPipeline(), m_VolumetricCloudCompositeMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
-	void SceneRenderer::AtmosphericFogPass()
-	{
-		ScopedCPUProfile cpuProfile(*this, "AtmosphericFogPass");
-		if (!m_AtmosphericFogPass || !m_AtmosphericFogMaterial || (!m_FrameEnvironment.HeightFogEnabled && !m_FrameEnvironment.LocalFogEnabled))
-			return;
-
-		m_AtmosphericFogMaterial->Set("u_Uniforms.DebugMode", m_DebugViewMode == DebugViewMode::LocalFogDensity ? 1u : 0u);
-
-		BeginProfiledGPU("AtmosphericFogPass");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_AtmosphericFogPass);
-		ApplyCoarseFragmentShadingRate();
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AtmosphericFogPass->GetPipeline(), m_AtmosphericFogMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
 	void SceneRenderer::SelectedGeometryPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SelectedGeometryPass");
@@ -9149,11 +8720,6 @@ namespace Lux {
 
 			case DebugViewMode::Composite:
 				return m_CompositePass ? m_CompositePass->GetOutput(0) : nullptr;
-
-			case DebugViewMode::LocalFogDensity:
-				if (!ResolveFrameEnvironment().LocalFogEnabled)
-					return nullptr;
-				return m_AtmosphericFogPass ? m_AtmosphericFogPass->GetOutput(0) : nullptr;
 
 			case DebugViewMode::GBufferBaseColor:
 				return UsesDeferredPath() ? GetGeometryBaseColorOutput() : nullptr;

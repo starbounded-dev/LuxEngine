@@ -6,7 +6,6 @@
 #include "Lux/Renderer/RenderPass.h"
 #include "Lux/Renderer/ComputePass.h"
 #include "Lux/Renderer/RenderGraph.h"
-#include "Lux/Renderer/Atmosphere.h"
 #include "Lux/Renderer/RenderVolumes.h"
 #include "Lux/Renderer/Pipeline.h"
 #include "Lux/Renderer/PipelineCompute.h"
@@ -553,18 +552,10 @@ namespace Lux {
 			bool DeferredPath = true;
 			bool HasRenderScene = false;
 			bool HasRenderVolumeEnvironment = false;
-			bool SkyAtmosphereEnabled = false;
-			bool VolumetricCloudsEnabled = false;
-			bool HeightFogEnabled = false;
-			bool LocalFogEnabled = false;
 			bool BloomEnabled = false;
 			bool DOFEnabled = false;
 			uint32_t ActiveVolumeCount = 0;
 			uint32_t ActivePostProcessVolumeCount = 0;
-			uint32_t ActiveAtmosphereVolumeCount = 0;
-			uint32_t LocalFogVolumeCount = 0;
-			uint32_t CulledLocalFogVolumeCount = 0;
-			uint32_t DroppedLocalFogVolumeCount = 0;
 		};
 
 		struct GPUSceneDebugSnapshot
@@ -649,7 +640,6 @@ namespace Lux {
 		// Call before BeginScene to update the scene state consumed by the render passes.
 		void SetLightEnvironment(const LightEnvironment& lightEnvironment);
 		void SetEnvironment(Ref<Environment> environment, float intensity = 1.0f, float skyboxLod = 0.0f);
-		void SetAtmosphereEnvironment(const AtmosphereEnvironment& atmosphereEnvironment);
 		void SetRenderVolumeEnvironment(const RenderVolumeEnvironment& renderVolumeEnvironment);
 
 		// Submit a static (non-animated) mesh for rendering this frame.
@@ -688,7 +678,6 @@ namespace Lux {
 			AO,
 			Bloom,
 			Composite,
-			LocalFogDensity,
 			GBufferBaseColor,
 			GBufferNormal,
 			GBufferMetalRough,
@@ -783,9 +772,6 @@ namespace Lux {
 	uint32_t GetOutputViewportWidth()  const { return m_OutputViewportWidth; }
 	uint32_t GetOutputViewportHeight() const { return m_OutputViewportHeight; }
 	float GetRenderResolutionScale() const;
-	uint32_t GetVolumetricCloudRenderScale() const { return m_CloudRenderScale; }
-	const glm::uvec2& GetVolumetricCloudRenderSize() const { return m_CloudRenderSize; }
-	const AtmosphereEnvironment& GetAtmosphereEnvironment() const { return m_FrameEnvironment.Atmosphere; }
 
 		float GetOpacity() const { return m_Opacity; }
 		void  SetOpacity(float opacity) { m_Opacity = opacity; }
@@ -1050,11 +1036,6 @@ namespace Lux {
 		void ClusterBuildPass();
 		void ClusterLightCullingPass();
 		void SkyboxPass();
-		void SkyAtmospherePass();
-		void BakeCloudNoise();
-		void VolumetricCloudPass();
-		void VolumetricCloudCompositePass();
-		void AtmosphericFogPass();
 		void SelectedGeometryPass();
 		void GBufferPass();
 		void DeferredLightingPass();
@@ -1098,8 +1079,6 @@ namespace Lux {
 		void ResizeBloomResources();
 		void CreateBloomPassMaterials();
 		void ResizeScreenSpaceEffectResources();
-		void ResizeVolumetricCloudResources(bool forceRecreate = false);
-		glm::uvec2 CalculateVolumetricCloudRenderSize() const;
 		enum SceneRenderPassInput : uint32_t
 		{
 			PassInputNone = 0,
@@ -1107,7 +1086,6 @@ namespace Lux {
 			PassInputScene = 1u << 1,
 			PassInputScreen = 1u << 2,
 			PassInputRenderer = 1u << 3,
-			PassInputAtmosphere = 1u << 4,
 			PassInputShadowData = 1u << 5,
 			PassInputLights = 1u << 6,
 			PassInputSamplers = 1u << 7,
@@ -1118,7 +1096,7 @@ namespace Lux {
 			PassInputGBuffer = 1u << 12,
 			PassInputSceneColor = 1u << 13
 		};
-		static constexpr uint32_t PassInputFrameUniforms = PassInputCamera | PassInputScene | PassInputScreen | PassInputRenderer | PassInputAtmosphere;
+		static constexpr uint32_t PassInputFrameUniforms = PassInputCamera | PassInputScene | PassInputScreen | PassInputRenderer;
 		static constexpr uint32_t PassInputLightingBuffers = PassInputShadowData | PassInputLights;
 		static constexpr uint32_t PassInputCommonScene = PassInputFrameUniforms | PassInputLightingBuffers | PassInputSamplers;
 		static constexpr uint32_t PassInputPBRLighting = PassInputCommonScene | PassInputEnvironment | PassInputShadowMaps;
@@ -1151,14 +1129,9 @@ namespace Lux {
 			Ref<Environment> Environment;
 			float EnvironmentIntensity = 1.0f;
 			float SkyboxLod = 0.0f;
-			AtmosphereEnvironment Atmosphere;
 			RenderVolumeEnvironment Volumes;
 			RenderVolumePostProcessSettings PostProcess;
 			bool HasRenderVolumeEnvironment = false;
-			bool SkyAtmosphereEnabled = false;
-			bool VolumetricCloudsEnabled = false;
-			bool HeightFogEnabled = false;
-			bool LocalFogEnabled = false;
 			bool BloomEnabled = false;
 			bool DOFEnabled = false;
 		};
@@ -1304,58 +1277,6 @@ namespace Lux {
 			glm::vec2 QuarterResolution = { 1.0f, 1.0f };
 		} m_ScreenDataUB;
 
-		struct UBAtmosphere
-		{
-			struct LocalFogVolumeData
-			{
-				glm::mat4 WorldToLocal = glm::mat4(1.0f);
-				glm::vec4 ColorDensity = { 0.52f, 0.62f, 0.72f, 0.0f };
-				glm::vec4 Params0 = { 0.2f, 0.0f, 0.025f, 0.0f };
-				glm::vec4 Params1 = { 120.0f, 1.0f, 0.0f, 0.0f };
-				glm::uvec4 Metadata = { 0u, 0u, 0u, 0u };
-			};
-
-			struct CloudLayerData
-			{
-				glm::vec4 Params0 = { 1200.0f, 1500.0f, 0.5f, 0.85f };
-				glm::vec4 Params1 = { 1.0f, 1.0f, 1.0f, 0.5f };
-				glm::vec4 Params2 = { 1.0f, 0.0f, 0.0f, 0.5f };
-				glm::vec4 Params3 = { 0.0f, 1.0f, 0.0f, 0.0f };
-			};
-
-			glm::vec4 RayleighScattering = { 5.802f, 13.558f, 33.100f, 0.0025f };
-			glm::vec4 MieScattering = { 3.996f, 3.996f, 3.996f, 0.0015f };
-			glm::vec4 MieAbsorption = { 4.400f, 4.400f, 4.400f, 0.76f };
-			glm::vec4 Absorption = { 0.650f, 1.881f, 0.085f, 0.00065f };
-			glm::vec4 GroundAlbedo = { 0.18f, 0.18f, 0.18f, 0.15f };
-			glm::vec4 AtmosphereParams = { 6360.0f, 100.0f, 8.0f, 1.2f };
-			glm::vec4 SunParams = { 20.0f, 0.00935f, 0.35f, 1.0f };
-			glm::vec4 CloudGlobal0 = { 0.5f, 1.0f, 1.0f, 0.15f };
-			glm::vec4 CloudGlobal1 = { 15.0f, 0.0f, 0.00004f, 0.0f };
-			glm::vec4 CloudLighting0 = { 1.0f, 0.98f, 0.92f, 0.35f };
-			glm::vec4 CloudLighting1 = { 0.08f, 1.0f, 0.4f, 1.0f };
-			glm::vec4 CloudLighting2 = { 0.62f, -0.15f, 0.5f, 0.5f };
-			glm::vec4 CloudRender0 = { 9000.0f, 3000.0f, 3000.0f, 3000.0f };
-			glm::vec4 CloudRender1 = { 2.0f, 48.0f, 6.0f, 6.0f };
-			std::array<CloudLayerData, 3> CloudLayers{};
-			glm::vec4 FogColorDensity = { 0.52f, 0.62f, 0.72f, 0.015f };
-			glm::vec4 FogParams0 = { 0.12f, 0.0f, 0.85f, 10000.0f };
-			glm::vec4 FogDirectionalInscattering = { 1.0f, 0.88f, 0.65f, 8.0f };
-			glm::vec4 FogParams1 = { 50.0f, 1.0f, 0.2f, 0.0f };
-			glm::uvec4 Flags = { 1u, 0u, 0u, 0u };
-			glm::uvec4 Steps = { 24u, 1u, 0u, 16u };
-			glm::uvec4 LocalFogParams = { 0u, 0u, 0u, 0u };
-			std::array<LocalFogVolumeData, MaxVisibleLocalFogVolumes> LocalFogVolumes{};
-		} m_AtmosphereUB;
-
-		// While no atmosphere feature is active, the atmosphere UB is written this
-		// many more times (once per frame-in-flight buffer, so all copies hold the
-		// disabled-flags data) and then the whole rebuild+upload goes idle. Active
-		// frames re-arm it to FramesInFlight. Starts above any realistic
-		// frames-in-flight count so a scene that begins inactive still initializes
-		// every buffer.
-		uint32_t m_AtmosphereIdleUploadsRemaining = 8;
-
 		struct CBGTAOData
 		{
 			glm::vec2 NDCToViewMul_x_PixelSize = { 1.0f, 1.0f };
@@ -1437,7 +1358,6 @@ namespace Lux {
 			Ref<Environment>    SceneEnvironment;
 			float               SceneEnvironmentIntensity = 1.0f;
 			float               SkyboxLod = 0.0f;
-			AtmosphereEnvironment Atmosphere;
 			LightEnvironment    SceneLightEnvironment;
 		} m_SceneData;
 		ResolvedFrameEnvironment m_FrameEnvironment;
@@ -1449,7 +1369,6 @@ namespace Lux {
 		Ref<UniformBufferSet> m_UBSSpotShadow;
 		Ref<UniformBufferSet> m_UBSRendererData;
 		Ref<UniformBufferSet> m_UBSScreenData;
-		Ref<UniformBufferSet> m_UBSAtmosphere;
 		Ref<UniformBufferSet> m_UBSPointLights;
 		Ref<UniformBufferSet> m_UBSSpotLights;
 
@@ -1631,30 +1550,6 @@ namespace Lux {
 		Ref<Pipeline>    m_SkyboxPipeline;
 		Ref<Material>    m_SkyboxMaterial;
 		Ref<RenderPass>  m_SkyboxPass;
-		Ref<Pipeline>    m_SkyAtmospherePipeline;
-		Ref<Material>    m_SkyAtmosphereMaterial;
-		Ref<RenderPass>  m_SkyAtmospherePass;
-		Ref<Pipeline>    m_VolumetricCloudPipeline;
-		Ref<Material>    m_VolumetricCloudMaterial;
-		Ref<RenderPass>  m_VolumetricCloudPass;
-		Ref<Pipeline>    m_VolumetricCloudCompositePipeline;
-		Ref<Material>    m_VolumetricCloudCompositeMaterial;
-		Ref<RenderPass>  m_VolumetricCloudCompositePass;
-		Ref<Pipeline>    m_AtmosphericFogPipeline;
-		Ref<Material>    m_AtmosphericFogMaterial;
-		Ref<RenderPass>  m_AtmosphericFogPass;
-		uint32_t         m_CloudRenderScale = 2;
-		glm::uvec2       m_CloudRenderSize = { 1, 1 };
-
-		// Baked tileable cloud noise volumes (generated once via compute).
-		Ref<Image2D>     m_CloudBaseShapeVolume; // 128^3 Perlin-Worley + Worley FBM
-		Ref<Image2D>     m_CloudDetailVolume;    // 32^3  Worley FBM (erosion)
-		Ref<Image2D>     m_CloudCurlVolume;      // 32^3  curl noise (detail advection)
-		Ref<ComputePass> m_CloudBaseShapeBakePass;
-		Ref<ComputePass> m_CloudDetailBakePass;
-		Ref<ComputePass> m_CloudCurlBakePass;
-		bool             m_CloudNoiseBaked = false;
-
 
 		// ── Composite (tone-map + opacity) ────────────────────────────────────
 		Ref<Framebuffer> m_CompositingFramebuffer;

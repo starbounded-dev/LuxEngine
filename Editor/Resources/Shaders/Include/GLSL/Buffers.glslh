@@ -148,52 +148,6 @@ layout(std140, set = 2, binding = 2) uniform ScreenData
     vec2 QuarterResolution;
 } u_ScreenData;
 
-struct LocalFogVolumeData
-{
-	mat4 WorldToLocal;
-	vec4 ColorDensity; // xyz = color, w = density
-	vec4 Params0;      // x = anisotropy, y = height falloff, z = noise scale, w = noise strength
-	vec4 Params1;      // x = max distance, y = edge falloff, zw = reserved
-	uvec4 Metadata;    // x = shape, y = entity low bits, z = priority, w = reserved
-};
-
-// One atmospheric cloud tier (low / mid / high). See RenderVolumes / Atmosphere.h.
-struct CloudLayerData
-{
-	vec4 Params0; // x = bottom altitude (m), y = thickness (m), z = coverage, w = cloud type [0,1]
-	vec4 Params1; // x = density scale, y = shape-scale mul, z = detail-scale mul, w = detail strength
-	vec4 Params2; // x = wind-speed mul, y = wind angle offset (rad), z = anvil bias, w = erosion strength
-	vec4 Params3; // x = tier class (0 low,1 mid,2 high), y = enabled, z = coverage bias, w = height skew
-};
-
-layout(std140, set = 2, binding = 3) uniform AtmosphereData
-{
-	vec4 RayleighScattering;        // xyz = scattering, w = scale
-	vec4 MieScattering;             // xyz = scattering, w = scale
-	vec4 MieAbsorption;             // xyz = absorption, w = anisotropy
-	vec4 Absorption;                // xyz = ozone/absorption tint, w = scale
-	vec4 GroundAlbedo;              // xyz = albedo, w = ground contribution
-	vec4 AtmosphereParams;          // x = planet radius, y = atmosphere height, z = rayleigh scale height, w = mie scale height
-	vec4 SunParams;                 // x = intensity, y = angular radius, z = multi scattering, w = aerial perspective scale
-	vec4 CloudGlobal0;              // x = global coverage, y = global density, z/w = wind dir (xz)
-	vec4 CloudGlobal1;              // x = wind speed, y = time (s), z = weather scale (1/m), w = aerial perspective
-	vec4 CloudLighting0;            // xyz = albedo, w = ambient boost
-	vec4 CloudLighting1;            // x = extinction, y = scatter multiplier, z = silver intensity, w = powder strength
-	vec4 CloudLighting2;            // x = phase g0 (fwd), y = phase g1 (back), z = phase blend, w = multi-scatter amount
-	vec4 CloudRender0;              // x = max trace distance, y = fade distance, z = lod start distance, w = shadow trace distance
-	vec4 CloudRender1;              // x = render scale divisor, y = march steps, z = shadow trace steps, w = light cone steps
-	CloudLayerData CloudLayers[3];  // low / mid / high tiers
-	vec4 FogColorDensity;           // xyz = color, w = density
-	vec4 FogParams0;                // x = height falloff, y = start distance, z = max opacity, w = cutoff distance
-	vec4 FogDirectionalInscattering;// xyz = directional color, w = directional exponent
-	vec4 FogParams1;                // x = directional start distance, y = volumetric scattering, z = anisotropy, w = reserved
-	uvec4 Flags;                    // x = sky, y = clouds, z = fog, w = volumetric fog
-	uvec4 Steps;                    // x = cloud march, y = cloud shadow, z = frame index, w = fog march
-	uvec4 LocalFogParams;           // x = visible count, y = dropped count, z = culled count, w = active local fog count
-	LocalFogVolumeData LocalFogVolumes[64];
-} u_Atmosphere;
-
-
 //layout(std140, set = 2, binding = 3) uniform HBAOData
 //{
 //	vec4	PerspectiveInfo;

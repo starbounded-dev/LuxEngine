@@ -83,7 +83,6 @@ namespace Lux {
 				case SceneRenderer::DebugViewMode::AO: return "AO";
 				case SceneRenderer::DebugViewMode::Bloom: return "Bloom";
 				case SceneRenderer::DebugViewMode::Composite: return "Composite";
-				case SceneRenderer::DebugViewMode::LocalFogDensity: return "Local Fog Density";
 				case SceneRenderer::DebugViewMode::GBufferBaseColor: return "GBuffer Base Color";
 				case SceneRenderer::DebugViewMode::GBufferNormal: return "GBuffer Normal";
 				case SceneRenderer::DebugViewMode::GBufferMetalRough: return "GBuffer Metal/Rough";
@@ -434,14 +433,6 @@ namespace Lux {
 			DrawStat("Viewport", std::format("{} x {}", m_Context->GetViewportWidth(), m_Context->GetViewportHeight()).c_str());
 			DrawStat("Output Viewport", std::format("{} x {}", m_Context->GetOutputViewportWidth(), m_Context->GetOutputViewportHeight()).c_str());
 			DrawStat("Render Scale", m_Context->GetRenderResolutionScale() * 100.0f, "%");
-			const auto& atmosphere = m_Context->GetAtmosphereEnvironment();
-			const glm::uvec2& cloudTargetSize = m_Context->GetVolumetricCloudRenderSize();
-			DrawStat("Cloud Render Scale", std::format("1/{}", m_Context->GetVolumetricCloudRenderScale()).c_str());
-			DrawStat("Cloud Target", std::format("{} x {}", cloudTargetSize.x, cloudTargetSize.y).c_str());
-			DrawStat("Cloud Steps", std::format("{} / {}", atmosphere.VolumetricClouds.MarchSteps, atmosphere.VolumetricClouds.ShadowSteps).c_str());
-			DrawStat("Cloud Max Distance", atmosphere.VolumetricClouds.MaxTraceDistance, " m");
-			DrawStat("Fog Steps", atmosphere.HeightFog.VolumetricFog ? atmosphere.HeightFog.VolumetricFogSteps : 0u);
-			DrawStat("Fog Cutoff", atmosphere.HeightFog.CutoffDistance, " m");
 			DrawStat("CPU Time", stats.TotalCPUTime, " ms");
 			DrawStat("GPU Time", stats.TotalGPUTime, " ms");
 			ImGui::EndTable();
@@ -806,7 +797,6 @@ namespace Lux {
 			{ SceneRenderer::DebugViewMode::AO, "AO" },
 			{ SceneRenderer::DebugViewMode::Bloom, "Bloom" },
 			{ SceneRenderer::DebugViewMode::Composite, "Composite" },
-			{ SceneRenderer::DebugViewMode::LocalFogDensity, "Fog Density" },
 			{ SceneRenderer::DebugViewMode::GBufferBaseColor, "GBuf Base" },
 			{ SceneRenderer::DebugViewMode::GBufferNormal, "GBuf Norm" },
 			{ SceneRenderer::DebugViewMode::GBufferMetalRough, "GBuf MR" },
@@ -868,14 +858,10 @@ namespace Lux {
 		ImGui::TextDisabled("Viewport: %ux%u",
 			m_Context->GetViewportWidth(),
 			m_Context->GetViewportHeight());
-		ImGui::TextDisabled("Frame Contract: %s path, RenderScene %s, volumes %s, sky %s, clouds %s, fog %s, local fog %s, bloom %s, DOF %s",
+		ImGui::TextDisabled("Frame Contract: %s path, RenderScene %s, volumes %s, bloom %s, DOF %s",
 			frame.DeferredPath ? "Deferred" : "Forward",
 			frame.HasRenderScene ? "yes" : "no",
 			frame.HasRenderVolumeEnvironment ? "yes" : "no",
-			frame.SkyAtmosphereEnabled ? "on" : "off",
-			frame.VolumetricCloudsEnabled ? "on" : "off",
-			frame.HeightFogEnabled ? "on" : "off",
-			frame.LocalFogEnabled ? "on" : "off",
 			frame.BloomEnabled ? "on" : "off",
 			frame.DOFEnabled ? "on" : "off");
 		const bool materialIDValid = m_Context->GetDebugViewImage(SceneRenderer::DebugViewMode::GBufferMaterialID) != nullptr;
@@ -884,14 +870,9 @@ namespace Lux {
 			materialIDValid ? "valid" : "unavailable",
 			objectIDValid ? "valid" : "unavailable");
 		const RenderVolumeEnvironment& volumeEnvironment = m_Context->GetRenderVolumeEnvironment();
-		ImGui::TextDisabled("Volumes: active %u, post %u, atmosphere %u, local fog rows %u/%u, culled %u, dropped %u, selected influence %.2f",
+		ImGui::TextDisabled("Volumes: active %u, post %u, selected influence %.2f",
 			volumeEnvironment.ActiveVolumeCount,
 			volumeEnvironment.ActivePostProcessVolumeCount,
-			volumeEnvironment.ActiveAtmosphereVolumeCount,
-			volumeEnvironment.LocalFogVolumeCount,
-			volumeEnvironment.ActiveLocalFogVolumeCount,
-			volumeEnvironment.CulledLocalFogVolumeCount,
-			volumeEnvironment.DroppedLocalFogVolumeCount,
 			volumeEnvironment.SelectedVolumeInfluence);
 		if (activeImage)
 		{

@@ -10,7 +10,6 @@
 #include "Lux/Core/UUID.h"
 #include "Lux/Math/Math.h"
 #include "Lux/Physics/PhysicsTypes.h"
-#include "Lux/Renderer/Atmosphere.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/RenderVolumes.h"
 #include "Lux/Renderer/Texture.h"
@@ -603,30 +602,6 @@ namespace Lux {
 		SkyLightComponent(const SkyLightComponent&) = default;
 	};
 
-	struct SkyAtmosphereComponent
-	{
-		SkyAtmosphereSettings Settings;
-
-		SkyAtmosphereComponent() = default;
-		SkyAtmosphereComponent(const SkyAtmosphereComponent&) = default;
-	};
-
-	struct VolumetricCloudComponent
-	{
-		VolumetricCloudSettings Settings;
-
-		VolumetricCloudComponent() = default;
-		VolumetricCloudComponent(const VolumetricCloudComponent&) = default;
-	};
-
-	struct ExponentialHeightFogComponent
-	{
-		ExponentialHeightFogSettings Settings;
-
-		ExponentialHeightFogComponent() = default;
-		ExponentialHeightFogComponent(const ExponentialHeightFogComponent&) = default;
-	};
-
 	// ============================================================================
 
 	template<typename... Component>
@@ -643,7 +618,6 @@ namespace Lux {
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-		SkyAtmosphereComponent, VolumetricCloudComponent, ExponentialHeightFogComponent,
-		RenderVolumeComponent, PostProcessVolumeComponent, AtmosphereVolumeComponent, LocalFogVolumeComponent>;
+		RenderVolumeComponent, PostProcessVolumeComponent>;
 
 }

@@ -86,98 +86,6 @@ namespace Lux {
 			}
 		}
 
-		inline void DrawCloudLayerUI(const char* label, CloudLayerSettings& layer, const std::function<void()>& applySettings)
-		{
-			if (!ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_SpanAvailWidth))
-				return;
-
-			ImGuiEx::BeginPropertyGrid();
-			if (ImGuiEx::Property("Enabled", layer.Enabled)) applySettings();
-
-			static const char* kTypeLabels[] = {
-				"Stratus", "Stratocumulus", "Cumulus", "Cumulonimbus",
-				"Altocumulus", "Altostratus", "Cirrus", "Cirrocumulus", "Cirrostratus"
-			};
-			int32_t typeIndex = (int32_t)layer.Type;
-			if (ImGuiEx::PropertyDropdown("Cloud Type", kTypeLabels, IM_ARRAYSIZE(kTypeLabels), &typeIndex))
-			{
-				ApplyCloudTypePreset(layer, (CloudType)typeIndex);
-				applySettings();
-			}
-
-			if (ImGuiEx::Property("Bottom Altitude (m)", layer.BottomAltitude, 10.0f, 0.0f, 20000.0f)) applySettings();
-			if (ImGuiEx::Property("Thickness (m)", layer.Thickness, 10.0f, 1.0f, 12000.0f)) applySettings();
-			if (ImGuiEx::Property("Coverage", layer.Coverage, 0.01f, 0.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Shape (flat<->towering)", layer.CloudShape, 0.01f, 0.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Density Scale", layer.DensityScale, 0.01f, 0.0f, 4.0f)) applySettings();
-			if (ImGuiEx::Property("Base Noise Scale", layer.ShapeScale, 0.01f, 0.05f, 8.0f)) applySettings();
-			if (ImGuiEx::Property("Detail Noise Scale", layer.DetailScale, 0.01f, 0.05f, 8.0f)) applySettings();
-			if (ImGuiEx::Property("Detail Strength", layer.DetailStrength, 0.01f, 0.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Erosion", layer.ErosionStrength, 0.01f, 0.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Anvil Bias", layer.AnvilBias, 0.01f, 0.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Coverage Bias", layer.CoverageBias, 0.01f, -1.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Wind Speed Scale", layer.WindSpeedScale, 0.01f, 0.0f, 8.0f)) applySettings();
-			if (ImGuiEx::Property("Wind Angle Offset", layer.WindAngleOffset, 0.01f, -3.14159f, 3.14159f)) applySettings();
-			ImGuiEx::EndPropertyGrid();
-
-			ImGui::TreePop();
-		}
-
-		// Shared UI for VolumetricCloudSettings, used by both the standalone cloud
-		// component and the atmosphere render-volume's embedded settings.
-		inline void DrawCloudSettingsUI(VolumetricCloudSettings& settings, const std::function<void()>& applySettings)
-		{
-			ImGui::TextDisabled("Global");
-			ImGuiEx::BeginPropertyGrid();
-			if (ImGuiEx::Property("Enabled", settings.Enabled)) applySettings();
-			if (ImGuiEx::Property("Coverage", settings.Coverage, 0.01f, 0.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Density", settings.Density, 0.01f, 0.0f, 4.0f)) applySettings();
-			if (ImGuiEx::Property("Wind Direction", settings.WindDirection, 0.01f, -1.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Wind Speed", settings.WindSpeed, 0.1f, -1000.0f, 1000.0f)) applySettings();
-			if (ImGuiEx::Property("Weather Scale", settings.WeatherScale, 0.000001f, 0.000001f, 0.01f)) applySettings();
-			ImGuiEx::EndPropertyGrid();
-
-			ImGui::Spacing();
-			ImGui::TextDisabled("Cloud Tiers");
-			DrawCloudLayerUI("Low Tier", settings.Layers[0], applySettings);
-			DrawCloudLayerUI("Mid Tier", settings.Layers[1], applySettings);
-			DrawCloudLayerUI("High Tier", settings.Layers[2], applySettings);
-
-			ImGui::Spacing();
-			ImGui::TextDisabled("Lighting");
-			ImGuiEx::BeginPropertyGrid();
-			if (ImGuiEx::PropertyColor("Albedo", settings.Albedo)) applySettings();
-			if (ImGuiEx::Property("Ambient Boost", settings.AmbientBoost, 0.01f, 0.0f, 8.0f)) applySettings();
-			if (ImGuiEx::Property("Extinction", settings.Extinction, 0.001f, 0.0001f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Scatter Multiplier", settings.ScatterMultiplier, 0.01f, 0.0f, 8.0f)) applySettings();
-			if (ImGuiEx::Property("Silver Intensity", settings.SilverIntensity, 0.01f, 0.0f, 8.0f)) applySettings();
-			if (ImGuiEx::Property("Powder Strength", settings.PowderStrength, 0.01f, 0.0f, 2.0f)) applySettings();
-			if (ImGuiEx::Property("Phase Forward (g0)", settings.PhaseG0, 0.01f, -0.95f, 0.95f)) applySettings();
-			if (ImGuiEx::Property("Phase Back (g1)", settings.PhaseG1, 0.01f, -0.95f, 0.95f)) applySettings();
-			if (ImGuiEx::Property("Phase Blend", settings.PhaseBlend, 0.01f, 0.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Multi-Scatter", settings.MultiScatter, 0.01f, 0.0f, 1.0f)) applySettings();
-			if (ImGuiEx::Property("Aerial Perspective", settings.AerialPerspective, 0.01f, 0.0f, 1.0f)) applySettings();
-			ImGuiEx::EndPropertyGrid();
-
-			ImGui::Spacing();
-			ImGui::TextDisabled("Performance");
-			ImGuiEx::BeginPropertyGrid();
-			const char* renderScaleLabels[] = { "Full", "Half", "Quarter" };
-			int32_t renderScaleIndex = settings.RenderScale == 1u ? 0 : (settings.RenderScale == 4u ? 2 : 1);
-			if (ImGuiEx::PropertyDropdown("Render Scale", renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels), &renderScaleIndex))
-			{
-				settings.RenderScale = renderScaleIndex == 0 ? 1u : (renderScaleIndex == 2 ? 4u : 2u);
-				applySettings();
-			}
-			if (ImGuiEx::Property("Max Distance", settings.MaxTraceDistance, 100.0f, 500.0f, 100000.0f)) applySettings();
-			if (ImGuiEx::Property("Fade Distance", settings.DistanceFade, 100.0f, 0.0f, 100000.0f)) applySettings();
-			if (ImGuiEx::Property("LOD Start", settings.LODStartDistance, 100.0f, 0.0f, 100000.0f)) applySettings();
-			if (ImGuiEx::Property("Shadow Distance", settings.ShadowTraceDistance, 100.0f, 0.0f, 100000.0f)) applySettings();
-			if (ImGuiEx::Property("March Steps", settings.MarchSteps, 16u, 128u)) applySettings();
-			if (ImGuiEx::Property("Light Cone Steps", settings.ShadowSteps, 1u, 8u)) applySettings();
-			ImGuiEx::EndPropertyGrid();
-		}
-
 		template<typename TValue, typename Getter>
 		bool IsSelectionInconsistent(const Ref<Scene>& scene, const std::vector<UUID>& entityIDs, Getter&& getter)
 		{
@@ -775,24 +683,6 @@ namespace Lux {
 					entity.AddComponent<SkyLightComponent>();
 				}
 
-				if (ImGui::MenuItem("Sky Atmosphere"))
-				{
-					Entity entity = createEntity("Sky Atmosphere");
-					entity.AddComponent<SkyAtmosphereComponent>();
-				}
-
-				if (ImGui::MenuItem("Volumetric Clouds"))
-				{
-					Entity entity = createEntity("Volumetric Clouds");
-					entity.AddComponent<VolumetricCloudComponent>();
-				}
-
-				if (ImGui::MenuItem("Exponential Height Fog"))
-				{
-					Entity entity = createEntity("Exponential Height Fog");
-					entity.AddComponent<ExponentialHeightFogComponent>();
-				}
-
 				ImGui::EndMenu();
 			}
 
@@ -805,24 +695,6 @@ namespace Lux {
 					volume.Unbound = true;
 					volume.DebugColor = { 0.35f, 0.65f, 1.0f, 1.0f };
 					entity.AddComponent<PostProcessVolumeComponent>();
-				}
-
-				if (ImGui::MenuItem("Atmosphere Volume"))
-				{
-					Entity entity = createEntity("Atmosphere Volume");
-					auto& volume = entity.AddComponent<RenderVolumeComponent>();
-					volume.Unbound = true;
-					volume.DebugColor = { 0.65f, 0.55f, 1.0f, 1.0f };
-					entity.AddComponent<AtmosphereVolumeComponent>();
-				}
-
-				if (ImGui::MenuItem("Local Fog Volume"))
-				{
-					Entity entity = createEntity("Local Fog Volume");
-					auto& volume = entity.AddComponent<RenderVolumeComponent>();
-					volume.DebugColor = { 0.45f, 0.75f, 0.85f, 1.0f };
-					entity.Transform().Scale = { 10.0f, 4.0f, 10.0f };
-					entity.AddComponent<LocalFogVolumeComponent>();
 				}
 
 				ImGui::EndMenu();
@@ -1148,13 +1020,8 @@ namespace Lux {
 				const bool canAddPointLight = canAddComponent.template operator()<PointLightComponent>();
 				const bool canAddSpotLight = canAddComponent.template operator()<SpotLightComponent>();
 				const bool canAddSkyLight = canAddComponent.template operator()<SkyLightComponent>();
-				const bool canAddSkyAtmosphere = canAddComponent.template operator()<SkyAtmosphereComponent>();
-				const bool canAddVolumetricCloud = canAddComponent.template operator()<VolumetricCloudComponent>();
-				const bool canAddExponentialHeightFog = canAddComponent.template operator()<ExponentialHeightFogComponent>();
 				const bool canAddRenderVolume = canAddComponent.template operator()<RenderVolumeComponent>();
 				const bool canAddPostProcessVolume = canAddComponent.template operator()<PostProcessVolumeComponent>();
-				const bool canAddAtmosphereVolume = canAddComponent.template operator()<AtmosphereVolumeComponent>();
-				const bool canAddLocalFogVolume = canAddComponent.template operator()<LocalFogVolumeComponent>();
 
 				if (canAddCamera || canAddScript)
 					addCategoryHeader("General");
@@ -1185,7 +1052,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddText || canAddSpriteRenderer || canAddCircleRenderer || canAddStaticMesh || canAddRenderVolume || canAddPostProcessVolume || canAddAtmosphereVolume || canAddLocalFogVolume)
+				if (canAddText || canAddSpriteRenderer || canAddCircleRenderer || canAddStaticMesh || canAddRenderVolume || canAddPostProcessVolume)
 					addCategoryHeader("Rendering");
 
 				if (canAddText)
@@ -1266,32 +1133,6 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<PostProcessVolumeComponent>())
 								entity.AddComponent<PostProcessVolumeComponent>();
-						}
-					});
-				}
-
-				if (canAddAtmosphereVolume)
-				{
-					addComponentRow("Atmosphere Volume", EditorResources::SkyLightIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<AtmosphereVolumeComponent>())
-								entity.AddComponent<AtmosphereVolumeComponent>();
-						}
-					});
-				}
-
-				if (canAddLocalFogVolume)
-				{
-					addComponentRow("Local Fog Volume", EditorResources::SkyLightIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<LocalFogVolumeComponent>())
-								entity.AddComponent<LocalFogVolumeComponent>();
 						}
 					});
 				}
@@ -1461,7 +1302,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddDirectionalLight || canAddPointLight || canAddSpotLight || canAddSkyLight || canAddSkyAtmosphere || canAddVolumetricCloud || canAddExponentialHeightFog)
+				if (canAddDirectionalLight || canAddPointLight || canAddSpotLight || canAddSkyLight)
 					addCategoryHeader("Lighting");
 
 				if (canAddDirectionalLight)
@@ -1512,45 +1353,6 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<SkyLightComponent>())
 								entity.AddComponent<SkyLightComponent>();
-						}
-					});
-				}
-
-				if (canAddSkyAtmosphere)
-				{
-					addComponentRow("Sky Atmosphere", EditorResources::SkyLightIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<SkyAtmosphereComponent>())
-								entity.AddComponent<SkyAtmosphereComponent>();
-						}
-					});
-				}
-
-				if (canAddVolumetricCloud)
-				{
-					addComponentRow("Volumetric Clouds", EditorResources::SkyLightIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<VolumetricCloudComponent>())
-								entity.AddComponent<VolumetricCloudComponent>();
-						}
-					});
-				}
-
-				if (canAddExponentialHeightFog)
-				{
-					addComponentRow("Exponential Height Fog", EditorResources::SkyLightIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<ExponentialHeightFogComponent>())
-								entity.AddComponent<ExponentialHeightFogComponent>();
 						}
 					});
 				}
@@ -3173,93 +2975,6 @@ namespace Lux {
 				ImGuiEx::EndPropertyGrid();
 			});
 
-		DrawComponentSection<SkyAtmosphereComponent>(m_Context, entityIDs, "Sky Atmosphere", EditorResources::SkyLightIcon,
-			[this](SkyAtmosphereComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
-			{
-				SkyAtmosphereSettings& settings = firstComponent.Settings;
-				auto applySettings = [&]()
-				{
-					ApplyToSelection<SkyAtmosphereComponent>(m_Context, selectedEntities, [&settings](SkyAtmosphereComponent& component, Entity)
-					{
-						component.Settings = settings;
-					});
-				};
-
-				ImGui::TextDisabled("Sky");
-				ImGuiEx::BeginPropertyGrid();
-				if (ImGuiEx::Property("Enabled", settings.Enabled)) applySettings();
-				if (ImGuiEx::Property("Planet Radius", settings.PlanetRadius, 1.0f, 1.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("Atmosphere Height", settings.AtmosphereHeight, 1.0f, 1.0f, 10000.0f)) applySettings();
-				if (ImGuiEx::Property("Rayleigh Scale Height", settings.RayleighScaleHeight, 0.1f, 0.01f, 100.0f)) applySettings();
-				if (ImGuiEx::Property("Mie Scale Height", settings.MieScaleHeight, 0.1f, 0.01f, 100.0f)) applySettings();
-				if (ImGuiEx::PropertyColor("Rayleigh Scattering", settings.RayleighScattering)) applySettings();
-				if (ImGuiEx::Property("Rayleigh Scale", settings.RayleighScatteringScale, 0.0001f, 0.0f, 1.0f)) applySettings();
-				if (ImGuiEx::PropertyColor("Mie Scattering", settings.MieScattering)) applySettings();
-				if (ImGuiEx::Property("Mie Scale", settings.MieScatteringScale, 0.0001f, 0.0f, 1.0f)) applySettings();
-				if (ImGuiEx::PropertyColor("Mie Absorption", settings.MieAbsorption)) applySettings();
-				if (ImGuiEx::Property("Mie Anisotropy", settings.MieAnisotropy, 0.01f, -0.95f, 0.95f)) applySettings();
-				if (ImGuiEx::PropertyColor("Absorption", settings.Absorption)) applySettings();
-				if (ImGuiEx::Property("Absorption Scale", settings.AbsorptionScale, 0.0001f, 0.0f, 1.0f)) applySettings();
-				if (ImGuiEx::PropertyColor("Ground Albedo", settings.GroundAlbedo)) applySettings();
-				if (ImGuiEx::Property("Ground Contribution", settings.GroundContribution, 0.01f, 0.0f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Sun Intensity", settings.SunIntensity, 0.1f, 0.0f, 1000.0f)) applySettings();
-				if (ImGuiEx::Property("Sun Angular Radius", settings.SunAngularRadius, 0.0001f, 0.0001f, 0.1f)) applySettings();
-				if (ImGuiEx::Property("Multi Scattering", settings.MultiScattering, 0.01f, 0.0f, 4.0f)) applySettings();
-				if (ImGuiEx::Property("Aerial Perspective Scale", settings.AerialPerspectiveViewDistanceScale, 0.01f, 0.0f, 10.0f)) applySettings();
-				ImGuiEx::EndPropertyGrid();
-			});
-
-		DrawComponentSection<VolumetricCloudComponent>(m_Context, entityIDs, "Volumetric Clouds", EditorResources::SkyLightIcon,
-			[this](VolumetricCloudComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
-			{
-				VolumetricCloudSettings& settings = firstComponent.Settings;
-				auto applySettings = [&]()
-				{
-					ApplyToSelection<VolumetricCloudComponent>(m_Context, selectedEntities, [&settings](VolumetricCloudComponent& component, Entity)
-					{
-						component.Settings = settings;
-					});
-				};
-
-				DrawCloudSettingsUI(settings, applySettings);
-			});
-
-		DrawComponentSection<ExponentialHeightFogComponent>(m_Context, entityIDs, "Exponential Height Fog", EditorResources::SkyLightIcon,
-			[this](ExponentialHeightFogComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
-			{
-				ExponentialHeightFogSettings& settings = firstComponent.Settings;
-				auto applySettings = [&]()
-				{
-					ApplyToSelection<ExponentialHeightFogComponent>(m_Context, selectedEntities, [&settings](ExponentialHeightFogComponent& component, Entity)
-					{
-						component.Settings = settings;
-					});
-				};
-
-				ImGui::TextDisabled("Fog");
-				ImGuiEx::BeginPropertyGrid();
-				if (ImGuiEx::Property("Enabled", settings.Enabled)) applySettings();
-				if (ImGuiEx::PropertyColor("Fog Color", settings.FogColor)) applySettings();
-				if (ImGuiEx::Property("Fog Density", settings.FogDensity, 0.001f, 0.0f, 10.0f)) applySettings();
-				if (ImGuiEx::Property("Height Falloff", settings.FogHeightFalloff, 0.001f, 0.0001f, 10.0f)) applySettings();
-				if (ImGuiEx::Property("Start Distance", settings.StartDistance, 1.0f, 0.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("Max Opacity", settings.MaxOpacity, 0.01f, 0.0f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Cutoff Distance", settings.CutoffDistance, 10.0f, 1.0f, 1000000.0f)) applySettings();
-				if (ImGuiEx::PropertyColor("Directional Color", settings.DirectionalInscatteringColor)) applySettings();
-				if (ImGuiEx::Property("Directional Exponent", settings.DirectionalInscatteringExponent, 0.1f, 0.01f, 128.0f)) applySettings();
-				if (ImGuiEx::Property("Directional Start", settings.DirectionalInscatteringStartDistance, 1.0f, 0.0f, 100000.0f)) applySettings();
-				ImGuiEx::EndPropertyGrid();
-
-				ImGui::Spacing();
-				ImGui::TextDisabled("Fog Performance");
-				ImGuiEx::BeginPropertyGrid();
-				if (ImGuiEx::Property("Volumetric Fog", settings.VolumetricFog)) applySettings();
-				if (ImGuiEx::Property("Volumetric Scattering", settings.VolumetricScatteringIntensity, 0.01f, 0.0f, 16.0f)) applySettings();
-				if (ImGuiEx::Property("Anisotropy", settings.Anisotropy, 0.01f, -0.8f, 0.8f)) applySettings();
-				if (ImGuiEx::Property("Volumetric Steps", settings.VolumetricFogSteps, 4u, 96u)) applySettings();
-				ImGuiEx::EndPropertyGrid();
-			});
-
 		DrawComponentSection<RenderVolumeComponent>(m_Context, entityIDs, "Render Volume", EditorResources::SkyLightIcon,
 			[this](RenderVolumeComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
 			{
@@ -3464,138 +3179,6 @@ namespace Lux {
 				ImGuiEx::EndPropertyGrid();
 			});
 
-		DrawComponentSection<AtmosphereVolumeComponent>(m_Context, entityIDs, "Atmosphere Volume", EditorResources::SkyLightIcon,
-			[this](AtmosphereVolumeComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
-			{
-				auto applySettings = [&]()
-				{
-					ApplyToSelection<AtmosphereVolumeComponent>(m_Context, selectedEntities, [&firstComponent](AtmosphereVolumeComponent& component, Entity)
-					{
-						component = firstComponent;
-					});
-				};
-
-				auto drawOverride = [&](const char* label, uint64_t& mask, uint64_t flag)
-				{
-					bool enabled = (mask & flag) != 0;
-					if (ImGui::Checkbox(label, &enabled))
-					{
-						if (enabled)
-							mask |= flag;
-						else
-							mask &= ~flag;
-						applySettings();
-					}
-					return enabled;
-				};
-
-				auto& sky = firstComponent.Settings.SkyAtmosphere;
-				ImGui::TextDisabled("Sky");
-				const bool skyEnabledOverride = drawOverride("Override Sky Enabled", firstComponent.SkyOverrideMask, SkyOverride_Enabled);
-				const bool sunIntensityOverride = drawOverride("Override Sun Intensity", firstComponent.SkyOverrideMask, SkyOverride_SunIntensity);
-				const bool multiScatteringOverride = drawOverride("Override Multi Scattering", firstComponent.SkyOverrideMask, SkyOverride_MultiScattering);
-				const bool groundAlbedoOverride = drawOverride("Override Ground Albedo", firstComponent.SkyOverrideMask, SkyOverride_GroundAlbedo);
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!skyEnabledOverride);
-				if (ImGuiEx::Property("Sky Enabled", sky.Enabled)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!sunIntensityOverride);
-				if (ImGuiEx::Property("Sun Intensity", sky.SunIntensity, 0.1f, 0.0f, 1000.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!multiScatteringOverride);
-				if (ImGuiEx::Property("Multi Scattering", sky.MultiScattering, 0.01f, 0.0f, 4.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!groundAlbedoOverride);
-				if (ImGuiEx::PropertyColor("Ground Albedo", sky.GroundAlbedo)) applySettings();
-				ImGui::EndDisabled();
-				ImGuiEx::EndPropertyGrid();
-
-				auto& clouds = firstComponent.Settings.VolumetricClouds;
-				ImGui::Spacing();
-				ImGui::TextDisabled("Clouds");
-				const bool cloudEnabledOverride = drawOverride("Override Clouds Enabled", firstComponent.CloudOverrideMask, CloudOverride_Enabled);
-				const bool cloudCoverageOverride = drawOverride("Override Coverage", firstComponent.CloudOverrideMask, CloudOverride_Coverage);
-				const bool cloudDensityOverride = drawOverride("Override Density", firstComponent.CloudOverrideMask, CloudOverride_Density);
-				const bool cloudDistanceOverride = drawOverride("Override Max Distance", firstComponent.CloudOverrideMask, CloudOverride_MaxTraceDistance);
-				const bool cloudStepsOverride = drawOverride("Override March Steps", firstComponent.CloudOverrideMask, CloudOverride_MarchSteps);
-				const bool cloudScaleOverride = drawOverride("Override Render Scale", firstComponent.CloudOverrideMask, CloudOverride_RenderScale);
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!cloudEnabledOverride);
-				if (ImGuiEx::Property("Clouds Enabled", clouds.Enabled)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!cloudCoverageOverride);
-				if (ImGuiEx::Property("Coverage", clouds.Coverage, 0.01f, 0.0f, 1.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!cloudDensityOverride);
-				if (ImGuiEx::Property("Density", clouds.Density, 0.01f, 0.0f, 4.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!cloudDistanceOverride);
-				if (ImGuiEx::Property("Max Distance", clouds.MaxTraceDistance, 100.0f, 500.0f, 100000.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!cloudStepsOverride);
-				if (ImGuiEx::Property("March Steps", clouds.MarchSteps, 8u, 128u)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!cloudScaleOverride);
-				const char* renderScaleLabels[] = { "Full", "Half", "Quarter" };
-				int32_t renderScaleIndex = clouds.RenderScale == 1u ? 0 : (clouds.RenderScale == 4u ? 2 : 1);
-				if (ImGuiEx::PropertyDropdown("Render Scale", renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels), &renderScaleIndex))
-				{
-					clouds.RenderScale = renderScaleIndex == 0 ? 1u : (renderScaleIndex == 2 ? 4u : 2u);
-					applySettings();
-				}
-				ImGui::EndDisabled();
-				ImGuiEx::EndPropertyGrid();
-
-				auto& fog = firstComponent.Settings.HeightFog;
-				ImGui::Spacing();
-				ImGui::TextDisabled("Fog");
-				const bool fogEnabledOverride = drawOverride("Override Fog Enabled", firstComponent.FogOverrideMask, FogOverride_Enabled);
-				const bool fogColorOverride = drawOverride("Override Fog Color", firstComponent.FogOverrideMask, FogOverride_FogColor);
-				const bool fogDensityOverride = drawOverride("Override Fog Density", firstComponent.FogOverrideMask, FogOverride_FogDensity);
-				const bool fogVolumetricOverride = drawOverride("Override Volumetric Fog", firstComponent.FogOverrideMask, FogOverride_VolumetricFog);
-				const bool fogStepsOverride = drawOverride("Override Volumetric Steps", firstComponent.FogOverrideMask, FogOverride_VolumetricFogSteps);
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!fogEnabledOverride);
-				if (ImGuiEx::Property("Fog Enabled", fog.Enabled)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!fogColorOverride);
-				if (ImGuiEx::PropertyColor("Fog Color", fog.FogColor)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!fogDensityOverride);
-				if (ImGuiEx::Property("Fog Density", fog.FogDensity, 0.001f, 0.0f, 10.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!fogVolumetricOverride);
-				if (ImGuiEx::Property("Volumetric Fog", fog.VolumetricFog)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!fogStepsOverride);
-				if (ImGuiEx::Property("Volumetric Steps", fog.VolumetricFogSteps, 4u, 96u)) applySettings();
-				ImGui::EndDisabled();
-				ImGuiEx::EndPropertyGrid();
-			});
-
-		DrawComponentSection<LocalFogVolumeComponent>(m_Context, entityIDs, "Local Fog Volume", EditorResources::SkyLightIcon,
-			[this](LocalFogVolumeComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
-			{
-				auto applySettings = [&]()
-				{
-					ApplyToSelection<LocalFogVolumeComponent>(m_Context, selectedEntities, [&firstComponent](LocalFogVolumeComponent& component, Entity)
-					{
-						component = firstComponent;
-					});
-				};
-
-				ImGui::TextDisabled("Fog");
-				ImGuiEx::BeginPropertyGrid();
-				if (ImGuiEx::PropertyColor("Color", firstComponent.Color)) applySettings();
-				if (ImGuiEx::Property("Density", firstComponent.Density, 0.001f, 0.0f, 10.0f)) applySettings();
-				if (ImGuiEx::Property("Anisotropy", firstComponent.Anisotropy, 0.01f, -0.8f, 0.8f)) applySettings();
-				if (ImGuiEx::Property("Height Falloff", firstComponent.HeightFalloff, 0.01f, 0.0f, 16.0f)) applySettings();
-				if (ImGuiEx::Property("Noise Scale", firstComponent.NoiseScale, 0.001f, 0.000001f, 10.0f)) applySettings();
-				if (ImGuiEx::Property("Noise Strength", firstComponent.NoiseStrength, 0.01f, 0.0f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Max Distance", firstComponent.MaxDistance, 1.0f, 0.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("Falloff", firstComponent.Falloff, 0.01f, 0.001f, 1.0f)) applySettings();
-				ImGuiEx::EndPropertyGrid();
-			});
 	}
 
 } // namespace Lux

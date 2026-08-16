@@ -1451,43 +1451,6 @@ namespace Lux {
 		return fallbackEnvironment;
 	}
 
-	AtmosphereEnvironment Scene::CollectAtmosphereEnvironment() const
-	{
-		AtmosphereEnvironment atmosphereEnvironment;
-		atmosphereEnvironment.SkyAtmosphere.Enabled = false;
-
-		{
-			auto view = m_Registry.view<const SkyAtmosphereComponent>();
-			for (auto entity : view)
-			{
-				atmosphereEnvironment.SkyAtmosphere = view.get<const SkyAtmosphereComponent>(entity).Settings;
-				break;
-			}
-		}
-
-		{
-			auto view = m_Registry.view<const VolumetricCloudComponent>();
-			for (auto entity : view)
-			{
-				atmosphereEnvironment.VolumetricClouds = view.get<const VolumetricCloudComponent>(entity).Settings;
-				if (glm::dot(atmosphereEnvironment.VolumetricClouds.WindDirection, atmosphereEnvironment.VolumetricClouds.WindDirection) > 0.0001f)
-					atmosphereEnvironment.VolumetricClouds.WindDirection = glm::normalize(atmosphereEnvironment.VolumetricClouds.WindDirection);
-				break;
-			}
-		}
-
-		{
-			auto view = m_Registry.view<const ExponentialHeightFogComponent>();
-			for (auto entity : view)
-			{
-				atmosphereEnvironment.HeightFog = view.get<const ExponentialHeightFogComponent>(entity).Settings;
-				break;
-			}
-		}
-
-		return atmosphereEnvironment;
-	}
-
 	RenderVolumeEnvironment Scene::CollectRenderVolumeEnvironment(
 		const glm::vec3& cameraPosition,
 		const Frustum* cameraFrustum,
@@ -1505,11 +1468,9 @@ namespace Lux {
 			input.WorldTransform = GetWorldSpaceTransformMatrix(entity);
 			input.Volume = view.get<const RenderVolumeComponent>(e);
 			input.PostProcess = entity.TryGetComponent<PostProcessVolumeComponent>();
-			input.Atmosphere = entity.TryGetComponent<AtmosphereVolumeComponent>();
-			input.LocalFog = entity.TryGetComponent<LocalFogVolumeComponent>();
 			input.Selected = isSelected ? isSelected(entity) : false;
 
-			if (!input.PostProcess && !input.Atmosphere && !input.LocalFog)
+			if (!input.PostProcess)
 				continue;
 
 			volumes.push_back(input);
@@ -1788,13 +1749,10 @@ namespace Lux {
 		packet.Overlay2DView = camera.GetViewMatrix();
 		packet.Overlay2DViewProjection = camera.GetViewProjection();
 
-		// Collect light / environment / atmosphere / volumes (all read-only on the registry)
+		// Collect light / environment / volumes (all read-only on the registry)
 		packet.Lights = CollectLightEnvironment();
 		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod);
-		packet.Atmosphere = CollectAtmosphereEnvironment();
-
 		RenderVolumeBaseSettings volumeBaseSettings = renderer->GetBaseRenderVolumeSettings(sceneCamera.Camera.GetExposure());
-		volumeBaseSettings.Atmosphere = packet.Atmosphere;
 		const Frustum cameraFrustum = Frustum::FromViewProjection(sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix);
 		packet.Volumes = CollectRenderVolumeEnvironment(camera.GetPosition(), &cameraFrustum, volumeBaseSettings, isSelected);
 
@@ -1875,7 +1833,6 @@ namespace Lux {
 
 		renderer->SetLightEnvironment(packet.Lights);
 		renderer->SetEnvironment(packet.SkyEnvironment, packet.EnvironmentIntensity, packet.EnvironmentLod);
-		renderer->SetAtmosphereEnvironment(packet.Atmosphere);
 		renderer->SetRenderVolumeEnvironment(packet.Volumes);
 
 		renderer->BeginScene(packet.Camera);
@@ -1959,10 +1916,7 @@ namespace Lux {
 
 		packet.Lights = CollectLightEnvironment();
 		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod);
-		packet.Atmosphere = CollectAtmosphereEnvironment();
-
 		RenderVolumeBaseSettings volumeBaseSettings = renderer->GetBaseRenderVolumeSettings(sceneCamera.Camera.GetExposure());
-		volumeBaseSettings.Atmosphere = packet.Atmosphere;
 		const glm::vec3 cameraPosition = glm::vec3(GetWorldSpaceTransformMatrix(cameraEntity)[3]);
 		const Frustum cameraFrustum = Frustum::FromViewProjection(sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix);
 		packet.Volumes = CollectRenderVolumeEnvironment(cameraPosition, &cameraFrustum, volumeBaseSettings);
@@ -2462,21 +2416,6 @@ namespace Lux {
 	}
 
 	template<>
-	void Scene::OnComponentAdded<SkyAtmosphereComponent>(Entity entity, SkyAtmosphereComponent& component)
-	{
-	}
-
-	template<>
-	void Scene::OnComponentAdded<VolumetricCloudComponent>(Entity entity, VolumetricCloudComponent& component)
-	{
-	}
-
-	template<>
-	void Scene::OnComponentAdded<ExponentialHeightFogComponent>(Entity entity, ExponentialHeightFogComponent& component)
-	{
-	}
-
-	template<>
 	void Scene::OnComponentAdded<RenderVolumeComponent>(Entity entity, RenderVolumeComponent& component)
 	{
 	}
@@ -2488,17 +2427,4 @@ namespace Lux {
 			entity.AddComponent<RenderVolumeComponent>();
 	}
 
-	template<>
-	void Scene::OnComponentAdded<AtmosphereVolumeComponent>(Entity entity, AtmosphereVolumeComponent& component)
-	{
-		if (!entity.HasComponent<RenderVolumeComponent>())
-			entity.AddComponent<RenderVolumeComponent>();
-	}
-
-	template<>
-	void Scene::OnComponentAdded<LocalFogVolumeComponent>(Entity entity, LocalFogVolumeComponent& component)
-	{
-		if (!entity.HasComponent<RenderVolumeComponent>())
-			entity.AddComponent<RenderVolumeComponent>();
-	}
 }

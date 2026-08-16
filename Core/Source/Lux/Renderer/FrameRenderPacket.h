@@ -3,7 +3,6 @@
 #include "Lux/Core/Ref.h"
 
 #include "Lux/Renderer/SceneRenderer.h"     // SceneRendererCamera, LightEnvironment
-#include "Lux/Renderer/Atmosphere.h"        // AtmosphereEnvironment
 #include "Lux/Renderer/RenderVolumes.h"     // RenderVolumeEnvironment
 #include "Lux/Renderer/RenderScene.h"       // RenderScene
 #include "Lux/Renderer/SceneEnvironment.h"  // Environment
@@ -63,7 +62,6 @@ namespace Lux {
 		Ref<Environment> SkyEnvironment;
 		float EnvironmentIntensity = 1.0f;
 		float EnvironmentLod = 0.0f;
-		AtmosphereEnvironment Atmosphere;
 		RenderVolumeEnvironment Volumes;
 
 		Ref<RenderScene> Meshes;

@@ -38,7 +38,6 @@ namespace Lux {
 	struct DirectionalLight;
 	struct PointLight;
 	struct SpotLight;
-	struct AtmosphereEnvironment;
 
 	// Captured render state for one frame (defined in Renderer/FrameRenderPacket.h)
 	struct FrameRenderPacket;
@@ -121,10 +120,7 @@ namespace Lux {
 		// Falls back to the renderer default environment when no explicit skylight is configured.
 		Ref<Environment> CollectEnvironment(float& outIntensity, float& outLod) const;
 
-		// Collect atmosphere, volumetric cloud and fog settings from scene components.
-		AtmosphereEnvironment CollectAtmosphereEnvironment() const;
-
-		// Resolve rendering volumes for the camera using the scene atmosphere and renderer post-process defaults as the base layer.
+		// Resolve rendering volumes for the camera using the renderer post-process defaults as the base layer.
 		RenderVolumeEnvironment CollectRenderVolumeEnvironment(
 			const glm::vec3& cameraPosition,
 			const Frustum* cameraFrustum,
