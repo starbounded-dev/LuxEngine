@@ -261,6 +261,30 @@ Use `LUX_PROFILE_*` (CPU) and `Renderer::BeginGPUPerfMarker` / `EndGPUPerfMarker
 work. `SceneRenderer::PassProfile` / `Statistics` already collect per-pass timings shown in the
 Render Stats panel; a new pass should appear there.
 
+### GPU timing has two consumers, from one call
+
+`Renderer::BeginGPUPerfMarker` / `EndGPUPerfMarker` funnel into
+`RenderCommandBuffer::RT_BeginTimerQuery` / `RT_EndTimerQuery`, and that pair feeds **both**:
+
+1. the engine's own nvrhi timer queries, read back by the Renderer Debugger's Pass Timings table, and
+2. a **Tracy GPU zone**, so the same pass appears on Tracy's GPU timeline.
+
+So wrapping a new pass in `BeginProfiledGPU` is all that is needed — do not add Tracy GPU zones by
+hand. The `TracyVkCtx` is owned by `VulkanDeviceManager` (created in `CreateDevice`, destroyed in
+`DestroyDevice` before `vkDestroyDevice`) and reached via `GetGPUProfilerContext()`, which may be
+null if creation failed; every consumer must tolerate that.
+
+Two rules if you touch this path:
+
+- **A GPU zone may never outlive its command buffer's recording state.** `~VkCtxScope` issues a
+  `vkCmdWriteTimestamp`, so a zone closed after `close()` is a Vulkan usage violation. `RT_End`
+  therefore force-closes any zone still open before collecting.
+- `TracyVkCollect` runs in `RT_End`, outside any render pass and before `close()`.
+
+Tracy GPU zones only carry data while a profiler is connected (`TRACY_ON_DEMAND`), and the whole
+path compiles out in Dist. Note that Tracy captures record **CPU zones only** unless this context
+exists — a capture with zero GPU zones means the context failed to create, not that the GPU is idle.
+
 ---
 
 ## Batched resource uploads and the async transfer queue

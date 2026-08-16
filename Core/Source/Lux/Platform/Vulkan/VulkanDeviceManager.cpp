@@ -49,6 +49,8 @@ freely, subject to the following restrictions:
 #include "lpch.h"
 #include "VulkanDeviceManager.h"
 
+#include <cstring>
+
 // Define the Vulkan dynamic dispatcher - this needs to occur in exactly one cpp file in the program.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
@@ -729,8 +731,73 @@ namespace Lux {
 			m_ValidationLayer = nvrhi::validation::createValidationLayer(m_NvrhiDevice);
 		}
 
+#if LUX_ENABLE_PROFILING
+		CreateGPUProfilerContext();
+#endif
+
 		return true;
 	}
+
+#if LUX_ENABLE_PROFILING
+	void VulkanDeviceManager::CreateGPUProfilerContext()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+
+		auto poolInfo = vk::CommandPoolCreateInfo()
+			.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
+			.setQueueFamilyIndex(uint32_t(m_QueueFamilyIndices.Graphics));
+
+		if (m_VulkanDevice.createCommandPool(&poolInfo, nullptr, &m_TracyGPUCommandPool) != vk::Result::eSuccess)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Failed to create the Tracy GPU profiler command pool; GPU zones will be unavailable.");
+			return;
+		}
+
+		auto allocInfo = vk::CommandBufferAllocateInfo()
+			.setCommandPool(m_TracyGPUCommandPool)
+			.setLevel(vk::CommandBufferLevel::ePrimary)
+			.setCommandBufferCount(1);
+
+		vk::CommandBuffer initCommandBuffer;
+		if (m_VulkanDevice.allocateCommandBuffers(&allocInfo, &initCommandBuffer) != vk::Result::eSuccess)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Failed to allocate the Tracy GPU profiler command buffer; GPU zones will be unavailable.");
+			m_VulkanDevice.destroyCommandPool(m_TracyGPUCommandPool);
+			m_TracyGPUCommandPool = nullptr;
+			return;
+		}
+
+		// Blocking: Tracy submits and waits on the graphics queue here to correlate the
+		// CPU and GPU clocks. Safe at this point - the render thread does not exist yet.
+		m_TracyGPUContext = TracyVkContext(m_VulkanPhysicalDevice, m_VulkanDevice, m_GraphicsQueue, initCommandBuffer);
+		if (!m_TracyGPUContext)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Tracy GPU profiler context creation returned null; GPU zones will be unavailable.");
+			return;
+		}
+
+		constexpr const char* contextName = "Graphics Queue";
+		TracyVkContextName(m_TracyGPUContext, contextName, uint16_t(std::strlen(contextName)));
+		LUX_CORE_INFO_TAG("Renderer", "Tracy GPU profiler context created on the graphics queue.");
+	}
+
+	void VulkanDeviceManager::DestroyGPUProfilerContext()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+
+		if (m_TracyGPUContext)
+		{
+			TracyVkDestroy(m_TracyGPUContext);
+			m_TracyGPUContext = nullptr;
+		}
+
+		if (m_TracyGPUCommandPool)
+		{
+			m_VulkanDevice.destroyCommandPool(m_TracyGPUCommandPool);
+			m_TracyGPUCommandPool = nullptr;
+		}
+	}
+#endif
 
 	bool VulkanDeviceManager::InitSurfaceCapabilities(uint64_t surfaceHandle)
 	{
@@ -755,6 +822,11 @@ namespace Lux {
 		m_NvrhiDevice = nullptr;
 		m_ValidationLayer = nullptr;
 		m_RendererString.clear();
+
+#if LUX_ENABLE_PROFILING
+		// Must precede vkDestroyDevice: the context owns a query pool on this device.
+		DestroyGPUProfilerContext();
+#endif
 
 		if (m_VulkanDevice)
 		{

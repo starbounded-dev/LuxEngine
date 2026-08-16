@@ -3,8 +3,10 @@
 
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Platform/Vulkan/VulkanDiagnostics.h"
+#include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
+#include <cstring>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -17,6 +19,16 @@ namespace Lux {
 	// for the named per-pass queries below, which keeps the frame-level total directly
 	// comparable to the sum of the per-pass timings displayed next to it.
 	static constexpr float kGPUTimeSmoothing = 0.1f;
+
+#if LUX_ENABLE_PROFILING
+	// Null until the device manager has built the context, and permanently null if that
+	// failed - every caller must tolerate it rather than assume GPU zones are available.
+	static TracyVkCtx GetTracyGPUContext()
+	{
+		auto* deviceManager = static_cast<VulkanDeviceManager*>(Application::Get().GetGraphicsDeviceManager());
+		return deviceManager ? deviceManager->GetGPUProfilerContext() : nullptr;
+	}
+#endif
 
 	RenderCommandBuffer::RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, nvrhi::CommandQueue queue)
 		: m_Queue(queue), m_DebugName(debugName)
@@ -207,6 +219,23 @@ namespace Lux {
 
 			cmd.endQuery(m_PipelineStatisticsQueryPools[commandBufferIndex], 0);
 #endif
+
+#if LUX_ENABLE_PROFILING
+			// Any zone still open at the end of the buffer is a begin/end mismatch. It has
+			// to be closed HERE, while the command buffer is still recording: ~VkCtxScope
+			// issues a vkCmdWriteTimestamp, which is illegal once close() has run.
+			m_TracyGPUZones.clear();
+
+			// Tracy resolves its timestamps here, once per submitted segment of this
+			// buffer. Must be outside a render pass, which the endTimerQuery above
+			// guarantees, and must precede close().
+			if (TracyVkCtx tracyContext = GetTracyGPUContext())
+			{
+				VkCommandBuffer vkCommandBuffer = VkCommandBuffer(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
+				TracyVkCollect(tracyContext, vkCommandBuffer);
+			}
+#endif
+
 			m_ActiveTimerQuery = nullptr;
 		}
 		m_ActiveCommandBuffer->close();
@@ -239,6 +268,8 @@ namespace Lux {
 			{
 				LUX_CORE_WARN("Mismatched timer queries '{}'!", m_TimerQueryStack[0]);
 				m_TimerQueryStack.clear();
+				// The matching Tracy zones were already closed in RT_End, which is the last
+				// point at which the command buffer was still recording. Nothing to do here.
 			}
 		}
 
@@ -373,6 +404,21 @@ namespace Lux {
 		device->resetTimerQuery(queryPtr);
 		m_ActiveCommandBuffer->beginTimerQuery(queryPtr);
 
+#if LUX_ENABLE_PROFILING
+		// Opened after nvrhi's beginTimerQuery (which closes any active render pass) so
+		// the Tracy zone and the engine's own timer bracket the same span.
+		if (TracyVkCtx tracyContext = GetTracyGPUContext())
+		{
+			VkCommandBuffer vkCommandBuffer = VkCommandBuffer(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
+			m_TracyGPUZones.push_back(CreateScope<tracy::VkCtxScope>(
+				tracyContext,
+				uint32_t(__LINE__), __FILE__, std::strlen(__FILE__),
+				m_DebugName.c_str(), m_DebugName.size(),
+				name.c_str(), name.size(),
+				vkCommandBuffer, true));
+		}
+#endif
+
 		// Push onto the stack
 		m_TimerQueryStack.push_back(name);
 	}
@@ -397,6 +443,14 @@ namespace Lux {
 		// Pop the top query from the stack
 		std::string name = std::move(m_TimerQueryStack.back());
 		m_TimerQueryStack.pop_back();
+
+#if LUX_ENABLE_PROFILING
+		// Popped alongside the name rather than after the lookup below, so a missing
+		// query cannot leave a Tracy zone open and desynchronise the two stacks.
+		// Destroying the scope is what writes the closing timestamp.
+		if (!m_TracyGPUZones.empty())
+			m_TracyGPUZones.pop_back();
+#endif
 
 		auto it = m_NamedTimerQueries[commandBufferIndex].find(name);
 		if (it == m_NamedTimerQueries[commandBufferIndex].end() || !it->second)

@@ -1,6 +1,8 @@
 #pragma once
 
+#include "Lux/Core/Base.h"
 #include "Lux/Core/Ref.h"
+#include "Lux/Debug/Profiler.h"
 
 #include "PipelineSpecification.h"
 
@@ -14,6 +16,10 @@
 //pipeline queries require direct vulkan access, this can toggle that
 #define CMD_BUFFER_USE_VULKAN_QUERIES
 #include <vulkan/vulkan.h>
+
+#if LUX_ENABLE_PROFILING
+#include <tracy/TracyVulkan.hpp>
+#endif
 
 namespace Lux {
 
@@ -110,6 +116,19 @@ namespace Lux {
 		nvrhi::static_vector < std::unordered_map<std::string, nvrhi::TimerQueryHandle>, 3> m_NamedTimerQueries;
 		std::unordered_map<std::string, float> m_NamedTimerQueryResults;
 		std::vector<std::string> m_TimerQueryStack;  // Stack of active timer queries
+
+#if LUX_ENABLE_PROFILING
+		// Tracy GPU zones, pushed and popped in lockstep with m_TimerQueryStack so every
+		// profiled pass shows up on Tracy's GPU timeline alongside the engine's own
+		// timer-query number.
+		//
+		// Held through Scope because tracy::VkCtxScope is neither copyable nor movable -
+		// its destructor is what writes the closing timestamp - so it cannot sit in a
+		// vector directly. The per-zone allocation is acceptable here: this whole path
+		// compiles out in Dist, and TRACY_ON_DEMAND makes each zone inert until a
+		// profiler actually connects.
+		std::vector<Scope<tracy::VkCtxScope>> m_TracyGPUZones;
+#endif
 
 		// Same publishing rule as m_LastGPUWorkTime: written on the render thread from
 		// whichever query pool was just submitted, read on the main thread. Atomic for

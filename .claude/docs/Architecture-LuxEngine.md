@@ -401,6 +401,13 @@ add the type, declare the class with the event macros, handle it in the relevant
 configs), `LUX_PROFILE_*` (Tracy, off in Dist / `--no-tracy`). Details in
 `.claude/docs/Conventions.md`.
 
+GPU work is profiled separately: `VulkanDeviceManager` owns a `TracyVkCtx` (created in
+`CreateDevice`, destroyed in `DestroyDevice`, exposed by `GetGPUProfilerContext()`), and
+`RenderCommandBuffer::RT_BeginTimerQuery` / `RT_EndTimerQuery` emit a Tracy GPU zone alongside the
+engine's own nvrhi timer query. This is the only place Tracy's Vulkan header is used outside
+`Platform/Vulkan/` — it is deliberately kept out of `Debug/Profiler.h`, which reaches nearly every
+translation unit through the PCH. See `.claude/docs/Rendering.md § GPU timing has two consumers`.
+
 ### Math
 
 GLM, with `GLM_FORCE_DEPTH_ZERO_TO_ONE` defined for `Core` (Vulkan clip space). Engine helpers under
