@@ -6,6 +6,7 @@
 
 #include "nvrhi/nvrhi.h"
 
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -55,8 +56,10 @@ namespace Lux {
 		// queue can wait for this buffer's work to finish (cross-queue sync).
 		uint64_t GetLastExecutionInstance() const { return m_LastExecutionInstance; }
 
-		float GetExecutionGPUTime(uint32_t frameIndex) const;
-		const PipelineStatistics& GetPipelineStatistics(uint32_t frameIndex) const;
+		// Most recently resolved frame-level GPU time, in milliseconds. Not indexed by
+		// frame: see m_LastGPUWorkTime for why a per-index handoff cannot work here.
+		float GetExecutionGPUTime() const;
+		PipelineStatistics GetPipelineStatistics() const;
 
 		void RT_BeginTimerQuery(const std::string& name);
 		void RT_EndTimerQuery();
@@ -74,7 +77,22 @@ namespace Lux {
 
 		nvrhi::static_vector<nvrhi::CommandListHandle, 3> m_CommandLists;
 		nvrhi::static_vector<nvrhi::TimerQueryHandle, 3> m_TimerQueries;
-		nvrhi::static_vector<float, 3> m_GPUWorkTimes;
+
+		// Published by the render thread, read by the main thread (profiling panels).
+		//
+		// Deliberately a single latest value rather than a per-frame slot. The render
+		// thread indexes its command lists and query pools by
+		// Renderer::RT_GetCurrentFrameIndex() - the swapchain back-buffer index - while
+		// every caller of the getters below is on the main thread, holding
+		// Application::m_CurrentFrameIndex. Those are two unrelated sequences with
+		// different periods, and under VK_PRESENT_MODE_MAILBOX_KHR the acquired
+		// back-buffer index is not even monotonic. Handing a value between the threads
+		// via either index reads a foreign slot, which is what previously reported a
+		// ~0.01 ms frame time against multi-millisecond pass timings.
+		//
+		// This mirrors m_NamedTimerQueryResults, which is keyed by name only and has
+		// always reported correctly for exactly this reason.
+		std::atomic<float> m_LastGPUWorkTime = 0.0f;
 
 		bool m_QueryEnabled;
 
@@ -93,7 +111,11 @@ namespace Lux {
 		std::unordered_map<std::string, float> m_NamedTimerQueryResults;
 		std::vector<std::string> m_TimerQueryStack;  // Stack of active timer queries
 
-		nvrhi::static_vector<PipelineStatistics, 3> m_PipelineStatisticsQueryResults;
+		// Same publishing rule as m_LastGPUWorkTime: written on the render thread from
+		// whichever query pool was just submitted, read on the main thread. Atomic for
+		// the same reason - these seven counters are read as a set, and a torn read
+		// would report vertex and fragment totals from different frames.
+		std::atomic<PipelineStatistics> m_LastPipelineStatistics = PipelineStatistics{};
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES
 		uint32_t m_PipelineQueryCount = 0;

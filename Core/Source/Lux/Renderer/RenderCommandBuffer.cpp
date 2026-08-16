@@ -12,6 +12,12 @@ namespace Lux {
 
 	static std::mutex s_GraphicsQueueMutex;
 
+	// Exponential smoothing weight for the newest GPU timer sample, so the profiling
+	// panels do not flicker on single-frame outliers. Matches the weight already used
+	// for the named per-pass queries below, which keeps the frame-level total directly
+	// comparable to the sum of the per-pass timings displayed next to it.
+	static constexpr float kGPUTimeSmoothing = 0.1f;
+
 	RenderCommandBuffer::RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, nvrhi::CommandQueue queue)
 		: m_Queue(queue), m_DebugName(debugName)
 	{
@@ -30,10 +36,7 @@ namespace Lux {
 		clParams.setQueueType(m_Queue);
 
 		for (uint32_t i = 0; i < count; i++)
-		{
 			m_CommandLists.push_back(device->createCommandList(clParams));
-			m_PipelineStatisticsQueryResults.emplace_back();
-		}
 
 #ifdef LUX_DIST
 		// GPU timer/statistics queries exist to feed the editor's profiling
@@ -49,7 +52,6 @@ namespace Lux {
 				m_TimerQueries.push_back(device->createTimerQuery());
 
 				m_NamedTimerQueries.emplace_back();
-				m_GPUWorkTimes.push_back(0.f);
 			}
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES
@@ -130,11 +132,21 @@ namespace Lux {
 		{
 			m_ActiveTimerQuery = m_TimerQueries[commandBufferIndex];
 
-			// Poll and cache the frame-level timer query result BEFORE resetting
+			// Poll and publish the frame-level timer query result BEFORE resetting.
+			// A query that is not ready yet simply leaves the previous value in place;
+			// the panels then show the last resolved frame rather than a zero.
 			if (device->pollTimerQuery(m_ActiveTimerQuery))
 			{
-				float timeInSeconds = device->getTimerQueryTime(m_ActiveTimerQuery);
-				m_GPUWorkTimes[commandBufferIndex] = timeInSeconds * 1000.0f;
+				const float timeInMs = device->getTimerQueryTime(m_ActiveTimerQuery) * 1000.0f;
+				const float previous = m_LastGPUWorkTime.load(std::memory_order_relaxed);
+
+				// Seed on the first resolved sample, otherwise the average crawls up from
+				// zero over dozens of frames and reads as a bogus sub-millisecond frame.
+				const float smoothed = previous > 0.0f
+					? timeInMs * kGPUTimeSmoothing + previous * (1.0f - kGPUTimeSmoothing)
+					: timeInMs;
+
+				m_LastGPUWorkTime.store(smoothed, std::memory_order_relaxed);
 			}
 
 			// Reset and begin the frame-level timer query
@@ -259,8 +271,16 @@ namespace Lux {
 		if (m_QueryEnabled)
 		{
 			vk::Device vkdevice = vk::Device(device->getNativeObject(nvrhi::ObjectTypes::VK_Device));
-			vkdevice.getQueryPoolResults(m_PipelineStatisticsQueryPools[commandBufferIndex], 0, 1,
-				sizeof(PipelineStatistics), (void*)&m_PipelineStatisticsQueryResults[commandBufferIndex], vk::DeviceSize(sizeof(uint64_t)), vk::QueryResultFlagBits::e64);
+
+			PipelineStatistics resolved = {};
+			const vk::Result queryResult = vkdevice.getQueryPoolResults(m_PipelineStatisticsQueryPools[commandBufferIndex], 0, 1,
+				sizeof(PipelineStatistics), static_cast<void*>(&resolved), vk::DeviceSize(sizeof(uint64_t)), vk::QueryResultFlagBits::e64);
+
+			// eNotReady is routine - the query simply has not landed yet - and Vulkan
+			// leaves the destination untouched in that case. Publishing it anyway would
+			// overwrite a good sample with zeros, so keep the previous frame's counters.
+			if (queryResult == vk::Result::eSuccess)
+				m_LastPipelineStatistics.store(resolved, std::memory_order_relaxed);
 		}
 #endif
 	}
@@ -308,26 +328,19 @@ namespace Lux {
 		m_ActiveCommandBuffer->setComputeState(m_ComputeState);
 	}
 
-	float RenderCommandBuffer::GetExecutionGPUTime(uint32_t frameIndex) const
+	float RenderCommandBuffer::GetExecutionGPUTime() const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (m_QueryEnabled)
-		{
-			// Use the frame-level timer query
-			frameIndex %= m_TimerQueries.size();
+		if (!m_QueryEnabled)
+			return 0.0f;
 
-			return m_GPUWorkTimes[frameIndex];
-		}
-		else
-		{
-			return 0;
-		}
+		return m_LastGPUWorkTime.load(std::memory_order_relaxed);
 	}
 
-	const Lux::PipelineStatistics& RenderCommandBuffer::GetPipelineStatistics(uint32_t frameIndex) const
+	Lux::PipelineStatistics RenderCommandBuffer::GetPipelineStatistics() const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		return m_PipelineStatisticsQueryResults[frameIndex % m_PipelineStatisticsQueryResults.size()];
+		return m_LastPipelineStatistics.load(std::memory_order_relaxed);
 	}
 
 	void RenderCommandBuffer::RT_BeginTimerQuery(const std::string& name)

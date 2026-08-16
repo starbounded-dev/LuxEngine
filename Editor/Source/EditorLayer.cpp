@@ -1226,12 +1226,23 @@ namespace Lux {
 		const float frameTimeMs = fps > 0.0f ? 1000.0f / fps : 0.0f;
 		const float renderScale = m_SceneRenderer->GetRenderResolutionScale() * 100.0f;
 		const auto& appTimers = Application::Get().GetPerformanceTimers();
-		const float wholeCPUTime = appTimers.MainThreadWorkTime + appTimers.RenderThreadWorkTime;
+
+		// How the two thread timings combine depends on the threading policy. Under
+		// MultiThreaded they overlap, so the frame is gated by the slower of the two;
+		// summing them double-counted the frame and made this HUD contradict its own
+		// frame time. Under SingleThreaded the render work runs inline on the main
+		// thread, so the spans are sequential and do add up.
+		const bool renderThreadIsConcurrent =
+			Application::Get().GetSpecification().CoreThreadingPolicy == ThreadingPolicy::MultiThreaded;
+		const float wholeCPUTime = renderThreadIsConcurrent
+			? std::max(appTimers.MainThreadWorkTime, appTimers.RenderThreadWorkTime)
+			: appTimers.MainThreadWorkTime + appTimers.RenderThreadWorkTime;
+
 		float wholeGPUTime = stats.TotalGPUTime;
 		if (ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer())
 		{
 			if (ImGuiRenderer* imguiRenderer = imguiLayer->GetImGuiRenderer())
-				wholeGPUTime += imguiRenderer->GetGPUTime(Renderer::GetCurrentFrameIndex());
+				wholeGPUTime += imguiRenderer->GetGPUTime();
 		}
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |

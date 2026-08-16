@@ -8482,9 +8482,8 @@ namespace Lux {
 		m_Statistics.SpotlightShadowcasters = m_SpotShadowCount;
 #endif
 
-		const uint32_t frameIndex = Renderer::GetCurrentFrameIndex();
-		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime(frameIndex);
-		m_Statistics.PipelineStats = m_CommandBuffer->GetPipelineStatistics(frameIndex);
+		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime();
+		m_Statistics.PipelineStats = m_CommandBuffer->GetPipelineStatistics();
 		UpdateGPUProfileTimes();
 		UpdateMemoryStatistics();
 		UpdateDynamicRenderResolution();

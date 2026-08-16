@@ -687,9 +687,9 @@ namespace Lux {
 			swapchain->GetAcquiredImageSemaphore());
 	}
 
-	float ImGuiRenderer::GetGPUTime(uint32_t frameIndex) const
+	float ImGuiRenderer::GetGPUTime() const
 	{
-		return m_RenderCommandBuffer ? m_RenderCommandBuffer->GetExecutionGPUTime(frameIndex) : 0.0f;
+		return m_RenderCommandBuffer ? m_RenderCommandBuffer->GetExecutionGPUTime() : 0.0f;
 	}
 
 	void ImGuiRenderer::BackbufferResizing()

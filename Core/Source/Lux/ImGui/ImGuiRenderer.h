@@ -208,7 +208,7 @@ namespace Lux
 		bool Render(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, nvrhi::GraphicsPipelineHandle pipeline, nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore = nullptr);
 		bool RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain);
 		void BackbufferResizing();
-		float GetGPUTime(uint32_t frameIndex) const;
+		float GetGPUTime() const;
 
 		// Register a persistent texture (indices 0-63) - survives across frames.
 		ImTextureID RegisterPersistentTexture(nvrhi::ITexture* texture,
