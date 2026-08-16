@@ -1451,34 +1451,6 @@ namespace Lux {
 		return fallbackEnvironment;
 	}
 
-	RenderVolumeEnvironment Scene::CollectRenderVolumeEnvironment(
-		const glm::vec3& cameraPosition,
-		const Frustum* cameraFrustum,
-		const RenderVolumeBaseSettings& baseSettings,
-		const std::function<bool(Entity)>& isSelected) const
-	{
-		std::vector<RenderVolumeEvaluationInput> volumes;
-
-		auto view = m_Registry.view<const TransformComponent, const RenderVolumeComponent>();
-		for (auto e : view)
-		{
-			Entity entity = { e, const_cast<Scene*>(this) };
-			RenderVolumeEvaluationInput input;
-			input.EntityID = entity.GetUUID();
-			input.WorldTransform = GetWorldSpaceTransformMatrix(entity);
-			input.Volume = view.get<const RenderVolumeComponent>(e);
-			input.PostProcess = entity.TryGetComponent<PostProcessVolumeComponent>();
-			input.Selected = isSelected ? isSelected(entity) : false;
-
-			if (!input.PostProcess)
-				continue;
-
-			volumes.push_back(input);
-		}
-
-		return RenderVolumeEvaluator::Evaluate(volumes, cameraPosition, cameraFrustum, baseSettings);
-	}
-
 	Ref<::Lux::RenderScene> Scene::SyncRenderScene(const std::function<bool(Entity)>& isSelected) const
 	{
 		struct StaticMeshSyncItem
@@ -1752,9 +1724,7 @@ namespace Lux {
 		// Collect light / environment / volumes (all read-only on the registry)
 		packet.Lights = CollectLightEnvironment();
 		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod);
-		RenderVolumeBaseSettings volumeBaseSettings = renderer->GetBaseRenderVolumeSettings(sceneCamera.Camera.GetExposure());
-		const Frustum cameraFrustum = Frustum::FromViewProjection(sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix);
-		packet.Volumes = CollectRenderVolumeEnvironment(camera.GetPosition(), &cameraFrustum, volumeBaseSettings, isSelected);
+		packet.PostProcess = m_PostProcessSettings;
 
 		// Mesh proxies, 2D overlay items and physics-collider debug meshes
 		packet.Meshes = SyncRenderScene(isSelected);
@@ -1833,7 +1803,7 @@ namespace Lux {
 
 		renderer->SetLightEnvironment(packet.Lights);
 		renderer->SetEnvironment(packet.SkyEnvironment, packet.EnvironmentIntensity, packet.EnvironmentLod);
-		renderer->SetRenderVolumeEnvironment(packet.Volumes);
+		renderer->SetPostProcessSettings(packet.PostProcess);
 
 		renderer->BeginScene(packet.Camera);
 
@@ -1916,10 +1886,7 @@ namespace Lux {
 
 		packet.Lights = CollectLightEnvironment();
 		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod);
-		RenderVolumeBaseSettings volumeBaseSettings = renderer->GetBaseRenderVolumeSettings(sceneCamera.Camera.GetExposure());
-		const glm::vec3 cameraPosition = glm::vec3(GetWorldSpaceTransformMatrix(cameraEntity)[3]);
-		const Frustum cameraFrustum = Frustum::FromViewProjection(sceneCamera.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix);
-		packet.Volumes = CollectRenderVolumeEnvironment(cameraPosition, &cameraFrustum, volumeBaseSettings);
+		packet.PostProcess = m_PostProcessSettings;
 
 		// Submit all static meshes (no selection highlight in runtime)
 		packet.Meshes = SyncRenderScene(nullptr);
@@ -2413,18 +2380,6 @@ namespace Lux {
 	template<>
 	void Scene::OnComponentAdded<SkyLightComponent>(Entity entity, SkyLightComponent& component)
 	{
-	}
-
-	template<>
-	void Scene::OnComponentAdded<RenderVolumeComponent>(Entity entity, RenderVolumeComponent& component)
-	{
-	}
-
-	template<>
-	void Scene::OnComponentAdded<PostProcessVolumeComponent>(Entity entity, PostProcessVolumeComponent& component)
-	{
-		if (!entity.HasComponent<RenderVolumeComponent>())
-			entity.AddComponent<RenderVolumeComponent>();
 	}
 
 }

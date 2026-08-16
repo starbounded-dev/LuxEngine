@@ -518,61 +518,6 @@ namespace Lux {
 				out << YAML::EndMap;
 			}
 
-			if (entity.HasComponent<RenderVolumeComponent>())
-			{
-				const auto& volume = entity.GetComponent<RenderVolumeComponent>();
-				out << YAML::Key << "RenderVolumeComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Enabled" << YAML::Value << volume.Enabled;
-				out << YAML::Key << "Shape" << YAML::Value << static_cast<uint32_t>(volume.Shape);
-				out << YAML::Key << "Unbound" << YAML::Value << volume.Unbound;
-				out << YAML::Key << "BlendDistance" << YAML::Value << volume.BlendDistance;
-				out << YAML::Key << "BlendWeight" << YAML::Value << volume.BlendWeight;
-				out << YAML::Key << "Priority" << YAML::Value << volume.Priority;
-				out << YAML::Key << "DebugColor" << YAML::Value << volume.DebugColor;
-				out << YAML::EndMap;
-			}
-
-			if (entity.HasComponent<PostProcessVolumeComponent>())
-			{
-				const auto& component = entity.GetComponent<PostProcessVolumeComponent>();
-				const auto& settings = component.Settings;
-				out << YAML::Key << "PostProcessVolumeComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "OverrideMask" << YAML::Value << component.OverrideMask;
-				out << YAML::Key << "Exposure" << YAML::Value << settings.Exposure;
-				out << YAML::Key << "ExposureMode" << YAML::Value << static_cast<uint32_t>(settings.ExposureControl);
-				out << YAML::Key << "Aperture" << YAML::Value << settings.Aperture;
-				out << YAML::Key << "ShutterSpeed" << YAML::Value << settings.ShutterSpeed;
-				out << YAML::Key << "ISO" << YAML::Value << settings.ISO;
-				out << YAML::Key << "ExposureEV100" << YAML::Value << settings.ExposureEV100;
-				out << YAML::Key << "ExposureCompensation" << YAML::Value << settings.ExposureCompensation;
-				out << YAML::Key << "AutoMinEV100" << YAML::Value << settings.AutoMinEV100;
-				out << YAML::Key << "AutoMaxEV100" << YAML::Value << settings.AutoMaxEV100;
-				out << YAML::Key << "AutoAdaptationSpeedUp" << YAML::Value << settings.AutoAdaptationSpeedUp;
-				out << YAML::Key << "AutoAdaptationSpeedDown" << YAML::Value << settings.AutoAdaptationSpeedDown;
-				out << YAML::Key << "BloomEnabled" << YAML::Value << settings.BloomEnabled;
-				out << YAML::Key << "BloomThreshold" << YAML::Value << settings.BloomThreshold;
-				out << YAML::Key << "BloomKnee" << YAML::Value << settings.BloomKnee;
-				out << YAML::Key << "BloomUpsampleScale" << YAML::Value << settings.BloomUpsampleScale;
-				out << YAML::Key << "BloomIntensity" << YAML::Value << settings.BloomIntensity;
-				out << YAML::Key << "BloomDirtIntensity" << YAML::Value << settings.BloomDirtIntensity;
-				out << YAML::Key << "DOFEnabled" << YAML::Value << settings.DOFEnabled;
-				out << YAML::Key << "DOFFocusDistance" << YAML::Value << settings.DOFFocusDistance;
-				out << YAML::Key << "DOFBlurSize" << YAML::Value << settings.DOFBlurSize;
-				out << YAML::Key << "ColorFilter" << YAML::Value << settings.ColorFilter;
-				out << YAML::Key << "Saturation" << YAML::Value << settings.Saturation;
-				out << YAML::Key << "Contrast" << YAML::Value << settings.Contrast;
-				out << YAML::Key << "Gamma" << YAML::Value << settings.Gamma;
-				out << YAML::Key << "Tonemap" << YAML::Value << static_cast<uint32_t>(settings.Tonemap);
-				out << YAML::Key << "WhiteTemperature" << YAML::Value << settings.WhiteTemperature;
-				out << YAML::Key << "WhiteTint" << YAML::Value << settings.WhiteTint;
-				out << YAML::Key << "Lift" << YAML::Value << settings.Lift;
-				out << YAML::Key << "GradeGamma" << YAML::Value << settings.GradeGamma;
-				out << YAML::Key << "Gain" << YAML::Value << settings.Gain;
-				out << YAML::EndMap;
-			}
-
 			if (entity.HasComponent<SpriteRendererComponent>())
 			{
 				const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
@@ -1024,56 +969,6 @@ namespace Lux {
 					component.TurbidityAzimuthInclination = skyLight["TurbidityAzimuthInclination"].as<glm::vec3>(glm::vec3{ 2.0f, 0.0f, 0.0f });
 				}
 
-				if (auto renderVolume = entity["RenderVolumeComponent"])
-				{
-					auto& component = deserializedEntity.AddComponent<RenderVolumeComponent>();
-					component.Enabled = renderVolume["Enabled"].as<bool>(component.Enabled);
-					const uint32_t shape = renderVolume["Shape"].as<uint32_t>(static_cast<uint32_t>(component.Shape));
-					component.Shape = shape == static_cast<uint32_t>(RenderVolumeShape::Sphere) ? RenderVolumeShape::Sphere : RenderVolumeShape::Box;
-					component.Unbound = renderVolume["Unbound"].as<bool>(component.Unbound);
-					component.BlendDistance = renderVolume["BlendDistance"].as<float>(component.BlendDistance);
-					component.BlendWeight = renderVolume["BlendWeight"].as<float>(component.BlendWeight);
-					component.Priority = renderVolume["Priority"].as<int32_t>(component.Priority);
-					component.DebugColor = renderVolume["DebugColor"].as<glm::vec4>(component.DebugColor);
-				}
-
-				if (auto postProcessVolume = entity["PostProcessVolumeComponent"])
-				{
-					auto& component = deserializedEntity.AddComponent<PostProcessVolumeComponent>();
-					auto& settings = component.Settings;
-					component.OverrideMask = postProcessVolume["OverrideMask"].as<uint64_t>(component.OverrideMask);
-					settings.Exposure = postProcessVolume["Exposure"].as<float>(settings.Exposure);
-					settings.ExposureControl = static_cast<ExposureMode>(postProcessVolume["ExposureMode"].as<uint32_t>(static_cast<uint32_t>(settings.ExposureControl)));
-					settings.Aperture = postProcessVolume["Aperture"].as<float>(settings.Aperture);
-					settings.ShutterSpeed = postProcessVolume["ShutterSpeed"].as<float>(settings.ShutterSpeed);
-					settings.ISO = postProcessVolume["ISO"].as<float>(settings.ISO);
-					settings.ExposureEV100 = postProcessVolume["ExposureEV100"].as<float>(settings.ExposureEV100);
-					settings.ExposureCompensation = postProcessVolume["ExposureCompensation"].as<float>(settings.ExposureCompensation);
-					settings.AutoMinEV100 = postProcessVolume["AutoMinEV100"].as<float>(settings.AutoMinEV100);
-					settings.AutoMaxEV100 = postProcessVolume["AutoMaxEV100"].as<float>(settings.AutoMaxEV100);
-					settings.AutoAdaptationSpeedUp = postProcessVolume["AutoAdaptationSpeedUp"].as<float>(settings.AutoAdaptationSpeedUp);
-					settings.AutoAdaptationSpeedDown = postProcessVolume["AutoAdaptationSpeedDown"].as<float>(settings.AutoAdaptationSpeedDown);
-					settings.BloomEnabled = postProcessVolume["BloomEnabled"].as<bool>(settings.BloomEnabled);
-					settings.BloomThreshold = postProcessVolume["BloomThreshold"].as<float>(settings.BloomThreshold);
-					settings.BloomKnee = postProcessVolume["BloomKnee"].as<float>(settings.BloomKnee);
-					settings.BloomUpsampleScale = postProcessVolume["BloomUpsampleScale"].as<float>(settings.BloomUpsampleScale);
-					settings.BloomIntensity = postProcessVolume["BloomIntensity"].as<float>(settings.BloomIntensity);
-					settings.BloomDirtIntensity = postProcessVolume["BloomDirtIntensity"].as<float>(settings.BloomDirtIntensity);
-					settings.DOFEnabled = postProcessVolume["DOFEnabled"].as<bool>(settings.DOFEnabled);
-					settings.DOFFocusDistance = postProcessVolume["DOFFocusDistance"].as<float>(settings.DOFFocusDistance);
-					settings.DOFBlurSize = postProcessVolume["DOFBlurSize"].as<float>(settings.DOFBlurSize);
-					settings.ColorFilter = postProcessVolume["ColorFilter"].as<glm::vec3>(settings.ColorFilter);
-					settings.Saturation = postProcessVolume["Saturation"].as<float>(settings.Saturation);
-					settings.Contrast = postProcessVolume["Contrast"].as<float>(settings.Contrast);
-					settings.Gamma = postProcessVolume["Gamma"].as<float>(settings.Gamma);
-					settings.Tonemap = static_cast<TonemapOperator>(postProcessVolume["Tonemap"].as<uint32_t>(static_cast<uint32_t>(settings.Tonemap)));
-					settings.WhiteTemperature = postProcessVolume["WhiteTemperature"].as<float>(settings.WhiteTemperature);
-					settings.WhiteTint = postProcessVolume["WhiteTint"].as<float>(settings.WhiteTint);
-					settings.Lift = postProcessVolume["Lift"].as<glm::vec3>(settings.Lift);
-					settings.GradeGamma = postProcessVolume["GradeGamma"].as<glm::vec3>(settings.GradeGamma);
-					settings.Gain = postProcessVolume["Gain"].as<glm::vec3>(settings.Gain);
-				}
-
 				if (auto sprite = entity["SpriteRendererComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SpriteRendererComponent>();
@@ -1251,6 +1146,36 @@ namespace Lux {
 	{
 		out << YAML::BeginMap;
 		out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+
+		// Scene-wide post-processing. Previously authored per PostProcessVolume entity; the
+		// volume system is gone, so it lives here as one block.
+		{
+			const PostProcessSettings& post = m_Scene->GetPostProcessSettings();
+			out << YAML::Key << "PostProcess" << YAML::Value << YAML::BeginMap;
+			out << YAML::Key << "Exposure" << YAML::Value << post.Exposure;
+			out << YAML::Key << "ExposureMode" << YAML::Value << static_cast<uint32_t>(post.ExposureControl);
+			out << YAML::Key << "Aperture" << YAML::Value << post.Aperture;
+			out << YAML::Key << "ShutterSpeed" << YAML::Value << post.ShutterSpeed;
+			out << YAML::Key << "ISO" << YAML::Value << post.ISO;
+			out << YAML::Key << "ExposureEV100" << YAML::Value << post.ExposureEV100;
+			out << YAML::Key << "ExposureCompensation" << YAML::Value << post.ExposureCompensation;
+			out << YAML::Key << "AutoMinEV100" << YAML::Value << post.AutoMinEV100;
+			out << YAML::Key << "AutoMaxEV100" << YAML::Value << post.AutoMaxEV100;
+			out << YAML::Key << "AutoAdaptationSpeedUp" << YAML::Value << post.AutoAdaptationSpeedUp;
+			out << YAML::Key << "AutoAdaptationSpeedDown" << YAML::Value << post.AutoAdaptationSpeedDown;
+			out << YAML::Key << "ColorFilter" << YAML::Value << post.ColorFilter;
+			out << YAML::Key << "Saturation" << YAML::Value << post.Saturation;
+			out << YAML::Key << "Contrast" << YAML::Value << post.Contrast;
+			out << YAML::Key << "Gamma" << YAML::Value << post.Gamma;
+			out << YAML::Key << "Tonemap" << YAML::Value << static_cast<uint32_t>(post.Tonemap);
+			out << YAML::Key << "WhiteTemperature" << YAML::Value << post.WhiteTemperature;
+			out << YAML::Key << "WhiteTint" << YAML::Value << post.WhiteTint;
+			out << YAML::Key << "Lift" << YAML::Value << post.Lift;
+			out << YAML::Key << "GradeGamma" << YAML::Value << post.GradeGamma;
+			out << YAML::Key << "Gain" << YAML::Value << post.Gain;
+			out << YAML::EndMap;
+		}
+
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 
 		auto view = m_Scene->m_Registry.view<IDComponent>();
@@ -1311,6 +1236,35 @@ namespace Lux {
 		{
 			LUX_CORE_ERROR("Failed to read scene name: {0}", e.what());
 			return false;
+		}
+
+		// Absent in scenes written before post-processing moved off volumes; those simply
+		// keep the struct defaults.
+		if (auto postProcess = data["PostProcess"])
+		{
+			PostProcessSettings post;
+			post.Exposure = postProcess["Exposure"].as<float>(post.Exposure);
+			post.ExposureControl = static_cast<ExposureMode>(postProcess["ExposureMode"].as<uint32_t>(static_cast<uint32_t>(post.ExposureControl)));
+			post.Aperture = postProcess["Aperture"].as<float>(post.Aperture);
+			post.ShutterSpeed = postProcess["ShutterSpeed"].as<float>(post.ShutterSpeed);
+			post.ISO = postProcess["ISO"].as<float>(post.ISO);
+			post.ExposureEV100 = postProcess["ExposureEV100"].as<float>(post.ExposureEV100);
+			post.ExposureCompensation = postProcess["ExposureCompensation"].as<float>(post.ExposureCompensation);
+			post.AutoMinEV100 = postProcess["AutoMinEV100"].as<float>(post.AutoMinEV100);
+			post.AutoMaxEV100 = postProcess["AutoMaxEV100"].as<float>(post.AutoMaxEV100);
+			post.AutoAdaptationSpeedUp = postProcess["AutoAdaptationSpeedUp"].as<float>(post.AutoAdaptationSpeedUp);
+			post.AutoAdaptationSpeedDown = postProcess["AutoAdaptationSpeedDown"].as<float>(post.AutoAdaptationSpeedDown);
+			post.ColorFilter = postProcess["ColorFilter"].as<glm::vec3>(post.ColorFilter);
+			post.Saturation = postProcess["Saturation"].as<float>(post.Saturation);
+			post.Contrast = postProcess["Contrast"].as<float>(post.Contrast);
+			post.Gamma = postProcess["Gamma"].as<float>(post.Gamma);
+			post.Tonemap = static_cast<TonemapOperator>(postProcess["Tonemap"].as<uint32_t>(static_cast<uint32_t>(post.Tonemap)));
+			post.WhiteTemperature = postProcess["WhiteTemperature"].as<float>(post.WhiteTemperature);
+			post.WhiteTint = postProcess["WhiteTint"].as<float>(post.WhiteTint);
+			post.Lift = postProcess["Lift"].as<glm::vec3>(post.Lift);
+			post.GradeGamma = postProcess["GradeGamma"].as<glm::vec3>(post.GradeGamma);
+			post.Gain = postProcess["Gain"].as<glm::vec3>(post.Gain);
+			m_Scene->SetPostProcessSettings(post);
 		}
 
 		return DeserializeEntities(data["Entities"], m_Scene);

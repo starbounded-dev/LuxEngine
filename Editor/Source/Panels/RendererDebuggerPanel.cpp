@@ -858,10 +858,9 @@ namespace Lux {
 		ImGui::TextDisabled("Viewport: %ux%u",
 			m_Context->GetViewportWidth(),
 			m_Context->GetViewportHeight());
-		ImGui::TextDisabled("Frame Contract: %s path, RenderScene %s, volumes %s, bloom %s, DOF %s",
+		ImGui::TextDisabled("Frame Contract: %s path, RenderScene %s, bloom %s, DOF %s",
 			frame.DeferredPath ? "Deferred" : "Forward",
 			frame.HasRenderScene ? "yes" : "no",
-			frame.HasRenderVolumeEnvironment ? "yes" : "no",
 			frame.BloomEnabled ? "on" : "off",
 			frame.DOFEnabled ? "on" : "off");
 		const bool materialIDValid = m_Context->GetDebugViewImage(SceneRenderer::DebugViewMode::GBufferMaterialID) != nullptr;
@@ -869,11 +868,6 @@ namespace Lux {
 		ImGui::TextDisabled("GBuffer: A RGBA16F, B RGBA16F, C RGBA8, MaterialID RED32UI %s, ObjectID RED32UI %s",
 			materialIDValid ? "valid" : "unavailable",
 			objectIDValid ? "valid" : "unavailable");
-		const RenderVolumeEnvironment& volumeEnvironment = m_Context->GetRenderVolumeEnvironment();
-		ImGui::TextDisabled("Volumes: active %u, post %u, selected influence %.2f",
-			volumeEnvironment.ActiveVolumeCount,
-			volumeEnvironment.ActivePostProcessVolumeCount,
-			volumeEnvironment.SelectedVolumeInfluence);
 		if (activeImage)
 		{
 			const ImageSpecification& spec = activeImage->GetSpecification();

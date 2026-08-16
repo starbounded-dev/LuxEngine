@@ -11,7 +11,6 @@
 #include "Lux/Math/Math.h"
 #include "Lux/Physics/PhysicsTypes.h"
 #include "Lux/Renderer/MaterialAsset.h"
-#include "Lux/Renderer/RenderVolumes.h"
 #include "Lux/Renderer/Texture.h"
 #include "Lux/Renderer/UI/Font.h"
 
@@ -617,7 +616,6 @@ namespace Lux {
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
-		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-		RenderVolumeComponent, PostProcessVolumeComponent>;
+		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
 
 }

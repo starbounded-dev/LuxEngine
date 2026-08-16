@@ -6,7 +6,7 @@
 #include "Lux/Renderer/RenderPass.h"
 #include "Lux/Renderer/ComputePass.h"
 #include "Lux/Renderer/RenderGraph.h"
-#include "Lux/Renderer/RenderVolumes.h"
+#include "Lux/Renderer/PostProcessSettings.h"
 #include "Lux/Renderer/Pipeline.h"
 #include "Lux/Renderer/PipelineCompute.h"
 #include "Lux/Renderer/Framebuffer.h"
@@ -551,11 +551,8 @@ namespace Lux {
 		{
 			bool DeferredPath = true;
 			bool HasRenderScene = false;
-			bool HasRenderVolumeEnvironment = false;
 			bool BloomEnabled = false;
 			bool DOFEnabled = false;
-			uint32_t ActiveVolumeCount = 0;
-			uint32_t ActivePostProcessVolumeCount = 0;
 		};
 
 		struct GPUSceneDebugSnapshot
@@ -640,7 +637,9 @@ namespace Lux {
 		// Call before BeginScene to update the scene state consumed by the render passes.
 		void SetLightEnvironment(const LightEnvironment& lightEnvironment);
 		void SetEnvironment(Ref<Environment> environment, float intensity = 1.0f, float skyboxLod = 0.0f);
-		void SetRenderVolumeEnvironment(const RenderVolumeEnvironment& renderVolumeEnvironment);
+		// Scene-wide post-processing. Replaces the removed per-volume blending: the scene
+		// authors one set of values and they apply everywhere.
+		void SetPostProcessSettings(const PostProcessSettings& postProcessSettings);
 
 		// Submit a static (non-animated) mesh for rendering this frame.
 		void SubmitRenderScene(const Ref<RenderScene>& renderScene);
@@ -722,8 +721,10 @@ namespace Lux {
 		bool IsSMAAReady() const;
 		BloomSettings& GetBloomSettings() { return m_BloomSettings; }
 		DOFSettings& GetDOFSettings() { return m_DOFSettings; }
-		RenderVolumeBaseSettings GetBaseRenderVolumeSettings(float cameraExposure) const;
-		const RenderVolumeEnvironment& GetRenderVolumeEnvironment() const { return m_RenderVolumeEnvironment; }
+		// The authored settings with Bloom / DOF / Exposure overlaid from the renderer's own
+		// state, which is what the passes actually consume.
+		PostProcessSettings GetEffectivePostProcessSettings(float cameraExposure) const;
+		const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
 		SSROptionsUB& GetSSROptions() { return m_SSROptions; }
 	void ApplyProjectSettings(const ProjectSceneRendererSettings& settings);
 	void WriteProjectSettings(ProjectSceneRendererSettings& settings) const;
@@ -1051,7 +1052,7 @@ namespace Lux {
 		void SSRCompositePass();
 		void BloomCompute();
 		void AutoExposurePass();
-		float ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const;
+		float ComputeFinalExposure(const PostProcessSettings& settings) const;
 		void CompositePass();
 		void DOFPass();
 		// One entry point: the three (or four, with T2x) dispatches are sequential and
@@ -1129,15 +1130,13 @@ namespace Lux {
 			Ref<Environment> Environment;
 			float EnvironmentIntensity = 1.0f;
 			float SkyboxLod = 0.0f;
-			RenderVolumeEnvironment Volumes;
-			RenderVolumePostProcessSettings PostProcess;
-			bool HasRenderVolumeEnvironment = false;
+			PostProcessSettings PostProcess;
 			bool BloomEnabled = false;
 			bool DOFEnabled = false;
 		};
 		ResolvedFrameEnvironment ResolveFrameEnvironment() const;
 		void RefreshFrameEnvironment();
-		RenderVolumePostProcessSettings GetResolvedPostProcessSettings() const;
+		PostProcessSettings GetResolvedPostProcessSettings() const;
 
 		struct CascadeData
 		{
@@ -1729,8 +1728,7 @@ namespace Lux {
 		uint32_t m_CachedShadowMapResolution = 0;
 		BloomSettings m_BloomSettings;
 		DOFSettings m_DOFSettings;
-		RenderVolumeEnvironment m_RenderVolumeEnvironment;
-		bool m_HasRenderVolumeEnvironment = false;
+		PostProcessSettings m_PostProcessSettings;
 		SSROptionsUB m_SSROptions;
 
 		SceneRendererOptions m_Options;

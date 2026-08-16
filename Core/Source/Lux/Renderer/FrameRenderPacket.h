@@ -3,7 +3,7 @@
 #include "Lux/Core/Ref.h"
 
 #include "Lux/Renderer/SceneRenderer.h"     // SceneRendererCamera, LightEnvironment
-#include "Lux/Renderer/RenderVolumes.h"     // RenderVolumeEnvironment
+#include "Lux/Renderer/PostProcessSettings.h"  // PostProcessSettings
 #include "Lux/Renderer/RenderScene.h"       // RenderScene
 #include "Lux/Renderer/SceneEnvironment.h"  // Environment
 #include "Lux/Renderer/Texture.h"           // Texture2D
@@ -62,7 +62,7 @@ namespace Lux {
 		Ref<Environment> SkyEnvironment;
 		float EnvironmentIntensity = 1.0f;
 		float EnvironmentLod = 0.0f;
-		RenderVolumeEnvironment Volumes;
+		PostProcessSettings PostProcess;
 
 		Ref<RenderScene> Meshes;
 

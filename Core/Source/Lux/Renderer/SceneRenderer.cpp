@@ -472,8 +472,6 @@ namespace Lux {
 	SceneRenderer::SceneRenderer(Ref<Scene> scene, SceneRendererSpecification specification)
 		: m_Scene(scene), m_Specification(specification)
 	{
-		static const bool renderVolumeSelfTestsPassed = RenderVolumeEvaluator::RunSelfTests();
-		(void)renderVolumeSelfTestsPassed;
 		Init();
 	}
 
@@ -3127,30 +3125,33 @@ namespace Lux {
 		RefreshFrameEnvironment();
 	}
 
-	void SceneRenderer::SetRenderVolumeEnvironment(const RenderVolumeEnvironment& renderVolumeEnvironment)
+	void SceneRenderer::SetPostProcessSettings(const PostProcessSettings& postProcessSettings)
 	{
-		m_RenderVolumeEnvironment = renderVolumeEnvironment;
-		m_HasRenderVolumeEnvironment = true;
+		m_PostProcessSettings = postProcessSettings;
 		RefreshFrameEnvironment();
 	}
 
-	RenderVolumeBaseSettings SceneRenderer::GetBaseRenderVolumeSettings(float cameraExposure) const
+	PostProcessSettings SceneRenderer::GetEffectivePostProcessSettings(float cameraExposure) const
 	{
-		RenderVolumeBaseSettings settings;
-		settings.PostProcess.Exposure = cameraExposure;
-		settings.PostProcess.BloomEnabled = m_BloomSettings.Enabled;
-		settings.PostProcess.BloomThreshold = m_BloomSettings.Threshold;
-		settings.PostProcess.BloomKnee = m_BloomSettings.Knee;
-		settings.PostProcess.BloomUpsampleScale = m_BloomSettings.UpsampleScale;
-		settings.PostProcess.BloomIntensity = m_BloomSettings.Intensity;
-		settings.PostProcess.BloomDirtIntensity = m_BloomSettings.DirtIntensity;
-		settings.PostProcess.DOFEnabled = m_DOFSettings.Enabled;
-		settings.PostProcess.DOFFocusDistance = m_DOFSettings.FocusDistance;
-		settings.PostProcess.DOFBlurSize = m_DOFSettings.BlurSize;
+		// Bloom, DOF and exposure are owned by the renderer (quality tiers and the camera
+		// drive them), so they are overlaid onto the scene-authored values. Everything else
+		// - exposure mode, physical camera, auto-exposure, grading, tonemap - has no other
+		// source and comes through unchanged.
+		PostProcessSettings settings = m_PostProcessSettings;
+		settings.Exposure = cameraExposure;
+		settings.BloomEnabled = m_BloomSettings.Enabled;
+		settings.BloomThreshold = m_BloomSettings.Threshold;
+		settings.BloomKnee = m_BloomSettings.Knee;
+		settings.BloomUpsampleScale = m_BloomSettings.UpsampleScale;
+		settings.BloomIntensity = m_BloomSettings.Intensity;
+		settings.BloomDirtIntensity = m_BloomSettings.DirtIntensity;
+		settings.DOFEnabled = m_DOFSettings.Enabled;
+		settings.DOFFocusDistance = m_DOFSettings.FocusDistance;
+		settings.DOFBlurSize = m_DOFSettings.BlurSize;
 		return settings;
 	}
 
-	RenderVolumePostProcessSettings SceneRenderer::GetResolvedPostProcessSettings() const
+	PostProcessSettings SceneRenderer::GetResolvedPostProcessSettings() const
 	{
 		return ResolveFrameEnvironment().PostProcess;
 	}
@@ -3162,18 +3163,7 @@ namespace Lux {
 		frame.Environment = m_SceneData.SceneEnvironment;
 		frame.EnvironmentIntensity = m_SceneData.SceneEnvironmentIntensity;
 		frame.SkyboxLod = m_SceneData.SkyboxLod;
-		frame.HasRenderVolumeEnvironment = m_HasRenderVolumeEnvironment;
-
-		if (m_HasRenderVolumeEnvironment)
-		{
-			frame.Volumes = m_RenderVolumeEnvironment;
-			frame.PostProcess = m_RenderVolumeEnvironment.PostProcess;
-		}
-		else
-		{
-			frame.Volumes = {};
-			frame.PostProcess = GetBaseRenderVolumeSettings(m_SceneData.SceneCamera.Camera.GetExposure()).PostProcess;
-		}
+		frame.PostProcess = GetEffectivePostProcessSettings(m_SceneData.SceneCamera.Camera.GetExposure());
 
 		frame.BloomEnabled = frame.PostProcess.BloomEnabled;
 		frame.DOFEnabled = frame.PostProcess.DOFEnabled;
@@ -3192,11 +3182,8 @@ namespace Lux {
 		RendererFrameDebugSnapshot snapshot;
 		snapshot.DeferredPath = frame.DeferredPath;
 		snapshot.HasRenderScene = m_SubmittedRenderScene != nullptr;
-		snapshot.HasRenderVolumeEnvironment = frame.HasRenderVolumeEnvironment;
 		snapshot.BloomEnabled = frame.BloomEnabled;
 		snapshot.DOFEnabled = frame.DOFEnabled;
-		snapshot.ActiveVolumeCount = frame.Volumes.ActiveVolumeCount;
-		snapshot.ActivePostProcessVolumeCount = frame.Volumes.ActivePostProcessVolumeCount;
 		return snapshot;
 	}
 
@@ -3966,7 +3953,7 @@ namespace Lux {
 			addPass("JumpFlood", selectedOutputs, jumpFloodWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::JumpFloodPass));
 		}
 
-		const RenderVolumePostProcessSettings& postProcessSettings = frame.PostProcess;
+		const PostProcessSettings& postProcessSettings = frame.PostProcess;
 
 		// Histogram auto-exposure reads the final scene color and writes the exposure
 		// state buffer (a side effect not tracked as a graph texture, so it is pinned).
@@ -7983,7 +7970,7 @@ namespace Lux {
 	void SceneRenderer::DOFPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "DOF");
-		const RenderVolumePostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		const PostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
 		if (!postProcessSettings.DOFEnabled || !m_DOFPass || !m_DOFMaterial)
 			return;
 
@@ -8144,7 +8131,7 @@ namespace Lux {
 	void SceneRenderer::BloomCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "BloomCompute");
-		const RenderVolumePostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		const PostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
 		if (!postProcessSettings.BloomEnabled || !m_BloomComputePass || !m_BloomComputePipeline || !m_BloomComputeMaterials.PrefilterMaterial)
 			return;
 
@@ -8277,7 +8264,7 @@ namespace Lux {
 		if (!sceneColor)
 			return;
 
-		const RenderVolumePostProcessSettings settings = GetResolvedPostProcessSettings();
+		const PostProcessSettings settings = GetResolvedPostProcessSettings();
 		if (settings.ExposureControl != ExposureMode::Automatic)
 			return;
 
@@ -8340,7 +8327,7 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
-	float SceneRenderer::ComputeFinalExposure(const RenderVolumePostProcessSettings& settings) const
+	float SceneRenderer::ComputeFinalExposure(const PostProcessSettings& settings) const
 	{
 		switch (settings.ExposureControl)
 		{
@@ -8363,7 +8350,7 @@ namespace Lux {
 		ScopedCPUProfile cpuProfile(*this, "CompositePass");
 		BeginProfiledGPU("CompositePass");
 
-		const RenderVolumePostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		const PostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
 		const bool useAutoExposure = postProcessSettings.ExposureControl == ExposureMode::Automatic && m_AutoExposureValid;
 		m_CompositeMaterial->Set("u_Uniforms.Exposure", ComputeFinalExposure(postProcessSettings));
 		m_CompositeMaterial->Set("u_Uniforms.UseAutoExposure", useAutoExposure ? 1 : 0);

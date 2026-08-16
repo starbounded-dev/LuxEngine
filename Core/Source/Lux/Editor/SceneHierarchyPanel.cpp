@@ -686,20 +686,6 @@ namespace Lux {
 				ImGui::EndMenu();
 			}
 
-			if (ImGui::BeginMenu("Volumes"))
-			{
-				if (ImGui::MenuItem("Post Process Volume"))
-				{
-					Entity entity = createEntity("Post Process Volume");
-					auto& volume = entity.AddComponent<RenderVolumeComponent>();
-					volume.Unbound = true;
-					volume.DebugColor = { 0.35f, 0.65f, 1.0f, 1.0f };
-					entity.AddComponent<PostProcessVolumeComponent>();
-				}
-
-				ImGui::EndMenu();
-			}
-
 			ImGui::EndMenu();
 		}
 
@@ -1020,8 +1006,6 @@ namespace Lux {
 				const bool canAddPointLight = canAddComponent.template operator()<PointLightComponent>();
 				const bool canAddSpotLight = canAddComponent.template operator()<SpotLightComponent>();
 				const bool canAddSkyLight = canAddComponent.template operator()<SkyLightComponent>();
-				const bool canAddRenderVolume = canAddComponent.template operator()<RenderVolumeComponent>();
-				const bool canAddPostProcessVolume = canAddComponent.template operator()<PostProcessVolumeComponent>();
 
 				if (canAddCamera || canAddScript)
 					addCategoryHeader("General");
@@ -1052,7 +1036,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddText || canAddSpriteRenderer || canAddCircleRenderer || canAddStaticMesh || canAddRenderVolume || canAddPostProcessVolume)
+				if (canAddText || canAddSpriteRenderer || canAddCircleRenderer || canAddStaticMesh)
 					addCategoryHeader("Rendering");
 
 				if (canAddText)
@@ -1107,32 +1091,6 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<StaticMeshComponent>())
 								entity.AddComponent<StaticMeshComponent>();
-						}
-					});
-				}
-
-				if (canAddRenderVolume)
-				{
-					addComponentRow("Render Volume", EditorResources::SkyLightIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<RenderVolumeComponent>())
-								entity.AddComponent<RenderVolumeComponent>();
-						}
-					});
-				}
-
-				if (canAddPostProcessVolume)
-				{
-					addComponentRow("Post Process Volume", EditorResources::SkyLightIcon, [this, &entityIDs]()
-					{
-						for (UUID entityID : entityIDs)
-						{
-							Entity entity = m_Context->GetEntityByUUID(entityID);
-							if (entity && !entity.HasComponent<PostProcessVolumeComponent>())
-								entity.AddComponent<PostProcessVolumeComponent>();
 						}
 					});
 				}
@@ -2972,210 +2930,6 @@ namespace Lux {
 					});
 				}
 
-				ImGuiEx::EndPropertyGrid();
-			});
-
-		DrawComponentSection<RenderVolumeComponent>(m_Context, entityIDs, "Render Volume", EditorResources::SkyLightIcon,
-			[this](RenderVolumeComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
-			{
-				auto applySettings = [&]()
-				{
-					ApplyToSelection<RenderVolumeComponent>(m_Context, selectedEntities, [&firstComponent](RenderVolumeComponent& component, Entity)
-					{
-						component = firstComponent;
-					});
-				};
-
-				ImGui::TextDisabled("Blend");
-				ImGuiEx::BeginPropertyGrid();
-				if (ImGuiEx::Property("Enabled", firstComponent.Enabled)) applySettings();
-				const char* shapeLabels[] = { "Box", "Sphere" };
-				int32_t shapeIndex = firstComponent.Shape == RenderVolumeShape::Sphere ? 1 : 0;
-				if (ImGuiEx::PropertyDropdown("Shape", shapeLabels, IM_ARRAYSIZE(shapeLabels), &shapeIndex))
-				{
-					firstComponent.Shape = shapeIndex == 1 ? RenderVolumeShape::Sphere : RenderVolumeShape::Box;
-					applySettings();
-				}
-				if (ImGuiEx::Property("Unbound", firstComponent.Unbound)) applySettings();
-				if (ImGuiEx::Property("Blend Distance", firstComponent.BlendDistance, 0.1f, 0.0f, 100000.0f)) applySettings();
-				if (ImGuiEx::Property("Blend Weight", firstComponent.BlendWeight, 0.01f, 0.0f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Priority", firstComponent.Priority, -1000, 1000)) applySettings();
-				if (ImGuiEx::PropertyColor("Debug Color", firstComponent.DebugColor)) applySettings();
-				ImGuiEx::EndPropertyGrid();
-			});
-
-		DrawComponentSection<PostProcessVolumeComponent>(m_Context, entityIDs, "Post Process Volume", EditorResources::SkyLightIcon,
-			[this](PostProcessVolumeComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
-			{
-				RenderVolumePostProcessSettings& settings = firstComponent.Settings;
-				auto applySettings = [&]()
-				{
-					ApplyToSelection<PostProcessVolumeComponent>(m_Context, selectedEntities, [&firstComponent](PostProcessVolumeComponent& component, Entity)
-					{
-						component = firstComponent;
-					});
-				};
-
-				auto drawOverride = [&](const char* label, uint64_t flag)
-				{
-					bool enabled = (firstComponent.OverrideMask & flag) != 0;
-					if (ImGui::Checkbox(label, &enabled))
-					{
-						if (enabled)
-							firstComponent.OverrideMask |= flag;
-						else
-							firstComponent.OverrideMask &= ~flag;
-						applySettings();
-					}
-					return enabled;
-				};
-
-				ImGui::TextDisabled("Exposure");
-				const bool exposureModeOverride = drawOverride("Override Exposure Mode", PostProcessOverride_ExposureMode);
-				const bool exposureOverride = drawOverride("Override Exposure", PostProcessOverride_Exposure);
-				const bool apertureOverride = drawOverride("Override Aperture", PostProcessOverride_Aperture);
-				const bool shutterOverride = drawOverride("Override Shutter Speed", PostProcessOverride_ShutterSpeed);
-				const bool isoOverride = drawOverride("Override ISO", PostProcessOverride_ISO);
-				const bool ev100Override = drawOverride("Override EV100", PostProcessOverride_ExposureEV100);
-				const bool exposureCompOverride = drawOverride("Override Exposure Compensation", PostProcessOverride_ExposureCompensation);
-				const bool autoMinOverride = drawOverride("Override Auto Min EV", PostProcessOverride_AutoMinEV100);
-				const bool autoMaxOverride = drawOverride("Override Auto Max EV", PostProcessOverride_AutoMaxEV100);
-				const bool autoUpOverride = drawOverride("Override Auto Adapt Up", PostProcessOverride_AutoAdaptationSpeedUp);
-				const bool autoDownOverride = drawOverride("Override Auto Adapt Down", PostProcessOverride_AutoAdaptationSpeedDown);
-
-				static const char* s_ExposureModes[] = { "Manual", "Manual EV100", "Camera", "Automatic" };
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!exposureModeOverride);
-				if (ImGuiEx::PropertyDropdown("Mode", s_ExposureModes, 4, settings.ExposureControl)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!exposureOverride);
-				if (ImGuiEx::Property("Exposure", settings.Exposure, 0.01f, 0.0f, 100.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!apertureOverride);
-				if (ImGuiEx::Property("Aperture (f-stop)", settings.Aperture, 0.1f, 0.5f, 64.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!shutterOverride);
-				if (ImGuiEx::Property("Shutter Speed (s)", settings.ShutterSpeed, 0.0001f, 0.00001f, 10.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!isoOverride);
-				if (ImGuiEx::Property("ISO", settings.ISO, 1.0f, 1.0f, 409600.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!ev100Override);
-				if (ImGuiEx::Property("EV100", settings.ExposureEV100, 0.05f, -10.0f, 20.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!exposureCompOverride);
-				if (ImGuiEx::Property("Exposure Compensation", settings.ExposureCompensation, 0.05f, -10.0f, 10.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!autoMinOverride);
-				if (ImGuiEx::Property("Auto Min EV", settings.AutoMinEV100, 0.1f, -10.0f, 20.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!autoMaxOverride);
-				if (ImGuiEx::Property("Auto Max EV", settings.AutoMaxEV100, 0.1f, -10.0f, 20.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!autoUpOverride);
-				if (ImGuiEx::Property("Auto Adapt Up (EV/s)", settings.AutoAdaptationSpeedUp, 0.05f, 0.0f, 20.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!autoDownOverride);
-				if (ImGuiEx::Property("Auto Adapt Down (EV/s)", settings.AutoAdaptationSpeedDown, 0.05f, 0.0f, 20.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGuiEx::EndPropertyGrid();
-
-				ImGui::Spacing();
-				ImGui::TextDisabled("Bloom");
-				const bool bloomEnabledOverride = drawOverride("Override Bloom Enabled", PostProcessOverride_BloomEnabled);
-				const bool bloomThresholdOverride = drawOverride("Override Bloom Threshold", PostProcessOverride_BloomThreshold);
-				const bool bloomKneeOverride = drawOverride("Override Bloom Knee", PostProcessOverride_BloomKnee);
-				const bool bloomUpsampleOverride = drawOverride("Override Bloom Upsample", PostProcessOverride_BloomUpsampleScale);
-				const bool bloomIntensityOverride = drawOverride("Override Bloom Intensity", PostProcessOverride_BloomIntensity);
-				const bool bloomDirtOverride = drawOverride("Override Bloom Dirt", PostProcessOverride_BloomDirtIntensity);
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!bloomEnabledOverride);
-				if (ImGuiEx::Property("Bloom Enabled", settings.BloomEnabled)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!bloomThresholdOverride);
-				if (ImGuiEx::Property("Threshold", settings.BloomThreshold, 0.01f, 0.0f, 100.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!bloomKneeOverride);
-				if (ImGuiEx::Property("Knee", settings.BloomKnee, 0.01f, 0.0001f, 10.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!bloomUpsampleOverride);
-				if (ImGuiEx::Property("Upsample Scale", settings.BloomUpsampleScale, 0.01f, 0.0f, 10.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!bloomIntensityOverride);
-				if (ImGuiEx::Property("Intensity", settings.BloomIntensity, 0.01f, 0.0f, 100.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!bloomDirtOverride);
-				if (ImGuiEx::Property("Dirt Intensity", settings.BloomDirtIntensity, 0.01f, 0.0f, 100.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGuiEx::EndPropertyGrid();
-
-				ImGui::Spacing();
-				ImGui::TextDisabled("Depth Of Field");
-				const bool dofEnabledOverride = drawOverride("Override DOF Enabled", PostProcessOverride_DOFEnabled);
-				const bool dofFocusOverride = drawOverride("Override DOF Focus", PostProcessOverride_DOFFocusDistance);
-				const bool dofBlurOverride = drawOverride("Override DOF Blur", PostProcessOverride_DOFBlurSize);
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!dofEnabledOverride);
-				if (ImGuiEx::Property("DOF Enabled", settings.DOFEnabled)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!dofFocusOverride);
-				if (ImGuiEx::Property("Focus Distance", settings.DOFFocusDistance, 0.1f, 0.0f, 100000.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!dofBlurOverride);
-				if (ImGuiEx::Property("Blur Size", settings.DOFBlurSize, 0.01f, 0.0f, 32.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGuiEx::EndPropertyGrid();
-
-				ImGui::Spacing();
-				ImGui::TextDisabled("Color Grading");
-				const bool colorFilterOverride = drawOverride("Override Color Filter", PostProcessOverride_ColorFilter);
-				const bool saturationOverride = drawOverride("Override Saturation", PostProcessOverride_Saturation);
-				const bool contrastOverride = drawOverride("Override Contrast", PostProcessOverride_Contrast);
-				const bool gammaOverride = drawOverride("Override Gamma", PostProcessOverride_Gamma);
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!colorFilterOverride);
-				if (ImGuiEx::PropertyColor("Color Filter", settings.ColorFilter)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!saturationOverride);
-				if (ImGuiEx::Property("Saturation", settings.Saturation, 0.01f, 0.0f, 2.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!contrastOverride);
-				if (ImGuiEx::Property("Contrast", settings.Contrast, 0.01f, 0.0f, 4.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGui::BeginDisabled(!gammaOverride);
-				if (ImGuiEx::Property("Gamma", settings.Gamma, 0.01f, 0.01f, 8.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGuiEx::EndPropertyGrid();
-
-				ImGui::Spacing();
-				ImGui::TextDisabled("Tonemapping");
-				const bool tonemapOverride = drawOverride("Override Tonemap", PostProcessOverride_Tonemap);
-				static const char* s_TonemapOperators[] = { "ACES", "AgX", "None" };
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!tonemapOverride);
-				if (ImGuiEx::PropertyDropdown("Operator", s_TonemapOperators, 3, settings.Tonemap)) applySettings();
-				ImGui::EndDisabled();
-				ImGuiEx::EndPropertyGrid();
-
-				ImGui::Spacing();
-				ImGui::TextDisabled("White Balance");
-				const bool whiteBalanceOverride = drawOverride("Override White Balance", PostProcessOverride_WhiteBalance);
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!whiteBalanceOverride);
-				if (ImGuiEx::Property("Temperature", settings.WhiteTemperature, 0.01f, -1.0f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Tint", settings.WhiteTint, 0.01f, -1.0f, 1.0f)) applySettings();
-				ImGui::EndDisabled();
-				ImGuiEx::EndPropertyGrid();
-
-				ImGui::Spacing();
-				ImGui::TextDisabled("Lift / Gamma / Gain");
-				const bool liftGammaGainOverride = drawOverride("Override Lift/Gamma/Gain", PostProcessOverride_LiftGammaGain);
-				ImGuiEx::BeginPropertyGrid();
-				ImGui::BeginDisabled(!liftGammaGainOverride);
-				if (ImGuiEx::Property("Lift", settings.Lift, 0.005f, -1.0f, 1.0f)) applySettings();
-				if (ImGuiEx::Property("Grade Gamma", settings.GradeGamma, 0.01f, 0.01f, 4.0f)) applySettings();
-				if (ImGuiEx::Property("Gain", settings.Gain, 0.01f, 0.0f, 4.0f)) applySettings();
-				ImGui::EndDisabled();
 				ImGuiEx::EndPropertyGrid();
 			});
 

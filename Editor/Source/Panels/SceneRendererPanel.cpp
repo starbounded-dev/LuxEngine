@@ -523,6 +523,58 @@ namespace Lux {
 			ImGui::TreePop();
 		}
 
+		// Scene-wide post-processing. These used to be authored per PostProcessVolume
+		// entity; with the volume system gone they belong to the scene and are saved with
+		// it, not with the project's renderer settings - hence no projectSettingsChanged.
+		if (m_Scene && ImGuiEx::PropertyGridHeader("Post Processing (Scene)", false))
+		{
+			PostProcessSettings& post = m_Scene->GetPostProcessSettings();
+
+			ImGui::TextDisabled("Exposure");
+			ImGuiEx::BeginPropertyGrid();
+			static const char* s_ExposureModes[] = { "Manual", "Manual EV100", "Camera (physical)", "Automatic" };
+			ImGuiEx::PropertyDropdown("Mode", s_ExposureModes, 4, post.ExposureControl);
+			ImGuiEx::Property("Aperture (f-stop)", post.Aperture, 0.1f, 0.5f, 64.0f);
+			ImGuiEx::Property("Shutter Speed (s)", post.ShutterSpeed, 0.0001f, 0.0001f, 10.0f);
+			ImGuiEx::Property("ISO", post.ISO, 1.0f, 1.0f, 25600.0f);
+			ImGuiEx::Property("EV100", post.ExposureEV100, 0.05f, -10.0f, 20.0f);
+			ImGuiEx::Property("Exposure Compensation", post.ExposureCompensation, 0.05f, -10.0f, 10.0f);
+			ImGuiEx::EndPropertyGrid();
+
+			ImGui::Spacing();
+			ImGui::TextDisabled("Auto Exposure");
+			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::Property("Min EV100", post.AutoMinEV100, 0.05f, -16.0f, 20.0f);
+			ImGuiEx::Property("Max EV100", post.AutoMaxEV100, 0.05f, -16.0f, 20.0f);
+			ImGuiEx::Property("Adapt Up (EV/s)", post.AutoAdaptationSpeedUp, 0.05f, 0.0f, 20.0f);
+			ImGuiEx::Property("Adapt Down (EV/s)", post.AutoAdaptationSpeedDown, 0.05f, 0.0f, 20.0f);
+			ImGuiEx::EndPropertyGrid();
+
+			ImGui::Spacing();
+			ImGui::TextDisabled("Tonemapping");
+			ImGuiEx::BeginPropertyGrid();
+			static const char* s_TonemapOperators[] = { "ACES", "AgX", "None" };
+			ImGuiEx::PropertyDropdown("Tonemap", s_TonemapOperators, 3, post.Tonemap);
+			ImGuiEx::Property("Gamma", post.Gamma, 0.01f, 1.0f, 4.0f);
+			ImGuiEx::EndPropertyGrid();
+
+			ImGui::Spacing();
+			ImGui::TextDisabled("Color Grading");
+			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::PropertyColor("Color Filter", post.ColorFilter);
+			ImGuiEx::Property("Saturation", post.Saturation, 0.01f, 0.0f, 2.0f);
+			ImGuiEx::Property("Contrast", post.Contrast, 0.01f, 0.0f, 2.0f);
+			ImGuiEx::Property("White Temperature", post.WhiteTemperature, 0.01f, -1.0f, 1.0f);
+			ImGuiEx::Property("White Tint", post.WhiteTint, 0.01f, -1.0f, 1.0f);
+			ImGuiEx::Property("Lift", post.Lift, 0.01f, -1.0f, 1.0f);
+			ImGuiEx::Property("Gamma (grade)", post.GradeGamma, 0.01f, 0.0f, 4.0f);
+			ImGuiEx::Property("Gain", post.Gain, 0.01f, 0.0f, 4.0f);
+			ImGuiEx::EndPropertyGrid();
+
+			ImGui::TextDisabled("Bloom, DOF and exposure value are driven by the renderer settings above.");
+			ImGui::TreePop();
+		}
+
 		if (screenSpaceResourcesChanged)
 			m_Context->RefreshScreenSpaceEffectResources();
 

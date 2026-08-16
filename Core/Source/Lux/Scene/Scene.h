@@ -8,7 +8,7 @@
 #include "Lux/Core/UUID.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Renderer/Renderer2D.h"
-#include "Lux/Renderer/RenderVolumes.h"
+#include "Lux/Renderer/PostProcessSettings.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 
 #include "Lux/Scripting/ScriptEntityStorage.hpp"
@@ -55,6 +55,14 @@ namespace Lux {
 		virtual AssetType GetType() const { return GetStaticType(); }
 
 		const std::string& GetName() const { return m_Name; }
+
+		// Scene-wide post-processing (exposure model, auto-exposure, grading, tonemap).
+		// Authored once per scene and serialized with it; the spatial volume system that
+		// used to blend these per-placement is gone. Bloom/DOF/exposure are additionally
+		// overlaid from renderer state - see SceneRenderer::GetEffectivePostProcessSettings.
+		PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
+		const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
+		void SetPostProcessSettings(const PostProcessSettings& settings) { m_PostProcessSettings = settings; }
 		void SetName(const std::string& name) { m_Name = name; }
 
 		Entity CreateEntity(const std::string& name = std::string());
@@ -120,12 +128,6 @@ namespace Lux {
 		// Falls back to the renderer default environment when no explicit skylight is configured.
 		Ref<Environment> CollectEnvironment(float& outIntensity, float& outLod) const;
 
-		// Resolve rendering volumes for the camera using the renderer post-process defaults as the base layer.
-		RenderVolumeEnvironment CollectRenderVolumeEnvironment(
-			const glm::vec3& cameraPosition,
-			const Frustum* cameraFrustum,
-			const RenderVolumeBaseSettings& baseSettings,
-			const std::function<bool(Entity)>& isSelected = nullptr) const;
 
 		// Submit all StaticMeshComponent entities to the SceneRenderer
 		// Optional predicate to determine if an entity is selected (for highlight rendering)
@@ -196,6 +198,8 @@ namespace Lux {
 	private:
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
+
+		PostProcessSettings m_PostProcessSettings;
 
 		bool m_IsRunning = false;
 		bool m_IsPaused = false;

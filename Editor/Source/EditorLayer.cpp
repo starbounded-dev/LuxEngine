@@ -1303,8 +1303,6 @@ namespace Lux {
 
 			if (ImGui::Checkbox("Show Bounding Boxes", &m_ShowBoundingBoxes))
 				settingsChanged = true;
-			if (ImGui::Checkbox("Show Render Volumes", &m_ShowRenderVolumes))
-				settingsChanged = true;
 			if (ImGui::Checkbox("Show Entity Icons", &m_ShowEntityIcons))
 				settingsChanged = true;
 
@@ -1670,44 +1668,6 @@ namespace Lux {
 			}
 		}
 
-		auto drawRenderVolume = [this](Entity entity, bool selected)
-		{
-			if (!entity || !entity.HasComponent<RenderVolumeComponent>())
-				return;
-
-			const auto& volume = entity.GetComponent<RenderVolumeComponent>();
-			if (!volume.Enabled)
-				return;
-
-			glm::vec4 color = volume.DebugColor;
-			color.a = selected ? glm::max(color.a, 0.9f) : glm::min(color.a, 0.45f);
-			const glm::mat4 worldTransform = m_ActiveScene->GetWorldSpaceTransformMatrix(entity);
-			if (volume.Shape == RenderVolumeShape::Sphere)
-			{
-				m_Renderer2D->DrawCircle(worldTransform, color);
-				m_Renderer2D->DrawCircle(worldTransform * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)), color);
-				m_Renderer2D->DrawCircle(worldTransform * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)), color);
-			}
-			else
-			{
-				m_Renderer2D->DrawAABB(AABB({ -0.5f, -0.5f, -0.5f }, { 0.5f, 0.5f, 0.5f }), worldTransform, color, true);
-			}
-		};
-
-		if (m_ShowRenderVolumes)
-		{
-			auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, RenderVolumeComponent>();
-			for (auto entityID : view)
-			{
-				Entity entity(entityID, m_ActiveScene.Raw());
-				drawRenderVolume(entity, selectedEntity && entity == selectedEntity);
-			}
-		}
-		else if (selectedEntity && selectedEntity.HasComponent<RenderVolumeComponent>())
-		{
-			drawRenderVolume(selectedEntity, true);
-		}
-
 		if (m_ShowEntityIcons)
 		{
 			auto drawIconForView = [this](auto view, const Ref<Texture2D>& iconTexture)
@@ -1742,7 +1702,6 @@ namespace Lux {
 		m_TranslationSnapValue = std::max(settings.GetFloat("Editor.TranslationSnapValue", 0.5f), 0.05f);
 		m_RotationSnapValue = std::max(settings.GetFloat("Editor.RotationSnapValue", 45.0f), 1.0f);
 		m_ShowBoundingBoxes = settings.GetInt("Editor.ShowBoundingBoxes", 0) != 0;
-		m_ShowRenderVolumes = settings.GetInt("Editor.ShowRenderVolumes", 1) != 0;
 		m_ShowEntityIcons = settings.GetInt("Editor.ShowEntityIcons", 1) != 0;
 		m_ShowViewportPerformanceHUD = settings.GetInt("Editor.ShowViewportPerformanceHUD", 1) != 0;
 		m_ShowPhysicsColliders = settings.GetInt("Editor.ShowPhysicsColliders", 0) != 0;
@@ -1758,7 +1717,6 @@ namespace Lux {
 		settings.SetFloat("Editor.TranslationSnapValue", m_TranslationSnapValue);
 		settings.SetFloat("Editor.RotationSnapValue", m_RotationSnapValue);
 		settings.SetInt("Editor.ShowBoundingBoxes", m_ShowBoundingBoxes ? 1 : 0);
-		settings.SetInt("Editor.ShowRenderVolumes", m_ShowRenderVolumes ? 1 : 0);
 		settings.SetInt("Editor.ShowEntityIcons", m_ShowEntityIcons ? 1 : 0);
 		settings.SetInt("Editor.ShowViewportPerformanceHUD", m_ShowViewportPerformanceHUD ? 1 : 0);
 		settings.SetInt("Editor.ShowPhysicsColliders", m_ShowPhysicsColliders ? 1 : 0);
@@ -2496,7 +2454,6 @@ namespace Lux {
 
 		m_ShowPhysicsColliders = false;
 		m_ShowBoundingBoxes = false;
-		m_ShowRenderVolumes = false;
 		m_ShowEntityIcons = false;
 
 		if (m_EditorViewport)
@@ -2535,7 +2492,6 @@ namespace Lux {
 			m_PlayModeDebugViewState.RendererDebugView = m_SceneRenderer->GetDebugViewMode();
 		}
 		m_PlayModeDebugViewState.ShowBoundingBoxes = m_ShowBoundingBoxes;
-		m_PlayModeDebugViewState.ShowRenderVolumes = m_ShowRenderVolumes;
 		m_PlayModeDebugViewState.ShowEntityIcons = m_ShowEntityIcons;
 		m_PlayModeDebugViewState.DisplayMode = m_EditorViewport ? m_EditorViewport->GetDisplayMode() : Viewport::DisplayMode::Lit;
 
@@ -2570,7 +2526,6 @@ namespace Lux {
 
 		m_ShowPhysicsColliders = m_PlayModeDebugViewState.ShowPhysicsColliders;
 		m_ShowBoundingBoxes = m_PlayModeDebugViewState.ShowBoundingBoxes;
-		m_ShowRenderVolumes = m_PlayModeDebugViewState.ShowRenderVolumes;
 		m_ShowEntityIcons = m_PlayModeDebugViewState.ShowEntityIcons;
 
 		if (m_EditorViewport)
