@@ -24,6 +24,10 @@ namespace Lux {
 		bool Decorated = true;
 		bool Fullscreen = false;
 		bool VSync = true;
+		// Swapchain image count. Clamped to what the surface reports it supports.
+		uint32_t SwapChainBufferCount = 3;
+		// Only consulted when VSync is off: IMMEDIATE instead of MAILBOX.
+		bool PreferImmediatePresentMode = false;
 		std::filesystem::path IconPath;
 	};
 
@@ -51,6 +55,13 @@ namespace Lux {
 		virtual void SetEventCallback(const EventCallbackFn& callback) { m_Data.EventCallback = callback; }
 		virtual void SetVSync(bool enabled);
 		virtual bool IsVSync() const;
+		// Applied on the next swapchain recreate, deferred to ProcessEvents like VSync.
+		// Under MAILBOX this is what sets the frame-rate ceiling; see DeviceManager.
+		virtual void SetSwapChainBufferCount(uint32_t count);
+		virtual uint32_t GetSwapChainBufferCount() const;
+		// IMMEDIATE vs MAILBOX when VSync is off. Same deferred-recreate path.
+		virtual void SetPreferImmediatePresentMode(bool prefer);
+		virtual bool PrefersImmediatePresentMode() const;
 		virtual void SetResizable(bool resizable) const;
 
 		bool BeginFrame();
@@ -106,6 +117,8 @@ namespace Lux {
 		Ref<RendererContext> m_RendererContext;
 		VulkanSwapChain* m_SwapChain;
 		bool m_VSyncDirty = false; // pending VSync change, applied in ProcessEvents
+		bool m_SwapChainBufferCountDirty = false; // pending image-count change, same path
+		bool m_PresentModeDirty = false;          // pending Immediate/Mailbox change, same path
 
 		VkSurfaceKHR m_WindowSurface;
 

@@ -5,6 +5,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Social/DiscordSocial.h"
@@ -12,11 +13,48 @@
 
 #include <imgui/imgui.h>
 
+#include <algorithm>
+#include <iterator>
+
 namespace Lux {
 
 	namespace
 	{
 		constexpr int s_MaxRecentProjects = 10;
+
+		// Frame-rate limit presets. 0 means unpaced; the trailing Custom entry has no fixed
+		// value and instead reveals a slider, which is what the sentinel marks.
+		constexpr int kUnlimitedFrameRate = 0;
+		constexpr int kCustomFrameRateSentinel = -1;
+		constexpr int kMinCustomFrameRate = 30;
+		constexpr int kMaxCustomFrameRate = 1000;
+
+		// Not constexpr: PropertyDropdown takes a mutable const char**.
+		const char* s_FrameRateLimitOptions[] = { "Unlimited", "60", "120", "165", "240", "360", "720", "Custom" };
+		constexpr int s_FrameRateLimitValues[] = { kUnlimitedFrameRate, 60, 120, 165, 240, 360, 720, kCustomFrameRateSentinel };
+		static_assert(std::size(s_FrameRateLimitOptions) == std::size(s_FrameRateLimitValues),
+			"Frame-rate limit labels and values must stay in step.");
+
+		// Index 0 == Mailbox, 1 == Immediate; matches PreferImmediatePresentMode.
+		const char* s_PresentModeOptions[] = { "Mailbox (no tearing)", "Immediate (uncapped, may tear)" };
+
+		// Swapchain image counts offered in the UI. 2 is the Vulkan minimum; beyond 5 the
+		// added latency and VRAM outweigh any throughput gain.
+		constexpr int kMinSwapChainBufferCount = 2;
+		const char* s_SwapChainBufferCountOptions[] = { "2 (double)", "3 (triple)", "4", "5" };
+		constexpr int kSwapChainBufferCountOptionCount = (int)std::size(s_SwapChainBufferCountOptions);
+
+		int32_t FindFrameRatePresetIndex(int targetFrameRate)
+		{
+			for (int32_t i = 0; i < (int32_t)std::size(s_FrameRateLimitValues); i++)
+			{
+				if (s_FrameRateLimitValues[i] == targetFrameRate)
+					return i;
+			}
+
+			// Not one of the presets, so it came from the slider. Custom is the last entry.
+			return (int32_t)std::size(s_FrameRateLimitValues) - 1;
+		}
 	}
 
 	ApplicationSettingsPanel::ApplicationSettingsPanel(const Ref<ContentBrowserPanel>& contentBrowserPanel, EditorPreferencesBindings bindings, const Ref<UserPreferences>& userPreferences)
@@ -91,6 +129,68 @@ namespace Lux {
 		ImGuiEx::BeginPropertyGrid();
 		if (m_Bindings.VSync && ImGuiEx::Property("VSync", *m_Bindings.VSync))
 			notifyBindings = true;
+
+		// Frame-rate cap. Only meaningful with VSync off: with it on, the display paces the
+		// loop and a cap could only ever sit below the refresh rate, so the control is
+		// disabled rather than left looking active but inert.
+		if (m_Bindings.TargetFrameRate)
+		{
+			const bool vsyncOn = m_Bindings.VSync && *m_Bindings.VSync;
+			ImGuiEx::ScopedDisable disableWhenVSynced(vsyncOn);
+
+			int32_t& targetFrameRate = *m_Bindings.TargetFrameRate;
+			int32_t presetIndex = FindFrameRatePresetIndex(targetFrameRate);
+
+			if (ImGuiEx::PropertyDropdown("Frame Rate Limit", s_FrameRateLimitOptions, (int32_t)std::size(s_FrameRateLimitOptions), &presetIndex))
+			{
+				const int32_t presetValue = s_FrameRateLimitValues[presetIndex];
+				// Switching *to* Custom keeps whatever rate was already active as the
+				// slider's starting point, so the view does not jump on selection.
+				targetFrameRate = (presetValue == kCustomFrameRateSentinel)
+					? std::clamp(targetFrameRate <= 0 ? 144 : targetFrameRate, kMinCustomFrameRate, kMaxCustomFrameRate)
+					: presetValue;
+				notifyBindings = true;
+			}
+
+			if (s_FrameRateLimitValues[presetIndex] == kCustomFrameRateSentinel)
+			{
+				int32_t customFrameRate = std::clamp(targetFrameRate <= 0 ? 144 : targetFrameRate, kMinCustomFrameRate, kMaxCustomFrameRate);
+				if (ImGuiEx::Property("Custom Limit (FPS)", customFrameRate, kMinCustomFrameRate, kMaxCustomFrameRate))
+				{
+					targetFrameRate = std::clamp(customFrameRate, kMinCustomFrameRate, kMaxCustomFrameRate);
+					notifyBindings = true;
+				}
+			}
+		}
+
+		// Present mode. Only applies with VSync off, where the choice is between never
+		// tearing (Mailbox) and being able to exceed the display refresh (Immediate).
+		if (m_Bindings.PreferImmediatePresentMode)
+		{
+			const bool vsyncOn = m_Bindings.VSync && *m_Bindings.VSync;
+			ImGuiEx::ScopedDisable disableWhenVSynced(vsyncOn);
+
+			int32_t modeIndex = *m_Bindings.PreferImmediatePresentMode ? 1 : 0;
+			if (ImGuiEx::PropertyDropdown("Present Mode", s_PresentModeOptions, (int32_t)std::size(s_PresentModeOptions), &modeIndex))
+			{
+				*m_Bindings.PreferImmediatePresentMode = (modeIndex == 1);
+				notifyBindings = true;
+			}
+		}
+
+		// Swapchain images. Left enabled under VSync because it still affects latency
+		// there, it just stops being a frame-rate control.
+		if (m_Bindings.SwapChainBufferCount)
+		{
+			int32_t& bufferCount = *m_Bindings.SwapChainBufferCount;
+			int32_t optionIndex = std::clamp(bufferCount - kMinSwapChainBufferCount, 0, kSwapChainBufferCountOptionCount - 1);
+
+			if (ImGuiEx::PropertyDropdown("Swapchain Images", s_SwapChainBufferCountOptions, kSwapChainBufferCountOptionCount, &optionIndex))
+			{
+				bufferCount = optionIndex + kMinSwapChainBufferCount;
+				notifyBindings = true;
+			}
+		}
 
 		if (ImGuiEx::Property("Auto-open Most Recent Project", autoOpenMostRecentProject))
 			SaveAutoOpenMostRecentProjectSetting(autoOpenMostRecentProject);

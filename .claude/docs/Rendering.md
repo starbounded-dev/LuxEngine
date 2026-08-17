@@ -287,6 +287,39 @@ exists — a capture with zero GPU zones means the context failed to create, not
 
 ---
 
+## Present mode, and why frame rate is not a render-cost question
+
+Measured on Windows/DWM, RTX 4070 Ti, 60 Hz display, windowed editor:
+
+| Present mode | Window focused | Window unfocused |
+|---|---|---|
+| `FIFO` (VSync on) | refresh (60) | refresh |
+| `MAILBOX` | **60 — refresh** | **120 — ~(images-1) x refresh** |
+| `IMMEDIATE` | **uncapped** | uncapped |
+
+**MAILBOX does not mean uncapped.** On a composited surface the presentation engine still releases
+images on the compositor's schedule, so the frame rate tracks the display while the window is
+focused. `IMMEDIATE` is the only mode the spec guarantees will not block on vblank, and is the only
+way a windowed surface exceeds the refresh rate. Selected by
+`DeviceCreationParameters::preferImmediatePresentMode` (editor: Application Settings → Present Mode),
+applied through `Window::SetPreferImmediatePresentMode` on the deferred swapchain-recreate path.
+
+Two consequences that cost real debugging time:
+
+- **A frame rate pinned to the refresh rate, or to a clean multiple of it, is a presentation
+  ceiling, not a GPU cost.** Lowering quality settings will not move it — that is the diagnostic. Do
+  not go hunting in the pass timings until the ceiling is ruled out.
+- **Window focus changes the frame rate by 2x.** Any benchmark of a script-launched (therefore
+  unfocused) editor window is measuring a different regime than the one users see, and its absolute
+  numbers are not comparable to a focused session. Present-mode A/B tests in particular *must* be
+  run focused; an unfocused comparison inverted this result once already.
+
+Frame pacing below the ceiling is `Application::SetTargetFrameRate` (editor: Frame Rate Limit), a
+deadline-carried sleep-then-spin in the main loop. It can only ever slow the loop down, so a target
+above the refresh rate additionally requires `IMMEDIATE`.
+
+---
+
 ## Batched resource uploads and the async transfer queue
 
 Buffer/texture constructors record initial-data uploads into **one shared command list** via

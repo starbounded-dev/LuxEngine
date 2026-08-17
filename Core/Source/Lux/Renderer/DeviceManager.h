@@ -71,6 +71,8 @@ namespace Lux
         uint32_t maxFramesInFlight = 2;
         bool enableNvrhiValidationLayer = false;
         bool vsyncEnabled = false;
+        // Only consulted when vsyncEnabled is false: picks IMMEDIATE over MAILBOX.
+        bool preferImmediatePresentMode = false;
         bool enableRayTracingExtensions = false; // for vulkan
         bool enableComputeQueue = false;
         bool enableCopyQueue = false;
@@ -218,6 +220,29 @@ namespace Lux
         // m_DeviceParams.vsyncEnabled when it is (re)created, so the caller must
         // recreate the swapchain afterwards for this to take effect (see Window::SetVSync).
         virtual void SetVsyncEnabled(bool enabled) { m_RequestedVSync = enabled; m_DeviceParams.vsyncEnabled = enabled; }
+        // Number of swapchain images requested the next time the swapchain is (re)created.
+        // Same contract as SetVsyncEnabled: the caller must recreate the swapchain for it
+        // to take effect (see Window::SetSwapChainBufferCount).
+        //
+        // This is a frame-rate control, not just a memory knob. Under MAILBOX the
+        // presentation engine releases images on the compositor's schedule, so the count
+        // sets the ceiling at roughly (count - 1) x display refresh under DWM. FIFO is
+        // always refresh-locked regardless, and the practical range is small: more images
+        // buy throughput at the cost of latency and VRAM.
+        [[nodiscard]] uint32_t GetSwapChainBufferCount() const { return m_DeviceParams.swapChainBufferCount; }
+        virtual void SetSwapChainBufferCount(uint32_t count) { m_DeviceParams.swapChainBufferCount = count; }
+
+        // Which uncapped present mode to pick when vsync is off. Same recreate contract as
+        // the two setters above.
+        //
+        // MAILBOX does not tear, but a composited (windowed, DWM) surface still hands
+        // images back on the compositor's schedule, which is what pins the frame rate to
+        // the refresh rate while the window is focused. IMMEDIATE is the only mode the
+        // spec guarantees never blocks on vblank, at the cost of tearing. Which one wins
+        // in practice is driver- and compositor-dependent, so this is exposed rather than
+        // hard-coded.
+        [[nodiscard]] bool PrefersImmediatePresentMode() const { return m_DeviceParams.preferImmediatePresentMode; }
+        virtual void SetPreferImmediatePresentMode(bool prefer) { m_DeviceParams.preferImmediatePresentMode = prefer; }
         virtual void ReportLiveObjects() {}
         void SetEnableRenderDuringWindowMovement(bool val) {m_EnableRenderDuringWindowMovement = val;} 
 

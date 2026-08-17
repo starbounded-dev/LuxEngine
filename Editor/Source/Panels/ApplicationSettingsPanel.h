@@ -24,6 +24,12 @@ namespace Lux {
 		struct EditorPreferencesBindings
 		{
 			bool* VSync = nullptr;
+			// Frames per second to pace the main loop to when VSync is off. 0 == unlimited.
+			int* TargetFrameRate = nullptr;
+			// Swapchain image count. Sets the frame-rate ceiling under MAILBOX.
+			int* SwapChainBufferCount = nullptr;
+			// IMMEDIATE instead of MAILBOX when VSync is off.
+			bool* PreferImmediatePresentMode = nullptr;
 			bool* UseGizmoSnap = nullptr;
 			float* TranslationSnapValue = nullptr;
 			float* RotationSnapValue = nullptr;

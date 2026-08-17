@@ -362,6 +362,9 @@ namespace Lux {
 
 		ApplicationSettingsPanel::EditorPreferencesBindings editorPreferencesBindings{};
 		editorPreferencesBindings.VSync = &m_VSync;
+		editorPreferencesBindings.TargetFrameRate = &m_TargetFrameRate;
+		editorPreferencesBindings.SwapChainBufferCount = &m_SwapChainBufferCount;
+		editorPreferencesBindings.PreferImmediatePresentMode = &m_PreferImmediatePresentMode;
 		editorPreferencesBindings.UseGizmoSnap = &m_UseGizmoSnap;
 		editorPreferencesBindings.TranslationSnapValue = &m_TranslationSnapValue;
 		editorPreferencesBindings.RotationSnapValue = &m_RotationSnapValue;
@@ -1709,6 +1712,11 @@ namespace Lux {
 		auto& settings = Application::Get().GetSettings();
 
 		m_VSync = settings.GetInt("Editor.VSync", Application::Get().GetWindow().IsVSync() ? 1 : 0) != 0;
+		m_TargetFrameRate = std::max(settings.GetInt("Editor.TargetFrameRate", 0), 0);
+		m_SwapChainBufferCount = std::clamp(settings.GetInt("Editor.SwapChainBufferCount",
+			(int)Application::Get().GetWindow().GetSwapChainBufferCount()), 2, 8);
+		m_PreferImmediatePresentMode = settings.GetInt("Editor.PreferImmediatePresentMode",
+			Application::Get().GetWindow().PrefersImmediatePresentMode() ? 1 : 0) != 0;
 		m_UseGizmoSnap = settings.GetInt("Editor.UseGizmoSnap", 0) != 0;
 		m_TranslationSnapValue = std::max(settings.GetFloat("Editor.TranslationSnapValue", 0.5f), 0.05f);
 		m_RotationSnapValue = std::max(settings.GetFloat("Editor.RotationSnapValue", 45.0f), 1.0f);
@@ -1724,6 +1732,9 @@ namespace Lux {
 	{
 		auto& settings = Application::Get().GetSettings();
 		settings.SetInt("Editor.VSync", m_VSync ? 1 : 0);
+		settings.SetInt("Editor.TargetFrameRate", m_TargetFrameRate);
+		settings.SetInt("Editor.SwapChainBufferCount", m_SwapChainBufferCount);
+		settings.SetInt("Editor.PreferImmediatePresentMode", m_PreferImmediatePresentMode ? 1 : 0);
 		settings.SetInt("Editor.UseGizmoSnap", m_UseGizmoSnap ? 1 : 0);
 		settings.SetFloat("Editor.TranslationSnapValue", m_TranslationSnapValue);
 		settings.SetFloat("Editor.RotationSnapValue", m_RotationSnapValue);
@@ -1737,6 +1748,12 @@ namespace Lux {
 	void EditorLayer::ApplyEditorPreferences()
 	{
 		Application::Get().GetWindow().SetVSync(m_VSync);
+
+		// With VSync on the display already paces the loop, and layering a CPU limiter on
+		// top would only fight it, so the limiter is disengaged rather than clamped.
+		Application::Get().SetTargetFrameRate(m_VSync ? 0u : (uint32_t)std::max(m_TargetFrameRate, 0));
+		Application::Get().GetWindow().SetSwapChainBufferCount((uint32_t)m_SwapChainBufferCount);
+		Application::Get().GetWindow().SetPreferImmediatePresentMode(m_PreferImmediatePresentMode);
 
 		if (m_SceneRenderer)
 			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;

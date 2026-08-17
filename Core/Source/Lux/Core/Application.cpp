@@ -306,8 +306,66 @@ namespace Lux {
 			frameCounter++;
 
 			LUX_PROFILE_MARK_FRAME;
+
+			LimitFrameRate();
 		}
 		OnShutdown();
+	}
+
+	void Application::SetTargetFrameRate(uint32_t framesPerSecond)
+	{
+		if (m_TargetFrameRate == framesPerSecond)
+			return;
+
+		m_TargetFrameRate = framesPerSecond;
+		// Drop the old deadline: it belongs to the previous rate, and carrying it over
+		// would stall or race the first frame after a change.
+		m_NextFrameDeadline = {};
+	}
+
+	void Application::LimitFrameRate()
+	{
+		LUX_PROFILE_FUNCTION("Application::LimitFrameRate");
+
+		if (m_TargetFrameRate == 0)
+		{
+			m_NextFrameDeadline = {};
+			return;
+		}
+
+		const auto frameDuration = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+			std::chrono::duration<double>(1.0 / double(m_TargetFrameRate)));
+
+		const auto now = std::chrono::steady_clock::now();
+
+		// No deadline yet, or we fell more than a whole frame behind (asset load, shader
+		// recompile, a breakpoint). Resync instead of spinning to "catch up" on frames
+		// that are already gone, which would otherwise run the loop flat out.
+		if (m_NextFrameDeadline.time_since_epoch().count() == 0 || now > m_NextFrameDeadline + frameDuration)
+		{
+			m_NextFrameDeadline = now + frameDuration;
+			return;
+		}
+
+		// Sleep the bulk, spin the remainder. sleep_for has millisecond-scale granularity
+		// on Windows, which is coarser than a whole frame at the higher targets, so
+		// sleeping the full remainder would undershoot the rate badly at 240+.
+		//
+		// The margin is capped against the frame itself: a flat 1.2 ms would be most of a
+		// 1.39 ms frame at 720 fps (and longer than the whole frame at 1000), which would
+		// peg a core in the yield loop and starve the render thread and job workers of the
+		// very CPU the high targets need.
+		const auto spinMargin = std::min(
+			std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::microseconds(1200)),
+			frameDuration / 4);
+		const auto remaining = m_NextFrameDeadline - now;
+		if (remaining > spinMargin)
+			std::this_thread::sleep_for(remaining - spinMargin);
+
+		while (std::chrono::steady_clock::now() < m_NextFrameDeadline)
+			std::this_thread::yield();
+
+		m_NextFrameDeadline += frameDuration;
 	}
 
 	void Application::Close()

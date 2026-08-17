@@ -90,7 +90,7 @@ namespace Lux {
 		
 		DeviceCreationParameters deviceParams;
 		deviceParams.Decorated = m_Specification.Decorated;
-		deviceParams.swapChainBufferCount = 3;
+		deviceParams.swapChainBufferCount = m_Specification.SwapChainBufferCount;
 		deviceParams.enableRayTracingExtensions = true;
 		// Give nvrhi a dedicated compute queue so render passes can be scheduled
 		// async on it (GTAO / SSR / light-cull / bloom overlapping graphics work).
@@ -115,6 +115,7 @@ namespace Lux {
 		deviceParams.backBufferWidth = m_Specification.Width;
 		deviceParams.backBufferHeight = m_Specification.Height;
 		deviceParams.vsyncEnabled = m_Specification.VSync;
+		deviceParams.preferImmediatePresentMode = m_Specification.PreferImmediatePresentMode;
 		// The Khronos validation layer intercepts every Vulkan call — a large CPU tax in
 		// draw-heavy scenes. Keep it only in Debug builds; Release/Dist (where FPS is
 		// measured and shipped) run without it.
@@ -545,10 +546,24 @@ namespace Lux {
 		// render threads are idle, so it is safe to recreate the swapchain here.
 		// SetVsyncEnabled updates the present-mode source; OnResize recreates the
 		// swapchain (FIFO when on, Immediate when off) at the current size.
-		if (m_VSyncDirty && m_DeviceManager && m_SwapChain)
+		// All three are read when the swapchain is built, so they are applied together and
+		// share ONE recreate. They are routinely changed as a group - ApplyEditorPreferences
+		// pushes all of them on every preferences change and at startup - and a recreate
+		// tears down and rebuilds every swapchain image and framebuffer, so doing one per
+		// setting would triple that cost for no benefit.
+		if (m_DeviceManager && m_SwapChain && (m_VSyncDirty || m_SwapChainBufferCountDirty || m_PresentModeDirty))
 		{
+			if (m_VSyncDirty)
+				m_DeviceManager->SetVsyncEnabled(m_Specification.VSync);
+			if (m_SwapChainBufferCountDirty)
+				m_DeviceManager->SetSwapChainBufferCount(m_Specification.SwapChainBufferCount);
+			if (m_PresentModeDirty)
+				m_DeviceManager->SetPreferImmediatePresentMode(m_Specification.PreferImmediatePresentMode);
+
 			m_VSyncDirty = false;
-			m_DeviceManager->SetVsyncEnabled(m_Specification.VSync);
+			m_SwapChainBufferCountDirty = false;
+			m_PresentModeDirty = false;
+
 			m_SwapChain->OnResize(m_Data.Width, m_Data.Height);
 		}
 	}
@@ -573,6 +588,40 @@ namespace Lux {
 	bool Window::IsVSync() const
 	{
 		return m_Specification.VSync;
+	}
+
+	void Window::SetSwapChainBufferCount(uint32_t count)
+	{
+		// Vulkan requires at least 2, and the surface's own maximum is applied when the
+		// swapchain is built (VulkanSwapChain::Create clamps to surfaceCaps). The upper
+		// bound here just keeps the request sane; more images is latency and VRAM, and
+		// past a handful it buys nothing.
+		count = std::clamp(count, 2u, 8u);
+
+		if (m_Specification.SwapChainBufferCount == count && !m_SwapChainBufferCountDirty)
+			return;
+
+		m_Specification.SwapChainBufferCount = count;
+		m_SwapChainBufferCountDirty = true;
+	}
+
+	uint32_t Window::GetSwapChainBufferCount() const
+	{
+		return m_Specification.SwapChainBufferCount;
+	}
+
+	void Window::SetPreferImmediatePresentMode(bool prefer)
+	{
+		if (m_Specification.PreferImmediatePresentMode == prefer && !m_PresentModeDirty)
+			return;
+
+		m_Specification.PreferImmediatePresentMode = prefer;
+		m_PresentModeDirty = true;
+	}
+
+	bool Window::PrefersImmediatePresentMode() const
+	{
+		return m_Specification.PreferImmediatePresentMode;
 	}
 
 	void Window::SetResizable(bool resizable) const

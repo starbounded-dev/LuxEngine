@@ -118,9 +118,16 @@ namespace Lux {
 
 		// Present mode:
 		//  - VSync on  -> FIFO: blocks on vblank, no tearing (guaranteed available by the spec).
-		//  - VSync off -> prefer MAILBOX (uncapped AND tear-free), then IMMEDIATE (uncapped, may
-		//                 tear), falling back to FIFO if neither is exposed. Immediate-only used to
-		//                 mean the choice was tear-or-vsync; Mailbox gives uncapped fps without tearing.
+		//  - VSync off -> MAILBOX or IMMEDIATE per deviceParams.preferImmediatePresentMode,
+		//                 whichever is exposed, else FIFO.
+		//
+		// Neither uncapped mode is unconditionally better, which is why this is a setting
+		// rather than a hard-coded preference. MAILBOX never tears, but on a composited
+		// (windowed/DWM) surface the presentation engine still releases images on the
+		// compositor's schedule, so the frame rate tracks the display while the window is
+		// focused. IMMEDIATE is the only mode the spec guarantees will not block on vblank
+		// and so the only one that can exceed the refresh rate - at the cost of tearing,
+		// and on some driver/compositor combinations a slower presentation path.
 		vk::PresentModeKHR presentMode = vk::PresentModeKHR::eFifo;
 		{
 			const auto availableModes = vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfacePresentModesKHR(m_Surface);
@@ -131,10 +138,17 @@ namespace Lux {
 
 			if (!deviceParams.vsyncEnabled)
 			{
-				if (isSupported(vk::PresentModeKHR::eMailbox))
-					presentMode = vk::PresentModeKHR::eMailbox;
-				else if (isSupported(vk::PresentModeKHR::eImmediate))
-					presentMode = vk::PresentModeKHR::eImmediate;
+				const vk::PresentModeKHR preferred = deviceParams.preferImmediatePresentMode
+					? vk::PresentModeKHR::eImmediate
+					: vk::PresentModeKHR::eMailbox;
+				const vk::PresentModeKHR fallback = deviceParams.preferImmediatePresentMode
+					? vk::PresentModeKHR::eMailbox
+					: vk::PresentModeKHR::eImmediate;
+
+				if (isSupported(preferred))
+					presentMode = preferred;
+				else if (isSupported(fallback))
+					presentMode = fallback;
 				// else: neither uncapped mode available — stay on FIFO.
 			}
 		}

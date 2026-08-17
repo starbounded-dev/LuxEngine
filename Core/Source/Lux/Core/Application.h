@@ -15,6 +15,7 @@
 
 #include "nvrhi/nvrhi.h"
 
+#include <chrono>
 #include <deque>
 
 namespace Lux {
@@ -147,12 +148,22 @@ namespace Lux {
 		ApplicationSettings& GetSettings() { return m_AppSettings; }
 		const ApplicationSettings& GetSettings() const { return m_AppSettings; }
 
+		// Frames per second the main loop paces itself to. 0 means unpaced - the loop runs
+		// as fast as presentation allows, which under VSync is the display refresh.
+		//
+		// This only ever slows the loop down. Reaching a target above the display refresh
+		// also requires a present mode that does not block on vblank; see Window::SetVSync.
+		void SetTargetFrameRate(uint32_t framesPerSecond);
+		uint32_t GetTargetFrameRate() const { return m_TargetFrameRate; }
+
 		static bool IsRuntime() { return s_IsRuntime; }
 
 		static DeviceManager* GetGraphicsDeviceManager() { return Application::Get().GetWindow().GetDeviceManager(); }
 		static nvrhi::DeviceHandle GetGraphicsDevice() { return GetGraphicsDeviceManager()->GetDevice(); }
 	private:
 		void ProcessEvents();
+		// Blocks until this frame's deadline, when a target frame rate is set.
+		void LimitFrameRate();
 
 		bool OnWindowResize(WindowResizeEvent& e);
 		bool OnWindowMinimize(WindowMinimizeEvent& e);
@@ -177,6 +188,11 @@ namespace Lux {
 
 		float m_LastFrameTime = 0.0f;
 		uint32_t m_CurrentFrameIndex = 0;
+
+		// 0 == unpaced. Deadline is carried between frames rather than recomputed from
+		// "now" each time, so per-frame oversleep cannot accumulate into rate drift.
+		uint32_t m_TargetFrameRate = 0;
+		std::chrono::steady_clock::time_point m_NextFrameDeadline{};
 
 		PerformanceTimers m_PerformanceTimers; // TODO(Yan): remove for Dist
 

@@ -99,6 +99,13 @@ namespace Lux
 		Scope<PanelManager> m_PanelManager;
 
 		bool m_VSync = true;
+		// Frames per second the main loop is paced to when VSync is off. 0 == unlimited.
+		int m_TargetFrameRate = 0;
+		// Swapchain image count. Under MAILBOX this sets the frame-rate ceiling at roughly
+		// (count - 1) x display refresh, so it is a perf control, not just memory.
+		int m_SwapChainBufferCount = 3;
+		// IMMEDIATE (tears, can exceed refresh) vs MAILBOX (tear-free) when VSync is off.
+		bool m_PreferImmediatePresentMode = false;
 
 		Ref<Renderer2D> m_Renderer2D;
 
