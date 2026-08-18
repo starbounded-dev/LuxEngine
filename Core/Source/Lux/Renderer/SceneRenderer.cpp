@@ -715,26 +715,36 @@ namespace Lux {
 				m_Options.EnableGTAO = false;
 				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 				m_Options.GTAODenoisePasses = 0;
+				m_Options.GTAOSliceCount = 1;
+				m_Options.GTAOStepsPerSlice = 2;
 				break;
 			case QualityPreset::Medium:
 				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 				m_Options.GTAODenoisePasses = 2;
+				m_Options.GTAOSliceCount = 2;
+				m_Options.GTAOStepsPerSlice = 2;
 				break;
 			case QualityPreset::High:
 				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 				// 4 rather than 2: with temporal accumulation off, spatial denoising is the
 				// only thing cleaning up GTAO's noise.
 				m_Options.GTAODenoisePasses = 4;
+				m_Options.GTAOSliceCount = 3;
+				m_Options.GTAOStepsPerSlice = 3;
 				break;
 			case QualityPreset::Ultra:
 				m_Options.GTAOBentNormals = true;
 				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 				m_Options.GTAODenoisePasses = 6;
+				m_Options.GTAOSliceCount = 9;
+				m_Options.GTAOStepsPerSlice = 3;
 				break;
 			case QualityPreset::Cinematic:
 				m_Options.GTAOBentNormals = true;
 				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 				m_Options.GTAODenoisePasses = 8;
+				m_Options.GTAOSliceCount = 9;
+				m_Options.GTAOStepsPerSlice = 3;
 				break;
 			default:
 				break;
@@ -1047,6 +1057,8 @@ namespace Lux {
 		m_Options.EnableGTAO = settings.EnableGTAO;
 		m_Options.GTAOBentNormals = settings.GTAOBentNormals;
 		m_Options.GTAODenoisePasses = settings.GTAODenoisePasses;
+		m_Options.GTAOSliceCount = std::clamp(settings.GTAOSliceCount, 1u, 9u);
+		m_Options.GTAOStepsPerSlice = std::clamp(settings.GTAOStepsPerSlice, 1u, 4u);
 		m_Options.AOShadowTolerance = settings.AOShadowTolerance;
 		m_Options.EnableSSR = settings.EnableSSR;
 		m_Options.GTAOResolutionScale = SanitizeEffectResolutionScale(settings.GTAOResolutionScale);
@@ -1139,6 +1151,8 @@ namespace Lux {
 		settings.EnableGTAO = m_Options.EnableGTAO;
 		settings.GTAOBentNormals = m_Options.GTAOBentNormals;
 		settings.GTAODenoisePasses = m_Options.GTAODenoisePasses;
+		settings.GTAOSliceCount = m_Options.GTAOSliceCount;
+		settings.GTAOStepsPerSlice = m_Options.GTAOStepsPerSlice;
 		settings.AOShadowTolerance = m_Options.AOShadowTolerance;
 		settings.EnableSSR = m_Options.EnableSSR;
 		settings.GTAOResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
@@ -4718,6 +4732,8 @@ namespace Lux {
 			m_GTAODataCB.HZBUVFactor = m_SSROptions.HZBUvFactor;
 			m_GTAODataCB.NoiseIndex = (int)(Renderer::GetCurrentFrameIndex() % 64);
 			m_GTAODataCB.ShadowTolerance = m_Options.AOShadowTolerance;
+			m_GTAODataCB.SliceCount = m_Options.GTAOSliceCount;
+			m_GTAODataCB.StepsPerSlice = m_Options.GTAOStepsPerSlice;
 
 			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 			m_SSROptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);

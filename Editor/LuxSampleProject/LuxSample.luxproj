@@ -1,4 +1,4 @@
-Project:
+﻿Project:
   Name: LuxSample
   AssetDirectory: Assets
   AssetRegistry: Assets/AssetRegistry.lzr
@@ -34,6 +34,8 @@ Project:
       GTAO: true
       GTAOBentNormals: true
       GTAODenoisePasses: 8
+      GTAOSliceCount: 9
+      GTAOStepsPerSlice: 3
       AOShadowTolerance: 1
       SSR: false
       JumpFloodOutline: true

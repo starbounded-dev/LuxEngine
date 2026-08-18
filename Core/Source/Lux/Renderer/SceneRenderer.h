@@ -264,6 +264,11 @@ namespace Lux {
 		bool  GTAOBentNormals = false;
 		float AOShadowTolerance = 1.0f;
 		int   GTAODenoisePasses = 4;
+		// XeGTAO sampling: SliceCount * StepsPerSlice * 2 depth samples per pixel, and
+		// the dominant cost of the GTAO pass. Driven by the AO quality tier - see
+		// ApplyAmbientOcclusionQuality - using XeGTAO's own preset values.
+		uint32_t GTAOSliceCount = 9;
+		uint32_t GTAOStepsPerSlice = 3;
 		bool  EnableSSR = true;
 		ShaderDef::AOMethod ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
 		bool  EnableJumpFlood = true;

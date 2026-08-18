@@ -74,6 +74,10 @@ namespace Lux
 		bool EnableGTAO = true;
 		bool GTAOBentNormals = false;
 		int GTAODenoisePasses = 4;
+		// XeGTAO sample counts. Serialized like every other resolved quality value,
+		// because the tier in the project file is only a label on load.
+		uint32_t GTAOSliceCount = 9;
+		uint32_t GTAOStepsPerSlice = 3;
 		float AOShadowTolerance = 1.0f;
 		bool EnableSSR = true;
 		bool EnableJumpFlood = true;

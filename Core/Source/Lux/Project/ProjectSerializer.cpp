@@ -254,6 +254,8 @@ namespace Lux
 			out << YAML::Key << "GTAO" << YAML::Value << settings.EnableGTAO;
 			out << YAML::Key << "GTAOBentNormals" << YAML::Value << settings.GTAOBentNormals;
 			out << YAML::Key << "GTAODenoisePasses" << YAML::Value << settings.GTAODenoisePasses;
+			out << YAML::Key << "GTAOSliceCount" << YAML::Value << settings.GTAOSliceCount;
+			out << YAML::Key << "GTAOStepsPerSlice" << YAML::Value << settings.GTAOStepsPerSlice;
 			out << YAML::Key << "AOShadowTolerance" << YAML::Value << settings.AOShadowTolerance;
 			out << YAML::Key << "SSR" << YAML::Value << settings.EnableSSR;
 			out << YAML::Key << "JumpFloodOutline" << YAML::Value << settings.EnableJumpFlood;
@@ -348,6 +350,8 @@ namespace Lux
 				settings.EnableGTAO = rendering["GTAO"].as<bool>(settings.EnableGTAO);
 				settings.GTAOBentNormals = rendering["GTAOBentNormals"].as<bool>(settings.GTAOBentNormals);
 				settings.GTAODenoisePasses = rendering["GTAODenoisePasses"].as<int>(settings.GTAODenoisePasses);
+				settings.GTAOSliceCount = rendering["GTAOSliceCount"].as<uint32_t>(settings.GTAOSliceCount);
+				settings.GTAOStepsPerSlice = rendering["GTAOStepsPerSlice"].as<uint32_t>(settings.GTAOStepsPerSlice);
 				settings.AOShadowTolerance = rendering["AOShadowTolerance"].as<float>(settings.AOShadowTolerance);
 				settings.EnableSSR = rendering["SSR"].as<bool>(settings.EnableSSR);
 				settings.EnableJumpFlood = rendering["JumpFloodOutline"].as<bool>(settings.EnableJumpFlood);
@@ -440,6 +444,8 @@ namespace Lux
 			serializer.WriteRaw(settings.EnableGTAO);
 			serializer.WriteRaw(settings.GTAOBentNormals);
 			serializer.WriteRaw(settings.GTAODenoisePasses);
+			serializer.WriteRaw(settings.GTAOSliceCount);
+			serializer.WriteRaw(settings.GTAOStepsPerSlice);
 			serializer.WriteRaw(settings.AOShadowTolerance);
 			serializer.WriteRaw(settings.EnableSSR);
 			serializer.WriteRaw(settings.EnableJumpFlood);
@@ -514,6 +520,13 @@ namespace Lux
 			stream.ReadRaw(settings.EnableGTAO);
 			stream.ReadRaw(settings.GTAOBentNormals);
 			stream.ReadRaw(settings.GTAODenoisePasses);
+			// Guarded so packs written before the sample counts existed still load; they
+			// keep the defaults. Position must match the write order above.
+			if (version >= 16)
+			{
+				stream.ReadRaw(settings.GTAOSliceCount);
+				stream.ReadRaw(settings.GTAOStepsPerSlice);
+			}
 			stream.ReadRaw(settings.AOShadowTolerance);
 			stream.ReadRaw(settings.EnableSSR);
 			stream.ReadRaw(settings.EnableJumpFlood);
