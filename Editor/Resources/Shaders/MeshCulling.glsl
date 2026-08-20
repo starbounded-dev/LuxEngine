@@ -166,6 +166,14 @@ void main()
 	if (gl_LocalInvocationIndex == 0)
 		b_IndirectDrawCommands.Data[indirectArgsBase + 1u] = 0u;
 
+	// barrier() orders execution and, in compute, implies a memory barrier for SHARED
+	// variables only - buffer writes need this explicitly. Without it the plain store
+	// above is not ordered against the atomicAdd below on the same address, so the
+	// reset can land after other invocations have already incremented and silently
+	// discard their counts, leaving instanceCount lower than the number of visible
+	// instances written. That drops instances from the draw, and being a race it
+	// changes frame to frame - geometry flickering as the visible set churns.
+	memoryBarrierBuffer();
 	barrier();
 
 	for (uint instanceIndex = gl_LocalInvocationIndex; instanceIndex < instanceCount; instanceIndex += gl_WorkGroupSize.x)
