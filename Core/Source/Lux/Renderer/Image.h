@@ -47,7 +47,10 @@ namespace Lux {
 		DEPTH24STENCIL8,
 
 		// Defaults
-		Depth = DEPTH24STENCIL8,
+		// D24S8 is optional in the Vulkan spec and unsupported on Mesa RADV/ANV (AMD/Intel), which
+		// only guarantee D32S8 — request that instead so depth/shadow attachments actually create
+		// on those drivers.
+		Depth = DEPTH32FSTENCIL8UINT,
 	};
 
 	enum class ImageUsage
