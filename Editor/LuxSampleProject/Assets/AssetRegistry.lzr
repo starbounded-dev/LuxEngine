@@ -1,0 +1,646 @@
+Assets:
+  - Handle: 176240306516106446
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_24_Material_24.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659388
+    Status: Ready
+  - Handle: 218482633904339009
+    FilePath: Meshes/Source/Sponza/2775690330959970771.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 596667460420446301
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_1_Material_1.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659386
+    Status: Ready
+  - Handle: 629332800486104706
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_7_Material_7.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659386
+    Status: Ready
+  - Handle: 681607371949132904
+    FilePath: Meshes/Source/Sponza/8051790464816141987.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 958788097531993663
+    FilePath: Environment/dikhololo_night_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 1284774805720721356
+    FilePath: Meshes/Source/Sponza/5823059166183034438.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 1485593981058217637
+    FilePath: Environment/pink_sunrise_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 1856441506274553301
+    FilePath: Meshes/Source/Sponza/5061699253647017043.png
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 1950962054821854618
+    FilePath: Meshes/Source/Sponza/5792855332885324923.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 2125072313853907767
+    FilePath: Meshes/Source/Sponza/7645212358685992005.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 2201280312071477268
+    FilePath: Meshes/Source/Sponza/2299742237651021498.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 2299834858177786903
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_21_Material_21.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659388
+    Status: Ready
+  - Handle: 2430854865358074803
+    FilePath: Meshes/Source/Sponza/16275776544635328252.png
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 2618469286157236314
+    FilePath: Meshes/Source/Sponza/11968150294050148237.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 2842015936735032481
+    FilePath: Meshes/Source/Default/Materials/Capsule_0_Material_0.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059636769
+    Status: None
+  - Handle: 2871870856469487665
+    FilePath: Scenes/Physics.luxscene
+    Type: Scene
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 2980217432859741417
+    FilePath: Meshes/Source/TestScene.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 3065110451066032372
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_17_Material_17.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 3297994536048662616
+    FilePath: Meshes/Source/Sponza/16885566240357350108.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 3398988298822542555
+    FilePath: Meshes/Source/Sponza/13196865903111448057.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 3523050505664199236
+    FilePath: Textures/luxLogo.png
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 3560774374736161969
+    FilePath: Meshes/Source/Sponza/2374361008830720677.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 3576107058085008864
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_3_Material_3.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659386
+    Status: Ready
+  - Handle: 3619039314442663296
+    FilePath: Meshes/Source/Sponza/6667038893015345571.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 3629536807738283940
+    FilePath: Meshes/Source/Sponza/15722799267630235092.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 3662333232878718086
+    FilePath: Meshes/Source/Default/Capsule.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 3837237547504984566
+    FilePath: Meshes/Source/Sponza/13824894030729245199.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 4617627115470858524
+    FilePath: Textures/Checkerboard.png
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 5040029817225809111
+    FilePath: Meshes/Source/Sponza/3455394979645218238.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5047013130077771705
+    FilePath: Meshes/Source/Default/Cube.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5070732012042534135
+    FilePath: Meshes/Source/Sponza/12501374198249454378.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5094136855824747147
+    FilePath: Meshes/Source/Sponza/Sponza.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 5190924234788538949
+    FilePath: Meshes/Source/Sponza/7056944414013900257.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5208362639232133398
+    FilePath: Meshes/Source/Sponza/15295713303328085182.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5279942796226290000
+    FilePath: Meshes/Source/Sponza/17556969131407844942.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5350407432535457283
+    FilePath: Meshes/Source/Sponza/8783994986360286082.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5461187777155076494
+    FilePath: Meshes/Source/Sponza/1219024358953944284.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5547799966822608758
+    FilePath: Meshes/Source/Sponza/715093869573992647.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5625517463203655611
+    FilePath: Meshes/Source/Default/Cone.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 5645627796189249967
+    FilePath: Meshes/Source/Sponza/6593109234861095314.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5671172017602274045
+    FilePath: Meshes/Source/Sponza/466164707995436622.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5767537469791476284
+    FilePath: Meshes/Source/Sponza/8747919177698443163.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5778206859833337418
+    FilePath: Meshes/Source/Sponza/10381718147657362067.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 5881324971232657775
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_8_Material_8.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 5979506630505729704
+    FilePath: Meshes/Source/Sponza/8750083169368950601.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 6083874251198040656
+    FilePath: Meshes/Source/Sponza/9288698199695299068.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 6129116652403293595
+    FilePath: Meshes/Source/Sponza/4675343432951571524.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 6283683723217835571
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_22_Material_22.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659388
+    Status: Ready
+  - Handle: 6352554426289763268
+    FilePath: Meshes/Source/Sponza/white.png
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 6541052654423142815
+    FilePath: Meshes/Source/Sponza/8481240838833932244.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 6688419955572770247
+    FilePath: Meshes/Source/Sponza/11490520546946913238.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 6702397912924568739
+    FilePath: Meshes/Source/Sponza/6151467286084645207.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 6706963321226388143
+    FilePath: Meshes/Source/PhysicsTestMesh.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 6710326461143446828
+    FilePath: Meshes/Source/Sponza/759203620573749278.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 6720278535132917868
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_5_Material_5.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659386
+    Status: Ready
+  - Handle: 6871589670293342467
+    FilePath: Meshes/Source/Sponza/6772804448157695701.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 7606127991934684319
+    FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 8072006523436107113
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_16_Material_16.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 8207812174761993935
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_25_Material_25.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659388
+    Status: None
+  - Handle: 8362594283423097027
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_11_Material_11.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 8665842578006325754
+    FilePath: Meshes/Source/Sponza/8773302468495022225.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 8727075728022189045
+    FilePath: Meshes/Source/Sponza/9916269861720640319.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 8771070141657830737
+    FilePath: Scripts/Source/FlyCamera.cs
+    Type: ScriptFile
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 8845360671192191215
+    FilePath: Meshes/Source/Sponza/4477655471536070370.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 8868489982347245392
+    FilePath: Scripts/Intermediates/Release/LuxSample.AssemblyInfo.cs
+    Type: ScriptFile
+    FileLastWriteTime: 18446744069059636079
+    Status: None
+  - Handle: 8873821167095533110
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 9152988350745842542
+    FilePath: Meshes/Source/Sponza/11474523244911310074.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 9348580964016867237
+    FilePath: Meshes/Source/Sponza/2051777328469649772.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 9685142686327195147
+    FilePath: Meshes/Source/Default/Sphere.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 9810573357092627660
+    FilePath: Meshes/Source/Sponza/8114461559286000061.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 9846252695806509958
+    FilePath: Meshes/Source/Sponza/332936164838540657.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 9901741614269349492
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_6_Material_6.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659386
+    Status: Ready
+  - Handle: 9908608651717579437
+    FilePath: Meshes/Source/Sponza/8503262930880235456.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 9960333629800250597
+    FilePath: Meshes/Source/Sponza/4601176305987539675.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 10018234366543860317
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_4_Material_4.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659386
+    Status: Ready
+  - Handle: 10183140249670846162
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_20_Material_20.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659388
+    Status: Ready
+  - Handle: 10349952045286892307
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_13_Material_13.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 10706109019726981847
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_9_Material_9.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 10740953653777413167
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_12_Material_12.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 10757355412620758746
+    FilePath: Meshes/Source/Sponza/2185409758123873465.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 10909522249527059136
+    FilePath: Meshes/Source/Sponza/17876391417123941155.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 10955405005470926046
+    FilePath: Meshes/Source/Default/Plane.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 11055047604827275079
+    FilePath: Meshes/Source/Sponza/3371964815757888145.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 11102775991030435476
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_23_Material_23.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659388
+    Status: Ready
+  - Handle: 11240366275473196297
+    FilePath: Meshes/Source/Sponza/7815564343179553343.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 11272100112236333012
+    FilePath: Meshes/Source/Sponza/8006627369776289000.png
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 11536091019589397372
+    FilePath: Meshes/Source/Sponza/14650633544276105767.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 11549469415178851480
+    FilePath: Meshes/Source/Sponza/7441062115984513793.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 11614463719817784921
+    FilePath: Meshes/Source/Sponza/11872827283454512094.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 11616541681400450578
+    FilePath: Meshes/Source/Default/Materials/Cube_0_Material_0.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059636769
+    Status: Ready
+  - Handle: 11663377681108136505
+    FilePath: Meshes/Source/SubmeshCubeTest.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 11725495709222055814
+    FilePath: Meshes/Source/Sponza/14267839433702832875.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 11816680699337023150
+    FilePath: Environment/venice_dawn_1_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 11871225110752389428
+    FilePath: Meshes/Source/Sponza/13982482287905699490.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 11882545780179710582
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_0_Material_0.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659386
+    Status: Ready
+  - Handle: 11936938827911309243
+    FilePath: Meshes/Source/Ramp.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 11975657690060251244
+    FilePath: Meshes/Source/Sponza/14118779221266351425.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 12347001740963205003
+    FilePath: Scenes/SkyDiver.luxscene
+    Type: Scene
+    FileLastWriteTime: 18446744069059636767
+    Status: Ready
+  - Handle: 12417471776041518065
+    FilePath: Meshes/Source/HazelText.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 12433077166404241751
+    FilePath: Meshes/Source/Default/Materials/Sphere_0_Material_0.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059636769
+    Status: Ready
+  - Handle: 12888239829427574556
+    FilePath: Scripts/Intermediates/Release/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs
+    Type: ScriptFile
+    FileLastWriteTime: 18446744069059636079
+    Status: None
+  - Handle: 12947748576387674464
+    FilePath: Meshes/Source/Default/Cylinder.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 13118299698764972325
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_15_Material_15.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 13274671615592977719
+    FilePath: Scenes/NewSceneSystem.luxscene
+    Type: Scene
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 13461130352643145370
+    FilePath: Meshes/Source/Sponza/10388182081421875623.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 13573978707998611548
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_18_Material_18.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659388
+    Status: Ready
+  - Handle: 13917164595632565473
+    FilePath: Meshes/Source/Sponza/7268504077753552595.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 14054485686195074294
+    FilePath: Meshes/Source/Sponza/6047387724914829168.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 14231046271141485607
+    FilePath: Meshes/Source/Sponza/4910669866631290573.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 14667370932801951154
+    FilePath: Meshes/Source/Default/Materials/Plane_0_Material_0.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059636735
+    Status: Ready
+  - Handle: 14784980011298538944
+    FilePath: Meshes/Source/Sponza/2411100444841994089.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 15086047698040857344
+    FilePath: Meshes/Source/Sponza/4975155472559461469.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 15439030887364529827
+    FilePath: Meshes/Source/Sponza/3827035219084910048.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 15477231389038173681
+    FilePath: Audio/fart-01.wav
+    Type: Audio
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 15736897142292738885
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_19_Material_19.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659388
+    Status: Ready
+  - Handle: 15966242954355821266
+    FilePath: Scripts/Intermediates/Debug/LuxSample.AssemblyInfo.cs
+    Type: ScriptFile
+    FileLastWriteTime: 18446744069059615689
+    Status: None
+  - Handle: 16078392067688766467
+    FilePath: Meshes/Source/Sponza/755318871556304029.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 16317874982647590309
+    FilePath: Scripts/Intermediates/Debug/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs
+    Type: ScriptFile
+    FileLastWriteTime: 18446744069059615689
+    Status: None
+  - Handle: 16610283657387777280
+    FilePath: Meshes/Source/Default/Torus.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 16892774771919552109
+    FilePath: Meshes/Source/CubeScene.gltf
+    Type: MeshSource
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 17379388545274226483
+    FilePath: Environment/birchwood_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 17587896791728352152
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_14_Material_14.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659387
+    Status: Ready
+  - Handle: 17783565266569746235
+    FilePath: Meshes/Source/Sponza/16299174074766089871.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 17837414258880901252
+    FilePath: Meshes/Source/Sponza/14170708867020035030.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 17887456154391039892
+    FilePath: Environment/rooitou_park_4k.hdr
+    Type: EnvMap
+    FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 17999790688375363419
+    FilePath: Meshes/Source/Sponza/Materials/Sponza_2_Material_2.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069059659386
+    Status: Ready
+  - Handle: 18028304975470354491
+    FilePath: Meshes/Source/Sponza/4871783166746854860.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 18093543000178704889
+    FilePath: Meshes/Source/Sponza/3628158980083700836.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069059611435
+    Status: Ready

@@ -66,17 +66,13 @@ Editor/DotNet/
 Editor/Resources/Cache
 Lux.slnx
 Editor/LuxSampleProject/Assets/Cache/Thumbnails
-Editor/LuxSampleProject/Assets/AssetRegistry.lzr
 *.lap
 *.aps
 *.slnx
 *.lib
 *.pdb
 Core/vendor/JoltPhysics/bin/Debug-windows-x86_64/JoltPhysics/JoltPhysics.idb
-*.lmat
-*.lmesh
 *.lsettings
-Editor/assets/AssetRegistry.lzr
 Editor/dbg_trace.txt
 Editor/dbg_ctor.txt
 
