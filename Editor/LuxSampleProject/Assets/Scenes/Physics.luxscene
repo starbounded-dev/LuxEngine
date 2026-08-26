@@ -32,7 +32,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 14692274218111311545
+      AssetID: 9685142686327195147
       MaterialTable:
         {}
       Visible: true
@@ -68,7 +68,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 7221346864948586622
+      AssetID: 5047013130077771705
       MaterialTable:
         {}
       Visible: true
@@ -104,7 +104,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 4942382394650059223
+      AssetID: 3662333232878718086
       MaterialTable:
         {}
       Visible: true
@@ -157,7 +157,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [10, 1, 10]
     StaticMeshComponent:
-      AssetID: 14646092683700145589
+      AssetID: 10955405005470926046
       MaterialTable:
         {}
       Visible: true
