@@ -41,6 +41,7 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
+#include "Panels/StatisticsPanel.h"
 #include "Panels/ApplicationSettingsPanel.h"
 #include "Panels/AssetManagerPanel.h"
 #include "Panels/ProjectSettingsWindow.h"
@@ -353,6 +354,7 @@ namespace Lux {
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
+		m_StatisticsPanel = m_PanelManager->AddPanel<StatisticsPanel>(PanelCategory::View, "StatisticsPanel", "Statistics", false);
 		if (m_SceneRendererPanel)
 		{
 			m_SceneRendererPanel->SetDebugViewCallbacks(
@@ -372,6 +374,11 @@ namespace Lux {
 		editorPreferencesBindings.ShowEntityIcons = &m_ShowEntityIcons;
 		editorPreferencesBindings.ShowViewportPerformanceHUD = &m_ShowViewportPerformanceHUD;
 		editorPreferencesBindings.ShowPhysicsColliders = &m_ShowPhysicsColliders;
+		editorPreferencesBindings.SimpleLayout = &m_SimpleLayout;
+		editorPreferencesBindings.OnLayoutModeChanged = [this](bool simple)
+			{
+				SetEditorLayoutMode(simple);
+			};
 		editorPreferencesBindings.OnPreferencesChanged = [this]()
 			{
 				ApplyEditorPreferences();
@@ -424,6 +431,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_StatisticsPanel)
+			m_StatisticsPanel->SetContext(m_SceneRenderer);
 
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
@@ -476,6 +485,7 @@ namespace Lux {
 		m_EditorViewport.reset();
 		m_SceneRenderer.reset();
 		m_RendererDebuggerPanel.reset();
+		m_StatisticsPanel.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
 		EditorResources::Shutdown();
@@ -627,6 +637,14 @@ namespace Lux {
 				// only ever fires on first run (or after Editor/imgui.ini is cleared).
 				if (!ImGui::DockBuilderGetNode(dockspace_id)->IsSplitNode())
 					ResetDefaultDockLayout(dockspace_id);
+
+				// A layout-mode switch requested from a menu last frame is applied here, where the
+				// dockspace id is valid.
+				if (m_PendingLayoutReset)
+				{
+					ResetDefaultDockLayout(dockspace_id);
+					m_PendingLayoutReset = false;
+				}
 			}
 			style.WindowMinSize.x = minWinSizeX;
 
@@ -806,8 +824,7 @@ namespace Lux {
 		const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
 		const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.30f, nullptr, &center);
 
-		// Scene Renderer / Light Settings are deliberately not docked here — closed by default
-		// (see AddPanel calls above), reachable from the View menu, floating if reopened.
+		// Core panels, present in both layouts.
 		ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
 		ImGui::DockBuilderDockWindow("Properties", right);
 		ImGui::DockBuilderDockWindow("Content Browser", bottom);
@@ -815,7 +832,44 @@ namespace Lux {
 		ImGui::DockBuilderDockWindow("Viewport", center);
 		ImGui::DockBuilderDockWindow("Text Editor", center);
 
+		// Advanced mode fills out the workspace with the diagnostic panels: a left-bottom group
+		// under the hierarchy (Scene Renderer / Light Settings / Statistics) and the Renderer
+		// Debugger tabbed into the bottom dock. In Simple mode these stay closed (see
+		// SetEditorLayoutMode) and are absent from the default arrangement.
+		if (!m_SimpleLayout)
+		{
+			const ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.5f, nullptr, nullptr);
+			ImGui::DockBuilderDockWindow("Scene Renderer", leftBottom);
+			ImGui::DockBuilderDockWindow("Light Settings", leftBottom);
+			ImGui::DockBuilderDockWindow("Statistics", leftBottom);
+			ImGui::DockBuilderDockWindow("Renderer Debugger", bottom);
+		}
+
 		ImGui::DockBuilderFinish(dockspaceId);
+	}
+
+	void EditorLayer::SetEditorLayoutMode(bool simple)
+	{
+		m_SimpleLayout = simple;
+
+		// The advanced-only panels follow the mode: opened when entering Advanced, closed when
+		// returning to Simple. Everything else keeps whatever the user set.
+		static const char* const s_AdvancedPanels[] = { "Scene Renderer", "Light Settings", "Statistics", "Renderer Debugger" };
+		auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
+		for (auto& [id, panelData] : viewPanels)
+		{
+			for (const char* advancedName : s_AdvancedPanels)
+			{
+				if (std::strcmp(panelData.Name, advancedName) == 0)
+				{
+					panelData.IsOpen = !simple;
+					break;
+				}
+			}
+		}
+
+		SaveEditorPreferences();
+		m_PendingLayoutReset = true;
 	}
 
 	void EditorLayer::UI_DrawMenubar()
@@ -1376,6 +1430,15 @@ namespace Lux {
 			if (m_PlayModeDebugViewsSuspended)
 				ImGui::EndDisabled();
 
+			// The doc places the "back to Simple" affordance in the viewport toolbar, shown only
+			// while Advanced mode is active.
+			if (!m_SimpleLayout)
+			{
+				ImGui::Separator();
+				if (ImGui::MenuItem("Switch to Simple Mode"))
+					SetEditorLayoutMode(true);
+			}
+
 			if (settingsChanged)
 			{
 				ApplyEditorPreferences();
@@ -1867,6 +1930,7 @@ namespace Lux {
 		m_ShowEntityIcons = settings.GetInt("Editor.ShowEntityIcons", 1) != 0;
 		m_ShowViewportPerformanceHUD = settings.GetInt("Editor.ShowViewportPerformanceHUD", 1) != 0;
 		m_ShowPhysicsColliders = settings.GetInt("Editor.ShowPhysicsColliders", 0) != 0;
+		m_SimpleLayout = settings.GetInt("Editor.SimpleLayout", 1) != 0;
 
 		ApplyEditorPreferences();
 	}
@@ -1885,6 +1949,7 @@ namespace Lux {
 		settings.SetInt("Editor.ShowEntityIcons", m_ShowEntityIcons ? 1 : 0);
 		settings.SetInt("Editor.ShowViewportPerformanceHUD", m_ShowViewportPerformanceHUD ? 1 : 0);
 		settings.SetInt("Editor.ShowPhysicsColliders", m_ShowPhysicsColliders ? 1 : 0);
+		settings.SetInt("Editor.SimpleLayout", m_SimpleLayout ? 1 : 0);
 		settings.Serialize();
 	}
 
@@ -2545,6 +2610,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_StatisticsPanel)
+			m_StatisticsPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OpenScene()
@@ -2589,6 +2656,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_StatisticsPanel)
+			m_StatisticsPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::SaveScene()
@@ -2785,6 +2854,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_StatisticsPanel)
+			m_StatisticsPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnSceneSimulate()
@@ -2811,6 +2882,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_StatisticsPanel)
+			m_StatisticsPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnSceneStop()
@@ -2843,6 +2916,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_StatisticsPanel)
+			m_StatisticsPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnScenePause()

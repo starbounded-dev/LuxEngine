@@ -204,6 +204,15 @@ namespace Lux {
 				SaveUserPreferences();
 			}
 		}
+
+			// Simple UX = the minimal default layout; unchecking it switches to the fuller Advanced
+			// workspace. The switch re-docks panels, so it is routed through the callback.
+			if (m_Bindings.SimpleLayout)
+			{
+				bool simpleLayout = *m_Bindings.SimpleLayout;
+				if (ImGuiEx::Property("Simple UX", simpleLayout) && m_Bindings.OnLayoutModeChanged)
+					m_Bindings.OnLayoutModeChanged(simpleLayout);
+			}
 		ImGuiEx::EndPropertyGrid();
 
 		if (notifyBindings && m_Bindings.OnPreferencesChanged)

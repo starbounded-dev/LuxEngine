@@ -26,6 +26,7 @@ namespace Lux
 	class SceneHierarchyPanel;
 	class SceneRendererPanel;
 	class RendererDebuggerPanel;
+	class StatisticsPanel;
 
 	class EditorLayer : public Layer
 	{
@@ -49,6 +50,7 @@ namespace Lux
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
+		void SetEditorLayoutMode(bool simple);
 		void UI_GizmosToolbar();
 		void UI_CentralToolbar();
 		void UI_ViewportSettings();
@@ -117,6 +119,7 @@ namespace Lux
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
+		Ref<StatisticsPanel> m_StatisticsPanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
 
 		// Temp
@@ -147,6 +150,13 @@ namespace Lux
 		bool m_ShowBoundingBoxes = false;
 		bool m_ShowEntityIcons = true;
 		bool m_ShowViewportPerformanceHUD = true;
+
+		// Editor layout mode: Simple (a fixed, minimal default arrangement) vs Advanced (a fuller
+		// workspace with the diagnostic panels docked). Persisted as Editor.SimpleLayout.
+		bool m_SimpleLayout = true;
+		// ResetDefaultDockLayout needs the live dockspace id, only valid inside OnImGuiRender, so a
+		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
+		bool m_PendingLayoutReset = false;
 		bool m_ShowRuntimeExportWindow = false;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;
