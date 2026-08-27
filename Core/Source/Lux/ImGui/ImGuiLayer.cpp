@@ -436,8 +436,8 @@ namespace Lux {
 
 		// Tabs (accent-tinted so the active tab reads as "selected" on-brand)
 		colors[ImGuiCol_Tab] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-		colors[ImGuiCol_TabHovered] = ImColor(124, 131, 248, 45);
-		colors[ImGuiCol_TabActive] = ImColor(124, 131, 248, 90);
+		colors[ImGuiCol_TabHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accentTabHovered);
+		colors[ImGuiCol_TabActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accentTabActive);
 		colors[ImGuiCol_TabUnfocused] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		colors[ImGuiCol_TabUnfocusedActive] = colors[ImGuiCol_TabHovered];
 
@@ -471,7 +471,7 @@ namespace Lux {
 		// Separator (subtle by default, accent when active/hovered)
 		colors[ImGuiCol_Separator] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
 		colors[ImGuiCol_SeparatorActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
-		colors[ImGuiCol_SeparatorHovered] = ImColor(124, 131, 248, 150);
+		colors[ImGuiCol_SeparatorHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accentSeparatorHovered);
 
 		// Window Background
 		colors[ImGuiCol_WindowBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
@@ -492,18 +492,19 @@ namespace Lux {
 		colors[ImGuiCol_NavHighlight] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
 
 		//========================================================
-		/// Style — softer, rounder, cleaner than the default. Rounding is applied to the
-		/// widgets that read as "controls" (frames, grabs, tabs, scrollbars, popups);
-		/// spacing/padding are left alone so the panels' hand-tuned cursor offsets still line up.
-		style.FrameRounding = 4.0f;
+		/// Style — sharp and hairline-bordered ("Monolith, warmed"). Rounding is applied to the
+		/// widgets that read as "controls" (frames, grabs, tabs, scrollbars, popups), kept minimal
+		/// rather than soft; spacing/padding are left alone so the panels' hand-tuned cursor
+		/// offsets still line up.
+		style.FrameRounding = 2.0f;
 		style.FrameBorderSize = 1.0f;
-		style.GrabRounding = 4.0f;
+		style.GrabRounding = 2.0f;
 		style.GrabMinSize = 7.0f;
-		style.TabRounding = 4.0f;
-		style.ScrollbarRounding = 9.0f;
+		style.TabRounding = 2.0f;
+		style.ScrollbarRounding = 3.0f;
 		style.ScrollbarSize = 13.0f;
-		style.PopupRounding = 6.0f;
-		style.ChildRounding = 6.0f;
+		style.PopupRounding = 2.0f;
+		style.ChildRounding = 2.0f;
 		style.PopupBorderSize = 1.0f;
 		style.IndentSpacing = 11.0f;
 	}

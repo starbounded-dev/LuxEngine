@@ -351,7 +351,7 @@ namespace Lux {
 		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Text Editor", true);
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
 
-		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
+		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		if (m_SceneRendererPanel)
 		{
@@ -383,7 +383,7 @@ namespace Lux {
 		m_PanelManager->AddPanel<ProjectSettingsWindow>(PanelCategory::View, PROJECT_SETTINGS_PANEL_ID, "Project Settings", false);
 
 		// Light Settings panel
-		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", true);
+		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", false);
 
 		m_IconPlay = LoadTextureFromPath("Resources/Editor/Viewport/Play.png");
 		m_IconPause = LoadTextureFromPath("Resources/Editor/Viewport/Pause.png");
@@ -621,6 +621,12 @@ namespace Lux {
 			{
 				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
 				ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+
+				// DockSpace() creates the node as an unsplit leaf when imgui.ini had nothing saved
+				// for it; a node that's already split means a saved layout was restored, so this
+				// only ever fires on first run (or after Editor/imgui.ini is cleared).
+				if (!ImGui::DockBuilderGetNode(dockspace_id)->IsSplitNode())
+					ResetDefaultDockLayout(dockspace_id);
 			}
 			style.WindowMinSize.x = minWinSizeX;
 
@@ -782,9 +788,34 @@ namespace Lux {
 			UI_GizmosToolbar();
 			UI_CentralToolbar();
 			UI_ViewportSettings();
+			UI_ViewportOrientationGizmo();
+			UI_ViewportSelectionBadge();
 		}
 
 		ImGui::End(); // Lux Editor
+	}
+
+	void EditorLayer::ResetDefaultDockLayout(ImGuiID dockspaceId)
+	{
+		ImGui::DockBuilderRemoveNode(dockspaceId);
+		ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+		ImGui::DockBuilderSetNodeSize(dockspaceId, ImGui::GetMainViewport()->Size);
+
+		ImGuiID center = dockspaceId;
+		const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+		const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
+		const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.30f, nullptr, &center);
+
+		// Scene Renderer / Light Settings are deliberately not docked here — closed by default
+		// (see AddPanel calls above), reachable from the View menu, floating if reopened.
+		ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
+		ImGui::DockBuilderDockWindow("Properties", right);
+		ImGui::DockBuilderDockWindow("Content Browser", bottom);
+		ImGui::DockBuilderDockWindow("Log", bottom);
+		ImGui::DockBuilderDockWindow("Viewport", center);
+		ImGui::DockBuilderDockWindow("Text Editor", center);
+
+		ImGui::DockBuilderFinish(dockspaceId);
 	}
 
 	void EditorLayer::UI_DrawMenubar()
@@ -881,6 +912,10 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("View"))
 			{
+				if (ImGui::MenuItem("Reset Layout"))
+					ResetDefaultDockLayout(ImGui::GetID("MyDockSpace"));
+				ImGui::Separator();
+
 				auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
 				for (auto& [id, panelData] : viewPanels)
 					ImGui::MenuItem(panelData.Name, nullptr, &panelData.IsOpen);
@@ -1354,11 +1389,119 @@ namespace Lux {
 		ImGui::PopStyleVar();
 	}
 
+	void EditorLayer::UI_ViewportOrientationGizmo()
+	{
+		if (!m_EditorViewport)
+			return;
+
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
+			return;
+
+		const float gizmoRadius = 22.0f;
+		const float windowExtent = (gizmoRadius + 8.0f) * 2.0f;
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+
+		// Top-right, tucked below the settings gear so the two don't overlap.
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 12.0f, viewportBounds[0].y + 48.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+		ImGui::SetNextWindowBgAlpha(0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGui::Begin("##viewport_orientation_gizmo", nullptr, flags);
+		ImGui::Dummy(ImVec2(windowExtent, windowExtent));
+
+		const ImVec2 winMin = ImGui::GetItemRectMin();
+		const ImVec2 center(winMin.x + windowExtent * 0.5f, winMin.y + windowExtent * 0.5f);
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+		// Rotation-only basis from the camera view matrix: transforming a world axis by it gives the
+		// axis direction in view space. Screen projection is orthographic — (x, -y), z only for
+		// draw ordering so nearer axis heads paint over farther ones.
+		const glm::mat4& view = m_EditorViewport->GetCamera().GetViewMatrix();
+
+		struct Axis { glm::vec3 world; ImU32 color; const char* label; };
+		const Axis axes[3] = {
+			{ { 1.0f, 0.0f, 0.0f }, IM_COL32(210, 74, 74, 255), "X" },
+			{ { 0.0f, 1.0f, 0.0f }, IM_COL32(120, 190, 90, 255), "Y" },
+			{ { 0.0f, 0.0f, 1.0f }, IM_COL32(90, 140, 220, 255), "Z" },
+		};
+
+		struct Projected { ImVec2 tip; float depth; ImU32 color; const char* label; };
+		Projected projected[3];
+		for (int i = 0; i < 3; i++)
+		{
+			const glm::vec3 v = glm::vec3(view * glm::vec4(axes[i].world, 0.0f));
+			projected[i] = {
+				ImVec2(center.x + v.x * gizmoRadius, center.y - v.y * gizmoRadius),
+				v.z, axes[i].color, axes[i].label };
+		}
+
+		int order[3] = { 0, 1, 2 };
+		std::sort(order, order + 3, [&](int a, int b) { return projected[a].depth < projected[b].depth; });
+
+		for (int idx = 0; idx < 3; idx++)
+		{
+			const Projected& p = projected[order[idx]];
+			drawList->AddLine(center, p.tip, p.color, 2.0f);
+			drawList->AddCircleFilled(p.tip, 4.0f, p.color);
+			const ImVec2 labelSize = ImGui::CalcTextSize(p.label);
+			drawList->AddText(ImVec2(p.tip.x - labelSize.x * 0.5f, p.tip.y - labelSize.y * 0.5f), Colors::Theme::titlebar, p.label);
+		}
+
+		ImGui::End();
+		ImGui::PopStyleVar();
+	}
+
+	void EditorLayer::UI_ViewportSelectionBadge()
+	{
+		if (!m_EditorViewport || !m_SceneHierarchyPanel)
+			return;
+
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
+			return;
+
+		Entity selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
+		if (!selectedEntity)
+			return;
+
+		const std::string badgeText = Utils::String::ToUpperCopy(selectedEntity.Name()) + " SELECTED";
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+
+		// Top-left, below the gizmo/tool toolbar so they don't collide.
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 48.0f), ImGuiCond_Always);
+		ImGui::SetNextWindowBgAlpha(0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGui::Begin("##viewport_selection_badge", nullptr, flags);
+
+		const ImVec2 textSize = ImGui::CalcTextSize(badgeText.c_str());
+		const ImVec2 pad(8.0f, 3.0f);
+		ImGui::Dummy(ImVec2(textSize.x + pad.x * 2.0f, textSize.y + pad.y * 2.0f));
+
+		const ImVec2 rectMin = ImGui::GetItemRectMin();
+		const ImVec2 rectMax = ImGui::GetItemRectMax();
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->AddRectFilled(rectMin, rectMax, Colors::Theme::accent, 2.0f);
+		drawList->AddText(ImVec2(rectMin.x + pad.x, rectMin.y + pad.y), Colors::Theme::titlebar, badgeText.c_str());
+
+		ImGui::End();
+		ImGui::PopStyleVar();
+	}
+
 	void EditorLayer::UI_Toolbar()
 	{
 		UI_GizmosToolbar();
 		UI_CentralToolbar();
 		UI_ViewportSettings();
+		UI_ViewportOrientationGizmo();
+		UI_ViewportSelectionBadge();
 	}
 
 	void EditorLayer::OnEvent(Event& e)

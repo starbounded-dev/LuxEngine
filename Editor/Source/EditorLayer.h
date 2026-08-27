@@ -48,9 +48,12 @@ namespace Lux
 		void OnOverlayRender();
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
+		void ResetDefaultDockLayout(ImGuiID dockspaceId);
 		void UI_GizmosToolbar();
 		void UI_CentralToolbar();
 		void UI_ViewportSettings();
+		void UI_ViewportOrientationGizmo();
+		void UI_ViewportSelectionBadge();
 		void UI_ViewportPerformanceHUD();
 		Entity CastMousePick();
 		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
