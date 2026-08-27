@@ -3,6 +3,8 @@
 
 #include "Colors.h"
 
+#include <implot/implot.h>
+
 #include "Lux/Core/Input.h"
 
 #include "Lux/Renderer/Renderer.h"
@@ -37,6 +39,7 @@ namespace Lux {
 		// Setup Dear ImGui context
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
+		ImPlot::CreateContext();
 		ImGuiIO& io = ImGui::GetIO(); (void)io;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
 		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
@@ -278,6 +281,7 @@ namespace Lux {
 
 		m_ImGuiRenderer.reset();
 		ImGui_ImplGlfw_Shutdown();
+		ImPlot::DestroyContext();
 		ImGui::DestroyContext();
 	}
 
