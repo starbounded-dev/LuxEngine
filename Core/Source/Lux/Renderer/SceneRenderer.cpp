@@ -2975,7 +2975,13 @@ namespace Lux {
 		{
 			Ref<Material> material = Material::Create(m_PreConvolutionComputePass->GetShader(), "Pre-Convolution");
 			material->Set("o_Image", m_PreConvolutedTexture.ImageViews[mip]);
-			material->Set("u_Input", mip == 0 ? GetSceneColorOutput() : m_PreConvolutedTexture.ImageViews[mip - 1]);
+			// Not a ternary: Ref<Image2D> and Ref<ImageView> are unrelated types, so a ternary here
+			// silently unifies through Ref's operator bool() instead of failing to compile, turning
+			// the texture argument into `true` and asserting "Could not find uniform 'u_Input'".
+			if (mip == 0)
+				material->Set("u_Input", GetSceneColorOutput());
+			else
+				material->Set("u_Input", m_PreConvolutedTexture.ImageViews[mip - 1]);
 			m_PreConvolutionMaterials[mip] = material;
 		}
 	}

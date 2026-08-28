@@ -102,7 +102,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 12369923097355242288
+      AssetID: 5094136855824747147
       MaterialTable:
         {}
       Visible: true

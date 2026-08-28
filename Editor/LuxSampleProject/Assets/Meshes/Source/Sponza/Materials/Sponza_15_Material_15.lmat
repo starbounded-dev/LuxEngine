@@ -1,0 +1,12 @@
+Material:
+  Transparent: false
+  AlbedoColor: [0.588, 0.588, 0.588]
+  Emission: 0
+  UseNormalMap: true
+  Metalness: 1
+  Roughness: 1
+  AlbedoMap: Meshes/Source/Sponza/2775690330959970771.jpg
+  NormalMap: Meshes/Source/Sponza/2374361008830720677.jpg
+  MetalnessMap: Meshes/Source/Sponza/7815564343179553343.jpg
+  RoughnessMap: Meshes/Source/Sponza/7815564343179553343.jpg
+  MaterialFlags: 6
