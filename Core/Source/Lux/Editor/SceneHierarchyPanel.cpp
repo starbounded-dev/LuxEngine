@@ -290,9 +290,27 @@ namespace Lux {
 
 			ImGui::PushID((void*)typeid(TComponent).hash_code());
 			const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
-			const Ref<Texture2D> sectionIcon = icon ? icon : EditorResources::AssetIcon;
+			(void)icon; // texture section icons dropped for the flat concept look
 
-			const bool open = ImGuiEx::TreeNodeWithIcon(name, sectionIcon, { 14.0f, 14.0f });
+			// Flat collapsible section: an uppercase label + chevron drawn over an empty-label node,
+			// with a faint hover/active wash — no framed header or Hazel texture icon.
+			ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(255, 255, 255, 10));
+			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(255, 255, 255, 16));
+			ImGui::PushStyleColor(ImGuiCol_HeaderActive, IM_COL32(255, 255, 255, 22));
+			const ImGuiTreeNodeFlags sectionFlags = ImGuiTreeNodeFlags_SpanAvailWidth
+				| ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_FramePadding;
+			const bool open = ImGui::TreeNodeEx("##section", sectionFlags, "");
+			ImGui::PopStyleColor(3);
+
+			{
+				const ImRect secRect = ImGuiEx::GetItemRect();
+				ImGuiContext& g = *GImGui;
+				const float labelX = secRect.Min.x + g.Style.FramePadding.x + g.FontSize + g.Style.ItemInnerSpacing.x;
+				const float labelY = secRect.Min.y + (secRect.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
+				ImGui::GetWindowDrawList()->AddText(ImVec2(labelX, labelY), Colors::Theme::textBrighter,
+					Utils::String::ToUpperCopy(name).c_str());
+			}
+
 			const float lineHeight = ImGui::GetFrameHeight();
 
 			bool resetComponent = false;
@@ -1005,10 +1023,14 @@ namespace Lux {
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
 
-			if (EditorResources::PencilIcon)
+			// Accent status dot before the name, like the concept's inspector header.
 			{
-				ImGui::Image(ImGuiEx::GetTextureID(EditorResources::PencilIcon), ImVec2(16.0f, 16.0f));
-				ImGui::SameLine(0.0f, 6.0f);
+				const float dotRadius = 4.0f;
+				const ImVec2 cursor = ImGui::GetCursorScreenPos();
+				const ImVec2 dotCenter(cursor.x + dotRadius + 2.0f, cursor.y + ImGui::GetFrameHeight() * 0.5f);
+				ImGui::GetWindowDrawList()->AddCircleFilled(dotCenter, dotRadius, Colors::Theme::accent);
+				ImGui::Dummy(ImVec2(dotRadius * 2.0f + 4.0f, ImGui::GetFrameHeight()));
+				ImGui::SameLine(0.0f, 8.0f);
 			}
 
 			std::string tagValue = firstEntity.GetName();

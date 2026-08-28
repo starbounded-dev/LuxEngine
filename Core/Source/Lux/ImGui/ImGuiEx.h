@@ -415,6 +415,35 @@ namespace Lux::ImGuiEx {
 		return modified;
 	}
 
+	// A lime switch toggle: a rounded track + knob, accent when on. Fits the property-grid control
+	// column and returns true when toggled. Replaces the plain checkbox for boolean properties.
+	static bool ToggleSwitch(const char* strId, bool& value)
+	{
+		const float height = ImGui::GetFrameHeight() * 0.72f;
+		const float width = height * 1.8f;
+		const float radius = height * 0.5f;
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+
+		ImGui::InvisibleButton(strId, ImVec2(width, height));
+		bool changed = false;
+		if (ImGui::IsItemClicked())
+		{
+			value = !value;
+			changed = true;
+		}
+		const bool hovered = ImGui::IsItemHovered();
+
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const ImU32 trackOn  = Colors::Theme::accent;
+		const ImU32 trackOff = Colors::Theme::backgroundDark;
+		const ImU32 knobOn   = Colors::Theme::titlebar;      // dark knob reads on the lime track
+		const ImU32 knobOff  = hovered ? Colors::Theme::text : Colors::Theme::textDarker;
+		dl->AddRectFilled(p, ImVec2(p.x + width, p.y + height), value ? trackOn : trackOff, radius);
+		const float knobX = value ? (p.x + width - radius) : (p.x + radius);
+		dl->AddCircleFilled(ImVec2(knobX, p.y + radius), radius - 2.0f, value ? knobOn : knobOff);
+		return changed;
+	}
+
 	static bool Property(const char* label, bool& value, const char* helpText = "", bool doPushUndo = true)
 	{
 		bool modified = false;
@@ -434,7 +463,7 @@ namespace Lux::ImGuiEx {
 
 		auto hold = value;
 
-		modified = ImGuiEx::Checkbox(std::format("##{0}", label).c_str(), &value);
+		modified = ImGuiEx::ToggleSwitch(std::format("##{0}", label).c_str(), value);
 #if UndoDo
 		if (modified && doPushUndo)
 			EditorStack::Get().PushCopy<bool>(&value, hold);
