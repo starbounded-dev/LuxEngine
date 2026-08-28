@@ -8,6 +8,8 @@
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Editor/EditorResources.h"
+#include "Lux/Editor/FontAwesome.h"
+#include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
@@ -39,6 +41,35 @@ namespace Lux {
 	SelectionContext SceneHierarchyPanel::s_ActiveSelectionContext = SelectionContext::Scene;
 
 	namespace {
+
+		// A per-entity type icon (FontAwesome glyph) plus a category tint, picked from the entity's
+		// most representative component. Tints are tasteful and theme-adjacent: warm for lights,
+		// cool for cameras, purple for audio, green for scripts, neutral for renderables.
+		struct EntityIconInfo { const char* Glyph; ImU32 Color; };
+
+		EntityIconInfo GetEntityIcon(Entity entity)
+		{
+			constexpr ImU32 warm   = IM_COL32(224, 176, 92, 255);
+			constexpr ImU32 cool   = IM_COL32(120, 170, 255, 255);
+			constexpr ImU32 purple = IM_COL32(184, 148, 232, 255);
+			constexpr ImU32 green  = IM_COL32(150, 200, 130, 255);
+			const ImU32 neutral = Colors::Theme::text;
+			const ImU32 muted   = Colors::Theme::textDarker;
+
+			if (entity.HasComponent<CameraComponent>())           return { LUX_ICON_VIDEO_CAMERA, cool };
+			if (entity.HasComponent<DirectionalLightComponent>()) return { LUX_ICON_SUN_O, warm };
+			if (entity.HasComponent<PointLightComponent>() ||
+			    entity.HasComponent<SpotLightComponent>())        return { LUX_ICON_LIGHTBULB_O, warm };
+			if (entity.HasComponent<SkyLightComponent>())         return { LUX_ICON_SUN_O, warm };
+			if (entity.HasComponent<StaticMeshComponent>() ||
+			    entity.HasComponent<MeshComponent>())             return { LUX_ICON_CUBE, neutral };
+			if (entity.HasComponent<TextComponent>())             return { LUX_ICON_FONT, neutral };
+			if (entity.HasComponent<SpriteRendererComponent>())   return { LUX_ICON_PICTURE_O, neutral };
+			if (entity.HasComponent<AudioSourceComponent>())      return { LUX_ICON_MUSIC, purple };
+			if (entity.HasComponent<AudioListenerComponent>())    return { LUX_ICON_VOLUME_UP, purple };
+			if (entity.HasComponent<ScriptComponent>())           return { LUX_ICON_CODE, green };
+			return { LUX_ICON_DOT_CIRCLE_O, muted };
+		}
 
 		// Draws the ImGui control for one script field via its dual-mode FieldStorage (edits the
 		// serializable buffer when idle, the live managed field when playing). Returns true if changed.
@@ -474,6 +505,27 @@ namespace Lux {
 		m_IsHierarchyFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
 		const float edgeOffset = 4.0f;
+
+		// Uppercase section header with a live entity count, like the concept's sidebar.
+		{
+			uint32_t entityCount = 0;
+			if (m_Context)
+			{
+				auto view = m_Context->GetAllEntitiesWith<TagComponent>();
+				for (auto e : view)
+				{
+					(void)e;
+					entityCount++;
+				}
+			}
+			ImGui::SetCursorPosX(edgeOffset * 3.0f);
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
+			ImGui::Text("HIERARCHY  ·  %u", entityCount);
+			ImGui::PopStyleColor();
+			ImGui::Spacing();
+		}
+
 		ImGui::SetCursorPosX(edgeOffset * 3.0f);
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - edgeOffset * 3.0f);
 		ImGuiEx::Widgets::SearchWidget(m_SearchString, "Search entities...", &m_ActivateSearchWidget);
@@ -753,24 +805,88 @@ namespace Lux {
 		if (!hasChildren)
 			flags |= ImGuiTreeNodeFlags_Leaf;
 
-		const bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, "%s", tag.c_str());
+		// Lime selection fill + a faint hover highlight, via the tree-node header colours.
+		ImGui::PushStyleColor(ImGuiCol_Header, Colors::Theme::selectionMuted);
+		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(255, 255, 255, 12));
+		ImGui::PushStyleColor(ImGuiCol_HeaderActive, Colors::Theme::selectionMuted);
+
+		// Empty label: the type icon and name are drawn manually below so the icon keeps its own
+		// category tint and the name turns accent-lime when selected.
+		const bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, "");
+		ImGui::PopStyleColor(3);
+
+		const bool rowHovered = ImGui::IsItemHovered();
+		const ImRect rowRect = ImGuiEx::GetItemRect();
+		ImGuiContext& g = *GImGui;
+
+		// Visibility toggle (mesh entities only): an eye at the right edge, revealed on hover or
+		// when hidden. Handled through the node's own click, guarded by the eye rect, so it needs
+		// no overlapping item (which would steal the node's drag-drop binding).
+		const bool hasVisToggle = entity.HasComponent<StaticMeshComponent>();
+		bool meshVisible = true;
+		ImRect eyeRect;
+		bool overEye = false;
+		if (hasVisToggle)
+		{
+			meshVisible = entity.GetComponent<StaticMeshComponent>().Visible;
+			const float eyeW = g.FontSize + 6.0f;
+			eyeRect = ImRect(ImVec2(rowRect.Max.x - eyeW, rowRect.Min.y), ImVec2(rowRect.Max.x, rowRect.Max.y));
+			overEye = rowHovered && eyeRect.Contains(ImGui::GetMousePos());
+		}
+
+		// Type icon + name, vertically centred over the node row.
+		{
+			const EntityIconInfo iconInfo = GetEntityIcon(entity);
+			const float arrowWidth = g.FontSize;
+			const float iconX = rowRect.Min.x + g.Style.FramePadding.x + arrowWidth + g.Style.ItemInnerSpacing.x;
+			const float centerY = rowRect.Min.y + rowRect.GetHeight() * 0.5f;
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+
+			const ImU32 iconColor = isSelected ? Colors::Theme::accent : iconInfo.Color;
+			const ImVec2 iconSize = ImGui::CalcTextSize(iconInfo.Glyph);
+			dl->AddText(ImVec2(iconX, centerY - iconSize.y * 0.5f), iconColor, iconInfo.Glyph);
+
+			const float nameX = iconX + iconSize.x + g.Style.ItemInnerSpacing.x + 2.0f;
+			const float nameRight = hasVisToggle ? eyeRect.Min.x - 4.0f : rowRect.Max.x - 4.0f;
+			const ImU32 baseName = isSelected ? Colors::Theme::accent : Colors::Theme::text;
+			const ImU32 nameColor = (hasVisToggle && !meshVisible) ? Colors::Theme::textDarker : baseName;
+			const ImVec2 nameSize = ImGui::CalcTextSize(tag.c_str());
+			dl->PushClipRect(ImVec2(nameX, rowRect.Min.y), ImVec2(std::max(nameX, nameRight), rowRect.Max.y), true);
+			dl->AddText(ImVec2(nameX, centerY - nameSize.y * 0.5f), nameColor, tag.c_str());
+			dl->PopClipRect();
+
+			if (hasVisToggle && (rowHovered || !meshVisible))
+			{
+				const char* eyeGlyph = meshVisible ? LUX_ICON_EYE : LUX_ICON_EYE_SLASH;
+				const ImVec2 eyeSize = ImGui::CalcTextSize(eyeGlyph);
+				const ImU32 eyeColor = overEye ? Colors::Theme::textBrighter : Colors::Theme::textDarker;
+				dl->AddText(ImVec2(eyeRect.GetCenter().x - eyeSize.x * 0.5f, centerY - eyeSize.y * 0.5f), eyeColor, eyeGlyph);
+			}
+		}
 
 		if (ImGui::IsItemClicked())
 		{
-			const bool ctrlDown = Input::IsKeyDown(Key::LeftControl) || Input::IsKeyDown(Key::RightControl);
-			if (ctrlDown)
+			if (overEye)
 			{
-				if (isSelected)
-					SelectionManager::Deselect(s_ActiveSelectionContext, entity.GetUUID());
-				else
-					SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
+				entity.GetComponent<StaticMeshComponent>().Visible = !meshVisible;
 			}
 			else
 			{
-				if (!isSelected || SelectionManager::GetSelectionCount(s_ActiveSelectionContext) > 1)
+				const bool ctrlDown = Input::IsKeyDown(Key::LeftControl) || Input::IsKeyDown(Key::RightControl);
+				if (ctrlDown)
 				{
-					SelectionManager::DeselectAll(s_ActiveSelectionContext);
-					SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
+					if (isSelected)
+						SelectionManager::Deselect(s_ActiveSelectionContext, entity.GetUUID());
+					else
+						SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
+				}
+				else
+				{
+					if (!isSelected || SelectionManager::GetSelectionCount(s_ActiveSelectionContext) > 1)
+					{
+						SelectionManager::DeselectAll(s_ActiveSelectionContext);
+						SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
+					}
 				}
 			}
 		}
