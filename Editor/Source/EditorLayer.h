@@ -51,7 +51,6 @@ namespace Lux
 		void UI_DrawMenubar();
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
 		void SetEditorLayoutMode(bool simple);
-		void UI_GizmosToolbar();
 		void UI_CentralToolbar();
 		void UI_ViewportSettings();
 		void UI_ViewportOrientationGizmo();

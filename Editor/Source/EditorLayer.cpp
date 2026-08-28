@@ -803,7 +803,7 @@ namespace Lux {
 			}
 			ImGui::PopStyleVar();
 
-			UI_GizmosToolbar();
+			// Gizmo tools now live inside the central toolbar alongside the transport.
 			UI_CentralToolbar();
 			UI_ViewportSettings();
 			UI_ViewportOrientationGizmo();
@@ -1191,55 +1191,6 @@ namespace Lux {
 			});
 	}
 
-	void EditorLayer::UI_GizmosToolbar()
-	{
-		if (!m_EditorViewport)
-			return;
-
-		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
-		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
-			return;
-
-		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
-			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
-			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
-		ImGui::SetNextWindowBgAlpha(0.55f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
-		ImGui::Begin("##viewport_gizmos_toolbar", nullptr, flags);
-
-		const ImU32 normalTint = IM_COL32(215, 215, 215, 220);
-		const ImU32 hoverTint = IM_COL32(255, 255, 255, 255);
-		const ImU32 activeTint = IM_COL32(235, 235, 235, 255);
-		const ImVec2 buttonSize(24.0f, 24.0f);
-
-		auto gizmoButton = [&](const char* id, Ref<Texture2D> icon, int gizmoMode)
-			{
-				ImGui::InvisibleButton(id, buttonSize);
-				ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
-
-				if (m_GizmoType == gizmoMode)
-					ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colors::Theme::accent, 2.0f, 0, 2.0f);
-
-				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
-					m_GizmoType = gizmoMode;
-			};
-
-		gizmoButton("##gizmo_select", EditorResources::PointerIcon, -1);
-		ImGui::SameLine();
-		gizmoButton("##gizmo_translate", EditorResources::MoveIcon, ImGuizmo::TRANSLATE);
-		ImGui::SameLine();
-		gizmoButton("##gizmo_rotate", EditorResources::RotateIcon, ImGuizmo::ROTATE);
-		ImGui::SameLine();
-		gizmoButton("##gizmo_scale", EditorResources::ScaleIcon, ImGuizmo::SCALE);
-
-		ImGui::End();
-		ImGui::PopStyleVar(2);
-	}
-
 	void EditorLayer::UI_CentralToolbar()
 	{
 		if (!m_EditorViewport)
@@ -1254,51 +1205,188 @@ namespace Lux {
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
-		const float toolbarWidth = 118.0f;
+		// Gizmo cluster (~113) + divider (~17) + transport (~80) + window padding/border (~18).
+		const float toolbarWidth = 228.0f;
 		const float posX = viewportBounds[0].x + (viewportSize.x - toolbarWidth) * 0.5f;
 		const float posY = viewportBounds[0].y + 12.0f;
 
 		ImGui::SetNextWindowPos(ImVec2(posX, posY), ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.55f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 0.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 0.0f));
+		// Monolith: sharp corners + a hairline border, not a soft rounded pill.
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 2.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
 		ImGui::Begin("##viewport_central_toolbar", nullptr, flags);
 
-		const ImU32 normalTint = IM_COL32(215, 215, 215, 220);
-		const ImU32 hoverTint = IM_COL32(255, 255, 255, 255);
-		const ImU32 activeTint = IM_COL32(235, 235, 235, 255);
 		const ImVec2 buttonSize(24.0f, 24.0f);
+		const float clusterHeight = buttonSize.y + 6.0f; // child inner padding of 3px top+bottom.
 
-		auto controlButton = [&](const char* id, Ref<Texture2D> icon, bool active, const std::function<void()>& onClick)
+		// Flat vector glyphs (drawn, not textured) so they match the Monolith mock exactly and
+		// follow the theme accent. Gizmo tools are stroked outlines; transport controls are filled.
+		enum class Glyph { Select, Move, Rotate, Scale, Play, Simulate, Stop };
+		auto drawGlyph = [](ImDrawList* dl, const ImVec2& mn, const ImVec2& mx, Glyph glyph, ImU32 col)
+			{
+				const ImVec2 c((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f);
+				const float s = mx.x - mn.x;
+				const float t = 1.6f; // stroke width for outline glyphs
+				switch (glyph)
+				{
+				case Glyph::Select:
+				{
+					// Pointer arrow: a diagonal shaft with an L-shaped head at the lower-right.
+					const ImVec2 tail(c.x - s * 0.20f, c.y - s * 0.22f);
+					const ImVec2 head(c.x + s * 0.16f, c.y + s * 0.24f);
+					dl->AddLine(tail, head, col, t);
+					dl->AddLine(head, ImVec2(head.x - s * 0.16f, head.y), col, t);
+					dl->AddLine(head, ImVec2(head.x, head.y - s * 0.16f), col, t);
+					break;
+				}
+				case Glyph::Move:
+				{
+					const float r = s * 0.30f;
+					dl->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), col, t);
+					dl->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), col, t);
+					break;
+				}
+				case Glyph::Rotate:
+					dl->AddCircle(c, s * 0.28f, col, 0, t);
+					break;
+				case Glyph::Scale:
+				{
+					// Two offset squares (top-left + bottom-right), the classic "scale/bounds" mark.
+					const float sq = s * 0.26f, off = s * 0.14f;
+					dl->AddRect(ImVec2(c.x - off - sq, c.y - off - sq), ImVec2(c.x - off, c.y - off), col, 0.0f, 0, t);
+					dl->AddRect(ImVec2(c.x + off, c.y + off), ImVec2(c.x + off + sq, c.y + off + sq), col, 0.0f, 0, t);
+					break;
+				}
+				case Glyph::Play:
+				{
+					const float hw = s * 0.22f, hh = s * 0.27f;
+					dl->AddTriangleFilled(ImVec2(c.x - hw, c.y - hh), ImVec2(c.x - hw, c.y + hh), ImVec2(c.x + hw * 1.6f, c.y), col);
+					break;
+				}
+				case Glyph::Simulate:
+				{
+					// Two stacked triangles ("fast-forward") — reads as advance/simulate and stays
+					// distinct from the single solid Play triangle.
+					const float hw = s * 0.15f, hh = s * 0.25f;
+					dl->AddTriangleFilled(ImVec2(c.x - hw * 2.2f, c.y - hh), ImVec2(c.x - hw * 2.2f, c.y + hh), ImVec2(c.x - hw * 0.2f, c.y), col);
+					dl->AddTriangleFilled(ImVec2(c.x - hw * 0.2f, c.y - hh), ImVec2(c.x - hw * 0.2f, c.y + hh), ImVec2(c.x + hw * 1.8f, c.y), col);
+					break;
+				}
+				case Glyph::Stop:
+				{
+					const float r = s * 0.23f;
+					dl->AddRectFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), col, 1.0f);
+					break;
+				}
+				}
+			};
+
+		// Gizmo tool: outline glyph, accent when active (with a faint accent wash), brightens on hover.
+		auto gizmoButton = [&](const char* id, Glyph glyph, int mode)
 			{
 				ImGui::InvisibleButton(id, buttonSize);
-				ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+				const bool hovered = ImGui::IsItemHovered();
+				const bool active = m_GizmoType == mode;
+				ImDrawList* dl = ImGui::GetWindowDrawList();
+				const ImVec2 mn = ImGui::GetItemRectMin();
+				const ImVec2 mx = ImGui::GetItemRectMax();
 				if (active)
-					ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colors::Theme::accent, 2.0f, 0, 2.0f);
+					dl->AddRectFilled(mn, mx, Colors::Theme::selectionMuted, 2.0f);
+				else if (hovered)
+					dl->AddRectFilled(mn, mx, IM_COL32(255, 255, 255, 16), 2.0f);
+				const ImU32 col = active ? Colors::Theme::accent : (hovered ? Colors::Theme::textBrighter : Colors::Theme::text);
+				drawGlyph(dl, mn, mx, glyph, col);
+				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+					m_GizmoType = mode;
+			};
+
+		// Transport control: filled glyph, accent ring when it is the current state.
+		auto controlButton = [&](const char* id, Glyph glyph, ImU32 normalCol, ImU32 hoverCol, bool active, const std::function<void()>& onClick)
+			{
+				ImGui::InvisibleButton(id, buttonSize);
+				const bool hovered = ImGui::IsItemHovered();
+				ImDrawList* dl = ImGui::GetWindowDrawList();
+				const ImVec2 mn = ImGui::GetItemRectMin();
+				const ImVec2 mx = ImGui::GetItemRectMax();
+				if (hovered)
+					dl->AddRectFilled(mn, mx, IM_COL32(255, 255, 255, 16), 2.0f);
+				drawGlyph(dl, mn, mx, glyph, hovered ? hoverCol : normalCol);
+				if (active)
+					dl->AddRect(mn, mx, Colors::Theme::accent, 2.0f, 0, 1.5f);
 				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 					onClick();
 			};
 
-		controlButton("##scene_play", EditorResources::PlayIcon, m_SceneState == SceneState::Play, [this]()
+		// ---- Gizmo cluster: a bordered box holding select / move / rotate / scale. ----
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 0, 0, 60));
+		ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(255, 255, 255, 22));
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(3.0f, 3.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 0.0f));
+		ImGui::BeginChild("##gizmo_cluster", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+		gizmoButton("##gizmo_select", Glyph::Select, -1);
+		ImGui::SameLine();
+		gizmoButton("##gizmo_translate", Glyph::Move, ImGuizmo::TRANSLATE);
+		ImGui::SameLine();
+		gizmoButton("##gizmo_rotate", Glyph::Rotate, ImGuizmo::ROTATE);
+		ImGui::SameLine();
+		gizmoButton("##gizmo_scale", Glyph::Scale, ImGuizmo::SCALE);
+		ImGui::EndChild();
+		ImGui::PopStyleVar(4);
+		ImGui::PopStyleColor(2);
+
+		// ---- Divider between the gizmo cluster and the transport. ----
+		ImGui::SameLine(0.0f, 8.0f);
+		{
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+			const ImVec2 p = ImGui::GetCursorScreenPos();
+			dl->AddLine(ImVec2(p.x, p.y + 4.0f), ImVec2(p.x, p.y + clusterHeight - 4.0f), Colors::Theme::muted, 1.0f);
+			ImGui::Dummy(ImVec2(1.0f, clusterHeight));
+		}
+		ImGui::SameLine(0.0f, 8.0f);
+
+		// ---- Transport: play / simulate / stop, vertically centred against the cluster. ----
+		const bool playing = m_SceneState == SceneState::Play;
+		const bool simulating = m_SceneState == SceneState::Simulate;
+		const bool editing = m_SceneState == SceneState::Edit;
+
+		ImGui::BeginGroup();
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (clusterHeight - buttonSize.y) * 0.5f);
+		// Play is the lime call-to-action while editable, dimmed once it is already running.
+		controlButton("##scene_play", Glyph::Play,
+			playing ? Colors::Theme::muted : Colors::Theme::accent,
+			playing ? Colors::Theme::textDarker : Colors::Theme::accent,
+			playing, [this]()
 			{
 				if (m_SceneState != SceneState::Play)
 					OnScenePlay();
 			});
 		ImGui::SameLine();
-		controlButton("##scene_simulate", EditorResources::SimulateIcon, m_SceneState == SceneState::Simulate, [this]()
+		controlButton("##scene_simulate", Glyph::Simulate,
+			simulating ? Colors::Theme::accent : Colors::Theme::textDarker,
+			simulating ? Colors::Theme::accent : Colors::Theme::textBrighter,
+			simulating, [this]()
 			{
 				if (m_SceneState != SceneState::Simulate)
 					OnSceneSimulate();
 			});
 		ImGui::SameLine();
-		controlButton("##scene_stop", EditorResources::StopIcon, m_SceneState == SceneState::Edit, [this]()
+		controlButton("##scene_stop", Glyph::Stop,
+			editing ? Colors::Theme::textDarker : Colors::Theme::text,
+			editing ? Colors::Theme::textDarker : Colors::Theme::textBrighter,
+			editing, [this]()
 			{
 				if (m_SceneState != SceneState::Edit)
 					OnSceneStop();
 			});
+		ImGui::EndGroup();
 
 		ImGui::End();
-		ImGui::PopStyleVar(2);
+		ImGui::PopStyleVar(4);
 	}
 
 	void EditorLayer::UI_ViewportPerformanceHUD()
@@ -1345,6 +1433,8 @@ namespace Lux {
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
 		ImGui::Begin("##viewport_performance_hud", nullptr, flags);
+		// Numeric readout in the monospace face (JetBrains Mono), like the mock's fps/ms pill.
+		ImGuiEx::Fonts::PushFont("Mono");
 		ImGui::Text("FPS %.0f  %.2f ms", fps, frameTimeMs);
 		ImGui::Text("CPU %.2f ms  GPU %.2f ms", wholeCPUTime, wholeGPUTime);
 		ImGui::Text("Draws %u  Visible %u", stats.DrawCalls, stats.VisibleInstances);
@@ -1354,6 +1444,7 @@ namespace Lux {
 		else
 			ImGui::Text("VRAM %s", Utils::BytesToString(memory.UsedBytes).c_str());
 		ImGui::Text("Scale %.0f%%  %ux%u", renderScale, m_SceneRenderer->GetOutputViewportWidth(), m_SceneRenderer->GetOutputViewportHeight());
+		ImGuiEx::Fonts::PopFont();
 		ImGui::End();
 		ImGui::PopStyleVar();
 	}
@@ -1538,8 +1629,8 @@ namespace Lux {
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
 
-		// Top-left, below the gizmo/tool toolbar so they don't collide.
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 48.0f), ImGuiCond_Always);
+		// Top-left corner: the gizmo/tool toolbar moved to the centre, so this owns the corner now.
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		ImGui::Begin("##viewport_selection_badge", nullptr, flags);
@@ -1560,7 +1651,7 @@ namespace Lux {
 
 	void EditorLayer::UI_Toolbar()
 	{
-		UI_GizmosToolbar();
+		// Gizmo tools now live inside the central toolbar alongside the transport.
 		UI_CentralToolbar();
 		UI_ViewportSettings();
 		UI_ViewportOrientationGizmo();
