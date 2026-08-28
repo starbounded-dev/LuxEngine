@@ -2,6 +2,7 @@
 #include "RendererDebuggerPanel.h"
 
 #include "Lux/Core/Application.h"
+#include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Renderer/Renderer.h"
@@ -9,6 +10,7 @@
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
+#include <implot/implot.h>
 
 #include <algorithm>
 #include <cfloat>
@@ -21,6 +23,13 @@
 namespace Lux {
 
 	namespace {
+
+		// 60/30 FPS frame budgets and the graph-semantic series colours (see StatisticsPanel for the
+		// same convention: these are data colours, not theme UI colours).
+		constexpr float kBudget60FPS = 1000.0f / 60.0f; // 16.67 ms
+		constexpr ImU32 kCPUColor = IM_COL32(120, 170, 255, 255);   // blue-ish CPU series
+		constexpr ImU32 kGPUColor = IM_COL32(200, 255, 77, 255);    // lime GPU series (on-brand)
+		constexpr ImU32 kBarColor = IM_COL32(200, 255, 77, 255);    // per-pass GPU bars
 
 		void DrawStat(const char* label, const char* value)
 		{
@@ -364,62 +373,129 @@ namespace Lux {
 	{
 		PushHistorySample(m_FrameCPUHistory, stats.TotalCPUTime);
 		PushHistorySample(m_FrameGPUHistory, stats.TotalGPUTime);
-
-		for (const auto& passProfile : stats.PassProfiles)
-		{
-			PassHistory& history = m_PassHistory[passProfile.Name];
-			PushHistorySample(history.CPU, passProfile.CPUTime);
-			PushHistorySample(history.GPU, passProfile.GPUTime);
-		}
 	}
 
-	void RendererDebuggerPanel::DrawProfilingHistory(const SceneRenderer::Statistics& stats)
+	void RendererDebuggerPanel::DrawFrameHistoryPlot()
 	{
-		if (!m_FrameCPUHistory.empty())
-		{
-			ImGui::Spacing();
-			ImGui::TextUnformatted("Frame History");
-			const float frameMax = GetHistoryMax(m_FrameCPUHistory, m_FrameGPUHistory, 16.67f);
-			ImGui::PlotLines("CPU##frame_history", m_FrameCPUHistory.data(), (int)m_FrameCPUHistory.size(), 0, nullptr, 0.0f, frameMax, ImVec2(-FLT_MIN, 48.0f));
-			ImGui::PlotLines("GPU##frame_history", m_FrameGPUHistory.data(), (int)m_FrameGPUHistory.size(), 0, nullptr, 0.0f, frameMax, ImVec2(-FLT_MIN, 48.0f));
-		}
-
-		if (stats.PassProfiles.empty())
+		const size_t sampleCount = std::max(m_FrameCPUHistory.size(), m_FrameGPUHistory.size());
+		if (sampleCount == 0)
 			return;
 
-		ImGui::Spacing();
-		ImGui::TextUnformatted("Pass History");
-		if (ImGui::BeginTable("##renderer_debugger_pass_history", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+		float maxValue = kBudget60FPS;
+		maxValue = GetHistoryMax(m_FrameCPUHistory, m_FrameGPUHistory, maxValue);
+
+		// X positions run from -(N-1)..0 so the newest frame sits at x=0 (right edge), scrolling left.
+		m_FrameHistoryAxis.resize(sampleCount);
+		for (size_t i = 0; i < sampleCount; i++)
+			m_FrameHistoryAxis[i] = (float)i - (float)(sampleCount - 1);
+
+		ImGui::TextUnformatted("Frame History (CPU / GPU ms)");
+		ImPlot::PushStyleColor(ImPlotCol_FrameBg, Colors::Theme::backgroundDark);
+		ImPlot::PushStyleColor(ImPlotCol_PlotBg, Colors::Theme::backgroundDark);
+		ImPlot::PushStyleVar(ImPlotStyleVar_PlotPadding, ImVec2(0.0f, 0.0f));
+
+		const ImPlotFlags plotFlags = ImPlotFlags_NoTitle | ImPlotFlags_NoMouseText | ImPlotFlags_NoBoxSelect;
+		if (ImPlot::BeginPlot("##frame_history", ImVec2(-1.0f, 130.0f), plotFlags))
 		{
-			ImGui::TableSetupColumn("Pass");
-			ImGui::TableSetupColumn("CPU");
-			ImGui::TableSetupColumn("GPU");
-			ImGui::TableHeadersRow();
+			ImPlot::SetupAxis(ImAxis_X1, nullptr, ImPlotAxisFlags_NoTickLabels | ImPlotAxisFlags_NoGridLines | ImPlotAxisFlags_Lock);
+			ImPlot::SetupAxis(ImAxis_Y1, "ms", ImPlotAxisFlags_LockMin);
+			ImPlot::SetupAxisLimits(ImAxis_X1, -(double)m_FrameHistoryAxis.size(), 0.0, ImGuiCond_Always);
+			ImPlot::SetupAxisLimits(ImAxis_Y1, 0.0, (double)maxValue * 1.15, ImGuiCond_Always);
+			ImPlot::SetupLegend(ImPlotLocation_NorthWest);
 
-			for (const auto& passProfile : stats.PassProfiles)
+			if (!m_FrameCPUHistory.empty())
 			{
-				auto historyIt = m_PassHistory.find(passProfile.Name);
-				if (historyIt == m_PassHistory.end())
-					continue;
-
-				const PassHistory& history = historyIt->second;
-				const float passMax = GetHistoryMax(history.CPU, history.GPU, 1.0f);
-
-				ImGui::PushID(passProfile.Name);
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				ImGui::TextUnformatted(passProfile.Name);
-				ImGui::TableSetColumnIndex(1);
-				if (!history.CPU.empty())
-					ImGui::PlotLines("##cpu_pass_history", history.CPU.data(), (int)history.CPU.size(), 0, nullptr, 0.0f, passMax, ImVec2(-FLT_MIN, 42.0f));
-				ImGui::TableSetColumnIndex(2);
-				if (!history.GPU.empty())
-					ImGui::PlotLines("##gpu_pass_history", history.GPU.data(), (int)history.GPU.size(), 0, nullptr, 0.0f, passMax, ImVec2(-FLT_MIN, 42.0f));
-				ImGui::PopID();
+				ImPlotSpec cpuSpec;
+				cpuSpec.LineColor = ImGui::ColorConvertU32ToFloat4(kCPUColor);
+				cpuSpec.LineWeight = 1.5f;
+				ImPlot::PlotLine("CPU", m_FrameHistoryAxis.data(), m_FrameCPUHistory.data(), (int)m_FrameCPUHistory.size(), cpuSpec);
+			}
+			if (!m_FrameGPUHistory.empty())
+			{
+				ImPlotSpec gpuSpec;
+				gpuSpec.LineColor = ImGui::ColorConvertU32ToFloat4(kGPUColor);
+				gpuSpec.LineWeight = 1.5f;
+				gpuSpec.FillColor = gpuSpec.LineColor;
+				gpuSpec.FillAlpha = 0.18f;
+				gpuSpec.Flags = ImPlotLineFlags_Shaded;
+				ImPlot::PlotLine("GPU", m_FrameHistoryAxis.data(), m_FrameGPUHistory.data(), (int)m_FrameGPUHistory.size(), gpuSpec);
 			}
 
-			ImGui::EndTable();
+			double budget = kBudget60FPS;
+			ImPlotSpec budgetSpec;
+			budgetSpec.LineColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::muted);
+			budgetSpec.LineWeight = 1.0f;
+			budgetSpec.Flags = ImPlotInfLinesFlags_Horizontal | ImPlotItemFlags_NoLegend;
+			ImPlot::PlotInfLines("##budget", &budget, 1, budgetSpec);
+
+			ImPlot::EndPlot();
 		}
+
+		ImPlot::PopStyleVar();
+		ImPlot::PopStyleColor(2);
+	}
+
+	void RendererDebuggerPanel::DrawPassGPUChart(const SceneRenderer::Statistics& stats)
+	{
+		// Gather the active passes, sorted by GPU time descending — the heaviest at the top.
+		std::vector<size_t> order;
+		order.reserve(stats.PassProfiles.size());
+		for (size_t i = 0; i < stats.PassProfiles.size(); i++)
+		{
+			const auto& p = stats.PassProfiles[i];
+			if (p.Active || p.GPUTime > 0.0f)
+				order.push_back(i);
+		}
+		if (order.empty())
+			return;
+
+		std::sort(order.begin(), order.end(), [&](size_t a, size_t b)
+			{
+				return stats.PassProfiles[a].GPUTime > stats.PassProfiles[b].GPUTime;
+			});
+
+		// Bars are drawn against a Y position; index 0 is the bottom, so put the heaviest pass at the
+		// top by giving it the largest Y and labelling ticks accordingly.
+		const int count = (int)order.size();
+		m_PassChartValues.resize(count);
+		m_PassChartTicks.resize(count);
+		m_PassChartLabels.resize(count);
+		float maxGPU = 0.0f;
+		for (int i = 0; i < count; i++)
+		{
+			const auto& p = stats.PassProfiles[order[i]];
+			const int slot = count - 1 - i; // heaviest (i=0) -> top slot
+			m_PassChartValues[slot] = p.GPUTime;
+			m_PassChartTicks[slot] = (double)slot;
+			m_PassChartLabels[slot] = p.Name;
+			maxGPU = std::max(maxGPU, p.GPUTime);
+		}
+
+		ImGui::TextUnformatted("GPU Time by Pass (ms)");
+		ImPlot::PushStyleColor(ImPlotCol_FrameBg, Colors::Theme::backgroundDark);
+		ImPlot::PushStyleColor(ImPlotCol_PlotBg, Colors::Theme::backgroundDark);
+
+		const float chartHeight = std::max(120.0f, count * 20.0f + 20.0f);
+		const ImPlotFlags plotFlags = ImPlotFlags_NoTitle | ImPlotFlags_NoLegend | ImPlotFlags_NoMouseText | ImPlotFlags_NoBoxSelect;
+		if (ImPlot::BeginPlot("##pass_gpu_chart", ImVec2(-1.0f, chartHeight), plotFlags))
+		{
+			ImPlot::SetupAxis(ImAxis_X1, "ms", ImPlotAxisFlags_LockMin);
+			ImPlot::SetupAxis(ImAxis_Y1, nullptr, ImPlotAxisFlags_NoGridLines | ImPlotAxisFlags_Lock);
+			ImPlot::SetupAxisLimits(ImAxis_X1, 0.0, (double)maxGPU * 1.15 + 0.001, ImGuiCond_Always);
+			ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0, (double)count, ImGuiCond_Always);
+			ImPlot::SetupAxisTicks(ImAxis_Y1, m_PassChartTicks.data(), count, m_PassChartLabels.data());
+
+			ImPlotSpec barSpec;
+			barSpec.FillColor = ImGui::ColorConvertU32ToFloat4(kBarColor);
+			barSpec.LineColor = barSpec.FillColor;
+			barSpec.Flags = ImPlotBarsFlags_Horizontal;
+			// Single-array overload: bars at implicit Y positions 0..count-1, length = value along X.
+			ImPlot::PlotBars("GPU ms", m_PassChartValues.data(), count, 0.67, 0.0, barSpec);
+
+			ImPlot::EndPlot();
+		}
+
+		ImPlot::PopStyleColor(2);
 	}
 
 	void RendererDebuggerPanel::DrawOverview(const SceneRenderer::Statistics& stats)
@@ -471,6 +547,9 @@ namespace Lux {
 			DrawStat("Render Thread Wait", appTimers.RenderThreadWaitTime, " ms");
 			ImGui::EndTable();
 		}
+
+		ImGui::Spacing();
+		DrawPassGPUChart(stats);
 
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Pass Timings");
@@ -543,8 +622,6 @@ namespace Lux {
 
 			ImGui::EndTable();
 		}
-
-		DrawProfilingHistory(stats);
 
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Pipeline Counters");
@@ -1279,14 +1356,47 @@ namespace Lux {
 		const auto& stats = m_Context->GetStatistics();
 		UpdateProfilingHistory(stats);
 
-		DrawOverview(stats);
-		DrawRenderPassIsolation();
-		DrawProfiling(stats);
-		DrawMemory(stats);
-		DrawRenderGraphInspector();
-		DrawGPUScene();
-		DrawWorkload(stats);
-		DrawShaders();
+		// Sections are grouped into tabs so the panel is scanned by concern rather than scrolled as
+		// one long column. Each section keeps its collapsing sub-header; closely-related sections
+		// share a tab.
+		if (ImGui::BeginTabBar("##renderer_debugger_tabs", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
+		{
+			if (ImGui::BeginTabItem("Overview"))
+			{
+				DrawOverview(stats);
+				ImGui::Spacing();
+				DrawFrameHistoryPlot();
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Profiling"))
+			{
+				DrawProfiling(stats);
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Memory"))
+			{
+				DrawMemory(stats);
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Render Graph"))
+			{
+				DrawRenderGraphInspector();
+				DrawRenderPassIsolation();
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("GPU Scene"))
+			{
+				DrawGPUScene();
+				DrawWorkload(stats);
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Shaders"))
+			{
+				DrawShaders();
+				ImGui::EndTabItem();
+			}
+			ImGui::EndTabBar();
+		}
 
 		ImGui::End();
 	}
