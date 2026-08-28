@@ -83,3 +83,14 @@ Editor/dbg_ctor.txt
 
 # Remembered Setup/Win-GenProjects choices (per-machine)
 scripts/.luxsetup.json
+
+# JetBrains IDEs (CLion/Rider) — ignore all of .idea except the shareable
+# project config. Whitelist-only, so any future per-user or IDE-generated
+# file lands ignored by default. (JetBrains also drops its own
+# .idea/.gitignore for the noisiest per-user files.)
+.idea/*
+!.idea/.gitignore
+!.idea/vcs.xml
+!.idea/codeStyles/
+!.idea/inspectionProfiles/
+!.idea/runConfigurations/

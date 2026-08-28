@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/Box2D" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/Coral" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/GLFW" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/JoltPhysics/JoltPhysics" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/NFD-Extended/NFD-Extended" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/glm" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/imgui" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/imgui/implot" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/imguizmo" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/msdf-atlas-gen" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/msdf-atlas-gen/msdfgen" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/msdf-atlas-gen/msdfgen/freetype" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/msdf-atlas-gen/msdfgen/freetype/subprojects/dlg" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/nvrhi" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/nvrhi/rtxmu" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/nvrhi/thirdparty/DirectX-Headers" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/nvrhi/thirdparty/Vulkan-Headers" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/spdlog" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Core/vendor/tracy/tracy" vcs="Git" />
+  </component>
+</project>
