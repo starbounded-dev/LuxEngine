@@ -1019,19 +1019,31 @@ namespace Lux {
 
 		drawList->AddLine(ImVec2(windowPos.x, windowPos.y + m_TitlebarHeight), ImVec2(windowPos.x + window->Size.x, windowPos.y + m_TitlebarHeight), Colors::Theme::backgroundDark);
 
-		if (EditorResources::HazelLogoTexture)
+		// --- LUX wordmark: a vector mark + the Display wordmark (replaces the Hazel logo). ---
+		const float kNoWrap = std::numeric_limits<float>::max();
+		const float markX = windowPos.x + 14.0f;
+		const float markSize = 16.0f;
+		const float markCY = windowPos.y + m_TitlebarHeight * 0.5f;
 		{
-			const float logoWidth = (float)EditorResources::HazelLogoTexture->GetWidth();
-			const float logoHeight = (float)EditorResources::HazelLogoTexture->GetHeight();
-			const ImVec2 logoMin(windowPos.x + 14.0f, windowPos.y + 6.0f);
-			const ImVec2 logoMax(logoMin.x + logoWidth, logoMin.y + logoHeight);
-			drawList->AddImage(GetImGuiTextureID(EditorResources::HazelLogoTexture), logoMin, logoMax);
+			// An "L" in the accent lime plus a play-chevron in text colour — the mock's Lux glyph.
+			const float x = markX, y = markCY - markSize * 0.5f, s = markSize;
+			drawList->AddLine(ImVec2(x + s * 0.14f, y + s * 0.12f), ImVec2(x + s * 0.14f, y + s * 0.88f), Colors::Theme::accent, 2.0f);
+			drawList->AddLine(ImVec2(x + s * 0.14f, y + s * 0.88f), ImVec2(x + s * 0.56f, y + s * 0.88f), Colors::Theme::accent, 2.0f);
+			drawList->AddLine(ImVec2(x + s * 0.56f, y + s * 0.12f), ImVec2(x + s * 0.90f, y + s * 0.50f), Colors::Theme::textBrighter, 2.0f);
+			drawList->AddLine(ImVec2(x + s * 0.90f, y + s * 0.50f), ImVec2(x + s * 0.56f, y + s * 0.88f), Colors::Theme::textBrighter, 2.0f);
 		}
+		const float fontScale = ImGuiEx::Fonts::GetScale();
+		ImFont* displayFont = ImGuiEx::Fonts::Get("Display");
+		const float wordmarkSize = 17.0f * fontScale;
+		const char* wordmarkText = "LUX";
+		const float wordmarkX = markX + markSize + 9.0f;
+		const ImVec2 wordmarkSizeVec = displayFont->CalcTextSizeA(wordmarkSize, kNoWrap, 0.0f, wordmarkText);
+		drawList->AddText(displayFont, wordmarkSize, ImVec2(wordmarkX, markCY - wordmarkSizeVec.y * 0.5f), Colors::Theme::textBrighter, wordmarkText);
 
 		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
 		const bool isMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
 
-		const float menuBarX = 16.0f * 2.0f + 41.0f;
+		const float menuBarX = wordmarkX + wordmarkSizeVec.x + 18.0f;
 		const float iconWidth = 14.0f;
 		const float iconHeight = 14.0f;
 		const float buttonWidth = 46.0f;
@@ -1042,57 +1054,22 @@ namespace Lux {
 		const float minimizeButtonX = maximizeButtonX - buttonWidth;
 		const float titlebarGap = 12.0f;
 
-		const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
-		const ImVec2 sceneNameSize = ImGui::CalcTextSize(sceneName.c_str());
-
-		const std::string projectName = GetProjectDisplayName();
-		const float projectBoxPaddingX = 10.0f;
-		const float projectBoxHeight = 26.0f;
-		const float projectBoxMinWidth = 76.0f;
-		const float projectBoxMaxX = minimizeButtonX - titlebarGap;
-		const float sceneNameRightX = ((window->Size.x - sceneNameSize.x) * 0.5f) + sceneNameSize.x;
-		const float projectBoxMinAllowedX = std::max(menuBarX + 280.0f, sceneNameRightX + 28.0f);
-		const float maxProjectBoxWidth = projectBoxMaxX - projectBoxMinAllowedX;
-
-		bool drawProjectBox = maxProjectBoxWidth >= projectBoxMinWidth;
-		std::string displayedProjectName = projectName;
-		float projectBoxWidth = 0.0f;
-		if (drawProjectBox)
-		{
-			const float maxProjectTextWidth = std::max(0.0f, maxProjectBoxWidth - projectBoxPaddingX * 2.0f);
-			if (ImGui::CalcTextSize(displayedProjectName.c_str()).x > maxProjectTextWidth)
-			{
-				const std::string ellipsis = "...";
-				while (!displayedProjectName.empty())
-				{
-					const std::string candidate = displayedProjectName + ellipsis;
-					if (ImGui::CalcTextSize(candidate.c_str()).x <= maxProjectTextWidth)
-					{
-						displayedProjectName = candidate;
-						break;
-					}
-					displayedProjectName.pop_back();
-				}
-				if (displayedProjectName.empty())
-					drawProjectBox = false;
-			}
-
-			if (drawProjectBox)
-				projectBoxWidth = std::min(ImGui::CalcTextSize(displayedProjectName.c_str()).x + projectBoxPaddingX * 2.0f, maxProjectBoxWidth);
-		}
-
-		const float projectBoxMinX = drawProjectBox ? projectBoxMaxX - projectBoxWidth : projectBoxMaxX;
 		const float dragZoneMinX = 70.0f;
-		const float dragZoneMaxX = std::max(dragZoneMinX, (drawProjectBox ? projectBoxMinX : minimizeButtonX) - titlebarGap);
+		const float dragZoneMaxX = std::max(dragZoneMinX, minimizeButtonX - titlebarGap);
 
+		// Vertically centre the menu bar in the (tall) titlebar so it lines up with the logo,
+		// breadcrumb, and window controls instead of hugging the top.
+		const float menuBarY = std::max(0.0f, (m_TitlebarHeight - ImGui::GetFrameHeight()) * 0.5f);
+
+		float menuBarRight = menuBarX;
 #ifdef LUX_PLATFORM_LINUX
 		// On Linux/Wayland, the compositor handles window dragging via
 		// glfwSetTitlebarHitTestCallback — no InvisibleButton needed.
 		// Draw the menu bar first, then set the drag zone to start AFTER it
 		// so menu clicks aren't intercepted as window drags.
-		ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
+		ImGui::SetCursorPos(ImVec2(menuBarX, menuBarY));
 		UI_DrawMenubar();
-		const float menuBarRight = ImGui::GetItemRectMax().x - windowPos.x;
+		menuBarRight = ImGui::GetItemRectMax().x - windowPos.x;
 		m_TitleBarDragRectMin = ImVec2(menuBarRight, 0.0f);
 		m_TitleBarDragRectMax = ImVec2(dragZoneMaxX, m_TitlebarHeight);
 #else
@@ -1105,26 +1082,39 @@ namespace Lux {
 
 		ImGui::SuspendLayout();
 		{
-			ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
+			ImGui::SetCursorPos(ImVec2(menuBarX, menuBarY));
 			UI_DrawMenubar();
+			menuBarRight = ImGui::GetItemRectMax().x - windowPos.x;
 		}
 		ImGui::ResumeLayout();
 #endif
 
-		const float sceneNameX = windowPos.x + (window->Size.x - sceneNameSize.x) * 0.5f;
-		const float sceneNameY = windowPos.y + (m_TitlebarHeight - sceneNameSize.y) * 0.5f;
-		drawList->AddText(ImVec2(sceneNameX, sceneNameY), Colors::Theme::textBrighter, sceneName.c_str());
-		drawList->AddLine(
-			ImVec2(sceneNameX - 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
-			ImVec2(sceneNameX + sceneNameSize.x + 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
-			Colors::Theme::accent, 1.5f);
-
-		if (drawProjectBox)
+		// --- Breadcrumb: Project / Scene, in the mono face, just after the menu bar. ---
 		{
-			const ImVec2 projectBoxMin(windowPos.x + projectBoxMinX, windowPos.y + 14.0f);
-			const ImVec2 projectBoxMax(projectBoxMin.x + projectBoxWidth, projectBoxMin.y + projectBoxHeight);
-			drawList->AddRect(projectBoxMin, projectBoxMax, Colors::Theme::muted, 6.0f, 0, 1.0f);
-			drawList->AddText(ImVec2(projectBoxMin.x + projectBoxPaddingX, projectBoxMin.y + 5.0f), Colors::Theme::text, displayedProjectName.c_str());
+			ImFont* monoFont = ImGuiEx::Fonts::Get("Mono");
+			const float bcSize = 13.0f * fontScale;
+			const std::string projectName = GetProjectDisplayName();
+			const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
+
+			float x = windowPos.x + menuBarRight + 16.0f;
+			// Clip to the drag-zone's right edge so a long project/scene name can't overrun the
+			// window controls (the old project box ellipsized; clipping is the equivalent guard).
+			drawList->PushClipRect(ImVec2(x, windowPos.y), ImVec2(windowPos.x + dragZoneMaxX, windowPos.y + m_TitlebarHeight), true);
+			drawList->AddLine(ImVec2(x, windowPos.y + 12.0f), ImVec2(x, windowPos.y + m_TitlebarHeight - 12.0f), Colors::Theme::muted, 1.0f);
+			x += 12.0f;
+
+			const float glyphH = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "X").y;
+			const float textY = markCY - glyphH * 0.5f;
+
+			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textDarker, projectName.c_str());
+			x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, projectName.c_str()).x + 6.0f;
+			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::muted, "/");
+			x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "/").x + 6.0f;
+			const ImVec2 sceneSz = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, sceneName.c_str());
+			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textBrighter, sceneName.c_str());
+			// Subtle lime accent under the active scene segment.
+			drawList->AddLine(ImVec2(x, textY + sceneSz.y + 2.0f), ImVec2(x + sceneSz.x, textY + sceneSz.y + 2.0f), Colors::Theme::accent, 1.5f);
+			drawList->PopClipRect();
 		}
 
 		const ImU32 buttonColN = ImGuiEx::ColourWithMultipliedValue(Colors::Theme::text, 0.9f);
