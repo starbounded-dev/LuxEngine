@@ -32,6 +32,15 @@ namespace Lux {
 		std::function<void()> m_OnDebugViewsChanged;
 		bool m_ProjectRendererSettingsDirty = false;
 		bool m_DebugViewsRuntimeSuspended = false;
+
+		// Revamped panel state: a live settings-search box and per-card collapse state.
+		char m_SearchBuffer[128] = {};
+		bool m_CardDebugViews = true;
+		bool m_CardQuality = true;
+		bool m_CardScreenSpace = true;
+		bool m_CardShadows = false;
+		bool m_CardPostFX = false;
+		bool m_CardColorGrading = false;
 	};
 
 }
