@@ -82,7 +82,7 @@ Assets:
   - Handle: 2871870856469487665
     FilePath: Scenes/Physics.luxscene
     Type: Scene
-    FileLastWriteTime: 18446744069059611435
+    FileLastWriteTime: 18446744069059661492
     Status: Ready
   - Handle: 2980217432859741417
     FilePath: Meshes/Source/TestScene.gltf
@@ -327,7 +327,7 @@ Assets:
   - Handle: 8868489982347245392
     FilePath: Scripts/Intermediates/Release/LuxSample.AssemblyInfo.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069059636079
+    FileLastWriteTime: 18446744069059758109
     Status: None
   - Handle: 8873821167095533110
     FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
@@ -522,7 +522,7 @@ Assets:
   - Handle: 13274671615592977719
     FilePath: Scenes/NewSceneSystem.luxscene
     Type: Scene
-    FileLastWriteTime: 18446744069059611435
+    FileLastWriteTime: 18446744069059661492
     Status: Ready
   - Handle: 13461130352643145370
     FilePath: Meshes/Source/Sponza/10388182081421875623.jpg
