@@ -1,7 +1,7 @@
 #!/bin/sh
 #
-# One-shot Linux build: submodules, C# projects, native engine, and the sample game's scripts.
-# Safe to re-run; every step is idempotent.
+# One-shot Linux build: submodules, Vulkan SDK, premake, C# projects, native engine, and the
+# sample game's scripts. Safe to re-run; every step is idempotent.
 #
 #   ./scripts/Linux-Build.sh              # prompts for a configuration
 #   ./scripts/Linux-Build.sh release      # non-interactive
@@ -84,17 +84,42 @@ else
 	echo "Not a git checkout - skipping."
 fi
 
+VULKAN_VERSION=${VULKAN_VERSION:-1.4.335.0}
+VENDORED_VULKAN_SDK="$LUX_DIR/Core/vendor/VulkanSDK/x86_64"
+
 if [ -n "${VULKAN_SDK+set}" ]
 	then
 		true
 	else
-		export VULKAN_SDK="$LUX_DIR/Core/vendor/VulkanSDK/x86_64"
+		export VULKAN_SDK="$VENDORED_VULKAN_SDK"
 fi
 
 if [ ! -d "$VULKAN_SDK" ]; then
-	echo "Vulkan SDK not found at: $VULKAN_SDK"
-	echo "Set VULKAN_SDK to a valid SDK, or check out the vendored one."
-	exit 1
+	if [ "$VULKAN_SDK" != "$VENDORED_VULKAN_SDK" ]; then
+		echo "Vulkan SDK not found at: $VULKAN_SDK"
+		echo "VULKAN_SDK was set explicitly - fix the path, or unset it to use the vendored SDK."
+		exit 1
+	fi
+
+	echo "No vendored Vulkan SDK found - downloading $VULKAN_VERSION"
+	vk_tmp=$(mktemp -d)
+	vk_url="https://sdk.lunarg.com/sdk/download/$VULKAN_VERSION/linux/vulkansdk-linux-x86_64-$VULKAN_VERSION.tar.xz"
+
+	if ! curl -sSL --retry 3 --max-time 900 -o "$vk_tmp/vulkansdk.tar.xz" "$vk_url"; then
+		echo "Failed to download Vulkan SDK from: $vk_url"
+		rm -rf "$vk_tmp"
+		exit 1
+	fi
+
+	# Extract into the isolated tmp dir, not straight into Core/vendor: if Core/vendor/VulkanSDK
+	# already exists (even as unrelated leftover cruft), `mv` treats it as a move-into rather
+	# than a rename, silently nesting the SDK one level too deep.
+	tar -xJf "$vk_tmp/vulkansdk.tar.xz" -C "$vk_tmp"
+	mkdir -p "$(dirname "$VULKAN_SDK")"
+	rm -rf "$VULKAN_SDK"
+	mv "$vk_tmp/$VULKAN_VERSION/x86_64" "$VULKAN_SDK"
+	rm -rf "$vk_tmp"
+	echo "Installed Vulkan SDK $VULKAN_VERSION to $VULKAN_SDK"
 fi
 
 # ---------------------------------------------------------------------------

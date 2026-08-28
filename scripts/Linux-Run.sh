@@ -1,6 +1,20 @@
 #!/bin/sh
+#
+# Runs the editor, first making sure the build is current.
+#
+#   ./scripts/Linux-Run.sh              # prompts for a configuration
+#   ./scripts/Linux-Run.sh release      # non-interactive
+#   LUX_SKIP_BUILD=1 ./scripts/Linux-Run.sh debug   # skip the rebuild check, run as-is
+#
+# Extra arguments are forwarded to the Editor binary.
 
-export LUX_DIR=$(realpath .)
+set -e
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+LUX_DIR=${LUX_DIR:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}
+export LUX_DIR
+cd "$LUX_DIR"
+
 if [ -n "${BUILD_CONFIG+set}" ]
 	then
 		true
@@ -34,10 +48,20 @@ if [ -n "${BUILD_CONFIG+set}" ]
 				;;
 		esac
 fi
-export VULKAN_SDK=$(realpath Core/vendor/VulkanSDK/x86_64)
+
+CONFIG=$(echo "$BUILD_CONFIG" | tr '[:upper:]' '[:lower:]')
+
+# Linux-Build.sh is idempotent (make only rebuilds what changed), so this catches forgotten
+# recompiles without meaningfully slowing down a launch where nothing moved. BUILD_CONFIG is
+# already exported above, so it won't re-prompt.
+if [ -z "${LUX_SKIP_BUILD+set}" ]; then
+	"$LUX_DIR/scripts/Linux-Build.sh"
+fi
+
+export VULKAN_SDK=$(realpath "$LUX_DIR/Core/vendor/VulkanSDK/x86_64")
 export VK_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d"
 export PATH="$VULKAN_SDK/bin:$PATH"
 export LD_LIBRARY_PATH="$VULKAN_SDK/lib:$LUX_DIR/Core/vendor/assimp/bin/linux:$LUX_DIR/Core/vendor/NvidiaAftermath/lib/x64/linux"
 
-cd Editor
+cd "$LUX_DIR/Editor"
 "$LUX_DIR/bin/$BUILD_CONFIG-linux-x86_64/Editor/Editor" "$@"
