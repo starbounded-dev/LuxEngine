@@ -245,6 +245,12 @@ consequences of not doing so are silent cross-shader binding corruption. See
 
 - `std::atomic<T>` for single flags/counters. `Lux::AtomicFlag` / `Lux::Flag` (`Core/Base.h`) wrap the
   dirty-flag pattern (`SetDirty()` / `CheckAndResetIfDirty()`) — use them instead of hand-rolling.
+  On x86_64, `std::atomic<T>` for a `T` wider than 16 bytes (e.g. `PipelineStatistics`, seven
+  `uint64_t` fields, in `RenderCommandBuffer.h`) is not lock-free and falls back to libatomic's
+  generic compare-and-swap loop — Linux executables need `atomic` in their `links {}` (see
+  `Editor/premake5.lua` / `Lux-Runtime/premake5.lua`'s `filter "system:linux"` block) or the final
+  link fails with `undefined reference to '__atomic_load'/'__atomic_store'`. MSVC doesn't need the
+  equivalent because it links the runtime support in statically.
 - `std::mutex` + `std::scoped_lock` for compound state.
 - `Lux::Thread` (named, joinable) and `Lux::ThreadSignal` (`Core/Thread.h`) for engine-owned threads —
   named threads show up in Tracy and in the debugger, so prefer them over a bare `std::thread`.

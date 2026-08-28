@@ -285,8 +285,7 @@ namespace Lux {
 
 		if (!rayQuerySupported)
 		{
-			LUX_CORE_ERROR("The GPU ({}) or its driver does not support Ray Queries.", m_DeviceManager->GetRendererString());
-			return;
+			LUX_CORE_WARN("The GPU ({}) or its driver does not support Ray Queries. No renderer feature currently depends on this, continuing without it.", m_DeviceManager->GetRendererString());
 		}
 		else
 		{
