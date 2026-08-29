@@ -1019,6 +1019,13 @@ namespace Lux {
 		const bool isMultiSelect = entityIDs.size() > 1;
 		const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
+		// Inspector-wide: every input renders as a bordered, slightly-inset "field box" (the
+		// concept's .field look). Scoped RAII so it unwinds cleanly across this function's returns.
+		ImGuiEx::ScopedStyle frameBorderSize(ImGuiStyleVar_FrameBorderSize, 1.0f);
+		ImGuiEx::ScopedStyle frameRounding(ImGuiStyleVar_FrameRounding, 3.0f);
+		ImGuiEx::ScopedColour frameBg(ImGuiCol_FrameBg, Colors::Theme::backgroundDark);
+		ImGuiEx::ScopedColour frameBorder(ImGuiCol_Border, Colors::Theme::muted);
+
 		{
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
@@ -1067,8 +1074,16 @@ namespace Lux {
 
 			const float addButtonWidth = 90.0f;
 			ImGui::SameLine(contentRegionAvailable.x - addButtonWidth - 6.0f);
-			if (ImGui::Button("ADD", ImVec2(addButtonWidth, 0.0f)))
-				ImGui::OpenPopup("AddComponentPanel");
+			{
+				// Lime call-to-action, matching the concept's accent Add button.
+				ImGuiEx::ScopedColour addBg(ImGuiCol_Button, Colors::Theme::accent);
+				ImGuiEx::ScopedColour addBgH(ImGuiCol_ButtonHovered, Colors::Theme::accent);
+				ImGuiEx::ScopedColour addBgA(ImGuiCol_ButtonActive, Colors::Theme::accent);
+				ImGuiEx::ScopedColour addTxt(ImGuiCol_Text, Colors::Theme::titlebar);
+				ImGuiEx::ScopedColour addBorder(ImGuiCol_Border, Colors::Theme::accent);
+				if (ImGui::Button(LUX_ICON_PLUS "  ADD", ImVec2(addButtonWidth, 0.0f)))
+					ImGui::OpenPopup("AddComponentPanel");
+			}
 		}
 
 		ImGui::Spacing();
