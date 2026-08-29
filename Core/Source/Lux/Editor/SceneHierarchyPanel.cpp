@@ -228,9 +228,9 @@ namespace Lux {
 			ImGui::PopStyleColor(3);
 
 			ImGui::SameLine();
-			changed |= ImGuiEx::Property("##X", values.x, 0.1f, 0.0f, 0.0f, "%.2f");
+			changed |= ImGui::DragFloat("##X", &values.x, 0.1f, 0.0f, 0.0f, "%.2f");
 			ImGui::PopItemWidth();
-			ImGui::SameLine();
+			ImGui::SameLine(0.0f, 8.0f);
 
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.3f, 0.8f, 0.3f, 1.0f });
@@ -245,9 +245,9 @@ namespace Lux {
 			ImGui::PopStyleColor(3);
 
 			ImGui::SameLine();
-			changed |= ImGuiEx::Property("##Y", values.y, 0.1f, 0.0f, 0.0f, "%.2f");
+			changed |= ImGui::DragFloat("##Y", &values.y, 0.1f, 0.0f, 0.0f, "%.2f");
 			ImGui::PopItemWidth();
-			ImGui::SameLine();
+			ImGui::SameLine(0.0f, 8.0f);
 
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.2f, 0.35f, 0.9f, 1.0f });
@@ -262,11 +262,12 @@ namespace Lux {
 			ImGui::PopStyleColor(3);
 
 			ImGui::SameLine();
-			changed |= ImGuiEx::Property("##Z", values.z, 0.1f, 0.0f, 0.0f, "%.2f");
+			changed |= ImGui::DragFloat("##Z", &values.z, 0.1f, 0.0f, 0.0f, "%.2f");
 			ImGui::PopItemWidth();
 
 			ImGui::PopStyleVar();
 			ImGui::Columns(1);
+			ImGui::Dummy(ImVec2(0.0f, 5.0f)); // vertical breathing room between vec3 rows
 			ImGui::PopID();
 
 			return changed;
