@@ -349,7 +349,7 @@ namespace Lux {
 
 		m_SceneHierarchyPanel = m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
 		Ref<ContentBrowserPanel> contentBrowserPanel = m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
-		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Text Editor", true);
+		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Beam", true);
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
@@ -803,11 +803,14 @@ namespace Lux {
 			}
 			ImGui::PopStyleVar();
 
-			// Gizmo tools now live inside the central toolbar alongside the transport.
-			UI_CentralToolbar();
-			UI_ViewportSettings();
-			UI_ViewportOrientationGizmo();
-			UI_ViewportSelectionBadge();
+			// Gizmo tools + transport live in the titlebar. The other viewport overlays only show
+			// while the viewport is the visible tab, so they never sit over Beam.
+			if (m_EditorViewport->IsVisible())
+			{
+				UI_ViewportSettings();
+				UI_ViewportOrientationGizmo();
+				UI_ViewportSelectionBadge();
+			}
 		}
 
 		ImGui::End(); // Lux Editor
@@ -1179,104 +1182,98 @@ namespace Lux {
 					Application::Get().DispatchEvent<WindowCloseEvent, true>();
 				});
 			});
+
+		// Play / simulate / stop, centred in the titlebar (drawn last so it overlaps the drag zone).
+		UI_TitlebarTransport(window->Size.x);
 	}
 
-	void EditorLayer::UI_CentralToolbar()
+	namespace
 	{
-		if (!m_EditorViewport)
-			return;
+		// Flat vector tool glyphs shared by the gizmo overlay and the titlebar transport. Gizmo
+		// tools are stroked outlines; transport controls are filled shapes.
+		enum class ToolGlyph { Select, Move, Rotate, Scale, Play, Simulate, Stop };
 
-		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
-		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
-			return;
+		void DrawToolGlyph(ImDrawList* dl, const ImVec2& mn, const ImVec2& mx, ToolGlyph glyph, ImU32 col)
+		{
+			const ImVec2 c((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f);
+			const float s = mx.x - mn.x;
+			const float t = 1.6f; // stroke width for outline glyphs
+			switch (glyph)
+			{
+			case ToolGlyph::Select:
+			{
+				const ImVec2 tail(c.x - s * 0.20f, c.y - s * 0.22f);
+				const ImVec2 head(c.x + s * 0.16f, c.y + s * 0.24f);
+				dl->AddLine(tail, head, col, t);
+				dl->AddLine(head, ImVec2(head.x - s * 0.16f, head.y), col, t);
+				dl->AddLine(head, ImVec2(head.x, head.y - s * 0.16f), col, t);
+				break;
+			}
+			case ToolGlyph::Move:
+			{
+				const float r = s * 0.30f;
+				dl->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), col, t);
+				dl->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), col, t);
+				break;
+			}
+			case ToolGlyph::Rotate:
+				dl->AddCircle(c, s * 0.28f, col, 0, t);
+				break;
+			case ToolGlyph::Scale:
+			{
+				const float sq = s * 0.26f, off = s * 0.14f;
+				dl->AddRect(ImVec2(c.x - off - sq, c.y - off - sq), ImVec2(c.x - off, c.y - off), col, 0.0f, 0, t);
+				dl->AddRect(ImVec2(c.x + off, c.y + off), ImVec2(c.x + off + sq, c.y + off + sq), col, 0.0f, 0, t);
+				break;
+			}
+			case ToolGlyph::Play:
+			{
+				const float hw = s * 0.22f, hh = s * 0.27f;
+				dl->AddTriangleFilled(ImVec2(c.x - hw, c.y - hh), ImVec2(c.x - hw, c.y + hh), ImVec2(c.x + hw * 1.6f, c.y), col);
+				break;
+			}
+			case ToolGlyph::Simulate:
+			{
+				const float hw = s * 0.15f, hh = s * 0.25f;
+				dl->AddTriangleFilled(ImVec2(c.x - hw * 2.2f, c.y - hh), ImVec2(c.x - hw * 2.2f, c.y + hh), ImVec2(c.x - hw * 0.2f, c.y), col);
+				dl->AddTriangleFilled(ImVec2(c.x - hw * 0.2f, c.y - hh), ImVec2(c.x - hw * 0.2f, c.y + hh), ImVec2(c.x + hw * 1.8f, c.y), col);
+				break;
+			}
+			case ToolGlyph::Stop:
+			{
+				const float r = s * 0.23f;
+				dl->AddRectFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), col, 1.0f);
+				break;
+			}
+			}
+		}
+	}
 
-		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
-			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
-			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-
-		// Gizmo cluster (~113) + divider (~17) + transport (~80) + window padding/border (~18).
-		const float toolbarWidth = 228.0f;
-		const float posX = viewportBounds[0].x + (viewportSize.x - toolbarWidth) * 0.5f;
-		const float posY = viewportBounds[0].y + 12.0f;
-
-		ImGui::SetNextWindowPos(ImVec2(posX, posY), ImGuiCond_Always);
-		ImGui::SetNextWindowBgAlpha(0.55f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 0.0f));
-		// Monolith: sharp corners + a hairline border, not a soft rounded pill.
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 2.0f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-		ImGui::Begin("##viewport_central_toolbar", nullptr, flags);
-
+	// Gizmo tools (select / move / rotate / scale) as a floating overlay at the viewport's
+	// top-left. Only drawn while the viewport is the visible tab (gated by the caller).
+	// The viewport toolbar, centred in the titlebar: gizmo tools (select / move / rotate / scale) +
+	// a divider + transport (play / simulate / stop). The gizmo half only appears while the viewport
+	// is the visible tab; the transport is always shown. The whole group's local rect is recorded so
+	// the window drag zone excludes it (OnTitleBarHitTest), keeping the buttons clickable.
+	void EditorLayer::UI_TitlebarTransport(float titlebarWidth)
+	{
 		const ImVec2 buttonSize(24.0f, 24.0f);
-		const float clusterHeight = buttonSize.y + 6.0f; // child inner padding of 3px top+bottom.
+		const float transportSpacing = 6.0f;
+		const float gizmoSpacing = 3.0f;
+		const float dividerBlock = 16.0f; // 8px gap + line + 8px gap
 
-		// Flat vector glyphs (drawn, not textured) so they match the Monolith mock exactly and
-		// follow the theme accent. Gizmo tools are stroked outlines; transport controls are filled.
-		enum class Glyph { Select, Move, Rotate, Scale, Play, Simulate, Stop };
-		auto drawGlyph = [](ImDrawList* dl, const ImVec2& mn, const ImVec2& mx, Glyph glyph, ImU32 col)
-			{
-				const ImVec2 c((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f);
-				const float s = mx.x - mn.x;
-				const float t = 1.6f; // stroke width for outline glyphs
-				switch (glyph)
-				{
-				case Glyph::Select:
-				{
-					// Pointer arrow: a diagonal shaft with an L-shaped head at the lower-right.
-					const ImVec2 tail(c.x - s * 0.20f, c.y - s * 0.22f);
-					const ImVec2 head(c.x + s * 0.16f, c.y + s * 0.24f);
-					dl->AddLine(tail, head, col, t);
-					dl->AddLine(head, ImVec2(head.x - s * 0.16f, head.y), col, t);
-					dl->AddLine(head, ImVec2(head.x, head.y - s * 0.16f), col, t);
-					break;
-				}
-				case Glyph::Move:
-				{
-					const float r = s * 0.30f;
-					dl->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), col, t);
-					dl->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), col, t);
-					break;
-				}
-				case Glyph::Rotate:
-					dl->AddCircle(c, s * 0.28f, col, 0, t);
-					break;
-				case Glyph::Scale:
-				{
-					// Two offset squares (top-left + bottom-right), the classic "scale/bounds" mark.
-					const float sq = s * 0.26f, off = s * 0.14f;
-					dl->AddRect(ImVec2(c.x - off - sq, c.y - off - sq), ImVec2(c.x - off, c.y - off), col, 0.0f, 0, t);
-					dl->AddRect(ImVec2(c.x + off, c.y + off), ImVec2(c.x + off + sq, c.y + off + sq), col, 0.0f, 0, t);
-					break;
-				}
-				case Glyph::Play:
-				{
-					const float hw = s * 0.22f, hh = s * 0.27f;
-					dl->AddTriangleFilled(ImVec2(c.x - hw, c.y - hh), ImVec2(c.x - hw, c.y + hh), ImVec2(c.x + hw * 1.6f, c.y), col);
-					break;
-				}
-				case Glyph::Simulate:
-				{
-					// Two stacked triangles ("fast-forward") — reads as advance/simulate and stays
-					// distinct from the single solid Play triangle.
-					const float hw = s * 0.15f, hh = s * 0.25f;
-					dl->AddTriangleFilled(ImVec2(c.x - hw * 2.2f, c.y - hh), ImVec2(c.x - hw * 2.2f, c.y + hh), ImVec2(c.x - hw * 0.2f, c.y), col);
-					dl->AddTriangleFilled(ImVec2(c.x - hw * 0.2f, c.y - hh), ImVec2(c.x - hw * 0.2f, c.y + hh), ImVec2(c.x + hw * 1.8f, c.y), col);
-					break;
-				}
-				case Glyph::Stop:
-				{
-					const float r = s * 0.23f;
-					dl->AddRectFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), col, 1.0f);
-					break;
-				}
-				}
-			};
+		const bool showGizmo = m_EditorViewport && m_EditorViewport->IsVisible();
 
-		// Gizmo tool: outline glyph, accent when active (with a faint accent wash), brightens on hover.
-		auto gizmoButton = [&](const char* id, Glyph glyph, int mode)
+		const float transportWidth = buttonSize.x * 3.0f + transportSpacing * 2.0f;
+		const float gizmoWidth = buttonSize.x * 4.0f + gizmoSpacing * 3.0f;
+		const float totalWidth = transportWidth + (showGizmo ? gizmoWidth + dividerBlock : 0.0f);
+
+		const float startX = (titlebarWidth - totalWidth) * 0.5f;
+		const float startY = (m_TitlebarHeight - buttonSize.y) * 0.5f;
+
+		auto gizmoButton = [&](const char* id, ToolGlyph glyph, int mode)
 			{
+				ImGui::SetNextItemAllowOverlap();
 				ImGui::InvisibleButton(id, buttonSize);
 				const bool hovered = ImGui::IsItemHovered();
 				const bool active = m_GizmoType == mode;
@@ -1288,14 +1285,14 @@ namespace Lux {
 				else if (hovered)
 					dl->AddRectFilled(mn, mx, IM_COL32(255, 255, 255, 16), 2.0f);
 				const ImU32 col = active ? Colors::Theme::accent : (hovered ? Colors::Theme::textBrighter : Colors::Theme::text);
-				drawGlyph(dl, mn, mx, glyph, col);
+				DrawToolGlyph(dl, mn, mx, glyph, col);
 				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 					m_GizmoType = mode;
 			};
 
-		// Transport control: filled glyph, accent ring when it is the current state.
-		auto controlButton = [&](const char* id, Glyph glyph, ImU32 normalCol, ImU32 hoverCol, bool active, const std::function<void()>& onClick)
+		auto controlButton = [&](const char* id, ToolGlyph glyph, ImU32 normalCol, ImU32 hoverCol, bool active, const std::function<void()>& onClick)
 			{
+				ImGui::SetNextItemAllowOverlap();
 				ImGui::InvisibleButton(id, buttonSize);
 				const bool hovered = ImGui::IsItemHovered();
 				ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -1303,85 +1300,66 @@ namespace Lux {
 				const ImVec2 mx = ImGui::GetItemRectMax();
 				if (hovered)
 					dl->AddRectFilled(mn, mx, IM_COL32(255, 255, 255, 16), 2.0f);
-				drawGlyph(dl, mn, mx, glyph, hovered ? hoverCol : normalCol);
+				DrawToolGlyph(dl, mn, mx, glyph, hovered ? hoverCol : normalCol);
 				if (active)
 					dl->AddRect(mn, mx, Colors::Theme::accent, 2.0f, 0, 1.5f);
 				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 					onClick();
 			};
 
-		// ---- Gizmo cluster: a bordered box holding select / move / rotate / scale. ----
-		ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 0, 0, 60));
-		ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(255, 255, 255, 22));
-		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
-		ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(3.0f, 3.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 0.0f));
-		ImGui::BeginChild("##gizmo_cluster", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
-		gizmoButton("##gizmo_select", Glyph::Select, -1);
-		ImGui::SameLine();
-		gizmoButton("##gizmo_translate", Glyph::Move, ImGuizmo::TRANSLATE);
-		ImGui::SameLine();
-		gizmoButton("##gizmo_rotate", Glyph::Rotate, ImGuizmo::ROTATE);
-		ImGui::SameLine();
-		gizmoButton("##gizmo_scale", Glyph::Scale, ImGuizmo::SCALE);
-		ImGui::EndChild();
-		ImGui::PopStyleVar(4);
-		ImGui::PopStyleColor(2);
+		ImGui::SetCursorPos(ImVec2(startX, startY));
 
-		// ---- Divider between the gizmo cluster and the transport. ----
-		ImGui::SameLine(0.0f, 8.0f);
+		if (showGizmo)
 		{
-			ImDrawList* dl = ImGui::GetWindowDrawList();
-			const ImVec2 p = ImGui::GetCursorScreenPos();
-			dl->AddLine(ImVec2(p.x, p.y + 4.0f), ImVec2(p.x, p.y + clusterHeight - 4.0f), Colors::Theme::muted, 1.0f);
-			ImGui::Dummy(ImVec2(1.0f, clusterHeight));
-		}
-		ImGui::SameLine(0.0f, 8.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(gizmoSpacing, 0.0f));
+			gizmoButton("##tb_gizmo_select", ToolGlyph::Select, -1);
+			ImGui::SameLine();
+			gizmoButton("##tb_gizmo_translate", ToolGlyph::Move, ImGuizmo::TRANSLATE);
+			ImGui::SameLine();
+			gizmoButton("##tb_gizmo_rotate", ToolGlyph::Rotate, ImGuizmo::ROTATE);
+			ImGui::SameLine();
+			gizmoButton("##tb_gizmo_scale", ToolGlyph::Scale, ImGuizmo::SCALE);
+			ImGui::PopStyleVar();
 
-		// ---- Transport: play / simulate / stop, vertically centred against the cluster. ----
+			ImGui::SameLine(0.0f, 8.0f);
+			{
+				ImDrawList* dl = ImGui::GetWindowDrawList();
+				const ImVec2 p = ImGui::GetCursorScreenPos();
+				dl->AddLine(ImVec2(p.x, p.y + 4.0f), ImVec2(p.x, p.y + buttonSize.y - 4.0f), Colors::Theme::muted, 1.0f);
+				ImGui::Dummy(ImVec2(1.0f, buttonSize.y));
+			}
+			ImGui::SameLine(0.0f, 8.0f);
+		}
+
 		const bool playing = m_SceneState == SceneState::Play;
 		const bool simulating = m_SceneState == SceneState::Simulate;
 		const bool editing = m_SceneState == SceneState::Edit;
 
-		ImGui::BeginGroup();
-		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (clusterHeight - buttonSize.y) * 0.5f);
-		// Play is the lime call-to-action while editable, dimmed once it is already running.
-		controlButton("##scene_play", Glyph::Play,
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(transportSpacing, 0.0f));
+		controlButton("##tb_play", ToolGlyph::Play,
 			playing ? Colors::Theme::muted : Colors::Theme::accent,
 			playing ? Colors::Theme::textDarker : Colors::Theme::accent,
-			playing, [this]()
-			{
-				if (m_SceneState != SceneState::Play)
-					OnScenePlay();
-			});
+			playing, [this]() { if (m_SceneState != SceneState::Play) OnScenePlay(); });
 		ImGui::SameLine();
-		controlButton("##scene_simulate", Glyph::Simulate,
+		controlButton("##tb_simulate", ToolGlyph::Simulate,
 			simulating ? Colors::Theme::accent : Colors::Theme::textDarker,
 			simulating ? Colors::Theme::accent : Colors::Theme::textBrighter,
-			simulating, [this]()
-			{
-				if (m_SceneState != SceneState::Simulate)
-					OnSceneSimulate();
-			});
+			simulating, [this]() { if (m_SceneState != SceneState::Simulate) OnSceneSimulate(); });
 		ImGui::SameLine();
-		controlButton("##scene_stop", Glyph::Stop,
+		controlButton("##tb_stop", ToolGlyph::Stop,
 			editing ? Colors::Theme::textDarker : Colors::Theme::text,
 			editing ? Colors::Theme::textDarker : Colors::Theme::textBrighter,
-			editing, [this]()
-			{
-				if (m_SceneState != SceneState::Edit)
-					OnSceneStop();
-			});
-		ImGui::EndGroup();
+			editing, [this]() { if (m_SceneState != SceneState::Edit) OnSceneStop(); });
+		ImGui::PopStyleVar();
 
-		ImGui::End();
-		ImGui::PopStyleVar(4);
+		// Local-space rect (window is at 0,0) over the whole group, matching the hit-test event space.
+		m_TitleBarTransportRectMin = ImVec2(startX - 4.0f, 0.0f);
+		m_TitleBarTransportRectMax = ImVec2(startX + totalWidth + 4.0f, m_TitlebarHeight);
 	}
 
 	void EditorLayer::UI_ViewportPerformanceHUD()
 	{
-		if (!m_ShowViewportPerformanceHUD || !m_EditorViewport || !m_SceneRenderer)
+		if (!m_ShowViewportPerformanceHUD || !m_EditorViewport || !m_SceneRenderer || !m_EditorViewport->IsVisible())
 			return;
 
 		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
@@ -1641,8 +1619,10 @@ namespace Lux {
 
 	void EditorLayer::UI_Toolbar()
 	{
-		// Gizmo tools now live inside the central toolbar alongside the transport.
-		UI_CentralToolbar();
+		// The other overlays only when the viewport is the visible tab; the gizmo tools + transport
+		// are in the titlebar.
+		if (!m_EditorViewport || !m_EditorViewport->IsVisible())
+			return;
 		UI_ViewportSettings();
 		UI_ViewportOrientationGizmo();
 		UI_ViewportSelectionBadge();
@@ -1862,7 +1842,11 @@ namespace Lux {
 		const float x = (float)e.GetX();
 		const float y = (float)e.GetY();
 
-		const bool inDragZone = x >= m_TitleBarDragRectMin.x && x <= m_TitleBarDragRectMax.x
+		const bool inTransport = x >= m_TitleBarTransportRectMin.x && x <= m_TitleBarTransportRectMax.x
+			&& y >= m_TitleBarTransportRectMin.y && y <= m_TitleBarTransportRectMax.y;
+
+		const bool inDragZone = !inTransport
+			&& x >= m_TitleBarDragRectMin.x && x <= m_TitleBarDragRectMax.x
 			&& y >= m_TitleBarDragRectMin.y && y <= m_TitleBarDragRectMax.y;
 
 		if (inDragZone)

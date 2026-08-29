@@ -51,7 +51,7 @@ namespace Lux
 		void UI_DrawMenubar();
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
 		void SetEditorLayoutMode(bool simple);
-		void UI_CentralToolbar();
+		void UI_TitlebarTransport(float titlebarWidth);
 		void UI_ViewportSettings();
 		void UI_ViewportOrientationGizmo();
 		void UI_ViewportSelectionBadge();
@@ -191,6 +191,10 @@ namespace Lux
 		ImVec4 m_AnimatedTitlebarColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		ImVec2 m_TitleBarDragRectMin = { 0.0f, 0.0f };
 		ImVec2 m_TitleBarDragRectMax = { 0.0f, 0.0f };
+		// Local-space rect of the titlebar transport, excluded from the drag zone so its buttons
+		// stay clickable instead of initiating a window move.
+		ImVec2 m_TitleBarTransportRectMin = { 0.0f, 0.0f };
+		ImVec2 m_TitleBarTransportRectMax = { 0.0f, 0.0f };
 		float m_TitlebarHeight = 57.0f;
 
 		bool m_ShowImGuiMetrics = false;
