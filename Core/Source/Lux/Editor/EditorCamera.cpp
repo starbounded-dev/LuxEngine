@@ -78,7 +78,12 @@ namespace Lux {
 		if (!m_IsActive)
 		{
 			m_CameraMouseCaptured = false;
-			if (!ImGuiEx::IsInputEnabled())
+			// If the camera went inactive mid-capture (focus/hover lost while flying), the cursor
+			// was left hidden/locked. Restore it here — otherwise it stays captured and unusable
+			// until the window loses focus (which is what makes GLFW release it).
+			if (Input::GetCursorMode() != CursorMode::Normal)
+				EnableMouse();
+			else if (!ImGuiEx::IsInputEnabled())
 				ImGuiEx::SetInputEnabled(true);
 
 			return;
