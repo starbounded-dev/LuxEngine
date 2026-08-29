@@ -395,6 +395,7 @@ namespace Lux {
 		ImPlot::PushStyleVar(ImPlotStyleVar_PlotPadding, ImVec2(0.0f, 0.0f));
 
 		const ImPlotFlags plotFlags = ImPlotFlags_NoTitle | ImPlotFlags_NoMouseText | ImPlotFlags_NoBoxSelect;
+		ImGuiEx::Fonts::PushFont("Mono"); // mono axis/tick labels, Tracy-style
 		if (ImPlot::BeginPlot("##frame_history", ImVec2(-1.0f, 130.0f), plotFlags))
 		{
 			ImPlot::SetupAxis(ImAxis_X1, nullptr, ImPlotAxisFlags_NoTickLabels | ImPlotAxisFlags_NoGridLines | ImPlotAxisFlags_Lock);
@@ -430,6 +431,7 @@ namespace Lux {
 
 			ImPlot::EndPlot();
 		}
+		ImGuiEx::Fonts::PopFont();
 
 		ImPlot::PopStyleVar();
 		ImPlot::PopStyleColor(2);
@@ -477,6 +479,7 @@ namespace Lux {
 
 		const float chartHeight = std::max(120.0f, count * 20.0f + 20.0f);
 		const ImPlotFlags plotFlags = ImPlotFlags_NoTitle | ImPlotFlags_NoLegend | ImPlotFlags_NoMouseText | ImPlotFlags_NoBoxSelect;
+		ImGuiEx::Fonts::PushFont("Mono"); // mono axis/tick labels, Tracy-style
 		if (ImPlot::BeginPlot("##pass_gpu_chart", ImVec2(-1.0f, chartHeight), plotFlags))
 		{
 			ImPlot::SetupAxis(ImAxis_X1, "ms", ImPlotAxisFlags_LockMin);
@@ -494,6 +497,7 @@ namespace Lux {
 
 			ImPlot::EndPlot();
 		}
+		ImGuiEx::Fonts::PopFont();
 
 		ImPlot::PopStyleColor(2);
 	}

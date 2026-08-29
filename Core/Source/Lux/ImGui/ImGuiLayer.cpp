@@ -164,11 +164,10 @@ namespace Lux {
 
 			// Appended after the UI fonts so existing Fonts[] indices are unchanged. Looked up by
 			// name (ImGuiEx::Fonts::PushFont("Mono"/"Display")).
-			// Monospace for numeric readouts (perf HUD, stats, ImPlot). NOTE: only the Bold weight
-			// of JetBrains Mono is vendored right now; add Regular/Medium for a lighter mono.
+			// Monospace for numeric readouts (perf HUD, stats, ImPlot).
 			ImGuiEx::FontConfiguration jetBrainsMono;
 			jetBrainsMono.FontName = "Mono";
-			jetBrainsMono.FilePath = "Resources/Fonts/JetBrainsMono/JetBrainsMono-Bold.ttf";
+			jetBrainsMono.FilePath = "Resources/Fonts/JetBrainsMono/JetBrainsMono-Medium.ttf";
 			jetBrainsMono.Size = 13.0f;
 			ImGuiEx::Fonts::Add(jetBrainsMono);
 

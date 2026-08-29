@@ -3,6 +3,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/ImGui/Colors.h"
+#include "Lux/ImGui/ImGuiFonts.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
@@ -170,6 +171,7 @@ namespace Lux {
 
 		const ImPlotFlags plotFlags = ImPlotFlags_NoTitle | ImPlotFlags_NoLegend | ImPlotFlags_NoMenus |
 			ImPlotFlags_NoBoxSelect | ImPlotFlags_NoMouseText;
+		ImGuiEx::Fonts::PushFont("Mono"); // mono axis/tick labels, Tracy-style
 		if (ImPlot::BeginPlot("##frametime", ImVec2(-1.0f, 110.0f), plotFlags))
 		{
 			// X: the frame window, fixed span, no ticks/labels (it is a rolling timeline, not data
@@ -203,6 +205,7 @@ namespace Lux {
 
 			ImPlot::EndPlot();
 		}
+		ImGuiEx::Fonts::PopFont();
 
 		ImPlot::PopStyleVar();
 		ImPlot::PopStyleColor(2);

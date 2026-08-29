@@ -109,7 +109,7 @@ namespace Lux {
 
 			ImGuiEx::FontConfiguration jetBrainsMono;
 			jetBrainsMono.FontName = "Mono";
-			jetBrainsMono.FilePath = "Resources/Fonts/JetBrainsMono/JetBrainsMono-Bold.ttf";
+			jetBrainsMono.FilePath = "Resources/Fonts/JetBrainsMono/JetBrainsMono-Medium.ttf";
 			jetBrainsMono.Size = 13.0f;
 			ImGuiEx::Fonts::Add(jetBrainsMono);
 
