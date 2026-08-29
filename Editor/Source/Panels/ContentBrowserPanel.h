@@ -180,8 +180,12 @@ namespace Lux {
 		bool RenameAsset(AssetHandle handle, const std::string& newName);
 
 		Ref<Texture2D> GetItemThumbnail(AssetHandle handle);
+		enum class ViewMode { Grid, List };
+		enum class SortMode { Name, Type, Modified };
+
 		float GetThumbnailSize() const { return m_ThumbnailSize; }
 		bool GetShowAssetTypes() const { return m_ShowAssetType; }
+		bool IsListView() const { return m_ViewMode == ViewMode::List; }
 		bool IsFocused() const { return m_IsContentBrowserFocused; }
 		void SetThumbnailSize(float size);
 		void SetShowAssetTypes(bool show);
@@ -257,6 +261,18 @@ namespace Lux {
 
 		float m_ThumbnailSize = 128.0f;
 		bool m_ShowAssetType = true;
+
+		// Remake: view mode, sort, type-filter and favourites — persisted via LoadSettings/SaveSettings.
+		ViewMode m_ViewMode = ViewMode::Grid;
+		SortMode m_SortMode = SortMode::Name;
+		bool m_SortAscending = true;
+		int m_TypeFilter = 0;                    // 0 = All; see s_TypeFilters in the .cpp
+		std::vector<std::string> m_Favorites;    // favourite folders, generic paths relative to Assets/
+
+		bool IsFavorite(const std::string& genericPath) const;
+		void ToggleFavorite(const std::string& genericPath);
+		bool AssetMatchesFilter(AssetHandle handle) const;
+		void RenderFavorites();
 
 	private:
 		static ContentBrowserPanel* s_Instance;

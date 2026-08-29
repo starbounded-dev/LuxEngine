@@ -11,6 +11,7 @@
 #include "Lux/Core/Input.h"
 #include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/Editor/EditorResources.h"
+#include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
@@ -152,6 +153,9 @@ namespace Lux {
 		memset(m_SearchBuffer, 0, MAX_INPUT_BUFFER_LENGTH);
 	}
 
+	// Toolbar type-filter chips: index 0 is "All"; see AssetMatchesFilter for the type mapping.
+	static const char* s_FilterLabels[] = { "All", "Meshes", "Materials", "Textures", "Scripts", "Scenes", "Prefabs" };
+
 	void ContentBrowserPanel::OnImGuiRender(bool& isOpen)
 	{
 		if (!isOpen)
@@ -191,6 +195,8 @@ namespace Lux {
 
 			ImGui::BeginChild("##content_browser_folders");
 			{
+				RenderFavorites();
+
 				std::vector<Ref<DirectoryInfo>> directories;
 				directories.reserve(m_BaseDirectory->SubDirectories.size());
 				for (const auto& [handle, directory] : m_BaseDirectory->SubDirectories)
@@ -208,8 +214,8 @@ namespace Lux {
 
 			ImGui::TableSetColumnIndex(1);
 
-			const float topBarHeight = 32.0f;
-			const float bottomBarHeight = 28.0f;
+			const float topBarHeight = 58.0f;   // controls row + filter-chip row
+			const float bottomBarHeight = 30.0f;
 
 			ImGui::BeginChild("##content_browser_main");
 			{
@@ -275,7 +281,7 @@ namespace Lux {
 					const float scrollBarOffset = 20.0f + ImGui::GetStyle().ScrollbarSize;
 					const float panelWidth = ImGui::GetContentRegionAvail().x - scrollBarOffset;
 					const float cellSize = m_ThumbnailSize + 2.0f + paddingForOutline;
-					int columnCount = static_cast<int>(panelWidth / cellSize);
+					int columnCount = IsListView() ? 1 : static_cast<int>(panelWidth / cellSize);
 					if (columnCount < 1)
 						columnCount = 1;
 
@@ -423,6 +429,41 @@ namespace Lux {
 			ChangeDirectory(m_NextDirectory);
 	}
 
+	void ContentBrowserPanel::RenderFavorites()
+	{
+		if (m_Favorites.empty())
+			return;
+
+		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
+		ImGui::TextUnformatted("FAVORITES");
+		ImGui::PopStyleColor();
+
+		for (const std::string& fav : m_Favorites)
+		{
+			const std::filesystem::path favPath(fav);
+			Ref<DirectoryInfo> dir = GetDirectory(favPath);
+
+			ImGui::PushID(fav.c_str());
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent));
+			const std::string label = std::format("{}  {}", LUX_ICON_STAR, favPath.filename().string());
+			const bool clicked = ImGui::Selectable(label.c_str(), false);
+			ImGui::PopStyleColor();
+
+			if (ImGui::BeginPopupContextItem("##FavCtx"))
+			{
+				if (ImGui::MenuItem("Remove from Favorites"))
+					ToggleFavorite(fav);
+				ImGui::EndPopup();
+			}
+			if (clicked && dir)
+				ChangeDirectory(dir);
+			ImGui::PopID();
+		}
+
+		ImGui::Separator();
+		ImGui::Spacing();
+	}
+
 	void ContentBrowserPanel::RenderDirectoryHierarchy(const Ref<DirectoryInfo>& directory)
 	{
 		const bool isSelected = m_CurrentDirectory && m_CurrentDirectory->Handle == directory->Handle;
@@ -441,6 +482,15 @@ namespace Lux {
 			ChangeDirectory(directory);
 
 		UpdateDropArea(directory);
+
+		if (ImGui::BeginPopupContextItem("##DirectoryContext"))
+		{
+			const std::string genericPath = directory->FilePath.generic_string();
+			const bool fav = IsFavorite(genericPath);
+			if (ImGui::MenuItem(fav ? LUX_ICON_STAR "  Remove from Favorites" : LUX_ICON_STAR_O "  Add to Favorites"))
+				ToggleFavorite(genericPath);
+			ImGui::EndPopup();
+		}
 
 		if (opened)
 		{
@@ -523,26 +573,110 @@ namespace Lux {
 
 		ImGui::SameLine(0.0f, 16.0f);
 
+		// Flat mono breadcrumb, like the concept: dim root/path, accent-lime current folder.
+		ImGuiEx::Fonts::PushFont("Mono");
+		ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(255, 255, 255, 16));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(255, 255, 255, 26));
+
 		std::string rootLabel = m_Project->GetConfig().AssetDirectory.string();
+		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(m_BreadCrumbData.empty() ? Colors::Theme::accent : Colors::Theme::textDarker));
 		if (ImGui::SmallButton(rootLabel.c_str()))
 			ChangeDirectory(m_BaseDirectory);
+		ImGui::PopStyleColor();
 		UpdateDropArea(m_BaseDirectory);
 
-		for (const auto& directory : m_BreadCrumbData)
+		for (size_t i = 0; i < m_BreadCrumbData.size(); i++)
 		{
-			ImGui::SameLine(0.0f, 4.0f);
-			ImGui::TextUnformatted("/");
-			ImGui::SameLine(0.0f, 4.0f);
+			const auto& directory = m_BreadCrumbData[i];
+			const bool isCurrent = i == m_BreadCrumbData.size() - 1;
+
+			ImGui::SameLine(0.0f, 5.0f);
+			ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Colors::Theme::muted), "/");
+			ImGui::SameLine(0.0f, 5.0f);
 
 			std::string directoryName = directory->FilePath.filename().string();
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(isCurrent ? Colors::Theme::accent : Colors::Theme::textDarker));
 			if (ImGui::SmallButton(directoryName.c_str()))
 				ChangeDirectory(directory);
+			ImGui::PopStyleColor();
 			UpdateDropArea(directory);
 		}
 
-		ImGui::SameLine(ImGui::GetContentRegionAvail().x - 10.0f);
-		if (ImGuiEx::Widgets::OptionsButton())
-			ImGui::OpenPopup("ContentBrowserSettings");
+		ImGui::PopStyleColor(3);
+		ImGuiEx::Fonts::PopFont();
+
+		// ---- Right controls: New (lime) · view toggle · sort · settings ----
+		{
+			const float rightWidth = 250.0f;
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - rightWidth));
+
+			{
+				ImGuiEx::ScopedColour b(ImGuiCol_Button, Colors::Theme::accent);
+				ImGuiEx::ScopedColour bh(ImGuiCol_ButtonHovered, Colors::Theme::accent);
+				ImGuiEx::ScopedColour ba(ImGuiCol_ButtonActive, Colors::Theme::accent);
+				ImGuiEx::ScopedColour bt(ImGuiCol_Text, Colors::Theme::titlebar);
+				if (ImGui::Button(LUX_ICON_PLUS "  New"))
+					ImGui::OpenPopup("ContentBrowserNew");
+			}
+			ImGui::SameLine();
+			if (ImGui::Button(IsListView() ? LUX_ICON_LIST : LUX_ICON_TH_LARGE))
+			{
+				m_ViewMode = IsListView() ? ViewMode::Grid : ViewMode::List;
+				SaveSettings();
+			}
+			ImGuiEx::SetTooltip(IsListView() ? "List view" : "Grid view");
+			ImGui::SameLine();
+			if (ImGui::Button(LUX_ICON_SORT))
+				ImGui::OpenPopup("ContentBrowserSort");
+			ImGuiEx::SetTooltip("Sort");
+			ImGui::SameLine();
+			if (ImGuiEx::Widgets::OptionsButton())
+				ImGui::OpenPopup("ContentBrowserSettings");
+		}
+
+		if (ImGui::BeginPopup("ContentBrowserNew"))
+		{
+			if (ImGui::MenuItem("Folder"))
+				CreateNewFolder();
+			if (ImGui::MenuItem("Scene"))
+				CreateSceneAsset();
+			if (ImGui::MenuItem("Material"))
+				CreateMaterialAsset();
+			ImGui::Separator();
+			if (ImGui::MenuItem("Import…"))
+			{
+				std::filesystem::path filepath = FileSystem::OpenFileDialog();
+				if (!filepath.empty())
+				{
+					const std::filesystem::path destinationDirectory = Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath;
+					if (FileSystem::CopyFile(filepath, destinationDirectory))
+					{
+						CopyImportedMeshDependencies(filepath, destinationDirectory);
+						Refresh();
+					}
+				}
+			}
+			ImGui::EndPopup();
+		}
+
+		if (ImGui::BeginPopup("ContentBrowserSort"))
+		{
+			bool changed = false;
+			if (ImGui::MenuItem("Name", nullptr, m_SortMode == SortMode::Name)) { m_SortMode = SortMode::Name; changed = true; }
+			if (ImGui::MenuItem("Type", nullptr, m_SortMode == SortMode::Type)) { m_SortMode = SortMode::Type; changed = true; }
+			if (ImGui::MenuItem("Recently modified", nullptr, m_SortMode == SortMode::Modified)) { m_SortMode = SortMode::Modified; changed = true; }
+			ImGui::Separator();
+			if (ImGui::MenuItem("Ascending", nullptr, m_SortAscending)) { m_SortAscending = true; changed = true; }
+			if (ImGui::MenuItem("Descending", nullptr, !m_SortAscending)) { m_SortAscending = false; changed = true; }
+			if (changed)
+			{
+				SortItemList();
+				SaveSettings();
+			}
+			ImGui::EndPopup();
+		}
 
 		if (ImGui::BeginPopup("ContentBrowserSettings"))
 		{
@@ -550,13 +684,34 @@ namespace Lux {
 			if (ImGui::Checkbox("Show Asset Types", &m_ShowAssetType))
 				saveSettings = true;
 
-			if (ImGui::SliderFloat("Thumbnail Size", &m_ThumbnailSize, 96.0f, 256.0f, "%.0f"))
+			if (ImGui::SliderFloat("Thumbnail Size", &m_ThumbnailSize, 32.0f, 256.0f, "%.0f"))
 				saveSettings = true;
 
 			if (saveSettings)
 				SaveSettings();
 
 			ImGui::EndPopup();
+		}
+
+		// ---- Filter chips (second row) ----
+		for (int i = 0; i < IM_ARRAYSIZE(s_FilterLabels); i++)
+		{
+			if (i > 0)
+				ImGui::SameLine(0.0f, 4.0f);
+
+			const bool active = m_TypeFilter == i;
+			if (active)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Button, Colors::Theme::accent);
+				ImGui::PushStyleColor(ImGuiCol_Text, Colors::Theme::titlebar);
+			}
+			if (ImGui::SmallButton(s_FilterLabels[i]) && !active)
+			{
+				m_TypeFilter = i;
+				SaveSettings();
+			}
+			if (active)
+				ImGui::PopStyleColor(2);
 		}
 
 		ImGui::EndChild();
@@ -568,6 +723,10 @@ namespace Lux {
 
 		for (auto& item : m_CurrentItems.Items)
 		{
+			// Type-filter chips: hide assets that don't match the active filter (folders always show).
+			if (m_TypeFilter != 0 && item->GetType() == ContentBrowserItem::ItemType::Asset && !AssetMatchesFilter(item->GetID()))
+				continue;
+
 			item->OnRenderBegin();
 			CBItemActionResult result = item->OnRender(this);
 
@@ -672,24 +831,59 @@ namespace Lux {
 	{
 		ImGui::BeginChild("##content_browser_bottombar", ImVec2(0.0f, height));
 
+		auto formatSize = [](uintmax_t b) -> std::string
+		{
+			char buf[32];
+			if (b < 1024) snprintf(buf, sizeof(buf), "%llu B", (unsigned long long)b);
+			else if (b < 1024 * 1024) snprintf(buf, sizeof(buf), "%.1f KB", (double)b / 1024.0);
+			else snprintf(buf, sizeof(buf), "%.1f MB", (double)b / (1024.0 * 1024.0));
+			return buf;
+		};
+
+		ImGuiEx::Fonts::PushFont("Mono");
+		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
+
 		if (GetSelectionCount() == 1)
 		{
-			AssetHandle selection = GetSelection(0);
+			const AssetHandle selection = GetSelection(0);
 			if (m_Directories.contains(selection))
 			{
-				std::string path = "Assets/" + m_Directories.at(selection)->FilePath.generic_string();
-				ImGui::TextUnformatted(path.c_str());
+				ImGui::Text("Assets/%s", m_Directories.at(selection)->FilePath.generic_string().c_str());
 			}
 			else
 			{
 				const AssetMetadata metadata = Project::GetEditorAssetManager()->GetMetadata(selection);
-				std::string path = "Assets/" + metadata.FilePath.generic_string();
-				ImGui::TextUnformatted(path.c_str());
+				std::error_code ec;
+				const auto bytes = std::filesystem::file_size(Project::GetActiveAssetDirectory() / metadata.FilePath, ec);
+				const std::string sizeText = ec ? std::string("--") : formatSize(bytes);
+				ImGui::Text("%s   %s   %s   ·   Assets/%s",
+					metadata.FilePath.filename().string().c_str(),
+					std::string(AssetTypeToString(metadata.Type)).c_str(),
+					sizeText.c_str(),
+					metadata.FilePath.generic_string().c_str());
 			}
 		}
 		else if (GetSelectionCount() > 1)
 		{
 			ImGui::Text("%llu items selected", static_cast<unsigned long long>(GetSelectionCount()));
+		}
+		else
+		{
+			ImGui::Text("%zu items", m_CurrentItems.Items.size());
+		}
+
+		ImGui::PopStyleColor();
+		ImGuiEx::Fonts::PopFont();
+
+		// Thumbnail-size slider on the right (grid view only), like Unity's bottom bar.
+		if (!IsListView())
+		{
+			const float sliderWidth = 130.0f;
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - sliderWidth));
+			ImGui::SetNextItemWidth(sliderWidth);
+			if (ImGui::SliderFloat("##thumbsize", &m_ThumbnailSize, 48.0f, 256.0f, ""))
+				SaveSettings();
 		}
 
 		ImGui::EndChild();
@@ -931,14 +1125,87 @@ namespace Lux {
 		ImGui::EndDragDropTarget();
 	}
 
+	bool ContentBrowserPanel::AssetMatchesFilter(AssetHandle handle) const
+	{
+		if (m_TypeFilter == 0)
+			return true;
+		const AssetType t = AssetManager::GetAssetType(handle);
+		switch (m_TypeFilter)
+		{
+			case 1: return t == AssetType::Mesh || t == AssetType::StaticMesh || t == AssetType::MeshSource;
+			case 2: return t == AssetType::Material;
+			case 3: return t == AssetType::Texture || t == AssetType::EnvMap;
+			case 4: return t == AssetType::Script || t == AssetType::ScriptFile;
+			case 5: return t == AssetType::Scene;
+			case 6: return t == AssetType::Prefab;
+			default: return true;
+		}
+	}
+
+	bool ContentBrowserPanel::IsFavorite(const std::string& genericPath) const
+	{
+		return std::find(m_Favorites.begin(), m_Favorites.end(), genericPath) != m_Favorites.end();
+	}
+
+	void ContentBrowserPanel::ToggleFavorite(const std::string& genericPath)
+	{
+		auto it = std::find(m_Favorites.begin(), m_Favorites.end(), genericPath);
+		if (it != m_Favorites.end())
+			m_Favorites.erase(it);
+		else
+			m_Favorites.push_back(genericPath);
+		SaveSettings();
+	}
+
 	void ContentBrowserPanel::SortItemList()
 	{
-		std::sort(m_CurrentItems.begin(), m_CurrentItems.end(), [](const Ref<ContentBrowserItem>& a, const Ref<ContentBrowserItem>& b)
-		{
-			if (a->GetType() == b->GetType())
-				return Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
+		const std::filesystem::path assetDir = Project::GetActiveAssetDirectory();
 
-			return static_cast<uint16_t>(a->GetType()) < static_cast<uint16_t>(b->GetType());
+		auto modTime = [&](const Ref<ContentBrowserItem>& item) -> long long
+		{
+			std::filesystem::path rel;
+			if (item->GetType() == ContentBrowserItem::ItemType::Directory)
+			{
+				auto dirIt = m_Directories.find(item->GetID());
+				if (dirIt != m_Directories.end())
+					rel = dirIt->second->FilePath;
+			}
+			else
+			{
+				rel = Project::GetEditorAssetManager()->GetMetadata(item->GetID()).FilePath;
+			}
+			std::error_code ec;
+			const auto t = std::filesystem::last_write_time(assetDir / rel, ec);
+			return ec ? 0 : (long long)t.time_since_epoch().count();
+		};
+
+		std::sort(m_CurrentItems.begin(), m_CurrentItems.end(), [&](const Ref<ContentBrowserItem>& a, const Ref<ContentBrowserItem>& b)
+		{
+			// Directories always precede assets, regardless of sort direction.
+			if (a->GetType() != b->GetType())
+				return static_cast<uint16_t>(a->GetType()) < static_cast<uint16_t>(b->GetType());
+
+			bool less;
+			switch (m_SortMode)
+			{
+				case SortMode::Type:
+				{
+					const std::string ta = a->GetType() == ContentBrowserItem::ItemType::Asset ? std::string(AssetTypeToString(AssetManager::GetAssetType(a->GetID()))) : std::string();
+					const std::string tb = b->GetType() == ContentBrowserItem::ItemType::Asset ? std::string(AssetTypeToString(AssetManager::GetAssetType(b->GetID()))) : std::string();
+					less = (ta != tb) ? ta < tb : Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
+					break;
+				}
+				case SortMode::Modified:
+				{
+					const long long ma = modTime(a), mb = modTime(b);
+					less = (ma != mb) ? ma < mb : Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
+					break;
+				}
+				default:
+					less = Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
+					break;
+			}
+			return m_SortAscending ? less : !less;
 		});
 	}
 
@@ -947,6 +1214,24 @@ namespace Lux {
 		auto& settings = Application::Get().GetSettings();
 		m_ThumbnailSize = settings.GetFloat("ContentBrowser.ThumbnailSize", 128.0f);
 		m_ShowAssetType = settings.GetInt("ContentBrowser.ShowAssetTypes", 1) != 0;
+		m_ViewMode = static_cast<ViewMode>(std::clamp(settings.GetInt("ContentBrowser.ViewMode", 0), 0, 1));
+		m_SortMode = static_cast<SortMode>(std::clamp(settings.GetInt("ContentBrowser.SortMode", 0), 0, 2));
+		m_SortAscending = settings.GetInt("ContentBrowser.SortAscending", 1) != 0;
+		m_TypeFilter = std::clamp(settings.GetInt("ContentBrowser.TypeFilter", 0), 0, (int)IM_ARRAYSIZE(s_FilterLabels) - 1);
+
+		m_Favorites.clear();
+		const std::string favs = settings.Get("ContentBrowser.Favorites", "");
+		size_t start = 0;
+		while (start <= favs.size())
+		{
+			const size_t bar = favs.find('|', start);
+			const std::string one = favs.substr(start, bar == std::string::npos ? std::string::npos : bar - start);
+			if (!one.empty())
+				m_Favorites.push_back(one);
+			if (bar == std::string::npos)
+				break;
+			start = bar + 1;
+		}
 	}
 
 	void ContentBrowserPanel::SaveSettings() const
@@ -954,6 +1239,19 @@ namespace Lux {
 		auto& settings = Application::Get().GetSettings();
 		settings.SetFloat("ContentBrowser.ThumbnailSize", m_ThumbnailSize);
 		settings.SetInt("ContentBrowser.ShowAssetTypes", m_ShowAssetType ? 1 : 0);
+		settings.SetInt("ContentBrowser.ViewMode", static_cast<int>(m_ViewMode));
+		settings.SetInt("ContentBrowser.SortMode", static_cast<int>(m_SortMode));
+		settings.SetInt("ContentBrowser.SortAscending", m_SortAscending ? 1 : 0);
+		settings.SetInt("ContentBrowser.TypeFilter", m_TypeFilter);
+
+		std::string favs;
+		for (size_t i = 0; i < m_Favorites.size(); i++)
+		{
+			if (i)
+				favs += '|';
+			favs += m_Favorites[i];
+		}
+		settings.Set("ContentBrowser.Favorites", favs);
 		settings.Serialize();
 	}
 

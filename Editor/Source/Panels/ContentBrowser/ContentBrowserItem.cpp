@@ -42,95 +42,160 @@ namespace Lux {
 
 		SetDisplayNameFromFileName(thumbnailSize);
 
-		const float textPadding = 6.0f;
-		const float typeLineHeight = showAssetTypes && m_Type == ItemType::Asset ? ImGui::GetTextLineHeight() + 2.0f : 0.0f;
-		const float infoPanelHeight = ImGui::GetTextLineHeight() * 2.0f + typeLineHeight + textPadding;
-		const ImVec2 itemSize(thumbnailSize, thumbnailSize + infoPanelHeight);
-
-		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-		ImGui::InvisibleButton("##ItemButton", itemSize);
-		ImGui::PopStyleVar();
-
-		ImRect itemRect = ImGuiEx::GetItemRect();
-		ImRect thumbRect(itemRect.Min, ImVec2(itemRect.Max.x, itemRect.Min.y + thumbnailSize));
-		ImRect infoRect(ImVec2(itemRect.Min.x, itemRect.Min.y + thumbnailSize), itemRect.Max);
-		const bool hovered = ImGui::IsItemHovered();
-
 		auto* drawList = ImGui::GetWindowDrawList();
+		ImRect itemRect;
+		bool hovered = false;
 
-		if (m_Type == ItemType::Directory)
+		if (context->IsListView())
 		{
-			if (hovered || isSelected)
+			// ---- Compact list row: small icon, name, type ----
+			const float rowHeight = ImGui::GetFrameHeight() + 6.0f;
+			const float rowWidth = ImGui::GetContentRegionAvail().x;
+
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+			ImGui::InvisibleButton("##ItemButton", ImVec2(rowWidth, rowHeight));
+			ImGui::PopStyleVar();
+
+			itemRect = ImGuiEx::GetItemRect();
+			hovered = ImGui::IsItemHovered();
+
+			if (isSelected)
 			{
-				drawList->AddRectFilled(itemRect.Min, itemRect.Max, Colors::Theme::groupHeader, 6.0f);
-				drawList->AddRect(itemRect.Min, itemRect.Max, hovered ? Colors::Theme::accent : Colors::Theme::selection, 6.0f, 0, isSelected ? 1.5f : 1.0f);
+				drawList->AddRectFilled(itemRect.Min, itemRect.Max, Colors::Theme::selectionMuted, 3.0f);
+				drawList->AddRect(itemRect.Min, itemRect.Max, Colors::Theme::accent, 3.0f, 0, 1.0f);
 			}
+			else if (hovered)
+			{
+				drawList->AddRectFilled(itemRect.Min, itemRect.Max, IM_COL32(255, 255, 255, 14), 3.0f);
+			}
+
+			const float iconSize = rowHeight - 8.0f;
+			const ImVec2 iconMin(itemRect.Min.x + 6.0f, itemRect.Min.y + 4.0f);
+
+			Ref<Texture2D> displayTexture = m_Icon;
+			if (m_Type == ItemType::Asset)
+			{
+				if (Ref<Texture2D> thumbnail = context->GetItemThumbnail(m_ID))
+					displayTexture = thumbnail;
+			}
+			if (displayTexture)
+			{
+				ImGuiEx::DrawButtonImage(displayTexture,
+					IM_COL32(255, 255, 255, 225), IM_COL32(255, 255, 255, 255), IM_COL32(255, 255, 255, 255),
+					ImRect(iconMin, ImVec2(iconMin.x + iconSize, iconMin.y + iconSize)),
+					ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+			}
+
+			const float textY = itemRect.Min.y + (rowHeight - ImGui::GetTextLineHeight()) * 0.5f;
+			const float nameX = iconMin.x + iconSize + 8.0f;
+
+			if (m_IsRenaming)
+			{
+				ImGui::SetCursorScreenPos(ImVec2(nameX, itemRect.Min.y + 3.0f));
+				ImGui::SetKeyboardFocusHere();
+				ImGui::SetNextItemWidth(itemRect.Max.x - nameX - 10.0f);
+				ImGuiEx::InputText("##Rename", s_RenameBuffer, MAX_INPUT_BUFFER_LENGTH, ImGuiInputTextFlags_EnterReturnsTrue);
+				if (ImGui::IsItemDeactivatedAfterEdit() || Input::IsKeyDown(KeyCode::Enter))
+				{
+					Rename(s_RenameBuffer);
+					m_IsRenaming = false;
+					SetDisplayNameFromFileName(thumbnailSize);
+					result.Set(ContentBrowserAction::Renamed, true);
+				}
+			}
+			else
+			{
+				drawList->AddText(ImVec2(nameX, textY), isSelected ? Colors::Theme::accent : Colors::Theme::text, m_FileName.c_str());
+				if (showAssetTypes && m_Type == ItemType::Asset)
+				{
+					const std::string typeText = std::string(AssetTypeToString(AssetManager::GetAssetType(m_ID)));
+					const float tw = ImGui::CalcTextSize(typeText.c_str()).x;
+					drawList->AddText(ImVec2(itemRect.Max.x - tw - 12.0f, textY), Colors::Theme::textDarker, typeText.c_str());
+				}
+			}
+
+			ImGui::SetCursorScreenPos(itemRect.Max);
 		}
 		else
 		{
-			drawList->AddRectFilled(thumbRect.Min, thumbRect.Max, Colors::Theme::backgroundDark, 6.0f, ImDrawFlags_RoundCornersTop);
-			drawList->AddRectFilled(infoRect.Min, infoRect.Max, Colors::Theme::groupHeader, 6.0f, ImDrawFlags_RoundCornersBottom);
+			const float textPadding = 6.0f;
+			const float typeLineHeight = showAssetTypes && m_Type == ItemType::Asset ? ImGui::GetTextLineHeight() + 2.0f : 0.0f;
+			const float infoPanelHeight = ImGui::GetTextLineHeight() * 2.0f + typeLineHeight + textPadding;
+			const ImVec2 itemSize(thumbnailSize, thumbnailSize + infoPanelHeight);
 
-			if (hovered || isSelected)
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+			ImGui::InvisibleButton("##ItemButton", itemSize);
+			ImGui::PopStyleVar();
+
+			itemRect = ImGuiEx::GetItemRect();
+			ImRect thumbRect(itemRect.Min, ImVec2(itemRect.Max.x, itemRect.Min.y + thumbnailSize));
+			ImRect infoRect(ImVec2(itemRect.Min.x, itemRect.Min.y + thumbnailSize), itemRect.Max);
+			hovered = ImGui::IsItemHovered();
+
+			if (m_Type == ItemType::Directory)
 			{
-				drawList->AddRect(itemRect.Min, itemRect.Max, hovered ? Colors::Theme::accent : Colors::Theme::selection, 6.0f, 0, isSelected ? 1.5f : 1.0f);
+				if (hovered || isSelected)
+				{
+					drawList->AddRectFilled(itemRect.Min, itemRect.Max, Colors::Theme::groupHeader, 6.0f);
+					drawList->AddRect(itemRect.Min, itemRect.Max, hovered ? Colors::Theme::accent : Colors::Theme::selection, 6.0f, 0, isSelected ? 1.5f : 1.0f);
+				}
 			}
-		}
-
-		Ref<Texture2D> displayTexture = m_Icon;
-		if (m_Type == ItemType::Asset)
-		{
-			if (Ref<Texture2D> thumbnail = context->GetItemThumbnail(m_ID))
-				displayTexture = thumbnail;
-		}
-
-		if (displayTexture)
-		{
-			ImGuiEx::DrawButtonImage(displayTexture,
-				IM_COL32(255, 255, 255, 225),
-				IM_COL32(255, 255, 255, 255),
-				IM_COL32(255, 255, 255, 255),
-				ImGuiEx::RectExpanded(thumbRect, -6.0f, -6.0f),
-				ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
-		}
-
-		auto renderRenameWidget = [&]()
-		{
-			ImGui::SetKeyboardFocusHere();
-			ImGui::SetNextItemWidth(infoRect.GetWidth() - textPadding * 2.0f);
-			ImGuiEx::InputText("##Rename", s_RenameBuffer, MAX_INPUT_BUFFER_LENGTH, ImGuiInputTextFlags_EnterReturnsTrue);
-
-			if (ImGui::IsItemDeactivatedAfterEdit() || Input::IsKeyDown(KeyCode::Enter))
+			else
 			{
-				Rename(s_RenameBuffer);
-				m_IsRenaming = false;
-				SetDisplayNameFromFileName(thumbnailSize);
-				result.Set(ContentBrowserAction::Renamed, true);
+				drawList->AddRectFilled(thumbRect.Min, thumbRect.Max, Colors::Theme::backgroundDark, 6.0f, ImDrawFlags_RoundCornersTop);
+				drawList->AddRectFilled(infoRect.Min, infoRect.Max, Colors::Theme::groupHeader, 6.0f, ImDrawFlags_RoundCornersBottom);
+
+				if (hovered || isSelected)
+					drawList->AddRect(itemRect.Min, itemRect.Max, hovered ? Colors::Theme::accent : Colors::Theme::selection, 6.0f, 0, isSelected ? 1.5f : 1.0f);
 			}
-		};
 
-		ImGui::SetCursorScreenPos(ImVec2(infoRect.Min.x + textPadding, infoRect.Min.y + textPadding * 0.5f));
-		ImGui::PushTextWrapPos(infoRect.Max.x - textPadding);
-
-		if (m_IsRenaming)
-		{
-			renderRenameWidget();
-		}
-		else
-		{
-			ImGui::TextWrapped("%s", m_DisplayName.c_str());
-
-			if (showAssetTypes && m_Type == ItemType::Asset)
+			Ref<Texture2D> displayTexture = m_Icon;
+			if (m_Type == ItemType::Asset)
 			{
-				const AssetType assetType = AssetManager::GetAssetType(m_ID);
-				std::string assetTypeText = Utils::String::ToUpperCopy(std::string(AssetTypeToString(assetType)));
-				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
-				ImGui::TextWrapped("%s", assetTypeText.c_str());
+				if (Ref<Texture2D> thumbnail = context->GetItemThumbnail(m_ID))
+					displayTexture = thumbnail;
 			}
-		}
+			if (displayTexture)
+			{
+				ImGuiEx::DrawButtonImage(displayTexture,
+					IM_COL32(255, 255, 255, 225), IM_COL32(255, 255, 255, 255), IM_COL32(255, 255, 255, 255),
+					ImGuiEx::RectExpanded(thumbRect, -6.0f, -6.0f),
+					ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+			}
 
-		ImGui::PopTextWrapPos();
-		ImGui::SetCursorScreenPos(itemRect.Max);
+			ImGui::SetCursorScreenPos(ImVec2(infoRect.Min.x + textPadding, infoRect.Min.y + textPadding * 0.5f));
+			ImGui::PushTextWrapPos(infoRect.Max.x - textPadding);
+
+			if (m_IsRenaming)
+			{
+				ImGui::SetKeyboardFocusHere();
+				ImGui::SetNextItemWidth(infoRect.GetWidth() - textPadding * 2.0f);
+				ImGuiEx::InputText("##Rename", s_RenameBuffer, MAX_INPUT_BUFFER_LENGTH, ImGuiInputTextFlags_EnterReturnsTrue);
+
+				if (ImGui::IsItemDeactivatedAfterEdit() || Input::IsKeyDown(KeyCode::Enter))
+				{
+					Rename(s_RenameBuffer);
+					m_IsRenaming = false;
+					SetDisplayNameFromFileName(thumbnailSize);
+					result.Set(ContentBrowserAction::Renamed, true);
+				}
+			}
+			else
+			{
+				ImGui::TextWrapped("%s", m_DisplayName.c_str());
+
+				if (showAssetTypes && m_Type == ItemType::Asset)
+				{
+					const AssetType assetType = AssetManager::GetAssetType(m_ID);
+					std::string assetTypeText = Utils::String::ToUpperCopy(std::string(AssetTypeToString(assetType)));
+					ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextWrapped("%s", assetTypeText.c_str());
+				}
+			}
+
+			ImGui::PopTextWrapPos();
+			ImGui::SetCursorScreenPos(itemRect.Max);
+		}
 
 		if (!m_IsRenaming && context->IsFocused() && isSelected && Input::IsKeyDown(KeyCode::F2))
 			result.Set(ContentBrowserAction::StartRenaming, true);
