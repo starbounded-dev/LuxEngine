@@ -78,7 +78,7 @@ Assets:
     FilePath: Meshes/Source/Default/Materials/Capsule_0_Material_0.lmat
     Type: Material
     FileLastWriteTime: 18446744069059636769
-    Status: None
+    Status: Ready
   - Handle: 2871870856469487665
     FilePath: Scenes/Physics.luxscene
     Type: Scene
@@ -133,7 +133,7 @@ Assets:
     FilePath: Meshes/Source/Default/Capsule.gltf
     Type: MeshSource
     FileLastWriteTime: 18446744069059611435
-    Status: None
+    Status: Ready
   - Handle: 3837237547504984566
     FilePath: Meshes/Source/Sponza/13824894030729245199.jpg
     Type: Texture
@@ -163,7 +163,7 @@ Assets:
     FilePath: Meshes/Source/Sponza/Sponza.gltf
     Type: MeshSource
     FileLastWriteTime: 18446744069059611435
-    Status: None
+    Status: Ready
   - Handle: 5190924234788538949
     FilePath: Meshes/Source/Sponza/7056944414013900257.jpg
     Type: Texture
@@ -298,7 +298,7 @@ Assets:
     FilePath: Meshes/Source/Sponza/Materials/Sponza_25_Material_25.lmat
     Type: Material
     FileLastWriteTime: 18446744069059659388
-    Status: None
+    Status: Ready
   - Handle: 8362594283423097027
     FilePath: Meshes/Source/Sponza/Materials/Sponza_11_Material_11.lmat
     Type: Material
@@ -327,7 +327,7 @@ Assets:
   - Handle: 8868489982347245392
     FilePath: Scripts/Intermediates/Release/LuxSample.AssemblyInfo.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069059758109
+    FileLastWriteTime: 18446744069059860629
     Status: None
   - Handle: 8873821167095533110
     FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
@@ -588,6 +588,11 @@ Assets:
     FilePath: Meshes/Source/Sponza/755318871556304029.jpg
     Type: Texture
     FileLastWriteTime: 18446744069059611435
+    Status: Ready
+  - Handle: 16270877928576420274
+    FilePath: Scenes/LaptopStart.luxscene
+    Type: Scene
+    FileLastWriteTime: 18446744069059817059
     Status: Ready
   - Handle: 16317874982647590309
     FilePath: Scripts/Intermediates/Debug/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs

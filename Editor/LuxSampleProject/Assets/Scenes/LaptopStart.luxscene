@@ -1,0 +1,25 @@
+Scene: New Scene
+PostProcess:
+  Exposure: 1
+  ExposureMode: 0
+  Aperture: 16
+  ShutterSpeed: 0.00800000038
+  ISO: 100
+  ExposureEV100: 12
+  ExposureCompensation: 0
+  AutoMinEV100: -2
+  AutoMaxEV100: 16
+  AutoAdaptationSpeedUp: 3
+  AutoAdaptationSpeedDown: 1
+  ColorFilter: [1, 1, 1]
+  Saturation: 1
+  Contrast: 1
+  Gamma: 2.20000005
+  Tonemap: 0
+  WhiteTemperature: 0
+  WhiteTint: 0
+  Lift: [0, 0, 0]
+  GradeGamma: [1, 1, 1]
+  Gain: [1, 1, 1]
+Entities:
+  []
