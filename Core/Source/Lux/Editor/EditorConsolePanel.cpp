@@ -18,9 +18,10 @@ namespace Lux {
 	static std::mutex s_PendingMessageMutex;
 	static std::vector<ConsoleMessage> s_PendingMessages;
 
-	static const ImVec4 s_InfoTint = ImVec4(0.0f, 0.431372549f, 1.0f, 1.0f);
-	static const ImVec4 s_WarningTint = ImVec4(1.0f, 0.890196078f, 0.0588235294f, 1.0f);
-	static const ImVec4 s_ErrorTint = ImVec4(1.0f, 0.309803922f, 0.309803922f, 1.0f);
+	// Severity tints from the editor concept palette: cool blue info, warm amber warning, red error.
+	static const ImVec4 s_InfoTint = ImVec4(0.471f, 0.667f, 1.0f, 1.0f);
+	static const ImVec4 s_WarningTint = ImVec4(0.878f, 0.635f, 0.302f, 1.0f);
+	static const ImVec4 s_ErrorTint = ImVec4(0.910f, 0.329f, 0.329f, 1.0f);
 
 	EditorConsolePanel::EditorConsolePanel()
 	{
@@ -179,18 +180,24 @@ namespace Lux {
 
 					ImGuiEx::Separator(ImVec2(4.0f, ImGui::CalcTextSize(msg.ShortMessage.c_str()).y), GetMessageColor(msg));
 					ImGui::SameLine();
-					ImGui::TextUnformatted(GetMessageType(msg));
+					ImGui::TextColored(GetMessageColor(msg), "%s", GetMessageType(msg));
 					ImGui::TableNextColumn();
 					ImGuiEx::ShiftCursorX(4.0f);
 
 					std::stringstream timeString;
 					tm* timeBuffer = localtime(&msg.Time);
 					timeString << std::put_time(timeBuffer, "%T");
+
+					// Timestamp + message in the mono face, like the concept's log; timestamp dimmed.
+					ImGuiEx::Fonts::PushFont("Mono");
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
 					ImGui::TextUnformatted(timeString.str().c_str());
+					ImGui::PopStyleColor();
 
 					ImGui::TableNextColumn();
 					ImGuiEx::ShiftCursorX(4.0f);
 					ImGui::TextUnformatted(msg.ShortMessage.c_str());
+					ImGuiEx::Fonts::PopFont();
 
 					if (i == m_MessageBuffer.size() - 1 && m_ScrollToLatest)
 					{
