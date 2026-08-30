@@ -240,13 +240,15 @@ The editor persists state across sessions in a few places:
 
 ## Undo / redo (snapshot-based)
 
-The editor records undo history as **whole-scene YAML snapshots**, not per-value diffs. A tiny
+The editor records undo history as **per-entity YAML diffs** (each step stores only the entities that
+changed), restored by reassembling and reloading the whole scene. A tiny
 main-thread singleton, `EditorStack` (`Core/Source/Lux/Editor/EditorStack.h`), carries a single
 "scene edited" flag; the `ImGuiEx::Property` widgets raise it automatically (so every inspector field
-is covered) and non-widget edits (gizmo, delete, duplicate, add/remove component, rename) call
-`MarkSceneEdited()`. `EditorLayer` polls the flag each frame and, once the active edit finishes
-(`!ImGui::IsAnyItemActive()`), captures a snapshot as one undo step. `Ctrl+Z` / `Ctrl+Shift+Z` /
-`Ctrl+Y` and **Edit → Undo/Redo** drive it; it is **Edit-mode only** and resets on scene load.
+is covered) and non-widget edits (gizmo, transform, create/delete/duplicate/reparent entity,
+add/remove component, rename, prefab drop) call `MarkSceneEdited("<label>")`. `EditorLayer` polls the
+flag each frame and, once the active edit finishes (`!ImGui::IsAnyItemActive()`), captures a snapshot
+as one **labelled** undo step. `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` and **Edit → Undo/Redo** (showing
+"Undo Move", etc.) drive it; it is **Edit-mode only** and resets on scene load.
 
 This is deliberately a first, crash-safe foundation — the full design, coverage table, and the
 multi-phase plan to make it granular and cover every subsystem live in **[Undo / Redo](Undo-Redo.md)**.

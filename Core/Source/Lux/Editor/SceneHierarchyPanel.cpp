@@ -274,7 +274,7 @@ namespace Lux {
 			// These are raw DragFloats (not ImGuiEx::Property), so they don't raise the undo signal
 			// on their own — flag it here so transform edits are captured like every other field.
 			if (changed)
-				EditorStack::Get().MarkSceneEdited();
+				EditorStack::Get().MarkSceneEdited("Edit Transform");
 
 			return changed;
 		}
@@ -374,7 +374,7 @@ namespace Lux {
 						entity.RemoveComponent<TComponent>();
 				}
 
-				EditorStack::Get().MarkSceneEdited();   // record an undo step for the removal
+				EditorStack::Get().MarkSceneEdited("Remove Component");
 			}
 
 			ImGui::PopID();
@@ -507,7 +507,7 @@ namespace Lux {
 		}
 
 		if (!queuedDeletions.empty())
-			EditorStack::Get().MarkSceneEdited();   // record an undo step for the deletion
+			EditorStack::Get().MarkSceneEdited("Delete Entity");
 
 		PruneInvalidSelection();
 	}
@@ -592,6 +592,7 @@ namespace Lux {
 						if (draggedEntity)
 							draggedEntity.SetParent({});
 					}
+					EditorStack::Get().MarkSceneEdited("Reparent");
 				}
 
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
@@ -601,7 +602,10 @@ namespace Lux {
 					{
 						Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
 						if (prefab)
+						{
 							SetSelectedEntity(m_Context->InstantiatePrefab(prefab));
+							EditorStack::Get().MarkSceneEdited("Add Prefab");
+						}
 					}
 				}
 
@@ -670,6 +674,7 @@ namespace Lux {
 				entity.SetParent(parent);
 
 			SetSelectedEntity(entity);
+			EditorStack::Get().MarkSceneEdited("Create Entity");   // covers every create-menu item
 			return entity;
 		};
 
@@ -954,6 +959,7 @@ namespace Lux {
 					if (draggedEntity && draggedEntity != entity)
 						draggedEntity.SetParent(entity);
 				}
+				EditorStack::Get().MarkSceneEdited("Reparent");
 			}
 
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
@@ -969,6 +975,7 @@ namespace Lux {
 						{
 							instantiated.SetParent(entity);
 							SetSelectedEntity(instantiated);
+							EditorStack::Get().MarkSceneEdited("Add Prefab");
 						}
 					}
 				}
@@ -1074,7 +1081,7 @@ namespace Lux {
 				{
 					component.Tag = newName;
 				});
-				EditorStack::Get().MarkSceneEdited();   // rename; committed once the field is deactivated
+				EditorStack::Get().MarkSceneEdited("Rename");
 			}
 			ImGui::PopItemWidth();
 			ImGui::PopFont();
@@ -1130,7 +1137,7 @@ namespace Lux {
 				if (ImGui::Selectable(label, false, ImGuiSelectableFlags_SpanAllColumns))
 				{
 					addCallback();
-					EditorStack::Get().MarkSceneEdited();   // record an undo step for the component add
+					EditorStack::Get().MarkSceneEdited("Add Component");
 					ImGui::CloseCurrentPopup();
 				}
 			};

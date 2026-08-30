@@ -76,27 +76,36 @@ The `!IsAnyItemActive()` gate is the **coalescing** trick: while a slider is bei
 is raised every frame, but the snapshot is deferred until the drag **finishes** — so a whole drag is
 one undo step, not sixty.
 
-### 3. The history — snapshots
+### 3. The history — granular per-entity diffs
 
-`CommitSceneSnapshot` serializes the editor scene (`SceneSerializer::SerializeToString`) and pushes
-the **previous** committed state:
+The scene is serialized **per entity**, not as one blob. `SceneSerializer::SerializeEntitySnapshots`
+round-trips the scene through YAML and splits it into a `map<UUID, string>` of entity blocks plus a
+`meta` string (name + post-processing). `CommitSceneSnapshot` diffs the current split against the
+committed baseline and stores **only what changed**:
 
 ```cpp
-snapshot = CaptureSceneSnapshot();
-if (snapshot.empty() || snapshot == m_UndoBaseline) return;   // nothing changed (e.g. a settings-panel edit)
-m_UndoStack.push_back(m_UndoBaseline);                         // (capped at s_MaxUndoDepth = 64)
-m_RedoStack.clear();
-m_UndoBaseline = snapshot;
+current = CaptureSceneEntities(meta);            // map<UUID,string> + meta
+for each entity in baseline:  if value differs (or gone) -> delta {before, after}   // changed / deleted
+for each entity in current:   if not in baseline        -> delta {"",     after}    // created
+if no deltas and meta unchanged -> return;       // no-op (e.g. a settings-panel edit)
+push UndoCommand{ label, metaDelta, entityDeltas };   // (capped at s_MaxUndoDepth = 64)
+baseline = current;
 ```
 
-`UndoSceneEdit` / `RedoSceneEdit` move the baseline between the two stacks and call
-`RestoreSceneSnapshot`, which deserializes the YAML into a **fresh `Scene`** and retargets everything
-(`AdoptEditorScene` — panels, viewport, renderer). Selection is UUID-based (`SelectionManager`), so
-it survives a restore where the entity still exists and is pruned where it doesn't.
+So each history step is **O(change)** in memory — a two-entity edit stores two small YAML blocks, not
+the whole scene. (Commit still serializes the scene once to compute the diff; it's the stored *history*
+that shrank, which is what bounds memory across 64 steps.)
 
-The `snapshot == m_UndoBaseline` guard means a completed edit that **didn't change the scene** (e.g. a
-Scene-Renderer or Project-Settings field, which isn't part of the scene YAML) is a no-op — safe to
-over-signal.
+`UndoSceneEdit` / `RedoSceneEdit` apply the step's `before` / `after` sides to the baseline map (set a
+changed entity, erase a created one, re-add a deleted one), then call `RestoreSceneState`, which
+**reassembles the full scene** (`DeserializeFromSnapshots`) into a **fresh `Scene`** and retargets
+everything (`AdoptEditorScene`). This is the key safety property: restore never edits the live scene in
+place — it rebuilds the whole scene from the entity set every time, so the recursive-destroy /
+two-way-parent-child hazards never arise. Selection is UUID-based (`SelectionManager`), so it survives a
+restore where the entity still exists and is pruned where it doesn't.
+
+An edit that **didn't change the scene** (a Scene-Renderer or Project-Settings field, which isn't part
+of the scene YAML) produces no deltas and no meta change — a no-op, safe to over-signal.
 
 ### 4. When the history resets
 
@@ -119,22 +128,28 @@ discarded.
 | Gizmo move/rotate/scale | ✔ | `MarkSceneEdited` on drag release |
 | Delete entity | ✔ | `MarkSceneEdited` after destroy |
 | Duplicate entity | ✔ | `MarkSceneEdited` after duplicate |
-| **Create entity** (Create-menu items) | ✘ | Phase 2 |
-| **Reparent** (drag in hierarchy) | ✘ | Phase 2 |
+| Create entity (Create-menu items) | ✔ | `MarkSceneEdited("Create Entity")` in the `createEntity` choke |
+| Reparent (drag in hierarchy) | ✔ | `MarkSceneEdited("Reparent")` on the drag-drop targets |
+| Prefab drag-into-scene | ✔ | `MarkSceneEdited("Add Prefab")` after instantiate |
 | Scene Renderer / Project settings | ✘ | not scene state — separate stack, Phase 6 |
 | Material asset editor | ✘ | Phase 6 |
 | Content Browser file ops | ✘ | Phase 6 |
 | Play/Simulate edits | ✘ (by design) | history is Edit-mode only |
 
-### Known limitations of v1 (addressed by the plan)
+Each undo step now carries a **label** — the Edit menu shows "Undo Move", "Undo Delete Entity",
+"Redo Add Component", etc. The label comes from the edit that triggered the commit (the gizmo op,
+the structural hook's string, or a generic "Edit" for field changes).
 
-- **Cost:** each committed edit serializes the whole scene (O(scene size)). Fine for typical scenes;
-  Phase 3 replaces it with granular per-change commands.
-- **Granularity:** the unit is "the scene changed," so two unrelated edits in one non-interactive
-  frame could coalesce. Rare in practice.
-- **Selection/camera** aren't part of a snapshot, so undo doesn't restore what was selected
-  (Phase 4).
-- **No labels / grouping** yet — the Edit menu just says "Undo" (Phase 5).
+### Known limitations (addressed by the remaining plan)
+
+- **Commit compute:** a commit still *serializes* the whole scene once to compute the diff (O(scene)),
+  even though only the changed entities are *stored*. A future optimization could serialize just the
+  affected entities (known from the selection), but the memory win — the thing that mattered across 64
+  steps — is already done (Phase 3B).
+- **Granularity:** the unit is "which entities changed," so two unrelated edits in one non-interactive
+  frame could land in one step. Rare in practice.
+- **Selection/camera** aren't part of a step, so undo doesn't restore what was selected (Phase 4).
+- **No transaction grouping / History panel** yet (Phase 5).
 
 ---
 
@@ -149,34 +164,45 @@ Whole-scene snapshots; the `EditorStack` signal + `ImGuiEx` hook; commit-on-edit
 `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` + Edit-menu items; reset on scene load; Edit-mode gating.
 Coverage per the table above.
 
-### Phase 2 — Complete scene-structural coverage
+### Phase 2 — Complete scene-structural coverage ✅ (done)
 
-Raise the signal for the remaining **scene** mutations so nothing structural is missed:
+The remaining **scene** mutations now raise the signal, so nothing structural is missed:
 
-- Entity **create** (every Create-menu item, and the root/context-menu "Create Empty").
-- **Reparent** via drag-drop (`SetParent` in the two `AcceptDragDropPayload("SCENE_HIERARCHY_ENTITY")`
-  sites).
-- Content-Browser **drag-into-scene** instantiation.
-- **Prefab** instantiate / apply / revert.
-- Multi-select structural ops.
+- Entity **create** — one `MarkSceneEdited("Create Entity")` in the `createEntity` lambda, which is the
+  choke every Create-menu item runs through.
+- **Reparent** via drag-drop — both `AcceptDragDropPayload("SCENE_HIERARCHY_ENTITY")` targets (root and
+  onto-entity).
+- **Prefab** drag-into-scene — after `InstantiatePrefab`, on both targets.
 
-Mechanical: a `MarkSceneEdited()` at each mutation site (or, better, a single choke — see Phase 3).
+Multi-select structural ops already flow through these same choke points.
 
-### Phase 3 — Granular command model (replace snapshots for scale)
+### Phase 3 — Command model
 
-Introduce `EditorCommand { std::function<void()> Undo, Redo; std::string Label; }` and make
-`EditorStack` a real command stack (it already has the shape). Capture **values**, keyed to stable
-identity (entity `UUID` + component type + field), committed on `IsItemDeactivatedAfterEdit`.
+**Part A — command framework + labels ✅ (done).** The two raw `std::vector<std::string>` stacks are
+now `std::vector<UndoCommand>` where `UndoCommand { Label; State; }`. `EditorStack` carries a pending
+**label** set by each edit (`MarkSceneEdited("Move")`, `"Delete Entity"`, …; field edits default to
+`"Edit"`). `EditorLayer` records the label with each commit and the Edit menu shows "Undo &lt;label&gt;" /
+"Redo &lt;label&gt;". The command *shape* is the seam the granular payload (below) and the other
+subsystems (Phase 6) plug into without touching the `Ctrl+Z` surface.
 
-- Field edits become a `SetFieldCommand` storing before/after **values** (no pointers, no whole-scene
-  serialize).
-- Structural ops become explicit commands (`CreateEntity`, `DestroyEntity` with a serialized entity
-  blob for redo, `AddComponent`, `Reparent`).
-- Keep a **snapshot fallback** for anything not yet modeled, so coverage never regresses.
-- **Single choke point:** connect entt `on_construct` / `on_destroy` / `on_update` signals (gated so
-  scene *loading* doesn't record) to auto-generate component commands — removing most per-site hooks.
+**Part B — granular O(change) storage ✅ (done).** History steps now store only the changed entities'
+YAML (before/after), not the whole scene — see [The history](#3-the-history--granular-per-entity-diffs).
 
-This is the big performance win: undo cost becomes O(change), not O(scene).
+The design sidesteps the hierarchy hazard rather than fighting it. This scene graph uses **recursive
+`DestroyEntity`** and **two-way parent/child links** (`RelationshipComponent` on both ends), so the
+"obvious" granular restore — destroy + recreate the changed entity by UUID — would orphan children and
+desync parents' `Children` lists. The in-place alternative would need an *idempotent* per-component
+deserialize (a `SceneSerializer` refactor across every component type, with side effects like
+script-storage re-sync). **So granularity was put in the storage, not the restore:** the diff is
+per-entity, but restore **reassembles the full scene and runs the normal whole-scene deserialize**
+(`SerializeEntitySnapshots` / `DeserializeFromSnapshots` in `SceneSerializer`) — the same proven path
+that loads a `.luxscene`, so it can't corrupt the links. A round-trip self-test (parent + two children,
+transform + point/directional lights) confirmed split → reassemble → deserialize → re-split reproduces
+every entity's YAML and the scene metadata exactly.
+
+Remaining optional refinement (not required for the memory win): serialize only the *affected* entities
+at commit (known from the selection) to make commit compute O(change) too; and, if ever wanted,
+true in-place field commands. Neither is needed now.
 
 ### Phase 4 — Selection & view state
 
@@ -184,11 +210,12 @@ Store the selection (and optionally the editor-camera framing) with each command
 *what was selected*, matching user expectation. A command carries a `before`/`after` selection set;
 `RestoreSelection` applies it through `SelectionManager`.
 
-### Phase 5 — Transactions, labels & a History panel
+### Phase 5 — Transactions & a History panel
+
+Labels themselves landed in Phase 3A; what remains:
 
 - **Grouping:** a `ScopedTransaction("Paste 5 entities")` merges several commands into one labelled
-  step.
-- **Labels in the menu:** "Undo Move", "Redo Add Point Light" (ImGui menu already supports the text).
+  step (today each committed edit is one step).
 - **History panel:** a dockable list of the stack with click-to-jump and per-step memory, following
   the panel recipe in [Extending](Extending.md#recipe-add-a-new-panel).
 

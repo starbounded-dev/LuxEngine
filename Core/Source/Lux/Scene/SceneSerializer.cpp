@@ -1193,6 +1193,56 @@ namespace Lux {
 		return std::string(out.c_str());
 	}
 
+	std::map<UUID, std::string> SceneSerializer::SerializeEntitySnapshots(std::string& outMeta)
+	{
+		// Round-trip the whole scene through YAML once, then split it: each entity block keyed by
+		// UUID, and the scene metadata (everything except Entities). Emitting from the parsed nodes
+		// makes the output stable across calls, which is what the undo diff relies on.
+		std::map<UUID, std::string> snapshots;
+
+		const std::string full = SerializeToString();
+		YAML::Node root = YAML::Load(full);
+
+		if (root["Entities"] && root["Entities"].IsSequence())
+		{
+			for (const auto& entityNode : root["Entities"])
+			{
+				if (!entityNode["Entity"])
+					continue;
+
+				const UUID uuid = entityNode["Entity"].as<uint64_t>();
+				YAML::Emitter entityOut;
+				entityOut << entityNode;
+				snapshots[uuid] = entityOut.c_str();
+			}
+		}
+
+		// Metadata = the scene with an emptied Entities list.
+		root.remove("Entities");
+		YAML::Emitter metaOut;
+		metaOut << root;
+		outMeta = metaOut.c_str();
+
+		return snapshots;
+	}
+
+	bool SceneSerializer::DeserializeFromSnapshots(const std::string& meta, const std::vector<std::string>& entityBlocks)
+	{
+		// Reassemble the metadata + the given entity blocks into a full scene document and run the
+		// normal whole-scene deserialize — restore never touches entities in place, so it can't
+		// corrupt the two-way parent/child links.
+		YAML::Node root = meta.empty() ? YAML::Node(YAML::NodeType::Map) : YAML::Load(meta);
+
+		YAML::Node entities(YAML::NodeType::Sequence);
+		for (const std::string& block : entityBlocks)
+			entities.push_back(YAML::Load(block));
+		root["Entities"] = entities;
+
+		YAML::Emitter out;
+		out << root;
+		return DeserializeFromYAML(std::string(out.c_str()));
+	}
+
 	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
 		YAML::Emitter out;

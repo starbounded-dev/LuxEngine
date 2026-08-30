@@ -811,7 +811,11 @@ namespace Lux {
 						// but not through a property widget, so it doesn't raise the ImGuiEx signal).
 						const bool gizmoUsing = ImGuizmo::IsUsing();
 						if (m_GizmoWasUsing && !gizmoUsing)
-							EditorStack::Get().MarkSceneEdited();
+						{
+							const char* gizmoLabel = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? "Rotate"
+								: m_GizmoType == ImGuizmo::OPERATION::SCALE ? "Scale" : "Move";
+							EditorStack::Get().MarkSceneEdited(gizmoLabel);
+						}
 						m_GizmoWasUsing = gizmoUsing;
 					}
 				}
@@ -973,9 +977,11 @@ namespace Lux {
 			if (ImGui::BeginMenu("Edit"))
 			{
 				const bool inEdit = m_SceneState == SceneState::Edit;
-				if (ImGui::MenuItem("Undo", "Ctrl+Z", false, inEdit && !m_UndoStack.empty()))
+				const std::string undoLabel = m_UndoStack.empty() ? "Undo" : "Undo " + m_UndoStack.back().Label;
+				const std::string redoLabel = m_RedoStack.empty() ? "Redo" : "Redo " + m_RedoStack.back().Label;
+				if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, inEdit && !m_UndoStack.empty()))
 					UndoSceneEdit();
-				if (ImGui::MenuItem("Redo", "Ctrl+Shift+Z", false, inEdit && !m_RedoStack.empty()))
+				if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Shift+Z", false, inEdit && !m_RedoStack.empty()))
 					RedoSceneEdit();
 				ImGui::Separator();
 
@@ -2762,13 +2768,14 @@ namespace Lux {
 		ResetUndoHistory();
 	}
 
-	std::string EditorLayer::CaptureSceneSnapshot() const
+	std::map<UUID, std::string> EditorLayer::CaptureSceneEntities(std::string& outMeta) const
 	{
+		outMeta.clear();
 		if (!m_EditorScene)
 			return {};
 
 		SceneSerializer serializer(m_EditorScene);
-		return serializer.SerializeToString();
+		return serializer.SerializeEntitySnapshots(outMeta);
 	}
 
 	void EditorLayer::ResetUndoHistory()
@@ -2776,23 +2783,55 @@ namespace Lux {
 		m_UndoStack.clear();
 		m_RedoStack.clear();
 		m_UndoCommitPending = false;
-		m_UndoBaseline = CaptureSceneSnapshot();
+		m_PendingUndoLabel = "Edit";
+		m_BaselineEntities = CaptureSceneEntities(m_BaselineMeta);
 	}
 
 	void EditorLayer::CommitSceneSnapshot()
 	{
-		std::string snapshot = CaptureSceneSnapshot();
-
-		// Skip no-op commits: an edit signalled from a non-scene panel (renderer/project settings)
-		// leaves the scene YAML unchanged, so there is nothing to record.
-		if (snapshot.empty() || snapshot == m_UndoBaseline)
+		if (!m_EditorScene)
 			return;
 
-		m_UndoStack.push_back(std::move(m_UndoBaseline));
+		std::string meta;
+		std::map<UUID, std::string> current = CaptureSceneEntities(meta);
+
+		// Diff the current scene against the committed baseline; the step records only what changed.
+		UndoCommand command;
+		command.Label = m_PendingUndoLabel;
+
+		if (meta != m_BaselineMeta)
+		{
+			command.MetaChanged = true;
+			command.MetaBefore = m_BaselineMeta;
+			command.MetaAfter = meta;
+		}
+
+		// Entities present in the baseline: changed value, or removed (absent from current).
+		for (const auto& [handle, before] : m_BaselineEntities)
+		{
+			auto it = current.find(handle);
+			const std::string after = (it != current.end()) ? it->second : std::string();
+			if (before != after)
+				command.Entities.push_back({ handle, before, after });
+		}
+		// Entities newly created (absent from the baseline).
+		for (const auto& [handle, after] : current)
+		{
+			if (m_BaselineEntities.find(handle) == m_BaselineEntities.end())
+				command.Entities.push_back({ handle, std::string(), after });
+		}
+
+		// No-op: an edit signalled from a non-scene panel left the scene YAML unchanged.
+		if (!command.MetaChanged && command.Entities.empty())
+			return;
+
+		m_UndoStack.push_back(std::move(command));
 		if (m_UndoStack.size() > s_MaxUndoDepth)
 			m_UndoStack.erase(m_UndoStack.begin());
 		m_RedoStack.clear();
-		m_UndoBaseline = std::move(snapshot);
+
+		m_BaselineMeta = std::move(meta);
+		m_BaselineEntities = std::move(current);
 	}
 
 	void EditorLayer::PollSceneEditForUndo()
@@ -2806,7 +2845,10 @@ namespace Lux {
 		}
 
 		if (EditorStack::Get().ConsumeSceneEdit())
+		{
 			m_UndoCommitPending = true;
+			m_PendingUndoLabel = EditorStack::Get().ConsumeLabel();
+		}
 
 		// Defer the whole-scene snapshot until the active edit finishes (mouse released, field
 		// deactivated), so a continuous drag collapses into a single undo step.
@@ -2822,11 +2864,22 @@ namespace Lux {
 		if (m_SceneState != SceneState::Edit || m_UndoStack.empty())
 			return;
 
-		m_RedoStack.push_back(m_UndoBaseline);
-		std::string previous = std::move(m_UndoStack.back());
+		UndoCommand command = std::move(m_UndoStack.back());
 		m_UndoStack.pop_back();
-		RestoreSceneSnapshot(previous);
-		m_UndoBaseline = std::move(previous);
+
+		// Roll the baseline back to the "before" side of this step, then rebuild the scene from it.
+		if (command.MetaChanged)
+			m_BaselineMeta = command.MetaBefore;
+		for (const EntityDelta& delta : command.Entities)
+		{
+			if (delta.Before.empty())
+				m_BaselineEntities.erase(delta.Handle);        // entity was created by the edit -> remove it
+			else
+				m_BaselineEntities[delta.Handle] = delta.Before;
+		}
+
+		RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+		m_RedoStack.push_back(std::move(command));
 	}
 
 	void EditorLayer::RedoSceneEdit()
@@ -2834,23 +2887,35 @@ namespace Lux {
 		if (m_SceneState != SceneState::Edit || m_RedoStack.empty())
 			return;
 
-		m_UndoStack.push_back(m_UndoBaseline);
-		std::string next = std::move(m_RedoStack.back());
+		UndoCommand command = std::move(m_RedoStack.back());
 		m_RedoStack.pop_back();
-		RestoreSceneSnapshot(next);
-		m_UndoBaseline = std::move(next);
+
+		if (command.MetaChanged)
+			m_BaselineMeta = command.MetaAfter;
+		for (const EntityDelta& delta : command.Entities)
+		{
+			if (delta.After.empty())
+				m_BaselineEntities.erase(delta.Handle);        // entity was deleted by the edit -> remove it
+			else
+				m_BaselineEntities[delta.Handle] = delta.After;
+		}
+
+		RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+		m_UndoStack.push_back(std::move(command));
 	}
 
-	void EditorLayer::RestoreSceneSnapshot(const std::string& yaml)
+	void EditorLayer::RestoreSceneState(const std::string& meta, const std::map<UUID, std::string>& entities)
 	{
-		if (yaml.empty())
-			return;
+		std::vector<std::string> blocks;
+		blocks.reserve(entities.size());
+		for (const auto& [handle, block] : entities)
+			blocks.push_back(block);
 
 		Ref<Scene> newScene = CreateRef<Scene>();
 		SceneSerializer serializer(newScene);
-		if (!serializer.DeserializeFromYAML(yaml))
+		if (!serializer.DeserializeFromSnapshots(meta, blocks))
 		{
-			LUX_CORE_ERROR("Undo: failed to restore scene snapshot; history left unchanged.");
+			LUX_CORE_ERROR("Undo: failed to restore scene state; history left unchanged.");
 			return;
 		}
 
@@ -3164,7 +3229,7 @@ namespace Lux {
 			Entity newEntity = m_EditorScene->DuplicateEntity(selectedEntity);
 			if (m_SceneHierarchyPanel)
 				m_SceneHierarchyPanel->SetSelectedEntity(newEntity);
-			EditorStack::Get().MarkSceneEdited();
+			EditorStack::Get().MarkSceneEdited("Duplicate Entity");
 		}
 	}
 }

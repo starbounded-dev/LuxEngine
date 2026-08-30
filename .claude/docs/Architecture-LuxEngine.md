@@ -316,10 +316,13 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   `SceneHierarchyPanel`, `EditorResources`, `FontAwesome.h`.
 - `EditorStack` (`Core/.../Editor/EditorStack.h`, header-only, main-thread singleton) — undo/redo
   *signal*. It carries a "scene edited" flag; `ImGuiEx::Property` raises it on every field edit (gated
-  by the `UndoDo` macro), and non-widget edits call `MarkSceneEdited()`. `EditorLayer` turns the flag
-  into a whole-scene YAML snapshot (`SceneSerializer::SerializeToString` / `DeserializeFromYAML`) as
-  the undo unit — value-based, so nothing dangles. Edit-mode only; resets on scene load. Full design +
-  phased completion plan: `docs/Editor/Undo-Redo.md`.
+  by the `UndoDo` macro), and non-widget edits call `MarkSceneEdited("label")`. `EditorLayer` turns the
+  flag into a **labelled, per-entity diff** step: it splits the scene via
+  `SceneSerializer::SerializeEntitySnapshots` (per-entity YAML + meta) and stores only the changed
+  entities, so history is O(change). Restore reassembles the full scene and runs the whole-scene
+  deserialize (`DeserializeFromSnapshots`), which keeps it safe against the two-way parent/child links.
+  Value-based, so nothing dangles. Edit-mode only; resets on scene load. Full design + phased plan:
+  `docs/Editor/Undo-Redo.md`.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, Materials, MaterialEditor, LightSettings,
   SceneRenderer, RenderStats, RendererDebugger, TextEditor, ThumbnailCache.

@@ -4,6 +4,10 @@
 #include "Lux/Asset/AssetSerializer.h"
 #include "Lux/Serialization/FileStream.h"
 
+#include <map>
+#include <string>
+#include <vector>
+
 namespace YAML
 {
 	class Emitter;
@@ -20,6 +24,15 @@ namespace Lux
 		void SerializeToYAML(YAML::Emitter& out);
 		std::string SerializeToString();   // SerializeToYAML wrapped as a string (round-trips with DeserializeFromYAML)
 		bool DeserializeFromYAML(const std::string& yamlString);
+
+		// Snapshot the scene as separable parts, for granular (per-entity) undo storage:
+		//   outMeta       — the scene YAML with an empty Entities list (name + post-processing)
+		//   return value  — each entity's YAML block, keyed by UUID
+		// Both are produced by round-tripping the scene through YAML, so two calls on the same scene
+		// state yield identical strings (used for diffing). Reassemble + load with
+		// DeserializeFromSnapshots — restore always goes through the whole-scene deserialize path.
+		std::map<UUID, std::string> SerializeEntitySnapshots(std::string& outMeta);
+		bool DeserializeFromSnapshots(const std::string& meta, const std::vector<std::string>& entityBlocks);
 		void SerializeRuntime(const std::filesystem::path& filepath);
 
 		bool Deserialize(const std::filesystem::path& filepath);

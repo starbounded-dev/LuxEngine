@@ -2,6 +2,8 @@
 
 #include "Lux.h"
 
+#include <map>
+
 #include "Panels/LightSettingsPanel.h"
 #include "Lux/Editor/EditorConsolePanel.h"
 
@@ -76,14 +78,15 @@ namespace Lux
 
 		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& filepath);
 
-		// Undo/redo (snapshot-based). See docs/Editor/Undo-Redo.md. Edit-mode only.
-		std::string CaptureSceneSnapshot() const;                 // m_EditorScene -> YAML string
+		// Undo/redo (snapshot-based, granular per-entity storage). See docs/Editor/Undo-Redo.md.
+		// Edit-mode only.
+		std::map<UUID, std::string> CaptureSceneEntities(std::string& outMeta) const;  // per-entity YAML + scene meta
 		void ResetUndoHistory();                                  // baseline = current, clear stacks
-		void CommitSceneSnapshot();                               // push a new undo step if the scene changed
+		void CommitSceneSnapshot();                               // diff vs baseline; push a step for the changed entities
 		void PollSceneEditForUndo();                              // per-frame: commit once an active edit finishes
 		void UndoSceneEdit();
 		void RedoSceneEdit();
-		void RestoreSceneSnapshot(const std::string& yaml);       // rebuild m_EditorScene from a snapshot
+		void RestoreSceneState(const std::string& meta, const std::map<UUID, std::string>& entities);
 		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
 
 		void UpdateDiscordPresence();
@@ -140,12 +143,32 @@ namespace Lux
 		Ref<Scene> m_EditorScene;
 		std::filesystem::path m_EditorScenePath;
 
-		// Undo/redo: whole-scene YAML snapshots. m_UndoBaseline is the last committed state; a commit
-		// pushes it and rebases to the current scene. m_UndoCommitPending defers the commit until the
-		// active edit (drag) finishes. Capped so history can't grow without bound.
-		std::vector<std::string> m_UndoStack;
-		std::vector<std::string> m_RedoStack;
-		std::string m_UndoBaseline;
+		// Undo/redo: a labelled command stack with granular, per-entity storage. Each step records
+		// only the entities that actually changed (before/after YAML; an empty string means the entity
+		// was absent — i.e. created or deleted), plus the scene metadata if it changed — so history is
+		// O(change), not O(scene). m_Baseline* is the current committed state kept whole; a commit
+		// diffs the scene against it and stores the difference. Restore reassembles the target state
+		// and runs the whole-scene deserialize, which is why it stays safe against the two-way
+		// parent/child links. m_UndoCommitPending defers the commit until the active edit finishes.
+		struct EntityDelta
+		{
+			UUID Handle = 0;
+			std::string Before;   // empty => entity did not exist before the edit
+			std::string After;    // empty => entity does not exist after the edit
+		};
+		struct UndoCommand
+		{
+			std::string Label;
+			bool MetaChanged = false;
+			std::string MetaBefore;
+			std::string MetaAfter;
+			std::vector<EntityDelta> Entities;
+		};
+		std::vector<UndoCommand> m_UndoStack;
+		std::vector<UndoCommand> m_RedoStack;
+		std::string m_BaselineMeta;
+		std::map<UUID, std::string> m_BaselineEntities;
+		std::string m_PendingUndoLabel = "Edit";
 		bool m_UndoCommitPending = false;
 		bool m_GizmoWasUsing = false;
 		static constexpr size_t s_MaxUndoDepth = 64;

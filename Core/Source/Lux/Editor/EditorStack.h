@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 namespace Lux {
 
 	// Editor undo/redo signal.
@@ -32,10 +34,16 @@ namespace Lux {
 		// Called by the ImGuiEx property widgets on every change frame (gated by the `UndoDo` macro).
 		// The arguments are intentionally ignored — see the class note.
 		template<typename T>
-		void PushCopy(T* /*target*/, const T& /*previousValue*/) { m_SceneEditPending = true; }
+		void PushCopy(T* /*target*/, const T& /*previousValue*/) { MarkSceneEdited("Edit"); }
 
-		// Flag a scene-modifying edit that did not go through a property widget.
-		void MarkSceneEdited() { m_SceneEditPending = true; }
+		// Flag a scene-modifying edit. `label` names the action for the Undo/Redo menu ("Move",
+		// "Delete Entity", …); pass a string literal (it is copied immediately).
+		void MarkSceneEdited(const char* label = nullptr)
+		{
+			m_SceneEditPending = true;
+			if (label)
+				m_PendingLabel = label;
+		}
 
 		// EditorLayer reads this each frame. Peek keeps the flag; Consume clears it.
 		bool HasPendingSceneEdit() const { return m_SceneEditPending; }
@@ -46,10 +54,19 @@ namespace Lux {
 			return pending;
 		}
 
+		// The label most recently attached to a pending edit; cleared on read. Defaults to "Edit".
+		std::string ConsumeLabel()
+		{
+			std::string label = m_PendingLabel.empty() ? std::string("Edit") : m_PendingLabel;
+			m_PendingLabel.clear();
+			return label;
+		}
+
 	private:
 		EditorStack() = default;
 
 		bool m_SceneEditPending = false;
+		std::string m_PendingLabel;
 	};
 
 }
