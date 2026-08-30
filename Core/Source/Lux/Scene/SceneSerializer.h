@@ -18,6 +18,7 @@ namespace Lux
 
 		void Serialize(const std::filesystem::path& filepath);
 		void SerializeToYAML(YAML::Emitter& out);
+		std::string SerializeToString();   // SerializeToYAML wrapped as a string (round-trips with DeserializeFromYAML)
 		bool DeserializeFromYAML(const std::string& yamlString);
 		void SerializeRuntime(const std::filesystem::path& filepath);
 

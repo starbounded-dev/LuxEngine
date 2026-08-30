@@ -16,6 +16,8 @@ either side's modifier.
 | `Ctrl+S` | Save scene | |
 | `Ctrl+Shift+S` | Save scene as… | |
 | `Ctrl+D` | Duplicate selected entity | `OnDuplicateEntity` |
+| `Ctrl+Z` | Undo (Edit mode) | skipped while a text field is focused; see [Undo/Redo](Undo-Redo.md) |
+| `Ctrl+Shift+Z` / `Ctrl+Y` | Redo (Edit mode) | same text-field guard |
 | `Ctrl+R` | Reload C# script assembly | also re-synchronises script storage |
 | `Ctrl+Shift+R` | Reload all shaders | `Renderer::ReloadShaders(true)` |
 | `Q` | Gizmo: none | ignored while a gizmo is being dragged (`ImGuizmo::IsUsing()`) |
@@ -77,6 +79,7 @@ Drawn in `EditorLayer::UI_DrawMenubar` (`EditorLayer.cpp:891`+).
 - **Exit**
 
 ### Edit
+- **Undo** `Ctrl+Z` / **Redo** `Ctrl+Shift+Z` — Edit-mode only; greyed out when the stack is empty. See [Undo/Redo](Undo-Redo.md).
 - **Reload C# Assembly** `Ctrl+R`
 - **Reload All Shaders** `Ctrl+Shift+R`
 - **Second Viewport** (toggle `m_SecondViewportEnabled`)

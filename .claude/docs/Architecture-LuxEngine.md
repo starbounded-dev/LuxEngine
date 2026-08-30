@@ -314,6 +314,12 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   `PanelCategory`.
 - `SelectionManager`, `EditorCamera`, `EditorConsolePanel` + `EditorConsole/`,
   `SceneHierarchyPanel`, `EditorResources`, `FontAwesome.h`.
+- `EditorStack` (`Core/.../Editor/EditorStack.h`, header-only, main-thread singleton) — undo/redo
+  *signal*. It carries a "scene edited" flag; `ImGuiEx::Property` raises it on every field edit (gated
+  by the `UndoDo` macro), and non-widget edits call `MarkSceneEdited()`. `EditorLayer` turns the flag
+  into a whole-scene YAML snapshot (`SceneSerializer::SerializeToString` / `DeserializeFromYAML`) as
+  the undo unit — value-based, so nothing dangles. Edit-mode only; resets on scene load. Full design +
+  phased completion plan: `docs/Editor/Undo-Redo.md`.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, Materials, MaterialEditor, LightSettings,
   SceneRenderer, RenderStats, RendererDebugger, TextEditor, ThumbnailCache.

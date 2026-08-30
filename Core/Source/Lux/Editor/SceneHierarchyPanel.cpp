@@ -8,6 +8,7 @@
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Editor/EditorResources.h"
+#include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
@@ -270,6 +271,11 @@ namespace Lux {
 			ImGui::Dummy(ImVec2(0.0f, 5.0f)); // vertical breathing room between vec3 rows
 			ImGui::PopID();
 
+			// These are raw DragFloats (not ImGuiEx::Property), so they don't raise the undo signal
+			// on their own — flag it here so transform edits are captured like every other field.
+			if (changed)
+				EditorStack::Get().MarkSceneEdited();
+
 			return changed;
 		}
 
@@ -367,6 +373,8 @@ namespace Lux {
 					if (entity && entity.HasComponent<TComponent>())
 						entity.RemoveComponent<TComponent>();
 				}
+
+				EditorStack::Get().MarkSceneEdited();   // record an undo step for the removal
 			}
 
 			ImGui::PopID();
@@ -497,6 +505,9 @@ namespace Lux {
 			if (entity)
 				m_Context->DestroyEntity(entity);
 		}
+
+		if (!queuedDeletions.empty())
+			EditorStack::Get().MarkSceneEdited();   // record an undo step for the deletion
 
 		PruneInvalidSelection();
 	}
@@ -1063,6 +1074,7 @@ namespace Lux {
 				{
 					component.Tag = newName;
 				});
+				EditorStack::Get().MarkSceneEdited();   // rename; committed once the field is deactivated
 			}
 			ImGui::PopItemWidth();
 			ImGui::PopFont();
@@ -1118,6 +1130,7 @@ namespace Lux {
 				if (ImGui::Selectable(label, false, ImGuiSelectableFlags_SpanAllColumns))
 				{
 					addCallback();
+					EditorStack::Get().MarkSceneEdited();   // record an undo step for the component add
 					ImGui::CloseCurrentPopup();
 				}
 			};

@@ -1186,6 +1186,13 @@ namespace Lux {
 		out << YAML::EndMap;
 	}
 
+	std::string SceneSerializer::SerializeToString()
+	{
+		YAML::Emitter out;
+		SerializeToYAML(out);
+		return std::string(out.c_str());
+	}
+
 	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
 		YAML::Emitter out;

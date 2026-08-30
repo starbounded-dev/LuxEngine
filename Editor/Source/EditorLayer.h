@@ -76,6 +76,16 @@ namespace Lux
 
 		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& filepath);
 
+		// Undo/redo (snapshot-based). See docs/Editor/Undo-Redo.md. Edit-mode only.
+		std::string CaptureSceneSnapshot() const;                 // m_EditorScene -> YAML string
+		void ResetUndoHistory();                                  // baseline = current, clear stacks
+		void CommitSceneSnapshot();                               // push a new undo step if the scene changed
+		void PollSceneEditForUndo();                              // per-frame: commit once an active edit finishes
+		void UndoSceneEdit();
+		void RedoSceneEdit();
+		void RestoreSceneSnapshot(const std::string& yaml);       // rebuild m_EditorScene from a snapshot
+		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
+
 		void UpdateDiscordPresence();
 
 		void OnScenePlay();
@@ -129,6 +139,16 @@ namespace Lux
 		Ref<Scene> m_ActiveScene;
 		Ref<Scene> m_EditorScene;
 		std::filesystem::path m_EditorScenePath;
+
+		// Undo/redo: whole-scene YAML snapshots. m_UndoBaseline is the last committed state; a commit
+		// pushes it and rebases to the current scene. m_UndoCommitPending defers the commit until the
+		// active edit (drag) finishes. Capped so history can't grow without bound.
+		std::vector<std::string> m_UndoStack;
+		std::vector<std::string> m_RedoStack;
+		std::string m_UndoBaseline;
+		bool m_UndoCommitPending = false;
+		bool m_GizmoWasUsing = false;
+		static constexpr size_t s_MaxUndoDepth = 64;
 		Ref<UserPreferences> m_UserPreferences;
 		std::filesystem::path m_UserPreferencesPath;
 		Entity m_SquareEntity;

@@ -2,6 +2,7 @@
 #include "RuntimeExportUtils.h"
 
 #include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Editor/EditorStack.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Scripting/ScriptBuilder.h"
@@ -462,6 +463,10 @@ namespace Lux {
 
 		if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
 			OpenProject(startupProject);
+
+		// Baseline the undo history against whatever scene ended up loaded (startup scene, or the
+		// empty default) so the first edit has a valid state to undo back to.
+		ResetUndoHistory();
 	}
 
 	void EditorLayer::OnDetach()
@@ -649,6 +654,11 @@ namespace Lux {
 			style.WindowMinSize.x = minWinSizeX;
 
 			m_PanelManager->OnImGuiRender();
+
+			// After the panels have drawn (and possibly signalled an edit), decide whether to record
+			// an undo snapshot. Runs here so it sees this frame's edits and the final active-item state.
+			PollSceneEditForUndo();
+
 			RenderRuntimeExportWindow();
 
 			if (m_ShowImGuiMetrics)
@@ -796,6 +806,13 @@ namespace Lux {
 							tc.SetRotationEuler(tc.GetRotationEuler() + deltaRotation);
 							tc.Scale = scale;
 						}
+
+						// Record one undo step when a gizmo drag finishes (the transform is mutated above
+						// but not through a property widget, so it doesn't raise the ImGuiEx signal).
+						const bool gizmoUsing = ImGuizmo::IsUsing();
+						if (m_GizmoWasUsing && !gizmoUsing)
+							EditorStack::Get().MarkSceneEdited();
+						m_GizmoWasUsing = gizmoUsing;
 					}
 				}
 
@@ -955,6 +972,13 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("Edit"))
 			{
+				const bool inEdit = m_SceneState == SceneState::Edit;
+				if (ImGui::MenuItem("Undo", "Ctrl+Z", false, inEdit && !m_UndoStack.empty()))
+					UndoSceneEdit();
+				if (ImGui::MenuItem("Redo", "Ctrl+Shift+Z", false, inEdit && !m_RedoStack.empty()))
+					RedoSceneEdit();
+				ImGui::Separator();
+
 				if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
 				{
 					Project::GetActive()->ReloadScriptEngine();
@@ -1658,6 +1682,16 @@ namespace Lux {
 			}
 			break;
 		case Key::D: if (control) OnDuplicateEntity(); break;
+
+		// Undo/redo. Skipped while a text field is active so ImGui's own in-field undo keeps Ctrl+Z.
+		case Key::Z:
+			if (control && !ImGui::GetIO().WantTextInput)
+			{
+				if (shift) RedoSceneEdit();
+				else       UndoSceneEdit();
+			}
+			break;
+		case Key::Y: if (control && !ImGui::GetIO().WantTextInput) RedoSceneEdit(); break;
 
 		case Key::Q: if (!ImGuizmo::IsUsing()) m_GizmoType = -1;                            break;
 		case Key::W: if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::TRANSLATE; break;
@@ -2662,6 +2696,7 @@ namespace Lux {
 		m_ActiveScene = m_EditorScene;
 		m_PanelManager->SetSceneContext(m_ActiveScene);
 		m_EditorScenePath = std::filesystem::path();
+		ResetUndoHistory();
 
 		if (m_EditorViewport)
 		{
@@ -2708,6 +2743,129 @@ namespace Lux {
 		m_ActiveScene = m_EditorScene;
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle);
+
+		if (m_EditorViewport)
+		{
+			m_EditorViewport->SetScene(m_ActiveScene);
+			m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+			m_Framebuffer = m_EditorViewport->GetFramebuffer();
+			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		}
+
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_StatisticsPanel)
+			m_StatisticsPanel->SetContext(m_SceneRenderer);
+
+		ResetUndoHistory();
+	}
+
+	std::string EditorLayer::CaptureSceneSnapshot() const
+	{
+		if (!m_EditorScene)
+			return {};
+
+		SceneSerializer serializer(m_EditorScene);
+		return serializer.SerializeToString();
+	}
+
+	void EditorLayer::ResetUndoHistory()
+	{
+		m_UndoStack.clear();
+		m_RedoStack.clear();
+		m_UndoCommitPending = false;
+		m_UndoBaseline = CaptureSceneSnapshot();
+	}
+
+	void EditorLayer::CommitSceneSnapshot()
+	{
+		std::string snapshot = CaptureSceneSnapshot();
+
+		// Skip no-op commits: an edit signalled from a non-scene panel (renderer/project settings)
+		// leaves the scene YAML unchanged, so there is nothing to record.
+		if (snapshot.empty() || snapshot == m_UndoBaseline)
+			return;
+
+		m_UndoStack.push_back(std::move(m_UndoBaseline));
+		if (m_UndoStack.size() > s_MaxUndoDepth)
+			m_UndoStack.erase(m_UndoStack.begin());
+		m_RedoStack.clear();
+		m_UndoBaseline = std::move(snapshot);
+	}
+
+	void EditorLayer::PollSceneEditForUndo()
+	{
+		// Play/Simulate edit a copy of the scene, not m_EditorScene; drop any signal raised there.
+		if (m_SceneState != SceneState::Edit)
+		{
+			EditorStack::Get().ConsumeSceneEdit();
+			m_UndoCommitPending = false;
+			return;
+		}
+
+		if (EditorStack::Get().ConsumeSceneEdit())
+			m_UndoCommitPending = true;
+
+		// Defer the whole-scene snapshot until the active edit finishes (mouse released, field
+		// deactivated), so a continuous drag collapses into a single undo step.
+		if (m_UndoCommitPending && !ImGui::IsAnyItemActive())
+		{
+			CommitSceneSnapshot();
+			m_UndoCommitPending = false;
+		}
+	}
+
+	void EditorLayer::UndoSceneEdit()
+	{
+		if (m_SceneState != SceneState::Edit || m_UndoStack.empty())
+			return;
+
+		m_RedoStack.push_back(m_UndoBaseline);
+		std::string previous = std::move(m_UndoStack.back());
+		m_UndoStack.pop_back();
+		RestoreSceneSnapshot(previous);
+		m_UndoBaseline = std::move(previous);
+	}
+
+	void EditorLayer::RedoSceneEdit()
+	{
+		if (m_SceneState != SceneState::Edit || m_RedoStack.empty())
+			return;
+
+		m_UndoStack.push_back(m_UndoBaseline);
+		std::string next = std::move(m_RedoStack.back());
+		m_RedoStack.pop_back();
+		RestoreSceneSnapshot(next);
+		m_UndoBaseline = std::move(next);
+	}
+
+	void EditorLayer::RestoreSceneSnapshot(const std::string& yaml)
+	{
+		if (yaml.empty())
+			return;
+
+		Ref<Scene> newScene = CreateRef<Scene>();
+		SceneSerializer serializer(newScene);
+		if (!serializer.DeserializeFromYAML(yaml))
+		{
+			LUX_CORE_ERROR("Undo: failed to restore scene snapshot; history left unchanged.");
+			return;
+		}
+
+		AdoptEditorScene(newScene);
+
+		// The restore itself is not a user edit — clear any signal/pending it might have raised.
+		m_UndoCommitPending = false;
+		EditorStack::Get().ConsumeSceneEdit();
+	}
+
+	void EditorLayer::AdoptEditorScene(const Ref<Scene>& scene)
+	{
+		m_EditorScene = scene;
+		m_ActiveScene = m_EditorScene;
+		m_PanelManager->SetSceneContext(m_EditorScene);
 
 		if (m_EditorViewport)
 		{
@@ -3006,6 +3164,7 @@ namespace Lux {
 			Entity newEntity = m_EditorScene->DuplicateEntity(selectedEntity);
 			if (m_SceneHierarchyPanel)
 				m_SceneHierarchyPanel->SetSelectedEntity(newEntity);
+			EditorStack::Get().MarkSceneEdited();
 		}
 	}
 }

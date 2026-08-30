@@ -5,7 +5,7 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetMetadata.h"
 //#include "Lux/Editor/AssetEditorPanelInterface.h"
-//#include "Lux/Editor/EditorOperation.h"
+#include "Lux/Editor/EditorStack.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiFonts.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
@@ -27,7 +27,11 @@
 #include <format>
 #include <map>
 
-#define UndoDo 0
+// When 1, the property widgets below call EditorStack::PushCopy on each change. That call only
+// *flags* that a scene edit happened (the pointer/value are ignored) — EditorLayer turns the flag
+// into a whole-scene snapshot once the edit finishes. The script-field / asset-array paths under
+// `#if 0` stay out; they never compiled against this. See Lux/Editor/EditorStack.h.
+#define UndoDo 1
 
 namespace Lux {
 
