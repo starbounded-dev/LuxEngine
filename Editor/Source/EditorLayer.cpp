@@ -3,6 +3,7 @@
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Editor/EditorStack.h"
+#include "Lux/Editor/SelectionManager.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Scripting/ScriptBuilder.h"
@@ -43,6 +44,7 @@
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
 #include "Panels/StatisticsPanel.h"
+#include "Panels/UndoHistoryPanel.h"
 #include "Panels/ApplicationSettingsPanel.h"
 #include "Panels/AssetManagerPanel.h"
 #include "Panels/ProjectSettingsWindow.h"
@@ -356,6 +358,28 @@ namespace Lux {
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_StatisticsPanel = m_PanelManager->AddPanel<StatisticsPanel>(PanelCategory::View, "StatisticsPanel", "Statistics", false);
+
+		{
+			UndoHistoryPanel::Bindings historyBindings;
+			historyBindings.UndoLabels = [this]() {
+				std::vector<std::string> labels;
+				labels.reserve(m_UndoStack.size());
+				for (const UndoCommand& command : m_UndoStack)
+					labels.push_back(command.Label);
+				return labels;
+			};
+			historyBindings.RedoLabels = [this]() {
+				std::vector<std::string> labels;
+				labels.reserve(m_RedoStack.size());
+				for (auto it = m_RedoStack.rbegin(); it != m_RedoStack.rend(); ++it)
+					labels.push_back(it->Label);
+				return labels;
+			};
+			historyBindings.Undo = [this](int steps) { for (int i = 0; i < steps; i++) UndoSceneEdit(); };
+			historyBindings.Redo = [this](int steps) { for (int i = 0; i < steps; i++) RedoSceneEdit(); };
+			historyBindings.IsAvailable = [this]() { return m_SceneState == SceneState::Edit; };
+			m_PanelManager->AddPanel<UndoHistoryPanel>(PanelCategory::View, "UndoHistoryPanel", "History", false, historyBindings);
+		}
 		if (m_SceneRendererPanel)
 		{
 			m_SceneRendererPanel->SetDebugViewCallbacks(
@@ -2867,6 +2891,11 @@ namespace Lux {
 		UndoCommand command = std::move(m_UndoStack.back());
 		m_UndoStack.pop_back();
 
+		std::vector<UUID> affected;
+		affected.reserve(command.Entities.size());
+		for (const EntityDelta& delta : command.Entities)
+			affected.push_back(delta.Handle);
+
 		// Roll the baseline back to the "before" side of this step, then rebuild the scene from it.
 		if (command.MetaChanged)
 			m_BaselineMeta = command.MetaBefore;
@@ -2879,6 +2908,7 @@ namespace Lux {
 		}
 
 		RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+		RestoreSelection(affected);
 		m_RedoStack.push_back(std::move(command));
 	}
 
@@ -2889,6 +2919,11 @@ namespace Lux {
 
 		UndoCommand command = std::move(m_RedoStack.back());
 		m_RedoStack.pop_back();
+
+		std::vector<UUID> affected;
+		affected.reserve(command.Entities.size());
+		for (const EntityDelta& delta : command.Entities)
+			affected.push_back(delta.Handle);
 
 		if (command.MetaChanged)
 			m_BaselineMeta = command.MetaAfter;
@@ -2901,6 +2936,7 @@ namespace Lux {
 		}
 
 		RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+		RestoreSelection(affected);
 		m_UndoStack.push_back(std::move(command));
 	}
 
@@ -2924,6 +2960,21 @@ namespace Lux {
 		// The restore itself is not a user edit — clear any signal/pending it might have raised.
 		m_UndoCommitPending = false;
 		EditorStack::Get().ConsumeSceneEdit();
+	}
+
+	void EditorLayer::RestoreSelection(const std::vector<UUID>& handles)
+	{
+		// Select the entities the undone/redone step touched (that still exist), so the user sees
+		// what changed. AdoptEditorScene cleared the selection when it swapped the scene.
+		SelectionManager::DeselectAll(SelectionContext::Scene);
+		if (!m_EditorScene)
+			return;
+
+		for (UUID handle : handles)
+		{
+			if (m_EditorScene->TryGetEntityWithUUID(handle))
+				SelectionManager::Select(SelectionContext::Scene, handle);
+		}
 	}
 
 	void EditorLayer::AdoptEditorScene(const Ref<Scene>& scene)

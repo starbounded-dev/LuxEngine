@@ -146,6 +146,7 @@ Registered in `OnAttach` (`EditorLayer.cpp:350`–`393`), all under `PanelCatego
 | Scene Renderer | `SceneRendererPanel` | ✘ | [Panels](Panels.md#scene-renderer) |
 | Renderer Debugger | `RendererDebuggerPanel` | ✘ | [Panels](Panels.md#renderer-debugger) |
 | Statistics | `StatisticsPanel` | ✘ | [Panels](Panels.md#statistics) |
+| History | `UndoHistoryPanel` | ✘ | [Undo / Redo](Undo-Redo.md) |
 | Application Settings | `ApplicationSettingsPanel` | ✘ | [Panels](Panels.md#application-settings) |
 | Asset Manager | `AssetManagerPanel` | ✘ | [Panels](Panels.md#asset-manager) |
 | Project Settings | `ProjectSettingsWindow` | ✘ | [Panels](Panels.md#project-settings) |

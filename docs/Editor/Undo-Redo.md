@@ -140,6 +140,11 @@ Each undo step now carries a **label** — the Edit menu shows "Undo Move", "Und
 "Redo Add Component", etc. The label comes from the edit that triggered the commit (the gizmo op,
 the structural hook's string, or a generic "Edit" for field changes).
 
+Undo/redo also **restores selection** (Phase 4): after a step is applied, the entities that step
+touched (that still exist) are selected, so you see what changed — deleting an entity and undoing
+re-selects it; a multi-entity edit re-selects all of them. And a **History panel** (Phase 5, View →
+History) shows the whole stack with labels and lets you click any state to jump straight to it.
+
 ### Known limitations (addressed by the remaining plan)
 
 - **Commit compute:** a commit still *serializes* the whole scene once to compute the diff (O(scene)),
@@ -148,8 +153,9 @@ the structural hook's string, or a generic "Edit" for field changes).
   steps — is already done (Phase 3B).
 - **Granularity:** the unit is "which entities changed," so two unrelated edits in one non-interactive
   frame could land in one step. Rare in practice.
-- **Selection/camera** aren't part of a step, so undo doesn't restore what was selected (Phase 4).
-- **No transaction grouping / History panel** yet (Phase 5).
+- **Editor-camera framing** isn't part of a step (selection is). Minor.
+- **The other subsystems** — material editor, project/renderer settings, Content Browser file ops —
+  aren't on the history yet (Phase 6).
 
 ---
 
@@ -204,20 +210,24 @@ Remaining optional refinement (not required for the memory win): serialize only 
 at commit (known from the selection) to make commit compute O(change) too; and, if ever wanted,
 true in-place field commands. Neither is needed now.
 
-### Phase 4 — Selection & view state
+### Phase 4 — Selection restore ✅ (done)
 
-Store the selection (and optionally the editor-camera framing) with each command so undo restores
-*what was selected*, matching user expectation. A command carries a `before`/`after` selection set;
-`RestoreSelection` applies it through `SelectionManager`.
+After a step is applied, `EditorLayer::RestoreSelection` selects the entities that step **touched**
+(the `EntityDelta` handles) that still exist, through `SelectionManager`. This is derived from the
+command rather than stored as a separate before/after set — it handles multi-select naturally and does
+the intuitive thing for structural edits (undo a delete → the recreated entity is selected; undo a
+create → nothing to select). Editor-camera framing was left out (low value).
 
-### Phase 5 — Transactions & a History panel
+### Phase 5 — History panel ✅ (done); transactions n/a
 
-Labels themselves landed in Phase 3A; what remains:
-
-- **Grouping:** a `ScopedTransaction("Paste 5 entities")` merges several commands into one labelled
-  step (today each committed edit is one step).
-- **History panel:** a dockable list of the stack with click-to-jump and per-step memory, following
-  the panel recipe in [Extending](Extending.md#recipe-add-a-new-panel).
+- **History panel** — `UndoHistoryPanel` (View → History), a header-only `EditorPanel` that reads the
+  stack through function bindings (so it's decoupled from `EditorLayer`) and renders it
+  Photoshop-style: past states top, current in the middle, redoable states below (dimmed). Clicking a
+  row jumps straight to that state (undoes/redoes the right number of steps).
+- **Transactions turned out to be unnecessary** for the common case: because a commit diffs the *whole*
+  scene at edit-completion, any single action that changes several entities in one go (paste, a
+  multi-select edit) is **already one step**. Explicit grouping would only matter for merging several
+  *separate* edit-completions, which no current workflow needs — deferred until one does.
 
 ### Phase 6 — All subsystems
 

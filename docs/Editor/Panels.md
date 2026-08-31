@@ -258,6 +258,19 @@ and the startup scene. Changes here write to the `.luxproj` file.
 
 ---
 
+## History
+
+**Class:** `UndoHistoryPanel` · `Editor/Source/Panels/UndoHistoryPanel.h` (header-only).
+**Registered as:** "History", closed by default.
+
+A dockable view of the undo/redo stack (past states at the top, current position in the middle,
+redoable states below, dimmed). Clicking any row jumps straight to that state. It is decoupled from
+`EditorLayer` by a set of function **bindings** (label getters + undo/redo drivers) passed to its
+constructor, and it's header-only so it adds no `.cpp` (no project regen). See
+[Undo / Redo](Undo-Redo.md) for the system behind it.
+
+---
+
 ## Light Settings
 
 **Class:** `LightSettingsPanel` · `Editor/Source/Panels/LightSettingsPanel.{h,cpp}`.
