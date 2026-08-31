@@ -2,6 +2,9 @@
 
 #include "Lux.h"
 
+#include "Lux/Project/Project.h"
+
+#include <functional>
 #include <map>
 
 #include "Panels/LightSettingsPanel.h"
@@ -90,6 +93,15 @@ namespace Lux
 		void RestoreSelection(const std::vector<UUID>& handles);  // select the entities an undo/redo touched
 		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
 
+		// Non-scene undo commands push through this (renderer/project settings, and future subsystems).
+		void PushUndoCommand(const std::string& label, std::function<void()> undo, std::function<void()> redo);
+		// Renderer/project settings (Phase 6): captured/compared as a ProjectSceneRendererSettings,
+		// which excludes the transient debug-view toggles by construction.
+		ProjectSceneRendererSettings CaptureRendererSettings() const;
+		void CaptureRendererSettingsBaseline();
+		void CommitRendererSettings();
+		void ApplyRendererSettings(const ProjectSceneRendererSettings& settings);
+
 		void UpdateDiscordPresence();
 
 		void OnScenePlay();
@@ -160,15 +172,21 @@ namespace Lux
 		struct UndoCommand
 		{
 			std::string Label;
+			// Scene diff (used when CustomUndo is unset).
 			bool MetaChanged = false;
 			std::string MetaBefore;
 			std::string MetaAfter;
 			std::vector<EntityDelta> Entities;
+			// Non-scene commands (renderer settings, …) carry closures instead; when CustomUndo is
+			// set, the scene-diff fields above are ignored.
+			std::function<void()> CustomUndo;
+			std::function<void()> CustomRedo;
 		};
 		std::vector<UndoCommand> m_UndoStack;
 		std::vector<UndoCommand> m_RedoStack;
 		std::string m_BaselineMeta;
 		std::map<UUID, std::string> m_BaselineEntities;
+		ProjectSceneRendererSettings m_RendererSettingsBaseline;
 		std::string m_PendingUndoLabel = "Edit";
 		bool m_UndoCommitPending = false;
 		bool m_GizmoWasUsing = false;

@@ -131,9 +131,11 @@ discarded.
 | Create entity (Create-menu items) | ✔ | `MarkSceneEdited("Create Entity")` in the `createEntity` choke |
 | Reparent (drag in hierarchy) | ✔ | `MarkSceneEdited("Reparent")` on the drag-drop targets |
 | Prefab drag-into-scene | ✔ | `MarkSceneEdited("Add Prefab")` after instantiate |
-| Scene Renderer / Project settings | ✘ | not scene state — separate stack, Phase 6 |
-| Material asset editor | ✘ | Phase 6 |
-| Content Browser file ops | ✘ | Phase 6 |
+| Scene post-processing (exposure, tonemap, grading) | ✔ | it lives in the scene `meta` → captured by the diff |
+| Material *assignment* (which material on a mesh) | ✔ | it's a component field (`MaterialTable`) → scene diff |
+| Renderer / project settings (quality, GTAO, shadows, culling…) | ✔ | `ProjectSceneRendererSettings` snapshot via a closure command (Phase 6) |
+| Material *asset* properties (albedo/roughness) | ✘ | only via the unused `MaterialEditorPanel` — low value |
+| Content Browser file ops | ✘ | filesystem, trash-backed — deferred (riskiest) |
 | Play/Simulate edits | ✘ (by design) | history is Edit-mode only |
 
 Each undo step now carries a **label** — the Edit menu shows "Undo Move", "Undo Delete Entity",
@@ -229,18 +231,32 @@ create → nothing to select). Editor-camera framing was left out (low value).
   multi-select edit) is **already one step**. Explicit grouping would only matter for merging several
   *separate* edit-completions, which no current workflow needs — deferred until one does.
 
-### Phase 6 — All subsystems
+### Phase 6 — Beyond the scene
 
-Give each editing subsystem its own command provider feeding the one `EditorStack`:
+Two things enabled this: a **hybrid command** and the discovery that much of "beyond the scene" was
+already covered.
 
-- **Material editor** — material-asset property commands (+ mark the asset dirty).
-- **Scene post-processing / Scene Renderer** — scene-owned settings already ride scene snapshots;
-  project-level renderer settings get their **own** stack (they're not scene state).
-- **Project Settings** — a separate settings stack.
-- **Content Browser** — filesystem ops (rename/move/delete) via a trash-backed, reversible model
-  (delete → move to a `.trash`, undo → restore); the riskiest, so it lands last with explicit
-  confirmations.
-- **Node graphs / animation** (if/when added) — register their own providers.
+**The foundation.** `UndoCommand` now carries optional `CustomUndo` / `CustomRedo` closures. When set,
+`Undo`/`RedoSceneEdit` call them instead of applying a scene diff — so the one stack (and the one
+`Ctrl+Z`, menu, and History panel) holds heterogeneous commands. `EditorLayer::PushUndoCommand(label,
+undo, redo)` is the entry point any subsystem uses. The scene path is untouched (closures are simply
+absent on scene commands).
+
+**Already covered by the scene diff (no work needed):** scene **post-processing** rides the scene
+`meta`; **material assignment** (which material a mesh uses) is a component field. Both undo already.
+
+**Renderer / project settings ✅ (done).** These aren't scene state, so they get a closure command.
+On edit-completion the poll runs `CommitRendererSettings`: it snapshots the renderer as a
+`ProjectSceneRendererSettings` (via `SceneRenderer::WriteProjectSettings`, which **excludes the
+transient debug-view toggles** by construction, so toggling the grid never pollutes history), compares
+it to a baseline (memcmp of zero-padded structs), and if it changed pushes a command whose closures
+call `SceneRenderer::ApplyProjectSettings` — the same canonical apply-and-refresh used on project load.
+A capture→change→restore self-test confirmed detection and exact restore.
+
+**Deferred:** **material-*asset* properties** (only reachable via the unused `MaterialEditorPanel` —
+low value), and **Content Browser file ops** (rename/move/delete via a trash-backed model — touches the
+real filesystem, the riskiest piece; lands last with confirmations). **Node graphs / animation**
+register their own providers if/when they exist.
 
 ### Phase 7 — Play / Simulate policy
 

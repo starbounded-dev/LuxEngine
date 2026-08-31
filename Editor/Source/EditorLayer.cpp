@@ -16,6 +16,7 @@
 
 #include "Lux/Utilities/FileSystem.h"
 
+#include <cstring>
 #include <format>
 
 #include "Lux/Asset/AssetManager.h"
@@ -2809,6 +2810,7 @@ namespace Lux {
 		m_UndoCommitPending = false;
 		m_PendingUndoLabel = "Edit";
 		m_BaselineEntities = CaptureSceneEntities(m_BaselineMeta);
+		CaptureRendererSettingsBaseline();
 	}
 
 	void EditorLayer::CommitSceneSnapshot()
@@ -2858,6 +2860,63 @@ namespace Lux {
 		m_BaselineEntities = std::move(current);
 	}
 
+	void EditorLayer::PushUndoCommand(const std::string& label, std::function<void()> undo, std::function<void()> redo)
+	{
+		UndoCommand command;
+		command.Label = label;
+		command.CustomUndo = std::move(undo);
+		command.CustomRedo = std::move(redo);
+
+		m_UndoStack.push_back(std::move(command));
+		if (m_UndoStack.size() > s_MaxUndoDepth)
+			m_UndoStack.erase(m_UndoStack.begin());
+		m_RedoStack.clear();
+	}
+
+	ProjectSceneRendererSettings EditorLayer::CaptureRendererSettings() const
+	{
+		ProjectSceneRendererSettings settings;
+		std::memset(&settings, 0, sizeof(settings));   // zero padding so memcmp comparisons are reliable
+		if (m_SceneRenderer)
+			m_SceneRenderer->WriteProjectSettings(settings);
+		return settings;
+	}
+
+	void EditorLayer::CaptureRendererSettingsBaseline()
+	{
+		m_RendererSettingsBaseline = CaptureRendererSettings();
+	}
+
+	void EditorLayer::CommitRendererSettings()
+	{
+		if (!m_SceneRenderer)
+			return;
+
+		const ProjectSceneRendererSettings current = CaptureRendererSettings();
+		if (std::memcmp(&current, &m_RendererSettingsBaseline, sizeof(ProjectSceneRendererSettings)) == 0)
+			return;   // renderer/project settings unchanged (e.g. the edit was a scene edit)
+
+		const ProjectSceneRendererSettings before = m_RendererSettingsBaseline;
+		const ProjectSceneRendererSettings after = current;
+		PushUndoCommand("Renderer Settings",
+			[this, before]() { ApplyRendererSettings(before); },
+			[this, after]() { ApplyRendererSettings(after); });
+
+		m_RendererSettingsBaseline = current;
+	}
+
+	void EditorLayer::ApplyRendererSettings(const ProjectSceneRendererSettings& settings)
+	{
+		if (!m_SceneRenderer)
+			return;
+
+		m_SceneRenderer->ApplyProjectSettings(settings);   // canonical apply + refresh (same as project load)
+		if (Ref<Project> project = Project::GetActive())
+			m_SceneRenderer->WriteProjectSettings(project->GetConfig().SceneRenderer);   // keep project config in sync
+
+		m_RendererSettingsBaseline = settings;   // baseline now matches the restored state
+	}
+
 	void EditorLayer::PollSceneEditForUndo()
 	{
 		// Play/Simulate edit a copy of the scene, not m_EditorScene; drop any signal raised there.
@@ -2878,7 +2937,8 @@ namespace Lux {
 		// deactivated), so a continuous drag collapses into a single undo step.
 		if (m_UndoCommitPending && !ImGui::IsAnyItemActive())
 		{
-			CommitSceneSnapshot();
+			CommitSceneSnapshot();       // scene entities / meta
+			CommitRendererSettings();    // renderer/project settings (non-scene)
 			m_UndoCommitPending = false;
 		}
 	}
@@ -2891,24 +2951,33 @@ namespace Lux {
 		UndoCommand command = std::move(m_UndoStack.back());
 		m_UndoStack.pop_back();
 
-		std::vector<UUID> affected;
-		affected.reserve(command.Entities.size());
-		for (const EntityDelta& delta : command.Entities)
-			affected.push_back(delta.Handle);
-
-		// Roll the baseline back to the "before" side of this step, then rebuild the scene from it.
-		if (command.MetaChanged)
-			m_BaselineMeta = command.MetaBefore;
-		for (const EntityDelta& delta : command.Entities)
+		if (command.CustomUndo)
 		{
-			if (delta.Before.empty())
-				m_BaselineEntities.erase(delta.Handle);        // entity was created by the edit -> remove it
-			else
-				m_BaselineEntities[delta.Handle] = delta.Before;
+			// Non-scene command (renderer settings, …) — it restores its own "before" state.
+			command.CustomUndo();
+		}
+		else
+		{
+			std::vector<UUID> affected;
+			affected.reserve(command.Entities.size());
+			for (const EntityDelta& delta : command.Entities)
+				affected.push_back(delta.Handle);
+
+			// Roll the baseline back to the "before" side of this step, then rebuild the scene from it.
+			if (command.MetaChanged)
+				m_BaselineMeta = command.MetaBefore;
+			for (const EntityDelta& delta : command.Entities)
+			{
+				if (delta.Before.empty())
+					m_BaselineEntities.erase(delta.Handle);        // entity was created by the edit -> remove it
+				else
+					m_BaselineEntities[delta.Handle] = delta.Before;
+			}
+
+			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+			RestoreSelection(affected);
 		}
 
-		RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
-		RestoreSelection(affected);
 		m_RedoStack.push_back(std::move(command));
 	}
 
@@ -2920,23 +2989,31 @@ namespace Lux {
 		UndoCommand command = std::move(m_RedoStack.back());
 		m_RedoStack.pop_back();
 
-		std::vector<UUID> affected;
-		affected.reserve(command.Entities.size());
-		for (const EntityDelta& delta : command.Entities)
-			affected.push_back(delta.Handle);
-
-		if (command.MetaChanged)
-			m_BaselineMeta = command.MetaAfter;
-		for (const EntityDelta& delta : command.Entities)
+		if (command.CustomRedo)
 		{
-			if (delta.After.empty())
-				m_BaselineEntities.erase(delta.Handle);        // entity was deleted by the edit -> remove it
-			else
-				m_BaselineEntities[delta.Handle] = delta.After;
+			command.CustomRedo();
+		}
+		else
+		{
+			std::vector<UUID> affected;
+			affected.reserve(command.Entities.size());
+			for (const EntityDelta& delta : command.Entities)
+				affected.push_back(delta.Handle);
+
+			if (command.MetaChanged)
+				m_BaselineMeta = command.MetaAfter;
+			for (const EntityDelta& delta : command.Entities)
+			{
+				if (delta.After.empty())
+					m_BaselineEntities.erase(delta.Handle);        // entity was deleted by the edit -> remove it
+				else
+					m_BaselineEntities[delta.Handle] = delta.After;
+			}
+
+			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+			RestoreSelection(affected);
 		}
 
-		RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
-		RestoreSelection(affected);
 		m_UndoStack.push_back(std::move(command));
 	}
 
@@ -2997,6 +3074,10 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_StatisticsPanel)
 			m_StatisticsPanel->SetContext(m_SceneRenderer);
+
+		// Keep the settings baseline aligned with the (unchanged) renderer after a scene restore, so a
+		// scene undo/redo never looks like a settings change.
+		CaptureRendererSettingsBaseline();
 	}
 
 	void EditorLayer::SaveScene()

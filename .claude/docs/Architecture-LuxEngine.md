@@ -321,8 +321,10 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   `SceneSerializer::SerializeEntitySnapshots` (per-entity YAML + meta) and stores only the changed
   entities, so history is O(change). Restore reassembles the full scene and runs the whole-scene
   deserialize (`DeserializeFromSnapshots`), which keeps it safe against the two-way parent/child links.
-  Value-based, so nothing dangles. Edit-mode only; resets on scene load. Full design + phased plan:
-  `docs/Editor/Undo-Redo.md`.
+  Value-based, so nothing dangles. Non-scene edits (renderer/project settings) push closure commands
+  (`CustomUndo`/`CustomRedo`, via `EditorLayer::PushUndoCommand`) onto the same stack, so one `Ctrl+Z`
+  covers everything. Selection is restored per step; a `UndoHistoryPanel` (View → History) shows the
+  stack. Edit-mode only; resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, Materials, MaterialEditor, LightSettings,
   SceneRenderer, RenderStats, RendererDebugger, TextEditor, ThumbnailCache.
