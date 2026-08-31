@@ -363,22 +363,24 @@ namespace Lux {
 		{
 			UndoHistoryPanel::Bindings historyBindings;
 			historyBindings.UndoLabels = [this]() {
+				const std::vector<UndoCommand>& stack = ActiveUndoStack();
 				std::vector<std::string> labels;
-				labels.reserve(m_UndoStack.size());
-				for (const UndoCommand& command : m_UndoStack)
+				labels.reserve(stack.size());
+				for (const UndoCommand& command : stack)
 					labels.push_back(command.Label);
 				return labels;
 			};
 			historyBindings.RedoLabels = [this]() {
+				const std::vector<UndoCommand>& stack = ActiveRedoStack();
 				std::vector<std::string> labels;
-				labels.reserve(m_RedoStack.size());
-				for (auto it = m_RedoStack.rbegin(); it != m_RedoStack.rend(); ++it)
+				labels.reserve(stack.size());
+				for (auto it = stack.rbegin(); it != stack.rend(); ++it)
 					labels.push_back(it->Label);
 				return labels;
 			};
 			historyBindings.Undo = [this](int steps) { for (int i = 0; i < steps; i++) UndoSceneEdit(); };
 			historyBindings.Redo = [this](int steps) { for (int i = 0; i < steps; i++) RedoSceneEdit(); };
-			historyBindings.IsAvailable = [this]() { return m_SceneState == SceneState::Edit; };
+			historyBindings.IsAvailable = [this]() { return true; };   // works in Edit and Play/Simulate
 			m_PanelManager->AddPanel<UndoHistoryPanel>(PanelCategory::View, "UndoHistoryPanel", "History", false, historyBindings);
 		}
 		if (m_SceneRendererPanel)
@@ -1001,12 +1003,13 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("Edit"))
 			{
-				const bool inEdit = m_SceneState == SceneState::Edit;
-				const std::string undoLabel = m_UndoStack.empty() ? "Undo" : "Undo " + m_UndoStack.back().Label;
-				const std::string redoLabel = m_RedoStack.empty() ? "Redo" : "Redo " + m_RedoStack.back().Label;
-				if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, inEdit && !m_UndoStack.empty()))
+				const std::vector<UndoCommand>& undoStack = ActiveUndoStack();   // edit or play, per mode
+				const std::vector<UndoCommand>& redoStack = ActiveRedoStack();
+				const std::string undoLabel = undoStack.empty() ? "Undo" : "Undo " + undoStack.back().Label;
+				const std::string redoLabel = redoStack.empty() ? "Redo" : "Redo " + redoStack.back().Label;
+				if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, !undoStack.empty()))
 					UndoSceneEdit();
-				if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Shift+Z", false, inEdit && !m_RedoStack.empty()))
+				if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Shift+Z", false, !redoStack.empty()))
 					RedoSceneEdit();
 				ImGui::Separator();
 
@@ -2793,13 +2796,13 @@ namespace Lux {
 		ResetUndoHistory();
 	}
 
-	std::map<UUID, std::string> EditorLayer::CaptureSceneEntities(std::string& outMeta) const
+	std::map<UUID, std::string> EditorLayer::CaptureSceneEntities(const Ref<Scene>& scene, std::string& outMeta) const
 	{
 		outMeta.clear();
-		if (!m_EditorScene)
+		if (!scene)
 			return {};
 
-		SceneSerializer serializer(m_EditorScene);
+		SceneSerializer serializer(scene);
 		return serializer.SerializeEntitySnapshots(outMeta);
 	}
 
@@ -2809,7 +2812,7 @@ namespace Lux {
 		m_RedoStack.clear();
 		m_UndoCommitPending = false;
 		m_PendingUndoLabel = "Edit";
-		m_BaselineEntities = CaptureSceneEntities(m_BaselineMeta);
+		m_BaselineEntities = CaptureSceneEntities(m_EditorScene, m_BaselineMeta);
 		CaptureRendererSettingsBaseline();
 	}
 
@@ -2819,7 +2822,7 @@ namespace Lux {
 			return;
 
 		std::string meta;
-		std::map<UUID, std::string> current = CaptureSceneEntities(meta);
+		std::map<UUID, std::string> current = CaptureSceneEntities(m_EditorScene, meta);
 
 		// Diff the current scene against the committed baseline; the step records only what changed.
 		UndoCommand command;
@@ -2919,41 +2922,43 @@ namespace Lux {
 
 	void EditorLayer::PollSceneEditForUndo()
 	{
-		// Play/Simulate edit a copy of the scene, not m_EditorScene; drop any signal raised there.
-		if (m_SceneState != SceneState::Edit)
-		{
-			EditorStack::Get().ConsumeSceneEdit();
-			m_UndoCommitPending = false;
-			return;
-		}
-
 		if (EditorStack::Get().ConsumeSceneEdit())
 		{
 			m_UndoCommitPending = true;
 			m_PendingUndoLabel = EditorStack::Get().ConsumeLabel();
 		}
 
-		// Defer the whole-scene snapshot until the active edit finishes (mouse released, field
-		// deactivated), so a continuous drag collapses into a single undo step.
+		// Defer the commit until the active edit finishes (mouse released, field deactivated), so a
+		// continuous drag collapses into a single undo step. In Edit mode this records the edit-mode
+		// history; in Play/Simulate it records the transient runtime history instead.
 		if (m_UndoCommitPending && !ImGui::IsAnyItemActive())
 		{
-			CommitSceneSnapshot();       // scene entities / meta
-			CommitRendererSettings();    // renderer/project settings (non-scene)
+			if (m_SceneState == SceneState::Edit)
+			{
+				CommitSceneSnapshot();       // scene entities / meta
+				CommitRendererSettings();    // renderer/project settings (non-scene)
+			}
+			else
+			{
+				CommitPlaySnapshot();        // transient runtime-scene history
+			}
 			m_UndoCommitPending = false;
 		}
 	}
 
 	void EditorLayer::UndoSceneEdit()
 	{
-		if (m_SceneState != SceneState::Edit || m_UndoStack.empty())
+		std::vector<UndoCommand>& undoStack = ActiveUndoStack();   // edit or play stack, per SceneState
+		std::vector<UndoCommand>& redoStack = ActiveRedoStack();
+		if (undoStack.empty())
 			return;
 
-		UndoCommand command = std::move(m_UndoStack.back());
-		m_UndoStack.pop_back();
+		UndoCommand command = std::move(undoStack.back());
+		undoStack.pop_back();
 
 		if (command.CustomUndo)
 		{
-			// Non-scene command (renderer settings, …) — it restores its own "before" state.
+			// Non-scene command (renderer settings) or a play-mode step — it restores its own state.
 			command.CustomUndo();
 		}
 		else
@@ -2978,16 +2983,18 @@ namespace Lux {
 			RestoreSelection(affected);
 		}
 
-		m_RedoStack.push_back(std::move(command));
+		redoStack.push_back(std::move(command));
 	}
 
 	void EditorLayer::RedoSceneEdit()
 	{
-		if (m_SceneState != SceneState::Edit || m_RedoStack.empty())
+		std::vector<UndoCommand>& undoStack = ActiveUndoStack();
+		std::vector<UndoCommand>& redoStack = ActiveRedoStack();
+		if (redoStack.empty())
 			return;
 
-		UndoCommand command = std::move(m_RedoStack.back());
-		m_RedoStack.pop_back();
+		UndoCommand command = std::move(redoStack.back());
+		redoStack.pop_back();
 
 		if (command.CustomRedo)
 		{
@@ -3014,7 +3021,7 @@ namespace Lux {
 			RestoreSelection(affected);
 		}
 
-		m_UndoStack.push_back(std::move(command));
+		undoStack.push_back(std::move(command));
 	}
 
 	void EditorLayer::RestoreSceneState(const std::string& meta, const std::map<UUID, std::string>& entities)
@@ -3078,6 +3085,137 @@ namespace Lux {
 		// Keep the settings baseline aligned with the (unchanged) renderer after a scene restore, so a
 		// scene undo/redo never looks like a settings change.
 		CaptureRendererSettingsBaseline();
+	}
+
+	void EditorLayer::BeginPlayUndoHistory()
+	{
+		m_PlayUndoStack.clear();
+		m_PlayRedoStack.clear();
+		m_UndoCommitPending = false;
+		m_PlayBaselineEntities = CaptureSceneEntities(m_ActiveScene, m_PlayBaselineMeta);
+	}
+
+	void EditorLayer::CommitPlaySnapshot()
+	{
+		if (!m_ActiveScene)
+			return;
+
+		std::string meta;
+		std::map<UUID, std::string> current = CaptureSceneEntities(m_ActiveScene, meta);
+
+		const bool metaChanged = meta != m_PlayBaselineMeta;
+		std::vector<EntityDelta> deltas;
+		for (const auto& [handle, before] : m_PlayBaselineEntities)
+		{
+			auto it = current.find(handle);
+			const std::string after = (it != current.end()) ? it->second : std::string();
+			if (before != after)
+				deltas.push_back({ handle, before, after });
+		}
+		for (const auto& [handle, after] : current)
+		{
+			if (m_PlayBaselineEntities.find(handle) == m_PlayBaselineEntities.end())
+				deltas.push_back({ handle, std::string(), after });
+		}
+
+		if (!metaChanged && deltas.empty())
+			return;
+
+		const std::string metaBefore = m_PlayBaselineMeta;
+		const std::string metaAfter = meta;
+		m_PlayBaselineMeta = meta;
+		m_PlayBaselineEntities = current;
+
+		// A play step is a closure command over the play stacks: apply the before/after deltas to the
+		// play baseline, then rebuild the runtime scene from it.
+		UndoCommand command;
+		command.Label = m_PendingUndoLabel;
+		command.CustomUndo = [this, deltas, metaChanged, metaBefore]()
+		{
+			if (metaChanged)
+				m_PlayBaselineMeta = metaBefore;
+			for (const EntityDelta& delta : deltas)
+			{
+				if (delta.Before.empty())
+					m_PlayBaselineEntities.erase(delta.Handle);
+				else
+					m_PlayBaselineEntities[delta.Handle] = delta.Before;
+			}
+			RestoreRuntimeState(m_PlayBaselineMeta, m_PlayBaselineEntities);
+		};
+		command.CustomRedo = [this, deltas, metaChanged, metaAfter]()
+		{
+			if (metaChanged)
+				m_PlayBaselineMeta = metaAfter;
+			for (const EntityDelta& delta : deltas)
+			{
+				if (delta.After.empty())
+					m_PlayBaselineEntities.erase(delta.Handle);
+				else
+					m_PlayBaselineEntities[delta.Handle] = delta.After;
+			}
+			RestoreRuntimeState(m_PlayBaselineMeta, m_PlayBaselineEntities);
+		};
+
+		m_PlayUndoStack.push_back(std::move(command));
+		if (m_PlayUndoStack.size() > s_MaxUndoDepth)
+			m_PlayUndoStack.erase(m_PlayUndoStack.begin());
+		m_PlayRedoStack.clear();
+	}
+
+	void EditorLayer::RestoreRuntimeState(const std::string& meta, const std::map<UUID, std::string>& entities)
+	{
+		std::vector<std::string> blocks;
+		blocks.reserve(entities.size());
+		for (const auto& [handle, block] : entities)
+			blocks.push_back(block);
+
+		Ref<Scene> newScene = CreateRef<Scene>();
+		SceneSerializer serializer(newScene);
+		if (!serializer.DeserializeFromSnapshots(meta, blocks))
+		{
+			LUX_CORE_ERROR("Play undo: failed to restore runtime state; history left unchanged.");
+			return;
+		}
+
+		AdoptRuntimeScene(newScene);
+
+		m_UndoCommitPending = false;
+		EditorStack::Get().ConsumeSceneEdit();
+	}
+
+	void EditorLayer::AdoptRuntimeScene(const Ref<Scene>& scene)
+	{
+		// Tear down the current runtime, swap in the rebuilt scene, and restart its runtime — so a
+		// play-mode undo resets physics/scripts to the snapshot state and continues from there.
+		if (m_SceneState == SceneState::Play && m_ActiveScene)
+			m_ActiveScene->OnRuntimeStop();
+		else if (m_SceneState == SceneState::Simulate && m_ActiveScene)
+			m_ActiveScene->OnSimulationStop();
+
+		m_ActiveScene = scene;
+
+		if (m_SceneState == SceneState::Play)
+			m_ActiveScene->OnRuntimeStart();
+		else if (m_SceneState == SceneState::Simulate)
+			m_ActiveScene->OnSimulationStart();
+
+		m_PanelManager->SetSceneContext(m_ActiveScene);
+
+		if (m_EditorViewport)
+		{
+			m_EditorViewport->SetScene(m_ActiveScene);
+			m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+			m_Framebuffer = m_EditorViewport->GetFramebuffer();
+			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		}
+
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_StatisticsPanel)
+			m_StatisticsPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::SaveScene()
@@ -3276,6 +3414,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_StatisticsPanel)
 			m_StatisticsPanel->SetContext(m_SceneRenderer);
+
+		BeginPlayUndoHistory();   // transient play-mode undo, over the runtime scene
 	}
 
 	void EditorLayer::OnSceneSimulate()
@@ -3304,6 +3444,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_StatisticsPanel)
 			m_StatisticsPanel->SetContext(m_SceneRenderer);
+
+		BeginPlayUndoHistory();   // transient play-mode undo, over the runtime scene
 	}
 
 	void EditorLayer::OnSceneStop()
@@ -3318,6 +3460,11 @@ namespace Lux {
 
 		m_SceneState = SceneState::Edit;
 		m_ActiveScene = m_EditorScene;
+
+		// The transient play-mode history is meaningless once we're back to the editor scene.
+		m_PlayUndoStack.clear();
+		m_PlayRedoStack.clear();
+		m_UndoCommitPending = false;
 
 		m_PanelManager->SetSceneContext(m_ActiveScene);
 

@@ -81,9 +81,30 @@ namespace Lux
 
 		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& filepath);
 
+		// One undo step. A scene edit carries a per-entity diff; a non-scene edit (renderer settings,
+		// …) carries closures instead — when CustomUndo is set, the diff fields are ignored.
+		struct EntityDelta
+		{
+			UUID Handle = 0;
+			std::string Before;   // empty => entity did not exist before the edit
+			std::string After;    // empty => entity does not exist after the edit
+		};
+		struct UndoCommand
+		{
+			std::string Label;
+			bool MetaChanged = false;
+			std::string MetaBefore;
+			std::string MetaAfter;
+			std::vector<EntityDelta> Entities;
+			std::function<void()> CustomUndo;
+			std::function<void()> CustomRedo;
+		};
+
 		// Undo/redo (snapshot-based, granular per-entity storage). See docs/Editor/Undo-Redo.md.
-		// Edit-mode only.
-		std::map<UUID, std::string> CaptureSceneEntities(std::string& outMeta) const;  // per-entity YAML + scene meta
+		// The edit-mode history targets m_EditorScene; a separate transient play-mode history targets
+		// the runtime m_ActiveScene and is discarded on Stop. UndoSceneEdit/RedoSceneEdit operate on
+		// whichever is active for the current SceneState.
+		std::map<UUID, std::string> CaptureSceneEntities(const Ref<Scene>& scene, std::string& outMeta) const;
 		void ResetUndoHistory();                                  // baseline = current, clear stacks
 		void CommitSceneSnapshot();                               // diff vs baseline; push a step for the changed entities
 		void PollSceneEditForUndo();                              // per-frame: commit once an active edit finishes
@@ -92,6 +113,16 @@ namespace Lux
 		void RestoreSceneState(const std::string& meta, const std::map<UUID, std::string>& entities);
 		void RestoreSelection(const std::vector<UUID>& handles);  // select the entities an undo/redo touched
 		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
+
+		// Play-mode undo (Phase 7): a transient stack over the runtime scene, discarded on Stop. An
+		// undo restores by rebuilding the runtime scene from a snapshot and restarting its runtime, so
+		// physics/scripts reset to that point.
+		std::vector<UndoCommand>& ActiveUndoStack() { return m_SceneState == SceneState::Edit ? m_UndoStack : m_PlayUndoStack; }
+		std::vector<UndoCommand>& ActiveRedoStack() { return m_SceneState == SceneState::Edit ? m_RedoStack : m_PlayRedoStack; }
+		void BeginPlayUndoHistory();                              // baseline the runtime scene, clear play stacks
+		void CommitPlaySnapshot();                                // diff the runtime scene, push a play step
+		void RestoreRuntimeState(const std::string& meta, const std::map<UUID, std::string>& entities);
+		void AdoptRuntimeScene(const Ref<Scene>& scene);          // stop old runtime, swap, restart, retarget
 
 		// Non-scene undo commands push through this (renderer/project settings, and future subsystems).
 		void PushUndoCommand(const std::string& label, std::function<void()> undo, std::function<void()> redo);
@@ -163,30 +194,19 @@ namespace Lux
 		// diffs the scene against it and stores the difference. Restore reassembles the target state
 		// and runs the whole-scene deserialize, which is why it stays safe against the two-way
 		// parent/child links. m_UndoCommitPending defers the commit until the active edit finishes.
-		struct EntityDelta
-		{
-			UUID Handle = 0;
-			std::string Before;   // empty => entity did not exist before the edit
-			std::string After;    // empty => entity does not exist after the edit
-		};
-		struct UndoCommand
-		{
-			std::string Label;
-			// Scene diff (used when CustomUndo is unset).
-			bool MetaChanged = false;
-			std::string MetaBefore;
-			std::string MetaAfter;
-			std::vector<EntityDelta> Entities;
-			// Non-scene commands (renderer settings, …) carry closures instead; when CustomUndo is
-			// set, the scene-diff fields above are ignored.
-			std::function<void()> CustomUndo;
-			std::function<void()> CustomRedo;
-		};
+		// (EntityDelta / UndoCommand are defined near the top of the class, above the undo methods.)
 		std::vector<UndoCommand> m_UndoStack;
 		std::vector<UndoCommand> m_RedoStack;
 		std::string m_BaselineMeta;
 		std::map<UUID, std::string> m_BaselineEntities;
 		ProjectSceneRendererSettings m_RendererSettingsBaseline;
+
+		// Transient play-mode history (over the runtime m_ActiveScene); baselined on Play/Simulate,
+		// discarded on Stop.
+		std::vector<UndoCommand> m_PlayUndoStack;
+		std::vector<UndoCommand> m_PlayRedoStack;
+		std::string m_PlayBaselineMeta;
+		std::map<UUID, std::string> m_PlayBaselineEntities;
 		std::string m_PendingUndoLabel = "Edit";
 		bool m_UndoCommitPending = false;
 		bool m_GizmoWasUsing = false;

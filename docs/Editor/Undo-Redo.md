@@ -13,7 +13,8 @@ Source: `Core/Source/Lux/Editor/EditorStack.h`, the `#if UndoDo` hooks in
 ## TL;DR
 
 - **`Ctrl+Z`** undo, **`Ctrl+Shift+Z`** / **`Ctrl+Y`** redo, and **Edit → Undo / Redo**.
-- Works in **Edit mode** on the **scene** you're editing.
+- Works in **Edit mode** on the scene you're editing, and in **Play/Simulate** on a separate transient
+  history (discarded on Stop — undoing there restarts the runtime).
 - Covers: every inspector field, rename, add/remove component, **gizmo** moves, entity **delete**
   and **duplicate**.
 - Implemented as **whole-scene YAML snapshots** captured when an edit finishes — simple and
@@ -109,10 +110,10 @@ of the scene YAML) produces no deltas and no meta change — a no-op, safe to ov
 
 ### 4. When the history resets
 
-`ResetUndoHistory()` rebaselines and clears both stacks at every point a snapshot's identity would no
-longer apply: **`OnAttach`** (initial load), **`NewScene`**, **`OpenScene`**. Play/Simulate are
-handled by the Edit-mode gate — undo/redo are inert outside Edit, and any signal raised there is
-discarded.
+`ResetUndoHistory()` rebaselines and clears the edit stacks at every point a snapshot's identity would
+no longer apply: **`OnAttach`** (initial load), **`NewScene`**, **`OpenScene`**. Entering Play/Simulate
+starts a **separate transient history** over the runtime scene (`BeginPlayUndoHistory`) that is cleared
+on Stop — the edit-mode history is left completely untouched by a play session (see Phase 7 below).
 
 ---
 
@@ -136,7 +137,7 @@ discarded.
 | Renderer / project settings (quality, GTAO, shadows, culling…) | ✔ | `ProjectSceneRendererSettings` snapshot via a closure command (Phase 6) |
 | Material *asset* properties (albedo/roughness) | ✘ | only via the unused `MaterialEditorPanel` — low value |
 | Content Browser file ops | ✘ | filesystem, trash-backed — deferred (riskiest) |
-| Play/Simulate edits | ✘ (by design) | history is Edit-mode only |
+| Play/Simulate edits | ✔ (transient) | separate play-mode stack, discarded on Stop; undo rebuilds & restarts the runtime |
 
 Each undo step now carries a **label** — the Edit menu shows "Undo Move", "Undo Delete Entity",
 "Redo Add Component", etc. The label comes from the edit that triggered the commit (the gizmo op,
@@ -258,10 +259,20 @@ low value), and **Content Browser file ops** (rename/move/delete via a trash-bac
 real filesystem, the riskiest piece; lands last with confirmations). **Node graphs / animation**
 register their own providers if/when they exist.
 
-### Phase 7 — Play / Simulate policy
+### Phase 7 — Play / Simulate undo ✅ (done)
 
-Currently cleared on transitions. Optionally give Play mode a **separate transient stack** for
-tweaks that is discarded on Stop, so experimenting during Play doesn't touch the edit-mode history.
+Play/Simulate now has a **separate transient history** (`m_PlayUndoStack` / `m_PlayRedoStack`,
+baselined by `BeginPlayUndoHistory` on Play/Simulate, cleared on Stop). Undo/redo route through
+`ActiveUndoStack()` — the edit stack in Edit mode, the play stack otherwise — so the same `Ctrl+Z`,
+Edit menu, and History panel drive both, and edit-mode history is completely untouched by a play
+session.
+
+The catch (as designed): a play step is a closure command whose restore rebuilds the runtime scene
+from the snapshot and **restarts its runtime** (`OnRuntimeStop` → `DeserializeFromSnapshots` →
+`OnRuntimeStart`, via `AdoptRuntimeScene`). So undoing a tweak during Play **resets physics/scripts to
+that point** and continues — the unavoidable consequence of not having granular in-place restore.
+A headless self-test (enter Play → create entity → commit → undo → verify gone → redo → verify back)
+confirmed the round-trip, including the mid-play runtime restart.
 
 ### Phase 8 — Robustness & budget
 

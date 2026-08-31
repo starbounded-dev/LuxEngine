@@ -324,7 +324,8 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   Value-based, so nothing dangles. Non-scene edits (renderer/project settings) push closure commands
   (`CustomUndo`/`CustomRedo`, via `EditorLayer::PushUndoCommand`) onto the same stack, so one `Ctrl+Z`
   covers everything. Selection is restored per step; a `UndoHistoryPanel` (View → History) shows the
-  stack. Edit-mode only; resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
+  stack. Play/Simulate get a separate transient history (discarded on Stop; undo there rebuilds and
+  restarts the runtime). Resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, Materials, MaterialEditor, LightSettings,
   SceneRenderer, RenderStats, RendererDebugger, TextEditor, ThumbnailCache.
