@@ -33,6 +33,12 @@ namespace Lux
 		// DeserializeFromSnapshots — restore always goes through the whole-scene deserialize path.
 		std::map<UUID, std::string> SerializeEntitySnapshots(std::string& outMeta);
 		bool DeserializeFromSnapshots(const std::string& meta, const std::vector<std::string>& entityBlocks);
+
+		// Round-trip guard for the snapshot path the undo system relies on: build a small scene with a
+		// hierarchy and components, split → reassemble → re-split, and confirm every entity's YAML and
+		// the scene metadata are reproduced exactly. Returns true on success; appends human-readable
+		// messages to `failures`. Surfaced in the Renderer Debugger's self-test section.
+		static bool RunRoundTripSelfTests(std::vector<std::string>* failures = nullptr);
 		void SerializeRuntime(const std::filesystem::path& filepath);
 
 		bool Deserialize(const std::filesystem::path& filepath);

@@ -89,13 +89,13 @@ current = CaptureSceneEntities(meta);            // map<UUID,string> + meta
 for each entity in baseline:  if value differs (or gone) -> delta {before, after}   // changed / deleted
 for each entity in current:   if not in baseline        -> delta {"",     after}    // created
 if no deltas and meta unchanged -> return;       // no-op (e.g. a settings-panel edit)
-push UndoCommand{ label, metaDelta, entityDeltas };   // (capped at s_MaxUndoDepth = 64)
+push UndoCommand{ label, metaDelta, entityDeltas };   // bounded by step count + a byte budget
 baseline = current;
 ```
 
 So each history step is **O(change)** in memory — a two-entity edit stores two small YAML blocks, not
 the whole scene. (Commit still serializes the scene once to compute the diff; it's the stored *history*
-that shrank, which is what bounds memory across 64 steps.)
+that shrank, which is what bounds memory across the history — see the budget in Phase 8.)
 
 `UndoSceneEdit` / `RedoSceneEdit` apply the step's `before` / `after` sides to the baseline map (set a
 changed entity, erase a created one, re-add a deleted one), then call `RestoreSceneState`, which
@@ -274,12 +274,21 @@ that point** and continues — the unavoidable consequence of not having granula
 A headless self-test (enter Play → create entity → commit → undo → verify gone → redo → verify back)
 confirmed the round-trip, including the mid-play runtime restart.
 
-### Phase 8 — Robustness & budget
+### Phase 8 — Robustness & budget ✅ (done)
 
-- Memory **budget** for the stack (bytes, not just depth) with oldest-eviction.
-- Snapshot **compression** while snapshots remain (Phases 1–2).
-- **Round-trip tests** for serializer fidelity (serialize → deserialize → serialize is stable).
-- Optional on-disk **undo journal** for crash recovery.
+- **Memory budget.** Each command stores its heap payload size (`UndoCommand::ApproxBytes` — the
+  entity/meta YAML), and `TrimUndoStack` evicts the oldest steps until the stack is under **both** a
+  step cap (`s_MaxUndoDepth = 256`) and a byte budget (`s_MaxUndoBytes = 128 MB`), always keeping at
+  least one step. Applies to the edit and play stacks alike. So a handful of huge diffs can't blow up
+  memory, and small edits keep a long history.
+- **Round-trip test.** `SceneSerializer::RunRoundTripSelfTests` builds a scene with a hierarchy and
+  components, does split → reassemble → re-split, and confirms every entity's YAML and the metadata
+  are reproduced exactly. It's surfaced as a button in the **Renderer Debugger** (next to the
+  render-graph self-tests), so a regression in the snapshot path the undo system depends on is one
+  click away from being caught.
+
+**Still optional (deferred):** snapshot **compression**, and an on-disk **undo journal** for crash
+recovery — neither needed yet.
 
 ### Phase 9 — Polish
 

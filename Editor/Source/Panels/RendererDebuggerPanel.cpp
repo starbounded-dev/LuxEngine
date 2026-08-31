@@ -7,6 +7,7 @@
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Shader.h"
+#include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
@@ -1006,6 +1007,27 @@ namespace Lux {
 			{
 				ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "Self tests failed (%zu)", m_RenderGraphSelfTestFailures.size());
 				for (const std::string& failure : m_RenderGraphSelfTestFailures)
+					ImGui::TextWrapped("%s", failure.c_str());
+			}
+		}
+
+		if (ImGui::Button("Run Scene Serializer Self Tests"))
+		{
+			m_SerializerSelfTestFailures.clear();
+			m_SerializerSelfTestPassed = SceneSerializer::RunRoundTripSelfTests(&m_SerializerSelfTestFailures);
+			m_SerializerSelfTestRan = true;
+		}
+		if (m_SerializerSelfTestRan)
+		{
+			ImGui::SameLine();
+			if (m_SerializerSelfTestPassed)
+			{
+				ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.35f, 1.0f), "Self tests passed");
+			}
+			else
+			{
+				ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "Self tests failed (%zu)", m_SerializerSelfTestFailures.size());
+				for (const std::string& failure : m_SerializerSelfTestFailures)
 					ImGui::TextWrapped("%s", failure.c_str());
 			}
 		}

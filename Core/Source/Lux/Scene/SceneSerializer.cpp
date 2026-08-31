@@ -1243,6 +1243,62 @@ namespace Lux {
 		return DeserializeFromYAML(std::string(out.c_str()));
 	}
 
+	bool SceneSerializer::RunRoundTripSelfTests(std::vector<std::string>* failures)
+	{
+		bool ok = true;
+		auto fail = [&](const std::string& message)
+		{
+			ok = false;
+			if (failures)
+				failures->push_back(message);
+		};
+
+		// Build a small scene with a two-level hierarchy and a couple of components.
+		Ref<Scene> src = Ref<Scene>::Create();
+		Entity parent = src->CreateEntity("Parent");
+		Entity childA = src->CreateEntity("ChildA");
+		Entity childB = src->CreateEntity("ChildB");
+		childA.SetParent(parent);
+		childB.SetParent(parent);
+		parent.GetComponent<TransformComponent>().Translation = { 1.0f, 2.0f, 3.0f };
+		childA.AddComponent<PointLightComponent>().Radiance = { 0.5f, 0.25f, 0.1f };
+		childB.AddComponent<DirectionalLightComponent>();
+
+		std::string meta1;
+		std::map<UUID, std::string> ents1 = SceneSerializer(src).SerializeEntitySnapshots(meta1);
+
+		std::vector<std::string> blocks;
+		blocks.reserve(ents1.size());
+		for (const auto& [handle, block] : ents1)
+			blocks.push_back(block);
+
+		Ref<Scene> dst = Ref<Scene>::Create();
+		if (!SceneSerializer(dst).DeserializeFromSnapshots(meta1, blocks))
+		{
+			fail("DeserializeFromSnapshots returned false");
+			return ok;
+		}
+
+		std::string meta2;
+		std::map<UUID, std::string> ents2 = SceneSerializer(dst).SerializeEntitySnapshots(meta2);
+
+		if (meta1 != meta2)
+			fail("scene metadata was not reproduced by the round-trip");
+		if (ents1.size() != ents2.size())
+			fail(std::format("entity count changed by the round-trip ({} -> {})", ents1.size(), ents2.size()));
+
+		for (const auto& [handle, block] : ents1)
+		{
+			auto it = ents2.find(handle);
+			if (it == ents2.end())
+				fail(std::format("entity {} missing after round-trip", (uint64_t)handle));
+			else if (it->second != block)
+				fail(std::format("entity {} YAML differs after round-trip", (uint64_t)handle));
+		}
+
+		return ok;
+	}
+
 	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
 		YAML::Emitter out;

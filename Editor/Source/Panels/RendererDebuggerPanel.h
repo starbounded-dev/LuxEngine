@@ -47,6 +47,9 @@ namespace Lux {
 		bool m_RenderGraphSelfTestRan = false;
 		bool m_RenderGraphSelfTestPassed = false;
 		std::vector<std::string> m_RenderGraphSelfTestFailures;
+		bool m_SerializerSelfTestRan = false;
+		bool m_SerializerSelfTestPassed = false;
+		std::vector<std::string> m_SerializerSelfTestFailures;
 		std::vector<float> m_FrameCPUHistory;
 		std::vector<float> m_FrameGPUHistory;
 		// X positions (-(N-1)..0) for the frame-history plot, rebuilt to match the ring size.
