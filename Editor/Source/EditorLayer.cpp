@@ -2854,9 +2854,12 @@ namespace Lux {
 		if (!command.MetaChanged && command.Entities.empty())
 			return;
 
+		command.ApproxBytes = command.MetaBefore.size() + command.MetaAfter.size();
+		for (const EntityDelta& delta : command.Entities)
+			command.ApproxBytes += delta.Before.size() + delta.After.size();
+
 		m_UndoStack.push_back(std::move(command));
-		if (m_UndoStack.size() > s_MaxUndoDepth)
-			m_UndoStack.erase(m_UndoStack.begin());
+		TrimUndoStack(m_UndoStack);
 		m_RedoStack.clear();
 
 		m_BaselineMeta = std::move(meta);
@@ -2869,11 +2872,26 @@ namespace Lux {
 		command.Label = label;
 		command.CustomUndo = std::move(undo);
 		command.CustomRedo = std::move(redo);
+		command.ApproxBytes = 2 * sizeof(ProjectSceneRendererSettings);   // non-scene commands are small
 
 		m_UndoStack.push_back(std::move(command));
-		if (m_UndoStack.size() > s_MaxUndoDepth)
-			m_UndoStack.erase(m_UndoStack.begin());
+		TrimUndoStack(m_UndoStack);
 		m_RedoStack.clear();
+	}
+
+	void EditorLayer::TrimUndoStack(std::vector<UndoCommand>& stack)
+	{
+		size_t totalBytes = 0;
+		for (const UndoCommand& command : stack)
+			totalBytes += command.ApproxBytes;
+
+		// Evict oldest steps until under both the step count and the byte budget — but never drop the
+		// last one, so even a single oversized step stays undoable once.
+		while (stack.size() > 1 && (stack.size() > s_MaxUndoDepth || totalBytes > s_MaxUndoBytes))
+		{
+			totalBytes -= stack.front().ApproxBytes;
+			stack.erase(stack.begin());
+		}
 	}
 
 	ProjectSceneRendererSettings EditorLayer::CaptureRendererSettings() const
@@ -3157,9 +3175,12 @@ namespace Lux {
 			RestoreRuntimeState(m_PlayBaselineMeta, m_PlayBaselineEntities);
 		};
 
+		command.ApproxBytes = metaBefore.size() + metaAfter.size();
+		for (const EntityDelta& delta : deltas)
+			command.ApproxBytes += delta.Before.size() + delta.After.size();
+
 		m_PlayUndoStack.push_back(std::move(command));
-		if (m_PlayUndoStack.size() > s_MaxUndoDepth)
-			m_PlayUndoStack.erase(m_PlayUndoStack.begin());
+		TrimUndoStack(m_PlayUndoStack);
 		m_PlayRedoStack.clear();
 	}
 

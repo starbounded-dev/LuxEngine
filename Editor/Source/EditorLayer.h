@@ -98,6 +98,7 @@ namespace Lux
 			std::vector<EntityDelta> Entities;
 			std::function<void()> CustomUndo;
 			std::function<void()> CustomRedo;
+			size_t ApproxBytes = 0;   // heap payload, for the memory budget (see TrimUndoStack)
 		};
 
 		// Undo/redo (snapshot-based, granular per-entity storage). See docs/Editor/Undo-Redo.md.
@@ -126,6 +127,7 @@ namespace Lux
 
 		// Non-scene undo commands push through this (renderer/project settings, and future subsystems).
 		void PushUndoCommand(const std::string& label, std::function<void()> undo, std::function<void()> redo);
+		void TrimUndoStack(std::vector<UndoCommand>& stack);      // evict oldest steps past the size/byte budget
 		// Renderer/project settings (Phase 6): captured/compared as a ProjectSceneRendererSettings,
 		// which excludes the transient debug-view toggles by construction.
 		ProjectSceneRendererSettings CaptureRendererSettings() const;
@@ -210,7 +212,10 @@ namespace Lux
 		std::string m_PendingUndoLabel = "Edit";
 		bool m_UndoCommitPending = false;
 		bool m_GizmoWasUsing = false;
-		static constexpr size_t s_MaxUndoDepth = 64;
+		// History is bounded by both a step count and a memory budget; a commit evicts the oldest steps
+		// until it is under both (but always keeps at least one, even if a single step is huge).
+		static constexpr size_t s_MaxUndoDepth = 256;
+		static constexpr size_t s_MaxUndoBytes = 128ull * 1024 * 1024;   // 128 MB of snapshot payload
 		Ref<UserPreferences> m_UserPreferences;
 		std::filesystem::path m_UserPreferencesPath;
 		Entity m_SquareEntity;
