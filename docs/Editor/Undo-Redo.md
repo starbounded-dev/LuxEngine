@@ -136,7 +136,8 @@ on Stop — the edit-mode history is left completely untouched by a play session
 | Material *assignment* (which material on a mesh) | ✔ | it's a component field (`MaterialTable`) → scene diff |
 | Renderer / project settings (quality, GTAO, shadows, culling…) | ✔ | `ProjectSceneRendererSettings` snapshot via a closure command (Phase 6) |
 | Material *asset* properties (albedo/roughness) | ✘ | only via the unused `MaterialEditorPanel` — low value |
-| Content Browser file ops | ✘ | filesystem, trash-backed — deferred (riskiest) |
+| Content Browser asset ops (rename / move / delete) | ✔ | closure commands; delete moves the file to `<project>/.trash` (never a real delete), undo restores the same handle |
+| Content Browser *directory* ops | ✘ | still a permanent delete — not covered (recursive; own follow-up) |
 | Play/Simulate edits | ✔ (transient) | separate play-mode stack, discarded on Stop; undo rebuilds & restarts the runtime |
 
 Each undo step now carries a **label** — the Edit menu shows "Undo Move", "Undo Delete Entity",
@@ -254,10 +255,20 @@ it to a baseline (memcmp of zero-padded structs), and if it changed pushes a com
 call `SceneRenderer::ApplyProjectSettings` — the same canonical apply-and-refresh used on project load.
 A capture→change→restore self-test confirmed detection and exact restore.
 
+**Content Browser asset ops ✅ (done).** Rename / move / delete of an asset are now reversible closure
+commands (`ContentBrowserPanel::SetUndoPush` routes them to `PushUndoCommand`). The reversible
+primitives are static `RawRenameAsset` / `RawMoveAsset` / `TrashAsset` / `RestoreAsset`; the public
+`RenameAsset` / `MoveAsset` / `DeleteAsset` call the primitive then push {undo, redo} closures that call
+it back the other way and `Refresh()` the browser. **Delete is fail-safe: it never calls
+`FileSystem::DeleteFile` — it moves the file to `<project>/.trash/<handle>__<name>`** (outside the
+scanned asset dir, so `ProcessDirectory` won't re-import it), removes the handle from the registry, and
+undo moves it back and re-registers the **same handle** (so scene references still resolve). The trash
+is never auto-purged, so even a bug can't lose data. *Directory* delete/move/rename are **not** covered
+(they use a separate permanent-delete path) and remain a follow-up.
+
 **Deferred:** **material-*asset* properties** (only reachable via the unused `MaterialEditorPanel` —
-low value), and **Content Browser file ops** (rename/move/delete via a trash-backed model — touches the
-real filesystem, the riskiest piece; lands last with confirmations). **Node graphs / animation**
-register their own providers if/when they exist.
+low value), and Content Browser **directory** ops. **Node graphs / animation** register their own
+providers if/when they exist.
 
 ### Phase 7 — Play / Simulate undo ✅ (done)
 

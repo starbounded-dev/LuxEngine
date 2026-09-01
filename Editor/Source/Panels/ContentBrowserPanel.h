@@ -179,6 +179,12 @@ namespace Lux {
 		bool MoveAsset(AssetHandle handle, const std::filesystem::path& destination);
 		bool RenameAsset(AssetHandle handle, const std::string& newName);
 
+		// Set by EditorLayer so asset delete/move/rename can push reversible steps onto the editor's
+		// undo stack. Delete moves the file to <project>/.trash (never a real delete), so undo can
+		// restore it — see docs/Editor/Undo-Redo.md.
+		using UndoPushFn = std::function<void(const std::string&, std::function<void()>, std::function<void()>)>;
+		void SetUndoPush(UndoPushFn push) { m_UndoPush = std::move(push); }
+
 		Ref<Texture2D> GetItemThumbnail(AssetHandle handle);
 		enum class ViewMode { Grid, List };
 		enum class SortMode { Name, Type, Modified };
@@ -215,6 +221,13 @@ namespace Lux {
 
 		void PasteCopiedAssets();
 		void RenderDeleteDialogue();
+
+		// Reversible primitives (no undo push of their own) that the public asset ops build on.
+		static bool RawRenameAsset(AssetHandle handle, const std::string& newName);
+		static bool RawMoveAsset(AssetHandle handle, const std::filesystem::path& destination);
+		static bool TrashAsset(AssetHandle handle);                                   // move file to trash + deregister
+		static bool RestoreAsset(AssetHandle handle, const AssetMetadata& metadata);  // move back from trash + reregister
+		static std::filesystem::path TrashPathFor(AssetHandle handle, const std::filesystem::path& originalFileName);
 		void RemoveDirectory(Ref<DirectoryInfo> directory, bool removeFromParent = true);
 		void UpdateDropArea(const Ref<DirectoryInfo>& target);
 		void SortItemList();
@@ -268,6 +281,7 @@ namespace Lux {
 		bool m_SortAscending = true;
 		int m_TypeFilter = 0;                    // 0 = All; see s_TypeFilters in the .cpp
 		std::vector<std::string> m_Favorites;    // favourite folders, generic paths relative to Assets/
+		UndoPushFn m_UndoPush;                   // pushes reversible asset ops onto the editor undo stack
 
 		bool IsFavorite(const std::string& genericPath) const;
 		void ToggleFavorite(const std::string& genericPath);

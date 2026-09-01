@@ -56,7 +56,6 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
-#include <fstream>
 #include <functional>
 #include <limits>
 #include <vector>
@@ -468,6 +467,12 @@ namespace Lux {
 
 		if (contentBrowserPanel)
 		{
+			// Route content-browser asset delete/move/rename onto the editor undo stack.
+			contentBrowserPanel->SetUndoPush([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+			{
+				PushUndoCommand(label, std::move(undo), std::move(redo));
+			});
+
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Scene, [this](const AssetMetadata& metadata)
 			{
 				OpenScene(metadata.Handle);

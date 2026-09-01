@@ -1620,20 +1620,47 @@ namespace Lux {
 		return true;
 	}
 
-	bool ContentBrowserPanel::DeleteAsset(AssetHandle handle)
+	std::filesystem::path ContentBrowserPanel::TrashPathFor(AssetHandle handle, const std::filesystem::path& originalFileName)
 	{
-		AssetMetadata metadata = Project::GetEditorAssetManager()->GetMetadata(handle);
+		// Trash lives in the project directory, NOT under Assets/ — ProcessDirectory recurses the asset
+		// tree and would otherwise re-import trashed files. The handle prefix keeps names unique.
+		return Project::GetActiveProjectDirectory() / ".trash" / (std::to_string((uint64_t)handle) + "__" + originalFileName.string());
+	}
+
+	bool ContentBrowserPanel::TrashAsset(AssetHandle handle)
+	{
+		auto assetManager = Project::GetEditorAssetManager();
+		AssetMetadata metadata = assetManager->GetMetadata(handle);
 		if (!metadata.IsValid())
 			return false;
 
-		if (!FileSystem::DeleteFile(Project::GetEditorAssetManager()->GetFileSystemPath(metadata)))
+		const std::filesystem::path sourcePath = assetManager->GetFileSystemPath(metadata);
+		const std::filesystem::path trashPath = TrashPathFor(handle, metadata.FilePath.filename());
+		FileSystem::CreateDirectory(trashPath.parent_path());
+		if (!FileSystem::Move(sourcePath, trashPath))   // move, never delete — undo restores it
 			return false;
 
-		Project::GetEditorAssetManager()->RemoveAsset(handle);
+		assetManager->RemoveAsset(handle);
+		assetManager->SerializeAssetRegistry();
 		return true;
 	}
 
-	bool ContentBrowserPanel::MoveAsset(AssetHandle handle, const std::filesystem::path& destination)
+	bool ContentBrowserPanel::RestoreAsset(AssetHandle handle, const AssetMetadata& metadata)
+	{
+		auto assetManager = Project::GetEditorAssetManager();
+		const std::filesystem::path originalPath = Project::GetActiveAssetDirectory() / metadata.FilePath;
+		const std::filesystem::path trashPath = TrashPathFor(handle, metadata.FilePath.filename());
+		if (!FileSystem::Move(trashPath, originalPath))
+			return false;
+
+		AssetMetadata restored = metadata;
+		restored.FileLastWriteTime = FileSystem::GetLastWriteTime(originalPath);
+		assetManager->SetMetadata(handle, restored);   // same handle, so scene references still resolve
+		assetManager->SerializeAssetRegistry();
+		return true;
+	}
+
+	bool ContentBrowserPanel::RawMoveAsset(AssetHandle handle, const std::filesystem::path& destination)
 	{
 		AssetMetadata metadata = Project::GetEditorAssetManager()->GetMetadata(handle);
 		if (!metadata.IsValid())
@@ -1654,7 +1681,7 @@ namespace Lux {
 		return true;
 	}
 
-	bool ContentBrowserPanel::RenameAsset(AssetHandle handle, const std::string& newName)
+	bool ContentBrowserPanel::RawRenameAsset(AssetHandle handle, const std::string& newName)
 	{
 		if (newName.empty())
 			return false;
@@ -1681,6 +1708,62 @@ namespace Lux {
 		metadata.FileLastWriteTime = FileSystem::GetLastWriteTime(destinationPath);
 		Project::GetEditorAssetManager()->SetMetadata(handle, metadata);
 		Project::GetEditorAssetManager()->SerializeAssetRegistry();
+		return true;
+	}
+
+	bool ContentBrowserPanel::DeleteAsset(AssetHandle handle)
+	{
+		AssetMetadata metadata = Project::GetEditorAssetManager()->GetMetadata(handle);
+		if (!metadata.IsValid())
+			return false;
+
+		if (!TrashAsset(handle))
+			return false;
+
+		if (m_UndoPush)
+		{
+			m_UndoPush("Delete Asset",
+				[handle, metadata]() { RestoreAsset(handle, metadata); Get().Refresh(); },
+				[handle]() { TrashAsset(handle); Get().Refresh(); });
+		}
+		return true;
+	}
+
+	bool ContentBrowserPanel::MoveAsset(AssetHandle handle, const std::filesystem::path& destination)
+	{
+		AssetMetadata metadata = Project::GetEditorAssetManager()->GetMetadata(handle);
+		if (!metadata.IsValid())
+			return false;
+
+		const std::filesystem::path originalDir = metadata.FilePath.parent_path();
+		if (!RawMoveAsset(handle, destination))
+			return false;
+
+		if (m_UndoPush)
+		{
+			m_UndoPush("Move Asset",
+				[handle, originalDir]() { RawMoveAsset(handle, originalDir); Get().Refresh(); },
+				[handle, destination]() { RawMoveAsset(handle, destination); Get().Refresh(); });
+		}
+		return true;
+	}
+
+	bool ContentBrowserPanel::RenameAsset(AssetHandle handle, const std::string& newName)
+	{
+		AssetMetadata metadata = Project::GetEditorAssetManager()->GetMetadata(handle);
+		if (!metadata.IsValid())
+			return false;
+
+		const std::string oldName = Project::GetEditorAssetManager()->GetFileSystemPath(metadata).stem().string();
+		if (!RawRenameAsset(handle, newName))
+			return false;
+
+		if (m_UndoPush)
+		{
+			m_UndoPush("Rename Asset",
+				[handle, oldName]() { RawRenameAsset(handle, oldName); Get().Refresh(); },
+				[handle, newName]() { RawRenameAsset(handle, newName); Get().Refresh(); });
+		}
 		return true;
 	}
 
