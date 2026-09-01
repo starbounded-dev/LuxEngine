@@ -287,12 +287,14 @@ namespace Lux
 
 	void TextEditorPanel::UI_Toolbar()
 	{
-		// Wordmark.
-		ImGui::AlignTextToFramePadding();
-		if (ImFont* display = ImGuiEx::Fonts::Get("Display"))
+		// Wordmark. Push the display font first so AlignTextToFramePadding uses its metrics and the
+		// wordmark lines up vertically with the toolbar buttons.
+		ImFont* display = ImGuiEx::Fonts::Get("Display");
+		if (display)
 			ImGui::PushFont(display);
+		ImGui::AlignTextToFramePadding();
 		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent), "BEAM");
-		if (ImGuiEx::Fonts::Get("Display"))
+		if (display)
 			ImGui::PopFont();
 
 		ImGui::SameLine(0.0f, 12.0f);
@@ -308,8 +310,8 @@ namespace Lux
 		if (ToolbarIconButton("find", LUX_ICON_SEARCH, "Find / Replace  (Ctrl+F)") && doc)
 			doc->Editor.OpenFindReplaceWindow();
 
-		// Editor / Diff toggle on the right.
-		const float toggleWidth = 120.0f;
+		// Editor / Diff toggle, flush to the right edge. Two 26px buttons with a 2px gap.
+		const float toggleWidth = 26.0f * 2.0f + 2.0f;
 		ImGui::SameLine(ImGui::GetContentRegionMax().x - toggleWidth);
 		if (ToolbarIconButton("mode_editor", LUX_ICON_CODE, "Editor", !m_DiffMode))
 			m_DiffMode = false;
@@ -325,9 +327,6 @@ namespace Lux
 
 		if (!ImGui::BeginTabBar("##beam_tabs", flags))
 			return;
-
-		if (ImGui::TabItemButton(LUX_ICON_PLUS "##beam_new_tab", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
-			NewDocument();
 
 		int closeRequest = -1;
 		for (int i = 0; i < (int)m_Documents.size(); i++)
@@ -354,6 +353,11 @@ namespace Lux
 		}
 
 		m_SelectActiveTab = false;
+
+		// New-tab button immediately after the last tab (no Trailing flag, which would strand it at
+		// the far-right edge of the tab bar).
+		if (ImGui::TabItemButton(LUX_ICON_PLUS "##beam_new_tab", ImGuiTabItemFlags_NoTooltip))
+			NewDocument();
 
 		ImGui::EndTabBar();
 
@@ -416,7 +420,9 @@ namespace Lux
 
 		HandleShortcuts();
 		UI_Toolbar();
-		ImGui::Separator();
+		// A definite gap (not a hard separator line, which collided with the tab strip) so the toolbar
+		// row and the tab bar don't crowd each other.
+		ImGui::Dummy(ImVec2(0.0f, 6.0f));
 
 		if (m_DiffMode)
 		{
@@ -432,10 +438,9 @@ namespace Lux
 			return;
 		}
 
-		UI_Tabs();
-
-		Document* doc = ActiveDocument();
-		if (!doc)
+		// No tab bar (and no lone "+") when nothing is open — the toolbar's New button and Ctrl+N
+		// already cover creating the first file.
+		if (m_Documents.empty())
 		{
 			ImGui::Spacing();
 			ImGui::TextDisabled("No file open.  Press Ctrl+N for a new file, or open one from the Content Browser.");
@@ -443,11 +448,23 @@ namespace Lux
 			return;
 		}
 
-		UI_StatusBar(*doc);
+		UI_Tabs();
+
+		Document* doc = ActiveDocument();
+		if (!doc)
+		{
+			ImGui::End();
+			return;
+		}
+
 		UI_GoToLinePopup(*doc);
 
+		// Editor fills the space above a one-line status bar pinned to the bottom.
+		const float statusBarHeight = ImGui::GetTextLineHeightWithSpacing();
 		const std::string editorId = std::format("##beam_editor_{}", static_cast<const void*>(doc));
-		doc->Editor.Render(editorId.c_str(), ImVec2(-1.0f, -1.0f), true);
+		doc->Editor.Render(editorId.c_str(), ImVec2(-1.0f, -statusBarHeight), true);
+
+		UI_StatusBar(*doc);
 
 		ImGui::End();
 	}
