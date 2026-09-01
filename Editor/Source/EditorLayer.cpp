@@ -506,6 +506,13 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
 		SaveEditorPreferences();
 
+		// Release the active project + asset manager now, while the Vulkan device is still alive.
+		// Project::s_AssetManager is a static Ref that would otherwise be destroyed at program exit —
+		// long after the device — and freeing its cached scenes' GPU resources (IndexBuffers, etc.)
+		// against a dead device segfaults on shutdown. SetActive(nullptr) runs its Shutdown() and drops
+		// the reference here instead.
+		Project::SetActive(nullptr);
+
 		m_ActiveScene.reset();
 		m_EditorScene.reset();
 		m_Framebuffer.reset();
