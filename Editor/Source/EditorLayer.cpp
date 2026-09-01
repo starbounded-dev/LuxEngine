@@ -690,6 +690,7 @@ namespace Lux {
 			// After the panels have drawn (and possibly signalled an edit), decide whether to record
 			// an undo snapshot. Runs here so it sees this frame's edits and the final active-item state.
 			PollSceneEditForUndo();
+			UI_UndoToast();
 
 			RenderRuntimeExportWindow();
 
@@ -3006,6 +3007,8 @@ namespace Lux {
 			RestoreSelection(affected);
 		}
 
+		m_UndoToastText = "Undo: " + command.Label;
+		m_UndoToastTime = ImGui::GetTime();
 		redoStack.push_back(std::move(command));
 	}
 
@@ -3044,6 +3047,8 @@ namespace Lux {
 			RestoreSelection(affected);
 		}
 
+		m_UndoToastText = "Redo: " + command.Label;
+		m_UndoToastTime = ImGui::GetTime();
 		undoStack.push_back(std::move(command));
 	}
 
@@ -3082,6 +3087,35 @@ namespace Lux {
 			if (m_EditorScene->TryGetEntityWithUUID(handle))
 				SelectionManager::Select(SelectionContext::Scene, handle);
 		}
+	}
+
+	void EditorLayer::UI_UndoToast()
+	{
+		constexpr double kVisibleSeconds = 1.6;
+		constexpr double kFadeSeconds = 0.5;
+
+		const double age = ImGui::GetTime() - m_UndoToastTime;
+		if (m_UndoToastText.empty() || age < 0.0 || age > kVisibleSeconds + kFadeSeconds)
+			return;
+
+		const float alpha = age <= kVisibleSeconds ? 1.0f : 1.0f - static_cast<float>((age - kVisibleSeconds) / kFadeSeconds);
+
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		const ImVec2 position(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y + viewport->WorkSize.y - 48.0f);
+		ImGui::SetNextWindowPos(position, ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+		ImGui::SetNextWindowBgAlpha(0.9f);
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
+			| ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
+
+		ImGuiEx::ScopedStyle fade(ImGuiStyleVar_Alpha, alpha);   // fades text + background uniformly
+		ImGuiEx::ScopedStyle rounding(ImGuiStyleVar_WindowRounding, 6.0f);
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 8.0f));
+		ImGuiEx::ScopedColour text(ImGuiCol_Text, Colors::Theme::textBrighter);
+		if (ImGui::Begin("##UndoToast", nullptr, flags))
+			ImGui::TextUnformatted(m_UndoToastText.c_str());
+		ImGui::End();
 	}
 
 	void EditorLayer::AdoptEditorScene(const Ref<Scene>& scene)

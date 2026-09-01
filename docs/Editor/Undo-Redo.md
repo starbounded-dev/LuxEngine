@@ -301,10 +301,16 @@ confirmed the round-trip, including the mid-play runtime restart.
 **Still optional (deferred):** snapshot **compression**, and an on-disk **undo journal** for crash
 recovery — neither needed yet.
 
-### Phase 9 — Polish
+### Phase 9 — Polish ✅ (done)
 
-Undo/redo toasts, coalescing tuning per widget type, keyboard-repeat handling for held `Ctrl+Z`, and
-accessibility of the History panel.
+- **Undo/redo toasts** — after an undo or redo, a transient "Undo: &lt;label&gt;" / "Redo: &lt;label&gt;" pill
+  fades in at the bottom of the window (`EditorLayer::UI_UndoToast`, ~1.6 s visible + 0.5 s fade), so
+  the action registers even when the change is off-screen or subtle.
+
+Intentionally skipped (low value / debatable): **held-`Ctrl+Z` key-repeat** (mass-undo-on-hold is
+easy to trigger by accident — a discrete press per step is safer), **per-widget coalescing tuning**
+(the commit-on-`IsAnyItemActive` rule already gives one step per drag), and extra **History-panel
+accessibility** work. Revisit if a concrete need shows up.
 
 ---
 
