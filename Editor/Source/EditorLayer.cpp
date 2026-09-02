@@ -1009,6 +1009,32 @@ namespace Lux {
 		add("About LuxEngine", "Help", "", [this] { m_ShowAboutPopup = true; });
 	}
 
+	void EditorLayer::SetCameraBookmark(int slot)
+	{
+		if (slot < 1 || slot > 9 || !m_EditorViewport)
+			return;
+
+		const EditorCamera& camera = m_EditorViewport->GetCamera();
+		CameraBookmark& bookmark = m_CameraBookmarks[slot];
+		bookmark.FocalPoint = camera.GetFocalPoint();
+		bookmark.Distance = camera.GetDistance();
+		bookmark.Pitch = camera.GetPitch();
+		bookmark.Yaw = camera.GetYaw();
+		bookmark.Set = true;
+	}
+
+	void EditorLayer::JumpToCameraBookmark(int slot)
+	{
+		if (slot < 1 || slot > 9 || !m_EditorViewport)
+			return;
+
+		const CameraBookmark& bookmark = m_CameraBookmarks[slot];
+		if (!bookmark.Set)
+			return;
+
+		m_EditorViewport->GetCamera().SetOrbitState(bookmark.FocalPoint, bookmark.Distance, bookmark.Pitch, bookmark.Yaw);
+	}
+
 	void EditorLayer::UI_DrawMenubar()
 	{
 		const ImVec2 menuBarMin = ImGui::GetCursorPos();
@@ -1115,6 +1141,30 @@ namespace Lux {
 			{
 				if (ImGui::MenuItem("Reset Layout"))
 					ResetDefaultDockLayout(ImGui::GetID("MyDockSpace"));
+
+				if (ImGui::BeginMenu("Camera Bookmarks"))
+				{
+					for (int slot = 1; slot <= 9; slot++)
+					{
+						const CameraBookmark& bookmark = m_CameraBookmarks[slot];
+						char jumpLabel[32];
+						std::snprintf(jumpLabel, sizeof(jumpLabel), "Jump to %d", slot);
+						if (ImGui::MenuItem(jumpLabel, std::to_string(slot).c_str(), false, bookmark.Set))
+							JumpToCameraBookmark(slot);
+
+						char setLabel[40];
+						std::snprintf(setLabel, sizeof(setLabel), "Set %d from current view", slot);
+						char setShortcut[16];
+						std::snprintf(setShortcut, sizeof(setShortcut), "Ctrl+%d", slot);
+						if (ImGui::MenuItem(setLabel, setShortcut))
+							SetCameraBookmark(slot);
+
+						if (slot != 9)
+							ImGui::Separator();
+					}
+					ImGui::EndMenu();
+				}
+
 				ImGui::Separator();
 
 				auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
@@ -1831,6 +1881,19 @@ namespace Lux {
 			break;
 
 		default: break;
+		}
+
+		// Viewport camera bookmarks: Ctrl+<1-9> stores the current view, <1-9> jumps to it. Gated on
+		// the viewport being hovered and no text field active, so digits typed elsewhere are untouched.
+		const int keyCode = static_cast<int>(e.GetKeyCode());
+		if (keyCode >= static_cast<int>(Key::D1) && keyCode <= static_cast<int>(Key::D9)
+			&& m_EditorViewport && m_EditorViewport->IsHovered() && !ImGui::GetIO().WantTextInput)
+		{
+			const int slot = keyCode - static_cast<int>(Key::D0);
+			if (control && !shift)
+				SetCameraBookmark(slot);
+			else if (!control && !shift)
+				JumpToCameraBookmark(slot);
 		}
 
 		return false;

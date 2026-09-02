@@ -21,6 +21,8 @@ namespace Lux {
 		void Init();
 
 		void Focus(const glm::vec3& focusPoint);
+		// Restore a full orbit pose (used by viewport camera bookmarks).
+		void SetOrbitState(const glm::vec3& focalPoint, float distance, float pitch, float yaw);
 		void OnUpdate(Timestep ts);
 		void OnEvent(Event& e);
 

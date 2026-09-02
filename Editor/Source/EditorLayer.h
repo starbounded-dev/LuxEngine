@@ -56,6 +56,8 @@ namespace Lux
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
 		void RegisterCommands();
+		void SetCameraBookmark(int slot);       // 1..9, captures the current editor camera
+		void JumpToCameraBookmark(int slot);
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
 		void SetEditorLayoutMode(bool simple);
 		void UI_TitlebarTransport(float titlebarWidth);
@@ -184,6 +186,17 @@ namespace Lux
 		Ref<EditorConsolePanel> m_ConsolePanel;
 
 		Scope<CommandPalette> m_CommandPalette;
+
+		// Viewport camera bookmarks: Ctrl+<1-9> sets, <1-9> jumps (session-only for now).
+		struct CameraBookmark
+		{
+			glm::vec3 FocalPoint{ 0.0f };
+			float Distance = 10.0f;
+			float Pitch = 0.0f;
+			float Yaw = 0.0f;
+			bool Set = false;
+		};
+		std::array<CameraBookmark, 10> m_CameraBookmarks{};   // slots 1..9; index 0 unused
 
 		// Temp
 		Ref<VertexBuffer> m_SquareVA;

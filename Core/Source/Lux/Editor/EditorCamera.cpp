@@ -237,6 +237,20 @@ namespace Lux {
 		UpdateCameraView();
 	}
 
+	void EditorCamera::SetOrbitState(const glm::vec3& focalPoint, float distance, float pitch, float yaw)
+	{
+		m_FocalPoint = focalPoint;
+		m_Distance = glm::max(distance, 0.01f);
+		m_Pitch = pitch;
+		m_Yaw = yaw;
+		m_PitchDelta = 0.0f;
+		m_YawDelta = 0.0f;
+		m_PositionDelta = glm::vec3(0.0f);
+		m_CameraMode = CameraMode::ARCBALL;
+		m_Position = m_FocalPoint - GetForwardDirection() * m_Distance;
+		UpdateCameraView();
+	}
+
 	std::pair<float, float> EditorCamera::PanSpeed() const
 	{
 		const float x = glm::min(float(m_ViewportRight - m_ViewportLeft) / 1000.0f, 2.4f); // max = 2.4f
