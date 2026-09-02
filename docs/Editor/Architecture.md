@@ -145,7 +145,7 @@ Registered in `OnAttach` (`EditorLayer.cpp:350`–`393`), all under `PanelCatego
 | Log | `EditorConsolePanel` | ✔ | [Panels](Panels.md#log--console) |
 | Scene Renderer | `SceneRendererPanel` | ✘ | [Panels](Panels.md#scene-renderer) |
 | Renderer Debugger | `RendererDebuggerPanel` | ✘ | [Panels](Panels.md#renderer-debugger) |
-| Statistics | `StatisticsPanel` | ✘ | [Panels](Panels.md#statistics) |
+| Profiler | `ProfilerPanel` | ✘ | [Panels](Panels.md#profiler) |
 | History | `UndoHistoryPanel` | ✘ | [Undo / Redo](Undo-Redo.md) |
 | Application Settings | `ApplicationSettingsPanel` | ✘ | [Panels](Panels.md#application-settings) |
 | Asset Manager | `AssetManagerPanel` | ✘ | [Panels](Panels.md#asset-manager) |
@@ -205,7 +205,7 @@ Stop — so wireframe/collider overlays don't bleed into a play session. See
 - **Simple** — a minimal default: viewport, hierarchy, content browser, log. For everyday scene
   work.
 - **Advanced** — a fuller workspace with the diagnostic panels (Scene Renderer, Renderer Debugger,
-  Statistics) docked in.
+  Profiler) docked in.
 
 `SetEditorLayoutMode(bool simple)` requests a switch; because the dock rebuild needs the live
 dockspace id (only valid inside `OnImGuiRender`), the switch sets `m_PendingLayoutReset` and the

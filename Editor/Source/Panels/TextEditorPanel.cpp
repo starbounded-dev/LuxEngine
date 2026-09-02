@@ -325,8 +325,21 @@ namespace Lux
 		const ImGuiTabBarFlags flags = ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll
 			| ImGuiTabBarFlags_AutoSelectNewTabs;
 
+		// Neutral, elevated tab styling — local to Beam. The global theme tints the active tab (and,
+		// crucially, the tab-strip underline that ImGui draws with ImGuiCol_TabActive) in translucent
+		// lime, which showed up as a stray green line under this panel's tabs. A raised grey reads as
+		// a clean tab strip; the active tab stays legible by being lighter than the dark inactive ones.
+		ImGui::PushStyleColor(ImGuiCol_Tab, ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark));
+		ImGui::PushStyleColor(ImGuiCol_TabHovered, ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundPopup));
+		ImGui::PushStyleColor(ImGuiCol_TabActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader));
+		ImGui::PushStyleColor(ImGuiCol_TabUnfocused, ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark));
+		ImGui::PushStyleColor(ImGuiCol_TabUnfocusedActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader));
+
 		if (!ImGui::BeginTabBar("##beam_tabs", flags))
+		{
+			ImGui::PopStyleColor(5);
 			return;
+		}
 
 		int closeRequest = -1;
 		for (int i = 0; i < (int)m_Documents.size(); i++)
@@ -360,6 +373,7 @@ namespace Lux
 			NewDocument();
 
 		ImGui::EndTabBar();
+		ImGui::PopStyleColor(5);
 
 		if (closeRequest >= 0)
 			CloseDocument(closeRequest);

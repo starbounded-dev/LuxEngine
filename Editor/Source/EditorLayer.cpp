@@ -44,7 +44,7 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
-#include "Panels/StatisticsPanel.h"
+#include "Panels/ProfilerPanel.h"
 #include "Panels/UndoHistoryPanel.h"
 #include "Panels/ApplicationSettingsPanel.h"
 #include "Panels/AssetManagerPanel.h"
@@ -357,7 +357,7 @@ namespace Lux {
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
-		m_StatisticsPanel = m_PanelManager->AddPanel<StatisticsPanel>(PanelCategory::View, "StatisticsPanel", "Statistics", false);
+		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
 
 		{
 			UndoHistoryPanel::Bindings historyBindings;
@@ -419,6 +419,10 @@ namespace Lux {
 		// Light Settings panel
 		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", false);
 
+		// Command palette (Ctrl+Shift+P) — populated after every panel exists so panel toggles resolve.
+		m_CommandPalette = CreateScope<CommandPalette>();
+		RegisterCommands();
+
 		m_IconPlay = LoadTextureFromPath("Resources/Editor/Viewport/Play.png");
 		m_IconPause = LoadTextureFromPath("Resources/Editor/Viewport/Pause.png");
 		m_IconSimulate = LoadTextureFromPath("Resources/Editor/Viewport/Simulate.png");
@@ -458,8 +462,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
-		if (m_StatisticsPanel)
-			m_StatisticsPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
@@ -529,7 +533,7 @@ namespace Lux {
 		m_EditorViewport.reset();
 		m_SceneRenderer.reset();
 		m_RendererDebuggerPanel.reset();
-		m_StatisticsPanel.reset();
+		m_ProfilerPanel.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
 		EditorResources::Shutdown();
@@ -726,6 +730,17 @@ namespace Lux {
 				}
 
 				ImGui::EndPopup();
+			}
+
+			// Command palette overlay — drawn late, brings itself to front via SetNextWindowFocus.
+			// The Ctrl+Shift+P chord is read through ImGui's own input rather than the engine key
+			// event, so it fires regardless of which panel currently holds keyboard focus.
+			if (m_CommandPalette)
+			{
+				if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P))
+					m_CommandPalette->Toggle();
+
+				m_CommandPalette->OnImGuiRender();
 			}
 
 			// Viewport panel
@@ -936,6 +951,64 @@ namespace Lux {
 		m_PendingLayoutReset = true;
 	}
 
+	void EditorLayer::RegisterCommands()
+	{
+		m_CommandPalette->Clear();
+
+		auto add = [this](const char* name, const char* category, const char* shortcut,
+			std::function<void()> action, std::function<bool()> enabled = nullptr)
+		{
+			m_CommandPalette->Register({ name, category, shortcut, std::move(action), std::move(enabled) });
+		};
+
+		// File
+		add("New Scene", "File", "Ctrl+N", [this] { NewScene(); });
+		add("Save Scene", "File", "Ctrl+S", [this] { SaveScene(); });
+		add("Save Scene As…", "File", "Ctrl+Shift+S", [this] { SaveSceneAs(); });
+		add("Open Project…", "File", "Ctrl+O", [this] { OpenProject(); });
+		add("Save Project", "File", "", [this] { SaveProject(); });
+		add("Export Runtime…", "File", "", [this] { ExportRuntime(); });
+		add("Exit", "File", "", []
+		{
+			Application::Get().QueueEvent([] { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		});
+
+		// Edit
+		add("Undo", "Edit", "Ctrl+Z", [this] { UndoSceneEdit(); }, [this] { return !ActiveUndoStack().empty(); });
+		add("Redo", "Edit", "Ctrl+Shift+Z", [this] { RedoSceneEdit(); }, [this] { return !ActiveRedoStack().empty(); });
+		add("Reload C# Assembly", "Edit", "Ctrl+R", [this]
+		{
+			Project::GetActive()->ReloadScriptEngine();
+			if (m_ActiveScene)
+				m_ActiveScene->GetScriptStorage().SynchronizeStorage();
+		});
+		add("Reload All Shaders", "Edit", "Ctrl+Shift+R", [] { Renderer::ReloadShaders(true); });
+
+		// Scene transport
+		add("Play", "Scene", "", [this] { OnScenePlay(); }, [this] { return m_SceneState == SceneState::Edit; });
+		add("Simulate Physics", "Scene", "", [this] { OnSceneSimulate(); }, [this] { return m_SceneState == SceneState::Edit; });
+		add("Stop", "Scene", "", [this] { OnSceneStop(); }, [this] { return m_SceneState != SceneState::Edit; });
+
+		// View
+		add("Reset Window Layout", "View", "", [this] { ResetDefaultDockLayout(ImGui::GetID("MyDockSpace")); });
+
+		// A toggle-open command for every registered panel, resolved by ID at run time.
+		for (auto& [id, panelData] : m_PanelManager->GetPanels(PanelCategory::View))
+		{
+			const uint32_t panelID = id;
+			add(panelData.Name, "Panel", "", [this, panelID]
+			{
+				if (PanelData* data = m_PanelManager->GetPanelData(panelID))
+					data->IsOpen = true;
+			});
+		}
+
+		// Tools
+		add("ImGui Metrics", "Tools", "", [this] { m_ShowImGuiMetrics = true; });
+		add("ImGui Style Editor", "Tools", "", [this] { m_ShowImGuiStyleEditor = true; });
+		add("About LuxEngine", "Help", "", [this] { m_ShowAboutPopup = true; });
+	}
+
 	void EditorLayer::UI_DrawMenubar()
 	{
 		const ImVec2 menuBarMin = ImGui::GetCursorPos();
@@ -1052,6 +1125,9 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("Tools"))
 			{
+				if (ImGui::MenuItem("Command Palette", "Ctrl+Shift+P") && m_CommandPalette)
+					m_CommandPalette->Open();
+				ImGui::Separator();
 				ImGui::MenuItem("ImGui Metrics", nullptr, &m_ShowImGuiMetrics);
 				ImGui::MenuItem("ImGui Style Editor", nullptr, &m_ShowImGuiStyleEditor);
 				ImGui::EndMenu();
@@ -2757,8 +2833,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
-		if (m_StatisticsPanel)
-			m_StatisticsPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OpenScene()
@@ -2803,8 +2879,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
-		if (m_StatisticsPanel)
-			m_StatisticsPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 
 		ResetUndoHistory();
 	}
@@ -3143,8 +3219,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
-		if (m_StatisticsPanel)
-			m_StatisticsPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 
 		// Keep the settings baseline aligned with the (unchanged) renderer after a scene restore, so a
 		// scene undo/redo never looks like a settings change.
@@ -3281,8 +3357,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
-		if (m_StatisticsPanel)
-			m_StatisticsPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::SaveScene()
@@ -3479,8 +3555,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
-		if (m_StatisticsPanel)
-			m_StatisticsPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 
 		BeginPlayUndoHistory();   // transient play-mode undo, over the runtime scene
 	}
@@ -3509,8 +3585,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
-		if (m_StatisticsPanel)
-			m_StatisticsPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 
 		BeginPlayUndoHistory();   // transient play-mode undo, over the runtime scene
 	}
@@ -3550,8 +3626,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
-		if (m_StatisticsPanel)
-			m_StatisticsPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnScenePause()

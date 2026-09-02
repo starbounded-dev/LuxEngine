@@ -201,26 +201,51 @@ Renderer Settings** button (project-level) and the "Unsaved renderer settings" d
 **Registered as:** "Renderer Debugger", closed by default.
 
 The deep per-pass GPU profiler: a frame-history plot and a per-pass GPU-time bar chart (ImPlot),
-plus render-graph introspection. Distinct from **Statistics**, which is the lightweight always-on
-overview. Use this when you need to see where GPU time goes pass-by-pass.
+plus render-graph introspection. Distinct from the **Profiler**, which is the consolidated
+CPU+GPU overview. Use this when you need render-graph-level detail beyond the Profiler's pass list.
 
 ---
 
-## Statistics
+## Profiler
 
-**Class:** `StatisticsPanel` · `Editor/Source/Panels/StatisticsPanel.{h,cpp}`.
-**Registered as:** "Statistics", closed by default.
+**Class:** `ProfilerPanel` · `Editor/Source/Panels/ProfilerPanel.{h,cpp}`.
+**Registered as:** "Profiler", closed by default.
 
-> A lightweight, always-available performance overview: a Tracy-style frame-time timeline plus the
-> headline CPU/GPU/draw/memory metrics. Deliberately separate from the `RendererDebuggerPanel`, which
-> keeps the deep per-pass profiler. (`StatisticsPanel.h:10`)
+The consolidated in-editor performance view — pure visualization over data the engine already
+collects, so it adds no instrumentation of its own:
 
-Numbers use the **Mono** font; the timeline uses ImPlot. Use this for an at-a-glance health check.
+- **Stat chips** — FPS, frame time, CPU (main-thread work), GPU (scene) — turning red over the
+  selected frame budget (30/60/120/144 fps).
+- **Frame-time graph** — CPU (lime) and GPU (orange) history overlaid, with a dashed budget line;
+  pausable.
+- **CPU** — the coarse `Application::PerformanceTimers` (main/render thread work & wait, script,
+  physics) plus every named `ScopePerfTimer` zone (`Application::GetProfilerPreviousFrameData()`),
+  sorted by cost.
+- **GPU Passes** — `SceneRenderer::Statistics::PassProfiles` sorted by GPU time, with pipeline
+  statistics.
+- **Scene & Memory** — draw calls, visible/GPU-visible instances, and VRAM/texture/buffer/render-
+  target usage (folded in from the former Statistics panel).
 
-> **Build note:** `StatisticsPanel` is a source file that must be in the generated project. On
+This replaced the old lightweight **Statistics** panel; the Renderer Debugger keeps the deeper
+per-pass render-graph view.
+
+> **Build note:** `ProfilerPanel` is a source file that must be in the generated project. On
 > Windows, adding it requires re-running `scripts\Win-GenProjects.bat`, or you get
-> `LNK2001 unresolved external symbol … StatisticsPanel::OnImGuiRender`. Premake does not regenerate
+> `LNK2001 unresolved external symbol … ProfilerPanel::OnImGuiRender`. Premake does not regenerate
 > itself (see `.claude/docs/Building.md`).
+
+---
+
+## Command Palette
+
+**Class:** `CommandPalette` · `Editor/Source/CommandPalette.{h,cpp}`.
+**Invoked with:** `Ctrl+Shift+P` (not a docked panel — a centered overlay owned by `EditorLayer`).
+
+A fuzzy-searchable launcher for every menu action and panel: type to filter, `↑`/`↓` to move,
+`Enter` to run, `Esc` or click-outside to dismiss. `EditorLayer::RegisterCommands()` builds the list
+(File/Edit/Scene/View/Tools/Help actions plus a toggle-open command for each registered panel);
+commands carry an optional `Enabled` predicate so context-invalid entries (e.g. Undo with an empty
+stack) grey out.
 
 ---
 

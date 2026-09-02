@@ -25,8 +25,8 @@ namespace Lux {
 
 	namespace {
 
-		// 60/30 FPS frame budgets and the graph-semantic series colours (see StatisticsPanel for the
-		// same convention: these are data colours, not theme UI colours).
+		// 60/30 FPS frame budgets and the graph-semantic series colours (data colours, not theme UI
+		// colours).
 		constexpr float kBudget60FPS = 1000.0f / 60.0f; // 16.67 ms
 		constexpr ImU32 kCPUColor = IM_COL32(120, 170, 255, 255);   // blue-ish CPU series
 		constexpr ImU32 kGPUColor = IM_COL32(200, 255, 77, 255);    // lime GPU series (on-brand)

@@ -8,6 +8,7 @@
 #include <map>
 
 #include "Panels/LightSettingsPanel.h"
+#include "CommandPalette.h"
 #include "Lux/Editor/EditorConsolePanel.h"
 
 #include "Lux/Asset/Asset.h"
@@ -31,7 +32,7 @@ namespace Lux
 	class SceneHierarchyPanel;
 	class SceneRendererPanel;
 	class RendererDebuggerPanel;
-	class StatisticsPanel;
+	class ProfilerPanel;
 
 	class EditorLayer : public Layer
 	{
@@ -54,6 +55,7 @@ namespace Lux
 		void OnOverlayRender();
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
+		void RegisterCommands();
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
 		void SetEditorLayoutMode(bool simple);
 		void UI_TitlebarTransport(float titlebarWidth);
@@ -178,8 +180,10 @@ namespace Lux
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
-		Ref<StatisticsPanel> m_StatisticsPanel;
+		Ref<ProfilerPanel> m_ProfilerPanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
+
+		Scope<CommandPalette> m_CommandPalette;
 
 		// Temp
 		Ref<VertexBuffer> m_SquareVA;

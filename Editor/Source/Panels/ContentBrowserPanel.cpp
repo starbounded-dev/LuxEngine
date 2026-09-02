@@ -548,15 +548,6 @@ namespace Lux {
 			m_ThumbnailCache->Clear();
 		ImGuiEx::SetTooltip("Clear thumbnail cache");
 
-		ImGui::SameLine(0.0f, 12.0f);
-		ImGui::SetNextItemWidth(220.0f);
-		ImGuiEx::Widgets::SearchWidget<MAX_INPUT_BUFFER_LENGTH>(m_SearchBuffer, "Search assets...", &m_FocusSearchWidget);
-		if (ImGui::IsItemDeactivatedAfterEdit())
-		{
-			if (m_CurrentDirectory)
-				ChangeDirectory(m_CurrentDirectory);
-		}
-
 		if (m_UpdateNavigationPath)
 		{
 			m_BreadCrumbData.clear();
@@ -571,16 +562,15 @@ namespace Lux {
 			m_UpdateNavigationPath = false;
 		}
 
-		ImGui::SameLine(0.0f, 16.0f);
-
-		// Flat mono breadcrumb, like the concept: dim root/path, accent-lime current folder.
+		// Breadcrumb, right after the nav buttons: dim ancestors, bright (neutral) current folder.
+		ImGui::SameLine(0.0f, 12.0f);
 		ImGuiEx::Fonts::PushFont("Mono");
 		ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
 		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(255, 255, 255, 16));
 		ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(255, 255, 255, 26));
 
 		std::string rootLabel = m_Project->GetConfig().AssetDirectory.string();
-		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(m_BreadCrumbData.empty() ? Colors::Theme::accent : Colors::Theme::textDarker));
+		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(m_BreadCrumbData.empty() ? Colors::Theme::text : Colors::Theme::textDarker));
 		if (ImGui::SmallButton(rootLabel.c_str()))
 			ChangeDirectory(m_BaseDirectory);
 		ImGui::PopStyleColor();
@@ -596,7 +586,7 @@ namespace Lux {
 			ImGui::SameLine(0.0f, 5.0f);
 
 			std::string directoryName = directory->FilePath.filename().string();
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(isCurrent ? Colors::Theme::accent : Colors::Theme::textDarker));
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(isCurrent ? Colors::Theme::text : Colors::Theme::textDarker));
 			if (ImGui::SmallButton(directoryName.c_str()))
 				ChangeDirectory(directory);
 			ImGui::PopStyleColor();
@@ -606,11 +596,27 @@ namespace Lux {
 		ImGui::PopStyleColor(3);
 		ImGuiEx::Fonts::PopFont();
 
-		// ---- Right controls: New (lime) · view toggle · sort · settings ----
+		// ---- Right-aligned group: search + New (lime) + view + sort + settings. The search is drawn
+		//      first, then the cursor is set past its input, because SearchWidget leaves the cursor mid-
+		//      field (over its overlaid icon) and would otherwise be overlapped by the next control. ----
 		{
-			const float rightWidth = 250.0f;
+			const float searchWidth = 200.0f;
+			const float rightWidth = 410.0f;
 			ImGui::SameLine();
-			ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - rightWidth));
+			ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX() + 16.0f, ImGui::GetContentRegionMax().x - rightWidth));
+
+			const float searchStartX = ImGui::GetCursorPosX();
+			ImGui::SetNextItemWidth(searchWidth);
+			ImGuiEx::Widgets::SearchWidget<MAX_INPUT_BUFFER_LENGTH>(m_SearchBuffer, "Search assets...", &m_FocusSearchWidget);
+			if (ImGui::IsItemDeactivatedAfterEdit())
+			{
+				if (m_CurrentDirectory)
+					ChangeDirectory(m_CurrentDirectory);
+			}
+
+			// Step past the search field (SearchWidget's overlaid icon leaves the cursor inside it).
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(searchStartX + searchWidth + 8.0f);
 
 			{
 				ImGuiEx::ScopedColour b(ImGuiCol_Button, Colors::Theme::accent);
