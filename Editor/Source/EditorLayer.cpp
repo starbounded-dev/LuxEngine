@@ -503,6 +503,7 @@ namespace Lux {
 		// Baseline the undo history against whatever scene ended up loaded (startup scene, or the
 		// empty default) so the first edit has a valid state to undo back to.
 		ResetUndoHistory();
+		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
 	}
 
 	void EditorLayer::OnDetach()
@@ -991,6 +992,8 @@ namespace Lux {
 
 		// View
 		add("Reset Window Layout", "View", "", [this] { ResetDefaultDockLayout(ImGui::GetID("MyDockSpace")); });
+		add("Bookmark Selected Entity", "View", "Ctrl+B", [this] { ToggleEntityBookmark(); },
+			[this] { return SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0; });
 
 		// A toggle-open command for every registered panel, resolved by ID at run time.
 		for (auto& [id, panelData] : m_PanelManager->GetPanels(PanelCategory::View))
@@ -1033,6 +1036,35 @@ namespace Lux {
 			return;
 
 		m_EditorViewport->GetCamera().SetOrbitState(bookmark.FocalPoint, bookmark.Distance, bookmark.Pitch, bookmark.Yaw);
+	}
+
+	void EditorLayer::ToggleEntityBookmark()
+	{
+		const auto& selections = SelectionManager::GetSelections(SelectionContext::Scene);
+		for (UUID id : selections)
+		{
+			auto it = std::find(m_EntityBookmarks.begin(), m_EntityBookmarks.end(), id);
+			if (it != m_EntityBookmarks.end())
+				m_EntityBookmarks.erase(it);
+			else
+				m_EntityBookmarks.push_back(id);
+		}
+	}
+
+	void EditorLayer::JumpToEntityBookmark(UUID entityID)
+	{
+		if (!m_EditorScene)
+			return;
+
+		Entity entity = m_EditorScene->TryGetEntityWithUUID(entityID);
+		if (!entity)
+			return;
+
+		SelectionManager::DeselectAll(SelectionContext::Scene);
+		SelectionManager::Select(SelectionContext::Scene, entityID);
+
+		if (m_EditorViewport)
+			m_EditorViewport->GetCamera().Focus(m_EditorScene->GetWorldSpaceTransform(entity).Translation);
 	}
 
 	void EditorLayer::UI_DrawMenubar()
@@ -1162,6 +1194,36 @@ namespace Lux {
 						if (slot != 9)
 							ImGui::Separator();
 					}
+					ImGui::EndMenu();
+				}
+
+				if (ImGui::BeginMenu("Entity Bookmarks"))
+				{
+					const bool hasSelection = SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0;
+					if (ImGui::MenuItem("Bookmark Selected", "Ctrl+B", false, hasSelection))
+						ToggleEntityBookmark();
+					ImGui::Separator();
+
+					bool anyShown = false;
+					if (m_EditorScene)
+					{
+						for (UUID id : m_EntityBookmarks)
+						{
+							Entity entity = m_EditorScene->TryGetEntityWithUUID(id);
+							if (!entity)
+								continue;   // stale UUID (e.g. deleted) — skip
+							anyShown = true;
+							ImGui::PushID(reinterpret_cast<void*>(static_cast<uintptr_t>(id)));
+							if (ImGui::MenuItem(entity.GetName().c_str()))
+								JumpToEntityBookmark(id);
+							ImGui::PopID();
+						}
+					}
+					if (!anyShown)
+						ImGui::MenuItem("No bookmarks", nullptr, false, false);
+					else if (ImGui::MenuItem("Clear All"))
+						m_EntityBookmarks.clear();
+
 					ImGui::EndMenu();
 				}
 
@@ -1855,6 +1917,7 @@ namespace Lux {
 			}
 			break;
 		case Key::D: if (control) OnDuplicateEntity(); break;
+		case Key::B: if (control) ToggleEntityBookmark(); break;
 
 		// Undo/redo. Skipped while a text field is active so ImGui's own in-field undo keeps Ctrl+Z.
 		case Key::Z:
@@ -2883,6 +2946,7 @@ namespace Lux {
 		m_PanelManager->SetSceneContext(m_ActiveScene);
 		m_EditorScenePath = std::filesystem::path();
 		ResetUndoHistory();
+		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
 
 		if (m_EditorViewport)
 		{
@@ -2946,6 +3010,7 @@ namespace Lux {
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
 
 		ResetUndoHistory();
+		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
 	}
 
 	std::map<UUID, std::string> EditorLayer::CaptureSceneEntities(const Ref<Scene>& scene, std::string& outMeta) const

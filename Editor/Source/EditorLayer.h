@@ -58,6 +58,8 @@ namespace Lux
 		void RegisterCommands();
 		void SetCameraBookmark(int slot);       // 1..9, captures the current editor camera
 		void JumpToCameraBookmark(int slot);
+		void ToggleEntityBookmark();            // pins/unpins the current selection
+		void JumpToEntityBookmark(UUID entityID); // select + frame the camera on it
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
 		void SetEditorLayoutMode(bool simple);
 		void UI_TitlebarTransport(float titlebarWidth);
@@ -197,6 +199,9 @@ namespace Lux
 			bool Set = false;
 		};
 		std::array<CameraBookmark, 10> m_CameraBookmarks{};   // slots 1..9; index 0 unused
+
+		// Pinned entities (by UUID) for the current scene; cleared on scene load, jump = select + frame.
+		std::vector<UUID> m_EntityBookmarks;
 
 		// Temp
 		Ref<VertexBuffer> m_SquareVA;
