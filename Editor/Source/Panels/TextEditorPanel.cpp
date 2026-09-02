@@ -140,11 +140,21 @@ namespace Lux
 
 		std::ofstream stream(doc.Path, std::ios::out | std::ios::binary | std::ios::trunc);
 		if (!stream)
-			return;
+		{
+			LUX_CONSOLE_LOG_ERROR("Beam: could not open '{}' for writing", doc.Path.string());
+			return; // keep Dirty so the user knows the file is not saved
+		}
 
 		const std::string text = doc.Editor.GetText();
 		stream.write(text.data(), static_cast<std::streamsize>(text.size()));
 		stream.flush();
+
+		if (!stream)
+		{
+			LUX_CONSOLE_LOG_ERROR("Beam: failed to write '{}'", doc.Path.string());
+			return; // write/flush failed — leave Dirty set
+		}
+
 		doc.Dirty = false;
 	}
 
@@ -156,12 +166,22 @@ namespace Lux
 
 	void TextEditorPanel::SaveAs(const std::filesystem::path& path)
 	{
-		if (Document* doc = ActiveDocument())
+		Document* doc = ActiveDocument();
+		if (!doc)
+			return;
+
+		// Refuse if another open tab already owns this path — two documents writing the same file
+		// would silently clobber each other.
+		const int existing = FindDocument(path);
+		if (existing >= 0 && m_Documents[existing].get() != doc)
 		{
-			doc->Path = path;
-			doc->Editor.SetLanguage(GetLanguageFromPath(path));
-			SaveDocument(*doc);
+			LUX_CONSOLE_LOG_ERROR("Beam: '{}' is already open in another tab", path.string());
+			return;
 		}
+
+		doc->Path = path;
+		doc->Editor.SetLanguage(GetLanguageFromPath(path));
+		SaveDocument(*doc);
 	}
 
 	void TextEditorPanel::CloseDocument(int index)
@@ -175,6 +195,69 @@ namespace Lux
 			m_ActiveDocument = -1;
 		else
 			m_ActiveDocument = std::min(m_ActiveDocument, (int)m_Documents.size() - 1);
+	}
+
+	void TextEditorPanel::RequestCloseDocument(int index)
+	{
+		if (index < 0 || index >= (int)m_Documents.size())
+			return;
+
+		// A dirty tab routes through a Save / Discard / Cancel prompt so edits aren't lost silently.
+		if (m_Documents[index]->Dirty)
+		{
+			m_PendingCloseIndex = index;
+			m_OpenCloseConfirm = true;
+			return;
+		}
+
+		CloseDocument(index);
+	}
+
+	void TextEditorPanel::UI_CloseConfirm()
+	{
+		if (m_OpenCloseConfirm)
+		{
+			ImGui::OpenPopup("Unsaved changes##beam_close");
+			m_OpenCloseConfirm = false;
+		}
+
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		if (!ImGui::BeginPopupModal("Unsaved changes##beam_close", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+			return;
+
+		const bool valid = m_PendingCloseIndex >= 0 && m_PendingCloseIndex < (int)m_Documents.size();
+		const std::string name = valid ? DocumentTitle(*m_Documents[m_PendingCloseIndex]) : std::string();
+		ImGui::Text("Save changes to \"%s\" before closing?", name.c_str());
+		ImGui::Spacing();
+
+		if (ImGui::Button("Save"))
+		{
+			if (valid)
+			{
+				SaveDocument(*m_Documents[m_PendingCloseIndex]);
+				// Only close when the save actually succeeded (SaveDocument clears Dirty on success).
+				if (!m_Documents[m_PendingCloseIndex]->Dirty)
+					CloseDocument(m_PendingCloseIndex);
+			}
+			m_PendingCloseIndex = -1;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Discard"))
+		{
+			if (valid)
+				CloseDocument(m_PendingCloseIndex);
+			m_PendingCloseIndex = -1;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel"))
+		{
+			m_PendingCloseIndex = -1;
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
 	}
 
 	void TextEditorPanel::SetText(const std::string& text)
@@ -240,7 +323,7 @@ namespace Lux
 		if (ImGui::IsKeyPressed(ImGuiKey_S, false))
 			Save();
 		if (ImGui::IsKeyPressed(ImGuiKey_W, false) && m_ActiveDocument >= 0)
-			CloseDocument(m_ActiveDocument);
+			RequestCloseDocument(m_ActiveDocument);
 		if (doc && ImGui::IsKeyPressed(ImGuiKey_F, false))
 			doc->Editor.OpenFindReplaceWindow();
 		if (doc && ImGui::IsKeyPressed(ImGuiKey_G, false))
@@ -376,7 +459,7 @@ namespace Lux
 		ImGui::PopStyleColor(5);
 
 		if (closeRequest >= 0)
-			CloseDocument(closeRequest);
+			RequestCloseDocument(closeRequest);
 	}
 
 	void TextEditorPanel::UI_StatusBar(Document& doc)
@@ -463,6 +546,7 @@ namespace Lux
 		}
 
 		UI_Tabs();
+		UI_CloseConfirm();
 
 		Document* doc = ActiveDocument();
 		if (!doc)

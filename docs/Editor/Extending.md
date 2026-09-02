@@ -211,4 +211,3 @@ If your extension has a setting to persist, use the right store:
 | Dock layout / open panels | `Editor/imgui.ini` + `PanelManager::Serialize` | automatic |
 
 See [Architecture → Persistence](Architecture.md#persistence).
-</content>

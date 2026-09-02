@@ -52,15 +52,19 @@ namespace Lux
 		int FindDocument(const std::filesystem::path& path) const;
 		void SaveDocument(Document& doc);
 		void CloseDocument(int index);
+		void RequestCloseDocument(int index);   // prompts before discarding a dirty tab
 		void HandleShortcuts();
 
 		void UI_Toolbar();
 		void UI_Tabs();
+		void UI_CloseConfirm();
 		void UI_StatusBar(Document& doc);
 		void UI_GoToLinePopup(Document& doc);
 
 		std::vector<Scope<Document>> m_Documents;
 		int m_ActiveDocument = -1;
+		int m_PendingCloseIndex = -1;       // tab awaiting a Save/Discard/Cancel decision
+		bool m_OpenCloseConfirm = false;    // request to open the confirmation popup next frame
 		bool m_OpenGoToLine = false;
 		bool m_SelectActiveTab = false;   // sync the tab bar after a shortcut-driven switch
 

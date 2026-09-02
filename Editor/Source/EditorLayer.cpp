@@ -909,10 +909,10 @@ namespace Lux {
 		ImGui::DockBuilderDockWindow("Content Browser", bottom);
 		ImGui::DockBuilderDockWindow("Log", bottom);
 		ImGui::DockBuilderDockWindow("Viewport", center);
-		ImGui::DockBuilderDockWindow("Text Editor", center);
+		ImGui::DockBuilderDockWindow("Beam", center);
 
 		// Advanced mode fills out the workspace with the diagnostic panels: a left-bottom group
-		// under the hierarchy (Scene Renderer / Light Settings / Statistics) and the Renderer
+		// under the hierarchy (Scene Renderer / Light Settings / Profiler) and the Renderer
 		// Debugger tabbed into the bottom dock. In Simple mode these stay closed (see
 		// SetEditorLayoutMode) and are absent from the default arrangement.
 		if (!m_SimpleLayout)
@@ -920,7 +920,7 @@ namespace Lux {
 			const ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.5f, nullptr, nullptr);
 			ImGui::DockBuilderDockWindow("Scene Renderer", leftBottom);
 			ImGui::DockBuilderDockWindow("Light Settings", leftBottom);
-			ImGui::DockBuilderDockWindow("Statistics", leftBottom);
+			ImGui::DockBuilderDockWindow("Profiler", leftBottom);
 			ImGui::DockBuilderDockWindow("Renderer Debugger", bottom);
 		}
 
@@ -933,7 +933,7 @@ namespace Lux {
 
 		// The advanced-only panels follow the mode: opened when entering Advanced, closed when
 		// returning to Simple. Everything else keeps whatever the user set.
-		static const char* const s_AdvancedPanels[] = { "Scene Renderer", "Light Settings", "Statistics", "Renderer Debugger" };
+		static const char* const s_AdvancedPanels[] = { "Scene Renderer", "Light Settings", "Profiler", "Renderer Debugger" };
 		auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
 		for (auto& [id, panelData] : viewPanels)
 		{

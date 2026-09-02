@@ -180,4 +180,3 @@ This is how double-clicking a `.luxscene` opens it and a `.cs` opens Beam (`Edit
 Type icons come from `EditorResources` textures (`FolderIcon`, `FileIcon`, `FBXFileIcon`, …, see
 [Theme, Fonts & Icons](Theme-Fonts-Icons.md#editorresources-textures)); live thumbnails come from the
 `ThumbnailCache` (`Editor/Source/Panels/ThumbnailCache.{h,cpp}`), fetched via `GetItemThumbnail`.
-</content>

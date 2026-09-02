@@ -168,4 +168,3 @@ starting a window move.
 - **Move the transport:** edit `UI_TitlebarTransport(float titlebarWidth)` — it centres the tools and
   records `m_TitleBarTransportRectMin/Max`. Keep the rect recording so the drag-exclusion still works.
 - **Restyle the HUD:** it uses `ImGuiEx::Fonts::PushFont("Mono")`; edit `UI_ViewportPerformanceHUD`.
-</content>

@@ -321,4 +321,3 @@ always-registered View panels.
 - The Content Browser has its own deep-dive: **[Content Browser](Content-Browser.md)**.
 - To add your own panel: **[Extending → Add a panel](Extending.md#recipe-add-a-new-panel)**.
 - Panel styling (fonts, colours, icons, the `ImGuiEx` helpers): **[Theme, Fonts & Icons](Theme-Fonts-Icons.md)**.
-</content>

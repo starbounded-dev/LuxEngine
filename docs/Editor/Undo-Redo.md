@@ -324,4 +324,3 @@ accessibility** work. Revisit if a concrete need shows up.
   `EditorLayer::ResetUndoHistory()` (as `NewScene` / `OpenScene` do).
 
 See also: [Architecture → Undo/redo](Architecture.md), [Keybindings](Keybindings.md).
-</content>

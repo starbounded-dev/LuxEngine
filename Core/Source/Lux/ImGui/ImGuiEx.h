@@ -428,9 +428,10 @@ namespace Lux::ImGuiEx {
 		const float radius = height * 0.5f;
 		const ImVec2 p = ImGui::GetCursorScreenPos();
 
-		ImGui::InvisibleButton(strId, ImVec2(width, height));
+		// EnableNav so the toggle is keyboard/gamepad-activatable, and the return value catches that
+		// activation — IsItemClicked() alone only reports a mouse click.
 		bool changed = false;
-		if (ImGui::IsItemClicked())
+		if (ImGui::InvisibleButton(strId, ImVec2(width, height), ImGuiButtonFlags_EnableNav))
 		{
 			value = !value;
 			changed = true;

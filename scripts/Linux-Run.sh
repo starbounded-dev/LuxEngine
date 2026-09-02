@@ -58,7 +58,15 @@ if [ -z "${LUX_SKIP_BUILD+set}" ]; then
 	"$LUX_DIR/scripts/Linux-Build.sh"
 fi
 
-export VULKAN_SDK=$(realpath "$LUX_DIR/Core/vendor/VulkanSDK/x86_64")
+# Honor a VULKAN_SDK the caller already set; otherwise use the bundled SDK and fail loudly if it is
+# missing rather than exporting an empty path that silently breaks the layer/lib lookups below.
+if [ -z "${VULKAN_SDK:-}" ]; then
+	if ! VULKAN_SDK=$(realpath -e "$LUX_DIR/Core/vendor/VulkanSDK/x86_64"); then
+		echo "Vulkan SDK not found at $LUX_DIR/Core/vendor/VulkanSDK/x86_64 — run scripts/Linux-Fetch.sh" >&2
+		exit 1
+	fi
+	export VULKAN_SDK
+fi
 export VK_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d"
 export PATH="$VULKAN_SDK/bin:$PATH"
 export LD_LIBRARY_PATH="$VULKAN_SDK/lib:$LUX_DIR/Core/vendor/assimp/bin/linux:$LUX_DIR/Core/vendor/NvidiaAftermath/lib/x64/linux"

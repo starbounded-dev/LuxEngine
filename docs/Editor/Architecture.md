@@ -253,4 +253,3 @@ as one **labelled** undo step. `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` and **Edit â
 
 This is deliberately a first, crash-safe foundation â€” the full design, coverage table, and the
 multi-phase plan to make it granular and cover every subsystem live in **[Undo / Redo](Undo-Redo.md)**.
-</content>

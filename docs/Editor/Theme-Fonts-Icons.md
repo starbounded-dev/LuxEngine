@@ -224,4 +224,3 @@ if (ImGuiEx::PropertyGridHeader("Section"))  { /* collapsible section */ }
 
 `ImGuiEx::Widgets::SearchWidget<N>(buffer, hint, &focus)` (`ImGuiWidgets.h:83`) — the themed search box
 used by the Content Browser and available for any panel that needs a filter.
-</content>

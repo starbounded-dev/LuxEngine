@@ -85,6 +85,10 @@ project "Core"
 	filter "configurations:Debug or configurations:Debug-AS"
 		symbols "On"
 		defines { "LUX_DEBUG", "_DEBUG", "ACL_ON_ASSERT_ABORT", }
+		-- Debug-only: traps FP divide-by-zero/invalid/overflow as a hardware exception on physics
+		-- worker threads. It turns any degenerate physics state into a hard crash, so it must NOT
+		-- reach Release/Dist (see .claude/docs/Building.md).
+		defines { "JPH_FLOATING_POINT_EXCEPTIONS_ENABLED" }
 		IncludeDependencies("Debug")
 
 	filter { "system:windows", "configurations:Debug-AS" }	
@@ -103,7 +107,6 @@ project "Core"
 			"LUX_TRACK_MEMORY",
 
 			"JPH_DEBUG_RENDERER",
-			"JPH_FLOATING_POINT_EXCEPTIONS_ENABLED",
 			"JPH_EXTERNAL_PROFILE"
 		}
 

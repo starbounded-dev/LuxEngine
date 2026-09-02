@@ -63,5 +63,3 @@ The next page, [Architecture](Architecture.md), walks each of these in detail.
 - "**How it was made**" sub-sections explain the design decision behind a piece so you know what is
   load-bearing before you change it.
 - "**How to modify**" sub-sections are copy-pasteable recipes.
-</content>
-</invoke>

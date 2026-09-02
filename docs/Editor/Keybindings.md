@@ -115,4 +115,3 @@ the window-drag zone so the buttons stay clickable.
 See [Extending → Add a shortcut](Extending.md#recipe-add-a-shortcut). For a global one, add a `case`
 to the `switch` in `EditorLayer::OnKeyPressed`; for a panel-local one, handle it in that panel's
 `OnEvent` or (ImGui-style) an `ImGui::IsKeyPressed` check in its render, like Beam does.
-</content>

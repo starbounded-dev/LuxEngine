@@ -438,6 +438,9 @@ namespace Lux {
 		ImGui::TextUnformatted("FAVORITES");
 		ImGui::PopStyleColor();
 
+		// A removal (ToggleFavorite) mutates m_Favorites, so it can't run inside the range-for over it —
+		// that invalidates the iterator and dangles `fav`. Defer it to after the loop.
+		std::string favoriteToRemove;
 		for (const std::string& fav : m_Favorites)
 		{
 			const std::filesystem::path favPath(fav);
@@ -452,13 +455,16 @@ namespace Lux {
 			if (ImGui::BeginPopupContextItem("##FavCtx"))
 			{
 				if (ImGui::MenuItem("Remove from Favorites"))
-					ToggleFavorite(fav);
+					favoriteToRemove = fav;
 				ImGui::EndPopup();
 			}
 			if (clicked && dir)
 				ChangeDirectory(dir);
 			ImGui::PopID();
 		}
+
+		if (!favoriteToRemove.empty())
+			ToggleFavorite(favoriteToRemove);
 
 		ImGui::Separator();
 		ImGui::Spacing();
@@ -483,7 +489,10 @@ namespace Lux {
 
 		UpdateDropArea(directory);
 
-		if (ImGui::BeginPopupContextItem("##DirectoryContext"))
+		// Unique per directory — a shared string id would make every node's context menu collide, so a
+		// right-click could open the wrong directory's menu.
+		const std::string contextId = std::format("##DirectoryContext_{}", static_cast<uint64_t>(directory->Handle));
+		if (ImGui::BeginPopupContextItem(contextId.c_str()))
 		{
 			const std::string genericPath = directory->FilePath.generic_string();
 			const bool fav = IsFavorite(genericPath);
@@ -1185,33 +1194,36 @@ namespace Lux {
 			return ec ? 0 : (long long)t.time_since_epoch().count();
 		};
 
-		std::sort(m_CurrentItems.begin(), m_CurrentItems.end(), [&](const Ref<ContentBrowserItem>& a, const Ref<ContentBrowserItem>& b)
+		// A strict-weak-ordering "less than" for the active sort mode. Descending reverses the operands
+		// rather than negating the result — negating would make equal elements compare less in both
+		// directions, which is undefined behaviour for std::sort.
+		auto lessThan = [&](const Ref<ContentBrowserItem>& a, const Ref<ContentBrowserItem>& b)
 		{
-			// Directories always precede assets, regardless of sort direction.
-			if (a->GetType() != b->GetType())
-				return static_cast<uint16_t>(a->GetType()) < static_cast<uint16_t>(b->GetType());
-
-			bool less;
 			switch (m_SortMode)
 			{
 				case SortMode::Type:
 				{
 					const std::string ta = a->GetType() == ContentBrowserItem::ItemType::Asset ? std::string(AssetTypeToString(AssetManager::GetAssetType(a->GetID()))) : std::string();
 					const std::string tb = b->GetType() == ContentBrowserItem::ItemType::Asset ? std::string(AssetTypeToString(AssetManager::GetAssetType(b->GetID()))) : std::string();
-					less = (ta != tb) ? ta < tb : Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
-					break;
+					return (ta != tb) ? ta < tb : Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
 				}
 				case SortMode::Modified:
 				{
 					const long long ma = modTime(a), mb = modTime(b);
-					less = (ma != mb) ? ma < mb : Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
-					break;
+					return (ma != mb) ? ma < mb : Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
 				}
 				default:
-					less = Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
-					break;
+					return Utils::String::ToLowerCopy(a->GetName()) < Utils::String::ToLowerCopy(b->GetName());
 			}
-			return m_SortAscending ? less : !less;
+		};
+
+		std::sort(m_CurrentItems.begin(), m_CurrentItems.end(), [&](const Ref<ContentBrowserItem>& a, const Ref<ContentBrowserItem>& b)
+		{
+			// Directories always precede assets, regardless of sort direction.
+			if (a->GetType() != b->GetType())
+				return static_cast<uint16_t>(a->GetType()) < static_cast<uint16_t>(b->GetType());
+
+			return m_SortAscending ? lessThan(a, b) : lessThan(b, a);
 		});
 	}
 
