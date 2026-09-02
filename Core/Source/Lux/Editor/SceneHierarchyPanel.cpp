@@ -824,7 +824,9 @@ namespace Lux {
 
 	void SceneHierarchyPanel::DrawEntityNode(Entity entity, const std::string& searchFilter)
 	{
-		auto& tag = entity.GetComponent<TagComponent>().Tag;
+		auto& tagComponent = entity.GetComponent<TagComponent>();
+		auto& tag = tagComponent.Tag;
+		const bool locked = tagComponent.Locked;
 		const auto& relationship = entity.GetComponent<RelationshipComponent>();
 		const bool hasChildren = !relationship.Children.empty();
 		const bool hasChildMatchingSearch = TagSearchRecursive(entity, searchFilter, 10);
@@ -877,14 +879,28 @@ namespace Lux {
 			const float centerY = rowRect.Min.y + rowRect.GetHeight() * 0.5f;
 			ImDrawList* dl = ImGui::GetWindowDrawList();
 
+			// Colour-label stripe at the very left edge of the row.
+			if (tagComponent.LabelColor != 0)
+				dl->AddRectFilled(ImVec2(rowRect.Min.x, rowRect.Min.y + 1.0f),
+					ImVec2(rowRect.Min.x + 3.0f, rowRect.Max.y - 1.0f), tagComponent.LabelColor, 1.0f);
+
 			const ImU32 iconColor = isSelected ? Colors::Theme::accent : iconInfo.Color;
 			const ImVec2 iconSize = ImGui::CalcTextSize(iconInfo.Glyph);
 			dl->AddText(ImVec2(iconX, centerY - iconSize.y * 0.5f), iconColor, iconInfo.Glyph);
 
+			// Right-side reservations: the visibility eye (if any), then a lock badge (if locked).
+			float contentRight = hasVisToggle ? eyeRect.Min.x - 4.0f : rowRect.Max.x - 4.0f;
+			if (locked)
+			{
+				const ImVec2 lockSize = ImGui::CalcTextSize(LUX_ICON_LOCK);
+				dl->AddText(ImVec2(contentRight - lockSize.x, centerY - lockSize.y * 0.5f), Colors::Theme::textDarker, LUX_ICON_LOCK);
+				contentRight -= lockSize.x + 4.0f;
+			}
+
 			const float nameX = iconX + iconSize.x + g.Style.ItemInnerSpacing.x + 2.0f;
-			const float nameRight = hasVisToggle ? eyeRect.Min.x - 4.0f : rowRect.Max.x - 4.0f;
+			const float nameRight = contentRight;
 			const ImU32 baseName = isSelected ? Colors::Theme::accent : Colors::Theme::text;
-			const ImU32 nameColor = (hasVisToggle && !meshVisible) ? Colors::Theme::textDarker : baseName;
+			const ImU32 nameColor = (locked || (hasVisToggle && !meshVisible)) ? Colors::Theme::textDarker : baseName;
 			const ImVec2 nameSize = ImGui::CalcTextSize(tag.c_str());
 			dl->PushClipRect(ImVec2(nameX, rowRect.Min.y), ImVec2(std::max(nameX, nameRight), rowRect.Max.y), true);
 			dl->AddText(ImVec2(nameX, centerY - nameSize.y * 0.5f), nameColor, tag.c_str());
@@ -932,7 +948,7 @@ namespace Lux {
 			SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
 		}
 
-		if (ImGui::BeginDragDropSource())
+		if (!locked && ImGui::BeginDragDropSource())
 		{
 			static std::vector<UUID> draggedEntityIDs;
 			const auto& selectedEntities = SelectionManager::GetSelections(s_ActiveSelectionContext);
@@ -990,9 +1006,50 @@ namespace Lux {
 			DrawEntityCreateMenu(entity);
 			ImGui::Separator();
 
+			if (ImGui::MenuItem(locked ? LUX_ICON_UNLOCK "  Unlock" : LUX_ICON_LOCK "  Lock"))
+			{
+				tagComponent.Locked = !locked;
+				EditorStack::Get().MarkSceneEdited(tagComponent.Locked ? "Lock Entity" : "Unlock Entity");
+			}
+
+			if (ImGui::BeginMenu(LUX_ICON_TAG "  Label Color"))
+			{
+				// A small fixed palette (packed RGBA) plus a clear option.
+				static const uint32_t kLabelColors[] = {
+					IM_COL32(232, 84, 84, 255),   // red
+					IM_COL32(232, 148, 64, 255),  // orange
+					IM_COL32(230, 202, 72, 255),  // yellow
+					IM_COL32(120, 200, 96, 255),  // green
+					IM_COL32(84, 158, 232, 255),  // blue
+					IM_COL32(168, 120, 224, 255), // purple
+				};
+				for (uint32_t color : kLabelColors)
+				{
+					ImGui::PushID(reinterpret_cast<void*>(static_cast<uintptr_t>(color)));
+					if (ImGui::ColorButton("##label", ImGui::ColorConvertU32ToFloat4(color), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f)))
+					{
+						tagComponent.LabelColor = color;
+						EditorStack::Get().MarkSceneEdited("Set Label Color");
+						ImGui::CloseCurrentPopup();
+					}
+					ImGui::SameLine();
+					ImGui::PopID();
+				}
+				ImGui::NewLine();
+				if (ImGui::MenuItem("None", nullptr, false, tagComponent.LabelColor != 0))
+				{
+					tagComponent.LabelColor = 0;
+					EditorStack::Get().MarkSceneEdited("Clear Label Color");
+				}
+				ImGui::EndMenu();
+			}
+
+			ImGui::Separator();
+
 			const size_t selectionCount = SelectionManager::GetSelectionCount(s_ActiveSelectionContext);
 			const char* deleteLabel = (isSelected && selectionCount > 1) ? "Delete Selected Entities" : "Delete Entity";
-			if (ImGui::MenuItem(deleteLabel))
+			// Locked entities are undeletable from here (a multi-selection still deletes the unlocked ones).
+			if (ImGui::MenuItem(deleteLabel, nullptr, false, !locked))
 				deleteRequested = true;
 
 			ImGui::EndPopup();
@@ -1019,7 +1076,15 @@ namespace Lux {
 			else
 				entitiesToDelete = { entity.GetUUID() };
 
-			QueueEntityDeletion(entitiesToDelete);
+			// Never delete a locked entity, even as part of a multi-selection.
+			std::erase_if(entitiesToDelete, [this](UUID id)
+			{
+				Entity e = m_Context->GetEntityByUUID(id);
+				return e && e.GetComponent<TagComponent>().Locked;
+			});
+
+			if (!entitiesToDelete.empty())
+				QueueEntityDeletion(entitiesToDelete);
 		}
 	}
 
@@ -1044,6 +1109,26 @@ namespace Lux {
 		ImGuiEx::ScopedStyle frameRounding(ImGuiStyleVar_FrameRounding, 3.0f);
 		ImGuiEx::ScopedColour frameBg(ImGuiCol_FrameBg, Colors::Theme::backgroundDark);
 		ImGuiEx::ScopedColour frameBorder(ImGuiCol_Border, Colors::Theme::muted);
+
+		// A locked, single-selected entity is read-only in the inspector. The unlock control is drawn
+		// before the disable scope opens, so it stays clickable.
+		const bool lockedInspect = !isMultiSelect && firstEntity.GetComponent<TagComponent>().Locked;
+		if (lockedInspect)
+		{
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
+			{
+				ImGuiEx::ScopedColour lockText(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextUnformatted(LUX_ICON_LOCK "  This entity is locked.");
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Unlock"))
+			{
+				firstEntity.GetComponent<TagComponent>().Locked = false;
+				EditorStack::Get().MarkSceneEdited("Unlock Entity");
+			}
+		}
+		ImGuiEx::ScopedDisable inspectorDisabled(lockedInspect);
 
 		{
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);

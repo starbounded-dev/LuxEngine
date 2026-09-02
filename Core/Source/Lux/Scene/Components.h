@@ -55,6 +55,12 @@ namespace Lux {
 	{
 		std::string Tag;
 
+		// Editor-only organizational state, serialized with the scene but ignored at runtime.
+		// Locked: the entity can't be renamed, deleted, dragged, or edited in the editor.
+		// LabelColor: a packed RGBA colour swatch drawn on the hierarchy row (0 == no label).
+		bool Locked = false;
+		uint32_t LabelColor = 0;
+
 		TagComponent() = default;
 		TagComponent(const TagComponent&) = default;
 		TagComponent(const std::string& tag)

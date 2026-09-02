@@ -285,7 +285,13 @@ namespace Lux {
 			{
 				out << YAML::Key << "TagComponent";
 				out << YAML::BeginMap;
-				out << YAML::Key << "Tag" << YAML::Value << entity.GetComponent<TagComponent>().Tag;
+				const auto& tagComponent = entity.GetComponent<TagComponent>();
+				out << YAML::Key << "Tag" << YAML::Value << tagComponent.Tag;
+				// Only emitted when set, so existing scenes stay byte-identical.
+				if (tagComponent.Locked)
+					out << YAML::Key << "Locked" << YAML::Value << tagComponent.Locked;
+				if (tagComponent.LabelColor != 0)
+					out << YAML::Key << "LabelColor" << YAML::Value << tagComponent.LabelColor;
 				out << YAML::EndMap;
 			}
 
@@ -769,6 +775,15 @@ namespace Lux {
 				try
 				{
 				Entity deserializedEntity = scene->GetEntityWithUUID(entity["Entity"].as<uint64_t>());
+
+				// Editor lock/label state lives on the (already-created) TagComponent; absent keys
+				// keep the defaults so older scenes load unchanged.
+				if (auto tag = entity["TagComponent"])
+				{
+					auto& tagComponent = deserializedEntity.GetComponent<TagComponent>();
+					tagComponent.Locked = tag["Locked"].as<bool>(false);
+					tagComponent.LabelColor = tag["LabelColor"].as<uint32_t>(0);
+				}
 
 				if (auto parent = entity["Parent"])
 					deserializedEntity.GetComponent<RelationshipComponent>().ParentHandle = parent.as<uint64_t>();
