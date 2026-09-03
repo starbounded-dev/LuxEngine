@@ -60,6 +60,7 @@ namespace Lux
 		void JumpToCameraBookmark(int slot);
 		void ToggleEntityBookmark();            // pins/unpins the current selection
 		void JumpToEntityBookmark(UUID entityID); // select + frame the camera on it
+		void CreatePrefabFromSelection();       // saves the first selected entity as a .lprefab asset
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
 		void SetEditorLayoutMode(bool simple);
 		void UI_TitlebarTransport(float titlebarWidth);

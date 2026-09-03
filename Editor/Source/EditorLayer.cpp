@@ -46,6 +46,8 @@
 #include "Panels/RendererDebuggerPanel.h"
 #include "Panels/ProfilerPanel.h"
 #include "Panels/UndoHistoryPanel.h"
+
+#include "Lux/Scene/Prefab.h"
 #include "Panels/ApplicationSettingsPanel.h"
 #include "Panels/AssetManagerPanel.h"
 #include "Panels/ProjectSettingsWindow.h"
@@ -994,6 +996,8 @@ namespace Lux {
 		add("Reset Window Layout", "View", "", [this] { ResetDefaultDockLayout(ImGui::GetID("MyDockSpace")); });
 		add("Bookmark Selected Entity", "View", "Ctrl+B", [this] { ToggleEntityBookmark(); },
 			[this] { return SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0; });
+		add("Create Prefab from Selection", "Edit", "", [this] { CreatePrefabFromSelection(); },
+			[this] { return SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0; });
 
 		// A toggle-open command for every registered panel, resolved by ID at run time.
 		for (auto& [id, panelData] : m_PanelManager->GetPanels(PanelCategory::View))
@@ -1036,6 +1040,37 @@ namespace Lux {
 			return;
 
 		m_EditorViewport->GetCamera().SetOrbitState(bookmark.FocalPoint, bookmark.Distance, bookmark.Pitch, bookmark.Yaw);
+	}
+
+	void EditorLayer::CreatePrefabFromSelection()
+	{
+		const auto& selections = SelectionManager::GetSelections(SelectionContext::Scene);
+		if (selections.empty() || !m_EditorScene)
+			return;
+
+		Entity entity = m_EditorScene->TryGetEntityWithUUID(selections.front());
+		if (!entity)
+			return;
+
+		Ref<Prefab> prefab = Ref<Prefab>::Create();
+		prefab->Create(entity);
+
+		auto assetManager = Project::GetEditorAssetManager();
+		const std::string extension = assetManager->GetDefaultExtensionForAssetType(AssetType::Prefab);
+		const std::filesystem::path targetPath = FileSystem::GetUniqueFileName(
+			Project::GetActiveAssetDirectory() / (entity.GetName() + extension));
+		const std::filesystem::path relativePath = std::filesystem::relative(targetPath, Project::GetActiveAssetDirectory());
+
+		// Write the prefab's hierarchy (a scene) to disk, then register it as an asset — PrefabSerializer
+		// handles both directions from here on.
+		SceneSerializer serializer(prefab->GetScene());
+		serializer.Serialize(targetPath);
+
+		const AssetHandle handle = assetManager->ImportAsset(relativePath);
+		if (handle)
+			LUX_CONSOLE_LOG_INFO("Created prefab '{}'", relativePath.generic_string());
+		else
+			LUX_CONSOLE_LOG_ERROR("Failed to register prefab '{}'", relativePath.generic_string());
 	}
 
 	void EditorLayer::ToggleEntityBookmark()
@@ -1165,6 +1200,10 @@ namespace Lux {
 				}
 				if (ImGui::MenuItem("Reload All Shaders", "Ctrl+Shift+R"))
 					Renderer::ReloadShaders(true);
+				ImGui::Separator();
+				if (ImGui::MenuItem("Create Prefab from Selection", nullptr, false,
+					SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0))
+					CreatePrefabFromSelection();
 				ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
 				ImGui::EndMenu();
 			}

@@ -35,6 +35,7 @@ namespace Lux {
 
 		friend class Scene;
 		friend class SceneSerializer;
+		friend class PrefabSerializer;
 	};
 
 }
