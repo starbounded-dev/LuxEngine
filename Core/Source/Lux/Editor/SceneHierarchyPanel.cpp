@@ -1764,6 +1764,14 @@ namespace Lux {
 				if (!valid)
 					return;
 
+				// While the scene runs, FieldStorage reads/writes the live Coral instance, so the
+				// controls below reflect and edit the running object rather than the stored snapshot.
+				if (m_Context && m_Context->IsRunning())
+				{
+					ImGuiEx::ScopedColour live(ImGuiCol_Text, Colors::Theme::titlebarGreen);
+					ImGui::TextUnformatted("\xE2\x97\x8F  Live \xE2\x80\x94 editing the running instance");
+				}
+
 				// Ensure per-entity storage exists (and matches the current script).
 				UUID entityID = firstEntity.GetUUID();
 				ScriptStorage& storage = m_Context->GetScriptStorage();
