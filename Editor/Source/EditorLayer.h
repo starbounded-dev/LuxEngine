@@ -121,6 +121,8 @@ namespace Lux
 		void RestoreSceneState(const std::string& meta, const std::map<UUID, std::string>& entities);
 		void RestoreSelection(const std::vector<UUID>& handles);  // select the entities an undo/redo touched
 		void UI_UndoToast();                                      // transient "Undo/Redo: <label>" overlay
+		void UI_ScriptToast();                                    // transient C#-reload status overlay
+		void ReloadScriptsWithFeedback();                         // reload C# + sync storage + toast the result
 		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
 
 		// Play-mode undo (Phase 7): a transient stack over the runtime scene, discarded on Stop. An
@@ -238,6 +240,10 @@ namespace Lux
 		// Transient "Undo: <label>" / "Redo: <label>" toast (Phase 9 polish).
 		std::string m_UndoToastText;
 		double m_UndoToastTime = -100.0;
+
+		std::string m_ScriptToastText;
+		double m_ScriptToastTime = -100.0;
+		ImU32 m_ScriptToastColor = 0;
 		bool m_GizmoWasUsing = false;
 		// History is bounded by both a step count and a memory budget; a commit evicts the oldest steps
 		// until it is under both (but always keeps at least one, even if a single step is huge).

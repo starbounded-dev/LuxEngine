@@ -7,6 +7,7 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Scripting/ScriptBuilder.h"
+#include "Lux/Editor/FontAwesome.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/ShaderPack.h"
@@ -705,6 +706,7 @@ namespace Lux {
 			// an undo snapshot. Runs here so it sees this frame's edits and the final active-item state.
 			PollSceneEditForUndo();
 			UI_UndoToast();
+			UI_ScriptToast();
 
 			RenderRuntimeExportWindow();
 
@@ -981,9 +983,7 @@ namespace Lux {
 		add("Redo", "Edit", "Ctrl+Shift+Z", [this] { RedoSceneEdit(); }, [this] { return !ActiveRedoStack().empty(); });
 		add("Reload C# Assembly", "Edit", "Ctrl+R", [this]
 		{
-			Project::GetActive()->ReloadScriptEngine();
-			if (m_ActiveScene)
-				m_ActiveScene->GetScriptStorage().SynchronizeStorage();
+			ReloadScriptsWithFeedback();
 		});
 		add("Reload All Shaders", "Edit", "Ctrl+Shift+R", [] { Renderer::ReloadShaders(true); });
 
@@ -1193,11 +1193,7 @@ namespace Lux {
 				ImGui::Separator();
 
 				if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
-				{
-					Project::GetActive()->ReloadScriptEngine();
-					if (m_ActiveScene)
-						m_ActiveScene->GetScriptStorage().SynchronizeStorage();
-				}
+					ReloadScriptsWithFeedback();
 				if (ImGui::MenuItem("Reload All Shaders", "Ctrl+Shift+R"))
 					Renderer::ReloadShaders(true);
 				ImGui::Separator();
@@ -1975,9 +1971,7 @@ namespace Lux {
 			if (control && shift) Renderer::ReloadShaders(true);
 			else if (control)
 			{
-				Project::GetActive()->ReloadScriptEngine();
-				if (m_ActiveScene)
-					m_ActiveScene->GetScriptStorage().SynchronizeStorage();
+				ReloadScriptsWithFeedback();
 			}
 			else if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::SCALE;
 			break;
@@ -3365,6 +3359,55 @@ namespace Lux {
 		ImGuiEx::ScopedColour text(ImGuiCol_Text, Colors::Theme::textBrighter);
 		if (ImGui::Begin("##UndoToast", nullptr, flags))
 			ImGui::TextUnformatted(m_UndoToastText.c_str());
+		ImGui::End();
+	}
+
+	void EditorLayer::ReloadScriptsWithFeedback()
+	{
+		if (!Project::GetActive())
+			return;
+
+		Project::GetActive()->ReloadScriptEngine();
+		if (m_ActiveScene)
+			m_ActiveScene->GetScriptStorage().SynchronizeStorage();
+
+		const ScriptEngine::ReloadStatus& status = ScriptEngine::GetInstance().GetLastReloadStatus();
+		if (status.Success)
+			m_ScriptToastText = std::format("{}  C# reloaded  ·  {} script{}", LUX_ICON_CHECK, status.ScriptCount, status.ScriptCount == 1 ? "" : "s");
+		else
+			m_ScriptToastText = std::format("{}  C# reload failed: {}", LUX_ICON_TIMES, status.Message);
+
+		m_ScriptToastColor = status.Success ? Colors::Theme::titlebarGreen : Colors::Theme::titlebarRed;
+		m_ScriptToastTime = ImGui::GetTime();
+	}
+
+	void EditorLayer::UI_ScriptToast()
+	{
+		constexpr double kVisibleSeconds = 2.6;   // a touch longer than the undo toast so errors register
+		constexpr double kFadeSeconds = 0.5;
+
+		const double age = ImGui::GetTime() - m_ScriptToastTime;
+		if (m_ScriptToastText.empty() || age < 0.0 || age > kVisibleSeconds + kFadeSeconds)
+			return;
+
+		const float alpha = age <= kVisibleSeconds ? 1.0f : 1.0f - static_cast<float>((age - kVisibleSeconds) / kFadeSeconds);
+
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		// Sits above the undo toast so the two never overlap.
+		const ImVec2 position(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y + viewport->WorkSize.y - 84.0f);
+		ImGui::SetNextWindowPos(position, ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+		ImGui::SetNextWindowBgAlpha(0.9f);
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
+			| ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
+
+		ImGuiEx::ScopedStyle fade(ImGuiStyleVar_Alpha, alpha);
+		ImGuiEx::ScopedStyle rounding(ImGuiStyleVar_WindowRounding, 6.0f);
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 8.0f));
+		ImGuiEx::ScopedColour text(ImGuiCol_Text, m_ScriptToastColor);
+		if (ImGui::Begin("##ScriptToast", nullptr, flags))
+			ImGui::TextUnformatted(m_ScriptToastText.c_str());
 		ImGui::End();
 	}
 

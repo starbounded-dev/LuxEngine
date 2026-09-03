@@ -95,6 +95,15 @@ namespace Lux {
 	public:
 		static const ScriptEngine& GetInstance();
 
+		// Outcome of the most recent project-assembly load, surfaced by the editor as a reload toast.
+		struct ReloadStatus
+		{
+			bool Success = false;
+			std::string Message;
+			uint32_t ScriptCount = 0;
+		};
+		const ReloadStatus& GetLastReloadStatus() const { return m_LastReloadStatus; }
+
 	private:
 		void InitializeHost();
 		void ShutdownHost();
@@ -217,6 +226,8 @@ namespace Lux {
 		Scope<AssemblyData> m_AppAssemblyData = nullptr;
 
 		std::unordered_map<UUID, ScriptMetadata> m_ScriptMetadata;
+
+		ReloadStatus m_LastReloadStatus;
 
 		Ref<Scene> m_CurrentScene = nullptr;
 		Coral::StableVector<Coral::ManagedObject> m_ManagedObjects;

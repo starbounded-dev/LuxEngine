@@ -196,6 +196,7 @@ namespace Lux {
 		if (!std::filesystem::exists(original))
 		{
 			LUX_CORE_WARN("[Scripting] Script module not found at '{}'. Build the script project to enable scripting.", original.string());
+			m_LastReloadStatus = { false, "script module not found — build the C# project", 0 };
 			return;
 		}
 
@@ -209,10 +210,12 @@ namespace Lux {
 		{
 			LUX_CORE_ERROR("[Scripting] Failed to load app assembly '{}'.", loadPath.string());
 			m_AppAssemblyData.reset();
+			m_LastReloadStatus = { false, "failed to load the app assembly", 0 };
 			return;
 		}
 
 		BuildAssemblyCache(m_AppAssemblyData.get());
+		m_LastReloadStatus = { true, {}, static_cast<uint32_t>(m_ScriptMetadata.size()) };
 	}
 
 	void ScriptEngine::LoadProjectAssemblyRuntime(Buffer data)
