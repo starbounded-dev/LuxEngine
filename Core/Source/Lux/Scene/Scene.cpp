@@ -228,8 +228,12 @@ namespace Lux {
 		for (auto e : idView)
 		{
 			UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
-			const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
-			Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);
+			const auto& srcTag = srcSceneRegistry.get<TagComponent>(e);
+			Entity newEntity = newScene->CreateEntityWithUUID(uuid, srcTag.Tag);
+			// TagComponent is created by name above; carry its editor-only lock/label state too.
+			auto& dstTag = newEntity.GetComponent<TagComponent>();
+			dstTag.Locked = srcTag.Locked;
+			dstTag.LabelColor = srcTag.LabelColor;
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 
@@ -955,6 +959,12 @@ namespace Lux {
 		{
 			Entity destination = CreateEntity(source.GetName());
 			CopyComponentIfExists(DuplicateComponents{}, destination, source);
+
+			// TagComponent isn't in DuplicateComponents (name is set above); carry the editor lock/label.
+			const auto& srcTag = source.GetComponent<TagComponent>();
+			auto& dstTag = destination.GetComponent<TagComponent>();
+			dstTag.Locked = srcTag.Locked;
+			dstTag.LabelColor = srcTag.LabelColor;
 
 			if (parent)
 				ParentEntity(destination, parent);
