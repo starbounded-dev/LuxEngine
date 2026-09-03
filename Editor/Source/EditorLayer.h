@@ -33,6 +33,7 @@ namespace Lux
 	class SceneRendererPanel;
 	class RendererDebuggerPanel;
 	class ProfilerPanel;
+	class FrameDebuggerPanel;
 
 	class EditorLayer : public Layer
 	{
@@ -186,6 +187,7 @@ namespace Lux
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
 		Ref<ProfilerPanel> m_ProfilerPanel;
+		Ref<FrameDebuggerPanel> m_FrameDebuggerPanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
 
 		Scope<CommandPalette> m_CommandPalette;

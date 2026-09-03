@@ -45,6 +45,7 @@
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
 #include "Panels/ProfilerPanel.h"
+#include "Panels/FrameDebuggerPanel.h"
 #include "Panels/UndoHistoryPanel.h"
 
 #include "Lux/Scene/Prefab.h"
@@ -360,6 +361,7 @@ namespace Lux {
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
+		m_FrameDebuggerPanel = m_PanelManager->AddPanel<FrameDebuggerPanel>(PanelCategory::View, "FrameDebuggerPanel", "Frame Debugger", false);
 
 		{
 			UndoHistoryPanel::Bindings historyBindings;
@@ -466,6 +468,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_ProfilerPanel)
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
+		if (m_FrameDebuggerPanel)
+			m_FrameDebuggerPanel->SetContext(m_SceneRenderer);
 
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
@@ -537,6 +541,7 @@ namespace Lux {
 		m_SceneRenderer.reset();
 		m_RendererDebuggerPanel.reset();
 		m_ProfilerPanel.reset();
+		m_FrameDebuggerPanel.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
 		EditorResources::Shutdown();
@@ -3001,6 +3006,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_ProfilerPanel)
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
+		if (m_FrameDebuggerPanel)
+			m_FrameDebuggerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OpenScene()
@@ -3047,6 +3054,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_ProfilerPanel)
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
+		if (m_FrameDebuggerPanel)
+			m_FrameDebuggerPanel->SetContext(m_SceneRenderer);
 
 		ResetUndoHistory();
 		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
@@ -3388,6 +3397,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_ProfilerPanel)
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
+		if (m_FrameDebuggerPanel)
+			m_FrameDebuggerPanel->SetContext(m_SceneRenderer);
 
 		// Keep the settings baseline aligned with the (unchanged) renderer after a scene restore, so a
 		// scene undo/redo never looks like a settings change.
@@ -3526,6 +3537,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_ProfilerPanel)
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
+		if (m_FrameDebuggerPanel)
+			m_FrameDebuggerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::SaveScene()
@@ -3724,6 +3737,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_ProfilerPanel)
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
+		if (m_FrameDebuggerPanel)
+			m_FrameDebuggerPanel->SetContext(m_SceneRenderer);
 
 		BeginPlayUndoHistory();   // transient play-mode undo, over the runtime scene
 	}
@@ -3754,6 +3769,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_ProfilerPanel)
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
+		if (m_FrameDebuggerPanel)
+			m_FrameDebuggerPanel->SetContext(m_SceneRenderer);
 
 		BeginPlayUndoHistory();   // transient play-mode undo, over the runtime scene
 	}
@@ -3795,6 +3812,8 @@ namespace Lux {
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
 		if (m_ProfilerPanel)
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
+		if (m_FrameDebuggerPanel)
+			m_FrameDebuggerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnScenePause()
