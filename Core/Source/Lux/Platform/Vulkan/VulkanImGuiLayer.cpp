@@ -2,6 +2,7 @@
 #include "VulkanImGuiLayer.h"
 
 #include "imgui.h"
+#include "implot/implot.h"
 #include "Lux/Core/Input.h"
 #include "Lux/ImGui/ImGuizmo.h"
 #include "Lux/ImGui/ImGuiFonts.h"
@@ -43,6 +44,7 @@ namespace Lux {
 		// Setup Dear ImGui context
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
+		ImPlot::CreateContext();
 		ImGuiIO& io = ImGui::GetIO(); (void)io;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
 		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
@@ -51,23 +53,26 @@ namespace Lux {
 
 		// Configure Fonts
 		{
-			ImGuiEx::FontConfiguration robotoBold;
-			robotoBold.FontName = "Bold";
-			robotoBold.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
-			robotoBold.Size = 18.0f;
-			ImGuiEx::Fonts::Add(robotoBold);
+			// Kept in lockstep with ImGuiLayer::OnAttach (the layer actually instantiated). Archivo
+			// for UI text; add-order is significant (Fonts[0]="Bold", Fonts[1]="Large") and the name
+			// keys must not change.
+			ImGuiEx::FontConfiguration archivoBold;
+			archivoBold.FontName = "Bold";
+			archivoBold.FilePath = "Resources/Fonts/Archivo/static/Archivo-Bold.ttf";
+			archivoBold.Size = 18.0f;
+			ImGuiEx::Fonts::Add(archivoBold);
 
-			ImGuiEx::FontConfiguration robotoLarge;
-			robotoLarge.FontName = "Large";
-			robotoLarge.FilePath = "Resources/Fonts/Roboto/Roboto-Regular.ttf";
-			robotoLarge.Size = 24.0f;
-			ImGuiEx::Fonts::Add(robotoLarge);
+			ImGuiEx::FontConfiguration archivoLarge;
+			archivoLarge.FontName = "Large";
+			archivoLarge.FilePath = "Resources/Fonts/Archivo/static/Archivo-Regular.ttf";
+			archivoLarge.Size = 24.0f;
+			ImGuiEx::Fonts::Add(archivoLarge);
 
-			ImGuiEx::FontConfiguration robotoDefault;
-			robotoDefault.FontName = "Default";
-			robotoDefault.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
-			robotoDefault.Size = 15.0f;
-			ImGuiEx::Fonts::Add(robotoDefault, true);
+			ImGuiEx::FontConfiguration archivoDefault;
+			archivoDefault.FontName = "Default";
+			archivoDefault.FilePath = "Resources/Fonts/Archivo/static/Archivo-Medium.ttf";
+			archivoDefault.Size = 15.0f;
+			ImGuiEx::Fonts::Add(archivoDefault, true);
 
 			static const ImWchar s_FontAwesomeRanges[] = { LUX_ICON_MIN, LUX_ICON_MAX, 0 };
 			ImGuiEx::FontConfiguration fontAwesome;
@@ -78,29 +83,41 @@ namespace Lux {
 			fontAwesome.MergeWithLast = true;
 			ImGuiEx::Fonts::Add(fontAwesome);
 
-			ImGuiEx::FontConfiguration robotoMedium;
-			robotoMedium.FontName = "Medium";
-			robotoMedium.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
-			robotoMedium.Size = 18.0f;
-			ImGuiEx::Fonts::Add(robotoMedium);
+			ImGuiEx::FontConfiguration archivoMedium;
+			archivoMedium.FontName = "Medium";
+			archivoMedium.FilePath = "Resources/Fonts/Archivo/static/Archivo-Medium.ttf";
+			archivoMedium.Size = 18.0f;
+			ImGuiEx::Fonts::Add(archivoMedium);
 
-			ImGuiEx::FontConfiguration robotoSmall;
-			robotoSmall.FontName = "Small";
-			robotoSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
-			robotoSmall.Size = 12.0f;
-			ImGuiEx::Fonts::Add(robotoSmall);
+			ImGuiEx::FontConfiguration archivoSmall;
+			archivoSmall.FontName = "Small";
+			archivoSmall.FilePath = "Resources/Fonts/Archivo/static/Archivo-Regular.ttf";
+			archivoSmall.Size = 12.0f;
+			ImGuiEx::Fonts::Add(archivoSmall);
 
-			ImGuiEx::FontConfiguration robotoExtraSmall;
-			robotoExtraSmall.FontName = "ExtraSmall";
-			robotoExtraSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
-			robotoExtraSmall.Size = 10.0f;
-			ImGuiEx::Fonts::Add(robotoExtraSmall);
+			ImGuiEx::FontConfiguration archivoExtraSmall;
+			archivoExtraSmall.FontName = "ExtraSmall";
+			archivoExtraSmall.FilePath = "Resources/Fonts/Archivo/static/Archivo-Regular.ttf";
+			archivoExtraSmall.Size = 10.0f;
+			ImGuiEx::Fonts::Add(archivoExtraSmall);
 
-			ImGuiEx::FontConfiguration robotoBoldTitle;
-			robotoBoldTitle.FontName = "BoldTitle";
-			robotoBoldTitle.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
-			robotoBoldTitle.Size = 16.0f;
-			ImGuiEx::Fonts::Add(robotoBoldTitle);
+			ImGuiEx::FontConfiguration archivoBoldTitle;
+			archivoBoldTitle.FontName = "BoldTitle";
+			archivoBoldTitle.FilePath = "Resources/Fonts/Archivo/static/Archivo-SemiBold.ttf";
+			archivoBoldTitle.Size = 16.0f;
+			ImGuiEx::Fonts::Add(archivoBoldTitle);
+
+			ImGuiEx::FontConfiguration jetBrainsMono;
+			jetBrainsMono.FontName = "Mono";
+			jetBrainsMono.FilePath = "Resources/Fonts/JetBrainsMono/JetBrainsMono-Medium.ttf";
+			jetBrainsMono.Size = 13.0f;
+			ImGuiEx::Fonts::Add(jetBrainsMono);
+
+			ImGuiEx::FontConfiguration bricolageDisplay;
+			bricolageDisplay.FontName = "Display";
+			bricolageDisplay.FilePath = "Resources/Fonts/Bricolage_Grotesque/static/BricolageGrotesque-Bold.ttf";
+			bricolageDisplay.Size = 18.0f;
+			ImGuiEx::Fonts::Add(bricolageDisplay);
 		}
 
 		// Setup Dear ImGui style
@@ -130,6 +147,7 @@ namespace Lux {
 
 		// Device wait is handled in Renderer::Shutdown via DeviceManager.
 		ImGui_ImplGlfw_Shutdown();
+		ImPlot::DestroyContext();
 		ImGui::DestroyContext();
 	}
 

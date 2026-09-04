@@ -285,9 +285,18 @@ namespace Lux {
 			{
 				out << YAML::Key << "TagComponent";
 				out << YAML::BeginMap;
-				out << YAML::Key << "Tag" << YAML::Value << entity.GetComponent<TagComponent>().Tag;
+				const auto& tagComponent = entity.GetComponent<TagComponent>();
+				out << YAML::Key << "Tag" << YAML::Value << tagComponent.Tag;
+				// Only emitted when set, so existing scenes stay byte-identical.
+				if (tagComponent.Locked)
+					out << YAML::Key << "Locked" << YAML::Value << tagComponent.Locked;
+				if (tagComponent.LabelColor != 0)
+					out << YAML::Key << "LabelColor" << YAML::Value << tagComponent.LabelColor;
 				out << YAML::EndMap;
 			}
+
+			if (entity.HasComponent<FolderComponent>())
+				out << YAML::Key << "Folder" << YAML::Value << true;
 
 			if (entity.HasComponent<RelationshipComponent>())
 			{
@@ -770,6 +779,18 @@ namespace Lux {
 				{
 				Entity deserializedEntity = scene->GetEntityWithUUID(entity["Entity"].as<uint64_t>());
 
+				// Editor lock/label state lives on the (already-created) TagComponent; absent keys
+				// keep the defaults so older scenes load unchanged.
+				if (auto tag = entity["TagComponent"])
+				{
+					auto& tagComponent = deserializedEntity.GetComponent<TagComponent>();
+					tagComponent.Locked = tag["Locked"].as<bool>(false);
+					tagComponent.LabelColor = tag["LabelColor"].as<uint32_t>(0);
+				}
+
+				if (entity["Folder"] && entity["Folder"].as<bool>(false))
+					deserializedEntity.AddComponent<FolderComponent>();
+
 				if (auto parent = entity["Parent"])
 					deserializedEntity.GetComponent<RelationshipComponent>().ParentHandle = parent.as<uint64_t>();
 
@@ -1184,6 +1205,157 @@ namespace Lux {
 
 		out << YAML::EndSeq;
 		out << YAML::EndMap;
+	}
+
+	std::string SceneSerializer::SerializeToString()
+	{
+		YAML::Emitter out;
+		SerializeToYAML(out);
+		return std::string(out.c_str());
+	}
+
+	std::map<UUID, std::string> SceneSerializer::SerializeEntitySnapshots(std::string& outMeta)
+	{
+		// Round-trip the whole scene through YAML once, then split it: each entity block keyed by
+		// UUID, and the scene metadata (everything except Entities). Emitting from the parsed nodes
+		// makes the output stable across calls, which is what the undo diff relies on.
+		std::map<UUID, std::string> snapshots;
+
+		const std::string full = SerializeToString();
+		YAML::Node root = YAML::Load(full);
+
+		if (root["Entities"] && root["Entities"].IsSequence())
+		{
+			for (const auto& entityNode : root["Entities"])
+			{
+				if (!entityNode["Entity"])
+					continue;
+
+				const UUID uuid = entityNode["Entity"].as<uint64_t>();
+				YAML::Emitter entityOut;
+				entityOut << entityNode;
+				snapshots[uuid] = entityOut.c_str();
+			}
+		}
+
+		// Metadata = the scene with an emptied Entities list.
+		root.remove("Entities");
+		YAML::Emitter metaOut;
+		metaOut << root;
+		outMeta = metaOut.c_str();
+
+		return snapshots;
+	}
+
+	std::unordered_set<std::string> SceneSerializer::GetOverriddenComponentKeys(Entity instance, Entity prefabSource)
+	{
+		std::unordered_set<std::string> result;
+		if (!instance || !prefabSource)
+			return result;
+
+		// Identity/hierarchy keys always differ between an instance and its source — never overrides.
+		static const std::unordered_set<std::string> ignored = {
+			"Entity", "Parent", "Children", "PrefabComponent", "TagComponent"
+		};
+
+		YAML::Emitter instOut, srcOut;
+		SerializeEntity(instOut, instance);
+		SerializeEntity(srcOut, prefabSource);
+		const YAML::Node instNode = YAML::Load(instOut.c_str());
+		const YAML::Node srcNode = YAML::Load(srcOut.c_str());
+
+		// A key is an override if it is present on one side only, or present on both but serializes
+		// differently. Scanning both directions catches instance-only and prefab-only components.
+		const auto scan = [&](const YAML::Node& lhs, const YAML::Node& rhs)
+		{
+			for (auto it = lhs.begin(); it != lhs.end(); ++it)
+			{
+				const std::string key = it->first.as<std::string>();
+				if (ignored.contains(key))
+					continue;
+
+				const YAML::Node other = rhs[key];
+				if (!other.IsDefined() || YAML::Dump(it->second) != YAML::Dump(other))
+					result.insert(key);
+			}
+		};
+		scan(instNode, srcNode);
+		scan(srcNode, instNode);
+
+		return result;
+	}
+
+	bool SceneSerializer::DeserializeFromSnapshots(const std::string& meta, const std::vector<std::string>& entityBlocks)
+	{
+		// Reassemble the metadata + the given entity blocks into a full scene document and run the
+		// normal whole-scene deserialize — restore never touches entities in place, so it can't
+		// corrupt the two-way parent/child links.
+		YAML::Node root = meta.empty() ? YAML::Node(YAML::NodeType::Map) : YAML::Load(meta);
+
+		YAML::Node entities(YAML::NodeType::Sequence);
+		for (const std::string& block : entityBlocks)
+			entities.push_back(YAML::Load(block));
+		root["Entities"] = entities;
+
+		YAML::Emitter out;
+		out << root;
+		return DeserializeFromYAML(std::string(out.c_str()));
+	}
+
+	bool SceneSerializer::RunRoundTripSelfTests(std::vector<std::string>* failures)
+	{
+		bool ok = true;
+		auto fail = [&](const std::string& message)
+		{
+			ok = false;
+			if (failures)
+				failures->push_back(message);
+		};
+
+		// Build a small scene with a two-level hierarchy and a couple of components.
+		Ref<Scene> src = Ref<Scene>::Create();
+		Entity parent = src->CreateEntity("Parent");
+		Entity childA = src->CreateEntity("ChildA");
+		Entity childB = src->CreateEntity("ChildB");
+		childA.SetParent(parent);
+		childB.SetParent(parent);
+		parent.GetComponent<TransformComponent>().Translation = { 1.0f, 2.0f, 3.0f };
+		childA.AddComponent<PointLightComponent>().Radiance = { 0.5f, 0.25f, 0.1f };
+		childB.AddComponent<DirectionalLightComponent>();
+
+		std::string meta1;
+		std::map<UUID, std::string> ents1 = SceneSerializer(src).SerializeEntitySnapshots(meta1);
+
+		std::vector<std::string> blocks;
+		blocks.reserve(ents1.size());
+		for (const auto& [handle, block] : ents1)
+			blocks.push_back(block);
+
+		Ref<Scene> dst = Ref<Scene>::Create();
+		if (!SceneSerializer(dst).DeserializeFromSnapshots(meta1, blocks))
+		{
+			fail("DeserializeFromSnapshots returned false");
+			return ok;
+		}
+
+		std::string meta2;
+		std::map<UUID, std::string> ents2 = SceneSerializer(dst).SerializeEntitySnapshots(meta2);
+
+		if (meta1 != meta2)
+			fail("scene metadata was not reproduced by the round-trip");
+		if (ents1.size() != ents2.size())
+			fail(std::format("entity count changed by the round-trip ({} -> {})", ents1.size(), ents2.size()));
+
+		for (const auto& [handle, block] : ents1)
+		{
+			auto it = ents2.find(handle);
+			if (it == ents2.end())
+				fail(std::format("entity {} missing after round-trip", (uint64_t)handle));
+			else if (it->second != block)
+				fail(std::format("entity {} YAML differs after round-trip", (uint64_t)handle));
+		}
+
+		return ok;
 	}
 
 	void SceneSerializer::Serialize(const std::filesystem::path& filepath)

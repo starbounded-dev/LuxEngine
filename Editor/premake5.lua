@@ -60,7 +60,12 @@ project "Editor"
 	filter "system:linux"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread", "X11" }
-		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'" }
+		-- --no-as-needed forces -latomic to stay linked even though, at LTO's initial
+		-- as-needed scan, nothing yet references it; the __atomic_* calls for non-lock-free
+		-- atomics (e.g. RenderCommandBuffer's std::atomic<PipelineStatistics>) are only
+		-- inserted during LTO's deferred codegen, after Ubuntu ld's default --as-needed
+		-- would otherwise have already dropped it.
+		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'", "-Wl,--no-as-needed,-latomic,--as-needed" }
 
 		-- Link nethost for Coral .NET hosting
 		if os.host() == "linux" then

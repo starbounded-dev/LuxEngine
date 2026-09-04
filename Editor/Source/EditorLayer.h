@@ -2,7 +2,13 @@
 
 #include "Lux.h"
 
+#include "Lux/Project/Project.h"
+
+#include <functional>
+#include <map>
+
 #include "Panels/LightSettingsPanel.h"
+#include "CommandPalette.h"
 #include "Lux/Editor/EditorConsolePanel.h"
 
 #include "Lux/Asset/Asset.h"
@@ -26,6 +32,7 @@ namespace Lux
 	class SceneHierarchyPanel;
 	class SceneRendererPanel;
 	class RendererDebuggerPanel;
+	class ProfilerPanel;
 
 	class EditorLayer : public Layer
 	{
@@ -48,9 +55,18 @@ namespace Lux
 		void OnOverlayRender();
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
-		void UI_GizmosToolbar();
-		void UI_CentralToolbar();
+		void RegisterCommands();
+		void SetCameraBookmark(int slot);       // 1..9, captures the current editor camera
+		void JumpToCameraBookmark(int slot);
+		void ToggleEntityBookmark();            // pins/unpins the current selection
+		void JumpToEntityBookmark(UUID entityID); // select + frame the camera on it
+		void CreatePrefabFromSelection();       // saves the first selected entity as a .lprefab asset
+		void ResetDefaultDockLayout(ImGuiID dockspaceId);
+		void SetEditorLayoutMode(bool simple);
+		void UI_TitlebarTransport(float titlebarWidth);
 		void UI_ViewportSettings();
+		void UI_ViewportOrientationGizmo();
+		void UI_ViewportSelectionBadge();
 		void UI_ViewportPerformanceHUD();
 		Entity CastMousePick();
 		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
@@ -71,6 +87,74 @@ namespace Lux
 		void SaveSceneAs();
 
 		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& filepath);
+
+		// Prefab focus/edit mode: edit a prefab's own scene in isolation, then save back to the asset
+		// (and propagate to instances). ApplyEditorScene is the shared context-swap used by both
+		// OpenScene and the enter/exit here.
+		void ApplyEditorScene(Ref<Scene> scene, const std::filesystem::path& path);
+		void EnterPrefabEditMode(AssetHandle prefabHandle);
+		void SavePrefabEdits();
+		void ExitPrefabEditMode(bool save);
+		void UI_PrefabEditBanner();
+		// Base→variant inheritance: after a base prefab is saved, refresh variant assets derived from it.
+		void PropagateToVariants(AssetHandle baseHandle, Ref<Scene> oldBase, Ref<Scene> newBase);
+
+		// One undo step. A scene edit carries a per-entity diff; a non-scene edit (renderer settings,
+		// …) carries closures instead — when CustomUndo is set, the diff fields are ignored.
+		struct EntityDelta
+		{
+			UUID Handle = 0;
+			std::string Before;   // empty => entity did not exist before the edit
+			std::string After;    // empty => entity does not exist after the edit
+		};
+		struct UndoCommand
+		{
+			std::string Label;
+			bool MetaChanged = false;
+			std::string MetaBefore;
+			std::string MetaAfter;
+			std::vector<EntityDelta> Entities;
+			std::function<void()> CustomUndo;
+			std::function<void()> CustomRedo;
+			size_t ApproxBytes = 0;   // heap payload, for the memory budget (see TrimUndoStack)
+		};
+
+		// Undo/redo (snapshot-based, granular per-entity storage). See docs/Editor/Undo-Redo.md.
+		// The edit-mode history targets m_EditorScene; a separate transient play-mode history targets
+		// the runtime m_ActiveScene and is discarded on Stop. UndoSceneEdit/RedoSceneEdit operate on
+		// whichever is active for the current SceneState.
+		std::map<UUID, std::string> CaptureSceneEntities(const Ref<Scene>& scene, std::string& outMeta) const;
+		void ResetUndoHistory();                                  // baseline = current, clear stacks
+		void CommitSceneSnapshot();                               // diff vs baseline; push a step for the changed entities
+		void PollSceneEditForUndo();                              // per-frame: commit once an active edit finishes
+		void UndoSceneEdit();
+		void RedoSceneEdit();
+		void RestoreSceneState(const std::string& meta, const std::map<UUID, std::string>& entities);
+		void RestoreSelection(const std::vector<UUID>& handles);  // select the entities an undo/redo touched
+		void UI_UndoToast();                                      // transient "Undo/Redo: <label>" overlay
+		void UI_ScriptToast();                                    // transient C#-reload status overlay
+		void ReloadScriptsWithFeedback();                         // reload C# + sync storage + toast the result
+		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
+
+		// Play-mode undo (Phase 7): a transient stack over the runtime scene, discarded on Stop. An
+		// undo restores by rebuilding the runtime scene from a snapshot and restarting its runtime, so
+		// physics/scripts reset to that point.
+		std::vector<UndoCommand>& ActiveUndoStack() { return m_SceneState == SceneState::Edit ? m_UndoStack : m_PlayUndoStack; }
+		std::vector<UndoCommand>& ActiveRedoStack() { return m_SceneState == SceneState::Edit ? m_RedoStack : m_PlayRedoStack; }
+		void BeginPlayUndoHistory();                              // baseline the runtime scene, clear play stacks
+		void CommitPlaySnapshot();                                // diff the runtime scene, push a play step
+		void RestoreRuntimeState(const std::string& meta, const std::map<UUID, std::string>& entities);
+		void AdoptRuntimeScene(const Ref<Scene>& scene);          // stop old runtime, swap, restart, retarget
+
+		// Non-scene undo commands push through this (renderer/project settings, and future subsystems).
+		void PushUndoCommand(const std::string& label, std::function<void()> undo, std::function<void()> redo);
+		void TrimUndoStack(std::vector<UndoCommand>& stack);      // evict oldest steps past the size/byte budget
+		// Renderer/project settings (Phase 6): captured/compared as a ProjectSceneRendererSettings,
+		// which excludes the transient debug-view toggles by construction.
+		ProjectSceneRendererSettings CaptureRendererSettings() const;
+		void CaptureRendererSettingsBaseline();
+		void CommitRendererSettings();
+		void ApplyRendererSettings(const ProjectSceneRendererSettings& settings);
 
 		void UpdateDiscordPresence();
 
@@ -114,7 +198,24 @@ namespace Lux
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
+		Ref<ProfilerPanel> m_ProfilerPanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
+
+		Scope<CommandPalette> m_CommandPalette;
+
+		// Viewport camera bookmarks: Ctrl+<1-9> sets, <1-9> jumps (session-only for now).
+		struct CameraBookmark
+		{
+			glm::vec3 FocalPoint{ 0.0f };
+			float Distance = 10.0f;
+			float Pitch = 0.0f;
+			float Yaw = 0.0f;
+			bool Set = false;
+		};
+		std::array<CameraBookmark, 10> m_CameraBookmarks{};   // slots 1..9; index 0 unused
+
+		// Pinned entities (by UUID) for the current scene; cleared on scene load, jump = select + frame.
+		std::vector<UUID> m_EntityBookmarks;
 
 		// Temp
 		Ref<VertexBuffer> m_SquareVA;
@@ -124,6 +225,50 @@ namespace Lux
 		Ref<Scene> m_ActiveScene;
 		Ref<Scene> m_EditorScene;
 		std::filesystem::path m_EditorScenePath;
+
+		// Prefab focus/edit mode state. While active, m_EditorScene is a copy of the prefab's scene and
+		// m_PreFocusScene is the scene to restore on exit.
+		bool m_PrefabEditMode = false;
+		AssetHandle m_EditingPrefabHandle = 0;
+		std::string m_EditingPrefabName;
+		std::string m_EditingPrefabBaseName;   // non-empty when editing a variant
+		Ref<Scene> m_PreFocusScene;
+		std::filesystem::path m_PreFocusScenePath;
+
+		// Undo/redo: a labelled command stack with granular, per-entity storage. Each step records
+		// only the entities that actually changed (before/after YAML; an empty string means the entity
+		// was absent — i.e. created or deleted), plus the scene metadata if it changed — so history is
+		// O(change), not O(scene). m_Baseline* is the current committed state kept whole; a commit
+		// diffs the scene against it and stores the difference. Restore reassembles the target state
+		// and runs the whole-scene deserialize, which is why it stays safe against the two-way
+		// parent/child links. m_UndoCommitPending defers the commit until the active edit finishes.
+		// (EntityDelta / UndoCommand are defined near the top of the class, above the undo methods.)
+		std::vector<UndoCommand> m_UndoStack;
+		std::vector<UndoCommand> m_RedoStack;
+		std::string m_BaselineMeta;
+		std::map<UUID, std::string> m_BaselineEntities;
+		ProjectSceneRendererSettings m_RendererSettingsBaseline;
+
+		// Transient play-mode history (over the runtime m_ActiveScene); baselined on Play/Simulate,
+		// discarded on Stop.
+		std::vector<UndoCommand> m_PlayUndoStack;
+		std::vector<UndoCommand> m_PlayRedoStack;
+		std::string m_PlayBaselineMeta;
+		std::map<UUID, std::string> m_PlayBaselineEntities;
+		std::string m_PendingUndoLabel = "Edit";
+		bool m_UndoCommitPending = false;
+		// Transient "Undo: <label>" / "Redo: <label>" toast (Phase 9 polish).
+		std::string m_UndoToastText;
+		double m_UndoToastTime = -100.0;
+
+		std::string m_ScriptToastText;
+		double m_ScriptToastTime = -100.0;
+		ImU32 m_ScriptToastColor = 0;
+		bool m_GizmoWasUsing = false;
+		// History is bounded by both a step count and a memory budget; a commit evicts the oldest steps
+		// until it is under both (but always keeps at least one, even if a single step is huge).
+		static constexpr size_t s_MaxUndoDepth = 256;
+		static constexpr size_t s_MaxUndoBytes = 128ull * 1024 * 1024;   // 128 MB of snapshot payload
 		Ref<UserPreferences> m_UserPreferences;
 		std::filesystem::path m_UserPreferencesPath;
 		Entity m_SquareEntity;
@@ -144,6 +289,13 @@ namespace Lux
 		bool m_ShowBoundingBoxes = false;
 		bool m_ShowEntityIcons = true;
 		bool m_ShowViewportPerformanceHUD = true;
+
+		// Editor layout mode: Simple (a fixed, minimal default arrangement) vs Advanced (a fuller
+		// workspace with the diagnostic panels docked). Persisted as Editor.SimpleLayout.
+		bool m_SimpleLayout = true;
+		// ResetDefaultDockLayout needs the live dockspace id, only valid inside OnImGuiRender, so a
+		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
+		bool m_PendingLayoutReset = false;
 		bool m_ShowRuntimeExportWindow = false;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;
@@ -179,6 +331,10 @@ namespace Lux
 		ImVec4 m_AnimatedTitlebarColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		ImVec2 m_TitleBarDragRectMin = { 0.0f, 0.0f };
 		ImVec2 m_TitleBarDragRectMax = { 0.0f, 0.0f };
+		// Local-space rect of the titlebar transport, excluded from the drag zone so its buttons
+		// stay clickable instead of initiating a window move.
+		ImVec2 m_TitleBarTransportRectMin = { 0.0f, 0.0f };
+		ImVec2 m_TitleBarTransportRectMax = { 0.0f, 0.0f };
 		float m_TitlebarHeight = 57.0f;
 
 		bool m_ShowImGuiMetrics = false;

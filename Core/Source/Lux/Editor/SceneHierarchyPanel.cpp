@@ -8,6 +8,9 @@
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Editor/EditorResources.h"
+#include "Lux/Editor/EditorStack.h"
+#include "Lux/Editor/FontAwesome.h"
+#include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
@@ -16,6 +19,8 @@
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Prefab.h"
+#include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Asset/PrefabSerializer.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Core/Hash.h"
 
@@ -40,20 +45,50 @@ namespace Lux {
 
 	namespace {
 
+		// A per-entity type icon (FontAwesome glyph) plus a category tint, picked from the entity's
+		// most representative component. Tints are tasteful and theme-adjacent: warm for lights,
+		// cool for cameras, purple for audio, green for scripts, neutral for renderables.
+		struct EntityIconInfo { const char* Glyph; ImU32 Color; };
+
+		EntityIconInfo GetEntityIcon(Entity entity)
+		{
+			constexpr ImU32 warm   = IM_COL32(224, 176, 92, 255);
+			constexpr ImU32 cool   = IM_COL32(120, 170, 255, 255);
+			constexpr ImU32 purple = IM_COL32(184, 148, 232, 255);
+			constexpr ImU32 green  = IM_COL32(150, 200, 130, 255);
+			const ImU32 neutral = Colors::Theme::text;
+			const ImU32 muted   = Colors::Theme::textDarker;
+
+			if (entity.HasComponent<FolderComponent>())           return { LUX_ICON_FOLDER, warm };
+			if (entity.HasComponent<CameraComponent>())           return { LUX_ICON_VIDEO_CAMERA, cool };
+			if (entity.HasComponent<DirectionalLightComponent>()) return { LUX_ICON_SUN_O, warm };
+			if (entity.HasComponent<PointLightComponent>() ||
+			    entity.HasComponent<SpotLightComponent>())        return { LUX_ICON_LIGHTBULB_O, warm };
+			if (entity.HasComponent<SkyLightComponent>())         return { LUX_ICON_SUN_O, warm };
+			if (entity.HasComponent<StaticMeshComponent>() ||
+			    entity.HasComponent<MeshComponent>())             return { LUX_ICON_CUBE, neutral };
+			if (entity.HasComponent<TextComponent>())             return { LUX_ICON_FONT, neutral };
+			if (entity.HasComponent<SpriteRendererComponent>())   return { LUX_ICON_PICTURE_O, neutral };
+			if (entity.HasComponent<AudioSourceComponent>())      return { LUX_ICON_MUSIC, purple };
+			if (entity.HasComponent<AudioListenerComponent>())    return { LUX_ICON_VOLUME_UP, purple };
+			if (entity.HasComponent<ScriptComponent>())           return { LUX_ICON_CODE, green };
+			return { LUX_ICON_DOT_CIRCLE_O, muted };
+		}
+
 		// Draws the ImGui control for one script field via its dual-mode FieldStorage (edits the
 		// serializable buffer when idle, the live managed field when playing). Returns true if changed.
-		bool DrawScriptFieldControl(const std::string& name, DataType type, FieldStorage& storage)
+		bool DrawScriptFieldControl(const std::string& name, DataType type, FieldStorage& storage, bool hasRange = false, float rangeMin = 0.0f, float rangeMax = 1.0f)
 		{
 			switch (type)
 			{
-				case DataType::Float:   { float v = storage.GetValue<float>();     if (ImGui::DragFloat(name.c_str(), &v, 0.1f)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Float:   { float v = storage.GetValue<float>();     const bool edited = hasRange ? ImGui::SliderFloat(name.c_str(), &v, rangeMin, rangeMax) : ImGui::DragFloat(name.c_str(), &v, 0.1f); if (edited) { storage.SetValue(v); return true; } return false; }
 				case DataType::Double:  { double v = storage.GetValue<double>();    if (ImGui::DragScalar(name.c_str(), ImGuiDataType_Double, &v, 0.1f)) { storage.SetValue(v); return true; } return false; }
 				case DataType::Bool:    { bool v = storage.GetValue<uint32_t>() != 0; if (ImGui::Checkbox(name.c_str(), &v)) { storage.SetValue<uint32_t>(v ? 1u : 0u); return true; } return false; }
 				case DataType::SByte:   { int8_t v = storage.GetValue<int8_t>();    if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S8, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::Byte:    { uint8_t v = storage.GetValue<uint8_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U8, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::Short:   { int16_t v = storage.GetValue<int16_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S16, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::UShort:  { uint16_t v = storage.GetValue<uint16_t>(); if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U16, &v)) { storage.SetValue(v); return true; } return false; }
-				case DataType::Int:     { int32_t v = storage.GetValue<int32_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S32, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Int:     { int32_t v = storage.GetValue<int32_t>();  const bool edited = hasRange ? ImGui::SliderInt(name.c_str(), &v, static_cast<int>(rangeMin), static_cast<int>(rangeMax)) : ImGui::DragScalar(name.c_str(), ImGuiDataType_S32, &v); if (edited) { storage.SetValue(v); return true; } return false; }
 				case DataType::UInt:    { uint32_t v = storage.GetValue<uint32_t>(); if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U32, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::Long:    { int64_t v = storage.GetValue<int64_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S64, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::ULong:   { uint64_t v = storage.GetValue<uint64_t>(); if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U64, &v)) { storage.SetValue(v); return true; } return false; }
@@ -197,9 +232,9 @@ namespace Lux {
 			ImGui::PopStyleColor(3);
 
 			ImGui::SameLine();
-			changed |= ImGuiEx::Property("##X", values.x, 0.1f, 0.0f, 0.0f, "%.2f");
+			changed |= ImGui::DragFloat("##X", &values.x, 0.1f, 0.0f, 0.0f, "%.2f");
 			ImGui::PopItemWidth();
-			ImGui::SameLine();
+			ImGui::SameLine(0.0f, 8.0f);
 
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.3f, 0.8f, 0.3f, 1.0f });
@@ -214,9 +249,9 @@ namespace Lux {
 			ImGui::PopStyleColor(3);
 
 			ImGui::SameLine();
-			changed |= ImGuiEx::Property("##Y", values.y, 0.1f, 0.0f, 0.0f, "%.2f");
+			changed |= ImGui::DragFloat("##Y", &values.y, 0.1f, 0.0f, 0.0f, "%.2f");
 			ImGui::PopItemWidth();
-			ImGui::SameLine();
+			ImGui::SameLine(0.0f, 8.0f);
 
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.2f, 0.35f, 0.9f, 1.0f });
@@ -231,12 +266,18 @@ namespace Lux {
 			ImGui::PopStyleColor(3);
 
 			ImGui::SameLine();
-			changed |= ImGuiEx::Property("##Z", values.z, 0.1f, 0.0f, 0.0f, "%.2f");
+			changed |= ImGui::DragFloat("##Z", &values.z, 0.1f, 0.0f, 0.0f, "%.2f");
 			ImGui::PopItemWidth();
 
 			ImGui::PopStyleVar();
 			ImGui::Columns(1);
+			ImGui::Dummy(ImVec2(0.0f, 5.0f)); // vertical breathing room between vec3 rows
 			ImGui::PopID();
+
+			// These are raw DragFloats (not ImGuiEx::Property), so they don't raise the undo signal
+			// on their own — flag it here so transform edits are captured like every other field.
+			if (changed)
+				EditorStack::Get().MarkSceneEdited("Edit Transform");
 
 			return changed;
 		}
@@ -259,9 +300,27 @@ namespace Lux {
 
 			ImGui::PushID((void*)typeid(TComponent).hash_code());
 			const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
-			const Ref<Texture2D> sectionIcon = icon ? icon : EditorResources::AssetIcon;
+			(void)icon; // texture section icons dropped for the flat concept look
 
-			const bool open = ImGuiEx::TreeNodeWithIcon(name, sectionIcon, { 14.0f, 14.0f });
+			// Flat collapsible section: an uppercase label + chevron drawn over an empty-label node,
+			// with a faint hover/active wash — no framed header or Hazel texture icon.
+			ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(255, 255, 255, 10));
+			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(255, 255, 255, 16));
+			ImGui::PushStyleColor(ImGuiCol_HeaderActive, IM_COL32(255, 255, 255, 22));
+			const ImGuiTreeNodeFlags sectionFlags = ImGuiTreeNodeFlags_SpanAvailWidth
+				| ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_FramePadding;
+			const bool open = ImGui::TreeNodeEx("##section", sectionFlags, "");
+			ImGui::PopStyleColor(3);
+
+			{
+				const ImRect secRect = ImGuiEx::GetItemRect();
+				ImGuiContext& g = *GImGui;
+				const float labelX = secRect.Min.x + g.Style.FramePadding.x + g.FontSize + g.Style.ItemInnerSpacing.x;
+				const float labelY = secRect.Min.y + (secRect.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
+				ImGui::GetWindowDrawList()->AddText(ImVec2(labelX, labelY), Colors::Theme::textBrighter,
+					Utils::String::ToUpperCopy(name).c_str());
+			}
+
 			const float lineHeight = ImGui::GetFrameHeight();
 
 			bool resetComponent = false;
@@ -317,6 +376,8 @@ namespace Lux {
 					if (entity && entity.HasComponent<TComponent>())
 						entity.RemoveComponent<TComponent>();
 				}
+
+				EditorStack::Get().MarkSceneEdited("Remove Component");
 			}
 
 			ImGui::PopID();
@@ -448,6 +509,9 @@ namespace Lux {
 				m_Context->DestroyEntity(entity);
 		}
 
+		if (!queuedDeletions.empty())
+			EditorStack::Get().MarkSceneEdited("Delete Entity");
+
 		PruneInvalidSelection();
 	}
 
@@ -474,6 +538,27 @@ namespace Lux {
 		m_IsHierarchyFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
 		const float edgeOffset = 4.0f;
+
+		// Uppercase section header with a live entity count, like the concept's sidebar.
+		{
+			uint32_t entityCount = 0;
+			if (m_Context)
+			{
+				auto view = m_Context->GetAllEntitiesWith<TagComponent>();
+				for (auto e : view)
+				{
+					(void)e;
+					entityCount++;
+				}
+			}
+			ImGui::SetCursorPosX(edgeOffset * 3.0f);
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
+			ImGui::Text("HIERARCHY  ·  %u", entityCount);
+			ImGui::PopStyleColor();
+			ImGui::Spacing();
+		}
+
 		ImGui::SetCursorPosX(edgeOffset * 3.0f);
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - edgeOffset * 3.0f);
 		ImGuiEx::Widgets::SearchWidget(m_SearchString, "Search entities...", &m_ActivateSearchWidget);
@@ -510,6 +595,7 @@ namespace Lux {
 						if (draggedEntity)
 							draggedEntity.SetParent({});
 					}
+					EditorStack::Get().MarkSceneEdited("Reparent");
 				}
 
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
@@ -519,7 +605,10 @@ namespace Lux {
 					{
 						Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
 						if (prefab)
+						{
 							SetSelectedEntity(m_Context->InstantiatePrefab(prefab));
+							EditorStack::Get().MarkSceneEdited("Add Prefab");
+						}
 					}
 				}
 
@@ -588,6 +677,7 @@ namespace Lux {
 				entity.SetParent(parent);
 
 			SetSelectedEntity(entity);
+			EditorStack::Get().MarkSceneEdited("Create Entity");   // covers every create-menu item
 			return entity;
 		};
 
@@ -601,6 +691,12 @@ namespace Lux {
 
 		if (ImGui::MenuItem("Create Empty Entity"))
 			createEntity("Empty Entity");
+
+		if (ImGui::MenuItem("Create Folder"))
+		{
+			Entity folder = createEntity("Folder");
+			folder.AddComponent<FolderComponent>();
+		}
 
 		if (ImGui::BeginMenu("Create 2D"))
 		{
@@ -737,7 +833,9 @@ namespace Lux {
 
 	void SceneHierarchyPanel::DrawEntityNode(Entity entity, const std::string& searchFilter)
 	{
-		auto& tag = entity.GetComponent<TagComponent>().Tag;
+		auto& tagComponent = entity.GetComponent<TagComponent>();
+		auto& tag = tagComponent.Tag;
+		const bool locked = tagComponent.Locked;
 		const auto& relationship = entity.GetComponent<RelationshipComponent>();
 		const bool hasChildren = !relationship.Children.empty();
 		const bool hasChildMatchingSearch = TagSearchRecursive(entity, searchFilter, 10);
@@ -753,24 +851,105 @@ namespace Lux {
 		if (!hasChildren)
 			flags |= ImGuiTreeNodeFlags_Leaf;
 
-		const bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, "%s", tag.c_str());
+		// Lime selection fill + a faint hover highlight, via the tree-node header colours.
+		ImGui::PushStyleColor(ImGuiCol_Header, Colors::Theme::selectionMuted);
+		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(255, 255, 255, 12));
+		ImGui::PushStyleColor(ImGuiCol_HeaderActive, Colors::Theme::selectionMuted);
+
+		// Empty label: the type icon and name are drawn manually below so the icon keeps its own
+		// category tint and the name turns accent-lime when selected.
+		const bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, "");
+		ImGui::PopStyleColor(3);
+
+		const bool rowHovered = ImGui::IsItemHovered();
+		const ImRect rowRect = ImGuiEx::GetItemRect();
+		ImGuiContext& g = *GImGui;
+
+		// Visibility toggle (mesh entities only): an eye at the right edge, revealed on hover or
+		// when hidden. Handled through the node's own click, guarded by the eye rect, so it needs
+		// no overlapping item (which would steal the node's drag-drop binding).
+		const bool hasVisToggle = entity.HasComponent<StaticMeshComponent>();
+		bool meshVisible = true;
+		ImRect eyeRect;
+		bool overEye = false;
+		if (hasVisToggle)
+		{
+			meshVisible = entity.GetComponent<StaticMeshComponent>().Visible;
+			const float eyeW = g.FontSize + 6.0f;
+			eyeRect = ImRect(ImVec2(rowRect.Max.x - eyeW, rowRect.Min.y), ImVec2(rowRect.Max.x, rowRect.Max.y));
+			overEye = rowHovered && eyeRect.Contains(ImGui::GetMousePos());
+		}
+
+		// Type icon + name, vertically centred over the node row.
+		{
+			EntityIconInfo iconInfo = GetEntityIcon(entity);
+			// A folder shows an open glyph while expanded.
+			if (entity.HasComponent<FolderComponent>() && opened && hasChildren)
+				iconInfo.Glyph = LUX_ICON_FOLDER_OPEN;
+			const float arrowWidth = g.FontSize;
+			const float iconX = rowRect.Min.x + g.Style.FramePadding.x + arrowWidth + g.Style.ItemInnerSpacing.x;
+			const float centerY = rowRect.Min.y + rowRect.GetHeight() * 0.5f;
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+
+			// Colour-label stripe at the very left edge of the row.
+			if (tagComponent.LabelColor != 0)
+				dl->AddRectFilled(ImVec2(rowRect.Min.x, rowRect.Min.y + 1.0f),
+					ImVec2(rowRect.Min.x + 3.0f, rowRect.Max.y - 1.0f), tagComponent.LabelColor, 1.0f);
+
+			const ImU32 iconColor = isSelected ? Colors::Theme::accent : iconInfo.Color;
+			const ImVec2 iconSize = ImGui::CalcTextSize(iconInfo.Glyph);
+			dl->AddText(ImVec2(iconX, centerY - iconSize.y * 0.5f), iconColor, iconInfo.Glyph);
+
+			// Right-side reservations: the visibility eye (if any), then a lock badge (if locked).
+			float contentRight = hasVisToggle ? eyeRect.Min.x - 4.0f : rowRect.Max.x - 4.0f;
+			if (locked)
+			{
+				const ImVec2 lockSize = ImGui::CalcTextSize(LUX_ICON_LOCK);
+				dl->AddText(ImVec2(contentRight - lockSize.x, centerY - lockSize.y * 0.5f), Colors::Theme::textDarker, LUX_ICON_LOCK);
+				contentRight -= lockSize.x + 4.0f;
+			}
+
+			const float nameX = iconX + iconSize.x + g.Style.ItemInnerSpacing.x + 2.0f;
+			const float nameRight = contentRight;
+			const ImU32 baseName = isSelected ? Colors::Theme::accent : Colors::Theme::text;
+			const ImU32 nameColor = (locked || (hasVisToggle && !meshVisible)) ? Colors::Theme::textDarker : baseName;
+			const ImVec2 nameSize = ImGui::CalcTextSize(tag.c_str());
+			dl->PushClipRect(ImVec2(nameX, rowRect.Min.y), ImVec2(std::max(nameX, nameRight), rowRect.Max.y), true);
+			dl->AddText(ImVec2(nameX, centerY - nameSize.y * 0.5f), nameColor, tag.c_str());
+			dl->PopClipRect();
+
+			if (hasVisToggle && (rowHovered || !meshVisible))
+			{
+				const char* eyeGlyph = meshVisible ? LUX_ICON_EYE : LUX_ICON_EYE_SLASH;
+				const ImVec2 eyeSize = ImGui::CalcTextSize(eyeGlyph);
+				const ImU32 eyeColor = overEye ? Colors::Theme::textBrighter : Colors::Theme::textDarker;
+				dl->AddText(ImVec2(eyeRect.GetCenter().x - eyeSize.x * 0.5f, centerY - eyeSize.y * 0.5f), eyeColor, eyeGlyph);
+			}
+		}
 
 		if (ImGui::IsItemClicked())
 		{
-			const bool ctrlDown = Input::IsKeyDown(Key::LeftControl) || Input::IsKeyDown(Key::RightControl);
-			if (ctrlDown)
+			if (overEye)
 			{
-				if (isSelected)
-					SelectionManager::Deselect(s_ActiveSelectionContext, entity.GetUUID());
-				else
-					SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
+				entity.GetComponent<StaticMeshComponent>().Visible = !meshVisible;
 			}
 			else
 			{
-				if (!isSelected || SelectionManager::GetSelectionCount(s_ActiveSelectionContext) > 1)
+				const bool ctrlDown = Input::IsKeyDown(Key::LeftControl) || Input::IsKeyDown(Key::RightControl);
+				if (ctrlDown)
 				{
-					SelectionManager::DeselectAll(s_ActiveSelectionContext);
-					SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
+					if (isSelected)
+						SelectionManager::Deselect(s_ActiveSelectionContext, entity.GetUUID());
+					else
+						SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
+				}
+				else
+				{
+					if (!isSelected || SelectionManager::GetSelectionCount(s_ActiveSelectionContext) > 1)
+					{
+						SelectionManager::DeselectAll(s_ActiveSelectionContext);
+						SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
+					}
 				}
 			}
 		}
@@ -781,7 +960,7 @@ namespace Lux {
 			SelectionManager::Select(s_ActiveSelectionContext, entity.GetUUID());
 		}
 
-		if (ImGui::BeginDragDropSource())
+		if (!locked && ImGui::BeginDragDropSource())
 		{
 			static std::vector<UUID> draggedEntityIDs;
 			const auto& selectedEntities = SelectionManager::GetSelections(s_ActiveSelectionContext);
@@ -808,6 +987,7 @@ namespace Lux {
 					if (draggedEntity && draggedEntity != entity)
 						draggedEntity.SetParent(entity);
 				}
+				EditorStack::Get().MarkSceneEdited("Reparent");
 			}
 
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
@@ -823,6 +1003,7 @@ namespace Lux {
 						{
 							instantiated.SetParent(entity);
 							SetSelectedEntity(instantiated);
+							EditorStack::Get().MarkSceneEdited("Add Prefab");
 						}
 					}
 				}
@@ -837,9 +1018,50 @@ namespace Lux {
 			DrawEntityCreateMenu(entity);
 			ImGui::Separator();
 
+			if (ImGui::MenuItem(locked ? LUX_ICON_UNLOCK "  Unlock" : LUX_ICON_LOCK "  Lock"))
+			{
+				tagComponent.Locked = !locked;
+				EditorStack::Get().MarkSceneEdited(tagComponent.Locked ? "Lock Entity" : "Unlock Entity");
+			}
+
+			if (ImGui::BeginMenu(LUX_ICON_TAG "  Label Color"))
+			{
+				// A small fixed palette (packed RGBA) plus a clear option.
+				static const uint32_t kLabelColors[] = {
+					IM_COL32(232, 84, 84, 255),   // red
+					IM_COL32(232, 148, 64, 255),  // orange
+					IM_COL32(230, 202, 72, 255),  // yellow
+					IM_COL32(120, 200, 96, 255),  // green
+					IM_COL32(84, 158, 232, 255),  // blue
+					IM_COL32(168, 120, 224, 255), // purple
+				};
+				for (uint32_t color : kLabelColors)
+				{
+					ImGui::PushID(reinterpret_cast<void*>(static_cast<uintptr_t>(color)));
+					if (ImGui::ColorButton("##label", ImGui::ColorConvertU32ToFloat4(color), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f)))
+					{
+						tagComponent.LabelColor = color;
+						EditorStack::Get().MarkSceneEdited("Set Label Color");
+						ImGui::CloseCurrentPopup();
+					}
+					ImGui::SameLine();
+					ImGui::PopID();
+				}
+				ImGui::NewLine();
+				if (ImGui::MenuItem("None", nullptr, false, tagComponent.LabelColor != 0))
+				{
+					tagComponent.LabelColor = 0;
+					EditorStack::Get().MarkSceneEdited("Clear Label Color");
+				}
+				ImGui::EndMenu();
+			}
+
+			ImGui::Separator();
+
 			const size_t selectionCount = SelectionManager::GetSelectionCount(s_ActiveSelectionContext);
 			const char* deleteLabel = (isSelected && selectionCount > 1) ? "Delete Selected Entities" : "Delete Entity";
-			if (ImGui::MenuItem(deleteLabel))
+			// Locked entities are undeletable from here (a multi-selection still deletes the unlocked ones).
+			if (ImGui::MenuItem(deleteLabel, nullptr, false, !locked))
 				deleteRequested = true;
 
 			ImGui::EndPopup();
@@ -866,7 +1088,15 @@ namespace Lux {
 			else
 				entitiesToDelete = { entity.GetUUID() };
 
-			QueueEntityDeletion(entitiesToDelete);
+			// Never delete a locked entity, even as part of a multi-selection.
+			std::erase_if(entitiesToDelete, [this](UUID id)
+			{
+				Entity e = m_Context->GetEntityByUUID(id);
+				return e && e.GetComponent<TagComponent>().Locked;
+			});
+
+			if (!entitiesToDelete.empty())
+				QueueEntityDeletion(entitiesToDelete);
 		}
 	}
 
@@ -883,16 +1113,49 @@ namespace Lux {
 			return;
 
 		const bool isMultiSelect = entityIDs.size() > 1;
+		// A folder is purely organizational: no editable transform, no components to add.
+		const bool isFolder = !isMultiSelect && firstEntity.HasComponent<FolderComponent>();
 		const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
+
+		// Inspector-wide: every input renders as a bordered, slightly-inset "field box" (the
+		// concept's .field look). Scoped RAII so it unwinds cleanly across this function's returns.
+		ImGuiEx::ScopedStyle frameBorderSize(ImGuiStyleVar_FrameBorderSize, 1.0f);
+		ImGuiEx::ScopedStyle frameRounding(ImGuiStyleVar_FrameRounding, 3.0f);
+		ImGuiEx::ScopedColour frameBg(ImGuiCol_FrameBg, Colors::Theme::backgroundDark);
+		ImGuiEx::ScopedColour frameBorder(ImGuiCol_Border, Colors::Theme::muted);
+
+		// A locked, single-selected entity is read-only in the inspector. The unlock control is drawn
+		// before the disable scope opens, so it stays clickable.
+		const bool lockedInspect = !isMultiSelect && firstEntity.GetComponent<TagComponent>().Locked;
+		if (lockedInspect)
+		{
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
+			{
+				ImGuiEx::ScopedColour lockText(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextUnformatted(LUX_ICON_LOCK "  This entity is locked.");
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Unlock"))
+			{
+				firstEntity.GetComponent<TagComponent>().Locked = false;
+				EditorStack::Get().MarkSceneEdited("Unlock Entity");
+			}
+		}
+		ImGuiEx::ScopedDisable inspectorDisabled(lockedInspect);
 
 		{
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
 
-			if (EditorResources::PencilIcon)
+			// Accent status dot before the name, like the concept's inspector header.
 			{
-				ImGui::Image(ImGuiEx::GetTextureID(EditorResources::PencilIcon), ImVec2(16.0f, 16.0f));
-				ImGui::SameLine(0.0f, 6.0f);
+				const float dotRadius = 4.0f;
+				const ImVec2 cursor = ImGui::GetCursorScreenPos();
+				const ImVec2 dotCenter(cursor.x + dotRadius + 2.0f, cursor.y + ImGui::GetFrameHeight() * 0.5f);
+				ImGui::GetWindowDrawList()->AddCircleFilled(dotCenter, dotRadius, Colors::Theme::accent);
+				ImGui::Dummy(ImVec2(dotRadius * 2.0f + 4.0f, ImGui::GetFrameHeight()));
+				ImGui::SameLine(0.0f, 8.0f);
 			}
 
 			std::string tagValue = firstEntity.GetName();
@@ -917,6 +1180,7 @@ namespace Lux {
 				{
 					component.Tag = newName;
 				});
+				EditorStack::Get().MarkSceneEdited("Rename");
 			}
 			ImGui::PopItemWidth();
 			ImGui::PopFont();
@@ -927,10 +1191,19 @@ namespace Lux {
 				ImGui::TextDisabled("(%zu selected)", entityIDs.size());
 			}
 
-			const float addButtonWidth = 90.0f;
-			ImGui::SameLine(contentRegionAvailable.x - addButtonWidth - 6.0f);
-			if (ImGui::Button("ADD", ImVec2(addButtonWidth, 0.0f)))
-				ImGui::OpenPopup("AddComponentPanel");
+			if (!isFolder)
+			{
+				const float addButtonWidth = 90.0f;
+				ImGui::SameLine(contentRegionAvailable.x - addButtonWidth - 6.0f);
+				// Lime call-to-action, matching the concept's accent Add button.
+				ImGuiEx::ScopedColour addBg(ImGuiCol_Button, Colors::Theme::accent);
+				ImGuiEx::ScopedColour addBgH(ImGuiCol_ButtonHovered, Colors::Theme::accent);
+				ImGuiEx::ScopedColour addBgA(ImGuiCol_ButtonActive, Colors::Theme::accent);
+				ImGuiEx::ScopedColour addTxt(ImGuiCol_Text, Colors::Theme::titlebar);
+				ImGuiEx::ScopedColour addBorder(ImGuiCol_Border, Colors::Theme::accent);
+				if (ImGui::Button(LUX_ICON_PLUS "  ADD", ImVec2(addButtonWidth, 0.0f)))
+					ImGui::OpenPopup("AddComponentPanel");
+			}
 		}
 
 		ImGui::Spacing();
@@ -964,6 +1237,7 @@ namespace Lux {
 				if (ImGui::Selectable(label, false, ImGuiSelectableFlags_SpanAllColumns))
 				{
 					addCallback();
+					EditorStack::Get().MarkSceneEdited("Add Component");
 					ImGui::CloseCurrentPopup();
 				}
 			};
@@ -1324,31 +1598,155 @@ namespace Lux {
 		DrawComponentSection<PrefabComponent>(m_Context, entityIDs, "Prefab", EditorResources::AssetIcon,
 			[this](PrefabComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
 			{
-				ImGuiEx::BeginPropertyGrid();
+				const bool validPrefab = AssetManager::IsAssetHandleValid(firstComponent.PrefabID)
+					&& AssetManager::GetAssetType(firstComponent.PrefabID) == AssetType::Prefab;
 
-				uint64_t prefabID = (uint64_t)firstComponent.PrefabID;
-				if (ImGuiEx::PropertyInput("Prefab ID", prefabID, 1, 1))
+				std::string prefabName = "(missing prefab)";
+				if (validPrefab)
+					prefabName = Project::GetEditorAssetManager()->GetMetadata(firstComponent.PrefabID).FilePath.stem().string();
+
 				{
-					firstComponent.PrefabID = (AssetHandle)prefabID;
-					ApplyToSelection<PrefabComponent>(m_Context, selectedEntities, [&firstComponent](PrefabComponent& component, Entity)
-					{
-						component.PrefabID = firstComponent.PrefabID;
-					});
+					ImGuiEx::ScopedColour label(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextUnformatted("Source");
 				}
+				ImGui::SameLine();
+				ImGui::TextUnformatted(prefabName.c_str());
 
-				uint64_t entityID = (uint64_t)firstComponent.EntityID;
-				if (ImGuiEx::PropertyInput("Entity ID", entityID, 1, 1))
+				Ref<Prefab> prefab = validPrefab ? AssetManager::GetAsset<Prefab>(firstComponent.PrefabID) : nullptr;
+				Entity sourceEntity = prefab ? prefab->GetScene()->TryGetEntityWithUUID(firstComponent.EntityID) : Entity{};
+				Entity instanceEntity = m_Context->TryGetEntityWithUUID(selectedEntities.front());
+
+				const bool singleSelect = selectedEntities.size() == 1;
+				const bool canSync = singleSelect && prefab && sourceEntity && instanceEntity;
+
+				if (!singleSelect)
 				{
-					firstComponent.EntityID = (UUID)entityID;
-					ApplyToSelection<PrefabComponent>(m_Context, selectedEntities, [&firstComponent](PrefabComponent& component, Entity)
-					{
-						component.EntityID = firstComponent.EntityID;
-					});
+					ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextUnformatted("Select a single instance to revert or apply.");
 				}
+				else if (!canSync)
+				{
+					ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextUnformatted("Prefab source unavailable.");
+				}
+				else
+				{
+					const std::unordered_set<std::string> overrides =
+						SceneSerializer::GetOverriddenComponentKeys(instanceEntity, sourceEntity);
 
-				ImGuiEx::EndPropertyGrid();
+					auto serializePrefab = [&]()
+					{
+						const std::filesystem::path path = Project::GetEditorAssetManager()->GetFileSystemPath(firstComponent.PrefabID);
+						// Route through the prefab writer so a variant keeps its base link.
+						PrefabSerializer::WritePrefabFile(path, prefab->GetScene(), prefab->GetBasePrefab());
+					};
+
+					// One override row: label + per-component Revert (prefab -> instance) and Apply
+					// (instance -> prefab, then re-serialize). T reconciles add/replace/remove.
+					auto row = [&]<typename T>(const char* key, const char* label)
+					{
+						if (!overrides.contains(key))
+							return;
+
+						ImGuiEx::ScopedID id(key);
+						ImGui::Bullet();
+						ImGui::SameLine();
+						ImGui::TextUnformatted(label);
+
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Revert"))
+						{
+							if (sourceEntity.HasComponent<T>())
+								instanceEntity.AddOrReplaceComponent<T>(sourceEntity.GetComponent<T>());
+							else
+								instanceEntity.RemoveComponentIfExists<T>();
+							EditorStack::Get().MarkSceneEdited("Revert Prefab Override");
+						}
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Apply"))
+						{
+							if (instanceEntity.HasComponent<T>())
+								sourceEntity.AddOrReplaceComponent<T>(instanceEntity.GetComponent<T>());
+							else
+								sourceEntity.RemoveComponentIfExists<T>();
+							serializePrefab();
+							LUX_CORE_INFO_TAG("Prefab", "Applied {} to prefab '{}'", label, prefabName);
+						}
+					};
+
+					if (overrides.empty())
+					{
+						ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+						ImGui::TextUnformatted("No overrides.");
+					}
+					else
+					{
+						{
+							ImGuiEx::ScopedColour hdr(ImGuiCol_Text, Colors::Theme::textDarker);
+							ImGui::TextUnformatted("Overrides");
+						}
+
+						// This list must cover every component SerializeEntity emits, or a detected
+						// override could have no row here (and Revert All wouldn't reconcile it).
+						row.operator()<TransformComponent>("TransformComponent", "Transform");
+						row.operator()<StaticMeshComponent>("StaticMeshComponent", "Static Mesh");
+						row.operator()<MeshComponent>("MeshComponent", "Mesh");
+						row.operator()<SubmeshComponent>("SubmeshComponent", "Submesh");
+						row.operator()<MeshTagComponent>("MeshTagComponent", "Mesh Tag");
+						row.operator()<CameraComponent>("CameraComponent", "Camera");
+						row.operator()<ScriptComponent>("ScriptComponent", "Script");
+						row.operator()<SpriteRendererComponent>("SpriteRendererComponent", "Sprite Renderer");
+						row.operator()<CircleRendererComponent>("CircleRendererComponent", "Circle Renderer");
+						row.operator()<TextComponent>("TextComponent", "Text");
+						row.operator()<DirectionalLightComponent>("DirectionalLightComponent", "Directional Light");
+						row.operator()<PointLightComponent>("PointLightComponent", "Point Light");
+						row.operator()<SpotLightComponent>("SpotLightComponent", "Spot Light");
+						row.operator()<SkyLightComponent>("SkyLightComponent", "Sky Light");
+						row.operator()<RigidBodyComponent>("RigidBodyComponent", "Rigid Body");
+						row.operator()<CharacterControllerComponent>("CharacterControllerComponent", "Character Controller");
+						row.operator()<CompoundColliderComponent>("CompoundColliderComponent", "Compound Collider");
+						row.operator()<BoxColliderComponent>("BoxColliderComponent", "Box Collider");
+						row.operator()<SphereColliderComponent>("SphereColliderComponent", "Sphere Collider");
+						row.operator()<CapsuleColliderComponent>("CapsuleColliderComponent", "Capsule Collider");
+						row.operator()<MeshColliderComponent>("MeshColliderComponent", "Mesh Collider");
+						row.operator()<RigidBody2DComponent>("RigidBody2DComponent", "Rigid Body 2D");
+						row.operator()<BoxCollider2DComponent>("BoxCollider2DComponent", "Box Collider 2D");
+						row.operator()<CircleCollider2DComponent>("CircleCollider2DComponent", "Circle Collider 2D");
+						row.operator()<FolderComponent>("Folder", "Folder");
+
+						ImGui::Spacing();
+						if (ImGui::Button("Revert All"))
+						{
+							Scene::ReconcilePrefabComponents(instanceEntity, sourceEntity);
+							EditorStack::Get().MarkSceneEdited("Revert Prefab Instance");
+						}
+						ImGui::SameLine();
+						if (ImGui::Button("Apply All"))
+							ImGui::OpenPopup("Apply to Prefab?");
+
+						if (ImGui::BeginPopupModal("Apply to Prefab?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+						{
+							ImGui::TextUnformatted("Overwrite the prefab asset with this instance's values?\n"
+								"Other instances keep their current values until reverted.");
+							ImGui::Spacing();
+							if (ImGui::Button("Apply"))
+							{
+								Scene::ReconcilePrefabComponents(sourceEntity, instanceEntity);
+								serializePrefab();
+								LUX_CORE_INFO_TAG("Prefab", "Applied instance to prefab '{}'", prefabName);
+								ImGui::CloseCurrentPopup();
+							}
+							ImGui::SameLine();
+							if (ImGui::Button("Cancel"))
+								ImGui::CloseCurrentPopup();
+							ImGui::EndPopup();
+						}
+					}
+				}
 			});
 
+		// Folders keep an identity transform for the scene graph, but it isn't user-editable.
+		if (!isFolder)
 		DrawComponentSection<TransformComponent>(m_Context, entityIDs, "Transform", EditorResources::TransformIcon,
 			[this](TransformComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
 			{
@@ -1505,6 +1903,14 @@ namespace Lux {
 				if (!valid)
 					return;
 
+				// While the scene runs, FieldStorage reads/writes the live Coral instance, so the
+				// controls below reflect and edit the running object rather than the stored snapshot.
+				if (m_Context && m_Context->IsRunning())
+				{
+					ImGuiEx::ScopedColour live(ImGuiCol_Text, Colors::Theme::titlebarGreen);
+					ImGui::TextUnformatted("\xE2\x97\x8F  Live \xE2\x80\x94 editing the running instance");
+				}
+
 				// Ensure per-entity storage exists (and matches the current script).
 				UUID entityID = firstEntity.GetUUID();
 				ScriptStorage& storage = m_Context->GetScriptStorage();
@@ -1526,12 +1932,25 @@ namespace Lux {
 						continue;
 
 					FieldStorage& fs = it->second;
+
+					// [Header] groups fields with a bold label above them.
+					if (!fieldMetadata.Header.empty())
+					{
+						ImGuiEx::ScopedColour headerColour(ImGuiCol_Text, Colors::Theme::textBrighter);
+						ImGui::TextUnformatted(fieldMetadata.Header.c_str());
+					}
+
 					if (fs.IsArray())
 					{
 						ImGui::TextDisabled("%s (array)", fieldMetadata.Name.c_str());
 						continue;
 					}
-					DrawScriptFieldControl(fieldMetadata.Name, fieldMetadata.Type, fs);
+					DrawScriptFieldControl(fieldMetadata.Name, fieldMetadata.Type, fs,
+						fieldMetadata.HasRange, fieldMetadata.RangeMin, fieldMetadata.RangeMax);
+
+					// [Tooltip] shows help when the control is hovered.
+					if (!fieldMetadata.Tooltip.empty() && ImGui::IsItemHovered())
+						ImGui::SetTooltip("%s", fieldMetadata.Tooltip.c_str());
 				}
 			});
 

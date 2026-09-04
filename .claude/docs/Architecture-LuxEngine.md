@@ -210,8 +210,25 @@ Structurally:
 `ExponentialHeightFogComponent`); physics 3D (`RigidBodyComponent`, `CharacterControllerComponent`,
 `Box`/`Sphere`/`Capsule`/`Mesh`/`CompoundColliderComponent`); physics 2D (`RigidBody2DComponent`,
 `BoxCollider2DComponent`, `CircleCollider2DComponent`); scripting (`ScriptComponent`,
-`NativeScriptComponent`); audio (`AudioSourceComponent`, `AudioListenerComponent`); and
-`PrefabComponent`.
+`NativeScriptComponent`); audio (`AudioSourceComponent`, `AudioListenerComponent`);
+`FolderComponent` (a purely organizational hierarchy grouping node — non-empty marker, kept out of
+the transform/render paths); and `PrefabComponent`.
+
+**Prefab instances:** an instantiated (or freshly created) prefab hierarchy carries a
+`PrefabComponent{PrefabID, EntityID}` on every entity, linking each to its source entity inside the
+prefab asset's scene. `SceneSerializer::GetOverriddenComponentKeys(instance, source)` diffs the two
+entities' serialized component blocks to surface per-component overrides in the inspector, and
+`Scene::ReconcilePrefabComponents(dst, src)` makes one entity's prefab-tracked components match the
+other exactly (replace/add/remove) — together backing the editor's per-component and all-at-once
+**Revert** (source → instance) / **Apply** (instance → source, then re-serialize the asset). True
+**Variant prefabs** are self-contained prefabs that carry a `BasePrefab` handle (`Prefab::GetBasePrefab`),
+serialized as an optional top-level `BasePrefab` key by `PrefabSerializer::WritePrefabFile` (the single
+prefab-write path, so the base link survives every save). A variant instantiates like any prefab; on
+saving a base, `EditorLayer::PropagateToVariants` refreshes each derived variant asset via
+`Scene::AdoptPrefabBaseEdits` (UUID-matched, un-overridden entities adopt the base edit). **Prefab edit mode**
+(EditorLayer) swaps the editing context to a copy of the prefab's scene (`ApplyEditorScene`, shared
+with `OpenScene`); on save it writes the asset and calls `Scene::PropagatePrefabEdits`, which
+refreshes un-overridden instances in the returned scene to the edited prefab's values.
 
 **Lifecycle:** `OnRuntimeStart` / `OnRuntimeStop` (physics + scripts), `OnSimulationStart` /
 `OnSimulationStop` (physics only), and the per-mode updates `OnUpdateRuntime` /
@@ -314,6 +331,18 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   `PanelCategory`.
 - `SelectionManager`, `EditorCamera`, `EditorConsolePanel` + `EditorConsole/`,
   `SceneHierarchyPanel`, `EditorResources`, `FontAwesome.h`.
+- `EditorStack` (`Core/.../Editor/EditorStack.h`, header-only, main-thread singleton) — undo/redo
+  *signal*. It carries a "scene edited" flag; `ImGuiEx::Property` raises it on every field edit (gated
+  by the `UndoDo` macro), and non-widget edits call `MarkSceneEdited("label")`. `EditorLayer` turns the
+  flag into a **labelled, per-entity diff** step: it splits the scene via
+  `SceneSerializer::SerializeEntitySnapshots` (per-entity YAML + meta) and stores only the changed
+  entities, so history is O(change). Restore reassembles the full scene and runs the whole-scene
+  deserialize (`DeserializeFromSnapshots`), which keeps it safe against the two-way parent/child links.
+  Value-based, so nothing dangles. Non-scene edits (renderer/project settings) push closure commands
+  (`CustomUndo`/`CustomRedo`, via `EditorLayer::PushUndoCommand`) onto the same stack, so one `Ctrl+Z`
+  covers everything. Selection is restored per step; a `UndoHistoryPanel` (View → History) shows the
+  stack. Play/Simulate get a separate transient history (discarded on Stop; undo there rebuilds and
+  restarts the runtime). Resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, Materials, MaterialEditor, LightSettings,
   SceneRenderer, RenderStats, RendererDebugger, TextEditor, ThumbnailCache.

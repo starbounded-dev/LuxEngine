@@ -78,7 +78,12 @@ namespace Lux {
 		if (!m_IsActive)
 		{
 			m_CameraMouseCaptured = false;
-			if (!ImGuiEx::IsInputEnabled())
+			// If the camera went inactive mid-capture (focus/hover lost while flying), the cursor
+			// was left hidden/locked. Restore it here — otherwise it stays captured and unusable
+			// until the window loses focus (which is what makes GLFW release it).
+			if (Input::GetCursorMode() != CursorMode::Normal)
+				EnableMouse();
+			else if (!ImGuiEx::IsInputEnabled())
 				ImGuiEx::SetInputEnabled(true);
 
 			return;
@@ -228,6 +233,20 @@ namespace Lux {
 			m_Distance -= m_Distance - m_MinFocusDistance;
 			m_Position = m_FocalPoint - GetForwardDirection() * m_Distance;
 		}
+		m_Position = m_FocalPoint - GetForwardDirection() * m_Distance;
+		UpdateCameraView();
+	}
+
+	void EditorCamera::SetOrbitState(const glm::vec3& focalPoint, float distance, float pitch, float yaw)
+	{
+		m_FocalPoint = focalPoint;
+		m_Distance = glm::max(distance, 0.01f);
+		m_Pitch = pitch;
+		m_Yaw = yaw;
+		m_PitchDelta = 0.0f;
+		m_YawDelta = 0.0f;
+		m_PositionDelta = glm::vec3(0.0f);
+		m_CameraMode = CameraMode::ARCBALL;
 		m_Position = m_FocalPoint - GetForwardDirection() * m_Distance;
 		UpdateCameraView();
 	}

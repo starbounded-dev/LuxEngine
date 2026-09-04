@@ -1,4 +1,4 @@
-﻿Project:
+Project:
   Name: LuxSample
   AssetDirectory: Assets
   AssetRegistry: Assets/AssetRegistry.lzr
@@ -8,7 +8,7 @@
   AnimationPath: Animation
   ScriptModulePath: Scripts/Binaries/LuxSample.dll
   DefaultNamespace: LuxSample
-  StartScene: Scenes/NewSceneSystem.luxscene
+  StartScene: Scenes/LaptopStart.luxscene
   AutomaticallyReloadAssembly: true
   AutoSave: true
   AutoSaveInterval: 300
@@ -19,7 +19,7 @@
     Fullscreen: false
     VSync: false
     IconPath: Textures/luxLogo.png
-    IconHandle: 10706518493978196728
+    IconHandle: 3523050505664199236
     TargetConfig: Release
   SceneRenderer:
     Rendering:

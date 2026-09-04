@@ -2,9 +2,12 @@
 #include "RuntimeExportUtils.h"
 
 #include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Editor/EditorStack.h"
+#include "Lux/Editor/SelectionManager.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Scripting/ScriptBuilder.h"
+#include "Lux/Editor/FontAwesome.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/ShaderPack.h"
@@ -14,6 +17,7 @@
 
 #include "Lux/Utilities/FileSystem.h"
 
+#include <cstring>
 #include <format>
 
 #include "Lux/Asset/AssetManager.h"
@@ -41,6 +45,11 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
+#include "Panels/ProfilerPanel.h"
+#include "Panels/UndoHistoryPanel.h"
+
+#include "Lux/Scene/Prefab.h"
+#include "Lux/Asset/PrefabSerializer.h"
 #include "Panels/ApplicationSettingsPanel.h"
 #include "Panels/AssetManagerPanel.h"
 #include "Panels/ProjectSettingsWindow.h"
@@ -51,7 +60,6 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
-#include <fstream>
 #include <functional>
 #include <limits>
 #include <vector>
@@ -348,11 +356,36 @@ namespace Lux {
 
 		m_SceneHierarchyPanel = m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
 		Ref<ContentBrowserPanel> contentBrowserPanel = m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
-		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Text Editor", true);
+		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Beam", true);
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
 
-		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", true);
+		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
+		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
+
+		{
+			UndoHistoryPanel::Bindings historyBindings;
+			historyBindings.UndoLabels = [this]() {
+				const std::vector<UndoCommand>& stack = ActiveUndoStack();
+				std::vector<std::string> labels;
+				labels.reserve(stack.size());
+				for (const UndoCommand& command : stack)
+					labels.push_back(command.Label);
+				return labels;
+			};
+			historyBindings.RedoLabels = [this]() {
+				const std::vector<UndoCommand>& stack = ActiveRedoStack();
+				std::vector<std::string> labels;
+				labels.reserve(stack.size());
+				for (auto it = stack.rbegin(); it != stack.rend(); ++it)
+					labels.push_back(it->Label);
+				return labels;
+			};
+			historyBindings.Undo = [this](int steps) { for (int i = 0; i < steps; i++) UndoSceneEdit(); };
+			historyBindings.Redo = [this](int steps) { for (int i = 0; i < steps; i++) RedoSceneEdit(); };
+			historyBindings.IsAvailable = [this]() { return true; };   // works in Edit and Play/Simulate
+			m_PanelManager->AddPanel<UndoHistoryPanel>(PanelCategory::View, "UndoHistoryPanel", "History", false, historyBindings);
+		}
 		if (m_SceneRendererPanel)
 		{
 			m_SceneRendererPanel->SetDebugViewCallbacks(
@@ -372,6 +405,11 @@ namespace Lux {
 		editorPreferencesBindings.ShowEntityIcons = &m_ShowEntityIcons;
 		editorPreferencesBindings.ShowViewportPerformanceHUD = &m_ShowViewportPerformanceHUD;
 		editorPreferencesBindings.ShowPhysicsColliders = &m_ShowPhysicsColliders;
+		editorPreferencesBindings.SimpleLayout = &m_SimpleLayout;
+		editorPreferencesBindings.OnLayoutModeChanged = [this](bool simple)
+			{
+				SetEditorLayoutMode(simple);
+			};
 		editorPreferencesBindings.OnPreferencesChanged = [this]()
 			{
 				ApplyEditorPreferences();
@@ -383,7 +421,11 @@ namespace Lux {
 		m_PanelManager->AddPanel<ProjectSettingsWindow>(PanelCategory::View, PROJECT_SETTINGS_PANEL_ID, "Project Settings", false);
 
 		// Light Settings panel
-		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", true);
+		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", false);
+
+		// Command palette (Ctrl+Shift+P) — populated after every panel exists so panel toggles resolve.
+		m_CommandPalette = CreateScope<CommandPalette>();
+		RegisterCommands();
 
 		m_IconPlay = LoadTextureFromPath("Resources/Editor/Viewport/Play.png");
 		m_IconPause = LoadTextureFromPath("Resources/Editor/Viewport/Pause.png");
@@ -424,6 +466,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
@@ -431,9 +475,20 @@ namespace Lux {
 
 		if (contentBrowserPanel)
 		{
+			// Route content-browser asset delete/move/rename onto the editor undo stack.
+			contentBrowserPanel->SetUndoPush([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+			{
+				PushUndoCommand(label, std::move(undo), std::move(redo));
+			});
+
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Scene, [this](const AssetMetadata& metadata)
 			{
 				OpenScene(metadata.Handle);
+			});
+
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)
+			{
+				EnterPrefabEditMode(metadata.Handle);
 			});
 
 			if (textEditorPanel)
@@ -453,12 +508,24 @@ namespace Lux {
 
 		if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
 			OpenProject(startupProject);
+
+		// Baseline the undo history against whatever scene ended up loaded (startup scene, or the
+		// empty default) so the first edit has a valid state to undo back to.
+		ResetUndoHistory();
+		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
 	}
 
 	void EditorLayer::OnDetach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
 		SaveEditorPreferences();
+
+		// Release the active project + asset manager now, while the Vulkan device is still alive.
+		// Project::s_AssetManager is a static Ref that would otherwise be destroyed at program exit —
+		// long after the device — and freeing its cached scenes' GPU resources (IndexBuffers, etc.)
+		// against a dead device segfaults on shutdown. SetActive(nullptr) runs its Shutdown() and drops
+		// the reference here instead.
+		Project::SetActive(nullptr);
 
 		m_ActiveScene.reset();
 		m_EditorScene.reset();
@@ -476,6 +543,7 @@ namespace Lux {
 		m_EditorViewport.reset();
 		m_SceneRenderer.reset();
 		m_RendererDebuggerPanel.reset();
+		m_ProfilerPanel.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
 		EditorResources::Shutdown();
@@ -621,10 +689,32 @@ namespace Lux {
 			{
 				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
 				ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+
+				// DockSpace() creates the node as an unsplit leaf when imgui.ini had nothing saved
+				// for it; a node that's already split means a saved layout was restored, so this
+				// only ever fires on first run (or after Editor/imgui.ini is cleared).
+				if (!ImGui::DockBuilderGetNode(dockspace_id)->IsSplitNode())
+					ResetDefaultDockLayout(dockspace_id);
+
+				// A layout-mode switch requested from a menu last frame is applied here, where the
+				// dockspace id is valid.
+				if (m_PendingLayoutReset)
+				{
+					ResetDefaultDockLayout(dockspace_id);
+					m_PendingLayoutReset = false;
+				}
 			}
 			style.WindowMinSize.x = minWinSizeX;
 
 			m_PanelManager->OnImGuiRender();
+
+			// After the panels have drawn (and possibly signalled an edit), decide whether to record
+			// an undo snapshot. Runs here so it sees this frame's edits and the final active-item state.
+			PollSceneEditForUndo();
+			UI_UndoToast();
+			UI_ScriptToast();
+			UI_PrefabEditBanner();
+
 			RenderRuntimeExportWindow();
 
 			if (m_ShowImGuiMetrics)
@@ -652,6 +742,17 @@ namespace Lux {
 				}
 
 				ImGui::EndPopup();
+			}
+
+			// Command palette overlay — drawn late, brings itself to front via SetNextWindowFocus.
+			// The Ctrl+Shift+P chord is read through ImGui's own input rather than the engine key
+			// event, so it fires regardless of which panel currently holds keyboard focus.
+			if (m_CommandPalette)
+			{
+				if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P))
+					m_CommandPalette->Toggle();
+
+				m_CommandPalette->OnImGuiRender();
 			}
 
 			// Viewport panel
@@ -728,7 +829,8 @@ namespace Lux {
 					Entity selectedEntity = {};
 					if (m_SceneHierarchyPanel)
 						selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
-					if (selectedEntity && m_GizmoType != -1)
+					// Folders have no user-editable transform, so they get no gizmo.
+					if (selectedEntity && m_GizmoType != -1 && !selectedEntity.HasComponent<FolderComponent>())
 					{
 						ImGuizmo::SetOrthographic(false);
 						ImGuizmo::SetDrawlist();
@@ -772,6 +874,17 @@ namespace Lux {
 							tc.SetRotationEuler(tc.GetRotationEuler() + deltaRotation);
 							tc.Scale = scale;
 						}
+
+						// Record one undo step when a gizmo drag finishes (the transform is mutated above
+						// but not through a property widget, so it doesn't raise the ImGuiEx signal).
+						const bool gizmoUsing = ImGuizmo::IsUsing();
+						if (m_GizmoWasUsing && !gizmoUsing)
+						{
+							const char* gizmoLabel = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? "Rotate"
+								: m_GizmoType == ImGuizmo::OPERATION::SCALE ? "Scale" : "Move";
+							EditorStack::Get().MarkSceneEdited(gizmoLabel);
+						}
+						m_GizmoWasUsing = gizmoUsing;
 					}
 				}
 
@@ -779,12 +892,239 @@ namespace Lux {
 			}
 			ImGui::PopStyleVar();
 
-			UI_GizmosToolbar();
-			UI_CentralToolbar();
-			UI_ViewportSettings();
+			// Gizmo tools + transport live in the titlebar. The other viewport overlays only show
+			// while the viewport is the visible tab, so they never sit over Beam.
+			if (m_EditorViewport->IsVisible())
+			{
+				UI_ViewportSettings();
+				UI_ViewportOrientationGizmo();
+				UI_ViewportSelectionBadge();
+			}
 		}
 
 		ImGui::End(); // Lux Editor
+	}
+
+	void EditorLayer::ResetDefaultDockLayout(ImGuiID dockspaceId)
+	{
+		ImGui::DockBuilderRemoveNode(dockspaceId);
+		ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+		ImGui::DockBuilderSetNodeSize(dockspaceId, ImGui::GetMainViewport()->Size);
+
+		ImGuiID center = dockspaceId;
+		const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+		const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
+		const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.30f, nullptr, &center);
+
+		// Core panels, present in both layouts.
+		ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
+		ImGui::DockBuilderDockWindow("Properties", right);
+		ImGui::DockBuilderDockWindow("Content Browser", bottom);
+		ImGui::DockBuilderDockWindow("Log", bottom);
+		ImGui::DockBuilderDockWindow("Viewport", center);
+		ImGui::DockBuilderDockWindow("Beam", center);
+
+		// Advanced mode fills out the workspace with the diagnostic panels: a left-bottom group
+		// under the hierarchy (Scene Renderer / Light Settings / Profiler) and the Renderer
+		// Debugger tabbed into the bottom dock. In Simple mode these stay closed (see
+		// SetEditorLayoutMode) and are absent from the default arrangement.
+		if (!m_SimpleLayout)
+		{
+			const ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.5f, nullptr, nullptr);
+			ImGui::DockBuilderDockWindow("Scene Renderer", leftBottom);
+			ImGui::DockBuilderDockWindow("Light Settings", leftBottom);
+			ImGui::DockBuilderDockWindow("Profiler", leftBottom);
+			ImGui::DockBuilderDockWindow("Renderer Debugger", bottom);
+		}
+
+		ImGui::DockBuilderFinish(dockspaceId);
+	}
+
+	void EditorLayer::SetEditorLayoutMode(bool simple)
+	{
+		m_SimpleLayout = simple;
+
+		// The advanced-only panels follow the mode: opened when entering Advanced, closed when
+		// returning to Simple. Everything else keeps whatever the user set.
+		static const char* const s_AdvancedPanels[] = { "Scene Renderer", "Light Settings", "Profiler", "Renderer Debugger" };
+		auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
+		for (auto& [id, panelData] : viewPanels)
+		{
+			for (const char* advancedName : s_AdvancedPanels)
+			{
+				if (std::strcmp(panelData.Name, advancedName) == 0)
+				{
+					panelData.IsOpen = !simple;
+					break;
+				}
+			}
+		}
+
+		SaveEditorPreferences();
+		m_PendingLayoutReset = true;
+	}
+
+	void EditorLayer::RegisterCommands()
+	{
+		m_CommandPalette->Clear();
+
+		auto add = [this](const char* name, const char* category, const char* shortcut,
+			std::function<void()> action, std::function<bool()> enabled = nullptr)
+		{
+			m_CommandPalette->Register({ name, category, shortcut, std::move(action), std::move(enabled) });
+		};
+
+		// File
+		add("New Scene", "File", "Ctrl+N", [this] { NewScene(); });
+		add("Save Scene", "File", "Ctrl+S", [this] { SaveScene(); });
+		add("Save Scene As…", "File", "Ctrl+Shift+S", [this] { SaveSceneAs(); });
+		add("Open Project…", "File", "Ctrl+O", [this] { OpenProject(); });
+		add("Save Project", "File", "", [this] { SaveProject(); });
+		add("Export Runtime…", "File", "", [this] { ExportRuntime(); });
+		add("Exit", "File", "", []
+		{
+			Application::Get().QueueEvent([] { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		});
+
+		// Edit
+		add("Undo", "Edit", "Ctrl+Z", [this] { UndoSceneEdit(); }, [this] { return !ActiveUndoStack().empty(); });
+		add("Redo", "Edit", "Ctrl+Shift+Z", [this] { RedoSceneEdit(); }, [this] { return !ActiveRedoStack().empty(); });
+		add("Reload C# Assembly", "Edit", "Ctrl+R", [this]
+		{
+			ReloadScriptsWithFeedback();
+		});
+		add("Reload All Shaders", "Edit", "Ctrl+Shift+R", [] { Renderer::ReloadShaders(true); });
+
+		// Scene transport
+		add("Play", "Scene", "", [this] { OnScenePlay(); }, [this] { return m_SceneState == SceneState::Edit; });
+		add("Simulate Physics", "Scene", "", [this] { OnSceneSimulate(); }, [this] { return m_SceneState == SceneState::Edit; });
+		add("Stop", "Scene", "", [this] { OnSceneStop(); }, [this] { return m_SceneState != SceneState::Edit; });
+
+		// View
+		add("Reset Window Layout", "View", "", [this] { ResetDefaultDockLayout(ImGui::GetID("MyDockSpace")); });
+		add("Bookmark Selected Entity", "View", "Ctrl+B", [this] { ToggleEntityBookmark(); },
+			[this] { return SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0; });
+		add("Create Prefab from Selection", "Edit", "", [this] { CreatePrefabFromSelection(); },
+			[this] { return SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0; });
+
+		// A toggle-open command for every registered panel, resolved by ID at run time.
+		for (auto& [id, panelData] : m_PanelManager->GetPanels(PanelCategory::View))
+		{
+			const uint32_t panelID = id;
+			add(panelData.Name, "Panel", "", [this, panelID]
+			{
+				if (PanelData* data = m_PanelManager->GetPanelData(panelID))
+					data->IsOpen = true;
+			});
+		}
+
+		// Tools
+		add("ImGui Metrics", "Tools", "", [this] { m_ShowImGuiMetrics = true; });
+		add("ImGui Style Editor", "Tools", "", [this] { m_ShowImGuiStyleEditor = true; });
+		add("About LuxEngine", "Help", "", [this] { m_ShowAboutPopup = true; });
+	}
+
+	void EditorLayer::SetCameraBookmark(int slot)
+	{
+		if (slot < 1 || slot > 9 || !m_EditorViewport)
+			return;
+
+		const EditorCamera& camera = m_EditorViewport->GetCamera();
+		CameraBookmark& bookmark = m_CameraBookmarks[slot];
+		bookmark.FocalPoint = camera.GetFocalPoint();
+		bookmark.Distance = camera.GetDistance();
+		bookmark.Pitch = camera.GetPitch();
+		bookmark.Yaw = camera.GetYaw();
+		bookmark.Set = true;
+	}
+
+	void EditorLayer::JumpToCameraBookmark(int slot)
+	{
+		if (slot < 1 || slot > 9 || !m_EditorViewport)
+			return;
+
+		const CameraBookmark& bookmark = m_CameraBookmarks[slot];
+		if (!bookmark.Set)
+			return;
+
+		m_EditorViewport->GetCamera().SetOrbitState(bookmark.FocalPoint, bookmark.Distance, bookmark.Pitch, bookmark.Yaw);
+	}
+
+	void EditorLayer::CreatePrefabFromSelection()
+	{
+		const auto& selections = SelectionManager::GetSelections(SelectionContext::Scene);
+		if (selections.empty() || !m_EditorScene)
+			return;
+
+		Entity entity = m_EditorScene->TryGetEntityWithUUID(selections.front());
+		if (!entity)
+			return;
+
+		Ref<Prefab> prefab = Ref<Prefab>::Create();
+		std::unordered_map<UUID, UUID> sourceToPrefab;
+		prefab->Create(entity, true, &sourceToPrefab);
+
+		auto assetManager = Project::GetEditorAssetManager();
+		const std::string extension = assetManager->GetDefaultExtensionForAssetType(AssetType::Prefab);
+		const std::filesystem::path targetPath = FileSystem::GetUniqueFileName(
+			Project::GetActiveAssetDirectory() / (entity.GetName() + extension));
+		const std::filesystem::path relativePath = std::filesystem::relative(targetPath, Project::GetActiveAssetDirectory());
+
+		// Write the prefab's hierarchy (a scene) to disk, then register it as an asset — PrefabSerializer
+		// handles both directions from here on. A fresh prefab has no base (0).
+		PrefabSerializer::WritePrefabFile(targetPath, prefab->GetScene(), 0);
+
+		const AssetHandle handle = assetManager->ImportAsset(relativePath);
+		if (handle)
+		{
+			// Link the source hierarchy to the new prefab so it becomes a live instance (each source
+			// entity points at its clone inside the prefab).
+			for (const auto& [sourceUUID, prefabUUID] : sourceToPrefab)
+			{
+				Entity linked = m_EditorScene->TryGetEntityWithUUID(sourceUUID);
+				if (!linked)
+					continue;
+
+				auto& prefabComponent = linked.AddOrReplaceComponent<PrefabComponent>();
+				prefabComponent.PrefabID = handle;
+				prefabComponent.EntityID = prefabUUID;
+			}
+			EditorStack::Get().MarkSceneEdited("Create Prefab");
+			LUX_CONSOLE_LOG_INFO("Created prefab '{}'", relativePath.generic_string());
+		}
+		else
+		{
+			LUX_CONSOLE_LOG_ERROR("Failed to register prefab '{}'", relativePath.generic_string());
+		}
+	}
+
+	void EditorLayer::ToggleEntityBookmark()
+	{
+		const auto& selections = SelectionManager::GetSelections(SelectionContext::Scene);
+		for (UUID id : selections)
+		{
+			auto it = std::find(m_EntityBookmarks.begin(), m_EntityBookmarks.end(), id);
+			if (it != m_EntityBookmarks.end())
+				m_EntityBookmarks.erase(it);
+			else
+				m_EntityBookmarks.push_back(id);
+		}
+	}
+
+	void EditorLayer::JumpToEntityBookmark(UUID entityID)
+	{
+		if (!m_EditorScene)
+			return;
+
+		Entity entity = m_EditorScene->TryGetEntityWithUUID(entityID);
+		if (!entity)
+			return;
+
+		SelectionManager::DeselectAll(SelectionContext::Scene);
+		SelectionManager::Select(SelectionContext::Scene, entityID);
+
+		if (m_EditorViewport)
+			m_EditorViewport->GetCamera().Focus(m_EditorScene->GetWorldSpaceTransform(entity).Translation);
 	}
 
 	void EditorLayer::UI_DrawMenubar()
@@ -867,20 +1207,88 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("Edit"))
 			{
+				const std::vector<UndoCommand>& undoStack = ActiveUndoStack();   // edit or play, per mode
+				const std::vector<UndoCommand>& redoStack = ActiveRedoStack();
+				const std::string undoLabel = undoStack.empty() ? "Undo" : "Undo " + undoStack.back().Label;
+				const std::string redoLabel = redoStack.empty() ? "Redo" : "Redo " + redoStack.back().Label;
+				if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, !undoStack.empty()))
+					UndoSceneEdit();
+				if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Shift+Z", false, !redoStack.empty()))
+					RedoSceneEdit();
+				ImGui::Separator();
+
 				if (ImGui::MenuItem("Reload C# Assembly", "Ctrl+R"))
-				{
-					Project::GetActive()->ReloadScriptEngine();
-					if (m_ActiveScene)
-						m_ActiveScene->GetScriptStorage().SynchronizeStorage();
-				}
+					ReloadScriptsWithFeedback();
 				if (ImGui::MenuItem("Reload All Shaders", "Ctrl+Shift+R"))
 					Renderer::ReloadShaders(true);
+				ImGui::Separator();
+				if (ImGui::MenuItem("Create Prefab from Selection", nullptr, false,
+					SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0))
+					CreatePrefabFromSelection();
 				ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
 				ImGui::EndMenu();
 			}
 
 			if (ImGui::BeginMenu("View"))
 			{
+				if (ImGui::MenuItem("Reset Layout"))
+					ResetDefaultDockLayout(ImGui::GetID("MyDockSpace"));
+
+				if (ImGui::BeginMenu("Camera Bookmarks"))
+				{
+					for (int slot = 1; slot <= 9; slot++)
+					{
+						const CameraBookmark& bookmark = m_CameraBookmarks[slot];
+						char jumpLabel[32];
+						std::snprintf(jumpLabel, sizeof(jumpLabel), "Jump to %d", slot);
+						if (ImGui::MenuItem(jumpLabel, std::to_string(slot).c_str(), false, bookmark.Set))
+							JumpToCameraBookmark(slot);
+
+						char setLabel[40];
+						std::snprintf(setLabel, sizeof(setLabel), "Set %d from current view", slot);
+						char setShortcut[16];
+						std::snprintf(setShortcut, sizeof(setShortcut), "Ctrl+%d", slot);
+						if (ImGui::MenuItem(setLabel, setShortcut))
+							SetCameraBookmark(slot);
+
+						if (slot != 9)
+							ImGui::Separator();
+					}
+					ImGui::EndMenu();
+				}
+
+				if (ImGui::BeginMenu("Entity Bookmarks"))
+				{
+					const bool hasSelection = SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0;
+					if (ImGui::MenuItem("Bookmark Selected", "Ctrl+B", false, hasSelection))
+						ToggleEntityBookmark();
+					ImGui::Separator();
+
+					bool anyShown = false;
+					if (m_EditorScene)
+					{
+						for (UUID id : m_EntityBookmarks)
+						{
+							Entity entity = m_EditorScene->TryGetEntityWithUUID(id);
+							if (!entity)
+								continue;   // stale UUID (e.g. deleted) — skip
+							anyShown = true;
+							ImGui::PushID(reinterpret_cast<void*>(static_cast<uintptr_t>(id)));
+							if (ImGui::MenuItem(entity.GetName().c_str()))
+								JumpToEntityBookmark(id);
+							ImGui::PopID();
+						}
+					}
+					if (!anyShown)
+						ImGui::MenuItem("No bookmarks", nullptr, false, false);
+					else if (ImGui::MenuItem("Clear All"))
+						m_EntityBookmarks.clear();
+
+					ImGui::EndMenu();
+				}
+
+				ImGui::Separator();
+
 				auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
 				for (auto& [id, panelData] : viewPanels)
 					ImGui::MenuItem(panelData.Name, nullptr, &panelData.IsOpen);
@@ -889,6 +1297,9 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("Tools"))
 			{
+				if (ImGui::MenuItem("Command Palette", "Ctrl+Shift+P") && m_CommandPalette)
+					m_CommandPalette->Open();
+				ImGui::Separator();
 				ImGui::MenuItem("ImGui Metrics", nullptr, &m_ShowImGuiMetrics);
 				ImGui::MenuItem("ImGui Style Editor", nullptr, &m_ShowImGuiStyleEditor);
 				ImGui::EndMenu();
@@ -930,19 +1341,31 @@ namespace Lux {
 
 		drawList->AddLine(ImVec2(windowPos.x, windowPos.y + m_TitlebarHeight), ImVec2(windowPos.x + window->Size.x, windowPos.y + m_TitlebarHeight), Colors::Theme::backgroundDark);
 
-		if (EditorResources::HazelLogoTexture)
+		// --- LUX wordmark: a vector mark + the Display wordmark (replaces the Hazel logo). ---
+		const float kNoWrap = std::numeric_limits<float>::max();
+		const float markX = windowPos.x + 14.0f;
+		const float markSize = 16.0f;
+		const float markCY = windowPos.y + m_TitlebarHeight * 0.5f;
 		{
-			const float logoWidth = (float)EditorResources::HazelLogoTexture->GetWidth();
-			const float logoHeight = (float)EditorResources::HazelLogoTexture->GetHeight();
-			const ImVec2 logoMin(windowPos.x + 14.0f, windowPos.y + 6.0f);
-			const ImVec2 logoMax(logoMin.x + logoWidth, logoMin.y + logoHeight);
-			drawList->AddImage(GetImGuiTextureID(EditorResources::HazelLogoTexture), logoMin, logoMax);
+			// An "L" in the accent lime plus a play-chevron in text colour — the mock's Lux glyph.
+			const float x = markX, y = markCY - markSize * 0.5f, s = markSize;
+			drawList->AddLine(ImVec2(x + s * 0.14f, y + s * 0.12f), ImVec2(x + s * 0.14f, y + s * 0.88f), Colors::Theme::accent, 2.0f);
+			drawList->AddLine(ImVec2(x + s * 0.14f, y + s * 0.88f), ImVec2(x + s * 0.56f, y + s * 0.88f), Colors::Theme::accent, 2.0f);
+			drawList->AddLine(ImVec2(x + s * 0.56f, y + s * 0.12f), ImVec2(x + s * 0.90f, y + s * 0.50f), Colors::Theme::textBrighter, 2.0f);
+			drawList->AddLine(ImVec2(x + s * 0.90f, y + s * 0.50f), ImVec2(x + s * 0.56f, y + s * 0.88f), Colors::Theme::textBrighter, 2.0f);
 		}
+		const float fontScale = ImGuiEx::Fonts::GetScale();
+		ImFont* displayFont = ImGuiEx::Fonts::Get("Display");
+		const float wordmarkSize = 17.0f * fontScale;
+		const char* wordmarkText = "LUX";
+		const float wordmarkX = markX + markSize + 9.0f;
+		const ImVec2 wordmarkSizeVec = displayFont->CalcTextSizeA(wordmarkSize, kNoWrap, 0.0f, wordmarkText);
+		drawList->AddText(displayFont, wordmarkSize, ImVec2(wordmarkX, markCY - wordmarkSizeVec.y * 0.5f), Colors::Theme::textBrighter, wordmarkText);
 
 		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
 		const bool isMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
 
-		const float menuBarX = 16.0f * 2.0f + 41.0f;
+		const float menuBarX = wordmarkX + wordmarkSizeVec.x + 18.0f;
 		const float iconWidth = 14.0f;
 		const float iconHeight = 14.0f;
 		const float buttonWidth = 46.0f;
@@ -953,57 +1376,22 @@ namespace Lux {
 		const float minimizeButtonX = maximizeButtonX - buttonWidth;
 		const float titlebarGap = 12.0f;
 
-		const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
-		const ImVec2 sceneNameSize = ImGui::CalcTextSize(sceneName.c_str());
-
-		const std::string projectName = GetProjectDisplayName();
-		const float projectBoxPaddingX = 10.0f;
-		const float projectBoxHeight = 26.0f;
-		const float projectBoxMinWidth = 76.0f;
-		const float projectBoxMaxX = minimizeButtonX - titlebarGap;
-		const float sceneNameRightX = ((window->Size.x - sceneNameSize.x) * 0.5f) + sceneNameSize.x;
-		const float projectBoxMinAllowedX = std::max(menuBarX + 280.0f, sceneNameRightX + 28.0f);
-		const float maxProjectBoxWidth = projectBoxMaxX - projectBoxMinAllowedX;
-
-		bool drawProjectBox = maxProjectBoxWidth >= projectBoxMinWidth;
-		std::string displayedProjectName = projectName;
-		float projectBoxWidth = 0.0f;
-		if (drawProjectBox)
-		{
-			const float maxProjectTextWidth = std::max(0.0f, maxProjectBoxWidth - projectBoxPaddingX * 2.0f);
-			if (ImGui::CalcTextSize(displayedProjectName.c_str()).x > maxProjectTextWidth)
-			{
-				const std::string ellipsis = "...";
-				while (!displayedProjectName.empty())
-				{
-					const std::string candidate = displayedProjectName + ellipsis;
-					if (ImGui::CalcTextSize(candidate.c_str()).x <= maxProjectTextWidth)
-					{
-						displayedProjectName = candidate;
-						break;
-					}
-					displayedProjectName.pop_back();
-				}
-				if (displayedProjectName.empty())
-					drawProjectBox = false;
-			}
-
-			if (drawProjectBox)
-				projectBoxWidth = std::min(ImGui::CalcTextSize(displayedProjectName.c_str()).x + projectBoxPaddingX * 2.0f, maxProjectBoxWidth);
-		}
-
-		const float projectBoxMinX = drawProjectBox ? projectBoxMaxX - projectBoxWidth : projectBoxMaxX;
 		const float dragZoneMinX = 70.0f;
-		const float dragZoneMaxX = std::max(dragZoneMinX, (drawProjectBox ? projectBoxMinX : minimizeButtonX) - titlebarGap);
+		const float dragZoneMaxX = std::max(dragZoneMinX, minimizeButtonX - titlebarGap);
 
+		// Vertically centre the menu bar in the (tall) titlebar so it lines up with the logo,
+		// breadcrumb, and window controls instead of hugging the top.
+		const float menuBarY = std::max(0.0f, (m_TitlebarHeight - ImGui::GetFrameHeight()) * 0.5f);
+
+		float menuBarRight = menuBarX;
 #ifdef LUX_PLATFORM_LINUX
 		// On Linux/Wayland, the compositor handles window dragging via
 		// glfwSetTitlebarHitTestCallback — no InvisibleButton needed.
 		// Draw the menu bar first, then set the drag zone to start AFTER it
 		// so menu clicks aren't intercepted as window drags.
-		ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
+		ImGui::SetCursorPos(ImVec2(menuBarX, menuBarY));
 		UI_DrawMenubar();
-		const float menuBarRight = ImGui::GetItemRectMax().x - windowPos.x;
+		menuBarRight = ImGui::GetItemRectMax().x - windowPos.x;
 		m_TitleBarDragRectMin = ImVec2(menuBarRight, 0.0f);
 		m_TitleBarDragRectMax = ImVec2(dragZoneMaxX, m_TitlebarHeight);
 #else
@@ -1016,26 +1404,39 @@ namespace Lux {
 
 		ImGui::SuspendLayout();
 		{
-			ImGui::SetCursorPos(ImVec2(menuBarX, 4.0f));
+			ImGui::SetCursorPos(ImVec2(menuBarX, menuBarY));
 			UI_DrawMenubar();
+			menuBarRight = ImGui::GetItemRectMax().x - windowPos.x;
 		}
 		ImGui::ResumeLayout();
 #endif
 
-		const float sceneNameX = windowPos.x + (window->Size.x - sceneNameSize.x) * 0.5f;
-		const float sceneNameY = windowPos.y + (m_TitlebarHeight - sceneNameSize.y) * 0.5f;
-		drawList->AddText(ImVec2(sceneNameX, sceneNameY), Colors::Theme::textBrighter, sceneName.c_str());
-		drawList->AddLine(
-			ImVec2(sceneNameX - 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
-			ImVec2(sceneNameX + sceneNameSize.x + 6.0f, sceneNameY + sceneNameSize.y + 4.0f),
-			Colors::Theme::accent, 1.5f);
-
-		if (drawProjectBox)
+		// --- Breadcrumb: Project / Scene, in the mono face, just after the menu bar. ---
 		{
-			const ImVec2 projectBoxMin(windowPos.x + projectBoxMinX, windowPos.y + 14.0f);
-			const ImVec2 projectBoxMax(projectBoxMin.x + projectBoxWidth, projectBoxMin.y + projectBoxHeight);
-			drawList->AddRect(projectBoxMin, projectBoxMax, Colors::Theme::muted, 6.0f, 0, 1.0f);
-			drawList->AddText(ImVec2(projectBoxMin.x + projectBoxPaddingX, projectBoxMin.y + 5.0f), Colors::Theme::text, displayedProjectName.c_str());
+			ImFont* monoFont = ImGuiEx::Fonts::Get("Mono");
+			const float bcSize = 13.0f * fontScale;
+			const std::string projectName = GetProjectDisplayName();
+			const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
+
+			float x = windowPos.x + menuBarRight + 16.0f;
+			// Clip to the drag-zone's right edge so a long project/scene name can't overrun the
+			// window controls (the old project box ellipsized; clipping is the equivalent guard).
+			drawList->PushClipRect(ImVec2(x, windowPos.y), ImVec2(windowPos.x + dragZoneMaxX, windowPos.y + m_TitlebarHeight), true);
+			drawList->AddLine(ImVec2(x, windowPos.y + 12.0f), ImVec2(x, windowPos.y + m_TitlebarHeight - 12.0f), Colors::Theme::muted, 1.0f);
+			x += 12.0f;
+
+			const float glyphH = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "X").y;
+			const float textY = markCY - glyphH * 0.5f;
+
+			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textDarker, projectName.c_str());
+			x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, projectName.c_str()).x + 6.0f;
+			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::muted, "/");
+			x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "/").x + 6.0f;
+			const ImVec2 sceneSz = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, sceneName.c_str());
+			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textBrighter, sceneName.c_str());
+			// Subtle lime accent under the active scene segment.
+			drawList->AddLine(ImVec2(x, textY + sceneSz.y + 2.0f), ImVec2(x + sceneSz.x, textY + sceneSz.y + 2.0f), Colors::Theme::accent, 1.5f);
+			drawList->PopClipRect();
 		}
 
 		const ImU32 buttonColN = ImGuiEx::ColourWithMultipliedValue(Colors::Theme::text, 0.9f);
@@ -1100,121 +1501,184 @@ namespace Lux {
 					Application::Get().DispatchEvent<WindowCloseEvent, true>();
 				});
 			});
+
+		// Play / simulate / stop, centred in the titlebar (drawn last so it overlaps the drag zone).
+		UI_TitlebarTransport(window->Size.x);
 	}
 
-	void EditorLayer::UI_GizmosToolbar()
+	namespace
 	{
-		if (!m_EditorViewport)
-			return;
+		// Flat vector tool glyphs shared by the gizmo overlay and the titlebar transport. Gizmo
+		// tools are stroked outlines; transport controls are filled shapes.
+		enum class ToolGlyph { Select, Move, Rotate, Scale, Play, Simulate, Stop };
 
-		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
-		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
-			return;
-
-		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
-			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
-			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
-		ImGui::SetNextWindowBgAlpha(0.55f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
-		ImGui::Begin("##viewport_gizmos_toolbar", nullptr, flags);
-
-		const ImU32 normalTint = IM_COL32(215, 215, 215, 220);
-		const ImU32 hoverTint = IM_COL32(255, 255, 255, 255);
-		const ImU32 activeTint = IM_COL32(235, 235, 235, 255);
-		const ImVec2 buttonSize(24.0f, 24.0f);
-
-		auto gizmoButton = [&](const char* id, Ref<Texture2D> icon, int gizmoMode)
+		void DrawToolGlyph(ImDrawList* dl, const ImVec2& mn, const ImVec2& mx, ToolGlyph glyph, ImU32 col)
+		{
+			const ImVec2 c((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f);
+			const float s = mx.x - mn.x;
+			const float t = 1.6f; // stroke width for outline glyphs
+			switch (glyph)
 			{
+			case ToolGlyph::Select:
+			{
+				const ImVec2 tail(c.x - s * 0.20f, c.y - s * 0.22f);
+				const ImVec2 head(c.x + s * 0.16f, c.y + s * 0.24f);
+				dl->AddLine(tail, head, col, t);
+				dl->AddLine(head, ImVec2(head.x - s * 0.16f, head.y), col, t);
+				dl->AddLine(head, ImVec2(head.x, head.y - s * 0.16f), col, t);
+				break;
+			}
+			case ToolGlyph::Move:
+			{
+				const float r = s * 0.30f;
+				dl->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), col, t);
+				dl->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), col, t);
+				break;
+			}
+			case ToolGlyph::Rotate:
+				dl->AddCircle(c, s * 0.28f, col, 0, t);
+				break;
+			case ToolGlyph::Scale:
+			{
+				const float sq = s * 0.26f, off = s * 0.14f;
+				dl->AddRect(ImVec2(c.x - off - sq, c.y - off - sq), ImVec2(c.x - off, c.y - off), col, 0.0f, 0, t);
+				dl->AddRect(ImVec2(c.x + off, c.y + off), ImVec2(c.x + off + sq, c.y + off + sq), col, 0.0f, 0, t);
+				break;
+			}
+			case ToolGlyph::Play:
+			{
+				const float hw = s * 0.22f, hh = s * 0.27f;
+				dl->AddTriangleFilled(ImVec2(c.x - hw, c.y - hh), ImVec2(c.x - hw, c.y + hh), ImVec2(c.x + hw * 1.6f, c.y), col);
+				break;
+			}
+			case ToolGlyph::Simulate:
+			{
+				const float hw = s * 0.15f, hh = s * 0.25f;
+				dl->AddTriangleFilled(ImVec2(c.x - hw * 2.2f, c.y - hh), ImVec2(c.x - hw * 2.2f, c.y + hh), ImVec2(c.x - hw * 0.2f, c.y), col);
+				dl->AddTriangleFilled(ImVec2(c.x - hw * 0.2f, c.y - hh), ImVec2(c.x - hw * 0.2f, c.y + hh), ImVec2(c.x + hw * 1.8f, c.y), col);
+				break;
+			}
+			case ToolGlyph::Stop:
+			{
+				const float r = s * 0.23f;
+				dl->AddRectFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), col, 1.0f);
+				break;
+			}
+			}
+		}
+	}
+
+	// Gizmo tools (select / move / rotate / scale) as a floating overlay at the viewport's
+	// top-left. Only drawn while the viewport is the visible tab (gated by the caller).
+	// The viewport toolbar, centred in the titlebar: gizmo tools (select / move / rotate / scale) +
+	// a divider + transport (play / simulate / stop). The gizmo half only appears while the viewport
+	// is the visible tab; the transport is always shown. The whole group's local rect is recorded so
+	// the window drag zone excludes it (OnTitleBarHitTest), keeping the buttons clickable.
+	void EditorLayer::UI_TitlebarTransport(float titlebarWidth)
+	{
+		const ImVec2 buttonSize(24.0f, 24.0f);
+		const float transportSpacing = 6.0f;
+		const float gizmoSpacing = 3.0f;
+		const float dividerBlock = 16.0f; // 8px gap + line + 8px gap
+
+		const bool showGizmo = m_EditorViewport && m_EditorViewport->IsVisible();
+
+		const float transportWidth = buttonSize.x * 3.0f + transportSpacing * 2.0f;
+		const float gizmoWidth = buttonSize.x * 4.0f + gizmoSpacing * 3.0f;
+		const float totalWidth = transportWidth + (showGizmo ? gizmoWidth + dividerBlock : 0.0f);
+
+		const float startX = (titlebarWidth - totalWidth) * 0.5f;
+		const float startY = (m_TitlebarHeight - buttonSize.y) * 0.5f;
+
+		auto gizmoButton = [&](const char* id, ToolGlyph glyph, int mode)
+			{
+				ImGui::SetNextItemAllowOverlap();
 				ImGui::InvisibleButton(id, buttonSize);
-				ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
-
-				if (m_GizmoType == gizmoMode)
-					ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colors::Theme::accent, 2.0f, 0, 2.0f);
-
+				const bool hovered = ImGui::IsItemHovered();
+				const bool active = m_GizmoType == mode;
+				ImDrawList* dl = ImGui::GetWindowDrawList();
+				const ImVec2 mn = ImGui::GetItemRectMin();
+				const ImVec2 mx = ImGui::GetItemRectMax();
+				if (active)
+					dl->AddRectFilled(mn, mx, Colors::Theme::selectionMuted, 2.0f);
+				else if (hovered)
+					dl->AddRectFilled(mn, mx, IM_COL32(255, 255, 255, 16), 2.0f);
+				const ImU32 col = active ? Colors::Theme::accent : (hovered ? Colors::Theme::textBrighter : Colors::Theme::text);
+				DrawToolGlyph(dl, mn, mx, glyph, col);
 				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
-					m_GizmoType = gizmoMode;
+					m_GizmoType = mode;
 			};
 
-		gizmoButton("##gizmo_select", EditorResources::PointerIcon, -1);
-		ImGui::SameLine();
-		gizmoButton("##gizmo_translate", EditorResources::MoveIcon, ImGuizmo::TRANSLATE);
-		ImGui::SameLine();
-		gizmoButton("##gizmo_rotate", EditorResources::RotateIcon, ImGuizmo::ROTATE);
-		ImGui::SameLine();
-		gizmoButton("##gizmo_scale", EditorResources::ScaleIcon, ImGuizmo::SCALE);
-
-		ImGui::End();
-		ImGui::PopStyleVar(2);
-	}
-
-	void EditorLayer::UI_CentralToolbar()
-	{
-		if (!m_EditorViewport)
-			return;
-
-		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
-		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
-			return;
-
-		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
-			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
-			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-
-		const float toolbarWidth = 118.0f;
-		const float posX = viewportBounds[0].x + (viewportSize.x - toolbarWidth) * 0.5f;
-		const float posY = viewportBounds[0].y + 12.0f;
-
-		ImGui::SetNextWindowPos(ImVec2(posX, posY), ImGuiCond_Always);
-		ImGui::SetNextWindowBgAlpha(0.55f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 0.0f));
-		ImGui::Begin("##viewport_central_toolbar", nullptr, flags);
-
-		const ImU32 normalTint = IM_COL32(215, 215, 215, 220);
-		const ImU32 hoverTint = IM_COL32(255, 255, 255, 255);
-		const ImU32 activeTint = IM_COL32(235, 235, 235, 255);
-		const ImVec2 buttonSize(24.0f, 24.0f);
-
-		auto controlButton = [&](const char* id, Ref<Texture2D> icon, bool active, const std::function<void()>& onClick)
+		auto controlButton = [&](const char* id, ToolGlyph glyph, ImU32 normalCol, ImU32 hoverCol, bool active, const std::function<void()>& onClick)
 			{
+				ImGui::SetNextItemAllowOverlap();
 				ImGui::InvisibleButton(id, buttonSize);
-				ImGuiEx::DrawButtonImage(icon, normalTint, hoverTint, activeTint, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+				const bool hovered = ImGui::IsItemHovered();
+				ImDrawList* dl = ImGui::GetWindowDrawList();
+				const ImVec2 mn = ImGui::GetItemRectMin();
+				const ImVec2 mx = ImGui::GetItemRectMax();
+				if (hovered)
+					dl->AddRectFilled(mn, mx, IM_COL32(255, 255, 255, 16), 2.0f);
+				DrawToolGlyph(dl, mn, mx, glyph, hovered ? hoverCol : normalCol);
 				if (active)
-					ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Colors::Theme::accent, 2.0f, 0, 2.0f);
+					dl->AddRect(mn, mx, Colors::Theme::accent, 2.0f, 0, 1.5f);
 				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 					onClick();
 			};
 
-		controlButton("##scene_play", EditorResources::PlayIcon, m_SceneState == SceneState::Play, [this]()
-			{
-				if (m_SceneState != SceneState::Play)
-					OnScenePlay();
-			});
-		ImGui::SameLine();
-		controlButton("##scene_simulate", EditorResources::SimulateIcon, m_SceneState == SceneState::Simulate, [this]()
-			{
-				if (m_SceneState != SceneState::Simulate)
-					OnSceneSimulate();
-			});
-		ImGui::SameLine();
-		controlButton("##scene_stop", EditorResources::StopIcon, m_SceneState == SceneState::Edit, [this]()
-			{
-				if (m_SceneState != SceneState::Edit)
-					OnSceneStop();
-			});
+		ImGui::SetCursorPos(ImVec2(startX, startY));
 
-		ImGui::End();
-		ImGui::PopStyleVar(2);
+		if (showGizmo)
+		{
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(gizmoSpacing, 0.0f));
+			gizmoButton("##tb_gizmo_select", ToolGlyph::Select, -1);
+			ImGui::SameLine();
+			gizmoButton("##tb_gizmo_translate", ToolGlyph::Move, ImGuizmo::TRANSLATE);
+			ImGui::SameLine();
+			gizmoButton("##tb_gizmo_rotate", ToolGlyph::Rotate, ImGuizmo::ROTATE);
+			ImGui::SameLine();
+			gizmoButton("##tb_gizmo_scale", ToolGlyph::Scale, ImGuizmo::SCALE);
+			ImGui::PopStyleVar();
+
+			ImGui::SameLine(0.0f, 8.0f);
+			{
+				ImDrawList* dl = ImGui::GetWindowDrawList();
+				const ImVec2 p = ImGui::GetCursorScreenPos();
+				dl->AddLine(ImVec2(p.x, p.y + 4.0f), ImVec2(p.x, p.y + buttonSize.y - 4.0f), Colors::Theme::muted, 1.0f);
+				ImGui::Dummy(ImVec2(1.0f, buttonSize.y));
+			}
+			ImGui::SameLine(0.0f, 8.0f);
+		}
+
+		const bool playing = m_SceneState == SceneState::Play;
+		const bool simulating = m_SceneState == SceneState::Simulate;
+		const bool editing = m_SceneState == SceneState::Edit;
+
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(transportSpacing, 0.0f));
+		controlButton("##tb_play", ToolGlyph::Play,
+			playing ? Colors::Theme::muted : Colors::Theme::accent,
+			playing ? Colors::Theme::textDarker : Colors::Theme::accent,
+			playing, [this]() { if (m_SceneState != SceneState::Play) OnScenePlay(); });
+		ImGui::SameLine();
+		controlButton("##tb_simulate", ToolGlyph::Simulate,
+			simulating ? Colors::Theme::accent : Colors::Theme::textDarker,
+			simulating ? Colors::Theme::accent : Colors::Theme::textBrighter,
+			simulating, [this]() { if (m_SceneState != SceneState::Simulate) OnSceneSimulate(); });
+		ImGui::SameLine();
+		controlButton("##tb_stop", ToolGlyph::Stop,
+			editing ? Colors::Theme::textDarker : Colors::Theme::text,
+			editing ? Colors::Theme::textDarker : Colors::Theme::textBrighter,
+			editing, [this]() { if (m_SceneState != SceneState::Edit) OnSceneStop(); });
+		ImGui::PopStyleVar();
+
+		// Local-space rect (window is at 0,0) over the whole group, matching the hit-test event space.
+		m_TitleBarTransportRectMin = ImVec2(startX - 4.0f, 0.0f);
+		m_TitleBarTransportRectMax = ImVec2(startX + totalWidth + 4.0f, m_TitlebarHeight);
 	}
 
 	void EditorLayer::UI_ViewportPerformanceHUD()
 	{
-		if (!m_ShowViewportPerformanceHUD || !m_EditorViewport || !m_SceneRenderer)
+		if (!m_ShowViewportPerformanceHUD || !m_EditorViewport || !m_SceneRenderer || !m_EditorViewport->IsVisible())
 			return;
 
 		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
@@ -1256,6 +1720,8 @@ namespace Lux {
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
 		ImGui::Begin("##viewport_performance_hud", nullptr, flags);
+		// Numeric readout in the monospace face (JetBrains Mono), like the mock's fps/ms pill.
+		ImGuiEx::Fonts::PushFont("Mono");
 		ImGui::Text("FPS %.0f  %.2f ms", fps, frameTimeMs);
 		ImGui::Text("CPU %.2f ms  GPU %.2f ms", wholeCPUTime, wholeGPUTime);
 		ImGui::Text("Draws %u  Visible %u", stats.DrawCalls, stats.VisibleInstances);
@@ -1265,6 +1731,7 @@ namespace Lux {
 		else
 			ImGui::Text("VRAM %s", Utils::BytesToString(memory.UsedBytes).c_str());
 		ImGui::Text("Scale %.0f%%  %ux%u", renderScale, m_SceneRenderer->GetOutputViewportWidth(), m_SceneRenderer->GetOutputViewportHeight());
+		ImGuiEx::Fonts::PopFont();
 		ImGui::End();
 		ImGui::PopStyleVar();
 	}
@@ -1341,6 +1808,15 @@ namespace Lux {
 			if (m_PlayModeDebugViewsSuspended)
 				ImGui::EndDisabled();
 
+			// The doc places the "back to Simple" affordance in the viewport toolbar, shown only
+			// while Advanced mode is active.
+			if (!m_SimpleLayout)
+			{
+				ImGui::Separator();
+				if (ImGui::MenuItem("Switch to Simple Mode"))
+					SetEditorLayoutMode(true);
+			}
+
 			if (settingsChanged)
 			{
 				ApplyEditorPreferences();
@@ -1354,11 +1830,121 @@ namespace Lux {
 		ImGui::PopStyleVar();
 	}
 
+	void EditorLayer::UI_ViewportOrientationGizmo()
+	{
+		if (!m_EditorViewport)
+			return;
+
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
+			return;
+
+		const float gizmoRadius = 22.0f;
+		const float windowExtent = (gizmoRadius + 8.0f) * 2.0f;
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+
+		// Top-right, tucked below the settings gear so the two don't overlap.
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 12.0f, viewportBounds[0].y + 48.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+		ImGui::SetNextWindowBgAlpha(0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGui::Begin("##viewport_orientation_gizmo", nullptr, flags);
+		ImGui::Dummy(ImVec2(windowExtent, windowExtent));
+
+		const ImVec2 winMin = ImGui::GetItemRectMin();
+		const ImVec2 center(winMin.x + windowExtent * 0.5f, winMin.y + windowExtent * 0.5f);
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+		// Rotation-only basis from the camera view matrix: transforming a world axis by it gives the
+		// axis direction in view space. Screen projection is orthographic — (x, -y), z only for
+		// draw ordering so nearer axis heads paint over farther ones.
+		const glm::mat4& view = m_EditorViewport->GetCamera().GetViewMatrix();
+
+		struct Axis { glm::vec3 world; ImU32 color; const char* label; };
+		const Axis axes[3] = {
+			{ { 1.0f, 0.0f, 0.0f }, IM_COL32(210, 74, 74, 255), "X" },
+			{ { 0.0f, 1.0f, 0.0f }, IM_COL32(120, 190, 90, 255), "Y" },
+			{ { 0.0f, 0.0f, 1.0f }, IM_COL32(90, 140, 220, 255), "Z" },
+		};
+
+		struct Projected { ImVec2 tip; float depth; ImU32 color; const char* label; };
+		Projected projected[3];
+		for (int i = 0; i < 3; i++)
+		{
+			const glm::vec3 v = glm::vec3(view * glm::vec4(axes[i].world, 0.0f));
+			projected[i] = {
+				ImVec2(center.x + v.x * gizmoRadius, center.y - v.y * gizmoRadius),
+				v.z, axes[i].color, axes[i].label };
+		}
+
+		int order[3] = { 0, 1, 2 };
+		std::sort(order, order + 3, [&](int a, int b) { return projected[a].depth < projected[b].depth; });
+
+		for (int idx = 0; idx < 3; idx++)
+		{
+			const Projected& p = projected[order[idx]];
+			drawList->AddLine(center, p.tip, p.color, 2.0f);
+			drawList->AddCircleFilled(p.tip, 4.0f, p.color);
+			const ImVec2 labelSize = ImGui::CalcTextSize(p.label);
+			drawList->AddText(ImVec2(p.tip.x - labelSize.x * 0.5f, p.tip.y - labelSize.y * 0.5f), Colors::Theme::titlebar, p.label);
+		}
+
+		ImGui::End();
+		ImGui::PopStyleVar();
+	}
+
+	void EditorLayer::UI_ViewportSelectionBadge()
+	{
+		if (!m_EditorViewport || !m_SceneHierarchyPanel)
+			return;
+
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
+			return;
+
+		Entity selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
+		if (!selectedEntity)
+			return;
+
+		const std::string badgeText = Utils::String::ToUpperCopy(selectedEntity.Name()) + " SELECTED";
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+
+		// Top-left corner: the gizmo/tool toolbar moved to the centre, so this owns the corner now.
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
+		ImGui::SetNextWindowBgAlpha(0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGui::Begin("##viewport_selection_badge", nullptr, flags);
+
+		const ImVec2 textSize = ImGui::CalcTextSize(badgeText.c_str());
+		const ImVec2 pad(8.0f, 3.0f);
+		ImGui::Dummy(ImVec2(textSize.x + pad.x * 2.0f, textSize.y + pad.y * 2.0f));
+
+		const ImVec2 rectMin = ImGui::GetItemRectMin();
+		const ImVec2 rectMax = ImGui::GetItemRectMax();
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->AddRectFilled(rectMin, rectMax, Colors::Theme::accent, 2.0f);
+		drawList->AddText(ImVec2(rectMin.x + pad.x, rectMin.y + pad.y), Colors::Theme::titlebar, badgeText.c_str());
+
+		ImGui::End();
+		ImGui::PopStyleVar();
+	}
+
 	void EditorLayer::UI_Toolbar()
 	{
-		UI_GizmosToolbar();
-		UI_CentralToolbar();
+		// The other overlays only when the viewport is the visible tab; the gizmo tools + transport
+		// are in the titlebar.
+		if (!m_EditorViewport || !m_EditorViewport->IsVisible())
+			return;
 		UI_ViewportSettings();
+		UI_ViewportOrientationGizmo();
+		UI_ViewportSelectionBadge();
 	}
 
 	void EditorLayer::OnEvent(Event& e)
@@ -1391,6 +1977,17 @@ namespace Lux {
 			}
 			break;
 		case Key::D: if (control) OnDuplicateEntity(); break;
+		case Key::B: if (control) ToggleEntityBookmark(); break;
+
+		// Undo/redo. Skipped while a text field is active so ImGui's own in-field undo keeps Ctrl+Z.
+		case Key::Z:
+			if (control && !ImGui::GetIO().WantTextInput)
+			{
+				if (shift) RedoSceneEdit();
+				else       UndoSceneEdit();
+			}
+			break;
+		case Key::Y: if (control && !ImGui::GetIO().WantTextInput) RedoSceneEdit(); break;
 
 		case Key::Q: if (!ImGuizmo::IsUsing()) m_GizmoType = -1;                            break;
 		case Key::W: if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::TRANSLATE; break;
@@ -1399,14 +1996,25 @@ namespace Lux {
 			if (control && shift) Renderer::ReloadShaders(true);
 			else if (control)
 			{
-				Project::GetActive()->ReloadScriptEngine();
-				if (m_ActiveScene)
-					m_ActiveScene->GetScriptStorage().SynchronizeStorage();
+				ReloadScriptsWithFeedback();
 			}
 			else if (!ImGuizmo::IsUsing()) m_GizmoType = ImGuizmo::OPERATION::SCALE;
 			break;
 
 		default: break;
+		}
+
+		// Viewport camera bookmarks: Ctrl+<1-9> stores the current view, <1-9> jumps to it. Gated on
+		// the viewport being hovered and no text field active, so digits typed elsewhere are untouched.
+		const int keyCode = static_cast<int>(e.GetKeyCode());
+		if (keyCode >= static_cast<int>(Key::D1) && keyCode <= static_cast<int>(Key::D9)
+			&& m_EditorViewport && m_EditorViewport->IsHovered() && !ImGui::GetIO().WantTextInput)
+		{
+			const int slot = keyCode - static_cast<int>(Key::D0);
+			if (control && !shift)
+				SetCameraBookmark(slot);
+			else if (!control && !shift)
+				JumpToCameraBookmark(slot);
 		}
 
 		return false;
@@ -1575,7 +2183,11 @@ namespace Lux {
 		const float x = (float)e.GetX();
 		const float y = (float)e.GetY();
 
-		const bool inDragZone = x >= m_TitleBarDragRectMin.x && x <= m_TitleBarDragRectMax.x
+		const bool inTransport = x >= m_TitleBarTransportRectMin.x && x <= m_TitleBarTransportRectMax.x
+			&& y >= m_TitleBarTransportRectMin.y && y <= m_TitleBarTransportRectMax.y;
+
+		const bool inDragZone = !inTransport
+			&& x >= m_TitleBarDragRectMin.x && x <= m_TitleBarDragRectMax.x
 			&& y >= m_TitleBarDragRectMin.y && y <= m_TitleBarDragRectMax.y;
 
 		if (inDragZone)
@@ -1724,6 +2336,7 @@ namespace Lux {
 		m_ShowEntityIcons = settings.GetInt("Editor.ShowEntityIcons", 1) != 0;
 		m_ShowViewportPerformanceHUD = settings.GetInt("Editor.ShowViewportPerformanceHUD", 1) != 0;
 		m_ShowPhysicsColliders = settings.GetInt("Editor.ShowPhysicsColliders", 0) != 0;
+		m_SimpleLayout = settings.GetInt("Editor.SimpleLayout", 1) != 0;
 
 		ApplyEditorPreferences();
 	}
@@ -1742,6 +2355,7 @@ namespace Lux {
 		settings.SetInt("Editor.ShowEntityIcons", m_ShowEntityIcons ? 1 : 0);
 		settings.SetInt("Editor.ShowViewportPerformanceHUD", m_ShowViewportPerformanceHUD ? 1 : 0);
 		settings.SetInt("Editor.ShowPhysicsColliders", m_ShowPhysicsColliders ? 1 : 0);
+		settings.SetInt("Editor.SimpleLayout", m_SimpleLayout ? 1 : 0);
 		settings.Serialize();
 	}
 
@@ -2389,6 +3003,8 @@ namespace Lux {
 		m_ActiveScene = m_EditorScene;
 		m_PanelManager->SetSceneContext(m_ActiveScene);
 		m_EditorScenePath = std::filesystem::path();
+		ResetUndoHistory();
+		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
 
 		if (m_EditorViewport)
 		{
@@ -2402,6 +3018,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OpenScene()
@@ -2429,10 +3047,15 @@ namespace Lux {
 			return;
 		}
 
-		m_EditorScene = newScene;
+		ApplyEditorScene(newScene, Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle));
+	}
+
+	void EditorLayer::ApplyEditorScene(Ref<Scene> scene, const std::filesystem::path& path)
+	{
+		m_EditorScene = scene;
 		m_ActiveScene = m_EditorScene;
 		m_PanelManager->SetSceneContext(m_EditorScene);
-		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle);
+		m_EditorScenePath = path;
 
 		if (m_EditorViewport)
 		{
@@ -2446,10 +3069,689 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
+
+		ResetUndoHistory();
+		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
+	}
+
+	void EditorLayer::EnterPrefabEditMode(AssetHandle prefabHandle)
+	{
+		if (m_PrefabEditMode)   // no nesting for now
+			return;
+		if (m_SceneState != SceneState::Edit)
+			OnSceneStop();
+
+		Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
+		if (!prefab || !prefab->GetScene())
+		{
+			LUX_CORE_ERROR("Cannot edit prefab {0}: it could not be loaded.", prefabHandle);
+			return;
+		}
+
+		// Remember where to return, then edit a copy of the prefab's scene (Scene::Copy preserves
+		// UUIDs, so the instances' PrefabComponent links survive the save round-trip).
+		m_PreFocusScene = m_EditorScene;
+		m_PreFocusScenePath = m_EditorScenePath;
+
+		m_PrefabEditMode = true;
+		m_EditingPrefabHandle = prefabHandle;
+		m_EditingPrefabName = Project::GetEditorAssetManager()->GetMetadata(prefabHandle).FilePath.stem().string();
+		m_EditingPrefabBaseName = prefab->IsVariant()
+			? Project::GetEditorAssetManager()->GetMetadata(prefab->GetBasePrefab()).FilePath.stem().string()
+			: std::string{};
+
+		ApplyEditorScene(Scene::Copy(prefab->GetScene()), {});
+	}
+
+	void EditorLayer::SavePrefabEdits()
+	{
+		if (!m_PrefabEditMode)
+			return;
+
+		Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(m_EditingPrefabHandle);
+		if (!prefab)
+			return;
+
+		// Propagate before reload, while the cached prefab still holds the pre-edit (old) values.
+		Ref<Scene> oldPrefabScene = prefab->GetScene();
+		if (m_PreFocusScene && oldPrefabScene)
+			m_PreFocusScene->PropagatePrefabEdits(m_EditingPrefabHandle, oldPrefabScene, m_EditorScene);
+
+		// Base→variant inheritance: refresh variant assets derived from this prefab.
+		if (oldPrefabScene)
+			PropagateToVariants(m_EditingPrefabHandle, oldPrefabScene, m_EditorScene);
+
+		const std::filesystem::path path = Project::GetEditorAssetManager()->GetFileSystemPath(m_EditingPrefabHandle);
+		PrefabSerializer::WritePrefabFile(path, m_EditorScene, prefab->GetBasePrefab());
+		AssetManager::ReloadData(m_EditingPrefabHandle);   // cache now reflects the saved prefab
+		LUX_CONSOLE_LOG_INFO("Saved prefab '{}'", m_EditingPrefabName);
+	}
+
+	void EditorLayer::PropagateToVariants(AssetHandle baseHandle, Ref<Scene> oldBase, Ref<Scene> newBase)
+	{
+		if (!oldBase || !newBase)
+			return;
+
+		for (AssetHandle handle : AssetManager::GetAllAssetsWithType<Prefab>())
+		{
+			if (handle == baseHandle)
+				continue;
+
+			Ref<Prefab> variant = AssetManager::GetAsset<Prefab>(handle);
+			if (!variant || variant->GetBasePrefab() != baseHandle || !variant->GetScene())
+				continue;
+
+			// A variant shares the base's entity UUIDs (it was copied from it), so un-overridden
+			// entities adopt the base edit; overridden ones are kept.
+			Ref<Scene> variantScene = variant->GetScene();
+			variantScene->AdoptPrefabBaseEdits(oldBase, newBase);
+
+			const std::filesystem::path variantPath = Project::GetEditorAssetManager()->GetFileSystemPath(handle);
+			PrefabSerializer::WritePrefabFile(variantPath, variantScene, variant->GetBasePrefab());
+			LUX_CONSOLE_LOG_INFO("Updated variant '{}' from base '{}'", variantPath.stem().string(), m_EditingPrefabName);
+		}
+	}
+
+	void EditorLayer::ExitPrefabEditMode(bool save)
+	{
+		if (!m_PrefabEditMode)
+			return;
+
+		if (save)
+			SavePrefabEdits();
+
+		Ref<Scene> returnScene = m_PreFocusScene;
+		const std::filesystem::path returnPath = m_PreFocusScenePath;
+
+		m_PrefabEditMode = false;
+		m_EditingPrefabHandle = 0;
+		m_EditingPrefabName.clear();
+		m_EditingPrefabBaseName.clear();
+		m_PreFocusScene = nullptr;
+		m_PreFocusScenePath.clear();
+
+		if (returnScene)
+			ApplyEditorScene(returnScene, returnPath);
+	}
+
+	std::map<UUID, std::string> EditorLayer::CaptureSceneEntities(const Ref<Scene>& scene, std::string& outMeta) const
+	{
+		outMeta.clear();
+		if (!scene)
+			return {};
+
+		SceneSerializer serializer(scene);
+		return serializer.SerializeEntitySnapshots(outMeta);
+	}
+
+	void EditorLayer::ResetUndoHistory()
+	{
+		m_UndoStack.clear();
+		m_RedoStack.clear();
+		m_UndoCommitPending = false;
+		m_PendingUndoLabel = "Edit";
+		m_BaselineEntities = CaptureSceneEntities(m_EditorScene, m_BaselineMeta);
+		CaptureRendererSettingsBaseline();
+	}
+
+	void EditorLayer::CommitSceneSnapshot()
+	{
+		if (!m_EditorScene)
+			return;
+
+		std::string meta;
+		std::map<UUID, std::string> current = CaptureSceneEntities(m_EditorScene, meta);
+
+		// Diff the current scene against the committed baseline; the step records only what changed.
+		UndoCommand command;
+		command.Label = m_PendingUndoLabel;
+
+		if (meta != m_BaselineMeta)
+		{
+			command.MetaChanged = true;
+			command.MetaBefore = m_BaselineMeta;
+			command.MetaAfter = meta;
+		}
+
+		// Entities present in the baseline: changed value, or removed (absent from current).
+		for (const auto& [handle, before] : m_BaselineEntities)
+		{
+			auto it = current.find(handle);
+			const std::string after = (it != current.end()) ? it->second : std::string();
+			if (before != after)
+				command.Entities.push_back({ handle, before, after });
+		}
+		// Entities newly created (absent from the baseline).
+		for (const auto& [handle, after] : current)
+		{
+			if (m_BaselineEntities.find(handle) == m_BaselineEntities.end())
+				command.Entities.push_back({ handle, std::string(), after });
+		}
+
+		// No-op: an edit signalled from a non-scene panel left the scene YAML unchanged.
+		if (!command.MetaChanged && command.Entities.empty())
+			return;
+
+		command.ApproxBytes = command.MetaBefore.size() + command.MetaAfter.size();
+		for (const EntityDelta& delta : command.Entities)
+			command.ApproxBytes += delta.Before.size() + delta.After.size();
+
+		m_UndoStack.push_back(std::move(command));
+		TrimUndoStack(m_UndoStack);
+		m_RedoStack.clear();
+
+		m_BaselineMeta = std::move(meta);
+		m_BaselineEntities = std::move(current);
+	}
+
+	void EditorLayer::PushUndoCommand(const std::string& label, std::function<void()> undo, std::function<void()> redo)
+	{
+		UndoCommand command;
+		command.Label = label;
+		command.CustomUndo = std::move(undo);
+		command.CustomRedo = std::move(redo);
+		command.ApproxBytes = 2 * sizeof(ProjectSceneRendererSettings);   // non-scene commands are small
+
+		m_UndoStack.push_back(std::move(command));
+		TrimUndoStack(m_UndoStack);
+		m_RedoStack.clear();
+	}
+
+	void EditorLayer::TrimUndoStack(std::vector<UndoCommand>& stack)
+	{
+		size_t totalBytes = 0;
+		for (const UndoCommand& command : stack)
+			totalBytes += command.ApproxBytes;
+
+		// Evict oldest steps until under both the step count and the byte budget — but never drop the
+		// last one, so even a single oversized step stays undoable once.
+		while (stack.size() > 1 && (stack.size() > s_MaxUndoDepth || totalBytes > s_MaxUndoBytes))
+		{
+			totalBytes -= stack.front().ApproxBytes;
+			stack.erase(stack.begin());
+		}
+	}
+
+	ProjectSceneRendererSettings EditorLayer::CaptureRendererSettings() const
+	{
+		ProjectSceneRendererSettings settings;
+		std::memset(&settings, 0, sizeof(settings));   // zero padding so memcmp comparisons are reliable
+		if (m_SceneRenderer)
+			m_SceneRenderer->WriteProjectSettings(settings);
+		return settings;
+	}
+
+	void EditorLayer::CaptureRendererSettingsBaseline()
+	{
+		m_RendererSettingsBaseline = CaptureRendererSettings();
+	}
+
+	void EditorLayer::CommitRendererSettings()
+	{
+		if (!m_SceneRenderer)
+			return;
+
+		const ProjectSceneRendererSettings current = CaptureRendererSettings();
+		if (std::memcmp(&current, &m_RendererSettingsBaseline, sizeof(ProjectSceneRendererSettings)) == 0)
+			return;   // renderer/project settings unchanged (e.g. the edit was a scene edit)
+
+		const ProjectSceneRendererSettings before = m_RendererSettingsBaseline;
+		const ProjectSceneRendererSettings after = current;
+		PushUndoCommand("Renderer Settings",
+			[this, before]() { ApplyRendererSettings(before); },
+			[this, after]() { ApplyRendererSettings(after); });
+
+		m_RendererSettingsBaseline = current;
+	}
+
+	void EditorLayer::ApplyRendererSettings(const ProjectSceneRendererSettings& settings)
+	{
+		if (!m_SceneRenderer)
+			return;
+
+		m_SceneRenderer->ApplyProjectSettings(settings);   // canonical apply + refresh (same as project load)
+		if (Ref<Project> project = Project::GetActive())
+			m_SceneRenderer->WriteProjectSettings(project->GetConfig().SceneRenderer);   // keep project config in sync
+
+		m_RendererSettingsBaseline = settings;   // baseline now matches the restored state
+	}
+
+	void EditorLayer::PollSceneEditForUndo()
+	{
+		if (EditorStack::Get().ConsumeSceneEdit())
+		{
+			m_UndoCommitPending = true;
+			m_PendingUndoLabel = EditorStack::Get().ConsumeLabel();
+		}
+
+		// Defer the commit until the active edit finishes (mouse released, field deactivated), so a
+		// continuous drag collapses into a single undo step. In Edit mode this records the edit-mode
+		// history; in Play/Simulate it records the transient runtime history instead.
+		if (m_UndoCommitPending && !ImGui::IsAnyItemActive())
+		{
+			if (m_SceneState == SceneState::Edit)
+			{
+				CommitSceneSnapshot();       // scene entities / meta
+				CommitRendererSettings();    // renderer/project settings (non-scene)
+			}
+			else
+			{
+				CommitPlaySnapshot();        // transient runtime-scene history
+			}
+			m_UndoCommitPending = false;
+		}
+	}
+
+	void EditorLayer::UndoSceneEdit()
+	{
+		std::vector<UndoCommand>& undoStack = ActiveUndoStack();   // edit or play stack, per SceneState
+		std::vector<UndoCommand>& redoStack = ActiveRedoStack();
+		if (undoStack.empty())
+			return;
+
+		UndoCommand command = std::move(undoStack.back());
+		undoStack.pop_back();
+
+		if (command.CustomUndo)
+		{
+			// Non-scene command (renderer settings) or a play-mode step — it restores its own state.
+			command.CustomUndo();
+		}
+		else
+		{
+			std::vector<UUID> affected;
+			affected.reserve(command.Entities.size());
+			for (const EntityDelta& delta : command.Entities)
+				affected.push_back(delta.Handle);
+
+			// Roll the baseline back to the "before" side of this step, then rebuild the scene from it.
+			if (command.MetaChanged)
+				m_BaselineMeta = command.MetaBefore;
+			for (const EntityDelta& delta : command.Entities)
+			{
+				if (delta.Before.empty())
+					m_BaselineEntities.erase(delta.Handle);        // entity was created by the edit -> remove it
+				else
+					m_BaselineEntities[delta.Handle] = delta.Before;
+			}
+
+			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+			RestoreSelection(affected);
+		}
+
+		m_UndoToastText = "Undo: " + command.Label;
+		m_UndoToastTime = ImGui::GetTime();
+		redoStack.push_back(std::move(command));
+	}
+
+	void EditorLayer::RedoSceneEdit()
+	{
+		std::vector<UndoCommand>& undoStack = ActiveUndoStack();
+		std::vector<UndoCommand>& redoStack = ActiveRedoStack();
+		if (redoStack.empty())
+			return;
+
+		UndoCommand command = std::move(redoStack.back());
+		redoStack.pop_back();
+
+		if (command.CustomRedo)
+		{
+			command.CustomRedo();
+		}
+		else
+		{
+			std::vector<UUID> affected;
+			affected.reserve(command.Entities.size());
+			for (const EntityDelta& delta : command.Entities)
+				affected.push_back(delta.Handle);
+
+			if (command.MetaChanged)
+				m_BaselineMeta = command.MetaAfter;
+			for (const EntityDelta& delta : command.Entities)
+			{
+				if (delta.After.empty())
+					m_BaselineEntities.erase(delta.Handle);        // entity was deleted by the edit -> remove it
+				else
+					m_BaselineEntities[delta.Handle] = delta.After;
+			}
+
+			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+			RestoreSelection(affected);
+		}
+
+		m_UndoToastText = "Redo: " + command.Label;
+		m_UndoToastTime = ImGui::GetTime();
+		undoStack.push_back(std::move(command));
+	}
+
+	void EditorLayer::RestoreSceneState(const std::string& meta, const std::map<UUID, std::string>& entities)
+	{
+		std::vector<std::string> blocks;
+		blocks.reserve(entities.size());
+		for (const auto& [handle, block] : entities)
+			blocks.push_back(block);
+
+		Ref<Scene> newScene = CreateRef<Scene>();
+		SceneSerializer serializer(newScene);
+		if (!serializer.DeserializeFromSnapshots(meta, blocks))
+		{
+			LUX_CORE_ERROR("Undo: failed to restore scene state; history left unchanged.");
+			return;
+		}
+
+		AdoptEditorScene(newScene);
+
+		// The restore itself is not a user edit — clear any signal/pending it might have raised.
+		m_UndoCommitPending = false;
+		EditorStack::Get().ConsumeSceneEdit();
+	}
+
+	void EditorLayer::RestoreSelection(const std::vector<UUID>& handles)
+	{
+		// Select the entities the undone/redone step touched (that still exist), so the user sees
+		// what changed. AdoptEditorScene cleared the selection when it swapped the scene.
+		SelectionManager::DeselectAll(SelectionContext::Scene);
+		if (!m_EditorScene)
+			return;
+
+		for (UUID handle : handles)
+		{
+			if (m_EditorScene->TryGetEntityWithUUID(handle))
+				SelectionManager::Select(SelectionContext::Scene, handle);
+		}
+	}
+
+	void EditorLayer::UI_UndoToast()
+	{
+		constexpr double kVisibleSeconds = 1.6;
+		constexpr double kFadeSeconds = 0.5;
+
+		const double age = ImGui::GetTime() - m_UndoToastTime;
+		if (m_UndoToastText.empty() || age < 0.0 || age > kVisibleSeconds + kFadeSeconds)
+			return;
+
+		const float alpha = age <= kVisibleSeconds ? 1.0f : 1.0f - static_cast<float>((age - kVisibleSeconds) / kFadeSeconds);
+
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		const ImVec2 position(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y + viewport->WorkSize.y - 48.0f);
+		ImGui::SetNextWindowPos(position, ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+		ImGui::SetNextWindowBgAlpha(0.9f);
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
+			| ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
+
+		ImGuiEx::ScopedStyle fade(ImGuiStyleVar_Alpha, alpha);   // fades text + background uniformly
+		ImGuiEx::ScopedStyle rounding(ImGuiStyleVar_WindowRounding, 6.0f);
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 8.0f));
+		ImGuiEx::ScopedColour text(ImGuiCol_Text, Colors::Theme::textBrighter);
+		if (ImGui::Begin("##UndoToast", nullptr, flags))
+			ImGui::TextUnformatted(m_UndoToastText.c_str());
+		ImGui::End();
+	}
+
+	void EditorLayer::ReloadScriptsWithFeedback()
+	{
+		if (!Project::GetActive())
+			return;
+
+		Project::GetActive()->ReloadScriptEngine();
+		if (m_ActiveScene)
+			m_ActiveScene->GetScriptStorage().SynchronizeStorage();
+
+		const ScriptEngine::ReloadStatus& status = ScriptEngine::GetInstance().GetLastReloadStatus();
+		if (status.Success)
+			m_ScriptToastText = std::format("{}  C# reloaded  ·  {} script{}", LUX_ICON_CHECK, status.ScriptCount, status.ScriptCount == 1 ? "" : "s");
+		else
+			m_ScriptToastText = std::format("{}  C# reload failed: {}", LUX_ICON_TIMES, status.Message);
+
+		m_ScriptToastColor = status.Success ? Colors::Theme::titlebarGreen : Colors::Theme::titlebarRed;
+		m_ScriptToastTime = ImGui::GetTime();
+	}
+
+	void EditorLayer::UI_ScriptToast()
+	{
+		constexpr double kVisibleSeconds = 2.6;   // a touch longer than the undo toast so errors register
+		constexpr double kFadeSeconds = 0.5;
+
+		const double age = ImGui::GetTime() - m_ScriptToastTime;
+		if (m_ScriptToastText.empty() || age < 0.0 || age > kVisibleSeconds + kFadeSeconds)
+			return;
+
+		const float alpha = age <= kVisibleSeconds ? 1.0f : 1.0f - static_cast<float>((age - kVisibleSeconds) / kFadeSeconds);
+
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		// Sits above the undo toast so the two never overlap.
+		const ImVec2 position(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y + viewport->WorkSize.y - 84.0f);
+		ImGui::SetNextWindowPos(position, ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+		ImGui::SetNextWindowBgAlpha(0.9f);
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
+			| ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
+
+		ImGuiEx::ScopedStyle fade(ImGuiStyleVar_Alpha, alpha);
+		ImGuiEx::ScopedStyle rounding(ImGuiStyleVar_WindowRounding, 6.0f);
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 8.0f));
+		ImGuiEx::ScopedColour text(ImGuiCol_Text, m_ScriptToastColor);
+		if (ImGui::Begin("##ScriptToast", nullptr, flags))
+			ImGui::TextUnformatted(m_ScriptToastText.c_str());
+		ImGui::End();
+	}
+
+	void EditorLayer::UI_PrefabEditBanner()
+	{
+		if (!m_PrefabEditMode)
+			return;
+
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		const ImVec2 position(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y + 8.0f);
+		ImGui::SetNextWindowPos(position, ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+		ImGui::SetNextWindowBgAlpha(0.95f);
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
+			| ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoMove;
+
+		ImGuiEx::ScopedStyle rounding(ImGuiStyleVar_WindowRounding, 6.0f);
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 8.0f));
+		if (ImGui::Begin("##PrefabEditBanner", nullptr, flags))
+		{
+			{
+				ImGuiEx::ScopedColour accent(ImGuiCol_Text, Colors::Theme::accent);
+				ImGui::TextUnformatted(LUX_ICON_CUBE "  Editing Prefab:");
+			}
+			ImGui::SameLine();
+			ImGui::TextUnformatted(m_EditingPrefabName.c_str());
+			if (!m_EditingPrefabBaseName.empty())
+			{
+				ImGui::SameLine();
+				ImGuiEx::ScopedColour dim(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::Text("(variant of %s)", m_EditingPrefabBaseName.c_str());
+			}
+			ImGui::SameLine();
+			ImGui::Dummy(ImVec2(12.0f, 0.0f));
+			ImGui::SameLine();
+			if (ImGui::Button("Save & Return"))
+				ExitPrefabEditMode(true);
+			ImGui::SameLine();
+			if (ImGui::Button("Discard & Return"))
+				ExitPrefabEditMode(false);
+		}
+		ImGui::End();
+	}
+
+	void EditorLayer::AdoptEditorScene(const Ref<Scene>& scene)
+	{
+		m_EditorScene = scene;
+		m_ActiveScene = m_EditorScene;
+		m_PanelManager->SetSceneContext(m_EditorScene);
+
+		if (m_EditorViewport)
+		{
+			m_EditorViewport->SetScene(m_ActiveScene);
+			m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+			m_Framebuffer = m_EditorViewport->GetFramebuffer();
+			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		}
+
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
+
+		// Keep the settings baseline aligned with the (unchanged) renderer after a scene restore, so a
+		// scene undo/redo never looks like a settings change.
+		CaptureRendererSettingsBaseline();
+	}
+
+	void EditorLayer::BeginPlayUndoHistory()
+	{
+		m_PlayUndoStack.clear();
+		m_PlayRedoStack.clear();
+		m_UndoCommitPending = false;
+		m_PlayBaselineEntities = CaptureSceneEntities(m_ActiveScene, m_PlayBaselineMeta);
+	}
+
+	void EditorLayer::CommitPlaySnapshot()
+	{
+		if (!m_ActiveScene)
+			return;
+
+		std::string meta;
+		std::map<UUID, std::string> current = CaptureSceneEntities(m_ActiveScene, meta);
+
+		const bool metaChanged = meta != m_PlayBaselineMeta;
+		std::vector<EntityDelta> deltas;
+		for (const auto& [handle, before] : m_PlayBaselineEntities)
+		{
+			auto it = current.find(handle);
+			const std::string after = (it != current.end()) ? it->second : std::string();
+			if (before != after)
+				deltas.push_back({ handle, before, after });
+		}
+		for (const auto& [handle, after] : current)
+		{
+			if (m_PlayBaselineEntities.find(handle) == m_PlayBaselineEntities.end())
+				deltas.push_back({ handle, std::string(), after });
+		}
+
+		if (!metaChanged && deltas.empty())
+			return;
+
+		const std::string metaBefore = m_PlayBaselineMeta;
+		const std::string metaAfter = meta;
+		m_PlayBaselineMeta = meta;
+		m_PlayBaselineEntities = current;
+
+		// A play step is a closure command over the play stacks: apply the before/after deltas to the
+		// play baseline, then rebuild the runtime scene from it.
+		UndoCommand command;
+		command.Label = m_PendingUndoLabel;
+		command.CustomUndo = [this, deltas, metaChanged, metaBefore]()
+		{
+			if (metaChanged)
+				m_PlayBaselineMeta = metaBefore;
+			for (const EntityDelta& delta : deltas)
+			{
+				if (delta.Before.empty())
+					m_PlayBaselineEntities.erase(delta.Handle);
+				else
+					m_PlayBaselineEntities[delta.Handle] = delta.Before;
+			}
+			RestoreRuntimeState(m_PlayBaselineMeta, m_PlayBaselineEntities);
+		};
+		command.CustomRedo = [this, deltas, metaChanged, metaAfter]()
+		{
+			if (metaChanged)
+				m_PlayBaselineMeta = metaAfter;
+			for (const EntityDelta& delta : deltas)
+			{
+				if (delta.After.empty())
+					m_PlayBaselineEntities.erase(delta.Handle);
+				else
+					m_PlayBaselineEntities[delta.Handle] = delta.After;
+			}
+			RestoreRuntimeState(m_PlayBaselineMeta, m_PlayBaselineEntities);
+		};
+
+		command.ApproxBytes = metaBefore.size() + metaAfter.size();
+		for (const EntityDelta& delta : deltas)
+			command.ApproxBytes += delta.Before.size() + delta.After.size();
+
+		m_PlayUndoStack.push_back(std::move(command));
+		TrimUndoStack(m_PlayUndoStack);
+		m_PlayRedoStack.clear();
+	}
+
+	void EditorLayer::RestoreRuntimeState(const std::string& meta, const std::map<UUID, std::string>& entities)
+	{
+		std::vector<std::string> blocks;
+		blocks.reserve(entities.size());
+		for (const auto& [handle, block] : entities)
+			blocks.push_back(block);
+
+		Ref<Scene> newScene = CreateRef<Scene>();
+		SceneSerializer serializer(newScene);
+		if (!serializer.DeserializeFromSnapshots(meta, blocks))
+		{
+			LUX_CORE_ERROR("Play undo: failed to restore runtime state; history left unchanged.");
+			return;
+		}
+
+		AdoptRuntimeScene(newScene);
+
+		m_UndoCommitPending = false;
+		EditorStack::Get().ConsumeSceneEdit();
+	}
+
+	void EditorLayer::AdoptRuntimeScene(const Ref<Scene>& scene)
+	{
+		// Tear down the current runtime, swap in the rebuilt scene, and restart its runtime — so a
+		// play-mode undo resets physics/scripts to the snapshot state and continues from there.
+		if (m_SceneState == SceneState::Play && m_ActiveScene)
+			m_ActiveScene->OnRuntimeStop();
+		else if (m_SceneState == SceneState::Simulate && m_ActiveScene)
+			m_ActiveScene->OnSimulationStop();
+
+		m_ActiveScene = scene;
+
+		if (m_SceneState == SceneState::Play)
+			m_ActiveScene->OnRuntimeStart();
+		else if (m_SceneState == SceneState::Simulate)
+			m_ActiveScene->OnSimulationStart();
+
+		m_PanelManager->SetSceneContext(m_ActiveScene);
+
+		if (m_EditorViewport)
+		{
+			m_EditorViewport->SetScene(m_ActiveScene);
+			m_EditorViewport->SyncSceneViewport(m_ActiveScene);
+			m_Framebuffer = m_EditorViewport->GetFramebuffer();
+			m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		}
+
+		if (m_SceneRendererPanel)
+			m_SceneRendererPanel->SetContext(m_SceneRenderer);
+		if (m_RendererDebuggerPanel)
+			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::SaveScene()
 	{
+		// While editing a prefab, Ctrl+S writes the prefab asset instead of a scene file.
+		if (m_PrefabEditMode)
+		{
+			SavePrefabEdits();
+			return;
+		}
+
 		if (!m_EditorScenePath.empty())
 			SerializeScene(m_ActiveScene, m_EditorScenePath);
 		else
@@ -2618,6 +3920,8 @@ namespace Lux {
 
 	void EditorLayer::OnScenePlay()
 	{
+		if (m_PrefabEditMode)   // no play while editing a prefab in isolation
+			return;
 		if (m_SceneState == SceneState::Simulate)
 			OnSceneStop();
 
@@ -2642,10 +3946,16 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
+
+		BeginPlayUndoHistory();   // transient play-mode undo, over the runtime scene
 	}
 
 	void EditorLayer::OnSceneSimulate()
 	{
+		if (m_PrefabEditMode)   // no simulate while editing a prefab in isolation
+			return;
 		if (m_SceneState == SceneState::Play)
 			OnSceneStop();
 
@@ -2668,6 +3978,10 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
+
+		BeginPlayUndoHistory();   // transient play-mode undo, over the runtime scene
 	}
 
 	void EditorLayer::OnSceneStop()
@@ -2682,6 +3996,11 @@ namespace Lux {
 
 		m_SceneState = SceneState::Edit;
 		m_ActiveScene = m_EditorScene;
+
+		// The transient play-mode history is meaningless once we're back to the editor scene.
+		m_PlayUndoStack.clear();
+		m_PlayRedoStack.clear();
+		m_UndoCommitPending = false;
 
 		m_PanelManager->SetSceneContext(m_ActiveScene);
 
@@ -2700,6 +4019,8 @@ namespace Lux {
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);
 		if (m_RendererDebuggerPanel)
 			m_RendererDebuggerPanel->SetContext(m_SceneRenderer);
+		if (m_ProfilerPanel)
+			m_ProfilerPanel->SetContext(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnScenePause()
@@ -2723,6 +4044,7 @@ namespace Lux {
 			Entity newEntity = m_EditorScene->DuplicateEntity(selectedEntity);
 			if (m_SceneHierarchyPanel)
 				m_SceneHierarchyPanel->SetSelectedEntity(newEntity);
+			EditorStack::Get().MarkSceneEdited("Duplicate Entity");
 		}
 	}
 }

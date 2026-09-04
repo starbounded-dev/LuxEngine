@@ -52,7 +52,6 @@ project "JoltPhysics"
         {
             "NDEBUG",
             "JPH_DEBUG_RENDERER",
-            "JPH_FLOATING_POINT_EXCEPTIONS_ENABLED",
             "JPH_EXTERNAL_PROFILE"
         }
 

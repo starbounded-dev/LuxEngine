@@ -5,6 +5,7 @@
 #include "MaterialSerializer.h"
 #include "MeshSerializer.h"
 #include "SceneAssetSerializer.h"
+#include "PrefabSerializer.h"
 #include "TextureSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
@@ -32,6 +33,7 @@ namespace Lux
 			s_Serializers[AssetType::StaticMesh] = std::make_unique<StaticMeshSerializer>();
 			s_Serializers[AssetType::MeshCollider] = std::make_unique<MeshColliderSerializer>();
 			s_Serializers[AssetType::Material] = std::make_unique<MaterialSerializer>();
+			s_Serializers[AssetType::Prefab] = std::make_unique<PrefabSerializer>();
 		}
 
 		void EnsureInitialized()

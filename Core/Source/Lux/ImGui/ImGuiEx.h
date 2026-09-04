@@ -5,7 +5,7 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetMetadata.h"
 //#include "Lux/Editor/AssetEditorPanelInterface.h"
-//#include "Lux/Editor/EditorOperation.h"
+#include "Lux/Editor/EditorStack.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiFonts.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
@@ -27,7 +27,11 @@
 #include <format>
 #include <map>
 
-#define UndoDo 0
+// When 1, the property widgets below call EditorStack::PushCopy on each change. That call only
+// *flags* that a scene edit happened (the pointer/value are ignored) — EditorLayer turns the flag
+// into a whole-scene snapshot once the edit finishes. The script-field / asset-array paths under
+// `#if 0` stay out; they never compiled against this. See Lux/Editor/EditorStack.h.
+#define UndoDo 1
 
 namespace Lux {
 
@@ -415,6 +419,36 @@ namespace Lux::ImGuiEx {
 		return modified;
 	}
 
+	// A lime switch toggle: a rounded track + knob, accent when on. Fits the property-grid control
+	// column and returns true when toggled. Replaces the plain checkbox for boolean properties.
+	static bool ToggleSwitch(const char* strId, bool& value)
+	{
+		const float height = ImGui::GetFrameHeight() * 0.72f;
+		const float width = height * 1.8f;
+		const float radius = height * 0.5f;
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+
+		// EnableNav so the toggle is keyboard/gamepad-activatable, and the return value catches that
+		// activation — IsItemClicked() alone only reports a mouse click.
+		bool changed = false;
+		if (ImGui::InvisibleButton(strId, ImVec2(width, height), ImGuiButtonFlags_EnableNav))
+		{
+			value = !value;
+			changed = true;
+		}
+		const bool hovered = ImGui::IsItemHovered();
+
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const ImU32 trackOn  = Colors::Theme::accent;
+		const ImU32 trackOff = Colors::Theme::backgroundDark;
+		const ImU32 knobOn   = Colors::Theme::titlebar;      // dark knob reads on the lime track
+		const ImU32 knobOff  = hovered ? Colors::Theme::text : Colors::Theme::textDarker;
+		dl->AddRectFilled(p, ImVec2(p.x + width, p.y + height), value ? trackOn : trackOff, radius);
+		const float knobX = value ? (p.x + width - radius) : (p.x + radius);
+		dl->AddCircleFilled(ImVec2(knobX, p.y + radius), radius - 2.0f, value ? knobOn : knobOff);
+		return changed;
+	}
+
 	static bool Property(const char* label, bool& value, const char* helpText = "", bool doPushUndo = true)
 	{
 		bool modified = false;
@@ -434,7 +468,7 @@ namespace Lux::ImGuiEx {
 
 		auto hold = value;
 
-		modified = ImGuiEx::Checkbox(std::format("##{0}", label).c_str(), &value);
+		modified = ImGuiEx::ToggleSwitch(std::format("##{0}", label).c_str(), value);
 #if UndoDo
 		if (modified && doPushUndo)
 			EditorStack::Get().PushCopy<bool>(&value, hold);

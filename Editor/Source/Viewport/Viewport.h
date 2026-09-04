@@ -96,6 +96,7 @@ namespace Lux
 		bool BeginImGui()
 		{
 			const bool visible = ImGui::Begin(m_Name.c_str());
+			m_Visible = visible;
 			if (!visible)
 			{
 				m_Focused = false;
@@ -153,6 +154,9 @@ namespace Lux
 		glm::vec2 GetImageSize() const { return m_ImageBounds[1] - m_ImageBounds[0]; }
 		bool IsFocused() const { return m_Focused; }
 		bool IsHovered() const { return m_Hovered; }
+		// True only when the viewport is the active, non-collapsed tab (false when another panel,
+		// e.g. Beam, is docked on top of it). Use this to gate the viewport overlays.
+		bool IsVisible() const { return m_Visible; }
 
 		DisplayMode GetDisplayMode() const { return m_DisplayMode; }
 		void SetDisplayMode(DisplayMode displayMode) { m_DisplayMode = displayMode; }
@@ -195,6 +199,7 @@ namespace Lux
 		glm::vec2 m_ImageBounds[2] = {};
 		bool m_Focused = false;
 		bool m_Hovered = false;
+		bool m_Visible = false;
 		DisplayMode m_DisplayMode = DisplayMode::Lit;
 	};
 }

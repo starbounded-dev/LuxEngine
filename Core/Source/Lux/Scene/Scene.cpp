@@ -12,6 +12,7 @@
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Prefab.h"
+#include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/ScriptableEntity.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Scripting/ScriptEngine.h"
@@ -204,6 +205,26 @@ namespace Lux {
 			}(), ...);
 	}
 
+	// Makes dst's listed components match src exactly: replace/add where src has one, remove where it
+	// doesn't. Unlike CopyComponentIfExists, this reconciles removals — used by prefab Revert/Apply.
+	template<typename... Component>
+	static void ReconcileComponents(Entity dst, Entity src)
+	{
+		([&]()
+			{
+				if (src.HasComponent<Component>())
+					dst.AddOrReplaceComponent<Component>(src.GetComponent<Component>());
+				else
+					dst.RemoveComponentIfExists<Component>();
+			}(), ...);
+	}
+
+	template<typename... Component>
+	static void ReconcileComponents(ComponentGroup<Component...>, Entity dst, Entity src)
+	{
+		ReconcileComponents<Component...>(dst, src);
+	}
+
 	template<typename... Component>
 	static void CopyComponentIfExists(ComponentGroup<Component...>, Entity dst, Entity src)
 	{
@@ -228,8 +249,12 @@ namespace Lux {
 		for (auto e : idView)
 		{
 			UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
-			const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
-			Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);
+			const auto& srcTag = srcSceneRegistry.get<TagComponent>(e);
+			Entity newEntity = newScene->CreateEntityWithUUID(uuid, srcTag.Tag);
+			// TagComponent is created by name above; carry its editor-only lock/label state too.
+			auto& dstTag = newEntity.GetComponent<TagComponent>();
+			dstTag.Locked = srcTag.Locked;
+			dstTag.LabelColor = srcTag.LabelColor;
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 
@@ -945,7 +970,8 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			FolderComponent>;
 
 		if (!entity)
 			return {};
@@ -955,6 +981,12 @@ namespace Lux {
 		{
 			Entity destination = CreateEntity(source.GetName());
 			CopyComponentIfExists(DuplicateComponents{}, destination, source);
+
+			// TagComponent isn't in DuplicateComponents (name is set above); carry the editor lock/label.
+			const auto& srcTag = source.GetComponent<TagComponent>();
+			auto& dstTag = destination.GetComponent<TagComponent>();
+			dstTag.Locked = srcTag.Locked;
+			dstTag.LabelColor = srcTag.LabelColor;
 
 			if (parent)
 				ParentEntity(destination, parent);
@@ -1000,7 +1032,8 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			FolderComponent>;
 
 		std::function<Entity(Entity, Entity)> instantiateHierarchy;
 		instantiateHierarchy = [&](Entity source, Entity destinationParent) -> Entity
@@ -1033,6 +1066,95 @@ namespace Lux {
 		if (scale)
 			root.Transform().Scale = *scale;
 		return root;
+	}
+
+	void Scene::ReconcilePrefabComponents(Entity destination, Entity source)
+	{
+		if (!destination || !source)
+			return;
+
+		// Same set the instantiation path syncs (identity components — ID/Relationship/Tag/Prefab —
+		// are deliberately excluded so the link and hierarchy survive a revert/apply). Reconcile,
+		// not copy: destination-only components are removed so it matches source exactly.
+		using PrefabSyncComponents =
+			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
+			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			FolderComponent>;
+
+		ReconcileComponents(PrefabSyncComponents{}, destination, source);
+	}
+
+	void Scene::PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab)
+	{
+		if (!oldPrefab || !newPrefab)
+			return;
+
+		// Collect first — reconciling adds/removes components, which would invalidate a live view.
+		std::vector<UUID> instances;
+		for (auto e : GetAllEntitiesWith<PrefabComponent>())
+		{
+			Entity instance{ e, this };
+			if (instance.GetComponent<PrefabComponent>().PrefabID == prefabID)
+				instances.push_back(instance.GetUUID());
+		}
+
+		for (UUID id : instances)
+		{
+			Entity instance = TryGetEntityWithUUID(id);
+			if (!instance)
+				continue;
+
+			const UUID sourceID = instance.GetComponent<PrefabComponent>().EntityID;
+			Entity oldSource = oldPrefab->TryGetEntityWithUUID(sourceID);
+			Entity newSource = newPrefab->TryGetEntityWithUUID(sourceID);
+			if (!oldSource || !newSource)
+				continue;
+
+			// A placed root's transform differs from the prefab's — that placement is expected, not a
+			// user override, so ignore it when deciding whether to propagate, and preserve it after.
+			const bool isRoot = oldSource.GetComponent<RelationshipComponent>().ParentHandle == 0;
+
+			std::unordered_set<std::string> overrides = SceneSerializer::GetOverriddenComponentKeys(instance, oldSource);
+			if (isRoot)
+				overrides.erase("TransformComponent");
+
+			// Adopt the edited prefab only for instances the user hasn't (otherwise) overridden; a
+			// modified instance keeps its values (the user can revert per-component).
+			if (!overrides.empty())
+				continue;
+
+			const TransformComponent placement = instance.GetComponent<TransformComponent>();
+			ReconcilePrefabComponents(instance, newSource);
+			if (isRoot)
+				instance.AddOrReplaceComponent<TransformComponent>(placement);
+		}
+	}
+
+	void Scene::AdoptPrefabBaseEdits(Ref<Scene> oldBase, Ref<Scene> newBase)
+	{
+		if (!oldBase || !newBase)
+			return;
+
+		// A variant shares the base's UUIDs, so match entities directly (no PrefabComponent). Unlike
+		// an instance, a variant isn't "placed", so the transform is treated like any other component.
+		std::vector<UUID> entities;
+		for (auto e : GetAllEntitiesWith<IDComponent>())
+			entities.push_back(Entity{ e, this }.GetUUID());
+
+		for (UUID id : entities)
+		{
+			Entity entity = TryGetEntityWithUUID(id);
+			Entity oldSource = oldBase->TryGetEntityWithUUID(id);
+			Entity newSource = newBase->TryGetEntityWithUUID(id);
+			if (!entity || !oldSource || !newSource)
+				continue;
+
+			if (SceneSerializer::GetOverriddenComponentKeys(entity, oldSource).empty())
+				ReconcilePrefabComponents(entity, newSource);
+		}
 	}
 
 	Entity Scene::InstantiateMesh(Ref<Mesh> mesh)
@@ -2194,6 +2316,12 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<FolderComponent>(Entity entity, FolderComponent& component)
 	{
 
 	}

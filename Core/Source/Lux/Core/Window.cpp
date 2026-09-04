@@ -142,6 +142,15 @@ namespace Lux {
 
 		if (!s_GLFWInitialized)
 		{
+			// On Wayland, GLFW prefers libdecor for client-side decorations whenever it's
+			// installed. libdecor draws its own titlebar and does not fully honour
+			// set_visibility(false) for our undecorated window on KWin, so its header shows
+			// on top of the editor's custom titlebar (a double titlebar). Disabling libdecor
+			// makes GLFW use the native xdg-decoration protocol instead, where the undecorated
+			// window requests CLIENT_SIDE and KWin draws no server titlebar of its own.
+			// (Init hint is Wayland-only and ignored on other platforms.)
+			glfwInitHint(GLFW_WAYLAND_LIBDECOR, GLFW_WAYLAND_DISABLE_LIBDECOR);
+
 			// TODO: glfwTerminate on system shutdown
 			int success = glfwInit();
 			LUX_CORE_ASSERT(success, "Could not intialize GLFW!");
@@ -285,8 +294,7 @@ namespace Lux {
 
 		if (!rayQuerySupported)
 		{
-			LUX_CORE_ERROR("The GPU ({}) or its driver does not support Ray Queries.", m_DeviceManager->GetRendererString());
-			return;
+			LUX_CORE_WARN("The GPU ({}) or its driver does not support Ray Queries. No renderer feature currently depends on this, continuing without it.", m_DeviceManager->GetRendererString());
 		}
 		else
 		{

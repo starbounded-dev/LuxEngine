@@ -37,6 +37,11 @@ namespace Lux {
 			bool* ShowEntityIcons = nullptr;
 			bool* ShowViewportPerformanceHUD = nullptr;
 			bool* ShowPhysicsColliders = nullptr;
+			// Editor layout mode (Simple vs Advanced). Read through the pointer; switching modes does
+			// more than flip a bool (re-docks panels), so the change is routed through the callback
+			// rather than written directly.
+			bool* SimpleLayout = nullptr;
+			std::function<void(bool)> OnLayoutModeChanged;
 			std::function<void()> OnPreferencesChanged;
 		};
 

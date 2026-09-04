@@ -3,6 +3,8 @@
 
 #include "Colors.h"
 
+#include <implot/implot.h>
+
 #include "Lux/Core/Input.h"
 
 #include "Lux/Renderer/Renderer.h"
@@ -37,6 +39,7 @@ namespace Lux {
 		// Setup Dear ImGui context
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
+		ImPlot::CreateContext();
 		ImGuiIO& io = ImGui::GetIO(); (void)io;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
 		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
@@ -104,23 +107,27 @@ namespace Lux {
 
 		// Configure Fonts
 		{
-			ImGuiEx::FontConfiguration robotoBold;
-			robotoBold.FontName = "Bold";
-			robotoBold.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
-			robotoBold.Size = 18.0f;
-			ImGuiEx::Fonts::Add(robotoBold);
+			// UI text is Archivo (the Monolith mock's body face). Font add-order is significant:
+			// several call sites index io.Fonts->Fonts[0] (= "Bold") and Fonts[1] (= "Large"), and
+			// the named lookups ("Default"/"Medium"/...) must keep the same keys, so this block
+			// swaps Roboto -> Archivo in place without reordering or renaming.
+			ImGuiEx::FontConfiguration archivoBold;
+			archivoBold.FontName = "Bold";
+			archivoBold.FilePath = "Resources/Fonts/Archivo/static/Archivo-Bold.ttf";
+			archivoBold.Size = 18.0f;
+			ImGuiEx::Fonts::Add(archivoBold);
 
-			ImGuiEx::FontConfiguration robotoLarge;
-			robotoLarge.FontName = "Large";
-			robotoLarge.FilePath = "Resources/Fonts/Roboto/Roboto-Regular.ttf";
-			robotoLarge.Size = 24.0f;
-			ImGuiEx::Fonts::Add(robotoLarge);
+			ImGuiEx::FontConfiguration archivoLarge;
+			archivoLarge.FontName = "Large";
+			archivoLarge.FilePath = "Resources/Fonts/Archivo/static/Archivo-Regular.ttf";
+			archivoLarge.Size = 24.0f;
+			ImGuiEx::Fonts::Add(archivoLarge);
 
-			ImGuiEx::FontConfiguration robotoDefault;
-			robotoDefault.FontName = "Default";
-			robotoDefault.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
-			robotoDefault.Size = 15.0f;
-			ImGuiEx::Fonts::Add(robotoDefault, true);
+			ImGuiEx::FontConfiguration archivoDefault;
+			archivoDefault.FontName = "Default";
+			archivoDefault.FilePath = "Resources/Fonts/Archivo/static/Archivo-Medium.ttf";
+			archivoDefault.Size = 15.0f;
+			ImGuiEx::Fonts::Add(archivoDefault, true);
 
 			static const ImWchar s_FontAwesomeRanges[] = { LUX_ICON_MIN, LUX_ICON_MAX, 0 };
 			ImGuiEx::FontConfiguration fontAwesome;
@@ -131,29 +138,45 @@ namespace Lux {
 			fontAwesome.MergeWithLast = true;
 			ImGuiEx::Fonts::Add(fontAwesome);
 
-			ImGuiEx::FontConfiguration robotoMedium;
-			robotoMedium.FontName = "Medium";
-			robotoMedium.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
-			robotoMedium.Size = 18.0f;
-			ImGuiEx::Fonts::Add(robotoMedium);
+			ImGuiEx::FontConfiguration archivoMedium;
+			archivoMedium.FontName = "Medium";
+			archivoMedium.FilePath = "Resources/Fonts/Archivo/static/Archivo-Medium.ttf";
+			archivoMedium.Size = 18.0f;
+			ImGuiEx::Fonts::Add(archivoMedium);
 
-			ImGuiEx::FontConfiguration robotoSmall;
-			robotoSmall.FontName = "Small";
-			robotoSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
-			robotoSmall.Size = 12.0f;
-			ImGuiEx::Fonts::Add(robotoSmall);
+			ImGuiEx::FontConfiguration archivoSmall;
+			archivoSmall.FontName = "Small";
+			archivoSmall.FilePath = "Resources/Fonts/Archivo/static/Archivo-Regular.ttf";
+			archivoSmall.Size = 12.0f;
+			ImGuiEx::Fonts::Add(archivoSmall);
 
-			ImGuiEx::FontConfiguration robotoExtraSmall;
-			robotoExtraSmall.FontName = "ExtraSmall";
-			robotoExtraSmall.FilePath = "Resources/Fonts/Roboto/Roboto-SemiMedium.ttf";
-			robotoExtraSmall.Size = 10.0f;
-			ImGuiEx::Fonts::Add(robotoExtraSmall);
+			ImGuiEx::FontConfiguration archivoExtraSmall;
+			archivoExtraSmall.FontName = "ExtraSmall";
+			archivoExtraSmall.FilePath = "Resources/Fonts/Archivo/static/Archivo-Regular.ttf";
+			archivoExtraSmall.Size = 10.0f;
+			ImGuiEx::Fonts::Add(archivoExtraSmall);
 
-			ImGuiEx::FontConfiguration robotoBoldTitle;
-			robotoBoldTitle.FontName = "BoldTitle";
-			robotoBoldTitle.FilePath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
-			robotoBoldTitle.Size = 16.0f;
-			ImGuiEx::Fonts::Add(robotoBoldTitle);
+			ImGuiEx::FontConfiguration archivoBoldTitle;
+			archivoBoldTitle.FontName = "BoldTitle";
+			archivoBoldTitle.FilePath = "Resources/Fonts/Archivo/static/Archivo-SemiBold.ttf";
+			archivoBoldTitle.Size = 16.0f;
+			ImGuiEx::Fonts::Add(archivoBoldTitle);
+
+			// Appended after the UI fonts so existing Fonts[] indices are unchanged. Looked up by
+			// name (ImGuiEx::Fonts::PushFont("Mono"/"Display")).
+			// Monospace for numeric readouts (perf HUD, stats, ImPlot).
+			ImGuiEx::FontConfiguration jetBrainsMono;
+			jetBrainsMono.FontName = "Mono";
+			jetBrainsMono.FilePath = "Resources/Fonts/JetBrainsMono/JetBrainsMono-Medium.ttf";
+			jetBrainsMono.Size = 13.0f;
+			ImGuiEx::Fonts::Add(jetBrainsMono);
+
+			// Display face for wordmarks / large headers.
+			ImGuiEx::FontConfiguration bricolageDisplay;
+			bricolageDisplay.FontName = "Display";
+			bricolageDisplay.FilePath = "Resources/Fonts/Bricolage_Grotesque/static/BricolageGrotesque-Bold.ttf";
+			bricolageDisplay.Size = 18.0f;
+			ImGuiEx::Fonts::Add(bricolageDisplay);
 		}
 
 		// Setup Dear ImGui style
@@ -278,6 +301,7 @@ namespace Lux {
 
 		m_ImGuiRenderer.reset();
 		ImGui_ImplGlfw_Shutdown();
+		ImPlot::DestroyContext();
 		ImGui::DestroyContext();
 	}
 
@@ -436,8 +460,8 @@ namespace Lux {
 
 		// Tabs (accent-tinted so the active tab reads as "selected" on-brand)
 		colors[ImGuiCol_Tab] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-		colors[ImGuiCol_TabHovered] = ImColor(124, 131, 248, 45);
-		colors[ImGuiCol_TabActive] = ImColor(124, 131, 248, 90);
+		colors[ImGuiCol_TabHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accentTabHovered);
+		colors[ImGuiCol_TabActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accentTabActive);
 		colors[ImGuiCol_TabUnfocused] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
 		colors[ImGuiCol_TabUnfocusedActive] = colors[ImGuiCol_TabHovered];
 
@@ -471,7 +495,7 @@ namespace Lux {
 		// Separator (subtle by default, accent when active/hovered)
 		colors[ImGuiCol_Separator] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
 		colors[ImGuiCol_SeparatorActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
-		colors[ImGuiCol_SeparatorHovered] = ImColor(124, 131, 248, 150);
+		colors[ImGuiCol_SeparatorHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accentSeparatorHovered);
 
 		// Window Background
 		colors[ImGuiCol_WindowBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
@@ -492,18 +516,19 @@ namespace Lux {
 		colors[ImGuiCol_NavHighlight] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
 
 		//========================================================
-		/// Style — softer, rounder, cleaner than the default. Rounding is applied to the
-		/// widgets that read as "controls" (frames, grabs, tabs, scrollbars, popups);
-		/// spacing/padding are left alone so the panels' hand-tuned cursor offsets still line up.
-		style.FrameRounding = 4.0f;
+		/// Style — sharp and hairline-bordered ("Monolith, warmed"). Rounding is applied to the
+		/// widgets that read as "controls" (frames, grabs, tabs, scrollbars, popups), kept minimal
+		/// rather than soft; spacing/padding are left alone so the panels' hand-tuned cursor
+		/// offsets still line up.
+		style.FrameRounding = 2.0f;
 		style.FrameBorderSize = 1.0f;
-		style.GrabRounding = 4.0f;
+		style.GrabRounding = 2.0f;
 		style.GrabMinSize = 7.0f;
-		style.TabRounding = 4.0f;
-		style.ScrollbarRounding = 9.0f;
+		style.TabRounding = 2.0f;
+		style.ScrollbarRounding = 3.0f;
 		style.ScrollbarSize = 13.0f;
-		style.PopupRounding = 6.0f;
-		style.ChildRounding = 6.0f;
+		style.PopupRounding = 2.0f;
+		style.ChildRounding = 2.0f;
 		style.PopupBorderSize = 1.0f;
 		style.IndentSpacing = 11.0f;
 	}

@@ -196,6 +196,7 @@ namespace Lux {
 		if (!std::filesystem::exists(original))
 		{
 			LUX_CORE_WARN("[Scripting] Script module not found at '{}'. Build the script project to enable scripting.", original.string());
+			m_LastReloadStatus = { false, "script module not found — build the C# project", 0 };
 			return;
 		}
 
@@ -209,10 +210,12 @@ namespace Lux {
 		{
 			LUX_CORE_ERROR("[Scripting] Failed to load app assembly '{}'.", loadPath.string());
 			m_AppAssemblyData.reset();
+			m_LastReloadStatus = { false, "failed to load the app assembly", 0 };
 			return;
 		}
 
 		BuildAssemblyCache(m_AppAssemblyData.get());
+		m_LastReloadStatus = { true, {}, static_cast<uint32_t>(m_ScriptMetadata.size()) };
 	}
 
 	void ScriptEngine::LoadProjectAssemblyRuntime(Buffer data)
@@ -428,6 +431,29 @@ namespace Lux {
 				fieldMetadata.Name = fieldNameStr;
 				fieldMetadata.Type = s_DataTypeLookup.at(typeName);
 				fieldMetadata.ManagedType = &fieldInfo.GetType();
+
+				// Editor-hint attributes ([Range]/[Header]/[Tooltip]) drive the inspector widgets.
+				for (auto& attribute : fieldInfo.GetAttributes())
+				{
+					Coral::ScopedString attributeName = attribute.GetType().GetFullName();
+					const std::string attrName = attributeName;
+					if (attrName == "Lux.RangeAttribute")
+					{
+						fieldMetadata.HasRange = true;
+						fieldMetadata.RangeMin = attribute.GetFieldValue<float>("Min");
+						fieldMetadata.RangeMax = attribute.GetFieldValue<float>("Max");
+					}
+					else if (attrName == "Lux.HeaderAttribute")
+					{
+						Coral::ScopedString text = attribute.GetFieldValue<Coral::String>("Text");
+						fieldMetadata.Header = text;
+					}
+					else if (attrName == "Lux.TooltipAttribute")
+					{
+						Coral::ScopedString text = attribute.GetFieldValue<Coral::String>("Text");
+						fieldMetadata.Tooltip = text;
+					}
+				}
 
 				switch (fieldMetadata.Type)
 				{

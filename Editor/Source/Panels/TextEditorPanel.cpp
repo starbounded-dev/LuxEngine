@@ -1,25 +1,27 @@
 #include "lpch.h"
 #include "TextEditorPanel.h"
 
-#include <imgui/imgui.h>
+#include "Lux/Editor/FontAwesome.h"
+#include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/ImGui/ImGuiFonts.h"
+
+#include <imgui/imgui.h>
+#include <imgui/imgui_internal.h>
+
 #include <fstream>
 #include <sstream>
 
 namespace Lux
 {
+	// -- Beam: the Lux code editor -------------------------------------------------------------
+	// A tabbed, keyboard-driven shell over the vendored TextEditor. Keybinds (when focused):
+	//   Ctrl+N new   Ctrl+S save   Ctrl+W close tab   Ctrl+F find/replace   Ctrl+G go to line
+	//   Ctrl+PageDown/PageUp next/previous tab
+	// Editing keys (undo/redo, copy/paste, multi-cursor, comment) are handled by the editor itself.
+
 	TextEditorPanel::TextEditorPanel()
 	{
-		m_Editor.SetReadOnlyEnabled(false);
-		m_Editor.SetShowLineNumbersEnabled(true);
-		m_Editor.SetShowMatchingBrackets(true);
-		m_Editor.SetShowScrollbarMiniMapEnabled(true);
-		m_Editor.SetLanguage(TextEditor::Language::Cpp());
-		m_Editor.SetChangeCallback([this]()
-			{
-				m_Dirty = true;
-			}, 150);
-
 		m_DiffEditor.SetReadOnlyEnabled(true);
 		m_DiffEditor.SetSideBySideMode(true);
 		m_DiffEditor.SetLanguage(TextEditor::Language::Cpp());
@@ -64,12 +66,222 @@ namespace Lux
 		return TextEditor::Language::Cpp();
 	}
 
+	std::string TextEditorPanel::DocumentTitle(const Document& doc)
+	{
+		std::string name = doc.Path.empty() ? "untitled" : doc.Path.filename().string();
+		if (doc.Dirty)
+			name += " *";
+		return name;
+	}
+
+	void TextEditorPanel::ConfigureEditor(Document& doc)
+	{
+		doc.Editor.SetReadOnlyEnabled(false);
+		doc.Editor.SetShowLineNumbersEnabled(true);
+		doc.Editor.SetShowMatchingBrackets(true);
+		doc.Editor.SetShowScrollbarMiniMapEnabled(true);
+		doc.Editor.SetAutoIndentEnabled(true);
+		doc.Editor.SetLanguage(TextEditor::Language::Cpp());
+
+		// The Document lives at a stable heap address (Scope in a vector of Scopes), so capturing
+		// its pointer is safe across reallocations of the vector.
+		Document* d = &doc;
+		doc.Editor.SetChangeCallback([d]() { d->Dirty = true; }, 150);
+	}
+
+	TextEditorPanel::Document& TextEditorPanel::NewDocument()
+	{
+		m_Documents.push_back(CreateScope<Document>());
+		Document& doc = *m_Documents.back();
+		ConfigureEditor(doc);
+		m_ActiveDocument = (int)m_Documents.size() - 1;
+		m_DiffMode = false;
+		return doc;
+	}
+
+	TextEditorPanel::Document* TextEditorPanel::ActiveDocument()
+	{
+		if (m_ActiveDocument < 0 || m_ActiveDocument >= (int)m_Documents.size())
+			return nullptr;
+		return m_Documents[m_ActiveDocument].get();
+	}
+
+	int TextEditorPanel::FindDocument(const std::filesystem::path& path) const
+	{
+		for (int i = 0; i < (int)m_Documents.size(); i++)
+		{
+			if (!m_Documents[i]->Path.empty() && m_Documents[i]->Path == path)
+				return i;
+		}
+		return -1;
+	}
+
+	void TextEditorPanel::OpenFile(const std::filesystem::path& path)
+	{
+		const int existing = FindDocument(path);
+		if (existing >= 0)
+		{
+			m_ActiveDocument = existing;
+			m_DiffMode = false;
+			return;
+		}
+
+		Document& doc = NewDocument();
+		doc.Path = path;
+		doc.Editor.SetLanguage(GetLanguageFromPath(path));
+		doc.Editor.SetText(ReadFileString(path));
+		doc.Dirty = false;
+	}
+
+	void TextEditorPanel::SaveDocument(Document& doc)
+	{
+		if (doc.Path.empty())
+			return; // untitled: needs a Save As path (wired via the content browser today)
+
+		std::ofstream stream(doc.Path, std::ios::out | std::ios::binary | std::ios::trunc);
+		if (!stream)
+		{
+			LUX_CONSOLE_LOG_ERROR("Beam: could not open '{}' for writing", doc.Path.string());
+			return; // keep Dirty so the user knows the file is not saved
+		}
+
+		const std::string text = doc.Editor.GetText();
+		stream.write(text.data(), static_cast<std::streamsize>(text.size()));
+		stream.flush();
+
+		if (!stream)
+		{
+			LUX_CONSOLE_LOG_ERROR("Beam: failed to write '{}'", doc.Path.string());
+			return; // write/flush failed — leave Dirty set
+		}
+
+		doc.Dirty = false;
+	}
+
+	void TextEditorPanel::Save()
+	{
+		if (Document* doc = ActiveDocument())
+			SaveDocument(*doc);
+	}
+
+	void TextEditorPanel::SaveAs(const std::filesystem::path& path)
+	{
+		Document* doc = ActiveDocument();
+		if (!doc)
+			return;
+
+		// Refuse if another open tab already owns this path — two documents writing the same file
+		// would silently clobber each other.
+		const int existing = FindDocument(path);
+		if (existing >= 0 && m_Documents[existing].get() != doc)
+		{
+			LUX_CONSOLE_LOG_ERROR("Beam: '{}' is already open in another tab", path.string());
+			return;
+		}
+
+		doc->Path = path;
+		doc->Editor.SetLanguage(GetLanguageFromPath(path));
+		SaveDocument(*doc);
+	}
+
+	void TextEditorPanel::CloseDocument(int index)
+	{
+		if (index < 0 || index >= (int)m_Documents.size())
+			return;
+
+		m_Documents.erase(m_Documents.begin() + index);
+
+		if (m_Documents.empty())
+			m_ActiveDocument = -1;
+		else
+			m_ActiveDocument = std::min(m_ActiveDocument, (int)m_Documents.size() - 1);
+	}
+
+	void TextEditorPanel::RequestCloseDocument(int index)
+	{
+		if (index < 0 || index >= (int)m_Documents.size())
+			return;
+
+		// A dirty tab routes through a Save / Discard / Cancel prompt so edits aren't lost silently.
+		if (m_Documents[index]->Dirty)
+		{
+			m_PendingCloseIndex = index;
+			m_OpenCloseConfirm = true;
+			return;
+		}
+
+		CloseDocument(index);
+	}
+
+	void TextEditorPanel::UI_CloseConfirm()
+	{
+		if (m_OpenCloseConfirm)
+		{
+			ImGui::OpenPopup("Unsaved changes##beam_close");
+			m_OpenCloseConfirm = false;
+		}
+
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		if (!ImGui::BeginPopupModal("Unsaved changes##beam_close", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+			return;
+
+		const bool valid = m_PendingCloseIndex >= 0 && m_PendingCloseIndex < (int)m_Documents.size();
+		const std::string name = valid ? DocumentTitle(*m_Documents[m_PendingCloseIndex]) : std::string();
+		ImGui::Text("Save changes to \"%s\" before closing?", name.c_str());
+		ImGui::Spacing();
+
+		if (ImGui::Button("Save"))
+		{
+			if (valid)
+			{
+				SaveDocument(*m_Documents[m_PendingCloseIndex]);
+				// Only close when the save actually succeeded (SaveDocument clears Dirty on success).
+				if (!m_Documents[m_PendingCloseIndex]->Dirty)
+					CloseDocument(m_PendingCloseIndex);
+			}
+			m_PendingCloseIndex = -1;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Discard"))
+		{
+			if (valid)
+				CloseDocument(m_PendingCloseIndex);
+			m_PendingCloseIndex = -1;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel"))
+		{
+			m_PendingCloseIndex = -1;
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+	}
+
 	void TextEditorPanel::SetText(const std::string& text)
 	{
-		m_DiffMode = false;
-		m_Editor.SetText(text);
-		m_Dirty = false;
+		Document& doc = NewDocument();
+		doc.Editor.SetText(text);
+		doc.Dirty = false;
 	}
+
+	const std::filesystem::path& TextEditorPanel::GetCurrentPath() const
+	{
+		if (m_ActiveDocument >= 0 && m_ActiveDocument < (int)m_Documents.size())
+			return m_Documents[m_ActiveDocument]->Path;
+		return m_EmptyPath;
+	}
+
+	bool TextEditorPanel::IsDirty() const
+	{
+		if (m_ActiveDocument >= 0 && m_ActiveDocument < (int)m_Documents.size())
+			return m_Documents[m_ActiveDocument]->Dirty;
+		return false;
+	}
+
+	// -- Diff ----------------------------------------------------------------------------------
 
 	void TextEditorPanel::SetDiffText(const std::string& left, const std::string& right)
 	{
@@ -78,43 +290,13 @@ namespace Lux
 		m_DiffEditor.SetSideBySideMode(m_DiffSideBySide);
 	}
 
-	void TextEditorPanel::OpenFile(const std::filesystem::path& path)
-	{
-		m_CurrentPath = path;
-		m_DiffMode = false;
-		m_Editor.SetLanguage(GetLanguageFromPath(path));
-		m_Editor.SetText(ReadFileString(path));
-		m_Dirty = false;
-	}
-
-	void TextEditorPanel::Save()
-	{
-		if (m_CurrentPath.empty() || m_DiffMode)
-			return;
-
-		std::ofstream stream(m_CurrentPath, std::ios::out | std::ios::binary | std::ios::trunc);
-		if (!stream)
-			return;
-
-		std::string text = m_Editor.GetText();
-		stream.write(text.data(), static_cast<std::streamsize>(text.size()));
-		stream.flush();
-		m_Dirty = false;
-	}
-
-	void TextEditorPanel::SaveAs(const std::filesystem::path& path)
-	{
-		m_CurrentPath = path;
-		Save();
-	}
-
 	void TextEditorPanel::OpenDiff(const std::filesystem::path& leftPath, const std::filesystem::path& rightPath)
 	{
 		m_LeftDiffPath = leftPath;
 		m_RightDiffPath = rightPath;
 
-		std::string left = ReadFileString(leftPath);
-		std::string right = ReadFileString(rightPath);
+		const std::string left = ReadFileString(leftPath);
+		const std::string right = ReadFileString(rightPath);
 
 		m_DiffEditor.SetLanguage(GetLanguageFromPath(rightPath.empty() ? leftPath : rightPath));
 		m_DiffEditor.SetText(left, right);
@@ -122,83 +304,265 @@ namespace Lux
 		m_DiffMode = true;
 	}
 
+	// -- Shortcuts -----------------------------------------------------------------------------
+
+	void TextEditorPanel::HandleShortcuts()
+	{
+		if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+			return;
+
+		const ImGuiIO& io = ImGui::GetIO();
+		if (!io.KeyCtrl)
+			return;
+
+		if (ImGui::IsKeyPressed(ImGuiKey_N, false))
+			NewDocument();
+
+		Document* doc = ActiveDocument();
+
+		if (ImGui::IsKeyPressed(ImGuiKey_S, false))
+			Save();
+		if (ImGui::IsKeyPressed(ImGuiKey_W, false) && m_ActiveDocument >= 0)
+			RequestCloseDocument(m_ActiveDocument);
+		if (doc && ImGui::IsKeyPressed(ImGuiKey_F, false))
+			doc->Editor.OpenFindReplaceWindow();
+		if (doc && ImGui::IsKeyPressed(ImGuiKey_G, false))
+			m_OpenGoToLine = true;
+
+		// Ctrl+PageDown / PageUp cycle tabs (Ctrl+Tab is reserved by ImGui's window nav).
+		if (!m_Documents.empty())
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false))
+			{
+				m_ActiveDocument = (m_ActiveDocument + 1) % (int)m_Documents.size();
+				m_SelectActiveTab = true;
+			}
+			if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false))
+			{
+				m_ActiveDocument = (m_ActiveDocument + (int)m_Documents.size() - 1) % (int)m_Documents.size();
+				m_SelectActiveTab = true;
+			}
+		}
+	}
+
+	// -- UI ------------------------------------------------------------------------------------
+
+	namespace
+	{
+		bool ToolbarIconButton(const char* id, const char* icon, const char* tooltip, bool active = false)
+		{
+			if (active)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent));
+			}
+			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(255, 255, 255, 16));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(255, 255, 255, 26));
+			ImGui::PushID(id);
+			const bool pressed = ImGui::Button(icon, ImVec2(26.0f, 24.0f));
+			ImGui::PopID();
+			ImGui::PopStyleColor(active ? 4 : 3);
+			if (tooltip && ImGui::IsItemHovered())
+				ImGui::SetTooltip("%s", tooltip);
+			return pressed;
+		}
+	}
+
+	void TextEditorPanel::UI_Toolbar()
+	{
+		// Wordmark. Push the display font first so AlignTextToFramePadding uses its metrics and the
+		// wordmark lines up vertically with the toolbar buttons.
+		ImFont* display = ImGuiEx::Fonts::Get("Display");
+		if (display)
+			ImGui::PushFont(display);
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent), "BEAM");
+		if (display)
+			ImGui::PopFont();
+
+		ImGui::SameLine(0.0f, 12.0f);
+
+		Document* doc = ActiveDocument();
+
+		if (ToolbarIconButton("new", LUX_ICON_FILE_O, "New file  (Ctrl+N)"))
+			NewDocument();
+		ImGui::SameLine(0.0f, 2.0f);
+		if (ToolbarIconButton("save", LUX_ICON_FLOPPY_O, "Save  (Ctrl+S)") && doc)
+			Save();
+		ImGui::SameLine(0.0f, 2.0f);
+		if (ToolbarIconButton("find", LUX_ICON_SEARCH, "Find / Replace  (Ctrl+F)") && doc)
+			doc->Editor.OpenFindReplaceWindow();
+
+		// Editor / Diff toggle, flush to the right edge. Two 26px buttons with a 2px gap.
+		const float toggleWidth = 26.0f * 2.0f + 2.0f;
+		ImGui::SameLine(ImGui::GetContentRegionMax().x - toggleWidth);
+		if (ToolbarIconButton("mode_editor", LUX_ICON_CODE, "Editor", !m_DiffMode))
+			m_DiffMode = false;
+		ImGui::SameLine(0.0f, 2.0f);
+		if (ToolbarIconButton("mode_diff", LUX_ICON_COLUMNS, "Diff", m_DiffMode))
+			m_DiffMode = true;
+	}
+
+	void TextEditorPanel::UI_Tabs()
+	{
+		const ImGuiTabBarFlags flags = ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll
+			| ImGuiTabBarFlags_AutoSelectNewTabs;
+
+		// Neutral, elevated tab styling — local to Beam. The global theme tints the active tab (and,
+		// crucially, the tab-strip underline that ImGui draws with ImGuiCol_TabActive) in translucent
+		// lime, which showed up as a stray green line under this panel's tabs. A raised grey reads as
+		// a clean tab strip; the active tab stays legible by being lighter than the dark inactive ones.
+		ImGui::PushStyleColor(ImGuiCol_Tab, ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark));
+		ImGui::PushStyleColor(ImGuiCol_TabHovered, ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundPopup));
+		ImGui::PushStyleColor(ImGuiCol_TabActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader));
+		ImGui::PushStyleColor(ImGuiCol_TabUnfocused, ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark));
+		ImGui::PushStyleColor(ImGuiCol_TabUnfocusedActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader));
+
+		if (!ImGui::BeginTabBar("##beam_tabs", flags))
+		{
+			ImGui::PopStyleColor(5);
+			return;
+		}
+
+		int closeRequest = -1;
+		for (int i = 0; i < (int)m_Documents.size(); i++)
+		{
+			Document& d = *m_Documents[i];
+
+			// Stable, unique tab id from the document's address (after ###), so the visible title
+			// can change (dirty marker, rename) without resetting the tab.
+			const std::string label = DocumentTitle(d) + std::format("###beam_tab_{}", static_cast<const void*>(&d));
+
+			ImGuiTabItemFlags itemFlags = ImGuiTabItemFlags_None;
+			if (m_SelectActiveTab && i == m_ActiveDocument)
+				itemFlags |= ImGuiTabItemFlags_SetSelected;
+
+			bool open = true;
+			if (ImGui::BeginTabItem(label.c_str(), &open, itemFlags))
+			{
+				m_ActiveDocument = i;
+				ImGui::EndTabItem();
+			}
+
+			if (!open)
+				closeRequest = i;
+		}
+
+		m_SelectActiveTab = false;
+
+		// New-tab button immediately after the last tab (no Trailing flag, which would strand it at
+		// the far-right edge of the tab bar).
+		if (ImGui::TabItemButton(LUX_ICON_PLUS "##beam_new_tab", ImGuiTabItemFlags_NoTooltip))
+			NewDocument();
+
+		ImGui::EndTabBar();
+		ImGui::PopStyleColor(5);
+
+		if (closeRequest >= 0)
+			RequestCloseDocument(closeRequest);
+	}
+
+	void TextEditorPanel::UI_StatusBar(Document& doc)
+	{
+		int line = 0, column = 0;
+		doc.Editor.GetCurrentCursor(line, column);
+
+		if (ImFont* mono = ImGuiEx::Fonts::Get("Mono"))
+			ImGui::PushFont(mono);
+
+		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
+		ImGui::Text("Ln %d, Col %d   %s   %d lines%s",
+			line + 1,
+			column + 1,
+			doc.Editor.GetLanguageName().c_str(),
+			doc.Editor.GetLineCount(),
+			doc.Dirty ? "   \xE2\x97\x8f modified" : "");
+		ImGui::PopStyleColor();
+
+		if (ImGuiEx::Fonts::Get("Mono"))
+			ImGui::PopFont();
+	}
+
+	void TextEditorPanel::UI_GoToLinePopup(Document& doc)
+	{
+		if (m_OpenGoToLine)
+		{
+			ImGui::OpenPopup("Go to line##beam");
+			m_OpenGoToLine = false;
+		}
+
+		if (ImGui::BeginPopup("Go to line##beam"))
+		{
+			static int s_TargetLine = 1;
+			ImGui::TextUnformatted("Go to line");
+			ImGui::SetNextItemWidth(120.0f);
+			const bool enter = ImGui::InputInt("##beam_goto", &s_TargetLine, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue);
+			if (enter || ImGui::Button("Go"))
+			{
+				const int target = std::clamp(s_TargetLine - 1, 0, std::max(0, doc.Editor.GetLineCount() - 1));
+				doc.Editor.SetCursor(target, 0);
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+	}
+
 	void TextEditorPanel::OnImGuiRender(bool& isOpen)
 	{
-		if (!ImGui::Begin("Text Editor", &isOpen))
+		if (!ImGui::Begin("Beam", &isOpen))
 		{
 			ImGui::End();
 			return;
 		}
 
-		if (ImGui::Button("Editor"))
-			m_DiffMode = false;
+		HandleShortcuts();
+		UI_Toolbar();
+		// A definite gap (not a hard separator line, which collided with the tab strip) so the toolbar
+		// row and the tab bar don't crowd each other.
+		ImGui::Dummy(ImVec2(0.0f, 6.0f));
 
-		ImGui::SameLine();
-
-		if (ImGui::Button("Diff"))
-			m_DiffMode = true;
-
-		ImGui::SameLine();
-
-		if (!m_DiffMode)
+		if (m_DiffMode)
 		{
-			if (ImGui::Button("Save"))
-				Save();
+			const std::string leftName = m_LeftDiffPath.empty() ? "Left" : m_LeftDiffPath.filename().string();
+			const std::string rightName = m_RightDiffPath.empty() ? "Right" : m_RightDiffPath.filename().string();
 
-			ImGui::SameLine();
-			if (ImGui::Button("Undo"))
-				m_Editor.Undo();
-
-			ImGui::SameLine();
-			if (ImGui::Button("Redo"))
-				m_Editor.Redo();
-
-			ImGui::SameLine();
-			if (ImGui::Button("Copy"))
-				m_Editor.Copy();
-
-			ImGui::SameLine();
-			if (ImGui::Button("Paste"))
-				m_Editor.Paste();
-		}
-		else
-		{
-			ImGuiEx::BeginPropertyGrid();
 			if (ImGuiEx::Property("Side By Side", m_DiffSideBySide))
-			{
 				m_DiffEditor.SetSideBySideMode(m_DiffSideBySide);
-			}
-			ImGuiEx::EndPropertyGrid();
+
+			ImGui::Text("%s  <->  %s", leftName.c_str(), rightName.c_str());
+			m_DiffEditor.Render("##BeamDiff", ImVec2(-1.0f, -1.0f), true);
+			ImGui::End();
+			return;
 		}
 
-		ImGui::Separator();
-
-		if (!m_DiffMode)
+		// No tab bar (and no lone "+") when nothing is open — the toolbar's New button and Ctrl+N
+		// already cover creating the first file.
+		if (m_Documents.empty())
 		{
-			std::string title = m_CurrentPath.empty() ? "Untitled" : m_CurrentPath.string();
-			if (m_Dirty)
-				title += " *";
-
-			ImGui::TextUnformatted(title.c_str());
-
-			int line = 0, column = 0;
-			m_Editor.GetCurrentCursor(line, column);
-			ImGui::Text("Line %d, Column %d | %s",
-				line + 1,
-				column + 1,
-				m_Editor.GetLanguageName().c_str());
-
-			m_Editor.Render("##LuxTextEditor", ImVec2(-1.0f, -1.0f), true);
+			ImGui::Spacing();
+			ImGui::TextDisabled("No file open.  Press Ctrl+N for a new file, or open one from the Content Browser.");
+			ImGui::End();
+			return;
 		}
-		else
+
+		UI_Tabs();
+		UI_CloseConfirm();
+
+		Document* doc = ActiveDocument();
+		if (!doc)
 		{
-			std::string leftName = m_LeftDiffPath.empty() ? "Left" : m_LeftDiffPath.filename().string();
-			std::string rightName = m_RightDiffPath.empty() ? "Right" : m_RightDiffPath.filename().string();
-			std::string header = leftName + "  <->  " + rightName;
-
-			ImGui::TextUnformatted(header.c_str());
-			m_DiffEditor.Render("##LuxTextDiff", ImVec2(-1.0f, -1.0f), true);
+			ImGui::End();
+			return;
 		}
+
+		UI_GoToLinePopup(*doc);
+
+		// Editor fills the space above a one-line status bar pinned to the bottom.
+		const float statusBarHeight = ImGui::GetTextLineHeightWithSpacing();
+		const std::string editorId = std::format("##beam_editor_{}", static_cast<const void*>(doc));
+		doc->Editor.Render(editorId.c_str(), ImVec2(-1.0f, -statusBarHeight), true);
+
+		UI_StatusBar(*doc);
 
 		ImGui::End();
 	}

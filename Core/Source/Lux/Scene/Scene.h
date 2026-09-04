@@ -90,6 +90,20 @@ namespace Lux {
 		Entity Instantiate(Ref<Prefab> prefab, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 		Entity InstantiateChild(Ref<Prefab> prefab, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 		Entity InstantiatePrefab(Ref<Prefab> prefab);
+
+		// Makes destination's prefab-tracked components match source exactly: replaces/adds shared ones
+		// and removes destination-only ones (component add/remove reconciliation). Cross-scene safe.
+		// Backs prefab Revert-All (source = prefab entity) and Apply-All (source = scene instance).
+		static void ReconcilePrefabComponents(Entity destination, Entity source);
+
+		// After a prefab is edited, refresh this scene's instances of it: un-overridden instances
+		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
+		void PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab);
+
+		// This scene is a prefab variant sharing the base's entity UUIDs; after the base is edited,
+		// each entity un-overridden vs oldBase adopts newBase's values (overridden entities kept).
+		void AdoptPrefabBaseEdits(Ref<Scene> oldBase, Ref<Scene> newBase);
+
 		Entity InstantiateMesh(Ref<Mesh> mesh);
 		Entity InstantiateStaticMesh(Ref<StaticMesh> mesh);
 

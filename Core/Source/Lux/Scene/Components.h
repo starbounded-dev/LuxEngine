@@ -55,6 +55,12 @@ namespace Lux {
 	{
 		std::string Tag;
 
+		// Editor-only organizational state, serialized with the scene but ignored at runtime.
+		// Locked: the entity can't be renamed, deleted, dragged, or edited in the editor.
+		// LabelColor: a packed RGBA colour swatch drawn on the hierarchy row (0 == no label).
+		bool Locked = false;
+		uint32_t LabelColor = 0;
+
 		TagComponent() = default;
 		TagComponent(const TagComponent&) = default;
 		TagComponent(const std::string& tag)
@@ -63,6 +69,20 @@ namespace Lux {
 
 		operator std::string& () { return Tag; }
 		operator const std::string& () const { return Tag; }
+	};
+
+	// Marks an entity as a purely organizational folder in the hierarchy: no gizmo, no editable
+	// transform (its identity TransformComponent is kept so world-space math is untouched), children
+	// are grouped under it without being moved. Editor-only in spirit but serialized like any marker.
+	struct FolderComponent
+	{
+		// Placeholder so the type is non-empty: entt's empty-type optimization would otherwise make
+		// emplace<>/get<> return void, which AddComponent/GetComponent can't bind to. Folders carry
+		// no data of their own — this field is unused.
+		uint8_t Reserved = 0;
+
+		FolderComponent() = default;
+		FolderComponent(const FolderComponent&) = default;
 	};
 
 	struct TransformComponent
@@ -616,6 +636,7 @@ namespace Lux {
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
-		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+		FolderComponent>;
 
 }

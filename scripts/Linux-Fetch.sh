@@ -19,7 +19,7 @@ if [ -n "${VULKAN_VERSION+set}" ]
 	then
 		true
 	else
-		export VULKAN_VERSION=1.4.304.0
+		export VULKAN_VERSION=1.4.335.0
 fi
 
 if [ -n "${PREMAKE_VERSION+set}" ]
@@ -48,5 +48,19 @@ VENDOR=$(realpath $LUX_DIR/Core/vendor/)
 	chmod +x $LUX_DIR/premake5
 
 ## Vulkan SDK
-	curl -L https://sdk.lunarg.com/sdk/download/$VULKAN_VERSION/linux/vulkansdk-linux-x86_64-$VULKAN_VERSION.tar.xz | tar -x -J -f - -C $VENDOR
-	mv $VENDOR/$VULKAN_VERSION $VENDOR/VulkanSDK
+	# Extract into an isolated tmp dir, not straight into $VENDOR: if $VENDOR/VulkanSDK already
+	# exists (even as unrelated leftover cruft), `mv` treats it as a move-into rather than a
+	# rename, silently nesting the SDK one level too deep.
+	VK_TMP=$(mktemp -d)
+	curl -L https://sdk.lunarg.com/sdk/download/$VULKAN_VERSION/linux/vulkansdk-linux-x86_64-$VULKAN_VERSION.tar.xz | tar -x -J -f - -C $VK_TMP
+	# Only replace the existing SDK if the download + extraction actually produced it — otherwise a
+	# failed curl|tar would delete a working SDK and leave nothing in its place.
+	if [ -d "$VK_TMP/$VULKAN_VERSION" ]; then
+		rm -rf $VENDOR/VulkanSDK
+		mv $VK_TMP/$VULKAN_VERSION $VENDOR/VulkanSDK
+		rm -rf $VK_TMP
+	else
+		echo "Vulkan SDK download/extraction failed; keeping any existing $VENDOR/VulkanSDK" >&2
+		rm -rf $VK_TMP
+		exit 1
+	fi

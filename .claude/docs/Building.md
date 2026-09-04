@@ -49,20 +49,32 @@ run the editor. Platform is **x64**.
 ### Linux
 
 ```bash
-scripts/Linux-Fetch.sh          # vendored Vulkan SDK + premake
 scripts/Linux-Build.sh          # prompts for a config, or: Linux-Build.sh release
-scripts/Linux-Run.sh            # editor
+scripts/Linux-Run.sh            # rebuilds if needed, then runs the editor
 scripts/Linux-RunRuntime.sh     # standalone runtime player
 ```
 
 `Linux-Build.sh` is one-shot and idempotent: it checks prerequisites (`dotnet make clang pkg-config
 curl tar`, plus `gtk+-3.0` for NFD-Extended file dialogs), syncs submodules, locates or downloads a
-**pinned, checksum-verified** premake (`5.0.0-beta4`) into `vendor/bin/premake5`, generates
-makefiles, and builds. Only the Windows premake binary is committed — any file named `premake5` is
-gitignored — so a clean checkout has no Linux binary and the script must fetch one. Prefer the
-script over invoking premake directly.
+**pinned, checksum-verified** premake (`5.0.0-beta4`) into `vendor/bin/premake5`, downloads a
+**pinned** Vulkan SDK (`1.4.335.0` — the vendored NVRHI requires `1.4.318`+; override with
+`VULKAN_VERSION`) into
+`Core/vendor/VulkanSDK/x86_64` if the vendored copy is missing, generates makefiles, and builds.
+Only the Windows premake binary is committed — any file named `premake5` is gitignored, and the
+Vulkan SDK itself is gitignored — so a clean checkout has neither and the script fetches both on
+first run. Prefer the script over invoking premake directly.
 
-`VULKAN_SDK` defaults to the vendored `Core/vendor/VulkanSDK/x86_64` if unset.
+`VULKAN_SDK` defaults to the vendored `Core/vendor/VulkanSDK/x86_64` if unset; setting it explicitly
+to a path that doesn't exist is a hard error rather than triggering a download (the auto-fetch only
+kicks in for the vendored default).
+
+`scripts/Linux-Fetch.sh` is a standalone alternative that fetches the same two pieces without
+running a build — still useful for pre-warming a cache image, but no longer a required step before
+`Linux-Build.sh`.
+
+`Linux-Run.sh` runs `Linux-Build.sh` before launching the editor, so a forgotten recompile can't
+result in running a stale binary — `make`'s incremental rebuild makes this cheap when nothing
+changed. Set `LUX_SKIP_BUILD=1` to skip that check and launch immediately.
 
 ---
 
@@ -72,10 +84,16 @@ Declared in `premake5.lua`: `Debug`, `Debug-AS`, `Release`, `Dist`.
 
 | Config | Optimize | Symbols | Notes |
 |---|---|---|---|
-| `Debug` | Off | On | `LUX_ENABLE_ASSERTS`, `LUX_TRACK_MEMORY`, Tracy on |
+| `Debug` | Off | On | `LUX_ENABLE_ASSERTS`, `LUX_TRACK_MEMORY`, Tracy on, Jolt `JPH_FLOATING_POINT_EXCEPTIONS_ENABLED` |
 | `Debug-AS` | Off | On | Debug + AddressSanitizer (Windows: `NoRuntimeChecks`, `NoIncrementalLink`, `editandcontinue "Off"`) |
 | `Release` | On | Default | `NDEBUG`; asserts compile out, `VERIFY` stays, Tracy on |
 | `Dist` | Full | Off | `NDEBUG` + LTO; Tracy and Aftermath compiled out |
+
+Jolt's `JPH_FLOATING_POINT_EXCEPTIONS_ENABLED` (`Core/vendor/JoltPhysics/JoltPhysicsPremake.lua`) traps
+FP divide-by-zero/invalid/overflow as a hardware exception on physics worker threads — useful for
+catching NaN/Inf bugs while developing, but it turns any degenerate physics state (not necessarily
+an engine bug — Jolt's own math is written to tolerate producing Inf/NaN internally) into a hard
+crash. Keep it **Debug-only**; do not add it back to `Release` or `Dist`.
 
 `LUX_CORE_VERIFY` is enabled in **every** config (`LUX_ENABLE_VERIFY` is unconditional in
 `Assert.h`) — it is the assert that survives into Dist.
