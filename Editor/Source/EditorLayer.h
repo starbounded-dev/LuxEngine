@@ -96,6 +96,8 @@ namespace Lux
 		void SavePrefabEdits();
 		void ExitPrefabEditMode(bool save);
 		void UI_PrefabEditBanner();
+		// Base→variant inheritance: after a base prefab is saved, refresh variant assets derived from it.
+		void PropagateToVariants(AssetHandle baseHandle, Ref<Scene> oldBase, Ref<Scene> newBase);
 
 		// One undo step. A scene edit carries a per-entity diff; a non-scene edit (renderer settings,
 		// …) carries closures instead — when CustomUndo is set, the diff fields are ignored.
@@ -229,6 +231,7 @@ namespace Lux
 		bool m_PrefabEditMode = false;
 		AssetHandle m_EditingPrefabHandle = 0;
 		std::string m_EditingPrefabName;
+		std::string m_EditingPrefabBaseName;   // non-empty when editing a variant
 		Ref<Scene> m_PreFocusScene;
 		std::filesystem::path m_PreFocusScenePath;
 

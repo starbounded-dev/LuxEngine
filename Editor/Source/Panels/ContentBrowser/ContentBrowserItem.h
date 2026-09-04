@@ -27,7 +27,8 @@ namespace Lux {
 		Copy = BIT(11),
 		Duplicate = BIT(12),
 		StartRenaming = BIT(13),
-		Activated = BIT(14)
+		Activated = BIT(14),
+		CreateVariant = BIT(15)
 	};
 
 	struct CBItemActionResult

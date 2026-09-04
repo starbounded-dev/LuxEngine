@@ -214,6 +214,10 @@ namespace Lux {
 		void RenderBottomBar(float height);
 
 		void Refresh();
+
+		// Creates a self-contained prefab variant of `baseHandle` (a copy of the base scene that
+		// remembers its base), registers it, and rescans so it appears.
+		void CreatePrefabVariant(AssetHandle baseHandle);
 		void UpdateInput();
 
 		bool OnKeyPressedEvent(KeyPressedEvent& e);

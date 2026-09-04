@@ -29,12 +29,19 @@ namespace Lux {
 		UUID GetRootEntityID() const;
 		std::unordered_set<AssetHandle> GetAssetList(bool recursive = true);
 
+		// A variant prefab references a base prefab it was derived from (0 = not a variant). The scene
+		// is self-contained; the base link drives "variant of X" UI and base→variant inheritance.
+		AssetHandle GetBasePrefab() const { return m_BasePrefab; }
+		void SetBasePrefab(AssetHandle base) { m_BasePrefab = base; }
+		bool IsVariant() const { return m_BasePrefab != 0; }
+
 	private:
 		Entity CreatePrefabFromEntity(Entity entity, std::unordered_map<UUID, UUID>* outSourceToPrefab);
 
 	private:
 		Ref<Scene> m_Scene;
 		Entity m_Entity;
+		AssetHandle m_BasePrefab = 0;
 
 		friend class Scene;
 		friend class SceneSerializer;

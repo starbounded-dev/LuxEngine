@@ -20,6 +20,7 @@
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Asset/PrefabSerializer.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Core/Hash.h"
 
@@ -1636,7 +1637,8 @@ namespace Lux {
 					auto serializePrefab = [&]()
 					{
 						const std::filesystem::path path = Project::GetEditorAssetManager()->GetFileSystemPath(firstComponent.PrefabID);
-						SceneSerializer(prefab->GetScene()).Serialize(path);
+						// Route through the prefab writer so a variant keeps its base link.
+						PrefabSerializer::WritePrefabFile(path, prefab->GetScene(), prefab->GetBasePrefab());
 					};
 
 					// One override row: label + per-component Revert (prefab -> instance) and Apply

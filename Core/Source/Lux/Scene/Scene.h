@@ -100,6 +100,10 @@ namespace Lux {
 		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
 		void PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab);
 
+		// This scene is a prefab variant sharing the base's entity UUIDs; after the base is edited,
+		// each entity un-overridden vs oldBase adopts newBase's values (overridden entities kept).
+		void AdoptPrefabBaseEdits(Ref<Scene> oldBase, Ref<Scene> newBase);
+
 		Entity InstantiateMesh(Ref<Mesh> mesh);
 		Entity InstantiateStaticMesh(Ref<StaticMesh> mesh);
 

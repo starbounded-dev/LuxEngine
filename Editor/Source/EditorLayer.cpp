@@ -49,6 +49,7 @@
 #include "Panels/UndoHistoryPanel.h"
 
 #include "Lux/Scene/Prefab.h"
+#include "Lux/Asset/PrefabSerializer.h"
 #include "Panels/ApplicationSettingsPanel.h"
 #include "Panels/AssetManagerPanel.h"
 #include "Panels/ProjectSettingsWindow.h"
@@ -1070,9 +1071,8 @@ namespace Lux {
 		const std::filesystem::path relativePath = std::filesystem::relative(targetPath, Project::GetActiveAssetDirectory());
 
 		// Write the prefab's hierarchy (a scene) to disk, then register it as an asset — PrefabSerializer
-		// handles both directions from here on.
-		SceneSerializer serializer(prefab->GetScene());
-		serializer.Serialize(targetPath);
+		// handles both directions from here on. A fresh prefab has no base (0).
+		PrefabSerializer::WritePrefabFile(targetPath, prefab->GetScene(), 0);
 
 		const AssetHandle handle = assetManager->ImportAsset(relativePath);
 		if (handle)
@@ -3098,6 +3098,9 @@ namespace Lux {
 		m_PrefabEditMode = true;
 		m_EditingPrefabHandle = prefabHandle;
 		m_EditingPrefabName = Project::GetEditorAssetManager()->GetMetadata(prefabHandle).FilePath.stem().string();
+		m_EditingPrefabBaseName = prefab->IsVariant()
+			? Project::GetEditorAssetManager()->GetMetadata(prefab->GetBasePrefab()).FilePath.stem().string()
+			: std::string{};
 
 		ApplyEditorScene(Scene::Copy(prefab->GetScene()), {});
 	}
@@ -3112,13 +3115,43 @@ namespace Lux {
 			return;
 
 		// Propagate before reload, while the cached prefab still holds the pre-edit (old) values.
-		if (m_PreFocusScene && prefab->GetScene())
-			m_PreFocusScene->PropagatePrefabEdits(m_EditingPrefabHandle, prefab->GetScene(), m_EditorScene);
+		Ref<Scene> oldPrefabScene = prefab->GetScene();
+		if (m_PreFocusScene && oldPrefabScene)
+			m_PreFocusScene->PropagatePrefabEdits(m_EditingPrefabHandle, oldPrefabScene, m_EditorScene);
+
+		// Base→variant inheritance: refresh variant assets derived from this prefab.
+		if (oldPrefabScene)
+			PropagateToVariants(m_EditingPrefabHandle, oldPrefabScene, m_EditorScene);
 
 		const std::filesystem::path path = Project::GetEditorAssetManager()->GetFileSystemPath(m_EditingPrefabHandle);
-		SceneSerializer(m_EditorScene).Serialize(path);
+		PrefabSerializer::WritePrefabFile(path, m_EditorScene, prefab->GetBasePrefab());
 		AssetManager::ReloadData(m_EditingPrefabHandle);   // cache now reflects the saved prefab
 		LUX_CONSOLE_LOG_INFO("Saved prefab '{}'", m_EditingPrefabName);
+	}
+
+	void EditorLayer::PropagateToVariants(AssetHandle baseHandle, Ref<Scene> oldBase, Ref<Scene> newBase)
+	{
+		if (!oldBase || !newBase)
+			return;
+
+		for (AssetHandle handle : AssetManager::GetAllAssetsWithType<Prefab>())
+		{
+			if (handle == baseHandle)
+				continue;
+
+			Ref<Prefab> variant = AssetManager::GetAsset<Prefab>(handle);
+			if (!variant || variant->GetBasePrefab() != baseHandle || !variant->GetScene())
+				continue;
+
+			// A variant shares the base's entity UUIDs (it was copied from it), so un-overridden
+			// entities adopt the base edit; overridden ones are kept.
+			Ref<Scene> variantScene = variant->GetScene();
+			variantScene->AdoptPrefabBaseEdits(oldBase, newBase);
+
+			const std::filesystem::path variantPath = Project::GetEditorAssetManager()->GetFileSystemPath(handle);
+			PrefabSerializer::WritePrefabFile(variantPath, variantScene, variant->GetBasePrefab());
+			LUX_CONSOLE_LOG_INFO("Updated variant '{}' from base '{}'", variantPath.stem().string(), m_EditingPrefabName);
+		}
 	}
 
 	void EditorLayer::ExitPrefabEditMode(bool save)
@@ -3135,6 +3168,7 @@ namespace Lux {
 		m_PrefabEditMode = false;
 		m_EditingPrefabHandle = 0;
 		m_EditingPrefabName.clear();
+		m_EditingPrefabBaseName.clear();
 		m_PreFocusScene = nullptr;
 		m_PreFocusScenePath.clear();
 
@@ -3531,6 +3565,12 @@ namespace Lux {
 			}
 			ImGui::SameLine();
 			ImGui::TextUnformatted(m_EditingPrefabName.c_str());
+			if (!m_EditingPrefabBaseName.empty())
+			{
+				ImGui::SameLine();
+				ImGuiEx::ScopedColour dim(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::Text("(variant of %s)", m_EditingPrefabBaseName.c_str());
+			}
 			ImGui::SameLine();
 			ImGui::Dummy(ImVec2(12.0f, 0.0f));
 			ImGui::SameLine();

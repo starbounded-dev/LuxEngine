@@ -329,6 +329,10 @@ namespace Lux {
 		if (ImGui::MenuItem("Duplicate"))
 			actionResult.Set(ContentBrowserAction::Duplicate, true);
 
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Prefab
+			&& ImGui::MenuItem("Create Variant"))
+			actionResult.Set(ContentBrowserAction::CreateVariant, true);
+
 		if (ImGui::MenuItem("Delete"))
 			actionResult.Set(ContentBrowserAction::OpenDeleteDialogue, true);
 

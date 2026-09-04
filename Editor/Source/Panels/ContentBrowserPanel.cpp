@@ -17,6 +17,8 @@
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Scene/Prefab.h"
+#include "Lux/Asset/PrefabSerializer.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -833,6 +835,13 @@ namespace Lux {
 				Refresh();
 				break;
 			}
+
+			// CreatePrefabVariant refreshes the item list, so exit the loop right after (same as above).
+			if (result.IsSet(ContentBrowserAction::CreateVariant) && item->GetType() == ContentBrowserItem::ItemType::Asset)
+			{
+				CreatePrefabVariant(item->GetID());
+				break;
+			}
 		}
 
 		if (m_OpenDeletePopup)
@@ -902,6 +911,32 @@ namespace Lux {
 		}
 
 		ImGui::EndChild();
+	}
+
+	void ContentBrowserPanel::CreatePrefabVariant(AssetHandle baseHandle)
+	{
+		Ref<Prefab> base = AssetManager::GetAsset<Prefab>(baseHandle);
+		if (!base || !base->GetScene())
+			return;
+
+		auto assetManager = Project::GetEditorAssetManager();
+		const std::string extension = assetManager->GetDefaultExtensionForAssetType(AssetType::Prefab);
+		const std::filesystem::path baseAbsolute = assetManager->GetFileSystemPath(baseHandle);
+		const std::filesystem::path targetPath = FileSystem::GetUniqueFileName(
+			baseAbsolute.parent_path() / (baseAbsolute.stem().string() + " Variant" + extension));
+
+		// A variant is a self-contained copy of the base's scene that remembers its base.
+		Ref<Scene> variantScene = Scene::Copy(base->GetScene());
+		PrefabSerializer::WritePrefabFile(targetPath, variantScene, baseHandle);
+
+		const std::filesystem::path relativePath = std::filesystem::relative(targetPath, Project::GetActiveAssetDirectory());
+		const AssetHandle handle = assetManager->ImportAsset(relativePath);
+		if (handle)
+			LUX_CONSOLE_LOG_INFO("Created prefab variant '{}'", relativePath.generic_string());
+		else
+			LUX_CONSOLE_LOG_ERROR("Failed to register prefab variant '{}'", relativePath.generic_string());
+
+		Refresh();
 	}
 
 	void ContentBrowserPanel::Refresh()

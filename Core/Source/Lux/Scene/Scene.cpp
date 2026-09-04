@@ -1133,6 +1133,30 @@ namespace Lux {
 		}
 	}
 
+	void Scene::AdoptPrefabBaseEdits(Ref<Scene> oldBase, Ref<Scene> newBase)
+	{
+		if (!oldBase || !newBase)
+			return;
+
+		// A variant shares the base's UUIDs, so match entities directly (no PrefabComponent). Unlike
+		// an instance, a variant isn't "placed", so the transform is treated like any other component.
+		std::vector<UUID> entities;
+		for (auto e : GetAllEntitiesWith<IDComponent>())
+			entities.push_back(Entity{ e, this }.GetUUID());
+
+		for (UUID id : entities)
+		{
+			Entity entity = TryGetEntityWithUUID(id);
+			Entity oldSource = oldBase->TryGetEntityWithUUID(id);
+			Entity newSource = newBase->TryGetEntityWithUUID(id);
+			if (!entity || !oldSource || !newSource)
+				continue;
+
+			if (SceneSerializer::GetOverriddenComponentKeys(entity, oldSource).empty())
+				ReconcilePrefabComponents(entity, newSource);
+		}
+	}
+
 	Entity Scene::InstantiateMesh(Ref<Mesh> mesh)
 	{
 		if (!mesh)
