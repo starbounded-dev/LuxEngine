@@ -38,6 +38,13 @@ namespace Lux {
 		DataType Type = DataType::Float;
 		Coral::Type* ManagedType = nullptr;
 
+		// Editor hints from C# [Range]/[Header]/[Tooltip], read in BuildAssemblyCache.
+		bool HasRange = false;
+		float RangeMin = 0.0f;
+		float RangeMax = 1.0f;
+		std::string Header;
+		std::string Tooltip;
+
 		Buffer DefaultValue;
 
 	private:

@@ -74,18 +74,18 @@ namespace Lux {
 
 		// Draws the ImGui control for one script field via its dual-mode FieldStorage (edits the
 		// serializable buffer when idle, the live managed field when playing). Returns true if changed.
-		bool DrawScriptFieldControl(const std::string& name, DataType type, FieldStorage& storage)
+		bool DrawScriptFieldControl(const std::string& name, DataType type, FieldStorage& storage, bool hasRange = false, float rangeMin = 0.0f, float rangeMax = 1.0f)
 		{
 			switch (type)
 			{
-				case DataType::Float:   { float v = storage.GetValue<float>();     if (ImGui::DragFloat(name.c_str(), &v, 0.1f)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Float:   { float v = storage.GetValue<float>();     const bool edited = hasRange ? ImGui::SliderFloat(name.c_str(), &v, rangeMin, rangeMax) : ImGui::DragFloat(name.c_str(), &v, 0.1f); if (edited) { storage.SetValue(v); return true; } return false; }
 				case DataType::Double:  { double v = storage.GetValue<double>();    if (ImGui::DragScalar(name.c_str(), ImGuiDataType_Double, &v, 0.1f)) { storage.SetValue(v); return true; } return false; }
 				case DataType::Bool:    { bool v = storage.GetValue<uint32_t>() != 0; if (ImGui::Checkbox(name.c_str(), &v)) { storage.SetValue<uint32_t>(v ? 1u : 0u); return true; } return false; }
 				case DataType::SByte:   { int8_t v = storage.GetValue<int8_t>();    if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S8, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::Byte:    { uint8_t v = storage.GetValue<uint8_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U8, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::Short:   { int16_t v = storage.GetValue<int16_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S16, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::UShort:  { uint16_t v = storage.GetValue<uint16_t>(); if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U16, &v)) { storage.SetValue(v); return true; } return false; }
-				case DataType::Int:     { int32_t v = storage.GetValue<int32_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S32, &v)) { storage.SetValue(v); return true; } return false; }
+				case DataType::Int:     { int32_t v = storage.GetValue<int32_t>();  const bool edited = hasRange ? ImGui::SliderInt(name.c_str(), &v, static_cast<int>(rangeMin), static_cast<int>(rangeMax)) : ImGui::DragScalar(name.c_str(), ImGuiDataType_S32, &v); if (edited) { storage.SetValue(v); return true; } return false; }
 				case DataType::UInt:    { uint32_t v = storage.GetValue<uint32_t>(); if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U32, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::Long:    { int64_t v = storage.GetValue<int64_t>();  if (ImGui::DragScalar(name.c_str(), ImGuiDataType_S64, &v)) { storage.SetValue(v); return true; } return false; }
 				case DataType::ULong:   { uint64_t v = storage.GetValue<uint64_t>(); if (ImGui::DragScalar(name.c_str(), ImGuiDataType_U64, &v)) { storage.SetValue(v); return true; } return false; }
@@ -1793,12 +1793,25 @@ namespace Lux {
 						continue;
 
 					FieldStorage& fs = it->second;
+
+					// [Header] groups fields with a bold label above them.
+					if (!fieldMetadata.Header.empty())
+					{
+						ImGuiEx::ScopedColour headerColour(ImGuiCol_Text, Colors::Theme::textBrighter);
+						ImGui::TextUnformatted(fieldMetadata.Header.c_str());
+					}
+
 					if (fs.IsArray())
 					{
 						ImGui::TextDisabled("%s (array)", fieldMetadata.Name.c_str());
 						continue;
 					}
-					DrawScriptFieldControl(fieldMetadata.Name, fieldMetadata.Type, fs);
+					DrawScriptFieldControl(fieldMetadata.Name, fieldMetadata.Type, fs,
+						fieldMetadata.HasRange, fieldMetadata.RangeMin, fieldMetadata.RangeMax);
+
+					// [Tooltip] shows help when the control is hovered.
+					if (!fieldMetadata.Tooltip.empty() && ImGui::IsItemHovered())
+						ImGui::SetTooltip("%s", fieldMetadata.Tooltip.c_str());
 				}
 			});
 

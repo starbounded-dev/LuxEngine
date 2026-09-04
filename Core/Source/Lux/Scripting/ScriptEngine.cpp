@@ -432,6 +432,29 @@ namespace Lux {
 				fieldMetadata.Type = s_DataTypeLookup.at(typeName);
 				fieldMetadata.ManagedType = &fieldInfo.GetType();
 
+				// Editor-hint attributes ([Range]/[Header]/[Tooltip]) drive the inspector widgets.
+				for (auto& attribute : fieldInfo.GetAttributes())
+				{
+					Coral::ScopedString attributeName = attribute.GetType().GetFullName();
+					const std::string attrName = attributeName;
+					if (attrName == "Lux.RangeAttribute")
+					{
+						fieldMetadata.HasRange = true;
+						fieldMetadata.RangeMin = attribute.GetFieldValue<float>("Min");
+						fieldMetadata.RangeMax = attribute.GetFieldValue<float>("Max");
+					}
+					else if (attrName == "Lux.HeaderAttribute")
+					{
+						Coral::ScopedString text = attribute.GetFieldValue<Coral::String>("Text");
+						fieldMetadata.Header = text;
+					}
+					else if (attrName == "Lux.TooltipAttribute")
+					{
+						Coral::ScopedString text = attribute.GetFieldValue<Coral::String>("Text");
+						fieldMetadata.Tooltip = text;
+					}
+				}
+
 				switch (fieldMetadata.Type)
 				{
 					case DataType::SByte:   fieldMetadata.SetDefaultValue<int8_t>(temp); break;
