@@ -19,6 +19,7 @@
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Prefab.h"
+#include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Core/Hash.h"
 
@@ -1596,29 +1597,70 @@ namespace Lux {
 		DrawComponentSection<PrefabComponent>(m_Context, entityIDs, "Prefab", EditorResources::AssetIcon,
 			[this](PrefabComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
 			{
-				ImGuiEx::BeginPropertyGrid();
+				const bool validPrefab = AssetManager::IsAssetHandleValid(firstComponent.PrefabID)
+					&& AssetManager::GetAssetType(firstComponent.PrefabID) == AssetType::Prefab;
 
-				uint64_t prefabID = (uint64_t)firstComponent.PrefabID;
-				if (ImGuiEx::PropertyInput("Prefab ID", prefabID, 1, 1))
+				std::string prefabName = "(missing prefab)";
+				if (validPrefab)
+					prefabName = Project::GetEditorAssetManager()->GetMetadata(firstComponent.PrefabID).FilePath.stem().string();
+
 				{
-					firstComponent.PrefabID = (AssetHandle)prefabID;
-					ApplyToSelection<PrefabComponent>(m_Context, selectedEntities, [&firstComponent](PrefabComponent& component, Entity)
-					{
-						component.PrefabID = firstComponent.PrefabID;
-					});
+					ImGuiEx::ScopedColour label(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextUnformatted("Source");
 				}
+				ImGui::SameLine();
+				ImGui::TextUnformatted(prefabName.c_str());
 
-				uint64_t entityID = (uint64_t)firstComponent.EntityID;
-				if (ImGuiEx::PropertyInput("Entity ID", entityID, 1, 1))
+				Ref<Prefab> prefab = validPrefab ? AssetManager::GetAsset<Prefab>(firstComponent.PrefabID) : nullptr;
+				Entity sourceEntity = prefab ? prefab->GetScene()->TryGetEntityWithUUID(firstComponent.EntityID) : Entity{};
+				Entity instanceEntity = m_Context->TryGetEntityWithUUID(selectedEntities.front());
+
+				const bool singleSelect = selectedEntities.size() == 1;
+				const bool canSync = singleSelect && prefab && sourceEntity && instanceEntity;
+
+				if (!singleSelect)
 				{
-					firstComponent.EntityID = (UUID)entityID;
-					ApplyToSelection<PrefabComponent>(m_Context, selectedEntities, [&firstComponent](PrefabComponent& component, Entity)
-					{
-						component.EntityID = firstComponent.EntityID;
-					});
+					ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextUnformatted("Select a single instance to revert or apply.");
 				}
+				else if (!canSync)
+				{
+					ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextUnformatted("Prefab source unavailable.");
+				}
+				else
+				{
+					// Revert: pull the prefab's component values back onto this instance.
+					if (ImGui::Button("Revert to Prefab"))
+					{
+						Scene::CopyPrefabInstanceComponents(instanceEntity, sourceEntity);
+						EditorStack::Get().MarkSceneEdited("Revert Prefab Instance");
+					}
 
-				ImGuiEx::EndPropertyGrid();
+					// Apply: push this instance's values into the shared prefab asset (confirmed).
+					ImGui::SameLine();
+					if (ImGui::Button("Apply to Prefab"))
+						ImGui::OpenPopup("Apply to Prefab?");
+
+					if (ImGui::BeginPopupModal("Apply to Prefab?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+					{
+						ImGui::TextUnformatted("Overwrite the prefab asset with this instance's values?\n"
+							"Other instances keep their current values until reverted.");
+						ImGui::Spacing();
+						if (ImGui::Button("Apply"))
+						{
+							Scene::CopyPrefabInstanceComponents(sourceEntity, instanceEntity);
+							const std::filesystem::path path = Project::GetEditorAssetManager()->GetFileSystemPath(firstComponent.PrefabID);
+							SceneSerializer(prefab->GetScene()).Serialize(path);
+							LUX_CORE_INFO_TAG("Prefab", "Applied instance to prefab '{}'", prefabName);
+							ImGui::CloseCurrentPopup();
+						}
+						ImGui::SameLine();
+						if (ImGui::Button("Cancel"))
+							ImGui::CloseCurrentPopup();
+						ImGui::EndPopup();
+					}
+				}
 			});
 
 		// Folders keep an identity transform for the scene graph, but it isn't user-editable.

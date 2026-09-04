@@ -210,8 +210,16 @@ Structurally:
 `ExponentialHeightFogComponent`); physics 3D (`RigidBodyComponent`, `CharacterControllerComponent`,
 `Box`/`Sphere`/`Capsule`/`Mesh`/`CompoundColliderComponent`); physics 2D (`RigidBody2DComponent`,
 `BoxCollider2DComponent`, `CircleCollider2DComponent`); scripting (`ScriptComponent`,
-`NativeScriptComponent`); audio (`AudioSourceComponent`, `AudioListenerComponent`); and
-`PrefabComponent`.
+`NativeScriptComponent`); audio (`AudioSourceComponent`, `AudioListenerComponent`);
+`FolderComponent` (a purely organizational hierarchy grouping node — non-empty marker, kept out of
+the transform/render paths); and `PrefabComponent`.
+
+**Prefab instances:** an instantiated (or freshly created) prefab hierarchy carries a
+`PrefabComponent{PrefabID, EntityID}` on every entity, linking each to its source entity inside the
+prefab asset's scene. `Scene::CopyPrefabInstanceComponents(dst, src)` syncs the prefab-tracked
+components across scenes, backing the editor's per-instance **Revert to Prefab** (source → instance)
+and **Apply to Prefab** (instance → source, then re-serialize the asset). Component add/remove
+reconciliation and true variant assets are not yet modelled.
 
 **Lifecycle:** `OnRuntimeStart` / `OnRuntimeStop` (physics + scripts), `OnSimulationStart` /
 `OnSimulationStop` (physics only), and the per-mode updates `OnUpdateRuntime` /

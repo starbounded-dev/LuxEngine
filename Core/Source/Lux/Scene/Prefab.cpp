@@ -35,10 +35,10 @@ namespace Lux {
 		m_Scene = Ref<Scene>::Create();
 	}
 
-	void Prefab::Create(Entity entity, bool serialize)
+	void Prefab::Create(Entity entity, bool serialize, std::unordered_map<UUID, UUID>* outSourceToPrefab)
 	{
 		(void)serialize;
-		m_Entity = CreatePrefabFromEntity(entity);
+		m_Entity = CreatePrefabFromEntity(entity, outSourceToPrefab);
 	}
 
 	UUID Prefab::GetRootEntityID() const
@@ -52,7 +52,7 @@ namespace Lux {
 		return m_Scene ? m_Scene->GetAssetList() : std::unordered_set<AssetHandle>{};
 	}
 
-	Entity Prefab::CreatePrefabFromEntity(Entity entity)
+	Entity Prefab::CreatePrefabFromEntity(Entity entity, std::unordered_map<UUID, UUID>* outSourceToPrefab)
 	{
 		LUX_CORE_ASSERT(entity, "Cannot create prefab from null entity!");
 
@@ -64,6 +64,9 @@ namespace Lux {
 		{
 			Entity destination = m_Scene->CreateEntity(source.GetName());
 			CopyComponentIfExists(PrefabCloneComponents{}, destination, source);
+
+			if (outSourceToPrefab)
+				(*outSourceToPrefab)[source.GetUUID()] = destination.GetUUID();
 
 			if (parent)
 				destination.SetParent(parent);

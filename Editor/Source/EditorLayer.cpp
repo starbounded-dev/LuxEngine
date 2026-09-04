@@ -1054,7 +1054,8 @@ namespace Lux {
 			return;
 
 		Ref<Prefab> prefab = Ref<Prefab>::Create();
-		prefab->Create(entity);
+		std::unordered_map<UUID, UUID> sourceToPrefab;
+		prefab->Create(entity, true, &sourceToPrefab);
 
 		auto assetManager = Project::GetEditorAssetManager();
 		const std::string extension = assetManager->GetDefaultExtensionForAssetType(AssetType::Prefab);
@@ -1069,9 +1070,26 @@ namespace Lux {
 
 		const AssetHandle handle = assetManager->ImportAsset(relativePath);
 		if (handle)
+		{
+			// Link the source hierarchy to the new prefab so it becomes a live instance (each source
+			// entity points at its clone inside the prefab).
+			for (const auto& [sourceUUID, prefabUUID] : sourceToPrefab)
+			{
+				Entity linked = m_EditorScene->TryGetEntityWithUUID(sourceUUID);
+				if (!linked)
+					continue;
+
+				auto& prefabComponent = linked.AddOrReplaceComponent<PrefabComponent>();
+				prefabComponent.PrefabID = handle;
+				prefabComponent.EntityID = prefabUUID;
+			}
+			EditorStack::Get().MarkSceneEdited("Create Prefab");
 			LUX_CONSOLE_LOG_INFO("Created prefab '{}'", relativePath.generic_string());
+		}
 		else
+		{
 			LUX_CONSOLE_LOG_ERROR("Failed to register prefab '{}'", relativePath.generic_string());
+		}
 	}
 
 	void EditorLayer::ToggleEntityBookmark()

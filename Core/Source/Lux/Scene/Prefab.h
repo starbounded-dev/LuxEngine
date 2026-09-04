@@ -5,6 +5,7 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Core/UUID.h"
 
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Lux {
@@ -20,14 +21,16 @@ namespace Lux {
 		static AssetType GetStaticType() { return AssetType::Prefab; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
-		void Create(Entity entity, bool serialize = true);
+		// outSourceToPrefab, if given, receives a map from each source entity's UUID to the UUID of
+		// its clone inside the prefab — the caller uses it to link the source entities as instances.
+		void Create(Entity entity, bool serialize = true, std::unordered_map<UUID, UUID>* outSourceToPrefab = nullptr);
 
 		const Ref<Scene>& GetScene() const { return m_Scene; }
 		UUID GetRootEntityID() const;
 		std::unordered_set<AssetHandle> GetAssetList(bool recursive = true);
 
 	private:
-		Entity CreatePrefabFromEntity(Entity entity);
+		Entity CreatePrefabFromEntity(Entity entity, std::unordered_map<UUID, UUID>* outSourceToPrefab);
 
 	private:
 		Ref<Scene> m_Scene;

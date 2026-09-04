@@ -1047,6 +1047,24 @@ namespace Lux {
 		return root;
 	}
 
+	void Scene::CopyPrefabInstanceComponents(Entity destination, Entity source)
+	{
+		if (!destination || !source)
+			return;
+
+		// Same set the instantiation path syncs (identity components — ID/Relationship/Tag/Prefab —
+		// are deliberately excluded so the link and hierarchy survive a revert/apply).
+		using PrefabSyncComponents =
+			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
+			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			FolderComponent>;
+
+		CopyComponentIfExists(PrefabSyncComponents{}, destination, source);
+	}
+
 	Entity Scene::InstantiateMesh(Ref<Mesh> mesh)
 	{
 		if (!mesh)
