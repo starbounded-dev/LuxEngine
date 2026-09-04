@@ -204,6 +204,26 @@ namespace Lux {
 			}(), ...);
 	}
 
+	// Makes dst's listed components match src exactly: replace/add where src has one, remove where it
+	// doesn't. Unlike CopyComponentIfExists, this reconciles removals — used by prefab Revert/Apply.
+	template<typename... Component>
+	static void ReconcileComponents(Entity dst, Entity src)
+	{
+		([&]()
+			{
+				if (src.HasComponent<Component>())
+					dst.AddOrReplaceComponent<Component>(src.GetComponent<Component>());
+				else
+					dst.RemoveComponentIfExists<Component>();
+			}(), ...);
+	}
+
+	template<typename... Component>
+	static void ReconcileComponents(ComponentGroup<Component...>, Entity dst, Entity src)
+	{
+		ReconcileComponents<Component...>(dst, src);
+	}
+
 	template<typename... Component>
 	static void CopyComponentIfExists(ComponentGroup<Component...>, Entity dst, Entity src)
 	{
@@ -1047,13 +1067,14 @@ namespace Lux {
 		return root;
 	}
 
-	void Scene::CopyPrefabInstanceComponents(Entity destination, Entity source)
+	void Scene::ReconcilePrefabComponents(Entity destination, Entity source)
 	{
 		if (!destination || !source)
 			return;
 
 		// Same set the instantiation path syncs (identity components — ID/Relationship/Tag/Prefab —
-		// are deliberately excluded so the link and hierarchy survive a revert/apply).
+		// are deliberately excluded so the link and hierarchy survive a revert/apply). Reconcile,
+		// not copy: destination-only components are removed so it matches source exactly.
 		using PrefabSyncComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
@@ -1062,7 +1083,7 @@ namespace Lux {
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
 			FolderComponent>;
 
-		CopyComponentIfExists(PrefabSyncComponents{}, destination, source);
+		ReconcileComponents(PrefabSyncComponents{}, destination, source);
 	}
 
 	Entity Scene::InstantiateMesh(Ref<Mesh> mesh)

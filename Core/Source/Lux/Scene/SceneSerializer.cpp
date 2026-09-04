@@ -1247,6 +1247,44 @@ namespace Lux {
 		return snapshots;
 	}
 
+	std::unordered_set<std::string> SceneSerializer::GetOverriddenComponentKeys(Entity instance, Entity prefabSource)
+	{
+		std::unordered_set<std::string> result;
+		if (!instance || !prefabSource)
+			return result;
+
+		// Identity/hierarchy keys always differ between an instance and its source — never overrides.
+		static const std::unordered_set<std::string> ignored = {
+			"Entity", "Parent", "Children", "PrefabComponent", "TagComponent"
+		};
+
+		YAML::Emitter instOut, srcOut;
+		SerializeEntity(instOut, instance);
+		SerializeEntity(srcOut, prefabSource);
+		const YAML::Node instNode = YAML::Load(instOut.c_str());
+		const YAML::Node srcNode = YAML::Load(srcOut.c_str());
+
+		// A key is an override if it is present on one side only, or present on both but serializes
+		// differently. Scanning both directions catches instance-only and prefab-only components.
+		const auto scan = [&](const YAML::Node& lhs, const YAML::Node& rhs)
+		{
+			for (auto it = lhs.begin(); it != lhs.end(); ++it)
+			{
+				const std::string key = it->first.as<std::string>();
+				if (ignored.contains(key))
+					continue;
+
+				const YAML::Node other = rhs[key];
+				if (!other.IsDefined() || YAML::Dump(it->second) != YAML::Dump(other))
+					result.insert(key);
+			}
+		};
+		scan(instNode, srcNode);
+		scan(srcNode, instNode);
+
+		return result;
+	}
+
 	bool SceneSerializer::DeserializeFromSnapshots(const std::string& meta, const std::vector<std::string>& entityBlocks)
 	{
 		// Reassemble the metadata + the given entity blocks into a full scene document and run the

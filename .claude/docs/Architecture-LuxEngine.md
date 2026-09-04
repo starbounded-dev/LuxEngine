@@ -216,10 +216,12 @@ the transform/render paths); and `PrefabComponent`.
 
 **Prefab instances:** an instantiated (or freshly created) prefab hierarchy carries a
 `PrefabComponent{PrefabID, EntityID}` on every entity, linking each to its source entity inside the
-prefab asset's scene. `Scene::CopyPrefabInstanceComponents(dst, src)` syncs the prefab-tracked
-components across scenes, backing the editor's per-instance **Revert to Prefab** (source → instance)
-and **Apply to Prefab** (instance → source, then re-serialize the asset). Component add/remove
-reconciliation and true variant assets are not yet modelled.
+prefab asset's scene. `SceneSerializer::GetOverriddenComponentKeys(instance, source)` diffs the two
+entities' serialized component blocks to surface per-component overrides in the inspector, and
+`Scene::ReconcilePrefabComponents(dst, src)` makes one entity's prefab-tracked components match the
+other exactly (replace/add/remove) — together backing the editor's per-component and all-at-once
+**Revert** (source → instance) / **Apply** (instance → source, then re-serialize the asset). True
+variant assets (a variant prefab inheriting a base) are not yet modelled.
 
 **Lifecycle:** `OnRuntimeStart` / `OnRuntimeStop` (physics + scripts), `OnSimulationStart` /
 `OnSimulationStop` (physics only), and the per-mode updates `OnUpdateRuntime` /

@@ -1630,35 +1630,115 @@ namespace Lux {
 				}
 				else
 				{
-					// Revert: pull the prefab's component values back onto this instance.
-					if (ImGui::Button("Revert to Prefab"))
-					{
-						Scene::CopyPrefabInstanceComponents(instanceEntity, sourceEntity);
-						EditorStack::Get().MarkSceneEdited("Revert Prefab Instance");
-					}
+					const std::unordered_set<std::string> overrides =
+						SceneSerializer::GetOverriddenComponentKeys(instanceEntity, sourceEntity);
 
-					// Apply: push this instance's values into the shared prefab asset (confirmed).
-					ImGui::SameLine();
-					if (ImGui::Button("Apply to Prefab"))
-						ImGui::OpenPopup("Apply to Prefab?");
-
-					if (ImGui::BeginPopupModal("Apply to Prefab?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+					auto serializePrefab = [&]()
 					{
-						ImGui::TextUnformatted("Overwrite the prefab asset with this instance's values?\n"
-							"Other instances keep their current values until reverted.");
-						ImGui::Spacing();
-						if (ImGui::Button("Apply"))
+						const std::filesystem::path path = Project::GetEditorAssetManager()->GetFileSystemPath(firstComponent.PrefabID);
+						SceneSerializer(prefab->GetScene()).Serialize(path);
+					};
+
+					// One override row: label + per-component Revert (prefab -> instance) and Apply
+					// (instance -> prefab, then re-serialize). T reconciles add/replace/remove.
+					auto row = [&]<typename T>(const char* key, const char* label)
+					{
+						if (!overrides.contains(key))
+							return;
+
+						ImGuiEx::ScopedID id(key);
+						ImGui::Bullet();
+						ImGui::SameLine();
+						ImGui::TextUnformatted(label);
+
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Revert"))
 						{
-							Scene::CopyPrefabInstanceComponents(sourceEntity, instanceEntity);
-							const std::filesystem::path path = Project::GetEditorAssetManager()->GetFileSystemPath(firstComponent.PrefabID);
-							SceneSerializer(prefab->GetScene()).Serialize(path);
-							LUX_CORE_INFO_TAG("Prefab", "Applied instance to prefab '{}'", prefabName);
-							ImGui::CloseCurrentPopup();
+							if (sourceEntity.HasComponent<T>())
+								instanceEntity.AddOrReplaceComponent<T>(sourceEntity.GetComponent<T>());
+							else
+								instanceEntity.RemoveComponentIfExists<T>();
+							EditorStack::Get().MarkSceneEdited("Revert Prefab Override");
 						}
 						ImGui::SameLine();
-						if (ImGui::Button("Cancel"))
-							ImGui::CloseCurrentPopup();
-						ImGui::EndPopup();
+						if (ImGui::SmallButton("Apply"))
+						{
+							if (instanceEntity.HasComponent<T>())
+								sourceEntity.AddOrReplaceComponent<T>(instanceEntity.GetComponent<T>());
+							else
+								sourceEntity.RemoveComponentIfExists<T>();
+							serializePrefab();
+							LUX_CORE_INFO_TAG("Prefab", "Applied {} to prefab '{}'", label, prefabName);
+						}
+					};
+
+					if (overrides.empty())
+					{
+						ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+						ImGui::TextUnformatted("No overrides.");
+					}
+					else
+					{
+						{
+							ImGuiEx::ScopedColour hdr(ImGuiCol_Text, Colors::Theme::textDarker);
+							ImGui::TextUnformatted("Overrides");
+						}
+
+						// This list must cover every component SerializeEntity emits, or a detected
+						// override could have no row here (and Revert All wouldn't reconcile it).
+						row.operator()<TransformComponent>("TransformComponent", "Transform");
+						row.operator()<StaticMeshComponent>("StaticMeshComponent", "Static Mesh");
+						row.operator()<MeshComponent>("MeshComponent", "Mesh");
+						row.operator()<SubmeshComponent>("SubmeshComponent", "Submesh");
+						row.operator()<MeshTagComponent>("MeshTagComponent", "Mesh Tag");
+						row.operator()<CameraComponent>("CameraComponent", "Camera");
+						row.operator()<ScriptComponent>("ScriptComponent", "Script");
+						row.operator()<SpriteRendererComponent>("SpriteRendererComponent", "Sprite Renderer");
+						row.operator()<CircleRendererComponent>("CircleRendererComponent", "Circle Renderer");
+						row.operator()<TextComponent>("TextComponent", "Text");
+						row.operator()<DirectionalLightComponent>("DirectionalLightComponent", "Directional Light");
+						row.operator()<PointLightComponent>("PointLightComponent", "Point Light");
+						row.operator()<SpotLightComponent>("SpotLightComponent", "Spot Light");
+						row.operator()<SkyLightComponent>("SkyLightComponent", "Sky Light");
+						row.operator()<RigidBodyComponent>("RigidBodyComponent", "Rigid Body");
+						row.operator()<CharacterControllerComponent>("CharacterControllerComponent", "Character Controller");
+						row.operator()<CompoundColliderComponent>("CompoundColliderComponent", "Compound Collider");
+						row.operator()<BoxColliderComponent>("BoxColliderComponent", "Box Collider");
+						row.operator()<SphereColliderComponent>("SphereColliderComponent", "Sphere Collider");
+						row.operator()<CapsuleColliderComponent>("CapsuleColliderComponent", "Capsule Collider");
+						row.operator()<MeshColliderComponent>("MeshColliderComponent", "Mesh Collider");
+						row.operator()<RigidBody2DComponent>("RigidBody2DComponent", "Rigid Body 2D");
+						row.operator()<BoxCollider2DComponent>("BoxCollider2DComponent", "Box Collider 2D");
+						row.operator()<CircleCollider2DComponent>("CircleCollider2DComponent", "Circle Collider 2D");
+						row.operator()<FolderComponent>("Folder", "Folder");
+
+						ImGui::Spacing();
+						if (ImGui::Button("Revert All"))
+						{
+							Scene::ReconcilePrefabComponents(instanceEntity, sourceEntity);
+							EditorStack::Get().MarkSceneEdited("Revert Prefab Instance");
+						}
+						ImGui::SameLine();
+						if (ImGui::Button("Apply All"))
+							ImGui::OpenPopup("Apply to Prefab?");
+
+						if (ImGui::BeginPopupModal("Apply to Prefab?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+						{
+							ImGui::TextUnformatted("Overwrite the prefab asset with this instance's values?\n"
+								"Other instances keep their current values until reverted.");
+							ImGui::Spacing();
+							if (ImGui::Button("Apply"))
+							{
+								Scene::ReconcilePrefabComponents(sourceEntity, instanceEntity);
+								serializePrefab();
+								LUX_CORE_INFO_TAG("Prefab", "Applied instance to prefab '{}'", prefabName);
+								ImGui::CloseCurrentPopup();
+							}
+							ImGui::SameLine();
+							if (ImGui::Button("Cancel"))
+								ImGui::CloseCurrentPopup();
+							ImGui::EndPopup();
+						}
 					}
 				}
 			});

@@ -6,6 +6,7 @@
 
 #include <map>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace YAML
@@ -33,6 +34,12 @@ namespace Lux
 		// DeserializeFromSnapshots — restore always goes through the whole-scene deserialize path.
 		std::map<UUID, std::string> SerializeEntitySnapshots(std::string& outMeta);
 		bool DeserializeFromSnapshots(const std::string& meta, const std::vector<std::string>& entityBlocks);
+
+		// Returns the serialized component keys (e.g. "TransformComponent") that differ between two
+		// entities — changed, instance-only, or prefab-only — ignoring identity/hierarchy keys
+		// (Entity/Parent/Children/PrefabComponent/TagComponent). Surfaces prefab instance overrides;
+		// cheap, as it serializes only the two entities.
+		static std::unordered_set<std::string> GetOverriddenComponentKeys(Entity instance, Entity prefabSource);
 
 		// Round-trip guard for the snapshot path the undo system relies on: build a small scene with a
 		// hierarchy and components, split → reassemble → re-split, and confirm every entity's YAML and
