@@ -822,7 +822,8 @@ namespace Lux {
 					Entity selectedEntity = {};
 					if (m_SceneHierarchyPanel)
 						selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
-					if (selectedEntity && m_GizmoType != -1)
+					// Folders have no user-editable transform, so they get no gizmo.
+					if (selectedEntity && m_GizmoType != -1 && !selectedEntity.HasComponent<FolderComponent>())
 					{
 						ImGuizmo::SetOrthographic(false);
 						ImGuizmo::SetDrawlist();

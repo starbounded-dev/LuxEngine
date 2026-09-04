@@ -71,6 +71,20 @@ namespace Lux {
 		operator const std::string& () const { return Tag; }
 	};
 
+	// Marks an entity as a purely organizational folder in the hierarchy: no gizmo, no editable
+	// transform (its identity TransformComponent is kept so world-space math is untouched), children
+	// are grouped under it without being moved. Editor-only in spirit but serialized like any marker.
+	struct FolderComponent
+	{
+		// Placeholder so the type is non-empty: entt's empty-type optimization would otherwise make
+		// emplace<>/get<> return void, which AddComponent/GetComponent can't bind to. Folders carry
+		// no data of their own — this field is unused.
+		uint8_t Reserved = 0;
+
+		FolderComponent() = default;
+		FolderComponent(const FolderComponent&) = default;
+	};
+
 	struct TransformComponent
 	{
 		glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
@@ -622,6 +636,7 @@ namespace Lux {
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
-		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+		FolderComponent>;
 
 }

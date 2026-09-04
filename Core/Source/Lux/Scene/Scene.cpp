@@ -949,7 +949,8 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			FolderComponent>;
 
 		if (!entity)
 			return {};
@@ -1010,7 +1011,8 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			FolderComponent>;
 
 		std::function<Entity(Entity, Entity)> instantiateHierarchy;
 		instantiateHierarchy = [&](Entity source, Entity destinationParent) -> Entity
@@ -2204,6 +2206,12 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<FolderComponent>(Entity entity, FolderComponent& component)
 	{
 
 	}

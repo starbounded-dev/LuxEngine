@@ -295,6 +295,9 @@ namespace Lux {
 				out << YAML::EndMap;
 			}
 
+			if (entity.HasComponent<FolderComponent>())
+				out << YAML::Key << "Folder" << YAML::Value << true;
+
 			if (entity.HasComponent<RelationshipComponent>())
 			{
 				const auto& relationship = entity.GetComponent<RelationshipComponent>();
@@ -784,6 +787,9 @@ namespace Lux {
 					tagComponent.Locked = tag["Locked"].as<bool>(false);
 					tagComponent.LabelColor = tag["LabelColor"].as<uint32_t>(0);
 				}
+
+				if (entity["Folder"] && entity["Folder"].as<bool>(false))
+					deserializedEntity.AddComponent<FolderComponent>();
 
 				if (auto parent = entity["Parent"])
 					deserializedEntity.GetComponent<RelationshipComponent>().ParentHandle = parent.as<uint64_t>();

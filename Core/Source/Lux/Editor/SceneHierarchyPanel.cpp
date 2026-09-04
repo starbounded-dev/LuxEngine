@@ -57,6 +57,7 @@ namespace Lux {
 			const ImU32 neutral = Colors::Theme::text;
 			const ImU32 muted   = Colors::Theme::textDarker;
 
+			if (entity.HasComponent<FolderComponent>())           return { LUX_ICON_FOLDER, warm };
 			if (entity.HasComponent<CameraComponent>())           return { LUX_ICON_VIDEO_CAMERA, cool };
 			if (entity.HasComponent<DirectionalLightComponent>()) return { LUX_ICON_SUN_O, warm };
 			if (entity.HasComponent<PointLightComponent>() ||
@@ -689,6 +690,12 @@ namespace Lux {
 		if (ImGui::MenuItem("Create Empty Entity"))
 			createEntity("Empty Entity");
 
+		if (ImGui::MenuItem("Create Folder"))
+		{
+			Entity folder = createEntity("Folder");
+			folder.AddComponent<FolderComponent>();
+		}
+
 		if (ImGui::BeginMenu("Create 2D"))
 		{
 			if (ImGui::MenuItem("Sprite"))
@@ -873,7 +880,10 @@ namespace Lux {
 
 		// Type icon + name, vertically centred over the node row.
 		{
-			const EntityIconInfo iconInfo = GetEntityIcon(entity);
+			EntityIconInfo iconInfo = GetEntityIcon(entity);
+			// A folder shows an open glyph while expanded.
+			if (entity.HasComponent<FolderComponent>() && opened && hasChildren)
+				iconInfo.Glyph = LUX_ICON_FOLDER_OPEN;
 			const float arrowWidth = g.FontSize;
 			const float iconX = rowRect.Min.x + g.Style.FramePadding.x + arrowWidth + g.Style.ItemInnerSpacing.x;
 			const float centerY = rowRect.Min.y + rowRect.GetHeight() * 0.5f;
@@ -1101,6 +1111,8 @@ namespace Lux {
 			return;
 
 		const bool isMultiSelect = entityIDs.size() > 1;
+		// A folder is purely organizational: no editable transform, no components to add.
+		const bool isFolder = !isMultiSelect && firstEntity.HasComponent<FolderComponent>();
 		const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
 		// Inspector-wide: every input renders as a bordered, slightly-inset "field box" (the
@@ -1177,9 +1189,10 @@ namespace Lux {
 				ImGui::TextDisabled("(%zu selected)", entityIDs.size());
 			}
 
-			const float addButtonWidth = 90.0f;
-			ImGui::SameLine(contentRegionAvailable.x - addButtonWidth - 6.0f);
+			if (!isFolder)
 			{
+				const float addButtonWidth = 90.0f;
+				ImGui::SameLine(contentRegionAvailable.x - addButtonWidth - 6.0f);
 				// Lime call-to-action, matching the concept's accent Add button.
 				ImGuiEx::ScopedColour addBg(ImGuiCol_Button, Colors::Theme::accent);
 				ImGuiEx::ScopedColour addBgH(ImGuiCol_ButtonHovered, Colors::Theme::accent);
@@ -1608,6 +1621,8 @@ namespace Lux {
 				ImGuiEx::EndPropertyGrid();
 			});
 
+		// Folders keep an identity transform for the scene graph, but it isn't user-editable.
+		if (!isFolder)
 		DrawComponentSection<TransformComponent>(m_Context, entityIDs, "Transform", EditorResources::TransformIcon,
 			[this](TransformComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
 			{
