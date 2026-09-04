@@ -12,6 +12,7 @@
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Prefab.h"
+#include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/ScriptableEntity.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Scripting/ScriptEngine.h"
@@ -1084,6 +1085,52 @@ namespace Lux {
 			FolderComponent>;
 
 		ReconcileComponents(PrefabSyncComponents{}, destination, source);
+	}
+
+	void Scene::PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab)
+	{
+		if (!oldPrefab || !newPrefab)
+			return;
+
+		// Collect first — reconciling adds/removes components, which would invalidate a live view.
+		std::vector<UUID> instances;
+		for (auto e : GetAllEntitiesWith<PrefabComponent>())
+		{
+			Entity instance{ e, this };
+			if (instance.GetComponent<PrefabComponent>().PrefabID == prefabID)
+				instances.push_back(instance.GetUUID());
+		}
+
+		for (UUID id : instances)
+		{
+			Entity instance = TryGetEntityWithUUID(id);
+			if (!instance)
+				continue;
+
+			const UUID sourceID = instance.GetComponent<PrefabComponent>().EntityID;
+			Entity oldSource = oldPrefab->TryGetEntityWithUUID(sourceID);
+			Entity newSource = newPrefab->TryGetEntityWithUUID(sourceID);
+			if (!oldSource || !newSource)
+				continue;
+
+			// A placed root's transform differs from the prefab's — that placement is expected, not a
+			// user override, so ignore it when deciding whether to propagate, and preserve it after.
+			const bool isRoot = oldSource.GetComponent<RelationshipComponent>().ParentHandle == 0;
+
+			std::unordered_set<std::string> overrides = SceneSerializer::GetOverriddenComponentKeys(instance, oldSource);
+			if (isRoot)
+				overrides.erase("TransformComponent");
+
+			// Adopt the edited prefab only for instances the user hasn't (otherwise) overridden; a
+			// modified instance keeps its values (the user can revert per-component).
+			if (!overrides.empty())
+				continue;
+
+			const TransformComponent placement = instance.GetComponent<TransformComponent>();
+			ReconcilePrefabComponents(instance, newSource);
+			if (isRoot)
+				instance.AddOrReplaceComponent<TransformComponent>(placement);
+		}
 	}
 
 	Entity Scene::InstantiateMesh(Ref<Mesh> mesh)

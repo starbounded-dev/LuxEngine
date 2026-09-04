@@ -221,7 +221,10 @@ entities' serialized component blocks to surface per-component overrides in the 
 `Scene::ReconcilePrefabComponents(dst, src)` makes one entity's prefab-tracked components match the
 other exactly (replace/add/remove) — together backing the editor's per-component and all-at-once
 **Revert** (source → instance) / **Apply** (instance → source, then re-serialize the asset). True
-variant assets (a variant prefab inheriting a base) are not yet modelled.
+variant assets (a variant prefab inheriting a base) are not yet modelled. **Prefab edit mode**
+(EditorLayer) swaps the editing context to a copy of the prefab's scene (`ApplyEditorScene`, shared
+with `OpenScene`); on save it writes the asset and calls `Scene::PropagatePrefabEdits`, which
+refreshes un-overridden instances in the returned scene to the edited prefab's values.
 
 **Lifecycle:** `OnRuntimeStart` / `OnRuntimeStop` (physics + scripts), `OnSimulationStart` /
 `OnSimulationStop` (physics only), and the per-mode updates `OnUpdateRuntime` /

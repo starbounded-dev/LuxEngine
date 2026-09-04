@@ -88,6 +88,15 @@ namespace Lux
 
 		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& filepath);
 
+		// Prefab focus/edit mode: edit a prefab's own scene in isolation, then save back to the asset
+		// (and propagate to instances). ApplyEditorScene is the shared context-swap used by both
+		// OpenScene and the enter/exit here.
+		void ApplyEditorScene(Ref<Scene> scene, const std::filesystem::path& path);
+		void EnterPrefabEditMode(AssetHandle prefabHandle);
+		void SavePrefabEdits();
+		void ExitPrefabEditMode(bool save);
+		void UI_PrefabEditBanner();
+
 		// One undo step. A scene edit carries a per-entity diff; a non-scene edit (renderer settings,
 		// …) carries closures instead — when CustomUndo is set, the diff fields are ignored.
 		struct EntityDelta
@@ -214,6 +223,14 @@ namespace Lux
 		Ref<Scene> m_ActiveScene;
 		Ref<Scene> m_EditorScene;
 		std::filesystem::path m_EditorScenePath;
+
+		// Prefab focus/edit mode state. While active, m_EditorScene is a copy of the prefab's scene and
+		// m_PreFocusScene is the scene to restore on exit.
+		bool m_PrefabEditMode = false;
+		AssetHandle m_EditingPrefabHandle = 0;
+		std::string m_EditingPrefabName;
+		Ref<Scene> m_PreFocusScene;
+		std::filesystem::path m_PreFocusScenePath;
 
 		// Undo/redo: a labelled command stack with granular, per-entity storage. Each step records
 		// only the entities that actually changed (before/after YAML; an empty string means the entity

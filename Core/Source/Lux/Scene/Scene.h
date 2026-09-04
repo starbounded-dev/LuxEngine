@@ -96,6 +96,10 @@ namespace Lux {
 		// Backs prefab Revert-All (source = prefab entity) and Apply-All (source = scene instance).
 		static void ReconcilePrefabComponents(Entity destination, Entity source);
 
+		// After a prefab is edited, refresh this scene's instances of it: un-overridden instances
+		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
+		void PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab);
+
 		Entity InstantiateMesh(Ref<Mesh> mesh);
 		Entity InstantiateStaticMesh(Ref<StaticMesh> mesh);
 

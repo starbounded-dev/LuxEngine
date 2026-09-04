@@ -485,6 +485,11 @@ namespace Lux {
 				OpenScene(metadata.Handle);
 			});
 
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)
+			{
+				EnterPrefabEditMode(metadata.Handle);
+			});
+
 			if (textEditorPanel)
 			{
 				contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::ScriptFile, [this, textEditorPanel](const AssetMetadata& metadata) mutable
@@ -707,6 +712,7 @@ namespace Lux {
 			PollSceneEditForUndo();
 			UI_UndoToast();
 			UI_ScriptToast();
+			UI_PrefabEditBanner();
 
 			RenderRuntimeExportWindow();
 
@@ -3041,10 +3047,15 @@ namespace Lux {
 			return;
 		}
 
-		m_EditorScene = newScene;
+		ApplyEditorScene(newScene, Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle));
+	}
+
+	void EditorLayer::ApplyEditorScene(Ref<Scene> scene, const std::filesystem::path& path)
+	{
+		m_EditorScene = scene;
 		m_ActiveScene = m_EditorScene;
 		m_PanelManager->SetSceneContext(m_EditorScene);
-		m_EditorScenePath = Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle);
+		m_EditorScenePath = path;
 
 		if (m_EditorViewport)
 		{
@@ -3063,6 +3074,72 @@ namespace Lux {
 
 		ResetUndoHistory();
 		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
+	}
+
+	void EditorLayer::EnterPrefabEditMode(AssetHandle prefabHandle)
+	{
+		if (m_PrefabEditMode)   // no nesting for now
+			return;
+		if (m_SceneState != SceneState::Edit)
+			OnSceneStop();
+
+		Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
+		if (!prefab || !prefab->GetScene())
+		{
+			LUX_CORE_ERROR("Cannot edit prefab {0}: it could not be loaded.", prefabHandle);
+			return;
+		}
+
+		// Remember where to return, then edit a copy of the prefab's scene (Scene::Copy preserves
+		// UUIDs, so the instances' PrefabComponent links survive the save round-trip).
+		m_PreFocusScene = m_EditorScene;
+		m_PreFocusScenePath = m_EditorScenePath;
+
+		m_PrefabEditMode = true;
+		m_EditingPrefabHandle = prefabHandle;
+		m_EditingPrefabName = Project::GetEditorAssetManager()->GetMetadata(prefabHandle).FilePath.stem().string();
+
+		ApplyEditorScene(Scene::Copy(prefab->GetScene()), {});
+	}
+
+	void EditorLayer::SavePrefabEdits()
+	{
+		if (!m_PrefabEditMode)
+			return;
+
+		Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(m_EditingPrefabHandle);
+		if (!prefab)
+			return;
+
+		// Propagate before reload, while the cached prefab still holds the pre-edit (old) values.
+		if (m_PreFocusScene && prefab->GetScene())
+			m_PreFocusScene->PropagatePrefabEdits(m_EditingPrefabHandle, prefab->GetScene(), m_EditorScene);
+
+		const std::filesystem::path path = Project::GetEditorAssetManager()->GetFileSystemPath(m_EditingPrefabHandle);
+		SceneSerializer(m_EditorScene).Serialize(path);
+		AssetManager::ReloadData(m_EditingPrefabHandle);   // cache now reflects the saved prefab
+		LUX_CONSOLE_LOG_INFO("Saved prefab '{}'", m_EditingPrefabName);
+	}
+
+	void EditorLayer::ExitPrefabEditMode(bool save)
+	{
+		if (!m_PrefabEditMode)
+			return;
+
+		if (save)
+			SavePrefabEdits();
+
+		Ref<Scene> returnScene = m_PreFocusScene;
+		const std::filesystem::path returnPath = m_PreFocusScenePath;
+
+		m_PrefabEditMode = false;
+		m_EditingPrefabHandle = 0;
+		m_EditingPrefabName.clear();
+		m_PreFocusScene = nullptr;
+		m_PreFocusScenePath.clear();
+
+		if (returnScene)
+			ApplyEditorScene(returnScene, returnPath);
 	}
 
 	std::map<UUID, std::string> EditorLayer::CaptureSceneEntities(const Ref<Scene>& scene, std::string& outMeta) const
@@ -3430,6 +3507,42 @@ namespace Lux {
 		ImGui::End();
 	}
 
+	void EditorLayer::UI_PrefabEditBanner()
+	{
+		if (!m_PrefabEditMode)
+			return;
+
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		const ImVec2 position(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y + 8.0f);
+		ImGui::SetNextWindowPos(position, ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+		ImGui::SetNextWindowBgAlpha(0.95f);
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
+			| ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoMove;
+
+		ImGuiEx::ScopedStyle rounding(ImGuiStyleVar_WindowRounding, 6.0f);
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 8.0f));
+		if (ImGui::Begin("##PrefabEditBanner", nullptr, flags))
+		{
+			{
+				ImGuiEx::ScopedColour accent(ImGuiCol_Text, Colors::Theme::accent);
+				ImGui::TextUnformatted(LUX_ICON_CUBE "  Editing Prefab:");
+			}
+			ImGui::SameLine();
+			ImGui::TextUnformatted(m_EditingPrefabName.c_str());
+			ImGui::SameLine();
+			ImGui::Dummy(ImVec2(12.0f, 0.0f));
+			ImGui::SameLine();
+			if (ImGui::Button("Save & Return"))
+				ExitPrefabEditMode(true);
+			ImGui::SameLine();
+			if (ImGui::Button("Discard & Return"))
+				ExitPrefabEditMode(false);
+		}
+		ImGui::End();
+	}
+
 	void EditorLayer::AdoptEditorScene(const Ref<Scene>& scene)
 	{
 		m_EditorScene = scene;
@@ -3592,6 +3705,13 @@ namespace Lux {
 
 	void EditorLayer::SaveScene()
 	{
+		// While editing a prefab, Ctrl+S writes the prefab asset instead of a scene file.
+		if (m_PrefabEditMode)
+		{
+			SavePrefabEdits();
+			return;
+		}
+
 		if (!m_EditorScenePath.empty())
 			SerializeScene(m_ActiveScene, m_EditorScenePath);
 		else
@@ -3760,6 +3880,8 @@ namespace Lux {
 
 	void EditorLayer::OnScenePlay()
 	{
+		if (m_PrefabEditMode)   // no play while editing a prefab in isolation
+			return;
 		if (m_SceneState == SceneState::Simulate)
 			OnSceneStop();
 
@@ -3792,6 +3914,8 @@ namespace Lux {
 
 	void EditorLayer::OnSceneSimulate()
 	{
+		if (m_PrefabEditMode)   // no simulate while editing a prefab in isolation
+			return;
 		if (m_SceneState == SceneState::Play)
 			OnSceneStop();
 
