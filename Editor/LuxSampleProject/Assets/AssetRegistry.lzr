@@ -69,6 +69,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 2499487525738572267
+    FilePath: Meshes/Source/Default/Materials/Cylinder_0_Material_0.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069060333525
+    Status: Ready
   - Handle: 2618469286157236314
     FilePath: Meshes/Source/Sponza/11968150294050148237.jpg
     Type: Texture
@@ -327,7 +332,7 @@ Assets:
   - Handle: 8868489982347245392
     FilePath: Scripts/Intermediates/Release/LuxSample.AssemblyInfo.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069059860629
+    FileLastWriteTime: 18446744069060388374
     Status: None
   - Handle: 8873821167095533110
     FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
@@ -513,7 +518,7 @@ Assets:
     FilePath: Meshes/Source/Default/Cylinder.gltf
     Type: MeshSource
     FileLastWriteTime: 18446744069059611435
-    Status: None
+    Status: Ready
   - Handle: 13118299698764972325
     FilePath: Meshes/Source/Sponza/Materials/Sponza_15_Material_15.lmat
     Type: Material
@@ -592,7 +597,7 @@ Assets:
   - Handle: 16270877928576420274
     FilePath: Scenes/LaptopStart.luxscene
     Type: Scene
-    FileLastWriteTime: 18446744069059817059
+    FileLastWriteTime: 18446744069060388469
     Status: Ready
   - Handle: 16317874982647590309
     FilePath: Scripts/Intermediates/Debug/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs
