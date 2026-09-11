@@ -57,6 +57,7 @@ project "Editor"
 		do -- FMOD is required.
 			postbuildcommands {
 				'{COPY} "../Core/vendor/FMOD/FMOD Studio API Windows/api/core/lib/x64/fmod.dll" "%{cfg.targetdir}"',
+				'{COPY} "../Core/vendor/FMOD/FMOD Studio API Windows/api/studio/lib/x64/fmodstudio.dll" "%{cfg.targetdir}"',
 			}
 		end
 

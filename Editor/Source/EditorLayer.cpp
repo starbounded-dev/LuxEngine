@@ -2966,6 +2966,13 @@ namespace Lux {
 			ImGui::TextColored(scriptModuleStale ? ImVec4(0.95f, 0.75f, 0.35f, 1.0f) : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
 				"Script Module: %s", scriptModuleStale ? "stale" : "found");
 		drawStatus("DotNet", !dotnet.empty(), dotnet.string(), "missing");
+		if (config.Audio.StudioProjectPath.empty())
+			ImGui::TextUnformatted("FMOD banks: none configured in Project Settings > Audio");
+		else
+		{
+			ImGui::Text("FMOD bank output: %s", project->GetStudioBankDirectory().string().c_str());
+			ImGui::TextWrapped("Export validates all banks and stops if they are missing or stale. Build banks in FMOD Studio before exporting.");
+		}
 
 		ImGui::Spacing();
 		if (ImGui::Button("Build Runtime"))
@@ -3025,6 +3032,10 @@ namespace Lux {
 			runtimeSettings.GameName = project->GetConfig().Name;
 		runtimeSettings.WindowWidth = std::max<uint32_t>(runtimeSettings.WindowWidth, 320);
 		runtimeSettings.WindowHeight = std::max<uint32_t>(runtimeSettings.WindowHeight, 240);
+
+		AudioBankManifest audioBanks;
+		if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
+			return false;
 
 		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
 		std::filesystem::path runtimeExe = GetRuntimeExecutablePath(targetConfig);
@@ -3120,9 +3131,13 @@ namespace Lux {
 			return false;
 		}
 
+		if (!RuntimeExport::CopyAudioBanks(*project, audioBanks, exportAssets)
+			|| !RuntimeExport::CopyAudioLibraries(runtimeExe.parent_path(), exportRoot))
+			return false;
+
 		ProjectSerializer serializer(project);
 		const std::filesystem::path runtimeProjectFile = exportAssets / s_RuntimeProjectFile;
-		if (!serializer.SerializeRuntime(runtimeProjectFile))
+		if (!serializer.SerializeRuntime(runtimeProjectFile, audioBanks))
 		{
 			LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing '{}'.", runtimeProjectFile.string());
 			return false;

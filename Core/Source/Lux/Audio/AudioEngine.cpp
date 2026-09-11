@@ -223,8 +223,12 @@ namespace Lux {
 			return true;
 		FMOD::Studio::Bank* bank = nullptr;
 		const auto result = s_StudioSystem->loadBankFile(canonical.string().c_str(), FMOD_STUDIO_LOAD_BANK_NORMAL, &bank);
-		if (!CheckFMOD(result, "Failed to load bank file") || !bank)
+		if (result != FMOD_OK || !bank)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot load bank '{0}': {1}", path.string(),
+				result != FMOD_OK ? FMOD_ErrorString(result) : "FMOD returned no bank handle");
 			return false;
+		}
 		s_Banks.push_back(bank);
 		s_BankPaths.push_back(canonical);
 		s_BankInfo.push_back({ canonical.filename().string(), 0, canonical.stem().extension() == ".strings" });
@@ -403,6 +407,34 @@ namespace Lux {
 			[](const AudioEventInfo& a, const AudioEventInfo& b) { return a.Path < b.Path; });
 
 		return success;
+	}
+
+	bool AudioEngine::LoadRuntimeBanks(const std::filesystem::path& assets, const AudioBankManifest& manifest)
+	{
+		if (!manifest.Validate())
+			return false;
+		if (!HasInitializedEngine())
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot start runtime audio: FMOD initialization failed");
+			return false;
+		}
+		UnloadAllBanks();
+		auto banks = manifest.Banks;
+		std::stable_sort(banks.begin(), banks.end(), [](const std::string& a, const std::string& b)
+		{
+			return std::filesystem::path(a).stem().extension() == ".strings"
+				&& std::filesystem::path(b).stem().extension() != ".strings";
+		});
+		for (const auto& name : banks)
+		{
+			const auto path = assets / manifest.Directory / name;
+			if (!LoadBank(path))
+			{
+				UnloadAllBanks();
+				return false;
+			}
+		}
+		return true;
 	}
 
 	void AudioEngine::UnloadAllBanks()

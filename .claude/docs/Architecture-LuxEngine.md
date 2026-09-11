@@ -533,6 +533,29 @@ successful rebuild on Play. A partial load reports failure while retaining the b
 an invalid or empty directory preserves the previous banks. Reload invalidates existing event
 instances; scenes recreate them on their next update.
 
+**Runtime exports (format 17):** `AudioBankManifest` is an explicit, bounded stream block after
+`ProjectInfo`'s unchanged fixed-size header. It carries an asset-relative directory, the exact bank
+filenames, and the live-update setting (disabled for Dist exports). Never put owning strings or
+vectors into the raw `ProjectInfo` block. Older formats load without Studio configuration and warn
+that a re-export is needed for events; authoring paths and rebuild-on-play are disabled at runtime.
+
+`RuntimeExport::PrepareAudioBanks` runs once during the existing synchronous export operation on
+the main thread. It rejects missing authoring input, missing/empty banks, a missing master/strings
+pair, and stale output using `AudioBankBuilder::NeedsRebuild`. The selected bank-output directory
+is the configured FMOD platform output (Desktop for current Linux/Windows exports); export does
+not invoke Studio or guess a platform. An empty Studio project setting means no authored banks.
+Bank paths inside Assets retain their relative location for scripts; external output is packaged
+under `Assets/Audio/Banks`. Absolute authoring paths are not portable script paths. The `.fspro`
+and source audio are not copied. FMOD Core/Studio and VA shared libraries are required copies,
+including Linux's `lib` subdirectory. Copy failures abort export.
+
+`Project::LoadRuntime` initializes FMOD and loads only the manifest's banks, strings first, before
+loading scenes or starting scripts. Failure clears partial loads and rejects the project. The exact
+manifest prevents obsolete banks left in a reused export directory from being auto-loaded. Scripts
+can still load additional banks explicitly. Bank load paths are relative to the packaged Assets,
+and the normal idempotent `Audio.LoadBank` behavior applies to banks already loaded at startup.
+This does not implement acoustic materials or cross-platform bank compilation.
+
 **Listeners:** `AudioListenerComponent` stores authored `Active`, `ListenerIndex` (0–7), `Weight`
 (0–1), `UseAttenuationTarget`, and `AttenuationTarget` (entity UUID). The obsolete listener cone
 fields and component-owned runtime `Ref` are removed. Old YAML without the new keys retains an

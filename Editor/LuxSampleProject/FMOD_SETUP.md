@@ -104,3 +104,12 @@ the L and I paths demonstrate independent playback and do not automatically regi
 - Press K after a short sound finishes. Make sure the viewport has focus.
 - Check the FMOD event/master bus volume and the operating system's audio output.
 - Reopen Play after replacing banks so the script recreates its event instance.
+
+## Exporting a standalone game
+
+1. In FMOD Studio, build **all banks** for the platform selected by Lux's **Bank Output** directory (normally `Build/Desktop`).
+2. In Lux, use **File > Export Runtime…**. Missing or stale banks stop the export and report what needs fixing.
+3. Copy the entire exported folder to the destination machine. Banks are loose files under `Assets`; FMOD and VA libraries ship beside the executable (under `lib` on Linux). Studio itself is not required there.
+4. Launch the exported game. Required banks load before script `OnCreate`. This demo's asset-relative `Audio.LoadBank` paths remain valid and loading an already loaded bank succeeds.
+
+If Studio output is outside the project's Assets folder, export places it in `Assets/Audio/Banks`; use `Audio/Banks/<name>.bank` for explicit runtime loads, or rely on startup loading and fire events directly. Dist exports disable live update; Debug/Release follow the project's setting. Older runtime packages must be re-exported to include banks.

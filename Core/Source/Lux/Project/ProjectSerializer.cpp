@@ -757,7 +757,7 @@ namespace Lux
 		return true;
 	}
 
-	bool ProjectSerializer::SerializeRuntime(const std::filesystem::path& filepath)
+	bool ProjectSerializer::SerializeRuntime(const std::filesystem::path& filepath, const AudioBankManifest& banks)
 	{
 		ProjectInfo projectInfo;
 
@@ -783,6 +783,8 @@ namespace Lux
 			return false;
 
 		serializer.WriteRaw<ProjectInfo>(projectInfo);
+		if (!banks.Serialize(serializer))
+			return false;
 
 		const auto& physics = m_Project->GetConfig().Physics;
 		serializer.WriteRaw<float>(physics.FixedTimestep);
@@ -825,6 +827,11 @@ namespace Lux
 		serializer.WriteString(m_Project->GetConfig().Name);
 		serializer.WriteString(m_Project->GetConfig().ScriptModulePath.generic_string());
 
+		if (!serializer.IsStreamGood())
+		{
+			LUX_CORE_ERROR_TAG("Project", "Failed to write runtime project: {0}", filepath.string());
+			return false;
+		}
 		return true;
 	}
 
@@ -906,6 +913,7 @@ namespace Lux
 				config.StartScene = rawStartScene;
 		}
 
+		config.Audio.RuntimeBanks = {};
 		if (auto audioNode = projectNode["Audio"])
 		{
 			config.Audio.FileStreamingDurationThreshold = audioNode["FileStreamingDurationThreshold"].as<double>(config.Audio.FileStreamingDurationThreshold);
@@ -979,7 +987,11 @@ namespace Lux
 			return false;
 
 		ProjectInfo projectInfo;
-		stream.ReadRaw<ProjectInfo>(projectInfo);
+		if (!stream.ReadData(reinterpret_cast<char*>(&projectInfo), sizeof(projectInfo)) || !stream.IsStreamGood())
+		{
+			LUX_CORE_ERROR_TAG("Project", "Truncated runtime project header: {0}", filepath.string());
+			return false;
+		}
 
 		ProjectInfo current;
 		const bool validHeader = std::memcmp(projectInfo.HeaderData.Header, current.HeaderData.Header, sizeof(current.HeaderData.Header)) == 0;
@@ -1000,7 +1012,20 @@ namespace Lux
 		config.ProjectFileName = filepath.filename().string();
 		config.AssetDirectory = ".";
 		config.StartSceneHandle = projectInfo.StartScene;
+		config.Audio = {};
 		config.Audio.FileStreamingDurationThreshold = projectInfo.AudioInfo.FileStreamingDurationThreshold;
+		config.Audio.StudioProjectPath.clear();
+		config.Audio.StudioBankOutputPath.clear();
+		config.Audio.RebuildBanksOnPlay = false;
+		config.Audio.EnableLiveUpdate = false;
+		if (projectInfo.HeaderData.Version >= 17)
+		{
+			if (!config.Audio.RuntimeBanks.Deserialize(stream))
+				return false;
+			config.Audio.EnableLiveUpdate = config.Audio.RuntimeBanks.EnableLiveUpdate;
+		}
+		else
+			LUX_CORE_WARN_TAG("Audio", "Runtime project predates packaged FMOD banks; re-export it to enable Studio events");
 
 		stream.ReadRaw<float>(config.Physics.FixedTimestep);
 		stream.ReadRaw<glm::vec3>(config.Physics.Gravity);

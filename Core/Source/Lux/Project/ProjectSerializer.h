@@ -10,7 +10,7 @@ namespace Lux
 		ProjectSerializer(Ref<Project> project);
 
 		bool Serialize(const std::filesystem::path& filepath);
-		bool SerializeRuntime(const std::filesystem::path& filepath);
+		bool SerializeRuntime(const std::filesystem::path& filepath, const AudioBankManifest& banks);
 		bool Deserialize(const std::filesystem::path& filepath);
 		bool DeserializeRuntime(const std::filesystem::path& filepath);
 

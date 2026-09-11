@@ -8,6 +8,7 @@
 #include "Lux/Asset/AssetManager/EditorAssetManager.h"
 #include "Lux/Asset/AssetManager/RuntimeAssetManager.h"
 #include "Lux/Core/Base.h"
+#include "Lux/Audio/AudioBankManifest.h"
 #include "Lux/Core/Ref.h"
 #include "Lux/Renderer/RendererTypes.h"
 
@@ -40,6 +41,9 @@ namespace Lux
 	struct ProjectAudioSettings
 	{
 		double FileStreamingDurationThreshold = 1.0;
+
+		// Populated only from the binary runtime package, never from editor YAML.
+		AudioBankManifest RuntimeBanks;
 
 		// The FMOD Studio project (.fspro) that authors this game's audio, relative to the asset
 		// directory. Sound designers work in the Studio app; the engine consumes only the banks it
@@ -245,9 +249,12 @@ namespace Lux
 
 		// Absolute path to the directory fmodstudiocl writes banks into. Resolved relative to the
 		// .fspro rather than the asset directory, because FMOD writes Build/ next to the project
-		// file and the two move together.
+		// file and the two move together. Runtime packages resolve the manifest directory from Assets.
 		std::filesystem::path GetStudioBankDirectory() const
 		{
+			if (!m_Config.Audio.RuntimeBanks.Directory.empty())
+				return GetAssetDirectory() / m_Config.Audio.RuntimeBanks.Directory;
+
 			const std::filesystem::path studioProject = GetStudioProjectPath();
 			if (studioProject.empty())
 				return {};

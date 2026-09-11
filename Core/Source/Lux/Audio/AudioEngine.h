@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lux/Audio/RaytracedAudioScene.h"
+#include "AudioBankManifest.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -121,6 +122,8 @@ namespace Lux {
 		static bool LoadBank(const std::filesystem::path& bankFile);
 		static uint64_t GetBankRevision() { return s_BankRevision; }
 		static bool LoadBanks(const std::filesystem::path& bankDirectory);
+		// Loads only the exported manifest; any failure unloads the partial set.
+		static bool LoadRuntimeBanks(const std::filesystem::path& assets, const AudioBankManifest& manifest);
 		static void UnloadAllBanks();
 		static const std::vector<AudioBankInfo>& GetLoadedBanks();
 

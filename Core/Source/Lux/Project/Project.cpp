@@ -149,6 +149,11 @@ namespace Lux
 		project->m_Config.ProjectFileName = project->m_ProjectFilePath.filename().string();
 
 		SetActiveRuntime(project, assetPack);
+		if (!AudioEngine::LoadRuntimeBanks(project->GetAssetDirectory(), project->GetConfig().Audio.RuntimeBanks))
+		{
+			SetActiveRuntime(nullptr, nullptr);
+			return nullptr;
+		}
 		return s_ActiveProject;
 	}
 
