@@ -196,6 +196,12 @@ namespace Lux
 
 		internal static delegate*<NativeString, Bool32> Audio_LoadBank;
 		internal static delegate*<Bool32> Audio_IsMainThread;
+		internal static delegate*<ulong, float, Bool32> Audio_SetSnapshotIntensity;
+		internal static delegate*<ulong, int, float> Audio_ZoneGetScalar;
+		internal static delegate*<ulong, int, float, Bool32> Audio_ZoneSetScalar;
+		internal static delegate*<ulong, Bool32, Vector3*, void> Audio_ZoneGetVector;
+		internal static delegate*<ulong, Bool32, Vector3*, Bool32> Audio_ZoneSetVector;
+		internal static delegate*<ulong, Bool32, NativeString, Bool32> Audio_ZoneSetEvent;
 		internal static delegate*<NativeString, Bool32, Vector3*, ulong> Audio_CreateInstance;
 		internal static delegate*<ulong, Bool32> Audio_IsValid;
 		internal static delegate*<ulong, Bool32> Audio_IsPlaying;

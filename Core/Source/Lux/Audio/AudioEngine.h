@@ -67,6 +67,7 @@ namespace Lux {
 		std::string BankName;    // the bank that describes it, e.g. "Master.bank"
 		bool Is3D = false;
 		bool IsOneshot = false;
+		bool IsSnapshot = false;
 	};
 
 	class AudioEngine

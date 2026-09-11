@@ -692,6 +692,7 @@ namespace Lux
 					return false;
 				out << YAML::Key << "AcousticMaterials" << YAML::Value;
 				config.Audio.AcousticMaterials.SerializeYAML(out);
+				out << YAML::Key << "ZoneReverbMode" << YAML::Value << static_cast<uint32_t>(config.Audio.ZoneReverbMode);
 				out << YAML::EndMap;
 			}
 
@@ -789,6 +790,14 @@ namespace Lux
 		serializer.WriteRaw<ProjectInfo>(projectInfo);
 		if (!banks.Serialize(serializer) || !m_Project->GetConfig().Audio.AcousticMaterials.Serialize(serializer))
 			return false;
+
+		const auto zoneMode = m_Project->GetConfig().Audio.ZoneReverbMode;
+		if (zoneMode > AudioZoneReverbMode::PreferRaytraced)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot export an invalid zone reverb mode");
+			return false;
+		}
+		serializer.WriteRaw<uint8_t>(static_cast<uint8_t>(zoneMode));
 
 		const auto& physics = m_Project->GetConfig().Physics;
 		serializer.WriteRaw<float>(physics.FixedTimestep);
@@ -919,6 +928,7 @@ namespace Lux
 
 		config.Audio.RuntimeBanks = {};
 		config.Audio.AcousticMaterials = {};
+		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
 		if (auto audioNode = projectNode["Audio"])
 		{
 			config.Audio.FileStreamingDurationThreshold = audioNode["FileStreamingDurationThreshold"].as<double>(config.Audio.FileStreamingDurationThreshold);
@@ -926,6 +936,13 @@ namespace Lux
 			config.Audio.StudioBankOutputPath = audioNode["StudioBankOutputPath"].as<std::string>(config.Audio.StudioBankOutputPath.generic_string());
 			config.Audio.RebuildBanksOnPlay = audioNode["RebuildBanksOnPlay"].as<bool>(config.Audio.RebuildBanksOnPlay);
 			config.Audio.EnableLiveUpdate = audioNode["EnableLiveUpdate"].as<bool>(config.Audio.EnableLiveUpdate);
+			const auto zoneMode = audioNode["ZoneReverbMode"].as<uint32_t>(0);
+			if (zoneMode > static_cast<uint32_t>(AudioZoneReverbMode::PreferRaytraced))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Invalid project audio zone reverb mode {0}", zoneMode);
+				return false;
+			}
+			config.Audio.ZoneReverbMode = static_cast<AudioZoneReverbMode>(zoneMode);
 			if (!config.Audio.AcousticMaterials.DeserializeYAML(audioNode["AcousticMaterials"]))
 				return false;
 		}
@@ -1036,6 +1053,18 @@ namespace Lux
 
 		if (projectInfo.HeaderData.Version >= 18 && !config.Audio.AcousticMaterials.Deserialize(stream))
 			return false;
+
+		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
+		if (projectInfo.HeaderData.Version >= 19)
+		{
+			uint8_t mode = 0;
+			if (!stream.ReadData(reinterpret_cast<char*>(&mode), sizeof(mode)) || !stream.IsStreamGood() || mode > static_cast<uint8_t>(AudioZoneReverbMode::PreferRaytraced))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Invalid or truncated runtime zone reverb settings");
+				return false;
+			}
+			config.Audio.ZoneReverbMode = static_cast<AudioZoneReverbMode>(mode);
+		}
 
 		stream.ReadRaw<float>(config.Physics.FixedTimestep);
 		stream.ReadRaw<glm::vec3>(config.Physics.Gravity);

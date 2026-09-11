@@ -42,6 +42,9 @@ namespace Lux {
 
 		const std::string& GetReference() const { return m_Guid; }
 		bool IsOneShot() const;
+		bool IsSnapshot() const;
+		// Requires a snapshot with its Intensity dial exposed as a continuous 0–100 parameter.
+		bool SetSnapshotIntensity(float intensity);
 		bool IsPaused() const { return m_Paused || m_ScenePaused; }
 		float GetParameter(const std::string& name) const;
 		bool SetParameterLabel(const std::string& name, const std::string& label);
@@ -88,6 +91,8 @@ namespace Lux {
 		std::string m_Guid;
 		uint64_t m_Generation = 0;
 		mutable std::unordered_set<std::string> m_ReportedErrors;
+		bool m_SnapshotIntensityValidated = false;
+		uint32_t m_SnapshotIntensityID[2]{};
 		bool m_Paused = false;
 		bool m_ScenePaused = false;
 	};

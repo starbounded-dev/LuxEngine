@@ -720,6 +720,32 @@ namespace Lux {
 				out << YAML::EndMap;
 			}
 
+			if (entity.HasComponent<AudioZoneComponent>())
+			{
+				const auto& zone = entity.GetComponent<AudioZoneComponent>();
+				out << YAML::Key << "AudioZoneComponent" << YAML::BeginMap;
+				out << YAML::Key << "Shape" << YAML::Value << static_cast<uint32_t>(zone.Shape);
+				out << YAML::Key << "Enabled" << YAML::Value << zone.Enabled;
+				out << YAML::Key << "Offset" << YAML::Value << zone.Offset;
+				out << YAML::Key << "HalfExtents" << YAML::Value << zone.HalfExtents;
+				out << YAML::Key << "Radius" << YAML::Value << zone.Radius;
+				out << YAML::Key << "Priority" << YAML::Value << zone.Priority;
+				out << YAML::Key << "BlendDistance" << YAML::Value << zone.BlendDistance;
+				out << YAML::Key << "FadeTime" << YAML::Value << zone.FadeTime;
+				out << YAML::Key << "Volume" << YAML::Value << zone.Volume;
+				out << YAML::Key << "AmbienceEvent" << YAML::BeginMap;
+				out << YAML::Key << "Guid" << YAML::Value << zone.AmbienceEvent.Guid;
+				out << YAML::Key << "Path" << YAML::Value << zone.AmbienceEvent.Path;
+				out << YAML::Key << "BankName" << YAML::Value << zone.AmbienceEvent.BankName;
+				out << YAML::EndMap;
+				out << YAML::Key << "Snapshot" << YAML::BeginMap;
+				out << YAML::Key << "Guid" << YAML::Value << zone.Snapshot.Guid;
+				out << YAML::Key << "Path" << YAML::Value << zone.Snapshot.Path;
+				out << YAML::Key << "BankName" << YAML::Value << zone.Snapshot.BankName;
+				out << YAML::EndMap;
+				out << YAML::EndMap;
+			}
+
 			if (entity.HasComponent<AudioSurfaceComponent>())
 			{
 				out << YAML::Key << "AudioSurfaceComponent" << YAML::BeginMap;
@@ -1197,6 +1223,37 @@ namespace Lux {
 					component.CollisionComplexity = (ECollisionComplexity)meshCollider["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
 				}
 
+				if (auto node = entity["AudioZoneComponent"])
+				{
+					auto& zone = deserializedEntity.AddComponent<AudioZoneComponent>();
+					const auto shape = node["Shape"].as<uint32_t>(0);
+					if (shape > static_cast<uint32_t>(AudioZoneShape::Collider))
+						throw std::runtime_error("Invalid audio zone shape");
+					zone.Shape = static_cast<AudioZoneShape>(shape);
+					zone.Enabled = node["Enabled"].as<bool>(zone.Enabled);
+					zone.Offset = node["Offset"].as<glm::vec3>(zone.Offset);
+					zone.HalfExtents = node["HalfExtents"].as<glm::vec3>(zone.HalfExtents);
+					zone.Radius = node["Radius"].as<float>(zone.Radius);
+					zone.Priority = node["Priority"].as<float>(zone.Priority);
+					zone.BlendDistance = node["BlendDistance"].as<float>(zone.BlendDistance);
+					zone.FadeTime = node["FadeTime"].as<float>(zone.FadeTime);
+					zone.Volume = node["Volume"].as<float>(zone.Volume);
+					if (auto reference = node["AmbienceEvent"])
+					{
+						zone.AmbienceEvent.Guid = reference["Guid"].as<std::string>("");
+						zone.AmbienceEvent.Path = reference["Path"].as<std::string>("");
+						zone.AmbienceEvent.BankName = reference["BankName"].as<std::string>("");
+					}
+					if (auto reference = node["Snapshot"])
+					{
+						zone.Snapshot.Guid = reference["Guid"].as<std::string>("");
+						zone.Snapshot.Path = reference["Path"].as<std::string>("");
+						zone.Snapshot.BankName = reference["BankName"].as<std::string>("");
+					}
+					if (!AudioZoneSystem::Validate(zone))
+						throw std::runtime_error("Invalid audio zone dimensions or blend settings");
+				}
+
 				if (auto surface = entity["AudioSurfaceComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<AudioSurfaceComponent>();
@@ -1445,6 +1502,19 @@ namespace Lux {
 		audio.ScriptPaused = true;
 		childB.AddComponent<MeshColliderComponent>().Acoustic = AcousticMaterial::Wood;
 		childB.AddComponent<AudioSurfaceComponent>().Material = AcousticMaterial::Carpet;
+		auto& zone = childB.AddComponent<AudioZoneComponent>();
+		zone.Shape = AudioZoneShape::Sphere;
+		zone.Offset = { 1.0f, 2.0f, 3.0f };
+		zone.HalfExtents = { 3.0f, 4.0f, 5.0f };
+		zone.Radius = 7.0f;
+		zone.Priority = 5.0f;
+		zone.BlendDistance = 1.5f;
+		zone.FadeTime = 0.4f;
+		zone.Volume = 0.7f;
+		zone.Enabled = false;
+		zone.AmbienceEvent = audio.Event;
+		zone.Snapshot = { "{87654321-1234-1234-1234-123456789abc}", "snapshot:/Cave", "Test.bank" };
+		const AudioZoneComponent expectedZone = zone;
 		const AudioSourceComponent expectedAudio = audio;
 		auto checkAudioCopy = [&](Entity entity, const char* operation)
 		{
@@ -1457,6 +1527,20 @@ namespace Lux {
 				|| entity.GetComponent<MeshColliderComponent>().Acoustic != AcousticMaterial::Wood
 				|| entity.GetComponent<AudioSurfaceComponent>().Material != AcousticMaterial::Carpet)
 				fail(std::format("{} lost acoustic material tags", operation));
+			if (!entity.HasComponent<AudioZoneComponent>())
+				fail(std::format("{} lost the audio zone", operation));
+			else
+			{
+				const auto& copiedZone = entity.GetComponent<AudioZoneComponent>();
+				if (copiedZone.Enabled != expectedZone.Enabled || copiedZone.Shape != expectedZone.Shape
+					|| copiedZone.Offset != expectedZone.Offset || copiedZone.HalfExtents != expectedZone.HalfExtents
+					|| copiedZone.Radius != expectedZone.Radius || copiedZone.Priority != expectedZone.Priority
+					|| copiedZone.BlendDistance != expectedZone.BlendDistance || copiedZone.FadeTime != expectedZone.FadeTime
+					|| copiedZone.Volume != expectedZone.Volume || copiedZone.AmbienceEvent.Guid != expectedZone.AmbienceEvent.Guid
+					|| copiedZone.Snapshot.Guid != expectedZone.Snapshot.Guid || copiedZone.Snapshot.Path != expectedZone.Snapshot.Path
+					|| copiedZone.Snapshot.BankName != expectedZone.Snapshot.BankName)
+					fail(std::format("{} changed audio zone data", operation));
+			}
 			const auto& copied = entity.GetComponent<AudioSourceComponent>();
 			if (copied.Event.Guid != expectedAudio.Event.Guid || copied.ParameterOverrides != expectedAudio.ParameterOverrides
 				|| copied.Config.PlayOnAwake || copied.ScriptPaused
@@ -1470,7 +1554,7 @@ namespace Lux {
 		checkAudioCopy(prefab->GetScene()->TryGetEntityWithUUID(prefab->GetRootEntityID()), "Prefab creation");
 		checkAudioCopy(src->Instantiate(prefab), "Prefab instantiation");
 		src->ReconcilePrefabComponents(duplicate, parent);
-		if (duplicate.HasComponent<AudioSourceComponent>() || duplicate.HasComponent<AudioSurfaceComponent>() || duplicate.HasComponent<MeshColliderComponent>())
+		if (duplicate.HasComponent<AudioZoneComponent>() || duplicate.HasComponent<AudioSourceComponent>() || duplicate.HasComponent<AudioSurfaceComponent>() || duplicate.HasComponent<MeshColliderComponent>())
 			fail("Prefab reconciliation did not remove an absent audio source");
 		src->ReconcilePrefabComponents(duplicate, childB);
 		checkAudioCopy(duplicate, "Prefab reconciliation");

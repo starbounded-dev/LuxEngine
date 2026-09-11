@@ -509,6 +509,11 @@ namespace Lux {
 			m_Dirty = true;
 		}
 
+		static const char* zoneModes[] = { "Layer zones and VA", "Prefer zones", "Prefer VA" };
+		if (ImGuiEx::PropertyDropdown("Zone Reverb", zoneModes, 3, audioSettings.ZoneReverbMode,
+			"Layered keeps both. Prefer zones reduces VA ReverbSend by active snapshot coverage. Prefer VA suppresses zone snapshots while valid VA ambience is available.", false))
+			m_Dirty = true;
+
 		bool liveUpdate = audioSettings.EnableLiveUpdate;
 		if (ImGuiEx::Property("Live Update", liveUpdate,
 			"Lets the FMOD Studio application connect to the running editor and mix in real time. Takes effect the next time the project is opened, since the audio engine is initialised then."))

@@ -335,6 +335,7 @@ namespace Lux {
 				bool isOneshot = false;
 				success = CheckFMOD(description->isOneshot(&isOneshot), "Failed to query event playback mode") && success;
 				info.IsOneshot = isOneshot;
+				success = CheckFMOD(description->isSnapshot(&info.IsSnapshot), "Failed to query snapshot type") && success;
 
 				// Recorded here rather than looked up later: this loop is the only place the
 				// bank-to-event relationship is known without asking FMOD again.

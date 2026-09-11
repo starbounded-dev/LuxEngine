@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Lux/Audio/AudioZoneSettings.h"
+
 #include <filesystem>
 #include <map>
 #include <string>
@@ -46,6 +48,7 @@ namespace Lux
 		// Populated only from the binary runtime package, never from editor YAML.
 		AudioBankManifest RuntimeBanks;
 		AcousticMaterialSettings AcousticMaterials;
+		AudioZoneReverbMode ZoneReverbMode = AudioZoneReverbMode::Layered;
 
 		// The FMOD Studio project (.fspro) that authors this game's audio, relative to the asset
 		// directory. Sound designers work in the Studio app; the engine consumes only the banks it

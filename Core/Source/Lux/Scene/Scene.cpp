@@ -324,6 +324,7 @@ namespace Lux {
 		}
 
 		ReleaseRuntimeAudio(entity);
+		m_AudioZones.Remove(entity.GetUUID());
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
 
@@ -363,6 +364,70 @@ namespace Lux {
 				event.Instance->Stop(false);
 		}
 		m_RuntimeEventInstances.clear();
+		m_AudioZones.Clear();
+		m_AudioZoneRaytracedValid = false;
+		m_AudioZoneInputs.clear();
+	}
+
+	AudioZoneVolume Scene::GetAudioZoneVolume(Entity entity)
+	{
+		const auto& zone = entity.GetComponent<AudioZoneComponent>();
+		AudioZoneVolume volume;
+		volume.Transform = GetWorldSpaceTransformMatrix(entity);
+		glm::vec3 offset = zone.Offset;
+		volume.HalfExtents = zone.HalfExtents;
+		volume.Radius = zone.Radius;
+		if (zone.Shape == AudioZoneShape::Sphere)
+			volume.Type = AudioZoneVolume::Shape::Sphere;
+		else if (zone.Shape == AudioZoneShape::Collider)
+		{
+			const auto* box = entity.TryGetComponent<BoxColliderComponent>();
+			const auto* sphere = entity.TryGetComponent<SphereColliderComponent>();
+			const auto* capsule = entity.TryGetComponent<CapsuleColliderComponent>();
+			volume.Valid = static_cast<int>(box != nullptr) + static_cast<int>(sphere != nullptr) + static_cast<int>(capsule != nullptr) == 1;
+			if (box)
+			{
+				offset = box->Offset;
+				volume.HalfExtents = box->HalfSize;
+			}
+			else if (sphere)
+			{
+				offset = sphere->Offset;
+				volume.Type = AudioZoneVolume::Shape::Sphere;
+				volume.Radius = sphere->Radius;
+			}
+			else if (capsule)
+			{
+				offset = capsule->Offset;
+				volume.Type = AudioZoneVolume::Shape::Capsule;
+				volume.Radius = capsule->Radius;
+				volume.HalfHeight = capsule->HalfHeight;
+			}
+		}
+		volume.Transform = glm::translate(volume.Transform, offset);
+		const float determinant = glm::determinant(glm::mat3(volume.Transform));
+		volume.Valid = volume.Valid && std::isfinite(determinant) && determinant != 0.0f
+			&& std::isfinite(volume.Radius) && volume.Radius > 0.0f
+			&& std::isfinite(volume.HalfHeight) && volume.HalfHeight >= 0.0f
+			&& glm::all(glm::greaterThan(volume.HalfExtents, glm::vec3(0.0f)));
+		for (int axis = 0; axis < 3; ++axis)
+			volume.Valid = volume.Valid && std::isfinite(volume.HalfExtents[axis]) && std::isfinite(volume.Transform[3][axis]);
+		return volume;
+	}
+
+	void Scene::UpdateAudioZones(float timestep, bool raytracedReverbValid)
+	{
+		if (!m_IsPaused)
+			m_AudioZoneRaytracedValid = raytracedReverbValid;
+		m_AudioZoneInputs.clear();
+		for (auto handle : m_Registry.view<TransformComponent, AudioZoneComponent>())
+		{
+			Entity entity{ handle, this };
+			m_AudioZoneInputs.push_back({ entity.GetUUID(), &entity.GetComponent<AudioZoneComponent>(), GetAudioZoneVolume(entity) });
+		}
+		const auto project = Project::GetActive();
+		m_AudioZones.Update(m_AudioZoneInputs, m_RuntimeAudioListeners, timestep, m_IsPaused,
+			project ? project->GetConfig().Audio.ZoneReverbMode : AudioZoneReverbMode::Layered, m_AudioZoneRaytracedValid);
 	}
 
 	const AudioListenerState* Scene::GetPrimaryAudioListener() const
@@ -623,14 +688,16 @@ namespace Lux {
 					ReleaseRuntimeAudio(entity);
 			}
 
+			// Join before reading VA results; zone evaluation itself also works without VA.
+			if (m_RaytracedAudioScene)
+				m_RaytracedAudioScene->WaitForResults();
+			UpdateAudioZones(static_cast<float>(ts), m_RaytracedAudioScene && m_RaytracedAudioScene->GetAmbience().Valid);
+
 			if (m_RaytracedAudioScene)
 			{
 				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::RaytracedAudioScene Scope", 0xFF7200);
 
-				// Joins last frame's raytracing batch. Everything below - moving the listener and
-				// emitters, reading results - then runs while no Vercidium worker is touching the
-				// world, and OnUpdate at the bottom kicks the next batch.
-				m_RaytracedAudioScene->WaitForResults();
+				// The batch is joined above. OnUpdate below launches the next VA batch.
 
 				// Vercidium currently simulates one listener. Match the dominant mixer listener,
 				// using the character's position for acoustic paths when attenuation is detached.
@@ -657,12 +724,10 @@ namespace Lux {
 						m_RaytracedAudioScene->SetEmitterMaxVolume(entityID, asc.Config.VolumeMultiplier);
 
 						const RaytracedAudioResult result = m_RaytracedAudioScene->GetResult(entityID);
-						if (!result.Valid && !ambience.Valid)
-							return;
-
+						// Clear stale sends when VA has no result, so zone fallback cannot double the reverb.
 						AudioEventAcoustics acoustics;
 						acoustics.OcclusionGainLF = result.Valid ? result.OcclusionGainLF : 1.0f;
-						acoustics.ReverbSend = ambience.Valid ? ambience.ReturnedPercent : 0.0f;
+						acoustics.ReverbSend = ambience.Valid ? ambience.ReturnedPercent * m_AudioZones.GetRaytracedReverbGain() : 0.0f;
 						if (Ref<AudioEventInstance> instance = GetRuntimeEventInstance(entityID))
 							instance->SetAcoustics(acoustics);
 					});
@@ -673,6 +738,7 @@ namespace Lux {
 		else if (m_IsPaused)
 		{
 			SyncAudioListeners(0.0f);
+			UpdateAudioZones(0.0f, false);
 
 			for (auto& [id, event] : m_RuntimeEventInstances)
 			{
@@ -902,7 +968,7 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent,
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent,
 			FolderComponent>;
 
 		if (!entity)
@@ -969,7 +1035,7 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, FolderComponent>;
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, FolderComponent>;
 
 		std::unordered_map<UUID, UUID> entityMap;
 		std::function<Entity(Entity, Entity)> instantiateHierarchy;
@@ -1105,7 +1171,7 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, FolderComponent>;
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, FolderComponent>;
 
 		ReconcileComponents(PrefabSyncComponents{}, destination, source);
 		if (destination.HasComponent<AudioListenerComponent>())
@@ -1964,8 +2030,87 @@ namespace Lux {
 		packet.Meshes = SyncRenderScene(isSelected);
 		CaptureDraw2D(packet);
 		CaptureColliderDebug(packet, renderer, isSelected);
+		CaptureAudioZones(packet, isSelected);
 
 		packet.Valid = true;
+	}
+
+	void Scene::CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected)
+	{
+		if (!isSelected)
+			return;
+		constexpr glm::vec4 boundaryColor{ 0.35f, 0.75f, 1.0f, 1.0f };
+		constexpr glm::vec4 blendColor{ 0.35f, 0.75f, 1.0f, 0.4f };
+		constexpr int segments = 48;
+		for (auto handle : m_Registry.view<TransformComponent, AudioZoneComponent>())
+		{
+			Entity entity{ handle, this };
+			if (!isSelected(entity))
+				continue;
+			const auto& component = entity.GetComponent<AudioZoneComponent>();
+			const auto volume = GetAudioZoneVolume(entity);
+			if (!volume.Valid || !AudioZoneSystem::Validate(component))
+				continue;
+			for (int margin = 0; margin < 2; ++margin)
+			{
+				const float inset = margin ? component.BlendDistance : 0.0f;
+				if (margin && inset == 0.0f)
+					continue;
+				const auto color = margin ? blendColor : boundaryColor;
+				auto line = [&](glm::vec3 a, glm::vec3 b) { packet.AudioZoneLines.push_back({ a, b, color }); };
+				if (volume.Type == AudioZoneVolume::Shape::Box)
+				{
+					const glm::mat4 inverse = glm::inverse(volume.Transform);
+					glm::vec3 half = volume.HalfExtents;
+					for (int axis = 0; axis < 3; ++axis)
+						half[axis] -= inset * glm::length(glm::vec3(inverse[0][axis], inverse[1][axis], inverse[2][axis]));
+					if (glm::any(glm::lessThanEqual(half, glm::vec3(0.0f))))
+						continue;
+					glm::vec3 corners[8];
+					for (int i = 0; i < 8; ++i)
+						corners[i] = glm::vec3(volume.Transform * glm::vec4(half * glm::vec3(i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1), 1.0f));
+					for (int i = 0; i < 8; ++i)
+						for (int axis = 0; axis < 3; ++axis)
+							if (!(i & (1 << axis)))
+								line(corners[i], corners[i | (1 << axis)]);
+				}
+				else
+				{
+					const glm::vec3 scale(glm::length(glm::vec3(volume.Transform[0])), glm::length(glm::vec3(volume.Transform[1])), glm::length(glm::vec3(volume.Transform[2])));
+					const bool capsule = volume.Type == AudioZoneVolume::Shape::Capsule;
+					const float radius = volume.Radius * (capsule ? std::max(scale.x, scale.z) : std::max({ scale.x, scale.y, scale.z })) - inset;
+					if (radius <= 0.0f)
+						continue;
+					const float height = capsule ? volume.HalfHeight * scale.y : 0.0f;
+					const glm::vec3 up = glm::vec3(volume.Transform[1]) / scale.y;
+					const glm::vec3 seed = std::abs(up.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 0, 1);
+					const glm::vec3 right = glm::normalize(glm::cross(seed, up));
+					const glm::vec3 forward = glm::cross(up, right);
+					const glm::vec3 center(volume.Transform[3]);
+					for (int plane = 0; plane < 3; ++plane)
+					{
+						auto point = [&](float angle)
+						{
+							const float c = std::cos(angle), s = std::sin(angle);
+							return plane == 0 ? center + radius * (right * c + forward * s)
+								: center + (plane == 1 ? right : forward) * (radius * c) + up * (radius * s + (s >= 0 ? height : -height));
+						};
+						for (int i = 0; i < segments; ++i)
+						{
+							const auto a = point(glm::two_pi<float>() * static_cast<float>(i) / segments);
+							const auto b = point(glm::two_pi<float>() * static_cast<float>(i + 1) / segments);
+							if (plane == 0 && capsule)
+							{
+								line(a + up * height, b + up * height);
+								line(a - up * height, b - up * height);
+							}
+							else
+								line(a, b);
+						}
+					}
+				}
+			}
+		}
 	}
 
 	void Scene::CaptureDraw2D(FrameRenderPacket& packet)
@@ -2051,9 +2196,10 @@ namespace Lux {
 		// The 2D overlay runs as a deferred render-graph pass (possibly off the submitting thread), so the
 		// callback owns its own copy of the captured draw items - it never touches the live registry.
 		std::vector<FrameRenderPacket::Draw2DItem> draw2D = packet.Draw2D;
+		auto audioZoneLines = packet.AudioZoneLines;
 		const glm::mat4 overlayView = packet.Overlay2DView;
 		const glm::mat4 overlayViewProjection = packet.Overlay2DViewProjection;
-		renderer->SetWorldOverlayRenderCallback([renderer, draw2D = std::move(draw2D), overlayView, overlayViewProjection]() mutable
+		renderer->SetWorldOverlayRenderCallback([renderer, draw2D = std::move(draw2D), audioZoneLines = std::move(audioZoneLines), overlayView, overlayViewProjection]() mutable
 		{
 			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
 			if (!renderer2D)
@@ -2083,6 +2229,8 @@ namespace Lux {
 				}
 			}
 
+			for (const auto& line : audioZoneLines)
+				renderer2D->DrawLine(line.Start, line.End, line.Color, true);
 			renderer2D->EndScene();
 		});
 
@@ -2560,6 +2708,11 @@ namespace Lux {
 	{
 		component.ScriptPaused = false;
 		ReleaseRuntimeAudio(entity);
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AudioZoneComponent>(Entity entity, AudioZoneComponent& component)
+	{
 	}
 
 	template<>

@@ -424,6 +424,46 @@ missing entries use SDK presets. Runtime format 18 appends a bounded explicit ov
 the bank manifest, keeping `ProjectInfo`'s fixed layout unchanged. Formats 16/17 remain readable
 and use default material settings. Unknown or duplicate IDs and truncated blocks fail loading.
 
+**Zones and snapshots (Phase 8):** `Scene` owns `AudioZoneSystem` and supplies resolved volumes
+on the main thread after listener synchronization and the VA join. `AudioZoneComponent` supports
+box/sphere volumes or exactly one box, sphere or capsule collider on the same entity. Mesh and 2D
+colliders are unsupported; missing/ambiguous primitive colliders and invalid geometry log once
+until corrected. Box dimensions/offsets follow the world transform. Sphere radius uses maximum
+world scale; capsules use maximum X/Z radius scale and Y half-height scale, matching primitive
+physics scaling. These are containment volumes, independent of collision callbacks.
+
+Weights rise inward from the boundary over `BlendDistance` world metres. For each active listener,
+higher priorities consume available weight first; equal priorities share their capped coverage
+proportionally. Listener weights are normalized and combined into the global mixer result;
+attenuation targets also determine zone occupancy. No active listener means zero target weights.
+`FadeTime` smooths entry/exit in seconds and freezes during scene pause. Ambience must be a looping
+Studio event. One ambience instance is cached per entity, placed at its volume center, and receives
+`Volume * Weight`; it starts on entry and stops on exit, retaining ownership through FMOD fade-out.
+Entity/component removal and scene teardown release voices. Missing banks retry on catalog revision;
+bank/system reload generations invalidate and recreate active wrappers safely.
+
+Zone snapshot contributions are coalesced by canonical GUID into one instance: FMOD averages
+multiple instances of the same snapshot, so separate instances would weaken overlap. `Intensity`
+must be exposed from the snapshot dial as a local continuous writable 0–100 Studio parameter.
+`SetSnapshotIntensity` takes normalized 0–1, validates type/range, caches the parameter ID and
+sets intensity before playback. Event volume does not control snapshot intensity. A missing or
+mis-authored snapshot reports an error and does not suppress VA reverb. Snapshot mixer scope,
+priority and transition curves remain authored in Studio. Explicit script-created snapshots are
+independently owned and can still interact with zone snapshots under FMOD's averaging rules.
+
+Project `Audio.ZoneReverbMode` selects Layered (default), PreferZones (scale source VA `ReverbSend`
+by one minus active zone snapshot coverage), or PreferRaytraced (suppress zone snapshots while
+VA ambience is valid, falling back to zones otherwise). This policy leaves VA occlusion and zone
+ambience beds independent. The latest joined VA validity is retained while paused. Runtime format
+19 adds one validated mode byte after the version-18 materials block; versions 16–18 use Layered.
+
+Zone data survives scene YAML, runtime scenes, copy/duplicate and prefab operations. The inspector
+provides typed bank event/snapshot pickers, dimensions, blending and a runtime weight. Selected
+volumes and inner full-weight margins are captured as `FrameRenderPacket::AudioZoneLines`; the
+render callback consumes only those immutable lines. C# exposes `AudioZoneComponent` and
+`Audio.StartSnapshot(reference, intensity)`, returning the usual explicitly owned `EventInstance`.
+See `docs/AUDIO_ZONES.md` for authoring and verification.
+
 **Banks:** `AudioBankBuilder` locates Studio's command-line tool and builds banks with
 `-build -export-guids`. Its stale check compares authored input to built bank timestamps and skips
 Build, caches, user state and .git. Tool lookup is cached for editor queries. Studio project paths
@@ -440,7 +480,7 @@ A partial directory load reports failure. `LoadBank` is additive and idempotent 
 Bank catalog revision changes retry failed event lookups; lifetime generation changes only when
 unloading banks or shutting down and invalidates all old event wrappers.
 
-**Runtime exports (format 18; bank manifest introduced in 17):** `AudioBankManifest` is an explicit, bounded stream block after
+**Runtime exports (format 19; bank manifest introduced in 17):** `AudioBankManifest` is an explicit, bounded stream block after
 `ProjectInfo`'s unchanged fixed-size header. It carries an asset-relative directory, the exact bank
 filenames, and the live-update setting (disabled for Dist exports). Never put owning strings or
 vectors into the raw `ProjectInfo` block. Older formats load without Studio configuration and warn

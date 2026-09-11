@@ -423,6 +423,24 @@ namespace Lux {
 		bool IsValid() const { return !Guid.empty(); }
 	};
 
+	enum class AudioZoneShape : uint8_t { Box, Sphere, Collider };
+	using AudioSnapshotRef = AudioEventRef;
+
+	struct AudioZoneComponent
+	{
+		bool Enabled = true;
+		AudioZoneShape Shape = AudioZoneShape::Box;
+		glm::vec3 Offset{ 0.0f };
+		glm::vec3 HalfExtents{ 5.0f, 3.0f, 5.0f };
+		float Radius = 5.0f;
+		float Priority = 0.0f;
+		float BlendDistance = 2.0f;
+		float FadeTime = 0.25f;
+		float Volume = 1.0f;
+		AudioEventRef AmbienceEvent;
+		AudioSnapshotRef Snapshot;
+	};
+
 	struct AudioSurfaceComponent
 	{
 		// Overrides the acoustic tag on this entity’s mesh collider when present.
@@ -628,7 +646,7 @@ namespace Lux {
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent,
+		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent,
 		FolderComponent>;
 
 }

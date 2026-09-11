@@ -72,6 +72,7 @@ namespace Lux {
 			if (entity.HasComponent<TextComponent>())             return { LUX_ICON_FONT, neutral };
 			if (entity.HasComponent<SpriteRendererComponent>())   return { LUX_ICON_PICTURE_O, neutral };
 			if (entity.HasComponent<AudioSourceComponent>())      return { LUX_ICON_MUSIC, purple };
+			if (entity.HasComponent<AudioZoneComponent>())        return { LUX_ICON_VOLUME_UP, purple };
 			if (entity.HasComponent<AudioListenerComponent>())    return { LUX_ICON_VOLUME_UP, purple };
 			if (entity.HasComponent<ScriptComponent>())           return { LUX_ICON_CODE, green };
 			return { LUX_ICON_DOT_CIRCLE_O, muted };
@@ -1244,7 +1245,7 @@ namespace Lux {
 				int shown = 0;
 				for (const AudioEventInfo& info : events)
 				{
-					if (!m_AudioEventBankFilter.empty() && info.BankName != m_AudioEventBankFilter)
+					if (info.IsSnapshot || (!m_AudioEventBankFilter.empty() && info.BankName != m_AudioEventBankFilter))
 						continue;
 
 					if (!ImGuiEx::IsMatchingSearch(info.Path, m_AudioEventSearch, false, false, true))
@@ -1457,6 +1458,7 @@ namespace Lux {
 				const bool canAddCapsuleCollider = canAddComponent.template operator()<CapsuleColliderComponent>();
 				const bool canAddMeshCollider = canAddComponent.template operator()<MeshColliderComponent>();
 				const bool canAddAudioSource = canAddComponent.template operator()<AudioSourceComponent>();
+				const bool canAddAudioZone = canAddComponent.template operator()<AudioZoneComponent>();
 				const bool canAddAudioSurface = canAddComponent.template operator()<AudioSurfaceComponent>();
 				const bool canAddAudioListener = canAddComponent.template operator()<AudioListenerComponent>();
 				const bool canAddDirectionalLight = canAddComponent.template operator()<DirectionalLightComponent>();
@@ -1688,7 +1690,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddAudioSource || canAddAudioListener || canAddAudioSurface)
+				if (canAddAudioSource || canAddAudioListener || canAddAudioSurface || canAddAudioZone)
 					addCategoryHeader("Audio");
 
 				if (canAddAudioSource)
@@ -1704,6 +1706,18 @@ namespace Lux {
 					});
 				}
 
+				if (canAddAudioZone)
+				{
+					addComponentRow("Audio Zone", EditorResources::AudioIcon, [this, &entityIDs]()
+					{
+						for (UUID id : entityIDs)
+						{
+							Entity entity = m_Context->TryGetEntityWithUUID(id);
+							if (entity && !entity.HasComponent<AudioZoneComponent>())
+								entity.AddComponent<AudioZoneComponent>();
+						}
+					});
+				}
 				if (canAddAudioSurface)
 				{
 					addComponentRow("Audio Surface", EditorResources::AudioIcon, [this, &entityIDs]()
@@ -1921,6 +1935,7 @@ namespace Lux {
 						row.operator()<AudioSourceComponent>("AudioSourceComponent", "Audio Source");
 						row.operator()<AudioListenerComponent>("AudioListenerComponent", "Audio Listener");
 						row.operator()<AudioSurfaceComponent>("AudioSurfaceComponent", "Audio Surface");
+						row.operator()<AudioZoneComponent>("AudioZoneComponent", "Audio Zone");
 						row.operator()<FolderComponent>("Folder", "Folder");
 
 						ImGui::Spacing();
@@ -2954,6 +2969,111 @@ namespace Lux {
 					ImGui::TextDisabled("Parameter overrides apply to the first selected entity.");
 			});
 
+
+		DrawComponentSection<AudioZoneComponent>(m_Context, entityIDs, "Audio Zone", EditorResources::AudioIcon,
+			[this](AudioZoneComponent& first, const std::vector<UUID>& selected, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				auto property = [&]<typename T>(const char* label, T AudioZoneComponent::* member, auto draw)
+				{
+					T value = first.*member;
+					const bool mixed = IsSelectionInconsistent<T>(m_Context, selected, [member](Entity entity)
+					{
+						return entity.GetComponent<AudioZoneComponent>().*member;
+					});
+					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
+					if (draw(label, value))
+						ApplyToSelection<AudioZoneComponent>(m_Context, selected, [member, value](AudioZoneComponent& component, Entity)
+						{
+							component.*member = value;
+						});
+				};
+				property("Enabled", &AudioZoneComponent::Enabled, [](const char* label, bool& value)
+				{
+					return ImGuiEx::Property(label, value, "", false);
+				});
+				property("Shape", &AudioZoneComponent::Shape, [](const char* label, AudioZoneShape& value)
+				{
+					static const char* names[] = { "Box", "Sphere", "Collider" };
+					return ImGuiEx::PropertyDropdown(label, names, 3, value, "Collider uses exactly one box, sphere or capsule on this entity.", false);
+				});
+				property("Priority", &AudioZoneComponent::Priority, [](const char* label, float& value)
+				{
+					return ImGuiEx::Property(label, value, 0.1f, -10000.0f, 10000.0f, "", false);
+				});
+				property("Blend Distance", &AudioZoneComponent::BlendDistance, [](const char* label, float& value)
+				{
+					return ImGuiEx::Property(label, value, 0.1f, 0.0f, 10000.0f, "", false);
+				});
+				property("Fade Time (s)", &AudioZoneComponent::FadeTime, [](const char* label, float& value)
+				{
+					return ImGuiEx::Property(label, value, 0.1f, 0.0f, 60.0f, "", false);
+				});
+				property("Ambience Volume", &AudioZoneComponent::Volume, [](const char* label, float& value)
+				{
+					return ImGuiEx::Property(label, value, 0.1f, 0.0f, 10.0f, "", false);
+				});
+				if (first.Shape != AudioZoneShape::Collider)
+				{
+					property("Offset", &AudioZoneComponent::Offset, [](const char* label, glm::vec3& value)
+					{
+						return ImGuiEx::Property(label, value, 0.1f, 0.0f, 0.0f, "", false);
+					});
+					if (first.Shape == AudioZoneShape::Box)
+						property("Half Extents", &AudioZoneComponent::HalfExtents, [](const char* label, glm::vec3& value)
+						{
+							return ImGuiEx::Property(label, value, 0.1f, 0.001f, 10000.0f, "", false);
+						});
+					else
+						property("Radius", &AudioZoneComponent::Radius, [](const char* label, float& value)
+						{
+							return ImGuiEx::Property(label, value, 0.1f, 0.001f, 10000.0f, "", false);
+						});
+				}
+				ImGuiEx::EndPropertyGrid();
+				auto picker = [&](const char* label, AudioEventRef AudioZoneComponent::* member, bool snapshot)
+				{
+					ImGuiEx::ScopedID id(label);
+					const auto& reference = first.*member;
+					const bool mixed = IsSelectionInconsistent<std::string>(m_Context, selected, [member](Entity entity)
+					{
+						return (entity.GetComponent<AudioZoneComponent>().*member).Guid;
+					});
+					const char* preview = mixed ? "Multiple values" : reference.Guid.empty() ? "None" : reference.Path.empty() ? reference.Guid.c_str() : reference.Path.c_str();
+					if (ImGui::BeginCombo(label, preview))
+					{
+						auto assign = [&](const AudioEventRef& value)
+						{
+							ApplyToSelection<AudioZoneComponent>(m_Context, selected, [member, &value](AudioZoneComponent& component, Entity)
+							{
+								component.*member = value;
+							});
+						};
+						if (ImGui::Selectable("None", reference.Guid.empty()))
+							assign({});
+						for (const auto& info : AudioEngine::GetEvents())
+						{
+							if (info.IsSnapshot != snapshot || (!snapshot && info.IsOneshot))
+								continue;
+							ImGuiEx::ScopedID eventID(info.Guid.c_str());
+							ImGuiEx::ScopedID bankID(info.BankName.c_str());
+							if (ImGui::Selectable(info.Path.empty() ? info.Guid.c_str() : info.Path.c_str(), info.Guid == reference.Guid))
+								assign({ info.Guid, info.Path, info.BankName });
+						}
+						ImGui::EndCombo();
+					}
+					if (!reference.Guid.empty() && std::none_of(AudioEngine::GetEvents().begin(), AudioEngine::GetEvents().end(),
+						[&](const auto& info) { return info.Guid == reference.Guid && info.IsSnapshot == snapshot; }))
+						ImGui::TextWrapped("Assigned reference is unavailable or has the wrong type. Build/load its bank.");
+				};
+				picker("Ambience Event", &AudioZoneComponent::AmbienceEvent, false);
+				picker("Snapshot", &AudioZoneComponent::Snapshot, true);
+				ImGui::TextWrapped("Blend Distance fades inward from the boundary in metres. Higher priorities consume the mix first; equal priorities share it. Expose the snapshot Intensity dial as a 0-100 parameter in FMOD Studio.");
+				if (first.Shape == AudioZoneShape::Collider)
+					ImGui::TextWrapped("Collider mode supports exactly one box, sphere or capsule on this entity. Mesh and 2D colliders are unsupported.");
+				if (m_Context->IsRunning() && selected.size() == 1)
+					ImGui::Text("Current weight: %.3f", m_Context->GetAudioZoneWeight(selected.front()));
+			});
 
 		DrawComponentSection<AudioSurfaceComponent>(m_Context, entityIDs, "Audio Surface", EditorResources::AudioIcon,
 			[this](AudioSurfaceComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)

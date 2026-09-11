@@ -60,6 +60,27 @@ namespace Lux
 			return instance;
 		}
 
+		/// <summary>Starts an authored snapshot. Expose its Intensity dial as a continuous 0–100
+		/// parameter in Studio. The caller owns the returned instance; Stop fades, Dispose stops immediately.</summary>
+		public static EventInstance StartSnapshot(string snapshotRef, float intensity = 1.0f)
+		{
+			Finite(intensity);
+			if (intensity < 0 || intensity > 1)
+				throw new ArgumentOutOfRangeException(nameof(intensity));
+			var instance = CreateInstance(snapshotRef);
+			try
+			{
+				instance.SetSnapshotIntensity(intensity);
+				instance.Start();
+				return instance;
+			}
+			catch
+			{
+				instance.Dispose();
+				throw;
+			}
+		}
+
 		public static void SetBusVolume(string busPath, float volume)
 		{
 			Finite(volume);
@@ -123,6 +144,17 @@ namespace Lux
 		public bool IsPlaying => IsValid && InternalCalls.Audio_IsPlaying(m_Handle);
 		public event Action? Stopped;
 		public event Action<string>? Marker;
+		/// <summary>Normalized snapshot intensity, 0–1. This does not change event volume.</summary>
+		public void SetSnapshotIntensity(float intensity)
+		{
+			Audio.RequireMainThread();
+			Audio.Finite(intensity);
+			if (intensity < 0 || intensity > 1)
+				throw new ArgumentOutOfRangeException(nameof(intensity));
+			if (!InternalCalls.Audio_SetSnapshotIntensity(Handle, intensity))
+				throw new InvalidOperationException("Snapshot requires an exposed continuous Intensity parameter with range 0–100. Check the Audio log.");
+		}
+
 		public void Start() => InternalCalls.Audio_Start(Handle);
 		public void Stop(bool allowFadeOut = true) => InternalCalls.Audio_Stop(Handle, allowFadeOut);
 		public void SetVolume(float volume) { Audio.Finite(volume); InternalCalls.Audio_SetVolume(Handle, volume); }

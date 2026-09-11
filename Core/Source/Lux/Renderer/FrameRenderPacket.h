@@ -44,6 +44,12 @@ namespace Lux {
 			float Kerning = 0.0f;
 		};
 
+		struct DebugLine
+		{
+			glm::vec3 Start, End;
+			glm::vec4 Color;
+		};
+
 		struct ColliderDebugItem
 		{
 			Ref<StaticMesh> Mesh;
@@ -67,6 +73,7 @@ namespace Lux {
 		Ref<RenderScene> Meshes;
 
 		std::vector<Draw2DItem> Draw2D;
+		std::vector<DebugLine> AudioZoneLines;
 		std::vector<ColliderDebugItem> ColliderDebug;
 
 		void Reset()
@@ -75,6 +82,7 @@ namespace Lux {
 			SkyEnvironment = nullptr;
 			Meshes = nullptr;
 			Draw2D.clear();
+			AudioZoneLines.clear();
 			ColliderDebug.clear();
 		}
 	};

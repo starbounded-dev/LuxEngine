@@ -110,6 +110,110 @@ namespace Lux
 			return handle;
 		}
 
+		Coral::Bool32 Audio_SetSnapshotIntensity(uint64_t handle, float value)
+		{
+			auto event = Instance(handle);
+			return event && event->SetSnapshotIntensity(value);
+		}
+
+		AudioZoneComponent* Zone(uint64_t id)
+		{
+			Entity entity = AudioEntity(id);
+			auto* component = entity ? entity.TryGetComponent<AudioZoneComponent>() : nullptr;
+			if (entity && !component)
+				LUX_CORE_ERROR_TAG("Audio", "Entity {0} no longer has AudioZoneComponent", id);
+			return component;
+		}
+
+		// IDs are private to the managed bridge; public C# exposes named properties.
+		float Audio_ZoneGetScalar(uint64_t id, int32_t field)
+		{
+			auto* zone = Zone(id);
+			if (!zone)
+				return 0.0f;
+			switch (field)
+			{
+				case 0: return zone->Enabled ? 1.0f : 0.0f;
+				case 1: return static_cast<float>(zone->Shape);
+				case 2: return zone->Priority;
+				case 3: return zone->BlendDistance;
+				case 4: return zone->FadeTime;
+				case 5: return zone->Volume;
+				case 6: return zone->Radius;
+				case 7: return AudioScene()->GetAudioZoneWeight(id);
+				default:
+					LUX_CORE_ERROR_TAG("Audio", "Invalid zone scalar field {0}", field);
+					return 0.0f;
+			}
+		}
+
+		Coral::Bool32 Audio_ZoneSetScalar(uint64_t id, int32_t field, float value)
+		{
+			auto* zone = Zone(id);
+			if (!zone || !std::isfinite(value))
+				return false;
+			AudioZoneComponent candidate = *zone;
+			switch (field)
+			{
+				case 0: candidate.Enabled = value != 0.0f; break;
+				case 1:
+					if (value < 0.0f || value > 2.0f || std::floor(value) != value)
+						return false;
+					candidate.Shape = static_cast<AudioZoneShape>(static_cast<uint8_t>(value));
+					break;
+				case 2: candidate.Priority = value; break;
+				case 3: candidate.BlendDistance = value; break;
+				case 4: candidate.FadeTime = value; break;
+				case 5: candidate.Volume = value; break;
+				case 6: candidate.Radius = value; break;
+				default: return false;
+			}
+			if (!AudioZoneSystem::Validate(candidate))
+				return false;
+			*zone = std::move(candidate);
+			return true;
+		}
+
+		void Audio_ZoneGetVector(uint64_t id, Coral::Bool32 extents, glm::vec3* value)
+		{
+			if (!value)
+				return;
+			auto* zone = Zone(id);
+			*value = zone ? (extents ? zone->HalfExtents : zone->Offset) : glm::vec3(0.0f);
+		}
+
+		Coral::Bool32 Audio_ZoneSetVector(uint64_t id, Coral::Bool32 extents, const glm::vec3* value)
+		{
+			auto* zone = Zone(id);
+			if (!zone || !value)
+				return false;
+			AudioZoneComponent candidate = *zone;
+			(extents ? candidate.HalfExtents : candidate.Offset) = *value;
+			if (!AudioZoneSystem::Validate(candidate))
+				return false;
+			*zone = std::move(candidate);
+			return true;
+		}
+
+		Coral::Bool32 Audio_ZoneSetEvent(uint64_t id, Coral::Bool32 snapshot, Coral::String reference)
+		{
+			auto* zone = Zone(id);
+			if (!zone)
+				return false;
+			const std::string text = reference;
+			auto& target = snapshot ? zone->Snapshot : zone->AmbienceEvent;
+			if (text.empty())
+			{
+				target = {};
+				return true;
+			}
+			auto event = AudioEventInstance::Create(text);
+			if (!event || (snapshot ? !event->SetSnapshotIntensity(0.0f) : event->IsSnapshot() || event->IsOneShot()))
+				return false;
+			target = { event->GetReference(), {}, {} };
+			return true;
+		}
+
 		Coral::Bool32 Audio_IsMainThread()
 		{
 			return Application::IsMainThread();
@@ -444,6 +548,13 @@ namespace Lux
 	void AudioScriptBindings::Register(Coral::ManagedAssembly& assembly)
 	{
 		s_AudioType = &assembly.GetLocalType("Lux.Audio");
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SetSnapshotIntensity", reinterpret_cast<void*>(&Audio_SetSnapshotIntensity));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneGetScalar", reinterpret_cast<void*>(&Audio_ZoneGetScalar));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneSetScalar", reinterpret_cast<void*>(&Audio_ZoneSetScalar));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneGetVector", reinterpret_cast<void*>(&Audio_ZoneGetVector));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneSetVector", reinterpret_cast<void*>(&Audio_ZoneSetVector));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneSetEvent", reinterpret_cast<void*>(&Audio_ZoneSetEvent));
+
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_GetSurfaceMaterial", reinterpret_cast<void*>(&Audio_GetSurfaceMaterial));
 		// Registrations below are kept one-to-one with InternalCalls.cs.
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_LoadBank", reinterpret_cast<void*>(&Audio_LoadBank));

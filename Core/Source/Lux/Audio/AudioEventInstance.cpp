@@ -109,6 +109,39 @@ namespace Lux {
 			   CheckResult(description->isOneshot(&oneShot), "get one-shot state") && oneShot;
 	}
 
+	bool AudioEventInstance::IsSnapshot() const
+	{
+		FMOD::Studio::EventDescription* description = nullptr;
+		bool snapshot = false;
+		return IsValid() && CheckResult(m_Instance->getDescription(&description), "get description") &&
+			CheckResult(description->isSnapshot(&snapshot), "get snapshot state") && snapshot;
+	}
+
+	bool AudioEventInstance::SetSnapshotIntensity(float intensity)
+	{
+		if (!IsValid())
+			return false;
+		if (!std::isfinite(intensity) || intensity < 0.0f || intensity > 1.0f || (!m_SnapshotIntensityValidated && !IsSnapshot()))
+			return CheckResult(FMOD_ERR_INVALID_PARAM, "snapshot intensity requires a snapshot and a value in [0, 1]");
+		if (!m_SnapshotIntensityValidated)
+		{
+			FMOD::Studio::EventDescription* description = nullptr;
+			FMOD_STUDIO_PARAMETER_DESCRIPTION parameter{};
+			if (!CheckResult(m_Instance->getDescription(&description), "get snapshot description") ||
+				!CheckResult(description->getParameterDescriptionByName("Intensity", &parameter),
+					"expose the snapshot Intensity dial as a 0–100 parameter in FMOD Studio"))
+				return false;
+			if (parameter.minimum != 0.0f || parameter.maximum != 100.0f ||
+				(parameter.flags & (FMOD_STUDIO_PARAMETER_READONLY | FMOD_STUDIO_PARAMETER_GLOBAL | FMOD_STUDIO_PARAMETER_DISCRETE | FMOD_STUDIO_PARAMETER_LABELED)))
+				return CheckResult(FMOD_ERR_INVALID_PARAM, "snapshot Intensity must be a local continuous writable 0–100 parameter");
+			m_SnapshotIntensityID[0] = parameter.id.data1;
+			m_SnapshotIntensityID[1] = parameter.id.data2;
+			m_SnapshotIntensityValidated = true;
+		}
+		const FMOD_STUDIO_PARAMETER_ID id{ m_SnapshotIntensityID[0], m_SnapshotIntensityID[1] };
+		return CheckResult(m_Instance->setParameterByID(id, intensity * 100.0f, true), "set snapshot intensity");
+	}
+
 	float AudioEventInstance::GetParameter(const std::string& name) const
 	{
 		float value = 0.0f;

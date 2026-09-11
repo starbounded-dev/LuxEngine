@@ -4,6 +4,7 @@
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
+#include "Lux/Audio/AudioZoneSystem.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
@@ -100,6 +101,8 @@ namespace Lux {
 		static UUID MapPrefabEntityReference(UUID target, Entity source, Entity destination);
 		void RemapAudioListenerTargets(const std::unordered_map<UUID, UUID>& entityMap, bool clearExternal);
 		const AudioListenerState* GetPrimaryAudioListener() const;
+		float GetAudioZoneWeight(UUID id) const { return m_AudioZones.GetWeight(id); }
+		AudioZoneVolume GetAudioZoneVolume(Entity entity);
 
 		// After a prefab is edited, refresh this scene's instances of it: un-overridden instances
 		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
@@ -178,6 +181,7 @@ namespace Lux {
 		bool BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer);
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
+		void CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
 		void CaptureColliderDebug(FrameRenderPacket& packet,
 			Ref<SceneRenderer> renderer, const std::function<bool(Entity)>& isSelected);
 		void OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
@@ -214,6 +218,7 @@ namespace Lux {
 		void ReleaseRuntimeAudio(Entity entity);
 		void ReleaseAllRuntimeAudio();
 		void SyncAudioListeners(float timestep);
+		void UpdateAudioZones(float timestep, bool raytracedReverbValid);
 		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
 	private:
@@ -248,6 +253,9 @@ namespace Lux {
 		// A null instance records a failed lookup until its GUID or bank catalog revision changes.
 		std::unordered_map<UUID, RuntimeAudioEvent> m_RuntimeEventInstances;
 		AudioListener::States m_RuntimeAudioListeners;
+		AudioZoneSystem m_AudioZones;
+		bool m_AudioZoneRaytracedValid = false;
+		std::vector<AudioZoneInput> m_AudioZoneInputs;
 		uint32_t m_AudioListenerWarnings = 0;
 		Ref<RaytracedAudioScene> m_RaytracedAudioScene;
 

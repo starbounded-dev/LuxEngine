@@ -743,7 +743,7 @@ Ordered so each phase is independently useful and leaves the engine working.
 | 5 | **Runtime export** | Ship banks, carry config, fail loudly | Shipping at all |
 | 6 | **Delete legacy path** | Remove `AudioSource`, raw-file playback, miniaudio | One code path |
 | 7 | **Acoustic materials** | Material enum, collider tagging, VA mapping | Parts 5 and 7 both |
-| 8 | **Zones and snapshots** | Zone component, blending, snapshot control | Ambience, environment |
+| 8 | **Zones and snapshots — implemented** | Box/sphere/primitive-collider zones, priority/listener blending, FMOD intensity control, C# and editor integration; see `AUDIO_ZONES.md` | Ambience, environment |
 | 9 | **Surfaces and physics audio** | Surface table, footsteps, impacts, rolling | — |
 | 10 | **Interactive music** | Director, states, stingers, beat callbacks | Rhythm-adjacent gameplay |
 | 11 | **Dialogue and subtitles** | Programmer sounds, queue, subtitle events, localisation | Accessibility |

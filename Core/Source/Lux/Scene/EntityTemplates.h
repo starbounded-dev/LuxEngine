@@ -81,6 +81,8 @@ namespace Lux {
 		LUX_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
 		if constexpr (std::is_same_v<T, AudioSourceComponent>)
 			m_Scene->ReleaseRuntimeAudio(*this);
+		if constexpr (std::is_same_v<T, AudioZoneComponent>)
+			m_Scene->m_AudioZones.Remove(GetUUID());
 		m_Scene->m_Registry.remove<T>(m_EntityHandle);
 	}
 

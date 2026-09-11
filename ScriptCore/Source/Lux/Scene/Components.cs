@@ -1,3 +1,4 @@
+using System;
 using Coral.Managed.Interop;
 
 namespace Lux
@@ -495,5 +496,64 @@ namespace Lux
 			get { ulong id = InternalCalls.Audio_ListenerGetTarget(Entity.ID); return id == 0 ? null : new Entity(id); }
 			set => InternalCalls.Audio_ListenerSetTarget(Entity.ID, value?.ID ?? 0);
 		}
+	}
+}
+
+
+namespace Lux
+{
+	public enum AudioZoneShape { Box, Sphere, Collider }
+
+	/// <summary>Scene-owned ambience and snapshot zone. Properties are main-thread only.
+	/// Collider mode uses one box, sphere or capsule on this entity; its dimensions override the zone's.</summary>
+	public unsafe class AudioZoneComponent : Component
+	{
+		private float Get(int field)
+		{
+			Audio.RequireMainThread();
+			return InternalCalls.Audio_ZoneGetScalar(Entity.ID, field);
+		}
+		private void Set(int field, float value)
+		{
+			Audio.RequireMainThread();
+			Audio.Finite(value);
+			if (!InternalCalls.Audio_ZoneSetScalar(Entity.ID, field, value))
+				throw new ArgumentOutOfRangeException(nameof(value), "Invalid audio zone setting or unavailable component.");
+		}
+		public bool Enabled { get => Get(0) != 0; set => Set(0, value ? 1 : 0); }
+		public AudioZoneShape Shape { get => (AudioZoneShape)(int)Get(1); set => Set(1, (int)value); }
+		public float Priority { get => Get(2); set => Set(2, value); }
+		public float BlendDistance { get => Get(3); set => Set(3, value); }
+		public float FadeTime { get => Get(4); set => Set(4, value); }
+		public float Volume { get => Get(5); set => Set(5, value); }
+		public float Radius { get => Get(6); set => Set(6, value); }
+		public float Weight => Get(7);
+		private Vector3 GetVector(bool extents)
+		{
+			Audio.RequireMainThread();
+			Vector3 result;
+			InternalCalls.Audio_ZoneGetVector(Entity.ID, extents, &result);
+			return result;
+		}
+		private void SetVector(bool extents, Vector3 value)
+		{
+			Audio.RequireMainThread();
+			if (!InternalCalls.Audio_ZoneSetVector(Entity.ID, extents, &value))
+				throw new ArgumentOutOfRangeException(nameof(value), "Zone vectors must be finite; half extents must be positive.");
+		}
+		public Vector3 Offset { get => GetVector(false); set => SetVector(false, value); }
+		public Vector3 HalfExtents { get => GetVector(true); set => SetVector(true, value); }
+		private void SetEvent(bool snapshot, string reference)
+		{
+			Audio.RequireMainThread();
+			ArgumentNullException.ThrowIfNull(reference);
+			using NativeString text = reference;
+			if (!InternalCalls.Audio_ZoneSetEvent(Entity.ID, snapshot, text))
+				throw new InvalidOperationException("Zone reference is unavailable or has the wrong type. Check loaded banks and the Audio log.");
+		}
+		/// <summary>Assign a looping event GUID/path; an empty string clears it.</summary>
+		public void SetAmbience(string reference) => SetEvent(false, reference);
+		/// <summary>Assign a snapshot GUID/path with exposed Intensity; an empty string clears it.</summary>
+		public void SetSnapshot(string reference) => SetEvent(true, reference);
 	}
 }
