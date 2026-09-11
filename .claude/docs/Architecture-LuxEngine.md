@@ -394,6 +394,36 @@ authors the filters, sends and reverb buses. VA's other bands and EAX measuremen
 outputs; the engine does not apply a second filter/reverb path. Missing optional parameters are
 expected; other FMOD failures are reported. Standalone scripted events do not register VA emitters.
 
+**Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags, independent of
+VA's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
+`AudioSurfaceComponent` on the same entity overrides that tag, including an explicit Default;
+without a mesh collider it is metadata only. Both tags survive scene snapshots, copy/duplicate,
+prefab instantiation/reconciliation and runtime scene serialization. C# exposes the effective tag
+through `MeshColliderComponent.Material` and `AudioSurfaceComponent.Material` as read-only queries.
+Physics friction/density/restitution and renderer materials remain independent.
+
+At Play start, `Scene` produces one world-space triangle batch per mesh collider, honoring its
+submesh index with the same selection rule as physics (valid index selects one; otherwise all).
+`RaytracedAudioScene` mirrors each batch into a distinct VA primitive, preserving material
+boundaries. Geometry and settings are static for that session; edits apply on the next Play.
+Moving/remeshing/re-tagging live geometry belongs to Phase 13. No new per-frame geometry work is
+introduced. Material setup and primitive mutation occur on the main thread while VA is idle.
+
+Each engine tag gets its own VA custom material ID (`1000 + stable tag ID`), so overrides cannot
+leak between tags that share a preset. Most tags map directly; Default uses Concrete, Carpet and
+Rubber use Cloth, Plaster uses Gyprock, Plastic and WoodThin use WoodIndoor, Soil uses Mud, Wood
+uses WoodOutdoor, Ceramic uses Tile, and Foliage uses Leaf. These are editable starting presets,
+not measured coefficients for every real-world material.
+
+Project Audio settings expose per-tag overrides for LF/HF absorption, scattering, LF/HF
+transmission distance in metres, and LF/HF energy loss on thin/open geometry. Defaults come from
+the installed VA SDK. Absorption/scattering must be finite and in 0..1; transmission distances
+must be finite and positive; flat losses must be finite and nonnegative. Invalid settings fail
+loading/export with an audio error. YAML writes enabled overrides under `Audio.AcousticMaterials`;
+missing entries use SDK presets. Runtime format 18 appends a bounded explicit override block after
+the bank manifest, keeping `ProjectInfo`'s fixed layout unchanged. Formats 16/17 remain readable
+and use default material settings. Unknown or duplicate IDs and truncated blocks fail loading.
+
 **Banks:** `AudioBankBuilder` locates Studio's command-line tool and builds banks with
 `-build -export-guids`. Its stale check compares authored input to built bank timestamps and skips
 Build, caches, user state and .git. Tool lookup is cached for editor queries. Studio project paths
@@ -410,7 +440,7 @@ A partial directory load reports failure. `LoadBank` is additive and idempotent 
 Bank catalog revision changes retry failed event lookups; lifetime generation changes only when
 unloading banks or shutting down and invalidates all old event wrappers.
 
-**Runtime exports (format 17):** `AudioBankManifest` is an explicit, bounded stream block after
+**Runtime exports (format 18; bank manifest introduced in 17):** `AudioBankManifest` is an explicit, bounded stream block after
 `ProjectInfo`'s unchanged fixed-size header. It carries an asset-relative directory, the exact bank
 filenames, and the live-update setting (disabled for Dist exports). Never put owning strings or
 vectors into the raw `ProjectInfo` block. Older formats load without Studio configuration and warn

@@ -117,3 +117,25 @@ If Studio output is outside the project's Assets folder, export places it in `As
 ## Migrating raw-file audio
 
 Audio Source components now play only FMOD Studio events. If an old scene references a raw audio asset, Lux retains its asset handle and loop flag for migration and displays a warning. Import that sound into FMOD Studio, create an event, assign it to a bank, build banks, and select the event in Lux. Set looping on the Studio timeline. C# `AudioSourceComponent.Play`, `Stop`, volume, pitch and parameter controls continue to work with the assigned event.
+
+## Acoustic materials (Phase 7)
+
+1. Select an entity with a **Mesh Collider** and choose its **Acoustic Material**.
+2. Optionally add **Audio Surface** to that entity. Its material takes precedence over the collider
+   tag. On an entity without a mesh collider, it is metadata only; it does not create geometry.
+3. In **Project Settings → Audio → Acoustic Materials**, expand a material to see its VA base
+   preset. Enable **Override Preset** to edit LF/HF absorption, scattering, transmission distances
+   (metres), and energy loss through thin/open surfaces. Disabling the override restores the preset.
+4. Save project settings, then start a fresh Play session. Geometry and material settings are
+   captured at Play start. They are included in runtime exports; moving geometry comes later.
+5. Use Studio event parameters `Occlusion` and `ReverbSend` to author the audible response. VA
+   measurements alone do not add an FMOD filter or reverb bus. The Audio Debugger shows VA results.
+
+Carpet and Rubber start from VA's Cloth preset; Plastic and WoodThin from WoodIndoor; Default from
+Concrete; Plaster from Gyprock; Soil from Mud; Wood from WoodOutdoor; Ceramic from Tile; Foliage from
+Leaf. These are starting presets, not measured coefficients for every physical material. Overrides
+are independent even when two tags share a base preset.
+
+Scripts can read `GetComponent<MeshColliderComponent>().Material` (including a surface override)
+or `GetComponent<AudioSurfaceComponent>().Material`. Footstep and impact playback will use these
+tags in Phase 9; changing acoustic geometry during Play belongs to Phase 13.

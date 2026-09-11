@@ -222,6 +222,7 @@ namespace Lux
 		internal static delegate*<ulong, int> Audio_SourceGetTimeline;
 		internal static delegate*<ulong, int, void> Audio_SourceSetTimeline;
 		internal static delegate*<ulong, NativeString, void> Audio_SourceSetEvent;
+		internal static delegate*<ulong, int> Audio_GetSurfaceMaterial;
 		internal static delegate*<ulong, Bool32> Audio_ListenerGetActive;
 		internal static delegate*<ulong, Bool32, void> Audio_ListenerSetActive;
 		internal static delegate*<ulong, int> Audio_ListenerGetIndex;

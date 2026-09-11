@@ -9,6 +9,7 @@
 #include "Lux/Asset/AssetManager/RuntimeAssetManager.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Audio/AudioBankManifest.h"
+#include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Core/Ref.h"
 #include "Lux/Renderer/RendererTypes.h"
 
@@ -44,6 +45,7 @@ namespace Lux
 
 		// Populated only from the binary runtime package, never from editor YAML.
 		AudioBankManifest RuntimeBanks;
+		AcousticMaterialSettings AcousticMaterials;
 
 		// The FMOD Studio project (.fspro) that authors this game's audio, relative to the asset
 		// directory. Sound designers work in the Studio app; the engine consumes only the banks it

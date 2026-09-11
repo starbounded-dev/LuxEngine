@@ -1457,6 +1457,7 @@ namespace Lux {
 				const bool canAddCapsuleCollider = canAddComponent.template operator()<CapsuleColliderComponent>();
 				const bool canAddMeshCollider = canAddComponent.template operator()<MeshColliderComponent>();
 				const bool canAddAudioSource = canAddComponent.template operator()<AudioSourceComponent>();
+				const bool canAddAudioSurface = canAddComponent.template operator()<AudioSurfaceComponent>();
 				const bool canAddAudioListener = canAddComponent.template operator()<AudioListenerComponent>();
 				const bool canAddDirectionalLight = canAddComponent.template operator()<DirectionalLightComponent>();
 				const bool canAddPointLight = canAddComponent.template operator()<PointLightComponent>();
@@ -1687,7 +1688,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddAudioSource || canAddAudioListener)
+				if (canAddAudioSource || canAddAudioListener || canAddAudioSurface)
 					addCategoryHeader("Audio");
 
 				if (canAddAudioSource)
@@ -1699,6 +1700,19 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<AudioSourceComponent>())
 								entity.AddComponent<AudioSourceComponent>();
+						}
+					});
+				}
+
+				if (canAddAudioSurface)
+				{
+					addComponentRow("Audio Surface", EditorResources::AudioIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<AudioSurfaceComponent>())
+								entity.AddComponent<AudioSurfaceComponent>();
 						}
 					});
 				}
@@ -1906,6 +1920,7 @@ namespace Lux {
 						row.operator()<CircleCollider2DComponent>("CircleCollider2DComponent", "Circle Collider 2D");
 						row.operator()<AudioSourceComponent>("AudioSourceComponent", "Audio Source");
 						row.operator()<AudioListenerComponent>("AudioListenerComponent", "Audio Listener");
+						row.operator()<AudioSurfaceComponent>("AudioSurfaceComponent", "Audio Surface");
 						row.operator()<FolderComponent>("Folder", "Folder");
 
 						ImGui::Spacing();
@@ -2714,6 +2729,23 @@ namespace Lux {
 			{
 				ImGuiEx::BeginPropertyGrid();
 
+				{
+					static auto s_MaterialNames = AcousticMaterialNames;
+					int acousticMaterial = static_cast<int>(firstComponent.Acoustic);
+					const bool mixedMaterial = IsSelectionInconsistent<AcousticMaterial>(m_Context, selectedEntities, [](Entity entity)
+					{
+						return entity.GetComponent<MeshColliderComponent>().Acoustic;
+					});
+					ImGuiEx::ScopedItemFlags mixedFlag(ImGuiItemFlags_MixedValue, mixedMaterial);
+					if (ImGuiEx::PropertyDropdown("Acoustic Material", s_MaterialNames.data(), static_cast<int>(AcousticMaterialCount), &acousticMaterial, "Captured when Play starts. An Audio Surface component on this entity takes precedence.", false))
+					{
+						ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [acousticMaterial](MeshColliderComponent& component, Entity)
+						{
+							component.Acoustic = static_cast<AcousticMaterial>(acousticMaterial);
+						});
+					}
+				}
+
 				AssetHandle colliderAsset = firstComponent.ColliderAsset;
 				if (ImGuiEx::PropertyAssetReference<MeshSource>("Collider Mesh", colliderAsset, "Leave empty to use the entity Static Mesh. Mesh colliders are static in Jolt."))
 				{
@@ -2922,6 +2954,28 @@ namespace Lux {
 					ImGui::TextDisabled("Parameter overrides apply to the first selected entity.");
 			});
 
+
+		DrawComponentSection<AudioSurfaceComponent>(m_Context, entityIDs, "Audio Surface", EditorResources::AudioIcon,
+			[this](AudioSurfaceComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				static auto s_MaterialNames = AcousticMaterialNames;
+				int acousticMaterial = static_cast<int>(firstComponent.Material);
+				const bool mixedMaterial = IsSelectionInconsistent<AcousticMaterial>(m_Context, selectedEntities, [](Entity entity)
+				{
+					return entity.GetComponent<AudioSurfaceComponent>().Material;
+				});
+				ImGuiEx::ScopedItemFlags mixedFlag(ImGuiItemFlags_MixedValue, mixedMaterial);
+				if (ImGuiEx::PropertyDropdown("Acoustic Material", s_MaterialNames.data(), static_cast<int>(AcousticMaterialCount), &acousticMaterial, "", false))
+				{
+					ApplyToSelection<AudioSurfaceComponent>(m_Context, selectedEntities, [acousticMaterial](AudioSurfaceComponent& component, Entity)
+					{
+						component.Material = static_cast<AcousticMaterial>(acousticMaterial);
+					});
+				}
+				ImGuiEx::EndPropertyGrid();
+				ImGui::TextWrapped("Overrides this entity's Mesh Collider acoustic material. Applied when Play starts. Without a Mesh Collider, this is a surface tag only.");
+			});
 
 		DrawComponentSection<AudioListenerComponent>(m_Context, entityIDs, "Audio Listener", EditorResources::AudioListenerIcon,
 			[this](AudioListenerComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)

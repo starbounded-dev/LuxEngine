@@ -688,6 +688,10 @@ namespace Lux
 				out << YAML::Key << "StudioBankOutputPath" << YAML::Value << config.Audio.StudioBankOutputPath.generic_string();
 				out << YAML::Key << "RebuildBanksOnPlay" << YAML::Value << config.Audio.RebuildBanksOnPlay;
 				out << YAML::Key << "EnableLiveUpdate" << YAML::Value << config.Audio.EnableLiveUpdate;
+				if (!config.Audio.AcousticMaterials.Validate())
+					return false;
+				out << YAML::Key << "AcousticMaterials" << YAML::Value;
+				config.Audio.AcousticMaterials.SerializeYAML(out);
 				out << YAML::EndMap;
 			}
 
@@ -783,7 +787,7 @@ namespace Lux
 			return false;
 
 		serializer.WriteRaw<ProjectInfo>(projectInfo);
-		if (!banks.Serialize(serializer))
+		if (!banks.Serialize(serializer) || !m_Project->GetConfig().Audio.AcousticMaterials.Serialize(serializer))
 			return false;
 
 		const auto& physics = m_Project->GetConfig().Physics;
@@ -914,6 +918,7 @@ namespace Lux
 		}
 
 		config.Audio.RuntimeBanks = {};
+		config.Audio.AcousticMaterials = {};
 		if (auto audioNode = projectNode["Audio"])
 		{
 			config.Audio.FileStreamingDurationThreshold = audioNode["FileStreamingDurationThreshold"].as<double>(config.Audio.FileStreamingDurationThreshold);
@@ -921,6 +926,8 @@ namespace Lux
 			config.Audio.StudioBankOutputPath = audioNode["StudioBankOutputPath"].as<std::string>(config.Audio.StudioBankOutputPath.generic_string());
 			config.Audio.RebuildBanksOnPlay = audioNode["RebuildBanksOnPlay"].as<bool>(config.Audio.RebuildBanksOnPlay);
 			config.Audio.EnableLiveUpdate = audioNode["EnableLiveUpdate"].as<bool>(config.Audio.EnableLiveUpdate);
+			if (!config.Audio.AcousticMaterials.DeserializeYAML(audioNode["AcousticMaterials"]))
+				return false;
 		}
 
 		config.Physics = {};
@@ -1026,6 +1033,9 @@ namespace Lux
 		}
 		else
 			LUX_CORE_WARN_TAG("Audio", "Runtime project predates packaged FMOD banks; re-export it to enable Studio events");
+
+		if (projectInfo.HeaderData.Version >= 18 && !config.Audio.AcousticMaterials.Deserialize(stream))
+			return false;
 
 		stream.ReadRaw<float>(config.Physics.FixedTimestep);
 		stream.ReadRaw<glm::vec3>(config.Physics.Gravity);

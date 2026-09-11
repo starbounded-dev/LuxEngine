@@ -647,6 +647,7 @@ namespace Lux {
 		RegisterManagedComponent<TextComponent>(coreAssembly);
 		RegisterManagedComponent<AudioSourceComponent>(coreAssembly);
 		RegisterManagedComponent<AudioListenerComponent>(coreAssembly);
+		RegisterManagedComponent<AudioSurfaceComponent>(coreAssembly);
 
 		// 3D physics
 		RegisterManagedComponent<RigidBodyComponent>(coreAssembly);

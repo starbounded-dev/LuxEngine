@@ -715,7 +715,15 @@ namespace Lux {
 				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
 				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
 				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
+				out << YAML::Key << "AcousticMaterial" << YAML::Value << AcousticMaterialName(collider.Acoustic);
 				out << YAML::Key << "CollisionComplexity" << YAML::Value << (uint8_t)collider.CollisionComplexity;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<AudioSurfaceComponent>())
+			{
+				out << YAML::Key << "AudioSurfaceComponent" << YAML::BeginMap;
+				out << YAML::Key << "Material" << YAML::Value << AcousticMaterialName(entity.GetComponent<AudioSurfaceComponent>().Material);
 				out << YAML::EndMap;
 			}
 
@@ -1184,7 +1192,16 @@ namespace Lux {
 					component.Material.Density = meshCollider["Density"].as<float>(1.0f);
 					component.Material.Friction = meshCollider["Friction"].as<float>(0.5f);
 					component.Material.Restitution = meshCollider["Restitution"].as<float>(0.0f);
+					if (!ParseAcousticMaterial(meshCollider["AcousticMaterial"].as<std::string>("Default"), component.Acoustic))
+						throw std::runtime_error("Invalid mesh collider acoustic material");
 					component.CollisionComplexity = (ECollisionComplexity)meshCollider["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
+				}
+
+				if (auto surface = entity["AudioSurfaceComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<AudioSurfaceComponent>();
+					if (!ParseAcousticMaterial(surface["Material"].as<std::string>("Default"), component.Material))
+						throw std::runtime_error("Invalid audio surface material");
 				}
 
 				if (auto audioSource = entity["AudioSourceComponent"])
@@ -1426,6 +1443,8 @@ namespace Lux {
 		audio.LegacyAudio = 456;
 		audio.LegacyLooping = true;
 		audio.ScriptPaused = true;
+		childB.AddComponent<MeshColliderComponent>().Acoustic = AcousticMaterial::Wood;
+		childB.AddComponent<AudioSurfaceComponent>().Material = AcousticMaterial::Carpet;
 		const AudioSourceComponent expectedAudio = audio;
 		auto checkAudioCopy = [&](Entity entity, const char* operation)
 		{
@@ -1434,6 +1453,10 @@ namespace Lux {
 				fail(std::format("{} lost the audio source", operation));
 				return;
 			}
+			if (!entity.HasComponent<MeshColliderComponent>() || !entity.HasComponent<AudioSurfaceComponent>()
+				|| entity.GetComponent<MeshColliderComponent>().Acoustic != AcousticMaterial::Wood
+				|| entity.GetComponent<AudioSurfaceComponent>().Material != AcousticMaterial::Carpet)
+				fail(std::format("{} lost acoustic material tags", operation));
 			const auto& copied = entity.GetComponent<AudioSourceComponent>();
 			if (copied.Event.Guid != expectedAudio.Event.Guid || copied.ParameterOverrides != expectedAudio.ParameterOverrides
 				|| copied.Config.PlayOnAwake || copied.ScriptPaused
@@ -1447,7 +1470,7 @@ namespace Lux {
 		checkAudioCopy(prefab->GetScene()->TryGetEntityWithUUID(prefab->GetRootEntityID()), "Prefab creation");
 		checkAudioCopy(src->Instantiate(prefab), "Prefab instantiation");
 		src->ReconcilePrefabComponents(duplicate, parent);
-		if (duplicate.HasComponent<AudioSourceComponent>())
+		if (duplicate.HasComponent<AudioSourceComponent>() || duplicate.HasComponent<AudioSurfaceComponent>() || duplicate.HasComponent<MeshColliderComponent>())
 			fail("Prefab reconciliation did not remove an absent audio source");
 		src->ReconcilePrefabComponents(duplicate, childB);
 		checkAudioCopy(duplicate, "Prefab reconciliation");
@@ -1531,6 +1554,7 @@ namespace Lux {
 			fail("audio source disappeared during the round-trip");
 		else
 		{
+			checkAudioCopy(restoredAudioEntity, "Scene roundtrip");
 			const auto& restoredAudio = restoredAudioEntity.GetComponent<AudioSourceComponent>();
 			if (restoredAudio.Event.Guid != expectedAudio.Event.Guid || restoredAudio.Event.Path != expectedAudio.Event.Path
 				|| restoredAudio.Event.BankName != expectedAudio.Event.BankName || restoredAudio.ParameterOverrides != expectedAudio.ParameterOverrides

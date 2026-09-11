@@ -6,6 +6,7 @@
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
+#include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Core/UUID.h"
 #include "Lux/Math/Math.h"
 #include "Lux/Physics/PhysicsTypes.h"
@@ -372,6 +373,7 @@ namespace Lux {
 		uint32_t SubmeshIndex = 0;
 		bool UseSharedShape = false;
 		ColliderMaterial Material;
+		AcousticMaterial Acoustic = AcousticMaterial::Default;
 		ECollisionComplexity CollisionComplexity = ECollisionComplexity::Default;
 
 		MeshColliderComponent() = default;
@@ -419,6 +421,12 @@ namespace Lux {
 		std::string BankName;   // "Master.bank"
 
 		bool IsValid() const { return !Guid.empty(); }
+	};
+
+	struct AudioSurfaceComponent
+	{
+		// Overrides the acoustic tag on this entity’s mesh collider when present.
+		AcousticMaterial Material = AcousticMaterial::Default;
 	};
 
 	struct AudioSourceConfig
@@ -620,7 +628,7 @@ namespace Lux {
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-		AudioSourceComponent, AudioListenerComponent,
+		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent,
 		FolderComponent>;
 
 }

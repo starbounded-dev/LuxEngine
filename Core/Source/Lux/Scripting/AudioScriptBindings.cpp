@@ -161,6 +161,18 @@ namespace Lux
 				event->Set3DAttributes(*position, *velocity, *forward, *up);
 		}
 
+		int32_t Audio_GetSurfaceMaterial(uint64_t id)
+		{
+			Entity entity = AudioEntity(id);
+			if (!entity)
+				return static_cast<int32_t>(AcousticMaterial::Default);
+			if (const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>())
+				return static_cast<int32_t>(surface->Material);
+			if (const auto* collider = entity.TryGetComponent<MeshColliderComponent>())
+				return static_cast<int32_t>(collider->Acoustic);
+			return static_cast<int32_t>(AcousticMaterial::Default);
+		}
+
 		void Audio_SourcePlay(uint64_t id)
 		{
 			auto* source = Source(id);
@@ -432,6 +444,7 @@ namespace Lux
 	void AudioScriptBindings::Register(Coral::ManagedAssembly& assembly)
 	{
 		s_AudioType = &assembly.GetLocalType("Lux.Audio");
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_GetSurfaceMaterial", reinterpret_cast<void*>(&Audio_GetSurfaceMaterial));
 		// Registrations below are kept one-to-one with InternalCalls.cs.
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_LoadBank", reinterpret_cast<void*>(&Audio_LoadBank));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_IsMainThread", reinterpret_cast<void*>(&Audio_IsMainThread));

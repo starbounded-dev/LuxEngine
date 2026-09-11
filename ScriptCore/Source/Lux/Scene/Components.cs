@@ -364,8 +364,44 @@ namespace Lux
 		}
 	}
 
-	// Registered for HasComponent/AddComponent/RemoveComponent; no scriptable surface yet.
-	public class MeshColliderComponent : Component { }
+	public enum AcousticMaterial
+	{
+		Default = 0,
+		Brick = 1,
+		Carpet = 2,
+		Cloth = 3,
+		Concrete = 4,
+		ConcretePolished = 5,
+		Dirt = 6,
+		Glass = 7,
+		Grass = 8,
+		Gravel = 9,
+		Marble = 10,
+		Metal = 11,
+		Plaster = 12,
+		Plastic = 13,
+		Rock = 14,
+		Snow = 15,
+		Soil = 16,
+		Water = 17,
+		Wood = 18,
+		WoodThin = 19,
+		Ceramic = 20,
+		Rubber = 21,
+		Foliage = 22,
+	}
+
+	public unsafe class MeshColliderComponent : Component
+	{
+		/// <summary>Surface override, or this collider's authored acoustic material.</summary>
+		public AcousticMaterial Material => (AcousticMaterial)InternalCalls.Audio_GetSurfaceMaterial(Entity.ID);
+	}
+
+	public unsafe class AudioSurfaceComponent : Component
+	{
+		/// <summary>Authored surface tag. Acoustic geometry is captured when Play starts.</summary>
+		public AcousticMaterial Material => (AcousticMaterial)InternalCalls.Audio_GetSurfaceMaterial(Entity.ID);
+	}
 	public unsafe class AudioSourceComponent : Component
 	{
 		public bool IsPlaying => InternalCalls.Audio_SourceIsPlaying(Entity.ID);

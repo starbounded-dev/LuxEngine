@@ -519,6 +519,53 @@ namespace Lux {
 
 		ImGuiEx::EndPropertyGrid();
 
+		ImGui::Spacing();
+		if (ImGuiEx::PropertyGridHeader("Acoustic Materials", false))
+		{
+			ImGui::TextWrapped("Applied on the next Play session and included in runtime exports. Presets are starting points; tune them for your game's scale.");
+			for (size_t i = 0; i < AcousticMaterialCount; ++i)
+			{
+				ImGuiEx::ScopedID id(static_cast<int>(i));
+				if (!ImGui::TreeNode(AcousticMaterialNames[i]))
+					continue;
+				const auto material = static_cast<AcousticMaterial>(i);
+				ImGui::Text("VA base preset: %s", AcousticMaterialPresetName(material));
+				auto& entry = audioSettings.AcousticMaterials.Overrides[i];
+				ImGuiEx::BeginPropertyGrid();
+				if (ImGuiEx::Property("Override Preset", entry.Enabled))
+				{
+					if (entry.Enabled)
+						entry.Properties = GetDefaultAcousticMaterialProperties(material);
+					m_Dirty = true;
+				}
+				auto properties = entry.Enabled ? entry.Properties : GetDefaultAcousticMaterialProperties(material);
+				bool propertiesChanged = false;
+				{
+					ImGuiEx::ScopedDisable disabled(!entry.Enabled);
+					propertiesChanged |= ImGuiEx::Property("Absorption LF", properties.AbsorptionLF, 0.01f, 0.0f, 1.0f, "", false);
+					propertiesChanged |= ImGuiEx::Property("Absorption HF", properties.AbsorptionHF, 0.01f, 0.0f, 1.0f, "", false);
+					propertiesChanged |= ImGuiEx::Property("Scattering", properties.Scattering, 0.01f, 0.0f, 1.0f, "", false);
+					propertiesChanged |= ImGuiEx::Property("Transmission LF (m)", properties.TransmissionLF, 0.01f, 0.001f, 10000.0f, "", false);
+					propertiesChanged |= ImGuiEx::Property("Transmission HF (m)", properties.TransmissionHF, 0.01f, 0.001f, 10000.0f, "", false);
+					propertiesChanged |= ImGuiEx::Property("Thin Surface Loss LF", properties.FlatTransmissionLF, 0.01f, 0.0f, 10000.0f, "", false);
+					propertiesChanged |= ImGuiEx::Property("Thin Surface Loss HF", properties.FlatTransmissionHF, 0.01f, 0.0f, 10000.0f, "", false);
+				}
+				if (entry.Enabled && propertiesChanged)
+				{
+					if (properties.IsValid())
+					{
+						entry.Properties = properties;
+						m_Dirty = true;
+					}
+					else
+						LUX_CORE_ERROR_TAG("Audio", "Rejected invalid acoustic properties for {0}; enter finite values within the displayed ranges", AcousticMaterialNames[i]);
+				}
+				ImGuiEx::EndPropertyGrid();
+				ImGui::TreePop();
+			}
+			ImGui::TreePop();
+		}
+
 		RenderAudioBankStatus();
 
 		ImGui::TreePop();

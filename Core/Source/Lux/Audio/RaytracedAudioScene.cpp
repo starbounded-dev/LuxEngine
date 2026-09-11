@@ -14,7 +14,6 @@ namespace Lux {
 
 	namespace {
 
-		constexpr VAMaterialType kDefaultStaticGeometryMaterial = VAMaterialConcrete;
 		// Meters. Padded onto the mirrored geometry's AABB so emitters slightly above/beside it
 		// (e.g. a bird sound over open terrain) are still inside the world and get raytraced.
 		constexpr float kWorldBoundsPadding = 50.0f;
@@ -146,7 +145,7 @@ namespace Lux {
 		Stop();
 	}
 
-	void RaytracedAudioScene::Start()
+	void RaytracedAudioScene::Start(const AcousticMaterialSettings& materials)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 
@@ -154,6 +153,13 @@ namespace Lux {
 			return;
 
 		m_Impl->World = vaWorldCreate();
+		if (!ConfigureAcousticMaterials(m_Impl->World, materials))
+		{
+			if (m_Impl->World)
+				vaWorldDestroy(m_Impl->World);
+			m_Impl->World = nullptr;
+			return;
+		}
 		vaWorldSetPosition(m_Impl->World, vaVectorCreateUniform(-kDefaultWorldHalfExtent));
 		vaWorldSetSize(m_Impl->World, vaVectorCreateUniform(kDefaultWorldHalfExtent * 2.0f));
 
@@ -294,63 +300,104 @@ namespace Lux {
 		vaWorldUpdate(m_Impl->World);
 	}
 
-	void RaytracedAudioScene::SetStaticGeometry(const std::vector<glm::vec3>& worldSpaceTriangles)
+	bool RaytracedAudioScene::SetStaticGeometry(const std::vector<AcousticGeometry>& geometry)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-
 		if (!m_Impl->World)
-			return;
-
-		for (VAMeshPrimitive* primitive : m_Impl->StaticPrimitives)
 		{
-			if (vaWorldRemovePrimitive_(m_Impl->World, primitive) == VA_SUCCESS)
-				vaMeshPrimitiveDestroy(primitive);
-		}
-		m_Impl->StaticPrimitives.clear();
-		m_Impl->StaticTriangleCount = 0;
-
-		if (worldSpaceTriangles.empty())
-			return;
-
-		if (worldSpaceTriangles.size() % 3 != 0)
-		{
-			LUX_CORE_ERROR_TAG("Audio", "RaytracedAudioScene::SetStaticGeometry received {0} vertices, which is not a multiple of 3 - ignoring", worldSpaceTriangles.size());
-			return;
+			LUX_CORE_ERROR_TAG("Audio", "Cannot mirror acoustic geometry: VA world is not running");
+			return false;
 		}
 
 		glm::vec3 minBounds(std::numeric_limits<float>::max());
 		glm::vec3 maxBounds(std::numeric_limits<float>::lowest());
-		std::vector<VAVector> vertices;
-		vertices.reserve(worldSpaceTriangles.size());
-		for (const glm::vec3& v : worldSpaceTriangles)
+		size_t triangleCount = 0;
+		for (const auto& batch : geometry)
 		{
-			vertices.push_back(ToVA(v));
-			minBounds = glm::min(minBounds, v);
-			maxBounds = glm::max(maxBounds, v);
+			if (!IsValidAcousticMaterial(batch.Material) || batch.Triangles.size() % 3 != 0
+				|| batch.Triangles.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Invalid acoustic geometry batch: check material ID and triangle count");
+				return false;
+			}
+			triangleCount += batch.Triangles.size() / 3;
+			for (const auto& vertex : batch.Triangles)
+			{
+				if (!std::isfinite(vertex.x) || !std::isfinite(vertex.y) || !std::isfinite(vertex.z))
+				{
+					LUX_CORE_ERROR_TAG("Audio", "Acoustic geometry contains a non-finite vertex");
+					return false;
+				}
+				minBounds = glm::min(minBounds, vertex);
+				maxBounds = glm::max(maxBounds, vertex);
+			}
+		}
+		if (triangleCount > static_cast<size_t>(std::numeric_limits<int>::max()))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Acoustic geometry exceeds VA's triangle limit");
+			return false;
 		}
 
-		VAMeshPrimitive* primitive = nullptr;
-		VAResult result = vaMeshPrimitiveCreate(kDefaultStaticGeometryMaterial, vertices.data(), (int)vertices.size(), ToVA(minBounds), ToVA(maxBounds), &kIdentityMatrix, &primitive);
-		if (result != VA_SUCCESS || !primitive)
+		std::vector<VAMeshPrimitive*> pending;
+		const auto release = [this](auto& primitives)
 		{
-			LUX_CORE_ERROR_TAG("Audio", "RaytracedAudioScene::SetStaticGeometry failed to create the mirrored mesh primitive (VAResult={0})", result);
-			return;
-		}
-
-		if (VAResult addResult = vaWorldAddPrimitive_(m_Impl->World, primitive); addResult != VA_SUCCESS)
+			for (auto* primitive : primitives)
+			{
+				const VAResult result = vaWorldRemovePrimitive_(m_Impl->World, primitive);
+				if (result == VA_SUCCESS)
+					vaMeshPrimitiveDestroy(primitive);
+				else
+					LUX_CORE_ERROR_TAG("Audio", "Cannot remove acoustic primitive (VAResult={0}); ownership remains with VA", result);
+			}
+			primitives.clear();
+		};
+		for (const auto& batch : geometry)
 		{
-			LUX_CORE_ERROR_TAG("Audio", "RaytracedAudioScene::SetStaticGeometry failed to add the mirrored geometry to the world; occlusion will not work (VAResult={0})", addResult);
-			vaMeshPrimitiveDestroy(primitive);
-			return;
+			if (batch.Triangles.empty())
+				continue;
+			glm::vec3 batchMin(std::numeric_limits<float>::max());
+			glm::vec3 batchMax(std::numeric_limits<float>::lowest());
+			std::vector<VAVector> vertices;
+			vertices.reserve(batch.Triangles.size());
+			for (const auto& vertex : batch.Triangles)
+			{
+				vertices.push_back(ToVA(vertex));
+				batchMin = glm::min(batchMin, vertex);
+				batchMax = glm::max(batchMax, vertex);
+			}
+			VAMeshPrimitive* primitive = nullptr;
+			const auto material = static_cast<VAMaterialType>(AcousticMaterialVAID(batch.Material));
+			const VAResult created = vaMeshPrimitiveCreate(material, vertices.data(), static_cast<int>(vertices.size()),
+				ToVA(batchMin), ToVA(batchMax), &kIdentityMatrix, &primitive);
+			if (created != VA_SUCCESS || !primitive)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot create acoustic mesh for {0} (VAResult={1})", AcousticMaterialName(batch.Material), created);
+				release(pending);
+				return false;
+			}
+			const VAResult added = vaWorldAddPrimitive_(m_Impl->World, primitive);
+			if (added != VA_SUCCESS)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot add acoustic mesh for {0} (VAResult={1})", AcousticMaterialName(batch.Material), added);
+				vaMeshPrimitiveDestroy(primitive);
+				release(pending);
+				return false;
+			}
+			pending.push_back(primitive);
 		}
-
-		m_Impl->StaticPrimitives.push_back(primitive);
-		m_Impl->StaticTriangleCount = (int)(worldSpaceTriangles.size() / 3);
-
-		const glm::vec3 paddedMin = minBounds - kWorldBoundsPadding;
-		const glm::vec3 paddedMax = maxBounds + kWorldBoundsPadding;
-		vaWorldSetPosition(m_Impl->World, ToVA(paddedMin));
-		vaWorldSetSize(m_Impl->World, ToVA(paddedMax - paddedMin));
+		release(m_Impl->StaticPrimitives);
+		m_Impl->StaticPrimitives = std::move(pending);
+		m_Impl->StaticTriangleCount = static_cast<int>(triangleCount);
+		const glm::vec3 paddedMin = triangleCount ? minBounds - kWorldBoundsPadding : glm::vec3(-kDefaultWorldHalfExtent);
+		const glm::vec3 size = triangleCount ? maxBounds - minBounds + 2.0f * kWorldBoundsPadding : glm::vec3(2.0f * kDefaultWorldHalfExtent);
+		const VAResult positioned = vaWorldSetPosition(m_Impl->World, ToVA(paddedMin));
+		const VAResult resized = vaWorldSetSize(m_Impl->World, ToVA(size));
+		if ((positioned != VA_SUCCESS && positioned != VA_UNCHANGED) || (resized != VA_SUCCESS && resized != VA_UNCHANGED))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot update acoustic world bounds (position={0}, size={1})", positioned, resized);
+			return false;
+		}
+		return true;
 	}
 
 	void RaytracedAudioScene::SetListener(const glm::vec3& position, const glm::vec3& forward)

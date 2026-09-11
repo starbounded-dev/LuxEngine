@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lux/Core/Ref.h"
+#include "AcousticMaterial.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
 
@@ -9,6 +10,12 @@
 namespace Lux {
 
 	class Scene;
+
+	struct AcousticGeometry
+	{
+		AcousticMaterial Material = AcousticMaterial::Default;
+		std::vector<glm::vec3> Triangles;
+	};
 
 	// Per-source result of the ray-traced acoustic simulation, meant to drive a playback backend's
 	// per-voice filter and reverb send. Stays at "no effect" defaults until raytracing has produced
@@ -173,7 +180,7 @@ namespace Lux {
 		explicit RaytracedAudioScene(Scene* scene);
 		~RaytracedAudioScene();
 
-		void Start();
+		void Start(const AcousticMaterialSettings& materials = {});
 		void Stop();
 
 		// The simulation is asynchronous, so a frame has two halves and the order matters:
@@ -188,9 +195,9 @@ namespace Lux {
 		void WaitForResults();
 		void OnUpdate(Timestep ts);
 
-		// Rebuilds the mirrored static geometry from a flat, world-space triangle soup (3 positions
-		// per triangle). Replaces whatever geometry was previously mirrored.
-		void SetStaticGeometry(const std::vector<glm::vec3>& worldSpaceTriangles);
+		// Each batch is one collider in world space, with three positions per triangle.
+		// Call on an idle world; material boundaries are preserved as separate primitives.
+		bool SetStaticGeometry(const std::vector<AcousticGeometry>& geometry);
 
 		void SetListener(const glm::vec3& position, const glm::vec3& forward);
 
