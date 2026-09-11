@@ -30,7 +30,6 @@ namespace Lux {
 	class PhysicsScene;
 	class RenderScene;
 	class SceneRenderer;
-	class AudioSource;
 	class AudioEventInstance;
 	class RaytracedAudioScene;
 	class Mesh;
@@ -211,7 +210,6 @@ namespace Lux {
 		void OnRaytracedAudioStop();
 		void StepPhysics(Timestep ts);
 		void RenderScene(EditorCamera& camera);
-		Ref<AudioSource> GetOrCreateRuntimeAudioSource(Entity entity, AssetHandle audioHandle);
 		Ref<AudioEventInstance> GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake = true);
 		void ReleaseRuntimeAudio(Entity entity);
 		void ReleaseAllRuntimeAudio();
@@ -240,7 +238,6 @@ namespace Lux {
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 		std::vector<std::function<void()>> m_PostUpdateQueue;
-		std::unordered_map<UUID, Ref<AudioSource>> m_RuntimeAudioSources;
 		struct RuntimeAudioEvent
 		{
 			std::string Guid;
@@ -270,8 +267,6 @@ namespace Lux {
 
 		// The live voice playing for an entity, or null when it has none. Editor tooling only -
 		// gameplay drives sources through the component, not by reaching in here.
-		Ref<AudioSource> GetRuntimeAudioSource(UUID entityID) const;
-		Ref<AudioSource> GetAudioSourceForScript(UUID entityID);
 		Ref<AudioEventInstance> GetAudioEventForScript(UUID entityID, bool suppressPlayOnAwake = false);
 		Ref<AudioEventInstance> GetRuntimeEventInstance(UUID entityID) const;
 

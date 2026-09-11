@@ -3,7 +3,7 @@
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/AudioEngine.h"
-#include "Lux/Audio/AudioSource.h"
+#include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/RaytracedAudioScene.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
@@ -90,9 +90,7 @@ namespace Lux {
 			return 1.0f - std::clamp(result.OcclusionGainLF, 0.0f, 1.0f);
 		}
 
-		// Mirrors AudioSource's mapping of the two measured bands onto the backend's single
-		// occlusion control. Duplicated deliberately: the panel's job is to show what the audio
-		// path did, so it has to compute the same thing rather than trust that it matches.
+		// Relative high-frequency loss measured by VA. Studio controls its audible treatment.
 		float RelativeHighFrequencyLoss(float gainLF, float gainHF)
 		{
 			constexpr float minAudibleGain = 1e-4f;
@@ -100,19 +98,6 @@ namespace Lux {
 				return 0.0f;
 
 			return std::clamp(1.0f - (gainHF / gainLF), 0.0f, 1.0f);
-		}
-
-		std::string AudioClipName(AssetHandle handle)
-		{
-			if (!AssetManager::IsAssetHandleValid(handle))
-				return "<none>";
-
-			Ref<Project> project = Project::GetActive();
-			if (!project)
-				return std::to_string((uint64_t)handle);
-
-			const std::filesystem::path& path = project->GetEditorAssetManager()->GetMetadata(handle).FilePath;
-			return path.empty() ? std::to_string((uint64_t)handle) : path.filename().string();
 		}
 
 	}
@@ -168,7 +153,7 @@ namespace Lux {
 			}
 			else
 			{
-				// Core/vendor/VA_RAY absent, or premake run without --raytraced-audio.
+				// Runtime availability check; VA is a required build dependency.
 				DrawStatColored("Acoustics State", "Not compiled in", kOffColor);
 			}
 
@@ -315,7 +300,7 @@ namespace Lux {
 		if (!raytraced)
 		{
 			if (!RaytracedAudioScene::IsAvailable())
-				ImGui::TextDisabled("Built without Core/vendor/VA_RAY — regenerate with --raytraced-audio to enable.");
+				ImGui::TextDisabled("The required Vercidium Audio SDK is unavailable. Check the installed runtime libraries.");
 			else
 				ImGui::TextDisabled("The simulation runs only in Play mode.");
 
@@ -405,9 +390,6 @@ namespace Lux {
 			return;
 		}
 
-		// Two columns on purpose: the left is what the simulation measured, the right is what the
-		// backend was actually told. When reverb sounds wrong, the interesting question is almost
-		// always which of the two is surprising — a clamp that flattened a value shows up here.
 		ImGui::TextUnformatted("Simulation output (Vercidium EAX)");
 		if (ImGui::BeginTable("##audio_debugger_reverb_va", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 		{
@@ -436,29 +418,7 @@ namespace Lux {
 		}
 
 		ImGui::Spacing();
-		ImGui::TextUnformatted("Applied to the playback backend");
-
-		const AudioEngine::ReverbSnapshot applied = AudioEngine::GetReverbSnapshot();
-		if (!applied.Applied)
-		{
-			ImGui::TextDisabled("The backend has no reverb unit to drive.");
-		}
-		else if (ImGui::BeginTable("##audio_debugger_reverb_backend", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
-		{
-			DrawStat("Decay Time", (double)applied.DecayTimeMs, " ms");
-			DrawStat("Early Delay", (double)applied.EarlyDelayMs, " ms");
-			DrawStat("Late Delay", (double)applied.LateDelayMs, " ms");
-			DrawStat("HF Reference", (double)applied.HFReferenceHz, " Hz");
-			DrawStat("HF Decay Ratio", (double)applied.HFDecayRatioPercent, " %");
-			DrawStat("Diffusion", (double)applied.DiffusionPercent, " %");
-			DrawStat("Density", (double)applied.DensityPercent, " %");
-			DrawStat("Low Shelf Freq", (double)applied.LowShelfFrequencyHz, " Hz");
-			DrawStat("Low Shelf Gain", (double)applied.LowShelfGainDb, " dB");
-			DrawStat("High Cut", (double)applied.HighCutHz, " Hz");
-			DrawStat("Early/Late Mix", (double)applied.EarlyLateMixPercent, " %");
-			DrawStat("Wet Level", (double)applied.WetLevelDb, " dB");
-			ImGui::EndTable();
-		}
+		ImGui::TextWrapped("Studio events receive ReverbSend from VA's returned energy. Author the reverb bus and send automation in FMOD Studio; these EAX measurements are diagnostic only.");
 
 		ImGui::TreePop();
 	}
@@ -490,21 +450,18 @@ namespace Lux {
 		const glm::vec3 listenerPosition = listener
 			? (listener->UseAttenuationPosition ? listener->AttenuationPosition : listener->Position) : glm::vec3(0.0f);
 		if (listener)
-			ImGui::TextDisabled("Distances use the dominant listener: camera for raw audio, attenuation target for Studio events.");
+			ImGui::TextDisabled("Distances use the dominant listener's attenuation target when enabled.");
 
 		if (ImGui::BeginTable("##audio_debugger_sources", 8, tableFlags, ImVec2(0.0f, 260.0f)))
 		{
 			ImGui::TableSetupColumn("Entity");
-			ImGui::TableSetupColumn("Clip");
+			ImGui::TableSetupColumn("Event");
 			ImGui::TableSetupColumn("Dist", ImGuiTableColumnFlags_WidthFixed, 64.0f);
-			ImGui::TableSetupColumn("Audible", ImGuiTableColumnFlags_WidthFixed, 76.0f);
+			ImGui::TableSetupColumn("Playback", ImGuiTableColumnFlags_WidthFixed, 76.0f);
 			ImGui::TableSetupColumn("Occlusion", ImGuiTableColumnFlags_WidthFixed, 110.0f);
 			ImGui::TableSetupColumn("Gain LF", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			ImGui::TableSetupColumn("Gain HF", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-			// Gain LF/HF are the simulation's raw bands; Muffle is what they become once mapped onto
-			// the backend's single occlusion control. The broadband half of that mapping is not a
-			// separate column because it *is* Gain LF - it scales the channel volume unchanged, and
-			// showing it twice would read as two independent measurements.
+			// VA measurement, not an applied Studio filter amount.
 			ImGui::TableSetupColumn("Muffle", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			ImGui::TableSetupScrollFreeze(0, 1);
 			ImGui::TableHeadersRow();
@@ -535,25 +492,19 @@ namespace Lux {
 				ImGui::TextUnformatted(name.c_str());
 
 				ImGui::TableSetColumnIndex(1);
-				ImGui::TextUnformatted(AudioClipName(asc.Audio).c_str());
+				ImGui::TextUnformatted((asc.Event.IsValid() ? (asc.Event.Path.empty() ? asc.Event.Guid.c_str() : asc.Event.Path.c_str()) : "<unassigned>"));
 
 				const glm::vec3 sourcePosition = glm::vec3(m_Context->GetWorldSpaceTransformMatrix(entity)[3]);
 
 				ImGui::TableSetColumnIndex(2);
 				if (haveListener)
-					ImGui::Text("%.1f m", glm::distance(sourcePosition, asc.Event.IsValid() ? listenerPosition : listener->Position));
+					ImGui::Text("%.1f m", glm::distance(sourcePosition, listenerPosition));
 				else
 					ImGui::TextDisabled("%s", kNoValue);
 
 				ImGui::TableSetColumnIndex(3);
-				{
-					Ref<AudioSource> runtimeSource = m_Context->GetRuntimeAudioSource(entity.GetUUID());
-					const float audibility = runtimeSource ? runtimeSource->GetAudibility() : -1.0f;
-					if (audibility < 0.0f)
-						ImGui::TextDisabled("%s", kNoValue);
-					else
-						ImGui::Text("%.4f", audibility);
-				}
+				const auto event = m_Context->GetRuntimeEventInstance(entity.GetUUID());
+				ImGui::TextUnformatted(!event || !event->IsValid() ? "Unavailable" : event->IsPaused() ? "Paused" : event->IsPlaying() ? "Playing" : "Stopped");
 
 				ImGui::TableSetColumnIndex(4);
 				if (result.Valid)

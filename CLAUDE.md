@@ -190,7 +190,7 @@ premake5.lua           # Workspace definition
 - Mesh colliders are cooked and cached by `MeshCookingFactory` / `MeshColliderCache`.
 
 ### Audio
-- Required FMOD Core/Studio playback and Vercidium Audio acoustics via `AudioEngine`, `AudioSource`, `AudioListener`, and `RaytracedAudioScene`.
+- Required FMOD Core/Studio playback and Vercidium Audio acoustics via `AudioEngine`, `AudioEventInstance`, `AudioListener`, and `RaytracedAudioScene`.
 
 ### Threading
 - Optional dedicated render thread (`RenderThread`, platform-impl in `Core/Platform/<OS>/`).

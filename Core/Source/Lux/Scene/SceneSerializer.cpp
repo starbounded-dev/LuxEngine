@@ -725,11 +725,14 @@ namespace Lux {
 				const auto& config = audioSource.Config;
 				out << YAML::Key << "AudioSourceComponent";
 				out << YAML::BeginMap;
-				out << YAML::Key << "Audio" << YAML::Value << audioSource.Audio;
+				if (audioSource.LegacyAudio || audioSource.LegacyLooping)
+				{
+					out << YAML::Key << "Audio" << YAML::Value << audioSource.LegacyAudio;
+					out << YAML::Key << "Looping" << YAML::Value << audioSource.LegacyLooping;
+				}
 				out << YAML::Key << "VolumeMultiplier" << YAML::Value << config.VolumeMultiplier;
 				out << YAML::Key << "PitchMultiplier" << YAML::Value << config.PitchMultiplier;
 				out << YAML::Key << "PlayOnAwake" << YAML::Value << config.PlayOnAwake;
-				out << YAML::Key << "Looping" << YAML::Value << config.Looping;
 
 				out << YAML::Key << "EventGuid" << YAML::Value << audioSource.Event.Guid;
 				out << YAML::Key << "EventPath" << YAML::Value << audioSource.Event.Path;
@@ -1187,13 +1190,13 @@ namespace Lux {
 				if (auto audioSource = entity["AudioSourceComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<AudioSourceComponent>();
-					component.Audio = audioSource["Audio"].as<uint64_t>(0);
+					component.LegacyAudio = audioSource["Audio"].as<uint64_t>(0);
 
 					auto& config = component.Config;
 					config.VolumeMultiplier = audioSource["VolumeMultiplier"].as<float>(1.0f);
 					config.PitchMultiplier = audioSource["PitchMultiplier"].as<float>(1.0f);
 					config.PlayOnAwake = audioSource["PlayOnAwake"].as<bool>(true);
-					config.Looping = audioSource["Looping"].as<bool>(false);
+					component.LegacyLooping = audioSource["Looping"].as<bool>(false);
 
 					// Spatialization, AttenuationModel, RollOff, Min/MaxGain, Min/MaxDistance, the
 					// cone angles and DopplerFactor were removed: an FMOD Studio event authors all
@@ -1420,7 +1423,9 @@ namespace Lux {
 		audio.Event = { "{12345678-1234-1234-1234-123456789abc}", "event:/Test/Door", "Test.bank" };
 		audio.ParameterOverrides = { { "Size", 0.75f }, { "Urgency", 2.0f } };
 		audio.Config.PlayOnAwake = false;
-		audio.Paused = false;
+		audio.LegacyAudio = 456;
+		audio.LegacyLooping = true;
+		audio.ScriptPaused = true;
 		const AudioSourceComponent expectedAudio = audio;
 		auto checkAudioCopy = [&](Entity entity, const char* operation)
 		{
@@ -1431,7 +1436,8 @@ namespace Lux {
 			}
 			const auto& copied = entity.GetComponent<AudioSourceComponent>();
 			if (copied.Event.Guid != expectedAudio.Event.Guid || copied.ParameterOverrides != expectedAudio.ParameterOverrides
-				|| copied.Config.PlayOnAwake || !copied.Paused)
+				|| copied.Config.PlayOnAwake || copied.ScriptPaused
+				|| copied.LegacyAudio != expectedAudio.LegacyAudio || copied.LegacyLooping != expectedAudio.LegacyLooping)
 				fail(std::format("{} changed audio event data or copied runtime playback state", operation));
 		};
 		Entity duplicate = src->DuplicateEntity(childB);
@@ -1528,7 +1534,8 @@ namespace Lux {
 			const auto& restoredAudio = restoredAudioEntity.GetComponent<AudioSourceComponent>();
 			if (restoredAudio.Event.Guid != expectedAudio.Event.Guid || restoredAudio.Event.Path != expectedAudio.Event.Path
 				|| restoredAudio.Event.BankName != expectedAudio.Event.BankName || restoredAudio.ParameterOverrides != expectedAudio.ParameterOverrides
-				|| restoredAudio.Config.PlayOnAwake || !restoredAudio.Paused)
+				|| restoredAudio.Config.PlayOnAwake || restoredAudio.ScriptPaused
+				|| restoredAudio.LegacyAudio != expectedAudio.LegacyAudio || restoredAudio.LegacyLooping != expectedAudio.LegacyLooping)
 				fail("audio event reference/overrides changed or runtime playback state was serialized");
 		}
 		std::map<UUID, std::string> ents2 = SceneSerializer(dst).SerializeEntitySnapshots(meta2);

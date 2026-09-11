@@ -22,7 +22,7 @@ namespace Lux {
 		}
 
 		// Distinct slots/operations must not reset each other's error suppression each frame.
-		std::array<std::array<FMOD_RESULT, AudioListener::MaxListeners>, 7> s_LastResults{};
+		std::array<std::array<FMOD_RESULT, AudioListener::MaxListeners>, 4> s_LastResults{};
 
 		bool CheckListenerResult(FMOD_RESULT result, int operation, int index, const char* name)
 		{
@@ -78,9 +78,8 @@ namespace Lux {
 
 		const int primary = GetPrimaryIndex(listeners);
 		const AudioListenerState fallback;
-		const auto& legacy = primary >= 0 ? listeners[primary] : fallback;
+		const auto& primaryState = primary >= 0 ? listeners[primary] : fallback;
 		auto* studio = AudioEngine::GetStudioSystem();
-		auto* core = AudioEngine::GetEngine();
 		int count = 1;
 		float totalWeight = 0.0f;
 		for (int index = 0; index < MaxListeners; ++index)
@@ -97,18 +96,11 @@ namespace Lux {
 		if (currentCount != count && !CheckListenerResult(studio->setNumListeners(count), 1, 0, "setNumListeners"))
 			return;
 
-		// Studio also owns Core's listener count and rewrites it on its asynchronous update.
-		// Mirror the same slots in both APIs; giving Core an independent count races Studio.
-		bool coreReady = CheckListenerResult(core->get3DNumListeners(&currentCount), 4, 0, "get3DNumListeners");
-		if (coreReady && currentCount != count)
-			coreReady = CheckListenerResult(core->set3DNumListeners(count), 5, 0, "set3DNumListeners");
-
 		for (int index = 0; index < count; ++index)
 		{
 			const float authoredWeight = std::isfinite(listeners[index].Weight) ? std::clamp(listeners[index].Weight, 0.0f, 1.0f) : 0.0f;
-			// Core has no listener weights. Put unused slots at an active camera so they cannot
-			// create phantom ears at the origin when Studio publishes these attributes to Core.
-			const auto& state = authoredWeight > 0.0f ? listeners[index] : legacy;
+			// Keep unused slots at a valid camera transform; their Studio weight remains zero.
+			const auto& state = authoredWeight > 0.0f ? listeners[index] : primaryState;
 			const FMOD_3D_ATTRIBUTES attributes{
 				{ state.Position.x, state.Position.y, state.Position.z },
 				{ state.Velocity.x, state.Velocity.y, state.Velocity.z },
@@ -122,9 +114,6 @@ namespace Lux {
 			// origin listener so a deleted camera cannot leave a stale location behind.
 			const float weight = primary < 0 ? 1.0f : authoredWeight / totalWeight;
 			CheckListenerResult(studio->setListenerWeight(index, weight), 3, index, "setListenerWeight");
-			if (coreReady)
-				CheckListenerResult(core->set3DListenerAttributes(index, &attributes.position, &attributes.velocity, &attributes.forward, &attributes.up),
-					6, index, "set3DListenerAttributes");
 		}
 	}
 }

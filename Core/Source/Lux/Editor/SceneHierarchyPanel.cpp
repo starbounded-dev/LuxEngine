@@ -2883,8 +2883,7 @@ namespace Lux {
 				auto& component = firstComponent;
 				auto& config = component.Config;
 
-				// The event comes first: when one is assigned it supersedes the legacy file below,
-				// and the fields that used to shape playback here now live on the event.
+				// Studio authors the event; gameplay controls placement, volume and pitch.
 				ImGuiEx::BeginPropertyGrid();
 				DrawAudioEventPicker(component, selectedEntities);
 
@@ -2915,44 +2914,9 @@ namespace Lux {
 
 				DrawAudioParameterOverrides(component);
 
-				// Legacy raw-file playback. Hidden entirely once an event is assigned, because the
-				// two paths are mutually exclusive and showing both invites setting one and hearing
-				// the other.
-				if (!component.Event.IsValid())
-				{
-					ImGui::Spacing();
-					if (ImGuiEx::PropertyGridHeader("Legacy Audio File", false))
-					{
-						ImGui::TextDisabled("Played through the Core API with default 3D attenuation.\nPrefer authoring an FMOD Studio event.");
-
-						ImGuiEx::BeginPropertyGrid();
-						AssetHandle audioHandle = component.Audio;
-						const bool mixedAudio = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
-						{
-							return entity.GetComponent<AudioSourceComponent>().Audio;
-						});
-						ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedAudio);
-						if (ImGuiEx::PropertyAssetReference<AudioFile>("Audio File", audioHandle, "Audio Source only accepts audio assets"))
-						{
-							component.Audio = audioHandle;
-							ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities, [audioHandle](AudioSourceComponent& audioComponent, Entity)
-							{
-								audioComponent.Audio = audioHandle;
-							});
-						}
-						ImGui::PopItemFlag();
-
-						if (ImGuiEx::Property("Looping", config.Looping))
-						{
-							ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities, [&config](AudioSourceComponent& audioComponent, Entity)
-							{
-								audioComponent.Config.Looping = config.Looping;
-							});
-						}
-						ImGuiEx::EndPropertyGrid();
-						ImGui::TreePop();
-					}
-				}
+				if (component.LegacyAudio && !component.Event.IsValid())
+					ImGui::TextWrapped("Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Author an FMOD Studio event and assign it above.", static_cast<unsigned long long>(component.LegacyAudio));
+				ImGui::TextDisabled("Looping and spatialization are authored in FMOD Studio.");
 
 				if (isMultiEdit)
 					ImGui::TextDisabled("Parameter overrides apply to the first selected entity.");
@@ -3002,7 +2966,7 @@ namespace Lux {
 					});
 				}
 				ImGuiEx::EndPropertyGrid();
-				ImGui::TextWrapped("Weights blend Studio listeners. FMOD raw audio uses the nearest active listener. Miniaudio and ray-traced acoustics use the highest-weight listener (lowest index on a tie).");
+				ImGui::TextWrapped("Weights blend Studio listeners. Ray-traced acoustics use the highest-weight listener (lowest index on a tie).");
 			});
 
 		DrawComponentSection<StaticMeshComponent>(m_Context, entityIDs, "Static Mesh", EditorResources::StaticMeshIcon,

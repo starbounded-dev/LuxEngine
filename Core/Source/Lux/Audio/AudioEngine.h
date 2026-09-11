@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Lux/Audio/RaytracedAudioScene.h"
 #include "AudioBankManifest.h"
 
 #include <cstdint>
@@ -38,7 +37,7 @@ namespace Lux {
 		int MemoryCurrentBytes = 0;
 		int MemoryPeakBytes = 0;
 
-		// FMOD Studio layer. Zeroed under any backend that has no bank concept.
+		// FMOD Studio layer. Zeroed before initialization.
 		bool LiveUpdateEnabled = false;
 		int LoadedBankCount = 0;
 		int EventDescriptionCount = 0;
@@ -76,38 +75,10 @@ namespace Lux {
 		static void Init();
 		static void Shutdown();
 
-		// Queried per frame by the editor's Audio Debugger. Cheap on both backends (plain getters);
+		// Queried per frame by the editor's Audio Debugger. Uses inexpensive mixer queries;
 		// safe to call before Init or after Shutdown, where it reports Initialized = false.
 		static AudioEngineStats GetStats();
 
-		// Applies the ray-traced reverb of the space the listener is in to the ambient reverb unit,
-		// converting the SDK's units (seconds, Hz, linear gain) to the backend's. Driven once per
-		// frame from Scene::OnUpdateRuntime; individual sources control only how much they send
-		// into it, via AudioSource::SetReverbSend.
-		//
-		static void SetReverb(const RaytracedAudioReverb& reverb);
-
-		// The reverb parameters most recently pushed to the backend, in that backend's own units,
-		// for the editor to display next to the simulation's output. Zeroed if nothing was applied.
-		struct ReverbSnapshot
-		{
-			bool Applied = false;
-			float DecayTimeMs = 0.0f;
-			float EarlyDelayMs = 0.0f;
-			float LateDelayMs = 0.0f;
-			float HFReferenceHz = 0.0f;
-			float HFDecayRatioPercent = 0.0f;
-			float DiffusionPercent = 0.0f;
-			float DensityPercent = 0.0f;
-			float LowShelfFrequencyHz = 0.0f;
-			float LowShelfGainDb = 0.0f;
-			float HighCutHz = 0.0f;
-			float EarlyLateMixPercent = 0.0f;
-			float WetLevelDb = 0.0f;
-		};
-		static ReverbSnapshot GetReverbSnapshot();
-
-		// Pumped once per frame from Application::Run: Studio update, then Core update.
 		static void Update();
 
 		// --- FMOD Studio banks and events -------------------------------------------------------
@@ -148,10 +119,7 @@ namespace Lux {
 		static bool SetBusVolume(const std::string& busPath, float volume);
 		static float GetBusVolume(const std::string& busPath);
 
-		// The Core system. Under Studio this is not created directly - Studio::System::initialize
-		// creates it, and this is the handle it hands back. Still the right object for the low-level
-		// work such as legacy playback, the ray-traced reverb unit, and CPU stats. Listener slots
-		// must mirror Studio: its asynchronous update also publishes them to Core.
+		// Studio-owned Core system, used for metadata import and mixer statistics only.
 		static FMOD::System* GetEngine() { return s_Engine; }
 
 		// The Studio system, which owns banks, events and buses. Null when FMOD failed to

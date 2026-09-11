@@ -35,7 +35,7 @@ namespace Lux {
 		float PathFadeStrength = 0.75f;
 	};
 
-	// In-editor view of the audio stack: the playback backend (FMOD or miniaudio) and the
+	// In-editor view of the audio stack: FMOD Studio playback and the
 	// ray-traced acoustics simulation (Vercidium Audio). Pure visualization over data those two
 	// subsystems already expose — AudioEngine::GetStats / GetReverbSnapshot, and
 	// RaytracedAudioScene::GetStats / GetResult / GetAmbience / GetVisualisation. No audio

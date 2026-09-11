@@ -6,7 +6,6 @@
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
-#include "Lux/Audio/AudioSource.h"
 #include "Lux/Core/UUID.h"
 #include "Lux/Math/Math.h"
 #include "Lux/Physics/PhysicsTypes.h"
@@ -422,11 +421,18 @@ namespace Lux {
 		bool IsValid() const { return !Guid.empty(); }
 	};
 
+	struct AudioSourceConfig
+	{
+		float VolumeMultiplier = 1.0f;
+		float PitchMultiplier = 1.0f;
+		bool PlayOnAwake = true;
+	};
+
 	struct AudioSourceComponent
 	{
 		AudioSourceConfig Config;
 
-		// The FMOD Studio event this source plays. Takes precedence over Audio below when set:
+		// The FMOD Studio event this source plays:
 		// spatialisation, attenuation, randomisation and DSP then come from the event as authored.
 		AudioEventRef Event;
 
@@ -436,15 +442,12 @@ namespace Lux {
 		// else is ignored by FMOD rather than failing.
 		std::vector<std::pair<std::string, float>> ParameterOverrides;
 
-		// Legacy raw-file playback through the Core API, kept while projects still have audio that
-		// has not been moved into an FMOD Studio event. A source with an Event set never uses it.
-		AssetHandle Audio = 0;
+		// Migration data only. Preserved on save; never used for playback.
+		AssetHandle LegacyAudio = 0;
+		bool LegacyLooping = false;
 
-		// Runtime-only: false once the source has been started, so PlayOnAwake fires exactly once.
-		// Not serialized - a saved scene always begins un-started.
-		bool Paused = true;
+		// Runtime-only script pause, layered over scene pause by AudioEventInstance.
 		bool ScriptPaused = false;
-		bool ResumeAfterPause = false;
 	};
 
 	struct AudioListenerComponent

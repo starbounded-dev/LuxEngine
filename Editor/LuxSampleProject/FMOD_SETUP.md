@@ -113,3 +113,7 @@ the L and I paths demonstrate independent playback and do not automatically regi
 4. Launch the exported game. Required banks load before script `OnCreate`. This demo's asset-relative `Audio.LoadBank` paths remain valid and loading an already loaded bank succeeds.
 
 If Studio output is outside the project's Assets folder, export places it in `Assets/Audio/Banks`; use `Audio/Banks/<name>.bank` for explicit runtime loads, or rely on startup loading and fire events directly. Dist exports disable live update; Debug/Release follow the project's setting. Older runtime packages must be re-exported to include banks.
+
+## Migrating raw-file audio
+
+Audio Source components now play only FMOD Studio events. If an old scene references a raw audio asset, Lux retains its asset handle and loop flag for migration and displays a warning. Import that sound into FMOD Studio, create an event, assign it to a bank, build banks, and select the event in Lux. Set looping on the Studio timeline. C# `AudioSourceComponent.Play`, `Stop`, volume, pitch and parameter controls continue to work with the assigned event.

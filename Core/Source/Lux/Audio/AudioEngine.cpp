@@ -1,6 +1,5 @@
 #include "lpch.h"
 #include "AudioEngine.h"
-#include "AudioSource.h"
 
 #include "Lux/Project/Project.h"
 
@@ -16,21 +15,12 @@ namespace Lux {
 	namespace {
 
 		constexpr int kMaxChannels = 512;
-		// One ambient, effectively unbounded reverb zone. Its *character* is driven per frame from
-		// the ray-traced simulation (AudioEngine::SetReverb); each source controls only how much it
-		// sends into it, via ChannelControl::setReverbProperties.
-		constexpr float kAmbientReverbMinDistance = 1.0f;
-		constexpr float kAmbientReverbMaxDistance = 1000000.0f;
-		FMOD::Reverb3D* s_AmbientReverb = nullptr;
-		AudioEngine::ReverbSnapshot s_ReverbSnapshot;
-
 		bool s_LiveUpdateEnabled = false;
 		std::vector<FMOD::Studio::Bank*> s_Banks;
 		std::vector<std::filesystem::path> s_BankPaths;
 		std::vector<AudioBankInfo> s_BankInfo;
 		std::vector<AudioEventInfo> s_Events;
 		FMOD_RESULT s_LastStudioUpdateResult = FMOD_OK;
-		FMOD_RESULT s_LastCoreUpdateResult = FMOD_OK;
 
 		bool CheckFMOD(FMOD_RESULT result, const char* operation)
 		{
@@ -52,23 +42,6 @@ namespace Lux {
 				guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
 			return buffer;
 		}
-
-		// FMOD's HighCut is a cutoff frequency, but the simulation reports high-frequency reverb
-		// loss as a linear gain. Map gain 0..1 onto this frequency range so a heavily absorbed room
-		// closes the cut down toward the low end and an untreated one leaves it wide open.
-		constexpr float kHighCutMinHz = 1000.0f;
-		constexpr float kHighCutMaxHz = 20000.0f;
-
-		// Linear gain -> decibels, with a floor so gain 0 becomes FMOD's documented minimum instead
-		// of -infinity.
-		float LinearToDecibels(float linearGain, float minDb)
-		{
-			if (linearGain <= 0.0f)
-				return minDb;
-
-			return std::max(minDb, 20.0f * std::log10(linearGain));
-		}
-
 	}
 
 	FMOD::System* AudioEngine::s_Engine;
@@ -83,7 +56,6 @@ namespace Lux {
 
 		s_ShuttingDown = false;
 		s_LastStudioUpdateResult = FMOD_OK;
-		s_LastCoreUpdateResult = FMOD_OK;
 
 		// Studio is created first and owns the Core system: Studio::System::initialize creates it
 		// internally, so calling System_Create ourselves would leave a second, silent core system
@@ -121,7 +93,7 @@ namespace Lux {
 #endif
 
 		result = s_StudioSystem->initialize(kMaxChannels, studioFlags,
-			FMOD_INIT_3D_RIGHTHANDED | FMOD_INIT_CHANNEL_LOWPASS, nullptr);
+			FMOD_INIT_3D_RIGHTHANDED, nullptr);
 		if (result != FMOD_OK)
 		{
 			LUX_CORE_ERROR_TAG("Audio", "Failed to initialize FMOD Studio system: {}", FMOD_ErrorString(result));
@@ -143,14 +115,6 @@ namespace Lux {
 
 		if (s_LiveUpdateEnabled)
 			LUX_CORE_INFO_TAG("Audio", "Connect the FMOD Studio app to this process to mix while it runs");
-
-		if (CheckFMOD(s_Engine->createReverb3D(&s_AmbientReverb), "Failed to create ambient reverb"))
-		{
-			FMOD_VECTOR origin{ 0.0f, 0.0f, 0.0f };
-			CheckFMOD(s_AmbientReverb->set3DAttributes(&origin, kAmbientReverbMinDistance, kAmbientReverbMaxDistance), "Failed to position ambient reverb");
-			FMOD_REVERB_PROPERTIES properties = FMOD_PRESET_GENERIC;
-			CheckFMOD(s_AmbientReverb->setProperties(&properties), "Failed to initialize ambient reverb properties");
-		}
 	}
 
 	void AudioEngine::Shutdown()
@@ -159,13 +123,6 @@ namespace Lux {
 
 		s_ShuttingDown = true;
 		s_HasInitializedAudioEngine = false;
-		s_ReverbSnapshot = {};
-
-		if (s_AmbientReverb)
-		{
-			CheckFMOD(s_AmbientReverb->release(), "Failed to release ambient reverb");
-			s_AmbientReverb = nullptr;
-		}
 
 		UnloadAllBanks();
 
@@ -184,29 +141,13 @@ namespace Lux {
 
 	void AudioEngine::Update()
 	{
-		// BOTH are required, in this order, and the reason is not obvious: Studio::System::update()
-		// does not recompute the Core system's 3D attenuation. Measured with Channel::getAudibility
-		// on a source at a fixed point and the listener walked away from it - with Studio's update
-		// alone the audibility is frozen at whatever the geometry was when the channel started
-		// (distance has no effect at all, which sounds exactly like spatialisation being off), and
-		// adding System::update() makes it follow the rolloff curve exactly (0.300 at 1 m, 0.060 at
-		// 5 m, 0.030 at 10 m for a 0.3 m min distance).
-		//
-		// Studio goes first so event state resolves before the core mixer consumes it.
+		// Studio owns and updates the Core mixer; all playback is authored as Studio events.
 		if (s_StudioSystem)
 		{
 			const FMOD_RESULT result = s_StudioSystem->update();
 			if (result != s_LastStudioUpdateResult)
 				CheckFMOD(result, "FMOD Studio update failed");
 			s_LastStudioUpdateResult = result;
-		}
-
-		if (s_Engine)
-		{
-			const FMOD_RESULT result = s_Engine->update();
-			if (result != s_LastCoreUpdateResult)
-				CheckFMOD(result, "FMOD Core update failed");
-			s_LastCoreUpdateResult = result;
 		}
 	}
 
@@ -544,59 +485,6 @@ namespace Lux {
 		return volume;
 	}
 
-	void AudioEngine::SetReverb(const RaytracedAudioReverb& reverb)
-	{
-		if (!s_AmbientReverb || !reverb.Valid)
-			return;
-
-		// The simulation's units are seconds, Hz and linear gain; FMOD_REVERB_PROPERTIES wants
-		// milliseconds, percentages and decibels. Every value is clamped to the range FMOD
-		// documents for that field — the simulation can legitimately report values outside them
-		// (a huge outdoor space, a fully absorbed room), and FMOD rejects the whole struct if any
-		// single field is out of range, which would silently leave the previous reverb in place.
-		FMOD_REVERB_PROPERTIES properties{};
-		properties.DecayTime = std::clamp(reverb.DecayTime * 1000.0f, 0.0f, 20000.0f);
-		properties.EarlyDelay = std::clamp(reverb.ReflectionsDelay * 1000.0f, 0.0f, 300.0f);
-		properties.LateDelay = std::clamp(reverb.LateReverbDelay * 1000.0f, 0.0f, 100.0f);
-		properties.HFReference = std::clamp(reverb.HFReference, 20.0f, 20000.0f);
-		properties.HFDecayRatio = std::clamp(reverb.DecayHFRatio * 100.0f, 10.0f, 100.0f);
-		properties.Diffusion = std::clamp(reverb.Diffusion * 100.0f, 0.0f, 100.0f);
-		properties.Density = std::clamp(reverb.Density * 100.0f, 0.0f, 100.0f);
-		properties.LowShelfFrequency = std::clamp(reverb.LFReference, 20.0f, 1000.0f);
-		properties.LowShelfGain = std::clamp(LinearToDecibels(reverb.GainLF, -36.0f), -36.0f, 12.0f);
-		properties.HighCut = std::clamp(kHighCutMinHz + std::clamp(reverb.GainHF, 0.0f, 1.0f) * (kHighCutMaxHz - kHighCutMinHz), 20.0f, 20000.0f);
-
-		// FMOD expresses the early/late balance as one percentage rather than two gains.
-		const float earlyLateTotal = reverb.ReflectionsGain + reverb.LateReverbGain;
-		properties.EarlyLateMix = earlyLateTotal > 0.0f
-			? std::clamp((reverb.LateReverbGain / earlyLateTotal) * 100.0f, 0.0f, 100.0f)
-			: 50.0f;
-
-		properties.WetLevel = std::clamp(LinearToDecibels(reverb.Gain, -80.0f), -80.0f, 20.0f);
-
-		if (s_AmbientReverb->setProperties(&properties) != FMOD_OK)
-			return;
-
-		s_ReverbSnapshot.Applied = true;
-		s_ReverbSnapshot.DecayTimeMs = properties.DecayTime;
-		s_ReverbSnapshot.EarlyDelayMs = properties.EarlyDelay;
-		s_ReverbSnapshot.LateDelayMs = properties.LateDelay;
-		s_ReverbSnapshot.HFReferenceHz = properties.HFReference;
-		s_ReverbSnapshot.HFDecayRatioPercent = properties.HFDecayRatio;
-		s_ReverbSnapshot.DiffusionPercent = properties.Diffusion;
-		s_ReverbSnapshot.DensityPercent = properties.Density;
-		s_ReverbSnapshot.LowShelfFrequencyHz = properties.LowShelfFrequency;
-		s_ReverbSnapshot.LowShelfGainDb = properties.LowShelfGain;
-		s_ReverbSnapshot.HighCutHz = properties.HighCut;
-		s_ReverbSnapshot.EarlyLateMixPercent = properties.EarlyLateMix;
-		s_ReverbSnapshot.WetLevelDb = properties.WetLevel;
-	}
-
-	AudioEngine::ReverbSnapshot AudioEngine::GetReverbSnapshot()
-	{
-		return s_ReverbSnapshot;
-	}
-
 	AudioEngineStats AudioEngine::GetStats()
 	{
 		AudioEngineStats stats;
@@ -663,6 +551,5 @@ namespace Lux {
 
 		return stats;
 	}
-
 
 }

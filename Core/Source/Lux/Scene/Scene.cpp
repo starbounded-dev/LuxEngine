@@ -5,7 +5,6 @@
 #include "Lux/Asset/AssetManager.h"
 
 #include "Lux/Audio/AudioEngine.h"
-#include "Lux/Audio/AudioSource.h"
 #include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/RaytracedAudioScene.h"
@@ -55,44 +54,6 @@ namespace Lux {
 			ListenerInvalidVelocity = 1 << 5,
 			ListenerMissing = 1 << 6
 		};
-
-		std::filesystem::path ResolveAudioFilePath(const Ref<AudioFile>& audioFile)
-		{
-			if (!audioFile)
-				return {};
-
-			const std::filesystem::path storedPath = audioFile->FilePath;
-			if (storedPath.empty())
-				return {};
-
-			if (storedPath.is_absolute())
-				return storedPath;
-
-			if (Ref<Project> project = Project::GetActive())
-				return project->GetAssetFileSystemPath(storedPath);
-
-			return storedPath;
-		}
-
-		Ref<AudioSource> CreateRuntimeAudioSourceFromHandle(AssetHandle handle)
-		{
-			if (!AssetManager::IsAssetHandleValid(handle))
-				return nullptr;
-
-			Ref<AudioFile> audioFile = AssetManager::GetAsset<AudioFile>(handle);
-			if (!audioFile)
-				return nullptr;
-
-			const std::filesystem::path filepath = ResolveAudioFilePath(audioFile);
-			if (filepath.empty())
-				return nullptr;
-
-			Ref<AudioSource> audioSource = Ref<AudioSource>::Create();
-			if (!audioSource->LoadFromFile(filepath))
-				return nullptr;
-
-			return audioSource;
-		}
 
 		enum class ColliderDebugPrimitive
 		{
@@ -375,25 +336,11 @@ namespace Lux {
 		DestroyEntity(TryGetEntityWithUUID(entityID), excludeChildren, first);
 	}
 
-	Ref<AudioSource> Scene::GetOrCreateRuntimeAudioSource(Entity entity, AssetHandle audioHandle)
-	{
-		if (!entity || !audioHandle)
-			return nullptr;
-
-		Ref<AudioSource>& runtimeAudio = m_RuntimeAudioSources[entity.GetUUID()];
-		if (!runtimeAudio)
-			runtimeAudio = CreateRuntimeAudioSourceFromHandle(audioHandle);
-
-		return runtimeAudio;
-	}
-
-
 	void Scene::ReleaseRuntimeAudio(Entity entity)
 	{
 		if (!entity)
 			return;
 
-		m_RuntimeAudioSources.erase(entity.GetUUID());
 		auto event = m_RuntimeEventInstances.find(entity.GetUUID());
 		if (event != m_RuntimeEventInstances.end())
 		{
@@ -408,8 +355,6 @@ namespace Lux {
 
 	void Scene::ReleaseAllRuntimeAudio()
 	{
-		m_RuntimeAudioSources.clear();
-
 		// Event instances hold FMOD Studio resources and must not outlive the runtime that started
 		// them; the destructor stops each one immediately and releases it.
 		for (auto& [id, event] : m_RuntimeEventInstances)
@@ -519,51 +464,17 @@ namespace Lux {
 		m_AudioListenerWarnings = 0;
 		SyncAudioListeners(0.0f);
 
+		for (auto handle : m_Registry.view<TransformComponent, AudioSourceComponent>())
 		{
-			auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
-			view.each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& ac)
-				{
-					ac.Paused = true;
-					ac.ScriptPaused = false;
-					ac.ResumeAfterPause = false;
-					if (ac.Event.IsValid())
-					{
-						Entity entity = { entityHandle, this };
-						GetOrCreateRuntimeEventInstance(entity, ac, GetWorldSpaceTransformMatrix(entity));
-						return;
-					}
-					if (AssetManager::IsAssetHandleValid(ac.Audio))
-					{
-						Entity entity = { entityHandle, this };
-						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
-						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
-						const glm::mat4 inverted = glm::inverse(worldTransform);
-						const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
-
-						if (ac.Audio)
-						{
-							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(entity, ac.Audio);
-
-							if (audioSource != nullptr)
-							{
-								audioSource->SetConfig(ac.Config);
-								audioSource->SetPosition(glm::vec4(worldPosition, 1.0f));
-								audioSource->SetDirection(forward);
-								if (ac.Config.PlayOnAwake)
-								{
-									audioSource->Play();
-
-									// Records that play-on-awake has fired. Without this the
-									// per-frame path below still sees Paused == true and restarts
-									// the source every time it finishes, turning a one-shot into an
-									// unintended loop.
-									ac.Paused = false;
-								}
-							}
-						}
-					}
-				});
+			Entity entity{ handle, this };
+			auto& source = entity.GetComponent<AudioSourceComponent>();
+			source.ScriptPaused = false;
+			if (source.Event.IsValid())
+				GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity));
+			else if (source.LegacyAudio)
+				LUX_CORE_ERROR_TAG("Audio", "Entity {0} uses retired raw audio asset {1}. Assign an FMOD Studio event to its Audio Source", static_cast<uint64_t>(entity.GetUUID()), static_cast<uint64_t>(source.LegacyAudio));
 		}
+
 		// Scripting: instantiate every script entity and fire OnCreate.
 		{
 			ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
@@ -607,23 +518,6 @@ namespace Lux {
 		OnPhysics3DStop();
 		OnPhysics2DStop();
 
-		{
-			auto view = m_Registry.view<AudioSourceComponent>();
-			view.each([&](entt::entity entity, AudioSourceComponent& asc)
-				{
-					auto& ac = asc;
-					if (!ac.Event.IsValid() && AssetManager::IsAssetHandleValid(ac.Audio))
-					{
-						if (ac.Audio)
-						{
-							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource({ entity, this }, ac.Audio);
-
-							if (audioSource != nullptr && audioSource->IsPlaying())
-								audioSource->Stop();
-						}
-					}
-				});
-		}
 		ReleaseAllRuntimeAudio();
 
 		m_Registry.view<NativeScriptComponent>().each([](auto, auto& nsc)
@@ -719,55 +613,14 @@ namespace Lux {
 
 			SyncAudioListeners(m_IsPaused ? 0.0f : static_cast<float>(ts));
 
+			for (auto handle : m_Registry.view<TransformComponent, AudioSourceComponent>())
 			{
-				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent Scope", 0xFF7200);
-
-				auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
-				view.each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& asc)
-					{
-						Entity entity = { entityHandle, this };
-						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
-						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
-
-						// An authored FMOD Studio event takes precedence over the legacy raw-file
-						// path. Everything the Config struct would have controlled - attenuation,
-						// cones, doppler, randomisation - is authored in the event instead, so none
-						// of it is applied here; only placement, level and pitch are the engine's.
-						if (asc.Event.IsValid())
-						{
-							GetOrCreateRuntimeEventInstance(entity, asc, worldTransform);
-
-							return;
-						}
-
-						if (m_RuntimeEventInstances.contains(entity.GetUUID()))
-						{
-							ReleaseRuntimeAudio(entity);
-							asc.Paused = true;
-						}
-
-						if (asc.Audio)
-						{
-							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(entity, asc.Audio);
-							if (!audioSource)
-								return;
-
-							if (asc.ResumeAfterPause && !asc.ScriptPaused)
-							{
-								audioSource->UnPause();
-								asc.ResumeAfterPause = false;
-							}
-							if (!audioSource->IsPlaying() && asc.Paused && asc.Config.PlayOnAwake && !asc.ScriptPaused)
-							{
-								audioSource->SetConfig(asc.Config);
-								audioSource->Play();
-								asc.Paused = false;
-							}
-
-							audioSource->SetConfig(asc.Config);
-							audioSource->SetPosition(glm::vec4(worldPosition, 1.0f));
-						}
-					});
+				Entity entity{ handle, this };
+				const auto& source = entity.GetComponent<AudioSourceComponent>();
+				if (source.Event.IsValid())
+					GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity));
+				else if (m_RuntimeEventInstances.contains(entity.GetUUID()))
+					ReleaseRuntimeAudio(entity);
 			}
 
 			if (m_RaytracedAudioScene)
@@ -786,19 +639,14 @@ namespace Lux {
 				const auto& listener = primaryListener ? *primaryListener : fallback;
 				m_RaytracedAudioScene->SetListener(listener.UseAttenuationPosition ? listener.AttenuationPosition : listener.Position, listener.Forward);
 
-				// Reverb belongs to the space, not to any one source, so it is read once per frame
-				// from the listener and pushed to the backend's single reverb unit. Each source
-				// below then controls only how much it sends into it.
 				const RaytracedAudioAmbience ambience = m_RaytracedAudioScene->GetAmbience();
-				if (ambience.Reverb.Valid)
-					AudioEngine::SetReverb(ambience.Reverb);
 
 				m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& asc)
 					{
 						Entity entity = { entityHandle, this };
 						UUID entityID = entity.GetUUID();
 
-						if (!asc.Event.IsValid() && !AssetManager::IsAssetHandleValid(asc.Audio))
+						if (!asc.Event.IsValid())
 						{
 							m_RaytracedAudioScene->DestroyEmitter(entityID);
 							return;
@@ -812,26 +660,11 @@ namespace Lux {
 						if (!result.Valid && !ambience.Valid)
 							return;
 
-						AudioSourceAcoustics acoustics;
-						acoustics.OcclusionGainLF = result.OcclusionGainLF;
-						acoustics.OcclusionGainHF = result.OcclusionGainHF;
-						acoustics.AmbientGainLF = ambience.AmbientGainLF;
-						acoustics.AmbientGainHF = ambience.AmbientGainHF;
-						acoustics.ReverbSend = ambience.ReturnedPercent;
-
-						// An event-driven source receives the same measurements, but as named
-						// parameters rather than as a filter - the event decides what occlusion does
-						// to it. Sources on the legacy raw-file path still get the direct treatment.
-						if (asc.Event.IsValid())
-						{
-							if (Ref<AudioEventInstance> instance = GetRuntimeEventInstance(entityID))
-								instance->SetAcoustics(acoustics);
-
-							return;
-						}
-
-						if (Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(entity, asc.Audio))
-							audioSource->SetAcoustics(acoustics);
+						AudioEventAcoustics acoustics;
+						acoustics.OcclusionGainLF = result.Valid ? result.OcclusionGainLF : 1.0f;
+						acoustics.ReverbSend = ambience.Valid ? ambience.ReturnedPercent : 0.0f;
+						if (Ref<AudioEventInstance> instance = GetRuntimeEventInstance(entityID))
+							instance->SetAcoustics(acoustics);
 					});
 
 				m_RaytracedAudioScene->OnUpdate(ts);
@@ -841,34 +674,10 @@ namespace Lux {
 		{
 			SyncAudioListeners(0.0f);
 
+			for (auto& [id, event] : m_RuntimeEventInstances)
 			{
-				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 2 Scope", 0xFF7200);
-
-				auto view = m_Registry.view<AudioSourceComponent>();
-				view.each([&](entt::entity entity, AudioSourceComponent& asc)
-					{
-
-						Entity e = { entity , this };
-
-						// Pausing the scene pauses whichever path this source is using.
-						if (asc.Event.IsValid())
-						{
-							if (Ref<AudioEventInstance> instance = GetRuntimeEventInstance(e.GetUUID()))
-								instance->SetScenePaused(true);
-
-							return;
-						}
-
-						if (asc.Audio)
-						{
-							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(e, asc.Audio);
-							if (audioSource && audioSource->IsPlaying())
-							{
-								audioSource->Pause();
-								asc.ResumeAfterPause = true;
-							}
-						}
-					});
+				if (event.Instance)
+					event.Instance->SetScenePaused(true);
 			}
 		}
 
@@ -1027,14 +836,6 @@ namespace Lux {
 		return m_RaytracedAudioScene;
 	}
 
-	Ref<AudioSource> Scene::GetAudioSourceForScript(UUID entityID)
-	{
-		Entity entity = TryGetEntityWithUUID(entityID);
-		if (!m_IsRunning || !entity || !entity.HasComponent<AudioSourceComponent>())
-			return nullptr;
-		return GetOrCreateRuntimeAudioSource(entity, entity.GetComponent<AudioSourceComponent>().Audio);
-	}
-
 	Ref<AudioEventInstance> Scene::GetAudioEventForScript(UUID entityID, bool suppressPlayOnAwake)
 	{
 		Entity entity = TryGetEntityWithUUID(entityID);
@@ -1044,12 +845,6 @@ namespace Lux {
 		if (suppressPlayOnAwake)
 			m_RuntimeEventInstances.at(entityID).AwakeHandled = true;
 		return event;
-	}
-
-	Ref<AudioSource> Scene::GetRuntimeAudioSource(UUID entityID) const
-	{
-		auto it = m_RuntimeAudioSources.find(entityID);
-		return it != m_RuntimeAudioSources.end() ? it->second : nullptr;
 	}
 
 	Ref<AudioEventInstance> Scene::GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake)
@@ -1064,7 +859,6 @@ namespace Lux {
 		{
 			if (event.Instance)
 				event.Instance->Stop(false);
-			m_RuntimeAudioSources.erase(entityID);
 			event = { source.Event.Guid, bankRevision, AudioEventInstance::Create(source.Event.Guid) };
 		}
 
@@ -2752,9 +2546,7 @@ namespace Lux {
 	template<>
 	void Scene::OnComponentAdded<AudioSourceComponent>(Entity entity, AudioSourceComponent& component)
 	{
-		component.Paused = true;
 		component.ScriptPaused = false;
-		component.ResumeAfterPause = false;
 		ReleaseRuntimeAudio(entity);
 	}
 

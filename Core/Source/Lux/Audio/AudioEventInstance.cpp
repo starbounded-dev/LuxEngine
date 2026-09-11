@@ -309,14 +309,12 @@ namespace Lux {
 		return CheckResult(std::isfinite(value) ? m_Instance->setParameterByName(name.c_str(), value) : FMOD_ERR_INVALID_FLOAT, name.c_str());
 	}
 
-	void AudioEventInstance::SetAcoustics(const AudioSourceAcoustics& acoustics)
+	void AudioEventInstance::SetAcoustics(const AudioEventAcoustics& acoustics)
 	{
 		if (!IsValid())
 			return;
 
-		// Collapsed to one 0-1 occlusion amount rather than the Core path's split of volume and
-		// filter, because here the engine is not applying the effect - the event is. The low band
-		// carries the broadband transmission, so 1 - gainLF is the honest "how blocked is this".
+		// The low band measures broadband transmission; Studio authors its audible effect.
 		const float occlusion = std::clamp(1.0f - acoustics.OcclusionGainLF, 0.0f, 1.0f);
 		// These parameters are opt-in; an absent one is expected. Other failures are reported.
 		const auto setOptional = [&](const char* name, float value)

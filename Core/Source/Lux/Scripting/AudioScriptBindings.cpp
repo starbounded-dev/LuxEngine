@@ -166,51 +166,33 @@ namespace Lux
 			auto* source = Source(id);
 			if (!source)
 				return;
+			if (!source->Event.IsValid())
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Entity {0} has no Studio event assigned", id);
+				return;
+			}
 			source->ScriptPaused = false;
-			source->ResumeAfterPause = false;
-			if (source->Event.IsValid())
+			if (auto event = SourceEvent(id, true, true))
 			{
-				if (auto event = SourceEvent(id, true, true))
-				{
-					event->SetPaused(false);
-					event->Start();
-				}
+				event->SetPaused(false);
+				event->Start();
 			}
-			else if (auto raw = AudioScene()->GetAudioSourceForScript(id))
-			{
-				raw->SetConfig(source->Config);
-				raw->SetPosition(glm::vec4(glm::vec3(AudioScene()->GetWorldSpaceTransformMatrix(AudioEntity(id))[3]), 1.0f));
-				raw->Play();
-				if (AudioScene()->IsPaused())
-				{
-					raw->Pause();
-					source->ResumeAfterPause = true;
-				}
-			}
-			source->Paused = false;
 		}
 
 		void Audio_SourceStop(uint64_t id, Coral::Bool32 fade)
 		{
-			auto* source = Source(id);
-			if (!source)
-				return;
-			if (auto event = SourceEvent(id, true, true))
-				event->Stop(fade);
-			else if (auto raw = AudioScene()->GetRuntimeAudioSource(id))
-				raw->Stop();
-			source->ScriptPaused = false;
-			source->ResumeAfterPause = false;
-			source->Paused = false; // Suppress another PlayOnAwake after an explicit stop.
+			if (auto* source = Source(id))
+			{
+				if (auto event = SourceEvent(id, true, true))
+					event->Stop(fade);
+				source->ScriptPaused = false;
+			}
 		}
 
 		Coral::Bool32 Audio_SourceIsPlaying(uint64_t id)
 		{
-			if (auto event = SourceEvent(id, false))
-				return event->IsPlaying();
-			auto scene = AudioScene();
-			auto raw = scene ? scene->GetRuntimeAudioSource(id) : nullptr;
-			return raw && raw->IsPlaying();
+			auto event = SourceEvent(id, false);
+			return event && event->IsPlaying();
 		}
 
 		Coral::Bool32 Audio_SourceIsPaused(uint64_t id)
@@ -227,19 +209,6 @@ namespace Lux
 			source->ScriptPaused = paused;
 			if (auto event = SourceEvent(id, false))
 				event->SetPaused(paused);
-			else if (auto raw = AudioScene()->GetRuntimeAudioSource(id))
-			{
-				if (paused)
-				{
-					source->ResumeAfterPause |= raw->IsPlaying();
-					raw->Pause();
-				}
-				else if (source->ResumeAfterPause && !AudioScene()->IsPaused())
-				{
-					raw->UnPause();
-					source->ResumeAfterPause = false;
-				}
-			}
 		}
 
 		float Audio_SourceGetVolume(uint64_t id)
@@ -259,8 +228,6 @@ namespace Lux
 				source->Config.VolumeMultiplier = std::max(0.0f, value);
 				if (auto event = SourceEvent(id, false))
 					event->SetVolume(value);
-				else if (auto raw = AudioScene()->GetRuntimeAudioSource(id))
-					raw->SetVolume(value);
 			}
 		}
 		void Audio_SourceSetPitch(uint64_t id, float value)
@@ -270,8 +237,6 @@ namespace Lux
 				source->Config.PitchMultiplier = std::max(0.0f, value);
 				if (auto event = SourceEvent(id, false))
 					event->SetPitch(value);
-				else if (auto raw = AudioScene()->GetRuntimeAudioSource(id))
-					raw->SetPitch(value);
 			}
 		}
 		Coral::Bool32 Audio_SourceHasEvent(uint64_t id)
