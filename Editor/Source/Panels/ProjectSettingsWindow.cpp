@@ -3,6 +3,8 @@
 
 #include "Lux/Audio/AudioBankBuilder.h"
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioSurfaceTable.h"
+#include "Lux/ImGui/AudioWidgets.h"
 #include "RuntimeExportUtils.h"
 
 #include "Lux/Asset/AssetManager.h"
@@ -509,6 +511,10 @@ namespace Lux {
 			m_Dirty = true;
 		}
 
+		if (ImGuiEx::PropertyAssetReference<AudioSurfaceTable>("Surface Table", audioSettings.SurfaceTable,
+			"Shared footstep, impact, scrape and roll events. Create a table in Content Browser > New. Loaded on Play and included in runtime exports."))
+			m_Dirty = true;
+
 		static const char* zoneModes[] = { "Layer zones and VA", "Prefer zones", "Prefer VA" };
 		if (ImGuiEx::PropertyDropdown("Zone Reverb", zoneModes, 3, audioSettings.ZoneReverbMode,
 			"Layered keeps both. Prefer zones reduces VA ReverbSend by active snapshot coverage. Prefer VA suppresses zone snapshots while valid VA ambience is available.", false))
@@ -525,6 +531,37 @@ namespace Lux {
 		ImGuiEx::EndPropertyGrid();
 
 		ImGui::Spacing();
+		if (audioSettings.SurfaceTable && ImGuiEx::PropertyGridHeader("Surface Sounds", false))
+		{
+			if (AssetManager::IsAssetHandleValid(audioSettings.SurfaceTable) && AssetManager::GetAssetType(audioSettings.SurfaceTable) == AssetType::AudioSurfaceTable)
+			{
+				if (auto table = AssetManager::GetAsset<AudioSurfaceTable>(audioSettings.SurfaceTable))
+				{
+					ImGui::TextWrapped("Edit the shared table, then Save Surface Table. Empty material slots use Default. Footsteps and impacts require one-shot events; scrape and roll require continuous events.");
+					ImGuiEx::BeginPropertyGrid();
+					ImGuiEx::Property("Impact Cooldown (s)", table->ImpactCooldown, 0.01f, 0.0f, 60.0f, "", false);
+					ImGuiEx::Property("Minimum Impulse", table->MinimumImpulse, 0.1f, 0.0f, 100000.0f, "Jolt estimated collision impulse in kg m/s.", false);
+					ImGuiEx::Property("Minimum Motion Speed", table->MinimumMotionSpeed, 0.01f, 0.0f, 1000.0f, "", false);
+					ImGuiEx::EndPropertyGrid();
+					for (size_t i = 0; i < AcousticMaterialCount; ++i)
+					{
+						ImGuiEx::ScopedID id(static_cast<int>(i));
+						if (!ImGui::TreeNode(AcousticMaterialNames[i]))
+							continue;
+						auto& sounds = table->Surfaces[i];
+						ImGuiEx::SurfaceEventPicker("Footstep", sounds.Footstep, true);
+						ImGuiEx::SurfaceEventPicker("Impact", sounds.Impact, true);
+						ImGuiEx::SurfaceEventPicker("Scrape", sounds.Scrape, false);
+						ImGuiEx::SurfaceEventPicker("Roll", sounds.Roll, false);
+						ImGui::TreePop();
+					}
+					if (ImGui::Button("Save Surface Table"))
+						AssetManager::SaveAsset(table);
+				}
+			}
+			else
+				ImGui::TextWrapped("The assigned surface table is missing or has the wrong asset type.");
+		}
 		if (ImGuiEx::PropertyGridHeader("Acoustic Materials", false))
 		{
 			ImGui::TextWrapped("Applied on the next Play session and included in runtime exports. Presets are starting points; tune them for your game's scale.");

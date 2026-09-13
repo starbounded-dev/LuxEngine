@@ -749,7 +749,22 @@ namespace Lux {
 			if (entity.HasComponent<AudioSurfaceComponent>())
 			{
 				out << YAML::Key << "AudioSurfaceComponent" << YAML::BeginMap;
-				out << YAML::Key << "Material" << YAML::Value << AcousticMaterialName(entity.GetComponent<AudioSurfaceComponent>().Material);
+				const auto& surface = entity.GetComponent<AudioSurfaceComponent>();
+				out << YAML::Key << "Material" << YAML::Value << AcousticMaterialName(surface.Material);
+				out << YAML::Key << "PhysicsSounds" << YAML::Value << surface.PhysicsSounds;
+				out << YAML::Key << "AutoFootsteps" << YAML::Value << surface.AutoFootsteps;
+				out << YAML::Key << "StrideLength" << YAML::Value << surface.StrideLength;
+				out << YAML::Key << "GroundProbeDistance" << YAML::Value << surface.GroundProbeDistance;
+				out << YAML::Key << "FootstepWeight" << YAML::Value << surface.FootstepWeight;
+				auto writeEvent = [&](const char* name, const AudioEventRef& reference)
+				{
+					out << YAML::Key << name << YAML::BeginMap;
+					out << YAML::Key << "Guid" << YAML::Value << reference.Guid;
+					out << YAML::Key << "Path" << YAML::Value << reference.Path;
+					out << YAML::Key << "BankName" << YAML::Value << reference.BankName << YAML::EndMap;
+				};
+				writeEvent("FootstepOverride", surface.FootstepOverride);
+				writeEvent("ImpactOverride", surface.ImpactOverride);
 				out << YAML::EndMap;
 			}
 
@@ -1259,6 +1274,22 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<AudioSurfaceComponent>();
 					if (!ParseAcousticMaterial(surface["Material"].as<std::string>("Default"), component.Material))
 						throw std::runtime_error("Invalid audio surface material");
+					component.PhysicsSounds = surface["PhysicsSounds"].as<bool>(true);
+					component.AutoFootsteps = surface["AutoFootsteps"].as<bool>(false);
+					component.StrideLength = surface["StrideLength"].as<float>(0.7f);
+					component.GroundProbeDistance = surface["GroundProbeDistance"].as<float>(1.2f);
+					component.FootstepWeight = surface["FootstepWeight"].as<float>(75.0f);
+					if (!std::isfinite(component.StrideLength) || component.StrideLength <= 0.0f
+						|| !std::isfinite(component.GroundProbeDistance) || component.GroundProbeDistance <= 0.0f
+						|| !std::isfinite(component.FootstepWeight) || component.FootstepWeight <= 0.0f)
+						throw std::runtime_error("Invalid footstep settings");
+					auto readEvent = [&](const char* name)
+					{
+						const auto value = surface[name];
+						return value ? AudioEventRef{ value["Guid"].as<std::string>(""), value["Path"].as<std::string>(""), value["BankName"].as<std::string>("") } : AudioEventRef{};
+					};
+					component.FootstepOverride = readEvent("FootstepOverride");
+					component.ImpactOverride = readEvent("ImpactOverride");
 				}
 
 				if (auto audioSource = entity["AudioSourceComponent"])
@@ -1501,7 +1532,16 @@ namespace Lux {
 		audio.LegacyLooping = true;
 		audio.ScriptPaused = true;
 		childB.AddComponent<MeshColliderComponent>().Acoustic = AcousticMaterial::Wood;
-		childB.AddComponent<AudioSurfaceComponent>().Material = AcousticMaterial::Carpet;
+		auto& surface = childB.AddComponent<AudioSurfaceComponent>();
+		surface.Material = AcousticMaterial::Carpet;
+		surface.FootstepOverride = audio.Event;
+		surface.ImpactOverride = { "{11111111-1234-1234-1234-123456789abc}", "event:/Impact", "Impact.bank" };
+		surface.AutoFootsteps = true;
+		surface.PhysicsSounds = false;
+		surface.StrideLength = 1.1f;
+		surface.GroundProbeDistance = 1.5f;
+		surface.FootstepWeight = 90.0f;
+		const AudioSurfaceComponent expectedSurface = surface;
 		auto& zone = childB.AddComponent<AudioZoneComponent>();
 		zone.Shape = AudioZoneShape::Sphere;
 		zone.Offset = { 1.0f, 2.0f, 3.0f };
@@ -1527,6 +1567,19 @@ namespace Lux {
 				|| entity.GetComponent<MeshColliderComponent>().Acoustic != AcousticMaterial::Wood
 				|| entity.GetComponent<AudioSurfaceComponent>().Material != AcousticMaterial::Carpet)
 				fail(std::format("{} lost acoustic material tags", operation));
+			if (const auto* copied = entity.TryGetComponent<AudioSurfaceComponent>())
+			{
+				if (copied->FootstepOverride.Guid != expectedSurface.FootstepOverride.Guid
+					|| copied->FootstepOverride.Path != expectedSurface.FootstepOverride.Path
+					|| copied->FootstepOverride.BankName != expectedSurface.FootstepOverride.BankName
+					|| copied->ImpactOverride.Guid != expectedSurface.ImpactOverride.Guid
+					|| copied->ImpactOverride.Path != expectedSurface.ImpactOverride.Path
+					|| copied->ImpactOverride.BankName != expectedSurface.ImpactOverride.BankName
+					|| copied->AutoFootsteps != expectedSurface.AutoFootsteps || copied->PhysicsSounds != expectedSurface.PhysicsSounds
+					|| copied->StrideLength != expectedSurface.StrideLength || copied->GroundProbeDistance != expectedSurface.GroundProbeDistance
+					|| copied->FootstepWeight != expectedSurface.FootstepWeight)
+					fail(std::format("{} changed physics audio settings", operation));
+			}
 			if (!entity.HasComponent<AudioZoneComponent>())
 				fail(std::format("{} lost the audio zone", operation));
 			else

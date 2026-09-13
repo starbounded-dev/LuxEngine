@@ -572,6 +572,30 @@ idempotent; adding banks preserves existing event handles. The bank catalog revi
 component lookups without restarting existing playback. Directory reload still invalidates all old
 handles. Banks remain engine-owned until bank reload or engine shutdown.
 
+**Surfaces and physics audio (Phase 9):** `AudioSurfaceTable` is a `.lsurfaces` asset with
+per-material footstep/impact/scrape/roll GUID references and shared thresholds. `AudioEventRef`
+lives in Audio rather than Components so assets do not depend on the scene module. The project
+stores its table handle in YAML and runtime format 20; AssetPack includes it with every scene.
+`AssetManager::ImportAsset` / `SaveAsset` provide editor asset operations through the facade and
+reject runtime managers. Asset-pack serialization returns failure to the export caller when any
+scene/asset or output write fails; `FileStream` reports the underlying I/O result.
+
+`PhysicsScene::Impl` owns a `JoltContactListener` that outlives the Jolt system. Worker callbacks
+capture body sequence IDs/subshape IDs, UUIDs, contact position, masses, estimated impulse and
+slip/roll speeds under a queue mutex. They never read ECS, acquire body locks or call FMOD.
+`DrainContactEvents` swaps reusable vectors after simulation; simulation-only scenes drain without
+playback. Speculative contacts are silent, and Persist can supply the first real impact.
+
+`SceneAudioSurfaces.cpp` resolves contact IDs and material/table overrides on the main thread.
+The scene-owned `PhysicsAudioSystem` owns impact/footstep instances, cooldowns, contact state and
+one scrape/roll pair per body pair (coalescing compound manifolds). It retains retiring instances
+through authored fade-outs, handles scene pause and bank generations, and clears entity-owned
+voices on destruction. Jolt sleep produces contact removals. Surface component removal also clears
+its runtime audio/cadence. Automatic footsteps are opt-in horizontal-distance cadence plus a
+walkable-ground ray query; `Audio.PlayFootstep(Entity, speed, weight, probeDistance)` exposes the
+same query for scripts. This layer does not implement character motion and currently targets 3D
+Jolt, not Box2D. See `docs/AUDIO_SURFACES.md` for authoring and parameter contracts.
+
 **Editor observability:** `AudioDebugPanel` (`Editor/Source/Panels/AudioDebugPanel.{h,cpp}`, View →
 Audio Debugger, closed by default) renders both halves of the stack. It is pure visualization over
 read-only accessors — `AudioEngine::GetStats()` and

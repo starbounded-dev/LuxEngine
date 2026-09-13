@@ -692,6 +692,7 @@ namespace Lux
 					return false;
 				out << YAML::Key << "AcousticMaterials" << YAML::Value;
 				config.Audio.AcousticMaterials.SerializeYAML(out);
+				out << YAML::Key << "SurfaceTable" << YAML::Value << static_cast<uint64_t>(config.Audio.SurfaceTable);
 				out << YAML::Key << "ZoneReverbMode" << YAML::Value << static_cast<uint32_t>(config.Audio.ZoneReverbMode);
 				out << YAML::EndMap;
 			}
@@ -798,6 +799,7 @@ namespace Lux
 			return false;
 		}
 		serializer.WriteRaw<uint8_t>(static_cast<uint8_t>(zoneMode));
+		serializer.WriteRaw<uint64_t>(m_Project->GetConfig().Audio.SurfaceTable);
 
 		const auto& physics = m_Project->GetConfig().Physics;
 		serializer.WriteRaw<float>(physics.FixedTimestep);
@@ -927,6 +929,7 @@ namespace Lux
 		}
 
 		config.Audio.RuntimeBanks = {};
+		config.Audio.SurfaceTable = 0;
 		config.Audio.AcousticMaterials = {};
 		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
 		if (auto audioNode = projectNode["Audio"])
@@ -936,6 +939,7 @@ namespace Lux
 			config.Audio.StudioBankOutputPath = audioNode["StudioBankOutputPath"].as<std::string>(config.Audio.StudioBankOutputPath.generic_string());
 			config.Audio.RebuildBanksOnPlay = audioNode["RebuildBanksOnPlay"].as<bool>(config.Audio.RebuildBanksOnPlay);
 			config.Audio.EnableLiveUpdate = audioNode["EnableLiveUpdate"].as<bool>(config.Audio.EnableLiveUpdate);
+			config.Audio.SurfaceTable = audioNode["SurfaceTable"].as<uint64_t>(0);
 			const auto zoneMode = audioNode["ZoneReverbMode"].as<uint32_t>(0);
 			if (zoneMode > static_cast<uint32_t>(AudioZoneReverbMode::PreferRaytraced))
 			{
@@ -1064,6 +1068,17 @@ namespace Lux
 				return false;
 			}
 			config.Audio.ZoneReverbMode = static_cast<AudioZoneReverbMode>(mode);
+		}
+
+		if (projectInfo.HeaderData.Version >= 20)
+		{
+			uint64_t table = 0;
+			if (!stream.ReadData(reinterpret_cast<char*>(&table), sizeof(table)))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Truncated runtime surface table reference");
+				return false;
+			}
+			config.Audio.SurfaceTable = table;
 		}
 
 		stream.ReadRaw<float>(config.Physics.FixedTimestep);

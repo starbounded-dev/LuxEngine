@@ -24,6 +24,7 @@ namespace Lux::AssetExtensions
 			{ ".ogg", AssetType::Audio },
 			{ ".fspro", AssetType::AudioProject },
 			{ ".bank", AssetType::AudioBank },
+			{ ".lsurfaces", AssetType::AudioSurfaceTable },
 			{ ".lsoundc", AssetType::SoundConfig },
 			{ ".fbx", AssetType::MeshSource },
 			{ ".gltf", AssetType::MeshSource },
@@ -77,6 +78,7 @@ namespace Lux::AssetExtensions
 			case AssetType::Mesh:            return ".lmesh";
 			case AssetType::StaticMesh:      return ".lsmesh";
 			case AssetType::Material:        return ".lmat";
+			case AssetType::AudioSurfaceTable: return ".lsurfaces";
 			case AssetType::SoundConfig:     return ".lsoundc";
 			case AssetType::Skeleton:        return ".lskel";
 			case AssetType::Animation:       return ".lanim";

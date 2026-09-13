@@ -1,4 +1,5 @@
 #include "lpch.h"
+#include "Lux/ImGui/AudioWidgets.h"
 
 #include "SceneHierarchyPanel.h"
 
@@ -3085,16 +3086,68 @@ namespace Lux {
 				{
 					return entity.GetComponent<AudioSurfaceComponent>().Material;
 				});
-				ImGuiEx::ScopedItemFlags mixedFlag(ImGuiItemFlags_MixedValue, mixedMaterial);
-				if (ImGuiEx::PropertyDropdown("Acoustic Material", s_MaterialNames.data(), static_cast<int>(AcousticMaterialCount), &acousticMaterial, "", false))
 				{
-					ApplyToSelection<AudioSurfaceComponent>(m_Context, selectedEntities, [acousticMaterial](AudioSurfaceComponent& component, Entity)
+					ImGuiEx::ScopedItemFlags mixedFlag(ImGuiItemFlags_MixedValue, mixedMaterial);
+					if (ImGuiEx::PropertyDropdown("Acoustic Material", s_MaterialNames.data(), static_cast<int>(AcousticMaterialCount), &acousticMaterial, "", false))
 					{
-						component.Material = static_cast<AcousticMaterial>(acousticMaterial);
-					});
+						ApplyToSelection<AudioSurfaceComponent>(m_Context, selectedEntities, [acousticMaterial](AudioSurfaceComponent& component, Entity)
+						{
+							component.Material = static_cast<AcousticMaterial>(acousticMaterial);
+						});
+					}
 				}
+				auto property = [&]<typename T>(const char* label, T AudioSurfaceComponent::* member, auto draw)
+				{
+					T value = firstComponent.*member;
+					const bool mixed = IsSelectionInconsistent<T>(m_Context, selectedEntities, [member](Entity entity)
+					{
+						return entity.GetComponent<AudioSurfaceComponent>().*member;
+					});
+					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
+					if (draw(label, value))
+						ApplyToSelection<AudioSurfaceComponent>(m_Context, selectedEntities, [member, value](AudioSurfaceComponent& component, Entity)
+						{
+							component.*member = value;
+						});
+				};
+				property("Physics Sounds", &AudioSurfaceComponent::PhysicsSounds, [](const char* label, bool& value)
+				{
+					return ImGuiEx::Property(label, value, "Enables impacts and motion sounds when this entity is the dynamic body.", false);
+				});
+				property("Auto Footsteps", &AudioSurfaceComponent::AutoFootsteps, [](const char* label, bool& value)
+				{
+					return ImGuiEx::Property(label, value, "Ground query with distance-based cadence. Disable when calling Audio.PlayFootstep from a script.", false);
+				});
+				property("Stride Length (m)", &AudioSurfaceComponent::StrideLength, [](const char* label, float& value)
+				{
+					return ImGuiEx::Property(label, value, 0.05f, 0.05f, 100.0f, "", false);
+				});
+				property("Ground Probe (m)", &AudioSurfaceComponent::GroundProbeDistance, [](const char* label, float& value)
+				{
+					return ImGuiEx::Property(label, value, 0.05f, 0.01f, 100.0f, "Distance below the entity origin to search for a walkable 3D collider.", false);
+				});
+				property("Footstep Weight (kg)", &AudioSurfaceComponent::FootstepWeight, [](const char* label, float& value)
+				{
+					return ImGuiEx::Property(label, value, 1.0f, 0.01f, 10000.0f, "", false);
+				});
 				ImGuiEx::EndPropertyGrid();
-				ImGui::TextWrapped("Overrides this entity's Mesh Collider acoustic material. Applied when Play starts. Without a Mesh Collider, this is a surface tag only.");
+				auto picker = [&](const char* label, AudioEventRef AudioSurfaceComponent::* member)
+				{
+					auto reference = firstComponent.*member;
+					const bool mixed = IsSelectionInconsistent<std::string>(m_Context, selectedEntities, [member](Entity entity)
+					{
+						return (entity.GetComponent<AudioSurfaceComponent>().*member).Guid;
+					});
+					if (ImGuiEx::SurfaceEventPicker(label, reference, true, mixed))
+						ApplyToSelection<AudioSurfaceComponent>(m_Context, selectedEntities, [member, &reference](AudioSurfaceComponent& component, Entity)
+						{
+							component.*member = reference;
+						});
+				};
+				picker("Footstep Override", &AudioSurfaceComponent::FootstepOverride);
+				picker("Impact Override", &AudioSurfaceComponent::ImpactOverride);
+				ImGui::TextWrapped("Overrides the collider acoustic material and the project surface table events. The collider underfoot "
+								   "supplies footstep overrides. VA material changes apply on Play; physics audio uses current surface tags.");
 			});
 
 		DrawComponentSection<AudioListenerComponent>(m_Context, entityIDs, "Audio Listener", EditorResources::AudioListenerIcon,

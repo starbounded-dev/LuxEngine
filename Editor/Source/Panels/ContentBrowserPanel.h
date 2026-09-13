@@ -243,6 +243,7 @@ namespace Lux {
 		bool CreateNewFolder();
 		AssetHandle CreateSceneAsset();
 		AssetHandle CreateMaterialAsset();
+		AssetHandle CreateAudioSurfaceTable();
 
 		ContentBrowserItemList Search(const std::string& query, const Ref<DirectoryInfo>& directoryInfo) const;
 		Ref<Texture2D> GetAssetIcon(const AssetMetadata& metadata) const;

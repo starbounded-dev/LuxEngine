@@ -37,7 +37,8 @@ namespace Lux {
 		// (.bank). Both are opened in FMOD Studio rather than in an engine editor - they exist as
 		// asset types so the Content Browser can show and activate them, not so they can be loaded.
 		AudioProject,
-		AudioBank
+		AudioBank,
+		AudioSurfaceTable
 	};
 
 	namespace Utils {
@@ -66,6 +67,7 @@ namespace Lux {
 			if (assetType == "Animation")           return AssetType::Animation;
 			if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
 			if (assetType == "AudioProject")        return AssetType::AudioProject;
+			if (assetType == "AudioSurfaceTable")   return AssetType::AudioSurfaceTable;
 			if (assetType == "AudioBank")           return AssetType::AudioBank;
 
 			return AssetType::None;
@@ -96,6 +98,7 @@ namespace Lux {
 			case AssetType::Animation:           return "Animation";
 			case AssetType::AnimationGraph:      return "AnimationGraph";
 			case AssetType::AudioProject:        return "AudioProject";
+			case AssetType::AudioSurfaceTable: return "AudioSurfaceTable";
 			case AssetType::AudioBank:           return "AudioBank";
 			}
 

@@ -5,6 +5,8 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AudioZoneSystem.h"
+#include "Lux/Audio/PhysicsAudioSystem.h"
+#include "Lux/Physics/PhysicsContactEvent.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
@@ -77,6 +79,7 @@ namespace Lux {
 		void DestroyEntity(UUID entityID, bool excludeChildren = false, bool first = true);
 
 		void OnRuntimeStart();
+		bool PlayFootstep(UUID entity, float speed, float weight = 75.0f, float probeDistance = 1.2f);
 		void OnRuntimeStop();
 
 		void OnSimulationStart();
@@ -219,6 +222,8 @@ namespace Lux {
 		void ReleaseAllRuntimeAudio();
 		void SyncAudioListeners(float timestep);
 		void UpdateAudioZones(float timestep, bool raytracedReverbValid);
+		void UpdatePhysicsAudio(float timestep);
+		AudioSurfaceSounds GetSurfaceSounds(Entity entity, AcousticMaterial& material) const;
 		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
 	private:
@@ -254,6 +259,16 @@ namespace Lux {
 		std::unordered_map<UUID, RuntimeAudioEvent> m_RuntimeEventInstances;
 		AudioListener::States m_RuntimeAudioListeners;
 		AudioZoneSystem m_AudioZones;
+		PhysicsAudioSystem m_PhysicsAudio;
+		Ref<AudioSurfaceTable> m_AudioSurfaceTable;
+		std::vector<PhysicsContactEvent> m_PhysicsContactEvents;
+		struct FootstepState
+		{
+			glm::vec3 Position{ 0.0f };
+			float Distance = 0.0f;
+			bool Initialized = false;
+		};
+		std::unordered_map<UUID, FootstepState> m_Footsteps;
 		bool m_AudioZoneRaytracedValid = false;
 		std::vector<AudioZoneInput> m_AudioZoneInputs;
 		uint32_t m_AudioListenerWarnings = 0;

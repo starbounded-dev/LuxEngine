@@ -265,6 +265,12 @@ namespace Lux
 				event->Set3DAttributes(*position, *velocity, *forward, *up);
 		}
 
+		Coral::Bool32 Audio_PlayFootstep(uint64_t id, float speed, float weight, float probeDistance)
+		{
+			Entity entity = AudioEntity(id);
+			return entity && entity.GetScene()->PlayFootstep(id, speed, weight, probeDistance);
+		}
+
 		int32_t Audio_GetSurfaceMaterial(uint64_t id)
 		{
 			Entity entity = AudioEntity(id);
@@ -555,6 +561,7 @@ namespace Lux
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneSetVector", reinterpret_cast<void*>(&Audio_ZoneSetVector));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneSetEvent", reinterpret_cast<void*>(&Audio_ZoneSetEvent));
 
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_PlayFootstep", reinterpret_cast<void*>(&Audio_PlayFootstep));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_GetSurfaceMaterial", reinterpret_cast<void*>(&Audio_GetSurfaceMaterial));
 		// Registrations below are kept one-to-one with InternalCalls.cs.
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_LoadBank", reinterpret_cast<void*>(&Audio_LoadBank));

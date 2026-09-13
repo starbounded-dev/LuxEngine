@@ -9,6 +9,20 @@ namespace Lux
 	{
 		private static readonly Dictionary<ulong, WeakReference<EventInstance>> Instances = new();
 
+		/// <summary>Queries the walkable 3D collider below a character and plays its surface footstep.
+		/// Returns false when airborne, paused, or no valid event is assigned. Distance is measured from the entity origin.</summary>
+		public static bool PlayFootstep(Entity character, float speed, float weight = 75.0f, float probeDistance = 1.2f)
+		{
+			RequireMainThread();
+			ArgumentNullException.ThrowIfNull(character);
+			Finite(speed);
+			Finite(weight);
+			Finite(probeDistance);
+			if (speed < 0.0f || weight <= 0.0f || probeDistance <= 0.0f)
+				throw new ArgumentOutOfRangeException(nameof(speed), "Speed must be non-negative; weight and probe distance must be positive.");
+			return InternalCalls.Audio_PlayFootstep(character.ID, speed, weight, probeDistance);
+		}
+
 		internal static void RequireMainThread()
 		{
 			if (!InternalCalls.Audio_IsMainThread())

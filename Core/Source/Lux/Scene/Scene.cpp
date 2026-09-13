@@ -325,6 +325,8 @@ namespace Lux {
 
 		ReleaseRuntimeAudio(entity);
 		m_AudioZones.Remove(entity.GetUUID());
+		m_PhysicsAudio.Remove(entity.GetUUID());
+		m_Footsteps.erase(entity.GetUUID());
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
 
@@ -365,6 +367,10 @@ namespace Lux {
 		}
 		m_RuntimeEventInstances.clear();
 		m_AudioZones.Clear();
+		m_PhysicsAudio.Clear();
+		m_AudioSurfaceTable = nullptr;
+		m_Footsteps.clear();
+		m_PhysicsContactEvents.clear();
 		m_AudioZoneRaytracedValid = false;
 		m_AudioZoneInputs.clear();
 	}
@@ -522,6 +528,23 @@ namespace Lux {
 		OnPhysics2DStart();
 		OnPhysics3DStart();
 		OnRaytracedAudioStart();
+		m_PhysicsAudio.Clear();
+		m_Footsteps.clear();
+		m_AudioSurfaceTable = nullptr;
+		if (const auto project = Project::GetActive())
+		{
+			const AssetHandle handle = project->GetConfig().Audio.SurfaceTable;
+			if (handle)
+			{
+				if (AssetManager::IsAssetHandleValid(handle) && AssetManager::GetAssetType(handle) == AssetType::AudioSurfaceTable)
+					m_AudioSurfaceTable = AssetManager::GetAsset<AudioSurfaceTable>(handle);
+				if (!m_AudioSurfaceTable || !m_AudioSurfaceTable->Validate())
+				{
+					LUX_CORE_ERROR_TAG("Audio", "Project surface table {} is unavailable or invalid", static_cast<uint64_t>(handle));
+					m_AudioSurfaceTable = nullptr;
+				}
+			}
+		}
 
 		PhysicsScene2D::SetPlaying(true);
 
@@ -675,6 +698,7 @@ namespace Lux {
 			}
 
 			StepPhysics(ts);
+			UpdatePhysicsAudio(static_cast<float>(ts));
 
 			SyncAudioListeners(m_IsPaused ? 0.0f : static_cast<float>(ts));
 
@@ -739,6 +763,7 @@ namespace Lux {
 		{
 			SyncAudioListeners(0.0f);
 			UpdateAudioZones(0.0f, false);
+			UpdatePhysicsAudio(0.0f);
 
 			for (auto& [id, event] : m_RuntimeEventInstances)
 			{
@@ -825,6 +850,8 @@ namespace Lux {
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			StepPhysics(ts);
+			if (m_PhysicsScene)
+				m_PhysicsScene->DrainContactEvents(m_PhysicsContactEvents);
 		}
 
 		// Render

@@ -47,6 +47,7 @@ namespace Lux
 
 		// Populated only from the binary runtime package, never from editor YAML.
 		AudioBankManifest RuntimeBanks;
+		AssetHandle SurfaceTable = 0;
 		AcousticMaterialSettings AcousticMaterials;
 		AudioZoneReverbMode ZoneReverbMode = AudioZoneReverbMode::Layered;
 
