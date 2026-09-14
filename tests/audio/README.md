@@ -1,4 +1,4 @@
-# Headless surface audio regression tests
+# Headless audio regression tests
 
 On Linux, regenerate `Core/Makefile`, build the Release Core objects (for yaml-cpp) and Debug Jolt,
 then run from the repository root:
@@ -14,10 +14,19 @@ Logs and artifacts are retained in the printed temporary directory. `--output /t
 selects a fresh directory. Use `--banks /path/to/Build/Desktop` to reuse fixture banks instead of
 running FMOD Studio; those banks must contain `event:/SurfaceHit` (one-shot) and
 `event:/SurfaceMotion` (continuous), with local `Speed`, `Weight`, `Surface`, and `Impulse`
-parameters ranging from 0 to 10000. `Master.bank` and `Master.strings.bank` are loaded.
+parameters ranging from 0 to 10000. `Master.bank` and `Master.strings.bank` are loaded. Music tests additionally require 2D
+`MusicBed`/`MusicOther` continuous events and `MusicStinger` one-shot, as authored by
+`AuthorFixture.js`: State labels Explore/Combat, Intensity and Layer_Drums (0–1), tempo 240,
+Cue and Section:Verse markers, and a two-second timeline loop. Use a fresh fixture after changing
+that script.
 
 Checks cover surface-table YAML/defaults/invalid input, impact cooldowns, compound-contact
 coalescing, footstep parameters, pause, event-type validation, bank reload, fade completion,
 entity cleanup, real Jolt worker contacts, masses/impulse estimates, sensors, body removal/sleep,
 file-stream failures, packed surface-table truncation and asset-pack error propagation. Only application host setup and failing
 asset serializers are substituted; playback/contact implementations and SDK calls are real.
+
+Music checks cover state/intensity/layers without restart, stinger type validation, all queued
+transition boundaries, main-thread callbacks, stale notification batches, callback reentrancy,
+pause/resume, bank invalidation/recreation, fades, and destruction. `AudioTestHost.h` supplies the
+shared minimal FMOD host; the production director and event wrapper are linked unchanged.

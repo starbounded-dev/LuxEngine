@@ -10,6 +10,19 @@ namespace Lux
 	{
 #pragma warning disable CS0649 // assigned from native code
 
+		#region Music
+		internal static delegate*<NativeString, Bool32> Music_Play;
+		internal static delegate*<Bool32, void> Music_Stop;
+		internal static delegate*<NativeString, Bool32> Music_SetState;
+		internal static delegate*<float, Bool32> Music_SetIntensity;
+		internal static delegate*<float> Music_GetIntensity;
+		internal static delegate*<NativeString, Bool32, Bool32> Music_SetLayerEnabled;
+		internal static delegate*<NativeString, Bool32> Music_PlayStinger;
+		internal static delegate*<NativeString, int, Bool32> Music_QueueTransition;
+		internal static delegate*<Bool32, int> Music_GetBeat;
+		internal static delegate*<Bool32> Music_IsPlaying;
+		#endregion
+
 		#region Log
 		internal static delegate*<NativeString, int, void> NativeLog;
 		#endregion

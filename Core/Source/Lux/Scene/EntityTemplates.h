@@ -86,6 +86,14 @@ namespace Lux {
 			m_Scene->m_PhysicsAudio.Remove(GetUUID());
 			m_Scene->m_Footsteps.erase(GetUUID());
 		}
+		if constexpr (std::is_same_v<T, MusicDirectorComponent>)
+		{
+			if (m_Scene->m_MusicOwner == GetUUID())
+			{
+				m_Scene->m_Music.Clear();
+				m_Scene->m_MusicOwner = 0;
+			}
+		}
 		if constexpr (std::is_same_v<T, AudioZoneComponent>)
 			m_Scene->m_AudioZones.Remove(GetUUID());
 		m_Scene->m_Registry.remove<T>(m_EntityHandle);

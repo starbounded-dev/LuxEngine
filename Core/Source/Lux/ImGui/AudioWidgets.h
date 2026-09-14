@@ -4,5 +4,5 @@
 namespace Lux::ImGuiEx
 {
 	// Typed, GUID-based picker over the already-loaded FMOD catalog.
-	bool SurfaceEventPicker(const char* label, AudioEventRef& reference, bool oneShot, bool mixed = false);
+	bool SurfaceEventPicker(const char* label, AudioEventRef& reference, bool oneShot, bool mixed = false, bool require2D = false);
 }

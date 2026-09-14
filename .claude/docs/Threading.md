@@ -231,6 +231,18 @@ processed until the asset thread has synced its assets back to the main thread. 
 
 ---
 
+## FMOD callbacks
+
+Studio callbacks copy stopped, marker, and beat data into bounded mutex-protected queues in
+`AudioEventInstance`. Callback userdata is a never-reused token, not a pointer to an engine owner;
+destruction removes the token's state before releasing the SDK instance. No Scene, ECS, Coral,
+ImGui, or playback mutation runs in these callbacks. `Scene::OnUpdateRuntime` drains music timeline
+mailboxes and the audio scripting bridge drains script notifications on the main thread before
+script OnUpdate. Only immutable copied payloads cross the callback boundary. Bank generation checks
+protect main-thread calls from stale SDK handles; tokens isolate late callback delivery.
+
+---
+
 ## Shader compilation
 
 The `(set, binding)` reflection registries in `VulkanShaderCompiler.cpp` are **process-global

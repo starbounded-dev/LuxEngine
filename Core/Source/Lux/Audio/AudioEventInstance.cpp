@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <unordered_map>
 
 namespace Lux {
 
@@ -47,6 +48,16 @@ namespace Lux {
 		std::mutex s_NotificationMutex;
 		std::vector<AudioEventNotification> s_Notifications;
 		size_t s_DroppedNotifications = 0;
+		struct CallbackState
+		{
+			uint64_t ScriptHandle = 0;
+			bool Timeline = false;
+			uint64_t Sequence = 0;
+			std::vector<AudioTimelineNotification> Notifications;
+		};
+		std::unordered_map<uint64_t, CallbackState> s_CallbackStates;
+		uint64_t s_NextCallbackToken = 1;
+		constexpr size_t kNotificationCapacity = 4096;
 
 		static FMOD_RESULT F_CALL AudioCallback(FMOD_STUDIO_EVENT_CALLBACK_TYPE type, FMOD_STUDIO_EVENTINSTANCE* raw, void* parameters)
 		{
@@ -57,19 +68,54 @@ namespace Lux {
 			if (!data)
 				return FMOD_OK;
 			std::scoped_lock lock(s_NotificationMutex);
-			if (s_Notifications.size() >= 4096)
-			{
-				++s_DroppedNotifications;
+			const auto it = s_CallbackStates.find(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(data)));
+			if (it == s_CallbackStates.end())
 				return FMOD_OK;
-			}
 			try
 			{
-				AudioEventNotification notification;
-				notification.Handle = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(data));
-				notification.Stopped = type == FMOD_STUDIO_EVENT_CALLBACK_STOPPED;
-				if (type == FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER)
-					notification.Marker = static_cast<FMOD_STUDIO_TIMELINE_MARKER_PROPERTIES*>(parameters)->name;
-				s_Notifications.push_back(std::move(notification));
+				auto& state = it->second;
+				if (state.ScriptHandle && type != FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_BEAT)
+				{
+					if (s_Notifications.size() < kNotificationCapacity)
+					{
+						AudioEventNotification notification;
+						notification.Handle = state.ScriptHandle;
+						notification.Stopped = type == FMOD_STUDIO_EVENT_CALLBACK_STOPPED;
+						if (type == FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER)
+							notification.Marker = static_cast<FMOD_STUDIO_TIMELINE_MARKER_PROPERTIES*>(parameters)->name;
+						s_Notifications.push_back(std::move(notification));
+					}
+					else
+						++s_DroppedNotifications;
+				}
+				if (state.Timeline && type != FMOD_STUDIO_EVENT_CALLBACK_STOPPED)
+				{
+					if (state.Notifications.size() < kNotificationCapacity)
+					{
+						AudioTimelineNotification notification;
+						notification.Sequence = ++state.Sequence;
+						notification.IsBeat = type == FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_BEAT;
+						if (notification.IsBeat)
+						{
+							const auto& beat = *static_cast<FMOD_STUDIO_TIMELINE_BEAT_PROPERTIES*>(parameters);
+							notification.Bar = beat.bar;
+							notification.Beat = beat.beat;
+							notification.Position = beat.position;
+							notification.Tempo = beat.tempo;
+							notification.TimeSignatureUpper = beat.timesignatureupper;
+							notification.TimeSignatureLower = beat.timesignaturelower;
+						}
+						else
+						{
+							const auto& marker = *static_cast<FMOD_STUDIO_TIMELINE_MARKER_PROPERTIES*>(parameters);
+							notification.Marker = marker.name;
+							notification.Position = marker.position;
+						}
+						state.Notifications.push_back(std::move(notification));
+					}
+					else
+						++s_DroppedNotifications;
+				}
 			}
 			catch (const std::bad_alloc&)
 			{
@@ -94,11 +140,61 @@ namespace Lux {
 		return result;
 	}
 
+	bool AudioEventInstance::ConfigureCallbacks(uint64_t scriptHandle, bool timeline)
+	{
+		if (!IsValid())
+			return false;
+		{
+			std::scoped_lock lock(s_NotificationMutex);
+			if (!m_CallbackToken)
+			{
+				if (!s_NextCallbackToken)
+					return CheckResult(FMOD_ERR_INTERNAL, "callback token space exhausted");
+				m_CallbackToken = s_NextCallbackToken++;
+			}
+			auto& state = s_CallbackStates[m_CallbackToken];
+			if (scriptHandle)
+				state.ScriptHandle = scriptHandle;
+			state.Timeline |= timeline;
+			timeline = state.Timeline;
+		}
+		return CheckResult(m_Instance->setUserData(reinterpret_cast<void*>(static_cast<uintptr_t>(m_CallbackToken))), "set callback token") &&
+			CheckResult(m_Instance->setCallback(AudioCallback, FMOD_STUDIO_EVENT_CALLBACK_STOPPED | FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER |
+				(timeline ? FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_BEAT : 0)), "set callback");
+	}
+
 	bool AudioEventInstance::SetCallbackHandle(uint64_t handle)
 	{
-		return IsValid() && CheckResult(m_Instance->setUserData(reinterpret_cast<void*>(static_cast<uintptr_t>(handle))), "set callback handle") &&
-			   CheckResult(m_Instance->setCallback(AudioCallback, FMOD_STUDIO_EVENT_CALLBACK_STOPPED | FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER),
-						   "set callback");
+		return ConfigureCallbacks(handle, false);
+	}
+
+	bool AudioEventInstance::EnableTimelineNotifications()
+	{
+		return ConfigureCallbacks(0, true);
+	}
+
+	std::vector<AudioTimelineNotification> AudioEventInstance::DrainTimelineNotifications()
+	{
+		std::vector<AudioTimelineNotification> result;
+		std::scoped_lock lock(s_NotificationMutex);
+		if (auto it = s_CallbackStates.find(m_CallbackToken); it != s_CallbackStates.end())
+			result.swap(it->second.Notifications);
+		return result;
+	}
+
+	uint64_t AudioEventInstance::GetTimelineSequence() const
+	{
+		std::scoped_lock lock(s_NotificationMutex);
+		const auto it = s_CallbackStates.find(m_CallbackToken);
+		return it != s_CallbackStates.end() ? it->second.Sequence : 0;
+	}
+
+	bool AudioEventInstance::Is3D() const
+	{
+		FMOD::Studio::EventDescription* description = nullptr;
+		bool spatial = false;
+		return IsValid() && CheckResult(m_Instance->getDescription(&description), "get description") &&
+			CheckResult(description->is3D(&spatial), "get spatial state") && spatial;
 	}
 
 	bool AudioEventInstance::IsOneShot() const
@@ -212,6 +308,10 @@ namespace Lux {
 
 	AudioEventInstance::~AudioEventInstance()
 	{
+		{
+			std::scoped_lock lock(s_NotificationMutex);
+			s_CallbackStates.erase(m_CallbackToken);
+		}
 		if (!IsValid())
 			return;
 
@@ -239,10 +339,9 @@ namespace Lux {
 		return false;
 	}
 
-	void AudioEventInstance::Start()
+	bool AudioEventInstance::Start()
 	{
-		if (IsValid())
-			CheckResult(m_Instance->start(), "start");
+		return IsValid() && CheckResult(m_Instance->start(), "start");
 	}
 
 	void AudioEventInstance::Stop(bool allowFadeOut)

@@ -562,8 +562,8 @@ FMOD callbacks copy handle/marker notifications into a mutex-protected bounded q
 drains it before script updates, dispatching managed callbacks on the main thread; late callbacks
 for disposed handles are discarded. Script pause is separate from scene pause, and explicit Play
 or Stop consumes pending PlayOnAwake. Managed strings are scoped and freed after internal calls.
-Snapshot convenience methods, music, and dialogue remain in their later roadmap
-phases. New binding/managed files require Premake regeneration for both native and C# projects.
+Snapshot convenience methods and music are implemented; dialogue remains in its later roadmap
+phase. New binding/managed files require Premake regeneration for both native and C# projects.
 
 `Audio.LoadBank(bankFile)` synchronously loads an additional bank during scene setup. Relative
 paths resolve beneath the active project's Assets directory; absolute paths are accepted. Load the
@@ -571,6 +571,35 @@ master and strings bank before calling event paths. Repeated loads of the same c
 idempotent; adding banks preserves existing event handles. The bank catalog revision retries failed
 component lookups without restarting existing playback. Directory reload still invalidates all old
 handles. Banks remain engine-owned until bank reload or engine shutdown.
+
+**Interactive music (Phase 10):** `Scene` owns one noncopyable `MusicDirector`, independent of
+entity event instances. `MusicDirectorComponent` serializes startup event GUID/path/bank, optional
+State label, Intensity, and PlayOnAwake. It participates in scene copy, duplication, prefab creation,
+reconciliation, and the inspector. Runtime instances never belong to the component. On startup the
+lowest director UUID wins (duplicate owners report an error), before managed OnCreate. Removing the
+owner or stopping the scene clears its music. Without a component, scripts start the scene service.
+
+The director accepts continuous 2D beds and finite 2D stingers, excluding snapshots. Parameters are
+local authored `State` labels, `Intensity` 0–1, and `Layer_<name>` 0–1. State changes do not restart
+the bed. One prepared, unstarted replacement may wait for a future beat/bar/marker/`Section:` marker;
+its old bed stops immediately before the new one starts. This main-thread transition is
+frame-quantized: sample-accurate composition stays inside Studio's authored event transitions.
+Failed replacement validation retains the current bed. Notifications received before a transition
+request cannot trigger it. Reentrant callbacks changing/stopping playback invalidate the rest of the
+old batch. Pause freezes playback and callback dispatch; fades retain references until completion.
+Bank reload cancels queued replacements/stingers and recreates the active bed with its parameters,
+from timeline start. Scene transitions do not preserve musical position.
+
+`AudioEventInstance` callback userdata is a never-reused numeric token into a mutex-protected state
+map, not a wrapper pointer. Destruction removes its mailbox before stopping/releasing the SDK
+instance, even if a bank generation invalidated the handle. Script stopped/marker notifications and
+per-instance music timeline mailboxes drain independently. Timeline payloads copy position,
+bar/beat, tempo, signature, marker text and a sequence counter; callbacks never enter Scene/Coral.
+The existing audio bridge attaches managed `Music.Beat`/`Marker` dispatch before the scene updates
+its director, before script OnUpdate. Scene/assembly reset clears managed subscriptions. Callback
+mailboxes are bounded with overflow reported on the main thread. Music/scene serialization travels
+through the existing runtime scene pack and existing exported banks, without a new project format.
+See `docs/AUDIO_MUSIC.md` for authoring contracts and timing limits.
 
 **Surfaces and physics audio (Phase 9):** `AudioSurfaceTable` is a `.lsurfaces` asset with
 per-material footstep/impact/scrape/roll GUID references and shared thresholds. `AudioEventRef`

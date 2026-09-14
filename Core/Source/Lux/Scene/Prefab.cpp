@@ -28,7 +28,7 @@ namespace Lux {
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
-		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent>;
+		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, MusicDirectorComponent>;
 
 	Prefab::Prefab()
 	{

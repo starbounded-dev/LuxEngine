@@ -409,6 +409,15 @@ namespace Lux {
 	enum class AudioZoneShape : uint8_t { Box, Sphere, Collider };
 	using AudioSnapshotRef = AudioEventRef;
 
+	// Authored startup settings. Runtime controls belong to the scene's MusicDirector.
+	struct MusicDirectorComponent
+	{
+		AudioEventRef Event;
+		bool PlayOnAwake = true;
+		std::string InitialState;
+		float Intensity = 0.0f;
+	};
+
 	struct AudioZoneComponent
 	{
 		bool Enabled = true;
@@ -636,7 +645,7 @@ namespace Lux {
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent,
+		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, MusicDirectorComponent,
 		FolderComponent>;
 
 }

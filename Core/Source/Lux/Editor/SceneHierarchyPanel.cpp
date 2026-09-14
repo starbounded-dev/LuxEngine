@@ -1459,6 +1459,7 @@ namespace Lux {
 				const bool canAddCapsuleCollider = canAddComponent.template operator()<CapsuleColliderComponent>();
 				const bool canAddMeshCollider = canAddComponent.template operator()<MeshColliderComponent>();
 				const bool canAddAudioSource = canAddComponent.template operator()<AudioSourceComponent>();
+				const bool canAddMusic = canAddComponent.template operator()<MusicDirectorComponent>();
 				const bool canAddAudioZone = canAddComponent.template operator()<AudioZoneComponent>();
 				const bool canAddAudioSurface = canAddComponent.template operator()<AudioSurfaceComponent>();
 				const bool canAddAudioListener = canAddComponent.template operator()<AudioListenerComponent>();
@@ -1691,7 +1692,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddAudioSource || canAddAudioListener || canAddAudioSurface || canAddAudioZone)
+				if (canAddMusic || canAddAudioSource || canAddAudioListener || canAddAudioSurface || canAddAudioZone)
 					addCategoryHeader("Audio");
 
 				if (canAddAudioSource)
@@ -1707,6 +1708,18 @@ namespace Lux {
 					});
 				}
 
+				if (canAddMusic)
+				{
+					addComponentRow("Music Director", EditorResources::AudioIcon, [this, &entityIDs]()
+					{
+						for (UUID id : entityIDs)
+						{
+							Entity entity = m_Context->TryGetEntityWithUUID(id);
+							if (entity && !entity.HasComponent<MusicDirectorComponent>())
+								entity.AddComponent<MusicDirectorComponent>();
+						}
+					});
+				}
 				if (canAddAudioZone)
 				{
 					addComponentRow("Audio Zone", EditorResources::AudioIcon, [this, &entityIDs]()
@@ -1937,6 +1950,7 @@ namespace Lux {
 						row.operator()<AudioListenerComponent>("AudioListenerComponent", "Audio Listener");
 						row.operator()<AudioSurfaceComponent>("AudioSurfaceComponent", "Audio Surface");
 						row.operator()<AudioZoneComponent>("AudioZoneComponent", "Audio Zone");
+						row.operator()<MusicDirectorComponent>("MusicDirectorComponent", "Music Director");
 						row.operator()<FolderComponent>("Folder", "Folder");
 
 						ImGui::Spacing();
@@ -2970,6 +2984,50 @@ namespace Lux {
 					ImGui::TextDisabled("Parameter overrides apply to the first selected entity.");
 			});
 
+
+		DrawComponentSection<MusicDirectorComponent>(m_Context, entityIDs, "Music Director", EditorResources::AudioIcon,
+			[this](MusicDirectorComponent& first, const std::vector<UUID>& selected, bool)
+			{
+				auto reference = first.Event;
+				const bool mixedEvent = IsSelectionInconsistent<std::string>(m_Context, selected, [](Entity entity)
+				{
+					return entity.GetComponent<MusicDirectorComponent>().Event.Guid;
+				});
+				if (ImGuiEx::SurfaceEventPicker("Music Event", reference, false, mixedEvent, true))
+					ApplyToSelection<MusicDirectorComponent>(m_Context, selected, [&reference](MusicDirectorComponent& component, Entity)
+					{
+						component.Event = reference;
+					});
+				ImGuiEx::BeginPropertyGrid();
+				auto property = [&]<typename T>(const char* label, T MusicDirectorComponent::* member, auto draw)
+				{
+					T value = first.*member;
+					const bool mixed = IsSelectionInconsistent<T>(m_Context, selected, [member](Entity entity)
+					{
+						return entity.GetComponent<MusicDirectorComponent>().*member;
+					});
+					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
+					if (draw(label, value))
+						ApplyToSelection<MusicDirectorComponent>(m_Context, selected, [member, value](MusicDirectorComponent& component, Entity)
+						{
+							component.*member = value;
+						});
+				};
+				property("Play On Awake", &MusicDirectorComponent::PlayOnAwake, [](const char* label, bool& value)
+				{
+					return ImGuiEx::Property(label, value, "", false);
+				});
+				property("Initial State", &MusicDirectorComponent::InitialState, [](const char* label, std::string& value)
+				{
+					return ImGuiEx::Property(label, value, "Optional authored State parameter label.", false);
+				});
+				property("Intensity", &MusicDirectorComponent::Intensity, [](const char* label, float& value)
+				{
+					return ImGuiEx::Property(label, value, 0.01f, 0.0f, 1.0f, "Authored Intensity parameter, 0–1.", false);
+				});
+				ImGuiEx::EndPropertyGrid();
+				ImGui::TextWrapped("Startup settings apply on Play. Use one Music Director per scene. Scripts control state, intensity, layers and stingers through Lux.Music.");
+			});
 
 		DrawComponentSection<AudioZoneComponent>(m_Context, entityIDs, "Audio Zone", EditorResources::AudioIcon,
 			[this](AudioZoneComponent& first, const std::vector<UUID>& selected, bool)

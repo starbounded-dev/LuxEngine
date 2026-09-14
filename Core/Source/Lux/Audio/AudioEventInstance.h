@@ -28,6 +28,16 @@ namespace Lux {
 		std::string Marker;
 	};
 
+	struct AudioTimelineNotification
+	{
+		uint64_t Sequence = 0;
+		bool IsBeat = false;
+		int Bar = 0, Beat = 0, Position = 0;
+		float Tempo = 0.0f;
+		int TimeSignatureUpper = 0, TimeSignatureLower = 0;
+		std::string Marker;
+	};
+
 	class AudioEventInstance : public RefCounted
 	{
 	public:
@@ -42,6 +52,7 @@ namespace Lux {
 
 		const std::string& GetReference() const { return m_Guid; }
 		bool IsOneShot() const;
+		bool Is3D() const;
 		bool IsSnapshot() const;
 		// Requires a snapshot with its Intensity dial exposed as a continuous 0–100 parameter.
 		bool SetSnapshotIntensity(float intensity);
@@ -52,7 +63,11 @@ namespace Lux {
 		void SetTimelinePosition(int milliseconds);
 		bool SetCallbackHandle(uint64_t handle);
 		static std::vector<AudioEventNotification> DrainNotifications();
-		void Start();
+		// Independent per-instance timeline mailbox; callbacks never reference the wrapper.
+		bool EnableTimelineNotifications();
+		uint64_t GetTimelineSequence() const;
+		std::vector<AudioTimelineNotification> DrainTimelineNotifications();
+		bool Start();
 		void Stop(bool allowFadeOut = true);
 		void SetPaused(bool paused);
 		// Scene pause is layered over the caller's pause state, so resuming the editor does not
@@ -85,11 +100,13 @@ namespace Lux {
 		friend class Ref<AudioEventInstance>;
 		AudioEventInstance(FMOD::Studio::EventInstance* instance, const std::string& guid, uint64_t generation)
 			: m_Instance(instance), m_Guid(guid), m_Generation(generation) {}
+		bool ConfigureCallbacks(uint64_t scriptHandle, bool timeline);
 		bool CheckResult(int result, const char* operation) const;
 
 		FMOD::Studio::EventInstance* m_Instance = nullptr;
 		std::string m_Guid;
 		uint64_t m_Generation = 0;
+		uint64_t m_CallbackToken = 0;
 		mutable std::unordered_set<std::string> m_ReportedErrors;
 		bool m_SnapshotIntensityValidated = false;
 		uint32_t m_SnapshotIntensityID[2]{};

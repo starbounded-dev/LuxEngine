@@ -720,6 +720,21 @@ namespace Lux {
 				out << YAML::EndMap;
 			}
 
+			if (entity.HasComponent<MusicDirectorComponent>())
+			{
+				const auto& music = entity.GetComponent<MusicDirectorComponent>();
+				out << YAML::Key << "MusicDirectorComponent" << YAML::BeginMap;
+				out << YAML::Key << "Event" << YAML::BeginMap;
+				out << YAML::Key << "Guid" << YAML::Value << music.Event.Guid;
+				out << YAML::Key << "Path" << YAML::Value << music.Event.Path;
+				out << YAML::Key << "BankName" << YAML::Value << music.Event.BankName;
+				out << YAML::EndMap;
+				out << YAML::Key << "PlayOnAwake" << YAML::Value << music.PlayOnAwake;
+				out << YAML::Key << "InitialState" << YAML::Value << music.InitialState;
+				out << YAML::Key << "Intensity" << YAML::Value << music.Intensity;
+				out << YAML::EndMap;
+			}
+
 			if (entity.HasComponent<AudioZoneComponent>())
 			{
 				const auto& zone = entity.GetComponent<AudioZoneComponent>();
@@ -1238,6 +1253,22 @@ namespace Lux {
 					component.CollisionComplexity = (ECollisionComplexity)meshCollider["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
 				}
 
+				if (auto node = entity["MusicDirectorComponent"])
+				{
+					auto& music = deserializedEntity.AddComponent<MusicDirectorComponent>();
+					if (auto reference = node["Event"])
+					{
+						music.Event.Guid = reference["Guid"].as<std::string>("");
+						music.Event.Path = reference["Path"].as<std::string>("");
+						music.Event.BankName = reference["BankName"].as<std::string>("");
+					}
+					music.PlayOnAwake = node["PlayOnAwake"].as<bool>(music.PlayOnAwake);
+					music.InitialState = node["InitialState"].as<std::string>(music.InitialState);
+					music.Intensity = node["Intensity"].as<float>(music.Intensity);
+					if (!std::isfinite(music.Intensity) || music.Intensity < 0.0f || music.Intensity > 1.0f)
+						throw std::runtime_error("Music intensity must be finite and in [0, 1]");
+				}
+
 				if (auto node = entity["AudioZoneComponent"])
 				{
 					auto& zone = deserializedEntity.AddComponent<AudioZoneComponent>();
@@ -1542,6 +1573,12 @@ namespace Lux {
 		surface.GroundProbeDistance = 1.5f;
 		surface.FootstepWeight = 90.0f;
 		const AudioSurfaceComponent expectedSurface = surface;
+		auto& music = childB.AddComponent<MusicDirectorComponent>();
+		music.Event = audio.Event;
+		music.InitialState = "Combat";
+		music.Intensity = 0.75f;
+		music.PlayOnAwake = false;
+		const MusicDirectorComponent expectedMusic = music;
 		auto& zone = childB.AddComponent<AudioZoneComponent>();
 		zone.Shape = AudioZoneShape::Sphere;
 		zone.Offset = { 1.0f, 2.0f, 3.0f };
@@ -1580,6 +1617,15 @@ namespace Lux {
 					|| copied->FootstepWeight != expectedSurface.FootstepWeight)
 					fail(std::format("{} changed physics audio settings", operation));
 			}
+			if (const auto* copiedMusic = entity.TryGetComponent<MusicDirectorComponent>())
+			{
+				if (copiedMusic->Event.Guid != expectedMusic.Event.Guid || copiedMusic->Event.Path != expectedMusic.Event.Path
+					|| copiedMusic->Event.BankName != expectedMusic.Event.BankName || copiedMusic->InitialState != expectedMusic.InitialState
+					|| copiedMusic->Intensity != expectedMusic.Intensity || copiedMusic->PlayOnAwake != expectedMusic.PlayOnAwake)
+					fail(std::format("{} changed music startup settings", operation));
+			}
+			else
+				fail(std::format("{} lost the music director", operation));
 			if (!entity.HasComponent<AudioZoneComponent>())
 				fail(std::format("{} lost the audio zone", operation));
 			else
@@ -1607,7 +1653,7 @@ namespace Lux {
 		checkAudioCopy(prefab->GetScene()->TryGetEntityWithUUID(prefab->GetRootEntityID()), "Prefab creation");
 		checkAudioCopy(src->Instantiate(prefab), "Prefab instantiation");
 		src->ReconcilePrefabComponents(duplicate, parent);
-		if (duplicate.HasComponent<AudioZoneComponent>() || duplicate.HasComponent<AudioSourceComponent>() || duplicate.HasComponent<AudioSurfaceComponent>() || duplicate.HasComponent<MeshColliderComponent>())
+		if (duplicate.HasComponent<MusicDirectorComponent>() || duplicate.HasComponent<AudioZoneComponent>() || duplicate.HasComponent<AudioSourceComponent>() || duplicate.HasComponent<AudioSurfaceComponent>() || duplicate.HasComponent<MeshColliderComponent>())
 			fail("Prefab reconciliation did not remove an absent audio source");
 		src->ReconcilePrefabComponents(duplicate, childB);
 		checkAudioCopy(duplicate, "Prefab reconciliation");

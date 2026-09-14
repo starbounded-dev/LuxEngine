@@ -323,6 +323,11 @@ namespace Lux {
 			}
 		}
 
+		if (m_MusicOwner == entity.GetUUID())
+		{
+			m_Music.Clear();
+			m_MusicOwner = 0;
+		}
 		ReleaseRuntimeAudio(entity);
 		m_AudioZones.Remove(entity.GetUUID());
 		m_PhysicsAudio.Remove(entity.GetUUID());
@@ -358,6 +363,8 @@ namespace Lux {
 
 	void Scene::ReleaseAllRuntimeAudio()
 	{
+		m_Music.Clear();
+		m_MusicOwner = 0;
 		// Event instances hold FMOD Studio resources and must not outlive the runtime that started
 		// them; the destructor stops each one immediately and releases it.
 		for (auto& [id, event] : m_RuntimeEventInstances)
@@ -522,6 +529,8 @@ namespace Lux {
 
 	void Scene::OnRuntimeStart()
 	{
+		m_Music.Clear();
+		m_MusicOwner = 0;
 		AudioScriptBindings::Reset();
 		m_IsRunning = true;
 
@@ -561,6 +570,27 @@ namespace Lux {
 				GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity));
 			else if (source.LegacyAudio)
 				LUX_CORE_ERROR_TAG("Audio", "Entity {0} uses retired raw audio asset {1}. Assign an FMOD Studio event to its Audio Source", static_cast<uint64_t>(entity.GetUUID()), static_cast<uint64_t>(source.LegacyAudio));
+		}
+
+		// A duplicated director must never produce a second bed. Choose a stable owner and report it.
+		size_t directors = 0;
+		for (auto handle : m_Registry.view<IDComponent, MusicDirectorComponent>())
+		{
+			const UUID id = m_Registry.get<IDComponent>(handle).ID;
+			if (!m_MusicOwner || static_cast<uint64_t>(id) < static_cast<uint64_t>(m_MusicOwner))
+				m_MusicOwner = id;
+			++directors;
+		}
+		if (directors > 1)
+			LUX_CORE_ERROR_TAG("Audio", "Scene has {} music directors; only lowest UUID {} supplies startup settings", directors, static_cast<uint64_t>(m_MusicOwner));
+		m_Music.Update(m_IsPaused);
+		if (m_MusicOwner)
+		{
+			const auto& config = GetEntityByUUID(m_MusicOwner).GetComponent<MusicDirectorComponent>();
+			if (!config.InitialState.empty())
+				m_Music.SetState(config.InitialState);
+			if (m_Music.SetIntensity(config.Intensity) && config.PlayOnAwake && config.Event.IsValid())
+				m_Music.Play(config.Event.Guid);
 		}
 
 		// Scripting: instantiate every script entity and fire OnCreate.
@@ -659,6 +689,7 @@ namespace Lux {
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		AudioScriptBindings::Update(m_IsPaused);
+		m_Music.Update(m_IsPaused);
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			// Update scripts
@@ -995,7 +1026,7 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent,
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, MusicDirectorComponent,
 			FolderComponent>;
 
 		if (!entity)
@@ -1062,7 +1093,7 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, FolderComponent>;
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, MusicDirectorComponent, FolderComponent>;
 
 		std::unordered_map<UUID, UUID> entityMap;
 		std::function<Entity(Entity, Entity)> instantiateHierarchy;
@@ -1198,7 +1229,7 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, FolderComponent>;
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, MusicDirectorComponent, FolderComponent>;
 
 		ReconcileComponents(PrefabSyncComponents{}, destination, source);
 		if (destination.HasComponent<AudioListenerComponent>())
@@ -2735,6 +2766,11 @@ namespace Lux {
 	{
 		component.ScriptPaused = false;
 		ReleaseRuntimeAudio(entity);
+	}
+
+	template<>
+	void Scene::OnComponentAdded<MusicDirectorComponent>(Entity entity, MusicDirectorComponent& component)
+	{
 	}
 
 	template<>

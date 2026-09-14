@@ -27,6 +27,7 @@ namespace Lux
 		std::unordered_map<uint64_t, ScriptEvent> s_Instances;
 		uint64_t s_NextHandle = 1; // Never recycled, including across scene/assembly/bank reloads.
 		Coral::Type* s_AudioType = nullptr;
+		Coral::Type* s_MusicType = nullptr;
 
 		bool OnMainThread()
 		{
@@ -462,6 +463,59 @@ namespace Lux
 				c->AttenuationTarget = target;
 		}
 
+		Coral::Bool32 Music_Play(Coral::String reference)
+		{
+			auto* scene = AudioScene();
+			return scene && scene->GetMusicDirector().Play(reference);
+		}
+		void Music_Stop(Coral::Bool32 fade)
+		{
+			if (auto* scene = AudioScene())
+				scene->GetMusicDirector().Stop(fade);
+		}
+		Coral::Bool32 Music_SetState(Coral::String state)
+		{
+			auto* scene = AudioScene();
+			return scene && scene->GetMusicDirector().SetState(state);
+		}
+		Coral::Bool32 Music_SetIntensity(float value)
+		{
+			auto* scene = AudioScene();
+			return scene && scene->GetMusicDirector().SetIntensity(value);
+		}
+		float Music_GetIntensity()
+		{
+			auto* scene = AudioScene();
+			return scene ? scene->GetMusicDirector().GetIntensity() : 0.0f;
+		}
+		Coral::Bool32 Music_SetLayerEnabled(Coral::String layer, Coral::Bool32 enabled)
+		{
+			auto* scene = AudioScene();
+			return scene && scene->GetMusicDirector().SetLayerEnabled(layer, enabled);
+		}
+		Coral::Bool32 Music_PlayStinger(Coral::String reference)
+		{
+			auto* scene = AudioScene();
+			return scene && scene->GetMusicDirector().PlayStinger(reference);
+		}
+		Coral::Bool32 Music_QueueTransition(Coral::String reference, int32_t sync)
+		{
+			auto* scene = AudioScene();
+			return scene && scene->GetMusicDirector().QueueTransition(reference, static_cast<MusicSync>(sync));
+		}
+		int32_t Music_GetBeat(Coral::Bool32 bar)
+		{
+			auto* scene = AudioScene();
+			if (!scene)
+				return 0;
+			return bar ? scene->GetMusicDirector().GetCurrentBar() : scene->GetMusicDirector().GetCurrentBeat();
+		}
+		Coral::Bool32 Music_IsPlaying()
+		{
+			auto* scene = AudioScene();
+			return scene && scene->GetMusicDirector().IsPlaying();
+		}
+
 		bool MixerAvailable()
 		{
 			if (!AudioScene())
@@ -526,16 +580,35 @@ namespace Lux
 		AudioEventInstance::DrainNotifications();
 		if (s_AudioType)
 			s_AudioType->InvokeStaticMethod("Reset");
+		if (s_MusicType)
+			s_MusicType->InvokeStaticMethod("Reset");
 	}
 
 	void AudioScriptBindings::Shutdown()
 	{
 		Reset();
 		s_AudioType = nullptr;
+		s_MusicType = nullptr;
 	}
 
 	void AudioScriptBindings::Update(bool paused)
 	{
+		if (auto scene = ScriptEngine::GetInstance().GetCurrentScene(); scene && scene->IsRunning())
+		{
+			scene->GetMusicDirector().m_ScriptTempoCallback = [](int bar, int beat)
+			{
+				if (s_MusicType)
+					s_MusicType->InvokeStaticMethod("DispatchBeat", bar, beat);
+			};
+			scene->GetMusicDirector().m_ScriptMarkerCallback = [](const std::string& name)
+			{
+				if (s_MusicType)
+				{
+					Coral::ScopedString marker = Coral::String::New(name);
+					s_MusicType->InvokeStaticMethod("DispatchMarker", static_cast<Coral::String>(marker));
+				}
+			};
+		}
 		for (auto& [handle, entry] : s_Instances)
 			entry.Instance->SetScenePaused(paused);
 		for (const auto& notification : AudioEventInstance::DrainNotifications())
@@ -554,6 +627,18 @@ namespace Lux
 	void AudioScriptBindings::Register(Coral::ManagedAssembly& assembly)
 	{
 		s_AudioType = &assembly.GetLocalType("Lux.Audio");
+		s_MusicType = &assembly.GetLocalType("Lux.Music");
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_Play", reinterpret_cast<void*>(&Music_Play));
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_Stop", reinterpret_cast<void*>(&Music_Stop));
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_SetState", reinterpret_cast<void*>(&Music_SetState));
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_SetIntensity", reinterpret_cast<void*>(&Music_SetIntensity));
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_GetIntensity", reinterpret_cast<void*>(&Music_GetIntensity));
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_SetLayerEnabled", reinterpret_cast<void*>(&Music_SetLayerEnabled));
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_PlayStinger", reinterpret_cast<void*>(&Music_PlayStinger));
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_QueueTransition", reinterpret_cast<void*>(&Music_QueueTransition));
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_GetBeat", reinterpret_cast<void*>(&Music_GetBeat));
+		assembly.AddInternalCall("Lux.InternalCalls", "Music_IsPlaying", reinterpret_cast<void*>(&Music_IsPlaying));
+
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SetSnapshotIntensity", reinterpret_cast<void*>(&Audio_SetSnapshotIntensity));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneGetScalar", reinterpret_cast<void*>(&Audio_ZoneGetScalar));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneSetScalar", reinterpret_cast<void*>(&Audio_ZoneSetScalar));

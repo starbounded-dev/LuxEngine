@@ -7,7 +7,7 @@
 
 namespace Lux::ImGuiEx
 {
-	bool SurfaceEventPicker(const char* label, AudioEventRef& reference, bool oneShot, bool mixed)
+	bool SurfaceEventPicker(const char* label, AudioEventRef& reference, bool oneShot, bool mixed, bool require2D)
 	{
 		ScopedID id(label);
 		bool changed = false;
@@ -24,7 +24,7 @@ namespace Lux::ImGuiEx
 			}
 			for (const auto& info : events)
 			{
-				if (info.IsSnapshot || info.IsOneshot != oneShot)
+				if (info.IsSnapshot || info.IsOneshot != oneShot || (require2D && info.Is3D))
 					continue;
 				ScopedID eventID(info.Guid.c_str());
 				ScopedID bankID(info.BankName.c_str());
@@ -36,8 +36,8 @@ namespace Lux::ImGuiEx
 			}
 			ImGui::EndCombo();
 		}
-		if (!changed && !mixed && reference.IsValid() && (assigned == events.end() || assigned->IsSnapshot || assigned->IsOneshot != oneShot))
-			ImGui::TextWrapped("Assigned surface event is unavailable or has the wrong type. Build/load its bank.");
+		if (!changed && !mixed && reference.IsValid() && (assigned == events.end() || assigned->IsSnapshot || assigned->IsOneshot != oneShot || (require2D && assigned->Is3D)))
+			ImGui::TextWrapped("Assigned event is unavailable or has the wrong type. Build/load its bank.");
 		return changed;
 	}
 }
