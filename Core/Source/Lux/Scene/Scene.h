@@ -7,6 +7,7 @@
 #include "Lux/Audio/AudioZoneSystem.h"
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Audio/MusicDirector.h"
+#include "Lux/Audio/DialogueDirector.h"
 #include "Lux/Physics/PhysicsContactEvent.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
@@ -105,6 +106,7 @@ namespace Lux {
 		static UUID MapPrefabEntityReference(UUID target, Entity source, Entity destination);
 		void RemapAudioListenerTargets(const std::unordered_map<UUID, UUID>& entityMap, bool clearExternal);
 		const AudioListenerState* GetPrimaryAudioListener() const;
+		DialogueDirector& GetDialogueDirector() { return m_Dialogue; }
 		MusicDirector& GetMusicDirector() { return m_Music; }
 		float GetAudioZoneWeight(UUID id) const { return m_AudioZones.GetWeight(id); }
 		AudioZoneVolume GetAudioZoneVolume(Entity entity);
@@ -262,6 +264,7 @@ namespace Lux {
 		AudioListener::States m_RuntimeAudioListeners;
 		AudioZoneSystem m_AudioZones;
 		PhysicsAudioSystem m_PhysicsAudio;
+		DialogueDirector m_Dialogue;
 		MusicDirector m_Music;
 		UUID m_MusicOwner = 0;
 		Ref<AudioSurfaceTable> m_AudioSurfaceTable;

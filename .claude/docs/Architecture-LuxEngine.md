@@ -601,6 +601,41 @@ mailboxes are bounded with overflow reported on the main thread. Music/scene ser
 through the existing runtime scene pack and existing exported banks, without a new project format.
 See `docs/AUDIO_MUSIC.md` for authoring contracts and timing limits.
 
+**Dialogue and subtitles (Phase 11):** `Scene` owns `DialogueDirector`, configured before script
+OnCreate from `ProjectAudioSettings::Dialogue` (table asset handle and language). `.ldialogue`
+`DialogueTable` assets contain keyed event references, priorities, interruptibility and per-language
+subtitle text, speaker names and FMOD audio-table keys. AssetImporter registers the bounded YAML
+serializer for editor files and packed runtime data; assigned project tables are included in each
+exported scene's asset set. Runtime project format 21 appends dialogue settings after the format-20
+surface table; older files default to no dialogue table and English. Startup snapshots the table so
+editor edits cannot mutate an active scene's scheduling data.
+
+The main-thread director owns one foreground voice, a stable priority queue (64 pending), separate
+positional barks (32 active), bounded nearby-key cooldown history, and references retained through
+fades (128 total prepared/active/fading voices). Queue/Interrupt/DropIfBusy policies preserve the
+current voice when replacement validation fails; noninterruptible or higher-priority lines queue
+interrupt requests. Barks require interruptible finite 3D events. Locale fallback resolves audio and
+text together; queued requests retain their resolved translation. Pause freezes playback and cooldowns;
+speaker destruction, scene teardown and bank generation changes cancel affected voices. Bank reload
+does not replay previously spoken lines.
+
+Programmer instruments use `AudioEventInstance::SetProgrammerSound` with a loaded FMOD audio-table
+key, checked before Start. CREATE obtains the Studio/Core systems from the callback event and creates
+the SDK sound without retaining pointers to Scene or the wrapper; DESTROY releases it even after its
+mailbox token has been removed. Started/sound-played/stopped/failure status crosses the mutex-protected
+mailbox. Source sound length supplies advisory subtitle duration. Programmer subtitles wait for actual
+sound playback. Ordinary finite authored events also work with an empty audio key.
+
+`SubtitleEvent` reports shown/hidden, handle, key, resolved language/text, speaker name/UUID/world
+position, offscreen status and duration. Scene resolves entities and its primary camera on the main
+thread. Notifications dispatch after voice mutations, so listeners can enqueue/stop/clear dialogue.
+Native and script listeners are independent. C# `Dialogue`, `DialogueHandle`, and immutable `Subtitle`
+expose speech, barks, queue control, language selection and shown/hidden events through the existing
+AudioScriptBindings bridge. Reset hides managed subtitles and clears subscriptions. Position/offscreen
+fields are event snapshots; game UI owns rendering and ongoing speaker tracking. Project Settings
+provides table selection, startup language and line/translation editing; Content Browser creates tables.
+See `docs/AUDIO_DIALOGUE.md` for setup, authoring contracts and scripting examples.
+
 **Surfaces and physics audio (Phase 9):** `AudioSurfaceTable` is a `.lsurfaces` asset with
 per-material footstep/impact/scrape/roll GUID references and shared thresholds. `AudioEventRef`
 lives in Audio rather than Components so assets do not depend on the scene module. The project

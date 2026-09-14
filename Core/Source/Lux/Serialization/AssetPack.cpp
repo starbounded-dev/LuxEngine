@@ -51,6 +51,7 @@ namespace Lux
 				case AssetType::StaticMesh:
 				case AssetType::Material:
 				case AssetType::Audio:
+				case AssetType::DialogueTable:
 				case AssetType::AudioSurfaceTable:
 					return true;
 				default:
@@ -210,6 +211,14 @@ namespace Lux
 			return nullptr;
 		}
 
+		const AssetHandle dialogueTable = Project::GetActive()->GetConfig().Audio.Dialogue.Table;
+		if (dialogueTable && (!AssetManager::IsAssetHandleValid(dialogueTable)
+			|| AssetManager::GetAssetType(dialogueTable) != AssetType::DialogueTable || AssetManager::IsMemoryAsset(dialogueTable)))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot export missing or invalid dialogue table {}", static_cast<uint64_t>(dialogueTable));
+			return nullptr;
+		}
+
 		const float progressIncrement = 0.5f / (float)sceneCount;
 		const std::unordered_set<AssetHandle> audioFiles = AssetManager::GetAllAssetsWithType<AudioFile>();
 		fullAssetList.insert(audioFiles.begin(), audioFiles.end());
@@ -231,6 +240,8 @@ namespace Lux
 			sceneAssetList.insert(audioFiles.begin(), audioFiles.end());
 			if (surfaceTable)
 				sceneAssetList.insert(surfaceTable);
+			if (dialogueTable)
+				sceneAssetList.insert(dialogueTable);
 			LUX_CORE_TRACE("  Scene has {} used assets", sceneAssetList.size());
 
 			AssetPackFile::SceneInfo& sceneInfo = assetPackFile.Index.Scenes[sceneHandle];

@@ -1,5 +1,6 @@
 #include "lpch.h"
 #include "Lux/Audio/AudioSurfaceTable.h"
+#include "Lux/Audio/DialogueTable.h"
 #include <fstream>
 #include "ContentBrowserPanel.h"
 
@@ -242,6 +243,8 @@ namespace Lux {
 								CreateMaterialAsset();
 							if (ImGui::MenuItem("Audio Surface Table"))
 								CreateAudioSurfaceTable();
+							if (ImGui::MenuItem("Dialogue Table"))
+								CreateDialogueTable();
 
 							ImGui::EndMenu();
 						}
@@ -695,6 +698,8 @@ namespace Lux {
 				CreateMaterialAsset();
 			if (ImGui::MenuItem("Audio Surface Table"))
 				CreateAudioSurfaceTable();
+			if (ImGui::MenuItem("Dialogue Table"))
+				CreateDialogueTable();
 			ImGui::Separator();
 			if (ImGui::MenuItem("Import…"))
 			{
@@ -1445,6 +1450,31 @@ namespace Lux {
 		return handle;
 	}
 
+	AssetHandle ContentBrowserPanel::CreateDialogueTable()
+	{
+		if (!m_CurrentDirectory)
+			return 0;
+		const auto path = FileSystem::GetUniqueFileName(Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath / "New Dialogue Table.ldialogue");
+		DialogueTable table;
+		std::ofstream file(path);
+		file << table.ToYAML();
+		file.close();
+		if (!file)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Could not create dialogue table '{}'", path.string());
+			return 0;
+		}
+		const AssetHandle handle = AssetManager::ImportAsset(std::filesystem::relative(path, Project::GetActiveAssetDirectory()));
+		Refresh();
+		if (handle)
+		{
+			ClearSelections();
+			SelectItem(handle);
+			StartRenamingItem(handle);
+		}
+		return handle;
+	}
+
 	AssetHandle ContentBrowserPanel::CreateMaterialAsset()
 	{
 		if (!m_CurrentDirectory)
@@ -1519,6 +1549,7 @@ namespace Lux {
 		// falling through to the generic file icon.
 		case AssetType::AudioProject: return EditorResources::AudioIcon;
 		case AssetType::AudioBank: return EditorResources::AudioIcon;
+		case AssetType::DialogueTable:
 		case AssetType::AudioSurfaceTable: return EditorResources::AudioIcon;
 		case AssetType::ScriptFile: return EditorResources::CSFileIcon;
 		case AssetType::Font: return EditorResources::FontFileIcon;

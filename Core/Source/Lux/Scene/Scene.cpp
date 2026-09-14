@@ -323,6 +323,7 @@ namespace Lux {
 			}
 		}
 
+		m_Dialogue.RemoveSpeaker(entity.GetUUID());
 		if (m_MusicOwner == entity.GetUUID())
 		{
 			m_Music.Clear();
@@ -363,6 +364,7 @@ namespace Lux {
 
 	void Scene::ReleaseAllRuntimeAudio()
 	{
+		m_Dialogue.Clear();
 		m_Music.Clear();
 		m_MusicOwner = 0;
 		// Event instances hold FMOD Studio resources and must not outlive the runtime that started
@@ -529,6 +531,7 @@ namespace Lux {
 
 	void Scene::OnRuntimeStart()
 	{
+		m_Dialogue.Clear();
 		m_Music.Clear();
 		m_MusicOwner = 0;
 		AudioScriptBindings::Reset();
@@ -542,6 +545,35 @@ namespace Lux {
 		m_AudioSurfaceTable = nullptr;
 		if (const auto project = Project::GetActive())
 		{
+			const auto& dialogue = project->GetConfig().Audio.Dialogue;
+			if (dialogue.Table)
+			{
+				Ref<DialogueTable> table;
+				if (AssetManager::IsAssetHandleValid(dialogue.Table) && AssetManager::GetAssetType(dialogue.Table) == AssetType::DialogueTable)
+					table = AssetManager::GetAsset<DialogueTable>(dialogue.Table);
+				m_Dialogue.Configure(table, dialogue.Language, [this](UUID id)
+				{
+					DialogueSpeaker speaker;
+					if (!id)
+					{
+						speaker.Valid = true;
+						return speaker;
+					}
+					const auto entity = TryGetEntityWithUUID(id);
+					if (!entity)
+						return speaker;
+					speaker.Valid = true;
+					speaker.Name = entity.GetComponent<TagComponent>().Tag;
+					speaker.Position = glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]);
+					if (const auto camera = GetPrimaryCameraEntity())
+					{
+						const auto clip = camera.GetComponent<CameraComponent>().Camera.GetProjectionMatrix() *
+							glm::inverse(GetWorldSpaceTransformMatrix(camera)) * glm::vec4(speaker.Position, 1.0f);
+						speaker.IsOffScreen = clip.w <= 0.0f || std::abs(clip.x) > clip.w || std::abs(clip.y) > clip.w || clip.z < 0.0f || clip.z > clip.w;
+					}
+					return speaker;
+				});
+			}
 			const AssetHandle handle = project->GetConfig().Audio.SurfaceTable;
 			if (handle)
 			{
@@ -583,6 +615,7 @@ namespace Lux {
 		}
 		if (directors > 1)
 			LUX_CORE_ERROR_TAG("Audio", "Scene has {} music directors; only lowest UUID {} supplies startup settings", directors, static_cast<uint64_t>(m_MusicOwner));
+		m_Dialogue.Update(0.0f, m_IsPaused);
 		m_Music.Update(m_IsPaused);
 		if (m_MusicOwner)
 		{
@@ -689,6 +722,7 @@ namespace Lux {
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		AudioScriptBindings::Update(m_IsPaused);
+		m_Dialogue.Update(ts, m_IsPaused);
 		m_Music.Update(m_IsPaused);
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{

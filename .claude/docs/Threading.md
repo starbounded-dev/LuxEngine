@@ -236,7 +236,12 @@ processed until the asset thread has synced its assets back to the main thread. 
 Studio callbacks copy stopped, marker, and beat data into bounded mutex-protected queues in
 `AudioEventInstance`. Callback userdata is a never-reused token, not a pointer to an engine owner;
 destruction removes the token's state before releasing the SDK instance. No Scene, ECS, Coral,
-ImGui, or playback mutation runs in these callbacks. `Scene::OnUpdateRuntime` drains music timeline
+ImGui, or scene playback mutation runs in these callbacks. Programmer-sound callbacks are the
+SDK-required exception for sound ownership: CREATE resolves a copied audio-table key using the
+callback event's Studio/Core systems and calls Core createSound; DESTROY releases that SDK sound,
+even if the wrapper mailbox has already been removed. No bank-owned pointers escape CREATE.
+The notification mutex is not held across programmer creation/release. Playback status and sound
+length are copied into the mailbox; callback errors are reported on the main thread. `Scene::OnUpdateRuntime` drains music timeline
 mailboxes and the audio scripting bridge drains script notifications on the main thread before
 script OnUpdate. Only immutable copied payloads cross the callback boundary. Bank generation checks
 protect main-thread calls from stale SDK handles; tokens isolate late callback delivery.

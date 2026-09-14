@@ -515,6 +515,19 @@ namespace Lux {
 			"Shared footstep, impact, scrape and roll events. Create a table in Content Browser > New. Loaded on Play and included in runtime exports."))
 			m_Dirty = true;
 
+		if (ImGuiEx::PropertyAssetReference<DialogueTable>("Dialogue Table", audioSettings.Dialogue.Table,
+			"Localized speech and subtitles. Create a Dialogue Table in Content Browser > New; included in runtime exports."))
+			m_Dirty = true;
+		std::string language = audioSettings.Dialogue.Language;
+		if (ImGuiEx::Property("Dialogue Language", language, "Language code, e.g. en or fr-CA. Missing translations use the table default.", false))
+		{
+			if (DialogueTable::ValidLanguage(language))
+			{
+				audioSettings.Dialogue.Language = language;
+				m_Dirty = true;
+			}
+		}
+
 		static const char* zoneModes[] = { "Layer zones and VA", "Prefer zones", "Prefer VA" };
 		if (ImGuiEx::PropertyDropdown("Zone Reverb", zoneModes, 3, audioSettings.ZoneReverbMode,
 			"Layered keeps both. Prefer zones reduces VA ReverbSend by active snapshot coverage. Prefer VA suppresses zone snapshots while valid VA ambience is available.", false))
@@ -561,6 +574,80 @@ namespace Lux {
 			}
 			else
 				ImGui::TextWrapped("The assigned surface table is missing or has the wrong asset type.");
+		}
+		if (audioSettings.Dialogue.Table && ImGuiEx::PropertyGridHeader("Dialogue Lines", false))
+		{
+			if (AssetManager::IsAssetHandleValid(audioSettings.Dialogue.Table) && AssetManager::GetAssetType(audioSettings.Dialogue.Table) == AssetType::DialogueTable)
+			{
+				if (auto table = AssetManager::GetAsset<DialogueTable>(audioSettings.Dialogue.Table))
+				{
+					ImGui::TextWrapped("Edits apply on the next Play. Assign a finite FMOD event. For a programmer instrument, enter its audio-table key per language. Empty keys use the event's authored audio. Save after editing.");
+					ImGuiEx::BeginPropertyGrid();
+					ImGuiEx::Property("Default Language", table->DefaultLanguage, "Each line must have a translation in this language.", false);
+					ImGuiEx::Property("Bark Cooldown", table->BarkCooldown, 0.1f, 0.0f, 60.0f, "Seconds between nearby repetitions of the same bark.", false);
+					ImGuiEx::Property("Bark Radius", table->BarkRadius, 0.1f, 0.0f, 1000.0f, "Nearby speaker deduplication radius in world units.", false);
+					ImGuiEx::EndPropertyGrid();
+					static std::string newKey, newLanguage = "en", filter;
+					ImGuiEx::BeginPropertyGrid();
+					ImGuiEx::Property("New Line Key", newKey, "Stable script key, e.g. guard.greeting", false);
+					ImGuiEx::Property("Filter Lines", filter, "", false);
+					ImGuiEx::EndPropertyGrid();
+					if (ImGui::Button("Add Dialogue Line") && !newKey.empty())
+					{
+						if (auto [entry, added] = table->Lines.try_emplace(newKey); added)
+						{
+							entry->second.Translations[table->DefaultLanguage].Text = "Enter subtitle text";
+							newKey.clear();
+						}
+					}
+					std::string removeLine;
+					for (auto& [key, line] : table->Lines)
+					{
+						if (!filter.empty() && key.find(filter) == std::string::npos)
+							continue;
+						ImGuiEx::ScopedID lineID(key.c_str());
+						if (!ImGui::TreeNode(key.c_str()))
+							continue;
+						ImGuiEx::SurfaceEventPicker("Speech Event", line.Event, true);
+						ImGuiEx::BeginPropertyGrid();
+						int32_t priority = static_cast<int32_t>(line.Priority);
+						static const char* priorities[] = { "Low", "Normal", "High", "Critical" };
+						if (ImGuiEx::PropertyDropdown("Priority", priorities, 4, priority, "Higher priority queued lines run first.", false))
+							line.Priority = static_cast<DialoguePriority>(priority);
+						ImGuiEx::Property("Interruptible", line.Interruptible, "", false);
+						ImGuiEx::Property("Add Language", newLanguage, "Language code for a new translation", false);
+						ImGuiEx::EndPropertyGrid();
+						if (ImGui::Button("Add Translation") && DialogueTable::ValidLanguage(newLanguage))
+							line.Translations.try_emplace(newLanguage, DialogueTranslation{ "Enter subtitle text", "", "" });
+						std::string removeLanguage;
+						for (auto& [locale, translation] : line.Translations)
+						{
+							ImGuiEx::ScopedID localeID(locale.c_str());
+							if (!ImGui::TreeNode(locale.c_str()))
+								continue;
+							ImGuiEx::BeginPropertyGrid();
+							ImGuiEx::PropertyMultiline("Text", translation.Text, "Localized subtitle", false);
+							ImGuiEx::Property("Speaker Name", translation.SpeakerName, "Empty uses the speaker entity name.", false);
+							ImGuiEx::Property("Audio Table Key", translation.AudioKey, "FMOD audio-table key. Use unique keys per language when loading their banks together.", false);
+							ImGuiEx::EndPropertyGrid();
+							if (locale != table->DefaultLanguage && ImGui::Button("Remove Translation"))
+								removeLanguage = locale;
+							ImGui::TreePop();
+						}
+						if (!removeLanguage.empty())
+							line.Translations.erase(removeLanguage);
+						if (ImGui::Button("Remove Line"))
+							removeLine = key;
+						ImGui::TreePop();
+					}
+					if (!removeLine.empty())
+						table->Lines.erase(removeLine);
+					if (ImGui::Button("Save Dialogue Table"))
+						AssetManager::SaveAsset(table);
+				}
+			}
+			else
+				ImGui::TextWrapped("The dialogue table is missing or has the wrong asset type.");
 		}
 		if (ImGuiEx::PropertyGridHeader("Acoustic Materials", false))
 		{

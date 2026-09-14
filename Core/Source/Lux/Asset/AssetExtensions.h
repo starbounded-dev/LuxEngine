@@ -25,6 +25,7 @@ namespace Lux::AssetExtensions
 			{ ".fspro", AssetType::AudioProject },
 			{ ".bank", AssetType::AudioBank },
 			{ ".lsurfaces", AssetType::AudioSurfaceTable },
+		{ ".ldialogue", AssetType::DialogueTable },
 			{ ".lsoundc", AssetType::SoundConfig },
 			{ ".fbx", AssetType::MeshSource },
 			{ ".gltf", AssetType::MeshSource },

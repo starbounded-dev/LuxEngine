@@ -1,6 +1,7 @@
 #include "lpch.h"
 #include "AssetImporter.h"
 #include "AudioSurfaceTableSerializer.h"
+#include "DialogueTableSerializer.h"
 
 #include "AudioAssetSerializer.h"
 #include "MaterialSerializer.h"
@@ -29,6 +30,7 @@ namespace Lux
 			s_Serializers[AssetType::Texture] = std::make_unique<TextureSerializer>();
 			s_Serializers[AssetType::EnvMap] = std::make_unique<TextureSerializer>();
 			s_Serializers[AssetType::AudioSurfaceTable] = CreateScope<AudioSurfaceTableSerializer>();
+			s_Serializers[AssetType::DialogueTable] = CreateScope<DialogueTableSerializer>();
 			s_Serializers[AssetType::Audio] = std::make_unique<AudioAssetSerializer>();
 			s_Serializers[AssetType::MeshSource] = std::make_unique<MeshSourceSerializer>();
 			s_Serializers[AssetType::Mesh] = std::make_unique<MeshSerializer>();

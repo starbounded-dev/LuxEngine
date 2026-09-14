@@ -48,10 +48,13 @@ namespace Lux {
 		std::mutex s_NotificationMutex;
 		std::vector<AudioEventNotification> s_Notifications;
 		size_t s_DroppedNotifications = 0;
+		FMOD_RESULT s_CallbackError = FMOD_OK;
 		struct CallbackState
 		{
 			uint64_t ScriptHandle = 0;
 			bool Timeline = false;
+			std::string ProgrammerKey;
+			AudioPlaybackStatus Playback;
 			uint64_t Sequence = 0;
 			std::vector<AudioTimelineNotification> Notifications;
 		};
@@ -61,12 +64,69 @@ namespace Lux {
 
 		static FMOD_RESULT F_CALL AudioCallback(FMOD_STUDIO_EVENT_CALLBACK_TYPE type, FMOD_STUDIO_EVENTINSTANCE* raw, void* parameters)
 		{
+			// A released wrapper has no mailbox, but FMOD still owns the programmer sound.
+			if (type == FMOD_STUDIO_EVENT_CALLBACK_DESTROY_PROGRAMMER_SOUND)
+			{
+				auto* sound = reinterpret_cast<FMOD::Sound*>(static_cast<FMOD_STUDIO_PROGRAMMER_SOUND_PROPERTIES*>(parameters)->sound);
+				const auto released = sound ? sound->release() : FMOD_OK;
+				if (released != FMOD_OK)
+				{
+					std::scoped_lock lock(s_NotificationMutex);
+					s_CallbackError = released;
+				}
+				return released;
+			}
 			void* data = nullptr;
 			const auto result = reinterpret_cast<FMOD::Studio::EventInstance*>(raw)->getUserData(&data);
 			if (result != FMOD_OK)
 				return result;
 			if (!data)
 				return FMOD_OK;
+			if (type == FMOD_STUDIO_EVENT_CALLBACK_CREATE_PROGRAMMER_SOUND)
+			{
+				auto& properties = *static_cast<FMOD_STUDIO_PROGRAMMER_SOUND_PROPERTIES*>(parameters);
+				properties.sound = nullptr;
+				properties.subsoundIndex = -1;
+				std::string key;
+				try
+				{
+					std::scoped_lock lock(s_NotificationMutex);
+					const auto found = s_CallbackStates.find(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(data)));
+					if (found == s_CallbackStates.end())
+						return FMOD_OK;
+					key = found->second.ProgrammerKey;
+				}
+				catch (const std::bad_alloc&)
+				{
+					std::scoped_lock lock(s_NotificationMutex);
+					s_CallbackError = FMOD_ERR_MEMORY;
+					return FMOD_ERR_MEMORY;
+				}
+				FMOD::Studio::System* studio = nullptr;
+				FMOD::System* core = nullptr;
+				FMOD_STUDIO_SOUND_INFO info{};
+				FMOD::Sound* sound = nullptr;
+				auto error = reinterpret_cast<FMOD::Studio::EventInstance*>(raw)->getSystem(&studio);
+				if (error == FMOD_OK)
+					error = studio->getSoundInfo(key.c_str(), &info);
+				if (error == FMOD_OK)
+					error = studio->getCoreSystem(&core);
+				if (error == FMOD_OK)
+					error = core->createSound(info.name_or_data, info.mode | FMOD_LOOP_NORMAL | FMOD_CREATECOMPRESSEDSAMPLE | FMOD_NONBLOCKING, &info.exinfo, &sound);
+				if (error == FMOD_OK)
+				{
+					properties.sound = reinterpret_cast<FMOD_SOUND*>(sound);
+					properties.subsoundIndex = info.subsoundindex;
+				}
+				else
+				{
+					std::scoped_lock lock(s_NotificationMutex);
+					s_CallbackError = error;
+					if (auto found = s_CallbackStates.find(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(data))); found != s_CallbackStates.end())
+						found->second.Playback.Error = error;
+				}
+				return error;
+			}
 			std::scoped_lock lock(s_NotificationMutex);
 			const auto it = s_CallbackStates.find(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(data)));
 			if (it == s_CallbackStates.end())
@@ -74,7 +134,23 @@ namespace Lux {
 			try
 			{
 				auto& state = it->second;
-				if (state.ScriptHandle && type != FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_BEAT)
+				if (type == FMOD_STUDIO_EVENT_CALLBACK_STARTED)
+					state.Playback.Started = true;
+				if (type == FMOD_STUDIO_EVENT_CALLBACK_START_FAILED)
+					state.Playback.Error = FMOD_ERR_INTERNAL;
+				if (type == FMOD_STUDIO_EVENT_CALLBACK_STOPPED)
+					state.Playback.Stopped = true;
+				if (type == FMOD_STUDIO_EVENT_CALLBACK_SOUND_PLAYED)
+				{
+					unsigned int milliseconds = 0;
+					const auto lengthResult = static_cast<FMOD::Sound*>(parameters)->getLength(&milliseconds, FMOD_TIMEUNIT_MS);
+					state.Playback.SoundStarted = true;
+					if (lengthResult == FMOD_OK)
+						state.Playback.Duration = milliseconds / 1000.0f;
+					else
+						s_CallbackError = lengthResult;
+				}
+				if (state.ScriptHandle && (type == FMOD_STUDIO_EVENT_CALLBACK_STOPPED || type == FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER))
 				{
 					if (s_Notifications.size() < kNotificationCapacity)
 					{
@@ -88,7 +164,7 @@ namespace Lux {
 					else
 						++s_DroppedNotifications;
 				}
-				if (state.Timeline && type != FMOD_STUDIO_EVENT_CALLBACK_STOPPED)
+				if (state.Timeline && (type == FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_BEAT || type == FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER))
 				{
 					if (state.Notifications.size() < kNotificationCapacity)
 					{
@@ -132,6 +208,11 @@ namespace Lux {
 		std::vector<AudioEventNotification> result;
 		std::scoped_lock lock(s_NotificationMutex);
 		result.swap(s_Notifications);
+		if (s_CallbackError != FMOD_OK)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "FMOD callback failed: {}", FMOD_ErrorString(s_CallbackError));
+			s_CallbackError = FMOD_OK;
+		}
 		if (s_DroppedNotifications)
 		{
 			LUX_CORE_ERROR_TAG("Audio", "Audio notification queue overflow: {0} notifications dropped", s_DroppedNotifications);
@@ -160,6 +241,8 @@ namespace Lux {
 		}
 		return CheckResult(m_Instance->setUserData(reinterpret_cast<void*>(static_cast<uintptr_t>(m_CallbackToken))), "set callback token") &&
 			CheckResult(m_Instance->setCallback(AudioCallback, FMOD_STUDIO_EVENT_CALLBACK_STOPPED | FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER |
+				FMOD_STUDIO_EVENT_CALLBACK_STARTED | FMOD_STUDIO_EVENT_CALLBACK_START_FAILED | FMOD_STUDIO_EVENT_CALLBACK_SOUND_PLAYED |
+				FMOD_STUDIO_EVENT_CALLBACK_CREATE_PROGRAMMER_SOUND | FMOD_STUDIO_EVENT_CALLBACK_DESTROY_PROGRAMMER_SOUND |
 				(timeline ? FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_BEAT : 0)), "set callback");
 	}
 
@@ -339,8 +422,42 @@ namespace Lux {
 		return false;
 	}
 
+	bool AudioEventInstance::MonitorPlayback()
+	{
+		return ConfigureCallbacks(0, false);
+	}
+
+	bool AudioEventInstance::SetProgrammerSound(const std::string& key)
+	{
+		if (!IsValid() || IsPlaying() || key.empty() || key.size() > 512 || key.find('\0') != std::string::npos)
+			return CheckResult(FMOD_ERR_INVALID_PARAM, "programmer sound requires an unstarted event and a valid audio-table key");
+		FMOD_STUDIO_SOUND_INFO info{};
+		if (!CheckResult(AudioEngine::GetStudioSystem()->getSoundInfo(key.c_str(), &info), "resolve programmer sound key") || !MonitorPlayback())
+			return false;
+		std::scoped_lock lock(s_NotificationMutex);
+		s_CallbackStates.at(m_CallbackToken).ProgrammerKey = key;
+		return true;
+	}
+
+	AudioPlaybackStatus AudioEventInstance::GetPlaybackStatus() const
+	{
+		AudioPlaybackStatus result;
+		{
+			std::scoped_lock lock(s_NotificationMutex);
+			if (auto it = s_CallbackStates.find(m_CallbackToken); it != s_CallbackStates.end())
+				result = it->second.Playback;
+		}
+		CheckResult(result.Error, "playback callback");
+		return result;
+	}
+
 	bool AudioEventInstance::Start()
 	{
+		{
+			std::scoped_lock lock(s_NotificationMutex);
+			if (auto it = s_CallbackStates.find(m_CallbackToken); it != s_CallbackStates.end())
+				it->second.Playback = {};
+		}
 		return IsValid() && CheckResult(m_Instance->start(), "start");
 	}
 

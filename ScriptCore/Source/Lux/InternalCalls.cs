@@ -21,6 +21,14 @@ namespace Lux
 		internal static delegate*<NativeString, int, Bool32> Music_QueueTransition;
 		internal static delegate*<Bool32, int> Music_GetBeat;
 		internal static delegate*<Bool32> Music_IsPlaying;
+		internal static delegate*<NativeString, ulong, Bool32, ulong> Dialogue_Speak;
+		internal static delegate*<ulong, Bool32, void> Dialogue_Stop;
+		internal static delegate*<void> Dialogue_StopAll;
+		internal static delegate*<ulong, Bool32, Bool32> Dialogue_Query;
+		internal static delegate*<int> Dialogue_GetQueueLength;
+		internal static delegate*<NativeString, Bool32> Dialogue_SetLanguage;
+		internal static delegate*<int, Bool32> Dialogue_SetQueueMode;
+
 		#endregion
 
 		#region Log

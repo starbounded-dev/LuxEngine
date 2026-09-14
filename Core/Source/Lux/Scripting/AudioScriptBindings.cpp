@@ -28,6 +28,7 @@ namespace Lux
 		uint64_t s_NextHandle = 1; // Never recycled, including across scene/assembly/bank reloads.
 		Coral::Type* s_AudioType = nullptr;
 		Coral::Type* s_MusicType = nullptr;
+		Coral::Type* s_DialogueType = nullptr;
 
 		bool OnMainThread()
 		{
@@ -463,6 +464,44 @@ namespace Lux
 				c->AttenuationTarget = target;
 		}
 
+		uint64_t Dialogue_Speak(Coral::String key, uint64_t speaker, Coral::Bool32 bark)
+		{
+			auto scene = AudioScene();
+			if (!scene)
+				return 0;
+			return bark ? scene->GetDialogueDirector().Bark(key, speaker) : scene->GetDialogueDirector().Speak(key, speaker);
+		}
+		void Dialogue_Stop(uint64_t handle, Coral::Bool32 fade)
+		{
+			if (auto scene = AudioScene())
+				scene->GetDialogueDirector().Stop(handle, fade);
+		}
+		void Dialogue_StopAll()
+		{
+			if (auto scene = AudioScene())
+				scene->GetDialogueDirector().StopAll();
+		}
+		Coral::Bool32 Dialogue_Query(uint64_t value, Coral::Bool32 speaker)
+		{
+			auto scene = AudioScene();
+			return scene && (speaker ? scene->GetDialogueDirector().IsSpeaking(value) : scene->GetDialogueDirector().IsActive(value));
+		}
+		int32_t Dialogue_GetQueueLength()
+		{
+			auto scene = AudioScene();
+			return scene ? static_cast<int32_t>(scene->GetDialogueDirector().GetQueueLength()) : 0;
+		}
+		Coral::Bool32 Dialogue_SetLanguage(Coral::String language)
+		{
+			auto scene = AudioScene();
+			return scene && scene->GetDialogueDirector().SetLanguage(language);
+		}
+		Coral::Bool32 Dialogue_SetQueueMode(int32_t mode)
+		{
+			auto scene = AudioScene();
+			return scene && mode >= 0 && mode <= 2 && scene->GetDialogueDirector().SetQueueMode(static_cast<DialogueQueueMode>(mode));
+		}
+
 		Coral::Bool32 Music_Play(Coral::String reference)
 		{
 			auto* scene = AudioScene();
@@ -582,6 +621,8 @@ namespace Lux
 			s_AudioType->InvokeStaticMethod("Reset");
 		if (s_MusicType)
 			s_MusicType->InvokeStaticMethod("Reset");
+		if (s_DialogueType)
+			s_DialogueType->InvokeStaticMethod("Reset");
 	}
 
 	void AudioScriptBindings::Shutdown()
@@ -589,12 +630,26 @@ namespace Lux
 		Reset();
 		s_AudioType = nullptr;
 		s_MusicType = nullptr;
+		s_DialogueType = nullptr;
 	}
 
 	void AudioScriptBindings::Update(bool paused)
 	{
 		if (auto scene = ScriptEngine::GetInstance().GetCurrentScene(); scene && scene->IsRunning())
 		{
+			scene->GetDialogueDirector().m_ScriptSubtitleCallback = [](const SubtitleEvent& event)
+			{
+				if (!s_DialogueType)
+					return;
+				Coral::ScopedString text = Coral::String::New(event.Text);
+				Coral::ScopedString name = Coral::String::New(event.SpeakerName);
+				Coral::ScopedString key = Coral::String::New(event.Key);
+				Coral::ScopedString language = Coral::String::New(event.Language);
+				s_DialogueType->InvokeStaticMethod("Dispatch", event.Handle, static_cast<int32_t>(event.Shown),
+					static_cast<Coral::String>(text), static_cast<Coral::String>(name), static_cast<uint64_t>(event.SpeakerEntity),
+					event.SpeakerPosition.x, event.SpeakerPosition.y, event.SpeakerPosition.z, event.Duration,
+					static_cast<int32_t>(event.IsOffScreen), static_cast<Coral::String>(key), static_cast<Coral::String>(language));
+			};
 			scene->GetMusicDirector().m_ScriptTempoCallback = [](int bar, int beat)
 			{
 				if (s_MusicType)
@@ -628,6 +683,15 @@ namespace Lux
 	{
 		s_AudioType = &assembly.GetLocalType("Lux.Audio");
 		s_MusicType = &assembly.GetLocalType("Lux.Music");
+		s_DialogueType = &assembly.GetLocalType("Lux.Dialogue");
+		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_Speak", reinterpret_cast<void*>(&Dialogue_Speak));
+		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_Stop", reinterpret_cast<void*>(&Dialogue_Stop));
+		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_StopAll", reinterpret_cast<void*>(&Dialogue_StopAll));
+		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_Query", reinterpret_cast<void*>(&Dialogue_Query));
+		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_GetQueueLength", reinterpret_cast<void*>(&Dialogue_GetQueueLength));
+		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_SetLanguage", reinterpret_cast<void*>(&Dialogue_SetLanguage));
+		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_SetQueueMode", reinterpret_cast<void*>(&Dialogue_SetQueueMode));
+
 		assembly.AddInternalCall("Lux.InternalCalls", "Music_Play", reinterpret_cast<void*>(&Music_Play));
 		assembly.AddInternalCall("Lux.InternalCalls", "Music_Stop", reinterpret_cast<void*>(&Music_Stop));
 		assembly.AddInternalCall("Lux.InternalCalls", "Music_SetState", reinterpret_cast<void*>(&Music_SetState));

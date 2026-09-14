@@ -38,7 +38,8 @@ namespace Lux {
 		// asset types so the Content Browser can show and activate them, not so they can be loaded.
 		AudioProject,
 		AudioBank,
-		AudioSurfaceTable
+		AudioSurfaceTable,
+		DialogueTable
 	};
 
 	namespace Utils {
@@ -67,6 +68,7 @@ namespace Lux {
 			if (assetType == "Animation")           return AssetType::Animation;
 			if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
 			if (assetType == "AudioProject")        return AssetType::AudioProject;
+			if (assetType == "DialogueTable")       return AssetType::DialogueTable;
 			if (assetType == "AudioSurfaceTable")   return AssetType::AudioSurfaceTable;
 			if (assetType == "AudioBank")           return AssetType::AudioBank;
 
@@ -98,6 +100,7 @@ namespace Lux {
 			case AssetType::Animation:           return "Animation";
 			case AssetType::AnimationGraph:      return "AnimationGraph";
 			case AssetType::AudioProject:        return "AudioProject";
+			case AssetType::DialogueTable:      return "DialogueTable";
 			case AssetType::AudioSurfaceTable: return "AudioSurfaceTable";
 			case AssetType::AudioBank:           return "AudioBank";
 			}

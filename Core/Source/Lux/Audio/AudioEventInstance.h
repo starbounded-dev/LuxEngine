@@ -38,6 +38,13 @@ namespace Lux {
 		std::string Marker;
 	};
 
+	struct AudioPlaybackStatus
+	{
+		bool Started = false, SoundStarted = false, Stopped = false;
+		float Duration = 0.0f;
+		int Error = 0;
+	};
+
 	class AudioEventInstance : public RefCounted
 	{
 	public:
@@ -67,6 +74,9 @@ namespace Lux {
 		bool EnableTimelineNotifications();
 		uint64_t GetTimelineSequence() const;
 		std::vector<AudioTimelineNotification> DrainTimelineNotifications();
+		bool MonitorPlayback();
+		bool SetProgrammerSound(const std::string& key);
+		AudioPlaybackStatus GetPlaybackStatus() const;
 		bool Start();
 		void Stop(bool allowFadeOut = true);
 		void SetPaused(bool paused);
