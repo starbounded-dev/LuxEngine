@@ -1,4 +1,6 @@
 #include "lpch.h"
+#include "Lux/Audio/AudioAccessibility.h"
+#include "Lux/Utilities/FileSystem.h"
 
 #include "Lux/Scene/Scene.h"
 
@@ -364,6 +366,7 @@ namespace Lux {
 
 	void Scene::ReleaseAllRuntimeAudio()
 	{
+		AudioAccessibility::EndScene(this);
 		m_Dialogue.Clear();
 		m_Music.Clear();
 		m_MusicOwner = 0;
@@ -545,7 +548,19 @@ namespace Lux {
 		m_AudioSurfaceTable = nullptr;
 		if (const auto project = Project::GetActive())
 		{
+			std::string preferenceName = project->GetConfig().Name;
+			for (char& c : preferenceName)
+			{
+				if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-'))
+					c = '_';
+			}
+			if (preferenceName.empty())
+				preferenceName = "Project";
+			const auto preferences = FileSystem::GetPersistentStoragePath() / "AudioAccessibility" / (preferenceName + ".yaml");
+			AudioAccessibility::BeginScene(this, project->GetConfig().Audio.Accessibility, preferences,
+				[this](const SubtitleEvent& event) { m_Dialogue.PublishCaption(event); });
 			const auto& dialogue = project->GetConfig().Audio.Dialogue;
+			m_Dialogue.SetLanguage(dialogue.Language);
 			if (dialogue.Table)
 			{
 				Ref<DialogueTable> table;
@@ -722,6 +737,20 @@ namespace Lux {
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		AudioScriptBindings::Update(m_IsPaused);
+		AudioAccessibilityView accessibilityView;
+		if (const auto* listener = GetPrimaryAudioListener())
+		{
+			accessibilityView.Position = listener->Position;
+			accessibilityView.Forward = listener->Forward;
+			accessibilityView.Up = listener->Up;
+		}
+		if (const auto camera = GetPrimaryCameraEntity())
+		{
+			const auto transform = GetWorldSpaceTransformMatrix(camera);
+			accessibilityView.HasCamera = true;
+			accessibilityView.ViewProjection = camera.GetComponent<CameraComponent>().Camera.GetProjectionMatrix() * glm::inverse(transform);
+		}
+		AudioAccessibility::Update(this, ts, m_IsPaused, m_Dialogue.GetLanguage(), accessibilityView, m_Dialogue.IsDescribing());
 		m_Dialogue.Update(ts, m_IsPaused);
 		m_Music.Update(m_IsPaused);
 		if (!m_IsPaused || m_StepFrames-- > 0)

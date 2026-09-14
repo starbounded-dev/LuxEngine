@@ -33,6 +33,28 @@ internal static unsafe class DialogueManagedTests
 		Dialogue.Dispatch(42, 1, "Bonjour", "Garde", 7, 1, 2, 3, 2.5f, 1, "guard.hello", "fr");
 		Check(shown == 1); // Scene subscriptions were cleared.
 		Dialogue.Reset();
-		Console.WriteLine("PASS: managed subtitle payload, lifetime, reset and late hide deduplication");
+		int captionCount = 0;
+		Dialogue.SubtitleShown += subtitle => { Check(subtitle.IsCaption && !subtitle.IsDescription); ++captionCount; };
+		Dialogue.Dispatch(99, 1, "[door]", "", 0, 0, 0, 0, 1, 0, "door", "en", 1, 0);
+		Check(captionCount == 1);
+		Dialogue.Reset();
+		Check(System.Runtime.InteropServices.Marshal.SizeOf<SoundCueData>() == 48);
+		int cues = 0, endedCues = 0;
+		Accessibility.SoundEvent += cue =>
+		{
+			Check(cue.Handle == 7 && cue.Category == AudioCategory.SFX);
+			Check(cue.Direction.X == -1 && cue.Position.Z == 3 && cue.Intensity == 0.5f);
+			if (cue.Active)
+				++cues;
+			else
+				++endedCues;
+		};
+		Accessibility.DispatchSound(7, 1, 2, 1, 2, 3, -1, 0, 0, 0.5f);
+		Check(cues == 1);
+		Accessibility.Reset();
+		Check(endedCues == 1);
+		Accessibility.DispatchSound(7, 1, 2, 1, 2, 3, -1, 0, 0, 0.5f);
+		Check(cues == 1);
+		Console.WriteLine("PASS: managed subtitle/caption payload, cue ABI/direction, subscriptions and reset");
 	}
 }

@@ -120,7 +120,7 @@ namespace Lux {
 		static bool SetBusVolume(const std::string& busPath, float volume);
 		static float GetBusVolume(const std::string& busPath);
 
-		// Studio-owned Core system, used for metadata import and mixer statistics only.
+		// Studio-owned Core system, used for metadata, statistics and accessibility DSP processing.
 		static FMOD::System* GetEngine() { return s_Engine; }
 
 		// The Studio system, which owns banks, events and buses. Null when FMOD failed to

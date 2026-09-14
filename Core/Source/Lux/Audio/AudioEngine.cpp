@@ -1,5 +1,6 @@
 #include "lpch.h"
 #include "AudioEngine.h"
+#include "AudioAccessibility.h"
 
 #include "Lux/Project/Project.h"
 
@@ -381,6 +382,7 @@ namespace Lux {
 
 	void AudioEngine::UnloadAllBanks()
 	{
+		AudioAccessibility::ReleaseMixer();
 		++s_EventGeneration;
 		if (s_StudioSystem)
 		{

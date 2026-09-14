@@ -21,6 +21,7 @@ namespace Lux
 		void OnDetach() override;
 		void OnUpdate(Timestep ts) override;
 		void OnEvent(Event& event) override;
+		void OnImGuiRender() override;
 
 	private:
 		bool OpenProject();
@@ -69,5 +70,8 @@ namespace Lux
 
 		bool m_SceneRunning = false;
 		bool m_ShowDebugDisplay = false;
+		bool m_ShowAudioAccessibility = false;
+		bool m_AccessibilityWasPaused = false;
+		CursorMode m_AccessibilityCursor = CursorMode::Normal;
 	};
 }

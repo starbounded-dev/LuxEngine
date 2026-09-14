@@ -1,6 +1,7 @@
 #include "lpch.h"
 #include "DialogueDirector.h"
 #include "AudioEngine.h"
+#include "AudioAccessibility.h"
 #include <algorithm>
 #include <cmath>
 
@@ -10,7 +11,7 @@ namespace Lux
 	{
 		uint64_t s_NextDialogueHandle = 1;
 		constexpr size_t kQueueCapacity = 64, kBarkCapacity = 32, kRecentBarkCapacity = 256;
-		constexpr size_t kDispatchCapacity = 256, kVoiceCapacity = 128;
+		constexpr size_t kDispatchCapacity = 2048, kVoiceCapacity = 128;
 	}
 
 	bool DialogueDirector::Configure(Ref<DialogueTable> table, const std::string& language,
@@ -95,7 +96,7 @@ namespace Lux
 		const auto& text = translation->second;
 		if (!instance->MonitorPlayback() || (!text.AudioKey.empty() && !instance->SetProgrammerSound(text.AudioKey)))
 			return voice;
-		if (!s_NextDialogueHandle)
+		if (!s_NextDialogueHandle || s_NextDialogueHandle >= (uint64_t{ 1 } << 63))
 		{
 			LUX_CORE_ERROR_TAG("Audio", "Dialogue handle space exhausted");
 			return voice;
@@ -108,6 +109,7 @@ namespace Lux
 		voice.Subtitle.SpeakerEntity = speaker;
 		voice.Subtitle.SpeakerPosition = resolved.Position;
 		voice.Subtitle.IsOffScreen = resolved.IsOffScreen;
+		instance->SuppressAccessibility(true);
 		voice.Instance = instance;
 		voice.Priority = line->second.Priority;
 		voice.Interruptible = line->second.Interruptible;
@@ -130,11 +132,35 @@ namespace Lux
 
 	uint64_t DialogueDirector::Speak(const std::string& key, UUID speaker)
 	{
+		return SpeakImpl(key, speaker, false);
+	}
+
+	uint64_t DialogueDirector::Describe(const std::string& key)
+	{
+		if (!AudioAccessibility::GetPreferences().AudioDescriptions)
+			return 0;
+		return SpeakImpl(key, 0, true);
+	}
+
+	bool DialogueDirector::IsDescribing() const
+	{
+		return (m_Current.Instance && m_Current.Subtitle.IsDescription) ||
+			std::any_of(m_DescriptionFades.begin(), m_DescriptionFades.end(), [](const auto& instance) { return instance->IsPlaying(); });
+	}
+
+	void DialogueDirector::PublishCaption(const SubtitleEvent& event)
+	{
+		m_Notifications.push_back(event);
+	}
+
+	uint64_t DialogueDirector::SpeakImpl(const std::string& key, UUID speaker, bool description)
+	{
 		if (m_Current.Instance && m_Mode == DialogueQueueMode::DropIfBusy)
 			return 0;
 		auto voice = Prepare(key, speaker);
 		if (!voice.Instance)
 			return 0;
+		voice.Subtitle.IsDescription = description;
 		const auto handle = voice.Subtitle.Handle;
 		const bool interrupt = m_Current.Instance && m_Mode == DialogueQueueMode::Interrupt &&
 			m_Current.Interruptible && voice.Priority >= m_Current.Priority;
@@ -154,6 +180,7 @@ namespace Lux
 			return 0;
 		Retire(m_Current, false);
 		m_Current = std::move(voice);
+		AudioAccessibility::SetDescribing(IsDescribing());
 		return handle;
 	}
 
@@ -190,13 +217,18 @@ namespace Lux
 			return;
 		voice.Instance->Stop(fade);
 		if (fade && voice.Instance->IsValid())
+		{
 			m_Retired.push_back(voice.Instance);
+			if (voice.Subtitle.IsDescription)
+				m_DescriptionFades.push_back(voice.Instance);
+		}
 		if (voice.Subtitle.Shown)
 		{
 			voice.Subtitle.Shown = false;
 			m_Notifications.push_back(voice.Subtitle);
 		}
 		voice = {};
+		AudioAccessibility::SetDescribing(IsDescribing());
 	}
 
 	void DialogueDirector::Stop(uint64_t handle, bool fade)
@@ -222,6 +254,8 @@ namespace Lux
 			Retire(voice, false);
 		m_Barks.clear();
 		m_Retired.clear();
+		m_DescriptionFades.clear();
+		AudioAccessibility::SetDescribing(false);
 	}
 
 	void DialogueDirector::RemoveSpeaker(UUID speaker)
@@ -275,6 +309,7 @@ namespace Lux
 		voice.Instance->Set3DAttributes(speaker.Position, {}, { 0, 0, -1 }, { 0, 1, 0 });
 		voice.Subtitle.SpeakerPosition = speaker.Position;
 		voice.Subtitle.IsOffScreen = speaker.IsOffScreen;
+		AudioAccessibility::RefreshSubtitle(voice.Subtitle);
 		if (!voice.Subtitle.Shown && (voice.Programmer ? status.SoundStarted : status.Started))
 		{
 			voice.Subtitle.Shown = true;
@@ -292,6 +327,14 @@ namespace Lux
 	void DialogueDirector::Update(float timestep, bool paused)
 	{
 		m_Paused = paused;
+		if (AudioAccessibility::IsActive() && !AudioAccessibility::GetPreferences().AudioDescriptions)
+		{
+			std::erase_if(m_Queue, [](const Voice& voice) { return voice.Subtitle.IsDescription; });
+			if (m_Current.Instance && m_Current.Subtitle.IsDescription)
+				Retire(m_Current, false);
+			for (auto& instance : m_DescriptionFades)
+				instance->Stop(false);
+		}
 		if (m_Generation != AudioEngine::GetEventGeneration())
 		{
 			StopAll();
@@ -304,6 +347,7 @@ namespace Lux
 			voice.Instance->SetScenePaused(paused);
 		for (auto& instance : m_Retired)
 			instance->SetScenePaused(paused);
+		std::erase_if(m_DescriptionFades, [](const auto& instance) { return !instance->IsPlaying(); });
 		std::erase_if(m_Retired, [](const auto& instance) { return !instance->IsPlaying(); });
 		if (!paused && m_Table)
 		{
@@ -321,6 +365,7 @@ namespace Lux
 					m_Current = std::move(voice);
 			}
 		}
+		AudioAccessibility::SetDescribing(IsDescribing());
 		// Mutations finish before user code; callbacks may safely stop, enqueue or clear dialogue.
 		Dispatch();
 	}
@@ -335,6 +380,7 @@ namespace Lux
 		{
 			auto event = std::move(m_Notifications.front());
 			m_Notifications.pop_front();
+			AudioAccessibility::OnSubtitle(event);
 			auto native = m_SubtitleCallback;
 			auto script = m_ScriptSubtitleCallback;
 			try

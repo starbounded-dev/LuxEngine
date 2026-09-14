@@ -632,9 +632,41 @@ thread. Notifications dispatch after voice mutations, so listeners can enqueue/s
 Native and script listeners are independent. C# `Dialogue`, `DialogueHandle`, and immutable `Subtitle`
 expose speech, barks, queue control, language selection and shown/hidden events through the existing
 AudioScriptBindings bridge. Reset hides managed subtitles and clears subscriptions. Position/offscreen
-fields are event snapshots; game UI owns rendering and ongoing speaker tracking. Project Settings
+fields are event snapshots; custom game UI owns ongoing speaker tracking. Phase 12 also supplies an optional built-in presentation. Project Settings
 provides table selection, startup language and line/translation editing; Content Browser creates tables.
 See `docs/AUDIO_DIALOGUE.md` for setup, authoring contracts and scripting examples.
+
+**Audio accessibility (Phase 12):** `AudioAccessibility` is a main-thread service for the active
+runtime scene. A non-owning scene identity controls teardown; source tracking uses `WeakRef` plus
+never-reused playback tokens and does not extend event lifetime. It observes existing FMOD playback
+mailboxes, publishes opt-in localized event captions through `DialogueDirector`, and exposes bounded
+subtitle presentation and sound cue snapshots. Caption handles reserve the high bit; dialogue handles
+use the lower 63 bits. Captions and descriptions carry explicit flags through native/C# subtitle APIs.
+Source position/offscreen data refreshes the built-in presentation, and cue direction is relative to
+the primary listener. Cue intensity is authored importance times instance volume and linear range
+falloff, deliberately independent of player bus volume, not measured acoustic loudness.
+
+`ProjectAudioSettings::Accessibility` stores defaults, category bus mappings, event GUID metadata,
+localized caption strings and speaker colors. YAML loads missing fields with defaults. Runtime format
+22 appends a bounded length-prefixed configuration after dialogue settings; older exports retain
+defaults. Player preferences live separately under persistent storage, keyed by sanitized project
+name, and are saved explicitly with `FileSystem::ReplaceFileAtomically` after writing a complete temporary file.
+
+`AudioAccessibilityMixer` owns FMOD gain DSPs on mapped Studio buses plus mono/compressor DSPs on
+Core master output. Setup locks channel groups and flushes commands once; bank revision changes
+reconfigure the cached graph. `AudioEngine::UnloadAllBanks` releases it before unloading banks.
+Player gains multiply authored/gameplay volumes. Mapped non-master buses must not contain each other.
+Description playback uses `DialogueDirector::Describe`, the existing priority queue, and an opt-in
+preference; non-dialogue category gains duck while narration plays/fades. Narration must be authored
+on the Dialogue bus. Full/Reduced/Night compression and mono apply to final output.
+
+Core's `ImGuiEx::AudioAccessibilityOverlay/Menu/Options` are shared by editor and standalone runtime.
+Project Settings authors defaults/metadata. F10 opens live player controls; runtime enables ImGui and
+pauses/releases the cursor while the menu is open, restoring state on close/scene stop. Built-in UI
+can be disabled for custom game UI. C# `Accessibility` exposes preferences, save, speaker colors,
+cue start/end notifications and moving snapshots; reset clears subscriptions and ends active cues.
+Raw subtitle/cue notifications remain unfiltered for custom consumers. See
+`docs/AUDIO_ACCESSIBILITY.md` for setup, ranges, persistence and authoring contracts.
 
 **Surfaces and physics audio (Phase 9):** `AudioSurfaceTable` is a `.lsurfaces` asset with
 per-material footstep/impact/scrape/roll GUID references and shared thresholds. `AudioEventRef`

@@ -3,6 +3,7 @@
 #include "AudioEventInstance.h"
 
 #include "AudioEngine.h"
+#include "AudioAccessibility.h"
 
 #include <fmod.hpp>
 #include <fmod_studio.hpp>
@@ -453,12 +454,22 @@ namespace Lux {
 
 	bool AudioEventInstance::Start()
 	{
+		if (!IsValid())
+			return false;
+		AudioAccessibility::Track(this);
 		{
 			std::scoped_lock lock(s_NotificationMutex);
 			if (auto it = s_CallbackStates.find(m_CallbackToken); it != s_CallbackStates.end())
 				it->second.Playback = {};
 		}
-		return IsValid() && CheckResult(m_Instance->start(), "start");
+		const auto result = m_Instance->start();
+		if (result != FMOD_OK)
+		{
+			std::scoped_lock lock(s_NotificationMutex);
+			if (auto it = s_CallbackStates.find(m_CallbackToken); it != s_CallbackStates.end())
+				it->second.Playback.Error = result;
+		}
+		return CheckResult(result, "start");
 	}
 
 	void AudioEventInstance::Stop(bool allowFadeOut)
@@ -535,13 +546,17 @@ namespace Lux {
 		attributes.velocity = ToFMOD(velocity);
 		attributes.forward = ToFMOD(glm::vec3(direction));
 		attributes.up = ToFMOD(glm::vec3(glm::normalize(normal)));
-		CheckResult(m_Instance->set3DAttributes(&attributes), "set 3D attributes");
+		if (CheckResult(m_Instance->set3DAttributes(&attributes), "set 3D attributes"))
+			m_Position = position;
 	}
 
 	void AudioEventInstance::SetVolume(float volume)
 	{
 		if (IsValid())
-			CheckResult(std::isfinite(volume) ? m_Instance->setVolume(std::max(volume, 0.0f)) : FMOD_ERR_INVALID_FLOAT, "set volume");
+		{
+			if (CheckResult(std::isfinite(volume) ? m_Instance->setVolume(std::max(volume, 0.0f)) : FMOD_ERR_INVALID_FLOAT, "set volume"))
+				m_Volume = std::max(volume, 0.0f);
+		}
 	}
 
 	void AudioEventInstance::SetPitch(float pitch)

@@ -27,12 +27,14 @@ namespace Lux
 		/// Hide on SubtitleHidden, since authored fades and interruptions can change playback time.</summary>
 		public float Duration { get; }
 		public bool IsOffScreen { get; }
+		public bool IsCaption { get; }
+		public bool IsDescription { get; }
 		internal Subtitle(ulong handle, string text, string name, ulong speaker, Vector3 position,
-			float duration, bool offscreen, string key, string language)
+			float duration, bool offscreen, string key, string language, bool caption = false, bool description = false)
 		{
 			Handle = new DialogueHandle(handle); Text = text; SpeakerName = name;
 			SpeakerEntityID = speaker; SpeakerPosition = position; Duration = duration;
-			IsOffScreen = offscreen; Key = key; Language = language;
+			IsOffScreen = offscreen; Key = key; Language = language; IsCaption = caption; IsDescription = description;
 		}
 	}
 
@@ -57,6 +59,13 @@ namespace Lux
 		{
 			using NativeString native = Audio.String(key);
 			return new DialogueHandle(InternalCalls.Dialogue_Speak(native, speaker?.ID ?? 0, false));
+		}
+		/// <summary>Queue an authored description line when audio descriptions are enabled.
+		/// Route its FMOD event to the mapped Dialogue bus so other categories can be ducked.</summary>
+		public static DialogueHandle Describe(string key)
+		{
+			using NativeString native = Audio.String(key);
+			return new DialogueHandle(InternalCalls.Dialogue_Describe(native));
 		}
 		public static DialogueHandle Bark(string key, Entity speaker)
 		{
@@ -100,9 +109,9 @@ namespace Lux
 				throw new InvalidOperationException("Dialogue requires a running scene.");
 		}
 		internal static void Dispatch(ulong handle, int shown, string text, string name, ulong speaker,
-			float x, float y, float z, float duration, int offscreen, string key, string language)
+			float x, float y, float z, float duration, int offscreen, string key, string language, int caption = 0, int description = 0)
 		{
-			var subtitle = new Subtitle(handle, text, name, speaker, new Vector3(x, y, z), duration, offscreen != 0, key, language);
+			var subtitle = new Subtitle(handle, text, name, speaker, new Vector3(x, y, z), duration, offscreen != 0, key, language, caption != 0, description != 0);
 			if (shown != 0)
 				s_Visible[handle] = subtitle;
 			else if (!s_Visible.Remove(handle))

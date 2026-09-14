@@ -1,4 +1,7 @@
 #include "RuntimeLayer.h"
+#include "Lux/ImGui/AudioAccessibilityWidgets.h"
+#include "Lux/Audio/AudioAccessibility.h"
+#include <imgui.h>
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Core/Application.h"
@@ -172,6 +175,12 @@ namespace Lux
 		if (!m_RuntimeScene || !m_SceneRunning)
 			return;
 
+		if (m_ShowAudioAccessibility)
+		{
+			m_RuntimeScene->SetPaused(m_AccessibilityWasPaused);
+			Input::SetCursorMode(m_AccessibilityCursor);
+			m_ShowAudioAccessibility = false;
+		}
 		m_RuntimeScene->OnRuntimeStop();
 		m_SceneRunning = false;
 	}
@@ -215,6 +224,31 @@ namespace Lux
 		m_SwapChainFramebuffer->Resize(width, height, true);
 		if (m_SwapChainRenderPass && m_SwapChainRenderPass->GetPipeline())
 			m_SwapChainRenderPass->GetPipeline()->Invalidate();
+	}
+
+	void RuntimeLayer::OnImGuiRender()
+	{
+		if (!m_RuntimeScene || !AudioAccessibility::IsActive() || !AudioAccessibility::GetConfig().BuiltInUI)
+			return;
+		const bool wasOpen = m_ShowAudioAccessibility;
+		if (ImGui::IsKeyPressed(ImGuiKey_F10, false))
+			m_ShowAudioAccessibility = !m_ShowAudioAccessibility;
+		const auto* viewport = ImGui::GetMainViewport();
+		ImGuiEx::AudioAccessibilityOverlay({ viewport->Pos.x, viewport->Pos.y },
+			{ viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y });
+		ImGuiEx::AudioAccessibilityMenu(m_ShowAudioAccessibility);
+		if (m_ShowAudioAccessibility && !wasOpen)
+		{
+			m_AccessibilityWasPaused = m_RuntimeScene->IsPaused();
+			m_AccessibilityCursor = Input::GetCursorMode();
+			m_RuntimeScene->SetPaused(true);
+			Input::SetCursorMode(CursorMode::Normal);
+		}
+		else if (!m_ShowAudioAccessibility && wasOpen)
+		{
+			m_RuntimeScene->SetPaused(m_AccessibilityWasPaused);
+			Input::SetCursorMode(m_AccessibilityCursor);
+		}
 	}
 
 	void RuntimeLayer::OnUpdate(Timestep ts)

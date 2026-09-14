@@ -126,14 +126,14 @@ def main():
     flags = [flag for flag in flags if not flag.startswith(("-DTRACY", "-DLUX_TRACK_MEMORY"))]
     flags += shlex.split(re.search(r"^INCLUDES \+= (.*)$", debug, re.M)[1])
     flags += ["-std=c++20", "-O0", "-g", "-ffunction-sections", "-fdata-sections"]
-    sources = ["Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
+    sources = ["ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
                "Audio/AcousticMaterial", "Asset/AudioSurfaceTableSerializer", "Utilities/StringUtils", "Core/UUID", "Core/Ref",
                "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader"]
     objects = {}
     for source in sources:
         obj = directory / (Path(source).name + ".o")
         with (directory / (obj.stem + ".log")).open("w") as log:
-            run(["clang++", *flags, "-c", "Source/Lux/" + source + ".cpp", "-o", obj],
+            run(["clang++", *flags, "-c", (source if source.startswith("Platform/") else "Source/Lux/" + source) + ".cpp", "-o", obj],
                 cwd=ROOT / "Core", stdout=log, stderr=subprocess.STDOUT)
         objects[Path(source).name] = obj
     run(["clang++", *flags, TESTS / "FileStreamTests.cpp", objects["FileStream"],
@@ -154,7 +154,7 @@ def main():
     run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], *yaml, "-Wl,--gc-sections",
          "-o", directory / "music-serialization-test"], cwd=ROOT / "Core")
     run([directory / "music-serialization-test"], timeout=30)
-    audio_objects = [obj for name, obj in objects.items() if name not in ("JoltContactListener", "AssetPackSerializer")]
+    audio_objects = [obj for name, obj in objects.items() if name not in ("JoltContactListener", "AssetPackSerializer", "AudioAccessibilityWidgets", "ImGuiUtilities")]
     run(["clang++", *flags, TESTS / "PhysicsAudioTests.cpp", *audio_objects, *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "audio-test"], cwd=ROOT / "Core")
@@ -167,6 +167,12 @@ def main():
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "dialogue-test"], cwd=ROOT / "Core")
     run([directory / "dialogue-test", banks, fmod / "studio/examples/media", directory], timeout=60)
+    run(["clang++", *flags, TESTS / "AccessibilityTests.cpp", *audio_objects, objects["AudioAccessibilityWidgets"], objects["ImGuiUtilities"],
+         ROOT / "Core/vendor/imgui/bin/Debug-linux-x86_64/ImGui/libImGui.a", *yaml, *libraries,
+         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
+         "-o", directory / "accessibility-test"], cwd=ROOT / "Core")
+    run([directory / "accessibility-test", banks, directory], timeout=60)
+
 
 
 if __name__ == "__main__":

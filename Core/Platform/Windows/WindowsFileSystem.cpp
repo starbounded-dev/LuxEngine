@@ -18,6 +18,14 @@ namespace Lux {
 
 	static std::filesystem::path s_PersistentStoragePath;
 
+	bool FileSystem::ReplaceFileAtomically(const std::filesystem::path& replacement, const std::filesystem::path& destination)
+	{
+		if (MoveFileExW(replacement.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+			return true;
+		LUX_CORE_ERROR_TAG("FileSystem", "Cannot replace '{}': Windows error {}", destination.string(), GetLastError());
+		return false;
+	}
+
 	FileStatus FileSystem::TryOpenFile(const std::filesystem::path& filepath)
 	{
 		HANDLE fileHandle = CreateFile(filepath.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);

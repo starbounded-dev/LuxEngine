@@ -33,6 +33,7 @@
 #include "imgui/imgui_internal.h"
 #include <GLFW/glfw3.h>
 #include "ImGuizmo.h"
+#include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/ImGuiFonts.h"
@@ -853,6 +854,16 @@ namespace Lux {
 							}
 						}
 						ImGui::EndDragDropTarget();
+					}
+
+					if (m_SceneState == SceneState::Play)
+					{
+						const auto* bounds = m_EditorViewport->GetImageBounds();
+						ImGuiEx::AudioAccessibilityOverlay(bounds[0], bounds[1]);
+						static bool accessibilityMenu = false;
+						if ((m_EditorViewport->IsFocused() || accessibilityMenu) && ImGui::IsKeyPressed(ImGuiKey_F10, false))
+							accessibilityMenu = !accessibilityMenu;
+						ImGuiEx::AudioAccessibilityMenu(accessibilityMenu);
 					}
 
 					if (m_EditorViewport->IsHovered())

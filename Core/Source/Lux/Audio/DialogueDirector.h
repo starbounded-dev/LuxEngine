@@ -18,6 +18,7 @@ namespace Lux
 	{
 		uint64_t Handle = 0;
 		bool Shown = false;
+		bool IsCaption = false, IsDescription = false;
 		std::string Key, Language, Text, SpeakerName;
 		UUID SpeakerEntity = 0;
 		glm::vec3 SpeakerPosition{ 0.0f };
@@ -38,6 +39,9 @@ namespace Lux
 		const std::string& GetLanguage() const { return m_Language; }
 		bool SetQueueMode(DialogueQueueMode mode);
 		uint64_t Speak(const std::string& key, UUID speaker = 0);
+		uint64_t Describe(const std::string& key);
+		bool IsDescribing() const;
+		void PublishCaption(const SubtitleEvent& event);
 		uint64_t Bark(const std::string& key, UUID speaker);
 		void Stop(uint64_t handle, bool allowFadeOut = true);
 		void StopAll();
@@ -59,6 +63,7 @@ namespace Lux
 			bool Interruptible = true, Programmer = false;
 		};
 		struct RecentBark { std::string Key; glm::vec3 Position; float Remaining; };
+		uint64_t SpeakImpl(const std::string& key, UUID speaker, bool description);
 		Voice Prepare(const std::string& key, UUID speaker);
 		bool Start(Voice& voice);
 		bool UpdateVoice(Voice& voice);
@@ -69,7 +74,7 @@ namespace Lux
 		DialogueQueueMode m_Mode = DialogueQueueMode::Queue;
 		Voice m_Current;
 		std::vector<Voice> m_Queue, m_Barks;
-		std::vector<Ref<AudioEventInstance>> m_Retired;
+		std::vector<Ref<AudioEventInstance>> m_Retired, m_DescriptionFades;
 		std::vector<RecentBark> m_RecentBarks;
 		std::deque<SubtitleEvent> m_Notifications;
 		std::function<DialogueSpeaker(UUID)> m_ResolveSpeaker;

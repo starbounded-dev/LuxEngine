@@ -30,3 +30,11 @@ Music checks cover state/intensity/layers without restart, stinger type validati
 transition boundaries, main-thread callbacks, stale notification batches, callback reentrancy,
 pause/resume, bank invalidation/recreation, fades, and destruction. `AudioTestHost.h` supplies the
 shared minimal FMOD host; the production director and event wrapper are linked unchanged.
+
+Accessibility checks use Music/SFX/Dialogue buses created by `AuthorFixture.js`; regenerate older
+fixtures. They cover default/invalid/bounded configuration, player preference replacement/reload,
+mono/compressor DSPs, category gain independent of authored volume, narration ducking, localized
+captions, moving cue direction, opt-in descriptions, bank/system recreation and teardown. The production ImGui overlay/menu is
+also exercised headlessly for draw output, clipping and explicit newline limits; build Debug ImGui
+alongside Debug Jolt before running. Managed payload/ABI/subscription
+tests run separately with `python3 tests/audio/run_managed.py`.

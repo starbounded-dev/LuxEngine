@@ -41,3 +41,19 @@ for(var i=0;i<events.length;i++) {
  tempo.timeline=e.timeline;
 }
 studio.project.save();
+
+// Sibling category buses let accessibility gains/ducking be tested without changing event faders.
+var masterBus=studio.project.model.MixerMaster.findInstances()[0];
+var categories={};
+var categoryNames=['Music','Dialogue','SFX'];
+for(var i=0;i<categoryNames.length;i++) {
+ var group=studio.project.create('MixerGroup');
+ group.name=categoryNames[i];
+ group.output=masterBus;
+ categories[categoryNames[i]]=group;
+}
+for(var i=0;i<events.length;i++) {
+ var e=events[i];
+ e.mixerInput.output=categories[e.name=='MusicStinger' ? 'Dialogue' : e.name.indexOf('Music')==0 ? 'Music' : 'SFX'];
+}
+studio.project.save();

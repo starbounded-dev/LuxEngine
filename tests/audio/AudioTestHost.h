@@ -1,6 +1,7 @@
 #pragma once
 #include "lpch.h"
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioAccessibility.h"
 #include <fmod.hpp>
 #include <fmod_studio.hpp>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -26,6 +27,7 @@ namespace Lux
 	}
 	void AudioEngine::Shutdown()
 	{
+		AudioAccessibility::ReleaseMixer();
 		s_HasInitializedAudioEngine = false;
 		++s_EventGeneration;
 		++s_BankRevision;
@@ -60,6 +62,8 @@ namespace Lux
 using namespace Lux;
 void Near(float a, float b)
 {
+	if (std::abs(a - b) >= 0.0001f)
+		std::cerr << "Expected " << b << ", got " << a << std::endl;
 	assert(std::abs(a - b) < 0.0001f);
 }
 void Tick()

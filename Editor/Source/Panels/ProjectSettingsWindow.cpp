@@ -5,6 +5,7 @@
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioSurfaceTable.h"
 #include "Lux/ImGui/AudioWidgets.h"
+#include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include "RuntimeExportUtils.h"
 
 #include "Lux/Asset/AssetManager.h"
@@ -648,6 +649,116 @@ namespace Lux {
 			}
 			else
 				ImGui::TextWrapped("The dialogue table is missing or has the wrong asset type.");
+		}
+		if (ImGuiEx::PropertyGridHeader("Audio Accessibility", false))
+		{
+			auto& accessibility = audioSettings.Accessibility;
+			ImGui::TextWrapped("Project defaults apply when a player has no saved preferences. In Play or the runtime, F10 opens the accessibility menu. Changes to bus mappings and event captions apply on the next Play.");
+			m_Dirty |= ImGui::Checkbox("Built-in caption/cue overlay and runtime menu", &accessibility.BuiltInUI);
+			if (ImGui::TreeNode("Default player preferences"))
+			{
+				m_Dirty |= ImGuiEx::AudioAccessibilityOptions(accessibility.Defaults, false);
+				ImGui::TreePop();
+			}
+			ImGuiEx::BeginPropertyGrid();
+			m_Dirty |= ImGuiEx::Property("Caption fallback language", accessibility.DefaultLanguage, "Language used when an event has no caption in the selected dialogue language.", false);
+			m_Dirty |= ImGuiEx::Property("Description duck level", accessibility.DescriptionDuck, 0.01f, 0.0f, 1.0f, "Music, SFX, UI and Ambience gain while narration plays. Route narration to Dialogue.", false);
+			for (size_t i = 0; i < AudioCategoryCount; ++i)
+				m_Dirty |= ImGuiEx::Property(AudioCategoryNames[i], accessibility.BusPaths[i], "FMOD bus path. Empty disables this category slider. Use separate sibling category buses under Master.", false);
+			ImGuiEx::EndPropertyGrid();
+			static std::string captionEvent, captionLanguage = "en", captionFilter, speakerName;
+			if (ImGui::BeginCombo("Add event caption/cue", captionEvent.empty() ? "Select FMOD event" : captionEvent.c_str()))
+			{
+				for (const auto& event : AudioEngine::GetEvents())
+				{
+					if (event.IsSnapshot)
+						continue;
+					ImGuiEx::ScopedID eventID(event.Guid.c_str());
+					if (ImGui::Selectable(event.Path.c_str()))
+						captionEvent = event.Guid;
+				}
+				ImGui::EndCombo();
+			}
+			if (ImGui::Button("Add event accessibility") && !captionEvent.empty())
+			{
+				accessibility.Events.try_emplace(captionEvent);
+				m_Dirty = true;
+			}
+			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::Property("Filter captions", captionFilter, "GUID or event path", false);
+			ImGuiEx::Property("Caption language", captionLanguage, "Language to add to an event", false);
+			ImGuiEx::EndPropertyGrid();
+			std::string removeEvent;
+			for (auto& [guid, entry] : accessibility.Events)
+			{
+				const auto& events = AudioEngine::GetEvents();
+				const auto info = std::find_if(events.begin(), events.end(), [&](const auto& event) { return event.Guid == guid; });
+				const std::string& name = info == events.end() ? guid : info->Path;
+				if (!captionFilter.empty() && name.find(captionFilter) == std::string::npos && guid.find(captionFilter) == std::string::npos)
+					continue;
+				ImGuiEx::ScopedID eventID(guid.c_str());
+				if (!ImGui::TreeNode(name.c_str()))
+					continue;
+				int category = static_cast<int>(entry.Category);
+				if (ImGui::Combo("Category", &category, AudioCategoryNames, static_cast<int>(AudioCategoryCount)))
+				{
+					entry.Category = static_cast<AudioCategory>(category);
+					m_Dirty = true;
+				}
+				m_Dirty |= ImGui::Checkbox("Visual cue", &entry.VisualCue);
+				m_Dirty |= ImGui::SliderFloat("Cue importance", &entry.Intensity, 0, 1);
+				m_Dirty |= ImGui::DragFloat("Caption/cue range", &entry.MaxDistance, 0.5f, 0.01f, 100000.0f);
+				if (ImGui::Button("Add caption language") && DialogueTable::ValidLanguage(captionLanguage))
+				{
+					entry.Captions.try_emplace(captionLanguage, "[sound]");
+					m_Dirty = true;
+				}
+				std::string removeCaption;
+				for (auto& [locale, text] : entry.Captions)
+				{
+					ImGuiEx::ScopedID localeID(locale.c_str());
+					ImGuiEx::BeginPropertyGrid();
+					m_Dirty |= ImGuiEx::Property(locale.c_str(), text, "Localized closed caption", false);
+					ImGuiEx::EndPropertyGrid();
+					if (ImGui::SmallButton("Remove caption"))
+						removeCaption = locale;
+				}
+				if (!removeCaption.empty())
+				{
+					entry.Captions.erase(removeCaption);
+					m_Dirty = true;
+				}
+				if (ImGui::Button("Remove event accessibility"))
+					removeEvent = guid;
+				ImGui::TreePop();
+			}
+			if (!removeEvent.empty())
+			{
+				accessibility.Events.erase(removeEvent);
+				m_Dirty = true;
+			}
+			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::Property("Speaker colour name", speakerName, "Exact localized speaker name shown in subtitles", false);
+			ImGuiEx::EndPropertyGrid();
+			if (ImGui::Button("Add speaker colour") && !speakerName.empty())
+			{
+				accessibility.SpeakerColors.try_emplace(speakerName, glm::vec4(1.0f));
+				m_Dirty = true;
+			}
+			std::string removeColor;
+			for (auto& [name, color] : accessibility.SpeakerColors)
+			{
+				ImGuiEx::ScopedID colorID(name.c_str());
+				m_Dirty |= ImGui::ColorEdit4(name.c_str(), &color.r);
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Remove"))
+					removeColor = name;
+			}
+			if (!removeColor.empty())
+			{
+				accessibility.SpeakerColors.erase(removeColor);
+				m_Dirty = true;
+			}
 		}
 		if (ImGuiEx::PropertyGridHeader("Acoustic Materials", false))
 		{

@@ -1,4 +1,5 @@
 #include "lpch.h"
+#include "Lux/Audio/AudioAccessibility.h"
 #include "AudioScriptBindings.h"
 #include "ScriptEngine.h"
 
@@ -29,6 +30,7 @@ namespace Lux
 		Coral::Type* s_AudioType = nullptr;
 		Coral::Type* s_MusicType = nullptr;
 		Coral::Type* s_DialogueType = nullptr;
+		Coral::Type* s_AccessibilityType = nullptr;
 
 		bool OnMainThread()
 		{
@@ -464,6 +466,105 @@ namespace Lux
 				c->AttenuationTarget = target;
 		}
 
+		float Accessibility_GetOption(int32_t option)
+		{
+			if (!AudioScene())
+				return 0;
+			const auto& p = AudioAccessibility::GetPreferences();
+			switch (option)
+			{
+			case 0: return p.Subtitles;
+			case 1: return p.Captions;
+			case 2: return p.VisualCues;
+			case 3: return p.SpeakerNames;
+			case 4: return p.DirectionIndicators;
+			case 5: return p.Mono;
+			case 6: return p.AudioDescriptions;
+			case 7: return static_cast<float>(p.DynamicRange);
+			case 8: return p.TextSize;
+			case 9: return p.BackgroundOpacity;
+			case 10: return p.DurationMultiplier;
+			case 11: return static_cast<float>(p.MaxLines);
+			case 12: return p.DialogueBoost;
+			default: return option >= 13 && option < 19 ? p.Volumes[option - 13] : 0;
+			}
+		}
+		Coral::Bool32 Accessibility_SetOption(int32_t option, float value)
+		{
+			if (!AudioScene() || !std::isfinite(value) || option < 0 || option >= 19 ||
+				(option <= 6 && value != 0 && value != 1) || ((option == 7 || option == 11) && std::trunc(value) != value))
+				return false;
+			auto p = AudioAccessibility::GetPreferences();
+			switch (option)
+			{
+			case 0: p.Subtitles = value != 0; break;
+			case 1: p.Captions = value != 0; break;
+			case 2: p.VisualCues = value != 0; break;
+			case 3: p.SpeakerNames = value != 0; break;
+			case 4: p.DirectionIndicators = value != 0; break;
+			case 5: p.Mono = value != 0; break;
+			case 6: p.AudioDescriptions = value != 0; break;
+			case 7:
+				if (value < 0 || value > 2)
+					return false;
+				p.DynamicRange = static_cast<AudioDynamicRange>(value); break;
+			case 8: p.TextSize = value; break;
+			case 9: p.BackgroundOpacity = value; break;
+			case 10: p.DurationMultiplier = value; break;
+			case 11:
+				if (value < 1 || value > 10)
+					return false;
+				p.MaxLines = static_cast<uint32_t>(value); break;
+			case 12: p.DialogueBoost = value; break;
+			default: p.Volumes[option - 13] = value; break;
+			}
+			return AudioAccessibility::ApplyPreferences(p);
+		}
+		Coral::Bool32 Accessibility_Save()
+		{
+			return AudioScene() && AudioAccessibility::SavePreferences();
+		}
+		Coral::Bool32 Accessibility_HasBus(int32_t category)
+		{
+			return AudioScene() && category >= 0 && category < 6 && AudioAccessibility::HasBus(static_cast<AudioCategory>(category));
+		}
+		void Accessibility_GetSpeakerColor(Coral::String name, glm::vec4* color)
+		{
+			if (!color)
+				return;
+			*color = glm::vec4(1.0f);
+			if (!AudioScene())
+				return;
+			const auto& colors = AudioAccessibility::GetConfig().SpeakerColors;
+			if (auto found = colors.find(static_cast<std::string>(name)); found != colors.end())
+				*color = found->second;
+		}
+		struct ManagedSoundCue
+		{
+			uint64_t Handle;
+			int32_t Active, Category;
+			glm::vec3 Position, Direction;
+			float Intensity;
+		};
+		static_assert(sizeof(ManagedSoundCue) == 48, "SoundCueData must match the managed sequential layout");
+		int32_t Accessibility_GetCueCount()
+		{
+			return AudioScene() ? static_cast<int32_t>(AudioAccessibility::GetSoundCues().size()) : 0;
+		}
+		Coral::Bool32 Accessibility_GetCue(int32_t index, ManagedSoundCue* result)
+		{
+			if (!AudioScene() || !result || index < 0 || static_cast<size_t>(index) >= AudioAccessibility::GetSoundCues().size())
+				return false;
+			const auto& cue = AudioAccessibility::GetSoundCues()[index];
+			*result = { cue.Handle, cue.Active ? 1 : 0, static_cast<int32_t>(cue.Category), cue.Position, cue.Direction, cue.Intensity };
+			return true;
+		}
+		uint64_t Dialogue_Describe(Coral::String key)
+		{
+			auto scene = AudioScene();
+			return scene ? scene->GetDialogueDirector().Describe(key) : 0;
+		}
+
 		uint64_t Dialogue_Speak(Coral::String key, uint64_t speaker, Coral::Bool32 bark)
 		{
 			auto scene = AudioScene();
@@ -623,6 +724,8 @@ namespace Lux
 			s_MusicType->InvokeStaticMethod("Reset");
 		if (s_DialogueType)
 			s_DialogueType->InvokeStaticMethod("Reset");
+		if (s_AccessibilityType)
+			s_AccessibilityType->InvokeStaticMethod("Reset");
 	}
 
 	void AudioScriptBindings::Shutdown()
@@ -631,12 +734,19 @@ namespace Lux
 		s_AudioType = nullptr;
 		s_MusicType = nullptr;
 		s_DialogueType = nullptr;
+		s_AccessibilityType = nullptr;
 	}
 
 	void AudioScriptBindings::Update(bool paused)
 	{
 		if (auto scene = ScriptEngine::GetInstance().GetCurrentScene(); scene && scene->IsRunning())
 		{
+			AudioAccessibility::SetScriptSoundCallback([](const SoundEvent& cue)
+			{
+				if (s_AccessibilityType)
+					s_AccessibilityType->InvokeStaticMethod("DispatchSound", cue.Handle, static_cast<int32_t>(cue.Active), static_cast<int32_t>(cue.Category),
+						cue.Position.x, cue.Position.y, cue.Position.z, cue.Direction.x, cue.Direction.y, cue.Direction.z, cue.Intensity);
+			});
 			scene->GetDialogueDirector().m_ScriptSubtitleCallback = [](const SubtitleEvent& event)
 			{
 				if (!s_DialogueType)
@@ -648,7 +758,7 @@ namespace Lux
 				s_DialogueType->InvokeStaticMethod("Dispatch", event.Handle, static_cast<int32_t>(event.Shown),
 					static_cast<Coral::String>(text), static_cast<Coral::String>(name), static_cast<uint64_t>(event.SpeakerEntity),
 					event.SpeakerPosition.x, event.SpeakerPosition.y, event.SpeakerPosition.z, event.Duration,
-					static_cast<int32_t>(event.IsOffScreen), static_cast<Coral::String>(key), static_cast<Coral::String>(language));
+					static_cast<int32_t>(event.IsOffScreen), static_cast<Coral::String>(key), static_cast<Coral::String>(language), static_cast<int32_t>(event.IsCaption), static_cast<int32_t>(event.IsDescription));
 			};
 			scene->GetMusicDirector().m_ScriptTempoCallback = [](int bar, int beat)
 			{
@@ -684,6 +794,15 @@ namespace Lux
 		s_AudioType = &assembly.GetLocalType("Lux.Audio");
 		s_MusicType = &assembly.GetLocalType("Lux.Music");
 		s_DialogueType = &assembly.GetLocalType("Lux.Dialogue");
+		s_AccessibilityType = &assembly.GetLocalType("Lux.Accessibility");
+		assembly.AddInternalCall("Lux.InternalCalls", "Accessibility_GetOption", reinterpret_cast<void*>(&Accessibility_GetOption));
+		assembly.AddInternalCall("Lux.InternalCalls", "Accessibility_SetOption", reinterpret_cast<void*>(&Accessibility_SetOption));
+		assembly.AddInternalCall("Lux.InternalCalls", "Accessibility_Save", reinterpret_cast<void*>(&Accessibility_Save));
+		assembly.AddInternalCall("Lux.InternalCalls", "Accessibility_HasBus", reinterpret_cast<void*>(&Accessibility_HasBus));
+		assembly.AddInternalCall("Lux.InternalCalls", "Accessibility_GetSpeakerColor", reinterpret_cast<void*>(&Accessibility_GetSpeakerColor));
+		assembly.AddInternalCall("Lux.InternalCalls", "Accessibility_GetCueCount", reinterpret_cast<void*>(&Accessibility_GetCueCount));
+		assembly.AddInternalCall("Lux.InternalCalls", "Accessibility_GetCue", reinterpret_cast<void*>(&Accessibility_GetCue));
+		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_Describe", reinterpret_cast<void*>(&Dialogue_Describe));
 		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_Speak", reinterpret_cast<void*>(&Dialogue_Speak));
 		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_Stop", reinterpret_cast<void*>(&Dialogue_Stop));
 		assembly.AddInternalCall("Lux.InternalCalls", "Dialogue_StopAll", reinterpret_cast<void*>(&Dialogue_StopAll));

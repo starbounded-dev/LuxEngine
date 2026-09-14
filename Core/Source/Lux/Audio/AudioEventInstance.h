@@ -74,6 +74,11 @@ namespace Lux {
 		bool EnableTimelineNotifications();
 		uint64_t GetTimelineSequence() const;
 		std::vector<AudioTimelineNotification> DrainTimelineNotifications();
+		uint64_t GetPlaybackToken() const { return m_CallbackToken; }
+		const glm::vec3& GetPosition() const { return m_Position; }
+		float GetVolume() const { return m_Volume; }
+		bool IsAccessibilitySuppressed() const { return m_AccessibilitySuppressed; }
+		void SuppressAccessibility(bool suppressed) { m_AccessibilitySuppressed = suppressed; }
 		bool MonitorPlayback();
 		bool SetProgrammerSound(const std::string& key);
 		AudioPlaybackStatus GetPlaybackStatus() const;
@@ -120,6 +125,9 @@ namespace Lux {
 		mutable std::unordered_set<std::string> m_ReportedErrors;
 		bool m_SnapshotIntensityValidated = false;
 		uint32_t m_SnapshotIntensityID[2]{};
+		glm::vec3 m_Position{ 0.0f };
+		float m_Volume = 1.0f;
+		bool m_AccessibilitySuppressed = false;
 		bool m_Paused = false;
 		bool m_ScenePaused = false;
 	};

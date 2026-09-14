@@ -246,6 +246,11 @@ mailboxes and the audio scripting bridge drains script notifications on the main
 script OnUpdate. Only immutable copied payloads cross the callback boundary. Bank generation checks
 protect main-thread calls from stale SDK handles; tokens isolate late callback delivery.
 
+Accessibility observes these same mailboxes on the main thread; it does not add SDK callbacks.
+Weak source tracking, subtitle/cue dispatch, preference I/O and FMOD mixer configuration all run
+on the main thread. It completes source mutations before calling game listeners. Mixer DSPs are
+detached before banks unload; ImGui consumes presentation snapshots on the main thread.
+
 ---
 
 ## Shader compilation

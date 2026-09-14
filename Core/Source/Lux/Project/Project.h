@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lux/Audio/DialogueTable.h"
+#include "Lux/Audio/AudioAccessibilitySettings.h"
 
 #include "Lux/Audio/AudioZoneSettings.h"
 
@@ -51,6 +52,7 @@ namespace Lux
 		AudioBankManifest RuntimeBanks;
 		AssetHandle SurfaceTable = 0;
 		DialogueSettings Dialogue;
+		AudioAccessibilityConfig Accessibility;
 		AcousticMaterialSettings AcousticMaterials;
 		AudioZoneReverbMode ZoneReverbMode = AudioZoneReverbMode::Layered;
 

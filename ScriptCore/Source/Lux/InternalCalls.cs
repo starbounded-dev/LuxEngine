@@ -21,6 +21,14 @@ namespace Lux
 		internal static delegate*<NativeString, int, Bool32> Music_QueueTransition;
 		internal static delegate*<Bool32, int> Music_GetBeat;
 		internal static delegate*<Bool32> Music_IsPlaying;
+		internal static delegate*<int, float> Accessibility_GetOption;
+		internal static delegate*<int, float, Bool32> Accessibility_SetOption;
+		internal static delegate*<Bool32> Accessibility_Save;
+		internal static delegate*<int, Bool32> Accessibility_HasBus;
+		internal static delegate*<NativeString, Vector4*, void> Accessibility_GetSpeakerColor;
+		internal static delegate*<int> Accessibility_GetCueCount;
+		internal static delegate*<int, SoundCueData*, Bool32> Accessibility_GetCue;
+		internal static delegate*<NativeString, ulong> Dialogue_Describe;
 		internal static delegate*<NativeString, ulong, Bool32, ulong> Dialogue_Speak;
 		internal static delegate*<ulong, Bool32, void> Dialogue_Stop;
 		internal static delegate*<void> Dialogue_StopAll;

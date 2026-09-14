@@ -209,7 +209,8 @@ checked for a wrapper.
 Queries: `Exists`, `IsDirectory`, `IsNewer`, `GetLastWriteTime`, `GetUniqueFileName`,
 `GetWorkingDirectory`, `GetPersistentStoragePath`.
 Mutations: `CreateDirectory`, `DeleteFile`, `MoveFile`, `CopyFile`, `Move`, `Copy`, `Rename`,
-`RenameFilename`, `WriteBytes`.
+`RenameFilename`, `WriteBytes`, `ReplaceFileAtomically` (atomically replace a destination with a completed
+same-volume temporary file; implemented on Windows and Linux, reports failure).
 Reads: `ReadBytes`, `TryOpenFile`, `TryOpenFileAndWait`.
 Shell/OS: `ShowFileInExplorer`, `OpenDirectoryInExplorer`, `OpenExternally`,
 `{Has,Get,Set}EnvironmentVariable`.
