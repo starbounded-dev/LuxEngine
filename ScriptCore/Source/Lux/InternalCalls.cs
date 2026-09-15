@@ -249,6 +249,11 @@ namespace Lux
 		internal static delegate*<ulong, float, void> Audio_SetPitch;
 		internal static delegate*<ulong, NativeString, float, void> Audio_SetParameter;
 		internal static delegate*<ulong, Vector3*, Vector3*, Vector3*, Vector3*, void> Audio_Set3DAttributes;
+		internal static delegate*<ulong, int> Audio_SourceGetPriority;
+		internal static delegate*<ulong, int, Bool32> Audio_SourceSetPriority;
+		internal static delegate*<ulong, Bool32> Audio_SourceGetCulling;
+		internal static delegate*<ulong, Bool32, void> Audio_SourceSetCulling;
+		internal static delegate*<ulong, Bool32> Audio_SourceIsCulled;
 		internal static delegate*<ulong, void> Audio_SourcePlay;
 		internal static delegate*<ulong, Bool32, void> Audio_SourceStop;
 		internal static delegate*<ulong, Bool32> Audio_SourceIsPlaying;

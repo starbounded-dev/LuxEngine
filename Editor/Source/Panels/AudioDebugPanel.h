@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioValidation.h"
 #include "Lux/Audio/RaytracedAudioScene.h"
 #include "Lux/Editor/EditorPanel.h"
 
@@ -50,7 +51,7 @@ namespace Lux {
 		AudioDebugPanel() = default;
 		virtual ~AudioDebugPanel() = default;
 
-		virtual void SetSceneContext(const Ref<Scene>& context) override { m_Context = context; }
+		virtual void SetSceneContext(const Ref<Scene>& context) override { m_Context = context; m_Validation = {}; m_HasValidation = false; }
 		virtual void OnImGuiRender(bool& isOpen) override;
 
 		const AudioVisualisationSettings& GetVisualisationSettings() const { return m_Visualisation; }
@@ -58,6 +59,8 @@ namespace Lux {
 	private:
 		// The engine snapshot is taken once per frame and shared, so the two sections that read it
 		// cannot disagree about the same frame.
+		void UI_Performance();
+		void UI_Validation();
 		void UI_Backends(const AudioEngineStats& engine);
 		void UI_Playback(const AudioEngineStats& engine);
 		void UI_Events();
@@ -72,6 +75,8 @@ namespace Lux {
 
 	private:
 		Ref<Scene> m_Context;
+		AudioValidationReport m_Validation;
+		bool m_HasValidation = false;
 		std::string m_SourceSearch;
 		std::string m_EventSearch;
 		AudioVisualisationSettings m_Visualisation;

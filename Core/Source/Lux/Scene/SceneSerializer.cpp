@@ -812,6 +812,8 @@ namespace Lux {
 				out << YAML::Key << "VolumeMultiplier" << YAML::Value << config.VolumeMultiplier;
 				out << YAML::Key << "PitchMultiplier" << YAML::Value << config.PitchMultiplier;
 				out << YAML::Key << "PlayOnAwake" << YAML::Value << config.PlayOnAwake;
+				out << YAML::Key << "Priority" << YAML::Value << audioSource.Priority;
+				out << YAML::Key << "DistanceCulling" << YAML::Value << audioSource.DistanceCulling;
 
 				out << YAML::Key << "EventGuid" << YAML::Value << audioSource.Event.Guid;
 				out << YAML::Key << "EventPath" << YAML::Value << audioSource.Event.Path;
@@ -1365,6 +1367,12 @@ namespace Lux {
 				{
 					auto& component = deserializedEntity.AddComponent<AudioSourceComponent>();
 					component.LegacyAudio = audioSource["Audio"].as<uint64_t>(0);
+					if (audioSource["Priority"])
+						component.Priority = audioSource["Priority"].as<int>();
+					if (audioSource["DistanceCulling"])
+						component.DistanceCulling = audioSource["DistanceCulling"].as<bool>();
+					if (component.Priority < 0 || component.Priority > 256)
+						throw std::runtime_error("Audio priority must be in [0, 256]");
 
 					auto& config = component.Config;
 					config.VolumeMultiplier = audioSource["VolumeMultiplier"].as<float>(1.0f);
@@ -1604,6 +1612,8 @@ namespace Lux {
 		audio.Event = { "{12345678-1234-1234-1234-123456789abc}", "event:/Test/Door", "Test.bank" };
 		audio.ParameterOverrides = { { "Size", 0.75f }, { "Urgency", 2.0f } };
 		audio.Config.PlayOnAwake = false;
+		audio.Priority = 12;
+		audio.DistanceCulling = true;
 		audio.LegacyAudio = 456;
 		audio.LegacyLooping = true;
 		audio.ScriptPaused = true;
@@ -1654,6 +1664,9 @@ namespace Lux {
 				fail(std::format("{} lost the audio source", operation));
 				return;
 			}
+			const auto& copiedAudio = entity.GetComponent<AudioSourceComponent>();
+			if (copiedAudio.Priority != expectedAudio.Priority || copiedAudio.DistanceCulling != expectedAudio.DistanceCulling)
+				fail(std::format("{} lost audio priority/culling", operation));
 			if (!entity.HasComponent<MeshColliderComponent>() || !entity.HasComponent<AudioSurfaceComponent>()
 				|| entity.GetComponent<MeshColliderComponent>().Acoustic != AcousticMaterial::Wood
 				|| entity.GetComponent<MeshColliderComponent>().AcousticMotion != AcousticGeometryMode::Dynamic
@@ -1837,6 +1850,7 @@ namespace Lux {
 			const auto& restoredAudio = restoredAudioEntity.GetComponent<AudioSourceComponent>();
 			if (restoredAudio.Event.Guid != expectedAudio.Event.Guid || restoredAudio.Event.Path != expectedAudio.Event.Path
 				|| restoredAudio.Event.BankName != expectedAudio.Event.BankName || restoredAudio.ParameterOverrides != expectedAudio.ParameterOverrides
+				|| restoredAudio.Priority != 12 || !restoredAudio.DistanceCulling
 				|| restoredAudio.Config.PlayOnAwake || restoredAudio.ScriptPaused
 				|| restoredAudio.LegacyAudio != expectedAudio.LegacyAudio || restoredAudio.LegacyLooping != expectedAudio.LegacyLooping)
 				fail("audio event reference/overrides changed or runtime playback state was serialized");

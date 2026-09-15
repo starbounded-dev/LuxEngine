@@ -468,6 +468,8 @@ namespace Lux {
 	struct AudioSourceComponent
 	{
 		AudioSourceConfig Config;
+		int Priority = 128; // FMOD channel priority: 0 is highest, 256 is lowest.
+		bool DistanceCulling = false; // Opt in: distant loops suspend; one-shots are discarded.
 
 		// The FMOD Studio event this source plays:
 		// spatialisation, attenuation, randomisation and DSP then come from the event as authored.

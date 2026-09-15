@@ -11,6 +11,7 @@ namespace Lux
 		struct FileHeader
 		{
 			char Header[4] = { 'L', 'P', 'R', 'J' };
+			// 23: bounded performance budgets follow accessibility settings
 			// 22: bounded accessibility configuration follows dialogue settings
 			// 21: dialogue table handle and bounded language follow the surface table
 			// 20: project surface table asset handle follows the zone reverb mode
@@ -19,7 +20,7 @@ namespace Lux
 			// 17: explicit AudioBankManifest follows the unchanged fixed ProjectInfo block
 			// 16: GTAO slice/step sample counts
 			// 15: removed all temporal settings (TAA, SMAA T2x, GTAO/SSR accumulation)
-			uint32_t Version = 22;
+			uint32_t Version = 23;
 		};
 
 		struct Audio

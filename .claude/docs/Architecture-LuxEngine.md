@@ -542,9 +542,11 @@ listener resets Studio to a neutral origin listener (Studio requires a nonzero t
 attenuation targets fall back to the listener position with a diagnostic. Stopping Play resets
 listener state. Only Studio's listener API is written; Studio owns propagation to its Core mixer.
 
-**Event playback:** `Scene` owns one `AudioEventInstance` per entity. Its cache is keyed by entity
-UUID and checked against the assigned event GUID and `AudioEngine::GetEventGeneration()`; failed
-lookups are cached until the assignment or bank generation changes. Bank unload/system shutdown
+**Event playback:** `Scene` owns an `AudioSourcePlayback` per source entity, with an optional
+`AudioEventInstance`. The cache is keyed by UUID and checked against the assigned event GUID and
+bank revision; failed lookups are cached until the assignment or banks change. Playback intent,
+parameter overrides and timeline survive distance culling without keeping a Studio instance.
+Wrappers independently check `AudioEngine::GetEventGeneration()` for handle validity. Bank unload/system shutdown
 advance the generation before invalidating handles. Wrappers check it before any FMOD call, including
 destruction, so externally held references cannot touch a released system. These APIs are main-thread
 only. Component removal, entity destruction, and scene stop explicitly stop instances before dropping
@@ -708,12 +710,37 @@ walkable-ground ray query; `Audio.PlayFootstep(Entity, speed, weight, probeDista
 same query for scripts. This layer does not implement character motion and currently targets 3D
 Jolt, not Box2D. See `docs/AUDIO_SURFACES.md` for authoring and parameter contracts.
 
+**Voice budgets and validation (Phase 14):** `AudioPerformanceSettings` persists in project YAML
+and runtime format 23 (bounded YAML block after accessibility; older versions use defaults).
+`AudioEngine::Init` configures the global FMOD software-channel cap before initialization.
+`AudioPerformance` samples real/virtual channels, Studio/Core CPU, FMOD allocator memory
+(nonblocking, valid with release SDKs) and configured bus input peak/RMS every 250 ms. It owns locked Studio bus groups
+and cached head-meter pointers, releasing them before bank unload. Per-bus voice limits warn once
+per bank session and count all descendants; FMOD owns virtualization and stealing. The scene supplies
+last-completed VA timing and culled-source counts. Editor panels only read cached telemetry.
+
+`AudioSourceComponent::Priority` (0–256) reaches FMOD's channel-priority property. Opt-in
+`DistanceCulling` releases FMOD instances and VA emitters outside every weighted listener's authored
+maximum distance, with 5% inward hysteresis. Continuous sources freeze timeline/play intent and
+preserve script parameters/labels and layered pauses; one-shots are discarded. Source C# controls
+route through scene-owned playback state, so controls while culled do not allocate Studio voices.
+Standalone script instances and the music/dialogue/zone directors keep their existing lifecycle.
+
+`AudioValidation::ValidateProject` is an explicit main-thread scan of registered scene/prefab/table
+assets and current unsaved scene data, plus accessibility metadata and bus configuration.
+`ValidateBanks` creates an independent NOSOUND Studio system to resolve built catalog references,
+check event kinds/buses and report unused events and disk sizes. Its RAII host releases that system;
+active project banks remain loaded. The debugger owns a report snapshot. Export invokes validation
+after preparing banks and aborts on errors; warnings about script-only references remain advisory.
+See `docs/AUDIO_PERFORMANCE_VALIDATION.md` for user controls and measurement semantics.
+
 **Editor observability:** `AudioDebugPanel` (`Editor/Source/Panels/AudioDebugPanel.{h,cpp}`, View →
-Audio Debugger, closed by default) renders both halves of the stack. It is pure visualization over
+Audio Debugger, closed by default) renders both halves of the stack. Playback and acoustics use
 read-only accessors — `AudioEngine::GetStats()` and
-`RaytracedAudioScene::GetStats()` / `GetResult()` / `GetAmbience()` / `GetVisualisation()` — and adds
-no instrumentation of its own. Sources show event names and playback state, not raw-channel
-metrics. The Reverb section shows VA measurements and explains Studio's authored parameter path.
+`RaytracedAudioScene::GetStats()` / `GetResult()` / `GetAmbience()` / `GetVisualisation()` — alongside
+cached performance meters and an explicit validation action. Sources show event names, playback,
+virtual and culled state. The Reverb section shows VA measurements and explains Studio's authored
+parameter path.
 
 The panel owns the `AudioVisualisationSettings` but does not draw: `EditorLayer::DrawAudioVisualisation()`,
 called from `OnOverlayRender()`, reads them and draws ray paths, bounce points, surface normals,

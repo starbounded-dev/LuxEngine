@@ -61,6 +61,10 @@ namespace Lux {
 		bool IsOneShot() const;
 		bool Is3D() const;
 		bool IsSnapshot() const;
+		bool SetPriority(int priority);
+		int GetPriority() const;
+		float GetMaximumDistance() const;
+		bool IsVirtual() const;
 		// Requires a snapshot with its Intensity dial exposed as a continuous 0–100 parameter.
 		bool SetSnapshotIntensity(float intensity);
 		bool IsPaused() const { return m_Paused || m_ScenePaused; }

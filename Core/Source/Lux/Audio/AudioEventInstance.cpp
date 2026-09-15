@@ -273,6 +273,31 @@ namespace Lux {
 		return it != s_CallbackStates.end() ? it->second.Sequence : 0;
 	}
 
+	bool AudioEventInstance::SetPriority(int priority)
+	{
+		if (priority < 0 || priority > 256)
+			return CheckResult(FMOD_ERR_INVALID_PARAM, "priority must be in [0, 256]");
+		return IsValid() &&
+			CheckResult(m_Instance->setProperty(FMOD_STUDIO_EVENT_PROPERTY_CHANNELPRIORITY, static_cast<float>(priority)), "set priority");
+	}
+	int AudioEventInstance::GetPriority() const
+	{
+		float priority = 128;
+		if (IsValid())
+			CheckResult(m_Instance->getProperty(FMOD_STUDIO_EVENT_PROPERTY_CHANNELPRIORITY, &priority), "get priority");
+		return static_cast<int>(priority);
+	}
+	float AudioEventInstance::GetMaximumDistance() const
+	{
+		float minimum = 0, maximum = 0;
+		return IsValid() && CheckResult(m_Instance->getMinMaxDistance(&minimum, &maximum), "get distance range") ? maximum : 0;
+	}
+	bool AudioEventInstance::IsVirtual() const
+	{
+		bool result = false;
+		return IsValid() && CheckResult(m_Instance->isVirtual(&result), "get virtualization state") && result;
+	}
+
 	bool AudioEventInstance::Is3D() const
 	{
 		FMOD::Studio::EventDescription* description = nullptr;

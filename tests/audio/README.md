@@ -14,7 +14,7 @@ Logs and artifacts are retained in the printed temporary directory. `--output /t
 selects a fresh directory. Use `--banks /path/to/Build/Desktop` to reuse fixture banks instead of
 running FMOD Studio; those banks must contain `event:/SurfaceHit` (one-shot) and
 `event:/SurfaceMotion` (continuous), with local `Speed`, `Weight`, `Surface`, and `Impulse`
-parameters ranging from 0 to 10000. `Master.bank` and `Master.strings.bank` are loaded. Music tests additionally require 2D
+parameters ranging from 0 to 10000. SurfaceMotion also needs a local LocalState parameter with Quiet/Loud labels. `Master.bank` and `Master.strings.bank` are loaded. Music tests additionally require 2D
 `MusicBed`/`MusicOther` continuous events and `MusicStinger` one-shot, as authored by
 `AuthorFixture.js`: State labels Explore/Combat, Intensity and Layer_Drums (0–1), tempo 240,
 Cue and Section:Verse markers, and a two-second timeline loop. Use a fresh fixture after changing
@@ -46,3 +46,11 @@ are exercised for round-trip fields, room IDs, legacy defaults and malformed val
 also cover portal dispatch, acoustic mode enum values, invalid inputs and main-thread guards.
 Scene/prefab hierarchy remapping lives in `SceneSerializer::RunRoundTripSelfTests`; it requires a
 full engine host and is not executed by this headless runner.
+
+Performance checks cover real FMOD voice priority and a four-real-voice cap with virtualization,
+distance culling/re-entry, multi-listener attenuation targets, discarded one-shots, pause/stop and
+parameter/timeline preservation, actual bus input peak/RMS and voice warnings, memory availability,
+strict/bounded budget persistence and independent catalog validation (missing events/buses, wrong
+event kinds, corrupt banks). Source YAML checks execute the production serialization blocks for
+priority/culling defaults, bounds and runtime-state exclusion. Managed checks cover source budget
+controls and main-thread guards. These tests use NOSOUND and do not replace listening/visual checks.

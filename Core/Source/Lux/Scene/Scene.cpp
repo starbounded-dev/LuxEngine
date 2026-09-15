@@ -7,6 +7,7 @@
 #include "Lux/Asset/AssetManager.h"
 
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioPerformance.h"
 #include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/RaytracedAudioScene.h"
@@ -355,8 +356,7 @@ namespace Lux {
 		auto event = m_RuntimeEventInstances.find(entity.GetUUID());
 		if (event != m_RuntimeEventInstances.end())
 		{
-			if (event->second.Instance)
-				event->second.Instance->Stop(false);
+			event->second.Stop(false);
 			m_RuntimeEventInstances.erase(event);
 		}
 
@@ -366,6 +366,7 @@ namespace Lux {
 
 	void Scene::ReleaseAllRuntimeAudio()
 	{
+		AudioPerformance::SubmitScene(0, 0, false);
 		AudioAccessibility::EndScene(this);
 		m_Dialogue.Clear();
 		m_Music.Clear();
@@ -374,8 +375,7 @@ namespace Lux {
 		// them; the destructor stops each one immediately and releases it.
 		for (auto& [id, event] : m_RuntimeEventInstances)
 		{
-			if (event.Instance)
-				event.Instance->Stop(false);
+			event.Stop(false);
 		}
 		m_RuntimeEventInstances.clear();
 		m_AudioZones.Clear();
@@ -820,6 +820,8 @@ namespace Lux {
 				m_RaytracedAudioScene->WaitForResults();
 			SyncAudioGeometry();
 			UpdateAudioZones(static_cast<float>(ts), m_RaytracedAudioScene && m_RaytracedAudioScene->GetAmbience().Valid);
+			AudioPerformance::SubmitScene(m_RaytracedAudioScene ? m_RaytracedAudioScene->GetRaytracingTimeMilliseconds() : 0,
+				GetCulledAudioSourceCount(), m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning());
 
 			if (m_RaytracedAudioScene)
 			{
@@ -841,7 +843,7 @@ namespace Lux {
 						Entity entity = { entityHandle, this };
 						UUID entityID = entity.GetUUID();
 
-						if (!asc.Event.IsValid())
+						if (!asc.Event.IsValid() || IsAudioSourceCulled(entityID))
 						{
 							m_RaytracedAudioScene->DestroyEmitter(entityID);
 							return;
@@ -871,8 +873,8 @@ namespace Lux {
 
 			for (auto& [id, event] : m_RuntimeEventInstances)
 			{
-				if (event.Instance)
-					event.Instance->SetScenePaused(true);
+				if (auto instance = event.GetInstance())
+					instance->SetScenePaused(true);
 			}
 		}
 
@@ -1033,62 +1035,43 @@ namespace Lux {
 		return m_RaytracedAudioScene;
 	}
 
-	Ref<AudioEventInstance> Scene::GetAudioEventForScript(UUID entityID, bool suppressPlayOnAwake)
+	AudioSourcePlayback* Scene::GetAudioSourcePlayback(UUID entityID)
 	{
 		Entity entity = TryGetEntityWithUUID(entityID);
 		if (!m_IsRunning || !entity || !entity.HasComponent<AudioSourceComponent>())
 			return nullptr;
-		auto event = GetOrCreateRuntimeEventInstance(entity, entity.GetComponent<AudioSourceComponent>(), GetWorldSpaceTransformMatrix(entity), false);
-		if (suppressPlayOnAwake)
-			m_RuntimeEventInstances.at(entityID).AwakeHandled = true;
-		return event;
+		GetOrCreateRuntimeEventInstance(entity, entity.GetComponent<AudioSourceComponent>(), GetWorldSpaceTransformMatrix(entity), false);
+		return &m_RuntimeEventInstances.at(entityID);
 	}
 
 	Ref<AudioEventInstance> Scene::GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake)
 	{
-		const UUID entityID = entity.GetUUID();
-		const uint64_t bankRevision = AudioEngine::GetBankRevision();
-		auto [it, inserted] = m_RuntimeEventInstances.try_emplace(entityID);
-		RuntimeAudioEvent& event = it->second;
-		const bool changed = inserted || event.Guid != source.Event.Guid || (!event.Instance && event.BankRevision != bankRevision)
-			|| (event.Instance && !event.Instance->IsValid());
-		if (changed)
-		{
-			if (event.Instance)
-				event.Instance->Stop(false);
-			event = { source.Event.Guid, bankRevision, AudioEventInstance::Create(source.Event.Guid) };
-		}
-
-		Ref<AudioEventInstance> instance = event.Instance;
-		if (!instance)
-			return nullptr;
-
-		if (changed)
-		{
-			for (const auto& [name, value] : source.ParameterOverrides)
-				instance->SetParameter(name, value);
-		}
-		instance->Set3DAttributes(glm::vec3(worldTransform[3]), glm::vec3(0.0f),
-			-glm::vec3(worldTransform[2]), glm::vec3(worldTransform[1]));
-		instance->SetVolume(source.Config.VolumeMultiplier);
-		instance->SetPitch(source.Config.PitchMultiplier);
-		instance->SetScenePaused(m_IsPaused);
-		instance->SetPaused(source.ScriptPaused);
-		if (allowPlayOnAwake && !event.AwakeHandled)
-		{
-			event.AwakeHandled = true;
-			if (source.Config.PlayOnAwake)
-				instance->Start();
-		}
-		return instance;
+		auto& playback = m_RuntimeEventInstances[entity.GetUUID()];
+		playback.Update(source, worldTransform, m_RuntimeAudioListeners, m_IsPaused, allowPlayOnAwake);
+		return playback.GetInstance();
 	}
 
 	Ref<AudioEventInstance> Scene::GetRuntimeEventInstance(UUID entityID) const
 	{
-		auto it = m_RuntimeEventInstances.find(entityID);
-		if (it == m_RuntimeEventInstances.end() || !it->second.Instance || !it->second.Instance->IsValid())
+		const auto found = m_RuntimeEventInstances.find(entityID);
+		if (found == m_RuntimeEventInstances.end())
 			return nullptr;
-		return it->second.Instance;
+		auto instance = found->second.GetInstance();
+		return instance && instance->IsValid() ? instance : nullptr;
+	}
+
+	size_t Scene::GetCulledAudioSourceCount() const
+	{
+		return std::count_if(m_RuntimeEventInstances.begin(), m_RuntimeEventInstances.end(), [](const auto& entry)
+		{
+			return entry.second.IsCulled();
+		});
+	}
+
+	bool Scene::IsAudioSourceCulled(UUID entityID) const
+	{
+		const auto found = m_RuntimeEventInstances.find(entityID);
+		return found != m_RuntimeEventInstances.end() && found->second.IsCulled();
 	}
 
 	Entity Scene::DuplicateEntity(Entity entity)

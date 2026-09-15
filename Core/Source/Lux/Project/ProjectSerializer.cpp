@@ -699,6 +699,8 @@ namespace Lux
 				out << YAML::Key << "DialogueLanguage" << YAML::Value << config.Audio.Dialogue.Language;
 				out << YAML::Key << "Accessibility" << YAML::Value;
 				config.Audio.Accessibility.SerializeYAML(out);
+				out << YAML::Key << "Performance" << YAML::Value;
+				config.Audio.Performance.SerializeYAML(out);
 				out << YAML::Key << "ZoneReverbMode" << YAML::Value << static_cast<uint32_t>(config.Audio.ZoneReverbMode);
 				out << YAML::EndMap;
 			}
@@ -808,7 +810,7 @@ namespace Lux
 		}
 		serializer.WriteRaw<uint8_t>(static_cast<uint8_t>(zoneMode));
 		serializer.WriteRaw<uint64_t>(m_Project->GetConfig().Audio.SurfaceTable);
-		if (!m_Project->GetConfig().Audio.Dialogue.Serialize(serializer) || !m_Project->GetConfig().Audio.Accessibility.Serialize(serializer))
+		if (!m_Project->GetConfig().Audio.Dialogue.Serialize(serializer) || !m_Project->GetConfig().Audio.Accessibility.Serialize(serializer) || !m_Project->GetConfig().Audio.Performance.Serialize(serializer))
 			return false;
 
 		const auto& physics = m_Project->GetConfig().Physics;
@@ -942,6 +944,7 @@ namespace Lux
 		config.Audio.SurfaceTable = 0;
 		config.Audio.Dialogue = {};
 		config.Audio.Accessibility = {};
+		config.Audio.Performance = {};
 		config.Audio.AcousticMaterials = {};
 		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
 		if (auto audioNode = projectNode["Audio"])
@@ -952,6 +955,8 @@ namespace Lux
 			config.Audio.RebuildBanksOnPlay = audioNode["RebuildBanksOnPlay"].as<bool>(config.Audio.RebuildBanksOnPlay);
 			config.Audio.EnableLiveUpdate = audioNode["EnableLiveUpdate"].as<bool>(config.Audio.EnableLiveUpdate);
 			config.Audio.SurfaceTable = audioNode["SurfaceTable"].as<uint64_t>(0);
+			if (!config.Audio.Performance.DeserializeYAML(audioNode["Performance"]))
+				return false;
 			if (!config.Audio.Accessibility.DeserializeYAML(audioNode["Accessibility"]))
 				return false;
 			config.Audio.Dialogue.Table = audioNode["DialogueTable"].as<uint64_t>(0);
@@ -1104,9 +1109,12 @@ namespace Lux
 
 		config.Audio.Dialogue = {};
 		config.Audio.Accessibility = {};
+		config.Audio.Performance = {};
 		if (projectInfo.HeaderData.Version >= 21 && !config.Audio.Dialogue.Deserialize(stream))
 			return false;
 		if (projectInfo.HeaderData.Version >= 22 && !config.Audio.Accessibility.Deserialize(stream))
+			return false;
+		if (projectInfo.HeaderData.Version >= 23 && !config.Audio.Performance.Deserialize(stream))
 			return false;
 
 		stream.ReadRaw<float>(config.Physics.FixedTimestep);

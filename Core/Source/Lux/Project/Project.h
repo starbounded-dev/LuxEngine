@@ -2,6 +2,7 @@
 
 #include "Lux/Audio/DialogueTable.h"
 #include "Lux/Audio/AudioAccessibilitySettings.h"
+#include "Lux/Audio/AudioPerformanceSettings.h"
 
 #include "Lux/Audio/AudioZoneSettings.h"
 
@@ -53,6 +54,7 @@ namespace Lux
 		AssetHandle SurfaceTable = 0;
 		DialogueSettings Dialogue;
 		AudioAccessibilityConfig Accessibility;
+		AudioPerformanceSettings Performance;
 		AcousticMaterialSettings AcousticMaterials;
 		AudioZoneReverbMode ZoneReverbMode = AudioZoneReverbMode::Layered;
 

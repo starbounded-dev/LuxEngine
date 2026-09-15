@@ -482,6 +482,56 @@ namespace Lux {
 		ImGuiEx::EndPropertyGrid();
 
 		ImGui::TextDisabled("Stored in both the YAML project file and the runtime project data.");
+		if (ImGuiEx::PropertyGridHeader("Voice and Performance Budgets", false))
+		{
+			auto edited = audioSettings.Performance;
+			bool changed = false;
+			ImGuiEx::BeginPropertyGrid();
+			int voices = static_cast<int>(edited.RealVoices), memory = static_cast<int>(edited.BankMemoryMiB);
+			changed |= ImGuiEx::Property("Real Voices", voices, 1, 512, "FMOD real voice cap. Lower priority channels virtualize.", false);
+			edited.RealVoices = static_cast<uint32_t>(voices);
+			changed |= ImGuiEx::Property("CPU Warning (%)", edited.CPUPercent, 0.1f, 0.1f, 100.0f, "Warn once when the measured audio CPU exceeds this value.", false);
+			changed |= ImGuiEx::Property("VA Warning (ms)", edited.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "VA worker raytracing time.", false);
+			changed |= ImGuiEx::Property("FMOD Memory (MiB)", memory, 1, 65536, "Warning threshold for total FMOD allocations, including banks, samples and mixer overhead.", false);
+			edited.BankMemoryMiB = static_cast<uint32_t>(memory);
+			ImGuiEx::EndPropertyGrid();
+			std::string remove;
+			for (auto& [path, limit] : edited.BusVoices)
+			{
+				ImGuiEx::ScopedID id(path.c_str());
+				int value = static_cast<int>(limit);
+				ImGui::TextUnformatted(path.c_str());
+				ImGui::SameLine();
+				changed |= ImGui::InputInt("Voice warning", &value);
+				limit = static_cast<uint32_t>(value);
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Remove"))
+					remove = path;
+			}
+			if (!remove.empty())
+			{
+				edited.BusVoices.erase(remove);
+				changed = true;
+			}
+			static std::string s_NewBudgetBus = "bus:/SFX";
+			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::Property("New Bus", s_NewBudgetBus, "Inclusive voice warning threshold for this authored bus.", false);
+			ImGuiEx::EndPropertyGrid();
+			if (ImGui::Button("Add Bus Budget"))
+				changed |= edited.BusVoices.emplace(s_NewBudgetBus, 32).second;
+			if (changed)
+			{
+				if (edited.Validate())
+				{
+					audioSettings.Performance = std::move(edited);
+					m_Dirty = true;
+				}
+				else
+					LUX_CORE_ERROR_TAG("Audio", "Invalid audio budget. Use positive limits and valid bus:/ paths (maximum 64 buses).");
+			}
+			ImGui::TextWrapped("Budgets apply when the project audio system is reopened, and in new exports. Bus limits warn; FMOD's global real-voice limit controls virtualization. Live meters and validation are in View > Audio Debugger.");
+		}
+
 
 		ImGui::Spacing();
 		ImGui::TextUnformatted("FMOD Studio");

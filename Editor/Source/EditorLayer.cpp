@@ -2,6 +2,7 @@
 #include "RuntimeExportUtils.h"
 
 #include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Audio/AudioValidation.h"
 #include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/SelectionManager.h"
 #include "Lux/Core/Application.h"
@@ -3046,6 +3047,10 @@ namespace Lux {
 
 		AudioBankManifest audioBanks;
 		if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
+			return false;
+		const auto audioValidation = AudioValidation::ValidateProject(*project, m_EditorScene.Raw());
+		audioValidation.Log();
+		if (audioValidation.HasErrors())
 			return false;
 
 		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;

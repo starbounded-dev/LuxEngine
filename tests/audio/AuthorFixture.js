@@ -18,6 +18,8 @@ for(var i=0;i<events.length;i++) {
  var e=events[i];
  if(e.name!='MusicBed' && e.name!='MusicOther') continue;
  e.timeline.isProxyEnabled=true;
+ var sound=e.addGroupTrack("Fixture Audio").addSound(e.timeline,"SingleSound",0,1.25);
+ sound.audioFile=studio.project.model.AudioFile.findInstances()[0];
  var defs=[
   {name:'State',type:studio.project.parameterType.UserEnumeration,min:0,max:1,enumerationLabels:['Explore','Combat']},
   {name:'Intensity',type:studio.project.parameterType.User,min:0,max:1},
@@ -55,5 +57,15 @@ for(var i=0;i<categoryNames.length;i++) {
 for(var i=0;i<events.length;i++) {
  var e=events[i];
  e.mixerInput.output=categories[e.name=='MusicStinger' ? 'Dialogue' : e.name.indexOf('Music')==0 ? 'Music' : 'SFX'];
+}
+studio.project.save();
+
+// A local label parameter on spatial sources exercises controls while their voices are culled.
+for(var i=0;i<events.length;i++) {
+ var e=events[i];
+ if(e.name!='SurfaceMotion') continue;
+ var p=e.addGameParameter({name:'LocalState',type:studio.project.parameterType.UserEnumeration,min:0,max:1,enumerationLabels:['Quiet','Loud']});
+ var curve=e.mixer.masterBus.addAutomator('volume').addAutomationCurve(p.preset);
+ curve.addAutomationPoint(0,0);curve.addAutomationPoint(1,0);
 }
 studio.project.save();

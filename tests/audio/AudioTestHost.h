@@ -15,11 +15,13 @@ namespace Lux
 	std::shared_ptr<spdlog::logger> Log::s_EditorConsoleLogger = Log::s_CoreLogger;
 	FMOD::System* AudioEngine::s_Engine = nullptr;
 	FMOD::Studio::System* AudioEngine::s_StudioSystem = nullptr;
+	int TestRealVoices = 64;
 	void AudioEngine::Init()
 	{
 		assert(FMOD::Studio::System::create(&s_StudioSystem) == FMOD_OK);
 		assert(s_StudioSystem->getCoreSystem(&s_Engine) == FMOD_OK);
 		assert(s_Engine->setOutput(FMOD_OUTPUTTYPE_NOSOUND) == FMOD_OK);
+		assert(s_Engine->setSoftwareChannels(TestRealVoices) == FMOD_OK);
 		assert(s_StudioSystem->initialize(128, FMOD_STUDIO_INIT_NORMAL, FMOD_INIT_NORMAL, nullptr) == FMOD_OK);
 		s_HasInitializedAudioEngine = true;
 		++s_EventGeneration;

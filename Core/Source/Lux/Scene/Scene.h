@@ -6,6 +6,7 @@
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AudioZoneSystem.h"
 #include "Lux/Audio/AudioGeometrySystem.h"
+#include "Lux/Audio/AudioSourcePlayback.h"
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Audio/MusicDirector.h"
 #include "Lux/Audio/DialogueDirector.h"
@@ -256,15 +257,7 @@ namespace Lux {
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 		std::vector<std::function<void()>> m_PostUpdateQueue;
-		struct RuntimeAudioEvent
-		{
-			std::string Guid;
-			uint64_t BankRevision = 0;
-			Ref<AudioEventInstance> Instance;
-			bool AwakeHandled = false;
-		};
-		// A null instance records a failed lookup until its GUID or bank catalog revision changes.
-		std::unordered_map<UUID, RuntimeAudioEvent> m_RuntimeEventInstances;
+		std::unordered_map<UUID, AudioSourcePlayback> m_RuntimeEventInstances;
 		AudioListener::States m_RuntimeAudioListeners;
 		AudioZoneSystem m_AudioZones;
 		AudioGeometrySystem m_AudioGeometry;
@@ -304,7 +297,9 @@ namespace Lux {
 
 		// The live voice playing for an entity, or null when it has none. Editor tooling only -
 		// gameplay drives sources through the component, not by reaching in here.
-		Ref<AudioEventInstance> GetAudioEventForScript(UUID entityID, bool suppressPlayOnAwake = false);
+		AudioSourcePlayback* GetAudioSourcePlayback(UUID entityID);
+		size_t GetCulledAudioSourceCount() const;
+		bool IsAudioSourceCulled(UUID entityID) const;
 		Ref<AudioEventInstance> GetRuntimeEventInstance(UUID entityID) const;
 
 	private:

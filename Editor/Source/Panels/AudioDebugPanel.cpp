@@ -3,6 +3,7 @@
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioPerformance.h"
 #include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/RaytracedAudioScene.h"
 #include "Lux/ImGui/ImGuiEx.h"
@@ -112,6 +113,8 @@ namespace Lux {
 		const AudioEngineStats engine = AudioEngine::GetStats();
 		UI_Backends(engine);
 		UI_Playback(engine);
+		UI_Performance();
+		UI_Validation();
 		UI_Events();
 		UI_Acoustics();
 		UI_Reverb();
@@ -123,6 +126,67 @@ namespace Lux {
 		SyncVisualisationSettings();
 
 		ImGui::End();
+	}
+
+	void AudioDebugPanel::UI_Performance()
+	{
+		if (!ImGuiEx::PropertyGridHeader("Budgets and Bus Meters", true))
+			return;
+		const auto& stats = AudioPerformance::GetStats();
+		const auto& settings = AudioPerformance::GetSettings();
+		ImGui::Text("Real voices: %d / %u   Virtual: %d   Culled sources: %zu", stats.RealVoices, settings.RealVoices, stats.VirtualVoices, stats.CulledSources);
+		if (stats.MixerAvailable)
+			ImGui::Text("Audio CPU: %.2f%% / %.2f%%", stats.CPUPercent, settings.CPUPercent);
+		if (stats.MemoryAvailable)
+			ImGui::Text("FMOD allocated memory: %.2f / %u MiB", stats.MemoryMiB, settings.BankMemoryMiB);
+		if (stats.RaytracingAvailable)
+			ImGui::Text("VA raytracing: %.3f / %.3f ms", stats.RaytracingMilliseconds, settings.RaytracingMilliseconds);
+		if (stats.VoicesExceeded || stats.CPUExceeded || stats.MemoryExceeded || stats.RaytracingExceeded)
+			ImGui::TextColored(kWarnColor, "Audio budget exceeded (details logged once per bank session).");
+		for (const auto& meter : AudioPerformance::GetBuses())
+		{
+			ImGuiEx::ScopedID id(meter.Path.c_str());
+			ImGui::Text("%s: %d / %u voices (%d real)%s", meter.Path.c_str(), meter.Voices, meter.Limit, meter.RealVoices, meter.Exceeded ? " - OVER BUDGET" : "");
+			if (!meter.Available)
+			{
+				ImGui::TextDisabled("Meter unavailable");
+				continue;
+			}
+			const auto decibels = [](float value) { return 20.0f * std::log10(std::max(value, 0.000001f)); };
+			char label[64];
+			std::snprintf(label, sizeof(label), "Input peak %.1f dBFS", decibels(meter.Peak));
+			ImGui::ProgressBar(std::clamp((decibels(meter.Peak) + 60) / 60, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0), label);
+			std::snprintf(label, sizeof(label), "Input RMS %.1f dBFS", decibels(meter.RMS));
+			ImGui::ProgressBar(std::clamp((decibels(meter.RMS) + 60) / 60, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0), label);
+		}
+	}
+
+	void AudioDebugPanel::UI_Validation()
+	{
+		if (!ImGuiEx::PropertyGridHeader("Audio Validation", false))
+			return;
+		ImGui::TextWrapped("Checks built banks against serialized scenes, prefabs and audio tables, including this scene's unsaved edits. Script-only references cannot be inferred. Results are a snapshot; rerun after edits.");
+		if (ImGui::Button("Validate Project Audio"))
+		{
+			if (auto project = Project::GetActive())
+			{
+				m_Validation = AudioValidation::ValidateProject(*project, m_Context.Raw());
+				m_Validation.Log();
+				m_HasValidation = true;
+			}
+		}
+		if (!m_HasValidation)
+			return;
+		ImGui::Text("%zu banks, %.2f MiB on disk, %zu / %zu events referenced", m_Validation.Banks.size(), m_Validation.BankBytes / (1024.0 * 1024.0), m_Validation.ReferencedEvents, m_Validation.CatalogEvents);
+		for (const auto& bank : m_Validation.Banks)
+			ImGui::Text("%s: %.2f MiB", bank.Name.c_str(), bank.Bytes / (1024.0 * 1024.0));
+		for (const auto& issue : m_Validation.Issues)
+		{
+			ImGui::TextColored(issue.Severity == AudioValidationSeverity::Error ? kWarnColor : kOffColor, "%s", issue.Location.c_str());
+			ImGui::TextWrapped("%s", issue.Message.c_str());
+		}
+		if (m_Validation.Issues.empty())
+			ImGui::TextUnformatted("No audio validation issues.");
 	}
 
 	void AudioDebugPanel::UI_Backends(const AudioEngineStats& engine)
@@ -507,7 +571,7 @@ namespace Lux {
 
 				ImGui::TableSetColumnIndex(3);
 				const auto event = m_Context->GetRuntimeEventInstance(entity.GetUUID());
-				ImGui::TextUnformatted(!event || !event->IsValid() ? "Unavailable" : event->IsPaused() ? "Paused" : event->IsPlaying() ? "Playing" : "Stopped");
+				ImGui::TextUnformatted(m_Context->IsAudioSourceCulled(entity.GetUUID()) ? "Culled" : !event || !event->IsValid() ? "Unavailable" : event->IsPaused() ? "Paused" : event->IsVirtual() ? "Virtual" : event->IsPlaying() ? "Playing" : "Stopped");
 
 				ImGui::TableSetColumnIndex(4);
 				if (result.Valid)

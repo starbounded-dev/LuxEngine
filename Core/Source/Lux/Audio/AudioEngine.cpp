@@ -1,6 +1,7 @@
 #include "lpch.h"
 #include "AudioEngine.h"
 #include "AudioAccessibility.h"
+#include "AudioPerformance.h"
 
 #include "Lux/Project/Project.h"
 
@@ -93,6 +94,15 @@ namespace Lux {
 		}
 #endif
 
+		const auto project = Project::GetActive();
+		const auto performance = project ? project->GetConfig().Audio.Performance : AudioPerformanceSettings{};
+		if (!AudioPerformance::Configure(performance) || !CheckFMOD(s_Engine->setSoftwareChannels(static_cast<int>(performance.RealVoices)), "Set real voice limit"))
+		{
+			CheckFMOD(s_StudioSystem->release(), "Release FMOD after invalid voice configuration");
+			s_StudioSystem = nullptr;
+			s_Engine = nullptr;
+			return;
+		}
 		result = s_StudioSystem->initialize(kMaxChannels, studioFlags,
 			FMOD_INIT_3D_RIGHTHANDED, nullptr);
 		if (result != FMOD_OK)
@@ -142,6 +152,7 @@ namespace Lux {
 
 	void AudioEngine::Update()
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		// Studio owns and updates the Core mixer; all playback is authored as Studio events.
 		if (s_StudioSystem)
 		{
@@ -149,6 +160,7 @@ namespace Lux {
 			if (result != s_LastStudioUpdateResult)
 				CheckFMOD(result, "FMOD Studio update failed");
 			s_LastStudioUpdateResult = result;
+			AudioPerformance::Update();
 		}
 	}
 
@@ -382,6 +394,7 @@ namespace Lux {
 
 	void AudioEngine::UnloadAllBanks()
 	{
+		AudioPerformance::Reset();
 		AudioAccessibility::ReleaseMixer();
 		++s_EventGeneration;
 		if (s_StudioSystem)

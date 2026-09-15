@@ -77,12 +77,37 @@ namespace Lux
 			return component;
 		}
 
-		Ref<AudioEventInstance> SourceEvent(uint64_t id, bool create = true, bool suppressAwake = false)
+		Ref<AudioEventInstance> SourceEvent(uint64_t id)
 		{
 			auto* source = Source(id);
-			if (!source || !source->Event.IsValid())
-				return nullptr;
-			return create ? AudioScene()->GetAudioEventForScript(id, suppressAwake) : AudioScene()->GetRuntimeEventInstance(id);
+			return source && source->Event.IsValid() ? AudioScene()->GetRuntimeEventInstance(id) : nullptr;
+		}
+		int32_t Audio_SourceGetPriority(uint64_t id)
+		{
+			const auto* source = Source(id);
+			return source ? source->Priority : 128;
+		}
+		Coral::Bool32 Audio_SourceSetPriority(uint64_t id, int32_t priority)
+		{
+			auto* source = Source(id);
+			if (!source || priority < 0 || priority > 256)
+				return false;
+			source->Priority = priority;
+			return true;
+		}
+		Coral::Bool32 Audio_SourceGetCulling(uint64_t id)
+		{
+			const auto* source = Source(id);
+			return source && source->DistanceCulling;
+		}
+		void Audio_SourceSetCulling(uint64_t id, Coral::Bool32 value)
+		{
+			if (auto* source = Source(id))
+				source->DistanceCulling = value;
+		}
+		Coral::Bool32 Audio_SourceIsCulled(uint64_t id)
+		{
+			return Source(id) && AudioScene()->IsAudioSourceCulled(id);
 		}
 
 		uint64_t Audio_CreateInstance(Coral::String reference, Coral::Bool32 oneShot, const glm::vec3* position)
@@ -408,27 +433,24 @@ namespace Lux
 				return;
 			}
 			source->ScriptPaused = false;
-			if (auto event = SourceEvent(id, true, true))
-			{
-				event->SetPaused(false);
-				event->Start();
-			}
+			if (auto* playback = AudioScene()->GetAudioSourcePlayback(id))
+				playback->Play();
 		}
 
 		void Audio_SourceStop(uint64_t id, Coral::Bool32 fade)
 		{
 			if (auto* source = Source(id))
 			{
-				if (auto event = SourceEvent(id, true, true))
-					event->Stop(fade);
+				if (auto* playback = AudioScene()->GetAudioSourcePlayback(id))
+					playback->Stop(fade);
 				source->ScriptPaused = false;
 			}
 		}
 
 		Coral::Bool32 Audio_SourceIsPlaying(uint64_t id)
 		{
-			auto event = SourceEvent(id, false);
-			return event && event->IsPlaying();
+			auto* playback = Source(id) ? AudioScene()->GetAudioSourcePlayback(id) : nullptr;
+			return playback && playback->IsPlaying();
 		}
 
 		Coral::Bool32 Audio_SourceIsPaused(uint64_t id)
@@ -443,7 +465,7 @@ namespace Lux
 			if (!source)
 				return;
 			source->ScriptPaused = paused;
-			if (auto event = SourceEvent(id, false))
+			if (auto event = SourceEvent(id))
 				event->SetPaused(paused);
 		}
 
@@ -462,7 +484,7 @@ namespace Lux
 			if (auto* source = Source(id); source && std::isfinite(value))
 			{
 				source->Config.VolumeMultiplier = std::max(0.0f, value);
-				if (auto event = SourceEvent(id, false))
+				if (auto event = SourceEvent(id))
 					event->SetVolume(value);
 			}
 		}
@@ -471,7 +493,7 @@ namespace Lux
 			if (auto* source = Source(id); source && std::isfinite(value))
 			{
 				source->Config.PitchMultiplier = std::max(0.0f, value);
-				if (auto event = SourceEvent(id, false))
+				if (auto event = SourceEvent(id))
 					event->SetPitch(value);
 			}
 		}
@@ -482,28 +504,28 @@ namespace Lux
 		}
 		void Audio_SourceSetParameter(uint64_t id, Coral::String name, float value)
 		{
-			if (auto event = SourceEvent(id))
-				event->SetParameter(name, value);
+			if (auto* playback = Source(id) ? AudioScene()->GetAudioSourcePlayback(id) : nullptr)
+				playback->SetParameter(name, value);
 		}
 		float Audio_SourceGetParameter(uint64_t id, Coral::String name)
 		{
-			auto event = SourceEvent(id);
-			return event ? event->GetParameter(name) : 0.0f;
+			auto* playback = Source(id) ? AudioScene()->GetAudioSourcePlayback(id) : nullptr;
+			return playback ? playback->GetParameter(name) : 0.0f;
 		}
 		void Audio_SourceSetParameterLabel(uint64_t id, Coral::String name, Coral::String label)
 		{
-			if (auto event = SourceEvent(id))
-				event->SetParameterLabel(name, label);
+			if (auto* playback = Source(id) ? AudioScene()->GetAudioSourcePlayback(id) : nullptr)
+				playback->SetParameterLabel(name, label);
 		}
 		int32_t Audio_SourceGetTimeline(uint64_t id)
 		{
-			auto event = SourceEvent(id);
-			return event ? event->GetTimelinePosition() : 0;
+			auto* playback = Source(id) ? AudioScene()->GetAudioSourcePlayback(id) : nullptr;
+			return playback ? playback->GetTimelinePosition() : 0;
 		}
 		void Audio_SourceSetTimeline(uint64_t id, int32_t value)
 		{
-			if (auto event = SourceEvent(id))
-				event->SetTimelinePosition(value);
+			if (auto* playback = Source(id) ? AudioScene()->GetAudioSourcePlayback(id) : nullptr)
+				playback->SetTimelinePosition(value);
 		}
 		void Audio_SourceSetEvent(uint64_t id, Coral::String reference)
 		{
@@ -514,7 +536,7 @@ namespace Lux
 			if (!probe)
 				return;
 			source->Event = {probe->GetReference(), {}, {}};
-			AudioScene()->GetAudioEventForScript(id);
+			AudioScene()->GetAudioSourcePlayback(id);
 		}
 
 		AudioListenerComponent* Listener(uint64_t id)
@@ -962,6 +984,11 @@ namespace Lux
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SetPitch", reinterpret_cast<void*>(&Audio_SetPitch));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SetParameter", reinterpret_cast<void*>(&Audio_SetParameter));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_Set3DAttributes", reinterpret_cast<void*>(&Audio_Set3DAttributes));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceGetPriority", reinterpret_cast<void*>(&Audio_SourceGetPriority));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceSetPriority", reinterpret_cast<void*>(&Audio_SourceSetPriority));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceGetCulling", reinterpret_cast<void*>(&Audio_SourceGetCulling));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceSetCulling", reinterpret_cast<void*>(&Audio_SourceSetCulling));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceIsCulled", reinterpret_cast<void*>(&Audio_SourceIsCulled));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourcePlay", reinterpret_cast<void*>(&Audio_SourcePlay));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceStop", reinterpret_cast<void*>(&Audio_SourceStop));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceIsPlaying", reinterpret_cast<void*>(&Audio_SourceIsPlaying));

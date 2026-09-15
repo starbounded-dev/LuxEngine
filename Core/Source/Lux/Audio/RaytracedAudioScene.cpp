@@ -342,6 +342,11 @@ namespace Lux {
 		m_Impl->World = nullptr;
 	}
 
+	double RaytracedAudioScene::GetRaytracingTimeMilliseconds() const
+	{
+		return m_Impl->World ? vaWorldGetRaytracingTime(m_Impl->World) : 0;
+	}
+
 	void RaytracedAudioScene::WaitForResults()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

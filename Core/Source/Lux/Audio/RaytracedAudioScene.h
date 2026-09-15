@@ -179,6 +179,7 @@ namespace Lux {
 		// SDK availability, independent of whether this scene has started its simulation.
 		static bool IsAvailable();
 		bool IsRunning() const;
+		double GetRaytracingTimeMilliseconds() const;
 
 		explicit RaytracedAudioScene(Scene* scene);
 		~RaytracedAudioScene();

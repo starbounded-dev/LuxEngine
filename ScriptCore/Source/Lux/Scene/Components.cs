@@ -415,6 +415,28 @@ namespace Lux
 	}
 	public unsafe class AudioSourceComponent : Component
 	{
+		/// <summary>FMOD voice priority: 0 is highest, 256 is lowest.</summary>
+		public int Priority
+		{
+			get { Audio.RequireMainThread(); return InternalCalls.Audio_SourceGetPriority(Entity.ID); }
+			set
+			{
+				Audio.RequireMainThread();
+				if (!InternalCalls.Audio_SourceSetPriority(Entity.ID, value))
+					throw new ArgumentOutOfRangeException(nameof(value));
+			}
+		}
+		/// <summary>Release instances beyond every listener's authored event range.
+		/// Loops suspend and resume; inaudible one-shots are discarded. Default false.</summary>
+		public bool DistanceCulling
+		{
+			get { Audio.RequireMainThread(); return InternalCalls.Audio_SourceGetCulling(Entity.ID); }
+			set { Audio.RequireMainThread(); InternalCalls.Audio_SourceSetCulling(Entity.ID, value); }
+		}
+		public bool IsCulled
+		{
+			get { Audio.RequireMainThread(); return InternalCalls.Audio_SourceIsCulled(Entity.ID); }
+		}
 		public bool IsPlaying => InternalCalls.Audio_SourceIsPlaying(Entity.ID);
 		public bool IsPaused
 		{

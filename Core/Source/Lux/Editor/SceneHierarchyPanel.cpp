@@ -2979,6 +2979,29 @@ namespace Lux {
 				ImGuiEx::BeginPropertyGrid();
 				DrawAudioEventPicker(component, selectedEntities);
 
+				auto property = [&]<typename T>(const char* label, T AudioSourceComponent::* member, auto draw)
+				{
+					T value = component.*member;
+					const bool mixed = IsSelectionInconsistent<T>(m_Context, selectedEntities, [member](Entity entity)
+					{
+						return entity.GetComponent<AudioSourceComponent>().*member;
+					});
+					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
+					if (draw(label, value))
+						ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities, [member, value](AudioSourceComponent& source, Entity)
+						{
+							source.*member = value;
+						});
+				};
+				property("Priority", &AudioSourceComponent::Priority, [](const char* label, int& value)
+				{
+					return ImGuiEx::Property(label, value, 0, 256, "0 is highest priority; FMOD allocates real voices accordingly.", false);
+				});
+				property("Distance Culling", &AudioSourceComponent::DistanceCulling, [](const char* label, bool& value)
+				{
+					return ImGuiEx::Property(label, value, "Release beyond every listener's event max distance. Loops suspend; inaudible one-shots are discarded.", false);
+				});
+
 				if (ImGuiEx::Property("Volume", config.VolumeMultiplier, 0.01f, 0.0f, 2.0f))
 				{
 					ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities, [&config](AudioSourceComponent& audioComponent, Entity)
