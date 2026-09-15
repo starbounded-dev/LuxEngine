@@ -120,6 +120,116 @@ namespace Lux
 			return event && event->SetSnapshotIntensity(value);
 		}
 
+		AudioPortalComponent* Portal(uint64_t id)
+		{
+			Entity entity = AudioEntity(id);
+			auto* component = entity ? entity.TryGetComponent<AudioPortalComponent>() : nullptr;
+			if (entity && !component)
+				LUX_CORE_ERROR_TAG("Audio", "Entity {} no longer has AudioPortalComponent", id);
+			return component;
+		}
+
+		float Audio_PortalGetScalar(uint64_t id, int32_t field)
+		{
+			const auto* portal = Portal(id);
+			if (!portal)
+				return 0;
+			switch (field)
+			{
+				case 0: return portal->Enabled;
+				case 1: return portal->Open;
+				case 2: return portal->BlendDistance;
+				case 3: return static_cast<float>(portal->Material);
+				default: return 0;
+			}
+		}
+
+		Coral::Bool32 Audio_PortalSetScalar(uint64_t id, int32_t field, float value)
+		{
+			auto* portal = Portal(id);
+			if (!portal || !std::isfinite(value))
+				return false;
+			auto candidate = *portal;
+			switch (field)
+			{
+				case 0:
+					if (value != 0 && value != 1)
+						return false;
+					candidate.Enabled = value != 0;
+					break;
+				case 1: candidate.Open = value; break;
+				case 2: candidate.BlendDistance = value; break;
+				case 3:
+					if (value < 0 || value >= AcousticMaterialCount || std::trunc(value) != value)
+						return false;
+					candidate.Material = static_cast<AcousticMaterial>(value);
+					break;
+				default: return false;
+			}
+			if (!AudioZoneSystem::Validate(candidate))
+				return false;
+			*portal = candidate;
+			return true;
+		}
+
+		void Audio_PortalGetExtents(uint64_t id, glm::vec3* result)
+		{
+			const auto* portal = Portal(id);
+			if (result)
+				*result = portal ? portal->HalfExtents : glm::vec3(0);
+		}
+
+		Coral::Bool32 Audio_PortalSetExtents(uint64_t id, glm::vec3* value)
+		{
+			auto* portal = Portal(id);
+			if (!portal || !value)
+				return false;
+			auto candidate = *portal;
+			candidate.HalfExtents = *value;
+			if (!AudioZoneSystem::Validate(candidate))
+				return false;
+			*portal = candidate;
+			return true;
+		}
+
+		uint64_t Audio_PortalGetRoom(uint64_t id, Coral::Bool32 second)
+		{
+			const auto* portal = Portal(id);
+			return portal ? static_cast<uint64_t>(second ? portal->ZoneB : portal->ZoneA) : 0;
+		}
+
+		Coral::Bool32 Audio_PortalSetRoom(uint64_t id, Coral::Bool32 second, uint64_t room)
+		{
+			auto* portal = Portal(id);
+			if (!portal)
+				return false;
+			if (room)
+			{
+				Entity entity = AudioEntity(room);
+				if (!entity || !entity.HasComponent<AudioZoneComponent>() || room == (second ? portal->ZoneA : portal->ZoneB))
+					return false;
+			}
+			(second ? portal->ZoneB : portal->ZoneA) = room;
+			return true;
+		}
+
+		int32_t Audio_MeshGetMotion(uint64_t id)
+		{
+			Entity entity = AudioEntity(id);
+			const auto* collider = entity ? entity.TryGetComponent<MeshColliderComponent>() : nullptr;
+			return collider ? static_cast<int32_t>(collider->AcousticMotion) : 0;
+		}
+
+		Coral::Bool32 Audio_MeshSetMotion(uint64_t id, int32_t mode)
+		{
+			Entity entity = AudioEntity(id);
+			auto* collider = entity ? entity.TryGetComponent<MeshColliderComponent>() : nullptr;
+			if (!collider || mode < 0 || mode > static_cast<int32_t>(AcousticGeometryMode::Disabled))
+				return false;
+			collider->AcousticMotion = static_cast<AcousticGeometryMode>(mode);
+			return true;
+		}
+
 		AudioZoneComponent* Zone(uint64_t id)
 		{
 			Entity entity = AudioEntity(id);
@@ -823,6 +933,14 @@ namespace Lux
 		assembly.AddInternalCall("Lux.InternalCalls", "Music_IsPlaying", reinterpret_cast<void*>(&Music_IsPlaying));
 
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SetSnapshotIntensity", reinterpret_cast<void*>(&Audio_SetSnapshotIntensity));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_PortalGetScalar", reinterpret_cast<void*>(&Audio_PortalGetScalar));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_PortalSetScalar", reinterpret_cast<void*>(&Audio_PortalSetScalar));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_PortalGetExtents", reinterpret_cast<void*>(&Audio_PortalGetExtents));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_PortalSetExtents", reinterpret_cast<void*>(&Audio_PortalSetExtents));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_PortalGetRoom", reinterpret_cast<void*>(&Audio_PortalGetRoom));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_PortalSetRoom", reinterpret_cast<void*>(&Audio_PortalSetRoom));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_MeshGetMotion", reinterpret_cast<void*>(&Audio_MeshGetMotion));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_MeshSetMotion", reinterpret_cast<void*>(&Audio_MeshSetMotion));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneGetScalar", reinterpret_cast<void*>(&Audio_ZoneGetScalar));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneSetScalar", reinterpret_cast<void*>(&Audio_ZoneSetScalar));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ZoneGetVector", reinterpret_cast<void*>(&Audio_ZoneGetVector));

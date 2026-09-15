@@ -1,4 +1,5 @@
 #pragma once
+#include "Lux/Audio/AudioGeometrySettings.h"
 
 #include "Lux/Audio/AudioEventRef.h"
 
@@ -376,6 +377,7 @@ namespace Lux {
 		bool UseSharedShape = false;
 		ColliderMaterial Material;
 		AcousticMaterial Acoustic = AcousticMaterial::Default;
+		AcousticGeometryMode AcousticMotion = AcousticGeometryMode::Static;
 		ECollisionComplexity CollisionComplexity = ECollisionComplexity::Default;
 
 		MeshColliderComponent() = default;
@@ -431,6 +433,16 @@ namespace Lux {
 		float Volume = 1.0f;
 		AudioEventRef AmbienceEvent;
 		AudioSnapshotRef Snapshot;
+	};
+
+	struct AudioPortalComponent
+	{
+		bool Enabled = true;
+		UUID ZoneA = 0, ZoneB = 0;
+		glm::vec3 HalfExtents{ 0.5f, 1.0f, 0.05f };
+		float Open = 0.0f;
+		float BlendDistance = 5.0f;
+		AcousticMaterial Material = AcousticMaterial::Wood;
 	};
 
 	struct AudioSurfaceComponent
@@ -645,7 +657,7 @@ namespace Lux {
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, MusicDirectorComponent,
+		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 		FolderComponent>;
 
 }

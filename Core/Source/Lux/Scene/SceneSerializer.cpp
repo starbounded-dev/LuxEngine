@@ -716,6 +716,7 @@ namespace Lux {
 				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
 				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
 				out << YAML::Key << "AcousticMaterial" << YAML::Value << AcousticMaterialName(collider.Acoustic);
+				out << YAML::Key << "AcousticMotion" << YAML::Value << static_cast<uint32_t>(collider.AcousticMotion);
 				out << YAML::Key << "CollisionComplexity" << YAML::Value << (uint8_t)collider.CollisionComplexity;
 				out << YAML::EndMap;
 			}
@@ -758,6 +759,20 @@ namespace Lux {
 				out << YAML::Key << "Path" << YAML::Value << zone.Snapshot.Path;
 				out << YAML::Key << "BankName" << YAML::Value << zone.Snapshot.BankName;
 				out << YAML::EndMap;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<AudioPortalComponent>())
+			{
+				const auto& portal = entity.GetComponent<AudioPortalComponent>();
+				out << YAML::Key << "AudioPortalComponent" << YAML::BeginMap;
+				out << YAML::Key << "Enabled" << YAML::Value << portal.Enabled;
+				out << YAML::Key << "ZoneA" << YAML::Value << static_cast<uint64_t>(portal.ZoneA);
+				out << YAML::Key << "ZoneB" << YAML::Value << static_cast<uint64_t>(portal.ZoneB);
+				out << YAML::Key << "HalfExtents" << YAML::Value << portal.HalfExtents;
+				out << YAML::Key << "Open" << YAML::Value << portal.Open;
+				out << YAML::Key << "BlendDistance" << YAML::Value << portal.BlendDistance;
+				out << YAML::Key << "Material" << YAML::Value << AcousticMaterialName(portal.Material);
 				out << YAML::EndMap;
 			}
 
@@ -1245,6 +1260,10 @@ namespace Lux {
 					component.ColliderAsset = meshCollider["ColliderAsset"].as<uint64_t>(0);
 					component.SubmeshIndex = meshCollider["SubmeshIndex"].as<uint32_t>(0);
 					component.UseSharedShape = meshCollider["UseSharedShape"].as<bool>(false);
+					const auto motion = meshCollider["AcousticMotion"] ? meshCollider["AcousticMotion"].as<uint32_t>() : 0;
+					if (motion > static_cast<uint32_t>(AcousticGeometryMode::Disabled))
+						throw std::runtime_error("Invalid mesh acoustic motion mode");
+					component.AcousticMotion = static_cast<AcousticGeometryMode>(motion);
 					component.Material.Density = meshCollider["Density"].as<float>(1.0f);
 					component.Material.Friction = meshCollider["Friction"].as<float>(0.5f);
 					component.Material.Restitution = meshCollider["Restitution"].as<float>(0.0f);
@@ -1298,6 +1317,25 @@ namespace Lux {
 					}
 					if (!AudioZoneSystem::Validate(zone))
 						throw std::runtime_error("Invalid audio zone dimensions or blend settings");
+				}
+
+				if (auto node = entity["AudioPortalComponent"])
+				{
+					auto& portal = deserializedEntity.AddComponent<AudioPortalComponent>();
+					if (node["Enabled"])
+						portal.Enabled = node["Enabled"].as<bool>();
+					if (node["ZoneA"])
+						portal.ZoneA = node["ZoneA"].as<uint64_t>();
+					if (node["ZoneB"])
+						portal.ZoneB = node["ZoneB"].as<uint64_t>();
+					if (node["HalfExtents"])
+						portal.HalfExtents = node["HalfExtents"].as<glm::vec3>();
+					if (node["Open"])
+						portal.Open = node["Open"].as<float>();
+					if (node["BlendDistance"])
+						portal.BlendDistance = node["BlendDistance"].as<float>();
+					if (!ParseAcousticMaterial((node["Material"] ? node["Material"].as<std::string>() : "Wood"), portal.Material) || !AudioZoneSystem::Validate(portal))
+						throw std::runtime_error("Invalid audio portal material, dimensions or open factor");
 				}
 
 				if (auto surface = entity["AudioSurfaceComponent"])
@@ -1497,6 +1535,13 @@ namespace Lux {
 				prefabSource.GetComponent<AudioListenerComponent>().AttenuationTarget, prefabSource, instance));
 		}
 
+		if (prefabSource.HasComponent<AudioPortalComponent>())
+		{
+			const auto& portal = prefabSource.GetComponent<AudioPortalComponent>();
+			srcNode["AudioPortalComponent"]["ZoneA"] = static_cast<uint64_t>(Scene::MapPrefabEntityReference(portal.ZoneA, prefabSource, instance));
+			srcNode["AudioPortalComponent"]["ZoneB"] = static_cast<uint64_t>(Scene::MapPrefabEntityReference(portal.ZoneB, prefabSource, instance));
+		}
+
 		// A key is an override if it is present on one side only, or present on both but serializes
 		// differently. Scanning both directions catches instance-only and prefab-only components.
 		const auto scan = [&](const YAML::Node& lhs, const YAML::Node& rhs)
@@ -1562,7 +1607,16 @@ namespace Lux {
 		audio.LegacyAudio = 456;
 		audio.LegacyLooping = true;
 		audio.ScriptPaused = true;
-		childB.AddComponent<MeshColliderComponent>().Acoustic = AcousticMaterial::Wood;
+		auto& meshCollider = childB.AddComponent<MeshColliderComponent>();
+		meshCollider.Acoustic = AcousticMaterial::Wood;
+		meshCollider.AcousticMotion = AcousticGeometryMode::Dynamic;
+		auto& portal = childB.AddComponent<AudioPortalComponent>();
+		portal.Open = 0.35f;
+		portal.HalfExtents = { 2.0f, 3.0f, 0.1f };
+		portal.BlendDistance = 4.0f;
+		portal.Material = AcousticMaterial::Glass;
+		portal.Enabled = false;
+		const AudioPortalComponent expectedPortal = portal;
 		auto& surface = childB.AddComponent<AudioSurfaceComponent>();
 		surface.Material = AcousticMaterial::Carpet;
 		surface.FootstepOverride = audio.Event;
@@ -1602,8 +1656,18 @@ namespace Lux {
 			}
 			if (!entity.HasComponent<MeshColliderComponent>() || !entity.HasComponent<AudioSurfaceComponent>()
 				|| entity.GetComponent<MeshColliderComponent>().Acoustic != AcousticMaterial::Wood
+				|| entity.GetComponent<MeshColliderComponent>().AcousticMotion != AcousticGeometryMode::Dynamic
 				|| entity.GetComponent<AudioSurfaceComponent>().Material != AcousticMaterial::Carpet)
 				fail(std::format("{} lost acoustic material tags", operation));
+			if (const auto* copied = entity.TryGetComponent<AudioPortalComponent>())
+			{
+				if (copied->Enabled != expectedPortal.Enabled || copied->Open != expectedPortal.Open ||
+					copied->HalfExtents != expectedPortal.HalfExtents || copied->BlendDistance != expectedPortal.BlendDistance ||
+					copied->Material != expectedPortal.Material)
+					fail(std::format("{} changed portal data", operation));
+			}
+			else
+				fail(std::format("{} lost the audio portal", operation));
 			if (const auto* copied = entity.TryGetComponent<AudioSurfaceComponent>())
 			{
 				if (copied->FootstepOverride.Guid != expectedSurface.FootstepOverride.Guid
@@ -1653,10 +1717,41 @@ namespace Lux {
 		checkAudioCopy(prefab->GetScene()->TryGetEntityWithUUID(prefab->GetRootEntityID()), "Prefab creation");
 		checkAudioCopy(src->Instantiate(prefab), "Prefab instantiation");
 		src->ReconcilePrefabComponents(duplicate, parent);
-		if (duplicate.HasComponent<MusicDirectorComponent>() || duplicate.HasComponent<AudioZoneComponent>() || duplicate.HasComponent<AudioSourceComponent>() || duplicate.HasComponent<AudioSurfaceComponent>() || duplicate.HasComponent<MeshColliderComponent>())
+		if (duplicate.HasComponent<AudioPortalComponent>() || duplicate.HasComponent<MusicDirectorComponent>() || duplicate.HasComponent<AudioZoneComponent>() || duplicate.HasComponent<AudioSourceComponent>() || duplicate.HasComponent<AudioSurfaceComponent>() || duplicate.HasComponent<MeshColliderComponent>())
 			fail("Prefab reconciliation did not remove an absent audio source");
 		src->ReconcilePrefabComponents(duplicate, childB);
 		checkAudioCopy(duplicate, "Prefab reconciliation");
+
+		Entity portalRig = src->CreateEntity("PortalRig");
+		Entity roomA = src->CreateChildEntity(portalRig, "RoomA");
+		Entity roomB = src->CreateChildEntity(portalRig, "RoomB");
+		roomA.AddComponent<AudioZoneComponent>();
+		roomB.AddComponent<AudioZoneComponent>();
+		auto& linked = portalRig.AddComponent<AudioPortalComponent>();
+		linked.ZoneA = roomA.GetUUID();
+		linked.ZoneB = roomB.GetUUID();
+		const auto checkPortal = [&](Entity root, const char* operation)
+		{
+			const auto* copied = root.TryGetComponent<AudioPortalComponent>();
+			if (!copied || root.Children().size() != 2 || copied->ZoneA != root.Children()[0] || copied->ZoneB != root.Children()[1])
+				fail(std::format("{} failed to remap portal room references", operation));
+		};
+		checkPortal(src->DuplicateEntity(portalRig), "Duplicate portal");
+		Ref<Prefab> portalPrefab = Ref<Prefab>::Create();
+		portalPrefab->Create(portalRig, false);
+		Entity prefabPortal = portalPrefab->GetScene()->TryGetEntityWithUUID(portalPrefab->GetRootEntityID());
+		checkPortal(prefabPortal, "Create portal prefab");
+		Entity portalInstance = src->Instantiate(portalPrefab);
+		checkPortal(portalInstance, "Instantiate portal prefab");
+		if (GetOverriddenComponentKeys(portalInstance, prefabPortal).contains("AudioPortalComponent"))
+			fail("remapped portal room IDs were incorrectly detected as prefab overrides");
+		portalInstance.GetComponent<AudioPortalComponent>().ZoneA = 0;
+		if (!GetOverriddenComponentKeys(portalInstance, prefabPortal).contains("AudioPortalComponent"))
+			fail("cleared portal room was not detected as a prefab override");
+		Scene::ReconcilePrefabComponents(portalInstance, prefabPortal);
+		checkPortal(portalInstance, "Revert portal prefab");
+		Scene::ReconcilePrefabComponents(prefabPortal, portalInstance);
+		checkPortal(prefabPortal, "Apply portal prefab");
 
 		Entity listenerRig = src->CreateEntity("ListenerRig");
 		Entity attenuationTarget = src->CreateChildEntity(listenerRig, "ListenerTarget");
@@ -1730,6 +1825,7 @@ namespace Lux {
 			return ok;
 		}
 
+		checkPortal(dst->TryGetEntityWithUUID(portalRig.GetUUID()), "Portal round-trip");
 		checkListener(dst->TryGetEntityWithUUID(listenerRig.GetUUID()), "Listener round-trip");
 		std::string meta2;
 		Entity restoredAudioEntity = dst->TryGetEntityWithUUID(childB.GetUUID());

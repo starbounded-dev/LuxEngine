@@ -443,9 +443,18 @@ namespace Lux {
 			Entity entity{ handle, this };
 			m_AudioZoneInputs.push_back({ entity.GetUUID(), &entity.GetComponent<AudioZoneComponent>(), GetAudioZoneVolume(entity) });
 		}
+		m_AudioPortalInputs.clear();
+		for (auto handle : m_Registry.view<TransformComponent, AudioPortalComponent>())
+		{
+			Entity entity{ handle, this };
+			const auto& portal = entity.GetComponent<AudioPortalComponent>();
+			const float open = m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning() ? m_AudioGeometry.GetPortalOpen(entity.GetUUID()) : portal.Open;
+			m_AudioPortalInputs.push_back({ entity.GetUUID(), portal.ZoneA, portal.ZoneB, GetWorldSpaceTransformMatrix(entity),
+				portal.HalfExtents, open, portal.BlendDistance, portal.Enabled });
+		}
 		const auto project = Project::GetActive();
 		m_AudioZones.Update(m_AudioZoneInputs, m_RuntimeAudioListeners, timestep, m_IsPaused,
-			project ? project->GetConfig().Audio.ZoneReverbMode : AudioZoneReverbMode::Layered, m_AudioZoneRaytracedValid);
+			project ? project->GetConfig().Audio.ZoneReverbMode : AudioZoneReverbMode::Layered, m_AudioZoneRaytracedValid, m_AudioPortalInputs);
 	}
 
 	const AudioListenerState* Scene::GetPrimaryAudioListener() const
@@ -809,6 +818,7 @@ namespace Lux {
 			// Join before reading VA results; zone evaluation itself also works without VA.
 			if (m_RaytracedAudioScene)
 				m_RaytracedAudioScene->WaitForResults();
+			SyncAudioGeometry();
 			UpdateAudioZones(static_cast<float>(ts), m_RaytracedAudioScene && m_RaytracedAudioScene->GetAmbience().Valid);
 
 			if (m_RaytracedAudioScene)
@@ -1089,7 +1099,7 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, MusicDirectorComponent,
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 			FolderComponent>;
 
 		if (!entity)
@@ -1156,7 +1166,7 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, MusicDirectorComponent, FolderComponent>;
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
 		std::unordered_map<UUID, UUID> entityMap;
 		std::function<Entity(Entity, Entity)> instantiateHierarchy;
@@ -1200,6 +1210,20 @@ namespace Lux {
 		for (const auto& [sourceID, destinationID] : entityMap)
 		{
 			Entity destination = TryGetEntityWithUUID(destinationID);
+			if (destination && destination.HasComponent<AudioPortalComponent>())
+			{
+				auto& portal = destination.GetComponent<AudioPortalComponent>();
+				for (UUID* target : { &portal.ZoneA, &portal.ZoneB })
+				{
+					if (auto it = entityMap.find(*target); it != entityMap.end())
+						*target = it->second;
+					else if (clearExternal && *target != 0)
+					{
+						LUX_CORE_WARN_TAG("Audio", "Cleared external room {} on cloned portal {}", static_cast<uint64_t>(*target), static_cast<uint64_t>(destinationID));
+						*target = 0;
+					}
+				}
+			}
 			if (!destination || !destination.HasComponent<AudioListenerComponent>())
 				continue;
 			auto& listener = destination.GetComponent<AudioListenerComponent>();
@@ -1292,9 +1316,20 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, MusicDirectorComponent, FolderComponent>;
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
 		ReconcileComponents(PrefabSyncComponents{}, destination, source);
+		if (destination.HasComponent<AudioPortalComponent>())
+		{
+			auto& portal = destination.GetComponent<AudioPortalComponent>();
+			for (UUID* room : { &portal.ZoneA, &portal.ZoneB })
+			{
+				const UUID original = *room;
+				*room = MapPrefabEntityReference(original, source, destination);
+				if (original != 0 && *room == 0)
+					LUX_CORE_WARN_TAG("Audio", "Cleared portal room {}: it cannot be mapped into the destination prefab hierarchy", static_cast<uint64_t>(original));
+			}
+		}
 		if (destination.HasComponent<AudioListenerComponent>())
 		{
 			auto& listener = destination.GetComponent<AudioListenerComponent>();
@@ -1589,6 +1624,86 @@ namespace Lux {
 		}
 	}
 
+	bool Scene::BuildAcousticGeometry(const AudioGeometryInput& input, AcousticGeometry& batch)
+	{
+		Ref<StaticMesh> staticMesh;
+		Ref<MeshSource> meshSource;
+		if (!input.Mesh || !ResolveStaticMeshDebugAssets(input.Mesh, staticMesh, meshSource))
+			return false;
+		const auto& indices = meshSource->GetIndices();
+		const auto& submeshes = meshSource->GetSubmeshes();
+		const size_t vertexCount = meshSource->GetVertexCount();
+		const bool selected = input.Submesh < submeshes.size();
+		const size_t first = selected ? input.Submesh : 0;
+		const size_t last = selected ? first + 1 : submeshes.size();
+		for (size_t i = first; i < last; ++i)
+		{
+			const auto& submesh = submeshes[i];
+			const uint64_t start = submesh.BaseIndex / 3;
+			const uint64_t end = start + submesh.IndexCount / 3;
+			if (submesh.BaseIndex % 3 || submesh.IndexCount % 3 || end > indices.size())
+				return false;
+			for (uint64_t triangleIndex = start; triangleIndex < end; ++triangleIndex)
+			{
+				const auto& triangle = indices[triangleIndex];
+				for (uint32_t index : { triangle.V1, triangle.V2, triangle.V3 })
+				{
+					const uint64_t vertex = static_cast<uint64_t>(submesh.BaseVertex) + index;
+					if (vertex >= vertexCount)
+						return false;
+					batch.Triangles.push_back(glm::vec3(submesh.Transform * glm::vec4(meshSource->GetVertexPosition(static_cast<uint32_t>(vertex)), 1)));
+				}
+			}
+		}
+		return !batch.Triangles.empty();
+	}
+
+	void Scene::SyncAudioGeometry(bool initial)
+	{
+		if (!m_RaytracedAudioScene || !m_RaytracedAudioScene->IsRunning())
+			return;
+		LUX_PROFILE_FUNCTION_AUTO;
+		m_AudioGeometryInputs.clear();
+		for (auto handle : m_Registry.view<TransformComponent, MeshColliderComponent>())
+		{
+			Entity entity{ handle, this };
+			const auto& collider = entity.GetComponent<MeshColliderComponent>();
+			if (collider.AcousticMotion == AcousticGeometryMode::Disabled)
+				continue;
+			AudioGeometryInput input;
+			input.Entity = entity.GetUUID();
+			input.Mode = collider.AcousticMotion;
+			input.Mesh = ResolveMeshColliderHandle(entity, collider);
+			input.Submesh = collider.SubmeshIndex;
+			if (const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>())
+				input.Material = surface->Material;
+			else
+				input.Material = collider.Acoustic;
+			if (input.Mode != AcousticGeometryMode::Static || !m_AudioGeometry.GetStaticTransform(input.Entity, input.Transform))
+				input.Transform = GetWorldSpaceTransformMatrix(entity);
+			m_AudioGeometryInputs.push_back(input);
+		}
+		for (auto handle : m_Registry.view<TransformComponent, AudioPortalComponent>())
+		{
+			Entity entity{ handle, this };
+			const auto& portal = entity.GetComponent<AudioPortalComponent>();
+			if (!portal.Enabled)
+				continue;
+			AudioGeometryInput input;
+			input.Entity = entity.GetUUID();
+			input.Portal = true;
+			input.Mode = AcousticGeometryMode::Dynamic;
+			input.Material = portal.Material;
+			input.Transform = GetWorldSpaceTransformMatrix(entity);
+			input.HalfExtents = portal.HalfExtents;
+			input.Open = portal.Open;
+			m_AudioGeometryInputs.push_back(input);
+		}
+		m_AudioGeometry.Sync(m_AudioGeometryInputs, *m_RaytracedAudioScene,
+			[this](const auto& input, auto& geometry) { return BuildAcousticGeometry(input, geometry); },
+			initial ? SIZE_MAX : 8, initial ? SIZE_MAX : 65536);
+	}
+
 	void Scene::OnRaytracedAudioStart()
 	{
 		// Skip constructing the scene entirely when the feature isn't compiled in, so a build
@@ -1601,68 +1716,14 @@ namespace Lux {
 		const auto project = Project::GetActive();
 		m_RaytracedAudioScene->Start(project ? project->GetConfig().Audio.AcousticMaterials : AcousticMaterialSettings{});
 
-		std::vector<AcousticGeometry> staticGeometry;
-		{
-			auto view = m_Registry.view<TransformComponent, MeshColliderComponent>();
-			view.each([&](entt::entity entityHandle, TransformComponent& worldTransform, MeshColliderComponent& collider)
-				{
-					Entity entity = { entityHandle, this };
-					AssetHandle meshHandle = ResolveMeshColliderHandle(entity, collider);
-					if (!meshHandle)
-						return;
-
-					Ref<StaticMesh> staticMesh;
-					Ref<MeshSource> meshSource;
-					if (!ResolveStaticMeshDebugAssets(meshHandle, staticMesh, meshSource))
-						return;
-
-					const glm::mat4 entityTransform = GetWorldSpaceTransformMatrix(entity);
-					const size_t vertexCount = meshSource->GetVertexCount();
-					const std::vector<Index>& indices = meshSource->GetIndices();
-					if (vertexCount == 0 || indices.empty())
-						return;
-
-					AcousticGeometry batch;
-					const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>();
-					batch.Material = surface ? surface->Material : collider.Acoustic;
-					// Match physics: a valid index selects one submesh; an out-of-range index selects all.
-					const auto& submeshes = meshSource->GetSubmeshes();
-					const bool selectedSubmesh = collider.SubmeshIndex < submeshes.size();
-					const size_t firstSubmesh = selectedSubmesh ? collider.SubmeshIndex : 0;
-					const size_t lastSubmesh = selectedSubmesh ? firstSubmesh + 1 : submeshes.size();
-					for (size_t submeshIndex = firstSubmesh; submeshIndex < lastSubmesh; ++submeshIndex)
-					{
-						const Submesh& submesh = submeshes[submeshIndex];
-						const glm::mat4 worldSpace = entityTransform * submesh.Transform;
-
-						const uint32_t firstTriangle = submesh.BaseIndex / 3;
-						const uint32_t triangleCount = submesh.IndexCount / 3;
-						const uint32_t lastTriangle = std::min<uint32_t>(firstTriangle + triangleCount, (uint32_t)indices.size());
-
-						for (uint32_t triangleIndex = firstTriangle; triangleIndex < lastTriangle; triangleIndex++)
-						{
-							const Index& triangle = indices[triangleIndex];
-							const uint32_t i0 = submesh.BaseVertex + triangle.V1;
-							const uint32_t i1 = submesh.BaseVertex + triangle.V2;
-							const uint32_t i2 = submesh.BaseVertex + triangle.V3;
-							if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
-								continue;
-
-							batch.Triangles.push_back(glm::vec3(worldSpace * glm::vec4(meshSource->GetVertexPosition(i0), 1.0f)));
-							batch.Triangles.push_back(glm::vec3(worldSpace * glm::vec4(meshSource->GetVertexPosition(i1), 1.0f)));
-							batch.Triangles.push_back(glm::vec3(worldSpace * glm::vec4(meshSource->GetVertexPosition(i2), 1.0f)));
-						}
-					}
-					if (!batch.Triangles.empty())
-						staticGeometry.push_back(std::move(batch));
-				});
-		}
-		if (!m_RaytracedAudioScene->SetStaticGeometry(staticGeometry))
-			OnRaytracedAudioStop();
+		SyncAudioGeometry(true);
 	}
 
 	void Scene::OnRaytracedAudioStop()
 	{
+		m_AudioGeometry.Clear();
+		m_AudioGeometryInputs.clear();
+		m_AudioPortalInputs.clear();
 		if (m_RaytracedAudioScene)
 		{
 			m_RaytracedAudioScene->Stop();
@@ -2163,6 +2224,34 @@ namespace Lux {
 		constexpr glm::vec4 boundaryColor{ 0.35f, 0.75f, 1.0f, 1.0f };
 		constexpr glm::vec4 blendColor{ 0.35f, 0.75f, 1.0f, 0.4f };
 		constexpr int segments = 48;
+		for (auto handle : m_Registry.view<TransformComponent, AudioPortalComponent>())
+		{
+			Entity entity{ handle, this };
+			if (!isSelected(entity))
+				continue;
+			const auto& portal = entity.GetComponent<AudioPortalComponent>();
+			AudioGeometryInput input;
+			input.Entity = entity.GetUUID();
+			input.Portal = true;
+			input.Open = portal.Open;
+			input.HalfExtents = portal.HalfExtents;
+			input.Transform = GetWorldSpaceTransformMatrix(entity);
+			if (!AudioGeometrySystem::Validate(input))
+				continue;
+			for (int shutter = 0; shutter < 2; ++shutter)
+			{
+				if (shutter && (!portal.Enabled || portal.Open == 1))
+					continue;
+				const auto transform = shutter ? AudioGeometrySystem::PortalTransform(input) : glm::scale(input.Transform, portal.HalfExtents);
+				glm::vec3 corners[8];
+				for (int i = 0; i < 8; ++i)
+					corners[i] = glm::vec3(transform * glm::vec4(i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1, 1));
+				for (int i = 0; i < 8; ++i)
+					for (int axis = 0; axis < 3; ++axis)
+						if (!(i & (1 << axis)))
+							packet.AudioZoneLines.push_back({ corners[i], corners[i | (1 << axis)], shutter ? boundaryColor : blendColor });
+			}
+		}
 		for (auto handle : m_Registry.view<TransformComponent, AudioZoneComponent>())
 		{
 			Entity entity{ handle, this };
@@ -2833,6 +2922,11 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<MusicDirectorComponent>(Entity entity, MusicDirectorComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AudioPortalComponent>(Entity entity, AudioPortalComponent& component)
 	{
 	}
 

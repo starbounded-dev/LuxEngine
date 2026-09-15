@@ -9,6 +9,14 @@ namespace Lux
 	internal static unsafe class InternalCalls
 	{
 #pragma warning disable CS0649 // assigned from native code
+		internal static delegate*<ulong, int, float> Audio_PortalGetScalar;
+		internal static delegate*<ulong, int, float, Bool32> Audio_PortalSetScalar;
+		internal static delegate*<ulong, Vector3*, void> Audio_PortalGetExtents;
+		internal static delegate*<ulong, Vector3*, Bool32> Audio_PortalSetExtents;
+		internal static delegate*<ulong, Bool32, ulong> Audio_PortalGetRoom;
+		internal static delegate*<ulong, Bool32, ulong, Bool32> Audio_PortalSetRoom;
+		internal static delegate*<ulong, int> Audio_MeshGetMotion;
+		internal static delegate*<ulong, int, Bool32> Audio_MeshSetMotion;
 
 		#region Music
 		internal static delegate*<NativeString, Bool32> Music_Play;

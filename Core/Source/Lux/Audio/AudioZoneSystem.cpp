@@ -17,6 +17,27 @@ namespace Lux {
 		}
 	}
 
+	bool AudioZoneSystem::Validate(const AudioPortalComponent& component)
+	{
+		return Finite(component.HalfExtents) && glm::all(glm::greaterThan(component.HalfExtents, glm::vec3(0))) &&
+			std::isfinite(component.Open) && component.Open >= 0 && component.Open <= 1 &&
+			std::isfinite(component.BlendDistance) && component.BlendDistance > 0 && IsValidAcousticMaterial(component.Material);
+	}
+
+	bool AudioZoneSystem::ValidatePortal(const AudioPortalInput& portal)
+	{
+		if (!portal.ID || !portal.ZoneA || !portal.ZoneB || portal.ZoneA == portal.ZoneB || !Finite(portal.HalfExtents) ||
+			glm::any(glm::lessThanEqual(portal.HalfExtents, glm::vec3(0))) || !std::isfinite(portal.Open) || portal.Open < 0 || portal.Open > 1 ||
+			!std::isfinite(portal.BlendDistance) || portal.BlendDistance <= 0)
+			return false;
+		for (int c = 0; c < 4; ++c)
+			if (!Finite(glm::vec3(portal.Transform[c])) || !std::isfinite(portal.Transform[c].w))
+				return false;
+		const double determinant = glm::determinant(glm::dmat3(portal.Transform));
+		return std::isfinite(determinant) && determinant != 0 && portal.Transform[0].w == 0 &&
+			portal.Transform[1].w == 0 && portal.Transform[2].w == 0 && portal.Transform[3].w == 1;
+	}
+
 	bool AudioZoneSystem::Validate(const AudioZoneComponent& component)
 	{
 		return component.Shape <= AudioZoneShape::Collider && Finite(component.Offset) && Finite(component.HalfExtents)
@@ -67,7 +88,7 @@ namespace Lux {
 		return blendDistance == 0.0f ? 1.0f : std::clamp(depth / blendDistance, 0.0f, 1.0f);
 	}
 
-	void AudioZoneSystem::Blend(std::span<AudioZoneInput> zones, const AudioListener::States& listeners)
+	void AudioZoneSystem::Blend(std::span<AudioZoneInput> zones, const AudioListener::States& listeners, std::span<const AudioPortalInput> portals)
 	{
 		for (auto& zone : zones)
 			zone.Target = 0.0f;
@@ -87,6 +108,10 @@ namespace Lux {
 		{
 			if (!std::isfinite(listener.Weight) || listener.Weight <= 0.0f)
 				continue;
+			for (auto& zone : zones)
+			{
+				zone.ListenerTarget = zone.PortalDelta = zone.PortalOutgoing = 0.0f;
+			}
 			float remaining = listener.Weight / totalWeight;
 			const glm::vec3 position = listener.UseAttenuationPosition ? listener.AttenuationPosition : listener.Position;
 			for (size_t begin = 0; begin < zones.size();)
@@ -103,11 +128,40 @@ namespace Lux {
 				{
 					for (size_t i = begin; i < end; ++i)
 						if (zones[i].Component->Enabled)
-							zones[i].Target += remaining * coverage * Evaluate(zones[i].Volume, position, zones[i].Component->BlendDistance) / sum;
+							zones[i].ListenerTarget += remaining * coverage * Evaluate(zones[i].Volume, position, zones[i].Component->BlendDistance) / sum;
 				}
 				remaining *= 1.0f - coverage;
 				begin = end;
 			}
+			const auto visit = [&](auto transfer)
+			{
+				for (const auto& portal : portals)
+				{
+					if (!portal.Enabled || !ValidatePortal(portal) || portal.Open <= 0)
+						continue;
+					auto a = std::find_if(zones.begin(), zones.end(), [&](const auto& zone) { return zone.ID == portal.ZoneA; });
+					auto b = std::find_if(zones.begin(), zones.end(), [&](const auto& zone) { return zone.ID == portal.ZoneB; });
+					if (a == zones.end() || b == zones.end() || !a->Component->Enabled || !b->Component->Enabled || !a->Volume.Valid || !b->Volume.Valid)
+						continue;
+					const glm::vec3 local(glm::inverse(portal.Transform) * glm::vec4(position, 1));
+					const glm::vec3 closest(portal.Transform * glm::vec4(glm::clamp(local, -portal.HalfExtents, portal.HalfExtents), 1));
+					if (!Finite(local) || !Finite(closest))
+						continue;
+					const float proximity = std::clamp(1.0f - glm::distance(position, closest) / portal.BlendDistance, 0.0f, 1.0f);
+					const float share = 0.5f * portal.Open * proximity;
+					transfer(*a, *b, share);
+					transfer(*b, *a, share);
+				}
+			};
+			visit([](auto& from, auto&, float share) { from.PortalOutgoing += share; });
+			visit([](auto& from, auto& to, float share)
+			{
+				const float amount = from.ListenerTarget * share / std::max(1.0f, from.PortalOutgoing);
+				from.PortalDelta -= amount;
+				to.PortalDelta += amount;
+			});
+			for (auto& zone : zones)
+				zone.Target += std::max(0.0f, zone.ListenerTarget + zone.PortalDelta);
 		}
 	}
 
@@ -156,7 +210,7 @@ namespace Lux {
 	}
 
 	void AudioZoneSystem::Update(std::span<AudioZoneInput> zones, const AudioListener::States& listeners, float timestep,
-		bool paused, AudioZoneReverbMode mode, bool raytracedReverbValid)
+		bool paused, AudioZoneReverbMode mode, bool raytracedReverbValid, std::span<const AudioPortalInput> portals)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		for (auto& [id, zone] : m_Zones)
@@ -168,7 +222,20 @@ namespace Lux {
 		}
 		for (auto& input : zones)
 			input.Volume.Valid = input.Volume.Valid && Validate(*input.Component);
-		Blend(zones, listeners);
+		for (const auto& portal : portals)
+		{
+			const bool linked = portal.ZoneA != 0 || portal.ZoneB != 0;
+			const auto exists = [&](UUID id) { return std::any_of(zones.begin(), zones.end(), [&](const auto& zone) { return zone.ID == id; }); };
+			if (portal.Enabled && linked && (!ValidatePortal(portal) || !exists(portal.ZoneA) || !exists(portal.ZoneB)))
+			{
+				if (m_InvalidPortals.insert(portal.ID).second)
+					LUX_CORE_ERROR_TAG("Audio", "Invalid audio portal {}: link two different audio zones and use finite positive dimensions/range", static_cast<uint64_t>(portal.ID));
+			}
+			else
+				m_InvalidPortals.erase(portal.ID);
+		}
+		std::erase_if(m_InvalidPortals, [&](UUID id) { return std::none_of(portals.begin(), portals.end(), [&](const auto& portal) { return portal.ID == id; }); });
+		Blend(zones, listeners, portals);
 		const float dt = paused || !std::isfinite(timestep) ? 0.0f : std::max(0.0f, timestep);
 		for (auto& input : zones)
 		{
@@ -247,6 +314,7 @@ namespace Lux {
 		m_Zones.clear();
 		m_Snapshots.clear();
 		m_InvalidZones.clear();
+		m_InvalidPortals.clear();
 		m_RaytracedReverbGain = 1.0f;
 	}
 

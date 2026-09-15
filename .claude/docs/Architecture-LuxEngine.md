@@ -382,8 +382,8 @@ event; the engine cannot infer event GUIDs or recreate Studio authoring from a r
 sources do not write legacy keys. Looping is authored in the event timeline.
 
 **Acoustics:** `Scene` owns a `RaytracedAudioScene`, which wraps VA behind a Pimpl. Runtime start
-mirrors mesh-collider triangles into static world-space geometry. Dynamic geometry is a later
-phase. Each frame joins the previous VA batch with `WaitForResults`, updates the dominant listener
+mirrors mesh-collider triangles into VA primitives owned by that scene. Each frame joins the
+previous VA batch with `WaitForResults`, applies the geometry queue, updates the dominant listener
 and source emitter positions, reads completed results, then launches the next batch with
 `OnUpdate`. Joining before mutation and teardown is mandatory. VA simulates one listener: highest
 weight wins, lowest index breaks ties, and an attenuation target overrides its acoustic position.
@@ -402,12 +402,28 @@ prefab instantiation/reconciliation and runtime scene serialization. C# exposes 
 through `MeshColliderComponent.Material` and `AudioSurfaceComponent.Material` as read-only queries.
 Physics friction/density/restitution and renderer materials remain independent.
 
-At Play start, `Scene` produces one world-space triangle batch per mesh collider, honoring its
-submesh index with the same selection rule as physics (valid index selects one; otherwise all).
-`RaytracedAudioScene` mirrors each batch into a distinct VA primitive, preserving material
-boundaries. Geometry and settings are static for that session; edits apply on the next Play.
-Moving/remeshing/re-tagging live geometry belongs to Phase 13. No new per-frame geometry work is
-introduced. Material setup and primitive mutation occur on the main thread while VA is idle.
+**Dynamic geometry and portals (Phase 13):** `Scene::SyncAudioGeometry` captures mesh collider
+metadata and world transforms into a scene-owned `AudioGeometrySystem`. Static/Dynamic/Disabled
+acoustic motion is independent of physics. Static captures its transform; Dynamic tracks hierarchy
+movement; Disabled omits the collider. Local triangle batches include submesh transforms and use
+the same selection rule as physics (valid index selects one; otherwise all). Changed transforms
+and tags update an existing VA primitive; mesh/submesh selection changes rebuild only that node.
+The queue coalesces edits and limits active frames to eight primitive updates, stopping after
+65,536 affected vertices (a soft threshold because a mesh update is indivisible). Startup drains
+all work. Removal bypasses rebuild work. Failed replacements retain the prior geometry and report
+an error; invalid authored inputs are reported and removed. In-place mesh asset hot reload and
+deformation require restarting Play. Per-tag coefficient settings remain captured at Play start.
+
+`AudioPortalComponent` supplies a local rectangular VA shutter that retracts toward -X as Open
+increases, disappearing at Open=1. It can link two AudioZone entities. `AudioZoneSystem` transfers
+a distance/open-weighted share of each listener's zone weights across those links, normalizing
+outgoing shares and applying only one hop so cycles/multiple openings cannot amplify weight.
+Room transfer uses the shutter's last applied Open while VA is running. Portal references remap
+through duplicate/prefab paths; C# setters and the inspector edit the same component data. Selected
+portal wireframes are copied into `FrameRenderPacket::AudioZoneLines` on the main thread. VA nodes
+and their local bounds/counts are owned by `RaytracedAudioScene`; world bounds expand for movement.
+All geometry mutations occur after the previous VA worker batch joins. See
+`docs/AUDIO_DYNAMIC_GEOMETRY.md` for authoring, scheduling and acoustic approximation limits.
 
 Each engine tag gets its own VA custom material ID (`1000 + stable tag ID`), so overrides cannot
 leak between tags that share a preset. Most tags map directly; Default uses Concrete, Carpet and
@@ -709,9 +725,9 @@ already bound — a panel has no scene camera of its own. Note `EditorLayer` hol
 Both stats structs expose SDK status as data, so editor panels use read-only Core accessors.
 `AudioEngineStats::HasMixerStats` distinguishes unavailable measurements from a real zero.
 
-`RaytracedAudioScene::Impl` tracks `StaticTriangleCount` alongside its primitives purely so the panel
-can tell "no geometry mirrored" apart from "geometry the simulation is ignoring" — the SDK offers no
-way to read a primitive's triangle count back.
+`RaytracedAudioScene::Impl` tracks local bounds and triangle counts for static/dynamic geometry;
+the debugger displays both counts and the scene queue backlog. The SDK offers no way to read a
+primitive's triangle count back.
 
 ### 2.11 Input
 

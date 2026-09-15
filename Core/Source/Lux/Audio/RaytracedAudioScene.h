@@ -139,6 +139,8 @@ namespace Lux {
 		int SourceEmitterCount = 0;    // emitters we own, one per audio-emitting entity
 		int StaticPrimitiveCount = 0;
 		int StaticTriangleCount = 0;
+		int DynamicPrimitiveCount = 0;
+		int DynamicTriangleCount = 0;
 		int RaysCastThisFrame = 0;
 		int WorkItemCount = 0;
 		int MaximumConcurrencyLevel = 0;
@@ -176,6 +178,7 @@ namespace Lux {
 	public:
 		// SDK availability, independent of whether this scene has started its simulation.
 		static bool IsAvailable();
+		bool IsRunning() const;
 
 		explicit RaytracedAudioScene(Scene* scene);
 		~RaytracedAudioScene();
@@ -198,6 +201,12 @@ namespace Lux {
 		// Each batch is one collider in world space, with three positions per triangle.
 		// Call on an idle world; material boundaries are preserved as separate primitives.
 		bool SetStaticGeometry(const std::vector<AcousticGeometry>& geometry);
+
+		// Local-space geometry, keyed by a scene-owned runtime ID. Mutate only after WaitForResults.
+		bool SetGeometry(UUID id, const AcousticGeometry& geometry, const glm::mat4& transform, bool dynamic);
+		bool UpdateGeometry(UUID id, const glm::mat4& transform, AcousticMaterial material, bool dynamic);
+		bool RemoveGeometry(UUID id);
+		bool GetGeometryTransform(UUID id, glm::mat4& transform) const;
 
 		void SetListener(const glm::vec3& position, const glm::vec3& forward);
 

@@ -73,6 +73,7 @@ namespace Lux {
 			if (entity.HasComponent<TextComponent>())             return { LUX_ICON_FONT, neutral };
 			if (entity.HasComponent<SpriteRendererComponent>())   return { LUX_ICON_PICTURE_O, neutral };
 			if (entity.HasComponent<AudioSourceComponent>())      return { LUX_ICON_MUSIC, purple };
+			if (entity.HasComponent<AudioPortalComponent>())      return { LUX_ICON_VOLUME_UP, purple };
 			if (entity.HasComponent<AudioZoneComponent>())        return { LUX_ICON_VOLUME_UP, purple };
 			if (entity.HasComponent<AudioListenerComponent>())    return { LUX_ICON_VOLUME_UP, purple };
 			if (entity.HasComponent<ScriptComponent>())           return { LUX_ICON_CODE, green };
@@ -1460,6 +1461,7 @@ namespace Lux {
 				const bool canAddMeshCollider = canAddComponent.template operator()<MeshColliderComponent>();
 				const bool canAddAudioSource = canAddComponent.template operator()<AudioSourceComponent>();
 				const bool canAddMusic = canAddComponent.template operator()<MusicDirectorComponent>();
+				const bool canAddAudioPortal = canAddComponent.template operator()<AudioPortalComponent>();
 				const bool canAddAudioZone = canAddComponent.template operator()<AudioZoneComponent>();
 				const bool canAddAudioSurface = canAddComponent.template operator()<AudioSurfaceComponent>();
 				const bool canAddAudioListener = canAddComponent.template operator()<AudioListenerComponent>();
@@ -1720,6 +1722,18 @@ namespace Lux {
 						}
 					});
 				}
+				if (canAddAudioPortal)
+				{
+					addComponentRow("Audio Portal", EditorResources::AudioIcon, [this, &entityIDs]()
+					{
+						for (UUID id : entityIDs)
+						{
+							Entity entity = m_Context->TryGetEntityWithUUID(id);
+							if (entity && !entity.HasComponent<AudioPortalComponent>())
+								entity.AddComponent<AudioPortalComponent>();
+						}
+					});
+				}
 				if (canAddAudioZone)
 				{
 					addComponentRow("Audio Zone", EditorResources::AudioIcon, [this, &entityIDs]()
@@ -1950,6 +1964,7 @@ namespace Lux {
 						row.operator()<AudioListenerComponent>("AudioListenerComponent", "Audio Listener");
 						row.operator()<AudioSurfaceComponent>("AudioSurfaceComponent", "Audio Surface");
 						row.operator()<AudioZoneComponent>("AudioZoneComponent", "Audio Zone");
+						row.operator()<AudioPortalComponent>("AudioPortalComponent", "Audio Portal");
 						row.operator()<MusicDirectorComponent>("MusicDirectorComponent", "Music Director");
 						row.operator()<FolderComponent>("Folder", "Folder");
 
@@ -2767,13 +2782,28 @@ namespace Lux {
 						return entity.GetComponent<MeshColliderComponent>().Acoustic;
 					});
 					ImGuiEx::ScopedItemFlags mixedFlag(ImGuiItemFlags_MixedValue, mixedMaterial);
-					if (ImGuiEx::PropertyDropdown("Acoustic Material", s_MaterialNames.data(), static_cast<int>(AcousticMaterialCount), &acousticMaterial, "Captured when Play starts. An Audio Surface component on this entity takes precedence.", false))
+					if (ImGuiEx::PropertyDropdown("Acoustic Material", s_MaterialNames.data(), static_cast<int>(AcousticMaterialCount), &acousticMaterial, "An Audio Surface component on this entity takes precedence. Runtime edits enter the geometry update queue.", false))
 					{
 						ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [acousticMaterial](MeshColliderComponent& component, Entity)
 						{
 							component.Acoustic = static_cast<AcousticMaterial>(acousticMaterial);
 						});
 					}
+				}
+
+				{
+					static const char* modes[] = { "Static", "Dynamic", "Disabled" };
+					int mode = static_cast<int>(firstComponent.AcousticMotion);
+					const bool mixed = IsSelectionInconsistent<AcousticGeometryMode>(m_Context, selectedEntities, [](Entity entity)
+					{
+						return entity.GetComponent<MeshColliderComponent>().AcousticMotion;
+					});
+					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
+					if (ImGuiEx::PropertyDropdown("Acoustic Motion", modes, 3, &mode, "Dynamic follows world transforms; Static captures the initial transform. Disabled excludes this mesh from VA.", false))
+						ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [mode](MeshColliderComponent& component, Entity)
+						{
+							component.AcousticMotion = static_cast<AcousticGeometryMode>(mode);
+						});
 				}
 
 				AssetHandle colliderAsset = firstComponent.ColliderAsset;
@@ -3027,6 +3057,54 @@ namespace Lux {
 				});
 				ImGuiEx::EndPropertyGrid();
 				ImGui::TextWrapped("Startup settings apply on Play. Use one Music Director per scene. Scripts control state, intensity, layers and stingers through Lux.Music.");
+			});
+
+		DrawComponentSection<AudioPortalComponent>(m_Context, entityIDs, "Audio Portal", EditorResources::AudioIcon,
+			[this](AudioPortalComponent& first, const std::vector<UUID>& selected, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				auto property = [&]<typename T>(const char* label, T AudioPortalComponent::* member, auto draw)
+				{
+					T value = first.*member;
+					const bool mixed = IsSelectionInconsistent<T>(m_Context, selected, [member](Entity entity)
+					{
+						return entity.GetComponent<AudioPortalComponent>().*member;
+					});
+					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
+					if (draw(label, value))
+						ApplyToSelection<AudioPortalComponent>(m_Context, selected, [member, value](AudioPortalComponent& component, Entity)
+						{
+							component.*member = value;
+						});
+				};
+				property("Enabled", &AudioPortalComponent::Enabled, [](const char* label, bool& value) { return ImGuiEx::Property(label, value, "", false); });
+				property("Open", &AudioPortalComponent::Open, [](const char* label, float& value) { return ImGuiEx::Property(label, value, 0.01f, 0.0f, 1.0f, "0 closes the shutter; 1 removes it.", false); });
+				property("Half Extents", &AudioPortalComponent::HalfExtents, [](const char* label, glm::vec3& value) { return ImGuiEx::Property(label, value, 0.01f, 0.001f, 10000.0f, "Local X width, Y height, Z thickness.", false); });
+				property("Blend Distance", &AudioPortalComponent::BlendDistance, [](const char* label, float& value) { return ImGuiEx::Property(label, value, 0.1f, 0.001f, 10000.0f, "Room leakage fades away with distance from the opening.", false); });
+				property("Material", &AudioPortalComponent::Material, [](const char* label, AcousticMaterial& value)
+				{
+					int material = static_cast<int>(value);
+					static auto s_MaterialNames = AcousticMaterialNames;
+					const bool changed = ImGuiEx::PropertyDropdown(label, s_MaterialNames.data(), static_cast<int>(AcousticMaterialCount), &material, "Shutter acoustic material.", false);
+					value = static_cast<AcousticMaterial>(material);
+					return changed;
+				});
+				auto room = [&](const char* label, UUID& value)
+				{
+					if (!ImGuiEx::PropertyEntityReference(label, value, m_Context, "Select an entity with Audio Zone. Both rooms are needed for zone blending."))
+						return false;
+					const Entity target = m_Context->TryGetEntityWithUUID(value);
+					if (value != 0 && (!target || !target.HasComponent<AudioZoneComponent>()))
+					{
+						LUX_CORE_ERROR_TAG("Audio", "Portal room must have AudioZoneComponent");
+						return false;
+					}
+					return true;
+				};
+				property("Room A", &AudioPortalComponent::ZoneA, room);
+				property("Room B", &AudioPortalComponent::ZoneB, room);
+				ImGuiEx::EndPropertyGrid();
+				ImGui::TextWrapped("The shutter retracts toward local -X. Place it in a real opening: it cannot cut a hole in another collider. Disable overlapping door mesh acoustics when this portal supplies the barrier.");
 			});
 
 		DrawComponentSection<AudioZoneComponent>(m_Context, entityIDs, "Audio Zone", EditorResources::AudioIcon,

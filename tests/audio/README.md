@@ -7,7 +7,7 @@ then run from the repository root:
 python tests/audio/run.py
 ```
 
-Requires `clang++`, the repository's FMOD SDK and `fmodstudiocl`. The runner compiles production
+Requires `clang++`, the repository's FMOD and VA SDKs, and `fmodstudiocl`. The runner compiles production
 code with Debug assertions, creates a disposable copy of the sample FMOD project in `/tmp`, and
 uses FMOD's no-sound output. It does not alter the sample project or require a renderer/audio device.
 Logs and artifacts are retained in the printed temporary directory. `--output /tmp/my-audio-tests`
@@ -38,3 +38,11 @@ captions, moving cue direction, opt-in descriptions, bank/system recreation and 
 also exercised headlessly for draw output, clipping and explicit newline limits; build Debug ImGui
 alongside Debug Jolt before running. Managed payload/ABI/subscription
 tests run separately with `python3 tests/audio/run_managed.py`.
+
+Geometry checks use the real VA world and worker completion, including transform/material updates,
+world-bound growth, static capture, queue budgets/coalescing, removal, nearly open shutters, invalid
+transform recovery, and normalized portal room leakage. Production portal and mesh YAML blocks
+are exercised for round-trip fields, room IDs, legacy defaults and malformed values. Managed tests
+also cover portal dispatch, acoustic mode enum values, invalid inputs and main-thread guards.
+Scene/prefab hierarchy remapping lives in `SceneSerializer::RunRoundTripSelfTests`; it requires a
+full engine host and is not executed by this headless runner.

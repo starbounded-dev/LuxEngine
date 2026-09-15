@@ -10,9 +10,41 @@ internal static unsafe class DialogueManagedTests
 		if (!value)
 			throw new Exception("Managed dialogue contract failed");
 	}
+	private static float portalOpen;
+	private static float PortalGet(ulong id, int field) { Check(id == 42 && field == 1); return portalOpen; }
+	private static Bool32 PortalSet(ulong id, int field, float value)
+	{
+		Check(id == 42 && field == 1);
+		if (value < 0 || value > 1) return false;
+		portalOpen = value;
+		return true;
+	}
+	private static Bool32 NotMainThread() => false;
+	private static void CheckPortal()
+	{
+		InternalCalls.Audio_PortalGetScalar = &PortalGet;
+		InternalCalls.Audio_PortalSetScalar = &PortalSet;
+		var portal = new AudioPortalComponent { Entity = new Entity(42) };
+		portal.Open = 0.75f;
+		Check(portal.Open == 0.75f);
+		foreach (float invalid in new[] { -1.0f, 2.0f, float.NaN, float.PositiveInfinity })
+		{
+			bool rejected = false;
+			try { portal.Open = invalid; } catch (ArgumentException) { rejected = true; }
+			Check(rejected && portal.Open == 0.75f);
+		}
+		InternalCalls.Audio_IsMainThread = &NotMainThread;
+		bool threadRejected = false;
+		try { portal.Open = 0; } catch (InvalidOperationException) { threadRejected = true; }
+		InternalCalls.Audio_IsMainThread = &MainThread;
+		Check(threadRejected && portal.Open == 0.75f);
+		Check((int)AcousticGeometryMode.Static == 0 && (int)AcousticGeometryMode.Dynamic == 1 && (int)AcousticGeometryMode.Disabled == 2);
+		Console.WriteLine("PASS: managed portal dispatch, invalid values, acoustic mode ABI and main-thread guard");
+	}
 	public static void Main()
 	{
 		InternalCalls.Audio_IsMainThread = &MainThread;
+		CheckPortal();
 		int shown = 0, hidden = 0;
 		Subtitle? retained = null;
 		Dialogue.SubtitleShown += subtitle =>

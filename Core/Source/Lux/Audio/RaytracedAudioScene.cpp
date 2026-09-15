@@ -2,6 +2,7 @@
 #include "Lux/Audio/RaytracedAudioScene.h"
 
 #include "vaudio.h"
+#include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -58,6 +59,50 @@ namespace Lux {
 		glm::vec3 FromVA(const VAVector& v)
 		{
 			return { v.x, v.y, v.z };
+		}
+
+		bool ValidGeometryTransform(const glm::mat4& transform)
+		{
+			for (int c = 0; c < 4; ++c)
+				for (int r = 0; r < 4; ++r)
+					if (!std::isfinite(transform[c][r]))
+						return false;
+			const double determinant = glm::determinant(glm::dmat3(transform));
+			return std::isfinite(determinant) && determinant != 0 && transform[0].w == 0 &&
+				transform[1].w == 0 && transform[2].w == 0 && transform[3].w == 1;
+		}
+
+		// Validate in double precision before passing any transformed coordinates to VA.
+		bool ExpandGeometryBounds(VAWorld* world, const glm::mat4& transform, const glm::vec3& localMin, const glm::vec3& localMax)
+		{
+			glm::dvec3 minimum = FromVA(vaWorldGetPosition(world));
+			glm::dvec3 maximum = minimum + glm::dvec3(FromVA(vaWorldGetSize(world)));
+			for (int i = 0; i < 8; ++i)
+			{
+				const glm::dvec3 local{ i & 1 ? localMax.x : localMin.x, i & 2 ? localMax.y : localMin.y, i & 4 ? localMax.z : localMin.z };
+				const glm::dvec3 point(glm::dmat4(transform) * glm::dvec4(local, 1));
+				minimum = glm::min(minimum, point - glm::dvec3(kWorldBoundsPadding));
+				maximum = glm::max(maximum, point + glm::dvec3(kWorldBoundsPadding));
+			}
+			const glm::dvec3 size = maximum - minimum;
+			for (int axis = 0; axis < 3; ++axis)
+			{
+				const double limit = std::numeric_limits<float>::max();
+				if (!std::isfinite(minimum[axis]) || !std::isfinite(maximum[axis]) || !std::isfinite(size[axis]) ||
+					std::abs(minimum[axis]) > limit || std::abs(maximum[axis]) > limit || size[axis] > limit || size[axis] <= 0)
+				{
+					LUX_CORE_ERROR_TAG("Audio", "Acoustic geometry exceeds representable VA world bounds");
+					return false;
+				}
+			}
+			const auto positioned = vaWorldSetPosition(world, ToVA(glm::vec3(minimum)));
+			const auto sized = vaWorldSetSize(world, ToVA(glm::vec3(size)));
+			if ((positioned != VA_SUCCESS && positioned != VA_UNCHANGED) || (sized != VA_SUCCESS && sized != VA_UNCHANGED))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot expand acoustic world bounds (position={}, size={})", positioned, sized);
+				return false;
+			}
+			return true;
 		}
 
 	}
@@ -123,6 +168,14 @@ namespace Lux {
 
 	struct RaytracedAudioScene::Impl
 	{
+		struct Geometry
+		{
+			VAMeshPrimitive* Primitive = nullptr;
+			glm::vec3 Min{ 0 }, Max{ 0 };
+			int Triangles = 0;
+			bool Dynamic = false;
+		};
+		std::unordered_map<UUID, Geometry> GeometryNodes;
 		VAWorld* World = nullptr;
 		VAEmitter* Listener = nullptr;
 		std::unordered_map<UUID, VAEmitter*> SourceEmitters;
@@ -138,6 +191,11 @@ namespace Lux {
 	RaytracedAudioScene::RaytracedAudioScene(Scene* scene)
 		: m_Scene(scene), m_Impl(CreateScope<Impl>())
 	{
+	}
+
+	bool RaytracedAudioScene::IsRunning() const
+	{
+		return m_Impl->World != nullptr;
 	}
 
 	RaytracedAudioScene::~RaytracedAudioScene()
@@ -252,6 +310,18 @@ namespace Lux {
 		}
 		m_Impl->SourceEmitters.clear();
 
+		for (auto& [id, node] : m_Impl->GeometryNodes)
+		{
+			const auto result = vaWorldRemovePrimitive_(m_Impl->World, node.Primitive);
+			if (result == VA_SUCCESS)
+			{
+				if (const auto destroyed = vaMeshPrimitiveDestroy(node.Primitive); destroyed != VA_SUCCESS)
+					LUX_CORE_ERROR_TAG("Audio", "Cannot release live acoustic geometry {} during teardown (VAResult={})", static_cast<uint64_t>(id), destroyed);
+			}
+			else
+				LUX_CORE_ERROR_TAG("Audio", "Cannot remove live acoustic geometry {} during teardown (VAResult={})", static_cast<uint64_t>(id), result);
+		}
+		m_Impl->GeometryNodes.clear();
 		for (VAMeshPrimitive* primitive : m_Impl->StaticPrimitives)
 		{
 			if (vaWorldRemovePrimitive_(m_Impl->World, primitive) == VA_SUCCESS)
@@ -397,6 +467,128 @@ namespace Lux {
 			LUX_CORE_ERROR_TAG("Audio", "Cannot update acoustic world bounds (position={0}, size={1})", positioned, resized);
 			return false;
 		}
+		return true;
+	}
+
+	bool RaytracedAudioScene::SetGeometry(UUID id, const AcousticGeometry& geometry, const glm::mat4& transform, bool dynamic)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		if (!m_Impl->World || id == 0 || !IsValidAcousticMaterial(geometry.Material) || geometry.Triangles.empty() ||
+			geometry.Triangles.size() % 3 || geometry.Triangles.size() > static_cast<size_t>(INT_MAX))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Invalid live acoustic geometry {}", static_cast<uint64_t>(id));
+			return false;
+		}
+		VAMatrix matrix;
+		std::memcpy(&matrix, glm::value_ptr(transform), sizeof(matrix));
+		if (!ValidGeometryTransform(transform))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Invalid acoustic geometry transform {}", static_cast<uint64_t>(id));
+			return false;
+		}
+		Impl::Geometry node;
+		node.Min = glm::vec3(std::numeric_limits<float>::max());
+		node.Max = glm::vec3(std::numeric_limits<float>::lowest());
+		std::vector<VAVector> vertices;
+		vertices.reserve(geometry.Triangles.size());
+		for (const auto& position : geometry.Triangles)
+		{
+			if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Non-finite acoustic vertex on geometry {}", static_cast<uint64_t>(id));
+				return false;
+			}
+			node.Min = glm::min(node.Min, position);
+			node.Max = glm::max(node.Max, position);
+			vertices.push_back(ToVA(position));
+		}
+		if (!ExpandGeometryBounds(m_Impl->World, transform, node.Min, node.Max))
+			return false;
+		node.Triangles = static_cast<int>(vertices.size() / 3);
+		node.Dynamic = dynamic;
+		auto result = vaMeshPrimitiveCreate(static_cast<VAMaterialType>(AcousticMaterialVAID(geometry.Material)), vertices.data(),
+			static_cast<int>(vertices.size()), ToVA(node.Min), ToVA(node.Max), &matrix, &node.Primitive);
+		if (result != VA_SUCCESS || !node.Primitive)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot create live acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), result);
+			return false;
+		}
+		result = vaWorldAddPrimitive_(m_Impl->World, node.Primitive);
+		if (result != VA_SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot attach live acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), result);
+			if (const auto destroyed = vaMeshPrimitiveDestroy(node.Primitive); destroyed != VA_SUCCESS)
+				LUX_CORE_ERROR_TAG("Audio", "Cannot release unattached acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), destroyed);
+			return false;
+		}
+		if (!RemoveGeometry(id))
+		{
+			if (vaWorldRemovePrimitive_(m_Impl->World, node.Primitive) == VA_SUCCESS)
+				if (const auto destroyed = vaMeshPrimitiveDestroy(node.Primitive); destroyed != VA_SUCCESS)
+				LUX_CORE_ERROR_TAG("Audio", "Cannot release unattached acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), destroyed);
+			return false;
+		}
+		m_Impl->GeometryNodes.emplace(id, node);
+		return true;
+	}
+
+	bool RaytracedAudioScene::UpdateGeometry(UUID id, const glm::mat4& transform, AcousticMaterial material, bool dynamic)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		const auto found = m_Impl->GeometryNodes.find(id);
+		if (!m_Impl->World || found == m_Impl->GeometryNodes.end() || !IsValidAcousticMaterial(material))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot update missing or invalid acoustic geometry {}", static_cast<uint64_t>(id));
+			return false;
+		}
+		VAMatrix matrix;
+		std::memcpy(&matrix, glm::value_ptr(transform), sizeof(matrix));
+		if (!ValidGeometryTransform(transform))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Invalid acoustic geometry transform {}", static_cast<uint64_t>(id));
+			return false;
+		}
+		auto& node = found->second;
+		if (!ExpandGeometryBounds(m_Impl->World, transform, node.Min, node.Max))
+			return false;
+		const auto moved = vaMeshPrimitiveSetTransform(node.Primitive, &matrix);
+		const auto tagged = vaMeshPrimitiveSetMaterial(node.Primitive, static_cast<VAMaterialType>(AcousticMaterialVAID(material)));
+		if ((moved != VA_SUCCESS && moved != VA_UNCHANGED) || (tagged != VA_SUCCESS && tagged != VA_UNCHANGED))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot update acoustic geometry {} (transform={}, material={})", static_cast<uint64_t>(id), moved, tagged);
+			return false;
+		}
+		node.Dynamic = dynamic;
+		return true;
+	}
+
+	bool RaytracedAudioScene::RemoveGeometry(UUID id)
+	{
+		const auto found = m_Impl->GeometryNodes.find(id);
+		if (found == m_Impl->GeometryNodes.end())
+			return true;
+		const auto removed = vaWorldRemovePrimitive_(m_Impl->World, found->second.Primitive);
+		if (removed != VA_SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot remove acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), removed);
+			return false;
+		}
+		const auto destroyed = vaMeshPrimitiveDestroy(found->second.Primitive);
+		m_Impl->GeometryNodes.erase(found);
+		if (destroyed != VA_SUCCESS)
+			LUX_CORE_ERROR_TAG("Audio", "Cannot release detached acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), destroyed);
+		return destroyed == VA_SUCCESS;
+	}
+
+	bool RaytracedAudioScene::GetGeometryTransform(UUID id, glm::mat4& transform) const
+	{
+		const auto found = m_Impl->GeometryNodes.find(id);
+		if (found == m_Impl->GeometryNodes.end())
+			return false;
+		const auto* matrix = vaMeshPrimitiveGetTransform(found->second.Primitive);
+		if (!matrix)
+			return false;
+		std::memcpy(glm::value_ptr(transform), matrix, sizeof(VAMatrix));
 		return true;
 	}
 
@@ -641,6 +833,19 @@ namespace Lux {
 		stats.SourceEmitterCount = (int)m_Impl->SourceEmitters.size();
 		stats.StaticPrimitiveCount = (int)m_Impl->StaticPrimitives.size();
 		stats.StaticTriangleCount = m_Impl->StaticTriangleCount;
+		for (const auto& [id, node] : m_Impl->GeometryNodes)
+		{
+			if (node.Dynamic)
+			{
+				++stats.DynamicPrimitiveCount;
+				stats.DynamicTriangleCount += node.Triangles;
+			}
+			else
+			{
+				++stats.StaticPrimitiveCount;
+				stats.StaticTriangleCount += node.Triangles;
+			}
+		}
 		stats.RaysCastThisFrame = vaWorldGetRaysCastThisFrame(m_Impl->World);
 		stats.WorkItemCount = vaWorldGetWorkItemCount(m_Impl->World);
 		stats.MaximumConcurrencyLevel = vaWorldGetMaximumConcurrencyLevel(m_Impl->World);

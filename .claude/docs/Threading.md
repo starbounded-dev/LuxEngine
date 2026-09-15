@@ -299,3 +299,14 @@ Walk up the call graph until you hit one of:
 Still unsure? Add `LUX_CORE_ASSERT(Application::IsMainThread(), "...")` (or
 `RenderThread::IsCurrentThreadRT()`) and run a Debug build — it tells you on the first frame, and
 costs nothing in Release.
+
+## Acoustic geometry and portals
+
+`Scene::SyncAudioGeometry` and its `AudioGeometrySystem` queue are main-thread owned. Runtime
+joins `RaytracedAudioScene::WaitForResults()` before adding, removing, retagging or transforming VA
+primitives or changing world bounds. The next `OnUpdate()` launches workers only after these edits
+and listener/source updates finish. SDK workers receive no ECS pointers. C# portal/motion setters
+edit component data on the main thread; they never mutate VA directly. Pause defers queue work.
+Portal gizmos are captured as immutable `FrameRenderPacket::AudioZoneLines`, so the render thread
+reads neither portal components nor mutable VA geometry. Teardown drains VA before destroying its
+primitives/world and clears the scene's queue.

@@ -111,6 +111,30 @@ MusicDirectorComponent DeserializeMusic(const YAML::Node& entity)
 """ + (TESTS / "MusicSerializationTests.cpp").read_text())
     return output
 
+def geometry_serialization_source(directory):
+    source = (ROOT / "Core/Source/Lux/Scene/SceneSerializer.cpp").read_text()
+    converters = source.split("namespace YAML {", 1)[1].split("namespace Lux {", 1)[0]
+    vector_output = source.split("YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v)", 1)[1].split("YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec4& v)", 1)[0]
+    serialize = source.split('if (entity.HasComponent<AudioPortalComponent>())', 1)[1].split('if (entity.HasComponent<AudioSurfaceComponent>())', 1)[0]
+    deserialize = source.split('if (auto node = entity["AudioPortalComponent"])', 1)[1].split('if (auto surface = entity["AudioSurfaceComponent"])', 1)[0]
+    mesh = source.split('if (auto meshCollider = entity["MeshColliderComponent"])', 1)[1].split('if (auto node = entity["MusicDirectorComponent"])', 1)[0]
+    output = directory / "geometry-serialization.cpp"
+    output.write_text('\n'.join([
+        '#include "AudioTestHost.h"', '#include "Lux/Scene/Components.h"',
+        '#include "Lux/Audio/AudioZoneSystem.h"', '#include <yaml-cpp/yaml.h>',
+        'namespace YAML {' + converters,
+        'namespace Lux { YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v)' + vector_output + '}',
+        'struct FakeEntity { AudioPortalComponent Portal; MeshColliderComponent Mesh;',
+        'template<typename T> T& GetComponent() { if constexpr (std::is_same_v<T, AudioPortalComponent>) return Portal; else return Mesh; }',
+        'template<typename T> T& AddComponent() { return GetComponent<T>(); } };',
+        'std::string SerializePortal(FakeEntity entity) { YAML::Emitter out; out << YAML::BeginMap;',
+        serialize, 'out << YAML::EndMap; return out.c_str(); }',
+        'FakeEntity DeserializeGeometry(const YAML::Node& entity) { FakeEntity deserializedEntity;',
+        'if (auto node = entity["AudioPortalComponent"])', deserialize,
+        'if (auto meshCollider = entity["MeshColliderComponent"])', mesh,
+        'return deserializedEntity; }', (TESTS / "GeometrySerializationTests.cpp").read_text()]))
+    return output
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--banks", type=Path, help="Existing fixture banks; otherwise build a disposable FMOD project")
@@ -126,7 +150,7 @@ def main():
     flags = [flag for flag in flags if not flag.startswith(("-DTRACY", "-DLUX_TRACK_MEMORY"))]
     flags += shlex.split(re.search(r"^INCLUDES \+= (.*)$", debug, re.M)[1])
     flags += ["-std=c++20", "-O0", "-g", "-ffunction-sections", "-fdata-sections"]
-    sources = ["ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
+    sources = ["Audio/AudioGeometrySystem", "Audio/RaytracedAudioScene", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
                "Audio/AcousticMaterial", "Asset/AudioSurfaceTableSerializer", "Utilities/StringUtils", "Core/UUID", "Core/Ref",
                "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader"]
     objects = {}
@@ -149,7 +173,7 @@ def main():
     run([directory / "jolt-test"], timeout=30)
     banks = args.banks.resolve() if args.banks else fixture(directory)
     fmod = ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux/api"
-    libraries = [fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
+    libraries = [ROOT / "Core/vendor/VA_RAY/3d/native/production/linux/libvaudionative.so", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
     yaml = [ROOT / "bin-int/Release-linux-x86_64/Core" / (p.stem + ".o") for p in (ROOT / "Core/vendor/yaml-cpp/src").glob("*.cpp")]
     run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], *yaml, "-Wl,--gc-sections",
          "-o", directory / "music-serialization-test"], cwd=ROOT / "Core")
@@ -172,6 +196,14 @@ def main():
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "accessibility-test"], cwd=ROOT / "Core")
     run([directory / "accessibility-test", banks, directory], timeout=60)
+    run(["clang++", *flags, "-I" + str(TESTS), geometry_serialization_source(directory), *audio_objects, *yaml, *libraries,
+         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
+         "-o", directory / "geometry-serialization-test"], cwd=ROOT / "Core")
+    run([directory / "geometry-serialization-test"], timeout=30)
+    run(["clang++", *flags, TESTS / "GeometryTests.cpp", *audio_objects, *yaml, *libraries,
+         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
+         "-o", directory / "geometry-test"], cwd=ROOT / "Core")
+    run([directory / "geometry-test"], timeout=60)
 
 
 

@@ -394,13 +394,23 @@ namespace Lux
 
 	public unsafe class MeshColliderComponent : Component
 	{
+		public AcousticGeometryMode AcousticMotion
+		{
+			get { Audio.RequireMainThread(); return (AcousticGeometryMode)InternalCalls.Audio_MeshGetMotion(Entity.ID); }
+			set
+			{
+				Audio.RequireMainThread();
+				if (!InternalCalls.Audio_MeshSetMotion(Entity.ID, (int)value))
+					throw new ArgumentOutOfRangeException(nameof(value));
+			}
+		}
 		/// <summary>Surface override, or this collider's authored acoustic material.</summary>
 		public AcousticMaterial Material => (AcousticMaterial)InternalCalls.Audio_GetSurfaceMaterial(Entity.ID);
 	}
 
 	public unsafe class AudioSurfaceComponent : Component
 	{
-		/// <summary>Authored surface tag. Acoustic geometry is captured when Play starts.</summary>
+		/// <summary>Authored surface tag used by acoustic geometry.</summary>
 		public AcousticMaterial Material => (AcousticMaterial)InternalCalls.Audio_GetSurfaceMaterial(Entity.ID);
 	}
 	public unsafe class AudioSourceComponent : Component

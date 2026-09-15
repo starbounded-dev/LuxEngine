@@ -317,11 +317,14 @@ namespace Lux {
 			DrawStat("Emitters (SDK)", stats.EmitterCount);
 			DrawStat("Source Emitters", stats.SourceEmitterCount);
 			DrawStat("Static Primitives", stats.StaticPrimitiveCount);
+			DrawStat("Dynamic Primitives", stats.DynamicPrimitiveCount);
+			DrawStat("Dynamic Triangles", stats.DynamicTriangleCount);
+			DrawStat("Pending Geometry Updates", static_cast<int>(m_Context->GetPendingAudioGeometryCount()));
 
 			// Zero triangles with sources present is the usual reason occlusion stays flat: the
 			// scene has no MeshColliderComponent for OnRaytracedAudioStart to mirror.
-			if (stats.StaticTriangleCount == 0)
-				DrawStatColored("Static Triangles", "0 (nothing to occlude)", kWarnColor);
+			if (stats.StaticTriangleCount + stats.DynamicTriangleCount == 0)
+				DrawStatColored("Acoustic Triangles", "0 (nothing to occlude)", kWarnColor);
 			else
 				DrawStat("Static Triangles", stats.StaticTriangleCount);
 

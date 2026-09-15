@@ -5,6 +5,7 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AudioZoneSystem.h"
+#include "Lux/Audio/AudioGeometrySystem.h"
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Audio/MusicDirector.h"
 #include "Lux/Audio/DialogueDirector.h"
@@ -108,6 +109,7 @@ namespace Lux {
 		const AudioListenerState* GetPrimaryAudioListener() const;
 		DialogueDirector& GetDialogueDirector() { return m_Dialogue; }
 		MusicDirector& GetMusicDirector() { return m_Music; }
+		size_t GetPendingAudioGeometryCount() const { return m_AudioGeometry.GetPendingCount(); }
 		float GetAudioZoneWeight(UUID id) const { return m_AudioZones.GetWeight(id); }
 		AudioZoneVolume GetAudioZoneVolume(Entity entity);
 
@@ -226,6 +228,8 @@ namespace Lux {
 		void ReleaseAllRuntimeAudio();
 		void SyncAudioListeners(float timestep);
 		void UpdateAudioZones(float timestep, bool raytracedReverbValid);
+		void SyncAudioGeometry(bool initial = false);
+		bool BuildAcousticGeometry(const AudioGeometryInput& input, AcousticGeometry& geometry);
 		void UpdatePhysicsAudio(float timestep);
 		AudioSurfaceSounds GetSurfaceSounds(Entity entity, AcousticMaterial& material) const;
 		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
@@ -263,6 +267,9 @@ namespace Lux {
 		std::unordered_map<UUID, RuntimeAudioEvent> m_RuntimeEventInstances;
 		AudioListener::States m_RuntimeAudioListeners;
 		AudioZoneSystem m_AudioZones;
+		AudioGeometrySystem m_AudioGeometry;
+		std::vector<AudioGeometryInput> m_AudioGeometryInputs;
+		std::vector<AudioPortalInput> m_AudioPortalInputs;
 		PhysicsAudioSystem m_PhysicsAudio;
 		DialogueDirector m_Dialogue;
 		MusicDirector m_Music;
