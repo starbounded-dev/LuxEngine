@@ -512,6 +512,12 @@ under `Assets/Audio/Banks`. Absolute authoring paths are not portable script pat
 and source audio are not copied. FMOD Core/Studio and VA shared libraries are required copies,
 including Linux's `lib` subdirectory. Copy failures abort export.
 
+The player also requires the shared ImGui fonts and managed host at top-level `Resources/` and
+`DotNet/`. Linux post-build directory copies target their parent to merge correctly on repeat
+builds. Export audio validation failures are surfaced in the export window with the scene/entity
+location; validation includes all registered scenes, not just the startup scene. The sample
+`AudioTest` scene uses the same FMOD `event:/Fart` as its replacement demo, with no raw-file source.
+
 `Project::LoadRuntime` initializes FMOD and loads only the manifest's banks, strings first, before
 loading scenes or starting scripts. Failure clears partial loads and rejects the project. The exact
 manifest prevents obsolete banks left in a reused export directory from being auto-loaded. Scripts

@@ -45,9 +45,10 @@ Entities:
       FixedAspectRatio: false
     AudioListenerComponent:
       Active: true
-      ConeInnerAngle: 6.28318548
-      ConeOuterAngle: 6.28318548
-      ConeOuterGain: 0
+      ListenerIndex: 0
+      Weight: 1
+      UseAttenuationTarget: false
+      AttenuationTarget: 0
   - Entity: 22222222222222222
     TagComponent:
       Tag: Wall
@@ -82,26 +83,12 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     AudioSourceComponent:
-      Audio: 15477231389038173681
       VolumeMultiplier: 1
       PitchMultiplier: 1
       PlayOnAwake: false
-      Looping: false
-      Spatialization: true
-      AttenuationModel: 1
-      RollOff: 1
-      MinGain: 0
-      MaxGain: 1
-      MinDistance: 0.300000012
-      MaxDistance: 1000
-      ConeInnerAngle: 6.28318548
-      ConeOuterAngle: 6.28318548
-      ConeOuterGain: 0
-      DopplerFactor: 1
-      UsePlaylist: false
-      RepeatPlaylist: false
-      StartIndex: 0
-      Playlist:
-        []
-      EventGuid: ""
-      EventPath: ""
+      Priority: 128
+      DistanceCulling: false
+      EventGuid: "{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}"
+      EventPath: event:/Fart
+      EventBank: Master.bank
+      ParameterOverrides: []

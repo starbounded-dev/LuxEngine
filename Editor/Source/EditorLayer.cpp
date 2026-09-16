@@ -2995,6 +2995,8 @@ namespace Lux {
 			BuildScriptModule(runtime.TargetConfig);
 
 		ImGui::Separator();
+		if (!m_RuntimeExportError.empty())
+			ImGui::TextWrapped("%s", m_RuntimeExportError.c_str());
 		if (ImGui::Button("Export..."))
 		{
 			if (ExportRuntimeNow())
@@ -3016,11 +3018,13 @@ namespace Lux {
 		}
 
 		SyncRuntimeExportWindowFromProject();
+		m_RuntimeExportError.clear();
 		m_ShowRuntimeExportWindow = true;
 	}
 
 	bool EditorLayer::ExportRuntimeNow()
 	{
+		m_RuntimeExportError.clear();
 		Ref<Project> project = Project::GetActive();
 		if (!project)
 		{
@@ -3047,11 +3051,22 @@ namespace Lux {
 
 		AudioBankManifest audioBanks;
 		if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
+		{
+			m_RuntimeExportError = "Export blocked: FMOD banks are missing, stale or unreadable. Check Project Settings > Audio, build the selected platform's banks, then try again.";
 			return false;
+		}
 		const auto audioValidation = AudioValidation::ValidateProject(*project, m_EditorScene.Raw());
 		audioValidation.Log();
 		if (audioValidation.HasErrors())
+		{
+			// Keep the reason in the export window even when the engine log is not visible.
+			m_RuntimeExportError = "Export blocked by audio validation:\n";
+			for (const auto& issue : audioValidation.Issues)
+				if (issue.Severity == AudioValidationSeverity::Error)
+					m_RuntimeExportError += std::format("{}: {}\n", issue.Location, issue.Message);
+			m_RuntimeExportError += "All registered scenes and prefabs are checked, including scenes other than the startup scene.";
 			return false;
+		}
 
 		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
 		std::filesystem::path runtimeExe = GetRuntimeExecutablePath(targetConfig);

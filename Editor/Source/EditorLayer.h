@@ -312,6 +312,7 @@ namespace Lux
 		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
 		bool m_PendingLayoutReset = false;
 		bool m_ShowRuntimeExportWindow = false;
+		std::string m_RuntimeExportError;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;
 		float m_RotationSnapValue = 45.0f;
