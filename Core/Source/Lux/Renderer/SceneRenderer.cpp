@@ -1254,9 +1254,13 @@ namespace Lux {
 			spec.DebugName = "ObjectIndexes";
 			m_SBSObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
 
+			// Compute writes these outputs. NVRHI skips state transitions for
+			// CPU-visible buffers, so use GPU storage with staged CPU uploads.
+			spec.GPUOnly = true;
 			spec.DebugName = "VisibleObjectIndexes";
 			m_SBSVisibleObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
 
+			spec.GPUOnly = false;
 			spec.DebugName = "GPUSceneInstances";
 			m_SBSGPUSceneInstances = StorageBufferSet::Create(spec, sizeof(GPUSceneInstanceData) * 4096);
 
@@ -1266,6 +1270,7 @@ namespace Lux {
 			spec.DebugName = "MeshCullDrawData";
 			m_SBSMeshCullDrawData = StorageBufferSet::Create(spec, sizeof(MeshCullDrawData) * 4096);
 
+			spec.GPUOnly = true;
 			spec.DrawIndirect = true;
 			spec.DebugName = "IndirectDrawCommands";
 			m_SBSIndirectDrawCommands = StorageBufferSet::Create(spec, sizeof(nvrhi::DrawIndexedIndirectArguments) * 4096);
@@ -1833,7 +1838,7 @@ namespace Lux {
 			rpSpec.DebugName = "DeferredLightingPass";
 			rpSpec.Pipeline = m_DeferredLightingPipeline;
 			m_DeferredLightingPass = RenderPass::Create(rpSpec);
-			BindSceneRenderPassInputs(m_DeferredLightingPass, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth | PassInputGBuffer | PassInputSceneColor);
+			BindSceneRenderPassInputs(m_DeferredLightingPass, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth | PassInputGBuffer);
 			m_DeferredLightingPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			m_DeferredLightingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_DeferredLightingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
@@ -2314,10 +2319,17 @@ namespace Lux {
 			fbSpec.DebugName = "SceneComposite";
 			m_CompositingFramebuffer = Framebuffer::Create(fbSpec);
 
+			// Tone mapping samples PreDepth, so it must not also bind that image as
+			// an attachment. Keep the depth-bearing framebuffer for later overlays.
+			fbSpec.Attachments = { ImageFormat::RGBA };
+			fbSpec.ExistingImages.clear();
+			fbSpec.ExistingImages[0] = m_CompositingFramebuffer->GetImage(0);
+			fbSpec.DebugName = "SceneCompositeColor";
+
 			PipelineSpecification pipelineSpec;
 			pipelineSpec.DebugName = "SceneComposite";
 			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("SceneComposite");
-			pipelineSpec.TargetFramebuffer = m_CompositingFramebuffer;
+			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
 			pipelineSpec.DepthWrite = false;
 			pipelineSpec.DepthTest = false;
 			pipelineSpec.Layout = {
@@ -4028,7 +4040,7 @@ namespace Lux {
 		appendResources(compositeReads, bloomOutputs);
 		appendResources(compositeReads, preDepthOutputs);
 		std::vector<RenderGraph::ResourceHandle> compositeOutputs = addFramebufferResources("Composite", m_CompositingFramebuffer);
-		addPass("Composite", compositeReads, compositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::CompositePass));
+		addPass("Composite", compositeReads, addRenderPassResources("Composite Color", m_CompositePass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::CompositePass));
 
 		// SMAA sits directly after the composite and before DOF: morphological AA keys off
 		// perceived edges so it needs post-tonemap colour, and depth of field should blur an
@@ -7437,7 +7449,7 @@ namespace Lux {
 		if (!async) BeginProfiledGPU("ClusterBuildPass");
 		Renderer::BeginComputePass(cb, m_ClusterBuildPass);
 		Renderer::DispatchCompute(cb, m_ClusterBuildPass, nullptr, groups, Buffer(&push, sizeof(push)));
-		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(cb, m_SBSClusterAABBs->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(cb, m_SBSClusterAABBs, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(cb, m_ClusterBuildPass);
 		if (!async) EndProfiledGPU();
 	}
@@ -7487,10 +7499,10 @@ namespace Lux {
 		Renderer::DispatchCompute(cb, m_ClusterLightCullingPass, nullptr, groups, Buffer());
 
 		Ref<PipelineCompute> pipeline = m_ClusterLightCullingPass->GetPipeline();
-		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightGrid, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightGrid, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightIndexList, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightIndexList, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(cb, m_ClusterLightCullingPass);
 		if (!async) EndProfiledGPU();
 	}
@@ -7534,8 +7546,8 @@ namespace Lux {
 		BeginProfiledGPU("MeshCullingPass");
 		Renderer::BeginComputePass(m_CommandBuffer, m_MeshCullingPass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_MeshCullingPass, nullptr, { m_MeshCullDrawCount, 1, 1 }, Buffer(&pushConstants, sizeof(pushConstants)));
-		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSVisibleObjectIndexes->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands->Get(), PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
+		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSVisibleObjectIndexes, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands, PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_MeshCullingPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
@@ -8359,7 +8371,7 @@ namespace Lux {
 		const glm::uvec3 histogramGroups = { AlignUp(width, 16u) / 16u, AlignUp(height, 16u) / 16u, 1u };
 		Renderer::BeginComputePass(m_CommandBuffer, m_LuminanceHistogramPass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_LuminanceHistogramPass, nullptr, histogramGroups, Buffer(&histogramPush, sizeof(histogramPush)));
-		m_LuminanceHistogramPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_LuminanceHistogramPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_LuminanceHistogramPass);
 
 		// 2) Reduce to an average luminance, temporally adapt, write the exposure
@@ -8386,8 +8398,8 @@ namespace Lux {
 
 		Renderer::BeginComputePass(m_CommandBuffer, m_LuminanceAveragePass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_LuminanceAveragePass, nullptr, { 1u, 1u, 1u }, Buffer(&averagePush, sizeof(averagePush)));
-		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSExposureState->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSExposureState, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_LuminanceAveragePass);
 
 		m_AutoExposureValid = true;
@@ -8824,6 +8836,8 @@ namespace Lux {
 	Ref<Framebuffer> SceneRenderer::GetExternalCompositeFramebuffer()
 	{
 		Ref<RenderPass> finalPass = GetFinalRenderPass();
+		if (finalPass == m_CompositePass)
+			return m_CompositingFramebuffer;
 		if (finalPass)
 			return finalPass->GetTargetFramebuffer();
 

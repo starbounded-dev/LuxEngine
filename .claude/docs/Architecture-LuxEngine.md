@@ -196,6 +196,14 @@ Structurally:
   use the on-top pass; collider wireframes use a cached depth-tested variant unless On Top is enabled.
   Both share the scene color target, and the graph declares the collider depth read. Collider colors
   are captured per frame and written to material storage in render-queue order.
+- Tone mapping uses a color-only framebuffer sharing the composite color image. It samples
+  PreDepth without binding it as an attachment; the depth-bearing composite framebuffer remains
+  the target for world/editor overlays. Both framebuffer views participate in resize and stale
+  attachment repair, and the graph declares only color as the tone-mapping output.
+- Compute-to-draw barriers accept `StorageBufferSet` and resolve its render-frame buffer at
+  recording time. Mesh culling, cluster lighting and exposure use this path; indirect draw
+  arguments transition to NVRHI `IndirectArgument` before consumption. Mesh-culling output
+  buffers use GPU-only storage with staged CPU initialization so NVRHI tracks their transitions.
 
 ### 2.4 Scene / ECS
 

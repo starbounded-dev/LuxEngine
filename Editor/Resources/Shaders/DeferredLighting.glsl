@@ -35,7 +35,6 @@ layout(set = 1, binding = 0) uniform textureCube u_EnvRadianceTex;
 layout(set = 1, binding = 1) uniform textureCube u_EnvIrradianceTex;
 layout(set = 1, binding = 2) uniform texture2DArray u_ShadowMapTexture;
 layout(set = 1, binding = 3) uniform texture2D u_SpotShadowTexture;
-layout(set = 1, binding = 11) uniform texture2D u_SceneColor;
 layout(set = 1, binding = 12) uniform texture2D u_GBufferBaseColor;
 layout(set = 1, binding = 13) uniform texture2D u_GBufferNormal;
 layout(set = 1, binding = 14) uniform texture2D u_GBufferMetalRoughAO;

@@ -235,6 +235,17 @@ crash or corruption on some driver even if it renders correctly on yours.
 - Do not silence, filter, or `#ifdef` away a validation message to make a log quiet.
 - Fix the underlying mismatch: image layout, descriptor lifetime, pipeline/renderpass compatibility,
   or missing barrier.
+- For frame-indexed storage buffers, pass the `StorageBufferSet` to
+  `PipelineCompute::BufferMemoryBarrier`; it resolves `RT_Get()` when recording, just like the
+  binding sets. Main-thread `Get()` may select a different buffer. Indirect draw consumers need
+  `ResourceAccessFlags::IndirectCommandRead` (NVRHI `IndirectArgument`), not a shader-read state.
+- GPU-written storage (including mesh-culling visible indices and indirect arguments) must use
+  `GPUOnly = true`. NVRHI intentionally skips barriers for CPU-visible buffers; CPU initialization
+  of GPU storage goes through `writeBuffer` on the upload command list.
+- PCSS uses constant-index Poisson lookups. Dynamic indexing of the local 64-sample array expands
+  into repeated per-fragment scratch arrays on RADV Renoir and can cause a GPU timeout.
+  `python3 tests/rendering/run_shadow_shader.py` compiles/validates deferred lighting and checks
+  its SPIR-V for these local copies (use `--sdk-bin` if the Vulkan tools are not bundled).
 - Nvidia Aftermath GPU crash dumps live in `Platform/Vulkan/Debug/` and are compiled out of Dist (and
   removed entirely with `--no-aftermath`). When chasing a device-lost, build with them in.
 

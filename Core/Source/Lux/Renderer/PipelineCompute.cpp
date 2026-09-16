@@ -118,6 +118,9 @@ namespace Lux {
 		if ((uint32_t)accessFlags & (uint32_t)ResourceAccessFlags::DepthStencilAttachmentWrite)
 			state = state | nvrhi::ResourceStates::DepthWrite;
 
+		if ((static_cast<uint32_t>(accessFlags) & static_cast<uint32_t>(ResourceAccessFlags::IndirectCommandRead)) != 0)
+			state = state | nvrhi::ResourceStates::IndirectArgument;
+
 		// Default to ShaderResource if no specific flags matched
 		if (state == nvrhi::ResourceStates::Unknown)
 			state = nvrhi::ResourceStates::ShaderResource;
@@ -184,19 +187,37 @@ namespace Lux {
 		const std::string markerName = BuildBarrierMarkerName("Buffer", m_Shader ? m_Shader->GetName() : "PipelineCompute", GetStorageBufferDebugName(storageBuffer), fromStage, fromAccess, toStage, toAccess);
 		Renderer::Submit([renderCommandBuffer, storageBuffer, toAccess, markerName]() mutable
 			{
-				// See ImageMemoryBarrier: a buffer can be null/mid-recreation during a resize; a
-				// barrier on an unallocated resource is a no-op, so skip it instead of dereferencing
-				// null in nvrhi.
-				nvrhi::BufferHandle handle = storageBuffer ? storageBuffer->GetHandle() : nullptr;
-				if (!handle)
-					return;
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-				nvrhi::ResourceStates targetState = MapAccessFlagsToResourceState(toAccess);
-				renderCommandBuffer->RT_BeginMarker(markerName);
-				commandList->setBufferState(handle, targetState);
-				commandList->commitBarriers();
-				renderCommandBuffer->RT_EndMarker();
+				RT_BufferMemoryBarrier(renderCommandBuffer, storageBuffer, toAccess, markerName);
 			});
+	}
+
+	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBufferSet> storageBuffers, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)
+	{
+		BufferMemoryBarrier(renderCommandBuffer, storageBuffers, PipelineStage::ComputeShader, fromAccess, PipelineStage::AllCommands, toAccess);
+	}
+
+	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBufferSet> storageBuffers, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		LUX_CORE_VERIFY(storageBuffers);
+		const std::string passName = m_Shader ? m_Shader->GetName() : "PipelineCompute";
+		Renderer::Submit([renderCommandBuffer, storageBuffers, fromStage, fromAccess, toStage, toAccess, passName]() mutable
+		{
+			Ref<StorageBuffer> storageBuffer = storageBuffers->RT_Get();
+			const std::string markerName = BuildBarrierMarkerName("Buffer", passName, GetStorageBufferDebugName(storageBuffer), fromStage, fromAccess, toStage, toAccess);
+			RT_BufferMemoryBarrier(renderCommandBuffer, storageBuffer, toAccess, markerName);
+		});
+	}
+
+	void PipelineCompute::RT_BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags toAccess, const std::string& markerName)
+	{
+		nvrhi::BufferHandle handle = storageBuffer ? storageBuffer->GetHandle() : nullptr;
+		LUX_CORE_VERIFY(handle, "Buffer barrier '{}' has no allocated buffer", markerName);
+		nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
+		renderCommandBuffer->RT_BeginMarker(markerName);
+		commandList->setBufferState(handle, MapAccessFlagsToResourceState(toAccess));
+		commandList->commitBarriers();
+		renderCommandBuffer->RT_EndMarker();
 	}
 
 	void PipelineCompute::ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)
