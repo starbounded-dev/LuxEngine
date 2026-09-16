@@ -5,6 +5,7 @@ and hands back a plain object the callers act on.
 """
 
 import os
+import glob
 import subprocess
 import sys
 
@@ -185,22 +186,18 @@ def warn_missing_discord_sdk(config, root):
 
 
 def warn_missing_fmod_sdk(config, root):
-    """The FMOD Engine SDK is fetched manually, so catch its absence before premake generates a
-    project that can't compile. Checks both known candidate layouts (see Dependencies.lua) since
-    only the Linux package's folder name is confirmed - the Windows one is a placeholder until
-    that package is actually added."""
-    candidates = [
-        os.path.join(root, "Core", "vendor", "FMOD", "fmodstudioapi20314linux", "api", "core", "inc"),
-        os.path.join(root, "Core", "vendor", "FMOD", "FMOD Studio API Windows", "api", "core", "inc"),
-    ]
-    if any(os.path.exists(os.path.join(inc, "fmod.hpp")) for inc in candidates):
+    """Preliminary discovery; Premake validates the selected target's complete SDK layout."""
+    override = os.getenv("LUX_FMOD_SDK")
+    candidates = [override] if override else glob.glob(os.path.join(root, "Core", "vendor", "FMOD", "*"))
+    library = "x64/fmod_vc.lib" if os.name == "nt" else "x86_64/libfmod.so"
+    if any(os.path.isfile(os.path.join(candidate, "api", "core", "inc", "fmod.hpp"))
+           and os.path.isfile(os.path.join(candidate, "api", "core", "lib", library)) for candidate in candidates):
         return True
 
     print("")
     print(f"{Style.BRIGHT}{Back.RED} FMOD Engine SDK incomplete {Style.RESET_ALL}")
-    print(f"fmod.hpp not found under either: {' or '.join(candidates)}")
-    print("Download the FMOD Engine SDK and extract it into Core/vendor/FMOD/. If the archive's")
-    print("folder name differs from the above, update the path in Dependencies.lua to match.")
+    print("No native FMOD Engine SDK found. Extract the package into Core/vendor/FMOD/ or set")
+    print("LUX_FMOD_SDK to its root containing api/. Premake verifies headers, link inputs and runtime libraries.")
     print(f"{Fore.YELLOW}FMOD and VA are required; project generation will fail until the SDK is installed.{Style.RESET_ALL}")
     print("")
     return False
@@ -209,14 +206,11 @@ def warn_missing_fmod_sdk(config, root):
 def warn_missing_va_ray_sdk(config, root):
     """The Vercidium Audio (VA) SDK is fetched manually, so catch its absence before premake
     generates a project that can't compile."""
-    va_root = os.path.join(root, "Core", "vendor", "VA_RAY", "3d", "native")
+    va_root = os.path.join(os.getenv("LUX_VA_SDK") or os.path.join(root, "Core", "vendor", "VA_RAY"), "3d", "native")
+    libraries = [os.path.join("production", "windows", name) for name in ("vaudionative.lib", "vaudionative.dll")] if os.name == "nt" else [os.path.join("production", "linux", "libvaudionative.so")]
     missing = [
         name
-        for name in (
-            os.path.join("include", "vaudio.h"),
-            os.path.join("production", "windows", "vaudionative.lib"),
-            os.path.join("production", "linux", "libvaudionative.so"),
-        )
+        for name in [os.path.join("include", "vaudio.h"), *libraries]
         if not os.path.exists(os.path.join(va_root, name))
     ]
     if not missing:
@@ -225,7 +219,7 @@ def warn_missing_va_ray_sdk(config, root):
     print("")
     print(f"{Style.BRIGHT}{Back.RED} Vercidium Audio SDK incomplete {Style.RESET_ALL}")
     print(f"Missing from {va_root}: {', '.join(missing)}")
-    print("Download the SDK (see Core/vendor/VA_RAY/README.txt) and extract it there.")
+    print("Extract the SDK there, or set LUX_VA_SDK to its package root containing 3d/.")
     print(f"{Fore.YELLOW}FMOD and VA are required; project generation will fail until the SDK is installed.{Style.RESET_ALL}")
     print("")
     return False

@@ -54,3 +54,11 @@ strict/bounded budget persistence and independent catalog validation (missing ev
 event kinds, corrupt banks). Source YAML checks execute the production serialization blocks for
 priority/culling defaults, bounds and runtime-state exclusion. Managed checks cover source budget
 controls and main-thread guards. These tests use NOSOUND and do not replace listening/visual checks.
+
+Desktop platform checks cover enabled/disabled host selection, old-project defaults, invalid
+profiles, YAML round trips, effective runtime budgets, explicit Studio target argument quoting,
+and real FMOD output mute without changing authored bus mute or scripted event pause.
+
+Run `python3 tests/audio/run_sdk_layout.py` to exercise Premake's Windows/Linux SDK overrides,
+paths with spaces, and each missing header/link/runtime file. It uses disposable empty files to
+validate discovery rules, not a Windows compilation or hardware test. Console checks are on hold.

@@ -320,3 +320,10 @@ groups/DSP pointers are released before bank unload. The SDK mixer owns sample p
 reads cached values and never traverses the mixer itself. Explicit project validation loads scene,
 prefab and table assets on the main thread and inspects banks with a separate NOSOUND FMOD system.
 It runs only on demand or during export, never per frame, and passes no ECS pointers to SDK threads.
+
+`Application` calls `AudioEngine::SetApplicationFocused` and `Update` on the main thread even
+while minimized. GLFW/ImGui focus queries remain on that thread. Focus mute only changes the Core
+master output group's mute; it never changes Studio bus state, event pause flags or scene state.
+SDK mixer/streaming work and timeline callbacks continue while unfocused. No platform callback
+directly invokes audio, scripts or ECS. Profile selection and bank rebuild/reload remain main-thread
+operations; console suspend/resume integration is deferred.

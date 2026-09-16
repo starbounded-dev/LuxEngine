@@ -214,15 +214,24 @@ option.
 
 ### Ray-traced audio build fails with `vaudio.h: No such file or directory`
 
-The required SDK is absent from `Core/vendor/VA_RAY/`. The SDK is fetched manually
-(see `Core/vendor/VA_RAY/README.txt`) and is gitignored. Extract it there before regenerating.
+The SDK is fetched manually (see `Core/vendor/VA_RAY/README.txt`) and is gitignored.
+Extract it into `Core/vendor/VA_RAY/`, or set `LUX_VA_SDK` to the package root containing `3d/`,
+then regenerate. Generation verifies the native target's header, link inputs and runtime libraries.
 
 ### FMOD build fails with `fmod.hpp: No such file or directory`
 
-The required SDK is absent from `Core/vendor/FMOD/`, or the extracted folder name doesn't
-match what `Dependencies.lua` expects (only the Linux package's name is confirmed — see the comment
-above the `FMOD` entry). Extract the SDK there, or update the path in `Dependencies.lua` to match
-the archive's actual top-level folder name.
+Extract the native FMOD Engine SDK beneath `Core/vendor/FMOD/`, or set `LUX_FMOD_SDK` to its
+package root containing `api/`, then regenerate. `Dependencies.lua` discovers packages by target
+header/library layout rather than folder name; multiple matching packages require an explicit
+override. The same root supplies headers, link inputs and Editor/Runtime post-build copies.
+Windows requires Core/Studio `.lib` and `.dll` files; Linux requires link `.so` files and the
+deployed `.so.14` files. Generation fails with the exact missing path instead of building a
+silent fallback. VA uses `LUX_VA_SDK` similarly. These environment variables must be set in the
+shell that runs generation; generated projects keep the resolved roots until regenerated.
+
+See `docs/AUDIO_DESKTOP_PLATFORMS.md` for setup and project profiles. Linux native builds and
+disposable Windows SDK-layout tests are verified; a native Windows build/listening test still
+requires the Windows FMOD SDK and Windows host. Console SDK/hardware work is on hold.
 
 ### Aftermath headers not found
 

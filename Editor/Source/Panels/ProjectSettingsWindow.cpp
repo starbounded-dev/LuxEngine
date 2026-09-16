@@ -487,6 +487,7 @@ namespace Lux {
 			auto edited = audioSettings.Performance;
 			bool changed = false;
 			ImGuiEx::BeginPropertyGrid();
+			changed |= ImGuiEx::Property("Mute When Unfocused", edited.MuteWhenUnfocused, "Mute output while unfocused; timelines and gameplay pause state are preserved.", false);
 			int voices = static_cast<int>(edited.RealVoices), memory = static_cast<int>(edited.BankMemoryMiB);
 			changed |= ImGuiEx::Property("Real Voices", voices, 1, 512, "FMOD real voice cap. Lower priority channels virtualize.", false);
 			edited.RealVoices = static_cast<uint32_t>(voices);
@@ -530,10 +531,61 @@ namespace Lux {
 					LUX_CORE_ERROR_TAG("Audio", "Invalid audio budget. Use positive limits and valid bus:/ paths (maximum 64 buses).");
 			}
 			ImGui::TextWrapped("Budgets apply when the project audio system is reopened, and in new exports. Bus limits warn; FMOD's global real-voice limit controls virtualization. Live meters and validation are in View > Audio Debugger.");
+			ImGui::TreePop();
+		}
+		ImGui::Spacing();
+		if (ImGuiEx::PropertyGridHeader("Desktop Audio Profiles", false))
+		{
+			ImGui::TextWrapped("The current operating system selects its enabled profile for Play, bank builds and native exports. Reopen the project after changing budgets or focus behavior. Console integration is on hold.");
+			for (auto entry : { std::pair{ "Windows", &audioSettings.Windows }, std::pair{ "Linux", &audioSettings.Linux } })
+			{
+				ImGuiEx::ScopedID id(entry.first);
+				ImGui::TextUnformatted(entry.first);
+				auto& profile = *entry.second;
+				ImGuiEx::BeginPropertyGrid();
+				bool enabled = profile.Enabled;
+				if (ImGuiEx::Property("Override defaults", enabled, "Use this OS's bank target and budgets.", false))
+				{
+					profile.Enabled = enabled;
+					m_Dirty = true;
+				}
+				m_Dirty |= ImGuiEx::Property("Studio Platform", profile.StudioPlatform, "Exact platform name authored in FMOD Studio (for example Desktop or Windows).", false);
+				std::string output = profile.BankOutputPath.generic_string();
+				if (ImGuiEx::Property("Bank Output", output, "Relative to the Studio project directory.", false))
+				{
+					profile.BankOutputPath = output;
+					m_Dirty = true;
+				}
+				m_Dirty |= ImGuiEx::Property("Real Voices", profile.Performance.RealVoices, 1u, 512u, "FMOD's global software-channel cap.", false);
+				m_Dirty |= ImGuiEx::Property("FMOD Memory (MiB)", profile.Performance.BankMemoryMiB, 1u, 65536u, "Includes banks, samples and mixer overhead.", false);
+				m_Dirty |= ImGuiEx::Property("CPU Warning (%)", profile.Performance.CPUPercent, 0.1f, 0.1f, 100.0f, "Audio CPU threshold.", false);
+				m_Dirty |= ImGuiEx::Property("VA Warning (ms)", profile.Performance.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "Raytracing threshold.", false);
+				m_Dirty |= ImGuiEx::Property("Mute When Unfocused", profile.Performance.MuteWhenUnfocused, "Output mute preserves authored bus and gameplay pause state.", false);
+				ImGuiEx::EndPropertyGrid();
+				if (ImGui::SmallButton("Copy Default Budgets"))
+				{
+					profile.Performance = audioSettings.Performance;
+					m_Dirty = true;
+				}
+				for (auto& [path, limit] : profile.Performance.BusVoices)
+				{
+					ImGuiEx::ScopedID busID(path.c_str());
+					int value = static_cast<int>(limit);
+					ImGui::TextUnformatted(path.c_str());
+					ImGui::SameLine();
+					if (ImGui::DragInt("Voice warning", &value, 1.0f, 1, 65536, "%d", ImGuiSliderFlags_AlwaysClamp))
+					{
+						limit = static_cast<uint32_t>(std::clamp(value, 1, 65536));
+						m_Dirty = true;
+					}
+				}
+				if (!profile.Validate())
+					ImGui::TextUnformatted("Invalid profile: use a platform name, bank directory and positive budgets.");
+			}
+			ImGui::Text("Active bank platform: %s", m_Project->GetStudioPlatform().c_str());
+			ImGui::TreePop();
 		}
 
-
-		ImGui::Spacing();
 		ImGui::TextUnformatted("FMOD Studio");
 
 		ImGuiEx::BeginPropertyGrid();
@@ -546,6 +598,7 @@ namespace Lux {
 			m_Dirty = true;
 		}
 
+		m_Dirty |= ImGuiEx::Property("Studio Platform", audioSettings.StudioPlatform, "Exact FMOD platform name to build when the desktop profile is disabled.", false);
 		std::string bankOutputPath = audioSettings.StudioBankOutputPath.generic_string();
 		if (ImGuiEx::Property("Bank Output", bankOutputPath,
 			"Where FMOD writes built banks, relative to the .fspro's own directory. 'Desktop' is FMOD's default platform name."))
@@ -895,7 +948,7 @@ namespace Lux {
 			ImGuiEx::ScopedDisable disabled(!builderAvailable);
 			if (ImGui::Button("Build Banks Now"))
 			{
-				if (AudioBankBuilder::Build(studioProject))
+				if (AudioBankBuilder::Build(studioProject, m_Project->GetStudioPlatform()))
 					AudioEngine::LoadBanks(m_Project->GetStudioBankDirectory());
 			}
 		}

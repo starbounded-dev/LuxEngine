@@ -55,6 +55,8 @@ namespace Lux
 		DialogueSettings Dialogue;
 		AudioAccessibilityConfig Accessibility;
 		AudioPerformanceSettings Performance;
+		AudioDesktopProfile Windows, Linux;
+		std::string StudioPlatform = "Desktop";
 		AcousticMaterialSettings AcousticMaterials;
 		AudioZoneReverbMode ZoneReverbMode = AudioZoneReverbMode::Layered;
 
@@ -260,9 +262,27 @@ namespace Lux
 			return GetAssetDirectory() / m_Config.Audio.StudioProjectPath;
 		}
 
-		// Absolute path to the directory fmodstudiocl writes banks into. Resolved relative to the
-		// .fspro rather than the asset directory, because FMOD writes Build/ next to the project
-		// file and the two move together. Runtime packages resolve the manifest directory from Assets.
+		// Native desktop builds select their host OS profile; runtime exports flatten its settings.
+		const AudioDesktopProfile& GetAudioDesktopProfile() const
+		{
+#ifdef LUX_PLATFORM_WINDOWS
+			return m_Config.Audio.Windows;
+#else
+			return m_Config.Audio.Linux;
+#endif
+		}
+		const AudioPerformanceSettings& GetAudioPerformance() const
+		{
+			const auto& profile = GetAudioDesktopProfile();
+			return profile.Enabled ? profile.Performance : m_Config.Audio.Performance;
+		}
+		const std::string& GetStudioPlatform() const
+		{
+			const auto& profile = GetAudioDesktopProfile();
+			return profile.Enabled ? profile.StudioPlatform : m_Config.Audio.StudioPlatform;
+		}
+
+		// Absolute bank directory, relative to the .fspro for authoring or Assets for runtime manifests.
 		std::filesystem::path GetStudioBankDirectory() const
 		{
 			if (!m_Config.Audio.RuntimeBanks.Directory.empty())
@@ -272,7 +292,8 @@ namespace Lux
 			if (studioProject.empty())
 				return {};
 
-			return studioProject.parent_path() / m_Config.Audio.StudioBankOutputPath;
+			const auto& profile = GetAudioDesktopProfile();
+			return studioProject.parent_path() / (profile.Enabled ? profile.BankOutputPath : m_Config.Audio.StudioBankOutputPath);
 		}
 
 		std::filesystem::path GetMeshPath() const

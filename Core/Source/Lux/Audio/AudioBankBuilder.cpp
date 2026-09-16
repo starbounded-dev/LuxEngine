@@ -1,5 +1,6 @@
 #include "lpch.h"
 #include "AudioBankBuilder.h"
+#include "AudioPerformanceSettings.h"
 
 #include <cstdlib>
 #include <chrono>
@@ -232,8 +233,13 @@ namespace Lux {
 		return NewestWriteTimeUnder(projectDirectory, std::filesystem::absolute(bankDirectory).lexically_normal()) > oldestBank;
 	}
 
-	bool AudioBankBuilder::Build(const std::filesystem::path& studioProjectPath)
+	bool AudioBankBuilder::Build(const std::filesystem::path& studioProjectPath, const std::string& platform)
 	{
+		if (!IsValidStudioPlatform(platform))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Invalid FMOD build platform '{}'", platform);
+			return false;
+		}
 		std::error_code ec;
 		if (studioProjectPath.empty() || !std::filesystem::is_regular_file(studioProjectPath, ec))
 		{
@@ -256,7 +262,7 @@ namespace Lux {
 		std::string command;
 		try
 		{
-			command = QuoteArgument(tool) + " -build -export-guids " + QuoteArgument(studioProjectPath);
+			command = QuoteArgument(tool) + " -build -export-guids -platforms " + QuoteArgument(platform) + " " + QuoteArgument(studioProjectPath);
 #ifdef LUX_PLATFORM_WINDOWS
 			// cmd.exe removes the outer quotes when the command starts with a quoted executable.
 			command = "\"" + command + "\"";

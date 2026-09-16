@@ -54,15 +54,15 @@ project "Lux-Runtime"
 
 		do -- Vercidium Audio is required.
 			postbuildcommands {
-				'{COPY} "../Core/vendor/VA_RAY/3d/native/production/windows/vaudionative.dll" "%{cfg.targetdir}"',
+				'{COPY} "' .. VASDKRoot .. '/3d/native/production/windows/vaudionative.dll" "%{cfg.targetdir}"',
 			}
 		end
 
-		-- Placeholder path - the Windows FMOD package hasn't been added yet (see Dependencies.lua).
+		-- Validated SDK roots are shared with the linker configuration.
 		do -- FMOD is required.
 			postbuildcommands {
-				'{COPY} "../Core/vendor/FMOD/FMOD Studio API Windows/api/core/lib/x64/fmod.dll" "%{cfg.targetdir}"',
-				'{COPY} "../Core/vendor/FMOD/FMOD Studio API Windows/api/studio/lib/x64/fmodstudio.dll" "%{cfg.targetdir}"',
+				'{COPY} "' .. FMODSDKRoot .. '/api/core/lib/x64/fmod.dll" "%{cfg.targetdir}"',
+				'{COPY} "' .. FMODSDKRoot .. '/api/studio/lib/x64/fmodstudio.dll" "%{cfg.targetdir}"',
 			}
 		end
 
@@ -94,7 +94,7 @@ project "Lux-Runtime"
 		do -- Vercidium Audio is required.
 			postbuildcommands {
 				'{MKDIR} "%{cfg.targetdir}/lib"',
-				'{COPY} "../Core/vendor/VA_RAY/3d/native/production/linux/libvaudionative.so" "%{cfg.targetdir}/lib"',
+				'{COPY} "' .. VASDKRoot .. '/3d/native/production/linux/libvaudionative.so" "%{cfg.targetdir}/lib"',
 			}
 		end
 
@@ -102,8 +102,8 @@ project "Lux-Runtime"
 		do -- FMOD is required.
 			postbuildcommands {
 				'{MKDIR} "%{cfg.targetdir}/lib"',
-				'{COPYFILE} "../Core/vendor/FMOD/fmodstudioapi20314linux/api/core/lib/x86_64/libfmod.so.14" "%{cfg.targetdir}/lib/libfmod.so.14"',
-				'{COPYFILE} "../Core/vendor/FMOD/fmodstudioapi20314linux/api/studio/lib/x86_64/libfmodstudio.so.14" "%{cfg.targetdir}/lib/libfmodstudio.so.14"',
+				'{COPYFILE} "' .. FMODSDKRoot .. '/api/core/lib/x86_64/libfmod.so.14" "%{cfg.targetdir}/lib/libfmod.so.14"',
+				'{COPYFILE} "' .. FMODSDKRoot .. '/api/studio/lib/x86_64/libfmodstudio.so.14" "%{cfg.targetdir}/lib/libfmodstudio.so.14"',
 			}
 		end
 

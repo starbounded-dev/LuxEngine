@@ -505,7 +505,7 @@ that a re-export is needed for events; authoring paths and rebuild-on-play are d
 `RuntimeExport::PrepareAudioBanks` runs once during the existing synchronous export operation on
 the main thread. It rejects missing authoring input, missing/empty banks, a missing master/strings
 pair, and stale output using `AudioBankBuilder::NeedsRebuild`. The selected bank-output directory
-is the configured FMOD platform output (Desktop for current Linux/Windows exports); export does
+is the enabled host desktop profile's FMOD output, or the project's default output; export does
 not invoke Studio or guess a platform. An empty Studio project setting means no authored banks.
 Bank paths inside Assets retain their relative location for scripts; external output is packaged
 under `Assets/Audio/Banks`. Absolute authoring paths are not portable script paths. The `.fspro`
@@ -733,6 +733,29 @@ check event kinds/buses and report unused events and disk sizes. Its RAII host r
 active project banks remain loaded. The debugger owns a report snapshot. Export invokes validation
 after preparing banks and aborts on errors; warnings about script-only references remain advisory.
 See `docs/AUDIO_PERFORMANCE_VALIDATION.md` for user controls and measurement semantics.
+
+**Desktop platforms (Phase 15):** `ProjectAudioSettings` adds optional `Windows` and `Linux`
+`AudioDesktopProfile` records: explicit Studio platform name, bank-output path and complete
+performance settings. Disabled/missing profiles use project defaults (`Desktop`, `Build/Desktop`).
+`Project::GetStudioPlatform`, `GetStudioBankDirectory` and `GetAudioPerformance` centralize native
+host selection for bank builds, validation, engine initialization and export. `AudioBankBuilder`
+passes one validated, quoted `-platforms` target to Studio. Play reloads the selected directory;
+failed loads clear the catalog so a previous profile cannot keep playing. Existing selected output
+may still play after a failed rebuild, with the build failure logged.
+
+Native exports flatten the selected budgets/focus option into format 23's bounded settings block;
+runtime profiles stay disabled and the manifest selects packaged banks. Optional YAML fields keep
+old projects compatible. This is not executable cross-compilation. SDK roots (`LUX_FMOD_SDK`,
+`LUX_VA_SDK`) drive Premake includes, link inputs, deployed libraries and target file validation.
+FMOD packages can also be discovered under `Core/vendor/FMOD/`; ambiguity requires an override.
+
+`MuteWhenUnfocused` defaults false. `Application` pumps Studio even when minimized and determines
+focus from GLFW windows, including detached ImGui viewports. Main-thread `SetApplicationFocused`
+mutes the Core master output group, outside Studio's bus tree, without changing bus gain/mute or
+script/scene pause state. Timelines continue; minimized scene simulation retains its existing pause
+behavior. Focus application is cached per bank/system generation. Budget and focus changes apply
+on project reopen. Console SDK, hardware and certification work is on hold; native Windows build
+and listening verification remain pending. See `docs/AUDIO_DESKTOP_PLATFORMS.md`.
 
 **Editor observability:** `AudioDebugPanel` (`Editor/Source/Panels/AudioDebugPanel.{h,cpp}`, View →
 Audio Debugger, closed by default) renders both halves of the stack. Playback and acoustics use

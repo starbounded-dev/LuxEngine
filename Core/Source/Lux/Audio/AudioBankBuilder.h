@@ -26,10 +26,10 @@ namespace Lux {
 		// is not the same as being out of date.
 		static bool NeedsRebuild(const std::filesystem::path& studioProjectPath, const std::filesystem::path& bankDirectory);
 
-		// Runs fmodstudiocl -build -export-guids. Blocking, and can take seconds on a large project,
+		// Runs fmodstudiocl -build -export-guids -platforms <platform>. Blocking, and can take seconds,
 		// so callers should not run it inside a frame. Returns false and logs on any failure,
 		// including the tool being absent.
-		static bool Build(const std::filesystem::path& studioProjectPath);
+		static bool Build(const std::filesystem::path& studioProjectPath, const std::string& platform = "Desktop");
 
 		// Opens a path in the FMOD Studio GUI - a .fspro, or a .bank whose owning project is
 		// resolved from it. Returns false if Studio cannot be located.

@@ -95,7 +95,7 @@ namespace Lux {
 #endif
 
 		const auto project = Project::GetActive();
-		const auto performance = project ? project->GetConfig().Audio.Performance : AudioPerformanceSettings{};
+		const auto performance = project ? project->GetAudioPerformance() : AudioPerformanceSettings{};
 		if (!AudioPerformance::Configure(performance) || !CheckFMOD(s_Engine->setSoftwareChannels(static_cast<int>(performance.RealVoices)), "Set real voice limit"))
 		{
 			CheckFMOD(s_StudioSystem->release(), "Release FMOD after invalid voice configuration");

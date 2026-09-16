@@ -687,6 +687,16 @@ namespace Lux
 				out << YAML::BeginMap;
 				out << YAML::Key << "FileStreamingDurationThreshold" << YAML::Value << config.Audio.FileStreamingDurationThreshold;
 				out << YAML::Key << "StudioProjectPath" << YAML::Value << config.Audio.StudioProjectPath.generic_string();
+				if (!IsValidStudioPlatform(config.Audio.StudioPlatform) || !config.Audio.Windows.Validate() || !config.Audio.Linux.Validate())
+				{
+					LUX_CORE_ERROR_TAG("Audio", "Cannot save invalid desktop audio profiles");
+					return false;
+				}
+				out << YAML::Key << "StudioPlatform" << YAML::Value << config.Audio.StudioPlatform;
+				out << YAML::Key << "Windows" << YAML::Value;
+				config.Audio.Windows.SerializeYAML(out);
+				out << YAML::Key << "Linux" << YAML::Value;
+				config.Audio.Linux.SerializeYAML(out);
 				out << YAML::Key << "StudioBankOutputPath" << YAML::Value << config.Audio.StudioBankOutputPath.generic_string();
 				out << YAML::Key << "RebuildBanksOnPlay" << YAML::Value << config.Audio.RebuildBanksOnPlay;
 				out << YAML::Key << "EnableLiveUpdate" << YAML::Value << config.Audio.EnableLiveUpdate;
@@ -810,7 +820,7 @@ namespace Lux
 		}
 		serializer.WriteRaw<uint8_t>(static_cast<uint8_t>(zoneMode));
 		serializer.WriteRaw<uint64_t>(m_Project->GetConfig().Audio.SurfaceTable);
-		if (!m_Project->GetConfig().Audio.Dialogue.Serialize(serializer) || !m_Project->GetConfig().Audio.Accessibility.Serialize(serializer) || !m_Project->GetConfig().Audio.Performance.Serialize(serializer))
+		if (!m_Project->GetConfig().Audio.Dialogue.Serialize(serializer) || !m_Project->GetConfig().Audio.Accessibility.Serialize(serializer) || !m_Project->GetAudioPerformance().Serialize(serializer))
 			return false;
 
 		const auto& physics = m_Project->GetConfig().Physics;
@@ -945,6 +955,9 @@ namespace Lux
 		config.Audio.Dialogue = {};
 		config.Audio.Accessibility = {};
 		config.Audio.Performance = {};
+		config.Audio.Windows = {};
+		config.Audio.Linux = {};
+		config.Audio.StudioPlatform = "Desktop";
 		config.Audio.AcousticMaterials = {};
 		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
 		if (auto audioNode = projectNode["Audio"])
@@ -955,6 +968,14 @@ namespace Lux
 			config.Audio.RebuildBanksOnPlay = audioNode["RebuildBanksOnPlay"].as<bool>(config.Audio.RebuildBanksOnPlay);
 			config.Audio.EnableLiveUpdate = audioNode["EnableLiveUpdate"].as<bool>(config.Audio.EnableLiveUpdate);
 			config.Audio.SurfaceTable = audioNode["SurfaceTable"].as<uint64_t>(0);
+			config.Audio.StudioPlatform = audioNode["StudioPlatform"].as<std::string>("Desktop");
+			if (!IsValidStudioPlatform(config.Audio.StudioPlatform))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot load invalid FMOD Studio platform name");
+				return false;
+			}
+			if (!config.Audio.Windows.DeserializeYAML(audioNode["Windows"]) || !config.Audio.Linux.DeserializeYAML(audioNode["Linux"]))
+				return false;
 			if (!config.Audio.Performance.DeserializeYAML(audioNode["Performance"]))
 				return false;
 			if (!config.Audio.Accessibility.DeserializeYAML(audioNode["Accessibility"]))
@@ -1110,6 +1131,9 @@ namespace Lux
 		config.Audio.Dialogue = {};
 		config.Audio.Accessibility = {};
 		config.Audio.Performance = {};
+		config.Audio.Windows = {};
+		config.Audio.Linux = {};
+		config.Audio.StudioPlatform = "Desktop";
 		if (projectInfo.HeaderData.Version >= 21 && !config.Audio.Dialogue.Deserialize(stream))
 			return false;
 		if (projectInfo.HeaderData.Version >= 22 && !config.Audio.Accessibility.Deserialize(stream))

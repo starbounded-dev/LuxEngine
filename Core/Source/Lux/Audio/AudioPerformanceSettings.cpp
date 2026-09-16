@@ -24,6 +24,7 @@ namespace Lux
 	void AudioPerformanceSettings::SerializeYAML(YAML::Emitter& out) const
 	{
 		out << YAML::BeginMap;
+		out << YAML::Key << "MuteWhenUnfocused" << YAML::Value << MuteWhenUnfocused;
 		out << YAML::Key << "RealVoices" << YAML::Value << RealVoices;
 		out << YAML::Key << "CPUPercent" << YAML::Value << CPUPercent;
 		out << YAML::Key << "RaytracingMilliseconds" << YAML::Value << RaytracingMilliseconds;
@@ -42,6 +43,8 @@ namespace Lux
 			{
 				if (!node.IsMap())
 					throw std::runtime_error("expected settings map");
+				if (node["MuteWhenUnfocused"])
+					parsed.MuteWhenUnfocused = node["MuteWhenUnfocused"].as<bool>();
 				if (node["RealVoices"])
 					parsed.RealVoices = node["RealVoices"].as<uint32_t>();
 				if (node["CPUPercent"])
@@ -113,4 +116,57 @@ namespace Lux
 			return false;
 		}
 	}
+	bool IsValidStudioPlatform(const std::string& name)
+	{
+		return !name.empty() && name.size() <= 64 && name.front() != ' ' && name.back() != ' ' &&
+			std::all_of(name.begin(), name.end(), [](unsigned char c)
+			{
+				return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '_' || c == '-';
+			});
+	}
+	bool AudioDesktopProfile::Validate() const
+	{
+		return IsValidStudioPlatform(StudioPlatform) && !BankOutputPath.empty() &&
+			BankOutputPath.generic_string().find('\0') == std::string::npos && Performance.Validate();
+	}
+	void AudioDesktopProfile::SerializeYAML(YAML::Emitter& out) const
+	{
+		out << YAML::BeginMap;
+		out << YAML::Key << "Enabled" << YAML::Value << Enabled;
+		out << YAML::Key << "StudioPlatform" << YAML::Value << StudioPlatform;
+		out << YAML::Key << "BankOutputPath" << YAML::Value << BankOutputPath.generic_string();
+		out << YAML::Key << "Performance" << YAML::Value;
+		Performance.SerializeYAML(out);
+		out << YAML::EndMap;
+	}
+	bool AudioDesktopProfile::DeserializeYAML(const YAML::Node& node)
+	{
+		try
+		{
+			AudioDesktopProfile parsed;
+			if (node)
+			{
+				if (!node.IsMap())
+					throw std::runtime_error("expected a desktop audio profile map");
+				if (node["Enabled"])
+					parsed.Enabled = node["Enabled"].as<bool>();
+				if (node["StudioPlatform"])
+					parsed.StudioPlatform = node["StudioPlatform"].as<std::string>();
+				if (node["BankOutputPath"])
+					parsed.BankOutputPath = node["BankOutputPath"].as<std::string>();
+				if (!parsed.Performance.DeserializeYAML(node["Performance"]))
+					return false;
+			}
+			if (!parsed.Validate())
+				throw std::runtime_error("invalid platform name, bank directory or performance budget");
+			*this = std::move(parsed);
+			return true;
+		}
+		catch (const std::exception& error)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Invalid desktop audio profile: {}", error.what());
+			return false;
+		}
+	}
+
 }

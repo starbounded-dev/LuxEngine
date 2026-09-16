@@ -81,6 +81,8 @@ namespace Lux {
 		static AudioEngineStats GetStats();
 
 		static void Update();
+		// Main thread; output mute is independent of authored bus and gameplay pause state.
+		static void SetApplicationFocused(bool focused);
 
 		// --- FMOD Studio banks and events -------------------------------------------------------
 		//

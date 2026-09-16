@@ -4211,18 +4211,18 @@ namespace Lux {
 		if (project->GetConfig().Audio.RebuildBanksOnPlay
 			&& AudioBankBuilder::NeedsRebuild(studioProject, bankDirectory))
 		{
-			// Reload only on a successful build. A failed one leaves the previous banks on disk,
-			// and the already-loaded copies of them are still the right thing to be playing.
-			if (AudioBankBuilder::Build(studioProject))
-				AudioEngine::LoadBanks(bankDirectory);
-
-			return;
+			// Failure is logged by the builder. Existing output for this profile can still be used.
+			AudioBankBuilder::Build(studioProject, project->GetStudioPlatform());
 		}
 
-		// Nothing to rebuild, but the banks may still not be loaded - opening a project loads them,
-		// and a project opened before any banks existed would have none.
-		if (AudioEngine::GetLoadedBanks().empty())
-			AudioEngine::LoadBanks(bankDirectory);
+		// A profile/output directory may have changed since project open. Resolve the current
+		// selection even when another catalog is already loaded.
+		if (!AudioEngine::LoadBanks(bankDirectory))
+		{
+			// Do not play a previous profile's catalog when the newly selected output is missing.
+			AudioEngine::UnloadAllBanks();
+			LUX_CORE_ERROR_TAG("Audio", "Play will continue without project banks: cannot load the selected audio profile at '{}'", bankDirectory.string());
+		}
 	}
 
 	void EditorLayer::LoadAudioBanksForActiveProject()

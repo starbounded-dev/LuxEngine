@@ -266,15 +266,15 @@ namespace Lux
 		for (const auto& [guid, metadata] : config.Accessibility.Events)
 			add({ guid, {}, {} }, "Accessibility metadata");
 		std::vector<std::string> buses;
-		for (const auto& [path, limit] : config.Performance.BusVoices)
+		for (const auto& [path, limit] : project.GetAudioPerformance().BusVoices)
 			buses.push_back(path);
 		for (const auto& path : config.Accessibility.BusPaths)
 			if (!path.empty())
 				buses.push_back(path);
 		auto report = ValidateBanks(project.GetStudioProjectPath().empty() ? std::filesystem::path{} : project.GetStudioBankDirectory(), references, buses);
 		report.Issues.insert(report.Issues.end(), collected.Issues.begin(), collected.Issues.end());
-		if (!config.Performance.Validate())
-			Issue(report, true, "Project audio settings", "Invalid performance budgets");
+		if (!project.GetAudioPerformance().Validate() || !IsValidStudioPlatform(project.GetStudioPlatform()) || !config.Windows.Validate() || !config.Linux.Validate())
+			Issue(report, true, "Project audio settings", "Invalid desktop audio profile or performance budgets");
 		std::sort(report.Issues.begin(), report.Issues.end(), [](const auto& a, const auto& b)
 		{
 			return a.Severity != b.Severity ? a.Severity > b.Severity : std::tie(a.Location, a.Message) < std::tie(b.Location, b.Message);
