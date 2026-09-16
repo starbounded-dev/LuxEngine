@@ -115,15 +115,17 @@ project "Lux-Runtime"
 		end
 
 	filter { "system:linux", "configurations:Debug or configurations:Debug-AS" }
+		-- POSIX cp merges a source directory into its parent. Naming the destination directory
+		-- itself nests Resources/Resources (and DotNet/DotNet) on every subsequent build.
 		postbuildcommands {
-			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
-			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}/DotNet"',
+			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}"',
+			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}"',
 		}
 
 	filter { "system:linux", "configurations:Release or configurations:Dist" }
 		postbuildcommands {
-			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
-			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}/DotNet"',
+			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}"',
+			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}"',
 		}
 
 	filter "configurations:Debug or configurations:Debug-AS"

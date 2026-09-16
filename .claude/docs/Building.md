@@ -248,6 +248,21 @@ Git LFS content wasn't pulled. `git lfs pull`, or re-run `scripts\Setup.bat`.
 build `Core` (not just `Editor`), and confirm the .NET 9 SDK is installed so the C# projects
 actually built.
 
+### Linux runtime fails to load `Archivo-Bold.ttf`
+
+The runtime needs `Resources/Fonts/Archivo/static/Archivo-Bold.ttf` relative to its working
+directory. Linux post-build copies must merge `Editor/Resources` and `Editor/DotNet` into the
+runtime **parent directory**. Copying to an existing `Resources`/`DotNet` destination instead
+creates nested `Resources/Resources` and `DotNet/DotNet`, leaving the files used at startup stale.
+Regenerate and relink Lux-Runtime after changing the copy rules; an up-to-date executable does not
+rerun post-build commands. `tests/runtime/run_resources.py` checks clean and repeated copies for
+all Linux configurations using the generated Makefile.
+
+`scripts/Linux-RunRuntime.sh` starts the build-folder player; it does not export a game. Export
+from the editor first and launch the executable/launcher in the export folder, or pass that folder
+as `--project=/absolute/path/to/export` to the build-folder player. An unexported build folder has no
+`Assets/Project.luxruntime` or `AssetPack.lap` to load.
+
 ### Linux: `NFD-Extended` fails to configure
 
 `gtk+-3.0` development files are missing. `Linux-Build.sh` checks for this up front and tells you the
