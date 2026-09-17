@@ -2610,11 +2610,14 @@ void TextEditor::Cursors::update() {
 		}
 
 		// find main and current cursor
+		// (independent checks: after a merge one cursor can be both main and current, and an
+		// else-if would leave 'current' pointing past the end of the shrunken vector)
 		for (size_t c = 0; c < size(); c++) {
 			if (at(c).isMain()) {
 				main = c;
+			}
 
-			} else if (at(c).isCurrent()) {
+			if (at(c).isCurrent()) {
 				current = c;
 			}
 		}
