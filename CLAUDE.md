@@ -32,6 +32,29 @@ codebases:
 
 ---
 
+## Product Principle — Self-Contained, Small, Refined
+
+People make games **inside** LuxEngine. They should not have to install a pile of other software for
+an editor feature to work. Every feature is judged against this:
+
+- **Built in first.** Implement it in the engine, or compile in a small vendored library with a
+  permissive license (MIT / BSD / zlib / Apache-2.0) through `Dependencies.lua`.
+- **Reuse what is already required.** The editor already depends on the .NET SDK (script builds),
+  the bundled shader compiler (shaderc/glslang), FMOD, and Vercidium Audio. Building on those adds
+  nothing for the user to install.
+- **No new mandatory installs for game makers.** No required language servers, external IDEs,
+  Node/Python runtimes, package managers, or online services. If an external tool is genuinely
+  unavoidable, it is optional, auto-detected, degrades gracefully when missing, and the choice is
+  put to the user before it is planned.
+- **Small and refined over broad.** Prefer one well-made feature to several half-finished ones.
+  Weigh binary size, startup time, and memory like any other cost, and say what a new dependency
+  adds.
+
+This applies to people *using* the editor. Tools needed only to build the engine from source
+(Visual Studio, premake, the Vulkan SDK) are covered by `.claude/docs/Building.md`.
+
+---
+
 ## Coding Workflow Skills
 
 Two skills bracket a substantive coding session:
@@ -48,8 +71,9 @@ Two skills bracket a substantive coding session:
 Three task skills sit around that loop:
 
 - **`/plan-le`** — before multi-file or multi-session work. Produces a source-grounded, phased plan
-  (verified ledger, user decisions, engine-fit analysis, independently verifiable phases). Plans
-  only; implementation then goes phase by phase through `/dev`.
+  (pinned goal card, verified ledger, compacted web research on prior art, user decisions,
+  engine-fit analysis, independently verifiable phases). Plans only; implementation then goes phase
+  by phase through `/dev`.
 - **`/profile`** — performance investigation. Rules out the presentation ceiling, decides CPU- vs
   GPU-bound, captures Tracy/RenderDoc, and reports before/after numbers on a fixed protocol.
 - **`/shader-debug`** — shader triage: compile errors, edits with no effect (cache fallback, manual

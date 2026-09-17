@@ -118,6 +118,11 @@ one `newoption` + one `BuildOptions.OPTIONS` entry. New dependency: `Dependencie
 edit vendored submodules — reopen the project in `premake5.lua` the way Coral/NVRHI/Tracy are
 handled.
 
+A change that makes an editor feature require software the game maker must install separately
+(a language server, an IDE, a Node/Python runtime, an online service) violates `CLAUDE.md § Product
+Principle` and is must-fix, unless the tool is optional, auto-detected, degrades gracefully, and the
+user agreed to it.
+
 ### 11. ImGui scopes and IDs — must-fix
 
 Any change that adds or edits ImGui code is checked against

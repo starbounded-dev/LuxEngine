@@ -17,6 +17,8 @@ two cannot drift.
   (a direct question, or its planning/approval flow); where none exists, present the plan in chat
   and wait for approval.
 - Claude-specific tool names describe an intended action. Use the equivalent Codex-native tool.
+- Step 4 (web research) needs a web search/fetch capability. If this Codex environment has none,
+  say so in the plan, mark the Research brief as not done, and list what should be researched.
 - Paths starting with `.claude/`, `.agents/`, `docs/`, or `scripts/` are relative to the repository
   root.
 - `/dev`, `/cr`, `/send-pr`, and `/profile` in the body refer to the repository skills of the same

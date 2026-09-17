@@ -64,6 +64,12 @@ shader.** Reusing a slot with a differently-named buffer silently corrupts anoth
 
 Write code that belongs in a serious long-term engine, not a demo.
 
+- **Self-contained, small, refined.** Game makers should never need to install extra software for
+  an editor feature to work: build it in, vendor a small permissively licensed library, or reuse
+  what the editor already requires (.NET SDK, shaderc, FMOD, Vercidium Audio). Any unavoidable
+  external tool is optional, auto-detected, and degrades gracefully. Full rule: `CLAUDE.md §
+  Product Principle`.
+
 - **Root cause over symptom.** A guard that hides a bad state, a widened timeout, or a `WaitIdle`
   that papers over a race is rejected. If the real fix is out of scope, say so rather than shipping
   the bandage silently.
