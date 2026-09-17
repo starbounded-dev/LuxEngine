@@ -282,6 +282,19 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 `dev`. Checks out with `submodules: recursive` and `lfs: true`, installs Vulkan SDK `1.4.335.0`,
 generates with `vs2022`, and builds `Lux.sln` with platform `Mixed Platforms`.
 
+Linux builds run on `ubuntu-24.04` for the same configurations via `scripts/Linux-Build.sh`.
+
+**Audio SDKs come from a private repository.** FMOD and Vercidium Audio are licensed and are never
+committed here. Both jobs check out the repository named by the repository variable
+`AUDIO_SDK_REPOSITORY` into `.audio-sdk/` using the secret `AUDIO_SDK_TOKEN` (a fine-grained,
+read-only token scoped to that repository), then set `LUX_FMOD_SDK` (`.audio-sdk/FMOD/windows` or
+`.audio-sdk/FMOD/linux`) and `LUX_VA_SDK` (`.audio-sdk/VA_RAY`). Populate that repository with
+`scripts/ci/StageAudioSDKs.py`, which copies only headers, link/runtime libraries and licence files.
+Without the variable and secret — including every pull request from a fork — the job fails at
+"Check audio SDK access". Uploaded editor artifacts are stripped of the FMOD and VA runtime
+libraries, because public artifacts are downloadable by anyone and neither licence permits
+redistributing them outside a game build.
+
 Note the branch globs: CI matches `features/**`, so a branch named `feature/foo` (singular) will
 **not** be built.
 

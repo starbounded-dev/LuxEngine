@@ -36,6 +36,36 @@ jobs:
           submodules: recursive
           lfs: true
 
+      # FMOD and Vercidium Audio are licensed SDKs that must never be committed to this public
+      # repository. They come from a private repository (repository variable
+      # AUDIO_SDK_REPOSITORY, laid out by scripts/ci/StageAudioSDKs.py), read with a fine-grained
+      # read-only token scoped to that one repository (secret AUDIO_SDK_TOKEN). Pull requests
+      # from forks cannot read secrets, so their builds stop here with an explicit message.
+      - name: Check audio SDK access
+        shell: pwsh
+        env:
+          AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
+          AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
+        run: |
+          if (-not $env:AUDIO_SDK_TOKEN -or -not $env:AUDIO_SDK_REPOSITORY) {
+            Write-Output "::error::FMOD/Vercidium Audio SDKs are unavailable. Set the repository variable AUDIO_SDK_REPOSITORY and the secret AUDIO_SDK_TOKEN (pull requests from forks cannot read secrets)."
+            exit 1
+          }
+
+      - name: Checkout audio SDKs (private)
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
+          token: ${{ secrets.AUDIO_SDK_TOKEN }}
+          path: .audio-sdk
+          persist-credentials: false
+
+      - name: Point the build at the audio SDKs
+        shell: pwsh
+        run: |
+          "LUX_FMOD_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/FMOD/windows')" >> $env:GITHUB_ENV
+          "LUX_VA_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/VA_RAY')" >> $env:GITHUB_ENV
+
       - name: Setup Python
         uses: actions/setup-python@v6.2.0
         with:
@@ -182,6 +212,32 @@ jobs:
         with:
           submodules: recursive
           lfs: true
+
+      # See the Windows job: licensed audio SDKs come from a private repository.
+      - name: Check audio SDK access
+        shell: bash
+        env:
+          AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
+          AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
+        run: |
+          if [ -z "$AUDIO_SDK_TOKEN" ] || [ -z "$AUDIO_SDK_REPOSITORY" ]; then
+            echo "::error::FMOD/Vercidium Audio SDKs are unavailable. Set the repository variable AUDIO_SDK_REPOSITORY and the secret AUDIO_SDK_TOKEN (pull requests from forks cannot read secrets)."
+            exit 1
+          fi
+
+      - name: Checkout audio SDKs (private)
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
+          token: ${{ secrets.AUDIO_SDK_TOKEN }}
+          path: .audio-sdk
+          persist-credentials: false
+
+      - name: Point the build at the audio SDKs
+        shell: bash
+        run: |
+          echo "LUX_FMOD_SDK=${GITHUB_WORKSPACE}/.audio-sdk/FMOD/linux" >> "$GITHUB_ENV"
+          echo "LUX_VA_SDK=${GITHUB_WORKSPACE}/.audio-sdk/VA_RAY" >> "$GITHUB_ENV"
 
       # Coral hardcodes hostfxr major version 9, and ScriptCore targets net9.0.
       - name: Set up .NET 9

@@ -109,3 +109,6 @@ scripts/.luxsetup.json
 Editor/LuxSampleProject/Assets/Audio/**/.user/
 Editor/LuxSampleProject/Assets/Audio/**/.cache/
 Editor/LuxSampleProject/Assets/Audio/**/Build/
+
+# CI checkout of the private FMOD / Vercidium Audio SDK repository (scripts/ci/StageAudioSDKs.py)
+.audio-sdk/
