@@ -729,7 +729,10 @@ and runtime format 23 (bounded YAML block after accessibility; older versions us
 `AudioEngine::Init` configures the global FMOD software-channel cap before initialization.
 `AudioPerformance` samples real/virtual channels, Studio/Core CPU, FMOD allocator memory
 (nonblocking, valid with release SDKs) and configured bus input peak/RMS every 250 ms. It owns locked Studio bus groups
-and cached head-meter pointers, releasing them before bank unload. Per-bus voice limits warn once
+and one pass-through fader DSP per metered bus (inserted at index 1, directly behind the head DSP),
+detaching and releasing them before bank unload. **Never enable metering on a DSP Studio created:**
+with Live Update on, that makes every later `Studio::System::update` fail with
+`FMOD_ERR_BADCOMMAND` (found on Windows, 2026-09-17). Per-bus voice limits warn once
 per bank session and count all descendants; FMOD owns virtualization and stealing. The scene supplies
 last-completed VA timing and culled-source counts. Editor panels only read cached telemetry.
 

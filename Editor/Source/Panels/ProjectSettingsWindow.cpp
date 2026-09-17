@@ -678,6 +678,8 @@ namespace Lux {
 			}
 			else
 				ImGui::TextWrapped("The assigned surface table is missing or has the wrong asset type.");
+
+			ImGui::TreePop();
 		}
 		if (audioSettings.Dialogue.Table && ImGuiEx::PropertyGridHeader("Dialogue Lines", false))
 		{
@@ -752,6 +754,8 @@ namespace Lux {
 			}
 			else
 				ImGui::TextWrapped("The dialogue table is missing or has the wrong asset type.");
+
+			ImGui::TreePop();
 		}
 		if (ImGuiEx::PropertyGridHeader("Audio Accessibility", false))
 		{
@@ -862,6 +866,8 @@ namespace Lux {
 				accessibility.SpeakerColors.erase(removeColor);
 				m_Dirty = true;
 			}
+
+			ImGui::TreePop();
 		}
 		if (ImGuiEx::PropertyGridHeader("Acoustic Materials", false))
 		{

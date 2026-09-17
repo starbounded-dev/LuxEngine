@@ -159,6 +159,8 @@ namespace Lux {
 			std::snprintf(label, sizeof(label), "Input RMS %.1f dBFS", decibels(meter.RMS));
 			ImGui::ProgressBar(std::clamp((decibels(meter.RMS) + 60) / 60, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0), label);
 		}
+
+		ImGui::TreePop();
 	}
 
 	void AudioDebugPanel::UI_Validation()
@@ -176,7 +178,10 @@ namespace Lux {
 			}
 		}
 		if (!m_HasValidation)
+		{
+			ImGui::TreePop();
 			return;
+		}
 		ImGui::Text("%zu banks, %.2f MiB on disk, %zu / %zu events referenced", m_Validation.Banks.size(), m_Validation.BankBytes / (1024.0 * 1024.0), m_Validation.ReferencedEvents, m_Validation.CatalogEvents);
 		for (const auto& bank : m_Validation.Banks)
 			ImGui::Text("%s: %.2f MiB", bank.Name.c_str(), bank.Bytes / (1024.0 * 1024.0));
@@ -187,6 +192,8 @@ namespace Lux {
 		}
 		if (m_Validation.Issues.empty())
 			ImGui::TextUnformatted("No audio validation issues.");
+
+		ImGui::TreePop();
 	}
 
 	void AudioDebugPanel::UI_Backends(const AudioEngineStats& engine)

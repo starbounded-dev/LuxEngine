@@ -88,7 +88,11 @@ namespace Lux
 		for (auto& bus : s_Buses)
 		{
 			if (bus.Meter)
-				Check(bus.Meter->setMeteringEnabled(false, false), "disable bus metering");
+			{
+				if (bus.Group)
+					Check(bus.Group->removeDSP(bus.Meter), "detach bus input meter");
+				Check(bus.Meter->release(), "release bus input meter");
+			}
 			if (bus.Studio)
 				Check(bus.Studio->unlockChannelGroup(), "unlock metered bus");
 		}
@@ -144,9 +148,26 @@ namespace Lux
 			}
 			Check(studio->flushCommands(), "prepare budget bus groups");
 			for (auto& bus : s_Buses)
-				if (bus.Studio && Check(bus.Studio->getChannelGroup(&bus.Group), "get budget bus group") && bus.Group &&
-					Check(bus.Group->getDSP(FMOD_CHANNELCONTROL_DSP_HEAD, &bus.Meter), "get bus input meter") && bus.Meter)
-					Check(bus.Meter->setMeteringEnabled(true, false), "enable bus input metering");
+			{
+				if (!bus.Studio || !Check(bus.Studio->getChannelGroup(&bus.Group), "get budget bus group") || !bus.Group)
+					continue;
+				// Meter through a pass-through fader this monitor owns, never a DSP Studio created: with
+				// Live Update on, changing metering on Studio's bus DSPs makes every later
+				// Studio::System::update fail with FMOD_ERR_BADCOMMAND. Index 1 sits directly behind the
+				// head DSP, so the meter's input is the same signal the head DSP receives.
+				if (!Check(core->createDSPByType(FMOD_DSP_TYPE_FADER, &bus.Meter), "create bus input meter") || !bus.Meter)
+				{
+					bus.Meter = nullptr;
+					continue;
+				}
+				if (!Check(bus.Group->addDSP(1, bus.Meter), "attach bus input meter"))
+				{
+					Check(bus.Meter->release(), "release bus input meter");
+					bus.Meter = nullptr;
+					continue;
+				}
+				Check(bus.Meter->setMeteringEnabled(true, false), "enable bus input metering");
+			}
 		}
 		int total = 0;
 		FMOD_CPU_USAGE cpu{};

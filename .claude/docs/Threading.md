@@ -316,7 +316,7 @@ primitives/world and clears the scene's queue.
 `AudioSourcePlayback` and `AudioPerformance` are main-thread owned. Source updates and C# controls
 only read/mutate the active scene there. Culled VA emitters are removed after joining the previous
 VA batch. `AudioPerformance::Update` samples SDK meters/counts at 4 Hz after Studio update; its bus
-groups/DSP pointers are released before bank unload. The SDK mixer owns sample processing. ImGui
+groups and its own meter DSPs are detached and released before bank unload. The SDK mixer owns sample processing. ImGui
 reads cached values and never traverses the mixer itself. Explicit project validation loads scene,
 prefab and table assets on the main thread and inspects banks with a separate NOSOUND FMOD system.
 It runs only on demand or during export, never per frame, and passes no ECS pointers to SDK threads.
