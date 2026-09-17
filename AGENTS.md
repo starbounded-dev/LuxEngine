@@ -43,7 +43,12 @@ shader.** Reusing a slot with a differently-named buffer silently corrupts anoth
 
 ## Workflow
 
+- Before multi-file or multi-session work, or when asked for a plan, use the `plan-le` skill. It
+  plans only and does not edit engine code.
 - For substantive coding, use the repository `dev` skill once before editing.
+- For performance questions (low FPS, hitches, slow loads, optimization), use `profile` — measure
+  before changing anything.
+- When a shader change misbehaves or rendering output is wrong, use `shader-debug`.
 - For a local pre-commit review, use the `cr` skill. It is local-only and must not commit, push, or
   create a pull request.
 - Before creating a pull request, use `send-pr`. For the same checks *without* creating a PR, run

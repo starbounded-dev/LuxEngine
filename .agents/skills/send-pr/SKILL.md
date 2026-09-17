@@ -12,7 +12,7 @@ deliberately does not restate the rules, so the two cannot drift.
 ## Translation notes
 
 - `/send-pr` in shared docs means this skill, normally invoked as `$send-pr`.
-- The rule list in the body (rules 1–19, tiered must-fix / should-fix / consider) is shared with
+- The rule list in the body (rules 1–20, tiered must-fix / should-fix / consider) is shared with
   `dev` and `cr`. It is maintained in one place; do not fork it here.
 - Claude-specific tool names describe an intended action; use the equivalent Codex-native tool and
   preserve every safety gate.

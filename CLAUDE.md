@@ -45,6 +45,16 @@ Two skills bracket a substantive coding session:
 
 **`/send-pr`** is the PR-time gate: same rule list, plus build verification, then it creates the PR.
 
+Three task skills sit around that loop:
+
+- **`/plan-le`** — before multi-file or multi-session work. Produces a source-grounded, phased plan
+  (verified ledger, user decisions, engine-fit analysis, independently verifiable phases). Plans
+  only; implementation then goes phase by phase through `/dev`.
+- **`/profile`** — performance investigation. Rules out the presentation ceiling, decides CPU- vs
+  GPU-bound, captures Tracy/RenderDoc, and reports before/after numbers on a fixed protocol.
+- **`/shader-debug`** — shader triage: compile errors, edits with no effect (cache fallback, manual
+  reload), black/garbage output, binding collisions, startup crashes, device-lost.
+
 The shared rule list lives in `.claude/skills/send-pr/SKILL.md` and is used by all three.
 
 ---

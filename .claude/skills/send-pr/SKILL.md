@@ -118,53 +118,68 @@ one `newoption` + one `BuildOptions.OPTIONS` entry. New dependency: `Dependencie
 edit vendored submodules — reopen the project in `premake5.lua` the way Coral/NVRHI/Tracy are
 handled.
 
-### 11. Platform parity — should-fix
+### 11. ImGui scopes and IDs — must-fix
+
+Any change that adds or edits ImGui code is checked against
+`.claude/docs/Conventions.md § ImGui correctness`, line by line:
+
+- **Every scope closed on every path.** `Begin`/`BeginChild`/`BeginGroup`/`BeginDisabled` and every
+  `Push*` are always closed; `BeginMenu`/`BeginPopup*`/`BeginTable`/`BeginTabBar`/`BeginTabItem`/
+  `BeginCombo`/`BeginListBox`/tooltips/drag-drop/`TreeNode*`/`PropertyGridHeader` are closed only
+  when they returned true. Walk every early `return`, `continue`, and `break`.
+- **No duplicate IDs.** No two widgets share a label in the same ID scope (two `"Reset"` buttons, two
+  identical icon buttons, a toggle whose `On`/`Off` states collide with another toggle). Loops push a
+  stable per-item ID. `OpenPopup`/`BeginPopup` strings and window/dock names match exactly.
+- **Driven in the editor.** Every state the change added was exercised with no ImGui ID-conflict
+  popup and no assert. `ImGuiItemFlags_AllowDuplicateId` is not a fix.
+
+### 12. Platform parity — should-fix
 
 A behaviour added to `Core/Platform/Windows/` needs its `Core/Platform/Linux/` counterpart, or an
 explicit note that Linux is unimplemented. Don't thread `#ifdef LUX_PLATFORM_*` through shared code
 to avoid writing the second implementation.
 
-### 12. Helper reuse — should-fix
+### 13. Helper reuse — should-fix
 
 Before adding a utility, check `Lux::FileSystem`, `Lux::Utils::String`, `Lux::ImGuiEx`,
 `Colors::Theme`, `AssetManager`, `Project`. If an existing helper almost fits, extend it in its home
 namespace rather than writing a variant at the call site.
 
-### 13. Style conformance — should-fix
+### 14. Style conformance — should-fix
 
 Per `.claude/docs/Conventions.md`: tabs, Allman braces, control-flow bodies on their own line,
 unqualified names inside `namespace Lux`, `std::`-qualified C functions, named casts in new code,
 `m_` / `s_` / `k_` prefixes, `RT_` only where the contract holds, file-scope declarations at the top,
 `lpch.h` first in `Core` sources.
 
-### 14. Logging quality — should-fix
+### 15. Logging quality — should-fix
 
 Tagged macros (`LUX_CORE_*_TAG`) with an existing subsystem tag. No untagged logs in new code, no
 log spam in per-frame paths, no logging of the same failure at two levels in two places.
 
-### 15. Naming and magic values — should-fix
+### 16. Naming and magic values — should-fix
 
 Names say what the thing is. Non-obvious literals get hoisted to a named `constexpr` at file scope
 rather than sitting inline at the use site.
 
-### 16. Dead code and comments — should-fix
+### 17. Dead code and comments — should-fix
 
 No commented-out code blocks left behind. No comments restating the code. Comments explain *why*.
 Existing `// NOTE(Name):` comments and the intentional DX11/DX12 scaffolding are **not** dead code —
 leave them.
 
-### 17. Performance in hot paths — should-fix
+### 18. Performance in hot paths — should-fix
 
 Per-frame allocations, `std::string` / `std::format` per draw or per entity, unreserved vectors
 regrown every frame, `unordered_map` lookups in inner loops, copies of large structs by value. Add
 `LUX_PROFILE_*` around meaningful new work.
 
-### 18. Error messages — consider
+### 19. Error messages — consider
 
 Failure messages should name the thing that failed and, where possible, what to do about it.
 `"Failed to load"` is not useful; `"Failed to load mesh {0} ({1}): file missing"` is.
 
-### 19. Test / verification story — consider
+### 20. Test / verification story — consider
 
 State how the change was verified. For rendering work, that means "ran the editor, checked pass X in
 the Renderer Debugger", not "it compiles". For `RenderGraph` compile/alias changes, run
