@@ -146,6 +146,17 @@ group "Dependencies"
 			optimize "On"
 		filter {}
 
+	-- Core's post-build copies Coral.Managed from Build/Release only (see Core/premake5.lua for why
+	-- it is pinned), so every solution configuration must build Coral.Managed's Release
+	-- configuration. Without this, a clean Debug or Dist build never produces Build/Release and
+	-- Core's post-build copy fails; it only worked locally when a Release build had run earlier.
+	project "Coral.Managed"
+		configmap {
+			["Debug"] = "Release",
+			["Debug-AS"] = "Release",
+			["Dist"] = "Release",
+		}
+
 	-- Stub so Coral.Managed's `dependson { "Coral.Generator" }` resolves (the real generator
 	-- isn't present at our pinned Coral commit; Coral.Managed builds fine without it).
 	project "Coral.Generator"
