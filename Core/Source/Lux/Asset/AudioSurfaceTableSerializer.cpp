@@ -21,8 +21,16 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Audio", "Cannot save invalid surface table '{}'", metadata.FilePath.string());
 			return;
 		}
+		// Same limit the loader and the asset pack enforce: writing a larger file would save fine and
+		// then fail to load or export.
+		const auto text = table->ToYAML();
+		if (text.size() > k_MaxTableBytes)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Surface table '{}' exceeds the 1 MiB serialized limit; not saved", metadata.FilePath.string());
+			return;
+		}
 		std::ofstream file(Project::GetActiveAssetDirectory() / metadata.FilePath);
-		file << table->ToYAML();
+		file << text;
 		file.flush();
 		if (!file)
 			LUX_CORE_ERROR_TAG("Audio", "Failed to save surface table '{}'", metadata.FilePath.string());

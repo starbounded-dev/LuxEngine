@@ -211,8 +211,13 @@ namespace Lux {
 
 	void PipelineCompute::RT_BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags toAccess, const std::string& markerName)
 	{
+		// As in ImageMemoryBarrier: a storage buffer can be null or mid-recreation during a resize or
+		// before first use (a StorageBufferSet's RT_Get() included). A barrier on a buffer that is not
+		// allocated is a no-op — the new buffer starts in its initial state — so skip it instead of
+		// failing a shipped VERIFY.
 		nvrhi::BufferHandle handle = storageBuffer ? storageBuffer->GetHandle() : nullptr;
-		LUX_CORE_VERIFY(handle, "Buffer barrier '{}' has no allocated buffer", markerName);
+		if (!handle)
+			return;
 		nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 		renderCommandBuffer->RT_BeginMarker(markerName);
 		commandList->setBufferState(handle, MapAccessFlagsToResourceState(toAccess));

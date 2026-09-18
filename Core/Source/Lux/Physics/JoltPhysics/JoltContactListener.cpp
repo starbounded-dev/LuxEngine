@@ -64,7 +64,11 @@ namespace Lux
 			for (const auto& impulse : estimate.mImpulses)
 				event.EstimatedImpulse += impulse.mContactImpulse;
 		}
+		// The estimate above runs outside the lock. If the contact was removed meanwhile, its End is
+		// already queued; appending now would recreate a contact that no longer exists.
 		std::scoped_lock lock(m_Mutex);
+		if (!m_RealContacts.contains(event.Key))
+			return;
 		m_Events.push_back(event);
 	}
 
