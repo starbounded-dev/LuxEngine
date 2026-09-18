@@ -567,7 +567,12 @@ Assets:
   - Handle: 14293776709940706397
     FilePath: Scenes/FMODDemo.luxscene
     Type: Scene
-    FileLastWriteTime: 13433532644
+    FileLastWriteTime: 13434164295
+    Status: Ready
+  - Handle: 14516153528990365607
+    FilePath: Meshes/Source/Materials/CubeScene_0_Material_0.lmat
+    Type: Material
+    FileLastWriteTime: 13434163747
     Status: None
   - Handle: 14667370932801951154
     FilePath: Meshes/Source/Default/Materials/Plane_0_Material_0.lmat
