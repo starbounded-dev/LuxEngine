@@ -282,7 +282,10 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 `dev`. Checks out with `submodules: recursive` and `lfs: true`, installs Vulkan SDK `1.4.335.0`,
 generates with `vs2022`, and builds `Lux.sln` with platform `Mixed Platforms`.
 
-Linux builds run on `ubuntu-24.04` for the same configurations via `scripts/Linux-Build.sh`.
+Linux builds run on `ubuntu-26.04` for the same configurations via `scripts/Linux-Build.sh`. 26.04 is
+required, not incidental: Vercidium Audio 1.8.0's `libvaudionative.so` links against glibc 2.43
+(`sqrtf@GLIBC_2.43`), which older runners cannot provide. The same limit applies to Linux machines that
+build or run LuxEngine or its exported games.
 
 **Audio SDKs come from a private repository.** FMOD and Vercidium Audio are licensed and are never
 committed here. Both jobs check out the repository named by the repository variable
