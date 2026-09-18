@@ -52,6 +52,7 @@
 #include "Panels/AudioDebugPanel.h"
 #include "Panels/ProfilerPanel.h"
 #include "Panels/UndoHistoryPanel.h"
+#include "Panels/MaterialEditor/MaterialEditorPanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -92,6 +93,7 @@ namespace Lux {
 #define SCENE_RENDERER_PANEL_ID "SceneRendererPanel"
 #define RENDERER_DEBUGGER_PANEL_ID "RendererDebuggerPanel"
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
+#define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
 
 	namespace {
 		constexpr int s_MaxRecentProjects = 10;
@@ -369,6 +371,19 @@ namespace Lux {
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
 
+		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, MATERIAL_EDITOR_PANEL_ID, "Material Editor", false);
+		materialEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+		{
+			PushUndoCommand(label, std::move(undo), std::move(redo));
+		});
+		auto openMaterialEditor = [this, materialEditorPanel](AssetHandle materialHandle) mutable
+		{
+			materialEditorPanel->OpenMaterial(materialHandle);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(MATERIAL_EDITOR_PANEL_ID)))
+				panelData->IsOpen = true;
+		};
+		m_SceneHierarchyPanel->SetOpenMaterialCallback(openMaterialEditor);
+
 		// Reads AudioEngine / RaytracedAudioScene directly and takes its scene from
 		// PanelManager::SetSceneContext; the handle is kept only so OnOverlayRender can read the
 		// panel's 3D visualisation settings.
@@ -497,6 +512,11 @@ namespace Lux {
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Scene, [this](const AssetMetadata& metadata)
 			{
 				OpenScene(metadata.Handle);
+			});
+
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Material, [openMaterialEditor](const AssetMetadata& metadata) mutable
+			{
+				openMaterialEditor(metadata.Handle);
 			});
 
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)

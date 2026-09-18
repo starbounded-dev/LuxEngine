@@ -437,6 +437,27 @@ Dist/runtime export of graph materials and instances; Linux; the performance bud
 **Informs decisions:** node editor library, graph output, advanced lobes, instances.
 **Still unknown:** preview renderer cost (Phase 0); graph pipeline cost (Phase 7).
 
+### Phase 0 results (2026-09-18, Windows, Release, render thread on)
+
+The spike was built directly as the reusable `MaterialPreview` (no throwaway branch).
+
+| Question | Result | How it was checked |
+|---|---|---|
+| Does a second `SceneRenderer` render correctly next to the main viewport? | ✅ Yes — two at once (editor preview + thumbnailer) | Run: preview and a Content Browser thumbnail both rendered; the main viewport was unaffected |
+| Shared static state that breaks (`MaterialScene`, binding registries, shadow atlas) | ✅ None seen | Live edits reached both the preview and the scene; no validation/log errors |
+| Teardown | ✅ Clean editor shutdown with both previews alive | `CloseMainWindow`, no Application Error event |
+| VRAM / CPU / GPU cost | ⚠️ **Not measured — waived by the user** | Only the baseline was captured (editor closed, uncapped, focused: ~297 fps, ~3.4 ms/frame). The with-preview capture was skipped; nothing noticeable in use |
+| Scene switch while a preview is alive | ✅ Works | User-verified: switched scenes freely while editing a material |
+| Project close while a preview is alive | ⚠️ Not exercised | `OnProjectChanged` drops both previews |
+| Single-threaded render policy | ⚠️ Not exercised | — |
+
+**Decision: go** — keep the second-`SceneRenderer` approach; revisit only if `/profile` shows a real cost.
+
+Found on the way (fixed): `MaterialAsset` stored its values only in the shader push-constant block,
+which the transparent shader does not have and the opaque one lacks `Transparency` for, so reading
+them was an out-of-bounds read (crash on opening a material). The asset now owns its values
+(`.claude/docs/Architecture-LuxEngine.md`, renderer section).
+
 ---
 
 **First phase to implement:** Phase 0 — the preview-renderer spike. Implement with `/dev`, review

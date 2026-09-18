@@ -315,7 +315,11 @@ namespace Lux {
 		ImGui::End();
 
 		if (m_ThumbnailCache)
+		{
 			m_ThumbnailCache->OnUpdate();
+			if (m_MaterialThumbnailer)
+				m_MaterialThumbnailer->OnUpdate(*m_ThumbnailCache);
+		}
 	}
 
 	void ContentBrowserPanel::OnEvent(Event& e)
@@ -335,6 +339,7 @@ namespace Lux {
 		m_NextDirectory.reset();
 		m_PreviousDirectory.reset();
 		m_ThumbnailCache.reset();
+		m_MaterialThumbnailer.reset();
 		m_BreadCrumbData.clear();
 		ClearSelections();
 		memset(m_SearchBuffer, 0, MAX_INPUT_BUFFER_LENGTH);
@@ -591,7 +596,11 @@ namespace Lux {
 
 		ImGui::SameLine();
 		if (toolbarButton("##ClearThumbs", EditorResources::ClearIcon) && m_ThumbnailCache)
+		{
 			m_ThumbnailCache->Clear();
+			if (m_MaterialThumbnailer)
+				m_MaterialThumbnailer->Clear();
+		}
 		ImGuiEx::SetTooltip("Clear thumbnail cache");
 
 		if (m_UpdateNavigationPath)
@@ -1924,7 +1933,17 @@ namespace Lux {
 		if (!metadata.IsValid())
 			return nullptr;
 
-		return m_ThumbnailCache->GetOrCreateThumbnail(metadata.FilePath);
+		Ref<Texture2D> thumbnail = m_ThumbnailCache->GetOrCreateThumbnail(metadata.FilePath);
+
+		// The cache only generates image thumbnails itself; materials are rendered.
+		if (!thumbnail && metadata.Type == AssetType::Material)
+		{
+			if (!m_MaterialThumbnailer)
+				m_MaterialThumbnailer = Ref<MaterialThumbnailer>::Create();
+			m_MaterialThumbnailer->Request(handle);
+		}
+
+		return thumbnail;
 	}
 
 }

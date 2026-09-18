@@ -19,6 +19,20 @@ namespace Lux {
 	namespace
 	{
 		char s_RenameBuffer[MAX_INPUT_BUFFER_LENGTH]{};
+
+		// Rendered previews (materials, images) sit inset in the tile with rounded corners; type
+		// icons keep the tighter square layout they were drawn for.
+		constexpr float k_GridThumbnailPadding = 10.0f;
+		constexpr float k_GridThumbnailRounding = 6.0f;
+		constexpr float k_ListThumbnailRounding = 3.0f;
+
+		// Thumbnails are stored bottom-up, hence the flipped V.
+		void DrawThumbnail(const Ref<Texture2D>& thumbnail, const ImRect& rect, float rounding)
+		{
+			const ImU32 tint = ImGui::IsItemHovered() ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, 235);
+			ImGui::GetWindowDrawList()->AddImageRounded(ImGuiEx::GetTextureID(thumbnail), rect.Min, rect.Max,
+				ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f), tint, rounding);
+		}
 	}
 
 	ContentBrowserItem::ContentBrowserItem(ItemType type, AssetHandle id, const std::string& name, const Ref<Texture2D>& icon)
@@ -72,18 +86,17 @@ namespace Lux {
 			const float iconSize = rowHeight - 8.0f;
 			const ImVec2 iconMin(itemRect.Min.x + 6.0f, itemRect.Min.y + 4.0f);
 
-			Ref<Texture2D> displayTexture = m_Icon;
-			if (m_Type == ItemType::Asset)
+			const ImRect iconRect(iconMin, ImVec2(iconMin.x + iconSize, iconMin.y + iconSize));
+			Ref<Texture2D> thumbnail = m_Type == ItemType::Asset ? context->GetItemThumbnail(m_ID) : nullptr;
+			if (thumbnail)
 			{
-				if (Ref<Texture2D> thumbnail = context->GetItemThumbnail(m_ID))
-					displayTexture = thumbnail;
+				DrawThumbnail(thumbnail, iconRect, k_ListThumbnailRounding);
 			}
-			if (displayTexture)
+			else if (m_Icon)
 			{
-				ImGuiEx::DrawButtonImage(displayTexture,
+				ImGuiEx::DrawButtonImage(m_Icon,
 					IM_COL32(255, 255, 255, 225), IM_COL32(255, 255, 255, 255), IM_COL32(255, 255, 255, 255),
-					ImRect(iconMin, ImVec2(iconMin.x + iconSize, iconMin.y + iconSize)),
-					ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+					iconRect, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 			}
 
 			const float textY = itemRect.Min.y + (rowHeight - ImGui::GetTextLineHeight()) * 0.5f;
@@ -149,15 +162,14 @@ namespace Lux {
 					drawList->AddRect(itemRect.Min, itemRect.Max, hovered ? Colors::Theme::accent : Colors::Theme::selection, 6.0f, 0, isSelected ? 1.5f : 1.0f);
 			}
 
-			Ref<Texture2D> displayTexture = m_Icon;
-			if (m_Type == ItemType::Asset)
+			Ref<Texture2D> thumbnail = m_Type == ItemType::Asset ? context->GetItemThumbnail(m_ID) : nullptr;
+			if (thumbnail)
 			{
-				if (Ref<Texture2D> thumbnail = context->GetItemThumbnail(m_ID))
-					displayTexture = thumbnail;
+				DrawThumbnail(thumbnail, ImGuiEx::RectExpanded(thumbRect, -k_GridThumbnailPadding, -k_GridThumbnailPadding), k_GridThumbnailRounding);
 			}
-			if (displayTexture)
+			else if (m_Icon)
 			{
-				ImGuiEx::DrawButtonImage(displayTexture,
+				ImGuiEx::DrawButtonImage(m_Icon,
 					IM_COL32(255, 255, 255, 225), IM_COL32(255, 255, 255, 255), IM_COL32(255, 255, 255, 255),
 					ImGuiEx::RectExpanded(thumbRect, -6.0f, -6.0f),
 					ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));

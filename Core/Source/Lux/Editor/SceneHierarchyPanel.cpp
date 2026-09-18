@@ -37,6 +37,7 @@
 #include <array>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <optional>
 #include <utility>
@@ -156,19 +157,80 @@ namespace Lux {
 			if (!editorAssetManager)
 				return 0;
 
-			const std::filesystem::path relativePath = std::filesystem::path("Meshes") / "Source" / "Default" / filename;
-			AssetHandle handle = editorAssetManager->GetAssetHandleFromFilePath(relativePath);
-			if (!handle)
-			{
-				const std::filesystem::path filesystemPath = Project::GetActiveAssetDirectory() / relativePath;
-				if (std::filesystem::exists(filesystemPath))
-					handle = editorAssetManager->ImportAsset(filesystemPath);
-			}
-
+			const AssetHandle handle = editorAssetManager->GetOrImportAsset(std::filesystem::path("Meshes") / "Source" / "Default" / filename);
 			if (!handle || AssetManager::GetAssetType(handle) != AssetType::MeshSource)
 				return 0;
 
 			return handle;
+		}
+
+		// The mesh's own material for a slot: the StaticMesh asset's table first, then the source's
+		// imported materials. Mirrors the fallback order of ResolveStaticMeshMaterialHandle.
+		AssetHandle GetMeshDefaultMaterial(AssetHandle meshHandle, uint32_t slot)
+		{
+			if (!meshHandle || !AssetManager::IsAssetHandleValid(meshHandle))
+				return 0;
+
+			Ref<MeshSource> meshSource;
+			if (AssetManager::GetAssetType(meshHandle) == AssetType::StaticMesh)
+			{
+				Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(meshHandle);
+				if (!staticMesh)
+					return 0;
+				if (Ref<MaterialTable> table = staticMesh->GetMaterials(); table && table->HasMaterial(slot))
+					return table->GetMaterial(slot);
+				meshSource = AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource());
+			}
+			else if (AssetManager::GetAssetType(meshHandle) == AssetType::MeshSource)
+			{
+				meshSource = AssetManager::GetAsset<MeshSource>(meshHandle);
+			}
+
+			if (meshSource && slot < meshSource->GetMaterials().size())
+				return meshSource->GetMaterials()[slot];
+			return 0;
+		}
+
+		uint32_t GetMeshMaterialSlotCount(AssetHandle meshHandle)
+		{
+			if (!meshHandle || !AssetManager::IsAssetHandleValid(meshHandle))
+				return 0;
+
+			AssetHandle sourceHandle = meshHandle;
+			if (AssetManager::GetAssetType(meshHandle) == AssetType::StaticMesh)
+			{
+				Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(meshHandle);
+				sourceHandle = staticMesh ? staticMesh->GetMeshSource() : AssetHandle{};
+			}
+
+			if (!sourceHandle || AssetManager::GetAssetType(sourceHandle) != AssetType::MeshSource)
+				return 0;
+
+			Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(sourceHandle);
+			return meshSource ? (uint32_t)meshSource->GetMaterials().size() : 0;
+		}
+
+		// What the renderer draws in a slot: a per-slot override, else a lone slot-0 entry (which
+		// applies to every submesh), else the mesh's own material.
+		AssetHandle GetEffectiveSlotMaterial(const StaticMeshComponent& component, uint32_t slot)
+		{
+			const Ref<MaterialTable>& table = component.MaterialTable;
+			if (table && table->HasMaterial(slot))
+				return table->GetMaterial(slot);
+			if (table && table->GetMaterials().size() == 1 && table->HasMaterial(0))
+				return table->GetMaterial(0);
+			return GetMeshDefaultMaterial(component.StaticMesh, slot);
+		}
+
+		std::string GetAssetDisplayName(AssetHandle handle)
+		{
+			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+			{
+				const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
+				if (metadata.IsValid())
+					return metadata.FilePath.stem().string();
+			}
+			return "Material";
 		}
 
 		void DeselectEntityEverywhere(UUID entityID)
@@ -1140,6 +1202,59 @@ namespace Lux {
 			component.ParameterOverrides.emplace_back(std::string{}, 0.0f);
 
 		ImGui::TreePop();
+	}
+
+	void SceneHierarchyPanel::DrawStaticMeshMaterialSlots(StaticMeshComponent& component, const std::vector<UUID>& selectedEntities)
+	{
+		// Per-slot overrides are edited for one entity at a time: selected entities may use
+		// different meshes with different slot counts.
+		const uint32_t slotCount = GetMeshMaterialSlotCount(component.StaticMesh);
+		if (selectedEntities.size() == 1 && slotCount > 1 && ImGuiEx::PropertyGridHeader(std::format("Material Slots ({})", slotCount), false))
+		{
+			ImGuiEx::BeginPropertyGrid();
+			for (uint32_t slot = 0; slot < slotCount; ++slot)
+			{
+				ImGuiEx::ScopedID slotID((int)slot);
+				AssetHandle materialHandle = GetEffectiveSlotMaterial(component, slot);
+				if (!ImGuiEx::PropertyAssetReference<MaterialAsset>(std::format("Slot {}", slot).c_str(), materialHandle, "Material for this submesh slot. Clearing restores the mesh's own material."))
+					continue;
+
+				// Write every slot explicitly: a table holding only a slot-0 entry means "this material
+				// on every submesh", so a partial table would repaint the whole mesh. All slots are
+				// resolved before any write, since the resolution depends on the table's shape.
+				std::vector<AssetHandle> effective(slotCount);
+				for (uint32_t fill = 0; fill < slotCount; ++fill)
+					effective[fill] = GetEffectiveSlotMaterial(component, fill);
+				effective[slot] = materialHandle ? materialHandle : GetMeshDefaultMaterial(component.StaticMesh, slot);
+
+				if (!component.MaterialTable)
+					component.MaterialTable = Ref<MaterialTable>::Create();
+				for (uint32_t fill = 0; fill < slotCount; ++fill)
+					component.MaterialTable->SetMaterial(fill, effective[fill]);
+			}
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
+		if (!m_OpenMaterialCallback)
+			return;
+
+		// One Edit button per distinct material shown, keyed by slot so IDs stay stable.
+		std::vector<AssetHandle> listed;
+		const uint32_t buttonSlots = glm::max(slotCount, 1u);
+		for (uint32_t slot = 0; slot < buttonSlots; ++slot)
+		{
+			const AssetHandle materialHandle = GetEffectiveSlotMaterial(component, slot);
+			if (!materialHandle || AssetManager::GetAssetType(materialHandle) != AssetType::Material
+				|| std::find(listed.begin(), listed.end(), materialHandle) != listed.end())
+				continue;
+
+			listed.push_back(materialHandle);
+			if (listed.size() > 1)
+				ImGui::SameLine();
+			if (ImGui::SmallButton(std::format("{}  Edit {}##edit_material_slot_{}", LUX_ICON_PENCIL, GetAssetDisplayName(materialHandle), slot).c_str()))
+				m_OpenMaterialCallback(materialHandle);
+		}
 	}
 
 	void SceneHierarchyPanel::DrawAudioEventPicker(AudioSourceComponent& component, const std::vector<UUID>& selectedEntities)
@@ -3412,6 +3527,8 @@ namespace Lux {
 				}
 
 				ImGuiEx::EndPropertyGrid();
+
+				DrawStaticMeshMaterialSlots(firstComponent, selectedEntities);
 			});
 
 		DrawComponentSection<DirectionalLightComponent>(m_Context, entityIDs, "Directional Light", EditorResources::DirectionalLightIcon,

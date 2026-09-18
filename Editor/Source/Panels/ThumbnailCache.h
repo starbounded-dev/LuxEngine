@@ -58,6 +58,12 @@ namespace Lux {
 		// Store a freshly generated thumbnail (writes to disk on next OnUpdate).
 		void SetThumbnailImage(AssetHandle assetHandle, Ref<Texture2D> image, uint64_t timestamp);
 
+		// Store a thumbnail from CPU pixels (tightly packed RGBA8). Writes to disk without a GPU
+		// readback, so it is safe for images that were read back on the render thread.
+		void SetThumbnailPixels(AssetHandle assetHandle, const Buffer& pixels, uint32_t width, uint32_t height, uint64_t timestamp);
+
+		uint32_t GetThumbnailSize() const { return m_ThumbnailSize; }
+
 		// Call once per frame - processes one pending disk write per call.
 		void OnUpdate();
 
@@ -67,6 +73,7 @@ namespace Lux {
 		bool  LoadFromDisk(AssetHandle assetHandle);
 		uint64_t ReadTimestampFromDisk(AssetHandle assetHandle) const;
 		void  WriteToDisk(AssetHandle assetHandle, Ref<Texture2D> image, uint64_t timestamp);
+		void  WritePixelsToDisk(AssetHandle assetHandle, const Buffer& pixels, uint32_t width, uint32_t height, uint64_t timestamp);
 
 		std::filesystem::path GetCacheDirectory() const;
 		std::filesystem::path GetCacheFilePath(AssetHandle assetHandle) const;

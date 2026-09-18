@@ -5,6 +5,7 @@
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Entity.h"
 
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -28,6 +29,9 @@ namespace Lux {
 		std::vector<Entity> GetSelectedEntities() const;
 		void SetSelectedEntity(Entity entity);
 		static SelectionContext GetActiveSelectionContext() { return s_ActiveSelectionContext; }
+
+		// Invoked by the material slots' Edit buttons; the editor opens the Material Editor.
+		void SetOpenMaterialCallback(std::function<void(AssetHandle)> callback) { m_OpenMaterialCallback = std::move(callback); }
 	private:
 		void PruneInvalidSelection();
 		void QueueEntityDeletion(const std::vector<UUID>& entityIDs);
@@ -35,6 +39,7 @@ namespace Lux {
 		void DrawEntityCreateMenu(Entity parent = {});
 		void DrawEntityNode(Entity entity, const std::string& searchFilter = {});
 		void DrawComponents(const std::vector<UUID>& entityIDs);
+		void DrawStaticMeshMaterialSlots(struct StaticMeshComponent& component, const std::vector<UUID>& selectedEntities);
 
 		// The FMOD Studio event assignment for an Audio Source. Lists what the loaded banks
 		// describe, so it is empty until the project's banks are built.
@@ -61,6 +66,7 @@ namespace Lux {
 		bool m_IsHierarchyOrPropertiesFocused = false;
 		bool m_ActivateSearchWidget = false;
 		std::vector<UUID> m_QueuedEntityDeletions;
+		std::function<void(AssetHandle)> m_OpenMaterialCallback;
 
 		static SelectionContext s_ActiveSelectionContext;
 	};

@@ -49,6 +49,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 13424321385
     Status: Ready
+  - Handle: 1971164648285768822
+    FilePath: Materials/GreenSphere.lmat
+    Type: Material
+    FileLastWriteTime: 13434212453
+    Status: Ready
   - Handle: 2125072313853907767
     FilePath: Meshes/Source/Sponza/7645212358685992005.jpg
     Type: Texture

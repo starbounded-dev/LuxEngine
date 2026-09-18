@@ -530,6 +530,18 @@ namespace Lux
 		return 0;
 	}
 
+	AssetHandle EditorAssetManager::GetOrImportAsset(const std::filesystem::path& assetRelativePath)
+	{
+		if (AssetHandle handle = GetAssetHandleFromFilePath(assetRelativePath))
+			return handle;
+
+		const std::filesystem::path filesystemPath = Project::GetActiveAssetDirectory() / assetRelativePath;
+		if (!std::filesystem::exists(filesystemPath))
+			return 0;
+
+		return ImportAsset(filesystemPath);
+	}
+
 	AssetType EditorAssetManager::GetAssetTypeFromExtension(const std::string& extension) const
 	{
 		return AssetExtensions::GetAssetTypeFromExtension(extension);

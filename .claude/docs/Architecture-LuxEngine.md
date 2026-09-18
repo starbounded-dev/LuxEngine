@@ -189,6 +189,13 @@ Structurally:
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
   maintains them.
+- `MaterialAsset` owns its scalar properties (albedo, metalness, roughness, emission, transparency,
+  use-normal-map) in its own `Values` struct and mirrors them into the shader's push-constant block
+  only where that block declares the member. The block is not a store: the opaque PBR shader has no
+  `Transparency`, the transparent one has no material members at all. `MaterialScene` builds
+  `GPUMaterialData` from the asset's values (the shader block is read only for a bare override
+  `Material`, with fallbacks). Never read a material uniform with `Material::Get*` without
+  `FindUniformDeclaration` first: in Release a missing member is an out-of-bounds read, not an assert.
 - `FrameRenderPacket` is the per-frame snapshot that decouples submission from the live registry.
 - `RendererConfig::FramesInFlight` defaults to 3.
 - Selection outline jump-flood inputs are rebound inside the render queue for each iteration,
@@ -357,8 +364,18 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   stack. Play/Simulate get a separate transient history (discarded on Stop; undo there rebuilds and
   restarts the runtime). Resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
-  ApplicationSettings, ProjectSettings, AssetManager, Materials, MaterialEditor, LightSettings,
-  SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache.
+  ApplicationSettings, ProjectSettings, AssetManager, MaterialEditor (+ `MaterialEditor/`),
+  LightSettings, SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache.
+- Material editing (`Panels/MaterialEditor/`): `MaterialEditorPanel` (View → Material Editor) edits
+  `MaterialAsset`s in tabs with explicit Save/Revert; each finished edit is one closure command via
+  `PushUndoCommand`. It opens from a Content Browser double-click (item-activate callback for
+  `AssetType::Material`) and from the Inspector's per-slot Edit buttons
+  (`SceneHierarchyPanel::SetOpenMaterialCallback`). `MaterialPreview` is a private `Scene` + `Viewport`
+  (own `SceneRenderer`, `EnableEditorRenderTargets = false`) showing one default mesh from the
+  project's `Meshes/Source/Default/`; `MaterialThumbnailer` owns a second preview and renders one
+  stale material thumbnail at a time for the Content Browser, reading pixels back **on the render
+  thread** (`Renderer::Submit`) and handing CPU pixels to `ThumbnailCache::SetThumbnailPixels`, so it
+  never does a main-thread GPU readback.
 - `Editor/Source/EditorLayer.{h,cpp}` is the orchestrator. Prefer adding a **panel** over adding code
   to `EditorLayer`.
 - `Editor/Source/RuntimeExportUtils.{h,cpp}` builds the standalone runtime package.

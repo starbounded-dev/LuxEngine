@@ -6,6 +6,7 @@
 
 #include "ContentBrowser/ContentBrowserItem.h"
 #include "ThumbnailCache.h"
+#include "MaterialEditor/MaterialThumbnailer.h"
 
 #include <functional>
 #include <limits>
@@ -252,6 +253,7 @@ namespace Lux {
 	private:
 		Ref<Project> m_Project;
 		Ref<ThumbnailCache> m_ThumbnailCache;
+		Ref<MaterialThumbnailer> m_MaterialThumbnailer; // created on the first material thumbnail
 
 		std::map<std::string, Ref<Texture2D>> m_AssetIconMap;
 
