@@ -36,6 +36,36 @@ jobs:
           submodules: recursive
           lfs: true
 
+      # FMOD and Vercidium Audio are licensed SDKs that must never be committed to this public
+      # repository. They come from a private repository (repository variable
+      # AUDIO_SDK_REPOSITORY, laid out by scripts/ci/StageAudioSDKs.py), read with a fine-grained
+      # read-only token scoped to that one repository (secret AUDIO_SDK_TOKEN). Pull requests
+      # from forks cannot read secrets, so their builds stop here with an explicit message.
+      - name: Check audio SDK access
+        shell: pwsh
+        env:
+          AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
+          AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
+        run: |
+          if (-not $env:AUDIO_SDK_TOKEN -or -not $env:AUDIO_SDK_REPOSITORY) {
+            Write-Output "::error::FMOD/Vercidium Audio SDKs are unavailable. Set the repository variable AUDIO_SDK_REPOSITORY and the secret AUDIO_SDK_TOKEN (pull requests from forks cannot read secrets)."
+            exit 1
+          }
+
+      - name: Checkout audio SDKs (private)
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
+          token: ${{ secrets.AUDIO_SDK_TOKEN }}
+          path: .audio-sdk
+          persist-credentials: false
+
+      - name: Point the build at the audio SDKs
+        shell: pwsh
+        run: |
+          "LUX_FMOD_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/FMOD/windows')" >> $env:GITHUB_ENV
+          "LUX_VA_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/VA_RAY')" >> $env:GITHUB_ENV
+
       - name: Setup Python
         uses: actions/setup-python@v6.2.0
         with:
@@ -133,6 +163,26 @@ jobs:
             }
           }
 
+          # FMOD and Vercidium Audio runtime libraries must not be redistributed: artifacts on a
+          # public repository are downloadable by anyone, and both EULAs forbid shipping their
+          # libraries outside a game build (FMOD also forbids shipping them as part of an engine).
+          # Users copy the DLLs from their own SDK downloads next to Editor.exe.
+          $audioLibraryPatterns = @("fmod*.dll", "vaudionative*.dll")
+          Get-ChildItem -Path $artifactRoot -Recurse -File -Include $audioLibraryPatterns |
+            ForEach-Object { Write-Host "Stripping licensed audio library: $($_.FullName)"; Remove-Item $_.FullName -Force }
+
+          $remaining = Get-ChildItem -Path $artifactRoot -Recurse -File -Include $audioLibraryPatterns
+          if ($remaining) {
+            throw "Licensed audio libraries remain in the artifact: $($remaining.FullName -join ', ')"
+          }
+
+          Set-Content -Path (Join-Path $artifactRoot "AUDIO_LIBRARIES_REQUIRED.txt") -Encoding utf8 -Value @(
+            "This build does not include the FMOD or Vercidium Audio runtime libraries (licence restrictions).",
+            "Download the SDKs yourself and copy these files next to Editor.exe before running:",
+            "  fmod.dll, fmodstudio.dll  - FMOD Engine SDK: api/core/lib/x64, api/studio/lib/x64",
+            "  vaudionative.dll          - Vercidium Audio SDK: 3d/native/production/windows"
+          )
+
       - name: Upload editor artifact
         if: matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
@@ -150,7 +200,9 @@ jobs:
           if-no-files-found: ignore
 
   build-linux:
-    runs-on: ubuntu-24.04
+    # Vercidium Audio 1.8.0's libvaudionative.so needs glibc 2.43 (sqrtf/log10f/acosf@GLIBC_2.43),
+    # which Ubuntu 24.04 (glibc 2.39) cannot link against. Ubuntu 26.04 ships glibc 2.43.
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -162,6 +214,32 @@ jobs:
         with:
           submodules: recursive
           lfs: true
+
+      # See the Windows job: licensed audio SDKs come from a private repository.
+      - name: Check audio SDK access
+        shell: bash
+        env:
+          AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
+          AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
+        run: |
+          if [ -z "$AUDIO_SDK_TOKEN" ] || [ -z "$AUDIO_SDK_REPOSITORY" ]; then
+            echo "::error::FMOD/Vercidium Audio SDKs are unavailable. Set the repository variable AUDIO_SDK_REPOSITORY and the secret AUDIO_SDK_TOKEN (pull requests from forks cannot read secrets)."
+            exit 1
+          fi
+
+      - name: Checkout audio SDKs (private)
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
+          token: ${{ secrets.AUDIO_SDK_TOKEN }}
+          path: .audio-sdk
+          persist-credentials: false
+
+      - name: Point the build at the audio SDKs
+        shell: bash
+        run: |
+          echo "LUX_FMOD_SDK=${GITHUB_WORKSPACE}/.audio-sdk/FMOD/linux" >> "$GITHUB_ENV"
+          echo "LUX_VA_SDK=${GITHUB_WORKSPACE}/.audio-sdk/VA_RAY" >> "$GITHUB_ENV"
 
       # Coral hardcodes hostfxr major version 9, and ScriptCore targets net9.0.
       - name: Set up .NET 9
@@ -285,14 +363,35 @@ jobs:
             done
           done
 
+          # FMOD and Vercidium Audio shared libraries must not be redistributed: artifacts on a
+          # public repository are downloadable by anyone, and both EULAs forbid shipping their
+          # libraries outside a game build (FMOD also forbids shipping them as part of an engine).
+          # Users copy them from their own SDK downloads into lib/.
+          audio_libs_regex='lib(fmod|fmodstudio|vaudionative)[^/]*\.so'
+          find "$root" \( -type f -o -type l \) -regextype posix-extended -regex ".*/${audio_libs_regex}.*" \
+            -print -delete | sed 's/^/Stripping licensed audio library: /'
+          if find "$root" \( -type f -o -type l \) -regextype posix-extended -regex ".*/${audio_libs_regex}.*" | grep -q .; then
+            echo "Licensed audio libraries remain in the artifact" >&2
+            exit 1
+          fi
+
+          cat > "$root/AUDIO_LIBRARIES_REQUIRED.txt" <<'EOF'
+          This build does not include the FMOD or Vercidium Audio runtime libraries (licence restrictions).
+          Download the SDKs yourself and copy these files into lib/ next to the Editor binary before running:
+            libfmod.so.14, libfmodstudio.so.14  - FMOD Engine SDK: api/core/lib/x86_64, api/studio/lib/x86_64
+            libvaudionative.so                  - Vercidium Audio SDK: 3d/native/production/linux
+          EOF
+
           echo "Bundled $(find "$root/lib" -type f | wc -l) shared libraries ($(du -sh "$root/lib" | cut -f1))."
 
           # The binary's RPATH is $ORIGIN/lib, so the bundle must resolve with no
           # LD_LIBRARY_PATH set - otherwise we would ship an artifact that only runs on a
-          # machine that already has these libraries.
-          if env -u LD_LIBRARY_PATH ldd "$root/Editor" | grep -q 'not found'; then
+          # machine that already has these libraries. The stripped audio libraries are the only
+          # permitted gaps.
+          unresolved="$(env -u LD_LIBRARY_PATH ldd "$root/Editor" | grep 'not found' | grep -Ev "$audio_libs_regex" || true)"
+          if [ -n "$unresolved" ]; then
             echo "Editor artifact has unresolved libraries:" >&2
-            env -u LD_LIBRARY_PATH ldd "$root/Editor" | grep 'not found' >&2
+            echo "$unresolved" >&2
             exit 1
           fi
 

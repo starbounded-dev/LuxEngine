@@ -47,6 +47,20 @@ project "Editor"
 			}
 		end
 
+		do -- Vercidium Audio is required.
+			postbuildcommands {
+				'{COPY} "' .. VASDKRoot .. '/3d/native/production/windows/vaudionative.dll" "%{cfg.targetdir}"',
+			}
+		end
+
+		-- Validated SDK roots are shared with the linker configuration.
+		do -- FMOD is required.
+			postbuildcommands {
+				'{COPY} "' .. FMODSDKRoot .. '/api/core/lib/x64/fmod.dll" "%{cfg.targetdir}"',
+				'{COPY} "' .. FMODSDKRoot .. '/api/studio/lib/x64/fmodstudio.dll" "%{cfg.targetdir}"',
+			}
+		end
+
 	filter { "system:windows", "configurations:Debug or configurations:Debug-AS" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.dll" "%{cfg.targetdir}"',
@@ -66,6 +80,26 @@ project "Editor"
 		-- inserted during LTO's deferred codegen, after Ubuntu ld's default --as-needed
 		-- would otherwise have already dropped it.
 		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'", "-Wl,--no-as-needed,-latomic,--as-needed" }
+
+		-- vaudionative.so is resolved via the $ORIGIN/lib rpath above, not the default loader path.
+		do -- Vercidium Audio is required.
+			postbuildcommands {
+				'{MKDIR} "%{cfg.targetdir}/lib"',
+				'{COPY} "' .. VASDKRoot .. '/3d/native/production/linux/libvaudionative.so" "%{cfg.targetdir}/lib"',
+			}
+		end
+
+		-- Same rpath story as vaudionative.so above. The linker embeds libfmod.so.14 as the
+		-- SONAME (confirmed via readelf -d), not the unversioned libfmod.so, so only that exact
+		-- filename needs to exist at runtime - {COPYFILE} (unlike {COPY}, whose glob would sit
+		-- inside quotes and never expand) follows the symlink and writes it under that name.
+		do -- FMOD is required.
+			postbuildcommands {
+				'{MKDIR} "%{cfg.targetdir}/lib"',
+				'{COPYFILE} "' .. FMODSDKRoot .. '/api/core/lib/x86_64/libfmod.so.14" "%{cfg.targetdir}/lib/libfmod.so.14"',
+				'{COPYFILE} "' .. FMODSDKRoot .. '/api/studio/lib/x86_64/libfmodstudio.so.14" "%{cfg.targetdir}/lib/libfmodstudio.so.14"',
+			}
+		end
 
 		-- Link nethost for Coral .NET hosting
 		if os.host() == "linux" then

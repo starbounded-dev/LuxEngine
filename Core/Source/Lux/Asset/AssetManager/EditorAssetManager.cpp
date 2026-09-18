@@ -530,6 +530,18 @@ namespace Lux
 		return 0;
 	}
 
+	AssetHandle EditorAssetManager::GetOrImportAsset(const std::filesystem::path& assetRelativePath)
+	{
+		if (AssetHandle handle = GetAssetHandleFromFilePath(assetRelativePath))
+			return handle;
+
+		const std::filesystem::path filesystemPath = Project::GetActiveAssetDirectory() / assetRelativePath;
+		if (!std::filesystem::exists(filesystemPath))
+			return 0;
+
+		return ImportAsset(filesystemPath);
+	}
+
 	AssetType EditorAssetManager::GetAssetTypeFromExtension(const std::string& extension) const
 	{
 		return AssetExtensions::GetAssetTypeFromExtension(extension);
@@ -719,17 +731,57 @@ namespace Lux
 		}
 	}
 
+	namespace {
+
+		// True when the directory is the root of an FMOD Studio project, i.e. it directly contains a
+		// .fspro. Mirrors the same rule ContentBrowserPanel::ProcessDirectory applies.
+		bool IsFMODStudioProjectDirectory(const std::filesystem::path& directoryPath)
+		{
+			std::error_code ec;
+			for (const auto& entry : std::filesystem::directory_iterator(directoryPath, ec))
+			{
+				if (ec)
+					break;
+
+				if (entry.is_regular_file(ec) && entry.path().extension() == ".fspro")
+					return true;
+			}
+
+			return false;
+		}
+
+	}
+
 	void EditorAssetManager::ProcessDirectory(const std::filesystem::path& directoryPath)
 	{
 		if (!FileSystem::Exists(directoryPath) || !FileSystem::IsDirectory(directoryPath))
 			return;
 
-		for (const auto& entry : std::filesystem::recursive_directory_iterator(directoryPath))
+		for (auto it = std::filesystem::recursive_directory_iterator(directoryPath);
+			it != std::filesystem::recursive_directory_iterator(); ++it)
 		{
-			if (!entry.is_regular_file())
+			if (it->is_directory())
+			{
+				// An FMOD Studio project is tooling internals, not engine content: Metadata/ holds a
+				// GUID-named XML per authored object, and Build/ holds the banks fmodstudiocl
+				// regenerates. Importing the banks would put gitignored build output into the tracked
+				// asset registry, so a fresh clone would carry handles for files that do not exist.
+				// The .fspro itself is still imported - it is a file in the parent directory.
+				if (IsFMODStudioProjectDirectory(it->path()))
+					it.disable_recursion_pending();
+
+				// Tool state (.cache, .user, .git) is never content.
+				const std::string name = it->path().filename().string();
+				if (!name.empty() && name.front() == '.')
+					it.disable_recursion_pending();
+
+				continue;
+			}
+
+			if (!it->is_regular_file())
 				continue;
 
-			ImportAsset(entry.path());
+			ImportAsset(it->path());
 		}
 	}
 

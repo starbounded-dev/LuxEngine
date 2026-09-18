@@ -336,6 +336,9 @@ namespace Lux {
 		if (m_Bindings.RotationSnapValue && ImGuiEx::Property("Rotation Snap", *m_Bindings.RotationSnapValue, 1.0f, 1.0f, 360.0f))
 			notifyBindings = true;
 
+		if (m_Bindings.ScaleSnapValue && ImGuiEx::Property("Scale Snap", *m_Bindings.ScaleSnapValue, 0.01f, 0.01f, 1.0f))
+			notifyBindings = true;
+
 		if (m_Bindings.ShowBoundingBoxes && ImGuiEx::Property("Show Bounding Boxes", *m_Bindings.ShowBoundingBoxes))
 			notifyBindings = true;
 

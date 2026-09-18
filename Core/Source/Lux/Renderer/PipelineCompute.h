@@ -4,6 +4,7 @@
 #include "Lux/Renderer/Shader.h"
 #include "Lux/Renderer/RenderCommandBuffer.h"
 #include "Lux/Renderer/StorageBuffer.h"
+#include "Lux/Renderer/StorageBufferSet.h"
 
 namespace Lux {
 
@@ -19,6 +20,10 @@ namespace Lux {
 		void BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess);
 		void BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess);
 
+		// Resolve frame-indexed buffers on the render thread, matching the descriptors.
+		void BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBufferSet> storageBuffers, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess);
+		void BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBufferSet> storageBuffers, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess);
+
 		void ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess);
 		void ImageMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, PipelineStage fromStage, ResourceAccessFlags fromAccess, PipelineStage toStage, ResourceAccessFlags toAccess);
 
@@ -33,6 +38,7 @@ namespace Lux {
 		PipelineCompute(Ref<Shader> computeShader);
 	private:
 		void RT_CreatePipeline();
+		static void RT_BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags toAccess, const std::string& markerName);
 	private:
 		Ref<Shader> m_Shader;
 		nvrhi::ComputePipelineHandle m_Handle = nullptr;

@@ -209,7 +209,8 @@ checked for a wrapper.
 Queries: `Exists`, `IsDirectory`, `IsNewer`, `GetLastWriteTime`, `GetUniqueFileName`,
 `GetWorkingDirectory`, `GetPersistentStoragePath`.
 Mutations: `CreateDirectory`, `DeleteFile`, `MoveFile`, `CopyFile`, `Move`, `Copy`, `Rename`,
-`RenameFilename`, `WriteBytes`.
+`RenameFilename`, `WriteBytes`, `ReplaceFileAtomically` (atomically replace a destination with a completed
+same-volume temporary file; implemented on Windows and Linux, reports failure).
 Reads: `ReadBytes`, `TryOpenFile`, `TryOpenFileAndWait`.
 Shell/OS: `ShowFileInExplorer`, `OpenDirectoryInExplorer`, `OpenExternally`,
 `{Has,Get,Set}EnvironmentVariable`.
@@ -239,6 +240,60 @@ a corrupted style stack, and the scopes make that unrepresentable.
 Widgets and layout helpers are in `ImGuiEx.h` / `ImGuiWidgets.h` (property rows, message boxes,
 collapsing headers, `ShiftCursor`, `HelpMarker`, `Draw::Underline`, …); fonts in `ImGuiFonts.h`.
 New reusable widgets go into `ImGuiEx`, not inline in a panel.
+`ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
+drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped
+entities against that scene.
+
+### ImGui correctness — close every scope, give every widget a unique ID
+
+Every ImGui change is checked against the three lists below before it is called done. A missing
+`End`/`Pop` corrupts the stacks for everything drawn after it, and a duplicate ID makes two widgets
+share hover/active/open state — clicking one toggles the other. Both usually *look* fine until a
+specific state is reached, so they are verified by reading, not by glancing at the panel.
+
+**1. Every scope is closed, on every path** (vendored ImGui is 1.92 — contracts from `imgui.h`):
+
+| Open | Close | Rule |
+|---|---|---|
+| `Begin` / `BeginChild` | `End` / `EndChild` | **Always**, whatever the return value |
+| `BeginGroup`, `BeginDisabled`, and every push: `PushID`, `PushStyleColor`, `PushStyleVar`, `PushFont`, `PushItemWidth`, `PushTextWrapPos`, `PushClipRect`, `Indent` | matching `End*` / `Pop*` / `Unindent` | **Always**, with matching counts (`PopStyleColor(n)` / `PopStyleVar(n)`) |
+| `BeginMenuBar`, `BeginMainMenuBar`, `BeginMenu`, `BeginPopup*`, `BeginTable`, `BeginTabBar`, `BeginTabItem`, `BeginCombo`, `BeginListBox`, `BeginTooltip` / `BeginItemTooltip`, `BeginDragDropSource` / `Target` | matching `End*` | **Only if it returned true** |
+| `TreeNode*`, `ImGuiEx::PropertyGridHeader`, `ImGuiEx::TreeNodeWithIcon` | `ImGui::TreePop()` | Only if it returned true (and not `ImGuiTreeNodeFlags_NoTreePushOnOpen`). `CollapsingHeader` needs no pop |
+
+- Check every early `return`, `continue`, and `break` between an open and its close. Prefer the RAII
+  scopes (`ScopedID`, `ScopedStyle`, `ScopedColour`, `ScopedFont`, `ScopedDisable`, …) so an early
+  exit cannot leak a push.
+- A loop that opens per item closes per item, inside the loop.
+- `ImGuiEx::PushID()` / `PopID()` pair the same way as `ImGui::PushID` / `PopID`.
+
+**2. Every ID in a scope is unique.** An ID is the hash of the label combined with the ID stack
+(window → `PushID` scopes → tree nodes, tables, tab bars).
+
+- Two widgets with the **same label in the same ID scope are the same widget.** Two `Button("Reset")`
+  in one window, two icon buttons using the same `LUX_ICON_*` glyph, or two empty labels (`""`,
+  `"##"`) all collide. Give each a suffix: `"Reset##Shadows"`, `LUX_ICON_TRASH "##remove_light"`.
+- The text after `##` is hidden but **is** part of the ID; `###` makes **only** the text after it
+  the ID. So a toggle that shows `On` / `Off` should use a stable ID —
+  `std::format("{}###shadow_toggle", enabled ? "On" : "Off")` — and two *different* toggles must
+  not share the part after `###`.
+- Anything drawn in a loop is wrapped in `ImGui::PushID` / `ScopedID` keyed by a **stable identity**
+  (entity UUID, asset handle, object pointer), not the loop index when the list can reorder or
+  filter.
+- String IDs that must match each other are checked as a pair: `OpenPopup` / `BeginPopup*`, a
+  window title and its `DockBuilderDockWindow` name, the panel name used in `s_AdvancedPanels`.
+  Window titles are global IDs — two panels with the same title merge into one window.
+- `ImGuiEx::GenerateID()` / `GenerateLabelID()` number widgets by call order since the last
+  `ImGuiEx::PushID()` and return a shared buffer. Use the result immediately, and use an explicit
+  `##name` for a stateful widget that follows conditionally drawn ones — otherwise its ID shifts when
+  the condition changes.
+
+**3. Verify it running.** Open the panel in the editor and drive **every** state the change added —
+each branch, toggle value, empty and non-empty list, open popup, Play mode. ImGui 1.92 highlights ID
+conflicts and shows an error popup (`io.ConfigDebugHighlightIdConflicts`, on by default); a missing
+`End`/`Pop` asserts in Debug. Do not add `ImGuiItemFlags_AllowDuplicateId` or turn those checks off
+to quiet a report — fix the ID.
+
+ImGui is main-thread only: never call it inside a `Renderer::Submit` lambda (`Threading.md`).
 
 ### Colours — `Colors::Theme`
 

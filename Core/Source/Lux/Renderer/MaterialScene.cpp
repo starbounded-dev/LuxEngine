@@ -121,11 +121,14 @@ namespace Lux {
 		const bool shadowCasting = materialAsset ? materialAsset->IsShadowCasting() : !material->GetFlag(MaterialFlag::DisableShadowCasting);
 		const bool twoSided = material->GetFlag(MaterialFlag::TwoSided);
 
-		const glm::vec3 albedoColor = ReadMaterialVec3(material, s_AlbedoColorUniform, glm::vec3(1.0f));
-		const float metalness = transparent ? 0.0f : glm::clamp(ReadMaterialFloat(material, s_MetalnessUniform, 0.0f), 0.0f, 1.0f);
-		const float roughness = glm::clamp(ReadMaterialFloat(material, s_RoughnessUniform, transparent ? 0.5f : 0.4f), 0.0f, 1.0f);
-		const float emission = glm::max(ReadMaterialFloat(material, s_EmissionUniform, 0.0f), 0.0f);
-		const float opacity = transparent ? glm::clamp(ReadMaterialFloat(material, s_TransparencyUniform, 1.0f), 0.0f, 1.0f) : 1.0f;
+		// A material asset owns its values; only a bare override material is read from its shader
+		// block, which may not declare every member.
+		const bool fromAsset = materialAsset && !input.OverrideMaterial;
+		const glm::vec3 albedoColor = fromAsset ? materialAsset->GetAlbedoColor() : ReadMaterialVec3(material, s_AlbedoColorUniform, glm::vec3(1.0f));
+		const float metalness = transparent ? 0.0f : glm::clamp(fromAsset ? materialAsset->GetMetalness() : ReadMaterialFloat(material, s_MetalnessUniform, 0.0f), 0.0f, 1.0f);
+		const float roughness = glm::clamp(fromAsset ? materialAsset->GetRoughness() : ReadMaterialFloat(material, s_RoughnessUniform, transparent ? 0.5f : 0.4f), 0.0f, 1.0f);
+		const float emission = glm::max(fromAsset ? materialAsset->GetEmission() : ReadMaterialFloat(material, s_EmissionUniform, 0.0f), 0.0f);
+		const float opacity = transparent ? glm::clamp(fromAsset ? materialAsset->GetTransparency() : ReadMaterialFloat(material, s_TransparencyUniform, 1.0f), 0.0f, 1.0f) : 1.0f;
 		const float envMapRotation = ReadMaterialFloat(material, s_EnvMapRotationUniform, 0.0f);
 		const float complexity = glm::max(ReadMaterialFloat(material, s_MaterialComplexityScoreUniform, transparent ? 5.0f : 3.0f), 0.0f);
 
@@ -143,7 +146,7 @@ namespace Lux {
 		if (twoSided)
 			flags |= GPUMaterialFlags::TwoSided;
 
-		auto assignTexture = [&](AssetHandle textureHandle, GPUMaterialFlags presentFlag, uint32_t textureSlot)
+		auto assignTexture = [&](AssetHandle textureHandle, GPUMaterialFlags presentFlag, uint32_t& textureSlot)
 			{
 				if (!textureHandle)
 					return;
@@ -155,20 +158,50 @@ namespace Lux {
 				}
 
 				flags |= presentFlag;
-				data.TextureIndices[textureSlot] = resolveTextureIndex ? resolveTextureIndex(textureHandle) : InvalidGPUTextureIndex;
+				textureSlot = resolveTextureIndex ? resolveTextureIndex(textureHandle) : InvalidGPUTextureIndex;
 			};
+
+		// Without an asset (a bare override material) emission keeps tinting by the base colour.
+		data.Emissive = glm::vec4(ToLinearColor(albedoColor) * emission, 1.0f);
 
 		if (materialAsset)
 		{
-			assignTexture(materialAsset->GetAlbedoMapHandle(), GPUMaterialFlags::HasAlbedoTexture, 0);
+			assignTexture(materialAsset->GetAlbedoMapHandle(), GPUMaterialFlags::HasAlbedoTexture, data.TextureIndices.x);
 
-			const bool useNormalMap = ReadMaterialBool(material, s_UseNormalMapUniform, false)
+			const bool useNormalMap = (fromAsset ? materialAsset->IsUsingNormalMap() : ReadMaterialBool(material, s_UseNormalMapUniform, false))
 				&& materialAsset->GetNormalMapHandle();
 			if (useNormalMap)
 				flags |= GPUMaterialFlags::UseNormalMap;
-			assignTexture(useNormalMap ? materialAsset->GetNormalMapHandle() : AssetHandle(0), GPUMaterialFlags::HasNormalTexture, 1);
-			assignTexture(!transparent ? materialAsset->GetMetalnessMapHandle() : AssetHandle(0), GPUMaterialFlags::HasMetalnessTexture, 2);
-			assignTexture(materialAsset->GetRoughnessMapHandle(), GPUMaterialFlags::HasRoughnessTexture, 3);
+			assignTexture(useNormalMap ? materialAsset->GetNormalMapHandle() : AssetHandle(0), GPUMaterialFlags::HasNormalTexture, data.TextureIndices.y);
+			assignTexture(!transparent ? materialAsset->GetMetalnessMapHandle() : AssetHandle(0), GPUMaterialFlags::HasMetalnessTexture, data.TextureIndices.z);
+			assignTexture(materialAsset->GetRoughnessMapHandle(), GPUMaterialFlags::HasRoughnessTexture, data.TextureIndices.w);
+
+			const MaterialSurfaceParameters& surface = materialAsset->GetSurfaceParameters();
+			if (fromAsset)
+				data.Emissive = glm::vec4(ToLinearColor(surface.EmissiveColor) * emission, glm::clamp(surface.OcclusionStrength, 0.0f, 1.0f));
+
+			data.Surface = glm::vec4(
+				glm::clamp(surface.Specular, 0.0f, 1.0f),
+				glm::max(surface.NormalStrength, 0.0f),
+				0.5f, // alpha cutoff; cutout materials arrive with the alpha-mode buckets
+				glm::max(surface.BumpHeight, 0.0f));
+
+			// uv' = R(rotation) * (uv * tiling) + offset
+			const float rotation = glm::radians(surface.UVRotation);
+			const float cosRotation = glm::cos(rotation);
+			const float sinRotation = glm::sin(rotation);
+			data.UVTransform = glm::vec4(
+				cosRotation * surface.UVTiling.x, sinRotation * surface.UVTiling.x,
+				-sinRotation * surface.UVTiling.y, cosRotation * surface.UVTiling.y);
+			data.UVOffset = glm::vec4(surface.UVOffset, 0.0f, 0.0f);
+
+			assignTexture(surface.EmissiveMap, GPUMaterialFlags::HasEmissiveTexture, data.ExtraTextureIndices.x);
+			assignTexture(surface.OcclusionMap, GPUMaterialFlags::HasOcclusionTexture, data.ExtraTextureIndices.y);
+			assignTexture(surface.HeightMap, GPUMaterialFlags::HasHeightTexture, data.ExtraTextureIndices.z);
+			data.ExtraTextureIndices.w =
+				((uint32_t)surface.MetalnessChannel << GPUMaterialChannelShiftMetalness)
+				| ((uint32_t)surface.RoughnessChannel << GPUMaterialChannelShiftRoughness)
+				| ((uint32_t)surface.OcclusionChannel << GPUMaterialChannelShiftOcclusion);
 		}
 
 		data.Metadata = glm::uvec4(

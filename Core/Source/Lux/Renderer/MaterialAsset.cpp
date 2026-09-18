@@ -86,6 +86,20 @@ namespace Lux {
 	{
 		Handle = {};
 		m_Material = Material::Copy(material);
+
+		// Seed the asset's values from whatever the source material's shader block holds.
+		auto read = [this](const std::string& name, auto& target)
+			{
+				using T = std::remove_reference_t<decltype(target)>;
+				if (m_Material && m_Material->FindUniformDeclaration(name))
+					target = m_Material->Get<T>(name);
+			};
+		read(s_AlbedoColorUniform, m_Values.AlbedoColor);
+		read(s_MetalnessUniform, m_Values.Metalness);
+		read(s_RoughnessUniform, m_Values.Roughness);
+		read(s_EmissionUniform, m_Values.Emission);
+		read(s_TransparencyUniform, m_Values.Transparency);
+		read(s_UseNormalMapUniform, m_Values.UseNormalMap);
 	}
 
 	MaterialAsset::~MaterialAsset()
@@ -114,54 +128,42 @@ namespace Lux {
 		}
 	}
 
-	glm::vec3& MaterialAsset::GetAlbedoColor()
+	template<typename T>
+	void MaterialAsset::WriteUniform(const std::string& name, const T& value)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return m_Material->GetVector3(s_AlbedoColorUniform);
+		// Mirror into the shader block only where it has the member (see m_Values).
+		if (m_Material && m_Material->FindUniformDeclaration(name))
+			m_Material->Set(name, value);
 	}
 
 	void MaterialAsset::SetAlbedoColor(const glm::vec3& color)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_Material->Set(s_AlbedoColorUniform, color);
-	}
-
-	float& MaterialAsset::GetMetalness()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return m_Material->GetFloat(s_MetalnessUniform);
+		m_Values.AlbedoColor = color;
+		WriteUniform(s_AlbedoColorUniform, color);
 	}
 
 	void MaterialAsset::SetMetalness(float value)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_Material->Set(s_MetalnessUniform, value);
+		m_Values.Metalness = value;
+		WriteUniform(s_MetalnessUniform, value);
 		UpdateMaterialComplexityMetadata();
-	}
-
-	float& MaterialAsset::GetRoughness()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return m_Material->GetFloat(s_RoughnessUniform);
 	}
 
 	void MaterialAsset::SetRoughness(float value)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_Material->Set(s_RoughnessUniform, value);
+		m_Values.Roughness = value;
+		WriteUniform(s_RoughnessUniform, value);
 		UpdateMaterialComplexityMetadata();
-	}
-
-	float& MaterialAsset::GetEmission()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return m_Material->GetFloat(s_EmissionUniform);
 	}
 
 	void MaterialAsset::SetEmission(float value)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_Material->Set(s_EmissionUniform, value);
+		m_Values.Emission = value;
+		WriteUniform(s_EmissionUniform, value);
 		UpdateMaterialComplexityMetadata();
 	}
 
@@ -237,16 +239,11 @@ namespace Lux {
 		UpdateMaterialComplexityMetadata();
 	}
 
-	bool MaterialAsset::IsUsingNormalMap()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return m_Material->GetBool(s_UseNormalMapUniform);
-	}
-
 	void MaterialAsset::SetUseNormalMap(bool value)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_Material->Set(s_UseNormalMapUniform, value);
+		m_Values.UseNormalMap = value;
+		WriteUniform(s_UseNormalMapUniform, value);
 		UpdateMaterialComplexityMetadata();
 	}
 
@@ -334,16 +331,18 @@ namespace Lux {
 		UpdateMaterialComplexityMetadata();
 	}
 
-	float& MaterialAsset::GetTransparency()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return m_Material->GetFloat(s_TransparencyUniform);
-	}
-
 	void MaterialAsset::SetTransparency(float transparency)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_Material->Set(s_TransparencyUniform, transparency);
+		m_Values.Transparency = transparency;
+		WriteUniform(s_TransparencyUniform, transparency);
+		UpdateMaterialComplexityMetadata();
+	}
+
+	void MaterialAsset::SetSurfaceParameters(const MaterialSurfaceParameters& parameters)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		m_Surface = parameters;
 		UpdateMaterialComplexityMetadata();
 	}
 
@@ -353,8 +352,7 @@ namespace Lux {
 		if (!m_Material || !m_Material->FindUniformDeclaration(s_MaterialComplexityScoreUniform))
 			return;
 
-		const bool hasNormalUniform = m_Material->FindUniformDeclaration(s_UseNormalMapUniform) != nullptr;
-		const bool usingNormalMap = hasNormalUniform && m_Material->GetBool(s_UseNormalMapUniform) && m_Maps.NormalMap;
+		const bool usingNormalMap = m_Values.UseNormalMap && m_Maps.NormalMap;
 		const bool twoSided = m_Material->GetFlag(MaterialFlag::TwoSided);
 
 		uint32_t flags = 0;
@@ -364,6 +362,7 @@ namespace Lux {
 			flags |= MaterialDebug_AlbedoMap;
 			textureCount++;
 		}
+		textureCount += (m_Surface.EmissiveMap ? 1 : 0) + (m_Surface.OcclusionMap ? 1 : 0) + (m_Surface.HeightMap ? 1 : 0);
 		if (usingNormalMap)
 		{
 			flags |= MaterialDebug_NormalMap;
@@ -388,14 +387,16 @@ namespace Lux {
 		score += static_cast<float>(textureCount) * 0.75f;
 		score += usingNormalMap ? 1.5f : 0.0f;
 		score += twoSided ? 1.25f : 0.0f;
-		if (m_Material->FindUniformDeclaration(s_EmissionUniform))
-			score += m_Material->GetFloat(s_EmissionUniform) > 0.0f ? 1.0f : 0.0f;
-		if (m_Material->FindUniformDeclaration(s_MetalnessUniform))
-			score += std::clamp(m_Material->GetFloat(s_MetalnessUniform), 0.0f, 1.0f) * 0.5f;
-		if (m_Material->FindUniformDeclaration(s_RoughnessUniform))
-			score += (1.0f - std::clamp(m_Material->GetFloat(s_RoughnessUniform), 0.0f, 1.0f)) * 0.5f;
-		if (m_Material->FindUniformDeclaration(s_TransparencyUniform))
-			score += (1.0f - std::clamp(m_Material->GetFloat(s_TransparencyUniform), 0.0f, 1.0f)) * 2.0f;
+		score += m_Values.Emission > 0.0f ? 1.0f : 0.0f;
+		if (!m_Transparent)
+		{
+			score += std::clamp(m_Values.Metalness, 0.0f, 1.0f) * 0.5f;
+			score += (1.0f - std::clamp(m_Values.Roughness, 0.0f, 1.0f)) * 0.5f;
+		}
+		else
+		{
+			score += (1.0f - std::clamp(m_Values.Transparency, 0.0f, 1.0f)) * 2.0f;
+		}
 
 		m_Material->Set(s_MaterialComplexityScoreUniform, score);
 		if (m_Material->FindUniformDeclaration(s_MaterialDebugFlagsUniform))

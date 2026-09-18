@@ -2,6 +2,7 @@
 #include "PhysicsScene.h"
 
 #include "PhysicsSystem.h"
+#include "JoltPhysics/JoltContactListener.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Physics/JoltPhysics/JoltBody.h"
@@ -528,6 +529,7 @@ namespace Lux {
 		LuxBroadPhaseLayerInterface BroadPhaseLayerInterface{ LayerTable };
 		LuxObjectVsBroadPhaseLayerFilter ObjectVsBroadPhaseLayerFilter{ LayerTable };
 		LuxObjectLayerPairFilter ObjectLayerPairFilter{ LayerTable };
+		JoltContactListener Contacts; // Outlives the system that invokes it.
 		JPH::PhysicsSystem System;
 		std::unordered_map<UUID, RuntimeBody> Bodies;
 		std::unordered_map<UUID, Ref<CharacterController>> CharacterControllers;
@@ -696,6 +698,8 @@ namespace Lux {
 		joltSettings.mNumPositionSteps = std::max(1u, settings.PositionSolverIterations);
 		joltSettings.mNumVelocitySteps = std::max(1u, settings.VelocitySolverIterations);
 		m_Impl->System.SetPhysicsSettings(joltSettings);
+		m_Impl->Contacts.MinimumRestitutionVelocity = joltSettings.mMinVelocityForRestitution;
+		m_Impl->System.SetContactListener(&m_Impl->Contacts);
 		m_Impl->System.Init(
 			std::max(1u, settings.MaxBodies),
 			0,
@@ -847,6 +851,14 @@ namespace Lux {
 		}
 
 		SyncActiveBodies(m_Scene, *m_Impl);
+	}
+
+	void PhysicsScene::DrainContactEvents(std::vector<PhysicsContactEvent>& events)
+	{
+		if (m_Impl)
+			m_Impl->Contacts.Drain(events);
+		else
+			events.clear();
 	}
 
 	void PhysicsScene::Destroy()

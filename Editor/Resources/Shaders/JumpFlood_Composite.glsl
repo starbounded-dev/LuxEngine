@@ -34,7 +34,7 @@ layout(set = 2, binding = 0) uniform texture2D u_Texture;
 
 void main()
 {
-    vec4 pixel = SampleLinear(u_Texture, Input.TexCoords);
+	vec4 pixel = texture(sampler2D(u_Texture, r_PointSampler), Input.TexCoords);
 
     // Keep only the outside edge. Pixels inside the selected mask are rendered
     // by the normal geometry pass and should not become a flat 2D orange shape.
@@ -43,7 +43,7 @@ void main()
 
     // Signed distance (squared)
     float dist = sqrt(pixel.z);
-    float alpha = smoothstep(0.004f, 0.002f, dist);
+	float alpha = (1.0f - smoothstep(0.002f, 0.004f, dist));
     if (alpha == 0.0)
         discard;
 

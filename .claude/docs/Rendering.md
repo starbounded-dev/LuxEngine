@@ -235,6 +235,17 @@ crash or corruption on some driver even if it renders correctly on yours.
 - Do not silence, filter, or `#ifdef` away a validation message to make a log quiet.
 - Fix the underlying mismatch: image layout, descriptor lifetime, pipeline/renderpass compatibility,
   or missing barrier.
+- For frame-indexed storage buffers, pass the `StorageBufferSet` to
+  `PipelineCompute::BufferMemoryBarrier`; it resolves `RT_Get()` when recording, just like the
+  binding sets. Main-thread `Get()` may select a different buffer. Indirect draw consumers need
+  `ResourceAccessFlags::IndirectCommandRead` (NVRHI `IndirectArgument`), not a shader-read state.
+- GPU-written storage (including mesh-culling visible indices and indirect arguments) must use
+  `GPUOnly = true`. NVRHI intentionally skips barriers for CPU-visible buffers; CPU initialization
+  of GPU storage goes through `writeBuffer` on the upload command list.
+- PCSS uses constant-index Poisson lookups. Dynamic indexing of the local 64-sample array expands
+  into repeated per-fragment scratch arrays on RADV Renoir and can cause a GPU timeout.
+  `python3 tests/rendering/run_shadow_shader.py` compiles/validates deferred lighting and checks
+  its SPIR-V for these local copies (use `--sdk-bin` if the Vulkan tools are not bundled).
 - Nvidia Aftermath GPU crash dumps live in `Platform/Vulkan/Debug/` and are compiled out of Dist (and
   removed entirely with `--no-aftermath`). When chasing a device-lost, build with them in.
 
@@ -353,6 +364,31 @@ Renderer submission must go through the frame packet, not the live ECS:
 
 **New renderer-visible state belongs in the packet.** Reading the ECS during submission works today
 and is exactly what blocks the simulation-thread split later (see `.claude/docs/Threading.md`).
+
+---
+
+## The GPU material table
+
+Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`), uploaded to the
+std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
+`Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
+keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
+size in step. Textures are bindless indices into `u_GPUMaterialTextures` `(set 2, binding 8)`.
+
+Rows are built by `MaterialScene::BuildGPUMaterialData` from the `MaterialAsset` (its own values and
+`MaterialSurfaceParameters`), never from the shader push-constant block. A new material input must
+default to the value that reproduces today's shading, so an older `.lmat` renders unchanged.
+
+**Emission does not go through the G-buffer.** `GBuffer_Static` writes emissive radiance straight
+into scene color (the G-buffer framebuffer borrows the scene-color image as attachment 5, with
+`AttachmentLoadOp::Load` so the sky drawn before it survives), and `DeferredLighting` blends its
+result on top with `FramebufferBlendMode::Additive`. Consequences: anything that writes the lit
+opaque color must stay additive over what is already there, and the G-buffer render-graph pass reads
+and writes scene color.
+
+`Renderer::BeginRenderPass` honours a per-attachment `AttachmentLoadOp` (`Load` keeps, `Clear`
+clears, `Inherit` follows `ClearColorOnLoad`). Use it to share an image into a framebuffer without
+clearing it.
 
 ---
 

@@ -137,6 +137,10 @@ namespace Lux
 			return m_Framebuffer ? m_Framebuffer->GetImage(0) : nullptr;
 		}
 
+		// Output size for viewports drawn inside another panel instead of their own window
+		// (BeginImGui sets it for window-owning viewports). Takes effect on SyncSceneViewport.
+		void SetSize(const glm::vec2& size) { m_Size = size; }
+
 		Ref<Framebuffer> GetFramebuffer() const { return m_Framebuffer; }
 		Ref<SceneRenderer> GetSceneRenderer() const { return m_Renderer; }
 		EditorCamera& GetCamera() { return m_Camera; }

@@ -6,79 +6,52 @@
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/StringUtils.h"
 
-#include "miniaudio.h"
-#include "dr_wav.h"
-
-#define STB_VORBIS_HEADER_ONLY
-#include "stb_vorbis.c"
+#include "AudioEngine.h"
+#include <fmod.hpp>
+#include <fmod_errors.h>
 
 namespace Lux::AudioFileUtils
 {
-	static std::optional<AudioFileInfo> GetFileInfoWav(const char* filepath)
-	{
-		drwav wav;
-		if (drwav_init_file(&wav, filepath, nullptr))
-		{
-			ma_uint16 bitDepth = wav.bitsPerSample;
-			ma_uint16 channels = wav.channels;
-			ma_uint32 sampleRate = wav.sampleRate;
-			double duration = (double)wav.totalPCMFrameCount / (double)sampleRate;
-
-			auto dataSize = wav.dataChunkDataSize;
-			auto pos = wav.dataChunkDataPos;
-			auto fileSize = dataSize + pos;
-			//auto sizestr = Utils::BytesToString(fileSize);
-			drwav_uninit(&wav);
-		
-			return AudioFileInfo{ duration, sampleRate, bitDepth, channels, fileSize };
-		}
-		
-		return std::optional<AudioFileInfo>();
-	}
-
-	static std::optional<AudioFileInfo> GetFileInfoVorbis(const char* filepath)
-	{
-		STBVorbisError error;
-		if (stb_vorbis* vorbis = stb_vorbis_open_filename(filepath, (int*)&error, nullptr))
-		{
-			const stb_vorbis_info info = stb_vorbis_get_info(vorbis);
-			const uint32_t totalSamples = stb_vorbis_stream_length_in_samples(vorbis);
-
-			ma_uint16 bitDepth = 0; // ogg does not have bit-depth
-			ma_uint16 channels = (ma_uint16)info.channels;
-			ma_uint32 sampleRate = info.sample_rate;
-			double duration = sampleRate ? ((double)totalSamples / (double)sampleRate) : 0.0;
-
-			const uint64_t fileSize = std::filesystem::file_size(filepath);
-
-			//auto sizestr = Utils::BytesToString(fileSize);
-			stb_vorbis_close(vorbis);
-
-			return AudioFileInfo{ duration, sampleRate, bitDepth, channels, fileSize };
-		}
-
-		return std::optional<AudioFileInfo>();
-	}
-
 	std::optional<AudioFileInfo> GetFileInfo(const AssetMetadata& metadata)
 	{
-		std::string filepath = Project::GetEditorAssetManager()->GetFileSystemPathString(metadata);
-		if (Utils::String::EqualsIgnoreCase(metadata.FilePath.extension().string(), ".wav"))
-			return GetFileInfoWav(filepath.c_str());
-		else if (Utils::String::EqualsIgnoreCase(metadata.FilePath.extension().string(), ".ogg"))
-			return GetFileInfoVorbis(filepath.c_str());
-		else
-			return std::optional<AudioFileInfo>();
+		return GetFileInfo(std::filesystem::path(Project::GetEditorAssetManager()->GetFileSystemPathString(metadata)));
 	}
 
 	std::optional<AudioFileInfo> GetFileInfo(const std::filesystem::path& filepath)
 	{
-		if (Utils::String::EqualsIgnoreCase(filepath.extension().string(), ".wav"))
-			return GetFileInfoWav(filepath.string().c_str());
-		else if (Utils::String::EqualsIgnoreCase(filepath.extension().string(), ".ogg"))
-			return GetFileInfoVorbis(filepath.string().c_str());
-		else
-			return std::optional<AudioFileInfo>();
+		auto* engine = AudioEngine::GetEngine();
+		if (!engine)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot inspect audio file before FMOD initialization: {0}", filepath.string());
+			return {};
+		}
+		FMOD::Sound* sound = nullptr;
+		FMOD_RESULT result = engine->createSound(filepath.string().c_str(), FMOD_OPENONLY, nullptr, &sound);
+		if (result != FMOD_OK)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot inspect '{0}': {1}", filepath.string(), FMOD_ErrorString(result));
+			return {};
+		}
+		float sampleRate = 0.0f;
+		int channels = 0, bits = 0;
+		unsigned int frames = 0;
+		result = sound->getDefaults(&sampleRate, nullptr);
+		if (result == FMOD_OK)
+			result = sound->getFormat(nullptr, nullptr, &channels, &bits);
+		if (result == FMOD_OK)
+			result = sound->getLength(&frames, FMOD_TIMEUNIT_PCM);
+		const FMOD_RESULT released = sound->release();
+		std::error_code ec;
+		const auto size = std::filesystem::file_size(filepath, ec);
+		if (released != FMOD_OK)
+			LUX_CORE_ERROR_TAG("Audio", "Cannot release audio metadata reader: {0}", FMOD_ErrorString(released));
+		if (result != FMOD_OK || sampleRate <= 0 || ec)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot read audio metadata for '{0}': {1}; {2}", filepath.string(), FMOD_ErrorString(result), ec.message());
+			return {};
+		}
+		return AudioFileInfo{ frames / static_cast<double>(sampleRate), static_cast<uint32_t>(sampleRate),
+			static_cast<uint16_t>(bits), static_cast<uint16_t>(channels), size };
 	}
 
 	bool IsValidAudioFile(const std::filesystem::path& filepath)

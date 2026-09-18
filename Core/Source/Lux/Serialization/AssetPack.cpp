@@ -51,6 +51,8 @@ namespace Lux
 				case AssetType::StaticMesh:
 				case AssetType::Material:
 				case AssetType::Audio:
+				case AssetType::DialogueTable:
+				case AssetType::AudioSurfaceTable:
 					return true;
 				default:
 					return false;
@@ -201,6 +203,22 @@ namespace Lux
 			return nullptr;
 		}
 
+		const AssetHandle surfaceTable = Project::GetActive()->GetConfig().Audio.SurfaceTable;
+		if (surfaceTable && (!AssetManager::IsAssetHandleValid(surfaceTable)
+			|| AssetManager::GetAssetType(surfaceTable) != AssetType::AudioSurfaceTable || AssetManager::IsMemoryAsset(surfaceTable)))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot export missing or invalid project surface table {}", static_cast<uint64_t>(surfaceTable));
+			return nullptr;
+		}
+
+		const AssetHandle dialogueTable = Project::GetActive()->GetConfig().Audio.Dialogue.Table;
+		if (dialogueTable && (!AssetManager::IsAssetHandleValid(dialogueTable)
+			|| AssetManager::GetAssetType(dialogueTable) != AssetType::DialogueTable || AssetManager::IsMemoryAsset(dialogueTable)))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot export missing or invalid dialogue table {}", static_cast<uint64_t>(dialogueTable));
+			return nullptr;
+		}
+
 		const float progressIncrement = 0.5f / (float)sceneCount;
 		const std::unordered_set<AssetHandle> audioFiles = AssetManager::GetAllAssetsWithType<AudioFile>();
 		fullAssetList.insert(audioFiles.begin(), audioFiles.end());
@@ -220,6 +238,10 @@ namespace Lux
 
 			std::unordered_set<AssetHandle> sceneAssetList = CollectSceneAssetList(scene);
 			sceneAssetList.insert(audioFiles.begin(), audioFiles.end());
+			if (surfaceTable)
+				sceneAssetList.insert(surfaceTable);
+			if (dialogueTable)
+				sceneAssetList.insert(dialogueTable);
 			LUX_CORE_TRACE("  Scene has {} used assets", sceneAssetList.size());
 
 			AssetPackFile::SceneInfo& sceneInfo = assetPackFile.Index.Scenes[sceneHandle];
@@ -255,7 +277,8 @@ namespace Lux
 			appBinary = FileSystem::ReadBytes(Project::GetActiveScriptModuleFilePath());
 
 		const std::filesystem::path packPath = Project::GetActiveAssetDirectory() / "AssetPack.lap";
-		AssetPackSerializer::Serialize(packPath, assetPackFile, appBinary, progress);
+		if (!AssetPackSerializer::Serialize(packPath, assetPackFile, appBinary, progress))
+			return nullptr;
 		progress = 1.0f;
 
 		std::unordered_map<AssetHandle, AssetPackFile::AssetInfo> serializedAssets;

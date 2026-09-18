@@ -22,6 +22,7 @@ namespace Lux
 		uint64_t GetStreamPosition() final { return m_Stream.tellp(); }
 		void SetStreamPosition(uint64_t position) final { m_Stream.seekp(position); }
 		bool WriteData(const char* data, size_t size) final;
+		bool Flush();
 
 	private:
 		std::filesystem::path m_Path;

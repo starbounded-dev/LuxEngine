@@ -306,13 +306,30 @@ single light entity.
 
 ---
 
-## Material panels (contextual)
+## Material Editor
 
-**Classes:** `MaterialsPanel`, `MaterialEditorPanel` · `Editor/Source/Panels/`.
+**Classes:** `MaterialEditorPanel`, `MaterialPreview`, `MaterialThumbnailer` ·
+`Editor/Source/Panels/MaterialEditor/`.
+**Registered as:** "Material Editor", closed by default. Opens itself when a material is opened.
 
-The material list and the per-material editor (albedo/metallic/roughness/normal/emissive + texture
-slots). These are used contextually (opened for a selected material asset) rather than as
-always-registered View panels.
+Open a material by double-clicking it in the Content Browser, or with the **Edit** button under a
+Static Mesh in the Inspector. Each material gets a tab; a dot marks unsaved changes, and closing a
+dirty tab asks to Save, Discard or Cancel.
+
+- **Preview** (left): a live render of the material on a sphere, cube, cylinder, plane or torus from
+  the project's `Meshes/Source/Default/` folder. Drag to orbit, scroll to zoom; the sky light can be
+  turned off. Changes show immediately, in the scene too.
+- **Properties** (right): Surface (base color, metallic, roughness, specular, and opacity on
+  transparent materials), Emission (color, intensity, map), Texture Maps (base color, normal with
+  strength, metallic / roughness / occlusion with a channel picker for packed ORM maps, height as a
+  bump map), UV (tiling, offset, rotation) and Rendering (cast shadows).
+- **Save / Revert**: edits change the loaded material right away but reach the `.lmat` file only on
+  Save. Revert returns to the saved state. Every finished edit — a whole slider drag, a Revert — is
+  one step on the editor's undo stack (`Ctrl+Z`).
+
+The Inspector lists **Material Slots** for meshes with more than one submesh, so each slot can take
+its own material. The Content Browser shows a rendered thumbnail for each material, regenerated
+after the file changes.
 
 ---
 

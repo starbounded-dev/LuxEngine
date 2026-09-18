@@ -34,6 +34,8 @@ namespace Lux {
 		static bool Exists(const std::filesystem::path& filepath);
 		static bool Exists(const std::string& filepath);
 		static bool DeleteFile(const std::filesystem::path& filepath);
+		// Atomically replace an existing destination with a completed file on the same volume.
+		static bool ReplaceFileAtomically(const std::filesystem::path& replacement, const std::filesystem::path& destination);
 		static bool MoveFile(const std::filesystem::path& filepath, const std::filesystem::path& dest);
 		static bool CopyFile(const std::filesystem::path& filepath, const std::filesystem::path& dest);
 		static bool IsDirectory(const std::filesystem::path& filepath);

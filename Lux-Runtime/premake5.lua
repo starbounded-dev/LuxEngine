@@ -52,6 +52,20 @@ project "Lux-Runtime"
 			}
 		end
 
+		do -- Vercidium Audio is required.
+			postbuildcommands {
+				'{COPY} "' .. VASDKRoot .. '/3d/native/production/windows/vaudionative.dll" "%{cfg.targetdir}"',
+			}
+		end
+
+		-- Validated SDK roots are shared with the linker configuration.
+		do -- FMOD is required.
+			postbuildcommands {
+				'{COPY} "' .. FMODSDKRoot .. '/api/core/lib/x64/fmod.dll" "%{cfg.targetdir}"',
+				'{COPY} "' .. FMODSDKRoot .. '/api/studio/lib/x64/fmodstudio.dll" "%{cfg.targetdir}"',
+			}
+		end
+
 	filter { "system:windows", "configurations:Debug or configurations:Debug-AS" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.dll" "%{cfg.targetdir}"',
@@ -75,6 +89,24 @@ project "Lux-Runtime"
 		-- inserted during LTO's deferred codegen, after Ubuntu ld's default --as-needed
 		-- would otherwise have already dropped it.
 		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'", "-Wl,--no-as-needed,-latomic,--as-needed" }
+
+		-- vaudionative.so is resolved via the $ORIGIN/lib rpath above, not the default loader path.
+		do -- Vercidium Audio is required.
+			postbuildcommands {
+				'{MKDIR} "%{cfg.targetdir}/lib"',
+				'{COPY} "' .. VASDKRoot .. '/3d/native/production/linux/libvaudionative.so" "%{cfg.targetdir}/lib"',
+			}
+		end
+
+		-- See the Editor project for why {COPYFILE} + the exact SONAME, not a {COPY} glob.
+		do -- FMOD is required.
+			postbuildcommands {
+				'{MKDIR} "%{cfg.targetdir}/lib"',
+				'{COPYFILE} "' .. FMODSDKRoot .. '/api/core/lib/x86_64/libfmod.so.14" "%{cfg.targetdir}/lib/libfmod.so.14"',
+				'{COPYFILE} "' .. FMODSDKRoot .. '/api/studio/lib/x86_64/libfmodstudio.so.14" "%{cfg.targetdir}/lib/libfmodstudio.so.14"',
+			}
+		end
+
 		if gtkLinkOptions then
 			linkoptions { gtkLinkOptions }
 		end
@@ -83,15 +115,17 @@ project "Lux-Runtime"
 		end
 
 	filter { "system:linux", "configurations:Debug or configurations:Debug-AS" }
+		-- POSIX cp merges a source directory into its parent. Naming the destination directory
+		-- itself nests Resources/Resources (and DotNet/DotNet) on every subsequent build.
 		postbuildcommands {
-			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
-			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}/DotNet"',
+			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}"',
+			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}"',
 		}
 
 	filter { "system:linux", "configurations:Release or configurations:Dist" }
 		postbuildcommands {
-			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}/Resources"',
-			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}/DotNet"',
+			'{COPYDIR} "../Editor/Resources" "%{cfg.targetdir}"',
+			'{COPYDIR} "../Editor/DotNet" "%{cfg.targetdir}"',
 		}
 
 	filter "configurations:Debug or configurations:Debug-AS"

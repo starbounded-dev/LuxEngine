@@ -33,6 +33,7 @@ namespace Lux
 	class SceneRendererPanel;
 	class RendererDebuggerPanel;
 	class ProfilerPanel;
+	class AudioDebugPanel;
 
 	class EditorLayer : public Layer
 	{
@@ -53,6 +54,16 @@ namespace Lux
 		//bool OnWindowDrop(WindowDropEvent& e);
 
 		void OnOverlayRender();
+		void DrawAudioVisualisation();
+
+		// Rebuilds the project's FMOD banks when the .fspro has changed since they were last built.
+		// Called on entering Play; a no-op when the project has no Studio project or the feature is
+		// switched off in project settings.
+		void RebuildAudioBanksIfNeeded();
+
+		// Loads the active project's built banks. Called on project open so the editor can list
+		// events in Edit mode, not only while playing.
+		void LoadAudioBanksForActiveProject();
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
 		void RegisterCommands();
@@ -199,6 +210,9 @@ namespace Lux
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
 		Ref<ProfilerPanel> m_ProfilerPanel;
+		// Kept only so OnOverlayRender can read its visualisation settings; the PanelManager owns
+		// the panel and drives everything else about it.
+		Ref<AudioDebugPanel> m_AudioDebugPanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
 
 		Scope<CommandPalette> m_CommandPalette;
@@ -287,6 +301,7 @@ namespace Lux
 
 		bool m_ShowPhysicsColliders = false;
 		bool m_ShowBoundingBoxes = false;
+		AssetHandle m_LastInvalidBoundsMesh = 0;
 		bool m_ShowEntityIcons = true;
 		bool m_ShowViewportPerformanceHUD = true;
 
@@ -297,9 +312,11 @@ namespace Lux
 		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
 		bool m_PendingLayoutReset = false;
 		bool m_ShowRuntimeExportWindow = false;
+		std::string m_RuntimeExportError;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;
 		float m_RotationSnapValue = 45.0f;
+		float m_ScaleSnapValue = 0.1f;
 		AssetHandle m_RuntimeExportIcon = 0;
 		char m_RuntimeExportGameNameBuffer[256] = {};
 

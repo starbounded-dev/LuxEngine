@@ -1,5 +1,54 @@
 include "./vendor/premake_customization/ordered_pairs.lua"
 
+-- One SDK root drives headers, link inputs, validation and deployed libraries.
+FMODSDKRoot = os.getenv("LUX_FMOD_SDK")
+if not FMODSDKRoot then
+	local candidates = os.matchdirs("Core/vendor/FMOD/*")
+	table.sort(candidates)
+	local matches = {}
+	for _, candidate in ipairs(candidates) do
+		local library = os.target() == "windows" and "/api/core/lib/x64/fmod_vc.lib" or "/api/core/lib/x86_64/libfmod.so"
+		if os.isfile(candidate .. "/api/core/inc/fmod.hpp") and os.isfile(candidate .. library) then
+			table.insert(matches, candidate)
+		end
+	end
+	if #matches > 1 then
+		error("Multiple FMOD SDKs found; set LUX_FMOD_SDK to the package root containing api/.")
+	end
+	FMODSDKRoot = matches[1] or (os.target() == "windows" and "Core/vendor/FMOD/FMOD Studio API Windows" or "Core/vendor/FMOD/fmodstudioapi20314linux")
+end
+FMODSDKRoot = path.getabsolute(FMODSDKRoot)
+VASDKRoot = path.getabsolute(os.getenv("LUX_VA_SDK") or "Core/vendor/VA_RAY")
+
+function ValidateAudioSDK()
+	local files = {
+		FMODSDKRoot .. "/api/core/inc/fmod.hpp",
+		FMODSDKRoot .. "/api/studio/inc/fmod_studio.hpp",
+		VASDKRoot .. "/3d/native/include/vaudio.h"
+	}
+	local libraries = os.target() == "windows" and {
+		"core/lib/x64/fmod_vc.lib", "core/lib/x64/fmod.dll",
+		"studio/lib/x64/fmodstudio_vc.lib", "studio/lib/x64/fmodstudio.dll"
+	} or {
+		"core/lib/x86_64/libfmod.so", "core/lib/x86_64/libfmod.so.14",
+		"studio/lib/x86_64/libfmodstudio.so", "studio/lib/x86_64/libfmodstudio.so.14"
+	}
+	for _, library in ipairs(libraries) do
+		table.insert(files, FMODSDKRoot .. "/api/" .. library)
+	end
+	if os.target() == "windows" then
+		table.insert(files, VASDKRoot .. "/3d/native/production/windows/vaudionative.lib")
+		table.insert(files, VASDKRoot .. "/3d/native/production/windows/vaudionative.dll")
+	else
+		table.insert(files, VASDKRoot .. "/3d/native/production/linux/libvaudionative.so")
+	end
+	for _, file in ipairs(files) do
+		if not os.isfile(file) then
+			error("Required audio SDK file missing: " .. file .. ". Set LUX_FMOD_SDK / LUX_VA_SDK to complete SDK package roots.")
+		end
+	end
+end
+
 -- Utility function for converting the first character to uppercase
 function firstToUpper(str)
 	return (str:gsub("^%l", string.upper))
@@ -135,6 +184,33 @@ Dependencies = {
 		IncludeDir = "%{wks.location}/Core/vendor/discord_social_sdk/include",
 		Windows = { LibName = "discord_partner_sdk", LibDir = "%{wks.location}/Core/vendor/discord_social_sdk/lib/release/" },
 	} or nil,
+	-- Required Vercidium Audio SDK. We link the "production" build
+	-- (no bundled GLFW/debug-visualisation window) on both platforms.
+	-- See Core/vendor/VA_RAY/README.txt.
+	VARay = {
+		IncludeDir = VASDKRoot .. "/3d/native/include",
+		Windows = { LibName = "vaudionative", LibDir = VASDKRoot .. "/3d/native/production/windows/" },
+		Linux = { LibName = "vaudionative", LibDir = VASDKRoot .. "/3d/native/production/linux/" },
+	},
+	-- Required audio backend. Two entries because FMOD ships the Studio
+	-- API as a separate library layered on the Core one: Studio owns the events and banks the game
+	-- actually plays, and creates a Core system internally for the low-level work (3D listener,
+	-- reverb, CPU stats). Both must be linked - Studio alone does not resolve.
+	--
+	-- We link the release build in every configuration: DebugLibName below is only honoured on
+	-- Windows (see ProcessDependencies). FMOD allocator statistics work with release libraries;
+	-- detailed Studio allocation attribution requires the optional logging build.
+	--
+	-- Package roots are discovered or explicitly configured above. Generation verifies every
+	-- header, import library and deployed DLL/so for the target platform.
+	FMOD = {
+		Windows = { LibName = "fmod_vc", IncludeDir = FMODSDKRoot .. "/api/core/inc", LibDir = FMODSDKRoot .. "/api/core/lib/x64/" },
+		Linux = { LibName = "fmod", IncludeDir = FMODSDKRoot .. "/api/core/inc", LibDir = FMODSDKRoot .. "/api/core/lib/x86_64/" },
+	},
+	FMODStudio = {
+		Windows = { LibName = "fmodstudio_vc", IncludeDir = FMODSDKRoot .. "/api/studio/inc", LibDir = FMODSDKRoot .. "/api/studio/lib/x64/" },
+		Linux = { LibName = "fmodstudio", IncludeDir = FMODSDKRoot .. "/api/studio/inc", LibDir = FMODSDKRoot .. "/api/studio/lib/x86_64/" },
+	},
 	ACL = {
 		IncludeDir = "%{wks.location}/Core/vendor/acl/include"
 	},
@@ -170,9 +246,6 @@ Dependencies = {
 	NVRHI = {
 		LibName = { "NVRHI", "NVRHI-Vulkan" },
 		IncludeDir = "%{wks.location}/Core/vendor/nvrhi/include"
-	},
-	MiniAudio = {
-		IncludeDir = "%{wks.location}/Core/vendor/miniaudio/include",
 	},
 	Box2D = {
 		LibName = "Box2D",

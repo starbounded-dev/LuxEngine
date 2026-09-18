@@ -33,6 +33,7 @@ namespace Lux {
 			bool* UseGizmoSnap = nullptr;
 			float* TranslationSnapValue = nullptr;
 			float* RotationSnapValue = nullptr;
+			float* ScaleSnapValue = nullptr;
 			bool* ShowBoundingBoxes = nullptr;
 			bool* ShowEntityIcons = nullptr;
 			bool* ShowViewportPerformanceHUD = nullptr;

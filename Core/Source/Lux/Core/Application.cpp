@@ -109,7 +109,6 @@ namespace Lux {
 			PushOverlay(m_ImGuiLayer);
 		}
 
-		//MiniAudioEngine::Init();
 		Font::Init();
 
 		// Bring up the .NET host once; per-project assemblies are loaded in Project::SetActive.
@@ -142,7 +141,8 @@ namespace Lux {
 		//Project::SetActive(nullptr);
 		PhysicsSystem::Shutdown();
 		Font::Shutdown();
-		//MiniAudioEngine::Shutdown();
+		// Layers and their scene/audio instances have been destroyed above.
+		AudioEngine::Shutdown();
 
 		Renderer::Shutdown();
 
@@ -237,10 +237,9 @@ namespace Lux {
 			// Start rendering previous frame
 			m_RenderThread.Kick();
 
+			Timer cpuTimer;
 			if (!m_Minimized)
 			{
-				Timer cpuTimer;
-
 				// On Render thread
 				bool frameBeginSuccess = true;
 				Renderer::Submit([&]()
@@ -291,8 +290,22 @@ namespace Lux {
 					});
 
 				m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % Renderer::GetConfig().FramesInFlight;
-				m_PerformanceTimers.MainThreadWorkTime = cpuTimer.ElapsedMillis();
 			}
+
+			// Pump audio even while minimized so streaming, callbacks and releases keep working.
+			{
+				LUX_SCOPE_PERF("AudioEngine::Update");
+				bool focused = glfwGetWindowAttrib(m_Window->GetNativeWindow(), GLFW_FOCUSED) != 0;
+				if (m_Specification.EnableImGui && ImGui::GetCurrentContext())
+				{
+					for (auto* viewport : ImGui::GetPlatformIO().Viewports)
+						if (auto* window = static_cast<GLFWwindow*>(viewport->PlatformHandle))
+							focused = focused || glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
+				}
+				AudioEngine::SetApplicationFocused(focused && !m_Minimized);
+				AudioEngine::Update();
+			}
+			m_PerformanceTimers.MainThreadWorkTime = cpuTimer.ElapsedMillis();
 
 			//ScriptEngine::InitializeRuntimeDuplicatedEntities();
 			Input::ClearReleasedKeys();

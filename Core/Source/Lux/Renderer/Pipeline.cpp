@@ -229,6 +229,14 @@ namespace Lux {
 					renderTarget.srcBlend = nvrhi::BlendFactor::Zero;
 					renderTarget.destBlend = nvrhi::BlendFactor::SrcColor;
 					break;
+				case FramebufferBlendMode::Additive:
+					// Colour adds; alpha keeps the destination's (an additive pass layers light, it
+					// does not change coverage).
+					renderTarget.srcBlend = nvrhi::BlendFactor::One;
+					renderTarget.destBlend = nvrhi::BlendFactor::One;
+					renderTarget.srcBlendAlpha = nvrhi::BlendFactor::Zero;
+					renderTarget.destBlendAlpha = nvrhi::BlendFactor::One;
+					break;
 				default:
 					LUX_CORE_VERIFY(false);
 				}

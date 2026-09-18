@@ -1548,6 +1548,7 @@ namespace Lux {
 		Ref<RenderPass>  m_SelectedGeometryPass;
 		Ref<Material>    m_SelectedGeometryMaterial;
 		Ref<RenderPass>  m_GeometryWireframePass;
+		Ref<RenderPass>  m_PhysicsColliderPass;
 		Ref<Material>    m_WireframeMaterial;
 
 		// ── Skybox ────────────────────────────────────────────────────────────

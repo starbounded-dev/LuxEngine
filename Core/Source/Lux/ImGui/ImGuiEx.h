@@ -2202,13 +2202,12 @@ namespace Lux::ImGuiEx {
 		return succeeded;
 	}
 #endif
-	/*
 	static bool PropertyEntityReference(const char* label, UUID& entityID, Ref<Scene> currentScene, const char* helpText = "", bool doPushUndo = true)
 	{
 		bool receivedValidEntity = false;
 
 		ShiftCursor(10.0f, 9.0f);
-		ImGui::Text(label);
+		ImGui::TextUnformatted(label);
 
 		auto hold = entityID;
 
@@ -2230,7 +2229,7 @@ namespace Lux::ImGuiEx {
 
 			std::string buttonText = "Null";
 
-			Entity entity = currentScene->GetEntityByUUID(entityID);
+			Entity entity = currentScene->TryGetEntityWithUUID(entityID);
 			if (entity)
 				buttonText = entity.GetComponent<TagComponent>().Tag;
 
@@ -2268,11 +2267,16 @@ namespace Lux::ImGuiEx {
 		{
 			if (ImGui::BeginDragDropTarget())
 			{
-				auto data = ImGui::AcceptDragDropPayload("scene_entity_hierarchy");
-				if (data)
+				auto data = ImGui::AcceptDragDropPayload("SCENE_HIERARCHY_ENTITY");
+				if (data && data->DataSize >= static_cast<int>(sizeof(UUID)))
 				{
-					entityID = *(UUID*)data->Data;
-					receivedValidEntity = true;
+					UUID dropped = 0;
+					std::memcpy(&dropped, data->Data, sizeof(UUID));
+					if (currentScene->TryGetEntityWithUUID(dropped))
+					{
+						entityID = dropped;
+						receivedValidEntity = true;
+					}
 				}
 
 				ImGui::EndDragDropTarget();
@@ -2290,7 +2294,6 @@ namespace Lux::ImGuiEx {
 
 		return receivedValidEntity;
 	}
-	*/
 #if 0
 	/// <summary>
 	/// Same as PropertyEntityReference, except you can pass in components that the entity is required to have.

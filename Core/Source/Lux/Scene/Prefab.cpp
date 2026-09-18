@@ -28,7 +28,7 @@ namespace Lux {
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
-		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent>;
+		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent>;
 
 	Prefab::Prefab()
 	{
@@ -59,14 +59,14 @@ namespace Lux {
 		m_Scene = Ref<Scene>::Create();
 		m_Entity = {};
 
+		std::unordered_map<UUID, UUID> entityMap;
 		std::function<Entity(Entity, Entity)> duplicateHierarchy;
 		duplicateHierarchy = [&](Entity source, Entity parent) -> Entity
 		{
 			Entity destination = m_Scene->CreateEntity(source.GetName());
 			CopyComponentIfExists(PrefabCloneComponents{}, destination, source);
 
-			if (outSourceToPrefab)
-				(*outSourceToPrefab)[source.GetUUID()] = destination.GetUUID();
+			entityMap[source.GetUUID()] = destination.GetUUID();
 
 			if (parent)
 				destination.SetParent(parent);
@@ -85,6 +85,12 @@ namespace Lux {
 		};
 
 		Entity root = duplicateHierarchy(entity, {});
+		m_Scene->RemapAudioListenerTargets(entityMap, true);
+		if (outSourceToPrefab)
+		{
+			for (const auto& [sourceID, destinationID] : entityMap)
+				outSourceToPrefab->insert_or_assign(sourceID, destinationID);
+		}
 		m_Entity = root;
 		return root;
 	}

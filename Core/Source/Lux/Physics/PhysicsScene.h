@@ -1,5 +1,8 @@
 #pragma once
 
+#include "PhysicsContactEvent.h"
+#include <vector>
+
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Physics/CharacterController.h"
@@ -26,6 +29,7 @@ namespace Lux {
 		void Stop();
 		void Simulate(Timestep timestep);
 		void SimulateStep(float fixedTimestep);
+		void DrainContactEvents(std::vector<PhysicsContactEvent>& events);
 
 		glm::vec3 GetGravity() const;
 		void SetGravity(const glm::vec3& gravity);

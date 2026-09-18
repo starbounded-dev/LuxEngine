@@ -4,12 +4,18 @@
 #define GPU_TEXTURE_SCENE_MAX_TEXTURES 1024
 #define GPU_MATERIAL_SCENE_AVAILABLE 1
 
+// Mirrors GPUMaterialData in Core/Source/Lux/Renderer/MaterialScene.h — edit both together.
 struct GPUMaterial
 {
 	vec4 BaseColor;
 	vec4 Scalars;        // x = metalness, y = roughness, z = emission, w = material complexity
 	uvec4 TextureIndices; // x = albedo, y = normal, z = metalness, w = roughness
 	uvec4 Metadata;       // x = flags, y = alpha mode, z = RenderMaterialID, w = floatBits(env map rotation)
+	vec4 Emissive;        // rgb = linear emissive radiance, w = occlusion strength
+	vec4 Surface;         // x = specular, y = normal strength, z = alpha cutoff, w = bump height (world units)
+	vec4 UVTransform;     // 2x2 matrix columns (xy, zw): rotation x tiling
+	vec4 UVOffset;        // xy = offset
+	uvec4 ExtraTextureIndices; // x = emissive, y = occlusion, z = height, w = packed-map channel selects
 };
 
 layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
@@ -33,6 +39,13 @@ const uint GPU_MATERIAL_FLAG_HAS_METALNESS_TEXTURE = 1u << 8u;
 const uint GPU_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE = 1u << 9u;
 const uint GPU_MATERIAL_FLAG_MISSING_TEXTURE = 1u << 10u;
 const uint GPU_MATERIAL_FLAG_OVERRIDE_MATERIAL = 1u << 11u;
+const uint GPU_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE = 1u << 12u;
+const uint GPU_MATERIAL_FLAG_HAS_OCCLUSION_TEXTURE = 1u << 13u;
+const uint GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE = 1u << 14u;
+
+const uint GPU_MATERIAL_CHANNEL_SHIFT_METALNESS = 0u;
+const uint GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS = 2u;
+const uint GPU_MATERIAL_CHANNEL_SHIFT_OCCLUSION = 4u;
 
 const uint GPU_MATERIAL_ALPHA_OPAQUE = 0u;
 const uint GPU_MATERIAL_ALPHA_MASKED = 1u;
@@ -127,6 +140,46 @@ bool GetGPUMaterialUsesNormalMap(GPUMaterial material, bool fallbackUseNormalMap
 	return IsGPUMaterialRowUsable(material)
 		? HasGPUMaterialFlag(material.Metadata.x, GPU_MATERIAL_FLAG_USE_NORMAL_MAP)
 		: fallbackUseNormalMap;
+}
+
+// uv' = R(rotation) * (uv * tiling) + offset, shared by every map of the material.
+vec2 GetGPUMaterialUV(GPUMaterial material, vec2 texCoord)
+{
+	return mat2(material.UVTransform.xy, material.UVTransform.zw) * texCoord + material.UVOffset.xy;
+}
+
+// Picks the channel of a packed (ORM-style) map that a scalar input reads.
+float SelectGPUMaterialChannel(vec4 texel, uint channelSelects, uint shift)
+{
+	return texel[(channelSelects >> shift) & 3u];
+}
+
+vec3 GetGPUMaterialEmissive(GPUMaterial material)
+{
+	return IsGPUMaterialRowUsable(material) ? max(material.Emissive.rgb, vec3(0.0)) : vec3(0.0);
+}
+
+float GetGPUMaterialSpecular(GPUMaterial material, float fallbackSpecular)
+{
+	return IsGPUMaterialRowUsable(material) ? clamp(material.Surface.x, 0.0, 1.0) : fallbackSpecular;
+}
+
+// Bump mapping from a height sample (Mikkelsen, "Bump Mapping Unparametrized Surfaces on the GPU").
+// `height` is in [0, 1]; bumpHeight is its full range in world units.
+vec3 PerturbNormalFromHeight(vec3 normal, vec3 worldPosition, float height, float bumpHeight)
+{
+	vec3 dPdx = dFdx(worldPosition);
+	vec3 dPdy = dFdy(worldPosition);
+	vec2 dHdxy = vec2(dFdx(height), dFdy(height)) * bumpHeight;
+
+	vec3 r1 = cross(dPdy, normal);
+	vec3 r2 = cross(normal, dPdx);
+	float determinant = dot(dPdx, r1);
+	if (abs(determinant) < 1e-12)
+		return normal;
+
+	vec3 surfaceGradient = sign(determinant) * (dHdxy.x * r1 + dHdxy.y * r2);
+	return normalize(abs(determinant) * normal - surfaceGradient);
 }
 
 vec3 GetMaterialSceneDebugColorForMaterialID(uint materialID, uint mode)

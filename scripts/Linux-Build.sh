@@ -54,6 +54,18 @@ fi
 CONFIG=$(echo "$BUILD_CONFIG" | tr '[:upper:]' '[:lower:]')
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
 
+# Optional premake feature flags, mirroring scripts/BuildOptions.py's premake-kind options. These
+# must be passed to every generation below: premake bakes them into the generated makefiles, so a
+# generation that omits them silently produces a build with the feature compiled out (and, against
+# already-built objects, a confusing undefined-reference link failure rather than a clear error).
+#
+#   LUX_PREMAKE_OPTIONS="--no-tracy" ./scripts/Linux-Build.sh release
+#
+PREMAKE_OPTIONS=${LUX_PREMAKE_OPTIONS:-}
+if [ -n "$PREMAKE_OPTIONS" ]; then
+	echo "Premake options: $PREMAKE_OPTIONS"
+fi
+
 step() { echo; echo "==> $1"; }
 
 # ---------------------------------------------------------------------------
@@ -173,7 +185,8 @@ step "Generating C# projects"
 # so use the vs2022 action instead - it emits SDK-style .csproj files that `dotnet build`
 # consumes on any platform. --os=linux is required: without it os.target() reports "windows"
 # and Coral's nethost probe looks for win-* runtime packs and aborts.
-"$PREMAKE" --os=linux vs2022
+# shellcheck disable=SC2086  # PREMAKE_OPTIONS is a deliberately word-split flag list.
+"$PREMAKE" --os=linux $PREMAKE_OPTIONS vs2022
 
 # ---------------------------------------------------------------------------
 step "Building managed assemblies ($BUILD_CONFIG)"
@@ -193,7 +206,8 @@ cp -f Editor/DotNet/Coral.Managed.deps.json Core/vendor/Coral/Build/Release/ 2>/
 step "Building engine ($BUILD_CONFIG, -j$JOBS)"
 
 # ScriptCore is skipped by the gmake action on Linux (built above via dotnet).
-"$PREMAKE" gmake2 --cc=clang
+# shellcheck disable=SC2086  # PREMAKE_OPTIONS is a deliberately word-split flag list.
+"$PREMAKE" gmake2 --cc=clang $PREMAKE_OPTIONS
 make -j"$JOBS" config="$CONFIG" Dependencies Dependencies/Renderer "$@"
 make -j"$JOBS" -C Core -f Makefile config="$CONFIG"
 make -j"$JOBS" -C Editor -f Makefile config="$CONFIG"

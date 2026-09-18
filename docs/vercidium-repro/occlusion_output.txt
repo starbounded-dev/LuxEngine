@@ -1,0 +1,17 @@
+Vercidium Audio 1.8.0 (production build: yes)
+
+Listener at z=-5, source at z=+5. Concrete wall at the origin, between them.
+Growing the wall should increase occlusion. The reverb columns are the control.
+
+A) listener.AddTarget(source), ray counts on the listener (the documented arrangement):
+  no wall at all             castsRays=1 raytracedTarget=1  OCCLUSION gainLF=0.998234 gainHF=0.995276   [control] REVERB returned=0.0000 outside=1.0000
+  wall   1 x 1 m             castsRays=1 raytracedTarget=1  OCCLUSION gainLF=0.998234 gainHF=0.995276   [control] REVERB returned=0.0005 outside=0.9988
+  wall   4 x 3 m             castsRays=1 raytracedTarget=1  OCCLUSION gainLF=0.998234 gainHF=0.995276   [control] REVERB returned=0.0023 outside=0.9873
+  wall  20 x 15 m            castsRays=1 raytracedTarget=1  OCCLUSION gainLF=0.998234 gainHF=0.995276   [control] REVERB returned=0.0171 outside=0.9128
+  wall 100 x 75 m            castsRays=1 raytracedTarget=1  OCCLUSION gainLF=0.998234 gainHF=0.995276   [control] REVERB returned=0.0263 outside=0.8607
+  wall 100 x 75 m, 4m thick  castsRays=1 raytracedTarget=1  OCCLUSION gainLF=0.998234 gainHF=0.995276   [control] REVERB returned=0.0268 outside=0.8517
+
+B) source.AddTarget(listener), ray counts on the source (the mirror image):
+  no wall at all             castsRays=1 raytracedTarget=1  OCCLUSION gainLF=0.998234 gainHF=0.995276   [control] REVERB returned=0.0000 outside=1.0000
+  wall   4 x 3 m             castsRays=1 raytracedTarget=1  OCCLUSION gainLF=0.998234 gainHF=0.995276   [control] REVERB returned=0.0028 outside=0.9867
+  wall 100 x 75 m            castsRays=1 raytracedTarget=1  OCCLUSION gainLF=0.998234 gainHF=0.995276   [control] REVERB returned=0.0253 outside=0.8620

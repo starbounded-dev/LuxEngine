@@ -1,4 +1,7 @@
 #pragma once
+#include "Lux/Audio/AudioGeometrySettings.h"
+
+#include "Lux/Audio/AudioEventRef.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 
@@ -6,7 +9,7 @@
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
-#include "Lux/Audio/AudioSource.h"
+#include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Core/UUID.h"
 #include "Lux/Math/Math.h"
 #include "Lux/Physics/PhysicsTypes.h"
@@ -21,25 +24,6 @@
 #include <glm/gtx/quaternion.hpp>
 
 namespace Lux {
-
-	struct AudioData // For audio sources only!
-	{
-		std::vector<AssetHandle> Playlist;
-		bool UsePlaylist = false;
-		bool RepeatPlaylist = false;
-		bool RepeatAfterSpecificTrackPlays = false;
-		bool PlayingCurrentIndex = false;
-		uint32_t NumberOfAudioSources = 0;
-		uint32_t OldIndex = 0;
-		uint32_t CurrentIndex = 0;
-		uint32_t StartIndex = 0;
-
-		// For Scene:
-		bool HasPlayedAudioSource = false;
-
-		// Copies
-		std::vector<AssetHandle> PlaylistCopy;
-	};
 
 	struct IDComponent
 	{
@@ -392,6 +376,8 @@ namespace Lux {
 		uint32_t SubmeshIndex = 0;
 		bool UseSharedShape = false;
 		ColliderMaterial Material;
+		AcousticMaterial Acoustic = AcousticMaterial::Default;
+		AcousticGeometryMode AcousticMotion = AcousticGeometryMode::Static;
 		ECollisionComplexity CollisionComplexity = ECollisionComplexity::Default;
 
 		MeshColliderComponent() = default;
@@ -421,59 +407,95 @@ namespace Lux {
 		TextComponent(const TextComponent& other) = default;
 	};
 
+
+	enum class AudioZoneShape : uint8_t { Box, Sphere, Collider };
+	using AudioSnapshotRef = AudioEventRef;
+
+	// Authored startup settings. Runtime controls belong to the scene's MusicDirector.
+	struct MusicDirectorComponent
+	{
+		AudioEventRef Event;
+		bool PlayOnAwake = true;
+		std::string InitialState;
+		float Intensity = 0.0f;
+	};
+
+	struct AudioZoneComponent
+	{
+		bool Enabled = true;
+		AudioZoneShape Shape = AudioZoneShape::Box;
+		glm::vec3 Offset{ 0.0f };
+		glm::vec3 HalfExtents{ 5.0f, 3.0f, 5.0f };
+		float Radius = 5.0f;
+		float Priority = 0.0f;
+		float BlendDistance = 2.0f;
+		float FadeTime = 0.25f;
+		float Volume = 1.0f;
+		AudioEventRef AmbienceEvent;
+		AudioSnapshotRef Snapshot;
+	};
+
+	struct AudioPortalComponent
+	{
+		bool Enabled = true;
+		UUID ZoneA = 0, ZoneB = 0;
+		glm::vec3 HalfExtents{ 0.5f, 1.0f, 0.05f };
+		float Open = 0.0f;
+		float BlendDistance = 5.0f;
+		AcousticMaterial Material = AcousticMaterial::Wood;
+	};
+
+	struct AudioSurfaceComponent
+	{
+		// Overrides the acoustic tag on this entity’s mesh collider when present.
+		AcousticMaterial Material = AcousticMaterial::Default;
+		AudioEventRef FootstepOverride;
+		AudioEventRef ImpactOverride;
+		bool PhysicsSounds = true;
+		bool AutoFootsteps = false;
+		float StrideLength = 0.7f;
+		float GroundProbeDistance = 1.2f;
+		float FootstepWeight = 75.0f;
+	};
+
+	struct AudioSourceConfig
+	{
+		float VolumeMultiplier = 1.0f;
+		float PitchMultiplier = 1.0f;
+		bool PlayOnAwake = true;
+	};
+
 	struct AudioSourceComponent
 	{
 		AudioSourceConfig Config;
+		int Priority = 128; // FMOD channel priority: 0 is highest, 256 is lowest.
+		bool DistanceCulling = false; // Opt in: distant loops suspend; one-shots are discarded.
 
-		AssetHandle Audio = 0;
-		AudioData AudioSourceData;
+		// The FMOD Studio event this source plays:
+		// spatialisation, attenuation, randomisation and DSP then come from the event as authored.
+		AudioEventRef Event;
 
-		bool Paused = false;
-		bool Seek = false;
-		uint64_t SeekPosition = 0;
+		// Author-defined event parameters applied when the instance is created, so two entities can
+		// share one event and still sound different - a large and a small door, one alarm that is
+		// more urgent than another. Names must match parameters authored on the event; anything
+		// else is ignored by FMOD rather than failing.
+		std::vector<std::pair<std::string, float>> ParameterOverrides;
 
-		AssetHandle GetAudioSourceHandle(uint32_t index) const { return AudioSourceData.Playlist[index]; }
-		void SetAudioSource(uint32_t index) { Audio = AudioSourceData.Playlist[index]; }
+		// Migration data only. Preserved on save; never used for playback.
+		AssetHandle LegacyAudio = 0;
+		bool LegacyLooping = false;
 
-		void AddAudioSource(AssetHandle& audio)
-		{
-			AudioSourceData.Playlist.emplace_back(audio);
-			AudioSourceData.NumberOfAudioSources = (uint32_t)AudioSourceData.Playlist.size();
-		}
-
-		void RemoveAudioSource(uint32_t index)
-		{
-			AudioSourceData.Playlist.erase(AudioSourceData.Playlist.begin() + index);
-			AudioSourceData.Playlist.shrink_to_fit();
-			AudioSourceData.NumberOfAudioSources = (uint32_t)AudioSourceData.Playlist.size();
-		}
-
-		void RemoveAudioSource(AssetHandle& audio)
-		{
-			uint32_t index = 0;
-
-			for (uint32_t i = 0; i < AudioSourceData.Playlist.size(); i++)
-			{
-				AssetHandle audioSource = AudioSourceData.Playlist[i];
-
-				if (audioSource == audio)
-				{
-					index = i;
-				}
-			}
-
-			AudioSourceData.Playlist.erase(AudioSourceData.Playlist.begin() + index);
-			AudioSourceData.Playlist.shrink_to_fit();
-			AudioSourceData.NumberOfAudioSources = (uint32_t)AudioSourceData.Playlist.size();
-		}
+		// Runtime-only script pause, layered over scene pause by AudioEventInstance.
+		bool ScriptPaused = false;
 	};
 
 	struct AudioListenerComponent
 	{
 		bool Active = true;
-		AudioListenerConfig Config;
-
-		Ref<AudioListener> Listener;
+		int ListenerIndex = 0;
+		float Weight = 1.0f;
+		bool UseAttenuationTarget = false;
+		UUID AttenuationTarget = 0;
 	};
 
 	// ============================================================================
@@ -637,6 +659,7 @@ namespace Lux {
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 		FolderComponent>;
 
 }

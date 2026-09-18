@@ -1,6 +1,7 @@
 #include "lpch.h"
 #include "ScriptEngine.h"
 #include "ScriptGlue.h"
+#include "AudioScriptBindings.h"
 #include "ScriptAsset.h"
 
 #include "Lux/Core/Application.h"
@@ -140,6 +141,7 @@ namespace Lux {
 
 	void ScriptEngine::Shutdown()
 	{
+		AudioScriptBindings::Shutdown();
 		m_ManagedObjects.Clear();
 
 		for (auto& [scriptID, scriptMetadata] : m_ScriptMetadata)
@@ -271,6 +273,8 @@ namespace Lux {
 	{
 		if (!m_Host || !m_LoadContext)
 			return;
+
+		AudioScriptBindings::Shutdown();
 
 		// Drop all live handles + metadata before unloading the context; any survivor pins it.
 		m_ManagedObjects.Clear();

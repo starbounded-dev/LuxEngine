@@ -34,7 +34,6 @@ namespace Lux {
 		{ "Scripting",         TagDetails{  true, Level::Warn  } },
 		{ "Sound Spatializer", TagDetails{  true, Level::Warn  } },
 		{ "Timer",             TagDetails{ false, Level::Trace } },
-		{ "miniaudio",         TagDetails{  true, Level::Error } },
 	};
 
 	void Log::Init()

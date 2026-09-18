@@ -2,6 +2,7 @@
 #include "RuntimeExportUtils.h"
 
 #include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Audio/AudioValidation.h"
 #include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/SelectionManager.h"
 #include "Lux/Core/Application.h"
@@ -17,6 +18,7 @@
 
 #include "Lux/Utilities/FileSystem.h"
 
+#include <cmath>
 #include <cstring>
 #include <format>
 
@@ -32,6 +34,7 @@
 #include "imgui/imgui_internal.h"
 #include <GLFW/glfw3.h>
 #include "ImGuizmo.h"
+#include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/ImGuiFonts.h"
@@ -45,8 +48,11 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
+#include "Lux/Audio/AudioBankBuilder.h"
+#include "Panels/AudioDebugPanel.h"
 #include "Panels/ProfilerPanel.h"
 #include "Panels/UndoHistoryPanel.h"
+#include "Panels/MaterialEditor/MaterialEditorPanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -58,6 +64,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -86,6 +93,7 @@ namespace Lux {
 #define SCENE_RENDERER_PANEL_ID "SceneRendererPanel"
 #define RENDERER_DEBUGGER_PANEL_ID "RendererDebuggerPanel"
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
+#define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
 
 	namespace {
 		constexpr int s_MaxRecentProjects = 10;
@@ -363,6 +371,24 @@ namespace Lux {
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
 
+		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, MATERIAL_EDITOR_PANEL_ID, "Material Editor", false);
+		materialEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+		{
+			PushUndoCommand(label, std::move(undo), std::move(redo));
+		});
+		auto openMaterialEditor = [this, materialEditorPanel](AssetHandle materialHandle) mutable
+		{
+			materialEditorPanel->OpenMaterial(materialHandle);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(MATERIAL_EDITOR_PANEL_ID)))
+				panelData->IsOpen = true;
+		};
+		m_SceneHierarchyPanel->SetOpenMaterialCallback(openMaterialEditor);
+
+		// Reads AudioEngine / RaytracedAudioScene directly and takes its scene from
+		// PanelManager::SetSceneContext; the handle is kept only so OnOverlayRender can read the
+		// panel's 3D visualisation settings.
+		m_AudioDebugPanel = m_PanelManager->AddPanel<AudioDebugPanel>(PanelCategory::View, "AudioDebugPanel", "Audio Debugger", false);
+
 		{
 			UndoHistoryPanel::Bindings historyBindings;
 			historyBindings.UndoLabels = [this]() {
@@ -401,6 +427,7 @@ namespace Lux {
 		editorPreferencesBindings.UseGizmoSnap = &m_UseGizmoSnap;
 		editorPreferencesBindings.TranslationSnapValue = &m_TranslationSnapValue;
 		editorPreferencesBindings.RotationSnapValue = &m_RotationSnapValue;
+		editorPreferencesBindings.ScaleSnapValue = &m_ScaleSnapValue;
 		editorPreferencesBindings.ShowBoundingBoxes = &m_ShowBoundingBoxes;
 		editorPreferencesBindings.ShowEntityIcons = &m_ShowEntityIcons;
 		editorPreferencesBindings.ShowViewportPerformanceHUD = &m_ShowViewportPerformanceHUD;
@@ -458,6 +485,7 @@ namespace Lux {
 		m_EditorViewport->Init(m_ActiveScene, fbSpec, sceneRendererSpec);
 		m_Framebuffer = m_EditorViewport->GetFramebuffer();
 		m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
+		m_SceneRenderer->GetOptions().ShowGrid = Application::Get().GetSettings().GetInt("Editor.ShowGrid", 1) != 0;
 
 		// Now safe to call - m_Renderer2D and the viewport framebuffer are valid.
 		m_Renderer2D->SetTargetFramebuffer(m_Framebuffer);
@@ -486,9 +514,39 @@ namespace Lux {
 				OpenScene(metadata.Handle);
 			});
 
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Material, [openMaterialEditor](const AssetMetadata& metadata) mutable
+			{
+				openMaterialEditor(metadata.Handle);
+			});
+
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)
 			{
 				EnterPrefabEditMode(metadata.Handle);
+			});
+
+			// Audio is authored in FMOD Studio, not in this editor, so activating either the project
+			// or one of its built banks hands off to Studio. A bank opens its owning project —
+			// Studio has no notion of opening a bank on its own, and the project is what the
+			// designer actually needs in front of them.
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::AudioProject, [](const AssetMetadata& metadata)
+			{
+				AudioBankBuilder::OpenInStudio(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
+			});
+
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::AudioBank, [](const AssetMetadata&)
+			{
+				Ref<Project> project = Project::GetActive();
+				if (!project)
+					return;
+
+				const std::filesystem::path studioProject = project->GetStudioProjectPath();
+				if (studioProject.empty())
+				{
+					LUX_CORE_WARN_TAG("Audio", "This project has no FMOD Studio project configured, so there is nothing to open for that bank");
+					return;
+				}
+
+				AudioBankBuilder::OpenInStudio(studioProject);
 			});
 
 			if (textEditorPanel)
@@ -544,6 +602,7 @@ namespace Lux {
 		m_SceneRenderer.reset();
 		m_RendererDebuggerPanel.reset();
 		m_ProfilerPanel.reset();
+		m_AudioDebugPanel.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
 		EditorResources::Shutdown();
@@ -818,6 +877,16 @@ namespace Lux {
 						ImGui::EndDragDropTarget();
 					}
 
+					if (m_SceneState == SceneState::Play)
+					{
+						const auto* bounds = m_EditorViewport->GetImageBounds();
+						ImGuiEx::AudioAccessibilityOverlay(bounds[0], bounds[1]);
+						static bool accessibilityMenu = false;
+						if ((m_EditorViewport->IsFocused() || accessibilityMenu) && ImGui::IsKeyPressed(ImGuiKey_F10, false))
+							accessibilityMenu = !accessibilityMenu;
+						ImGuiEx::AudioAccessibilityMenu(accessibilityMenu);
+					}
+
 					if (m_EditorViewport->IsHovered())
 						m_HoveredEntity = CastMousePick();
 					else
@@ -842,15 +911,16 @@ namespace Lux {
 						ImGuizmo::SetRect(gizmoBounds[0].x, gizmoBounds[0].y, gizmoSize.x, gizmoSize.y);
 
 						EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
-						const glm::mat4& cameraProjection = viewportCamera.GetProjectionMatrix();
+						const glm::mat4& cameraProjection = viewportCamera.GetUnReversedProjectionMatrix();
 						glm::mat4 cameraView = viewportCamera.GetViewMatrix();
 
 						auto& tc = selectedEntity.GetComponent<TransformComponent>();
-						glm::mat4 transform = tc.GetTransform();
+						glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix(selectedEntity);
 
 						const bool controlSnap = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
 						bool snap = m_UseGizmoSnap || controlSnap;
-						float snapValue = (m_GizmoType == ImGuizmo::OPERATION::ROTATE) ? m_RotationSnapValue : m_TranslationSnapValue;
+						float snapValue = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? m_RotationSnapValue
+							: m_GizmoType == ImGuizmo::OPERATION::SCALE ? m_ScaleSnapValue : m_TranslationSnapValue;
 						float snapValues[3] = { snapValue, snapValue, snapValue };
 
 						ImGuizmo::Manipulate(
@@ -866,13 +936,25 @@ namespace Lux {
 						{
 							glm::vec3 translation, scale;
 							glm::quat rotationQuat;
-							Math::DecomposeTransform(transform, translation, rotationQuat, scale);
-
-							glm::vec3 rotationEuler = glm::eulerAngles(rotationQuat);
-							glm::vec3 deltaRotation = rotationEuler - tc.GetRotationEuler();
-							tc.Translation = translation;
-							tc.SetRotationEuler(tc.GetRotationEuler() + deltaRotation);
-							tc.Scale = scale;
+							bool parentInvertible = true;
+							if (Entity parent = selectedEntity.GetParent())
+							{
+								const glm::mat4 parentTransform = m_ActiveScene->GetWorldSpaceTransformMatrix(parent);
+								const float determinant = glm::determinant(parentTransform);
+								parentInvertible = determinant != 0.0f && std::isfinite(determinant);
+								if (parentInvertible)
+									transform = glm::inverse(parentTransform) * transform;
+							}
+							if (parentInvertible && Math::DecomposeTransform(transform, translation, rotationQuat, scale))
+							{
+								tc.Translation = translation;
+								tc.SetRotationEuler(glm::eulerAngles(rotationQuat));
+								tc.Scale = scale;
+							}
+							else if (!m_GizmoWasUsing)
+							{
+								LUX_CORE_ERROR_TAG("Editor", "Cannot edit entity {}: gizmo or parent transform is singular", selectedEntity.Name());
+							}
 						}
 
 						// Record one undo step when a gizmo drag finishes (the transform is mutated above
@@ -935,6 +1017,9 @@ namespace Lux {
 			ImGui::DockBuilderDockWindow("Light Settings", leftBottom);
 			ImGui::DockBuilderDockWindow("Profiler", leftBottom);
 			ImGui::DockBuilderDockWindow("Renderer Debugger", bottom);
+			// Given a home next to the Renderer Debugger, but deliberately left out of
+			// s_AdvancedPanels below: it stays closed until the user opens it from the View menu.
+			ImGui::DockBuilderDockWindow("Audio Debugger", bottom);
 		}
 
 		ImGui::DockBuilderFinish(dockspaceId);
@@ -1769,9 +1854,11 @@ namespace Lux {
 				settingsChanged = true;
 			if (m_UseGizmoSnap)
 			{
-				if (ImGui::DragFloat("Translate Snap", &m_TranslationSnapValue, 0.05f, 0.05f, 10.0f, "%.2f"))
+				if (ImGui::DragFloat("Translate Snap", &m_TranslationSnapValue, 0.05f, 0.05f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
 					settingsChanged = true;
-				if (ImGui::DragFloat("Rotate Snap", &m_RotationSnapValue, 1.0f, 1.0f, 180.0f, "%.0f"))
+				if (ImGui::DragFloat("Rotate Snap", &m_RotationSnapValue, 1.0f, 1.0f, 180.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp))
+					settingsChanged = true;
+				if (ImGui::DragFloat("Scale Snap", &m_ScaleSnapValue, 0.01f, 0.01f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
 					settingsChanged = true;
 			}
 
@@ -1790,7 +1877,16 @@ namespace Lux {
 			if (m_SceneRenderer)
 			{
 				auto& options = m_SceneRenderer->GetOptions();
-				ImGui::Checkbox("Show Grid", &options.ShowGrid);
+				if (ImGui::Checkbox("Show Grid", &options.ShowGrid))
+				{
+					auto& settings = Application::Get().GetSettings();
+					settings.SetInt("Editor.ShowGrid", options.ShowGrid ? 1 : 0);
+					settings.Serialize();
+				}
+				int colliderMode = static_cast<int>(options.PhysicsColliderMode);
+				if (ImGui::Combo("Collider Scope", &colliderMode, "Selected Entity\0All Entities\0"))
+					options.PhysicsColliderMode = static_cast<SceneRendererOptions::PhysicsColliderView>(colliderMode);
+				ImGui::Checkbox("Colliders On Top", &options.ShowPhysicsCollidersOnTop);
 				if (ImGui::Checkbox("Show Physics Colliders", &options.ShowPhysicsColliders))
 				{
 					m_ShowPhysicsColliders = options.ShowPhysicsColliders;
@@ -1835,22 +1931,22 @@ namespace Lux {
 		if (!m_EditorViewport)
 			return;
 
-		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		const glm::vec2& viewportSize = m_EditorViewport->GetImageSize();
+		const glm::vec2* viewportBounds = m_EditorViewport->GetImageBounds();
 		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
 			return;
 
-		const float gizmoRadius = 22.0f;
-		const float windowExtent = (gizmoRadius + 8.0f) * 2.0f;
+		const float gizmoRadius = 30.0f;
+		const float windowExtent = (gizmoRadius + 14.0f) * 2.0f;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
-			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
 		// Top-right, tucked below the settings gear so the two don't overlap.
 		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 12.0f, viewportBounds[0].y + 48.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
 		ImGui::SetNextWindowBgAlpha(0.0f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		ImGui::Begin("##viewport_orientation_gizmo", nullptr, flags);
 		ImGui::Dummy(ImVec2(windowExtent, windowExtent));
 
@@ -1864,15 +1960,18 @@ namespace Lux {
 		const glm::mat4& view = m_EditorViewport->GetCamera().GetViewMatrix();
 
 		struct Axis { glm::vec3 world; ImU32 color; const char* label; };
-		const Axis axes[3] = {
+		const Axis axes[6] = {
 			{ { 1.0f, 0.0f, 0.0f }, IM_COL32(210, 74, 74, 255), "X" },
 			{ { 0.0f, 1.0f, 0.0f }, IM_COL32(120, 190, 90, 255), "Y" },
 			{ { 0.0f, 0.0f, 1.0f }, IM_COL32(90, 140, 220, 255), "Z" },
+			{ { -1.0f, 0.0f, 0.0f }, IM_COL32(210, 74, 74, 255), "-X" },
+			{ { 0.0f, -1.0f, 0.0f }, IM_COL32(120, 190, 90, 255), "-Y" },
+			{ { 0.0f, 0.0f, -1.0f }, IM_COL32(90, 140, 220, 255), "-Z" },
 		};
 
 		struct Projected { ImVec2 tip; float depth; ImU32 color; const char* label; };
-		Projected projected[3];
-		for (int i = 0; i < 3; i++)
+		Projected projected[6];
+		for (int i = 0; i < 6; i++)
 		{
 			const glm::vec3 v = glm::vec3(view * glm::vec4(axes[i].world, 0.0f));
 			projected[i] = {
@@ -1880,20 +1979,43 @@ namespace Lux {
 				v.z, axes[i].color, axes[i].label };
 		}
 
-		int order[3] = { 0, 1, 2 };
-		std::sort(order, order + 3, [&](int a, int b) { return projected[a].depth < projected[b].depth; });
+		int order[6] = { 0, 1, 2, 3, 4, 5 };
+		std::sort(order, order + 6, [&](int a, int b) { return projected[a].depth < projected[b].depth; });
 
-		for (int idx = 0; idx < 3; idx++)
+		// Hit-test front to back so overlapping axis heads select the visible one.
+		int hoveredAxis = -1;
+		if (ImGui::IsWindowHovered())
+		{
+			const ImVec2 mouse = ImGui::GetMousePos();
+			for (int idx = 5; idx >= 0; idx--)
+			{
+				const ImVec2 delta(mouse.x - projected[order[idx]].tip.x, mouse.y - projected[order[idx]].tip.y);
+				if (delta.x * delta.x + delta.y * delta.y <= 100.0f)
+				{
+					hoveredAxis = order[idx];
+					break;
+				}
+			}
+		}
+		if (hoveredAxis >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		{
+			EditorCamera& camera = m_EditorViewport->GetCamera();
+			const glm::vec3 axis = axes[hoveredAxis].world;
+			const float pitch = glm::asin(axis.y);
+			const float yaw = axis.y != 0.0f ? camera.GetYaw() : glm::atan(-axis.x, axis.z);
+			camera.SetOrbitState(camera.GetFocalPoint(), camera.GetDistance(), pitch, yaw);
+		}
+
+		for (int idx = 0; idx < 6; idx++)
 		{
 			const Projected& p = projected[order[idx]];
 			drawList->AddLine(center, p.tip, p.color, 2.0f);
-			drawList->AddCircleFilled(p.tip, 4.0f, p.color);
+			drawList->AddCircleFilled(p.tip, 10.0f, order[idx] == hoveredAxis ? Colors::Theme::text : p.color);
 			const ImVec2 labelSize = ImGui::CalcTextSize(p.label);
 			drawList->AddText(ImVec2(p.tip.x - labelSize.x * 0.5f, p.tip.y - labelSize.y * 0.5f), Colors::Theme::titlebar, p.label);
 		}
 
 		ImGui::End();
-		ImGui::PopStyleVar();
 	}
 
 	void EditorLayer::UI_ViewportSelectionBadge()
@@ -2223,11 +2345,21 @@ namespace Lux {
 
 		if (m_ShowPhysicsColliders)
 		{
+			const auto& colliderOptions = m_SceneRenderer->GetOptions();
+			const bool onTop = colliderOptions.ShowPhysicsCollidersOnTop;
+			const glm::vec4 color = colliderOptions.SimplePhysicsCollidersColor;
+			auto shouldDrawCollider = [&](entt::entity entityID)
+			{
+				return colliderOptions.PhysicsColliderMode == SceneRendererOptions::PhysicsColliderView::All
+					|| (m_SceneHierarchyPanel && m_SceneHierarchyPanel->GetSelectedEntity() == Entity(entityID, m_ActiveScene.Raw()));
+			};
 			// Box Colliders
 			{
 				auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();
 				for (auto entity : view)
 				{
+					if (!shouldDrawCollider(entity))
+						continue;
 					auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
 
 					glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
@@ -2237,7 +2369,6 @@ namespace Lux {
 						* glm::translate(glm::mat4(1.0f), glm::vec3(bc2d.Offset, 0.001f))
 						* glm::scale(glm::mat4(1.0f), scale);
 
-					glm::vec4 color(0, 1, 0, 1);
 					glm::vec4 corners[4] = {
 						{-0.5f, -0.5f, 0.0f, 1.0f}, { 0.5f, -0.5f, 0.0f, 1.0f},
 						{ 0.5f,  0.5f, 0.0f, 1.0f}, {-0.5f,  0.5f, 0.0f, 1.0f}
@@ -2246,7 +2377,7 @@ namespace Lux {
 					{
 						glm::vec3 p0 = transform * corners[i];
 						glm::vec3 p1 = transform * corners[(i + 1) % 4];
-						m_Renderer2D->DrawLine(p0, p1, color);
+						m_Renderer2D->DrawLine(p0, p1, color, onTop);
 					}
 				}
 			}
@@ -2256,15 +2387,19 @@ namespace Lux {
 				auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, CircleCollider2DComponent>();
 				for (auto entity : view)
 				{
+					if (!shouldDrawCollider(entity))
+						continue;
 					auto [tc, cc2d] = view.get<TransformComponent, CircleCollider2DComponent>(entity);
 
-					glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, 0.001f);
-					glm::vec3 scale = tc.Scale * glm::vec3(cc2d.Radius * 2.0f);
+					// Box2D rotates the local offset and uses X scale for a circle's radius.
+					// DrawCircle's unit geometry already has radius one.
+					const float radius = tc.Scale.x * cc2d.Radius;
+					glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation)
+						* glm::rotate(glm::mat4(1.0f), tc.GetRotationEuler().z, glm::vec3(0.0f, 0.0f, 1.0f))
+						* glm::translate(glm::mat4(1.0f), glm::vec3(cc2d.Offset, 0.001f))
+						* glm::scale(glm::mat4(1.0f), glm::vec3(radius));
 
-					glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
-						* glm::scale(glm::mat4(1.0f), scale);
-
-					m_Renderer2D->DrawCircle(transform, glm::vec4(0, 1, 0, 1));
+					m_Renderer2D->DrawCircle(transform, color, onTop);
 				}
 			}
 
@@ -2276,8 +2411,7 @@ namespace Lux {
 
 		if (selectedEntity)
 		{
-			const TransformComponent& transform = selectedEntity.GetComponent<TransformComponent>();
-			const glm::mat4 worldTransform = transform.GetTransform();
+			const glm::mat4 worldTransform = m_ActiveScene->GetWorldSpaceTransformMatrix(selectedEntity);
 
 			if (m_ShowBoundingBoxes && selectedEntity.HasComponent<StaticMeshComponent>())
 			{
@@ -2288,7 +2422,25 @@ namespace Lux {
 					Ref<MeshSource> meshSource = AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource());
 					if (meshSource)
 					{
-						m_Renderer2D->DrawAABB(meshSource->GetBoundingBox(), worldTransform, glm::vec4(1.0f, 0.5f, 0.0f, 1.0f), true);
+						const auto& submeshes = meshSource->GetSubmeshes();
+						bool invalidSubmesh = false;
+						for (uint32_t submeshIndex : staticMesh->GetSubmeshes())
+						{
+							// Mesh selections can outlive a reimport that removes submeshes.
+							if (submeshIndex >= submeshes.size())
+							{
+								invalidSubmesh = true;
+								continue;
+							}
+							const auto& submesh = submeshes[submeshIndex];
+							m_Renderer2D->DrawAABB(submesh.BoundingBox, worldTransform * submesh.Transform,
+								glm::vec4(1.0f, 0.5f, 0.0f, 1.0f), true);
+						}
+						if (invalidSubmesh && m_LastInvalidBoundsMesh != smc.StaticMesh)
+						{
+							LUX_CORE_ERROR_TAG("Editor", "Cannot draw all bounds for mesh {}: its submesh selection no longer matches the mesh source. Reimport the mesh selection.", smc.StaticMesh);
+						}
+						m_LastInvalidBoundsMesh = invalidSubmesh ? smc.StaticMesh : AssetHandle(0);
 					}
 				}
 			}
@@ -2303,8 +2455,8 @@ namespace Lux {
 
 					for (auto entityID : view)
 					{
-						auto& transform = view.template get<TransformComponent>(entityID);
-						m_Renderer2D->DrawQuadBillboard(transform.Translation, glm::vec2(0.35f), iconTexture, 1.0f, glm::vec4(1.0f));
+						const glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix({ entityID, m_ActiveScene.Raw() });
+						m_Renderer2D->DrawQuadBillboard(glm::vec3(transform[3]), glm::vec2(0.35f), iconTexture, 1.0f, glm::vec4(1.0f));
 					}
 				};
 
@@ -2316,7 +2468,128 @@ namespace Lux {
 			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, SpotLightComponent>(), EditorResources::SpotLightIcon);
 		}
 
+		DrawAudioVisualisation();
+
 		m_Renderer2D->EndScene();
+	}
+
+	// Draws the ray-traced acoustics simulation into the viewport: the visualisation rays the
+	// listener casts, where they bounced, and the emitters they connect. Settings come from the
+	// Audio Debugger panel, which is where they are edited; this is only the drawing half.
+	//
+	// Runs inside OnOverlayRender's BeginScene/EndScene, so it must not open its own scene.
+	void EditorLayer::DrawAudioVisualisation()
+	{
+		if (!m_AudioDebugPanel || !m_ActiveScene)
+			return;
+
+		const AudioVisualisationSettings& settings = m_AudioDebugPanel->GetVisualisationSettings();
+		if (!settings.Enabled)
+			return;
+
+		Ref<RaytracedAudioScene> raytraced = m_ActiveScene->GetRaytracedAudioScene();
+		if (!raytraced)
+			return;
+
+		// Ray-type colours follow the simulation's own semantics rather than the editor theme:
+		// warm for the direct/reverb energy leaving the listener, cool for the surfaces it lands on.
+		constexpr glm::vec4 kRayNearColor{ 1.0f, 0.78f, 0.35f, 0.9f };
+		constexpr glm::vec4 kRayFarColor{ 0.85f, 0.32f, 0.55f, 0.9f };
+		constexpr glm::vec4 kBounceColor{ 0.45f, 0.85f, 1.0f, 1.0f };
+		constexpr glm::vec4 kNormalColor{ 0.35f, 1.0f, 0.6f, 0.9f };
+		constexpr glm::vec4 kListenerColor{ 0.4f, 1.0f, 0.45f, 1.0f };
+		constexpr glm::vec4 kSourceColor{ 1.0f, 0.6f, 0.2f, 1.0f };
+		constexpr glm::vec4 kBoundsColor{ 0.35f, 0.45f, 0.7f, 0.6f };
+
+		const RaytracedAudioStats stats = raytraced->GetStats();
+
+		RaytracedAudioVisualisation snapshot;
+		raytraced->GetVisualisation(snapshot);
+
+		if (settings.DrawRayPaths || settings.DrawBouncePoints || settings.DrawNormals)
+		{
+			const int bounceCount = std::max(snapshot.BounceCount, 1);
+			for (int ray = 0; ray < snapshot.RayCount; ray++)
+			{
+				glm::vec3 previous = snapshot.Origin;
+
+				for (int bounce = 0; bounce < bounceCount; bounce++)
+				{
+					const size_t index = (size_t)ray * (size_t)bounceCount + (size_t)bounce;
+					if (index >= snapshot.Bounces.size())
+						break;
+
+					const RaytracedAudioBounce& hit = snapshot.Bounces[index];
+
+					// A ray that hit nothing ends here — its remaining slots are miss placeholders
+					// well outside the world, and connecting to them would fire lines off to
+					// infinity through the viewport.
+					if (!hit.Hit)
+						break;
+
+					if (settings.DrawRayPaths)
+					{
+						// Fade along the path so the listener end reads as the origin and later
+						// bounces recede, which is what makes a few hundred rays legible at once.
+						const float t = bounceCount > 1 ? (float)bounce / (float)(bounceCount - 1) : 0.0f;
+						glm::vec4 color = glm::mix(kRayNearColor, kRayFarColor, t);
+						color.a *= 1.0f - settings.PathFadeStrength * t;
+						m_Renderer2D->DrawLine(previous, hit.Position, color);
+					}
+
+					if (settings.DrawBouncePoints)
+						m_Renderer2D->DrawCircle(hit.Position, glm::vec3(0.0f), 0.05f, kBounceColor);
+
+					if (settings.DrawNormals)
+						m_Renderer2D->DrawLine(hit.Position, hit.Position + hit.Normal * settings.NormalLength, kNormalColor);
+
+					previous = hit.Position;
+				}
+			}
+		}
+
+		if (settings.DrawEmitters)
+		{
+			// Three rings per emitter so it reads as a sphere from any angle, rather than
+			// disappearing when the camera lines up with a single circle's plane.
+			auto drawEmitterGizmo = [this](const glm::vec3& position, float radius, const glm::vec4& color)
+				{
+					m_Renderer2D->DrawCircle(position, glm::vec3(0.0f), radius, color);
+					m_Renderer2D->DrawCircle(position, glm::vec3(glm::half_pi<float>(), 0.0f, 0.0f), radius, color);
+					m_Renderer2D->DrawCircle(position, glm::vec3(0.0f, glm::half_pi<float>(), 0.0f), radius, color);
+				};
+
+			drawEmitterGizmo(stats.ListenerPosition, settings.EmitterRadius, kListenerColor);
+
+			auto sources = m_ActiveScene->GetAllEntitiesWith<TransformComponent, AudioSourceComponent>();
+			for (entt::entity entityHandle : sources)
+			{
+				Entity entity = { entityHandle, m_ActiveScene.Raw() };
+				const glm::vec3 position = glm::vec3(m_ActiveScene->GetWorldSpaceTransformMatrix(entity)[3]);
+				drawEmitterGizmo(position, settings.EmitterRadius * 0.75f, kSourceColor);
+
+				// A line to the listener makes the occlusion relationship visible: this is the path
+				// the simulation is measuring for that source.
+				m_Renderer2D->DrawLine(position, stats.ListenerPosition, kSourceColor * glm::vec4(1.0f, 1.0f, 1.0f, 0.35f));
+			}
+		}
+
+		if (settings.DrawWorldBounds && stats.WorldSize.x > 0.0f)
+		{
+			const glm::vec3 min = stats.WorldMin;
+			const glm::vec3 max = stats.WorldMin + stats.WorldSize;
+			const glm::vec3 corners[8] = {
+				{ min.x, min.y, min.z }, { max.x, min.y, min.z }, { max.x, max.y, min.z }, { min.x, max.y, min.z },
+				{ min.x, min.y, max.z }, { max.x, min.y, max.z }, { max.x, max.y, max.z }, { min.x, max.y, max.z },
+			};
+			constexpr int edges[12][2] = {
+				{ 0,1 }, { 1,2 }, { 2,3 }, { 3,0 },
+				{ 4,5 }, { 5,6 }, { 6,7 }, { 7,4 },
+				{ 0,4 }, { 1,5 }, { 2,6 }, { 3,7 },
+			};
+			for (const auto& edge : edges)
+				m_Renderer2D->DrawLine(corners[edge[0]], corners[edge[1]], kBoundsColor);
+		}
 	}
 
 	void EditorLayer::LoadEditorPreferences()
@@ -2332,6 +2605,7 @@ namespace Lux {
 		m_UseGizmoSnap = settings.GetInt("Editor.UseGizmoSnap", 0) != 0;
 		m_TranslationSnapValue = std::max(settings.GetFloat("Editor.TranslationSnapValue", 0.5f), 0.05f);
 		m_RotationSnapValue = std::max(settings.GetFloat("Editor.RotationSnapValue", 45.0f), 1.0f);
+		m_ScaleSnapValue = std::max(settings.GetFloat("Editor.ScaleSnapValue", 0.1f), 0.01f);
 		m_ShowBoundingBoxes = settings.GetInt("Editor.ShowBoundingBoxes", 0) != 0;
 		m_ShowEntityIcons = settings.GetInt("Editor.ShowEntityIcons", 1) != 0;
 		m_ShowViewportPerformanceHUD = settings.GetInt("Editor.ShowViewportPerformanceHUD", 1) != 0;
@@ -2351,6 +2625,7 @@ namespace Lux {
 		settings.SetInt("Editor.UseGizmoSnap", m_UseGizmoSnap ? 1 : 0);
 		settings.SetFloat("Editor.TranslationSnapValue", m_TranslationSnapValue);
 		settings.SetFloat("Editor.RotationSnapValue", m_RotationSnapValue);
+		settings.SetFloat("Editor.ScaleSnapValue", m_ScaleSnapValue);
 		settings.SetInt("Editor.ShowBoundingBoxes", m_ShowBoundingBoxes ? 1 : 0);
 		settings.SetInt("Editor.ShowEntityIcons", m_ShowEntityIcons ? 1 : 0);
 		settings.SetInt("Editor.ShowViewportPerformanceHUD", m_ShowViewportPerformanceHUD ? 1 : 0);
@@ -2361,6 +2636,9 @@ namespace Lux {
 
 	void EditorLayer::ApplyEditorPreferences()
 	{
+		m_TranslationSnapValue = std::max(m_TranslationSnapValue, 0.05f);
+		m_RotationSnapValue = std::max(m_RotationSnapValue, 1.0f);
+		m_ScaleSnapValue = std::max(m_ScaleSnapValue, 0.01f);
 		Application::Get().GetWindow().SetVSync(m_VSync);
 
 		// With VSync on the display already paces the loop, and layering a CPU limiter on
@@ -2547,6 +2825,7 @@ namespace Lux {
 			if (startScene)
 				OpenScene(startScene);
 			m_PanelManager->OnProjectChanged(Project::GetActive());
+			LoadAudioBanksForActiveProject();
 			if (m_SceneRenderer)
 				m_SceneRenderer->ApplyProjectSettings(Project::GetActive()->GetConfig().SceneRenderer);
 		}
@@ -2719,6 +2998,13 @@ namespace Lux {
 			ImGui::TextColored(scriptModuleStale ? ImVec4(0.95f, 0.75f, 0.35f, 1.0f) : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
 				"Script Module: %s", scriptModuleStale ? "stale" : "found");
 		drawStatus("DotNet", !dotnet.empty(), dotnet.string(), "missing");
+		if (config.Audio.StudioProjectPath.empty())
+			ImGui::TextUnformatted("FMOD banks: none configured in Project Settings > Audio");
+		else
+		{
+			ImGui::Text("FMOD bank output: %s", project->GetStudioBankDirectory().string().c_str());
+			ImGui::TextWrapped("Export validates all banks and stops if they are missing or stale. Build banks in FMOD Studio before exporting.");
+		}
 
 		ImGui::Spacing();
 		if (ImGui::Button("Build Runtime"))
@@ -2729,6 +3015,8 @@ namespace Lux {
 			BuildScriptModule(runtime.TargetConfig);
 
 		ImGui::Separator();
+		if (!m_RuntimeExportError.empty())
+			ImGui::TextWrapped("%s", m_RuntimeExportError.c_str());
 		if (ImGui::Button("Export..."))
 		{
 			if (ExportRuntimeNow())
@@ -2750,11 +3038,13 @@ namespace Lux {
 		}
 
 		SyncRuntimeExportWindowFromProject();
+		m_RuntimeExportError.clear();
 		m_ShowRuntimeExportWindow = true;
 	}
 
 	bool EditorLayer::ExportRuntimeNow()
 	{
+		m_RuntimeExportError.clear();
 		Ref<Project> project = Project::GetActive();
 		if (!project)
 		{
@@ -2778,6 +3068,25 @@ namespace Lux {
 			runtimeSettings.GameName = project->GetConfig().Name;
 		runtimeSettings.WindowWidth = std::max<uint32_t>(runtimeSettings.WindowWidth, 320);
 		runtimeSettings.WindowHeight = std::max<uint32_t>(runtimeSettings.WindowHeight, 240);
+
+		AudioBankManifest audioBanks;
+		if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
+		{
+			m_RuntimeExportError = "Export blocked: FMOD banks are missing, stale or unreadable. Check Project Settings > Audio, build the selected platform's banks, then try again.";
+			return false;
+		}
+		const auto audioValidation = AudioValidation::ValidateProject(*project, m_EditorScene.Raw());
+		audioValidation.Log();
+		if (audioValidation.HasErrors())
+		{
+			// Keep the reason in the export window even when the engine log is not visible.
+			m_RuntimeExportError = "Export blocked by audio validation:\n";
+			for (const auto& issue : audioValidation.Issues)
+				if (issue.Severity == AudioValidationSeverity::Error)
+					m_RuntimeExportError += std::format("{}: {}\n", issue.Location, issue.Message);
+			m_RuntimeExportError += "All registered scenes and prefabs are checked, including scenes other than the startup scene.";
+			return false;
+		}
 
 		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
 		std::filesystem::path runtimeExe = GetRuntimeExecutablePath(targetConfig);
@@ -2873,9 +3182,13 @@ namespace Lux {
 			return false;
 		}
 
+		if (!RuntimeExport::CopyAudioBanks(*project, audioBanks, exportAssets)
+			|| !RuntimeExport::CopyAudioLibraries(runtimeExe.parent_path(), exportRoot))
+			return false;
+
 		ProjectSerializer serializer(project);
 		const std::filesystem::path runtimeProjectFile = exportAssets / s_RuntimeProjectFile;
-		if (!serializer.SerializeRuntime(runtimeProjectFile))
+		if (!serializer.SerializeRuntime(runtimeProjectFile, audioBanks))
 		{
 			LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing '{}'.", runtimeProjectFile.string());
 			return false;
@@ -3918,12 +4231,62 @@ namespace Lux {
 		DiscordSocial::SetPresence(presence);
 	}
 
+	void EditorLayer::RebuildAudioBanksIfNeeded()
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!project)
+			return;
+
+		const std::filesystem::path studioProject = project->GetStudioProjectPath();
+		if (studioProject.empty())
+			return;
+
+		const std::filesystem::path bankDirectory = project->GetStudioBankDirectory();
+
+		if (project->GetConfig().Audio.RebuildBanksOnPlay
+			&& AudioBankBuilder::NeedsRebuild(studioProject, bankDirectory))
+		{
+			// Failure is logged by the builder. Existing output for this profile can still be used.
+			AudioBankBuilder::Build(studioProject, project->GetStudioPlatform());
+		}
+
+		// A profile/output directory may have changed since project open. Resolve the current
+		// selection even when another catalog is already loaded.
+		if (!AudioEngine::LoadBanks(bankDirectory))
+		{
+			// Do not play a previous profile's catalog when the newly selected output is missing.
+			AudioEngine::UnloadAllBanks();
+			LUX_CORE_ERROR_TAG("Audio", "Play will continue without project banks: cannot load the selected audio profile at '{}'", bankDirectory.string());
+		}
+	}
+
+	void EditorLayer::LoadAudioBanksForActiveProject()
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!project)
+			return;
+
+		const std::filesystem::path bankDirectory = project->GetStudioBankDirectory();
+		if (bankDirectory.empty())
+			return;
+
+		// Loaded on project open rather than on Play so the editor can list a project's events
+		// while editing - the event picker and the Audio Debugger both need them in Edit mode.
+		AudioEngine::LoadBanks(bankDirectory);
+	}
+
 	void EditorLayer::OnScenePlay()
 	{
 		if (m_PrefabEditMode)   // no play while editing a prefab in isolation
 			return;
 		if (m_SceneState == SceneState::Simulate)
 			OnSceneStop();
+
+		// Before the runtime starts, so the banks it loads are the ones matching what the designer
+		// last saved in FMOD Studio. A timestamp check makes this free when nothing changed; a
+		// failed build is logged and play continues, since a stale bank still plays something and
+		// blocking Play on an audio tool would be worse than the staleness.
+		RebuildAudioBanksIfNeeded();
 
 		SuspendRendererDebugViewsForPlay();
 		m_SceneState = SceneState::Play;

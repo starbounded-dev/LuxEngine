@@ -94,6 +94,10 @@ Project:
         DepthTolerance: 0.800000012
   Audio:
     FileStreamingDurationThreshold: 1
+    StudioProjectPath: Audio/SampleProject/SampleProject.fspro
+    StudioBankOutputPath: Build/Desktop
+    RebuildBanksOnPlay: true
+    EnableLiveUpdate: true
   Physics:
     FixedTimestep: 0.0166666675
     Gravity: [0, -9.81000042, 0]
@@ -120,7 +124,7 @@ Project:
       LevelFilter: Error
     Audio:
       Enabled: true
-      LevelFilter: Error
+      LevelFilter: Info
     Core:
       Enabled: true
       LevelFilter: Trace

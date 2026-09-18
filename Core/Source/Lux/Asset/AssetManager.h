@@ -10,6 +10,8 @@ namespace Lux
 	{
 	public:
 		static Ref<Asset> GetPlaceholderAsset(AssetType type);
+		static AssetHandle ImportAsset(const std::filesystem::path& path);
+		static void SaveAsset(const Ref<Asset>& asset);
 
 		template<typename T>
 		static Ref<T> GetAsset(AssetHandle handle)

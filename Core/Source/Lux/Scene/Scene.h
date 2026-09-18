@@ -3,6 +3,14 @@
 #include "Entity.h"
 
 #include "Lux/Asset/Asset.h"
+#include "Lux/Audio/AudioListener.h"
+#include "Lux/Audio/AudioZoneSystem.h"
+#include "Lux/Audio/AudioGeometrySystem.h"
+#include "Lux/Audio/AudioSourcePlayback.h"
+#include "Lux/Audio/PhysicsAudioSystem.h"
+#include "Lux/Audio/MusicDirector.h"
+#include "Lux/Audio/DialogueDirector.h"
+#include "Lux/Physics/PhysicsContactEvent.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
@@ -29,7 +37,8 @@ namespace Lux {
 	class PhysicsScene;
 	class RenderScene;
 	class SceneRenderer;
-	class AudioSource;
+	class AudioEventInstance;
+	class RaytracedAudioScene;
 	class Mesh;
 	class StaticMesh;
 
@@ -74,6 +83,7 @@ namespace Lux {
 		void DestroyEntity(UUID entityID, bool excludeChildren = false, bool first = true);
 
 		void OnRuntimeStart();
+		bool PlayFootstep(UUID entity, float speed, float weight = 75.0f, float probeDistance = 1.2f);
 		void OnRuntimeStop();
 
 		void OnSimulationStart();
@@ -95,6 +105,14 @@ namespace Lux {
 		// and removes destination-only ones (component add/remove reconciliation). Cross-scene safe.
 		// Backs prefab Revert-All (source = prefab entity) and Apply-All (source = scene instance).
 		static void ReconcilePrefabComponents(Entity destination, Entity source);
+		static UUID MapPrefabEntityReference(UUID target, Entity source, Entity destination);
+		void RemapAudioListenerTargets(const std::unordered_map<UUID, UUID>& entityMap, bool clearExternal);
+		const AudioListenerState* GetPrimaryAudioListener() const;
+		DialogueDirector& GetDialogueDirector() { return m_Dialogue; }
+		MusicDirector& GetMusicDirector() { return m_Music; }
+		size_t GetPendingAudioGeometryCount() const { return m_AudioGeometry.GetPendingCount(); }
+		float GetAudioZoneWeight(UUID id) const { return m_AudioZones.GetWeight(id); }
+		AudioZoneVolume GetAudioZoneVolume(Entity entity);
 
 		// After a prefab is edited, refresh this scene's instances of it: un-overridden instances
 		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
@@ -173,6 +191,7 @@ namespace Lux {
 		bool BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer);
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
+		void CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
 		void CaptureColliderDebug(FrameRenderPacket& packet,
 			Ref<SceneRenderer> renderer, const std::function<bool(Entity)>& isSelected);
 		void OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
@@ -201,12 +220,19 @@ namespace Lux {
 		void OnPhysics2DStop();
 		void OnPhysics3DStart();
 		void OnPhysics3DStop();
+		void OnRaytracedAudioStart();
+		void OnRaytracedAudioStop();
 		void StepPhysics(Timestep ts);
 		void RenderScene(EditorCamera& camera);
-		Ref<AudioSource> GetOrCreateRuntimeAudioSource(Entity entity, AssetHandle audioHandle);
-		Ref<AudioSource> GetOrCreateRuntimePlaylistSource(Entity entity, uint32_t index, AssetHandle audioHandle);
+		Ref<AudioEventInstance> GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake = true);
 		void ReleaseRuntimeAudio(Entity entity);
 		void ReleaseAllRuntimeAudio();
+		void SyncAudioListeners(float timestep);
+		void UpdateAudioZones(float timestep, bool raytracedReverbValid);
+		void SyncAudioGeometry(bool initial = false);
+		bool BuildAcousticGeometry(const AudioGeometryInput& input, AcousticGeometry& geometry);
+		void UpdatePhysicsAudio(float timestep);
+		AudioSurfaceSounds GetSurfaceSounds(Entity entity, AcousticMaterial& material) const;
 		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
 	private:
@@ -231,8 +257,29 @@ namespace Lux {
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 		std::vector<std::function<void()>> m_PostUpdateQueue;
-		std::unordered_map<UUID, Ref<AudioSource>> m_RuntimeAudioSources;
-		std::unordered_map<UUID, std::vector<Ref<AudioSource>>> m_RuntimeAudioPlaylists;
+		std::unordered_map<UUID, AudioSourcePlayback> m_RuntimeEventInstances;
+		AudioListener::States m_RuntimeAudioListeners;
+		AudioZoneSystem m_AudioZones;
+		AudioGeometrySystem m_AudioGeometry;
+		std::vector<AudioGeometryInput> m_AudioGeometryInputs;
+		std::vector<AudioPortalInput> m_AudioPortalInputs;
+		PhysicsAudioSystem m_PhysicsAudio;
+		DialogueDirector m_Dialogue;
+		MusicDirector m_Music;
+		UUID m_MusicOwner = 0;
+		Ref<AudioSurfaceTable> m_AudioSurfaceTable;
+		std::vector<PhysicsContactEvent> m_PhysicsContactEvents;
+		struct FootstepState
+		{
+			glm::vec3 Position{ 0.0f };
+			float Distance = 0.0f;
+			bool Initialized = false;
+		};
+		std::unordered_map<UUID, FootstepState> m_Footsteps;
+		bool m_AudioZoneRaytracedValid = false;
+		std::vector<AudioZoneInput> m_AudioZoneInputs;
+		uint32_t m_AudioListenerWarnings = 0;
+		Ref<RaytracedAudioScene> m_RaytracedAudioScene;
 
 		// Per-entity C# script field values (serialized with the scene) and live instances.
 		ScriptStorage m_ScriptStorage;
@@ -244,6 +291,16 @@ namespace Lux {
 
 		// Defined out-of-line (PhysicsScene need not be complete in this header).
 		Ref<PhysicsScene> GetPhysicsScene() const;
+
+		// Defined out-of-line (RaytracedAudioScene need not be complete in this header).
+		Ref<RaytracedAudioScene> GetRaytracedAudioScene() const;
+
+		// The live voice playing for an entity, or null when it has none. Editor tooling only -
+		// gameplay drives sources through the component, not by reaching in here.
+		AudioSourcePlayback* GetAudioSourcePlayback(UUID entityID);
+		size_t GetCulledAudioSourceCount() const;
+		bool IsAudioSourceCulled(UUID entityID) const;
+		Ref<AudioEventInstance> GetRuntimeEventInstance(UUID entityID) const;
 
 	private:
 		friend class Entity;

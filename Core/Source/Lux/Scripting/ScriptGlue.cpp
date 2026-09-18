@@ -1,5 +1,6 @@
 #include "lpch.h"
 #include "ScriptGlue.h"
+#include "AudioScriptBindings.h"
 #include "ScriptEngine.h"
 
 #include "Lux/Core/UUID.h"
@@ -646,6 +647,9 @@ namespace Lux {
 		RegisterManagedComponent<TextComponent>(coreAssembly);
 		RegisterManagedComponent<AudioSourceComponent>(coreAssembly);
 		RegisterManagedComponent<AudioListenerComponent>(coreAssembly);
+		RegisterManagedComponent<AudioSurfaceComponent>(coreAssembly);
+		RegisterManagedComponent<AudioZoneComponent>(coreAssembly);
+		RegisterManagedComponent<AudioPortalComponent>(coreAssembly);
 
 		// 3D physics
 		RegisterManagedComponent<RigidBodyComponent>(coreAssembly);
@@ -815,6 +819,7 @@ namespace Lux {
 	{
 		RegisterComponentTypes(coreAssembly);
 		RegisterInternalCalls(coreAssembly);
+		AudioScriptBindings::Register(coreAssembly);
 		coreAssembly.UploadInternalCalls();
 	}
 

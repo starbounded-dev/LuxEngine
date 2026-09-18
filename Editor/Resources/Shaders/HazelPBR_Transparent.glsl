@@ -192,20 +192,23 @@ void main()
 	float materialEnvMapRotation = GetGPUMaterialEnvMapRotation(gpuMaterial, 0.0);
 	uint materialAlphaMode = GetGPUMaterialAlphaMode(gpuMaterial, GPU_MATERIAL_ALPHA_BLEND);
 	bool materialUseNormalMap = GetGPUMaterialUsesNormalMap(gpuMaterial, false);
+	uint materialFlags = gpuMaterial.Metadata.x;
+	uint channelSelects = gpuMaterial.ExtraTextureIndices.w;
+	vec2 uv = GetGPUMaterialUV(gpuMaterial, Input.TexCoord);
 
 	vec4 albedoTexColor = SampleMaterialSceneTexture(
 		gpuMaterial.TextureIndices.x,
-		Input.TexCoord,
+		uv,
 		materialMipBias);
 	m_Params.Albedo = albedoTexColor.rgb * materialBaseColor;
 	float alpha = albedoTexColor.a * materialOpacity;
-	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < 0.5)
+	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < gpuMaterial.Surface.z)
 		discard;
 	m_Params.Metalness = materialMetalness;
-	m_Params.Roughness = SampleMaterialSceneTexture(
+	m_Params.Roughness = SelectGPUMaterialChannel(SampleMaterialSceneTexture(
 		gpuMaterial.TextureIndices.w,
-		Input.TexCoord,
-		materialMipBias).g * materialRoughness;
+		uv,
+		materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS) * materialRoughness;
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.0, 1.0);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
@@ -215,10 +218,26 @@ void main()
 	{
 		vec4 normalTexColor = SampleMaterialSceneTexture(
 			gpuMaterial.TextureIndices.y,
-			Input.TexCoord,
+			uv,
 			materialMipBias);
-		m_Params.Normal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb);
+		m_Params.Normal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb, gpuMaterial.Surface.y);
 	}
+	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE))
+	{
+		float height = SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.z, uv, materialMipBias).r;
+		m_Params.Normal = PerturbNormalFromHeight(m_Params.Normal, Input.WorldPosition, height, gpuMaterial.Surface.w);
+	}
+
+	float occlusion = 1.0;
+	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_OCCLUSION_TEXTURE))
+	{
+		float occlusionSample = SelectGPUMaterialChannel(SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.y, uv, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_OCCLUSION);
+		occlusion = mix(1.0, occlusionSample, gpuMaterial.Emissive.w);
+	}
+
+	vec3 emissive = GetGPUMaterialEmissive(gpuMaterial);
+	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE))
+		emissive *= SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.x, uv, materialMipBias).rgb;
 
 	// View normals
 	o_ViewNormalsLuminance.xyz = Input.CameraView * m_Params.Normal;
@@ -230,7 +249,7 @@ void main()
 	vec3 Lr = reflect(-m_Params.View, m_Params.Normal);
 
 	// Fresnel reflectance, metals use albedo
-	vec3 F0 = mix(LuxDielectricF0(0.5), m_Params.Albedo, m_Params.Metalness);
+	vec3 F0 = mix(LuxDielectricF0(GetGPUMaterialSpecular(gpuMaterial, 0.5)), m_Params.Albedo, m_Params.Metalness);
 
 	uint cascadeIndex = 0;
 
@@ -305,10 +324,10 @@ void main()
 	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
 	lightContribution += CalculatePointLights(F0, Input.WorldPosition);
 	lightContribution += CalculateSpotLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
-	lightContribution += m_Params.Albedo * materialEmission;
+	lightContribution += emissive;
 
-	// Indirect lighting
-	vec3 iblContribution = IBL(F0, Lr, materialEnvMapRotation) * u_Scene.EnvironmentMapIntensity;
+	// Indirect lighting (material AO occludes ambient light only, as in deferred lighting)
+	vec3 iblContribution = IBL(F0, Lr, materialEnvMapRotation) * occlusion * u_Scene.EnvironmentMapIntensity;
 
 	color = vec4(iblContribution + lightContribution, materialAlphaMode == GPU_MATERIAL_ALPHA_OPAQUE ? 1.0 : alpha);
 

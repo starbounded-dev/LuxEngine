@@ -41,7 +41,7 @@ float ScreenDistance(vec2 v, vec2 texelSize)
 
 void main()
 {
-    vec4 color = SampleLinear(u_Texture, Input.TexCoords);
+	vec4 color = texture(sampler2D(u_Texture, r_PointSampler), Input.TexCoords);
 
     ivec2 texSize = GetTextureSize(u_Texture, 0);
     vec2 texelSize = vec2(1.0f / float(texSize.x), 1.0f / float(texSize.y));

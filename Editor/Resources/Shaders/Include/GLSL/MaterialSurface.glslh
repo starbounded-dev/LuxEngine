@@ -34,4 +34,13 @@ vec3 LuxApplyNormalMap(vec3 vertexNormal, mat3 tangentFrame, vec3 normalSample)
 	return normalize(tbn * LuxDecodeTangentNormal(normalSample));
 }
 
+// `strength` scales the map's slope: 0 flattens it, 1 is the map as authored, above 1 exaggerates.
+vec3 LuxApplyNormalMap(vec3 vertexNormal, mat3 tangentFrame, vec3 normalSample, float strength)
+{
+	mat3 tbn = LuxBuildTangentFrame(vertexNormal, tangentFrame[0], tangentFrame[1]);
+	vec3 tangentNormal = LuxDecodeTangentNormal(normalSample);
+	tangentNormal.xy *= strength;
+	return normalize(tbn * normalize(tangentNormal));
+}
+
 #endif // LUX_MATERIAL_SURFACE_GLSLH

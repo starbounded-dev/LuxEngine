@@ -34,6 +34,11 @@ namespace Lux::RuntimeExport {
 		"Lux-Runtime.exe";
 #endif
 
+	// Export preparation runs once in the existing synchronous export operation, not per frame.
+	bool PrepareAudioBanks(const Project& project, AudioBankManifest& manifest);
+	bool CopyAudioBanks(const Project& project, const AudioBankManifest& manifest, const std::filesystem::path& assets);
+	bool CopyAudioLibraries(const std::filesystem::path& runtimeDirectory, const std::filesystem::path& exportRoot);
+
 	bool FileExists(const std::filesystem::path& path);
 	std::string SanitizeBuildName(std::string value);
 

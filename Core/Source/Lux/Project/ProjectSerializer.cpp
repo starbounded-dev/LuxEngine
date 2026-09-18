@@ -646,6 +646,8 @@ namespace Lux
 	bool ProjectSerializer::Serialize(const std::filesystem::path& filepath)
 	{
 		const auto& config = m_Project->GetConfig();
+		if (!config.Audio.Accessibility.Validate())
+			return false;
 
 		YAML::Emitter out;
 		out << YAML::BeginMap;
@@ -684,6 +686,32 @@ namespace Lux
 			{
 				out << YAML::BeginMap;
 				out << YAML::Key << "FileStreamingDurationThreshold" << YAML::Value << config.Audio.FileStreamingDurationThreshold;
+				out << YAML::Key << "StudioProjectPath" << YAML::Value << config.Audio.StudioProjectPath.generic_string();
+				if (!IsValidStudioPlatform(config.Audio.StudioPlatform) || !config.Audio.Windows.Validate() || !config.Audio.Linux.Validate())
+				{
+					LUX_CORE_ERROR_TAG("Audio", "Cannot save invalid desktop audio profiles");
+					return false;
+				}
+				out << YAML::Key << "StudioPlatform" << YAML::Value << config.Audio.StudioPlatform;
+				out << YAML::Key << "Windows" << YAML::Value;
+				config.Audio.Windows.SerializeYAML(out);
+				out << YAML::Key << "Linux" << YAML::Value;
+				config.Audio.Linux.SerializeYAML(out);
+				out << YAML::Key << "StudioBankOutputPath" << YAML::Value << config.Audio.StudioBankOutputPath.generic_string();
+				out << YAML::Key << "RebuildBanksOnPlay" << YAML::Value << config.Audio.RebuildBanksOnPlay;
+				out << YAML::Key << "EnableLiveUpdate" << YAML::Value << config.Audio.EnableLiveUpdate;
+				if (!config.Audio.AcousticMaterials.Validate())
+					return false;
+				out << YAML::Key << "AcousticMaterials" << YAML::Value;
+				config.Audio.AcousticMaterials.SerializeYAML(out);
+				out << YAML::Key << "SurfaceTable" << YAML::Value << static_cast<uint64_t>(config.Audio.SurfaceTable);
+				out << YAML::Key << "DialogueTable" << YAML::Value << static_cast<uint64_t>(config.Audio.Dialogue.Table);
+				out << YAML::Key << "DialogueLanguage" << YAML::Value << config.Audio.Dialogue.Language;
+				out << YAML::Key << "Accessibility" << YAML::Value;
+				config.Audio.Accessibility.SerializeYAML(out);
+				out << YAML::Key << "Performance" << YAML::Value;
+				config.Audio.Performance.SerializeYAML(out);
+				out << YAML::Key << "ZoneReverbMode" << YAML::Value << static_cast<uint32_t>(config.Audio.ZoneReverbMode);
 				out << YAML::EndMap;
 			}
 
@@ -753,8 +781,10 @@ namespace Lux
 		return true;
 	}
 
-	bool ProjectSerializer::SerializeRuntime(const std::filesystem::path& filepath)
+	bool ProjectSerializer::SerializeRuntime(const std::filesystem::path& filepath, const AudioBankManifest& banks)
 	{
+		if (!m_Project->GetConfig().Audio.Accessibility.Validate())
+			return false;
 		ProjectInfo projectInfo;
 
 		{
@@ -779,6 +809,19 @@ namespace Lux
 			return false;
 
 		serializer.WriteRaw<ProjectInfo>(projectInfo);
+		if (!banks.Serialize(serializer) || !m_Project->GetConfig().Audio.AcousticMaterials.Serialize(serializer))
+			return false;
+
+		const auto zoneMode = m_Project->GetConfig().Audio.ZoneReverbMode;
+		if (zoneMode > AudioZoneReverbMode::PreferRaytraced)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot export an invalid zone reverb mode");
+			return false;
+		}
+		serializer.WriteRaw<uint8_t>(static_cast<uint8_t>(zoneMode));
+		serializer.WriteRaw<uint64_t>(m_Project->GetConfig().Audio.SurfaceTable);
+		if (!m_Project->GetConfig().Audio.Dialogue.Serialize(serializer) || !m_Project->GetConfig().Audio.Accessibility.Serialize(serializer) || !m_Project->GetAudioPerformance().Serialize(serializer))
+			return false;
 
 		const auto& physics = m_Project->GetConfig().Physics;
 		serializer.WriteRaw<float>(physics.FixedTimestep);
@@ -821,6 +864,11 @@ namespace Lux
 		serializer.WriteString(m_Project->GetConfig().Name);
 		serializer.WriteString(m_Project->GetConfig().ScriptModulePath.generic_string());
 
+		if (!serializer.IsStreamGood())
+		{
+			LUX_CORE_ERROR_TAG("Project", "Failed to write runtime project: {0}", filepath.string());
+			return false;
+		}
 		return true;
 	}
 
@@ -902,8 +950,53 @@ namespace Lux
 				config.StartScene = rawStartScene;
 		}
 
+		config.Audio.RuntimeBanks = {};
+		config.Audio.SurfaceTable = 0;
+		config.Audio.Dialogue = {};
+		config.Audio.Accessibility = {};
+		config.Audio.Performance = {};
+		config.Audio.Windows = {};
+		config.Audio.Linux = {};
+		config.Audio.StudioPlatform = "Desktop";
+		config.Audio.AcousticMaterials = {};
+		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
 		if (auto audioNode = projectNode["Audio"])
+		{
 			config.Audio.FileStreamingDurationThreshold = audioNode["FileStreamingDurationThreshold"].as<double>(config.Audio.FileStreamingDurationThreshold);
+			config.Audio.StudioProjectPath = audioNode["StudioProjectPath"].as<std::string>(config.Audio.StudioProjectPath.generic_string());
+			config.Audio.StudioBankOutputPath = audioNode["StudioBankOutputPath"].as<std::string>(config.Audio.StudioBankOutputPath.generic_string());
+			config.Audio.RebuildBanksOnPlay = audioNode["RebuildBanksOnPlay"].as<bool>(config.Audio.RebuildBanksOnPlay);
+			config.Audio.EnableLiveUpdate = audioNode["EnableLiveUpdate"].as<bool>(config.Audio.EnableLiveUpdate);
+			config.Audio.SurfaceTable = audioNode["SurfaceTable"].as<uint64_t>(0);
+			config.Audio.StudioPlatform = audioNode["StudioPlatform"].as<std::string>("Desktop");
+			if (!IsValidStudioPlatform(config.Audio.StudioPlatform))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot load invalid FMOD Studio platform name");
+				return false;
+			}
+			if (!config.Audio.Windows.DeserializeYAML(audioNode["Windows"]) || !config.Audio.Linux.DeserializeYAML(audioNode["Linux"]))
+				return false;
+			if (!config.Audio.Performance.DeserializeYAML(audioNode["Performance"]))
+				return false;
+			if (!config.Audio.Accessibility.DeserializeYAML(audioNode["Accessibility"]))
+				return false;
+			config.Audio.Dialogue.Table = audioNode["DialogueTable"].as<uint64_t>(0);
+			config.Audio.Dialogue.Language = audioNode["DialogueLanguage"].as<std::string>("en");
+			if (!DialogueTable::ValidLanguage(config.Audio.Dialogue.Language))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Invalid project dialogue language");
+				return false;
+			}
+			const auto zoneMode = audioNode["ZoneReverbMode"].as<uint32_t>(0);
+			if (zoneMode > static_cast<uint32_t>(AudioZoneReverbMode::PreferRaytraced))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Invalid project audio zone reverb mode {0}", zoneMode);
+				return false;
+			}
+			config.Audio.ZoneReverbMode = static_cast<AudioZoneReverbMode>(zoneMode);
+			if (!config.Audio.AcousticMaterials.DeserializeYAML(audioNode["AcousticMaterials"]))
+				return false;
+		}
 
 		config.Physics = {};
 		if (auto physicsNode = projectNode["Physics"])
@@ -969,7 +1062,11 @@ namespace Lux
 			return false;
 
 		ProjectInfo projectInfo;
-		stream.ReadRaw<ProjectInfo>(projectInfo);
+		if (!stream.ReadData(reinterpret_cast<char*>(&projectInfo), sizeof(projectInfo)) || !stream.IsStreamGood())
+		{
+			LUX_CORE_ERROR_TAG("Project", "Truncated runtime project header: {0}", filepath.string());
+			return false;
+		}
 
 		ProjectInfo current;
 		const bool validHeader = std::memcmp(projectInfo.HeaderData.Header, current.HeaderData.Header, sizeof(current.HeaderData.Header)) == 0;
@@ -990,7 +1087,59 @@ namespace Lux
 		config.ProjectFileName = filepath.filename().string();
 		config.AssetDirectory = ".";
 		config.StartSceneHandle = projectInfo.StartScene;
+		config.Audio = {};
 		config.Audio.FileStreamingDurationThreshold = projectInfo.AudioInfo.FileStreamingDurationThreshold;
+		config.Audio.StudioProjectPath.clear();
+		config.Audio.StudioBankOutputPath.clear();
+		config.Audio.RebuildBanksOnPlay = false;
+		config.Audio.EnableLiveUpdate = false;
+		if (projectInfo.HeaderData.Version >= 17)
+		{
+			if (!config.Audio.RuntimeBanks.Deserialize(stream))
+				return false;
+			config.Audio.EnableLiveUpdate = config.Audio.RuntimeBanks.EnableLiveUpdate;
+		}
+		else
+			LUX_CORE_WARN_TAG("Audio", "Runtime project predates packaged FMOD banks; re-export it to enable Studio events");
+
+		if (projectInfo.HeaderData.Version >= 18 && !config.Audio.AcousticMaterials.Deserialize(stream))
+			return false;
+
+		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
+		if (projectInfo.HeaderData.Version >= 19)
+		{
+			uint8_t mode = 0;
+			if (!stream.ReadData(reinterpret_cast<char*>(&mode), sizeof(mode)) || !stream.IsStreamGood() || mode > static_cast<uint8_t>(AudioZoneReverbMode::PreferRaytraced))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Invalid or truncated runtime zone reverb settings");
+				return false;
+			}
+			config.Audio.ZoneReverbMode = static_cast<AudioZoneReverbMode>(mode);
+		}
+
+		if (projectInfo.HeaderData.Version >= 20)
+		{
+			uint64_t table = 0;
+			if (!stream.ReadData(reinterpret_cast<char*>(&table), sizeof(table)))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Truncated runtime surface table reference");
+				return false;
+			}
+			config.Audio.SurfaceTable = table;
+		}
+
+		config.Audio.Dialogue = {};
+		config.Audio.Accessibility = {};
+		config.Audio.Performance = {};
+		config.Audio.Windows = {};
+		config.Audio.Linux = {};
+		config.Audio.StudioPlatform = "Desktop";
+		if (projectInfo.HeaderData.Version >= 21 && !config.Audio.Dialogue.Deserialize(stream))
+			return false;
+		if (projectInfo.HeaderData.Version >= 22 && !config.Audio.Accessibility.Deserialize(stream))
+			return false;
+		if (projectInfo.HeaderData.Version >= 23 && !config.Audio.Performance.Deserialize(stream))
+			return false;
 
 		stream.ReadRaw<float>(config.Physics.FixedTimestep);
 		stream.ReadRaw<glm::vec3>(config.Physics.Gravity);

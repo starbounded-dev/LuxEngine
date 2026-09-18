@@ -1,0 +1,139 @@
+#pragma once
+
+#include "Lux/Core/Ref.h"
+
+#include <string>
+#include <cstdint>
+#include <unordered_set>
+#include <vector>
+#include <glm/glm.hpp>
+
+namespace FMOD { namespace Studio { class EventInstance; } }
+
+namespace Lux {
+
+	// Ray-traced measurements consumed by authored Studio parameters.
+	struct AudioEventAcoustics
+	{
+		float OcclusionGainLF = 1.0f;
+		float ReverbSend = 0.0f;
+	};
+
+	// Studio owns spatialization, looping, randomization and DSP. Gameplay places instances
+	// and drives the parameters authored on the event.
+	struct AudioEventNotification
+	{
+		uint64_t Handle = 0;
+		bool Stopped = false;
+		std::string Marker;
+	};
+
+	struct AudioTimelineNotification
+	{
+		uint64_t Sequence = 0;
+		bool IsBeat = false;
+		int Bar = 0, Beat = 0, Position = 0;
+		float Tempo = 0.0f;
+		int TimeSignatureUpper = 0, TimeSignatureLower = 0;
+		std::string Marker;
+	};
+
+	struct AudioPlaybackStatus
+	{
+		bool Started = false, SoundStarted = false, Stopped = false;
+		float Duration = 0.0f;
+		int Error = 0;
+	};
+
+	class AudioEventInstance : public RefCounted
+	{
+	public:
+		~AudioEventInstance();
+		AudioEventInstance(const AudioEventInstance&) = delete;
+		AudioEventInstance& operator=(const AudioEventInstance&) = delete;
+
+		// Resolves the event by GUID and creates an instance of it. Returns null when the event is
+		// not in any loaded bank, which is the normal outcome for a scene saved against banks that
+		// have not been built yet.
+		static Ref<AudioEventInstance> Create(const std::string& eventGuid);
+
+		const std::string& GetReference() const { return m_Guid; }
+		bool IsOneShot() const;
+		bool Is3D() const;
+		bool IsSnapshot() const;
+		bool SetPriority(int priority);
+		int GetPriority() const;
+		float GetMaximumDistance() const;
+		bool IsVirtual() const;
+		// Requires a snapshot with its Intensity dial exposed as a continuous 0–100 parameter.
+		bool SetSnapshotIntensity(float intensity);
+		bool IsPaused() const { return m_Paused || m_ScenePaused; }
+		float GetParameter(const std::string& name) const;
+		bool SetParameterLabel(const std::string& name, const std::string& label);
+		int GetTimelinePosition() const;
+		void SetTimelinePosition(int milliseconds);
+		bool SetCallbackHandle(uint64_t handle);
+		static std::vector<AudioEventNotification> DrainNotifications();
+		// Independent per-instance timeline mailbox; callbacks never reference the wrapper.
+		bool EnableTimelineNotifications();
+		uint64_t GetTimelineSequence() const;
+		std::vector<AudioTimelineNotification> DrainTimelineNotifications();
+		uint64_t GetPlaybackToken() const { return m_CallbackToken; }
+		const glm::vec3& GetPosition() const { return m_Position; }
+		float GetVolume() const { return m_Volume; }
+		bool IsAccessibilitySuppressed() const { return m_AccessibilitySuppressed; }
+		void SuppressAccessibility(bool suppressed) { m_AccessibilitySuppressed = suppressed; }
+		bool MonitorPlayback();
+		bool SetProgrammerSound(const std::string& key);
+		AudioPlaybackStatus GetPlaybackStatus() const;
+		bool Start();
+		void Stop(bool allowFadeOut = true);
+		void SetPaused(bool paused);
+		// Scene pause is layered over the caller's pause state, so resuming the editor does not
+		// unpause an event explicitly paused by gameplay.
+		void SetScenePaused(bool paused);
+		bool IsPlaying() const;
+		bool IsValid() const;
+
+		// Position and orientation of the emitter in world space. Studio takes all four together.
+		void Set3DAttributes(const glm::vec3& position, const glm::vec3& velocity,
+			const glm::vec3& forward, const glm::vec3& up);
+
+		void SetVolume(float volume);
+		void SetPitch(float pitch);
+
+		// Sets an author-defined continuous parameter. Reports a rejected name/value once per instance.
+		bool SetParameter(const std::string& name, float value);
+
+		// Feeds ray-traced acoustics into the two named parameters below, leaving the sound
+		// designer to decide what occlusion actually *does* to this particular sound. An event that
+		// declares neither is simply unaffected.
+		void SetAcoustics(const AudioEventAcoustics& acoustics);
+
+		// The parameter names the engine writes acoustics into. Authoring an event with these names
+		// is what opts it into ray-traced occlusion.
+		static constexpr const char* kOcclusionParameter = "Occlusion";
+		static constexpr const char* kReverbSendParameter = "ReverbSend";
+
+	private:
+		friend class Ref<AudioEventInstance>;
+		AudioEventInstance(FMOD::Studio::EventInstance* instance, const std::string& guid, uint64_t generation)
+			: m_Instance(instance), m_Guid(guid), m_Generation(generation) {}
+		bool ConfigureCallbacks(uint64_t scriptHandle, bool timeline);
+		bool CheckResult(int result, const char* operation) const;
+
+		FMOD::Studio::EventInstance* m_Instance = nullptr;
+		std::string m_Guid;
+		uint64_t m_Generation = 0;
+		uint64_t m_CallbackToken = 0;
+		mutable std::unordered_set<std::string> m_ReportedErrors;
+		bool m_SnapshotIntensityValidated = false;
+		uint32_t m_SnapshotIntensityID[2]{};
+		glm::vec3 m_Position{ 0.0f };
+		float m_Volume = 1.0f;
+		bool m_AccessibilitySuppressed = false;
+		bool m_Paused = false;
+		bool m_ScenePaused = false;
+	};
+
+}
