@@ -2,6 +2,7 @@
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Editor/EditorPanel.h"
+#include "Lux/Renderer/MaterialAsset.h"
 
 #include <glm/glm.hpp>
 
@@ -11,7 +12,6 @@
 
 namespace Lux
 {
-	class MaterialAsset;
 	class MaterialPreview;
 
 	// Edits material assets: one tab per open material, a live preview, undo through the editor's
@@ -46,6 +46,7 @@ namespace Lux
 			AssetHandle NormalMap = 0;
 			AssetHandle MetalnessMap = 0;
 			AssetHandle RoughnessMap = 0;
+			MaterialSurfaceParameters Surface;
 
 			bool operator==(const MaterialState& other) const = default;
 

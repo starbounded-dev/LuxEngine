@@ -8,6 +8,47 @@
 
 namespace Lux {
 
+	// Which channel of a packed (ORM-style) texture a scalar map reads.
+	enum class MaterialTextureChannel : uint8_t
+	{
+		R = 0,
+		G,
+		B,
+		A
+	};
+
+	// The "Lux Standard" surface inputs beyond the basic PBR set. Defaults reproduce the shading of
+	// materials authored before these existed, so a file without them renders unchanged.
+	struct MaterialSurfaceParameters
+	{
+		// Emission: radiance = EmissiveColor (perceptual, like the base colour) x Emission x map.
+		glm::vec3 EmissiveColor{ 1.0f };
+		AssetHandle EmissiveMap = 0;
+
+		// Ambient occlusion: occludes ambient/IBL light only.
+		AssetHandle OcclusionMap = 0;
+		float OcclusionStrength = 1.0f;
+		MaterialTextureChannel OcclusionChannel = MaterialTextureChannel::R;
+
+		// Packed-map channels for the existing metalness / roughness maps (glTF ORM layout).
+		MaterialTextureChannel MetalnessChannel = MaterialTextureChannel::B;
+		MaterialTextureChannel RoughnessChannel = MaterialTextureChannel::G;
+
+		float Specular = 0.5f;       // dielectric reflectance; 0.5 = 4% F0
+		float NormalStrength = 1.0f;
+
+		// Height map used as a bump map; BumpHeight is its full range in world units (metres).
+		AssetHandle HeightMap = 0;
+		float BumpHeight = 0.02f;
+
+		// Applied to every map: scale, then rotate (degrees), then offset.
+		glm::vec2 UVTiling{ 1.0f };
+		glm::vec2 UVOffset{ 0.0f };
+		float UVRotation = 0.0f;
+
+		bool operator==(const MaterialSurfaceParameters& other) const = default;
+	};
+
 	class MaterialAsset : public Asset
 	{
 	public:
@@ -55,6 +96,9 @@ namespace Lux {
 		float GetTransparency() const { return m_Values.Transparency; }
 		void SetTransparency(float transparency);
 
+		const MaterialSurfaceParameters& GetSurfaceParameters() const { return m_Surface; }
+		void SetSurfaceParameters(const MaterialSurfaceParameters& parameters);
+
 		bool IsShadowCasting() const { return !m_Material->GetFlag(MaterialFlag::DisableShadowCasting); }
 		void SetShadowCasting(bool castsShadows) { return m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
 		void UpdateMaterialComplexityMetadata();
@@ -94,6 +138,8 @@ namespace Lux {
 			AssetHandle MetalnessMap = 0;
 			AssetHandle RoughnessMap = 0;
 		} m_Maps;
+
+		MaterialSurfaceParameters m_Surface;
 
 		bool m_Transparent = false;
 

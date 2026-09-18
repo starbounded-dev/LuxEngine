@@ -196,6 +196,11 @@ Structurally:
   `GPUMaterialData` from the asset's values (the shader block is read only for a bare override
   `Material`, with fallbacks). Never read a material uniform with `Material::Get*` without
   `FindUniformDeclaration` first: in Release a missing member is an out-of-bounds read, not an assert.
+- "Lux Standard" inputs live in `MaterialSurfaceParameters` on the asset (emissive colour + map,
+  occlusion map + strength, packed-map channel selection, specular, normal strength, height map as
+  bump, UV tiling/offset/rotation). They reach shaders through the GPU material table
+  (`Rendering.md § The GPU material table`); `MaterialSerializer` writes them as YAML keys (the
+  asset pack stores the same YAML) and migrates pre-emissive-colour files as data.
 - `FrameRenderPacket` is the per-frame snapshot that decouples submission from the live registry.
 - `RendererConfig::FramesInFlight` defaults to 3.
 - Selection outline jump-flood inputs are rebound inside the render queue for each iteration,

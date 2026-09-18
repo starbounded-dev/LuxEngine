@@ -339,6 +339,13 @@ namespace Lux {
 		UpdateMaterialComplexityMetadata();
 	}
 
+	void MaterialAsset::SetSurfaceParameters(const MaterialSurfaceParameters& parameters)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		m_Surface = parameters;
+		UpdateMaterialComplexityMetadata();
+	}
+
 	void MaterialAsset::UpdateMaterialComplexityMetadata()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -355,6 +362,7 @@ namespace Lux {
 			flags |= MaterialDebug_AlbedoMap;
 			textureCount++;
 		}
+		textureCount += (m_Surface.EmissiveMap ? 1 : 0) + (m_Surface.OcclusionMap ? 1 : 0) + (m_Surface.HeightMap ? 1 : 0);
 		if (usingNormalMap)
 		{
 			flags |= MaterialDebug_NormalMap;

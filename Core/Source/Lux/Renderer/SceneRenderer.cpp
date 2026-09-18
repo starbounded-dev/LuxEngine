@@ -1691,11 +1691,16 @@ namespace Lux {
 			// full-res attachment write/clear per frame).
 			FramebufferTextureSpecification gbufferMaterialObjectID = ImageFormat::RG32UI;
 			FramebufferTextureSpecification gbufferVelocity = ImageFormat::RG16F;
+			// Emission is written straight into scene color, over the sky already there; deferred
+			// lighting then blends the lit result on top. Loaded, never cleared: the sky must survive.
+			FramebufferTextureSpecification gbufferEmissive = ImageFormat::RGBA16F;
+			gbufferEmissive.LoadOp = AttachmentLoadOp::Load;
 			gbufferBaseColor.Blend = false;
 			gbufferNormal.Blend = false;
 			gbufferMetalRough.Blend = false;
 			gbufferMaterialObjectID.Blend = false;
 			gbufferVelocity.Blend = false;
+			gbufferEmissive.Blend = false;
 
 			FramebufferSpecification gbufferSpec;
 			gbufferSpec.Width = m_ViewportWidth;
@@ -1706,9 +1711,11 @@ namespace Lux {
 				gbufferMetalRough,
 				gbufferMaterialObjectID,
 				gbufferVelocity,
+				gbufferEmissive,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
-			gbufferSpec.ExistingImages[5] = m_PreDepthPass->GetDepthOutput();
+			gbufferSpec.ExistingImages[5] = m_SceneColorFramebuffer->GetImage(0);
+			gbufferSpec.ExistingImages[6] = m_PreDepthPass->GetDepthOutput();
 			gbufferSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			gbufferSpec.ClearDepthOnLoad = false;
 			gbufferSpec.Blend = false;
@@ -1817,10 +1824,13 @@ namespace Lux {
 			FramebufferSpecification deferredSpec;
 			deferredSpec.Width = m_ViewportWidth;
 			deferredSpec.Height = m_ViewportHeight;
-			deferredSpec.Attachments = { ImageFormat::RGBA16F };
+			// Additive over the emission the G-buffer pass wrote into scene color.
+			FramebufferTextureSpecification deferredColor = ImageFormat::RGBA16F;
+			deferredColor.BlendMode = FramebufferBlendMode::Additive;
+			deferredSpec.Attachments = { deferredColor };
 			deferredSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
 			deferredSpec.ClearColorOnLoad = false;
-			deferredSpec.Blend = false;
+			deferredSpec.Blend = true;
 			deferredSpec.DebugName = "DeferredLighting";
 
 			PipelineSpecification deferredPipelineSpec;
@@ -3864,8 +3874,15 @@ namespace Lux {
 			addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass));
 		}
 
-		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
+		// Scene color first so the image the G-buffer borrows for emission keeps its own name.
 		std::vector<RenderGraph::ResourceHandle> sceneColorOutputs = addFramebufferResources("SceneColor", m_SceneColorFramebuffer);
+		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
+		// Keep gbufferOutputs meaning "the G-buffer targets" for its readers; the emission write into
+		// scene color is declared on the GBuffer pass alone.
+		std::erase_if(gbufferOutputs, [&](RenderGraph::ResourceHandle handle)
+			{
+				return std::find(sceneColorOutputs.begin(), sceneColorOutputs.end(), handle) != sceneColorOutputs.end();
+			});
 		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
 		addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
 
@@ -3881,7 +3898,14 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> geometryOutputs = gbufferOutputs;
 		appendResources(geometryOutputs, sceneColorCurrent);
 
-		addPass("GBuffer", preDepthOutputs, gbufferOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
+		{
+			// Emission lands in scene color on top of the sky, so the pass reads what is there.
+			std::vector<RenderGraph::ResourceHandle> gbufferReads = preDepthOutputs;
+			appendResources(gbufferReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> gbufferWrites = gbufferOutputs;
+			appendResources(gbufferWrites, sceneColorOutputs);
+			addPass("GBuffer", gbufferReads, gbufferWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
+		}
 
 		{
 			std::vector<RenderGraph::ResourceHandle> deferredReads = gbufferOutputs;
@@ -4486,8 +4510,9 @@ namespace Lux {
 					recreateFramebuffer(pass->GetTargetFramebuffer());
 			};
 
-		recreateFramebuffer(m_GeometryPassFramebuffer);
+		// Scene color first: the G-buffer borrows its image.
 		recreateFramebuffer(m_SceneColorFramebuffer);
+		recreateFramebuffer(m_GeometryPassFramebuffer);
 		recreateFramebuffer(m_CompositingFramebuffer);
 
 		recreatePassFramebuffer(m_PreDepthPass);
@@ -4618,8 +4643,8 @@ namespace Lux {
 			ClearRenderTargetAliasing(false);
 
 			m_PreDepthPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_SceneColorFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight); // before the G-buffer, which borrows its image
 			m_GeometryPassFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_SceneColorFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassTransparent->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_DeferredLightingPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -4670,8 +4695,8 @@ namespace Lux {
 			};
 
 			repairPassIfStale(m_PreDepthPass, "PreDepth");
-			repairIfStale(m_GeometryPassFramebuffer, "GBuffer (owner)");
 			repairIfStale(m_SceneColorFramebuffer, "SceneColor");
+			repairIfStale(m_GeometryPassFramebuffer, "GBuffer (owner)"); // borrows the scene color image
 			repairIfStale(m_CompositingFramebuffer, "Compositing");
 			repairPassIfStale(m_GeometryPass, "GBuffer");
 			repairPassIfStale(m_GeometryPassTransparent, "TransparentForward");

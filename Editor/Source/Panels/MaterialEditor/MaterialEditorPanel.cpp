@@ -16,6 +16,7 @@
 #include <imgui/imgui.h>
 
 #include <format>
+#include <iterator>
 
 namespace Lux
 {
@@ -27,6 +28,9 @@ namespace Lux
 		constexpr float kOrbitDegreesPerPixel = 0.4f;
 		constexpr float kZoomPerWheelStep = 0.1f;
 		constexpr float kPreviewRounding = 6.0f;
+
+		// Not constexpr: PropertyDropdown takes a mutable const char** list.
+		const char* s_ChannelNames[] = { "R", "G", "B", "A" };
 
 		std::string GetMaterialName(AssetHandle handle)
 		{
@@ -65,6 +69,7 @@ namespace Lux
 		state.NormalMap = material->GetNormalMapHandle();
 		state.MetalnessMap = material->GetMetalnessMapHandle();
 		state.RoughnessMap = material->GetRoughnessMapHandle();
+		state.Surface = material->GetSurfaceParameters();
 		return state;
 	}
 
@@ -84,6 +89,7 @@ namespace Lux
 
 		// After the maps: assigning or clearing a normal map may change the flag.
 		material->SetUseNormalMap(UseNormalMap);
+		material->SetSurfaceParameters(Surface);
 	}
 
 	// -- Documents -------------------------------------------------------------------------------
@@ -434,6 +440,20 @@ namespace Lux
 	{
 		// doPushUndo = false on every widget: these edit an asset, not the scene, so they must not
 		// raise the scene-edited flag. TrackEdit records them on the editor undo stack instead.
+		const bool transparent = material->IsTransparent();
+		MaterialSurfaceParameters surface = material->GetSurfaceParameters();
+		bool surfaceChanged = false;
+
+		auto textureSlot = [](const char* label, AssetHandle handle, const char* helpText, AssetHandle& outHandle)
+			{
+				outHandle = handle;
+				return ImGuiEx::PropertyAssetReference<Texture2D>(label, outHandle, helpText, nullptr, {}, false);
+			};
+		auto channelDropdown = [](const char* label, MaterialTextureChannel& channel, const char* helpText)
+			{
+				return ImGuiEx::PropertyDropdown(label, s_ChannelNames, (int32_t)std::size(s_ChannelNames), channel, helpText, false);
+			};
+
 		if (ImGuiEx::PropertyGridHeader("Surface"))
 		{
 			ImGuiEx::BeginPropertyGrid();
@@ -443,7 +463,7 @@ namespace Lux
 				material->SetAlbedoColor(albedo);
 
 			// The transparent path shades every surface as a dielectric, so metalness is not offered.
-			if (!material->IsTransparent())
+			if (!transparent)
 			{
 				float metalness = material->GetMetalness();
 				if (ImGuiEx::Property("Metallic", metalness, 0.01f, 0.0f, 1.0f, "", false))
@@ -454,11 +474,10 @@ namespace Lux
 			if (ImGuiEx::Property("Roughness", roughness, 0.01f, 0.0f, 1.0f, "", false))
 				material->SetRoughness(roughness);
 
-			float emission = material->GetEmission();
-			if (ImGuiEx::Property("Emission", emission, 0.01f, 0.0f, 100.0f, "Brightens the base color. An emissive color arrives with the standard material update.", false))
-				material->SetEmission(emission);
+			surfaceChanged |= ImGuiEx::Property("Specular", surface.Specular, 0.01f, 0.0f, 1.0f,
+				"Reflectance of non-metals. 0.5 is the common 4% of plastics, paint and stone; lower for skin, higher for gems.", false);
 
-			if (material->IsTransparent())
+			if (transparent)
 			{
 				float opacity = material->GetTransparency();
 				if (ImGuiEx::Property("Opacity", opacity, 0.01f, 0.0f, 1.0f, "", false))
@@ -469,40 +488,108 @@ namespace Lux
 			ImGui::TreePop();
 		}
 
+		if (ImGuiEx::PropertyGridHeader("Emission"))
+		{
+			ImGuiEx::BeginPropertyGrid();
+
+			surfaceChanged |= ImGuiEx::PropertyColor("Emissive Color", surface.EmissiveColor, "", false);
+
+			float emission = material->GetEmission();
+			if (ImGuiEx::Property("Intensity", emission, 0.01f, 0.0f, 1000.0f, "Light the surface gives off, independent of lighting. 0 turns emission off.", false))
+				material->SetEmission(emission);
+
+			AssetHandle emissiveMap;
+			if (textureSlot("Emissive Map", surface.EmissiveMap, "Multiplies the emissive color.", emissiveMap))
+			{
+				surface.EmissiveMap = emissiveMap;
+				surfaceChanged = true;
+			}
+
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
 		if (ImGuiEx::PropertyGridHeader("Texture Maps"))
 		{
 			ImGuiEx::BeginPropertyGrid();
 
-			AssetHandle albedoMap = material->GetAlbedoMapHandle();
-			if (ImGuiEx::PropertyAssetReference<Texture2D>("Base Color Map", albedoMap, "", nullptr, {}, false))
+			AssetHandle albedoMap;
+			if (textureSlot("Base Color Map", material->GetAlbedoMapHandle(), "", albedoMap))
 			{
-				if (albedoMap) material->SetAlbedoMap(albedoMap); else material->ClearAlbedoMap();
+				if (albedoMap)
+					material->SetAlbedoMap(albedoMap);
+				else
+					material->ClearAlbedoMap();
 			}
 
-			AssetHandle normalMap = material->GetNormalMapHandle();
-			if (ImGuiEx::PropertyAssetReference<Texture2D>("Normal Map", normalMap, "", nullptr, {}, false))
+			AssetHandle normalMap;
+			if (textureSlot("Normal Map", material->GetNormalMapHandle(), "", normalMap))
 			{
-				if (normalMap) material->SetNormalMap(normalMap); else material->ClearNormalMap();
+				if (normalMap)
+					material->SetNormalMap(normalMap);
+				else
+					material->ClearNormalMap();
 			}
 
 			bool useNormalMap = material->IsUsingNormalMap();
 			if (ImGuiEx::Property("Use Normal Map", useNormalMap, "", false))
 				material->SetUseNormalMap(useNormalMap);
 
-			if (!material->IsTransparent())
+			surfaceChanged |= ImGuiEx::Property("Normal Strength", surface.NormalStrength, 0.01f, 0.0f, 4.0f,
+				"0 flattens the normal map, 1 is as authored.", false);
+
+			if (!transparent)
 			{
-				AssetHandle metalnessMap = material->GetMetalnessMapHandle();
-				if (ImGuiEx::PropertyAssetReference<Texture2D>("Metallic Map", metalnessMap, "", nullptr, {}, false))
+				AssetHandle metalnessMap;
+				if (textureSlot("Metallic Map", material->GetMetalnessMapHandle(), "", metalnessMap))
 				{
-					if (metalnessMap) material->SetMetalnessMap(metalnessMap); else material->ClearMetalnessMap();
+					if (metalnessMap)
+						material->SetMetalnessMap(metalnessMap);
+					else
+						material->ClearMetalnessMap();
 				}
+				surfaceChanged |= channelDropdown("Metallic Channel", surface.MetalnessChannel, "Channel of the metallic map to read. glTF ORM maps keep metallic in B.");
 			}
 
-			AssetHandle roughnessMap = material->GetRoughnessMapHandle();
-			if (ImGuiEx::PropertyAssetReference<Texture2D>("Roughness Map", roughnessMap, "", nullptr, {}, false))
+			AssetHandle roughnessMap;
+			if (textureSlot("Roughness Map", material->GetRoughnessMapHandle(), "", roughnessMap))
 			{
-				if (roughnessMap) material->SetRoughnessMap(roughnessMap); else material->ClearRoughnessMap();
+				if (roughnessMap)
+					material->SetRoughnessMap(roughnessMap);
+				else
+					material->ClearRoughnessMap();
 			}
+			surfaceChanged |= channelDropdown("Roughness Channel", surface.RoughnessChannel, "Channel of the roughness map to read. glTF ORM maps keep roughness in G.");
+
+			AssetHandle occlusionMap;
+			if (textureSlot("Occlusion Map", surface.OcclusionMap, "Ambient occlusion: darkens ambient and reflected light in crevices.", occlusionMap))
+			{
+				surface.OcclusionMap = occlusionMap;
+				surfaceChanged = true;
+			}
+			surfaceChanged |= channelDropdown("Occlusion Channel", surface.OcclusionChannel, "Channel of the occlusion map to read. glTF ORM maps keep occlusion in R.");
+			surfaceChanged |= ImGuiEx::Property("Occlusion Strength", surface.OcclusionStrength, 0.01f, 0.0f, 1.0f, "", false);
+
+			AssetHandle heightMap;
+			if (textureSlot("Height Map", surface.HeightMap, "Grayscale height, used as a bump map (red channel).", heightMap))
+			{
+				surface.HeightMap = heightMap;
+				surfaceChanged = true;
+			}
+			surfaceChanged |= ImGuiEx::Property("Bump Height", surface.BumpHeight, 0.001f, 0.0f, 1.0f,
+				"The height map's full range in world units (metres).", false);
+
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
+		if (ImGuiEx::PropertyGridHeader("UV"))
+		{
+			ImGuiEx::BeginPropertyGrid();
+
+			surfaceChanged |= ImGuiEx::Property("Tiling", surface.UVTiling, 0.01f, 0.0f, 0.0f, "How many times the maps repeat across the surface.", false);
+			surfaceChanged |= ImGuiEx::Property("Offset", surface.UVOffset, 0.01f, 0.0f, 0.0f, "", false);
+			surfaceChanged |= ImGuiEx::Property("Rotation", surface.UVRotation, 0.5f, -360.0f, 360.0f, "Degrees.", false);
 
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
@@ -519,5 +606,8 @@ namespace Lux
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
 		}
+
+		if (surfaceChanged)
+			material->SetSurfaceParameters(surface);
 	}
 }

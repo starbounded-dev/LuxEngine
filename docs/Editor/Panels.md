@@ -319,9 +319,10 @@ dirty tab asks to Save, Discard or Cancel.
 - **Preview** (left): a live render of the material on a sphere, cube, cylinder, plane or torus from
   the project's `Meshes/Source/Default/` folder. Drag to orbit, scroll to zoom; the sky light can be
   turned off. Changes show immediately, in the scene too.
-- **Properties** (right): Surface (base color, metallic, roughness, emission, and opacity on
-  transparent materials), Texture Maps (base color, normal, metallic, roughness, use-normal-map) and
-  Rendering (cast shadows).
+- **Properties** (right): Surface (base color, metallic, roughness, specular, and opacity on
+  transparent materials), Emission (color, intensity, map), Texture Maps (base color, normal with
+  strength, metallic / roughness / occlusion with a channel picker for packed ORM maps, height as a
+  bump map), UV (tiling, offset, rotation) and Rendering (cast shadows).
 - **Save / Revert**: edits change the loaded material right away but reach the `.lmat` file only on
   Save. Revert returns to the saved state. Every finished edit — a whole slider drag, a Revert — is
   one step on the editor's undo stack (`Ctrl+Z`).
