@@ -55,11 +55,11 @@ Honest ledger. Everything below is measured or observed, not assumed.
 | VA occlusion → FMOD | ❌ Blocked upstream | Identical values with and without geometry. Engine side is correct. |
 | Buses | ✅ Get/set volume | No snapshots, no VCAs, no metering. |
 | C# API | ❌ Nothing | `AudioSourceComponent` in C# is an empty class. |
-| Listener | ⚠️ Minimal | Single, index 0, still carries dead miniaudio cone fields. |
+| Listener | ⚠️ Minimal | Single, index 0, still carries dead cone fields from the previous backend. |
 | Runtime export | ❌ Broken | Ships no banks and no Studio config. Exported games are silent. |
 
 **The three things that most need fixing** are, in order: no C# API at all, runtime export shipping
-silent, and the listener still being miniaudio-shaped.
+silent, and the listener still being shaped by the previous backend.
 
 ---
 
@@ -273,7 +273,7 @@ struct AudioListenerComponent
 };
 ```
 
-The cone fields go — FMOD has no listener cone, so they were dead miniaudio vocabulary.
+The cone fields go — FMOD has no listener cone, so they were dead vocabulary from the previous backend.
 
 Both the Studio listener and the Core listener are driven while any Core-API playback remains; after
 the legacy path is deleted, only Studio's.
@@ -741,7 +741,7 @@ Ordered so each phase is independently useful and leaves the engine working.
 | 3 | **Listener rework** | Index, weight, attenuation target; delete cone fields | Split-screen, third-person |
 | 4 | **C# API** | Components, one-shots, buses, instances, handles | Everything gameplay-driven |
 | 5 | **Runtime export** | Ship banks, carry config, fail loudly | Shipping at all |
-| 6 | **Delete legacy path** | Remove `AudioSource`, raw-file playback, miniaudio | One code path |
+| 6 | **Delete legacy path** | Remove `AudioSource`, raw-file playback, the legacy backend | One code path |
 | 7 | **Acoustic materials** | Material enum, collider tagging, VA mapping | Parts 5 and 7 both |
 | 8 | **Zones and snapshots — implemented** | Box/sphere/primitive-collider zones, priority/listener blending, FMOD intensity control, C# and editor integration; see `AUDIO_ZONES.md` | Ambience, environment |
 | 9 | **Surfaces and physics audio — implemented** | Shared table asset, ground-query/C# footsteps, Jolt impacts, scrape/roll lifetimes; see `AUDIO_SURFACES.md` | — |

@@ -237,6 +237,3 @@ Project:
     Timer:
       Enabled: false
       LevelFilter: Trace
-    miniaudio:
-      Enabled: true
-      LevelFilter: Error
