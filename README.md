@@ -13,7 +13,7 @@ This is a solo project that doubles as a learning vehicle for engine architectur
 | Platform | Status | Notes |
 |---|---|---|
 | **Windows 10/11 x64** | Supported | Visual Studio 2022 (CI target) or 2026; MSBuild. Dedicated render thread on by default. |
-| **Linux x64** | Supported | Built and verified in CI on Ubuntu 24.04; developed daily on Arch. Clang + GNU make. |
+| **Linux x64** | Supported | Built and verified in CI on Ubuntu 26.04; developed daily on Arch. Clang + GNU make. |
 | macOS | Not supported | No Metal/MoltenVK backend, no plan today. |
 | Consoles / mobile | Not supported | On hold — no SDK access. |
 
@@ -124,6 +124,9 @@ sudo pacman -S --needed nvidia-utils       # NVIDIA
 <details>
 <summary><b>Debian / Ubuntu / Pop!_OS / Mint</b> (this is the CI configuration)</summary>
 
+> **Ubuntu 26.04 or newer.** Vercidium Audio links against glibc 2.43; Ubuntu 24.04 ships
+> 2.39 and cannot link it. This is why CI moved off 24.04.
+
 ```bash
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
@@ -133,7 +136,7 @@ sudo apt-get install -y --no-install-recommends \
     libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
     libdw-dev libunwind-dev libtbb-dev zlib1g-dev \
     mesa-vulkan-drivers
-# .NET 9 SDK (Ubuntu 24.04+):
+# .NET 9 SDK:
 sudo apt-get install -y dotnet-sdk-9.0
 ```
 
@@ -423,11 +426,16 @@ Ongoing: a measured performance campaign (see [docs/ENGINE_OPTIMIZATION_PLAN.md]
 The [Build LuxEngine](.github/workflows/main.yml) workflow builds Debug, Release and Dist on **two** runners:
 
 - **Windows Server 2025** — recursive LFS/submodule checkout, Python + Vulkan SDK + .NET 9, `scripts/Setup.py vs2022`, then MSBuild of `Lux.sln`.
-- **Ubuntu 24.04** — apt build dependencies, Vulkan SDK + .NET 9, then `scripts/Linux-Build.sh`, followed by an artifact verification step and a bundling step that resolves the binary's vendored shared libraries via `ldd` into `lib/` (the binary's RPATH is `$ORIGIN/lib`).
+- **Ubuntu 26.04** — apt build dependencies, Vulkan SDK + .NET 9, then `scripts/Linux-Build.sh`, followed by an artifact verification step and a bundling step that resolves the binary's vendored shared libraries via `ldd` into `lib/` (the binary's RPATH is `$ORIGIN/lib`).
 
 Release uploads an `editor-<config>` / `editor-linux-<config>` artifact with the built editor, sample project and resources; build logs are uploaded per configuration.
 
-> CI does not have the FMOD/VA SDKs, so audio-SDK-dependent generation is the one thing the public workflow cannot cover end to end.
+> Both runners stage FMOD and Vercidium Audio from a private repository
+> (`scripts/ci/StageAudioSDKs.py`, driven by the `AUDIO_SDK_REPOSITORY` variable and the
+> `AUDIO_SDK_TOKEN` secret), so CI does cover SDK-dependent generation. **Pull requests from
+> forks cannot read secrets and stop at that step by design.** Published artifacts have the
+> FMOD and VA runtime libraries stripped out — both EULAs forbid redistributing them — so a
+> downloaded artifact needs those libraries copied in from your own SDK before it will run.
 
 ***
 
