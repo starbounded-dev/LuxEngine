@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 //
 // Note:	this file is to be included in client applications ONLY
 //			NEVER include this file anywhere in the engine codebase

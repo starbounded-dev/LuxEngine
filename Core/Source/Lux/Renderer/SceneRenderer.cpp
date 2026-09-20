@@ -1,4 +1,7 @@
-﻿#include "lpch.h"
+﻿// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
+#include "lpch.h"
 #include "SceneRenderer.h"
 
 #include "Lux/Renderer/Renderer.h"

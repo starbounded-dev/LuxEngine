@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 // Platform detection using predefined macros
 #ifdef _WIN32
 	/* Windows x64/x86 */

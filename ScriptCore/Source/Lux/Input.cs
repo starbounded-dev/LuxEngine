@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 namespace Lux
 {
 	// ushort-backed to match the native MouseButton (enum class MouseButton : uint16_t).

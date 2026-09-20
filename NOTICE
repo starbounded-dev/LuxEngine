@@ -1,0 +1,97 @@
+LuxEngine
+Copyright 2025-2026 starbounded-dev
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this software except in compliance with the License. A copy of the License is
+distributed with this software in the file LICENSE, and is also available at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied.
+
+
+================================================================================
+UPSTREAM LINEAGE
+================================================================================
+
+Portions of this software are derived from Hazel
+(https://github.com/TheCherno/Hazel), Copyright Studio Cherno, licensed under
+the Apache License, Version 2.0. The architecture, and parts of the engine
+core, asset system, renderer abstraction and editor shell, descend from that
+project and have been substantially modified.
+
+
+================================================================================
+THIRD-PARTY COMPONENTS DISTRIBUTED WITH THIS REPOSITORY
+================================================================================
+
+The following components are included in this repository (in Core/vendor/) and
+remain under their own licenses. Their copyright notices and license texts are
+retained in their respective directories.
+
+Permissive open-source components
+---------------------------------
+
+  Animation Compression Library (acl)  MIT       Copyright (c) 2017 Nicholas Frechette & ACL contributors
+  Realtime Math (rtm)                  MIT       Copyright (c) 2018 Nicholas Frechette
+  Open Asset Import Library (assimp)   BSD-3     Copyright (c) 2006-2021, assimp team
+  Box2D                                MIT       Copyright (c) 2019 Erin Catto
+  choc                                 ISC       Copyright (c) 2021 Tracktion Corporation
+  Coral                                MIT       Copyright (c) 2023 Studio Cherno
+  EnTT                                 MIT       Copyright (c) 2017-2024 Michele Caini
+  FastNoise                            MIT       Copyright (c) 2017 Jordan Peck
+  filewatch                            MIT       Copyright (c) 2017 Thomas Monkman
+  GLFW                                 zlib      Copyright (c) 2002-2019 Marcus Geelnard, Camilla Lowy
+  OpenGL Mathematics (glm)             MIT       Copyright (c) 2005 G-Truc Creation
+  Dear ImGui                           MIT       Copyright (c) 2014-2025 Omar Cornut
+  ImGuizmo                             MIT       Copyright (c) 2016 Cedric Guillemet
+  Jolt Physics                         MIT       Copyright (c) 2021 Jorrit Rouwe
+  magic_enum                           MIT       Copyright (c) 2019-2022 Daniil Goncharov
+  msdf-atlas-gen / msdfgen             MIT       Copyright (c) 2020 Viktor Chlumsky
+  FreeType (via msdfgen)               FTL       Copyright (c) 1996-2023 David Turner, Robert Wilhelm, Werner Lemberg
+  Native File Dialog Extended          zlib      Copyright (c) Bernard Teo, Michael Labbe
+  NVRHI                                MIT       Copyright (c) 2014-2021, NVIDIA CORPORATION
+  shaderc                              Apache-2  Copyright (c) The Shaderc Authors
+  SMAA                                 MIT       Copyright (c) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia, Fernando Navarro, Diego Gutierrez
+  spdlog                               MIT       Copyright (c) 2016 Gabi Melman
+  stb                                  Public Domain / MIT   Copyright (c) 2017 Sean Barrett
+  Tracy Profiler                       BSD-3     Copyright (c) 2017-2024 Bartosz Taudul
+  Vulkan Memory Allocator              MIT       Copyright (c) 2017-2021 Advanced Micro Devices, Inc.
+  yaml-cpp                             MIT       Copyright (c) 2008-2015 Jesse Beder
+
+Redistributable components under proprietary terms
+--------------------------------------------------
+
+  NVIDIA Nsight Aftermath SDK
+      Copyright (c) 2017-2020, NVIDIA CORPORATION. Redistributed under the
+      NVIDIA software license included at Core/vendor/NvidiaAftermath/LICENSE.
+
+  Discord Social SDK
+      Copyright (c) Discord Inc. Redistributed under Discord's developer terms;
+      third-party notices at Core/vendor/discord_social_sdk/License-Notices.txt.
+
+
+================================================================================
+THIRD-PARTY SDKS REQUIRED AT BUILD TIME (NOT DISTRIBUTED HERE)
+================================================================================
+
+Building LuxEngine requires the following SDKs, which are NOT included in this
+repository and must be obtained separately under their own license terms.
+Binaries built from this source link against them; the Apache License above
+covers LuxEngine's own source code only, and does not grant any rights to
+these SDKs or to redistribute them.
+
+  FMOD Engine (Core + Studio)   FMOD End User License Agreement, Firelight
+                                Technologies Pty Ltd. https://www.fmod.com/licensing
+
+  Vercidium Audio               Vercidium Audio End User Licence Agreement,
+                                Vercidium Pty Ltd. https://vercidium.com
+
+  Vulkan SDK                    LunarG / Khronos Group; a collection of
+                                components under Apache-2.0 and other licenses.
+
+Anyone distributing binaries built from this source is responsible for
+complying with those SDK licenses, including their own attribution and
+redistribution requirements.
