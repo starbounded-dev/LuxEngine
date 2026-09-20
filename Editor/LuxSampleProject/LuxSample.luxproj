@@ -8,7 +8,7 @@ Project:
   AnimationPath: Animation
   ScriptModulePath: Scripts/Binaries/LuxSample.dll
   DefaultNamespace: LuxSample
-  StartScene: Scenes/LaptopStart.luxscene
+  StartScene: Scenes/FMODDemo.luxscene
   AutomaticallyReloadAssembly: true
   AutoSave: true
   AutoSaveInterval: 300
@@ -16,7 +16,7 @@ Project:
     GameName: LuxSample
     WindowWidth: 1920
     WindowHeight: 1080
-    Fullscreen: false
+    Fullscreen: true
     VSync: false
     IconPath: Textures/luxLogo.png
     IconHandle: 3523050505664199236
@@ -95,9 +95,85 @@ Project:
   Audio:
     FileStreamingDurationThreshold: 1
     StudioProjectPath: Audio/SampleProject/SampleProject.fspro
+    StudioPlatform: Desktop
+    Windows:
+      Enabled: false
+      StudioPlatform: Desktop
+      BankOutputPath: Build/Desktop
+      Performance:
+        MuteWhenUnfocused: false
+        RealVoices: 64
+        CPUPercent: 5
+        RaytracingMilliseconds: 2
+        BankMemoryMiB: 64
+        BusVoices:
+          bus:/: 64
+    Linux:
+      Enabled: false
+      StudioPlatform: Desktop
+      BankOutputPath: Build/Desktop
+      Performance:
+        MuteWhenUnfocused: false
+        RealVoices: 64
+        CPUPercent: 5
+        RaytracingMilliseconds: 2
+        BankMemoryMiB: 64
+        BusVoices:
+          bus:/: 64
     StudioBankOutputPath: Build/Desktop
     RebuildBanksOnPlay: true
     EnableLiveUpdate: true
+    AcousticMaterials:
+      {}
+    SurfaceTable: 0
+    DialogueTable: 0
+    DialogueLanguage: en
+    Accessibility:
+      Version: 1
+      BuiltInUI: true
+      DefaultLanguage: en
+      DescriptionDuck: 0.25
+      Defaults:
+        Subtitles: true
+        Captions: false
+        VisualCues: false
+        SpeakerNames: true
+        DirectionIndicators: true
+        Mono: false
+        AudioDescriptions: false
+        TextSize: 24
+        BackgroundOpacity: 0.75
+        DurationMultiplier: 1
+        MaxLines: 3
+        DialogueBoost: 1
+        DynamicRange: 0
+        Volumes:
+          Master: 1
+          Music: 1
+          SFX: 1
+          Dialogue: 1
+          UI: 1
+          Ambience: 1
+      Buses:
+        Master: bus:/
+        Music: ""
+        SFX: ""
+        Dialogue: ""
+        UI: ""
+        Ambience: ""
+      Events:
+        {}
+      SpeakerColors:
+        {}
+    Performance:
+      MuteWhenUnfocused: false
+      RealVoices: 64
+      CPUPercent: 5
+      RaytracingMilliseconds: 2
+      BankMemoryMiB: 64
+      BusVoices:
+        bus:/: 64
+    ZoneReverbMode: 0
   Physics:
     FixedTimestep: 0.0166666675
     Gravity: [0, -9.81000042, 0]
