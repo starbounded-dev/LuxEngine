@@ -6,6 +6,7 @@
 #include "KeyCodes.h"
 
 #include <array>
+#include <chrono>
 #include <map>
 #include <string_view>
 #include <vector>
@@ -70,7 +71,7 @@ namespace Lux {
 		std::array<float, (size_t)GamepadAxis::Count> Axes{}; // Deadzone already applied.
 	};
 
-	// Controller families with engine output support, from the GUID.
+	// Controller families with engine output support (rumble / adaptive triggers), from the GUID.
 	enum class GamepadFamily : uint8_t { Other, DualSense, DualShock4, Xbox };
 
 	struct Controller
@@ -167,7 +168,15 @@ namespace Lux {
 		static void SetGamepadTriggerEffect(GamepadTrigger trigger, const TriggerEffect& effect, int id = -1);
 		static void ResetGamepadTriggerEffects();
 
-		// Clears trigger effects on the hardware; call once before exit.
+		// Rumble. low = large (low-frequency) motor, high = small (high-frequency) motor, both 0..1.
+		// durationSeconds <= 0 rumbles until StopGamepadRumble. id < 0 targets every connected
+		// gamepad. Backends: DualSense / DualShock 4 over USB HID and Xbox via XInput on Windows;
+		// evdev force feedback for any supporting pad on Linux. Unsupported pads ignore it.
+		static bool SupportsRumble(int id = -1);
+		static void RumbleGamepad(float low, float high, float durationSeconds, int id = -1);
+		static void StopGamepadRumble(int id = -1);
+
+		// Stops rumble and trigger effects on the hardware; call once before exit.
 		static void ShutdownGamepadOutput();
 
 		// Internal use only...
@@ -183,8 +192,18 @@ namespace Lux {
 		inline static std::map<int, Controller> s_Controllers;
 		inline static float s_GamepadDeadzone = 0.15f;
 
+		struct RumbleState
+		{
+			float Low = 0.0f;
+			float High = 0.0f;
+			std::chrono::steady_clock::time_point End;
+		};
+		inline static std::map<int, RumbleState> s_Rumble;                       // Requested, per slot.
+		inline static std::map<int, std::pair<float, float>> s_AppliedRumble;    // Last sent to PlatformRumble.
+		inline static uint32_t s_ConnectedControllerMask = 0;
+
 		static const Controller* FindGamepad(int id);
-		// Flushes DualSense output.
+		// Expires rumble, routes it to each backend, and flushes DualSense / DualShock 4 output.
 		static void UpdateGamepadOutput();
 	};
 

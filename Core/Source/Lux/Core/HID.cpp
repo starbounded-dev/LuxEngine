@@ -33,7 +33,7 @@ namespace Lux::HID {
 			if (info.Bluetooth || (info.OutputReportSize != 0 && info.OutputReportSize != m_USBReportSize))
 			{
 				if (!m_WarnedBluetooth)
-					LUX_CORE_WARN("{} connected over Bluetooth: output effects need a USB cable (a Bluetooth output report would stop the controller's input from reaching the engine until it reconnects).", m_Name);
+					LUX_CORE_WARN("{} connected over Bluetooth: rumble and trigger effects need a USB cable (a Bluetooth output report would stop the controller's input from reaching the engine until it reconnects).", m_Name);
 				m_WarnedBluetooth = true;
 				continue;
 			}

@@ -123,6 +123,9 @@ namespace Lux {
 	static Coral::Bool32 Input_SupportsTriggerEffects(int32_t id) { return Input::SupportsTriggerEffects(id); }
 	static void Input_SetGamepadTriggerEffect(GamepadTrigger trigger, TriggerEffect* effect, int32_t id) { Input::SetGamepadTriggerEffect(trigger, *effect, id); }
 	static void Input_ResetGamepadTriggerEffects() { Input::ResetGamepadTriggerEffects(); }
+	static Coral::Bool32 Input_SupportsRumble(int32_t id) { return Input::SupportsRumble(id); }
+	static void Input_RumbleGamepad(float low, float high, float durationSeconds, int32_t id) { Input::RumbleGamepad(low, high, durationSeconds, id); }
+	static void Input_StopGamepadRumble(int32_t id) { Input::StopGamepadRumble(id); }
 
 	#pragma endregion
 
@@ -707,6 +710,9 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(Input_SupportsTriggerEffects);
 		LUX_ADD_INTERNAL_CALL(Input_SetGamepadTriggerEffect);
 		LUX_ADD_INTERNAL_CALL(Input_ResetGamepadTriggerEffects);
+		LUX_ADD_INTERNAL_CALL(Input_SupportsRumble);
+		LUX_ADD_INTERNAL_CALL(Input_RumbleGamepad);
+		LUX_ADD_INTERNAL_CALL(Input_StopGamepadRumble);
 
 		LUX_ADD_INTERNAL_CALL(Scene_CreateEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_DestroyEntity);

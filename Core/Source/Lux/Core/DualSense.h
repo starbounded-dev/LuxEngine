@@ -7,17 +7,21 @@
 
 namespace Lux::DualSense {
 
-	// DualSense adaptive triggers through the USB output report, since GLFW is input-only. USB only
-	// (see HID::DeviceGroup). GLFW cannot say which HID device backs which joystick slot, so
-	// effects go to every connected DualSense. Main thread only; driven by Input::Update.
+	// DualSense output (adaptive triggers, and rumble on Windows) through the USB output report,
+	// since GLFW is input-only. USB only (see HID::DeviceGroup). GLFW cannot say which HID device
+	// backs which joystick slot, so output goes to every connected DualSense. On Linux, rumble uses
+	// evdev force feedback instead (GamepadRumble.h) and this report carries triggers only.
+	// Main thread only; driven by Input::Update.
 
 	void SetTriggerEffect(GamepadTrigger trigger, const TriggerEffect& effect);
 	void ResetTriggerEffects();
+	// Motor strengths 0..1: low = large (low-frequency) motor, high = small (high-frequency) motor.
+	void SetRumble(float low, float high);
 
 	// connectedCount = DualSenses GLFW currently sees; a change triggers re-enumeration.
 	void Update(uint32_t connectedCount);
-	// Clears trigger effects on the hardware and closes devices. Call before exit, or a trigger
-	// stays stiff after the application quits.
+	// Clears triggers and rumble on the hardware and closes devices. Call before exit, or a
+	// trigger stays stiff after the application quits.
 	void Shutdown();
 
 }

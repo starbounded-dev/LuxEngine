@@ -140,7 +140,7 @@ namespace Lux {
 			delete layer;
 		}
 
-		// Adaptive-trigger effects persist on the controller; clear them before exiting.
+		// Rumble and adaptive-trigger effects persist on the controller; clear them before exiting.
 		Input::ShutdownGamepadOutput();
 
 		//ScriptEngine::Shutdown();

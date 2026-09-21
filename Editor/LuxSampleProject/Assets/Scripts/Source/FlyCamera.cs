@@ -15,7 +15,7 @@ namespace LuxSample
 	//   - Left stick  : move / strafe (analog, speed follows how far you push)
 	//   - Right stick : look around
 	//   - RT / RB [R2 / R1] : up,  LT / LB [L2 / L1] : down
-	//   - Click the left stick [L3] : sprint until the stick is released
+	//   - Click the left stick [L3] : sprint until the stick is released (with a short rumble)
 	//   - DualSense over USB: R2/L2 push back (adaptive triggers), harder while sprinting
 	//
 	// The script owns yaw/pitch, so movement always follows where you're looking. If forward/back
@@ -30,6 +30,7 @@ namespace LuxSample
 		public bool InvertGamepadY = false;
 		public int Gamepad = -1;              // Controller slot; -1 = first connected gamepad.
 		public bool AdaptiveTriggers = true;  // DualSense only; other pads ignore it.
+		public bool RumbleOnSprint = true;    // Short thump when gamepad sprint engages.
 
 		private float m_Yaw;
 		private float m_Pitch;
@@ -162,7 +163,11 @@ namespace LuxSample
 
 			// L3 is hard to hold while steering, so a click latches sprint until the stick recenters.
 			if (Input.IsGamepadButtonPressed(GamepadButton.LeftStick, Gamepad))
+			{
+				if (!m_GamepadSprint && RumbleOnSprint)
+					Input.RumbleGamepad(low: 0.5f, high: 0.25f, duration: 0.15f, Gamepad);
 				m_GamepadSprint = true;
+			}
 			else if (move.X == 0.0f && move.Y == 0.0f)
 				m_GamepadSprint = false;
 

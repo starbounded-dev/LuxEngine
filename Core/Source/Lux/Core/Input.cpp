@@ -7,6 +7,10 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Core/DualSense.h"
+#include "Lux/Core/DualShock4.h"
+#include "Lux/Core/GamepadRumble.h"
+
+#include <chrono>
 //#include "Lux/ImGui/PropertyGrid.h"
 
 #include <GLFW/glfw3.h>
@@ -156,9 +160,74 @@ namespace Lux {
 
 	void Input::UpdateGamepadOutput()
 	{
-		const uint32_t dualSenseCount = (uint32_t)std::count_if(s_Controllers.begin(), s_Controllers.end(),
-			[](const auto& entry) { return entry.second.Family == GamepadFamily::DualSense; });
+		uint32_t connectedMask = 0;
+		for (const auto& [id, controller] : s_Controllers)
+			connectedMask |= 1u << id;
+
+		if (connectedMask != s_ConnectedControllerMask)
+		{
+			s_ConnectedControllerMask = connectedMask;
+			PlatformRumble::OnControllersChanged();
+			s_AppliedRumble.clear(); // Re-send everything to the (possibly new) devices.
+		}
+
+		// Expire timed rumble and forget disconnected slots.
+		const auto now = std::chrono::steady_clock::now();
+		std::erase_if(s_Rumble, [now](const auto& entry)
+		{
+			return entry.second.End <= now || !IsControllerPresent(entry.first);
+		});
+
+		float dualSenseLow = 0.0f, dualSenseHigh = 0.0f;
+		float dualShock4Low = 0.0f, dualShock4High = 0.0f;
+		uint32_t dualSenseCount = 0, dualShock4Count = 0;
+
+		for (const auto& [id, controller] : s_Controllers)
+		{
+			const auto rumble = s_Rumble.find(id);
+			const float low = rumble != s_Rumble.end() ? rumble->second.Low : 0.0f;
+			const float high = rumble != s_Rumble.end() ? rumble->second.High : 0.0f;
+
+			if (controller.Family == GamepadFamily::DualSense)
+				dualSenseCount++;
+			else if (controller.Family == GamepadFamily::DualShock4)
+				dualShock4Count++;
+
+#ifdef LUX_PLATFORM_WINDOWS
+			// PlayStation pads rumble through their HID report, which reaches every pad of that
+			// model at once, so the strongest request among them wins.
+			if (controller.Family == GamepadFamily::DualSense)
+			{
+				dualSenseLow = std::max(dualSenseLow, low);
+				dualSenseHigh = std::max(dualSenseHigh, high);
+				continue;
+			}
+			if (controller.Family == GamepadFamily::DualShock4)
+			{
+				dualShock4Low = std::max(dualShock4Low, low);
+				dualShock4High = std::max(dualShock4High, high);
+				continue;
+			}
+#endif
+
+			const auto applied = s_AppliedRumble.find(id);
+			if (applied != s_AppliedRumble.end() && applied->second.first == low && applied->second.second == high)
+				continue;
+
+			// Nothing to stop on a pad that never rumbled; skip the backend call.
+			if (applied == s_AppliedRumble.end() && low == 0.0f && high == 0.0f)
+				continue;
+
+			PlatformRumble::Set(controller, low, high);
+			s_AppliedRumble[id] = { low, high };
+		}
+
+		std::erase_if(s_AppliedRumble, [](const auto& entry) { return !IsControllerPresent(entry.first); });
+
+		DualSense::SetRumble(dualSenseLow, dualSenseHigh);
+		DualShock4::SetRumble(dualShock4Low, dualShock4High);
 		DualSense::Update(dualSenseCount);
+		DualShock4::Update(dualShock4Count);
 	}
 
 	bool Input::IsKeyPressed(KeyCode key)
@@ -505,9 +574,67 @@ namespace Lux {
 		DualSense::ResetTriggerEffects();
 	}
 
+	bool Input::SupportsRumble(int id)
+	{
+		auto supports = [](const Controller& controller)
+		{
+#ifdef LUX_PLATFORM_WINDOWS
+			if (controller.Family == GamepadFamily::DualSense || controller.Family == GamepadFamily::DualShock4)
+				return true;
+#endif
+			return PlatformRumble::Supports(controller);
+		};
+
+		if (id >= 0)
+		{
+			const Controller* controller = GetController(id);
+			return controller && supports(*controller);
+		}
+
+		return std::any_of(s_Controllers.begin(), s_Controllers.end(), [&supports](const auto& entry) { return supports(entry.second); });
+	}
+
+	void Input::RumbleGamepad(float low, float high, float durationSeconds, int id)
+	{
+		RumbleState state;
+		state.Low = std::clamp(low, 0.0f, 1.0f);
+		state.High = std::clamp(high, 0.0f, 1.0f);
+		state.End = durationSeconds > 0.0f
+			? std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(durationSeconds))
+			: std::chrono::steady_clock::time_point::max();
+
+		if (state.Low == 0.0f && state.High == 0.0f)
+		{
+			StopGamepadRumble(id);
+			return;
+		}
+
+		if (id >= 0)
+		{
+			if (IsControllerPresent(id))
+				s_Rumble[id] = state;
+			return;
+		}
+
+		for (const auto& [controllerID, controller] : s_Controllers)
+			s_Rumble[controllerID] = state;
+	}
+
+	void Input::StopGamepadRumble(int id)
+	{
+		if (id >= 0)
+			s_Rumble.erase(id);
+		else
+			s_Rumble.clear();
+	}
+
 	void Input::ShutdownGamepadOutput()
 	{
+		s_Rumble.clear();
+		s_AppliedRumble.clear();
+		PlatformRumble::Shutdown();
 		DualSense::Shutdown();
+		DualShock4::Shutdown();
 	}
 
 	void Input::TransitionPressedKeys()

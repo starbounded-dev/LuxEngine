@@ -149,6 +149,16 @@ namespace Lux
 			=> InternalCalls.Input_SetGamepadTriggerEffect(trigger, &effect, gamepad);
 		public static void ResetGamepadTriggerEffects() => InternalCalls.Input_ResetGamepadTriggerEffects();
 
+		// Rumble. 'low' drives the large low-frequency motor (heavy thud), 'high' the small
+		// high-frequency one (fine buzz), both 0..1. A duration <= 0 rumbles until
+		// StopGamepadRumble. gamepad -1 targets every connected gamepad. Works on Xbox, DualSense
+		// and DualShock 4 (PlayStation pads over USB) on Windows, and on any pad with kernel force
+		// feedback on Linux; other pads ignore it. Stopped automatically when Play stops.
+		public static bool SupportsRumble(int gamepad = -1) => InternalCalls.Input_SupportsRumble(gamepad);
+		public static void RumbleGamepad(float low, float high, float duration, int gamepad = -1)
+			=> InternalCalls.Input_RumbleGamepad(low, high, duration, gamepad);
+		public static void StopGamepadRumble(int gamepad = -1) => InternalCalls.Input_StopGamepadRumble(gamepad);
+
 		// Radial deadzone for all gamepads, as a fraction of full deflection (default 0.15).
 		public static float GamepadDeadzone
 		{

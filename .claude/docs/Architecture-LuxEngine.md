@@ -421,18 +421,24 @@ global scaled radial deadzone (`Input::SetGamepadDeadzone`, default 0.15; trigge
 connected gamepad. Exposed to C# as `Lux.Input.*Gamepad*` with matching `GamepadButton` /
 `GamepadAxis` enums. The raw `GetController*` API remains for unmapped devices.
 
-DualSense adaptive triggers: GLFW is input-only, so `Input` classifies each controller by GUID into
-`GamepadFamily` (DualSense = 054c:0ce6|0df2) and `Lux::DualSense` (`Core/Source/Lux/Core/DualSense.*`)
-writes the USB output report 0x02 (48 bytes, trigger-effect enable bits + two 11-byte effect blocks)
-through `Lux::HID` (`HID.h`/`HID.cpp` with `HID::DeviceGroup` = every USB device of one model;
-`Core/Platform/{Windows,Linux}/*HID.cpp` using SetupAPI+hid.lib / hidraw — no vendored library). USB
-only by design: any Bluetooth output report flips the pad into enhanced input mode, which
-DirectInput/GLFW cannot read until reconnect; Bluetooth pads are skipped with a one-time warning. GLFW
-slots cannot be matched to HID devices, so effects go to every connected DualSense.
-`Input::SetGamepadTriggerEffect` only records state; `Input::Update` → `UpdateGamepadOutput` →
-`DualSense::Update` sends on change and re-enumerates when the DualSense count changes.
-`Scene::OnRuntimeStop` resets effects; `Application::~Application` calls `Input::ShutdownGamepadOutput()`
-after layers detach so no trigger stays stiff. C#: `Input.SetGamepadTriggerEffect` with the
+Gamepad output (rumble, DualSense adaptive triggers): GLFW is input-only, so `Input` classifies each
+controller by GUID into `GamepadFamily` (Xbox = GLFW's "xinput" GUID prefix or vendor 045e; DualSense
+054c:0ce6|0df2; DualShock 4 054c:05c4|09cc|0ba0) and routes output per family. No vendored library:
+- `Lux::HID` (`HID.h`/`HID.cpp`, `Core/Platform/{Windows,Linux}/*HID.cpp`: SetupAPI+hid.lib / hidraw)
+  with `HID::DeviceGroup` = every USB device of one model. USB only by design: any Bluetooth output
+  report flips PlayStation pads into enhanced input mode, which DirectInput/GLFW cannot read until
+  reconnect; Bluetooth pads are skipped with a one-time warning.
+- `DualSense.*`: USB report 0x02 (48 B) — trigger effects always; rumble too on Windows.
+  `DualShock4.*`: USB report 0x05 (32 B), motor flag only (lightbar untouched). Windows only in practice.
+- `PlatformRumble` (`GamepadRumble.h`, `Core/Platform/<OS>/<OS>GamepadRumble.cpp`): Windows = XInput
+  for Xbox pads (k-th Xbox GLFW slot ↔ k-th connected XInput user, GLFW's add order); Linux = evdev
+  `FF_RUMBLE` for every pad, matched to GLFW by EVIOCGNAME name (PlayStation rumble included).
+GLFW slots cannot be matched to HID devices, so HID output reaches every pad of that model (strongest
+rumble request wins). `Input::RumbleGamepad` / `SetGamepadTriggerEffect` only record state (rumble has
+per-slot expiry); `Input::Update` → `UpdateGamepadOutput` expires, dispatches on change, and
+re-enumerates when the connected set changes. `Scene::OnRuntimeStop` stops rumble and resets triggers;
+`Application::~Application` calls `Input::ShutdownGamepadOutput()` after layers detach so nothing keeps
+rumbling or stays stiff. C#: `Input.RumbleGamepad`, `Input.SetGamepadTriggerEffect` with the
 `TriggerEffect` struct (layout static_asserted in ScriptGlue).
 
 ### 2.10 Audio

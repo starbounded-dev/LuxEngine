@@ -16,8 +16,12 @@ namespace Lux::DualSense {
 
 		// Offsets inside the effects block (report byte 1 onward).
 		constexpr size_t kEnableBits1 = 0;
+		constexpr uint8_t kEnableRumbleEmulation = 0x01;
+		constexpr uint8_t kDisableAudioHaptics = 0x02;
 		constexpr uint8_t kEnableRightTriggerEffect = 0x04;
 		constexpr uint8_t kEnableLeftTriggerEffect = 0x08;
+		constexpr size_t kRumbleHigh = 2; // Right (small) motor.
+		constexpr size_t kRumbleLow = 3;  // Left (large) motor.
 		constexpr size_t kRightTriggerEffect = 10;
 		constexpr size_t kLeftTriggerEffect = 21;
 		constexpr size_t kTriggerEffectSize = 11;
@@ -28,14 +32,23 @@ namespace Lux::DualSense {
 		constexpr uint8_t kModeWeapon = 0x25;
 		constexpr uint8_t kModeVibration = 0x26;
 
+#ifdef LUX_PLATFORM_WINDOWS
+		constexpr bool kRumbleOverHID = true;
+#else
+		constexpr bool kRumbleOverHID = false; // The kernel driver's evdev force feedback owns rumble.
+#endif
+
 		HID::DeviceGroup s_Devices("DualSense", 0x054C, { 0x0CE6 /* DualSense */, 0x0DF2 /* DualSense Edge */ }, kUSBReportSize);
 		std::array<TriggerEffect, 2> s_Effects{};
+		uint8_t s_RumbleLow = 0;
+		uint8_t s_RumbleHigh = 0;
 		uint32_t s_ConnectedCount = 0;
 		bool s_Dirty = false;
 
 		bool AnyOutputActive()
 		{
-			return s_Effects[0].Type != TriggerEffectType::Off || s_Effects[1].Type != TriggerEffectType::Off;
+			return s_Effects[0].Type != TriggerEffectType::Off || s_Effects[1].Type != TriggerEffectType::Off
+				|| s_RumbleLow != 0 || s_RumbleHigh != 0;
 		}
 
 		// Sets 'value' (3 bits) in zones [start, 9] and marks those zones active.
@@ -111,7 +124,19 @@ namespace Lux::DualSense {
 			EncodeTriggerEffect(s_Effects[(size_t)GamepadTrigger::Right], effects + kRightTriggerEffect);
 			EncodeTriggerEffect(s_Effects[(size_t)GamepadTrigger::Left], effects + kLeftTriggerEffect);
 
+			if constexpr (kRumbleOverHID)
+			{
+				effects[kEnableBits1] |= kEnableRumbleEmulation | kDisableAudioHaptics;
+				effects[kRumbleLow] = s_RumbleLow;
+				effects[kRumbleHigh] = s_RumbleHigh;
+			}
+
 			s_Devices.Write(report.data(), report.size());
+		}
+
+		uint8_t ToMotor(float strength)
+		{
+			return (uint8_t)std::lround(std::clamp(strength, 0.0f, 1.0f) * 255.0f);
 		}
 
 	}
@@ -128,10 +153,25 @@ namespace Lux::DualSense {
 
 	void ResetTriggerEffects()
 	{
-		if (!AnyOutputActive())
+		if (s_Effects[0].Type == TriggerEffectType::Off && s_Effects[1].Type == TriggerEffectType::Off)
 			return;
 
 		s_Effects = {};
+		s_Dirty = true;
+	}
+
+	void SetRumble(float low, float high)
+	{
+		if constexpr (!kRumbleOverHID)
+			return;
+
+		const uint8_t lowMotor = ToMotor(low);
+		const uint8_t highMotor = ToMotor(high);
+		if (lowMotor == s_RumbleLow && highMotor == s_RumbleHigh)
+			return;
+
+		s_RumbleLow = lowMotor;
+		s_RumbleHigh = highMotor;
 		s_Dirty = true;
 	}
 
@@ -141,7 +181,7 @@ namespace Lux::DualSense {
 		{
 			s_ConnectedCount = connectedCount;
 			s_Devices.Close();
-			// A newly connected pad starts with its triggers off; push any active effect to it.
+			// A newly connected pad starts with everything off; push any active output to it.
 			s_Dirty |= AnyOutputActive();
 		}
 
@@ -157,6 +197,7 @@ namespace Lux::DualSense {
 		if (AnyOutputActive() && s_ConnectedCount > 0)
 		{
 			s_Effects = {};
+			s_RumbleLow = s_RumbleHigh = 0;
 			Flush();
 		}
 

@@ -82,6 +82,9 @@ namespace Lux
 		internal static delegate*<int, Bool32> Input_SupportsTriggerEffects;
 		internal static delegate*<GamepadTrigger, TriggerEffect*, int, void> Input_SetGamepadTriggerEffect;
 		internal static delegate*<void> Input_ResetGamepadTriggerEffects;
+		internal static delegate*<int, Bool32> Input_SupportsRumble;
+		internal static delegate*<float, float, float, int, void> Input_RumbleGamepad;
+		internal static delegate*<int, void> Input_StopGamepadRumble;
 		#endregion
 
 		#region Scene

@@ -699,8 +699,9 @@ namespace Lux {
 
 		ReleaseAllRuntimeAudio();
 
-		// Scripts' adaptive-trigger effects must not outlive Play (the trigger would stay stiff in the editor).
+		// Scripts' rumble and trigger effects must not outlive Play (a trigger would stay stiff in the editor).
 		Input::ResetGamepadTriggerEffects();
+		Input::StopGamepadRumble();
 
 		m_Registry.view<NativeScriptComponent>().each([](auto, auto& nsc)
 			{
