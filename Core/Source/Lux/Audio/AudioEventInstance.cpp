@@ -542,7 +542,10 @@ namespace Lux {
 			return false;
 
 		// SUSTAINING counts as playing: the event is holding on a sustain point waiting for a key-off,
-		// which is audible even though it is not STARTING or PLAYING.
+		// which is audible even though it is not STARTING or PLAYING. STOPPING counts too: the fade-out
+		// is still audible, and the directors that retire instances once !IsPlaying() (dialogue,
+		// music stingers, physics voices) must not cut it short. SetProgrammerSound refusing a
+		// fading event is intended - it needs one that has never started.
 		return state == FMOD_STUDIO_PLAYBACK_PLAYING
 			|| state == FMOD_STUDIO_PLAYBACK_STARTING
 			|| state == FMOD_STUDIO_PLAYBACK_SUSTAINING
