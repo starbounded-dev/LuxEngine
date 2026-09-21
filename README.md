@@ -148,28 +148,42 @@ sudo ln -sf "$(ls -1 /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/bin/llvm-ar
 </details>
 
 <details>
-<summary><b>Fedora / RHEL / Nobara</b> (untested — equivalents, please report corrections)</summary>
+<summary><b>Fedora / RHEL / Nobara</b> (package names verified, not build-tested)</summary>
 
 ```bash
 sudo dnf install -y clang llvm make pkgconf-pkg-config git curl \
     gtk3-devel \
     libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
     libxkbcommon-devel wayland-devel wayland-protocols-devel \
-    elfutils-devel libunwind-devel tbb-devel zlib-devel \
+    elfutils-devel libunwind-devel tbb-devel zlib-ng-compat-devel \
     vulkan-loader mesa-vulkan-drivers dotnet-sdk-9.0
 ```
+
+`zlib-ng-compat-devel` is the zlib development package on current Fedora — plain `zlib-devel`
+no longer exists since the switch to zlib-ng.
 </details>
 
 <details>
-<summary><b>openSUSE Tumbleweed</b> (untested)</summary>
+<summary><b>openSUSE Tumbleweed</b> (package names verified, not build-tested)</summary>
 
 ```bash
-sudo zypper install -y clang llvm make pkg-config git curl \
+sudo zypper install -y clang llvm make pkgconf-pkg-config git curl \
     gtk3-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
     libxkbcommon-devel wayland-devel wayland-protocols-devel \
     libdw-devel libunwind-devel tbb-devel zlib-devel \
-    vulkan-tools Mesa-vulkan-device-select dotnet-sdk-9.0
+    libvulkan1
+# GPU driver (pick yours):
+sudo zypper install -y libvulkan_radeon      # AMD
+sudo zypper install -y libvulkan_intel       # Intel
 ```
+
+> **.NET 9 is not in the openSUSE repositories.** Nothing under `dotnet-*` exists in Tumbleweed
+> OSS, so install it from Microsoft's repository or with the `dotnet-install` script:
+>
+> ```bash
+> curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 9.0
+> export PATH="$HOME/.dotnet:$PATH"
+> ```
 </details>
 
 ### 2. Build
