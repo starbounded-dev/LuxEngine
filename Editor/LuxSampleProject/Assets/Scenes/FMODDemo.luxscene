@@ -147,6 +147,32 @@ Entities:
       EventBank: ""
       ParameterOverrides:
         []
+  - Entity: 73040000000000008
+    TagComponent:
+      Tag: Music Emitter - MusicAmbiance
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-2.5, 1.60000002, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.400000006, 0.400000006, 0.400000006]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        {}
+      Visible: true
+    AudioSourceComponent:
+      VolumeMultiplier: 0.5
+      PitchMultiplier: 1
+      PlayOnAwake: true
+      Priority: 128
+      DistanceCulling: true
+      EventGuid: "{755abc01-cd89-4daf-a27b-04d57b807b3d}"
+      EventPath: ""
+      EventBank: ""
+      ParameterOverrides:
+        []
   - Entity: 73040000000000005
     TagComponent:
       Tag: Sun
