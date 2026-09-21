@@ -650,6 +650,14 @@ namespace Lux {
 		if (it == m_Impl->SourceEmitters.end())
 			return;
 
+		// Join the in-flight batch before touching the world. Scene calls this from outside the
+		// WaitForResults/OnUpdate window too - entity destruction from scripts runs in the post-update
+		// queue after OnUpdate has kicked the next batch - and the listener's workers read its target
+		// list and this emitter. Removing or freeing it under them is the same use-after-free Stop()
+		// guards against. Inside the window the batch is already joined and this returns at once.
+		if (m_Impl->World)
+			vaWorldWait(m_Impl->World);
+
 		// Drop the listener's target first: leaving it registered would have the listener keep
 		// casting occlusion rays at an emitter that is on its way out of the world.
 		if (m_Impl->Listener)
