@@ -81,7 +81,7 @@ Entities:
     StaticMeshComponent:
       AssetID: 5047013130077771705
       MaterialTable:
-        {}
+        0: 13888570423779183036
       Visible: true
     MeshColliderComponent:
       ColliderAsset: 5047013130077771705
@@ -95,18 +95,18 @@ Entities:
       CollisionComplexity: "\x02"
   - Entity: 73040000000000003
     TagComponent:
-      Tag: Front Wall
+      Tag: Front Wall Left
     Parent: 7010016380193777032
     Children:
       []
     TransformComponent:
-      Position: [0, 1.5, 0]
+      Position: [-3.8, 1.5, 0]
       Rotation: [0, -0, 0]
-      Scale: [5.95760918, 3, 0.349999994]
+      Scale: [6.4000001, 3, 0.349999994]
     StaticMeshComponent:
       AssetID: 5047013130077771705
       MaterialTable:
-        {}
+        0: 3580326328630172300
       Visible: true
     MeshColliderComponent:
       ColliderAsset: 5047013130077771705
@@ -134,7 +134,7 @@ Entities:
     StaticMeshComponent:
       AssetID: 9685142686327195147
       MaterialTable:
-        {}
+        0: 9784983076328690787
       Visible: true
     AudioSourceComponent:
       VolumeMultiplier: 0.699999988
@@ -160,7 +160,7 @@ Entities:
     StaticMeshComponent:
       AssetID: 9685142686327195147
       MaterialTable:
-        {}
+        0: 9784983076328690787
       Visible: true
     AudioSourceComponent:
       VolumeMultiplier: 0.5
@@ -173,6 +173,81 @@ Entities:
       EventBank: ""
       ParameterOverrides:
         []
+  - Entity: 73040000000000009
+    TagComponent:
+      Tag: Front Wall Right
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [3.8, 1.5, 0]
+      Rotation: [0, -0, 0]
+      Scale: [6.4000001, 3, 0.349999994]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 3580326328630172300
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Plaster
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 73040000000000010
+    TagComponent:
+      Tag: Door Lintel
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.54999995, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1.20000005, 0.899999976, 0.349999994]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 3580326328630172300
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Plaster
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 73040000000000011
+    TagComponent:
+      Tag: Rug
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.5, 0.0199999996, -4]
+      Rotation: [0, -0, 0]
+      Scale: [4, 0.0399999991, 3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 11795118881602129835
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Carpet
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
   - Entity: 73040000000000005
     TagComponent:
       Tag: Sun
@@ -234,7 +309,7 @@ Entities:
       ShadowColor: [0, 0, 0, 1]
   - Entity: 11208467829056693847
     TagComponent:
-      Tag: Cube
+      Tag: Right Wall
     Parent: 7010016380193777032
     Children:
       []
@@ -245,7 +320,7 @@ Entities:
     StaticMeshComponent:
       AssetID: 5047013130077771705
       MaterialTable:
-        {}
+        0: 452586649420571484
       Visible: true
     MeshColliderComponent:
       ColliderAsset: 0
@@ -254,7 +329,7 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Metal
+      AcousticMaterial: Brick
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 16344437922393548024
@@ -270,7 +345,7 @@ Entities:
     StaticMeshComponent:
       AssetID: 5047013130077771705
       MaterialTable:
-        {}
+        0: 14140388573859824483
       Visible: true
     MeshColliderComponent:
       ColliderAsset: 0
@@ -279,12 +354,12 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: WoodThin
+      AcousticMaterial: Ceramic
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 15491283630166138703
     TagComponent:
-      Tag: Cube
+      Tag: Left Wall
     Parent: 7010016380193777032
     Children:
       []
@@ -295,7 +370,7 @@ Entities:
     StaticMeshComponent:
       AssetID: 5047013130077771705
       MaterialTable:
-        {}
+        0: 452586649420571484
       Visible: true
     MeshColliderComponent:
       ColliderAsset: 0
@@ -304,7 +379,7 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Carpet
+      AcousticMaterial: Brick
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 260440025664254057
@@ -320,7 +395,7 @@ Entities:
     StaticMeshComponent:
       AssetID: 5047013130077771705
       MaterialTable:
-        {}
+        0: 452586649420571484
       Visible: true
     MeshColliderComponent:
       ColliderAsset: 0

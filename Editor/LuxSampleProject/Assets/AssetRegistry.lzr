@@ -9,6 +9,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 452586649420571484
+    FilePath: Materials/Brick.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069061884741
+    Status: None
   - Handle: 596667460420446301
     FilePath: Meshes/Source/Sponza/Materials/Sponza_1_Material_1.lmat
     Type: Material
@@ -34,6 +39,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 1308641089669250941
+    FilePath: Textures/Metal049A/Metal049A_1K-JPG_Roughness.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031813456
+    Status: None
   - Handle: 1485593981058217637
     FilePath: Environment/pink_sunrise_4k.hdr
     Type: EnvMap
@@ -69,6 +79,11 @@ Assets:
     Type: Material
     FileLastWriteTime: 18446744069059659388
     Status: Ready
+  - Handle: 2299910097087262787
+    FilePath: Textures/Carpet016/Carpet016_1K-JPG_Roughness.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031741106
+    Status: None
   - Handle: 2430854865358074803
     FilePath: Meshes/Source/Sponza/16275776544635328252.png
     Type: Texture
@@ -84,6 +99,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 2757828894139162120
+    FilePath: Textures/RoofingTiles013A/RoofingTiles013A_1K-JPG_NormalGL.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031791092
+    Status: None
   - Handle: 2842015936735032481
     FilePath: Meshes/Source/Default/Materials/Capsule_0_Material_0.lmat
     Type: Material
@@ -99,6 +119,11 @@ Assets:
     Type: MeshSource
     FileLastWriteTime: 18446744069059611435
     Status: None
+  - Handle: 2990760316432664550
+    FilePath: Textures/Metal049A/Metal049A_1K-JPG_Color.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031813396
+    Status: None
   - Handle: 3065110451066032372
     FilePath: Meshes/Source/Sponza/Materials/Sponza_17_Material_17.lmat
     Type: Material
@@ -109,6 +134,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 3375092453195516949
+    FilePath: Textures/Carpet016/Carpet016_1K-JPG_NormalGL.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031741302
+    Status: None
   - Handle: 3398988298822542555
     FilePath: Meshes/Source/Sponza/13196865903111448057.jpg
     Type: Texture
@@ -129,6 +159,16 @@ Assets:
     Type: Material
     FileLastWriteTime: 18446744069059659386
     Status: Ready
+  - Handle: 3580326328630172300
+    FilePath: Materials/Plaster.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069061884741
+    Status: None
+  - Handle: 3605114192211273338
+    FilePath: Textures/Bricks097/Bricks097_1K-JPG_AmbientOcclusion.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031895974
+    Status: None
   - Handle: 3619039314442663296
     FilePath: Meshes/Source/Sponza/6667038893015345571.jpg
     Type: Texture
@@ -153,6 +193,11 @@ Assets:
     FilePath: Textures/Checkerboard.png
     Type: Texture
     FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 4831308940071205184
+    FilePath: Textures/Carpet016/Carpet016_1K-JPG_Color.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031741394
     Status: None
   - Handle: 5028464577764957996
     FilePath: Scripts/Source/FmodAudioDemo.cs
@@ -304,11 +349,21 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 7886385001127071647
+    FilePath: Textures/Bricks097/Bricks097_1K-JPG_NormalGL.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031896272
+    Status: None
   - Handle: 8072006523436107113
     FilePath: Meshes/Source/Sponza/Materials/Sponza_16_Material_16.lmat
     Type: Material
     FileLastWriteTime: 18446744069059659387
     Status: Ready
+  - Handle: 8170901691496568528
+    FilePath: Textures/Bricks097/Bricks097_1K-JPG_Roughness.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031896308
+    Status: None
   - Handle: 8207812174761993935
     FilePath: Meshes/Source/Sponza/Materials/Sponza_25_Material_25.lmat
     Type: Material
@@ -342,7 +397,7 @@ Assets:
   - Handle: 8868489982347245392
     FilePath: Scripts/Intermediates/Release/LuxSample.AssemblyInfo.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069061846899
+    FileLastWriteTime: 18446744069061881987
     Status: None
   - Handle: 8873821167095533110
     FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
@@ -364,6 +419,11 @@ Assets:
     Type: MeshSource
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 9784983076328690787
+    FilePath: Materials/MetalPlate.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069061884741
+    Status: None
   - Handle: 9810573357092627660
     FilePath: Meshes/Source/Sponza/8114461559286000061.jpg
     Type: Texture
@@ -404,6 +464,21 @@ Assets:
     Type: Material
     FileLastWriteTime: 18446744069059659387
     Status: Ready
+  - Handle: 10443876642434326522
+    FilePath: Textures/WoodFloor043/WoodFloor043_1K-JPG_NormalGL.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031855408
+    Status: None
+  - Handle: 10495372318963805279
+    FilePath: Textures/Plaster001/Plaster001_1K-JPG_Color.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031923708
+    Status: None
+  - Handle: 10701315663950626330
+    FilePath: Textures/Metal049A/Metal049A_1K-JPG_NormalGL.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031813150
+    Status: None
   - Handle: 10706109019726981847
     FilePath: Meshes/Source/Sponza/Materials/Sponza_9_Material_9.lmat
     Type: Material
@@ -424,6 +499,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 10910111727113926149
+    FilePath: Textures/Metal049A/Metal049A_1K-JPG_Metalness.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031813254
+    Status: None
   - Handle: 10955405005470926046
     FilePath: Meshes/Source/Default/Plane.gltf
     Type: MeshSource
@@ -449,6 +529,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 11355226946752581357
+    FilePath: Textures/RoofingTiles013A/RoofingTiles013A_1K-JPG_Roughness.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031791050
+    Status: None
   - Handle: 11536091019589397372
     FilePath: Meshes/Source/Sponza/14650633544276105767.jpg
     Type: Texture
@@ -479,6 +564,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 11795118881602129835
+    FilePath: Materials/Carpet.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069061884741
+    Status: None
   - Handle: 11816680699337023150
     FilePath: Environment/venice_dawn_1_4k.hdr
     Type: EnvMap
@@ -519,6 +609,11 @@ Assets:
     Type: Material
     FileLastWriteTime: 18446744069059636769
     Status: Ready
+  - Handle: 12875916381035008586
+    FilePath: Textures/WoodFloor043/WoodFloor043_1K-JPG_Color.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031855292
+    Status: None
   - Handle: 12888239829427574556
     FilePath: Scripts/Intermediates/Release/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs
     Type: ScriptFile
@@ -554,16 +649,31 @@ Assets:
     Type: Material
     FileLastWriteTime: 18446744069059659388
     Status: Ready
+  - Handle: 13888570423779183036
+    FilePath: Materials/WoodFloor.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069061884741
+    Status: None
   - Handle: 13917164595632565473
     FilePath: Meshes/Source/Sponza/7268504077753552595.jpg
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 14032044906544406563
+    FilePath: Textures/WoodFloor043/WoodFloor043_1K-JPG_Roughness.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031855290
+    Status: None
   - Handle: 14054485686195074294
     FilePath: Meshes/Source/Sponza/6047387724914829168.jpg
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 14140388573859824483
+    FilePath: Materials/RoofTiles.lmat
+    Type: Material
+    FileLastWriteTime: 18446744069061884741
+    Status: None
   - Handle: 14231046271141485607
     FilePath: Meshes/Source/Sponza/4910669866631290573.jpg
     Type: Texture
@@ -572,7 +682,7 @@ Assets:
   - Handle: 14293776709940706397
     FilePath: Scenes/FMODDemo.luxscene
     Type: Scene
-    FileLastWriteTime: 18446744069061835401
+    FileLastWriteTime: 18446744069061884911
     Status: Ready
   - Handle: 14516153528990365607
     FilePath: Meshes/Source/Materials/CubeScene_0_Material_0.lmat
@@ -604,6 +714,11 @@ Assets:
     Type: Audio
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 15600021756168062189
+    FilePath: Textures/WoodFloor043/WoodFloor043_1K-JPG_AmbientOcclusion.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031855060
+    Status: None
   - Handle: 15736897142292738885
     FilePath: Meshes/Source/Sponza/Materials/Sponza_19_Material_19.lmat
     Type: Material
@@ -619,11 +734,21 @@ Assets:
     Type: ScriptFile
     FileLastWriteTime: 18446744069059615689
     Status: None
+  - Handle: 15983446275544011186
+    FilePath: Textures/RoofingTiles013A/RoofingTiles013A_1K-JPG_Color.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031790900
+    Status: None
   - Handle: 16078392067688766467
     FilePath: Meshes/Source/Sponza/755318871556304029.jpg
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 16212976273744908290
+    FilePath: Textures/Bricks097/Bricks097_1K-JPG_Color.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031896012
+    Status: None
   - Handle: 16270877928576420274
     FilePath: Scenes/LaptopStart.luxscene
     Type: Scene
@@ -638,6 +763,16 @@ Assets:
     FilePath: Meshes/Source/Default/Torus.gltf
     Type: MeshSource
     FileLastWriteTime: 18446744069059611435
+    Status: None
+  - Handle: 16637787523753868095
+    FilePath: Textures/WoodFloor043/WoodFloor043_1K-JPG_Metalness.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031855408
+    Status: None
+  - Handle: 16644980224483055609
+    FilePath: Textures/RoofingTiles013A/RoofingTiles013A_1K-JPG_AmbientOcclusion.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031790826
     Status: None
   - Handle: 16892774771919552109
     FilePath: Meshes/Source/CubeScene.gltf
@@ -669,6 +804,16 @@ Assets:
     Type: EnvMap
     FileLastWriteTime: 18446744069059611435
     Status: None
+  - Handle: 17905929254207024612
+    FilePath: Textures/Carpet016/Carpet016_1K-JPG_AmbientOcclusion.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031741310
+    Status: None
+  - Handle: 17982641983837972857
+    FilePath: Textures/Plaster001/Plaster001_1K-JPG_Roughness.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031923502
+    Status: None
   - Handle: 17999790688375363419
     FilePath: Meshes/Source/Sponza/Materials/Sponza_2_Material_2.lmat
     Type: Material
@@ -684,3 +829,8 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069059611435
     Status: Ready
+  - Handle: 18192410136255490617
+    FilePath: Textures/Plaster001/Plaster001_1K-JPG_NormalGL.jpg
+    Type: Texture
+    FileLastWriteTime: 18446744069031923680
+    Status: None
