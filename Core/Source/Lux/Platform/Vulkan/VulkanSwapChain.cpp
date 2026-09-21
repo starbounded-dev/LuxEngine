@@ -317,9 +317,35 @@ namespace Lux {
 		m_AcquiredSemaphore = vk::Semaphore();
 	}
 
+	bool VulkanSwapChain::IsSurfaceZeroSized() const
+	{
+		VulkanDeviceManager* vulkanDeviceManager = static_cast<VulkanDeviceManager*>(Application::Get().GetGraphicsDeviceManager());
+
+		vk::SurfaceCapabilitiesKHR surfaceCaps;
+		if (vulkanDeviceManager->m_VulkanPhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface, &surfaceCaps) != vk::Result::eSuccess)
+			return false;
+
+		// 0xFFFFFFFF means the swapchain picks the size (Wayland), so the surface itself never blocks creation.
+		return surfaceCaps.currentExtent.width != 0xFFFFFFFF
+			&& (surfaceCaps.currentExtent.width == 0 || surfaceCaps.currentExtent.height == 0);
+	}
+
 	void VulkanSwapChain::OnResize(uint32_t width, uint32_t height)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+
+		// A minimized window has a 0x0 surface, for which no swapchain can be built. Keep the current
+		// one alive instead of destroying it: the render thread still has a frame queued from before
+		// the minimize was seen, and that frame acquires, renders to and presents THIS swapchain -
+		// tearing it down here left that frame calling vkAcquireNextImageKHR on a null swapchain
+		// (driver AV). Its acquire now fails with eOutOfDate, which BeginFrame handles. Leaving
+		// m_NeedsRecreate set makes Window::ProcessEvents retry until the window is restored.
+		if (m_SwapChain && IsSurfaceZeroSized())
+		{
+			m_NeedsRecreate = true;
+			return;
+		}
+
 		m_Width = width;
 		m_Height = height;
 		BackBufferResizing();
@@ -339,6 +365,15 @@ namespace Lux {
 
 		auto device = (nvrhi::vulkan::IDevice*)Application::Get().GetGraphicsDevice().Get();
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
+
+		m_ImageAcquired = false;
+
+		// No swapchain exists while the surface is 0x0 (e.g. the window started minimized).
+		if (!m_SwapChain)
+		{
+			m_NeedsRecreate = true;
+			return false;
+		}
 
 		const auto& semaphore = m_AcquireSemaphores[m_AcquireSemaphoreIndex];
 
@@ -370,15 +405,22 @@ namespace Lux {
 			// The acquire SUCCEEDED and signaled 'semaphore'; the image is still presentable. Render
 			// and present this frame as usual, and rebuild afterwards at the safe boundary.
 			m_NeedsRecreate = true;
+			m_ImageAcquired = true;
 			return true;
 		}
 
-		return res == vk::Result::eSuccess;
+		m_ImageAcquired = res == vk::Result::eSuccess;
+		return m_ImageAcquired;
 	}
 
 	void VulkanSwapChain::Present()
 	{
 		LUX_PROFILE_FUNCTION("VulkanSwapChain::Present");
+
+		// Presenting an image that was never acquired (failed/skipped acquire) is invalid usage.
+		if (!m_ImageAcquired)
+			return;
+		m_ImageAcquired = false;
 
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
 		auto device = (nvrhi::vulkan::IDevice*)Application::Get().GetGraphicsDevice().Get();

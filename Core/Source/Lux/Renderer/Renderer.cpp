@@ -23,6 +23,7 @@
 #include "Lux/Project/Project.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Renderer/MaterialAsset.h"
 
 #include "nvrhi/nvrhi.h"
 #include "nvrhi/utils.h"
@@ -732,6 +733,10 @@ namespace Lux {
 			std::scoped_lock lock(s_MipGenPipelineCacheMutex);
 			s_MipGenPipelineCache.clear();
 		}
+
+		// File-scope texture caches outlive the device unless released here; the CRT would otherwise
+		// destroy them at exit and call into an already-destroyed VkDevice (shutdown AV in the driver).
+		MaterialAsset::ReleaseSharedResources();
 
 		auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
 		nvrhi::DeviceHandle graphicsDevice = deviceManager ? deviceManager->GetDevice() : nullptr;

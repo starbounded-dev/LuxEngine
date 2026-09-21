@@ -126,6 +126,10 @@ namespace Lux {
 		void SetShadowCasting(bool castsShadows) { return m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
 		void UpdateMaterialComplexityMetadata();
 
+		// Drops the shared sRGB albedo-view cache. Must run before the graphics device is destroyed:
+		// the cache is a file-scope static, so without this its textures are freed by the CRT at exit.
+		static void ReleaseSharedResources();
+
 		static AssetType GetStaticType() { return AssetType::Material; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 

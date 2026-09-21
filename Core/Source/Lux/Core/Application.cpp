@@ -243,12 +243,12 @@ namespace Lux {
 			Timer cpuTimer;
 			if (!m_Minimized)
 			{
-				// On Render thread
-				bool frameBeginSuccess = true;
+				// On Render thread. Present() below skips itself when this acquire fails; the result is
+				// not passed through a local here because these lambdas run during the NEXT loop
+				// iteration, after any local captured by reference has gone out of scope.
 				Renderer::Submit([&]()
 					{
-						if (!m_Window->BeginFrame())
-							frameBeginSuccess = false;
+						m_Window->BeginFrame();
 					});
 
 				Renderer::BeginFrame();
@@ -285,10 +285,7 @@ namespace Lux {
 				// On Render thread
 				Renderer::Submit([&]()
 					{
-						if (frameBeginSuccess)
-						{
-							m_Window->Present();
-						}
+						m_Window->Present();
 						GetGraphicsDevice()->runGarbageCollection();
 					});
 

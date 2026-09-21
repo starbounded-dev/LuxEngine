@@ -51,6 +51,8 @@ namespace Lux {
 
 		void BackBufferResizing();
 		void BackBufferResized();
+	private:
+		bool IsSurfaceZeroSized() const;
 	public:
 		VulkanSwapChain(vk::SurfaceKHR surface);
 	private:
@@ -68,6 +70,7 @@ namespace Lux {
 
 		uint32_t m_AcquireSemaphoreIndex = 0;
 		bool m_NeedsRecreate = false;
+		bool m_ImageAcquired = false; // Render thread only: set by a successful BeginFrame, consumed by Present
 
 		struct SwapChainImage
 		{

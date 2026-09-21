@@ -70,6 +70,11 @@ namespace Lux {
 #endif
 	}
 
+	void MaterialAsset::ReleaseSharedResources()
+	{
+		s_SRGBAlbedoTextureCache.clear();
+	}
+
 	MaterialAsset::MaterialAsset(bool transparent)
 		: m_Transparent(transparent)
 	{
