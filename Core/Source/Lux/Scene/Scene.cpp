@@ -813,7 +813,7 @@ namespace Lux {
 				Entity entity{ handle, this };
 				const auto& source = entity.GetComponent<AudioSourceComponent>();
 				if (source.Event.IsValid())
-					GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity));
+					GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity), true, static_cast<float>(ts));
 				else if (m_RuntimeEventInstances.contains(entity.GetUUID()))
 					ReleaseRuntimeAudio(entity);
 			}
@@ -1047,10 +1047,10 @@ namespace Lux {
 		return &m_RuntimeEventInstances.at(entityID);
 	}
 
-	Ref<AudioEventInstance> Scene::GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake)
+	Ref<AudioEventInstance> Scene::GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake, float timestep)
 	{
 		auto& playback = m_RuntimeEventInstances[entity.GetUUID()];
-		playback.Update(source, worldTransform, m_RuntimeAudioListeners, m_IsPaused, allowPlayOnAwake);
+		playback.Update(source, worldTransform, m_RuntimeAudioListeners, m_IsPaused, allowPlayOnAwake, timestep);
 		return playback.GetInstance();
 	}
 

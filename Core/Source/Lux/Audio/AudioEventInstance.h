@@ -74,6 +74,8 @@ namespace Lux {
 		float GetParameter(const std::string& name) const;
 		bool SetParameterLabel(const std::string& name, const std::string& label);
 		int GetTimelinePosition() const;
+		// Timeline length in milliseconds; 0 for events without a timeline (action sheets).
+		int GetLength() const;
 		void SetTimelinePosition(int milliseconds);
 		bool SetCallbackHandle(uint64_t handle);
 		static std::vector<AudioEventNotification> DrainNotifications();

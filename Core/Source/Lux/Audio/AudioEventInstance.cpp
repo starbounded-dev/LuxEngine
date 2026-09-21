@@ -371,6 +371,14 @@ namespace Lux {
 		return position;
 	}
 
+	int AudioEventInstance::GetLength() const
+	{
+		FMOD::Studio::EventDescription* description = nullptr;
+		int length = 0;
+		return IsValid() && CheckResult(m_Instance->getDescription(&description), "get description") &&
+			CheckResult(description->getLength(&length), "get timeline length") ? length : 0;
+	}
+
 	void AudioEventInstance::SetTimelinePosition(int milliseconds)
 	{
 		if (IsValid())

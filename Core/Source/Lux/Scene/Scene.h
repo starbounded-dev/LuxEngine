@@ -227,7 +227,7 @@ namespace Lux {
 		void OnRaytracedAudioStop();
 		void StepPhysics(Timestep ts);
 		void RenderScene(EditorCamera& camera);
-		Ref<AudioEventInstance> GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake = true);
+		Ref<AudioEventInstance> GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake = true, float timestep = 0.0f);
 		void ReleaseRuntimeAudio(Entity entity);
 		void ReleaseAllRuntimeAudio();
 		void SyncAudioListeners(float timestep);

@@ -779,8 +779,11 @@ last-completed VA timing and culled-source counts. Editor panels only read cache
 
 `AudioSourceComponent::Priority` (0–256) reaches FMOD's channel-priority property. Opt-in
 `DistanceCulling` releases FMOD instances and VA emitters outside every weighted listener's authored
-maximum distance, with 5% inward hysteresis. Continuous sources freeze timeline/play intent and
-preserve script parameters/labels and layered pauses; one-shots are discarded. Source C# controls
+maximum distance, with 5% inward hysteresis. Continuous sources keep play intent, script
+parameters/labels and layered pauses; while culled and unpaused their timeline advances by the
+scene timestep (× pitch), wrapped over `EventDescription::getLength` since FMOD exposes no loop
+region (timeline-less events resume where culled). A one-shot already playing keeps its instance
+until it ends; one-shots not yet started while culled are discarded. Source C# controls
 route through scene-owned playback state, so controls while culled do not allocate Studio voices.
 Standalone script instances and the music/dialogue/zone directors keep their existing lifecycle.
 

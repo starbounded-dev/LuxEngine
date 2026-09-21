@@ -62,7 +62,7 @@ namespace Lux
 		m_Instance->SetPaused(m_Paused);
 	}
 	void AudioSourcePlayback::Update(const AudioSourceComponent& source, const glm::mat4& transform,
-		const AudioListener::States& listeners, bool paused, bool allowAwake)
+		const AudioListener::States& listeners, bool paused, bool allowAwake, float timestep)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const auto revision = AudioEngine::GetBankRevision();
@@ -111,6 +111,7 @@ namespace Lux
 				m_Spatial = m_Instance->Is3D();
 				m_OneShot = m_Instance->IsOneShot();
 				m_Maximum = m_Instance->GetMaximumDistance();
+				m_Length = m_Instance->GetLength();
 				// Canonical names preserve FMOD's case-insensitive/path aliases while culled.
 				auto parameters = std::move(m_Parameters);
 				auto labels = std::move(m_Labels);
@@ -126,6 +127,13 @@ namespace Lux
 		m_Culled = source.DistanceCulling && m_Metadata && m_Spatial && OutOfRange(glm::vec3(transform[3]), m_Maximum, listeners, m_Culled);
 		if (m_Culled)
 		{
+			// A started one-shot ends on its own, so keep it (FMOD virtualizes it); releasing it would
+			// silence the rest of it when the listener comes back before it finishes.
+			if (m_Instance && m_Started && m_OneShot)
+			{
+				Apply();
+				return;
+			}
 			if (m_Instance)
 			{
 				m_Timeline = m_Instance->GetTimelinePosition();
@@ -135,6 +143,15 @@ namespace Lux
 			m_Started = false;
 			if (m_OneShot)
 				m_WantsPlayback = false; // A past inaudible one-shot must never fire on re-entry.
+			else if (m_WantsPlayback && !m_Paused && !paused && m_Length > 0 && std::isfinite(timestep) && timestep > 0)
+			{
+				// Keep the released looping event's timeline moving so re-entry lands where it would
+				// have been. FMOD exposes no loop-region bounds, so wrap over the whole timeline.
+				m_TimelineCarry += static_cast<double>(timestep) * 1000.0 * std::max(m_Pitch, 0.0f);
+				const auto advance = static_cast<int64_t>(m_TimelineCarry);
+				m_TimelineCarry -= static_cast<double>(advance);
+				m_Timeline = static_cast<int>((static_cast<int64_t>(m_Timeline) + advance) % m_Length);
+			}
 			return;
 		}
 		if (!m_Instance && m_Metadata)
@@ -174,7 +191,7 @@ namespace Lux
 		m_WantsPlayback = !(m_Culled && m_OneShot);
 		m_Paused = false;
 		m_Timeline = 0;
-		if (m_Instance)
+		if (m_Instance && m_WantsPlayback)
 		{
 			m_Instance->SetPaused(false);
 			m_Started = m_Instance->Start();

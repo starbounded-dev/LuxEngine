@@ -12,7 +12,7 @@ namespace Lux
 	class AudioSourcePlayback
 	{
 	public:
-		void Update(const AudioSourceComponent& source, const glm::mat4& transform, const AudioListener::States& listeners, bool paused, bool allowAwake = true);
+		void Update(const AudioSourceComponent& source, const glm::mat4& transform, const AudioListener::States& listeners, bool paused, bool allowAwake = true, float timestep = 0.0f);
 		Ref<AudioEventInstance> GetInstance() const { return m_Instance; }
 		bool IsCulled() const { return m_Culled; }
 		bool IsPlaying() const;
@@ -33,7 +33,8 @@ namespace Lux
 		bool m_Culled = false, m_AwakeHandled = false, m_WantsPlayback = false, m_Started = false;
 		bool m_Paused = false, m_ScenePaused = false;
 		mutable bool m_ParameterWarning = false;
-		int m_Priority = 128, m_Timeline = 0;
+		int m_Priority = 128, m_Timeline = 0, m_Length = 0;
+		double m_TimelineCarry = 0; // Sub-millisecond remainder of culled timeline advance.
 		float m_Maximum = 0, m_Volume = 1, m_Pitch = 1;
 		glm::mat4 m_Transform{ 1.0f };
 		std::map<std::string, float> m_Parameters;
