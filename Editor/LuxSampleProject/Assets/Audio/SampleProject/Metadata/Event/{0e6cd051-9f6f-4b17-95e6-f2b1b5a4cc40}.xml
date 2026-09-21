@@ -30,6 +30,8 @@
 		</relationship>
 		<relationship name="parameters">
 			<destination>{4188b5d4-83ea-4561-9a56-ea76ffed0f24}</destination>
+			<destination>{c20088f0-60cf-43d2-b4fc-3b76dbd412fc}</destination>
+			<destination>{b5dec7b5-cc6c-4cbf-9c30-0812f54f6dac}</destination>
 		</relationship>
 		<relationship name="banks">
 			<destination>{fa0b1bba-b14d-4ea4-ad1c-423a63954b99}</destination>
@@ -71,6 +73,16 @@
 			<destination>{2ecdf52b-718b-4bef-b440-b65b0994cfb0}</destination>
 		</relationship>
 	</object>
+	<object class="ParameterProxy" id="{c20088f0-60cf-43d2-b4fc-3b76dbd412fc}">
+		<relationship name="preset">
+			<destination>{d40c6dd4-2b4f-4d5d-9957-fe21acbeb4ec}</destination>
+		</relationship>
+	</object>
+	<object class="ParameterProxy" id="{b5dec7b5-cc6c-4cbf-9c30-0812f54f6dac}">
+		<relationship name="preset">
+			<destination>{652b2d65-86ff-4588-8957-939c3d62549c}</destination>
+		</relationship>
+	</object>
 	<object class="EventMixerMaster" id="{3fe6bf1b-5fc0-40db-baad-0675e5f6c81e}">
 		<relationship name="effectChain">
 			<destination>{81bd4005-11e1-4c60-8b07-2dc5e59fd519}</destination>
@@ -95,9 +107,9 @@
 	<object class="MixerBusPanner" id="{60ba7f62-1777-4996-a633-3a20e6a3b192}" />
 	<object class="MixerBusEffectChain" id="{81bd4005-11e1-4c60-8b07-2dc5e59fd519}">
 		<relationship name="effects">
-			<destination>{ebd28706-795f-4316-8cff-72cdcdb65b4e}</destination>
-			<destination>{25e1d4bd-d5b8-4fcc-961a-91c9f554ded7}</destination>
+			<destination>{01864b36-b386-41f3-80b8-eee8b463fd76}</destination>
 			<destination>{6b2451c2-5c16-4493-8963-1737246bb687}</destination>
+			<destination>{25e1d4bd-d5b8-4fcc-961a-91c9f554ded7}</destination>
 		</relationship>
 	</object>
 	<object class="MixerBusPanner" id="{5d1d1fe3-2f06-41bf-b9a4-5e44688a5cd4}" />
@@ -107,18 +119,15 @@
 		</relationship>
 	</object>
 	<object class="MixerBusFader" id="{22c7e524-7478-414e-a8f5-f3bec4721c77}" />
-	<object class="MixerSend" id="{ebd28706-795f-4316-8cff-72cdcdb65b4e}">
-		<property name="inputFormat">
-			<value>1</value>
+	<object class="MultibandEqEffect" id="{01864b36-b386-41f3-80b8-eee8b463fd76}">
+		<property name="filterTypeA">
+			<value>7</value>
 		</property>
-		<relationship name="mixerReturn">
-			<destination>{905d9352-a23b-4b62-82f8-918d93be45b2}</destination>
-		</relationship>
 	</object>
-	<object class="MixerBusFader" id="{25e1d4bd-d5b8-4fcc-961a-91c9f554ded7}" />
 	<object class="SpatialiserEffect" id="{6b2451c2-5c16-4493-8963-1737246bb687}">
 		<property name="distanceRolloffType">
 			<value>3</value>
 		</property>
 	</object>
+	<object class="MixerBusFader" id="{25e1d4bd-d5b8-4fcc-961a-91c9f554ded7}" />
 </objects>
