@@ -20,11 +20,24 @@ namespace Lux::DualSense {
 		constexpr uint8_t kDisableAudioHaptics = 0x02;
 		constexpr uint8_t kEnableRightTriggerEffect = 0x04;
 		constexpr uint8_t kEnableLeftTriggerEffect = 0x08;
+		constexpr size_t kEnableBits2 = 1;
+		constexpr uint8_t kEnableLightbar = 0x04;
+		constexpr uint8_t kEnablePlayerLights = 0x10;
 		constexpr size_t kRumbleHigh = 2; // Right (small) motor.
 		constexpr size_t kRumbleLow = 3;  // Left (large) motor.
 		constexpr size_t kRightTriggerEffect = 10;
 		constexpr size_t kLeftTriggerEffect = 21;
 		constexpr size_t kTriggerEffectSize = 11;
+		constexpr size_t kEnableBits3 = 38;
+		constexpr uint8_t kEnableLightbarSetup = 0x02;
+		constexpr size_t kLightbarSetup = 41;
+		constexpr uint8_t kLightbarSetupLightOut = 0x02; // Ends the firmware's own lightbar animation.
+		constexpr size_t kPlayerLights = 43;
+		constexpr size_t kLightbarRed = 44;
+
+		// Player LED patterns across the 5 LEDs, as the console shows players 1-4.
+		constexpr std::array<uint8_t, 5> kPlayerLightPatterns = { 0x00, 0x04, 0x0A, 0x15, 0x1B };
+		constexpr std::array<uint8_t, 3> kDefaultLightColor = { 0x00, 0x00, 0x40 }; // Dim blue.
 
 		// Trigger effect modes (first byte of an 11-byte trigger block).
 		constexpr uint8_t kModeOff = 0x05;
@@ -42,13 +55,26 @@ namespace Lux::DualSense {
 		std::array<TriggerEffect, 2> s_Effects{};
 		uint8_t s_RumbleLow = 0;
 		uint8_t s_RumbleHigh = 0;
+		std::array<uint8_t, 3> s_LightColor = kDefaultLightColor;
+		uint8_t s_PlayerLights = 0;
+		bool s_LightsOverridden = false; // Colour or player LEDs differ from the defaults.
+		bool s_LightsPending = false;    // Include the light fields in the next report.
+		bool s_LightbarSetupSent = false;
 		uint32_t s_ConnectedCount = 0;
 		bool s_Dirty = false;
 
 		bool AnyOutputActive()
 		{
 			return s_Effects[0].Type != TriggerEffectType::Off || s_Effects[1].Type != TriggerEffectType::Off
-				|| s_RumbleLow != 0 || s_RumbleHigh != 0;
+				|| s_RumbleLow != 0 || s_RumbleHigh != 0 || s_LightsOverridden;
+		}
+
+		void RestoreDefaultLights()
+		{
+			s_LightColor = kDefaultLightColor;
+			s_PlayerLights = 0;
+			s_LightsOverridden = false;
+			s_LightsPending = true;
 		}
 
 		// Sets 'value' (3 bits) in zones [start, 9] and marks those zones active.
@@ -131,6 +157,22 @@ namespace Lux::DualSense {
 				effects[kRumbleHigh] = s_RumbleHigh;
 			}
 
+			// Lights are only sent when changed; leaving the enable bits clear keeps the current state.
+			if (s_LightsPending)
+			{
+				if (!s_LightbarSetupSent)
+				{
+					effects[kEnableBits3] |= kEnableLightbarSetup;
+					effects[kLightbarSetup] = kLightbarSetupLightOut;
+					s_LightbarSetupSent = true;
+				}
+
+				effects[kEnableBits2] |= kEnableLightbar | kEnablePlayerLights;
+				effects[kPlayerLights] = s_PlayerLights;
+				std::copy(s_LightColor.begin(), s_LightColor.end(), effects + kLightbarRed);
+				s_LightsPending = false;
+			}
+
 			s_Devices.Write(report.data(), report.size());
 		}
 
@@ -175,12 +217,47 @@ namespace Lux::DualSense {
 		s_Dirty = true;
 	}
 
+	void SetLightColor(float red, float green, float blue)
+	{
+		const std::array<uint8_t, 3> color = { ToMotor(red), ToMotor(green), ToMotor(blue) };
+		if (color == s_LightColor && s_LightsOverridden)
+			return;
+
+		s_LightColor = color;
+		s_LightsOverridden = true;
+		s_LightsPending = true;
+		s_Dirty = true;
+	}
+
+	void SetPlayerLights(int player)
+	{
+		const uint8_t pattern = kPlayerLightPatterns[(size_t)std::clamp(player, 0, (int)kPlayerLightPatterns.size() - 1)];
+		if (pattern == s_PlayerLights && s_LightsOverridden)
+			return;
+
+		s_PlayerLights = pattern;
+		s_LightsOverridden = true;
+		s_LightsPending = true;
+		s_Dirty = true;
+	}
+
+	void ResetLights()
+	{
+		if (!s_LightsOverridden)
+			return;
+
+		RestoreDefaultLights();
+		s_Dirty = true;
+	}
+
 	void Update(uint32_t connectedCount)
 	{
 		if (connectedCount != s_ConnectedCount)
 		{
 			s_ConnectedCount = connectedCount;
 			s_Devices.Close();
+			s_LightbarSetupSent = false;
+			s_LightsPending |= s_LightsOverridden;
 			// A newly connected pad starts with everything off; push any active output to it.
 			s_Dirty |= AnyOutputActive();
 		}
@@ -198,6 +275,8 @@ namespace Lux::DualSense {
 		{
 			s_Effects = {};
 			s_RumbleLow = s_RumbleHigh = 0;
+			if (s_LightsOverridden)
+				RestoreDefaultLights();
 			Flush();
 		}
 

@@ -145,6 +145,7 @@ namespace Lux {
 	void ScriptEngine::Shutdown()
 	{
 		AudioScriptBindings::Shutdown();
+		ScriptGlue::ShutdownInput();
 		m_ManagedObjects.Clear();
 
 		for (auto& [scriptID, scriptMetadata] : m_ScriptMetadata)
@@ -278,6 +279,7 @@ namespace Lux {
 			return;
 
 		AudioScriptBindings::Shutdown();
+		ScriptGlue::ShutdownInput();
 
 		// Drop all live handles + metadata before unloading the context; any survivor pins it.
 		m_ManagedObjects.Clear();

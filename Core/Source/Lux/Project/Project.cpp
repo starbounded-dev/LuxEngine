@@ -8,6 +8,7 @@
 
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Core/Input.h"
 
 namespace Lux
 {
@@ -42,6 +43,19 @@ namespace Lux
 		ScriptEngine::GetMutable().ReloadAppAssembly();
 	}
 
+	namespace {
+
+		// A project can ship its own gamecontrollerdb.txt next to the project file; it is layered on
+		// top of GLFW's built-in mappings and Resources/gamecontrollerdb.txt.
+		void LoadProjectGamepadMappings(const std::filesystem::path& projectDirectory)
+		{
+			const std::filesystem::path mappings = projectDirectory / "gamecontrollerdb.txt";
+			if (!projectDirectory.empty() && std::filesystem::exists(mappings))
+				Input::LoadGamepadMappings(mappings);
+		}
+
+	}
+
 	void Project::SetActive(Ref<Project> project)
 	{
 		if (s_AssetManager)
@@ -61,6 +75,8 @@ namespace Lux
 		{
 			AudioEngine::Shutdown();
 		}
+
+		LoadProjectGamepadMappings(s_ActiveProject->m_ProjectDirectory);
 
 		s_AssetManager = Ref<EditorAssetManager>::Create();
 
@@ -120,6 +136,8 @@ namespace Lux
 
 		s_ActiveProject->m_Config.ProjectDirectory = s_ActiveProject->m_ProjectDirectory;
 		s_ActiveProject->m_Config.ProjectFileName = s_ActiveProject->m_ProjectFilePath.filename().string();
+
+		LoadProjectGamepadMappings(s_ActiveProject->m_ProjectDirectory);
 
 		s_AssetManager = Ref<RuntimeAssetManager>::Create();
 		GetRuntimeAssetManager()->SetAssetPack(assetPack);

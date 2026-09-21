@@ -17,11 +17,16 @@ namespace Lux::DualSense {
 	void ResetTriggerEffects();
 	// Motor strengths 0..1: low = large (low-frequency) motor, high = small (high-frequency) motor.
 	void SetRumble(float low, float high);
+	// Lightbar colour (0..1 RGB) and player LEDs (0 = off, 1..4 = the console's player patterns).
+	void SetLightColor(float red, float green, float blue);
+	void SetPlayerLights(int player);
+	// Back to the default blue lightbar and no player LEDs (only sent if they were changed).
+	void ResetLights();
 
 	// connectedCount = DualSenses GLFW currently sees; a change triggers re-enumeration.
 	void Update(uint32_t connectedCount);
-	// Clears triggers and rumble on the hardware and closes devices. Call before exit, or a
-	// trigger stays stiff after the application quits.
+	// Clears triggers, rumble and lights on the hardware and closes devices. Call before exit, or
+	// a trigger stays stiff after the application quits.
 	void Shutdown();
 
 }

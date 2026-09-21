@@ -443,6 +443,19 @@ rumbling or stays stiff. C#: `Input.RumbleGamepad`, `Input.SetGamepadTriggerEffe
 
 ### 2.10 Audio
 
+Lights ride the same HID reports: DualSense lightbar + player LEDs (enable bits 0x04/0x10, one-time
+lightbar-setup "light out" per device set to end the firmware animation) and DualShock 4 lightbar (flag
+0x02). They are only written when changed and restored to the default dim blue on Play stop and exit.
+`Controller::Type` (`GamepadType`: Xbox / PlayStation / Nintendo / Unknown, from vendor ID, else the
+mapping or device name) drives button prompts via `Input.GetGamepadType`.
+Gamepad mappings: `Input::LoadGamepadMappings` layers an SDL_GameControllerDB file over GLFW's built-in
+database — `Resources/gamecontrollerdb.txt` at `Application` startup, then `<project>/gamecontrollerdb.txt`
+in `Project::SetActive` / `SetActiveRuntime`. No file ships with the engine.
+Connect/disconnect events: `ScriptGlue::UpdateInput` (called from `Scene::OnUpdateRuntime`) diffs the
+connected-slot mask and invokes `Lux.Input.DispatchGamepadConnection`, raising the C# static events
+`Input.GamepadConnected` / `GamepadDisconnected`. `ScriptGlue::ResetInput` (alongside
+`AudioScriptBindings::Reset`) re-primes the mask so pads present at Play start raise nothing, and clears
+the managed handlers; `ShutdownInput` drops the type before assembly unload.
 FMOD Studio is the only playback path. `AudioEngine` owns Studio and its Core mixer;
 `AudioEventInstance` owns Studio event handles. `AudioSourceComponent` remains the entity-facing
 component (and C# API), with volume, pitch, play-on-awake, event references and parameter overrides.

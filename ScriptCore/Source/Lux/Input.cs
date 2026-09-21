@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2025-2026 starbounded-dev
 
+using System;
 using System.Runtime.InteropServices;
+
+using Coral.Managed.Interop;
 
 namespace Lux
 {
@@ -52,6 +55,15 @@ namespace Lux
 		RightY = 3,
 		LeftTrigger = 4,
 		RightTrigger = 5
+	}
+
+	// Which button-prompt set to show for a pad. Mirrors the native Lux::GamepadType.
+	public enum GamepadType : int
+	{
+		Unknown = 0,
+		Xbox = 1,
+		PlayStation = 2,
+		Nintendo = 3
 	}
 
 	public enum GamepadTrigger : int
@@ -137,6 +149,14 @@ namespace Lux
 		public static bool IsGamepadButtonReleased(GamepadButton button, int gamepad = -1) => InternalCalls.Input_IsGamepadButtonReleased(button, gamepad);
 		public static float GetGamepadAxis(GamepadAxis axis, int gamepad = -1) => InternalCalls.Input_GetGamepadAxis(axis, gamepad);
 
+		// Button-prompt style for the pad (e.g. show "Cross" instead of "A" for PlayStation).
+		public static GamepadType GetGamepadType(int gamepad = -1) => InternalCalls.Input_GetGamepadType(gamepad);
+
+		// Raised during Play when a controller is plugged in or removed, with its slot. Pads already
+		// connected when Play starts do not raise GamepadConnected. Handlers are cleared when Play stops.
+		public static event Action<int>? GamepadConnected;
+		public static event Action<int>? GamepadDisconnected;
+
 		// Both sticks as a vector, deadzone applied (Y is +1 down).
 		public static Vector2 GetGamepadLeftStick(int gamepad = -1) => new Vector2(GetGamepadAxis(GamepadAxis.LeftX, gamepad), GetGamepadAxis(GamepadAxis.LeftY, gamepad));
 		public static Vector2 GetGamepadRightStick(int gamepad = -1) => new Vector2(GetGamepadAxis(GamepadAxis.RightX, gamepad), GetGamepadAxis(GamepadAxis.RightY, gamepad));
@@ -158,6 +178,38 @@ namespace Lux
 		public static void RumbleGamepad(float low, float high, float duration, int gamepad = -1)
 			=> InternalCalls.Input_RumbleGamepad(low, high, duration, gamepad);
 		public static void StopGamepadRumble(int gamepad = -1) => InternalCalls.Input_StopGamepadRumble(gamepad);
+
+		// Lightbar (DualSense, DualShock 4) and player LEDs (DualSense, player 0 = off .. 4), USB only.
+		// gamepad -1 targets every supporting pad; a PlayStation slot reaches every pad of its model.
+		// Colour channels are 0..1. Restored to the default when Play stops.
+		public static bool SupportsLightbar(int gamepad = -1) => InternalCalls.Input_SupportsLightbar(gamepad);
+		public static void SetGamepadLightColor(Vector3 color, int gamepad = -1)
+			=> InternalCalls.Input_SetGamepadLightColor(color.X, color.Y, color.Z, gamepad);
+		public static void SetGamepadPlayerLights(int player, int gamepad = -1) => InternalCalls.Input_SetGamepadPlayerLights(player, gamepad);
+		public static void ResetGamepadLights() => InternalCalls.Input_ResetGamepadLights();
+
+		internal static void DispatchGamepadConnection(int gamepad, int connected)
+		{
+			Action<int>? handlers = connected != 0 ? GamepadConnected : GamepadDisconnected;
+			if (handlers == null)
+				return;
+
+			foreach (Action<int> handler in handlers.GetInvocationList())
+			{
+				try { handler(gamepad); }
+				catch (Exception exception)
+				{
+					using NativeString message = $"Gamepad {(connected != 0 ? "connected" : "disconnected")} handler failed: {exception}";
+					InternalCalls.NativeLog(message, 3);
+				}
+			}
+		}
+
+		internal static void ResetGamepadEvents()
+		{
+			GamepadConnected = null;
+			GamepadDisconnected = null;
+		}
 
 		// Radial deadzone for all gamepads, as a fraction of full deflection (default 0.15).
 		public static float GamepadDeadzone

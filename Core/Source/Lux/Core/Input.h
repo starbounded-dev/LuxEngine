@@ -7,6 +7,7 @@
 
 #include <array>
 #include <chrono>
+#include <filesystem>
 #include <map>
 #include <string_view>
 #include <vector>
@@ -74,6 +75,10 @@ namespace Lux {
 	// Controller families with engine output support (rumble / adaptive triggers), from the GUID.
 	enum class GamepadFamily : uint8_t { Other, DualSense, DualShock4, Xbox };
 
+	// Which button-prompt set to show, from the vendor ID or, for third-party pads, the name.
+	// Mirrors the C# Lux.GamepadType enum.
+	enum class GamepadType : int32_t { Unknown = 0, Xbox, PlayStation, Nintendo };
+
 	struct Controller
 	{
 		int ID;
@@ -90,6 +95,7 @@ namespace Lux {
 
 		std::string GUID; // SDL-style GUID as GLFW reports it.
 		GamepadFamily Family = GamepadFamily::Other;
+		GamepadType Type = GamepadType::Unknown;
 	};
 
 	struct KeyData
@@ -156,6 +162,12 @@ namespace Lux {
 		static bool IsGamepadButtonPressed(GamepadButton button, int id = -1);  // Went down this frame.
 		static bool IsGamepadButtonReleased(GamepadButton button, int id = -1); // Went up this frame.
 		static float GetGamepadAxis(GamepadAxis axis, int id = -1);
+		static GamepadType GetGamepadType(int id = -1);
+
+		// Adds SDL_GameControllerDB-format mappings (e.g. a newer gamecontrollerdb.txt) on top of
+		// GLFW's built-in database, so unmapped pads get the standard layout. Returns false if the
+		// file is missing or GLFW rejects it. Main thread only.
+		static bool LoadGamepadMappings(const std::filesystem::path& path);
 
 		// Radial deadzone for sticks and triggers, as a fraction of full deflection (default 0.15).
 		static float GetGamepadDeadzone() { return s_GamepadDeadzone; }
@@ -175,6 +187,14 @@ namespace Lux {
 		static bool SupportsRumble(int id = -1);
 		static void RumbleGamepad(float low, float high, float durationSeconds, int id = -1);
 		static void StopGamepadRumble(int id = -1);
+
+		// Lightbar (DualSense, DualShock 4) and player LEDs (DualSense), USB only, same targeting as
+		// trigger effects: id < 0 reaches every supporting pad, and a PlayStation slot reaches every
+		// pad of its model. Colour is 0..1 RGB; player is 0 (off) to 4. Restored when Play stops.
+		static bool SupportsLightbar(int id = -1);
+		static void SetGamepadLightColor(float red, float green, float blue, int id = -1);
+		static void SetGamepadPlayerLights(int player, int id = -1);
+		static void ResetGamepadLights();
 
 		// Stops rumble and trigger effects on the hardware; call once before exit.
 		static void ShutdownGamepadOutput();

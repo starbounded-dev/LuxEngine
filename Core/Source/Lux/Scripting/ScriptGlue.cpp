@@ -126,6 +126,15 @@ namespace Lux {
 	static Coral::Bool32 Input_SupportsRumble(int32_t id) { return Input::SupportsRumble(id); }
 	static void Input_RumbleGamepad(float low, float high, float durationSeconds, int32_t id) { Input::RumbleGamepad(low, high, durationSeconds, id); }
 	static void Input_StopGamepadRumble(int32_t id) { Input::StopGamepadRumble(id); }
+	static GamepadType Input_GetGamepadType(int32_t id) { return Input::GetGamepadType(id); }
+	static Coral::Bool32 Input_SupportsLightbar(int32_t id) { return Input::SupportsLightbar(id); }
+	static void Input_SetGamepadLightColor(float red, float green, float blue, int32_t id) { Input::SetGamepadLightColor(red, green, blue, id); }
+	static void Input_SetGamepadPlayerLights(int32_t player, int32_t id) { Input::SetGamepadPlayerLights(player, id); }
+	static void Input_ResetGamepadLights() { Input::ResetGamepadLights(); }
+
+	static Coral::Type* s_InputType = nullptr;
+	static uint32_t s_KnownControllerMask = 0;
+	static bool s_InputEventsPrimed = false;
 
 	#pragma endregion
 
@@ -713,6 +722,11 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(Input_SupportsRumble);
 		LUX_ADD_INTERNAL_CALL(Input_RumbleGamepad);
 		LUX_ADD_INTERNAL_CALL(Input_StopGamepadRumble);
+		LUX_ADD_INTERNAL_CALL(Input_GetGamepadType);
+		LUX_ADD_INTERNAL_CALL(Input_SupportsLightbar);
+		LUX_ADD_INTERNAL_CALL(Input_SetGamepadLightColor);
+		LUX_ADD_INTERNAL_CALL(Input_SetGamepadPlayerLights);
+		LUX_ADD_INTERNAL_CALL(Input_ResetGamepadLights);
 
 		LUX_ADD_INTERNAL_CALL(Scene_CreateEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_DestroyEntity);
@@ -854,6 +868,48 @@ namespace Lux {
 		RegisterInternalCalls(coreAssembly);
 		AudioScriptBindings::Register(coreAssembly);
 		coreAssembly.UploadInternalCalls();
+
+		s_InputType = &coreAssembly.GetLocalType("Lux.Input");
+		s_InputEventsPrimed = false;
+	}
+
+	void ScriptGlue::UpdateInput()
+	{
+		uint32_t connectedMask = 0;
+		for (const auto& [id, controller] : Input::GetControllers())
+			connectedMask |= 1u << id;
+
+		if (!s_InputEventsPrimed)
+		{
+			// Pads already connected when Play starts are not "new"; scripts query them directly.
+			s_KnownControllerMask = connectedMask;
+			s_InputEventsPrimed = true;
+			return;
+		}
+
+		const uint32_t changed = connectedMask ^ s_KnownControllerMask;
+		s_KnownControllerMask = connectedMask;
+		if (changed == 0 || !s_InputType)
+			return;
+
+		for (int32_t id = 0; id < 32; id++)
+		{
+			if (changed & (1u << id))
+				s_InputType->InvokeStaticMethod("DispatchGamepadConnection", id, (int32_t)((connectedMask >> id) & 1u));
+		}
+	}
+
+	void ScriptGlue::ResetInput()
+	{
+		s_InputEventsPrimed = false;
+		if (s_InputType)
+			s_InputType->InvokeStaticMethod("ResetGamepadEvents");
+	}
+
+	void ScriptGlue::ShutdownInput()
+	{
+		ResetInput();
+		s_InputType = nullptr;
 	}
 
 }

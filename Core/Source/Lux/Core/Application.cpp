@@ -88,6 +88,11 @@ namespace Lux {
 		m_Window->Init();
 		m_Window->SetEventCallback([this](Event& e) { OnEvent(e); });
 
+		// Optional newer SDL_GameControllerDB on top of GLFW's built-in one (projects can add their
+		// own on activation, see Project::SetActive).
+		if (std::filesystem::exists("Resources/gamecontrollerdb.txt"))
+			Input::LoadGamepadMappings("Resources/gamecontrollerdb.txt");
+
 		// Load editor settings (will generate default settings if the file doesn't exist yet)
 		//EditorApplicationSettingsSerializer::Init();
 

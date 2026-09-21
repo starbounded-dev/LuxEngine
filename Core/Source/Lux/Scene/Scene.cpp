@@ -25,6 +25,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Scripting/AudioScriptBindings.h"
+#include "Lux/Scripting/ScriptGlue.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/SceneRenderer.h"
@@ -154,6 +155,7 @@ namespace Lux {
 		if (m_IsRunning)
 		{
 			AudioScriptBindings::Reset();
+			ScriptGlue::ResetInput();
 			AudioListener::Apply({});
 		}
 		m_EntityMap.clear();
@@ -551,6 +553,7 @@ namespace Lux {
 		m_Music.Clear();
 		m_MusicOwner = 0;
 		AudioScriptBindings::Reset();
+		ScriptGlue::ResetInput();
 		m_IsRunning = true;
 
 		OnPhysics2DStart();
@@ -699,9 +702,10 @@ namespace Lux {
 
 		ReleaseAllRuntimeAudio();
 
-		// Scripts' rumble and trigger effects must not outlive Play (a trigger would stay stiff in the editor).
+		// Scripts' rumble, trigger and light effects must not outlive Play (a trigger would stay stiff in the editor).
 		Input::ResetGamepadTriggerEffects();
 		Input::StopGamepadRumble();
+		Input::ResetGamepadLights();
 
 		m_Registry.view<NativeScriptComponent>().each([](auto, auto& nsc)
 			{
@@ -735,6 +739,7 @@ namespace Lux {
 			}
 			m_ScriptInstances.clear();
 			AudioScriptBindings::Reset();
+			ScriptGlue::ResetInput();
 			scriptEngine.SetCurrentScene(nullptr);
 		}
 	}
@@ -754,6 +759,7 @@ namespace Lux {
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		AudioScriptBindings::Update(m_IsPaused);
+		ScriptGlue::UpdateInput();
 		AudioAccessibilityView accessibilityView;
 		if (const auto* listener = GetPrimaryAudioListener())
 		{

@@ -10,7 +10,10 @@
 #include "Lux/Core/DualShock4.h"
 #include "Lux/Core/GamepadRumble.h"
 
+#include <cctype>
 #include <chrono>
+#include <fstream>
+#include <sstream>
 //#include "Lux/ImGui/PropertyGrid.h"
 
 #include <GLFW/glfw3.h>
@@ -102,6 +105,39 @@ namespace Lux {
 			return GamepadFamily::Other;
 		}
 
+		GamepadType DetectGamepadType(const Controller& controller)
+		{
+			switch (controller.Family)
+			{
+				case GamepadFamily::Xbox:       return GamepadType::Xbox;
+				case GamepadFamily::DualSense:
+				case GamepadFamily::DualShock4: return GamepadType::PlayStation;
+				case GamepadFamily::Other:      break;
+			}
+
+			if (controller.GUID.size() >= 20)
+			{
+				const std::string_view vendor = std::string_view(controller.GUID).substr(8, 4);
+				if (vendor == "4c05") return GamepadType::PlayStation; // Sony
+				if (vendor == "7e05") return GamepadType::Nintendo;    // Nintendo
+			}
+
+			// Third-party pads: the mapping name (or device name) usually says which layout they copy.
+			const char* mappingName = controller.IsGamepad ? glfwGetGamepadName(controller.ID) : nullptr;
+			std::string name = mappingName ? mappingName : controller.Name;
+			std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+
+			auto contains = [&name](std::string_view word) { return name.find(word) != std::string::npos; };
+			if (contains("xbox") || contains("xinput"))
+				return GamepadType::Xbox;
+			if (contains("ps3") || contains("ps4") || contains("ps5") || contains("playstation") || contains("dualshock") || contains("dualsense"))
+				return GamepadType::PlayStation;
+			if (contains("nintendo") || contains("switch") || contains("joy-con") || contains("joycon"))
+				return GamepadType::Nintendo;
+
+			return GamepadType::Unknown;
+		}
+
 	}
 
 	void Input::Update()
@@ -117,7 +153,7 @@ namespace Lux {
 		}
 
 		// Update controllers
-		for (int id = GLFW_JOYSTICK_1; id < GLFW_JOYSTICK_LAST; id++)
+		for (int id = GLFW_JOYSTICK_1; id <= GLFW_JOYSTICK_LAST; id++)
 		{
 			if (glfwJoystickPresent(id) == GLFW_TRUE)
 			{
@@ -152,6 +188,7 @@ namespace Lux {
 				const char* guid = glfwGetJoystickGUID(id);
 				controller.GUID = guid ? guid : "";
 				controller.Family = DetectGamepadFamily(controller.GUID);
+				controller.Type = DetectGamepadType(controller);
 			}
 		}
 
@@ -542,6 +579,30 @@ namespace Lux {
 		return controller->Gamepad.Axes[(size_t)axis];
 	}
 
+	GamepadType Input::GetGamepadType(int id)
+	{
+		const Controller* controller = FindGamepad(id);
+		return controller ? controller->Type : GamepadType::Unknown;
+	}
+
+	bool Input::LoadGamepadMappings(const std::filesystem::path& path)
+	{
+		std::ifstream stream(path, std::ios::binary);
+		if (!stream)
+			return false;
+
+		std::stringstream contents;
+		contents << stream.rdbuf();
+		if (glfwUpdateGamepadMappings(contents.str().c_str()) != GLFW_TRUE)
+		{
+			LUX_CORE_WARN("Could not load gamepad mappings from '{}' (GLFW rejected the file).", path.string());
+			return false;
+		}
+
+		LUX_CORE_INFO("Loaded gamepad mappings from '{}'.", path.string());
+		return true;
+	}
+
 	void Input::SetGamepadDeadzone(float deadzone)
 	{
 		s_GamepadDeadzone = std::clamp(deadzone, 0.0f, 0.95f);
@@ -626,6 +687,49 @@ namespace Lux {
 			s_Rumble.erase(id);
 		else
 			s_Rumble.clear();
+	}
+
+	bool Input::SupportsLightbar(int id)
+	{
+		auto supports = [](const Controller& controller)
+		{
+			return controller.Family == GamepadFamily::DualSense || controller.Family == GamepadFamily::DualShock4;
+		};
+
+		if (id >= 0)
+		{
+			const Controller* controller = GetController(id);
+			return controller && supports(*controller);
+		}
+
+		return std::any_of(s_Controllers.begin(), s_Controllers.end(), [&supports](const auto& entry) { return supports(entry.second); });
+	}
+
+	void Input::SetGamepadLightColor(float red, float green, float blue, int id)
+	{
+		// HID output reaches every pad of a model, so a slot only selects which model(s) to target.
+		const Controller* controller = id >= 0 ? GetController(id) : nullptr;
+		if (id >= 0 && !controller)
+			return;
+
+		if (!controller || controller->Family == GamepadFamily::DualSense)
+			DualSense::SetLightColor(red, green, blue);
+		if (!controller || controller->Family == GamepadFamily::DualShock4)
+			DualShock4::SetLightColor(red, green, blue);
+	}
+
+	void Input::SetGamepadPlayerLights(int player, int id)
+	{
+		if (id >= 0 && !SupportsTriggerEffects(id)) // Player LEDs are DualSense-only, like triggers.
+			return;
+
+		DualSense::SetPlayerLights(player);
+	}
+
+	void Input::ResetGamepadLights()
+	{
+		DualSense::ResetLights();
+		DualShock4::ResetLights();
 	}
 
 	void Input::ShutdownGamepadOutput()
