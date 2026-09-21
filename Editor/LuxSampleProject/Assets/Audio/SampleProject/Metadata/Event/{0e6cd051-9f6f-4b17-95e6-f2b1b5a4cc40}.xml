@@ -121,9 +121,6 @@
 	</object>
 	<object class="MixerBusFader" id="{22c7e524-7478-414e-a8f5-f3bec4721c77}" />
 	<object class="MultibandEqEffect" id="{01864b36-b386-41f3-80b8-eee8b463fd76}">
-		<property name="filterTypeA">
-			<value>7</value>
-		</property>
 		<relationship name="automators">
 			<destination>{a6d3f2a8-b095-4165-829c-6ce1dbbaad89}</destination>
 		</relationship>
