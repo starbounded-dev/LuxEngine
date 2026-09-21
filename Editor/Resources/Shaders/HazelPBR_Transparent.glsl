@@ -202,7 +202,7 @@ void main()
 		materialMipBias);
 	m_Params.Albedo = albedoTexColor.rgb * materialBaseColor;
 	float alpha = albedoTexColor.a * materialOpacity;
-	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < gpuMaterial.Surface.z)
+	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
 		discard;
 	m_Params.Metalness = materialMetalness;
 	m_Params.Roughness = SelectGPUMaterialChannel(SampleMaterialSceneTexture(

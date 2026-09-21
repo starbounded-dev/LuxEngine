@@ -224,7 +224,7 @@ void main()
 		u_AlbedoTexture);
 	m_Params.Albedo = albedoTexColor.rgb * materialBaseColor;
 	float alpha = albedoTexColor.a * materialOpacity;
-	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < 0.5)
+	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
 		discard;
 	// note: Metalness and roughness could be in the same texture.
 	//       Per GLTF spec, we read metalness from the B channel and roughness from the G channel

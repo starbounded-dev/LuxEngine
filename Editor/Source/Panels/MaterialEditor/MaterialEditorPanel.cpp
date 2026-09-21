@@ -35,6 +35,10 @@ namespace Lux
 		// Not constexpr: PropertyDropdown takes a mutable const char** list.
 		const char* s_ChannelNames[] = { "R", "G", "B", "A" };
 
+		// Blend is not offered: it is the transparent material path, chosen when the material is
+		// created, not a value an opaque material can switch to here.
+		const char* s_AlphaModeNames[] = { "Opaque", "Cutout" };
+
 		std::string GetMaterialName(AssetHandle handle)
 		{
 			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
@@ -479,6 +483,28 @@ namespace Lux
 
 			surfaceChanged |= ImGuiEx::Property("Specular", surface.Specular, 0.01f, 0.0f, 1.0f,
 				"Reflectance of non-metals. 0.5 is the common 4% of plastics, paint and stone; lower for skin, higher for gems.", false);
+
+			// A transparent material is always Blend; only the opaque path can be Opaque or Cutout.
+			if (!transparent)
+			{
+				// PropertyDropdown indexes its name list by the enum value, so a file carrying
+				// AlphaMode: Blend on a non-transparent material would read past s_AlphaModeNames.
+				// Opaque is also what the renderer resolves that combination to.
+				if (surface.AlphaMode == MaterialAlphaMode::Blend)
+				{
+					surface.AlphaMode = MaterialAlphaMode::Opaque;
+					surfaceChanged = true;
+				}
+
+				surfaceChanged |= ImGuiEx::PropertyDropdown("Alpha Mode", s_AlphaModeNames, (int32_t)std::size(s_AlphaModeNames),
+					surface.AlphaMode, "Cutout discards pixels below the cutoff, giving a hard edge that still lights and shadows as solid geometry.", false);
+
+				if (surface.AlphaMode == MaterialAlphaMode::Cutout)
+				{
+					surfaceChanged |= ImGuiEx::Property("Alpha Cutoff", surface.AlphaThreshold, 0.01f, 0.0f, 1.0f,
+						"Base colour alpha below this is discarded.", false);
+				}
+			}
 
 			if (transparent)
 			{

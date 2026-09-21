@@ -20,6 +20,16 @@ namespace Lux {
 		A
 	};
 
+	// How a material's alpha is resolved. Opaque ignores alpha entirely; Cutout discards fragments
+	// below AlphaThreshold (a hard edge, still rendered in the opaque passes so it lights and
+	// shadows like solid geometry); Blend is the sorted transparent forward path.
+	enum class MaterialAlphaMode : uint8_t
+	{
+		Opaque = 0,
+		Cutout,
+		Blend
+	};
+
 	// The "Lux Standard" surface inputs beyond the basic PBR set. Defaults reproduce the shading of
 	// materials authored before these existed, so a file without them renders unchanged.
 	struct MaterialSurfaceParameters
@@ -48,6 +58,16 @@ namespace Lux {
 		glm::vec2 UVTiling{ 1.0f };
 		glm::vec2 UVOffset{ 0.0f };
 		float UVRotation = 0.0f;
+
+		// Alpha handling. Opaque + 0.5 reproduces pre-Cutout shading: the opaque passes ignored
+		// alpha, so a material without these keys renders exactly as before.
+		MaterialAlphaMode AlphaMode = MaterialAlphaMode::Opaque;
+		float AlphaThreshold = 0.5f;
+
+		// Disables backface culling for this material in the depth and G-buffer passes. Shadow
+		// cascades already render without culling (to avoid peter-panning), so this does not
+		// change them.
+		bool TwoSided = false;
 
 		bool operator==(const MaterialSurfaceParameters& other) const = default;
 	};

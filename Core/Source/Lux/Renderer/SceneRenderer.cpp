@@ -1532,6 +1532,19 @@ namespace Lux {
 			m_PreDepthPass->SetInput("Camera", m_UBSCamera);
 			m_PreDepthPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_PreDepthPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			// The pre-depth shader alpha-tests cutout materials, so it needs the material table, its
+			// bindless textures and RendererData (for the same mip bias the G-buffer uses). Set
+			// them explicitly rather than through BindSceneRenderPassInputs(PassInputMaterialScene):
+			// that also rebinds ObjectIndexes to the *visible* set, and pre-depth deliberately uses
+			// the unculled one it bound above.
+			SetRenderPassInputIfValid(m_PreDepthPass, "RendererData", m_UBSRendererData);
+			SetRenderPassInputIfValid(m_PreDepthPass, "GPUMaterials", m_SBSGPUMaterials);
+			SetRenderPassInputIfValid(m_PreDepthPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
+			if (m_PreDepthPass->IsInputValid("u_GPUMaterialTextures"))
+			{
+				for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+					m_PreDepthPass->SetInput("u_GPUMaterialTextures", Renderer::GetWhiteTexture(), textureIndex);
+			}
 			LUX_CORE_VERIFY(m_PreDepthPass->Validate());
 			m_PreDepthPass->Bake();
 
@@ -6190,6 +6203,8 @@ namespace Lux {
 				m_DeferredLightingPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 			if (m_GBufferDebugPass && m_GBufferDebugPass->IsInputValid("u_GPUMaterialTextures"))
 				m_GBufferDebugPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
+			if (m_PreDepthPass && m_PreDepthPass->IsInputValid("u_GPUMaterialTextures"))
+				m_PreDepthPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 		};
 
 		if (fullTextureResolve)

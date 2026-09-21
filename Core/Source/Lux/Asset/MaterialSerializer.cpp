@@ -78,6 +78,29 @@ namespace Lux
 			return fallback;
 		}
 
+		static const char* AlphaModeToString(MaterialAlphaMode mode)
+		{
+			switch (mode)
+			{
+				case MaterialAlphaMode::Opaque: return "Opaque";
+				case MaterialAlphaMode::Cutout: return "Cutout";
+				case MaterialAlphaMode::Blend: return "Blend";
+			}
+			return "Opaque";
+		}
+
+		static MaterialAlphaMode ReadAlphaMode(const YAML::Node& node, MaterialAlphaMode fallback)
+		{
+			const std::string value = node ? node.as<std::string>("") : std::string{};
+			if (value == "Opaque")
+				return MaterialAlphaMode::Opaque;
+			if (value == "Cutout")
+				return MaterialAlphaMode::Cutout;
+			if (value == "Blend")
+				return MaterialAlphaMode::Blend;
+			return fallback;
+		}
+
 		static std::string ReadMaterialYAML(const AssetMetadata& metadata)
 		{
 			std::ifstream stream(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
@@ -257,6 +280,12 @@ namespace Lux
 			}
 			if (surface.UVRotation != defaults.UVRotation)
 				out << YAML::Key << "UVRotation" << YAML::Value << surface.UVRotation;
+			if (surface.AlphaMode != defaults.AlphaMode)
+				out << YAML::Key << "AlphaMode" << YAML::Value << AlphaModeToString(surface.AlphaMode);
+			if (surface.AlphaThreshold != defaults.AlphaThreshold)
+				out << YAML::Key << "AlphaThreshold" << YAML::Value << surface.AlphaThreshold;
+			if (surface.TwoSided != defaults.TwoSided)
+				out << YAML::Key << "TwoSided" << YAML::Value << surface.TwoSided;
 
 			out << YAML::Key << "MaterialFlags" << YAML::Value << materialFlags;
 
@@ -349,6 +378,9 @@ namespace Lux
 			surface.UVTiling = ReadVec2(materialNode["UVTiling"], surface.UVTiling);
 			surface.UVOffset = ReadVec2(materialNode["UVOffset"], surface.UVOffset);
 			surface.UVRotation = materialNode["UVRotation"].as<float>(surface.UVRotation);
+			surface.AlphaMode = ReadAlphaMode(materialNode["AlphaMode"], surface.AlphaMode);
+			surface.AlphaThreshold = materialNode["AlphaThreshold"].as<float>(surface.AlphaThreshold);
+			surface.TwoSided = materialNode["TwoSided"].as<bool>(surface.TwoSided);
 
 			// Files written before emissive colour existed tinted emission by the base colour and its
 			// map. Carry that over as data so they render exactly as they did.

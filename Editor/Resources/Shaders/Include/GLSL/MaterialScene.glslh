@@ -164,6 +164,13 @@ float GetGPUMaterialSpecular(GPUMaterial material, float fallbackSpecular)
 	return IsGPUMaterialRowUsable(material) ? clamp(material.Surface.x, 0.0, 1.0) : fallbackSpecular;
 }
 
+// Alpha cutoff for GPU_MATERIAL_ALPHA_MASKED. An unusable row falls back so a missing material
+// cannot discard the whole mesh.
+float GetGPUMaterialAlphaCutoff(GPUMaterial material, float fallbackCutoff)
+{
+	return IsGPUMaterialRowUsable(material) ? clamp(material.Surface.z, 0.0, 1.0) : fallbackCutoff;
+}
+
 // Bump mapping from a height sample (Mikkelsen, "Bump Mapping Unparametrized Surfaces on the GPU").
 // `height` is in [0, 1]; bumpHeight is its full range in world units.
 vec3 PerturbNormalFromHeight(vec3 normal, vec3 worldPosition, float height, float bumpHeight)

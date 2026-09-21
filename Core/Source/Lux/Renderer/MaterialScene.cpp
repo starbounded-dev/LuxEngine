@@ -59,6 +59,29 @@ namespace Lux {
 			return material->GetBool(name);
 		}
 
+		// A transparent asset is Blend whatever it authored — that is what routes it to the sorted
+		// forward pass, and a Cutout there would be discarded twice. Everything else takes the
+		// authored mode, so an older file (no AlphaMode key, hence Opaque) is unchanged.
+		GPUMaterialAlphaMode ResolveAlphaMode(const Ref<MaterialAsset>& materialAsset, bool fromAsset, bool transparent)
+		{
+			if (transparent)
+				return GPUMaterialAlphaMode::Blend;
+
+			if (!fromAsset || !materialAsset)
+				return GPUMaterialAlphaMode::Opaque;
+
+			switch (materialAsset->GetSurfaceParameters().AlphaMode)
+			{
+				case MaterialAlphaMode::Cutout: return GPUMaterialAlphaMode::Masked;
+				// Authored Blend without a transparent asset cannot blend: the material is not in
+				// the sorted forward pass, so the opaque pass draws it solid. Report what actually
+				// happens rather than a mode the frame never uses.
+				case MaterialAlphaMode::Blend:  return GPUMaterialAlphaMode::Opaque;
+				case MaterialAlphaMode::Opaque: break;
+			}
+			return GPUMaterialAlphaMode::Opaque;
+		}
+
 		glm::vec3 ReadMaterialVec3(Ref<Material> material, const std::string& name, const glm::vec3& fallback)
 		{
 			if (!material || !material->FindUniformDeclaration(name))
@@ -122,7 +145,10 @@ namespace Lux {
 
 		const bool transparent = input.Transparent || (materialAsset && materialAsset->IsTransparent());
 		const bool shadowCasting = materialAsset ? materialAsset->IsShadowCasting() : !material->GetFlag(MaterialFlag::DisableShadowCasting);
-		const bool twoSided = material->GetFlag(MaterialFlag::TwoSided);
+		// The authored asset property is the source of truth; MaterialFlag::TwoSided remains
+		// honoured so a bare override Material (which has no asset) can still opt in.
+		const bool twoSided = material->GetFlag(MaterialFlag::TwoSided)
+			|| (materialAsset && materialAsset->GetSurfaceParameters().TwoSided);
 
 		// A material asset owns its values; only a bare override material is read from its shader
 		// block, which may not declare every member.
@@ -186,7 +212,7 @@ namespace Lux {
 			data.Surface = glm::vec4(
 				glm::clamp(surface.Specular, 0.0f, 1.0f),
 				glm::max(surface.NormalStrength, 0.0f),
-				0.5f, // alpha cutoff; cutout materials arrive with the alpha-mode buckets
+				glm::clamp(surface.AlphaThreshold, 0.0f, 1.0f),
 				glm::max(surface.BumpHeight, 0.0f));
 
 			// uv' = R(rotation) * (uv * tiling) + offset
@@ -209,7 +235,7 @@ namespace Lux {
 
 		data.Metadata = glm::uvec4(
 			(uint32_t)flags,
-			(uint32_t)(transparent ? GPUMaterialAlphaMode::Blend : GPUMaterialAlphaMode::Opaque),
+			(uint32_t)ResolveAlphaMode(materialAsset, fromAsset, transparent),
 			InvalidRenderMaterialID,
 			PackFloatBits(envMapRotation));
 		return data;

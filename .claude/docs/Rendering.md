@@ -390,6 +390,21 @@ and writes scene color.
 clears, `Inherit` follows `ClearColorOnLoad`). Use it to share an image into a framebuffer without
 clearing it.
 
+**Sampling the table requires an extension the headers do not enable.** `Samplers.glslh` indexes
+`u_GPUMaterialTextures` with `nonuniformEXT`, but the include does not declare the extension —
+every shader that calls `SampleMaterialSceneTexture` declares it itself, before its includes:
+
+```glsl
+#extension GL_EXT_nonuniform_qualifier : enable
+```
+
+Omitting it fails that stage with `'nonuniformEXT' : no matching overloaded function found`. The
+failure is worse than it looks: if only one stage fails, the other still compiles fresh while the
+failed one falls back to its **cached binary**, and a new vertex stage feeding an old fragment
+stage is an interface mismatch that takes the editor down after pipeline creation. A shader compile
+error in the log is therefore never something to run past — and `Resources/Cache/Shader/` must be
+deleted after editing a widely-included `.glslh`.
+
 ---
 
 ## What `/cr` treats as must-fix in these paths

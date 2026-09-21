@@ -198,9 +198,20 @@ Structurally:
   `FindUniformDeclaration` first: in Release a missing member is an out-of-bounds read, not an assert.
 - "Lux Standard" inputs live in `MaterialSurfaceParameters` on the asset (emissive colour + map,
   occlusion map + strength, packed-map channel selection, specular, normal strength, height map as
-  bump, UV tiling/offset/rotation). They reach shaders through the GPU material table
+  bump, UV tiling/offset/rotation, alpha mode + cutoff, two-sided). They reach shaders through the GPU material table
   (`Rendering.md § The GPU material table`); `MaterialSerializer` writes them as YAML keys (the
   asset pack stores the same YAML) and migrates pre-emissive-colour files as data.
+- **Cutout materials are alpha-tested in pre-depth as well as the G-buffer.** `MaterialAlphaMode::Cutout`
+  becomes `GPUMaterialAlphaMode::Masked` in the material row, with the authored threshold in
+  `Surface.z`. `PreDepth.glsl` therefore reads the material table, and `m_PreDepthPass` binds
+  `GPUMaterials`, `u_GPUMaterialTextures`, `r_MaterialSampler` and `RendererData` — bound
+  explicitly, not via `BindSceneRenderPassInputs(PassInputMaterialScene)`, because that would
+  also rebind `ObjectIndexes` to the *visible* set and pre-depth uses the unculled one. The two
+  passes must discard identically (same UV, same mip bias, same cutoff) or the G-buffer fails its
+  depth-equal test, so `GetMaterialMipBias` is duplicated verbatim in both shaders. `PreDepth_Meshlet`
+  does **not** alpha-test yet: with mesh shaders enabled, cutout geometry writes full depth.
+  `MaterialAlphaMode::Blend` on a non-transparent asset resolves to Opaque — such a material is not
+  in the sorted forward pass, so reporting Blend would describe a mode the frame never runs.
 - `FrameRenderPacket` is the per-frame snapshot that decouples submission from the live registry.
 - `RendererConfig::FramesInFlight` defaults to 3.
 - Selection outline jump-flood inputs are rebound inside the render queue for each iteration,

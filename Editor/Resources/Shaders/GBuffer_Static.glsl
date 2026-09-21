@@ -140,7 +140,7 @@ void main()
 	vec4 albedoTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.x, uv, materialMipBias);
 	vec3 baseColor = albedoTexColor.rgb * materialBaseColor;
 	float alpha = albedoTexColor.a * materialOpacity;
-	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < gpuMaterial.Surface.z)
+	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
 		discard;
 
 	float metalness = SelectGPUMaterialChannel(SampleMaterialSceneTexture(gpuMaterial.TextureIndices.z, uv, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_METALNESS) * materialMetalness;
