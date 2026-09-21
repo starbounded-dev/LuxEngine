@@ -13,6 +13,67 @@
 
 namespace Lux {
 
+	static_assert((int)GamepadButton::South == GLFW_GAMEPAD_BUTTON_A && (int)GamepadButton::DPadLeft == GLFW_GAMEPAD_BUTTON_DPAD_LEFT
+		&& (int)GamepadButton::Count == GLFW_GAMEPAD_BUTTON_LAST + 1, "GamepadButton must mirror GLFW_GAMEPAD_BUTTON_*");
+	static_assert((int)GamepadAxis::LeftX == GLFW_GAMEPAD_AXIS_LEFT_X && (int)GamepadAxis::RightTrigger == GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER
+		&& (int)GamepadAxis::Count == GLFW_GAMEPAD_AXIS_LAST + 1, "GamepadAxis must mirror GLFW_GAMEPAD_AXIS_*");
+
+	namespace {
+
+		// Scaled radial deadzone: the stick reads 0 inside the deadzone and ramps smoothly from 0 to
+		// 1 outside it, without the axis-snapping a per-axis deadzone causes on diagonals.
+		void ApplyStickDeadzone(float& x, float& y, float deadzone)
+		{
+			const float magnitude = std::sqrt(x * x + y * y);
+			if (magnitude <= deadzone)
+			{
+				x = y = 0.0f;
+				return;
+			}
+
+			const float scale = std::min((magnitude - deadzone) / (1.0f - deadzone), 1.0f) / magnitude;
+			x *= scale;
+			y *= scale;
+		}
+
+		// GLFW triggers rest at -1 and reach +1 fully pulled; remap to 0..1 and apply the deadzone.
+		float RemapTrigger(float value, float deadzone)
+		{
+			const float pulled = (value + 1.0f) * 0.5f;
+			return pulled <= deadzone ? 0.0f : std::min((pulled - deadzone) / (1.0f - deadzone), 1.0f);
+		}
+
+		void UpdateGamepadState(Controller& controller, float deadzone)
+		{
+			GamepadState& gamepad = controller.Gamepad;
+			gamepad.PreviousButtonDown = gamepad.ButtonDown;
+
+			GLFWgamepadstate state;
+			controller.IsGamepad = glfwJoystickIsGamepad(controller.ID) == GLFW_TRUE && glfwGetGamepadState(controller.ID, &state) == GLFW_TRUE;
+			if (!controller.IsGamepad)
+			{
+				gamepad = {};
+				return;
+			}
+
+			for (size_t i = 0; i < gamepad.ButtonDown.size(); i++)
+				gamepad.ButtonDown[i] = state.buttons[i] == GLFW_PRESS;
+
+			float leftX = state.axes[GLFW_GAMEPAD_AXIS_LEFT_X], leftY = state.axes[GLFW_GAMEPAD_AXIS_LEFT_Y];
+			float rightX = state.axes[GLFW_GAMEPAD_AXIS_RIGHT_X], rightY = state.axes[GLFW_GAMEPAD_AXIS_RIGHT_Y];
+			ApplyStickDeadzone(leftX, leftY, deadzone);
+			ApplyStickDeadzone(rightX, rightY, deadzone);
+
+			gamepad.Axes[(size_t)GamepadAxis::LeftX] = leftX;
+			gamepad.Axes[(size_t)GamepadAxis::LeftY] = leftY;
+			gamepad.Axes[(size_t)GamepadAxis::RightX] = rightX;
+			gamepad.Axes[(size_t)GamepadAxis::RightY] = rightY;
+			gamepad.Axes[(size_t)GamepadAxis::LeftTrigger] = RemapTrigger(state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER], deadzone);
+			gamepad.Axes[(size_t)GamepadAxis::RightTrigger] = RemapTrigger(state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER], deadzone);
+		}
+
+	}
+
 	void Input::Update()
 	{
 		// Cleanup disconnected controller
@@ -55,6 +116,8 @@ namespace Lux {
 				const unsigned char* hats = glfwGetJoystickHats(id, &hatCount);
 				for (int i = 0; i < hatCount; i++)
 					controller.HatStates[i] = hats[i];
+
+				UpdateGamepadState(controller, s_GamepadDeadzone);
 			}
 		}
 	}
@@ -306,6 +369,74 @@ namespace Lux {
 
 		Controller& controller = s_Controllers.at(controllerID);
 		controller.DeadZones[axis] = deadzone;
+	}
+
+	const Controller* Input::FindGamepad(int id)
+	{
+		if (id >= 0)
+		{
+			const Controller* controller = GetController(id);
+			return controller && controller->IsGamepad ? controller : nullptr;
+		}
+
+		for (const auto& [_, controller] : s_Controllers)
+		{
+			if (controller.IsGamepad)
+				return &controller;
+		}
+		return nullptr;
+	}
+
+	bool Input::IsGamepadConnected(int id)
+	{
+		return FindGamepad(id) != nullptr;
+	}
+
+	std::string_view Input::GetGamepadName(int id)
+	{
+		const Controller* controller = FindGamepad(id);
+		return controller ? std::string_view(controller->Name) : std::string_view{};
+	}
+
+	bool Input::IsGamepadButtonDown(GamepadButton button, int id)
+	{
+		const Controller* controller = FindGamepad(id);
+		if (!controller || button < GamepadButton::South || button >= GamepadButton::Count)
+			return false;
+
+		return controller->Gamepad.ButtonDown[(size_t)button];
+	}
+
+	bool Input::IsGamepadButtonPressed(GamepadButton button, int id)
+	{
+		const Controller* controller = FindGamepad(id);
+		if (!controller || button < GamepadButton::South || button >= GamepadButton::Count)
+			return false;
+
+		return controller->Gamepad.ButtonDown[(size_t)button] && !controller->Gamepad.PreviousButtonDown[(size_t)button];
+	}
+
+	bool Input::IsGamepadButtonReleased(GamepadButton button, int id)
+	{
+		const Controller* controller = FindGamepad(id);
+		if (!controller || button < GamepadButton::South || button >= GamepadButton::Count)
+			return false;
+
+		return !controller->Gamepad.ButtonDown[(size_t)button] && controller->Gamepad.PreviousButtonDown[(size_t)button];
+	}
+
+	float Input::GetGamepadAxis(GamepadAxis axis, int id)
+	{
+		const Controller* controller = FindGamepad(id);
+		if (!controller || axis < GamepadAxis::LeftX || axis >= GamepadAxis::Count)
+			return 0.0f;
+
+		return controller->Gamepad.Axes[(size_t)axis];
+	}
+
+	void Input::SetGamepadDeadzone(float deadzone)
+	{
+		s_GamepadDeadzone = std::clamp(deadzone, 0.0f, 0.95f);
 	}
 
 	void Input::TransitionPressedKeys()

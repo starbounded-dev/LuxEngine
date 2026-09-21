@@ -5,6 +5,7 @@
 
 #include "KeyCodes.h"
 
+#include <array>
 #include <map>
 #include <string_view>
 #include <vector>
@@ -18,6 +19,37 @@ namespace Lux {
 		KeyState OldState = KeyState::None;
 	};
 
+	// Standard gamepad layout (SDL mapping), identical on every mapped controller. Face buttons are
+	// named by position: South is Xbox A / PlayStation Cross. Values match GLFW_GAMEPAD_BUTTON_*
+	// and the C# Lux.GamepadButton enum.
+	enum class GamepadButton : int32_t
+	{
+		South = 0, East, West, North,
+		LeftBumper, RightBumper,
+		Back, Start, Guide,
+		LeftStick, RightStick,
+		DPadUp, DPadRight, DPadDown, DPadLeft,
+
+		Count
+	};
+
+	// Sticks are -1..1 (Y is +1 down, as GLFW reports it); triggers are 0..1. Values match
+	// GLFW_GAMEPAD_AXIS_* and the C# Lux.GamepadAxis enum.
+	enum class GamepadAxis : int32_t
+	{
+		LeftX = 0, LeftY, RightX, RightY,
+		LeftTrigger, RightTrigger,
+
+		Count
+	};
+
+	struct GamepadState
+	{
+		std::array<bool, (size_t)GamepadButton::Count> ButtonDown{};
+		std::array<bool, (size_t)GamepadButton::Count> PreviousButtonDown{};
+		std::array<float, (size_t)GamepadAxis::Count> Axes{}; // Deadzone already applied.
+	};
+
 	struct Controller
 	{
 		int ID;
@@ -27,6 +59,10 @@ namespace Lux {
 		std::map<int, float> AxisStates;
 		std::map<int, float> DeadZones;
 		std::map<int, uint8_t> HatStates;
+
+		// Standard-layout view, only valid when IsGamepad (the device has a gamepad mapping).
+		bool IsGamepad = false;
+		GamepadState Gamepad;
 	};
 
 	struct KeyData
@@ -85,6 +121,19 @@ namespace Lux {
 
 		static const std::map<int, Controller>& GetControllers() { return s_Controllers; }
 
+		// Gamepads: the standard layout above, the same on every mapped controller. An id < 0 means
+		// the first connected gamepad. Raw GetController* calls above expose device-specific indices.
+		static bool IsGamepadConnected(int id = -1);
+		static std::string_view GetGamepadName(int id = -1);
+		static bool IsGamepadButtonDown(GamepadButton button, int id = -1);
+		static bool IsGamepadButtonPressed(GamepadButton button, int id = -1);  // Went down this frame.
+		static bool IsGamepadButtonReleased(GamepadButton button, int id = -1); // Went up this frame.
+		static float GetGamepadAxis(GamepadAxis axis, int id = -1);
+
+		// Radial deadzone for sticks and triggers, as a fraction of full deflection (default 0.15).
+		static float GetGamepadDeadzone() { return s_GamepadDeadzone; }
+		static void SetGamepadDeadzone(float deadzone);
+
 		// Internal use only...
 		static void TransitionPressedKeys();
 		static void TransitionPressedButtons();
@@ -96,6 +145,9 @@ namespace Lux {
 		inline static std::map<KeyCode, KeyData> s_KeyData;
 		inline static std::map<MouseButton, ButtonData> s_MouseData;
 		inline static std::map<int, Controller> s_Controllers;
+		inline static float s_GamepadDeadzone = 0.15f;
+
+		static const Controller* FindGamepad(int id);
 	};
 
 }

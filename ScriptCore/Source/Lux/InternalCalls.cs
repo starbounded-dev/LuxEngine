@@ -71,6 +71,14 @@ namespace Lux
 		internal static delegate*<int, Bool32> Input_IsControllerPresent;
 		internal static delegate*<int, int, Bool32> Input_IsControllerButtonDown;
 		internal static delegate*<int, int, float> Input_GetControllerAxis;
+		internal static delegate*<int, Bool32> Input_IsGamepadConnected;
+		internal static delegate*<int, NativeString> Input_GetGamepadName;
+		internal static delegate*<GamepadButton, int, Bool32> Input_IsGamepadButtonDown;
+		internal static delegate*<GamepadButton, int, Bool32> Input_IsGamepadButtonPressed;
+		internal static delegate*<GamepadButton, int, Bool32> Input_IsGamepadButtonReleased;
+		internal static delegate*<GamepadAxis, int, float> Input_GetGamepadAxis;
+		internal static delegate*<float> Input_GetGamepadDeadzone;
+		internal static delegate*<float, void> Input_SetGamepadDeadzone;
 		#endregion
 
 		#region Scene

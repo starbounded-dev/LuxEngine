@@ -4,24 +4,36 @@ using Lux;
 
 namespace LuxSample
 {
-	// Free-fly camera. Attach to a camera entity (via a ScriptComponent) and press Play:
+	// Free-fly camera. Attach to a camera entity (via a ScriptComponent) and press Play.
+	//
+	// Keyboard + mouse:
 	//   - Hold RIGHT MOUSE BUTTON and move the mouse to look around
 	//   - While looking: W/S forward/back, A/D strafe, E/Space up, Q/LeftControl down
 	//   - LeftShift : sprint (move faster)
 	//
+	// Gamepad (any mapped controller; Xbox names, PlayStation in brackets):
+	//   - Left stick  : move / strafe (analog, speed follows how far you push)
+	//   - Right stick : look around
+	//   - RT / RB [R2 / R1] : up,  LT / LB [L2 / L1] : down
+	//   - Click the left stick [L3] : sprint until the stick is released
+	//
 	// The script owns yaw/pitch, so movement always follows where you're looking. If forward/back
-	// feels reversed, flip the sign on 'forward'; if the mouse look is inverted, flip the m_Yaw /
-	// m_Pitch update signs. Both are one-character changes.
+	// feels reversed, flip the sign on 'forward'; if the look is inverted, flip the m_Yaw / m_Pitch
+	// update signs. Both are one-character changes.
 	public class FlyCamera : Entity
 	{
 		public float Speed = 5.0f;
 		public float SprintMultiplier = 3.0f;
 		public float MouseSensitivity = 0.0025f;
+		public float GamepadLookSpeed = 2.5f; // Radians per second at full stick deflection.
+		public bool InvertGamepadY = false;
+		public int Gamepad = -1;              // Controller slot; -1 = first connected gamepad.
 
 		private float m_Yaw;
 		private float m_Pitch;
 		private Vector2 m_LastMousePosition;
 		private bool m_Initialized = false;
+		private bool m_GamepadSprint = false;
 
 		void OnCreate()
 		{
@@ -33,11 +45,18 @@ namespace LuxSample
 
 		void OnUpdate(float ts)
 		{
-			UpdateLook();
+			bool looked = UpdateMouseLook();
+			looked |= UpdateGamepadLook(ts);
+			if (looked)
+			{
+				m_Pitch = Math.Clamp(m_Pitch, -1.55f, 1.55f); // ~+/-89 degrees
+				Rotation = new Vector3(m_Pitch, m_Yaw, 0.0f);
+			}
+
 			UpdateMovement(ts);
 		}
 
-		private void UpdateLook()
+		private bool UpdateMouseLook()
 		{
 			Vector2 mouse = Input.MousePosition;
 
@@ -53,13 +72,25 @@ namespace LuxSample
 			m_LastMousePosition = mouse;
 
 			if (!Input.IsMouseButtonDown(MouseButton.Right))
-				return;
+				return false;
 
 			m_Yaw -= deltaX * MouseSensitivity;
 			m_Pitch -= deltaY * MouseSensitivity;
-			m_Pitch = Math.Clamp(m_Pitch, -1.55f, 1.55f); // ~+/-89 degrees
+			return true;
+		}
 
-			Rotation = new Vector3(m_Pitch, m_Yaw, 0.0f);
+		private bool UpdateGamepadLook(float ts)
+		{
+			// Deadzone is applied natively, so a resting stick reads exactly zero.
+			Vector2 look = Input.GetGamepadRightStick(Gamepad);
+			if (look.X == 0.0f && look.Y == 0.0f)
+				return false;
+
+			// Stick Y is +1 when pulled back, same direction as the mouse's screen-space Y.
+			float invert = InvertGamepadY ? -1.0f : 1.0f;
+			m_Yaw -= look.X * GamepadLookSpeed * ts;
+			m_Pitch -= look.Y * invert * GamepadLookSpeed * ts;
+			return true;
 		}
 
 		private void UpdateMovement(float ts)
@@ -80,11 +111,39 @@ namespace LuxSample
 			if (Input.IsKeyDown(KeyCode.E) || Input.IsKeyDown(KeyCode.Space)) velocity = velocity + up;
 			if (Input.IsKeyDown(KeyCode.Q) || Input.IsKeyDown(KeyCode.LeftControl)) velocity = velocity + (up * -1.0f);
 
+			bool gamepadSprint = UpdateGamepadMovement(ref velocity, forward, right, up);
+
 			float speed = Speed;
-			if (Input.IsKeyDown(KeyCode.LeftShift))
+			if (Input.IsKeyDown(KeyCode.LeftShift) || gamepadSprint)
 				speed *= SprintMultiplier;
 
 			Translation = Translation + (velocity * (speed * ts));
+		}
+
+		// Adds analog gamepad movement to 'velocity' and returns whether gamepad sprint is active.
+		private bool UpdateGamepadMovement(ref Vector3 velocity, Vector3 forward, Vector3 right, Vector3 up)
+		{
+			if (!Input.IsGamepadConnected(Gamepad))
+			{
+				m_GamepadSprint = false;
+				return false;
+			}
+
+			Vector2 move = Input.GetGamepadLeftStick(Gamepad);
+			velocity = velocity + (forward * -move.Y) + (right * move.X);
+
+			// Triggers are analog; bumpers are full speed.
+			float rise = Input.IsGamepadButtonDown(GamepadButton.RightBumper, Gamepad) ? 1.0f : Input.GetGamepadAxis(GamepadAxis.RightTrigger, Gamepad);
+			float fall = Input.IsGamepadButtonDown(GamepadButton.LeftBumper, Gamepad) ? 1.0f : Input.GetGamepadAxis(GamepadAxis.LeftTrigger, Gamepad);
+			velocity = velocity + (up * (rise - fall));
+
+			// L3 is hard to hold while steering, so a click latches sprint until the stick recenters.
+			if (Input.IsGamepadButtonPressed(GamepadButton.LeftStick, Gamepad))
+				m_GamepadSprint = true;
+			else if (move.X == 0.0f && move.Y == 0.0f)
+				m_GamepadSprint = false;
+
+			return m_GamepadSprint;
 		}
 	}
 }

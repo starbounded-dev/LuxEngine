@@ -111,6 +111,15 @@ namespace Lux {
 	static Coral::Bool32 Input_IsControllerButtonDown(int32_t id, int32_t button) { return Input::IsControllerButtonDown(id, button); }
 	static float Input_GetControllerAxis(int32_t id, int32_t axis) { return Input::GetControllerAxis(id, axis); }
 
+	static Coral::Bool32 Input_IsGamepadConnected(int32_t id) { return Input::IsGamepadConnected(id); }
+	static Coral::String Input_GetGamepadName(int32_t id) { return Coral::String::New(Input::GetGamepadName(id)); }
+	static Coral::Bool32 Input_IsGamepadButtonDown(GamepadButton button, int32_t id)     { return Input::IsGamepadButtonDown(button, id); }
+	static Coral::Bool32 Input_IsGamepadButtonPressed(GamepadButton button, int32_t id)  { return Input::IsGamepadButtonPressed(button, id); }
+	static Coral::Bool32 Input_IsGamepadButtonReleased(GamepadButton button, int32_t id) { return Input::IsGamepadButtonReleased(button, id); }
+	static float Input_GetGamepadAxis(GamepadAxis axis, int32_t id) { return Input::GetGamepadAxis(axis, id); }
+	static float Input_GetGamepadDeadzone() { return Input::GetGamepadDeadzone(); }
+	static void Input_SetGamepadDeadzone(float deadzone) { Input::SetGamepadDeadzone(deadzone); }
+
 	#pragma endregion
 
 	#pragma region Scene
@@ -683,6 +692,14 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(Input_IsControllerPresent);
 		LUX_ADD_INTERNAL_CALL(Input_IsControllerButtonDown);
 		LUX_ADD_INTERNAL_CALL(Input_GetControllerAxis);
+		LUX_ADD_INTERNAL_CALL(Input_IsGamepadConnected);
+		LUX_ADD_INTERNAL_CALL(Input_GetGamepadName);
+		LUX_ADD_INTERNAL_CALL(Input_IsGamepadButtonDown);
+		LUX_ADD_INTERNAL_CALL(Input_IsGamepadButtonPressed);
+		LUX_ADD_INTERNAL_CALL(Input_IsGamepadButtonReleased);
+		LUX_ADD_INTERNAL_CALL(Input_GetGamepadAxis);
+		LUX_ADD_INTERNAL_CALL(Input_GetGamepadDeadzone);
+		LUX_ADD_INTERNAL_CALL(Input_SetGamepadDeadzone);
 
 		LUX_ADD_INTERNAL_CALL(Scene_CreateEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_DestroyEntity);

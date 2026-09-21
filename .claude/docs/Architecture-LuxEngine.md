@@ -413,6 +413,14 @@ its preference (`Editor.GamepadNavigation*` in app settings — GUID + last slot
 every frame in `EditorLayer::UpdateGamepadNavigation` and passes -1 during Play so the game gets the
 pad. UI: Application Settings → Viewport → Gamepad.
 
+Game gamepad input: `Input::Update` (called from `Window` on the main thread) also snapshots each
+mapped controller's standard layout via `glfwGetGamepadState` into `Controller::Gamepad`, with a
+global scaled radial deadzone (`Input::SetGamepadDeadzone`, default 0.15; triggers remapped to
+0..1). `Input::IsGamepadButtonDown/Pressed/Released` and `GetGamepadAxis` take `GamepadButton` /
+`GamepadAxis` (values mirror `GLFW_GAMEPAD_*`, static_asserted) and an id where < 0 means the first
+connected gamepad. Exposed to C# as `Lux.Input.*Gamepad*` with matching `GamepadButton` /
+`GamepadAxis` enums. The raw `GetController*` API remains for unmapped devices.
+
 ### 2.10 Audio
 
 FMOD Studio is the only playback path. `AudioEngine` owns Studio and its Core mixer;
