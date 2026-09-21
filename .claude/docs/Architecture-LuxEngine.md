@@ -730,6 +730,14 @@ stores its table handle in YAML and runtime format 20; AssetPack includes it wit
 reject runtime managers. Asset-pack serialization returns failure to the export caller when any
 scene/asset or output write fails; `FileStream` reports the underlying I/O result.
 
+**Table asset size limits:** both YAML table assets are bounded, and each limit is enforced at all
+four boundaries — editor save, loose-file load, asset-pack write and asset-pack read — so a table
+can never be written in a form that later fails to load or export. `AudioSurfaceTable` is capped at
+**1 MiB** (`k_MaxTableBytes` in `AudioSurfaceTableSerializer.cpp`) and `DialogueTable` at **8 MiB**
+(`DialogueTableSerializer.cpp`). Exceeding the cap on save logs an audio error and writes nothing,
+leaving the previous file intact; an oversized file or pack entry fails to load rather than
+truncating. Raise a limit only by changing it at every one of those points together.
+
 `PhysicsScene::Impl` owns a `JoltContactListener` that outlives the Jolt system. Worker callbacks
 capture body sequence IDs/subshape IDs, UUIDs, contact position, masses, estimated impulse and
 slip/roll speeds under a queue mutex. They never read ECS, acquire body locks or call FMOD.
