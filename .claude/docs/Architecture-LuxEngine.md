@@ -405,6 +405,14 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
 UI style: use `ImGuiEx` scopes and widgets and `Colors::Theme` constants — see
 `.claude/docs/Conventions.md`.
 
+Gamepad navigation: the stock GLFW backend only reads `GLFW_JOYSTICK_1`, so `ImGuiLayer::Begin`
+clears `ImGuiConfigFlags_NavEnableGamepad` before the backend's `NewFrame` and then feeds the
+joystick chosen via `ImGuiLayer::SetNavGamepad(id)` itself (-1 = off; held keys are released when
+feeding stops). `ImGuiLayer::GetConnectedGamepads()` lists devices for pickers. The editor resolves
+its preference (`Editor.GamepadNavigation*` in app settings — GUID + last slot; empty GUID = Auto)
+every frame in `EditorLayer::UpdateGamepadNavigation` and passes -1 during Play so the game gets the
+pad. UI: Application Settings → Viewport → Gamepad.
+
 ### 2.10 Audio
 
 FMOD Studio is the only playback path. `AudioEngine` owns Studio and its Core mixer;

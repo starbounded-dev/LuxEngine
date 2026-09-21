@@ -188,6 +188,7 @@ namespace Lux
 		void LoadEditorPreferences();
 		void SaveEditorPreferences() const;
 		void ApplyEditorPreferences();
+		void UpdateGamepadNavigation();
 		void LoadUserPreferences();
 		void SaveUserPreferences() const;
 		void AddRecentProject(const std::filesystem::path& projectPath);
@@ -307,6 +308,12 @@ namespace Lux
 		AssetHandle m_LastInvalidBoundsMesh = 0;
 		bool m_ShowEntityIcons = true;
 		bool m_ShowViewportPerformanceHUD = true;
+		// Drive editor UI with a controller (ImGui gamepad navigation). Persisted as
+		// Editor.GamepadNavigation*; suspended during Play so the game gets the pad.
+		bool m_GamepadNavigation = false;
+		// Chosen controller. Empty GUID = Auto (first connected gamepad). JoystickID is the slot it
+		// was last seen in, used to tell identical models (same GUID) apart.
+		ImGuiGamepadInfo m_GamepadNavigationDevice;
 
 		// Editor layout mode: Simple (a fixed, minimal default arrangement) vs Advanced (a fuller
 		// workspace with the diagnostic panels docked). Persisted as Editor.SimpleLayout.

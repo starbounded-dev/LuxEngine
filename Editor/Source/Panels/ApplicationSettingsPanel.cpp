@@ -17,6 +17,7 @@
 #include <imgui/imgui.h>
 
 #include <algorithm>
+#include <format>
 #include <iterator>
 
 namespace Lux {
@@ -355,8 +356,93 @@ namespace Lux {
 			notifyBindings = true;
 		ImGuiEx::EndPropertyGrid();
 
+		if (m_Bindings.GamepadNavigation)
+		{
+			ImGui::Spacing();
+			ImGui::TextUnformatted("Gamepad");
+			ImGui::Separator();
+
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("Gamepad Navigation", *m_Bindings.GamepadNavigation,
+				"Navigate the editor UI with a controller (D-pad to move, A to activate, B to cancel).\nSuspended while playing so the game receives the controller."))
+				notifyBindings = true;
+			ImGuiEx::EndPropertyGrid();
+
+			if (*m_Bindings.GamepadNavigation && m_Bindings.GamepadNavigationDevice && DrawGamepadDeviceList())
+				notifyBindings = true;
+		}
+
 		if (notifyBindings && m_Bindings.OnPreferencesChanged)
 			m_Bindings.OnPreferencesChanged();
+	}
+
+	bool ApplicationSettingsPanel::DrawGamepadDeviceList()
+	{
+		ImGuiGamepadInfo& selection = *m_Bindings.GamepadNavigationDevice;
+		const std::vector<ImGuiGamepadInfo> gamepads = ImGuiLayer::GetConnectedGamepads();
+		const ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer();
+		// Highlight the slot actually driving the UI; fall back to the remembered one while
+		// navigation is suspended (e.g. during Play).
+		const int activeID = (imguiLayer && imguiLayer->GetNavGamepad() >= 0) ? imguiLayer->GetNavGamepad() : selection.JoystickID;
+		bool changed = false;
+
+		ImGui::TextDisabled("Controller that drives the editor UI. Press a button to see which row lights up.");
+
+		const float listHeight = ImGui::GetFrameHeightWithSpacing() * (float)std::clamp((int)gamepads.size() + 2, 3, 8);
+		if (ImGui::BeginChild("##gamepad_devices", ImVec2(0.0f, listHeight), ImGuiChildFlags_Borders))
+		{
+			if (ImGui::Selectable("Auto (first connected controller)", selection.GUID.empty()))
+			{
+				selection = {};
+				changed = true;
+			}
+
+			bool selectionConnected = selection.GUID.empty();
+			for (const ImGuiGamepadInfo& gamepad : gamepads)
+			{
+				ImGui::PushID(gamepad.JoystickID);
+
+				const bool sameModel = !selection.GUID.empty() && gamepad.GUID == selection.GUID;
+				selectionConnected |= sameModel;
+
+				std::string label = std::format("{}  (#{})", gamepad.Name, gamepad.JoystickID + 1);
+				if (!gamepad.HasMapping)
+					label += "  - no gamepad mapping";
+
+				{
+					ImGuiEx::ScopedDisable disableUnmapped(!gamepad.HasMapping);
+					if (ImGui::Selectable(label.c_str(), sameModel && gamepad.JoystickID == activeID))
+					{
+						selection = gamepad;
+						selection.HasInput = false;
+						changed = true;
+					}
+				}
+
+				// Live activity dot, so several similar entries can be told apart.
+				if (gamepad.HasInput)
+				{
+					const ImVec2 rowMax = ImGui::GetItemRectMax();
+					const float radius = ImGui::GetFontSize() * 0.25f;
+					ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(rowMax.x - radius * 3.0f, (ImGui::GetItemRectMin().y + rowMax.y) * 0.5f),
+						radius, IM_COL32(80, 230, 100, 255));
+				}
+
+				ImGui::PopID();
+			}
+
+			if (!selectionConnected)
+			{
+				ImGuiEx::ScopedDisable disableMissing;
+				ImGui::Selectable(std::format("{}  - disconnected", selection.Name).c_str(), true);
+			}
+
+			if (gamepads.empty())
+				ImGui::TextDisabled("No controllers connected.");
+		}
+		ImGui::EndChild();
+
+		return changed;
 	}
 
 	void ApplicationSettingsPanel::DrawContentBrowserPage()

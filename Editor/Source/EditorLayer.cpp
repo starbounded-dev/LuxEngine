@@ -435,6 +435,8 @@ namespace Lux {
 		editorPreferencesBindings.ShowEntityIcons = &m_ShowEntityIcons;
 		editorPreferencesBindings.ShowViewportPerformanceHUD = &m_ShowViewportPerformanceHUD;
 		editorPreferencesBindings.ShowPhysicsColliders = &m_ShowPhysicsColliders;
+		editorPreferencesBindings.GamepadNavigation = &m_GamepadNavigation;
+		editorPreferencesBindings.GamepadNavigationDevice = &m_GamepadNavigationDevice;
 		editorPreferencesBindings.SimpleLayout = &m_SimpleLayout;
 		editorPreferencesBindings.OnLayoutModeChanged = [this](bool simple)
 			{
@@ -699,6 +701,8 @@ namespace Lux {
 		// Without this, IsOver() / IsUsing() return stale state and Manipulate()
 		// produces garbage transforms.
 		ImGuizmo::BeginFrame();
+
+		UpdateGamepadNavigation();
 
 		static bool dockspaceOpen = true;
 		static bool opt_fullscreen_persistent = true;
@@ -2613,6 +2617,10 @@ namespace Lux {
 		m_ShowEntityIcons = settings.GetInt("Editor.ShowEntityIcons", 1) != 0;
 		m_ShowViewportPerformanceHUD = settings.GetInt("Editor.ShowViewportPerformanceHUD", 1) != 0;
 		m_ShowPhysicsColliders = settings.GetInt("Editor.ShowPhysicsColliders", 0) != 0;
+		m_GamepadNavigation = settings.GetInt("Editor.GamepadNavigation", 0) != 0;
+		m_GamepadNavigationDevice.GUID = settings.Get("Editor.GamepadNavigationGUID");
+		m_GamepadNavigationDevice.Name = settings.Get("Editor.GamepadNavigationName");
+		m_GamepadNavigationDevice.JoystickID = settings.GetInt("Editor.GamepadNavigationSlot", -1);
 		m_SimpleLayout = settings.GetInt("Editor.SimpleLayout", 1) != 0;
 
 		ApplyEditorPreferences();
@@ -2633,8 +2641,37 @@ namespace Lux {
 		settings.SetInt("Editor.ShowEntityIcons", m_ShowEntityIcons ? 1 : 0);
 		settings.SetInt("Editor.ShowViewportPerformanceHUD", m_ShowViewportPerformanceHUD ? 1 : 0);
 		settings.SetInt("Editor.ShowPhysicsColliders", m_ShowPhysicsColliders ? 1 : 0);
+		settings.SetInt("Editor.GamepadNavigation", m_GamepadNavigation ? 1 : 0);
+		settings.Set("Editor.GamepadNavigationGUID", m_GamepadNavigationDevice.GUID);
+		settings.Set("Editor.GamepadNavigationName", m_GamepadNavigationDevice.Name);
+		settings.SetInt("Editor.GamepadNavigationSlot", m_GamepadNavigationDevice.JoystickID);
 		settings.SetInt("Editor.SimpleLayout", m_SimpleLayout ? 1 : 0);
 		settings.Serialize();
+	}
+
+	void EditorLayer::UpdateGamepadNavigation()
+	{
+		ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer();
+		if (!imguiLayer)
+			return;
+
+		// Suspended during Play so the game, not the editor UI, receives the controller.
+		int joystickID = -1;
+		if (m_GamepadNavigation && m_SceneState != SceneState::Play)
+		{
+			const std::string& guid = m_GamepadNavigationDevice.GUID;
+			for (const ImGuiGamepadInfo& gamepad : ImGuiLayer::GetConnectedGamepads())
+			{
+				if (!gamepad.HasMapping || (!guid.empty() && gamepad.GUID != guid))
+					continue;
+
+				// First match wins, unless the remembered slot also matches (identical models).
+				if (joystickID < 0 || gamepad.JoystickID == m_GamepadNavigationDevice.JoystickID)
+					joystickID = gamepad.JoystickID;
+			}
+		}
+
+		imguiLayer->SetNavGamepad(joystickID);
 	}
 
 	void EditorLayer::ApplyEditorPreferences()

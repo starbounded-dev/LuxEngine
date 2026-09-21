@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Lux/Editor/EditorPanel.h"
+#include "Lux/ImGui/ImGuiLayer.h"
 #include "Lux/Project/UserPreferences.h"
 
 #include <functional>
@@ -41,6 +42,10 @@ namespace Lux {
 			bool* ShowEntityIcons = nullptr;
 			bool* ShowViewportPerformanceHUD = nullptr;
 			bool* ShowPhysicsColliders = nullptr;
+			// ImGui gamepad navigation of the editor UI (suspended during Play), and which controller
+			// drives it (empty GUID = Auto).
+			bool* GamepadNavigation = nullptr;
+			ImGuiGamepadInfo* GamepadNavigationDevice = nullptr;
 			// Editor layout mode (Simple vs Advanced). Read through the pointer; switching modes does
 			// more than flip a bool (re-docks panels), so the change is routed through the callback
 			// rather than written directly.
@@ -59,6 +64,7 @@ namespace Lux {
 		void DrawPageList();
 		void DrawEditorPage();
 		void DrawViewportPage();
+		bool DrawGamepadDeviceList();
 		void DrawContentBrowserPage();
 		void DrawDiscordPage();
 

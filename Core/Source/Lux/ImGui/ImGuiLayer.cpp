@@ -29,6 +29,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include <cmath>
 #include <cstdlib>
 
 // TODO(Yan): WIP
@@ -45,7 +46,7 @@ namespace Lux {
 		ImPlot::CreateContext();
 		ImGuiIO& io = ImGui::GetIO(); (void)io;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
-		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+		// Gamepad navigation is driven per frame by SetNavGamepad (see UpdateNavGamepad).
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
 #ifndef LUX_PLATFORM_LINUX
 		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
@@ -319,10 +320,124 @@ namespace Lux {
 			registry->NewFrame();
 
 		m_ImGuiRenderer->UpdateFontTexture();
+
+		// Keep the backend's hardcoded joystick-1 path off; UpdateNavGamepad feeds the chosen pad.
+		ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
 		ImGui_ImplGlfw_NewFrame();
+		UpdateNavGamepad();
 
 		ImGui::NewFrame();
 		ImGuizmo::BeginFrame();
+	}
+
+	namespace {
+
+		// ImGui gamepad key <- GLFW gamepad button, in the standard (SDL) layout.
+		struct GamepadButtonMapping { ImGuiKey Key; int Button; };
+		constexpr GamepadButtonMapping s_GamepadButtons[] = {
+			{ ImGuiKey_GamepadStart,     GLFW_GAMEPAD_BUTTON_START },
+			{ ImGuiKey_GamepadBack,      GLFW_GAMEPAD_BUTTON_BACK },
+			{ ImGuiKey_GamepadFaceLeft,  GLFW_GAMEPAD_BUTTON_X },     // Xbox X, PS Square
+			{ ImGuiKey_GamepadFaceRight, GLFW_GAMEPAD_BUTTON_B },     // Xbox B, PS Circle
+			{ ImGuiKey_GamepadFaceUp,    GLFW_GAMEPAD_BUTTON_Y },     // Xbox Y, PS Triangle
+			{ ImGuiKey_GamepadFaceDown,  GLFW_GAMEPAD_BUTTON_A },     // Xbox A, PS Cross
+			{ ImGuiKey_GamepadDpadLeft,  GLFW_GAMEPAD_BUTTON_DPAD_LEFT },
+			{ ImGuiKey_GamepadDpadRight, GLFW_GAMEPAD_BUTTON_DPAD_RIGHT },
+			{ ImGuiKey_GamepadDpadUp,    GLFW_GAMEPAD_BUTTON_DPAD_UP },
+			{ ImGuiKey_GamepadDpadDown,  GLFW_GAMEPAD_BUTTON_DPAD_DOWN },
+			{ ImGuiKey_GamepadL1,        GLFW_GAMEPAD_BUTTON_LEFT_BUMPER },
+			{ ImGuiKey_GamepadR1,        GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER },
+			{ ImGuiKey_GamepadL3,        GLFW_GAMEPAD_BUTTON_LEFT_THUMB },
+			{ ImGuiKey_GamepadR3,        GLFW_GAMEPAD_BUTTON_RIGHT_THUMB },
+		};
+
+		// Analog ImGui key <- the part of a GLFW axis between V0 (released) and V1 (fully pressed).
+		struct GamepadAxisMapping { ImGuiKey Key; int Axis; float V0; float V1; };
+		constexpr GamepadAxisMapping s_GamepadAxes[] = {
+			{ ImGuiKey_GamepadL2,          GLFW_GAMEPAD_AXIS_LEFT_TRIGGER,  -0.75f, +1.0f },
+			{ ImGuiKey_GamepadR2,          GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER, -0.75f, +1.0f },
+			{ ImGuiKey_GamepadLStickLeft,  GLFW_GAMEPAD_AXIS_LEFT_X,        -0.25f, -1.0f },
+			{ ImGuiKey_GamepadLStickRight, GLFW_GAMEPAD_AXIS_LEFT_X,        +0.25f, +1.0f },
+			{ ImGuiKey_GamepadLStickUp,    GLFW_GAMEPAD_AXIS_LEFT_Y,        -0.25f, -1.0f },
+			{ ImGuiKey_GamepadLStickDown,  GLFW_GAMEPAD_AXIS_LEFT_Y,        +0.25f, +1.0f },
+			{ ImGuiKey_GamepadRStickLeft,  GLFW_GAMEPAD_AXIS_RIGHT_X,       -0.25f, -1.0f },
+			{ ImGuiKey_GamepadRStickRight, GLFW_GAMEPAD_AXIS_RIGHT_X,       +0.25f, +1.0f },
+			{ ImGuiKey_GamepadRStickUp,    GLFW_GAMEPAD_AXIS_RIGHT_Y,       -0.25f, -1.0f },
+			{ ImGuiKey_GamepadRStickDown,  GLFW_GAMEPAD_AXIS_RIGHT_Y,       +0.25f, +1.0f },
+		};
+
+		bool HasGamepadInput(const GLFWgamepadstate& state)
+		{
+			for (unsigned char button : state.buttons)
+				if (button == GLFW_PRESS)
+					return true;
+
+			for (int axis = GLFW_GAMEPAD_AXIS_LEFT_X; axis <= GLFW_GAMEPAD_AXIS_RIGHT_Y; axis++)
+				if (std::abs(state.axes[axis]) > 0.5f)
+					return true;
+
+			// Triggers rest at -1.
+			return state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] > 0.0f || state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] > 0.0f;
+		}
+
+	}
+
+	std::vector<ImGuiGamepadInfo> ImGuiLayer::GetConnectedGamepads()
+	{
+		std::vector<ImGuiGamepadInfo> gamepads;
+		for (int id = GLFW_JOYSTICK_1; id <= GLFW_JOYSTICK_LAST; id++)
+		{
+			if (glfwJoystickPresent(id) != GLFW_TRUE)
+				continue;
+
+			ImGuiGamepadInfo& info = gamepads.emplace_back();
+			info.JoystickID = id;
+			const char* name = glfwGetJoystickName(id);
+			info.Name = name ? name : "Unknown Controller";
+			const char* guid = glfwGetJoystickGUID(id);
+			info.GUID = guid ? guid : "";
+			info.HasMapping = glfwJoystickIsGamepad(id) == GLFW_TRUE;
+
+			GLFWgamepadstate state;
+			info.HasInput = info.HasMapping && glfwGetGamepadState(id, &state) && HasGamepadInput(state);
+		}
+		return gamepads;
+	}
+
+	void ImGuiLayer::UpdateNavGamepad()
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		io.BackendFlags &= ~ImGuiBackendFlags_HasGamepad;
+
+		GLFWgamepadstate state;
+		const bool feed = m_NavGamepadID >= GLFW_JOYSTICK_1 && m_NavGamepadID <= GLFW_JOYSTICK_LAST
+			&& glfwGetGamepadState(m_NavGamepadID, &state) == GLFW_TRUE;
+
+		if (!feed)
+		{
+			// Release everything once, or a button held while the pad was switched off or
+			// unplugged stays down in ImGui.
+			if (m_NavGamepadFed)
+			{
+				for (int key = ImGuiKey_GamepadStart; key <= ImGuiKey_GamepadRStickDown; key++)
+					io.AddKeyAnalogEvent((ImGuiKey)key, false, 0.0f);
+				m_NavGamepadFed = false;
+			}
+			return;
+		}
+
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+		io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+		m_NavGamepadFed = true;
+
+		for (const GamepadButtonMapping& mapping : s_GamepadButtons)
+			io.AddKeyEvent(mapping.Key, state.buttons[mapping.Button] == GLFW_PRESS);
+
+		for (const GamepadAxisMapping& mapping : s_GamepadAxes)
+		{
+			const float value = std::clamp((state.axes[mapping.Axis] - mapping.V0) / (mapping.V1 - mapping.V0), 0.0f, 1.0f);
+			io.AddKeyAnalogEvent(mapping.Key, value > 0.10f, value);
+		}
 	}
 
 	void ImGuiLayer::End()
