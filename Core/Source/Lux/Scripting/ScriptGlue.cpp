@@ -119,6 +119,10 @@ namespace Lux {
 	static float Input_GetGamepadAxis(GamepadAxis axis, int32_t id) { return Input::GetGamepadAxis(axis, id); }
 	static float Input_GetGamepadDeadzone() { return Input::GetGamepadDeadzone(); }
 	static void Input_SetGamepadDeadzone(float deadzone) { Input::SetGamepadDeadzone(deadzone); }
+	static_assert(sizeof(TriggerEffect) == 5 * sizeof(int32_t), "TriggerEffect must match the C# Lux.TriggerEffect layout");
+	static Coral::Bool32 Input_SupportsTriggerEffects(int32_t id) { return Input::SupportsTriggerEffects(id); }
+	static void Input_SetGamepadTriggerEffect(GamepadTrigger trigger, TriggerEffect* effect, int32_t id) { Input::SetGamepadTriggerEffect(trigger, *effect, id); }
+	static void Input_ResetGamepadTriggerEffects() { Input::ResetGamepadTriggerEffects(); }
 
 	#pragma endregion
 
@@ -700,6 +704,9 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(Input_GetGamepadAxis);
 		LUX_ADD_INTERNAL_CALL(Input_GetGamepadDeadzone);
 		LUX_ADD_INTERNAL_CALL(Input_SetGamepadDeadzone);
+		LUX_ADD_INTERNAL_CALL(Input_SupportsTriggerEffects);
+		LUX_ADD_INTERNAL_CALL(Input_SetGamepadTriggerEffect);
+		LUX_ADD_INTERNAL_CALL(Input_ResetGamepadTriggerEffects);
 
 		LUX_ADD_INTERNAL_CALL(Scene_CreateEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_DestroyEntity);

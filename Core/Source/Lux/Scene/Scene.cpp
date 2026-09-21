@@ -16,6 +16,7 @@
 #include "Lux/Audio/RaytracedAudioScene.h"
 
 #include "Lux/Core/JobSystem.h"
+#include "Lux/Core/Input.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Prefab.h"
@@ -697,6 +698,9 @@ namespace Lux {
 		OnPhysics2DStop();
 
 		ReleaseAllRuntimeAudio();
+
+		// Scripts' adaptive-trigger effects must not outlive Play (the trigger would stay stiff in the editor).
+		Input::ResetGamepadTriggerEffects();
 
 		m_Registry.view<NativeScriptComponent>().each([](auto, auto& nsc)
 			{

@@ -43,12 +43,35 @@ namespace Lux {
 		Count
 	};
 
+	enum class GamepadTrigger : int32_t { Left = 0, Right = 1 };
+
+	enum class TriggerEffectType : int32_t { Off = 0, Resistance, Weapon, Vibration };
+
+	// DualSense adaptive-trigger effect. Positions are trigger-travel zones from 0 (at rest) to 9
+	// (fully pulled). Mirrors the C# Lux.TriggerEffect struct field for field.
+	//   Resistance: constant resistance from Start onward, at Strength (1..8).
+	//   Weapon:     resistance from Start (2..7) that gives way with a click at End (Start+1..8).
+	//   Vibration:  vibrates from Start onward at Strength (amplitude 1..8) and Frequency (1..255 Hz).
+	struct TriggerEffect
+	{
+		TriggerEffectType Type = TriggerEffectType::Off;
+		int32_t Start = 0;
+		int32_t End = 0;
+		int32_t Strength = 0;
+		int32_t Frequency = 0;
+
+		bool operator==(const TriggerEffect&) const = default;
+	};
+
 	struct GamepadState
 	{
 		std::array<bool, (size_t)GamepadButton::Count> ButtonDown{};
 		std::array<bool, (size_t)GamepadButton::Count> PreviousButtonDown{};
 		std::array<float, (size_t)GamepadAxis::Count> Axes{}; // Deadzone already applied.
 	};
+
+	// Controller families with engine output support, from the GUID.
+	enum class GamepadFamily : uint8_t { Other, DualSense, DualShock4, Xbox };
 
 	struct Controller
 	{
@@ -63,6 +86,9 @@ namespace Lux {
 		// Standard-layout view, only valid when IsGamepad (the device has a gamepad mapping).
 		bool IsGamepad = false;
 		GamepadState Gamepad;
+
+		std::string GUID; // SDL-style GUID as GLFW reports it.
+		GamepadFamily Family = GamepadFamily::Other;
 	};
 
 	struct KeyData
@@ -134,6 +160,16 @@ namespace Lux {
 		static float GetGamepadDeadzone() { return s_GamepadDeadzone; }
 		static void SetGamepadDeadzone(float deadzone);
 
+		// DualSense adaptive triggers over USB (see DualSense.h). id < 0 targets every connected
+		// DualSense; id >= 0 is a no-op unless that slot is a DualSense. Effects are sent on the
+		// next Input::Update and cleared when a scene stops playing.
+		static bool SupportsTriggerEffects(int id = -1);
+		static void SetGamepadTriggerEffect(GamepadTrigger trigger, const TriggerEffect& effect, int id = -1);
+		static void ResetGamepadTriggerEffects();
+
+		// Clears trigger effects on the hardware; call once before exit.
+		static void ShutdownGamepadOutput();
+
 		// Internal use only...
 		static void TransitionPressedKeys();
 		static void TransitionPressedButtons();
@@ -148,6 +184,8 @@ namespace Lux {
 		inline static float s_GamepadDeadzone = 0.15f;
 
 		static const Controller* FindGamepad(int id);
+		// Flushes DualSense output.
+		static void UpdateGamepadOutput();
 	};
 
 }

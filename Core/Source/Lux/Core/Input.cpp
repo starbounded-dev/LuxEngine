@@ -6,6 +6,7 @@
 #include "Window.h"
 
 #include "Lux/Core/Application.h"
+#include "Lux/Core/DualSense.h"
 //#include "Lux/ImGui/PropertyGrid.h"
 
 #include <GLFW/glfw3.h>
@@ -72,6 +73,31 @@ namespace Lux {
 			gamepad.Axes[(size_t)GamepadAxis::RightTrigger] = RemapTrigger(state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER], deadzone);
 		}
 
+		GamepadFamily DetectGamepadFamily(std::string_view guid)
+		{
+			// GLFW's Windows XInput GUIDs start with "xinput" in hex; everything else is SDL-style,
+			// with the little-endian vendor at hex chars 8-11 and product at 16-19.
+			if (guid.starts_with("78696e707574"))
+				return GamepadFamily::Xbox;
+
+			if (guid.size() < 20)
+				return GamepadFamily::Other;
+
+			const std::string_view vendor = guid.substr(8, 4);
+			const std::string_view product = guid.substr(16, 4);
+			if (vendor == "4c05")
+			{
+				if (product == "e60c" || product == "f20d")
+					return GamepadFamily::DualSense;
+				if (product == "c405" || product == "cc09" || product == "a00b")
+					return GamepadFamily::DualShock4;
+			}
+			if (vendor == "5e04")
+				return GamepadFamily::Xbox;
+
+			return GamepadFamily::Other;
+		}
+
 	}
 
 	void Input::Update()
@@ -118,8 +144,21 @@ namespace Lux {
 					controller.HatStates[i] = hats[i];
 
 				UpdateGamepadState(controller, s_GamepadDeadzone);
+
+				const char* guid = glfwGetJoystickGUID(id);
+				controller.GUID = guid ? guid : "";
+				controller.Family = DetectGamepadFamily(controller.GUID);
 			}
 		}
+
+		UpdateGamepadOutput();
+	}
+
+	void Input::UpdateGamepadOutput()
+	{
+		const uint32_t dualSenseCount = (uint32_t)std::count_if(s_Controllers.begin(), s_Controllers.end(),
+			[](const auto& entry) { return entry.second.Family == GamepadFamily::DualSense; });
+		DualSense::Update(dualSenseCount);
 	}
 
 	bool Input::IsKeyPressed(KeyCode key)
@@ -437,6 +476,38 @@ namespace Lux {
 	void Input::SetGamepadDeadzone(float deadzone)
 	{
 		s_GamepadDeadzone = std::clamp(deadzone, 0.0f, 0.95f);
+	}
+
+	bool Input::SupportsTriggerEffects(int id)
+	{
+		if (id >= 0)
+		{
+			const Controller* controller = GetController(id);
+			return controller && controller->Family == GamepadFamily::DualSense;
+		}
+
+		return std::any_of(s_Controllers.begin(), s_Controllers.end(),
+			[](const auto& entry) { return entry.second.Family == GamepadFamily::DualSense; });
+	}
+
+	void Input::SetGamepadTriggerEffect(GamepadTrigger trigger, const TriggerEffect& effect, int id)
+	{
+		// Only a DualSense slot (or "any") is accepted; the effect then reaches every connected
+		// DualSense, because GLFW slots cannot be matched to HID devices (see DualSense.h).
+		if (id >= 0 && !SupportsTriggerEffects(id))
+			return;
+
+		DualSense::SetTriggerEffect(trigger, effect);
+	}
+
+	void Input::ResetGamepadTriggerEffects()
+	{
+		DualSense::ResetTriggerEffects();
+	}
+
+	void Input::ShutdownGamepadOutput()
+	{
+		DualSense::Shutdown();
 	}
 
 	void Input::TransitionPressedKeys()

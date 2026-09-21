@@ -16,6 +16,7 @@ namespace LuxSample
 	//   - Right stick : look around
 	//   - RT / RB [R2 / R1] : up,  LT / LB [L2 / L1] : down
 	//   - Click the left stick [L3] : sprint until the stick is released
+	//   - DualSense over USB: R2/L2 push back (adaptive triggers), harder while sprinting
 	//
 	// The script owns yaw/pitch, so movement always follows where you're looking. If forward/back
 	// feels reversed, flip the sign on 'forward'; if the look is inverted, flip the m_Yaw / m_Pitch
@@ -28,12 +29,14 @@ namespace LuxSample
 		public float GamepadLookSpeed = 2.5f; // Radians per second at full stick deflection.
 		public bool InvertGamepadY = false;
 		public int Gamepad = -1;              // Controller slot; -1 = first connected gamepad.
+		public bool AdaptiveTriggers = true;  // DualSense only; other pads ignore it.
 
 		private float m_Yaw;
 		private float m_Pitch;
 		private Vector2 m_LastMousePosition;
 		private bool m_Initialized = false;
 		private bool m_GamepadSprint = false;
+		private bool m_TriggerEffectsSprint = true; // Forces the first UpdateTriggerEffects to send.
 
 		void OnCreate()
 		{
@@ -54,6 +57,26 @@ namespace LuxSample
 			}
 
 			UpdateMovement(ts);
+			UpdateTriggerEffects();
+		}
+
+		void OnDestroy()
+		{
+			// The engine also clears effects when Play stops; this covers the camera being destroyed mid-play.
+			if (AdaptiveTriggers)
+				Input.ResetGamepadTriggerEffects();
+		}
+
+		// Up/down triggers get a light push-back, heavier while sprinting. Only sent on change.
+		private void UpdateTriggerEffects()
+		{
+			if (!AdaptiveTriggers || m_GamepadSprint == m_TriggerEffectsSprint)
+				return;
+
+			m_TriggerEffectsSprint = m_GamepadSprint;
+			TriggerEffect effect = TriggerEffect.Resistance(start: 1, strength: m_GamepadSprint ? 6 : 2);
+			Input.SetGamepadTriggerEffect(GamepadTrigger.Left, effect, Gamepad);
+			Input.SetGamepadTriggerEffect(GamepadTrigger.Right, effect, Gamepad);
 		}
 
 		private bool UpdateMouseLook()

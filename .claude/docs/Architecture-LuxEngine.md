@@ -421,6 +421,20 @@ global scaled radial deadzone (`Input::SetGamepadDeadzone`, default 0.15; trigge
 connected gamepad. Exposed to C# as `Lux.Input.*Gamepad*` with matching `GamepadButton` /
 `GamepadAxis` enums. The raw `GetController*` API remains for unmapped devices.
 
+DualSense adaptive triggers: GLFW is input-only, so `Input` classifies each controller by GUID into
+`GamepadFamily` (DualSense = 054c:0ce6|0df2) and `Lux::DualSense` (`Core/Source/Lux/Core/DualSense.*`)
+writes the USB output report 0x02 (48 bytes, trigger-effect enable bits + two 11-byte effect blocks)
+through `Lux::HID` (`HID.h`/`HID.cpp` with `HID::DeviceGroup` = every USB device of one model;
+`Core/Platform/{Windows,Linux}/*HID.cpp` using SetupAPI+hid.lib / hidraw — no vendored library). USB
+only by design: any Bluetooth output report flips the pad into enhanced input mode, which
+DirectInput/GLFW cannot read until reconnect; Bluetooth pads are skipped with a one-time warning. GLFW
+slots cannot be matched to HID devices, so effects go to every connected DualSense.
+`Input::SetGamepadTriggerEffect` only records state; `Input::Update` → `UpdateGamepadOutput` →
+`DualSense::Update` sends on change and re-enumerates when the DualSense count changes.
+`Scene::OnRuntimeStop` resets effects; `Application::~Application` calls `Input::ShutdownGamepadOutput()`
+after layers detach so no trigger stays stiff. C#: `Input.SetGamepadTriggerEffect` with the
+`TriggerEffect` struct (layout static_asserted in ScriptGlue).
+
 ### 2.10 Audio
 
 FMOD Studio is the only playback path. `AudioEngine` owns Studio and its Core mixer;

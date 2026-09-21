@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2025-2026 starbounded-dev
 
+using System.Runtime.InteropServices;
+
 namespace Lux
 {
 	// ushort-backed to match the native MouseButton (enum class MouseButton : uint16_t).
@@ -52,6 +54,47 @@ namespace Lux
 		RightTrigger = 5
 	}
 
+	public enum GamepadTrigger : int
+	{
+		Left = 0,
+		Right = 1
+	}
+
+	public enum TriggerEffectType : int
+	{
+		Off = 0,
+		Resistance = 1,
+		Weapon = 2,
+		Vibration = 3
+	}
+
+	// DualSense adaptive-trigger effect. Positions are trigger-travel zones from 0 (at rest) to 9
+	// (fully pulled); strength is 1..8. Build one with the factory methods. Layout mirrors the
+	// native Lux::TriggerEffect, field for field.
+	[StructLayout(LayoutKind.Sequential)]
+	public struct TriggerEffect
+	{
+		public TriggerEffectType Type;
+		public int Start;
+		public int End;
+		public int Strength;
+		public int Frequency;
+
+		public static TriggerEffect Off => new TriggerEffect { Type = TriggerEffectType.Off };
+
+		// Constant resistance from 'start' to the end of travel.
+		public static TriggerEffect Resistance(int start, int strength)
+			=> new TriggerEffect { Type = TriggerEffectType.Resistance, Start = start, Strength = strength };
+
+		// Gun-trigger feel: resistance from 'start' (2..7) that gives way with a click at 'end' (start+1..8).
+		public static TriggerEffect Weapon(int start, int end, int strength)
+			=> new TriggerEffect { Type = TriggerEffectType.Weapon, Start = start, End = end, Strength = strength };
+
+		// Vibrates from 'start' onward. 'amplitude' is 1..8, 'frequency' is 1..255 Hz.
+		public static TriggerEffect Vibration(int start, int amplitude, int frequency)
+			=> new TriggerEffect { Type = TriggerEffectType.Vibration, Start = start, Strength = amplitude, Frequency = frequency };
+	}
+
 	public static unsafe class Input
 	{
 		public static bool IsKeyDown(KeyCode keycode) => InternalCalls.Input_IsKeyDown(keycode);
@@ -97,6 +140,14 @@ namespace Lux
 		// Both sticks as a vector, deadzone applied (Y is +1 down).
 		public static Vector2 GetGamepadLeftStick(int gamepad = -1) => new Vector2(GetGamepadAxis(GamepadAxis.LeftX, gamepad), GetGamepadAxis(GamepadAxis.LeftY, gamepad));
 		public static Vector2 GetGamepadRightStick(int gamepad = -1) => new Vector2(GetGamepadAxis(GamepadAxis.RightX, gamepad), GetGamepadAxis(GamepadAxis.RightY, gamepad));
+
+		// DualSense adaptive triggers, USB only (Bluetooth logs a warning and does nothing).
+		// gamepad -1 targets every connected DualSense; a slot that is not a DualSense is ignored.
+		// Every effect is cleared automatically when Play stops or the application exits.
+		public static bool SupportsTriggerEffects(int gamepad = -1) => InternalCalls.Input_SupportsTriggerEffects(gamepad);
+		public static void SetGamepadTriggerEffect(GamepadTrigger trigger, TriggerEffect effect, int gamepad = -1)
+			=> InternalCalls.Input_SetGamepadTriggerEffect(trigger, &effect, gamepad);
+		public static void ResetGamepadTriggerEffects() => InternalCalls.Input_ResetGamepadTriggerEffects();
 
 		// Radial deadzone for all gamepads, as a fraction of full deflection (default 0.15).
 		public static float GamepadDeadzone
