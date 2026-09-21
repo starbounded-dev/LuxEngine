@@ -90,7 +90,7 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Concrete
+      AcousticMaterial: Wood
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000003
@@ -115,7 +115,7 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Concrete
+      AcousticMaterial: Plaster
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000004
@@ -254,7 +254,7 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Concrete
+      AcousticMaterial: Metal
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 16344437922393548024
@@ -279,7 +279,7 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Concrete
+      AcousticMaterial: WoodThin
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 15491283630166138703
@@ -304,7 +304,7 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Concrete
+      AcousticMaterial: Carpet
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 260440025664254057
@@ -329,6 +329,6 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Concrete
+      AcousticMaterial: Brick
       AcousticMotion: 0
       CollisionComplexity: "\x02"
