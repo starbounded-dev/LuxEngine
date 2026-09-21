@@ -283,7 +283,7 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 generates with `vs2022`, and builds `Lux.sln` with platform `Mixed Platforms`.
 
 Linux builds run on `ubuntu-26.04` for the same configurations via `scripts/Linux-Build.sh`. 26.04 is
-required, not incidental: Vercidium Audio 1.8.0's `libvaudionative.so` links against glibc 2.43
+required, not incidental: Vercidium Audio 1.9.0's `libvaudionative.so` links against glibc 2.43
 (`sqrtf@GLIBC_2.43`), which older runners cannot provide. The same limit applies to Linux machines that
 build or run LuxEngine or its exported games.
 

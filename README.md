@@ -52,7 +52,7 @@ Four external SDKs are needed. **None of them are vendored** — the repository 
 | **Vulkan SDK** | 1.4.335.0 (pinned) | Renderer, shader compilation (shaderc/DXC), validation layers | [LunarG](https://vulkan.lunarg.com/) — the Linux script downloads it for you |
 | **.NET SDK** | **9.0 specifically** | C# scripting (Coral hardcodes hostfxr major 9; `ScriptCore`/`Coral.Managed` target `net9.0`) | [dotnet.microsoft.com](https://dotnet.microsoft.com/download) |
 | **FMOD Engine** | 2.03.x (Core + Studio APIs) | Audio playback — **required, not optional** | [fmod.com](https://www.fmod.com/download) |
-| **Vercidium Audio (VA)** | 1.8.x | Ray-traced acoustics — **required, not optional** | [vercidium.com/docs](https://vercidium.com/docs) |
+| **Vercidium Audio (VA)** | 1.9.x | Ray-traced acoustics — **required, not optional** | [vercidium.com/docs](https://vercidium.com/docs) |
 
 You also want the **FMOD Studio** authoring tool (same 2.03.x family) to author and build banks, and its command-line tool `fmodstudiocl` if you want the editor to rebuild banks on Play.
 
