@@ -16,7 +16,7 @@ Project:
     GameName: LuxSample
     WindowWidth: 1920
     WindowHeight: 1080
-    Fullscreen: true
+    Fullscreen: false
     VSync: false
     IconPath: Textures/luxLogo.png
     IconHandle: 3523050505664199236

@@ -726,8 +726,12 @@ preference; non-dialogue category gains duck while narration plays/fades. Narrat
 on the Dialogue bus. Full/Reduced/Night compression and mono apply to final output.
 
 Core's `ImGuiEx::AudioAccessibilityOverlay/Menu/Options` are shared by editor and standalone runtime.
-Project Settings authors defaults/metadata. F10 opens live player controls; runtime enables ImGui and
-pauses/releases the cursor while the menu is open, restoring state on close/scene stop. Built-in UI
+Project Settings authors defaults/metadata. F10 opens live player controls; runtime enables ImGui
+(non-Dist only — a Dist runtime has no ImGui layer, so no built-in menu or caption overlay) and
+pauses/releases the cursor while the menu is open, restoring state on close/scene stop. Because the
+runtime's ImGui draws into the swapchain after `RuntimeLayer` has blitted the game frame there,
+`RuntimeLayer` calls `ImGuiLayer::SetClearMainViewport(false)`; otherwise `ImGuiRenderer`'s
+magenta clear (kept for the editor and for ImGui platform windows) wipes the frame. Built-in UI
 can be disabled for custom game UI. C# `Accessibility` exposes preferences, save, speaker colors,
 cue start/end notifications and moving snapshots; reset clears subscriptions and ends active cues.
 Raw subtitle/cue notifications remain unfiltered for custom consumers. See

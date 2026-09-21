@@ -141,7 +141,11 @@ namespace Lux
 		specification.Fullscreen = false;
 		specification.Resizable = false;
 		specification.StartMaximized = false;
+#ifdef LUX_DIST
+		specification.EnableImGui = false; // Shipping builds carry no ImGui overlay.
+#else
 		specification.EnableImGui = true; // Shared accessibility menu and caption/cue overlay.
+#endif
 		specification.VSync = true;
 		specification.IconPath = "Resources/Editor/Hazel-IconLogo-2023.png";
 		specification.RenderConfig.FramesInFlight = 3;

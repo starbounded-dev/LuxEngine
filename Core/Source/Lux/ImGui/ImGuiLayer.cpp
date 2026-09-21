@@ -350,9 +350,10 @@ namespace Lux {
 		{
 			ImGuiRenderer* renderer = m_ImGuiRenderer.get();
 			VulkanSwapChain* swapchain = &Application::Get().GetWindow().GetSwapChain();
-			m_PendingRenderTasks.emplace_back([renderer, swapchain, snapshot]()
+			const bool clearTarget = m_ClearMainViewport;
+			m_PendingRenderTasks.emplace_back([renderer, swapchain, snapshot, clearTarget]()
 			{
-				renderer->RenderToSwapchain(snapshot, swapchain);
+				renderer->RenderToSwapchain(snapshot, swapchain, clearTarget);
 			});
 		}
 

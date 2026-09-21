@@ -3,6 +3,7 @@
 
 #include "RuntimeLayer.h"
 #include "Lux/ImGui/AudioAccessibilityWidgets.h"
+#include "Lux/ImGui/ImGuiLayer.h"
 #include "Lux/Audio/AudioAccessibility.h"
 #include <imgui.h>
 
@@ -68,6 +69,12 @@ namespace Lux
 		m_Renderer2D->SetLineWidth(2.0f);
 
 		CreateSwapChainResources();
+
+		// The accessibility overlay draws through ImGui on top of the game frame this layer has
+		// already put in the swapchain; ImGui's default clear would wipe it.
+		if (ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer())
+			imguiLayer->SetClearMainViewport(false);
+
 		OnScenePlay();
 	}
 
