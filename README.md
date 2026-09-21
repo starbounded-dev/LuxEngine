@@ -56,6 +56,22 @@ Four external SDKs are needed. **None of them are vendored** — the repository 
 
 You also want the **FMOD Studio** authoring tool (same 2.03.x family) to author and build banks, and its command-line tool `fmodstudiocl` if you want the editor to rebuild banks on Play.
 
+### Licensing for games you ship
+
+LuxEngine's Apache-2.0 licence covers LuxEngine only. FMOD and Vercidium Audio are proprietary. Everyone who builds LuxEngine downloads both SDKs and accepts both EULAs themselves, and **every game you export links both**, so their terms apply to your game. A summary of the EULAs shipped with FMOD 2.03.x and Vercidium Audio 1.9.x (effective 5 June 2026). This is not legal advice; the EULAs and the vendors' current terms are what count.
+
+**FMOD** ([fmod.com/licensing](https://www.fmod.com/licensing))
+- Free for hobby, education and non-commercial games.
+- Free for commercial games while the project's development budget is under US$600k **and** the developer's gross yearly revenue or funding is under US$200k. You must register the project on your FMOD profile first. Above either limit you need a paid licence.
+- **Every game must show an in-game credit** that includes "FMOD" and "Firelight Technologies Pty Ltd." ([fmod.com/attribution](https://www.fmod.com/attribution)). LuxEngine does not add it for you.
+
+**Vercidium Audio** ([vercidium.com](https://vercidium.com))
+- The free licence covers only hobby projects, education, evaluation and development, game jams, and portfolio use, with no commercial use at all.
+- **Any commercial use needs a paid Commercial Licence per game**: Indie below A$500k annual revenue, Studio above. "Commercial" is defined broadly. It includes a *free* release on Steam, consoles, mobile stores or the Epic Games Store, ads, in-game purchases, crowdfunding rewards, and Patreon or donations tied to your game development. A wholly free, unmonetised itch.io release with no store commission is not commercial on its own.
+- You must buy the licence before the game goes commercial, not after.
+
+**Both:** the runtime libraries may be redistributed only inside your exported game. Neither SDK may be shipped as part of a game engine or toolset, so never publish editor builds with `fmod*`/`vaudionative` libraries in them. CI strips them from its editor artifacts for this reason.
+
 A Vulkan **1.2+ capable driver** is the runtime requirement (the instance is created at API 1.2); the 1.4 SDK is a build/tooling dependency.
 
 ### Installing the audio SDKs
