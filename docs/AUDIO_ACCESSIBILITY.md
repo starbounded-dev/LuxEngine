@@ -21,6 +21,9 @@ FMOD-backed engine. VA acoustics continue to run normally. There is no alternate
 6. Save the project and start Play. Authoring changes apply on the next Play session. Press **F10**
    with the viewport focused to open the player menu. In the standalone runtime the menu pauses
    gameplay and releases the cursor, then restores the previous pause/cursor state when closed.
+   **Dist exports have no F10 menu and no built-in caption/cue overlay** — the Dist runtime does
+   not load ImGui. A game shipped as Dist must draw subtitles, captions and cues itself from the
+   C# events below; the accessibility service, preferences and mixing still work.
 7. Use **Save preferences** to persist player choices. **Restore project defaults** applies the
    authored defaults; save afterward to persist that reset.
 
@@ -75,7 +78,8 @@ Subscribers receive final hide/end notifications at teardown and are cleared on 
 Raw notifications are not filtered by player display settings, so custom UI must respect them.
 The cue snapshot is filtered by VisualCues and positive in-range intensity. `GetSpeakerColor(name)`
 returns configured RGBA or white. Disable **Built-in caption/cue overlay and runtime menu** when
-providing your own UI; the service and scripting APIs remain available.
+providing your own UI; the service and scripting APIs remain available. Dist exports always need
+that custom UI, because the built-in overlay is ImGui and Dist runtimes do not include it.
 
 Descriptions duck mapped Music/SFX/UI/Ambience while playing or fading, preserving Dialogue.
 Disabling descriptions cancels active/queued narration. The game triggers authored description

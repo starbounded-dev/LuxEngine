@@ -443,9 +443,6 @@ re-enumerates when the connected set changes. `Scene::OnRuntimeStop` stops rumbl
 `Application::~Application` calls `Input::ShutdownGamepadOutput()` after layers detach so nothing keeps
 rumbling or stays stiff. C#: `Input.RumbleGamepad`, `Input.SetGamepadTriggerEffect` with the
 `TriggerEffect` struct (layout static_asserted in ScriptGlue).
-
-### 2.10 Audio
-
 Lights ride the same HID reports: DualSense lightbar + player LEDs (enable bits 0x04/0x10, one-time
 lightbar-setup "light out" per device set to end the firmware animation) and DualShock 4 lightbar (flag
 0x02). They are only written when changed and restored to the default dim blue on Play stop and exit.
@@ -459,6 +456,9 @@ connected-slot mask and invokes `Lux.Input.DispatchGamepadConnection`, raising t
 `Input.GamepadConnected` / `GamepadDisconnected`. `ScriptGlue::ResetInput` (alongside
 `AudioScriptBindings::Reset`) re-primes the mask so pads present at Play start raise nothing, and clears
 the managed handlers; `ShutdownInput` drops the type before assembly unload.
+
+### 2.10 Audio
+
 FMOD Studio is the only playback path. `AudioEngine` owns Studio and its Core mixer;
 `AudioEventInstance` owns Studio event handles. `AudioSourceComponent` remains the entity-facing
 component (and C# API), with volume, pitch, play-on-awake, event references and parameter overrides.

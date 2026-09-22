@@ -43,23 +43,29 @@ shipping-quality system. It is a planning document, not a description of what ex
 
 ## Part 0 — Where we are
 
-Honest ledger. Everything below is measured or observed, not assumed.
+Honest ledger, updated 2026-09-21 after phases 3–15 landed on `sound-fmod-va`. The original
+ledger (written before phase 3) said there was no C# API, the listener was minimal and exports were
+silent; all three are fixed. What is actually built is described in
+`.claude/docs/Architecture-LuxEngine.md § 2.10`, which wins where the two disagree.
 
 | Capability | State | Note |
 |---|---|---|
 | FMOD Studio system, banks, live update | ✅ Working | Verified at runtime. |
 | Bank build + auto-rebuild on Play | ✅ Working | `fmodstudiocl`, timestamp-gated. |
-| Event enumeration, GUID refs, picker | ✅ Working | Two-stage bank → event with search. |
-| Event playback from a component | ⚠️ Built, barely proven | Chain verified; audible playback only just possible. |
-| VA reverb → FMOD | ✅ Working | Measured: 0.10 s open field → 1.39 s large hall. |
-| VA occlusion → FMOD | ❌ Blocked upstream | Identical values with and without geometry. Engine side is correct. |
-| Buses | ✅ Get/set volume | No snapshots, no VCAs, no metering. |
-| C# API | ❌ Nothing | `AudioSourceComponent` in C# is an empty class. |
-| Listener | ⚠️ Minimal | Single, index 0, still carries dead cone fields from the previous backend. |
-| Runtime export | ❌ Broken | Ships no banks and no Studio config. Exported games are silent. |
+| Events, GUID refs, picker, playback | ✅ Working | Phase 2; legacy raw-file path deleted (phase 6). |
+| Listener | ✅ Reworked | Index, weight, attenuation target; cone fields gone (phase 3). |
+| C# API | ✅ Built | Components, one-shots, buses, instances by handle, music, dialogue, accessibility (phase 4 onward). |
+| Runtime export | ✅ Ships banks + config | Bank manifest and Studio settings in the runtime format (phase 5). |
+| Acoustic materials, zones, surfaces, music, dialogue, accessibility | ✅ Built | Phases 7–12; see the per-phase docs listed in Part 15. |
+| Dynamic geometry, portals, budgets, validation, desktop profiles | ✅ Built | Phases 13–15. Console work is on hold. |
+| VA reverb → FMOD | ✅ Working | Measured on 1.8.0: 0.10 s open field → 1.39 s large hall. VA 1.9.0 changed the air-absorption default, so re-measure. |
+| VA occlusion → FMOD | ❌ Blocked upstream | Still identical with and without geometry on VA 1.9.0 (`docs/vercidium-repro`). |
+| Occlusion fallback (Part 5.4) | ❌ Not built | No `OcclusionMode` / physics-ray path yet, so nothing muffles sound behind walls. |
+| Dist accessibility overlay | ⚠️ Absent | Dist runtimes do not load ImGui, so shipped games must draw captions themselves. |
+| Editor extras (5.5, Part 12) | ⚠️ Partial | No echogram plot, reverb heatmap, waveform thumbnails, hover preview or "what can I hear" mode. |
 
-**The three things that most need fixing** are, in order: no C# API at all, runtime export shipping
-silent, and the listener still being shaped by the previous backend.
+**What most needs doing next:** occlusion. Either the physics-ray fallback in Part 5.4 or an upstream
+VA fix; until one exists, events authored to muffle behind walls do nothing.
 
 ---
 
@@ -738,19 +744,19 @@ Ordered so each phase is independently useful and leaves the engine working.
 |---|---|---|---|
 | 1 | ✅ Foundation | Studio system, banks, live update, bank build | — |
 | 2 | ✅ Events | Event refs, instances, picker, bank-aware selection | — |
-| 3 | **Listener rework** | Index, weight, attenuation target; delete cone fields | Split-screen, third-person |
-| 4 | **C# API** | Components, one-shots, buses, instances, handles | Everything gameplay-driven |
-| 5 | **Runtime export** | Ship banks, carry config, fail loudly | Shipping at all |
-| 6 | **Delete legacy path** | Remove `AudioSource`, raw-file playback, the legacy backend | One code path |
-| 7 | **Acoustic materials** | Material enum, collider tagging, VA mapping | Parts 5 and 7 both |
+| 3 | ✅ Listener rework | Index, weight, attenuation target; delete cone fields | Split-screen, third-person |
+| 4 | ✅ C# API | Components, one-shots, buses, instances, handles | Everything gameplay-driven |
+| 5 | ✅ Runtime export | Ship banks, carry config, fail loudly | Shipping at all |
+| 6 | ✅ Delete legacy path | Remove `AudioSource`, raw-file playback, the legacy backend | One code path |
+| 7 | ✅ Acoustic materials | Material enum, collider tagging, VA mapping | Parts 5 and 7 both |
 | 8 | **Zones and snapshots — implemented** | Box/sphere/primitive-collider zones, priority/listener blending, FMOD intensity control, C# and editor integration; see `AUDIO_ZONES.md` | Ambience, environment |
 | 9 | **Surfaces and physics audio — implemented** | Shared table asset, ground-query/C# footsteps, Jolt impacts, scrape/roll lifetimes; see `AUDIO_SURFACES.md` | — |
 | 10 | **Interactive music — implemented** | Scene-owned director, startup component, states/layers/intensity, stingers, queued boundaries and C# beat/marker callbacks; see `AUDIO_MUSIC.md` | Rhythm-adjacent gameplay |
-| 11 | **Dialogue and subtitles** | Programmer sounds, queue, subtitle events, localisation | Accessibility |
-| 12 | **Accessibility** | Captions, mono downmix, visual cues, dialogue boost | — |
-| 13 | **Dynamic geometry, portals** | Moving colliders re-mirrored, portal components | Doors that matter |
-| 14 | **Voice budgets, validation** | Priority, culling, validation pass, metering | Shipping quality |
-| 15 | **Platform work** | Windows verification, per-platform banks, console budgets | Ports |
+| 11 | ✅ Dialogue and subtitles | Programmer sounds, queue, subtitle events, localisation; see `AUDIO_DIALOGUE.md` | Accessibility |
+| 12 | ✅ Accessibility | Captions, mono downmix, visual cues, dialogue boost; see `AUDIO_ACCESSIBILITY.md` (no built-in overlay in Dist) | — |
+| 13 | ✅ Dynamic geometry, portals | Moving colliders re-mirrored, portal components; see `AUDIO_DYNAMIC_GEOMETRY.md` | Doors that matter |
+| 14 | ✅ Voice budgets, validation | Priority, culling, validation pass, metering; see `AUDIO_PERFORMANCE_VALIDATION.md` | Shipping quality |
+| 15 | ✅ Platform work (desktop) | Windows verification, desktop profiles; console work on hold; see `AUDIO_DESKTOP_PLATFORMS.md` | Ports |
 
 **Dependencies worth noting.** Phase 6 must follow 4 and 5, or scripts and exports lose their only
 working path. Phase 7 gates both 5 and 9. Phase 12 mostly surfaces what 11 already produces.
@@ -777,4 +783,4 @@ Genuinely undecided, listed so they are not silently decided by whoever implemen
 
 ---
 
-*Written against `sound-fmod-va`, FMOD Studio 2.03.14, Vercidium Audio 1.8.0.*
+*Written against `sound-fmod-va`, FMOD Studio 2.03.14, Vercidium Audio 1.8.0; status updated for Vercidium Audio 1.9.0 on 2026-09-21.*
