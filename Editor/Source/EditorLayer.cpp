@@ -3207,6 +3207,26 @@ namespace Lux {
 		const std::filesystem::path exportRoot = selectedFolder / (buildName + RuntimeExport::PlatformExportLabel);
 		const std::filesystem::path exportAssets = exportRoot / "Assets";
 
+		// Start from an empty folder so files a previous export shipped (deleted shaders, old
+		// runtimes' folders, logs from test runs) do not survive into this one. Only a folder a
+		// previous export produced is wiped; anything else is left alone and the export stops.
+		if (std::filesystem::exists(exportRoot, ec) && !std::filesystem::is_empty(exportRoot, ec))
+		{
+			if (!std::filesystem::exists(exportAssets / RuntimeExport::RuntimeProjectFile, ec))
+			{
+				LUX_CONSOLE_LOG_ERROR("Export folder '{}' already exists and is not a previous Lux export. Choose an empty folder, or remove it first.", exportRoot.string());
+				return false;
+			}
+
+			std::filesystem::remove_all(exportRoot, ec);
+			if (ec)
+			{
+				LUX_CONSOLE_LOG_ERROR("Failed to clear previous export '{}': {}. Close the exported game if it is running.", exportRoot.string(), ec.message());
+				return false;
+			}
+			LUX_CONSOLE_LOG_INFO("Cleared previous export: {}", exportRoot.string());
+		}
+
 		std::filesystem::create_directories(exportAssets, ec);
 		if (ec)
 		{

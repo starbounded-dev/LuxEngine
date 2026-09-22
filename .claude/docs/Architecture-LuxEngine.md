@@ -394,7 +394,10 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   never does a main-thread GPU readback.
 - `Editor/Source/EditorLayer.{h,cpp}` is the orchestrator. Prefer adding a **panel** over adding code
   to `EditorLayer`.
-- `Editor/Source/RuntimeExportUtils.{h,cpp}` builds the standalone runtime package.
+- `Editor/Source/RuntimeExportUtils.{h,cpp}` builds the standalone runtime package. Each export
+  (`EditorLayer::ExportRuntimeNow`) first deletes the `<Game>-<Platform>` output folder, but only
+  when it holds `Assets/Project.luxruntime` from a previous export; any other non-empty folder at
+  that path stops the export instead of being overwritten.
 - Viewport transform gizmos operate on world matrices and convert edits back through the parent
   transform. Translation, rotation, and scale have separate snap increments (also available with Ctrl).
   The six-axis view widget uses `EditorCamera::SetOrbitState`; camera view construction uses the
@@ -610,7 +613,8 @@ location; validation includes all registered scenes, not just the startup scene.
 
 `Project::LoadRuntime` initializes FMOD and loads only the manifest's banks, strings first, before
 loading scenes or starting scripts. Failure clears partial loads and rejects the project. The exact
-manifest prevents obsolete banks left in a reused export directory from being auto-loaded. Scripts
+manifest also guards against obsolete banks in a reused export directory being auto-loaded
+(exports now clear their folder, but a hand-edited package can still carry extras). Scripts
 can still load additional banks explicitly. Bank load paths are relative to the packaged Assets,
 and the normal idempotent `Audio.LoadBank` behavior applies to banks already loaded at startup.
 This does not implement acoustic materials or cross-platform bank compilation.
