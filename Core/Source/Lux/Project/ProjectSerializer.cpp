@@ -503,6 +503,8 @@ namespace Lux
 			serializer.WriteRaw(settings.DirectionalPCSSCascadeCount);
 			serializer.WriteRaw(settings.ShadowPCFRadiusTexels);
 			serializer.WriteRaw(settings.SpotShadowPCFRadiusTexels);
+			serializer.WriteRaw(settings.FixedRenderWidth);
+			serializer.WriteRaw(settings.FixedRenderHeight);
 		}
 
 		void ReadSceneRendererRuntimeSettings(FileStreamReader& stream, ProjectSceneRendererSettings& settings, uint32_t version)
@@ -632,6 +634,12 @@ namespace Lux
 				stream.ReadRaw(settings.DirectionalPCSSCascadeCount);
 				stream.ReadRaw(settings.ShadowPCFRadiusTexels);
 				stream.ReadRaw(settings.SpotShadowPCFRadiusTexels);
+			}
+
+			if (version >= 24)
+			{
+				stream.ReadRaw(settings.FixedRenderWidth);
+				stream.ReadRaw(settings.FixedRenderHeight);
 			}
 
 			if (version >= 7)
