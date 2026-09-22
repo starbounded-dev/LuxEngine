@@ -58,7 +58,7 @@ namespace Lux
 				Check(bus.Gain->release(), "release bus gain");
 			}
 			if (bus.Studio)
-				Check(bus.Studio->unlockChannelGroup(), "unlock bus");
+				Check(AudioEngine::UnlockBusChannelGroup(bus.Studio), "unlock bus");
 			bus = {};
 		}
 		for (auto* dsp : { m_Impl->Mono, m_Impl->Compressor })
@@ -109,7 +109,7 @@ namespace Lux
 				success = false;
 				continue;
 			}
-			if (!Check(studioBus->lockChannelGroup(), "lock category bus"))
+			if (!Check(AudioEngine::LockBusChannelGroup(studioBus), "lock category bus"))
 			{
 				success = false;
 				continue;

@@ -10,9 +10,11 @@
 #include <string>
 #include <vector>
 
+#include <fmod_common.h>
+
 namespace FMOD {
 	class System;
-	namespace Studio { class System; }
+	namespace Studio { class System; class Bus; }
 }
 
 namespace Lux {
@@ -124,6 +126,14 @@ namespace Lux {
 		static float GetGlobalParameter(const std::string& name);
 		static bool SetBusVolume(const std::string& busPath, float volume);
 		static float GetBusVolume(const std::string& busPath);
+
+		// Reference-counted Studio::Bus::lockChannelGroup. Studio locks are not counted, so two
+		// systems locking the same bus (the accessibility mixer and the performance monitor both
+		// use "bus:/") would fail with FMOD_ERR_ALREADY_LOCKED, and the first unlock would pull the
+		// group out from under the other. Every bus lock goes through these. Main thread only;
+		// UnloadAllBanks releases its holders first and then forgets any remaining counts.
+		static FMOD_RESULT LockBusChannelGroup(FMOD::Studio::Bus* bus);
+		static FMOD_RESULT UnlockBusChannelGroup(FMOD::Studio::Bus* bus);
 
 		// Studio-owned Core system, used for metadata, statistics and accessibility DSP processing.
 		static FMOD::System* GetEngine() { return s_Engine; }

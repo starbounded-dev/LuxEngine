@@ -97,7 +97,7 @@ namespace Lux
 				Check(bus.Meter->release(), "release bus input meter");
 			}
 			if (bus.Studio)
-				Check(bus.Studio->unlockChannelGroup(), "unlock metered bus");
+				Check(AudioEngine::UnlockBusChannelGroup(bus.Studio), "unlock metered bus");
 		}
 		s_Buses.clear();
 		s_Meters.clear();
@@ -146,7 +146,7 @@ namespace Lux
 				s_Meters.push_back({ path, limit });
 				auto& bus = s_Buses.emplace_back();
 				FMOD::Studio::Bus* candidate = nullptr;
-				if (Check(studio->getBus(path.c_str(), &candidate), "resolve budget bus") && candidate && Check(candidate->lockChannelGroup(), "lock budget bus"))
+				if (Check(studio->getBus(path.c_str(), &candidate), "resolve budget bus") && candidate && Check(AudioEngine::LockBusChannelGroup(candidate), "lock budget bus"))
 					bus.Studio = candidate;
 			}
 			Check(studio->flushCommands(), "prepare budget bus groups");

@@ -767,7 +767,8 @@ defaults. Player preferences live separately under persistent storage, keyed by 
 name, and are saved explicitly with `FileSystem::ReplaceFileAtomically` after writing a complete temporary file.
 
 `AudioAccessibilityMixer` owns FMOD gain DSPs on mapped Studio buses plus mono/compressor DSPs on
-Core master output. Setup locks channel groups and flushes commands once; bank revision changes
+Core master output. Setup locks channel groups (through `AudioEngine::LockBusChannelGroup`, see
+below) and flushes commands once; bank revision changes
 reconfigure the cached graph. `AudioEngine::UnloadAllBanks` releases it before unloading banks.
 Player gains multiply authored/gameplay volumes. Mapped non-master buses must not contain each other.
 Description playback uses `DialogueDirector::Describe`, the existing priority queue, and an opt-in
@@ -824,7 +825,11 @@ and runtime format 23 (bounded YAML block after accessibility; older versions us
 `AudioPerformance` samples real/virtual channels, Studio/Core CPU, FMOD allocator memory
 (nonblocking, valid with release SDKs) and configured bus input peak/RMS every 250 ms. It owns locked Studio bus groups
 and one pass-through fader DSP per metered bus (inserted at index 1, directly behind the head DSP),
-detaching and releasing them before bank unload. **Never enable metering on a DSP Studio created:**
+detaching and releasing them before bank unload. **Every Studio bus lock goes through
+`AudioEngine::Lock/UnlockBusChannelGroup`**, which reference-counts per bus: Studio's own locks are not
+counted, so the mixer and this monitor both locking `bus:/` failed with `FMOD_ERR_ALREADY_LOCKED`
+(and the bus lost its metering), and a direct unlock would drop the other holder's group.
+`UnloadAllBanks` forgets the counts after both holders reset. **Never enable metering on a DSP Studio created:**
 with Live Update on, that makes every later `Studio::System::update` fail with
 `FMOD_ERR_BADCOMMAND` (found on Windows, 2026-09-17). Per-bus voice limits warn once
 per bank session and count all descendants; FMOD owns virtualization and stealing. The scene supplies

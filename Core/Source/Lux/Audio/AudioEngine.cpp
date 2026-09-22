@@ -25,6 +25,7 @@ namespace Lux {
 		std::vector<std::filesystem::path> s_BankPaths;
 		std::vector<AudioBankInfo> s_BankInfo;
 		std::vector<AudioEventInfo> s_Events;
+		std::unordered_map<FMOD::Studio::Bus*, uint32_t> s_BusLocks;
 		FMOD_RESULT s_LastStudioUpdateResult = FMOD_OK;
 
 		bool CheckFMOD(FMOD_RESULT result, const char* operation)
@@ -411,6 +412,7 @@ namespace Lux {
 
 		s_Banks.clear();
 		s_BankPaths.clear();
+		s_BusLocks.clear(); // Bus handles die with their banks.
 		++s_BankRevision;
 		s_BankInfo.clear();
 		s_Events.clear();
@@ -434,6 +436,35 @@ namespace Lux {
 		if (!s_StudioSystem || !CheckFMOD(s_StudioSystem->lookupID(reference.c_str(), &guid), "Failed to resolve event path (load the strings bank)"))
 			return {};
 		return GuidToString(guid);
+	}
+
+	FMOD_RESULT AudioEngine::LockBusChannelGroup(FMOD::Studio::Bus* bus)
+	{
+		if (!bus)
+			return FMOD_ERR_INVALID_PARAM;
+		uint32_t& count = s_BusLocks[bus];
+		if (count == 0)
+		{
+			const FMOD_RESULT result = bus->lockChannelGroup();
+			if (result != FMOD_OK)
+			{
+				s_BusLocks.erase(bus);
+				return result;
+			}
+		}
+		++count;
+		return FMOD_OK;
+	}
+
+	FMOD_RESULT AudioEngine::UnlockBusChannelGroup(FMOD::Studio::Bus* bus)
+	{
+		auto it = s_BusLocks.find(bus);
+		if (it == s_BusLocks.end())
+			return FMOD_ERR_INVALID_PARAM;
+		if (--it->second > 0)
+			return FMOD_OK;
+		s_BusLocks.erase(it);
+		return bus->unlockChannelGroup();
 	}
 
 	bool AudioEngine::SetBusMuted(const std::string& path, bool muted)
