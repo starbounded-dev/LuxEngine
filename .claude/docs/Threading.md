@@ -311,6 +311,11 @@ Portal gizmos are captured as immutable `FrameRenderPacket::AudioZoneLines`, so 
 reads neither portal components nor mutable VA geometry. Teardown drains VA before destroying its
 primitives/world and clears the scene's queue.
 
+Engine occlusion (`AudioOcclusion`) runs on the main thread in the same window, after the VA join
+and before `OnUpdate()`. Its Jolt narrow-phase queries run between physics steps (stepping is also
+main-thread), so they need no locking beyond Jolt's own body locks, and nothing is handed to SDK
+or job threads.
+
 ## Audio budgets and validation
 
 `AudioSourcePlayback` and `AudioPerformance` are main-thread owned. Source updates and C# controls

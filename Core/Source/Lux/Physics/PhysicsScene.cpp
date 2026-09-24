@@ -1111,6 +1111,50 @@ namespace Lux {
 		return true;
 	}
 
+	bool PhysicsScene::CastRayAll(const RayCastInfo* rayCastInfo, std::vector<SceneQueryHit>& outHits)
+	{
+		outHits.clear();
+		if (!m_Impl || !rayCastInfo)
+			return false;
+
+		const float rayDirectionLength = glm::length(rayCastInfo->Direction);
+		if (rayDirectionLength <= 0.0001f)
+			return false;
+		glm::vec3 direction = rayCastInfo->Direction / rayDirectionLength;
+
+		JPH::RayCast ray;
+		ray.mOrigin = ToJoltVector(rayCastInfo->Origin);
+		ray.mDirection = ToJoltVector(direction) * rayCastInfo->MaxDistance;
+
+		// Back faces and hollow convex shapes report where the ray leaves each solid, which is what
+		// lets a caller measure how much material the ray passed through.
+		JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
+		JPH::RayCastSettings raySettings;
+		raySettings.SetBackFaceMode(JPH::EBackFaceMode::CollideWithBackFaces);
+		raySettings.mTreatConvexAsSolid = false;
+		m_Impl->System.GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ray), raySettings, collector, {}, {}, LuxBodyFilter(rayCastInfo->ExcludedEntities));
+		if (!collector.HadHit())
+			return false;
+
+		collector.Sort();
+		outHits.reserve(collector.mHits.size());
+		for (const JPH::RayCastResult& result : collector.mHits)
+		{
+			JPH::BodyLockRead bodyLock(m_Impl->System.GetBodyLockInterface(), result.mBodyID);
+			if (!bodyLock.Succeeded())
+				continue;
+
+			const JPH::Body& body = bodyLock.GetBody();
+			const JPH::Vec3 hitPosition = ray.GetPointOnRay(result.mFraction);
+			SceneQueryHit& hit = outHits.emplace_back();
+			hit.HitEntity = static_cast<UUID>(body.GetUserData());
+			hit.Position = FromJoltVector(hitPosition);
+			hit.Normal = FromJoltVector(body.GetWorldSpaceSurfaceNormal(result.mSubShapeID2, hitPosition));
+			hit.Distance = result.mFraction * rayCastInfo->MaxDistance;
+		}
+		return !outHits.empty();
+	}
+
 	bool PhysicsScene::CastShape(const ShapeCastInfo* shapeCastInfo, SceneQueryHit& outHit)
 	{
 		outHit.Clear();

@@ -168,7 +168,7 @@ def main():
     flags = [flag for flag in flags if not flag.startswith(("-DTRACY", "-DLUX_TRACK_MEMORY"))]
     flags += shlex.split(re.search(r"^INCLUDES \+= (.*)$", debug, re.M)[1])
     flags += ["-std=c++20", "-O0", "-g", "-ffunction-sections", "-fdata-sections"]
-    sources = ["Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/RaytracedAudioScene", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
+    sources = ["Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioOcclusion", "Audio/RaytracedAudioScene", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
                "Audio/AcousticMaterial", "Asset/AudioSurfaceTableSerializer", "Utilities/StringUtils", "Core/UUID", "Core/Ref",
                "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader"]
     objects = {}
@@ -222,6 +222,10 @@ def main():
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "geometry-test"], cwd=ROOT / "Core")
     run([directory / "geometry-test"], timeout=60)
+    run(["clang++", *flags, TESTS / "OcclusionTests.cpp", *audio_objects, *yaml, *libraries,
+         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
+         "-o", directory / "occlusion-test"], cwd=ROOT / "Core")
+    run([directory / "occlusion-test"], timeout=30)
     run(["clang++", *flags, "-I" + str(TESTS), source_serialization_source(directory), *audio_objects, *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "source-serialization-test"], cwd=ROOT / "Core")

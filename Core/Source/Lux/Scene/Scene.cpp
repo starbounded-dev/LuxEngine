@@ -52,6 +52,10 @@ namespace Lux {
 
 	namespace
 	{
+		// Phase 0 spike (docs/AUDIO_VISUALISATION_PLAN.md): engine raycast occlusion replaces VA's,
+		// which does not respond to geometry. Phase 1 turns this into a project setting.
+		constexpr bool k_EngineOcclusion = true;
+
 		enum AudioListenerWarning : uint32_t
 		{
 			ListenerInvalidIndex = 1 << 0,
@@ -848,7 +852,10 @@ namespace Lux {
 				const AudioListenerState fallback;
 				const AudioListenerState* primaryListener = GetPrimaryAudioListener();
 				const auto& listener = primaryListener ? *primaryListener : fallback;
-				m_RaytracedAudioScene->SetListener(listener.UseAttenuationPosition ? listener.AttenuationPosition : listener.Position, listener.Forward);
+				const glm::vec3 acousticListener = listener.UseAttenuationPosition ? listener.AttenuationPosition : listener.Position;
+				m_RaytracedAudioScene->SetListener(acousticListener, listener.Forward);
+				if (k_EngineOcclusion)
+					UpdateAudioOcclusion(static_cast<float>(ts), acousticListener);
 
 				const RaytracedAudioAmbience ambience = m_RaytracedAudioScene->GetAmbience();
 
@@ -870,7 +877,10 @@ namespace Lux {
 						const RaytracedAudioResult result = m_RaytracedAudioScene->GetResult(entityID);
 						// Clear stale sends when VA has no result, so zone fallback cannot double the reverb.
 						AudioEventAcoustics acoustics;
-						acoustics.OcclusionGainLF = result.Valid ? result.OcclusionGainLF : 1.0f;
+						if (k_EngineOcclusion)
+							acoustics.OcclusionGainLF = m_AudioOcclusion.GetGainLF(entityID);
+						else
+							acoustics.OcclusionGainLF = result.Valid ? result.OcclusionGainLF : 1.0f;
 						acoustics.ReverbSend = ambience.Valid ? ambience.ReturnedPercent * m_AudioZones.GetRaytracedReverbGain() : 0.0f;
 						if (Ref<AudioEventInstance> instance = GetRuntimeEventInstance(entityID))
 							instance->SetAcoustics(acoustics);
@@ -1711,13 +1721,52 @@ namespace Lux {
 
 		m_RaytracedAudioScene = Ref<RaytracedAudioScene>::Create(this);
 		const auto project = Project::GetActive();
-		m_RaytracedAudioScene->Start(project ? project->GetConfig().Audio.AcousticMaterials : AcousticMaterialSettings{});
+		const AcousticMaterialSettings materials = project ? project->GetConfig().Audio.AcousticMaterials : AcousticMaterialSettings{};
+		m_RaytracedAudioScene->Start(materials);
+		m_AudioOcclusion.Configure(materials);
 
 		SyncAudioGeometry(true);
 	}
 
+	void Scene::UpdateAudioOcclusion(float timestep, const glm::vec3& listener)
+	{
+		m_AudioOcclusion.SetGeometry(m_AudioGeometryInputs, [this](UUID entity) { return m_AudioGeometry.GetPortalOpen(entity); });
+
+		m_AudioOcclusionSources.clear();
+		m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& source)
+			{
+				Entity entity = { entityHandle, this };
+				if (source.Event.IsValid() && !IsAudioSourceCulled(entity.GetUUID()))
+					m_AudioOcclusionSources.push_back({ entity.GetUUID(), glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]) });
+			});
+
+		m_AudioOcclusion.Update(timestep, listener, m_AudioOcclusionSources,
+			[this](UUID source, const glm::vec3& from, const glm::vec3& to, std::vector<AudioOcclusionHit>& hits)
+			{
+				if (!m_PhysicsScene)
+					return;
+				const glm::vec3 segment = to - from;
+				const float length = glm::length(segment);
+				if (length <= 0.0f)
+					return;
+
+				RayCastInfo ray;
+				ray.Origin = from;
+				ray.Direction = segment / length;
+				ray.MaxDistance = length;
+				m_PhysicsScene->CastRayAll(&ray, m_AudioOcclusionHits);
+				for (const SceneQueryHit& hit : m_AudioOcclusionHits)
+				{
+					// A source inside its own collider must not occlude itself.
+					if (hit.HitEntity != source)
+						hits.push_back({ hit.HitEntity, hit.Distance, glm::dot(hit.Normal, ray.Direction) > 0.0f });
+				}
+			});
+	}
+
 	void Scene::OnRaytracedAudioStop()
 	{
+		m_AudioOcclusion.Clear();
 		m_AudioGeometry.Clear();
 		m_AudioGeometryInputs.clear();
 		m_AudioPortalInputs.clear();

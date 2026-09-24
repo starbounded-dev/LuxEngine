@@ -9,11 +9,13 @@
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AudioZoneSystem.h"
 #include "Lux/Audio/AudioGeometrySystem.h"
+#include "Lux/Audio/AudioOcclusion.h"
 #include "Lux/Audio/AudioSourcePlayback.h"
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Audio/MusicDirector.h"
 #include "Lux/Audio/DialogueDirector.h"
 #include "Lux/Physics/PhysicsContactEvent.h"
+#include "Lux/Physics/SceneQueries.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
@@ -234,6 +236,7 @@ namespace Lux {
 		void UpdateAudioZones(float timestep, bool raytracedReverbValid);
 		void SyncAudioGeometry(bool initial = false);
 		bool BuildAcousticGeometry(const AudioGeometryInput& input, AcousticGeometry& geometry);
+		void UpdateAudioOcclusion(float timestep, const glm::vec3& listener);
 		void UpdatePhysicsAudio(float timestep);
 		AudioSurfaceSounds GetSurfaceSounds(Entity entity, AcousticMaterial& material) const;
 		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
@@ -266,6 +269,9 @@ namespace Lux {
 		AudioGeometrySystem m_AudioGeometry;
 		std::vector<AudioGeometryInput> m_AudioGeometryInputs;
 		std::vector<AudioPortalInput> m_AudioPortalInputs;
+		AudioOcclusion m_AudioOcclusion;
+		std::vector<AudioOcclusion::Source> m_AudioOcclusionSources;
+		std::vector<SceneQueryHit> m_AudioOcclusionHits;
 		PhysicsAudioSystem m_PhysicsAudio;
 		DialogueDirector m_Dialogue;
 		MusicDirector m_Music;

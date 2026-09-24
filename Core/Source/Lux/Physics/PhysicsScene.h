@@ -49,6 +49,9 @@ namespace Lux {
 		void DestroyCharacterController(Entity entity);
 
 		bool CastRay(const RayCastInfo* rayCastInfo, SceneQueryHit& outHit);
+		// Every surface crossing along the ray, front and back faces, sorted by distance. A back
+		// face (Normal pointing along the ray) is where the ray leaves a solid. Sensors are skipped.
+		bool CastRayAll(const RayCastInfo* rayCastInfo, std::vector<SceneQueryHit>& outHits);
 		bool CastShape(const ShapeCastInfo* shapeCastInfo, SceneQueryHit& outHit);
 		int32_t OverlapShape(const ShapeOverlapInfo* shapeOverlapInfo, SceneQueryHit** outHits);
 

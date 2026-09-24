@@ -295,7 +295,9 @@ Layered so the backend can be swapped:
 - `PhysicsShapes.h` — box, sphere, capsule, convex mesh, triangle mesh (static only), compound.
 - `CharacterController.h` / `JoltCharacterController`.
 - `PhysicsLayer` / `PhysicsLayerManager` — collision filtering.
-- `SceneQueries.h` — raycasts, shape casts, overlaps.
+- `SceneQueries.h` — raycasts, shape casts, overlaps. `PhysicsScene::CastRayAll` returns every
+  crossing, including back faces (hollow convex shapes), sorted by distance: a hit whose normal
+  points along the ray is where it leaves a solid. Audio occlusion uses it to measure thickness.
 - `MeshCookingFactory` / `MeshColliderCache` — mesh colliders are cooked and cached, not rebuilt.
 - `PhysicsCaptureManager`, `PhysicsContactCallback`, `PhysicsSettings`.
 
@@ -486,6 +488,19 @@ Studio parameter `Occlusion` (1 minus gain), and returned energy becomes `Reverb
 authors the filters, sends and reverb buses. VA's other bands and EAX measurements remain diagnostic
 outputs; the engine does not apply a second filter/reverb path. Missing optional parameters are
 expected; other FMOD failures are reported. Standalone scripted events do not register VA emitters.
+
+**Engine occlusion (see-the-sound Phase 0 spike):** VA's per-source occlusion does not respond to
+geometry (`docs/vercidium-repro`), so `Scene`'s scene-owned `AudioOcclusion` replaces it while
+`k_EngineOcclusion` (in `Scene.cpp`) is on. After the VA join, `Scene::UpdateAudioOcclusion` feeds it the
+frame's `m_AudioGeometryInputs` (mesh-collider tags and portal boxes, portals at their last applied
+Open) and casts listener→source with `PhysicsScene::CastRayAll`, ignoring the source's own collider
+and every entity that is not acoustic geometry. Paired entry/exit crossings are solids costing
+30 dB per tag `TransmissionLF` metres (VA's own definition); unpaired crossings are one-sided
+surfaces costing the tag's flat energy fraction. Losses sum, cap at 60 dB, and become a linear
+gain on `AudioEventAcoustics::OcclusionGainLF`, i.e. the same Studio `Occlusion` parameter. Sources are
+recast at 20 Hz, round-robin within 32 casts per update, snap on their first result and are then
+smoothed over 0.1 s. It currently runs only while the VA scene exists. Phase 1 of
+`docs/AUDIO_VISUALISATION_PLAN.md` replaces the constant with a project setting.
 
 **Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags, independent of
 VA's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An

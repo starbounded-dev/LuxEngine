@@ -9,6 +9,11 @@
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <vector>
 #include <cassert>
 #include <iostream>
 using namespace JPH;
@@ -133,8 +138,61 @@ int main()
 		bi.RemoveBody(ground);
 		bi.DestroyBody(ground);
 	}
+	{
+		// Mirrors PhysicsScene::CastRayAll's settings: occlusion needs each solid's entry and exit.
+		BPLayerInterfaceImpl layers;
+		ObjectVsBroadPhaseLayerFilterImpl broad;
+		ObjectLayerPairFilterImpl pair;
+		PhysicsSystem system;
+		system.Init(1024, 0, 2048, 2048, layers, broad, pair);
+		auto& bi = system.GetBodyInterface();
+		BodyCreationSettings convexWall(BoxShapeSettings(Vec3(0.15f, 2, 2)).Create().Get(), RVec3(3, 0, 0), Quat::sIdentity(), EMotionType::Static, Layers::NON_MOVING);
+		convexWall.mUserData = 300;
+		const auto convexID = bi.CreateAndAddBody(convexWall, EActivation::DontActivate);
+		TriangleList triangles;
+		const Float3 c[8] = { { -0.25f, -2, -2 }, { 0.25f, -2, -2 }, { -0.25f, 2, -2 }, { 0.25f, 2, -2 },
+			{ -0.25f, -2, 2 }, { 0.25f, -2, 2 }, { -0.25f, 2, 2 }, { 0.25f, 2, 2 } };
+		const int faces[12][3] = { { 0, 2, 3 }, { 0, 3, 1 }, { 4, 5, 7 }, { 4, 7, 6 }, { 0, 4, 6 }, { 0, 6, 2 },
+			{ 1, 3, 7 }, { 1, 7, 5 }, { 0, 1, 5 }, { 0, 5, 4 }, { 2, 6, 7 }, { 2, 7, 3 } };
+		for (const auto& face : faces)
+			triangles.push_back(Triangle(c[face[0]], c[face[1]], c[face[2]]));
+		BodyCreationSettings meshWall(MeshShapeSettings(triangles).Create().Get(), RVec3(6, 0, 0), Quat::sIdentity(), EMotionType::Static, Layers::NON_MOVING);
+		meshWall.mUserData = 400;
+		const auto meshID = bi.CreateAndAddBody(meshWall, EActivation::DontActivate);
+		system.OptimizeBroadPhase();
+
+		RRayCast ray(RVec3(0, 0.3f, 0.2f), Vec3(10, 0, 0));
+		RayCastSettings settings;
+		settings.SetBackFaceMode(EBackFaceMode::CollideWithBackFaces);
+		settings.mTreatConvexAsSolid = false;
+		AllHitCollisionCollector<CastRayCollector> collector;
+		system.GetNarrowPhaseQuery().CastRay(ray, settings, collector);
+		collector.Sort();
+		struct Crossing { uint64 Entity; float Distance; bool Exit; };
+		std::vector<Crossing> crossings;
+		for (const RayCastResult& hit : collector.mHits)
+		{
+			BodyLockRead lock(system.GetBodyLockInterface(), hit.mBodyID);
+			assert(lock.Succeeded());
+			const RVec3 point = ray.GetPointOnRay(hit.mFraction);
+			const Vec3 normal = lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, point);
+			crossings.push_back({ lock.GetBody().GetUserData(), hit.mFraction * 10, normal.Dot(ray.mDirection) > 0 });
+		}
+		// Winding of the hand-built mesh does not matter: the classification uses the surface normal.
+		assert(crossings.size() == 4);
+		assert(crossings[0].Entity == 300 && !crossings[0].Exit && std::abs(crossings[0].Distance - 2.85f) < 1e-3f);
+		assert(crossings[1].Entity == 300 && crossings[1].Exit && std::abs(crossings[1].Distance - 3.15f) < 1e-3f);
+		assert(crossings[2].Entity == 400 && std::abs(crossings[2].Distance - 5.75f) < 1e-3f);
+		assert(crossings[3].Entity == 400 && std::abs(crossings[3].Distance - 6.25f) < 1e-3f);
+		assert(crossings[2].Exit != crossings[3].Exit);
+		for (const auto id : { convexID, meshID })
+		{
+			bi.RemoveBody(id);
+			bi.DestroyBody(id);
+		}
+	}
 	UnregisterTypes();
 	Factory::sInstance = nullptr;
 	std::cout << "PASS: real Jolt multi-worker impacts, masses, estimated impulse, persistent contacts, removal/sleep "
-				 "and sensor exclusion\n";
+				 "and sensor exclusion; all-hit rays report solid entries and exits\n";
 }
