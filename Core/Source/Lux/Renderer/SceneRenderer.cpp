@@ -1,4 +1,7 @@
-﻿#include "lpch.h"
+﻿// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
+#include "lpch.h"
 #include "SceneRenderer.h"
 
 #include "Lux/Renderer/Renderer.h"
@@ -1254,9 +1257,13 @@ namespace Lux {
 			spec.DebugName = "ObjectIndexes";
 			m_SBSObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
 
+			// Compute writes these outputs. NVRHI skips state transitions for
+			// CPU-visible buffers, so use GPU storage with staged CPU uploads.
+			spec.GPUOnly = true;
 			spec.DebugName = "VisibleObjectIndexes";
 			m_SBSVisibleObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
 
+			spec.GPUOnly = false;
 			spec.DebugName = "GPUSceneInstances";
 			m_SBSGPUSceneInstances = StorageBufferSet::Create(spec, sizeof(GPUSceneInstanceData) * 4096);
 
@@ -1266,6 +1273,7 @@ namespace Lux {
 			spec.DebugName = "MeshCullDrawData";
 			m_SBSMeshCullDrawData = StorageBufferSet::Create(spec, sizeof(MeshCullDrawData) * 4096);
 
+			spec.GPUOnly = true;
 			spec.DrawIndirect = true;
 			spec.DebugName = "IndirectDrawCommands";
 			m_SBSIndirectDrawCommands = StorageBufferSet::Create(spec, sizeof(nvrhi::DrawIndexedIndirectArguments) * 4096);
@@ -1524,6 +1532,19 @@ namespace Lux {
 			m_PreDepthPass->SetInput("Camera", m_UBSCamera);
 			m_PreDepthPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_PreDepthPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			// The pre-depth shader alpha-tests cutout materials, so it needs the material table, its
+			// bindless textures and RendererData (for the same mip bias the G-buffer uses). Set
+			// them explicitly rather than through BindSceneRenderPassInputs(PassInputMaterialScene):
+			// that also rebinds ObjectIndexes to the *visible* set, and pre-depth deliberately uses
+			// the unculled one it bound above.
+			SetRenderPassInputIfValid(m_PreDepthPass, "RendererData", m_UBSRendererData);
+			SetRenderPassInputIfValid(m_PreDepthPass, "GPUMaterials", m_SBSGPUMaterials);
+			SetRenderPassInputIfValid(m_PreDepthPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
+			if (m_PreDepthPass->IsInputValid("u_GPUMaterialTextures"))
+			{
+				for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+					m_PreDepthPass->SetInput("u_GPUMaterialTextures", Renderer::GetWhiteTexture(), textureIndex);
+			}
 			LUX_CORE_VERIFY(m_PreDepthPass->Validate());
 			m_PreDepthPass->Bake();
 
@@ -1686,11 +1707,16 @@ namespace Lux {
 			// full-res attachment write/clear per frame).
 			FramebufferTextureSpecification gbufferMaterialObjectID = ImageFormat::RG32UI;
 			FramebufferTextureSpecification gbufferVelocity = ImageFormat::RG16F;
+			// Emission is written straight into scene color, over the sky already there; deferred
+			// lighting then blends the lit result on top. Loaded, never cleared: the sky must survive.
+			FramebufferTextureSpecification gbufferEmissive = ImageFormat::RGBA16F;
+			gbufferEmissive.LoadOp = AttachmentLoadOp::Load;
 			gbufferBaseColor.Blend = false;
 			gbufferNormal.Blend = false;
 			gbufferMetalRough.Blend = false;
 			gbufferMaterialObjectID.Blend = false;
 			gbufferVelocity.Blend = false;
+			gbufferEmissive.Blend = false;
 
 			FramebufferSpecification gbufferSpec;
 			gbufferSpec.Width = m_ViewportWidth;
@@ -1701,9 +1727,11 @@ namespace Lux {
 				gbufferMetalRough,
 				gbufferMaterialObjectID,
 				gbufferVelocity,
+				gbufferEmissive,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
-			gbufferSpec.ExistingImages[5] = m_PreDepthPass->GetDepthOutput();
+			gbufferSpec.ExistingImages[5] = m_SceneColorFramebuffer->GetImage(0);
+			gbufferSpec.ExistingImages[6] = m_PreDepthPass->GetDepthOutput();
 			gbufferSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			gbufferSpec.ClearDepthOnLoad = false;
 			gbufferSpec.Blend = false;
@@ -1812,10 +1840,13 @@ namespace Lux {
 			FramebufferSpecification deferredSpec;
 			deferredSpec.Width = m_ViewportWidth;
 			deferredSpec.Height = m_ViewportHeight;
-			deferredSpec.Attachments = { ImageFormat::RGBA16F };
+			// Additive over the emission the G-buffer pass wrote into scene color.
+			FramebufferTextureSpecification deferredColor = ImageFormat::RGBA16F;
+			deferredColor.BlendMode = FramebufferBlendMode::Additive;
+			deferredSpec.Attachments = { deferredColor };
 			deferredSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
 			deferredSpec.ClearColorOnLoad = false;
-			deferredSpec.Blend = false;
+			deferredSpec.Blend = true;
 			deferredSpec.DebugName = "DeferredLighting";
 
 			PipelineSpecification deferredPipelineSpec;
@@ -1833,7 +1864,7 @@ namespace Lux {
 			rpSpec.DebugName = "DeferredLightingPass";
 			rpSpec.Pipeline = m_DeferredLightingPipeline;
 			m_DeferredLightingPass = RenderPass::Create(rpSpec);
-			BindSceneRenderPassInputs(m_DeferredLightingPass, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth | PassInputGBuffer | PassInputSceneColor);
+			BindSceneRenderPassInputs(m_DeferredLightingPass, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth | PassInputGBuffer);
 			m_DeferredLightingPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			m_DeferredLightingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_DeferredLightingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
@@ -2171,6 +2202,8 @@ namespace Lux {
 			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
 			pipelineSpec.Layout = vertexLayout;
 			pipelineSpec.Wireframe = true;
+			pipelineSpec.BackfaceCulling = false;
+			pipelineSpec.DepthWrite = false;
 			pipelineSpec.DepthTest = false;
 
 			RenderPassSpecification rpSpec;
@@ -2182,6 +2215,25 @@ namespace Lux {
 			m_GeometryWireframePass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_GeometryWireframePass->Validate());
 			m_GeometryWireframePass->Bake();
+
+			// Cache a depth-tested collider variant; selection wireframes stay on top.
+			fbSpec.ExistingImages[1] = m_PreDepthPass->GetDepthOutput();
+			fbSpec.Attachments = { ImageFormat::RGBA16F, ImageFormat::DEPTH32FSTENCIL8UINT };
+			fbSpec.ClearDepthOnLoad = false;
+			fbSpec.DebugName = "PhysicsCollider";
+			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
+			pipelineSpec.DepthTest = true;
+			pipelineSpec.DepthWrite = false;
+			pipelineSpec.BackfaceCulling = false;
+			pipelineSpec.DebugName = "PhysicsCollider";
+			rpSpec.DebugName = "PhysicsColliderPass";
+			rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
+			m_PhysicsColliderPass = RenderPass::Create(rpSpec);
+			m_PhysicsColliderPass->SetInput("Camera", m_UBSCamera);
+			m_PhysicsColliderPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+			m_PhysicsColliderPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			LUX_CORE_VERIFY(m_PhysicsColliderPass->Validate());
+			m_PhysicsColliderPass->Bake();
 
 			m_WireframeMaterial = Material::Create(pipelineSpec.Shader, "Wireframe");
 			m_WireframeMaterial->Set("u_MaterialUniforms.Color", glm::vec4{ 1.0f, 0.5f, 0.0f, 1.0f });
@@ -2293,10 +2345,17 @@ namespace Lux {
 			fbSpec.DebugName = "SceneComposite";
 			m_CompositingFramebuffer = Framebuffer::Create(fbSpec);
 
+			// Tone mapping samples PreDepth, so it must not also bind that image as
+			// an attachment. Keep the depth-bearing framebuffer for later overlays.
+			fbSpec.Attachments = { ImageFormat::RGBA };
+			fbSpec.ExistingImages.clear();
+			fbSpec.ExistingImages[0] = m_CompositingFramebuffer->GetImage(0);
+			fbSpec.DebugName = "SceneCompositeColor";
+
 			PipelineSpecification pipelineSpec;
 			pipelineSpec.DebugName = "SceneComposite";
 			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("SceneComposite");
-			pipelineSpec.TargetFramebuffer = m_CompositingFramebuffer;
+			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
 			pipelineSpec.DepthWrite = false;
 			pipelineSpec.DepthTest = false;
 			pipelineSpec.Layout = {
@@ -2416,6 +2475,7 @@ namespace Lux {
 
 			PipelineSpecification pipelineSpec;
 			pipelineSpec.DebugName = "Grid";
+			pipelineSpec.BackfaceCulling = false;
 			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("Grid");
 			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
 			pipelineSpec.DepthTest = true;
@@ -3559,6 +3619,7 @@ namespace Lux {
 		addRenderPass(m_GBufferDebugPass);
 		addRenderPass(m_SelectedGeometryPass);
 		addRenderPass(m_GeometryWireframePass);
+		addRenderPass(m_PhysicsColliderPass);
 		addRenderPass(m_SkyboxPass);
 		addRenderPass(m_CompositePass);
 		addRenderPass(m_GridRenderPass);
@@ -3829,8 +3890,15 @@ namespace Lux {
 			addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass));
 		}
 
-		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
+		// Scene color first so the image the G-buffer borrows for emission keeps its own name.
 		std::vector<RenderGraph::ResourceHandle> sceneColorOutputs = addFramebufferResources("SceneColor", m_SceneColorFramebuffer);
+		std::vector<RenderGraph::ResourceHandle> gbufferOutputs = addFramebufferResources("GBuffer", m_GeometryPassFramebuffer);
+		// Keep gbufferOutputs meaning "the G-buffer targets" for its readers; the emission write into
+		// scene color is declared on the GBuffer pass alone.
+		std::erase_if(gbufferOutputs, [&](RenderGraph::ResourceHandle handle)
+			{
+				return std::find(sceneColorOutputs.begin(), sceneColorOutputs.end(), handle) != sceneColorOutputs.end();
+			});
 		std::vector<RenderGraph::ResourceHandle> skyboxOutputs = addRenderPassResources("Skybox", m_SkyboxPass);
 		addPass("Skybox", {}, skyboxOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SkyboxPass));
 
@@ -3846,7 +3914,14 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> geometryOutputs = gbufferOutputs;
 		appendResources(geometryOutputs, sceneColorCurrent);
 
-		addPass("GBuffer", preDepthOutputs, gbufferOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
+		{
+			// Emission lands in scene color on top of the sky, so the pass reads what is there.
+			std::vector<RenderGraph::ResourceHandle> gbufferReads = preDepthOutputs;
+			appendResources(gbufferReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> gbufferWrites = gbufferOutputs;
+			appendResources(gbufferWrites, sceneColorOutputs);
+			addPass("GBuffer", gbufferReads, gbufferWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
+		}
 
 		{
 			std::vector<RenderGraph::ResourceHandle> deferredReads = gbufferOutputs;
@@ -3953,6 +4028,7 @@ namespace Lux {
 		if (m_GeometryWireframePass && wireframeActive)
 		{
 			std::vector<RenderGraph::ResourceHandle> wireframeReads = sceneColorCurrent;
+			wireframeReads.insert(wireframeReads.end(), preDepthOutputs.begin(), preDepthOutputs.end());
 			std::vector<RenderGraph::ResourceHandle> wireframeOutputs = addRenderPassResources("Geometry Wireframe", m_GeometryWireframePass);
 			addPass("Geometry Wireframe", wireframeReads, wireframeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GeometryWireframePass));
 			sceneColorCurrent = wireframeOutputs;
@@ -4004,7 +4080,7 @@ namespace Lux {
 		appendResources(compositeReads, bloomOutputs);
 		appendResources(compositeReads, preDepthOutputs);
 		std::vector<RenderGraph::ResourceHandle> compositeOutputs = addFramebufferResources("Composite", m_CompositingFramebuffer);
-		addPass("Composite", compositeReads, compositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::CompositePass));
+		addPass("Composite", compositeReads, addRenderPassResources("Composite Color", m_CompositePass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::CompositePass));
 
 		// SMAA sits directly after the composite and before DOF: morphological AA keys off
 		// perceived edges so it needs post-tonemap colour, and depth of field should blur an
@@ -4450,8 +4526,9 @@ namespace Lux {
 					recreateFramebuffer(pass->GetTargetFramebuffer());
 			};
 
-		recreateFramebuffer(m_GeometryPassFramebuffer);
+		// Scene color first: the G-buffer borrows its image.
 		recreateFramebuffer(m_SceneColorFramebuffer);
+		recreateFramebuffer(m_GeometryPassFramebuffer);
 		recreateFramebuffer(m_CompositingFramebuffer);
 
 		recreatePassFramebuffer(m_PreDepthPass);
@@ -4462,6 +4539,7 @@ namespace Lux {
 		recreatePassFramebuffer(m_SkyboxPass);
 		recreatePassFramebuffer(m_SelectedGeometryPass);
 		recreatePassFramebuffer(m_GeometryWireframePass);
+		recreatePassFramebuffer(m_PhysicsColliderPass);
 		recreatePassFramebuffer(m_AOCompositePass);
 		recreatePassFramebuffer(m_AODebugPass);
 		recreatePassFramebuffer(m_SSRCompositePass);
@@ -4581,8 +4659,8 @@ namespace Lux {
 			ClearRenderTargetAliasing(false);
 
 			m_PreDepthPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_SceneColorFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight); // before the G-buffer, which borrows its image
 			m_GeometryPassFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
-			m_SceneColorFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassTransparent->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_DeferredLightingPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -4594,6 +4672,8 @@ namespace Lux {
 				m_SelectedGeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			if (m_GeometryWireframePass)
 				m_GeometryWireframePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_PhysicsColliderPass)
+				m_PhysicsColliderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositingFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GridRenderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -4631,8 +4711,8 @@ namespace Lux {
 			};
 
 			repairPassIfStale(m_PreDepthPass, "PreDepth");
-			repairIfStale(m_GeometryPassFramebuffer, "GBuffer (owner)");
 			repairIfStale(m_SceneColorFramebuffer, "SceneColor");
+			repairIfStale(m_GeometryPassFramebuffer, "GBuffer (owner)"); // borrows the scene color image
 			repairIfStale(m_CompositingFramebuffer, "Compositing");
 			repairPassIfStale(m_GeometryPass, "GBuffer");
 			repairPassIfStale(m_GeometryPassTransparent, "TransparentForward");
@@ -4643,6 +4723,7 @@ namespace Lux {
 			repairPassIfStale(m_GBufferDebugPass, "GBufferDebug");
 			repairPassIfStale(m_SelectedGeometryPass, "SelectedGeometry");
 			repairPassIfStale(m_GeometryWireframePass, "GeometryWireframe");
+			repairPassIfStale(m_PhysicsColliderPass, "PhysicsCollider");
 			repairPassIfStale(m_CompositePass, "Composite");
 			repairPassIfStale(m_GridRenderPass, "Grid");
 			repairPassIfStale(m_JumpFloodCompositePass, "JumpFloodComposite");
@@ -6122,6 +6203,8 @@ namespace Lux {
 				m_DeferredLightingPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 			if (m_GBufferDebugPass && m_GBufferDebugPass->IsInputValid("u_GPUMaterialTextures"))
 				m_GBufferDebugPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
+			if (m_PreDepthPass && m_PreDepthPass->IsInputValid("u_GPUMaterialTextures"))
+				m_PreDepthPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
 		};
 
 		if (fullTextureResolve)
@@ -7409,7 +7492,7 @@ namespace Lux {
 		if (!async) BeginProfiledGPU("ClusterBuildPass");
 		Renderer::BeginComputePass(cb, m_ClusterBuildPass);
 		Renderer::DispatchCompute(cb, m_ClusterBuildPass, nullptr, groups, Buffer(&push, sizeof(push)));
-		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(cb, m_SBSClusterAABBs->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_ClusterBuildPass->GetPipeline()->BufferMemoryBarrier(cb, m_SBSClusterAABBs, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(cb, m_ClusterBuildPass);
 		if (!async) EndProfiledGPU();
 	}
@@ -7459,10 +7542,10 @@ namespace Lux {
 		Renderer::DispatchCompute(cb, m_ClusterLightCullingPass, nullptr, groups, Buffer());
 
 		Ref<PipelineCompute> pipeline = m_ClusterLightCullingPass->GetPipeline();
-		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightGrid->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightIndexList->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightGrid, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightGrid, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSPointLightIndexList, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightIndexList, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(cb, m_ClusterLightCullingPass);
 		if (!async) EndProfiledGPU();
 	}
@@ -7506,8 +7589,8 @@ namespace Lux {
 		BeginProfiledGPU("MeshCullingPass");
 		Renderer::BeginComputePass(m_CommandBuffer, m_MeshCullingPass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_MeshCullingPass, nullptr, { m_MeshCullDrawCount, 1, 1 }, Buffer(&pushConstants, sizeof(pushConstants)));
-		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSVisibleObjectIndexes->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands->Get(), PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
+		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSVisibleObjectIndexes, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands, PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_MeshCullingPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
@@ -7674,8 +7757,20 @@ namespace Lux {
 			}
 		}
 
-		if (m_Options.ShowPhysicsColliders)
+		Renderer::EndRenderPass(m_CommandBuffer);
+
+		if (m_Options.ShowPhysicsColliders && !colliderPass.DrawList.empty())
 		{
+			// Material storage is read by queued draws; update it in the same queue.
+			Renderer::Submit([simpleMaterial = m_SimpleColliderMaterial, complexMaterial = m_ComplexColliderMaterial,
+				simpleColor = m_Options.SimplePhysicsCollidersColor, complexColor = m_Options.ComplexPhysicsCollidersColor]() mutable
+			{
+				simpleMaterial->Set("u_MaterialUniforms.Color", simpleColor);
+				complexMaterial->Set("u_MaterialUniforms.Color", complexColor);
+			});
+			Ref<RenderPass> colliderRenderPass = m_Options.ShowPhysicsCollidersOnTop
+				? m_GeometryWireframePass : m_PhysicsColliderPass;
+			Renderer::BeginRenderPass(m_CommandBuffer, colliderRenderPass);
 			for (const MeshKey& key : colliderPass.DrawOrder)
 			{
 				const auto drawIt = colliderPass.DrawList.find(key);
@@ -7693,9 +7788,9 @@ namespace Lux {
 						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
 					});
 			}
+			Renderer::EndRenderPass(m_CommandBuffer);
 		}
 
-		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -8116,7 +8211,12 @@ namespace Lux {
 			if (!jumpFloodPass || !m_JumpFloodPassMaterials[passIndex])
 				break;
 
-			jumpFloodPass->SetInput("u_Texture", input);
+			// The same pass is reused for steps 4 and 1. Bind its input in
+			// queue order so the first draw cannot see the last step's input.
+			Renderer::Submit([jumpFloodPass, input]() mutable
+			{
+				jumpFloodPass->SetInput("u_Texture", input);
+			});
 			vertexOverrides.Write(&step, sizeof(int), sizeof(glm::vec2));
 
 			Renderer::BeginRenderPass(m_CommandBuffer, jumpFloodPass);
@@ -8314,7 +8414,7 @@ namespace Lux {
 		const glm::uvec3 histogramGroups = { AlignUp(width, 16u) / 16u, AlignUp(height, 16u) / 16u, 1u };
 		Renderer::BeginComputePass(m_CommandBuffer, m_LuminanceHistogramPass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_LuminanceHistogramPass, nullptr, histogramGroups, Buffer(&histogramPush, sizeof(histogramPush)));
-		m_LuminanceHistogramPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_LuminanceHistogramPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_LuminanceHistogramPass);
 
 		// 2) Reduce to an average luminance, temporally adapt, write the exposure
@@ -8341,8 +8441,8 @@ namespace Lux {
 
 		Renderer::BeginComputePass(m_CommandBuffer, m_LuminanceAveragePass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_LuminanceAveragePass, nullptr, { 1u, 1u, 1u }, Buffer(&averagePush, sizeof(averagePush)));
-		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSExposureState->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
-		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram->Get(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSExposureState, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_LuminanceAveragePass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSLuminanceHistogram, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_LuminanceAveragePass);
 
 		m_AutoExposureValid = true;
@@ -8779,6 +8879,8 @@ namespace Lux {
 	Ref<Framebuffer> SceneRenderer::GetExternalCompositeFramebuffer()
 	{
 		Ref<RenderPass> finalPass = GetFinalRenderPass();
+		if (finalPass == m_CompositePass)
+			return m_CompositingFramebuffer;
 		if (finalPass)
 			return finalPass->GetTargetFramebuffer();
 

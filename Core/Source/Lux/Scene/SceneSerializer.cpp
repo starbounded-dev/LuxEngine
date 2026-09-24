@@ -1,8 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "SceneSerializer.h"
 
 #include "Components.h"
 #include "Entity.h"
+#include "Prefab.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
@@ -194,8 +198,12 @@ namespace Lux {
 					return true;
 			}
 
-			return entity["AudioData"] || entity["AudioSourceComponent"] || entity["AudioListenerComponent"]
-				|| entity["AnimationComponent"];
+			// AudioSourceComponent/AudioListenerComponent used to be unimplemented (silently dropped
+			// on load), so their mere presence was a legacy/incompatible-schema signal; now that
+			// both round-trip through Serialize/DeserializeEntities, that's no longer true - only
+			// the top-level "AudioData" key (an older, different shape) and AnimationComponent
+			// remain genuinely unsupported.
+			return entity["AudioData"] || entity["AnimationComponent"];
 		}
 
 		static std::string GetEntityNameForLog(const YAML::Node& entity, size_t entityIndex)
@@ -710,7 +718,131 @@ namespace Lux {
 				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
 				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
 				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
+				out << YAML::Key << "AcousticMaterial" << YAML::Value << AcousticMaterialName(collider.Acoustic);
+				out << YAML::Key << "AcousticMotion" << YAML::Value << static_cast<uint32_t>(collider.AcousticMotion);
 				out << YAML::Key << "CollisionComplexity" << YAML::Value << (uint8_t)collider.CollisionComplexity;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<MusicDirectorComponent>())
+			{
+				const auto& music = entity.GetComponent<MusicDirectorComponent>();
+				out << YAML::Key << "MusicDirectorComponent" << YAML::BeginMap;
+				out << YAML::Key << "Event" << YAML::BeginMap;
+				out << YAML::Key << "Guid" << YAML::Value << music.Event.Guid;
+				out << YAML::Key << "Path" << YAML::Value << music.Event.Path;
+				out << YAML::Key << "BankName" << YAML::Value << music.Event.BankName;
+				out << YAML::EndMap;
+				out << YAML::Key << "PlayOnAwake" << YAML::Value << music.PlayOnAwake;
+				out << YAML::Key << "InitialState" << YAML::Value << music.InitialState;
+				out << YAML::Key << "Intensity" << YAML::Value << music.Intensity;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<AudioZoneComponent>())
+			{
+				const auto& zone = entity.GetComponent<AudioZoneComponent>();
+				out << YAML::Key << "AudioZoneComponent" << YAML::BeginMap;
+				out << YAML::Key << "Shape" << YAML::Value << static_cast<uint32_t>(zone.Shape);
+				out << YAML::Key << "Enabled" << YAML::Value << zone.Enabled;
+				out << YAML::Key << "Offset" << YAML::Value << zone.Offset;
+				out << YAML::Key << "HalfExtents" << YAML::Value << zone.HalfExtents;
+				out << YAML::Key << "Radius" << YAML::Value << zone.Radius;
+				out << YAML::Key << "Priority" << YAML::Value << zone.Priority;
+				out << YAML::Key << "BlendDistance" << YAML::Value << zone.BlendDistance;
+				out << YAML::Key << "FadeTime" << YAML::Value << zone.FadeTime;
+				out << YAML::Key << "Volume" << YAML::Value << zone.Volume;
+				out << YAML::Key << "AmbienceEvent" << YAML::BeginMap;
+				out << YAML::Key << "Guid" << YAML::Value << zone.AmbienceEvent.Guid;
+				out << YAML::Key << "Path" << YAML::Value << zone.AmbienceEvent.Path;
+				out << YAML::Key << "BankName" << YAML::Value << zone.AmbienceEvent.BankName;
+				out << YAML::EndMap;
+				out << YAML::Key << "Snapshot" << YAML::BeginMap;
+				out << YAML::Key << "Guid" << YAML::Value << zone.Snapshot.Guid;
+				out << YAML::Key << "Path" << YAML::Value << zone.Snapshot.Path;
+				out << YAML::Key << "BankName" << YAML::Value << zone.Snapshot.BankName;
+				out << YAML::EndMap;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<AudioPortalComponent>())
+			{
+				const auto& portal = entity.GetComponent<AudioPortalComponent>();
+				out << YAML::Key << "AudioPortalComponent" << YAML::BeginMap;
+				out << YAML::Key << "Enabled" << YAML::Value << portal.Enabled;
+				out << YAML::Key << "ZoneA" << YAML::Value << static_cast<uint64_t>(portal.ZoneA);
+				out << YAML::Key << "ZoneB" << YAML::Value << static_cast<uint64_t>(portal.ZoneB);
+				out << YAML::Key << "HalfExtents" << YAML::Value << portal.HalfExtents;
+				out << YAML::Key << "Open" << YAML::Value << portal.Open;
+				out << YAML::Key << "BlendDistance" << YAML::Value << portal.BlendDistance;
+				out << YAML::Key << "Material" << YAML::Value << AcousticMaterialName(portal.Material);
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<AudioSurfaceComponent>())
+			{
+				out << YAML::Key << "AudioSurfaceComponent" << YAML::BeginMap;
+				const auto& surface = entity.GetComponent<AudioSurfaceComponent>();
+				out << YAML::Key << "Material" << YAML::Value << AcousticMaterialName(surface.Material);
+				out << YAML::Key << "PhysicsSounds" << YAML::Value << surface.PhysicsSounds;
+				out << YAML::Key << "AutoFootsteps" << YAML::Value << surface.AutoFootsteps;
+				out << YAML::Key << "StrideLength" << YAML::Value << surface.StrideLength;
+				out << YAML::Key << "GroundProbeDistance" << YAML::Value << surface.GroundProbeDistance;
+				out << YAML::Key << "FootstepWeight" << YAML::Value << surface.FootstepWeight;
+				auto writeEvent = [&](const char* name, const AudioEventRef& reference)
+				{
+					out << YAML::Key << name << YAML::BeginMap;
+					out << YAML::Key << "Guid" << YAML::Value << reference.Guid;
+					out << YAML::Key << "Path" << YAML::Value << reference.Path;
+					out << YAML::Key << "BankName" << YAML::Value << reference.BankName << YAML::EndMap;
+				};
+				writeEvent("FootstepOverride", surface.FootstepOverride);
+				writeEvent("ImpactOverride", surface.ImpactOverride);
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<AudioSourceComponent>())
+			{
+				const auto& audioSource = entity.GetComponent<AudioSourceComponent>();
+				const auto& config = audioSource.Config;
+				out << YAML::Key << "AudioSourceComponent";
+				out << YAML::BeginMap;
+				if (audioSource.LegacyAudio || audioSource.LegacyLooping)
+				{
+					out << YAML::Key << "Audio" << YAML::Value << audioSource.LegacyAudio;
+					out << YAML::Key << "Looping" << YAML::Value << audioSource.LegacyLooping;
+				}
+				out << YAML::Key << "VolumeMultiplier" << YAML::Value << config.VolumeMultiplier;
+				out << YAML::Key << "PitchMultiplier" << YAML::Value << config.PitchMultiplier;
+				out << YAML::Key << "PlayOnAwake" << YAML::Value << config.PlayOnAwake;
+				out << YAML::Key << "Priority" << YAML::Value << audioSource.Priority;
+				out << YAML::Key << "DistanceCulling" << YAML::Value << audioSource.DistanceCulling;
+
+				out << YAML::Key << "EventGuid" << YAML::Value << audioSource.Event.Guid;
+				out << YAML::Key << "EventPath" << YAML::Value << audioSource.Event.Path;
+				out << YAML::Key << "EventBank" << YAML::Value << audioSource.Event.BankName;
+				out << YAML::Key << "ParameterOverrides" << YAML::Value << YAML::BeginSeq;
+				for (const auto& [name, value] : audioSource.ParameterOverrides)
+				{
+					out << YAML::BeginMap;
+					out << YAML::Key << "Name" << YAML::Value << name;
+					out << YAML::Key << "Value" << YAML::Value << value;
+					out << YAML::EndMap;
+				}
+				out << YAML::EndSeq;
+				out << YAML::EndMap;
+			}
+
+			if (entity.HasComponent<AudioListenerComponent>())
+			{
+				const auto& listener = entity.GetComponent<AudioListenerComponent>();
+				out << YAML::Key << "AudioListenerComponent";
+				out << YAML::BeginMap;
+				out << YAML::Key << "Active" << YAML::Value << listener.Active;
+				out << YAML::Key << "ListenerIndex" << YAML::Value << listener.ListenerIndex;
+				out << YAML::Key << "Weight" << YAML::Value << listener.Weight;
+				out << YAML::Key << "UseAttenuationTarget" << YAML::Value << listener.UseAttenuationTarget;
+				out << YAML::Key << "AttenuationTarget" << YAML::Value << listener.AttenuationTarget;
 				out << YAML::EndMap;
 			}
 
@@ -1133,10 +1265,154 @@ namespace Lux {
 					component.ColliderAsset = meshCollider["ColliderAsset"].as<uint64_t>(0);
 					component.SubmeshIndex = meshCollider["SubmeshIndex"].as<uint32_t>(0);
 					component.UseSharedShape = meshCollider["UseSharedShape"].as<bool>(false);
+					const auto motion = meshCollider["AcousticMotion"] ? meshCollider["AcousticMotion"].as<uint32_t>() : 0;
+					if (motion > static_cast<uint32_t>(AcousticGeometryMode::Disabled))
+						throw std::runtime_error("Invalid mesh acoustic motion mode");
+					component.AcousticMotion = static_cast<AcousticGeometryMode>(motion);
 					component.Material.Density = meshCollider["Density"].as<float>(1.0f);
 					component.Material.Friction = meshCollider["Friction"].as<float>(0.5f);
 					component.Material.Restitution = meshCollider["Restitution"].as<float>(0.0f);
+					if (!ParseAcousticMaterial(meshCollider["AcousticMaterial"].as<std::string>("Default"), component.Acoustic))
+						throw std::runtime_error("Invalid mesh collider acoustic material");
 					component.CollisionComplexity = (ECollisionComplexity)meshCollider["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
+				}
+
+				if (auto node = entity["MusicDirectorComponent"])
+				{
+					auto& music = deserializedEntity.AddComponent<MusicDirectorComponent>();
+					if (auto reference = node["Event"])
+					{
+						music.Event.Guid = reference["Guid"].as<std::string>("");
+						music.Event.Path = reference["Path"].as<std::string>("");
+						music.Event.BankName = reference["BankName"].as<std::string>("");
+					}
+					music.PlayOnAwake = node["PlayOnAwake"].as<bool>(music.PlayOnAwake);
+					music.InitialState = node["InitialState"].as<std::string>(music.InitialState);
+					music.Intensity = node["Intensity"].as<float>(music.Intensity);
+					if (!std::isfinite(music.Intensity) || music.Intensity < 0.0f || music.Intensity > 1.0f)
+						throw std::runtime_error("Music intensity must be finite and in [0, 1]");
+				}
+
+				if (auto node = entity["AudioZoneComponent"])
+				{
+					auto& zone = deserializedEntity.AddComponent<AudioZoneComponent>();
+					const auto shape = node["Shape"].as<uint32_t>(0);
+					if (shape > static_cast<uint32_t>(AudioZoneShape::Collider))
+						throw std::runtime_error("Invalid audio zone shape");
+					zone.Shape = static_cast<AudioZoneShape>(shape);
+					zone.Enabled = node["Enabled"].as<bool>(zone.Enabled);
+					zone.Offset = node["Offset"].as<glm::vec3>(zone.Offset);
+					zone.HalfExtents = node["HalfExtents"].as<glm::vec3>(zone.HalfExtents);
+					zone.Radius = node["Radius"].as<float>(zone.Radius);
+					zone.Priority = node["Priority"].as<float>(zone.Priority);
+					zone.BlendDistance = node["BlendDistance"].as<float>(zone.BlendDistance);
+					zone.FadeTime = node["FadeTime"].as<float>(zone.FadeTime);
+					zone.Volume = node["Volume"].as<float>(zone.Volume);
+					if (auto reference = node["AmbienceEvent"])
+					{
+						zone.AmbienceEvent.Guid = reference["Guid"].as<std::string>("");
+						zone.AmbienceEvent.Path = reference["Path"].as<std::string>("");
+						zone.AmbienceEvent.BankName = reference["BankName"].as<std::string>("");
+					}
+					if (auto reference = node["Snapshot"])
+					{
+						zone.Snapshot.Guid = reference["Guid"].as<std::string>("");
+						zone.Snapshot.Path = reference["Path"].as<std::string>("");
+						zone.Snapshot.BankName = reference["BankName"].as<std::string>("");
+					}
+					if (!AudioZoneSystem::Validate(zone))
+						throw std::runtime_error("Invalid audio zone dimensions or blend settings");
+				}
+
+				if (auto node = entity["AudioPortalComponent"])
+				{
+					auto& portal = deserializedEntity.AddComponent<AudioPortalComponent>();
+					if (node["Enabled"])
+						portal.Enabled = node["Enabled"].as<bool>();
+					if (node["ZoneA"])
+						portal.ZoneA = node["ZoneA"].as<uint64_t>();
+					if (node["ZoneB"])
+						portal.ZoneB = node["ZoneB"].as<uint64_t>();
+					if (node["HalfExtents"])
+						portal.HalfExtents = node["HalfExtents"].as<glm::vec3>();
+					if (node["Open"])
+						portal.Open = node["Open"].as<float>();
+					if (node["BlendDistance"])
+						portal.BlendDistance = node["BlendDistance"].as<float>();
+					if (!ParseAcousticMaterial((node["Material"] ? node["Material"].as<std::string>() : "Wood"), portal.Material) || !AudioZoneSystem::Validate(portal))
+						throw std::runtime_error("Invalid audio portal material, dimensions or open factor");
+				}
+
+				if (auto surface = entity["AudioSurfaceComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<AudioSurfaceComponent>();
+					if (!ParseAcousticMaterial(surface["Material"].as<std::string>("Default"), component.Material))
+						throw std::runtime_error("Invalid audio surface material");
+					component.PhysicsSounds = surface["PhysicsSounds"].as<bool>(true);
+					component.AutoFootsteps = surface["AutoFootsteps"].as<bool>(false);
+					component.StrideLength = surface["StrideLength"].as<float>(0.7f);
+					component.GroundProbeDistance = surface["GroundProbeDistance"].as<float>(1.2f);
+					component.FootstepWeight = surface["FootstepWeight"].as<float>(75.0f);
+					if (!std::isfinite(component.StrideLength) || component.StrideLength <= 0.0f
+						|| !std::isfinite(component.GroundProbeDistance) || component.GroundProbeDistance <= 0.0f
+						|| !std::isfinite(component.FootstepWeight) || component.FootstepWeight <= 0.0f)
+						throw std::runtime_error("Invalid footstep settings");
+					auto readEvent = [&](const char* name)
+					{
+						const auto value = surface[name];
+						return value ? AudioEventRef{ value["Guid"].as<std::string>(""), value["Path"].as<std::string>(""), value["BankName"].as<std::string>("") } : AudioEventRef{};
+					};
+					component.FootstepOverride = readEvent("FootstepOverride");
+					component.ImpactOverride = readEvent("ImpactOverride");
+				}
+
+				if (auto audioSource = entity["AudioSourceComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<AudioSourceComponent>();
+					component.LegacyAudio = audioSource["Audio"].as<uint64_t>(0);
+					if (audioSource["Priority"])
+						component.Priority = audioSource["Priority"].as<int>();
+					if (audioSource["DistanceCulling"])
+						component.DistanceCulling = audioSource["DistanceCulling"].as<bool>();
+					if (component.Priority < 0 || component.Priority > 256)
+						throw std::runtime_error("Audio priority must be in [0, 256]");
+
+					auto& config = component.Config;
+					config.VolumeMultiplier = audioSource["VolumeMultiplier"].as<float>(1.0f);
+					config.PitchMultiplier = audioSource["PitchMultiplier"].as<float>(1.0f);
+					config.PlayOnAwake = audioSource["PlayOnAwake"].as<bool>(true);
+					component.LegacyLooping = audioSource["Looping"].as<bool>(false);
+
+					// Spatialization, AttenuationModel, RollOff, Min/MaxGain, Min/MaxDistance, the
+					// cone angles and DopplerFactor were removed: an FMOD Studio event authors all
+					// of them. Scenes saved before that still carry the keys, and they are ignored
+					// here deliberately rather than by accident - reading them would resurrect
+					// settings that no longer reach the mixer.
+
+					if (auto overrides = audioSource["ParameterOverrides"])
+					{
+						for (auto entry : overrides)
+						{
+							component.ParameterOverrides.emplace_back(
+								entry["Name"].as<std::string>(std::string{}),
+								entry["Value"].as<float>(0.0f));
+						}
+					}
+
+					component.Event.Guid = audioSource["EventGuid"].as<std::string>(std::string{});
+					component.Event.Path = audioSource["EventPath"].as<std::string>(std::string{});
+					component.Event.BankName = audioSource["EventBank"].as<std::string>(std::string{});
+				}
+
+				if (auto audioListener = entity["AudioListenerComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<AudioListenerComponent>();
+					component.Active = audioListener["Active"].as<bool>(true);
+					// Legacy cone keys are intentionally ignored; old scenes retain listener 0.
+					component.ListenerIndex = audioListener["ListenerIndex"].as<int>(0);
+					component.Weight = audioListener["Weight"].as<float>(1.0f);
+					component.UseAttenuationTarget = audioListener["UseAttenuationTarget"].as<bool>(false);
+					component.AttenuationTarget = audioListener["AttenuationTarget"].as<uint64_t>(0);
 				}
 				}
 				catch (const YAML::Exception& e)
@@ -1262,7 +1538,20 @@ namespace Lux {
 		SerializeEntity(instOut, instance);
 		SerializeEntity(srcOut, prefabSource);
 		const YAML::Node instNode = YAML::Load(instOut.c_str());
-		const YAML::Node srcNode = YAML::Load(srcOut.c_str());
+		YAML::Node srcNode = YAML::Load(srcOut.c_str());
+		if (prefabSource.HasComponent<AudioListenerComponent>())
+		{
+			// Compare in the instance's UUID space; remapped references are not user overrides.
+			srcNode["AudioListenerComponent"]["AttenuationTarget"] = static_cast<uint64_t>(Scene::MapPrefabEntityReference(
+				prefabSource.GetComponent<AudioListenerComponent>().AttenuationTarget, prefabSource, instance));
+		}
+
+		if (prefabSource.HasComponent<AudioPortalComponent>())
+		{
+			const auto& portal = prefabSource.GetComponent<AudioPortalComponent>();
+			srcNode["AudioPortalComponent"]["ZoneA"] = static_cast<uint64_t>(Scene::MapPrefabEntityReference(portal.ZoneA, prefabSource, instance));
+			srcNode["AudioPortalComponent"]["ZoneB"] = static_cast<uint64_t>(Scene::MapPrefabEntityReference(portal.ZoneB, prefabSource, instance));
+		}
 
 		// A key is an override if it is present on one side only, or present on both but serializes
 		// differently. Scanning both directions catches instance-only and prefab-only components.
@@ -1322,6 +1611,220 @@ namespace Lux {
 		parent.GetComponent<TransformComponent>().Translation = { 1.0f, 2.0f, 3.0f };
 		childA.AddComponent<PointLightComponent>().Radiance = { 0.5f, 0.25f, 0.1f };
 		childB.AddComponent<DirectionalLightComponent>();
+		auto& audio = childB.AddComponent<AudioSourceComponent>();
+		audio.Event = { "{12345678-1234-1234-1234-123456789abc}", "event:/Test/Door", "Test.bank" };
+		audio.ParameterOverrides = { { "Size", 0.75f }, { "Urgency", 2.0f } };
+		audio.Config.PlayOnAwake = false;
+		audio.Priority = 12;
+		audio.DistanceCulling = true;
+		audio.LegacyAudio = 456;
+		audio.LegacyLooping = true;
+		audio.ScriptPaused = true;
+		auto& meshCollider = childB.AddComponent<MeshColliderComponent>();
+		meshCollider.Acoustic = AcousticMaterial::Wood;
+		meshCollider.AcousticMotion = AcousticGeometryMode::Dynamic;
+		auto& portal = childB.AddComponent<AudioPortalComponent>();
+		portal.Open = 0.35f;
+		portal.HalfExtents = { 2.0f, 3.0f, 0.1f };
+		portal.BlendDistance = 4.0f;
+		portal.Material = AcousticMaterial::Glass;
+		portal.Enabled = false;
+		const AudioPortalComponent expectedPortal = portal;
+		auto& surface = childB.AddComponent<AudioSurfaceComponent>();
+		surface.Material = AcousticMaterial::Carpet;
+		surface.FootstepOverride = audio.Event;
+		surface.ImpactOverride = { "{11111111-1234-1234-1234-123456789abc}", "event:/Impact", "Impact.bank" };
+		surface.AutoFootsteps = true;
+		surface.PhysicsSounds = false;
+		surface.StrideLength = 1.1f;
+		surface.GroundProbeDistance = 1.5f;
+		surface.FootstepWeight = 90.0f;
+		const AudioSurfaceComponent expectedSurface = surface;
+		auto& music = childB.AddComponent<MusicDirectorComponent>();
+		music.Event = audio.Event;
+		music.InitialState = "Combat";
+		music.Intensity = 0.75f;
+		music.PlayOnAwake = false;
+		const MusicDirectorComponent expectedMusic = music;
+		auto& zone = childB.AddComponent<AudioZoneComponent>();
+		zone.Shape = AudioZoneShape::Sphere;
+		zone.Offset = { 1.0f, 2.0f, 3.0f };
+		zone.HalfExtents = { 3.0f, 4.0f, 5.0f };
+		zone.Radius = 7.0f;
+		zone.Priority = 5.0f;
+		zone.BlendDistance = 1.5f;
+		zone.FadeTime = 0.4f;
+		zone.Volume = 0.7f;
+		zone.Enabled = false;
+		zone.AmbienceEvent = audio.Event;
+		zone.Snapshot = { "{87654321-1234-1234-1234-123456789abc}", "snapshot:/Cave", "Test.bank" };
+		const AudioZoneComponent expectedZone = zone;
+		const AudioSourceComponent expectedAudio = audio;
+		auto checkAudioCopy = [&](Entity entity, const char* operation)
+		{
+			if (!entity || !entity.HasComponent<AudioSourceComponent>())
+			{
+				fail(std::format("{} lost the audio source", operation));
+				return;
+			}
+			const auto& copiedAudio = entity.GetComponent<AudioSourceComponent>();
+			if (copiedAudio.Priority != expectedAudio.Priority || copiedAudio.DistanceCulling != expectedAudio.DistanceCulling)
+				fail(std::format("{} lost audio priority/culling", operation));
+			if (!entity.HasComponent<MeshColliderComponent>() || !entity.HasComponent<AudioSurfaceComponent>()
+				|| entity.GetComponent<MeshColliderComponent>().Acoustic != AcousticMaterial::Wood
+				|| entity.GetComponent<MeshColliderComponent>().AcousticMotion != AcousticGeometryMode::Dynamic
+				|| entity.GetComponent<AudioSurfaceComponent>().Material != AcousticMaterial::Carpet)
+				fail(std::format("{} lost acoustic material tags", operation));
+			if (const auto* copied = entity.TryGetComponent<AudioPortalComponent>())
+			{
+				if (copied->Enabled != expectedPortal.Enabled || copied->Open != expectedPortal.Open ||
+					copied->HalfExtents != expectedPortal.HalfExtents || copied->BlendDistance != expectedPortal.BlendDistance ||
+					copied->Material != expectedPortal.Material)
+					fail(std::format("{} changed portal data", operation));
+			}
+			else
+				fail(std::format("{} lost the audio portal", operation));
+			if (const auto* copied = entity.TryGetComponent<AudioSurfaceComponent>())
+			{
+				if (copied->FootstepOverride.Guid != expectedSurface.FootstepOverride.Guid
+					|| copied->FootstepOverride.Path != expectedSurface.FootstepOverride.Path
+					|| copied->FootstepOverride.BankName != expectedSurface.FootstepOverride.BankName
+					|| copied->ImpactOverride.Guid != expectedSurface.ImpactOverride.Guid
+					|| copied->ImpactOverride.Path != expectedSurface.ImpactOverride.Path
+					|| copied->ImpactOverride.BankName != expectedSurface.ImpactOverride.BankName
+					|| copied->AutoFootsteps != expectedSurface.AutoFootsteps || copied->PhysicsSounds != expectedSurface.PhysicsSounds
+					|| copied->StrideLength != expectedSurface.StrideLength || copied->GroundProbeDistance != expectedSurface.GroundProbeDistance
+					|| copied->FootstepWeight != expectedSurface.FootstepWeight)
+					fail(std::format("{} changed physics audio settings", operation));
+			}
+			if (const auto* copiedMusic = entity.TryGetComponent<MusicDirectorComponent>())
+			{
+				if (copiedMusic->Event.Guid != expectedMusic.Event.Guid || copiedMusic->Event.Path != expectedMusic.Event.Path
+					|| copiedMusic->Event.BankName != expectedMusic.Event.BankName || copiedMusic->InitialState != expectedMusic.InitialState
+					|| copiedMusic->Intensity != expectedMusic.Intensity || copiedMusic->PlayOnAwake != expectedMusic.PlayOnAwake)
+					fail(std::format("{} changed music startup settings", operation));
+			}
+			else
+				fail(std::format("{} lost the music director", operation));
+			if (!entity.HasComponent<AudioZoneComponent>())
+				fail(std::format("{} lost the audio zone", operation));
+			else
+			{
+				const auto& copiedZone = entity.GetComponent<AudioZoneComponent>();
+				if (copiedZone.Enabled != expectedZone.Enabled || copiedZone.Shape != expectedZone.Shape
+					|| copiedZone.Offset != expectedZone.Offset || copiedZone.HalfExtents != expectedZone.HalfExtents
+					|| copiedZone.Radius != expectedZone.Radius || copiedZone.Priority != expectedZone.Priority
+					|| copiedZone.BlendDistance != expectedZone.BlendDistance || copiedZone.FadeTime != expectedZone.FadeTime
+					|| copiedZone.Volume != expectedZone.Volume || copiedZone.AmbienceEvent.Guid != expectedZone.AmbienceEvent.Guid
+					|| copiedZone.Snapshot.Guid != expectedZone.Snapshot.Guid || copiedZone.Snapshot.Path != expectedZone.Snapshot.Path
+					|| copiedZone.Snapshot.BankName != expectedZone.Snapshot.BankName)
+					fail(std::format("{} changed audio zone data", operation));
+			}
+			const auto& copied = entity.GetComponent<AudioSourceComponent>();
+			if (copied.Event.Guid != expectedAudio.Event.Guid || copied.ParameterOverrides != expectedAudio.ParameterOverrides
+				|| copied.Config.PlayOnAwake || copied.ScriptPaused
+				|| copied.LegacyAudio != expectedAudio.LegacyAudio || copied.LegacyLooping != expectedAudio.LegacyLooping)
+				fail(std::format("{} changed audio event data or copied runtime playback state", operation));
+		};
+		Entity duplicate = src->DuplicateEntity(childB);
+		checkAudioCopy(duplicate, "Duplicate");
+		Ref<Prefab> prefab = Ref<Prefab>::Create();
+		prefab->Create(childB, false);
+		checkAudioCopy(prefab->GetScene()->TryGetEntityWithUUID(prefab->GetRootEntityID()), "Prefab creation");
+		checkAudioCopy(src->Instantiate(prefab), "Prefab instantiation");
+		src->ReconcilePrefabComponents(duplicate, parent);
+		if (duplicate.HasComponent<AudioPortalComponent>() || duplicate.HasComponent<MusicDirectorComponent>() || duplicate.HasComponent<AudioZoneComponent>() || duplicate.HasComponent<AudioSourceComponent>() || duplicate.HasComponent<AudioSurfaceComponent>() || duplicate.HasComponent<MeshColliderComponent>())
+			fail("Prefab reconciliation did not remove an absent audio source");
+		src->ReconcilePrefabComponents(duplicate, childB);
+		checkAudioCopy(duplicate, "Prefab reconciliation");
+
+		Entity portalRig = src->CreateEntity("PortalRig");
+		Entity roomA = src->CreateChildEntity(portalRig, "RoomA");
+		Entity roomB = src->CreateChildEntity(portalRig, "RoomB");
+		roomA.AddComponent<AudioZoneComponent>();
+		roomB.AddComponent<AudioZoneComponent>();
+		auto& linked = portalRig.AddComponent<AudioPortalComponent>();
+		linked.ZoneA = roomA.GetUUID();
+		linked.ZoneB = roomB.GetUUID();
+		const auto checkPortal = [&](Entity root, const char* operation)
+		{
+			const auto* copied = root.TryGetComponent<AudioPortalComponent>();
+			if (!copied || root.Children().size() != 2 || copied->ZoneA != root.Children()[0] || copied->ZoneB != root.Children()[1])
+				fail(std::format("{} failed to remap portal room references", operation));
+		};
+		checkPortal(src->DuplicateEntity(portalRig), "Duplicate portal");
+		Ref<Prefab> portalPrefab = Ref<Prefab>::Create();
+		portalPrefab->Create(portalRig, false);
+		Entity prefabPortal = portalPrefab->GetScene()->TryGetEntityWithUUID(portalPrefab->GetRootEntityID());
+		checkPortal(prefabPortal, "Create portal prefab");
+		Entity portalInstance = src->Instantiate(portalPrefab);
+		checkPortal(portalInstance, "Instantiate portal prefab");
+		if (GetOverriddenComponentKeys(portalInstance, prefabPortal).contains("AudioPortalComponent"))
+			fail("remapped portal room IDs were incorrectly detected as prefab overrides");
+		portalInstance.GetComponent<AudioPortalComponent>().ZoneA = 0;
+		if (!GetOverriddenComponentKeys(portalInstance, prefabPortal).contains("AudioPortalComponent"))
+			fail("cleared portal room was not detected as a prefab override");
+		Scene::ReconcilePrefabComponents(portalInstance, prefabPortal);
+		checkPortal(portalInstance, "Revert portal prefab");
+		Scene::ReconcilePrefabComponents(prefabPortal, portalInstance);
+		checkPortal(prefabPortal, "Apply portal prefab");
+
+		Entity listenerRig = src->CreateEntity("ListenerRig");
+		Entity attenuationTarget = src->CreateChildEntity(listenerRig, "ListenerTarget");
+		auto& listener = listenerRig.AddComponent<AudioListenerComponent>();
+		listener.ListenerIndex = 7;
+		listener.Weight = 0.25f;
+		listener.UseAttenuationTarget = true;
+		listener.AttenuationTarget = attenuationTarget.GetUUID();
+		const auto checkListener = [&](Entity root, const char* operation)
+		{
+			if (!root || !root.HasComponent<AudioListenerComponent>() || root.Children().size() != 1)
+			{
+				fail(std::format("{} lost the listener hierarchy", operation));
+				return;
+			}
+			const auto& copied = root.GetComponent<AudioListenerComponent>();
+			if (!copied.Active || copied.ListenerIndex != 7 || copied.Weight != 0.25f || !copied.UseAttenuationTarget
+				|| copied.AttenuationTarget != root.Children()[0])
+				fail(std::format("{} changed listener data or failed to remap its target", operation));
+		};
+		checkListener(src->DuplicateEntity(listenerRig), "Duplicate listener");
+		Ref<Prefab> listenerPrefab = Ref<Prefab>::Create();
+		listenerPrefab->Create(listenerRig, false);
+		Entity prefabListener = listenerPrefab->GetScene()->TryGetEntityWithUUID(listenerPrefab->GetRootEntityID());
+		checkListener(prefabListener, "Create listener prefab");
+		Entity listenerInstance = src->Instantiate(listenerPrefab);
+		Entity secondListenerInstance = src->Instantiate(listenerPrefab);
+		checkListener(listenerInstance, "Instantiate listener prefab");
+		checkListener(secondListenerInstance, "Instantiate second listener prefab");
+		Entity nestedListenerInstance = src->InstantiateChild(listenerPrefab, secondListenerInstance);
+		Scene::ReconcilePrefabComponents(nestedListenerInstance, prefabListener);
+		checkListener(nestedListenerInstance, "Revert nested listener prefab");
+		if (GetOverriddenComponentKeys(nestedListenerInstance, prefabListener).contains("AudioListenerComponent"))
+			fail("nested listener instance mapped its target into its parent instance");
+		if (GetOverriddenComponentKeys(listenerInstance, prefabListener).contains("AudioListenerComponent"))
+			fail("remapped listener target was incorrectly marked as a prefab override");
+		listenerInstance.GetComponent<AudioListenerComponent>().AttenuationTarget = secondListenerInstance.Children()[0];
+		if (!GetOverriddenComponentKeys(listenerInstance, prefabListener).contains("AudioListenerComponent"))
+			fail("external listener target override was not detected");
+		Scene::ReconcilePrefabComponents(listenerInstance, prefabListener);
+		checkListener(listenerInstance, "Revert listener prefab");
+		Scene::ReconcilePrefabComponents(prefabListener, listenerInstance);
+		checkListener(prefabListener, "Apply listener prefab");
+		Scene::ReconcilePrefabComponents(listenerInstance, parent);
+		if (listenerInstance.HasComponent<AudioListenerComponent>())
+			fail("prefab reconciliation did not remove an absent listener");
+		Scene::ReconcilePrefabComponents(listenerInstance, prefabListener);
+		checkListener(listenerInstance, "Restore listener prefab");
+		listenerRig.GetComponent<AudioListenerComponent>().AttenuationTarget = childB.GetUUID();
+		Entity externalCopy = src->DuplicateEntity(listenerRig);
+		if (externalCopy.GetComponent<AudioListenerComponent>().AttenuationTarget != childB.GetUUID())
+			fail("duplicate lost an external scene listener target");
+		Ref<Prefab> externalPrefab = Ref<Prefab>::Create();
+		externalPrefab->Create(listenerRig, false);
+		if (externalPrefab->GetScene()->TryGetEntityWithUUID(externalPrefab->GetRootEntityID()).GetComponent<AudioListenerComponent>().AttenuationTarget != 0)
+			fail("prefab retained a listener target outside its hierarchy");
+		listenerRig.GetComponent<AudioListenerComponent>().AttenuationTarget = attenuationTarget.GetUUID();
 
 		std::string meta1;
 		std::map<UUID, std::string> ents1 = SceneSerializer(src).SerializeEntitySnapshots(meta1);
@@ -1338,7 +1841,23 @@ namespace Lux {
 			return ok;
 		}
 
+		checkPortal(dst->TryGetEntityWithUUID(portalRig.GetUUID()), "Portal round-trip");
+		checkListener(dst->TryGetEntityWithUUID(listenerRig.GetUUID()), "Listener round-trip");
 		std::string meta2;
+		Entity restoredAudioEntity = dst->TryGetEntityWithUUID(childB.GetUUID());
+		if (!restoredAudioEntity || !restoredAudioEntity.HasComponent<AudioSourceComponent>())
+			fail("audio source disappeared during the round-trip");
+		else
+		{
+			checkAudioCopy(restoredAudioEntity, "Scene roundtrip");
+			const auto& restoredAudio = restoredAudioEntity.GetComponent<AudioSourceComponent>();
+			if (restoredAudio.Event.Guid != expectedAudio.Event.Guid || restoredAudio.Event.Path != expectedAudio.Event.Path
+				|| restoredAudio.Event.BankName != expectedAudio.Event.BankName || restoredAudio.ParameterOverrides != expectedAudio.ParameterOverrides
+				|| restoredAudio.Priority != 12 || !restoredAudio.DistanceCulling
+				|| restoredAudio.Config.PlayOnAwake || restoredAudio.ScriptPaused
+				|| restoredAudio.LegacyAudio != expectedAudio.LegacyAudio || restoredAudio.LegacyLooping != expectedAudio.LegacyLooping)
+				fail("audio event reference/overrides changed or runtime playback state was serialized");
+		}
 		std::map<UUID, std::string> ents2 = SceneSerializer(dst).SerializeEntitySnapshots(meta2);
 
 		if (meta1 != meta2)

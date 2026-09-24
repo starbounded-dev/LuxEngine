@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "Log.h"
 
@@ -34,7 +37,6 @@ namespace Lux {
 		{ "Scripting",         TagDetails{  true, Level::Warn  } },
 		{ "Sound Spatializer", TagDetails{  true, Level::Warn  } },
 		{ "Timer",             TagDetails{ false, Level::Trace } },
-		{ "miniaudio",         TagDetails{  true, Level::Error } },
 	};
 
 	void Log::Init()

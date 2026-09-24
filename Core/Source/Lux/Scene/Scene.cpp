@@ -1,14 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
+#include "Lux/Audio/AudioAccessibility.h"
+#include "Lux/Utilities/FileSystem.h"
 
 #include "Lux/Scene/Scene.h"
 
 #include "Lux/Asset/AssetManager.h"
 
 #include "Lux/Audio/AudioEngine.h"
-#include "Lux/Audio/AudioSource.h"
+#include "Lux/Audio/AudioPerformance.h"
+#include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/AudioListener.h"
+#include "Lux/Audio/RaytracedAudioScene.h"
 
 #include "Lux/Core/JobSystem.h"
+#include "Lux/Core/Input.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Prefab.h"
@@ -16,6 +24,8 @@
 #include "Lux/Scene/ScriptableEntity.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Scripting/AudioScriptBindings.h"
+#include "Lux/Scripting/ScriptGlue.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/SceneRenderer.h"
@@ -34,6 +44,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <thread>
 #include <unordered_map>
 
@@ -41,43 +52,16 @@ namespace Lux {
 
 	namespace
 	{
-		std::filesystem::path ResolveAudioFilePath(const Ref<AudioFile>& audioFile)
+		enum AudioListenerWarning : uint32_t
 		{
-			if (!audioFile)
-				return {};
-
-			const std::filesystem::path storedPath = audioFile->FilePath;
-			if (storedPath.empty())
-				return {};
-
-			if (storedPath.is_absolute())
-				return storedPath;
-
-			if (Ref<Project> project = Project::GetActive())
-				return project->GetAssetFileSystemPath(storedPath);
-
-			return storedPath;
-		}
-
-		Ref<AudioSource> CreateRuntimeAudioSourceFromHandle(AssetHandle handle)
-		{
-			if (!AssetManager::IsAssetHandleValid(handle))
-				return nullptr;
-
-			Ref<AudioFile> audioFile = AssetManager::GetAsset<AudioFile>(handle);
-			if (!audioFile)
-				return nullptr;
-
-			const std::filesystem::path filepath = ResolveAudioFilePath(audioFile);
-			if (filepath.empty())
-				return nullptr;
-
-			Ref<AudioSource> audioSource = Ref<AudioSource>::Create();
-			if (!audioSource->LoadFromFile(filepath))
-				return nullptr;
-
-			return audioSource;
-		}
+			ListenerInvalidIndex = 1 << 0,
+			ListenerInvalidWeight = 1 << 1,
+			ListenerInvalidTransform = 1 << 2,
+			ListenerInvalidTarget = 1 << 3,
+			ListenerDuplicateIndex = 1 << 4,
+			ListenerInvalidVelocity = 1 << 5,
+			ListenerMissing = 1 << 6
+		};
 
 		enum class ColliderDebugPrimitive
 		{
@@ -168,9 +152,16 @@ namespace Lux {
 	Scene::~Scene()
 	{
 		ReleaseAllRuntimeAudio();
+		if (m_IsRunning)
+		{
+			AudioScriptBindings::Reset();
+			ScriptGlue::ResetInput();
+			AudioListener::Apply({});
+		}
 		m_EntityMap.clear();
 		OnPhysics2DStop();
 		OnPhysics3DStop();
+		OnRaytracedAudioStop();
 	}
 
 	template<typename... Component>
@@ -341,7 +332,16 @@ namespace Lux {
 			}
 		}
 
+		m_Dialogue.RemoveSpeaker(entity.GetUUID());
+		if (m_MusicOwner == entity.GetUUID())
+		{
+			m_Music.Clear();
+			m_MusicOwner = 0;
+		}
 		ReleaseRuntimeAudio(entity);
+		m_AudioZones.Remove(entity.GetUUID());
+		m_PhysicsAudio.Remove(entity.GetUUID());
+		m_Footsteps.erase(entity.GetUUID());
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
 
@@ -354,126 +354,309 @@ namespace Lux {
 		DestroyEntity(TryGetEntityWithUUID(entityID), excludeChildren, first);
 	}
 
-	Ref<AudioSource> Scene::GetOrCreateRuntimeAudioSource(Entity entity, AssetHandle audioHandle)
-	{
-		if (!entity || !audioHandle)
-			return nullptr;
-
-		Ref<AudioSource>& runtimeAudio = m_RuntimeAudioSources[entity.GetUUID()];
-		if (!runtimeAudio)
-			runtimeAudio = CreateRuntimeAudioSourceFromHandle(audioHandle);
-
-		return runtimeAudio;
-	}
-
-	Ref<AudioSource> Scene::GetOrCreateRuntimePlaylistSource(Entity entity, uint32_t index, AssetHandle audioHandle)
-	{
-		if (!entity || !audioHandle)
-			return nullptr;
-
-		auto& runtimePlaylist = m_RuntimeAudioPlaylists[entity.GetUUID()];
-		if (runtimePlaylist.size() <= index)
-			runtimePlaylist.resize(index + 1);
-
-		if (!runtimePlaylist[index])
-			runtimePlaylist[index] = CreateRuntimeAudioSourceFromHandle(audioHandle);
-
-		return runtimePlaylist[index];
-	}
-
 	void Scene::ReleaseRuntimeAudio(Entity entity)
 	{
 		if (!entity)
 			return;
 
-		m_RuntimeAudioSources.erase(entity.GetUUID());
-		m_RuntimeAudioPlaylists.erase(entity.GetUUID());
+		auto event = m_RuntimeEventInstances.find(entity.GetUUID());
+		if (event != m_RuntimeEventInstances.end())
+		{
+			event->second.Stop(false);
+			m_RuntimeEventInstances.erase(event);
+		}
+
+		if (m_RaytracedAudioScene)
+			m_RaytracedAudioScene->DestroyEmitter(entity.GetUUID());
 	}
 
 	void Scene::ReleaseAllRuntimeAudio()
 	{
-		m_RuntimeAudioSources.clear();
-		m_RuntimeAudioPlaylists.clear();
+		AudioPerformance::SubmitScene(0, 0, false);
+		AudioAccessibility::EndScene(this);
+		m_Dialogue.Clear();
+		m_Music.Clear();
+		m_MusicOwner = 0;
+		// Event instances hold FMOD Studio resources and must not outlive the runtime that started
+		// them; the destructor stops each one immediately and releases it.
+		for (auto& [id, event] : m_RuntimeEventInstances)
+		{
+			event.Stop(false);
+		}
+		m_RuntimeEventInstances.clear();
+		m_AudioZones.Clear();
+		m_PhysicsAudio.Clear();
+		m_AudioSurfaceTable = nullptr;
+		m_Footsteps.clear();
+		m_PhysicsContactEvents.clear();
+		m_AudioZoneRaytracedValid = false;
+		m_AudioZoneInputs.clear();
+	}
+
+	AudioZoneVolume Scene::GetAudioZoneVolume(Entity entity)
+	{
+		const auto& zone = entity.GetComponent<AudioZoneComponent>();
+		AudioZoneVolume volume;
+		volume.Transform = GetWorldSpaceTransformMatrix(entity);
+		glm::vec3 offset = zone.Offset;
+		volume.HalfExtents = zone.HalfExtents;
+		volume.Radius = zone.Radius;
+		if (zone.Shape == AudioZoneShape::Sphere)
+			volume.Type = AudioZoneVolume::Shape::Sphere;
+		else if (zone.Shape == AudioZoneShape::Collider)
+		{
+			const auto* box = entity.TryGetComponent<BoxColliderComponent>();
+			const auto* sphere = entity.TryGetComponent<SphereColliderComponent>();
+			const auto* capsule = entity.TryGetComponent<CapsuleColliderComponent>();
+			volume.Valid = static_cast<int>(box != nullptr) + static_cast<int>(sphere != nullptr) + static_cast<int>(capsule != nullptr) == 1;
+			if (box)
+			{
+				offset = box->Offset;
+				volume.HalfExtents = box->HalfSize;
+			}
+			else if (sphere)
+			{
+				offset = sphere->Offset;
+				volume.Type = AudioZoneVolume::Shape::Sphere;
+				volume.Radius = sphere->Radius;
+			}
+			else if (capsule)
+			{
+				offset = capsule->Offset;
+				volume.Type = AudioZoneVolume::Shape::Capsule;
+				volume.Radius = capsule->Radius;
+				volume.HalfHeight = capsule->HalfHeight;
+			}
+		}
+		volume.Transform = glm::translate(volume.Transform, offset);
+		const float determinant = glm::determinant(glm::mat3(volume.Transform));
+		volume.Valid = volume.Valid && std::isfinite(determinant) && determinant != 0.0f
+			&& std::isfinite(volume.Radius) && volume.Radius > 0.0f
+			&& std::isfinite(volume.HalfHeight) && volume.HalfHeight >= 0.0f
+			&& glm::all(glm::greaterThan(volume.HalfExtents, glm::vec3(0.0f)));
+		for (int axis = 0; axis < 3; ++axis)
+			volume.Valid = volume.Valid && std::isfinite(volume.HalfExtents[axis]) && std::isfinite(volume.Transform[3][axis]);
+		return volume;
+	}
+
+	void Scene::UpdateAudioZones(float timestep, bool raytracedReverbValid)
+	{
+		if (!m_IsPaused)
+			m_AudioZoneRaytracedValid = raytracedReverbValid;
+		m_AudioZoneInputs.clear();
+		for (auto handle : m_Registry.view<TransformComponent, AudioZoneComponent>())
+		{
+			Entity entity{ handle, this };
+			m_AudioZoneInputs.push_back({ entity.GetUUID(), &entity.GetComponent<AudioZoneComponent>(), GetAudioZoneVolume(entity) });
+		}
+		m_AudioPortalInputs.clear();
+		for (auto handle : m_Registry.view<TransformComponent, AudioPortalComponent>())
+		{
+			Entity entity{ handle, this };
+			const auto& portal = entity.GetComponent<AudioPortalComponent>();
+			const float open = m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning() ? m_AudioGeometry.GetPortalOpen(entity.GetUUID()) : portal.Open;
+			m_AudioPortalInputs.push_back({ entity.GetUUID(), portal.ZoneA, portal.ZoneB, GetWorldSpaceTransformMatrix(entity),
+				portal.HalfExtents, open, portal.BlendDistance, portal.Enabled });
+		}
+		const auto project = Project::GetActive();
+		m_AudioZones.Update(m_AudioZoneInputs, m_RuntimeAudioListeners, timestep, m_IsPaused,
+			project ? project->GetConfig().Audio.ZoneReverbMode : AudioZoneReverbMode::Layered, m_AudioZoneRaytracedValid, m_AudioPortalInputs);
+	}
+
+	const AudioListenerState* Scene::GetPrimaryAudioListener() const
+	{
+		const int index = AudioListener::GetPrimaryIndex(m_RuntimeAudioListeners);
+		return index >= 0 ? &m_RuntimeAudioListeners[index] : nullptr;
+	}
+
+	void Scene::SyncAudioListeners(float timestep)
+	{
+		LUX_PROFILE_FUNCTION("Scene::SyncAudioListeners");
+		AudioListener::States listeners;
+		uint32_t warnings = 0;
+		const auto report = [&](uint32_t flag, UUID entity, const char* message)
+		{
+			if (!(m_AudioListenerWarnings & flag) && !(warnings & flag))
+				LUX_CORE_WARN_TAG("Audio", "Listener on entity {0}: {1}", static_cast<uint64_t>(entity), message);
+			warnings |= flag;
+		};
+		for (auto handle : m_Registry.view<TransformComponent, AudioListenerComponent>())
+		{
+			Entity entity{ handle, this };
+			const auto& component = entity.GetComponent<AudioListenerComponent>();
+			if (!component.Active)
+				continue;
+			const UUID id = entity.GetUUID();
+			if (component.ListenerIndex < 0 || component.ListenerIndex >= AudioListener::MaxListeners)
+			{
+				report(ListenerInvalidIndex, id, "Index must be between 0 and 7; listener ignored.");
+				continue;
+			}
+			if (!std::isfinite(component.Weight) || component.Weight < 0.0f || component.Weight > 1.0f)
+			{
+				report(ListenerInvalidWeight, id, "Weight must be finite and between 0 and 1; listener ignored.");
+				continue;
+			}
+			if (component.Weight == 0.0f)
+				continue;
+
+			AudioListenerState state;
+			state.EntityID = id;
+			state.Weight = component.Weight;
+			if (!AudioListener::SetTransform(state, GetWorldSpaceTransformMatrix(entity)))
+			{
+				report(ListenerInvalidTransform, id, "World transform is not finite; listener ignored.");
+				continue;
+			}
+			if (component.UseAttenuationTarget)
+			{
+				Entity target = TryGetEntityWithUUID(component.AttenuationTarget);
+				AudioListenerState targetState;
+				if (target && AudioListener::SetTransform(targetState, GetWorldSpaceTransformMatrix(target)))
+				{
+					state.UseAttenuationPosition = true;
+					state.AttenuationPosition = targetState.Position;
+				}
+				else
+					report(ListenerInvalidTarget, id, "Attenuation target is missing or invalid; using the listener position.");
+			}
+
+			auto& slot = listeners[component.ListenerIndex];
+			if (slot.EntityID != 0)
+			{
+				report(ListenerDuplicateIndex, id, "Active listeners share an index; the entity with the lowest UUID wins. Assign unique indices.");
+				if (static_cast<uint64_t>(slot.EntityID) < static_cast<uint64_t>(id))
+					continue;
+			}
+			const auto& previous = m_RuntimeAudioListeners[component.ListenerIndex];
+			if (previous.EntityID == id && std::isfinite(timestep) && timestep > 0.0f)
+			{
+				const glm::dvec3 velocity = (glm::dvec3(state.Position) - glm::dvec3(previous.Position)) / static_cast<double>(timestep);
+				const double maxVelocity = std::numeric_limits<float>::max();
+				if (glm::all(glm::lessThanEqual(glm::abs(velocity), glm::dvec3(maxVelocity))))
+					state.Velocity = glm::vec3(velocity);
+				else
+					report(ListenerInvalidVelocity, id, "Movement exceeds the supported velocity range; using zero velocity.");
+			}
+			slot = state;
+		}
+		if (AudioListener::GetPrimaryIndex(listeners) < 0)
+			report(ListenerMissing, UUID(0), "No active weighted listener; using the world origin until a listener is enabled.");
+		m_AudioListenerWarnings = warnings;
+		m_RuntimeAudioListeners = listeners;
+		AudioListener::Apply(listeners);
 	}
 
 	void Scene::OnRuntimeStart()
 	{
+		m_Dialogue.Clear();
+		m_Music.Clear();
+		m_MusicOwner = 0;
+		AudioScriptBindings::Reset();
+		ScriptGlue::ResetInput();
 		m_IsRunning = true;
 
 		OnPhysics2DStart();
 		OnPhysics3DStart();
+		OnRaytracedAudioStart();
+		m_PhysicsAudio.Clear();
+		m_Footsteps.clear();
+		m_AudioSurfaceTable = nullptr;
+		if (const auto project = Project::GetActive())
+		{
+			std::string preferenceName = project->GetConfig().Name;
+			for (char& c : preferenceName)
+			{
+				if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-'))
+					c = '_';
+			}
+			if (preferenceName.empty())
+				preferenceName = "Project";
+			const auto preferences = FileSystem::GetPersistentStoragePath() / "AudioAccessibility" / (preferenceName + ".yaml");
+			AudioAccessibility::BeginScene(this, project->GetConfig().Audio.Accessibility, preferences,
+				[this](const SubtitleEvent& event) { m_Dialogue.PublishCaption(event); });
+			const auto& dialogue = project->GetConfig().Audio.Dialogue;
+			m_Dialogue.SetLanguage(dialogue.Language);
+			if (dialogue.Table)
+			{
+				Ref<DialogueTable> table;
+				if (AssetManager::IsAssetHandleValid(dialogue.Table) && AssetManager::GetAssetType(dialogue.Table) == AssetType::DialogueTable)
+					table = AssetManager::GetAsset<DialogueTable>(dialogue.Table);
+				m_Dialogue.Configure(table, dialogue.Language, [this](UUID id)
+				{
+					DialogueSpeaker speaker;
+					if (!id)
+					{
+						speaker.Valid = true;
+						return speaker;
+					}
+					const auto entity = TryGetEntityWithUUID(id);
+					if (!entity)
+						return speaker;
+					speaker.Valid = true;
+					speaker.Name = entity.GetComponent<TagComponent>().Tag;
+					speaker.Position = glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]);
+					if (const auto camera = GetPrimaryCameraEntity())
+					{
+						const auto clip = camera.GetComponent<CameraComponent>().Camera.GetProjectionMatrix() *
+							glm::inverse(GetWorldSpaceTransformMatrix(camera)) * glm::vec4(speaker.Position, 1.0f);
+						speaker.IsOffScreen = clip.w <= 0.0f || std::abs(clip.x) > clip.w || std::abs(clip.y) > clip.w || clip.z < 0.0f || clip.z > clip.w;
+					}
+					return speaker;
+				});
+			}
+			const AssetHandle handle = project->GetConfig().Audio.SurfaceTable;
+			if (handle)
+			{
+				if (AssetManager::IsAssetHandleValid(handle) && AssetManager::GetAssetType(handle) == AssetType::AudioSurfaceTable)
+					m_AudioSurfaceTable = AssetManager::GetAsset<AudioSurfaceTable>(handle);
+				if (!m_AudioSurfaceTable || !m_AudioSurfaceTable->Validate())
+				{
+					LUX_CORE_ERROR_TAG("Audio", "Project surface table {} is unavailable or invalid", static_cast<uint64_t>(handle));
+					m_AudioSurfaceTable = nullptr;
+				}
+			}
+		}
 
 		PhysicsScene2D::SetPlaying(true);
 
+		m_RuntimeAudioListeners = {};
+		m_AudioListenerWarnings = 0;
+		SyncAudioListeners(0.0f);
+
+		for (auto handle : m_Registry.view<TransformComponent, AudioSourceComponent>())
 		{
-			auto filter = m_Registry.view<TransformComponent, AudioListenerComponent>();
-			filter.each([&](entt::entity entityHandle, TransformComponent&, AudioListenerComponent& ac)
-				{
-					ac.Listener = Ref<AudioListener>::Create();
-					if (ac.Active)
-					{
-						Entity entity = { entityHandle, this };
-						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
-						const glm::mat4 inverted = glm::inverse(worldTransform);
-						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
-						const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
-						ac.Listener->SetConfig(ac.Config);
-						ac.Listener->SetPosition(glm::vec4(worldPosition, 1.0f));
-						ac.Listener->SetDirection(glm::vec3{ -forward.x, -forward.y, -forward.z });
-					}
-				});
+			Entity entity{ handle, this };
+			auto& source = entity.GetComponent<AudioSourceComponent>();
+			source.ScriptPaused = false;
+			if (source.Event.IsValid())
+				GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity));
+			else if (source.LegacyAudio)
+				LUX_CORE_ERROR_TAG("Audio", "Entity {0} uses retired raw audio asset {1}. Assign an FMOD Studio event to its Audio Source", static_cast<uint64_t>(entity.GetUUID()), static_cast<uint64_t>(source.LegacyAudio));
 		}
 
+		// A duplicated director must never produce a second bed. Choose a stable owner and report it.
+		size_t directors = 0;
+		for (auto handle : m_Registry.view<IDComponent, MusicDirectorComponent>())
 		{
-			auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
-			view.each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& ac)
-				{
-					if (AssetManager::IsAssetHandleValid(ac.Audio))
-					{
-						Entity entity = { entityHandle, this };
-						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
-						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
-						const glm::mat4 inverted = glm::inverse(worldTransform);
-						const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
-
-						if (ac.Audio && !ac.AudioSourceData.UsePlaylist)
-						{
-							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(entity, ac.Audio);
-
-							if (audioSource != nullptr)
-							{
-								audioSource->SetConfig(ac.Config);
-								audioSource->SetPosition(glm::vec4(worldPosition, 1.0f));
-								audioSource->SetDirection(forward);
-								if (ac.Config.PlayOnAwake)
-									audioSource->Play();
-							}
-						}
-						else if (ac.Audio && ac.AudioSourceData.UsePlaylist)
-						{
-							if (ac.AudioSourceData.CurrentIndex >= ac.AudioSourceData.Playlist.size())
-								ac.AudioSourceData.CurrentIndex = 0;
-
-							if (ac.AudioSourceData.CurrentIndex < ac.AudioSourceData.Playlist.size())
-							{
-								Ref<AudioSource> playingSourceIndex = GetOrCreateRuntimePlaylistSource(entity, ac.AudioSourceData.CurrentIndex, ac.AudioSourceData.Playlist[ac.AudioSourceData.CurrentIndex]);
-
-								if (playingSourceIndex != nullptr)
-								{
-									playingSourceIndex->SetConfig(ac.Config);
-									playingSourceIndex->SetPosition(glm::vec4(worldPosition, 1.0f));
-									playingSourceIndex->SetDirection(forward);
-									if (ac.Config.PlayOnAwake)
-										playingSourceIndex->Play();
-
-									ac.AudioSourceData.PlayingCurrentIndex = true;
-									ac.AudioSourceData.CurrentIndex++;
-								}
-							}
-						}
-					}
-				});
+			const UUID id = m_Registry.get<IDComponent>(handle).ID;
+			if (!m_MusicOwner || static_cast<uint64_t>(id) < static_cast<uint64_t>(m_MusicOwner))
+				m_MusicOwner = id;
+			++directors;
 		}
+		if (directors > 1)
+			LUX_CORE_ERROR_TAG("Audio", "Scene has {} music directors; only lowest UUID {} supplies startup settings", directors, static_cast<uint64_t>(m_MusicOwner));
+		m_Dialogue.Update(0.0f, m_IsPaused);
+		m_Music.Update(m_IsPaused);
+		if (m_MusicOwner)
+		{
+			const auto& config = GetEntityByUUID(m_MusicOwner).GetComponent<MusicDirectorComponent>();
+			if (!config.InitialState.empty())
+				m_Music.SetState(config.InitialState);
+			if (m_Music.SetIntensity(config.Intensity) && config.PlayOnAwake && config.Event.IsValid())
+				m_Music.Play(config.Event.Guid);
+		}
+
 		// Scripting: instantiate every script entity and fire OnCreate.
 		{
 			ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
@@ -513,40 +696,16 @@ namespace Lux {
 
 		PhysicsScene2D::SetPlaying(false);
 
+		OnRaytracedAudioStop();
 		OnPhysics3DStop();
 		OnPhysics2DStop();
 
-		{
-			auto view = m_Registry.view<AudioSourceComponent>();
-			view.each([&](entt::entity entity, AudioSourceComponent& asc)
-				{
-					auto& ac = asc;
-					if (AssetManager::IsAssetHandleValid(ac.Audio))
-					{
-						if (ac.Audio && !ac.AudioSourceData.UsePlaylist)
-						{
-							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource({ entity, this }, ac.Audio);
-
-							if (audioSource != nullptr && audioSource->IsPlaying())
-								audioSource->Stop();
-						}
-						else if (ac.Audio && ac.AudioSourceData.UsePlaylist)
-						{
-							ac.AudioSourceData.CurrentIndex = ac.AudioSourceData.StartIndex;
-							ac.AudioSourceData.PlayingCurrentIndex = false;
-
-							for (uint32_t i = 0; i < ac.AudioSourceData.Playlist.size(); i++)
-							{
-								Ref<AudioSource> audioSource = GetOrCreateRuntimePlaylistSource({ entity, this }, i, ac.AudioSourceData.Playlist[i]);
-
-								if (audioSource != nullptr && audioSource->IsPlaying())
-									audioSource->Stop();
-							}
-						}
-					}
-				});
-		}
 		ReleaseAllRuntimeAudio();
+
+		// Scripts' rumble, trigger and light effects must not outlive Play (a trigger would stay stiff in the editor).
+		Input::ResetGamepadTriggerEffects();
+		Input::StopGamepadRumble();
+		Input::ResetGamepadLights();
 
 		m_Registry.view<NativeScriptComponent>().each([](auto, auto& nsc)
 			{
@@ -560,10 +719,8 @@ namespace Lux {
 				}
 			});
 
-		m_Registry.view<AudioListenerComponent>().each([](auto, auto& alc)
-			{
-				alc.Listener.reset();
-			});
+		m_RuntimeAudioListeners = {};
+		AudioListener::Apply(m_RuntimeAudioListeners);
 
 		// Scripting: fire OnDestroy and tear down live managed instances (values stay in storage).
 		{
@@ -581,6 +738,8 @@ namespace Lux {
 				scriptEngine.DestroyInstance(entityID, m_ScriptStorage);
 			}
 			m_ScriptInstances.clear();
+			AudioScriptBindings::Reset();
+			ScriptGlue::ResetInput();
 			scriptEngine.SetCurrentScene(nullptr);
 		}
 	}
@@ -599,6 +758,24 @@ namespace Lux {
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
+		AudioScriptBindings::Update(m_IsPaused);
+		ScriptGlue::UpdateInput();
+		AudioAccessibilityView accessibilityView;
+		if (const auto* listener = GetPrimaryAudioListener())
+		{
+			accessibilityView.Position = listener->Position;
+			accessibilityView.Forward = listener->Forward;
+			accessibilityView.Up = listener->Up;
+		}
+		if (const auto camera = GetPrimaryCameraEntity())
+		{
+			const auto transform = GetWorldSpaceTransformMatrix(camera);
+			accessibilityView.HasCamera = true;
+			accessibilityView.ViewProjection = camera.GetComponent<CameraComponent>().Camera.GetProjectionMatrix() * glm::inverse(transform);
+		}
+		AudioAccessibility::Update(this, ts, m_IsPaused, m_Dialogue.GetLanguage(), accessibilityView, m_Dialogue.IsDescribing());
+		m_Dialogue.Update(ts, m_IsPaused);
+		m_Music.Update(m_IsPaused);
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			// Update scripts
@@ -638,178 +815,80 @@ namespace Lux {
 			}
 
 			StepPhysics(ts);
+			UpdatePhysicsAudio(static_cast<float>(ts));
 
+			SyncAudioListeners(m_IsPaused ? 0.0f : static_cast<float>(ts));
+
+			for (auto handle : m_Registry.view<TransformComponent, AudioSourceComponent>())
 			{
-				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioListenerComponent Scope", 0xFF7200);
-
-				auto view = m_Registry.view<AudioListenerComponent>();
-				view.each([&](entt::entity entity, AudioListenerComponent& alc)
-					{
-						Entity e = { entity, this };
-						auto& ac = e.GetComponent<AudioListenerComponent>();
-
-						if (ac.Active)
-						{
-							const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(e);
-							const glm::mat4 inverted = glm::inverse(worldTransform);
-							const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
-							const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
-							ac.Listener->SetPosition(glm::vec4(worldPosition, 1.0f));
-							ac.Listener->SetDirection(glm::vec3{ -forward.x, -forward.y, -forward.z });
-							//break;
-						}
-					});
+				Entity entity{ handle, this };
+				const auto& source = entity.GetComponent<AudioSourceComponent>();
+				if (source.Event.IsValid())
+					GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity), true, static_cast<float>(ts));
+				else if (m_RuntimeEventInstances.contains(entity.GetUUID()))
+					ReleaseRuntimeAudio(entity);
 			}
 
-			{
-				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent Scope", 0xFF7200);
+			// Join before reading VA results; zone evaluation itself also works without VA.
+			if (m_RaytracedAudioScene)
+				m_RaytracedAudioScene->WaitForResults();
+			SyncAudioGeometry();
+			UpdateAudioZones(static_cast<float>(ts), m_RaytracedAudioScene && m_RaytracedAudioScene->GetAmbience().Valid);
+			AudioPerformance::SubmitScene(m_RaytracedAudioScene ? m_RaytracedAudioScene->GetRaytracingTimeMilliseconds() : 0,
+				GetCulledAudioSourceCount(), m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning());
 
-				auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
-				view.each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& asc)
+			if (m_RaytracedAudioScene)
+			{
+				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::RaytracedAudioScene Scope", 0xFF7200);
+
+				// The batch is joined above. OnUpdate below launches the next VA batch.
+
+				// Vercidium currently simulates one listener. Match the dominant mixer listener,
+				// using the character's position for acoustic paths when attenuation is detached.
+				const AudioListenerState fallback;
+				const AudioListenerState* primaryListener = GetPrimaryAudioListener();
+				const auto& listener = primaryListener ? *primaryListener : fallback;
+				m_RaytracedAudioScene->SetListener(listener.UseAttenuationPosition ? listener.AttenuationPosition : listener.Position, listener.Forward);
+
+				const RaytracedAudioAmbience ambience = m_RaytracedAudioScene->GetAmbience();
+
+				m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& asc)
 					{
 						Entity entity = { entityHandle, this };
-						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(entity);
-						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
+						UUID entityID = entity.GetUUID();
 
-						if (asc.Audio && !asc.AudioSourceData.UsePlaylist)
+						if (!asc.Event.IsValid() || IsAudioSourceCulled(entityID))
 						{
-							Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(entity, asc.Audio);
-							if (!audioSource)
-								return;
-
-							if (!audioSource->IsPlaying() && asc.Paused)
-							{
-								audioSource->SetConfig(asc.Config);
-								audioSource->Play();
-								asc.Paused = false;
-							}
-
-							audioSource->SetConfig(asc.Config);
-							audioSource->SetPosition(glm::vec4(worldPosition, 1.0f));
+							m_RaytracedAudioScene->DestroyEmitter(entityID);
+							return;
 						}
-						else if (asc.Audio && asc.AudioSourceData.UsePlaylist)
-						{
-							auto& playlist = asc.AudioSourceData.Playlist;
 
-							if (playlist.empty())
-								return;
+						m_RaytracedAudioScene->CreateEmitter(entityID);
+						m_RaytracedAudioScene->SetEmitterPosition(entityID, glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]));
+						m_RaytracedAudioScene->SetEmitterMaxVolume(entityID, asc.Config.VolumeMultiplier);
 
-							if (asc.AudioSourceData.OldIndex >= playlist.size())
-								asc.AudioSourceData.OldIndex = 0;
-
-							if (asc.AudioSourceData.CurrentIndex >= playlist.size())
-							{
-								if (asc.AudioSourceData.RepeatPlaylist)
-									asc.AudioSourceData.CurrentIndex = 0;
-								else
-									return;
-							}
-
-							Ref<AudioSource> oldSource = GetOrCreateRuntimePlaylistSource(entity, asc.AudioSourceData.OldIndex, playlist[asc.AudioSourceData.OldIndex]);
-							Ref<AudioSource> currentSource = GetOrCreateRuntimePlaylistSource(entity, asc.AudioSourceData.CurrentIndex, playlist[asc.AudioSourceData.CurrentIndex]);
-
-							if (!currentSource)
-								return;
-
-							if (asc.Config.PlayOnAwake && !asc.Paused && (!oldSource || !oldSource->IsPlaying()))
-							{
-								if (!currentSource->IsLooping())
-								{
-									currentSource->SetConfig(asc.Config);
-									currentSource->Play();
-									currentSource->SetPosition(glm::vec4(worldPosition, 1.0f));
-
-									asc.AudioSourceData.PlayingCurrentIndex = true;
-									asc.Paused = false;
-									asc.AudioSourceData.OldIndex = asc.AudioSourceData.CurrentIndex;
-									asc.AudioSourceData.CurrentIndex++;
-								}
-							}
-							else if (asc.Config.PlayOnAwake && asc.Paused)
-							{
-								currentSource->SetConfig(asc.Config);
-								currentSource->Play();
-								asc.AudioSourceData.PlayingCurrentIndex = true;
-								asc.Paused = false;
-							}
-						}
+						const RaytracedAudioResult result = m_RaytracedAudioScene->GetResult(entityID);
+						// Clear stale sends when VA has no result, so zone fallback cannot double the reverb.
+						AudioEventAcoustics acoustics;
+						acoustics.OcclusionGainLF = result.Valid ? result.OcclusionGainLF : 1.0f;
+						acoustics.ReverbSend = ambience.Valid ? ambience.ReturnedPercent * m_AudioZones.GetRaytracedReverbGain() : 0.0f;
+						if (Ref<AudioEventInstance> instance = GetRuntimeEventInstance(entityID))
+							instance->SetAcoustics(acoustics);
 					});
+
+				m_RaytracedAudioScene->OnUpdate(ts);
 			}
 		}
 		else if (m_IsPaused)
 		{
-			LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioListenerComponent 2 Scope", 0xFF7200);
+			SyncAudioListeners(0.0f);
+			UpdateAudioZones(0.0f, false);
+			UpdatePhysicsAudio(0.0f);
 
-			auto view = m_Registry.view<AudioListenerComponent>();
-			view.each([&](entt::entity acEntity, AudioListenerComponent& alc)
-				{
-					Entity e = { acEntity, this };
-					auto& ac = e.GetComponent<AudioListenerComponent>();
-
-					if (ac.Active)
-					{
-						const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(e);
-						const glm::mat4 inverted = glm::inverse(worldTransform);
-						const glm::vec3 worldPosition = glm::vec3(worldTransform[3]);
-						const glm::vec3 forward = glm::normalize(glm::vec3(inverted[2].x, inverted[2].y, inverted[2].z));
-						ac.Listener->SetPosition(glm::vec4(worldPosition, 1.0f));
-						ac.Listener->SetDirection(glm::vec3{ -forward.x, -forward.y, -forward.z });
-					}
-				});
-
-
+			for (auto& [id, event] : m_RuntimeEventInstances)
 			{
-				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::AudioSourceComponent 2 Scope", 0xFF7200);
-
-				auto view = m_Registry.view<AudioSourceComponent>();
-				view.each([&](entt::entity entity, AudioSourceComponent& asc)
-					{
-
-						Entity e = { entity , this };
-
-						if (asc.Audio)
-						{
-							if (!asc.AudioSourceData.UsePlaylist)
-							{
-								Ref<AudioSource> audioSource = GetOrCreateRuntimeAudioSource(e, asc.Audio);
-								if (audioSource && audioSource->IsPlaying())
-								{
-									audioSource->SetConfig(asc.Config);
-									audioSource->Pause();
-									asc.Paused = true;
-								}
-							}
-							else if (asc.AudioSourceData.UsePlaylist)
-							{
-								if (asc.AudioSourceData.OldIndex == 0)
-								{
-									Ref<AudioSource> audioSourceIndex = GetOrCreateRuntimeAudioSource(e, asc.Audio);
-
-									if (audioSourceIndex && audioSourceIndex->IsPlaying())
-									{
-										audioSourceIndex->SetConfig(asc.Config);
-										audioSourceIndex->Pause();
-										//ac.AudioSourceData.PlayingCurrentIndex = false;
-										asc.Paused = true;
-									}
-								}
-								else if (asc.AudioSourceData.OldIndex > 0)
-								{
-									if (asc.AudioSourceData.OldIndex < asc.AudioSourceData.Playlist.size())
-									{
-										Ref<AudioSource> audioSourceIndex = GetOrCreateRuntimePlaylistSource(e, asc.AudioSourceData.OldIndex, asc.AudioSourceData.Playlist[asc.AudioSourceData.OldIndex]);
-										if (audioSourceIndex && audioSourceIndex->IsPlaying())
-										{
-											audioSourceIndex->SetConfig(asc.Config);
-											audioSourceIndex->Pause();
-											//ac.AudioSourceData.PlayingCurrentIndex = false;
-											asc.Paused = true;
-										}
-									}
-								}
-							}
-						}
-					});
+				if (auto instance = event.GetInstance())
+					instance->SetScenePaused(true);
 			}
 		}
 
@@ -891,6 +970,8 @@ namespace Lux {
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			StepPhysics(ts);
+			if (m_PhysicsScene)
+				m_PhysicsScene->DrainContactEvents(m_PhysicsContactEvents);
 		}
 
 		// Render
@@ -963,6 +1044,50 @@ namespace Lux {
 		return m_PhysicsScene;
 	}
 
+	Ref<RaytracedAudioScene> Scene::GetRaytracedAudioScene() const
+	{
+		return m_RaytracedAudioScene;
+	}
+
+	AudioSourcePlayback* Scene::GetAudioSourcePlayback(UUID entityID)
+	{
+		Entity entity = TryGetEntityWithUUID(entityID);
+		if (!m_IsRunning || !entity || !entity.HasComponent<AudioSourceComponent>())
+			return nullptr;
+		GetOrCreateRuntimeEventInstance(entity, entity.GetComponent<AudioSourceComponent>(), GetWorldSpaceTransformMatrix(entity), false);
+		return &m_RuntimeEventInstances.at(entityID);
+	}
+
+	Ref<AudioEventInstance> Scene::GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake, float timestep)
+	{
+		auto& playback = m_RuntimeEventInstances[entity.GetUUID()];
+		playback.Update(source, worldTransform, m_RuntimeAudioListeners, m_IsPaused, allowPlayOnAwake, timestep);
+		return playback.GetInstance();
+	}
+
+	Ref<AudioEventInstance> Scene::GetRuntimeEventInstance(UUID entityID) const
+	{
+		const auto found = m_RuntimeEventInstances.find(entityID);
+		if (found == m_RuntimeEventInstances.end())
+			return nullptr;
+		auto instance = found->second.GetInstance();
+		return instance && instance->IsValid() ? instance : nullptr;
+	}
+
+	size_t Scene::GetCulledAudioSourceCount() const
+	{
+		return std::count_if(m_RuntimeEventInstances.begin(), m_RuntimeEventInstances.end(), [](const auto& entry)
+		{
+			return entry.second.IsCulled();
+		});
+	}
+
+	bool Scene::IsAudioSourceCulled(UUID entityID) const
+	{
+		const auto found = m_RuntimeEventInstances.find(entityID);
+		return found != m_RuntimeEventInstances.end() && found->second.IsCulled();
+	}
+
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
 		using DuplicateComponents =
@@ -971,16 +1096,19 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 			FolderComponent>;
 
 		if (!entity)
 			return {};
 
+		std::unordered_map<UUID, UUID> entityMap;
 		std::function<Entity(Entity, Entity)> duplicateHierarchy;
 		duplicateHierarchy = [&](Entity source, Entity parent) -> Entity
 		{
 			Entity destination = CreateEntity(source.GetName());
 			CopyComponentIfExists(DuplicateComponents{}, destination, source);
+			entityMap[source.GetUUID()] = destination.GetUUID();
 
 			// TagComponent isn't in DuplicateComponents (name is set above); carry the editor lock/label.
 			const auto& srcTag = source.GetComponent<TagComponent>();
@@ -1001,7 +1129,9 @@ namespace Lux {
 			return destination;
 		};
 
-		return duplicateHierarchy(entity, {});
+		Entity root = duplicateHierarchy(entity, {});
+		RemapAudioListenerTargets(entityMap, false);
+		return root;
 	}
 
 	Entity Scene::Instantiate(Ref<Prefab> prefab, const glm::vec3* translation, const glm::vec3* rotation, const glm::vec3* scale)
@@ -1033,13 +1163,15 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			FolderComponent>;
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
+		std::unordered_map<UUID, UUID> entityMap;
 		std::function<Entity(Entity, Entity)> instantiateHierarchy;
 		instantiateHierarchy = [&](Entity source, Entity destinationParent) -> Entity
 			{
 				Entity destination = CreateEntity(source.GetName());
 				CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
+				entityMap[source.GetUUID()] = destination.GetUUID();
 
 				auto& prefabComponent = destination.AddOrReplaceComponent<PrefabComponent>();
 				prefabComponent.PrefabID = source.HasComponent<PrefabComponent>() ? source.GetComponent<PrefabComponent>().PrefabID : AssetHandle(0);
@@ -1059,6 +1191,7 @@ namespace Lux {
 			};
 
 		Entity root = instantiateHierarchy(entity, parent);
+		RemapAudioListenerTargets(entityMap, true);
 		if (translation)
 			root.Transform().Translation = *translation;
 		if (rotation)
@@ -1066,6 +1199,104 @@ namespace Lux {
 		if (scale)
 			root.Transform().Scale = *scale;
 		return root;
+	}
+
+	void Scene::RemapAudioListenerTargets(const std::unordered_map<UUID, UUID>& entityMap, bool clearExternal)
+	{
+		// Run after the entire hierarchy exists: a listener may reference a later sibling.
+		for (const auto& [sourceID, destinationID] : entityMap)
+		{
+			Entity destination = TryGetEntityWithUUID(destinationID);
+			if (destination && destination.HasComponent<AudioPortalComponent>())
+			{
+				auto& portal = destination.GetComponent<AudioPortalComponent>();
+				for (UUID* target : { &portal.ZoneA, &portal.ZoneB })
+				{
+					if (auto it = entityMap.find(*target); it != entityMap.end())
+						*target = it->second;
+					else if (clearExternal && *target != 0)
+					{
+						LUX_CORE_WARN_TAG("Audio", "Cleared external room {} on cloned portal {}", static_cast<uint64_t>(*target), static_cast<uint64_t>(destinationID));
+						*target = 0;
+					}
+				}
+			}
+			if (!destination || !destination.HasComponent<AudioListenerComponent>())
+				continue;
+			auto& listener = destination.GetComponent<AudioListenerComponent>();
+			const auto it = entityMap.find(listener.AttenuationTarget);
+			if (it != entityMap.end())
+				listener.AttenuationTarget = it->second;
+			else if (clearExternal && listener.AttenuationTarget != 0)
+			{
+				LUX_CORE_WARN_TAG("Audio", "Cleared attenuation target {0} on cloned listener {1}: target is outside the prefab hierarchy",
+					static_cast<uint64_t>(listener.AttenuationTarget), static_cast<uint64_t>(destinationID));
+				listener.AttenuationTarget = 0;
+			}
+		}
+	}
+
+	UUID Scene::MapPrefabEntityReference(UUID target, Entity source, Entity destination)
+	{
+		if (target == 0 || !source || !destination)
+			return UUID(0);
+		if (source.GetScene() == destination.GetScene())
+			return target;
+
+		Entity targetEntity = source.GetScene()->TryGetEntityWithUUID(target);
+		if (!targetEntity)
+			return UUID(0);
+		if (source.HasComponent<PrefabComponent>())
+		{
+			// Scene copies/variants preserve UUIDs. Applying a placed instance to an asset must
+			// verify the reverse mapping, so a target in another (even nested) instance is rejected.
+			if (destination.HasComponent<PrefabComponent>())
+				return destination.GetScene()->TryGetEntityWithUUID(target) ? target : UUID(0);
+			if (!targetEntity.HasComponent<PrefabComponent>())
+				return UUID(0);
+			const UUID sourceTarget = targetEntity.GetComponent<PrefabComponent>().EntityID;
+			return MapPrefabEntityReference(sourceTarget, destination, source) == target ? sourceTarget : UUID(0);
+		}
+		if (!destination.HasComponent<PrefabComponent>())
+			return destination.GetScene()->TryGetEntityWithUUID(target) ? target : UUID(0);
+
+		// Walk the authored hierarchy and instance together. Ascending solely by PrefabID would
+		// merge nested instances of the same asset and map their targets into the wrong instance.
+		Entity sourceRoot = source;
+		Entity destinationRoot = destination;
+		while (Entity parent = sourceRoot.GetParent())
+		{
+			sourceRoot = parent;
+			destinationRoot = destinationRoot.GetParent();
+			if (!destinationRoot)
+				return UUID(0);
+		}
+		std::vector<UUID> path;
+		while (targetEntity != sourceRoot)
+		{
+			path.push_back(targetEntity.GetUUID());
+			targetEntity = targetEntity.GetParent();
+			if (!targetEntity)
+				return UUID(0);
+		}
+		Entity mapped = destinationRoot;
+		for (auto step = path.rbegin(); step != path.rend(); ++step)
+		{
+			Entity childMatch;
+			for (UUID childID : mapped.Children())
+			{
+				Entity child = destination.GetScene()->TryGetEntityWithUUID(childID);
+				if (child && child.HasComponent<PrefabComponent>() && child.GetComponent<PrefabComponent>().EntityID == *step)
+				{
+					childMatch = child;
+					break;
+				}
+			}
+			if (!childMatch)
+				return UUID(0);
+			mapped = childMatch;
+		}
+		return mapped.GetUUID();
 	}
 
 	void Scene::ReconcilePrefabComponents(Entity destination, Entity source)
@@ -1082,9 +1313,28 @@ namespace Lux {
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
-			FolderComponent>;
+			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
 		ReconcileComponents(PrefabSyncComponents{}, destination, source);
+		if (destination.HasComponent<AudioPortalComponent>())
+		{
+			auto& portal = destination.GetComponent<AudioPortalComponent>();
+			for (UUID* room : { &portal.ZoneA, &portal.ZoneB })
+			{
+				const UUID original = *room;
+				*room = MapPrefabEntityReference(original, source, destination);
+				if (original != 0 && *room == 0)
+					LUX_CORE_WARN_TAG("Audio", "Cleared portal room {}: it cannot be mapped into the destination prefab hierarchy", static_cast<uint64_t>(original));
+			}
+		}
+		if (destination.HasComponent<AudioListenerComponent>())
+		{
+			auto& listener = destination.GetComponent<AudioListenerComponent>();
+			const UUID target = listener.AttenuationTarget;
+			listener.AttenuationTarget = MapPrefabEntityReference(target, source, destination);
+			if (target != 0 && listener.AttenuationTarget == 0)
+				LUX_CORE_WARN_TAG("Audio", "Cleared listener attenuation target {0}: it cannot be mapped into the destination prefab hierarchy", static_cast<uint64_t>(target));
+		}
 	}
 
 	void Scene::PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab)
@@ -1368,6 +1618,113 @@ namespace Lux {
 		{
 			m_PhysicsScene->Stop();
 			m_PhysicsScene.reset();
+		}
+	}
+
+	bool Scene::BuildAcousticGeometry(const AudioGeometryInput& input, AcousticGeometry& batch)
+	{
+		Ref<StaticMesh> staticMesh;
+		Ref<MeshSource> meshSource;
+		if (!input.Mesh || !ResolveStaticMeshDebugAssets(input.Mesh, staticMesh, meshSource))
+			return false;
+		const auto& indices = meshSource->GetIndices();
+		const auto& submeshes = meshSource->GetSubmeshes();
+		const size_t vertexCount = meshSource->GetVertexCount();
+		const bool selected = input.Submesh < submeshes.size();
+		const size_t first = selected ? input.Submesh : 0;
+		const size_t last = selected ? first + 1 : submeshes.size();
+		for (size_t i = first; i < last; ++i)
+		{
+			const auto& submesh = submeshes[i];
+			const uint64_t start = submesh.BaseIndex / 3;
+			const uint64_t end = start + submesh.IndexCount / 3;
+			if (submesh.BaseIndex % 3 || submesh.IndexCount % 3 || end > indices.size())
+				return false;
+			for (uint64_t triangleIndex = start; triangleIndex < end; ++triangleIndex)
+			{
+				const auto& triangle = indices[triangleIndex];
+				for (uint32_t index : { triangle.V1, triangle.V2, triangle.V3 })
+				{
+					const uint64_t vertex = static_cast<uint64_t>(submesh.BaseVertex) + index;
+					if (vertex >= vertexCount)
+						return false;
+					batch.Triangles.push_back(glm::vec3(submesh.Transform * glm::vec4(meshSource->GetVertexPosition(static_cast<uint32_t>(vertex)), 1)));
+				}
+			}
+		}
+		return !batch.Triangles.empty();
+	}
+
+	void Scene::SyncAudioGeometry(bool initial)
+	{
+		if (!m_RaytracedAudioScene || !m_RaytracedAudioScene->IsRunning())
+			return;
+		LUX_PROFILE_FUNCTION_AUTO;
+		m_AudioGeometryInputs.clear();
+		for (auto handle : m_Registry.view<TransformComponent, MeshColliderComponent>())
+		{
+			Entity entity{ handle, this };
+			const auto& collider = entity.GetComponent<MeshColliderComponent>();
+			if (collider.AcousticMotion == AcousticGeometryMode::Disabled)
+				continue;
+			AudioGeometryInput input;
+			input.Entity = entity.GetUUID();
+			input.Mode = collider.AcousticMotion;
+			input.Mesh = ResolveMeshColliderHandle(entity, collider);
+			input.Submesh = collider.SubmeshIndex;
+			if (const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>())
+				input.Material = surface->Material;
+			else
+				input.Material = collider.Acoustic;
+			if (input.Mode != AcousticGeometryMode::Static || !m_AudioGeometry.GetStaticTransform(input.Entity, input.Transform))
+				input.Transform = GetWorldSpaceTransformMatrix(entity);
+			m_AudioGeometryInputs.push_back(input);
+		}
+		for (auto handle : m_Registry.view<TransformComponent, AudioPortalComponent>())
+		{
+			Entity entity{ handle, this };
+			const auto& portal = entity.GetComponent<AudioPortalComponent>();
+			if (!portal.Enabled)
+				continue;
+			AudioGeometryInput input;
+			input.Entity = entity.GetUUID();
+			input.Portal = true;
+			input.Mode = AcousticGeometryMode::Dynamic;
+			input.Material = portal.Material;
+			input.Transform = GetWorldSpaceTransformMatrix(entity);
+			input.HalfExtents = portal.HalfExtents;
+			input.Open = portal.Open;
+			m_AudioGeometryInputs.push_back(input);
+		}
+		m_AudioGeometry.Sync(m_AudioGeometryInputs, *m_RaytracedAudioScene,
+			[this](const auto& input, auto& geometry) { return BuildAcousticGeometry(input, geometry); },
+			initial ? SIZE_MAX : 8, initial ? SIZE_MAX : 65536);
+	}
+
+	void Scene::OnRaytracedAudioStart()
+	{
+		// Skip constructing the scene entirely when the feature isn't compiled in, so a build
+		// without Core/vendor/VA_RAY pays no per-frame cost for it (every m_RaytracedAudioScene
+		// check elsewhere then short-circuits on a null Ref).
+		if (!RaytracedAudioScene::IsAvailable())
+			return;
+
+		m_RaytracedAudioScene = Ref<RaytracedAudioScene>::Create(this);
+		const auto project = Project::GetActive();
+		m_RaytracedAudioScene->Start(project ? project->GetConfig().Audio.AcousticMaterials : AcousticMaterialSettings{});
+
+		SyncAudioGeometry(true);
+	}
+
+	void Scene::OnRaytracedAudioStop()
+	{
+		m_AudioGeometry.Clear();
+		m_AudioGeometryInputs.clear();
+		m_AudioPortalInputs.clear();
+		if (m_RaytracedAudioScene)
+		{
+			m_RaytracedAudioScene->Stop();
+			m_RaytracedAudioScene.reset();
 		}
 	}
 
@@ -1852,8 +2209,115 @@ namespace Lux {
 		packet.Meshes = SyncRenderScene(isSelected);
 		CaptureDraw2D(packet);
 		CaptureColliderDebug(packet, renderer, isSelected);
+		CaptureAudioZones(packet, isSelected);
 
 		packet.Valid = true;
+	}
+
+	void Scene::CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected)
+	{
+		if (!isSelected)
+			return;
+		constexpr glm::vec4 boundaryColor{ 0.35f, 0.75f, 1.0f, 1.0f };
+		constexpr glm::vec4 blendColor{ 0.35f, 0.75f, 1.0f, 0.4f };
+		constexpr int segments = 48;
+		for (auto handle : m_Registry.view<TransformComponent, AudioPortalComponent>())
+		{
+			Entity entity{ handle, this };
+			if (!isSelected(entity))
+				continue;
+			const auto& portal = entity.GetComponent<AudioPortalComponent>();
+			AudioGeometryInput input;
+			input.Entity = entity.GetUUID();
+			input.Portal = true;
+			input.Open = portal.Open;
+			input.HalfExtents = portal.HalfExtents;
+			input.Transform = GetWorldSpaceTransformMatrix(entity);
+			if (!AudioGeometrySystem::Validate(input))
+				continue;
+			for (int shutter = 0; shutter < 2; ++shutter)
+			{
+				if (shutter && (!portal.Enabled || portal.Open == 1))
+					continue;
+				const auto transform = shutter ? AudioGeometrySystem::PortalTransform(input) : glm::scale(input.Transform, portal.HalfExtents);
+				glm::vec3 corners[8];
+				for (int i = 0; i < 8; ++i)
+					corners[i] = glm::vec3(transform * glm::vec4(i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1, 1));
+				for (int i = 0; i < 8; ++i)
+					for (int axis = 0; axis < 3; ++axis)
+						if (!(i & (1 << axis)))
+							packet.AudioZoneLines.push_back({ corners[i], corners[i | (1 << axis)], shutter ? boundaryColor : blendColor });
+			}
+		}
+		for (auto handle : m_Registry.view<TransformComponent, AudioZoneComponent>())
+		{
+			Entity entity{ handle, this };
+			if (!isSelected(entity))
+				continue;
+			const auto& component = entity.GetComponent<AudioZoneComponent>();
+			const auto volume = GetAudioZoneVolume(entity);
+			if (!volume.Valid || !AudioZoneSystem::Validate(component))
+				continue;
+			for (int margin = 0; margin < 2; ++margin)
+			{
+				const float inset = margin ? component.BlendDistance : 0.0f;
+				if (margin && inset == 0.0f)
+					continue;
+				const auto color = margin ? blendColor : boundaryColor;
+				auto line = [&](glm::vec3 a, glm::vec3 b) { packet.AudioZoneLines.push_back({ a, b, color }); };
+				if (volume.Type == AudioZoneVolume::Shape::Box)
+				{
+					const glm::mat4 inverse = glm::inverse(volume.Transform);
+					glm::vec3 half = volume.HalfExtents;
+					for (int axis = 0; axis < 3; ++axis)
+						half[axis] -= inset * glm::length(glm::vec3(inverse[0][axis], inverse[1][axis], inverse[2][axis]));
+					if (glm::any(glm::lessThanEqual(half, glm::vec3(0.0f))))
+						continue;
+					glm::vec3 corners[8];
+					for (int i = 0; i < 8; ++i)
+						corners[i] = glm::vec3(volume.Transform * glm::vec4(half * glm::vec3(i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1), 1.0f));
+					for (int i = 0; i < 8; ++i)
+						for (int axis = 0; axis < 3; ++axis)
+							if (!(i & (1 << axis)))
+								line(corners[i], corners[i | (1 << axis)]);
+				}
+				else
+				{
+					const glm::vec3 scale(glm::length(glm::vec3(volume.Transform[0])), glm::length(glm::vec3(volume.Transform[1])), glm::length(glm::vec3(volume.Transform[2])));
+					const bool capsule = volume.Type == AudioZoneVolume::Shape::Capsule;
+					const float radius = volume.Radius * (capsule ? std::max(scale.x, scale.z) : std::max({ scale.x, scale.y, scale.z })) - inset;
+					if (radius <= 0.0f)
+						continue;
+					const float height = capsule ? volume.HalfHeight * scale.y : 0.0f;
+					const glm::vec3 up = glm::vec3(volume.Transform[1]) / scale.y;
+					const glm::vec3 seed = std::abs(up.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 0, 1);
+					const glm::vec3 right = glm::normalize(glm::cross(seed, up));
+					const glm::vec3 forward = glm::cross(up, right);
+					const glm::vec3 center(volume.Transform[3]);
+					for (int plane = 0; plane < 3; ++plane)
+					{
+						auto point = [&](float angle)
+						{
+							const float c = std::cos(angle), s = std::sin(angle);
+							return plane == 0 ? center + radius * (right * c + forward * s)
+								: center + (plane == 1 ? right : forward) * (radius * c) + up * (radius * s + (s >= 0 ? height : -height));
+						};
+						for (int i = 0; i < segments; ++i)
+						{
+							const auto a = point(glm::two_pi<float>() * static_cast<float>(i) / segments);
+							const auto b = point(glm::two_pi<float>() * static_cast<float>(i + 1) / segments);
+							if (plane == 0 && capsule)
+							{
+								line(a + up * height, b + up * height);
+								line(a - up * height, b - up * height);
+							}
+							else
+								line(a, b);
+						}
+					}
+				}
+			}
+		}
 	}
 
 	void Scene::CaptureDraw2D(FrameRenderPacket& packet)
@@ -1939,9 +2403,10 @@ namespace Lux {
 		// The 2D overlay runs as a deferred render-graph pass (possibly off the submitting thread), so the
 		// callback owns its own copy of the captured draw items - it never touches the live registry.
 		std::vector<FrameRenderPacket::Draw2DItem> draw2D = packet.Draw2D;
+		auto audioZoneLines = packet.AudioZoneLines;
 		const glm::mat4 overlayView = packet.Overlay2DView;
 		const glm::mat4 overlayViewProjection = packet.Overlay2DViewProjection;
-		renderer->SetWorldOverlayRenderCallback([renderer, draw2D = std::move(draw2D), overlayView, overlayViewProjection]() mutable
+		renderer->SetWorldOverlayRenderCallback([renderer, draw2D = std::move(draw2D), audioZoneLines = std::move(audioZoneLines), overlayView, overlayViewProjection]() mutable
 		{
 			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
 			if (!renderer2D)
@@ -1971,6 +2436,8 @@ namespace Lux {
 				}
 			}
 
+			for (const auto& line : audioZoneLines)
+				renderer2D->DrawLine(line.Start, line.End, line.Color, true);
 			renderer2D->EndScene();
 		});
 
@@ -2444,23 +2911,35 @@ namespace Lux {
 	}
 
 	template<>
-	void Scene::OnComponentAdded<AudioData>(Entity entity, AudioData& component)
+	void Scene::OnComponentAdded<AudioSourceComponent>(Entity entity, AudioSourceComponent& component)
 	{
-
+		component.ScriptPaused = false;
+		ReleaseRuntimeAudio(entity);
 	}
 
 	template<>
-	void Scene::OnComponentAdded<AudioSourceComponent>(Entity entity, AudioSourceComponent& component)
+	void Scene::OnComponentAdded<MusicDirectorComponent>(Entity entity, MusicDirectorComponent& component)
 	{
-		(void)component;
-		ReleaseRuntimeAudio(entity);
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AudioPortalComponent>(Entity entity, AudioPortalComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AudioZoneComponent>(Entity entity, AudioZoneComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AudioSurfaceComponent>(Entity entity, AudioSurfaceComponent& component)
+	{
 	}
 
 	template<>
 	void Scene::OnComponentAdded<AudioListenerComponent>(Entity entity, AudioListenerComponent& component)
 	{
-		if (component.Listener)
-			component.Listener->SetConfig(component.Config);
 	}
 
 	// 3D Component specializations

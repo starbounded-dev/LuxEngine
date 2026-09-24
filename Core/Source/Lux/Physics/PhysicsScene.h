@@ -1,4 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
+
+#include "PhysicsContactEvent.h"
+#include <vector>
 
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
@@ -26,6 +32,7 @@ namespace Lux {
 		void Stop();
 		void Simulate(Timestep timestep);
 		void SimulateStep(float fixedTimestep);
+		void DrainContactEvents(std::vector<PhysicsContactEvent>& events);
 
 		glm::vec3 GetGravity() const;
 		void SetGravity(const glm::vec3& gravity);

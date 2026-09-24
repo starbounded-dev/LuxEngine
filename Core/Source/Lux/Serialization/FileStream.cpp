@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "FileStream.h"
 
@@ -16,10 +19,16 @@ namespace Lux
 		m_Stream.close();
 	}
 
+	bool FileStreamWriter::Flush()
+	{
+		m_Stream.flush();
+		return m_Stream.good();
+	}
+
 	bool FileStreamWriter::WriteData(const char* data, size_t size)
 	{
 		m_Stream.write(data, size);
-		return true;
+		return m_Stream.good();
 	}
 
 	//==============================================================================
@@ -38,7 +47,7 @@ namespace Lux
 	bool FileStreamReader::ReadData(char* destination, size_t size)
 	{
 		m_Stream.read(destination, size);
-		return true;
+		return m_Stream.good();
 	}
 
 } // namespace Lux

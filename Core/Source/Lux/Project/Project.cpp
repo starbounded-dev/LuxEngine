@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "Project.h"
 
@@ -5,6 +8,7 @@
 
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Scripting/ScriptEngine.h"
+#include "Lux/Core/Input.h"
 
 namespace Lux
 {
@@ -39,6 +43,19 @@ namespace Lux
 		ScriptEngine::GetMutable().ReloadAppAssembly();
 	}
 
+	namespace {
+
+		// A project can ship its own gamecontrollerdb.txt next to the project file; it is layered on
+		// top of GLFW's built-in mappings and Resources/gamecontrollerdb.txt.
+		void LoadProjectGamepadMappings(const std::filesystem::path& projectDirectory)
+		{
+			const std::filesystem::path mappings = projectDirectory / "gamecontrollerdb.txt";
+			if (!projectDirectory.empty() && std::filesystem::exists(mappings))
+				Input::LoadGamepadMappings(mappings);
+		}
+
+	}
+
 	void Project::SetActive(Ref<Project> project)
 	{
 		if (s_AssetManager)
@@ -57,8 +74,9 @@ namespace Lux
 		if (AudioEngine::HasInitializedEngine())
 		{
 			AudioEngine::Shutdown();
-			AudioEngine::SetInitalizedEngine(false);
 		}
+
+		LoadProjectGamepadMappings(s_ActiveProject->m_ProjectDirectory);
 
 		s_AssetManager = Ref<EditorAssetManager>::Create();
 
@@ -83,7 +101,6 @@ namespace Lux
 		if (!AudioEngine::HasInitializedEngine())
 		{
 			AudioEngine::Init();
-			AudioEngine::SetInitalizedEngine(true);
 		}
 
 		// (Re)load scripting assemblies for the newly active project. Shutdown unloads any
@@ -107,7 +124,6 @@ namespace Lux
 		if (AudioEngine::HasInitializedEngine())
 		{
 			AudioEngine::Shutdown();
-			AudioEngine::SetInitalizedEngine(false);
 		}
 
 		if (!s_ActiveProject)
@@ -121,13 +137,14 @@ namespace Lux
 		s_ActiveProject->m_Config.ProjectDirectory = s_ActiveProject->m_ProjectDirectory;
 		s_ActiveProject->m_Config.ProjectFileName = s_ActiveProject->m_ProjectFilePath.filename().string();
 
+		LoadProjectGamepadMappings(s_ActiveProject->m_ProjectDirectory);
+
 		s_AssetManager = Ref<RuntimeAssetManager>::Create();
 		GetRuntimeAssetManager()->SetAssetPack(assetPack);
 
 		if (!AudioEngine::HasInitializedEngine())
 		{
 			AudioEngine::Init();
-			AudioEngine::SetInitalizedEngine(true);
 		}
 	}
 
@@ -153,6 +170,11 @@ namespace Lux
 		project->m_Config.ProjectFileName = project->m_ProjectFilePath.filename().string();
 
 		SetActiveRuntime(project, assetPack);
+		if (!AudioEngine::LoadRuntimeBanks(project->GetAssetDirectory(), project->GetConfig().Audio.RuntimeBanks))
+		{
+			SetActiveRuntime(nullptr, nullptr);
+			return nullptr;
+		}
 		return s_ActiveProject;
 	}
 

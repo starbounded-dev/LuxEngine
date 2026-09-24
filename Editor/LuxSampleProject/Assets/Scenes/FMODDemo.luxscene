@@ -1,0 +1,409 @@
+Scene: FMOD Demo
+PostProcess:
+  Exposure: 1
+  ExposureMode: 0
+  Aperture: 16
+  ShutterSpeed: 0.00800000038
+  ISO: 100
+  ExposureEV100: 12
+  ExposureCompensation: 0
+  AutoMinEV100: -2
+  AutoMaxEV100: 16
+  AutoAdaptationSpeedUp: 3
+  AutoAdaptationSpeedDown: 1
+  ColorFilter: [1, 1, 1]
+  Saturation: 1
+  Contrast: 1
+  Gamma: 2.20000005
+  Tonemap: 0
+  WhiteTemperature: 0
+  WhiteTint: 0
+  Lift: [0, 0, 0]
+  GradeGamma: [1, 1, 1]
+  Gain: [1, 1, 1]
+Entities:
+  - Entity: 260440025664254057
+    TagComponent:
+      Tag: Back Wall
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 1.50026262, -6.85000086]
+      Rotation: [0, -0, 0]
+      Scale: [14, 2.99663854, 0.304558903]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 452586649420571484
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 0
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Brick
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 15491283630166138703
+    TagComponent:
+      Tag: Left Wall
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [-6.83931446, 1.31975496, -3.23566842]
+      Rotation: [0, -0, 0]
+      Scale: [0.300000012, 2.79999995, 7]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 452586649420571484
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 0
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Brick
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 16344437922393548024
+    TagComponent:
+      Tag: Roof
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.84743929, -3.20556116]
+      Rotation: [0, -0, 0]
+      Scale: [14, 0.300000012, 7]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 14140388573859824483
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 0
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Ceramic
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 11208467829056693847
+    TagComponent:
+      Tag: Right Wall
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [6.8317194, 1.36691022, -3.48166132]
+      Rotation: [0, -0, 0]
+      Scale: [0.300000012, 2.79999995, 7]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 452586649420571484
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 0
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Brick
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 73040000000000007
+    TagComponent:
+      Tag: Controls
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-4, 4, 1]
+      Rotation: [0, 0, 0]
+      Scale: [0.400000006, 0.400000006, 0.400000006]
+    TextComponent:
+      TextString: "FMOD AUDIO DEMO\nK: Replay source   P: Pause source\nL: One-shot   I: Independent instance\nO: Stop source + instance\nRMB + WASD: Move listener"
+      FontHandle: 0
+      Color: [0.949999988, 0.949999988, 1, 1]
+      LineSpacing: 0.25
+      Kerning: 0
+      MaxWidth: 32
+      ScreenSpace: false
+      DropShadow: false
+      ShadowDistance: 0
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 73040000000000006
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.5
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.600000024]
+  - Entity: 73040000000000005
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.800000012, -0.5, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 3
+      Radiance: [1, 0.939999998, 0.850000024]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 73040000000000011
+    TagComponent:
+      Tag: Rug
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.5, 0.0199999996, -4]
+      Rotation: [0, -0, 0]
+      Scale: [4, 0.0399999991, 3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 11795118881602129835
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Carpet
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 73040000000000010
+    TagComponent:
+      Tag: Door Lintel
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.54999995, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1.20000005, 0.899999976, 0.349999994]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 3580326328630172300
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Plaster
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 73040000000000009
+    TagComponent:
+      Tag: Front Wall Right
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [3.79999995, 1.5, 0]
+      Rotation: [0, -0, 0]
+      Scale: [6.4000001, 3, 0.349999994]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 3580326328630172300
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Plaster
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 73040000000000008
+    TagComponent:
+      Tag: Music Emitter - MusicAmbiance
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-2.5, 1.60000002, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.400000006, 0.400000006, 0.400000006]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 9784983076328690787
+      Visible: true
+    AudioSourceComponent:
+      VolumeMultiplier: 0.5
+      PitchMultiplier: 1
+      PlayOnAwake: true
+      Priority: 128
+      DistanceCulling: true
+      EventGuid: "{755abc01-cd89-4daf-a27b-04d57b807b3d}"
+      EventPath: ""
+      EventBank: ""
+      ParameterOverrides:
+        []
+  - Entity: 73040000000000004
+    TagComponent:
+      Tag: FMOD Emitter - Fart
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 1, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.699999988, 0.699999988, 0.699999988]
+    ScriptComponent:
+      ClassName: LuxSample.FmodAudioDemo
+      ScriptID: 326709275
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 9784983076328690787
+      Visible: true
+    AudioSourceComponent:
+      VolumeMultiplier: 0.699999988
+      PitchMultiplier: 1
+      PlayOnAwake: false
+      Priority: 128
+      DistanceCulling: true
+      EventGuid: "{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}"
+      EventPath: ""
+      EventBank: ""
+      ParameterOverrides:
+        []
+  - Entity: 73040000000000003
+    TagComponent:
+      Tag: Front Wall Left
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [-3.79999995, 1.5, 0]
+      Rotation: [0, -0, 0]
+      Scale: [6.4000001, 3, 0.349999994]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 3580326328630172300
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Plaster
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 73040000000000002
+    TagComponent:
+      Tag: Floor - VA mesh collider
+    Parent: 7010016380193777032
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.25, 0]
+      Rotation: [0, -0, 0]
+      Scale: [14, 0.5, 14]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 13888570423779183036
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Wood
+      AcousticMotion: 0
+      CollisionComplexity: "\x02"
+  - Entity: 73040000000000001
+    TagComponent:
+      Tag: Listener Camera - RMB + WASD
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [5.70736837, 1.77607381, 0.174439251]
+      Rotation: [-0.115000471, 1.20499229, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: LuxSample.FlyCamera
+      ScriptID: 3987114672
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 45
+        PerspectiveNear: 0.100000001
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+    AudioListenerComponent:
+      Active: true
+      ListenerIndex: 0
+      Weight: 1
+      UseAttenuationTarget: false
+      AttenuationTarget: 0
+  - Entity: 7010016380193777032
+    TagComponent:
+      Tag: Building
+    Folder: true
+    Parent: 0
+    Children:
+      - Handle: 73040000000000002
+      - Handle: 73040000000000003
+      - Handle: 11208467829056693847
+      - Handle: 16344437922393548024
+      - Handle: 15491283630166138703
+      - Handle: 260440025664254057
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]

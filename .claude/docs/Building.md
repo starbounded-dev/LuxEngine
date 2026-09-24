@@ -112,6 +112,7 @@ Two kinds of toggle, both driven off the single `OPTIONS` table in `scripts/Buil
 | `--discord` | Enables the Discord Social SDK integration; defines `LUX_ENABLE_DISCORD`. Requires `Core/vendor/discord_social_sdk/` (fetched manually — `Configure.warn_missing_discord_sdk` warns if absent). |
 | `--no-tracy` | Omits `TRACY_ENABLE` / `TRACY_ON_DEMAND` / `TRACY_CALLSTACK`, reducing vendored Tracy to a stub and compiling every `LUX_PROFILE_*` away. Cuts link times. |
 | `--no-aftermath` | Defines `LUX_DISABLE_AFTERMATH` **and** `removefiles` the `Platform/Vulkan/Debug/**.cpp` crash-tracker sources (they include `GFSDK_Aftermath.h` unconditionally, so `#ifdef` alone isn't enough). |
+| Audio SDKs (required) | FMOD Core + Studio and Vercidium Audio are always linked. No fallback backend. Legacy flags remain accepted for command compatibility. |
 
 **Script options** (change what the Python does; premake never sees them): `skip-submodules`,
 `skip-vulkan-check`, `skip-scripts`.
@@ -211,6 +212,27 @@ project's script solution is generated with `include_options=False` precisely be
 manually and is gitignored (it is very large). Either check it out or re-run generation without the
 option.
 
+### Ray-traced audio build fails with `vaudio.h: No such file or directory`
+
+The SDK is fetched manually (see `Core/vendor/VA_RAY/README.txt`) and is gitignored.
+Extract it into `Core/vendor/VA_RAY/`, or set `LUX_VA_SDK` to the package root containing `3d/`,
+then regenerate. Generation verifies the native target's header, link inputs and runtime libraries.
+
+### FMOD build fails with `fmod.hpp: No such file or directory`
+
+Extract the native FMOD Engine SDK beneath `Core/vendor/FMOD/`, or set `LUX_FMOD_SDK` to its
+package root containing `api/`, then regenerate. `Dependencies.lua` discovers packages by target
+header/library layout rather than folder name; multiple matching packages require an explicit
+override. The same root supplies headers, link inputs and Editor/Runtime post-build copies.
+Windows requires Core/Studio `.lib` and `.dll` files; Linux requires link `.so` files and the
+deployed `.so.14` files. Generation fails with the exact missing path instead of building a
+silent fallback. VA uses `LUX_VA_SDK` similarly. These environment variables must be set in the
+shell that runs generation; generated projects keep the resolved roots until regenerated.
+
+See `docs/AUDIO_DESKTOP_PLATFORMS.md` for setup and project profiles. Linux native builds and
+disposable Windows SDK-layout tests are verified; a native Windows build/listening test still
+requires the Windows FMOD SDK and Windows host. Console SDK/hardware work is on hold.
+
 ### Aftermath headers not found
 
 The crash tracker needs the Nvidia Aftermath SDK. Regenerate with `no-aftermath` to drop
@@ -225,6 +247,21 @@ Git LFS content wasn't pulled. `git lfs pull`, or re-run `scripts\Setup.bat`.
 `Editor/DotNet/Coral.Managed.dll` isn't there. That file is produced by `Core`'s post-build step —
 build `Core` (not just `Editor`), and confirm the .NET 9 SDK is installed so the C# projects
 actually built.
+
+### Linux runtime fails to load `Archivo-Bold.ttf`
+
+The runtime needs `Resources/Fonts/Archivo/static/Archivo-Bold.ttf` relative to its working
+directory. Linux post-build copies must merge `Editor/Resources` and `Editor/DotNet` into the
+runtime **parent directory**. Copying to an existing `Resources`/`DotNet` destination instead
+creates nested `Resources/Resources` and `DotNet/DotNet`, leaving the files used at startup stale.
+Regenerate and relink Lux-Runtime after changing the copy rules; an up-to-date executable does not
+rerun post-build commands. `tests/runtime/run_resources.py` checks clean and repeated copies for
+all Linux configurations using the generated Makefile.
+
+`scripts/Linux-RunRuntime.sh` starts the build-folder player; it does not export a game. Export
+from the editor first and launch the executable/launcher in the export folder, or pass that folder
+as `--project=/absolute/path/to/export` to the build-folder player. An unexported build folder has no
+`Assets/Project.luxruntime` or `AssetPack.lap` to load.
 
 ### Linux: `NFD-Extended` fails to configure
 
@@ -244,6 +281,22 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 (`fail-fast: false`), triggered on push to `master` / `dev` / `features/**` and on PRs to `master` /
 `dev`. Checks out with `submodules: recursive` and `lfs: true`, installs Vulkan SDK `1.4.335.0`,
 generates with `vs2022`, and builds `Lux.sln` with platform `Mixed Platforms`.
+
+Linux builds run on `ubuntu-26.04` for the same configurations via `scripts/Linux-Build.sh`. 26.04 is
+required, not incidental: Vercidium Audio 1.9.0's `libvaudionative.so` links against glibc 2.43
+(`sqrtf@GLIBC_2.43`), which older runners cannot provide. The same limit applies to Linux machines that
+build or run LuxEngine or its exported games.
+
+**Audio SDKs come from a private repository.** FMOD and Vercidium Audio are licensed and are never
+committed here. Both jobs check out the repository named by the repository variable
+`AUDIO_SDK_REPOSITORY` into `.audio-sdk/` using the secret `AUDIO_SDK_TOKEN` (a fine-grained,
+read-only token scoped to that repository), then set `LUX_FMOD_SDK` (`.audio-sdk/FMOD/windows` or
+`.audio-sdk/FMOD/linux`) and `LUX_VA_SDK` (`.audio-sdk/VA_RAY`). Populate that repository with
+`scripts/ci/StageAudioSDKs.py`, which copies only headers, link/runtime libraries and licence files.
+Without the variable and secret — including every pull request from a fork — the job fails at
+"Check audio SDK access". Uploaded editor artifacts are stripped of the FMOD and VA runtime
+libraries, because public artifacts are downloadable by anyone and neither licence permits
+redistributing them outside a game build.
 
 Note the branch globs: CI matches `features/**`, so a branch named `feature/foo` (singular) will
 **not** be built.

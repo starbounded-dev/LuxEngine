@@ -543,7 +543,7 @@ namespace Lux {
 	// -----------------------------------------------------------------------
 
 	bool ImGuiRenderer::Render(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, nvrhi::GraphicsPipelineHandle pipeline,
-		nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore)
+		nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore, bool clearTarget)
 	{
 		LUX_PROFILE_FUNC("ImGuiRenderer::Render");
 		if (!snapshot)
@@ -555,7 +555,8 @@ namespace Lux {
 		m_RenderCommandBuffer->RT_Begin();
 		nvrhi::CommandListHandle commandList = m_RenderCommandBuffer->GetActive();
 
-		nvrhi::utils::ClearColorAttachment(commandList, framebuffer, 0, nvrhi::Color(1, 0, 1, 1));
+		if (clearTarget)
+			nvrhi::utils::ClearColorAttachment(commandList, framebuffer, 0, nvrhi::Color(1, 0, 1, 1));
 
 		if (!UpdateGeometry(drawData))
 		{
@@ -680,11 +681,12 @@ namespace Lux {
 		return true;
 	}
 
-	bool ImGuiRenderer::RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain)
+	bool ImGuiRenderer::RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain, bool clearTarget)
 	{
 		return Render(snapshot, GetOrCreatePipeline(swapchain),
 			swapchain->GetCurrentFramebuffer(),
-			swapchain->GetAcquiredImageSemaphore());
+			swapchain->GetAcquiredImageSemaphore(),
+			clearTarget);
 	}
 
 	float ImGuiRenderer::GetGPUTime() const

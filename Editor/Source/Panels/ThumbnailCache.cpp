@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "ThumbnailCache.h"
 
@@ -168,6 +171,25 @@ namespace Lux {
 		WriteToDisk(assetHandle, image, timestamp);
 	}
 
+	void ThumbnailCache::SetThumbnailPixels(AssetHandle assetHandle, const Buffer& pixels, uint32_t width, uint32_t height, uint64_t timestamp)
+	{
+		if (!pixels || width == 0 || height == 0 || pixels.Size < (uint64_t)width * height * 4)
+			return;
+
+		TextureSpecification spec;
+		spec.Width = width;
+		spec.Height = height;
+		spec.Format = ImageFormat::RGBA; // matches LoadFromDisk
+		spec.DebugName = "Thumbnail";
+
+		Ref<Texture2D> texture = Texture2D::Create(spec, Buffer{ pixels.Data, (uint64_t)width * height * 4 });
+		if (!texture)
+			return;
+
+		m_CachedImages[assetHandle] = { texture, timestamp };
+		WritePixelsToDisk(assetHandle, pixels, width, height, timestamp);
+	}
+
 	void ThumbnailCache::Clear()
 	{
 		m_CachedImages.clear();
@@ -298,9 +320,6 @@ namespace Lux {
 		if (!image)
 			return;
 
-		EnsureCacheDirectoryExists();
-		auto filepath = GetCacheFilePath(assetHandle);
-
 		// Texture2D::CopyToHostBuffer reads pixels back from GPU into a Buffer.
 		// This is the correct API - GetRawData does not exist on Texture2D.
 		Buffer pixelData;
@@ -308,9 +327,18 @@ namespace Lux {
 		if (!pixelData)
 			return;
 
+		WritePixelsToDisk(assetHandle, pixelData, image->GetWidth(), image->GetHeight(), timestamp);
+		pixelData.Release();
+	}
+
+	void ThumbnailCache::WritePixelsToDisk(AssetHandle assetHandle, const Buffer& pixels, uint32_t width, uint32_t height, uint64_t timestamp)
+	{
+		EnsureCacheDirectoryExists();
+		auto filepath = GetCacheFilePath(assetHandle);
+
 		ThumbnailFileHeader header;
-		header.Width = static_cast<uint16_t>(image->GetWidth());
-		header.Height = static_cast<uint16_t>(image->GetHeight());
+		header.Width = static_cast<uint16_t>(width);
+		header.Height = static_cast<uint16_t>(height);
 		header.LastWriteTime = timestamp;
 
 		std::ofstream file(filepath, std::ios::binary | std::ios::trunc);
@@ -318,7 +346,7 @@ namespace Lux {
 			return;
 
 		file.write(reinterpret_cast<const char*>(&header), sizeof(header));
-		file.write(reinterpret_cast<const char*>(pixelData.Data), pixelData.Size);
+		file.write(reinterpret_cast<const char*>(pixels.Data), (std::streamsize)width * height * 4);
 	}
 
 }

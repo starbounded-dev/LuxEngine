@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Asset/AssetManager.h"
@@ -17,6 +20,14 @@
 namespace Lux {
 
 	static std::filesystem::path s_PersistentStoragePath;
+
+	bool FileSystem::ReplaceFileAtomically(const std::filesystem::path& replacement, const std::filesystem::path& destination)
+	{
+		if (MoveFileExW(replacement.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+			return true;
+		LUX_CORE_ERROR_TAG("FileSystem", "Cannot replace '{}': Windows error {}", destination.string(), GetLastError());
+		return false;
+	}
 
 	FileStatus FileSystem::TryOpenFile(const std::filesystem::path& filepath)
 	{

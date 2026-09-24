@@ -1,4 +1,7 @@
-﻿namespace Lux
+﻿// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
+namespace Lux
 {
 	// ushort-backed to match the native KeyCode (enum class KeyCode : uint16_t).
 	public enum KeyCode : ushort

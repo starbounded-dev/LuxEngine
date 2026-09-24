@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "MaterialSerializer.h"
 
@@ -34,6 +37,68 @@ namespace Lux
 				return fallback;
 
 			return { node[0].as<float>(), node[1].as<float>(), node[2].as<float>() };
+		}
+
+		static void WriteVec2(YAML::Emitter& out, const glm::vec2& value)
+		{
+			out << YAML::Flow << YAML::BeginSeq << value.x << value.y << YAML::EndSeq;
+		}
+
+		static glm::vec2 ReadVec2(const YAML::Node& node, const glm::vec2& fallback)
+		{
+			if (!node || !node.IsSequence() || node.size() < 2)
+				return fallback;
+
+			return { node[0].as<float>(), node[1].as<float>() };
+		}
+
+		static const char* ChannelToString(MaterialTextureChannel channel)
+		{
+			switch (channel)
+			{
+				case MaterialTextureChannel::R: return "R";
+				case MaterialTextureChannel::G: return "G";
+				case MaterialTextureChannel::B: return "B";
+				case MaterialTextureChannel::A: return "A";
+			}
+			return "R";
+		}
+
+		static MaterialTextureChannel ReadChannel(const YAML::Node& node, MaterialTextureChannel fallback)
+		{
+			const std::string value = node ? node.as<std::string>("") : std::string{};
+			if (value == "R")
+				return MaterialTextureChannel::R;
+			if (value == "G")
+				return MaterialTextureChannel::G;
+			if (value == "B")
+				return MaterialTextureChannel::B;
+			if (value == "A")
+				return MaterialTextureChannel::A;
+			return fallback;
+		}
+
+		static const char* AlphaModeToString(MaterialAlphaMode mode)
+		{
+			switch (mode)
+			{
+				case MaterialAlphaMode::Opaque: return "Opaque";
+				case MaterialAlphaMode::Cutout: return "Cutout";
+				case MaterialAlphaMode::Blend: return "Blend";
+			}
+			return "Opaque";
+		}
+
+		static MaterialAlphaMode ReadAlphaMode(const YAML::Node& node, MaterialAlphaMode fallback)
+		{
+			const std::string value = node ? node.as<std::string>("") : std::string{};
+			if (value == "Opaque")
+				return MaterialAlphaMode::Opaque;
+			if (value == "Cutout")
+				return MaterialAlphaMode::Cutout;
+			if (value == "Blend")
+				return MaterialAlphaMode::Blend;
+			return fallback;
 		}
 
 		static std::string ReadMaterialYAML(const AssetMetadata& metadata)
@@ -140,9 +205,9 @@ namespace Lux
 			const bool transparent = materialAsset->IsTransparent();
 			const glm::vec3 albedoColor = materialAsset->GetAlbedoColor();
 			const float emission = materialAsset->GetEmission();
-			const bool useNormalMap = transparent ? false : materialAsset->IsUsingNormalMap();
+			const bool useNormalMap = materialAsset->IsUsingNormalMap();
 			const float metalness = transparent ? 0.0f : materialAsset->GetMetalness();
-			const float roughness = transparent ? 0.5f : materialAsset->GetRoughness();
+			const float roughness = materialAsset->GetRoughness();
 			const float transparency = transparent ? materialAsset->GetTransparency() : 1.0f;
 			const AssetHandle albedoMap = materialAsset->GetAlbedoMapHandle();
 			const AssetHandle normalMap = materialAsset->GetNormalMapHandle();
@@ -160,21 +225,68 @@ namespace Lux
 			WriteVec3(out, albedoColor);
 			out << YAML::Key << "Emission" << YAML::Value << emission;
 
+			// The transparent shader uses roughness and the normal map too; only metalness is opaque-only.
+			out << YAML::Key << "UseNormalMap" << YAML::Value << useNormalMap;
 			if (!transparent)
-			{
-				out << YAML::Key << "UseNormalMap" << YAML::Value << useNormalMap;
 				out << YAML::Key << "Metalness" << YAML::Value << metalness;
-				out << YAML::Key << "Roughness" << YAML::Value << roughness;
-			}
-			else
-			{
+			out << YAML::Key << "Roughness" << YAML::Value << roughness;
+			if (transparent)
 				out << YAML::Key << "Transparency" << YAML::Value << transparency;
-			}
 
 			WriteTextureReference(out, "AlbedoMap", albedoMap, textureReferenceSerialization);
 			WriteTextureReference(out, "NormalMap", normalMap, textureReferenceSerialization);
 			WriteTextureReference(out, "MetalnessMap", metalnessMap, textureReferenceSerialization);
 			WriteTextureReference(out, "RoughnessMap", roughnessMap, textureReferenceSerialization);
+
+			// Standard inputs are written only when they differ from the default, so materials that do
+			// not use them keep their files unchanged. EmissiveColor is always written once emission is
+			// on: its absence marks a pre-emissive-colour file, which loads through the migration.
+			const MaterialSurfaceParameters& surface = materialAsset->GetSurfaceParameters();
+			const MaterialSurfaceParameters defaults;
+			if (emission > 0.0f || surface.EmissiveColor != defaults.EmissiveColor)
+			{
+				out << YAML::Key << "EmissiveColor" << YAML::Value;
+				WriteVec3(out, surface.EmissiveColor);
+			}
+			if (surface.EmissiveMap)
+				WriteTextureReference(out, "EmissiveMap", surface.EmissiveMap, textureReferenceSerialization);
+			if (surface.OcclusionMap)
+				WriteTextureReference(out, "OcclusionMap", surface.OcclusionMap, textureReferenceSerialization);
+			if (surface.OcclusionStrength != defaults.OcclusionStrength)
+				out << YAML::Key << "OcclusionStrength" << YAML::Value << surface.OcclusionStrength;
+			if (surface.OcclusionChannel != defaults.OcclusionChannel)
+				out << YAML::Key << "OcclusionChannel" << YAML::Value << ChannelToString(surface.OcclusionChannel);
+			if (surface.MetalnessChannel != defaults.MetalnessChannel)
+				out << YAML::Key << "MetalnessChannel" << YAML::Value << ChannelToString(surface.MetalnessChannel);
+			if (surface.RoughnessChannel != defaults.RoughnessChannel)
+				out << YAML::Key << "RoughnessChannel" << YAML::Value << ChannelToString(surface.RoughnessChannel);
+			if (surface.Specular != defaults.Specular)
+				out << YAML::Key << "Specular" << YAML::Value << surface.Specular;
+			if (surface.NormalStrength != defaults.NormalStrength)
+				out << YAML::Key << "NormalStrength" << YAML::Value << surface.NormalStrength;
+			if (surface.HeightMap)
+				WriteTextureReference(out, "HeightMap", surface.HeightMap, textureReferenceSerialization);
+			if (surface.BumpHeight != defaults.BumpHeight)
+				out << YAML::Key << "BumpHeight" << YAML::Value << surface.BumpHeight;
+			if (surface.UVTiling != defaults.UVTiling)
+			{
+				out << YAML::Key << "UVTiling" << YAML::Value;
+				WriteVec2(out, surface.UVTiling);
+			}
+			if (surface.UVOffset != defaults.UVOffset)
+			{
+				out << YAML::Key << "UVOffset" << YAML::Value;
+				WriteVec2(out, surface.UVOffset);
+			}
+			if (surface.UVRotation != defaults.UVRotation)
+				out << YAML::Key << "UVRotation" << YAML::Value << surface.UVRotation;
+			if (surface.AlphaMode != defaults.AlphaMode)
+				out << YAML::Key << "AlphaMode" << YAML::Value << AlphaModeToString(surface.AlphaMode);
+			if (surface.AlphaThreshold != defaults.AlphaThreshold)
+				out << YAML::Key << "AlphaThreshold" << YAML::Value << surface.AlphaThreshold;
+			if (surface.TwoSided != defaults.TwoSided)
+				out << YAML::Key << "TwoSided" << YAML::Value << surface.TwoSided;
+
 			out << YAML::Key << "MaterialFlags" << YAML::Value << materialFlags;
 
 			out << YAML::EndMap;
@@ -204,6 +316,9 @@ namespace Lux
 			AssetManager::RegisterDependency(normalMap, handle);
 			AssetManager::RegisterDependency(metalnessMap, handle);
 			AssetManager::RegisterDependency(roughnessMap, handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["EmissiveMap"]), handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["OcclusionMap"]), handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["HeightMap"]), handle);
 		}
 
 		static bool DeserializeMaterialFromYAML(const std::string& yamlString, Ref<MaterialAsset>& targetMaterialAsset, AssetHandle handle)
@@ -230,16 +345,12 @@ namespace Lux
 			targetMaterialAsset->SetAlbedoColor(ReadVec3(materialNode["AlbedoColor"], glm::vec3(0.8f)));
 			targetMaterialAsset->SetEmission(materialNode["Emission"].as<float>(0.0f));
 
+			targetMaterialAsset->SetUseNormalMap(materialNode["UseNormalMap"].as<bool>(false));
+			targetMaterialAsset->SetRoughness(materialNode["Roughness"].as<float>(0.5f));
 			if (!transparent)
-			{
-				targetMaterialAsset->SetUseNormalMap(materialNode["UseNormalMap"].as<bool>(false));
 				targetMaterialAsset->SetMetalness(materialNode["Metalness"].as<float>(0.0f));
-				targetMaterialAsset->SetRoughness(materialNode["Roughness"].as<float>(0.5f));
-			}
 			else
-			{
 				targetMaterialAsset->SetTransparency(materialNode["Transparency"].as<float>(1.0f));
-			}
 
 			const auto tryAssignTexture = [&targetMaterialAsset](const YAML::Node& textureNode, auto&& assignFn)
 			{
@@ -251,6 +362,34 @@ namespace Lux
 			tryAssignTexture(materialNode["NormalMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetNormalMap(handle); });
 			tryAssignTexture(materialNode["MetalnessMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetMetalnessMap(handle); });
 			tryAssignTexture(materialNode["RoughnessMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetRoughnessMap(handle); });
+
+			MaterialSurfaceParameters surface;
+			surface.EmissiveColor = ReadVec3(materialNode["EmissiveColor"], surface.EmissiveColor);
+			surface.EmissiveMap = ResolveTextureReference(materialNode["EmissiveMap"]);
+			surface.OcclusionMap = ResolveTextureReference(materialNode["OcclusionMap"]);
+			surface.OcclusionStrength = materialNode["OcclusionStrength"].as<float>(surface.OcclusionStrength);
+			surface.OcclusionChannel = ReadChannel(materialNode["OcclusionChannel"], surface.OcclusionChannel);
+			surface.MetalnessChannel = ReadChannel(materialNode["MetalnessChannel"], surface.MetalnessChannel);
+			surface.RoughnessChannel = ReadChannel(materialNode["RoughnessChannel"], surface.RoughnessChannel);
+			surface.Specular = materialNode["Specular"].as<float>(surface.Specular);
+			surface.NormalStrength = materialNode["NormalStrength"].as<float>(surface.NormalStrength);
+			surface.HeightMap = ResolveTextureReference(materialNode["HeightMap"]);
+			surface.BumpHeight = materialNode["BumpHeight"].as<float>(surface.BumpHeight);
+			surface.UVTiling = ReadVec2(materialNode["UVTiling"], surface.UVTiling);
+			surface.UVOffset = ReadVec2(materialNode["UVOffset"], surface.UVOffset);
+			surface.UVRotation = materialNode["UVRotation"].as<float>(surface.UVRotation);
+			surface.AlphaMode = ReadAlphaMode(materialNode["AlphaMode"], surface.AlphaMode);
+			surface.AlphaThreshold = materialNode["AlphaThreshold"].as<float>(surface.AlphaThreshold);
+			surface.TwoSided = materialNode["TwoSided"].as<bool>(surface.TwoSided);
+
+			// Files written before emissive colour existed tinted emission by the base colour and its
+			// map. Carry that over as data so they render exactly as they did.
+			if (!materialNode["EmissiveColor"] && targetMaterialAsset->GetEmission() > 0.0f)
+			{
+				surface.EmissiveColor = targetMaterialAsset->GetAlbedoColor();
+				surface.EmissiveMap = targetMaterialAsset->GetAlbedoMapHandle();
+			}
+			targetMaterialAsset->SetSurfaceParameters(surface);
 
 			if (materialNode["MaterialFlags"])
 				targetMaterialAsset->GetMaterial()->SetFlags(materialNode["MaterialFlags"].as<uint32_t>());

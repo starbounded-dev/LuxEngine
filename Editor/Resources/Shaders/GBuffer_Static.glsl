@@ -89,6 +89,8 @@ layout(location = 1) out vec4 o_GBufferViewNormal;
 layout(location = 2) out vec4 o_GBufferMetalRoughAO;
 layout(location = 3) out uvec2 o_GBufferMaterialObjectID;
 layout(location = 4) out vec2 o_GBufferVelocity;
+// Written straight into scene color; deferred lighting then adds the lit result on top.
+layout(location = 5) out vec4 o_Emissive;
 
 layout(push_constant) uniform PushConstants
 {
@@ -131,23 +133,43 @@ void main()
 	float materialRoughness = GetGPUMaterialRoughness(gpuMaterial, 0.5);
 	uint materialAlphaMode = GetGPUMaterialAlphaMode(gpuMaterial, GPU_MATERIAL_ALPHA_OPAQUE);
 	bool materialUseNormalMap = GetGPUMaterialUsesNormalMap(gpuMaterial, false);
+	uint materialFlags = gpuMaterial.Metadata.x;
+	uint channelSelects = gpuMaterial.ExtraTextureIndices.w;
+	vec2 uv = GetGPUMaterialUV(gpuMaterial, Input.TexCoord);
 
-	vec4 albedoTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.x, Input.TexCoord, materialMipBias);
+	vec4 albedoTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.x, uv, materialMipBias);
 	vec3 baseColor = albedoTexColor.rgb * materialBaseColor;
 	float alpha = albedoTexColor.a * materialOpacity;
-	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < 0.5)
+	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
 		discard;
 
-	float metalness = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.z, Input.TexCoord, materialMipBias).b * materialMetalness;
-	float roughness = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.w, Input.TexCoord, materialMipBias).g * materialRoughness;
+	float metalness = SelectGPUMaterialChannel(SampleMaterialSceneTexture(gpuMaterial.TextureIndices.z, uv, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_METALNESS) * materialMetalness;
+	float roughness = SelectGPUMaterialChannel(SampleMaterialSceneTexture(gpuMaterial.TextureIndices.w, uv, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS) * materialRoughness;
 	roughness = max(roughness, 0.05);
+
+	float occlusion = 1.0;
+	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_OCCLUSION_TEXTURE))
+	{
+		float occlusionSample = SelectGPUMaterialChannel(SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.y, uv, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_OCCLUSION);
+		occlusion = mix(1.0, occlusionSample, gpuMaterial.Emissive.w);
+	}
 
 	vec3 worldNormal = normalize(Input.Normal);
 	if (materialUseNormalMap)
 	{
-		vec4 normalTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.y, Input.TexCoord, materialMipBias);
-		worldNormal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb);
+		vec4 normalTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.y, uv, materialMipBias);
+		worldNormal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb, gpuMaterial.Surface.y);
 	}
+	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE))
+	{
+		float height = SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.z, uv, materialMipBias).r;
+		worldNormal = PerturbNormalFromHeight(worldNormal, Input.WorldPosition, height, gpuMaterial.Surface.w);
+	}
+
+	vec3 emissive = GetGPUMaterialEmissive(gpuMaterial);
+	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE))
+		emissive *= SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.x, uv, materialMipBias).rgb;
+	o_Emissive = vec4(emissive, 1.0);
 
 	LuxGBufferData gbuffer;
 	gbuffer.BaseColor = baseColor;
@@ -156,8 +178,8 @@ void main()
 	gbuffer.Reserved0 = 0.0;
 	gbuffer.Metalness = metalness;
 	gbuffer.Roughness = roughness;
-	gbuffer.AmbientOcclusion = 1.0;
-	gbuffer.Specular = 0.5;
+	gbuffer.AmbientOcclusion = occlusion;
+	gbuffer.Specular = GetGPUMaterialSpecular(gpuMaterial, 0.5);
 	gbuffer.MaterialID = GetInstanceMaterialIndex(InputObjectIndex);
 	gbuffer.ObjectID = GetInstancePrimitiveID(InputObjectIndex);
 

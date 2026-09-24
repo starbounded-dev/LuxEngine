@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "Window.h"
 
@@ -124,19 +127,6 @@ namespace Lux {
 #else
 		deviceParams.enableDebugRuntime = false;
 #endif
-		// 0xc81ad50e: pre-existing ignored message.
-		// The remaining three are the PreDepth depth/stencil attachment layout-transition
-		// VUIDs (vkCmdBeginRendering depth/stencil + the matching vkQueueSubmit). They are a
-		// benign NVRHI state-tracking desync in the multi-threaded render path: the depth is
-		// written by PreDepth and sampled by post passes, and the validation layer flags a
-		// transition NVRHI manages internally. Rendering is correct (depth testing works);
-		// these are suppressed to keep the log usable until the tracking is reworked.
-		deviceParams.ignoredVulkanValidationMessageLocations = {
-			0xc81ad50e,
-			0xc84a9eb7, // vkCmdBeginRendering: PreDepth depth attachment layout
-			0x20b3cd31, // vkCmdBeginRendering: PreDepth stencil attachment layout
-			0x46582f7b, // vkQueueSubmit: PreDepth depth/stencil expected layout
-		};
 
 		LUX_CORE_INFO_TAG("GLFW", "Creating window {0} ({1}, {2})", m_Specification.Title, m_Specification.Width, m_Specification.Height);
 

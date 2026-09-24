@@ -35,7 +35,6 @@ layout(set = 1, binding = 0) uniform textureCube u_EnvRadianceTex;
 layout(set = 1, binding = 1) uniform textureCube u_EnvIrradianceTex;
 layout(set = 1, binding = 2) uniform texture2DArray u_ShadowMapTexture;
 layout(set = 1, binding = 3) uniform texture2D u_SpotShadowTexture;
-layout(set = 1, binding = 11) uniform texture2D u_SceneColor;
 layout(set = 1, binding = 12) uniform texture2D u_GBufferBaseColor;
 layout(set = 1, binding = 13) uniform texture2D u_GBufferNormal;
 layout(set = 1, binding = 14) uniform texture2D u_GBufferMetalRoughAO;
@@ -193,16 +192,13 @@ void main()
 	directLighting += CalculatePointLights(F0, worldPosition);
 	directLighting += CalculateSpotLightsShadowed(F0, worldPosition, u_SpotShadowTexture);
 
-	float emission = 0.0;
-	if (gbuffer.MaterialID != GPU_TEXTURE_INVALID_INDEX)
-		emission = GetGPUMaterialEmission(r_GPUMaterials.Materials[gbuffer.MaterialID], 0.0);
-
 	// Material AO occludes the ambient/IBL term only (specular via specular occlusion
 	// inside the IBL evaluation), not direct lighting. Screen-space GTAO is applied
 	// separately in the AO composite pass.
 	vec3 iblLighting = IBL(F0, Lr, max(gbuffer.AmbientOcclusion, 0.0)) * u_Scene.EnvironmentMapIntensity;
+	// Emission is already in scene color (the G-buffer pass writes it); this pass blends additively
+	// on top of it, so it outputs lighting only.
 	vec3 color = directLighting + iblLighting;
-	color += m_Params.Albedo * emission;
 
 	if (u_RendererData.ShowLightComplexity)
 		color = (color * 0.2) + DebugGradient(float(GetPointLightCount() + GetSpotLightCount()));

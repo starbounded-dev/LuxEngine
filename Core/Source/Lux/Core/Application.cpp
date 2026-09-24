@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "Application.h"
 
@@ -85,6 +88,11 @@ namespace Lux {
 		m_Window->Init();
 		m_Window->SetEventCallback([this](Event& e) { OnEvent(e); });
 
+		// Optional newer SDL_GameControllerDB on top of GLFW's built-in one (projects can add their
+		// own on activation, see Project::SetActive).
+		if (std::filesystem::exists("Resources/gamecontrollerdb.txt"))
+			Input::LoadGamepadMappings("Resources/gamecontrollerdb.txt");
+
 		// Load editor settings (will generate default settings if the file doesn't exist yet)
 		//EditorApplicationSettingsSerializer::Init();
 
@@ -109,7 +117,6 @@ namespace Lux {
 			PushOverlay(m_ImGuiLayer);
 		}
 
-		//MiniAudioEngine::Init();
 		Font::Init();
 
 		// Bring up the .NET host once; per-project assemblies are loaded in Project::SetActive.
@@ -138,11 +145,15 @@ namespace Lux {
 			delete layer;
 		}
 
+		// Rumble and adaptive-trigger effects persist on the controller; clear them before exiting.
+		Input::ShutdownGamepadOutput();
+
 		//ScriptEngine::Shutdown();
 		//Project::SetActive(nullptr);
 		PhysicsSystem::Shutdown();
 		Font::Shutdown();
-		//MiniAudioEngine::Shutdown();
+		// Layers and their scene/audio instances have been destroyed above.
+		AudioEngine::Shutdown();
 
 		Renderer::Shutdown();
 
@@ -237,16 +248,15 @@ namespace Lux {
 			// Start rendering previous frame
 			m_RenderThread.Kick();
 
+			Timer cpuTimer;
 			if (!m_Minimized)
 			{
-				Timer cpuTimer;
-
-				// On Render thread
-				bool frameBeginSuccess = true;
+				// On Render thread. Present() below skips itself when this acquire fails; the result is
+				// not passed through a local here because these lambdas run during the NEXT loop
+				// iteration, after any local captured by reference has gone out of scope.
 				Renderer::Submit([&]()
 					{
-						if (!m_Window->BeginFrame())
-							frameBeginSuccess = false;
+						m_Window->BeginFrame();
 					});
 
 				Renderer::BeginFrame();
@@ -283,16 +293,27 @@ namespace Lux {
 				// On Render thread
 				Renderer::Submit([&]()
 					{
-						if (frameBeginSuccess)
-						{
-							m_Window->Present();
-						}
+						m_Window->Present();
 						GetGraphicsDevice()->runGarbageCollection();
 					});
 
 				m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % Renderer::GetConfig().FramesInFlight;
-				m_PerformanceTimers.MainThreadWorkTime = cpuTimer.ElapsedMillis();
 			}
+
+			// Pump audio even while minimized so streaming, callbacks and releases keep working.
+			{
+				LUX_SCOPE_PERF("AudioEngine::Update");
+				bool focused = glfwGetWindowAttrib(m_Window->GetNativeWindow(), GLFW_FOCUSED) != 0;
+				if (m_Specification.EnableImGui && ImGui::GetCurrentContext())
+				{
+					for (auto* viewport : ImGui::GetPlatformIO().Viewports)
+						if (auto* window = static_cast<GLFWwindow*>(viewport->PlatformHandle))
+							focused = focused || glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
+				}
+				AudioEngine::SetApplicationFocused(focused && !m_Minimized);
+				AudioEngine::Update();
+			}
+			m_PerformanceTimers.MainThreadWorkTime = cpuTimer.ElapsedMillis();
 
 			//ScriptEngine::InitializeRuntimeDuplicatedEntities();
 			Input::ClearReleasedKeys();

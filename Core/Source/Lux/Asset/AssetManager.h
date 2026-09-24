@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "AssetManager/AssetManagerBase.h"
@@ -10,6 +13,8 @@ namespace Lux
 	{
 	public:
 		static Ref<Asset> GetPlaceholderAsset(AssetType type);
+		static AssetHandle ImportAsset(const std::filesystem::path& path);
+		static void SaveAsset(const Ref<Asset>& asset);
 
 		template<typename T>
 		static Ref<T> GetAsset(AssetHandle handle)

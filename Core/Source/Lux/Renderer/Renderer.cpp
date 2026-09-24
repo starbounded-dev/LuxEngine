@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "Renderer.h"
 
@@ -20,6 +23,7 @@
 #include "Lux/Project/Project.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Renderer/MaterialAsset.h"
 
 #include "nvrhi/nvrhi.h"
 #include "nvrhi/utils.h"
@@ -730,6 +734,10 @@ namespace Lux {
 			s_MipGenPipelineCache.clear();
 		}
 
+		// File-scope texture caches outlive the device unless released here; the CRT would otherwise
+		// destroy them at exit and call into an already-destroyed VkDevice (shutdown AV in the driver).
+		MaterialAsset::ReleaseSharedResources();
+
 		auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
 		nvrhi::DeviceHandle graphicsDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
 
@@ -1032,20 +1040,27 @@ namespace Lux {
 				Ref<Pipeline> pipeline = renderPass->GetSpecification().Pipeline;
 				Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
 
-				if (explicitClear || framebuffer->GetSpecification().ClearColorOnLoad || framebuffer->GetSpecification().ClearDepthOnLoad)
+				const FramebufferSpecification& framebufferSpec = framebuffer->GetSpecification();
+				const auto& attachmentSpecs = framebufferSpec.Attachments.Attachments;
 				{
 					const auto& clearValues = framebuffer->GetClearValues();
 
-					if (explicitClear || framebuffer->GetSpecification().ClearColorOnLoad)
+					// Per-attachment LoadOp wins over the framebuffer-wide setting, so one attachment
+					// can keep its contents (e.g. a shared image another pass already wrote) while
+					// the rest clear. Depth is the last attachment, so color index i is attachments[i].
+					const uint32_t colorAttachmentCount = static_cast<uint32_t>(framebuffer->GetColorAttachmentCount());
+					for (uint32_t i = 0; i < colorAttachmentCount; i++)
 					{
-						const uint32_t colorAttachmentCount = static_cast<uint32_t>(framebuffer->GetColorAttachmentCount());
-						for (uint32_t i = 0; i < colorAttachmentCount; i++)
-						{
-							nvrhi::Color color = nvrhi::Color(clearValues[i].Color.float32[0], clearValues[i].Color.float32[1],
-								clearValues[i].Color.float32[2], clearValues[i].Color.float32[3]);
+						const AttachmentLoadOp loadOp = i < attachmentSpecs.size() ? attachmentSpecs[i].LoadOp : AttachmentLoadOp::Inherit;
+						const bool clear = loadOp == AttachmentLoadOp::Clear
+							|| (loadOp == AttachmentLoadOp::Inherit && (explicitClear || framebufferSpec.ClearColorOnLoad));
+						if (!clear)
+							continue;
 
-							nvrhi::utils::ClearColorAttachment(renderCommandBuffer->GetActive(), framebuffer->GetHandle(), i, color);
-						}
+						nvrhi::Color color = nvrhi::Color(clearValues[i].Color.float32[0], clearValues[i].Color.float32[1],
+							clearValues[i].Color.float32[2], clearValues[i].Color.float32[3]);
+
+						nvrhi::utils::ClearColorAttachment(renderCommandBuffer->GetActive(), framebuffer->GetHandle(), i, color);
 					}
 
 					if (explicitClear || framebuffer->GetSpecification().ClearDepthOnLoad)

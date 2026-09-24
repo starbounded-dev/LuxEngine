@@ -29,7 +29,7 @@ If the working tree is clean, say so and stop.
 
 ### 2. Load the rule list and the relevant context
 
-The rule list is `.claude/skills/send-pr/SKILL.md § The rule list` — rules 1–19, tiered must-fix /
+The rule list is `.claude/skills/send-pr/SKILL.md § The rule list` — rules 1–20, tiered must-fix /
 should-fix / consider.
 
 Load the docs the diff actually implicates:
@@ -78,6 +78,7 @@ verify every step:
 | adds files | project regeneration is called out |
 | adds a thread or job | `Lux::Thread`, `LUX_PROFILE_THREAD`, GPU work via `Renderer::Submit`, no ECS/registry mutation |
 | touches `Platform/Windows/` | the `Platform/Linux/` counterpart exists or is explicitly deferred |
+| adds or edits ImGui code | every `Begin*`/`Push*`/`TreeNode*` closed on every path (always vs only-if-true per `Conventions.md § ImGui correctness`), no two widgets share an ID in the same scope, loops push a stable per-item ID, popup/window/dock name strings match |
 
 ### 6. Report
 

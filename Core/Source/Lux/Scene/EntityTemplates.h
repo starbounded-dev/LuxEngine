@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 namespace Lux {
@@ -79,6 +82,23 @@ namespace Lux {
 	void Entity::RemoveComponent()
 	{
 		LUX_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
+		if constexpr (std::is_same_v<T, AudioSourceComponent>)
+			m_Scene->ReleaseRuntimeAudio(*this);
+		if constexpr (std::is_same_v<T, AudioSurfaceComponent>)
+		{
+			m_Scene->m_PhysicsAudio.Remove(GetUUID());
+			m_Scene->m_Footsteps.erase(GetUUID());
+		}
+		if constexpr (std::is_same_v<T, MusicDirectorComponent>)
+		{
+			if (m_Scene->m_MusicOwner == GetUUID())
+			{
+				m_Scene->m_Music.Clear();
+				m_Scene->m_MusicOwner = 0;
+			}
+		}
+		if constexpr (std::is_same_v<T, AudioZoneComponent>)
+			m_Scene->m_AudioZones.Remove(GetUUID());
 		m_Scene->m_Registry.remove<T>(m_EntityHandle);
 	}
 
@@ -87,7 +107,7 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(IsValid(), "Invalid entity!");
 		if (HasComponent<T>())
-			m_Scene->m_Registry.remove<T>(m_EntityHandle);
+			RemoveComponent<T>();
 	}
 
 }

@@ -135,7 +135,7 @@ on Stop — the edit-mode history is left completely untouched by a play session
 | Scene post-processing (exposure, tonemap, grading) | ✔ | it lives in the scene `meta` → captured by the diff |
 | Material *assignment* (which material on a mesh) | ✔ | it's a component field (`MaterialTable`) → scene diff |
 | Renderer / project settings (quality, GTAO, shadows, culling…) | ✔ | `ProjectSceneRendererSettings` snapshot via a closure command (Phase 6) |
-| Material *asset* properties (albedo/roughness) | ✘ | only via the unused `MaterialEditorPanel` — low value |
+| Material *asset* properties (albedo/roughness) | ✔ | Material Editor pushes one closure command per finished edit (`TrackEdit`) |
 | Content Browser asset ops (rename / move / delete) | ✔ | closure commands; delete moves the file to `<project>/.trash` (never a real delete), undo restores the same handle |
 | Content Browser *directory* ops | ✘ | still a permanent delete — not covered (recursive; own follow-up) |
 | Play/Simulate edits | ✔ (transient) | separate play-mode stack, discarded on Stop; undo rebuilds & restarts the runtime |
@@ -266,8 +266,7 @@ undo moves it back and re-registers the **same handle** (so scene references sti
 is never auto-purged, so even a bug can't lose data. *Directory* delete/move/rename are **not** covered
 (they use a separate permanent-delete path) and remain a follow-up.
 
-**Deferred:** **material-*asset* properties** (only reachable via the unused `MaterialEditorPanel` —
-low value), and Content Browser **directory** ops. **Node graphs / animation** register their own
+**Deferred:** Content Browser **directory** ops. **Node graphs / animation** register their own
 providers if/when they exist.
 
 ### Phase 7 — Play / Simulate undo ✅ (done)

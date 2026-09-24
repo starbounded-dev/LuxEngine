@@ -43,7 +43,12 @@ shader.** Reusing a slot with a differently-named buffer silently corrupts anoth
 
 ## Workflow
 
+- Before multi-file or multi-session work, or when asked for a plan, use the `plan-le` skill. It
+  plans only and does not edit engine code.
 - For substantive coding, use the repository `dev` skill once before editing.
+- For performance questions (low FPS, hitches, slow loads, optimization), use `profile` — measure
+  before changing anything.
+- When a shader change misbehaves or rendering output is wrong, use `shader-debug`.
 - For a local pre-commit review, use the `cr` skill. It is local-only and must not commit, push, or
   create a pull request.
 - Before creating a pull request, use `send-pr`. For the same checks *without* creating a PR, run
@@ -58,6 +63,12 @@ shader.** Reusing a slot with a differently-named buffer silently corrupts anoth
 ## Engineering Posture
 
 Write code that belongs in a serious long-term engine, not a demo.
+
+- **Self-contained, small, refined.** Game makers should never need to install extra software for
+  an editor feature to work: build it in, vendor a small permissively licensed library, or reuse
+  what the editor already requires (.NET SDK, shaderc, FMOD, Vercidium Audio). Any unavoidable
+  external tool is optional, auto-detected, and degrades gracefully. Full rule: `CLAUDE.md §
+  Product Principle`.
 
 - **Root cause over symptom.** A guard that hides a bad state, a widened timeout, or a `WaitIdle`
   that papers over a race is rejected. If the real fix is out of scope, say so rather than shipping

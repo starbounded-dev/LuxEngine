@@ -205,8 +205,10 @@ namespace Lux
 		// frame on the main thread AFTER ImGui::Render() and before snapshotting draw data.
 		void ProcessTextures();
 
-		bool Render(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, nvrhi::GraphicsPipelineHandle pipeline, nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore = nullptr);
-		bool RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain);
+		// clearTarget = false draws over whatever the target already holds, for a swapchain the
+		// application has already rendered into (the runtime composites its overlay onto the game frame).
+		bool Render(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, nvrhi::GraphicsPipelineHandle pipeline, nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore = nullptr, bool clearTarget = true);
+		bool RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain, bool clearTarget = true);
 		void BackbufferResizing();
 		float GetGPUTime() const;
 

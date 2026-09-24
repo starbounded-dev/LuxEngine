@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "AssetTypes.h"
@@ -22,6 +25,10 @@ namespace Lux::AssetExtensions
 			{ ".hdr", AssetType::EnvMap },
 			{ ".wav", AssetType::Audio },
 			{ ".ogg", AssetType::Audio },
+			{ ".fspro", AssetType::AudioProject },
+			{ ".bank", AssetType::AudioBank },
+			{ ".lsurfaces", AssetType::AudioSurfaceTable },
+		{ ".ldialogue", AssetType::DialogueTable },
 			{ ".lsoundc", AssetType::SoundConfig },
 			{ ".fbx", AssetType::MeshSource },
 			{ ".gltf", AssetType::MeshSource },
@@ -75,6 +82,7 @@ namespace Lux::AssetExtensions
 			case AssetType::Mesh:            return ".lmesh";
 			case AssetType::StaticMesh:      return ".lsmesh";
 			case AssetType::Material:        return ".lmat";
+			case AssetType::AudioSurfaceTable: return ".lsurfaces";
 			case AssetType::SoundConfig:     return ".lsoundc";
 			case AssetType::Skeleton:        return ".lskel";
 			case AssetType::Animation:       return ".lanim";

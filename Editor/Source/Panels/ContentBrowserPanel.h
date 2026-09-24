@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "Lux/Asset/Asset.h"
@@ -6,6 +9,7 @@
 
 #include "ContentBrowser/ContentBrowserItem.h"
 #include "ThumbnailCache.h"
+#include "MaterialEditor/MaterialThumbnailer.h"
 
 #include <functional>
 #include <limits>
@@ -243,6 +247,8 @@ namespace Lux {
 		bool CreateNewFolder();
 		AssetHandle CreateSceneAsset();
 		AssetHandle CreateMaterialAsset();
+		AssetHandle CreateAudioSurfaceTable();
+		AssetHandle CreateDialogueTable();
 
 		ContentBrowserItemList Search(const std::string& query, const Ref<DirectoryInfo>& directoryInfo) const;
 		Ref<Texture2D> GetAssetIcon(const AssetMetadata& metadata) const;
@@ -250,6 +256,7 @@ namespace Lux {
 	private:
 		Ref<Project> m_Project;
 		Ref<ThumbnailCache> m_ThumbnailCache;
+		Ref<MaterialThumbnailer> m_MaterialThumbnailer; // created on the first material thumbnail
 
 		std::map<std::string, Ref<Texture2D>> m_AssetIconMap;
 

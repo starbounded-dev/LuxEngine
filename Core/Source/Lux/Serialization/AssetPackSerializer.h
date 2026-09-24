@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "AssetPackFile.h"
@@ -11,7 +14,7 @@ namespace Lux {
 	class AssetPackSerializer
 	{
 	public:
-		static void Serialize(const std::filesystem::path& path, AssetPackFile& file, Buffer appBinary, std::atomic<float>& progress);
+		static bool Serialize(const std::filesystem::path& path, AssetPackFile& file, Buffer appBinary, std::atomic<float>& progress);
 		static bool DeserializeIndex(const std::filesystem::path& path, AssetPackFile& file);
 	private:
 		static uint64_t CalculateIndexTableSize(const AssetPackFile& file);

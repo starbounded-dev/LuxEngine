@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "Lux/Core/Log.h"
@@ -23,6 +26,7 @@ namespace Lux {
 		void RenderRuntimeExportSettings();
 		void RenderRendererSettings();
 		void RenderAudioSettings();
+		void RenderAudioBankStatus();
 		void RenderScriptingSettings();
 		void RenderPhysicsSettings();
 		void RenderLogSettings();

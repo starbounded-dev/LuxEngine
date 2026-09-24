@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "Lux/Asset/Asset.h"
@@ -38,7 +41,10 @@ namespace Lux {
 		HasMetalnessTexture = BIT(8),
 		HasRoughnessTexture = BIT(9),
 		MissingTexture = BIT(10),
-		OverrideMaterial = BIT(11)
+		OverrideMaterial = BIT(11),
+		HasEmissiveTexture = BIT(12),
+		HasOcclusionTexture = BIT(13),
+		HasHeightTexture = BIT(14)
 	};
 
 	inline constexpr GPUMaterialFlags operator|(GPUMaterialFlags lhs, GPUMaterialFlags rhs)
@@ -57,13 +63,31 @@ namespace Lux {
 		return (flags & (uint32_t)mask) != 0;
 	}
 
+	// ExtraTextureIndices.w: two bits per packed-map channel selection (MaterialTextureChannel).
+	inline constexpr uint32_t GPUMaterialChannelShiftMetalness = 0;
+	inline constexpr uint32_t GPUMaterialChannelShiftRoughness = 2;
+	inline constexpr uint32_t GPUMaterialChannelShiftOcclusion = 4;
+	// glTF ORM layout: occlusion R, roughness G, metalness B.
+	inline constexpr uint32_t GPUMaterialDefaultChannelSelects =
+		((uint32_t)MaterialTextureChannel::B << GPUMaterialChannelShiftMetalness)
+		| ((uint32_t)MaterialTextureChannel::G << GPUMaterialChannelShiftRoughness)
+		| ((uint32_t)MaterialTextureChannel::R << GPUMaterialChannelShiftOcclusion);
+
+	// Mirrored by `GPUMaterial` in Include/GLSL/MaterialScene.glslh (std430, (set 2, binding 7)).
+	// Edit both in the same change.
 	struct GPUMaterialData
 	{
 		glm::vec4 BaseColor = glm::vec4(1.0f); // linear RGB, alpha = opacity/transparency
 		glm::vec4 Scalars = glm::vec4(0.0f, 0.5f, 0.0f, 1.0f); // x metalness, y roughness, z emission, w material complexity
-		glm::uvec4 TextureIndices = glm::uvec4(InvalidGPUTextureIndex);
+		glm::uvec4 TextureIndices = glm::uvec4(InvalidGPUTextureIndex); // x albedo, y normal, z metalness, w roughness
 		glm::uvec4 Metadata = glm::uvec4(0); // x flags, y alpha mode, z render material ID, w floatBits(env map rotation)
+		glm::vec4 Emissive = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f); // rgb linear emissive radiance, w occlusion strength
+		glm::vec4 Surface = glm::vec4(0.5f, 1.0f, 0.5f, 0.0f); // x specular, y normal strength, z alpha cutoff, w bump height
+		glm::vec4 UVTransform = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); // 2x2 matrix columns (xy, zw): rotation x tiling
+		glm::vec4 UVOffset = glm::vec4(0.0f); // xy offset, zw reserved
+		glm::uvec4 ExtraTextureIndices = glm::uvec4(InvalidGPUTextureIndex, InvalidGPUTextureIndex, InvalidGPUTextureIndex, GPUMaterialDefaultChannelSelects); // x emissive, y occlusion, z height, w channel selects
 	};
+	static_assert(sizeof(GPUMaterialData) == 9 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
 
 	struct GPUMaterialBuildInput
 	{

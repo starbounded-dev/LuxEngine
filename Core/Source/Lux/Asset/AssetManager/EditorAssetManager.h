@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "AssetManagerBase.h"
@@ -57,6 +60,9 @@ namespace Lux
 		AssetHandle ImportScriptAsset(const std::filesystem::path& filepath, uint64_t uuid);
 
 		AssetHandle GetAssetHandleFromFilePath(const std::filesystem::path& filepath) const;
+		// Handle for an asset-directory-relative path, importing the file first if it exists on disk
+		// but is not registered yet. Returns 0 when the file does not exist. Main thread only.
+		AssetHandle GetOrImportAsset(const std::filesystem::path& assetRelativePath);
 
 		AssetType GetAssetTypeFromExtension(const std::string& extension) const;
 		std::string GetDefaultExtensionForAssetType(AssetType type) const;

@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "ScriptGlue.h"
+#include "AudioScriptBindings.h"
 #include "ScriptEngine.h"
 
 #include "Lux/Core/UUID.h"
@@ -106,6 +110,31 @@ namespace Lux {
 	static Coral::Bool32 Input_IsControllerPresent(int32_t id) { return Input::IsControllerPresent(id); }
 	static Coral::Bool32 Input_IsControllerButtonDown(int32_t id, int32_t button) { return Input::IsControllerButtonDown(id, button); }
 	static float Input_GetControllerAxis(int32_t id, int32_t axis) { return Input::GetControllerAxis(id, axis); }
+
+	static Coral::Bool32 Input_IsGamepadConnected(int32_t id) { return Input::IsGamepadConnected(id); }
+	static Coral::String Input_GetGamepadName(int32_t id) { return Coral::String::New(Input::GetGamepadName(id)); }
+	static Coral::Bool32 Input_IsGamepadButtonDown(GamepadButton button, int32_t id)     { return Input::IsGamepadButtonDown(button, id); }
+	static Coral::Bool32 Input_IsGamepadButtonPressed(GamepadButton button, int32_t id)  { return Input::IsGamepadButtonPressed(button, id); }
+	static Coral::Bool32 Input_IsGamepadButtonReleased(GamepadButton button, int32_t id) { return Input::IsGamepadButtonReleased(button, id); }
+	static float Input_GetGamepadAxis(GamepadAxis axis, int32_t id) { return Input::GetGamepadAxis(axis, id); }
+	static float Input_GetGamepadDeadzone() { return Input::GetGamepadDeadzone(); }
+	static void Input_SetGamepadDeadzone(float deadzone) { Input::SetGamepadDeadzone(deadzone); }
+	static_assert(sizeof(TriggerEffect) == 5 * sizeof(int32_t), "TriggerEffect must match the C# Lux.TriggerEffect layout");
+	static Coral::Bool32 Input_SupportsTriggerEffects(int32_t id) { return Input::SupportsTriggerEffects(id); }
+	static void Input_SetGamepadTriggerEffect(GamepadTrigger trigger, TriggerEffect* effect, int32_t id) { Input::SetGamepadTriggerEffect(trigger, *effect, id); }
+	static void Input_ResetGamepadTriggerEffects() { Input::ResetGamepadTriggerEffects(); }
+	static Coral::Bool32 Input_SupportsRumble(int32_t id) { return Input::SupportsRumble(id); }
+	static void Input_RumbleGamepad(float low, float high, float durationSeconds, int32_t id) { Input::RumbleGamepad(low, high, durationSeconds, id); }
+	static void Input_StopGamepadRumble(int32_t id) { Input::StopGamepadRumble(id); }
+	static GamepadType Input_GetGamepadType(int32_t id) { return Input::GetGamepadType(id); }
+	static Coral::Bool32 Input_SupportsLightbar(int32_t id) { return Input::SupportsLightbar(id); }
+	static void Input_SetGamepadLightColor(float red, float green, float blue, int32_t id) { Input::SetGamepadLightColor(red, green, blue, id); }
+	static void Input_SetGamepadPlayerLights(int32_t player, int32_t id) { Input::SetGamepadPlayerLights(player, id); }
+	static void Input_ResetGamepadLights() { Input::ResetGamepadLights(); }
+
+	static Coral::Type* s_InputType = nullptr;
+	static uint32_t s_KnownControllerMask = 0;
+	static bool s_InputEventsPrimed = false;
 
 	#pragma endregion
 
@@ -646,6 +675,9 @@ namespace Lux {
 		RegisterManagedComponent<TextComponent>(coreAssembly);
 		RegisterManagedComponent<AudioSourceComponent>(coreAssembly);
 		RegisterManagedComponent<AudioListenerComponent>(coreAssembly);
+		RegisterManagedComponent<AudioSurfaceComponent>(coreAssembly);
+		RegisterManagedComponent<AudioZoneComponent>(coreAssembly);
+		RegisterManagedComponent<AudioPortalComponent>(coreAssembly);
 
 		// 3D physics
 		RegisterManagedComponent<RigidBodyComponent>(coreAssembly);
@@ -676,6 +708,25 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(Input_IsControllerPresent);
 		LUX_ADD_INTERNAL_CALL(Input_IsControllerButtonDown);
 		LUX_ADD_INTERNAL_CALL(Input_GetControllerAxis);
+		LUX_ADD_INTERNAL_CALL(Input_IsGamepadConnected);
+		LUX_ADD_INTERNAL_CALL(Input_GetGamepadName);
+		LUX_ADD_INTERNAL_CALL(Input_IsGamepadButtonDown);
+		LUX_ADD_INTERNAL_CALL(Input_IsGamepadButtonPressed);
+		LUX_ADD_INTERNAL_CALL(Input_IsGamepadButtonReleased);
+		LUX_ADD_INTERNAL_CALL(Input_GetGamepadAxis);
+		LUX_ADD_INTERNAL_CALL(Input_GetGamepadDeadzone);
+		LUX_ADD_INTERNAL_CALL(Input_SetGamepadDeadzone);
+		LUX_ADD_INTERNAL_CALL(Input_SupportsTriggerEffects);
+		LUX_ADD_INTERNAL_CALL(Input_SetGamepadTriggerEffect);
+		LUX_ADD_INTERNAL_CALL(Input_ResetGamepadTriggerEffects);
+		LUX_ADD_INTERNAL_CALL(Input_SupportsRumble);
+		LUX_ADD_INTERNAL_CALL(Input_RumbleGamepad);
+		LUX_ADD_INTERNAL_CALL(Input_StopGamepadRumble);
+		LUX_ADD_INTERNAL_CALL(Input_GetGamepadType);
+		LUX_ADD_INTERNAL_CALL(Input_SupportsLightbar);
+		LUX_ADD_INTERNAL_CALL(Input_SetGamepadLightColor);
+		LUX_ADD_INTERNAL_CALL(Input_SetGamepadPlayerLights);
+		LUX_ADD_INTERNAL_CALL(Input_ResetGamepadLights);
 
 		LUX_ADD_INTERNAL_CALL(Scene_CreateEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_DestroyEntity);
@@ -815,7 +866,50 @@ namespace Lux {
 	{
 		RegisterComponentTypes(coreAssembly);
 		RegisterInternalCalls(coreAssembly);
+		AudioScriptBindings::Register(coreAssembly);
 		coreAssembly.UploadInternalCalls();
+
+		s_InputType = &coreAssembly.GetLocalType("Lux.Input");
+		s_InputEventsPrimed = false;
+	}
+
+	void ScriptGlue::UpdateInput()
+	{
+		uint32_t connectedMask = 0;
+		for (const auto& [id, controller] : Input::GetControllers())
+			connectedMask |= 1u << id;
+
+		if (!s_InputEventsPrimed)
+		{
+			// Pads already connected when Play starts are not "new"; scripts query them directly.
+			s_KnownControllerMask = connectedMask;
+			s_InputEventsPrimed = true;
+			return;
+		}
+
+		const uint32_t changed = connectedMask ^ s_KnownControllerMask;
+		s_KnownControllerMask = connectedMask;
+		if (changed == 0 || !s_InputType)
+			return;
+
+		for (int32_t id = 0; id < 32; id++)
+		{
+			if (changed & (1u << id))
+				s_InputType->InvokeStaticMethod("DispatchGamepadConnection", id, (int32_t)((connectedMask >> id) & 1u));
+		}
+	}
+
+	void ScriptGlue::ResetInput()
+	{
+		s_InputEventsPrimed = false;
+		if (s_InputType)
+			s_InputType->InvokeStaticMethod("ResetGamepadEvents");
+	}
+
+	void ScriptGlue::ShutdownInput()
+	{
+		ResetInput();
+		s_InputType = nullptr;
 	}
 
 }

@@ -190,7 +190,75 @@ const vec2 poissonDisk[16] = vec2[](
 
 vec2 SamplePoisson(int index)
 {
-	return PoissonDistribution[index % 64];
+	// Constant indices keep the sample table in shader constants. A dynamically
+	// indexed local array is duplicated into per-fragment scratch by some drivers.
+	switch (index % 64)
+	{
+		case 0: return PoissonDistribution[0];
+		case 1: return PoissonDistribution[1];
+		case 2: return PoissonDistribution[2];
+		case 3: return PoissonDistribution[3];
+		case 4: return PoissonDistribution[4];
+		case 5: return PoissonDistribution[5];
+		case 6: return PoissonDistribution[6];
+		case 7: return PoissonDistribution[7];
+		case 8: return PoissonDistribution[8];
+		case 9: return PoissonDistribution[9];
+		case 10: return PoissonDistribution[10];
+		case 11: return PoissonDistribution[11];
+		case 12: return PoissonDistribution[12];
+		case 13: return PoissonDistribution[13];
+		case 14: return PoissonDistribution[14];
+		case 15: return PoissonDistribution[15];
+		case 16: return PoissonDistribution[16];
+		case 17: return PoissonDistribution[17];
+		case 18: return PoissonDistribution[18];
+		case 19: return PoissonDistribution[19];
+		case 20: return PoissonDistribution[20];
+		case 21: return PoissonDistribution[21];
+		case 22: return PoissonDistribution[22];
+		case 23: return PoissonDistribution[23];
+		case 24: return PoissonDistribution[24];
+		case 25: return PoissonDistribution[25];
+		case 26: return PoissonDistribution[26];
+		case 27: return PoissonDistribution[27];
+		case 28: return PoissonDistribution[28];
+		case 29: return PoissonDistribution[29];
+		case 30: return PoissonDistribution[30];
+		case 31: return PoissonDistribution[31];
+		case 32: return PoissonDistribution[32];
+		case 33: return PoissonDistribution[33];
+		case 34: return PoissonDistribution[34];
+		case 35: return PoissonDistribution[35];
+		case 36: return PoissonDistribution[36];
+		case 37: return PoissonDistribution[37];
+		case 38: return PoissonDistribution[38];
+		case 39: return PoissonDistribution[39];
+		case 40: return PoissonDistribution[40];
+		case 41: return PoissonDistribution[41];
+		case 42: return PoissonDistribution[42];
+		case 43: return PoissonDistribution[43];
+		case 44: return PoissonDistribution[44];
+		case 45: return PoissonDistribution[45];
+		case 46: return PoissonDistribution[46];
+		case 47: return PoissonDistribution[47];
+		case 48: return PoissonDistribution[48];
+		case 49: return PoissonDistribution[49];
+		case 50: return PoissonDistribution[50];
+		case 51: return PoissonDistribution[51];
+		case 52: return PoissonDistribution[52];
+		case 53: return PoissonDistribution[53];
+		case 54: return PoissonDistribution[54];
+		case 55: return PoissonDistribution[55];
+		case 56: return PoissonDistribution[56];
+		case 57: return PoissonDistribution[57];
+		case 58: return PoissonDistribution[58];
+		case 59: return PoissonDistribution[59];
+		case 60: return PoissonDistribution[60];
+		case 61: return PoissonDistribution[61];
+		case 62: return PoissonDistribution[62];
+		default: return PoissonDistribution[63];
+	}
 }
 
 /////////////////////////////////////////////

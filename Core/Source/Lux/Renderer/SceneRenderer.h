@@ -1,4 +1,7 @@
-﻿#pragma once
+﻿// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
+#pragma once
 
 #include "Lux/Core/Base.h"
 #include "Lux/Renderer/Camera.h"
@@ -1548,6 +1551,7 @@ namespace Lux {
 		Ref<RenderPass>  m_SelectedGeometryPass;
 		Ref<Material>    m_SelectedGeometryMaterial;
 		Ref<RenderPass>  m_GeometryWireframePass;
+		Ref<RenderPass>  m_PhysicsColliderPass;
 		Ref<Material>    m_WireframeMaterial;
 
 		// ── Skybox ────────────────────────────────────────────────────────────

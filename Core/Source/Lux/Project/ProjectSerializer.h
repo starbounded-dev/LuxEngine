@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "Project.h"
@@ -10,7 +13,7 @@ namespace Lux
 		ProjectSerializer(Ref<Project> project);
 
 		bool Serialize(const std::filesystem::path& filepath);
-		bool SerializeRuntime(const std::filesystem::path& filepath);
+		bool SerializeRuntime(const std::filesystem::path& filepath, const AudioBankManifest& banks);
 		bool Deserialize(const std::filesystem::path& filepath);
 		bool DeserializeRuntime(const std::filesystem::path& filepath);
 

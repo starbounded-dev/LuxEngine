@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "AssimpMeshImporter.h"
 
@@ -369,6 +372,32 @@ namespace Lux
 			if (AssetHandle roughnessMap = ImportTextureReference(meshPath, scene, assimpMaterial, { aiTextureType_DIFFUSE_ROUGHNESS, aiTextureType_SHININESS }, textureCache))
 				materialAsset->SetRoughnessMap(roughnessMap);
 
+			// Emission and occlusion, where the source has them. A glTF emissive colour arrives in
+			// COLOR_EMISSIVE with the KHR_materials_emissive_strength factor in EMISSIVE_INTENSITY.
+			MaterialSurfaceParameters surface = materialAsset->GetSurfaceParameters();
+			aiColor3D emissiveColor(0.0f, 0.0f, 0.0f);
+			float emissiveIntensity = 1.0f;
+			if (assimpMaterial)
+			{
+				assimpMaterial->Get(AI_MATKEY_COLOR_EMISSIVE, emissiveColor);
+				assimpMaterial->Get(AI_MATKEY_EMISSIVE_INTENSITY, emissiveIntensity);
+			}
+			surface.EmissiveMap = ImportTextureReference(meshPath, scene, assimpMaterial, { aiTextureType_EMISSION_COLOR, aiTextureType_EMISSIVE }, textureCache);
+			const float emissiveMax = std::max({ emissiveColor.r, emissiveColor.g, emissiveColor.b });
+			if (emissiveMax > 0.0f)
+			{
+				// Colour normalised to [0, 1]; its brightness moves into the intensity.
+				surface.EmissiveColor = glm::vec3(emissiveColor.r, emissiveColor.g, emissiveColor.b) / emissiveMax;
+				materialAsset->SetEmission(emissiveMax * std::max(emissiveIntensity, 0.0f));
+			}
+			else if (surface.EmissiveMap)
+			{
+				materialAsset->SetEmission(std::max(emissiveIntensity, 0.0f));
+			}
+
+			surface.OcclusionMap = ImportTextureReference(meshPath, scene, assimpMaterial, { aiTextureType_AMBIENT_OCCLUSION, aiTextureType_LIGHTMAP }, textureCache);
+			materialAsset->SetSurfaceParameters(surface);
+
 			AssetImporter::Serialize(editorAssetManager->GetMetadata(materialHandle), materialAsset.As<Asset>());
 			AssetManager::ReloadData(materialHandle);
 			meshSource->GetMaterials()[i] = materialHandle;
@@ -390,7 +419,10 @@ namespace Lux
 		if (!scene)
 			return texturePaths;
 
-		constexpr std::array<aiTextureType, 10> textureTypes = {
+		constexpr std::array<aiTextureType, 13> textureTypes = {
+			aiTextureType_EMISSION_COLOR,
+			aiTextureType_AMBIENT_OCCLUSION,
+			aiTextureType_LIGHTMAP,
 			aiTextureType_BASE_COLOR,
 			aiTextureType_DIFFUSE,
 			aiTextureType_NORMAL_CAMERA,

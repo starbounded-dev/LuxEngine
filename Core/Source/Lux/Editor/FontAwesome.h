@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #define LUX_FONT_ICON_FILE_NAME_FA (const char*)u8"fontawesome-webfont.ttf"

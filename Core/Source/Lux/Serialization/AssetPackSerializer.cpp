@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "AssetPackSerializer.h"
 #include "Lux/Asset/AssetImporter.h"
@@ -17,8 +20,9 @@ namespace Lux {
 			std::filesystem::create_directories(directory);
 	}
 
-	void AssetPackSerializer::Serialize(const std::filesystem::path& path, AssetPackFile& file, Buffer appBinary, std::atomic<float>& progress)
+	bool AssetPackSerializer::Serialize(const std::filesystem::path& path, AssetPackFile& file, Buffer appBinary, std::atomic<float>& progress)
 	{
+		ScopedBuffer ownedBinary(appBinary);
 		// Print Info
 		LUX_CORE_TRACE("Serializing AssetPack to {}", path.string());
 		LUX_CORE_TRACE("  {} scenes", file.Index.Scenes.size());
@@ -28,6 +32,11 @@ namespace Lux {
 		LUX_CORE_TRACE("  {} assets (including duplicates)", assetCount);
 
 		FileStreamWriter serializer(path);
+		if (!serializer.IsStreamGood() || file.Index.Scenes.empty())
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "Cannot write asset pack '{}' (unwritable file or no scenes)", path.string());
+			return false;
+		}
 
 		serializer.WriteRaw<AssetPackFile::FileHeader>(file.Header);
 
@@ -47,14 +56,17 @@ namespace Lux {
 		file.Index.PackedAppBinaryOffset = serializer.GetStreamPosition();
 		serializer.WriteBuffer(appBinary);
 		file.Index.PackedAppBinarySize = serializer.GetStreamPosition() - file.Index.PackedAppBinaryOffset;
-		appBinary.Release();
 
 		// Write asset data + fill in offset + size
 		for (auto& [sceneHandle, sceneInfo] : file.Index.Scenes)
 		{
 			// Serialize Scene
 			AssetSerializationInfo serializationInfo;
-			AssetImporter::SerializeToAssetPack(sceneHandle, serializer, serializationInfo);
+			if (!AssetImporter::SerializeToAssetPack(sceneHandle, serializer, serializationInfo) || !serializer.IsStreamGood())
+			{
+				LUX_CORE_ERROR_TAG("Asset Pack", "Failed to pack scene {}", static_cast<uint64_t>(sceneHandle));
+				return false;
+			}
 			file.Index.Scenes[sceneHandle].PackedOffset = serializationInfo.Offset;
 			file.Index.Scenes[sceneHandle].PackedSize = serializationInfo.Size;
 
@@ -71,7 +83,7 @@ namespace Lux {
 				else
 				{
 					// Serialize asset
-					if (AssetImporter::SerializeToAssetPack(assetHandle, serializer, serializationInfo))
+					if (AssetImporter::SerializeToAssetPack(assetHandle, serializer, serializationInfo) && serializer.IsStreamGood())
 					{
 						file.Index.Scenes[sceneHandle].Assets[assetHandle].PackedOffset = serializationInfo.Offset;
 						file.Index.Scenes[sceneHandle].Assets[assetHandle].PackedSize = serializationInfo.Size;
@@ -79,7 +91,8 @@ namespace Lux {
 					}
 					else
 					{
-						LUX_CORE_ERROR("Failed to serialize asset with handle {}", assetHandle);
+						LUX_CORE_ERROR_TAG("Asset Pack", "Failed to pack asset {}", static_cast<uint64_t>(assetHandle));
+						return false;
 					}
 				}
 			}
@@ -105,7 +118,13 @@ namespace Lux {
 			serializer.WriteMap(file.Index.Scenes[sceneHandle].Assets);
 		}
 
+		if (!serializer.Flush())
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "Failed writing asset pack '{}'", path.string());
+			return false;
+		}
 		progress = progress + 0.1f;
+		return true;
 	}
 
 	bool AssetPackSerializer::DeserializeIndex(const std::filesystem::path& path, AssetPackFile& file)

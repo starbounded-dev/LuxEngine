@@ -23,6 +23,7 @@ actual code (files are cited as `path:line` so a reader can jump straight to the
 | [Theme, Fonts & Icons](Theme-Fonts-Icons.md) | `Colors::Theme`, the font stack, FontAwesome glyphs, `EditorResources` textures, the `ImGuiEx` helpers |
 | [Keybindings & Menus](Keybindings.md) | Every shortcut and menu entry, and where they are wired |
 | [Undo / Redo](Undo-Redo.md) | The snapshot-based undo system, its coverage, and the phased plan to complete it |
+| [Audio](Audio.md) | The Audio Debugger, Project Settings → Audio, the five audio components, and the acoustics viewport overlay |
 | [Extending the Editor](Extending.md) | Recipes: add a panel, add a font, add an icon, change the accent, add a shortcut |
 
 ---

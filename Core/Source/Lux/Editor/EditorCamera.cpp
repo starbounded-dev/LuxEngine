@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "EditorCamera.h"
 
@@ -216,7 +219,9 @@ namespace Lux {
 		const glm::vec3 lookAt = m_Position + GetForwardDirection();
 		m_Direction = glm::normalize(lookAt - m_Position);
 		m_Distance = glm::distance(m_Position, m_FocalPoint);
-		m_ViewMatrix = glm::lookAt(m_Position, lookAt, glm::vec3{ 0.f, yawSign, 0.f });
+		// The orientation's up vector remains perpendicular at top/bottom views.
+		// A fixed world-up vector makes those axis-aligned views singular.
+		m_ViewMatrix = glm::lookAt(m_Position, lookAt, GetUpDirection());
 
 		//damping for smooth camera
 		m_YawDelta *= 0.6f;

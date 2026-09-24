@@ -48,7 +48,7 @@ Establish, and state briefly:
 
 ---
 
-## Step 3 — The five things that most often go wrong here
+## Step 3 — The six things that most often go wrong here
 
 Keep these in working memory while writing:
 
@@ -62,6 +62,11 @@ Keep these in working memory while writing:
    submission time.
 5. **A new component needs five edits, not one** — declaration, copy/duplicate, serialize,
    deserialize, editor UI.
+6. **ImGui code is verified, not glanced at.** Before calling any UI change done, walk it against
+   `Conventions.md § ImGui correctness`: every `Begin*` / `Push*` / `TreeNode*` closed on every path
+   (including early returns), no two widgets with the same ID in one scope (two `"Reset"` buttons, an
+   `On`/`Off` toggle colliding with another), a stable `PushID` per loop item, and matching
+   popup/window/dock name strings. Then drive every new state in the editor.
 
 ---
 

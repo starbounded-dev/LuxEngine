@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "Lux/Core/Base.h"
@@ -173,7 +176,7 @@ namespace Lux {
 		ApplicationSpecification m_Specification;
 		bool m_Running = true, m_Minimized = false;
 		LayerStack m_LayerStack;
-		ImGuiLayer* m_ImGuiLayer;
+		ImGuiLayer* m_ImGuiLayer = nullptr; // Stays null when EnableImGui is off (Dist runtime).
 		Timestep m_Frametime;
 		Timestep m_TimeStep;
 		PerformanceProfiler* m_Profiler = nullptr; // TODO: Should be null in Dist

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #pragma once
 
 #include "Lux/Core/Base.h"
@@ -48,6 +51,8 @@ namespace Lux {
 
 		void BackBufferResizing();
 		void BackBufferResized();
+	private:
+		bool IsSurfaceZeroSized() const;
 	public:
 		VulkanSwapChain(vk::SurfaceKHR surface);
 	private:
@@ -65,6 +70,7 @@ namespace Lux {
 
 		uint32_t m_AcquireSemaphoreIndex = 0;
 		bool m_NeedsRecreate = false;
+		bool m_ImageAcquired = false; // Render thread only: set by a successful BeginFrame, consumed by Present
 
 		struct SwapChainImage
 		{

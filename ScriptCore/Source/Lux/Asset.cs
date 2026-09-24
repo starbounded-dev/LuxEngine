@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 namespace Lux
 {
 	// Base for asset-reference script fields. The engine serializes these as a UUID (AssetHandle)

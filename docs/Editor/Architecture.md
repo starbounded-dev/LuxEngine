@@ -151,9 +151,10 @@ Registered in `OnAttach` (`EditorLayer.cpp:350`–`393`), all under `PanelCatego
 | Asset Manager | `AssetManagerPanel` | ✘ | [Panels](Panels.md#asset-manager) |
 | Project Settings | `ProjectSettingsWindow` | ✘ | [Panels](Panels.md#project-settings) |
 | Light Settings | `LightSettingsPanel` | ✘ | [Panels](Panels.md#light-settings) |
+| Material Editor | `MaterialEditorPanel` | ✘ | [Panels](Panels.md#material-editor) |
 
-(A few panels — `MaterialsPanel`, `MaterialEditorPanel`, `RenderStatsPanel` — exist in the source
-tree and are used contextually rather than registered as always-available View panels.)
+(`RenderStatsPanel` exists in the source tree and is used contextually rather than registered as an
+always-available View panel.)
 
 ---
 

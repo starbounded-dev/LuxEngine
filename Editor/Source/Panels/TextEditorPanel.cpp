@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "TextEditorPanel.h"
 
@@ -530,7 +533,10 @@ namespace Lux
 				m_DiffEditor.SetSideBySideMode(m_DiffSideBySide);
 
 			ImGui::Text("%s  <->  %s", leftName.c_str(), rightName.c_str());
+			// The diff view lays glyphs out on a fixed-width grid, so it must draw with the mono face.
+			ImGuiEx::Fonts::PushFont("Mono");
 			m_DiffEditor.Render("##BeamDiff", ImVec2(-1.0f, -1.0f), true);
+			ImGuiEx::Fonts::PopFont();
 			ImGui::End();
 			return;
 		}
@@ -560,7 +566,11 @@ namespace Lux
 		// Editor fills the space above a one-line status bar pinned to the bottom.
 		const float statusBarHeight = ImGui::GetTextLineHeightWithSpacing();
 		const std::string editorId = std::format("##beam_editor_{}", static_cast<const void*>(doc));
+		// TextEditor places every glyph on a grid one "#" wide, so a proportional font renders with
+		// gaps around narrow characters. Push the mono face for the editor body.
+		ImGuiEx::Fonts::PushFont("Mono");
 		doc->Editor.Render(editorId.c_str(), ImVec2(-1.0f, -statusBarHeight), true);
+		ImGuiEx::Fonts::PopFont();
 
 		UI_StatusBar(*doc);
 

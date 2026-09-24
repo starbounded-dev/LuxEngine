@@ -231,6 +231,28 @@ processed until the asset thread has synced its assets back to the main thread. 
 
 ---
 
+## FMOD callbacks
+
+Studio callbacks copy stopped, marker, and beat data into bounded mutex-protected queues in
+`AudioEventInstance`. Callback userdata is a never-reused token, not a pointer to an engine owner;
+destruction removes the token's state before releasing the SDK instance. No Scene, ECS, Coral,
+ImGui, or scene playback mutation runs in these callbacks. Programmer-sound callbacks are the
+SDK-required exception for sound ownership: CREATE resolves a copied audio-table key using the
+callback event's Studio/Core systems and calls Core createSound; DESTROY releases that SDK sound,
+even if the wrapper mailbox has already been removed. No bank-owned pointers escape CREATE.
+The notification mutex is not held across programmer creation/release. Playback status and sound
+length are copied into the mailbox; callback errors are reported on the main thread. `Scene::OnUpdateRuntime` drains music timeline
+mailboxes and the audio scripting bridge drains script notifications on the main thread before
+script OnUpdate. Only immutable copied payloads cross the callback boundary. Bank generation checks
+protect main-thread calls from stale SDK handles; tokens isolate late callback delivery.
+
+Accessibility observes these same mailboxes on the main thread; it does not add SDK callbacks.
+Weak source tracking, subtitle/cue dispatch, preference I/O and FMOD mixer configuration all run
+on the main thread. It completes source mutations before calling game listeners. Mixer DSPs are
+detached before banks unload; ImGui consumes presentation snapshots on the main thread.
+
+---
+
 ## Shader compilation
 
 The `(set, binding)` reflection registries in `VulkanShaderCompiler.cpp` are **process-global
@@ -277,3 +299,31 @@ Walk up the call graph until you hit one of:
 Still unsure? Add `LUX_CORE_ASSERT(Application::IsMainThread(), "...")` (or
 `RenderThread::IsCurrentThreadRT()`) and run a Debug build — it tells you on the first frame, and
 costs nothing in Release.
+
+## Acoustic geometry and portals
+
+`Scene::SyncAudioGeometry` and its `AudioGeometrySystem` queue are main-thread owned. Runtime
+joins `RaytracedAudioScene::WaitForResults()` before adding, removing, retagging or transforming VA
+primitives or changing world bounds. The next `OnUpdate()` launches workers only after these edits
+and listener/source updates finish. SDK workers receive no ECS pointers. C# portal/motion setters
+edit component data on the main thread; they never mutate VA directly. Pause defers queue work.
+Portal gizmos are captured as immutable `FrameRenderPacket::AudioZoneLines`, so the render thread
+reads neither portal components nor mutable VA geometry. Teardown drains VA before destroying its
+primitives/world and clears the scene's queue.
+
+## Audio budgets and validation
+
+`AudioSourcePlayback` and `AudioPerformance` are main-thread owned. Source updates and C# controls
+only read/mutate the active scene there. Culled VA emitters are removed after joining the previous
+VA batch. `AudioPerformance::Update` samples SDK meters/counts at 4 Hz after Studio update; its bus
+groups and its own meter DSPs are detached and released before bank unload. The SDK mixer owns sample processing. ImGui
+reads cached values and never traverses the mixer itself. Explicit project validation loads scene,
+prefab and table assets on the main thread and inspects banks with a separate NOSOUND FMOD system.
+It runs only on demand or during export, never per frame, and passes no ECS pointers to SDK threads.
+
+`Application` calls `AudioEngine::SetApplicationFocused` and `Update` on the main thread even
+while minimized. GLFW/ImGui focus queries remain on that thread. Focus mute only changes the Core
+master output group's mute; it never changes Studio bus state, event pause flags or scene state.
+SDK mixer/streaming work and timeline callbacks continue while unfocused. No platform callback
+directly invokes audio, scripts or ECS. Profile selection and bank rebuild/reload remain main-thread
+operations; console suspend/resume integration is deferred.

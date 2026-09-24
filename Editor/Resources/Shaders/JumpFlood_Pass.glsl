@@ -73,13 +73,14 @@ void BoundsCheck(inout vec2 xy, vec2 uv)
 
 void main()
 {
-    vec4 pixel = SampleLinear(u_Texture, Input.UV[0]);
+	// Mask classes and distance vectors must not blend across the selection boundary.
+	vec4 pixel = texture(sampler2D(u_Texture, r_PointSampler), Input.UV[0]);
 
     for (int j = 1; j <= 8; j++)
     {
         // Sample neighbouring pixel and make sure it's
         // on the same side as us
-        vec4 n = SampleLinear(u_Texture, Input.UV[j]);
+		vec4 n = texture(sampler2D(u_Texture, r_PointSampler), Input.UV[j]);
         if (n.w != pixel.w)
             n.xyz = vec3(0.0f);
 

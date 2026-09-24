@@ -1,6 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
 #include "lpch.h"
 #include "ScriptEngine.h"
 #include "ScriptGlue.h"
+#include "AudioScriptBindings.h"
 #include "ScriptAsset.h"
 
 #include "Lux/Core/Application.h"
@@ -140,6 +144,8 @@ namespace Lux {
 
 	void ScriptEngine::Shutdown()
 	{
+		AudioScriptBindings::Shutdown();
+		ScriptGlue::ShutdownInput();
 		m_ManagedObjects.Clear();
 
 		for (auto& [scriptID, scriptMetadata] : m_ScriptMetadata)
@@ -271,6 +277,9 @@ namespace Lux {
 	{
 		if (!m_Host || !m_LoadContext)
 			return;
+
+		AudioScriptBindings::Shutdown();
+		ScriptGlue::ShutdownInput();
 
 		// Drop all live handles + metadata before unloading the context; any survivor pins it.
 		m_ManagedObjects.Clear();
