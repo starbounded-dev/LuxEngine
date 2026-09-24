@@ -16,6 +16,7 @@ namespace Lux
 	FMOD::System* AudioEngine::s_Engine = nullptr;
 	FMOD::Studio::System* AudioEngine::s_StudioSystem = nullptr;
 	int TestRealVoices = 64;
+	std::unordered_map<FMOD::Studio::Bus*, uint32_t> TestBusLocks;
 	void AudioEngine::Init()
 	{
 		assert(FMOD::Studio::System::create(&s_StudioSystem) == FMOD_OK);
@@ -30,6 +31,7 @@ namespace Lux
 	void AudioEngine::Shutdown()
 	{
 		AudioAccessibility::ReleaseMixer();
+		TestBusLocks.clear(); // Bus handles die with the Studio system.
 		s_HasInitializedAudioEngine = false;
 		++s_EventGeneration;
 		++s_BankRevision;
@@ -43,6 +45,34 @@ namespace Lux
 		auto r = s_StudioSystem->loadBankFile(p.c_str(), FMOD_STUDIO_LOAD_BANK_NORMAL, &b);
 		++s_BankRevision;
 		return r == FMOD_OK;
+	}
+	// Mirrors the production reference count: accessibility and performance can lock one bus.
+	FMOD_RESULT AudioEngine::LockBusChannelGroup(FMOD::Studio::Bus* bus)
+	{
+		if (!bus)
+			return FMOD_ERR_INVALID_PARAM;
+		uint32_t& count = TestBusLocks[bus];
+		if (count == 0)
+		{
+			const FMOD_RESULT result = bus->lockChannelGroup();
+			if (result != FMOD_OK)
+			{
+				TestBusLocks.erase(bus);
+				return result;
+			}
+		}
+		++count;
+		return FMOD_OK;
+	}
+	FMOD_RESULT AudioEngine::UnlockBusChannelGroup(FMOD::Studio::Bus* bus)
+	{
+		auto it = TestBusLocks.find(bus);
+		if (it == TestBusLocks.end())
+			return FMOD_ERR_INVALID_PARAM;
+		if (--it->second > 0)
+			return FMOD_OK;
+		TestBusLocks.erase(it);
+		return bus->unlockChannelGroup();
 	}
 	std::string AudioEngine::ResolveEventReference(const std::string& ref)
 	{

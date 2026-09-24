@@ -162,7 +162,8 @@ def main():
     directory = directory.resolve()
     print("Test artifacts:", directory, flush=True)
     makefile = (ROOT / "Core/Makefile").read_text()
-    debug = makefile.split("ifeq ($(config),debug)", 1)[1].split("endif", 1)[0]
+    # Each config block holds nested ifeq/endif (CC/CXX/AR defaults); end at the next config.
+    debug = makefile.split("ifeq ($(config),debug)", 1)[1].split("else ifeq ($(config),", 1)[0]
     flags = shlex.split(re.search(r"^DEFINES \+= (.*)$", debug, re.M)[1])
     flags = [flag for flag in flags if not flag.startswith(("-DTRACY", "-DLUX_TRACK_MEMORY"))]
     flags += shlex.split(re.search(r"^INCLUDES \+= (.*)$", debug, re.M)[1])
