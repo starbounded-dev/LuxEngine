@@ -2235,6 +2235,23 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_PhysicsColliderPass->Validate());
 			m_PhysicsColliderPass->Bake();
 
+			// Filled, alpha-blended variant for category views. It lies exactly on the scene's own
+			// surfaces, so it needs the depth test's equal-passes compare (GreaterOrEqual, reversed Z).
+			fbSpec.DebugName = "DebugCategoryFill";
+			pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
+			pipelineSpec.Wireframe = false;
+			pipelineSpec.BackfaceCulling = true;
+			pipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
+			pipelineSpec.DebugName = "DebugCategoryFill";
+			rpSpec.DebugName = "DebugCategoryFillPass";
+			rpSpec.Pipeline = Pipeline::Create(pipelineSpec);
+			m_DebugCategoryFillPass = RenderPass::Create(rpSpec);
+			m_DebugCategoryFillPass->SetInput("Camera", m_UBSCamera);
+			m_DebugCategoryFillPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+			m_DebugCategoryFillPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			LUX_CORE_VERIFY(m_DebugCategoryFillPass->Validate());
+			m_DebugCategoryFillPass->Bake();
+
 			m_WireframeMaterial = Material::Create(pipelineSpec.Shader, "Wireframe");
 			m_WireframeMaterial->Set("u_MaterialUniforms.Color", glm::vec4{ 1.0f, 0.5f, 0.0f, 1.0f });
 		}
@@ -2511,6 +2528,11 @@ namespace Lux {
 			m_SimpleColliderMaterial->Set("u_MaterialUniforms.Color", glm::vec4{ 0.2f, 1.0f, 0.2f, 1.0f });
 			m_ComplexColliderMaterial = Material::Create(wireframeShader, "ComplexCollider");
 			m_ComplexColliderMaterial->Set("u_MaterialUniforms.Color", glm::vec4{ 0.5f, 0.5f, 1.0f, 1.0f });
+			for (size_t i = 0; i < m_DebugCategoryMaterials.size(); ++i)
+			{
+				m_DebugCategoryMaterials[i] = Material::Create(wireframeShader, std::format("DebugCategory{}", i));
+				m_DebugCategoryMaterials[i]->Set("u_MaterialUniforms.Color", glm::vec4(DebugCategoryPalette[i], DebugCategoryFillAlpha));
+			}
 		}
 
 		ResizeScreenSpaceEffectResources();
@@ -3620,6 +3642,7 @@ namespace Lux {
 		addRenderPass(m_SelectedGeometryPass);
 		addRenderPass(m_GeometryWireframePass);
 		addRenderPass(m_PhysicsColliderPass);
+		addRenderPass(m_DebugCategoryFillPass);
 		addRenderPass(m_SkyboxPass);
 		addRenderPass(m_CompositePass);
 		addRenderPass(m_GridRenderPass);
@@ -4023,7 +4046,7 @@ namespace Lux {
 
 		const bool wireframeActive = executable
 			? ((m_Options.ShowSelectedInWireframe && !GetMeshPass(MeshPassType::Wireframe).DrawList.empty())
-				|| (m_Options.ShowPhysicsColliders && !GetMeshPass(MeshPassType::PhysicsCollider).DrawList.empty()))
+				|| ((m_Options.ShowPhysicsColliders || m_Options.ShowDebugCategories) && !GetMeshPass(MeshPassType::PhysicsCollider).DrawList.empty()))
 			: true;
 		if (m_GeometryWireframePass && wireframeActive)
 		{
@@ -4540,6 +4563,7 @@ namespace Lux {
 		recreatePassFramebuffer(m_SelectedGeometryPass);
 		recreatePassFramebuffer(m_GeometryWireframePass);
 		recreatePassFramebuffer(m_PhysicsColliderPass);
+		recreatePassFramebuffer(m_DebugCategoryFillPass);
 		recreatePassFramebuffer(m_AOCompositePass);
 		recreatePassFramebuffer(m_AODebugPass);
 		recreatePassFramebuffer(m_SSRCompositePass);
@@ -4674,6 +4698,8 @@ namespace Lux {
 				m_GeometryWireframePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			if (m_PhysicsColliderPass)
 				m_PhysicsColliderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_DebugCategoryFillPass)
+				m_DebugCategoryFillPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositingFramebuffer->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_CompositePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GridRenderPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -5988,10 +6014,13 @@ namespace Lux {
 	void SceneRenderer::SubmitPhysicsStaticDebugMesh(Ref<StaticMesh> staticMesh,
 		Ref<MeshSource> meshSource,
 		const glm::mat4& transform,
-		bool isSimpleCollider)
+		bool isSimpleCollider,
+		int32_t debugCategory)
 	{
-		SubmitStaticDebugMesh(MeshPassType::PhysicsCollider, staticMesh, meshSource, transform,
-			isSimpleCollider ? m_SimpleColliderMaterial : m_ComplexColliderMaterial);
+		Ref<Material> material = isSimpleCollider ? m_SimpleColliderMaterial : m_ComplexColliderMaterial;
+		if (debugCategory >= 0 && static_cast<size_t>(debugCategory) < m_DebugCategoryMaterials.size() && m_DebugCategoryMaterials[debugCategory])
+			material = m_DebugCategoryMaterials[debugCategory];
+		SubmitStaticDebugMesh(MeshPassType::PhysicsCollider, staticMesh, meshSource, transform, material);
 	}
 
 	void SceneRenderer::SubmitStaticDebugMesh(MeshPassType passType,
@@ -7729,8 +7758,8 @@ namespace Lux {
 
 		const MeshPassState& wireframePass = GetMeshPass(MeshPassType::Wireframe);
 		const MeshPassState& colliderPass = GetMeshPass(MeshPassType::PhysicsCollider);
-		if ((!m_Options.ShowSelectedInWireframe || wireframePass.DrawList.empty())
-			&& (!m_Options.ShowPhysicsColliders || colliderPass.DrawList.empty()))
+		const bool showColliders = (m_Options.ShowPhysicsColliders || m_Options.ShowDebugCategories) && !colliderPass.DrawList.empty();
+		if ((!m_Options.ShowSelectedInWireframe || wireframePass.DrawList.empty()) && !showColliders)
 			return;
 
 		BeginProfiledGPU("GeometryWireframePass");
@@ -7759,7 +7788,7 @@ namespace Lux {
 
 		Renderer::EndRenderPass(m_CommandBuffer);
 
-		if (m_Options.ShowPhysicsColliders && !colliderPass.DrawList.empty())
+		if (showColliders)
 		{
 			// Material storage is read by queued draws; update it in the same queue.
 			Renderer::Submit([simpleMaterial = m_SimpleColliderMaterial, complexMaterial = m_ComplexColliderMaterial,
@@ -7768,27 +7797,33 @@ namespace Lux {
 				simpleMaterial->Set("u_MaterialUniforms.Color", simpleColor);
 				complexMaterial->Set("u_MaterialUniforms.Color", complexColor);
 			});
-			Ref<RenderPass> colliderRenderPass = m_Options.ShowPhysicsCollidersOnTop
-				? m_GeometryWireframePass : m_PhysicsColliderPass;
-			Renderer::BeginRenderPass(m_CommandBuffer, colliderRenderPass);
-			for (const MeshKey& key : colliderPass.DrawOrder)
+			auto drawColliders = [&](Ref<RenderPass> renderPass)
 			{
-				const auto drawIt = colliderPass.DrawList.find(key);
-				if (drawIt == colliderPass.DrawList.end()) continue;
-				auto it = m_MeshTransformMap.find(key);
-				if (it == m_MeshTransformMap.end()) continue;
+				Renderer::BeginRenderPass(m_CommandBuffer, renderPass);
+				for (const MeshKey& key : colliderPass.DrawOrder)
+				{
+					const auto drawIt = colliderPass.DrawList.find(key);
+					if (drawIt == colliderPass.DrawList.end()) continue;
+					auto it = m_MeshTransformMap.find(key);
+					if (it == m_MeshTransformMap.end()) continue;
 
-				StaticDrawCommand drawCmd = drawIt->second;
-				const MeshDrawParams params(it->second);
+					StaticDrawCommand drawCmd = drawIt->second;
+					const MeshDrawParams params(it->second);
 
-				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, params]() mutable {
-					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
-						instance->m_GeometryWireframePass->GetPipeline()->GetShader());
-					});
-			}
-			Renderer::EndRenderPass(m_CommandBuffer);
+					Ref<SceneRenderer> instance = this;
+					Renderer::Submit([instance, drawCmd, params]() mutable {
+						instance->RT_DrawStaticMesh(
+							instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/true, 0, /*useVisibleObjectIndexes=*/false, false,
+							instance->m_GeometryWireframePass->GetPipeline()->GetShader());
+						});
+				}
+				Renderer::EndRenderPass(m_CommandBuffer);
+			};
+			// Category views fill each surface translucently, then outline it with the same colour.
+			if (m_Options.ShowDebugCategories && m_DebugCategoryFillPass)
+				drawColliders(m_DebugCategoryFillPass);
+			drawColliders(m_Options.ShowPhysicsCollidersOnTop && !m_Options.ShowDebugCategories
+				? m_GeometryWireframePass : m_PhysicsColliderPass);
 		}
 
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);

@@ -59,6 +59,7 @@ namespace Lux
 
 		void OnOverlayRender();
 		void DrawAudioVisualisation(const glm::mat4& view);
+		void UI_AcousticMaterialLegend();
 		void DrawAudioOcclusion(const glm::mat4& view, const AudioVisualisationSettings& settings);
 
 		// Rebuilds the project's FMOD banks when the .fspro has changed since they were last built.

@@ -407,6 +407,20 @@ deleted after editing a widely-included `.glslh`.
 
 ---
 
+## Editor debug geometry — colliders and category views
+
+Collider wireframes travel as `FrameRenderPacket::ColliderDebugItem`s and draw in
+`SceneRenderer::GeometryWireframePass` from the `PhysicsCollider` mesh pass, one draw bucket per
+material. All of it is editor-only (`EnableEditorRenderTargets`). An item's `DebugCategory` (an
+index into `Renderer/DebugPalette.h`'s `DebugCategoryPalette`, -1 for the normal collider colours)
+selects one of the `m_DebugCategoryMaterials` created once in `Init()`, so a category view never
+creates a material or pipeline per frame. With `SceneRendererOptions::ShowDebugCategories` the
+packet carries category items only, and each is drawn twice: filled and alpha-blended through
+`m_DebugCategoryFillPass` (same `Wireframe` shader, solid fill, back-face culled, depth-tested with
+the default `GreaterOrEqual` so a fill lying exactly on the scene surface still passes), then
+outlined through the collider pass. The renderer knows only indices; which category means what
+(the acoustic material view) is decided by the scene when it builds the packet.
+
 ## What `/cr` treats as must-fix in these paths
 
 | Pattern | Why |

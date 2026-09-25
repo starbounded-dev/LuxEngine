@@ -1678,10 +1678,7 @@ namespace Lux {
 			input.Mode = collider.AcousticMotion;
 			input.Mesh = ResolveMeshColliderHandle(entity, collider);
 			input.Submesh = collider.SubmeshIndex;
-			if (const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>())
-				input.Material = surface->Material;
-			else
-				input.Material = collider.Acoustic;
+			input.Material = ResolveAcousticMaterial(entity);
 			if (input.Mode != AcousticGeometryMode::Static || !m_AudioGeometry.GetStaticTransform(input.Entity, input.Transform))
 				input.Transform = GetWorldSpaceTransformMatrix(entity);
 			m_AudioGeometryInputs.push_back(input);
@@ -1724,6 +1721,16 @@ namespace Lux {
 		m_AudioOcclusion.Configure(materials, occlusion);
 
 		SyncAudioGeometry(true);
+	}
+
+	AcousticMaterial Scene::ResolveAcousticMaterial(Entity entity) const
+	{
+		AcousticMaterial material = AcousticMaterial::Default;
+		if (const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>())
+			material = surface->Material;
+		else if (const auto* collider = entity.TryGetComponent<MeshColliderComponent>())
+			material = collider->Acoustic;
+		return IsValidAcousticMaterial(material) ? material : AcousticMaterial::Default;
 	}
 
 	void Scene::UpdateAudioOcclusion(float timestep, const glm::vec3& listener)
@@ -2444,7 +2451,7 @@ namespace Lux {
 			LUX_PROFILE_SCOPE("Scene::SubmitMeshes");
 			renderer->SubmitRenderScene(packet.Meshes);
 			for (const FrameRenderPacket::ColliderDebugItem& collider : packet.ColliderDebug)
-				renderer->SubmitPhysicsStaticDebugMesh(collider.Mesh, collider.Source, collider.Transform, collider.SimpleCollider);
+				renderer->SubmitPhysicsStaticDebugMesh(collider.Mesh, collider.Source, collider.Transform, collider.SimpleCollider, collider.DebugCategory);
 		}
 
 		// The 2D overlay runs as a deferred render-graph pass (possibly off the submitting thread), so the
@@ -2537,6 +2544,12 @@ namespace Lux {
 		const std::function<bool(Entity)>& isSelected)
 	{
 		const SceneRendererOptions& rendererOptions = renderer->GetOptions();
+		// The category view takes over the collider list: acoustic geometry only, tinted by tag.
+		if (rendererOptions.ShowDebugCategories)
+		{
+			CaptureAcousticMaterialDebug(packet);
+			return;
+		}
 		if (!rendererOptions.ShowPhysicsColliders)
 			return;
 
@@ -2649,31 +2662,74 @@ namespace Lux {
 				if (!shouldSubmitCollider(entity))
 					continue;
 
-				const auto& collider = colliderView.get<const MeshColliderComponent>(e);
-				const AssetHandle colliderHandle = ResolveMeshColliderHandle(entity, collider);
-				if (!colliderHandle)
-					continue;
-
-				Ref<StaticMesh> staticMesh;
-				Ref<MeshSource> meshSource;
-				if (!ResolveStaticMeshDebugAssets(colliderHandle, staticMesh, meshSource))
-					continue;
-
-				if (collider.SubmeshIndex < meshSource->GetSubmeshes().size())
-					staticMesh = Ref<StaticMesh>::Create(staticMesh->GetMeshSource(), std::vector<uint32_t>{ collider.SubmeshIndex }, false);
-
-				const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
-				const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
-				const glm::mat4 transform = GetPhysicsColliderBodyTransform(worldTransform)
-					* glm::scale(glm::mat4(1.0f), physicsScale);
-
 				FrameRenderPacket::ColliderDebugItem item;
-				item.Mesh = staticMesh;
-				item.Source = meshSource;
-				item.Transform = transform;
+				if (!ResolveMeshColliderDebug(entity, colliderView.get<const MeshColliderComponent>(e), item.Mesh, item.Source, item.Transform))
+					continue;
 				item.SimpleCollider = false;
 				packet.ColliderDebug.push_back(std::move(item));
 			}
+		}
+	}
+
+	bool Scene::ResolveMeshColliderDebug(Entity entity, const MeshColliderComponent& collider, Ref<StaticMesh>& staticMesh, Ref<MeshSource>& meshSource, glm::mat4& transform) const
+	{
+		const AssetHandle colliderHandle = ResolveMeshColliderHandle(entity, collider);
+		if (!colliderHandle || !ResolveStaticMeshDebugAssets(colliderHandle, staticMesh, meshSource))
+			return false;
+
+		if (collider.SubmeshIndex < meshSource->GetSubmeshes().size())
+			staticMesh = Ref<StaticMesh>::Create(staticMesh->GetMeshSource(), std::vector<uint32_t>{ collider.SubmeshIndex }, false);
+
+		const TransformComponent worldTransform = GetWorldSpaceTransform(entity);
+		const glm::vec3 physicsScale = glm::max(glm::abs(worldTransform.Scale), glm::vec3(0.001f));
+		transform = GetPhysicsColliderBodyTransform(worldTransform) * glm::scale(glm::mat4(1.0f), physicsScale);
+		return true;
+	}
+
+	// Every surface the acoustics see, tinted by its effective tag: mesh colliders that are not
+	// Disabled, plus enabled portal shutters at their current Open (the box VA traces).
+	void Scene::CaptureAcousticMaterialDebug(FrameRenderPacket& packet) const
+	{
+		Scene* scene = const_cast<Scene*>(this);
+		for (auto e : m_Registry.view<const TransformComponent, const MeshColliderComponent>())
+		{
+			Entity entity = { e, scene };
+			const auto& collider = entity.GetComponent<MeshColliderComponent>();
+			if (collider.AcousticMotion == AcousticGeometryMode::Disabled)
+				continue;
+
+			FrameRenderPacket::ColliderDebugItem item;
+			if (!ResolveMeshColliderDebug(entity, collider, item.Mesh, item.Source, item.Transform))
+				continue;
+			item.SimpleCollider = false;
+			item.DebugCategory = static_cast<int32_t>(ResolveAcousticMaterial(entity));
+			packet.ColliderDebug.push_back(std::move(item));
+		}
+
+		for (auto e : m_Registry.view<const TransformComponent, const AudioPortalComponent>())
+		{
+			Entity entity = { e, scene };
+			const auto& portal = entity.GetComponent<AudioPortalComponent>();
+			if (!portal.Enabled)
+				continue;
+
+			AudioGeometryInput input;
+			input.Portal = true;
+			input.Mode = AcousticGeometryMode::Dynamic;
+			input.Transform = GetWorldSpaceTransformMatrix(entity);
+			input.HalfExtents = portal.HalfExtents;
+			input.Open = m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning() ? m_AudioGeometry.GetPortalOpen(entity.GetUUID()) : portal.Open;
+			if (!AudioGeometrySystem::Validate(input) || input.Open >= 1.0f)
+				continue;
+
+			FrameRenderPacket::ColliderDebugItem item;
+			if (!ResolveStaticMeshDebugAssets(GetColliderDebugPrimitiveMesh(ColliderDebugPrimitive::Box), item.Mesh, item.Source))
+				continue;
+			// The shutter is the unit box [-1, 1] under PortalTransform; the debug box is [-0.5, 0.5].
+			item.Transform = AudioGeometrySystem::PortalTransform(input) * glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
+			item.SimpleCollider = true;
+			item.DebugCategory = static_cast<int32_t>(IsValidAcousticMaterial(portal.Material) ? portal.Material : AcousticMaterial::Default);
+			packet.ColliderDebug.push_back(std::move(item));
 		}
 	}
 

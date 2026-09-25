@@ -55,6 +55,7 @@ namespace Lux {
 
 	// Captured render state for one frame (defined in Renderer/FrameRenderPacket.h)
 	struct FrameRenderPacket;
+	class MeshSource;
 
 	class Scene : public Asset
 	{
@@ -239,6 +240,8 @@ namespace Lux {
 		void UpdateAudioOcclusion(float timestep, const glm::vec3& listener);
 		void UpdatePhysicsAudio(float timestep);
 		AudioSurfaceSounds GetSurfaceSounds(Entity entity, AcousticMaterial& material) const;
+		void CaptureAcousticMaterialDebug(FrameRenderPacket& packet) const;
+		bool ResolveMeshColliderDebug(Entity entity, const MeshColliderComponent& collider, Ref<StaticMesh>& staticMesh, Ref<MeshSource>& meshSource, glm::mat4& transform) const;
 		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
 	private:
@@ -304,6 +307,9 @@ namespace Lux {
 
 		// Defined out-of-line (RaytracedAudioScene need not be complete in this header).
 		Ref<RaytracedAudioScene> GetRaytracedAudioScene() const;
+		// The acoustic tag an entity's geometry uses: its AudioSurfaceComponent, else its mesh
+		// collider's tag, else Default. The one rule for geometry, surface sounds and debug views.
+		AcousticMaterial ResolveAcousticMaterial(Entity entity) const;
 		// Last engine occlusion paths per source, for editor overlays. Main thread, read-only.
 		const AudioOcclusion& GetAudioOcclusion() const { return m_AudioOcclusion; }
 

@@ -59,6 +59,7 @@ namespace Lux {
 			Ref<MeshSource> Source;
 			glm::mat4 Transform{ 1.0f };
 			bool SimpleCollider = true;
+			int32_t DebugCategory = -1; // DebugCategoryPalette index; -1 draws the collider colours
 		};
 
 		bool Valid = false;

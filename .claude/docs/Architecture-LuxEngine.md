@@ -515,6 +515,13 @@ without a mesh collider it is metadata only. Both tags survive scene snapshots, 
 prefab instantiation/reconciliation and runtime scene serialization. C# exposes the effective tag
 through `MeshColliderComponent.Material` and `AudioSurfaceComponent.Material` as read-only queries.
 Physics friction/density/restitution and renderer materials remain independent.
+`Scene::ResolveAcousticMaterial(Entity)` is the one precedence rule (surface component, then collider
+tag, then Default) used by acoustic geometry sync, surface sounds and the editor's material view.
+**Acoustic Materials** (viewport options popup, usable in edit mode and Play) sets
+`SceneRendererOptions::ShowDebugCategories`: `Scene::CaptureAcousticMaterialDebug` replaces the
+collider debug items with every non-Disabled mesh collider and enabled portal shutter (at its current
+Open, in the box VA traces), each tagged with its palette index, and the editor shows a legend of the
+tags present. See `Rendering.md` § Editor debug geometry.
 
 **Dynamic geometry and portals (Phase 13):** `Scene::SyncAudioGeometry` captures mesh collider
 metadata and world transforms into a scene-owned `AudioGeometrySystem`. Static/Dynamic/Disabled

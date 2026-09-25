@@ -32,6 +32,7 @@
 
 #include <glm/glm.hpp>
 #include <array>
+#include "Lux/Renderer/DebugPalette.h"
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -238,6 +239,9 @@ namespace Lux {
 		};
 		PhysicsColliderView PhysicsColliderMode = PhysicsColliderView::SelectedEntity;
 		bool  ShowPhysicsCollidersOnTop = false;
+		// Tints collider debug items by their DebugCategoryPalette index (the acoustic material
+		// view) with a translucent fill plus outline. Takes over the collider draw list while on.
+		bool  ShowDebugCategories = false;
 		glm::vec4 SimplePhysicsCollidersColor = { 0.2f, 1.0f, 0.2f, 1.0f };
 		glm::vec4 ComplexPhysicsCollidersColor = { 0.5f, 0.5f, 1.0f, 1.0f };
 		bool  ShowShadowCascades = false;
@@ -668,7 +672,8 @@ namespace Lux {
 		void SubmitPhysicsStaticDebugMesh(Ref<StaticMesh> staticMesh,
 			Ref<MeshSource> meshSource,
 			const glm::mat4& transform,
-			bool isSimpleCollider = true);
+			bool isSimpleCollider = true,
+			int32_t debugCategory = -1);
 
 		void EndScene();
 		static void WaitForThreads();
@@ -1552,6 +1557,7 @@ namespace Lux {
 		Ref<Material>    m_SelectedGeometryMaterial;
 		Ref<RenderPass>  m_GeometryWireframePass;
 		Ref<RenderPass>  m_PhysicsColliderPass;
+		Ref<RenderPass>  m_DebugCategoryFillPass;
 		Ref<Material>    m_WireframeMaterial;
 
 		// ── Skybox ────────────────────────────────────────────────────────────
@@ -1587,6 +1593,7 @@ namespace Lux {
 		// ── Physics collider debug ────────────────────────────────────────────
 		Ref<Material>    m_SimpleColliderMaterial;
 		Ref<Material>    m_ComplexColliderMaterial;
+		std::array<Ref<Material>, DebugCategoryPalette.size()> m_DebugCategoryMaterials;
 
 		// ── Mesh passes ───────────────────────────────────────────────────────
 		std::array<MeshPassState, MeshPassTypeCount> m_MeshPasses;

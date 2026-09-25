@@ -18,14 +18,8 @@ namespace Lux
 
 	AudioSurfaceSounds Scene::GetSurfaceSounds(Entity entity, AcousticMaterial& material) const
 	{
-		material = AcousticMaterial::Default;
+		material = ResolveAcousticMaterial(entity);
 		const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>();
-		if (surface)
-			material = surface->Material;
-		else if (const auto* mesh = entity.TryGetComponent<MeshColliderComponent>())
-			material = mesh->Acoustic;
-		if (!IsValidAcousticMaterial(material))
-			material = AcousticMaterial::Default;
 		AudioSurfaceSounds sounds;
 		if (m_AudioSurfaceTable)
 		{

@@ -54,6 +54,7 @@
 #include "Lux/Audio/AudioBankBuilder.h"
 #include "Panels/AudioDebugPanel.h"
 #include "Lux/Renderer/UI/Font.h"
+#include "Lux/Renderer/DebugPalette.h"
 #include "Panels/ProfilerPanel.h"
 #include "Panels/UndoHistoryPanel.h"
 #include "Panels/MaterialEditor/MaterialEditorPanel.h"
@@ -901,6 +902,7 @@ namespace Lux {
 						m_HoveredEntity = {};
 
 					UI_ViewportPerformanceHUD();
+					UI_AcousticMaterialLegend();
 
 					// Gizmos
 					Entity selectedEntity = {};
@@ -1769,6 +1771,52 @@ namespace Lux {
 		m_TitleBarTransportRectMax = ImVec2(startX + totalWidth + 4.0f, m_TitlebarHeight);
 	}
 
+	// Legend for the acoustic material view: the tags present in the scene, with their tint.
+	void EditorLayer::UI_AcousticMaterialLegend()
+	{
+		if (!m_SceneRenderer || !m_SceneRenderer->GetOptions().ShowDebugCategories || !m_EditorViewport || !m_EditorViewport->IsVisible() || !m_ActiveScene)
+			return;
+
+		std::array<bool, AcousticMaterialCount> present{};
+		for (auto handle : m_ActiveScene->GetAllEntitiesWith<MeshColliderComponent>())
+		{
+			Entity entity = { handle, m_ActiveScene.Raw() };
+			if (entity.GetComponent<MeshColliderComponent>().AcousticMotion != AcousticGeometryMode::Disabled)
+				present[static_cast<size_t>(m_ActiveScene->ResolveAcousticMaterial(entity))] = true;
+		}
+		for (auto handle : m_ActiveScene->GetAllEntitiesWith<AudioPortalComponent>())
+		{
+			const auto& portal = Entity{ handle, m_ActiveScene.Raw() }.GetComponent<AudioPortalComponent>();
+			if (portal.Enabled && IsValidAcousticMaterial(portal.Material))
+				present[static_cast<size_t>(portal.Material)] = true;
+		}
+
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[1].y - 12.0f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+		ImGui::SetNextWindowBgAlpha(0.48f);
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
+		ImGui::Begin("##acoustic_material_legend", nullptr, flags);
+		ImGui::TextUnformatted("Acoustic materials");
+		bool any = false;
+		for (size_t i = 0; i < AcousticMaterialCount; ++i)
+		{
+			if (!present[i])
+				continue;
+			any = true;
+			ImGuiEx::ScopedID id(static_cast<int>(i));
+			const glm::vec3& color = DebugCategoryPalette[i];
+			ImGui::ColorButton("##swatch", ImVec4(color.r, color.g, color.b, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(12.0f, 12.0f));
+			ImGui::SameLine();
+			ImGui::TextUnformatted(AcousticMaterialName(static_cast<AcousticMaterial>(i)));
+		}
+		if (!any)
+			ImGui::TextDisabled("No acoustic geometry in this scene");
+		ImGui::End();
+	}
+
 	void EditorLayer::UI_ViewportPerformanceHUD()
 	{
 		if (!m_ShowViewportPerformanceHUD || !m_EditorViewport || !m_SceneRenderer || !m_EditorViewport->IsVisible())
@@ -1920,6 +1968,11 @@ namespace Lux {
 				if (ImGui::Checkbox("See the Sound", &seeTheSound))
 					m_AudioDebugPanel->SetSeeTheSoundEnabled(seeTheSound);
 				ImGui::SetItemTooltip("Occlusion paths with wall labels, VA rays and emitters, drawn during Play.");
+			}
+			if (m_SceneRenderer)
+			{
+				ImGui::Checkbox("Acoustic Materials", &m_SceneRenderer->GetOptions().ShowDebugCategories);
+				ImGui::SetItemTooltip("Tints every surface the acoustics see by its acoustic material, in edit mode and Play. Replaces the physics collider view while on.");
 			}
 
 			// The doc places the "back to Simple" affordance in the viewport toolbar, shown only
