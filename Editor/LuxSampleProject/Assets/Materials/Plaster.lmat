@@ -10,4 +10,5 @@ Material:
   MetalnessMap: 0
   RoughnessMap: Textures/Plaster001/Plaster001_1K-JPG_Roughness.jpg
   UVTiling: [3, 1.5]
+  AcousticMaterial: Plaster
   MaterialFlags: 6

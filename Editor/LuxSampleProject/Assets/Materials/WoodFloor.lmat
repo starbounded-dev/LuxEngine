@@ -11,4 +11,5 @@ Material:
   RoughnessMap: Textures/WoodFloor043/WoodFloor043_1K-JPG_Roughness.jpg
   OcclusionMap: Textures/WoodFloor043/WoodFloor043_1K-JPG_AmbientOcclusion.jpg
   UVTiling: [7, 7]
+  AcousticMaterial: Wood
   MaterialFlags: 6

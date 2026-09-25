@@ -11,4 +11,5 @@ Material:
   RoughnessMap: Textures/RoofingTiles013A/RoofingTiles013A_1K-JPG_Roughness.jpg
   OcclusionMap: Textures/RoofingTiles013A/RoofingTiles013A_1K-JPG_AmbientOcclusion.jpg
   UVTiling: [7, 3.5]
+  AcousticMaterial: Ceramic
   MaterialFlags: 6

@@ -9,5 +9,5 @@ Material:
   NormalMap: Textures/Metal049A/Metal049A_1K-JPG_NormalGL.jpg
   MetalnessMap: Textures/Metal049A/Metal049A_1K-JPG_Metalness.jpg
   RoughnessMap: Textures/Metal049A/Metal049A_1K-JPG_Roughness.jpg
-  UVTiling: [1, 1]
+  AcousticMaterial: Metal
   MaterialFlags: 6

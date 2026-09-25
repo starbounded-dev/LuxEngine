@@ -11,4 +11,5 @@ Material:
   RoughnessMap: Textures/Bricks097/Bricks097_1K-JPG_Roughness.jpg
   OcclusionMap: Textures/Bricks097/Bricks097_1K-JPG_AmbientOcclusion.jpg
   UVTiling: [7, 1.5]
+  AcousticMaterial: Brick
   MaterialFlags: 6
