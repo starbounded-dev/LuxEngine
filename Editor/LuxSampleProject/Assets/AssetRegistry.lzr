@@ -12,7 +12,7 @@ Assets:
   - Handle: 452586649420571484
     FilePath: Materials/Brick.lmat
     Type: Material
-    FileLastWriteTime: 18446744069061884741
+    FileLastWriteTime: 18446744069062231288
     Status: Ready
   - Handle: 596667460420446301
     FilePath: Meshes/Source/Sponza/Materials/Sponza_1_Material_1.lmat
@@ -44,6 +44,11 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069031813456
     Status: Ready
+  - Handle: 1322044948598140383
+    FilePath: Scripts/Source/CameraPath.cs
+    Type: ScriptFile
+    FileLastWriteTime: 18446744069062239105
+    Status: None
   - Handle: 1485593981058217637
     FilePath: Environment/pink_sunrise_4k.hdr
     Type: EnvMap
@@ -162,7 +167,7 @@ Assets:
   - Handle: 3580326328630172300
     FilePath: Materials/Plaster.lmat
     Type: Material
-    FileLastWriteTime: 18446744069061884741
+    FileLastWriteTime: 18446744069062231306
     Status: Ready
   - Handle: 3605114192211273338
     FilePath: Textures/Bricks097/Bricks097_1K-JPG_AmbientOcclusion.jpg
@@ -397,7 +402,7 @@ Assets:
   - Handle: 8868489982347245392
     FilePath: Scripts/Intermediates/Release/LuxSample.AssemblyInfo.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069062231227
+    FileLastWriteTime: 18446744069062239138
     Status: None
   - Handle: 8873821167095533110
     FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
@@ -422,7 +427,7 @@ Assets:
   - Handle: 9784983076328690787
     FilePath: Materials/MetalPlate.lmat
     Type: Material
-    FileLastWriteTime: 18446744069061884741
+    FileLastWriteTime: 18446744069062231301
     Status: Ready
   - Handle: 9810573357092627660
     FilePath: Meshes/Source/Sponza/8114461559286000061.jpg
@@ -459,6 +464,11 @@ Assets:
     Type: Material
     FileLastWriteTime: 18446744069059659388
     Status: Ready
+  - Handle: 10190633963079286943
+    FilePath: Scripts/Source/SlidingDoor.cs
+    Type: ScriptFile
+    FileLastWriteTime: 18446744069062239088
+    Status: None
   - Handle: 10349952045286892307
     FilePath: Meshes/Source/Sponza/Materials/Sponza_13_Material_13.lmat
     Type: Material
@@ -567,7 +577,7 @@ Assets:
   - Handle: 11795118881602129835
     FilePath: Materials/Carpet.lmat
     Type: Material
-    FileLastWriteTime: 18446744069061884741
+    FileLastWriteTime: 18446744069062231286
     Status: Ready
   - Handle: 11816680699337023150
     FilePath: Environment/venice_dawn_1_4k.hdr
@@ -652,7 +662,7 @@ Assets:
   - Handle: 13888570423779183036
     FilePath: Materials/WoodFloor.lmat
     Type: Material
-    FileLastWriteTime: 18446744069061884741
+    FileLastWriteTime: 18446744069062231334
     Status: Ready
   - Handle: 13917164595632565473
     FilePath: Meshes/Source/Sponza/7268504077753552595.jpg
@@ -672,7 +682,7 @@ Assets:
   - Handle: 14140388573859824483
     FilePath: Materials/RoofTiles.lmat
     Type: Material
-    FileLastWriteTime: 18446744069061884741
+    FileLastWriteTime: 18446744069062231325
     Status: Ready
   - Handle: 14231046271141485607
     FilePath: Meshes/Source/Sponza/4910669866631290573.jpg
@@ -682,7 +692,7 @@ Assets:
   - Handle: 14293776709940706397
     FilePath: Scenes/FMODDemo.luxscene
     Type: Scene
-    FileLastWriteTime: 18446744069061973233
+    FileLastWriteTime: 18446744069062239166
     Status: Ready
   - Handle: 14516153528990365607
     FilePath: Meshes/Source/Materials/CubeScene_0_Material_0.lmat
@@ -732,7 +742,7 @@ Assets:
   - Handle: 15966242954355821266
     FilePath: Scripts/Intermediates/Debug/LuxSample.AssemblyInfo.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069059615689
+    FileLastWriteTime: 18446744069062239117
     Status: None
   - Handle: 15983446275544011186
     FilePath: Textures/RoofingTiles013A/RoofingTiles013A_1K-JPG_Color.jpg
@@ -757,7 +767,7 @@ Assets:
   - Handle: 16317874982647590309
     FilePath: Scripts/Intermediates/Debug/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069059615689
+    FileLastWriteTime: 18446744069062239117
     Status: None
   - Handle: 16610283657387777280
     FilePath: Meshes/Source/Default/Torus.gltf

@@ -45,7 +45,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Brick
-      AcousticFromMaterial: false
+      AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 15491283630166138703
@@ -71,7 +71,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Brick
-      AcousticFromMaterial: false
+      AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 16344437922393548024
@@ -97,7 +97,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Ceramic
-      AcousticFromMaterial: false
+      AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 11208467829056693847
@@ -123,7 +123,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Brick
-      AcousticFromMaterial: false
+      AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000007
@@ -137,7 +137,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.400000006, 0.400000006, 0.400000006]
     TextComponent:
-      TextString: "FMOD AUDIO DEMO\nK: Replay source   P: Pause source\nL: One-shot   I: Independent instance\nO: Stop source + instance\nRMB + WASD: Move listener"
+      TextString: "FMOD AUDIO DEMO\nK: Replay source   P: Pause source\nL: One-shot   I: Independent instance\nO: Stop source + instance\nF: Open / close door   C: Camera path\nRMB + WASD: Move listener"
       FontHandle: 0
       Color: [0.949999988, 0.949999988, 1, 1]
       LineSpacing: 0.25
@@ -208,7 +208,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Carpet
-      AcousticFromMaterial: false
+      AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000010
@@ -234,7 +234,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Plaster
-      AcousticFromMaterial: false
+      AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000009
@@ -260,7 +260,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Plaster
-      AcousticFromMaterial: false
+      AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000008
@@ -350,7 +350,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Plaster
-      AcousticFromMaterial: false
+      AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000002
@@ -376,7 +376,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Wood
-      AcousticFromMaterial: false
+      AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000001
@@ -454,7 +454,142 @@ Entities:
       - Handle: 16344437922393548024
       - Handle: 15491283630166138703
       - Handle: 260440025664254057
+      - Handle: 8712929662064711685
     TransformComponent:
       Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 8712929662064711685
+    TagComponent:
+      Tag: Door - Audio Portal (F)
+    Parent: 7010016380193777032
+    Children:
+      - Handle: 7084163309628590718
+    TransformComponent:
+      Position: [0, 1.04999995, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: LuxSample.SlidingDoor
+    AudioPortalComponent:
+      Enabled: true
+      ZoneA: 0
+      ZoneB: 0
+      HalfExtents: [0.600000024, 1.04999995, 0.0500000007]
+      Open: 0
+      BlendDistance: 5
+      Material: Wood
+  - Entity: 7084163309628590718
+    TagComponent:
+      Tag: Door Panel
+    Parent: 8712929662064711685
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.20000005, 2.0999999, 0.100000001]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 13888570423779183036
+      Visible: true
+  - Entity: 1081602475336362382
+    TagComponent:
+      Tag: Showcase Camera Path (C)
+    Parent: 0
+    Children:
+      - Handle: 5221699181655248599
+      - Handle: 6835283809601491885
+      - Handle: 6118548909371510221
+      - Handle: 2165622951087975528
+      - Handle: 4488478707812109672
+      - Handle: 772659898067695419
+      - Handle: 4772017211827074826
+      - Handle: 8254060153359741392
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: LuxSample.CameraPath
+  - Entity: 5221699181655248599
+    TagComponent:
+      Tag: Waypoint 1
+    Parent: 1081602475336362382
+    Children:
+      []
+    TransformComponent:
+      Position: [10, 2.2, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 6835283809601491885
+    TagComponent:
+      Tag: Waypoint 2
+    Parent: 1081602475336362382
+    Children:
+      []
+    TransformComponent:
+      Position: [4.5, 1.7, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 6118548909371510221
+    TagComponent:
+      Tag: Waypoint 3
+    Parent: 1081602475336362382
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 1.6, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 2165622951087975528
+    TagComponent:
+      Tag: Waypoint 4
+    Parent: 1081602475336362382
+    Children:
+      []
+    TransformComponent:
+      Position: [-5, 2, 7]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 4488478707812109672
+    TagComponent:
+      Tag: Waypoint 5
+    Parent: 1081602475336362382
+    Children:
+      []
+    TransformComponent:
+      Position: [-11, 2.6, 0.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 772659898067695419
+    TagComponent:
+      Tag: Waypoint 6
+    Parent: 1081602475336362382
+    Children:
+      []
+    TransformComponent:
+      Position: [-7, 3.2, -12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 4772017211827074826
+    TagComponent:
+      Tag: Waypoint 7
+    Parent: 1081602475336362382
+    Children:
+      []
+    TransformComponent:
+      Position: [7, 3.2, -12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 8254060153359741392
+    TagComponent:
+      Tag: Waypoint 8
+    Parent: 1081602475336362382
+    Children:
+      []
+    TransformComponent:
+      Position: [11, 2.6, 0.5]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]

@@ -27,6 +27,8 @@ You do not need a Unity/Unreal integration package or another audio backend togg
 | I | Start/restart an independently owned event instance |
 | P | Pause/resume the component's event |
 | O | Stop the component and independently owned instance |
+| F | Open/close the door (slides the panel and the door's acoustic portal together) |
+| C | Start/stop the showcase camera path |
 
 One-shots finish naturally; O cannot cancel them. `L` requires an event authored as a finite
 one-shot. For looping events, use K or I. Stop Play before rebuilding/reloading banks.
@@ -35,6 +37,19 @@ The camera already has `LuxSample.FlyCamera` and an Audio Listener (index 0, wei
 The emitter already has `LuxSample.FmodAudioDemo` and an Audio Source. The script's `PlayOnStart`
 field controls startup playback; the component's Play On Awake is off to prevent duplicate starts.
 The floor and wall have mesh colliders for VA's geometry collection.
+
+### See the Sound
+
+1. During Play, open the viewport options (gear) and tick **See the Sound**. Each source gets a line
+   from the listener, green when clear and red where walls block it, with each wall labelled by
+   material, thickness and dB. Zones, the door portal and the room readout appear too.
+2. Stand outside the building: `MusicAmbiance` sounds muffled and its line crosses the walls. Press
+   **F** to open the door and watch the door's label and the muffling go as it slides open.
+3. Tick **Acoustic Materials** (also in the gear menu, works outside Play) to see each wall tinted
+   by the material it sounds like. The walls inherit it from their render materials.
+4. Press **C** for the camera path: the camera glides around the building looking at the music
+   emitter, which is the easiest way to record the demo. Keep the mouse still while it plays.
+   The waypoints are the children of *Showcase Camera Path (C)*; move them to change the route.
 
 ## Link an FMOD Studio project to Lux
 
