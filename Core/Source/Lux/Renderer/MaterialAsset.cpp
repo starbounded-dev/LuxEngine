@@ -144,6 +144,14 @@ namespace Lux {
 			m_Material->Set(name, value);
 	}
 
+	void MaterialAsset::WriteTexture(const std::string& name, const Ref<Texture2D>& texture)
+	{
+		// Only where the shader declares the slot. Bindless shaders (HazelPBR_Transparent) have none:
+		// MaterialScene resolves their maps from the handles in m_Maps.
+		if (m_Material && m_Material->FindResourceDeclaration(name))
+			m_Material->Set(name, texture);
+	}
+
 	void MaterialAsset::SetAlbedoColor(const glm::vec3& color)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -195,7 +203,11 @@ namespace Lux {
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			if (texture)
-				m_Material->Set(s_AlbedoMapUniform, GetAlbedoTextureForMaterial(handle, texture));
+			{
+				// Skip building the sRGB copy for a shader that has no albedo slot to put it in.
+				if (m_Material->FindResourceDeclaration(s_AlbedoMapUniform))
+					WriteTexture(s_AlbedoMapUniform, GetAlbedoTextureForMaterial(handle, texture));
+			}
 			else
 			{
 				s_SRGBAlbedoTextureCache.erase(handle);
@@ -215,7 +227,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.AlbedoMap = 0;
 #ifndef LUX_HEADLESS
-		m_Material->Set(s_AlbedoMapUniform, Renderer::GetWhiteTexture());
+		WriteTexture(s_AlbedoMapUniform, Renderer::GetWhiteTexture());
 #endif
 		UpdateMaterialComplexityMetadata();
 	}
@@ -235,7 +247,7 @@ namespace Lux {
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			if (texture)
-				m_Material->Set(s_NormalMapUniform, texture);
+				WriteTexture(s_NormalMapUniform, texture);
 			else
 				ClearNormalMap();
 		}
@@ -260,7 +272,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.NormalMap = 0;
 #ifndef LUX_HEADLESS
-		m_Material->Set(s_NormalMapUniform, Renderer::GetWhiteTexture());
+		WriteTexture(s_NormalMapUniform, Renderer::GetWhiteTexture());
 #endif
 		UpdateMaterialComplexityMetadata();
 	}
@@ -280,7 +292,7 @@ namespace Lux {
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			if (texture)
-				m_Material->Set(s_MetalnessMapUniform, texture);
+				WriteTexture(s_MetalnessMapUniform, texture);
 			else
 				ClearMetalnessMap();
 		}
@@ -297,7 +309,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.MetalnessMap = 0;
 #ifndef LUX_HEADLESS
-		m_Material->Set(s_MetalnessMapUniform, Renderer::GetWhiteTexture());
+		WriteTexture(s_MetalnessMapUniform, Renderer::GetWhiteTexture());
 #endif
 		UpdateMaterialComplexityMetadata();
 	}
@@ -317,7 +329,7 @@ namespace Lux {
 		{
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			if (texture)
-				m_Material->Set(s_RoughnessMapUniform, texture);
+				WriteTexture(s_RoughnessMapUniform, texture);
 			else
 				ClearRoughnessMap();
 		}
@@ -334,7 +346,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_Maps.RoughnessMap = 0;
 #ifndef LUX_HEADLESS
-		m_Material->Set(s_RoughnessMapUniform, Renderer::GetWhiteTexture());
+		WriteTexture(s_RoughnessMapUniform, Renderer::GetWhiteTexture());
 #endif
 		UpdateMaterialComplexityMetadata();
 	}

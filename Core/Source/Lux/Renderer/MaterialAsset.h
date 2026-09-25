@@ -147,6 +147,7 @@ namespace Lux {
 		void SetDefaults();
 		template<typename T>
 		void WriteUniform(const std::string& name, const T& value);
+		void WriteTexture(const std::string& name, const Ref<Texture2D>& texture);
 	private:
 		Ref<Material> m_Material;
 
