@@ -2104,9 +2104,13 @@ namespace Lux {
 				&& entity.GetComponent<RelationshipComponent>().ParentHandle != 0;
 		}
 
-		auto computeItem = [&](size_t index)
+		// Bind the calling thread's vector explicitly: a lambda never captures a
+		// thread_local, so naming syncItems inside it on a worker would resolve to
+		// that worker's own (empty) instance.
+		std::vector<StaticMeshSyncItem>& items = syncItems;
+		auto computeItem = [this, &items](size_t index)
 			{
-				StaticMeshSyncItem& syncItem = syncItems[index];
+				StaticMeshSyncItem& syncItem = items[index];
 
 				// Parented entities walk the relationship hierarchy (GetWorldSpaceTransformMatrix is
 				// read-only); others just decompose their local transform. SyncRenderScene is const and

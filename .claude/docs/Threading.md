@@ -156,6 +156,12 @@ computation (`Scene.cpp`), which writes only per-item output slots.
 Because `ParallelFor` also executes on the calling thread, it is **not** a place to block: a job that
 waits on the main thread deadlocks.
 
+A job body must not name a `thread_local` from the dispatching function. Lambdas never capture
+`thread_local` (or `static`) variables, even with `[&]`, so on a worker that name resolves to *that
+worker's* instance, which is usually empty. Bind a local reference first and capture that
+(`auto& items = s_Scratch; [&items](size_t i) { ... }`). The bug only appears past `minChunk`, when
+work first reaches a worker.
+
 ---
 
 ## Asset loading

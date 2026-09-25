@@ -142,11 +142,12 @@ namespace Lux {
 			for (size_t i = begin; i < end; i++)
 				fn(i);
 
+			// Decrement under the lock: otherwise the caller can observe 0 (spurious
+			// wakeup), return, and destroy doneMutex/doneCv while this thread is
+			// still about to lock/notify them.
+			std::unique_lock<std::mutex> lock(doneMutex);
 			if (remaining.fetch_sub(1, std::memory_order_acq_rel) == 1)
-			{
-				std::unique_lock<std::mutex> lock(doneMutex);
 				doneCv.notify_one();
-			}
 		};
 
 		// Dispatch chunks [1, chunkCount) to the pool; the calling thread runs chunk 0.
