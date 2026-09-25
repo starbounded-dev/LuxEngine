@@ -440,6 +440,13 @@ namespace Lux
 		{
 			get { Audio.RequireMainThread(); return InternalCalls.Audio_SourceIsCulled(Entity.ID); }
 		}
+		/// <summary>Low-frequency occlusion applied to this source's Occlusion parameter this frame:
+		/// 1 is a clear path, 0 fully blocked. 1 outside Play and while culled. Read-only; useful for
+		/// gameplay such as AI hearing.</summary>
+		public float OcclusionGain
+		{
+			get { Audio.RequireMainThread(); return InternalCalls.Audio_SourceGetOcclusion(Entity.ID); }
+		}
 		public bool IsPlaying => InternalCalls.Audio_SourceIsPlaying(Entity.ID);
 		public bool IsPaused
 		{

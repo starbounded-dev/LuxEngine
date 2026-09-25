@@ -61,6 +61,9 @@ namespace Lux
 		void DrawAudioVisualisation(const glm::mat4& view);
 		void UI_AcousticMaterialLegend();
 		void DrawAudioOcclusion(const glm::mat4& view, const AudioVisualisationSettings& settings);
+		void DrawAudioZoneWeights(const glm::mat4& view);
+		void DrawOverlayLabel(const std::string& text, const glm::vec3& position, const glm::vec4& color, const glm::mat4& view);
+		void UI_RoomAcousticsReadout();
 
 		// Rebuilds the project's FMOD banks when the .fspro has changed since they were last built.
 		// Called on entering Play; a no-op when the project has no Studio project or the feature is

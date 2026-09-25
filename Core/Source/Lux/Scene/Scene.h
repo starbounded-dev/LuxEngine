@@ -119,6 +119,15 @@ namespace Lux {
 		size_t GetPendingAudioGeometryCount() const { return m_AudioGeometry.GetPendingCount(); }
 		float GetAudioZoneWeight(UUID id) const { return m_AudioZones.GetWeight(id); }
 		AudioZoneVolume GetAudioZoneVolume(Entity entity);
+		// Wire lines of zone volumes and portal boxes, for debug drawing. Main thread.
+		using AudioZoneLineVisitor = std::function<void(Entity entity, const glm::vec3& a, const glm::vec3& b, bool secondary)>;
+		void ForEachAudioZoneLine(const std::function<bool(Entity)>& include, const AudioZoneLineVisitor& visit);
+		// The low-frequency occlusion gain applied to a source's Occlusion parameter (1 = clear),
+		// from whichever source the project selects; 1 when the source is not being simulated.
+		float GetAudioSourceOcclusion(UUID source) const;
+		// The listener's VA ambience as read in the last join window. Safe to read any time on the
+		// main thread, unlike RaytracedAudioScene::GetAmbience, which reads live SDK buffers.
+		const RaytracedAudioAmbience& GetLastAudioAmbience() const { return m_LastAudioAmbience; }
 
 		// After a prefab is edited, refresh this scene's instances of it: un-overridden instances
 		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
@@ -274,6 +283,8 @@ namespace Lux {
 		std::vector<AudioPortalInput> m_AudioPortalInputs;
 		AudioOcclusion m_AudioOcclusion;
 		AudioOcclusionSource m_OcclusionSource = AudioOcclusionSource::Engine;
+		std::unordered_map<UUID, float> m_AppliedAudioOcclusion; // written in the VA join window
+		RaytracedAudioAmbience m_LastAudioAmbience;               // written in the VA join window
 		std::vector<AudioOcclusion::Source> m_AudioOcclusionSources;
 		std::vector<SceneQueryHit> m_AudioOcclusionHits;
 		PhysicsAudioSystem m_PhysicsAudio;

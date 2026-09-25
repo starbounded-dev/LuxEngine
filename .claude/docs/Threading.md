@@ -311,6 +311,11 @@ Portal gizmos are captured as immutable `FrameRenderPacket::AudioZoneLines`, so 
 reads neither portal components nor mutable VA geometry. Teardown drains VA before destroying its
 primitives/world and clears the scene's queue.
 
+`RaytracedAudioScene::GetResult` and `GetAmbience` read SDK buffers that VA's workers write, so they
+are valid only in that window. Code that runs outside it — ImGui panels and overlays, C# scripts —
+reads the copies the scene records inside it: `Scene::GetLastAudioAmbience()` and
+`Scene::GetAudioSourceOcclusion()`.
+
 Engine occlusion (`AudioOcclusion`) runs on the main thread in the same window, after the VA join
 and before `OnUpdate()`. Its Jolt narrow-phase queries run between physics steps (stepping is also
 main-thread), so they need no locking beyond Jolt's own body locks, and nothing is handed to SDK

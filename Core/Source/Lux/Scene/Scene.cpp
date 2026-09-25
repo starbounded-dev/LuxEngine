@@ -368,6 +368,7 @@ namespace Lux {
 
 		if (m_RaytracedAudioScene)
 			m_RaytracedAudioScene->DestroyEmitter(entity.GetUUID());
+		m_AppliedAudioOcclusion.erase(entity.GetUUID());
 	}
 
 	void Scene::ReleaseAllRuntimeAudio()
@@ -854,6 +855,7 @@ namespace Lux {
 					UpdateAudioOcclusion(static_cast<float>(ts), acousticListener);
 
 				const RaytracedAudioAmbience ambience = m_RaytracedAudioScene->GetAmbience();
+				m_LastAudioAmbience = ambience;
 
 				m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& asc)
 					{
@@ -863,6 +865,7 @@ namespace Lux {
 						if (!asc.Event.IsValid() || IsAudioSourceCulled(entityID))
 						{
 							m_RaytracedAudioScene->DestroyEmitter(entityID);
+							m_AppliedAudioOcclusion.erase(entityID);
 							return;
 						}
 
@@ -877,6 +880,7 @@ namespace Lux {
 							acoustics.OcclusionGainLF = m_AudioOcclusion.GetGainLF(entityID);
 						else
 							acoustics.OcclusionGainLF = result.Valid ? result.OcclusionGainLF : 1.0f;
+						m_AppliedAudioOcclusion[entityID] = acoustics.OcclusionGainLF;
 						acoustics.ReverbSend = ambience.Valid ? ambience.ReturnedPercent * m_AudioZones.GetRaytracedReverbGain() : 0.0f;
 						if (Ref<AudioEventInstance> instance = GetRuntimeEventInstance(entityID))
 							instance->SetAcoustics(acoustics);
@@ -1766,6 +1770,14 @@ namespace Lux {
 		return material ? material->GetAcousticTag() : -1;
 	}
 
+	// Reads the value recorded when it was applied, inside the VA join window: VA's own result
+	// buffers are written by its workers and must not be read from script time.
+	float Scene::GetAudioSourceOcclusion(UUID source) const
+	{
+		const auto found = m_AppliedAudioOcclusion.find(source);
+		return found != m_AppliedAudioOcclusion.end() ? found->second : 1.0f;
+	}
+
 	void Scene::UpdateAudioOcclusion(float timestep, const glm::vec3& listener)
 	{
 		m_AudioOcclusion.SetGeometry(m_AudioGeometryInputs, [this](UUID entity) { return m_AudioGeometry.GetPortalOpen(entity); });
@@ -1805,6 +1817,8 @@ namespace Lux {
 	void Scene::OnRaytracedAudioStop()
 	{
 		m_AudioOcclusion.Clear();
+		m_AppliedAudioOcclusion.clear();
+		m_LastAudioAmbience = {};
 		m_AudioGeometry.Clear();
 		m_AudioGeometryInputs.clear();
 		m_AudioPortalInputs.clear();
@@ -2307,11 +2321,21 @@ namespace Lux {
 			return;
 		constexpr glm::vec4 boundaryColor{ 0.35f, 0.75f, 1.0f, 1.0f };
 		constexpr glm::vec4 blendColor{ 0.35f, 0.75f, 1.0f, 0.4f };
+		ForEachAudioZoneLine(isSelected, [&](Entity, const glm::vec3& a, const glm::vec3& b, bool secondary)
+			{
+				packet.AudioZoneLines.push_back({ a, b, secondary ? blendColor : boundaryColor });
+			});
+	}
+
+	// Zones draw their boundary and, when BlendDistance > 0, the inner full-weight margin
+	// (secondary). Portals draw the full opening (secondary) and the remaining shutter.
+	void Scene::ForEachAudioZoneLine(const std::function<bool(Entity)>& include, const AudioZoneLineVisitor& visit)
+	{
 		constexpr int segments = 48;
 		for (auto handle : m_Registry.view<TransformComponent, AudioPortalComponent>())
 		{
 			Entity entity{ handle, this };
-			if (!isSelected(entity))
+			if (!include(entity))
 				continue;
 			const auto& portal = entity.GetComponent<AudioPortalComponent>();
 			AudioGeometryInput input;
@@ -2333,13 +2357,13 @@ namespace Lux {
 				for (int i = 0; i < 8; ++i)
 					for (int axis = 0; axis < 3; ++axis)
 						if (!(i & (1 << axis)))
-							packet.AudioZoneLines.push_back({ corners[i], corners[i | (1 << axis)], shutter ? boundaryColor : blendColor });
+							visit(entity, corners[i], corners[i | (1 << axis)], !shutter);
 			}
 		}
 		for (auto handle : m_Registry.view<TransformComponent, AudioZoneComponent>())
 		{
 			Entity entity{ handle, this };
-			if (!isSelected(entity))
+			if (!include(entity))
 				continue;
 			const auto& component = entity.GetComponent<AudioZoneComponent>();
 			const auto volume = GetAudioZoneVolume(entity);
@@ -2350,8 +2374,7 @@ namespace Lux {
 				const float inset = margin ? component.BlendDistance : 0.0f;
 				if (margin && inset == 0.0f)
 					continue;
-				const auto color = margin ? blendColor : boundaryColor;
-				auto line = [&](glm::vec3 a, glm::vec3 b) { packet.AudioZoneLines.push_back({ a, b, color }); };
+				auto line = [&](glm::vec3 a, glm::vec3 b) { visit(entity, a, b, margin != 0); };
 				if (volume.Type == AudioZoneVolume::Shape::Box)
 				{
 					const glm::mat4 inverse = glm::inverse(volume.Transform);

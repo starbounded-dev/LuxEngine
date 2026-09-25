@@ -52,6 +52,7 @@ internal static unsafe class DialogueManagedTests
 		return true;
 	}
 	private static Bool32 CullingGet(ulong id) { Check(id == 42); return sourceCulling; }
+	private static float OcclusionGet(ulong id) { Check(id == 42); return 0.25f; }
 	private static void CullingSet(ulong id, Bool32 value) { Check(id == 42); sourceCulling = value; }
 	private static void CheckSourceBudgets()
 	{
@@ -60,7 +61,9 @@ internal static unsafe class DialogueManagedTests
 		InternalCalls.Audio_SourceGetCulling = &CullingGet;
 		InternalCalls.Audio_SourceSetCulling = &CullingSet;
 		InternalCalls.Audio_SourceIsCulled = &CullingGet;
+		InternalCalls.Audio_SourceGetOcclusion = &OcclusionGet;
 		var source = new AudioSourceComponent { Entity = new Entity(42) };
+		Check(source.OcclusionGain == 0.25f);
 		Check(source.Priority == 128 && !source.DistanceCulling && !source.IsCulled);
 		source.Priority = 0;
 		source.DistanceCulling = true;
@@ -73,7 +76,7 @@ internal static unsafe class DialogueManagedTests
 			Check(rejected && source.Priority == 256);
 		}
 		InternalCalls.Audio_IsMainThread = &NotMainThread;
-		foreach (Action action in new Action[] { () => source.Priority = 12, () => source.DistanceCulling = false, () => { _ = source.IsCulled; } })
+		foreach (Action action in new Action[] { () => source.Priority = 12, () => source.DistanceCulling = false, () => { _ = source.IsCulled; }, () => { _ = source.OcclusionGain; } })
 		{
 			bool rejected = false;
 			try { action(); } catch (InvalidOperationException) { rejected = true; }
@@ -81,7 +84,7 @@ internal static unsafe class DialogueManagedTests
 		}
 		InternalCalls.Audio_IsMainThread = &MainThread;
 		Check(source.Priority == 256 && source.DistanceCulling);
-		Console.WriteLine("PASS: managed source priority/culling ABI, bounds and thread guards");
+		Console.WriteLine("PASS: managed source priority/culling/occlusion ABI, bounds and thread guards");
 	}
 	public static void Main()
 	{

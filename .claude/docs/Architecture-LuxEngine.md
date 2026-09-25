@@ -941,8 +941,21 @@ listener→source line coloured by LF loss, wall entry/exit markers and billboar
 thickness, dB) plus a per-source total. Lines and markers draw on top of the scene depth; text is
 depth-tested (Renderer2D has no on-top text), so labels stand off the wall face nearest the camera.
 "See the Sound" (Audio Debugger and the viewport options popup, outside the Play-suspended debug
-views) is a preset that turns on occlusion paths, labels, VA rays and emitters and restores the
-previous settings when turned off.
+views) is a preset that turns on occlusion paths, labels, VA rays and emitters, all zones, the room
+readout and material-tinted bounces, and restores the previous settings when turned off.
+
+`ShowAllZones` draws every zone and portal through `Scene::ForEachAudioZoneLine` (the same line
+generator the selection-only `FrameRenderPacket::AudioZoneLines` capture uses), brightened by live
+zone weight or portal Open and labelled with it. `ColorBouncesByMaterial` probes each VA bounce with
+one short `PhysicsScene::CastRay` into the surface and tints it by that entity's effective acoustic
+tag (overlay only; costs a raycast per bounce while shown). The room readout
+(`EditorLayer::UI_RoomAcousticsReadout`) shows `Scene::GetLastAudioAmbience()`: the listener ambience
+the scene copies inside the VA join window, so ImGui never reads VA's live buffers.
+`RaytracedAudioScene::GetResult`/`GetAmbience` read SDK buffers the VA workers write, so they are
+only valid between `WaitForResults` and `OnUpdate`; anything outside that window (ImGui, scripts)
+reads the scene's copies instead. C# `AudioSourceComponent.OcclusionGain` returns
+`Scene::GetAudioSourceOcclusion`, the LF gain recorded when it was applied to the event that frame
+(engine or VA, per the project setting; 1 outside Play and while culled).
 
 Both stats structs expose SDK status as data, so editor panels use read-only Core accessors.
 `AudioEngineStats::HasMixerStats` distinguishes unavailable measurements from a real zero.

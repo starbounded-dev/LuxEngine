@@ -55,6 +55,7 @@
 #include "Panels/AudioDebugPanel.h"
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Renderer/DebugPalette.h"
+#include "Lux/Physics/PhysicsScene.h"
 #include "Panels/ProfilerPanel.h"
 #include "Panels/UndoHistoryPanel.h"
 #include "Panels/MaterialEditor/MaterialEditorPanel.h"
@@ -903,6 +904,7 @@ namespace Lux {
 
 					UI_ViewportPerformanceHUD();
 					UI_AcousticMaterialLegend();
+					UI_RoomAcousticsReadout();
 
 					// Gizmos
 					Entity selectedEntity = {};
@@ -2565,7 +2567,7 @@ namespace Lux {
 		// RaytracedAudioScene that has never seen these settings. The setter is cheap and idempotent.
 		const AudioVisualisationSettings& settings = m_AudioDebugPanel->GetVisualisationSettings();
 		raytraced->SetVisualisationEnabled(settings.Enabled, settings.RayCount, settings.BounceCount, settings.UpdateIntervalMs);
-		if (!settings.Enabled && !settings.ShowOcclusion)
+		if (!settings.Enabled && !settings.ShowOcclusion && !settings.ShowAllZones)
 			return;
 
 		// Ray-type colours follow the simulation's own semantics rather than the editor theme:
@@ -2579,6 +2581,10 @@ namespace Lux {
 		constexpr glm::vec4 kBoundsColor{ 0.35f, 0.45f, 0.7f, 0.6f };
 
 		const RaytracedAudioStats stats = raytraced->GetStats();
+
+		// How far above and below a bounce point the material probe reaches.
+		constexpr float kBounceProbeDistance = 0.1f;
+		Ref<PhysicsScene> physics = settings.ColorBouncesByMaterial ? m_ActiveScene->GetPhysicsScene() : nullptr;
 
 		RaytracedAudioVisualisation snapshot;
 		if (settings.Enabled)
@@ -2616,7 +2622,26 @@ namespace Lux {
 					}
 
 					if (settings.DrawBouncePoints)
-						m_Renderer2D->DrawCircle(hit.Position, glm::vec3(0.0f), 0.05f, kBounceColor);
+					{
+						glm::vec4 bounceColor = kBounceColor;
+						if (settings.ColorBouncesByMaterial && physics)
+						{
+							// Probe back into the surface the bounce landed on to find what it is.
+							RayCastInfo probe;
+							probe.Origin = hit.Position + hit.Normal * kBounceProbeDistance;
+							probe.Direction = -hit.Normal;
+							probe.MaxDistance = kBounceProbeDistance * 2.0f;
+							SceneQueryHit surface;
+							if (physics->CastRay(&probe, surface))
+							{
+								Entity entity = m_ActiveScene->TryGetEntityWithUUID(surface.HitEntity);
+								const auto* collider = entity ? entity.TryGetComponent<MeshColliderComponent>() : nullptr;
+								if (collider && collider->AcousticMotion != AcousticGeometryMode::Disabled)
+									bounceColor = glm::vec4(DebugCategoryPalette[static_cast<size_t>(m_ActiveScene->ResolveAcousticMaterial(entity))], 1.0f);
+							}
+						}
+						m_Renderer2D->DrawCircle(hit.Position, glm::vec3(0.0f), 0.05f, bounceColor);
+					}
 
 					if (settings.DrawNormals)
 						m_Renderer2D->DrawLine(hit.Position, hit.Position + hit.Normal * settings.NormalLength, kNormalColor);
@@ -2655,6 +2680,8 @@ namespace Lux {
 
 		if (settings.ShowOcclusion)
 			DrawAudioOcclusion(view, settings);
+		if (settings.ShowAllZones)
+			DrawAudioZoneWeights(view);
 
 		if (settings.Enabled && settings.DrawWorldBounds && stats.WorldSize.x > 0.0f)
 		{
@@ -2686,9 +2713,6 @@ namespace Lux {
 		constexpr glm::vec4 kPortalColor{ 0.55f, 0.75f, 1.0f, 0.95f };
 		// Loss at which a path reads fully red; 30 dB is about a solid masonry wall.
 		constexpr float kBlockedLossDb = 30.0f;
-		// Labels keep a constant on-screen size: their world height is this fraction of the camera distance.
-		constexpr float kLabelScale = 0.018f;
-		constexpr float kLabelMaxWidth = 40.0f;
 		// Text is depth tested, so a label sits this far in front of the wall face nearest the camera.
 		constexpr float kLabelStandOff = 0.15f;
 		constexpr float kMarkerScale = 0.006f;
@@ -2696,8 +2720,6 @@ namespace Lux {
 		const AudioOcclusion& occlusion = m_ActiveScene->GetAudioOcclusion();
 		const glm::mat3 cameraToWorld = glm::transpose(glm::mat3(view));
 		const glm::vec3 cameraPosition = glm::vec3(glm::inverse(view)[3]);
-		const Ref<Font> font = Font::GetDefaultFont();
-
 		UUID selected = 0;
 		if (settings.OcclusionSelectedOnly && m_SceneHierarchyPanel)
 		{
@@ -2713,8 +2735,7 @@ namespace Lux {
 			};
 		auto drawLabel = [&](const std::string& text, const glm::vec3& position, const glm::vec4& color)
 			{
-				const float scale = kLabelScale * glm::distance(cameraPosition, position);
-				m_Renderer2D->DrawString(text, font, billboard(position, scale), kLabelMaxWidth, color);
+				DrawOverlayLabel(text, position, color, view);
 			};
 		auto drawMarker = [&](const glm::vec3& position, const glm::vec4& color)
 			{
@@ -2773,6 +2794,93 @@ namespace Lux {
 				drawLabel(total, path->To + glm::normalize(cameraPosition - path->To) * kLabelStandOff, lossColor(path->LossLF));
 			}
 		}
+	}
+
+	// World-space text that faces the camera and keeps a constant on-screen size. Text is depth
+	// tested, so callers place it in front of the surface it describes.
+	void EditorLayer::DrawOverlayLabel(const std::string& text, const glm::vec3& position, const glm::vec4& color, const glm::mat4& view)
+	{
+		// World height is this fraction of the camera distance.
+		constexpr float kLabelScale = 0.018f;
+		constexpr float kLabelMaxWidth = 40.0f;
+		const glm::mat3 cameraToWorld = glm::transpose(glm::mat3(view));
+		const glm::vec3 cameraPosition = glm::vec3(glm::inverse(view)[3]);
+		const float scale = kLabelScale * glm::distance(cameraPosition, position);
+		const glm::mat4 transform = glm::translate(glm::mat4(1.0f), position) * glm::mat4(cameraToWorld) * glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+		m_Renderer2D->DrawString(text, Font::GetDefaultFont(), transform, kLabelMaxWidth, color);
+	}
+
+	// Every zone and portal, brightened by its live weight: zones by how much of the listener
+	// they hold, portals by how open they are. Labels carry the numbers.
+	void EditorLayer::DrawAudioZoneWeights(const glm::mat4& view)
+	{
+		constexpr glm::vec3 kZoneColor{ 0.35f, 0.75f, 1.0f };
+		constexpr glm::vec3 kPortalColor{ 0.55f, 0.75f, 1.0f };
+		// Alpha of an empty zone, so its shape stays readable at zero weight.
+		constexpr float kIdleAlpha = 0.25f;
+		constexpr float kSecondaryAlpha = 0.4f;
+
+		m_ActiveScene->ForEachAudioZoneLine([](Entity) { return true; },
+			[&](Entity entity, const glm::vec3& a, const glm::vec3& b, bool secondary)
+			{
+				const bool portal = entity.HasComponent<AudioPortalComponent>();
+				const float weight = portal ? entity.GetComponent<AudioPortalComponent>().Open : m_ActiveScene->GetAudioZoneWeight(entity.GetUUID());
+				float alpha = kIdleAlpha + (1.0f - kIdleAlpha) * glm::clamp(weight, 0.0f, 1.0f);
+				if (secondary)
+					alpha *= kSecondaryAlpha;
+				m_Renderer2D->DrawLine(a, b, glm::vec4(portal ? kPortalColor : kZoneColor, alpha), true);
+			});
+
+		const glm::vec3 cameraPosition = glm::vec3(glm::inverse(view)[3]);
+		for (auto handle : m_ActiveScene->GetAllEntitiesWith<AudioZoneComponent>())
+		{
+			Entity entity = { handle, m_ActiveScene.Raw() };
+			const AudioZoneVolume volume = m_ActiveScene->GetAudioZoneVolume(entity);
+			if (!volume.Valid)
+				continue;
+			const float weight = m_ActiveScene->GetAudioZoneWeight(entity.GetUUID());
+			const glm::vec3 center = glm::vec3(volume.Transform[3]);
+			DrawOverlayLabel(std::format("{} {:.0f}%", entity.GetName(), weight * 100.0f), center,
+				glm::vec4(kZoneColor, kIdleAlpha + (1.0f - kIdleAlpha) * weight), view);
+		}
+		for (auto handle : m_ActiveScene->GetAllEntitiesWith<AudioPortalComponent>())
+		{
+			Entity entity = { handle, m_ActiveScene.Raw() };
+			const auto& portal = entity.GetComponent<AudioPortalComponent>();
+			if (!portal.Enabled)
+				continue;
+			const glm::vec3 center = glm::vec3(m_ActiveScene->GetWorldSpaceTransformMatrix(entity)[3]);
+			const glm::vec3 toCamera = cameraPosition - center;
+			const glm::vec3 standOff = glm::length(toCamera) > 0.0f ? glm::normalize(toCamera) * 0.15f : glm::vec3(0.0f);
+			DrawOverlayLabel(std::format("{} open {:.0f}%", entity.GetName(), portal.Open * 100.0f), center + standOff, glm::vec4(kPortalColor, 1.0f), view);
+		}
+	}
+
+	// The listener's room as VA measures it, from the copy the scene takes inside the VA join.
+	void EditorLayer::UI_RoomAcousticsReadout()
+	{
+		if (!m_AudioDebugPanel || !m_AudioDebugPanel->GetVisualisationSettings().ShowRoomAcoustics || !m_EditorViewport || !m_EditorViewport->IsVisible() || !m_ActiveScene)
+			return;
+		const RaytracedAudioAmbience& ambience = m_ActiveScene->GetLastAudioAmbience();
+		if (!ambience.Valid)
+			return;
+
+		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always, ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowBgAlpha(0.48f);
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
+		ImGui::Begin("##room_acoustics_readout", nullptr, flags);
+		ImGui::TextUnformatted("Room (VA measured)");
+		ImGuiEx::Fonts::PushFont("Mono");
+		ImGui::Text("Returned %5.1f%%  Outside %5.1f%%", ambience.ReturnedPercent * 100.0f, ambience.OutsidePercent * 100.0f);
+		ImGui::Text("Decay    LF %4.2f s  HF %4.2f s", ambience.MeasuredDecayTimeLF, ambience.MeasuredDecayTimeHF);
+		ImGui::Text("Absorb   LF %4.2f    HF %4.2f", ambience.MaterialAbsorptionLF, ambience.MaterialAbsorptionHF);
+		ImGui::Text("Scatter  %4.2f", ambience.MaterialRoughness);
+		ImGuiEx::Fonts::PopFont();
+		ImGui::End();
 	}
 
 	void EditorLayer::LoadEditorPreferences()

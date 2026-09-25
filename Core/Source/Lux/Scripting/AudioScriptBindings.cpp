@@ -108,6 +108,10 @@ namespace Lux
 			if (auto* source = Source(id))
 				source->DistanceCulling = value;
 		}
+		float Audio_SourceGetOcclusion(uint64_t id)
+		{
+			return Source(id) ? AudioScene()->GetAudioSourceOcclusion(id) : 1.0f;
+		}
 		Coral::Bool32 Audio_SourceIsCulled(uint64_t id)
 		{
 			return Source(id) && AudioScene()->IsAudioSourceCulled(id);
@@ -988,6 +992,7 @@ namespace Lux
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceGetCulling", reinterpret_cast<void*>(&Audio_SourceGetCulling));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceSetCulling", reinterpret_cast<void*>(&Audio_SourceSetCulling));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceIsCulled", reinterpret_cast<void*>(&Audio_SourceIsCulled));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceGetOcclusion", reinterpret_cast<void*>(&Audio_SourceGetOcclusion));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourcePlay", reinterpret_cast<void*>(&Audio_SourcePlay));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceStop", reinterpret_cast<void*>(&Audio_SourceStop));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceIsPlaying", reinterpret_cast<void*>(&Audio_SourceIsPlaying));

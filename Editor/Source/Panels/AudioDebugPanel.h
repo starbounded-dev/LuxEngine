@@ -43,6 +43,13 @@ namespace Lux {
 		bool ShowOcclusion = false;
 		bool DrawOcclusionLabels = true;
 		bool OcclusionSelectedOnly = false;
+
+		// Every zone and portal with its live weight (not just the selection), a viewport readout of
+		// the listener's measured room acoustics, and VA bounce points tinted by the acoustic
+		// material they landed on (one short raycast per bounce, overlay only).
+		bool ShowAllZones = false;
+		bool ShowRoomAcoustics = false;
+		bool ColorBouncesByMaterial = false;
 	};
 
 	// In-editor view of the audio stack: FMOD Studio playback and the

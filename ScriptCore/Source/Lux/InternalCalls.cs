@@ -276,6 +276,7 @@ namespace Lux
 		internal static delegate*<ulong, Bool32> Audio_SourceGetCulling;
 		internal static delegate*<ulong, Bool32, void> Audio_SourceSetCulling;
 		internal static delegate*<ulong, Bool32> Audio_SourceIsCulled;
+		internal static delegate*<ulong, float> Audio_SourceGetOcclusion;
 		internal static delegate*<ulong, void> Audio_SourcePlay;
 		internal static delegate*<ulong, Bool32, void> Audio_SourceStop;
 		internal static delegate*<ulong, Bool32> Audio_SourceIsPlaying;

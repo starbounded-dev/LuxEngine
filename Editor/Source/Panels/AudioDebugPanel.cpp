@@ -638,6 +638,12 @@ namespace Lux {
 		ImGuiEx::EndPropertyGrid();
 		ImGui::EndDisabled();
 
+		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::Property("All Zones and Portals", m_Visualisation.ShowAllZones, "Every audio zone and portal in Play, brightened by its live weight and labelled with it.");
+		ImGuiEx::Property("Room Acoustics Readout", m_Visualisation.ShowRoomAcoustics, "Viewport readout of the listener's room as VA measures it: returned and escaping energy, decay times, absorption and scattering.");
+		ImGuiEx::Property("Colour Bounces by Material", m_Visualisation.ColorBouncesByMaterial, "Tints each VA bounce point with the acoustic material it landed on. Costs one short raycast per bounce while shown.");
+		ImGuiEx::EndPropertyGrid();
+
 		ImGui::Checkbox("Show VA Rays", &m_Visualisation.Enabled);
 		ImGui::SameLine();
 		ImGuiEx::HelpMarker("Casts extra rays purely for display. They cost real raytracing work and "
@@ -725,6 +731,9 @@ namespace Lux {
 		m_Visualisation.DrawRayPaths = true;
 		m_Visualisation.DrawBouncePoints = true;
 		m_Visualisation.DrawEmitters = true;
+		m_Visualisation.ShowAllZones = true;
+		m_Visualisation.ShowRoomAcoustics = true;
+		m_Visualisation.ColorBouncesByMaterial = true;
 	}
 
 }
