@@ -52,6 +52,7 @@ run the editor. Platform is **x64**.
 scripts/Linux-Build.sh          # prompts for a config, or: Linux-Build.sh release
 scripts/Linux-Run.sh            # rebuilds if needed, then runs the editor
 scripts/Linux-RunRuntime.sh     # standalone runtime player
+scripts/Linux-RenderDoc.sh      # the editor inside RenderDoc (LUX_RENDERDOC=1 Linux-Run.sh)
 ```
 
 `Linux-Build.sh` is one-shot and idempotent: it checks prerequisites (`dotnet make clang pkg-config

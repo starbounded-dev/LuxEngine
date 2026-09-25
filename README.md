@@ -324,11 +324,14 @@ On Windows these are offered as checkboxes by `Setup.bat`; on Linux pass them vi
 ./scripts/Linux-Run.sh release              # rebuilds if needed, then launches the editor
 LUX_SKIP_BUILD=1 ./scripts/Linux-Run.sh release   # launch as-is
 ./scripts/Linux-RunRuntime.sh release       # standalone player
+./scripts/Linux-RenderDoc.sh debug          # the editor inside RenderDoc, already attached
 ```
 
 The run scripts set `VULKAN_SDK`, `VK_LAYER_PATH` and `LD_LIBRARY_PATH` for the vendored Vulkan, Assimp and Aftermath libraries, and `cd` into `Editor/` so relative resource paths resolve. Launching the binary directly from `bin/` without that environment will fail to find its shared libraries.
 
 Both X11 and Wayland sessions work (GLFW is built with both backends; libdecor is deliberately disabled to avoid a double titlebar under Wayland).
+
+`Linux-RenderDoc.sh` does everything `Linux-Run.sh` does, then opens RenderDoc (`qrenderdoc`, not bundled) with the editor launched and hooked. Capture with **F12** / **Print Screen** in the editor or **Trigger Capture** in RenderDoc's Launch tab. The editor runs under XWayland by default because RenderDoc cannot read the keyboard of a Wayland window; `LUX_RENDERDOC_WAYLAND=1` keeps it on Wayland (use Trigger Capture then).
 
 ### Windows
 

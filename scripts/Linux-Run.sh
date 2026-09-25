@@ -5,6 +5,7 @@
 #   ./scripts/Linux-Run.sh              # prompts for a configuration
 #   ./scripts/Linux-Run.sh release      # non-interactive
 #   LUX_SKIP_BUILD=1 ./scripts/Linux-Run.sh debug   # skip the rebuild check, run as-is
+#   LUX_RENDERDOC=1 ./scripts/Linux-Run.sh debug    # launch it inside RenderDoc (see Linux-RenderDoc.sh)
 #
 # Extra arguments are forwarded to the Editor binary.
 
@@ -71,5 +72,72 @@ export VK_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d"
 export PATH="$VULKAN_SDK/bin:$PATH"
 export LD_LIBRARY_PATH="$VULKAN_SDK/lib:$LUX_DIR/Core/vendor/assimp/bin/linux:$LUX_DIR/Core/vendor/NvidiaAftermath/lib/x64/linux"
 
+EDITOR_BIN="$LUX_DIR/bin/$BUILD_CONFIG-linux-x86_64/Editor/Editor"
 cd "$LUX_DIR/Editor"
-"$LUX_DIR/bin/$BUILD_CONFIG-linux-x86_64/Editor/Editor" "$@"
+
+if [ -z "${LUX_RENDERDOC:-}" ]; then
+	exec "$EDITOR_BIN" "$@"
+fi
+
+# RenderDoc mode: open qrenderdoc with a capture-settings file that launches the editor straight
+# away. The editor inherits everything set up above (Vulkan SDK, layers, library paths).
+if ! command -v qrenderdoc >/dev/null 2>&1; then
+	echo "qrenderdoc not found. Install RenderDoc (Arch: sudo pacman -S renderdoc)." >&2
+	exit 1
+fi
+
+# RenderDoc cannot read the keyboard of a Wayland window, so its F12 / Print Screen capture keys
+# only work under X11. Run under XWayland unless asked not to; the Launch tab's "Trigger Capture"
+# button works either way.
+if [ -z "${LUX_RENDERDOC_WAYLAND:-}" ] && [ -n "${DISPLAY:-}" ]; then
+	unset WAYLAND_DISPLAY
+	export XDG_SESSION_TYPE=x11
+fi
+
+json_escape() {
+	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+ARGS=""
+for arg in "$@"; do
+	ARGS="$ARGS $arg"
+done
+ARGS=${ARGS# }
+
+CAPTURE_DIR="${XDG_RUNTIME_DIR:-/tmp}/luxengine"
+mkdir -p "$CAPTURE_DIR"
+SETTINGS="$CAPTURE_DIR/Editor-$CONFIG.cap"
+cat > "$SETTINGS" <<EOF_CAP
+{
+    "rdocCaptureSettings": 1,
+    "settings": {
+        "autoStart": true,
+        "commandLine": "$(json_escape "$ARGS")",
+        "environment": [
+        ],
+        "executable": "$(json_escape "$EDITOR_BIN")",
+        "inject": false,
+        "numQueuedFrames": 0,
+        "options": {
+            "allowFullscreen": true,
+            "allowVSync": true,
+            "apiValidation": false,
+            "captureAllCmdLists": false,
+            "captureCallstacks": false,
+            "captureCallstacksOnlyDraws": false,
+            "debugOutputMute": true,
+            "delayForDebugger": 0,
+            "hookIntoChildren": false,
+            "refAllResources": false,
+            "softMemoryLimit": 0,
+            "verifyBufferAccess": false
+        },
+        "queuedFrameCap": 0,
+        "workingDir": "$(json_escape "$LUX_DIR/Editor")"
+    }
+}
+EOF_CAP
+
+echo "Launching $BUILD_CONFIG editor in RenderDoc ($SETTINGS)."
+echo "Capture with F12 or Print Screen in the editor, or Trigger Capture in RenderDoc's Launch tab."
+exec qrenderdoc "$SETTINGS"
