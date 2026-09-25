@@ -14,6 +14,7 @@
 #include "Lux/Core/Hash.h"
 #include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/Platform/Vulkan/VulkanContext.h"
+#include "Lux/Renderer/BindlessTextureTable.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -140,6 +141,14 @@ namespace Lux {
 		for (uint32_t set = 0; set < m_ReflectionData.ShaderDescriptorSets.size(); set++)
 		{
 			auto& shaderDescriptorSet = m_ReflectionData.ShaderDescriptorSets[set];
+
+			// The bindless set is one unsized texture array shared by every shader that declares it,
+			// so it uses the renderer's layout rather than one reflected per shader.
+			if (set == BindlessTextureTable::DescriptorSet)
+			{
+				m_DescriptorSetLayouts[set] = BindlessTextureTable::GetLayout();
+				continue;
+			}
 			
 			std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
 

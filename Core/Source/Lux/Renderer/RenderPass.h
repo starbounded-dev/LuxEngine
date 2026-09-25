@@ -8,6 +8,7 @@
 #include "Lux/Platform/Vulkan/DescriptorSetManager.h"
 
 #include "Pipeline.h"
+#include "BindlessTextureTable.h"
 
 namespace Lux {
 
@@ -55,7 +56,13 @@ namespace Lux {
 
 		bool HasDescriptorSets() const;
 		uint32_t GetBindingSetCount() const { return m_DescriptorSetManager.GetBindingSetCount(); }
-		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const { return m_DescriptorSetManager.GetBindingSets(frameIndex); }
+		// The managed sets, plus the bindless texture table at its set when the shader declares it.
+		// Render thread.
+		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const;
+
+		// The table this pass's shader reads through BindlessTextureTable::DescriptorSet. Set once,
+		// before the pass is first drawn.
+		void SetBindlessTextures(Ref<BindlessTextureTable> table) { m_BindlessTextures = std::move(table); }
 
 		bool IsInputValid(std::string_view name) const;
 		const RenderInputDeclaration* GetInputDeclaration(std::string_view name) const;
@@ -67,6 +74,8 @@ namespace Lux {
 	private:
 		RenderPassSpecification m_Specification;
 		DescriptorSetManager m_DescriptorSetManager;
+		Ref<BindlessTextureTable> m_BindlessTextures;
+		mutable bool m_ReportedMissingBindlessTable = false;
 	};
 
 }

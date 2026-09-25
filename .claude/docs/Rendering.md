@@ -373,7 +373,32 @@ Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`
 std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
 `Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
-size in step. Textures are bindless indices into `u_GPUMaterialTextures` `(set 2, binding 8)`.
+size in step. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+
+### Bindless textures — set 4 is reserved
+
+`u_GPUMaterialTextures[]` is an unsized array backed by NVRHI descriptor tables
+(`Renderer/BindlessTextureTable.h`). **Descriptor set 4 is reserved for it: no other shader resource
+may use set 4.** Its layout is process-wide (`BindlessTextureTable::Init`, called by `Renderer::Init`
+before any shader loads); `VulkanShader::CreateDescriptors` substitutes that layout for set 4 instead
+of reflecting one, and `DescriptorSetManager` (sets 0–3) never sees it. Capacity is
+`BindlessTextureTable::MaxCapacity` (16384, mirrored by `GPU_TEXTURE_SCENE_MAX_TEXTURES` in
+`MaterialScene.glslh` — change both together), clamped to the device's sampled-image limits and
+logged at startup.
+
+Tables are per owner and per frame in flight: each `SceneRenderer` owns a `BindlessTextureTable`
+(its own texture index space — the viewport, material preview and thumbnailer do not share one), and
+that holds one NVRHI descriptor table per frame in flight. NVRHI's bindless layouts are
+partially-bound but **not** update-after-bind, so a table may only be written while no in-flight
+frame reads it. `SetSlot` (main thread) records a write; `Flush` hands the writes to the render
+thread, which queues them for every frame's table and writes the current frame's; other tables
+catch up when their frame index comes round. Writes are skipped when the slot's image handle is
+unchanged, and full sweeps resend every slot so hot-reloaded textures (same `Ref`, new image)
+update. `RenderPass::SetBindlessTextures` gives a pass its table; `RenderPass::GetBindingSets` then
+places the current frame's table at index 4 whenever the pass's shader declares set 4. Unwritten
+slots are legal because the owner writes every index it hands out (slot 0 is the fallback). The
+shaders that include `MaterialScene.glslh` must enable `GL_EXT_nonuniform_qualifier` (they already do)
+for the unsized array.
 
 Rows are built by `MaterialScene::BuildGPUMaterialData` from the `MaterialAsset` (its own values and
 `MaterialSurfaceParameters`), never from the shader push-constant block. A new material input must

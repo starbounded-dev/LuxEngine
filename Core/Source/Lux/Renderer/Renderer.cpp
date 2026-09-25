@@ -18,6 +18,7 @@
 #include "Lux/Core/Timer.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Platform/Vulkan/VulkanContext.h"
+#include "Lux/Renderer/BindlessTextureTable.h"
 #include "Lux/Platform/Vulkan/VulkanRenderCommandBuffer.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Project/Project.h"
@@ -496,6 +497,9 @@ namespace Lux {
 		// Make sure we don't have more frames in flight than swapchain images
 		s_Config.FramesInFlight = glm::min<uint32_t>(s_Config.FramesInFlight, Application::Get().GetWindow().GetSwapChain().GetBackBufferCount());
 
+		// Before any shader is loaded: material shaders take their bindless set layout from here.
+		BindlessTextureTable::Init();
+
 		Renderer::SetGlobalMacroInShaders("__HZ_REFLECTION_OCCLUSION_METHOD", "0");
 		Renderer::SetGlobalMacroInShaders("__HZ_AO_METHOD", std::format("{}", (int)ShaderDef::GetAOMethod(true)));
 		Renderer::SetGlobalMacroInShaders("__HZ_GTAO_COMPUTE_BENT_NORMALS", "0");
@@ -721,6 +725,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		s_GlobalShaderInfo.PermutationCache.SaveToFile(s_ShaderPermutationCachePath);
+		BindlessTextureTable::Shutdown();
 
 		{
 			std::scoped_lock lock(s_ShaderDependenciesMutex);

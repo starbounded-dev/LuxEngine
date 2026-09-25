@@ -1,7 +1,9 @@
 #ifndef LUX_MATERIAL_SCENE_GLSLH
 #define LUX_MATERIAL_SCENE_GLSLH
 
-#define GPU_TEXTURE_SCENE_MAX_TEXTURES 1024
+// Mirrors BindlessTextureTable::MaxCapacity; the device may clamp the real table smaller, and the
+// engine never hands out an index beyond it.
+#define GPU_TEXTURE_SCENE_MAX_TEXTURES 16384
 #define GPU_MATERIAL_SCENE_AVAILABLE 1
 
 // Mirrors GPUMaterialData in Core/Source/Lux/Renderer/MaterialScene.h — edit both together.
@@ -23,7 +25,8 @@ layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
 	GPUMaterial Materials[];
 } r_GPUMaterials;
 
-layout(set = 2, binding = 8) uniform texture2D u_GPUMaterialTextures[GPU_TEXTURE_SCENE_MAX_TEXTURES];
+// Bindless: one NVRHI descriptor table per SceneRenderer, at BindlessTextureTable::DescriptorSet.
+layout(set = 4, binding = 0) uniform texture2D u_GPUMaterialTextures[];
 
 const uint GPU_TEXTURE_INVALID_INDEX = 0xffffffffu;
 

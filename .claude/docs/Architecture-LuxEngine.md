@@ -201,11 +201,15 @@ Structurally:
   bump, UV tiling/offset/rotation, alpha mode + cutoff, two-sided). They reach shaders through the GPU material table
   (`Rendering.md § The GPU material table`); `MaterialSerializer` writes them as YAML keys (the
   asset pack stores the same YAML) and migrates pre-emissive-colour files as data.
+- **Material textures are bindless through NVRHI descriptor tables.** Each `SceneRenderer` owns a
+  `BindlessTextureTable` (one table per frame in flight, up to 16384 slots) that every material pass
+  reads at the reserved descriptor set 4; a texture change is one slot write, not one `SetInput` per
+  pass. Ownership, threading and the reserved-set rule are in `Rendering.md § Bindless textures`.
 - **Cutout materials are alpha-tested in pre-depth as well as the G-buffer.** `MaterialAlphaMode::Cutout`
   becomes `GPUMaterialAlphaMode::Masked` in the material row, with the authored threshold in
   `Surface.z`. `PreDepth.glsl` therefore reads the material table, and `m_PreDepthPass` binds
-  `GPUMaterials`, `u_GPUMaterialTextures`, `r_MaterialSampler` and `RendererData` — bound
-  explicitly, not via `BindSceneRenderPassInputs(PassInputMaterialScene)`, because that would
+  `GPUMaterials`, `r_MaterialSampler` and `RendererData` plus its `BindlessTextureTable` (the
+  bindless `u_GPUMaterialTextures`, set 4) — bound explicitly, not via `BindSceneRenderPassInputs(PassInputMaterialScene)`, because that would
   also rebind `ObjectIndexes` to the *visible* set and pre-depth uses the unculled one. The two
   passes must discard identically (same UV, same mip bias, same cutoff) or the G-buffer fails its
   depth-equal test, so `GetMaterialMipBias` is duplicated verbatim in both shaders. `PreDepth_Meshlet`

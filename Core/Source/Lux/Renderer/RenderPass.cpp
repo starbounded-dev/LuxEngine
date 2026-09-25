@@ -5,6 +5,7 @@
 #include "RenderPass.h"
 
 #include "Renderer.h"
+#include "Lux/Platform/Vulkan/VulkanShader.h"
 
 #include "Lux/Renderer/RendererAPI.h"
 
@@ -128,6 +129,31 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		return m_Specification.Pipeline->GetSpecification().TargetFramebuffer;
+	}
+
+	nvrhi::BindingSetVector RenderPass::GetBindingSets(uint32_t frameIndex) const
+	{
+		nvrhi::BindingSetVector sets = m_DescriptorSetManager.GetBindingSets(frameIndex);
+		constexpr uint32_t bindlessSet = BindlessTextureTable::DescriptorSet;
+		if (!m_Specification.Pipeline)
+			return sets;
+		const auto& layouts = m_Specification.Pipeline->GetShader().As<VulkanShader>()->GetAllDescriptorSetLayouts();
+		if (layouts.size() <= bindlessSet)
+			return sets;
+
+		if (!m_BindlessTextures)
+		{
+			if (!m_ReportedMissingBindlessTable)
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "Render pass '{}' reads bindless textures but has no table", m_Specification.DebugName);
+				m_ReportedMissingBindlessTable = true;
+			}
+			return sets;
+		}
+		while (sets.size() <= bindlessSet)
+			sets.push_back(nullptr);
+		sets[bindlessSet] = m_BindlessTextures->RT_GetTable(frameIndex);
+		return sets;
 	}
 
 	Ref<Pipeline> RenderPass::GetPipeline() const

@@ -1551,6 +1551,8 @@ namespace Lux {
 		Ref<RenderPass>  m_GBufferDebugPass;
 		Ref<Material>    m_GBufferDebugMaterial;
 		std::vector<Ref<Texture2D>> m_GPUMaterialTextures;
+		Ref<BindlessTextureTable> m_BindlessTextures;
+		uint32_t m_ResolvedTextureSlotCount = 0;
 
 		// ── Selected / wireframe ──────────────────────────────────────────────
 		Ref<RenderPass>  m_SelectedGeometryPass;

@@ -94,7 +94,8 @@ namespace Lux {
 		constexpr uint32_t TransientRenderMaterialMask = ~TransientRenderMaterialFlag;
 		constexpr uint32_t TransientGPUTextureFlag = 0x80000000u;
 		constexpr uint32_t TransientGPUTextureMask = ~TransientGPUTextureFlag;
-		constexpr uint32_t MaxGPUTextureSceneTextures = 1024;
+		// The bindless texture table's size: MaterialScene.glslh's cap, clamped to the device.
+		uint32_t MaxGPUTextureSceneTextures() { return BindlessTextureTable::GetCapacity(); }
 
 		uint32_t EncodeTransientGPUSceneInstanceIndex(uint32_t index)
 		{
@@ -1193,6 +1194,9 @@ namespace Lux {
 
 	void SceneRenderer::Init()
 	{
+		// Before any pass is set up: the material passes are handed this table.
+		if (!m_BindlessTextures)
+			m_BindlessTextures = Ref<BindlessTextureTable>::Create();
 		InitOptions();
 
 		for (size_t passIndex = 0; passIndex < m_MeshPasses.size(); passIndex++)
@@ -1514,11 +1518,7 @@ namespace Lux {
 			SetRenderPassInputIfValid(m_PreDepthPass, "RendererData", m_UBSRendererData);
 			SetRenderPassInputIfValid(m_PreDepthPass, "GPUMaterials", m_SBSGPUMaterials);
 			SetRenderPassInputIfValid(m_PreDepthPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
-			if (m_PreDepthPass->IsInputValid("u_GPUMaterialTextures"))
-			{
-				for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
-					m_PreDepthPass->SetInput("u_GPUMaterialTextures", Renderer::GetWhiteTexture(), textureIndex);
-			}
+			m_PreDepthPass->SetBindlessTextures(m_BindlessTextures);
 			LUX_CORE_VERIFY(m_PreDepthPass->Validate());
 			m_PreDepthPass->Bake();
 
@@ -2641,11 +2641,7 @@ namespace Lux {
 			SetRenderPassInputIfValid(renderPass, "GPUMaterials", m_SBSGPUMaterials);
 			SetRenderPassInputIfValid(renderPass, "ObjectIndexes", m_SBSVisibleObjectIndexes);
 			SetRenderPassInputIfValid(renderPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
-			if (renderPass->IsInputValid("u_GPUMaterialTextures"))
-			{
-				for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
-					renderPass->SetInput("u_GPUMaterialTextures", Renderer::GetWhiteTexture(), textureIndex);
-			}
+			renderPass->SetBindlessTextures(m_BindlessTextures);
 		}
 		if (hasInput(PassInputGBuffer) && m_GeometryPass)
 		{
@@ -6144,10 +6140,10 @@ namespace Lux {
 			gpuTextureHandles.push_back(transientTextureHandle);
 
 		uint32_t textureTableOverflowCount = 0;
-		if (gpuTextureHandles.size() > MaxGPUTextureSceneTextures)
+		if (gpuTextureHandles.size() > MaxGPUTextureSceneTextures())
 		{
-			textureTableOverflowCount = (uint32_t)(gpuTextureHandles.size() - MaxGPUTextureSceneTextures);
-			gpuTextureHandles.resize(MaxGPUTextureSceneTextures);
+			textureTableOverflowCount = (uint32_t)(gpuTextureHandles.size() - MaxGPUTextureSceneTextures());
+			gpuTextureHandles.resize(MaxGPUTextureSceneTextures());
 		}
 
 		auto resolveMaterialTexture = [](AssetHandle textureHandle) -> Ref<Texture2D>
@@ -6179,7 +6175,7 @@ namespace Lux {
 
 		uint32_t missingTextureDescriptorCount = 0;
 		if (m_GPUMaterialTextures.empty())
-			m_GPUMaterialTextures.assign(MaxGPUTextureSceneTextures, Renderer::GetWhiteTexture());
+			m_GPUMaterialTextures.assign(MaxGPUTextureSceneTextures(), nullptr);
 
 		m_PendingTextureResolveScratch.swap(m_PendingTextureResolveSlots);
 		m_PendingTextureResolveSlots.clear();
@@ -6194,26 +6190,24 @@ namespace Lux {
 				m_PendingTextureResolveSlots.push_back(textureIndex); // still streaming — retry next frame
 			}
 
-			if (m_GPUMaterialTextures[textureIndex].Raw() == texture.Raw())
+			// Full sweeps resend every slot: a hot-reloaded texture keeps its Ref but swaps its
+			// image, and the table skips any write whose image has not changed.
+			if (!fullTextureResolve && m_GPUMaterialTextures[textureIndex].Raw() == texture.Raw())
 				return;
 
 			m_GPUMaterialTextures[textureIndex] = texture;
-			if (m_GeometryPass && m_GeometryPass->IsInputValid("u_GPUMaterialTextures"))
-				m_GeometryPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
-			if (m_GeometryPassTransparent && m_GeometryPassTransparent->IsInputValid("u_GPUMaterialTextures"))
-				m_GeometryPassTransparent->SetInput("u_GPUMaterialTextures", texture, textureIndex);
-			if (m_DeferredLightingPass && m_DeferredLightingPass->IsInputValid("u_GPUMaterialTextures"))
-				m_DeferredLightingPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
-			if (m_GBufferDebugPass && m_GBufferDebugPass->IsInputValid("u_GPUMaterialTextures"))
-				m_GBufferDebugPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
-			if (m_PreDepthPass && m_PreDepthPass->IsInputValid("u_GPUMaterialTextures"))
-				m_PreDepthPass->SetInput("u_GPUMaterialTextures", texture, textureIndex);
+			m_BindlessTextures->SetSlot(textureIndex, texture);
 		};
 
 		if (fullTextureResolve)
 		{
-			for (uint32_t textureIndex = 0; textureIndex < MaxGPUTextureSceneTextures; textureIndex++)
+			// Only the slots in use, plus any a shrunken table left behind (reset to white): the
+			// table is large, and a sweep costs an asset lookup per slot.
+			const uint32_t sweepEnd = glm::min(MaxGPUTextureSceneTextures(),
+				glm::max((uint32_t)gpuTextureHandles.size(), m_ResolvedTextureSlotCount));
+			for (uint32_t textureIndex = 0; textureIndex < sweepEnd; textureIndex++)
 				resolveSlot(textureIndex);
+			m_ResolvedTextureSlotCount = (uint32_t)gpuTextureHandles.size();
 			m_MissingTextureDescriptorCount = missingTextureDescriptorCount;
 		}
 		else
@@ -6227,13 +6221,16 @@ namespace Lux {
 			}
 
 			// Transient slots change every frame; always resolve their region.
-			const uint32_t transientEnd = glm::min((uint32_t)gpuTextureHandles.size(), MaxGPUTextureSceneTextures);
+			const uint32_t transientEnd = glm::min((uint32_t)gpuTextureHandles.size(), MaxGPUTextureSceneTextures());
 			for (uint32_t textureIndex = persistentTextureCount; textureIndex < transientEnd; textureIndex++)
 				resolveSlot(textureIndex);
+			m_ResolvedTextureSlotCount = glm::max(m_ResolvedTextureSlotCount, transientEnd);
 
 			// The missing-slot statistic refreshes on full sweeps.
 			missingTextureDescriptorCount = m_MissingTextureDescriptorCount;
 		}
+		// Before this frame's passes are recorded: they read this frame's table.
+		m_BindlessTextures->Flush();
 
 		std::vector<GPUMaterialData>& gpuMaterialData = m_ScratchMaterialData;
 		// Same version gate as the texture table. Unlike the texture scratch,
@@ -6274,7 +6271,7 @@ namespace Lux {
 
 				const uint32_t transientTextureIndex = DecodeTransientGPUTextureIndex(textureIndex);
 				const uint64_t uploadedTextureIndex = (uint64_t)persistentTextureCount + transientTextureIndex;
-				return uploadedTextureIndex < MaxGPUTextureSceneTextures
+				return uploadedTextureIndex < MaxGPUTextureSceneTextures()
 					? (GPUTextureIndex)uploadedTextureIndex
 					: InvalidGPUTextureIndex;
 			};
@@ -6696,7 +6693,7 @@ namespace Lux {
 			if (snapshot.MissingTextureDescriptorCount > 0)
 				snapshot.Diagnostics.push_back(std::format("{} GPU texture table slot(s) fell back to the default white texture.", snapshot.MissingTextureDescriptorCount));
 			if (snapshot.TextureTableOverflowCount > 0)
-				snapshot.Diagnostics.push_back(std::format("GPU texture table overflowed by {} texture row(s). Increase MaxGPUTextureSceneTextures before relying on these rows.", snapshot.TextureTableOverflowCount));
+				snapshot.Diagnostics.push_back(std::format("GPU texture table overflowed by {} texture row(s). The bindless table holds {} (BindlessTextureTable::MaxCapacity, clamped by the GPU).", snapshot.TextureTableOverflowCount, MaxGPUTextureSceneTextures()));
 
 			m_GPUSceneDebugSnapshot = std::move(snapshot);
 		}
