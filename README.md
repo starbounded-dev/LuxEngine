@@ -400,7 +400,9 @@ Bundles the binary, the vendored Vulkan/Assimp/Aftermath shared libraries, resou
 
 ### Audio (FMOD Studio + Vercidium Audio)
 - **FMOD Studio events** as the only playback path — banks, event instances, parameters, buses, snapshots, and in-editor bank building (`fmodstudiocl`).
-- **Ray-traced acoustics (VA)** — occlusion, muffling and reverb from real scene geometry, with dynamic geometry updates, room portals and per-surface acoustic materials.
+- **Ray-traced acoustics (VA)** — reverb and room ambience from real scene geometry, with dynamic geometry updates, room portals and per-surface acoustic materials.
+- **Occlusion** — sounds behind walls are muffled by the engine's own raycasts through the acoustic geometry, costed by each material's transmission (VA's per-source occlusion does not yet respond to geometry).
+- **See the Sound** — an editor view that makes the acoustics visible during Play: each source's path through the walls with material, thickness and dB labels, every zone and portal with its live weight, the listener's measured room, and surfaces tinted by acoustic material. Render materials carry an acoustic tag, so choosing "Bricks" sets how a wall looks and how it sounds.
 - **Zones and ambience** blending, an **interactive music director** (states, intensity, layers, stingers, timeline callbacks), and **physics-driven footsteps/impacts** from Jolt contacts via surface tables.
 - **Dialogue** — localized dialogue tables, programmer sounds, subtitles and narration.
 - **Accessibility** — category gains, mono/compressor DSPs, narration ducking, captions and directional cues.

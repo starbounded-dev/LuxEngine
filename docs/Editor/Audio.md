@@ -62,13 +62,28 @@ Sections, in draw order:
 **Audio Validation is the one to check before exporting.** It reports the same failures that make
 an exported game silent, and it is much easier to read here than in the log.
 
-### Visualisation
+### Visualisation — "See the Sound"
 
-The last section controls how VA's simulation is drawn into the viewport:
+The **3D Visualisation** section draws the acoustics into the viewport. The quickest way in is
+**See the Sound**, also in the viewport's options popup (the gear), which works during Play. It
+turns on the showcase set below and restores your previous settings when you turn it off.
+
+| Control | Default | What it shows |
+|---|---|---|
+| Show Occlusion Paths | off | Each source's line from the listener, green (clear) to red (blocked), with every wall it crosses marked and labelled `Brick 0.30 m -9.0 dB`, plus the source's total. Drawn through walls so the blocked part stays visible. *Wall Labels* and *Selected Source Only* refine it. Engine occlusion only; costs nothing extra |
+| All Zones and Portals | off | Every zone and portal, brightened by its live weight (zones) or how open it is (portals), labelled with the number |
+| Room Acoustics Readout | off | Top-left of the viewport: returned vs escaping energy, LF/HF decay, absorption and scattering, as VA measures the listener's room |
+| Colour Bounces by Material | off | Tints each VA bounce point with the acoustic material it landed on (one short raycast per bounce while shown) |
+
+**Acoustic Materials** (viewport options popup, edit mode and Play) tints every surface the acoustics
+see — non-Disabled mesh colliders and closed portal shutters — by its effective acoustic material,
+with a legend of the materials in the scene. It replaces the physics collider view while on.
+
+The VA ray controls below are the SDK's own debug rays:
 
 | Control | Default | Notes |
 |---|---|---|
-| Enabled | **off** | Everything below is inert until this is on |
+| Show VA Rays | **off** | The ray settings below are inert until this is on |
 | Ray Count | 64 | Passed straight to the SDK |
 | Bounce Count | 4 | Passed straight to the SDK |
 | Update Interval | 50 ms | How often the debug trace refreshes |
@@ -93,9 +108,14 @@ compiles to nothing and silently removes the section.
 
 **The visualisation settings live in the panel, but the panel does not draw them.**
 `AudioVisualisationSettings` is owned by `AudioDebugPanel` because that is where it is edited, and
-read by `EditorLayer::OnOverlayRender` (`EditorLayer.cpp:2481`), which owns the only `Renderer2D`
-with a camera already set up for the frame. The panel is the editing half; the overlay is the
+read by `EditorLayer::DrawAudioVisualisation`, called from `OnOverlayRender`, which owns the only
+`Renderer2D` with a camera already set up for the frame. It also applies the VA ray settings every
+frame, so they work with the panel closed. The panel is the editing half; the overlay is the
 drawing half.
+
+**Nothing in the overlay reads VA's live results.** VA's workers write them between frames, so the
+scene copies what the overlay needs (the applied occlusion, the room ambience) inside the window
+where that is safe, and the overlay reads the copies.
 
 ### How to modify
 
@@ -132,6 +152,14 @@ export.
 
 **Zone Reverb** — how zone reverb and VA combine: *Layer zones and VA*, *Prefer zones*, or
 *Prefer VA*.
+
+**Occlusion** — what muffles a source behind a wall, through its event's `Occlusion` parameter:
+*Engine raycasts* (default) or *VA (raytraced)*. Engine occlusion casts from the listener to each
+source through acoustic mesh colliders and closed portals and costs each wall 30 dB per its
+material's transmission distance (a 0.3 m brick wall is about 18 dB). *Occlusion Strength* scales
+every wall (1 follows the material data); *Rate* and *Casts / Frame* bound the cost. VA's own
+occlusion does not respond to geometry in the current SDK. Applies on the next Play. The Audio
+Debugger's validation warns about source events with no `Occlusion` parameter.
 
 **Surface Sounds** — the `.lsurfaces` *Surface Table* plus impact cooldown, minimum impulse (in
 Jolt's estimated kg·m/s) and minimum motion speed, with Footstep / Impact / Scrape / Roll event
@@ -182,7 +210,11 @@ the event's Studio timeline, not in the engine.
 ### Audio Surface, Zone, Portal
 
 `AudioSurfaceComponent` overrides the acoustic tag that `MeshColliderComponent` otherwise supplies;
-without a mesh collider it is metadata only. `AudioZoneComponent` and `AudioPortalComponent` feed
+without a mesh collider it is metadata only. A mesh collider's tag can come from its render material:
+set **Material Editor → Acoustics → Acoustic Material** on the material (e.g. Bricks → Brick) and
+keep **Inherit From Material** on the collider (new colliders default to it; colliders from older
+scenes keep their explicit tag until you tick it). The collider shows the **Effective Acoustics**
+tag actually in use. `AudioZoneComponent` and `AudioPortalComponent` feed
 the zone-weight system — a portal can link two zone entities, and its selected wireframe is drawn
 in the viewport. The engine-side rules for all three are in `Architecture-LuxEngine.md` §2.10.
 
