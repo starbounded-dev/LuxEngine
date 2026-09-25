@@ -1,0 +1,16 @@
+Material:
+  Transparent: false
+  AlbedoColor: [1, 0.78, 0.86]
+  Emission: 0
+  UseNormalMap: true
+  Metalness: 0
+  Roughness: 0.85
+  AlbedoMap: Textures/Carpet016/Carpet016_1K-JPG_Color.jpg
+  NormalMap: Textures/Carpet016/Carpet016_1K-JPG_NormalGL.jpg
+  MetalnessMap: 0
+  RoughnessMap: Textures/Carpet016/Carpet016_1K-JPG_Roughness.jpg
+  OcclusionMap: Textures/Carpet016/Carpet016_1K-JPG_AmbientOcclusion.jpg
+  UVTiling: [1, 1]
+  UVRotation: 0.785398
+  AcousticMaterial: Carpet
+  MaterialFlags: 6

@@ -1,0 +1,15 @@
+Material:
+  Transparent: false
+  AlbedoColor: [0.86, 1, 0.78]
+  Emission: 0
+  UseNormalMap: true
+  Metalness: 1
+  Roughness: 1
+  AlbedoMap: Textures/Metal049A/Metal049A_1K-JPG_Color.jpg
+  NormalMap: Textures/Metal049A/Metal049A_1K-JPG_NormalGL.jpg
+  MetalnessMap: Textures/Metal049A/Metal049A_1K-JPG_Metalness.jpg
+  RoughnessMap: Textures/Metal049A/Metal049A_1K-JPG_Roughness.jpg
+  UVTiling: [1.5, 1.5]
+  UVRotation: 0.785398
+  AcousticMaterial: Metal
+  MaterialFlags: 6

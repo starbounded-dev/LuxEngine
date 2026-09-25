@@ -1,0 +1,14 @@
+Material:
+  Transparent: false
+  AlbedoColor: [1, 0.9, 0.8]
+  Emission: 0
+  UseNormalMap: false
+  Metalness: 1
+  Roughness: 1
+  AlbedoMap: Meshes/Source/Sponza/white.png
+  NormalMap: 0
+  MetalnessMap: 0
+  RoughnessMap: 0
+  UVTiling: [2, 2]
+  AcousticMaterial: Rock
+  MaterialFlags: 6

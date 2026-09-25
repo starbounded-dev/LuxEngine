@@ -1,0 +1,15 @@
+Material:
+  Transparent: false
+  AlbedoColor: [1, 0.86, 0.72]
+  Emission: 0
+  UseNormalMap: true
+  Metalness: 0
+  Roughness: 0.85
+  AlbedoMap: Textures/Bricks097/Bricks097_1K-JPG_Color.jpg
+  NormalMap: Textures/Bricks097/Bricks097_1K-JPG_NormalGL.jpg
+  MetalnessMap: 0
+  RoughnessMap: Textures/Bricks097/Bricks097_1K-JPG_Roughness.jpg
+  OcclusionMap: Textures/Bricks097/Bricks097_1K-JPG_AmbientOcclusion.jpg
+  UVTiling: [2.5, 2.5]
+  AcousticMaterial: Brick
+  MaterialFlags: 6

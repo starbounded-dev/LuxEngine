@@ -184,10 +184,16 @@ Use this whenever a number goes into a report or justifies a change.
    `Resources/` and every shader loads with `SourceSize: 0`. On Linux, `scripts/Linux-Run.sh`
    already does this — and note Linux defaults to the single-threaded policy, so its numbers are not
    comparable to a Windows multi-threaded run.
-3. **Scene.** Use a fixed scene. For renderer scaling work, generate the stress scenes:
-   `python scripts/GenerateBenchmarkScenes.py` writes `Benchmark_10k_Cubes`,
-   `Benchmark_100k_Cubes`, `Benchmark_CityBlocks`, `Benchmark_IndoorOccluders`, and
-   `Benchmark_ManyLights` into `Editor/LuxSampleProject/Assets/Scenes/Benchmarks/`.
+3. **Scene.** Use a fixed scene. The standard one is `Scenes/Benchmark.luxscene`, which exercises
+   every shipped system: about 7k static meshes over 128 generated materials, Sponza, 230 point and
+   8 spot lights, glass (the transparent pass), emissive surfaces, 800 Jolt bodies, Box2D sprites,
+   FMOD sources, zones and portals, acoustic mesh colliders, scripts, and text.
+   `python scripts/GenerateBenchmarkScenes.py` regenerates it deterministically, along with its
+   materials (`Assets/Materials/Benchmark/`, registered under fixed handles). `--objects`,
+   `--materials`, `--lights` and `--bodies` scale it. Record any non-default arguments with the
+   numbers. **Play** starts a looping camera flight through every district (the `CameraPath`
+   script; C toggles it), so a Play-mode capture is the reproducible one. Edit mode depends on
+   where you left the editor camera.
 4. **Fix** window size, resolution scale, camera vantage point (screenshot it), quality settings,
    threading policy, present mode. Keep the window **focused**.
 5. **Warm up** 3–5 s so shader/pipeline compilation and dynamic resolution settle.

@@ -402,7 +402,7 @@ Assets:
   - Handle: 8868489982347245392
     FilePath: Scripts/Intermediates/Release/LuxSample.AssemblyInfo.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069062239138
+    FileLastWriteTime: 18446744069062240103
     Status: None
   - Handle: 8873821167095533110
     FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
@@ -692,7 +692,7 @@ Assets:
   - Handle: 14293776709940706397
     FilePath: Scenes/FMODDemo.luxscene
     Type: Scene
-    FileLastWriteTime: 18446744069062239166
+    FileLastWriteTime: 18446744069062239271
     Status: Ready
   - Handle: 14516153528990365607
     FilePath: Meshes/Source/Materials/CubeScene_0_Material_0.lmat
@@ -844,3 +844,428 @@ Assets:
     Type: Texture
     FileLastWriteTime: 18446744069031923680
     Status: Ready
+  - Handle: 18365287320962813052
+    FilePath: Scenes/Benchmark.luxscene
+    Type: Scene
+    FileLastWriteTime: 18446744069062254420
+    Status: None
+  - Handle: 16000000000000000000
+    FilePath: Materials/Benchmark/Bench_000.lmat
+    Type: Material
+  - Handle: 16000000000000000001
+    FilePath: Materials/Benchmark/Bench_001.lmat
+    Type: Material
+  - Handle: 16000000000000000002
+    FilePath: Materials/Benchmark/Bench_002.lmat
+    Type: Material
+  - Handle: 16000000000000000003
+    FilePath: Materials/Benchmark/Bench_003.lmat
+    Type: Material
+  - Handle: 16000000000000000004
+    FilePath: Materials/Benchmark/Bench_004.lmat
+    Type: Material
+  - Handle: 16000000000000000005
+    FilePath: Materials/Benchmark/Bench_005.lmat
+    Type: Material
+  - Handle: 16000000000000000006
+    FilePath: Materials/Benchmark/Bench_006.lmat
+    Type: Material
+  - Handle: 16000000000000000007
+    FilePath: Materials/Benchmark/Bench_007.lmat
+    Type: Material
+  - Handle: 16000000000000000008
+    FilePath: Materials/Benchmark/Bench_008.lmat
+    Type: Material
+  - Handle: 16000000000000000009
+    FilePath: Materials/Benchmark/Bench_009.lmat
+    Type: Material
+  - Handle: 16000000000000000010
+    FilePath: Materials/Benchmark/Bench_010.lmat
+    Type: Material
+  - Handle: 16000000000000000011
+    FilePath: Materials/Benchmark/Bench_011.lmat
+    Type: Material
+  - Handle: 16000000000000000012
+    FilePath: Materials/Benchmark/Bench_012.lmat
+    Type: Material
+  - Handle: 16000000000000000013
+    FilePath: Materials/Benchmark/Bench_013.lmat
+    Type: Material
+  - Handle: 16000000000000000014
+    FilePath: Materials/Benchmark/Bench_014.lmat
+    Type: Material
+  - Handle: 16000000000000000015
+    FilePath: Materials/Benchmark/Bench_015.lmat
+    Type: Material
+  - Handle: 16000000000000000016
+    FilePath: Materials/Benchmark/Bench_016.lmat
+    Type: Material
+  - Handle: 16000000000000000017
+    FilePath: Materials/Benchmark/Bench_017.lmat
+    Type: Material
+  - Handle: 16000000000000000018
+    FilePath: Materials/Benchmark/Bench_018.lmat
+    Type: Material
+  - Handle: 16000000000000000019
+    FilePath: Materials/Benchmark/Bench_019.lmat
+    Type: Material
+  - Handle: 16000000000000000020
+    FilePath: Materials/Benchmark/Bench_020.lmat
+    Type: Material
+  - Handle: 16000000000000000021
+    FilePath: Materials/Benchmark/Bench_021.lmat
+    Type: Material
+  - Handle: 16000000000000000022
+    FilePath: Materials/Benchmark/Bench_022.lmat
+    Type: Material
+  - Handle: 16000000000000000023
+    FilePath: Materials/Benchmark/Bench_023.lmat
+    Type: Material
+  - Handle: 16000000000000000024
+    FilePath: Materials/Benchmark/Bench_024.lmat
+    Type: Material
+  - Handle: 16000000000000000025
+    FilePath: Materials/Benchmark/Bench_025.lmat
+    Type: Material
+  - Handle: 16000000000000000026
+    FilePath: Materials/Benchmark/Bench_026.lmat
+    Type: Material
+  - Handle: 16000000000000000027
+    FilePath: Materials/Benchmark/Bench_027.lmat
+    Type: Material
+  - Handle: 16000000000000000028
+    FilePath: Materials/Benchmark/Bench_028.lmat
+    Type: Material
+  - Handle: 16000000000000000029
+    FilePath: Materials/Benchmark/Bench_029.lmat
+    Type: Material
+  - Handle: 16000000000000000030
+    FilePath: Materials/Benchmark/Bench_030.lmat
+    Type: Material
+  - Handle: 16000000000000000031
+    FilePath: Materials/Benchmark/Bench_031.lmat
+    Type: Material
+  - Handle: 16000000000000000032
+    FilePath: Materials/Benchmark/Bench_032.lmat
+    Type: Material
+  - Handle: 16000000000000000033
+    FilePath: Materials/Benchmark/Bench_033.lmat
+    Type: Material
+  - Handle: 16000000000000000034
+    FilePath: Materials/Benchmark/Bench_034.lmat
+    Type: Material
+  - Handle: 16000000000000000035
+    FilePath: Materials/Benchmark/Bench_035.lmat
+    Type: Material
+  - Handle: 16000000000000000036
+    FilePath: Materials/Benchmark/Bench_036.lmat
+    Type: Material
+  - Handle: 16000000000000000037
+    FilePath: Materials/Benchmark/Bench_037.lmat
+    Type: Material
+  - Handle: 16000000000000000038
+    FilePath: Materials/Benchmark/Bench_038.lmat
+    Type: Material
+  - Handle: 16000000000000000039
+    FilePath: Materials/Benchmark/Bench_039.lmat
+    Type: Material
+  - Handle: 16000000000000000040
+    FilePath: Materials/Benchmark/Bench_040.lmat
+    Type: Material
+  - Handle: 16000000000000000041
+    FilePath: Materials/Benchmark/Bench_041.lmat
+    Type: Material
+  - Handle: 16000000000000000042
+    FilePath: Materials/Benchmark/Bench_042.lmat
+    Type: Material
+  - Handle: 16000000000000000043
+    FilePath: Materials/Benchmark/Bench_043.lmat
+    Type: Material
+  - Handle: 16000000000000000044
+    FilePath: Materials/Benchmark/Bench_044.lmat
+    Type: Material
+  - Handle: 16000000000000000045
+    FilePath: Materials/Benchmark/Bench_045.lmat
+    Type: Material
+  - Handle: 16000000000000000046
+    FilePath: Materials/Benchmark/Bench_046.lmat
+    Type: Material
+  - Handle: 16000000000000000047
+    FilePath: Materials/Benchmark/Bench_047.lmat
+    Type: Material
+  - Handle: 16000000000000000048
+    FilePath: Materials/Benchmark/Bench_048.lmat
+    Type: Material
+  - Handle: 16000000000000000049
+    FilePath: Materials/Benchmark/Bench_049.lmat
+    Type: Material
+  - Handle: 16000000000000000050
+    FilePath: Materials/Benchmark/Bench_050.lmat
+    Type: Material
+  - Handle: 16000000000000000051
+    FilePath: Materials/Benchmark/Bench_051.lmat
+    Type: Material
+  - Handle: 16000000000000000052
+    FilePath: Materials/Benchmark/Bench_052.lmat
+    Type: Material
+  - Handle: 16000000000000000053
+    FilePath: Materials/Benchmark/Bench_053.lmat
+    Type: Material
+  - Handle: 16000000000000000054
+    FilePath: Materials/Benchmark/Bench_054.lmat
+    Type: Material
+  - Handle: 16000000000000000055
+    FilePath: Materials/Benchmark/Bench_055.lmat
+    Type: Material
+  - Handle: 16000000000000000056
+    FilePath: Materials/Benchmark/Bench_056.lmat
+    Type: Material
+  - Handle: 16000000000000000057
+    FilePath: Materials/Benchmark/Bench_057.lmat
+    Type: Material
+  - Handle: 16000000000000000058
+    FilePath: Materials/Benchmark/Bench_058.lmat
+    Type: Material
+  - Handle: 16000000000000000059
+    FilePath: Materials/Benchmark/Bench_059.lmat
+    Type: Material
+  - Handle: 16000000000000000060
+    FilePath: Materials/Benchmark/Bench_060.lmat
+    Type: Material
+  - Handle: 16000000000000000061
+    FilePath: Materials/Benchmark/Bench_061.lmat
+    Type: Material
+  - Handle: 16000000000000000062
+    FilePath: Materials/Benchmark/Bench_062.lmat
+    Type: Material
+  - Handle: 16000000000000000063
+    FilePath: Materials/Benchmark/Bench_063.lmat
+    Type: Material
+  - Handle: 16000000000000000064
+    FilePath: Materials/Benchmark/Bench_064.lmat
+    Type: Material
+  - Handle: 16000000000000000065
+    FilePath: Materials/Benchmark/Bench_065.lmat
+    Type: Material
+  - Handle: 16000000000000000066
+    FilePath: Materials/Benchmark/Bench_066.lmat
+    Type: Material
+  - Handle: 16000000000000000067
+    FilePath: Materials/Benchmark/Bench_067.lmat
+    Type: Material
+  - Handle: 16000000000000000068
+    FilePath: Materials/Benchmark/Bench_068.lmat
+    Type: Material
+  - Handle: 16000000000000000069
+    FilePath: Materials/Benchmark/Bench_069.lmat
+    Type: Material
+  - Handle: 16000000000000000070
+    FilePath: Materials/Benchmark/Bench_070.lmat
+    Type: Material
+  - Handle: 16000000000000000071
+    FilePath: Materials/Benchmark/Bench_071.lmat
+    Type: Material
+  - Handle: 16000000000000000072
+    FilePath: Materials/Benchmark/Bench_072.lmat
+    Type: Material
+  - Handle: 16000000000000000073
+    FilePath: Materials/Benchmark/Bench_073.lmat
+    Type: Material
+  - Handle: 16000000000000000074
+    FilePath: Materials/Benchmark/Bench_074.lmat
+    Type: Material
+  - Handle: 16000000000000000075
+    FilePath: Materials/Benchmark/Bench_075.lmat
+    Type: Material
+  - Handle: 16000000000000000076
+    FilePath: Materials/Benchmark/Bench_076.lmat
+    Type: Material
+  - Handle: 16000000000000000077
+    FilePath: Materials/Benchmark/Bench_077.lmat
+    Type: Material
+  - Handle: 16000000000000000078
+    FilePath: Materials/Benchmark/Bench_078.lmat
+    Type: Material
+  - Handle: 16000000000000000079
+    FilePath: Materials/Benchmark/Bench_079.lmat
+    Type: Material
+  - Handle: 16000000000000000080
+    FilePath: Materials/Benchmark/Bench_080.lmat
+    Type: Material
+  - Handle: 16000000000000000081
+    FilePath: Materials/Benchmark/Bench_081.lmat
+    Type: Material
+  - Handle: 16000000000000000082
+    FilePath: Materials/Benchmark/Bench_082.lmat
+    Type: Material
+  - Handle: 16000000000000000083
+    FilePath: Materials/Benchmark/Bench_083.lmat
+    Type: Material
+  - Handle: 16000000000000000084
+    FilePath: Materials/Benchmark/Bench_084.lmat
+    Type: Material
+  - Handle: 16000000000000000085
+    FilePath: Materials/Benchmark/Bench_085.lmat
+    Type: Material
+  - Handle: 16000000000000000086
+    FilePath: Materials/Benchmark/Bench_086.lmat
+    Type: Material
+  - Handle: 16000000000000000087
+    FilePath: Materials/Benchmark/Bench_087.lmat
+    Type: Material
+  - Handle: 16000000000000000088
+    FilePath: Materials/Benchmark/Bench_088.lmat
+    Type: Material
+  - Handle: 16000000000000000089
+    FilePath: Materials/Benchmark/Bench_089.lmat
+    Type: Material
+  - Handle: 16000000000000000090
+    FilePath: Materials/Benchmark/Bench_090.lmat
+    Type: Material
+  - Handle: 16000000000000000091
+    FilePath: Materials/Benchmark/Bench_091.lmat
+    Type: Material
+  - Handle: 16000000000000000092
+    FilePath: Materials/Benchmark/Bench_092.lmat
+    Type: Material
+  - Handle: 16000000000000000093
+    FilePath: Materials/Benchmark/Bench_093.lmat
+    Type: Material
+  - Handle: 16000000000000000094
+    FilePath: Materials/Benchmark/Bench_094.lmat
+    Type: Material
+  - Handle: 16000000000000000095
+    FilePath: Materials/Benchmark/Bench_095.lmat
+    Type: Material
+  - Handle: 16000000000000000096
+    FilePath: Materials/Benchmark/Bench_096.lmat
+    Type: Material
+  - Handle: 16000000000000000097
+    FilePath: Materials/Benchmark/Bench_097.lmat
+    Type: Material
+  - Handle: 16000000000000000098
+    FilePath: Materials/Benchmark/Bench_098.lmat
+    Type: Material
+  - Handle: 16000000000000000099
+    FilePath: Materials/Benchmark/Bench_099.lmat
+    Type: Material
+  - Handle: 16000000000000000100
+    FilePath: Materials/Benchmark/Bench_100.lmat
+    Type: Material
+  - Handle: 16000000000000000101
+    FilePath: Materials/Benchmark/Bench_101.lmat
+    Type: Material
+  - Handle: 16000000000000000102
+    FilePath: Materials/Benchmark/Bench_102.lmat
+    Type: Material
+  - Handle: 16000000000000000103
+    FilePath: Materials/Benchmark/Bench_103.lmat
+    Type: Material
+  - Handle: 16000000000000000104
+    FilePath: Materials/Benchmark/Bench_104.lmat
+    Type: Material
+  - Handle: 16000000000000000105
+    FilePath: Materials/Benchmark/Bench_105.lmat
+    Type: Material
+  - Handle: 16000000000000000106
+    FilePath: Materials/Benchmark/Bench_106.lmat
+    Type: Material
+  - Handle: 16000000000000000107
+    FilePath: Materials/Benchmark/Bench_107.lmat
+    Type: Material
+  - Handle: 16000000000000000108
+    FilePath: Materials/Benchmark/Bench_108.lmat
+    Type: Material
+  - Handle: 16000000000000000109
+    FilePath: Materials/Benchmark/Bench_109.lmat
+    Type: Material
+  - Handle: 16000000000000000110
+    FilePath: Materials/Benchmark/Bench_110.lmat
+    Type: Material
+  - Handle: 16000000000000000111
+    FilePath: Materials/Benchmark/Bench_111.lmat
+    Type: Material
+  - Handle: 16000000000000000112
+    FilePath: Materials/Benchmark/Bench_112.lmat
+    Type: Material
+  - Handle: 16000000000000000113
+    FilePath: Materials/Benchmark/Bench_113.lmat
+    Type: Material
+  - Handle: 16000000000000000114
+    FilePath: Materials/Benchmark/Bench_114.lmat
+    Type: Material
+  - Handle: 16000000000000000115
+    FilePath: Materials/Benchmark/Bench_115.lmat
+    Type: Material
+  - Handle: 16000000000000000116
+    FilePath: Materials/Benchmark/Bench_116.lmat
+    Type: Material
+  - Handle: 16000000000000000117
+    FilePath: Materials/Benchmark/Bench_117.lmat
+    Type: Material
+  - Handle: 16000000000000000118
+    FilePath: Materials/Benchmark/Bench_118.lmat
+    Type: Material
+  - Handle: 16000000000000000119
+    FilePath: Materials/Benchmark/Bench_119.lmat
+    Type: Material
+  - Handle: 16000000000000000120
+    FilePath: Materials/Benchmark/Bench_120.lmat
+    Type: Material
+  - Handle: 16000000000000000121
+    FilePath: Materials/Benchmark/Bench_121.lmat
+    Type: Material
+  - Handle: 16000000000000000122
+    FilePath: Materials/Benchmark/Bench_122.lmat
+    Type: Material
+  - Handle: 16000000000000000123
+    FilePath: Materials/Benchmark/Bench_123.lmat
+    Type: Material
+  - Handle: 16000000000000000124
+    FilePath: Materials/Benchmark/Bench_124.lmat
+    Type: Material
+  - Handle: 16000000000000000125
+    FilePath: Materials/Benchmark/Bench_125.lmat
+    Type: Material
+  - Handle: 16000000000000000126
+    FilePath: Materials/Benchmark/Bench_126.lmat
+    Type: Material
+  - Handle: 16000000000000000127
+    FilePath: Materials/Benchmark/Bench_127.lmat
+    Type: Material
+  - Handle: 16000000000000000900
+    FilePath: Materials/Benchmark/Bench_Ground.lmat
+    Type: Material
+  - Handle: 16000000000000000901
+    FilePath: Materials/Benchmark/Bench_Glass.lmat
+    Type: Material
+  - Handle: 16000000000000000902
+    FilePath: Materials/Benchmark/Bench_GlassAmber.lmat
+    Type: Material
+  - Handle: 16000000000000000903
+    FilePath: Materials/Benchmark/Bench_Lamp.lmat
+    Type: Material
+  - Handle: 16000000000000000904
+    FilePath: Materials/Benchmark/Bench_Neon.lmat
+    Type: Material
+  - Handle: 16000000000000000905
+    FilePath: Materials/Benchmark/Bench_Chrome.lmat
+    Type: Material
+  - Handle: 16000000000000000906
+    FilePath: Materials/Benchmark/Bench_Brick.lmat
+    Type: Material
+  - Handle: 16000000000000000907
+    FilePath: Materials/Benchmark/Bench_Plaster.lmat
+    Type: Material
+  - Handle: 16000000000000000908
+    FilePath: Materials/Benchmark/Bench_Roof.lmat
+    Type: Material
+  - Handle: 16000000000000000909
+    FilePath: Materials/Benchmark/Bench_Wood.lmat
+    Type: Material
+  - Handle: 16000000000000000910
+    FilePath: Materials/Benchmark/Bench_Carpet.lmat
+    Type: Material
+  - Handle: 16000000000000000911
+    FilePath: Materials/Benchmark/Bench_Metal.lmat
+    Type: Material

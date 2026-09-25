@@ -1,0 +1,14 @@
+Material:
+  Transparent: false
+  AlbedoColor: [0.86, 1, 0.78]
+  Emission: 0
+  UseNormalMap: true
+  Metalness: 0
+  Roughness: 1
+  AlbedoMap: Textures/Plaster001/Plaster001_1K-JPG_Color.jpg
+  NormalMap: Textures/Plaster001/Plaster001_1K-JPG_NormalGL.jpg
+  MetalnessMap: 0
+  RoughnessMap: Textures/Plaster001/Plaster001_1K-JPG_Roughness.jpg
+  UVTiling: [2.5, 2.5]
+  AcousticMaterial: Plaster
+  MaterialFlags: 6

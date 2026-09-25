@@ -1,0 +1,16 @@
+Material:
+  Transparent: false
+  AlbedoColor: [0.85, 0.9, 1]
+  Emission: 0
+  UseNormalMap: true
+  Metalness: 1
+  Roughness: 1
+  AlbedoMap: Meshes/Source/Sponza/7441062115984513793.jpg
+  NormalMap: Meshes/Source/Sponza/6667038893015345571.jpg
+  MetalnessMap: Meshes/Source/Sponza/8114461559286000061.jpg
+  RoughnessMap: Meshes/Source/Sponza/8114461559286000061.jpg
+  MetalnessChannel: B
+  RoughnessChannel: G
+  UVTiling: [1, 1]
+  AcousticMaterial: Rock
+  MaterialFlags: 6
