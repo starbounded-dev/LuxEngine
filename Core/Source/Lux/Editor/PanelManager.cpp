@@ -58,25 +58,25 @@ namespace Lux {
 
 	void PanelManager::OnImGuiRender()
 	{
+		bool openStateChanged = false;
 		for (auto& panelMap : m_Panels)
 		{
 			for (auto& [id, panelData] : panelMap)
 			{
-				bool closedThisFrame = false;
-
 				if (panelData.IsOpen)
 				{
 					panelData.Panel->OnImGuiRender(panelData.IsOpen);
-					closedThisFrame = !panelData.IsOpen;
+					if (!panelData.IsOpen)
+						panelData.Panel->OnClose();
 				}
-
-				if (closedThisFrame)
-				{
-					panelData.Panel->OnClose();
-					Serialize();
-				}
+				openStateChanged |= panelData.IsOpen != panelData.SavedIsOpen;
 			}
 		}
+
+		// Covers panels closed with their own X above and panels opened or closed anywhere else
+		// since the last frame; saving only on close lost every panel opened from the View menu.
+		if (openStateChanged && m_LayoutLoaded)
+			Serialize();
 	}
 
 	void PanelManager::OnEvent(Event& e)
@@ -124,6 +124,7 @@ namespace Lux {
 					out << YAML::Key << "Name" << YAML::Value << panel.Name;
 					out << YAML::Key << "IsOpen" << YAML::Value << panel.IsOpen;
 					out << YAML::EndMap;
+					panel.SavedIsOpen = panel.IsOpen;
 				}
 			}
 		}
@@ -138,6 +139,7 @@ namespace Lux {
 
 	void PanelManager::Deserialize()
 	{
+		m_LayoutLoaded = true;
 		std::filesystem::path layoutPath = FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml";
 		if (!FileSystem::Exists(layoutPath))
 			return;
@@ -162,6 +164,7 @@ namespace Lux {
 				continue;
 
 			panelData->IsOpen = panelNode["IsOpen"].as<bool>(panelData->IsOpen);
+			panelData->SavedIsOpen = panelData->IsOpen;
 		}
 	}
 

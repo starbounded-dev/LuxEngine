@@ -20,6 +20,9 @@ namespace Lux {
 		const char* Name = "";
 		Ref<EditorPanel> Panel = nullptr;
 		bool IsOpen = false;
+		// IsOpen as last written to EditorLayout.yaml. Panels are opened from many places (View
+		// menu, commands, layout modes), so the manager saves whenever the two differ.
+		mutable bool SavedIsOpen = false;
 	};
 
 	// NOTE(Peter): For now this just corresponds to what menu the panel will be listed in (in Hazelnut)
@@ -104,6 +107,9 @@ namespace Lux {
 
 	private:
 		std::array<std::unordered_map<uint32_t, PanelData>, (size_t)PanelCategory::_COUNT> m_Panels;
+		// Panels start at their registered defaults and the saved layout is read on project load;
+		// saving before that would overwrite the user's layout with the defaults.
+		bool m_LayoutLoaded = false;
 	};
 
 }
