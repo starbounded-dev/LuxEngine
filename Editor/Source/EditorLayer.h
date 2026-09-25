@@ -37,6 +37,7 @@ namespace Lux
 	class RendererDebuggerPanel;
 	class ProfilerPanel;
 	class AudioDebugPanel;
+	struct AudioVisualisationSettings;
 
 	class EditorLayer : public Layer
 	{
@@ -57,7 +58,8 @@ namespace Lux
 		//bool OnWindowDrop(WindowDropEvent& e);
 
 		void OnOverlayRender();
-		void DrawAudioVisualisation();
+		void DrawAudioVisualisation(const glm::mat4& view);
+		void DrawAudioOcclusion(const glm::mat4& view, const AudioVisualisationSettings& settings);
 
 		// Rebuilds the project's FMOD banks when the .fspro has changed since they were last built.
 		// Called on entering Play; a no-op when the project has no Studio project or the feature is

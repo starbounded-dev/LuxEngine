@@ -53,6 +53,7 @@
 #include "Panels/RendererDebuggerPanel.h"
 #include "Lux/Audio/AudioBankBuilder.h"
 #include "Panels/AudioDebugPanel.h"
+#include "Lux/Renderer/UI/Font.h"
 #include "Panels/ProfilerPanel.h"
 #include "Panels/UndoHistoryPanel.h"
 #include "Panels/MaterialEditor/MaterialEditorPanel.h"
@@ -1911,6 +1912,16 @@ namespace Lux {
 			if (m_PlayModeDebugViewsSuspended)
 				ImGui::EndDisabled();
 
+			// Outside the suspended block: the acoustics only run in Play, so this is where it matters.
+			if (m_AudioDebugPanel)
+			{
+				ImGui::Separator();
+				bool seeTheSound = m_AudioDebugPanel->IsSeeTheSoundEnabled();
+				if (ImGui::Checkbox("See the Sound", &seeTheSound))
+					m_AudioDebugPanel->SetSeeTheSoundEnabled(seeTheSound);
+				ImGui::SetItemTooltip("Occlusion paths with wall labels, VA rays and emitters, drawn during Play.");
+			}
+
 			// The doc places the "back to Simple" affordance in the viewport toolbar, shown only
 			// while Advanced mode is active.
 			if (!m_SimpleLayout)
@@ -2334,6 +2345,7 @@ namespace Lux {
 		if (overlayTarget)
 			m_Renderer2D->SetTargetFramebuffer(overlayTarget);
 
+		glm::mat4 overlayView{ 1.0f };
 		if (m_SceneState == SceneState::Play)
 		{
 			Entity camera = m_ActiveScene->GetPrimaryCameraEntity();
@@ -2341,13 +2353,14 @@ namespace Lux {
 				return;
 			const auto& cam = camera.GetComponent<CameraComponent>().Camera;
 			const glm::mat4 cameraTransform = camera.GetComponent<TransformComponent>().GetTransform();
-			glm::mat4 viewMatrix = glm::inverse(cameraTransform);
-			m_Renderer2D->BeginScene(cam.GetProjectionMatrix() * viewMatrix, viewMatrix);
+			overlayView = glm::inverse(cameraTransform);
+			m_Renderer2D->BeginScene(cam.GetProjectionMatrix() * overlayView, overlayView);
 		}
 		else
 		{
 			EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
-			m_Renderer2D->BeginScene(viewportCamera.GetViewProjection(), viewportCamera.GetViewMatrix());
+			overlayView = viewportCamera.GetViewMatrix();
+			m_Renderer2D->BeginScene(viewportCamera.GetViewProjection(), overlayView);
 		}
 
 		if (m_ShowPhysicsColliders)
@@ -2475,27 +2488,31 @@ namespace Lux {
 			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, SpotLightComponent>(), EditorResources::SpotLightIcon);
 		}
 
-		DrawAudioVisualisation();
+		DrawAudioVisualisation(overlayView);
 
 		m_Renderer2D->EndScene();
 	}
 
 	// Draws the ray-traced acoustics simulation into the viewport: the visualisation rays the
-	// listener casts, where they bounced, and the emitters they connect. Settings come from the
-	// Audio Debugger panel, which is where they are edited; this is only the drawing half.
+	// listener casts, where they bounced, the emitters they connect and the engine occlusion paths.
+	// Settings come from the Audio Debugger panel, which is where they are edited; this applies them
+	// to the running simulation and draws.
 	//
 	// Runs inside OnOverlayRender's BeginScene/EndScene, so it must not open its own scene.
-	void EditorLayer::DrawAudioVisualisation()
+	void EditorLayer::DrawAudioVisualisation(const glm::mat4& view)
 	{
 		if (!m_AudioDebugPanel || !m_ActiveScene)
 			return;
 
-		const AudioVisualisationSettings& settings = m_AudioDebugPanel->GetVisualisationSettings();
-		if (!settings.Enabled)
-			return;
-
 		Ref<RaytracedAudioScene> raytraced = m_ActiveScene->GetRaytracedAudioScene();
 		if (!raytraced)
+			return;
+
+		// Pushed every frame, whether or not the Audio Debugger is open: entering Play builds a new
+		// RaytracedAudioScene that has never seen these settings. The setter is cheap and idempotent.
+		const AudioVisualisationSettings& settings = m_AudioDebugPanel->GetVisualisationSettings();
+		raytraced->SetVisualisationEnabled(settings.Enabled, settings.RayCount, settings.BounceCount, settings.UpdateIntervalMs);
+		if (!settings.Enabled && !settings.ShowOcclusion)
 			return;
 
 		// Ray-type colours follow the simulation's own semantics rather than the editor theme:
@@ -2511,9 +2528,10 @@ namespace Lux {
 		const RaytracedAudioStats stats = raytraced->GetStats();
 
 		RaytracedAudioVisualisation snapshot;
-		raytraced->GetVisualisation(snapshot);
+		if (settings.Enabled)
+			raytraced->GetVisualisation(snapshot);
 
-		if (settings.DrawRayPaths || settings.DrawBouncePoints || settings.DrawNormals)
+		if (settings.Enabled && (settings.DrawRayPaths || settings.DrawBouncePoints || settings.DrawNormals))
 		{
 			const int bounceCount = std::max(snapshot.BounceCount, 1);
 			for (int ray = 0; ray < snapshot.RayCount; ray++)
@@ -2576,12 +2594,16 @@ namespace Lux {
 				drawEmitterGizmo(position, settings.EmitterRadius * 0.75f, kSourceColor);
 
 				// A line to the listener makes the occlusion relationship visible: this is the path
-				// the simulation is measuring for that source.
-				m_Renderer2D->DrawLine(position, stats.ListenerPosition, kSourceColor * glm::vec4(1.0f, 1.0f, 1.0f, 0.35f));
+				// the simulation is measuring for that source. The occlusion view draws a richer one.
+				if (!settings.ShowOcclusion)
+					m_Renderer2D->DrawLine(position, stats.ListenerPosition, kSourceColor * glm::vec4(1.0f, 1.0f, 1.0f, 0.35f));
 			}
 		}
 
-		if (settings.DrawWorldBounds && stats.WorldSize.x > 0.0f)
+		if (settings.ShowOcclusion)
+			DrawAudioOcclusion(view, settings);
+
+		if (settings.Enabled && settings.DrawWorldBounds && stats.WorldSize.x > 0.0f)
 		{
 			const glm::vec3 min = stats.WorldMin;
 			const glm::vec3 max = stats.WorldMin + stats.WorldSize;
@@ -2596,6 +2618,107 @@ namespace Lux {
 			};
 			for (const auto& edge : edges)
 				m_Renderer2D->DrawLine(corners[edge[0]], corners[edge[1]], kBoundsColor);
+		}
+	}
+
+	// Each source's engine occlusion path: listener to source, coloured by how much the walls on it
+	// remove, with every wall's entry and exit marked and labelled. Drawn over the scene so the
+	// part of the path inside a wall stays visible, which is the whole point of the view.
+	void EditorLayer::DrawAudioOcclusion(const glm::mat4& view, const AudioVisualisationSettings& settings)
+	{
+		constexpr glm::vec4 kClearColor{ 0.4f, 1.0f, 0.45f, 0.95f };
+		constexpr glm::vec4 kMuffledColor{ 1.0f, 0.82f, 0.3f, 0.95f };
+		constexpr glm::vec4 kBlockedColor{ 1.0f, 0.32f, 0.3f, 0.95f };
+		constexpr glm::vec4 kWallColor{ 1.0f, 1.0f, 1.0f, 0.95f };
+		constexpr glm::vec4 kPortalColor{ 0.55f, 0.75f, 1.0f, 0.95f };
+		// Loss at which a path reads fully red; 30 dB is about a solid masonry wall.
+		constexpr float kBlockedLossDb = 30.0f;
+		// Labels keep a constant on-screen size: their world height is this fraction of the camera distance.
+		constexpr float kLabelScale = 0.018f;
+		constexpr float kLabelMaxWidth = 40.0f;
+		// Text is depth tested, so a label sits this far in front of the wall face nearest the camera.
+		constexpr float kLabelStandOff = 0.15f;
+		constexpr float kMarkerScale = 0.006f;
+
+		const AudioOcclusion& occlusion = m_ActiveScene->GetAudioOcclusion();
+		const glm::mat3 cameraToWorld = glm::transpose(glm::mat3(view));
+		const glm::vec3 cameraPosition = glm::vec3(glm::inverse(view)[3]);
+		const Ref<Font> font = Font::GetDefaultFont();
+
+		UUID selected = 0;
+		if (settings.OcclusionSelectedOnly && m_SceneHierarchyPanel)
+		{
+			if (Entity entity = m_SceneHierarchyPanel->GetSelectedEntity())
+				selected = entity.GetUUID();
+			else
+				return;
+		}
+
+		auto billboard = [&](const glm::vec3& position, float worldScale)
+			{
+				return glm::translate(glm::mat4(1.0f), position) * glm::mat4(cameraToWorld) * glm::scale(glm::mat4(1.0f), glm::vec3(worldScale));
+			};
+		auto drawLabel = [&](const std::string& text, const glm::vec3& position, const glm::vec4& color)
+			{
+				const float scale = kLabelScale * glm::distance(cameraPosition, position);
+				m_Renderer2D->DrawString(text, font, billboard(position, scale), kLabelMaxWidth, color);
+			};
+		auto drawMarker = [&](const glm::vec3& position, const glm::vec4& color)
+			{
+				m_Renderer2D->DrawCircle(billboard(position, kMarkerScale * glm::distance(cameraPosition, position)), color, true);
+			};
+		auto lossColor = [&](float lossDb)
+			{
+				const float t = glm::clamp(lossDb / kBlockedLossDb, 0.0f, 1.0f);
+				return t < 0.5f ? glm::mix(kClearColor, kMuffledColor, t * 2.0f) : glm::mix(kMuffledColor, kBlockedColor, t * 2.0f - 1.0f);
+			};
+
+		auto sources = m_ActiveScene->GetAllEntitiesWith<AudioSourceComponent>();
+		for (entt::entity entityHandle : sources)
+		{
+			const UUID id = Entity{ entityHandle, m_ActiveScene.Raw() }.GetUUID();
+			if (selected && id != selected)
+				continue;
+			const AudioOcclusionPath* path = occlusion.GetPath(id);
+			if (!path)
+				continue;
+			const float length = glm::distance(path->From, path->To);
+			if (length <= 0.0f)
+				continue;
+			const glm::vec3 direction = (path->To - path->From) / length;
+
+			m_Renderer2D->DrawLine(path->From, path->To, lossColor(path->LossLF), true);
+			for (const AudioOcclusionWall& wall : path->Walls)
+			{
+				const glm::vec3 entry = path->From + direction * wall.Start;
+				const glm::vec3 exit = path->From + direction * wall.End;
+				const glm::vec4 color = wall.Portal ? kPortalColor : kWallColor;
+				drawMarker(entry, color);
+				if (!wall.Flat)
+				{
+					drawMarker(exit, color);
+					m_Renderer2D->DrawLine(entry, exit, kBlockedColor, true);
+				}
+				if (!settings.DrawOcclusionLabels)
+					continue;
+
+				const char* material = AcousticMaterialName(wall.Material);
+				std::string text;
+				if (wall.Portal)
+					text = std::format("Portal ({}) {:.2f} m  -{:.1f} dB", material, wall.End - wall.Start, wall.LossLF);
+				else if (wall.Flat)
+					text = std::format("{} surface  -{:.1f} dB", material, wall.LossLF);
+				else
+					text = std::format("{} {:.2f} m  -{:.1f} dB", material, wall.End - wall.Start, wall.LossLF);
+				const glm::vec3 face = glm::distance(entry, cameraPosition) <= glm::distance(exit, cameraPosition) ? entry : exit;
+				drawLabel(text, face + glm::normalize(cameraPosition - face) * kLabelStandOff, color);
+			}
+
+			if (settings.DrawOcclusionLabels)
+			{
+				const std::string total = path->Walls.empty() ? std::string("clear") : std::format("-{:.1f} dB", path->LossLF);
+				drawLabel(total, path->To + glm::normalize(cameraPosition - path->To) * kLabelStandOff, lossColor(path->LossLF));
+			}
 		}
 	}
 

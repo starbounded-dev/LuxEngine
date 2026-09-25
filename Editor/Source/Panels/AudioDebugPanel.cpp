@@ -124,10 +124,6 @@ namespace Lux {
 		UI_Sources();
 		UI_Visualisation();
 
-		// Done after the UI so a change made this frame reaches the simulation before it next
-		// updates, rather than a frame late.
-		SyncVisualisationSettings();
-
 		ImGui::End();
 	}
 
@@ -622,7 +618,27 @@ namespace Lux {
 		if (!ImGuiEx::PropertyGridHeader("3D Visualisation", true))
 			return;
 
-		ImGui::Checkbox("Enabled", &m_Visualisation.Enabled);
+		bool seeTheSound = m_SeeTheSound;
+		if (ImGui::Checkbox("See the Sound", &seeTheSound))
+			SetSeeTheSoundEnabled(seeTheSound);
+		ImGui::SameLine();
+		ImGuiEx::HelpMarker("Showcase preset: occlusion paths with wall labels, VA rays and emitters. "
+			"Turning it off restores the settings below.");
+
+		ImGui::Checkbox("Show Occlusion Paths", &m_Visualisation.ShowOcclusion);
+		ImGui::SameLine();
+		ImGuiEx::HelpMarker("Draws each source's listener path coloured by how much the walls on it "
+			"remove, and labels each wall with its material, thickness and loss. Uses the engine "
+			"occlusion results, so it costs no extra raycasts; shown in Play with Engine occlusion.");
+		// Always drawn, disabled when off, so the grid below keeps a stable ID either way.
+		ImGui::BeginDisabled(!m_Visualisation.ShowOcclusion);
+		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::Property("Wall Labels", m_Visualisation.DrawOcclusionLabels);
+		ImGuiEx::Property("Selected Source Only", m_Visualisation.OcclusionSelectedOnly);
+		ImGuiEx::EndPropertyGrid();
+		ImGui::EndDisabled();
+
+		ImGui::Checkbox("Show VA Rays", &m_Visualisation.Enabled);
 		ImGui::SameLine();
 		ImGuiEx::HelpMarker("Casts extra rays purely for display. They cost real raytracing work and "
 			"feed nothing back into the audio, so leave this off unless you are looking at it.");
@@ -689,17 +705,26 @@ namespace Lux {
 		ImGui::TreePop();
 	}
 
-	void AudioDebugPanel::SyncVisualisationSettings()
+	void AudioDebugPanel::SetSeeTheSoundEnabled(bool enabled)
 	{
-		Ref<RaytracedAudioScene> raytraced = m_Context ? m_Context->GetRaytracedAudioScene() : nullptr;
-		if (!raytraced)
+		if (enabled == m_SeeTheSound)
 			return;
 
-		// Pushed unconditionally rather than on change: entering Play constructs a brand new
-		// RaytracedAudioScene that has never seen these settings, and the panel has no hook for
-		// that transition. The setters are cheap and idempotent.
-		raytraced->SetVisualisationEnabled(m_Visualisation.Enabled, m_Visualisation.RayCount,
-			m_Visualisation.BounceCount, m_Visualisation.UpdateIntervalMs);
+		m_SeeTheSound = enabled;
+		if (!enabled)
+		{
+			m_Visualisation = m_VisualisationBeforeSeeTheSound;
+			return;
+		}
+
+		m_VisualisationBeforeSeeTheSound = m_Visualisation;
+		m_Visualisation.ShowOcclusion = true;
+		m_Visualisation.DrawOcclusionLabels = true;
+		m_Visualisation.OcclusionSelectedOnly = false;
+		m_Visualisation.Enabled = true;
+		m_Visualisation.DrawRayPaths = true;
+		m_Visualisation.DrawBouncePoints = true;
+		m_Visualisation.DrawEmitters = true;
 	}
 
 }

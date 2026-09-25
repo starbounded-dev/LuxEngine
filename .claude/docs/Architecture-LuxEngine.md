@@ -910,11 +910,23 @@ virtual and culled state. The Reverb section shows VA measurements and explains 
 parameter path.
 
 The panel owns the `AudioVisualisationSettings` but does not draw: `EditorLayer::DrawAudioVisualisation()`,
-called from `OnOverlayRender()`, reads them and draws ray paths, bounce points, surface normals,
-emitter gizmos and world bounds with the `Renderer2D` that function has already set up for the frame.
-Splitting it this way keeps the settings next to their UI while the drawing stays where a camera is
-already bound — a panel has no scene camera of its own. Note `EditorLayer` holds a `Ref<AudioDebugPanel>`
-*only* for this; `PanelManager` still owns the panel and drives its render and scene context.
+called from `OnOverlayRender()` with the overlay's view matrix, reads them and draws ray paths, bounce
+points, surface normals, emitter gizmos and world bounds with the `Renderer2D` that function has
+already set up for the frame. It also pushes the VA visualisation-ray settings to the active scene's
+`RaytracedAudioScene` every frame, so they apply whether or not the panel is open (entering Play builds
+a new VA scene). Splitting it this way keeps the settings next to their UI while the drawing stays
+where a camera is already bound — a panel has no scene camera of its own. Note `EditorLayer` holds a
+`Ref<AudioDebugPanel>` *only* for this; `PanelManager` still owns the panel and drives its render and
+scene context.
+
+`ShowOcclusion` is independent of the VA rays (`Enabled`): `EditorLayer::DrawAudioOcclusion` reads
+`Scene::GetAudioOcclusion()` paths, which engine occlusion computes anyway, and draws each source's
+listener→source line coloured by LF loss, wall entry/exit markers and billboard labels (material,
+thickness, dB) plus a per-source total. Lines and markers draw on top of the scene depth; text is
+depth-tested (Renderer2D has no on-top text), so labels stand off the wall face nearest the camera.
+"See the Sound" (Audio Debugger and the viewport options popup, outside the Play-suspended debug
+views) is a preset that turns on occlusion paths, labels, VA rays and emitters and restores the
+previous settings when turned off.
 
 Both stats structs expose SDK status as data, so editor panels use read-only Core accessors.
 `AudioEngineStats::HasMixerStats` distinguishes unavailable measurements from a real zero.

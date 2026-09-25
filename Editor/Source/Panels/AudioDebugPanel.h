@@ -37,6 +37,12 @@ namespace Lux {
 		// Ray paths fade along their length so the listener end reads as the origin and later
 		// bounces recede, the way Vercidium's own debug view draws them.
 		float PathFadeStrength = 0.75f;
+
+		// Engine occlusion paths: listener->source, coloured by loss, with the walls they cross.
+		// Independent of Enabled because they reuse results the audio already computes.
+		bool ShowOcclusion = false;
+		bool DrawOcclusionLabels = true;
+		bool OcclusionSelectedOnly = false;
 	};
 
 	// In-editor view of the audio stack: FMOD Studio playback and the
@@ -59,6 +65,11 @@ namespace Lux {
 
 		const AudioVisualisationSettings& GetVisualisationSettings() const { return m_Visualisation; }
 
+		// The showcase preset: occlusion paths with labels, VA rays and emitters. Turning it off
+		// restores whatever the settings were before it was turned on.
+		bool IsSeeTheSoundEnabled() const { return m_SeeTheSound; }
+		void SetSeeTheSoundEnabled(bool enabled);
+
 	private:
 		// The engine snapshot is taken once per frame and shared, so the two sections that read it
 		// cannot disagree about the same frame.
@@ -72,10 +83,6 @@ namespace Lux {
 		void UI_Sources();
 		void UI_Visualisation();
 
-		// Pushes m_Visualisation to the simulation whenever it changes. Called every frame because
-		// entering Play builds a new RaytracedAudioScene that has never seen these settings.
-		void SyncVisualisationSettings();
-
 	private:
 		Ref<Scene> m_Context;
 		AudioValidationReport m_Validation;
@@ -83,6 +90,8 @@ namespace Lux {
 		std::string m_SourceSearch;
 		std::string m_EventSearch;
 		AudioVisualisationSettings m_Visualisation;
+		AudioVisualisationSettings m_VisualisationBeforeSeeTheSound;
+		bool m_SeeTheSound = false;
 	};
 
 }

@@ -304,6 +304,8 @@ namespace Lux {
 
 		// Defined out-of-line (RaytracedAudioScene need not be complete in this header).
 		Ref<RaytracedAudioScene> GetRaytracedAudioScene() const;
+		// Last engine occlusion paths per source, for editor overlays. Main thread, read-only.
+		const AudioOcclusion& GetAudioOcclusion() const { return m_AudioOcclusion; }
 
 		// The live voice playing for an entity, or null when it has none. Editor tooling only -
 		// gameplay drives sources through the component, not by reaching in here.
