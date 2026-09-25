@@ -723,6 +723,8 @@ namespace Lux
 				out << YAML::Key << "Performance" << YAML::Value;
 				config.Audio.Performance.SerializeYAML(out);
 				out << YAML::Key << "ZoneReverbMode" << YAML::Value << static_cast<uint32_t>(config.Audio.ZoneReverbMode);
+				out << YAML::Key << "Occlusion" << YAML::Value;
+				config.Audio.Occlusion.SerializeYAML(out);
 				out << YAML::EndMap;
 			}
 
@@ -831,7 +833,8 @@ namespace Lux
 		}
 		serializer.WriteRaw<uint8_t>(static_cast<uint8_t>(zoneMode));
 		serializer.WriteRaw<uint64_t>(m_Project->GetConfig().Audio.SurfaceTable);
-		if (!m_Project->GetConfig().Audio.Dialogue.Serialize(serializer) || !m_Project->GetConfig().Audio.Accessibility.Serialize(serializer) || !m_Project->GetAudioPerformance().Serialize(serializer))
+		if (!m_Project->GetConfig().Audio.Dialogue.Serialize(serializer) || !m_Project->GetConfig().Audio.Accessibility.Serialize(serializer) || !m_Project->GetAudioPerformance().Serialize(serializer)
+			|| !m_Project->GetConfig().Audio.Occlusion.Serialize(serializer))
 			return false;
 
 		const auto& physics = m_Project->GetConfig().Physics;
@@ -971,6 +974,7 @@ namespace Lux
 		config.Audio.StudioPlatform = "Desktop";
 		config.Audio.AcousticMaterials = {};
 		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
+		config.Audio.Occlusion = {};
 		if (auto audioNode = projectNode["Audio"])
 		{
 			config.Audio.FileStreamingDurationThreshold = audioNode["FileStreamingDurationThreshold"].as<double>(config.Audio.FileStreamingDurationThreshold);
@@ -1006,6 +1010,8 @@ namespace Lux
 			}
 			config.Audio.ZoneReverbMode = static_cast<AudioZoneReverbMode>(zoneMode);
 			if (!config.Audio.AcousticMaterials.DeserializeYAML(audioNode["AcousticMaterials"]))
+				return false;
+			if (!config.Audio.Occlusion.DeserializeYAML(audioNode["Occlusion"]))
 				return false;
 		}
 
@@ -1150,6 +1156,9 @@ namespace Lux
 		if (projectInfo.HeaderData.Version >= 22 && !config.Audio.Accessibility.Deserialize(stream))
 			return false;
 		if (projectInfo.HeaderData.Version >= 23 && !config.Audio.Performance.Deserialize(stream))
+			return false;
+		config.Audio.Occlusion = {};
+		if (projectInfo.HeaderData.Version >= 25 && !config.Audio.Occlusion.Deserialize(stream))
 			return false;
 
 		stream.ReadRaw<float>(config.Physics.FixedTimestep);

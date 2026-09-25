@@ -22,6 +22,8 @@ namespace Lux
 		AudioEventRef Event;
 		std::string Location;
 		AudioReferenceKind Kind = AudioReferenceKind::Event;
+		// Played by an audio source, so occlusion reaches it through the event's Occlusion parameter.
+		bool Occludable = false;
 	};
 	struct AudioValidationBank
 	{

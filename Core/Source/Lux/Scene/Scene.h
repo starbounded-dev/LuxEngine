@@ -270,6 +270,7 @@ namespace Lux {
 		std::vector<AudioGeometryInput> m_AudioGeometryInputs;
 		std::vector<AudioPortalInput> m_AudioPortalInputs;
 		AudioOcclusion m_AudioOcclusion;
+		AudioOcclusionSource m_OcclusionSource = AudioOcclusionSource::Engine;
 		std::vector<AudioOcclusion::Source> m_AudioOcclusionSources;
 		std::vector<SceneQueryHit> m_AudioOcclusionHits;
 		PhysicsAudioSystem m_PhysicsAudio;

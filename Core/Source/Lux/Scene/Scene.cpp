@@ -52,10 +52,6 @@ namespace Lux {
 
 	namespace
 	{
-		// Phase 0 spike (docs/AUDIO_VISUALISATION_PLAN.md): engine raycast occlusion replaces VA's,
-		// which does not respond to geometry. Phase 1 turns this into a project setting.
-		constexpr bool k_EngineOcclusion = true;
-
 		enum AudioListenerWarning : uint32_t
 		{
 			ListenerInvalidIndex = 1 << 0,
@@ -854,7 +850,7 @@ namespace Lux {
 				const auto& listener = primaryListener ? *primaryListener : fallback;
 				const glm::vec3 acousticListener = listener.UseAttenuationPosition ? listener.AttenuationPosition : listener.Position;
 				m_RaytracedAudioScene->SetListener(acousticListener, listener.Forward);
-				if (k_EngineOcclusion)
+				if (m_OcclusionSource == AudioOcclusionSource::Engine)
 					UpdateAudioOcclusion(static_cast<float>(ts), acousticListener);
 
 				const RaytracedAudioAmbience ambience = m_RaytracedAudioScene->GetAmbience();
@@ -877,7 +873,7 @@ namespace Lux {
 						const RaytracedAudioResult result = m_RaytracedAudioScene->GetResult(entityID);
 						// Clear stale sends when VA has no result, so zone fallback cannot double the reverb.
 						AudioEventAcoustics acoustics;
-						if (k_EngineOcclusion)
+						if (m_OcclusionSource == AudioOcclusionSource::Engine)
 							acoustics.OcclusionGainLF = m_AudioOcclusion.GetGainLF(entityID);
 						else
 							acoustics.OcclusionGainLF = result.Valid ? result.OcclusionGainLF : 1.0f;
@@ -1723,7 +1719,9 @@ namespace Lux {
 		const auto project = Project::GetActive();
 		const AcousticMaterialSettings materials = project ? project->GetConfig().Audio.AcousticMaterials : AcousticMaterialSettings{};
 		m_RaytracedAudioScene->Start(materials);
-		m_AudioOcclusion.Configure(materials);
+		const AudioOcclusionSettings occlusion = project ? project->GetConfig().Audio.Occlusion : AudioOcclusionSettings{};
+		m_OcclusionSource = occlusion.Source;
+		m_AudioOcclusion.Configure(materials, occlusion);
 
 		SyncAudioGeometry(true);
 	}

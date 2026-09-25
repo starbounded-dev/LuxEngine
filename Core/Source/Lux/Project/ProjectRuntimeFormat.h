@@ -14,6 +14,7 @@ namespace Lux
 		struct FileHeader
 		{
 			char Header[4] = { 'L', 'P', 'R', 'J' };
+			// 25: bounded occlusion settings follow performance budgets
 			// 24: fixed render width/height close the scene-renderer block
 			// 23: bounded performance budgets follow accessibility settings
 			// 22: bounded accessibility configuration follows dialogue settings
@@ -24,7 +25,7 @@ namespace Lux
 			// 17: explicit AudioBankManifest follows the unchanged fixed ProjectInfo block
 			// 16: GTAO slice/step sample counts
 			// 15: removed all temporal settings (TAA, SMAA T2x, GTAO/SSR accumulation)
-			uint32_t Version = 24;
+			uint32_t Version = 25;
 		};
 
 		struct Audio

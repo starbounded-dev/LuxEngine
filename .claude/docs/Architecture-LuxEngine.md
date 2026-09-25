@@ -489,18 +489,24 @@ authors the filters, sends and reverb buses. VA's other bands and EAX measuremen
 outputs; the engine does not apply a second filter/reverb path. Missing optional parameters are
 expected; other FMOD failures are reported. Standalone scripted events do not register VA emitters.
 
-**Engine occlusion (see-the-sound Phase 0 spike):** VA's per-source occlusion does not respond to
-geometry (`docs/vercidium-repro`), so `Scene`'s scene-owned `AudioOcclusion` replaces it while
-`k_EngineOcclusion` (in `Scene.cpp`) is on. After the VA join, `Scene::UpdateAudioOcclusion` feeds it the
-frame's `m_AudioGeometryInputs` (mesh-collider tags and portal boxes, portals at their last applied
-Open) and casts listener→source with `PhysicsScene::CastRayAll`, ignoring the source's own collider
-and every entity that is not acoustic geometry. Paired entry/exit crossings are solids costing
+**Engine occlusion:** VA's per-source occlusion does not respond to geometry (`docs/vercidium-repro`),
+so `ProjectAudioSettings::Occlusion` (`AudioOcclusionSettings`) selects what drives each event's
+Studio `Occlusion` parameter: `Engine` (default, including projects saved before the setting) or
+`Raytraced` (VA). The source is read at Play start. With Engine, `Scene`'s scene-owned
+`AudioOcclusion` runs after the VA join: `Scene::UpdateAudioOcclusion` feeds it the frame's
+`m_AudioGeometryInputs` (mesh-collider tags and portal boxes, portals at their last applied Open)
+and casts listener→source with `PhysicsScene::CastRayAll`, ignoring the source's own collider and
+every entity that is not acoustic geometry. Paired entry/exit crossings are solids costing
 30 dB per tag `TransmissionLF` metres (VA's own definition); unpaired crossings are one-sided
-surfaces costing the tag's flat energy fraction. Losses sum, cap at 60 dB, and become a linear
-gain on `AudioEventAcoustics::OcclusionGainLF`, i.e. the same Studio `Occlusion` parameter. Sources are
-recast at 20 Hz, round-robin within 32 casts per update, snap on their first result and are then
-smoothed over 0.1 s. It currently runs only while the VA scene exists. Phase 1 of
-`docs/AUDIO_VISUALISATION_PLAN.md` replaces the constant with a project setting.
+surfaces costing the tag's flat energy fraction. Losses are scaled by `Strength` (0–4), summed,
+capped at 60 dB, and become a linear gain on `AudioEventAcoustics::OcclusionGainLF`. Each source is
+recast at `UpdateRateHz` (1–120), round-robin within `CastBudget` (1–1024) casts per update; it
+snaps on its first result and is then smoothed over 0.1 s. It runs while the VA scene exists,
+which is every Play session (`RaytracedAudioScene::IsAvailable` is unconditional). Settings persist
+under `Audio.Occlusion` in YAML (missing → defaults; invalid values fail the load) and as runtime
+format **25**'s bounded, length-prefixed YAML block after the format-23 performance block; formats
+16–24 load with defaults. Bank validation warns when an audio source's event has no `Occlusion`
+parameter, since walls then cannot muffle it.
 
 **Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags, independent of
 VA's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
@@ -604,7 +610,7 @@ A partial directory load reports failure. `LoadBank` is additive and idempotent 
 Bank catalog revision changes retry failed event lookups; lifetime generation changes only when
 unloading banks or shutting down and invalidates all old event wrappers.
 
-**Runtime exports (format 19; bank manifest introduced in 17):** `AudioBankManifest` is an explicit, bounded stream block after
+**Runtime exports (format 25; bank manifest introduced in 17):** `AudioBankManifest` is an explicit, bounded stream block after
 `ProjectInfo`'s unchanged fixed-size header. It carries an asset-relative directory, the exact bank
 filenames, and the live-update setting (disabled for Dist exports). Never put owning strings or
 vectors into the raw `ProjectInfo` block. Older formats load without Studio configuration and warn

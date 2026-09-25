@@ -6,6 +6,7 @@
 #include "Lux/Audio/DialogueTable.h"
 #include "Lux/Audio/AudioAccessibilitySettings.h"
 #include "Lux/Audio/AudioPerformanceSettings.h"
+#include "Lux/Audio/AudioOcclusionSettings.h"
 
 #include "Lux/Audio/AudioZoneSettings.h"
 
@@ -62,6 +63,7 @@ namespace Lux
 		std::string StudioPlatform = "Desktop";
 		AcousticMaterialSettings AcousticMaterials;
 		AudioZoneReverbMode ZoneReverbMode = AudioZoneReverbMode::Layered;
+		AudioOcclusionSettings Occlusion;
 
 		// The FMOD Studio project (.fspro) that authors this game's audio, relative to the asset
 		// directory. Sound designers work in the Studio app; the engine consumes only the banks it

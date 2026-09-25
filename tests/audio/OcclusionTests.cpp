@@ -1,5 +1,7 @@
 #include "AudioTestHost.h"
 #include "Lux/Audio/AudioOcclusion.h"
+#include "Lux/Serialization/FileStream.h"
+#include <yaml-cpp/yaml.h>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace
@@ -15,8 +17,38 @@ namespace
 	}
 }
 
-int main()
+int main(int argc, char** argv)
 {
+	assert(argc == 2);
+	const std::filesystem::path output = argv[1];
+
+	// Settings: defaults, rejected values, YAML and bounded binary round trips.
+	AudioOcclusionSettings settings;
+	assert(settings.Validate() && settings.Source == AudioOcclusionSource::Engine && settings.CastBudget == 32);
+	// A project saved before the setting has no Occlusion key: the lookup is undefined and loads defaults.
+	assert(settings.DeserializeYAML(YAML::Load("{ Other: 1 }")["Occlusion"]) && settings.Source == AudioOcclusionSource::Engine);
+	for (const char* yaml : { "Source: Muffled", "UpdateRateHz: 0", "UpdateRateHz: 500", "CastBudget: 0", "CastBudget: 5000",
+		"Strength: -1", "Strength: .nan", "Strength: 9", "[1, 2]" })
+		assert(!settings.DeserializeYAML(YAML::Load(yaml)) && settings.UpdateRateHz == 20.0f);
+	assert(settings.DeserializeYAML(YAML::Load("{ Source: Raytraced, UpdateRateHz: 10, CastBudget: 4, Strength: 0.5 }")));
+	assert(settings.Source == AudioOcclusionSource::Raytraced && settings.UpdateRateHz == 10.0f && settings.CastBudget == 4 && settings.Strength == 0.5f);
+	const auto file = output / "occlusion-settings.bin";
+	{
+		FileStreamWriter writer(file);
+		assert(settings.Serialize(writer));
+	}
+	AudioOcclusionSettings copied;
+	{
+		FileStreamReader reader(file);
+		assert(copied.Deserialize(reader));
+	}
+	assert(copied.Source == settings.Source && copied.UpdateRateHz == 10.0f && copied.CastBudget == 4 && copied.Strength == 0.5f);
+	std::filesystem::resize_file(file, std::filesystem::file_size(file) - 1);
+	{
+		FileStreamReader reader(file);
+		assert(!copied.Deserialize(reader));
+	}
+
 	AudioOcclusion occlusion;
 	occlusion.Configure({});
 	std::vector<AudioGeometryInput> geometry(2);
@@ -136,5 +168,18 @@ int main()
 	occlusion.Clear();
 	assert(!occlusion.GetPath(1005));
 
-	std::cout << "PASS: occlusion solid/flat walls, duplicate crossings, range, loss cap, portal shutters, cast budget, smoothing and pruning\n";
+	// Strength scales every wall and the cast budget comes from the settings.
+	AudioOcclusionSettings tuned;
+	tuned.Strength = 0.5f;
+	tuned.CastBudget = 4;
+	occlusion.Configure({}, tuned);
+	occlusion.SetGeometry(geometry, {});
+	hits = { { 10, 4.0f, false }, { 10, 4.3f, true }, { 20, 6.0f, false } };
+	occlusion.Evaluate(from, to, hits, path);
+	Near(path.LossLF, 0.5f * (SolidLoss(AcousticMaterial::Brick, 0.3f) + FlatLoss(AcousticMaterial::Plaster)));
+	casts = 0;
+	occlusion.Update(0.016f, from, sources, cast);
+	assert(casts == 4);
+
+	std::cout << "PASS: occlusion settings YAML/binary/limits, solid/flat walls, duplicate crossings, range, loss cap, portal shutters, strength, cast budget, smoothing and pruning\n";
 }

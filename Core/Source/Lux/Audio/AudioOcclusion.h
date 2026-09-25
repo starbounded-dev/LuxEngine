@@ -5,6 +5,7 @@
 
 #include "AcousticMaterial.h"
 #include "AudioGeometrySystem.h"
+#include "AudioOcclusionSettings.h"
 #include "Lux/Core/UUID.h"
 #include <glm/glm.hpp>
 #include <array>
@@ -67,7 +68,7 @@ namespace Lux
 		// Fills hits for the segment, in any order. Hits on non-acoustic entities are ignored.
 		using RayCaster = std::function<void(UUID source, const glm::vec3& from, const glm::vec3& to, std::vector<AudioOcclusionHit>& hits)>;
 
-		void Configure(const AcousticMaterialSettings& settings);
+		void Configure(const AcousticMaterialSettings& materials, const AudioOcclusionSettings& settings = {});
 
 		// Acoustic geometry for this update: mesh colliders become materials by entity, portals
 		// become boxes. portalOpen returns the Open that VA last applied for a portal entity.
@@ -108,6 +109,7 @@ namespace Lux
 
 	private:
 		std::array<AcousticMaterialProperties, AcousticMaterialCount> m_Properties{};
+		AudioOcclusionSettings m_Settings;
 		// Sorted by entity and rebuilt every update; a vector so steady-state updates never allocate.
 		std::vector<std::pair<UUID, AcousticMaterial>> m_Materials;
 		std::vector<Portal> m_Portals;

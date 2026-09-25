@@ -66,7 +66,8 @@ validation does not unload the playing project's banks.
 Errors include unreadable banks/assets, missing referenced events or buses, incompatible event
 types, invalid acoustic materials/priorities/budgets, and legacy audio sources needing migration.
 Warnings include unassigned sources, default concrete collider materials, missing strings banks,
-and bank events with no serialized reference. Script-only references cannot be inferred, so an
+audio-source events with no `Occlusion` parameter (walls cannot muffle them), and bank events with
+no serialized reference. Script-only references cannot be inferred, so an
 unreferenced-event warning is advisory and never deletes anything. GUID-only playback can work
 without strings banks; script path lookups need them.
 

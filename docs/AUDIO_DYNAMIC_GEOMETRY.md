@@ -55,6 +55,11 @@ VA separately ray traces the shutter's actual geometry for component audio sourc
 usual `Occlusion` / `ReverbSend` event parameters in FMOD. Standalone scripted one-shots retain
 the existing limitation that they do not register VA emitters.
 
+With the project's **Occlusion** set to Engine (the default), a closed shutter also muffles
+sources behind it: the engine's listener→source raycast treats it as a box of its material and
+thickness, shrinking with Open exactly as the VA primitive does, and ignores it once Open reaches 1.
+Tune the overall amount with **Project Settings > Audio > Occlusion Strength**.
+
 ## C# control
 
 On the entity that owns the portal:

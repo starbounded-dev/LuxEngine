@@ -149,6 +149,9 @@ namespace Lux
 				continue;
 			if ((reference.Kind == AudioReferenceKind::Snapshot) != snapshot || (reference.Kind == AudioReferenceKind::Loop && oneShot))
 				Issue(report, true, reference.Location, "Referenced event has the wrong playback type");
+			FMOD_STUDIO_PARAMETER_DESCRIPTION occlusion{};
+			if (reference.Occludable && !snapshot && event->getParameterDescriptionByName("Occlusion", &occlusion) != FMOD_OK)
+				Issue(report, false, reference.Location, "Event has no Occlusion parameter, so walls will not muffle it; add a local 0-1 Occlusion parameter driving a filter in FMOD Studio");
 		}
 		report.ReferencedEvents = used.size();
 		for (const auto& [guid, event] : catalog)
@@ -174,10 +177,10 @@ namespace Lux
 		LUX_PROFILE_FUNCTION_AUTO;
 		AudioValidationReport collected;
 		std::vector<AudioValidationReference> references;
-		const auto add = [&](const AudioEventRef& reference, const std::string& location, AudioReferenceKind kind = AudioReferenceKind::Event)
+		const auto add = [&](const AudioEventRef& reference, const std::string& location, AudioReferenceKind kind = AudioReferenceKind::Event, bool occludable = false)
 		{
 			if (reference.IsValid())
-				references.push_back({ reference, location, kind });
+				references.push_back({ reference, location, kind, occludable });
 		};
 		const auto scene = [&](Scene& scene)
 		{
@@ -190,7 +193,7 @@ namespace Lux
 					if (!source->Event.IsValid())
 						Issue(collected, source->LegacyAudio != 0, location, source->LegacyAudio ?
 							"Legacy audio source cannot play; assign an FMOD event" : "Audio source has no FMOD event assigned");
-					add(source->Event, location);
+					add(source->Event, location, AudioReferenceKind::Event, true);
 					if (source->Priority < 0 || source->Priority > 256)
 						Issue(collected, true, location, "Audio priority must be between 0 and 256");
 				}

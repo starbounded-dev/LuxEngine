@@ -640,6 +640,23 @@ namespace Lux {
 			"Layered keeps both. Prefer zones reduces VA ReverbSend by active snapshot coverage. Prefer VA suppresses zone snapshots while valid VA ambience is available.", false))
 			m_Dirty = true;
 
+		static const char* occlusionSources[] = { "Engine raycasts", "VA (raytraced)" };
+		if (ImGuiEx::PropertyDropdown("Occlusion", occlusionSources, 2, audioSettings.Occlusion.Source,
+			"What drives each event's Occlusion parameter. Engine casts rays from the listener through acoustic mesh colliders and closed portals, using each acoustic material's transmission. VA occlusion does not yet respond to geometry in the current SDK. Applies on the next Play.", false))
+			m_Dirty = true;
+		if (audioSettings.Occlusion.Source == AudioOcclusionSource::Engine)
+		{
+			if (ImGuiEx::PropertySlider("Occlusion Strength", audioSettings.Occlusion.Strength, 0.0f, 4.0f,
+				"Scales every wall's loss. 1 follows the acoustic material data (a 0.3 m brick wall is about 18 dB).", false))
+				m_Dirty = true;
+			if (ImGuiEx::Property("Occlusion Rate (Hz)", audioSettings.Occlusion.UpdateRateHz, 1.0f, 1.0f, 120.0f,
+				"How often each source's path is recast. The result is smoothed between casts.", false))
+				m_Dirty = true;
+			if (ImGuiEx::Property("Occlusion Casts / Frame", audioSettings.Occlusion.CastBudget, 1u, 1024u,
+				"Most sources recast in one frame. Sources beyond the budget wait for the next frame.", false))
+				m_Dirty = true;
+		}
+
 		bool liveUpdate = audioSettings.EnableLiveUpdate;
 		if (ImGuiEx::Property("Live Update", liveUpdate,
 			"Lets the FMOD Studio application connect to the running editor and mix in real time. Takes effect the next time the project is opened, since the audio engine is initialised then."))

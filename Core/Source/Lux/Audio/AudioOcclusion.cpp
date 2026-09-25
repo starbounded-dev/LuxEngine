@@ -18,8 +18,6 @@ namespace Lux
 		constexpr float k_MaxLossDb = 60.0f;
 		// Coplanar or shared-edge triangles report the same crossing more than once.
 		constexpr float k_HitMergeDistance = 0.001f;
-		constexpr float k_UpdateRateHz = 20.0f;
-		constexpr size_t k_MaxEvaluationsPerUpdate = 32;
 		// Parameter smoothing so a wall edge sliding across the path does not click the filter.
 		constexpr float k_SmoothingSeconds = 0.1f;
 
@@ -62,11 +60,17 @@ namespace Lux
 		}
 	}
 
-	void AudioOcclusion::Configure(const AcousticMaterialSettings& settings)
+	void AudioOcclusion::Configure(const AcousticMaterialSettings& materials, const AudioOcclusionSettings& settings)
 	{
+		m_Settings = settings;
+		if (!m_Settings.Validate())
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Invalid occlusion settings; using defaults");
+			m_Settings = {};
+		}
 		for (size_t i = 0; i < AcousticMaterialCount; ++i)
 		{
-			const AcousticMaterialOverride& entry = settings.Overrides[i];
+			const AcousticMaterialOverride& entry = materials.Overrides[i];
 			m_Properties[i] = entry.Enabled ? entry.Properties : GetDefaultAcousticMaterialProperties(static_cast<AcousticMaterial>(i));
 		}
 	}
@@ -112,14 +116,15 @@ namespace Lux
 		wall.Portal = portal;
 		if (flat)
 		{
-			wall.LossLF = FlatLossDb(properties.FlatTransmissionLF);
-			wall.LossHF = FlatLossDb(properties.FlatTransmissionHF);
+			wall.LossLF = m_Settings.Strength * FlatLossDb(properties.FlatTransmissionLF);
+			wall.LossHF = m_Settings.Strength * FlatLossDb(properties.FlatTransmissionHF);
 		}
 		else
 		{
 			const float thickness = end - start;
-			wall.LossLF = k_TransmissionLossDb * thickness / std::max(properties.TransmissionLF, k_MinTransmissionMetres);
-			wall.LossHF = k_TransmissionLossDb * thickness / std::max(properties.TransmissionHF, k_MinTransmissionMetres);
+			const float lossPerMetre = m_Settings.Strength * k_TransmissionLossDb;
+			wall.LossLF = lossPerMetre * thickness / std::max(properties.TransmissionLF, k_MinTransmissionMetres);
+			wall.LossHF = lossPerMetre * thickness / std::max(properties.TransmissionHF, k_MinTransmissionMetres);
 		}
 	}
 
@@ -202,7 +207,7 @@ namespace Lux
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		++m_UpdateIndex;
-		const float interval = 1.0f / k_UpdateRateHz;
+		const float interval = 1.0f / m_Settings.UpdateRateHz;
 		const float smoothing = 1.0f - std::exp(-std::max(timestep, 0.0f) / k_SmoothingSeconds);
 
 		for (const Source& source : sources)
@@ -216,7 +221,7 @@ namespace Lux
 		size_t evaluations = 0;
 		const size_t count = sources.size();
 		const size_t first = count ? m_NextSource % count : 0;
-		for (size_t i = 0; i < count && evaluations < k_MaxEvaluationsPerUpdate; ++i)
+		for (size_t i = 0; i < count && evaluations < m_Settings.CastBudget; ++i)
 		{
 			const Source& source = sources[(first + i) % count];
 			SourceState& state = m_Sources[source.Entity];
