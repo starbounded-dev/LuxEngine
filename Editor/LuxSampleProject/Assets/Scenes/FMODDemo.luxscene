@@ -45,6 +45,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Brick
+      AcousticFromMaterial: false
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 15491283630166138703
@@ -70,6 +71,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Brick
+      AcousticFromMaterial: false
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 16344437922393548024
@@ -95,6 +97,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Ceramic
+      AcousticFromMaterial: false
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 11208467829056693847
@@ -120,6 +123,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Brick
+      AcousticFromMaterial: false
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000007
@@ -204,6 +208,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Carpet
+      AcousticFromMaterial: false
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000010
@@ -229,6 +234,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Plaster
+      AcousticFromMaterial: false
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000009
@@ -254,6 +260,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Plaster
+      AcousticFromMaterial: false
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000008
@@ -295,6 +302,15 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.FmodAudioDemo
       ScriptID: 326709275
+      StoredFields:
+        - ID: 4158056058
+          Name: PlayOnStart
+          Type: Bool
+          Data: true
+        - ID: 2314636909
+          Name: Volume
+          Type: Float
+          Data: 0.699999988
     StaticMeshComponent:
       AssetID: 9685142686327195147
       MaterialTable:
@@ -334,6 +350,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Plaster
+      AcousticFromMaterial: false
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000002
@@ -359,6 +376,7 @@ Entities:
       Friction: 0.5
       Restitution: 0
       AcousticMaterial: Wood
+      AcousticFromMaterial: false
       AcousticMotion: 0
       CollisionComplexity: "\x02"
   - Entity: 73040000000000001
@@ -368,12 +386,45 @@ Entities:
     Children:
       []
     TransformComponent:
-      Position: [5.70736837, 1.77607381, 0.174439251]
-      Rotation: [-0.115000471, 1.20499229, 0]
+      Position: [12.7932549, 1.15639138, 1.73715556]
+      Rotation: [0.00830974523, 7.72236443, 0]
       Scale: [1, 1, 1]
     ScriptComponent:
       ClassName: LuxSample.FlyCamera
       ScriptID: 3987114672
+      StoredFields:
+        - ID: 3495151719
+          Name: Speed
+          Type: Float
+          Data: 5
+        - ID: 15508422
+          Name: RumbleOnSprint
+          Type: Bool
+          Data: true
+        - ID: 978505095
+          Name: SprintMultiplier
+          Type: Float
+          Data: 3
+        - ID: 2911448432
+          Name: MouseSensitivity
+          Type: Float
+          Data: 0.00249999994
+        - ID: 4237734323
+          Name: GamepadLookSpeed
+          Type: Float
+          Data: 2.5
+        - ID: 2657756844
+          Name: InvertGamepadY
+          Type: Bool
+          Data: true
+        - ID: 224242787
+          Name: AdaptiveTriggers
+          Type: Bool
+          Data: true
+        - ID: 2532514871
+          Name: Gamepad
+          Type: Int
+          Data: -1
     CameraComponent:
       Camera:
         ProjectionType: 0

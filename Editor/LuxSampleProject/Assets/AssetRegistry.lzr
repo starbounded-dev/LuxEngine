@@ -397,7 +397,7 @@ Assets:
   - Handle: 8868489982347245392
     FilePath: Scripts/Intermediates/Release/LuxSample.AssemblyInfo.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069061973780
+    FileLastWriteTime: 18446744069062231227
     Status: None
   - Handle: 8873821167095533110
     FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
@@ -617,7 +617,7 @@ Assets:
   - Handle: 12888239829427574556
     FilePath: Scripts/Intermediates/Release/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs
     Type: ScriptFile
-    FileLastWriteTime: 18446744069059636079
+    FileLastWriteTime: 18446744069062229749
     Status: None
   - Handle: 12947748576387674464
     FilePath: Meshes/Source/Default/Cylinder.gltf
