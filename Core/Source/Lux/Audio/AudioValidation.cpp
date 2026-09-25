@@ -212,10 +212,10 @@ namespace Lux
 				if (const auto* collider = entity.TryGetComponent<MeshColliderComponent>(); collider && collider->AcousticMotion != AcousticGeometryMode::Disabled)
 				{
 					const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>();
-					const auto material = surface ? surface->Material : collider->Acoustic;
-					if (!IsValidAcousticMaterial(material))
+					const auto stored = surface ? surface->Material : collider->Acoustic;
+					if (!IsValidAcousticMaterial(stored))
 						Issue(collected, true, location, "Invalid acoustic material");
-					else if (material == AcousticMaterial::Default)
+					else if (scene.ResolveAcousticMaterial(entity) == AcousticMaterial::Default)
 						Issue(collected, false, location, "Collider uses the default concrete acoustic material; verify this is intentional");
 				}
 			}

@@ -5,6 +5,7 @@
 #include "MaterialSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Material.h"
 #include "Lux/Renderer/MaterialAsset.h"
@@ -286,6 +287,9 @@ namespace Lux
 				out << YAML::Key << "AlphaThreshold" << YAML::Value << surface.AlphaThreshold;
 			if (surface.TwoSided != defaults.TwoSided)
 				out << YAML::Key << "TwoSided" << YAML::Value << surface.TwoSided;
+			const int32_t acousticTag = materialAsset->GetAcousticTag();
+			if (acousticTag >= 0 && IsValidAcousticMaterial(static_cast<AcousticMaterial>(acousticTag)))
+				out << YAML::Key << "AcousticMaterial" << YAML::Value << AcousticMaterialName(static_cast<AcousticMaterial>(acousticTag));
 
 			out << YAML::Key << "MaterialFlags" << YAML::Value << materialFlags;
 
@@ -390,6 +394,18 @@ namespace Lux
 				surface.EmissiveMap = targetMaterialAsset->GetAlbedoMapHandle();
 			}
 			targetMaterialAsset->SetSurfaceParameters(surface);
+
+			// Optional: materials saved before acoustic tags, or without one, carry no tag.
+			int32_t acousticTag = -1;
+			if (const YAML::Node acousticNode = materialNode["AcousticMaterial"])
+			{
+				AcousticMaterial acoustic = AcousticMaterial::Default;
+				if (ParseAcousticMaterial(acousticNode.as<std::string>(""), acoustic))
+					acousticTag = static_cast<int32_t>(acoustic);
+				else
+					LUX_CORE_WARN_TAG("AssetManager", "Material {} has unknown acoustic material '{}'; ignoring it", static_cast<uint64_t>(handle), acousticNode.as<std::string>(""));
+			}
+			targetMaterialAsset->SetAcousticTag(acousticTag);
 
 			if (materialNode["MaterialFlags"])
 				targetMaterialAsset->GetMaterial()->SetFlags(materialNode["MaterialFlags"].as<uint32_t>());

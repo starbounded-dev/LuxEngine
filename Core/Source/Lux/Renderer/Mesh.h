@@ -422,4 +422,10 @@ namespace Lux {
 		friend class MeshViewerPanel;
 	};
 
+	// The material a static mesh submesh draws with: the entity's material table override (a lone
+	// slot-0 override applies to every submesh), then the mesh's own table, then the source's
+	// imported material. 0 when none. The renderer and the scene both resolve through this.
+	AssetHandle ResolveStaticMeshMaterialHandle(const Ref<MaterialTable>& materialTable, const Ref<StaticMesh>& staticMesh,
+		const Ref<MeshSource>& meshSource, uint32_t materialIndex);
+
 }

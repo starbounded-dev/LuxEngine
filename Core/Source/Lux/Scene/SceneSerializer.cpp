@@ -719,6 +719,7 @@ namespace Lux {
 				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
 				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
 				out << YAML::Key << "AcousticMaterial" << YAML::Value << AcousticMaterialName(collider.Acoustic);
+				out << YAML::Key << "AcousticFromMaterial" << YAML::Value << collider.AcousticFromMaterial;
 				out << YAML::Key << "AcousticMotion" << YAML::Value << static_cast<uint32_t>(collider.AcousticMotion);
 				out << YAML::Key << "CollisionComplexity" << YAML::Value << (uint8_t)collider.CollisionComplexity;
 				out << YAML::EndMap;
@@ -1274,6 +1275,8 @@ namespace Lux {
 					component.Material.Restitution = meshCollider["Restitution"].as<float>(0.0f);
 					if (!ParseAcousticMaterial(meshCollider["AcousticMaterial"].as<std::string>("Default"), component.Acoustic))
 						throw std::runtime_error("Invalid mesh collider acoustic material");
+					// Absent in scenes saved before inheritance existed: keep their explicit tag.
+					component.AcousticFromMaterial = meshCollider["AcousticFromMaterial"].as<bool>(false);
 					component.CollisionComplexity = (ECollisionComplexity)meshCollider["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
 				}
 

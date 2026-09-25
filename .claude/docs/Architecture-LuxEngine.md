@@ -514,9 +514,18 @@ VA's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
 without a mesh collider it is metadata only. Both tags survive scene snapshots, copy/duplicate,
 prefab instantiation/reconciliation and runtime scene serialization. C# exposes the effective tag
 through `MeshColliderComponent.Material` and `AudioSurfaceComponent.Material` as read-only queries.
-Physics friction/density/restitution and renderer materials remain independent.
-`Scene::ResolveAcousticMaterial(Entity)` is the one precedence rule (surface component, then collider
-tag, then Default) used by acoustic geometry sync, surface sounds and the editor's material view.
+Physics friction/density/restitution remain independent. A render material can carry an acoustic
+tag (`MaterialAsset::GetAcousticTag`, an opaque `int32_t`, -1 = none, which the renderer never reads;
+optional `AcousticMaterial: <Name>` key in material YAML and therefore in asset packs, unknown names
+warn and load as none). `MeshColliderComponent::AcousticFromMaterial` (default true for new
+components; a missing YAML key reads false, so scenes saved before it keep their explicit tags)
+makes the collider use the tag of the render material its submesh draws with, from the entity's own
+Static Mesh via `ResolveStaticMeshMaterialHandle` (`Mesh.h`, the renderer's own resolution rule),
+falling back to `Acoustic`. `Scene::ResolveAcousticMaterial(Entity)` is the one precedence rule —
+Audio Surface component, then (when inheriting) the render material's tag, then the collider's tag,
+then Default — used by acoustic geometry sync (so a material edit during Play re-tags geometry
+through the normal update queue), engine occlusion, surface sounds, validation, the C# `Material`
+queries and the editor's material view. The inspector shows the effective tag.
 **Acoustic Materials** (viewport options popup, usable in edit mode and Play) sets
 `SceneRendererOptions::ShowDebugCategories`: `Scene::CaptureAcousticMaterialDebug` replaces the
 collider debug items with every non-Disabled mesh collider and enabled portal shutter (at its current

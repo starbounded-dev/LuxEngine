@@ -1729,8 +1729,41 @@ namespace Lux {
 		if (const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>())
 			material = surface->Material;
 		else if (const auto* collider = entity.TryGetComponent<MeshColliderComponent>())
+		{
 			material = collider->Acoustic;
+			if (collider->AcousticFromMaterial)
+			{
+				const int32_t inherited = GetRenderMaterialAcousticTag(entity, *collider);
+				if (inherited >= 0)
+					material = static_cast<AcousticMaterial>(inherited);
+			}
+		}
 		return IsValidAcousticMaterial(material) ? material : AcousticMaterial::Default;
+	}
+
+	// The acoustic tag on the render material the collider's submesh draws with (the collider's
+	// selected submesh, else the mesh's first), or -1. Uses the entity's own Static Mesh, since the
+	// render material belongs to what is drawn, not to a separate collider asset.
+	int32_t Scene::GetRenderMaterialAcousticTag(Entity entity, const MeshColliderComponent& collider) const
+	{
+		const auto* meshComponent = entity.TryGetComponent<StaticMeshComponent>();
+		Ref<StaticMesh> staticMesh;
+		Ref<MeshSource> meshSource;
+		if (!meshComponent || !ResolveStaticMeshDebugAssets(meshComponent->StaticMesh, staticMesh, meshSource))
+			return -1;
+
+		const auto& submeshes = meshSource->GetSubmeshes();
+		uint32_t submeshIndex = collider.SubmeshIndex;
+		if (submeshIndex >= submeshes.size())
+			submeshIndex = staticMesh->GetSubmeshes().empty() ? 0 : staticMesh->GetSubmeshes().front();
+		if (submeshIndex >= submeshes.size())
+			return -1;
+
+		const AssetHandle materialHandle = ResolveStaticMeshMaterialHandle(meshComponent->MaterialTable, staticMesh, meshSource, submeshes[submeshIndex].MaterialIndex);
+		if (!materialHandle || !AssetManager::IsAssetHandleValid(materialHandle) || AssetManager::GetAssetType(materialHandle) != AssetType::Material)
+			return -1;
+		const Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+		return material ? material->GetAcousticTag() : -1;
 	}
 
 	void Scene::UpdateAudioOcclusion(float timestep, const glm::vec3& listener)

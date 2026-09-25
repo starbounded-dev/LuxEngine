@@ -137,6 +137,12 @@ namespace Lux {
 		void SetMaterial(Ref<Material> material) { m_Material = material; }
 
 		bool IsTransparent() const { return m_Transparent; }
+
+		// The acoustic tag (an AcousticMaterial value) colliders inherit from this material, or -1
+		// for none. Not a shading input: the renderer never reads it; it lives here so choosing a
+		// surface once sets how it looks and how it sounds.
+		int32_t GetAcousticTag() const { return m_AcousticTag; }
+		void SetAcousticTag(int32_t tag) { m_AcousticTag = tag; }
 	private:
 		void SetDefaults();
 		template<typename T>
@@ -169,6 +175,7 @@ namespace Lux {
 		MaterialSurfaceParameters m_Surface;
 
 		bool m_Transparent = false;
+		int32_t m_AcousticTag = -1;
 
 		friend class MaterialEditor;
 	};

@@ -310,6 +310,7 @@ namespace Lux {
 		// The acoustic tag an entity's geometry uses: its AudioSurfaceComponent, else its mesh
 		// collider's tag, else Default. The one rule for geometry, surface sounds and debug views.
 		AcousticMaterial ResolveAcousticMaterial(Entity entity) const;
+		int32_t GetRenderMaterialAcousticTag(Entity entity, const MeshColliderComponent& collider) const;
 		// Last engine occlusion paths per source, for editor overlays. Main thread, read-only.
 		const AudioOcclusion& GetAudioOcclusion() const { return m_AudioOcclusion; }
 

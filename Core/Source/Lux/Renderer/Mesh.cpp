@@ -832,4 +832,27 @@ namespace Lux
 				m_Submeshes[i] = i;
 		}
 	}
+
+	AssetHandle ResolveStaticMeshMaterialHandle(const Ref<MaterialTable>& materialTable, const Ref<StaticMesh>& staticMesh,
+		const Ref<MeshSource>& meshSource, uint32_t materialIndex)
+	{
+		if (materialTable)
+		{
+			if (materialTable->HasMaterial(materialIndex))
+				return materialTable->GetMaterial(materialIndex);
+
+			const auto& overrides = materialTable->GetMaterials();
+			if (overrides.size() == 1 && materialTable->HasMaterial(0))
+				return materialTable->GetMaterial(0);
+		}
+
+		Ref<MaterialTable> staticMeshMaterials = staticMesh ? staticMesh->GetMaterials() : nullptr;
+		if (staticMeshMaterials && staticMeshMaterials->HasMaterial(materialIndex))
+			return staticMeshMaterials->GetMaterial(materialIndex);
+
+		if (meshSource && materialIndex < meshSource->GetMaterials().size())
+			return meshSource->GetMaterials()[materialIndex];
+
+		return 0;
+	}
 }

@@ -16,6 +16,11 @@ int main()
 	const auto defaults = DeserializeGeometry(YAML::Load("AudioPortalComponent: {}\nMeshColliderComponent: {}"));
 	assert(defaults.Portal.Enabled && defaults.Portal.Open == 0 && defaults.Portal.Material == AcousticMaterial::Wood);
 	assert(defaults.Mesh.AcousticMotion == AcousticGeometryMode::Static);
+	// New colliders inherit their render material's tag; scenes saved before the key keep their own.
+	assert(MeshColliderComponent{}.AcousticFromMaterial);
+	assert(!defaults.Mesh.AcousticFromMaterial);
+	const auto inheriting = DeserializeGeometry(YAML::Load("MeshColliderComponent: { AcousticMaterial: Brick, AcousticFromMaterial: true }"));
+	assert(inheriting.Mesh.AcousticFromMaterial && inheriting.Mesh.Acoustic == AcousticMaterial::Brick);
 	for (int mode = 0; mode < 3; ++mode)
 	{
 		const auto entity = DeserializeGeometry(YAML::Load("MeshColliderComponent: { AcousticMotion: " + std::to_string(mode) + " }"));
@@ -33,5 +38,5 @@ int main()
 			std::cerr << "Accepted invalid YAML: " << malformed << "\n";
 		assert(rejected);
 	}
-	std::cout << "PASS: production portal YAML round-trip, room references, legacy acoustic mode and invalid data\n";
+	std::cout << "PASS: production portal YAML round-trip, room references, legacy acoustic mode, material inheritance and invalid data\n";
 }

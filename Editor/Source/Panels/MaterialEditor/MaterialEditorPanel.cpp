@@ -7,6 +7,7 @@
 
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
@@ -77,6 +78,7 @@ namespace Lux
 		state.MetalnessMap = material->GetMetalnessMapHandle();
 		state.RoughnessMap = material->GetRoughnessMapHandle();
 		state.Surface = material->GetSurfaceParameters();
+		state.AcousticTag = material->GetAcousticTag();
 		return state;
 	}
 
@@ -97,6 +99,7 @@ namespace Lux
 		// After the maps: assigning or clearing a normal map may change the flag.
 		material->SetUseNormalMap(UseNormalMap);
 		material->SetSurfaceParameters(Surface);
+		material->SetAcousticTag(AcousticTag);
 	}
 
 	// -- Documents -------------------------------------------------------------------------------
@@ -631,6 +634,30 @@ namespace Lux
 			bool castShadows = material->IsShadowCasting();
 			if (ImGuiEx::Property("Cast Shadows", castShadows, "", false))
 				material->SetShadowCasting(castShadows);
+
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
+		if (ImGuiEx::PropertyGridHeader("Acoustics"))
+		{
+			ImGuiEx::BeginPropertyGrid();
+
+			// "None" first, then every tag in AcousticMaterial order, so index - 1 is the tag.
+			static auto s_AcousticNames = []()
+				{
+					std::array<const char*, AcousticMaterialCount + 1> names{};
+					names[0] = "None";
+					for (size_t i = 0; i < AcousticMaterialCount; ++i)
+						names[i + 1] = AcousticMaterialNames[i];
+					return names;
+				}();
+			int32_t selected = material->GetAcousticTag() + 1;
+			if (selected < 0 || selected > static_cast<int32_t>(AcousticMaterialCount))
+				selected = 0;
+			if (ImGuiEx::PropertyDropdown("Acoustic Material", s_AcousticNames.data(), static_cast<int32_t>(s_AcousticNames.size()), &selected,
+				"How surfaces drawn with this material sound. Mesh colliders with Inherit From Material use it; an Audio Surface component still overrides it. None leaves the collider's own tag.", false))
+				material->SetAcousticTag(selected - 1);
 
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();

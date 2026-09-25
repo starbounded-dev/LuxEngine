@@ -50,6 +50,7 @@ namespace Lux
 			AssetHandle MetalnessMap = 0;
 			AssetHandle RoughnessMap = 0;
 			MaterialSurfaceParameters Surface;
+			int32_t AcousticTag = -1;
 
 			bool operator==(const MaterialState& other) const = default;
 

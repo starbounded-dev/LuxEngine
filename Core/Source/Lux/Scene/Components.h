@@ -380,6 +380,9 @@ namespace Lux {
 		bool UseSharedShape = false;
 		ColliderMaterial Material;
 		AcousticMaterial Acoustic = AcousticMaterial::Default;
+		// Use the render material's acoustic tag when it has one; Acoustic is the fallback. New
+		// colliders inherit; scenes saved before this field keep their explicit tags.
+		bool AcousticFromMaterial = true;
 		AcousticGeometryMode AcousticMotion = AcousticGeometryMode::Static;
 		ECollisionComplexity CollisionComplexity = ECollisionComplexity::Default;
 

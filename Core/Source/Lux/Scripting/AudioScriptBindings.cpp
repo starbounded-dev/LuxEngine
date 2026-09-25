@@ -418,11 +418,7 @@ namespace Lux
 			Entity entity = AudioEntity(id);
 			if (!entity)
 				return static_cast<int32_t>(AcousticMaterial::Default);
-			if (const auto* surface = entity.TryGetComponent<AudioSurfaceComponent>())
-				return static_cast<int32_t>(surface->Material);
-			if (const auto* collider = entity.TryGetComponent<MeshColliderComponent>())
-				return static_cast<int32_t>(collider->Acoustic);
-			return static_cast<int32_t>(AcousticMaterial::Default);
+			return static_cast<int32_t>(entity.GetScene()->ResolveAcousticMaterial(entity));
 		}
 
 		void Audio_SourcePlay(uint64_t id)

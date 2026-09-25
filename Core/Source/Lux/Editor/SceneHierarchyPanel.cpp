@@ -2900,12 +2900,35 @@ namespace Lux {
 						return entity.GetComponent<MeshColliderComponent>().Acoustic;
 					});
 					ImGuiEx::ScopedItemFlags mixedFlag(ImGuiItemFlags_MixedValue, mixedMaterial);
-					if (ImGuiEx::PropertyDropdown("Acoustic Material", s_MaterialNames.data(), static_cast<int>(AcousticMaterialCount), &acousticMaterial, "An Audio Surface component on this entity takes precedence. Runtime edits enter the geometry update queue.", false))
+					if (ImGuiEx::PropertyDropdown("Acoustic Material", s_MaterialNames.data(), static_cast<int>(AcousticMaterialCount), &acousticMaterial, "An Audio Surface component on this entity takes precedence. With Inherit From Material, this is used only when the render material has no acoustic tag. Runtime edits enter the geometry update queue.", false))
 					{
 						ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [acousticMaterial](MeshColliderComponent& component, Entity)
 						{
 							component.Acoustic = static_cast<AcousticMaterial>(acousticMaterial);
 						});
+					}
+				}
+
+				{
+					bool inherit = firstComponent.AcousticFromMaterial;
+					const bool mixed = IsSelectionInconsistent<bool>(m_Context, selectedEntities, [](Entity entity)
+					{
+						return entity.GetComponent<MeshColliderComponent>().AcousticFromMaterial;
+					});
+					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
+					if (ImGuiEx::Property("Inherit From Material", inherit, "Use the acoustic material set on this entity's render material (Material Editor > Acoustics), falling back to Acoustic Material above.", false))
+						ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [inherit](MeshColliderComponent& component, Entity)
+						{
+							component.AcousticFromMaterial = inherit;
+						});
+					if (m_Context && !selectedEntities.empty() && !mixed)
+					{
+						if (Entity entity = m_Context->TryGetEntityWithUUID(selectedEntities.front()))
+						{
+							const std::string effective = AcousticMaterialName(m_Context->ResolveAcousticMaterial(entity));
+							ImGuiEx::Property("Effective Acoustics", effective,
+								"The tag the acoustics actually use for this entity, after the Audio Surface component and inheritance.");
+						}
 					}
 				}
 
