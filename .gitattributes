@@ -1,0 +1,2 @@
+# Batch labels and goto misbehave in LF-only files; check them out with CRLF everywhere.
+*.bat text eol=crlf

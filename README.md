@@ -337,6 +337,8 @@ Both X11 and Wayland sessions work (GLFW is built with both backends; libdecor i
 
 Set `Editor` as the startup project in Visual Studio and run — the working directory is already configured. Outside VS, run `bin\<Config>-windows-x86_64\Editor\Editor.exe` from the `Editor/` directory. `fmod.dll`, `fmodstudio.dll` and `vaudionative.dll` are copied next to the executables by the post-build step.
 
+`scripts\Win-RenderDoc.bat debug` (or `release` / `dist`) opens RenderDoc with the already-built editor launched and hooked; capture with **F12** / **Print Screen** or **Trigger Capture**. It finds `qrenderdoc.exe` through `RENDERDOC_DIR`, then `PATH`, then `%ProgramFiles%\RenderDoc`, and does not build — build the configuration in Visual Studio first.
+
 ### First launch
 
 The editor opens the bundled sample project at `Editor/LuxSampleProject/LuxSample.luxproj`. See [`Editor/LuxSampleProject/FMOD_SETUP.md`](Editor/LuxSampleProject/FMOD_SETUP.md) for the FMOD demo scene, and [`docs/Editor/`](docs/Editor/README.md) for the full editor manual.

@@ -21,6 +21,7 @@ hand.
 2. **Regenerate only** (day to day, after adding/removing files) — `scripts/Win-GenProjects.bat`.
    Same generation step, skipping the Vulkan/LFS/submodule work.
 3. **Build** — Visual Studio (`Lux.sln` / `Lux.slnx`), or `msbuild`, or `scripts/Linux-Build.sh`.
+   To debug a frame, `scripts\Win-RenderDoc.bat <config>` (Windows) or `scripts/Linux-RenderDoc.sh <config>` opens RenderDoc with the built editor launched and hooked; `.bat` files check out with CRLF (`.gitattributes`) because cmd labels misbehave with LF.
 4. **Output** — `bin/<Config>-<system>-<arch>/<Project>/`, intermediates in `bin-int/…`.
    The `outputdir` pattern is `%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}`, e.g.
    `bin/Debug-windows-x86_64/Editor/Editor.exe`.
