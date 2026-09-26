@@ -19,7 +19,8 @@ namespace Lux {
 			static_cast<uint32_t>(RenderGraph::PassFlags::Compute) |
 			static_cast<uint32_t>(RenderGraph::PassFlags::Transfer) |
 			static_cast<uint32_t>(RenderGraph::PassFlags::SideEffect) |
-			static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull);
+			static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull) |
+			static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources);
 
 		static uint32_t CountQueueFlags(RenderGraph::PassFlags flags)
 		{
@@ -36,6 +37,16 @@ namespace Lux {
 		static bool IsValidResource(RenderGraph::ResourceHandle resource, size_t resourceCount)
 		{
 			return resource != RenderGraph::InvalidResource && resource < resourceCount;
+		}
+
+		// Executable graphs skip Name to avoid per-frame allocations; DebugName is always set.
+		static std::string GetPassName(const RenderGraph::PassDesc& pass, uint32_t passIndex)
+		{
+			if (!pass.Name.empty())
+				return pass.Name;
+			if (pass.DebugName)
+				return pass.DebugName;
+			return std::format("Pass {}", passIndex);
 		}
 
 		static const std::string& GetResourceName(const std::vector<RenderGraph::TextureDesc>& textures, RenderGraph::ResourceHandle resource)
@@ -267,7 +278,7 @@ namespace Lux {
 		for (uint32_t passIndex = 0; passIndex < m_Passes.size(); passIndex++)
 		{
 			const PassDesc& pass = m_Passes[passIndex];
-			const std::string passName = pass.Name.empty() ? std::format("Pass {}", passIndex) : pass.Name;
+			const std::string passName = GetPassName(pass, passIndex);
 			const uint32_t rawFlags = static_cast<uint32_t>(pass.Flags);
 			const uint32_t queueCount = CountQueueFlags(pass.Flags);
 
@@ -295,7 +306,8 @@ namespace Lux {
 					std::format("Executable render graph pass '{}' does not declare a graphics, compute, or transfer queue.", passName));
 			}
 
-			if (pass.Execute && pass.Reads.empty() && pass.Writes.empty())
+			const bool untracked = HasFlag(pass.Flags, PassFlags::UntrackedResources);
+			if (pass.Execute && pass.Reads.empty() && pass.Writes.empty() && !untracked)
 			{
 				AppendDiagnostic(result.Diagnostics,
 					DiagnosticSeverity::Warning,
@@ -306,7 +318,7 @@ namespace Lux {
 					{},
 					std::format("Executable render graph pass '{}' has no declared inputs or outputs.", passName));
 			}
-			else if (!pass.Execute && pass.Reads.empty() && pass.Writes.empty())
+			else if (!pass.Execute && pass.Reads.empty() && pass.Writes.empty() && !untracked)
 			{
 				AppendDiagnostic(result.Diagnostics,
 					DiagnosticSeverity::Warning,
@@ -375,16 +387,18 @@ namespace Lux {
 				if (!IsValidResource(resource, m_Textures.size()))
 					continue;
 
+				// Read + write of one resource is a load-and-store (drawing on top of an
+				// attachment, in-place compute) — valid, so recorded for the inspector only.
 				if (ContainsResource(pass.Writes, resource))
 				{
 					AppendDiagnostic(result.Diagnostics,
-						DiagnosticSeverity::Warning,
+						DiagnosticSeverity::Info,
 						DiagnosticCode::ReadWriteSameResource,
 						passIndex,
 						passName,
 						resource,
 						GetResourceName(m_Textures, resource),
-						std::format("Pass '{}' reads and writes resource '{}' in the same pass.", passName, m_Textures[resource].Name));
+						std::format("Pass '{}' reads and writes resource '{}' (load and store).", passName, m_Textures[resource].Name));
 				}
 			}
 
@@ -420,10 +434,11 @@ namespace Lux {
 					DiagnosticSeverity::Warning,
 					DiagnosticCode::DeadWrite,
 					result.ResourceFirstWriter[resource],
-					result.ResourceFirstWriter[resource] < m_Passes.size() ? m_Passes[result.ResourceFirstWriter[resource]].Name : std::string(),
+					result.ResourceFirstWriter[resource] < m_Passes.size() ? GetPassName(m_Passes[result.ResourceFirstWriter[resource]], result.ResourceFirstWriter[resource]) : std::string(),
 					resource,
 					GetResourceName(m_Textures, resource),
-					std::format("Transient resource '{}' is written but never consumed by a later pass.", m_Textures[resource].Name));
+					std::format("Transient resource '{}' written by '{}' is never consumed by a later pass.", GetResourceName(m_Textures, resource),
+						result.ResourceFirstWriter[resource] < m_Passes.size() ? GetPassName(m_Passes[result.ResourceFirstWriter[resource]], result.ResourceFirstWriter[resource]) : std::string("?")));
 			}
 		}
 
@@ -786,6 +801,19 @@ namespace Lux {
 			const CompileResult result = graph.Compile();
 			if (result.Lifetimes.size() <= b || result.Lifetimes[a].AliasIndex == result.Lifetimes[b].AliasIndex)
 				addFailure("Overlapping transient lifetimes incorrectly shared an alias group.");
+		}
+
+		{
+			RenderGraph graph;
+			const ResourceHandle color = graph.AddTransientTexture(makeTexture("Color", false, false));
+			graph.AddPass({ "Clear", {}, { color }, PassFlags::Graphics });
+			graph.AddPass({ "DrawOnTop", { color }, { color }, PassFlags::Graphics });
+			graph.AddPass({ "BuffersOnly", {}, {}, CombineFlags(PassFlags::Compute, PassFlags::UntrackedResources) });
+			const CompileResult result = graph.Compile();
+			if (result.WarningCount != 0 || result.ErrorCount != 0)
+				addFailure(std::format("Load-and-store and untracked-resource passes expected no warnings, found {} warning(s) and {} error(s).", result.WarningCount, result.ErrorCount));
+			if (!hasDiagnostic(result, DiagnosticCode::ReadWriteSameResource))
+				addFailure("Load-and-store access was not recorded for the inspector.");
 		}
 
 		return !failures || failures->empty();

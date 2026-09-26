@@ -132,7 +132,9 @@ validation. `SceneRenderer` owns one (`m_RenderGraph`) and rebuilds its descript
 - `AddTransientTexture(TextureDesc)` → `ResourceHandle`. `Transient` and `AllowAlias` default true;
   aliasing reuses memory between resources with disjoint lifetimes.
 - `AddPass(PassDesc)` where `PassDesc` is `{ Name, Reads, Writes, Flags, Execute, DebugName }`.
-  `PassFlags`: `Graphics`, `Compute`, `Transfer`, `SideEffect`, `NeverCull`.
+  `PassFlags`: `Graphics`, `Compute`, `Transfer`, `SideEffect`, `NeverCull`, `UntrackedResources`.
+  The graph models textures only; a pass that touches only SSBOs/UBOs (cluster build/culling)
+  sets `UntrackedResources` so its empty `Reads`/`Writes` are not flagged.
 - `Compile()` → `CompileResult` with execution order, culled passes, resource lifetimes, alias
   groups, and typed `Diagnostic`s.
 - `Execute(compileResult)` runs the surviving passes' callbacks.
@@ -170,6 +172,10 @@ like "my pass does nothing" — not like a hash bug.
 `ReadWriteSameResource`, `DuplicatePassName`, `DuplicateTextureName`, `InvalidPassFlags`,
 `EmptyExecutablePass`, `AliasLifetimeConflict`, `AliasIncompatibleResource`, and more. They surface
 in the Renderer Debugger panel via `SceneRenderer::RenderGraphDebugSnapshot`.
+
+A resource in both `Reads` and `Writes` is a load-and-store (drawing on top of an attachment,
+in-place compute) and is the normal way to declare it. `ReadWriteSameResource` is therefore `Info`,
+not a warning; only warnings and errors reach the log.
 
 `RenderGraph::RunValidationSelfTests(&failures)` exists — run it when changing compile/alias logic.
 

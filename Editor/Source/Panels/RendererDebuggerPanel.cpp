@@ -251,6 +251,7 @@ namespace Lux {
 			append(RenderGraph::PassFlags::Transfer, "Transfer");
 			append(RenderGraph::PassFlags::SideEffect, "Pinned");
 			append(RenderGraph::PassFlags::NeverCull, "NeverCull");
+			append(RenderGraph::PassFlags::UntrackedResources, "UntrackedResources");
 			return result.empty() ? std::format("0x{:08X}", flags) : result;
 		}
 

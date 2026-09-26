@@ -26,7 +26,10 @@ namespace Lux {
 			Compute = BIT(1),
 			Transfer = BIT(2),
 			SideEffect = BIT(3),
-			NeverCull = BIT(4)
+			NeverCull = BIT(4),
+			// The pass works only on resources the graph does not model (SSBOs/UBOs,
+			// synchronized manually inside the pass), so empty Reads/Writes are expected.
+			UntrackedResources = BIT(5)
 		};
 
 		enum class DiagnosticSeverity : uint8_t

@@ -3876,11 +3876,11 @@ namespace Lux {
 		{
 			// Cluster build runs before light culling; it only depends on the camera
 			// projection (SSBO synchronized via a manual barrier inside the pass).
-			addPass("Cluster Build", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterBuildPass));
+			addPass("Cluster Build", {}, {}, RenderGraph::CombineFlags(RenderGraph::PassFlags::Compute, RenderGraph::PassFlags::UntrackedResources), makeExecute(&SceneRenderer::ClusterBuildPass));
 
 			// Cluster light assignment depends on the cluster AABBs + the light UBOs;
 			// it is depth-independent (SSBOs synchronized via manual barriers).
-			addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass));
+			addPass("Cluster Light Culling", {}, {}, RenderGraph::CombineFlags(RenderGraph::PassFlags::Compute, RenderGraph::PassFlags::UntrackedResources), makeExecute(&SceneRenderer::ClusterLightCullingPass));
 		}
 
 		// Scene color first so the image the G-buffer borrows for emission keeps its own name.
@@ -4032,12 +4032,12 @@ namespace Lux {
 		const bool jumpFloodActive = m_Options.EnableJumpFlood && m_JumpFloodInitPass && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true);
 		if (jumpFloodActive)
 		{
-			std::vector<RenderGraph::ResourceHandle> jumpFloodInitOutputs = addRenderPassResources("JumpFlood Init", m_JumpFloodInitPass);
+			// The init target is scratch the pass writes and reads back itself, so it is not a
+			// graph output (declaring it made it a dead write). A/B feed JumpFlood Composite.
 			jumpFloodAOutputs = addRenderPassResources("JumpFlood A", m_JumpFloodPasses[0]);
 			jumpFloodBOutputs = addRenderPassResources("JumpFlood B", m_JumpFloodPasses[1]);
 
-			std::vector<RenderGraph::ResourceHandle> jumpFloodWrites = jumpFloodInitOutputs;
-			appendResources(jumpFloodWrites, jumpFloodAOutputs);
+			std::vector<RenderGraph::ResourceHandle> jumpFloodWrites = jumpFloodAOutputs;
 			appendResources(jumpFloodWrites, jumpFloodBOutputs);
 			addPass("JumpFlood", selectedOutputs, jumpFloodWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::JumpFloodPass));
 		}
