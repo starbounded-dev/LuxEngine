@@ -56,6 +56,8 @@ namespace Lux {
 			bodyDef.angularDamping = rb2d.AngularDrag;
 			bodyDef.gravityScale = rb2d.GravityScale;
 			bodyDef.bullet = rb2d.IsBullet;
+			// ContactListener2D resolves contacts back to entities through this UUID.
+			bodyDef.userData.pointer = (uintptr_t)(uint64_t)entity.GetUUID();
 
 			b2Body* body = m_PhysicsWorld->CreateBody(&bodyDef);
 			body->SetFixedRotation(rb2d.FixedRotation);

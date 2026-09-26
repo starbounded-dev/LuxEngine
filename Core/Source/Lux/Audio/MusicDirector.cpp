@@ -21,7 +21,10 @@ namespace Lux
 			return nullptr;
 		if (instance->IsSnapshot() || instance->Is3D() || instance->IsOneShot() != oneShot)
 		{
-			LUX_CORE_ERROR_TAG("Audio", "Music event {} must be a 2D {} event, not a snapshot", reference, oneShot ? "one-shot stinger" : "continuous music bed");
+			const char* reason = instance->IsSnapshot() ? "it is a snapshot"
+				: instance->Is3D() ? "it is 3D (remove its spatializer in FMOD Studio)"
+				: oneShot ? "it is not a one-shot" : "it is a one-shot";
+			LUX_CORE_ERROR_TAG("Audio", "Music event {} must be a 2D {} event, but {}", reference, oneShot ? "one-shot stinger" : "continuous music bed", reason);
 			return nullptr;
 		}
 		instance->SetScenePaused(m_Paused);

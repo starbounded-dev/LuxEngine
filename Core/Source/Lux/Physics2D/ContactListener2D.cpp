@@ -11,18 +11,24 @@
 namespace Lux {
 
 	// Invokes the managed collision bridge on `entity`'s live script instance, passing `other`.
-	static void InvokeCollision(Entity entity, Entity other, const char* method)
+	static void InvokeCollision(UUID entity, UUID other, const char* method)
 	{
 		Scene* scene = ScriptEngine::GetInstance().GetCurrentScene().Raw();
 		if (!scene)
 			return;
 
 		auto& storage = scene->GetScriptStorage();
-		auto it = storage.EntityStorage.find(entity.GetUUID());
+		auto it = storage.EntityStorage.find(entity);
 		if (it == storage.EntityStorage.end() || !it->second.Instance)
 			return;
 
-		it->second.Instance->InvokeMethod(method, (uint64_t)other.GetUUID());
+		it->second.Instance->InvokeMethod(method, (uint64_t)other);
+	}
+
+	// PhysicsScene2D::Start stores each body's entity UUID in its user data.
+	static UUID GetBodyEntity(b2Fixture* fixture)
+	{
+		return (UUID)(uint64_t)fixture->GetBody()->GetUserData().pointer;
 	}
 
 	void ContactListener2D::BeginContact(b2Contact* contact)
@@ -30,8 +36,8 @@ namespace Lux {
 		if (!m_IsPlaying)
 			return;
 
-		Entity& a = *(Entity*)contact->GetFixtureA()->GetBody()->GetUserData().pointer;
-		Entity& b = *(Entity*)contact->GetFixtureB()->GetBody()->GetUserData().pointer;
+		const UUID a = GetBodyEntity(contact->GetFixtureA());
+		const UUID b = GetBodyEntity(contact->GetFixtureB());
 
 		InvokeCollision(a, b, "OnCollisionBeginInternal");
 		InvokeCollision(b, a, "OnCollisionBeginInternal");
@@ -42,8 +48,8 @@ namespace Lux {
 		if (!m_IsPlaying)
 			return;
 
-		Entity& a = *(Entity*)contact->GetFixtureA()->GetBody()->GetUserData().pointer;
-		Entity& b = *(Entity*)contact->GetFixtureB()->GetBody()->GetUserData().pointer;
+		const UUID a = GetBodyEntity(contact->GetFixtureA());
+		const UUID b = GetBodyEntity(contact->GetFixtureB());
 
 		InvokeCollision(a, b, "OnCollisionEndInternal");
 		InvokeCollision(b, a, "OnCollisionEndInternal");
