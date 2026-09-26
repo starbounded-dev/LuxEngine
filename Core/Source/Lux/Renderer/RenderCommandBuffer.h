@@ -31,11 +31,14 @@ namespace Lux {
 	public:
 		static Ref<RenderCommandBuffer> Create(uint32_t count = 0, const std::string& debugName = "", bool enableQueries = false, nvrhi::CommandQueue queue = nvrhi::CommandQueue::Graphics) { return Ref<RenderCommandBuffer>::Create(count, enableQueries, debugName, queue); }
 
-		void Begin();
+		// continueFrame: this Begin resumes a frame that was already begun, ended and submitted
+		// mid-frame (e.g. to interleave another command buffer). Its GPU time is added to the
+		// frame's total instead of starting a new frame measurement.
+		void Begin(bool continueFrame = false);
 		void End();
 		void Submit();
 
-		void RT_Begin();
+		void RT_Begin(bool continueFrame = false);
 		void RT_End();
 		void RT_Submit();
 		void RT_Submit(VkSemaphore waitSemaphore);
@@ -85,7 +88,10 @@ namespace Lux {
 		uint64_t m_LastExecutionInstance = 0;
 
 		nvrhi::static_vector<nvrhi::CommandListHandle, 3> m_CommandLists;
-		nvrhi::static_vector<nvrhi::TimerQueryHandle, 3> m_TimerQueries;
+		// Frame-level timer queries: one per submitted segment of the frame, per frame index.
+		// A frame split by Begin(true) records several segments; the published time is their sum.
+		nvrhi::static_vector<std::vector<nvrhi::TimerQueryHandle>, 3> m_TimerQueries;
+		nvrhi::static_vector<uint32_t, 3> m_TimerSegmentCounts;
 
 		// Published by the render thread, read by the main thread (profiling panels).
 		//

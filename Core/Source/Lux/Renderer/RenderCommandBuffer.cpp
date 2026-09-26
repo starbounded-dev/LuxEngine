@@ -64,7 +64,8 @@ namespace Lux {
 		{
 			for (uint32_t i = 0; i < count; i++)
 			{
-				m_TimerQueries.push_back(device->createTimerQuery());
+				m_TimerQueries.push_back({ device->createTimerQuery() });
+				m_TimerSegmentCounts.push_back(0);
 
 				m_NamedTimerQueries.emplace_back();
 			}
@@ -106,12 +107,12 @@ namespace Lux {
 		}
 	}
 
-	void RenderCommandBuffer::Begin()
+	void RenderCommandBuffer::Begin(bool continueFrame)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<RenderCommandBuffer> instance = this;
-		Renderer::Submit([instance]() mutable {
-			instance->RT_Begin();
+		Renderer::Submit([instance, continueFrame]() mutable {
+			instance->RT_Begin(continueFrame);
 			});
 	}
 
@@ -129,7 +130,7 @@ namespace Lux {
 		Renderer::Submit([instance]() mutable { instance->RT_Submit(); });
 	}
 
-	void RenderCommandBuffer::RT_Begin()
+	void RenderCommandBuffer::RT_Begin(bool continueFrame)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
@@ -145,26 +146,43 @@ namespace Lux {
 
 		if (m_QueryEnabled)
 		{
-			m_ActiveTimerQuery = m_TimerQueries[commandBufferIndex];
+			std::vector<nvrhi::TimerQueryHandle>& segmentQueries = m_TimerQueries[commandBufferIndex];
+			uint32_t& segmentCount = m_TimerSegmentCounts[commandBufferIndex];
 
-			// Poll and publish the frame-level timer query result BEFORE resetting.
-			// A query that is not ready yet simply leaves the previous value in place;
-			// the panels then show the last resolved frame rather than a zero.
-			if (device->pollTimerQuery(m_ActiveTimerQuery))
+			// A new frame on this index: publish the previous frame's total (every segment it
+			// recorded) BEFORE the queries are reset for reuse. If any segment is not ready yet
+			// the previous value stays in place; the panels then show the last resolved frame
+			// rather than a partial sum.
+			bool frameResolved = !continueFrame && segmentCount > 0;
+			float frameTimeInMs = 0.0f;
+			for (uint32_t segment = 0; frameResolved && segment < segmentCount; segment++)
 			{
-				const float timeInMs = device->getTimerQueryTime(m_ActiveTimerQuery) * 1000.0f;
+				if (device->pollTimerQuery(segmentQueries[segment]))
+					frameTimeInMs += device->getTimerQueryTime(segmentQueries[segment]) * 1000.0f;
+				else
+					frameResolved = false;
+			}
+
+			if (frameResolved)
+			{
 				const float previous = m_LastGPUWorkTime.load(std::memory_order_relaxed);
 
 				// Seed on the first resolved sample, otherwise the average crawls up from
 				// zero over dozens of frames and reads as a bogus sub-millisecond frame.
 				const float smoothed = previous > 0.0f
-					? timeInMs * kGPUTimeSmoothing + previous * (1.0f - kGPUTimeSmoothing)
-					: timeInMs;
+					? frameTimeInMs * kGPUTimeSmoothing + previous * (1.0f - kGPUTimeSmoothing)
+					: frameTimeInMs;
 
 				m_LastGPUWorkTime.store(smoothed, std::memory_order_relaxed);
 			}
 
-			// Reset and begin the frame-level timer query
+			if (!continueFrame)
+				segmentCount = 0;
+			if (segmentCount == segmentQueries.size())
+				segmentQueries.push_back(device->createTimerQuery());
+			m_ActiveTimerQuery = segmentQueries[segmentCount++];
+
+			// Reset and begin this segment's timer query
 			device->resetTimerQuery(m_ActiveTimerQuery);
 
 			//do the same with the smaller queries

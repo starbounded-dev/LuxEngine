@@ -298,6 +298,16 @@ Two rules if you touch this path:
   therefore force-closes any zone still open before collecting.
 - `TracyVkCollect` runs in `RT_End`, outside any render pass and before `close()`.
 
+The frame total (`GetExecutionGPUTime`, shown as "GPU" in the viewport HUD and read by dynamic
+resolution) is a separate frame-level timer query opened in `RT_Begin`. A frame that is split
+mid-way — End, Submit, then Begin again, as the WorldOverlay2D pass does — must resume with
+**`Begin(/*continueFrame*/ true)`**. Each segment then gets its own query and the published total is
+their sum. A plain `Begin()` there starts a new measurement and the total covers only the tail.
+
+The HUD's "CPU" figure is `max(MainThreadWorkTime, RenderThreadWorkTime)`, and the render-thread
+timer includes `Present`'s frames-in-flight wait. On a GPU-bound frame it therefore reads high;
+confirm CPU-bound with a sampler or Tracy before optimizing CPU code.
+
 Tracy GPU zones only carry data while a profiler is connected (`TRACY_ON_DEMAND`), and the whole
 path compiles out in Dist. Note that Tracy captures record **CPU zones only** unless this context
 exists — a capture with zero GPU zones means the context failed to create, not that the GPU is idle.

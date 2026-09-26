@@ -4110,7 +4110,7 @@ namespace Lux {
 					m_WorldOverlayRenderCallback();
 					m_WorldOverlayRenderCallback = nullptr;
 
-					m_CommandBuffer->Begin();
+					m_CommandBuffer->Begin(/*continueFrame*/ true);
 				});
 		}
 
