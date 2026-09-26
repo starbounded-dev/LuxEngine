@@ -269,13 +269,24 @@ namespace Lux {
 		if (!materialHandle)
 			return InvalidRenderMaterialID;
 
+		// Many meshes share a material, so it is upserted once per referencing submesh.
+		// Its data cannot change within one sync, so rebuild it only on the first touch
+		// this frame — rebuilding validates every texture through the asset manager.
+		const MaterialKey key{ (uint64_t)materialHandle, MaterialKeyType::Asset };
+		if (!forceDirty)
+		{
+			auto idIt = m_MaterialIDByKey.find(key);
+			if (idIt != m_MaterialIDByKey.end() && m_LastTouchedFrames[idIt->second] == m_FrameIndex)
+				return idIt->second;
+		}
+
 		GPUMaterialBuildInput input;
 		input.MaterialHandle = materialHandle;
 		if (Project::GetAssetManager())
 			input.MaterialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
 
 		GPUMaterialData data = BuildGPUMaterialData(input, [this](AssetHandle textureHandle) { return ResolveTextureIndex(textureHandle); });
-		return UpsertMaterial({ (uint64_t)materialHandle, MaterialKeyType::Asset }, data, forceDirty);
+		return UpsertMaterial(key, data, forceDirty);
 	}
 
 	RenderMaterialID MaterialScene::UpsertOverrideMaterial(uint64_t overrideKey, const Ref<Material>& material, bool transparent, bool forceDirty)
