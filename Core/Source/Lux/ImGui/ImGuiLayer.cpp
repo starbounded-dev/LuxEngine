@@ -228,10 +228,23 @@ namespace Lux {
 		std::unique_ptr<ImGuiRenderer> Renderer;
 	};
 
+	// viewport->RendererUserData holds a heap-allocated shared_ptr so the deferred render
+	// tasks queued in ImGuiLayer::End() can hold a weak_ptr. The render thread runs those
+	// tasks one frame later, after the next End() may already have destroyed this viewport
+	// (e.g. a popup closing); a raw pointer there was a use-after-free.
+	using ImGuiViewportDataRef = std::shared_ptr<ImGuiViewportData>;
+
+	static ImGuiViewportData* GetViewportData(ImGuiViewport* viewport)
+	{
+		auto* ref = static_cast<ImGuiViewportDataRef*>(viewport->RendererUserData);
+		return ref ? ref->get() : nullptr;
+	}
+
 	static void ImGuiRenderer_CreateWindow(ImGuiViewport* viewport)
 	{
-		ImGuiViewportData* data = IM_NEW(ImGuiViewportData)();
-		viewport->RendererUserData = data;
+		auto* ref = lnew ImGuiViewportDataRef(std::make_shared<ImGuiViewportData>());
+		viewport->RendererUserData = ref;
+		ImGuiViewportData* data = ref->get();
 
 		vk::Instance vInstance = ((VulkanDeviceManager*)Application::GetGraphicsDeviceManager())->GetVulkanInstance();
 
@@ -253,20 +266,22 @@ namespace Lux {
 
 	static void ImGuiRenderer_DestroyWindow(ImGuiViewport* viewport)
 	{
-		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
-		ldelete vd;
+		// Main thread, render thread idle (between BlockUntilRenderComplete and Kick). Dropping
+		// the owning reference destroys the swapchain here, before the platform window goes;
+		// any task still queued for this viewport sees an expired weak_ptr and skips.
+		ldelete static_cast<ImGuiViewportDataRef*>(viewport->RendererUserData);
 		viewport->RendererUserData = nullptr;
 	}
 
 	static void ImGuiRenderer_SetWindowSize(ImGuiViewport* viewport, ImVec2 size)
 	{
-		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
+		ImGuiViewportData* vd = GetViewportData(viewport);
 		vd->SC->OnResize((uint32_t)size.x, (uint32_t)size.y);
 	}
 
 	static void ImGuiRenderer_RenderWindow(ImGuiViewport* viewport, void*)
 	{
-		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
+		ImGuiViewportData* vd = GetViewportData(viewport);
 		ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer();
 		ImGuiRenderer* mainRenderer = imguiLayer ? imguiLayer->GetImGuiRenderer() : nullptr;
 		auto snapshot = ImGuiDrawDataSnapshot::Create(
@@ -277,7 +292,7 @@ namespace Lux {
 
 	static void ImGuiRenderer_SwapBuffers(ImGuiViewport* viewport, void*)
 	{
-		ImGuiViewportData* vd = (ImGuiViewportData*)viewport->RendererUserData;
+		ImGuiViewportData* vd = GetViewportData(viewport);
 		vd->SC->Present();
 	}
 
@@ -478,13 +493,19 @@ namespace Lux {
 			for (int32_t i = 1; i < platformIO.Viewports.Size; i++)
 			{
 				ImGuiViewport* viewport = platformIO.Viewports[i];
-				auto* viewportData = static_cast<ImGuiViewportData*>(viewport->RendererUserData);
+				auto* viewportRef = static_cast<ImGuiViewportDataRef*>(viewport->RendererUserData);
+				ImGuiViewportData* viewportData = viewportRef ? viewportRef->get() : nullptr;
 				auto snapshot = ImGuiDrawDataSnapshot::Create(viewport->DrawData, registry);
 				if (!viewportData || !viewportData->SC || !viewportData->Renderer || !snapshot)
 					continue;
 
-				m_PendingRenderTasks.emplace_back([viewportData, snapshot]()
+				m_PendingRenderTasks.emplace_back([weakViewportData = std::weak_ptr<ImGuiViewportData>(*viewportRef), snapshot]()
 				{
+					// Expired when the viewport was destroyed after this task was queued.
+					ImGuiViewportDataRef viewportData = weakViewportData.lock();
+					if (!viewportData)
+						return;
+
 					if (viewportData->SC->BeginFrame())
 					{
 						viewportData->Renderer->RenderToSwapchain(snapshot, viewportData->SC.get());

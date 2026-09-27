@@ -67,6 +67,12 @@ Two consequences worth internalising:
 
 - **ImGui is built on the main thread; only immutable GPU draw work crosses to the render thread.**
   Never call `ImGui::` from inside a `Renderer::Submit` lambda.
+- **A submitted lambda runs after the *next* frame's steps 2–3.** Work queued in frame N executes
+  only once frame N+1 reaches `Kick()`, so anything the main thread destroys during frame N+1's
+  events/UI (a closed ImGui popup viewport, a deleted panel, a scene swap) is already gone when the
+  lambda runs. Never capture a raw pointer to a main-thread-owned object that can die in between —
+  capture a `Ref`/`shared_ptr` to keep it alive, or a `weak_ptr` and skip when expired (the ImGui
+  platform-viewport tasks in `ImGuiLayer::End()` do the latter).
 - **`ExecuteBackgroundThreadSubmits()` runs before layer updates**, so GPU resources a background
   asset load created already exist before any draw that might use them this frame.
 
