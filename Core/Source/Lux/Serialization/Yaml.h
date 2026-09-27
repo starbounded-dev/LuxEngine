@@ -61,6 +61,13 @@ namespace Lux::Yaml {
 
 	enum class NodeType { Undefined, Null, Scalar, Sequence, Map };
 
+	namespace Detail {
+		// char / signed char / unsigned char (uint8_t, int8_t). yaml-cpp wrote these as a character, not
+		// a number, so they get their own conversion and the Writer refuses them (cast explicitly).
+		template<typename T>
+		inline constexpr bool IsByte = std::is_same_v<T, char> || std::is_same_v<T, signed char> || std::is_same_v<T, unsigned char>;
+	}
+
 	template<typename T>
 	struct Convert;   // static bool Decode(const Node& node, T& out) — false when it does not convert
 
@@ -238,7 +245,9 @@ namespace Lux::Yaml {
 		Writer& operator<<(const glm::vec3& v) { return *this << Flow << BeginSeq << v.x << v.y << v.z << EndSeq; }
 		Writer& operator<<(const glm::vec4& v) { return *this << Flow << BeginSeq << v.x << v.y << v.z << v.w << EndSeq; }
 
-		template<typename T> requires (std::is_integral_v<T> && !std::is_same_v<T, bool>)
+		// 8-bit types are rejected on purpose: yaml-cpp wrote them as characters (""), so a
+		// ported caller must choose, e.g. `static_cast<uint32_t>(value)` to write a number.
+		template<typename T> requires (std::is_integral_v<T> && !std::is_same_v<T, bool> && !Detail::IsByte<T>)
 		Writer& operator<<(T value)
 		{
 			char buffer[32];
@@ -311,10 +320,30 @@ namespace Lux::Yaml {
 		}
 	};
 
-	template<typename T> requires (std::is_integral_v<T> && !std::is_same_v<T, bool>)
+	template<typename T> requires (std::is_integral_v<T> && !std::is_same_v<T, bool> && !Detail::IsByte<T>)
 	struct Convert<T>
 	{
 		static bool Decode(const Node& node, T& out) { return node.IsScalar() && Detail::DecodeInteger(node.Scalar(), out); }
+	};
+
+	// 8-bit integers read a number, or else the single character yaml-cpp wrote for them (`""`).
+	// A digit is read as a number, so a byte yaml-cpp wrote as '0'..'9' (48..57) would read wrongly;
+	// the engine's 8-bit fields are small enums, which yaml-cpp always escaped.
+	template<typename T> requires Detail::IsByte<T>
+	struct Convert<T>
+	{
+		static bool Decode(const Node& node, T& out)
+		{
+			if (!node.IsScalar())
+				return false;
+			const std::string_view text = node.Scalar();
+			if (Detail::DecodeInteger(text, out))
+				return true;
+			if (text.size() != 1)
+				return false;
+			out = static_cast<T>(static_cast<unsigned char>(text.front()));
+			return true;
+		}
 	};
 
 	template<typename T> requires std::is_floating_point_v<T>

@@ -607,7 +607,7 @@ namespace Lux {
 				out << Yaml::Key << "AcousticMaterial" << Yaml::Value << AcousticMaterialName(collider.Acoustic);
 				out << Yaml::Key << "AcousticFromMaterial" << Yaml::Value << collider.AcousticFromMaterial;
 				out << Yaml::Key << "AcousticMotion" << Yaml::Value << static_cast<uint32_t>(collider.AcousticMotion);
-				out << Yaml::Key << "CollisionComplexity" << Yaml::Value << (uint8_t)collider.CollisionComplexity;
+				out << Yaml::Key << "CollisionComplexity" << Yaml::Value << static_cast<uint32_t>(collider.CollisionComplexity);
 				out << Yaml::EndMap;
 			}
 

@@ -593,6 +593,15 @@ namespace
 			Expect(Throws([&] { edited["C"].SetScalar("nope"); }), "SetScalar on a map throws");
 		}
 
+		// 8-bit values read a number, or the escaped character yaml-cpp wrote for them.
+		{
+			Yaml::Node bytes = Yaml::Load("Legacy: \"\\x02\"\nNumber: 2\nZero: \"\\x00\"\nWord: ab");
+			Expect(bytes["Legacy"].as<uint8_t>(9) == 2, "uint8_t from yaml-cpp character");
+			Expect(bytes["Number"].as<uint8_t>(9) == 2, "uint8_t from number");
+			Expect(bytes["Zero"].as<uint8_t>(9) == 0, "uint8_t from escaped NUL");
+			Expect(bytes["Word"].as<uint8_t>(9) == 9, "uint8_t rejects longer text");
+		}
+
 		// Dump() of a subtree re-parses to the same values.
 		Expect(Yaml::Load(back["Pos"].Dump()).as<glm::vec3>() == glm::vec3(1.0f, 2.5f, -3.0f), "Dump() round-trip");
 
