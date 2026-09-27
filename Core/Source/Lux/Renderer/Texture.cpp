@@ -9,6 +9,8 @@
 
 #include "Lux/Asset/TextureImporter.h"
 
+#include <atomic>
+
 namespace Lux {
 
 	namespace Utils {
@@ -917,7 +919,10 @@ namespace Lux {
 	// TextureCube
 	//////////////////////////////////////////////////////////////////////////////////
 
-	static std::map<nvrhi::ITexture*, WeakRef<TextureCube>> s_TextureCubeReferences;
+	// Live-cube count for the create/destroy trace logs. Cubes are created on the main and asset
+	// threads and destroyed wherever their last Ref drops (often the render thread), so this is
+	// atomic; it replaced an unsynchronised map that was only ever used for its size.
+	static std::atomic<uint32_t> s_LiveTextureCubes{ 0 };
 
 	TextureCube::TextureCube(const TextureSpecification& specification, Buffer data)
 		: m_Specification(specification)
@@ -952,7 +957,6 @@ namespace Lux {
 
 				VulkanAllocator allocator("TextureCube");
 				allocator.DestroyImage(image, allocation);
-				s_TextureCubeReferences.erase(image);
 			});
 		m_Image = nullptr;
 		m_MemoryAlloc = nullptr;
@@ -960,13 +964,13 @@ namespace Lux {
 		m_DescriptorImageInfo.sampler = nullptr;
 #endif
 
-		s_TextureCubeReferences.erase(m_Image->GetHandle().Get());
+		s_LiveTextureCubes.fetch_sub(1, std::memory_order_relaxed);
 		m_Image = nullptr;
 	}
 
 	TextureCube::~TextureCube()
 	{
-		LUX_CORE_WARN("Destroying TextureCube (LIVE REFS={})", s_TextureCubeReferences.size());
+		LUX_CORE_TRACE_TAG("Renderer", "Destroying TextureCube (live cubes: {})", s_LiveTextureCubes.load(std::memory_order_relaxed));
 		Release();
 	}
 
@@ -991,8 +995,8 @@ namespace Lux {
 		m_Image = Image2D::Create(imageSpec);
 		m_Image->RT_Invalidate();
 
-		s_TextureCubeReferences[GetHandle().Get()] = this;
-		LUX_CORE_TRACE_TAG("Renderer", "Creating TextureCube (LIVE REFS={})", s_TextureCubeReferences.size());
+		const uint32_t liveCubes = s_LiveTextureCubes.fetch_add(1, std::memory_order_relaxed) + 1;
+		LUX_CORE_TRACE_TAG("Renderer", "Creating TextureCube (live cubes: {})", liveCubes);
 
 		if (m_LocalStorage)
 		{
