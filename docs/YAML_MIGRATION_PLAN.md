@@ -69,7 +69,20 @@ log line also exposed that tagged logs with an unconfigured tag were silently dr
   defined. With custom throwing `error_basic` / `error_parse` / `error_visit` callbacks, bad
   indentation, unclosed `[` and quotes, tabs, and stray colons all became catchable errors with a
   line number. `ErrorDataParse::ymlloc.line` is already 1-based.
-- The spike was not vendored; Phase 1's in-repo vendoring moves into Phase 2.
+- The spike was not vendored; Phase 1's in-repo vendoring was folded into Phase 2 (user's call).
+
+**Phase 2 — done (2026-09-27).** Vendored `Core/vendor/rapidyaml/` (`ryml_all.hpp`, `ryml.cpp` —
+the single implementation unit, `NoPCH` — and `LICENSE.txt` with the MIT/BSD-2 notices copied from
+the header); `Dependencies.lua` `RapidYAML` entry; projects regenerated (`Win-GenProjects.py --last`).
+**NEW** `Serialization/Yaml.h/.cpp` (`Lux::Yaml`): rapidyaml stays out of the header; a `Node` holds
+a `Ref` to its document; yaml-cpp semantics kept (key-exists truthiness, lenient bools, integer
+keys on maps, `Dump()` = value only); writer emits style C (`[1, 2.5, -3]` via `FLOW_SL|FLOW_SPC`,
+shortest floats, null-like strings quoted); error handlers installed lazily via `std::call_once`.
+`tests/yaml/run.py` now also builds the oracle over `Lux::Yaml`: all 188 files match the reference,
+all 188 survive parse → `Yaml::Writer` → re-parse, and the self-test passes (semantics, conversions,
+quoting, determinism, malformed input throws). Windows Debug/Release build; Linux not built here.
+`Building.md` needed no change (it lists no vendored libraries). The in-editor parse measurement
+moves to Phase 3, the first phase where engine code calls the wrapper.
 
 ## Part 1 — Design
 
