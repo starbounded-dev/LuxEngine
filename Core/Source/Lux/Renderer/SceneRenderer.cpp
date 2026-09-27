@@ -3654,21 +3654,18 @@ namespace Lux {
 
 		uint64_t liveImageBytes = 0;
 		uint32_t liveImageCount = 0;
-		for (const auto& [handle, image] : Image2D::GetImageRefs())
+		Image2D::ForEachLiveImage([&](const Image2D& image)
 		{
-			if (!image)
-				continue;
-
-			uint64_t imageSize = image->GetGPUMemoryUsage();
+			uint64_t imageSize = image.GetGPUMemoryUsage();
 			if (imageSize == 0)
 			{
-				const ImageSpecification& spec = image->GetSpecification();
+				const ImageSpecification& spec = image.GetSpecification();
 				imageSize = Utils::GetImageMemorySize(spec.Format, spec.Width, spec.Height, spec.Mips, spec.Layers);
 			}
 
 			liveImageBytes += imageSize;
 			liveImageCount++;
-		}
+		});
 
 		const uint64_t imageAllocationSize = std::max(gpuStats.ImageAllocationSize, liveImageBytes);
 		const uint32_t imageAllocationCount = std::max<uint32_t>(static_cast<uint32_t>(gpuStats.ImageAllocationCount), liveImageCount);

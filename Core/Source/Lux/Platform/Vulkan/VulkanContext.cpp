@@ -113,7 +113,6 @@ namespace Lux {
 			if (Log::GetEditorConsoleLogger())
 				Log::GetEditorConsoleLogger()->info("{}", fullMessage);
 		}
-		[[maybe_unused]] const auto& imageRefs = Image2D::GetImageRefs();
 
 		return VK_FALSE;
 	}

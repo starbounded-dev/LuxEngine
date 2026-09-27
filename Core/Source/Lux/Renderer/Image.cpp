@@ -13,7 +13,10 @@
 
 namespace Lux {
 
+	// Live-image registry (debug/stats). Written by RT_Invalidate on the render thread and read by
+	// the main thread's memory statistics, so every access holds s_ImageReferencesMutex.
 	static std::map<nvrhi::ITexture*, WeakRef<Image2D>> s_ImageReferences;
+	static std::mutex s_ImageReferencesMutex;
 
 	Image2D::Image2D(const ImageSpecification& specification)
 		: m_Specification(specification)
@@ -54,7 +57,10 @@ namespace Lux {
 		}
 
 		if (m_Info.ImageHandle)
+		{
+			std::scoped_lock lock(s_ImageReferencesMutex);
 			s_ImageReferences.erase(m_Info.ImageHandle.Get());
+		}
 
 		m_Info.ImageHandle = nullptr;
 		m_Info.Sampler = nullptr;
@@ -83,7 +89,10 @@ namespace Lux {
 			return;
 
 		if (m_Info.ImageHandle)
+		{
+			std::scoped_lock lock(s_ImageReferencesMutex);
 			s_ImageReferences.erase(m_Info.ImageHandle.Get());
+		}
 
 		m_Info = {};
 		m_GPUAllocationSize = 0;
@@ -268,9 +277,12 @@ namespace Lux {
 		m_Info.Dimension = textureDesc.dimension;
 		m_GPUAllocationSize = newAllocationSize;
 
-		if (oldHandle)
-			s_ImageReferences.erase(oldHandle.Get());
-		s_ImageReferences[newHandle.Get()] = this;
+		{
+			std::scoped_lock lock(s_ImageReferencesMutex);
+			if (oldHandle)
+				s_ImageReferences.erase(oldHandle.Get());
+			s_ImageReferences[newHandle.Get()] = this;
+		}
 
 		// The per-layer/per-mip views wrapped the old texture; drop them so they are rebuilt
 		// against the new texture on demand. Done after the handle swap so the old views (which
@@ -368,10 +380,18 @@ namespace Lux {
 		}
 	}
 
-	const std::map<nvrhi::ITexture*, WeakRef<Image2D>>& Image2D::GetImageRefs()
+	void Image2D::ForEachLiveImage(const std::function<void(const Image2D&)>& fn)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		return s_ImageReferences;
+		// Held for the whole visit: Release() erases under this lock before an image's members go
+		// away, so an image being destroyed on another thread waits here instead of being read
+		// while it is freed.
+		std::scoped_lock lock(s_ImageReferencesMutex);
+		for (const auto& [handle, image] : s_ImageReferences)
+		{
+			if (image)
+				fn(*image);
+		}
 	}
 
 	void Image2D::SetData(Buffer buffer)

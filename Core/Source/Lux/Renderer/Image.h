@@ -223,8 +223,10 @@ namespace Lux {
 
 		virtual uint64_t GetHash() const override { return (uint64_t)GetHandle().Get(); }
 
-		// Debug
-		static const std::map<nvrhi::ITexture*, WeakRef<Image2D>>& GetImageRefs();
+		// Debug: visits every live image under the registry lock, so none can be released
+		// mid-visit (images are created/resized on the render thread). `fn` must not create or
+		// release images - that re-enters the lock - and should be short, since those wait on it.
+		static void ForEachLiveImage(const std::function<void(const Image2D&)>& fn);
 
 		virtual void SetData(Buffer buffer) override;
 		virtual void CopyToHostBuffer(Buffer& buffer) const override;
