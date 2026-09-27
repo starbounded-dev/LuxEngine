@@ -54,10 +54,15 @@ vec3 ClipToView(vec4 clip)
 
 // Unproject a screen-pixel coordinate into view space (clip z arbitrary; we
 // re-intersect the resulting eye ray with the slice planes below).
+// NVRHI's Vulkan backend uses a negative-height (D3D-convention) viewport, so
+// NDC y = +1 lands on pixel row 0 (gl_FragCoord.y = 0, top). Flip Y here so
+// cluster row 0 is the top row, matching the gl_FragCoord lookup in
+// Lighting.glslh::SetupClusterLights. Without the flip the grid is mirrored
+// vertically and fragments read another row's light list.
 vec3 ScreenToView(vec2 screenPx, vec2 screenSize)
 {
 	vec2 uv = screenPx / screenSize;
-	vec4 clip = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
+	vec4 clip = vec4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0);
 	return ClipToView(clip);
 }
 

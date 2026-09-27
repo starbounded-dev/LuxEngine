@@ -232,6 +232,23 @@ edit the matching GLSL block in the same change.
 
 ---
 
+## Screen-space Y convention — NVRHI flips the viewport
+
+NVRHI's Vulkan backend converts every `nvrhi::Viewport` to a **negative-height** `VkViewport`
+(`VKViewportWithDXCoords`, `Core/vendor/nvrhi/src/vulkan/vulkan-graphics.cpp`), i.e. D3D
+convention: NDC `y = +1` is pixel row 0 (`gl_FragCoord.y = 0`, top of the image). The projection
+matrices are plain GLM (no Y flip), so the rasterized image is upright.
+
+Any code that converts a **pixel/UV coordinate to NDC by hand** must therefore use
+`ndc.y = 1 - uv.y * 2`, not `uv * 2 - 1`. Getting this wrong mirrors the mapping vertically and
+does not look like a flip — it looks like data from the wrong screen region (the clustered light
+grid did exactly this: `ClusterBuild.glsl` built rows bottom-up while `SetupClusterLights` looked
+them up top-down via `gl_FragCoord`, so far geometry near the top of the screen lost its lights).
+Fullscreen passes that pass the quad's `a_Position.xy` straight through as clip position are
+unaffected.
+
+---
+
 ## Validation errors are bugs
 
 Vulkan validation output (`Platform/Vulkan/VulkanDiagnostics.{h,cpp}`) is not noise. A validation
