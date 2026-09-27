@@ -20,138 +20,24 @@
 #include <sstream>
 #include <string_view>
 
-#include <yaml-cpp/yaml.h>
-
-namespace YAML {
-
-	template<>
-	struct convert<glm::vec2>
-	{
-		static Node encode(const glm::vec2& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.SetStyle(EmitterStyle::Flow);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec2& rhs)
-		{
-			if (!node.IsSequence() || node.size() != 2)
-				return false;
-
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			return true;
-		}
-	};
-
-	template<>
-	struct convert<glm::vec3>
-	{
-		static Node encode(const glm::vec3& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.push_back(rhs.z);
-			node.SetStyle(EmitterStyle::Flow);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec3& rhs)
-		{
-			if (!node.IsSequence() || node.size() != 3)
-				return false;
-
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			rhs.z = node[2].as<float>();
-			return true;
-		}
-	};
-
-	template<>
-	struct convert<glm::vec4>
-	{
-		static Node encode(const glm::vec4& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.push_back(rhs.z);
-			node.push_back(rhs.w);
-			node.SetStyle(EmitterStyle::Flow);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec4& rhs)
-		{
-			if (!node.IsSequence() || node.size() != 4)
-				return false;
-
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			rhs.z = node[2].as<float>();
-			rhs.w = node[3].as<float>();
-			return true;
-		}
-	};
-
-	template<>
-	struct convert<Lux::UUID>
-	{
-		static Node encode(const Lux::UUID& uuid)
-		{
-			Node node;
-			node.push_back((uint64_t)uuid);
-			return node;
-		}
-
-		static bool decode(const Node& node, Lux::UUID& uuid)
-		{
-			uuid = node.as<uint64_t>();
-			return true;
-		}
-	};
-
-}
+#include "Lux/Serialization/Yaml.h"
 
 namespace Lux {
 
-	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec2& v)
-	{
-		out << YAML::Flow << YAML::BeginSeq << v.x << v.y << YAML::EndSeq;
-		return out;
-	}
-
-	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v)
-	{
-		out << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
-		return out;
-	}
-
-	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec4& v)
-	{
-		out << YAML::Flow << YAML::BeginSeq << v.x << v.y << v.z << v.w << YAML::EndSeq;
-		return out;
-	}
-
 	namespace {
 
-		static void SerializeMaterialTable(YAML::Emitter& out, const Ref<MaterialTable>& materialTable)
+		static void SerializeMaterialTable(Yaml::Writer& out, const Ref<MaterialTable>& materialTable)
 		{
-			out << YAML::Key << "MaterialTable" << YAML::Value << YAML::BeginMap;
+			out << Yaml::Key << "MaterialTable" << Yaml::Value << Yaml::BeginMap;
 			if (materialTable)
 			{
 				for (const auto& [index, handle] : materialTable->GetMaterials())
-					out << YAML::Key << index << YAML::Value << handle;
+					out << Yaml::Key << index << Yaml::Value << handle;
 			}
-			out << YAML::EndMap;
+			out << Yaml::EndMap;
 		}
 
-		static Ref<MaterialTable> DeserializeMaterialTable(const YAML::Node& materialTableNode)
+		static Ref<MaterialTable> DeserializeMaterialTable(const Yaml::Node& materialTableNode)
 		{
 			Ref<MaterialTable> materialTable = Ref<MaterialTable>::Create();
 			if (!materialTableNode || !materialTableNode.IsMap())
@@ -169,7 +55,7 @@ namespace Lux {
 			return materialTable;
 		}
 
-		static bool ContainsLegacyOrDeferredSceneData(const YAML::Node& entity)
+		static bool ContainsLegacyOrDeferredSceneData(const Yaml::Node& entity)
 		{
 			if (entity["RelationshipComponent"])
 				return true;
@@ -206,14 +92,14 @@ namespace Lux {
 			return entity["AudioData"] || entity["AnimationComponent"];
 		}
 
-		static std::string GetEntityNameForLog(const YAML::Node& entity, size_t entityIndex)
+		static std::string GetEntityNameForLog(const Yaml::Node& entity, size_t entityIndex)
 		{
 			try
 			{
 				if (auto tag = entity["TagComponent"])
 					return tag["Tag"].as<std::string>("Entity");
 			}
-			catch (const YAML::Exception&)
+			catch (const Yaml::Exception&)
 			{
 			}
 
@@ -269,7 +155,7 @@ namespace Lux {
 			return handle;
 		}
 
-		static AssetHandle GetDeserializedStaticMeshHandle(const YAML::Node& staticMesh, Entity entity)
+		static AssetHandle GetDeserializedStaticMeshHandle(const Yaml::Node& staticMesh, Entity entity)
 		{
 			AssetHandle handle = staticMesh["AssetID"].as<uint64_t>(0);
 			if (!handle || !Project::GetAssetManager() || AssetManager::IsAssetHandleValid(handle))
@@ -282,99 +168,99 @@ namespace Lux {
 			return handle;
 		}
 
-		static void SerializeEntity(YAML::Emitter& out, Entity entity)
+		static void SerializeEntity(Yaml::Writer& out, Entity entity)
 		{
 			LUX_CORE_ASSERT(entity.HasComponent<IDComponent>());
 
-			out << YAML::BeginMap;
-			out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID();
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Entity" << Yaml::Value << entity.GetUUID();
 
 			if (entity.HasComponent<TagComponent>())
 			{
-				out << YAML::Key << "TagComponent";
-				out << YAML::BeginMap;
+				out << Yaml::Key << "TagComponent";
+				out << Yaml::BeginMap;
 				const auto& tagComponent = entity.GetComponent<TagComponent>();
-				out << YAML::Key << "Tag" << YAML::Value << tagComponent.Tag;
+				out << Yaml::Key << "Tag" << Yaml::Value << tagComponent.Tag;
 				// Only emitted when set, so existing scenes stay byte-identical.
 				if (tagComponent.Locked)
-					out << YAML::Key << "Locked" << YAML::Value << tagComponent.Locked;
+					out << Yaml::Key << "Locked" << Yaml::Value << tagComponent.Locked;
 				if (tagComponent.LabelColor != 0)
-					out << YAML::Key << "LabelColor" << YAML::Value << tagComponent.LabelColor;
-				out << YAML::EndMap;
+					out << Yaml::Key << "LabelColor" << Yaml::Value << tagComponent.LabelColor;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<FolderComponent>())
-				out << YAML::Key << "Folder" << YAML::Value << true;
+				out << Yaml::Key << "Folder" << Yaml::Value << true;
 
 			if (entity.HasComponent<RelationshipComponent>())
 			{
 				const auto& relationship = entity.GetComponent<RelationshipComponent>();
-				out << YAML::Key << "Parent" << YAML::Value << relationship.ParentHandle;
-				out << YAML::Key << "Children" << YAML::Value << YAML::BeginSeq;
+				out << Yaml::Key << "Parent" << Yaml::Value << relationship.ParentHandle;
+				out << Yaml::Key << "Children" << Yaml::Value << Yaml::BeginSeq;
 				for (UUID child : relationship.Children)
 				{
-					out << YAML::BeginMap;
-					out << YAML::Key << "Handle" << YAML::Value << child;
-					out << YAML::EndMap;
+					out << Yaml::BeginMap;
+					out << Yaml::Key << "Handle" << Yaml::Value << child;
+					out << Yaml::EndMap;
 				}
-				out << YAML::EndSeq;
+				out << Yaml::EndSeq;
 			}
 
 			if (entity.HasComponent<PrefabComponent>())
 			{
 				const auto& prefab = entity.GetComponent<PrefabComponent>();
-				out << YAML::Key << "PrefabComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Prefab" << YAML::Value << prefab.PrefabID;
-				out << YAML::Key << "Entity" << YAML::Value << prefab.EntityID;
-				out << YAML::EndMap;
+				out << Yaml::Key << "PrefabComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Prefab" << Yaml::Value << prefab.PrefabID;
+				out << Yaml::Key << "Entity" << Yaml::Value << prefab.EntityID;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<TransformComponent>())
 			{
 				const auto& transform = entity.GetComponent<TransformComponent>();
-				out << YAML::Key << "TransformComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Position" << YAML::Value << transform.Translation;
-				out << YAML::Key << "Rotation" << YAML::Value << transform.GetRotationEuler();
-				out << YAML::Key << "Scale" << YAML::Value << transform.Scale;
-				out << YAML::EndMap;
+				out << Yaml::Key << "TransformComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Position" << Yaml::Value << transform.Translation;
+				out << Yaml::Key << "Rotation" << Yaml::Value << transform.GetRotationEuler();
+				out << Yaml::Key << "Scale" << Yaml::Value << transform.Scale;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<ScriptComponent>())
 			{
 				const auto& script = entity.GetComponent<ScriptComponent>();
-				out << YAML::Key << "ScriptComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "ClassName" << YAML::Value << script.ClassName;
-				out << YAML::Key << "ScriptID" << YAML::Value << (uint64_t)script.ScriptID;
+				out << Yaml::Key << "ScriptComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "ClassName" << Yaml::Value << script.ClassName;
+				out << Yaml::Key << "ScriptID" << Yaml::Value << (uint64_t)script.ScriptID;
 
 				// Serialize the per-entity FieldStorage buffers (owned by the Scene).
 				const ScriptStorage& storage = entity.GetScene()->GetScriptStorage();
 				auto storageIt = storage.EntityStorage.find(entity.GetUUID());
 				if (storageIt != storage.EntityStorage.end() && !storageIt->second.Fields.empty())
 				{
-					out << YAML::Key << "StoredFields" << YAML::Value << YAML::BeginSeq;
+					out << Yaml::Key << "StoredFields" << Yaml::Value << Yaml::BeginSeq;
 					for (const auto& [fieldID, fieldStorage] : storageIt->second.Fields)
 					{
-						out << YAML::BeginMap;
-						out << YAML::Key << "ID" << YAML::Value << fieldID;
-						out << YAML::Key << "Name" << YAML::Value << std::string(fieldStorage.GetName());
-						out << YAML::Key << "Type" << YAML::Value << DataTypeToString(fieldStorage.GetType());
+						out << Yaml::BeginMap;
+						out << Yaml::Key << "ID" << Yaml::Value << fieldID;
+						out << Yaml::Key << "Name" << Yaml::Value << std::string(fieldStorage.GetName());
+						out << Yaml::Key << "Type" << Yaml::Value << DataTypeToString(fieldStorage.GetType());
 
 						if (fieldStorage.IsArray())
 						{
 							// Arrays serialize as a raw byte sequence to stay lossless.
-							out << YAML::Key << "Array" << YAML::Value << true;
-							out << YAML::Key << "Data" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+							out << Yaml::Key << "Array" << Yaml::Value << true;
+							out << Yaml::Key << "Data" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq;
 							const Buffer& buf = fieldStorage.ValueBuffer();
 							for (uint64_t i = 0; i < buf.Size; i++)
 								out << (uint32_t)((uint8_t*)buf.Data)[i];
-							out << YAML::EndSeq;
+							out << Yaml::EndSeq;
 						}
 						else
 						{
-							out << YAML::Key << "Data" << YAML::Value;
+							out << Yaml::Key << "Data" << Yaml::Value;
 							switch (fieldStorage.GetType())
 							{
 								case DataType::SByte:      out << (int32_t)fieldStorage.GetValue<int8_t>(); break;
@@ -394,475 +280,468 @@ namespace Lux {
 								default:                   out << (uint64_t)fieldStorage.GetValue<uint64_t>(); break; // Entity + asset-refs (UUID)
 							}
 						}
-						out << YAML::EndMap;
+						out << Yaml::EndMap;
 					}
-					out << YAML::EndSeq;
+					out << Yaml::EndSeq;
 				}
 
-				out << YAML::EndMap;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<MeshComponent>())
 			{
-				out << YAML::Key << "MeshComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "AssetID" << YAML::Value << entity.GetComponent<MeshComponent>().Mesh;
-				out << YAML::EndMap;
+				out << Yaml::Key << "MeshComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "AssetID" << Yaml::Value << entity.GetComponent<MeshComponent>().Mesh;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<MeshTagComponent>())
 			{
-				out << YAML::Key << "MeshTagComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "EntityID" << YAML::Value << entity.GetComponent<MeshTagComponent>().MeshEntity;
-				out << YAML::EndMap;
+				out << Yaml::Key << "MeshTagComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "EntityID" << Yaml::Value << entity.GetComponent<MeshTagComponent>().MeshEntity;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<SubmeshComponent>())
 			{
 				const auto& submesh = entity.GetComponent<SubmeshComponent>();
-				out << YAML::Key << "SubmeshComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "AssetID" << YAML::Value << submesh.Mesh;
-				out << YAML::Key << "SubmeshIndex" << YAML::Value << submesh.SubmeshIndex;
+				out << Yaml::Key << "SubmeshComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "AssetID" << Yaml::Value << submesh.Mesh;
+				out << Yaml::Key << "SubmeshIndex" << Yaml::Value << submesh.SubmeshIndex;
 				SerializeMaterialTable(out, submesh.MaterialTable);
-				out << YAML::Key << "Visible" << YAML::Value << submesh.Visible;
-				out << YAML::EndMap;
+				out << Yaml::Key << "Visible" << Yaml::Value << submesh.Visible;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<StaticMeshComponent>())
 			{
 				const auto& staticMesh = entity.GetComponent<StaticMeshComponent>();
-				out << YAML::Key << "StaticMeshComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "AssetID" << YAML::Value << GetSerializableStaticMeshHandle(staticMesh.StaticMesh);
+				out << Yaml::Key << "StaticMeshComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "AssetID" << Yaml::Value << GetSerializableStaticMeshHandle(staticMesh.StaticMesh);
 				SerializeMaterialTable(out, staticMesh.MaterialTable);
-				out << YAML::Key << "Visible" << YAML::Value << staticMesh.Visible;
-				out << YAML::EndMap;
+				out << Yaml::Key << "Visible" << Yaml::Value << staticMesh.Visible;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<CameraComponent>())
 			{
 				const auto& cameraComponent = entity.GetComponent<CameraComponent>();
 				const SceneCamera& camera = cameraComponent.Camera;
-				out << YAML::Key << "CameraComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Camera" << YAML::Value;
-				out << YAML::BeginMap;
-				out << YAML::Key << "ProjectionType" << YAML::Value << (int)camera.GetProjectionType();
-				out << YAML::Key << "PerspectiveFOV" << YAML::Value << camera.GetDegPerspectiveVerticalFOV();
-				out << YAML::Key << "PerspectiveNear" << YAML::Value << camera.GetPerspectiveNearClip();
-				out << YAML::Key << "PerspectiveFar" << YAML::Value << camera.GetPerspectiveFarClip();
-				out << YAML::Key << "OrthographicSize" << YAML::Value << camera.GetOrthographicSize();
-				out << YAML::Key << "OrthographicNear" << YAML::Value << camera.GetOrthographicNearClip();
-				out << YAML::Key << "OrthographicFar" << YAML::Value << camera.GetOrthographicFarClip();
-				out << YAML::EndMap;
-				out << YAML::Key << "Primary" << YAML::Value << cameraComponent.Primary;
-				out << YAML::Key << "FixedAspectRatio" << YAML::Value << cameraComponent.FixedAspectRatio;
-				out << YAML::EndMap;
+				out << Yaml::Key << "CameraComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Camera" << Yaml::Value;
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "ProjectionType" << Yaml::Value << (int)camera.GetProjectionType();
+				out << Yaml::Key << "PerspectiveFOV" << Yaml::Value << camera.GetDegPerspectiveVerticalFOV();
+				out << Yaml::Key << "PerspectiveNear" << Yaml::Value << camera.GetPerspectiveNearClip();
+				out << Yaml::Key << "PerspectiveFar" << Yaml::Value << camera.GetPerspectiveFarClip();
+				out << Yaml::Key << "OrthographicSize" << Yaml::Value << camera.GetOrthographicSize();
+				out << Yaml::Key << "OrthographicNear" << Yaml::Value << camera.GetOrthographicNearClip();
+				out << Yaml::Key << "OrthographicFar" << Yaml::Value << camera.GetOrthographicFarClip();
+				out << Yaml::EndMap;
+				out << Yaml::Key << "Primary" << Yaml::Value << cameraComponent.Primary;
+				out << Yaml::Key << "FixedAspectRatio" << Yaml::Value << cameraComponent.FixedAspectRatio;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<DirectionalLightComponent>())
 			{
 				const auto& light = entity.GetComponent<DirectionalLightComponent>();
-				out << YAML::Key << "DirectionalLightComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
-				out << YAML::Key << "Radiance" << YAML::Value << light.Radiance;
-				out << YAML::Key << "Unit" << YAML::Value << static_cast<uint32_t>(light.Unit);
-				out << YAML::Key << "ColorTemperature" << YAML::Value << light.ColorTemperature;
-				out << YAML::Key << "UseColorTemperature" << YAML::Value << light.UseColorTemperature;
-				out << YAML::Key << "CastShadows" << YAML::Value << light.CastShadows;
-				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
-				out << YAML::Key << "LightSize" << YAML::Value << light.LightSize;
-				out << YAML::Key << "ShadowAmount" << YAML::Value << light.ShadowAmount;
-				out << YAML::Key << "ShadowDistance" << YAML::Value << light.ShadowDistance;
-				out << YAML::Key << "ShadowResolutionTier" << YAML::Value << light.ShadowResolutionTier;
-				out << YAML::EndMap;
+				out << Yaml::Key << "DirectionalLightComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Intensity" << Yaml::Value << light.Intensity;
+				out << Yaml::Key << "Radiance" << Yaml::Value << light.Radiance;
+				out << Yaml::Key << "Unit" << Yaml::Value << static_cast<uint32_t>(light.Unit);
+				out << Yaml::Key << "ColorTemperature" << Yaml::Value << light.ColorTemperature;
+				out << Yaml::Key << "UseColorTemperature" << Yaml::Value << light.UseColorTemperature;
+				out << Yaml::Key << "CastShadows" << Yaml::Value << light.CastShadows;
+				out << Yaml::Key << "SoftShadows" << Yaml::Value << light.SoftShadows;
+				out << Yaml::Key << "LightSize" << Yaml::Value << light.LightSize;
+				out << Yaml::Key << "ShadowAmount" << Yaml::Value << light.ShadowAmount;
+				out << Yaml::Key << "ShadowDistance" << Yaml::Value << light.ShadowDistance;
+				out << Yaml::Key << "ShadowResolutionTier" << Yaml::Value << light.ShadowResolutionTier;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<PointLightComponent>())
 			{
 				const auto& light = entity.GetComponent<PointLightComponent>();
-				out << YAML::Key << "PointLightComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Radiance" << YAML::Value << light.Radiance;
-				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
-				out << YAML::Key << "Unit" << YAML::Value << static_cast<uint32_t>(light.Unit);
-				out << YAML::Key << "ColorTemperature" << YAML::Value << light.ColorTemperature;
-				out << YAML::Key << "UseColorTemperature" << YAML::Value << light.UseColorTemperature;
-				out << YAML::Key << "CastShadows" << YAML::Value << light.CastsShadows;
-				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
-				out << YAML::Key << "MinRadius" << YAML::Value << light.MinRadius;
-				out << YAML::Key << "Radius" << YAML::Value << light.Radius;
-				out << YAML::Key << "LightSize" << YAML::Value << light.LightSize;
-				out << YAML::Key << "Falloff" << YAML::Value << light.Falloff;
-				out << YAML::EndMap;
+				out << Yaml::Key << "PointLightComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Radiance" << Yaml::Value << light.Radiance;
+				out << Yaml::Key << "Intensity" << Yaml::Value << light.Intensity;
+				out << Yaml::Key << "Unit" << Yaml::Value << static_cast<uint32_t>(light.Unit);
+				out << Yaml::Key << "ColorTemperature" << Yaml::Value << light.ColorTemperature;
+				out << Yaml::Key << "UseColorTemperature" << Yaml::Value << light.UseColorTemperature;
+				out << Yaml::Key << "CastShadows" << Yaml::Value << light.CastsShadows;
+				out << Yaml::Key << "SoftShadows" << Yaml::Value << light.SoftShadows;
+				out << Yaml::Key << "MinRadius" << Yaml::Value << light.MinRadius;
+				out << Yaml::Key << "Radius" << Yaml::Value << light.Radius;
+				out << Yaml::Key << "LightSize" << Yaml::Value << light.LightSize;
+				out << Yaml::Key << "Falloff" << Yaml::Value << light.Falloff;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<SpotLightComponent>())
 			{
 				const auto& light = entity.GetComponent<SpotLightComponent>();
-				out << YAML::Key << "SpotLightComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Radiance" << YAML::Value << light.Radiance;
-				out << YAML::Key << "Angle" << YAML::Value << light.Angle;
-				out << YAML::Key << "AngleAttenuation" << YAML::Value << light.AngleAttenuation;
-				out << YAML::Key << "CastsShadows" << YAML::Value << light.CastsShadows;
-				out << YAML::Key << "SoftShadows" << YAML::Value << light.SoftShadows;
-				out << YAML::Key << "Falloff" << YAML::Value << light.Falloff;
-				out << YAML::Key << "Intensity" << YAML::Value << light.Intensity;
-				out << YAML::Key << "Unit" << YAML::Value << static_cast<uint32_t>(light.Unit);
-				out << YAML::Key << "ColorTemperature" << YAML::Value << light.ColorTemperature;
-				out << YAML::Key << "UseColorTemperature" << YAML::Value << light.UseColorTemperature;
-				out << YAML::Key << "Range" << YAML::Value << light.Range;
-				out << YAML::Key << "ShadowDistance" << YAML::Value << light.ShadowDistance;
-				out << YAML::Key << "ShadowResolutionTier" << YAML::Value << light.ShadowResolutionTier;
-				out << YAML::EndMap;
+				out << Yaml::Key << "SpotLightComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Radiance" << Yaml::Value << light.Radiance;
+				out << Yaml::Key << "Angle" << Yaml::Value << light.Angle;
+				out << Yaml::Key << "AngleAttenuation" << Yaml::Value << light.AngleAttenuation;
+				out << Yaml::Key << "CastsShadows" << Yaml::Value << light.CastsShadows;
+				out << Yaml::Key << "SoftShadows" << Yaml::Value << light.SoftShadows;
+				out << Yaml::Key << "Falloff" << Yaml::Value << light.Falloff;
+				out << Yaml::Key << "Intensity" << Yaml::Value << light.Intensity;
+				out << Yaml::Key << "Unit" << Yaml::Value << static_cast<uint32_t>(light.Unit);
+				out << Yaml::Key << "ColorTemperature" << Yaml::Value << light.ColorTemperature;
+				out << Yaml::Key << "UseColorTemperature" << Yaml::Value << light.UseColorTemperature;
+				out << Yaml::Key << "Range" << Yaml::Value << light.Range;
+				out << Yaml::Key << "ShadowDistance" << Yaml::Value << light.ShadowDistance;
+				out << Yaml::Key << "ShadowResolutionTier" << Yaml::Value << light.ShadowResolutionTier;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<SkyLightComponent>())
 			{
 				const auto& skyLight = entity.GetComponent<SkyLightComponent>();
-				out << YAML::Key << "SkyLightComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "EnvironmentMap" << YAML::Value << (AssetManager::GetMemoryAsset(skyLight.SceneEnvironment) ? (AssetHandle)0 : skyLight.SceneEnvironment);
-				out << YAML::Key << "Intensity" << YAML::Value << skyLight.Intensity;
-				out << YAML::Key << "Lod" << YAML::Value << skyLight.Lod;
-				out << YAML::Key << "DynamicSky" << YAML::Value << skyLight.DynamicSky;
+				out << Yaml::Key << "SkyLightComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "EnvironmentMap" << Yaml::Value << (AssetManager::GetMemoryAsset(skyLight.SceneEnvironment) ? (AssetHandle)0 : skyLight.SceneEnvironment);
+				out << Yaml::Key << "Intensity" << Yaml::Value << skyLight.Intensity;
+				out << Yaml::Key << "Lod" << Yaml::Value << skyLight.Lod;
+				out << Yaml::Key << "DynamicSky" << Yaml::Value << skyLight.DynamicSky;
 				if (skyLight.DynamicSky)
-					out << YAML::Key << "TurbidityAzimuthInclination" << YAML::Value << skyLight.TurbidityAzimuthInclination;
-				out << YAML::EndMap;
+					out << Yaml::Key << "TurbidityAzimuthInclination" << Yaml::Value << skyLight.TurbidityAzimuthInclination;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<SpriteRendererComponent>())
 			{
 				const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
-				out << YAML::Key << "SpriteRendererComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Color" << YAML::Value << sprite.Color;
-				out << YAML::Key << "Texture" << YAML::Value << sprite.Texture;
-				out << YAML::Key << "TilingFactor" << YAML::Value << sprite.TilingFactor;
-				out << YAML::Key << "UVStart" << YAML::Value << sprite.UVStart;
-				out << YAML::Key << "UVEnd" << YAML::Value << sprite.UVEnd;
-				out << YAML::Key << "ScreenSpace" << YAML::Value << sprite.ScreenSpace;
-				out << YAML::EndMap;
+				out << Yaml::Key << "SpriteRendererComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Color" << Yaml::Value << sprite.Color;
+				out << Yaml::Key << "Texture" << Yaml::Value << sprite.Texture;
+				out << Yaml::Key << "TilingFactor" << Yaml::Value << sprite.TilingFactor;
+				out << Yaml::Key << "UVStart" << Yaml::Value << sprite.UVStart;
+				out << Yaml::Key << "UVEnd" << Yaml::Value << sprite.UVEnd;
+				out << Yaml::Key << "ScreenSpace" << Yaml::Value << sprite.ScreenSpace;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<CircleRendererComponent>())
 			{
 				const auto& circle = entity.GetComponent<CircleRendererComponent>();
-				out << YAML::Key << "CircleRendererComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Color" << YAML::Value << circle.Color;
-				out << YAML::Key << "Thickness" << YAML::Value << circle.Thickness;
-				out << YAML::Key << "Fade" << YAML::Value << circle.Fade;
-				out << YAML::EndMap;
+				out << Yaml::Key << "CircleRendererComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Color" << Yaml::Value << circle.Color;
+				out << Yaml::Key << "Thickness" << Yaml::Value << circle.Thickness;
+				out << Yaml::Key << "Fade" << Yaml::Value << circle.Fade;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<TextComponent>())
 			{
 				const auto& text = entity.GetComponent<TextComponent>();
-				out << YAML::Key << "TextComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "TextString" << YAML::Value << text.TextString;
-				out << YAML::Key << "FontHandle" << YAML::Value << text.FontHandle;
-				out << YAML::Key << "Color" << YAML::Value << text.Color;
-				out << YAML::Key << "LineSpacing" << YAML::Value << text.LineSpacing;
-				out << YAML::Key << "Kerning" << YAML::Value << text.Kerning;
-				out << YAML::Key << "MaxWidth" << YAML::Value << text.MaxWidth;
-				out << YAML::Key << "ScreenSpace" << YAML::Value << text.ScreenSpace;
-				out << YAML::Key << "DropShadow" << YAML::Value << text.DropShadow;
-				out << YAML::Key << "ShadowDistance" << YAML::Value << text.ShadowDistance;
-				out << YAML::Key << "ShadowColor" << YAML::Value << text.ShadowColor;
-				out << YAML::EndMap;
+				out << Yaml::Key << "TextComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "TextString" << Yaml::Value << text.TextString;
+				out << Yaml::Key << "FontHandle" << Yaml::Value << text.FontHandle;
+				out << Yaml::Key << "Color" << Yaml::Value << text.Color;
+				out << Yaml::Key << "LineSpacing" << Yaml::Value << text.LineSpacing;
+				out << Yaml::Key << "Kerning" << Yaml::Value << text.Kerning;
+				out << Yaml::Key << "MaxWidth" << Yaml::Value << text.MaxWidth;
+				out << Yaml::Key << "ScreenSpace" << Yaml::Value << text.ScreenSpace;
+				out << Yaml::Key << "DropShadow" << Yaml::Value << text.DropShadow;
+				out << Yaml::Key << "ShadowDistance" << Yaml::Value << text.ShadowDistance;
+				out << Yaml::Key << "ShadowColor" << Yaml::Value << text.ShadowColor;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<RigidBody2DComponent>())
 			{
 				const auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
-				out << YAML::Key << "RigidBody2DComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "BodyType" << YAML::Value << (int)rb2d.BodyType;
-				out << YAML::Key << "FixedRotation" << YAML::Value << rb2d.FixedRotation;
-				out << YAML::Key << "Mass" << YAML::Value << rb2d.Mass;
-				out << YAML::Key << "LinearDrag" << YAML::Value << rb2d.LinearDrag;
-				out << YAML::Key << "AngularDrag" << YAML::Value << rb2d.AngularDrag;
-				out << YAML::Key << "GravityScale" << YAML::Value << rb2d.GravityScale;
-				out << YAML::Key << "IsBullet" << YAML::Value << rb2d.IsBullet;
-				out << YAML::EndMap;
+				out << Yaml::Key << "RigidBody2DComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "BodyType" << Yaml::Value << (int)rb2d.BodyType;
+				out << Yaml::Key << "FixedRotation" << Yaml::Value << rb2d.FixedRotation;
+				out << Yaml::Key << "Mass" << Yaml::Value << rb2d.Mass;
+				out << Yaml::Key << "LinearDrag" << Yaml::Value << rb2d.LinearDrag;
+				out << Yaml::Key << "AngularDrag" << Yaml::Value << rb2d.AngularDrag;
+				out << Yaml::Key << "GravityScale" << Yaml::Value << rb2d.GravityScale;
+				out << Yaml::Key << "IsBullet" << Yaml::Value << rb2d.IsBullet;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<BoxCollider2DComponent>())
 			{
 				const auto& collider = entity.GetComponent<BoxCollider2DComponent>();
-				out << YAML::Key << "BoxCollider2DComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
-				out << YAML::Key << "Size" << YAML::Value << collider.Size;
-				out << YAML::Key << "Density" << YAML::Value << collider.Density;
-				out << YAML::Key << "Friction" << YAML::Value << collider.Friction;
-				out << YAML::EndMap;
+				out << Yaml::Key << "BoxCollider2DComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Size" << Yaml::Value << collider.Size;
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<CircleCollider2DComponent>())
 			{
 				const auto& collider = entity.GetComponent<CircleCollider2DComponent>();
-				out << YAML::Key << "CircleCollider2DComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
-				out << YAML::Key << "Radius" << YAML::Value << collider.Radius;
-				out << YAML::Key << "Density" << YAML::Value << collider.Density;
-				out << YAML::Key << "Friction" << YAML::Value << collider.Friction;
-				out << YAML::EndMap;
+				out << Yaml::Key << "CircleCollider2DComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Radius" << Yaml::Value << collider.Radius;
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<RigidBodyComponent>())
 			{
 				const auto& rb = entity.GetComponent<RigidBodyComponent>();
-				out << YAML::Key << "RigidBodyComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "BodyType" << YAML::Value << (int)rb.BodyType;
-				out << YAML::Key << "LayerID" << YAML::Value << rb.LayerID;
-				out << YAML::Key << "EnableDynamicTypeChange" << YAML::Value << rb.EnableDynamicTypeChange;
-				out << YAML::Key << "Mass" << YAML::Value << rb.Mass;
-				out << YAML::Key << "LinearDrag" << YAML::Value << rb.LinearDrag;
-				out << YAML::Key << "AngularDrag" << YAML::Value << rb.AngularDrag;
-				out << YAML::Key << "DisableGravity" << YAML::Value << rb.DisableGravity;
-				out << YAML::Key << "IsTrigger" << YAML::Value << rb.IsTrigger;
-				out << YAML::Key << "CollisionDetection" << YAML::Value << (int)rb.CollisionDetection;
-				out << YAML::Key << "InitialLinearVelocity" << YAML::Value << rb.InitialLinearVelocity;
-				out << YAML::Key << "InitialAngularVelocity" << YAML::Value << rb.InitialAngularVelocity;
-				out << YAML::Key << "MaxLinearVelocity" << YAML::Value << rb.MaxLinearVelocity;
-				out << YAML::Key << "MaxAngularVelocity" << YAML::Value << rb.MaxAngularVelocity;
-				out << YAML::Key << "LockedAxes" << YAML::Value << (uint32_t)rb.LockedAxes;
-				out << YAML::EndMap;
+				out << Yaml::Key << "RigidBodyComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "BodyType" << Yaml::Value << (int)rb.BodyType;
+				out << Yaml::Key << "LayerID" << Yaml::Value << rb.LayerID;
+				out << Yaml::Key << "EnableDynamicTypeChange" << Yaml::Value << rb.EnableDynamicTypeChange;
+				out << Yaml::Key << "Mass" << Yaml::Value << rb.Mass;
+				out << Yaml::Key << "LinearDrag" << Yaml::Value << rb.LinearDrag;
+				out << Yaml::Key << "AngularDrag" << Yaml::Value << rb.AngularDrag;
+				out << Yaml::Key << "DisableGravity" << Yaml::Value << rb.DisableGravity;
+				out << Yaml::Key << "IsTrigger" << Yaml::Value << rb.IsTrigger;
+				out << Yaml::Key << "CollisionDetection" << Yaml::Value << (int)rb.CollisionDetection;
+				out << Yaml::Key << "InitialLinearVelocity" << Yaml::Value << rb.InitialLinearVelocity;
+				out << Yaml::Key << "InitialAngularVelocity" << Yaml::Value << rb.InitialAngularVelocity;
+				out << Yaml::Key << "MaxLinearVelocity" << Yaml::Value << rb.MaxLinearVelocity;
+				out << Yaml::Key << "MaxAngularVelocity" << Yaml::Value << rb.MaxAngularVelocity;
+				out << Yaml::Key << "LockedAxes" << Yaml::Value << (uint32_t)rb.LockedAxes;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<CharacterControllerComponent>())
 			{
 				const auto& controller = entity.GetComponent<CharacterControllerComponent>();
-				out << YAML::Key << "CharacterControllerComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "SlopeLimitDeg" << YAML::Value << controller.SlopeLimitDeg;
-				out << YAML::Key << "StepOffset" << YAML::Value << controller.StepOffset;
-				out << YAML::Key << "LayerID" << YAML::Value << controller.LayerID;
-				out << YAML::Key << "DisableGravity" << YAML::Value << controller.DisableGravity;
-				out << YAML::Key << "ControlMovementInAir" << YAML::Value << controller.ControlMovementInAir;
-				out << YAML::Key << "ControlRotationInAir" << YAML::Value << controller.ControlRotationInAir;
-				out << YAML::EndMap;
+				out << Yaml::Key << "CharacterControllerComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "SlopeLimitDeg" << Yaml::Value << controller.SlopeLimitDeg;
+				out << Yaml::Key << "StepOffset" << Yaml::Value << controller.StepOffset;
+				out << Yaml::Key << "LayerID" << Yaml::Value << controller.LayerID;
+				out << Yaml::Key << "DisableGravity" << Yaml::Value << controller.DisableGravity;
+				out << Yaml::Key << "ControlMovementInAir" << Yaml::Value << controller.ControlMovementInAir;
+				out << Yaml::Key << "ControlRotationInAir" << Yaml::Value << controller.ControlRotationInAir;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<CompoundColliderComponent>())
 			{
 				const auto& compoundCollider = entity.GetComponent<CompoundColliderComponent>();
-				out << YAML::Key << "CompoundColliderComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "IncludeStaticChildColliders" << YAML::Value << compoundCollider.IncludeStaticChildColliders;
-				out << YAML::Key << "IsImmutable" << YAML::Value << compoundCollider.IsImmutable;
-				out << YAML::Key << "CompoundedColliderEntities" << YAML::Value << YAML::BeginSeq;
+				out << Yaml::Key << "CompoundColliderComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "IncludeStaticChildColliders" << Yaml::Value << compoundCollider.IncludeStaticChildColliders;
+				out << Yaml::Key << "IsImmutable" << Yaml::Value << compoundCollider.IsImmutable;
+				out << Yaml::Key << "CompoundedColliderEntities" << Yaml::Value << Yaml::BeginSeq;
 				for (UUID entityID : compoundCollider.CompoundedColliderEntities)
 					out << (uint64_t)entityID;
-				out << YAML::EndSeq;
-				out << YAML::EndMap;
+				out << Yaml::EndSeq;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<BoxColliderComponent>())
 			{
 				const auto& collider = entity.GetComponent<BoxColliderComponent>();
-				out << YAML::Key << "BoxColliderComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "HalfSize" << YAML::Value << collider.HalfSize;
-				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
-				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
-				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
-				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
-				out << YAML::EndMap;
+				out << Yaml::Key << "BoxColliderComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "HalfSize" << Yaml::Value << collider.HalfSize;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Material.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Material.Friction;
+				out << Yaml::Key << "Restitution" << Yaml::Value << collider.Material.Restitution;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<SphereColliderComponent>())
 			{
 				const auto& collider = entity.GetComponent<SphereColliderComponent>();
-				out << YAML::Key << "SphereColliderComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Radius" << YAML::Value << collider.Radius;
-				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
-				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
-				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
-				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
-				out << YAML::EndMap;
+				out << Yaml::Key << "SphereColliderComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Radius" << Yaml::Value << collider.Radius;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Material.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Material.Friction;
+				out << Yaml::Key << "Restitution" << Yaml::Value << collider.Material.Restitution;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<CapsuleColliderComponent>())
 			{
 				const auto& collider = entity.GetComponent<CapsuleColliderComponent>();
-				out << YAML::Key << "CapsuleColliderComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Radius" << YAML::Value << collider.Radius;
-				out << YAML::Key << "HalfHeight" << YAML::Value << collider.HalfHeight;
-				out << YAML::Key << "Offset" << YAML::Value << collider.Offset;
-				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
-				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
-				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
-				out << YAML::EndMap;
+				out << Yaml::Key << "CapsuleColliderComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Radius" << Yaml::Value << collider.Radius;
+				out << Yaml::Key << "HalfHeight" << Yaml::Value << collider.HalfHeight;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Material.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Material.Friction;
+				out << Yaml::Key << "Restitution" << Yaml::Value << collider.Material.Restitution;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<MeshColliderComponent>())
 			{
 				const auto& collider = entity.GetComponent<MeshColliderComponent>();
-				out << YAML::Key << "MeshColliderComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "ColliderAsset" << YAML::Value << collider.ColliderAsset;
-				out << YAML::Key << "SubmeshIndex" << YAML::Value << collider.SubmeshIndex;
-				out << YAML::Key << "UseSharedShape" << YAML::Value << collider.UseSharedShape;
-				out << YAML::Key << "Density" << YAML::Value << collider.Material.Density;
-				out << YAML::Key << "Friction" << YAML::Value << collider.Material.Friction;
-				out << YAML::Key << "Restitution" << YAML::Value << collider.Material.Restitution;
-				out << YAML::Key << "AcousticMaterial" << YAML::Value << AcousticMaterialName(collider.Acoustic);
-				out << YAML::Key << "AcousticFromMaterial" << YAML::Value << collider.AcousticFromMaterial;
-				out << YAML::Key << "AcousticMotion" << YAML::Value << static_cast<uint32_t>(collider.AcousticMotion);
-				out << YAML::Key << "CollisionComplexity" << YAML::Value << (uint8_t)collider.CollisionComplexity;
-				out << YAML::EndMap;
+				out << Yaml::Key << "MeshColliderComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "ColliderAsset" << Yaml::Value << collider.ColliderAsset;
+				out << Yaml::Key << "SubmeshIndex" << Yaml::Value << collider.SubmeshIndex;
+				out << Yaml::Key << "UseSharedShape" << Yaml::Value << collider.UseSharedShape;
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Material.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Material.Friction;
+				out << Yaml::Key << "Restitution" << Yaml::Value << collider.Material.Restitution;
+				out << Yaml::Key << "AcousticMaterial" << Yaml::Value << AcousticMaterialName(collider.Acoustic);
+				out << Yaml::Key << "AcousticFromMaterial" << Yaml::Value << collider.AcousticFromMaterial;
+				out << Yaml::Key << "AcousticMotion" << Yaml::Value << static_cast<uint32_t>(collider.AcousticMotion);
+				out << Yaml::Key << "CollisionComplexity" << Yaml::Value << (uint8_t)collider.CollisionComplexity;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<MusicDirectorComponent>())
 			{
 				const auto& music = entity.GetComponent<MusicDirectorComponent>();
-				out << YAML::Key << "MusicDirectorComponent" << YAML::BeginMap;
-				out << YAML::Key << "Event" << YAML::BeginMap;
-				out << YAML::Key << "Guid" << YAML::Value << music.Event.Guid;
-				out << YAML::Key << "Path" << YAML::Value << music.Event.Path;
-				out << YAML::Key << "BankName" << YAML::Value << music.Event.BankName;
-				out << YAML::EndMap;
-				out << YAML::Key << "PlayOnAwake" << YAML::Value << music.PlayOnAwake;
-				out << YAML::Key << "InitialState" << YAML::Value << music.InitialState;
-				out << YAML::Key << "Intensity" << YAML::Value << music.Intensity;
-				out << YAML::EndMap;
+				out << Yaml::Key << "MusicDirectorComponent" << Yaml::BeginMap;
+				out << Yaml::Key << "Event" << Yaml::BeginMap;
+				out << Yaml::Key << "Guid" << Yaml::Value << music.Event.Guid;
+				out << Yaml::Key << "Path" << Yaml::Value << music.Event.Path;
+				out << Yaml::Key << "BankName" << Yaml::Value << music.Event.BankName;
+				out << Yaml::EndMap;
+				out << Yaml::Key << "PlayOnAwake" << Yaml::Value << music.PlayOnAwake;
+				out << Yaml::Key << "InitialState" << Yaml::Value << music.InitialState;
+				out << Yaml::Key << "Intensity" << Yaml::Value << music.Intensity;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<AudioZoneComponent>())
 			{
 				const auto& zone = entity.GetComponent<AudioZoneComponent>();
-				out << YAML::Key << "AudioZoneComponent" << YAML::BeginMap;
-				out << YAML::Key << "Shape" << YAML::Value << static_cast<uint32_t>(zone.Shape);
-				out << YAML::Key << "Enabled" << YAML::Value << zone.Enabled;
-				out << YAML::Key << "Offset" << YAML::Value << zone.Offset;
-				out << YAML::Key << "HalfExtents" << YAML::Value << zone.HalfExtents;
-				out << YAML::Key << "Radius" << YAML::Value << zone.Radius;
-				out << YAML::Key << "Priority" << YAML::Value << zone.Priority;
-				out << YAML::Key << "BlendDistance" << YAML::Value << zone.BlendDistance;
-				out << YAML::Key << "FadeTime" << YAML::Value << zone.FadeTime;
-				out << YAML::Key << "Volume" << YAML::Value << zone.Volume;
-				out << YAML::Key << "AmbienceEvent" << YAML::BeginMap;
-				out << YAML::Key << "Guid" << YAML::Value << zone.AmbienceEvent.Guid;
-				out << YAML::Key << "Path" << YAML::Value << zone.AmbienceEvent.Path;
-				out << YAML::Key << "BankName" << YAML::Value << zone.AmbienceEvent.BankName;
-				out << YAML::EndMap;
-				out << YAML::Key << "Snapshot" << YAML::BeginMap;
-				out << YAML::Key << "Guid" << YAML::Value << zone.Snapshot.Guid;
-				out << YAML::Key << "Path" << YAML::Value << zone.Snapshot.Path;
-				out << YAML::Key << "BankName" << YAML::Value << zone.Snapshot.BankName;
-				out << YAML::EndMap;
-				out << YAML::EndMap;
+				out << Yaml::Key << "AudioZoneComponent" << Yaml::BeginMap;
+				out << Yaml::Key << "Shape" << Yaml::Value << static_cast<uint32_t>(zone.Shape);
+				out << Yaml::Key << "Enabled" << Yaml::Value << zone.Enabled;
+				out << Yaml::Key << "Offset" << Yaml::Value << zone.Offset;
+				out << Yaml::Key << "HalfExtents" << Yaml::Value << zone.HalfExtents;
+				out << Yaml::Key << "Radius" << Yaml::Value << zone.Radius;
+				out << Yaml::Key << "Priority" << Yaml::Value << zone.Priority;
+				out << Yaml::Key << "BlendDistance" << Yaml::Value << zone.BlendDistance;
+				out << Yaml::Key << "FadeTime" << Yaml::Value << zone.FadeTime;
+				out << Yaml::Key << "Volume" << Yaml::Value << zone.Volume;
+				out << Yaml::Key << "AmbienceEvent" << Yaml::BeginMap;
+				out << Yaml::Key << "Guid" << Yaml::Value << zone.AmbienceEvent.Guid;
+				out << Yaml::Key << "Path" << Yaml::Value << zone.AmbienceEvent.Path;
+				out << Yaml::Key << "BankName" << Yaml::Value << zone.AmbienceEvent.BankName;
+				out << Yaml::EndMap;
+				out << Yaml::Key << "Snapshot" << Yaml::BeginMap;
+				out << Yaml::Key << "Guid" << Yaml::Value << zone.Snapshot.Guid;
+				out << Yaml::Key << "Path" << Yaml::Value << zone.Snapshot.Path;
+				out << Yaml::Key << "BankName" << Yaml::Value << zone.Snapshot.BankName;
+				out << Yaml::EndMap;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<AudioPortalComponent>())
 			{
 				const auto& portal = entity.GetComponent<AudioPortalComponent>();
-				out << YAML::Key << "AudioPortalComponent" << YAML::BeginMap;
-				out << YAML::Key << "Enabled" << YAML::Value << portal.Enabled;
-				out << YAML::Key << "ZoneA" << YAML::Value << static_cast<uint64_t>(portal.ZoneA);
-				out << YAML::Key << "ZoneB" << YAML::Value << static_cast<uint64_t>(portal.ZoneB);
-				out << YAML::Key << "HalfExtents" << YAML::Value << portal.HalfExtents;
-				out << YAML::Key << "Open" << YAML::Value << portal.Open;
-				out << YAML::Key << "BlendDistance" << YAML::Value << portal.BlendDistance;
-				out << YAML::Key << "Material" << YAML::Value << AcousticMaterialName(portal.Material);
-				out << YAML::EndMap;
+				out << Yaml::Key << "AudioPortalComponent" << Yaml::BeginMap;
+				out << Yaml::Key << "Enabled" << Yaml::Value << portal.Enabled;
+				out << Yaml::Key << "ZoneA" << Yaml::Value << static_cast<uint64_t>(portal.ZoneA);
+				out << Yaml::Key << "ZoneB" << Yaml::Value << static_cast<uint64_t>(portal.ZoneB);
+				out << Yaml::Key << "HalfExtents" << Yaml::Value << portal.HalfExtents;
+				out << Yaml::Key << "Open" << Yaml::Value << portal.Open;
+				out << Yaml::Key << "BlendDistance" << Yaml::Value << portal.BlendDistance;
+				out << Yaml::Key << "Material" << Yaml::Value << AcousticMaterialName(portal.Material);
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<AudioSurfaceComponent>())
 			{
-				out << YAML::Key << "AudioSurfaceComponent" << YAML::BeginMap;
+				out << Yaml::Key << "AudioSurfaceComponent" << Yaml::BeginMap;
 				const auto& surface = entity.GetComponent<AudioSurfaceComponent>();
-				out << YAML::Key << "Material" << YAML::Value << AcousticMaterialName(surface.Material);
-				out << YAML::Key << "PhysicsSounds" << YAML::Value << surface.PhysicsSounds;
-				out << YAML::Key << "AutoFootsteps" << YAML::Value << surface.AutoFootsteps;
-				out << YAML::Key << "StrideLength" << YAML::Value << surface.StrideLength;
-				out << YAML::Key << "GroundProbeDistance" << YAML::Value << surface.GroundProbeDistance;
-				out << YAML::Key << "FootstepWeight" << YAML::Value << surface.FootstepWeight;
+				out << Yaml::Key << "Material" << Yaml::Value << AcousticMaterialName(surface.Material);
+				out << Yaml::Key << "PhysicsSounds" << Yaml::Value << surface.PhysicsSounds;
+				out << Yaml::Key << "AutoFootsteps" << Yaml::Value << surface.AutoFootsteps;
+				out << Yaml::Key << "StrideLength" << Yaml::Value << surface.StrideLength;
+				out << Yaml::Key << "GroundProbeDistance" << Yaml::Value << surface.GroundProbeDistance;
+				out << Yaml::Key << "FootstepWeight" << Yaml::Value << surface.FootstepWeight;
 				auto writeEvent = [&](const char* name, const AudioEventRef& reference)
 				{
-					out << YAML::Key << name << YAML::BeginMap;
-					out << YAML::Key << "Guid" << YAML::Value << reference.Guid;
-					out << YAML::Key << "Path" << YAML::Value << reference.Path;
-					out << YAML::Key << "BankName" << YAML::Value << reference.BankName << YAML::EndMap;
+					out << Yaml::Key << name << Yaml::BeginMap;
+					out << Yaml::Key << "Guid" << Yaml::Value << reference.Guid;
+					out << Yaml::Key << "Path" << Yaml::Value << reference.Path;
+					out << Yaml::Key << "BankName" << Yaml::Value << reference.BankName << Yaml::EndMap;
 				};
 				writeEvent("FootstepOverride", surface.FootstepOverride);
 				writeEvent("ImpactOverride", surface.ImpactOverride);
-				out << YAML::EndMap;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<AudioSourceComponent>())
 			{
 				const auto& audioSource = entity.GetComponent<AudioSourceComponent>();
 				const auto& config = audioSource.Config;
-				out << YAML::Key << "AudioSourceComponent";
-				out << YAML::BeginMap;
+				out << Yaml::Key << "AudioSourceComponent";
+				out << Yaml::BeginMap;
 				if (audioSource.LegacyAudio || audioSource.LegacyLooping)
 				{
-					out << YAML::Key << "Audio" << YAML::Value << audioSource.LegacyAudio;
-					out << YAML::Key << "Looping" << YAML::Value << audioSource.LegacyLooping;
+					out << Yaml::Key << "Audio" << Yaml::Value << audioSource.LegacyAudio;
+					out << Yaml::Key << "Looping" << Yaml::Value << audioSource.LegacyLooping;
 				}
-				out << YAML::Key << "VolumeMultiplier" << YAML::Value << config.VolumeMultiplier;
-				out << YAML::Key << "PitchMultiplier" << YAML::Value << config.PitchMultiplier;
-				out << YAML::Key << "PlayOnAwake" << YAML::Value << config.PlayOnAwake;
-				out << YAML::Key << "Priority" << YAML::Value << audioSource.Priority;
-				out << YAML::Key << "DistanceCulling" << YAML::Value << audioSource.DistanceCulling;
+				out << Yaml::Key << "VolumeMultiplier" << Yaml::Value << config.VolumeMultiplier;
+				out << Yaml::Key << "PitchMultiplier" << Yaml::Value << config.PitchMultiplier;
+				out << Yaml::Key << "PlayOnAwake" << Yaml::Value << config.PlayOnAwake;
+				out << Yaml::Key << "Priority" << Yaml::Value << audioSource.Priority;
+				out << Yaml::Key << "DistanceCulling" << Yaml::Value << audioSource.DistanceCulling;
 
-				out << YAML::Key << "EventGuid" << YAML::Value << audioSource.Event.Guid;
-				out << YAML::Key << "EventPath" << YAML::Value << audioSource.Event.Path;
-				out << YAML::Key << "EventBank" << YAML::Value << audioSource.Event.BankName;
-				out << YAML::Key << "ParameterOverrides" << YAML::Value << YAML::BeginSeq;
+				out << Yaml::Key << "EventGuid" << Yaml::Value << audioSource.Event.Guid;
+				out << Yaml::Key << "EventPath" << Yaml::Value << audioSource.Event.Path;
+				out << Yaml::Key << "EventBank" << Yaml::Value << audioSource.Event.BankName;
+				out << Yaml::Key << "ParameterOverrides" << Yaml::Value << Yaml::BeginSeq;
 				for (const auto& [name, value] : audioSource.ParameterOverrides)
 				{
-					out << YAML::BeginMap;
-					out << YAML::Key << "Name" << YAML::Value << name;
-					out << YAML::Key << "Value" << YAML::Value << value;
-					out << YAML::EndMap;
+					out << Yaml::BeginMap;
+					out << Yaml::Key << "Name" << Yaml::Value << name;
+					out << Yaml::Key << "Value" << Yaml::Value << value;
+					out << Yaml::EndMap;
 				}
-				out << YAML::EndSeq;
-				out << YAML::EndMap;
+				out << Yaml::EndSeq;
+				out << Yaml::EndMap;
 			}
 
 			if (entity.HasComponent<AudioListenerComponent>())
 			{
 				const auto& listener = entity.GetComponent<AudioListenerComponent>();
-				out << YAML::Key << "AudioListenerComponent";
-				out << YAML::BeginMap;
-				out << YAML::Key << "Active" << YAML::Value << listener.Active;
-				out << YAML::Key << "ListenerIndex" << YAML::Value << listener.ListenerIndex;
-				out << YAML::Key << "Weight" << YAML::Value << listener.Weight;
-				out << YAML::Key << "UseAttenuationTarget" << YAML::Value << listener.UseAttenuationTarget;
-				out << YAML::Key << "AttenuationTarget" << YAML::Value << listener.AttenuationTarget;
-				out << YAML::EndMap;
+				out << Yaml::Key << "AudioListenerComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Active" << Yaml::Value << listener.Active;
+				out << Yaml::Key << "ListenerIndex" << Yaml::Value << listener.ListenerIndex;
+				out << Yaml::Key << "Weight" << Yaml::Value << listener.Weight;
+				out << Yaml::Key << "UseAttenuationTarget" << Yaml::Value << listener.UseAttenuationTarget;
+				out << Yaml::Key << "AttenuationTarget" << Yaml::Value << listener.AttenuationTarget;
+				out << Yaml::EndMap;
 			}
 
-			out << YAML::EndMap;
+			out << Yaml::EndMap;
 		}
 
-		static bool DeserializeEntities(const YAML::Node& entities, Ref<Scene> scene)
+		// Entity blocks are passed as a list so undo can feed parsed snapshot blocks straight in,
+		// without first assembling them into one document.
+		static bool DeserializeEntities(const std::vector<Yaml::Node>& entities, Ref<Scene> scene)
 		{
-			if (!entities)
-				return true;
-
-			if (!entities.IsSequence())
-			{
-				LUX_CORE_ERROR("Scene has an invalid Entities block; expected a YAML sequence.");
-				return false;
-			}
-
 			size_t entityIndex = 0;
-			for (const auto entity : entities)
+			for (const Yaml::Node& entity : entities)
 			{
 				try
 				{
@@ -891,7 +770,7 @@ namespace Lux {
 
 					scene->CreateEntityWithID(uuid, name, false);
 				}
-				catch (const YAML::Exception& e)
+				catch (const Yaml::Exception& e)
 				{
 					LUX_CORE_ERROR("Failed to deserialize scene entity header at index {0}: {1}", entityIndex, e.what());
 					return false;
@@ -906,7 +785,7 @@ namespace Lux {
 			}
 
 			entityIndex = 0;
-			for (const auto entity : entities)
+			for (const Yaml::Node& entity : entities)
 			{
 				try
 				{
@@ -1418,7 +1297,7 @@ namespace Lux {
 					component.AttenuationTarget = audioListener["AttenuationTarget"].as<uint64_t>(0);
 				}
 				}
-				catch (const YAML::Exception& e)
+				catch (const Yaml::Exception& e)
 				{
 					LUX_CORE_ERROR("Failed to deserialize scene components for {0}: {1}", GetEntityNameForLog(entity, entityIndex), e.what());
 					return false;
@@ -1435,6 +1314,24 @@ namespace Lux {
 			scene->SortEntities();
 			return true;
 		}
+
+		static bool DeserializeEntities(const Yaml::Node& entities, Ref<Scene> scene)
+		{
+			if (!entities)
+				return true;
+
+			if (!entities.IsSequence())
+			{
+				LUX_CORE_ERROR("Scene has an invalid Entities block; expected a YAML sequence.");
+				return false;
+			}
+
+			std::vector<Yaml::Node> list;
+			list.reserve(entities.size());
+			for (const Yaml::Node& entity : entities)
+				list.push_back(entity);
+			return DeserializeEntities(list, scene);
+		}
 	}
 
 	SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -1444,48 +1341,48 @@ namespace Lux {
 
 	// Scene-level keys (everything except the Entities sequence). Written inside the caller's map,
 	// so the full scene document and the undo metadata snapshot share one source.
-	static void SerializeSceneMetadata(YAML::Emitter& out, const Ref<Scene>& scene)
+	static void SerializeSceneMetadata(Yaml::Writer& out, const Ref<Scene>& scene)
 	{
-		out << YAML::Key << "Scene" << YAML::Value << scene->GetName();
+		out << Yaml::Key << "Scene" << Yaml::Value << scene->GetName();
 
 		// Scene-wide post-processing. Previously authored per PostProcessVolume entity; the
 		// volume system is gone, so it lives here as one block.
 		{
 			const PostProcessSettings& post = scene->GetPostProcessSettings();
-			out << YAML::Key << "PostProcess" << YAML::Value << YAML::BeginMap;
-			out << YAML::Key << "Exposure" << YAML::Value << post.Exposure;
-			out << YAML::Key << "ExposureMode" << YAML::Value << static_cast<uint32_t>(post.ExposureControl);
-			out << YAML::Key << "Aperture" << YAML::Value << post.Aperture;
-			out << YAML::Key << "ShutterSpeed" << YAML::Value << post.ShutterSpeed;
-			out << YAML::Key << "ISO" << YAML::Value << post.ISO;
-			out << YAML::Key << "ExposureEV100" << YAML::Value << post.ExposureEV100;
-			out << YAML::Key << "ExposureCompensation" << YAML::Value << post.ExposureCompensation;
-			out << YAML::Key << "AutoMinEV100" << YAML::Value << post.AutoMinEV100;
-			out << YAML::Key << "AutoMaxEV100" << YAML::Value << post.AutoMaxEV100;
-			out << YAML::Key << "AutoAdaptationSpeedUp" << YAML::Value << post.AutoAdaptationSpeedUp;
-			out << YAML::Key << "AutoAdaptationSpeedDown" << YAML::Value << post.AutoAdaptationSpeedDown;
-			out << YAML::Key << "ColorFilter" << YAML::Value << post.ColorFilter;
-			out << YAML::Key << "Saturation" << YAML::Value << post.Saturation;
-			out << YAML::Key << "Contrast" << YAML::Value << post.Contrast;
-			out << YAML::Key << "Gamma" << YAML::Value << post.Gamma;
-			out << YAML::Key << "Tonemap" << YAML::Value << static_cast<uint32_t>(post.Tonemap);
-			out << YAML::Key << "WhiteTemperature" << YAML::Value << post.WhiteTemperature;
-			out << YAML::Key << "WhiteTint" << YAML::Value << post.WhiteTint;
-			out << YAML::Key << "Lift" << YAML::Value << post.Lift;
-			out << YAML::Key << "GradeGamma" << YAML::Value << post.GradeGamma;
-			out << YAML::Key << "Gain" << YAML::Value << post.Gain;
-			out << YAML::EndMap;
+			out << Yaml::Key << "PostProcess" << Yaml::Value << Yaml::BeginMap;
+			out << Yaml::Key << "Exposure" << Yaml::Value << post.Exposure;
+			out << Yaml::Key << "ExposureMode" << Yaml::Value << static_cast<uint32_t>(post.ExposureControl);
+			out << Yaml::Key << "Aperture" << Yaml::Value << post.Aperture;
+			out << Yaml::Key << "ShutterSpeed" << Yaml::Value << post.ShutterSpeed;
+			out << Yaml::Key << "ISO" << Yaml::Value << post.ISO;
+			out << Yaml::Key << "ExposureEV100" << Yaml::Value << post.ExposureEV100;
+			out << Yaml::Key << "ExposureCompensation" << Yaml::Value << post.ExposureCompensation;
+			out << Yaml::Key << "AutoMinEV100" << Yaml::Value << post.AutoMinEV100;
+			out << Yaml::Key << "AutoMaxEV100" << Yaml::Value << post.AutoMaxEV100;
+			out << Yaml::Key << "AutoAdaptationSpeedUp" << Yaml::Value << post.AutoAdaptationSpeedUp;
+			out << Yaml::Key << "AutoAdaptationSpeedDown" << Yaml::Value << post.AutoAdaptationSpeedDown;
+			out << Yaml::Key << "ColorFilter" << Yaml::Value << post.ColorFilter;
+			out << Yaml::Key << "Saturation" << Yaml::Value << post.Saturation;
+			out << Yaml::Key << "Contrast" << Yaml::Value << post.Contrast;
+			out << Yaml::Key << "Gamma" << Yaml::Value << post.Gamma;
+			out << Yaml::Key << "Tonemap" << Yaml::Value << static_cast<uint32_t>(post.Tonemap);
+			out << Yaml::Key << "WhiteTemperature" << Yaml::Value << post.WhiteTemperature;
+			out << Yaml::Key << "WhiteTint" << Yaml::Value << post.WhiteTint;
+			out << Yaml::Key << "Lift" << Yaml::Value << post.Lift;
+			out << Yaml::Key << "GradeGamma" << Yaml::Value << post.GradeGamma;
+			out << Yaml::Key << "Gain" << Yaml::Value << post.Gain;
+			out << Yaml::EndMap;
 		}
 	}
 
 	// Scene-level keys (name, post-processing) - the read side of SerializeSceneMetadata.
-	static bool DeserializeSceneMetadata(const YAML::Node& data, Ref<Scene> scene)
+	static bool DeserializeSceneMetadata(const Yaml::Node& data, Ref<Scene> scene)
 	{
 		try
 		{
 			scene->SetName(data["Scene"].as<std::string>());
 		}
-		catch (const YAML::Exception& e)
+		catch (const Yaml::Exception& e)
 		{
 			LUX_CORE_ERROR("Failed to read scene name: {0}", e.what());
 			return false;
@@ -1523,24 +1420,24 @@ namespace Lux {
 		return true;
 	}
 
-	void SceneSerializer::SerializeToYAML(YAML::Emitter& out)
+	void SceneSerializer::SerializeToYAML(Yaml::Writer& out)
 	{
-		out << YAML::BeginMap;
+		out << Yaml::BeginMap;
 		SerializeSceneMetadata(out, m_Scene);
 
-		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
+		out << Yaml::Key << "Entities" << Yaml::Value << Yaml::BeginSeq;
 
 		auto view = m_Scene->m_Registry.view<IDComponent>();
 		for (auto entityID : view)
 			SerializeEntity(out, { entityID, m_Scene.get() });
 
-		out << YAML::EndSeq;
-		out << YAML::EndMap;
+		out << Yaml::EndSeq;
+		out << Yaml::EndMap;
 	}
 
 	std::string SceneSerializer::SerializeToString()
 	{
-		YAML::Emitter out;
+		Yaml::Writer out;
 		SerializeToYAML(out);
 		return std::string(out.c_str());
 	}
@@ -1551,7 +1448,7 @@ namespace Lux {
 
 		// Emit each entity block and the scene metadata straight into their own strings. This runs
 		// on every undoable edit, so it must not round-trip the whole scene through one document
-		// and YAML::Load it back: on a ~7k-entity scene that tripled the YAML work and froze the
+		// and parse it back: on a ~7k-entity scene that tripled the YAML work and froze the
 		// editor for seconds per edit. SerializeEntity is deterministic for unchanged state, which
 		// is all the undo diff needs; the blocks reload through DeserializeFromSnapshots.
 		std::map<UUID, std::string> snapshots;
@@ -1560,15 +1457,15 @@ namespace Lux {
 		for (auto entityID : view)
 		{
 			Entity entity{ entityID, m_Scene.get() };
-			YAML::Emitter entityOut;
+			Yaml::Writer entityOut;
 			SerializeEntity(entityOut, entity);
 			snapshots.emplace(entity.GetUUID(), entityOut.c_str());
 		}
 
-		YAML::Emitter metaOut;
-		metaOut << YAML::BeginMap;
+		Yaml::Writer metaOut;
+		metaOut << Yaml::BeginMap;
 		SerializeSceneMetadata(metaOut, m_Scene);
-		metaOut << YAML::EndMap;
+		metaOut << Yaml::EndMap;
 		outMeta = metaOut.c_str();
 
 		return snapshots;
@@ -1585,15 +1482,15 @@ namespace Lux {
 			if (!entity)
 				continue;
 
-			YAML::Emitter entityOut;
+			Yaml::Writer entityOut;
 			SerializeEntity(entityOut, entity);
 			snapshots.emplace(entityID, entityOut.c_str());
 		}
 
-		YAML::Emitter metaOut;
-		metaOut << YAML::BeginMap;
+		Yaml::Writer metaOut;
+		metaOut << Yaml::BeginMap;
 		SerializeSceneMetadata(metaOut, m_Scene);
-		metaOut << YAML::EndMap;
+		metaOut << Yaml::EndMap;
 		outMeta = metaOut.c_str();
 
 		return snapshots;
@@ -1610,28 +1507,31 @@ namespace Lux {
 			"Entity", "Parent", "Children", "PrefabComponent", "TagComponent"
 		};
 
-		YAML::Emitter instOut, srcOut;
+		Yaml::Writer instOut, srcOut;
 		SerializeEntity(instOut, instance);
 		SerializeEntity(srcOut, prefabSource);
-		const YAML::Node instNode = YAML::Load(instOut.c_str());
-		YAML::Node srcNode = YAML::Load(srcOut.c_str());
+		const Yaml::Node instNode = Yaml::Load(instOut.c_str());
+		Yaml::Node srcNode = Yaml::Load(srcOut.c_str());
 		if (prefabSource.HasComponent<AudioListenerComponent>())
 		{
 			// Compare in the instance's UUID space; remapped references are not user overrides.
-			srcNode["AudioListenerComponent"]["AttenuationTarget"] = static_cast<uint64_t>(Scene::MapPrefabEntityReference(
-				prefabSource.GetComponent<AudioListenerComponent>().AttenuationTarget, prefabSource, instance));
+			if (Yaml::Node target = srcNode["AudioListenerComponent"]["AttenuationTarget"])
+				target.SetScalar(static_cast<uint64_t>(Scene::MapPrefabEntityReference(
+					prefabSource.GetComponent<AudioListenerComponent>().AttenuationTarget, prefabSource, instance)));
 		}
 
 		if (prefabSource.HasComponent<AudioPortalComponent>())
 		{
 			const auto& portal = prefabSource.GetComponent<AudioPortalComponent>();
-			srcNode["AudioPortalComponent"]["ZoneA"] = static_cast<uint64_t>(Scene::MapPrefabEntityReference(portal.ZoneA, prefabSource, instance));
-			srcNode["AudioPortalComponent"]["ZoneB"] = static_cast<uint64_t>(Scene::MapPrefabEntityReference(portal.ZoneB, prefabSource, instance));
+			if (Yaml::Node zoneA = srcNode["AudioPortalComponent"]["ZoneA"])
+				zoneA.SetScalar(static_cast<uint64_t>(Scene::MapPrefabEntityReference(portal.ZoneA, prefabSource, instance)));
+			if (Yaml::Node zoneB = srcNode["AudioPortalComponent"]["ZoneB"])
+				zoneB.SetScalar(static_cast<uint64_t>(Scene::MapPrefabEntityReference(portal.ZoneB, prefabSource, instance)));
 		}
 
 		// A key is an override if it is present on one side only, or present on both but serializes
 		// differently. Scanning both directions catches instance-only and prefab-only components.
-		const auto scan = [&](const YAML::Node& lhs, const YAML::Node& rhs)
+		const auto scan = [&](const Yaml::Node& lhs, const Yaml::Node& rhs)
 		{
 			for (auto it = lhs.begin(); it != lhs.end(); ++it)
 			{
@@ -1639,8 +1539,8 @@ namespace Lux {
 				if (ignored.contains(key))
 					continue;
 
-				const YAML::Node other = rhs[key];
-				if (!other.IsDefined() || YAML::Dump(it->second) != YAML::Dump(other))
+				const Yaml::Node other = rhs[key];
+				if (!other.IsDefined() || it->second.Dump() != other.Dump())
 					result.insert(key);
 			}
 		};
@@ -1652,19 +1552,30 @@ namespace Lux {
 
 	bool SceneSerializer::DeserializeFromSnapshots(const std::string& meta, const std::vector<std::string>& entityBlocks)
 	{
-		// Reassemble the metadata + the given entity blocks into a full scene document and run the
-		// normal whole-scene deserialize — restore never touches entities in place, so it can't
-		// corrupt the two-way parent/child links.
-		YAML::Node root = meta.empty() ? YAML::Node(YAML::NodeType::Map) : YAML::Load(meta);
+		// Rebuild the whole scene from the metadata + entity blocks, through the same metadata and
+		// entity deserializers a file load uses — restore never touches entities in place, so it
+		// can't corrupt the two-way parent/child links.
+		Yaml::Node root;
+		std::vector<Yaml::Node> entities;
+		try
+		{
+			if (!meta.empty())
+				root = Yaml::Load(meta);
+			entities.reserve(entityBlocks.size());
+			for (const std::string& block : entityBlocks)
+				entities.push_back(Yaml::Load(block));
+		}
+		catch (const Yaml::Exception& e)
+		{
+			LUX_CORE_ERROR("Failed to parse scene snapshot: {0}", e.what());
+			return false;
+		}
 
-		YAML::Node entities(YAML::NodeType::Sequence);
-		for (const std::string& block : entityBlocks)
-			entities.push_back(YAML::Load(block));
-		root["Entities"] = entities;
-
-		YAML::Emitter out;
-		out << root;
-		return DeserializeFromYAML(std::string(out.c_str()));
+		m_Scene->m_Registry.clear();
+		m_Scene->m_EntityMap.clear();
+		if (root && !DeserializeSceneMetadata(root, m_Scene))
+			return false;
+		return DeserializeEntities(entities, m_Scene);
 	}
 
 	bool SceneSerializer::ApplyEntitySnapshots(const std::string* meta, const std::vector<std::pair<UUID, std::string>>& entities)
@@ -1672,19 +1583,19 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("SceneSerializer::ApplyEntitySnapshots");
 
 		// Parse everything first, so a bad block leaves the scene untouched.
-		YAML::Node metaNode;
-		YAML::Node blocks(YAML::NodeType::Sequence);
+		Yaml::Node metaNode;
+		std::vector<Yaml::Node> blocks;
 		try
 		{
 			if (meta)
-				metaNode = YAML::Load(*meta);
+				metaNode = Yaml::Load(*meta);
 			for (const auto& [entityID, block] : entities)
 			{
 				if (!block.empty())
-					blocks.push_back(YAML::Load(block));
+					blocks.push_back(Yaml::Load(block));
 			}
 		}
-		catch (const YAML::Exception& e)
+		catch (const Yaml::Exception& e)
 		{
 			LUX_CORE_ERROR_TAG("Editor", "Undo: failed to parse an entity snapshot: {0}", e.what());
 			return false;
@@ -1993,7 +1904,7 @@ namespace Lux {
 
 	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
-		YAML::Emitter out;
+		Yaml::Writer out;
 		SerializeToYAML(out);
 
 		std::ofstream fout(filepath);
@@ -2007,12 +1918,12 @@ namespace Lux {
 
 	bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)
 	{
-		YAML::Node data;
+		Yaml::Node data;
 		try
 		{
-			data = YAML::Load(yamlString);
+			data = Yaml::Load(yamlString);
 		}
-		catch (const YAML::Exception& e)
+		catch (const Yaml::Exception& e)
 		{
 			LUX_CORE_ERROR("Failed to parse scene YAML: {0}", e.what());
 			return false;
@@ -2053,7 +1964,7 @@ namespace Lux {
 			if (!DeserializeFromYAML(strStream.str()))
 				return false;
 		}
-		catch (const YAML::Exception& e)
+		catch (const Yaml::Exception& e)
 		{
 			LUX_CORE_ERROR("Failed to deserialize scene '{0}': {1}", filepath.string(), e.what());
 			return false;
@@ -2087,7 +1998,7 @@ namespace Lux {
 
 	bool SceneSerializer::SerializeToAssetPack(FileStreamWriter& stream, AssetSerializationInfo& outInfo)
 	{
-		YAML::Emitter out;
+		Yaml::Writer out;
 		SerializeToYAML(out);
 
 		outInfo.Offset = stream.GetStreamPosition();

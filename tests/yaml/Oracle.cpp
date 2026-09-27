@@ -583,6 +583,16 @@ namespace
 			Expect(ok, "string round-trip");
 		}
 
+		// SetScalar edits a parsed value in place, visible through other Nodes of the document.
+		{
+			Yaml::Node edited = Yaml::Load("C: {Target: 1, Other: x}");
+			Yaml::Node target = edited["C"]["Target"];
+			target.SetScalar(uint64_t(13186803375098413055ull));
+			Expect(edited["C"]["Target"].as<uint64_t>() == 13186803375098413055ull, "SetScalar value visible");
+			Expect(edited["C"]["Other"].as<std::string>() == "x", "SetScalar leaves siblings alone");
+			Expect(Throws([&] { edited["C"].SetScalar("nope"); }), "SetScalar on a map throws");
+		}
+
 		// Dump() of a subtree re-parses to the same values.
 		Expect(Yaml::Load(back["Pos"].Dump()).as<glm::vec3>() == glm::vec3(1.0f, 2.5f, -3.0f), "Dump() round-trip");
 

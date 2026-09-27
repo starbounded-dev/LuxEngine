@@ -1002,8 +1002,12 @@ is installed. `ProjectSerializer` handles `.luxproj`; `UserPreferences` holds ma
 
 ### 2.13 Serialization
 
-YAML (yaml-cpp) for human-readable assets — scenes, prefabs, materials, project settings, tiering.
-`Utilities/SerializationMacros.h` provides `LUX_SERIALIZE_PROPERTY`.
+YAML for human-readable assets — scenes, prefabs, materials, project settings, tiering. Being
+migrated from yaml-cpp to rapidyaml behind the engine's `Lux::Yaml` (`Serialization/Yaml.h`;
+`docs/YAML_MIGRATION_PLAN.md`): **scenes, prefabs, and undo snapshots use `Lux::Yaml`**; the other
+serializers still use yaml-cpp until they are ported. `tests/yaml/run.py` checks that every tracked
+YAML asset reads to identical values through both. `Utilities/SerializationMacros.h` provides
+`LUX_SERIALIZE_PROPERTY` (yaml-cpp; used only by `VulkanShaderCache`).
 
 Binary for distribution: `Serialization/AssetPack.{h,cpp}` + `AssetPackFile.h` +
 `AssetPackSerializer`, `ShaderPackFile.h`, and the stream layer (`FileStream`, `MemoryStream`,

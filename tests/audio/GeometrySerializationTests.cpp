@@ -10,20 +10,20 @@ int main()
 	original.Portal.BlendDistance = 7;
 	original.Portal.Material = AcousticMaterial::Metal;
 	const auto text = SerializePortal(original);
-	const auto copied = DeserializeGeometry(YAML::Load(text));
+	const auto copied = DeserializeGeometry(Yaml::Load(text));
 	assert(SerializePortal(copied) == text);
 	assert(copied.Portal.ZoneA == 123 && copied.Portal.ZoneB == 456);
-	const auto defaults = DeserializeGeometry(YAML::Load("AudioPortalComponent: {}\nMeshColliderComponent: {}"));
+	const auto defaults = DeserializeGeometry(Yaml::Load("AudioPortalComponent: {}\nMeshColliderComponent: {}"));
 	assert(defaults.Portal.Enabled && defaults.Portal.Open == 0 && defaults.Portal.Material == AcousticMaterial::Wood);
 	assert(defaults.Mesh.AcousticMotion == AcousticGeometryMode::Static);
 	// New colliders inherit their render material's tag; scenes saved before the key keep their own.
 	assert(MeshColliderComponent{}.AcousticFromMaterial);
 	assert(!defaults.Mesh.AcousticFromMaterial);
-	const auto inheriting = DeserializeGeometry(YAML::Load("MeshColliderComponent: { AcousticMaterial: Brick, AcousticFromMaterial: true }"));
+	const auto inheriting = DeserializeGeometry(Yaml::Load("MeshColliderComponent: { AcousticMaterial: Brick, AcousticFromMaterial: true }"));
 	assert(inheriting.Mesh.AcousticFromMaterial && inheriting.Mesh.Acoustic == AcousticMaterial::Brick);
 	for (int mode = 0; mode < 3; ++mode)
 	{
-		const auto entity = DeserializeGeometry(YAML::Load("MeshColliderComponent: { AcousticMotion: " + std::to_string(mode) + " }"));
+		const auto entity = DeserializeGeometry(Yaml::Load("MeshColliderComponent: { AcousticMotion: " + std::to_string(mode) + " }"));
 		assert(static_cast<int>(entity.Mesh.AcousticMotion) == mode);
 	}
 	for (const char* malformed : { "AudioPortalComponent: { Open: .nan }", "AudioPortalComponent: { Open: 1.1 }",
@@ -32,7 +32,7 @@ int main()
 		"MeshColliderComponent: { AcousticMotion: 3 }", "MeshColliderComponent: { AcousticMotion: -1 }" })
 	{
 		bool rejected = false;
-		try { DeserializeGeometry(YAML::Load(malformed)); }
+		try { DeserializeGeometry(Yaml::Load(malformed)); }
 		catch (const std::exception&) { rejected = true; }
 		if (!rejected)
 			std::cerr << "Accepted invalid YAML: " << malformed << "\n";

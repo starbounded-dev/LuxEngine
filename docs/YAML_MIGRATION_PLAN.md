@@ -84,6 +84,20 @@ quoting, determinism, malformed input throws). Windows Debug/Release build; Linu
 `Building.md` needed no change (it lists no vendored libraries). The in-editor parse measurement
 moves to Phase 3, the first phase where engine code calls the wrapper.
 
+**Phase 3 — code done, awaiting in-editor checks (2026-09-27).** `SceneSerializer` and
+`PrefabSerializer` run on `Lux::Yaml`; `SceneAssetSerializer` needed no change. Untraced, same
+protocol as Phase 0: **261 / 265 / 271 ms, median 0.27 s vs 3.57 s (~13×)**. The startup logs match
+the baseline line for line (no new errors or warnings). Parsing was only ~0.6 s of the old open;
+the rest of the saving is presumably yaml-cpp's node lookups and stringstream conversions during
+entity build (inferred, not profiled). Deviations from the plan:
+- `Node::SetScalar` added: prefab override detection edits parsed values in place (entity-reference
+  remapping). A variant prefab now appends `BasePrefab:` as text instead of re-emitting a tree.
+- Undo restore no longer re-emits and re-parses the snapshot blocks; the parsed blocks go straight
+  to `DeserializeEntities`.
+- `SerializationMacros.h` moves to Phase 4: its only user is `VulkanShaderCache` (batch 2).
+- The `tests/audio/run.py` splice markers had been broken since `5c19e87e` (const reads); fixed
+  here along with the port. All 14 markers verified against the source; not run on Linux here.
+
 ## Part 1 — Design
 
 - **`Lux::Yaml`** — **NEW** `Core/Source/Lux/Serialization/Yaml.h/.cpp`. Owns every ryml include.
@@ -253,7 +267,7 @@ from the previous commit.
 | ryml aborts on malformed input | Plausible | Phase 1 malformed-file test before any port |
 | Lenient-read differences (bools, numbers) change loaded values | Medium | Oracle, every phase |
 | Writer non-determinism breaks undo diffs | Low | Round-trip self-test; emit-twice check in Phase 2 |
-| `run.py` text splices break | Certain | Planned in Phase 3 |
+| `run.py` text splices break | Certain | Fixed in Phase 3; markers checked against the source |
 | ryml pre-1.0 API churn on upgrade | Likely over time | Confined to `Lux::Yaml` |
 | Speed-up smaller than expected untraced | Unknown | Phase 0 + Phase 1 numbers, kill switch |
 

@@ -73,11 +73,11 @@ def fixture(directory):
 def music_serialization_source(directory):
     source = (ROOT / "Core/Source/Lux/Scene/SceneSerializer.cpp").read_text()
     serialize = source.split('\t\t\tif (entity.HasComponent<MusicDirectorComponent>())', 1)[1].split('\t\t\tif (entity.HasComponent<AudioZoneComponent>())', 1)[0]
-    deserialize = source.split('\t\t\t\tif (auto node = entity["MusicDirectorComponent"])', 1)[1].split('\t\t\t\tif (auto node = entity["AudioZoneComponent"])', 1)[0]
+    deserialize = source.split('\t\t\t\tif (const auto node = entity["MusicDirectorComponent"])', 1)[1].split('\t\t\t\tif (const auto node = entity["AudioZoneComponent"])', 1)[0]
     output = directory / "music-serialization.cpp"
     output.write_text("""#include "lpch.h"
 #include "Lux/Scene/Components.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <cassert>
 #include <iostream>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -95,13 +95,13 @@ struct FakeEntity
 };
 std::string SerializeMusic(FakeEntity entity)
 {
-    YAML::Emitter out;
-    out << YAML::BeginMap;
+    Yaml::Writer out;
+    out << Yaml::BeginMap;
 """ + serialize + """
-    out << YAML::EndMap;
+    out << Yaml::EndMap;
     return out.c_str();
 }
-MusicDirectorComponent DeserializeMusic(const YAML::Node& entity)
+MusicDirectorComponent DeserializeMusic(const Yaml::Node& entity)
 {
     FakeEntity deserializedEntity;
     if (auto node = entity["MusicDirectorComponent"])
@@ -113,23 +113,19 @@ MusicDirectorComponent DeserializeMusic(const YAML::Node& entity)
 
 def geometry_serialization_source(directory):
     source = (ROOT / "Core/Source/Lux/Scene/SceneSerializer.cpp").read_text()
-    converters = source.split("namespace YAML {", 1)[1].split("namespace Lux {", 1)[0]
-    vector_output = source.split("YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v)", 1)[1].split("YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec4& v)", 1)[0]
     serialize = source.split('if (entity.HasComponent<AudioPortalComponent>())', 1)[1].split('if (entity.HasComponent<AudioSurfaceComponent>())', 1)[0]
-    deserialize = source.split('if (auto node = entity["AudioPortalComponent"])', 1)[1].split('if (auto surface = entity["AudioSurfaceComponent"])', 1)[0]
-    mesh = source.split('if (auto meshCollider = entity["MeshColliderComponent"])', 1)[1].split('if (auto node = entity["MusicDirectorComponent"])', 1)[0]
+    deserialize = source.split('if (const auto node = entity["AudioPortalComponent"])', 1)[1].split('if (const auto surface = entity["AudioSurfaceComponent"])', 1)[0]
+    mesh = source.split('if (const auto meshCollider = entity["MeshColliderComponent"])', 1)[1].split('if (const auto node = entity["MusicDirectorComponent"])', 1)[0]
     output = directory / "geometry-serialization.cpp"
     output.write_text('\n'.join([
         '#include "AudioTestHost.h"', '#include "Lux/Scene/Components.h"',
-        '#include "Lux/Audio/AudioZoneSystem.h"', '#include <yaml-cpp/yaml.h>',
-        'namespace YAML {' + converters,
-        'namespace Lux { YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v)' + vector_output + '}',
+        '#include "Lux/Audio/AudioZoneSystem.h"', '#include "Lux/Serialization/Yaml.h"',
         'struct FakeEntity { AudioPortalComponent Portal; MeshColliderComponent Mesh;',
         'template<typename T> T& GetComponent() { if constexpr (std::is_same_v<T, AudioPortalComponent>) return Portal; else return Mesh; }',
         'template<typename T> T& AddComponent() { return GetComponent<T>(); } };',
-        'std::string SerializePortal(FakeEntity entity) { YAML::Emitter out; out << YAML::BeginMap;',
-        serialize, 'out << YAML::EndMap; return out.c_str(); }',
-        'FakeEntity DeserializeGeometry(const YAML::Node& entity) { FakeEntity deserializedEntity;',
+        'std::string SerializePortal(FakeEntity entity) { Yaml::Writer out; out << Yaml::BeginMap;',
+        serialize, 'out << Yaml::EndMap; return out.c_str(); }',
+        'FakeEntity DeserializeGeometry(const Yaml::Node& entity) { FakeEntity deserializedEntity;',
         'if (auto node = entity["AudioPortalComponent"])', deserialize,
         'if (auto meshCollider = entity["MeshColliderComponent"])', mesh,
         'return deserializedEntity; }', (TESTS / "GeometrySerializationTests.cpp").read_text()]))
@@ -138,16 +134,16 @@ def geometry_serialization_source(directory):
 def source_serialization_source(directory):
     source = (ROOT / "Core/Source/Lux/Scene/SceneSerializer.cpp").read_text()
     serialize = source.split('if (entity.HasComponent<AudioSourceComponent>())', 1)[1].split('if (entity.HasComponent<AudioListenerComponent>())', 1)[0]
-    deserialize = source.split('if (auto audioSource = entity["AudioSourceComponent"])', 1)[1].split('if (auto audioListener = entity["AudioListenerComponent"])', 1)[0]
+    deserialize = source.split('if (const auto audioSource = entity["AudioSourceComponent"])', 1)[1].split('if (const auto audioListener = entity["AudioListenerComponent"])', 1)[0]
     output = directory / "source-serialization.cpp"
     output.write_text("\n".join([
-        '#include "AudioTestHost.h"', '#include "Lux/Scene/Components.h"', '#include <yaml-cpp/yaml.h>',
+        '#include "AudioTestHost.h"', '#include "Lux/Scene/Components.h"', '#include "Lux/Serialization/Yaml.h"',
         'struct FakeEntity { AudioSourceComponent Source;',
         'template<typename T> T& GetComponent() { return Source; }',
         'template<typename T> T& AddComponent() { return Source; } };',
-        'std::string SerializeSource(FakeEntity entity) { YAML::Emitter out; out << YAML::BeginMap;',
-        serialize, 'out << YAML::EndMap; return out.c_str(); }',
-        'AudioSourceComponent DeserializeSource(const YAML::Node& entity) { FakeEntity deserializedEntity;',
+        'std::string SerializeSource(FakeEntity entity) { Yaml::Writer out; out << Yaml::BeginMap;',
+        serialize, 'out << Yaml::EndMap; return out.c_str(); }',
+        'AudioSourceComponent DeserializeSource(const Yaml::Node& entity) { FakeEntity deserializedEntity;',
         'if (auto audioSource = entity["AudioSourceComponent"])', deserialize,
         'return deserializedEntity.Source; }', (TESTS / "SourceSerializationTests.cpp").read_text()]))
     return output
@@ -193,6 +189,9 @@ def main():
     fmod = ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux/api"
     libraries = [ROOT / "Core/vendor/VA_RAY/3d/native/production/linux/libvaudionative.so", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
     yaml = [ROOT / "bin-int/Release-linux-x86_64/Core" / (p.stem + ".o") for p in (ROOT / "Core/vendor/yaml-cpp/src").glob("*.cpp")]
+    # Lux::Yaml (rapidyaml) serves the scene serializer; yaml-cpp still serves the audio settings
+    # until YAML migration phase 4 (docs/YAML_MIGRATION_PLAN.md).
+    yaml += [ROOT / "bin-int/Release-linux-x86_64/Core" / name for name in ("Yaml.o", "ryml.o")]
     run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], *yaml, "-Wl,--gc-sections",
          "-o", directory / "music-serialization-test"], cwd=ROOT / "Core")
     run([directory / "music-serialization-test"], timeout=30)

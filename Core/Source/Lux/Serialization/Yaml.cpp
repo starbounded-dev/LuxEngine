@@ -182,6 +182,14 @@ namespace Lux::Yaml {
 		return c4::yml::emitrs_yaml<std::string>(value);
 	}
 
+	void Node::SetScalar(std::string_view text)
+	{
+		if (!IsDefined() || m_IsKey || (Type() != NodeType::Scalar && Type() != NodeType::Null))
+			throw Exception("YAML: SetScalar needs an existing scalar value");
+		c4::yml::Tree& tree = *m_Document->Tree;
+		tree.set_val(m_Id, tree.copy_to_arena(c4::csubstr(text.data(), text.size())));
+	}
+
 	Node::Iterator Node::begin() const
 	{
 		if (!IsMap() && !IsSequence())

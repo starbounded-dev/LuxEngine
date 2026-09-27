@@ -12,20 +12,17 @@
 #include <unordered_set>
 #include <vector>
 
-namespace YAML
-{
-	class Emitter;
-}
-
 namespace Lux
 {
+	namespace Yaml { class Writer; }
+
 	class SceneSerializer
 	{
 	public:
 		SceneSerializer(const Ref<Scene>& scene);
 
 		void Serialize(const std::filesystem::path& filepath);
-		void SerializeToYAML(YAML::Emitter& out);
+		void SerializeToYAML(Yaml::Writer& out);
 		std::string SerializeToString();   // SerializeToYAML wrapped as a string (round-trips with DeserializeFromYAML)
 		bool DeserializeFromYAML(const std::string& yamlString);
 

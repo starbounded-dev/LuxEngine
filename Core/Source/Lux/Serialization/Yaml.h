@@ -135,6 +135,19 @@ namespace Lux::Yaml {
 		// This subtree as YAML text (e.g. to compare two subtrees).
 		std::string Dump() const;
 
+		// Replaces this node's value, which must exist and be a scalar or null — the one in-place
+		// edit Lux::Yaml supports, for normalizing a parsed document before comparing it. Visible
+		// through every Node of the same document. Throws Yaml::Exception otherwise.
+		void SetScalar(std::string_view text);
+
+		template<typename T> requires (std::is_integral_v<T> && !std::is_same_v<T, bool>)
+		void SetScalar(T value)
+		{
+			char buffer[32];
+			const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+			SetScalar(std::string_view(buffer, static_cast<size_t>(result.ptr - buffer)));
+		}
+
 		Iterator begin() const;
 		Iterator end() const;
 

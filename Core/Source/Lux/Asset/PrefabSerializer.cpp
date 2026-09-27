@@ -11,7 +11,7 @@
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/SceneSerializer.h"
 
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 
 #include <fstream>
 
@@ -29,17 +29,16 @@ namespace Lux
 			return;
 		}
 
-		// A variant injects one top-level BasePrefab key alongside the scene document (round-tripping
-		// through the parsed node keeps the scene content identical to SceneSerializer's own output).
-		const std::string sceneYaml = SceneSerializer(scene).SerializeToString();
-		YAML::Node node = YAML::Load(sceneYaml);
-		node["BasePrefab"] = static_cast<uint64_t>(basePrefab);
-
-		YAML::Emitter out;
-		out << node;
+		// A variant adds one top-level BasePrefab key after the scene document. The document is a
+		// top-level block map, so appending the key as the last line keeps the scene content exactly
+		// as SceneSerializer wrote it.
+		std::string sceneYaml = SceneSerializer(scene).SerializeToString();
+		if (!sceneYaml.empty() && sceneYaml.back() != '\n')
+			sceneYaml += '\n';
+		sceneYaml += "BasePrefab: " + std::to_string(static_cast<uint64_t>(basePrefab)) + "\n";
 
 		std::ofstream fout(path);
-		fout << out.c_str();
+		fout << sceneYaml;
 	}
 
 	void PrefabSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
@@ -83,7 +82,7 @@ namespace Lux
 		AssetHandle basePrefab = 0;
 		try
 		{
-			YAML::Node node = YAML::LoadFile(path.string());
+			Yaml::Node node = Yaml::LoadFile(path);
 			if (node["BasePrefab"])
 				basePrefab = node["BasePrefab"].as<uint64_t>(0);
 		}
