@@ -160,6 +160,10 @@ LUX_CORE_ERROR_TAG("Renderer", "Uniform buffer binding collision at (set={0}, bi
 - Client: `LUX_{TRACE,INFO,WARN,ERROR,FATAL}_TAG(tag, ...)`
 - Untagged `LUX_CORE_INFO(...)` variants exist; **prefer the tagged forms** — the editor console
   filters on the tag (`Log::EnabledTags()`), so an untagged line cannot be filtered.
+- A tag with no entry in `Log::s_DefaultTagDetails` (or the project's `Log:` block) uses the untagged
+  `""` settings. Before 2026-09-27 such tags were silently dropped — `"Editor"`, `"Discord"`,
+  `"RenderGraph"` and others never printed — so give a new subsystem tag a default entry when it
+  needs a quieter level than Trace.
 
 Tag with the subsystem name (`"Renderer"`, `"AssetManager"`, `"ScriptEngine"`, `"Physics"`,
 `"Project"`). Reuse an existing tag string rather than inventing a near-duplicate.

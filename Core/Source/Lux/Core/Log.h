@@ -103,6 +103,16 @@ namespace Lux {
 		static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
 
 		inline static std::map<std::string, TagDetails> s_EnabledTags;
+
+		// Settings for `tag`, or the untagged ("") settings when the tag has no entry: a tag that
+		// nobody configured must not silently swallow its messages. Null only before Init().
+		static const TagDetails* FindTagDetails(std::string_view tag)
+		{
+			auto it = s_EnabledTags.find(std::string(tag));
+			if (it == s_EnabledTags.end())
+				it = s_EnabledTags.find("");
+			return it != s_EnabledTags.end() ? &it->second : nullptr;
+		}
 		static std::map<std::string, TagDetails> s_DefaultTagDetails;
 	};
 
@@ -185,10 +195,10 @@ namespace Lux {
 	template<typename... Args>
 	void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::format_string<Args...> format, Args&&... args)
 	{
-		auto it = s_EnabledTags.find(std::string(tag));
-		if (it == s_EnabledTags.end())
+		const TagDetails* tagDetails = FindTagDetails(tag);
+		if (!tagDetails)
 			return;
-		const auto& detail = it->second;
+		const auto& detail = *tagDetails;
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
@@ -217,10 +227,10 @@ namespace Lux {
 
 	inline void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message)
 	{
-		auto it = s_EnabledTags.find(std::string(tag));
-		if (it == s_EnabledTags.end())
+		const TagDetails* tagDetails = FindTagDetails(tag);
+		if (!tagDetails)
 			return;
-		const auto& detail = it->second;
+		const auto& detail = *tagDetails;
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
