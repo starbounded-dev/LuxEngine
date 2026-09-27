@@ -862,7 +862,7 @@ namespace Lux {
 			}
 
 			size_t entityIndex = 0;
-			for (auto entity : entities)
+			for (const auto entity : entities)
 			{
 				try
 				{
@@ -886,7 +886,7 @@ namespace Lux {
 
 					const UUID uuid = entity["Entity"].as<uint64_t>();
 					std::string name = "Entity";
-					if (auto tag = entity["TagComponent"])
+					if (const auto tag = entity["TagComponent"])
 						name = tag["Tag"].as<std::string>("Entity");
 
 					scene->CreateEntityWithID(uuid, name, false);
@@ -906,7 +906,7 @@ namespace Lux {
 			}
 
 			entityIndex = 0;
-			for (auto entity : entities)
+			for (const auto entity : entities)
 			{
 				try
 				{
@@ -914,7 +914,7 @@ namespace Lux {
 
 				// Editor lock/label state lives on the (already-created) TagComponent; absent keys
 				// keep the defaults so older scenes load unchanged.
-				if (auto tag = entity["TagComponent"])
+				if (const auto tag = entity["TagComponent"])
 				{
 					auto& tagComponent = deserializedEntity.GetComponent<TagComponent>();
 					tagComponent.Locked = tag["Locked"].as<bool>(false);
@@ -924,28 +924,28 @@ namespace Lux {
 				if (entity["Folder"] && entity["Folder"].as<bool>(false))
 					deserializedEntity.AddComponent<FolderComponent>();
 
-				if (auto parent = entity["Parent"])
+				if (const auto parent = entity["Parent"])
 					deserializedEntity.GetComponent<RelationshipComponent>().ParentHandle = parent.as<uint64_t>();
 
-				if (auto children = entity["Children"])
+				if (const auto children = entity["Children"])
 				{
 					auto& childList = deserializedEntity.GetComponent<RelationshipComponent>().Children;
 					childList.clear();
-					for (auto child : children)
+					for (const auto child : children)
 					{
-						if (auto handle = child["Handle"])
+						if (const auto handle = child["Handle"])
 							childList.emplace_back(handle.as<uint64_t>());
 					}
 				}
 
-				if (auto prefab = entity["PrefabComponent"])
+				if (const auto prefab = entity["PrefabComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<PrefabComponent>();
 					component.PrefabID = prefab["Prefab"].as<uint64_t>(0);
 					component.EntityID = prefab["Entity"].as<uint64_t>(0);
 				}
 
-				if (auto transform = entity["TransformComponent"])
+				if (const auto transform = entity["TransformComponent"])
 				{
 					auto& component = deserializedEntity.GetComponent<TransformComponent>();
 					if (!transform["Position"] || !transform["Rotation"] || !transform["Scale"])
@@ -956,7 +956,7 @@ namespace Lux {
 					component.Scale = transform["Scale"].as<glm::vec3>();
 				}
 
-				if (auto script = entity["ScriptComponent"])
+				if (const auto script = entity["ScriptComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<ScriptComponent>();
 					component.ClassName = script["ClassName"].as<std::string>("");
@@ -973,9 +973,9 @@ namespace Lux {
 							storage.InitializeEntityStorage(component.ScriptID, entityID);
 						auto& entityStorage = storage.EntityStorage.at(entityID);
 
-						if (auto storedFields = script["StoredFields"])
+						if (const auto storedFields = script["StoredFields"])
 						{
-							for (auto sf : storedFields)
+							for (const auto sf : storedFields)
 							{
 								uint32_t fieldID = sf["ID"].as<uint32_t>(0);
 								DataType type = DataTypeFromString(sf["Type"].as<std::string>("Float"));
@@ -984,7 +984,7 @@ namespace Lux {
 									continue;
 
 								FieldStorage& fs = fieldIt->second;
-								auto dataNode = sf["Data"];
+								const auto dataNode = sf["Data"];
 
 								if (sf["Array"] && sf["Array"].as<bool>(false))
 								{
@@ -1019,19 +1019,19 @@ namespace Lux {
 					}
 				}
 
-				if (auto mesh = entity["MeshComponent"])
+				if (const auto mesh = entity["MeshComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<MeshComponent>();
 					component.Mesh = mesh["AssetID"].as<uint64_t>(0);
 				}
 
-				if (auto meshTag = entity["MeshTagComponent"])
+				if (const auto meshTag = entity["MeshTagComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<MeshTagComponent>();
 					component.MeshEntity = meshTag["EntityID"].as<uint64_t>(0);
 				}
 
-				if (auto submesh = entity["SubmeshComponent"])
+				if (const auto submesh = entity["SubmeshComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SubmeshComponent>();
 					component.Mesh = submesh["AssetID"].as<uint64_t>(0);
@@ -1040,7 +1040,7 @@ namespace Lux {
 					component.Visible = submesh["Visible"].as<bool>(true);
 				}
 
-				if (auto staticMesh = entity["StaticMeshComponent"])
+				if (const auto staticMesh = entity["StaticMeshComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<StaticMeshComponent>();
 					component.StaticMesh = GetDeserializedStaticMeshHandle(staticMesh, deserializedEntity);
@@ -1048,10 +1048,10 @@ namespace Lux {
 					component.Visible = staticMesh["Visible"].as<bool>(true);
 				}
 
-				if (auto camera = entity["CameraComponent"])
+				if (const auto camera = entity["CameraComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<CameraComponent>();
-					auto cameraProps = camera["Camera"];
+					const auto cameraProps = camera["Camera"];
 					component.Camera.SetProjectionType((SceneCamera::ProjectionType)cameraProps["ProjectionType"].as<int>(0));
 					component.Camera.SetDegPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<float>(45.0f));
 					component.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<float>(0.1f));
@@ -1063,7 +1063,7 @@ namespace Lux {
 					component.FixedAspectRatio = camera["FixedAspectRatio"].as<bool>(false);
 				}
 
-				if (auto light = entity["DirectionalLightComponent"])
+				if (const auto light = entity["DirectionalLightComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<DirectionalLightComponent>();
 					component.Intensity = light["Intensity"].as<float>(1.0f);
@@ -1079,7 +1079,7 @@ namespace Lux {
 					component.ShadowResolutionTier = light["ShadowResolutionTier"].as<uint32_t>(2);
 				}
 
-				if (auto light = entity["PointLightComponent"])
+				if (const auto light = entity["PointLightComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<PointLightComponent>();
 					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
@@ -1095,7 +1095,7 @@ namespace Lux {
 					component.Falloff = light["Falloff"].as<float>(1.0f);
 				}
 
-				if (auto light = entity["SpotLightComponent"])
+				if (const auto light = entity["SpotLightComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SpotLightComponent>();
 					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
@@ -1113,7 +1113,7 @@ namespace Lux {
 					component.ShadowResolutionTier = light["ShadowResolutionTier"].as<uint32_t>(1);
 				}
 
-				if (auto skyLight = entity["SkyLightComponent"])
+				if (const auto skyLight = entity["SkyLightComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SkyLightComponent>();
 					component.SceneEnvironment = skyLight["EnvironmentMap"].as<uint64_t>(0);
@@ -1123,7 +1123,7 @@ namespace Lux {
 					component.TurbidityAzimuthInclination = skyLight["TurbidityAzimuthInclination"].as<glm::vec3>(glm::vec3{ 2.0f, 0.0f, 0.0f });
 				}
 
-				if (auto sprite = entity["SpriteRendererComponent"])
+				if (const auto sprite = entity["SpriteRendererComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SpriteRendererComponent>();
 					component.Color = sprite["Color"].as<glm::vec4>(glm::vec4(1.0f));
@@ -1134,7 +1134,7 @@ namespace Lux {
 					component.ScreenSpace = sprite["ScreenSpace"].as<bool>(false);
 				}
 
-				if (auto circle = entity["CircleRendererComponent"])
+				if (const auto circle = entity["CircleRendererComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<CircleRendererComponent>();
 					component.Color = circle["Color"].as<glm::vec4>(glm::vec4(1.0f));
@@ -1142,7 +1142,7 @@ namespace Lux {
 					component.Fade = circle["Fade"].as<float>(0.005f);
 				}
 
-				if (auto text = entity["TextComponent"])
+				if (const auto text = entity["TextComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<TextComponent>();
 					component.TextString = text["TextString"].as<std::string>("");
@@ -1157,7 +1157,7 @@ namespace Lux {
 					component.ShadowColor = text["ShadowColor"].as<glm::vec4>(glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f });
 				}
 
-				if (auto rigidBody = entity["RigidBody2DComponent"])
+				if (const auto rigidBody = entity["RigidBody2DComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<RigidBody2DComponent>();
 					component.BodyType = (RigidBody2DComponent::Type)rigidBody["BodyType"].as<int>((int)RigidBody2DComponent::Type::Static);
@@ -1169,7 +1169,7 @@ namespace Lux {
 					component.IsBullet = rigidBody["IsBullet"].as<bool>(false);
 				}
 
-				if (auto boxCollider = entity["BoxCollider2DComponent"])
+				if (const auto boxCollider = entity["BoxCollider2DComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<BoxCollider2DComponent>();
 					component.Offset = boxCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
@@ -1178,7 +1178,7 @@ namespace Lux {
 					component.Friction = boxCollider["Friction"].as<float>(1.0f);
 				}
 
-				if (auto circleCollider = entity["CircleCollider2DComponent"])
+				if (const auto circleCollider = entity["CircleCollider2DComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<CircleCollider2DComponent>();
 					component.Offset = circleCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
@@ -1187,7 +1187,7 @@ namespace Lux {
 					component.Friction = circleCollider["Friction"].as<float>(1.0f);
 				}
 
-				if (auto rigidBody = entity["RigidBodyComponent"])
+				if (const auto rigidBody = entity["RigidBodyComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<RigidBodyComponent>();
 					component.BodyType = (EBodyType)rigidBody["BodyType"].as<int>((int)EBodyType::Static);
@@ -1206,7 +1206,7 @@ namespace Lux {
 					component.LockedAxes = (EActorAxis)rigidBody["LockedAxes"].as<uint32_t>((uint32_t)EActorAxis::None);
 				}
 
-				if (auto characterController = entity["CharacterControllerComponent"])
+				if (const auto characterController = entity["CharacterControllerComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<CharacterControllerComponent>();
 					component.SlopeLimitDeg = characterController["SlopeLimitDeg"].as<float>(45.0f);
@@ -1217,19 +1217,19 @@ namespace Lux {
 					component.ControlRotationInAir = characterController["ControlRotationInAir"].as<bool>(false);
 				}
 
-				if (auto compoundCollider = entity["CompoundColliderComponent"])
+				if (const auto compoundCollider = entity["CompoundColliderComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<CompoundColliderComponent>();
 					component.IncludeStaticChildColliders = compoundCollider["IncludeStaticChildColliders"].as<bool>(true);
 					component.IsImmutable = compoundCollider["IsImmutable"].as<bool>(true);
-					if (auto compoundedEntities = compoundCollider["CompoundedColliderEntities"])
+					if (const auto compoundedEntities = compoundCollider["CompoundedColliderEntities"])
 					{
-						for (auto compoundedEntity : compoundedEntities)
+						for (const auto compoundedEntity : compoundedEntities)
 							component.CompoundedColliderEntities.emplace_back(compoundedEntity.as<uint64_t>(0));
 					}
 				}
 
-				if (auto boxCollider = entity["BoxColliderComponent"])
+				if (const auto boxCollider = entity["BoxColliderComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<BoxColliderComponent>();
 					component.HalfSize = boxCollider["HalfSize"].as<glm::vec3>(glm::vec3{ 0.5f, 0.5f, 0.5f });
@@ -1239,7 +1239,7 @@ namespace Lux {
 					component.Material.Restitution = boxCollider["Restitution"].as<float>(0.0f);
 				}
 
-				if (auto sphereCollider = entity["SphereColliderComponent"])
+				if (const auto sphereCollider = entity["SphereColliderComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SphereColliderComponent>();
 					component.Radius = sphereCollider["Radius"].as<float>(0.5f);
@@ -1249,7 +1249,7 @@ namespace Lux {
 					component.Material.Restitution = sphereCollider["Restitution"].as<float>(0.0f);
 				}
 
-				if (auto capsuleCollider = entity["CapsuleColliderComponent"])
+				if (const auto capsuleCollider = entity["CapsuleColliderComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<CapsuleColliderComponent>();
 					component.Radius = capsuleCollider["Radius"].as<float>(0.5f);
@@ -1260,7 +1260,7 @@ namespace Lux {
 					component.Material.Restitution = capsuleCollider["Restitution"].as<float>(0.0f);
 				}
 
-				if (auto meshCollider = entity["MeshColliderComponent"])
+				if (const auto meshCollider = entity["MeshColliderComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<MeshColliderComponent>();
 					component.ColliderAsset = meshCollider["ColliderAsset"].as<uint64_t>(0);
@@ -1280,10 +1280,10 @@ namespace Lux {
 					component.CollisionComplexity = (ECollisionComplexity)meshCollider["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
 				}
 
-				if (auto node = entity["MusicDirectorComponent"])
+				if (const auto node = entity["MusicDirectorComponent"])
 				{
 					auto& music = deserializedEntity.AddComponent<MusicDirectorComponent>();
-					if (auto reference = node["Event"])
+					if (const auto reference = node["Event"])
 					{
 						music.Event.Guid = reference["Guid"].as<std::string>("");
 						music.Event.Path = reference["Path"].as<std::string>("");
@@ -1296,7 +1296,7 @@ namespace Lux {
 						throw std::runtime_error("Music intensity must be finite and in [0, 1]");
 				}
 
-				if (auto node = entity["AudioZoneComponent"])
+				if (const auto node = entity["AudioZoneComponent"])
 				{
 					auto& zone = deserializedEntity.AddComponent<AudioZoneComponent>();
 					const auto shape = node["Shape"].as<uint32_t>(0);
@@ -1311,13 +1311,13 @@ namespace Lux {
 					zone.BlendDistance = node["BlendDistance"].as<float>(zone.BlendDistance);
 					zone.FadeTime = node["FadeTime"].as<float>(zone.FadeTime);
 					zone.Volume = node["Volume"].as<float>(zone.Volume);
-					if (auto reference = node["AmbienceEvent"])
+					if (const auto reference = node["AmbienceEvent"])
 					{
 						zone.AmbienceEvent.Guid = reference["Guid"].as<std::string>("");
 						zone.AmbienceEvent.Path = reference["Path"].as<std::string>("");
 						zone.AmbienceEvent.BankName = reference["BankName"].as<std::string>("");
 					}
-					if (auto reference = node["Snapshot"])
+					if (const auto reference = node["Snapshot"])
 					{
 						zone.Snapshot.Guid = reference["Guid"].as<std::string>("");
 						zone.Snapshot.Path = reference["Path"].as<std::string>("");
@@ -1327,7 +1327,7 @@ namespace Lux {
 						throw std::runtime_error("Invalid audio zone dimensions or blend settings");
 				}
 
-				if (auto node = entity["AudioPortalComponent"])
+				if (const auto node = entity["AudioPortalComponent"])
 				{
 					auto& portal = deserializedEntity.AddComponent<AudioPortalComponent>();
 					if (node["Enabled"])
@@ -1346,7 +1346,7 @@ namespace Lux {
 						throw std::runtime_error("Invalid audio portal material, dimensions or open factor");
 				}
 
-				if (auto surface = entity["AudioSurfaceComponent"])
+				if (const auto surface = entity["AudioSurfaceComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<AudioSurfaceComponent>();
 					if (!ParseAcousticMaterial(surface["Material"].as<std::string>("Default"), component.Material))
@@ -1369,7 +1369,7 @@ namespace Lux {
 					component.ImpactOverride = readEvent("ImpactOverride");
 				}
 
-				if (auto audioSource = entity["AudioSourceComponent"])
+				if (const auto audioSource = entity["AudioSourceComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<AudioSourceComponent>();
 					component.LegacyAudio = audioSource["Audio"].as<uint64_t>(0);
@@ -1392,9 +1392,9 @@ namespace Lux {
 					// here deliberately rather than by accident - reading them would resurrect
 					// settings that no longer reach the mixer.
 
-					if (auto overrides = audioSource["ParameterOverrides"])
+					if (const auto overrides = audioSource["ParameterOverrides"])
 					{
-						for (auto entry : overrides)
+						for (const auto entry : overrides)
 						{
 							component.ParameterOverrides.emplace_back(
 								entry["Name"].as<std::string>(std::string{}),
@@ -1407,7 +1407,7 @@ namespace Lux {
 					component.Event.BankName = audioSource["EventBank"].as<std::string>(std::string{});
 				}
 
-				if (auto audioListener = entity["AudioListenerComponent"])
+				if (const auto audioListener = entity["AudioListenerComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<AudioListenerComponent>();
 					component.Active = audioListener["Active"].as<bool>(true);
