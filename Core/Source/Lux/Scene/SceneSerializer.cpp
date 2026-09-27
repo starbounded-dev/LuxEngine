@@ -1529,6 +1529,31 @@ namespace Lux {
 		return snapshots;
 	}
 
+	std::map<UUID, std::string> SceneSerializer::SerializeEntitySnapshots(const std::vector<UUID>& entityIDs, std::string& outMeta)
+	{
+		LUX_PROFILE_FUNCTION("SceneSerializer::SerializeEntitySnapshots(subset)");
+
+		std::map<UUID, std::string> snapshots;
+		for (UUID entityID : entityIDs)
+		{
+			Entity entity = m_Scene->TryGetEntityWithUUID(entityID);
+			if (!entity)
+				continue;
+
+			YAML::Emitter entityOut;
+			SerializeEntity(entityOut, entity);
+			snapshots.emplace(entityID, entityOut.c_str());
+		}
+
+		YAML::Emitter metaOut;
+		metaOut << YAML::BeginMap;
+		SerializeSceneMetadata(metaOut, m_Scene);
+		metaOut << YAML::EndMap;
+		outMeta = metaOut.c_str();
+
+		return snapshots;
+	}
+
 	std::unordered_set<std::string> SceneSerializer::GetOverriddenComponentKeys(Entity instance, Entity prefabSource)
 	{
 		std::unordered_set<std::string> result;

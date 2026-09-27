@@ -30,12 +30,15 @@ namespace Lux
 		bool DeserializeFromYAML(const std::string& yamlString);
 
 		// Snapshot the scene as separable parts, for granular (per-entity) undo storage:
-		//   outMeta       — the scene YAML with an empty Entities list (name + post-processing)
+		//   outMeta       — the scene YAML without the Entities list (name + post-processing)
 		//   return value  — each entity's YAML block, keyed by UUID
-		// Both are produced by round-tripping the scene through YAML, so two calls on the same scene
-		// state yield identical strings (used for diffing). Reassemble + load with
+		// Both are emitted directly from the scene, so two calls on the same scene state yield
+		// identical strings (used for diffing). Reassemble + load with
 		// DeserializeFromSnapshots — restore always goes through the whole-scene deserialize path.
 		std::map<UUID, std::string> SerializeEntitySnapshots(std::string& outMeta);
+		// Same, restricted to `entityIDs` (absent ones are skipped) - for undo commits whose edit is
+		// known to touch only those entities.
+		std::map<UUID, std::string> SerializeEntitySnapshots(const std::vector<UUID>& entityIDs, std::string& outMeta);
 		bool DeserializeFromSnapshots(const std::string& meta, const std::vector<std::string>& entityBlocks);
 
 		// Returns the serialized component keys (e.g. "TransformComponent") that differ between two

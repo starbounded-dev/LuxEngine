@@ -347,7 +347,7 @@ namespace Lux {
 			// These are raw DragFloats (not ImGuiEx::Property), so they don't raise the undo signal
 			// on their own — flag it here so transform edits are captured like every other field.
 			if (changed)
-				EditorStack::Get().MarkSceneEdited("Edit Transform");
+				EditorStack::Get().MarkEditTargetEdited("Edit Transform");
 
 			return changed;
 		}
@@ -1405,6 +1405,10 @@ namespace Lux {
 
 	void SceneHierarchyPanel::DrawComponents(const std::vector<UUID>& entityIDs)
 	{
+		// Property widgets here edit only the selected entities (ApplyToSelection), so their undo
+		// snapshots can skip the rest of the scene. Actions that reach other entities (add/remove
+		// component, prefab revert, reparent) call MarkSceneEdited() and stay scene-wide.
+		EditorStack::ScopedEditTarget editTarget(entityIDs);
 		if (!m_Context || entityIDs.empty())
 		{
 			ImGui::TextDisabled("Select an entity to inspect its properties.");

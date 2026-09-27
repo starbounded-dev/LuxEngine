@@ -378,8 +378,15 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   by the `UndoDo` macro), and non-widget edits call `MarkSceneEdited("label")`. `EditorLayer` turns the
   flag into a **labelled, per-entity diff** step: it splits the scene via
   `SceneSerializer::SerializeEntitySnapshots` (per-entity YAML + meta) and stores only the changed
-  entities, so history is O(change). Restore reassembles the full scene and runs the whole-scene
-  deserialize (`DeserializeFromSnapshots`), which keeps it safe against the two-way parent/child links.
+  entities, so history is O(change). Each signal also carries a **scope**: `MarkSceneEdited` is
+  scene-wide, `MarkEntitiesEdited(ids)` names entities (gizmo), and `PushCopy` uses the active
+  `EditorStack::ScopedEditTarget` — set by `SceneHierarchyPanel::DrawComponents` to the selection —
+  falling back to scene-wide. Scoped commits re-serialize only the named entities (a ~7k-entity
+  scene otherwise stalls ~1 s per edit); any scene-wide signal forces a full snapshot. The baseline
+  stays complete either way, and `LUX_DEBUG` builds verify each scoped commit against a full capture.
+  An edit that can touch entities it does not name **must** call `MarkSceneEdited`. Restore
+  reassembles the full scene and runs the whole-scene deserialize (`DeserializeFromSnapshots`),
+  which keeps it safe against the two-way parent/child links.
   Value-based, so nothing dangles. Non-scene edits (renderer/project settings) push closure commands
   (`CustomUndo`/`CustomRedo`, via `EditorLayer::PushUndoCommand`) onto the same stack, so one `Ctrl+Z`
   covers everything. Selection is restored per step; a `UndoHistoryPanel` (View → History) shows the

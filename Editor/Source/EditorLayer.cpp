@@ -976,7 +976,7 @@ namespace Lux {
 						{
 							const char* gizmoLabel = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? "Rotate"
 								: m_GizmoType == ImGuizmo::OPERATION::SCALE ? "Scale" : "Move";
-							EditorStack::Get().MarkSceneEdited(gizmoLabel);
+							EditorStack::Get().MarkEntitiesEdited({ selectedEntity.GetUUID() }, gizmoLabel);
 						}
 						m_GizmoWasUsing = gizmoUsing;
 					}
@@ -3849,6 +3849,7 @@ namespace Lux {
 		m_RedoStack.clear();
 		m_UndoCommitPending = false;
 		m_PendingUndoLabel = "Edit";
+		EditorStack::Get().ClearEditScope();
 		m_BaselineEntities = CaptureSceneEntities(m_EditorScene, m_BaselineMeta);
 		CaptureRendererSettingsBaseline();
 	}
@@ -3859,10 +3860,19 @@ namespace Lux {
 		if (!m_EditorScene)
 			return;
 
-		std::string meta;
-		std::map<UUID, std::string> current = CaptureSceneEntities(m_EditorScene, meta);
+		// Re-serialize only the entities the pending edits named, unless one was scene-wide (see
+		// EditorStack). The baseline stays a complete snapshot either way, because undo restores
+		// the whole scene from it.
+		const EditorStack& editStack = EditorStack::Get();
+		const bool fullSnapshot = editStack.IsFullSnapshotRequired();
+		const std::vector<UUID> editedEntities = fullSnapshot ? std::vector<UUID>{}
+			: std::vector<UUID>(editStack.GetEditedEntities().begin(), editStack.GetEditedEntities().end());
 
-		// Diff the current scene against the committed baseline; the step records only what changed.
+		std::string meta;
+		std::map<UUID, std::string> current = fullSnapshot ? CaptureSceneEntities(m_EditorScene, meta)
+			: SceneSerializer(m_EditorScene).SerializeEntitySnapshots(editedEntities, meta);
+
+		// Diff against the committed baseline; the step records only what changed.
 		UndoCommand command;
 		command.Label = m_PendingUndoLabel;
 
@@ -3873,20 +3883,59 @@ namespace Lux {
 			command.MetaAfter = meta;
 		}
 
-		// Entities present in the baseline: changed value, or removed (absent from current).
-		for (const auto& [handle, before] : m_BaselineEntities)
+		if (fullSnapshot)
 		{
-			auto it = current.find(handle);
-			const std::string after = (it != current.end()) ? it->second : std::string();
-			if (before != after)
+			// Entities present in the baseline: changed value, or removed (absent from current).
+			for (const auto& [handle, before] : m_BaselineEntities)
+			{
+				auto it = current.find(handle);
+				const std::string after = (it != current.end()) ? it->second : std::string();
+				if (before != after)
+					command.Entities.push_back({ handle, before, after });
+			}
+			// Entities newly created (absent from the baseline).
+			for (const auto& [handle, after] : current)
+			{
+				if (m_BaselineEntities.find(handle) == m_BaselineEntities.end())
+					command.Entities.push_back({ handle, std::string(), after });
+			}
+			m_BaselineEntities = std::move(current);
+		}
+		else
+		{
+			for (UUID handle : editedEntities)
+			{
+				auto baselineIt = m_BaselineEntities.find(handle);
+				auto currentIt = current.find(handle);
+				const std::string before = baselineIt != m_BaselineEntities.end() ? baselineIt->second : std::string();
+				const std::string after = currentIt != current.end() ? currentIt->second : std::string();
+				if (before == after)
+					continue;
+
 				command.Entities.push_back({ handle, before, after });
+				if (after.empty())
+					m_BaselineEntities.erase(handle);
+				else
+					m_BaselineEntities[handle] = after;
+			}
 		}
-		// Entities newly created (absent from the baseline).
-		for (const auto& [handle, after] : current)
+		m_BaselineMeta = meta;
+
+#ifdef LUX_DEBUG
+		// A partial commit trusts the edit's declared scope. Verify it, so an edit that touched
+		// entities it did not name is caught here instead of as a silently wrong undo.
+		if (!fullSnapshot)
 		{
-			if (m_BaselineEntities.find(handle) == m_BaselineEntities.end())
-				command.Entities.push_back({ handle, std::string(), after });
+			std::string fullMeta;
+			std::map<UUID, std::string> full = CaptureSceneEntities(m_EditorScene, fullMeta);
+			if (full != m_BaselineEntities)
+			{
+				LUX_CORE_ERROR_TAG("Editor", "Undo: edit '{}' changed entities outside its declared scope; "
+					"its call site must use MarkSceneEdited(). Resyncing the undo baseline.", m_PendingUndoLabel);
+				m_BaselineEntities = std::move(full);
+			}
 		}
+#endif
 
 		// No-op: an edit signalled from a non-scene panel left the scene YAML unchanged.
 		if (!command.MetaChanged && command.Entities.empty())
@@ -3899,9 +3948,6 @@ namespace Lux {
 		m_UndoStack.push_back(std::move(command));
 		TrimUndoStack(m_UndoStack);
 		m_RedoStack.clear();
-
-		m_BaselineMeta = std::move(meta);
-		m_BaselineEntities = std::move(current);
 	}
 
 	void EditorLayer::PushUndoCommand(const std::string& label, std::function<void()> undo, std::function<void()> redo)
@@ -3998,6 +4044,7 @@ namespace Lux {
 			{
 				CommitPlaySnapshot();        // transient runtime-scene history
 			}
+			EditorStack::Get().ClearEditScope();
 			m_UndoCommitPending = false;
 		}
 	}
@@ -4104,6 +4151,7 @@ namespace Lux {
 		// The restore itself is not a user edit — clear any signal/pending it might have raised.
 		m_UndoCommitPending = false;
 		EditorStack::Get().ConsumeSceneEdit();
+		EditorStack::Get().ClearEditScope();
 	}
 
 	void EditorLayer::RestoreSelection(const std::vector<UUID>& handles)
@@ -4272,6 +4320,7 @@ namespace Lux {
 		m_PlayUndoStack.clear();
 		m_PlayRedoStack.clear();
 		m_UndoCommitPending = false;
+		EditorStack::Get().ClearEditScope();
 		m_PlayBaselineEntities = CaptureSceneEntities(m_ActiveScene, m_PlayBaselineMeta);
 	}
 
@@ -4365,6 +4414,7 @@ namespace Lux {
 
 		m_UndoCommitPending = false;
 		EditorStack::Get().ConsumeSceneEdit();
+		EditorStack::Get().ClearEditScope();
 	}
 
 	void EditorLayer::AdoptRuntimeScene(const Ref<Scene>& scene)
