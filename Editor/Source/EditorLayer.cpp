@@ -3855,6 +3855,7 @@ namespace Lux {
 
 	void EditorLayer::CommitSceneSnapshot()
 	{
+		LUX_PROFILE_FUNCTION("EditorLayer::CommitSceneSnapshot");
 		if (!m_EditorScene)
 			return;
 

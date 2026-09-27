@@ -1442,15 +1442,16 @@ namespace Lux {
 	{
 	}
 
-	void SceneSerializer::SerializeToYAML(YAML::Emitter& out)
+	// Scene-level keys (everything except the Entities sequence). Written inside the caller's map,
+	// so the full scene document and the undo metadata snapshot share one source.
+	static void SerializeSceneMetadata(YAML::Emitter& out, const Ref<Scene>& scene)
 	{
-		out << YAML::BeginMap;
-		out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+		out << YAML::Key << "Scene" << YAML::Value << scene->GetName();
 
 		// Scene-wide post-processing. Previously authored per PostProcessVolume entity; the
 		// volume system is gone, so it lives here as one block.
 		{
-			const PostProcessSettings& post = m_Scene->GetPostProcessSettings();
+			const PostProcessSettings& post = scene->GetPostProcessSettings();
 			out << YAML::Key << "PostProcess" << YAML::Value << YAML::BeginMap;
 			out << YAML::Key << "Exposure" << YAML::Value << post.Exposure;
 			out << YAML::Key << "ExposureMode" << YAML::Value << static_cast<uint32_t>(post.ExposureControl);
@@ -1475,6 +1476,12 @@ namespace Lux {
 			out << YAML::Key << "Gain" << YAML::Value << post.Gain;
 			out << YAML::EndMap;
 		}
+	}
+
+	void SceneSerializer::SerializeToYAML(YAML::Emitter& out)
+	{
+		out << YAML::BeginMap;
+		SerializeSceneMetadata(out, m_Scene);
 
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 
@@ -1495,32 +1502,28 @@ namespace Lux {
 
 	std::map<UUID, std::string> SceneSerializer::SerializeEntitySnapshots(std::string& outMeta)
 	{
-		// Round-trip the whole scene through YAML once, then split it: each entity block keyed by
-		// UUID, and the scene metadata (everything except Entities). Emitting from the parsed nodes
-		// makes the output stable across calls, which is what the undo diff relies on.
+		LUX_PROFILE_FUNCTION("SceneSerializer::SerializeEntitySnapshots");
+
+		// Emit each entity block and the scene metadata straight into their own strings. This runs
+		// on every undoable edit, so it must not round-trip the whole scene through one document
+		// and YAML::Load it back: on a ~7k-entity scene that tripled the YAML work and froze the
+		// editor for seconds per edit. SerializeEntity is deterministic for unchanged state, which
+		// is all the undo diff needs; the blocks reload through DeserializeFromSnapshots.
 		std::map<UUID, std::string> snapshots;
 
-		const std::string full = SerializeToString();
-		YAML::Node root = YAML::Load(full);
-
-		if (root["Entities"] && root["Entities"].IsSequence())
+		auto view = m_Scene->m_Registry.view<IDComponent>();
+		for (auto entityID : view)
 		{
-			for (const auto& entityNode : root["Entities"])
-			{
-				if (!entityNode["Entity"])
-					continue;
-
-				const UUID uuid = entityNode["Entity"].as<uint64_t>();
-				YAML::Emitter entityOut;
-				entityOut << entityNode;
-				snapshots[uuid] = entityOut.c_str();
-			}
+			Entity entity{ entityID, m_Scene.get() };
+			YAML::Emitter entityOut;
+			SerializeEntity(entityOut, entity);
+			snapshots.emplace(entity.GetUUID(), entityOut.c_str());
 		}
 
-		// Metadata = the scene with an emptied Entities list.
-		root.remove("Entities");
 		YAML::Emitter metaOut;
-		metaOut << root;
+		metaOut << YAML::BeginMap;
+		SerializeSceneMetadata(metaOut, m_Scene);
+		metaOut << YAML::EndMap;
 		outMeta = metaOut.c_str();
 
 		return snapshots;
