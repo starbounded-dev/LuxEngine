@@ -13,7 +13,7 @@
 #include <algorithm>
 #include <fstream>
 #include <map>
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 
 namespace Lux
 {
@@ -701,18 +701,18 @@ namespace Lux
 		if (!FileSystem::Exists(assetRegistryPath))
 			return;
 
-		YAML::Node data;
+		Yaml::Node data;
 		try
 		{
-			data = YAML::LoadFile(assetRegistryPath.string());
+			data = Yaml::LoadFile(assetRegistryPath.string());
 		}
-		catch (const YAML::ParserException& e)
+		catch (const Yaml::Exception& e)
 		{
 			LUX_CORE_ERROR("Failed to load asset registry '{}': {}", assetRegistryPath.string(), e.what());
 			return;
 		}
 
-		YAML::Node assetsNode = data["Assets"];
+		Yaml::Node assetsNode = data["Assets"];
 		if (!assetsNode)
 			assetsNode = data["AssetRegistry"];
 		if (!assetsNode)
@@ -831,21 +831,21 @@ namespace Lux
 			}
 		}
 
-		YAML::Emitter out;
-		out << YAML::BeginMap;
-		out << YAML::Key << "Assets" << YAML::Value << YAML::BeginSeq;
+		Yaml::Writer out;
+		out << Yaml::BeginMap;
+		out << Yaml::Key << "Assets" << Yaml::Value << Yaml::BeginSeq;
 		for (const auto& [handle, entry] : sortedEntries)
 		{
-			out << YAML::BeginMap;
-			out << YAML::Key << "Handle" << YAML::Value << handle;
-			out << YAML::Key << "FilePath" << YAML::Value << entry.FilePath;
-			out << YAML::Key << "Type" << YAML::Value << std::string(AssetTypeToString(entry.Type));
-			out << YAML::Key << "FileLastWriteTime" << YAML::Value << entry.FileLastWriteTime;
-			out << YAML::Key << "Status" << YAML::Value << AssetStatusToString(entry.Status);
-			out << YAML::EndMap;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Handle" << Yaml::Value << handle;
+			out << Yaml::Key << "FilePath" << Yaml::Value << entry.FilePath;
+			out << Yaml::Key << "Type" << Yaml::Value << std::string(AssetTypeToString(entry.Type));
+			out << Yaml::Key << "FileLastWriteTime" << Yaml::Value << entry.FileLastWriteTime;
+			out << Yaml::Key << "Status" << Yaml::Value << AssetStatusToString(entry.Status);
+			out << Yaml::EndMap;
 		}
-		out << YAML::EndSeq;
-		out << YAML::EndMap;
+		out << Yaml::EndSeq;
+		out << Yaml::EndMap;
 
 		std::ofstream fout(assetRegistryPath);
 		if (!fout.is_open())

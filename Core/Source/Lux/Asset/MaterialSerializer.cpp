@@ -15,7 +15,7 @@
 #include <charconv>
 #include <system_error>
 
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 
 namespace Lux
 {
@@ -27,12 +27,12 @@ namespace Lux
 			AssetPaths
 		};
 
-		static void WriteVec3(YAML::Emitter& out, const glm::vec3& value)
+		static void WriteVec3(Yaml::Writer& out, const glm::vec3& value)
 		{
-			out << YAML::Flow << YAML::BeginSeq << value.x << value.y << value.z << YAML::EndSeq;
+			out << Yaml::Flow << Yaml::BeginSeq << value.x << value.y << value.z << Yaml::EndSeq;
 		}
 
-		static glm::vec3 ReadVec3(const YAML::Node& node, const glm::vec3& fallback)
+		static glm::vec3 ReadVec3(const Yaml::Node& node, const glm::vec3& fallback)
 		{
 			if (!node || !node.IsSequence() || node.size() < 3)
 				return fallback;
@@ -40,12 +40,12 @@ namespace Lux
 			return { node[0].as<float>(), node[1].as<float>(), node[2].as<float>() };
 		}
 
-		static void WriteVec2(YAML::Emitter& out, const glm::vec2& value)
+		static void WriteVec2(Yaml::Writer& out, const glm::vec2& value)
 		{
-			out << YAML::Flow << YAML::BeginSeq << value.x << value.y << YAML::EndSeq;
+			out << Yaml::Flow << Yaml::BeginSeq << value.x << value.y << Yaml::EndSeq;
 		}
 
-		static glm::vec2 ReadVec2(const YAML::Node& node, const glm::vec2& fallback)
+		static glm::vec2 ReadVec2(const Yaml::Node& node, const glm::vec2& fallback)
 		{
 			if (!node || !node.IsSequence() || node.size() < 2)
 				return fallback;
@@ -65,7 +65,7 @@ namespace Lux
 			return "R";
 		}
 
-		static MaterialTextureChannel ReadChannel(const YAML::Node& node, MaterialTextureChannel fallback)
+		static MaterialTextureChannel ReadChannel(const Yaml::Node& node, MaterialTextureChannel fallback)
 		{
 			const std::string value = node ? node.as<std::string>("") : std::string{};
 			if (value == "R")
@@ -90,7 +90,7 @@ namespace Lux
 			return "Opaque";
 		}
 
-		static MaterialAlphaMode ReadAlphaMode(const YAML::Node& node, MaterialAlphaMode fallback)
+		static MaterialAlphaMode ReadAlphaMode(const Yaml::Node& node, MaterialAlphaMode fallback)
 		{
 			const std::string value = node ? node.as<std::string>("") : std::string{};
 			if (value == "Opaque")
@@ -154,7 +154,7 @@ namespace Lux
 			return ResolveTextureHandle(textureHandle);
 		}
 
-		static AssetHandle ResolveTextureReference(const YAML::Node& node)
+		static AssetHandle ResolveTextureReference(const Yaml::Node& node)
 		{
 			if (!node)
 				return 0;
@@ -178,9 +178,9 @@ namespace Lux
 			return ResolveTexturePath(reference);
 		}
 
-		static void WriteTextureReference(YAML::Emitter& out, const char* key, AssetHandle textureHandle, TextureReferenceSerialization textureReferenceSerialization)
+		static void WriteTextureReference(Yaml::Writer& out, const char* key, AssetHandle textureHandle, TextureReferenceSerialization textureReferenceSerialization)
 		{
-			out << YAML::Key << key << YAML::Value;
+			out << Yaml::Key << key << Yaml::Value;
 
 			if (textureReferenceSerialization == TextureReferenceSerialization::AssetPaths && textureHandle)
 			{
@@ -216,23 +216,23 @@ namespace Lux
 			const AssetHandle roughnessMap = materialAsset->GetRoughnessMapHandle();
 			const uint32_t materialFlags = materialAsset->GetMaterial()->GetFlags();
 
-			YAML::Emitter out;
-			out << YAML::BeginMap;
-			out << YAML::Key << "Material" << YAML::Value;
-			out << YAML::BeginMap;
+			Yaml::Writer out;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Material" << Yaml::Value;
+			out << Yaml::BeginMap;
 
-			out << YAML::Key << "Transparent" << YAML::Value << transparent;
-			out << YAML::Key << "AlbedoColor" << YAML::Value;
+			out << Yaml::Key << "Transparent" << Yaml::Value << transparent;
+			out << Yaml::Key << "AlbedoColor" << Yaml::Value;
 			WriteVec3(out, albedoColor);
-			out << YAML::Key << "Emission" << YAML::Value << emission;
+			out << Yaml::Key << "Emission" << Yaml::Value << emission;
 
 			// The transparent shader uses roughness and the normal map too; only metalness is opaque-only.
-			out << YAML::Key << "UseNormalMap" << YAML::Value << useNormalMap;
+			out << Yaml::Key << "UseNormalMap" << Yaml::Value << useNormalMap;
 			if (!transparent)
-				out << YAML::Key << "Metalness" << YAML::Value << metalness;
-			out << YAML::Key << "Roughness" << YAML::Value << roughness;
+				out << Yaml::Key << "Metalness" << Yaml::Value << metalness;
+			out << Yaml::Key << "Roughness" << Yaml::Value << roughness;
 			if (transparent)
-				out << YAML::Key << "Transparency" << YAML::Value << transparency;
+				out << Yaml::Key << "Transparency" << Yaml::Value << transparency;
 
 			WriteTextureReference(out, "AlbedoMap", albedoMap, textureReferenceSerialization);
 			WriteTextureReference(out, "NormalMap", normalMap, textureReferenceSerialization);
@@ -246,7 +246,7 @@ namespace Lux
 			const MaterialSurfaceParameters defaults;
 			if (emission > 0.0f || surface.EmissiveColor != defaults.EmissiveColor)
 			{
-				out << YAML::Key << "EmissiveColor" << YAML::Value;
+				out << Yaml::Key << "EmissiveColor" << Yaml::Value;
 				WriteVec3(out, surface.EmissiveColor);
 			}
 			if (surface.EmissiveMap)
@@ -254,47 +254,47 @@ namespace Lux
 			if (surface.OcclusionMap)
 				WriteTextureReference(out, "OcclusionMap", surface.OcclusionMap, textureReferenceSerialization);
 			if (surface.OcclusionStrength != defaults.OcclusionStrength)
-				out << YAML::Key << "OcclusionStrength" << YAML::Value << surface.OcclusionStrength;
+				out << Yaml::Key << "OcclusionStrength" << Yaml::Value << surface.OcclusionStrength;
 			if (surface.OcclusionChannel != defaults.OcclusionChannel)
-				out << YAML::Key << "OcclusionChannel" << YAML::Value << ChannelToString(surface.OcclusionChannel);
+				out << Yaml::Key << "OcclusionChannel" << Yaml::Value << ChannelToString(surface.OcclusionChannel);
 			if (surface.MetalnessChannel != defaults.MetalnessChannel)
-				out << YAML::Key << "MetalnessChannel" << YAML::Value << ChannelToString(surface.MetalnessChannel);
+				out << Yaml::Key << "MetalnessChannel" << Yaml::Value << ChannelToString(surface.MetalnessChannel);
 			if (surface.RoughnessChannel != defaults.RoughnessChannel)
-				out << YAML::Key << "RoughnessChannel" << YAML::Value << ChannelToString(surface.RoughnessChannel);
+				out << Yaml::Key << "RoughnessChannel" << Yaml::Value << ChannelToString(surface.RoughnessChannel);
 			if (surface.Specular != defaults.Specular)
-				out << YAML::Key << "Specular" << YAML::Value << surface.Specular;
+				out << Yaml::Key << "Specular" << Yaml::Value << surface.Specular;
 			if (surface.NormalStrength != defaults.NormalStrength)
-				out << YAML::Key << "NormalStrength" << YAML::Value << surface.NormalStrength;
+				out << Yaml::Key << "NormalStrength" << Yaml::Value << surface.NormalStrength;
 			if (surface.HeightMap)
 				WriteTextureReference(out, "HeightMap", surface.HeightMap, textureReferenceSerialization);
 			if (surface.BumpHeight != defaults.BumpHeight)
-				out << YAML::Key << "BumpHeight" << YAML::Value << surface.BumpHeight;
+				out << Yaml::Key << "BumpHeight" << Yaml::Value << surface.BumpHeight;
 			if (surface.UVTiling != defaults.UVTiling)
 			{
-				out << YAML::Key << "UVTiling" << YAML::Value;
+				out << Yaml::Key << "UVTiling" << Yaml::Value;
 				WriteVec2(out, surface.UVTiling);
 			}
 			if (surface.UVOffset != defaults.UVOffset)
 			{
-				out << YAML::Key << "UVOffset" << YAML::Value;
+				out << Yaml::Key << "UVOffset" << Yaml::Value;
 				WriteVec2(out, surface.UVOffset);
 			}
 			if (surface.UVRotation != defaults.UVRotation)
-				out << YAML::Key << "UVRotation" << YAML::Value << surface.UVRotation;
+				out << Yaml::Key << "UVRotation" << Yaml::Value << surface.UVRotation;
 			if (surface.AlphaMode != defaults.AlphaMode)
-				out << YAML::Key << "AlphaMode" << YAML::Value << AlphaModeToString(surface.AlphaMode);
+				out << Yaml::Key << "AlphaMode" << Yaml::Value << AlphaModeToString(surface.AlphaMode);
 			if (surface.AlphaThreshold != defaults.AlphaThreshold)
-				out << YAML::Key << "AlphaThreshold" << YAML::Value << surface.AlphaThreshold;
+				out << Yaml::Key << "AlphaThreshold" << Yaml::Value << surface.AlphaThreshold;
 			if (surface.TwoSided != defaults.TwoSided)
-				out << YAML::Key << "TwoSided" << YAML::Value << surface.TwoSided;
+				out << Yaml::Key << "TwoSided" << Yaml::Value << surface.TwoSided;
 			const int32_t acousticTag = materialAsset->GetAcousticTag();
 			if (acousticTag >= 0 && IsValidAcousticMaterial(static_cast<AcousticMaterial>(acousticTag)))
-				out << YAML::Key << "AcousticMaterial" << YAML::Value << AcousticMaterialName(static_cast<AcousticMaterial>(acousticTag));
+				out << Yaml::Key << "AcousticMaterial" << Yaml::Value << AcousticMaterialName(static_cast<AcousticMaterial>(acousticTag));
 
-			out << YAML::Key << "MaterialFlags" << YAML::Value << materialFlags;
+			out << Yaml::Key << "MaterialFlags" << Yaml::Value << materialFlags;
 
-			out << YAML::EndMap;
-			out << YAML::EndMap;
+			out << Yaml::EndMap;
+			out << Yaml::EndMap;
 			return std::string(out.c_str());
 		}
 
@@ -308,8 +308,8 @@ namespace Lux
 				return;
 			}
 
-			YAML::Node root = YAML::Load(yamlString);
-			YAML::Node materialNode = root["Material"];
+			Yaml::Node root = Yaml::Load(yamlString);
+			Yaml::Node materialNode = root["Material"];
 
 			const AssetHandle albedoMap = ResolveTextureReference(materialNode["AlbedoMap"]);
 			const AssetHandle normalMap = ResolveTextureReference(materialNode["NormalMap"]);
@@ -332,8 +332,8 @@ namespace Lux
 
 			RegisterMaterialDependenciesFromYAML(yamlString, handle);
 
-			YAML::Node root = YAML::Load(yamlString);
-			YAML::Node materialNode = root["Material"];
+			Yaml::Node root = Yaml::Load(yamlString);
+			Yaml::Node materialNode = root["Material"];
 			if (!materialNode)
 				return false;
 
@@ -356,7 +356,7 @@ namespace Lux
 			else
 				targetMaterialAsset->SetTransparency(materialNode["Transparency"].as<float>(1.0f));
 
-			const auto tryAssignTexture = [&targetMaterialAsset](const YAML::Node& textureNode, auto&& assignFn)
+			const auto tryAssignTexture = [&targetMaterialAsset](const Yaml::Node& textureNode, auto&& assignFn)
 			{
 				if (AssetHandle textureHandle = ResolveTextureReference(textureNode))
 					assignFn(textureHandle);
@@ -397,7 +397,7 @@ namespace Lux
 
 			// Optional: materials saved before acoustic tags, or without one, carry no tag.
 			int32_t acousticTag = -1;
-			if (const YAML::Node acousticNode = materialNode["AcousticMaterial"])
+			if (const Yaml::Node acousticNode = materialNode["AcousticMaterial"])
 			{
 				AcousticMaterial acoustic = AcousticMaterial::Default;
 				if (ParseAcousticMaterial(acousticNode.as<std::string>(""), acoustic))

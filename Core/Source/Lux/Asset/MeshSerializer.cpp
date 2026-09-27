@@ -18,47 +18,12 @@
 #include <fstream>
 #include <sstream>
 
-#include <yaml-cpp/yaml.h>
-
-namespace YAML
-{
-	template<>
-	struct convert<std::vector<uint32_t>>
-	{
-		static Node encode(const std::vector<uint32_t>& value)
-		{
-			Node node;
-			for (uint32_t element : value)
-				node.push_back(element);
-			return node;
-		}
-
-		static bool decode(const Node& node, std::vector<uint32_t>& result)
-		{
-			if (!node.IsSequence())
-				return false;
-
-			result.resize(node.size());
-			for (size_t i = 0; i < node.size(); i++)
-				result[i] = node[i].as<uint32_t>();
-			return true;
-		}
-	};
-}
+#include "Lux/Serialization/Yaml.h"
 
 namespace Lux
 {
 	namespace
 	{
-		YAML::Emitter& operator<<(YAML::Emitter& out, const std::vector<uint32_t>& value)
-		{
-			out << YAML::Flow << YAML::BeginSeq;
-			for (uint32_t element : value)
-				out << element;
-			out << YAML::EndSeq;
-			return out;
-		}
-
 		static std::string ReadMeshYAML(const AssetMetadata& metadata)
 		{
 			std::ifstream stream(Project::GetActiveAssetDirectory() / metadata.FilePath);
@@ -73,12 +38,12 @@ namespace Lux
 		template<typename TMesh>
 		static std::string SerializeMeshSelectionToYAML(const Ref<TMesh>& mesh)
 		{
-			YAML::Emitter out;
-			out << YAML::BeginMap;
-			out << YAML::Key << "Mesh" << YAML::Value;
-			out << YAML::BeginMap;
-			out << YAML::Key << "MeshSource" << YAML::Value << mesh->GetMeshSource();
-			out << YAML::Key << "SubmeshIndices" << YAML::Value;
+			Yaml::Writer out;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Mesh" << Yaml::Value;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "MeshSource" << Yaml::Value << mesh->GetMeshSource();
+			out << Yaml::Key << "SubmeshIndices" << Yaml::Value;
 
 			if (auto meshSource = AssetManager::GetAsset<MeshSource>(mesh->GetMeshSource());
 				meshSource && meshSource->GetSubmeshes().size() == mesh->GetSubmeshes().size())
@@ -90,13 +55,13 @@ namespace Lux
 				out << mesh->GetSubmeshes();
 			}
 
-			out << YAML::Key << "GenerateColliders" << YAML::Value << mesh->ShouldGenerateColliders();
-			out << YAML::EndMap;
-			out << YAML::EndMap;
+			out << Yaml::Key << "GenerateColliders" << Yaml::Value << mesh->ShouldGenerateColliders();
+			out << Yaml::EndMap;
+			out << Yaml::EndMap;
 			return std::string(out.c_str());
 		}
 
-		static void RegisterMeshDependencyFromYAML(const YAML::Node& data, AssetHandle handle)
+		static void RegisterMeshDependencyFromYAML(const Yaml::Node& data, AssetHandle handle)
 		{
 			AssetManager::DeregisterDependencies(handle);
 
@@ -109,20 +74,20 @@ namespace Lux
 
 		static std::string SerializeMeshColliderToYAML(const Ref<MeshColliderAsset>& collider)
 		{
-			YAML::Emitter out;
-			out << YAML::BeginMap;
-			out << YAML::Key << "MeshCollider" << YAML::Value;
-			out << YAML::BeginMap;
-			out << YAML::Key << "Mesh" << YAML::Value << collider->Mesh;
-			out << YAML::Key << "CollisionComplexity" << YAML::Value << (uint8_t)collider->CollisionComplexity;
-			out << YAML::EndMap;
-			out << YAML::EndMap;
+			Yaml::Writer out;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "MeshCollider" << Yaml::Value;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Mesh" << Yaml::Value << collider->Mesh;
+			out << Yaml::Key << "CollisionComplexity" << Yaml::Value << static_cast<uint32_t>(collider->CollisionComplexity);
+			out << Yaml::EndMap;
+			out << Yaml::EndMap;
 			return std::string(out.c_str());
 		}
 
-		static bool DeserializeMeshColliderFromYAML(const YAML::Node& data, Ref<MeshColliderAsset>& targetCollider)
+		static bool DeserializeMeshColliderFromYAML(const Yaml::Node& data, Ref<MeshColliderAsset>& targetCollider)
 		{
-			YAML::Node rootNode = data["MeshCollider"];
+			Yaml::Node rootNode = data["MeshCollider"];
 			if (!rootNode)
 				return false;
 
@@ -132,7 +97,7 @@ namespace Lux
 			return true;
 		}
 
-		static void RegisterMeshColliderDependencyFromYAML(const YAML::Node& data, AssetHandle handle)
+		static void RegisterMeshColliderDependencyFromYAML(const Yaml::Node& data, AssetHandle handle)
 		{
 			AssetManager::DeregisterDependencies(handle);
 			AssetHandle mesh = 0;
@@ -141,12 +106,12 @@ namespace Lux
 			AssetManager::RegisterDependency(mesh, handle);
 		}
 
-		static bool DeserializeMeshSelectionFromYAML(const YAML::Node& data, Ref<Mesh>& targetMesh)
+		static bool DeserializeMeshSelectionFromYAML(const Yaml::Node& data, Ref<Mesh>& targetMesh)
 		{
 			if (!data["Mesh"])
 				return false;
 
-			YAML::Node rootNode = data["Mesh"];
+			Yaml::Node rootNode = data["Mesh"];
 			if (!rootNode["MeshAsset"] && !rootNode["MeshSource"])
 				return false;
 
@@ -163,12 +128,12 @@ namespace Lux
 			return true;
 		}
 
-		static bool DeserializeStaticMeshSelectionFromYAML(const YAML::Node& data, Ref<StaticMesh>& targetStaticMesh)
+		static bool DeserializeStaticMeshSelectionFromYAML(const Yaml::Node& data, Ref<StaticMesh>& targetStaticMesh)
 		{
 			if (!data["Mesh"])
 				return false;
 
-			YAML::Node rootNode = data["Mesh"];
+			Yaml::Node rootNode = data["Mesh"];
 			if (!rootNode["MeshAsset"] && !rootNode["MeshSource"])
 				return false;
 
@@ -238,7 +203,7 @@ namespace Lux
 			return false;
 
 		Ref<Mesh> mesh;
-		YAML::Node data = YAML::Load(yaml);
+		Yaml::Node data = Yaml::Load(yaml);
 		if (!DeserializeMeshSelectionFromYAML(data, mesh))
 			return false;
 
@@ -257,7 +222,7 @@ namespace Lux
 			return;
 		}
 
-		RegisterMeshDependencyFromYAML(YAML::Load(yaml), metadata.Handle);
+		RegisterMeshDependencyFromYAML(Yaml::Load(yaml), metadata.Handle);
 	}
 
 	bool MeshSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
@@ -279,7 +244,7 @@ namespace Lux
 		stream.ReadString(yaml);
 
 		Ref<Mesh> mesh;
-		if (!DeserializeMeshSelectionFromYAML(YAML::Load(yaml), mesh))
+		if (!DeserializeMeshSelectionFromYAML(Yaml::Load(yaml), mesh))
 			return nullptr;
 
 		return mesh;
@@ -307,7 +272,7 @@ namespace Lux
 			return false;
 
 		Ref<StaticMesh> staticMesh;
-		YAML::Node data = YAML::Load(yaml);
+		Yaml::Node data = Yaml::Load(yaml);
 		if (!DeserializeStaticMeshSelectionFromYAML(data, staticMesh))
 			return false;
 
@@ -326,7 +291,7 @@ namespace Lux
 			return;
 		}
 
-		RegisterMeshDependencyFromYAML(YAML::Load(yaml), metadata.Handle);
+		RegisterMeshDependencyFromYAML(Yaml::Load(yaml), metadata.Handle);
 	}
 
 	bool StaticMeshSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
@@ -348,7 +313,7 @@ namespace Lux
 		stream.ReadString(yaml);
 
 		Ref<StaticMesh> staticMesh;
-		if (!DeserializeStaticMeshSelectionFromYAML(YAML::Load(yaml), staticMesh))
+		if (!DeserializeStaticMeshSelectionFromYAML(Yaml::Load(yaml), staticMesh))
 			return nullptr;
 
 		return staticMesh;
@@ -376,7 +341,7 @@ namespace Lux
 			return false;
 
 		Ref<MeshColliderAsset> collider;
-		YAML::Node data = YAML::Load(yaml);
+		Yaml::Node data = Yaml::Load(yaml);
 		if (!DeserializeMeshColliderFromYAML(data, collider))
 			return false;
 
@@ -395,7 +360,7 @@ namespace Lux
 			return;
 		}
 
-		RegisterMeshColliderDependencyFromYAML(YAML::Load(yaml), metadata.Handle);
+		RegisterMeshColliderDependencyFromYAML(Yaml::Load(yaml), metadata.Handle);
 	}
 
 	bool MeshColliderSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
@@ -417,7 +382,7 @@ namespace Lux
 		stream.ReadString(yaml);
 
 		Ref<MeshColliderAsset> collider;
-		if (!DeserializeMeshColliderFromYAML(YAML::Load(yaml), collider))
+		if (!DeserializeMeshColliderFromYAML(Yaml::Load(yaml), collider))
 			return nullptr;
 
 		return collider;

@@ -8,7 +8,7 @@
 
 #include "nvrhi/utils.h"
 
-#include "yaml-cpp/yaml.h"
+#include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/SerializationMacros.h"
 
 #include "ShaderPreprocessing/ShaderPreprocessor.h"
@@ -51,30 +51,30 @@ namespace Lux {
 	void VulkanShaderCache::Serialize(const std::map<std::string, std::map<nvrhi::ShaderType, StageData>>& shaderCache)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		YAML::Emitter out;
+		Yaml::Writer out;
 
-		out << YAML::BeginMap << YAML::Key << "ShaderRegistry" << YAML::BeginSeq;// ShaderRegistry_
+		out << Yaml::BeginMap << Yaml::Key << "ShaderRegistry" << Yaml::BeginSeq;// ShaderRegistry_
 
 		for (auto& [filepath, shader] : shaderCache)
 		{
-			out << YAML::BeginMap; // Shader_
+			out << Yaml::BeginMap; // Shader_
 
-			out << YAML::Key << "ShaderPath" << YAML::Value << filepath;
+			out << Yaml::Key << "ShaderPath" << Yaml::Value << filepath;
 
-			out << YAML::Key << "Stages" << YAML::BeginSeq; // Stages_
+			out << Yaml::Key << "Stages" << Yaml::BeginSeq; // Stages_
 
 			for (auto& [stage, stageData] : shader)
 			{
-				out << YAML::BeginMap; // Stage_
+				out << Yaml::BeginMap; // Stage_
 
-				out << YAML::Key << "Stage" << YAML::Value << nvrhi::utils::ShaderStageToString(stage);
-				out << YAML::Key << "StageHash" << YAML::Value << stageData.HashValue;
+				out << Yaml::Key << "Stage" << Yaml::Value << nvrhi::utils::ShaderStageToString(stage);
+				out << Yaml::Key << "StageHash" << Yaml::Value << stageData.HashValue;
 
-				out << YAML::Key << "Headers" << YAML::BeginSeq; // Headers_
+				out << Yaml::Key << "Headers" << Yaml::BeginSeq; // Headers_
 				for (auto& header : stageData.Headers)
 				{
 
-					out << YAML::BeginMap;
+					out << Yaml::BeginMap;
 
 					LUX_SERIALIZE_PROPERTY(HeaderPath, header.IncludedFilePath.string(), out);
 					LUX_SERIALIZE_PROPERTY(IncludeDepth, header.IncludeDepth, out);
@@ -82,18 +82,18 @@ namespace Lux {
 					LUX_SERIALIZE_PROPERTY(IsGaurded, header.IsGuarded, out);
 					LUX_SERIALIZE_PROPERTY(HashValue, header.HashValue, out);
 
-					out << YAML::EndMap;
+					out << Yaml::EndMap;
 				}
-				out << YAML::EndSeq; // Headers_
+				out << Yaml::EndSeq; // Headers_
 
-				out << YAML::EndMap; // Stage_
+				out << Yaml::EndMap; // Stage_
 			}
-			out << YAML::EndSeq; // Stages_
-			out << YAML::EndMap; // Shader_
+			out << Yaml::EndSeq; // Stages_
+			out << Yaml::EndMap; // Shader_
 
 		}
-		out << YAML::EndSeq; // ShaderRegistry_
-		out << YAML::EndMap; // File_
+		out << Yaml::EndSeq; // ShaderRegistry_
+		out << Yaml::EndMap; // File_
 
 		std::ofstream fout(s_ShaderRegistryPath);
 		fout << out.c_str();
@@ -110,9 +110,9 @@ namespace Lux {
 		std::stringstream strStream;
 		strStream << stream.rdbuf();
 
-		YAML::Node data = YAML::Load(strStream.str());
+		Yaml::Node data = Yaml::Load(strStream.str());
 		auto handles = data["ShaderRegistry"];
-		if (handles.IsNull())
+		if (!handles || handles.IsNull())
 		{
 		LUX_CORE_ERROR("[ShaderCache] Shader Registry is invalid.");
 		return;

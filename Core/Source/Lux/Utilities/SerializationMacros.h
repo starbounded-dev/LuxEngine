@@ -3,9 +3,9 @@
 
 #pragma once
 
-#define LUX_SERIALIZE_PROPERTY(propName, propVal, outputNode) outputNode << YAML::Key << #propName << YAML::Value << propVal
+#define LUX_SERIALIZE_PROPERTY(propName, propVal, outputNode) outputNode << Yaml::Key << #propName << Yaml::Value << propVal
 
-#define LUX_SERIALIZE_PROPERTY_ASSET(propName, propVal, outputData) outputData << YAML::Key << #propName << YAML::Value << (propVal ? (uint64_t)propVal->Handle : 0);
+#define LUX_SERIALIZE_PROPERTY_ASSET(propName, propVal, outputData) outputData << Yaml::Key << #propName << Yaml::Value << (propVal ? (uint64_t)propVal->Handle : 0);
 
 #define LUX_DESERIALIZE_PROPERTY(propertyName, destination, node, defaultValue)	\
 if (node.IsMap())																\

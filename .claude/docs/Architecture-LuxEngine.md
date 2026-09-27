@@ -1005,13 +1005,13 @@ is installed. `ProjectSerializer` handles `.luxproj`; `UserPreferences` holds ma
 YAML for human-readable assets — scenes, prefabs, materials, project settings, tiering. Being
 migrated from yaml-cpp to rapidyaml behind the engine's `Lux::Yaml` (`Serialization/Yaml.h`;
 `docs/YAML_MIGRATION_PLAN.md`): **scenes, prefabs, undo snapshots, the project file (including the
-audio settings it embeds), tiering, user preferences, application settings, and the editor panel
-layout use `Lux::Yaml`**; materials, meshes, the asset registry, the shader cache, and the audio
-surface/dialogue tables still use yaml-cpp until they are ported. 8-bit values (`uint8_t`) must be
+audio settings it embeds), tiering, user preferences, application settings, the editor panel
+layout, materials, meshes, the asset registry, and the shader cache use `Lux::Yaml`**; the audio
+surface/dialogue tables and `Lux-Runtime` still use yaml-cpp until they are ported. 8-bit values (`uint8_t`) must be
 cast before writing — the `Yaml::Writer` rejects them, because yaml-cpp wrote them as characters;
 reading accepts both forms. `tests/yaml/run.py` checks that every tracked
 YAML asset reads to identical values through both. `Utilities/SerializationMacros.h` provides
-`LUX_SERIALIZE_PROPERTY` (yaml-cpp; used only by `VulkanShaderCache`).
+`LUX_SERIALIZE_PROPERTY` (`Lux::Yaml`; used only by `VulkanShaderCache`).
 
 Binary for distribution: `Serialization/AssetPack.{h,cpp}` + `AssetPackFile.h` +
 `AssetPackSerializer`, `ShaderPackFile.h`, and the stream layer (`FileStream`, `MemoryStream`,
