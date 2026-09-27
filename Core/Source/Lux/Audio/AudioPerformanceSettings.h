@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
-namespace YAML { class Node; class Emitter; }
+namespace Lux::Yaml { class Node; class Writer; }
 namespace Lux
 {
 	class StreamReader;
@@ -21,8 +21,8 @@ namespace Lux
 		// Inclusive channel counts; these are warning thresholds, not bus muting rules.
 		std::map<std::string, uint32_t> BusVoices{ { "bus:/", 64 } };
 		bool Validate() const;
-		void SerializeYAML(YAML::Emitter& out) const;
-		bool DeserializeYAML(const YAML::Node& node);
+		void SerializeYAML(Yaml::Writer& out) const;
+		bool DeserializeYAML(const Yaml::Node& node);
 		bool Serialize(StreamWriter& stream) const;
 		bool Deserialize(StreamReader& stream);
 	};
@@ -34,8 +34,8 @@ namespace Lux
 		std::filesystem::path BankOutputPath = "Build/Desktop";
 		AudioPerformanceSettings Performance;
 		bool Validate() const;
-		void SerializeYAML(YAML::Emitter& out) const;
-		bool DeserializeYAML(const YAML::Node& node);
+		void SerializeYAML(Yaml::Writer& out) const;
+		bool DeserializeYAML(const Yaml::Node& node);
 	};
 	bool IsValidStudioPlatform(const std::string& name);
 

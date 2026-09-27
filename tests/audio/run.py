@@ -189,8 +189,8 @@ def main():
     fmod = ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux/api"
     libraries = [ROOT / "Core/vendor/VA_RAY/3d/native/production/linux/libvaudionative.so", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
     yaml = [ROOT / "bin-int/Release-linux-x86_64/Core" / (p.stem + ".o") for p in (ROOT / "Core/vendor/yaml-cpp/src").glob("*.cpp")]
-    # Lux::Yaml (rapidyaml) serves the scene serializer; yaml-cpp still serves the audio settings
-    # until YAML migration phase 4 (docs/YAML_MIGRATION_PLAN.md).
+    # Lux::Yaml (rapidyaml) serves the scene serializer and the audio settings; yaml-cpp still serves
+    # the surface and dialogue tables until YAML migration phase 4 (docs/YAML_MIGRATION_PLAN.md).
     yaml += [ROOT / "bin-int/Release-linux-x86_64/Core" / name for name in ("Yaml.o", "ryml.o")]
     run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], *yaml, "-Wl,--gc-sections",
          "-o", directory / "music-serialization-test"], cwd=ROOT / "Core")

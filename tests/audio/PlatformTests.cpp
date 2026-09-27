@@ -3,7 +3,7 @@
 #include "Lux/Audio/AudioBankBuilder.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Serialization/FileStream.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <fstream>
 
 int main(int argc, char** argv)
@@ -23,15 +23,15 @@ int main(int argc, char** argv)
 	audio.Linux.Performance.MuteWhenUnfocused = true;
 	assert(project.GetStudioPlatform() == "Linux Desktop" && project.GetAudioPerformance().RealVoices == 32);
 	assert(project.GetStudioBankDirectory().filename() == "Linux");
-	YAML::Emitter yaml;
+	Yaml::Writer yaml;
 	audio.Linux.SerializeYAML(yaml);
 	AudioDesktopProfile copied;
-	assert(copied.DeserializeYAML(YAML::Load(yaml.c_str())));
+	assert(copied.DeserializeYAML(Yaml::Load(yaml.c_str())));
 	assert(copied.Enabled && copied.BankOutputPath == "Build/Linux" && copied.Performance.MuteWhenUnfocused);
 	for (const char* invalid : { "StudioPlatform: ''", "StudioPlatform: 'Linux,Windows'", "BankOutputPath: ''", "Performance: { RealVoices: 0 }" })
-		assert(!copied.DeserializeYAML(YAML::Load(invalid)) && copied.Enabled);
+		assert(!copied.DeserializeYAML(Yaml::Load(invalid)) && copied.Enabled);
 	AudioDesktopProfile legacy;
-	const auto legacyAudio = YAML::Load("{}");
+	const auto legacyAudio = Yaml::Load("{}");
 	assert(legacy.DeserializeYAML(legacyAudio["Linux"]) && !legacy.Enabled);
 	const auto runtimeFile = output / "platform-runtime.bin";
 	{

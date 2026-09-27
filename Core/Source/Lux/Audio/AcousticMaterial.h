@@ -9,7 +9,7 @@
 #include <string_view>
 
 struct VAWorld;
-namespace YAML { class Node; class Emitter; }
+namespace Lux::Yaml { class Node; class Writer; }
 
 namespace Lux
 {
@@ -98,8 +98,8 @@ namespace Lux
 	{
 		std::array<AcousticMaterialOverride, AcousticMaterialCount> Overrides{};
 		bool Validate() const;
-		void SerializeYAML(YAML::Emitter& out) const;
-		bool DeserializeYAML(const YAML::Node& node);
+		void SerializeYAML(Yaml::Writer& out) const;
+		bool DeserializeYAML(const Yaml::Node& node);
 		bool Serialize(StreamWriter& stream) const;
 		bool Deserialize(StreamReader& stream);
 	};

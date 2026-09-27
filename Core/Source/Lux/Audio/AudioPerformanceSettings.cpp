@@ -5,7 +5,7 @@
 #include "AudioPerformanceSettings.h"
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <cmath>
 namespace Lux
 {
@@ -24,20 +24,20 @@ namespace Lux
 				return false;
 		return true;
 	}
-	void AudioPerformanceSettings::SerializeYAML(YAML::Emitter& out) const
+	void AudioPerformanceSettings::SerializeYAML(Yaml::Writer& out) const
 	{
-		out << YAML::BeginMap;
-		out << YAML::Key << "MuteWhenUnfocused" << YAML::Value << MuteWhenUnfocused;
-		out << YAML::Key << "RealVoices" << YAML::Value << RealVoices;
-		out << YAML::Key << "CPUPercent" << YAML::Value << CPUPercent;
-		out << YAML::Key << "RaytracingMilliseconds" << YAML::Value << RaytracingMilliseconds;
-		out << YAML::Key << "BankMemoryMiB" << YAML::Value << BankMemoryMiB;
-		out << YAML::Key << "BusVoices" << YAML::BeginMap;
+		out << Yaml::BeginMap;
+		out << Yaml::Key << "MuteWhenUnfocused" << Yaml::Value << MuteWhenUnfocused;
+		out << Yaml::Key << "RealVoices" << Yaml::Value << RealVoices;
+		out << Yaml::Key << "CPUPercent" << Yaml::Value << CPUPercent;
+		out << Yaml::Key << "RaytracingMilliseconds" << Yaml::Value << RaytracingMilliseconds;
+		out << Yaml::Key << "BankMemoryMiB" << Yaml::Value << BankMemoryMiB;
+		out << Yaml::Key << "BusVoices" << Yaml::BeginMap;
 		for (const auto& [path, limit] : BusVoices)
-			out << YAML::Key << path << YAML::Value << limit;
-		out << YAML::EndMap << YAML::EndMap;
+			out << Yaml::Key << path << Yaml::Value << limit;
+		out << Yaml::EndMap << Yaml::EndMap;
 	}
-	bool AudioPerformanceSettings::DeserializeYAML(const YAML::Node& node)
+	bool AudioPerformanceSettings::DeserializeYAML(const Yaml::Node& node)
 	{
 		try
 		{
@@ -84,7 +84,7 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Audio", "Cannot export invalid audio performance settings");
 			return false;
 		}
-		YAML::Emitter out;
+		Yaml::Writer out;
 		SerializeYAML(out);
 		const std::string text = out.c_str();
 		if (text.size() > kMaximumSettingsBytes)
@@ -111,7 +111,7 @@ namespace Lux
 		}
 		try
 		{
-			return DeserializeYAML(YAML::Load(text));
+			return DeserializeYAML(Yaml::Load(text));
 		}
 		catch (const std::exception& error)
 		{
@@ -132,17 +132,17 @@ namespace Lux
 		return IsValidStudioPlatform(StudioPlatform) && !BankOutputPath.empty() &&
 			BankOutputPath.generic_string().find('\0') == std::string::npos && Performance.Validate();
 	}
-	void AudioDesktopProfile::SerializeYAML(YAML::Emitter& out) const
+	void AudioDesktopProfile::SerializeYAML(Yaml::Writer& out) const
 	{
-		out << YAML::BeginMap;
-		out << YAML::Key << "Enabled" << YAML::Value << Enabled;
-		out << YAML::Key << "StudioPlatform" << YAML::Value << StudioPlatform;
-		out << YAML::Key << "BankOutputPath" << YAML::Value << BankOutputPath.generic_string();
-		out << YAML::Key << "Performance" << YAML::Value;
+		out << Yaml::BeginMap;
+		out << Yaml::Key << "Enabled" << Yaml::Value << Enabled;
+		out << Yaml::Key << "StudioPlatform" << Yaml::Value << StudioPlatform;
+		out << Yaml::Key << "BankOutputPath" << Yaml::Value << BankOutputPath.generic_string();
+		out << Yaml::Key << "Performance" << Yaml::Value;
 		Performance.SerializeYAML(out);
-		out << YAML::EndMap;
+		out << Yaml::EndMap;
 	}
-	bool AudioDesktopProfile::DeserializeYAML(const YAML::Node& node)
+	bool AudioDesktopProfile::DeserializeYAML(const Yaml::Node& node)
 	{
 		try
 		{

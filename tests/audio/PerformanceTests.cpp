@@ -4,7 +4,7 @@
 #include "Lux/Audio/AudioValidation.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Serialization/FileStream.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <thread>
 #include <fstream>
@@ -17,7 +17,7 @@ int main(int argc, char** argv)
 	assert(settings.Validate() && settings.RealVoices == 64);
 	for (const char* yaml : { "RealVoices: 0", "RealVoices: 513", "CPUPercent: .nan", "BankMemoryMiB: -1",
 		"RaytracingMilliseconds: 0", "BusVoices: { 'bus:/': 0 }", "BusVoices: { nonsense: 2 }", "BusVoices: { 'bus:/': 2, 'bus:/': 3 }" })
-		assert(!settings.DeserializeYAML(YAML::Load(yaml)) && settings.RealVoices == 64);
+		assert(!settings.DeserializeYAML(Yaml::Load(yaml)) && settings.RealVoices == 64);
 	settings.RealVoices = 32;
 	settings.BusVoices = { { "bus:/", 16 }, { "bus:/SFX", 4 } };
 	const auto file = output / "performance-settings.bin";

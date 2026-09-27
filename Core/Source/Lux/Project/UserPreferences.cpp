@@ -4,7 +4,7 @@
 #include "lpch.h"
 #include "UserPreferences.h"
 
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 
 #include <fstream>
 #include <sstream>
@@ -28,29 +28,29 @@ namespace Lux
 
 	bool UserPreferencesSerializer::Serialize(const std::filesystem::path& filepath)
 	{
-		YAML::Emitter out;
-		out << YAML::BeginMap;
-		out << YAML::Key << "UserPrefs" << YAML::Value;
+		Yaml::Writer out;
+		out << Yaml::BeginMap;
+		out << Yaml::Key << "UserPrefs" << Yaml::Value;
 		{
-			out << YAML::BeginMap;
-			out << YAML::Key << "ShowWelcomeScreen" << YAML::Value << m_Preferences->ShowWelcomeScreen;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "ShowWelcomeScreen" << Yaml::Value << m_Preferences->ShowWelcomeScreen;
 
 			if (!m_Preferences->StartupProject.empty())
-				out << YAML::Key << "StartupProject" << YAML::Value << m_Preferences->StartupProject;
+				out << Yaml::Key << "StartupProject" << Yaml::Value << m_Preferences->StartupProject;
 
-			out << YAML::Key << "RecentProjects" << YAML::Value << YAML::BeginSeq;
+			out << Yaml::Key << "RecentProjects" << Yaml::Value << Yaml::BeginSeq;
 			for (const auto& [lastOpened, project] : m_Preferences->RecentProjects)
 			{
-				out << YAML::BeginMap;
-				out << YAML::Key << "Name" << YAML::Value << project.Name;
-				out << YAML::Key << "ProjectPath" << YAML::Value << project.FilePath;
-				out << YAML::Key << "LastOpened" << YAML::Value << (int64_t)lastOpened;
-				out << YAML::EndMap;
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Name" << Yaml::Value << project.Name;
+				out << Yaml::Key << "ProjectPath" << Yaml::Value << project.FilePath;
+				out << Yaml::Key << "LastOpened" << Yaml::Value << (int64_t)lastOpened;
+				out << Yaml::EndMap;
 			}
-			out << YAML::EndSeq;
-			out << YAML::EndMap;
+			out << Yaml::EndSeq;
+			out << Yaml::EndMap;
 		}
-		out << YAML::EndMap;
+		out << Yaml::EndMap;
 
 		CreateDirectoriesIfNeeded(filepath);
 		std::ofstream fout(filepath);
@@ -71,8 +71,8 @@ namespace Lux
 		std::stringstream strStream;
 		strStream << stream.rdbuf();
 
-		YAML::Node data = YAML::Load(strStream.str());
-		YAML::Node rootNode = data["UserPrefs"];
+		Yaml::Node data = Yaml::Load(strStream.str());
+		Yaml::Node rootNode = data["UserPrefs"];
 		if (!rootNode)
 			return false;
 
@@ -80,7 +80,7 @@ namespace Lux
 		m_Preferences->StartupProject = rootNode["StartupProject"] ? rootNode["StartupProject"].as<std::string>() : std::string{};
 		m_Preferences->RecentProjects.clear();
 
-		YAML::Node recentProjects = rootNode["RecentProjects"];
+		Yaml::Node recentProjects = rootNode["RecentProjects"];
 		if (recentProjects)
 		{
 			for (auto recentProject : recentProjects)

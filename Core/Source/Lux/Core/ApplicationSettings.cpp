@@ -3,7 +3,7 @@
 
 #include "ApplicationSettings.h"
 
-#include "yaml-cpp/yaml.h"
+#include "Lux/Serialization/Yaml.h"
 
 #include <fstream>
 #include <iostream>
@@ -28,13 +28,13 @@ namespace Lux {
 
 	void ApplicationSettings::Serialize()
 	{
-		YAML::Emitter out;
-		out << YAML::BeginMap;
-		out << YAML::Key << "Lux Application Settings" << YAML::Value << YAML::BeginMap;
+		Yaml::Writer out;
+		out << Yaml::BeginMap;
+		out << Yaml::Key << "Lux Application Settings" << Yaml::Value << Yaml::BeginMap;
 		for (const auto& [key, value] : m_Settings)
-			out << YAML::Key << key << YAML::Value << value;
-		out << YAML::EndMap;
-		out << YAML::EndMap;
+			out << Yaml::Key << key << Yaml::Value << value;
+		out << Yaml::EndMap;
+		out << Yaml::EndMap;
 
 		CreateDirectoriesIfNeeded(m_FilePath);
 		std::ofstream fout(m_FilePath);
@@ -52,8 +52,8 @@ namespace Lux {
 		std::stringstream strStream;
 		strStream << stream.rdbuf();
 
-		YAML::Node data = YAML::Load(strStream.str());
-		YAML::Node settings = data["Lux Application Settings"];
+		Yaml::Node data = Yaml::Load(strStream.str());
+		Yaml::Node settings = data["Lux Application Settings"];
 		if (!settings)
 			settings = data["Core Application Settings"];
 		if (!settings)

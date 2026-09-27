@@ -5,7 +5,7 @@
 #include "PanelManager.h"
 #include "Lux/Utilities/FileSystem.h"
 
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 
 namespace Lux {
 
@@ -110,27 +110,27 @@ namespace Lux {
 
 	void PanelManager::Serialize() const
 	{
-		YAML::Emitter out;
-		out << YAML::BeginMap;
+		Yaml::Writer out;
+		out << Yaml::BeginMap;
 
-		out << YAML::Key << "Panels" << YAML::Value << YAML::BeginSeq;
+		out << Yaml::Key << "Panels" << Yaml::Value << Yaml::BeginSeq;
 		{
 			for (size_t category = 0; category < m_Panels.size(); category++)
 			{
 				for (const auto& [panelID, panel] : m_Panels[category])
 				{
-					out << YAML::BeginMap;
-					out << YAML::Key << "ID" << YAML::Value << panelID;
-					out << YAML::Key << "Name" << YAML::Value << panel.Name;
-					out << YAML::Key << "IsOpen" << YAML::Value << panel.IsOpen;
-					out << YAML::EndMap;
+					out << Yaml::BeginMap;
+					out << Yaml::Key << "ID" << Yaml::Value << panelID;
+					out << Yaml::Key << "Name" << Yaml::Value << panel.Name;
+					out << Yaml::Key << "IsOpen" << Yaml::Value << panel.IsOpen;
+					out << Yaml::EndMap;
 					panel.SavedIsOpen = panel.IsOpen;
 				}
 			}
 		}
-		out << YAML::EndSeq;
+		out << Yaml::EndSeq;
 
-		out << YAML::EndMap;
+		out << Yaml::EndMap;
 
 		std::ofstream fout(FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml");
 		fout << out.c_str();
@@ -149,7 +149,7 @@ namespace Lux {
 		std::stringstream ss;
 		ss << stream.rdbuf();
 
-		YAML::Node data = YAML::Load(ss.str());
+		Yaml::Node data = Yaml::Load(ss.str());
 		if (!data["Panels"])
 		{
 			LUX_CONSOLE_LOG_ERROR("Failed to load EditorLayout.yaml from {} because the file appears to be corrupted!", layoutPath.parent_path().string());

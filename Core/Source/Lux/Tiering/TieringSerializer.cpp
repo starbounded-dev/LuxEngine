@@ -4,7 +4,7 @@
 #include "lpch.h"
 #include "TieringSerializer.h"
 
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 
 #include <fstream>
 #include <sstream>
@@ -25,24 +25,24 @@ namespace Lux
 	{
 		using namespace Tiering::Renderer;
 
-		YAML::Emitter out;
-		out << YAML::BeginMap;
-		out << YAML::Key << "TieringSettings" << YAML::Value;
+		Yaml::Writer out;
+		out << Yaml::BeginMap;
+		out << Yaml::Key << "TieringSettings" << Yaml::Value;
 		{
-			out << YAML::BeginMap;
-			out << YAML::Key << "RendererScale" << YAML::Value << tieringSettings.RendererTS.RendererScale;
-			out << YAML::Key << "Windowed" << YAML::Value << tieringSettings.RendererTS.Windowed;
-			out << YAML::Key << "VSync" << YAML::Value << tieringSettings.RendererTS.VSync;
-			out << YAML::Key << "EnableShadows" << YAML::Value << tieringSettings.RendererTS.EnableShadows;
-			out << YAML::Key << "ShadowQuality" << YAML::Value << Utils::ShadowQualitySettingToString(tieringSettings.RendererTS.ShadowQuality);
-			out << YAML::Key << "ShadowResolution" << YAML::Value << Utils::ShadowResolutionSettingToString(tieringSettings.RendererTS.ShadowResolution);
-			out << YAML::Key << "EnableAO" << YAML::Value << tieringSettings.RendererTS.EnableAO;
-			out << YAML::Key << "AmbientOcclusionQuality" << YAML::Value << Utils::AmbientOcclusionQualitySettingToString(tieringSettings.RendererTS.AOQuality);
-			out << YAML::Key << "SSRQuality" << YAML::Value << Utils::SSRQualitySettingToString(tieringSettings.RendererTS.SSRQuality);
-			out << YAML::Key << "EnableBloom" << YAML::Value << tieringSettings.RendererTS.EnableBloom;
-			out << YAML::EndMap;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "RendererScale" << Yaml::Value << tieringSettings.RendererTS.RendererScale;
+			out << Yaml::Key << "Windowed" << Yaml::Value << tieringSettings.RendererTS.Windowed;
+			out << Yaml::Key << "VSync" << Yaml::Value << tieringSettings.RendererTS.VSync;
+			out << Yaml::Key << "EnableShadows" << Yaml::Value << tieringSettings.RendererTS.EnableShadows;
+			out << Yaml::Key << "ShadowQuality" << Yaml::Value << Utils::ShadowQualitySettingToString(tieringSettings.RendererTS.ShadowQuality);
+			out << Yaml::Key << "ShadowResolution" << Yaml::Value << Utils::ShadowResolutionSettingToString(tieringSettings.RendererTS.ShadowResolution);
+			out << Yaml::Key << "EnableAO" << Yaml::Value << tieringSettings.RendererTS.EnableAO;
+			out << Yaml::Key << "AmbientOcclusionQuality" << Yaml::Value << Utils::AmbientOcclusionQualitySettingToString(tieringSettings.RendererTS.AOQuality);
+			out << Yaml::Key << "SSRQuality" << Yaml::Value << Utils::SSRQualitySettingToString(tieringSettings.RendererTS.SSRQuality);
+			out << Yaml::Key << "EnableBloom" << Yaml::Value << tieringSettings.RendererTS.EnableBloom;
+			out << Yaml::EndMap;
 		}
-		out << YAML::EndMap;
+		out << Yaml::EndMap;
 
 		CreateDirectoriesIfNeeded(filepath);
 		std::ofstream fout(filepath);
@@ -64,8 +64,8 @@ namespace Lux
 		std::stringstream strStream;
 		strStream << stream.rdbuf();
 
-		YAML::Node data = YAML::Load(strStream.str());
-		YAML::Node tieringSettings = data["TieringSettings"];
+		Yaml::Node data = Yaml::Load(strStream.str());
+		Yaml::Node tieringSettings = data["TieringSettings"];
 		if (!tieringSettings)
 			return false;
 

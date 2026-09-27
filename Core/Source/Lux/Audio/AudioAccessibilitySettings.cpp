@@ -6,7 +6,7 @@
 #include "DialogueTable.h"
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <cmath>
 #include <set>
 
@@ -35,10 +35,10 @@ namespace Lux
 		return valid;
 	}
 
-	void AudioAccessibilityPreferences::SerializeYAML(YAML::Emitter& out) const
+	void AudioAccessibilityPreferences::SerializeYAML(Yaml::Writer& out) const
 	{
-		out << YAML::BeginMap;
-#define WRITE_PREFERENCE(field) out << YAML::Key << #field << YAML::Value << field
+		out << Yaml::BeginMap;
+#define WRITE_PREFERENCE(field) out << Yaml::Key << #field << Yaml::Value << field
 		WRITE_PREFERENCE(Subtitles);
 		WRITE_PREFERENCE(Captions);
 		WRITE_PREFERENCE(VisualCues);
@@ -52,14 +52,14 @@ namespace Lux
 		WRITE_PREFERENCE(MaxLines);
 		WRITE_PREFERENCE(DialogueBoost);
 #undef WRITE_PREFERENCE
-		out << YAML::Key << "DynamicRange" << YAML::Value << static_cast<uint32_t>(DynamicRange);
-		out << YAML::Key << "Volumes" << YAML::BeginMap;
+		out << Yaml::Key << "DynamicRange" << Yaml::Value << static_cast<uint32_t>(DynamicRange);
+		out << Yaml::Key << "Volumes" << Yaml::BeginMap;
 		for (size_t i = 0; i < AudioCategoryCount; ++i)
-			out << YAML::Key << AudioCategoryNames[i] << YAML::Value << Volumes[i];
-		out << YAML::EndMap << YAML::EndMap;
+			out << Yaml::Key << AudioCategoryNames[i] << Yaml::Value << Volumes[i];
+		out << Yaml::EndMap << Yaml::EndMap;
 	}
 
-	bool AudioAccessibilityPreferences::DeserializeYAML(const YAML::Node& node)
+	bool AudioAccessibilityPreferences::DeserializeYAML(const Yaml::Node& node)
 	{
 		try
 		{
@@ -160,37 +160,37 @@ namespace Lux
 		return true;
 	}
 
-	void AudioAccessibilityConfig::SerializeYAML(YAML::Emitter& out) const
+	void AudioAccessibilityConfig::SerializeYAML(Yaml::Writer& out) const
 	{
-		out << YAML::BeginMap << YAML::Key << "Version" << YAML::Value << 1;
-		out << YAML::Key << "BuiltInUI" << YAML::Value << BuiltInUI;
-		out << YAML::Key << "DefaultLanguage" << YAML::Value << DefaultLanguage;
-		out << YAML::Key << "DescriptionDuck" << YAML::Value << DescriptionDuck;
-		out << YAML::Key << "Defaults" << YAML::Value;
+		out << Yaml::BeginMap << Yaml::Key << "Version" << Yaml::Value << 1;
+		out << Yaml::Key << "BuiltInUI" << Yaml::Value << BuiltInUI;
+		out << Yaml::Key << "DefaultLanguage" << Yaml::Value << DefaultLanguage;
+		out << Yaml::Key << "DescriptionDuck" << Yaml::Value << DescriptionDuck;
+		out << Yaml::Key << "Defaults" << Yaml::Value;
 		Defaults.SerializeYAML(out);
-		out << YAML::Key << "Buses" << YAML::BeginMap;
+		out << Yaml::Key << "Buses" << Yaml::BeginMap;
 		for (size_t i = 0; i < AudioCategoryCount; ++i)
-			out << YAML::Key << AudioCategoryNames[i] << YAML::Value << BusPaths[i];
-		out << YAML::EndMap << YAML::Key << "Events" << YAML::BeginMap;
+			out << Yaml::Key << AudioCategoryNames[i] << Yaml::Value << BusPaths[i];
+		out << Yaml::EndMap << Yaml::Key << "Events" << Yaml::BeginMap;
 		for (const auto& [guid, event] : Events)
 		{
-			out << YAML::Key << guid << YAML::BeginMap;
-			out << YAML::Key << "Category" << YAML::Value << static_cast<uint32_t>(event.Category);
-			out << YAML::Key << "VisualCue" << YAML::Value << event.VisualCue;
-			out << YAML::Key << "Intensity" << YAML::Value << event.Intensity;
-			out << YAML::Key << "MaxDistance" << YAML::Value << event.MaxDistance;
-			out << YAML::Key << "Captions" << YAML::BeginMap;
+			out << Yaml::Key << guid << Yaml::BeginMap;
+			out << Yaml::Key << "Category" << Yaml::Value << static_cast<uint32_t>(event.Category);
+			out << Yaml::Key << "VisualCue" << Yaml::Value << event.VisualCue;
+			out << Yaml::Key << "Intensity" << Yaml::Value << event.Intensity;
+			out << Yaml::Key << "MaxDistance" << Yaml::Value << event.MaxDistance;
+			out << Yaml::Key << "Captions" << Yaml::BeginMap;
 			for (const auto& [language, caption] : event.Captions)
-				out << YAML::Key << language << YAML::Value << caption;
-			out << YAML::EndMap << YAML::EndMap;
+				out << Yaml::Key << language << Yaml::Value << caption;
+			out << Yaml::EndMap << Yaml::EndMap;
 		}
-		out << YAML::EndMap << YAML::Key << "SpeakerColors" << YAML::BeginMap;
+		out << Yaml::EndMap << Yaml::Key << "SpeakerColors" << Yaml::BeginMap;
 		for (const auto& [name, color] : SpeakerColors)
-			out << YAML::Key << name << YAML::Flow << YAML::BeginSeq << color.r << color.g << color.b << color.a << YAML::EndSeq;
-		out << YAML::EndMap << YAML::EndMap;
+			out << Yaml::Key << name << Yaml::Flow << Yaml::BeginSeq << color.r << color.g << color.b << color.a << Yaml::EndSeq;
+		out << Yaml::EndMap << Yaml::EndMap;
 	}
 
-	bool AudioAccessibilityConfig::DeserializeYAML(const YAML::Node& node)
+	bool AudioAccessibilityConfig::DeserializeYAML(const Yaml::Node& node)
 	{
 		try
 		{
@@ -270,7 +270,7 @@ namespace Lux
 	{
 		if (!Validate())
 			return false;
-		YAML::Emitter out;
+		Yaml::Writer out;
 		SerializeYAML(out);
 		const std::string text = out.c_str();
 		if (text.size() > kMaxConfigBytes)
@@ -298,7 +298,7 @@ namespace Lux
 		}
 		try
 		{
-			return DeserializeYAML(YAML::Load(text));
+			return DeserializeYAML(Yaml::Load(text));
 		}
 		catch (const std::exception& error)
 		{

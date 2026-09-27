@@ -3,7 +3,7 @@
 
 #pragma once
 #include <cstdint>
-namespace YAML { class Node; class Emitter; }
+namespace Lux::Yaml { class Node; class Writer; }
 namespace Lux
 {
 	class StreamReader;
@@ -21,8 +21,8 @@ namespace Lux
 		uint32_t CastBudget = 32;     // sources recast per frame at most
 		float Strength = 1.0f;        // scales every wall's dB loss; 1 follows VA's material data
 		bool Validate() const;
-		void SerializeYAML(YAML::Emitter& out) const;
-		bool DeserializeYAML(const YAML::Node& node);
+		void SerializeYAML(Yaml::Writer& out) const;
+		bool DeserializeYAML(const Yaml::Node& node);
 		bool Serialize(StreamWriter& stream) const;
 		bool Deserialize(StreamReader& stream);
 	};

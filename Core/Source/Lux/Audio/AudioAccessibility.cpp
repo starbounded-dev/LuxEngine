@@ -6,7 +6,7 @@
 #include "AudioAccessibilityMixer.h"
 #include "AudioEngine.h"
 #include "Lux/Utilities/FileSystem.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <fstream>
 #include <cmath>
 
@@ -393,7 +393,7 @@ namespace Lux
 		try
 		{
 			AudioAccessibilityPreferences preferences;
-			if (!preferences.DeserializeYAML(YAML::Load(text)))
+			if (!preferences.DeserializeYAML(Yaml::Load(text)))
 				return false;
 			if (s_MixerRevision != 0)
 				return ApplyPreferences(preferences);
@@ -418,7 +418,7 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Audio", "Cannot create preferences directory: {}", error.message());
 			return false;
 		}
-		YAML::Emitter out;
+		Yaml::Writer out;
 		s_Preferences.SerializeYAML(out);
 		const auto temporary = std::filesystem::path(s_PreferencePath.string() + ".tmp");
 		std::ofstream file(temporary);

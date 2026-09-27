@@ -7,7 +7,7 @@
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
 #include "vaudio.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <cmath>
 
 namespace Lux
@@ -191,28 +191,28 @@ namespace Lux
 		return true;
 	}
 
-	void AcousticMaterialSettings::SerializeYAML(YAML::Emitter& out) const
+	void AcousticMaterialSettings::SerializeYAML(Yaml::Writer& out) const
 	{
-		out << YAML::BeginMap;
+		out << Yaml::BeginMap;
 		for (size_t i = 0; i < Overrides.size(); ++i)
 		{
 			if (!Overrides[i].Enabled)
 				continue;
-			out << YAML::Key << AcousticMaterialNames[i] << YAML::Value << YAML::BeginMap;
+			out << Yaml::Key << AcousticMaterialNames[i] << Yaml::Value << Yaml::BeginMap;
 			const auto& properties = Overrides[i].Properties;
-			out << YAML::Key << "AbsorptionLF" << YAML::Value << properties.AbsorptionLF;
-			out << YAML::Key << "AbsorptionHF" << YAML::Value << properties.AbsorptionHF;
-			out << YAML::Key << "Scattering" << YAML::Value << properties.Scattering;
-			out << YAML::Key << "TransmissionLF" << YAML::Value << properties.TransmissionLF;
-			out << YAML::Key << "TransmissionHF" << YAML::Value << properties.TransmissionHF;
-			out << YAML::Key << "FlatTransmissionLF" << YAML::Value << properties.FlatTransmissionLF;
-			out << YAML::Key << "FlatTransmissionHF" << YAML::Value << properties.FlatTransmissionHF;
-			out << YAML::EndMap;
+			out << Yaml::Key << "AbsorptionLF" << Yaml::Value << properties.AbsorptionLF;
+			out << Yaml::Key << "AbsorptionHF" << Yaml::Value << properties.AbsorptionHF;
+			out << Yaml::Key << "Scattering" << Yaml::Value << properties.Scattering;
+			out << Yaml::Key << "TransmissionLF" << Yaml::Value << properties.TransmissionLF;
+			out << Yaml::Key << "TransmissionHF" << Yaml::Value << properties.TransmissionHF;
+			out << Yaml::Key << "FlatTransmissionLF" << Yaml::Value << properties.FlatTransmissionLF;
+			out << Yaml::Key << "FlatTransmissionHF" << Yaml::Value << properties.FlatTransmissionHF;
+			out << Yaml::EndMap;
 		}
-		out << YAML::EndMap;
+		out << Yaml::EndMap;
 	}
 
-	bool AcousticMaterialSettings::DeserializeYAML(const YAML::Node& node)
+	bool AcousticMaterialSettings::DeserializeYAML(const Yaml::Node& node)
 	{
 		AcousticMaterialSettings result;
 		try

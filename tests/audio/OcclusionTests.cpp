@@ -1,7 +1,7 @@
 #include "AudioTestHost.h"
 #include "Lux/Audio/AudioOcclusion.h"
 #include "Lux/Serialization/FileStream.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace
@@ -26,11 +26,11 @@ int main(int argc, char** argv)
 	AudioOcclusionSettings settings;
 	assert(settings.Validate() && settings.Source == AudioOcclusionSource::Engine && settings.CastBudget == 32);
 	// A project saved before the setting has no Occlusion key: the lookup is undefined and loads defaults.
-	assert(settings.DeserializeYAML(YAML::Load("{ Other: 1 }")["Occlusion"]) && settings.Source == AudioOcclusionSource::Engine);
+	assert(settings.DeserializeYAML(Yaml::Load("{ Other: 1 }")["Occlusion"]) && settings.Source == AudioOcclusionSource::Engine);
 	for (const char* yaml : { "Source: Muffled", "UpdateRateHz: 0", "UpdateRateHz: 500", "CastBudget: 0", "CastBudget: 5000",
 		"Strength: -1", "Strength: .nan", "Strength: 9", "[1, 2]" })
-		assert(!settings.DeserializeYAML(YAML::Load(yaml)) && settings.UpdateRateHz == 20.0f);
-	assert(settings.DeserializeYAML(YAML::Load("{ Source: Raytraced, UpdateRateHz: 10, CastBudget: 4, Strength: 0.5 }")));
+		assert(!settings.DeserializeYAML(Yaml::Load(yaml)) && settings.UpdateRateHz == 20.0f);
+	assert(settings.DeserializeYAML(Yaml::Load("{ Source: Raytraced, UpdateRateHz: 10, CastBudget: 4, Strength: 0.5 }")));
 	assert(settings.Source == AudioOcclusionSource::Raytraced && settings.UpdateRateHz == 10.0f && settings.CastBudget == 4 && settings.Strength == 0.5f);
 	const auto file = output / "occlusion-settings.bin";
 	{

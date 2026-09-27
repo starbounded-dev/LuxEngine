@@ -5,7 +5,7 @@
 #include "AudioOcclusionSettings.h"
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <cmath>
 namespace Lux
 {
@@ -28,16 +28,16 @@ namespace Lux
 			UpdateRateHz <= kMaximumRateHz && CastBudget > 0 && CastBudget <= kMaximumCastBudget && std::isfinite(Strength) &&
 			Strength >= 0.0f && Strength <= kMaximumStrength;
 	}
-	void AudioOcclusionSettings::SerializeYAML(YAML::Emitter& out) const
+	void AudioOcclusionSettings::SerializeYAML(Yaml::Writer& out) const
 	{
-		out << YAML::BeginMap;
-		out << YAML::Key << "Source" << YAML::Value << SourceName(Source);
-		out << YAML::Key << "UpdateRateHz" << YAML::Value << UpdateRateHz;
-		out << YAML::Key << "CastBudget" << YAML::Value << CastBudget;
-		out << YAML::Key << "Strength" << YAML::Value << Strength;
-		out << YAML::EndMap;
+		out << Yaml::BeginMap;
+		out << Yaml::Key << "Source" << Yaml::Value << SourceName(Source);
+		out << Yaml::Key << "UpdateRateHz" << Yaml::Value << UpdateRateHz;
+		out << Yaml::Key << "CastBudget" << Yaml::Value << CastBudget;
+		out << Yaml::Key << "Strength" << Yaml::Value << Strength;
+		out << Yaml::EndMap;
 	}
-	bool AudioOcclusionSettings::DeserializeYAML(const YAML::Node& node)
+	bool AudioOcclusionSettings::DeserializeYAML(const Yaml::Node& node)
 	{
 		try
 		{
@@ -81,7 +81,7 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Audio", "Cannot export invalid audio occlusion settings");
 			return false;
 		}
-		YAML::Emitter out;
+		Yaml::Writer out;
 		SerializeYAML(out);
 		const std::string text = out.c_str();
 		if (text.size() > kMaximumSettingsBytes)
@@ -108,7 +108,7 @@ namespace Lux
 		}
 		try
 		{
-			return DeserializeYAML(YAML::Load(text));
+			return DeserializeYAML(Yaml::Load(text));
 		}
 		catch (const std::exception& error)
 		{

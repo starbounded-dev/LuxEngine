@@ -97,6 +97,11 @@ entity build (inferred, not profiled). Deviations from the plan:
 - `SerializationMacros.h` moves to Phase 4: its only user is `VulkanShaderCache` (batch 2).
 - The `tests/audio/run.py` splice markers had been broken since `5c19e87e` (const reads); fixed
   here along with the port. All 14 markers verified against the source; not run on Linux here.
+- **Found after the commit (fixed in Phase 4):** yaml-cpp wrote `uint8_t` as a character, so the 61
+  mesh colliders in the sample scenes store `CollisionComplexity: ""`. `2e5c62ee` read that as
+  invalid and fell back to `Default`. The value oracle could not see it (it compares generic YAML,
+  not what a typed `as<T>` makes of it). `Lux::Yaml` now reads 8-bit values as a number or as the
+  legacy character, and the Writer refuses 8-bit types so every caller casts explicitly.
 
 ## Part 1 — Design
 
@@ -220,12 +225,14 @@ mention of the yaml-cpp helpers). **Rollback:** delete the two files.
 
 Three batches, each built, oracle-checked, and committed on its own:
 1. `ProjectSerializer.cpp` (drops its duplicate `convert<glm::vec3>`), `TieringSerializer.cpp`,
-   `UserPreferences.cpp`, `ApplicationSettings.cpp`, `Editor/PanelManager.cpp`.
+   `UserPreferences.cpp`, `ApplicationSettings.cpp`, `Editor/PanelManager.cpp` — plus the audio
+   settings the project file embeds (`AcousticMaterial`, `AudioAccessibility*`,
+   `AudioPerformanceSettings`, `AudioOcclusionSettings`) and their `tests/audio` users, since
+   `ProjectSerializer` passes its writer and nodes straight into them.
 2. `MaterialSerializer.cpp`, `MeshSerializer.cpp` (its `convert<std::vector<uint32_t>>` moves to
    the wrapper), `EditorAssetManager.cpp` (asset registry), `VulkanShaderCache.cpp`.
-3. The audio settings/tables (`AcousticMaterial`, `AudioAccessibility*`, `AudioPerformanceSettings`,
-   `AudioOcclusionSettings`, `AudioSurfaceTable`, `DialogueTable`) and their headers,
-   `Lux-Runtime/src/RuntimeApplication.cpp`, and `tests/audio/*`.
+3. The audio tables (`AudioSurfaceTable`, `DialogueTable`), `Lux-Runtime/src/RuntimeApplication.cpp`,
+   and the rest of `tests/audio/*`.
 
 **Verification per batch:** build Windows + Linux; oracle equal for the batch's file types; launch
 the editor and open, edit, save, and reopen a project, a material, and the audio settings; Lux-Runtime

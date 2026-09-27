@@ -9,7 +9,7 @@
 #include <string>
 #include <glm/glm.hpp>
 
-namespace YAML { class Node; class Emitter; }
+namespace Lux::Yaml { class Node; class Writer; }
 namespace Lux
 {
 	class StreamReader;
@@ -29,8 +29,8 @@ namespace Lux
 		float DialogueBoost = 1.0f;
 		std::array<float, AudioCategoryCount> Volumes{ 1, 1, 1, 1, 1, 1 };
 		bool Validate() const;
-		void SerializeYAML(YAML::Emitter& out) const;
-		bool DeserializeYAML(const YAML::Node& node);
+		void SerializeYAML(Yaml::Writer& out) const;
+		bool DeserializeYAML(const Yaml::Node& node);
 	};
 
 	struct AudioEventAccessibility
@@ -52,8 +52,8 @@ namespace Lux
 		std::map<std::string, AudioEventAccessibility> Events; // Stable FMOD event GUID.
 		std::map<std::string, glm::vec4> SpeakerColors; // Localized speaker name -> RGBA.
 		bool Validate() const;
-		void SerializeYAML(YAML::Emitter& out) const;
-		bool DeserializeYAML(const YAML::Node& node);
+		void SerializeYAML(Yaml::Writer& out) const;
+		bool DeserializeYAML(const Yaml::Node& node);
 		bool Serialize(StreamWriter& stream) const;
 		bool Deserialize(StreamReader& stream);
 	};

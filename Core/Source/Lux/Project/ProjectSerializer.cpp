@@ -8,51 +8,16 @@
 
 #include "Lux/Core/Log.h"
 #include "Lux/Serialization/FileStream.h"
+#include "Lux/Serialization/Yaml.h"
 
 #include <cctype>
 #include <fstream>
 #include <sstream>
-#include <yaml-cpp/yaml.h>
-
-namespace YAML
-{
-	template<>
-	struct convert<glm::vec3>
-	{
-		static Node encode(const glm::vec3& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.push_back(rhs.z);
-			node.SetStyle(EmitterStyle::Flow);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec3& rhs)
-		{
-			if (!node.IsSequence() || node.size() != 3)
-				return false;
-
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			rhs.z = node[2].as<float>();
-			return true;
-		}
-	};
-}
 
 namespace Lux
 {
 	namespace
 	{
-		YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& value)
-		{
-			out << YAML::Flow;
-			out << YAML::BeginSeq << value.x << value.y << value.z << YAML::EndSeq;
-			return out;
-		}
-
 		std::filesystem::path NormalizeRegistryPath(const std::filesystem::path& projectDirectory, const std::filesystem::path& assetDirectory, const std::filesystem::path& rawPath)
 		{
 			if (rawPath.empty())
@@ -239,102 +204,102 @@ namespace Lux
 			}
 		}
 
-		void SerializeSceneRendererSettings(YAML::Emitter& out, const ProjectSceneRendererSettings& settings)
+		void SerializeSceneRendererSettings(Yaml::Writer& out, const ProjectSceneRendererSettings& settings)
 		{
-			out << YAML::Key << "SceneRenderer" << YAML::Value;
-			out << YAML::BeginMap;
+			out << Yaml::Key << "SceneRenderer" << Yaml::Value;
+			out << Yaml::BeginMap;
 
-			out << YAML::Key << "Rendering" << YAML::Value;
-			out << YAML::BeginMap;
-			out << YAML::Key << "QualityPreset" << YAML::Value << QualityPresetToString(settings.QualityPreset);
-			out << YAML::Key << "FrustumCulling" << YAML::Value << settings.EnableFrustumCulling;
-			out << YAML::Key << "OcclusionCulling" << YAML::Value << settings.EnableOcclusionCulling;
-			out << YAML::Key << "GPUDrivenRendering" << YAML::Value << settings.EnableGPUDrivenRendering;
-			out << YAML::Key << "MeshLODs" << YAML::Value << settings.EnableMeshLODs;
-			out << YAML::Key << "MeshLODDistanceScale" << YAML::Value << settings.MeshLODDistanceScale;
-			out << YAML::Key << "VariableRateShading" << YAML::Value << settings.EnableVariableRateShading;
-			out << YAML::Key << "MeshShaders" << YAML::Value << settings.EnableMeshShaders;
-			out << YAML::Key << "GTAO" << YAML::Value << settings.EnableGTAO;
-			out << YAML::Key << "GTAOBentNormals" << YAML::Value << settings.GTAOBentNormals;
-			out << YAML::Key << "GTAODenoisePasses" << YAML::Value << settings.GTAODenoisePasses;
-			out << YAML::Key << "GTAOSliceCount" << YAML::Value << settings.GTAOSliceCount;
-			out << YAML::Key << "GTAOStepsPerSlice" << YAML::Value << settings.GTAOStepsPerSlice;
-			out << YAML::Key << "AOShadowTolerance" << YAML::Value << settings.AOShadowTolerance;
-			out << YAML::Key << "SSR" << YAML::Value << settings.EnableSSR;
-			out << YAML::Key << "JumpFloodOutline" << YAML::Value << settings.EnableJumpFlood;
-			out << YAML::Key << "RenderScaleMode" << YAML::Value << RenderScaleModeToString(settings.RenderScaleMode);
-			out << YAML::Key << "FixedRenderWidth" << YAML::Value << settings.FixedRenderWidth;
-			out << YAML::Key << "FixedRenderHeight" << YAML::Value << settings.FixedRenderHeight;
-			out << YAML::Key << "DynamicResolutionMinScale" << YAML::Value << settings.DynamicResolutionMinScale;
-			out << YAML::Key << "DynamicResolutionMaxScale" << YAML::Value << settings.DynamicResolutionMaxScale;
-			out << YAML::Key << "DynamicResolutionTargetGPUTime" << YAML::Value << settings.DynamicResolutionTargetGPUTime;
-			out << YAML::Key << "TextureMipBias" << YAML::Value << settings.TextureMipBias;
-			out << YAML::Key << "DistanceMipBias" << YAML::Value << settings.EnableDistanceMipBias;
-			out << YAML::Key << "DistanceMipBiasStart" << YAML::Value << settings.DistanceMipBiasStart;
-			out << YAML::Key << "DistanceMipBiasEnd" << YAML::Value << settings.DistanceMipBiasEnd;
-			out << YAML::Key << "DistanceMipBiasMax" << YAML::Value << settings.DistanceMipBiasMax;
-			out << YAML::Key << "OcclusionDepthBias" << YAML::Value << settings.OcclusionDepthBias;
-			out << YAML::Key << "OcclusionBoundsScale" << YAML::Value << settings.OcclusionBoundsScale;
-			out << YAML::Key << "GTAOResolutionScale" << YAML::Value << settings.GTAOResolutionScale;
-			out << YAML::Key << "SSRQuality" << YAML::Value << SSRQualityToString(settings.SSRQuality);
-			out << YAML::Key << "SSRResolutionScale" << YAML::Value << settings.SSRResolutionScale;
-			out << YAML::Key << "SMAA" << YAML::Value << settings.EnableSMAA;
-			out << YAML::Key << "SMAAThreshold" << YAML::Value << settings.SMAAThreshold;
-			out << YAML::Key << "SMAALocalContrastAdaptationFactor" << YAML::Value << settings.SMAALocalContrastAdaptationFactor;
-			out << YAML::EndMap;
+			out << Yaml::Key << "Rendering" << Yaml::Value;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "QualityPreset" << Yaml::Value << QualityPresetToString(settings.QualityPreset);
+			out << Yaml::Key << "FrustumCulling" << Yaml::Value << settings.EnableFrustumCulling;
+			out << Yaml::Key << "OcclusionCulling" << Yaml::Value << settings.EnableOcclusionCulling;
+			out << Yaml::Key << "GPUDrivenRendering" << Yaml::Value << settings.EnableGPUDrivenRendering;
+			out << Yaml::Key << "MeshLODs" << Yaml::Value << settings.EnableMeshLODs;
+			out << Yaml::Key << "MeshLODDistanceScale" << Yaml::Value << settings.MeshLODDistanceScale;
+			out << Yaml::Key << "VariableRateShading" << Yaml::Value << settings.EnableVariableRateShading;
+			out << Yaml::Key << "MeshShaders" << Yaml::Value << settings.EnableMeshShaders;
+			out << Yaml::Key << "GTAO" << Yaml::Value << settings.EnableGTAO;
+			out << Yaml::Key << "GTAOBentNormals" << Yaml::Value << settings.GTAOBentNormals;
+			out << Yaml::Key << "GTAODenoisePasses" << Yaml::Value << settings.GTAODenoisePasses;
+			out << Yaml::Key << "GTAOSliceCount" << Yaml::Value << settings.GTAOSliceCount;
+			out << Yaml::Key << "GTAOStepsPerSlice" << Yaml::Value << settings.GTAOStepsPerSlice;
+			out << Yaml::Key << "AOShadowTolerance" << Yaml::Value << settings.AOShadowTolerance;
+			out << Yaml::Key << "SSR" << Yaml::Value << settings.EnableSSR;
+			out << Yaml::Key << "JumpFloodOutline" << Yaml::Value << settings.EnableJumpFlood;
+			out << Yaml::Key << "RenderScaleMode" << Yaml::Value << RenderScaleModeToString(settings.RenderScaleMode);
+			out << Yaml::Key << "FixedRenderWidth" << Yaml::Value << settings.FixedRenderWidth;
+			out << Yaml::Key << "FixedRenderHeight" << Yaml::Value << settings.FixedRenderHeight;
+			out << Yaml::Key << "DynamicResolutionMinScale" << Yaml::Value << settings.DynamicResolutionMinScale;
+			out << Yaml::Key << "DynamicResolutionMaxScale" << Yaml::Value << settings.DynamicResolutionMaxScale;
+			out << Yaml::Key << "DynamicResolutionTargetGPUTime" << Yaml::Value << settings.DynamicResolutionTargetGPUTime;
+			out << Yaml::Key << "TextureMipBias" << Yaml::Value << settings.TextureMipBias;
+			out << Yaml::Key << "DistanceMipBias" << Yaml::Value << settings.EnableDistanceMipBias;
+			out << Yaml::Key << "DistanceMipBiasStart" << Yaml::Value << settings.DistanceMipBiasStart;
+			out << Yaml::Key << "DistanceMipBiasEnd" << Yaml::Value << settings.DistanceMipBiasEnd;
+			out << Yaml::Key << "DistanceMipBiasMax" << Yaml::Value << settings.DistanceMipBiasMax;
+			out << Yaml::Key << "OcclusionDepthBias" << Yaml::Value << settings.OcclusionDepthBias;
+			out << Yaml::Key << "OcclusionBoundsScale" << Yaml::Value << settings.OcclusionBoundsScale;
+			out << Yaml::Key << "GTAOResolutionScale" << Yaml::Value << settings.GTAOResolutionScale;
+			out << Yaml::Key << "SSRQuality" << Yaml::Value << SSRQualityToString(settings.SSRQuality);
+			out << Yaml::Key << "SSRResolutionScale" << Yaml::Value << settings.SSRResolutionScale;
+			out << Yaml::Key << "SMAA" << Yaml::Value << settings.EnableSMAA;
+			out << Yaml::Key << "SMAAThreshold" << Yaml::Value << settings.SMAAThreshold;
+			out << Yaml::Key << "SMAALocalContrastAdaptationFactor" << Yaml::Value << settings.SMAALocalContrastAdaptationFactor;
+			out << Yaml::EndMap;
 
-			out << YAML::Key << "Shadows" << YAML::Value;
-			out << YAML::BeginMap;
-			out << YAML::Key << "SoftShadows" << YAML::Value << settings.SoftShadows;
-			out << YAML::Key << "ShadowCulling" << YAML::Value << settings.EnableShadowCulling;
-			out << YAML::Key << "MaxDistance" << YAML::Value << settings.MaxShadowDistance;
-			out << YAML::Key << "DistanceFade" << YAML::Value << settings.ShadowFade;
-			out << YAML::Key << "ActiveCascadeCount" << YAML::Value << settings.ActiveShadowCascadeCount;
-			out << YAML::Key << "SplitLambda" << YAML::Value << settings.ShadowCascadeSplitLambda;
-			out << YAML::Key << "NearOffset" << YAML::Value << settings.ShadowCascadeNearPlaneOffset;
-			out << YAML::Key << "FarOffset" << YAML::Value << settings.ShadowCascadeFarPlaneOffset;
-			out << YAML::Key << "CascadeFade" << YAML::Value << settings.ShadowCascadeTransitionFade;
-			out << YAML::Key << "FilterMode" << YAML::Value << settings.ShadowFilterMode;
-			out << YAML::Key << "DirectionalPCSSCascades" << YAML::Value << settings.DirectionalPCSSCascadeCount;
-			out << YAML::Key << "PCFRadiusTexels" << YAML::Value << settings.ShadowPCFRadiusTexels;
-			out << YAML::Key << "SpotPCFRadiusTexels" << YAML::Value << settings.SpotShadowPCFRadiusTexels;
-			out << YAML::Key << "ResolutionLimit" << YAML::Value << ShadowResolutionToString(settings.ShadowResolution);
-			out << YAML::EndMap;
+			out << Yaml::Key << "Shadows" << Yaml::Value;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "SoftShadows" << Yaml::Value << settings.SoftShadows;
+			out << Yaml::Key << "ShadowCulling" << Yaml::Value << settings.EnableShadowCulling;
+			out << Yaml::Key << "MaxDistance" << Yaml::Value << settings.MaxShadowDistance;
+			out << Yaml::Key << "DistanceFade" << Yaml::Value << settings.ShadowFade;
+			out << Yaml::Key << "ActiveCascadeCount" << Yaml::Value << settings.ActiveShadowCascadeCount;
+			out << Yaml::Key << "SplitLambda" << Yaml::Value << settings.ShadowCascadeSplitLambda;
+			out << Yaml::Key << "NearOffset" << Yaml::Value << settings.ShadowCascadeNearPlaneOffset;
+			out << Yaml::Key << "FarOffset" << Yaml::Value << settings.ShadowCascadeFarPlaneOffset;
+			out << Yaml::Key << "CascadeFade" << Yaml::Value << settings.ShadowCascadeTransitionFade;
+			out << Yaml::Key << "FilterMode" << Yaml::Value << settings.ShadowFilterMode;
+			out << Yaml::Key << "DirectionalPCSSCascades" << Yaml::Value << settings.DirectionalPCSSCascadeCount;
+			out << Yaml::Key << "PCFRadiusTexels" << Yaml::Value << settings.ShadowPCFRadiusTexels;
+			out << Yaml::Key << "SpotPCFRadiusTexels" << Yaml::Value << settings.SpotShadowPCFRadiusTexels;
+			out << Yaml::Key << "ResolutionLimit" << Yaml::Value << ShadowResolutionToString(settings.ShadowResolution);
+			out << Yaml::EndMap;
 
-			out << YAML::Key << "PostFX" << YAML::Value;
-			out << YAML::BeginMap;
-			out << YAML::Key << "Bloom" << YAML::Value;
-			out << YAML::BeginMap;
-			out << YAML::Key << "Enabled" << YAML::Value << settings.BloomEnabled;
-			out << YAML::Key << "ResolutionScale" << YAML::Value << settings.BloomResolutionScale;
-			out << YAML::Key << "Threshold" << YAML::Value << settings.BloomThreshold;
-			out << YAML::Key << "Knee" << YAML::Value << settings.BloomKnee;
-			out << YAML::Key << "UpsampleScale" << YAML::Value << settings.BloomUpsampleScale;
-			out << YAML::Key << "Intensity" << YAML::Value << settings.BloomIntensity;
-			out << YAML::Key << "DirtIntensity" << YAML::Value << settings.BloomDirtIntensity;
-			out << YAML::EndMap;
+			out << Yaml::Key << "PostFX" << Yaml::Value;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Bloom" << Yaml::Value;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Enabled" << Yaml::Value << settings.BloomEnabled;
+			out << Yaml::Key << "ResolutionScale" << Yaml::Value << settings.BloomResolutionScale;
+			out << Yaml::Key << "Threshold" << Yaml::Value << settings.BloomThreshold;
+			out << Yaml::Key << "Knee" << Yaml::Value << settings.BloomKnee;
+			out << Yaml::Key << "UpsampleScale" << Yaml::Value << settings.BloomUpsampleScale;
+			out << Yaml::Key << "Intensity" << Yaml::Value << settings.BloomIntensity;
+			out << Yaml::Key << "DirtIntensity" << Yaml::Value << settings.BloomDirtIntensity;
+			out << Yaml::EndMap;
 
-			out << YAML::Key << "DOF" << YAML::Value;
-			out << YAML::BeginMap;
-			out << YAML::Key << "Enabled" << YAML::Value << settings.DOFEnabled;
-			out << YAML::Key << "ResolutionScale" << YAML::Value << settings.DOFResolutionScale;
-			out << YAML::Key << "FocusDistance" << YAML::Value << settings.DOFFocusDistance;
-			out << YAML::Key << "BlurSize" << YAML::Value << settings.DOFBlurSize;
-			out << YAML::EndMap;
+			out << Yaml::Key << "DOF" << Yaml::Value;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Enabled" << Yaml::Value << settings.DOFEnabled;
+			out << Yaml::Key << "ResolutionScale" << Yaml::Value << settings.DOFResolutionScale;
+			out << Yaml::Key << "FocusDistance" << Yaml::Value << settings.DOFFocusDistance;
+			out << Yaml::Key << "BlurSize" << Yaml::Value << settings.DOFBlurSize;
+			out << Yaml::EndMap;
 
-			out << YAML::Key << "SSR" << YAML::Value;
-			out << YAML::BeginMap;
-			out << YAML::Key << "HalfRes" << YAML::Value << settings.SSRHalfRes;
-			out << YAML::Key << "MaxSteps" << YAML::Value << settings.SSRMaxSteps;
-			out << YAML::Key << "Brightness" << YAML::Value << settings.SSRBrightness;
-			out << YAML::Key << "DepthTolerance" << YAML::Value << settings.SSRDepthTolerance;
-			out << YAML::EndMap;
-			out << YAML::EndMap;
+			out << Yaml::Key << "SSR" << Yaml::Value;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "HalfRes" << Yaml::Value << settings.SSRHalfRes;
+			out << Yaml::Key << "MaxSteps" << Yaml::Value << settings.SSRMaxSteps;
+			out << Yaml::Key << "Brightness" << Yaml::Value << settings.SSRBrightness;
+			out << Yaml::Key << "DepthTolerance" << Yaml::Value << settings.SSRDepthTolerance;
+			out << Yaml::EndMap;
+			out << Yaml::EndMap;
 
-			out << YAML::EndMap;
+			out << Yaml::EndMap;
 		}
 
-		void DeserializeSceneRendererSettings(const YAML::Node& node, ProjectSceneRendererSettings& settings)
+		void DeserializeSceneRendererSettings(const Yaml::Node& node, ProjectSceneRendererSettings& settings)
 		{
 			if (!node)
 				return;
@@ -395,7 +360,7 @@ namespace Lux
 				settings.DirectionalPCSSCascadeCount = shadows["DirectionalPCSSCascades"].as<uint32_t>(settings.DirectionalPCSSCascadeCount);
 				settings.ShadowPCFRadiusTexels = shadows["PCFRadiusTexels"].as<float>(settings.ShadowPCFRadiusTexels);
 				settings.SpotShadowPCFRadiusTexels = shadows["SpotPCFRadiusTexels"].as<float>(settings.SpotShadowPCFRadiusTexels);
-				YAML::Node shadowResolution = shadows["ResolutionLimit"] ? shadows["ResolutionLimit"] : shadows["ShadowResolution"];
+				Yaml::Node shadowResolution = shadows["ResolutionLimit"] ? shadows["ResolutionLimit"] : shadows["ShadowResolution"];
 				settings.ShadowResolution = ShadowResolutionFromString(shadowResolution.as<std::string>(ShadowResolutionToString(settings.ShadowResolution)));
 			}
 
@@ -660,129 +625,129 @@ namespace Lux
 		if (!config.Audio.Accessibility.Validate())
 			return false;
 
-		YAML::Emitter out;
-		out << YAML::BeginMap;
-		out << YAML::Key << "Project" << YAML::Value;
+		Yaml::Writer out;
+		out << Yaml::BeginMap;
+		out << Yaml::Key << "Project" << Yaml::Value;
 		{
-			out << YAML::BeginMap;
-			out << YAML::Key << "Name" << YAML::Value << config.Name;
-			out << YAML::Key << "AssetDirectory" << YAML::Value << config.AssetDirectory.generic_string();
-			out << YAML::Key << "AssetRegistry" << YAML::Value << config.AssetRegistryPath.generic_string();
-			out << YAML::Key << "AudioCommandsRegistryPath" << YAML::Value << config.AudioCommandsRegistryPath.generic_string();
-			out << YAML::Key << "MeshPath" << YAML::Value << config.MeshPath.generic_string();
-			out << YAML::Key << "MeshSourcePath" << YAML::Value << config.MeshSourcePath.generic_string();
-			out << YAML::Key << "AnimationPath" << YAML::Value << config.AnimationPath.generic_string();
-			out << YAML::Key << "ScriptModulePath" << YAML::Value << config.ScriptModulePath.generic_string();
-			out << YAML::Key << "DefaultNamespace" << YAML::Value << config.DefaultNamespace;
-			out << YAML::Key << "StartScene" << YAML::Value << config.StartScene;
-			out << YAML::Key << "AutomaticallyReloadAssembly" << YAML::Value << config.AutomaticallyReloadAssembly;
-			out << YAML::Key << "AutoSave" << YAML::Value << config.EnableAutoSave;
-			out << YAML::Key << "AutoSaveInterval" << YAML::Value << config.AutoSaveIntervalSeconds;
-			out << YAML::Key << "RuntimeExport" << YAML::Value;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Name" << Yaml::Value << config.Name;
+			out << Yaml::Key << "AssetDirectory" << Yaml::Value << config.AssetDirectory.generic_string();
+			out << Yaml::Key << "AssetRegistry" << Yaml::Value << config.AssetRegistryPath.generic_string();
+			out << Yaml::Key << "AudioCommandsRegistryPath" << Yaml::Value << config.AudioCommandsRegistryPath.generic_string();
+			out << Yaml::Key << "MeshPath" << Yaml::Value << config.MeshPath.generic_string();
+			out << Yaml::Key << "MeshSourcePath" << Yaml::Value << config.MeshSourcePath.generic_string();
+			out << Yaml::Key << "AnimationPath" << Yaml::Value << config.AnimationPath.generic_string();
+			out << Yaml::Key << "ScriptModulePath" << Yaml::Value << config.ScriptModulePath.generic_string();
+			out << Yaml::Key << "DefaultNamespace" << Yaml::Value << config.DefaultNamespace;
+			out << Yaml::Key << "StartScene" << Yaml::Value << config.StartScene;
+			out << Yaml::Key << "AutomaticallyReloadAssembly" << Yaml::Value << config.AutomaticallyReloadAssembly;
+			out << Yaml::Key << "AutoSave" << Yaml::Value << config.EnableAutoSave;
+			out << Yaml::Key << "AutoSaveInterval" << Yaml::Value << config.AutoSaveIntervalSeconds;
+			out << Yaml::Key << "RuntimeExport" << Yaml::Value;
 			{
-				out << YAML::BeginMap;
-				out << YAML::Key << "GameName" << YAML::Value << config.RuntimeExport.GameName;
-				out << YAML::Key << "WindowWidth" << YAML::Value << config.RuntimeExport.WindowWidth;
-				out << YAML::Key << "WindowHeight" << YAML::Value << config.RuntimeExport.WindowHeight;
-				out << YAML::Key << "Fullscreen" << YAML::Value << config.RuntimeExport.Fullscreen;
-				out << YAML::Key << "VSync" << YAML::Value << config.RuntimeExport.VSync;
-				out << YAML::Key << "IconPath" << YAML::Value << config.RuntimeExport.IconPath.generic_string();
-				out << YAML::Key << "IconHandle" << YAML::Value << (uint64_t)config.RuntimeExport.IconHandle;
-				out << YAML::Key << "TargetConfig" << YAML::Value << RuntimeExportTargetToString(config.RuntimeExport.TargetConfig);
-				out << YAML::EndMap;
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "GameName" << Yaml::Value << config.RuntimeExport.GameName;
+				out << Yaml::Key << "WindowWidth" << Yaml::Value << config.RuntimeExport.WindowWidth;
+				out << Yaml::Key << "WindowHeight" << Yaml::Value << config.RuntimeExport.WindowHeight;
+				out << Yaml::Key << "Fullscreen" << Yaml::Value << config.RuntimeExport.Fullscreen;
+				out << Yaml::Key << "VSync" << Yaml::Value << config.RuntimeExport.VSync;
+				out << Yaml::Key << "IconPath" << Yaml::Value << config.RuntimeExport.IconPath.generic_string();
+				out << Yaml::Key << "IconHandle" << Yaml::Value << (uint64_t)config.RuntimeExport.IconHandle;
+				out << Yaml::Key << "TargetConfig" << Yaml::Value << RuntimeExportTargetToString(config.RuntimeExport.TargetConfig);
+				out << Yaml::EndMap;
 			}
 			SerializeSceneRendererSettings(out, config.SceneRenderer);
 
-			out << YAML::Key << "Audio" << YAML::Value;
+			out << Yaml::Key << "Audio" << Yaml::Value;
 			{
-				out << YAML::BeginMap;
-				out << YAML::Key << "FileStreamingDurationThreshold" << YAML::Value << config.Audio.FileStreamingDurationThreshold;
-				out << YAML::Key << "StudioProjectPath" << YAML::Value << config.Audio.StudioProjectPath.generic_string();
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "FileStreamingDurationThreshold" << Yaml::Value << config.Audio.FileStreamingDurationThreshold;
+				out << Yaml::Key << "StudioProjectPath" << Yaml::Value << config.Audio.StudioProjectPath.generic_string();
 				if (!IsValidStudioPlatform(config.Audio.StudioPlatform) || !config.Audio.Windows.Validate() || !config.Audio.Linux.Validate())
 				{
 					LUX_CORE_ERROR_TAG("Audio", "Cannot save invalid desktop audio profiles");
 					return false;
 				}
-				out << YAML::Key << "StudioPlatform" << YAML::Value << config.Audio.StudioPlatform;
-				out << YAML::Key << "Windows" << YAML::Value;
+				out << Yaml::Key << "StudioPlatform" << Yaml::Value << config.Audio.StudioPlatform;
+				out << Yaml::Key << "Windows" << Yaml::Value;
 				config.Audio.Windows.SerializeYAML(out);
-				out << YAML::Key << "Linux" << YAML::Value;
+				out << Yaml::Key << "Linux" << Yaml::Value;
 				config.Audio.Linux.SerializeYAML(out);
-				out << YAML::Key << "StudioBankOutputPath" << YAML::Value << config.Audio.StudioBankOutputPath.generic_string();
-				out << YAML::Key << "RebuildBanksOnPlay" << YAML::Value << config.Audio.RebuildBanksOnPlay;
-				out << YAML::Key << "EnableLiveUpdate" << YAML::Value << config.Audio.EnableLiveUpdate;
+				out << Yaml::Key << "StudioBankOutputPath" << Yaml::Value << config.Audio.StudioBankOutputPath.generic_string();
+				out << Yaml::Key << "RebuildBanksOnPlay" << Yaml::Value << config.Audio.RebuildBanksOnPlay;
+				out << Yaml::Key << "EnableLiveUpdate" << Yaml::Value << config.Audio.EnableLiveUpdate;
 				if (!config.Audio.AcousticMaterials.Validate())
 					return false;
-				out << YAML::Key << "AcousticMaterials" << YAML::Value;
+				out << Yaml::Key << "AcousticMaterials" << Yaml::Value;
 				config.Audio.AcousticMaterials.SerializeYAML(out);
-				out << YAML::Key << "SurfaceTable" << YAML::Value << static_cast<uint64_t>(config.Audio.SurfaceTable);
-				out << YAML::Key << "DialogueTable" << YAML::Value << static_cast<uint64_t>(config.Audio.Dialogue.Table);
-				out << YAML::Key << "DialogueLanguage" << YAML::Value << config.Audio.Dialogue.Language;
-				out << YAML::Key << "Accessibility" << YAML::Value;
+				out << Yaml::Key << "SurfaceTable" << Yaml::Value << static_cast<uint64_t>(config.Audio.SurfaceTable);
+				out << Yaml::Key << "DialogueTable" << Yaml::Value << static_cast<uint64_t>(config.Audio.Dialogue.Table);
+				out << Yaml::Key << "DialogueLanguage" << Yaml::Value << config.Audio.Dialogue.Language;
+				out << Yaml::Key << "Accessibility" << Yaml::Value;
 				config.Audio.Accessibility.SerializeYAML(out);
-				out << YAML::Key << "Performance" << YAML::Value;
+				out << Yaml::Key << "Performance" << Yaml::Value;
 				config.Audio.Performance.SerializeYAML(out);
-				out << YAML::Key << "ZoneReverbMode" << YAML::Value << static_cast<uint32_t>(config.Audio.ZoneReverbMode);
-				out << YAML::Key << "Occlusion" << YAML::Value;
+				out << Yaml::Key << "ZoneReverbMode" << Yaml::Value << static_cast<uint32_t>(config.Audio.ZoneReverbMode);
+				out << Yaml::Key << "Occlusion" << Yaml::Value;
 				config.Audio.Occlusion.SerializeYAML(out);
-				out << YAML::EndMap;
+				out << Yaml::EndMap;
 			}
 
-			out << YAML::Key << "Physics" << YAML::Value;
+			out << Yaml::Key << "Physics" << Yaml::Value;
 			{
-				out << YAML::BeginMap;
-				out << YAML::Key << "FixedTimestep" << YAML::Value << config.Physics.FixedTimestep;
-				out << YAML::Key << "Gravity" << YAML::Value << config.Physics.Gravity;
-				out << YAML::Key << "SolverPositionIterations" << YAML::Value << config.Physics.PositionSolverIterations;
-				out << YAML::Key << "SolverVelocityIterations" << YAML::Value << config.Physics.VelocitySolverIterations;
-				out << YAML::Key << "MaxBodies" << YAML::Value << config.Physics.MaxBodies;
-				out << YAML::Key << "CaptureOnPlay" << YAML::Value << config.Physics.CaptureOnPlay;
-				out << YAML::Key << "CaptureMethod" << YAML::Value << PhysicsCaptureMethodToString(config.Physics.CaptureMethod);
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "FixedTimestep" << Yaml::Value << config.Physics.FixedTimestep;
+				out << Yaml::Key << "Gravity" << Yaml::Value << config.Physics.Gravity;
+				out << Yaml::Key << "SolverPositionIterations" << Yaml::Value << config.Physics.PositionSolverIterations;
+				out << Yaml::Key << "SolverVelocityIterations" << Yaml::Value << config.Physics.VelocitySolverIterations;
+				out << Yaml::Key << "MaxBodies" << Yaml::Value << config.Physics.MaxBodies;
+				out << Yaml::Key << "CaptureOnPlay" << Yaml::Value << config.Physics.CaptureOnPlay;
+				out << Yaml::Key << "CaptureMethod" << Yaml::Value << PhysicsCaptureMethodToString(config.Physics.CaptureMethod);
 
 				if (!config.Physics.Layers.empty())
 				{
-					out << YAML::Key << "Layers" << YAML::Value << YAML::BeginSeq;
+					out << Yaml::Key << "Layers" << Yaml::Value << Yaml::BeginSeq;
 					for (const auto& layer : config.Physics.Layers)
 					{
-						out << YAML::BeginMap;
-						out << YAML::Key << "Name" << YAML::Value << layer.Name;
-						out << YAML::Key << "CollidesWithSelf" << YAML::Value << layer.CollidesWithSelf;
-						out << YAML::Key << "CollidesWith" << YAML::Value << YAML::BeginSeq;
+						out << Yaml::BeginMap;
+						out << Yaml::Key << "Name" << Yaml::Value << layer.Name;
+						out << Yaml::Key << "CollidesWithSelf" << Yaml::Value << layer.CollidesWithSelf;
+						out << Yaml::Key << "CollidesWith" << Yaml::Value << Yaml::BeginSeq;
 						for (const auto& collidingLayer : layer.CollidesWith)
 						{
-							out << YAML::BeginMap;
-							out << YAML::Key << "Name" << YAML::Value << collidingLayer;
-							out << YAML::EndMap;
+							out << Yaml::BeginMap;
+							out << Yaml::Key << "Name" << Yaml::Value << collidingLayer;
+							out << Yaml::EndMap;
 						}
-						out << YAML::EndSeq;
-						out << YAML::EndMap;
+						out << Yaml::EndSeq;
+						out << Yaml::EndMap;
 					}
-					out << YAML::EndSeq;
+					out << Yaml::EndSeq;
 				}
 
-				out << YAML::EndMap;
+				out << Yaml::EndMap;
 			}
 
-			out << YAML::Key << "Log" << YAML::Value;
+			out << Yaml::Key << "Log" << Yaml::Value;
 			{
-				out << YAML::BeginMap;
+				out << Yaml::BeginMap;
 				for (auto& [name, details] : Log::EnabledTags())
 				{
 					if (name.empty())
 						continue;
 
-					out << YAML::Key << name << YAML::Value;
-					out << YAML::BeginMap;
-					out << YAML::Key << "Enabled" << YAML::Value << details.Enabled;
-					out << YAML::Key << "LevelFilter" << YAML::Value << Log::LevelToString(details.LevelFilter);
-					out << YAML::EndMap;
+					out << Yaml::Key << name << Yaml::Value;
+					out << Yaml::BeginMap;
+					out << Yaml::Key << "Enabled" << Yaml::Value << details.Enabled;
+					out << Yaml::Key << "LevelFilter" << Yaml::Value << Log::LevelToString(details.LevelFilter);
+					out << Yaml::EndMap;
 				}
-				out << YAML::EndMap;
+				out << Yaml::EndMap;
 			}
 
-			out << YAML::EndMap;
+			out << Yaml::EndMap;
 		}
-		out << YAML::EndMap;
+		out << Yaml::EndMap;
 
 		CreateDirectoriesIfNeeded(filepath);
 		std::ofstream fout(filepath);
@@ -890,12 +855,12 @@ namespace Lux
 	{
 		auto& config = m_Project->GetConfig();
 
-		YAML::Node data;
+		Yaml::Node data;
 		try
 		{
-			data = YAML::LoadFile(filepath.string());
+			data = Yaml::LoadFile(filepath.string());
 		}
-		catch (const YAML::ParserException& e)
+		catch (const Yaml::Exception& e)
 		{
 			LUX_CORE_ERROR("Failed to load project file '{0}'\n     {1}", filepath.string(), e.what());
 			return false;
@@ -941,7 +906,7 @@ namespace Lux
 
 			if (auto targetConfigNode = runtimeExportNode["TargetConfig"])
 			{
-				if (targetConfigNode.IsScalar() && !IsNumericString(targetConfigNode.Scalar()))
+				if (targetConfigNode.IsScalar() && !IsNumericString(std::string(targetConfigNode.Scalar())))
 					config.RuntimeExport.TargetConfig = RuntimeExportTargetFromString(targetConfigNode.as<std::string>());
 				else
 					config.RuntimeExport.TargetConfig = RuntimeExportTargetFromString(std::to_string(targetConfigNode.as<int>((int)RuntimeExportTarget::Release)));
@@ -957,7 +922,7 @@ namespace Lux
 
 		if (auto startSceneNode = projectNode["StartScene"])
 		{
-			std::string rawStartScene = startSceneNode.IsScalar() ? startSceneNode.Scalar() : std::string{};
+			std::string rawStartScene = startSceneNode.IsScalar() ? std::string(startSceneNode.Scalar()) : std::string{};
 			if (IsNumericString(rawStartScene))
 				config.StartSceneHandle = (uint64_t)std::stoull(rawStartScene);
 			else
@@ -1027,13 +992,13 @@ namespace Lux
 
 			if (physicsNode["CaptureMethod"])
 			{
-				if (physicsNode["CaptureMethod"].IsScalar() && !IsNumericString(physicsNode["CaptureMethod"].Scalar()))
+				if (physicsNode["CaptureMethod"].IsScalar() && !IsNumericString(std::string(physicsNode["CaptureMethod"].Scalar())))
 					config.Physics.CaptureMethod = PhysicsCaptureMethodFromString(physicsNode["CaptureMethod"].as<std::string>());
 				else
 					config.Physics.CaptureMethod = (PhysicsCaptureMethod)physicsNode["CaptureMethod"].as<int>((int)config.Physics.CaptureMethod);
 			}
 
-			YAML::Node physicsLayers = physicsNode["Layers"];
+			Yaml::Node physicsLayers = physicsNode["Layers"];
 			if (!physicsLayers)
 				physicsLayers = physicsNode["PhysicsLayers"];
 
@@ -1225,8 +1190,8 @@ namespace Lux
 			std::stringstream overridesString;
 			overridesString << overridesStream.rdbuf();
 
-			YAML::Node overridesData = YAML::Load(overridesString.str());
-			YAML::Node rootNode = overridesData["Project"];
+			Yaml::Node overridesData = Yaml::Load(overridesString.str());
+			Yaml::Node rootNode = overridesData["Project"];
 			if (rootNode)
 			{
 				if (auto logNode = rootNode["Log"])

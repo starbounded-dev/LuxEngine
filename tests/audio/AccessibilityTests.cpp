@@ -1,7 +1,7 @@
 #include "AudioTestHost.h"
 #include "Lux/Audio/AudioAccessibilityMixer.h"
 #include "Lux/Serialization/FileStream.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <thread>
 #include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include <imgui.h>
@@ -42,19 +42,19 @@ int main(int argc, char** argv)
 	config.Events[hit].MaxDistance = 10;
 	config.SpeakerColors["Guard"] = { 0.2f, 0.4f, 0.6f, 1.0f };
 	assert(config.Validate());
-	YAML::Emitter yaml;
+	Yaml::Writer yaml;
 	config.SerializeYAML(yaml);
 	AudioAccessibilityConfig restored;
-	assert(restored.DeserializeYAML(YAML::Load(yaml.c_str())));
+	assert(restored.DeserializeYAML(Yaml::Load(yaml.c_str())));
 	assert(restored.Events.at(hit).Captions.at("fr") == "[choc]");
 	assert(restored.Defaults.Captions && restored.Defaults.MaxLines == 3);
-	assert(!restored.DeserializeYAML(YAML::Load("Defaults: {MaxLines: 0}")));
+	assert(!restored.DeserializeYAML(Yaml::Load("Defaults: {MaxLines: 0}")));
 	assert(restored.Events.contains(hit));
-	assert(!restored.DeserializeYAML(YAML::Load("DescriptionDuck: .nan")));
-	assert(!restored.DeserializeYAML(YAML::Load("Buses: {Master: 'bus:/', Dialogue: 'bus:/'}")));
-	assert(!restored.DeserializeYAML(YAML::Load("Buses: {Music: 'bus:/Music', SFX: 'bus:/Music/SFX'}")));
+	assert(!restored.DeserializeYAML(Yaml::Load("DescriptionDuck: .nan")));
+	assert(!restored.DeserializeYAML(Yaml::Load("Buses: {Master: 'bus:/', Dialogue: 'bus:/'}")));
+	assert(!restored.DeserializeYAML(Yaml::Load("Buses: {Music: 'bus:/Music', SFX: 'bus:/Music/SFX'}")));
 	AudioAccessibilityConfig defaults;
-	assert(defaults.DeserializeYAML(YAML::Node()));
+	assert(defaults.DeserializeYAML(Yaml::Node()));
 	assert(!defaults.Defaults.Mono && defaults.Defaults.Subtitles && defaults.Events.empty());
 	{
 		FileStreamWriter writer(directory / "accessibility.bin");
