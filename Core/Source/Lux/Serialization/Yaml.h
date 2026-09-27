@@ -245,7 +245,7 @@ namespace Lux::Yaml {
 		Writer& operator<<(const glm::vec3& v) { return *this << Flow << BeginSeq << v.x << v.y << v.z << EndSeq; }
 		Writer& operator<<(const glm::vec4& v) { return *this << Flow << BeginSeq << v.x << v.y << v.z << v.w << EndSeq; }
 
-		// 8-bit types are rejected on purpose: yaml-cpp wrote them as characters (""), so a
+		// 8-bit types are rejected on purpose: yaml-cpp wrote them as characters ("\x02"), so a
 		// ported caller must choose, e.g. `static_cast<uint32_t>(value)` to write a number.
 		template<typename T> requires (std::is_integral_v<T> && !std::is_same_v<T, bool> && !Detail::IsByte<T>)
 		Writer& operator<<(T value)
@@ -326,7 +326,7 @@ namespace Lux::Yaml {
 		static bool Decode(const Node& node, T& out) { return node.IsScalar() && Detail::DecodeInteger(node.Scalar(), out); }
 	};
 
-	// 8-bit integers read a number, or else the single character yaml-cpp wrote for them (`""`).
+	// 8-bit integers read a number, or else the single character yaml-cpp wrote for them (`"\x02"`).
 	// A digit is read as a number, so a byte yaml-cpp wrote as '0'..'9' (48..57) would read wrongly;
 	// the engine's 8-bit fields are small enums, which yaml-cpp always escaped.
 	template<typename T> requires Detail::IsByte<T>

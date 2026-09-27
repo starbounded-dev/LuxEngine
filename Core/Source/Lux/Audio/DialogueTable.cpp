@@ -5,7 +5,7 @@
 #include "DialogueTable.h"
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <cmath>
 
 namespace Lux
@@ -58,32 +58,32 @@ namespace Lux
 
 	std::string DialogueTable::ToYAML() const
 	{
-		YAML::Emitter out;
-		out << YAML::BeginMap << YAML::Key << "Version" << YAML::Value << 1;
-		out << YAML::Key << "DefaultLanguage" << YAML::Value << DefaultLanguage;
-		out << YAML::Key << "BarkCooldown" << YAML::Value << BarkCooldown;
-		out << YAML::Key << "BarkRadius" << YAML::Value << BarkRadius;
-		out << YAML::Key << "Lines" << YAML::BeginMap;
+		Yaml::Writer out;
+		out << Yaml::BeginMap << Yaml::Key << "Version" << Yaml::Value << 1;
+		out << Yaml::Key << "DefaultLanguage" << Yaml::Value << DefaultLanguage;
+		out << Yaml::Key << "BarkCooldown" << Yaml::Value << BarkCooldown;
+		out << Yaml::Key << "BarkRadius" << Yaml::Value << BarkRadius;
+		out << Yaml::Key << "Lines" << Yaml::BeginMap;
 		for (const auto& [key, line] : Lines)
 		{
-			out << YAML::Key << key << YAML::BeginMap;
-			out << YAML::Key << "Event" << YAML::BeginMap;
-			out << YAML::Key << "Guid" << YAML::Value << line.Event.Guid;
-			out << YAML::Key << "Path" << YAML::Value << line.Event.Path;
-			out << YAML::Key << "BankName" << YAML::Value << line.Event.BankName << YAML::EndMap;
-			out << YAML::Key << "Priority" << YAML::Value << static_cast<uint32_t>(line.Priority);
-			out << YAML::Key << "Interruptible" << YAML::Value << line.Interruptible;
-			out << YAML::Key << "Translations" << YAML::BeginMap;
+			out << Yaml::Key << key << Yaml::BeginMap;
+			out << Yaml::Key << "Event" << Yaml::BeginMap;
+			out << Yaml::Key << "Guid" << Yaml::Value << line.Event.Guid;
+			out << Yaml::Key << "Path" << Yaml::Value << line.Event.Path;
+			out << Yaml::Key << "BankName" << Yaml::Value << line.Event.BankName << Yaml::EndMap;
+			out << Yaml::Key << "Priority" << Yaml::Value << static_cast<uint32_t>(line.Priority);
+			out << Yaml::Key << "Interruptible" << Yaml::Value << line.Interruptible;
+			out << Yaml::Key << "Translations" << Yaml::BeginMap;
 			for (const auto& [language, translation] : line.Translations)
 			{
-				out << YAML::Key << language << YAML::BeginMap;
-				out << YAML::Key << "Text" << YAML::Value << translation.Text;
-				out << YAML::Key << "SpeakerName" << YAML::Value << translation.SpeakerName;
-				out << YAML::Key << "AudioKey" << YAML::Value << translation.AudioKey << YAML::EndMap;
+				out << Yaml::Key << language << Yaml::BeginMap;
+				out << Yaml::Key << "Text" << Yaml::Value << translation.Text;
+				out << Yaml::Key << "SpeakerName" << Yaml::Value << translation.SpeakerName;
+				out << Yaml::Key << "AudioKey" << Yaml::Value << translation.AudioKey << Yaml::EndMap;
 			}
-			out << YAML::EndMap << YAML::EndMap;
+			out << Yaml::EndMap << Yaml::EndMap;
 		}
-		out << YAML::EndMap << YAML::EndMap;
+		out << Yaml::EndMap << Yaml::EndMap;
 		return out.c_str();
 	}
 
@@ -91,7 +91,7 @@ namespace Lux
 	{
 		try
 		{
-			const auto root = YAML::Load(text);
+			const auto root = Yaml::Load(text);
 			if (!root.IsMap() || root["Version"].as<int>(1) != 1)
 				throw std::runtime_error("unsupported dialogue table version");
 			DialogueTable parsed;

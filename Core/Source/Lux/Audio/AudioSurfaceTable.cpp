@@ -4,7 +4,7 @@
 #include "lpch.h"
 #include "AudioSurfaceTable.h"
 
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 #include <cmath>
 
 namespace Lux
@@ -18,30 +18,30 @@ namespace Lux
 
 	std::string AudioSurfaceTable::ToYAML() const
 	{
-		YAML::Emitter out;
-		out << YAML::BeginMap << YAML::Key << "AudioSurfaceTable" << YAML::BeginMap;
-		out << YAML::Key << "Version" << YAML::Value << 1;
-		out << YAML::Key << "ImpactCooldown" << YAML::Value << ImpactCooldown;
-		out << YAML::Key << "MinimumImpulse" << YAML::Value << MinimumImpulse;
-		out << YAML::Key << "MinimumMotionSpeed" << YAML::Value << MinimumMotionSpeed;
-		out << YAML::Key << "Surfaces" << YAML::BeginMap;
+		Yaml::Writer out;
+		out << Yaml::BeginMap << Yaml::Key << "AudioSurfaceTable" << Yaml::BeginMap;
+		out << Yaml::Key << "Version" << Yaml::Value << 1;
+		out << Yaml::Key << "ImpactCooldown" << Yaml::Value << ImpactCooldown;
+		out << Yaml::Key << "MinimumImpulse" << Yaml::Value << MinimumImpulse;
+		out << Yaml::Key << "MinimumMotionSpeed" << Yaml::Value << MinimumMotionSpeed;
+		out << Yaml::Key << "Surfaces" << Yaml::BeginMap;
 		for (size_t i = 0; i < Surfaces.size(); ++i)
 		{
-			out << YAML::Key << AcousticMaterialNames[i] << YAML::BeginMap;
+			out << Yaml::Key << AcousticMaterialNames[i] << Yaml::BeginMap;
 			auto event = [&](const char* name, const AudioEventRef& value)
 			{
-				out << YAML::Key << name << YAML::BeginMap;
-				out << YAML::Key << "Guid" << YAML::Value << value.Guid;
-				out << YAML::Key << "Path" << YAML::Value << value.Path;
-				out << YAML::Key << "BankName" << YAML::Value << value.BankName << YAML::EndMap;
+				out << Yaml::Key << name << Yaml::BeginMap;
+				out << Yaml::Key << "Guid" << Yaml::Value << value.Guid;
+				out << Yaml::Key << "Path" << Yaml::Value << value.Path;
+				out << Yaml::Key << "BankName" << Yaml::Value << value.BankName << Yaml::EndMap;
 			};
 			event("Footstep", Surfaces[i].Footstep);
 			event("Impact", Surfaces[i].Impact);
 			event("Scrape", Surfaces[i].Scrape);
 			event("Roll", Surfaces[i].Roll);
-			out << YAML::EndMap;
+			out << Yaml::EndMap;
 		}
-		out << YAML::EndMap << YAML::EndMap << YAML::EndMap;
+		out << Yaml::EndMap << Yaml::EndMap << Yaml::EndMap;
 		return out.c_str();
 	}
 
@@ -49,7 +49,7 @@ namespace Lux
 	{
 		try
 		{
-			const auto node = YAML::Load(text)["AudioSurfaceTable"];
+			const auto node = Yaml::Load(text)["AudioSurfaceTable"];
 			if (!node || node["Version"].as<int>(1) != 1)
 				throw std::runtime_error("Missing surface table or unsupported version");
 			AudioSurfaceTable parsed;

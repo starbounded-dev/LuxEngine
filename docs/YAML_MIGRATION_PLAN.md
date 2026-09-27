@@ -98,10 +98,26 @@ entity build (inferred, not profiled). Deviations from the plan:
 - The `tests/audio/run.py` splice markers had been broken since `5c19e87e` (const reads); fixed
   here along with the port. All 14 markers verified against the source; not run on Linux here.
 - **Found after the commit (fixed in Phase 4):** yaml-cpp wrote `uint8_t` as a character, so the 61
-  mesh colliders in the sample scenes store `CollisionComplexity: ""`. `2e5c62ee` read that as
+  mesh colliders in the sample scenes store `CollisionComplexity: "\x02"`. `2e5c62ee` read that as
   invalid and fell back to `Default`. The value oracle could not see it (it compares generic YAML,
   not what a typed `as<T>` makes of it). `Lux::Yaml` now reads 8-bit values as a number or as the
   legacy character, and the Writer refuses 8-bit types so every caller casts explicitly.
+
+**Phase 4 — done (2026-09-27).** No engine, editor, or runtime code includes yaml-cpp.
+- Batch 1 (`5f29f15b`): project, tiering, user preferences, application settings, panel layout, and
+  the audio settings the project file embeds (moved up from batch 3 — `ProjectSerializer` passes
+  its writer and nodes straight into them). Verified: the editor loads them with an unchanged log,
+  preferences round-trip, and a saved project reloads with its settings.
+- Batch 2 (`54359037`): materials, meshes, the asset registry, the shader cache, and
+  `SerializationMacros.h`. Verified on Benchmark: log unchanged; the re-saved materials, asset
+  registry, and shader registry hold the same values (the shader registry was compared outside the
+  oracle, which does not cover it).
+- Batch 3: `AudioSurfaceTable`, `DialogueTable`, `Lux-Runtime/src/RuntimeApplication.cpp`;
+  `tests/audio/run.py` no longer links yaml-cpp. Editor and Lux-Runtime build. **Not exercised at
+  runtime:** the sample project has no surface/dialogue tables or `RuntimeSettings.yaml`; their
+  coverage is the Linux audio tests (`PhysicsAudioTests`, `DialogueTests`), not run here.
+- One Benchmark open during batch 2 took 505 ms vs the 0.27 s Phase 3 median; a single run right
+  after a rebuild, with an identical log. Not re-measured.
 
 ## Part 1 — Design
 

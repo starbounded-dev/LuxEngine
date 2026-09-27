@@ -10,7 +10,7 @@
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Core/ApplicationSettings.h"
 
-#include <yaml-cpp/yaml.h>
+#include "Lux/Serialization/Yaml.h"
 
 namespace Lux
 {
@@ -42,18 +42,18 @@ namespace Lux
 			if (!std::filesystem::exists(settingsFile))
 				return;
 
-			YAML::Node data;
+			Yaml::Node data;
 			try
 			{
-				data = YAML::LoadFile(settingsFile.string());
+				data = Yaml::LoadFile(settingsFile.string());
 			}
-			catch (const YAML::Exception& e)
+			catch (const Yaml::Exception& e)
 			{
 				LUX_CORE_WARN("Could not load runtime settings '{}': {}", settingsFile.string(), e.what());
 				return;
 			}
 
-			YAML::Node runtimeNode = data["Runtime"];
+			Yaml::Node runtimeNode = data["Runtime"];
 			if (!runtimeNode)
 				runtimeNode = data;
 
