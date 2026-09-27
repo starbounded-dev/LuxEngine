@@ -1004,11 +1004,11 @@ is installed. `ProjectSerializer` handles `.luxproj`; `UserPreferences` holds ma
 
 YAML for human-readable assets — scenes, prefabs, materials, project settings, tiering. All engine,
 editor, and runtime YAML goes through `Lux::Yaml` (`Serialization/Yaml.h`, over the vendored
-rapidyaml; `docs/YAML_MIGRATION_PLAN.md`); include it, never a YAML library directly. yaml-cpp is
-still built and linked until the migration's final phase removes it. 8-bit values (`uint8_t`) must be
-cast before writing — the `Yaml::Writer` rejects them, because yaml-cpp wrote them as characters;
-reading accepts both forms. `tests/yaml/run.py` (the migration's value oracle) checks that every
-tracked YAML asset reads to the same values through yaml-cpp and `Lux::Yaml`. `Utilities/SerializationMacros.h` provides
+rapidyaml, which replaced yaml-cpp; `docs/YAML_MIGRATION_PLAN.md`); include it, never rapidyaml
+directly. 8-bit values (`uint8_t`) must be cast before writing — the `Yaml::Writer` rejects them,
+because yaml-cpp wrote them as characters; reading accepts both forms, so older files still load.
+`tests/yaml/run.py` (the migration's value oracle) checks that every tracked YAML asset still reads
+to its recorded values. `Utilities/SerializationMacros.h` provides
 `LUX_SERIALIZE_PROPERTY` (`Lux::Yaml`; used only by `VulkanShaderCache`).
 
 Binary for distribution: `Serialization/AssetPack.{h,cpp}` + `AssetPackFile.h` +
@@ -1184,7 +1184,7 @@ luxengine/
 │   │       └── Embed/             # LuxIcon.embed
 │   ├── Platform/{Windows,Linux}/  # Per-platform FileSystem / Thread / RenderThread
 │   └── vendor/                    # Box2D, JoltPhysics, GLFW, imgui, nvrhi, Coral, tracy,
-│                                  #   msdf-atlas-gen, NFD-Extended, yaml-cpp, VMA, FastNoise, …
+│                                  #   msdf-atlas-gen, NFD-Extended, rapidyaml, VMA, FastNoise, …
 ├── ScriptCore/                    # C# scripting assembly (.NET 9)
 ├── Editor/
 │   ├── Source/                    # EditorLayer, LuxEditorApp, Panels/, Viewport/

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2025-2026 starbounded-dev
 
-// YAML value oracle for the yaml-cpp -> rapidyaml migration (docs/YAML_MIGRATION_PLAN.md).
+// YAML value oracle (docs/YAML_MIGRATION_PLAN.md). Written for the yaml-cpp -> rapidyaml migration,
+// whose reference manifest was recorded with yaml-cpp and matched by Lux::Yaml; it now guards that
+// the engine's YAML layer keeps reading the repo's assets to the same values.
 //
 // Parses every file in a list, reduces each document to a library-neutral value tree, normalizes
-// it, and records a hash per file. A later phase adds a second parser front end; both must produce
-// the same hashes, which proves they read identical values.
+// it, and records a hash per file.
 //
 // Normalization:
 //   - key order is kept (the engine's writers and readers are order-stable);
@@ -19,16 +20,11 @@
 //   Oracle --list <files.txt> --root <dir> --check <manifest>   exit 1 on any difference
 //   Oracle --list <files.txt> --root <dir> --dump <dir>         one "path = value" line per scalar
 //
-// Built twice by run.py: once over yaml-cpp (the reference), and once over the engine's Lux::Yaml
-// (LUX_ORACLE_LUXYAML), which also offers:
+// Built by run.py over the engine's Lux::Yaml sources. Also:
 //   --roundtrip   parse, re-write with Yaml::Writer, re-parse, then --check the result
 //   --selftest    targeted checks of Lux::Yaml's semantics (no file list needed)
 
-#ifdef LUX_ORACLE_LUXYAML
-	#include "Lux/Serialization/Yaml.h"
-#else
-	#include <yaml-cpp/yaml.h>
-#endif
+#include "Lux/Serialization/Yaml.h"
 
 #include <charconv>
 #include <cmath>
@@ -56,37 +52,6 @@ namespace
 		std::vector<Value> Items;                             // Sequence
 	};
 
-#ifndef LUX_ORACLE_LUXYAML
-	// ── yaml-cpp front end ─────────────────────────────────────────────────────────────────
-	Value FromYamlCpp(const YAML::Node& node)
-	{
-		Value value;
-		switch (node.Type())
-		{
-		case YAML::NodeType::Null:
-		case YAML::NodeType::Undefined:
-			value.Type = Value::Kind::Null;
-			break;
-		case YAML::NodeType::Scalar:
-			value.Type = Value::Kind::Scalar;
-			value.Text = node.Scalar();
-			break;
-		case YAML::NodeType::Sequence:
-			value.Type = Value::Kind::Sequence;
-			for (const auto& item : node)
-				value.Items.push_back(FromYamlCpp(item));
-			break;
-		case YAML::NodeType::Map:
-			value.Type = Value::Kind::Map;
-			for (const auto& entry : node)
-				value.Entries.emplace_back(FromYamlCpp(entry.first), FromYamlCpp(entry.second));
-			break;
-		}
-		return value;
-	}
-
-	Value ParseFile(const std::filesystem::path& path) { return FromYamlCpp(YAML::LoadFile(path.string())); }
-#else
 	// ── Lux::Yaml front end ────────────────────────────────────────────────────────────────
 	Value FromLuxYaml(const Lux::Yaml::Node& node)
 	{
@@ -168,7 +133,6 @@ namespace
 	}
 
 	int SelfTest();
-#endif
 
 	// ── Normalization ──────────────────────────────────────────────────────────────────────
 	bool IsInteger(const std::string& text)
@@ -340,7 +304,6 @@ int main(int argc, char** argv)
 	const std::string writePath = ArgValue(argc, argv, "--write");
 	const std::string checkPath = ArgValue(argc, argv, "--check");
 	const std::string dumpDir = ArgValue(argc, argv, "--dump");
-#ifdef LUX_ORACLE_LUXYAML
 	for (int i = 1; i < argc; ++i)
 	{
 		if (std::strcmp(argv[i], "--selftest") == 0)
@@ -358,7 +321,6 @@ int main(int argc, char** argv)
 		if (std::strcmp(argv[i], "--roundtrip") == 0)
 			g_RoundTrip = true;
 	}
-#endif
 	if (listPath.empty() || root.empty() || (writePath.empty() && checkPath.empty() && dumpDir.empty()))
 	{
 		std::cerr << "usage: Oracle --list <files.txt> --root <dir> (--write <manifest> | --check <manifest> | --dump <dir>)\n";
@@ -455,7 +417,6 @@ int main(int argc, char** argv)
 	return failures ? 1 : 0;
 }
 
-#ifdef LUX_ORACLE_LUXYAML
 namespace
 {
 	int g_Failures = 0;
@@ -609,4 +570,3 @@ namespace
 		return g_Failures ? 1 : 0;
 	}
 }
-#endif

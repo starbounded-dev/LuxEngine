@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""YAML value oracle (docs/YAML_MIGRATION_PLAN.md): proves the engine's YAML layer reads the repo's
-assets to the same values as the recorded yaml-cpp reference.
+"""YAML value oracle (docs/YAML_MIGRATION_PLAN.md): proves the engine's YAML layer (Lux::Yaml) reads the
+repo's assets to the same values as the recorded reference (first recorded with yaml-cpp, before it
+was removed).
 
     python tests/yaml/run.py            run every check (default)
     python tests/yaml/run.py --write    re-record the reference (only for intended data changes)
     python tests/yaml/run.py --dump DIR write one "path = value" file per asset, for diffing
 
-Checks: yaml-cpp against the reference; Lux::Yaml (rapidyaml) against it; every asset parsed,
-re-written with Yaml::Writer and re-parsed against it; and Lux::Yaml's self-tests.
+Checks: Lux::Yaml against the reference; every asset parsed, re-written with Yaml::Writer and
+re-parsed against it; and Lux::Yaml's self-tests.
 """
 import argparse
 import os
@@ -22,24 +23,17 @@ TESTS = Path(__file__).resolve().parent
 BUILD = ROOT / "bin-int/YamlOracle"
 REFERENCE = TESTS / "reference.txt"
 CORE = ROOT / "Core"
-YAML_CPP = CORE / "vendor/yaml-cpp"
 
 # Engine YAML formats (AssetExtensions.h), plus the project file and asset registry.
 EXTENSIONS = (".luxscene", ".luxproj", ".lmat", ".lzr", ".lprefab", ".ldialogue", ".lsurfaces")
 
 TARGETS = {
-    # yaml-cpp: the reference implementation.
-    "Oracle": {
-        "sources": [TESTS / "Oracle.cpp", *sorted((YAML_CPP / "src").glob("*.cpp"))],
-        "includes": [YAML_CPP / "include"],
-        "defines": ["YAML_CPP_STATIC_DEFINE"],
-    },
     # Lux::Yaml over rapidyaml, built from the engine's own sources.
-    "OracleLux": {
+    "Oracle": {
         "sources": [TESTS / "Oracle.cpp", CORE / "Source/Lux/Serialization/Yaml.cpp", CORE / "vendor/rapidyaml/ryml.cpp",
                     CORE / "Source/Lux/Core/Ref.cpp", CORE / "Source/Lux/Core/UUID.cpp"],
         "includes": [TESTS / "shim", CORE / "Source", CORE / "vendor/glm", CORE / "vendor/rapidyaml"],
-        "defines": ["LUX_ORACLE_LUXYAML", "LUX_PLATFORM_WINDOWS" if platform.system() == "Windows" else "LUX_PLATFORM_LINUX"],
+        "defines": ["LUX_PLATFORM_WINDOWS" if platform.system() == "Windows" else "LUX_PLATFORM_LINUX"],
     },
 }
 
@@ -71,7 +65,7 @@ def build(name):
     out_dir = BUILD / name
     out_dir.mkdir(parents=True, exist_ok=True)
     sources = target["sources"]
-    headers = [CORE / "Source/Lux/Serialization/Yaml.h"] if name == "OracleLux" else []
+    headers = [CORE / "Source/Lux/Serialization/Yaml.h"] if name == "Oracle" else []
     newest = max(path.stat().st_mtime for path in [*sources, *headers])
 
     if platform.system() == "Windows":
@@ -95,8 +89,8 @@ def build(name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--write", action="store_true", help="re-record tests/yaml/reference.txt (yaml-cpp)")
-    mode.add_argument("--dump", metavar="DIR", help="write per-file value dumps to DIR (yaml-cpp)")
+    mode.add_argument("--write", action="store_true", help="re-record tests/yaml/reference.txt")
+    mode.add_argument("--dump", metavar="DIR", help="write per-file value dumps to DIR")
     args = parser.parse_args()
 
     listing = BUILD / "files.txt"
@@ -109,10 +103,9 @@ def main():
         sys.exit(subprocess.run(list(map(str, [build("Oracle"), *common, *extra]))).returncode)
 
     checks = [
-        ("yaml-cpp vs reference", [build("Oracle"), *common, "--check", REFERENCE]),
-        ("Lux::Yaml vs reference", [build("OracleLux"), *common, "--check", REFERENCE]),
-        ("Lux::Yaml write round-trip", [build("OracleLux"), *common, "--check", REFERENCE, "--roundtrip"]),
-        ("Lux::Yaml self-test", [build("OracleLux"), "--selftest"]),
+        ("Lux::Yaml vs reference", [build("Oracle"), *common, "--check", REFERENCE]),
+        ("Lux::Yaml write round-trip", [build("Oracle"), *common, "--check", REFERENCE, "--roundtrip"]),
+        ("Lux::Yaml self-test", [build("Oracle"), "--selftest"]),
     ]
     failed = 0
     for label, command in checks:

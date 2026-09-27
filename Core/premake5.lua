@@ -52,10 +52,6 @@ project "Core"
 
 		"vendor/FastNoise/**.cpp",
 
-		"vendor/yaml-cpp/src/**.cpp",
-		"vendor/yaml-cpp/src/**.h",
-		"vendor/yaml-cpp/include/**.h",
-
 		"vendor/rapidyaml/ryml_all.hpp",
 		"vendor/rapidyaml/ryml.cpp",
 		
@@ -95,7 +91,7 @@ project "Core"
 		defines { "LUX_ENABLE_FMOD" }
 	end
 
-	filter "files:vendor/FastNoise/**.cpp or files:vendor/yaml-cpp/src/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	filter "files:vendor/FastNoise/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
 	flags { "NoPCH" }
 
 	filter "system:windows"

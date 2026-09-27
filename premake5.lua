@@ -55,7 +55,6 @@ workspace "Lux"
 		"VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1",
 		"IMGUI_DEFINE_MATH_OPERATORS",
 		"IMGUI_USE_WCHAR32",
-		"YAML_CPP_STATIC_DEFINE",
 	}
 
 	-- Tracy stays on by default. With "--no-tracy" the defines are omitted, which turns

@@ -485,7 +485,7 @@ Release uploads an `editor-<config>` / `editor-linux-<config>` artifact with the
 | Physics | Jolt Physics (3D), Box2D (2D) |
 | ECS | EnTT |
 | Scripting | Coral (.NET 9 / C#) |
-| Assets | Assimp, stb, yaml-cpp |
+| Assets | Assimp, stb, rapidyaml |
 | Text | msdf-atlas-gen / msdfgen, FreeType |
 | Audio | FMOD Core + FMOD Studio, Vercidium Audio |
 | Profiling / debug | Tracy, Nvidia Aftermath, backward-cpp |

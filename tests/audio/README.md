@@ -1,6 +1,6 @@
 # Headless audio regression tests
 
-On Linux, regenerate `Core/Makefile`, build the Release Core objects (for yaml-cpp) and Debug Jolt,
+On Linux, regenerate `Core/Makefile`, build the Release Core objects (for `Lux::Yaml` and rapidyaml) and Debug Jolt,
 then run from the repository root:
 
 ```sh

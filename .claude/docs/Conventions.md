@@ -109,7 +109,7 @@ than inlining them at the use site.
 
 `Core` builds with `lpch.h` (`pchsource Source/lpch.cpp`). New `Core` `.cpp` files must include
 `lpch.h` **first**. A handful of files are excluded via `flags { "NoPCH" }` in `Core/premake5.lua`
-(vendored FastNoise / yaml-cpp / rapidyaml's `ryml.cpp` / imgui_stdlib, plus
+(vendored FastNoise / rapidyaml's `ryml.cpp` / imgui_stdlib, plus
 `ApplicationSettings.cpp` and `DiscordppImpl.cpp`) — if you add a file that cannot use the PCH, add it to that filter rather than
 fighting the include order.
 
@@ -322,9 +322,9 @@ script, or editor code — that is what breaks runtime builds.
 `SceneSerializer` / `ProjectSerializer` / `MaterialSerializer`. New YAML code uses
 **`Lux::Yaml`** (`Serialization/Yaml.h`, over rapidyaml): `Load`/`LoadFile` → `Node`, `Writer`,
 and the `Convert<T>` conversions (glm, `UUID`, lenient bools, shortest floats) — never rapidyaml
-directly, and never a new `YAML::convert<>`. yaml-cpp is being retired
-(`docs/YAML_MIGRATION_PLAN.md`); `tests/yaml/run.py` proves both read every asset identically. Missing keys must deserialize to the
-struct default — never hard-fail a load on an absent optional field.
+directly. An 8-bit value (`uint8_t`) must be cast before writing (the `Writer` rejects it).
+`tests/yaml/run.py` checks that every tracked YAML asset still reads to its recorded values; run it
+after touching `Lux::Yaml`. Missing keys must deserialize to the struct default — never hard-fail a load on an absent optional field.
 
 ---
 

@@ -128,6 +128,16 @@ after differs only in those 61 entries; `tests/yaml/reference.txt` re-recorded f
 `scripts/GenerateBenchmarkScenes.py` now writes `CollisionComplexity: 2`, and regenerating
 Benchmark reproduces the committed scene exactly (ignoring line endings).
 
+**Phase 6 — yaml-cpp removed (2026-09-27).** `Core/vendor/yaml-cpp` deleted; the `YAML_CPP`
+dependency, its `Core/premake5.lua` files and `NoPCH` term, and the `YAML_CPP_STATIC_DEFINE`
+workspace define are gone; projects regenerated. Beyond the plan: the value oracle drops its
+yaml-cpp front end and now runs on `Lux::Yaml` alone (its reference was recorded with yaml-cpp and
+matched by `Lux::Yaml` before removal); `NOTICE` credits rapidyaml and its bundled fast_float and
+debugbreak (missed when it was vendored in Phase 2) instead of yaml-cpp; `README.md` and
+`tests/audio/README.md` updated.
+Builds: Windows Release and Debug (Editor + Lux-Runtime) and Dist (Lux-Runtime; the Editor is not
+in the Dist solution configuration). Release `Editor.exe` 9.41 MB → 9.26 MB. Linux not built here.
+
 ## Part 1 — Design
 
 - **`Lux::Yaml`** — **NEW** `Core/Source/Lux/Serialization/Yaml.h/.cpp`. Owns every ryml include.
