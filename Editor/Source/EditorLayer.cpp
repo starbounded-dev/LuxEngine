@@ -3715,6 +3715,7 @@ namespace Lux {
 	void EditorLayer::OpenScene(AssetHandle handle)
 	{
 		LUX_CORE_ASSERT(handle);
+		Timer openTimer;
 
 		if (m_SceneState != SceneState::Edit)
 			OnSceneStop();
@@ -3734,6 +3735,9 @@ namespace Lux {
 		}
 
 		ApplyEditorScene(newScene, Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle));
+
+		// Scene-open cost is a tracked budget (docs/YAML_MIGRATION_PLAN.md); logged without Tracy.
+		LUX_CORE_INFO_TAG("Editor", "Opened scene '{}' in {:.0f} ms", newScene->GetName(), openTimer.ElapsedMillis());
 	}
 
 	void EditorLayer::ApplyEditorScene(Ref<Scene> scene, const std::filesystem::path& path)
