@@ -100,7 +100,7 @@ Entities:
       AcousticMaterial: Concrete
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
     AudioSurfaceComponent:
       Material: Concrete
       PhysicsSounds: true
@@ -490,7 +490,7 @@ Entities:
       AcousticMaterial: Metal
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000000026
     TagComponent:
       Tag: Plaza Emitter - K replays
@@ -101946,7 +101946,7 @@ Entities:
       AcousticMaterial: Rock
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006272
     TagComponent:
       Tag: Sponza Audio Zone
@@ -102588,7 +102588,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006301
     TagComponent:
       Tag: Left Wall
@@ -102614,7 +102614,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006302
     TagComponent:
       Tag: Right Wall
@@ -102640,7 +102640,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006303
     TagComponent:
       Tag: Roof
@@ -102666,7 +102666,7 @@ Entities:
       AcousticMaterial: Ceramic
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006304
     TagComponent:
       Tag: Front Wall Left
@@ -102692,7 +102692,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006305
     TagComponent:
       Tag: Front Wall Right
@@ -102718,7 +102718,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006306
     TagComponent:
       Tag: Door Lintel
@@ -102744,7 +102744,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006307
     TagComponent:
       Tag: Floor
@@ -102770,7 +102770,7 @@ Entities:
       AcousticMaterial: Carpet
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
     AudioSurfaceComponent:
       Material: Carpet
       PhysicsSounds: true
@@ -102950,7 +102950,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006315
     TagComponent:
       Tag: Left Wall
@@ -102976,7 +102976,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006316
     TagComponent:
       Tag: Right Wall
@@ -103002,7 +103002,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006317
     TagComponent:
       Tag: Roof
@@ -103028,7 +103028,7 @@ Entities:
       AcousticMaterial: Ceramic
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006318
     TagComponent:
       Tag: Front Wall Left
@@ -103054,7 +103054,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006319
     TagComponent:
       Tag: Front Wall Right
@@ -103080,7 +103080,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006320
     TagComponent:
       Tag: Door Lintel
@@ -103106,7 +103106,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006321
     TagComponent:
       Tag: Floor
@@ -103132,7 +103132,7 @@ Entities:
       AcousticMaterial: Wood
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
     AudioSurfaceComponent:
       Material: Wood
       PhysicsSounds: true
@@ -103312,7 +103312,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006329
     TagComponent:
       Tag: Left Wall
@@ -103338,7 +103338,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006330
     TagComponent:
       Tag: Right Wall
@@ -103364,7 +103364,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006331
     TagComponent:
       Tag: Roof
@@ -103390,7 +103390,7 @@ Entities:
       AcousticMaterial: Ceramic
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006332
     TagComponent:
       Tag: Front Wall Left
@@ -103416,7 +103416,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006333
     TagComponent:
       Tag: Front Wall Right
@@ -103442,7 +103442,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006334
     TagComponent:
       Tag: Door Lintel
@@ -103468,7 +103468,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006335
     TagComponent:
       Tag: Floor
@@ -103494,7 +103494,7 @@ Entities:
       AcousticMaterial: Carpet
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
     AudioSurfaceComponent:
       Material: Carpet
       PhysicsSounds: true
@@ -103674,7 +103674,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006343
     TagComponent:
       Tag: Left Wall
@@ -103700,7 +103700,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006344
     TagComponent:
       Tag: Right Wall
@@ -103726,7 +103726,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006345
     TagComponent:
       Tag: Roof
@@ -103752,7 +103752,7 @@ Entities:
       AcousticMaterial: Ceramic
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006346
     TagComponent:
       Tag: Front Wall Left
@@ -103778,7 +103778,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006347
     TagComponent:
       Tag: Front Wall Right
@@ -103804,7 +103804,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006348
     TagComponent:
       Tag: Door Lintel
@@ -103830,7 +103830,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006349
     TagComponent:
       Tag: Floor
@@ -103856,7 +103856,7 @@ Entities:
       AcousticMaterial: Wood
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
     AudioSurfaceComponent:
       Material: Wood
       PhysicsSounds: true
@@ -104036,7 +104036,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006357
     TagComponent:
       Tag: Left Wall
@@ -104062,7 +104062,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006358
     TagComponent:
       Tag: Right Wall
@@ -104088,7 +104088,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006359
     TagComponent:
       Tag: Roof
@@ -104114,7 +104114,7 @@ Entities:
       AcousticMaterial: Ceramic
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006360
     TagComponent:
       Tag: Front Wall Left
@@ -104140,7 +104140,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006361
     TagComponent:
       Tag: Front Wall Right
@@ -104166,7 +104166,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006362
     TagComponent:
       Tag: Door Lintel
@@ -104192,7 +104192,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006363
     TagComponent:
       Tag: Floor
@@ -104218,7 +104218,7 @@ Entities:
       AcousticMaterial: Carpet
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
     AudioSurfaceComponent:
       Material: Carpet
       PhysicsSounds: true
@@ -104398,7 +104398,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006371
     TagComponent:
       Tag: Left Wall
@@ -104424,7 +104424,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006372
     TagComponent:
       Tag: Right Wall
@@ -104450,7 +104450,7 @@ Entities:
       AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006373
     TagComponent:
       Tag: Roof
@@ -104476,7 +104476,7 @@ Entities:
       AcousticMaterial: Ceramic
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006374
     TagComponent:
       Tag: Front Wall Left
@@ -104502,7 +104502,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006375
     TagComponent:
       Tag: Front Wall Right
@@ -104528,7 +104528,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006376
     TagComponent:
       Tag: Door Lintel
@@ -104554,7 +104554,7 @@ Entities:
       AcousticMaterial: Plaster
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 16100000000000006377
     TagComponent:
       Tag: Floor
@@ -104580,7 +104580,7 @@ Entities:
       AcousticMaterial: Wood
       AcousticFromMaterial: true
       AcousticMotion: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
     AudioSurfaceComponent:
       Material: Wood
       PhysicsSounds: true

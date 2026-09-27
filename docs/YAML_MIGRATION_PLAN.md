@@ -119,6 +119,15 @@ entity build (inferred, not profiled). Deviations from the plan:
 - One Benchmark open during batch 2 took 505 ms vs the 0.27 s Phase 3 median; a single run right
   after a rebuild, with an identical log. Not re-measured.
 
+**Phase 5 — done (2026-09-27).** Text-level rewrite instead of re-saving through the editor, so
+layout, quoting and key order stay byte-for-byte: only whole plain-scalar float literals with at
+most 9 significant digits (yaml-cpp's float precision; doubles were written with 17 and none
+occur) are respelled with the writer's own `std::to_chars` shortest form, plus the 61
+`CollisionComplexity: "\x02"` → `2`. 9 files change (~140 values). A yaml-cpp value dump before and
+after differs only in those 61 entries; `tests/yaml/reference.txt` re-recorded for them.
+`scripts/GenerateBenchmarkScenes.py` now writes `CollisionComplexity: 2`, and regenerating
+Benchmark reproduces the committed scene exactly (ignoring line endings).
+
 ## Part 1 — Design
 
 - **`Lux::Yaml`** — **NEW** `Core/Source/Lux/Serialization/Yaml.h/.cpp`. Owns every ryml include.

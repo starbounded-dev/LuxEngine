@@ -4,7 +4,7 @@ Material:
   Emission: 0
   UseNormalMap: false
   Metalness: 0
-  Roughness: 0.400000006
+  Roughness: 0.4
   AlbedoMap: Meshes/Source/Sponza/10381718147657362067.jpg
   NormalMap: Meshes/Source/Sponza/11872827283454512094.jpg
   MetalnessMap: 0

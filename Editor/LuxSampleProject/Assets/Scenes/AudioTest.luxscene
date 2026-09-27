@@ -3,7 +3,7 @@ PostProcess:
   Exposure: 1
   ExposureMode: 0
   Aperture: 16
-  ShutterSpeed: 0.00800000038
+  ShutterSpeed: 0.008
   ISO: 100
   ExposureEV100: 12
   ExposureCompensation: 0
@@ -14,7 +14,7 @@ PostProcess:
   ColorFilter: [1, 1, 1]
   Saturation: 1
   Contrast: 1
-  Gamma: 2.20000005
+  Gamma: 2.2
   Tonemap: 0
   WhiteTemperature: 0
   WhiteTint: 0
@@ -36,7 +36,7 @@ Entities:
       Camera:
         ProjectionType: 0
         PerspectiveFOV: 45
-        PerspectiveNear: 0.100000001
+        PerspectiveNear: 0.1
         PerspectiveFar: 1000
         OrthographicSize: 10
         OrthographicNear: -1
@@ -58,7 +58,7 @@ Entities:
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
-      Scale: [4, 3, 0.300000012]
+      Scale: [4, 3, 0.3]
     StaticMeshComponent:
       AssetID: 5047013130077771705
       MaterialTable:
@@ -71,7 +71,7 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
-      CollisionComplexity: "\x02"
+      CollisionComplexity: 2
   - Entity: 33333333333333333
     TagComponent:
       Tag: AudioSource

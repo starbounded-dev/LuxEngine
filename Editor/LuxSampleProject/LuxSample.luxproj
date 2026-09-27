@@ -44,19 +44,19 @@ Project:
       FixedRenderHeight: 1080
       DynamicResolutionMinScale: 0.5
       DynamicResolutionMaxScale: 1
-      DynamicResolutionTargetGPUTime: 16.6700001
+      DynamicResolutionTargetGPUTime: 16.67
       TextureMipBias: -1.5
       DistanceMipBias: true
       DistanceMipBiasStart: 10
       DistanceMipBiasEnd: 100
       DistanceMipBiasMax: 0.5
-      OcclusionDepthBias: 0.00300000003
-      OcclusionBoundsScale: 1.14999998
+      OcclusionDepthBias: 0.003
+      OcclusionBoundsScale: 1.15
       GTAOResolutionScale: 1
       SSRQuality: Full
       SSRResolutionScale: 1
       SMAA: true
-      SMAAThreshold: 0.100000001
+      SMAAThreshold: 0.1
       SMAALocalContrastAdaptationFactor: 2
     Shadows:
       SoftShadows: true
@@ -64,7 +64,7 @@ Project:
       MaxDistance: 450
       DistanceFade: 50
       ActiveCascadeCount: 4
-      SplitLambda: 0.819999993
+      SplitLambda: 0.82
       NearOffset: 0
       FarOffset: 50
       CascadeFade: 1
@@ -78,20 +78,20 @@ Project:
         Enabled: true
         ResolutionScale: 1
         Threshold: 1
-        Knee: 0.100000001
+        Knee: 0.1
         UpsampleScale: 1
         Intensity: 1
         DirtIntensity: 1
       DOF:
         Enabled: true
         ResolutionScale: 1
-        FocusDistance: 5.0999999
-        BlurSize: 0.600000024
+        FocusDistance: 5.1
+        BlurSize: 0.6
       SSR:
         HalfRes: false
         MaxSteps: 128
-        Brightness: 0.699999988
-        DepthTolerance: 0.800000012
+        Brightness: 0.7
+        DepthTolerance: 0.8
   Audio:
     FileStreamingDurationThreshold: 1
     StudioProjectPath: Audio/SampleProject/SampleProject.fspro
@@ -180,8 +180,8 @@ Project:
       CastBudget: 32
       Strength: 1
   Physics:
-    FixedTimestep: 0.0166666675
-    Gravity: [0, -9.81000042, 0]
+    FixedTimestep: 0.016666668
+    Gravity: [0, -9.81, 0]
     SolverPositionIterations: 8
     SolverVelocityIterations: 2
     MaxBodies: 1000

@@ -372,12 +372,11 @@ def capsule_collider(entity: Entity, radius: float = 0.5, half_height: float = 0
 
 
 def mesh_collider(entity: Entity, mesh: int, acoustic: str) -> Entity:
-	# CollisionComplexity is a uint8_t, which yaml-cpp round-trips as a character: "\x02" is
-	# UseComplexAsSimple (a triangle mesh), exactly what the editor writes.
+	# CollisionComplexity 2 is UseComplexAsSimple (a triangle mesh), exactly what the editor writes.
 	return entity.add("MeshColliderComponent", [
 		f"ColliderAsset: {mesh}", "SubmeshIndex: 0", "UseSharedShape: false", *physics_material(),
 		f"AcousticMaterial: {acoustic}", "AcousticFromMaterial: true", "AcousticMotion: 0",
-		'CollisionComplexity: "\\x02"'])
+		"CollisionComplexity: 2"])
 
 
 def event_ref(guid: str) -> list[str]:

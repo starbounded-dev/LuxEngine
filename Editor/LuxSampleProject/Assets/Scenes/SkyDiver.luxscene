@@ -3,7 +3,7 @@ PostProcess:
   Exposure: 1
   ExposureMode: 0
   Aperture: 16
-  ShutterSpeed: 0.00800000038
+  ShutterSpeed: 0.008
   ISO: 100
   ExposureEV100: 12
   ExposureCompensation: 0
@@ -14,7 +14,7 @@ PostProcess:
   ColorFilter: [1, 1, 1]
   Saturation: 1
   Contrast: 1
-  Gamma: 2.20000005
+  Gamma: 2.2
   Tonemap: 0
   WhiteTemperature: 0
   WhiteTint: 0
@@ -45,13 +45,13 @@ Entities:
       []
     TransformComponent:
       Position: [0, 2, 3]
-      Rotation: [0, 1.57079637, 0]
+      Rotation: [0, 1.5707964, 0]
       Scale: [1, 1, 1]
     CameraComponent:
       Camera:
         ProjectionType: 0
         PerspectiveFOV: 45
-        PerspectiveNear: 0.100000001
+        PerspectiveNear: 0.1
         PerspectiveFar: 1000
         OrthographicSize: 10
         OrthographicNear: -1

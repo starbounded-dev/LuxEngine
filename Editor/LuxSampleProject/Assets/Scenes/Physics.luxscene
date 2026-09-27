@@ -8,13 +8,13 @@ Entities:
       []
     TransformComponent:
       Position: [0, 1, -5]
-      Rotation: [3.1415925, -0.000486984849, 3.1415925]
-      Scale: [1.00000334, 1, 1.00000334]
+      Rotation: [3.1415925, -0.00048698485, 3.1415925]
+      Scale: [1.0000033, 1, 1.0000033]
     CameraComponent:
       Camera:
         ProjectionType: 0
         PerspectiveFOV: 45
-        PerspectiveNear: 0.100000001
+        PerspectiveNear: 0.1
         PerspectiveFar: 1000
         OrthographicSize: 10
         OrthographicNear: -1
@@ -41,8 +41,8 @@ Entities:
       LayerID: 0
       EnableDynamicTypeChange: false
       Mass: 1
-      LinearDrag: 0.00999999978
-      AngularDrag: 0.0500000007
+      LinearDrag: 0.01
+      AngularDrag: 0.05
       DisableGravity: false
       IsTrigger: false
       CollisionDetection: 0
@@ -77,8 +77,8 @@ Entities:
       LayerID: 0
       EnableDynamicTypeChange: false
       Mass: 1
-      LinearDrag: 0.00999999978
-      AngularDrag: 0.0500000007
+      LinearDrag: 0.01
+      AngularDrag: 0.05
       DisableGravity: false
       IsTrigger: false
       CollisionDetection: 0
@@ -113,8 +113,8 @@ Entities:
       LayerID: 0
       EnableDynamicTypeChange: false
       Mass: 1
-      LinearDrag: 0.00999999978
-      AngularDrag: 0.0500000007
+      LinearDrag: 0.01
+      AngularDrag: 0.05
       DisableGravity: false
       IsTrigger: false
       CollisionDetection: 1
@@ -138,14 +138,14 @@ Entities:
       []
     TransformComponent:
       Position: [0, 0, 0]
-      Rotation: [-1.47654855, -1.35263014, 0]
+      Rotation: [-1.4765486, -1.3526301, 0]
       Scale: [1, 1, 1]
     SkyLightComponent:
       EnvironmentMap: 0
-      Intensity: 0.920000017
+      Intensity: 0.92
       Lod: 0
       DynamicSky: true
-      TurbidityAzimuthInclination: [2.57999992, 1.00999999, 1.47000003]
+      TurbidityAzimuthInclination: [2.58, 1.01, 1.47]
   - Entity: 928254539072550922
     TagComponent:
       Tag: Plane
