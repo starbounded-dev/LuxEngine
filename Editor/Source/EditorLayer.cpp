@@ -2294,8 +2294,9 @@ namespace Lux {
 		if (!entity || !entity.HasComponent<TransformComponent>())
 			return false;
 
-		const TransformComponent& transformComponent = entity.GetComponent<TransformComponent>();
-		const glm::mat4 worldTransform = transformComponent.GetTransform();
+		// World transform: most scene entities are parented, and the local transform would test
+		// their bounds at the wrong place.
+		const glm::mat4 worldTransform = entity.GetScene()->GetWorldSpaceTransformMatrix(entity);
 		bool hit = false;
 
 		auto testAABB = [&](const AABB& localAABB, const glm::mat4& localTransform = glm::mat4(1.0f))
@@ -2309,9 +2310,16 @@ namespace Lux {
 
 				Ray localRay(localOrigin, localDirection);
 				float t = 0.0f;
-				if (localRay.IntersectsAABB(localAABB, t) && t >= 0.0f && t < outDistance)
+				if (!localRay.IntersectsAABB(localAABB, t) || t < 0.0f)
+					return;
+
+				// t is in this entity's local units, so it cannot be compared across entities with
+				// different scales (a large ground plane would always win). Measure in world space.
+				const glm::vec3 worldHit = glm::vec3(worldTransform * localTransform * glm::vec4(localOrigin + localDirection * t, 1.0f));
+				const float worldDistance = glm::dot(worldHit - rayOrigin, rayDirection);
+				if (worldDistance >= 0.0f && worldDistance < outDistance)
 				{
-					outDistance = t;
+					outDistance = worldDistance;
 					hit = true;
 				}
 			};
@@ -2353,7 +2361,7 @@ namespace Lux {
 
 		if (!hit && shouldUseIconSelection)
 		{
-			const glm::vec3 center = transformComponent.Translation;
+			const glm::vec3 center = glm::vec3(worldTransform[3]);
 			const float radius = 0.35f;
 			const glm::vec3 toCenter = rayOrigin - center;
 			const float b = glm::dot(toCenter, rayDirection);
