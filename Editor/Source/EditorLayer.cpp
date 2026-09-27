@@ -922,9 +922,8 @@ namespace Lux {
 						const glm::vec2 gizmoSize = m_EditorViewport->GetImageSize();
 						ImGuizmo::SetRect(gizmoBounds[0].x, gizmoBounds[0].y, gizmoSize.x, gizmoSize.y);
 
-						EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
-						const glm::mat4& cameraProjection = viewportCamera.GetUnReversedProjectionMatrix();
-						glm::mat4 cameraView = viewportCamera.GetViewMatrix();
+						glm::mat4 cameraView, cameraProjection;
+						GetViewportCameraMatrices(cameraView, cameraProjection);
 
 						auto& tc = selectedEntity.GetComponent<TransformComponent>();
 						glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix(selectedEntity);
@@ -2229,6 +2228,26 @@ namespace Lux {
 		return false;
 	}
 
+	void EditorLayer::GetViewportCameraMatrices(glm::mat4& outView, glm::mat4& outProjection)
+	{
+		// In Play the viewport renders through the scene's primary camera (as in
+		// Scene::BuildRenderPacketRuntime); picking and the gizmo must use the same one, or clicks
+		// land where the editor camera would have been looking.
+		if (m_SceneState == SceneState::Play && m_ActiveScene)
+		{
+			if (Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity())
+			{
+				outView = glm::inverse(m_ActiveScene->GetWorldSpaceTransformMatrix(cameraEntity));
+				outProjection = cameraEntity.GetComponent<CameraComponent>().Camera.GetUnReversedProjectionMatrix();
+				return;
+			}
+		}
+
+		const EditorCamera& editorCamera = m_EditorViewport->GetCamera();
+		outView = editorCamera.GetViewMatrix();
+		outProjection = editorCamera.GetUnReversedProjectionMatrix();
+	}
+
 	Entity EditorLayer::CastMousePick()
 	{
 		if (!m_ActiveScene || !m_EditorViewport)
@@ -2252,7 +2271,9 @@ namespace Lux {
 		const float ndcX = (mouseX / viewportWidth) * 2.0f - 1.0f;
 		const float ndcY = 1.0f - (mouseY / viewportHeight) * 2.0f;
 
-		glm::mat4 inverseViewProjection = glm::inverse(m_EditorViewport->GetCamera().GetUnReversedViewProjection());
+		glm::mat4 cameraView, cameraProjection;
+		GetViewportCameraMatrices(cameraView, cameraProjection);
+		glm::mat4 inverseViewProjection = glm::inverse(cameraProjection * cameraView);
 		glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
 		glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
 		if (nearPoint.w == 0.0f || farPoint.w == 0.0f)

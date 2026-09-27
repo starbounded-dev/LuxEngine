@@ -89,6 +89,8 @@ namespace Lux
 		void UI_ViewportSelectionBadge();
 		void UI_ViewportPerformanceHUD();
 		Entity CastMousePick();
+		// View and (unreversed) projection of the camera the viewport is rendering through.
+		void GetViewportCameraMatrices(glm::mat4& outView, glm::mat4& outProjection);
 		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
 
 		void NewProject();
