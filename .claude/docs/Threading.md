@@ -73,6 +73,12 @@ Two consequences worth internalising:
   lambda runs. Never capture a raw pointer to a main-thread-owned object that can die in between —
   capture a `Ref`/`shared_ptr` to keep it alive, or a `weak_ptr` and skip when expired (the ImGui
   platform-viewport tasks in `ImGuiLayer::End()` do the latter).
+- **Material and render-pass inputs are render-thread state once the renderer is running.**
+  `Material::Prepare` / `RenderPass::Prepare` read them on the render thread while main records the
+  next frame, so a per-frame main-thread `Set`/`SetInput` races that read. It is harmless only while
+  the value never changes; when it does (the environment cubes on Stop), the old `Ref` is released
+  mid-read and the resource is double-freed. Apply per-frame bindings inside a `Renderer::Submit`
+  lambda, as `SceneRenderer::BeginScene` and `SkyboxPass` do for the environment.
 - **`ExecuteBackgroundThreadSubmits()` runs before layer updates**, so GPU resources a background
   asset load created already exist before any draw that might use them this frame.
 

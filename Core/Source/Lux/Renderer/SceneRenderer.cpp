@@ -5273,18 +5273,24 @@ namespace Lux {
 		}
 
 		// ── Update environment texture bindings in geometry passes ────────────
+		// Applied on the render thread: it reads these inputs in RenderPass::Prepare while the main
+		// thread records the next frame, and when the environment changes (e.g. Stop swapping the
+		// runtime scene out) a main-thread write released the old cube mid-read -> double free.
 		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_FrameEnvironment.Environment);
 		Ref<TextureCube> irradianceMap = GetEnvironmentIrradianceMap(m_FrameEnvironment.Environment);
-		if (m_DeferredLightingPass)
+		Renderer::Submit([deferredPass = m_DeferredLightingPass, transparentPass = m_GeometryPassTransparent, radianceMap, irradianceMap]() mutable
 		{
-			m_DeferredLightingPass->SetInput("u_EnvRadianceTex", radianceMap);
-			m_DeferredLightingPass->SetInput("u_EnvIrradianceTex", irradianceMap);
-		}
-		if (m_GeometryPassTransparent)
-		{
-			m_GeometryPassTransparent->SetInput("u_EnvRadianceTex", radianceMap);
-			m_GeometryPassTransparent->SetInput("u_EnvIrradianceTex", irradianceMap);
-		}
+			if (deferredPass)
+			{
+				deferredPass->SetInput("u_EnvRadianceTex", radianceMap);
+				deferredPass->SetInput("u_EnvIrradianceTex", irradianceMap);
+			}
+			if (transparentPass)
+			{
+				transparentPass->SetInput("u_EnvRadianceTex", radianceMap);
+				transparentPass->SetInput("u_EnvIrradianceTex", irradianceMap);
+			}
+		});
 
 		m_UploadCommandBuffer->End();
 		m_UploadCommandBuffer->Submit();
@@ -7604,9 +7610,15 @@ namespace Lux {
 
 		BeginProfiledGPU("SkyboxPass");
 
-		m_SkyboxMaterial->Set("u_Uniforms.TextureLod", m_FrameEnvironment.SkyboxLod);
-		m_SkyboxMaterial->Set("u_Uniforms.Intensity", m_FrameEnvironment.EnvironmentIntensity);
-		m_SkyboxMaterial->Set("u_Texture", radianceMap);
+		// Set on the render thread, which reads the material in Prepare / the push constants; see
+		// the environment bindings in BeginScene for the race a main-thread Set caused.
+		Renderer::Submit([material = m_SkyboxMaterial, radianceMap, lod = m_FrameEnvironment.SkyboxLod,
+			intensity = m_FrameEnvironment.EnvironmentIntensity]() mutable
+		{
+			material->Set("u_Uniforms.TextureLod", lod);
+			material->Set("u_Uniforms.Intensity", intensity);
+			material->Set("u_Texture", radianceMap);
+		});
 
 		Renderer::BeginRenderPass(m_CommandBuffer, m_SkyboxPass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_SkyboxPass->GetPipeline(), m_SkyboxMaterial);
