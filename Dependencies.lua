@@ -273,6 +273,9 @@ Dependencies = {
 	YAML_CPP = {
 		IncludeDir = "%{wks.location}/Core/vendor/yaml-cpp/include",
 	},
+	RapidYAML = {
+		IncludeDir = "%{wks.location}/Core/vendor/rapidyaml",
+	},
 	SPDLog = {
 		IncludeDir = "%{wks.location}/Core/vendor/spdlog/include",
 	},
