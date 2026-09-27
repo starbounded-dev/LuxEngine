@@ -18,10 +18,20 @@
 //   Oracle --list <files.txt> --root <dir> --write <manifest>   record the reference
 //   Oracle --list <files.txt> --root <dir> --check <manifest>   exit 1 on any difference
 //   Oracle --list <files.txt> --root <dir> --dump <dir>         one "path = value" line per scalar
+//
+// Built twice by run.py: once over yaml-cpp (the reference), and once over the engine's Lux::Yaml
+// (LUX_ORACLE_LUXYAML), which also offers:
+//   --roundtrip   parse, re-write with Yaml::Writer, re-parse, then --check the result
+//   --selftest    targeted checks of Lux::Yaml's semantics (no file list needed)
 
-#include <yaml-cpp/yaml.h>
+#ifdef LUX_ORACLE_LUXYAML
+	#include "Lux/Serialization/Yaml.h"
+#else
+	#include <yaml-cpp/yaml.h>
+#endif
 
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -46,6 +56,7 @@ namespace
 		std::vector<Value> Items;                             // Sequence
 	};
 
+#ifndef LUX_ORACLE_LUXYAML
 	// ── yaml-cpp front end ─────────────────────────────────────────────────────────────────
 	Value FromYamlCpp(const YAML::Node& node)
 	{
@@ -73,6 +84,91 @@ namespace
 		}
 		return value;
 	}
+
+	Value ParseFile(const std::filesystem::path& path) { return FromYamlCpp(YAML::LoadFile(path.string())); }
+#else
+	// ── Lux::Yaml front end ────────────────────────────────────────────────────────────────
+	Value FromLuxYaml(const Lux::Yaml::Node& node)
+	{
+		Value value;
+		switch (node.Type())
+		{
+		case Lux::Yaml::NodeType::Undefined:
+		case Lux::Yaml::NodeType::Null:
+			value.Type = Value::Kind::Null;
+			break;
+		case Lux::Yaml::NodeType::Scalar:
+			value.Type = Value::Kind::Scalar;
+			value.Text = std::string(node.Scalar());
+			break;
+		case Lux::Yaml::NodeType::Sequence:
+			value.Type = Value::Kind::Sequence;
+			for (const auto& item : node)
+				value.Items.push_back(FromLuxYaml(item));
+			break;
+		case Lux::Yaml::NodeType::Map:
+			value.Type = Value::Kind::Map;
+			for (const auto& entry : node)
+				value.Entries.emplace_back(FromLuxYaml(entry.first), FromLuxYaml(entry.second));
+			break;
+		}
+		return value;
+	}
+
+	// Re-writes a parsed tree through Yaml::Writer: sequences of scalars inline (as the engine's
+	// vectors are), everything else block.
+	void WriteNode(Lux::Yaml::Writer& out, const Lux::Yaml::Node& node)
+	{
+		using namespace Lux;
+		switch (node.Type())
+		{
+		case Yaml::NodeType::Undefined:
+		case Yaml::NodeType::Null:
+			out << nullptr;
+			break;
+		case Yaml::NodeType::Scalar:
+			out << node.Scalar();
+			break;
+		case Yaml::NodeType::Sequence:
+		{
+			bool allScalars = node.size() > 0;
+			for (const auto& item : node)
+				allScalars &= item.IsScalar();
+			if (allScalars)
+				out << Yaml::Flow;
+			out << Yaml::BeginSeq;
+			for (const auto& item : node)
+				WriteNode(out, item);
+			out << Yaml::EndSeq;
+			break;
+		}
+		case Yaml::NodeType::Map:
+			out << Yaml::BeginMap;
+			for (const auto& entry : node)
+			{
+				out << Yaml::Key << entry.first.Scalar() << Yaml::Value;
+				WriteNode(out, entry.second);
+			}
+			out << Yaml::EndMap;
+			break;
+		}
+	}
+
+	bool g_RoundTrip = false;
+
+	Value ParseFile(const std::filesystem::path& path)
+	{
+		Lux::Yaml::Node document = Lux::Yaml::LoadFile(path);
+		if (!g_RoundTrip)
+			return FromLuxYaml(document);
+
+		Lux::Yaml::Writer out;
+		WriteNode(out, document);
+		return FromLuxYaml(Lux::Yaml::Load(out.str(), path.string() + " (re-written)"));
+	}
+
+	int SelfTest();
+#endif
 
 	// ── Normalization ──────────────────────────────────────────────────────────────────────
 	bool IsInteger(const std::string& text)
@@ -244,6 +340,25 @@ int main(int argc, char** argv)
 	const std::string writePath = ArgValue(argc, argv, "--write");
 	const std::string checkPath = ArgValue(argc, argv, "--check");
 	const std::string dumpDir = ArgValue(argc, argv, "--dump");
+#ifdef LUX_ORACLE_LUXYAML
+	for (int i = 1; i < argc; ++i)
+	{
+		if (std::strcmp(argv[i], "--selftest") == 0)
+		{
+			try
+			{
+				return SelfTest();
+			}
+			catch (const std::exception& e)
+			{
+				std::cerr << "SELFTEST FAIL: uncaught exception: " << e.what() << '\n';
+				return 1;
+			}
+		}
+		if (std::strcmp(argv[i], "--roundtrip") == 0)
+			g_RoundTrip = true;
+	}
+#endif
 	if (listPath.empty() || root.empty() || (writePath.empty() && checkPath.empty() && dumpDir.empty()))
 	{
 		std::cerr << "usage: Oracle --list <files.txt> --root <dir> (--write <manifest> | --check <manifest> | --dump <dir>)\n";
@@ -265,7 +380,7 @@ int main(int argc, char** argv)
 		Value document;
 		try
 		{
-			document = FromYamlCpp(YAML::LoadFile((root / relative).string()));
+			document = ParseFile(root / relative);
 		}
 		catch (const std::exception& e)
 		{
@@ -339,3 +454,140 @@ int main(int argc, char** argv)
 
 	return failures ? 1 : 0;
 }
+
+#ifdef LUX_ORACLE_LUXYAML
+namespace
+{
+	int g_Failures = 0;
+
+	void Expect(bool condition, const char* what)
+	{
+		if (!condition)
+		{
+			std::cerr << "FAIL " << what << '\n';
+			++g_Failures;
+		}
+	}
+
+	template<typename Fn>
+	bool Throws(Fn&& fn)
+	{
+		try { fn(); }
+		catch (const Lux::Yaml::Exception&) { return true; }
+		return false;
+	}
+
+	int SelfTest()
+	{
+		using namespace Lux;
+
+		// yaml-cpp semantics the engine relies on.
+		const Yaml::Node doc = Yaml::Load("a: 1\nb:\nc: ~\nd: [1, 2, 3]\ne: [1, 2]\n");
+		Expect(static_cast<bool>(doc["a"]), "existing key is truthy");
+		Expect(static_cast<bool>(doc["b"]) && doc["b"].IsNull(), "empty value: defined and null");
+		Expect(doc["c"].IsNull(), "~ is null");
+		Expect(!doc["missing"], "missing key is falsy");
+		Expect(doc["missing"].as<int>(-1) == -1, "as<T>(fallback) on a missing key");
+		Expect(Throws([&] { (void)doc["missing"].as<int>(); }), "as<T>() on a missing key throws");
+		Expect(doc["b"].as<std::string>("fb") == "fb", "as<string> on null uses the fallback");
+		Expect(!doc["a"]["nested"], "indexing a scalar yields an undefined node");
+		Expect(doc["d"].as<glm::vec3>() == glm::vec3(1, 2, 3), "vec3 decode");
+		Expect(doc["e"].as<glm::vec3>(glm::vec3(9)) == glm::vec3(9), "vec3 of the wrong size falls back");
+		Expect(doc["d"][1].as<int>() == 2 && doc["d"].size() == 3, "sequence index and size");
+		{
+			const Yaml::Node table = Yaml::Load("T: {2: two, 0: zero}")["T"];
+			Expect(table[0].as<std::string>("") == "zero" && table[2].as<std::string>("") == "two", "integer index on a map is a key");
+			Expect(!table[1], "absent integer key on a map");
+		}
+
+		for (const char* yes : { "y", "Y", "yes", "Yes", "YES", "true", "True", "TRUE", "on", "On", "ON" })
+			Expect(Yaml::Load(std::string("v: ") + yes)["v"].as<bool>(false), yes);
+		for (const char* no : { "n", "N", "no", "No", "false", "False", "FALSE", "off", "OFF" })
+			Expect(!Yaml::Load(std::string("v: ") + no)["v"].as<bool>(true), no);
+		Expect(Yaml::Load("v: yEs")["v"].as<bool>(false) == false, "mixed-case is not a bool");
+
+		Expect(Yaml::Load("v: +7")["v"].as<int>() == 7, "leading + integer");
+		Expect(Yaml::Load("v: 0x10")["v"].as<int>() == 16, "hex integer");
+		Expect(Yaml::Load("v: 1.5")["v"].as<int>(-1) == -1, "float text is not an int");
+		Expect(Yaml::Load("v: -1")["v"].as<uint32_t>(7) == 7, "negative is not unsigned");
+		Expect(Yaml::Load("v: 18446744073709551615")["v"].as<uint64_t>() == UINT64_MAX, "uint64 max");
+		Expect(Yaml::Load("v: 0.00800000038")["v"].as<float>() == 0.008f, "padded float reads as 0.008f");
+		Expect(Yaml::Load("v: 1")["v"].as<float>() == 1.0f, "integer text as float");
+		Expect(std::isinf(Yaml::Load("v: -.inf")["v"].as<float>()), ".inf");
+		Expect(std::isnan(Yaml::Load("v: .nan")["v"].as<double>()), ".nan");
+		Expect(Yaml::Load("v: 13186803375098413055")["v"].as<UUID>() == UUID(13186803375098413055ull), "UUID");
+
+		// Iteration: maps yield first/second in document order, sequences yield items.
+		{
+			std::string keys;
+			for (const auto& entry : doc)
+				keys += std::string(entry.first.Scalar());
+			Expect(keys == "abcde", "map iteration order");
+			int sum = 0;
+			for (const auto& item : doc["d"])
+				sum += item.as<int>();
+			Expect(sum == 6, "sequence iteration");
+		}
+
+		// Malformed input throws instead of aborting.
+		Expect(Throws([] { (void)Yaml::Load("a: [1, 2"); }), "unclosed [ throws");
+		Expect(Throws([] { (void)Yaml::Load("a: \"unterminated"); }), "unclosed quote throws");
+		Expect(Throws([] { (void)Yaml::LoadFile("does/not/exist.yaml"); }), "missing file throws");
+
+		// Writer: style C, exact round-trip of values, determinism.
+		const std::vector<std::string> strings = { "", "~", "null", "Null", "NULL", "a: b", "#hash", " lead", "trail ",
+			"multi\nline", "true", "123", "-", "[x]", "{y}", "'q'", "\"dq\"", "tab\there", "unicode é" };
+		auto write = [&]
+		{
+			Yaml::Writer out;
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Pos" << Yaml::Value << glm::vec3(1.0f, 2.5f, -3.0f);
+			out << Yaml::Key << "Gamma" << Yaml::Value << 2.2f;
+			out << Yaml::Key << "Tenth" << Yaml::Value << 0.1f;
+			out << Yaml::Key << "Whole" << Yaml::Value << 1.0f;
+			out << Yaml::Key << "Big" << Yaml::Value << uint64_t(13186803375098413055ull);
+			out << Yaml::Key << "Flag" << Yaml::Value << true;
+			out << Yaml::Key << "Nothing" << Yaml::Value << nullptr;
+			out << Yaml::Key << "Indices" << Yaml::Value << std::vector<uint32_t>{ 0, 1, 2 };
+			out << Yaml::Key << "Strings" << Yaml::Value << Yaml::BeginSeq;
+			for (const std::string& text : strings)
+				out << text;
+			out << Yaml::EndSeq;
+			out << Yaml::Key << "Empty" << Yaml::Value << Yaml::BeginSeq << Yaml::EndSeq;
+			out << Yaml::EndMap;
+			return out.str();
+		};
+
+		const std::string text = write();
+		Expect(text == write(), "writer output is deterministic");
+		Expect(text.find("Pos: [1, 2.5, -3]") != std::string::npos, "vec3 written inline");
+		Expect(text.find("Gamma: 2.2\n") != std::string::npos, "shortest float 2.2");
+		Expect(text.find("Tenth: 0.1\n") != std::string::npos, "shortest float 0.1");
+		Expect(text.find("Whole: 1\n") != std::string::npos, "integral float written as 1");
+		if (g_Failures)
+			std::cerr << "--- writer output ---\n" << text << "---\n";
+
+		const Yaml::Node back = Yaml::Load(text);
+		Expect(back["Pos"].as<glm::vec3>() == glm::vec3(1.0f, 2.5f, -3.0f), "vec3 round-trip");
+		Expect(back["Gamma"].as<float>() == 2.2f && back["Tenth"].as<float>() == 0.1f, "float round-trip");
+		Expect(back["Big"].as<uint64_t>() == 13186803375098413055ull, "uint64 round-trip");
+		Expect(back["Flag"].as<bool>() && back["Nothing"].IsNull(), "bool and null round-trip");
+		Expect(back["Indices"].as<std::vector<uint32_t>>() == std::vector<uint32_t>{ 0, 1, 2 }, "vector<uint32_t> round-trip");
+		Expect(back["Empty"].IsSequence() && back["Empty"].size() == 0, "empty sequence round-trip");
+		for (size_t i = 0; i < strings.size(); ++i)
+		{
+			const Yaml::Node item = back["Strings"][i];
+			const bool ok = item.IsScalar() && item.as<std::string>() == strings[i];
+			if (!ok)
+				std::cerr << "  string #" << i << " read back as '" << std::string(item.Scalar()) << "'\n";
+			Expect(ok, "string round-trip");
+		}
+
+		// Dump() of a subtree re-parses to the same values.
+		Expect(Yaml::Load(back["Pos"].Dump()).as<glm::vec3>() == glm::vec3(1.0f, 2.5f, -3.0f), "Dump() round-trip");
+
+		std::cout << (g_Failures ? "SELFTEST FAIL " : "SELFTEST OK ") << g_Failures << " failure(s)\n";
+		return g_Failures ? 1 : 0;
+	}
+}
+#endif

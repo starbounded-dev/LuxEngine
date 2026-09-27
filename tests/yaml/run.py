@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""YAML value oracle (docs/YAML_MIGRATION_PLAN.md): proves a YAML library reads the repo's assets
-to the same values as the recorded reference.
+"""YAML value oracle (docs/YAML_MIGRATION_PLAN.md): proves the engine's YAML layer reads the repo's
+assets to the same values as the recorded yaml-cpp reference.
 
-    python tests/yaml/run.py            check against tests/yaml/reference.txt (default)
+    python tests/yaml/run.py            run every check (default)
     python tests/yaml/run.py --write    re-record the reference (only for intended data changes)
     python tests/yaml/run.py --dump DIR write one "path = value" file per asset, for diffing
+
+Checks: yaml-cpp against the reference; Lux::Yaml (rapidyaml) against it; every asset parsed,
+re-written with Yaml::Writer and re-parsed against it; and Lux::Yaml's self-tests.
 """
 import argparse
 import os
@@ -18,10 +21,27 @@ ROOT = Path(__file__).resolve().parents[2]
 TESTS = Path(__file__).resolve().parent
 BUILD = ROOT / "bin-int/YamlOracle"
 REFERENCE = TESTS / "reference.txt"
-YAML_CPP = ROOT / "Core/vendor/yaml-cpp"
+CORE = ROOT / "Core"
+YAML_CPP = CORE / "vendor/yaml-cpp"
 
 # Engine YAML formats (AssetExtensions.h), plus the project file and asset registry.
 EXTENSIONS = (".luxscene", ".luxproj", ".lmat", ".lzr", ".lprefab", ".ldialogue", ".lsurfaces")
+
+TARGETS = {
+    # yaml-cpp: the reference implementation.
+    "Oracle": {
+        "sources": [TESTS / "Oracle.cpp", *sorted((YAML_CPP / "src").glob("*.cpp"))],
+        "includes": [YAML_CPP / "include"],
+        "defines": ["YAML_CPP_STATIC_DEFINE"],
+    },
+    # Lux::Yaml over rapidyaml, built from the engine's own sources.
+    "OracleLux": {
+        "sources": [TESTS / "Oracle.cpp", CORE / "Source/Lux/Serialization/Yaml.cpp", CORE / "vendor/rapidyaml/ryml.cpp",
+                    CORE / "Source/Lux/Core/Ref.cpp", CORE / "Source/Lux/Core/UUID.cpp"],
+        "includes": [TESTS / "shim", CORE / "Source", CORE / "vendor/glm", CORE / "vendor/rapidyaml"],
+        "defines": ["LUX_ORACLE_LUXYAML", "LUX_PLATFORM_WINDOWS" if platform.system() == "Windows" else "LUX_PLATFORM_LINUX"],
+    },
+}
 
 
 def run(command, **kwargs):
@@ -46,45 +66,60 @@ def vcvars():
     sys.exit("error: no Visual Studio C++ toolset found")
 
 
-def build():
-    BUILD.mkdir(parents=True, exist_ok=True)
-    sources = [TESTS / "Oracle.cpp", *sorted((YAML_CPP / "src").glob("*.cpp"))]
+def build(name):
+    target = TARGETS[name]
+    out_dir = BUILD / name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sources = target["sources"]
+    headers = [CORE / "Source/Lux/Serialization/Yaml.h"] if name == "OracleLux" else []
+    newest = max(path.stat().st_mtime for path in [*sources, *headers])
+
     if platform.system() == "Windows":
-        exe = BUILD / "Oracle.exe"
-        newest = max(source.stat().st_mtime for source in sources)
+        exe = out_dir / f"{name}.exe"
         if exe.exists() and exe.stat().st_mtime >= newest:
             return exe
-        command = (f'call "{vcvars()}" >nul 2>nul && cl /nologo /EHsc /O2 /MD /std:c++20 /DYAML_CPP_STATIC_DEFINE '
-                   f'/I "{YAML_CPP / "include"}" /Fo"{BUILD}\\\\" /Fe"{exe}" '
-                   + " ".join(f'"{source}"' for source in sources))
-        subprocess.run(command, shell=True, check=True, stdout=subprocess.DEVNULL)
+        flags = " ".join([*(f'/D{d}' for d in target["defines"]), *(f'/I "{i}"' for i in target["includes"])])
+        command = (f'call "{vcvars()}" >nul 2>nul && cl /nologo /EHsc /O2 /MD /std:c++20 /utf-8 {flags} '
+                   f'/Fo"{out_dir}\\\\" /Fe"{exe}" ' + " ".join(f'"{source}"' for source in sources))
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            sys.exit(f"build of {name} failed:\n{result.stdout[-4000:]}")
     else:
-        exe = BUILD / "Oracle"
+        exe = out_dir / name
         compiler = shutil.which("clang++") or shutil.which("g++")
-        run([compiler, "-std=c++20", "-O2", "-DYAML_CPP_STATIC_DEFINE", "-I", YAML_CPP / "include", *sources, "-o", exe])
+        run([compiler, "-std=c++20", "-O2", *(f"-D{d}" for d in target["defines"]),
+             *(f"-I{i}" for i in target["includes"]), *sources, "-o", exe])
     return exe
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--write", action="store_true", help="re-record tests/yaml/reference.txt")
-    mode.add_argument("--dump", metavar="DIR", help="write per-file value dumps to DIR")
+    mode.add_argument("--write", action="store_true", help="re-record tests/yaml/reference.txt (yaml-cpp)")
+    mode.add_argument("--dump", metavar="DIR", help="write per-file value dumps to DIR (yaml-cpp)")
     args = parser.parse_args()
 
-    exe = build()
-    files = corpus()
     listing = BUILD / "files.txt"
-    listing.write_text("\n".join(files) + "\n", encoding="utf-8")
+    BUILD.mkdir(parents=True, exist_ok=True)
+    listing.write_text("\n".join(corpus()) + "\n", encoding="utf-8")
+    common = ["--list", listing, "--root", ROOT]
 
-    command = [exe, "--list", listing, "--root", ROOT]
-    if args.write:
-        command += ["--write", REFERENCE]
-    elif args.dump:
-        command += ["--dump", Path(args.dump).resolve()]
-    else:
-        command += ["--check", REFERENCE]
-    sys.exit(subprocess.run(list(map(str, command))).returncode)
+    if args.write or args.dump:
+        extra = ["--write", REFERENCE] if args.write else ["--dump", Path(args.dump).resolve()]
+        sys.exit(subprocess.run(list(map(str, [build("Oracle"), *common, *extra]))).returncode)
+
+    checks = [
+        ("yaml-cpp vs reference", [build("Oracle"), *common, "--check", REFERENCE]),
+        ("Lux::Yaml vs reference", [build("OracleLux"), *common, "--check", REFERENCE]),
+        ("Lux::Yaml write round-trip", [build("OracleLux"), *common, "--check", REFERENCE, "--roundtrip"]),
+        ("Lux::Yaml self-test", [build("OracleLux"), "--selftest"]),
+    ]
+    failed = 0
+    for label, command in checks:
+        print(f"== {label}", flush=True)
+        failed += subprocess.run(list(map(str, command))).returncode != 0
+    print("ALL YAML CHECKS PASSED" if not failed else f"{failed} YAML CHECK(S) FAILED")
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":
