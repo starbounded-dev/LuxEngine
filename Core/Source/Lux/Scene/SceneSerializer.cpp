@@ -1478,6 +1478,51 @@ namespace Lux {
 		}
 	}
 
+	// Scene-level keys (name, post-processing) - the read side of SerializeSceneMetadata.
+	static bool DeserializeSceneMetadata(const YAML::Node& data, Ref<Scene> scene)
+	{
+		try
+		{
+			scene->SetName(data["Scene"].as<std::string>());
+		}
+		catch (const YAML::Exception& e)
+		{
+			LUX_CORE_ERROR("Failed to read scene name: {0}", e.what());
+			return false;
+		}
+
+		// Absent in scenes written before post-processing moved off volumes; those simply
+		// keep the struct defaults.
+		if (auto postProcess = data["PostProcess"])
+		{
+			PostProcessSettings post;
+			post.Exposure = postProcess["Exposure"].as<float>(post.Exposure);
+			post.ExposureControl = static_cast<ExposureMode>(postProcess["ExposureMode"].as<uint32_t>(static_cast<uint32_t>(post.ExposureControl)));
+			post.Aperture = postProcess["Aperture"].as<float>(post.Aperture);
+			post.ShutterSpeed = postProcess["ShutterSpeed"].as<float>(post.ShutterSpeed);
+			post.ISO = postProcess["ISO"].as<float>(post.ISO);
+			post.ExposureEV100 = postProcess["ExposureEV100"].as<float>(post.ExposureEV100);
+			post.ExposureCompensation = postProcess["ExposureCompensation"].as<float>(post.ExposureCompensation);
+			post.AutoMinEV100 = postProcess["AutoMinEV100"].as<float>(post.AutoMinEV100);
+			post.AutoMaxEV100 = postProcess["AutoMaxEV100"].as<float>(post.AutoMaxEV100);
+			post.AutoAdaptationSpeedUp = postProcess["AutoAdaptationSpeedUp"].as<float>(post.AutoAdaptationSpeedUp);
+			post.AutoAdaptationSpeedDown = postProcess["AutoAdaptationSpeedDown"].as<float>(post.AutoAdaptationSpeedDown);
+			post.ColorFilter = postProcess["ColorFilter"].as<glm::vec3>(post.ColorFilter);
+			post.Saturation = postProcess["Saturation"].as<float>(post.Saturation);
+			post.Contrast = postProcess["Contrast"].as<float>(post.Contrast);
+			post.Gamma = postProcess["Gamma"].as<float>(post.Gamma);
+			post.Tonemap = static_cast<TonemapOperator>(postProcess["Tonemap"].as<uint32_t>(static_cast<uint32_t>(post.Tonemap)));
+			post.WhiteTemperature = postProcess["WhiteTemperature"].as<float>(post.WhiteTemperature);
+			post.WhiteTint = postProcess["WhiteTint"].as<float>(post.WhiteTint);
+			post.Lift = postProcess["Lift"].as<glm::vec3>(post.Lift);
+			post.GradeGamma = postProcess["GradeGamma"].as<glm::vec3>(post.GradeGamma);
+			post.Gain = postProcess["Gain"].as<glm::vec3>(post.Gain);
+			scene->SetPostProcessSettings(post);
+		}
+
+		return true;
+	}
+
 	void SceneSerializer::SerializeToYAML(YAML::Emitter& out)
 	{
 		out << YAML::BeginMap;
@@ -1620,6 +1665,44 @@ namespace Lux {
 		YAML::Emitter out;
 		out << root;
 		return DeserializeFromYAML(std::string(out.c_str()));
+	}
+
+	bool SceneSerializer::ApplyEntitySnapshots(const std::string* meta, const std::vector<std::pair<UUID, std::string>>& entities)
+	{
+		LUX_PROFILE_FUNCTION("SceneSerializer::ApplyEntitySnapshots");
+
+		// Parse everything first, so a bad block leaves the scene untouched.
+		YAML::Node metaNode;
+		YAML::Node blocks(YAML::NodeType::Sequence);
+		try
+		{
+			if (meta)
+				metaNode = YAML::Load(*meta);
+			for (const auto& [entityID, block] : entities)
+			{
+				if (!block.empty())
+					blocks.push_back(YAML::Load(block));
+			}
+		}
+		catch (const YAML::Exception& e)
+		{
+			LUX_CORE_ERROR_TAG("Editor", "Undo: failed to parse an entity snapshot: {0}", e.what());
+			return false;
+		}
+
+		// Remove the old versions without touching relationships: the blocks carry the Parent and
+		// Children data, and entities outside the set keep theirs unchanged.
+		for (const auto& [entityID, block] : entities)
+			m_Scene->DestroyEntityForRestore(m_Scene->TryGetEntityWithUUID(entityID));
+
+		if (!DeserializeEntities(blocks, m_Scene))
+			return false;
+
+		if (meta && !DeserializeSceneMetadata(metaNode, m_Scene))
+			return false;
+
+		m_Scene->SortEntities();
+		return true;
 	}
 
 	bool SceneSerializer::RunRoundTripSelfTests(std::vector<std::string>* failures)
@@ -1950,44 +2033,8 @@ namespace Lux {
 		m_Scene->m_Registry.clear();
 		m_Scene->m_EntityMap.clear();
 
-		try
-		{
-			m_Scene->SetName(data["Scene"].as<std::string>());
-		}
-		catch (const YAML::Exception& e)
-		{
-			LUX_CORE_ERROR("Failed to read scene name: {0}", e.what());
+		if (!DeserializeSceneMetadata(data, m_Scene))
 			return false;
-		}
-
-		// Absent in scenes written before post-processing moved off volumes; those simply
-		// keep the struct defaults.
-		if (auto postProcess = data["PostProcess"])
-		{
-			PostProcessSettings post;
-			post.Exposure = postProcess["Exposure"].as<float>(post.Exposure);
-			post.ExposureControl = static_cast<ExposureMode>(postProcess["ExposureMode"].as<uint32_t>(static_cast<uint32_t>(post.ExposureControl)));
-			post.Aperture = postProcess["Aperture"].as<float>(post.Aperture);
-			post.ShutterSpeed = postProcess["ShutterSpeed"].as<float>(post.ShutterSpeed);
-			post.ISO = postProcess["ISO"].as<float>(post.ISO);
-			post.ExposureEV100 = postProcess["ExposureEV100"].as<float>(post.ExposureEV100);
-			post.ExposureCompensation = postProcess["ExposureCompensation"].as<float>(post.ExposureCompensation);
-			post.AutoMinEV100 = postProcess["AutoMinEV100"].as<float>(post.AutoMinEV100);
-			post.AutoMaxEV100 = postProcess["AutoMaxEV100"].as<float>(post.AutoMaxEV100);
-			post.AutoAdaptationSpeedUp = postProcess["AutoAdaptationSpeedUp"].as<float>(post.AutoAdaptationSpeedUp);
-			post.AutoAdaptationSpeedDown = postProcess["AutoAdaptationSpeedDown"].as<float>(post.AutoAdaptationSpeedDown);
-			post.ColorFilter = postProcess["ColorFilter"].as<glm::vec3>(post.ColorFilter);
-			post.Saturation = postProcess["Saturation"].as<float>(post.Saturation);
-			post.Contrast = postProcess["Contrast"].as<float>(post.Contrast);
-			post.Gamma = postProcess["Gamma"].as<float>(post.Gamma);
-			post.Tonemap = static_cast<TonemapOperator>(postProcess["Tonemap"].as<uint32_t>(static_cast<uint32_t>(post.Tonemap)));
-			post.WhiteTemperature = postProcess["WhiteTemperature"].as<float>(post.WhiteTemperature);
-			post.WhiteTint = postProcess["WhiteTint"].as<float>(post.WhiteTint);
-			post.Lift = postProcess["Lift"].as<glm::vec3>(post.Lift);
-			post.GradeGamma = postProcess["GradeGamma"].as<glm::vec3>(post.GradeGamma);
-			post.Gain = postProcess["Gain"].as<glm::vec3>(post.Gain);
-			m_Scene->SetPostProcessSettings(post);
-		}
 
 		return DeserializeEntities(data["Entities"], m_Scene);
 	}

@@ -313,6 +313,17 @@ namespace Lux {
 		if (Entity parent = entity.GetParent())
 			parent.RemoveChild(entity);
 
+		DestroyEntityForRestore(entity);
+
+		if (first)
+			SortEntities();
+	}
+
+	void Scene::DestroyEntityForRestore(Entity entity)
+	{
+		if (!entity)
+			return;
+
 		// Fire the managed OnDestroy before the entity leaves the registry, so scripts can
 		// still read their own components. Only relevant while the runtime is playing.
 		if (m_IsRunning && entity.HasComponent<ScriptComponent>())
@@ -344,9 +355,6 @@ namespace Lux {
 		m_Footsteps.erase(entity.GetUUID());
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
-
-		if (first)
-			SortEntities();
 	}
 
 	void Scene::DestroyEntity(UUID entityID, bool excludeChildren, bool first)

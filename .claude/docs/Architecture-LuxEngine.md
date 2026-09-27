@@ -384,9 +384,14 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   falling back to scene-wide. Scoped commits re-serialize only the named entities (a ~7k-entity
   scene otherwise stalls ~1 s per edit); any scene-wide signal forces a full snapshot. The baseline
   stays complete either way, and `LUX_DEBUG` builds verify each scoped commit against a full capture.
-  An edit that can touch entities it does not name **must** call `MarkSceneEdited`. Restore
-  reassembles the full scene and runs the whole-scene deserialize (`DeserializeFromSnapshots`),
-  which keeps it safe against the two-way parent/child links.
+  An edit that can touch entities it does not name **must** call `MarkSceneEdited`. Undo/redo
+  patches the live scene in place (`EditorLayer::RestoreSceneStep` →
+  `SceneSerializer::ApplyEntitySnapshots`): only the step's entities are removed via
+  `Scene::DestroyEntityForRestore` (no child recursion, no parent-list edit) and re-deserialized
+  from their blocks. That is safe for the two-way parent/child links because a step is closed
+  over hierarchy edits — every entity whose Parent/Children changed carries its own delta. On
+  failure (and, in `LUX_DEBUG`, on any divergence from the baseline) it falls back to rebuilding
+  the whole scene from the baseline (`DeserializeFromSnapshots`).
   Value-based, so nothing dangles. Non-scene edits (renderer/project settings) push closure commands
   (`CustomUndo`/`CustomRedo`, via `EditorLayer::PushUndoCommand`) onto the same stack, so one `Ctrl+Z`
   covers everything. Selection is restored per step; a `UndoHistoryPanel` (View → History) shows the

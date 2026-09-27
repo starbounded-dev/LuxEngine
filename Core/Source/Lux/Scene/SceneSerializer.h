@@ -40,6 +40,12 @@ namespace Lux
 		// known to touch only those entities.
 		std::map<UUID, std::string> SerializeEntitySnapshots(const std::vector<UUID>& entityIDs, std::string& outMeta);
 		bool DeserializeFromSnapshots(const std::string& meta, const std::vector<std::string>& entityBlocks);
+		// Patch the scene in place from SerializeEntitySnapshots output: each entity in `entities` is
+		// replaced by its block, or removed when the block is empty; `meta` is applied when non-null.
+		// The set must be closed over hierarchy edits (every entity whose Parent/Children changed),
+		// which an undo step's delta is. Returns false before touching the scene if a block fails to
+		// parse; a false return after that means the scene is partially patched and must be rebuilt.
+		bool ApplyEntitySnapshots(const std::string* meta, const std::vector<std::pair<UUID, std::string>>& entities);
 
 		// Returns the serialized component keys (e.g. "TransformComponent") that differ between two
 		// entities — changed, instance-only, or prefab-only — ignoring identity/hierarchy keys

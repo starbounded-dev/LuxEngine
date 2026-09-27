@@ -150,6 +150,7 @@ namespace Lux
 		void UndoSceneEdit();
 		void RedoSceneEdit();
 		void RestoreSceneState(const std::string& meta, const std::map<UUID, std::string>& entities);
+		void RestoreSceneStep(const UndoCommand& command, bool undo);  // patch only the step's entities in place
 		void RestoreSelection(const std::vector<UUID>& handles);  // select the entities an undo/redo touched
 		void UI_UndoToast();                                      // transient "Undo/Redo: <label>" overlay
 		void UI_ScriptToast();                                    // transient C#-reload status overlay

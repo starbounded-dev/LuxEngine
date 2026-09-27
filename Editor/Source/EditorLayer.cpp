@@ -4090,7 +4090,7 @@ namespace Lux {
 					m_BaselineEntities[delta.Handle] = delta.Before;
 			}
 
-			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+			RestoreSceneStep(command, true);
 			RestoreSelection(affected);
 		}
 
@@ -4130,13 +4130,55 @@ namespace Lux {
 					m_BaselineEntities[delta.Handle] = delta.After;
 			}
 
-			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+			RestoreSceneStep(command, false);
 			RestoreSelection(affected);
 		}
 
 		m_UndoToastText = "Redo: " + command.Label;
 		m_UndoToastTime = ImGui::GetTime();
 		undoStack.push_back(std::move(command));
+	}
+
+	void EditorLayer::RestoreSceneStep(const UndoCommand& command, bool undo)
+	{
+		LUX_PROFILE_FUNCTION("EditorLayer::RestoreSceneStep");
+
+		// Patch only this step's entities into the live scene: rebuilding the whole scene from the
+		// baseline re-deserialized every entity and made the renderer re-sync them all, which took
+		// seconds per Ctrl+Z on large scenes. The step is closed over hierarchy edits (any entity
+		// whose Parent/Children changed has its own delta), so relationships stay consistent.
+		std::vector<std::pair<UUID, std::string>> targets;
+		targets.reserve(command.Entities.size());
+		for (const EntityDelta& delta : command.Entities)
+			targets.emplace_back(delta.Handle, undo ? delta.Before : delta.After);
+		const std::string* meta = command.MetaChanged ? &(undo ? command.MetaBefore : command.MetaAfter) : nullptr;
+
+		if (!m_EditorScene || !SceneSerializer(m_EditorScene).ApplyEntitySnapshots(meta, targets))
+		{
+			LUX_CORE_WARN_TAG("Editor", "Undo: in-place restore of '{}' failed; rebuilding the scene from the undo baseline.", command.Label);
+			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+			return;
+		}
+
+#ifdef LUX_DEBUG
+		// The live scene must now equal the (already rolled) baseline; anything else means a step
+		// was not closed over the entities it changed.
+		std::string fullMeta;
+		if (CaptureSceneEntities(m_EditorScene, fullMeta) != m_BaselineEntities || fullMeta != m_BaselineMeta)
+		{
+			LUX_CORE_ERROR_TAG("Editor", "Undo: in-place restore of '{}' diverged from the undo baseline; rebuilding the scene.", command.Label);
+			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
+			return;
+		}
+#endif
+
+		// Entity handles into the patched entities are stale; selection is restored by UUID.
+		m_HoveredEntity = {};
+
+		// The restore itself is not a user edit — clear any signal/pending it might have raised.
+		m_UndoCommitPending = false;
+		EditorStack::Get().ConsumeSceneEdit();
+		EditorStack::Get().ClearEditScope();
 	}
 
 	void EditorLayer::RestoreSceneState(const std::string& meta, const std::map<UUID, std::string>& entities)

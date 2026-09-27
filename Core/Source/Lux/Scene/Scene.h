@@ -87,6 +87,10 @@ namespace Lux {
 		void SubmitToDestroyEntity(Entity entity);
 		void DestroyEntity(Entity entity, bool excludeChildren = false, bool first = true);
 		void DestroyEntity(UUID entityID, bool excludeChildren = false, bool first = true);
+		// Removes one entity without destroying its children or editing its parent's child list.
+		// Only for restoring snapshots whose own Parent/Children data rewrites the hierarchy
+		// (undo/redo); anywhere else it leaves dangling relationship handles.
+		void DestroyEntityForRestore(Entity entity);
 
 		void OnRuntimeStart();
 		bool PlayFootstep(UUID entity, float speed, float weight = 75.0f, float probeDistance = 1.2f);
