@@ -50,6 +50,27 @@ actually built.
 
 ---
 
+## Results so far
+
+**Phase 0 — done (2026-09-27, `9d3bd66a`).** Untraced baseline, Release, `LUX_TRACK_MEMORY` on,
+three cold opens of Benchmark: **3578 / 3571 / 3516 ms, median 3.57 s**. Re-opening an already
+loaded scene asset takes ~430 ms, so ~3.1 s of a cold open is reading the file (parse + entity
+build). The traced 11.1 s figure was mostly Tracy's per-allocation overhead. The oracle commits a
+per-file hash manifest (`tests/yaml/reference.txt`) rather than full dumps (Benchmark alone would
+be many MB); `run.py --dump` produces full dumps on demand. Verified to accept a value-neutral
+reformat and to reject a value change, a string change, and a key-order swap. Fixing the scene-open
+log line also exposed that tagged logs with an unconfigured tag were silently dropped (`c3de24e7`).
+
+**Phase 1 spike — go (2026-09-27).** Standalone, v0.16.0 single header (1,751,073 bytes, 1.7 MB):
+- **Correctness:** all 188 tracked YAML files read to identical values as yaml-cpp.
+- **Speed:** Benchmark parse + free, 5 runs: yaml-cpp median **618 ms**, rapidyaml median **38 ms**
+  (~16×). In-engine the gap should widen (yaml-cpp's allocations are tracked); confirm in Phase 3.
+- **Errors:** the default callbacks `abort()` unless `RYML_DEFAULT_CALLBACK_USES_EXCEPTIONS` is
+  defined. With custom throwing `error_basic` / `error_parse` / `error_visit` callbacks, bad
+  indentation, unclosed `[` and quotes, tabs, and stray colons all became catchable errors with a
+  line number. `ErrorDataParse::ymlloc.line` is already 1-based.
+- The spike was not vendored; Phase 1's in-repo vendoring moves into Phase 2.
+
 ## Part 1 — Design
 
 - **`Lux::Yaml`** — **NEW** `Core/Source/Lux/Serialization/Yaml.h/.cpp`. Owns every ryml include.
