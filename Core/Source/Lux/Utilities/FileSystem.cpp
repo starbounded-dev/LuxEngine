@@ -142,8 +142,9 @@ namespace Lux {
 		ShellExecute(NULL, L"explore", absolutePath.c_str(), NULL, NULL, SW_SHOWNORMAL);
 		return true;
 #elif defined(LUX_PLATFORM_LINUX)
-		return ShowFileInExplorer(path);
-#endif		
+		// Not ShowFileInExplorer: that opens the *parent* of its argument (it reveals a file).
+		return OpenExternally(path);
+#endif
 	}
 
 	bool FileSystem::OpenExternally(const std::filesystem::path& path)

@@ -156,7 +156,9 @@ everything machine-local there: `App.lsettings` (`ApplicationSpecification::Sett
 defaults to `./App.lsettings` for Lux-Runtime), `imgui.ini` (`io.IniFilename`, set in
 `EditorLayer::OnAttach`), `EditorLayout.yaml`, `UserPreferences.yaml`, and `logs/` (the editor
 defines `LUX_LOGS_IN_PERSISTENT_STORAGE` before including `EntryPoint.h`; Lux-Runtime logs to
-`./logs`). `MigrateLegacyUserData` in `LuxEditorApp.cpp` copies files from the pre-2026-09-28
+`./logs`). Every run writes its own `LUX_<date>_<pid>.log` / `APP_<date>_<pid>.log`, so concurrent
+instances don't clobber each other; `Log::Init` keeps the newest 10 sessions. Help → Open User Data
+Folder opens the folder. `MigrateLegacyUserData` in `LuxEditorApp.cpp` copies files from the pre-2026-09-28
 locations (`./App.lsettings`, `./imgui.ini`, the old `.../Editor` folder) when the new folder lacks
 them. Nothing per-user belongs in the repo.
 

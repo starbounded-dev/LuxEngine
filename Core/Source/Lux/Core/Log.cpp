@@ -7,8 +7,15 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "Lux/Editor/EditorConsole/EditorConsoleSink.h"
+#include "Lux/Utilities/StringUtils.h"
 
+#include <algorithm>
 #include <filesystem>
+#include <format>
+
+#ifndef LUX_PLATFORM_WINDOWS
+	#include <unistd.h>
+#endif
 
 #define LUX_HAS_CONSOLE !LUX_DIST
 
@@ -39,46 +46,75 @@ namespace Lux {
 		{ "Timer",             TagDetails{ false, Level::Trace } },
 	};
 
+	// Each run logs to its own files (LUX_<date>_<time>_<pid>.log), so two editors open at once don't
+	// truncate each other's logs. Only the newest sessions are kept.
+	static constexpr size_t s_MaxLogSessions = 10;
+
+	static uint32_t GetCurrentProcessID()
+	{
+#ifdef LUX_PLATFORM_WINDOWS
+		return static_cast<uint32_t>(::GetCurrentProcessId());
+#else
+		return static_cast<uint32_t>(::getpid());
+#endif
+	}
+
+	// Deletes all but the newest `keepCount` "<prefix>_*.log" files. Names start with a sortable
+	// timestamp, so name order is age order. Failures are ignored: on Windows a log still held open
+	// by another running instance cannot be deleted, and that is fine.
+	static void RemoveOldLogSessions(const std::filesystem::path& logDirectory, std::string_view prefix, size_t keepCount)
+	{
+		std::vector<std::filesystem::path> sessionLogs;
+		std::error_code error;
+		for (const auto& entry : std::filesystem::directory_iterator(logDirectory, error))
+		{
+			const std::string fileName = entry.path().filename().string();
+			if (entry.is_regular_file(error) && fileName.starts_with(prefix) && fileName.size() > prefix.size() && fileName[prefix.size()] == '_' && fileName.ends_with(".log"))
+				sessionLogs.push_back(entry.path());
+		}
+
+		if (sessionLogs.size() <= keepCount)
+			return;
+
+		std::sort(sessionLogs.begin(), sessionLogs.end());
+		for (size_t i = 0; i < sessionLogs.size() - keepCount; i++)
+			std::filesystem::remove(sessionLogs[i], error);
+	}
+
 	void Log::Init(const std::filesystem::path& logDirectory)
 	{
 		if (!std::filesystem::exists(logDirectory))
 			std::filesystem::create_directories(logDirectory);
 
-		const std::string luxLogPath = (logDirectory / "LUX.log").string();
-		const std::string appLogPath = (logDirectory / "APP.log").string();
+		// Room for this session: it is created after the cleanup.
+		RemoveOldLogSessions(logDirectory, "LUX", s_MaxLogSessions - 1);
+		RemoveOldLogSessions(logDirectory, "APP", s_MaxLogSessions - 1);
 
-		std::vector<spdlog::sink_ptr> luxSinks =
-		{
-			std::make_shared<spdlog::sinks::basic_file_sink_mt>(luxLogPath, true),
-#if LUX_HAS_CONSOLE
-			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
-#endif
-		};
+		const std::string sessionSuffix = std::format("{}_{}.log", Utils::String::GetCurrentTimeString(true, true), GetCurrentProcessID());
+		const std::string luxLogPath = (logDirectory / ("LUX_" + sessionSuffix)).string();
+		const std::string appLogPath = (logDirectory / ("APP_" + sessionSuffix)).string();
 
-		std::vector<spdlog::sink_ptr> appSinks =
-		{
-			std::make_shared<spdlog::sinks::basic_file_sink_mt>(appLogPath, true),
-#if LUX_HAS_CONSOLE
-			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
-#endif
-		};
+		auto luxFileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(luxLogPath, true);
+		auto appFileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(appLogPath, true);
+		luxFileSink->set_pattern("[%T] [%l] %n: %v");
+		appFileSink->set_pattern("[%T] [%l] %n: %v");
 
-		std::vector<spdlog::sink_ptr> editorConsoleSinks =
-		{
-			std::make_shared<spdlog::sinks::basic_file_sink_mt>(appLogPath, true),
-#if LUX_HAS_CONSOLE
-			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
-#endif
-		};
-
-		luxSinks[0]->set_pattern("[%T] [%l] %n: %v");
-		appSinks[0]->set_pattern("[%T] [%l] %n: %v");
+		// The editor-console logger shares the APP file sink: a second sink on the same file would
+		// open (and truncate) it twice.
+		std::vector<spdlog::sink_ptr> luxSinks = { luxFileSink };
+		std::vector<spdlog::sink_ptr> appSinks = { appFileSink };
+		std::vector<spdlog::sink_ptr> editorConsoleSinks = { appFileSink };
 
 #if LUX_HAS_CONSOLE
-		luxSinks[1]->set_pattern("%^[%T] %n: %v%$");
-		appSinks[1]->set_pattern("%^[%T] %n: %v%$");
-		for (auto sink : editorConsoleSinks)
-			sink->set_pattern("%^%v%$");
+		auto luxStdoutSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+		auto appStdoutSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+		auto consoleStdoutSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+		luxStdoutSink->set_pattern("%^[%T] %n: %v%$");
+		appStdoutSink->set_pattern("%^[%T] %n: %v%$");
+		consoleStdoutSink->set_pattern("%^%v%$");
+		luxSinks.push_back(luxStdoutSink);
+		appSinks.push_back(appStdoutSink);
+		editorConsoleSinks.push_back(consoleStdoutSink);
 
 		// One editor Log panel sink shared by every logger, so the panel mirrors the terminal:
 		// anything that passes the tag/level filters and prints to stdout also lands in the panel.

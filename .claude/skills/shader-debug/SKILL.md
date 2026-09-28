@@ -83,7 +83,7 @@ These are the facts the triage relies on. Each is from the source, not from conv
 
 **Where errors go**
 
-- The editor **Log** panel and `LUX.log` in the per-user folder's `logs/` (`~/.local/share/LuxEngine/logs/` on Linux,
+- The editor **Log** panel and the newest `LUX_<date>_<pid>.log` in the per-user folder's `logs/` (`~/.local/share/LuxEngine/logs/` on Linux,
   `%APPDATA%\LuxEngine\logs\` on Windows). Compile errors are a structured block:
   `Shader`, `Stage`, `Permutation` (Debug/Optimized), `Exact line`, `Source line`,
   `Cache fallback`, `Macro set`, `Compiler output`.
@@ -91,7 +91,7 @@ These are the facts the triage relies on. Each is from the source, not from conv
   match the complaint, trust the `file:line` in `Compiler output` and open that file.
 - A `Shader pre-process error` (usually a bad `#include`) is reported separately; the compile error
   that follows it is a consequence, not a second bug.
-- The file log is not flushed on abort. After a `VERIFY` crash the tail of `LUX.log` can be missing
+- The file log is not flushed on abort. After a `VERIFY` crash the tail of the `LUX_*.log` can be missing
   — the console output is more complete.
 
 **Shipped games**

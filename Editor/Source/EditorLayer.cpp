@@ -1181,6 +1181,7 @@ namespace Lux {
 		// Tools
 		add("ImGui Metrics", "Tools", "", [this] { m_ShowImGuiMetrics = true; });
 		add("ImGui Style Editor", "Tools", "", [this] { m_ShowImGuiStyleEditor = true; });
+		add("Open User Data Folder", "Help", "", [] { FileSystem::OpenDirectoryInExplorer(FileSystem::GetPersistentStoragePath()); });
 		add("About LuxEngine", "Help", "", [this] { m_ShowAboutPopup = true; });
 	}
 
@@ -1471,6 +1472,11 @@ namespace Lux {
 			{
 				if (ImGui::MenuItem("Splash Screen") && m_SplashScreen)
 					m_SplashScreen->Open();
+				if (ImGui::MenuItem("Open User Data Folder"))
+					FileSystem::OpenDirectoryInExplorer(FileSystem::GetPersistentStoragePath());
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Settings, window layout, preferences and logs:\n%s", FileSystem::GetPersistentStoragePath().string().c_str());
+				ImGui::Separator();
 				if (ImGui::MenuItem("About"))
 					m_ShowAboutPopup = true;
 				ImGui::EndMenu();
