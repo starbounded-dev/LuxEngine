@@ -33,7 +33,7 @@ namespace Lux
 		out << Yaml::Key << "UserPrefs" << Yaml::Value;
 		{
 			out << Yaml::BeginMap;
-			out << Yaml::Key << "ShowWelcomeScreen" << Yaml::Value << m_Preferences->ShowWelcomeScreen;
+			out << Yaml::Key << "ShowSplashScreen" << Yaml::Value << m_Preferences->ShowSplashScreen;
 
 			if (!m_Preferences->StartupProject.empty())
 				out << Yaml::Key << "StartupProject" << Yaml::Value << m_Preferences->StartupProject;
@@ -76,7 +76,7 @@ namespace Lux
 		if (!rootNode)
 			return false;
 
-		m_Preferences->ShowWelcomeScreen = rootNode["ShowWelcomeScreen"].as<bool>(true);
+		m_Preferences->ShowSplashScreen = rootNode["ShowSplashScreen"].as<bool>(true);
 		m_Preferences->StartupProject = rootNode["StartupProject"] ? rootNode["StartupProject"].as<std::string>() : std::string{};
 		m_Preferences->RecentProjects.clear();
 

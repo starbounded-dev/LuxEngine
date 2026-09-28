@@ -412,6 +412,15 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   never does a main-thread GPU readback.
 - `Editor/Source/EditorLayer.{h,cpp}` is the orchestrator. Prefer adding a **panel** over adding code
   to `EditorLayer`.
+- **No-project state + splash.** `SplashScreen` (`Editor/Source/SplashScreen.{h,cpp}`, callbacks only,
+  like `CommandPalette`) is the Blender-style startup splash and the only UI while
+  `Project::GetActive()` is null. In that state `EditorLayer` draws no panels or viewport (the
+  dockspace is kept alive with `ImGuiDockNodeFlags_KeepAliveOnly`), `OnUpdate` renders nothing,
+  keyboard shortcuts other than `Ctrl+O` are ignored, and the Play transport is hidden — so panels
+  never run against a missing project. `CloseProject` returns there (stop Play, exit prefab mode,
+  empty scene, `Project::SetActive(nullptr)`); `CreateProject` writes a new `.luxproj` + asset tree
+  and opens it; `OpenProject` resets to an empty scene when the project has no start scene.
+  `UserPreferences::ShowSplashScreen` controls the startup splash.
 - `Editor/Source/RuntimeExportUtils.{h,cpp}` builds the standalone runtime package. Each export
   (`EditorLayer::ExportRuntimeNow`) first deletes the `<Game>-<Platform>` output folder, but only
   when it holds `Assets/Project.luxruntime` from a previous export; any other non-empty folder at
@@ -994,7 +1003,9 @@ updated by `Application`.
 `GetActiveAssetFileSystemPath(path)`.
 
 `SetActive` (editor) vs `SetActiveRuntime(project, assetPack)` (runtime) choose which asset manager
-is installed. `ProjectSerializer` handles `.luxproj`; `UserPreferences` holds machine-local state;
+is installed. `ProjectSerializer` handles `.luxproj`; `UserPreferences` holds machine-local state
+(recent projects, startup project, `ShowSplashScreen`; `UserPreferences.yaml` under
+`FileSystem::GetPersistentStoragePath()`);
 `TieringSettings` / `TieringSerializer` hold quality tiers.
 
 > **Regression trap:** the editor persists renderer quality settings into the project file. When a

@@ -249,6 +249,29 @@ stack) grey out.
 
 ---
 
+## Splash Screen
+
+**Class:** `SplashScreen` · `Editor/Source/SplashScreen.{h,cpp}`.
+**Invoked with:** startup (when *Application Settings → Show Splash Screen* is on) and
+*Help → Splash Screen* — not a docked panel, a centered window owned by `EditorLayer`.
+
+Modelled on Blender's splash: a banner with the engine version, **New Project…** / **Open Project…**
+on the left and **Recent Projects** on the right (hover for path and last-opened time, right-click
+to open, show in Explorer, or remove from the list). Esc or a click outside dismisses it. It
+replaces Hazel's separate launcher executable.
+
+- **No project open** — `EditorLayer::OnImGuiRender` keeps the dockspace alive
+  (`ImGuiDockNodeFlags_KeepAliveOnly`) but draws no panels or viewport, `OnUpdate` skips scene
+  rendering, and the splash is forced open and cannot be dismissed. File → Close Project gets here.
+- **New Project** opens the splash's form (name + location). The name must be a C# identifier (it
+  becomes `DefaultNamespace` and the script assembly name). `EditorLayer::CreateProject` writes
+  `<location>/<name>/<name>.luxproj` plus an empty `Assets/` tree (Scenes, Scripts/Source, Materials,
+  Meshes/Source, Textures) and opens it. No C# project is generated yet — scripting stays off until
+  one exists.
+- Opening any project (from the splash, the File menu or `Ctrl+O`) closes the splash.
+
+---
+
 ## Application Settings
 
 **Class:** `ApplicationSettingsPanel` · `Editor/Source/Panels/ApplicationSettingsPanel.{h,cpp}`.

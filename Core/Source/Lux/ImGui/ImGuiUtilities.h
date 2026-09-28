@@ -46,6 +46,7 @@ namespace Lux::ImGuiEx {
 		ScopedFont(const ScopedFont&) = delete;
 		ScopedFont& operator=(const ScopedFont&) = delete;
 		ScopedFont(ImFont* font) { ImGui::PushFont(font); }
+		ScopedFont(ImFont* font, float size) { ImGui::PushFont(font, size); }   // size is unscaled; the global font scale still applies
 		~ScopedFont() { ImGui::PopFont(); }
 	};
 

@@ -12,6 +12,7 @@
 
 #include "Panels/LightSettingsPanel.h"
 #include "CommandPalette.h"
+#include "SplashScreen.h"
 #include "Lux/Editor/EditorConsolePanel.h"
 
 #include "Lux/Asset/Asset.h"
@@ -75,6 +76,7 @@ namespace Lux
 		void LoadAudioBanksForActiveProject();
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
+		void UI_AboutPopup();
 		void RegisterCommands();
 		void SetCameraBookmark(int slot);       // 1..9, captures the current editor camera
 		void JumpToCameraBookmark(int slot);
@@ -96,6 +98,9 @@ namespace Lux
 		void NewProject();
 		bool OpenProject();
 		void OpenProject(const std::filesystem::path& path);
+		// Writes <location>/<name>/<name>.luxproj plus an empty asset tree, then opens it.
+		bool CreateProject(const std::string& name, const std::filesystem::path& location);
+		void CloseProject();   // back to the splash screen
 		void SaveProject();
 		void ExportRuntime();
 		bool ExportRuntimeNow();
@@ -201,6 +206,7 @@ namespace Lux
 		void LoadUserPreferences();
 		void SaveUserPreferences() const;
 		void AddRecentProject(const std::filesystem::path& projectPath);
+		void RemoveRecentProject(const std::filesystem::path& projectPath);
 		std::vector<RecentProject> GetRecentProjects() const;
 		std::filesystem::path GetStartupProjectPath() const;
 	private:
@@ -229,6 +235,7 @@ namespace Lux
 		Ref<EditorConsolePanel> m_ConsolePanel;
 
 		Scope<CommandPalette> m_CommandPalette;
+		Scope<SplashScreen> m_SplashScreen;   // startup / Help → Splash Screen; forced while no project is open
 
 		// Viewport camera bookmarks: Ctrl+<1-9> sets, <1-9> jumps (session-only for now).
 		struct CameraBookmark

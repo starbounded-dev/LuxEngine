@@ -201,10 +201,10 @@ namespace Lux {
 
 		if (m_UserPreferences)
 		{
-			bool showWelcomeScreen = m_UserPreferences->ShowWelcomeScreen;
-			if (ImGuiEx::Property("Show Welcome Screen", showWelcomeScreen))
+			bool showSplashScreen = m_UserPreferences->ShowSplashScreen;
+			if (ImGuiEx::Property("Show Splash Screen", showSplashScreen))
 			{
-				m_UserPreferences->ShowWelcomeScreen = showWelcomeScreen;
+				m_UserPreferences->ShowSplashScreen = showSplashScreen;
 				SaveUserPreferences();
 			}
 		}

@@ -22,7 +22,7 @@ namespace Lux
 
 	struct UserPreferences : public RefCounted
 	{
-		bool ShowWelcomeScreen = true;
+		bool ShowSplashScreen = true;   // editor splash at startup (always shown while no project is open)
 		std::string StartupProject;
 		std::map<time_t, RecentProject, std::greater<time_t>> RecentProjects;
 

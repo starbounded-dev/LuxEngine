@@ -462,6 +462,17 @@ namespace Lux {
 		m_CommandPalette = CreateScope<CommandPalette>();
 		RegisterCommands();
 
+		{
+			SplashScreen::Callbacks splashCallbacks;
+			splashCallbacks.IsProjectOpen = []() { return Project::GetActive() != nullptr; };
+			splashCallbacks.GetRecentProjects = [this]() { return GetRecentProjects(); };
+			splashCallbacks.OpenProject = [this](const std::filesystem::path& path) { OpenProject(path); };
+			splashCallbacks.BrowseForProject = [this]() { return OpenProject(); };
+			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location) { return CreateProject(name, location); };
+			splashCallbacks.RemoveRecentProject = [this](const std::filesystem::path& path) { RemoveRecentProject(path); };
+			m_SplashScreen = CreateScope<SplashScreen>(std::move(splashCallbacks));
+		}
+
 		m_IconPlay = LoadTextureFromPath("Resources/Editor/Viewport/Play.png");
 		m_IconPause = LoadTextureFromPath("Resources/Editor/Viewport/Pause.png");
 		m_IconSimulate = LoadTextureFromPath("Resources/Editor/Viewport/Simulate.png");
@@ -575,6 +586,11 @@ namespace Lux {
 		if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
 			OpenProject(startupProject);
 
+		// Like Blender: the splash shows over whatever loaded at startup. With no project it shows
+		// regardless of the preference.
+		if (m_SplashScreen && m_UserPreferences && m_UserPreferences->ShowSplashScreen)
+			m_SplashScreen->Open();
+
 		// Baseline the undo history against whatever scene ended up loaded (startup scene, or the
 		// empty default) so the first edit has a valid state to undo back to.
 		ResetUndoHistory();
@@ -623,7 +639,8 @@ namespace Lux {
 		// Before the early-out below: presence should still reflect "no project open".
 		UpdateDiscordPresence();
 
-		if (!m_ActiveScene || !m_EditorViewport)
+		// With no project open the start screen replaces the viewport, so there is nothing to render.
+		if (!m_ActiveScene || !m_EditorViewport || !Project::GetActive())
 			return;
 
 		m_EditorViewport->SyncSceneViewport(m_ActiveScene);
@@ -754,6 +771,22 @@ namespace Lux {
 			}
 
 			ImGui::SetCursorPosY(m_TitlebarHeight);
+
+			// No project open: an empty workspace with the splash over it (it cannot be dismissed until a
+			// project opens). The dockspace is kept alive without being drawn, so the saved layout is
+			// still there when a project opens, and no panel runs against a missing project.
+			if (!Project::GetActive() && m_SplashScreen)
+			{
+				if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+					ImGui::DockSpace(ImGui::GetID("MyDockSpace"), ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly);
+				style.WindowMinSize.x = minWinSizeX;
+
+				m_SplashScreen->OnImGuiRender();
+				UI_AboutPopup();
+				ImGui::End(); // Lux Editor
+				return;
+			}
+
 			if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 			{
 				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
@@ -790,28 +823,7 @@ namespace Lux {
 				ImGui::ShowMetricsWindow(&m_ShowImGuiMetrics);
 			if (m_ShowImGuiStyleEditor)
 				ImGui::ShowStyleEditor();
-			if (m_ShowAboutPopup)
-				ImGui::OpenPopup("About LuxEngine");
-
-			ImGuiViewport* mainViewport = ImGui::GetMainViewport();
-			ImGui::SetNextWindowPos(mainViewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
-			if (ImGui::BeginPopupModal("About LuxEngine", &m_ShowAboutPopup, ImGuiWindowFlags_AlwaysAutoResize))
-			{
-				ImGui::Text("LuxEngine Editor");
-				ImGui::Separator();
-				ImGui::Text("Version: %s", Application::GetConfigurationName());
-				ImGui::Text("Platform: %s", Application::GetPlatformName());
-				ImGui::TextWrapped("Credits: Inspired by Hazel architecture and editor workflows.");
-
-				if (ImGui::Button("Close"))
-				{
-					m_ShowAboutPopup = false;
-					ImGui::CloseCurrentPopup();
-				}
-
-				ImGui::EndPopup();
-			}
+			UI_AboutPopup();
 
 			// Command palette overlay — drawn late, brings itself to front via SetNextWindowFocus.
 			// The Ctrl+Shift+P chord is read through ImGui's own input rather than the engine key
@@ -823,6 +835,9 @@ namespace Lux {
 
 				m_CommandPalette->OnImGuiRender();
 			}
+
+			if (m_SplashScreen)
+				m_SplashScreen->OnImGuiRender();
 
 			// Viewport panel
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
@@ -996,6 +1011,32 @@ namespace Lux {
 		}
 
 		ImGui::End(); // Lux Editor
+	}
+
+	void EditorLayer::UI_AboutPopup()
+	{
+		if (m_ShowAboutPopup)
+			ImGui::OpenPopup("About LuxEngine");
+
+		ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(mainViewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+		if (ImGui::BeginPopupModal("About LuxEngine", &m_ShowAboutPopup, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::Text("LuxEngine Editor");
+			ImGui::Separator();
+			ImGui::Text("Version: %s", Application::GetConfigurationName());
+			ImGui::Text("Platform: %s", Application::GetPlatformName());
+			ImGui::TextWrapped("Credits: Inspired by Hazel architecture and editor workflows.");
+
+			if (ImGui::Button("Close"))
+			{
+				m_ShowAboutPopup = false;
+				ImGui::CloseCurrentPopup();
+			}
+
+			ImGui::EndPopup();
+		}
 	}
 
 	void EditorLayer::ResetDefaultDockLayout(ImGuiID dockspaceId)
@@ -1240,13 +1281,15 @@ namespace Lux {
 		{
 			if (ImGui::BeginMenu("File"))
 			{
-				if (ImGui::MenuItem("Create Project"))
+				if (ImGui::MenuItem("New Project..."))
 					NewProject();
 				if (ImGui::MenuItem("Open Project...", "Ctrl+O"))
 					OpenProject();
-				if (ImGui::MenuItem("Save Project"))
+				if (ImGui::MenuItem("Save Project", nullptr, false, Project::GetActive() != nullptr))
 					SaveProject();
-				if (ImGui::MenuItem("Export Runtime..."))
+				if (ImGui::MenuItem("Close Project", nullptr, false, Project::GetActive() != nullptr))
+					CloseProject();
+				if (ImGui::MenuItem("Export Runtime...", nullptr, false, Project::GetActive() != nullptr))
 					ExportRuntime();
 
 				if (ImGui::BeginMenu("Recent Projects"))
@@ -1286,9 +1329,9 @@ namespace Lux {
 				}
 
 				ImGui::Separator();
-				if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+				if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, Project::GetActive() != nullptr))
 					SaveScene();
-				if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
+				if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S", false, Project::GetActive() != nullptr))
 					SaveSceneAs();
 
 				ImGui::Separator();
@@ -1403,6 +1446,8 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("Help"))
 			{
+				if (ImGui::MenuItem("Splash Screen") && m_SplashScreen)
+					m_SplashScreen->Open();
 				if (ImGui::MenuItem("About"))
 					m_ShowAboutPopup = true;
 				ImGui::EndMenu();
@@ -1599,7 +1644,8 @@ namespace Lux {
 			});
 
 		// Play / simulate / stop, centred in the titlebar (drawn last so it overlaps the drag zone).
-		UI_TitlebarTransport(window->Size.x);
+		if (Project::GetActive())
+			UI_TitlebarTransport(window->Size.x);
 	}
 
 	namespace
@@ -2158,6 +2204,14 @@ namespace Lux {
 	{
 		bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
 		bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+
+		// On the start screen only Open Project applies; everything else acts on a scene or project.
+		if (!Project::GetActive())
+		{
+			if (control && e.GetKeyCode() == Key::O)
+				OpenProject();
+			return false;
+		}
 
 		switch (e.GetKeyCode())
 		{
@@ -3122,6 +3176,20 @@ namespace Lux {
 		SaveUserPreferences();
 	}
 
+	void EditorLayer::RemoveRecentProject(const std::filesystem::path& projectPath)
+	{
+		if (!m_UserPreferences)
+			return;
+
+		const std::filesystem::path normalizedPath = NormalizeProjectPath(projectPath);
+		std::erase_if(m_UserPreferences->RecentProjects, [&normalizedPath](const auto& entry)
+		{
+			return NormalizeProjectPath(entry.second.FilePath) == normalizedPath;
+		});
+
+		SaveUserPreferences();
+	}
+
 	std::vector<RecentProject> EditorLayer::GetRecentProjects() const
 	{
 		std::vector<RecentProject> projects;
@@ -3164,9 +3232,10 @@ namespace Lux {
 
 	void EditorLayer::NewProject()
 	{
-		Project::New();
-		m_PanelManager->OnProjectChanged(Project::GetActive());
-		NewScene();
+		// A project is created on disk from the splash's form rather than as an unsaved, folderless
+		// project. The current project stays open until the new one is actually created.
+		if (m_SplashScreen)
+			m_SplashScreen->ShowCreateForm();
 	}
 
 	void EditorLayer::OpenProject(const std::filesystem::path& path)
@@ -3174,9 +3243,13 @@ namespace Lux {
 		if (Project::Load(path))
 		{
 			AddRecentProject(path);
+			if (m_SplashScreen)
+				m_SplashScreen->Close();
 			AssetHandle startScene = Project::GetActive()->GetConfig().StartSceneHandle;
 			if (startScene)
 				OpenScene(startScene);
+			else
+				NewScene();   // don't carry the previous project's scene (and its asset handles) over
 			m_PanelManager->OnProjectChanged(Project::GetActive());
 			LoadAudioBanksForActiveProject();
 			if (m_SceneRenderer)
@@ -3192,6 +3265,59 @@ namespace Lux {
 
 		OpenProject(filepath);
 		return true;
+	}
+
+	bool EditorLayer::CreateProject(const std::string& name, const std::filesystem::path& location)
+	{
+		const std::filesystem::path projectDirectory = location / name;
+		const std::filesystem::path projectFilePath = projectDirectory / (name + ".luxproj");
+
+		Ref<Project> project = Ref<Project>::Create();
+		ProjectConfig& config = project->GetConfig();
+		config.Name = name;
+		config.DefaultNamespace = name;
+		config.ScriptModulePath = std::filesystem::path("Scripts/Binaries") / (name + ".dll");
+		// The default names the sample's FMOD Studio project; a new project has no authored audio yet.
+		config.Audio.StudioProjectPath.clear();
+
+		const std::filesystem::path assetDirectory = projectDirectory / config.AssetDirectory;
+		for (const std::filesystem::path& folder : { assetDirectory / "Scenes", assetDirectory / "Scripts" / "Source", assetDirectory / "Materials", assetDirectory / config.MeshSourcePath, assetDirectory / "Textures" })
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(folder, ec);
+			if (ec)
+			{
+				LUX_CORE_ERROR_TAG("Project", "Could not create '{}': {}", folder.string(), ec.message());
+				return false;
+			}
+		}
+
+		ProjectSerializer serializer(project);
+		if (!serializer.Serialize(projectFilePath))
+		{
+			LUX_CORE_ERROR_TAG("Project", "Could not write project file '{}'", projectFilePath.string());
+			return false;
+		}
+
+		LUX_CORE_INFO_TAG("Project", "Created project '{}' in {}", name, projectDirectory.string());
+		OpenProject(projectFilePath);
+		return Project::GetActive() != nullptr;
+	}
+
+	void EditorLayer::CloseProject()
+	{
+		if (!Project::GetActive())
+			return;
+
+		if (m_SceneState != SceneState::Edit)
+			OnSceneStop();
+		if (m_PrefabEditMode)
+			ExitPrefabEditMode(false);
+
+		// Drop the scene's references into this project's assets before its asset manager goes away.
+		NewScene();
+		Project::SetActive(nullptr);
+		m_PanelManager->OnProjectChanged(nullptr);
 	}
 
 	void EditorLayer::SaveProject()
