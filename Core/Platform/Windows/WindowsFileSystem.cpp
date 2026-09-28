@@ -87,10 +87,16 @@ namespace Lux {
 		if (!s_PersistentStoragePath.empty())
 			return s_PersistentStoragePath;
 
-		PWSTR roamingFilePath;
-		HRESULT result = SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, NULL, &roamingFilePath);
-		LUX_CORE_VERIFY(result == S_OK);
-		s_PersistentStoragePath = roamingFilePath;
+		// No logging or asserts here: the editor calls this before Log::Init, since its log folder
+		// lives under this path. Falls back like the Linux implementation.
+		PWSTR roamingFilePath = nullptr;
+		const HRESULT result = SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, NULL, &roamingFilePath);
+		if (SUCCEEDED(result))
+			s_PersistentStoragePath = roamingFilePath;
+		else
+			s_PersistentStoragePath = "..";
+		CoTaskMemFree(roamingFilePath);
+
 		s_PersistentStoragePath /= "LuxEngine";
 
 		if (!std::filesystem::exists(s_PersistentStoragePath))

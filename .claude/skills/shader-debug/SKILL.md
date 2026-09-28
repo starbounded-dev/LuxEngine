@@ -83,7 +83,8 @@ These are the facts the triage relies on. Each is from the source, not from conv
 
 **Where errors go**
 
-- The editor **Log** panel and `Editor/logs/LUX.log`. Compile errors are a structured block:
+- The editor **Log** panel and `LUX.log` in the per-user folder's `logs/` (`~/.local/share/LuxEngine/logs/` on Linux,
+  `%APPDATA%\LuxEngine\logs\` on Windows). Compile errors are a structured block:
   `Shader`, `Stage`, `Permutation` (Debug/Optimized), `Exact line`, `Source line`,
   `Cache fallback`, `Macro set`, `Compiler output`.
 - `Source line` is looked up in the *preprocessed, include-expanded* stage text. If it doesn't
