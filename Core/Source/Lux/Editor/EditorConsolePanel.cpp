@@ -68,6 +68,7 @@ namespace Lux {
 			s_PendingMessages.clear();
 		}
 		m_MessageBuffer.clear();
+		m_VisibleMessagesDirty = true;
 	}
 
 	void EditorConsolePanel::DrainPendingMessages()
@@ -77,11 +78,15 @@ namespace Lux {
 			if (s_PendingMessages.empty())
 				return;
 
+			for (const ConsoleMessage& message : s_PendingMessages)
+				m_KnownTags.insert(message.Tag);
+
 			m_MessageBuffer.insert(m_MessageBuffer.end(), std::make_move_iterator(s_PendingMessages.begin()), std::make_move_iterator(s_PendingMessages.end()));
 			s_PendingMessages.clear();
 		}
 
 		TrimToCapacity(m_MessageBuffer);
+		m_VisibleMessagesDirty = true;
 
 		if (m_EnableScrollToLatest)
 			m_ScrollToLatest = true;
@@ -106,6 +111,7 @@ namespace Lux {
 	void EditorConsolePanel::OnProjectChanged(const Ref<Project>& project)
 	{
 		m_MessageBuffer.clear();
+		m_VisibleMessagesDirty = true;
 	}
 
 	void EditorConsolePanel::Focus()
@@ -136,7 +142,10 @@ namespace Lux {
 		const float ToolbarHeight = 28.0f;
 
 		if (ImGui::Button("Clear", { 75.0f, ToolbarHeight }))
+		{
 			m_MessageBuffer.clear();
+			m_VisibleMessagesDirty = true;
+		}
 
 		ImGui::SameLine();
 
@@ -145,6 +154,54 @@ namespace Lux {
 		ImVec4 textColor = m_ClearOnPlay ? style.Colors[ImGuiCol_Text] : style.Colors[ImGuiCol_TextDisabled];
 		if (ImGuiEx::ColoredButton(clearOnPlayText.c_str(), GetToolbarButtonColor(m_ClearOnPlay), textColor, ImVec2(110.0f, ToolbarHeight)))
 			m_ClearOnPlay = !m_ClearOnPlay;
+
+		{
+			// Match the toolbar buttons' height. Popped right after BeginCombo so the dropdown's
+			// checkboxes keep normal padding.
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, (ToolbarHeight - ImGui::GetFontSize()) * 0.5f));
+
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(220.0f);
+			if (ImGuiEx::Widgets::SearchWidget(m_SearchQuery, "Search log..."))
+				m_VisibleMessagesDirty = true;
+
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(150.0f);
+			const std::string tagPreview = m_HiddenTags.empty()
+				? std::string("All tags")
+				: std::format("{} of {} tags", m_KnownTags.size() - m_HiddenTags.size(), m_KnownTags.size());
+			const bool tagComboOpen = ImGui::BeginCombo("##LogTags", tagPreview.c_str(), ImGuiComboFlags_HeightLarge);
+			ImGui::PopStyleVar();
+
+			if (tagComboOpen)
+			{
+				if (ImGui::Selectable("Show all", false, ImGuiSelectableFlags_NoAutoClosePopups))
+				{
+					m_HiddenTags.clear();
+					m_VisibleMessagesDirty = true;
+				}
+				if (ImGui::Selectable("Hide all", false, ImGuiSelectableFlags_NoAutoClosePopups))
+				{
+					m_HiddenTags = m_KnownTags;
+					m_VisibleMessagesDirty = true;
+				}
+				ImGui::Separator();
+
+				for (const std::string& tag : m_KnownTags)
+				{
+					bool shown = !m_HiddenTags.contains(tag);
+					if (ImGui::Checkbox(tag.c_str(), &shown))
+					{
+						if (shown)
+							m_HiddenTags.erase(tag);
+						else
+							m_HiddenTags.insert(tag);
+						m_VisibleMessagesDirty = true;
+					}
+				}
+				ImGui::EndCombo();
+			}
+		}
 
 		if (!m_ProgressLabel.empty())
 		{
@@ -159,26 +216,57 @@ namespace Lux {
 			ImGui::SameLine(ImGui::GetContentRegionAvail().x - 100.0f, 0.0f);
 			textColor = (m_MessageFilters & (int16_t)ConsoleMessageFlags::Info) ? s_InfoTint : style.Colors[ImGuiCol_TextDisabled];
 			if (ImGuiEx::ColoredButton(LUX_ICON_INFO_CIRCLE, GetToolbarButtonColor(m_MessageFilters & (int16_t)ConsoleMessageFlags::Info), textColor, buttonSize))
+			{
 				m_MessageFilters ^= (int16_t)ConsoleMessageFlags::Info;
+				m_VisibleMessagesDirty = true;
+			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Toggle info messages");
 
 			ImGui::SameLine();
 			textColor = (m_MessageFilters & (int16_t)ConsoleMessageFlags::Warning) ? s_WarningTint : style.Colors[ImGuiCol_TextDisabled];
 			if (ImGuiEx::ColoredButton(LUX_ICON_EXCLAMATION_TRIANGLE, GetToolbarButtonColor(m_MessageFilters & (int16_t)ConsoleMessageFlags::Warning), textColor, buttonSize))
+			{
 				m_MessageFilters ^= (int16_t)ConsoleMessageFlags::Warning;
+				m_VisibleMessagesDirty = true;
+			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Toggle warning and Vulkan validation warning messages");
 
 			ImGui::SameLine();
 			textColor = (m_MessageFilters & (int16_t)ConsoleMessageFlags::Error) ? s_ErrorTint : style.Colors[ImGuiCol_TextDisabled];
 			if (ImGuiEx::ColoredButton(LUX_ICON_EXCLAMATION_CIRCLE, GetToolbarButtonColor(m_MessageFilters & (int16_t)ConsoleMessageFlags::Error), textColor, buttonSize))
+			{
 				m_MessageFilters ^= (int16_t)ConsoleMessageFlags::Error;
+				m_VisibleMessagesDirty = true;
+			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Toggle error, Vulkan validation error, and shader compile error messages");
 		}
 
 		ImGui::EndChild();
+	}
+
+	void EditorConsolePanel::RebuildVisibleMessages()
+	{
+		if (!m_VisibleMessagesDirty)
+			return;
+
+		m_VisibleMessages.clear();
+		for (uint32_t i = 0; i < m_MessageBuffer.size(); i++)
+		{
+			const ConsoleMessage& message = m_MessageBuffer[i];
+			if (!(m_MessageFilters & message.Flags))
+				continue;
+			if (m_HiddenTags.contains(message.Tag))
+				continue;
+			if (!ImGuiEx::IsMatchingSearch(message.LongMessage, m_SearchQuery))
+				continue;
+
+			m_VisibleMessages.push_back(i);
+		}
+
+		m_VisibleMessagesDirty = false;
 	}
 
 	void EditorConsolePanel::RenderConsole(const ImVec2& size)
@@ -187,12 +275,7 @@ namespace Lux {
 
 		// The panel mirrors every engine log line, so the buffer runs to thousands of rows: gather
 		// the ones passing the filters, then let the clipper submit only those on screen.
-		m_VisibleMessages.clear();
-		for (uint32_t i = 0; i < m_MessageBuffer.size(); i++)
-		{
-			if (m_MessageFilters & m_MessageBuffer[i].Flags)
-				m_VisibleMessages.push_back(i);
-		}
+		RebuildVisibleMessages();
 
 		ImGuiEx::Table("Console", s_Columns, 3, size, [&]()
 			{

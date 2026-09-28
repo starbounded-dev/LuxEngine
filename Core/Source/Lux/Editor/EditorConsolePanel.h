@@ -11,6 +11,9 @@
 
 #include <imgui/imgui.h>
 
+#include <set>
+#include <string>
+
 namespace Lux {
 	class EditorConsolePanel : public EditorPanel
 	{
@@ -31,6 +34,7 @@ namespace Lux {
 		void ClearProgress();
 	private:
 		void DrainPendingMessages();
+		void RebuildVisibleMessages();
 		void RenderMenu(const ImVec2& size);
 		void RenderConsole(const ImVec2& size);
 		const char* GetMessageType(const ConsoleMessage& message) const;
@@ -46,7 +50,14 @@ namespace Lux {
 
 		// UI thread only; other threads go through PushMessage.
 		std::vector<ConsoleMessage> m_MessageBuffer;
-		std::vector<uint32_t> m_VisibleMessages; // Indices into m_MessageBuffer passing m_MessageFilters, rebuilt each frame.
+		// Indices into m_MessageBuffer that pass the severity, tag and search filters. Rebuilt only when
+		// the buffer or a filter changes, since matching the search against every message is not free.
+		std::vector<uint32_t> m_VisibleMessages;
+		bool m_VisibleMessagesDirty = true;
+
+		std::string m_SearchQuery;
+		std::set<std::string> m_KnownTags;  // Every tag seen this session, kept across Clear so hidden tags stay hidden.
+		std::set<std::string> m_HiddenTags;
 
 		bool m_EnableScrollToLatest = true;
 		bool m_ScrollToLatest = false;

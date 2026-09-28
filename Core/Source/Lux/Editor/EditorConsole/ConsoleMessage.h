@@ -24,6 +24,7 @@ namespace Lux {
 	{
 		std::string ShortMessage;
 		std::string LongMessage;
+		std::string Tag; // "[Tag]" of a tagged log macro, else the logger name ("LUX", "APP", "Console")
 		int16_t Flags;
 
 		time_t Time;
