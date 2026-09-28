@@ -30,7 +30,16 @@ namespace Lux {
 			spdlog::memory_buf_t formatted;
 			spdlog::sinks::base_sink<std::mutex>::formatter_->format(msg, formatted);
 			std::string longMessage = formatted;
+			// The formatter appends an end-of-line; strip it so it isn't mistaken for a multi-line message.
+			while (!longMessage.empty() && (longMessage.back() == '\n' || longMessage.back() == '\r'))
+				longMessage.pop_back();
 			std::string shortMessage = longMessage;
+
+			// Rows are one line tall; multi-line messages (shader compiler output, validation
+			// errors) show their first line here and the rest in the detail popup.
+			size_t newlinePos = shortMessage.find_first_of("\r\n");
+			if (newlinePos != std::string::npos)
+				shortMessage = shortMessage.substr(0, newlinePos) + " ...";
 
 			if (shortMessage.length() > 100)
 			{

@@ -74,10 +74,10 @@ namespace Lux {
 		std::string str = message;
 		switch (level)
 		{
-			case 0: LUX_CORE_TRACE("[Script] {}", str); break;
-			case 1: LUX_CORE_INFO("[Script] {}", str); break;
-			case 2: LUX_CORE_WARN("[Script] {}", str); break;
-			default: LUX_CORE_ERROR("[Script] {}", str); break;
+			case 0: LUX_CONSOLE_LOG_TRACE("{}", str); break;
+			case 1: LUX_CONSOLE_LOG_INFO("{}", str); break;
+			case 2: LUX_CONSOLE_LOG_WARN("{}", str); break;
+			default: LUX_CONSOLE_LOG_ERROR("{}", str); break;
 		}
 	}
 

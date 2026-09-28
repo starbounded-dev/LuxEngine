@@ -24,9 +24,13 @@ namespace Lux {
 
 		void Focus();
 
+		// Honours the "Clear on Play" toggle. Called by the editor when a Play session starts.
+		void OnScenePlay();
+
 		void SetProgress(const std::string& label, float progress);
 		void ClearProgress();
 	private:
+		void DrainPendingMessages();
 		void RenderMenu(const ImVec2& size);
 		void RenderConsole(const ImVec2& size);
 		const char* GetMessageType(const ConsoleMessage& message) const;
@@ -40,7 +44,7 @@ namespace Lux {
 		const char* m_PanelName = "Log";
 		bool m_ClearOnPlay = true;
 
-		std::mutex m_MessageBufferMutex;
+		// UI thread only; other threads go through PushMessage.
 		std::vector<ConsoleMessage> m_MessageBuffer;
 
 		bool m_EnableScrollToLatest = true;

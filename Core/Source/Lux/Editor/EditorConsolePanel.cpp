@@ -18,8 +18,22 @@
 namespace Lux {
 
 	static EditorConsolePanel* s_Instance = nullptr;
+
+	// Loggers on any thread only append here; the panel drains it on the UI thread each frame. The
+	// panel's own buffer is never touched off the UI thread, so a log call made while the console is
+	// drawing cannot deadlock on it.
 	static std::mutex s_PendingMessageMutex;
 	static std::vector<ConsoleMessage> s_PendingMessages;
+
+	// A script logging every frame would otherwise grow both buffers without bound. Also bounds the
+	// pending queue in Lux-Runtime, which links the console sink but never creates the panel.
+	static constexpr size_t s_MaxMessages = 5000;
+
+	static void TrimToCapacity(std::vector<ConsoleMessage>& messages)
+	{
+		if (messages.size() > s_MaxMessages)
+			messages.erase(messages.begin(), messages.begin() + (messages.size() - s_MaxMessages));
+	}
 
 	// Severity tints from the editor concept palette: cool blue info, warm amber warning, red error.
 	static const ImVec4 s_InfoTint = ImVec4(0.471f, 0.667f, 1.0f, 1.0f);
@@ -32,10 +46,6 @@ namespace Lux {
 		s_Instance = this;
 
 		m_MessageBuffer.reserve(500);
-
-		std::scoped_lock<std::mutex> lock(s_PendingMessageMutex);
-		m_MessageBuffer.insert(m_MessageBuffer.end(), s_PendingMessages.begin(), s_PendingMessages.end());
-		s_PendingMessages.clear();
 	}
 
 	EditorConsolePanel::~EditorConsolePanel()
@@ -44,21 +54,44 @@ namespace Lux {
 	}
 
 	void EditorConsolePanel::OnEvent(Event& event)
-	{/*
-		EventDispatcher dispatcher(event);
-		dispatcher.Dispatch<ScenePreStartEvent>([this](ScenePreStartEvent& e)
-			{
-				if (m_ClearOnPlay)
-				{
-					std::scoped_lock<std::mutex> lock(m_MessageBufferMutex);
-					m_MessageBuffer.clear();
-				}
-				return false;
-			});*/
+	{
+	}
+
+	void EditorConsolePanel::OnScenePlay()
+	{
+		if (!m_ClearOnPlay)
+			return;
+
+		// Drop what was queued before Play too, so the first frame shows only this session.
+		{
+			std::scoped_lock<std::mutex> lock(s_PendingMessageMutex);
+			s_PendingMessages.clear();
+		}
+		m_MessageBuffer.clear();
+	}
+
+	void EditorConsolePanel::DrainPendingMessages()
+	{
+		{
+			std::scoped_lock<std::mutex> lock(s_PendingMessageMutex);
+			if (s_PendingMessages.empty())
+				return;
+
+			m_MessageBuffer.insert(m_MessageBuffer.end(), std::make_move_iterator(s_PendingMessages.begin()), std::make_move_iterator(s_PendingMessages.end()));
+			s_PendingMessages.clear();
+		}
+
+		TrimToCapacity(m_MessageBuffer);
+
+		if (m_EnableScrollToLatest)
+			m_ScrollToLatest = true;
 	}
 
 	void EditorConsolePanel::OnImGuiRender(bool& isOpen)
 	{
+		// Drained even while the panel is closed, so reopening it shows everything logged meanwhile.
+		DrainPendingMessages();
+
 		if (ImGui::Begin(m_PanelName, &isOpen))
 		{
 			ImVec2 consoleSize = ImGui::GetContentRegionAvail();
@@ -72,7 +105,6 @@ namespace Lux {
 
 	void EditorConsolePanel::OnProjectChanged(const Ref<Project>& project)
 	{
-		std::scoped_lock<std::mutex> lock(m_MessageBufferMutex);
 		m_MessageBuffer.clear();
 	}
 
@@ -104,10 +136,7 @@ namespace Lux {
 		const float ToolbarHeight = 28.0f;
 
 		if (ImGui::Button("Clear", { 75.0f, ToolbarHeight }))
-		{
-			std::scoped_lock<std::mutex> lock(m_MessageBufferMutex);
 			m_MessageBuffer.clear();
-		}
 
 		ImGui::SameLine();
 
@@ -158,8 +187,6 @@ namespace Lux {
 
 		ImGuiEx::Table("Console", s_Columns, 3, size, [&]()
 			{
-				std::scoped_lock<std::mutex> lock(m_MessageBufferMutex);
-
 				float scrollY = ImGui::GetScrollY();
 				if (scrollY < m_PreviousScrollY)
 					m_EnableScrollToLatest = false;
@@ -273,20 +300,9 @@ namespace Lux {
 
 	void EditorConsolePanel::PushMessage(const ConsoleMessage& message)
 	{
-		if (s_Instance == nullptr)
-		{
-			std::scoped_lock<std::mutex> lock(s_PendingMessageMutex);
-			s_PendingMessages.push_back(message);
-			return;
-		}
-
-		{
-			std::scoped_lock<std::mutex> lock(s_Instance->m_MessageBufferMutex);
-			s_Instance->m_MessageBuffer.push_back(message);
-		}
-
-		if (s_Instance->m_EnableScrollToLatest)
-			s_Instance->m_ScrollToLatest = true;
+		std::scoped_lock<std::mutex> lock(s_PendingMessageMutex);
+		s_PendingMessages.push_back(message);
+		TrimToCapacity(s_PendingMessages);
 	}
 
 }

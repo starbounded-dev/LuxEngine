@@ -66,7 +66,7 @@ namespace Lux {
 		{
 			std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/APP.log", true),
 #if LUX_HAS_CONSOLE
-			//std::make_shared<EditorConsoleSink>(1),
+			std::make_shared<EditorConsoleSink>(1),
 			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
 #endif
 		};

@@ -4895,6 +4895,10 @@ namespace Lux {
 		if (m_SceneState == SceneState::Simulate)
 			OnSceneStop();
 
+		// First, so anything logged while starting this session (bank rebuilds, script errors) stays.
+		if (m_ConsolePanel)
+			m_ConsolePanel->OnScenePlay();
+
 		// Before the runtime starts, so the banks it loads are the ones matching what the designer
 		// last saved in FMOD Studio. A timestamp check makes this free when nothing changed; a
 		// failed build is logged and play continues, since a stale bank still plays something and

@@ -165,6 +165,12 @@ LUX_CORE_ERROR_TAG("Renderer", "Uniform buffer binding collision at (set={0}, bi
   `"RenderGraph"` and others never printed — so give a new subsystem tag a default entry when it
   needs a quieter level than Trace.
 
+- The editor **Log panel** shows only the editor-console logger — `LUX_CONSOLE_LOG_{TRACE,INFO,WARN,ERROR,FATAL}(...)`,
+  plus C# `Log.*` calls from scripts, which `NativeLog` routes there. Core/Client lines go to the
+  terminal and `logs/` only. Use the console logger for what a game maker must see (script output,
+  shader compile failures, validation errors, export/build results). It is thread-safe: messages
+  queue and the panel drains them on the UI thread.
+
 Tag with the subsystem name (`"Renderer"`, `"AssetManager"`, `"ScriptEngine"`, `"Physics"`,
 `"Project"`). Reuse an existing tag string rather than inventing a near-duplicate.
 
