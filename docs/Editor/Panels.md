@@ -257,8 +257,12 @@ stack) grey out.
 
 Modelled on Blender's splash: a banner with the engine version, **New Project…** / **Open Project…**
 on the left and **Recent Projects** on the right (hover for path and last-opened time, right-click
-to open, show in Explorer, or remove from the list). Esc or a click outside dismisses it. It
-replaces Hazel's separate launcher executable.
+to open, show in Explorer, or remove from the list). A footer holds the two startup preferences —
+*Show at startup* (`UserPreferences::ShowSplashScreen`) and *Reopen last project automatically*
+(`Editor.AutoOpenMostRecentProject`). With a project open, the editor below the titlebar is dimmed;
+Esc (once no field is being edited) or a click outside dismisses it. It replaces Hazel's separate
+launcher executable. The card is drawn to the "LuxEngine Splash Screen" design (theme colours only),
+with every size run through `ImGuiEx::Fonts::GetScale()` so it follows the editor's UI scale.
 
 - **No project open** — `EditorLayer::OnImGuiRender` keeps the dockspace alive
   (`ImGuiDockNodeFlags_KeepAliveOnly`) but draws no panels or viewport, `OnUpdate` skips scene

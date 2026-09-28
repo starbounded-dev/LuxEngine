@@ -12,11 +12,12 @@
 
 namespace Lux {
 
-	// Blender-style splash: a small centered window over the editor with a banner, New/Open on the
-	// left and recent projects on the right. It shows at startup (UserPreferences::ShowSplashScreen)
-	// and from Help → Splash Screen; clicking outside it or pressing Esc dismisses it. With no project
-	// open it cannot be dismissed — it is the only way forward. It replaces Hazel's separate launcher
-	// executable. Pure editor-side UI — it owns no engine state, only callbacks the editor hands it.
+	// Blender-style splash: a centered card over the (dimmed) editor with a banner, New/Open on the
+	// left and recent projects on the right, plus the startup preferences in a footer. It shows at
+	// startup (UserPreferences::ShowSplashScreen) and from Help → Splash Screen; clicking outside it
+	// or pressing Esc dismisses it. With no project open it cannot be dismissed — it is the only way
+	// forward. It replaces Hazel's separate launcher executable.
+	// Pure editor-side UI — it owns no engine state, only callbacks the editor hands it.
 	class SplashScreen
 	{
 	public:
@@ -29,6 +30,10 @@ namespace Lux {
 			// Creates <location>/<name>/<name>.luxproj and opens it. Returns false on failure (logged).
 			std::function<bool(const std::string& name, const std::filesystem::path& location)> CreateProject;
 			std::function<void(const std::filesystem::path&)> RemoveRecentProject;
+			std::function<bool()> GetShowOnStartup;
+			std::function<void(bool)> SetShowOnStartup;
+			std::function<bool()> GetReopenLastProject;
+			std::function<void(bool)> SetReopenLastProject;
 		};
 
 		explicit SplashScreen(Callbacks callbacks);
@@ -41,18 +46,21 @@ namespace Lux {
 		void ShowCreateForm();
 
 		// Draws the splash if it is open, or unconditionally while no project is open. Call once per
-		// frame on the main thread during the editor's ImGui pass, after the workspace.
-		void OnImGuiRender();
+		// frame on the main thread during the editor's ImGui pass, after the workspace. `topInset`
+		// is the editor titlebar height: the dim backdrop starts below it so the menus stay readable.
+		void OnImGuiRender(float topInset = 0.0f);
 
 	private:
-		void DrawBanner(float width);
-		void DrawHome();
+		void DrawHome(bool projectOpen);
+		void DrawRecentProjects(float columnWidth, const std::vector<RecentProject>& recentProjects);
+		void DrawFooter(bool projectOpen);
 		void DrawCreateForm();
 		std::string ValidateCreate() const;   // empty = valid; otherwise the reason it is not
 
 	private:
 		Callbacks m_Callbacks;
 
+		float m_PopupItemSpacing[2] = { 8.0f, 4.0f };   // the style's spacing, restored inside context menus
 		bool m_Open = false;
 		int m_OpenedFrame = -1;               // the click that opened it must not also dismiss it
 		bool m_ShowCreateForm = false;

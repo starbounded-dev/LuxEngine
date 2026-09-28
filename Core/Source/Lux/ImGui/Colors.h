@@ -27,6 +27,10 @@ namespace Colors
 		constexpr auto propertyField = IM_COL32(16, 14, 12, 255);
 		constexpr auto groupHeader = IM_COL32(43, 39, 35, 255);
 		constexpr auto backgroundPopup = IM_COL32(45, 41, 36, 255);
+		constexpr auto backgroundHover = IM_COL32(51, 46, 41, 255);     // hovered row/button on a popup surface
+		constexpr auto backgroundFooter = IM_COL32(41, 37, 31, 255);    // action strip at the bottom of a popup
+		constexpr auto borderSubtle = IM_COL32(58, 52, 46, 255);        // hairline between surfaces
+		constexpr auto backdropDim = IM_COL32(12, 11, 10, 158);         // dims the editor behind a modal surface
 
 		// Play/pause/stop and status titlebars (kept semantic, just refined).
 		constexpr auto titlebarOrange = IM_COL32(197, 121, 45, 255);
@@ -37,6 +41,8 @@ namespace Colors
 		constexpr auto text = IM_COL32(210, 204, 196, 255);
 		constexpr auto textBrighter = IM_COL32(236, 230, 220, 255);
 		constexpr auto textDarker = IM_COL32(138, 128, 116, 255);
+		constexpr auto textCaption = IM_COL32(163, 152, 137, 255);      // secondary text that must stay readable (4.5:1 on popups)
+		constexpr auto textWarning = IM_COL32(240, 138, 108, 255);
 		constexpr auto textError = IM_COL32(232, 84, 84, 255);
 		constexpr auto muted = IM_COL32(86, 78, 68, 255);
 

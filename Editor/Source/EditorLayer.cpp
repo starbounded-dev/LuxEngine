@@ -153,6 +153,13 @@ namespace Lux {
 			return settings.GetInt("Editor.AutoOpenMostRecentProject", 1) != 0;
 		}
 
+		void SetAutoOpenMostRecentProject(bool enabled)
+		{
+			auto& settings = Application::Get().GetSettings();
+			settings.SetInt("Editor.AutoOpenMostRecentProject", enabled ? 1 : 0);
+			settings.Serialize();
+		}
+
 		ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
 		{
 			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
@@ -470,6 +477,16 @@ namespace Lux {
 			splashCallbacks.BrowseForProject = [this]() { return OpenProject(); };
 			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location) { return CreateProject(name, location); };
 			splashCallbacks.RemoveRecentProject = [this](const std::filesystem::path& path) { RemoveRecentProject(path); };
+			splashCallbacks.GetShowOnStartup = [this]() { return m_UserPreferences && m_UserPreferences->ShowSplashScreen; };
+			splashCallbacks.SetShowOnStartup = [this](bool show)
+			{
+				if (!m_UserPreferences)
+					return;
+				m_UserPreferences->ShowSplashScreen = show;
+				SaveUserPreferences();
+			};
+			splashCallbacks.GetReopenLastProject = []() { return ShouldAutoOpenMostRecentProject(); };
+			splashCallbacks.SetReopenLastProject = [](bool reopen) { SetAutoOpenMostRecentProject(reopen); };
 			m_SplashScreen = CreateScope<SplashScreen>(std::move(splashCallbacks));
 		}
 
@@ -781,7 +798,7 @@ namespace Lux {
 					ImGui::DockSpace(ImGui::GetID("MyDockSpace"), ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly);
 				style.WindowMinSize.x = minWinSizeX;
 
-				m_SplashScreen->OnImGuiRender();
+				m_SplashScreen->OnImGuiRender(m_TitlebarHeight);
 				UI_AboutPopup();
 				ImGui::End(); // Lux Editor
 				return;
@@ -837,7 +854,7 @@ namespace Lux {
 			}
 
 			if (m_SplashScreen)
-				m_SplashScreen->OnImGuiRender();
+				m_SplashScreen->OnImGuiRender(m_TitlebarHeight);
 
 			// Viewport panel
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
