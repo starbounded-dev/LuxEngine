@@ -27,7 +27,7 @@ namespace Lux {
 
 	// A script logging every frame would otherwise grow both buffers without bound. Also bounds the
 	// pending queue in Lux-Runtime, which links the console sink but never creates the panel.
-	static constexpr size_t s_MaxMessages = 5000;
+	static constexpr size_t s_MaxMessages = 10000;
 
 	static void TrimToCapacity(std::vector<ConsoleMessage>& messages)
 	{
@@ -185,6 +185,15 @@ namespace Lux {
 	{
 		static const char* s_Columns[] = { "Type", "Timestamp", "Message" };
 
+		// The panel mirrors every engine log line, so the buffer runs to thousands of rows: gather
+		// the ones passing the filters, then let the clipper submit only those on screen.
+		m_VisibleMessages.clear();
+		for (uint32_t i = 0; i < m_MessageBuffer.size(); i++)
+		{
+			if (m_MessageFilters & m_MessageBuffer[i].Flags)
+				m_VisibleMessages.push_back(i);
+		}
+
 		ImGuiEx::Table("Console", s_Columns, 3, size, [&]()
 			{
 				float scrollY = ImGui::GetScrollY();
@@ -196,82 +205,90 @@ namespace Lux {
 
 				m_PreviousScrollY = scrollY;
 
-				float rowHeight = 24.0f;
-				for (uint32_t i = 0; i < m_MessageBuffer.size(); i++)
+				const float rowHeight = 24.0f;
+				bool openDetailedPopup = false;
+
+				ImGuiListClipper clipper;
+				clipper.Begin((int)m_VisibleMessages.size(), rowHeight);
+				while (clipper.Step())
 				{
-					const auto& msg = m_MessageBuffer[i];
-
-					if (!(m_MessageFilters & (int16_t)msg.Flags))
-						continue;
-
-					ImGui::PushID(&msg);
-
-					const bool clicked = ImGuiEx::TableRowClickable(msg.ShortMessage.c_str(), rowHeight);
-
-					ImGuiEx::Separator(ImVec2(4.0f, ImGui::CalcTextSize(msg.ShortMessage.c_str()).y), GetMessageColor(msg));
-					ImGui::SameLine();
-					ImGui::TextColored(GetMessageColor(msg), "%s", GetMessageType(msg));
-					ImGui::TableNextColumn();
-					ImGuiEx::ShiftCursorX(4.0f);
-
-					std::stringstream timeString;
-					tm* timeBuffer = localtime(&msg.Time);
-					timeString << std::put_time(timeBuffer, "%T");
-
-					// Timestamp + message in the mono face, like the concept's log; timestamp dimmed.
-					ImGuiEx::Fonts::PushFont("Mono");
-					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
-					ImGui::TextUnformatted(timeString.str().c_str());
-					ImGui::PopStyleColor();
-
-					ImGui::TableNextColumn();
-					ImGuiEx::ShiftCursorX(4.0f);
-					ImGui::TextUnformatted(msg.ShortMessage.c_str());
-					ImGuiEx::Fonts::PopFont();
-
-					if (i == m_MessageBuffer.size() - 1 && m_ScrollToLatest)
+					for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
 					{
-						ImGui::ScrollToItem();
-						m_ScrollToLatest = false;
-					}
+						const auto& msg = m_MessageBuffer[m_VisibleMessages[row]];
 
-					if (clicked)
-					{
-						ImGui::OpenPopup("Detailed Message");
-						auto [width, height] = Application::Get().GetWindow().GetSize();
-						auto [xPos, yPos] = Application::Get().GetWindow().GetWindowPos();
-						//ImVec2 size = ImGui::GetMainViewport()->Size;
-						ImGui::SetNextWindowSize({ (float)width * 0.5f, (float)height * 0.5f });
-						ImGui::SetNextWindowPos({ xPos + (float)width / 2.0f, yPos + (float)height / 2.5f }, 0, { 0.5, 0.5 });
-						m_DetailedPanelOpen = true;
-					}
+						ImGui::PushID(row);
 
-					if (m_DetailedPanelOpen)
-					{
-						ImGuiEx::ScopedStyle windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
-						ImGuiEx::ScopedStyle framePadding(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 8.0f));
+						const bool clicked = ImGuiEx::TableRowClickable(msg.ShortMessage.c_str(), rowHeight);
 
-						if (ImGui::BeginPopupModal("Detailed Message", &m_DetailedPanelOpen, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
+						ImGuiEx::Separator(ImVec2(4.0f, ImGui::CalcTextSize(msg.ShortMessage.c_str()).y), GetMessageColor(msg));
+						ImGui::SameLine();
+						ImGui::TextColored(GetMessageColor(msg), "%s", GetMessageType(msg));
+						ImGui::TableNextColumn();
+						ImGuiEx::ShiftCursorX(4.0f);
+
+						std::stringstream timeString;
+						tm* timeBuffer = localtime(&msg.Time);
+						timeString << std::put_time(timeBuffer, "%T");
+
+						// Timestamp + message in the mono face, like the concept's log; timestamp dimmed.
+						ImGuiEx::Fonts::PushFont("Mono");
+						ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
+						ImGui::TextUnformatted(timeString.str().c_str());
+						ImGui::PopStyleColor();
+
+						ImGui::TableNextColumn();
+						ImGuiEx::ShiftCursorX(4.0f);
+						ImGui::TextUnformatted(msg.ShortMessage.c_str());
+						ImGuiEx::Fonts::PopFont();
+
+						if (clicked)
 						{
-							ImGui::TextWrapped("%s", msg.LongMessage.c_str());
-							if (ImGui::Button("Copy Full Message", ImVec2(150.0f, 28.0f)))
-							{
+							// Copied, not indexed: the buffer can be trimmed or cleared while the popup is open.
+							m_DetailedMessage = msg.LongMessage;
+							openDetailedPopup = true;
+						}
+
+						if (ImGui::BeginPopupContextItem("ConsoleMessageContext"))
+						{
+							if (ImGui::MenuItem("Copy Full Message"))
 								ImGui::SetClipboardText(msg.LongMessage.c_str());
-							}
+							if (ImGui::MenuItem("Copy Short Message"))
+								ImGui::SetClipboardText(msg.ShortMessage.c_str());
 							ImGui::EndPopup();
 						}
-					}
 
-					if (ImGui::BeginPopupContextItem("ConsoleMessageContext"))
+						ImGui::PopID();
+					}
+				}
+
+				if (m_ScrollToLatest)
+				{
+					ImGui::SetScrollHereY(1.0f);
+					m_ScrollToLatest = false;
+				}
+
+				if (openDetailedPopup)
+				{
+					ImGui::OpenPopup("Detailed Message");
+					auto [width, height] = Application::Get().GetWindow().GetSize();
+					auto [xPos, yPos] = Application::Get().GetWindow().GetWindowPos();
+					ImGui::SetNextWindowSize({ (float)width * 0.5f, (float)height * 0.5f });
+					ImGui::SetNextWindowPos({ xPos + (float)width / 2.0f, yPos + (float)height / 2.5f }, 0, { 0.5, 0.5 });
+					m_DetailedPanelOpen = true;
+				}
+
+				if (m_DetailedPanelOpen)
+				{
+					ImGuiEx::ScopedStyle windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
+					ImGuiEx::ScopedStyle framePadding(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 8.0f));
+
+					if (ImGui::BeginPopupModal("Detailed Message", &m_DetailedPanelOpen, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
 					{
-						if (ImGui::MenuItem("Copy Full Message"))
-							ImGui::SetClipboardText(msg.LongMessage.c_str());
-						if (ImGui::MenuItem("Copy Short Message"))
-							ImGui::SetClipboardText(msg.ShortMessage.c_str());
+						ImGui::TextWrapped("%s", m_DetailedMessage.c_str());
+						if (ImGui::Button("Copy Full Message", ImVec2(150.0f, 28.0f)))
+							ImGui::SetClipboardText(m_DetailedMessage.c_str());
 						ImGui::EndPopup();
 					}
-
-					ImGui::PopID();
 				}
 			});
 	}

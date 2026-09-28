@@ -46,6 +46,7 @@ namespace Lux {
 
 		// UI thread only; other threads go through PushMessage.
 		std::vector<ConsoleMessage> m_MessageBuffer;
+		std::vector<uint32_t> m_VisibleMessages; // Indices into m_MessageBuffer passing m_MessageFilters, rebuilt each frame.
 
 		bool m_EnableScrollToLatest = true;
 		bool m_ScrollToLatest = false;
@@ -54,6 +55,7 @@ namespace Lux {
 		int16_t m_MessageFilters = (int16_t)ConsoleMessageFlags::All;
 
 		bool m_DetailedPanelOpen = false;
+		std::string m_DetailedMessage;
 
 		std::string m_ProgressLabel;
 		float m_Progress = 0.0f;

@@ -66,7 +66,6 @@ namespace Lux {
 		{
 			std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/APP.log", true),
 #if LUX_HAS_CONSOLE
-			std::make_shared<EditorConsoleSink>(1),
 			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
 #endif
 		};
@@ -79,6 +78,15 @@ namespace Lux {
 		appSinks[1]->set_pattern("%^[%T] %n: %v%$");
 		for (auto sink : editorConsoleSinks)
 			sink->set_pattern("%^%v%$");
+
+		// One editor Log panel sink shared by every logger, so the panel mirrors the terminal:
+		// anything that passes the tag/level filters and prints to stdout also lands in the panel.
+		// The panel has its own time column, so the pattern is just the logger name and message.
+		auto editorPanelSink = std::make_shared<EditorConsoleSink>(1);
+		editorPanelSink->set_pattern("%n: %v");
+		luxSinks.push_back(editorPanelSink);
+		appSinks.push_back(editorPanelSink);
+		editorConsoleSinks.push_back(editorPanelSink);
 #endif
 
 		s_CoreLogger = std::make_shared<spdlog::logger>("LUX", luxSinks.begin(), luxSinks.end());
