@@ -35,6 +35,9 @@ namespace Lux {
 	private:
 		void DrainPendingMessages();
 		void RebuildVisibleMessages();
+		void AddRecentSearch(const std::string& query);
+		void LoadRecentSearches();
+		void SaveRecentSearches() const;
 		void RenderMenu(const ImVec2& size);
 		void RenderConsole(const ImVec2& size);
 		const char* GetMessageType(const ConsoleMessage& message) const;
@@ -56,6 +59,9 @@ namespace Lux {
 		bool m_VisibleMessagesDirty = true;
 
 		std::string m_SearchQuery;
+		std::vector<std::string> m_RecentSearches; // Newest first, persisted in the application settings.
+		double m_SearchEditTime = 0.0;
+		bool m_SearchCommitPending = false;
 		std::set<std::string> m_KnownTags;  // Every tag seen this session, kept across Clear so hidden tags stay hidden.
 		std::set<std::string> m_HiddenTags;
 

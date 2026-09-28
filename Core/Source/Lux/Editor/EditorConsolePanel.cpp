@@ -5,11 +5,13 @@
 #include "EditorConsolePanel.h"
 
 #include "Lux/Core/Application.h"
+#include "Lux/Core/ApplicationSettings.h"
 //#include "Lux/Core/Events/SceneEvents.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui_internal.h>
 
@@ -29,6 +31,13 @@ namespace Lux {
 	// pending queue in Lux-Runtime, which links the console sink but never creates the panel.
 	static constexpr size_t s_MaxMessages = 10000;
 
+	// The search widget does not report when typing ends, so a query counts as a finished search once
+	// it has been left unchanged this long.
+	static constexpr size_t s_MaxRecentSearches = 5;
+	static constexpr double s_SearchCommitDelay = 1.0;
+	static constexpr const char* s_RecentSearchesSettingKey = "Console.RecentSearches";
+	static constexpr char s_RecentSearchesSeparator = '|';
+
 	static void TrimToCapacity(std::vector<ConsoleMessage>& messages)
 	{
 		if (messages.size() > s_MaxMessages)
@@ -46,6 +55,7 @@ namespace Lux {
 		s_Instance = this;
 
 		m_MessageBuffer.reserve(500);
+		LoadRecentSearches();
 	}
 
 	EditorConsolePanel::~EditorConsolePanel()
@@ -163,7 +173,23 @@ namespace Lux {
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(220.0f);
 			if (ImGuiEx::Widgets::SearchWidget(m_SearchQuery, "Search log..."))
+			{
 				m_VisibleMessagesDirty = true;
+				m_SearchEditTime = ImGui::GetTime();
+				m_SearchCommitPending = true;
+			}
+
+			if (m_SearchCommitPending && ImGui::GetTime() - m_SearchEditTime >= s_SearchCommitDelay)
+			{
+				AddRecentSearch(m_SearchQuery);
+				m_SearchCommitPending = false;
+			}
+
+			ImGui::SameLine();
+			if (ImGui::Button(LUX_ICON_HISTORY, ImVec2(ToolbarHeight, ToolbarHeight)))
+				ImGui::OpenPopup("RecentLogSearches");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Recent searches");
 
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(150.0f);
@@ -201,6 +227,36 @@ namespace Lux {
 				}
 				ImGui::EndCombo();
 			}
+		}
+
+		if (ImGui::BeginPopup("RecentLogSearches"))
+		{
+			if (m_RecentSearches.empty())
+				ImGui::TextDisabled("No recent searches");
+
+			// Copied: picking an entry reorders m_RecentSearches.
+			const std::vector<std::string> recentSearches = m_RecentSearches;
+			for (const std::string& query : recentSearches)
+			{
+				if (ImGui::Selectable(query.c_str()))
+				{
+					m_SearchQuery = query;
+					m_SearchCommitPending = false;
+					m_VisibleMessagesDirty = true;
+					AddRecentSearch(query);
+				}
+			}
+
+			if (!m_RecentSearches.empty())
+			{
+				ImGui::Separator();
+				if (ImGui::Selectable("Clear history"))
+				{
+					m_RecentSearches.clear();
+					SaveRecentSearches();
+				}
+			}
+			ImGui::EndPopup();
 		}
 
 		if (!m_ProgressLabel.empty())
@@ -245,6 +301,64 @@ namespace Lux {
 		}
 
 		ImGui::EndChild();
+	}
+
+	void EditorConsolePanel::AddRecentSearch(const std::string& query)
+	{
+		const std::string trimmed = Utils::String::TrimWhitespace(query);
+		if (trimmed.empty() || trimmed.find(s_RecentSearchesSeparator) != std::string::npos)
+			return;
+
+		const std::string lowered = Utils::String::ToLowerCopy(trimmed);
+
+		// Refining the latest search ("mip" -> "mips", or back) replaces it instead of filling the list.
+		if (!m_RecentSearches.empty())
+		{
+			const std::string latest = Utils::String::ToLowerCopy(m_RecentSearches.front());
+			if (lowered.find(latest) != std::string::npos || latest.find(lowered) != std::string::npos)
+				m_RecentSearches.erase(m_RecentSearches.begin());
+		}
+
+		std::erase_if(m_RecentSearches, [&](const std::string& entry) { return Utils::String::EqualsIgnoreCase(entry, trimmed); });
+
+		m_RecentSearches.insert(m_RecentSearches.begin(), trimmed);
+		if (m_RecentSearches.size() > s_MaxRecentSearches)
+			m_RecentSearches.resize(s_MaxRecentSearches);
+
+		SaveRecentSearches();
+	}
+
+	void EditorConsolePanel::LoadRecentSearches()
+	{
+		m_RecentSearches.clear();
+
+		const std::string stored = Application::Get().GetSettings().Get(s_RecentSearchesSettingKey, "");
+		size_t start = 0;
+		while (start < stored.size() && m_RecentSearches.size() < s_MaxRecentSearches)
+		{
+			size_t end = stored.find(s_RecentSearchesSeparator, start);
+			if (end == std::string::npos)
+				end = stored.size();
+
+			if (end > start)
+				m_RecentSearches.push_back(stored.substr(start, end - start));
+			start = end + 1;
+		}
+	}
+
+	void EditorConsolePanel::SaveRecentSearches() const
+	{
+		std::string stored;
+		for (const std::string& query : m_RecentSearches)
+		{
+			if (!stored.empty())
+				stored += s_RecentSearchesSeparator;
+			stored += query;
+		}
+
+		auto& settings = Application::Get().GetSettings();
+		settings.Set(s_RecentSearchesSettingKey, stored);
+		settings.Serialize();
 	}
 
 	void EditorConsolePanel::RebuildVisibleMessages()
