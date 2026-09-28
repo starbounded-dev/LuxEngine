@@ -39,16 +39,17 @@ namespace Lux {
 		{ "Timer",             TagDetails{ false, Level::Trace } },
 	};
 
-	void Log::Init()
+	void Log::Init(const std::filesystem::path& logDirectory)
 	{
-		// Create "logs" directory if doesn't exist
-		std::string logsDirectory = "logs";
-		if (!std::filesystem::exists(logsDirectory))
-			std::filesystem::create_directories(logsDirectory);
+		if (!std::filesystem::exists(logDirectory))
+			std::filesystem::create_directories(logDirectory);
+
+		const std::string luxLogPath = (logDirectory / "LUX.log").string();
+		const std::string appLogPath = (logDirectory / "APP.log").string();
 
 		std::vector<spdlog::sink_ptr> luxSinks =
 		{
-			std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/LUX.log", true),
+			std::make_shared<spdlog::sinks::basic_file_sink_mt>(luxLogPath, true),
 #if LUX_HAS_CONSOLE
 			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
 #endif
@@ -56,7 +57,7 @@ namespace Lux {
 
 		std::vector<spdlog::sink_ptr> appSinks =
 		{
-			std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/APP.log", true),
+			std::make_shared<spdlog::sinks::basic_file_sink_mt>(appLogPath, true),
 #if LUX_HAS_CONSOLE
 			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
 #endif
@@ -64,7 +65,7 @@ namespace Lux {
 
 		std::vector<spdlog::sink_ptr> editorConsoleSinks =
 		{
-			std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/APP.log", true),
+			std::make_shared<spdlog::sinks::basic_file_sink_mt>(appLogPath, true),
 #if LUX_HAS_CONSOLE
 			std::make_shared<spdlog::sinks::stdout_color_sink_mt>()
 #endif

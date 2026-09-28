@@ -12,7 +12,7 @@ to move between them.
 
 `ApplicationSpecification::CoreThreadingPolicy` defaults to `ThreadingPolicy::MultiThreaded`, and
 `Editor/Source/LuxEditorApp.cpp` reads the user setting `Core.ThreadingPolicy` from `App.lsettings`
-with these defaults:
+(in `FileSystem::GetPersistentStoragePath()`) with these defaults:
 
 | Platform | Editor default | Why |
 |---|---|---|

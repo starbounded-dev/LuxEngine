@@ -10,10 +10,10 @@
 
 namespace Lux {
 	 
-	void InitializeCore()
+	void InitializeCore(const std::filesystem::path& logDirectory)
 	{
 		Allocator::Init();
-		Log::Init();
+		Log::Init(logDirectory);
 
 		LUX_CORE_TRACE_TAG("Core", "Lux Engine {}", LUX_VERSION);
 		LUX_CORE_TRACE_TAG("Core", "Initializing...");

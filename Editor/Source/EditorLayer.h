@@ -305,6 +305,7 @@ namespace Lux
 		static constexpr size_t s_MaxUndoBytes = 128ull * 1024 * 1024;   // 128 MB of snapshot payload
 		Ref<UserPreferences> m_UserPreferences;
 		std::filesystem::path m_UserPreferencesPath;
+		std::string m_ImGuiIniPath; // io.IniFilename points into this; must outlive the ImGui context's use of it.
 		Entity m_SquareEntity;
 		Entity m_CameraEntity;
 		Entity m_SecondCamera;

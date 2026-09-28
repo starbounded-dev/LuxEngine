@@ -362,6 +362,12 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
 
 		EditorResources::Init();
+
+		// Per-user, like App.lsettings. ImGui reads the ini lazily on the first frame, so setting it
+		// here (before any frame) is enough; it keeps a pointer, hence the member string.
+		m_ImGuiIniPath = (FileSystem::GetPersistentStoragePath() / "imgui.ini").string();
+		ImGui::GetIO().IniFilename = m_ImGuiIniPath.c_str();
+
 		LoadEditorPreferences();
 		LoadUserPreferences();
 
@@ -811,7 +817,7 @@ namespace Lux {
 
 				// DockSpace() creates the node as an unsplit leaf when imgui.ini had nothing saved
 				// for it; a node that's already split means a saved layout was restored, so this
-				// only ever fires on first run (or after Editor/imgui.ini is cleared).
+				// only ever fires on first run (or after the per-user imgui.ini is cleared).
 				if (!ImGui::DockBuilderGetNode(dockspace_id)->IsSplitNode())
 					ResetDefaultDockLayout(dockspace_id);
 

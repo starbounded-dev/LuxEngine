@@ -6,9 +6,40 @@
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Core/ApplicationSettings.h"
 
+#define LUX_LOGS_IN_PERSISTENT_STORAGE
 #include "Lux/EntryPoint.h"
 
 namespace Lux {
+
+	// Per-user editor data used to live in the working directory (App.lsettings, imgui.ini) and in a
+	// persistent-storage folder named "Editor". Copy anything the LuxEngine folder does not have yet,
+	// so moving there resets nothing. Known files only: a folder called "Editor" may belong to another
+	// program. The old copies are left in place.
+	static void MigrateLegacyUserData(const std::filesystem::path& userDataPath)
+	{
+		const std::filesystem::path legacyStoragePath = userDataPath.parent_path() / "Editor";
+		const std::pair<std::filesystem::path, const char*> legacyFiles[] = {
+			{ legacyStoragePath / "EditorLayout.yaml", "EditorLayout.yaml" },
+			{ legacyStoragePath / "UserPreferences.yaml", "UserPreferences.yaml" },
+			{ "App.lsettings", "App.lsettings" },
+			{ "imgui.ini", "imgui.ini" },
+		};
+
+		for (const auto& [source, fileName] : legacyFiles)
+		{
+			const std::filesystem::path destination = userDataPath / fileName;
+			if (!FileSystem::Exists(source) || FileSystem::Exists(destination))
+				continue;
+
+			// error_code form: a failed copy must not stop the editor from starting.
+			std::error_code error;
+			std::filesystem::copy_file(source, destination, error);
+			if (!error)
+				LUX_CORE_INFO_TAG("Editor", "Migrated {} to {}", source.string(), destination.string());
+			else
+				LUX_CORE_WARN_TAG("Editor", "Could not migrate {} to {}: {}", source.string(), destination.string(), error.message());
+		}
+	}
 
 	class LuxEditor : public Application
 	{
@@ -42,12 +73,16 @@ namespace Lux {
 		std::string_view projectPath;
 		if (!raw.empty()) projectPath = raw[0];
 
+		// After -C, since the legacy files were relative to the working directory.
+		MigrateLegacyUserData(FileSystem::GetPersistentStoragePath());
+
 		Lux::ApplicationSpecification specification;
 		specification.Name = "Lux Editor";
 		specification.WindowWidth = 1600;
 		specification.WindowHeight = 900;
 		specification.StartMaximized = true;
 		specification.VSync = true;
+		specification.SettingsPath = FileSystem::GetPersistentStoragePath() / "App.lsettings";
 		//specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
 
 		/*specification.ScriptConfig.CoreAssemblyPath = "Resources/Scripts/Hazel-ScriptCore.dll";
@@ -60,7 +95,7 @@ namespace Lux {
 		// On Linux, default to single-threaded to avoid render thread race conditions with
 		// Wayland/Vulkan swapchain management until those are resolved.
 		{
-			Lux::ApplicationSettings settings("App.lsettings");
+			Lux::ApplicationSettings settings(specification.SettingsPath);
 #ifdef LUX_PLATFORM_LINUX
 			specification.CoreThreadingPolicy = Lux::ThreadingPolicyFromString(settings.Get("Core.ThreadingPolicy", "Single"));
 #else

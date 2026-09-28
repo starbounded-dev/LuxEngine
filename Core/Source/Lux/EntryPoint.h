@@ -4,6 +4,11 @@
 #pragma once
 
 #include "Lux/Core/Application.h"
+#include "Lux/Utilities/FileSystem.h"
+
+// Define LUX_LOGS_IN_PERSISTENT_STORAGE before including this header to write logs to the per-user
+// folder (FileSystem::GetPersistentStoragePath()/logs) instead of ./logs. The editor does; shipped
+// games (Lux-Runtime) keep their logs next to the game.
 
 extern Lux::Application* Lux::CreateApplication(int argc, char** argv);
 bool g_ApplicationRunning = true;
@@ -14,7 +19,11 @@ namespace Lux {
 	{
 		while (g_ApplicationRunning)
 		{
+#ifdef LUX_LOGS_IN_PERSISTENT_STORAGE
+			InitializeCore(FileSystem::GetPersistentStoragePath() / "logs");
+#else
 			InitializeCore();
+#endif
 			Application* app = CreateApplication(argc, argv);
 			LUX_CORE_ASSERT(app, "Client Application is null!");
 			app->Run();

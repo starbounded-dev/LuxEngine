@@ -150,6 +150,16 @@ deserialized, `JobSystem::Init` runs, then `m_RenderThread.Run()`, and only *the
 created. The threading policy is therefore read from `App.lsettings` in `LuxEditorApp.cpp` *before*
 the `Application` object exists, because `RenderThread` is constructed with it.
 
+**Per-user data** lives in `FileSystem::GetPersistentStoragePath()` — `%APPDATA%\LuxEngine` on
+Windows, `$XDG_DATA_HOME/LuxEngine` (default `~/.local/share/LuxEngine`) on Linux. The editor keeps
+everything machine-local there: `App.lsettings` (`ApplicationSpecification::SettingsPath`, which
+defaults to `./App.lsettings` for Lux-Runtime), `imgui.ini` (`io.IniFilename`, set in
+`EditorLayer::OnAttach`), `EditorLayout.yaml`, `UserPreferences.yaml`, and `logs/` (the editor
+defines `LUX_LOGS_IN_PERSISTENT_STORAGE` before including `EntryPoint.h`; Lux-Runtime logs to
+`./logs`). `MigrateLegacyUserData` in `LuxEditorApp.cpp` copies files from the pre-2026-09-28
+locations (`./App.lsettings`, `./imgui.ini`, the old `.../Editor` folder) when the new folder lacks
+them. Nothing per-user belongs in the repo.
+
 **Layers** (`Layer.h`, `LayerStack.h`): `OnAttach` / `OnDetach` / `OnUpdate(Timestep)` /
 `OnImGuiRender` / `OnEvent`. `PushLayer` for regular, `PushOverlay` for top. The editor and the
 runtime each supply one.

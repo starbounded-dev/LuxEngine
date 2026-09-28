@@ -45,6 +45,8 @@ namespace Lux {
 		// on the "Discord.RichPresenceEnabled" setting, which defaults to off.
 		bool EnableDiscordRichPresence = true;
 		std::filesystem::path IconPath;
+		// Where the ApplicationSettings (GetSettings()) are read from and saved to.
+		std::filesystem::path SettingsPath = "App.lsettings";
 	};
 
 	class Application

@@ -112,3 +112,6 @@ Editor/LuxSampleProject/Assets/Audio/**/Build/
 
 # CI checkout of the private FMOD / Vercidium Audio SDK repository (scripts/ci/StageAudioSDKs.py)
 .audio-sdk/
+
+# Per-user editor state lives in FileSystem::GetPersistentStoragePath()
+Editor/imgui.ini

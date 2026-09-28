@@ -89,7 +89,7 @@ namespace Lux {
 			return s_PersistentStoragePath;
 
 		// Follow the XDG Base Directory spec: $XDG_DATA_HOME, else ~/.local/share. Mirrors the
-		// Windows implementation, which roots persistent data at %APPDATA%/Editor.
+		// Windows implementation, which roots persistent data at %APPDATA%/LuxEngine.
 		if (HasEnvironmentVariable("XDG_DATA_HOME"))
 			s_PersistentStoragePath = GetEnvironmentVariable("XDG_DATA_HOME");
 		else if (HasEnvironmentVariable("HOME"))
@@ -97,7 +97,7 @@ namespace Lux {
 		else
 			s_PersistentStoragePath = "..";
 
-		s_PersistentStoragePath /= "Editor";
+		s_PersistentStoragePath /= "LuxEngine";
 
 		if (!std::filesystem::exists(s_PersistentStoragePath))
 			std::filesystem::create_directories(s_PersistentStoragePath);

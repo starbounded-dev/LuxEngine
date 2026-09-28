@@ -5,12 +5,14 @@
 
 #include "Ref.h"
 
+#include <filesystem>
+
 #include <functional>
 #include  <memory>
 
 namespace Lux {
 
-	void InitializeCore();
+	void InitializeCore(const std::filesystem::path& logDirectory = "logs");
 	void ShutdownCore();
 
 }

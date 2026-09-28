@@ -91,7 +91,7 @@ namespace Lux {
 		HRESULT result = SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, NULL, &roamingFilePath);
 		LUX_CORE_VERIFY(result == S_OK);
 		s_PersistentStoragePath = roamingFilePath;
-		s_PersistentStoragePath /= "Editor";
+		s_PersistentStoragePath /= "LuxEngine";
 
 		if (!std::filesystem::exists(s_PersistentStoragePath))
 			std::filesystem::create_directory(s_PersistentStoragePath);

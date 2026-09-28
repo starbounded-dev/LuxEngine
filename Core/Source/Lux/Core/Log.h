@@ -8,6 +8,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <string>
@@ -42,7 +43,8 @@ namespace Lux {
 		};
 
 	public:
-		static void Init();
+		// `logDirectory` receives LUX.log / APP.log; created if missing.
+		static void Init(const std::filesystem::path& logDirectory = "logs");
 		static void Shutdown();
 
 		inline static std::shared_ptr<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
