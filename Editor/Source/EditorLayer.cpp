@@ -625,6 +625,15 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
 		SaveEditorPreferences();
 
+		// io.IniFilename points into m_ImGuiIniPath, which dies with this layer, but ImGui saves its
+		// settings again when the ImGui overlay destroys the context afterwards. Save now, while the
+		// path is valid, and stop ImGui from reading the freed string later.
+		if (ImGui::GetCurrentContext() && !m_ImGuiIniPath.empty())
+		{
+			ImGui::SaveIniSettingsToDisk(m_ImGuiIniPath.c_str());
+			ImGui::GetIO().IniFilename = nullptr;
+		}
+
 		// Release the active project + asset manager now, while the Vulkan device is still alive.
 		// Project::s_AssetManager is a static Ref that would otherwise be destroyed at program exit —
 		// long after the device — and freeing its cached scenes' GPU resources (IndexBuffers, etc.)
