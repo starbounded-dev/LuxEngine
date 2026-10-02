@@ -193,8 +193,20 @@ namespace Lux {
 
 		if (!m_Specification.Decorated)
 		{
-			// Disable native decorations so editor can render a fully custom titlebar.
-			glfwWindowHint(GLFW_DECORATED, false);
+			// Hide the native titlebar so the editor can draw its own. The GLFW fork does this
+			// differently per platform, and each path is what makes resize edges, titlebar drag,
+			// double-click maximize and snapping work:
+			//  - Win32: keep a decorated window (WS_THICKFRAME) and drop only the caption with the
+			//    fork's GLFW_TITLEBAR hint; its WM_NCCALCSIZE/WM_NCHITTEST custom frame requires the
+			//    thick frame. GLFW_DECORATED=false would make a WS_POPUP window with none of that.
+			//  - X11/Wayland: undecorated, and the fork provides the edges and drag itself
+			//    (_NET_WM_MOVERESIZE / xdg_toplevel resize+move). A decorated window there would
+			//    get the compositor's own titlebar.
+#ifdef LUX_PLATFORM_WINDOWS
+			glfwWindowHint(GLFW_TITLEBAR, GLFW_FALSE);
+#else
+			glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+#endif
 		}
 
 		m_WindowHandle = glfwCreateWindow((int)m_Specification.Width, (int)m_Specification.Height, m_Data.Title.c_str(), m_Specification.Fullscreen ? glfwGetPrimaryMonitor() : nullptr, nullptr);

@@ -1588,6 +1588,10 @@ namespace Lux {
 			menuBarRight = ImGui::GetItemRectMax().x - windowPos.x;
 		}
 		ImGui::ResumeLayout();
+
+		// Start the native drag zone after the menu bar, as on Linux: the OS hit-test turns
+		// everything inside it into HTCAPTION, which would swallow clicks on the menus.
+		m_TitleBarDragRectMin.x = std::max(m_TitleBarDragRectMin.x, menuBarRight);
 #endif
 
 		// --- Breadcrumb: Project / Scene, in the mono face, just after the menu bar. ---
@@ -2502,7 +2506,11 @@ namespace Lux {
 		const bool inTransport = x >= m_TitleBarTransportRectMin.x && x <= m_TitleBarTransportRectMax.x
 			&& y >= m_TitleBarTransportRectMin.y && y <= m_TitleBarTransportRectMax.y;
 
-		const bool inDragZone = !inTransport
+		// An open menu's dropdown starts inside the tall titlebar; while any popup is open the
+		// titlebar must not claim the click, or the top items of the dropdown start a window drag.
+		const bool popupOpen = ImGui::GetCurrentContext() && ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopup);
+
+		const bool inDragZone = !inTransport && !popupOpen
 			&& x >= m_TitleBarDragRectMin.x && x <= m_TitleBarDragRectMax.x
 			&& y >= m_TitleBarDragRectMin.y && y <= m_TitleBarDragRectMax.y;
 
