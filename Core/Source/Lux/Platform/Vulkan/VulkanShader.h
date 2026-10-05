@@ -11,8 +11,6 @@
 
 #include "nvrhi/nvrhi.h"
 
-#include "VulkanMemoryAllocator/vk_mem_alloc.h"
-
 namespace Lux {
 
 	class VulkanShader : public Shader
@@ -28,7 +26,7 @@ namespace Lux {
 	public:
 		VulkanShader() = default;
 		VulkanShader(const std::string& path, bool forceCompile, bool disableOptimization);
-		virtual ~VulkanShader();
+		virtual ~VulkanShader() = default;
 		void Release();
 
 		void Reload(bool forceCompile = false) override;
@@ -52,11 +50,6 @@ namespace Lux {
 		virtual nvrhi::ShaderHandle GetHandle(nvrhi::ShaderType type) const override;
 		virtual const std::map<nvrhi::ShaderType, nvrhi::ShaderHandle>& GetHandles() const override { return m_ShaderHandles; }
 
-		// Vulkan-specific
-		const std::vector<VkPipelineShaderStageCreateInfo>& GetPipelineShaderStageCreateInfos() const { return m_PipelineShaderStageCreateInfos; }
-
-		VkDescriptorSet GetDescriptorSet() { return m_DescriptorSet; }
-
 		nvrhi::BindingLayoutHandle GetDescriptorSetLayout(uint32_t set = 0) { return m_DescriptorSetLayouts[set]; }
 		const nvrhi::BindingLayoutVector& GetAllDescriptorSetLayouts() const { return m_DescriptorSetLayouts; }
 
@@ -70,25 +63,13 @@ namespace Lux {
 		}
 
 		const std::vector<ShaderResource::ShaderDescriptorSet>& GetShaderDescriptorSets() const { return m_ReflectionData.ShaderDescriptorSets; }
-		bool HasDescriptorSet(uint32_t set) const { return m_TypeCounts.find(set) != m_TypeCounts.end(); }
 
 		const std::vector<ShaderResource::PushConstantRange>& GetPushConstantRanges() const { return m_ReflectionData.PushConstantRanges; }
-
-		struct ShaderMaterialDescriptorSet
-		{
-			VkDescriptorPool Pool = nullptr;
-			std::vector<VkDescriptorSet> DescriptorSets;
-		};
-
-
-		const VkWriteDescriptorSet* GetDescriptorSet(const std::string& name, uint32_t set = 0) const;
 	private:
 		void LoadAndCreateShaders(const std::map<nvrhi::ShaderType, std::vector<uint32_t>>& shaderData);
 		void CreateDescriptors();
 	private:
 		std::map<nvrhi::ShaderType, nvrhi::ShaderHandle> m_ShaderHandles;
-
-		std::vector<VkPipelineShaderStageCreateInfo> m_PipelineShaderStageCreateInfos;
 
 		std::filesystem::path m_AssetPath;
 		std::string m_Name;
@@ -98,9 +79,6 @@ namespace Lux {
 		ReflectionData m_ReflectionData;
 
 		nvrhi::BindingLayoutVector m_DescriptorSetLayouts;
-		VkDescriptorSet m_DescriptorSet;
-
-		std::unordered_map<uint32_t, std::vector<VkDescriptorPoolSize>> m_TypeCounts;
 	private:
 		friend class ShaderCache;
 		friend class ShaderPack;

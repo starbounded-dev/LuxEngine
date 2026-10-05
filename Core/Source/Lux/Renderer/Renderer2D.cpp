@@ -12,9 +12,6 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-// TEMP
-#include "Lux/Platform/Vulkan/VulkanRenderCommandBuffer.h"
-
 #include "Lux/Renderer/UI/MSDFData.h"
 
 #include <codecvt>

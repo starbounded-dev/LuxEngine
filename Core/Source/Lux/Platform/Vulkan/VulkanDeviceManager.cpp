@@ -624,43 +624,6 @@ namespace Lux {
 		return createInstance();
 	}
 
-	bool VulkanDeviceManager::EnumerateAdapters(std::vector<AdapterInfo>& outAdapters)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_VulkanInstance)
-			return false;
-
-		std::vector<vk::PhysicalDevice> devices = m_VulkanInstance.enumeratePhysicalDevices();
-		outAdapters.clear();
-
-		for (auto physicalDevice : devices)
-		{
-			vk::PhysicalDeviceProperties properties = physicalDevice.getProperties();
-
-			AdapterInfo adapterInfo;
-			adapterInfo.name = properties.deviceName.data();
-			adapterInfo.vendorID = properties.vendorID;
-			adapterInfo.deviceID = properties.deviceID;
-			adapterInfo.vkPhysicalDevice = physicalDevice;
-			adapterInfo.dedicatedVideoMemory = 0;
-
-			// Go through the memory types to figure out the amount of VRAM on this physical device.
-			vk::PhysicalDeviceMemoryProperties memoryProperties = physicalDevice.getMemoryProperties();
-			for (uint32_t heapIndex = 0; heapIndex < memoryProperties.memoryHeapCount; ++heapIndex)
-			{
-				vk::MemoryHeap const& heap = memoryProperties.memoryHeaps[heapIndex];
-				if (heap.flags & vk::MemoryHeapFlagBits::eDeviceLocal)
-				{
-					adapterInfo.dedicatedVideoMemory += heap.size;
-				}
-			}
-
-			outAdapters.push_back(std::move(adapterInfo));
-		}
-
-		return true;
-	}
-
 	bool VulkanDeviceManager::CreateDevice()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

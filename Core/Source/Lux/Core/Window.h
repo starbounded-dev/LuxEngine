@@ -7,7 +7,6 @@
 #include "Lux/Core/Events/Event.h"
 
 #include "Lux/Renderer/DeviceManager.h"
-#include "Lux/Renderer/RendererContext.h"
 
 #include <functional>
 #include <filesystem>
@@ -78,7 +77,6 @@ namespace Lux {
 
 		inline GLFWwindow* GetNativeWindow() const { return m_WindowHandle; }
 
-		virtual Ref<RendererContext> GetRenderContext() { return m_RendererContext; }
 		virtual VulkanSwapChain& GetSwapChain();
 		DeviceManager* GetDeviceManager() { return m_DeviceManager; }
 
@@ -117,7 +115,6 @@ namespace Lux {
 		WindowData m_Data;
 		float m_LastFrameTime = 0.0f;
 
-		Ref<RendererContext> m_RendererContext;
 		VulkanSwapChain* m_SwapChain;
 		bool m_VSyncDirty = false; // pending VSync change, applied in ProcessEvents
 		bool m_SwapChainBufferCountDirty = false; // pending image-count change, same path

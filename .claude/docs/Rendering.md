@@ -17,7 +17,7 @@ Read this before touching anything under `Core/Source/Lux/Renderer/` or
   `RenderGraph.{h,cpp}`, `RenderCommandQueue`, `RenderCommandBuffer`, `Material`, `Pipeline`,
   `Shader`, `StorageBufferSet` / `UniformBufferSet`.
 - `Core/Source/Lux/Platform/Vulkan/**` — the nvrhi/Vulkan backend, `DescriptorSetManager`,
-  `ShaderCompiler/**`, `VulkanSwapChain`, `VulkanAllocator`.
+  `ShaderCompiler/**`, `VulkanSwapChain`, `VulkanDeviceManager`.
 - `Editor/Resources/Shaders/**` — the shader corpus itself.
 
 Changes in these paths are reviewed at higher rigour than ordinary engine code; `/cr` promotes
@@ -292,7 +292,7 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 
 ## Validation errors are bugs
 
-Vulkan validation output (`Platform/Vulkan/VulkanDiagnostics.{h,cpp}`) is not noise. A validation
+Vulkan validation output (`VulkanDeviceManager::vulkanDebugCallback`) is not noise. A validation
 error means a real object-lifetime, layout, or synchronisation mismatch that will manifest as a
 crash or corruption on some driver even if it renders correctly on yours.
 

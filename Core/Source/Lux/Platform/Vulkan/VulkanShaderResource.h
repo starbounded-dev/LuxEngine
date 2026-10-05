@@ -4,7 +4,6 @@
 #pragma once
 
 #include "vulkan/vulkan.h"
-#include "VulkanAllocator.h"
 
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
@@ -102,7 +101,6 @@ namespace Lux {
 
 		struct StorageBuffer
 		{
-			VmaAllocation MemoryAlloc = nullptr;
 			VkDescriptorBufferInfo Descriptor;
 			uint32_t Size = 0;
 			uint32_t BindingPoint = 0;

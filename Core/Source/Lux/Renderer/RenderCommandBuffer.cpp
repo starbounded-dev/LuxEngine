@@ -5,7 +5,6 @@
 #include "RenderCommandBuffer.h"
 
 #include "Lux/Renderer/Renderer.h"
-#include "Lux/Platform/Vulkan/VulkanDiagnostics.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
@@ -351,7 +350,6 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::CommandListHandle commandList = GetActive();
 		commandList->beginMarker(label.c_str());
-		Utils::SetVulkanCheckpoint(VkCommandBuffer(commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer)), label);
 	}
 
 	void RenderCommandBuffer::RT_EndMarker()

@@ -11,7 +11,6 @@
 
 #include "Lux/Renderer/RendererAPI.h"
 
-#include "Lux/Platform/Vulkan/VulkanContext.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 
@@ -280,7 +279,6 @@ namespace Lux {
 		nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
 
 		m_DeviceManager = DeviceManager::Create(api, m_WindowHandle);
-		m_DeviceManager->SetWindowContext(this);
 
 		if (!m_DeviceManager->CreateDevice(deviceParams, m_Specification.Title.c_str()))
 		{
@@ -311,19 +309,6 @@ namespace Lux {
 		m_SwapChain = lnew VulkanSwapChain(m_WindowSurface);
 		m_SwapChain->Create(m_Data.Width, m_Data.Height);
 
-#if OLD
-		// Create Renderer Context
-		m_RendererContext = RendererContext::Create();
-		m_RendererContext->Init();
-
-		Ref<VulkanContext> context = m_RendererContext.As<VulkanContext>();
-
-		m_SwapChain = lnew VulkanSwapChain();
-		m_SwapChain->Init(VulkanContext::GetInstance(), context->GetDevice());
-		m_SwapChain->InitSurface(m_WindowHandle);
-
-		m_SwapChain->Create(&m_Data.Width, &m_Data.Height, m_Specification.VSync);
-#endif
 		//glfwMaximizeWindow(m_Window);
 		m_Data.Self = this;
 		glfwSetWindowUserPointer(m_WindowHandle, &m_Data);
@@ -524,7 +509,6 @@ namespace Lux {
 			m_WindowHandle = nullptr;
 		}
 
-		// m_RendererContext.As<VulkanContext>()->GetDevice()->Destroy(); // need to destroy the device _before_ windows window destructor destroys the renderer context (because device Destroy() asks for renderer context...)
 		glfwTerminate();
 		s_GLFWInitialized = false;
 	}

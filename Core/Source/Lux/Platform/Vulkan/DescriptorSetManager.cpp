@@ -6,8 +6,6 @@
 
 #include "Lux/Renderer/Renderer.h"
 
-#include "VulkanAPI.h"
-
 #include "Lux/Debug/Profiler.h"
 
 namespace Lux {

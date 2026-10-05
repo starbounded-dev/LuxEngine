@@ -10,8 +10,8 @@
 #include "ShaderPreprocessing/HlslIncluder.h"
 
 #include "Lux/Core/Hash.h"
-#include "Lux/Platform/Vulkan/VulkanContext.h"
 #include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Serialization/FileStream.h"
 #include "Lux/Utilities/StringUtils.h"
 #include "Lux/Utilities/FileSystem.h"

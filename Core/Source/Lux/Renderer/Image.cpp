@@ -32,13 +32,6 @@ namespace Lux {
 	void Image2D::Invalidate()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-#if INVESTIGATE
-		Ref<Image2D> instance = this;
-		Renderer::Submit([instance]() mutable
-			{
-				instance->RT_Invalidate();
-			});
-#endif
 
 		RT_Invalidate();
 	}
@@ -260,8 +253,6 @@ namespace Lux {
 			samplerDesc.mipBias = m_Specification.MipBias;
 
 			newSampler = device->createSampler(samplerDesc);
-
-			// VKUtils::SetDebugUtilsObjectName(device, VK_OBJECT_TYPE_SAMPLER, std::format("{} default sampler", m_Specification.DebugName), newSampler);
 		}
 
 		auto newAllocationSize = Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers);
@@ -317,34 +308,6 @@ namespace Lux {
 			tss.numArraySlices = 1;
 		}
 
-#if OLD
-		VkDevice device = VulkanContext::GetCurrentDevice()->GetVulkanDevice();
-
-		VkImageAspectFlags aspectMask = Utils::IsDepthFormat(m_Specification.Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-		if (m_Specification.Format == ImageFormat::DEPTH24STENCIL8)
-			aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-
-		const VkFormat vulkanFormat = Utils::VulkanImageFormat(m_Specification.Format);
-
-		m_PerLayerImageViews.resize(m_Specification.Layers);
-		for (uint32_t layer = 0; layer < m_Specification.Layers; layer++)
-		{
-			VkImageViewCreateInfo imageViewCreateInfo = {};
-			imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			imageViewCreateInfo.format = vulkanFormat;
-			imageViewCreateInfo.flags = 0;
-			imageViewCreateInfo.subresourceRange = {};
-			imageViewCreateInfo.subresourceRange.aspectMask = aspectMask;
-			imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-			imageViewCreateInfo.subresourceRange.levelCount = m_Specification.Mips;
-			imageViewCreateInfo.subresourceRange.baseArrayLayer = layer;
-			imageViewCreateInfo.subresourceRange.layerCount = 1;
-			imageViewCreateInfo.image = m_Info.Image;
-			VK_CHECK_RESULT(vkCreateImageView(device, &imageViewCreateInfo, nullptr, &m_PerLayerImageViews[layer]));
-			VKUtils::SetDebugUtilsObjectName(device, VK_OBJECT_TYPE_IMAGE_VIEW, std::format("{} image view layer: {}", m_Specification.DebugName, layer), m_PerLayerImageViews[layer]);
-		}
-#endif
 	}
 
 	nvrhi::TextureSubresourceSet Image2D::GetMipImageView(uint32_t mip)
@@ -491,91 +454,6 @@ namespace Lux {
 
 			device->unmapStagingTexture(stagingTexture);
 		}
-
-#if OLD
-		auto device = VulkanContext::GetCurrentDevice();
-		auto vulkanDevice = device->GetVulkanDevice();
-		VulkanAllocator allocator("Image2D");
-
-		uint64_t bufferSize = m_Specification.Width * m_Specification.Height * Utils::GetImageFormatBPP(m_Specification.Format);
-
-		// Create staging buffer
-		VkBufferCreateInfo bufferCreateInfo{};
-		bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferCreateInfo.size = bufferSize;
-		bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-		bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-#if MEM_INFO
-		VkMemoryRequirements memReqs;
-		vkGetImageMemoryRequirements(vulkanDevice, m_Info.Image, &memReqs);
-		HZ_CORE_WARN("MemReq = {} ({})", memReqs.size, memReqs.alignment);
-		HZ_CORE_WARN("Expected size = {}", bufferSize);
-#endif
-
-		VkBuffer stagingBuffer;
-		VmaAllocation stagingBufferAllocation = allocator.AllocateBuffer(bufferCreateInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, stagingBuffer);
-
-		uint32_t mipCount = 1;
-		uint32_t mipWidth = m_Specification.Width, mipHeight = m_Specification.Height;
-
-		VkCommandBuffer copyCmd = device->GetCommandBuffer(true);
-
-		VkImageSubresourceRange subresourceRange = {};
-		subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		subresourceRange.baseMipLevel = 0;
-		subresourceRange.levelCount = mipCount;
-		subresourceRange.layerCount = 1;
-
-		Utils::InsertImageMemoryBarrier(copyCmd, m_Info.Image,
-			VK_ACCESS_TRANSFER_READ_BIT, 0,
-			m_DescriptorImageInfo.imageLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-			subresourceRange);
-
-		uint64_t mipDataOffset = 0;
-		for (uint32_t mip = 0; mip < mipCount; mip++)
-		{
-			VkBufferImageCopy bufferCopyRegion = {};
-			bufferCopyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			bufferCopyRegion.imageSubresource.mipLevel = mip;
-			bufferCopyRegion.imageSubresource.baseArrayLayer = 0;
-			bufferCopyRegion.imageSubresource.layerCount = 1;
-			bufferCopyRegion.imageExtent.width = mipWidth;
-			bufferCopyRegion.imageExtent.height = mipHeight;
-			bufferCopyRegion.imageExtent.depth = 1;
-			bufferCopyRegion.bufferOffset = mipDataOffset;
-
-			vkCmdCopyImageToBuffer(
-				copyCmd,
-				m_Info.Image,
-				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				stagingBuffer,
-				1,
-				&bufferCopyRegion);
-
-			uint64_t mipDataSize = mipWidth * mipHeight * sizeof(float) * 4 * 6;
-			mipDataOffset += mipDataSize;
-			mipWidth /= 2;
-			mipHeight /= 2;
-		}
-
-		Utils::InsertImageMemoryBarrier(copyCmd, m_Info.Image,
-			VK_ACCESS_TRANSFER_READ_BIT, 0,
-			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_DescriptorImageInfo.imageLayout,
-			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-			subresourceRange);
-
-		device->FlushCommandBuffer(copyCmd);
-
-		// Copy data from staging buffer
-		uint8_t* srcData = allocator.MapMemory<uint8_t>(stagingBufferAllocation);
-		buffer.Allocate(bufferSize);
-		memcpy(buffer.Data, srcData, bufferSize);
-		allocator.UnmapMemory(stagingBufferAllocation);
-
-		allocator.DestroyBuffer(stagingBuffer, stagingBufferAllocation);
-#endif
 	}
 
 	ImageView::ImageView(const ImageViewSpecification& specification)

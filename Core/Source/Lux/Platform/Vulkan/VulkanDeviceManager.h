@@ -98,8 +98,6 @@ namespace Lux {
 			return nvrhi::GraphicsAPI::VULKAN;
 		}
 
-		bool EnumerateAdapters(std::vector<AdapterInfo>& outAdapters) override;
-
 		vk::Instance GetVulkanInstance() const { return m_VulkanInstance; }
 
 		[[nodiscard]] bool IsTransferQueueAvailable() const override { return m_TransferQueueAvailable; }
@@ -119,39 +117,6 @@ namespace Lux {
 		const char* GetRendererString() const override
 		{
 			return m_RendererString.c_str();
-		}
-
-		bool IsVulkanInstanceExtensionEnabled(const char* extensionName) const override
-		{
-			return enabledExtensions.instance.find(extensionName) != enabledExtensions.instance.end();
-		}
-
-		bool IsVulkanDeviceExtensionEnabled(const char* extensionName) const override
-		{
-			return enabledExtensions.device.find(extensionName) != enabledExtensions.device.end();
-		}
-
-		bool IsVulkanLayerEnabled(const char* layerName) const override
-		{
-			return enabledExtensions.layers.find(layerName) != enabledExtensions.layers.end();
-		}
-
-		void GetEnabledVulkanInstanceExtensions(std::vector<std::string>& extensions) const override
-		{
-			for (const auto& ext : enabledExtensions.instance)
-				extensions.push_back(ext);
-		}
-
-		void GetEnabledVulkanDeviceExtensions(std::vector<std::string>& extensions) const override
-		{
-			for (const auto& ext : enabledExtensions.device)
-				extensions.push_back(ext);
-		}
-
-		void GetEnabledVulkanLayers(std::vector<std::string>& layers) const override
-		{
-			for (const auto& ext : enabledExtensions.layers)
-				layers.push_back(ext);
 		}
 
 	private:

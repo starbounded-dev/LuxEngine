@@ -5,9 +5,6 @@
 
 #include "Lux/Core/Base.h"
 
-#include "Vulkan.h"
-#include "VulkanDevice.h"
-
 #include "nvrhi/nvrhi.h"
 
 #include <vulkan/vulkan.hpp>

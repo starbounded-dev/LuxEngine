@@ -54,9 +54,6 @@ project "Core"
 
 		"vendor/rapidyaml/ryml_all.hpp",
 		"vendor/rapidyaml/ryml.cpp",
-		
-		"vendor/VulkanMemoryAllocator/**.h",
-		"vendor/VulkanMemoryAllocator/**.cpp",
 
 		"vendor/imgui/misc/cpp/imgui_stdlib.cpp",
 		"vendor/imgui/misc/cpp/imgui_stdlib.h"

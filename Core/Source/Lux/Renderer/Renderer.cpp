@@ -17,9 +17,7 @@
 
 #include "Lux/Core/Timer.h"
 #include "Lux/Debug/Profiler.h"
-#include "Lux/Platform/Vulkan/VulkanContext.h"
 #include "Lux/Renderer/BindlessTextureTable.h"
-#include "Lux/Platform/Vulkan/VulkanRenderCommandBuffer.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Project/Project.h"
 
@@ -36,6 +34,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <shared_mutex>
@@ -57,152 +56,92 @@ namespace std {
 
 namespace Lux {
 
-	namespace Utils {
+	namespace {
 
-		static const char* VulkanVendorIDToString(uint32_t vendorID)
+		// Sum of device-local heap sizes (all heaps if none is device-local).
+		uint64_t GetDeviceLocalMemorySize()
 		{
-			switch (vendorID)
+			nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+			if (!device)
+				return 0;
+
+			VkPhysicalDevice physicalDevice = (VkPhysicalDevice)device->getNativeObject(nvrhi::ObjectTypes::VK_PhysicalDevice);
+			if (!physicalDevice)
+				return 0;
+
+			VkPhysicalDeviceMemoryProperties memoryProperties{};
+			vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+
+			uint64_t deviceLocalSize = 0;
+			uint64_t totalSize = 0;
+			for (uint32_t heap = 0; heap < memoryProperties.memoryHeapCount; heap++)
 			{
-			case 0x10DE: return "NVIDIA";
-			case 0x1002: return "AMD";
-			case 0x8086: return "INTEL";
-			case 0x13B5: return "ARM";
+				const VkMemoryHeap& memoryHeap = memoryProperties.memoryHeaps[heap];
+				totalSize += memoryHeap.size;
+				if (memoryHeap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+					deviceLocalSize += memoryHeap.size;
 			}
-			return "Unknown";
+
+			return deviceLocalSize > 0 ? deviceLocalSize : totalSize;
+		}
+
+		// Driver-reported device-local usage and budget (VK_EXT_memory_budget). Process-wide, so it
+		// includes everything NVRHI allocated. The physical-device query only needs the extension to
+		// be supported, not enabled on the device.
+		bool QueryDeviceLocalMemoryBudget(uint64_t& outUsed, uint64_t& outBudget)
+		{
+			nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+			if (!device)
+				return false;
+
+			VkPhysicalDevice physicalDevice = (VkPhysicalDevice)device->getNativeObject(nvrhi::ObjectTypes::VK_PhysicalDevice);
+			if (!physicalDevice)
+				return false;
+
+			static int s_MemoryBudgetSupport = -1; // -1 unknown, 0 no, 1 yes
+			if (s_MemoryBudgetSupport == -1)
+			{
+				s_MemoryBudgetSupport = 0;
+				uint32_t extensionCount = 0;
+				vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
+				std::vector<VkExtensionProperties> extensions(extensionCount);
+				vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, extensions.data());
+				for (const VkExtensionProperties& extension : extensions)
+				{
+					if (std::strcmp(extension.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0)
+					{
+						s_MemoryBudgetSupport = 1;
+						break;
+					}
+				}
+			}
+
+			if (s_MemoryBudgetSupport != 1)
+				return false;
+
+			VkPhysicalDeviceMemoryBudgetPropertiesEXT budgetProperties{};
+			budgetProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+
+			VkPhysicalDeviceMemoryProperties2 memoryProperties{};
+			memoryProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+			memoryProperties.pNext = &budgetProperties;
+			vkGetPhysicalDeviceMemoryProperties2(physicalDevice, &memoryProperties);
+
+			outUsed = 0;
+			outBudget = 0;
+			for (uint32_t heap = 0; heap < memoryProperties.memoryProperties.memoryHeapCount; heap++)
+			{
+				if ((memoryProperties.memoryProperties.memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0)
+					continue;
+
+				outUsed += budgetProperties.heapUsage[heap];
+				outBudget += budgetProperties.heapBudget[heap];
+			}
+
+			return outBudget > 0;
 		}
 
 	}
-
-	//general push-constant header for all mesh draws. Every mesh-draw shader used with the RenderMesh and variant calls must use this
-	struct MeshDrawPushConstants
-	{
-		uint32_t ObjectIndexBase = 0;   // Offset into object transforms SSBO
-		uint32_t LightIndex = 0;        // Light or cascade index for shadow draws, unused otherwise
-		uint32_t BoneTransformBase = 0; // Offset into bone transforms SSBO (unused in non-skeletal draws)
-		uint32_t BoneTransformStride = 0; // Bones per instance (unused in non-skeletal draws)
-	};
-
-	// RAII wrapper for mesh draw push constants with optional extended material data
-	struct MeshDrawPushConstantBuffer
-	{
-	private:
-		// Inline storage for push constants without a material buffer
-		MeshDrawPushConstants Header;
-
-		// Extended data pointer for material buffers larger than header
-		uint8_t* ExtendedData = nullptr;
-		uint64_t TotalSize = 0;
-
-	public:
-
-		MeshDrawPushConstantBuffer() : TotalSize(sizeof(MeshDrawPushConstants)) {}
-
-		// Copying is forbidden. Use moves
-		MeshDrawPushConstantBuffer(const MeshDrawPushConstantBuffer&) = delete;
-		MeshDrawPushConstantBuffer& operator=(const MeshDrawPushConstantBuffer&) = delete;
-
-		MeshDrawPushConstantBuffer(MeshDrawPushConstantBuffer&& other) noexcept
-			: Header(other.Header)
-			, ExtendedData(other.ExtendedData)
-			, TotalSize(other.TotalSize)
-		{
-			other.ExtendedData = nullptr;
-			other.TotalSize = sizeof(MeshDrawPushConstants);
-		}
-
-		MeshDrawPushConstantBuffer& operator=(MeshDrawPushConstantBuffer&& other) noexcept
-		{
-			Release();
-			Header = other.Header;
-			ExtendedData = other.ExtendedData;
-			TotalSize = other.TotalSize;
-			other.ExtendedData = nullptr;
-			other.TotalSize = sizeof(MeshDrawPushConstants);
-
-			return *this;
-		}
-
-		~MeshDrawPushConstantBuffer()
-		{
-			Release();
-		}
-
-		void Release()
-		{
-			if (ExtendedData)
-			{
-				delete[] ExtendedData;
-				ExtendedData = nullptr;
-			}
-			TotalSize = sizeof(MeshDrawPushConstants);
-		}
-
-		void CopyFromMaterialBuffer(const Buffer& materialBuffer)
-		{
-			Release();
-
-			if (!materialBuffer || materialBuffer.Size == 0)
-			{
-				TotalSize = sizeof(MeshDrawPushConstants);
-				return;
-			}
-
-			//Use header if the size is small. Allocate new buffer if it wont fit
-			if (materialBuffer.Size <= sizeof(MeshDrawPushConstants))
-			{
-				memcpy(&Header, materialBuffer.Data, materialBuffer.Size);
-				TotalSize = sizeof(MeshDrawPushConstants);
-			}
-			else
-			{
-				TotalSize = materialBuffer.Size;
-				ExtendedData = new uint8_t[TotalSize];
-
-				memcpy(ExtendedData, materialBuffer.Data, TotalSize);
-			}
-		}
-
-		void SetObjectIndexBase(uint32_t value)
-		{
-			if (ExtendedData)
-				reinterpret_cast<MeshDrawPushConstants*>(ExtendedData)->ObjectIndexBase = value;
-			else
-				Header.ObjectIndexBase = value;
-		}
-
-		void SetLightIndex(uint32_t value)
-		{
-			if (ExtendedData)
-				reinterpret_cast<MeshDrawPushConstants*>(ExtendedData)->LightIndex = value;
-			else
-				Header.LightIndex = value;
-		}
-
-		void SetBoneTransformBase(uint32_t value)
-		{
-			if (ExtendedData)
-				reinterpret_cast<MeshDrawPushConstants*>(ExtendedData)->BoneTransformBase = value;
-			else
-				Header.BoneTransformBase = value;
-		}
-
-		void SetBoneTransformStride(uint32_t value)
-		{
-			if (ExtendedData)
-				reinterpret_cast<MeshDrawPushConstants*>(ExtendedData)->BoneTransformStride = value;
-			else
-				Header.BoneTransformStride = value;
-		}
-
-		const void* GetData() const
-		{
-			return ExtendedData ? ExtendedData : reinterpret_cast<const void*>(&Header);
-		}
-
-		uint64_t GetSize() const { return TotalSize; }
-	};
-
-	static std::unordered_map<size_t, Ref<Pipeline>> s_PipelineCache;
 
 	// Cache of compute pipelines keyed by shader hash, shared across the whole
 	// process. Currently only the mip generator (LinearSample / LinearSampleUInt)
@@ -262,17 +201,6 @@ namespace Lux {
 
 		Ref<VertexBuffer> QuadVertexBuffer;
 		Ref<IndexBuffer> QuadIndexBuffer;
-		VulkanShader::ShaderMaterialDescriptorSet QuadDescriptorSet;
-
-		std::unordered_map<SceneRenderer*, std::vector<VulkanShader::ShaderMaterialDescriptorSet>> RendererDescriptorSet;
-		VkDescriptorSet ActiveRendererDescriptorSet = nullptr;
-		std::vector<VkDescriptorPool> DescriptorPools;
-		VkDescriptorPool MaterialDescriptorPool;
-		std::vector<uint32_t> DescriptorPoolAllocationCount;
-
-		// UniformBufferSet -> Shader Hash -> Frame -> WriteDescriptor
-		std::unordered_map<UniformBufferSet*, std::unordered_map<uint64_t, std::vector<std::vector<VkWriteDescriptorSet>>>> UniformBufferWriteDescriptorCache;
-		std::unordered_map<StorageBufferSet*, std::unordered_map<uint64_t, std::vector<std::vector<VkWriteDescriptorSet>>>> StorageBufferWriteDescriptorCache;
 
 		// Default samplers
 		Ref<Sampler> SamplerClamp = nullptr;
@@ -672,20 +600,6 @@ namespace Lux {
 			delete[] data;
 
 		}
-
-		// From VulkanRenderer::Init()
-		const auto& config = Renderer::GetConfig();
-		s_RendererData->DescriptorPools.resize(config.FramesInFlight);
-		s_RendererData->DescriptorPoolAllocationCount.resize(config.FramesInFlight);
-
-		auto& caps = s_RendererData->RenderCaps;
-
-		// TODO(Yan):
-		// auto& properties = VulkanContext::GetCurrentDevice()->GetPhysicalDevice()->GetProperties();
-		// Application::Get().GetWindow().GetDeviceManager();
-		// caps.Vendor = Utils::VulkanVendorIDToString(properties.vendorID);
-		// caps.Device = properties.deviceName;
-		// caps.Version = std::to_string(properties.driverVersion);
 
 		Utils::DumpGPUInfo();
 
@@ -1575,133 +1489,6 @@ namespace Lux {
 		return Ref<Environment>::Create(radianceMap, irradianceMap);
 	}
 
-#if 0
-	void Renderer::RT_BindMeshBuffers(nvrhi::GraphicsState& graphicsState, Ref<MeshSource> meshSource, bool bindBoneInfluences)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		nvrhi::VertexBufferBinding vertexBufferBinding;
-		vertexBufferBinding.buffer = meshSource->GetVertexBuffer()->GetHandle();
-		vertexBufferBinding.slot = 0;
-		vertexBufferBinding.offset = 0;
-
-		if (bindBoneInfluences)
-		{
-			nvrhi::VertexBufferBinding boneInfluenceBufferBinding;
-			boneInfluenceBufferBinding.buffer = meshSource->GetBoneInfluenceBuffer()->GetHandle();
-			boneInfluenceBufferBinding.slot = 1;
-			boneInfluenceBufferBinding.offset = 0;
-			graphicsState.vertexBuffers = { vertexBufferBinding, boneInfluenceBufferBinding };
-		}
-		else
-		{
-			graphicsState.vertexBuffers = { vertexBufferBinding };
-		}
-
-		nvrhi::IndexBufferBinding indexBufferBinding;
-		indexBufferBinding.buffer = meshSource->GetIndexBuffer()->GetHandle();
-		indexBufferBinding.format = nvrhi::Format::R32_UINT;
-		indexBufferBinding.offset = 0;
-		graphicsState.indexBuffer = indexBufferBinding;
-	}
-
-	void Renderer::RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		HZ_CORE_ASSERT(drawCmd.MeshSource);
-		HZ_CORE_ASSERT(drawCmd.MaterialTable);
-
-		Renderer::Submit([renderCommandBuffer, pipeline, drawCmd]() mutable
-			{
-				HZ_PROFILE_FUNC("Renderer::RenderMesh");
-				HZ_SCOPE_PERF("Renderer::RenderMesh");
-
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
-
-				const auto& submeshes = drawCmd.MeshSource->GetSubmeshes();
-				const Submesh& submesh = submeshes[drawCmd.SubmeshIndex];
-
-				RT_BindMeshBuffers(graphicsState, drawCmd.MeshSource, drawCmd.IsRigged);
-
-				auto& meshMaterialTable = drawCmd.MeshSource->GetMaterials();
-				AssetHandle materialHandle = drawCmd.MaterialTable->HasMaterial(submesh.MaterialIndex) ? drawCmd.MaterialTable->GetMaterial(submesh.MaterialIndex) : meshMaterialTable[submesh.MaterialIndex];
-				Ref<MaterialAsset> materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
-				materialAsset->UpdateMaterialComplexityMetadata();
-				Ref<Material> material = materialAsset->GetMaterial();
-
-				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
-
-				renderCommandBuffer->RT_CommitGraphicsState();
-
-				MeshDrawPushConstantBuffer pushConstants;
-				pushConstants.CopyFromMaterialBuffer(material->GetUniformStorageBuffer());
-				pushConstants.SetObjectIndexBase(drawCmd.ObjectIndexBase);
-				if (drawCmd.IsRigged)
-				{
-					pushConstants.SetBoneTransformBase(drawCmd.BoneTransformsOffset);
-					pushConstants.SetBoneTransformStride(drawCmd.BoneTransformsStride);
-				}
-				commandList->setPushConstants(pushConstants.GetData(), pushConstants.GetSize());
-
-				nvrhi::DrawArguments drawArgs{};
-				drawArgs.vertexCount = submesh.IndexCount;
-				drawArgs.startIndexLocation = submesh.BaseIndex;
-				drawArgs.startVertexLocation = submesh.BaseVertex;
-				drawArgs.instanceCount = drawCmd.InstanceCount;
-				commandList->drawIndexed(drawArgs);
-
-				s_Data->DrawCallCount++;
-				s_Data->DrawInstanceCount += drawCmd.InstanceCount;
-			});
-	}
-
-	void Renderer::RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd, Ref<Material> material, int32_t lightIndex)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		HZ_CORE_ASSERT(drawCmd.MeshSource);
-		HZ_CORE_ASSERT(material);
-
-		Renderer::Submit([renderCommandBuffer, pipeline, drawCmd, material, lightIndex]() mutable
-			{
-				HZ_PROFILE_FUNC("Renderer::RenderMesh(WithMaterial)");
-				HZ_SCOPE_PERF("Renderer::RenderMesh(WithMaterial)");
-
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
-
-				const auto& submeshes = drawCmd.MeshSource->GetSubmeshes();
-				const Submesh& submesh = submeshes[drawCmd.SubmeshIndex];
-				bool isRigged = drawCmd.IsRigged;
-
-				RT_BindMeshBuffers(graphicsState, drawCmd.MeshSource, isRigged);
-
-				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
-
-				renderCommandBuffer->RT_CommitGraphicsState();
-
-				MeshDrawPushConstantBuffer pushConstants;
-				pushConstants.CopyFromMaterialBuffer(material->GetUniformStorageBuffer());
-				pushConstants.SetObjectIndexBase(drawCmd.ObjectIndexBase);
-				pushConstants.SetLightIndex(lightIndex);
-				if (isRigged)
-				{
-					pushConstants.SetBoneTransformBase(drawCmd.BoneTransformsOffset);
-					pushConstants.SetBoneTransformStride(drawCmd.BoneTransformsStride);
-				}
-				commandList->setPushConstants(pushConstants.GetData(), pushConstants.GetSize());
-
-				nvrhi::DrawArguments drawArgs{};
-				drawArgs.vertexCount = submesh.IndexCount;
-				drawArgs.startIndexLocation = submesh.BaseIndex;
-				drawArgs.startVertexLocation = submesh.BaseVertex;
-				drawArgs.instanceCount = drawCmd.InstanceCount;
-				commandList->drawIndexed(drawArgs);
-
-				s_Data->DrawCallCount++;
-				s_Data->DrawInstanceCount += drawCmd.InstanceCount;
-			});
-	}
-#endif
 	void Renderer::RenderQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, const glm::mat4& transform)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -2195,7 +1982,20 @@ namespace Lux {
 	GPUMemoryStats Renderer::GetGPUMemoryStats()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		return VulkanAllocator::GetStats();
+		// NVRHI owns every allocation, so per-allocation counts aren't tracked; only the driver's
+		// usage and budget are reported.
+		GPUMemoryStats result;
+		uint64_t used = 0, budget = 0;
+		if (QueryDeviceLocalMemoryBudget(used, budget))
+		{
+			result.Used = used;
+			result.TotalAvailable = budget;
+		}
+		else
+		{
+			result.TotalAvailable = GetDeviceLocalMemorySize();
+		}
+		return result;
 	}
 
 	Ref<Sampler> Renderer::GetClampSampler()

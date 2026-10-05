@@ -187,9 +187,9 @@ Check in this order; stop at the first hit.
    expands into per-fragment scratch copies on RADV and can time out the GPU.
    `python3 tests/rendering/run_shadow_shader.py` checks deferred lighting for exactly that; use it
    as the template for similar checks.
-5. **Nsight Aftermath is not active.** Its sources exist (`Platform/Vulkan/Debug/`,
-   `VulkanDevice.cpp`), but that device path is the legacy one under `#if OLD` in `Window.cpp`; the
-   live nvrhi device is created in `VulkanDeviceManager::CreateDevice` without it. Do not wait for
+5. **Nsight Aftermath is not active.** Its sources exist (`Platform/Vulkan/Debug/`), but the code
+   that enabled it lived in the legacy `VulkanDevice.cpp`, deleted in NRI-plan Phase 1 (last present
+   in `bf8e6c90`); the live device is created in `VulkanDeviceManager::CreateDevice` without it. Do not wait for
    an `.nv-gpudmp` file. GPU-assisted validation is not wired either. A fault the validation layer
    cannot see needs one of those wired in first — say so rather than guessing.
 6. The validation layer's slowdown can hide timing-sensitive faults. A clean validated run is not

@@ -12,7 +12,6 @@
 
 #include "Lux/Renderer/Renderer.h"
 
-#include "Lux/Platform/Vulkan/VulkanImGuiLayer.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 

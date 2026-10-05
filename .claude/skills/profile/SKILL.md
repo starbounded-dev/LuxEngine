@@ -111,8 +111,8 @@ high → look at total scene GPU time (`SceneRenderer::Statistics::TotalGPUTime`
 `RenderCommandBuffer::GetExecutionGPUTime`) versus the frame time to split render-thread CPU from
 GPU.
 
-`UpdateMemoryStatistics` deliberately does not run every frame (it walks every VMA allocation), so
-memory numbers lag.
+`UpdateMemoryStatistics` deliberately does not run every frame (it queries the driver memory budget
+and walks the render-graph alias plan), so memory numbers lag.
 
 ### 3b. Tracy (CPU timeline + GPU zones)
 

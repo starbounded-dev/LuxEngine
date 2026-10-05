@@ -13,7 +13,6 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Hash.h"
 #include "Lux/ImGui/ImGuiCore.h"
-#include "Lux/Platform/Vulkan/VulkanContext.h"
 #include "Lux/Renderer/BindlessTextureTable.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/StringUtils.h"
@@ -38,47 +37,7 @@ namespace Lux {
 	void VulkanShader::Release()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		auto& pipelineCIs = m_PipelineShaderStageCreateInfos;
-		Renderer::SubmitResourceFree([pipelineCIs]()
-		{
-			auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
-			if (!deviceManager || !deviceManager->GetDevice())
-				return;
-
-			VkDevice vulkanDevice = (VkDevice)deviceManager->GetDevice()->getNativeObject(nvrhi::ObjectTypes::VK_Device);
-
-			for (const auto& ci : pipelineCIs)
-				if (ci.module)
-					vkDestroyShaderModule(vulkanDevice, ci.module, nullptr);
-		});
-
-		for (auto& ci : pipelineCIs)
-			ci.module = nullptr;
-
-		m_PipelineShaderStageCreateInfos.clear();
 		m_DescriptorSetLayouts.resize(0);
-		m_TypeCounts.clear();
-	}
-
-	VulkanShader::~VulkanShader()
-	{
-		// Capture the shader-module handles by value — never Ref(this). The object is already being
-		// destroyed, so resurrecting it with a Ref bumps the refcount 0->1; the deferred free then
-		// runs (during Renderer::Shutdown) on freed memory and deletes the shader a SECOND time when
-		// that Ref dies -> the heap corruption / double-free of the member maps seen at shutdown.
-		// Match Release()'s by-value capture.
-		auto& pipelineCIs = m_PipelineShaderStageCreateInfos;
-		Renderer::SubmitResourceFree([pipelineCIs]()
-			{
-				auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
-				if (!deviceManager || !deviceManager->GetDevice())
-					return;
-
-				VkDevice device = (VkDevice)deviceManager->GetDevice()->getNativeObject(nvrhi::ObjectTypes::VK_Device);
-				for (const auto& ci : pipelineCIs)
-					if (ci.module)
-						vkDestroyShaderModule(device, ci.module, nullptr);
-			});
 	}
 
 	void VulkanShader::RT_Reload(const bool forceCompile)

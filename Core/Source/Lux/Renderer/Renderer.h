@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include "RendererContext.h"
 #include "RenderCommandQueue.h"
 #include "RenderCommandBuffer.h"
 #include "Pipeline.h"
@@ -70,11 +69,6 @@ namespace Lux {
 	{
 	public:
 		typedef void(*RenderCommandFn)(void*);
-
-		static Ref<RendererContext> GetContext()
-		{
-			return Application::Get().GetWindow().GetRenderContext();
-		}
 
 		static void Init();
 		static void Shutdown();
@@ -225,14 +219,6 @@ namespace Lux {
 		static std::pair<Ref<TextureCube>, Ref<TextureCube>> CreateEnvironmentMap(Ref<Texture2D> equirectangularTexture);
 		static Ref<TextureCube> CreatePreethamSky(float turbidity, float azimuth, float inclination);
 		static Ref<Environment> CreatePreethamSkyEnvironment(float turbidity, float azimuth, float inclination);
-		
-		// Renders a mesh using material from MaterialTable lookup
-		// Use for geometry passes where materials come from the mesh's material table
-		static void RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd);
-
-		// Renders a mesh with an explicit material override
-		// Use for shadow passes, pre-depth, selection, wireframe, etc.
-		static void RenderMesh(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, const MeshDrawCommand& drawCmd, Ref<Material> material, int32_t lightIndex = -1);
 
 		static void RenderQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, const glm::mat4& transform);
 		static void SubmitFullscreenQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material);
@@ -307,9 +293,6 @@ namespace Lux {
 		static int GetInstanceCount();
 	private:
 		static RenderCommandQueue& GetRenderCommandQueue();
-
-		// Internal helper for binding mesh vertex/index buffers (render thread only)
-		//static void RT_BindMeshBuffers(nvrhi::GraphicsState& graphicsState, Ref<MeshSource> meshSource, bool bindBoneInfluences);
 	};
 
 	namespace Utils {

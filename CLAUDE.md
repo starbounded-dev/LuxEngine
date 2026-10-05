@@ -201,7 +201,7 @@ premake5.lua           # Workspace definition
 - `SceneRenderer` is the main high-level renderer. It owns and drives the `RenderGraph`.
 - `RenderGraph` manages passes, scratch-resource reuse, and compile caching. Passes are skipped (zero cost) when their feature is off.
 - The pipeline is deferred PBR with a G-buffer, clustered (froxel) light culling, and a separate forward pass for transparents.
-- The Vulkan backend lives in `Core/Source/Lux/Platform/Vulkan/`. All renderer API types (`Shader`, `Texture`, `Pipeline`, etc.) are abstract; their Vulkan implementations are in that folder.
+- Renderer types (`Texture`, `Image`, `Pipeline`, buffers) are concrete classes over nvrhi handles. `Core/Source/Lux/Platform/Vulkan/` holds only the backend pieces nvrhi does not provide: `VulkanDeviceManager` (instance, device, queues), `VulkanSwapChain`, `VulkanShader` + `ShaderCompiler/`, `DescriptorSetManager`, and the Aftermath `Debug/` sources.
 - `Renderer2D` provides a 2D batch renderer (quads, circles, lines, MSDF text).
 - Shader hot-reload and SPIR-V reflection caching are handled by `VulkanShaderCompiler` / `VulkanShaderCache`.
 - On Linux, HLSL shaders are compiled by shelling out to `dxc`. `HlslIncluder.cpp` is excluded from Linux builds.

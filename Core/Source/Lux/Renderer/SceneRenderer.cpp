@@ -3472,8 +3472,8 @@ namespace Lux {
 	void SceneRenderer::UpdateMemoryStatistics()
 	{
 		// Memory statistics are display-only (Render Stats / Renderer Debugger panels) and
-		// are gathered with a full VMA allocation walk (vmaCalculateStats) plus a render-graph
-		// alias-plan pass — far too heavy to run every frame for numbers that change slowly.
+		// are gathered with a driver memory-budget query plus a render-graph alias-plan
+		// pass — too heavy to run every frame for numbers that change slowly.
 		// Refresh a few times per second and keep the previous values in between.
 		if (m_MemoryStatsCountdown > 0)
 		{

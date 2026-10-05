@@ -134,12 +134,6 @@ namespace Lux {
 	PipelineCompute::PipelineCompute(Ref<Shader> computeShader)
 		: m_Shader(computeShader)
 	{
-		// Ref<PipelineCompute> instance = this;
-		// Renderer::Submit([instance]() mutable
-		// {
-		// 	instance->RT_CreatePipeline();
-		// });
-
 		RT_CreatePipeline();
 		Renderer::RegisterShaderDependency(computeShader, this);
 	}
@@ -156,26 +150,6 @@ namespace Lux {
 
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 		m_Handle = device->createComputePipeline(desc);
-
-		m_CommandList = RenderCommandBuffer::Create(1, "PipelineCompute");
-	}
-
-	void PipelineCompute::Begin(Ref<RenderCommandBuffer> renderCommandBuffer)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-
-	}
-
-	void PipelineCompute::RT_Begin(Ref<RenderCommandBuffer> renderCommandBuffer)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-
-	}
-
-	void PipelineCompute::End()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-
 	}
 
 	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)
@@ -256,28 +230,6 @@ namespace Lux {
 				commandList->commitBarriers();
 				renderCommandBuffer->RT_EndMarker();
 			});
-	}
-
-	void PipelineCompute::Execute(void* descriptorSets, uint32_t descriptorSetCount, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-
-		nvrhi::ComputeState computeState;
-		computeState.pipeline = m_Handle;
-
-		m_CommandList->RT_Begin();
-		m_CommandList->GetActive()->setComputeState(computeState);
-		m_CommandList->GetActive()->dispatch(groupCountX, groupCountY, groupCountZ);
-
-		m_CommandList->RT_End();
-		m_CommandList->RT_Submit();
-	}
-
-	void PipelineCompute::SetPushConstants(Buffer constants) const
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-
 	}
 
 	void PipelineCompute::CreatePipeline()

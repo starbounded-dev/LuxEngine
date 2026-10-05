@@ -175,7 +175,7 @@ per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.
 ### 2.2 Window / Platform
 
 `Window` (`Core/Source/Lux/Core/Window.h`) is created via `Window::Create(WindowSpecification)` and
-owns the GLFW window, the `RendererContext`, and the `DeviceManager`.
+owns the GLFW window, the `DeviceManager`, and the `VulkanSwapChain`.
 `Application::GetGraphicsDeviceManager()` / `GetGraphicsDevice()` are the shortcuts to the nvrhi
 device.
 
@@ -1226,7 +1226,7 @@ luxengine/
 │   │       └── Embed/             # LuxIcon.embed
 │   ├── Platform/{Windows,Linux}/  # Per-platform FileSystem / Thread / RenderThread
 │   └── vendor/                    # Box2D, JoltPhysics, GLFW, imgui, nvrhi, Coral, tracy,
-│                                  #   msdf-atlas-gen, NFD-Extended, rapidyaml, VMA, FastNoise, …
+│                                  #   msdf-atlas-gen, NFD-Extended, rapidyaml, FastNoise, …
 ├── ScriptCore/                    # C# scripting assembly (.NET 9)
 ├── Editor/
 │   ├── Source/                    # EditorLayer, LuxEditorApp, Panels/, Viewport/
