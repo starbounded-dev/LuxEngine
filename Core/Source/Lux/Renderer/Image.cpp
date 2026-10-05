@@ -437,7 +437,7 @@ namespace Lux {
 			void* data = device->mapStagingTexture(stagingTexture, textureSlice, nvrhi::CpuAccessMode::Read, &rowPitch);
 			if (!data)
 			{
-				device->unmapStagingTexture(stagingTexture);
+				// Nothing is mapped, so there is nothing to unmap.
 				buffer.Release();
 				return;
 			}

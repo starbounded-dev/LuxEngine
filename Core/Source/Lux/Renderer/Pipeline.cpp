@@ -40,6 +40,7 @@ namespace Lux {
 			{
 			case PrimitiveTopology::Points:			return nvrhi::PrimitiveType::PointList;
 			case PrimitiveTopology::Lines:			return nvrhi::PrimitiveType::LineList;
+			case PrimitiveTopology::LineStrip:		return nvrhi::PrimitiveType::LineStrip;
 			case PrimitiveTopology::Triangles:		return nvrhi::PrimitiveType::TriangleList;
 			case PrimitiveTopology::TriangleStrip:	return nvrhi::PrimitiveType::TriangleStrip;
 			case PrimitiveTopology::TriangleFan:	return nvrhi::PrimitiveType::TriangleFan;
