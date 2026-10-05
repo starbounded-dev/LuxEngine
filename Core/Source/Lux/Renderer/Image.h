@@ -436,6 +436,14 @@ namespace Lux {
 			return width * GetImageFormatBPP(format);
 		}
 
+		// Rows as laid out in memory: rows of 4x4 blocks for block-compressed formats.
+		inline uint32_t GetImageMemoryRowCount(ImageFormat format, uint32_t height)
+		{
+			if (IsBlockCompressed(format))
+				return glm::max(1u, (height + 3u) / 4u);
+			return height;
+		}
+
 		inline bool IsDepthFormat(ImageFormat format)
 		{
 			if (format == ImageFormat::DEPTH24STENCIL8 || format == ImageFormat::DEPTH32F || format == ImageFormat::DEPTH32FSTENCIL8UINT)

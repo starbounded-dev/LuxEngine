@@ -320,6 +320,12 @@ namespace Lux {
 		if (!image)
 			return;
 
+		// The cache file stores 8-bit RGBA. A .dds (block-compressed) or float source reads back
+		// in its own layout, so it would be misread or over-read; those stay in memory only.
+		const ImageFormat format = image->GetFormat();
+		if (format != ImageFormat::RGBA && format != ImageFormat::SRGBA)
+			return;
+
 		// Texture2D::CopyToHostBuffer reads pixels back from GPU into a Buffer.
 		// This is the correct API - GetRawData does not exist on Texture2D.
 		Buffer pixelData;
@@ -333,6 +339,9 @@ namespace Lux {
 
 	void ThumbnailCache::WritePixelsToDisk(AssetHandle assetHandle, const Buffer& pixels, uint32_t width, uint32_t height, uint64_t timestamp)
 	{
+		if (!pixels || pixels.Size < (uint64_t)width * height * 4)
+			return;
+
 		EnsureCacheDirectoryExists();
 		auto filepath = GetCacheFilePath(assetHandle);
 

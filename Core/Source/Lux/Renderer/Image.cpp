@@ -425,8 +425,11 @@ namespace Lux {
 		m_CommandList->RT_End();
 		m_CommandList->RT_Submit();
 
-		uint64_t bufferSize = m_Specification.Width * m_Specification.Height * Utils::GetImageFormatBPP(m_Specification.Format);
-		buffer.Allocate(bufferSize);
+		// Row pitch and row count, not width x height x BPP: BPP is 0 for block-compressed
+		// formats, which made every BC texture read back as an empty buffer.
+		const uint64_t rowSize = Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width);
+		const uint32_t rowCount = Utils::GetImageMemoryRowCount(m_Specification.Format, m_Specification.Height);
+		buffer.Allocate(rowSize * rowCount);
 		for (uint32_t mip = 0; mip < mipCount; mip++)
 		{
 			textureSlice.mipLevel = mip;
@@ -439,7 +442,6 @@ namespace Lux {
 				return;
 			}
 
-			const uint64_t rowSize = m_Specification.Width * Utils::GetImageFormatBPP(m_Specification.Format);
 			if (rowPitch == rowSize)
 			{
 				memcpy(buffer.Data, data, buffer.Size);
@@ -448,7 +450,7 @@ namespace Lux {
 			{
 				byte* dst = static_cast<byte*>(buffer.Data);
 				const byte* src = static_cast<const byte*>(data);
-				for (uint32_t y = 0; y < m_Specification.Height; y++)
+				for (uint32_t y = 0; y < rowCount; y++)
 					memcpy(dst + y * rowSize, src + y * rowPitch, rowSize);
 			}
 
