@@ -342,7 +342,15 @@ namespace Lux {
 	constexpr static uint32_t s_RenderCommandQueueCount = 2;
 	static RenderCommandQueue* s_CommandQueue[s_RenderCommandQueueCount];
 	static std::atomic<uint32_t> s_RenderCommandQueueSubmissionIndex = 0;
-	static RenderCommandQueue s_ResourceFreeQueue[3];
+	// SubmitResourceFree slots, render thread only. A frame appends to the current slot; at the
+	// next frame start the slot is closed behind a graphics-queue event and the ring advances.
+	// A slot runs when it comes round again, after its event signals: NVRHI does not keep
+	// descriptor tables alive from command lists, so time alone is not enough. Not indexed by
+	// the back-buffer index, which is not sequential under MAILBOX and can exceed the ring.
+	constexpr static uint32_t s_ResourceFreeSlotCount = 3;
+	static RenderCommandQueue s_ResourceFreeQueue[s_ResourceFreeSlotCount];
+	static nvrhi::EventQueryHandle s_ResourceFreeSlotRetired[s_ResourceFreeSlotCount];
+	static uint32_t s_ResourceFreeSlot = 0;
 
 	// Work submitted from background threads (e.g. the asset worker) is parked here and replayed on the
 	// main thread, since the render command queue is single-producer. See Renderer::Submit.
@@ -690,10 +698,10 @@ namespace Lux {
 		}
 
 		// Resource release queue
-		for (uint32_t i = 0; i < s_Config.FramesInFlight; i++)
+		for (uint32_t i = 0; i < s_ResourceFreeSlotCount; i++)
 		{
-			auto& queue = Renderer::GetRenderResourceReleaseQueue(i);
-			queue.Execute();
+			s_ResourceFreeQueue[i].Execute();
+			s_ResourceFreeSlotRetired[i] = nullptr;
 		}
 
 		if (graphicsDevice)
@@ -1868,10 +1876,36 @@ namespace Lux {
 		return *s_CommandQueue[s_RenderCommandQueueSubmissionIndex];
 	}
 
-	RenderCommandQueue& Renderer::GetRenderResourceReleaseQueue(uint32_t index)
+	RenderCommandQueue& Renderer::RT_GetResourceReleaseQueue()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		return s_ResourceFreeQueue[index];
+		return s_ResourceFreeQueue[s_ResourceFreeSlot];
+	}
+
+	void Renderer::RT_ReleaseRetiredResources()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+
+		// Close this slot: everything submitted so far, which is everything that could still
+		// reference what it releases. The lock keeps the event in order with other threads'
+		// submissions, as in VulkanSwapChain::Present.
+		nvrhi::EventQueryHandle& closing = s_ResourceFreeSlotRetired[s_ResourceFreeSlot];
+		if (!closing)
+			closing = device->createEventQuery();
+		RenderCommandBuffer::LockQueue();
+		device->resetEventQuery(closing);
+		device->setEventQuery(closing, nvrhi::CommandQueue::Graphics);
+		RenderCommandBuffer::UnlockQueue();
+
+		s_ResourceFreeSlot = (s_ResourceFreeSlot + 1) % s_ResourceFreeSlotCount;
+
+		// The oldest slot was closed two frames ago and Present() keeps at most two frames on the
+		// GPU, so this wait normally returns at once. It only blocks after frames that skipped
+		// Present()'s pacing (a failed acquire).
+		if (const nvrhi::EventQueryHandle& oldest = s_ResourceFreeSlotRetired[s_ResourceFreeSlot])
+			device->waitEventQuery(oldest);
+		s_ResourceFreeQueue[s_ResourceFreeSlot].Execute();
 	}
 
 

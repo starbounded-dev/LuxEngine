@@ -107,15 +107,18 @@ If you need a pipeline variant per frame, you actually need a **permutation** �
 
 ---
 
-## Invariant 3 — GPU resources are freed through the frame-indexed release queue
+## Invariant 3 — GPU resources are freed through the release queue
 
-`FramesInFlight` defaults to **3** (`Renderer/RendererConfig.h`). A resource still referenced by an
-in-flight command buffer must not be destroyed when the CPU drops its last `Ref`.
+A resource still referenced by an in-flight command buffer must not be destroyed when the CPU drops
+its last `Ref`. NVRHI's own reference tracking covers most handles, but **not descriptor tables**:
+command lists do not keep a `DescriptorTable` alive, so those must be deferred by hand.
 
-Use `Renderer::SubmitResourceFree(lambda)`. It allocates into
-`Renderer::GetRenderResourceReleaseQueue(frameIndex)` for the *current* frame index, so the
-destruction runs only once the GPU has finished that frame. It mirrors `Renderer::Submit`'s
-thread branching: inline-allocate when already on the render thread, otherwise defer via `Submit`.
+Use `Renderer::SubmitResourceFree(lambda)`. The lambda is queued on the render thread into the
+release slot that is current at that point in the command stream (it mirrors `Renderer::Submit`'s
+thread branching). `Renderer::RT_ReleaseRetiredResources()` runs once per frame, right after the
+swapchain acquire in `Application::Run`: it closes the current slot behind a graphics-queue event
+query and runs the oldest of three slots once its event has signalled. Slots are a ring of their
+own, not the back-buffer index, which is not sequential under MAILBOX and can exceed three.
 
 Never call `delete`, `nvrhi` `Handle` reset, or a Vulkan destroy directly from main-thread code that
 could still be referenced this frame.

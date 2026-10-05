@@ -160,18 +160,19 @@ namespace Lux {
 				pFunc->~FuncT();
 				};
 
+			// The slot is always picked on the render thread, at the point in the command stream
+			// where the resource stops being used, so it is closed only after every submission that
+			// could still reference it (see RT_ReleaseRetiredResources).
 			if (RenderThread::IsCurrentThreadRT())
 			{
-				const uint32_t index = Renderer::RT_GetCurrentFrameIndex();
-				auto storageBuffer = GetRenderResourceReleaseQueue(index).Allocate(renderCmd, sizeof(func));
+				auto storageBuffer = RT_GetResourceReleaseQueue().Allocate(renderCmd, sizeof(func));
 				new (storageBuffer) FuncT(std::forward<FuncT>((FuncT&&)func));
 			}
 			else
 			{
-				const uint32_t index = Renderer::GetCurrentFrameIndex();
-				Submit([renderCmd, func, index]()
+				Submit([renderCmd, func]()
 					{
-						auto storageBuffer = GetRenderResourceReleaseQueue(index).Allocate(renderCmd, sizeof(func));
+						auto storageBuffer = RT_GetResourceReleaseQueue().Allocate(renderCmd, sizeof(func));
 						new (storageBuffer) FuncT(std::forward<FuncT>((FuncT&&)func));
 					});
 			}
@@ -269,7 +270,11 @@ namespace Lux {
 		// True when the active graphics device exposes variable-rate fragment shading.
 		static bool SupportsVariableRateShading();
 
-		static RenderCommandQueue& GetRenderResourceReleaseQueue(uint32_t index);
+		// Render thread. The release queue SubmitResourceFree appends to this frame.
+		static RenderCommandQueue& RT_GetResourceReleaseQueue();
+		// Render thread, once per frame before any rendering: closes this frame's release slot
+		// behind a GPU event and runs the oldest slot once its event has signalled.
+		static void RT_ReleaseRetiredResources();
 
 		// Add known macro from shader.
 		static const std::unordered_map<std::string, std::string>& GetGlobalShaderMacros();

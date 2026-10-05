@@ -257,6 +257,7 @@ namespace Lux {
 				Renderer::Submit([&]()
 					{
 						m_Window->BeginFrame();
+						Renderer::RT_ReleaseRetiredResources();
 					});
 
 				Renderer::BeginFrame();

@@ -108,9 +108,12 @@ Why each branch exists:
 **Do not "optimise" this into a single unconditional queue write.** Each branch is load-bearing, and
 the failure mode of getting it wrong is a corrupted command buffer, not a clean crash.
 
-`Renderer::SubmitResourceFree` mirrors the same logic against the per-frame-index resource release
-queue (`GetRenderResourceReleaseQueue(index)`), so a resource freed mid-frame is destroyed only once
-the GPU is done with that frame index.
+`Renderer::SubmitResourceFree` mirrors the same branching, but the release always lands on the
+render thread, in the slot current at that point in the command stream
+(`RT_GetResourceReleaseQueue()`). `RT_ReleaseRetiredResources()`, run at the start of every
+render-thread frame, closes that slot behind a graphics-queue event query and runs the oldest slot
+once its event has signalled, so a release never runs while a submission that could reference the
+resource is still on the GPU.
 
 ### The `RT_` prefix
 
