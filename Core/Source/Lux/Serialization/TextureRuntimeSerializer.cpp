@@ -19,17 +19,7 @@ namespace Lux {
 
 		uint64_t startPosition = stream.GetStreamPosition();
 
-		// Wait for one second
-		for (int i = 0; i < 1; i++)
-		{
-			//if (vulkanTextureCube->GetVulkanDescriptorInfo().imageView)
-			//	break;
-
-			using namespace std::chrono_literals;
-			std::this_thread::sleep_for(1000ms);
-			LUX_CORE_WARN("Waiting for env map...");
-		}
-
+		// CopyToHostBuffer waits for the GPU copy itself; no settle delay is needed.
 		Buffer buffer;
 		textureCube->CopyToHostBuffer(buffer);
 
@@ -37,7 +27,9 @@ namespace Lux {
 		metadata.Width = textureCube->GetWidth();
 		metadata.Height = textureCube->GetHeight();
 		metadata.Format = (uint16_t)textureCube->GetFormat();
-		metadata.Mips = textureCube->GetMipLevelCount();
+		// The image's real mip count, which is what the buffer holds. GetMipLevelCount() is the
+		// full chain even for a cube created without mips.
+		metadata.Mips = (uint8_t)textureCube->GetImage()->GetSpecification().Mips;
 
 		stream.WriteRaw(metadata);
 		stream.WriteBuffer(buffer);
@@ -67,9 +59,13 @@ namespace Lux {
 		spec.Width = metadata.Width;
 		spec.Height = metadata.Height;
 		spec.Format = (ImageFormat)metadata.Format;
+		// A single stored mip means the source had no chain; match it instead of leaving the
+		// rest of a full chain undefined.
+		spec.GenerateMips = metadata.Mips > 1;
 
 		Ref<TextureCube> textureCube = TextureCube::Create(spec);
 		textureCube->CopyFromBuffer(buffer, metadata.Mips);
+		buffer.Release();
 		return textureCube;
 	}
 

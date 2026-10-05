@@ -543,8 +543,13 @@ namespace Lux {
 	{
 		if (data)
 		{
-			uint32_t size = m_Specification.Width * m_Specification.Height * 4 * 6; // six layers
-			m_LocalStorage = Buffer::Copy(data.Data, size);
+			// Six faces of mip 0. Sized from the format: a fixed 4 bytes per texel under-sized
+			// float cubes, and the per-face upload in Invalidate() then read past the copy.
+			const uint64_t size = Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height) * 6;
+			if (data.Size >= size)
+				m_LocalStorage = Buffer::Copy(data.Data, size);
+			else
+				LUX_CORE_ERROR_TAG("Renderer", "TextureCube '{}': initial data is {} bytes, six faces need {}; creating it without data", m_Specification.DebugName, data.Size, size);
 		}
 
 		Invalidate();
@@ -749,17 +754,123 @@ namespace Lux {
 	}
 
 
-	// Not implemented since the move to NVRHI: leaves the buffer empty. The old raw-Vulkan
-	// readback was removed; TextureRuntimeSerializer therefore exports no cube texels.
+	// Layout (shared with CopyFromBuffer and TextureRuntimeSerializer): mip-major, the six faces
+	// of each mip back to back, rows tightly packed. Records, submits and waits on the cube's own
+	// command list, like Image2D::CopyToHostBuffer.
 	void TextureCube::CopyToHostBuffer(Buffer& buffer)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		buffer.Release();
+
+		nvrhi::TextureHandle texture = m_Image ? m_Image->GetHandle() : nullptr;
+		if (!texture)
+			return;
+
+		const ImageFormat format = m_Specification.Format;
+		const uint32_t mipCount = m_Image->GetSpecification().Mips;
+		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+
+		auto stagingDesc = nvrhi::TextureDesc()
+			.setFormat(Utils::NVRHIFormat(format))
+			.setDimension(nvrhi::TextureDimension::TextureCube)
+			.setWidth(m_Specification.Width)
+			.setHeight(m_Specification.Height)
+			.setMipLevels(mipCount)
+			.setArraySize(6)
+			.setDebugName("TextureCube readback");
+		nvrhi::StagingTextureHandle stagingTexture = device->createStagingTexture(stagingDesc, nvrhi::CpuAccessMode::Read);
+		if (!stagingTexture)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "TextureCube '{}': could not create a readback staging texture", m_Specification.DebugName);
+			return;
+		}
+
+		if (!m_CommandList)
+			m_CommandList = RenderCommandBuffer::Create(1, "TextureCube");
+
+		m_CommandList->RT_Begin();
+		for (uint32_t mip = 0; mip < mipCount; mip++)
+		{
+			for (uint32_t face = 0; face < 6; face++)
+			{
+				nvrhi::TextureSlice slice;
+				slice.mipLevel = mip;
+				slice.arraySlice = face;
+				m_CommandList->GetActive()->copyTexture(stagingTexture, slice, texture, slice);
+			}
+		}
+		m_CommandList->RT_End();
+		m_CommandList->RT_Submit();
+
+		// Mapping waits for the copy to finish.
+		buffer.Allocate(Utils::GetImageMemorySize(format, m_Specification.Width, m_Specification.Height, mipCount, 6));
+		byte* dst = buffer.As<byte>();
+		for (uint32_t mip = 0; mip < mipCount; mip++)
+		{
+			const uint32_t mipWidth = glm::max(1u, m_Specification.Width >> mip);
+			const uint32_t mipHeight = glm::max(1u, m_Specification.Height >> mip);
+			const uint64_t rowSize = Utils::GetImageMemoryRowPitch(format, mipWidth);
+			const uint32_t rowCount = Utils::GetImageMemoryRowCount(format, mipHeight);
+
+			for (uint32_t face = 0; face < 6; face++)
+			{
+				nvrhi::TextureSlice slice;
+				slice.mipLevel = mip;
+				slice.arraySlice = face;
+
+				size_t rowPitch = 0;
+				const byte* src = static_cast<const byte*>(device->mapStagingTexture(stagingTexture, slice, nvrhi::CpuAccessMode::Read, &rowPitch));
+				if (!src)
+				{
+					LUX_CORE_ERROR_TAG("Renderer", "TextureCube '{}': could not map readback mip {} face {}", m_Specification.DebugName, mip, face);
+					buffer.Release();
+					return;
+				}
+
+				for (uint32_t row = 0; row < rowCount; row++)
+					memcpy(dst + row * rowSize, src + row * rowPitch, rowSize);
+				dst += rowSize * rowCount;
+
+				device->unmapStagingTexture(stagingTexture);
+			}
+		}
 	}
 
-	// Not implemented since the move to NVRHI: does nothing.
+	// Inverse of CopyToHostBuffer, same layout. Mips beyond the image's own count are ignored.
+	// Uploads go through the shared batch, like the constructor's initial data.
 	void TextureCube::CopyFromBuffer(const Buffer& buffer, uint32_t mips)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		nvrhi::TextureHandle texture = m_Image ? m_Image->GetHandle() : nullptr;
+		if (!buffer || !texture || mips == 0)
+			return;
+
+		const ImageFormat format = m_Specification.Format;
+		const uint32_t mipCount = glm::min(mips, m_Image->GetSpecification().Mips);
+		const uint64_t requiredSize = Utils::GetImageMemorySize(format, m_Specification.Width, m_Specification.Height, mipCount, 6);
+		if (buffer.Size < requiredSize)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "TextureCube '{}': buffer is {} bytes, {} mip(s) of six faces need {}", m_Specification.DebugName, buffer.Size, mipCount, requiredSize);
+			return;
+		}
+
+		Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+		{
+			const byte* src = static_cast<const byte*>(buffer.Data);
+			for (uint32_t mip = 0; mip < mipCount; mip++)
+			{
+				const uint32_t mipWidth = glm::max(1u, m_Specification.Width >> mip);
+				const uint32_t mipHeight = glm::max(1u, m_Specification.Height >> mip);
+				const uint64_t rowPitch = Utils::GetImageMemoryRowPitch(format, mipWidth);
+				const uint64_t faceSize = Utils::GetImageMemorySize(format, mipWidth, mipHeight);
+
+				for (uint32_t face = 0; face < 6; face++)
+				{
+					uploadList->writeTexture(texture, face, mip, src, rowPitch);
+					src += faceSize;
+				}
+			}
+		});
 	}
 
 }
