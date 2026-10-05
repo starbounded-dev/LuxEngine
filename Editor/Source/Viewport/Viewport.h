@@ -42,6 +42,13 @@ namespace Lux
 				scene->SetTargetFramebuffer(m_Framebuffer);
 		}
 
+		// A viewport that only presents its SceneRenderer's output. It has no framebuffer of its own:
+		// that one only exists as a target for the scene's 2D renderer and the editor overlays.
+		void InitRenderer(Ref<Scene> scene, const SceneRendererSpecification& rendererSpec)
+		{
+			m_Renderer = Ref<SceneRenderer>::Create(scene, rendererSpec);
+		}
+
 		void Shutdown()
 		{
 			m_Renderer.reset();
@@ -57,48 +64,65 @@ namespace Lux
 				m_Renderer->SetScene(scene);
 		}
 
+		// SyncSize, then points the scene's own 2D renderer at this viewport's framebuffer. Only the
+		// viewport that owns the scene's 2D target calls this; the scene cameras' aspect is set by the
+		// caller (Scene::OnViewportResize), since several viewports can show one scene.
 		void SyncSceneViewport(Ref<Scene> scene)
 		{
-			if (!scene || !m_Framebuffer)
+			if (!scene || !SyncSize())
 				return;
 
-			if (m_Size.x <= 1.0f || m_Size.y <= 1.0f)
-				return;
+			scene->SetTargetFramebuffer(m_Framebuffer);
+		}
 
-			// The panel size is the *output* size; the renderer decides the actual render
+		// Resizes the renderer, framebuffer and editor camera to the panel. Returns false while the
+		// panel has no usable size yet.
+		bool SyncSize()
+		{
+			if ((!m_Framebuffer && !m_Renderer) || m_Size.x <= 1.0f || m_Size.y <= 1.0f)
+				return false;
+
+			// The panel size in pixels is the *output* size; the renderer decides the actual render
 			// resolution from it (native, a fraction, or an absolute target). Everything that
 			// defines what is rendered - framebuffer, camera aspect, scene viewport - has to follow
 			// the render size, not the panel, or a fixed-resolution render comes out distorted.
+			const glm::uvec2 outputSize = GetOutputSize();
 			if (m_Renderer)
-				m_Renderer->SetViewportSize((uint32_t)m_Size.x, (uint32_t)m_Size.y);
+				m_Renderer->SetViewportSize(outputSize.x, outputSize.y);
 
 			const glm::uvec2 renderSize = GetRenderSize();
 			const uint32_t width = renderSize.x;
 			const uint32_t height = renderSize.y;
 
-			if (m_Framebuffer->GetWidth() != width || m_Framebuffer->GetHeight() != height)
-			{
+			if (m_Framebuffer && (m_Framebuffer->GetWidth() != width || m_Framebuffer->GetHeight() != height))
 				m_Framebuffer->Resize(width, height);
-				m_Camera.SetViewportBounds(0, 0, width, height);
-			}
+			m_Camera.SetViewportBounds(0, 0, width, height);
 
-			scene->SetTargetFramebuffer(m_Framebuffer);
-			scene->OnViewportResize(width, height);
+			return true;
 		}
 
-		// Resolution the scene is actually rendered at. Matches the panel unless the renderer is
-		// scaling (or pinned to an absolute target).
+		// The panel in physical pixels. ImGui lays out in window units, which on Wayland with display
+		// scaling are logical: a 1280-unit panel on a 150% display covers 1920 pixels.
+		glm::uvec2 GetOutputSize() const
+		{
+			const glm::vec2 pixels = glm::round(m_Size * m_FramebufferScale);
+			return { (uint32_t)glm::max(1.0f, pixels.x), (uint32_t)glm::max(1.0f, pixels.y) };
+		}
+
+		// Resolution the scene is actually rendered at. Matches the panel's pixels unless the
+		// renderer is scaling (or pinned to an absolute target).
 		glm::uvec2 GetRenderSize() const
 		{
 			if (m_Renderer && m_Renderer->GetViewportWidth() > 0 && m_Renderer->GetViewportHeight() > 0)
 				return { m_Renderer->GetViewportWidth(), m_Renderer->GetViewportHeight() };
 
-			return { (uint32_t)glm::max(1.0f, m_Size.x), (uint32_t)glm::max(1.0f, m_Size.y) };
+			return GetOutputSize();
 		}
 
-		bool BeginImGui()
+		// isOpen, when given, adds a close button to the window.
+		bool BeginImGui(bool* isOpen = nullptr)
 		{
-			const bool visible = ImGui::Begin(m_Name.c_str());
+			const bool visible = ImGui::Begin(m_Name.c_str(), isOpen);
 			m_Visible = visible;
 			if (!visible)
 			{
@@ -122,6 +146,11 @@ namespace Lux
 			if (viewportPanelSize.x > 1.0f && viewportPanelSize.y > 1.0f)
 				m_Size = { viewportPanelSize.x, viewportPanelSize.y };
 
+			// Per ImGui viewport, so a panel dragged onto a monitor with a different scale follows it.
+			const ImVec2 framebufferScale = ImGui::GetWindowViewport()->FramebufferScale;
+			if (framebufferScale.x > 0.0f && framebufferScale.y > 0.0f)
+				m_FramebufferScale = { framebufferScale.x, framebufferScale.y };
+
 			UpdateImageBounds();
 
 			return m_Size.x > 1.0f && m_Size.y > 1.0f;
@@ -140,9 +169,14 @@ namespace Lux
 			return m_Framebuffer ? m_Framebuffer->GetImage(0) : nullptr;
 		}
 
-		// Output size for viewports drawn inside another panel instead of their own window
-		// (BeginImGui sets it for window-owning viewports). Takes effect on SyncSceneViewport.
-		void SetSize(const glm::vec2& size) { m_Size = size; }
+		// Output size in pixels, for viewports drawn inside another panel instead of their own
+		// window and for a pinned capture size (BeginImGui sets it for window-owning viewports).
+		// Takes effect on SyncSize.
+		void SetSize(const glm::vec2& size)
+		{
+			m_Size = size;
+			m_FramebufferScale = { 1.0f, 1.0f };
+		}
 
 		Ref<Framebuffer> GetFramebuffer() const { return m_Framebuffer; }
 		Ref<SceneRenderer> GetSceneRenderer() const { return m_Renderer; }
@@ -201,7 +235,8 @@ namespace Lux
 		Ref<Framebuffer> m_Framebuffer;
 		Ref<SceneRenderer> m_Renderer;
 		EditorCamera m_Camera;
-		glm::vec2 m_Size = { 0.0f, 0.0f };
+		glm::vec2 m_Size = { 0.0f, 0.0f };          // window units
+		glm::vec2 m_FramebufferScale = { 1.0f, 1.0f }; // pixels per window unit
 		glm::vec2 m_Bounds[2] = {};
 		glm::vec2 m_ImageBounds[2] = {};
 		bool m_Focused = false;

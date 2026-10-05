@@ -38,6 +38,7 @@ namespace Lux
 	class RendererDebuggerPanel;
 	class ProfilerPanel;
 	class AudioDebugPanel;
+	class GameViewPanel;
 	struct AudioVisualisationSettings;
 
 	class EditorLayer : public Layer
@@ -84,6 +85,7 @@ namespace Lux
 		void JumpToEntityBookmark(UUID entityID); // select + frame the camera on it
 		void CreatePrefabFromSelection();       // saves the first selected entity as a .lprefab asset
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
+		void DockViewsWhereLegacyViewportWas();
 		void SetEditorLayoutMode(bool simple);
 		void UI_TitlebarTransport(float titlebarWidth);
 		void UI_ViewportSettings();
@@ -233,6 +235,8 @@ namespace Lux
 		// the panel and drives everything else about it.
 		Ref<AudioDebugPanel> m_AudioDebugPanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
+		// OnUpdate drives its per-frame render around the scene update.
+		Ref<GameViewPanel> m_GameViewPanel;
 
 		Scope<CommandPalette> m_CommandPalette;
 		Scope<SplashScreen> m_SplashScreen;   // startup / Help → Splash Screen; forced while no project is open
@@ -338,6 +342,8 @@ namespace Lux
 		// ResetDefaultDockLayout needs the live dockspace id, only valid inside OnImGuiRender, so a
 		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
 		bool m_PendingLayoutReset = false;
+		bool m_LegacyViewportDockChecked = false;
+		bool m_FocusSceneViewRequested = false;
 		bool m_ShowRuntimeExportWindow = false;
 		std::string m_RuntimeExportError;
 		bool m_UseGizmoSnap = false;
@@ -384,7 +390,6 @@ namespace Lux
 		bool m_ShowImGuiMetrics = false;
 		bool m_ShowImGuiStyleEditor = false;
 		bool m_ShowAboutPopup = false;
-		bool m_SecondViewportEnabled = false;
 
 		// Editor resources
 		Ref<Texture2D> m_IconPlay, m_IconPause, m_IconStep, m_IconSimulate, m_IconStop;

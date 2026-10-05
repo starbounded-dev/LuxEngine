@@ -180,6 +180,8 @@ namespace Lux
 		int SSRMaxSteps = 70;
 		float SSRBrightness = 0.7f;
 		float SSRDepthTolerance = 0.8f;
+
+		bool operator==(const ProjectSceneRendererSettings&) const = default;
 	};
 
 	struct ProjectRuntimeExportSettings

@@ -200,7 +200,9 @@ Structurally:
   post (TAA, auto-exposure, bloom, composite, SMAA, DOF).
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
-  maintains them.
+  maintains them. A scene keeps two mirrors: one for editor-camera views and one for the
+  primary-camera path (`BuildRenderPacketRuntime`), because a mirror feeds exactly one
+  `SceneRenderer` (`Rendering.md § Feeding the renderer from the scene`).
 - `MaterialAsset` owns its scalar properties (albedo, metalness, roughness, emission, transparency,
   use-normal-map) in its own `Values` struct and mirrors them into the shader's push-constant block
   only where that block declares the member. The block is not a store: the opaque PBR shader has no
@@ -411,7 +413,22 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   restarts the runtime). Resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, MaterialEditor (+ `MaterialEditor/`),
-  LightSettings, SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache.
+  LightSettings, SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache,
+  GameView.
+- **Scene View and Game View.** `Viewport` (`Editor/Source/Viewport/Viewport.h`) pairs a panel with a
+  `SceneRenderer` and an `EditorCamera`; it renders at the panel's *pixel* size (window units ×
+  the ImGui viewport's `FramebufferScale`, so Wayland display scaling renders at native resolution;
+  `SetSize` takes exact pixels). The **Scene View** (`EditorLayer::m_EditorViewport`, window
+  "Scene View", formerly "Viewport") always renders the editor camera, in Play too; picking, gizmos
+  and editor overlays live there, and it owns the scene's 2D target (`SyncSceneViewport`).
+  `GameViewPanel` is the **Game View**: the primary camera through a second `SceneRenderer`
+  (`EnableEditorRenderTargets = false`, no framebuffer of its own, project renderer settings
+  re-applied on change), created on first show and rendered only while it is the visible tab. It
+  shows "No Camera" when the scene has none, carries the Play-only audio accessibility overlay
+  (F10 menu), and Play opens and focuses it (Stop refocuses the Scene View). `EditorLayer::OnUpdate`
+  calls `GameViewPanel::PrepareFrame` before the scene update and `Render` after it; scene cameras
+  (`Scene::OnViewportResize`) take the Game View's render size while it is open, else the Scene
+  View's. Debug views are still suspended in the Scene View during Play.
 - Material editing (`Panels/MaterialEditor/`): `MaterialEditorPanel` (View → Material Editor) edits
   `MaterialAsset`s in tabs with explicit Save/Revert; each finished edit is one closure command via
   `PushUndoCommand`. It opens from a Content Browser double-click (item-activate callback for

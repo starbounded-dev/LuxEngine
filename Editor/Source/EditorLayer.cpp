@@ -37,7 +37,6 @@
 #include "imgui/imgui_internal.h"
 #include <GLFW/glfw3.h>
 #include "ImGuizmo.h"
-#include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/ImGuiFonts.h"
@@ -53,6 +52,7 @@
 #include "Panels/RendererDebuggerPanel.h"
 #include "Lux/Audio/AudioBankBuilder.h"
 #include "Panels/AudioDebugPanel.h"
+#include "Panels/GameViewPanel.h"
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Renderer/DebugPalette.h"
 #include "Lux/Physics/PhysicsScene.h"
@@ -98,6 +98,7 @@ namespace Lux {
 #define SCRIPT_ENGINE_DEBUG_PANEL_ID "ScriptEngineDebugPanel"
 #define SCENE_RENDERER_PANEL_ID "SceneRendererPanel"
 #define RENDERER_DEBUGGER_PANEL_ID "RendererDebuggerPanel"
+#define GAME_VIEW_PANEL_ID "GameViewPanel"
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
 #define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
 
@@ -385,6 +386,7 @@ namespace Lux {
 		Ref<ContentBrowserPanel> contentBrowserPanel = m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
 		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Beam", true);
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
+		m_GameViewPanel = m_PanelManager->AddPanel<GameViewPanel>(PanelCategory::View, GAME_VIEW_PANEL_ID, "Game View", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
@@ -523,7 +525,7 @@ namespace Lux {
 		sceneRendererSpec.ViewportWidth = 1280;
 		sceneRendererSpec.ViewportHeight = 720;
 
-		m_EditorViewport = Ref<Viewport>::Create("Viewport");
+		m_EditorViewport = Ref<Viewport>::Create("Scene View");
 		m_EditorViewport->Init(m_ActiveScene, fbSpec, sceneRendererSpec);
 		m_Framebuffer = m_EditorViewport->GetFramebuffer();
 		m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
@@ -679,6 +681,14 @@ namespace Lux {
 		m_Framebuffer = m_EditorViewport->GetFramebuffer();
 		m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
 
+		// Scene cameras take their aspect from the Game View, which shows them, and from the Scene
+		// View while the Game View is closed. Before the scene update, so scripts see it this frame.
+		const bool renderGameView = m_GameViewPanel && m_GameViewPanel->PrepareFrame();
+		glm::uvec2 cameraViewportSize = m_GameViewPanel ? m_GameViewPanel->GetCameraViewportSize() : glm::uvec2(0);
+		if (cameraViewportSize.x == 0 || cameraViewportSize.y == 0)
+			cameraViewportSize = m_EditorViewport->GetRenderSize();
+		m_ActiveScene->OnViewportResize(cameraViewportSize.x, cameraViewportSize.y);
+
 		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
 		viewportCamera.SetActive(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered());
 
@@ -726,14 +736,20 @@ namespace Lux {
 		}
 		case SceneState::Play:
 		{
-			// Runtime has to update before rendering so sprites, circles and text
-			// appear in their current positions in the main viewport.
+			viewportCamera.OnUpdate(ts);
+
+			// Runtime has to update before rendering so sprites, circles and text appear in their
+			// current positions. The Scene View keeps the editor camera; the Game View below
+			// renders the primary camera.
 			m_ActiveScene->OnUpdateRuntime(ts);
 			if (m_SceneRenderer && m_SceneRenderer->IsReady())
-				m_ActiveScene->OnRenderRuntime(m_SceneRenderer);
+				m_ActiveScene->OnRenderEditor(m_SceneRenderer, viewportCamera, isEntitySelected);
 			break;
 		}
 		}
+
+		if (renderGameView)
+			m_GameViewPanel->Render();
 
 		{
 			LUX_PROFILE_SCOPE("EditorLayer::OnOverlayRender");
@@ -829,6 +845,8 @@ namespace Lux {
 				// only ever fires on first run (or after the per-user imgui.ini is cleared).
 				if (!ImGui::DockBuilderGetNode(dockspace_id)->IsSplitNode())
 					ResetDefaultDockLayout(dockspace_id);
+				else
+					DockViewsWhereLegacyViewportWas();
 
 				// A layout-mode switch requested from a menu last frame is applied here, where the
 				// dockspace id is valid.
@@ -871,7 +889,12 @@ namespace Lux {
 			if (m_SplashScreen)
 				m_SplashScreen->OnImGuiRender(m_TitlebarHeight);
 
-			// Viewport panel
+			// Scene View panel
+			if (m_FocusSceneViewRequested)
+			{
+				ImGui::SetNextWindowFocus();
+				m_FocusSceneViewRequested = false;
+			}
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
 			const bool viewportReady = m_EditorViewport && m_EditorViewport->BeginImGui();
 			if (m_EditorViewport)
@@ -932,16 +955,6 @@ namespace Lux {
 							}
 						}
 						ImGui::EndDragDropTarget();
-					}
-
-					if (m_SceneState == SceneState::Play)
-					{
-						const auto* bounds = m_EditorViewport->GetImageBounds();
-						ImGuiEx::AudioAccessibilityOverlay(bounds[0], bounds[1]);
-						static bool accessibilityMenu = false;
-						if ((m_EditorViewport->IsFocused() || accessibilityMenu) && ImGui::IsKeyPressed(ImGuiKey_F10, false))
-							accessibilityMenu = !accessibilityMenu;
-						ImGuiEx::AudioAccessibilityMenu(accessibilityMenu);
 					}
 
 					if (m_EditorViewport->IsHovered())
@@ -1087,7 +1100,8 @@ namespace Lux {
 		ImGui::DockBuilderDockWindow("Properties", right);
 		ImGui::DockBuilderDockWindow("Content Browser", bottom);
 		ImGui::DockBuilderDockWindow("Log", bottom);
-		ImGui::DockBuilderDockWindow("Viewport", center);
+		ImGui::DockBuilderDockWindow("Scene View", center);
+		ImGui::DockBuilderDockWindow("Game View", center);
 		ImGui::DockBuilderDockWindow("Beam", center);
 
 		// Advanced mode fills out the workspace with the diagnostic panels: a left-bottom group
@@ -1107,6 +1121,26 @@ namespace Lux {
 		}
 
 		ImGui::DockBuilderFinish(dockspaceId);
+	}
+
+	void EditorLayer::DockViewsWhereLegacyViewportWas()
+	{
+		if (m_LegacyViewportDockChecked)
+			return;
+		m_LegacyViewportDockChecked = true;
+
+		// The Scene View was called "Viewport" before the Game View existed, so a layout saved back
+		// then knows neither window and they would open floating. Dock both where the old viewport
+		// was. A window the saved layout already has is left where the user put it.
+		const ImGuiWindowSettings* legacyViewport = ImGui::FindWindowSettingsByID(ImHashStr("Viewport"));
+		if (!legacyViewport || legacyViewport->DockId == 0 || !ImGui::DockBuilderGetNode(legacyViewport->DockId))
+			return;
+
+		for (const char* windowName : { "Scene View", "Game View" })
+		{
+			if (!ImGui::FindWindowSettingsByID(ImHashStr(windowName)))
+				ImGui::DockBuilderDockWindow(windowName, legacyViewport->DockId);
+		}
 	}
 
 	void EditorLayer::SetEditorLayoutMode(bool simple)
@@ -1397,7 +1431,6 @@ namespace Lux {
 				if (ImGui::MenuItem("Create Prefab from Selection", nullptr, false,
 					SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0))
 					CreatePrefabFromSelection();
-				ImGui::MenuItem("Second Viewport", nullptr, &m_SecondViewportEnabled);
 				ImGui::EndMenu();
 			}
 
@@ -2231,7 +2264,7 @@ namespace Lux {
 
 	void EditorLayer::OnEvent(Event& e)
 	{
-		if ((m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate) && m_EditorViewport && m_EditorViewport->IsHovered())
+		if (m_EditorViewport && m_EditorViewport->IsHovered())
 			m_EditorViewport->GetCamera().OnEvent(e);
 
 		m_PanelManager->OnEvent(e);
@@ -2326,19 +2359,8 @@ namespace Lux {
 
 	void EditorLayer::GetViewportCameraMatrices(glm::mat4& outView, glm::mat4& outProjection)
 	{
-		// In Play the viewport renders through the scene's primary camera (as in
-		// Scene::BuildRenderPacketRuntime); picking and the gizmo must use the same one, or clicks
-		// land where the editor camera would have been looking.
-		if (m_SceneState == SceneState::Play && m_ActiveScene)
-		{
-			if (Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity())
-			{
-				outView = glm::inverse(m_ActiveScene->GetWorldSpaceTransformMatrix(cameraEntity));
-				outProjection = cameraEntity.GetComponent<CameraComponent>().Camera.GetUnReversedProjectionMatrix();
-				return;
-			}
-		}
-
+		// The Scene View renders through the editor camera in every scene state, Play included; the
+		// primary camera is the Game View's.
 		const EditorCamera& editorCamera = m_EditorViewport->GetCamera();
 		outView = editorCamera.GetViewMatrix();
 		outProjection = editorCamera.GetUnReversedProjectionMatrix();
@@ -2529,23 +2551,9 @@ namespace Lux {
 		if (overlayTarget)
 			m_Renderer2D->SetTargetFramebuffer(overlayTarget);
 
-		glm::mat4 overlayView{ 1.0f };
-		if (m_SceneState == SceneState::Play)
-		{
-			Entity camera = m_ActiveScene->GetPrimaryCameraEntity();
-			if (!camera)
-				return;
-			const auto& cam = camera.GetComponent<CameraComponent>().Camera;
-			const glm::mat4 cameraTransform = camera.GetComponent<TransformComponent>().GetTransform();
-			overlayView = glm::inverse(cameraTransform);
-			m_Renderer2D->BeginScene(cam.GetProjectionMatrix() * overlayView, overlayView);
-		}
-		else
-		{
-			EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
-			overlayView = viewportCamera.GetViewMatrix();
-			m_Renderer2D->BeginScene(viewportCamera.GetViewProjection(), overlayView);
-		}
+		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
+		const glm::mat4 overlayView = viewportCamera.GetViewMatrix();
+		m_Renderer2D->BeginScene(viewportCamera.GetViewProjection(), overlayView);
 
 		if (m_ShowPhysicsColliders)
 		{
@@ -4958,6 +4966,12 @@ namespace Lux {
 		if (m_ProfilerPanel)
 			m_ProfilerPanel->SetContext(m_SceneRenderer);
 
+		// The game is played in the Game View: open it if it was closed and bring it to the front.
+		if (PanelData* gameViewData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(GAME_VIEW_PANEL_ID)))
+			gameViewData->IsOpen = true;
+		if (m_GameViewPanel)
+			m_GameViewPanel->RequestFocus();
+
 		BeginPlayUndoHistory();   // transient play-mode undo, over the runtime scene
 	}
 
@@ -5022,7 +5036,10 @@ namespace Lux {
 		}
 
 		if (restoreDebugViews)
+		{
 			RestoreRendererDebugViewsAfterPlay();
+			m_FocusSceneViewRequested = true;   // back to editing, where Play brought the Game View forward
+		}
 
 		if (m_SceneRendererPanel)
 			m_SceneRendererPanel->SetContext(m_SceneRenderer);

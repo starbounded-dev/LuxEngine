@@ -2041,6 +2041,11 @@ namespace Lux {
 
 	Ref<::Lux::RenderScene> Scene::SyncRenderScene(const std::function<bool(Entity)>& isSelected) const
 	{
+		return SyncRenderSceneMirror(m_RenderScene, isSelected);
+	}
+
+	Ref<::Lux::RenderScene> Scene::SyncRenderSceneMirror(Ref<::Lux::RenderScene>& renderScene, const std::function<bool(Entity)>& isSelected) const
+	{
 		struct StaticMeshSyncItem
 		{
 			StaticMeshRenderProxy Proxy;
@@ -2048,10 +2053,10 @@ namespace Lux {
 			bool HasParent = false;
 		};
 
-		if (!m_RenderScene)
-			m_RenderScene = Ref<::Lux::RenderScene>::Create();
+		if (!renderScene)
+			renderScene = Ref<::Lux::RenderScene>::Create();
 
-		m_RenderScene->BeginSync();
+		renderScene->BeginSync();
 
 		// Per-call scratch: thread_local (not a Scene member) because Scene.h only
 		// forward-declares the render types. Cleared at both ends of the call so no
@@ -2072,7 +2077,7 @@ namespace Lux {
 			Ref<MeshSource> meshSource;
 			AssetHandle meshSourceHandle = 0;
 
-			const StaticMeshRenderProxy* previousProxy = m_RenderScene->FindStaticMeshProxy(entityID);
+			const StaticMeshRenderProxy* previousProxy = renderScene->FindStaticMeshProxy(entityID);
 			if (previousProxy && previousProxy->StaticMeshHandle == meshComp.StaticMesh && previousProxy->StaticMesh && previousProxy->MeshSource)
 			{
 				staticMesh = previousProxy->StaticMesh;
@@ -2139,14 +2144,14 @@ namespace Lux {
 		JobSystem::ParallelFor(syncItems.size(), computeItem, parallelTransformThreshold);
 
 		for (StaticMeshSyncItem& syncItem : syncItems)
-			m_RenderScene->UpsertStaticMesh(std::move(syncItem.Proxy));
+			renderScene->UpsertStaticMesh(std::move(syncItem.Proxy));
 
 		// Release the Ref<>s now rather than at thread_local destruction, which
 		// would race engine shutdown (asset manager teardown, LUX_TRACK_MEMORY).
 		syncItems.clear();
 
-		m_RenderScene->EndSync();
-		return m_RenderScene;
+		renderScene->EndSync();
+		return renderScene;
 	}
 
 	void Scene::SubmitStaticMeshes(Ref<SceneRenderer> renderer,
@@ -2600,7 +2605,7 @@ namespace Lux {
 		packet.PostProcess = m_PostProcessSettings;
 
 		// Submit all static meshes (no selection highlight in runtime)
-		packet.Meshes = SyncRenderScene(nullptr);
+		packet.Meshes = SyncRenderSceneMirror(m_RuntimeRenderScene, nullptr);
 		CaptureDraw2D(packet);
 		CaptureColliderDebug(packet, renderer, nullptr);
 

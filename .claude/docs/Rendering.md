@@ -394,6 +394,11 @@ Renderer submission must go through the frame packet, not the live ECS:
 - `Scene::SubmitRenderPacket` replays that packet without touching the registry.
 - `Scene::SyncRenderScene` maintains the persistent render-side `RenderScene` /
   `StaticMeshRenderProxy` / `GPUScene` state, with dirty flags.
+- **A `RenderScene` mirror feeds exactly one `SceneRenderer`.** Each renderer uploads only the
+  `GPUScene` rows dirtied since the previous sync, so two renderers syncing one mirror in the same
+  frame would each miss what the other's sync consumed (the second sees stale transforms). `Scene`
+  therefore keeps one mirror for editor-camera views (`SyncRenderScene`) and one for the
+  primary-camera path (`BuildRenderPacketRuntime`); a third view needs a third mirror.
 
 **New renderer-visible state belongs in the packet.** Reading the ECS during submission works today
 and is exactly what blocks the simulation-thread split later (see `.claude/docs/Threading.md`).

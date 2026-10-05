@@ -185,7 +185,9 @@ namespace Lux {
 		void SubmitStaticMeshes(Ref<SceneRenderer> renderer,
 			const std::function<bool(Entity)>& isSelected = nullptr) const;
 
-		// Synchronize ECS renderable state into the persistent render-side scene.
+		// Synchronize ECS renderable state into the persistent render-side scene used by editor-camera
+		// views. The primary-camera path (BuildRenderPacketRuntime) syncs a mirror of its own: see
+		// m_RuntimeRenderScene.
 		Ref<::Lux::RenderScene> SyncRenderScene(const std::function<bool(Entity)>& isSelected = nullptr) const;
 
 		// High-level 3D rendering method that orchestrates the full 3D pipeline:
@@ -255,6 +257,7 @@ namespace Lux {
 		AudioSurfaceSounds GetSurfaceSounds(Entity entity, AcousticMaterial& material) const;
 		void CaptureAcousticMaterialDebug(FrameRenderPacket& packet) const;
 		bool ResolveMeshColliderDebug(Entity entity, const MeshColliderComponent& collider, Ref<StaticMesh>& staticMesh, Ref<MeshSource>& meshSource, glm::mat4& transform) const;
+		Ref<::Lux::RenderScene> SyncRenderSceneMirror(Ref<::Lux::RenderScene>& renderScene, const std::function<bool(Entity)>& isSelected) const;
 		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
 	private:
@@ -272,6 +275,11 @@ namespace Lux {
 
 		Ref<Renderer2D> m_Renderer2D;
 		mutable Ref<::Lux::RenderScene> m_RenderScene;
+		// A mirror feeds exactly one SceneRenderer: its GPU rows upload as the delta between two
+		// consecutive syncs, so a second renderer syncing the same mirror in the same frame would
+		// miss every change the first sync already took. The editor renders the Scene View (editor
+		// camera) and the Game View (primary camera) from one scene, hence the second mirror.
+		mutable Ref<::Lux::RenderScene> m_RuntimeRenderScene;
 		std::string m_Name = "Untitled";
 		mutable Ref<Environment> m_DynamicSkyEnvironment;
 		mutable glm::vec3 m_DynamicSkyParameters = { 2.0f, 0.0f, 0.0f };
