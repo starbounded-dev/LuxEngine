@@ -29,9 +29,12 @@ architecture reference. For what is actually built, read `.claude/docs/Architect
    your changed `.cpp`, for `Linking Core` / `Linking Editor`, and for `error:`. Adding or removing
    files requires regenerating projects (`scripts/Linux-Build.sh` handles premake). See
    `.claude/docs/Building.md`.
-5. **Run checks.** Use the smoke test, the golden-image comparison (Phase 0 builds it), and a
-   graceful-close run (Part 4). On Wayland you cannot take screenshots. Visual checks are done by
-   the golden tool, or are a **user checkpoint**.
+5. **Verify by building; runs are the user's.** The agent does **not** launch the editor, the
+   smoke test, `golden_run.py` or perf runs — the user asked for this explicitly (2026-10-05). The
+   agent's check is the build (step 4) plus the phase's grep/`nm` exit checks. Every run-based
+   check in a phase (smoke, goldens, graceful close, validation counts, perf) becomes a 🧑 user
+   checkpoint: write the exact command into Appendix C and move on. Do not block the next phase
+   on it unless the phase says the next one depends on its numbers.
 6. **User checkpoints** are marked 🧑. They need the user: a Windows build or run on the RTX PC,
    GitHub forking or pushing, or a visual judgement. Stop at them, write down exactly what you need
    in Appendix C, and ask.
@@ -271,9 +274,11 @@ by convention.
     - ImGui VB/IB → `VertexBuffer`/`IndexBuffer`
     - ImGui-owned textures → `ShaderResource`
     - swapchain → `Present`
-  - Material textures marked permanent today (`Texture.cpp:437-441`
-    `setPermanentTextureState(ShaderResource)`) become **Permanent**: never transitioned. A
-    `Require` of any other state on them logs `LUX_CORE_ERROR_TAG("Renderer", …)` once.
+  - Material textures are ordinary `ShaderResource` resting-state resources. *(Corrected in P1:
+    the `setPermanentTextureState` call this line used to cite sat inside a dead `#if 0` block,
+    now deleted. Today every `Texture2D` goes through `Image2D::RT_Invalidate`, which sets
+    `initialState = ShaderResource` + `keepInitialState = true`, `Image.cpp:193-194`.)* There is
+    no Permanent state: `Texture2D::GenerateMips` transitions them, so they must stay tracked.
 - **Tracking.**
   - Each `RenderCommandBuffer` owns a tracker for the lifetime of one open command buffer.
   - The tracker records the current state per resource, at subresource granularity
@@ -573,8 +578,9 @@ marks a Windows or visual checkpoint.
 footprint. Every later phase is judged against it.
 
 **Changes**
-- `Editor/Source/Tools/GoldenCapture.{h,cpp}` — **NEW**, Debug and Release only (wrap in
-  `#if !LUX_DIST`). Driven by environment variables:
+- `Editor/Source/Tools/GoldenCapture.{h,cpp}` — **NEW**. *(As built: compiled in every config
+  and inert unless `LUX_GOLDEN_DIR` is set; no `LUX_DIST` guard was needed because the editor is
+  not shipped in Dist.)* Driven by environment variables:
   - `LUX_GOLDEN_DIR` (output directory). Unset means the tool is inert.
   - `LUX_GOLDEN_SCENE` (project-relative `.luxscene`).
   - `LUX_GOLDEN_FRAME` (default 300).
@@ -587,9 +593,12 @@ footprint. Every later phase is judged against it.
     camera pose stored in the tool. Edit mode only, so no physics or scripts run.
   - For the capture it forces **manual exposure** (override `PostProcessSettings` exposure mode)
     and a fixed timestep, so auto-exposure adaptation does not make runs non-deterministic.
+    *(As built: it does not override exposure; it logs a warning when the scene uses automatic
+    exposure. If the two baseline runs disagree, pin exposure first.)*
   - At frame N it reads back `SceneRenderer::GetFinalPassImage()` with `Image2D::CopyToHostBuffer`
-    inside a `Renderer::Submit` lambda. It writes `<dir>/<scene>.lximg`: a 16-byte header
-    (`'LXIM'`, `uint32 width`, `uint32 height`, `uint32 ImageFormat`) followed by raw texels.
+    inside a `Renderer::Submit` lambda. It writes `<dir>/<scene>.lximg`: a header followed by
+    raw texels. *(As built: 32-byte header `'LXIM'`, version, width, height, channels, component
+    type, `ImageFormat`, bytes per pixel — see `GoldenCapture.cpp` `GoldenImageHeader`.)*
     Raw output means no `stb_image_write` dependency. Note that its implementation lives in
     `AssimpMeshImporter.cpp:34`, which Dist removes.
   - It then averages `RenderCommandBuffer` frame GPU time, `Application` main and render thread
@@ -733,7 +742,7 @@ deleting.
 - `shader-debug` skill §E.5: `VulkanDevice.cpp` is gone; Aftermath returns in P7.
 
 **Exit criteria**
-- `grep -rn "VulkanContext\|VulkanDevice\b\|VulkanRenderCommandBuffer\|VulkanImGuiLayer\|vk_mem_alloc\|VmaAllocation\|RendererContext" Core/Source Editor/Source Lux-Runtime`
+- `grep -rn "VulkanContext\|\bVulkanDevice\b\|VulkanRenderCommandBuffer\|VulkanImGuiLayer\|vk_mem_alloc\|VmaAllocation\|RendererContext" Core/Source Editor/Source Lux-Runtime`
   returns nothing.
 - Goldens pass.
 - `wc -l Platform/Vulkan/**` recorded.
@@ -930,7 +939,7 @@ sync hazards. This is the hardest correctness work, done while NVRHI is the orac
   `nvrhi::utils::TextureUavBarrier`/`BufferUavBarrier` and `commitBarriers()`.
 - **Resting states.** Store them on the resource:
   - `Image2D::m_RestingState` / `GetRestingState()`, set in `RT_Invalidate` beside today's
-    `initialState`, plus `m_Permanent` for `Texture2D` material textures (`Texture.cpp:437-441`)
+    `initialState` (material textures included; there is no Permanent flag — see §2.3)
   - `VertexBuffer`, `IndexBuffer`, `UniformBuffer`, `StorageBuffer`, `MeshSource` meshlet buffers
   - ImGui buffers and textures
   - swapchain images
@@ -981,8 +990,9 @@ sync hazards. This is the hardest correctness work, done while NVRHI is the orac
      `ConstantBuffer`, `RawBuffer_SRV` → `ShaderResource` and `RawBuffer_UAV` → `UnorderedAccess`.
      Expose `GetResourceUses(frame, set)`. `RenderPass::GetBindingSets`, `ComputePass` and
      `Material::GetBindingSet` callers then `Require` them. Bindless tables add no requirements:
-     material textures are Permanent `ShaderResource`, the same as NVRHI's untracked descriptor
-     tables (`ProgrammingGuide.md:120`).
+     material textures are back in their resting `ShaderResource` state at every command-buffer
+     boundary, the same guarantee NVRHI's untracked descriptor tables rely on
+     (`ProgrammingGuide.md:120`).
   8. ImGui (`ImGuiRenderer::Render`, `:545-682`):
      - every drawn `ImGuiTextureInfo` → `ShaderResource`; viewport images rest in `RenderTarget`,
        which replaces `beginTrackingTextureState` at `:304`
@@ -2118,8 +2128,8 @@ find Core/Source/Lux/Platform/Vulkan -name '*.[ch]*' | xargs wc -l | tail -1
 
 | Phase | Status | Commits | Notes, numbers, deviations, user checkpoints |
 |---|---|---|---|
-| P0 | not started | | |
-| P1 | not started | | record here the last commit containing `VulkanDevice.cpp` (for P7) |
+| P0 | tooling done; baseline runs 🧑 | `35a787e6` | Tool, scripts, `GetPendingAsyncLoadCount`, docs committed. A FMODDemo smoke capture produced a correct image before runs moved to the user. **🧑 To record the baseline:** `python3 tests/rendering/golden_run.py --label nvrhi-baseline --features`, then the same with `--label nvrhi-baseline-2`, then `python3 tests/rendering/golden_run.py --compare nvrhi-baseline nvrhi-baseline-2` (must pass). Validation: add `--sync-validation` on a Debug run. Windows: same with `--label nvrhi-baseline-win`. Known before P0: `LUX_GOLDEN_SELFTEST=1` reports one pre-existing RenderGraph self-test failure ("Load-and-store and untracked-resource passes expected no warnings, found 1 warning(s)") — not caused by this work; triage when P5 touches the graph. `TextureCube::CopyToHostBuffer` is empty, so cubemap export/readback writes no texels (pre-existing; P8/P13 implement it). |
+| P1 | done (Release built) | `77fd88d6` | Last commit containing `VulkanDevice.cpp` (Aftermath enable code, ~lines 255-305) is **`bf8e6c90`** — use `git show bf8e6c90:Core/Source/Lux/Platform/Vulkan/VulkanDevice.cpp` in P7. Deleted 18 Platform/Vulkan + RendererContext files, `vendor/VulkanMemoryAllocator`, the dead `#if` blocks, Donut leftovers in `DeviceManager`, and PipelineCompute's stubs/command list. Also removed `RendererData`'s raw `VkDescriptorPool`/`VkWriteDescriptorSet` fields (not listed in the plan; they referenced the deleted `ShaderMaterialDescriptorSet`). `GetGPUMemoryStats` now queries `VK_EXT_memory_budget` itself; the old path read an allocator that was never initialised. Checks: Release Core/Editor/Lux-Runtime compile and link; `nm … Editor \| grep -c vmaCreateAllocator` = 0; exit grep clean (with `\bVulkanDevice\b` — the plan's old pattern matched the live `m_VulkanDevice`). Footprint: `Platform/Vulkan/**` 9135 → 6662 lines; Release `Editor` 16,440,224 B, `Lux-Runtime` 14,011,088 B. **Not run:** Debug/Debug-AS/Dist builds; **🧑** smoke + `golden_run.py --label p1` and `--compare nvrhi-baseline p1` (needs P0 baseline first); 🧑 Windows build. |
 | P2 | not started | | `sizeof(ShaderModuleInfo)` before the change = ? |
 | P3 | not started | | |
 | P4 | not started | | |

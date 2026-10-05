@@ -334,3 +334,6 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
   Vulkan headers (a mismatch produces C++ wrapper ABI errors).
 - `VULKAN_VERSION`, `PREMAKE_VERSION` — override the pins in `scripts/Linux-Fetch.sh`.
 - `BUILD_CONFIG`, `JOBS` — consumed by `scripts/Linux-Build.sh`.
+- `LUX_GOLDEN_*` — read by the editor's golden-image capture (`Rendering.md § Golden image
+  capture`). Its output goes to `bin/golden/`, which `/bin` in `.gitignore` already keeps out of
+  commits.

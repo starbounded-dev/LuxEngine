@@ -37,8 +37,11 @@ Below that sits **NVRHI** (`Core/vendor/nvrhi`) over Vulkan. `LUX_HAS_VULKAN` is
 `NVRHI-D3D11` / `NVRHI-D3D12` are built but the `Platform/DX11` / `DX12` engine sources are
 `removefiles`'d — that scaffolding is intentional, not dead code.
 
-All renderer API types (`Shader`, `Texture`, `Pipeline`, `Image2D`, `Framebuffer`, …) are abstract;
-their Vulkan implementations live in `Platform/Vulkan/`.
+Renderer types (`Texture2D`, `Image2D`, `Pipeline`, `Framebuffer`, the buffers) are concrete
+classes over NVRHI handles. `Shader` is the one abstract type, implemented by `VulkanShader`.
+`Platform/Vulkan/` holds only what NVRHI does not provide: `VulkanDeviceManager` (instance,
+device, queues, validation callback), `VulkanSwapChain`, `VulkanShader` + `ShaderCompiler/`,
+`DescriptorSetManager`, and the Aftermath `Debug/` sources.
 
 ---
 
