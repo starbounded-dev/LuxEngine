@@ -99,6 +99,11 @@ project "Core"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread" }
 
+		-- gmake2 archives with `ar -rcs`, which adds and replaces members but never removes them:
+		-- objects of deleted sources stayed in libCore.a and could satisfy a symbol that no longer
+		-- exists, hiding a broken link. Start each archive from scratch (MSVC's lib already does).
+		prelinkcommands { '{DELETE} "%{cfg.buildtarget.abspath}"' }
+
 		-- HlslIncluder calls DxcCreateInstance (libdxcompiler), which Linux doesn't link: HLSL
 		-- include resolution happens in the dxc CLI at compile time, and the preprocessor no-op
 		-- on Linux never instantiates it. Drop it so the symbol isn't required at link time.

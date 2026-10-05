@@ -270,6 +270,14 @@ as `--project=/absolute/path/to/export` to the build-folder player. An unexporte
 `gtk+-3.0` development files are missing. `Linux-Build.sh` checks for this up front and tells you the
 Arch package; on other distros install the equivalent `gtk3-devel`.
 
+### Linux: a deleted file's symbols still link
+
+gmake2 archives `libCore.a` with `ar -rcs`, which adds and replaces members but never removes
+them, so the objects of deleted sources used to linger and satisfy references that should fail.
+`Core/premake5.lua` now deletes the archive in a Linux `prelinkcommands` step. If a pre-existing
+`libCore.a` predates that (or a vendor static lib had a file removed), delete the archive once and
+rebuild; `ar t <lib>` lists what is inside.
+
 ### Anything else "this clearly should compile"
 
 Regenerate first (`Win-GenProjects.bat --last`), then delete `bin-int/` for the affected config and

@@ -125,7 +125,7 @@ architecture reference. For what is actually built, read `.claude/docs/Architect
 | L10 | Combined image samplers | ⚠️ NRI cannot express them. Found: `EdgeDetection.glsl:35-36` (shader loaded at `Renderer.cpp:557` but no pass uses it), `SSR.glsl:31` (inside `#if HBAO_REFLECTION_OCCLUSION`, compiled out), `ImGui.glsl:45` (unused; ImGui uses `ImGui.hlsl`) | `grep "uniform sampler2D" Editor/Resources/Shaders` |
 | L11 | Serialized reflection | ⚠️ Raw `nvrhi::ShaderType` (`uint16_t`) and a raw `VkDescriptorBufferInfo` are written with `WriteRaw`. `ShaderPackFile::ShaderModuleInfo::Stage` is `nvrhi::ShaderType`. Stage strings in the shader-cache YAML come from `nvrhi::utils::ShaderStageToString` | `VulkanShaderResource.h:76-131`; `ShaderPackFile.h:31-40, 60-65` (header `Version = 1`); `VulkanShaderCache.cpp:70,139` |
 | L12 | Swapchain | ✅ Hand-written raw Vulkan: surface from GLFW, present-mode selection, acquire/present semaphores, NVRHI event queries for frame pacing, NVRHI `createHandleForNativeTexture` for back buffers. A second instance exists per ImGui platform window | `VulkanSwapChain.cpp` (558 lines); `Window.cpp:306-312, 485-495`; `ImGuiLayer.cpp:244-311`; `RuntimeLayer.cpp:325-335` |
-| L13 | GPU lifetime | ❌ **The release queue is never drained during a session.** `SubmitResourceFree` allocates into `s_ResourceFreeQueue[frameIndex]`, but those queues are only executed in `Renderer::Shutdown` (`Renderer.cpp:779-783`). It "works" because NVRHI reference-counts every handle and keeps in-flight resources alive. Lux code freely drops handles mid-frame (`Image2D::RT_Invalidate` swaps handles, `StorageBuffer::Invalidate` reassigns) | `Renderer.h:157-185`; `grep GetRenderResourceReleaseQueue`; NVRHI `doc/ProgrammingGuide.md:3` |
+| L13 | GPU lifetime | ✅ *Fixed 2026-10-05 ahead of Phase 3 (see Appendix C): release slots now drain every frame behind a graphics-queue event query.* Original finding: ❌ **The release queue is never drained during a session.** `SubmitResourceFree` allocates into `s_ResourceFreeQueue[frameIndex]`, but those queues are only executed in `Renderer::Shutdown` (`Renderer.cpp:779-783`). It "works" because NVRHI reference-counts every handle and keeps in-flight resources alive. Lux code freely drops handles mid-frame (`Image2D::RT_Invalidate` swaps handles, `StorageBuffer::Invalidate` reassigns) | `Renderer.h:157-185`; `grep GetRenderResourceReleaseQueue`; NVRHI `doc/ProgrammingGuide.md:3` |
 | L14 | Frame index | ⚠️ `Renderer::RT_GetCurrentFrameIndex()` returns the **swapchain back-buffer index** (`Renderer.cpp:394-397`). Per-frame arrays have `FramesInFlight` (3) entries and are indexed `% size`. CPU run-ahead is NVRHI event queries with `maxFramesInFlight = 2` | `Window.cpp:117`; `VulkanSwapChain.cpp:463-493`; `RenderCommandBuffer.h:96-110` comment |
 | L15 | Uploads | ✅ One shared NVRHI upload list (`Renderer::RecordResourceUpload`/`FlushResourceUploads`). Async transfer is off by default because of barrier legality on the transfer queue | `Renderer.cpp:424-1024` |
 | L16 | Queries and markers | ✅ NVRHI timer queries (named and frame-level), raw-Vulkan pipeline-statistics pools (**leaked**: `RenderCommandBuffer.cpp:96` "not destroying these cleanly"), Tracy GPU zones via `TracyVkCtx` owned by `VulkanDeviceManager` | `RenderCommandBuffer.cpp:36-486`; `VulkanDeviceManager.cpp:741-799` |
@@ -136,7 +136,7 @@ architecture reference. For what is actually built, read `.claude/docs/Architect
 | L21 | Platform folder size | `Platform/Vulkan/` = 9135 lines, including `ShaderCompiler/` and `Debug/` | `wc -l` |
 | L22 | Device features | ✅ Vulkan ≥1.3 required; sync2, dynamic rendering, descriptor indexing, partially bound, variable count, timeline semaphores, BDA; mesh shader, VRS and RT extensions when present | `VulkanDeviceManager.cpp:187-196, 410-607` |
 | L23 | Line width | ⚠️ Lux uses 2 px and 4 px lines through NVRHI `dynamicLineWidth` and `graphicsState.lineWidth` | `Pipeline.cpp:251, 274-278`; `Renderer.cpp:1106-1108`; `Renderer2D.cpp:137, 554, 1500-1506` |
-| L24 | Topologies | ⚠️ `TriangleFan` is unused but mapped. `LineStrip` is **missing** from `Utils::GetNVRHIPrimitiveType` and would assert | `Pipeline.cpp:37-50` |
+| L24 | Topologies | ⚠️ `TriangleFan` is unused but mapped. `LineStrip` was missing from `Utils::GetNVRHIPrimitiveType` and would assert (*mapped 2026-10-05*) | `Pipeline.cpp:37-50` |
 | L25 | `PipelineCompute::Execute` | ❌ Dead (no callers), but `RT_CreatePipeline` still creates a `RenderCommandBuffer` (3 command lists) for **every** compute pipeline | `PipelineCompute.cpp:160, 261-275` |
 | L26 | NRI facts (v181, `main` d0e1cbf, 2026-10-02) | ✅ Verified in headers and source. MIT license. Explicit barriers only. `nriCreateDeviceFromVKDevice` wraps the device; `CreateCommandBufferVK` wraps a `VkCommandBuffer` without owning it, and its destructor won't free it (`CommandBufferVK.hpp:434-453`). `CreateTextureVK`/`CreateBufferVK`/`CreateFenceVK` exist. `registerSpace` = VK set, gaps are auto-filled (`PipelineLayoutVK.hpp:100-215`). The default viewport flips Y exactly like NVRHI (`CommandBufferVK.hpp:1425-1429`). There is no combined image sampler and no line width. `Create*` is thread-safe; `Destroy*` and `Cmd*` are not (`NRI.h:28-36`) | scratch clone of `NVIDIA-RTX/NRI` |
 | L27 | Hazel's NRI fork | ✅ `StudioCherno/NRI` `hazel` is 17 commits ahead of and 433 behind upstream, at NRI v179. Its patches: premake script, vendored VMA, X11 `Window` clash, Vulkan 1.3 push-descriptor crash, swapchain extent clamp (upstream still returns `INVALID_ARGUMENT`, `SwapChainVK.hpp:300-306`), `AcquireNextTexture` failure crash, D32S8 readback stride, NGX/DLSS bits | `gh api repos/StudioCherno/NRI/compare/NVIDIA-RTX:main...hazel` |
@@ -853,6 +853,16 @@ stay byte-identical. NVRHI handles remain inside renderer implementation files.
 **Goal:** `SubmitResourceFree` actually runs once the GPU finishes the frame, and per-frame slots
 are a monotonic frame counter guarded by a GPU wait (D7, D8). This fixes L13 and L14 while NVRHI's
 reference counting is still there as a safety net.
+
+> **Already done (2026-10-05, see Appendix C):** the L13 part. `s_ResourceFreeQueue` is now a
+> render-thread slot ring advanced by `Renderer::RT_ReleaseRetiredResources()` (called in the
+> `BeginFrame` lambda after `m_Window->BeginFrame()`); each slot is closed behind a graphics-queue
+> event query and drained when it comes round and the event has signalled.
+> `GetRenderResourceReleaseQueue(index)` is gone, replaced by `RT_GetResourceReleaseQueue()`.
+> The only remaining `SubmitResourceFree` caller is `~BindlessTextureTable` (the `VulkanShader`,
+> `Texture` and `Framebuffer` ones were in dead code deleted in P1); its lambda was audited and is
+> safe mid-session. What remains of this phase: the monotonic frame number, L14's
+> `RT_GetCurrentFrameIndex()`, and the NRI-ready `GPUDeletionQueue` that will replace the ring.
 
 **Changes**
 - `Renderer/RHI/GPUDeletionQueue.{h,cpp}` — **NEW**:
@@ -2128,7 +2138,7 @@ find Core/Source/Lux/Platform/Vulkan -name '*.[ch]*' | xargs wc -l | tail -1
 
 | Phase | Status | Commits | Notes, numbers, deviations, user checkpoints |
 |---|---|---|---|
-| P0 | tooling done; baseline runs 🧑 | `35a787e6` | Tool, scripts, `GetPendingAsyncLoadCount`, docs committed. A FMODDemo smoke capture produced a correct image before runs moved to the user. **🧑 To record the baseline:** `python3 tests/rendering/golden_run.py --label nvrhi-baseline --features`, then the same with `--label nvrhi-baseline-2`, then `python3 tests/rendering/golden_run.py --compare nvrhi-baseline nvrhi-baseline-2` (must pass). Validation: add `--sync-validation` on a Debug run. Windows: same with `--label nvrhi-baseline-win`. Known before P0: `LUX_GOLDEN_SELFTEST=1` reports one pre-existing RenderGraph self-test failure ("Load-and-store and untracked-resource passes expected no warnings, found 1 warning(s)") — not caused by this work; triage when P5 touches the graph. `TextureCube::CopyToHostBuffer` is empty, so cubemap export/readback writes no texels (pre-existing; P8/P13 implement it). |
+| P0 | tooling done; baseline runs 🧑 | `35a787e6` | Tool, scripts, `GetPendingAsyncLoadCount`, docs committed. A FMODDemo smoke capture produced a correct image before runs moved to the user. **🧑 To record the baseline:** `python3 tests/rendering/golden_run.py --label nvrhi-baseline --features`, then the same with `--label nvrhi-baseline-2`, then `python3 tests/rendering/golden_run.py --compare nvrhi-baseline nvrhi-baseline-2` (must pass). Validation: add `--sync-validation` on a Debug run. Windows: same with `--label nvrhi-baseline-win`. The RenderGraph self-test failure and the empty `TextureCube` readback seen during P0 are both fixed (see "Out-of-phase fixes" below). |
 | P1 | done (Release built) | `77fd88d6` | Last commit containing `VulkanDevice.cpp` (Aftermath enable code, ~lines 255-305) is **`bf8e6c90`** — use `git show bf8e6c90:Core/Source/Lux/Platform/Vulkan/VulkanDevice.cpp` in P7. Deleted 18 Platform/Vulkan + RendererContext files, `vendor/VulkanMemoryAllocator`, the dead `#if` blocks, Donut leftovers in `DeviceManager`, and PipelineCompute's stubs/command list. Also removed `RendererData`'s raw `VkDescriptorPool`/`VkWriteDescriptorSet` fields (not listed in the plan; they referenced the deleted `ShaderMaterialDescriptorSet`). `GetGPUMemoryStats` now queries `VK_EXT_memory_budget` itself; the old path read an allocator that was never initialised. Checks: Release Core/Editor/Lux-Runtime compile and link; `nm … Editor \| grep -c vmaCreateAllocator` = 0; exit grep clean (with `\bVulkanDevice\b` — the plan's old pattern matched the live `m_VulkanDevice`). Footprint: `Platform/Vulkan/**` 9135 → 6662 lines; Release `Editor` 16,440,224 B, `Lux-Runtime` 14,011,088 B. **Not run:** Debug/Debug-AS/Dist builds; **🧑** smoke + `golden_run.py --label p1` and `--compare nvrhi-baseline p1` (needs P0 baseline first); 🧑 Windows build. |
 | P2 | not started | | `sizeof(ShaderModuleInfo)` before the change = ? |
 | P3 | not started | | |
@@ -2145,6 +2155,21 @@ find Core/Source/Lux/Platform/Vulkan -name '*.[ch]*' | xargs wc -l | tail -1
 | P14 | not started | | |
 | P15 | not started | | |
 | P16 | not started | | success criteria checklist with evidence |
+
+**Out-of-phase fixes (2026-10-05, on NVRHI, build-verified only):**
+- `a2ed5ac5` RenderGraph self-test: the fixture's own `NullTexture` warning was counted. A
+  CPU-only harness linked against `libCore.a` reproduced the old failure and passes now.
+- `b8cd641e` BC readback: `Image2D::CopyToHostBuffer` returned 0 bytes for block-compressed
+  formats, so packed `.dds` textures were empty (black) in exported games. ThumbnailCache's disk
+  write is now limited to 8-bit RGBA so it cannot over-read BC data.
+- `830696b8` `TextureCube::CopyToHostBuffer`/`CopyFromBuffer` implemented (mip-major, six faces per
+  mip); the constructor's 4-bytes-per-texel sizing, the serializer's 1 s sleep, wrong mip count and
+  leaked buffer fixed. Note: env maps are packed as source HDR bytes, so no live export used this.
+- L13 release queue drained per frame behind event queries (see Phase 3 note); L24 `LineStrip`
+  mapped; `Image2D` readback no longer unmaps after a failed map.
+- Build: `Core/premake5.lua` deletes `libCore.a` before archiving on Linux. `ar -rcs` had kept the
+  objects of every file deleted in P1 inside the archive, so P1's link check was weaker than
+  logged; it was re-run against a clean archive and still links.
 
 **Follow-ups (out of scope, recorded so they are not lost):**
 - Re-plan bindless on NRI, with update-after-set and MUTABLE descriptors (D2, Q9).
