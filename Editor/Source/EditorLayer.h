@@ -29,6 +29,7 @@
 #include "entt/entt.hpp"
 #include "Lux/Editor/PanelManager.h"
 #include "Lux/Renderer/SceneRenderer.h"
+#include "Tools/GoldenCapture.h"
 #include "Viewport/Viewport.h"
 
 namespace Lux
@@ -227,6 +228,8 @@ namespace Lux
 
 		Ref<Viewport> m_EditorViewport;
 		Ref<SceneRenderer> m_SceneRenderer;
+		// Renderer regression capture; null unless LUX_GOLDEN_DIR is set.
+		Scope<GoldenCapture> m_GoldenCapture;
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;

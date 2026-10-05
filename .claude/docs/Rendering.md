@@ -249,6 +249,47 @@ unaffected.
 
 ---
 
+## Golden image capture
+
+A renderer-critical change is checked against reference images, not by eye. The editor has an
+environment-driven capture (`Editor/Source/Tools/GoldenCapture.{h,cpp}`, inert unless
+`LUX_GOLDEN_DIR` is set). It opens one scene and pins everything that would otherwise change
+between runs:
+
+- render size (`LUX_GOLDEN_SIZE`, default 1280x720)
+- camera: the scene's primary camera pose, re-applied every frame
+- native resolution, because dynamic resolution follows GPU time
+- no grid, colliders or editor overlays
+- uncapped present mode
+
+It waits until `LUX_GOLDEN_FRAME` frames have passed **and** asset streaming has been idle for
+`LUX_GOLDEN_IDLE_FRAMES`. It then reads back `SceneRenderer::GetFinalPassImage()` inside a
+`Renderer::Submit` lambda and writes `<name>.lximg` (a 32-byte header plus raw texels). After that
+it averages `<name>.perf.json` over `LUX_GOLDEN_PERF_FRAMES`, writes `<name>.status`, and closes
+the editor. `LUX_GOLDEN_OPTIONS` (e.g. `SSR=0,Bloom=0`) overrides individual renderer options.
+
+Drive it with the scripts, not by hand:
+
+```bash
+python3 tests/rendering/golden_run.py --label before --features          # capture (Release by default)
+python3 tests/rendering/golden_run.py --label after --features
+python3 tests/rendering/golden_run.py --compare before after              # per-capture PASS/FAIL + diff PNGs
+python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look at one capture
+```
+
+- **Captures live in `bin/golden/<label>/`** and are never committed.
+- **Validation counts only exist in Debug captures** (`--config debug`, plus `--sync-validation`
+  for synchronization validation). `summary.json` and `validation.txt` list them, and a comparison
+  fails on any validation ID the reference set did not have.
+- **Check determinism first.** Two captures of the same build must compare clean before a
+  comparison across builds means anything. If they don't, find what still varies (automatic
+  exposure is warned about, for example) and pin it in the capture. Never loosen the tolerance to
+  hide it.
+- **Perf numbers come from script-launched windows, so they are unfocused.** Compare them only with
+  other script-launched runs (see "Present mode" below).
+
+---
+
 ## Validation errors are bugs
 
 Vulkan validation output (`Platform/Vulkan/VulkanDiagnostics.{h,cpp}`) is not noise. A validation

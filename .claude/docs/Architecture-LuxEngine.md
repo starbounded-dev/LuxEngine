@@ -372,7 +372,9 @@ Rules:
   `MemoryOnly` flag; there isn't one.
 - Engine code must work against **both** managers — no editor-only assumptions.
 - Async: `GetAssetAsync` + `SyncWithAssetThread()`; the worker is `EditorAssetSystem` /
-  `RuntimeAssetSystem` (see `.claude/docs/Threading.md`).
+  `RuntimeAssetSystem` (see `.claude/docs/Threading.md`). `EditorAssetManager::GetPendingAsyncLoadCount()`
+  counts loads queued, in flight, or finished but not yet synced; zero means editor streaming is
+  idle. The golden capture uses it to wait before it reads back a frame.
 - Dependencies: `RegisterDependency(dep, handle)` so a reloaded texture notifies its materials.
 
 ### 2.9 Editor

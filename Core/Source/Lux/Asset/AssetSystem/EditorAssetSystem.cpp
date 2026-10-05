@@ -25,6 +25,7 @@ namespace Lux
 		{
 			std::scoped_lock lock(m_LoadQueueMutex);
 			m_LoadQueue.push(metadata);
+			m_PendingLoads.fetch_add(1, std::memory_order_relaxed);
 		}
 		m_LoadQueueCV.notify_one();
 	}
@@ -36,6 +37,7 @@ namespace Lux
 		{
 			loadedAssets.emplace_back(std::move(m_FinishedQueue.front()));
 			m_FinishedQueue.pop();
+			m_PendingLoads.fetch_sub(1, std::memory_order_relaxed);
 		}
 	}
 

@@ -77,6 +77,8 @@ namespace Lux
 		bool FileExists(AssetMetadata& metadata) const;
 
 		void LoadAssetAsync(AssetHandle handle);
+		// Async loads not yet committed to the registry. Zero means streaming is idle.
+		uint32_t GetPendingAsyncLoadCount() const { return m_AssetThread ? m_AssetThread->GetPendingLoadCount() : 0; }
 		void SyncLoadedAssets();
 		void SerializeAssetRegistry();
 		bool DeserializeAssetRegistry();

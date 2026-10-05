@@ -620,11 +620,26 @@ namespace Lux {
 		// empty default) so the first edit has a valid state to undo back to.
 		ResetUndoHistory();
 		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
+
+		GoldenCapture::Hooks goldenHooks;
+		goldenHooks.OpenProject = [this](const std::filesystem::path& path) { OpenProject(path); };
+		goldenHooks.OpenScene = [this](const std::filesystem::path& path)
+		{
+			const AssetHandle handle = Project::GetEditorAssetManager()->GetAssetHandleFromFilePath(path);
+			if (!handle)
+				return false;
+
+			const Ref<Scene> previousScene = m_EditorScene;
+			OpenScene(handle);
+			return m_EditorScene != previousScene;
+		};
+		m_GoldenCapture = GoldenCapture::CreateFromEnvironment(std::move(goldenHooks));
 	}
 
 	void EditorLayer::OnDetach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
+		m_GoldenCapture.reset();
 		SaveEditorPreferences();
 
 		// io.IniFilename points into m_ImGuiIniPath, which dies with this layer, but ImGui saves its
@@ -673,10 +688,16 @@ namespace Lux {
 		// Before the early-out below: presence should still reflect "no project open".
 		UpdateDiscordPresence();
 
+		// May open the capture's project and scene, so it runs before the no-project early-out.
+		if (m_GoldenCapture)
+			m_GoldenCapture->BeginFrame();
+
 		// With no project open the start screen replaces the viewport, so there is nothing to render.
 		if (!m_ActiveScene || !m_EditorViewport || !Project::GetActive())
 			return;
 
+		if (m_GoldenCapture)
+			m_GoldenCapture->ConfigureViewport(*m_EditorViewport);
 		m_EditorViewport->SyncSceneViewport(m_ActiveScene);
 		m_Framebuffer = m_EditorViewport->GetFramebuffer();
 		m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
@@ -697,6 +718,10 @@ namespace Lux {
 			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
 			m_SceneRenderer->GetOptions().ShowSelectedInWireframe = m_EditorViewport->IsSelectedWireframeMode();
 		}
+
+		// After the editor's own per-frame options, so the capture's fixed settings win.
+		if (m_GoldenCapture && m_SceneRenderer)
+			m_GoldenCapture->ConfigureFrame(*m_ActiveScene, viewportCamera, *m_SceneRenderer);
 
 		m_Renderer2D->ResetStats();
 
@@ -751,6 +776,7 @@ namespace Lux {
 		if (renderGameView)
 			m_GameViewPanel->Render();
 
+		if (!m_GoldenCapture || !m_GoldenCapture->SuppressOverlays())
 		{
 			LUX_PROFILE_SCOPE("EditorLayer::OnOverlayRender");
 			OnOverlayRender();
@@ -759,6 +785,9 @@ namespace Lux {
 			LUX_PROFILE_SCOPE("SceneRenderer::WaitForThreads");
 			SceneRenderer::WaitForThreads();
 		}
+
+		if (m_GoldenCapture)
+			m_GoldenCapture->EndFrame(m_SceneRenderer);
 	}
 
 	void EditorLayer::OnImGuiRender()

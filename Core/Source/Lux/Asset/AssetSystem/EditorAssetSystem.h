@@ -24,12 +24,17 @@ namespace Lux
 		void SyncLoadedAssets(std::vector<EditorAssetLoadResponse>& loadedAssets);
 		void Stop();
 
+		// Loads queued but not yet handed back through SyncLoadedAssets: waiting, being loaded,
+		// or finished and waiting for the main thread. Any thread.
+		uint32_t GetPendingLoadCount() const { return m_PendingLoads.load(std::memory_order_relaxed); }
+
 	private:
 		void WorkerThread();
 
 	private:
 		Thread m_Thread;
 		std::atomic_bool m_Running{ false };
+		std::atomic<uint32_t> m_PendingLoads{ 0 };
 
 		std::queue<AssetMetadata> m_LoadQueue;
 		std::mutex m_LoadQueueMutex;
