@@ -724,6 +724,16 @@ namespace Lux {
 					});
 			};
 
+		// The fixtures never bind a GPU image, so every texture also carries a NullTexture
+		// warning. A test asserting "no warnings" means none besides that one.
+		auto countFixtureIndependentWarnings = [](const CompileResult& result)
+			{
+				return static_cast<uint32_t>(std::count_if(result.Diagnostics.begin(), result.Diagnostics.end(), [](const Diagnostic& diagnostic)
+					{
+						return diagnostic.Severity == DiagnosticSeverity::Warning && diagnostic.Code != DiagnosticCode::NullTexture;
+					}));
+			};
+
 		{
 			RenderGraph graph;
 			const ResourceHandle intermediate = graph.AddTransientTexture(makeTexture("Intermediate"));
@@ -810,8 +820,9 @@ namespace Lux {
 			graph.AddPass({ "DrawOnTop", { color }, { color }, PassFlags::Graphics });
 			graph.AddPass({ "BuffersOnly", {}, {}, CombineFlags(PassFlags::Compute, PassFlags::UntrackedResources) });
 			const CompileResult result = graph.Compile();
-			if (result.WarningCount != 0 || result.ErrorCount != 0)
-				addFailure(std::format("Load-and-store and untracked-resource passes expected no warnings, found {} warning(s) and {} error(s).", result.WarningCount, result.ErrorCount));
+			const uint32_t warningCount = countFixtureIndependentWarnings(result);
+			if (warningCount != 0 || result.ErrorCount != 0)
+				addFailure(std::format("Load-and-store and untracked-resource passes expected no warnings, found {} warning(s) and {} error(s).", warningCount, result.ErrorCount));
 			if (!hasDiagnostic(result, DiagnosticCode::ReadWriteSameResource))
 				addFailure("Load-and-store access was not recorded for the inspector.");
 		}
