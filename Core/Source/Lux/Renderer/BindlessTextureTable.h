@@ -12,6 +12,10 @@
 #include <utility>
 #include <vector>
 
+namespace nri {
+	struct DescriptorRangeDesc;
+}
+
 namespace Lux {
 
 	// A bindless texture array backed by NVRHI descriptor tables: shaders index one unsized
@@ -35,6 +39,9 @@ namespace Lux {
 		static void Shutdown();
 		static nvrhi::BindingLayoutHandle GetLayout();
 		static uint32_t GetCapacity();
+		// The bindless set's single range in NRI pipeline layouts. Every layout that declares the
+		// set uses exactly this range, so their set layouts are identical (and compatible).
+		static nri::DescriptorRangeDesc GetNRIRange();
 
 		BindlessTextureTable();
 		~BindlessTextureTable();

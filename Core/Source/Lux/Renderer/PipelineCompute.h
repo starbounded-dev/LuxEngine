@@ -9,6 +9,10 @@
 #include "Lux/Renderer/StorageBuffer.h"
 #include "Lux/Renderer/StorageBufferSet.h"
 
+namespace nri {
+	struct Pipeline;
+}
+
 namespace Lux {
 
 	class PipelineCompute : public RefCounted
@@ -29,15 +33,22 @@ namespace Lux {
 		void CreatePipeline();
 
 		nvrhi::ComputePipelineHandle GetHandle() const { return m_Handle; }
+		// The NRI compute pipeline over the shader's NRI layout (NRI migration Phase 9), created and
+		// recreated with the NVRHI pipeline. Null if NRI rejected it.
+		nri::Pipeline* GetNRIPipeline() const { return m_NRIPipeline; }
 		Ref<Shader> GetShader() const { return m_Shader; }
 	public:
 		PipelineCompute(Ref<Shader> computeShader);
+		~PipelineCompute();
 	private:
 		void RT_CreatePipeline();
 		static void RT_BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags toAccess, const std::string& markerName);
+		void CreateNRIPipeline();
+		void ReleaseNRIPipeline();
 	private:
 		Ref<Shader> m_Shader;
 		nvrhi::ComputePipelineHandle m_Handle = nullptr;
+		nri::Pipeline* m_NRIPipeline = nullptr;
 	};
 
 }

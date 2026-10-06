@@ -6,6 +6,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include <vulkan/vulkan.h>
 #include <algorithm>
@@ -63,6 +64,17 @@ namespace Lux {
 	uint32_t BindlessTextureTable::GetCapacity()
 	{
 		return s_Capacity;
+	}
+
+	nri::DescriptorRangeDesc BindlessTextureTable::GetNRIRange()
+	{
+		nri::DescriptorRangeDesc range = {};
+		range.baseRegisterIndex = 0;
+		range.descriptorNum = s_Capacity;
+		range.descriptorType = nri::DescriptorType::TEXTURE;
+		range.shaderStages = nri::StageBits::ALL;
+		range.flags = nri::DescriptorRangeBits::PARTIALLY_BOUND | nri::DescriptorRangeBits::ARRAY | nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY;
+		return range;
 	}
 
 	BindlessTextureTable::BindlessTextureTable()

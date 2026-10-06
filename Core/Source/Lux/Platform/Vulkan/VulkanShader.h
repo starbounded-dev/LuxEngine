@@ -11,6 +11,12 @@
 
 #include "nvrhi/nvrhi.h"
 
+#include <array>
+
+namespace nri {
+	struct PipelineLayout;
+}
+
 namespace Lux {
 
 	class VulkanShader : public Shader
@@ -24,9 +30,11 @@ namespace Lux {
 			std::vector<ShaderResource::PushConstantRange> PushConstantRanges;
 		};
 	public:
+		static constexpr uint32_t k_NoNRISet = UINT32_MAX;
+	public:
 		VulkanShader() = default;
 		VulkanShader(const std::string& path, bool forceCompile, bool disableOptimization);
-		virtual ~VulkanShader() = default;
+		virtual ~VulkanShader();
 		void Release();
 
 		void Reload(bool forceCompile = false) override;
@@ -65,9 +73,24 @@ namespace Lux {
 		const std::vector<ShaderResource::ShaderDescriptorSet>& GetShaderDescriptorSets() const { return m_ReflectionData.ShaderDescriptorSets; }
 
 		const std::vector<ShaderResource::PushConstantRange>& GetPushConstantRanges() const { return m_ReflectionData.PushConstantRanges; }
+
+		// The SPIR-V the driver gets for `stage` (empty if the shader has no such stage).
+		const std::vector<uint32_t>& GetSPIRV(ShaderStage stage) const;
+
+		// NRI pipeline layout built from the reflection with the NVRHI binding layouts (NRI migration
+		// Phase 9): one descriptor set per declared set number (register space = set number,
+		// StageBits::ALL so equal bindings mean compatible set layouts), the shared bindless range
+		// for set 4, one root-constant block for the push constants. Null if NRI rejected it.
+		nri::PipelineLayout* GetNRIPipelineLayout() const { return m_NRIPipelineLayout; }
+		// Position of descriptor set `set` in the NRI layout (SetDescriptorSetDesc::setIndex), or
+		// k_NoNRISet when the shader declares nothing there.
+		uint32_t GetNRISetIndex(uint32_t set) const { return set < m_NRISetIndices.size() ? m_NRISetIndices[set] : k_NoNRISet; }
+		bool HasNRIRootConstants() const { return !m_ReflectionData.PushConstantRanges.empty(); }
 	private:
 		void LoadAndCreateShaders(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData);
 		void CreateDescriptors();
+		void CreateNRIPipelineLayout();
+		void ReleaseNRIPipelineLayout();
 	private:
 		std::map<ShaderStage, nvrhi::ShaderHandle> m_ShaderHandles;
 
@@ -79,6 +102,16 @@ namespace Lux {
 		ReflectionData m_ReflectionData;
 
 		nvrhi::BindingLayoutVector m_DescriptorSetLayouts;
+
+		nri::PipelineLayout* m_NRIPipelineLayout = nullptr;
+		std::array<uint32_t, 8> m_NRISetIndices = MakeNoNRISets();
+
+		static constexpr std::array<uint32_t, 8> MakeNoNRISets()
+		{
+			std::array<uint32_t, 8> sets = {};
+			sets.fill(k_NoNRISet);
+			return sets;
+		}
 	private:
 		friend class ShaderCache;
 		friend class ShaderPack;

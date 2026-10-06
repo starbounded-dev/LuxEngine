@@ -10,6 +10,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Image.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 
 namespace Lux {
 
@@ -151,6 +152,54 @@ namespace Lux {
 
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 		m_Handle = device->createComputePipeline(desc);
+
+		CreateNRIPipeline();
+	}
+
+	PipelineCompute::~PipelineCompute()
+	{
+		ReleaseNRIPipeline();
+	}
+
+	void PipelineCompute::ReleaseNRIPipeline()
+	{
+		if (!m_NRIPipeline)
+			return;
+
+		Renderer::SubmitResourceFree([pipeline = std::exchange(m_NRIPipeline, nullptr)]()
+			{
+				RHIDevice::API().DestroyPipeline(pipeline);
+			});
+	}
+
+	void PipelineCompute::CreateNRIPipeline()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		ReleaseNRIPipeline();
+
+		Ref<VulkanShader> shader = m_Shader.As<VulkanShader>();
+		nri::PipelineLayout* layout = shader->GetNRIPipelineLayout();
+		const std::vector<uint32_t>& spirv = shader->GetSPIRV(ShaderStage::Compute);
+		if (!layout || spirv.empty())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[PipelineCompute] No NRI compute pipeline for {}: {}", m_Shader->GetName(), layout ? "no compute SPIR-V" : "no NRI pipeline layout");
+			return;
+		}
+
+		nri::ComputePipelineDesc desc = {};
+		desc.pipelineLayout = layout;
+		desc.shader.stage = nri::StageBits::COMPUTE_SHADER;
+		desc.shader.bytecode = spirv.data();
+		desc.shader.size = spirv.size() * sizeof(uint32_t);
+		desc.shader.entryPointName = "main";
+		if (RHIDevice::API().CreateComputePipeline(RHIDevice::Get(), desc, m_NRIPipeline) != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[PipelineCompute] Failed to create the NRI compute pipeline for {}", m_Shader->GetName());
+			m_NRIPipeline = nullptr;
+			return;
+		}
+
+		RHIDevice::API().SetDebugName(m_NRIPipeline, m_Shader->GetName().c_str());
 	}
 
 	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)

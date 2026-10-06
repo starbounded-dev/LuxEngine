@@ -17,12 +17,20 @@
 #include "Lux/Renderer/BindlessTextureTable.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Utilities/StringUtils.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 
 namespace Lux {
+
+	namespace {
+
+		const std::vector<uint32_t> s_NoSPIRV;
+
+	}
 
 	VulkanShader::VulkanShader(const std::string& path, bool forceCompile, bool disableOptimization)
 		: m_AssetPath(path), m_DisableOptimization(disableOptimization)
@@ -36,10 +44,129 @@ namespace Lux {
 		Reload(forceCompile);
 	}
 
+	VulkanShader::~VulkanShader()
+	{
+		ReleaseNRIPipelineLayout();
+	}
+
 	void VulkanShader::Release()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_DescriptorSetLayouts.resize(0);
+		ReleaseNRIPipelineLayout();
+	}
+
+	void VulkanShader::ReleaseNRIPipelineLayout()
+	{
+		if (!m_NRIPipelineLayout)
+			return;
+
+		Renderer::SubmitResourceFree([layout = std::exchange(m_NRIPipelineLayout, nullptr)]()
+			{
+				RHIDevice::API().DestroyPipelineLayout(layout);
+			});
+		m_NRISetIndices.fill(k_NoNRISet);
+	}
+
+	const std::vector<uint32_t>& VulkanShader::GetSPIRV(ShaderStage stage) const
+	{
+		auto it = m_ShaderData.find(stage);
+		return it != m_ShaderData.end() ? it->second : s_NoSPIRV;
+	}
+
+	void VulkanShader::CreateNRIPipelineLayout()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		ReleaseNRIPipelineLayout();
+
+		const auto& shaderDescriptorSets = m_ReflectionData.ShaderDescriptorSets;
+		if (shaderDescriptorSets.size() > m_NRISetIndices.size())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Shader {} declares {} descriptor sets; NRI layouts support {}, so it has none", m_Name, shaderDescriptorSets.size(), m_NRISetIndices.size());
+			return;
+		}
+
+		// Ranges must outlive CreatePipelineLayout; one vector per set.
+		std::vector<std::vector<nri::DescriptorRangeDesc>> ranges(shaderDescriptorSets.size());
+		std::vector<nri::DescriptorSetDesc> setDescs;
+		m_NRISetIndices.fill(k_NoNRISet);
+
+		for (uint32_t set = 0; set < shaderDescriptorSets.size(); set++)
+		{
+			const ShaderResource::ShaderDescriptorSet& descriptorSet = shaderDescriptorSets[set];
+			std::vector<nri::DescriptorRangeDesc>& setRanges = ranges[set];
+
+			if (set == BindlessTextureTable::DescriptorSet)
+			{
+				if (descriptorSet)
+					setRanges.push_back(BindlessTextureTable::GetNRIRange());
+			}
+			else
+			{
+				const auto addRange = [&](uint32_t binding, nri::DescriptorType type, uint32_t count)
+				{
+					nri::DescriptorRangeDesc& range = setRanges.emplace_back();
+					range.baseRegisterIndex = binding;
+					range.descriptorNum = std::max(count, 1u);
+					range.descriptorType = type;
+					range.shaderStages = nri::StageBits::ALL;
+					range.flags = count > 1 ? nri::DescriptorRangeBits::ARRAY : nri::DescriptorRangeBits::NONE;
+				};
+
+				for (const auto& [binding, uniformBuffer] : descriptorSet.UniformBuffers)
+					addRange(binding, nri::DescriptorType::CONSTANT_BUFFER, 1);
+				// Lux binds storage buffers as raw (byte-address) views.
+				for (const auto& [binding, storageBuffer] : descriptorSet.StorageBuffers)
+					addRange(binding, storageBuffer.ReadOnly ? nri::DescriptorType::STRUCTURED_BUFFER : nri::DescriptorType::STORAGE_STRUCTURED_BUFFER, 1);
+				for (const auto& [binding, texture] : descriptorSet.SeparateTextures)
+					addRange(binding, nri::DescriptorType::TEXTURE, texture.ArraySize);
+				for (const auto& [binding, sampler] : descriptorSet.SeparateSamplers)
+					addRange(binding, nri::DescriptorType::SAMPLER, sampler.ArraySize);
+				for (const auto& [binding, image] : descriptorSet.StorageImages)
+					addRange(binding, nri::DescriptorType::STORAGE_TEXTURE, image.ArraySize);
+				for (const auto& [binding, imageSampler] : descriptorSet.ImageSamplers)
+					LUX_CORE_ERROR_TAG("Renderer", "Shader {}: combined image sampler {} ({}.{}) has no NRI descriptor and is left out", m_Name, imageSampler.Name, set, binding);
+
+				std::sort(setRanges.begin(), setRanges.end(), [](const nri::DescriptorRangeDesc& a, const nri::DescriptorRangeDesc& b) { return a.baseRegisterIndex < b.baseRegisterIndex; });
+			}
+
+			if (setRanges.empty())
+				continue;
+
+			m_NRISetIndices[set] = static_cast<uint32_t>(setDescs.size());
+			nri::DescriptorSetDesc& setDesc = setDescs.emplace_back();
+			setDesc.registerSpace = set;
+			setDesc.ranges = setRanges.data();
+			setDesc.rangeNum = static_cast<uint32_t>(setRanges.size());
+		}
+
+		// NVRHI puts all push-constant ranges in one block; so does NRI's single root constant.
+		nri::RootConstantDesc rootConstant = {};
+		for (const ShaderResource::PushConstantRange& range : m_ReflectionData.PushConstantRanges)
+			rootConstant.size = std::max(rootConstant.size, range.Offset + range.Size);
+		rootConstant.size = (rootConstant.size + 3u) & ~3u;
+		rootConstant.shaderStages = nri::StageBits::ALL;
+
+		nri::PipelineLayoutDesc layoutDesc = {};
+		// No root descriptors; keep the (unused) root space clear of every set.
+		layoutDesc.rootRegisterSpace = static_cast<uint32_t>(shaderDescriptorSets.size());
+		layoutDesc.rootConstants = rootConstant.size ? &rootConstant : nullptr;
+		layoutDesc.rootConstantNum = rootConstant.size ? 1 : 0;
+		layoutDesc.descriptorSets = setDescs.data();
+		layoutDesc.descriptorSetNum = static_cast<uint32_t>(setDescs.size());
+		layoutDesc.shaderStages = nri::StageBits::ALL;
+		// Reflected bindings are final SPIR-V binding numbers.
+		layoutDesc.flags = nri::PipelineLayoutBits::IGNORE_GLOBAL_SPIRV_OFFSETS;
+
+		if (RHIDevice::API().CreatePipelineLayout(RHIDevice::Get(), layoutDesc, m_NRIPipelineLayout) != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Failed to create the NRI pipeline layout of shader {}", m_Name);
+			m_NRIPipelineLayout = nullptr;
+			m_NRISetIndices.fill(k_NoNRISet);
+			return;
+		}
+
+		RHIDevice::API().SetDebugName(m_NRIPipelineLayout, m_Name.c_str());
 	}
 
 	void VulkanShader::RT_Reload(const bool forceCompile)
@@ -312,6 +439,7 @@ namespace Lux {
 		m_DescriptorSetLayouts[set] = device->createBindingLayout(bindingLayoutDesc);
 		}
 
+		CreateNRIPipelineLayout();
 	}
 
 
