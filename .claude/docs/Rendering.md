@@ -147,13 +147,24 @@ validation. `SceneRenderer` owns one (`m_RenderGraph`) and rebuilds its descript
 
 - `AddTransientTexture(TextureDesc)` → `ResourceHandle`. `Transient` and `AllowAlias` default true;
   aliasing reuses memory between resources with disjoint lifetimes.
-- `AddPass(PassDesc)` where `PassDesc` is `{ Name, Reads, Writes, Flags, Execute, DebugName }`.
-  `PassFlags`: `Graphics`, `Compute`, `Transfer`, `SideEffect`, `NeverCull`, `UntrackedResources`.
-  The graph models textures only; a pass that touches only SSBOs/UBOs (cluster build/culling)
-  sets `UntrackedResources` so its empty `Reads`/`Writes` are not flagged.
+- `AddExternalBuffer(BufferDesc{ Name, Set | Buffer })` → `ResourceHandle` for a storage buffer the
+  graph orders passes around. Buffers are always external: never transient, never aliased. Buffer
+  handles carry `BufferHandleBit`; texture handles stay equal to their index. Per-resource arrays in
+  `CompileResult` hold textures first (slot == texture handle), then buffers
+  (`GetResourceSlot(handle)`).
+- `AddPass(PassDesc)` where `PassDesc` is `{ Name, Reads, Writes, Flags, Execute, DebugName,
+  Accesses }`. `Accesses` lists `{ Resource, AccessKind, Range }`: `SampledRead`, `StorageRead`
+  (UAV for a texture, SRV for a read-only buffer), `StorageWrite`, `StorageReadWrite`, `ColorWrite`,
+  `ColorReadWrite`, `DepthWrite`, `DepthReadWrite`, `DepthReadOnly`, `CopySource`, `CopyDest`,
+  `IndirectArgs`, `UniformRead`. `AddPass` adds every access to `Reads`/`Writes` by kind.
+  `PassFlags`: `Graphics`, `Compute`, `Transfer`, `SideEffect`, `NeverCull`, `UntrackedResources`
+  (now unused by `SceneRenderer`: the cluster passes declare their buffers).
 - `Compile()` → `CompileResult` with execution order, culled passes, resource lifetimes, alias
-  groups, and typed `Diagnostic`s.
-- `Execute(compileResult)` runs the surviving passes' callbacks.
+  groups, typed `Diagnostic`s, and per-pass **entry requirements** (the state of every resource the
+  pass uses in a single state).
+- `Execute(compileResult, commandBuffer)` runs the surviving passes' callbacks. With explicit
+  barriers on (`§ Resource states`) it first requires each pass's entry requirements in one batch;
+  a resource the pass uses in several states (an in-place mip chain) is left to its dispatches.
 
 `DebugName` is an always-set pointer to the pass's string literal, kept **last** in the struct so the
 positional aggregate initializers in the validation self-tests still map to
@@ -174,8 +185,8 @@ if (!m_RenderGraphResultValid || structureHash != m_RenderGraphStructureHash)
 m_RenderGraph.Execute(renderGraphResult);
 ```
 
-`ComputeStructureHash()` folds **every field `Compile()`/`Execute()` depend on** — pass topology plus
-texture metadata. Equal hashes therefore imply an equivalent `CompileResult`.
+`ComputeStructureHash()` folds **every field `Compile()`/`Execute()` depend on** — pass topology
+(including `Accesses`), texture metadata and buffer presence. Equal hashes therefore imply an equivalent `CompileResult`.
 
 **If you add a field to `PassDesc` or `TextureDesc` that affects compilation, you must fold it into
 `ComputeStructureHash()`.** Forgetting to is the classic RenderGraph bug: the graph silently reuses a
@@ -186,7 +197,10 @@ like "my pass does nothing" — not like a hash bug.
 
 `DiagnosticCode` covers `ReadBeforeWrite`, `UnwrittenExternalRead`, `DeadWrite`,
 `ReadWriteSameResource`, `DuplicatePassName`, `DuplicateTextureName`, `InvalidPassFlags`,
-`EmptyExecutablePass`, `AliasLifetimeConflict`, `AliasIncompatibleResource`, and more. They surface
+`EmptyExecutablePass`, `AliasLifetimeConflict`, `AliasIncompatibleResource`, `NullBuffer`,
+`UndeclaredAccess`, and more. `UndeclaredAccess` (Info) is found while executing, in Debug with
+explicit barriers on: a pass required a graph resource it did not declare — the case that can turn
+into a use-after-alias. `GetRuntimeDiagnostics()` returns them; the snapshot lists them per pass. They surface
 in the Renderer Debugger panel via `SceneRenderer::RenderGraphDebugSnapshot`.
 
 A resource in both `Reads` and `Writes` is a load-and-store (drawing on top of an attachment,
@@ -204,7 +218,11 @@ not a warning; only warnings and errors reach the log.
 4. Declare transient targets with `AddTransientTexture`.
 5. Add the pass in the graph-building block of `SceneRenderer.cpp` (search for
    `addPass("Composite"` to find it) with **accurate** `Reads` / `Writes` — the graph culls and
-   aliases based on them, so a lie here produces a use-after-alias, not a warning.
+   aliases based on them, so a lie here produces a use-after-alias, not a warning. `addPass`
+   derives the textures' access kinds (graphics: written = attachments, color/depth by format,
+   read + write = load and store; compute: written = storage write; read-only = sampled) and
+   takes the storage buffers the pass uses as its last argument, e.g.
+   `{ { visibleObjectIndexes, AccessKind::StorageRead } }`; register a buffer with `addBuffer`.
 6. Gate optional passes on their feature flag so they are skipped at zero cost when off.
 
 Existing pass order, for orientation: shadow maps → PreDepth → HZB → mesh culling → cluster build →

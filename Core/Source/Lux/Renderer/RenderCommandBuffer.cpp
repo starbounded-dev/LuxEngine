@@ -619,6 +619,18 @@ namespace Lux {
 		RT_RequireTextureState(attachment.texture, FromNVRHI(attachment.subresources), ResourceState::CopyDest);
 	}
 
+	void RenderCommandBuffer::RT_BeginRequirementLog()
+	{
+		m_RequirementLog.clear();
+		m_Tracker.SetRequirementLog(&m_RequirementLog);
+	}
+
+	std::vector<const void*> RenderCommandBuffer::RT_EndRequirementLog()
+	{
+		m_Tracker.SetRequirementLog(nullptr);
+		return std::move(m_RequirementLog);
+	}
+
 	void RenderCommandBuffer::RT_CommitBarriers()
 	{
 		m_Tracker.Commit();

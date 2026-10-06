@@ -3685,13 +3685,20 @@ namespace Lux {
 		m_RenderGraph.Reset();
 		const ResolvedFrameEnvironment frame = ResolveFrameEnvironment();
 		std::unordered_map<const Image2D*, RenderGraph::ResourceHandle> resourceLookup;
+		std::unordered_map<const StorageBufferSet*, RenderGraph::ResourceHandle> bufferLookup;
 
 		// Resource/pass names are only consumed by diagnostics and the Renderer Debugger
 		// snapshot (which builds the graph with executable=false). The per-frame executable
 		// build never feeds the debugger, so skip all name materialization there — names are
 		// passed as string_view and only copied into a std::string when captured. This avoids
 		// dozens of per-frame heap allocations (long literals + the std::format'd names).
+#ifdef LUX_DEBUG
+		// Debug also names the executable graph: the render graph's undeclared-access check reports
+		// resources and passes by name.
+		const bool captureNames = true;
+#else
 		const bool captureNames = !executable;
+#endif
 		const auto graphName = [captureNames](std::string_view name) -> std::string
 			{
 				return captureNames ? std::string(name) : std::string{};
@@ -3770,6 +3777,22 @@ namespace Lux {
 				return resource;
 			};
 
+		auto addBuffer = [&](std::string_view name, const Ref<StorageBufferSet>& bufferSet) -> RenderGraph::ResourceHandle
+			{
+				if (!bufferSet)
+					return RenderGraph::InvalidResource;
+
+				if (auto it = bufferLookup.find(bufferSet.Raw()); it != bufferLookup.end())
+					return it->second;
+
+				RenderGraph::BufferDesc desc;
+				desc.Name = graphName(name);
+				desc.Set = bufferSet;
+				const RenderGraph::ResourceHandle resource = m_RenderGraph.AddExternalBuffer(desc);
+				bufferLookup[bufferSet.Raw()] = resource;
+				return resource;
+			};
+
 		auto addFramebufferResources = [&](std::string_view name, const Ref<Framebuffer>& framebuffer)
 			{
 				std::vector<RenderGraph::ResourceHandle> resources;
@@ -3817,18 +3840,79 @@ namespace Lux {
 				dst.insert(dst.end(), src.begin(), src.end());
 			};
 
+		// Access kinds for a pass's textures, from the same reads/writes the graph has always used (so
+		// lifetimes and aliasing are unchanged):
+		//   graphics: written textures are the framebuffer's attachments - color or depth by format, and
+		//             read + write is load-and-store; read-only textures are sampled.
+		//   compute:  written-only textures are storage writes, read-only ones are sampled. One both read
+		//             and written (an in-place mip chain, a ping-pong) is declared as both, which leaves it
+		//             to the dispatches' own requirements instead of a pass-entry state.
+		auto textureAccesses = [&](const std::vector<RenderGraph::ResourceHandle>& reads,
+			const std::vector<RenderGraph::ResourceHandle>& writes, RenderGraph::PassFlags flags)
+			{
+				using AccessKind = RenderGraph::AccessKind;
+				const bool graphics = RenderGraph::HasFlag(flags, RenderGraph::PassFlags::Graphics);
+				const auto& textures = m_RenderGraph.GetTextures();
+
+				std::vector<RenderGraph::ResourceAccess> accesses;
+				accesses.reserve(reads.size() + writes.size());
+				auto contains = [](const std::vector<RenderGraph::ResourceHandle>& list, RenderGraph::ResourceHandle resource)
+					{
+						return std::find(list.begin(), list.end(), resource) != list.end();
+					};
+
+				for (RenderGraph::ResourceHandle resource : writes)
+				{
+					if (resource >= textures.size())
+						continue;
+
+					const bool alsoRead = contains(reads, resource);
+					if (graphics)
+					{
+						const bool depth = Utils::IsDepthFormat(textures[resource].Format);
+						const AccessKind kind = depth
+							? (alsoRead ? AccessKind::DepthReadWrite : AccessKind::DepthWrite)
+							: (alsoRead ? AccessKind::ColorReadWrite : AccessKind::ColorWrite);
+						accesses.push_back({ resource, kind });
+					}
+					else
+					{
+						accesses.push_back({ resource, AccessKind::StorageWrite });
+						if (alsoRead)
+							accesses.push_back({ resource, AccessKind::SampledRead });
+					}
+				}
+
+				for (RenderGraph::ResourceHandle resource : reads)
+				{
+					if (resource < textures.size() && !contains(writes, resource))
+						accesses.push_back({ resource, AccessKind::SampledRead });
+				}
+
+				return accesses;
+			};
+
+		// `buffers`: the storage buffers the pass uses (the graph orders passes around them; buffers
+		// never alias). Textures get their access kinds from `reads`/`writes` above.
 		auto addPass = [&](std::string_view name,
 			std::vector<RenderGraph::ResourceHandle> reads,
 			std::vector<RenderGraph::ResourceHandle> writes,
 			RenderGraph::PassFlags flags,
-			RenderGraph::ExecuteCallback execute = {})
+			RenderGraph::ExecuteCallback execute = {},
+			std::initializer_list<RenderGraph::ResourceAccess> buffers = {})
 			{
-				if (reads.empty() && writes.empty() && !execute)
+				if (reads.empty() && writes.empty() && buffers.size() == 0 && !execute)
 					return;
 
 				RenderGraph::PassDesc pass;
 				pass.Name = graphName(name);
 				pass.DebugName = name.data(); // string-literal backed; valid for the process lifetime
+				pass.Accesses = textureAccesses(reads, writes, flags);
+				for (const RenderGraph::ResourceAccess& buffer : buffers)
+				{
+					if (buffer.Resource != RenderGraph::InvalidResource)
+						pass.Accesses.push_back(buffer);
+				}
 				pass.Reads = std::move(reads);
 				pass.Writes = std::move(writes);
 				pass.Flags = execute
@@ -3837,6 +3921,19 @@ namespace Lux {
 				pass.Execute = std::move(execute);
 				m_RenderGraph.AddPass(std::move(pass));
 			};
+
+		// Storage buffers passes communicate through. Invalid when a set does not exist.
+		using AccessKind = RenderGraph::AccessKind;
+		const RenderGraph::ResourceHandle visibleObjectIndexes = addBuffer("Visible Object Indexes", m_SBSVisibleObjectIndexes);
+		const RenderGraph::ResourceHandle indirectDrawCommands = addBuffer("Indirect Draw Commands", m_SBSIndirectDrawCommands);
+		// Draw passes read the culled indirect arguments only with GPU-driven rendering on.
+		const RenderGraph::ResourceHandle indirectArgs = m_Options.EnableGPUDrivenRendering ? indirectDrawCommands : RenderGraph::InvalidResource;
+		const RenderGraph::ResourceHandle clusterAABBs = addBuffer("Cluster AABBs", m_SBSClusterAABBs);
+		const RenderGraph::ResourceHandle pointLightGrid = addBuffer("Point Light Grid", m_SBSPointLightGrid);
+		const RenderGraph::ResourceHandle spotLightGrid = addBuffer("Spot Light Grid", m_SBSSpotLightGrid);
+		const RenderGraph::ResourceHandle pointLightIndexList = addBuffer("Point Light Index List", m_SBSPointLightIndexList);
+		const RenderGraph::ResourceHandle spotLightIndexList = addBuffer("Spot Light Index List", m_SBSSpotLightIndexList);
+		const RenderGraph::ResourceHandle clusterLightCounter = addBuffer("Cluster Light Counter", m_SBSClusterLightCounter);
 
 		std::vector<RenderGraph::ResourceHandle> directionalShadowOutputs = { addTexture("Directional Shadow Atlas", m_ShadowMapImage) };
 		std::vector<RenderGraph::ResourceHandle> spotShadowOutputs = { addTexture("Spot Shadow Atlas", m_SpotShadowMapImage) };
@@ -3852,7 +3949,8 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> hzbOutputs;
 		hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
 		addPass("HZB", preDepthOutputs, hzbOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::HZBCompute));
-		addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass));
+		addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass),
+			{ { visibleObjectIndexes, AccessKind::StorageWrite }, { indirectDrawCommands, AccessKind::StorageReadWrite } });
 
 		// PreIntegration's visibility pyramid is consumed only by SSR — skip the
 		// whole pass (and its per-mip dispatches) when SSR is off. The vector stays
@@ -3868,17 +3966,26 @@ namespace Lux {
 		// camera + light UBOs), so with EnableAsyncCompute they run on the compute
 		// queue in FlushDrawList *before* this graphics graph and are omitted here.
 		// Their SSBO outputs (light grids/index lists) feed deferred lighting; the
-		// cross-queue ordering is a queueWaitForCommandList, not a graph edge (the
-		// graph never modeled these SSBOs — the nodes had no declared inputs/outputs).
+		// cross-queue ordering is a queueWaitForCommandList, not a graph edge; the
+		// in-graph readers then see the light buffers as external inputs. A cross-queue
+		// graph edge is a follow-up (NRI migration plan, follow-ups).
 		if (!m_Options.EnableAsyncCompute)
 		{
-			// Cluster build runs before light culling; it only depends on the camera
-			// projection (SSBO synchronized via a manual barrier inside the pass).
-			addPass("Cluster Build", {}, {}, RenderGraph::CombineFlags(RenderGraph::PassFlags::Compute, RenderGraph::PassFlags::UntrackedResources), makeExecute(&SceneRenderer::ClusterBuildPass));
+			// Cluster build runs before light culling; it only depends on the camera projection.
+			addPass("Cluster Build", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterBuildPass),
+				{ { clusterAABBs, AccessKind::StorageWrite } });
 
-			// Cluster light assignment depends on the cluster AABBs + the light UBOs;
-			// it is depth-independent (SSBOs synchronized via manual barriers).
-			addPass("Cluster Light Culling", {}, {}, RenderGraph::CombineFlags(RenderGraph::PassFlags::Compute, RenderGraph::PassFlags::UntrackedResources), makeExecute(&SceneRenderer::ClusterLightCullingPass));
+			// Cluster light assignment depends on the cluster AABBs + the light UBOs; it is
+			// depth-independent. The grids and counter are cleared first (a transfer inside the pass).
+			addPass("Cluster Light Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ClusterLightCullingPass),
+				{
+					{ clusterAABBs, AccessKind::StorageRead },
+					{ clusterLightCounter, AccessKind::StorageReadWrite },
+					{ pointLightGrid, AccessKind::StorageWrite },
+					{ spotLightGrid, AccessKind::StorageWrite },
+					{ pointLightIndexList, AccessKind::StorageWrite },
+					{ spotLightIndexList, AccessKind::StorageWrite },
+				});
 		}
 
 		// Scene color first so the image the G-buffer borrows for emission keeps its own name.
@@ -3899,7 +4006,8 @@ namespace Lux {
 		if (m_SelectedGeometryPass && (executable ? !GetMeshPass(MeshPassType::SelectedMask).DrawList.empty() : true))
 		{
 			selectedOutputs = addRenderPassResources("SelectedGeometry", m_SelectedGeometryPass);
-			addPass("Selected Geometry", preDepthOutputs, selectedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SelectedGeometryPass));
+			addPass("Selected Geometry", preDepthOutputs, selectedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SelectedGeometryPass),
+				{ { visibleObjectIndexes, AccessKind::StorageRead }, { indirectArgs, AccessKind::IndirectArgs } });
 		}
 
 		std::vector<RenderGraph::ResourceHandle> geometryOutputs = gbufferOutputs;
@@ -3911,7 +4019,8 @@ namespace Lux {
 			appendResources(gbufferReads, sceneColorCurrent);
 			std::vector<RenderGraph::ResourceHandle> gbufferWrites = gbufferOutputs;
 			appendResources(gbufferWrites, sceneColorOutputs);
-			addPass("GBuffer", gbufferReads, gbufferWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass));
+			addPass("GBuffer", gbufferReads, gbufferWrites, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferPass),
+				{ { visibleObjectIndexes, AccessKind::StorageRead }, { indirectArgs, AccessKind::IndirectArgs } });
 		}
 
 		{
@@ -3920,7 +4029,14 @@ namespace Lux {
 			appendResources(deferredReads, shadowOutputs);
 			appendResources(deferredReads, sceneColorCurrent);
 			std::vector<RenderGraph::ResourceHandle> deferredOutputs = addRenderPassResources("Deferred Lighting", m_DeferredLightingPass);
-			addPass("Deferred Lighting", deferredReads, deferredOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DeferredLightingPass));
+			addPass("Deferred Lighting", deferredReads, deferredOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DeferredLightingPass),
+				{
+					{ visibleObjectIndexes, AccessKind::StorageRead },
+					{ pointLightGrid, AccessKind::StorageRead },
+					{ spotLightGrid, AccessKind::StorageRead },
+					{ pointLightIndexList, AccessKind::StorageRead },
+					{ spotLightIndexList, AccessKind::StorageRead },
+				});
 			sceneColorCurrent = deferredOutputs;
 
 			geometryOutputs = gbufferOutputs;
@@ -3962,7 +4078,8 @@ namespace Lux {
 		{
 			std::vector<RenderGraph::ResourceHandle> debugReads = gbufferOutputs;
 			appendResources(debugReads, sceneColorCurrent);
-			addPass("GBuffer Debug", debugReads, addRenderPassResources("GBuffer Debug", m_GBufferDebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferDebugPass));
+			addPass("GBuffer Debug", debugReads, addRenderPassResources("GBuffer Debug", m_GBufferDebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::GBufferDebugPass),
+				{ { visibleObjectIndexes, AccessKind::StorageRead } });
 		}
 
 		if (m_Options.EnableGTAO && m_DebugViewMode == DebugViewMode::AO && m_AODebugPass)
@@ -4008,7 +4125,15 @@ namespace Lux {
 			appendResources(transparentReads, preDepthOutputs);
 			appendResources(transparentReads, sceneColorCurrent);
 			std::vector<RenderGraph::ResourceHandle> transparentOutputs = addRenderPassResources("Transparent Forward", m_GeometryPassTransparent);
-			addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass));
+			addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass),
+				{
+					{ visibleObjectIndexes, AccessKind::StorageRead },
+					{ indirectArgs, AccessKind::IndirectArgs },
+					{ pointLightGrid, AccessKind::StorageRead },
+					{ spotLightGrid, AccessKind::StorageRead },
+					{ pointLightIndexList, AccessKind::StorageRead },
+					{ spotLightIndexList, AccessKind::StorageRead },
+				});
 			sceneColorCurrent = transparentOutputs;
 		}
 
@@ -4042,13 +4167,16 @@ namespace Lux {
 
 		const PostProcessSettings& postProcessSettings = frame.PostProcess;
 
-		// Histogram auto-exposure reads the final scene color and writes the exposure
-		// state buffer (a side effect not tracked as a graph texture, so it is pinned).
+		// Histogram auto-exposure reads the final scene color and writes the exposure state buffer,
+		// which Composite reads.
+		const RenderGraph::ResourceHandle exposureState = addBuffer("Exposure State", m_SBSExposureState);
 		if (postProcessSettings.ExposureControl == ExposureMode::Automatic)
 		{
-			constexpr auto autoExposureFlags = static_cast<RenderGraph::PassFlags>(
-				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::SideEffect));
-			addPass("Auto Exposure", sceneColorCurrent, {}, autoExposureFlags, makeExecute(&SceneRenderer::AutoExposurePass));
+			addPass("Auto Exposure", sceneColorCurrent, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::AutoExposurePass),
+				{
+					{ addBuffer("Luminance Histogram", m_SBSLuminanceHistogram), AccessKind::StorageReadWrite },
+					{ exposureState, AccessKind::StorageReadWrite },
+				});
 		}
 
 		std::vector<RenderGraph::ResourceHandle> bloomOutputs;
@@ -4071,7 +4199,8 @@ namespace Lux {
 		appendResources(compositeReads, bloomOutputs);
 		appendResources(compositeReads, preDepthOutputs);
 		std::vector<RenderGraph::ResourceHandle> compositeOutputs = addFramebufferResources("Composite", m_CompositingFramebuffer);
-		addPass("Composite", compositeReads, addRenderPassResources("Composite Color", m_CompositePass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::CompositePass));
+		addPass("Composite", compositeReads, addRenderPassResources("Composite Color", m_CompositePass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::CompositePass),
+			{ { exposureState, AccessKind::StorageRead } });
 
 		// SMAA sits directly after the composite and before DOF: morphological AA keys off
 		// perceived edges so it needs post-tonemap colour, and depth of field should blur an
@@ -4243,6 +4372,26 @@ namespace Lux {
 			}
 		}
 
+		const auto& buffers = m_RenderGraph.GetBuffers();
+		snapshot.Buffers.reserve(buffers.size());
+		for (uint32_t index = 0; index < buffers.size(); index++)
+		{
+			const RenderGraph::ResourceHandle resource = RenderGraph::BufferHandleBit | index;
+			const uint32_t slot = m_RenderGraph.GetResourceSlot(resource);
+			RenderGraphBufferDebugInfo& bufferInfo = snapshot.Buffers.emplace_back();
+			bufferInfo.Resource = resource;
+			bufferInfo.Name = buffers[index].Name;
+			if (slot < compileResult.Lifetimes.size())
+			{
+				bufferInfo.FirstPass = compileResult.Lifetimes[slot].FirstPass;
+				bufferInfo.LastPass = compileResult.Lifetimes[slot].LastPass;
+			}
+			if (slot < compileResult.ResourceFirstWriter.size())
+				bufferInfo.FirstWriter = compileResult.ResourceFirstWriter[slot];
+			if (slot < compileResult.ResourceLastReader.size())
+				bufferInfo.LastReader = compileResult.ResourceLastReader[slot];
+		}
+
 		for (const RenderGraph::ResourceLifetime& lifetime : compileResult.Lifetimes)
 		{
 			if (lifetime.FirstPass == UINT32_MAX || lifetime.Resource >= textures.size())
@@ -4352,6 +4501,30 @@ namespace Lux {
 				else if (diagnostic.Severity == RenderGraph::DiagnosticSeverity::Warning)
 					textureInfo.WarningCount++;
 			}
+		}
+
+		// Found while executing (Debug, explicit barriers): a pass required a graph resource it did not
+		// declare. Collected by the executable graph, which persists across frames.
+		for (const RenderGraph::Diagnostic& diagnostic : m_RenderGraph.GetRuntimeDiagnostics())
+		{
+			const uint32_t diagnosticIndex = static_cast<uint32_t>(snapshot.Diagnostics.size());
+			RenderGraphDiagnosticDebugInfo& debugDiagnostic = snapshot.Diagnostics.emplace_back();
+			debugDiagnostic.Severity = diagnostic.Severity;
+			debugDiagnostic.Code = diagnostic.Code;
+			debugDiagnostic.PassIndex = diagnostic.PassIndex;
+			debugDiagnostic.PassName = diagnostic.PassName;
+			debugDiagnostic.Resource = diagnostic.Resource;
+			debugDiagnostic.ResourceName = diagnostic.ResourceName;
+			debugDiagnostic.Message = diagnostic.Message;
+			snapshot.InfoCount++;
+
+			// The executable graph's pass indices can differ from this snapshot graph's (conditional
+			// passes), so match by name.
+			auto pass = std::find_if(snapshot.Passes.begin(), snapshot.Passes.end(),
+				[&](const RenderGraphPassDebugInfo& passInfo) { return passInfo.Name == diagnostic.PassName; });
+			debugDiagnostic.PassIndex = pass != snapshot.Passes.end() ? pass->Index : UINT32_MAX;
+			if (pass != snapshot.Passes.end())
+				pass->Diagnostics.push_back(diagnosticIndex);
 		}
 
 		return snapshot;
@@ -6918,7 +7091,7 @@ namespace Lux {
 		}
 		{
 			LUX_PROFILE_SCOPE("RenderGraph::Execute");
-			m_RenderGraph.Execute(renderGraphResult);
+			m_RenderGraph.Execute(renderGraphResult, m_CommandBuffer);
 		}
 
 		m_CommandBuffer->End();

@@ -79,6 +79,9 @@ namespace Lux {
 		void RT_CommitBarriers();
 		void RT_CommitMeshletState(const nvrhi::MeshletState& meshletState);
 		bool RT_UsesExplicitBarriers() const { return m_ExplicitBarriers; }
+		// Debug (render graph): collect the handles of every requirement until RT_EndRequirementLog.
+		void RT_BeginRequirementLog();
+		std::vector<const void*> RT_EndRequirementLog();
 		const ResourceStateTracker& RT_GetTracker() const { return m_Tracker; }
 		// Keeps NVRHI's automatic barriers regardless of Renderer.ExplicitBarriers, for command
 		// buffers whose operations the tracker cannot express on NVRHI: readbacks into staging
@@ -124,6 +127,7 @@ namespace Lux {
 		NVRHIBarrierEmitter m_BarrierEmitter;
 		bool m_ExplicitBarriers = false;
 		bool m_AutomaticBarriersOnly = false;
+		std::vector<const void*> m_RequirementLog;
 		// Mirrors NVRHI's automatic-barrier change detection, so explicit mode emits the same
 		// barriers: bound sets are re-required when they change, after a copy/clear/write requirement
 		// (m_BindingStatesDirty; explicit transitions leave it alone, as NVRHI's setTextureState does),

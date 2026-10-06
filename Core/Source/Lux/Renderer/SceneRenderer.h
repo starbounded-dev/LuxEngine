@@ -508,6 +508,16 @@ namespace Lux {
 			uint32_t WarningCount = 0;
 		};
 
+		struct RenderGraphBufferDebugInfo
+		{
+			uint32_t Resource = RenderGraph::InvalidResource;
+			std::string Name;
+			uint32_t FirstPass = UINT32_MAX;
+			uint32_t LastPass = UINT32_MAX;
+			uint32_t FirstWriter = UINT32_MAX;
+			uint32_t LastReader = UINT32_MAX;
+		};
+
 		struct RenderGraphPassDebugInfo
 		{
 			uint32_t Index = UINT32_MAX;
@@ -547,6 +557,7 @@ namespace Lux {
 		{
 			std::vector<RenderGraphPassDebugInfo> Passes;
 			std::vector<RenderGraphTextureDebugInfo> Textures;
+			std::vector<RenderGraphBufferDebugInfo> Buffers;
 			std::vector<RenderGraphDiagnosticDebugInfo> Diagnostics;
 			std::vector<RenderGraphAliasGroupDebugInfo> AliasGroups;
 			uint32_t ErrorCount = 0;

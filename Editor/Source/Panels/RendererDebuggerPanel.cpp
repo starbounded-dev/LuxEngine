@@ -206,6 +206,13 @@ namespace Lux {
 
 			auto resourceMatches = [&](const SceneRenderer::RenderGraphResourceAccessDebugInfo& access)
 				{
+					if (RenderGraph::IsBufferHandle(access.Resource))
+					{
+						return std::any_of(snapshot.Buffers.begin(), snapshot.Buffers.end(), [&](const SceneRenderer::RenderGraphBufferDebugInfo& buffer)
+							{
+								return buffer.Resource == access.Resource && ImGuiEx::IsMatchingSearch(buffer.Name, search, false, false, true);
+							});
+					}
 					if (access.Resource >= snapshot.Textures.size())
 						return false;
 					return ImGuiEx::IsMatchingSearch(snapshot.Textures[access.Resource].Name, search, false, false, true);
@@ -357,6 +364,17 @@ namespace Lux {
 
 			for (const auto& resource : resources)
 			{
+				if (RenderGraph::IsBufferHandle(resource.Resource))
+				{
+					auto buffer = std::find_if(snapshot.Buffers.begin(), snapshot.Buffers.end(),
+						[&](const SceneRenderer::RenderGraphBufferDebugInfo& info) { return info.Resource == resource.Resource; });
+					if (buffer != snapshot.Buffers.end())
+						ImGui::TextWrapped("%s", std::format("buffer {} [{}] life {}-{}", buffer->Name, resource.State, buffer->FirstPass, buffer->LastPass).c_str());
+					else
+						ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "buffer [%s] Invalid", resource.State.c_str());
+					continue;
+				}
+
 				if (resource.Resource >= snapshot.Textures.size())
 				{
 					ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "#%u [%s] Invalid", resource.Resource, resource.State.c_str());

@@ -70,6 +70,8 @@ namespace Lux {
 
 		m_Stats.Requirements++;
 		m_Emitter->RequireTexture(texture, range, state);
+		if (m_RequirementLog)
+			m_RequirementLog->push_back(texture.Handle);
 
 		// Without a resting state the starting state is unknown, so the backend owns the bookkeeping.
 		if (texture.RestingState == ResourceState::Unknown)
@@ -124,6 +126,8 @@ namespace Lux {
 
 		m_Stats.Requirements++;
 		m_Emitter->RequireBuffer(buffer, state);
+		if (m_RequirementLog)
+			m_RequirementLog->push_back(buffer.Handle);
 
 		if (buffer.RestingState == ResourceState::Unknown)
 			return;

@@ -4,6 +4,9 @@
 #include "lpch.h"
 #include "RenderGraph.h"
 
+#include "Lux/Renderer/RenderCommandBuffer.h"
+#include "Lux/Renderer/Renderer.h"
+
 #include <algorithm>
 #include <format>
 #include <unordered_map>
@@ -34,11 +37,6 @@ namespace Lux {
 			return count;
 		}
 
-		static bool IsValidResource(RenderGraph::ResourceHandle resource, size_t resourceCount)
-		{
-			return resource != RenderGraph::InvalidResource && resource < resourceCount;
-		}
-
 		// Executable graphs skip Name to avoid per-frame allocations; DebugName is always set.
 		static std::string GetPassName(const RenderGraph::PassDesc& pass, uint32_t passIndex)
 		{
@@ -47,15 +45,6 @@ namespace Lux {
 			if (pass.DebugName)
 				return pass.DebugName;
 			return std::format("Pass {}", passIndex);
-		}
-
-		static const std::string& GetResourceName(const std::vector<RenderGraph::TextureDesc>& textures, RenderGraph::ResourceHandle resource)
-		{
-			static const std::string s_EmptyName;
-			if (!IsValidResource(resource, textures.size()))
-				return s_EmptyName;
-
-			return textures[resource].Name;
 		}
 
 		static void AppendDiagnostic(std::vector<RenderGraph::Diagnostic>& diagnostics,
@@ -116,11 +105,44 @@ namespace Lux {
 			return std::binary_search(resources.begin(), resources.end(), resource);
 		}
 
+		// A graph resource resolved for the render thread, which may run after the main thread has
+		// already Reset() and rebuilt the graph: it holds its own references, never the graph's.
+		struct ResolvedResource
+		{
+			Ref<Image2D> Image;
+			Ref<StorageBufferSet> Set;
+			Ref<StorageBuffer> Buffer;
+			TextureSubresourceRange Range = AllSubresources;
+			ResourceState State = ResourceState::Unknown;
+			std::string Name;
+
+			// Render thread: the backend object this frame uses (alias source and frame slot resolved).
+			void* RT_GetHandle()
+			{
+				if (Image)
+					return Image->GetHandle().Get();
+				if (Set)
+				{
+					Ref<StorageBuffer> buffer = Set->RT_Get();
+					return buffer ? buffer->GetHandle().Get() : nullptr;
+				}
+				return Buffer ? Buffer->GetHandle().Get() : nullptr;
+			}
+		};
+
+#ifdef LUX_DEBUG
+		struct GraphResourceList : public RefCounted
+		{
+			std::vector<ResolvedResource> Resources;
+		};
+#endif
+
 	}
 
 	void RenderGraph::Reset()
 	{
 		m_Textures.clear();
+		m_Buffers.clear();
 		m_Passes.clear();
 		m_ExternalDiagnostics.clear();
 	}
@@ -136,8 +158,23 @@ namespace Lux {
 		return static_cast<ResourceHandle>(m_Textures.size() - 1);
 	}
 
+	RenderGraph::ResourceHandle RenderGraph::AddExternalBuffer(const BufferDesc& desc)
+	{
+		LUX_CORE_VERIFY(m_Buffers.size() < BufferHandleBit, "Too many render graph buffers");
+		m_Buffers.push_back(desc);
+		return BufferHandleBit | static_cast<ResourceHandle>(m_Buffers.size() - 1);
+	}
+
 	uint32_t RenderGraph::AddPass(PassDesc desc)
 	{
+		for (const ResourceAccess& access : desc.Accesses)
+		{
+			if (AccessReads(access.Kind))
+				desc.Reads.push_back(access.Resource);
+			if (AccessWrites(access.Kind))
+				desc.Writes.push_back(access.Resource);
+		}
+
 		NormalizeResourceList(desc.Reads);
 		NormalizeResourceList(desc.Writes);
 
@@ -152,6 +189,106 @@ namespace Lux {
 	{
 		desc.Execute = std::move(execute);
 		return AddPass(std::move(desc));
+	}
+
+	bool RenderGraph::AccessReads(AccessKind kind)
+	{
+		switch (kind)
+		{
+			case AccessKind::SampledRead:
+			case AccessKind::StorageRead:
+			case AccessKind::StorageReadWrite:
+			case AccessKind::ColorReadWrite:
+			case AccessKind::DepthReadWrite:
+			case AccessKind::DepthReadOnly:
+			case AccessKind::CopySource:
+			case AccessKind::IndirectArgs:
+			case AccessKind::UniformRead:
+				return true;
+			case AccessKind::StorageWrite:
+			case AccessKind::ColorWrite:
+			case AccessKind::DepthWrite:
+			case AccessKind::CopyDest:
+				return false;
+		}
+		return false;
+	}
+
+	bool RenderGraph::AccessWrites(AccessKind kind)
+	{
+		switch (kind)
+		{
+			case AccessKind::StorageWrite:
+			case AccessKind::StorageReadWrite:
+			case AccessKind::ColorWrite:
+			case AccessKind::ColorReadWrite:
+			case AccessKind::DepthWrite:
+			case AccessKind::DepthReadWrite:
+			case AccessKind::CopyDest:
+				return true;
+			case AccessKind::SampledRead:
+			case AccessKind::StorageRead:
+			case AccessKind::DepthReadOnly:
+			case AccessKind::CopySource:
+			case AccessKind::IndirectArgs:
+			case AccessKind::UniformRead:
+				return false;
+		}
+		return false;
+	}
+
+	// The states the explicit-barrier commit functions require for the same bindings, so a pass-entry
+	// requirement never fights the requirements its draws and dispatches make.
+	ResourceState RenderGraph::AccessState(AccessKind kind, bool isBuffer)
+	{
+		switch (kind)
+		{
+			case AccessKind::SampledRead:      return ResourceState::ShaderResource;
+			// Lux binds read-only storage buffers as SRVs, storage images always as UAVs.
+			case AccessKind::StorageRead:      return isBuffer ? ResourceState::ShaderResource : ResourceState::UnorderedAccess;
+			case AccessKind::StorageWrite:
+			case AccessKind::StorageReadWrite: return ResourceState::UnorderedAccess;
+			case AccessKind::ColorWrite:
+			case AccessKind::ColorReadWrite:   return ResourceState::RenderTarget;
+			case AccessKind::DepthWrite:
+			case AccessKind::DepthReadWrite:   return ResourceState::DepthWrite;
+			case AccessKind::DepthReadOnly:    return ResourceState::DepthRead;
+			case AccessKind::CopySource:       return ResourceState::CopySource;
+			case AccessKind::CopyDest:         return ResourceState::CopyDest;
+			case AccessKind::IndirectArgs:     return ResourceState::IndirectArgument;
+			case AccessKind::UniformRead:      return ResourceState::ConstantBuffer;
+		}
+		return ResourceState::Unknown;
+	}
+
+	bool RenderGraph::IsValidResource(ResourceHandle resource) const
+	{
+		if (resource == InvalidResource)
+			return false;
+		if (IsBufferHandle(resource))
+			return (resource & ~BufferHandleBit) < m_Buffers.size();
+		return resource < m_Textures.size();
+	}
+
+	uint32_t RenderGraph::GetResourceSlot(ResourceHandle resource) const
+	{
+		if (IsBufferHandle(resource))
+			return static_cast<uint32_t>(m_Textures.size()) + (resource & ~BufferHandleBit);
+		return resource;
+	}
+
+	bool RenderGraph::IsTransient(ResourceHandle resource) const
+	{
+		return !IsBufferHandle(resource) && m_Textures[resource].Transient;
+	}
+
+	std::string RenderGraph::GetResourceName(ResourceHandle resource) const
+	{
+		if (!IsValidResource(resource))
+			return {};
+		if (IsBufferHandle(resource))
+			return m_Buffers[resource & ~BufferHandleBit].Name;
+		return m_Textures[resource].Name;
 	}
 
 	bool RenderGraph::AreAliasCompatible(const TextureDesc& lhs, const TextureDesc& rhs)
@@ -175,16 +312,18 @@ namespace Lux {
 
 	std::vector<RenderGraph::ResourceLifetime> RenderGraph::BuildResourceLifetimes(std::vector<Diagnostic>* diagnostics) const
 	{
-		std::vector<ResourceLifetime> lifetimes(m_Textures.size());
+		std::vector<ResourceLifetime> lifetimes(GetResourceCount());
 		for (ResourceHandle resource = 0; resource < m_Textures.size(); resource++)
 			lifetimes[resource].Resource = resource;
+		for (ResourceHandle buffer = 0; buffer < m_Buffers.size(); buffer++)
+			lifetimes[m_Textures.size() + buffer].Resource = BufferHandleBit | buffer;
 
 		for (uint32_t passIndex = 0; passIndex < m_Passes.size(); passIndex++)
 		{
 			const PassDesc& pass = m_Passes[passIndex];
 			auto touchResource = [&](ResourceHandle resource)
 				{
-					if (!IsValidResource(resource, lifetimes.size()))
+					if (!IsValidResource(resource))
 					{
 						if (diagnostics)
 						{
@@ -194,13 +333,13 @@ namespace Lux {
 								passIndex,
 								pass.Name,
 								resource,
-								GetResourceName(m_Textures, resource),
+								GetResourceName(resource),
 								std::format("Pass '{}' references invalid render graph resource {}.", pass.Name, resource));
 						}
 						return;
 					}
 
-					ResourceLifetime& lifetime = lifetimes[resource];
+					ResourceLifetime& lifetime = lifetimes[GetResourceSlot(resource)];
 					lifetime.FirstPass = std::min(lifetime.FirstPass, passIndex);
 					lifetime.LastPass = std::max(lifetime.LastPass, passIndex);
 				};
@@ -220,9 +359,9 @@ namespace Lux {
 		result.Diagnostics = m_ExternalDiagnostics;
 		result.Lifetimes = BuildResourceLifetimes(&result.Diagnostics);
 		result.PassNeededMask.assign(m_Passes.size(), false);
-		result.ResourceFirstWriter.assign(m_Textures.size(), InvalidPassIndex);
-		result.ResourceLastReader.assign(m_Textures.size(), InvalidPassIndex);
-		result.ResourceConsumers.assign(m_Textures.size(), {});
+		result.ResourceFirstWriter.assign(GetResourceCount(), InvalidPassIndex);
+		result.ResourceLastReader.assign(GetResourceCount(), InvalidPassIndex);
+		result.ResourceConsumers.assign(GetResourceCount(), {});
 
 		std::unordered_map<std::string, uint32_t> textureNames;
 		textureNames.reserve(m_Textures.size());
@@ -272,9 +411,46 @@ namespace Lux {
 			}
 		}
 
+		std::unordered_map<std::string, uint32_t> bufferNames;
+		bufferNames.reserve(m_Buffers.size());
+		for (uint32_t index = 0; index < m_Buffers.size(); index++)
+		{
+			const BufferDesc& buffer = m_Buffers[index];
+			const ResourceHandle resource = BufferHandleBit | index;
+			const std::string bufferName = buffer.Name.empty() ? std::format("Buffer {}", index) : buffer.Name;
+
+			if (!buffer.Set && !buffer.Buffer)
+			{
+				AppendDiagnostic(result.Diagnostics,
+					DiagnosticSeverity::Error,
+					DiagnosticCode::NullBuffer,
+					InvalidPassIndex,
+					{},
+					resource,
+					bufferName,
+					std::format("Render graph buffer '{}' has no StorageBufferSet or StorageBuffer.", bufferName));
+			}
+
+			if (!buffer.Name.empty())
+			{
+				const auto [it, inserted] = bufferNames.emplace(buffer.Name, index);
+				if (!inserted)
+				{
+					AppendDiagnostic(result.Diagnostics,
+						DiagnosticSeverity::Warning,
+						DiagnosticCode::DuplicateTextureName,
+						InvalidPassIndex,
+						{},
+						resource,
+						bufferName,
+						std::format("Render graph buffer name '{}' is duplicated by buffers {} and {}.", buffer.Name, it->second, index));
+				}
+			}
+		}
+
 		std::unordered_map<std::string, uint32_t> passNames;
 		passNames.reserve(m_Passes.size());
-		std::vector<bool> resourceWritten(m_Textures.size(), false);
+		std::vector<bool> resourceWritten(GetResourceCount(), false);
 		for (uint32_t passIndex = 0; passIndex < m_Passes.size(); passIndex++)
 		{
 			const PassDesc& pass = m_Passes[passIndex];
@@ -348,16 +524,16 @@ namespace Lux {
 
 			for (ResourceHandle resource : pass.Reads)
 			{
-				if (!IsValidResource(resource, m_Textures.size()))
+				if (!IsValidResource(resource))
 					continue;
 
-				result.ResourceConsumers[resource].push_back(passIndex);
-				result.ResourceLastReader[resource] = passIndex;
+				const uint32_t slot = GetResourceSlot(resource);
+				result.ResourceConsumers[slot].push_back(passIndex);
+				result.ResourceLastReader[slot] = passIndex;
 
-				if (!resourceWritten[resource])
+				if (!resourceWritten[slot])
 				{
-					const TextureDesc& texture = m_Textures[resource];
-					if (texture.Transient)
+					if (IsTransient(resource))
 					{
 						AppendDiagnostic(result.Diagnostics,
 							DiagnosticSeverity::Error,
@@ -365,8 +541,8 @@ namespace Lux {
 							passIndex,
 							passName,
 							resource,
-							GetResourceName(m_Textures, resource),
-							std::format("Pass '{}' reads transient resource '{}' before any graph pass writes it.", passName, texture.Name));
+							GetResourceName(resource),
+							std::format("Pass '{}' reads transient resource '{}' before any graph pass writes it.", passName, GetResourceName(resource)));
 					}
 					else
 					{
@@ -376,15 +552,15 @@ namespace Lux {
 							passIndex,
 							passName,
 							resource,
-							GetResourceName(m_Textures, resource),
-							std::format("Pass '{}' reads external resource '{}' that has no producer inside this graph.", passName, texture.Name));
+							GetResourceName(resource),
+							std::format("Pass '{}' reads external resource '{}' that has no producer inside this graph.", passName, GetResourceName(resource)));
 					}
 				}
 			}
 
 			for (ResourceHandle resource : pass.Reads)
 			{
-				if (!IsValidResource(resource, m_Textures.size()))
+				if (!IsValidResource(resource))
 					continue;
 
 				// Read + write of one resource is a load-and-store (drawing on top of an
@@ -397,19 +573,20 @@ namespace Lux {
 						passIndex,
 						passName,
 						resource,
-						GetResourceName(m_Textures, resource),
-						std::format("Pass '{}' reads and writes resource '{}' (load and store).", passName, m_Textures[resource].Name));
+						GetResourceName(resource),
+						std::format("Pass '{}' reads and writes resource '{}' (load and store).", passName, GetResourceName(resource)));
 				}
 			}
 
 			for (ResourceHandle resource : pass.Writes)
 			{
-				if (!IsValidResource(resource, m_Textures.size()))
+				if (!IsValidResource(resource))
 					continue;
 
-				if (result.ResourceFirstWriter[resource] == InvalidPassIndex)
-					result.ResourceFirstWriter[resource] = passIndex;
-				resourceWritten[resource] = true;
+				const uint32_t slot = GetResourceSlot(resource);
+				if (result.ResourceFirstWriter[slot] == InvalidPassIndex)
+					result.ResourceFirstWriter[slot] = passIndex;
+				resourceWritten[slot] = true;
 			}
 		}
 
@@ -436,19 +613,16 @@ namespace Lux {
 					result.ResourceFirstWriter[resource],
 					result.ResourceFirstWriter[resource] < m_Passes.size() ? GetPassName(m_Passes[result.ResourceFirstWriter[resource]], result.ResourceFirstWriter[resource]) : std::string(),
 					resource,
-					GetResourceName(m_Textures, resource),
-					std::format("Transient resource '{}' written by '{}' is never consumed by a later pass.", GetResourceName(m_Textures, resource),
+					GetResourceName(resource),
+					std::format("Transient resource '{}' written by '{}' is never consumed by a later pass.", GetResourceName(resource),
 						result.ResourceFirstWriter[resource] < m_Passes.size() ? GetPassName(m_Passes[result.ResourceFirstWriter[resource]], result.ResourceFirstWriter[resource]) : std::string("?")));
 			}
 		}
 
-		std::vector<bool> neededResources(m_Textures.size(), false);
+		// External resources (non-transient textures, every buffer) are needed by definition.
+		std::vector<bool> neededResources(GetResourceCount(), true);
 		for (ResourceHandle resource = 0; resource < m_Textures.size(); resource++)
-		{
-			const TextureDesc& texture = m_Textures[resource];
-			if (!texture.Transient)
-				neededResources[resource] = true;
-		}
+			neededResources[resource] = !m_Textures[resource].Transient;
 
 		for (uint32_t passIndex = static_cast<uint32_t>(m_Passes.size()); passIndex > 0; passIndex--)
 		{
@@ -459,7 +633,7 @@ namespace Lux {
 			bool writesNeededOutput = false;
 			for (ResourceHandle resource : pass.Writes)
 			{
-				if (resource < neededResources.size() && neededResources[resource])
+				if (IsValidResource(resource) && neededResources[GetResourceSlot(resource)])
 				{
 					writesNeededOutput = true;
 					break;
@@ -473,14 +647,14 @@ namespace Lux {
 
 			for (ResourceHandle resource : pass.Writes)
 			{
-				if (resource < neededResources.size())
-					neededResources[resource] = false;
+				if (IsValidResource(resource))
+					neededResources[GetResourceSlot(resource)] = false;
 			}
 
 			for (ResourceHandle resource : pass.Reads)
 			{
-				if (resource < neededResources.size())
-					neededResources[resource] = true;
+				if (IsValidResource(resource))
+					neededResources[GetResourceSlot(resource)] = true;
 			}
 		}
 
@@ -522,7 +696,7 @@ namespace Lux {
 				{
 					const ResourceHandle lhs = group.Resources[i];
 					const ResourceHandle rhs = group.Resources[j];
-					if (!IsValidResource(lhs, m_Textures.size()) || !IsValidResource(rhs, m_Textures.size()))
+					if (lhs >= m_Textures.size() || rhs >= m_Textures.size())
 						continue;
 
 					if (LifetimesOverlap(result.Lifetimes[lhs], result.Lifetimes[rhs]))
@@ -534,7 +708,7 @@ namespace Lux {
 							InvalidPassIndex,
 							{},
 							lhs,
-							GetResourceName(m_Textures, lhs),
+							GetResourceName(lhs),
 							std::format("Alias group {} contains resources '{}' and '{}' with overlapping lifetimes.", group.AliasIndex, m_Textures[lhs].Name, m_Textures[rhs].Name));
 					}
 
@@ -547,12 +721,35 @@ namespace Lux {
 							InvalidPassIndex,
 							{},
 							lhs,
-							GetResourceName(m_Textures, lhs),
+							GetResourceName(lhs),
 							std::format("Alias group {} contains incompatible resources '{}' and '{}'.", group.AliasIndex, m_Textures[lhs].Name, m_Textures[rhs].Name));
 					}
 				}
 			}
 		}
+
+		// Pass-entry requirements: every declared access of a resource the pass uses in one state.
+		// A resource used in several states (a mip chain read and written in place) is left to the
+		// pass's own transitions and its draws' and dispatches' requirements.
+		result.EntryRequirementOffsets.reserve(m_Passes.size() + 1);
+		for (const PassDesc& pass : m_Passes)
+		{
+			result.EntryRequirementOffsets.push_back(static_cast<uint32_t>(result.EntryRequirements.size()));
+			for (const ResourceAccess& access : pass.Accesses)
+			{
+				if (!IsValidResource(access.Resource))
+					continue;
+
+				const ResourceState state = AccessState(access.Kind, IsBufferHandle(access.Resource));
+				const bool singleState = std::none_of(pass.Accesses.begin(), pass.Accesses.end(), [&](const ResourceAccess& other)
+					{
+						return other.Resource == access.Resource && AccessState(other.Kind, IsBufferHandle(other.Resource)) != state;
+					});
+				if (singleState)
+					result.EntryRequirements.push_back({ access.Resource, access.Range, state });
+			}
+		}
+		result.EntryRequirementOffsets.push_back(static_cast<uint32_t>(result.EntryRequirements.size()));
 
 		CountDiagnostics(result);
 		return result;
@@ -594,6 +791,16 @@ namespace Lux {
 			fold((texture.Image && texture.Image->IsValid()) ? 1u : 0u);
 		}
 
+		// Buffer presence drives the NullBuffer diagnostic; which buffer object is bound is resolved
+		// at Execute(), like texture images.
+		fold(m_Buffers.size());
+		for (const BufferDesc& buffer : m_Buffers)
+		{
+			foldString(buffer.Name);
+			fold(buffer.Set ? 1u : 0u);
+			fold(buffer.Buffer ? 1u : 0u);
+		}
+
 		fold(m_Passes.size());
 		for (const PassDesc& pass : m_Passes)
 		{
@@ -606,6 +813,17 @@ namespace Lux {
 			fold(pass.Writes.size());
 			for (const ResourceHandle resource : pass.Writes)
 				fold(resource);
+			// Accesses decide the compiled pass-entry requirements.
+			fold(pass.Accesses.size());
+			for (const ResourceAccess& access : pass.Accesses)
+			{
+				fold(access.Resource);
+				fold(static_cast<uint64_t>(access.Kind));
+				fold(access.Range.BaseMip);
+				fold(access.Range.MipCount);
+				fold(access.Range.BaseLayer);
+				fold(access.Range.LayerCount);
+			}
 		}
 
 		fold(m_ExternalDiagnostics.size());
@@ -621,15 +839,159 @@ namespace Lux {
 
 	void RenderGraph::Execute(const CompileResult& compileResult) const
 	{
+		Execute(compileResult, nullptr);
+	}
+
+	void RenderGraph::Execute(const CompileResult& compileResult, const Ref<RenderCommandBuffer>& commandBuffer) const
+	{
+		// Pass-entry requirements are only emitted with explicit barriers on, so skip building them
+		// otherwise. If the render thread latches a different value this frame, the draws' and
+		// dispatches' own requirements still cover every access; entry requirements only batch them.
+		const bool requireAccesses = commandBuffer && Renderer::IsExplicitBarriersEnabled()
+			&& compileResult.EntryRequirementOffsets.size() == m_Passes.size() + 1;
+
+		auto resolve = [this](ResourceHandle resource) -> ResolvedResource
+			{
+				ResolvedResource resolved;
+				if (!IsValidResource(resource))
+					return resolved;
+				if (IsBufferHandle(resource))
+				{
+					const BufferDesc& buffer = m_Buffers[resource & ~BufferHandleBit];
+					resolved.Set = buffer.Set;
+					resolved.Buffer = buffer.Buffer;
+				}
+				else
+				{
+					resolved.Image = m_Textures[resource].Image;
+				}
+				return resolved;
+			};
+
+#ifdef LUX_DEBUG
+		// Every graph resource, so a requirement on one a pass did not declare can be told apart from
+		// one on a resource outside the graph (material textures, environment maps).
+		Ref<GraphResourceList> graphResources;
+		if (requireAccesses)
+		{
+			graphResources = Ref<GraphResourceList>::Create();
+			graphResources->Resources.reserve(GetResourceCount());
+			for (ResourceHandle resource = 0; resource < m_Textures.size(); resource++)
+			{
+				ResolvedResource& resolved = graphResources->Resources.emplace_back(resolve(resource));
+				resolved.Name = GetResourceName(resource);
+			}
+			for (ResourceHandle buffer = 0; buffer < m_Buffers.size(); buffer++)
+			{
+				ResolvedResource& resolved = graphResources->Resources.emplace_back(resolve(BufferHandleBit | buffer));
+				resolved.Name = GetResourceName(BufferHandleBit | buffer);
+			}
+		}
+#endif
+
 		for (uint32_t passIndex : compileResult.ExecutionOrder)
 		{
 			if (passIndex >= m_Passes.size())
 				continue;
 
 			const PassDesc& pass = m_Passes[passIndex];
-			if (pass.Execute)
-				pass.Execute();
+			if (!pass.Execute)
+				continue;
+
+			if (requireAccesses)
+			{
+				const uint32_t begin = compileResult.EntryRequirementOffsets[passIndex];
+				const uint32_t end = compileResult.EntryRequirementOffsets[passIndex + 1];
+				if (begin < end)
+				{
+					std::vector<ResolvedResource> entries;
+					entries.reserve(end - begin);
+					for (uint32_t i = begin; i < end; i++)
+					{
+						const CompileResult::EntryRequirement& requirement = compileResult.EntryRequirements[i];
+						ResolvedResource& entry = entries.emplace_back(resolve(requirement.Resource));
+						entry.Range = requirement.Range;
+						entry.State = requirement.State;
+					}
+
+					Ref<RenderCommandBuffer> cmd = commandBuffer;
+					Renderer::Submit([cmd, entries = std::move(entries)]() mutable
+						{
+							for (ResolvedResource& entry : entries)
+							{
+								void* handle = entry.RT_GetHandle();
+								if (!handle)
+									continue;
+								if (entry.Image)
+									cmd->RT_RequireTextureState(static_cast<nvrhi::ITexture*>(handle), entry.Range, entry.State);
+								else
+									cmd->RT_RequireBufferState(static_cast<nvrhi::IBuffer*>(handle), entry.State);
+							}
+							cmd->RT_CommitBarriers();
+						});
+				}
+
+#ifdef LUX_DEBUG
+				Ref<RenderCommandBuffer> cmd = commandBuffer;
+				Renderer::Submit([cmd]() mutable { cmd->RT_BeginRequirementLog(); });
+#endif
+			}
+
+			pass.Execute();
+
+#ifdef LUX_DEBUG
+			if (requireAccesses)
+			{
+				std::vector<ResolvedResource> declared;
+				declared.reserve(pass.Reads.size() + pass.Writes.size());
+				for (ResourceHandle resource : pass.Reads)
+					declared.push_back(resolve(resource));
+				for (ResourceHandle resource : pass.Writes)
+					declared.push_back(resolve(resource));
+
+				Ref<RenderCommandBuffer> cmd = commandBuffer;
+				Ref<RuntimeDiagnosticSink> sink = m_RuntimeDiagnostics;
+				Renderer::Submit([cmd, sink, graphResources, declared = std::move(declared), passName = GetPassName(pass, passIndex), passIndex]() mutable
+					{
+						const std::vector<const void*> required = cmd->RT_EndRequirementLog();
+						for (const void* handle : required)
+						{
+							const bool isDeclared = std::any_of(declared.begin(), declared.end(), [&](ResolvedResource& resource) { return resource.RT_GetHandle() == handle; });
+							if (isDeclared)
+								continue;
+
+							auto graphResource = std::find_if(graphResources->Resources.begin(), graphResources->Resources.end(),
+								[&](ResolvedResource& resource) { return resource.RT_GetHandle() == handle; });
+							if (graphResource == graphResources->Resources.end())
+								continue; // not a graph resource: outside the graph's model
+
+							std::scoped_lock lock(sink->Mutex);
+							const bool reported = std::any_of(sink->Diagnostics.begin(), sink->Diagnostics.end(), [&](const Diagnostic& diagnostic)
+								{
+									return diagnostic.PassName == passName && diagnostic.ResourceName == graphResource->Name;
+								});
+							if (reported)
+								continue;
+
+							Diagnostic diagnostic;
+							diagnostic.Severity = DiagnosticSeverity::Info;
+							diagnostic.Code = DiagnosticCode::UndeclaredAccess;
+							diagnostic.PassIndex = passIndex;
+							diagnostic.PassName = passName;
+							diagnostic.ResourceName = graphResource->Name;
+							diagnostic.Message = std::format("Pass '{}' uses render graph resource '{}' without declaring it.", passName, graphResource->Name);
+							sink->Diagnostics.push_back(std::move(diagnostic));
+						}
+					});
+			}
+#endif
 		}
+	}
+
+	std::vector<RenderGraph::Diagnostic> RenderGraph::GetRuntimeDiagnostics() const
+	{
+		std::scoped_lock lock(m_RuntimeDiagnostics->Mutex);
+		return m_RuntimeDiagnostics->Diagnostics;
 	}
 
 	std::vector<RenderGraph::ResourceLifetime> RenderGraph::BuildAliasPlan() const
@@ -638,7 +1000,8 @@ namespace Lux {
 
 		std::vector<ResourceHandle> lifetimeOrder;
 		lifetimeOrder.reserve(lifetimes.size());
-		for (ResourceHandle resource = 0; resource < lifetimes.size(); resource++)
+		// Textures only (slot == handle): buffers never alias.
+		for (ResourceHandle resource = 0; resource < m_Textures.size(); resource++)
 		{
 			if (lifetimes[resource].FirstPass != UINT32_MAX)
 				lifetimeOrder.push_back(resource);
@@ -825,6 +1188,90 @@ namespace Lux {
 				addFailure(std::format("Load-and-store and untracked-resource passes expected no warnings, found {} warning(s) and {} error(s).", warningCount, result.ErrorCount));
 			if (!hasDiagnostic(result, DiagnosticCode::ReadWriteSameResource))
 				addFailure("Load-and-store access was not recorded for the inspector.");
+		}
+
+		// Buffers: lifetimes span their passes, they never alias, and as external resources a pass that
+		// writes one is never culled. A buffer read before any graph write is an external input.
+		{
+			RenderGraph graph;
+			const ResourceHandle buffer = graph.AddExternalBuffer({ "Buffer" });
+			const ResourceHandle output = graph.AddTransientTexture(makeTexture("Output", false, false));
+			graph.AddPass({ "ReadBuffer", {}, {}, PassFlags::Compute, {}, nullptr, { { buffer, AccessKind::StorageRead } } });
+			graph.AddPass({ "WriteBuffer", {}, {}, PassFlags::Compute, {}, nullptr, { { buffer, AccessKind::StorageWrite } } });
+			graph.AddPass({ "ConsumeBuffer", {}, {}, PassFlags::Graphics, {}, nullptr, { { buffer, AccessKind::StorageRead }, { output, AccessKind::ColorWrite } } });
+			const CompileResult result = graph.Compile();
+
+			const uint32_t slot = graph.GetResourceSlot(buffer);
+			if (!IsBufferHandle(buffer) || slot != graph.GetTextures().size() || result.Lifetimes.size() <= slot)
+				addFailure("A buffer did not get the slot after the textures.");
+			else if (result.Lifetimes[slot].FirstPass != 0 || result.Lifetimes[slot].LastPass != 2 || result.Lifetimes[slot].AliasIndex != UINT32_MAX)
+				addFailure("A buffer's lifetime did not span its passes, or it was given an alias group.");
+			if (std::find(result.CulledPasses.begin(), result.CulledPasses.end(), 1u) != result.CulledPasses.end())
+				addFailure("A pass writing an external buffer was culled.");
+			if (hasError(result, DiagnosticCode::ReadBeforeWrite) || !hasDiagnostic(result, DiagnosticCode::UnwrittenExternalRead))
+				addFailure("A buffer read before its graph writer was not reported as an external input.");
+		}
+
+		// Accesses add their resources to Reads/Writes by kind.
+		{
+			RenderGraph graph;
+			const ResourceHandle color = graph.AddTransientTexture(makeTexture("Color", false, false));
+			const ResourceHandle depth = graph.AddTransientTexture(makeTexture("Depth", false, false));
+			const ResourceHandle input = graph.AddTransientTexture(makeTexture("Input", false, false));
+			graph.AddPass({ "Draw", {}, {}, PassFlags::Graphics, {}, nullptr,
+				{ { color, AccessKind::ColorReadWrite }, { depth, AccessKind::DepthWrite }, { input, AccessKind::SampledRead } } });
+			const PassDesc& pass = graph.GetPasses()[0];
+			const bool readsOk = pass.Reads == std::vector<ResourceHandle>{ color, input };
+			const bool writesOk = pass.Writes == std::vector<ResourceHandle>{ color, depth };
+			if (!readsOk || !writesOk)
+				addFailure("Accesses were not turned into the expected Reads/Writes.");
+		}
+
+		// The structure hash changes with an access kind, so a cached compile is not reused.
+		{
+			auto build = [&](AccessKind kind)
+				{
+					RenderGraph graph;
+					const ResourceHandle texture = graph.AddTransientTexture(makeTexture("Texture", false, false));
+					graph.AddPass({ "Pass", {}, {}, PassFlags::Compute, {}, nullptr, { { texture, kind } } });
+					return graph.ComputeStructureHash();
+				};
+			if (build(AccessKind::StorageWrite) == build(AccessKind::StorageReadWrite))
+				addFailure("The structure hash ignored a change of access kind.");
+		}
+
+		// Pass-entry requirements cover resources used in one state; one used in several is left out.
+		{
+			RenderGraph graph;
+			const ResourceHandle single = graph.AddTransientTexture(makeTexture("Single", false, false));
+			const ResourceHandle mixed = graph.AddTransientTexture(makeTexture("Mixed", false, false));
+			const ResourceHandle buffer = graph.AddExternalBuffer({ "Buffer" });
+			graph.AddPass({ "Compute", {}, {}, PassFlags::Compute, {}, nullptr,
+				{
+					{ single, AccessKind::StorageWrite },
+					{ mixed, AccessKind::StorageWrite },
+					{ mixed, AccessKind::SampledRead },
+					{ buffer, AccessKind::StorageRead },
+				} });
+			const CompileResult result = graph.Compile();
+
+			auto findEntry = [&](ResourceHandle resource) -> const CompileResult::EntryRequirement*
+				{
+					for (const CompileResult::EntryRequirement& entry : result.EntryRequirements)
+					{
+						if (entry.Resource == resource)
+							return &entry;
+					}
+					return nullptr;
+				};
+			const CompileResult::EntryRequirement* singleEntry = findEntry(single);
+			const CompileResult::EntryRequirement* bufferEntry = findEntry(buffer);
+			if (result.EntryRequirementOffsets.size() != 2 || !singleEntry || singleEntry->State != ResourceState::UnorderedAccess)
+				addFailure("A single-state resource got no UnorderedAccess entry requirement.");
+			if (findEntry(mixed))
+				addFailure("A resource used in several states got an entry requirement.");
+			if (!bufferEntry || bufferEntry->State != ResourceState::ShaderResource)
+				addFailure("A read-only storage buffer was not required as ShaderResource.");
 		}
 
 		return !failures || failures->empty();

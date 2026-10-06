@@ -71,6 +71,10 @@ namespace Lux {
 		void Require(const TrackedBuffer& buffer, ResourceState state);
 		void Commit();
 
+		// Debug: while set, every required texture/buffer handle is appended to `log` (the render
+		// graph checks a pass's requirements against its declared accesses). Survives Begin().
+		void SetRequirementLog(std::vector<const void*>* log) { m_RequirementLog = log; }
+
 		// Unknown when the resource is not modelled in this command buffer.
 		ResourceState GetState(const void* textureHandle, uint32_t mip, uint32_t layer) const;
 		ResourceState GetState(const void* bufferHandle) const;
@@ -99,6 +103,7 @@ namespace Lux {
 
 	private:
 		IBarrierEmitter* m_Emitter = nullptr;
+		std::vector<const void*>* m_RequirementLog = nullptr;
 		std::unordered_map<const void*, TextureEntry> m_Textures;
 		std::unordered_map<const void*, BufferEntry> m_Buffers;
 		std::vector<const void*> m_TexturesToCheck;
