@@ -92,7 +92,7 @@ architecture reference. For what is actually built, read `.claude/docs/Architect
 | D1 | Migration staging | **Side-by-side.** NRI wraps the `VkDevice` Lux already creates for NVRHI (`nriCreateDeviceFromVKDevice`). Subsystems move one at a time; NRI records into NVRHI's `VkCommandBuffer` until command buffers move | User, 2026-10-04 | Temporary interop code (Part 2.2), deleted in Phases 12–15. Every phase is verifiable in the running editor |
 | D2 | Order versus `docs/BINDLESS_PLAN.md` | **NRI first, bindless after.** Bindless phases 1–6 are paused | User | Bindless gets re-planned on NRI descriptor sets (`VARIABLE_SIZED_ARRAY`, `ALLOW_UPDATE_AFTER_SET`, `MUTABLE`) after Phase 16. Its Phase 0 baseline is folded into this plan's Phase 0 |
 | D3 | Nsight Aftermath | **Re-wire it** on the device Lux creates | User | Lux keeps creating `VkInstance`/`VkDevice` itself, because Aftermath needs `VkDeviceDiagnosticsConfigCreateInfoNV` in the device `pNext`. NRI always wraps (never `nriCreateDevice`). A slim `VulkanDevice` stays in `Platform/Vulkan/` |
-| D4 | NRI source | **StudioCherno/NRI `hazel` branch**, forked to `sheazywi/NRI`. Upstream `NVIDIA-RTX/NRI` `main` is merged in and each hazel patch's status is re-checked | User | Phase 6 is a merge-and-evaluate step with a fallback (upstream plus cherry-picks) if the merge proves unmanageable. Lux owns a fork it can patch |
+| D4 | NRI source | **StudioCherno/NRI `hazel` branch**, forked to `starbounded-dev/NRI`. Upstream `NVIDIA-RTX/NRI` `main` is merged in and each hazel patch's status is re-checked | User | Phase 6 is a merge-and-evaluate step with a fallback (upstream plus cherry-picks) if the merge proves unmanageable. Lux owns a fork it can patch |
 | D5 | Barrier model | **A Lux `ResourceStateTracker` with resting-state semantics**, the same as NVRHI's `keepInitialState`. Bindings and framebuffers drive the required states, and the render graph declares access kinds to batch barriers at pass entry | Technical | Correctness doesn't depend on the graph being complete. Out-of-graph work (environment maps, mip generation, ImGui, uploads, thumbnails) stays correct. Built and verified on NVRHI first (Phase 4), with NVRHI's tracker as the oracle |
 | D6 | Barrier emission during interop | **NVRHI emits the barriers** (`setTextureState` + `commitBarriers`, with automatic barriers off) until NVRHI command lists are gone (Phase 13). Then NRI's `CmdBarrier` takes over | Technical | NVRHI's internal state stays consistent while both libraries record into one command buffer |
 | D7 | GPU object lifetime | **Frame-retired deletion queue** keyed by a monotonic render frame number, retired when the GPU completes that frame. Every NRI `Destroy*` runs on the render thread | Technical | Replaces NVRHI's per-command-list reference tracking. Also fixes today's bug where `SubmitResourceFree` lambdas only run at shutdown (Part 0, L13) |
@@ -190,7 +190,7 @@ Renderer facade / SceneRenderer / RenderGraph / Renderer2D / ImGuiRenderer   (Lu
               Debug/              Nsight Aftermath (crash tracker, shader DB, checkpoints)
               ShaderCompiler/     shaderc / DXC / SPIRV-Cross → SPIR-V + reflection
         │
-        └── Core/vendor/NRI   (sheazywi/NRI, branch lux = StudioCherno hazel + upstream main)
+        └── Core/vendor/NRI   (starbounded-dev/NRI, branch lux = StudioCherno hazel + upstream main)
 ```
 
 `Application::GetGraphicsDevice()` (`nvrhi::DeviceHandle`) disappears. Renderer-internal code uses
@@ -1124,12 +1124,12 @@ updated `addPass` steps.
 
 ### Phase 6 — Vendor NRI and wrap the device
 
-**Goal:** NRI builds in-tree from `sheazywi/NRI` (branch `lux` = hazel + upstream main). An NRI
+**Goal:** NRI builds in-tree from `starbounded-dev/NRI` (branch `lux` = hazel + upstream main). An NRI
 device wraps Lux's `VkDevice`, and a self-test proves NRI and NVRHI can share it. Rendering is
 unchanged.
 
 **Steps**
-1. 🧑 **User:** fork `StudioCherno/NRI` to `sheazywi/NRI` on GitHub; the fork includes the `hazel`
+1. 🧑 **User:** fork `StudioCherno/NRI` to `starbounded-dev/NRI` on GitHub; the fork includes the `hazel`
    branch. The agent must not create forks or push.
 2. **Agent, local:** clone the fork into `Core/vendor/NRI`.
    ```
@@ -1155,10 +1155,10 @@ unchanged.
    **Fallback,** if conflicts can't be resolved in reasonable time or the merged tree fails to
    build: branch `lux` from upstream `v180`/`main` and cherry-pick the premake, VMA, X11, clamp,
    acquire and readback patches. Log the decision.
-3. 🧑 **User:** push branch `lux` to `sheazywi/NRI`.
+3. 🧑 **User:** push branch `lux` to `starbounded-dev/NRI`.
 4. **Superproject:**
    - `.gitmodules` gets `[submodule "Core/vendor/NRI"] path = Core/vendor/NRI`,
-     `url = https://github.com/sheazywi/NRI`, `branch = lux`. Commit the submodule pointer
+     `url = https://github.com/starbounded-dev/NRI`, `branch = lux`. Commit the submodule pointer
      (pointing at the pushed commit).
    - `premake5.lua`: under `group "Dependencies/Renderer"`, add `include "Core/vendor/NRI"` beside
      the NVRHI include (`:186`). `outputdir` and `VULKAN_SDK` are already workspace globals.
@@ -1233,7 +1233,7 @@ toggle". No toggle is needed: NRI is mandatory.
 
 **Docs**
 - `Building.md`: the projects table (Dependencies/Renderer adds `NRI`, `NRI-VK`, `NRI-Validation`,
-  `NRI-NONE`, `NRI-Shared`), the vendored-submodule note (fork `sheazywi/NRI` branch `lux` with
+  `NRI-NONE`, `NRI-Shared`), the vendored-submodule note (fork `starbounded-dev/NRI` branch `lux` with
   its own `premake5.lua`), and Wayland/X11 defines.
 - `Architecture-LuxEngine.md` §2.3 and the directory map.
 - `.gitmodules` is documented in Building.
@@ -2104,7 +2104,7 @@ changing output.
 | `Core/Platform/{Windows,Linux}/*NativeWindow.cpp` | P14 | **NEW** |
 | `tests/rendering/golden_*.py` | P0 | **NEW** |
 | `premake5.lua`, `Dependencies.lua`, `Core/premake5.lua`, `.gitmodules`, `scripts/compat/`, `scripts/Linux-*.sh` | P1, P6, P15 | NRI in, NVRHI out |
-| `Core/vendor/NRI` (submodule `sheazywi/NRI@lux`) | P6, P10 (LUX-1) | **NEW** |
+| `Core/vendor/NRI` (submodule `starbounded-dev/NRI@lux`) | P6, P10 (LUX-1) | **NEW** |
 
 ## Appendix B — Command cheat sheet
 
@@ -2144,7 +2144,7 @@ find Core/Source/Lux/Platform/Vulkan -name '*.[ch]*' | xargs wc -l | tail -1
 | P3 | done (Release + Debug spot-built) | see git log | `Renderer/RHI/GPUDeletionQueue.{h,cpp}` (frame-tagged releases, `RT_Retire`, `DrainAll`, pending count/bytes; Debug traces the pending count at most once a second when it changes). `Renderer::RT_BeginFrame` closes the ending frame behind a graphics-queue event, advances `RT_GetFrameNumber()`, waits for frame N − FramesInFlight and retires up to it; `RT_GetCurrentFrameIndex()` = frame number % FramesInFlight; shutdown waits idle then drains. `RendererConfig::MaxFramesInFlight` (3) now sizes the per-frame `static_vector`s and clamps `FramesInFlight` — the old back-buffer index could reach 7 with an 8-image swapchain and overrun `DescriptorSetManager::m_BindingSets`. The back-buffer clamp in `Renderer::Init` is kept (comment says why). Audit: the only `SubmitResourceFree` caller is `~BindlessTextureTable` (others were deleted in P1); it captures by value and its destructors are thread-safe. **Deviations:** (1) no `RT_EndFrame`/swapchain-tagged events: the frame is closed at the *next* `RT_BeginFrame`, owned by `Renderer`, so the event covers work queued after `Present` and frames whose acquire failed (no `Present` pacing); `VulkanSwapChain` is unchanged. (2) `RT_BeginFrame` runs before the acquire, as the plan says. **🧑 To check (Debug + validation):** continuous viewport resize 30 s; toggle SSR/GTAO/Bloom 20×; shader hot-reload 10×; scene switch 10× — zero validation errors, the `GPU deletion queue` trace returns to 0, GPU memory back within ±5%; MAILBOX/IMMEDIATE 60 s each without stutter regression; goldens; Windows MultiThreaded. |
 | P4 | code done, toggle **off** (Release + Debug spot-built) | see git log | `Renderer/RHI/ResourceStateTracker.{h,cpp}` (subresource-granular model, UAV→UAV counted as a barrier, `End()` restores resting states, Debug `CrossCheck` against NVRHI's `getTextureSubresourceState`/`getBufferState`), `NVRHIBarrierEmitter.{h,cpp}` (+ `DescribeTexture`/`DescribeBuffer`). `RenderCommandBuffer`: tracker per command buffer, `setEnableAutomaticBarriers(!explicit)` in `RT_Begin`, restore in `RT_End`, `RT_Require*`/`RT_Transition*`/`RT_CommitBarriers`/`RT_CommitMeshletState`. Setting `Renderer.ExplicitBarriers` (Application Settings toggle, latched in `RT_BeginFrame`). Sites converted: attachment clears, `ClearImage`, `CopyImage`, `CreateFromSRGB`, `clearBufferUInt`×2 sites, GPUOnly `StorageBuffer::RT_SetData`, `VertexBuffer::RT_SetData`, `PipelineCompute` barriers, `transitionMip`/`transitionBloomMip`, `Texture2D::GenerateMips`, meshlet state. **Deviations:** (1) bound-resource requirements are derived at the commit choke points from the bound NVRHI binding-set descs, mirroring NVRHI's own rules (changed sets, dirty after copy/clear/write, UAV sets always, VB/IB/FB/indirect on change; other kinds reset per commit) — not recorded per (frame, set) in `DescriptorSetManager`. That covers every binding source (passes, materials, meshlet sets) and reproduces automatic mode's barriers, so `GenerateMips` and the environment filter need no `RequireUAVBarrier` special case. P9 supplies descriptor-side uses when sets move to NRI. (2) Resting states are read from the NVRHI `keepInitialState` desc (where they live today), not duplicated onto Lux objects; P8 adds them when resources move to NRI. (3) Depth attachments follow NVRHI's framebuffer `isReadOnly` rule, not the pipeline's `DepthWrite`. (4) ImGui and the two readback command buffers stay on automatic barriers (`SetAutomaticBarriersOnly`): staging textures have no public state API, and ImGui uses `beginTrackingTextureState`; P11/P13 remove both. (5) Renderer Debugger UI unchanged: the tracker is per command buffer, so a frame-level state view comes with the render graph (P5); per-tracker stats are on `RT_GetTracker().GetStats()`. (6) **The toggle stays off**: turning it on by default is the exit criterion, gated on the checks below. **🧑 To check, with the toggle on and off:** goldens (`--compare nvrhi-baseline p4-explicit`), Debug validation + sync validation (no new unique messages), zero `Tracker/NVRHI state mismatch` lines over the sweep, HDR environment + Preetham sky changes, Content Browser thumbnails, Material Editor preview, viewport resize during play, render-thread CPU time ±5%; Windows (NVIDIA) goldens + validation. Then flip the default to on (`Renderer.ExplicitBarriers` read default in `EditorLayer.cpp` and the settings panel). |
 | P5 | done (Release + Debug spot-built, self-tests pass) | see git log | `RenderGraph`: `AccessKind`/`ResourceAccess`, `PassDesc::Accesses` (after `DebugName`), buffers via `AddExternalBuffer` (tagged handles, textures-then-buffers slots, never aliased), Reads/Writes extended from Accesses in `AddPass`, Accesses + buffers folded into the structure hash, compiled per-pass entry requirements (single-state resources only), `Execute(result, commandBuffer)` requiring them in one batch per pass (explicit barriers on), Debug `UndeclaredAccess` check via a tracker requirement log, `GetRuntimeDiagnostics()`. Four new self-tests (buffer lifetime/culling/external input, access-derived Reads/Writes, hash sensitivity, entry requirements) — all pass in the CPU-only harness. `SceneRenderer`: every pass gets kinds; buffers declared for Mesh Culling, Cluster Build/Light Culling, Selected Geometry, GBuffer, Deferred Lighting, GBuffer Debug, Transparent Forward, Auto Exposure, Composite; `UntrackedResources` and Auto Exposure's explicit `SideEffect` removed; async-compute cross-queue edge left as a follow-up comment. Renderer Debugger shows buffers in pass inputs/outputs and the runtime diagnostics. **Deviations:** (1) texture kinds are derived in `SceneRenderer::addPass` from each pass's existing Reads/Writes (graphics: written = attachments, color/depth by format, read+write = load/store; compute: written = storage write, read+write = declared both sampled and storage write so it gets no entry state; read-only = sampled), so texture membership — and therefore lifetimes and aliasing — is exactly what it was; buffers are listed explicitly. (2) `UndeclaredAccess` is resource-level (a graph resource required by a pass that did not declare it at all), not state-level: an in-pass state change on a declared resource is the pass's own business. (3) New kind `DepthReadWrite` (depth test against existing contents + write), since no Lux framebuffer has a read-only depth attachment. (4) Entry requirements allocate one small vector per pass per frame, only with explicit barriers on. (5) Debug builds name the executable graph's resources/passes (needed for the check). **🧑 To check (Debug, explicit barriers on):** zero `UndeclaredAccess` in the five scenes + feature sweep (Renderer Debugger → diagnostics); barrier count ≤ P4; goldens; buffers visible in the Renderer Debugger. |
-| P6 | not started | | hazel patch verdicts table; merge or fallback decision |
+| P6 | done (Release + Debug built; 🧑 push NRI `lux` before Lux `dev`) | NRI `lux`: `2d93520` (merge), `cc24eca`; Lux: see git log | **Merge, not fallback**: `lux` = hazel `fe76f4f` + upstream `main` `0994c32` (v180-305, `NRI_VERSION` 181); 5 conflicts, verdicts below. Submodule `Core/vendor/NRI` → `https://github.com/starbounded-dev/NRI` (the user forked there, not `sheazywi`), branch `lux`. NRI premake rewritten (upstream file layout via globs, Debug-AS, runtime per config, Wayland + X11). `RHI/RHIDevice.{h,cpp}`: `nriCreateDeviceFromVKDevice` with Lux's instance/device/extension lists and queue families (graphics; compute and copy only when created), Core/Helper/WrapperVK/SwapChain (+MeshShader when supported) interfaces, `DeviceDesc` log, Debug self-test steps 1–5. Release `nm`: `vmaCreateAllocator` defined once (NRI-VK); no extra Linux libraries needed. **Deviations:** (1) NRI builds against its own vendored Vulkan-Headers v1.4.364 (`External/VulkanHeaders`), because upstream needs `VK_EXT_descriptor_heap` and the pinned SDK is 1.4.335; NRI's public headers have no Vulkan types. (2) Fork patch `cc24eca`: platform surface functions load only when their extension is enabled (GLFW enables one; NRI hard-failed on the missing Xlib/Wayland one). (3) Feature parity: NRI reads support from the physical device, so `VulkanDeviceManager` now enables sync2 from core 1.3 support, 1.4 `maintenance5`/`maintenance6`/`pushDescriptor` (or `VK_KHR_maintenance5/6` + `VK_KHR_push_descriptor` on 1.3), `shaderDrawParameters`, `samplerFilterMinmax`, `hostQueryReset` and the descriptor-indexing UpdateAfterBind/UpdateUnusedWhilePending bits, all only when supported. (4) Self-test runs in `Window::Init` right after `RHIDevice::Init` (render thread idle, like Tracy's init), not after `Renderer::Init`; step 6 (wrap an NVRHI frame command buffer, I3/I4) moves to P9, where `RT_BeginNRISegment` is introduced. (5) NRI errors break in Debug via `OnNRIAbort` (NRI's default raises SIGTRAP, fatal without a debugger) and only log otherwise. **🧑 To check:** push NRI `lux` first (`git -C Core/vendor/NRI push origin lux`), then `dev`; CI green on all six jobs; one Debug editor start on Linux and Windows (NVIDIA) showing the `[RHI]` `DeviceDesc` lines and `[RHI] NRI self-test passed` with no `[NRI]` errors and no new validation messages; goldens unchanged. |
 | P7 | not started | | |
 | P8 | not started | | |
 | P9 | not started | | |
@@ -2155,6 +2155,19 @@ find Core/Source/Lux/Platform/Vulkan -name '*.[ch]*' | xargs wc -l | tail -1
 | P14 | not started | | |
 | P15 | not started | | |
 | P16 | not started | | success criteria checklist with evidence |
+
+**P6 — hazel patch verdicts** (merge of upstream `main` `0994c32` into hazel `fe76f4f`):
+
+| Hazel patch | Verdict | Evidence |
+|---|---|---|
+| `premake5.lua` (`294b2cd`, `2756abe`, `47846cd`) | kept, rewritten | Upstream has no premake. File lists are globs, so new `Source/VK/*` (DescriptorHeap, Micromap, Video*, TransferContext, PipelineCache) and `Source/Shared/*` are picked up; Debug-AS added; `NRI_ENABLE_WAYLAND_SUPPORT=1` added; `VK_USE_PLATFORM_*` moved to NRI-VK only, as in CMake; NRIImgui stays off |
+| `External/VMA/vk_mem_alloc.h` | kept, bumped | Now the commit CMake pins, `3aa921224c154a0d2c43912bc88e1c42ce1f7607` (3.4.0) |
+| X11 `Window` clash (`97925db`, `Shared.cpp`) | dropped | Only NRI-Shared needed it, because hazel defined `VK_USE_PLATFORM_XLIB_KHR` for every project. With the macro scoped to NRI-VK (as CMake does), `Shared.cpp` builds unpatched |
+| Push descriptors on Vulkan 1.3 (`2551a8b`) | dropped | Upstream loads `CmdPushDescriptorSet` with `GET_DEVICE_OPTIONAL_CORE_FUNC` ("v1.4 or VK_KHR_push_descriptor") |
+| Swapchain extent clamp (`3f1d28b`) | kept, re-applied | Upstream `SwapChainVK::Create` still returns `INVALID_ARGUMENT` for an out-of-range extent |
+| `AcquireNextTexture` failure handling (`a83f2e9`, `20c7808`) | kept, re-applied | Upstream still only rejects negative `VkResult`s, so `VK_TIMEOUT`/`VK_NOT_READY` count as success |
+| D32S8 readback stride (`afbbe62`) | kept, re-applied | Upstream copy lambdas still use the 8-byte combined stride for a depth-only copy; the format is renamed `D32_SFLOAT_S8_UINT` |
+| NGX / DLSS-RR (`48c5829`, `7e86ef2`, `7d96c63`, `47e8af4`) | dropped | Conflicted with upstream's upscaler rework (`NRIUpscaler.h`, `UpscalerInterface.hpp`); upscalers are out of scope. Upstream's upscaler files and `Impl*.cpp` signatures taken; the premake NGX gate is gone too (it pointed at a Hazel fetch script and added no library) |
 
 **Windows builds come from CI.** GitHub Actions "Build LuxEngine" (`.github/workflows/main.yml`) builds Windows (`windows-2025`) and Linux in Debug, Release and Dist on every push to `dev`; check it with `gh run list` / `gh run view <id>`. Run `37390792151` (`42d6f2d1`) built P0, P1 and the out-of-phase fixes on all six jobs. The earlier red run `37365441018` was runner capacity ("job was not acquired by Runner"), not a compile failure. A phase's "🧑 Windows build" item is satisfied by a green CI run on the pushed commit; Windows *runs* (goldens, validation) are still the user's.
 

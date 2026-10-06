@@ -202,6 +202,8 @@ namespace Lux {
 			return false;
 		}
 
+		m_InstanceAPIVersion = applicationInfo.apiVersion;
+
 		// Create the vulkan instance
 		vk::InstanceCreateInfo info = vk::InstanceCreateInfo()
 			.setEnabledLayerCount(uint32_t(layerVec.size()))
@@ -436,6 +438,8 @@ namespace Lux {
 
 		const vk::PhysicalDeviceProperties physicalDeviceProperties = m_VulkanPhysicalDevice.getProperties();
 		m_RendererString = std::string(physicalDeviceProperties.deviceName.data());
+		m_DeviceAPIVersion = std::min(m_InstanceAPIVersion, physicalDeviceProperties.apiVersion);
+		const bool vulkan14 = m_DeviceAPIVersion >= VK_API_VERSION_1_4;
 
 		bool accelStructSupported = false;
 		bool rayPipelineSupported = false;
@@ -444,6 +448,8 @@ namespace Lux {
 		bool vrsSupported = false;
 		bool synchronization2Supported = false;
 		bool maintenance4Supported = false;
+		bool maintenance5Supported = false;
+		bool maintenance6Supported = false;
 
 		LUX_CORE_INFO("Enabled Vulkan device extensions:");
 		for (const auto& ext : enabledExtensions.device)
@@ -464,6 +470,10 @@ namespace Lux {
 				synchronization2Supported = true;
 			else if (ext == VK_KHR_MAINTENANCE_4_EXTENSION_NAME)
 				maintenance4Supported = true;
+			else if (ext == VK_KHR_MAINTENANCE_5_EXTENSION_NAME)
+				maintenance5Supported = true;
+			else if (ext == VK_KHR_MAINTENANCE_6_EXTENSION_NAME)
+				maintenance6Supported = true;
 			else if (ext == VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME)
 				m_SwapChainMutableFormatSupported = true;
 		}
@@ -472,15 +482,27 @@ namespace Lux {
 		void* pNext = nullptr;
 
 		vk::PhysicalDeviceFeatures2 physicalDeviceFeatures2;
-		// Determine support for Buffer Device Address, the Vulkan 1.2 way
-		auto bufferDeviceAddressFeatures = vk::PhysicalDeviceBufferDeviceAddressFeatures();
-		// Determine support for maintenance4
+		// Core feature support. RHIDevice wraps this device in NRI, and NRI reads feature support
+		// from the physical device rather than from what was enabled, so the core features it uses
+		// on its own (sync2, maintenance5/6, push descriptors) are enabled here whenever supported.
+		auto supported11 = vk::PhysicalDeviceVulkan11Features();
+		auto supported12 = vk::PhysicalDeviceVulkan12Features();
+		auto supported13 = vk::PhysicalDeviceVulkan13Features();
+		auto supported14 = vk::PhysicalDeviceVulkan14Features();
+		// Determine support for maintenance4/5/6 when they are extensions
 		auto maintenance4Features = vk::PhysicalDeviceMaintenance4Features();
+		auto maintenance5Features = vk::PhysicalDeviceMaintenance5Features();
+		auto maintenance6Features = vk::PhysicalDeviceMaintenance6Features();
 
 		// Put the user-provided extension structure at the end of the chain
 		pNext = m_DeviceParams.physicalDeviceFeatures2Extensions;
-		APPEND_EXTENSION(true, bufferDeviceAddressFeatures);
+		APPEND_EXTENSION(true, supported11);
+		APPEND_EXTENSION(true, supported12);
+		APPEND_EXTENSION(m_DeviceAPIVersion >= VK_API_VERSION_1_3, supported13);
+		APPEND_EXTENSION(vulkan14, supported14);
 		APPEND_EXTENSION(maintenance4Supported, maintenance4Features);
+		APPEND_EXTENSION(!vulkan14 && maintenance5Supported, maintenance5Features);
+		APPEND_EXTENSION(!vulkan14 && maintenance6Supported, maintenance6Features);
 
 		physicalDeviceFeatures2.pNext = pNext;
 		m_VulkanPhysicalDevice.getFeatures2(&physicalDeviceFeatures2);
@@ -527,9 +549,15 @@ namespace Lux {
 			.setPrimitiveFragmentShadingRate(true)
 			.setAttachmentFragmentShadingRate(true);
 		auto vulkan13features = vk::PhysicalDeviceVulkan13Features()
-			.setSynchronization2(synchronization2Supported)
+			.setSynchronization2(synchronization2Supported || supported13.synchronization2)
 			.setMaintenance4(maintenance4Features.maintenance4)
 			.setDynamicRendering(true);
+		auto vulkan14features = vk::PhysicalDeviceVulkan14Features()
+			.setMaintenance5(supported14.maintenance5)
+			.setMaintenance6(supported14.maintenance6)
+			.setPushDescriptor(supported14.pushDescriptor);
+		auto vulkan11features = vk::PhysicalDeviceVulkan11Features()
+			.setShaderDrawParameters(supported11.shaderDrawParameters);
 
 		pNext = nullptr;
 		APPEND_EXTENSION(accelStructSupported, accelStructFeatures)
@@ -538,7 +566,11 @@ namespace Lux {
 			APPEND_EXTENSION(meshletsSupported, meshletFeatures)
 			APPEND_EXTENSION(vrsSupported, vrsFeatures)
 			APPEND_EXTENSION(physicalDeviceProperties.apiVersion >= VK_API_VERSION_1_3, vulkan13features)
-			APPEND_EXTENSION(physicalDeviceProperties.apiVersion < VK_API_VERSION_1_3 && maintenance4Supported, maintenance4Features);
+			APPEND_EXTENSION(physicalDeviceProperties.apiVersion < VK_API_VERSION_1_3 && maintenance4Supported, maintenance4Features)
+			APPEND_EXTENSION(vulkan14, vulkan14features)
+			APPEND_EXTENSION(!vulkan14 && maintenance5Supported, maintenance5Features)
+			APPEND_EXTENSION(!vulkan14 && maintenance6Supported, maintenance6Features)
+			APPEND_EXTENSION(true, vulkan11features);
 #undef APPEND_EXTENSION
 
 		auto deviceFeatures = vk::PhysicalDeviceFeatures()
@@ -561,7 +593,16 @@ namespace Lux {
 			.setDescriptorBindingVariableDescriptorCount(true)
 			.setTimelineSemaphore(true)
 			.setShaderSampledImageArrayNonUniformIndexing(true)
-			.setBufferDeviceAddress(bufferDeviceAddressFeatures.bufferDeviceAddress)
+			.setBufferDeviceAddress(supported12.bufferDeviceAddress)
+			.setSamplerFilterMinmax(supported12.samplerFilterMinmax)
+			.setHostQueryReset(supported12.hostQueryReset)
+			.setDescriptorBindingUpdateUnusedWhilePending(supported12.descriptorBindingUpdateUnusedWhilePending)
+			.setDescriptorBindingSampledImageUpdateAfterBind(supported12.descriptorBindingSampledImageUpdateAfterBind)
+			.setDescriptorBindingStorageImageUpdateAfterBind(supported12.descriptorBindingStorageImageUpdateAfterBind)
+			.setDescriptorBindingStorageBufferUpdateAfterBind(supported12.descriptorBindingStorageBufferUpdateAfterBind)
+			.setDescriptorBindingUniformBufferUpdateAfterBind(supported12.descriptorBindingUniformBufferUpdateAfterBind)
+			.setDescriptorBindingUniformTexelBufferUpdateAfterBind(supported12.descriptorBindingUniformTexelBufferUpdateAfterBind)
+			.setDescriptorBindingStorageTexelBufferUpdateAfterBind(supported12.descriptorBindingStorageTexelBufferUpdateAfterBind)
 			.setPNext(pNext);
 
 		auto layerVec = stringSetToVector(enabledExtensions.layers);

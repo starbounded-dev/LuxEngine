@@ -148,6 +148,7 @@ stdin isn't a TTY, `Menu.py` degrades to plain prompts so the same path works un
 | Dependencies | Box2D, JoltPhysics, GLFW, imgui, Tracy, NFD-Extended, Coral.Native, Coral.Managed, Coral.Generator (stub) | |
 | Dependencies/Text | msdf-atlas-gen | |
 | Dependencies/Renderer | NVRHI, NVRHI-Vulkan, NVRHI-D3D11, NVRHI-D3D12 | |
+| Dependencies/Renderer | NRI, NRI-VK, NRI-Validation, NRI-NONE, NRI-Shared | NRI's own `premake5.lua` (see below) |
 
 **C# is built by MSBuild inside the solution.** `Coral.Managed` and `ScriptCore` are
 premake-generated C# projects, not a separate `dotnet build` step. The .NET 9 SDK is still required
@@ -170,6 +171,29 @@ those edits wouldn't travel with the repo and would break fresh checkouts:
   `NVRHI_WITH_RTXMU=1`.
 - **Tracy** on Linux force-includes `<cstring>` (its `TracyFastVector.hpp` uses `memcpy` in a
   template instantiated before `<string.h>` is fully parsed under GCC).
+
+### NRI is a Lux fork with its own `premake5.lua`
+
+`Core/vendor/NRI` is the submodule `https://github.com/starbounded-dev/NRI`, branch `lux`
+(StudioCherno's `hazel` merged with NVIDIA-RTX/NRI `main`). Unlike the hacks above, NRI's build and
+patches live **in the fork**: its `premake5.lua` builds the five static libraries, and every source
+change is marked `(Lux patch)` / `(Lux/Hazel patch)`. Changing NRI means a commit on the fork's
+`lux` branch, pushed **before** the Lux commit that moves the submodule pointer (CI checks out
+submodules recursively and fails on an unpushed commit).
+
+- NRI compiles against its **own** Vulkan headers (`External/VulkanHeaders`, v1.4.364, the version
+  NRI's CMake fetches), not `VULKAN_SDK`: it needs extensions newer than the SDK Lux pins. NRI's
+  public headers have no Vulkan types, so Core keeps using the SDK headers.
+- VMA is NRI's (`External/VMA`, the commit NRI's CMake pins); `VMA_IMPLEMENTATION` is compiled once,
+  in NRI-VK. Core does not use VMA.
+- Linux defines `NRI_ENABLE_XLIB_SUPPORT=1` and `NRI_ENABLE_WAYLAND_SUPPORT=1` for every NRI project,
+  and `VK_USE_PLATFORM_XLIB_KHR` / `VK_USE_PLATFORM_WAYLAND_KHR` only for NRI-VK (as NRI's CMake
+  does), so no other NRI file sees X11's global `Window` typedef. Windows defines
+  `VK_USE_PLATFORM_WIN32_KHR` for NRI-VK. D3D11/D3D12, WGPU, NVTX, NRIImgui and the upscaler SDKs are
+  not built.
+- `Dependencies.lua` links `NRI, NRI-VK, NRI-Validation, NRI-NONE, NRI-Shared` in that order (GNU ld
+  resolves static archives left to right). Core defines `NRI_STATIC_LIBRARY=1`; without it `NRI_API`
+  is `dllimport` on Windows.
 
 ---
 

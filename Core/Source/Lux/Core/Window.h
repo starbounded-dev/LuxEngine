@@ -96,6 +96,8 @@ namespace Lux {
 		static Window* Create(const WindowSpecification& specification = WindowSpecification());
 	private:
 		bool CreateWindowSurface();
+		// Wraps the Vulkan device in NRI (RHIDevice) and, in Debug, runs its self-test.
+		void CreateRHIDevice(bool enableValidation);
 		virtual void Shutdown();
 	private:
 		DeviceManager* m_DeviceManager = nullptr;

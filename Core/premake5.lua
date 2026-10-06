@@ -74,7 +74,11 @@ project "Core"
 
 	IncludeDependencies()
 
-	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE" }
+	defines {
+		"GLM_FORCE_DEPTH_ZERO_TO_ONE",
+		-- NRI is linked statically; without this NRI_API is dllimport on Windows.
+		"NRI_STATIC_LIBRARY=1",
+	}
 
 	if _OPTIONS["discord"] then
 		defines { "LUX_ENABLE_DISCORD" }

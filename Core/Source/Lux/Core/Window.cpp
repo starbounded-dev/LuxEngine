@@ -10,6 +10,7 @@
 #include "Lux/Core/Input.h"
 
 #include "Lux/Renderer/RendererAPI.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
@@ -290,6 +291,8 @@ namespace Lux {
 			LUX_CORE_INFO("Successfully created {} device!", (uint8_t)api);
 		}
 
+		CreateRHIDevice(deviceParams.enableDebugRuntime);
+
 		bool rayQuerySupported = m_DeviceManager->GetDevice()->queryFeatureSupport(nvrhi::Feature::RayQuery);
 
 		if (!rayQuerySupported)
@@ -479,6 +482,35 @@ namespace Lux {
 		return true;
 	}
 
+	void Window::CreateRHIDevice(bool enableValidation)
+	{
+		const auto* vulkanDeviceManager = static_cast<VulkanDeviceManager*>(m_DeviceManager);
+		const VulkanDeviceManager::QueueFamilyIndices& families = vulkanDeviceManager->GetQueueFamilyIndices();
+
+		RHIDeviceCreateInfo createInfo;
+		createInfo.Instance = static_cast<VkInstance>(vulkanDeviceManager->GetVulkanInstance());
+		createInfo.PhysicalDevice = static_cast<VkPhysicalDevice>(vulkanDeviceManager->GetVulkanPhysicalDevice());
+		createInfo.Device = static_cast<VkDevice>(vulkanDeviceManager->GetVulkanDevice());
+		createInfo.MinorVersion = VK_API_VERSION_MINOR(vulkanDeviceManager->GetDeviceAPIVersion());
+		createInfo.QueueFamilies[static_cast<size_t>(GPUQueue::Graphics)] = families.Graphics;
+		if (vulkanDeviceManager->IsComputeQueueAvailable())
+			createInfo.QueueFamilies[static_cast<size_t>(GPUQueue::Compute)] = families.Compute;
+		if (vulkanDeviceManager->IsTransferQueueAvailable())
+			createInfo.QueueFamilies[static_cast<size_t>(GPUQueue::Copy)] = families.Transfer;
+		createInfo.InstanceExtensions.assign(vulkanDeviceManager->GetEnabledInstanceExtensions().begin(), vulkanDeviceManager->GetEnabledInstanceExtensions().end());
+		createInfo.DeviceExtensions.assign(vulkanDeviceManager->GetEnabledDeviceExtensions().begin(), vulkanDeviceManager->GetEnabledDeviceExtensions().end());
+		createInfo.EnableValidation = enableValidation;
+
+		// NVRHI keeps rendering if this fails; nothing records through NRI yet.
+		if (!RHIDevice::Init(createInfo))
+			return;
+
+#ifdef LUX_DEBUG
+		// Blocking, like Tracy's GPU context init: the render thread has nothing to submit yet.
+		RHIDevice::RunSelfTest();
+#endif
+	}
+
 	void Window::Shutdown()
 	{
 		if (m_SwapChain)
@@ -495,6 +527,9 @@ namespace Lux {
 			vInstance.destroySurfaceKHR(m_WindowSurface);
 			m_WindowSurface = nullptr;
 		}
+
+		// Before the device manager: NRI wraps the VkDevice that NVRHI and the manager own.
+		RHIDevice::Shutdown();
 
 		if (m_DeviceManager)
 		{

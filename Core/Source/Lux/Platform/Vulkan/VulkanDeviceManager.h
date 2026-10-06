@@ -99,7 +99,15 @@ namespace Lux {
 		}
 
 		vk::Instance GetVulkanInstance() const { return m_VulkanInstance; }
+		vk::PhysicalDevice GetVulkanPhysicalDevice() const { return m_VulkanPhysicalDevice; }
+		vk::Device GetVulkanDevice() const { return m_VulkanDevice; }
+		const QueueFamilyIndices& GetQueueFamilyIndices() const { return m_QueueFamilyIndices; }
+		// The version the device is used at: the lower of the instance and physical-device versions.
+		uint32_t GetDeviceAPIVersion() const { return m_DeviceAPIVersion; }
+		const std::unordered_set<std::string>& GetEnabledInstanceExtensions() const { return enabledExtensions.instance; }
+		const std::unordered_set<std::string>& GetEnabledDeviceExtensions() const { return enabledExtensions.device; }
 
+		[[nodiscard]] bool IsComputeQueueAvailable() const { return m_DeviceParams.enableComputeQueue; }
 		[[nodiscard]] bool IsTransferQueueAvailable() const override { return m_TransferQueueAvailable; }
 
 #if LUX_ENABLE_PROFILING
@@ -168,7 +176,11 @@ namespace Lux {
 				VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME,
 				VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
 				VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
-				VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME
+				VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME,
+				// Core in Vulkan 1.4; NRI uses them when the device supports them (see createDevice)
+				VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
+				VK_KHR_MAINTENANCE_6_EXTENSION_NAME,
+				VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME
 			},
 		};
 
@@ -183,6 +195,8 @@ namespace Lux {
 		std::string m_RendererString;
 
 		vk::Instance m_VulkanInstance;
+		uint32_t m_InstanceAPIVersion = 0;
+		uint32_t m_DeviceAPIVersion = 0;
 		vk::DebugReportCallbackEXT m_DebugReportCallback;
 
 		vk::PhysicalDevice m_VulkanPhysicalDevice;

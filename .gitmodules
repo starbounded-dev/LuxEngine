@@ -39,3 +39,7 @@
 [submodule "Core/vendor/Coral"]
 	path = Core/vendor/Coral
 	url = https://github.com/StudioCherno/Coral
+[submodule "Core/vendor/NRI"]
+	path = Core/vendor/NRI
+	url = https://github.com/starbounded-dev/NRI
+	branch = lux

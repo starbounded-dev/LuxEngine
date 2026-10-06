@@ -48,6 +48,7 @@ graph TB
         SR --> R2D[Renderer2D]
         SR --> DBG[DebugRenderer]
         REN --> NVRHI[nvrhi / Vulkan]
+        REN --> NRI[NRI / Vulkan, wraps the same device]
     end
 
     subgraph SceneGraph["Scene / ECS"]
@@ -177,7 +178,9 @@ per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.
 `Window` (`Core/Source/Lux/Core/Window.h`) is created via `Window::Create(WindowSpecification)` and
 owns the GLFW window, the `DeviceManager`, and the `VulkanSwapChain`.
 `Application::GetGraphicsDeviceManager()` / `GetGraphicsDevice()` are the shortcuts to the nvrhi
-device.
+device. `Window::Init` also wraps the same Vulkan device in NRI (`RHIDevice::Init`, right after
+`CreateDevice`; Debug runs `RHIDevice::RunSelfTest` there), and `Window::Shutdown` destroys the NRI
+device after the swapchain and surface, before the device manager.
 
 Platform-specific implementations are separate translation units under
 `Core/Platform/Windows/` and `Core/Platform/Linux/` (`*FileSystem.cpp`, `*Thread.cpp`,
@@ -198,6 +201,14 @@ with `ToNVRHI`/`FromNVRHI` from `RHI/NVRHIInterop.h`, which goes away with NVRHI
 until later NRI phases: `Image2D::GetHandle`/`ImageInfo` (P8), `RecordResourceUpload` (P13),
 `RT_BindMaterialDescriptorSet` (P9), and device bring-up in `Window.cpp` (P14). Shader handles
 live on `VulkanShader` (`GetHandle(ShaderStage)`), not the abstract `Shader`.
+
+**NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
+device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
+`VulkanDeviceManager` created. It never owns them; NVRHI keeps driving the same device until it is
+removed. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
+the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. NRI submits
+to the same `VkQueue`s as NVRHI, so NRI submissions hold `RenderCommandBuffer::LockQueue`. Nothing
+renders through NRI yet. Device features: see `Rendering.md § NRI device`.
 
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
 `ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). With `Renderer.ExplicitBarriers`
@@ -1227,7 +1238,8 @@ luxengine/
 │   │       │                      #   RenderThread, JobSystem, SimulationThread, Log, UUID, Math
 │   │       ├── Renderer/          # Renderer, SceneRenderer, RenderGraph, Renderer2D,
 │   │       │                      #   RenderScene/GPUScene, Material, Shader, Pipeline, Mesh, UI/,
-│   │       │                      #   RHI/ (renderer vocabulary + temporary NVRHI interop)
+│   │       │                      #   RHI/ (renderer vocabulary, RHIDevice (NRI), state tracker,
+│   │       │                      #   GPU deletion queue, temporary NVRHI interop)
 │   │       ├── Scene/             # Scene, Entity, Components, SceneSerializer, Prefab
 │   │       ├── Physics/           # PhysicsSystem/Scene/Body/Shapes + JoltPhysics/
 │   │       ├── Physics2D/         # Box2D
@@ -1247,7 +1259,7 @@ luxengine/
 │   │       ├── Tiering/           # TieringSerializer
 │   │       └── Embed/             # LuxIcon.embed
 │   ├── Platform/{Windows,Linux}/  # Per-platform FileSystem / Thread / RenderThread
-│   └── vendor/                    # Box2D, JoltPhysics, GLFW, imgui, nvrhi, Coral, tracy,
+│   └── vendor/                    # Box2D, JoltPhysics, GLFW, imgui, nvrhi, NRI (fork), Coral, tracy,
 │                                  #   msdf-atlas-gen, NFD-Extended, rapidyaml, FastNoise, …
 ├── ScriptCore/                    # C# scripting assembly (.NET 9)
 ├── Editor/

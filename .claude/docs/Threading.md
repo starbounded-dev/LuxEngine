@@ -308,6 +308,9 @@ consequences of not doing so are silent cross-shader binding corruption. See
   `linkoptions { "-Wl,--no-as-needed,-latomic,--as-needed" }`. MSVC doesn't need the equivalent
   because it links the runtime support in statically.
 - `std::mutex` + `std::scoped_lock` for compound state.
+- `RenderCommandBuffer::LockQueue` / `UnlockQueue` serialize submissions to the shared `VkQueue`s.
+  NVRHI's and NRI's (`RHIDevice`) go to the same queues, so every submit from either library holds
+  it, for the submit call only.
 - `Lux::Thread` (named, joinable) and `Lux::ThreadSignal` (`Core/Thread.h`) for engine-owned threads —
   named threads show up in Tracy and in the debugger, so prefer them over a bare `std::thread`.
 - `LUX_PROFILE_THREAD("Name")` at the top of any new thread body.

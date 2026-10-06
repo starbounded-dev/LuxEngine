@@ -205,6 +205,9 @@ group "Dependencies/Renderer"
 
 	project "NVRHI"
 		defines { "NVRHI_WITH_RTXMU=1" }
+
+	-- NRI (fork starbounded-dev/NRI, branch "lux") carries its own premake5.lua.
+	include "Core/vendor/NRI"
 group ""
 
 group "Core"

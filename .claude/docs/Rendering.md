@@ -361,6 +361,32 @@ tracker against NVRHI's own state and logs `Tracker/NVRHI state mismatch` once p
 
 ---
 
+## NRI device
+
+During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries drive **one**
+`VkDevice`: `VulkanDeviceManager` creates it, NVRHI wraps it, and `RHIDevice::Init`
+(`Renderer/RHI/RHIDevice.h`) wraps it again with `nriCreateDeviceFromVKDevice`.
+
+- **NRI reads feature support from the physical device, not from what Lux enabled** (Vulkan has no
+  query for enabled features). Extension-backed features are safe: NRI only queries an extension's
+  feature struct when the extension is in the list Lux passes. Core features are not: NRI uses
+  Vulkan 1.3 `synchronization2` and 1.4 `maintenance5`/`maintenance6`/push descriptors on its own
+  whenever the GPU has them. So `VulkanDeviceManager::createDevice` enables every core feature NRI
+  can use implicitly (and the 1.1/1.2 bits the descriptor work will need) whenever supported, and
+  the KHR extensions on 1.3 devices. **Do not use an NRI `DeviceDesc` feature that
+  `VulkanDeviceManager` does not enable**; add it there first.
+- **Surface extensions.** The fork loads a platform's surface function only when its instance
+  extension is enabled. GLFW enables just the one its window system uses (on X11 usually
+  `VK_KHR_xcb_surface`), so an NRI swapchain on X11 needs `VK_KHR_xlib_surface` enabled first
+  (Phase 14).
+- **One queue lock.** NRI and NVRHI submit to the same `VkQueue`s; every NRI `QueueSubmit` holds
+  `RenderCommandBuffer::LockQueue`.
+- **Errors.** NRI messages go to the log as `[NRI] …` under the `Renderer` tag. An NRI error breaks
+  into the debugger in Debug, like a failed assert, and only logs otherwise. NRI validation is on in
+  Debug.
+
+---
+
 ## Validation errors are bugs
 
 Vulkan validation output (`VulkanDeviceManager::vulkanDebugCallback`) is not noise. A validation
