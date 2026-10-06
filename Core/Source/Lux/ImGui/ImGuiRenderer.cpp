@@ -9,6 +9,8 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Debug/Profiler.h"
 
+#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
 #include "nvrhi/utils.h"
@@ -137,8 +139,8 @@ namespace Lux {
 		m_RenderCommandBuffer = RenderCommandBuffer::Create(0, "ImGuiRenderer", true);
 
 		Ref<Shader> imguiShader = Renderer::GetShaderLibrary()->Get("ImGui");
-		m_VertexShader = imguiShader->GetHandle(nvrhi::ShaderType::Vertex);
-		m_PixelShader = imguiShader->GetHandle(nvrhi::ShaderType::Pixel);
+		m_VertexShader = imguiShader.As<VulkanShader>()->GetHandle(ShaderStage::Vertex);
+		m_PixelShader = imguiShader.As<VulkanShader>()->GetHandle(ShaderStage::Pixel);
 
 		nvrhi::VertexAttributeDesc vertexAttribLayout[] = {
 			{ "POSITION", nvrhi::Format::RG32_FLOAT,  1, 0, offsetof(ImDrawVert, pos), sizeof(ImDrawVert), false },
@@ -371,10 +373,20 @@ namespace Lux {
 	// CreateFrameTexture  (delegates to shared registry)
 	// -----------------------------------------------------------------------
 
-	ImTextureID ImGuiRenderer::CreateFrameTexture(nvrhi::ITexture* texture,
-		nvrhi::TextureSubresourceSet subresources,
+	ImTextureID ImGuiRenderer::CreateFrameTexture(const Ref<Image2D>& image,
+		TextureSubresourceRange subresources,
 		bool forceOpaque,
 		bool isGrayscale)
+	{
+		LUX_CORE_ASSERT(image, "CreateFrameTexture called with a null image!");
+		return RegisterFrameTexture(image->GetHandle(), ToNVRHI(subresources), forceOpaque, isGrayscale, image);
+	}
+
+	ImTextureID ImGuiRenderer::RegisterFrameTexture(nvrhi::ITexture* texture,
+		nvrhi::TextureSubresourceSet subresources,
+		bool forceOpaque,
+		bool isGrayscale,
+		Ref<Image2D> keepAlive)
 	{
 		LUX_CORE_ASSERT(texture, "CreateFrameTexture called with null texture!");
 
@@ -386,7 +398,7 @@ namespace Lux {
 		if (resolved.numArraySlices == nvrhi::TextureSubresourceSet::AllArraySlices)
 			resolved.numArraySlices = texDesc.arraySize - resolved.baseArraySlice;
 
-		ImGuiTextureInfo key{ texture, resolved, forceOpaque, isGrayscale };
+		ImGuiTextureInfo key{ texture, resolved, forceOpaque, isGrayscale, std::move(keepAlive) };
 
 		auto it = m_Registry->FrameTextureMap.find(key);
 		if (it != m_Registry->FrameTextureMap.end())

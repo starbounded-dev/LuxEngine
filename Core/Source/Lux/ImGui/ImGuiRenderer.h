@@ -55,6 +55,7 @@ SOFTWARE.
 
 #include <imgui.h>
 
+#include "Lux/Renderer/Image.h"
 #include "Lux/Renderer/RenderCommandBuffer.h"
 
 namespace Lux
@@ -71,6 +72,10 @@ namespace Lux
 		nvrhi::TextureSubresourceSet Subresources = nvrhi::AllSubresources;
 		bool ForceOpaque = false;
 		bool IsGrayscale = false;
+		// Keeps an engine image alive until the frame that draws it has been rendered (the draw
+		// snapshot copies this struct). Null for ImGui-owned textures. Not part of the key: Texture
+		// already identifies the image.
+		Ref<Image2D> Image;
 
 		bool operator==(const ImGuiTextureInfo& other) const
 		{
@@ -218,8 +223,8 @@ namespace Lux
 
 		// Get a per-frame texture handle (indices 64+) - valid only for the
 		// current frame.  Safe to call from any renderer that shares the registry.
-		ImTextureID CreateFrameTexture(nvrhi::ITexture* texture,
-			nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources,
+		ImTextureID CreateFrameTexture(const Ref<Image2D>& image,
+			TextureSubresourceRange subresources = AllSubresources,
 			bool forceOpaque = false,
 			bool isGrayscale = false);
 
@@ -227,6 +232,10 @@ namespace Lux
 		std::shared_ptr<ImGuiTextureRegistry> GetRegistry() const { return m_Registry; }
 
 	private:
+		// The raw-texture path behind CreateFrameTexture. NRI migration Phase 11 retires it.
+		ImTextureID RegisterFrameTexture(nvrhi::ITexture* texture, nvrhi::TextureSubresourceSet subresources,
+			bool forceOpaque, bool isGrayscale, Ref<Image2D> keepAlive);
+
 		bool ReallocateBuffer(nvrhi::BufferHandle& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer);
 		nvrhi::GraphicsPipelineHandle GetOrCreatePipeline(VulkanSwapChain* swapchain);
 		nvrhi::IBindingSet* GetBindingSet(const ImGuiTextureInfo& texInfo);

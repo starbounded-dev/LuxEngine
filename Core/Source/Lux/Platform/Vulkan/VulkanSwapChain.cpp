@@ -363,7 +363,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("VulkanSwapChain::BeginFrame");
 
-		auto device = (nvrhi::vulkan::IDevice*)Application::Get().GetGraphicsDevice().Get();
+		auto device = static_cast<nvrhi::vulkan::IDevice*>(Application::Get().GetGraphicsDevice());
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
 
 		m_ImageAcquired = false;
@@ -423,7 +423,7 @@ namespace Lux {
 		m_ImageAcquired = false;
 
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
-		auto device = (nvrhi::vulkan::IDevice*)Application::Get().GetGraphicsDevice().Get();
+		auto device = static_cast<nvrhi::vulkan::IDevice*>(Application::Get().GetGraphicsDevice());
 
 		// Use the semaphore corresponding to the current swapchain image index
 		// This ensures proper synchronization without semaphore reuse conflicts

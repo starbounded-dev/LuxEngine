@@ -487,7 +487,7 @@ namespace Lux {
 			std::string Name;
 			ImageFormat Format = ImageFormat::None;
 			ImageUsage Usage = ImageUsage::None;
-			nvrhi::TextureDimension Dimension = nvrhi::TextureDimension::Unknown;
+			TextureDimension Dimension = TextureDimension::Unknown;
 			uint32_t Width = 0;
 			uint32_t Height = 0;
 			uint32_t Mips = 0;
@@ -499,7 +499,7 @@ namespace Lux {
 			bool Transient = false;
 			bool AllowAlias = false;
 			bool AliasedNow = false;
-			nvrhi::ResourceStates CurrentState = nvrhi::ResourceStates::Unknown;
+			ResourceState CurrentState = ResourceState::Unknown;
 			uint32_t FirstWriter = UINT32_MAX;
 			uint32_t LastReader = UINT32_MAX;
 			std::vector<uint32_t> Consumers;
@@ -1160,7 +1160,7 @@ namespace Lux {
 
 		void BuildIndirectDrawCommand(const StaticDrawCommand& dc,
 			const TransformMapData& tmd,
-			std::vector<nvrhi::DrawIndexedIndirectArguments>& drawCommands);
+			std::vector<DrawIndexedIndirectCommand>& drawCommands);
 
 		struct ScopedCPUProfile
 		{
@@ -1616,7 +1616,7 @@ namespace Lux {
 		std::vector<uint32_t>                          m_ScratchObjectIndexData;
 		std::vector<uint32_t>                          m_ScratchVisibleObjectIndexData;
 		std::vector<MeshCullDrawData>                  m_ScratchMeshCullDrawData;
-		std::vector<nvrhi::DrawIndexedIndirectArguments> m_ScratchIndirectDrawData;
+		std::vector<DrawIndexedIndirectCommand> m_ScratchIndirectDrawData;
 		std::vector<AssetHandle>                       m_ScratchTextureHandles;
 		std::vector<GPUMaterialData>                   m_ScratchMaterialData;
 		std::vector<GPUMaterialData>                   m_ScratchTransientMaterialData;

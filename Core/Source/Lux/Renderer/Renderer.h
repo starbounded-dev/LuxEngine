@@ -145,7 +145,7 @@ namespace Lux {
 		// If an async upload flush happened that consumingQueue hasn't yet waited on,
 		// returns true and sets outInstance to the copy-queue execution instance to
 		// wait on. Records the wait so it isn't re-issued. See RenderCommandBuffer::RT_Submit.
-		static bool ConsumePendingUpload(nvrhi::CommandQueue consumingQueue, uint64_t& outInstance);
+		static bool ConsumePendingUpload(GPUQueue consumingQueue, uint64_t& outInstance);
 
 		template<typename FuncT>
 		static void SubmitResourceFree(FuncT&& func)
@@ -226,7 +226,7 @@ namespace Lux {
 		static void SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides);
 		static void RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount = 0);
 		static void RT_BindMaterialDescriptorSet(nvrhi::BindingSetVector& bindings, Ref<Shader> pipelineShader, Ref<Material> material, uint32_t set = 0);
-		static void ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, nvrhi::Color clearColor, nvrhi::TextureSubresourceSet subresourceSet = nvrhi::TextureSubresourceSet());
+		static void ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, const glm::vec4& clearColor, TextureSubresourceRange subresources);
 		static void CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 		static void BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 
@@ -257,7 +257,7 @@ namespace Lux {
 		// i.e. executeCommandList's return) on executionQueue has completed. Must be
 		// called on the render thread, between the two queues' submits. Used to build
 		// async-compute overlap (e.g. graphics waits for the compute light-cull).
-		static void QueueWaitForCommandList(nvrhi::CommandQueue waitQueue, nvrhi::CommandQueue executionQueue, uint64_t instance);
+		static void QueueWaitForCommandList(GPUQueue waitQueue, GPUQueue executionQueue, uint64_t instance);
 
 		static uint32_t GetCurrentFrameIndex();
 		static uint32_t RT_GetCurrentFrameIndex();

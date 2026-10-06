@@ -16,8 +16,6 @@
 #include "Lux/Utilities/StringUtils.h"
 #include "Lux/Utilities/FileSystem.h"
 
-#include "nvrhi/utils.h"
-
 #include <dxc/dxcapi.h>
 #include <libshaderc_util/file_finder.h>
 #include <shaderc/shaderc.hpp>
@@ -177,7 +175,7 @@ namespace Lux {
 
 		LUX_SHADER_COMPILER_TRACE("Compiling shader: {}", m_ShaderSourcePath.string());
 		m_ShaderSource = PreProcess(source);
-		const nvrhi::ShaderType changedStages = VulkanShaderCache::HasChanged(this);
+		const ShaderStage changedStages = VulkanShaderCache::HasChanged(this);
 
 		bool compileSucceeded = CompileOrGetVulkanBinaries(m_SPIRVDebugData, m_SPIRVData, changedStages, forceCompile);
 		if (!compileSucceeded)
@@ -187,7 +185,7 @@ namespace Lux {
 
 
 		// Reflection
-		if (forceCompile || changedStages != nvrhi::ShaderType::None || !TryReadCachedReflectionData())
+		if (forceCompile || changedStages != ShaderStage::None || !TryReadCachedReflectionData())
 		{
 			ReflectAllShaderStages(m_SPIRVDebugData);
 			SerializeReflectionData();
@@ -204,7 +202,7 @@ namespace Lux {
 		s_StorageBuffers.clear();
 	}
 
-	std::map<nvrhi::ShaderType, std::string> VulkanShaderCompiler::PreProcess(const std::string& source)
+	std::map<ShaderStage, std::string> VulkanShaderCompiler::PreProcess(const std::string& source)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		switch (m_Language)
@@ -217,10 +215,10 @@ namespace Lux {
 		return {};
 	}
 
-	std::map<nvrhi::ShaderType, std::string> VulkanShaderCompiler::PreProcessGLSL(const std::string& source)
+	std::map<ShaderStage, std::string> VulkanShaderCompiler::PreProcessGLSL(const std::string& source)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		std::map<nvrhi::ShaderType, std::string> shaderSources = ShaderPreprocessor::PreprocessShader<ShaderUtils::SourceLang::GLSL>(source, m_AcknowledgedMacros);
+		std::map<ShaderStage, std::string> shaderSources = ShaderPreprocessor::PreprocessShader<ShaderUtils::SourceLang::GLSL>(source, m_AcknowledgedMacros);
 
 		static shaderc::Compiler compiler;
 
@@ -246,7 +244,7 @@ namespace Lux {
 			{
 				const std::string error = std::format("Shader pre-process error\nShader: {}\nStage: {}\nLanguage: GLSL\nCompiler output:\n{}",
 					m_ShaderSourcePath.string(),
-					nvrhi::utils::ShaderStageToString(stage),
+					ShaderStageToString(stage),
 					preProcessingResult.GetErrorMessage());
 				LUX_CORE_ERROR_TAG("Renderer", "{}", error);
 				if (Log::GetEditorConsoleLogger())
@@ -263,10 +261,10 @@ namespace Lux {
 		return shaderSources;
 	}
 
-	std::map<nvrhi::ShaderType, std::string> VulkanShaderCompiler::PreProcessHLSL(const std::string& source)
+	std::map<ShaderStage, std::string> VulkanShaderCompiler::PreProcessHLSL(const std::string& source)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		std::map<nvrhi::ShaderType, std::string> shaderSources = ShaderPreprocessor::PreprocessShader<ShaderUtils::SourceLang::HLSL>(source, m_AcknowledgedMacros);
+		std::map<ShaderStage, std::string> shaderSources = ShaderPreprocessor::PreprocessShader<ShaderUtils::SourceLang::HLSL>(source, m_AcknowledgedMacros);
 
 #ifdef LUX_PLATFORM_WINDOWS
 		std::wstring buffer = m_ShaderSourcePath.wstring();
@@ -330,7 +328,7 @@ namespace Lux {
 			IDxcBlobEncoding* pErrors = nullptr;
 			pCompileResult->GetErrorBuffer(&pErrors);
 			if (pErrors->GetBufferPointer() && pErrors->GetBufferSize())
-				error.append(std::format("{}\nWhile pre-processing shader file: {} \nAt stage: {}", (char*)pErrors->GetBufferPointer(), m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage)));
+				error.append(std::format("{}\nWhile pre-processing shader file: {} \nAt stage: {}", (char*)pErrors->GetBufferPointer(), m_ShaderSourcePath.string(), ShaderStageToString(stage)));
 
 			if (error.empty())
 			{
@@ -348,7 +346,7 @@ namespace Lux {
 				if (Log::GetEditorConsoleLogger())
 					Log::GetEditorConsoleLogger()->error("Shader pre-process error\nShader: {}\nStage: {}\nLanguage: HLSL\nCompiler output:\n{}",
 						m_ShaderSourcePath.string(),
-						nvrhi::utils::ShaderStageToString(stage),
+						ShaderStageToString(stage),
 						error);
 			}
 
@@ -375,7 +373,7 @@ namespace Lux {
 		return shaderSources;
 	}
 
-	std::string VulkanShaderCompiler::Compile(std::vector<uint32_t>& outputBinary, const nvrhi::ShaderType stage, CompilationOptions options) const
+	std::string VulkanShaderCompiler::Compile(std::vector<uint32_t>& outputBinary, const ShaderStage stage, CompilationOptions options) const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const std::string& stageSource = m_ShaderSource.at(stage);
@@ -396,7 +394,7 @@ namespace Lux {
 			const shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(stageSource, ShaderUtils::ShaderStageToShaderC(stage), m_ShaderSourcePath.string().c_str(), shaderCOptions);
 
 			if (module.GetCompilationStatus() != shaderc_compilation_status_success)
-				return std::format("{}While compiling shader file: {} \nAt stage: {}", module.GetErrorMessage(), m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage));
+				return std::format("{}While compiling shader file: {} \nAt stage: {}", module.GetErrorMessage(), m_ShaderSourcePath.string(), ShaderStageToString(stage));
 
 			outputBinary = std::vector<uint32_t>(module.begin(), module.end());
 			return {}; // Success
@@ -419,7 +417,7 @@ namespace Lux {
 				arguments.emplace_back(DXC_ARG_DEBUG);
 			}
 
-			if ((uint16_t)stage & ((uint16_t)nvrhi::ShaderType::Vertex | (uint16_t)nvrhi::ShaderType::Hull | (uint16_t)nvrhi::ShaderType::Geometry))
+			if ((uint16_t)stage & ((uint16_t)ShaderStage::Vertex | (uint16_t)ShaderStage::Hull | (uint16_t)ShaderStage::Geometry))
 				arguments.push_back(L"-fvk-invert-y");
 
 			IDxcBlobEncoding* pSource;
@@ -442,7 +440,7 @@ namespace Lux {
 			IDxcBlobUtf8* pErrors;
 			pCompileResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), NULL);
 			if (pErrors && pErrors->GetStringLength() > 0)
-				error.append(std::format("{}\nWhile compiling shader file: {} \nAt stage: {}", (char*)pErrors->GetBufferPointer(), m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage)));
+				error.append(std::format("{}\nWhile compiling shader file: {} \nAt stage: {}", (char*)pErrors->GetBufferPointer(), m_ShaderSourcePath.string(), ShaderStageToString(stage)));
 
 			if (error.empty())
 			{
@@ -509,7 +507,7 @@ namespace Lux {
 				exec.push_back("-Zi");
 			}
 
-			if ((uint16_t)stage & ((uint16_t)nvrhi::ShaderType::Vertex | (uint16_t)nvrhi::ShaderType::Hull | (uint16_t)nvrhi::ShaderType::Geometry))
+			if ((uint16_t)stage & ((uint16_t)ShaderStage::Vertex | (uint16_t)ShaderStage::Hull | (uint16_t)ShaderStage::Geometry))
 				exec.push_back("-fvk-invert-y");
 
 			exec.push_back(NULL);
@@ -534,7 +532,7 @@ namespace Lux {
 				close(errPipe[0]);
 				unlink(srcTempName);
 				unlink(outTempName);
-				return std::format("Could not execute `{}` for shader compilation: {} {}", exec[0], m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage));
+				return std::format("Could not execute `{}` for shader compilation: {} {}", exec[0], m_ShaderSourcePath.string(), ShaderStageToString(stage));
 			}
 
 			// Read dxc stderr
@@ -554,7 +552,7 @@ namespace Lux {
 			if (WEXITSTATUS(status))
 			{
 				unlink(outTempName);
-				return std::format("{}\nWhile compiling shader file: {} \nAt stage: {}", dxcErrors, m_ShaderSourcePath.string(), nvrhi::utils::ShaderStageToString(stage));
+				return std::format("{}\nWhile compiling shader file: {} \nAt stage: {}", dxcErrors, m_ShaderSourcePath.string(), ShaderStageToString(stage));
 			}
 
 			int outfile = open(outTempName, O_RDONLY);
@@ -571,7 +569,7 @@ namespace Lux {
 		return "Unknown language!";
 	}
 
-	std::string VulkanShaderCompiler::BuildShaderCompileErrorMessage(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const
+	std::string VulkanShaderCompiler::BuildShaderCompileErrorMessage(ShaderStage stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const uint32_t lineNumber = ExtractCompilerLineNumber(compilerError);
@@ -624,7 +622,7 @@ namespace Lux {
 			"Macro set:\n{7}"
 			"Compiler output:\n{8}",
 			m_ShaderSourcePath.string(),
-			nvrhi::utils::ShaderStageToString(stage),
+			ShaderStageToString(stage),
 			debug ? "Debug" : "Optimized",
 			ShaderSourceLanguageToString(m_Language),
 			lineText,
@@ -634,7 +632,7 @@ namespace Lux {
 			compilerError);
 	}
 
-	void VulkanShaderCompiler::ReportShaderCompileError(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const
+	void VulkanShaderCompiler::ReportShaderCompileError(ShaderStage stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const std::string message = BuildShaderCompileErrorMessage(stage, debug, compilerError, loadedCachedBinary);
@@ -696,7 +694,7 @@ namespace Lux {
 		return true;
 	}
 
-	bool VulkanShaderCompiler::CompileOrGetVulkanBinaries(std::map<nvrhi::ShaderType, std::vector<uint32_t>>& outputDebugBinary, std::map<nvrhi::ShaderType, std::vector<uint32_t>>& outputBinary, const nvrhi::ShaderType changedStages, const bool forceCompile)
+	bool VulkanShaderCompiler::CompileOrGetVulkanBinaries(std::map<ShaderStage, std::vector<uint32_t>>& outputDebugBinary, std::map<ShaderStage, std::vector<uint32_t>>& outputBinary, const ShaderStage changedStages, const bool forceCompile)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		for (auto [stage, source] : m_ShaderSource)
@@ -710,7 +708,7 @@ namespace Lux {
 	}
 
 
-	bool VulkanShaderCompiler::CompileOrGetVulkanBinary(nvrhi::ShaderType stage, std::vector<uint32_t>& outputBinary, bool debug, nvrhi::ShaderType changedStages, bool forceCompile)
+	bool VulkanShaderCompiler::CompileOrGetVulkanBinary(ShaderStage stage, std::vector<uint32_t>& outputBinary, bool debug, ShaderStage changedStages, bool forceCompile)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
@@ -867,7 +865,7 @@ namespace Lux {
 		serializer->WriteArray(m_ReflectionData.PushConstantRanges);
 	}
 
-	void VulkanShaderCompiler::ReflectAllShaderStages(const std::map<nvrhi::ShaderType, std::vector<uint32_t>>& shaderData)
+	void VulkanShaderCompiler::ReflectAllShaderStages(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		ClearReflectionData();
@@ -878,7 +876,7 @@ namespace Lux {
 		}
 	}
 
-	void VulkanShaderCompiler::Reflect(nvrhi::ShaderType shaderStage, const std::vector<uint32_t>& shaderData)
+	void VulkanShaderCompiler::Reflect(ShaderStage shaderStage, const std::vector<uint32_t>& shaderData)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_SHADER_REFLECTION_INFO("===========================");
@@ -917,7 +915,7 @@ namespace Lux {
 					uniformBuffer.BindingPoint = binding;
 					uniformBuffer.Size = size;
 					uniformBuffer.Name = name;
-					uniformBuffer.ShaderStage = nvrhi::ShaderType::All;
+					uniformBuffer.ShaderStage = ShaderStage::All;
 					s_UniformBuffers.at(descriptorSet)[binding] = uniformBuffer;
 				}
 				else
@@ -977,7 +975,7 @@ namespace Lux {
 					storageBuffer.BindingPoint = binding;
 					storageBuffer.Size = size;
 					storageBuffer.Name = name;
-					storageBuffer.ShaderStage = nvrhi::ShaderType::All;
+					storageBuffer.ShaderStage = ShaderStage::All;
 					storageBuffer.ReadOnly = readOnly;
 					s_StorageBuffers.at(descriptorSet)[binding] = storageBuffer;
 				}

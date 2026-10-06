@@ -130,36 +130,36 @@ namespace Lux {
 			return "Unknown";
 		}
 
-		const char* TextureDimensionToString(nvrhi::TextureDimension dimension)
+		const char* TextureDimensionToString(TextureDimension dimension)
 		{
 			switch (dimension)
 			{
-				case nvrhi::TextureDimension::Unknown: return "Unknown";
-				case nvrhi::TextureDimension::Texture1D: return "1D";
-				case nvrhi::TextureDimension::Texture1DArray: return "1DArray";
-				case nvrhi::TextureDimension::Texture2D: return "2D";
-				case nvrhi::TextureDimension::Texture2DArray: return "2DArray";
-				case nvrhi::TextureDimension::TextureCube: return "Cube";
-				case nvrhi::TextureDimension::TextureCubeArray: return "CubeArray";
-				case nvrhi::TextureDimension::Texture2DMS: return "2DMS";
-				case nvrhi::TextureDimension::Texture2DMSArray: return "2DMSArray";
-				case nvrhi::TextureDimension::Texture3D: return "3D";
+				case TextureDimension::Unknown: return "Unknown";
+				case TextureDimension::Texture1D: return "1D";
+				case TextureDimension::Texture1DArray: return "1DArray";
+				case TextureDimension::Texture2D: return "2D";
+				case TextureDimension::Texture2DArray: return "2DArray";
+				case TextureDimension::TextureCube: return "Cube";
+				case TextureDimension::TextureCubeArray: return "CubeArray";
+				case TextureDimension::Texture2DMS: return "2DMS";
+				case TextureDimension::Texture2DMSArray: return "2DMSArray";
+				case TextureDimension::Texture3D: return "3D";
 			}
 			return "Unknown";
 		}
 
-		bool HasState(nvrhi::ResourceStates state, nvrhi::ResourceStates flag)
+		bool HasState(ResourceState state, ResourceState flag)
 		{
 			return (static_cast<uint32_t>(state) & static_cast<uint32_t>(flag)) != 0;
 		}
 
-		std::string ResourceStateToString(nvrhi::ResourceStates state)
+		std::string ResourceStateToString(ResourceState state)
 		{
-			if (state == nvrhi::ResourceStates::Unknown)
+			if (state == ResourceState::Unknown)
 				return "Unknown";
 
 			std::string result;
-			auto append = [&](nvrhi::ResourceStates flag, const char* name)
+			auto append = [&](ResourceState flag, const char* name)
 				{
 					if (!HasState(state, flag))
 						return;
@@ -168,19 +168,19 @@ namespace Lux {
 					result += name;
 				};
 
-			append(nvrhi::ResourceStates::Common, "Common");
-			append(nvrhi::ResourceStates::ConstantBuffer, "ConstantBuffer");
-			append(nvrhi::ResourceStates::VertexBuffer, "VertexBuffer");
-			append(nvrhi::ResourceStates::IndexBuffer, "IndexBuffer");
-			append(nvrhi::ResourceStates::IndirectArgument, "IndirectArgument");
-			append(nvrhi::ResourceStates::ShaderResource, "ShaderResource");
-			append(nvrhi::ResourceStates::UnorderedAccess, "UnorderedAccess");
-			append(nvrhi::ResourceStates::RenderTarget, "RenderTarget");
-			append(nvrhi::ResourceStates::DepthWrite, "DepthWrite");
-			append(nvrhi::ResourceStates::DepthRead, "DepthRead");
-			append(nvrhi::ResourceStates::CopyDest, "CopyDest");
-			append(nvrhi::ResourceStates::CopySource, "CopySource");
-			append(nvrhi::ResourceStates::Present, "Present");
+			append(ResourceState::Common, "Common");
+			append(ResourceState::ConstantBuffer, "ConstantBuffer");
+			append(ResourceState::VertexBuffer, "VertexBuffer");
+			append(ResourceState::IndexBuffer, "IndexBuffer");
+			append(ResourceState::IndirectArgument, "IndirectArgument");
+			append(ResourceState::ShaderResource, "ShaderResource");
+			append(ResourceState::UnorderedAccess, "UnorderedAccess");
+			append(ResourceState::RenderTarget, "RenderTarget");
+			append(ResourceState::DepthWrite, "DepthWrite");
+			append(ResourceState::DepthRead, "DepthRead");
+			append(ResourceState::CopyDest, "CopyDest");
+			append(ResourceState::CopySource, "CopySource");
+			append(ResourceState::Present, "Present");
 
 			return result.empty() ? std::format("0x{:08X}", static_cast<uint32_t>(state)) : result;
 		}

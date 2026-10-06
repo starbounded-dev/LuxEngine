@@ -15,6 +15,7 @@
 #include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/Renderer/BindlessTextureTable.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <filesystem>
@@ -66,7 +67,7 @@ namespace Lux {
 		return Hash::GenerateFNVHash(m_AssetPath.string());
 	}
 
-	void VulkanShader::LoadAndCreateShaders(const std::map<nvrhi::ShaderType, std::vector<uint32_t>>& shaderData)
+	void VulkanShader::LoadAndCreateShaders(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_ShaderData = shaderData;
@@ -81,7 +82,7 @@ namespace Lux {
 
 
 			nvrhi::ShaderDesc desc;
-			desc.shaderType = stage;
+			desc.shaderType = ToNVRHI(stage);
 			desc.debugName = m_Name;
 			desc.entryName = "main";
 			m_ShaderHandles[stage] = device->createShader(desc, data.data(), data.size() * sizeof(uint32_t));
@@ -373,10 +374,10 @@ namespace Lux {
 		m_ReflectionData = reflectionData;
 	}
 
-	nvrhi::ShaderHandle VulkanShader::GetHandle(nvrhi::ShaderType type) const
+	nvrhi::ShaderHandle VulkanShader::GetHandle(ShaderStage stage) const
 	{
-		LUX_CORE_VERIFY(m_ShaderHandles.contains(type));
-		return m_ShaderHandles.at(type);
+		LUX_CORE_VERIFY(m_ShaderHandles.contains(stage));
+		return m_ShaderHandles.at(stage);
 	}
 
 }

@@ -5,6 +5,7 @@
 #include "RenderCommandBuffer.h"
 
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
@@ -32,7 +33,7 @@ namespace Lux {
 	}
 #endif
 
-	RenderCommandBuffer::RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, nvrhi::CommandQueue queue)
+	RenderCommandBuffer::RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, GPUQueue queue)
 		: m_Queue(queue), m_DebugName(debugName)
 	{
 		if (count == 0)
@@ -47,7 +48,7 @@ namespace Lux {
 		// only be executed on the compute queue (COPY/COMPUTE expose a subset of
 		// methods). Graphics (the default) is unchanged from before.
 		nvrhi::CommandListParameters clParams;
-		clParams.setQueueType(m_Queue);
+		clParams.setQueueType(ToNVRHI(m_Queue));
 
 		for (uint32_t i = 0; i < count; i++)
 			m_CommandLists.push_back(device->createCommandList(clParams));
@@ -301,8 +302,8 @@ namespace Lux {
 		LockQueue();
 		if (waitSemaphore)
 		{
-			auto vulkanDevice = (nvrhi::vulkan::IDevice*)device.Get();
-			vulkanDevice->queueWaitForSemaphore(m_Queue, waitSemaphore, 0);
+			auto vulkanDevice = static_cast<nvrhi::vulkan::IDevice*>(device);
+			vulkanDevice->queueWaitForSemaphore(ToNVRHI(m_Queue), waitSemaphore, 0);
 		}
 
 		// If asset uploads were flushed on the dedicated transfer queue, make this
@@ -310,12 +311,12 @@ namespace Lux {
 		// texture data. No-op in graphics-queue fallback mode (nothing pending).
 		uint64_t uploadInstance = 0;
 		if (Renderer::ConsumePendingUpload(m_Queue, uploadInstance))
-			Renderer::QueueWaitForCommandList(m_Queue, nvrhi::CommandQueue::Copy, uploadInstance);
+			Renderer::QueueWaitForCommandList(m_Queue, GPUQueue::Copy, uploadInstance);
 
 		// Execute on this buffer's queue (Graphics unless this is a compute
 		// command buffer) and keep the returned instance id so another queue can
 		// wait on it via Renderer::QueueWaitForCommandList.
-		m_LastExecutionInstance = device->executeCommandList(m_CommandLists[commandBufferIndex], m_Queue);
+		m_LastExecutionInstance = device->executeCommandList(m_CommandLists[commandBufferIndex], ToNVRHI(m_Queue));
 		UnlockQueue();
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES
@@ -339,7 +340,7 @@ namespace Lux {
 	void RenderCommandBuffer::RT_Wait(VkSemaphore waitSemaphore)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		auto device = (nvrhi::vulkan::IDevice*)Application::GetGraphicsDevice().Get();
+		auto device = static_cast<nvrhi::vulkan::IDevice*>(Application::GetGraphicsDevice());
 		LockQueue();
 		device->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, waitSemaphore, 0);
 		UnlockQueue();

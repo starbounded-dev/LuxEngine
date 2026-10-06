@@ -54,7 +54,7 @@ namespace Lux
 		ImTextureID GetImGuiTextureID(const Ref<Image2D>& image)
 		{
 			auto* imguiRenderer = Application::Get().GetImGuiLayer()->GetImGuiRenderer();
-			return imguiRenderer->CreateFrameTexture(image->GetHandle().Get(), nvrhi::AllSubresources);
+			return imguiRenderer->CreateFrameTexture(image);
 		}
 	}
 

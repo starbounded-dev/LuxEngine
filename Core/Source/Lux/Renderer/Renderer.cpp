@@ -18,6 +18,7 @@
 #include "Lux/Core/Timer.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Renderer/BindlessTextureTable.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Project/Project.h"
 
@@ -248,12 +249,12 @@ namespace Lux {
 		s_ShaderDependencies[shader->GetHash()].ComputePasses.push_back(computePass);
 	}
 
-	void Renderer::QueueWaitForCommandList(nvrhi::CommandQueue waitQueue, nvrhi::CommandQueue executionQueue, uint64_t instance)
+	void Renderer::QueueWaitForCommandList(GPUQueue waitQueue, GPUQueue executionQueue, uint64_t instance)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		// nvrhi tracks a completion timeline per queue; this inserts the wait on
 		// waitQueue for executionQueue's instance without any manual semaphores.
-		Application::GetGraphicsDevice()->queueWaitForCommandList(waitQueue, executionQueue, instance);
+		Application::GetGraphicsDevice()->queueWaitForCommandList(ToNVRHI(waitQueue), ToNVRHI(executionQueue), instance);
 	}
 
 	Ref<PipelineCompute> Renderer::GetOrCreateMipGenPipeline(Ref<Shader> shader)
@@ -379,7 +380,7 @@ namespace Lux {
 	// Highest upload instance each consuming queue has already inserted a wait for,
 	// indexed by nvrhi::CommandQueue (Graphics=0, Compute=1, Copy=2). Avoids
 	// redundant per-submit waits on an upload that's already been synchronized.
-	static std::atomic<uint64_t> s_QueueWaitedUploadInstance[(size_t)nvrhi::CommandQueue::Count] = {};
+	static std::atomic<uint64_t> s_QueueWaitedUploadInstance[(size_t)GPUQueue::Count] = {};
 
 	static nvrhi::VariableShadingRate ToNVRHIShadingRate(FragmentShadingRate rate)
 	{
@@ -930,7 +931,7 @@ namespace Lux {
 		RenderCommandBuffer::UnlockQueue();
 	}
 
-	bool Renderer::ConsumePendingUpload(nvrhi::CommandQueue consumingQueue, uint64_t& outInstance)
+	bool Renderer::ConsumePendingUpload(GPUQueue consumingQueue, uint64_t& outInstance)
 	{
 		const uint64_t last = s_LastUploadInstance.load(std::memory_order_acquire);
 		if (last == 0)
@@ -1403,7 +1404,7 @@ namespace Lux {
 				outputViewSpec.MipCount = 1;
 				outputViewSpec.Layer = 0;
 				outputViewSpec.LayerCount = 6; // All cubemap faces
-				outputViewSpec.Dimension = nvrhi::TextureDimension::TextureCube;
+				outputViewSpec.Dimension = TextureDimension::TextureCube;
 				outputViewSpec.DebugName = std::format("EnvMipFilter-Output-Mip{}", mip);
 				Ref<ImageView> outputView = ImageView::Create(outputViewSpec);
 
@@ -1614,10 +1615,10 @@ namespace Lux {
 		bindings[set] = bindingSet;
 	}
 
-	void Renderer::ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, nvrhi::Color clearColor, nvrhi::TextureSubresourceSet subresourceSet)
+	void Renderer::ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, const glm::vec4& clearColor, TextureSubresourceRange subresources)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		Renderer::Submit([renderCommandBuffer, image, clearColor, subresourceSet]() mutable
+		Renderer::Submit([renderCommandBuffer, image, clearColor, subresources]() mutable
 			{
 				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 				if (!commandList || !image || !image->GetHandle())
@@ -1625,7 +1626,7 @@ namespace Lux {
 				const auto& spec = image->GetSpecification();
 				const std::string markerName = "ClearImage: " + (spec.DebugName.empty() ? std::string("Image2D") : spec.DebugName);
 				renderCommandBuffer->RT_BeginMarker(markerName);
-				commandList->clearTextureFloat(image->GetHandle(), subresourceSet, clearColor);
+				commandList->clearTextureFloat(image->GetHandle(), ToNVRHI(subresources), nvrhi::Color(clearColor.r, clearColor.g, clearColor.b, clearColor.a));
 				renderCommandBuffer->RT_EndMarker();
 			});
 	}
@@ -2060,7 +2061,7 @@ namespace Lux {
 		if (!s_RendererData->SamplerRepeat)
 		{
 			SamplerSpecification spec;
-			spec.AddressMode = nvrhi::SamplerAddressMode::Repeat;
+			spec.AddressMode = TextureWrap::Repeat;
 			spec.MaxAnisotropy = 16.0f;
 			s_RendererData->SamplerRepeat = Sampler::Create(spec);
 		}

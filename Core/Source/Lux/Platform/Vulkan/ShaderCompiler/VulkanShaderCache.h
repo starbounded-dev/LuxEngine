@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "nvrhi/nvrhi.h"
+#include "Lux/Renderer/RHI/RHITypes.h"
 
 #include "VulkanShaderCompiler.h"
 
@@ -15,10 +15,10 @@ namespace Lux {
 	class VulkanShaderCache
 	{
 	public:
-		static nvrhi::ShaderType HasChanged(Ref<VulkanShaderCompiler> shader);
+		static ShaderStage HasChanged(Ref<VulkanShaderCompiler> shader);
 	private:
-		static void Serialize(const std::map<std::string, std::map<nvrhi::ShaderType, StageData>>& shaderCache);
-		static void Deserialize(std::map<std::string, std::map<nvrhi::ShaderType, StageData>>& shaderCache);
+		static void Serialize(const std::map<std::string, std::map<ShaderStage, StageData>>& shaderCache);
+		static void Deserialize(std::map<std::string, std::map<ShaderStage, StageData>>& shaderCache);
 	};
 
 }

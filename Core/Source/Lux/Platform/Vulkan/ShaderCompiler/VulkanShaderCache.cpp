@@ -6,8 +6,6 @@
 #include "Lux/Core/Hash.h"
 #include "Lux/Platform/Vulkan/VulkanShaderUtils.h"
 
-#include "nvrhi/utils.h"
-
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/SerializationMacros.h"
 
@@ -17,14 +15,14 @@ namespace Lux {
 
 	static const char* s_ShaderRegistryPath = "Resources/Cache/Shader/ShaderRegistry.cache";
 
-	nvrhi::ShaderType VulkanShaderCache::HasChanged(Ref<VulkanShaderCompiler> shader)
+	ShaderStage VulkanShaderCache::HasChanged(Ref<VulkanShaderCompiler> shader)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		std::map<std::string, std::map<nvrhi::ShaderType, StageData>> shaderCache;
+		std::map<std::string, std::map<ShaderStage, StageData>> shaderCache;
 
 		Deserialize(shaderCache);
 
-		nvrhi::ShaderType changedStages = nvrhi::ShaderType::None;
+		ShaderStage changedStages = ShaderStage::None;
 		const bool shaderNotCached = shaderCache.find(shader->m_ShaderSourcePath.string()) == shaderCache.end();
 
 		for (const auto& [stage, stageSource] : shader->m_ShaderSource)
@@ -41,14 +39,14 @@ namespace Lux {
 		// Update cache in case we added a stage but didn't remove the deleted(in file) stages
 		shaderCache.at(shader->m_ShaderSourcePath.string()) = shader->m_StagesMetadata;
 
-		if (changedStages != nvrhi::ShaderType::None)
+		if (changedStages != ShaderStage::None)
 			Serialize(shaderCache);
 
 		return changedStages;
 	}
 
 
-	void VulkanShaderCache::Serialize(const std::map<std::string, std::map<nvrhi::ShaderType, StageData>>& shaderCache)
+	void VulkanShaderCache::Serialize(const std::map<std::string, std::map<ShaderStage, StageData>>& shaderCache)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Yaml::Writer out;
@@ -67,7 +65,7 @@ namespace Lux {
 			{
 				out << Yaml::BeginMap; // Stage_
 
-				out << Yaml::Key << "Stage" << Yaml::Value << nvrhi::utils::ShaderStageToString(stage);
+				out << Yaml::Key << "Stage" << Yaml::Value << ShaderStageToString(stage);
 				out << Yaml::Key << "StageHash" << Yaml::Value << stageData.HashValue;
 
 				out << Yaml::Key << "Headers" << Yaml::BeginSeq; // Headers_
@@ -99,7 +97,7 @@ namespace Lux {
 		fout << out.c_str();
 	}
 
-	void VulkanShaderCache::Deserialize(std::map<std::string, std::map<nvrhi::ShaderType, StageData>>& shaderCache)
+	void VulkanShaderCache::Deserialize(std::map<std::string, std::map<ShaderStage, StageData>>& shaderCache)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		// Read registry
@@ -136,7 +134,7 @@ namespace Lux {
 				LUX_DESERIALIZE_PROPERTY(Stage, stageType, stage, std::string());
 				LUX_DESERIALIZE_PROPERTY(StageHash, stageHash, stage, 0u);
 
-				auto& stageCache = shaderCache[path][nvrhi::utils::ShaderStageFromString(stageType.c_str())];
+				auto& stageCache = shaderCache[path][ShaderStageFromString(stageType)];
 				stageCache.HashValue = stageHash;
 
 				for (auto header : stage["Headers"])

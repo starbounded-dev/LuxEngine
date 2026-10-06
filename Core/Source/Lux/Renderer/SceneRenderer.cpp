@@ -13,6 +13,7 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 
 #include <nvrhi/utils.h>
 
@@ -1207,7 +1208,7 @@ namespace Lux {
 		// Async-compute queue command buffer. Created unconditionally (the compute
 		// queue is enabled at device creation); only used when EnableAsyncCompute
 		// routes independent compute passes onto it.
-		m_ComputeCommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer-AsyncCompute", /*queries=*/false, nvrhi::CommandQueue::Compute);
+		m_ComputeCommandBuffer = RenderCommandBuffer::Create(0, "SceneRenderer-AsyncCompute", /*queries=*/false, GPUQueue::Compute);
 
 		m_Renderer2D = Ref<Renderer2D>::Create(Renderer2DSpecification{});
 		m_Renderer2DScreenSpace = Ref<Renderer2D>::Create(Renderer2DSpecification{});
@@ -1254,7 +1255,7 @@ namespace Lux {
 			spec.GPUOnly = true;
 			spec.DrawIndirect = true;
 			spec.DebugName = "IndirectDrawCommands";
-			m_SBSIndirectDrawCommands = StorageBufferSet::Create(spec, sizeof(nvrhi::DrawIndexedIndirectArguments) * 4096);
+			m_SBSIndirectDrawCommands = StorageBufferSet::Create(spec, sizeof(DrawIndexedIndirectCommand) * 4096);
 		}
 		{
 			StorageBufferSpecification indexSpec;
@@ -1305,7 +1306,7 @@ namespace Lux {
 		{
 			ImageSpecification shadowMapSpec;
 			shadowMapSpec.DebugName = "ShadowMapArray";
-			shadowMapSpec.Dimension = nvrhi::TextureDimension::Texture2DArray;
+			shadowMapSpec.Dimension = TextureDimension::Texture2DArray;
 			shadowMapSpec.Format = ImageFormat::Depth;
 			shadowMapSpec.Usage = ImageUsage::Attachment;
 			shadowMapSpec.Width = 4096;
@@ -1401,7 +1402,7 @@ namespace Lux {
 
 			ImageSpecification spotShadowSpec;
 			spotShadowSpec.DebugName = "SpotShadowAtlas";
-			spotShadowSpec.Dimension = nvrhi::TextureDimension::Texture2D;
+			spotShadowSpec.Dimension = TextureDimension::Texture2D;
 			spotShadowSpec.Format = ImageFormat::Depth;
 			spotShadowSpec.Usage = ImageUsage::Attachment;
 			spotShadowSpec.Width = m_SpotShadowMapSize;
@@ -4238,7 +4239,7 @@ namespace Lux {
 			if (texture.Image)
 			{
 				textureInfo.AliasedNow = texture.Image->IsTransientAlias();
-				textureInfo.CurrentState = texture.Image->GetImageInfo().State;
+				textureInfo.CurrentState = FromNVRHI(texture.Image->GetImageInfo().State);
 			}
 		}
 
@@ -4569,7 +4570,7 @@ namespace Lux {
 		const ImageSpecification& spec = image->GetSpecification();
 		if (spec.Usage != ImageUsage::Attachment && spec.Usage != ImageUsage::Storage)
 			return false;
-		if (spec.Dimension != nvrhi::TextureDimension::Texture2D || spec.Layers != 1)
+		if (spec.Dimension != TextureDimension::Texture2D || spec.Layers != 1)
 			return false;
 		if (spec.Width == 0 || spec.Height == 0 || spec.Format == ImageFormat::None)
 			return false;
@@ -6091,7 +6092,7 @@ namespace Lux {
 		std::vector<uint32_t>& objectIndexData = m_ScratchObjectIndexData;
 		std::vector<uint32_t>& visibleObjectIndexData = m_ScratchVisibleObjectIndexData;
 		std::vector<MeshCullDrawData>& meshCullDrawData = m_ScratchMeshCullDrawData;
-		std::vector<nvrhi::DrawIndexedIndirectArguments>& indirectDrawData = m_ScratchIndirectDrawData;
+		std::vector<DrawIndexedIndirectCommand>& indirectDrawData = m_ScratchIndirectDrawData;
 		objectIndexData.clear();
 		visibleObjectIndexData.clear();
 		meshCullDrawData.clear();
@@ -6380,7 +6381,7 @@ namespace Lux {
 					if (tmd.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
 						continue;
 
-					tmd.IndirectDrawOffsetBytes = (uint32_t)(indirectDrawData.size() * sizeof(nvrhi::DrawIndexedIndirectArguments));
+					tmd.IndirectDrawOffsetBytes = (uint32_t)(indirectDrawData.size() * sizeof(DrawIndexedIndirectCommand));
 					meshCullDrawData.push_back({
 						tmd.ObjectIndexBase,
 						(uint32_t)tmd.ObjectIndices.size(),
@@ -6762,7 +6763,7 @@ namespace Lux {
 
 				if (!indirectCommands.empty())
 				{
-					const uint32_t indirectBytes = (uint32_t)(sizeof(nvrhi::DrawIndexedIndirectArguments) * indirectCommands.size());
+					const uint32_t indirectBytes = (uint32_t)(sizeof(DrawIndexedIndirectCommand) * indirectCommands.size());
 					if (instance->m_SBSIndirectDrawCommands->RT_Get()->GetHandle()->getDesc().byteSize < indirectBytes)
 						instance->m_SBSIndirectDrawCommands->Resize(indirectBytes * 2u);
 					instance->m_SBSIndirectDrawCommands->RT_Get()->RT_SetData(cmd, indirectCommands.data(), indirectBytes);
@@ -6931,7 +6932,7 @@ namespace Lux {
 			Ref<RenderCommandBuffer> computeCB = m_ComputeCommandBuffer;
 			Renderer::Submit([computeCB]()
 			{
-				Renderer::QueueWaitForCommandList(nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Compute, computeCB->GetLastExecutionInstance());
+				Renderer::QueueWaitForCommandList(GPUQueue::Graphics, GPUQueue::Compute, computeCB->GetLastExecutionInstance());
 			});
 		}
 
@@ -7418,7 +7419,7 @@ namespace Lux {
 			return;
 
 		Ref<Image2D> visibilityImage = visibilityTexture->GetImage();
-		Renderer::ClearImage(m_CommandBuffer, visibilityImage, nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f), visibilityImage->GetMipImageView(0));
+		Renderer::ClearImage(m_CommandBuffer, visibilityImage, glm::vec4(1.0f), visibilityImage->GetMipImageView(0));
 
 		struct PreIntegrationComputePushConstants
 		{
@@ -8531,16 +8532,16 @@ namespace Lux {
 
 	void SceneRenderer::BuildIndirectDrawCommand(const StaticDrawCommand& dc,
 		const TransformMapData& tmd,
-		std::vector<nvrhi::DrawIndexedIndirectArguments>& drawCommands)
+		std::vector<DrawIndexedIndirectCommand>& drawCommands)
 	{
 		const SubmeshLOD lod = dc.MeshSource->GetSubmeshLOD(dc.SubmeshIndex, dc.LODIndex);
 
-		nvrhi::DrawIndexedIndirectArguments args{};
-		args.indexCount = lod.IndexCount;
-		args.instanceCount = tmd.VisibleInstanceCount;
-		args.startIndexLocation = lod.BaseIndex;
-		args.baseVertexLocation = (int32_t)lod.BaseVertex;
-		args.startInstanceLocation = 0;
+		DrawIndexedIndirectCommand args;
+		args.IndexCount = lod.IndexCount;
+		args.InstanceCount = tmd.VisibleInstanceCount;
+		args.FirstIndex = lod.BaseIndex;
+		args.VertexOffset = (int32_t)lod.BaseVertex;
+		args.FirstInstance = 0;
 		drawCommands.push_back(args);
 	}
 

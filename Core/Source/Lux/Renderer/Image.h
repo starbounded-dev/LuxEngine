@@ -8,6 +8,8 @@
 
 #include "RendererResource.h"
 
+#include "Lux/Renderer/RHI/RHITypes.h"
+
 #include "nvrhi/nvrhi.h"
 
 #include <glm/gtc/integer.hpp>
@@ -92,7 +94,7 @@ namespace Lux {
 	{
 		std::string DebugName;
 
-		nvrhi::TextureDimension Dimension = nvrhi::TextureDimension::Texture2D;
+		TextureDimension Dimension = TextureDimension::Texture2D;
 		ImageFormat Format = ImageFormat::RGBA;
 		ImageUsage Usage = ImageUsage::Texture;
 		bool Transfer = false; // Will it be used for transfer ops?
@@ -110,6 +112,9 @@ namespace Lux {
 		float MipBias = 0.0f;
 	};
 
+	// ── Renderer backend ────────────────────────────────────────────────────────────────────────
+	// The live NVRHI objects behind an image. Renderer implementation files only (descriptor
+	// binding, ImGui); goes away when images move to NRI (NRI migration Phase 8).
 	struct ImageInfo
 	{
 		nvrhi::TextureHandle ImageHandle = nullptr;
@@ -203,13 +208,13 @@ namespace Lux {
 		void RT_CreatePerLayerImageViews();
 		void RT_CreatePerSpecificLayerImageViews(const std::vector<uint32_t>& layerIndices);
 
-		virtual nvrhi::TextureSubresourceSet GetLayerImageView(uint32_t layer)
+		virtual TextureSubresourceRange GetLayerImageView(uint32_t layer)
 		{
 			LUX_CORE_ASSERT(layer < m_PerLayerImageViews.size());
 			return m_PerLayerImageViews[layer];
 		}
 
-		nvrhi::TextureSubresourceSet GetMipImageView(uint32_t mip);
+		TextureSubresourceRange GetMipImageView(uint32_t mip);
 
 		ImageInfo& GetImageInfo() { return m_TransientAliasSource ? m_TransientAliasSource->GetImageInfo() : m_Info; }
 		const ImageInfo& GetImageInfo() const { return m_TransientAliasSource ? m_TransientAliasSource->GetImageInfo() : m_Info; }
@@ -245,8 +250,8 @@ namespace Lux {
 
 		mutable Ref<RenderCommandBuffer> m_CommandList;
 
-		std::vector<nvrhi::TextureSubresourceSet> m_PerLayerImageViews;
-		std::map<uint32_t, nvrhi::TextureSubresourceSet> m_PerMipImageViews;
+		std::vector<TextureSubresourceRange> m_PerLayerImageViews;
+		std::map<uint32_t, TextureSubresourceRange> m_PerMipImageViews;
 	};
 
 	namespace Utils {
@@ -500,7 +505,7 @@ namespace Lux {
 		uint32_t LayerCount = 0; // 0 means all
 
 		// Unknown will take dimension from Texture
-		nvrhi::TextureDimension Dimension = nvrhi::TextureDimension::Unknown;
+		TextureDimension Dimension = TextureDimension::Unknown;
 
 		std::string DebugName;
 	};
@@ -529,7 +534,7 @@ namespace Lux {
 	struct SamplerSpecification
 	{
 		float MipBias = 0.0f;
-		nvrhi::SamplerAddressMode AddressMode = nvrhi::SamplerAddressMode::Clamp;
+		TextureWrap AddressMode = TextureWrap::Clamp;
 		float MaxAnisotropy = 1.0f;
 		bool MinFilter = true;
 		bool MagFilter = true;

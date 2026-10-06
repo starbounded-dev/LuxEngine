@@ -353,6 +353,14 @@ one-line constant.
 `LUX_HAS_DX11` / `LUX_HAS_DX12` branches look dead. They are reserved scaffolding for a future
 backend (NVRHI already builds `NVRHI-D3D11` / `NVRHI-D3D12`). **Do not sweep them as dead code.**
 
+### Renderer vocabulary lives in `Renderer/RHI/RHITypes.h`
+
+Name `ShaderStage`, `TextureDimension`, `TextureSubresourceRange`, `GPUQueue`, `ResourceState` and
+`DrawIndexedIndirectCommand` from that header. Don't name backend types (`nvrhi::*`, `Vk*`) outside
+renderer implementation `.cpp`s; those convert at the call with `ToNVRHI`/`FromNVRHI`
+(`RHI/NVRHIInterop.h`). Note that `TextureSubresourceRange{}` covers every mip and layer, while
+`nvrhi::TextureSubresourceSet{}` is mip 0, layer 0 only.
+
 ### Configuration macros
 
 `LUX_PLATFORM_WINDOWS` / `LUX_PLATFORM_LINUX`, `LUX_DEBUG` / `LUX_RELEASE` / `LUX_DIST`,

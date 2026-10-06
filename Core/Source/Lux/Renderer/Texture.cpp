@@ -6,6 +6,7 @@
 
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 
 #include "Lux/Asset/TextureImporter.h"
 
@@ -14,17 +15,6 @@
 namespace Lux {
 
 	namespace Utils {
-
-		static nvrhi::SamplerAddressMode NVRHISamplerWrap(TextureWrap wrap)
-		{
-			switch (wrap)
-			{
-			case TextureWrap::Clamp:   return nvrhi::SamplerAddressMode::Clamp;
-			case TextureWrap::Repeat:  return nvrhi::SamplerAddressMode::Repeat;
-			}
-			LUX_CORE_ASSERT(false, "Unknown wrap mode");
-			return (nvrhi::SamplerAddressMode)0;
-		}
 
 		static bool NVRHISamplerFilter(TextureFilter filter)
 		{
@@ -123,7 +113,7 @@ namespace Lux {
 				nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 				nvrhi::SamplerDesc samplerDesc;
 				samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = Utils::NVRHISamplerFilter(spec.SamplerFilter);
-				samplerDesc.addressU = Utils::NVRHISamplerWrap(spec.SamplerWrap);
+				samplerDesc.addressU = ToNVRHI(spec.SamplerWrap);
 				samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
 				samplerDesc.maxAnisotropy = spec.MaxAnisotropy;
 				srgbImage->GetImageInfo().Sampler = device->createSampler(samplerDesc);
@@ -343,7 +333,7 @@ namespace Lux {
 
 		nvrhi::SamplerDesc samplerDesc;
 		samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = Utils::NVRHISamplerFilter(m_Specification.SamplerFilter);
-		samplerDesc.addressU = Utils::NVRHISamplerWrap(m_Specification.SamplerWrap);
+		samplerDesc.addressU = ToNVRHI(m_Specification.SamplerWrap);
 		samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
 		samplerDesc.maxAnisotropy = m_Specification.MaxAnisotropy;
 		samplerDesc.mipBias = m_Specification.MipBias;
@@ -585,7 +575,7 @@ namespace Lux {
 
 		ImageSpecification imageSpec;
 		imageSpec.DebugName = m_Specification.DebugName;
-		imageSpec.Dimension = nvrhi::TextureDimension::TextureCube;
+		imageSpec.Dimension = TextureDimension::TextureCube;
 		imageSpec.Format = m_Specification.Format;
 		imageSpec.Usage = ImageUsage::Storage;
 		imageSpec.Width = m_Specification.Width;
@@ -695,7 +685,7 @@ namespace Lux {
 		srcImageViewSpec.Image = m_Image;
 		srcImageViewSpec.MipCount = 1;
 		srcImageViewSpec.LayerCount = 1;
-		srcImageViewSpec.Dimension = nvrhi::TextureDimension::Texture2D;
+		srcImageViewSpec.Dimension = TextureDimension::Texture2D;
 
 		ImageViewSpecification dstImageViewSpec = srcImageViewSpec;
 

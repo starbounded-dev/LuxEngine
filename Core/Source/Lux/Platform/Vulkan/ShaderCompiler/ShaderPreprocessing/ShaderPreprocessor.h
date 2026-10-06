@@ -95,7 +95,7 @@ namespace Lux {
 		bool IsGuarded { false };
 		uint32_t HashValue {};
 
-		nvrhi::ShaderType IncludedStage{};
+		ShaderStage IncludedStage{};
 
 		inline bool operator==(const IncludeData& other) const noexcept
 		{
@@ -107,7 +107,7 @@ namespace Lux {
 	{
 		std::string Source;
 		uint32_t SourceHash;
-		nvrhi::ShaderType Stages;
+		ShaderStage Stages;
 		bool IsGuarded;
 	};
 }
@@ -133,19 +133,19 @@ namespace Lux {
 		}
 
 		template<ShaderUtils::SourceLang Lang>
-		static nvrhi::ShaderType PreprocessHeader(std::string& contents, bool& isGuarded, std::unordered_set<std::string>& specialMacros, const std::unordered_set<IncludeData>& includeData, const std::filesystem::path& fullPath);
+		static ShaderStage PreprocessHeader(std::string& contents, bool& isGuarded, std::unordered_set<std::string>& specialMacros, const std::unordered_set<IncludeData>& includeData, const std::filesystem::path& fullPath);
 		template<ShaderUtils::SourceLang Lang>
-		static std::map<nvrhi::ShaderType, std::string> PreprocessShader(const std::string& source, std::unordered_set<std::string>& specialMacros);
+		static std::map<ShaderStage, std::string> PreprocessShader(const std::string& source, std::unordered_set<std::string>& specialMacros);
 	};
 
 	template<ShaderUtils::SourceLang Lang>
-	nvrhi::ShaderType ShaderPreprocessor::PreprocessHeader(std::string& contents, bool& isGuarded, std::unordered_set<std::string>& specialMacros, const std::unordered_set<IncludeData>& includeData, const std::filesystem::path& fullPath)
+	ShaderStage ShaderPreprocessor::PreprocessHeader(std::string& contents, bool& isGuarded, std::unordered_set<std::string>& specialMacros, const std::unordered_set<IncludeData>& includeData, const std::filesystem::path& fullPath)
 	{
 		std::stringstream sourceStream;
 		PreprocessUtils::CopyWithoutComments(contents.begin(), contents.end(), std::ostream_iterator<char>(sourceStream));
 		contents = sourceStream.str();
 
-		nvrhi::ShaderType stagesInHeader = nvrhi::ShaderType::None;
+		ShaderStage stagesInHeader = ShaderStage::None;
 
 		//Removes header guard in GLSL only.
 		isGuarded = PreprocessUtils::ContainsHeaderGuard<Lang == ShaderUtils::SourceLang::GLSL>(contents);
@@ -176,7 +176,7 @@ namespace Lux {
 						// Skipped ':'
 						const std::string_view stage(tokens[++index]);
 						LUX_CORE_VERIFY(stage == "vert" || stage == "frag" || stage == "comp" || stage == "task" || stage == "mesh", "Invalid shader type specified");
-						nvrhi::ShaderType foundStage = ShaderUtils::PreprocessorStageToShaderStage(stage);
+						ShaderStage foundStage = ShaderUtils::PreprocessorStageToShaderStage(stage);
 
 						const bool alreadyIncluded = std::find_if(includeData.begin(), includeData.end(), [fullPath, foundStage](const IncludeData& data)
 						{
@@ -240,14 +240,14 @@ namespace Lux {
 	}
 
 	template <ShaderUtils::SourceLang Lang>
-	std::map<nvrhi::ShaderType, std::string> ShaderPreprocessor::PreprocessShader(const std::string& source, std::unordered_set<std::string>& specialMacros)
+	std::map<ShaderStage, std::string> ShaderPreprocessor::PreprocessShader(const std::string& source, std::unordered_set<std::string>& specialMacros)
 	{
 		std::stringstream sourceStream;
 		PreprocessUtils::CopyWithoutComments(source.begin(), source.end(), std::ostream_iterator<char>(sourceStream));
 		std::string newSource = sourceStream.str();
 
-		std::map<nvrhi::ShaderType, std::string> shaderSources;
-		std::vector<std::pair<nvrhi::ShaderType, size_t>> stagePositions;
+		std::map<ShaderStage, std::string> shaderSources;
+		std::vector<std::pair<ShaderStage, size_t>> stagePositions;
 		LUX_CORE_ASSERT(newSource.size(), "Shader is empty!");
 
 		size_t startOfStage = 0;

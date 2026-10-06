@@ -74,7 +74,7 @@ namespace Lux {
 			Ref<Image2D> Image;
 			ImageFormat Format = ImageFormat::RGBA;
 			ImageUsage Usage = ImageUsage::Attachment;
-			nvrhi::TextureDimension Dimension = nvrhi::TextureDimension::Texture2D;
+			TextureDimension Dimension = TextureDimension::Texture2D;
 			uint32_t Width = 1;
 			uint32_t Height = 1;
 			uint32_t Mips = 1;

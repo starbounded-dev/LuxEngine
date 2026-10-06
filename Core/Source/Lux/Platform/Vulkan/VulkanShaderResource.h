@@ -3,14 +3,12 @@
 
 #pragma once
 
-#include "vulkan/vulkan.h"
-
+#include "Lux/Renderer/RHI/RHITypes.h"
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
 
-#include "nvrhi/nvrhi.h"
-
 #include <string>
+#include <unordered_map>
 
 namespace Lux {
 
@@ -74,11 +72,11 @@ namespace Lux {
 
 		struct UniformBuffer
 		{
-			VkDescriptorBufferInfo Descriptor;
+			LegacyDescriptorBufferInfo Descriptor; // serialized for layout compatibility only
 			uint32_t Size = 0;
 			uint32_t BindingPoint = 0;
 			std::string Name;
-			nvrhi::ShaderType ShaderStage = nvrhi::ShaderType::None;
+			::Lux::ShaderStage ShaderStage = ::Lux::ShaderStage::None;
 
 			static void Serialize(StreamWriter* serializer, const UniformBuffer& instance)
 			{
@@ -101,11 +99,11 @@ namespace Lux {
 
 		struct StorageBuffer
 		{
-			VkDescriptorBufferInfo Descriptor;
+			LegacyDescriptorBufferInfo Descriptor; // serialized for layout compatibility only
 			uint32_t Size = 0;
 			uint32_t BindingPoint = 0;
 			std::string Name;
-			nvrhi::ShaderType ShaderStage = nvrhi::ShaderType::None;
+			::Lux::ShaderStage ShaderStage = ::Lux::ShaderStage::None;
 			bool ReadOnly = false;
 
 			static void Serialize(StreamWriter* serializer, const StorageBuffer& instance)
@@ -136,7 +134,7 @@ namespace Lux {
 			uint32_t Dimension = 0;
 			uint32_t ArraySize = 0;
 			std::string Name;
-			nvrhi::ShaderType ShaderStage = nvrhi::ShaderType::None;
+			::Lux::ShaderStage ShaderStage = ::Lux::ShaderStage::None;
 
 			static void Serialize(StreamWriter* serializer, const ImageSampler& instance)
 			{
@@ -161,7 +159,7 @@ namespace Lux {
 
 		struct PushConstantRange
 		{
-			nvrhi::ShaderType ShaderStage = nvrhi::ShaderType::None;
+			::Lux::ShaderStage ShaderStage = ::Lux::ShaderStage::None;
 			uint32_t Offset = 0;
 			uint32_t Size = 0;
 

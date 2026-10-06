@@ -188,6 +188,17 @@ the file to **both** folders — not with `#ifdef` in shared code.
 
 Three layers (`Renderer` facade → `SceneRenderer` → `Renderer2D`/`DebugRenderer`) over NVRHI/Vulkan.
 
+**Renderer vocabulary is `Renderer/RHI/RHITypes.h`**: `ShaderStage`, `TextureDimension`,
+`TextureSubresourceRange` (a default range is *every* mip and layer, unlike NVRHI's),
+`GPUQueue`, `ResourceState`, `DrawIndexedIndirectCommand`. Public renderer headers, editor,
+scene and serialization code use these, never NVRHI types. Values equal NVRHI's
+(`RHI/NVRHIInterop.cpp` proves it with `static_assert`s), because shader reflection, the shader
+cache (stage strings) and `ShaderPack.lsp` store them. Renderer `.cpp`s convert at the NVRHI call
+with `ToNVRHI`/`FromNVRHI` from `RHI/NVRHIInterop.h`, which goes away with NVRHI. Still backend
+until later NRI phases: `Image2D::GetHandle`/`ImageInfo` (P8), `RecordResourceUpload` (P13),
+`RT_BindMaterialDescriptorSet` (P9), and device bring-up in `Window.cpp` (P14). Shader handles
+live on `VulkanShader` (`GetHandle(ShaderStage)`), not the abstract `Shader`.
+
 **Read `.claude/docs/Rendering.md` before changing anything here.** The invariants that are easy to
 break and hard to see: the global `(set, binding)` namespace, pipeline caching, frame-indexed
 resource release, and `RenderGraph::ComputeStructureHash` completeness.
@@ -1205,7 +1216,8 @@ luxengine/
 │   │       ├── Core/              # Application, Window, Layer, Ref, Events, Input,
 │   │       │                      #   RenderThread, JobSystem, SimulationThread, Log, UUID, Math
 │   │       ├── Renderer/          # Renderer, SceneRenderer, RenderGraph, Renderer2D,
-│   │       │                      #   RenderScene/GPUScene, Material, Shader, Pipeline, Mesh, UI/
+│   │       │                      #   RenderScene/GPUScene, Material, Shader, Pipeline, Mesh, UI/,
+│   │       │                      #   RHI/ (renderer vocabulary + temporary NVRHI interop)
 │   │       ├── Scene/             # Scene, Entity, Components, SceneSerializer, Prefab
 │   │       ├── Physics/           # PhysicsSystem/Scene/Body/Shapes + JoltPhysics/
 │   │       ├── Physics2D/         # Box2D

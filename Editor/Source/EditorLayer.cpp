@@ -164,13 +164,13 @@ namespace Lux {
 		ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Texture2D>& texture)
 		{
 			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
-			return imguiRenderer->CreateFrameTexture(texture->GetImage()->GetHandle().Get(), nvrhi::AllSubresources);
+			return imguiRenderer->CreateFrameTexture(texture->GetImage());
 		}
 
 		ImTextureID GetImGuiTextureID(const Lux::Ref<Lux::Image2D>& image)
 		{
 			auto* imguiRenderer = Lux::Application::Get().GetImGuiLayer()->GetImGuiRenderer();
-			return imguiRenderer->CreateFrameTexture(image->GetHandle().Get(), nvrhi::AllSubresources);
+			return imguiRenderer->CreateFrameTexture(image);
 		}
 
 		using RuntimeExport::RuntimeProjectFile;

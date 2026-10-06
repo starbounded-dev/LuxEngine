@@ -8,6 +8,7 @@
 #include "Lux/Debug/Profiler.h"
 
 #include "PipelineSpecification.h"
+#include "Lux/Renderer/RHI/RHITypes.h"
 
 #include "nvrhi/nvrhi.h"
 
@@ -29,7 +30,7 @@ namespace Lux {
 	class RenderCommandBuffer : public RefCounted
 	{
 	public:
-		static Ref<RenderCommandBuffer> Create(uint32_t count = 0, const std::string& debugName = "", bool enableQueries = false, nvrhi::CommandQueue queue = nvrhi::CommandQueue::Graphics) { return Ref<RenderCommandBuffer>::Create(count, enableQueries, debugName, queue); }
+		static Ref<RenderCommandBuffer> Create(uint32_t count = 0, const std::string& debugName = "", bool enableQueries = false, GPUQueue queue = GPUQueue::Graphics) { return Ref<RenderCommandBuffer>::Create(count, enableQueries, debugName, queue); }
 
 		// continueFrame: this Begin resumes a frame that was already begun, ended and submitted
 		// mid-frame (e.g. to interleave another command buffer). Its GPU time is added to the
@@ -62,7 +63,7 @@ namespace Lux {
 		nvrhi::CommandListHandle Get(uint32_t index = 0) const { LUX_CORE_VERIFY(index < m_CommandLists.size());  return m_CommandLists[index]; }
 
 		// The queue this command buffer records/submits on (Graphics by default).
-		nvrhi::CommandQueue GetQueue() const { return m_Queue; }
+		GPUQueue GetQueue() const { return m_Queue; }
 		// The nvrhi execution-instance id returned by the most recent submit on this
 		// buffer's queue. Feed it to Renderer::QueueWaitForCommandList so another
 		// queue can wait for this buffer's work to finish (cross-queue sync).
@@ -81,10 +82,10 @@ namespace Lux {
 		static void LockQueue();
 		static void UnlockQueue();
 	public:
-		RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, nvrhi::CommandQueue queue = nvrhi::CommandQueue::Graphics);
+		RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, GPUQueue queue = GPUQueue::Graphics);
 		virtual ~RenderCommandBuffer() = default;
 	private:
-		nvrhi::CommandQueue m_Queue = nvrhi::CommandQueue::Graphics;
+		GPUQueue m_Queue = GPUQueue::Graphics;
 		uint64_t m_LastExecutionInstance = 0;
 
 		nvrhi::static_vector<nvrhi::CommandListHandle, 3> m_CommandLists;

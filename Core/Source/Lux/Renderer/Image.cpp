@@ -8,6 +8,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 
 #include "RenderCommandBuffer.h"
 
@@ -154,12 +155,12 @@ namespace Lux {
 		// Safety net since nvrhi has both Texture2D and Texture2DArray, but we should
 		// use the latter if image has many layers since subresource resolution will
 		// result in not using anything above the first layer if Texture2D is set
-		if (m_Specification.Layers > 1 && m_Specification.Dimension == nvrhi::TextureDimension::Texture2D)
-			m_Specification.Dimension = nvrhi::TextureDimension::Texture2DArray;
+		if (m_Specification.Layers > 1 && m_Specification.Dimension == TextureDimension::Texture2D)
+			m_Specification.Dimension = TextureDimension::Texture2DArray;
 
 		nvrhi::TextureDesc textureDesc;
 		textureDesc.debugName = m_Specification.DebugName;
-		textureDesc.dimension = m_Specification.Dimension;
+		textureDesc.dimension = ToNVRHI(m_Specification.Dimension);
 		textureDesc.format = Utils::NVRHIFormat(m_Specification.Format);
 		textureDesc.width = m_Specification.Width;
 		textureDesc.height = m_Specification.Height;
@@ -176,7 +177,7 @@ namespace Lux {
 		}
 
 		// Volume (3D) textures use the depth field and a single array slice.
-		if (m_Specification.Dimension == nvrhi::TextureDimension::Texture3D)
+		if (m_Specification.Dimension == TextureDimension::Texture3D)
 		{
 			textureDesc.depth = glm::max(m_Specification.Depth, 1u);
 			textureDesc.arraySize = 1;
@@ -256,7 +257,7 @@ namespace Lux {
 		}
 
 		auto newAllocationSize = Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers);
-		if (m_Specification.Dimension == nvrhi::TextureDimension::Texture3D)
+		if (m_Specification.Dimension == TextureDimension::Texture3D)
 			newAllocationSize *= glm::max(m_Specification.Depth, 1u);
 
 		// Swap the freshly-built resources in. Assign ImageHandle first, as a single store, so a
@@ -301,28 +302,19 @@ namespace Lux {
 		m_PerLayerImageViews.resize(m_Specification.Layers);
 		for (uint32_t layer = 0; layer < m_Specification.Layers; layer++)
 		{
-			nvrhi::TextureSubresourceSet& tss = m_PerLayerImageViews[layer];
-			tss.baseMipLevel = 0;
-			tss.numMipLevels = m_Specification.Mips;
-			tss.baseArraySlice = layer;
-			tss.numArraySlices = 1;
+			m_PerLayerImageViews[layer] = { 0, m_Specification.Mips, layer, 1 };
 		}
 
 	}
 
-	nvrhi::TextureSubresourceSet Image2D::GetMipImageView(uint32_t mip)
+	TextureSubresourceRange Image2D::GetMipImageView(uint32_t mip)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		auto it = m_PerMipImageViews.find(mip);
 		if (it != m_PerMipImageViews.end())
 			return it->second;
 
-		nvrhi::TextureSubresourceSet& tss = m_PerMipImageViews[mip];
-		tss.baseMipLevel = mip;
-		tss.numMipLevels = 1;
-		tss.baseArraySlice = 0;
-		tss.numArraySlices = 1;
-		return tss;
+		return m_PerMipImageViews[mip] = { mip, 1, 0, 1 };
 	}
 
 	void Image2D::RT_CreatePerSpecificLayerImageViews(const std::vector<uint32_t>& layerIndices)
@@ -335,11 +327,7 @@ namespace Lux {
 
 		for (uint32_t layer : layerIndices)
 		{
-			nvrhi::TextureSubresourceSet& tss = m_PerLayerImageViews[layer];
-			tss.baseMipLevel = 0;
-			tss.numMipLevels = m_Specification.Mips;
-			tss.baseArraySlice = layer;
-			tss.numArraySlices = 1;
+			m_PerLayerImageViews[layer] = { 0, m_Specification.Mips, layer, 1 };
 		}
 	}
 
@@ -486,7 +474,7 @@ namespace Lux {
 			: m_Specification.LayerCount;
 
 		m_ImageInfo.ImageView = m_TextureSubresourceSet;
-		m_ImageInfo.Dimension = m_Specification.Dimension;
+		m_ImageInfo.Dimension = ToNVRHI(m_Specification.Dimension);
 	}
 
 	Sampler::Sampler(const SamplerSpecification& specification)
@@ -501,7 +489,7 @@ namespace Lux {
 		const auto desc = nvrhi::SamplerDesc()
 			.setMipBias(m_Specification.MipBias)
 			.setMaxAnisotropy(m_Specification.MaxAnisotropy)
-			.setAllAddressModes(m_Specification.AddressMode)
+			.setAllAddressModes(ToNVRHI(m_Specification.AddressMode))
 			.setMinFilter(m_Specification.MinFilter)
 			.setMagFilter(m_Specification.MagFilter)
 			.setMipFilter(m_Specification.MipFilter);

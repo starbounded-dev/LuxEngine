@@ -7,7 +7,9 @@
 #include "StreamReader.h"
 #include "StreamWriter.h"
 
-#include "nvrhi/nvrhi.h"
+#include "Lux/Renderer/RHI/RHITypes.h"
+
+#include <cstddef>
 
 namespace Lux {
 
@@ -34,11 +36,17 @@ namespace Lux {
 			uint64_t PackedOffset;
 			uint64_t PackedSize; // size of data only
 			uint8_t Version;
-			nvrhi::ShaderType Stage;
+			ShaderStage Stage;
 			uint32_t Flags = 0;
 			static void Serialize(StreamWriter* writer, const ShaderModuleInfo& info) { writer->WriteRaw(info); }
 			static void Deserialize(StreamReader* reader, ShaderModuleInfo& info) { reader->ReadRaw(info); }
 		};
+
+		// Written raw into ShaderPack.lsp files: the layout is the file format.
+		static_assert(sizeof(ShaderModuleInfo) == 24);
+		static_assert(offsetof(ShaderModuleInfo, Version) == 16);
+		static_assert(offsetof(ShaderModuleInfo, Stage) == 18);
+		static_assert(offsetof(ShaderModuleInfo, Flags) == 20);
 
 		struct ShaderProgramInfo
 		{

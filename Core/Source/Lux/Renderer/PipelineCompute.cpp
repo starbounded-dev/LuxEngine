@@ -144,7 +144,7 @@ namespace Lux {
 		LUX_CORE_INFO_TAG("Renderer", "[PipelineCompute] Creating compute pipeline: {}", m_Shader->GetName());
 
 		nvrhi::ComputePipelineDesc desc;
-		desc.CS = m_Shader->GetHandle();
+		desc.CS = m_Shader.As<VulkanShader>()->GetHandle();
 		desc.bindingLayouts = m_Shader.As<VulkanShader>()->GetAllDescriptorSetLayouts();
 		// TODO: binding layouts
 

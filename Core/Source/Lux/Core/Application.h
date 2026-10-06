@@ -16,10 +16,10 @@
 
 #include "Lux/ImGui/ImGuiLayer.h"
 
-#include "nvrhi/nvrhi.h"
-
 #include <chrono>
 #include <deque>
+
+namespace nvrhi { class IDevice; }
 
 namespace Lux {
 
@@ -164,7 +164,7 @@ namespace Lux {
 		static bool IsRuntime() { return s_IsRuntime; }
 
 		static DeviceManager* GetGraphicsDeviceManager() { return Application::Get().GetWindow().GetDeviceManager(); }
-		static nvrhi::DeviceHandle GetGraphicsDevice() { return GetGraphicsDeviceManager()->GetDevice(); }
+		static nvrhi::IDevice* GetGraphicsDevice() { return GetGraphicsDeviceManager()->GetDevice(); }
 	private:
 		void ProcessEvents();
 		// Blocks until this frame's deadline, when a target frame rate is set.

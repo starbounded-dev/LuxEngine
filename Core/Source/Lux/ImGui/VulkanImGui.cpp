@@ -22,21 +22,19 @@ namespace Lux::ImGuiEx {
 		if (!image)
 			return (ImTextureID)0;
 		return Application::Get().GetImGuiLayer()->GetImGuiRenderer()->CreateFrameTexture(
-			image->GetHandle().Get(), nvrhi::AllSubresources, (mode == ImageMode::Opaque), (mode == ImageMode::Depth));
+			image, AllSubresources, (mode == ImageMode::Opaque), (mode == ImageMode::Depth));
 	}
 
 	ImTextureID GetTextureIDLayer(Ref<Image2D> image, uint32_t layer, ImageMode mode)
 	{
-		nvrhi::TextureSubresourceSet subresources = image->GetLayerImageView(layer);
 		return Application::Get().GetImGuiLayer()->GetImGuiRenderer()->CreateFrameTexture(
-			image->GetHandle().Get(), subresources, (mode == ImageMode::Opaque), (mode == ImageMode::Depth));
+			image, image->GetLayerImageView(layer), (mode == ImageMode::Opaque), (mode == ImageMode::Depth));
 	}
 
 	ImTextureID GetTextureIDMip(Ref<Image2D> image, uint32_t mip, ImageMode mode)
 	{
-		nvrhi::TextureSubresourceSet subresources = image->GetMipImageView(mip);
 		return Application::Get().GetImGuiLayer()->GetImGuiRenderer()->CreateFrameTexture(
-			image->GetHandle().Get(), subresources, (mode == ImageMode::Opaque), (mode == ImageMode::Depth));
+			image, image->GetMipImageView(mip), (mode == ImageMode::Opaque), (mode == ImageMode::Depth));
 	}
 
 	ImTextureID GetTextureID(Ref<Texture2D> texture)

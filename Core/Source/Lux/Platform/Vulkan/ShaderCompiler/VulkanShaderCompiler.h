@@ -5,7 +5,7 @@
 
 #include "vulkan/vulkan.h"
 
-#include "nvrhi/nvrhi.h"
+#include "Lux/Renderer/RHI/RHITypes.h"
 
 #include "Lux/Platform/Vulkan/VulkanShaderResource.h"
 #include "Lux/Platform/Vulkan/VulkanShaderUtils.h"
@@ -45,7 +45,7 @@ namespace Lux {
 
 		bool Reload(bool forceCompile = false);
 
-		const std::map<nvrhi::ShaderType, std::vector<uint32_t>>& GetSPIRVData() const { return m_SPIRVData; }
+		const std::map<ShaderStage, std::vector<uint32_t>>& GetSPIRVData() const { return m_SPIRVData; }
 		const std::unordered_set<std::string>& GetAcknowledgedMacros() const { return m_AcknowledgedMacros; }
 
 		static void ClearUniformBuffers();
@@ -53,9 +53,9 @@ namespace Lux {
 		static Ref<VulkanShader> Compile(const std::filesystem::path& shaderSourcePath, bool forceCompile = false, bool disableOptimization = false);
 		static bool TryRecompile(Ref<VulkanShader> shader);
 	private:
-		std::map<nvrhi::ShaderType, std::string> PreProcess(const std::string& source);
-		std::map<nvrhi::ShaderType, std::string> PreProcessGLSL(const std::string& source);
-		std::map<nvrhi::ShaderType, std::string> PreProcessHLSL(const std::string& source);
+		std::map<ShaderStage, std::string> PreProcess(const std::string& source);
+		std::map<ShaderStage, std::string> PreProcessGLSL(const std::string& source);
+		std::map<ShaderStage, std::string> PreProcessHLSL(const std::string& source);
 
 		struct CompilationOptions
 		{
@@ -63,11 +63,11 @@ namespace Lux {
 			bool Optimize = true;
 		};
 
-		std::string Compile(std::vector<uint32_t>& outputBinary, const nvrhi::ShaderType stage, CompilationOptions options) const;
-		std::string BuildShaderCompileErrorMessage(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const;
-		void ReportShaderCompileError(nvrhi::ShaderType stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const;
-		bool CompileOrGetVulkanBinaries(std::map<nvrhi::ShaderType, std::vector<uint32_t>>& outputDebugBinary, std::map<nvrhi::ShaderType, std::vector<uint32_t>>& outputBinary, const nvrhi::ShaderType changedStages, const bool forceCompile);
-		bool CompileOrGetVulkanBinary(nvrhi::ShaderType stage, std::vector<uint32_t>& outputBinary, bool debug, nvrhi::ShaderType changedStages, bool forceCompile);
+		std::string Compile(std::vector<uint32_t>& outputBinary, const ShaderStage stage, CompilationOptions options) const;
+		std::string BuildShaderCompileErrorMessage(ShaderStage stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const;
+		void ReportShaderCompileError(ShaderStage stage, bool debug, const std::string& compilerError, bool loadedCachedBinary) const;
+		bool CompileOrGetVulkanBinaries(std::map<ShaderStage, std::vector<uint32_t>>& outputDebugBinary, std::map<ShaderStage, std::vector<uint32_t>>& outputBinary, const ShaderStage changedStages, const bool forceCompile);
+		bool CompileOrGetVulkanBinary(ShaderStage stage, std::vector<uint32_t>& outputBinary, bool debug, ShaderStage changedStages, bool forceCompile);
 
 		void ClearReflectionData();
 
@@ -76,14 +76,14 @@ namespace Lux {
 		void SerializeReflectionData();
 		void SerializeReflectionData(StreamWriter* serializer);
 
-		void ReflectAllShaderStages(const std::map<nvrhi::ShaderType, std::vector<uint32_t>>& shaderData);
-		void Reflect(nvrhi::ShaderType shaderStage, const std::vector<uint32_t>& shaderData);
+		void ReflectAllShaderStages(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData);
+		void Reflect(ShaderStage shaderStage, const std::vector<uint32_t>& shaderData);
 	private:
 		std::filesystem::path m_ShaderSourcePath;
 		bool m_DisableOptimization = false;
 
-		std::map<nvrhi::ShaderType, std::string> m_ShaderSource;
-		std::map<nvrhi::ShaderType, std::vector<uint32_t>> m_SPIRVDebugData, m_SPIRVData;
+		std::map<ShaderStage, std::string> m_ShaderSource;
+		std::map<ShaderStage, std::vector<uint32_t>> m_SPIRVDebugData, m_SPIRVData;
 
 		// Reflection info
 		VulkanShader::ReflectionData m_ReflectionData;
@@ -93,7 +93,7 @@ namespace Lux {
 		std::unordered_set<std::string> m_AcknowledgedMacros;
 		ShaderUtils::SourceLang m_Language;
 
-		std::map<nvrhi::ShaderType, StageData> m_StagesMetadata;
+		std::map<ShaderStage, StageData> m_StagesMetadata;
 		
 		friend class VulkanShader;
 		friend class VulkanShaderCache;

@@ -46,9 +46,9 @@ namespace Lux {
 
 		void SetReflectionData(const ReflectionData& reflectionData);
 
-		virtual nvrhi::ShaderHandle GetHandle() const override { return m_ShaderHandles.begin()->second; }
-		virtual nvrhi::ShaderHandle GetHandle(nvrhi::ShaderType type) const override;
-		virtual const std::map<nvrhi::ShaderType, nvrhi::ShaderHandle>& GetHandles() const override { return m_ShaderHandles; }
+		nvrhi::ShaderHandle GetHandle() const { return m_ShaderHandles.begin()->second; }
+		nvrhi::ShaderHandle GetHandle(ShaderStage stage) const;
+		const std::map<ShaderStage, nvrhi::ShaderHandle>& GetHandles() const { return m_ShaderHandles; }
 
 		nvrhi::BindingLayoutHandle GetDescriptorSetLayout(uint32_t set = 0) { return m_DescriptorSetLayouts[set]; }
 		const nvrhi::BindingLayoutVector& GetAllDescriptorSetLayouts() const { return m_DescriptorSetLayouts; }
@@ -66,16 +66,16 @@ namespace Lux {
 
 		const std::vector<ShaderResource::PushConstantRange>& GetPushConstantRanges() const { return m_ReflectionData.PushConstantRanges; }
 	private:
-		void LoadAndCreateShaders(const std::map<nvrhi::ShaderType, std::vector<uint32_t>>& shaderData);
+		void LoadAndCreateShaders(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData);
 		void CreateDescriptors();
 	private:
-		std::map<nvrhi::ShaderType, nvrhi::ShaderHandle> m_ShaderHandles;
+		std::map<ShaderStage, nvrhi::ShaderHandle> m_ShaderHandles;
 
 		std::filesystem::path m_AssetPath;
 		std::string m_Name;
 		bool m_DisableOptimization = false;
 
-		std::map<nvrhi::ShaderType, std::vector<uint32_t>> m_ShaderData;
+		std::map<ShaderStage, std::vector<uint32_t>> m_ShaderData;
 		ReflectionData m_ReflectionData;
 
 		nvrhi::BindingLayoutVector m_DescriptorSetLayouts;

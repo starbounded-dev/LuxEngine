@@ -104,11 +104,11 @@ namespace Lux {
 		pipelineDesc.bindingLayouts = vulkanShader->GetAllDescriptorSetLayouts();
 
 		const auto& shaderHandles = vulkanShader->GetHandles();
-		const bool isMeshletPipeline = shaderHandles.contains(nvrhi::ShaderType::Mesh);
-		if (shaderHandles.contains(nvrhi::ShaderType::Vertex))
-			pipelineDesc.VS = shaderHandles.at(nvrhi::ShaderType::Vertex);
-		if (shaderHandles.contains(nvrhi::ShaderType::Pixel))
-			pipelineDesc.PS = shaderHandles.at(nvrhi::ShaderType::Pixel);
+		const bool isMeshletPipeline = shaderHandles.contains(ShaderStage::Mesh);
+		if (shaderHandles.contains(ShaderStage::Vertex))
+			pipelineDesc.VS = shaderHandles.at(ShaderStage::Vertex);
+		if (shaderHandles.contains(ShaderStage::Pixel))
+			pipelineDesc.PS = shaderHandles.at(ShaderStage::Pixel);
 
 		pipelineDesc.primType = Utils::GetNVRHIPrimitiveType(m_Specification.Topology);
 		if (Renderer::SupportsVariableRateShading())
@@ -257,9 +257,9 @@ namespace Lux {
 			// (amplification) stage is optional.
 			nvrhi::MeshletPipelineDesc meshletDesc;
 			meshletDesc.bindingLayouts = pipelineDesc.bindingLayouts;
-			if (shaderHandles.contains(nvrhi::ShaderType::Amplification))
-				meshletDesc.AS = shaderHandles.at(nvrhi::ShaderType::Amplification);
-			meshletDesc.MS = shaderHandles.at(nvrhi::ShaderType::Mesh);
+			if (shaderHandles.contains(ShaderStage::Amplification))
+				meshletDesc.AS = shaderHandles.at(ShaderStage::Amplification);
+			meshletDesc.MS = shaderHandles.at(ShaderStage::Mesh);
 			meshletDesc.PS = pipelineDesc.PS;
 			meshletDesc.primType = pipelineDesc.primType;
 			meshletDesc.renderState = pipelineDesc.renderState;

@@ -9,8 +9,6 @@
 #include "Lux/Renderer/RendererTypes.h"
 #include "Lux/Renderer/ShaderUniform.h"
 
-#include "nvrhi/nvrhi.h"
-
 #include <filesystem>
 #include <string>
 #include <glm/glm.hpp>
@@ -135,10 +133,6 @@ namespace Lux
 		{
 			return "Resources/Shaders/";
 		}
-
-		virtual nvrhi::ShaderHandle GetHandle() const = 0;
-		virtual nvrhi::ShaderHandle GetHandle(nvrhi::ShaderType type) const = 0;
-		virtual const std::map<nvrhi::ShaderType, nvrhi::ShaderHandle>& GetHandles() const = 0;
 	};
 
 	class ShaderPack;
