@@ -113,12 +113,22 @@ A resource still referenced by an in-flight command buffer must not be destroyed
 its last `Ref`. NVRHI's own reference tracking covers most handles, but **not descriptor tables**:
 command lists do not keep a `DescriptorTable` alive, so those must be deferred by hand.
 
-Use `Renderer::SubmitResourceFree(lambda)`. The lambda is queued on the render thread into the
-release slot that is current at that point in the command stream (it mirrors `Renderer::Submit`'s
-thread branching). `Renderer::RT_ReleaseRetiredResources()` runs once per frame, right after the
-swapchain acquire in `Application::Run`: it closes the current slot behind a graphics-queue event
-query and runs the oldest of three slots once its event has signalled. Slots are a ring of their
-own, not the back-buffer index, which is not sequential under MAILBOX and can exceed three.
+Use `Renderer::SubmitResourceFree(lambda)` (the lambda must be copyable). It is queued on the
+render thread into the `GPUDeletionQueue` (`Renderer/RHI/`), tagged with the render frame number
+current at that point in the command stream; it mirrors `Renderer::Submit`'s thread branching.
+`Renderer::RT_BeginFrame()` runs first in every render frame (`Application::Run`'s `BeginFrame`
+lambda, before the swapchain acquire): it closes the ending frame behind a graphics-queue event
+query (so the event also covers work queued after `Present`), advances the frame number, waits for
+frame N − `FramesInFlight`, and retires every release queued up to that frame. Shutdown waits for
+the device to idle and drains the rest.
+
+The same wait is what makes per-frame slots safe: `RT_GetCurrentFrameIndex()` is
+`RT_GetFrameNumber() % FramesInFlight`, so a slot (command lists, `UniformBufferSet`/
+`StorageBufferSet::RT_Get`, `DescriptorSetManager` binding sets, `BindlessTextureTable` tables) is
+reused only after the GPU has finished the frame that last used it. It is **not** the swapchain
+image; use `VulkanSwapChain::GetCurrentBackBufferIndex()` for anything per-swapchain-image.
+`FramesInFlight` is clamped to `RendererConfig::MaxFramesInFlight` (3), the capacity of the fixed
+per-frame arrays.
 
 Never call `delete`, `nvrhi` `Handle` reset, or a Vulkan destroy directly from main-thread code that
 could still be referenced this frame.

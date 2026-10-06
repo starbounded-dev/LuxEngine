@@ -147,35 +147,23 @@ namespace Lux {
 		// wait on. Records the wait so it isn't re-issued. See RenderCommandBuffer::RT_Submit.
 		static bool ConsumePendingUpload(GPUQueue consumingQueue, uint64_t& outInstance);
 
+		// Releases GPU objects once the GPU has finished every frame that could still use them (see
+		// RT_BeginFrame). The release is always queued on the render thread, at the point in the
+		// command stream where the object stops being used. `func` must be copyable.
 		template<typename FuncT>
 		static void SubmitResourceFree(FuncT&& func)
 		{
-			auto renderCmd = [](void* ptr) {
-				auto pFunc = (FuncT*)ptr;
-				(*pFunc)();
-
-				// NOTE: Instead of destroying we could try and enforce all items to be trivally destructible
-				// however some items like uniforms which contain std::strings still exist for now
-				// static_assert(std::is_trivially_destructible_v<FuncT>, "FuncT must be trivially destructible");
-				pFunc->~FuncT();
-				};
-
-			// The slot is always picked on the render thread, at the point in the command stream
-			// where the resource stops being used, so it is closed only after every submission that
-			// could still reference it (see RT_ReleaseRetiredResources).
+			constexpr size_t captureBytes = sizeof(std::decay_t<FuncT>);
 			if (RenderThread::IsCurrentThreadRT())
 			{
-				auto storageBuffer = RT_GetResourceReleaseQueue().Allocate(renderCmd, sizeof(func));
-				new (storageBuffer) FuncT(std::forward<FuncT>((FuncT&&)func));
+				RT_EnqueueResourceFree(std::function<void()>(std::forward<FuncT>(func)), captureBytes);
+				return;
 			}
-			else
-			{
-				Submit([renderCmd, func]()
-					{
-						auto storageBuffer = RT_GetResourceReleaseQueue().Allocate(renderCmd, sizeof(func));
-						new (storageBuffer) FuncT(std::forward<FuncT>((FuncT&&)func));
-					});
-			}
+
+			Submit([func = std::forward<FuncT>(func)]() mutable
+				{
+					RT_EnqueueResourceFree(std::function<void()>(std::move(func)), captureBytes);
+				});
 		}
 
 		/*static void* Submit(RenderCommandFn fn, unsigned int size)
@@ -259,8 +247,15 @@ namespace Lux {
 		// async-compute overlap (e.g. graphics waits for the compute light-cull).
 		static void QueueWaitForCommandList(GPUQueue waitQueue, GPUQueue executionQueue, uint64_t instance);
 
+		// Main thread: the slot the frame being built uses (Application's frame counter).
 		static uint32_t GetCurrentFrameIndex();
+		// Render thread: the per-frame resource slot, RT_GetFrameNumber() % FramesInFlight. Not the
+		// swapchain image (that is VulkanSwapChain::GetCurrentBackBufferIndex), which is not
+		// sequential under MAILBOX. RT_BeginFrame guarantees the GPU has finished the frame that
+		// last used this slot.
 		static uint32_t RT_GetCurrentFrameIndex();
+		// Render thread: monotonic render frame number, advanced by RT_BeginFrame.
+		static uint64_t RT_GetFrameNumber();
 
 		static RendererConfig& GetConfig();
 		static void SetConfig(const RendererConfig& config);
@@ -270,11 +265,12 @@ namespace Lux {
 		// True when the active graphics device exposes variable-rate fragment shading.
 		static bool SupportsVariableRateShading();
 
-		// Render thread. The release queue SubmitResourceFree appends to this frame.
-		static RenderCommandQueue& RT_GetResourceReleaseQueue();
-		// Render thread, once per frame before any rendering: closes this frame's release slot
-		// behind a GPU event and runs the oldest slot once its event has signalled.
-		static void RT_ReleaseRetiredResources();
+		// Render thread, once per frame before anything renders (Application's BeginFrame lambda).
+		// Closes the ending frame behind a graphics-queue event, advances the frame number, waits
+		// until the GPU has finished frame N - FramesInFlight (whose slot this frame reuses), and
+		// runs the releases queued up to that frame.
+		static void RT_BeginFrame();
+		static void RT_EnqueueResourceFree(std::function<void()> release, size_t captureBytes);
 
 		// Add known macro from shader.
 		static const std::unordered_map<std::string, std::string>& GetGlobalShaderMacros();

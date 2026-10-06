@@ -9,6 +9,7 @@
 
 #include "PipelineSpecification.h"
 #include "Lux/Renderer/RHI/RHITypes.h"
+#include "Lux/Renderer/RendererConfig.h"
 
 #include "nvrhi/nvrhi.h"
 
@@ -88,23 +89,23 @@ namespace Lux {
 		GPUQueue m_Queue = GPUQueue::Graphics;
 		uint64_t m_LastExecutionInstance = 0;
 
-		nvrhi::static_vector<nvrhi::CommandListHandle, 3> m_CommandLists;
+		nvrhi::static_vector<nvrhi::CommandListHandle, RendererConfig::MaxFramesInFlight> m_CommandLists;
 		// Frame-level timer queries: one per submitted segment of the frame, per frame index.
 		// A frame split by Begin(true) records several segments; the published time is their sum.
-		nvrhi::static_vector<std::vector<nvrhi::TimerQueryHandle>, 3> m_TimerQueries;
-		nvrhi::static_vector<uint32_t, 3> m_TimerSegmentCounts;
+		nvrhi::static_vector<std::vector<nvrhi::TimerQueryHandle>, RendererConfig::MaxFramesInFlight> m_TimerQueries;
+		nvrhi::static_vector<uint32_t, RendererConfig::MaxFramesInFlight> m_TimerSegmentCounts;
 
 		// Published by the render thread, read by the main thread (profiling panels).
 		//
 		// Deliberately a single latest value rather than a per-frame slot. The render
 		// thread indexes its command lists and query pools by
-		// Renderer::RT_GetCurrentFrameIndex() - the swapchain back-buffer index - while
-		// every caller of the getters below is on the main thread, holding
-		// Application::m_CurrentFrameIndex. Those are two unrelated sequences with
-		// different periods, and under VK_PRESENT_MODE_MAILBOX_KHR the acquired
-		// back-buffer index is not even monotonic. Handing a value between the threads
-		// via either index reads a foreign slot, which is what previously reported a
-		// ~0.01 ms frame time against multi-millisecond pass timings.
+		// Renderer::RT_GetCurrentFrameIndex() - the render frame slot - while every
+		// caller of the getters below is on the main thread, holding
+		// Application::m_CurrentFrameIndex. Those are two different sequences that need
+		// not line up (the render thread runs a frame behind), so handing a value between
+		// the threads via either index reads a foreign slot. That is what previously
+		// reported a ~0.01 ms frame time against multi-millisecond pass timings, when the
+		// render-thread index was still the (non-monotonic) back-buffer index.
 		//
 		// This mirrors m_NamedTimerQueryResults, which is keyed by name only and has
 		// always reported correctly for exactly this reason.
@@ -123,7 +124,7 @@ namespace Lux {
 		std::string lastpop;
 
 		// String-based timer query storage - allocated on demand
-		nvrhi::static_vector < std::unordered_map<std::string, nvrhi::TimerQueryHandle>, 3> m_NamedTimerQueries;
+		nvrhi::static_vector<std::unordered_map<std::string, nvrhi::TimerQueryHandle>, RendererConfig::MaxFramesInFlight> m_NamedTimerQueries;
 		std::unordered_map<std::string, float> m_NamedTimerQueryResults;
 		std::vector<std::string> m_TimerQueryStack;  // Stack of active timer queries
 

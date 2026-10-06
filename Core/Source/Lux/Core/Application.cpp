@@ -256,8 +256,8 @@ namespace Lux {
 				// iteration, after any local captured by reference has gone out of scope.
 				Renderer::Submit([&]()
 					{
+						Renderer::RT_BeginFrame();
 						m_Window->BeginFrame();
-						Renderer::RT_ReleaseRetiredResources();
 					});
 
 				Renderer::BeginFrame();

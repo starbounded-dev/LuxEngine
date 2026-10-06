@@ -200,8 +200,8 @@ until later NRI phases: `Image2D::GetHandle`/`ImageInfo` (P8), `RecordResourceUp
 live on `VulkanShader` (`GetHandle(ShaderStage)`), not the abstract `Shader`.
 
 **Read `.claude/docs/Rendering.md` before changing anything here.** The invariants that are easy to
-break and hard to see: the global `(set, binding)` namespace, pipeline caching, frame-indexed
-resource release, and `RenderGraph::ComputeStructureHash` completeness.
+break and hard to see: the global `(set, binding)` namespace, pipeline caching, frame-numbered
+resource release (`Renderer::RT_BeginFrame`), and `RenderGraph::ComputeStructureHash` completeness.
 
 Structurally:
 

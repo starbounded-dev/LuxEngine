@@ -6,6 +6,7 @@
 #include "Lux/Renderer/UniformBufferSet.h"
 #include "Lux/Renderer/StorageBufferSet.h"
 #include "Lux/Renderer/Image.h"
+#include "Lux/Renderer/RendererConfig.h"
 #include "Lux/Renderer/Texture.h"
 
 #include "Lux/Platform/Vulkan/VulkanShader.h"
@@ -276,9 +277,9 @@ namespace Lux {
 		State m_State = State::None;
 
 		// Per-frame in flight
-		nvrhi::static_vector<nvrhi::static_vector<nvrhi::BindingSetHandle, nvrhi::c_MaxBindingLayouts>, 3> m_BindingSets;
+		nvrhi::static_vector<nvrhi::static_vector<nvrhi::BindingSetHandle, nvrhi::c_MaxBindingLayouts>, RendererConfig::MaxFramesInFlight> m_BindingSets;
 		// Frame->set->binding
-		nvrhi::static_vector<std::map<uint32_t, std::map<uint32_t, std::vector<nvrhi::ResourceHandle>>>, 3> m_BindingSetHandles;
+		nvrhi::static_vector<std::map<uint32_t, std::map<uint32_t, std::vector<nvrhi::ResourceHandle>>>, RendererConfig::MaxFramesInFlight> m_BindingSetHandles;
 
 	};
 

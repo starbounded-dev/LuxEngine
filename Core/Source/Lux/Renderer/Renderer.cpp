@@ -18,9 +18,11 @@
 #include "Lux/Core/Timer.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Renderer/BindlessTextureTable.h"
+#include "Lux/Renderer/RHI/GPUDeletionQueue.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Utilities/StringUtils.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Renderer/MaterialAsset.h"
@@ -320,11 +322,6 @@ namespace Lux {
 		}
 	}
 
-	uint32_t Renderer::RT_GetCurrentFrameIndex()
-	{
-		return Application::Get().GetWindow().GetSwapChain().GetCurrentBackBufferIndex();
-	}
-
 	uint32_t Renderer::GetCurrentFrameIndex()
 	{
 		return Application::Get().GetCurrentFrameIndex();
@@ -343,15 +340,14 @@ namespace Lux {
 	constexpr static uint32_t s_RenderCommandQueueCount = 2;
 	static RenderCommandQueue* s_CommandQueue[s_RenderCommandQueueCount];
 	static std::atomic<uint32_t> s_RenderCommandQueueSubmissionIndex = 0;
-	// SubmitResourceFree slots, render thread only. A frame appends to the current slot; at the
-	// next frame start the slot is closed behind a graphics-queue event and the ring advances.
-	// A slot runs when it comes round again, after its event signals: NVRHI does not keep
-	// descriptor tables alive from command lists, so time alone is not enough. Not indexed by
-	// the back-buffer index, which is not sequential under MAILBOX and can exceed the ring.
-	constexpr static uint32_t s_ResourceFreeSlotCount = 3;
-	static RenderCommandQueue s_ResourceFreeQueue[s_ResourceFreeSlotCount];
-	static nvrhi::EventQueryHandle s_ResourceFreeSlotRetired[s_ResourceFreeSlotCount];
-	static uint32_t s_ResourceFreeSlot = 0;
+	// Render-thread frame bookkeeping (RT_BeginFrame). A frame is closed behind a graphics-queue
+	// event when the next one begins, so the event also covers work queued after Present; slot
+	// N % FramesInFlight holds frame N's event until frame N + FramesInFlight waits on it. An
+	// event, not frame counting: NVRHI does not keep descriptor tables alive from command lists,
+	// and Present() skips its pacing when an acquire fails.
+	static uint64_t s_RTFrameNumber = 0;
+	static nvrhi::EventQueryHandle s_FrameCompletionEvents[RendererConfig::MaxFramesInFlight];
+	static GPUDeletionQueue s_ResourceFreeQueue;
 
 	// Work submitted from background threads (e.g. the asset worker) is parked here and replayed on the
 	// main thread, since the render command queue is single-producer. See Renderer::Submit.
@@ -431,8 +427,11 @@ namespace Lux {
 		s_CommandQueue[0] = lnew RenderCommandQueue();
 		s_CommandQueue[1] = lnew RenderCommandQueue();
 
-		// Make sure we don't have more frames in flight than swapchain images
+		// Make sure we don't have more frames in flight than swapchain images. Since frame slots are
+		// a frame number (RT_GetCurrentFrameIndex), not the back-buffer index, this is no longer
+		// required for correctness; kept to preserve today's frame pacing.
 		s_Config.FramesInFlight = glm::min<uint32_t>(s_Config.FramesInFlight, Application::Get().GetWindow().GetSwapChain().GetBackBufferCount());
+		s_Config.FramesInFlight = glm::clamp<uint32_t>(s_Config.FramesInFlight, 1u, RendererConfig::MaxFramesInFlight);
 
 		// Before any shader is loaded: material shaders take their bindless set layout from here.
 		BindlessTextureTable::Init();
@@ -698,12 +697,12 @@ namespace Lux {
 				s_CommandQueue[i]->Execute();
 		}
 
-		// Resource release queue
-		for (uint32_t i = 0; i < s_ResourceFreeSlotCount; i++)
-		{
-			s_ResourceFreeQueue[i].Execute();
-			s_ResourceFreeSlotRetired[i] = nullptr;
-		}
+		// Everything is idle once the device is, so every pending release can run.
+		if (graphicsDevice)
+			graphicsDevice->waitForIdle();
+		s_ResourceFreeQueue.DrainAll();
+		for (nvrhi::EventQueryHandle& event : s_FrameCompletionEvents)
+			event = nullptr;
 
 		if (graphicsDevice)
 		{
@@ -1877,21 +1876,30 @@ namespace Lux {
 		return *s_CommandQueue[s_RenderCommandQueueSubmissionIndex];
 	}
 
-	RenderCommandQueue& Renderer::RT_GetResourceReleaseQueue()
+	uint32_t Renderer::RT_GetCurrentFrameIndex()
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return s_ResourceFreeQueue[s_ResourceFreeSlot];
+		return static_cast<uint32_t>(s_RTFrameNumber % s_Config.FramesInFlight);
 	}
 
-	void Renderer::RT_ReleaseRetiredResources()
+	uint64_t Renderer::RT_GetFrameNumber()
+	{
+		return s_RTFrameNumber;
+	}
+
+	void Renderer::RT_EnqueueResourceFree(std::function<void()> release, size_t captureBytes)
+	{
+		s_ResourceFreeQueue.Enqueue(s_RTFrameNumber, std::move(release), captureBytes);
+	}
+
+	void Renderer::RT_BeginFrame()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		nvrhi::IDevice* device = Application::GetGraphicsDevice();
+		const uint32_t slotCount = s_Config.FramesInFlight;
 
-		// Close this slot: everything submitted so far, which is everything that could still
-		// reference what it releases. The lock keeps the event in order with other threads'
-		// submissions, as in VulkanSwapChain::Present.
-		nvrhi::EventQueryHandle& closing = s_ResourceFreeSlotRetired[s_ResourceFreeSlot];
+		// Close the ending frame: its event covers everything submitted while it was current. The
+		// lock keeps the event in order with other threads' submissions, as in Present().
+		nvrhi::EventQueryHandle& closing = s_FrameCompletionEvents[s_RTFrameNumber % slotCount];
 		if (!closing)
 			closing = device->createEventQuery();
 		RenderCommandBuffer::LockQueue();
@@ -1899,14 +1907,29 @@ namespace Lux {
 		device->setEventQuery(closing, nvrhi::CommandQueue::Graphics);
 		RenderCommandBuffer::UnlockQueue();
 
-		s_ResourceFreeSlot = (s_ResourceFreeSlot + 1) % s_ResourceFreeSlotCount;
+		s_RTFrameNumber++;
+		if (s_RTFrameNumber < slotCount)
+			return;
 
-		// The oldest slot was closed two frames ago and Present() keeps at most two frames on the
-		// GPU, so this wait normally returns at once. It only blocks after frames that skipped
-		// Present()'s pacing (a failed acquire).
-		if (const nvrhi::EventQueryHandle& oldest = s_ResourceFreeSlotRetired[s_ResourceFreeSlot])
-			device->waitEventQuery(oldest);
-		s_ResourceFreeQueue[s_ResourceFreeSlot].Execute();
+		// This frame reuses the slot of frame N - FramesInFlight. Present() keeps at most two frames
+		// on the GPU, so the wait normally returns at once; it only blocks after frames that skipped
+		// Present()'s pacing.
+		const uint64_t retiringFrame = s_RTFrameNumber - slotCount;
+		device->waitEventQuery(s_FrameCompletionEvents[retiringFrame % slotCount]);
+		s_ResourceFreeQueue.RT_Retire(retiringFrame);
+
+#ifdef LUX_DEBUG
+		// Pending releases should fall back to ~0 a few frames after activity stops.
+		static Timer s_PendingLogTimer;
+		static size_t s_LastLoggedPending = 0;
+		const size_t pending = s_ResourceFreeQueue.GetPendingCount();
+		if (pending != s_LastLoggedPending && s_PendingLogTimer.Elapsed() >= 1.0f)
+		{
+			LUX_CORE_TRACE_TAG("Renderer", "GPU deletion queue: {} pending ({})", pending, Utils::BytesToString(s_ResourceFreeQueue.GetPendingBytes()));
+			s_LastLoggedPending = pending;
+			s_PendingLogTimer.Reset();
+		}
+#endif
 	}
 
 

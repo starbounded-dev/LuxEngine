@@ -63,6 +63,16 @@ Detection helpers: `Application::IsMainThread()` / `Application::GetMainThreadID
    `DiscordSocial::Update()`, `m_ImGuiLayer->SubmitDrawData()`, `Renderer::EndFrame()`.
 6. `m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % Renderer::GetConfig().FramesInFlight`.
 
+On the render thread the frame starts with `Renderer::RT_BeginFrame()` (inside the first submitted
+lambda, before `m_Window->BeginFrame()`'s swapchain acquire) and ends with the `Present` lambda.
+Three different indices exist, and they are not interchangeable:
+
+| Index | Thread | What it is |
+|---|---|---|
+| `Renderer::GetCurrentFrameIndex()` | main | `Application`'s frame counter mod `FramesInFlight` (e.g. `Renderer2D` vertex buffers) |
+| `Renderer::RT_GetCurrentFrameIndex()` | render | the render frame slot, `RT_GetFrameNumber() % FramesInFlight`; safe to reuse because `RT_BeginFrame` waited for the GPU |
+| `VulkanSwapChain::GetCurrentBackBufferIndex()` | render | the acquired swapchain image; not sequential under MAILBOX |
+
 Two consequences worth internalising:
 
 - **ImGui is built on the main thread; only immutable GPU draw work crosses to the render thread.**
@@ -109,11 +119,11 @@ Why each branch exists:
 the failure mode of getting it wrong is a corrupted command buffer, not a clean crash.
 
 `Renderer::SubmitResourceFree` mirrors the same branching, but the release always lands on the
-render thread, in the slot current at that point in the command stream
-(`RT_GetResourceReleaseQueue()`). `RT_ReleaseRetiredResources()`, run at the start of every
-render-thread frame, closes that slot behind a graphics-queue event query and runs the oldest slot
-once its event has signalled, so a release never runs while a submission that could reference the
-resource is still on the GPU.
+render thread, tagged with the render frame number current at that point in the command stream.
+`Renderer::RT_BeginFrame()`, run first in every render-thread frame, closes the ending frame behind
+a graphics-queue event query, waits for frame N − `FramesInFlight` and retires the releases up to
+it, so a release never runs while a submission that could reference the resource is still on the
+GPU.
 
 ### The `RT_` prefix
 

@@ -3,12 +3,17 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace Lux {
 
 	struct RendererConfig
 	{
+		// Capacity of the fixed per-frame arrays (RenderCommandBuffer, DescriptorSetManager, the
+		// frame completion events); Renderer::Init clamps FramesInFlight to it.
+		static constexpr uint32_t MaxFramesInFlight = 3;
+
 		uint32_t FramesInFlight = 3;
 
 		bool ComputeEnvironmentMaps = true;
