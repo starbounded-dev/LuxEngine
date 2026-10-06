@@ -16,6 +16,10 @@
 
 #include "nvrhi/nvrhi.h"
 
+namespace nri {
+	struct Pipeline;
+}
+
 namespace Lux {
 
 	class Pipeline : public RefCounted
@@ -33,6 +37,11 @@ namespace Lux {
 		nvrhi::MeshletPipelineHandle GetMeshletHandle() { return m_MeshletHandle; }
 		bool IsMeshletPipeline() const { return m_MeshletHandle != nullptr; }
 
+		// The NRI twin of the NVRHI pipeline (NRI migration Phase 10): built from the same desc
+		// over the shader's NRI layout, for vertex and mesh-shader pipelines alike, and created and
+		// recreated with it. Null if NRI cannot express or create it (logged).
+		nri::Pipeline* GetNRIPipeline() const { return m_NRIPipeline; }
+
 		void Invalidate();
 		void RT_Invalidate();
 
@@ -43,10 +52,14 @@ namespace Lux {
 	public:
 		Pipeline(const PipelineSpecification& spec);
 
-		virtual ~Pipeline() = default;
+		virtual ~Pipeline();
+	private:
+		void CreateNRIPipeline(const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::VertexAttributeDesc* vertexAttributes, uint32_t vertexAttributeCount, bool isMeshletPipeline);
+		void ReleaseNRIPipeline();
 	private:
 		nvrhi::GraphicsPipelineHandle m_Handle = nullptr;
 		nvrhi::MeshletPipelineHandle m_MeshletHandle = nullptr;
+		nri::Pipeline* m_NRIPipeline = nullptr;
 		PipelineSpecification m_Specification;
 	};
 

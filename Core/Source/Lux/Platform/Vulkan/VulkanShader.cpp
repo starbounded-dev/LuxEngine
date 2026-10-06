@@ -30,6 +30,24 @@ namespace Lux {
 
 		const std::vector<uint32_t> s_NoSPIRV;
 
+		nri::StageBits ToNRIStageBits(ShaderStage stage)
+		{
+			switch (stage)
+			{
+				case ShaderStage::Vertex:			return nri::StageBits::VERTEX_SHADER;
+				case ShaderStage::Hull:				return nri::StageBits::TESS_CONTROL_SHADER;
+				case ShaderStage::Domain:			return nri::StageBits::TESS_EVALUATION_SHADER;
+				case ShaderStage::Geometry:			return nri::StageBits::GEOMETRY_SHADER;
+				case ShaderStage::Pixel:			return nri::StageBits::FRAGMENT_SHADER;
+				case ShaderStage::Compute:			return nri::StageBits::COMPUTE_SHADER;
+				case ShaderStage::Amplification:	return nri::StageBits::TASK_SHADER;
+				case ShaderStage::Mesh:				return nri::StageBits::MESH_SHADER;
+				default:							break;
+			}
+			LUX_CORE_ASSERT(false, "Unknown shader stage");
+			return nri::StageBits::ALL;
+		}
+
 	}
 
 	VulkanShader::VulkanShader(const std::string& path, bool forceCompile, bool disableOptimization)
@@ -196,7 +214,12 @@ namespace Lux {
 		layoutDesc.rootConstantNum = rootConstant.size ? 1 : 0;
 		layoutDesc.descriptorSets = setDescs.data();
 		layoutDesc.descriptorSetNum = static_cast<uint32_t>(setDescs.size());
-		layoutDesc.shaderStages = nri::StageBits::ALL;
+		// The shader's own stages. NRI's validation checks every graphics pipeline stage against
+		// this mask and reads StageBits::ALL (0) there as no stages.
+		uint32_t layoutStages = 0;
+		for (const auto& [stage, spirv] : m_ShaderData)
+			layoutStages |= static_cast<uint32_t>(ToNRIStageBits(stage));
+		layoutDesc.shaderStages = layoutStages ? static_cast<nri::StageBits>(layoutStages) : nri::StageBits::ALL;
 		// Reflected bindings are final SPIR-V binding numbers.
 		layoutDesc.flags = nri::PipelineLayoutBits::IGNORE_GLOBAL_SPIRV_OFFSETS;
 

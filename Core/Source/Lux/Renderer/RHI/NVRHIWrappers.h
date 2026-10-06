@@ -12,6 +12,7 @@ namespace nri {
 	struct Descriptor;
 	struct Texture;
 	enum class BufferView : uint8_t;
+	enum class Format : uint8_t;
 	enum class TextureView : uint8_t;
 }
 
@@ -20,6 +21,10 @@ namespace nri {
 // owners hold both halves. They go away with NVRHI (Phase 15).
 
 namespace Lux {
+
+	// The NRI format naming the same VkFormat as `format`, so NRI and NVRHI describe an image or
+	// attachment identically. UNKNOWN when NRI has no such format.
+	nri::Format ToNRIFormat(nvrhi::Format format);
 
 	// A texture NRI owns, plus the NVRHI handle for the same image. Move-only. Destroying or
 	// replacing it frees both through Renderer::SubmitResourceFree, once the frames that may use it

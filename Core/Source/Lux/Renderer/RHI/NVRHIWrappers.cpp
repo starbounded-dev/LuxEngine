@@ -101,6 +101,11 @@ namespace Lux {
 
 	}
 
+	nri::Format ToNRIFormat(nvrhi::Format format)
+	{
+		return nri::nriConvertVKFormatToNRI(static_cast<uint32_t>(nvrhi::vulkan::convertFormat(format)));
+	}
+
 	NRITexture::~NRITexture()
 	{
 		Reset();
@@ -131,8 +136,7 @@ namespace Lux {
 		nri::TextureDesc nriDesc = {};
 		nriDesc.type = ToNRITextureType(desc.dimension);
 		nriDesc.usage = ToNRITextureUsage(desc);
-		// Through the VkFormat, so NRI and NVRHI name the image's format identically.
-		nriDesc.format = nri::nriConvertVKFormatToNRI(static_cast<uint32_t>(nvrhi::vulkan::convertFormat(desc.format)));
+		nriDesc.format = ToNRIFormat(desc.format);
 		nriDesc.width = static_cast<nri::Dim_t>(desc.width);
 		nriDesc.height = static_cast<nri::Dim_t>(desc.height);
 		nriDesc.depth = static_cast<nri::Dim_t>(volume ? desc.depth : 1);
