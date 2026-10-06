@@ -229,6 +229,14 @@ Dialogs: `OpenFileDialog`, `OpenFolderDialog`, `SaveFileDialog` (also `Utilities
 Note the `#undef CreateDirectory / DeleteFile / MoveFile / CopyFile` block at the top of the header —
 that is deliberate (Windows headers macro-define those names). Don't "clean it up".
 
+### Optional shared libraries — `Lux::SharedLibrary`
+
+`Core/Source/Lux/Core/SharedLibrary.h` (`Load`, `GetSymbol`, `Unload`; per-platform in
+`Core/Platform/<OS>/<OS>SharedLibrary.cpp`). Use it for a vendored library the engine must run
+without: load it at runtime, type the entry points with `decltype(&SdkFunction)` from the SDK's
+own declarations, and never link its import library. `Platform/Vulkan/Debug/Aftermath.cpp` is the
+example.
+
 ### Strings — `Lux::Utils` / `Lux::Utils::String`
 
 `Core/Source/Lux/Utilities/StringUtils.h`: `ToLowerCopy`, `ToUpperCopy`, `SubStr`, `TrimWhitespace`,

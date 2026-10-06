@@ -71,6 +71,22 @@ project "Editor"
 			'{COPY} "../Core/vendor/assimp/bin/windows/Release/assimp-vc143-mt.dll" "%{cfg.targetdir}"',
 		}
 
+	-- Nsight Aftermath is loaded at runtime when present (Platform/Vulkan/Debug/Aftermath.cpp), in
+	-- every config but Dist, so ship it beside the executable (Linux: via the $ORIGIN/lib rpath).
+	if not _OPTIONS["no-aftermath"] then
+		filter { "system:windows", "configurations:not Dist" }
+			postbuildcommands {
+				'{COPY} "../Core/vendor/NvidiaAftermath/lib/x64/windows/GFSDK_Aftermath_Lib.x64.dll" "%{cfg.targetdir}"',
+				'{COPY} "../Core/vendor/NvidiaAftermath/lib/x64/windows/llvm_7_0_1.dll" "%{cfg.targetdir}"',
+			}
+
+		filter { "system:linux", "configurations:not Dist" }
+			postbuildcommands {
+				'{MKDIR} "%{cfg.targetdir}/lib"',
+				'{COPYFILE} "../Core/vendor/NvidiaAftermath/lib/x64/linux/libGFSDK_Aftermath_Lib.x64.so" "%{cfg.targetdir}/lib/libGFSDK_Aftermath_Lib.x64.so"',
+			}
+	end
+
 	filter "system:linux"
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread", "X11" }

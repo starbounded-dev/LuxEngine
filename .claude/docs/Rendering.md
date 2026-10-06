@@ -409,8 +409,14 @@ crash or corruption on some driver even if it renders correctly on yours.
   into repeated per-fragment scratch arrays on RADV Renoir and can cause a GPU timeout.
   `python3 tests/rendering/run_shadow_shader.py` compiles/validates deferred lighting and checks
   its SPIR-V for these local copies (use `--sdk-bin` if the Vulkan tools are not bundled).
-- Nvidia Aftermath GPU crash dumps live in `Platform/Vulkan/Debug/` and are compiled out of Dist (and
-  removed entirely with `--no-aftermath`). When chasing a device-lost, build with them in.
+- Nvidia Aftermath GPU crash dumps (`Platform/Vulkan/Debug/Aftermath.{h,cpp}`) are active on NVIDIA
+  in Debug and Release, and compiled out of Dist and `--no-aftermath`. The library is loaded at
+  runtime, so the engine starts normally without it. A device loss (NVRHI's `Device Removed!`
+  message, or `VK_ERROR_DEVICE_LOST` from acquire/present) goes through
+  `VulkanDeviceManager::ReportDeviceLost`, which waits for the dump, logs its path and aborts.
+  Dumps go to `<log directory>/GPUCrashDumps/`, with the last `RT_BeginMarker` label per command
+  buffer in `.markers.txt` (Vulkan checkpoints store only a pointer, so names are resolved in-process).
+  Shaders are registered for address mapping in `VulkanShader::LoadAndCreateShaders`.
 
 Known-good debugging recipe for device-lost on scene transitions: drain the GPU before tearing down
 per-scene GPU state. Freeing in-flight descriptor pools on a scene switch is a real failure mode this

@@ -5,6 +5,7 @@
 #include "VulkanShader.h"
 
 #include "VulkanShaderUtils.h"
+#include "Debug/Aftermath.h"
 
 #if LUX_HAS_SHADER_COMPILER
 #include "ShaderCompiler/VulkanShaderCompiler.h"
@@ -86,6 +87,8 @@ namespace Lux {
 			desc.debugName = m_Name;
 			desc.entryName = "main";
 			m_ShaderHandles[stage] = device->createShader(desc, data.data(), data.size() * sizeof(uint32_t));
+			// The binary the driver gets, so a GPU crash dump can map its shader addresses.
+			Aftermath::AddShaderBinary(data.data(), data.size());
 		}
 	}
 

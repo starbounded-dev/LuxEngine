@@ -49,6 +49,8 @@ freely, subject to the following restrictions:
 #include "lpch.h"
 #include "VulkanDeviceManager.h"
 
+#include "Lux/Platform/Vulkan/Debug/Aftermath.h"
+
 #include <cstring>
 
 // Define the Vulkan dynamic dispatcher - this needs to occur in exactly one cpp file in the program.
@@ -436,6 +438,18 @@ namespace Lux {
 			enabledExtensions.device.insert(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 		}
 
+		// Aftermath crash dumps must be enabled before the device exists. Its extensions then reach
+		// NVRHI and NRI through enabledExtensions like any other.
+		const bool aftermathSupported = std::all_of(std::begin(Aftermath::k_DeviceExtensions), std::end(Aftermath::k_DeviceExtensions), [&](const char* name)
+		{
+			return std::any_of(deviceExtensions.begin(), deviceExtensions.end(), [&](const vk::ExtensionProperties& ext) { return std::string_view(ext.extensionName.data()) == name; });
+		});
+		if (LUX_HAS_AFTERMATH && !aftermathSupported)
+			LUX_CORE_INFO_TAG("Renderer", "Aftermath unavailable (extensions not supported)");
+		const bool aftermathEnabled = aftermathSupported && Aftermath::Initialize();
+		if (aftermathEnabled)
+			enabledExtensions.device.insert(std::begin(Aftermath::k_DeviceExtensions), std::end(Aftermath::k_DeviceExtensions));
+
 		const vk::PhysicalDeviceProperties physicalDeviceProperties = m_VulkanPhysicalDevice.getProperties();
 		m_RendererString = std::string(physicalDeviceProperties.deviceName.data());
 		m_DeviceAPIVersion = std::min(m_InstanceAPIVersion, physicalDeviceProperties.apiVersion);
@@ -618,6 +632,12 @@ namespace Lux {
 			.setPpEnabledLayerNames(layerVec.data())
 			.setPNext(&vulkan12features);
 
+		auto aftermathInfo = vk::DeviceDiagnosticsConfigCreateInfoNV()
+			.setFlags(vk::DeviceDiagnosticsConfigFlagsNV(Aftermath::GetDeviceDiagnosticsFlags()))
+			.setPNext(&vulkan12features);
+		if (aftermathEnabled)
+			deviceDesc.setPNext(&aftermathInfo);
+
 		if (m_DeviceParams.deviceCreateInfoCallback)
 			m_DeviceParams.deviceCreateInfoCallback(deviceDesc);
 
@@ -638,6 +658,7 @@ namespace Lux {
 			m_VulkanDevice.getQueue(m_QueueFamilyIndices.Present, 0, &m_PresentQueue);
 
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanDevice);
+		Aftermath::OnDeviceCreated(static_cast<VkDevice>(m_VulkanDevice), VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr);
 
 		// remember the bufferDeviceAddress feature enablement
 		m_BufferDeviceAddressSupported = vulkan12features.bufferDeviceAddress;
@@ -838,6 +859,8 @@ namespace Lux {
 			m_VulkanDevice = nullptr;
 		}	
 
+		Aftermath::Shutdown();
+
 		if (m_DebugReportCallback)
 		{
 			m_VulkanInstance.destroyDebugReportCallbackEXT(m_DebugReportCallback);
@@ -848,6 +871,30 @@ namespace Lux {
 			m_VulkanInstance.destroy();
 			m_VulkanInstance = nullptr;
 		}
+	}
+
+	void VulkanDeviceManager::ReportDeviceLost(std::string_view where)
+	{
+		// Several threads can see the loss; the first reports, the others wait for the process to end.
+		static std::atomic_flag s_Reported;
+		if (s_Reported.test_and_set())
+		{
+			while (true)
+				std::this_thread::sleep_for(std::chrono::seconds(1));
+		}
+
+		LUX_CORE_FATAL_TAG("Renderer", "GPU device lost ({})", where);
+		if (Aftermath::IsEnabled())
+		{
+			const std::filesystem::path dumpPath = Aftermath::WaitForCrashDump();
+			if (dumpPath.empty())
+				LUX_CORE_FATAL_TAG("Renderer", "Aftermath wrote no GPU crash dump");
+			else
+				LUX_CORE_FATAL_TAG("Renderer", "Aftermath GPU crash dump: {}", dumpPath.string());
+		}
+
+		Log::GetCoreLogger()->flush();
+		std::abort();
 	}
 
 	DeviceManager* DeviceManager::CreateVK(GLFWwindow* windowHandle)

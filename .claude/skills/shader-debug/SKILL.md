@@ -187,11 +187,16 @@ Check in this order; stop at the first hit.
    expands into per-fragment scratch copies on RADV and can time out the GPU.
    `python3 tests/rendering/run_shadow_shader.py` checks deferred lighting for exactly that; use it
    as the template for similar checks.
-5. **Nsight Aftermath is not active.** Its sources exist (`Platform/Vulkan/Debug/`), but the code
-   that enabled it lived in the legacy `VulkanDevice.cpp`, deleted in NRI-plan Phase 1 (last present
-   in `bf8e6c90`); the live device is created in `VulkanDeviceManager::CreateDevice` without it. Do not wait for
-   an `.nv-gpudmp` file. GPU-assisted validation is not wired either. A fault the validation layer
-   cannot see needs one of those wired in first — say so rather than guessing.
+5. **Nsight Aftermath is active on NVIDIA in Debug and Release** (not Dist, not `--no-aftermath`;
+   `Platform/Vulkan/Debug/Aftermath.{h,cpp}`). The startup log says either `Aftermath GPU crash
+   dumps enabled (written to …)` or `Aftermath unavailable (…)` with the reason (non-NVIDIA GPU,
+   library missing, driver too old). On a device loss, `VulkanDeviceManager::ReportDeviceLost` waits
+   for the dump, logs its path and ends the process. `<log directory>/GPUCrashDumps/` then holds
+   `Lux_<time>.nv-gpudmp` (open in Nsight Graphics), its `.json` decoding, `.markers.txt` (the last
+   `RT_BeginMarker` label each command buffer reached) and `shader-*.nvdbg` files. Debug adds
+   automatic per-draw checkpoints. Shader addresses map to the optimized SPIR-V the driver got, not
+   to source lines. GPU-assisted validation is not wired. On AMD and Intel, a fault the validation
+   layer cannot see has no dump; say so rather than guessing.
 6. The validation layer's slowdown can hide timing-sensitive faults. A clean validated run is not
    proof of a fix.
 

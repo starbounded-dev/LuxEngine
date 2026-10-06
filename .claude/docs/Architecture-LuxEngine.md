@@ -1149,6 +1149,11 @@ are trusted; don't sprinkle defensive checks for impossible states. Prefer RAII 
 `LUX_CORE_VERIFY` is the assert that survives into Dist; use it for invariants that must hold in a
 shipped build.
 
+A lost GPU device is fatal: every `VK_ERROR_DEVICE_LOST` the engine sees (NVRHI's `Device Removed!`
+submit message, swapchain acquire and present) goes to `VulkanDeviceManager::ReportDeviceLost`,
+which waits for the Nsight Aftermath crash dump when Aftermath is enabled (`Platform/Vulkan/Debug/
+Aftermath.h`: NVIDIA, Debug and Release), logs its path and aborts. There is no device-loss recovery.
+
 ---
 
 ## Part 4: Implementation Playbook
@@ -1251,7 +1256,8 @@ luxengine/
 │   │       ├── ImGui/             # ImGuiLayer, ImGuiEx, ImGuiUtilities, Colors, Fonts, ImGuizmo
 │   │       ├── Project/           # Project, ProjectSerializer, UserPreferences, TieringSettings
 │   │       ├── Serialization/     # AssetPack, streams, runtime serializers
-│   │       ├── Platform/Vulkan/   # nvrhi/Vulkan backend, DescriptorSetManager, ShaderCompiler/, Debug/
+│   │       ├── Platform/Vulkan/   # nvrhi/Vulkan backend, DescriptorSetManager, ShaderCompiler/,
+│   │       │                      #   Debug/ (Aftermath GPU crash dumps)
 │   │       ├── Utilities/         # FileSystem, StringUtils, FileDialogs, CommandLineParser
 │   │       ├── Reflection/        # TypeDescriptor / TypeName / TypeUtils
 │   │       ├── Debug/             # Profiler.h (Tracy wrappers)

@@ -7,6 +7,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
+#include "Lux/Platform/Vulkan/Debug/Aftermath.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
 #include <cstring>
@@ -397,6 +398,8 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::CommandListHandle commandList = GetActive();
 		commandList->beginMarker(label.c_str());
+		if (Aftermath::IsEnabled())
+			Aftermath::SetCheckpoint(static_cast<VkCommandBuffer>(commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer)), label);
 	}
 
 	void RenderCommandBuffer::RT_EndMarker()

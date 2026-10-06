@@ -108,6 +108,10 @@ namespace Lux {
 		const std::unordered_set<std::string>& GetEnabledDeviceExtensions() const { return enabledExtensions.device; }
 
 		[[nodiscard]] bool IsComputeQueueAvailable() const { return m_DeviceParams.enableComputeQueue; }
+
+		// A lost device is fatal: waits for the Aftermath GPU crash dump (when enabled), logs where it
+		// went, then ends the process. Any thread; `where` names the call that saw VK_ERROR_DEVICE_LOST.
+		[[noreturn]] static void ReportDeviceLost(std::string_view where);
 		[[nodiscard]] bool IsTransferQueueAvailable() const override { return m_TransferQueueAvailable; }
 
 #if LUX_ENABLE_PROFILING

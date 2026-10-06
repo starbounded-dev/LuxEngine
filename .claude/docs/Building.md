@@ -113,7 +113,7 @@ Two kinds of toggle, both driven off the single `OPTIONS` table in `scripts/Buil
 |---|---|
 | `--discord` | Enables the Discord Social SDK integration; defines `LUX_ENABLE_DISCORD`. Requires `Core/vendor/discord_social_sdk/` (fetched manually — `Configure.warn_missing_discord_sdk` warns if absent). |
 | `--no-tracy` | Omits `TRACY_ENABLE` / `TRACY_ON_DEMAND` / `TRACY_CALLSTACK`, reducing vendored Tracy to a stub and compiling every `LUX_PROFILE_*` away. Cuts link times. |
-| `--no-aftermath` | Defines `LUX_DISABLE_AFTERMATH` **and** `removefiles` the `Platform/Vulkan/Debug/**.cpp` crash-tracker sources (they include `GFSDK_Aftermath.h` unconditionally, so `#ifdef` alone isn't enough). |
+| `--no-aftermath` | Defines `LUX_DISABLE_AFTERMATH` **and** `removefiles` the `Platform/Vulkan/Debug/**.cpp` crash-tracker sources (they include `GFSDK_Aftermath.h` unconditionally, so `#ifdef` alone isn't enough). `Debug/Aftermath.h` then supplies inline no-ops, so callers need no `#if`. |
 | Audio SDKs (required) | FMOD Core + Studio and Vercidium Audio are always linked. No fallback backend. Legacy flags remain accepted for command compatibility. |
 
 **Script options** (change what the Python does; premake never sees them): `skip-submodules`,
@@ -261,8 +261,13 @@ requires the Windows FMOD SDK and Windows host. Console SDK/hardware work is on 
 
 ### Aftermath headers not found
 
-The crash tracker needs the Nvidia Aftermath SDK. Regenerate with `no-aftermath` to drop
-`Platform/Vulkan/Debug/**.cpp` from the build entirely.
+The crash tracker needs the Nvidia Aftermath SDK headers (`Core/vendor/NvidiaAftermath/include`).
+Regenerate with `no-aftermath` to drop `Platform/Vulkan/Debug/**.cpp` from the build entirely.
+Nothing links against Aftermath: `Aftermath.cpp` loads `GFSDK_Aftermath_Lib.x64.dll` /
+`libGFSDK_Aftermath_Lib.x64.so` at runtime, and the Editor and Lux-Runtime post-build steps copy it
+beside the executable (Linux: `lib/`, found through the `$ORIGIN/lib` rpath) in every config but
+Dist. Without the file, the log says `Aftermath unavailable (… not found)` and the engine runs
+without crash dumps.
 
 ### Missing textures / fonts, or asset files that are tiny text stubs
 

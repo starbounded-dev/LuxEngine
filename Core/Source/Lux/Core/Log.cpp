@@ -85,6 +85,7 @@ namespace Lux {
 	{
 		if (!std::filesystem::exists(logDirectory))
 			std::filesystem::create_directories(logDirectory);
+		s_LogDirectory = logDirectory;
 
 		// Room for this session: it is created after the cleanup.
 		RemoveOldLogSessions(logDirectory, "LUX", s_MaxLogSessions - 1);

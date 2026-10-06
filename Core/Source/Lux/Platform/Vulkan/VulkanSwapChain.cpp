@@ -384,6 +384,9 @@ namespace Lux {
 			vk::Fence(),
 			&m_SwapChainIndex);
 
+		if (res == vk::Result::eErrorDeviceLost)
+			VulkanDeviceManager::ReportDeviceLost("vkAcquireNextImageKHR");
+
 		m_AcquiredSemaphore = semaphore;
 		m_AcquireSemaphoreIndex = (m_AcquireSemaphoreIndex + 1) % m_AcquireSemaphores.size();
 
@@ -447,6 +450,8 @@ namespace Lux {
 			// deferred recreate rather than tearing down the swapchain from inside Present.
 			if (res == vk::Result::eErrorOutOfDateKHR || res == vk::Result::eSuboptimalKHR)
 				m_NeedsRecreate = true;
+			else if (res == vk::Result::eErrorDeviceLost)
+				VulkanDeviceManager::ReportDeviceLost("vkQueuePresentKHR");
 			else
 				LUX_CORE_VERIFY(res == vk::Result::eSuccess);
 		}

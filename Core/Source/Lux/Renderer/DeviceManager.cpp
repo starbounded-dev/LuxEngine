@@ -49,6 +49,8 @@ freely, subject to the following restrictions:
 #include "lpch.h"
 #include "DeviceManager.h"
 
+#include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
+
 #if LUX_HAS_DX11
 #include <d3d11.h>
 #endif
@@ -122,6 +124,9 @@ void DefaultMessageCallback::message(nvrhi::MessageSeverity severity, const char
 		LUX_CORE_WARN("{0}", messageText);
         break;
     case nvrhi::MessageSeverity::Error:
+		// NVRHI reports a lost device on submit only through this message (vulkan-queue.cpp).
+		if (std::string_view(messageText) == "Device Removed!")
+			VulkanDeviceManager::ReportDeviceLost("NVRHI queue submit");
 		LUX_CORE_ERROR("{0}", messageText);
         break;
     case nvrhi::MessageSeverity::Fatal:

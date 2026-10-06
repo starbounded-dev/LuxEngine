@@ -46,6 +46,8 @@ namespace Lux {
 		// `logDirectory` receives LUX.log / APP.log; created if missing.
 		static void Init(const std::filesystem::path& logDirectory = "logs");
 		static void Shutdown();
+		// The directory Init was given (other diagnostics, like GPU crash dumps, go beside the logs).
+		static const std::filesystem::path& GetLogDirectory() { return s_LogDirectory; }
 
 		inline static std::shared_ptr<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
 		inline static std::shared_ptr<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
@@ -105,6 +107,7 @@ namespace Lux {
 		static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
 
 		inline static std::map<std::string, TagDetails> s_EnabledTags;
+		inline static std::filesystem::path s_LogDirectory;
 
 		// Settings for `tag`, or the untagged ("") settings when the tag has no entry: a tag that
 		// nobody configured must not silently swallow its messages. Null only before Init().
