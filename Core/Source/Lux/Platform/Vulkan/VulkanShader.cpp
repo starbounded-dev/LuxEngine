@@ -66,6 +66,45 @@ namespace Lux {
 				RHIDevice::API().DestroyPipelineLayout(layout);
 			});
 		m_NRISetIndices.fill(k_NoNRISet);
+		for (std::vector<uint32_t>& bindings : m_NRIRangeBindings)
+			bindings.clear();
+	}
+
+	uint32_t VulkanShader::GetNRIRangeIndex(uint32_t set, uint32_t binding) const
+	{
+		if (set >= m_NRIRangeBindings.size())
+			return k_NoNRISet;
+
+		const std::vector<uint32_t>& bindings = m_NRIRangeBindings[set];
+		auto it = std::lower_bound(bindings.begin(), bindings.end(), binding);
+		return it != bindings.end() && *it == binding ? static_cast<uint32_t>(it - bindings.begin()) : k_NoNRISet;
+	}
+
+	nri::DescriptorPoolDesc VulkanShader::GetNRIPoolDesc(uint32_t set, uint32_t instanceCount) const
+	{
+		nri::DescriptorPoolDesc poolDesc = {};
+		poolDesc.descriptorSetMaxNum = instanceCount;
+		if (set >= m_ReflectionData.ShaderDescriptorSets.size())
+			return poolDesc;
+
+		if (set == BindlessTextureTable::DescriptorSet)
+		{
+			poolDesc.textureMaxNum = BindlessTextureTable::GetCapacity() * instanceCount;
+			return poolDesc;
+		}
+
+		// Counted exactly as CreateNRIPipelineLayout declares the ranges.
+		const ShaderResource::ShaderDescriptorSet& descriptorSet = m_ReflectionData.ShaderDescriptorSets[set];
+		poolDesc.constantBufferMaxNum = static_cast<uint32_t>(descriptorSet.UniformBuffers.size()) * instanceCount;
+		for (const auto& [binding, storageBuffer] : descriptorSet.StorageBuffers)
+			(storageBuffer.ReadOnly ? poolDesc.structuredBufferMaxNum : poolDesc.storageStructuredBufferMaxNum) += instanceCount;
+		for (const auto& [binding, texture] : descriptorSet.SeparateTextures)
+			poolDesc.textureMaxNum += std::max(texture.ArraySize, 1u) * instanceCount;
+		for (const auto& [binding, sampler] : descriptorSet.SeparateSamplers)
+			poolDesc.samplerMaxNum += std::max(sampler.ArraySize, 1u) * instanceCount;
+		for (const auto& [binding, image] : descriptorSet.StorageImages)
+			poolDesc.storageTextureMaxNum += std::max(image.ArraySize, 1u) * instanceCount;
+		return poolDesc;
 	}
 
 	const std::vector<uint32_t>& VulkanShader::GetSPIRV(ShaderStage stage) const
@@ -133,6 +172,9 @@ namespace Lux {
 			if (setRanges.empty())
 				continue;
 
+			for (const nri::DescriptorRangeDesc& range : setRanges)
+				m_NRIRangeBindings[set].push_back(range.baseRegisterIndex);
+
 			m_NRISetIndices[set] = static_cast<uint32_t>(setDescs.size());
 			nri::DescriptorSetDesc& setDesc = setDescs.emplace_back();
 			setDesc.registerSpace = set;
@@ -163,6 +205,8 @@ namespace Lux {
 			LUX_CORE_ERROR_TAG("Renderer", "Failed to create the NRI pipeline layout of shader {}", m_Name);
 			m_NRIPipelineLayout = nullptr;
 			m_NRISetIndices.fill(k_NoNRISet);
+			for (std::vector<uint32_t>& bindings : m_NRIRangeBindings)
+				bindings.clear();
 			return;
 		}
 

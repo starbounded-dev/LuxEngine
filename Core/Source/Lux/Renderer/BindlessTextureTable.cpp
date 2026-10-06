@@ -21,6 +21,8 @@ namespace Lux {
 
 		nvrhi::BindingLayoutHandle s_Layout;
 		uint32_t s_Capacity = 0;
+		// Declares only the bindless set; tables allocate their NRI sets from it.
+		nri::PipelineLayout* s_NRILayout = nullptr;
 	}
 
 	void BindlessTextureTable::Init()
@@ -48,12 +50,34 @@ namespace Lux {
 		desc.registerSpaces = { nvrhi::BindingLayoutItem::Texture_SRV(0) };
 		s_Layout = device->createBindlessLayout(desc);
 		LUX_CORE_VERIFY(s_Layout, "Failed to create the bindless texture layout");
+
+		const nri::DescriptorRangeDesc range = GetNRIRange();
+		nri::DescriptorSetDesc setDesc = {};
+		setDesc.registerSpace = DescriptorSet;
+		setDesc.ranges = &range;
+		setDesc.rangeNum = 1;
+
+		nri::PipelineLayoutDesc layoutDesc = {};
+		layoutDesc.rootRegisterSpace = DescriptorSet + 1;
+		layoutDesc.descriptorSets = &setDesc;
+		layoutDesc.descriptorSetNum = 1;
+		layoutDesc.shaderStages = nri::StageBits::ALL;
+		layoutDesc.flags = nri::PipelineLayoutBits::IGNORE_GLOBAL_SPIRV_OFFSETS;
+		LUX_CORE_VERIFY(RHIDevice::API().CreatePipelineLayout(RHIDevice::Get(), layoutDesc, s_NRILayout) == nri::Result::SUCCESS,
+			"Failed to create the NRI bindless texture layout");
 	}
 
 	void BindlessTextureTable::Shutdown()
 	{
 		s_Layout = nullptr;
 		s_Capacity = 0;
+		if (s_NRILayout)
+		{
+			Renderer::SubmitResourceFree([layout = std::exchange(s_NRILayout, nullptr)]()
+				{
+					RHIDevice::API().DestroyPipelineLayout(layout);
+				});
+		}
 	}
 
 	nvrhi::BindingLayoutHandle BindlessTextureTable::GetLayout()
@@ -94,6 +118,12 @@ namespace Lux {
 			frame.WrittenHandles.resize(s_Capacity, nullptr);
 			frame.Queued.emplace_back(0, Renderer::GetWhiteTexture());
 		}
+
+		const uint32_t frameCount = static_cast<uint32_t>(m_Frames.size());
+		nri::DescriptorPoolDesc poolDesc = {};
+		poolDesc.descriptorSetMaxNum = frameCount;
+		poolDesc.textureMaxNum = s_Capacity * frameCount;
+		m_NRISets = Ref<DescriptorSetGroup>::Create(*s_NRILayout, 0, poolDesc, frameCount, s_Capacity, "Bindless textures");
 	}
 
 	BindlessTextureTable::~BindlessTextureTable()
@@ -149,6 +179,18 @@ namespace Lux {
 				LUX_CORE_ERROR_TAG("Renderer", "Failed to write bindless texture slot {}", slot);
 				continue;
 			}
+
+			// The NRI set of this frame follows the same rule: no frame in flight reads it.
+			if (m_NRISets->IsValid())
+			{
+				const ImageInfo* imageInfo = static_cast<const ImageInfo*>(texture->GetDescriptorInfo());
+				const nri::Descriptor* view = imageInfo ? GetNRITextureView(imageInfo->RHITexture, { nri::TextureView::TEXTURE, 0, 0, 0, 1 }) : nullptr;
+				if (view)
+					m_NRISets->Write(frameIndex % static_cast<uint32_t>(m_Frames.size()), 0, slot, &view, 1);
+				else
+					LUX_CORE_ERROR_TAG("Renderer", "Bindless texture slot {} has no NRI view", slot);
+			}
+
 			frame.Written[slot] = texture;
 			frame.WrittenHandles[slot] = handle.Get();
 		}
@@ -158,6 +200,11 @@ namespace Lux {
 	nvrhi::IDescriptorTable* BindlessTextureTable::RT_GetTable(uint32_t frameIndex) const
 	{
 		return m_Frames.empty() ? nullptr : m_Frames[frameIndex % m_Frames.size()].Table.Get();
+	}
+
+	nri::DescriptorSet* BindlessTextureTable::RT_GetNRISet(uint32_t frameIndex) const
+	{
+		return m_Frames.empty() || !m_NRISets ? nullptr : m_NRISets->Get(frameIndex % static_cast<uint32_t>(m_Frames.size()));
 	}
 
 }

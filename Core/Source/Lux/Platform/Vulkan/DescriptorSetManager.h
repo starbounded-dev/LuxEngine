@@ -10,6 +10,7 @@
 #include "Lux/Renderer/Texture.h"
 
 #include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/DescriptorSetGroup.h"
 
 #include <set>
 #include <vector>
@@ -268,10 +269,15 @@ namespace Lux {
 		uint32_t GetFirstSetIndex() const;
 		nvrhi::BindingSetHandle GetBindingSet(uint32_t frameIndex) const;
 		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const;
+		// The NRI descriptor set of set number `set` for `frameIndex` (NRI migration Phase 9), built
+		// alongside the NVRHI binding sets with the same inputs. Null when the shader declares
+		// nothing in that set or NRI failed to build it.
+		nri::DescriptorSet* GetNRIDescriptorSet(uint32_t frameIndex, uint32_t set) const;
 		bool IsInputValid(std::string_view name) const;
 		const RenderInputDeclaration* GetInputDeclaration(std::string_view name) const;
 	private:
 		void Init();
+		void BakeNRISet(uint32_t set);
 	private:
 		DescriptorSetManagerSpecification m_Specification;
 		State m_State = State::None;
@@ -280,6 +286,9 @@ namespace Lux {
 		nvrhi::static_vector<nvrhi::static_vector<nvrhi::BindingSetHandle, nvrhi::c_MaxBindingLayouts>, RendererConfig::MaxFramesInFlight> m_BindingSets;
 		// Frame->set->binding
 		nvrhi::static_vector<std::map<uint32_t, std::map<uint32_t, std::vector<nvrhi::ResourceHandle>>>, RendererConfig::MaxFramesInFlight> m_BindingSetHandles;
+		// Set number -> one set per frame in flight. Replaced, never rewritten, by each bake of the set.
+		// A fixed array like m_BindingSets: a bake swaps one entry and never restructures storage.
+		std::array<Ref<DescriptorSetGroup>, 8> m_NRISets;
 
 	};
 

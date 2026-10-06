@@ -14,6 +14,7 @@
 #include <array>
 
 namespace nri {
+	struct DescriptorPoolDesc;
 	struct PipelineLayout;
 }
 
@@ -85,6 +86,11 @@ namespace Lux {
 		// Position of descriptor set `set` in the NRI layout (SetDescriptorSetDesc::setIndex), or
 		// k_NoNRISet when the shader declares nothing there.
 		uint32_t GetNRISetIndex(uint32_t set) const { return set < m_NRISetIndices.size() ? m_NRISetIndices[set] : k_NoNRISet; }
+		// Range index of `binding` within NRI set `set` (UpdateDescriptorRangeDesc::rangeIndex), or
+		// k_NoNRISet when the set has no such binding.
+		uint32_t GetNRIRangeIndex(uint32_t set, uint32_t binding) const;
+		// A pool that holds `instanceCount` copies of set `set`.
+		nri::DescriptorPoolDesc GetNRIPoolDesc(uint32_t set, uint32_t instanceCount) const;
 		bool HasNRIRootConstants() const { return !m_ReflectionData.PushConstantRanges.empty(); }
 	private:
 		void LoadAndCreateShaders(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData);
@@ -105,6 +111,8 @@ namespace Lux {
 
 		nri::PipelineLayout* m_NRIPipelineLayout = nullptr;
 		std::array<uint32_t, 8> m_NRISetIndices = MakeNoNRISets();
+		// Per set number: the binding of each NRI range, in range order.
+		std::array<std::vector<uint32_t>, 8> m_NRIRangeBindings;
 
 		static constexpr std::array<uint32_t, 8> MakeNoNRISets()
 		{

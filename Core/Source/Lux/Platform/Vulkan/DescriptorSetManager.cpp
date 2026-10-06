@@ -5,6 +5,7 @@
 #include "DescriptorSetManager.h"
 
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "Lux/Debug/Profiler.h"
 
@@ -38,6 +39,118 @@ namespace Lux {
 				|| inputType == RenderInputType::StorageImage3D
 				|| inputType == RenderInputType::StorageImage3DVolume
 				|| inputType == RenderInputType::StorageBuffer;
+		}
+
+		// The NRI view matching an NVRHI texture binding: NVRHI's dimension (Unknown = the texture's
+		// own) and subresources, SRV or UAV. NVRHI UAVs and non-array views cover a single mip / layer.
+		NRITextureViewKey GetNRIViewKey(nri::Texture* texture, nvrhi::TextureDimension dimension, const nvrhi::TextureSubresourceSet& subresources, bool storage)
+		{
+			if (dimension == nvrhi::TextureDimension::Unknown)
+			{
+				const nri::TextureDesc& desc = RHIDevice::API().GetTextureDesc(*texture);
+				if (desc.type == nri::TextureType::TEXTURE_3D)
+					dimension = nvrhi::TextureDimension::Texture3D;
+				else
+					dimension = desc.layerNum > 1 ? nvrhi::TextureDimension::Texture2DArray : nvrhi::TextureDimension::Texture2D;
+			}
+
+			bool array = false;
+			NRITextureViewKey key;
+			switch (dimension)
+			{
+				case nvrhi::TextureDimension::Texture2DArray:
+				case nvrhi::TextureDimension::Texture2DMSArray:
+					key.Type = storage ? nri::TextureView::STORAGE_TEXTURE_ARRAY : nri::TextureView::TEXTURE_ARRAY;
+					array = true;
+					break;
+				case nvrhi::TextureDimension::TextureCube:
+					// Storage views of cubes are 2D arrays, as in NVRHI.
+					key.Type = storage ? nri::TextureView::STORAGE_TEXTURE_ARRAY : nri::TextureView::TEXTURE_CUBE;
+					array = true;
+					break;
+				case nvrhi::TextureDimension::TextureCubeArray:
+					key.Type = storage ? nri::TextureView::STORAGE_TEXTURE_ARRAY : nri::TextureView::TEXTURE_CUBE_ARRAY;
+					array = true;
+					break;
+				default:
+					key.Type = storage ? nri::TextureView::STORAGE_TEXTURE : nri::TextureView::TEXTURE;
+					break;
+			}
+
+			key.MipOffset = subresources.baseMipLevel;
+			key.MipNum = storage ? 1 : (subresources.numMipLevels == nvrhi::TextureSubresourceSet::AllMipLevels ? 0 : subresources.numMipLevels);
+			key.LayerOffset = subresources.baseArraySlice;
+			if (array)
+				key.LayerNum = subresources.numArraySlices == nvrhi::TextureSubresourceSet::AllArraySlices ? 0 : subresources.numArraySlices;
+			else
+				key.LayerNum = 1;
+			return key;
+		}
+
+		nri::Descriptor* GetNRITextureDescriptor(const ImageInfo* imageInfo, bool storage)
+		{
+			if (!imageInfo || !imageInfo->RHITexture)
+				return nullptr;
+			return GetNRITextureView(imageInfo->RHITexture, GetNRIViewKey(imageInfo->RHITexture, imageInfo->Dimension, imageInfo->ImageView, storage));
+		}
+
+		// The NRI descriptor for element `element` of `input` in frame slot `frameIndex`, as BakeSet
+		// binds it through NVRHI. Null when the resource is missing.
+		nri::Descriptor* GetNRIDescriptor(const RenderPassInput& input, size_t element, uint32_t frameIndex, bool storageBufferReadOnly)
+		{
+			const Ref<RefCounted>& resource = input.Input[element];
+			const nri::BufferView storageView = storageBufferReadOnly ? nri::BufferView::BYTE_ADDRESS_BUFFER : nri::BufferView::STORAGE_BYTE_ADDRESS_BUFFER;
+			switch (input.Type)
+			{
+				case RenderResourceType::UniformBuffer:
+				{
+					Ref<UniformBuffer> buffer = resource.As<UniformBuffer>();
+					return buffer ? GetNRIBufferView(buffer->GetRHIBuffer(), nri::BufferView::CONSTANT_BUFFER) : nullptr;
+				}
+				case RenderResourceType::UniformBufferSet:
+				{
+					Ref<UniformBufferSet> buffers = resource.As<UniformBufferSet>();
+					return buffers ? GetNRIBufferView(buffers->Get(frameIndex)->GetRHIBuffer(), nri::BufferView::CONSTANT_BUFFER) : nullptr;
+				}
+				case RenderResourceType::StorageBuffer:
+				{
+					Ref<StorageBuffer> buffer = resource.As<StorageBuffer>();
+					return buffer ? GetNRIBufferView(buffer->GetRHIBuffer(), storageView) : nullptr;
+				}
+				case RenderResourceType::StorageBufferSet:
+				{
+					Ref<StorageBufferSet> buffers = resource.As<StorageBufferSet>();
+					return buffers ? GetNRIBufferView(buffers->Get(frameIndex)->GetRHIBuffer(), storageView) : nullptr;
+				}
+				case RenderResourceType::Texture2D:
+				{
+					Ref<Texture2D> texture = resource.As<Texture2D>();
+					if (!texture)
+						texture = Renderer::GetWhiteTexture();
+					// NVRHI binds the whole texture with its own dimension.
+					const ImageInfo* imageInfo = static_cast<const ImageInfo*>(texture->GetDescriptorInfo());
+					if (!imageInfo || !imageInfo->RHITexture)
+						return nullptr;
+					return GetNRITextureView(imageInfo->RHITexture, GetNRIViewKey(imageInfo->RHITexture, imageInfo->Dimension, nvrhi::AllSubresources, false));
+				}
+				case RenderResourceType::TextureCube:
+				{
+					Ref<TextureCube> texture = resource.As<TextureCube>();
+					return texture ? GetNRITextureDescriptor(static_cast<const ImageInfo*>(texture->GetDescriptorInfo()), input.IsWriteable) : nullptr;
+				}
+				case RenderResourceType::Image2D:
+				{
+					Ref<RendererResource> image = resource.As<RendererResource>();
+					return image ? GetNRITextureDescriptor(static_cast<const ImageInfo*>(image->GetDescriptorInfo()), input.IsWriteable) : nullptr;
+				}
+				case RenderResourceType::Sampler:
+				{
+					Ref<RendererResource> sampler = resource.As<RendererResource>();
+					return sampler ? static_cast<const Sampler*>(sampler->GetDescriptorInfo())->GetRHIDescriptor() : nullptr;
+				}
+				default:
+					return nullptr;
+			}
 		}
 
 		inline nvrhi::ResourceType GetBindingLayoutType(nvrhi::BindingLayoutHandle bindingLayout, uint32_t binding)
@@ -181,6 +294,9 @@ namespace Lux {
 			frameHandles.clear();
 		for (auto& set : m_BindingSets)
 			set = {};
+		// Built against the released layout; Bake() below rebuilds them.
+		for (Ref<DescriptorSetGroup>& group : m_NRISets)
+			group = nullptr;
 
 		Init();
 
@@ -640,7 +756,78 @@ namespace Lux {
 			}
 		}
 
+		BakeNRISet(set);
+	}
 
+	// The NRI twin of BakeSet: a new group for `set` with every frame's descriptors written from the
+	// same inputs. The previous group is released, not rewritten, because a frame in flight may
+	// still read it (the inputs can change several times per frame).
+	void DescriptorSetManager::BakeNRISet(uint32_t set)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		if (set >= m_NRISets.size())
+			return;
+		m_NRISets[set] = nullptr;
+
+		auto setIt = InputResources.find(set);
+		const VulkanShader& shader = *m_Specification.Shader;
+		nri::PipelineLayout* layout = shader.GetNRIPipelineLayout();
+		const uint32_t setIndex = shader.GetNRISetIndex(set);
+		// No layout is already logged; no set index means the shader declares nothing to bind there.
+		if (setIt == InputResources.end() || !layout || setIndex == VulkanShader::k_NoNRISet)
+			return;
+
+		const uint32_t frameCount = Renderer::GetConfig().FramesInFlight;
+		Ref<DescriptorSetGroup> group = Ref<DescriptorSetGroup>::Create(*layout, setIndex, shader.GetNRIPoolDesc(set, frameCount), frameCount, 0, m_Specification.DebugName.c_str());
+		if (!group->IsValid())
+			return;
+
+		const auto& shaderDescriptorSets = shader.GetShaderDescriptorSets();
+		std::vector<nri::Descriptor*> descriptors;
+		for (uint32_t frameIndex = 0; frameIndex < frameCount; frameIndex++)
+		{
+			for (const auto& [binding, input] : setIt->second)
+			{
+				const uint32_t rangeIndex = shader.GetNRIRangeIndex(set, binding);
+				if (rangeIndex == VulkanShader::k_NoNRISet || input.Input.empty())
+					continue;
+
+				bool storageBufferReadOnly = false;
+				if (input.Type == RenderResourceType::StorageBuffer || input.Type == RenderResourceType::StorageBufferSet)
+				{
+					const auto& storageBuffers = shaderDescriptorSets[set].StorageBuffers;
+					auto storageIt = storageBuffers.find(binding);
+					storageBufferReadOnly = storageIt != storageBuffers.end() && storageIt->second.ReadOnly;
+				}
+
+				// Buffers are never arrays here (BakeSet binds element 0 only).
+				const bool isBuffer = input.Type == RenderResourceType::UniformBuffer || input.Type == RenderResourceType::UniformBufferSet
+					|| input.Type == RenderResourceType::StorageBuffer || input.Type == RenderResourceType::StorageBufferSet;
+				const size_t elementCount = isBuffer ? 1 : input.Input.size();
+
+				descriptors.assign(elementCount, nullptr);
+				for (size_t element = 0; element < elementCount; element++)
+					descriptors[element] = Utils::GetNRIDescriptor(input, element, frameIndex, storageBufferReadOnly);
+
+				// Write each run of present descriptors; a missing resource is deferred exactly as
+				// BakeSet defers it (InvalidatedInputResources) and the next bake fills it.
+				for (size_t first = 0; first < elementCount;)
+				{
+					if (!descriptors[first])
+					{
+						first++;
+						continue;
+					}
+					size_t last = first;
+					while (last < elementCount && descriptors[last])
+						last++;
+					group->Write(frameIndex, rangeIndex, static_cast<uint32_t>(first), descriptors.data() + first, static_cast<uint32_t>(last - first));
+					first = last;
+				}
+			}
+		}
+
+		m_NRISets[set] = std::move(group);
 	}
 
 	void DescriptorSetManager::InvalidateAndUpdate()
@@ -858,6 +1045,15 @@ namespace Lux {
 			result[i] = m_BindingSets[frameIndex][i];
 		
 		return result;
+	}
+
+	nri::DescriptorSet* DescriptorSetManager::GetNRIDescriptorSet(uint32_t frameIndex, uint32_t set) const
+	{
+		if (set >= m_NRISets.size() || !m_NRISets[set])
+			return nullptr;
+
+		const uint32_t frameCount = Renderer::GetConfig().FramesInFlight;
+		return m_NRISets[set]->Get(frameCount ? frameIndex % frameCount : 0);
 	}
 
 	bool DescriptorSetManager::IsInputValid(std::string_view name) const

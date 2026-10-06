@@ -5,6 +5,7 @@
 
 #include "Lux/Core/Ref.h"
 #include "Lux/Renderer/Texture.h"
+#include "Lux/Renderer/RHI/DescriptorSetGroup.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -14,6 +15,7 @@
 
 namespace nri {
 	struct DescriptorRangeDesc;
+	struct DescriptorSet;
 }
 
 namespace Lux {
@@ -53,6 +55,8 @@ namespace Lux {
 		void Flush();
 
 		nvrhi::IDescriptorTable* RT_GetTable(uint32_t frameIndex) const;
+		// The same table as an NRI descriptor set (null if NRI could not build it).
+		nri::DescriptorSet* RT_GetNRISet(uint32_t frameIndex) const;
 
 	private:
 		void RT_WriteTable(uint32_t frameIndex);
@@ -72,6 +76,8 @@ namespace Lux {
 			std::vector<std::pair<uint32_t, Ref<Texture2D>>> Queued;
 		};
 		std::vector<FrameTable> m_Frames;
+		// One NRI set per frame table, written with it.
+		Ref<DescriptorSetGroup> m_NRISets;
 	};
 
 }
