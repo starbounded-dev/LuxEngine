@@ -6,6 +6,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
 namespace Lux {
@@ -28,6 +29,43 @@ namespace Lux {
 				const auto& clearColor = specification.ClearColor;
 				clearValues[attachmentIndex].Color = { { clearColor.r, clearColor.g, clearColor.b, clearColor.a } };
 			}
+		}
+
+		// The NRI twin of an NVRHI attachment view: the same image, mip, layers and format (UNKNOWN
+		// = the image's own), as NVRHI's createFramebuffer resolves them. Null, with `outProblem`
+		// set, for attachments NRI views are not built for here.
+		nri::Descriptor* GetNRIAttachmentView(const Ref<Image2D>& image, const nvrhi::FramebufferAttachment& attachment, bool depth, const char*& outProblem)
+		{
+			nri::Texture* texture = image ? image->GetImageInfo().RHITexture : nullptr;
+			if (!texture)
+			{
+				outProblem = "an attachment has no NRI texture";
+				return nullptr;
+			}
+			if (depth && attachment.isReadOnly)
+			{
+				outProblem = "read-only depth attachments are not translated";
+				return nullptr;
+			}
+			if (RHIDevice::API().GetTextureDesc(*texture).type == nri::TextureType::TEXTURE_3D)
+			{
+				outProblem = "3D attachments are not translated";
+				return nullptr;
+			}
+
+			NRITextureViewKey key;
+			key.Type = depth ? nri::TextureView::DEPTH_STENCIL_ATTACHMENT : nri::TextureView::COLOR_ATTACHMENT;
+			key.MipOffset = attachment.subresources.baseMipLevel;
+			key.MipNum = 1;
+			key.LayerOffset = attachment.subresources.baseArraySlice;
+			key.LayerNum = attachment.subresources.numArraySlices == nvrhi::TextureSubresourceSet::AllArraySlices ? 0 : attachment.subresources.numArraySlices;
+			key.Format = ToNRIFormat(attachment.format);
+
+			// GetNRITextureView logs its own failures.
+			nri::Descriptor* view = GetNRITextureView(texture, key);
+			if (!view)
+				outProblem = "NRI could not create an attachment view";
+			return view;
 		}
 	}
 
@@ -144,6 +182,22 @@ namespace Lux {
 		return m_Handle;
 	}
 
+	nri::Descriptor* Framebuffer::GetNRIColorAttachment(uint32_t index) const
+	{
+		if (m_Specification.SwapChainTarget)
+			return index == 0 ? Application::Get().GetWindow().GetSwapChain().GetCurrentNRIColorAttachment() : nullptr;
+
+		return index < m_NRIColorAttachments.size() ? m_NRIColorAttachments[index] : nullptr;
+	}
+
+	bool Framebuffer::HasNRIAttachments() const
+	{
+		if (m_Specification.SwapChainTarget)
+			return GetNRIColorAttachment(0) != nullptr;
+
+		return m_HasNRIAttachments;
+	}
+
 	void Framebuffer::Release()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -236,6 +290,10 @@ namespace Lux {
 		// TODO(Yan): what about load/store ops?
 		nvrhi::FramebufferDesc framebufferDesc;
 
+		std::array<nri::Descriptor*, nvrhi::c_MaxRenderTargets> nriColorAttachments = {};
+		nri::Descriptor* nriDepthAttachment = nullptr;
+		const char* nriProblem = nullptr;
+
 		uint32_t attachmentIndex = 0;
 		uint32_t nvrhiAttachmentIndex = 0;
 		for (const auto& attachmentSpec : m_Specification.Attachments.Attachments)
@@ -276,6 +334,7 @@ namespace Lux {
 					depthAttachment.subresources.baseArraySlice = m_Specification.ExistingImageLayer;
 					depthAttachment.subresources.numArraySlices = 1;
 				}
+				nriDepthAttachment = GetNRIAttachmentView(m_DepthAttachmentImage, depthAttachment, true, nriProblem);
 
 				m_ClearValues[attachmentIndex].DepthStencil = { m_Specification.DepthClearValue, 0 };
 
@@ -343,6 +402,7 @@ namespace Lux {
 					colorAttachment.subresources.baseArraySlice = m_Specification.ExistingImageLayer;
 					colorAttachment.subresources.numArraySlices = 1;
 				}
+				nriColorAttachments[framebufferDesc.colorAttachments.size() - 1] = GetNRIAttachmentView(colorAttachmentImage, colorAttachment, false, nriProblem);
 
 				const auto& clearColor = m_Specification.ClearColor;
 				m_ClearValues[attachmentIndex].Color = { {clearColor.r, clearColor.g, clearColor.b, clearColor.a } };
@@ -355,6 +415,12 @@ namespace Lux {
 		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
 		m_Handle = device->createFramebuffer(framebufferDesc);
 		m_FramebufferDesc = framebufferDesc;
+
+		m_NRIColorAttachments = nriColorAttachments;
+		m_NRIDepthAttachment = nriDepthAttachment;
+		m_HasNRIAttachments = !nriProblem;
+		if (nriProblem)
+			LUX_CORE_ERROR_TAG("Renderer", "[Framebuffer] {} has no NRI attachments ({}); its passes render through NVRHI", m_Specification.DebugName, nriProblem);
 	}
 
 }

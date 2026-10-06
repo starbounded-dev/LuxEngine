@@ -279,14 +279,15 @@ namespace Lux {
 
 		const NRIInterface& api = RHIDevice::API();
 		const nri::TextureDesc& textureDesc = api.GetTextureDesc(*texture);
-		const nri::FormatProps* formatProps = nri::nriGetFormatProps(textureDesc.format);
+		const nri::Format format = key.Format != nri::Format::UNKNOWN ? key.Format : textureDesc.format;
+		const nri::FormatProps* formatProps = nri::nriGetFormatProps(format);
 		const bool sampled = key.Type == nri::TextureView::TEXTURE || key.Type == nri::TextureView::TEXTURE_ARRAY
 			|| key.Type == nri::TextureView::TEXTURE_CUBE || key.Type == nri::TextureView::TEXTURE_CUBE_ARRAY;
 
 		nri::TextureViewDesc viewDesc = {};
 		viewDesc.texture = texture;
 		viewDesc.type = key.Type;
-		viewDesc.format = textureDesc.format;
+		viewDesc.format = format;
 		viewDesc.mipOffset = static_cast<nri::Dim_t>(key.MipOffset);
 		viewDesc.mipNum = static_cast<nri::Dim_t>(key.MipNum);
 		viewDesc.layerOffset = static_cast<nri::Dim_t>(key.LayerOffset);

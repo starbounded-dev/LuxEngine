@@ -41,6 +41,9 @@ namespace Lux {
 
 		nvrhi::IFramebuffer* GetCurrentFramebuffer();
 		nvrhi::IFramebuffer* GetFramebuffer(uint32_t index);
+		// The NRI color-attachment view of the acquired back buffer (NRI migration Phase 10). Render
+		// thread, after BeginFrame; null before the first acquire.
+		nri::Descriptor* GetCurrentNRIColorAttachment() const;
 
 		uint32_t GetWidth() const { return m_Width; }
 		uint32_t GetHeight() const { return m_Height; }

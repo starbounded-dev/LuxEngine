@@ -56,7 +56,8 @@ namespace Lux {
 	};
 
 	// Which view of a texture (an NRI descriptor). Counts of 0 mean "the rest of the texture".
-	// Sampled views of depth formats see the depth plane only.
+	// Sampled views of depth formats see the depth plane only. Format UNKNOWN means the texture's
+	// own format.
 	struct NRITextureViewKey
 	{
 		nri::TextureView Type{};
@@ -64,6 +65,7 @@ namespace Lux {
 		uint32_t MipNum = 0;
 		uint32_t LayerOffset = 0;
 		uint32_t LayerNum = 0;
+		nri::Format Format{};
 
 		auto operator<=>(const NRITextureViewKey&) const = default;
 	};

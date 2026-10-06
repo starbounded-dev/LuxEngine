@@ -11,6 +11,12 @@
 
 #include "nvrhi/nvrhi.h"
 
+#include <array>
+
+namespace nri {
+	struct Descriptor;
+}
+
 namespace Lux {
 
 	class Framebuffer;
@@ -138,6 +144,14 @@ namespace Lux {
 		virtual nvrhi::FramebufferHandle GetHandle() const;
 		const nvrhi::FramebufferDesc& GetFramebufferDesc() const { return m_FramebufferDesc; }
 
+		// NRI attachment views (NRI migration Phase 10): the images, mip, layer and formats of the
+		// NVRHI framebuffer, rebuilt with it and owned by the images' view caches. A swapchain target
+		// returns the acquired back buffer's view (render thread). Null when NRI has no such view.
+		nri::Descriptor* GetNRIColorAttachment(uint32_t index) const;
+		nri::Descriptor* GetNRIDepthAttachment() const { return m_NRIDepthAttachment; }
+		// True when every attachment has an NRI view (the reason is logged when not).
+		bool HasNRIAttachments() const;
+
 		const std::vector<ClearValue>& GetClearValues() const { return m_ClearValues; }
 
 		virtual const FramebufferSpecification& GetSpecification() const { return m_Specification; }
@@ -156,6 +170,10 @@ namespace Lux {
 
 		nvrhi::FramebufferHandle m_Handle = nullptr;
 		nvrhi::FramebufferDesc m_FramebufferDesc;
+		// Fixed storage: the render thread reads these while a main-thread invalidation rewrites them.
+		std::array<nri::Descriptor*, nvrhi::c_MaxRenderTargets> m_NRIColorAttachments = {};
+		nri::Descriptor* m_NRIDepthAttachment = nullptr;
+		bool m_HasNRIAttachments = false;
 
 		uint32_t m_Width = 0, m_Height = 0;
 
