@@ -401,6 +401,36 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
     `nvrhi::TextureHandle`/`BufferHandle` keeps only the wrapper alive, never the image or buffer,
     so nothing may use a handle after its owner is gone — even if a binding set still holds it.
   - Staging textures (readback) are still NVRHI's until Phase 13.
+- **NRI descriptors sit beside NVRHI's** (Phase 9), built from the same inputs at the same time:
+  - **Pipeline layouts**: one per `VulkanShader`, built when its descriptors are
+    (`CreateDescriptors` → `GetNRIPipelineLayout`):
+    - register space = set number;
+    - one NRI set per non-empty set (`GetNRISetIndex(set)`, `k_NoNRISet` for an empty one);
+    - all stages;
+    - set 4 is the shared bindless range;
+    - push constants are root constant 0.
+
+    NRI compute pipelines are created with the NVRHI ones (`PipelineCompute::GetNRIPipeline`).
+  - **Descriptor sets**: a `DescriptorSetGroup` (`RHI/DescriptorSetGroup.h`) is a pool holding
+    one set per frame in flight. It is written while it is built and **never rewritten**.
+    `DescriptorSetManager::BakeSet` replaces the set's group on every bake, as NVRHI replaces
+    binding sets, and the old group is freed through the GPU deletion queue. Each
+    `BindlessTextureTable` keeps one group and writes it under the same no-in-flight-reader rule
+    as its NVRHI tables (`RT_GetNRISet`).
+  - **Views**: `NRITexture::GetNRITextureView(key)` and `NRIBuffer::GetNRIBufferView` are an
+    on-demand cache keyed per resource, like NVRHI's own view cache. They are destroyed with the
+    resource. A `Sampler` owns its NRI descriptor (`GetRHIDescriptor`).
+  - **No combined image samplers.** NRI has none, so shaders declare `texture2D` plus a `sampler`
+    and combine them at the sample (`sampler2D(u_Tex, r_Sampler)`). Reflection logs an error for a
+    combined `sampler2D` uniform.
+- **NRI compute** (setting `Renderer.NRICompute`, default off, latched per render frame):
+  - `DispatchCompute` still commits NVRHI's compute state, so barriers stay NVRHI's. It then binds
+    and dispatches with NRI inside an **NRI segment**.
+  - A segment (`RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment`) wraps the NVRHI
+    command list's `VkCommandBuffer` in a non-owning NRI command buffer. It starts with NVRHI's
+    pending barriers committed, and only NRI records until it ends. The end calls NVRHI
+    `clearState`, so NVRHI rebinds everything afterwards.
+  - A shader missing an NRI object falls back to NVRHI, logged once per shader.
 
 ---
 
@@ -589,7 +619,8 @@ logged at startup.
 
 Tables are per owner and per frame in flight: each `SceneRenderer` owns a `BindlessTextureTable`
 (its own texture index space — the viewport, material preview and thumbnailer do not share one), and
-that holds one NVRHI descriptor table per frame in flight. NVRHI's bindless layouts are
+that holds one NVRHI descriptor table per frame in flight (plus the NRI sets beside them, `§ NRI
+device`). NVRHI's bindless layouts are
 partially-bound but **not** update-after-bind, so a table may only be written while no in-flight
 frame reads it. `SetSlot` (main thread) records a write; `Flush` hands the writes to the render
 thread, which queues them for every frame's table and writes the current frame's; other tables

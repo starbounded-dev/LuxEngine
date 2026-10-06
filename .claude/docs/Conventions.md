@@ -374,6 +374,11 @@ GPU textures and buffers are created as `NRITexture::Create(nvrhiDesc)` / `NRIBu
 written through `NRIBuffer::Map`/`Unmap`. Keep the owner as a member; its destructor frees through
 the GPU deletion queue (`Rendering.md § NRI device`).
 
+NRI descriptor sets come from a `DescriptorSetGroup` (`RHI/DescriptorSetGroup.h`), which holds one
+set per frame in flight. Fill it once while building it, and replace the whole group when its
+inputs change, never `Write` into a group a frame in flight may read. Shaders sample through
+separate `texture*` and `sampler` bindings; combined `sampler2D` uniforms are rejected.
+
 ### Configuration macros
 
 `LUX_PLATFORM_WINDOWS` / `LUX_PLATFORM_LINUX`, `LUX_DEBUG` / `LUX_RELEASE` / `LUX_DIST`,

@@ -200,7 +200,7 @@ cache (stage strings) and `ShaderPack.lsp` store them. Renderer `.cpp`s convert 
 with `ToNVRHI`/`FromNVRHI` from `RHI/NVRHIInterop.h`, which goes away with NVRHI. Still backend
 until later NRI phases: `Image2D::GetHandle`/`ImageInfo` and the buffers' `GetHandle` (NVRHI
 wrapper handles of NRI-owned resources since P8; removed in P13), `RecordResourceUpload` (P13),
-`RT_BindMaterialDescriptorSet` (P9), and device bring-up in `Window.cpp` (P14). Shader handles
+`RT_BindMaterialDescriptorSet` (until NVRHI stops binding sets, P10/P13), and device bring-up in `Window.cpp` (P14). Shader handles
 live on `VulkanShader` (`GetHandle(ShaderStage)`), not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
@@ -209,7 +209,8 @@ device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and ex
 removed. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
 the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. NRI submits
 to the same `VkQueue`s as NVRHI, so NRI submissions hold `RenderCommandBuffer::LockQueue`. Nothing
-renders through NRI yet. Device features: see `Rendering.md § NRI device`.
+renders through NRI by default yet (`Renderer.NRICompute` opts compute in, below). Device
+features: see `Rendering.md § NRI device`.
 
 **GPU memory is NRI's** (Phase 8): `Image2D`, `VertexBuffer`, `IndexBuffer`, `UniformBuffer`,
 `StorageBuffer`, meshlet buffers and the ImGui renderer own an `NRITexture`/`NRIBuffer`
@@ -217,6 +218,14 @@ renders through NRI yet. Device features: see `Rendering.md § NRI device`.
 frees both through the GPU deletion queue. `ImageInfo::RHITexture` is the NRI texture; swapchain
 images also get non-owning NRI wrappers and color-attachment views. `Renderer::GetGPUMemoryStats`
 reads NRI's `QueryVideoMemoryInfo`.
+
+**NRI descriptors and compute** (Phase 9; details in `Rendering.md § NRI device`):
+- `VulkanShader` builds an NRI pipeline layout with its NVRHI binding layouts, and
+  `PipelineCompute` builds an NRI pipeline with its NVRHI one.
+- `DescriptorSetManager` (and so `Material` and `ComputePass`) and `BindlessTextureTable` build
+  NRI descriptor sets (`DescriptorSetGroup`) from the same inputs as their NVRHI binding sets.
+- With `Renderer.NRICompute`, `Renderer::DispatchCompute` records through NRI inside a
+  `RenderCommandBuffer` NRI segment. NVRHI still owns the command lists, submission and barriers.
 
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
 `ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). With `Renderer.ExplicitBarriers`
