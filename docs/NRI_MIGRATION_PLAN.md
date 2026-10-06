@@ -2156,6 +2156,8 @@ find Core/Source/Lux/Platform/Vulkan -name '*.[ch]*' | xargs wc -l | tail -1
 | P15 | not started | | |
 | P16 | not started | | success criteria checklist with evidence |
 
+**Windows builds come from CI.** GitHub Actions "Build LuxEngine" (`.github/workflows/main.yml`) builds Windows (`windows-2025`) and Linux in Debug, Release and Dist on every push to `dev`; check it with `gh run list` / `gh run view <id>`. Run `37390792151` (`42d6f2d1`) built P0, P1 and the out-of-phase fixes on all six jobs. The earlier red run `37365441018` was runner capacity ("job was not acquired by Runner"), not a compile failure. A phase's "🧑 Windows build" item is satisfied by a green CI run on the pushed commit; Windows *runs* (goldens, validation) are still the user's.
+
 **Out-of-phase fixes (2026-10-05, on NVRHI, build-verified only):**
 - `a2ed5ac5` RenderGraph self-test: the fixture's own `NullTexture` warning was counted. A
   CPU-only harness linked against `libCore.a` reproduced the old failure and passes now.
