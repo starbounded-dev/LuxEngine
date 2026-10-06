@@ -1047,6 +1047,8 @@ namespace Lux {
 		for (const auto& resource : resources.sampled_images)
 		{
 			const auto& name = resource.name;
+			// NRI has no combined image-sampler descriptor: declare a texture plus a separate sampler.
+			LUX_CORE_ERROR_TAG("Renderer", "Combined image samplers are not supported (NRI): {} in {}", name, m_ShaderSourcePath.string());
 			auto& baseType = compiler.get_type(resource.base_type_id);
 			auto& type = compiler.get_type(resource.type_id);
 			uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);

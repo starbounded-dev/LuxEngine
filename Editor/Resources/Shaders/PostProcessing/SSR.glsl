@@ -28,7 +28,7 @@ layout(set = 1, binding = 6) uniform texture2D u_VisibilityBuffer;
 layout(set = 1, binding = 7) uniform utexture2D u_GTAOTex;
 
 #if HBAO_REFLECTION_OCCLUSION
-	layout(set = 1, binding = 8) uniform sampler2D u_HBAOTex;
+	layout(set = 1, binding = 8) uniform texture2D u_HBAOTex;
 #endif
 
 layout(push_constant) uniform SSRInfo

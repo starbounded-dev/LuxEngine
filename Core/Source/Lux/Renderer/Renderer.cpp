@@ -411,7 +411,6 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-EdgeDetection.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-WeightAndBlend.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/DOF.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/EdgeDetection.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SceneComposite.glsl");
 
 		// Light-culling
