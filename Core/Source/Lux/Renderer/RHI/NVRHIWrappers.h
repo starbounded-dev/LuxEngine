@@ -9,7 +9,10 @@
 
 namespace nri {
 	struct Buffer;
+	struct Descriptor;
 	struct Texture;
+	enum class BufferView : uint8_t;
+	enum class TextureView : uint8_t;
 }
 
 // From NRI migration Phase 8, NRI allocates and owns GPU textures and buffers while NVRHI keeps
@@ -46,6 +49,24 @@ namespace Lux {
 		nri::Texture* m_Texture = nullptr;
 		nvrhi::TextureHandle m_Handle;
 	};
+
+	// Which view of a texture (an NRI descriptor). Counts of 0 mean "the rest of the texture".
+	// Sampled views of depth formats see the depth plane only.
+	struct NRITextureViewKey
+	{
+		nri::TextureView Type{};
+		uint32_t MipOffset = 0;
+		uint32_t MipNum = 0;
+		uint32_t LayerOffset = 0;
+		uint32_t LayerNum = 0;
+
+		auto operator<=>(const NRITextureViewKey&) const = default;
+	};
+
+	// Views of NRI-owned textures and buffers, created on first use and destroyed together with the
+	// resource (in NRITexture/NRIBuffer's deletion-queue release). Thread-safe.
+	nri::Descriptor* GetNRITextureView(nri::Texture* texture, const NRITextureViewKey& key);
+	nri::Descriptor* GetNRIBufferView(nri::Buffer* buffer, nri::BufferView type);
 
 	// A buffer NRI owns, plus the NVRHI handle for the same buffer; same rules as NRITexture.
 	// CPU-visible buffers (CpuAccessMode::Write or Read) are mapped through NRI, never NVRHI, which

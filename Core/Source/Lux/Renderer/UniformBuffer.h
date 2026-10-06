@@ -23,6 +23,7 @@ namespace Lux {
 		}
 
 		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
+		nri::Buffer* GetRHIBuffer() const { return m_Buffer.Get(); }
 		uint64_t GetSize() const { return m_Size; }
 
 		void SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint64_t offset = 0);

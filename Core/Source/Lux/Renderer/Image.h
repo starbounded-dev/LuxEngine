@@ -554,15 +554,18 @@ namespace Lux {
 		void Invalidate();
 
 		nvrhi::SamplerHandle GetHandle() const { return m_Handle; }
+		// The same sampler as an NRI descriptor (null if NRI failed to create it).
+		nri::Descriptor* GetRHIDescriptor() const { return m_RHIDescriptor; }
 		virtual ResourceDescriptorInfo GetDescriptorInfo() const override { return (ResourceDescriptorInfo)this; }
 	public:
 		Sampler(const SamplerSpecification& specification);
 
-		virtual ~Sampler() = default;
+		virtual ~Sampler();
 	private:
 		SamplerSpecification m_Specification;
 
 		nvrhi::SamplerHandle m_Handle;
+		nri::Descriptor* m_RHIDescriptor = nullptr;
 	};
 
 }

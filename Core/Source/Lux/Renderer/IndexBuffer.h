@@ -27,6 +27,7 @@ namespace Lux {
 		uint32_t GetCount() const { return (uint32_t)(m_Size / sizeof(uint32_t)); }
 
 		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
+		nri::Buffer* GetRHIBuffer() const { return m_Buffer.Get(); }
 	public:
 		IndexBuffer(const Buffer buffer);
 		IndexBuffer(uint64_t size);

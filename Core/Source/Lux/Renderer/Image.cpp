@@ -9,6 +9,7 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "RenderCommandBuffer.h"
 
@@ -18,6 +19,9 @@ namespace Lux {
 	// the main thread's memory statistics, so every access holds s_ImageReferencesMutex.
 	static std::map<nri::Texture*, WeakRef<Image2D>> s_ImageReferences;
 	static std::mutex s_ImageReferencesMutex;
+
+	// NVRHI samplers leave the LOD range unclamped.
+	static constexpr float k_SamplerMaxLod = 1000.0f;
 
 	Image2D::Image2D(const ImageSpecification& specification)
 		: m_Specification(specification)
@@ -509,5 +513,30 @@ namespace Lux {
 
 		auto device = Application::GetGraphicsDevice();
 		m_Handle = device->createSampler(desc);
+
+		// The NRI twin of the NVRHI sampler above (nvrhi::SamplerDesc defaults: no LOD clamp, no
+		// comparison, isInteger off).
+		const nri::Filter filter[2] = { nri::Filter::NEAREST, nri::Filter::LINEAR };
+		const nri::AddressMode addressMode = m_Specification.AddressMode == TextureWrap::Repeat ? nri::AddressMode::REPEAT : nri::AddressMode::CLAMP_TO_EDGE;
+		nri::SamplerDesc samplerDesc = {};
+		samplerDesc.filters = { filter[m_Specification.MinFilter], filter[m_Specification.MagFilter], filter[m_Specification.MipFilter], nri::FilterOp::AVERAGE };
+		samplerDesc.anisotropy = static_cast<uint8_t>(glm::clamp(m_Specification.MaxAnisotropy, 1.0f, 16.0f));
+		samplerDesc.mipBias = m_Specification.MipBias;
+		samplerDesc.mipMin = 0.0f;
+		samplerDesc.mipMax = k_SamplerMaxLod;
+		samplerDesc.addressModes = { addressMode, addressMode, addressMode };
+		if (RHIDevice::API().CreateSampler(RHIDevice::Get(), samplerDesc, m_RHIDescriptor) != nri::Result::SUCCESS)
+			m_RHIDescriptor = nullptr;
+	}
+
+	Sampler::~Sampler()
+	{
+		if (!m_RHIDescriptor)
+			return;
+
+		Renderer::SubmitResourceFree([descriptor = m_RHIDescriptor]()
+			{
+				RHIDevice::API().DestroyDescriptor(descriptor);
+			});
 	}
 }

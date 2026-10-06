@@ -10,11 +10,34 @@
 
 #include <nvrhi/vulkan.h>
 
+#include <map>
+#include <mutex>
+#include <unordered_map>
+
 namespace Lux {
 
 	namespace {
 
 		constexpr uint64_t k_MinBufferSize = 16;
+
+		// Views per NRI texture/buffer. Entries are added on any thread and removed by the
+		// resource's deletion-queue release, before the resource itself is destroyed.
+		std::mutex s_ViewMutex;
+		std::unordered_map<const nri::Texture*, std::map<NRITextureViewKey, nri::Descriptor*>> s_TextureViews;
+		std::unordered_map<const nri::Buffer*, std::map<nri::BufferView, nri::Descriptor*>> s_BufferViews;
+
+		template<typename ViewMap>
+		void DestroyViews(ViewMap& views, const void* resource)
+		{
+			std::scoped_lock lock(s_ViewMutex);
+			auto it = views.find(static_cast<typename ViewMap::key_type>(resource));
+			if (it == views.end())
+				return;
+
+			for (auto& [key, descriptor] : it->second)
+				RHIDevice::API().DestroyDescriptor(descriptor);
+			views.erase(it);
+		}
 
 		nri::TextureType ToNRITextureType(nvrhi::TextureDimension dimension)
 		{
@@ -145,6 +168,7 @@ namespace Lux {
 		Renderer::SubmitResourceFree([texture = std::exchange(m_Texture, nullptr), handle = std::move(m_Handle)]() mutable
 			{
 				handle = nullptr;
+				DestroyViews(s_TextureViews, texture);
 				RHIDevice::API().DestroyTexture(texture);
 			});
 		m_Handle = nullptr;
@@ -210,6 +234,7 @@ namespace Lux {
 		Renderer::SubmitResourceFree([buffer = std::exchange(m_Buffer, nullptr), handle = std::move(m_Handle)]() mutable
 			{
 				handle = nullptr;
+				DestroyViews(s_BufferViews, buffer);
 				RHIDevice::API().DestroyBuffer(buffer);
 			});
 		m_Handle = nullptr;
@@ -224,6 +249,57 @@ namespace Lux {
 	void NRIBuffer::Unmap() const
 	{
 		RHIDevice::API().UnmapBuffer(*m_Buffer);
+	}
+
+	nri::Descriptor* GetNRITextureView(nri::Texture* texture, const NRITextureViewKey& key)
+	{
+		if (!texture)
+			return nullptr;
+
+		std::scoped_lock lock(s_ViewMutex);
+		nri::Descriptor*& view = s_TextureViews[texture][key];
+		if (view)
+			return view;
+
+		const NRIInterface& api = RHIDevice::API();
+		const nri::TextureDesc& textureDesc = api.GetTextureDesc(*texture);
+		const nri::FormatProps* formatProps = nri::nriGetFormatProps(textureDesc.format);
+		const bool sampled = key.Type == nri::TextureView::TEXTURE || key.Type == nri::TextureView::TEXTURE_ARRAY
+			|| key.Type == nri::TextureView::TEXTURE_CUBE || key.Type == nri::TextureView::TEXTURE_CUBE_ARRAY;
+
+		nri::TextureViewDesc viewDesc = {};
+		viewDesc.texture = texture;
+		viewDesc.type = key.Type;
+		viewDesc.format = textureDesc.format;
+		viewDesc.mipOffset = static_cast<nri::Dim_t>(key.MipOffset);
+		viewDesc.mipNum = static_cast<nri::Dim_t>(key.MipNum);
+		viewDesc.layerOffset = static_cast<nri::Dim_t>(key.LayerOffset);
+		viewDesc.layerNum = static_cast<nri::Dim_t>(key.LayerNum);
+		if (sampled && formatProps && formatProps->isDepth)
+			viewDesc.planes = nri::PlaneBits::DEPTH;
+
+		if (api.CreateTextureView(viewDesc, view) != nri::Result::SUCCESS)
+			view = nullptr;
+		return view;
+	}
+
+	nri::Descriptor* GetNRIBufferView(nri::Buffer* buffer, nri::BufferView type)
+	{
+		if (!buffer)
+			return nullptr;
+
+		std::scoped_lock lock(s_ViewMutex);
+		nri::Descriptor*& view = s_BufferViews[buffer][type];
+		if (view)
+			return view;
+
+		nri::BufferViewDesc viewDesc = {};
+		viewDesc.buffer = buffer;
+		viewDesc.type = type;
+		viewDesc.size = nri::WHOLE_SIZE;
+		if (RHIDevice::API().CreateBufferView(viewDesc, view) != nri::Result::SUCCESS)
+			view = nullptr;
+		return view;
 	}
 
 }
