@@ -176,8 +176,9 @@ those edits wouldn't travel with the repo and would break fresh checkouts:
 
 `Core/vendor/NRI` is the submodule `https://github.com/starbounded-dev/NRI`, branch `lux`
 (StudioCherno's `hazel` merged with NVIDIA-RTX/NRI `main`). Unlike the hacks above, NRI's build and
-patches live **in the fork**: its `premake5.lua` builds the five static libraries, and every source
-change is marked `(Lux patch)` / `(Lux/Hazel patch)`. Changing NRI means a commit on the fork's
+patches live **in the fork**: its `premake5.lua` builds the five static libraries, every source
+change is marked `(Lux patch)` / `(Lux/Hazel patch)`, and the fork's README lists Lux's patches under
+`LUX-PATCHES` (add yours there). Changing NRI means a commit on the fork's
 `lux` branch, pushed **before** the Lux commit that moves the submodule pointer (CI checks out
 submodules recursively and fails on an unpushed commit).
 
