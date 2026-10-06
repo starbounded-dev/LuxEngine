@@ -36,7 +36,7 @@ namespace Lux {
 
 		// Any thread. The NRI texture is created from `desc` (same format, size, mips, layers and
 		// usage) and the NVRHI handle wraps it with `desc`, so NVRHI sees exactly what it would have
-		// created. Empty when NRI fails to create it (out of memory).
+		// created. Empty, and logged, when NRI has no matching format or fails to create it.
 		static NRITexture Create(const nvrhi::TextureDesc& desc);
 
 		void Reset();
@@ -64,7 +64,8 @@ namespace Lux {
 	};
 
 	// Views of NRI-owned textures and buffers, created on first use and destroyed together with the
-	// resource (in NRITexture/NRIBuffer's deletion-queue release). Thread-safe.
+	// resource (in NRITexture/NRIBuffer's deletion-queue release). Thread-safe. Null, logged once per
+	// resource and view, when NRI cannot create the view.
 	nri::Descriptor* GetNRITextureView(nri::Texture* texture, const NRITextureViewKey& key);
 	nri::Descriptor* GetNRIBufferView(nri::Buffer* buffer, nri::BufferView type);
 
@@ -82,13 +83,15 @@ namespace Lux {
 		NRIBuffer& operator=(const NRIBuffer&) = delete;
 
 		// Any thread. Memory: HOST_UPLOAD for CpuAccessMode::Write, HOST_READBACK for Read, DEVICE
-		// otherwise. Volatile buffers are NVRHI's own upload memory and are not supported. Empty
-		// when NRI fails to create it.
+		// otherwise. Volatile buffers are NVRHI's own upload memory and are not supported. Empty, and
+		// logged, when NRI fails to create it.
 		static NRIBuffer Create(const nvrhi::BufferDesc& desc);
 
 		void Reset();
 
-		// CPU-visible buffers only. The pointer addresses byte `offset`.
+		// CPU-visible buffers only. The pointer addresses byte `offset`. Never waits for the GPU
+		// (NVRHI's mapBuffer waited for copies that used the buffer); the caller makes sure no
+		// frame in flight still reads or writes the mapped range.
 		void* Map(uint64_t offset, uint64_t size) const;
 		void Unmap() const;
 

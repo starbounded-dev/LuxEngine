@@ -142,10 +142,18 @@ namespace Lux {
 		// As NVRHI creates images. NRI's CONCURRENT default would also cost compression on some GPUs.
 		nriDesc.sharingMode = nri::SharingMode::EXCLUSIVE;
 
-		NRITexture result;
-		if (nriDesc.format == nri::Format::UNKNOWN
-			|| api.CreateCommittedTexture(RHIDevice::Get(), nri::MemoryLocation::DEVICE, 0.0f, nriDesc, result.m_Texture) != nri::Result::SUCCESS)
+		const char* formatName = nvrhi::getFormatInfo(desc.format).name;
+		if (nriDesc.format == nri::Format::UNKNOWN)
 		{
+			LUX_CORE_ERROR_TAG("Renderer", "NRI has no format matching {} (texture \"{}\")", formatName, desc.debugName);
+			return {};
+		}
+
+		NRITexture result;
+		if (api.CreateCommittedTexture(RHIDevice::Get(), nri::MemoryLocation::DEVICE, 0.0f, nriDesc, result.m_Texture) != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "NRI failed to create texture \"{}\" ({}x{}x{}, {} mip(s), {} layer(s), {})",
+				desc.debugName, desc.width, desc.height, desc.depth, desc.mipLevels, desc.arraySize, formatName);
 			result.m_Texture = nullptr;
 			return result;
 		}
@@ -212,6 +220,8 @@ namespace Lux {
 		NRIBuffer result;
 		if (api.CreateCommittedBuffer(RHIDevice::Get(), ToNRIMemoryLocation(desc.cpuAccess), 0.0f, nriDesc, result.m_Buffer) != nri::Result::SUCCESS)
 		{
+			LUX_CORE_ERROR_TAG("Renderer", "NRI failed to create buffer \"{}\" ({} bytes, CPU access {})",
+				desc.debugName, desc.byteSize, static_cast<int>(desc.cpuAccess));
 			result.m_Buffer = nullptr;
 			return result;
 		}
@@ -257,8 +267,10 @@ namespace Lux {
 			return nullptr;
 
 		std::scoped_lock lock(s_ViewMutex);
-		nri::Descriptor*& view = s_TextureViews[texture][key];
-		if (view)
+		// A failed view stays cached as null, so it is logged once rather than retried every bake.
+		auto [it, inserted] = s_TextureViews[texture].try_emplace(key, nullptr);
+		nri::Descriptor*& view = it->second;
+		if (!inserted)
 			return view;
 
 		const NRIInterface& api = RHIDevice::API();
@@ -279,7 +291,11 @@ namespace Lux {
 			viewDesc.planes = nri::PlaneBits::DEPTH;
 
 		if (api.CreateTextureView(viewDesc, view) != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "NRI failed to create a view (type {}, mips {}+{}, layers {}+{}) of a {}x{} texture",
+				static_cast<int>(key.Type), key.MipOffset, key.MipNum, key.LayerOffset, key.LayerNum, textureDesc.width, textureDesc.height);
 			view = nullptr;
+		}
 		return view;
 	}
 
@@ -289,8 +305,10 @@ namespace Lux {
 			return nullptr;
 
 		std::scoped_lock lock(s_ViewMutex);
-		nri::Descriptor*& view = s_BufferViews[buffer][type];
-		if (view)
+		// Failures stay cached as null, as for texture views.
+		auto [it, inserted] = s_BufferViews[buffer].try_emplace(type, nullptr);
+		nri::Descriptor*& view = it->second;
+		if (!inserted)
 			return view;
 
 		nri::BufferViewDesc viewDesc = {};
@@ -298,7 +316,10 @@ namespace Lux {
 		viewDesc.type = type;
 		viewDesc.size = nri::WHOLE_SIZE;
 		if (RHIDevice::API().CreateBufferView(viewDesc, view) != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "NRI failed to create a buffer view (type {})", static_cast<int>(type));
 			view = nullptr;
+		}
 		return view;
 	}
 

@@ -395,7 +395,9 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - **Never call `device->createTexture` / `createBuffer`** — use `NRITexture::Create` /
     `NRIBuffer::Create`. Volatile NVRHI buffers are not supported.
   - **CPU writes go through `NRIBuffer::Map`/`Unmap`** — NVRHI cannot map memory it did not allocate.
-    GPU-side `writeBuffer`/`writeTexture` on the NVRHI handle keep working.
+    GPU-side `writeBuffer`/`writeTexture` on the NVRHI handle keep working. `Map` never waits for
+    the GPU, unlike NVRHI's `mapBuffer`, which waited for copies that used the buffer. A readback
+    buffer must be mapped only after the fence of the copy into it.
   - **Destruction is the owner's job**: destroying or reassigning an `NRITexture`/`NRIBuffer` frees
     the NVRHI handle and then the NRI resource through `Renderer::SubmitResourceFree`. A copied
     `nvrhi::TextureHandle`/`BufferHandle` keeps only the wrapper alive, never the image or buffer,
