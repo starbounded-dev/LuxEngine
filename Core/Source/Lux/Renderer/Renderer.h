@@ -150,6 +150,8 @@ namespace Lux {
 		static bool RT_ExplicitBarriersEnabled();
 		// Effective mode: the setting is on AND a dedicated transfer queue exists.
 		static bool UseAsyncTransferQueue();
+		// True once Shutdown has drained the queues (the device is idle).
+		static bool IsShutDown();
 		// If an async upload flush happened that consumingQueue hasn't yet waited on,
 		// returns true and sets outInstance to the copy-queue execution instance to
 		// wait on. Records the wait so it isn't re-issued. See RenderCommandBuffer::RT_Submit.
@@ -157,11 +159,18 @@ namespace Lux {
 
 		// Releases GPU objects once the GPU has finished every frame that could still use them (see
 		// RT_BeginFrame). The release is always queued on the render thread, at the point in the
-		// command stream where the object stops being used. `func` must be copyable.
+		// command stream where the object stops being used. `func` must be copyable. After Shutdown
+		// the device is idle and the queues are gone, so the release runs at once.
 		template<typename FuncT>
 		static void SubmitResourceFree(FuncT&& func)
 		{
 			constexpr size_t captureBytes = sizeof(std::decay_t<FuncT>);
+			if (IsShutDown())
+			{
+				func();
+				return;
+			}
+
 			if (RenderThread::IsCurrentThreadRT())
 			{
 				RT_EnqueueResourceFree(std::function<void()>(std::forward<FuncT>(func)), captureBytes);

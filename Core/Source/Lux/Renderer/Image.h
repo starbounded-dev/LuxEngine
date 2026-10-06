@@ -9,6 +9,7 @@
 #include "RendererResource.h"
 
 #include "Lux/Renderer/RHI/RHITypes.h"
+#include "Lux/Renderer/RHI/NVRHIWrappers.h"
 
 #include "nvrhi/nvrhi.h"
 
@@ -117,6 +118,8 @@ namespace Lux {
 	// binding, ImGui); goes away when images move to NRI (NRI migration Phase 8).
 	struct ImageInfo
 	{
+		// The NRI texture that owns the image (Image2D::m_Texture); ImageHandle is NVRHI's view of it.
+		nri::Texture* RHITexture = nullptr;
 		nvrhi::TextureHandle ImageHandle = nullptr;
 		nvrhi::TextureSubresourceSet ImageView = nvrhi::AllSubresources;
 		nvrhi::SamplerHandle Sampler = nullptr;
@@ -245,6 +248,8 @@ namespace Lux {
 		Buffer m_ImageData;
 
 		ImageInfo m_Info;
+		// Owns the image; m_Info mirrors its handles so concurrent readers see a single store.
+		NRITexture m_Texture;
 		uint64_t m_GPUAllocationSize = 0;
 		Ref<Image2D> m_TransientAliasSource;
 

@@ -244,7 +244,7 @@ namespace Lux {
 		// Meshlet data for the mesh-shader path. Built by BuildRenderGeometry when
 		// meshlet building is enabled (set once at startup from GPU support).
 		static void SetBuildMeshlets(bool build) { s_BuildMeshlets = build; }
-		bool HasMeshlets() const { return m_MeshletBuffer != nullptr; }
+		bool HasMeshlets() const { return static_cast<bool>(m_MeshletBuffer); }
 		// Render-thread only: binding set for the meshlet SSBOs (set 0 of the
 		// meshlet shader), created lazily against the shader's binding layout.
 		nvrhi::BindingSetHandle RT_GetOrCreateMeshletBindingSet(nvrhi::IBindingLayout* layout);
@@ -301,9 +301,9 @@ namespace Lux {
 		std::vector<std::vector<SubmeshLOD>> m_SubmeshLODs;
 
 		// Meshlet SSBOs (mesh-shader path); null when meshlets were not built.
-		nvrhi::BufferHandle m_MeshletBuffer;
-		nvrhi::BufferHandle m_MeshletVertexBuffer;
-		nvrhi::BufferHandle m_MeshletTriangleBuffer;
+		NRIBuffer m_MeshletBuffer;
+		NRIBuffer m_MeshletVertexBuffer;
+		NRIBuffer m_MeshletTriangleBuffer;
 		nvrhi::BindingSetHandle m_MeshletBindingSet;
 		nvrhi::IBindingLayout* m_MeshletBindingSetLayout = nullptr;
 

@@ -8,6 +8,8 @@
 
 #include "RenderCommandBuffer.h"
 
+#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+
 #include "nvrhi/nvrhi.h"
 
 namespace Lux {
@@ -29,7 +31,7 @@ namespace Lux {
 
 		void Invalidate();
 
-		nvrhi::BufferHandle GetHandle() const { return m_Handle; }
+		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
 		uint64_t GetSize() const { return m_BufferDesc.byteSize; }
 		const StorageBufferSpecification& GetSpecification() const { return m_Specification; }
 
@@ -44,7 +46,7 @@ namespace Lux {
 	private:
 		StorageBufferSpecification m_Specification;
 
-		nvrhi::BufferHandle m_Handle;
+		NRIBuffer m_Buffer; // NRI-owned; NVRHI renders through its handle
 		nvrhi::BufferDesc m_BufferDesc;
 		Buffer m_LocalStorage;
 	};

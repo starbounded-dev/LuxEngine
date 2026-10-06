@@ -110,8 +110,9 @@ If you need a pipeline variant per frame, you actually need a **permutation** �
 ## Invariant 3 — GPU resources are freed through the release queue
 
 A resource still referenced by an in-flight command buffer must not be destroyed when the CPU drops
-its last `Ref`. NVRHI's own reference tracking covers most handles, but **not descriptor tables**:
-command lists do not keep a `DescriptorTable` alive, so those must be deferred by hand.
+its last `Ref`. NVRHI's own reference tracking covers its own objects, but **not descriptor tables**
+(command lists do not keep a `DescriptorTable` alive) and **not GPU memory**: textures and buffers
+are NRI-owned (`NRITexture`/`NRIBuffer`, below), and their owners free through this queue.
 
 Use `Renderer::SubmitResourceFree(lambda)` (the lambda must be copyable). It is queued on the
 render thread into the `GPUDeletionQueue` (`Renderer/RHI/`), tagged with the render frame number
@@ -384,6 +385,22 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
 - **Errors.** NRI messages go to the log as `[NRI] …` under the `Renderer` tag. An NRI error breaks
   into the debugger in Debug, like a failed assert, and only logs otherwise. NRI validation is on in
   Debug.
+- **NRI owns GPU memory; NVRHI renders through wrappers** (Phase 8, temporary until NVRHI is
+  removed). Every texture and buffer is an `NRITexture` / `NRIBuffer` (`Renderer/RHI/
+  NVRHIWrappers.h`): an NRI committed resource plus `createHandleForNativeTexture/Buffer` with the
+  same NVRHI desc as before, so binding sets, framebuffers, barriers and uploads are unchanged. The
+  NRI desc is derived from the NVRHI desc (format through the VkFormat; images EXCLUSIVE like
+  NVRHI's), and the memory location from `cpuAccess` (Write → HOST_UPLOAD, Read → HOST_READBACK,
+  else DEVICE). Rules:
+  - **Never call `device->createTexture` / `createBuffer`** — use `NRITexture::Create` /
+    `NRIBuffer::Create`. Volatile NVRHI buffers are not supported.
+  - **CPU writes go through `NRIBuffer::Map`/`Unmap`** — NVRHI cannot map memory it did not allocate.
+    GPU-side `writeBuffer`/`writeTexture` on the NVRHI handle keep working.
+  - **Destruction is the owner's job**: destroying or reassigning an `NRITexture`/`NRIBuffer` frees
+    the NVRHI handle and then the NRI resource through `Renderer::SubmitResourceFree`. A copied
+    `nvrhi::TextureHandle`/`BufferHandle` keeps only the wrapper alive, never the image or buffer,
+    so nothing may use a handle after its owner is gone — even if a binding set still holds it.
+  - Staging textures (readback) are still NVRHI's until Phase 13.
 
 ---
 

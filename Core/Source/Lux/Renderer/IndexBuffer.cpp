@@ -21,13 +21,13 @@ namespace Lux {
 			.setKeepInitialState(true) // enable fully automatic state tracking
 			.setDebugName("IndexBuffer");
 
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		m_Handle = device->createBuffer(indexBufferDesc);
+		m_Buffer = NRIBuffer::Create(indexBufferDesc);
+		LUX_CORE_VERIFY(m_Buffer, "Failed to create a {} byte index buffer", buffer.Size);
 
 		// Shared upload batch — see VertexBuffer(Buffer) for rationale.
 		Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
 		{
-			uploadList->writeBuffer(m_Handle, buffer.Data, buffer.Size);
+			uploadList->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size);
 		});
 	}
 
@@ -41,8 +41,8 @@ namespace Lux {
 			.setKeepInitialState(true) // enable fully automatic state tracking
 			.setDebugName("IndexBuffer");
 
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		m_Handle = device->createBuffer(indexBufferDesc);
+		m_Buffer = NRIBuffer::Create(indexBufferDesc);
+		LUX_CORE_VERIFY(m_Buffer, "Failed to create a {} byte index buffer", size);
 	}
 
 	void IndexBuffer::SetData(void* buffer, uint64_t size, uint64_t offset)

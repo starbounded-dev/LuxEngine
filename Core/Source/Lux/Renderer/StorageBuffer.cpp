@@ -27,8 +27,9 @@ namespace Lux {
 	void StorageBuffer::Invalidate()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		m_Handle = device->createBuffer(m_BufferDesc);
+		// Replacing m_Buffer hands the old one to the GPU deletion queue.
+		m_Buffer = NRIBuffer::Create(m_BufferDesc);
+		LUX_CORE_VERIFY(m_Buffer, "Failed to create storage buffer \"{}\" ({} bytes)", m_Specification.DebugName, m_BufferDesc.byteSize);
 
 		if (!m_Specification.GPUOnly)
 			m_LocalStorage.Reallocate(m_BufferDesc.byteSize);
@@ -62,15 +63,14 @@ namespace Lux {
 
 		if (m_Specification.GPUOnly)
 		{
-			cmd->RT_RequireBufferState(m_Handle, ResourceState::CopyDest);
-			cmd->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size, offset);
+			cmd->RT_RequireBufferState(m_Buffer.GetHandle(), ResourceState::CopyDest);
+			cmd->GetActive()->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size, offset);
 			return;
 		}
 
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		uint8_t* mappedBuffer = static_cast<uint8_t*>(device->mapBuffer(m_Handle, nvrhi::CpuAccessMode::Write));
-		std::memcpy(mappedBuffer + offset, buffer.Data, buffer.Size);
-		device->unmapBuffer(m_Handle);
+		void* mappedBuffer = m_Buffer.Map(offset, buffer.Size);
+		std::memcpy(mappedBuffer, buffer.Data, buffer.Size);
+		m_Buffer.Unmap();
 	}
 
 	void StorageBuffer::RT_SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint32_t size, uint32_t offset)

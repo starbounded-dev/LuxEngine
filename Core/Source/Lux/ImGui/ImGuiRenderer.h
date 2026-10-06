@@ -140,7 +140,7 @@ namespace Lux
 
 		// GPU textures ImGui owns (font atlas etc.), serviced via the 1.92 texture system and kept
 		// alive here — PersistentTextures stores only a non-owning pointer. Keyed by persistent slot.
-		std::unordered_map<uint32_t, nvrhi::TextureHandle> ImGuiOwnedTextures;
+		std::unordered_map<uint32_t, NRITexture> ImGuiOwnedTextures;
 
 		// Per-frame textures: indices PersistentHandleCount .. N
 		// Cleared at the start of each new frame by NewFrame().
@@ -236,7 +236,7 @@ namespace Lux
 		ImTextureID RegisterFrameTexture(nvrhi::ITexture* texture, nvrhi::TextureSubresourceSet subresources,
 			bool forceOpaque, bool isGrayscale, Ref<Image2D> keepAlive);
 
-		bool ReallocateBuffer(nvrhi::BufferHandle& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer);
+		bool ReallocateBuffer(NRIBuffer& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer);
 		nvrhi::GraphicsPipelineHandle GetOrCreatePipeline(VulkanSwapChain* swapchain);
 		nvrhi::IBindingSet* GetBindingSet(const ImGuiTextureInfo& texInfo);
 		bool UpdateGeometry(ImDrawData* drawData);
@@ -258,8 +258,8 @@ namespace Lux
 
 		nvrhi::SamplerHandle      m_FontSampler;
 
-		nvrhi::BufferHandle       m_VertexBuffer;
-		nvrhi::BufferHandle       m_IndexBuffer;
+		NRIBuffer                 m_VertexBuffer;
+		NRIBuffer                 m_IndexBuffer;
 
 		nvrhi::BindingLayoutHandle   m_BindingLayout;
 		nvrhi::GraphicsPipelineDesc  m_BasePSODesc;

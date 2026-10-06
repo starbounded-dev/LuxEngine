@@ -23,8 +23,8 @@ namespace Lux {
 			.setKeepInitialState(true) // enable fully automatic state tracking
 			.setDebugName("VertexBuffer");
 
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		m_Handle = device->createBuffer(vertexBufferDesc);
+		m_Buffer = NRIBuffer::Create(vertexBufferDesc);
+		LUX_CORE_VERIFY(m_Buffer, "Failed to create a {} byte vertex buffer", buffer.Size);
 
 		// Record into the shared upload batch instead of creating and submitting
 		// a dedicated command list per buffer (one vkQueueSubmit per mesh causes
@@ -32,7 +32,7 @@ namespace Lux {
 		// lifetime).
 		Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
 		{
-			uploadList->writeBuffer(m_Handle, buffer.Data, buffer.Size);
+			uploadList->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size);
 		});
 	}
 
@@ -49,8 +49,8 @@ namespace Lux {
 			.setCpuAccess(nvrhi::CpuAccessMode::Write)
 			.setDebugName("VertexBuffer");
 
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		m_Handle = device->createBuffer(vertexBufferDesc);
+		m_Buffer = NRIBuffer::Create(vertexBufferDesc);
+		LUX_CORE_VERIFY(m_Buffer, "Failed to create a {} byte vertex buffer", size);
 	}
 
 	void VertexBuffer::SetData(Buffer buffer, uint64_t offset)
@@ -63,11 +63,11 @@ namespace Lux {
 			m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
 
 		//m_CommandList->RT_Begin();
-		//m_CommandList->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size, offset);
-		auto device = Application::GetGraphicsDevice();
-		void* mappedBuffer = device->mapBuffer(m_Handle, nvrhi::CpuAccessMode::Write);
-		memcpy(mappedBuffer, (uint8_t*)buffer.Data + offset, buffer.Size);
-		device->unmapBuffer(m_Handle);
+		//m_CommandList->GetActive()->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size, offset);
+		LUX_CORE_ASSERT(offset + buffer.Size <= m_Size);
+		void* mappedBuffer = m_Buffer.Map(offset, buffer.Size);
+		std::memcpy(mappedBuffer, buffer.Data, buffer.Size);
+		m_Buffer.Unmap();
 		//m_CommandList->RT_End();
 		//m_CommandList->RT_Submit();
 	}
@@ -88,8 +88,8 @@ namespace Lux {
 			m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
 
 		m_CommandList->RT_Begin();
-		m_CommandList->RT_RequireBufferState(m_Handle, ResourceState::CopyDest);
-		m_CommandList->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size);
+		m_CommandList->RT_RequireBufferState(m_Buffer.GetHandle(), ResourceState::CopyDest);
+		m_CommandList->GetActive()->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size);
 		m_CommandList->RT_End();
 		m_CommandList->RT_Submit();
 	}

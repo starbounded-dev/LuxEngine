@@ -325,10 +325,10 @@ namespace Lux
 			flushMeshlet();
 		}
 
-		static nvrhi::BufferHandle CreateMeshletStorageBuffer(const void* data, uint64_t size, const char* debugName)
+		static NRIBuffer CreateMeshletStorageBuffer(const void* data, uint64_t size, const char* debugName)
 		{
 			if (size == 0)
-				return nullptr;
+				return {};
 
 			auto bufferDesc = nvrhi::BufferDesc()
 				.setByteSize(size)
@@ -337,15 +337,15 @@ namespace Lux
 				.setKeepInitialState(true)
 				.setDebugName(debugName);
 
-			nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-			nvrhi::BufferHandle handle = device->createBuffer(bufferDesc);
+			NRIBuffer buffer = NRIBuffer::Create(bufferDesc);
+			LUX_CORE_VERIFY(buffer, "Failed to create meshlet buffer \"{}\" ({} bytes)", debugName, size);
 
 			// The record callback runs immediately; reading from stack-local data is safe.
 			Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
 			{
-				uploadList->writeBuffer(handle, data, size);
+				uploadList->writeBuffer(buffer.GetHandle(), data, size);
 			});
-			return handle;
+			return buffer;
 		}
 	}
 
@@ -510,9 +510,9 @@ namespace Lux
 
 		// Meshlet data for the mesh-shader path (built per submesh per LOD so the
 		// two systems compose). Only when the GPU supports mesh shaders.
-		m_MeshletBuffer = nullptr;
-		m_MeshletVertexBuffer = nullptr;
-		m_MeshletTriangleBuffer = nullptr;
+		m_MeshletBuffer.Reset();
+		m_MeshletVertexBuffer.Reset();
+		m_MeshletTriangleBuffer.Reset();
 		m_MeshletBindingSet = nullptr;
 		m_MeshletBindingSetLayout = nullptr;
 		if (s_BuildMeshlets)
@@ -573,9 +573,9 @@ namespace Lux
 					nvrhi::IBuffer* buffer = nullptr;
 					switch (item.slot)
 					{
-						case 0: buffer = m_MeshletBuffer; break;
-						case 1: buffer = m_MeshletVertexBuffer; break;
-						case 2: buffer = m_MeshletTriangleBuffer; break;
+						case 0: buffer = m_MeshletBuffer.GetHandle(); break;
+						case 1: buffer = m_MeshletVertexBuffer.GetHandle(); break;
+						case 2: buffer = m_MeshletTriangleBuffer.GetHandle(); break;
 						case 3: buffer = m_VertexBuffer->GetHandle(); break;
 					}
 					if (!buffer)

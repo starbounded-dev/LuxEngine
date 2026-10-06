@@ -262,7 +262,6 @@ namespace Lux {
 
 	void ImGuiRenderer::CreateOrUpdateImGuiTexture(ImTextureData* tex)
 	{
-		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 		const bool create = (tex->Status == ImTextureStatus_WantCreate);
 
 		nvrhi::TextureHandle handle;
@@ -281,12 +280,13 @@ namespace Lux {
 			textureDesc.initialState = nvrhi::ResourceStates::ShaderResource;
 			textureDesc.keepInitialState = true;
 
-			handle = device->createTexture(textureDesc);
-			if (!handle)
+			NRITexture texture = NRITexture::Create(textureDesc);
+			if (!texture)
 				return;
 
+			handle = texture.GetHandle();
 			slot = (uint32_t)RegisterPersistentTexture(handle.Get(), nvrhi::AllSubresources);
-			m_Registry->ImGuiOwnedTextures[slot] = handle; // keep alive
+			m_Registry->ImGuiOwnedTextures[slot] = std::move(texture); // keep alive
 		}
 		else // WantUpdates: re-upload into the existing texture
 		{
@@ -299,7 +299,7 @@ namespace Lux {
 				CreateOrUpdateImGuiTexture(tex);
 				return;
 			}
-			handle = it->second;
+			handle = it->second.GetHandle();
 		}
 
 		// Upload the whole pixel buffer. ImTextureData::Updates[] rects are an optimization we skip:
@@ -456,12 +456,10 @@ namespace Lux {
 	// ReallocateBuffer
 	// -----------------------------------------------------------------------
 
-	bool ImGuiRenderer::ReallocateBuffer(nvrhi::BufferHandle& buffer, size_t requiredSize,
+	bool ImGuiRenderer::ReallocateBuffer(NRIBuffer& buffer, size_t requiredSize,
 		size_t reallocateSize, const bool indexBuffer)
 	{
-		nvrhi::IDevice* device = Application::GetGraphicsDevice();
-
-		if (buffer == nullptr || size_t(buffer->getDesc().byteSize) < requiredSize)
+		if (!buffer || size_t(buffer.GetHandle()->getDesc().byteSize) < requiredSize)
 		{
 			nvrhi::BufferDesc desc;
 			desc.byteSize = uint32_t(reallocateSize);
@@ -476,7 +474,8 @@ namespace Lux {
 				: nvrhi::ResourceStates::VertexBuffer;
 			desc.keepInitialState = true;
 
-			buffer = device->createBuffer(desc);
+			// Replacing the buffer hands the old one to the GPU deletion queue.
+			buffer = NRIBuffer::Create(desc);
 			if (!buffer)
 				return false;
 		}
@@ -527,8 +526,8 @@ namespace Lux {
 			(drawData->TotalIdxCount + 5000) * sizeof(ImDrawIdx), true))
 			return false;
 
-		m_VertexBufferData.resize(m_VertexBuffer->getDesc().byteSize / sizeof(ImDrawVert));
-		m_IndexBufferData.resize(m_IndexBuffer->getDesc().byteSize / sizeof(ImDrawIdx));
+		m_VertexBufferData.resize(m_VertexBuffer.GetHandle()->getDesc().byteSize / sizeof(ImDrawVert));
+		m_IndexBufferData.resize(m_IndexBuffer.GetHandle()->getDesc().byteSize / sizeof(ImDrawIdx));
 
 		ImDrawVert* vtxDst = &m_VertexBufferData[0];
 		ImDrawIdx* idxDst = &m_IndexBufferData[0];
@@ -542,8 +541,8 @@ namespace Lux {
 			idxDst += cmdList->IdxBuffer.Size;
 		}
 
-		commandList->writeBuffer(m_VertexBuffer, &m_VertexBufferData[0], m_VertexBuffer->getDesc().byteSize);
-		commandList->writeBuffer(m_IndexBuffer, &m_IndexBufferData[0], m_IndexBuffer->getDesc().byteSize);
+		commandList->writeBuffer(m_VertexBuffer.GetHandle(), &m_VertexBufferData[0], m_VertexBuffer.GetHandle()->getDesc().byteSize);
+		commandList->writeBuffer(m_IndexBuffer.GetHandle(), &m_IndexBufferData[0], m_IndexBuffer.GetHandle()->getDesc().byteSize);
 
 		return true;
 	}
@@ -605,12 +604,12 @@ namespace Lux {
 		drawState.viewport.scissorRects.resize(1);
 
 		nvrhi::VertexBufferBinding vbufBinding;
-		vbufBinding.buffer = m_VertexBuffer;
+		vbufBinding.buffer = m_VertexBuffer.GetHandle();
 		vbufBinding.slot = 0;
 		vbufBinding.offset = 0;
 		drawState.vertexBuffers.push_back(vbufBinding);
 
-		drawState.indexBuffer.buffer = m_IndexBuffer;
+		drawState.indexBuffer.buffer = m_IndexBuffer.GetHandle();
 		drawState.indexBuffer.format = (sizeof(ImDrawIdx) == 2 ? nvrhi::Format::R16_UINT : nvrhi::Format::R32_UINT);
 		drawState.indexBuffer.offset = 0;
 

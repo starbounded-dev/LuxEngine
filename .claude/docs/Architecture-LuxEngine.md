@@ -198,7 +198,8 @@ scene and serialization code use these, never NVRHI types. Values equal NVRHI's
 (`RHI/NVRHIInterop.cpp` proves it with `static_assert`s), because shader reflection, the shader
 cache (stage strings) and `ShaderPack.lsp` store them. Renderer `.cpp`s convert at the NVRHI call
 with `ToNVRHI`/`FromNVRHI` from `RHI/NVRHIInterop.h`, which goes away with NVRHI. Still backend
-until later NRI phases: `Image2D::GetHandle`/`ImageInfo` (P8), `RecordResourceUpload` (P13),
+until later NRI phases: `Image2D::GetHandle`/`ImageInfo` and the buffers' `GetHandle` (NVRHI
+wrapper handles of NRI-owned resources since P8; removed in P13), `RecordResourceUpload` (P13),
 `RT_BindMaterialDescriptorSet` (P9), and device bring-up in `Window.cpp` (P14). Shader handles
 live on `VulkanShader` (`GetHandle(ShaderStage)`), not the abstract `Shader`.
 
@@ -209,6 +210,13 @@ removed. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `G
 the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. NRI submits
 to the same `VkQueue`s as NVRHI, so NRI submissions hold `RenderCommandBuffer::LockQueue`. Nothing
 renders through NRI yet. Device features: see `Rendering.md § NRI device`.
+
+**GPU memory is NRI's** (Phase 8): `Image2D`, `VertexBuffer`, `IndexBuffer`, `UniformBuffer`,
+`StorageBuffer`, meshlet buffers and the ImGui renderer own an `NRITexture`/`NRIBuffer`
+(`Renderer/RHI/NVRHIWrappers.h`), which pairs the NRI resource with a non-owning NVRHI handle and
+frees both through the GPU deletion queue. `ImageInfo::RHITexture` is the NRI texture; swapchain
+images also get non-owning NRI wrappers and color-attachment views. `Renderer::GetGPUMemoryStats`
+reads NRI's `QueryVideoMemoryInfo`.
 
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
 `ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). With `Renderer.ExplicitBarriers`
@@ -1244,7 +1252,8 @@ luxengine/
 │   │       ├── Renderer/          # Renderer, SceneRenderer, RenderGraph, Renderer2D,
 │   │       │                      #   RenderScene/GPUScene, Material, Shader, Pipeline, Mesh, UI/,
 │   │       │                      #   RHI/ (renderer vocabulary, RHIDevice (NRI), state tracker,
-│   │       │                      #   GPU deletion queue, temporary NVRHI interop)
+│   │       │                      #   GPU deletion queue, temporary NVRHI interop + NRI-owned
+│   │       │                      #   resource wrappers)
 │   │       ├── Scene/             # Scene, Entity, Components, SceneSerializer, Prefab
 │   │       ├── Physics/           # PhysicsSystem/Scene/Body/Shapes + JoltPhysics/
 │   │       ├── Physics2D/         # Box2D

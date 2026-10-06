@@ -45,6 +45,7 @@
 #include <unordered_map>
 
 #include "IndexBuffer.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 
 namespace std {
 	template<>
@@ -58,93 +59,6 @@ namespace std {
 }
 
 namespace Lux {
-
-	namespace {
-
-		// Sum of device-local heap sizes (all heaps if none is device-local).
-		uint64_t GetDeviceLocalMemorySize()
-		{
-			nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-			if (!device)
-				return 0;
-
-			VkPhysicalDevice physicalDevice = (VkPhysicalDevice)device->getNativeObject(nvrhi::ObjectTypes::VK_PhysicalDevice);
-			if (!physicalDevice)
-				return 0;
-
-			VkPhysicalDeviceMemoryProperties memoryProperties{};
-			vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
-
-			uint64_t deviceLocalSize = 0;
-			uint64_t totalSize = 0;
-			for (uint32_t heap = 0; heap < memoryProperties.memoryHeapCount; heap++)
-			{
-				const VkMemoryHeap& memoryHeap = memoryProperties.memoryHeaps[heap];
-				totalSize += memoryHeap.size;
-				if (memoryHeap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
-					deviceLocalSize += memoryHeap.size;
-			}
-
-			return deviceLocalSize > 0 ? deviceLocalSize : totalSize;
-		}
-
-		// Driver-reported device-local usage and budget (VK_EXT_memory_budget). Process-wide, so it
-		// includes everything NVRHI allocated. The physical-device query only needs the extension to
-		// be supported, not enabled on the device.
-		bool QueryDeviceLocalMemoryBudget(uint64_t& outUsed, uint64_t& outBudget)
-		{
-			nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-			if (!device)
-				return false;
-
-			VkPhysicalDevice physicalDevice = (VkPhysicalDevice)device->getNativeObject(nvrhi::ObjectTypes::VK_PhysicalDevice);
-			if (!physicalDevice)
-				return false;
-
-			static int s_MemoryBudgetSupport = -1; // -1 unknown, 0 no, 1 yes
-			if (s_MemoryBudgetSupport == -1)
-			{
-				s_MemoryBudgetSupport = 0;
-				uint32_t extensionCount = 0;
-				vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
-				std::vector<VkExtensionProperties> extensions(extensionCount);
-				vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, extensions.data());
-				for (const VkExtensionProperties& extension : extensions)
-				{
-					if (std::strcmp(extension.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0)
-					{
-						s_MemoryBudgetSupport = 1;
-						break;
-					}
-				}
-			}
-
-			if (s_MemoryBudgetSupport != 1)
-				return false;
-
-			VkPhysicalDeviceMemoryBudgetPropertiesEXT budgetProperties{};
-			budgetProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
-
-			VkPhysicalDeviceMemoryProperties2 memoryProperties{};
-			memoryProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
-			memoryProperties.pNext = &budgetProperties;
-			vkGetPhysicalDeviceMemoryProperties2(physicalDevice, &memoryProperties);
-
-			outUsed = 0;
-			outBudget = 0;
-			for (uint32_t heap = 0; heap < memoryProperties.memoryProperties.memoryHeapCount; heap++)
-			{
-				if ((memoryProperties.memoryProperties.memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0)
-					continue;
-
-				outUsed += budgetProperties.heapUsage[heap];
-				outBudget += budgetProperties.heapBudget[heap];
-			}
-
-			return outBudget > 0;
-		}
-
-	}
 
 	// Cache of compute pipelines keyed by shader hash, shared across the whole
 	// process. Currently only the mip generator (LinearSample / LinearSampleUInt)
@@ -348,6 +262,8 @@ namespace Lux {
 	static uint64_t s_RTFrameNumber = 0;
 	static nvrhi::EventQueryHandle s_FrameCompletionEvents[RendererConfig::MaxFramesInFlight];
 	static GPUDeletionQueue s_ResourceFreeQueue;
+	// Set at the end of Shutdown; SubmitResourceFree then releases immediately.
+	static std::atomic<bool> s_ShutDown = false;
 
 	// Work submitted from background threads (e.g. the asset worker) is parked here and replayed on the
 	// main thread, since the render command queue is single-producer. See Renderer::Submit.
@@ -719,6 +635,13 @@ namespace Lux {
 
 		delete s_CommandQueue[0];
 		delete s_CommandQueue[1];
+		s_CommandQueue[0] = s_CommandQueue[1] = nullptr;
+		s_ShutDown.store(true, std::memory_order_release);
+	}
+
+	bool Renderer::IsShutDown()
+	{
+		return s_ShutDown.load(std::memory_order_acquire);
 	}
 
 	Ref<ShaderLibrary> Renderer::GetShaderLibrary()
@@ -2068,18 +1991,21 @@ namespace Lux {
 	GPUMemoryStats Renderer::GetGPUMemoryStats()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		// NVRHI owns every allocation, so per-allocation counts aren't tracked; only the driver's
-		// usage and budget are reported.
+		// Driver-reported device-local usage and budget (VK_EXT_memory_budget, through NRI). It is
+		// process-wide, so it covers NVRHI's remaining allocations as well as NRI's.
 		GPUMemoryStats result;
-		uint64_t used = 0, budget = 0;
-		if (QueryDeviceLocalMemoryBudget(used, budget))
+		if (!RHIDevice::IsInitialized())
+			return result;
+
+		nri::VideoMemoryInfo info = {};
+		if (RHIDevice::API().QueryVideoMemoryInfo(RHIDevice::Get(), nri::MemoryLocation::DEVICE, info) == nri::Result::SUCCESS)
 		{
-			result.Used = used;
-			result.TotalAvailable = budget;
+			result.Used = info.usageSize;
+			result.TotalAvailable = info.budgetSize;
 		}
 		else
 		{
-			result.TotalAvailable = GetDeviceLocalMemorySize();
+			result.TotalAvailable = RHIDevice::GetDesc().adapterDesc.videoMemorySize;
 		}
 		return result;
 	}

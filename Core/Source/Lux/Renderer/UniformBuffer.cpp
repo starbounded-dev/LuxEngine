@@ -22,8 +22,8 @@ namespace Lux {
 			.setKeepInitialState(true) // enable fully automatic state tracking
 			.setDebugName(m_DebugName.c_str());
 
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		m_Handle = device->createBuffer(bufferDesc);
+		m_Buffer = NRIBuffer::Create(bufferDesc);
+		LUX_CORE_VERIFY(m_Buffer, "Failed to create uniform buffer \"{}\" ({} bytes)", m_DebugName, size);
 	}
 
 	void UniformBuffer::SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint64_t size, uint64_t offset)
@@ -55,10 +55,9 @@ namespace Lux {
 
 		LUX_CORE_ASSERT(offset + buffer.Size <= m_Size);
 
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		uint8_t* mappedBuffer = static_cast<uint8_t*>(device->mapBuffer(m_Handle, nvrhi::CpuAccessMode::Write));
-		std::memcpy(mappedBuffer + offset, buffer.Data, buffer.Size);
-		device->unmapBuffer(m_Handle);
+		void* mappedBuffer = m_Buffer.Map(offset, buffer.Size);
+		std::memcpy(mappedBuffer, buffer.Data, buffer.Size);
+		m_Buffer.Unmap();
 	}
 
 }

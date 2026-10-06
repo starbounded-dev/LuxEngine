@@ -16,7 +16,7 @@ namespace Lux {
 
 	// Live-image registry (debug/stats). Written by RT_Invalidate on the render thread and read by
 	// the main thread's memory statistics, so every access holds s_ImageReferencesMutex.
-	static std::map<nvrhi::ITexture*, WeakRef<Image2D>> s_ImageReferences;
+	static std::map<nri::Texture*, WeakRef<Image2D>> s_ImageReferences;
 	static std::mutex s_ImageReferencesMutex;
 
 	Image2D::Image2D(const ImageSpecification& specification)
@@ -50,14 +50,16 @@ namespace Lux {
 			return;
 		}
 
-		if (m_Info.ImageHandle)
+		if (m_Info.RHITexture)
 		{
 			std::scoped_lock lock(s_ImageReferencesMutex);
-			s_ImageReferences.erase(m_Info.ImageHandle.Get());
+			s_ImageReferences.erase(m_Info.RHITexture);
 		}
 
+		m_Info.RHITexture = nullptr;
 		m_Info.ImageHandle = nullptr;
 		m_Info.Sampler = nullptr;
+		m_Texture.Reset();
 		m_GPUAllocationSize = 0;
 		m_PerLayerImageViews.clear();
 		m_PerMipImageViews.clear();
@@ -82,13 +84,14 @@ namespace Lux {
 		if (m_TransientAliasSource == source)
 			return;
 
-		if (m_Info.ImageHandle)
+		if (m_Info.RHITexture)
 		{
 			std::scoped_lock lock(s_ImageReferencesMutex);
-			s_ImageReferences.erase(m_Info.ImageHandle.Get());
+			s_ImageReferences.erase(m_Info.RHITexture);
 		}
 
 		m_Info = {};
+		m_Texture.Reset();
 		m_GPUAllocationSize = 0;
 		m_PerLayerImageViews.clear();
 		m_PerMipImageViews.clear();
@@ -136,6 +139,7 @@ namespace Lux {
 		{
 			LUX_CORE_VERIFY(m_TransientAliasSource->IsValid());
 			m_Info = {};
+			m_Texture.Reset();
 			m_GPUAllocationSize = 0;
 			m_PerLayerImageViews.clear();
 			m_PerMipImageViews.clear();
@@ -233,13 +237,13 @@ namespace Lux {
 		}
 
 		// Build the new texture (and sampler) into locals while the old handle is still live and
-		// readable by other threads.
-		nvrhi::TextureHandle newHandle = device->createTexture(textureDesc);
+		// readable by other threads. NRI owns the image; NVRHI gets a wrapper with this same desc.
+		NRITexture newTexture = NRITexture::Create(textureDesc);
+		const nvrhi::TextureHandle newHandle = newTexture.GetHandle();
 
-		// nvrhi silently returns nullptr when the underlying vkCreateImage or its memory allocation
-		// fails, which otherwise only shows up much later as an access violation deep inside nvrhi
-		// once the null texture reaches createFramebuffer/BindingSet. Fail here, where the image and
-		// its size are still known, instead of at an unrelated call site.
+		// Creation fails (empty) when the image or its memory allocation fails, which would
+		// otherwise only show up much later as an access violation once the null texture reaches
+		// createFramebuffer/BindingSet. Fail here, where the image and its size are still known.
 		LUX_CORE_VERIFY(newHandle, "Failed to create image \"{}\" ({}x{}, {} mip(s), {} layer(s), ~{} MB) - the GPU is most likely out of memory",
 			m_Specification.DebugName, textureDesc.width, textureDesc.height, textureDesc.mipLevels, textureDesc.arraySize,
 			Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers) / (1024 * 1024));
@@ -263,18 +267,23 @@ namespace Lux {
 		// Swap the freshly-built resources in. Assign ImageHandle first, as a single store, so a
 		// concurrent render-thread reader (GetHandle) observes either the old texture or the new
 		// one — never a null handle mid-recreation.
-		const nvrhi::TextureHandle oldHandle = m_Info.ImageHandle;
+		nri::Texture* const oldTexture = m_Info.RHITexture;
 		m_Info.ImageHandle = newHandle;
+		m_Info.RHITexture = newTexture.Get();
 		m_Info.Sampler = newSampler;
 		m_Info.Dimension = textureDesc.dimension;
 		m_GPUAllocationSize = newAllocationSize;
 
 		{
 			std::scoped_lock lock(s_ImageReferencesMutex);
-			if (oldHandle)
-				s_ImageReferences.erase(oldHandle.Get());
-			s_ImageReferences[newHandle.Get()] = this;
+			if (oldTexture)
+				s_ImageReferences.erase(oldTexture);
+			s_ImageReferences[newTexture.Get()] = this;
 		}
+
+		// Hands the old texture to the GPU deletion queue: it is destroyed once the frames that may
+		// still use it have retired.
+		m_Texture = std::move(newTexture);
 
 		// The per-layer/per-mip views wrapped the old texture; drop them so they are rebuilt
 		// against the new texture on demand. Done after the handle swap so the old views (which

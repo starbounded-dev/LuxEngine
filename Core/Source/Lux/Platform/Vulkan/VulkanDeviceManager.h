@@ -184,7 +184,9 @@ namespace Lux {
 				// Core in Vulkan 1.4; NRI uses them when the device supports them (see createDevice)
 				VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
 				VK_KHR_MAINTENANCE_6_EXTENSION_NAME,
-				VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME
+				VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+				// NRI's memory budget query and VMA's budget tracking need it enabled
+				VK_EXT_MEMORY_BUDGET_EXTENSION_NAME
 			},
 		};
 

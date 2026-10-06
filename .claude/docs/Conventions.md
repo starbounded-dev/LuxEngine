@@ -369,6 +369,11 @@ renderer implementation `.cpp`s; those convert at the call with `ToNVRHI`/`FromN
 (`RHI/NVRHIInterop.h`). Note that `TextureSubresourceRange{}` covers every mip and layer, while
 `nvrhi::TextureSubresourceSet{}` is mip 0, layer 0 only.
 
+GPU textures and buffers are created as `NRITexture::Create(nvrhiDesc)` / `NRIBuffer::Create(nvrhiDesc)`
+(`RHI/NVRHIWrappers.h`), never `device->createTexture`/`createBuffer`, and CPU-visible buffers are
+written through `NRIBuffer::Map`/`Unmap`. Keep the owner as a member; its destructor frees through
+the GPU deletion queue (`Rendering.md § NRI device`).
+
 ### Configuration macros
 
 `LUX_PLATFORM_WINDOWS` / `LUX_PLATFORM_LINUX`, `LUX_DEBUG` / `LUX_RELEASE` / `LUX_DIST`,

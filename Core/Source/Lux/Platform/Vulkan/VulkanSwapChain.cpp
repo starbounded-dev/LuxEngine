@@ -6,6 +6,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Debug/Profiler.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include <GLFW/glfw3.h>
 
@@ -239,6 +240,29 @@ namespace Lux {
 			textureDesc.isRenderTarget = true;
 
 			sci.rhiHandle = device->createHandleForNativeTexture(nvrhi::ObjectTypes::VK_Image, nvrhi::Object(sci.image), textureDesc);
+
+			const NRIInterface& api = RHIDevice::API();
+			nri::TextureVKDesc textureVKDesc = {};
+			textureVKDesc.vkImage = reinterpret_cast<uint64_t>(static_cast<VkImage>(image));
+			textureVKDesc.vkFormat = static_cast<int32_t>(m_SwapChainFormat.format);
+			textureVKDesc.vkImageType = VK_IMAGE_TYPE_2D;
+			textureVKDesc.vkImageUsageFlags = static_cast<uint32_t>(imageUsage);
+			textureVKDesc.width = static_cast<nri::Dim_t>(m_Width);
+			textureVKDesc.height = static_cast<nri::Dim_t>(m_Height);
+			textureVKDesc.depth = 1;
+			textureVKDesc.mipNum = 1;
+			textureVKDesc.layerNum = 1;
+			textureVKDesc.sampleNum = 1;
+			LUX_CORE_VERIFY(api.CreateTextureVK(RHIDevice::Get(), textureVKDesc, sci.RHITexture) == nri::Result::SUCCESS, "Failed to wrap a swap chain image in NRI");
+
+			nri::TextureViewDesc viewDesc = {};
+			viewDesc.texture = sci.RHITexture;
+			viewDesc.type = nri::TextureView::COLOR_ATTACHMENT;
+			viewDesc.format = nri::nriConvertVKFormatToNRI(static_cast<uint32_t>(m_SwapChainFormat.format));
+			viewDesc.mipNum = 1;
+			viewDesc.layerNum = 1;
+			LUX_CORE_VERIFY(api.CreateTextureView(viewDesc, sci.RHIColorAttachment) == nri::Result::SUCCESS, "Failed to create a swap chain color-attachment view");
+
 			m_SwapChainImages.push_back(sci);
 		}
 
@@ -284,6 +308,14 @@ namespace Lux {
 		// NOTE: BackBufferResizing() also clears the framebuffers on the OnResize() path; doing it
 		//       here as well keeps Destroy() correct on every path (shutdown, Resize(), re-entry).
 		m_SwapChainFramebuffers.clear();
+		// Both threads are idle here (the GPU too), so the NRI wrappers go now, not via the queue.
+		for (SwapChainImage& image : m_SwapChainImages)
+		{
+			if (image.RHIColorAttachment)
+				RHIDevice::API().DestroyDescriptor(image.RHIColorAttachment);
+			if (image.RHITexture)
+				RHIDevice::API().DestroyTexture(image.RHITexture);
+		}
 		m_SwapChainImages.clear();
 
 		if (nvrhi::IDevice* device = vulkanDeviceManager->GetDevice())

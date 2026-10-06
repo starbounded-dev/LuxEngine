@@ -10,6 +10,8 @@
 
 #include "RenderCommandBuffer.h"
 
+#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+
 #include "nvrhi/nvrhi.h"
 
 namespace Lux {
@@ -32,14 +34,14 @@ namespace Lux {
 		void RT_SetData(const void* data, uint64_t size, uint64_t offset = 0);
 
 		uint64_t GetSize() const { return m_Size; }
-		nvrhi::BufferHandle GetHandle() const { return m_Handle; }
+		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
 	public:
 		VertexBuffer(const Buffer buffer);
 		VertexBuffer(uint64_t size);
 
 		virtual ~VertexBuffer() = default;
 	private:
-		nvrhi::BufferHandle m_Handle;
+		NRIBuffer m_Buffer; // NRI-owned; NVRHI renders through its handle
 		Ref<RenderCommandBuffer> m_CommandList;
 
 		uint64_t m_Size = 0;

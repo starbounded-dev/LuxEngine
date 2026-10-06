@@ -8,6 +8,8 @@
 
 #include "RenderCommandBuffer.h"
 
+#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+
 #include "nvrhi/nvrhi.h"
 
 namespace Lux {
@@ -20,7 +22,7 @@ namespace Lux {
 			return Ref<UniformBuffer>::Create(size, debugName);
 		}
 
-		nvrhi::BufferHandle GetHandle() const { return m_Handle; }
+		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
 		uint64_t GetSize() const { return m_Size; }
 
 		void SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint64_t offset = 0);
@@ -35,7 +37,7 @@ namespace Lux {
 		uint64_t m_Size = 0;
 		std::string m_DebugName;
 
-		nvrhi::BufferHandle m_Handle;
+		NRIBuffer m_Buffer; // NRI-owned; NVRHI renders through its handle
 
 		Buffer m_LocalData;
 	};

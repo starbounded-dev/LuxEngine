@@ -12,6 +12,11 @@
 #include <vector>
 #include <queue>
 
+namespace nri {
+	struct Descriptor;
+	struct Texture;
+}
+
 struct GLFWwindow;
 
 namespace Lux {
@@ -73,6 +78,10 @@ namespace Lux {
 		{
 			vk::Image image;
 			nvrhi::TextureHandle rhiHandle;
+			// Non-owning NRI wrapper of `image` and its color-attachment view; nothing renders
+			// through them until NRI draws (migration P10/P14).
+			nri::Texture* RHITexture = nullptr;
+			nri::Descriptor* RHIColorAttachment = nullptr;
 		};
 		std::vector<SwapChainImage> m_SwapChainImages;
 		uint32_t m_SwapChainIndex = uint32_t(-1);

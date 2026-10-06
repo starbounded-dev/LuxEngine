@@ -501,9 +501,8 @@ namespace Lux {
 		createInfo.DeviceExtensions.assign(vulkanDeviceManager->GetEnabledDeviceExtensions().begin(), vulkanDeviceManager->GetEnabledDeviceExtensions().end());
 		createInfo.EnableValidation = enableValidation;
 
-		// NVRHI keeps rendering if this fails; nothing records through NRI yet.
-		if (!RHIDevice::Init(createInfo))
-			return;
+		// NRI owns every GPU texture and buffer (NRI migration Phase 8), so there is no fallback.
+		LUX_CORE_VERIFY(RHIDevice::Init(createInfo), "Failed to wrap the Vulkan device in NRI");
 
 #ifdef LUX_DEBUG
 		// Blocking, like Tracy's GPU context init: the render thread has nothing to submit yet.

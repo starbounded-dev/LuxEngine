@@ -1,0 +1,83 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
+#pragma once
+
+#include <nvrhi/nvrhi.h>
+
+#include <cstdint>
+
+namespace nri {
+	struct Buffer;
+	struct Texture;
+}
+
+// From NRI migration Phase 8, NRI allocates and owns GPU textures and buffers while NVRHI keeps
+// rendering through non-owning handles to the same VkImage/VkBuffer (plan §2.2, I6). These two
+// owners hold both halves. They go away with NVRHI (Phase 15).
+
+namespace Lux {
+
+	// A texture NRI owns, plus the NVRHI handle for the same image. Move-only. Destroying or
+	// replacing it frees both through Renderer::SubmitResourceFree, once the frames that may use it
+	// have retired: the NVRHI handle first, then the NRI texture.
+	class NRITexture
+	{
+	public:
+		NRITexture() = default;
+		~NRITexture();
+		NRITexture(NRITexture&& other) noexcept;
+		NRITexture& operator=(NRITexture&& other) noexcept;
+		NRITexture(const NRITexture&) = delete;
+		NRITexture& operator=(const NRITexture&) = delete;
+
+		// Any thread. The NRI texture is created from `desc` (same format, size, mips, layers and
+		// usage) and the NVRHI handle wraps it with `desc`, so NVRHI sees exactly what it would have
+		// created. Empty when NRI fails to create it (out of memory).
+		static NRITexture Create(const nvrhi::TextureDesc& desc);
+
+		void Reset();
+
+		nri::Texture* Get() const { return m_Texture; }
+		const nvrhi::TextureHandle& GetHandle() const { return m_Handle; }
+		explicit operator bool() const { return m_Texture != nullptr; }
+
+	private:
+		nri::Texture* m_Texture = nullptr;
+		nvrhi::TextureHandle m_Handle;
+	};
+
+	// A buffer NRI owns, plus the NVRHI handle for the same buffer; same rules as NRITexture.
+	// CPU-visible buffers (CpuAccessMode::Write or Read) are mapped through NRI, never NVRHI, which
+	// cannot map memory it did not allocate (plan I7).
+	class NRIBuffer
+	{
+	public:
+		NRIBuffer() = default;
+		~NRIBuffer();
+		NRIBuffer(NRIBuffer&& other) noexcept;
+		NRIBuffer& operator=(NRIBuffer&& other) noexcept;
+		NRIBuffer(const NRIBuffer&) = delete;
+		NRIBuffer& operator=(const NRIBuffer&) = delete;
+
+		// Any thread. Memory: HOST_UPLOAD for CpuAccessMode::Write, HOST_READBACK for Read, DEVICE
+		// otherwise. Volatile buffers are NVRHI's own upload memory and are not supported. Empty
+		// when NRI fails to create it.
+		static NRIBuffer Create(const nvrhi::BufferDesc& desc);
+
+		void Reset();
+
+		// CPU-visible buffers only. The pointer addresses byte `offset`.
+		void* Map(uint64_t offset, uint64_t size) const;
+		void Unmap() const;
+
+		nri::Buffer* Get() const { return m_Buffer; }
+		const nvrhi::BufferHandle& GetHandle() const { return m_Handle; }
+		explicit operator bool() const { return m_Buffer != nullptr; }
+
+	private:
+		nri::Buffer* m_Buffer = nullptr;
+		nvrhi::BufferHandle m_Handle;
+	};
+
+}

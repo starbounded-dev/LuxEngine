@@ -9,6 +9,8 @@
 #include "RendererTypes.h"
 #include "RenderCommandBuffer.h"
 
+#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+
 #include "nvrhi/nvrhi.h"
 
 namespace Lux {
@@ -24,14 +26,14 @@ namespace Lux {
 		uint64_t GetSize() const { return m_Size; }
 		uint32_t GetCount() const { return (uint32_t)(m_Size / sizeof(uint32_t)); }
 
-		nvrhi::BufferHandle GetHandle() const { return m_Handle; }
+		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
 	public:
 		IndexBuffer(const Buffer buffer);
 		IndexBuffer(uint64_t size);
 
 		virtual ~IndexBuffer() = default;
 	private:
-		nvrhi::BufferHandle m_Handle;
+		NRIBuffer m_Buffer; // NRI-owned; NVRHI renders through its handle
 		Ref<RenderCommandBuffer> m_CommandList;
 
 		uint64_t m_Size = 0;
