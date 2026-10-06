@@ -8,6 +8,7 @@
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
 #include <cstring>
@@ -306,10 +307,60 @@ namespace Lux {
 		if (m_ExplicitBarriers)
 			m_Tracker.End();
 
+		LUX_CORE_ASSERT(!m_InNRISegment, "RT_End inside an NRI segment ({})", m_DebugName);
+		DestroyNRIWrapper();
+
 		m_ActiveCommandBuffer->close();
 
 		m_ActiveCommandBuffer = nullptr;
 
+	}
+
+	RenderCommandBuffer::~RenderCommandBuffer()
+	{
+		DestroyNRIWrapper();
+	}
+
+	nri::CommandBuffer* RenderCommandBuffer::RT_BeginNRISegment()
+	{
+		LUX_CORE_ASSERT(m_ActiveCommandBuffer, "RT_BeginNRISegment outside RT_Begin/RT_End ({})", m_DebugName);
+		LUX_CORE_ASSERT(!m_InNRISegment, "Nested NRI segment ({})", m_DebugName);
+
+		if (!m_NRICommandBuffer)
+		{
+			// Non-owning: NRI never frees a command buffer it did not allocate.
+			nri::CommandBufferVKDesc desc = {};
+			desc.vkCommandBuffer = m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+			desc.queueType = ToNRIQueueType(m_Queue);
+			if (RHIDevice::API().CreateCommandBufferVK(RHIDevice::Get(), desc, m_NRICommandBuffer) != nri::Result::SUCCESS)
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "Failed to wrap command buffer {} in NRI", m_DebugName);
+				m_NRICommandBuffer = nullptr;
+				return nullptr;
+			}
+		}
+
+		m_ActiveCommandBuffer->commitBarriers();
+		m_InNRISegment = true;
+		return m_NRICommandBuffer;
+	}
+
+	void RenderCommandBuffer::RT_EndNRISegment()
+	{
+		LUX_CORE_ASSERT(m_InNRISegment, "RT_EndNRISegment without RT_BeginNRISegment ({})", m_DebugName);
+		// NRI changed the bound pipeline and descriptor sets behind NVRHI's back.
+		m_ActiveCommandBuffer->clearState();
+		m_InNRISegment = false;
+	}
+
+	void RenderCommandBuffer::DestroyNRIWrapper()
+	{
+		if (!m_NRICommandBuffer)
+			return;
+
+		// A wrapper only describes the VkCommandBuffer; nothing on the GPU refers to it.
+		RHIDevice::API().DestroyCommandBuffer(m_NRICommandBuffer);
+		m_NRICommandBuffer = nullptr;
 	}
 
 	void RenderCommandBuffer::RT_Submit()

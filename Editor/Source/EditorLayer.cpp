@@ -380,6 +380,8 @@ namespace Lux {
 			Application::Get().GetSettings().Get("Renderer.AsyncTransferQueue", "false") != "false");
 		Renderer::SetExplicitBarriersEnabled(
 			Application::Get().GetSettings().Get("Renderer.ExplicitBarriers", "false") != "false");
+		Renderer::SetNRIComputeEnabled(
+			Application::Get().GetSettings().Get("Renderer.NRICompute", "false") != "false");
 
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();

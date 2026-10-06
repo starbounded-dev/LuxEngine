@@ -29,6 +29,8 @@ namespace Lux {
 	{
 	};
 
+	nri::QueueType ToNRIQueueType(GPUQueue queue);
+
 	// The Vulkan device RHIDevice wraps, as VulkanDeviceManager created it. Handles are the raw
 	// VkInstance, VkPhysicalDevice and VkDevice.
 	struct RHIDeviceCreateInfo

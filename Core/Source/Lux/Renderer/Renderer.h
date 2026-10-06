@@ -148,6 +148,11 @@ namespace Lux {
 		static bool IsExplicitBarriersEnabled();
 		// Render thread: the value latched for the current render frame.
 		static bool RT_ExplicitBarriersEnabled();
+		// NRI compute (setting Renderer.NRICompute, NRI migration Phase 9): compute dispatches are
+		// recorded with NRI inside the NVRHI command buffers. Any thread; takes effect at the next
+		// render frame.
+		static void SetNRIComputeEnabled(bool enabled);
+		static bool IsNRIComputeEnabled();
 		// Effective mode: the setting is on AND a dedicated transfer queue exists.
 		static bool UseAsyncTransferQueue();
 		// True once Shutdown has drained the queues (the device is idle).

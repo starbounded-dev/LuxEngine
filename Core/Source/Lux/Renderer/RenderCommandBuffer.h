@@ -27,6 +27,10 @@
 #include <tracy/TracyVulkan.hpp>
 #endif
 
+namespace nri {
+	struct CommandBuffer;
+}
+
 namespace Lux {
 
 	class RenderCommandBuffer : public RefCounted
@@ -89,6 +93,15 @@ namespace Lux {
 		// RT_Begin. NRI Phases 11 and 13 remove the need.
 		void SetAutomaticBarriersOnly() { m_AutomaticBarriersOnly = true; }
 
+		// NRI recording inside this command buffer (NRI migration Phase 9, plan §2.2 I3/I4). Between
+		// RT_BeginNRISegment and RT_EndNRISegment only NRI records, into a non-owning NRI wrapper of
+		// the NVRHI command list's VkCommandBuffer. The segment starts with pending barriers committed
+		// (barriers stay NVRHI's until Phase 13) and ends with NVRHI's cached state cleared, so NVRHI
+		// rebinds its pipeline and sets after the segment. Render thread, between RT_Begin and RT_End.
+		// Null, with no segment open, when NRI cannot wrap the command list (logged).
+		nri::CommandBuffer* RT_BeginNRISegment();
+		void RT_EndNRISegment();
+
 		nvrhi::CommandListHandle GetActive() const { return m_ActiveCommandBuffer; }
 		nvrhi::CommandListHandle Get(uint32_t index = 0) const { LUX_CORE_VERIFY(index < m_CommandLists.size());  return m_CommandLists[index]; }
 
@@ -113,12 +126,13 @@ namespace Lux {
 		static void UnlockQueue();
 	public:
 		RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, GPUQueue queue = GPUQueue::Graphics);
-		virtual ~RenderCommandBuffer() = default;
+		virtual ~RenderCommandBuffer();
 	private:
 		void RT_RequireBindingSets(const nvrhi::BindingSetVector& bindings, const nvrhi::BindingSetVector& committed);
 		void RT_RequireFramebuffer(nvrhi::IFramebuffer* framebuffer);
 		void RT_ForgetCommittedState();
 		void RT_CrossCheckStates(const char* context);
+		void DestroyNRIWrapper();
 	private:
 		GPUQueue m_Queue = GPUQueue::Graphics;
 		uint64_t m_LastExecutionInstance = 0;
@@ -134,6 +148,10 @@ namespace Lux {
 		// and always when they hold UAV bindings (that re-require is what places UAV barriers between
 		// dispatches). Raw pointers, compared and never dereferenced.
 		bool m_BindingStatesDirty = true;
+		// The NRI wrapper of the open command list (created by the first segment after RT_Begin,
+		// destroyed by RT_End) and whether a segment is open.
+		nri::CommandBuffer* m_NRICommandBuffer = nullptr;
+		bool m_InNRISegment = false;
 		nvrhi::GraphicsState m_CommittedGraphicsState;
 		nvrhi::ComputeState m_CommittedComputeState;
 		nvrhi::MeshletState m_CommittedMeshletState;

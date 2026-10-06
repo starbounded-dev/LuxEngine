@@ -43,6 +43,7 @@
 #include <shared_mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "IndexBuffer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
@@ -291,6 +292,12 @@ namespace Lux {
 	// few command buffers begun off the render thread (readbacks) read it too.
 	static std::atomic<bool> s_ExplicitBarriersRequested = false;
 	static std::atomic<bool> s_RTExplicitBarriers = false;
+	// Setting (Renderer.NRICompute), latched by RT_BeginFrame like the one above. Render thread only
+	// once latched.
+	static std::atomic<bool> s_NRIComputeRequested = false;
+	static bool s_RTNRICompute = false;
+	// Shaders whose NRI dispatch fell back to NVRHI; logged once each. Render thread.
+	static std::unordered_set<const VulkanShader*> s_ReportedNRIComputeFallbacks;
 	// Copy-queue execution instance of the most recent async upload flush (0 = none
 	// yet). Consumers wait on it before reading uploaded resources.
 	static std::atomic<uint64_t> s_LastUploadInstance = 0;
@@ -326,6 +333,77 @@ namespace Lux {
 		state.pipelinePrimitiveCombiner = nvrhi::ShadingRateCombiner::Override;
 		state.imageCombiner = nvrhi::ShadingRateCombiner::Override;
 		return state;
+	}
+
+	// Records a compute dispatch with NRI into the NVRHI command buffer (Renderer.NRICompute). The
+	// NVRHI compute state is already committed, so the barriers are in place and only the recording
+	// API differs: the same pipeline, sets and push constants, bound through NRI. False when an NRI
+	// object is missing; the caller then dispatches through NVRHI, and the reason is logged (once per
+	// shader for a missing object) so a partial NRI frame is visible.
+	static bool RT_DispatchComputeWithNRI(RenderCommandBuffer& commandBuffer, const ComputePass& computePass, const Material* material, const glm::uvec3& workGroups, const Buffer& constants)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		Ref<VulkanShader> shader = computePass.GetShader().As<VulkanShader>();
+		nri::PipelineLayout* layout = shader->GetNRIPipelineLayout();
+		nri::Pipeline* pipeline = computePass.GetPipeline()->GetNRIPipeline();
+		const char* missing = !layout ? "pipeline layout" : (!pipeline ? "pipeline" : nullptr);
+
+		// The sets NVRHI binds: the pass's, and the material's in the set it occupies.
+		const uint32_t frameIndex = Renderer::RT_GetCurrentFrameIndex();
+		const nvrhi::BindingSetVector& bindings = commandBuffer.GetComputeState().bindings;
+		std::array<nri::SetDescriptorSetDesc, 8> sets = {};
+		uint32_t setCount = 0;
+		for (uint32_t set = 0; !missing && set < bindings.size() && set < sets.size(); set++)
+		{
+			const uint32_t setIndex = shader->GetNRISetIndex(set);
+			// NVRHI binds an empty placeholder where the shader declares nothing.
+			if (!bindings[set] || setIndex == VulkanShader::k_NoNRISet)
+				continue;
+
+			const bool isMaterialSet = material && bindings[set] == material->GetBindingSet(frameIndex).Get();
+			nri::DescriptorSet* descriptorSet = isMaterialSet ? material->GetNRIDescriptorSet(frameIndex) : computePass.GetNRIDescriptorSet(frameIndex, set);
+			if (!descriptorSet)
+			{
+				missing = "descriptor set";
+				break;
+			}
+
+			nri::SetDescriptorSetDesc& setDesc = sets[setCount++];
+			setDesc.setIndex = setIndex;
+			setDesc.descriptorSet = descriptorSet;
+			setDesc.bindPoint = nri::BindPoint::COMPUTE;
+		}
+
+		if (missing)
+		{
+			if (s_ReportedNRIComputeFallbacks.insert(shader.Raw()).second)
+				LUX_CORE_ERROR_TAG("Renderer", "NRI compute: {} has no NRI {}; it is dispatched through NVRHI", shader->GetName(), missing);
+			return false;
+		}
+
+		nri::CommandBuffer* nriCommandBuffer = commandBuffer.RT_BeginNRISegment();
+		if (!nriCommandBuffer)
+			return false;
+
+		const NRIInterface& api = RHIDevice::API();
+		api.CmdSetPipelineLayout(*nriCommandBuffer, nri::BindPoint::COMPUTE, *layout);
+		api.CmdSetPipeline(*nriCommandBuffer, *pipeline);
+		for (uint32_t i = 0; i < setCount; i++)
+			api.CmdSetDescriptorSet(*nriCommandBuffer, sets[i]);
+
+		if (constants && shader->HasNRIRootConstants())
+		{
+			nri::SetRootConstantsDesc rootConstants = {};
+			rootConstants.rootConstantIndex = 0;
+			rootConstants.data = constants.Data;
+			rootConstants.size = static_cast<uint32_t>(constants.Size);
+			rootConstants.bindPoint = nri::BindPoint::COMPUTE;
+			api.CmdSetRootConstants(*nriCommandBuffer, rootConstants);
+		}
+
+		api.CmdDispatch(*nriCommandBuffer, { workGroups.x, workGroups.y, workGroups.z });
+		commandBuffer.RT_EndNRISegment();
+		return true;
 	}
 
 	static RendererAPI* InitRendererAPI()
@@ -807,6 +885,16 @@ namespace Lux {
 		return s_RTExplicitBarriers.load(std::memory_order_relaxed);
 	}
 
+	void Renderer::SetNRIComputeEnabled(bool enabled)
+	{
+		s_NRIComputeRequested.store(enabled, std::memory_order_relaxed);
+	}
+
+	bool Renderer::IsNRIComputeEnabled()
+	{
+		return s_NRIComputeRequested.load(std::memory_order_relaxed);
+	}
+
 	void Renderer::RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -1093,6 +1181,12 @@ namespace Lux {
 				}
 
 				renderCommandBuffer->RT_CommitComputeState();
+
+				if (s_RTNRICompute && RT_DispatchComputeWithNRI(*renderCommandBuffer, *computePass, material.Raw(), workGroups, pushConstantBuffer))
+				{
+					pushConstantBuffer.Release();
+					return;
+				}
 
 				if (pushConstantBuffer)
 				{
@@ -1846,6 +1940,7 @@ namespace Lux {
 		const uint32_t slotCount = s_Config.FramesInFlight;
 
 		s_RTExplicitBarriers.store(s_ExplicitBarriersRequested.load(std::memory_order_relaxed), std::memory_order_relaxed);
+		s_RTNRICompute = s_NRIComputeRequested.load(std::memory_order_relaxed);
 
 		// Close the ending frame: its event covers everything submitted while it was current. The
 		// lock keeps the event in order with other threads' submissions, as in Present().

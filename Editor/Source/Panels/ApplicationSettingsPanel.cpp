@@ -276,6 +276,19 @@ namespace Lux {
 			}
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TextDisabled("The renderer's resource state tracker places every GPU barrier (verification).");
+
+			// NRI compute — compute dispatches are recorded with NRI inside the NVRHI command
+			// buffers (NRI migration Phase 9). Applies at the next frame.
+			bool nriCompute = settings.Get("Renderer.NRICompute", "false") != "false";
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("NRI Compute", nriCompute))
+			{
+				settings.Set("Renderer.NRICompute", nriCompute ? "true" : "false");
+				settings.Serialize();
+				Renderer::SetNRIComputeEnabled(nriCompute);
+			}
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TextDisabled("Compute passes are recorded with NRI instead of NVRHI (verification).");
 		}
 
 		ImGui::Spacing();

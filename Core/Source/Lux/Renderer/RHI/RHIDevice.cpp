@@ -23,6 +23,7 @@ namespace Lux {
 		constexpr std::array<nri::QueueType, static_cast<size_t>(GPUQueue::Count)> k_QueueTypes = {
 			nri::QueueType::GRAPHICS, nri::QueueType::COMPUTE, nri::QueueType::COPY
 		};
+		static_assert(static_cast<size_t>(GPUQueue::Graphics) == 0 && static_cast<size_t>(GPUQueue::Compute) == 1 && static_cast<size_t>(GPUQueue::Copy) == 2);
 
 		constexpr uint64_t k_SelfTestBufferSize = 64 * 1024;
 		constexpr nri::Dim_t k_SelfTestTextureSize = 4;
@@ -74,6 +75,12 @@ namespace Lux {
 				static_cast<bool>(desc.features.viewportOriginBottomLeft), static_cast<bool>(desc.features.rootConstantsOffset));
 		}
 
+	}
+
+	nri::QueueType ToNRIQueueType(GPUQueue queue)
+	{
+		LUX_CORE_ASSERT(queue < GPUQueue::Count);
+		return k_QueueTypes[static_cast<size_t>(queue)];
 	}
 
 	bool RHIDevice::Init(const RHIDeviceCreateInfo& createInfo)
