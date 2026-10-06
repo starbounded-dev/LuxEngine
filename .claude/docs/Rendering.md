@@ -306,6 +306,43 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 
 ---
 
+## Resource states
+
+Every GPU access needs its resource in the right state (layout + access). Two modes exist, chosen
+by the `Renderer.ExplicitBarriers` setting (Application Settings; latched once per render frame):
+
+- **Off (default during NRI Phase 4):** NVRHI's automatic barriers place transitions.
+- **On:** NVRHI's automatic barriers are off for every `RenderCommandBuffer` and the renderer's
+  `ResourceStateTracker` (`Renderer/RHI/`) places them, through `NVRHIBarrierEmitter`.
+
+The model:
+
+- **Resting states.** Every resource has one, the state it is in whenever no command buffer is
+  open: the NVRHI `keepInitialState` initial state today (`ImageUsage::Texture` → `ShaderResource`,
+  `Attachment` → `RenderTarget`/`DepthWrite`, `Storage` → `UnorderedAccess`, vertex/index buffers →
+  `VertexBuffer`/`IndexBuffer`, GPU-only storage → `UnorderedAccess`). Each `RenderCommandBuffer`
+  owns a tracker; resources enter it at their resting state and `RT_End` returns them there.
+- **Where requirements come from.** `RT_CommitGraphicsState` / `RT_CommitComputeState` /
+  `RT_CommitMeshletState` require everything in the state: bound binding sets (SRV →
+  `ShaderResource`, UAV → `UnorderedAccess`, constant buffers), vertex/index/indirect buffers and
+  framebuffer attachments. They mirror NVRHI's automatic change detection exactly (re-require on
+  change, after a copy/clear/write, and always for sets with UAV bindings — which is what places UAV
+  barriers between dispatches), so the two modes emit the same barriers. Code that touches a
+  resource outside a commit requires it first: `RT_RequireTextureState`/`RT_RequireBufferState`
+  for copies, clears and writes (emitted only with explicit barriers on), and
+  `RT_TransitionTextureState`/`RT_TransitionBufferState` + `RT_CommitBarriers` for transitions the
+  code always needed (mip chains, compute → indirect; emitted in both modes).
+- **Exempt command buffers** keep automatic barriers (`SetAutomaticBarriersOnly`): readbacks into
+  NVRHI staging textures and the ImGui renderer, until NRI Phases 13 and 11.
+- **Bindless descriptor tables** are untracked, as in NVRHI; material textures are in their resting
+  `ShaderResource` state whenever a command buffer starts or ends.
+
+**Never call NVRHI's `setTextureState`/`setBufferState` or write a Vulkan barrier by hand — ask the
+command buffer's tracker.** In Debug with explicit barriers on, every commit cross-checks the
+tracker against NVRHI's own state and logs `Tracker/NVRHI state mismatch` once per resource.
+
+---
+
 ## Validation errors are bugs
 
 Vulkan validation output (`VulkanDeviceManager::vulkanDebugCallback`) is not noise. A validation
@@ -318,9 +355,11 @@ crash or corruption on some driver even if it renders correctly on yours.
 - For frame-indexed storage buffers, pass the `StorageBufferSet` to
   `PipelineCompute::BufferMemoryBarrier`; it resolves `RT_Get()` when recording, just like the
   binding sets. Main-thread `Get()` may select a different buffer. Indirect draw consumers need
-  `ResourceAccessFlags::IndirectCommandRead` (NVRHI `IndirectArgument`), not a shader-read state.
+  `ResourceAccessFlags::IndirectCommandRead` (`ResourceState::IndirectArgument`), not a shader-read
+  state; the barrier is an `RT_TransitionBufferState` on the command buffer's tracker.
 - GPU-written storage (including mesh-culling visible indices and indirect arguments) must use
-  `GPUOnly = true`. NVRHI intentionally skips barriers for CPU-visible buffers; CPU initialization
+  `GPUOnly = true`. CPU-visible buffers have no tracked state (the tracker's `DescribeBuffer` gives
+  them no resting state, and NVRHI skips them), so no barrier can protect them; CPU initialization
   of GPU storage goes through `writeBuffer` on the upload command list.
 - PCSS uses constant-index Poisson lookups. Dynamic indexing of the local 64-sample array expands
   into repeated per-fragment scratch arrays on RADV Renoir and can cause a GPU timeout.

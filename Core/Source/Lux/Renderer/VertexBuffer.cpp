@@ -88,6 +88,7 @@ namespace Lux {
 			m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
 
 		m_CommandList->RT_Begin();
+		m_CommandList->RT_RequireBufferState(m_Handle, ResourceState::CopyDest);
 		m_CommandList->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size);
 		m_CommandList->RT_End();
 		m_CommandList->RT_Submit();

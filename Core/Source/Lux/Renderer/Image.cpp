@@ -381,7 +381,11 @@ namespace Lux {
 		nvrhi::IDevice* device = Application::Get().GetWindow().GetDeviceManager()->GetDevice();
 
 		if (!m_CommandList)
+		{
 			m_CommandList = RenderCommandBuffer::Create(1, "Image2D");
+			// Copies into an NVRHI staging texture, whose state only NVRHI's automatic barriers manage.
+			m_CommandList->SetAutomaticBarriersOnly();
+		}
 
 		auto stagingDesc = nvrhi::TextureDesc()
 			.setFormat(Utils::NVRHIFormat(m_Specification.Format))

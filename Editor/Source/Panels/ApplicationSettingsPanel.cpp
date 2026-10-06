@@ -263,6 +263,19 @@ namespace Lux {
 				ImGui::TextDisabled("Uploads meshes/textures on the GPU's dedicated copy queue.");
 			else
 				ImGui::TextDisabled("No dedicated transfer queue on this GPU; uploads use the graphics queue.");
+
+			// Explicit barriers — the renderer's own resource state tracker places every GPU barrier
+			// instead of NVRHI's automatic ones (NRI migration Phase 4). Applies at the next frame.
+			bool explicitBarriers = settings.Get("Renderer.ExplicitBarriers", "false") != "false";
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("Explicit Barriers", explicitBarriers))
+			{
+				settings.Set("Renderer.ExplicitBarriers", explicitBarriers ? "true" : "false");
+				settings.Serialize();
+				Renderer::SetExplicitBarriersEnabled(explicitBarriers);
+			}
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TextDisabled("The renderer's resource state tracker places every GPU barrier (verification).");
 		}
 
 		ImGui::Spacing();

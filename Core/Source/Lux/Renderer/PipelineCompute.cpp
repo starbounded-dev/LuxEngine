@@ -9,6 +9,7 @@
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Image.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 
 namespace Lux {
 
@@ -195,10 +196,9 @@ namespace Lux {
 		nvrhi::BufferHandle handle = storageBuffer ? storageBuffer->GetHandle() : nullptr;
 		if (!handle)
 			return;
-		nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 		renderCommandBuffer->RT_BeginMarker(markerName);
-		commandList->setBufferState(handle, MapAccessFlagsToResourceState(toAccess));
-		commandList->commitBarriers();
+		renderCommandBuffer->RT_TransitionBufferState(handle, FromNVRHI(MapAccessFlagsToResourceState(toAccess)));
+		renderCommandBuffer->RT_CommitBarriers();
 		renderCommandBuffer->RT_EndMarker();
 	}
 
@@ -223,11 +223,9 @@ namespace Lux {
 				nvrhi::TextureHandle handle = image ? image->GetHandle() : nullptr;
 				if (!handle)
 					return;
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-				nvrhi::ResourceStates targetState = MapAccessFlagsToResourceState(toAccess);
 				renderCommandBuffer->RT_BeginMarker(markerName);
-				commandList->setTextureState(handle, nvrhi::AllSubresources, targetState);
-				commandList->commitBarriers();
+				renderCommandBuffer->RT_TransitionTextureState(handle, AllSubresources, FromNVRHI(MapAccessFlagsToResourceState(toAccess)));
+				renderCommandBuffer->RT_CommitBarriers();
 				renderCommandBuffer->RT_EndMarker();
 			});
 	}

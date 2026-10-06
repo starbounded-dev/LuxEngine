@@ -62,6 +62,7 @@ namespace Lux {
 
 		if (m_Specification.GPUOnly)
 		{
+			cmd->RT_RequireBufferState(m_Handle, ResourceState::CopyDest);
 			cmd->GetActive()->writeBuffer(m_Handle, buffer.Data, buffer.Size, offset);
 			return;
 		}

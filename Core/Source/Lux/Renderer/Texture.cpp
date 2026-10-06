@@ -130,6 +130,9 @@ namespace Lux {
 					nvrhi::TextureSlice dstSlice;
 					dstSlice.mipLevel = mip;
 
+					const TextureSubresourceRange mipRange{ mip, 1, 0, 1 };
+					commandBuffer->RT_RequireTextureState(texture->GetHandle(), mipRange, ResourceState::CopySource);
+					commandBuffer->RT_RequireTextureState(srgbTexture->GetHandle(), mipRange, ResourceState::CopyDest);
 					commandList->copyTexture(srgbTexture->GetHandle(), dstSlice, texture->GetHandle(), srcSlice);
 				}
 
@@ -439,14 +442,12 @@ namespace Lux {
 		renderCommandBuffer->Begin();
 
 		Ref<Texture2D> instance = this;
-		Renderer::Submit([renderCommandBuffer, instance]()
+		Renderer::Submit([renderCommandBuffer, instance]() mutable
 			{
 				LUX_CORE_WARN("{}: Generating mips for format {}", instance->m_Specification.DebugName, Utils::ImageFormatToString(instance->m_Specification.Format));
 
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-
-				commandList->setTextureState(instance->m_Image->GetImageInfo().ImageHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-				commandList->commitBarriers();
+				renderCommandBuffer->RT_TransitionTextureState(instance->m_Image->GetImageInfo().ImageHandle, AllSubresources, ResourceState::UnorderedAccess);
+				renderCommandBuffer->RT_CommitBarriers();
 			});
 
 		Renderer::BeginComputePass(renderCommandBuffer, computePass);
@@ -499,12 +500,10 @@ namespace Lux {
 
 		Renderer::EndComputePass(renderCommandBuffer, computePass);
 
-		Renderer::Submit([renderCommandBuffer, instance]()
+		Renderer::Submit([renderCommandBuffer, instance]() mutable
 			{
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-
-				commandList->setTextureState(instance->m_Image->GetImageInfo().ImageHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-				commandList->commitBarriers();
+				renderCommandBuffer->RT_TransitionTextureState(instance->m_Image->GetImageInfo().ImageHandle, AllSubresources, ResourceState::ShaderResource);
+				renderCommandBuffer->RT_CommitBarriers();
 			});
 
 		renderCommandBuffer->End();
@@ -776,7 +775,11 @@ namespace Lux {
 		}
 
 		if (!m_CommandList)
+		{
 			m_CommandList = RenderCommandBuffer::Create(1, "TextureCube");
+			// Copies into an NVRHI staging texture, whose state only NVRHI's automatic barriers manage.
+			m_CommandList->SetAutomaticBarriersOnly();
+		}
 
 		m_CommandList->RT_Begin();
 		for (uint32_t mip = 0; mip < mipCount; mip++)

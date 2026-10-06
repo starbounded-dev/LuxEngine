@@ -8,6 +8,7 @@
 #include "Lux/Debug/Profiler.h"
 
 #include "PipelineSpecification.h"
+#include "Lux/Renderer/RHI/NVRHIBarrierEmitter.h"
 #include "Lux/Renderer/RHI/RHITypes.h"
 #include "Lux/Renderer/RendererConfig.h"
 
@@ -60,6 +61,31 @@ namespace Lux {
 		void SetComputeState(nvrhi::ComputeState& computeState) { m_ComputeState = computeState; }
 		void RT_CommitComputeState();
 
+		// Resource states (NRI migration Phase 4). With Renderer.ExplicitBarriers on, NVRHI's automatic
+		// barriers are off for this command buffer and every GPU access has to be required here:
+		// the commit functions require everything in the graphics/compute/meshlet state, and code that
+		// touches a resource outside them (copies, clears, writes) requires it first.
+		//   RT_Require*:    a requirement NVRHI makes on its own in automatic mode; emitted only with
+		//                   explicit barriers on.
+		//   RT_Transition*: a transition the code always needed (mip chains, compute->indirect);
+		//                   emitted in both modes.
+		void RT_RequireTextureState(nvrhi::ITexture* texture, const TextureSubresourceRange& range, ResourceState state);
+		void RT_RequireBufferState(nvrhi::IBuffer* buffer, ResourceState state);
+		void RT_TransitionTextureState(nvrhi::ITexture* texture, const TextureSubresourceRange& range, ResourceState state);
+		void RT_TransitionBufferState(nvrhi::IBuffer* buffer, ResourceState state);
+		// Attachment clears are transfer operations (CopyDest), unlike drawing into them.
+		void RT_RequireColorAttachmentClear(nvrhi::IFramebuffer* framebuffer, uint32_t attachmentIndex);
+		void RT_RequireDepthAttachmentClear(nvrhi::IFramebuffer* framebuffer);
+		void RT_CommitBarriers();
+		void RT_CommitMeshletState(const nvrhi::MeshletState& meshletState);
+		bool RT_UsesExplicitBarriers() const { return m_ExplicitBarriers; }
+		const ResourceStateTracker& RT_GetTracker() const { return m_Tracker; }
+		// Keeps NVRHI's automatic barriers regardless of Renderer.ExplicitBarriers, for command
+		// buffers whose operations the tracker cannot express on NVRHI: readbacks into staging
+		// textures (no public state API) and ImGui (own texture tracking). Call before the first
+		// RT_Begin. NRI Phases 11 and 13 remove the need.
+		void SetAutomaticBarriersOnly() { m_AutomaticBarriersOnly = true; }
+
 		nvrhi::CommandListHandle GetActive() const { return m_ActiveCommandBuffer; }
 		nvrhi::CommandListHandle Get(uint32_t index = 0) const { LUX_CORE_VERIFY(index < m_CommandLists.size());  return m_CommandLists[index]; }
 
@@ -86,8 +112,27 @@ namespace Lux {
 		RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, GPUQueue queue = GPUQueue::Graphics);
 		virtual ~RenderCommandBuffer() = default;
 	private:
+		void RT_RequireBindingSets(const nvrhi::BindingSetVector& bindings, const nvrhi::BindingSetVector& committed);
+		void RT_RequireFramebuffer(nvrhi::IFramebuffer* framebuffer);
+		void RT_ForgetCommittedState();
+		void RT_CrossCheckStates(const char* context);
+	private:
 		GPUQueue m_Queue = GPUQueue::Graphics;
 		uint64_t m_LastExecutionInstance = 0;
+
+		ResourceStateTracker m_Tracker;
+		NVRHIBarrierEmitter m_BarrierEmitter;
+		bool m_ExplicitBarriers = false;
+		bool m_AutomaticBarriersOnly = false;
+		// Mirrors NVRHI's automatic-barrier change detection, so explicit mode emits the same
+		// barriers: bound sets are re-required when they change, after a copy/clear/write requirement
+		// (m_BindingStatesDirty; explicit transitions leave it alone, as NVRHI's setTextureState does),
+		// and always when they hold UAV bindings (that re-require is what places UAV barriers between
+		// dispatches). Raw pointers, compared and never dereferenced.
+		bool m_BindingStatesDirty = true;
+		nvrhi::GraphicsState m_CommittedGraphicsState;
+		nvrhi::ComputeState m_CommittedComputeState;
+		nvrhi::MeshletState m_CommittedMeshletState;
 
 		nvrhi::static_vector<nvrhi::CommandListHandle, RendererConfig::MaxFramesInFlight> m_CommandLists;
 		// Frame-level timer queries: one per submitted segment of the frame, per frame index.

@@ -199,6 +199,13 @@ until later NRI phases: `Image2D::GetHandle`/`ImageInfo` (P8), `RecordResourceUp
 `RT_BindMaterialDescriptorSet` (P9), and device bring-up in `Window.cpp` (P14). Shader handles
 live on `VulkanShader` (`GetHandle(ShaderStage)`), not the abstract `Shader`.
 
+**Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
+`ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). With `Renderer.ExplicitBarriers`
+on, NVRHI's automatic barriers are off and the tracker places every barrier: the commit functions
+require what the graphics/compute/meshlet state binds, copy/clear/write sites call `RT_Require*`,
+and intra-pass transitions call `RT_Transition*`. Readback and ImGui command buffers stay automatic
+(`SetAutomaticBarriersOnly`).
+
 **Read `.claude/docs/Rendering.md` before changing anything here.** The invariants that are easy to
 break and hard to see: the global `(set, binding)` namespace, pipeline caching, frame-numbered
 resource release (`Renderer::RT_BeginFrame`), and `RenderGraph::ComputeStructureHash` completeness.

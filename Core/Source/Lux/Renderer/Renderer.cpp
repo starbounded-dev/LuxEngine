@@ -370,6 +370,11 @@ namespace Lux {
 	// graphics queue instead is spec-correct. Opt back in via the setting once the
 	// copy path does proper queue-family-ownership transfers.
 	static std::atomic<bool> s_AsyncTransferEnabled = false;
+	// Setting (Renderer.ExplicitBarriers), written from any thread. RT_BeginFrame latches it into
+	// s_RTExplicitBarriers so every command buffer in a frame uses the same mode. Atomic because the
+	// few command buffers begun off the render thread (readbacks) read it too.
+	static std::atomic<bool> s_ExplicitBarriersRequested = false;
+	static std::atomic<bool> s_RTExplicitBarriers = false;
 	// Copy-queue execution instance of the most recent async upload flush (0 = none
 	// yet). Consumers wait on it before reading uploaded resources.
 	static std::atomic<uint64_t> s_LastUploadInstance = 0;
@@ -865,6 +870,21 @@ namespace Lux {
 		return s_AsyncTransferEnabled.load(std::memory_order_relaxed);
 	}
 
+	void Renderer::SetExplicitBarriersEnabled(bool enabled)
+	{
+		s_ExplicitBarriersRequested.store(enabled, std::memory_order_relaxed);
+	}
+
+	bool Renderer::IsExplicitBarriersEnabled()
+	{
+		return s_ExplicitBarriersRequested.load(std::memory_order_relaxed);
+	}
+
+	bool Renderer::RT_ExplicitBarriersEnabled()
+	{
+		return s_RTExplicitBarriers.load(std::memory_order_relaxed);
+	}
+
 	void Renderer::RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -987,6 +1007,7 @@ namespace Lux {
 						nvrhi::Color color = nvrhi::Color(clearValues[i].Color.float32[0], clearValues[i].Color.float32[1],
 							clearValues[i].Color.float32[2], clearValues[i].Color.float32[3]);
 
+						renderCommandBuffer->RT_RequireColorAttachmentClear(framebuffer->GetHandle(), i);
 						nvrhi::utils::ClearColorAttachment(renderCommandBuffer->GetActive(), framebuffer->GetHandle(), i, color);
 					}
 
@@ -995,6 +1016,7 @@ namespace Lux {
 						if (framebuffer->HasDepthAttachment())
 						{
 							const auto& depthStencil = clearValues[clearValues.size() - 1].DepthStencil;
+							renderCommandBuffer->RT_RequireDepthAttachmentClear(framebuffer->GetHandle());
 							nvrhi::utils::ClearDepthStencilAttachment(renderCommandBuffer->GetActive(), framebuffer->GetHandle(), depthStencil.Depth, depthStencil.Stencil);
 						}
 					}
@@ -1625,6 +1647,7 @@ namespace Lux {
 				const auto& spec = image->GetSpecification();
 				const std::string markerName = "ClearImage: " + (spec.DebugName.empty() ? std::string("Image2D") : spec.DebugName);
 				renderCommandBuffer->RT_BeginMarker(markerName);
+				renderCommandBuffer->RT_RequireTextureState(image->GetHandle(), subresources, ResourceState::CopyDest);
 				commandList->clearTextureFloat(image->GetHandle(), ToNVRHI(subresources), nvrhi::Color(clearColor.r, clearColor.g, clearColor.b, clearColor.a));
 				renderCommandBuffer->RT_EndMarker();
 			});
@@ -1662,6 +1685,9 @@ namespace Lux {
 				dstSlice.setSize(copyWidth, copyHeight, 1);
 				dstSlice.setArraySlice(layer);
 
+				const TextureSubresourceRange layerRange{ 0, 1, layer, 1 };
+				renderCommandBuffer->RT_RequireTextureState(sourceImage->GetHandle(), layerRange, ResourceState::CopySource);
+				renderCommandBuffer->RT_RequireTextureState(destinationImage->GetHandle(), layerRange, ResourceState::CopyDest);
 				commandList->copyTexture(destinationImage->GetHandle(), dstSlice, sourceImage->GetHandle(), srcSlice);
 			}
 		});
@@ -1896,6 +1922,8 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 		const uint32_t slotCount = s_Config.FramesInFlight;
+
+		s_RTExplicitBarriers.store(s_ExplicitBarriersRequested.load(std::memory_order_relaxed), std::memory_order_relaxed);
 
 		// Close the ending frame: its event covers everything submitted while it was current. The
 		// lock keeps the event in order with other threads' submissions, as in Present().

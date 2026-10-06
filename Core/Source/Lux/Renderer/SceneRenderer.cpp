@@ -7245,6 +7245,7 @@ namespace Lux {
 			{
 				const auto& clearValues = framebuffer->GetClearValues();
 				const auto& depthStencil = clearValues[clearValues.size() - 1].DepthStencil;
+				cmd->RT_RequireDepthAttachmentClear(framebuffer->GetHandle());
 				nvrhi::utils::ClearDepthStencilAttachment(cmd->GetActive(), framebuffer->GetHandle(), depthStencil.Depth, depthStencil.Stencil);
 			}
 
@@ -7307,7 +7308,7 @@ namespace Lux {
 			meshletState.bindings.resize(1);
 		meshletState.bindings[0] = meshletBindingSet;
 
-		cmd->GetActive()->setMeshletState(meshletState);
+		cmd->RT_CommitMeshletState(meshletState);
 
 		struct MeshletPushConstants
 		{
@@ -7522,9 +7523,12 @@ namespace Lux {
 			Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
 			Renderer::Submit([commandBuffer, pointGrid, spotGrid, counter]() mutable
 			{
-				commandBuffer->GetActive()->clearBufferUInt(pointGrid->RT_Get()->GetHandle(), 0u);
-				commandBuffer->GetActive()->clearBufferUInt(spotGrid->RT_Get()->GetHandle(), 0u);
-				commandBuffer->GetActive()->clearBufferUInt(counter->RT_Get()->GetHandle(), 0u);
+				for (Ref<StorageBufferSet> bufferSet : { pointGrid, spotGrid, counter })
+				{
+					nvrhi::IBuffer* buffer = bufferSet->RT_Get()->GetHandle();
+					commandBuffer->RT_RequireBufferState(buffer, ResourceState::CopyDest);
+					commandBuffer->GetActive()->clearBufferUInt(buffer, 0u);
+				}
 			});
 			return;
 		}
@@ -7535,7 +7539,9 @@ namespace Lux {
 		Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
 		Renderer::Submit([commandBuffer, counter]() mutable
 		{
-			commandBuffer->GetActive()->clearBufferUInt(counter->RT_Get()->GetHandle(), 0u);
+			nvrhi::IBuffer* buffer = counter->RT_Get()->GetHandle();
+			commandBuffer->RT_RequireBufferState(buffer, ResourceState::CopyDest);
+			commandBuffer->GetActive()->clearBufferUInt(buffer, 0u);
 		});
 
 		constexpr uint32_t kThreadsPerGroup = 64;
@@ -7994,7 +8000,7 @@ namespace Lux {
 		} pushConstants;
 
 		Ref<Image2D> preConvolutedImage = m_PreConvolutedTexture.Texture->GetImage();
-		auto transitionMip = [commandBuffer = m_CommandBuffer, preConvolutedImage](uint32_t mip, nvrhi::ResourceStates state, const char* label)
+		auto transitionMip = [commandBuffer = m_CommandBuffer, preConvolutedImage](uint32_t mip, ResourceState state, const char* label)
 		{
 			std::string markerName = std::format("Barrier PreConvolution mip {} {}", mip, label);
 			Renderer::Submit([commandBuffer, preConvolutedImage, mip, state, markerName]() mutable
@@ -8006,10 +8012,9 @@ namespace Lux {
 				nvrhi::TextureHandle handle = preConvolutedImage ? preConvolutedImage->GetHandle() : nullptr;
 				if (!handle)
 					return;
-				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
 				commandBuffer->RT_BeginMarker(markerName);
-				commandList->setTextureState(handle, nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
-				commandList->commitBarriers();
+				commandBuffer->RT_TransitionTextureState(handle, { mip, 1, 0, 1 }, state);
+				commandBuffer->RT_CommitBarriers();
 				commandBuffer->RT_EndMarker();
 			});
 		};
@@ -8023,9 +8028,9 @@ namespace Lux {
 			const glm::uvec3 workGroups = { DivideRoundUp(glm::max(1u, width), 16u), DivideRoundUp(glm::max(1u, height), 16u), 1 };
 			pushConstants.PrevLod = 0;
 			pushConstants.Mode = 0;
-			transitionMip(0, nvrhi::ResourceStates::UnorderedAccess, "write");
+			transitionMip(0, ResourceState::UnorderedAccess, "write");
 			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[0], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-			transitionMip(0, nvrhi::ResourceStates::ShaderResource, "read");
+			transitionMip(0, ResourceState::ShaderResource, "read");
 		}
 
 		const uint32_t mipCount = m_PreConvolutedTexture.Texture->GetMipLevelCount();
@@ -8039,14 +8044,14 @@ namespace Lux {
 			pushConstants.PrevLod = (int)mip - 1;
 
 			pushConstants.Mode = 1;
-			transitionMip(mip, nvrhi::ResourceStates::UnorderedAccess, "write");
+			transitionMip(mip, ResourceState::UnorderedAccess, "write");
 			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[mip], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-			transitionMip(mip, nvrhi::ResourceStates::ShaderResource, "read");
+			transitionMip(mip, ResourceState::ShaderResource, "read");
 
 			pushConstants.Mode = 2;
-			transitionMip(mip, nvrhi::ResourceStates::UnorderedAccess, "write");
+			transitionMip(mip, ResourceState::UnorderedAccess, "write");
 			Renderer::DispatchCompute(m_CommandBuffer, m_PreConvolutionComputePass, m_PreConvolutionMaterials[mip], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-			transitionMip(mip, nvrhi::ResourceStates::ShaderResource, "read");
+			transitionMip(mip, ResourceState::ShaderResource, "read");
 		}
 
 		Renderer::EndComputePass(m_CommandBuffer, m_PreConvolutionComputePass);
@@ -8322,7 +8327,7 @@ namespace Lux {
 			Renderer::DispatchCompute(m_CommandBuffer, m_BloomComputePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
 		};
 
-		auto transitionBloomMip = [commandBuffer = m_CommandBuffer, this](uint32_t textureIndex, uint32_t mip, nvrhi::ResourceStates state, const char* label)
+		auto transitionBloomMip = [commandBuffer = m_CommandBuffer, this](uint32_t textureIndex, uint32_t mip, ResourceState state, const char* label)
 		{
 			if (textureIndex >= m_BloomComputeTextures.size() || !m_BloomComputeTextures[textureIndex].Texture)
 				return;
@@ -8331,13 +8336,12 @@ namespace Lux {
 			std::string markerName = std::format("Barrier Bloom {} mip {} {}", textureIndex, mip, label);
 			Renderer::Submit([commandBuffer, image, mip, state, markerName]() mutable
 			{
-				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
 				commandBuffer->RT_BeginMarker(markerName);
 				// Skip a null handle: during a resize the bloom mip image can be mid-recreation,
-					// and passing null to nvrhi crashes in requireTextureState (see PreConvolutionCompute).
-					if (nvrhi::TextureHandle handle = image->GetHandle())
-						commandList->setTextureState(handle, nvrhi::TextureSubresourceSet(mip, 1, 0, 1), state);
-				commandList->commitBarriers();
+				// and passing null to nvrhi crashes in requireTextureState (see PreConvolutionCompute).
+				if (nvrhi::TextureHandle handle = image->GetHandle())
+					commandBuffer->RT_TransitionTextureState(handle, { mip, 1, 0, 1 }, state);
+				commandBuffer->RT_CommitBarriers();
 				commandBuffer->RT_EndMarker();
 			});
 		};
@@ -8349,9 +8353,9 @@ namespace Lux {
 		pushConstants.Mode = 0;
 		pushConstants.LOD = 0.0f;
 		setTexSize(0);
-		transitionBloomMip(0, 0, nvrhi::ResourceStates::UnorderedAccess, "write");
+		transitionBloomMip(0, 0, ResourceState::UnorderedAccess, "write");
 		dispatchForMip(m_BloomComputeMaterials.PrefilterMaterial, 0);
-		transitionBloomMip(0, 0, nvrhi::ResourceStates::ShaderResource, "read");
+		transitionBloomMip(0, 0, ResourceState::ShaderResource, "read");
 
 		// Downsample, ping-ponging between texture 0 and texture 1.
 		pushConstants.Mode = 1;
@@ -8359,23 +8363,23 @@ namespace Lux {
 		{
 			setTexSize(i);
 			pushConstants.LOD = (float)i - 1.0f;
-			transitionBloomMip(1, i, nvrhi::ResourceStates::UnorderedAccess, "write");
+			transitionBloomMip(1, i, ResourceState::UnorderedAccess, "write");
 			dispatchForMip(m_BloomComputeMaterials.DownsampleAMaterials[i], i);
-			transitionBloomMip(1, i, nvrhi::ResourceStates::ShaderResource, "read");
+			transitionBloomMip(1, i, ResourceState::ShaderResource, "read");
 
 			pushConstants.LOD = (float)i;
-			transitionBloomMip(0, i, nvrhi::ResourceStates::UnorderedAccess, "write");
+			transitionBloomMip(0, i, ResourceState::UnorderedAccess, "write");
 			dispatchForMip(m_BloomComputeMaterials.DownsampleBMaterials[i], i);
-			transitionBloomMip(0, i, nvrhi::ResourceStates::ShaderResource, "read");
+			transitionBloomMip(0, i, ResourceState::ShaderResource, "read");
 		}
 
 		// First upsample from the smallest downsampled mip.
 		pushConstants.Mode = 2;
 		pushConstants.LOD = (float)mips - 2.0f;
 		setTexSize(mips - 1);
-		transitionBloomMip(2, mips - 2, nvrhi::ResourceStates::UnorderedAccess, "write");
+		transitionBloomMip(2, mips - 2, ResourceState::UnorderedAccess, "write");
 		dispatchForMip(m_BloomComputeMaterials.FirstUpsampleMaterial, mips - 2);
-		transitionBloomMip(2, mips - 2, nvrhi::ResourceStates::ShaderResource, "read");
+		transitionBloomMip(2, mips - 2, ResourceState::ShaderResource, "read");
 
 		// Upsample back to mip 0.
 		pushConstants.Mode = 3;
@@ -8383,9 +8387,9 @@ namespace Lux {
 		{
 			pushConstants.LOD = (float)mip;
 			setTexSize((uint32_t)mip + 1u);
-			transitionBloomMip(2, (uint32_t)mip, nvrhi::ResourceStates::UnorderedAccess, "write");
+			transitionBloomMip(2, (uint32_t)mip, ResourceState::UnorderedAccess, "write");
 			dispatchForMip(m_BloomComputeMaterials.UpsampleMaterials[mip], (uint32_t)mip);
-			transitionBloomMip(2, (uint32_t)mip, nvrhi::ResourceStates::ShaderResource, "read");
+			transitionBloomMip(2, (uint32_t)mip, ResourceState::ShaderResource, "read");
 		}
 
 		Renderer::EndComputePass(m_CommandBuffer, m_BloomComputePass);

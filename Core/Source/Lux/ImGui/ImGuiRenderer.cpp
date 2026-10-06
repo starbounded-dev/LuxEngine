@@ -137,6 +137,9 @@ namespace Lux {
 		auto device = Application::GetGraphicsDevice();
 
 		m_RenderCommandBuffer = RenderCommandBuffer::Create(0, "ImGuiRenderer", true);
+		// ImGui tracks some textures itself (beginTrackingTextureState); it moves to the resource
+		// state tracker with the NRI ImGui renderer (NRI migration Phase 11).
+		m_RenderCommandBuffer->SetAutomaticBarriersOnly();
 
 		Ref<Shader> imguiShader = Renderer::GetShaderLibrary()->Get("ImGui");
 		m_VertexShader = imguiShader.As<VulkanShader>()->GetHandle(ShaderStage::Vertex);

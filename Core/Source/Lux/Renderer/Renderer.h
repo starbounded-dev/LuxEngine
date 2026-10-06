@@ -140,6 +140,14 @@ namespace Lux {
 		// loads don't stall the graphics queue. Toggle is live (Renderer.AsyncTransferQueue).
 		static void SetAsyncTransferQueueEnabled(bool enabled);
 		static bool IsAsyncTransferQueueEnabled();
+
+		// Explicit barriers (setting Renderer.ExplicitBarriers, NRI migration Phase 4): NVRHI's
+		// automatic barriers are turned off and every GPU access is required through the
+		// RenderCommandBuffer's ResourceStateTracker. Any thread; takes effect at the next render frame.
+		static void SetExplicitBarriersEnabled(bool enabled);
+		static bool IsExplicitBarriersEnabled();
+		// Render thread: the value latched for the current render frame.
+		static bool RT_ExplicitBarriersEnabled();
 		// Effective mode: the setting is on AND a dedicated transfer queue exists.
 		static bool UseAsyncTransferQueue();
 		// If an async upload flush happened that consumingQueue hasn't yet waited on,
