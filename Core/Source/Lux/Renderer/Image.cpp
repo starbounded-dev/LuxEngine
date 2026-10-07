@@ -397,7 +397,7 @@ namespace Lux {
 		{
 			m_CommandList = RenderCommandBuffer::Create(1, "Image2D");
 			// Copies into an NVRHI staging texture, whose state only NVRHI's automatic barriers manage.
-			m_CommandList->SetAutomaticBarriersOnly();
+			m_CommandList->SetBarrierMode(RenderCommandBuffer::BarrierMode::Automatic);
 		}
 
 		auto stagingDesc = nvrhi::TextureDesc()

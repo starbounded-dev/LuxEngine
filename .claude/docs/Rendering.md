@@ -355,8 +355,9 @@ The model:
   for copies, clears and writes (emitted only with explicit barriers on), and
   `RT_TransitionTextureState`/`RT_TransitionBufferState` + `RT_CommitBarriers` for transitions the
   code always needed (mip chains, compute → indirect; emitted in both modes).
-- **Exempt command buffers** keep automatic barriers (`SetAutomaticBarriersOnly`): readbacks into
-  NVRHI staging textures and the ImGui renderer, until NRI Phases 13 and 11.
+- **Barrier mode** (`RenderCommandBuffer::SetBarrierMode`, read at each `RT_Begin`): `Settings` (the
+  default), `Automatic` for readbacks into NVRHI staging textures (until NRI Phase 13) and the ImGui
+  renderer's NVRHI path, and `Explicit` for the ImGui renderer's NRI path.
 - **Bindless descriptor tables** are untracked, as in NVRHI; material textures are in their resting
   `ShaderResource` state whenever a command buffer starts or ends.
 
@@ -439,7 +440,7 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - A shader missing an NRI object falls back to NVRHI, logged once per shader.
 - **NRI graphics** (setting `Renderer.NRIGraphics`, default off, latched per render frame). NRI
   passes take their barriers from the tracker, so the setting turns explicit barriers on for every
-  command buffer that is not `SetAutomaticBarriersOnly`.
+  command buffer in the `Settings` barrier mode.
   - **The NRI twins.**
     - Every `Pipeline` has one (`GetNRIPipeline`), translated from the finished NVRHI desc so the
       two cannot drift.

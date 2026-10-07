@@ -19,6 +19,21 @@
 
 namespace Lux {
 
+	namespace {
+
+		// `range` with AllMips / AllLayers resolved against the image's current texture.
+		TextureSubresourceRange ResolveRange(const Image2D& image, TextureSubresourceRange range)
+		{
+			const nvrhi::TextureDesc& desc = image.GetImageInfo().ImageHandle->getDesc();
+			if (range.MipCount == TextureSubresourceRange::AllMips)
+				range.MipCount = desc.mipLevels - range.BaseMip;
+			if (range.LayerCount == TextureSubresourceRange::AllLayers)
+				range.LayerCount = desc.arraySize - range.BaseLayer;
+			return range;
+		}
+
+	}
+
 	std::shared_ptr<ImGuiDrawDataSnapshot> ImGuiDrawDataSnapshot::Create(
 		const ImDrawData* drawData,
 		const std::shared_ptr<ImGuiTextureRegistry>& registry)
@@ -55,25 +70,11 @@ namespace Lux {
 
 		// The registry is rebuilt every main-thread ImGui frame. Copy it with the draw
 		// lists so the render thread never races the next frame's NewFrame()/Image calls.
+		// The copies' Refs keep every image alive until the snapshot is rendered, even when the UI
+		// releases an icon or viewport texture before the snapshot reaches the render thread.
 		snapshot->m_PersistentTextures = registry->PersistentTextures;
 		snapshot->m_FrameTextures = registry->FrameTextures;
 		snapshot->m_FrameCounter = registry->FrameCounter;
-
-		// ImGuiTextureInfo intentionally stores a non-owning pointer. The source UI can
-		// release an icon or viewport texture before this snapshot reaches the render
-		// thread, so retain the underlying NVRHI resources for the snapshot lifetime.
-		snapshot->m_TextureKeepAlives.reserve(
-			snapshot->m_PersistentTextures.size() + snapshot->m_FrameTextures.size());
-		for (const ImGuiTextureInfo& texture : snapshot->m_PersistentTextures)
-		{
-			if (texture.Texture)
-				snapshot->m_TextureKeepAlives.emplace_back(texture.Texture);
-		}
-		for (const ImGuiTextureInfo& texture : snapshot->m_FrameTextures)
-		{
-			if (texture.Texture)
-				snapshot->m_TextureKeepAlives.emplace_back(texture.Texture);
-		}
 		return snapshot;
 	}
 
@@ -85,7 +86,7 @@ namespace Lux {
 
 	const ImGuiTextureInfo& ImGuiDrawDataSnapshot::ResolveTexture(uint64_t handle) const
 	{
-		// Returned by reference for any handle we can't resolve. Its Texture is null, so the draw
+		// Returned by reference for any handle we can't resolve. Its Image is null, so the draw
 		// loop skips the command. The asserts below still fire in Debug to pinpoint the bad handle,
 		// but in Release they are compiled out — without the explicit bounds checks an out-of-range
 		// or stale handle would read the vector out of bounds and hand null/garbage to nvrhi
@@ -137,9 +138,9 @@ namespace Lux {
 		auto device = Application::GetGraphicsDevice();
 
 		m_RenderCommandBuffer = RenderCommandBuffer::Create(0, "ImGuiRenderer", true);
-		// ImGui tracks some textures itself (beginTrackingTextureState); it moves to the resource
-		// state tracker with the NRI ImGui renderer (NRI migration Phase 11).
-		m_RenderCommandBuffer->SetAutomaticBarriersOnly();
+		// The NVRHI draws below rely on NVRHI's automatic barriers (setGraphicsState is not committed
+		// through the tracker).
+		m_RenderCommandBuffer->SetBarrierMode(RenderCommandBuffer::BarrierMode::Automatic);
 
 		Ref<Shader> imguiShader = Renderer::GetShaderLibrary()->Get("ImGui");
 		m_VertexShader = imguiShader.As<VulkanShader>()->GetHandle(ShaderStage::Vertex);
@@ -262,57 +263,31 @@ namespace Lux {
 
 	void ImGuiRenderer::CreateOrUpdateImGuiTexture(ImTextureData* tex)
 	{
-		const bool create = (tex->Status == ImTextureStatus_WantCreate);
+		// An engine image, uploaded through the shared upload list (Image2D::SetData), so the
+		// resource state tracker models it like any other texture. An update uploads into a new
+		// image rather than the one frames in flight may still sample (the upload can run on the copy
+		// queue, unordered with them); the old one goes with the last snapshot that draws it. Uploads
+		// are whole: ImTextureData::Updates[] rects are an optimization skipped here.
+		ImageSpecification specification;
+		specification.DebugName = "ImGui atlas texture";
+		specification.Format = (tex->Format == ImTextureFormat_Alpha8) ? ImageFormat::RED8UN : ImageFormat::RGBA;
+		specification.Usage = ImageUsage::Texture;
+		specification.Transfer = true;
+		specification.Width = static_cast<uint32_t>(tex->Width);
+		specification.Height = static_cast<uint32_t>(tex->Height);
+		specification.CreateSampler = false;
 
-		nvrhi::TextureHandle handle;
-		uint32_t slot;
+		Ref<Image2D> image = Image2D::Create(specification);
+		image->Invalidate();
+		image->SetData(Buffer(tex->GetPixels(), static_cast<uint64_t>(tex->GetSizeInBytes())));
 
-		if (create)
-		{
-			nvrhi::TextureDesc textureDesc;
-			textureDesc.width = (uint32_t)tex->Width;
-			textureDesc.height = (uint32_t)tex->Height;
-			textureDesc.format = (tex->Format == ImTextureFormat_Alpha8)
-				? nvrhi::Format::R8_UNORM : nvrhi::Format::RGBA8_UNORM;
-			textureDesc.debugName = "ImGui atlas texture";
-			// keepInitialState lets nvrhi assume the texture is ShaderResource entering any command
-			// list (incl. the render-thread draw), so sampling it never trips "Unknown prior state".
-			textureDesc.initialState = nvrhi::ResourceStates::ShaderResource;
-			textureDesc.keepInitialState = true;
-
-			NRITexture texture = NRITexture::Create(textureDesc);
-			if (!texture)
-				return;
-
-			handle = texture.GetHandle();
-			slot = (uint32_t)RegisterPersistentTexture(handle.Get(), nvrhi::AllSubresources);
-			m_Registry->ImGuiOwnedTextures[slot] = std::move(texture); // keep alive
-		}
-		else // WantUpdates: re-upload into the existing texture
-		{
-			slot = (uint32_t)tex->TexID;
-			auto it = m_Registry->ImGuiOwnedTextures.find(slot);
-			if (it == m_Registry->ImGuiOwnedTextures.end())
-			{
-				// No record of this texture (e.g. a stale TexID) — recreate from scratch.
-				tex->SetStatus(ImTextureStatus_WantCreate);
-				CreateOrUpdateImGuiTexture(tex);
-				return;
-			}
-			handle = it->second.GetHandle();
-		}
-
-		// Upload the whole pixel buffer. ImTextureData::Updates[] rects are an optimization we skip:
-		// the editor's fonts are baked at load, so full re-uploads are rare.
-		m_RenderCommandBuffer->RT_Begin();
-		nvrhi::CommandListHandle commandList = m_RenderCommandBuffer->GetActive();
-		commandList->beginTrackingTextureState(handle, nvrhi::AllSubresources,
-			create ? nvrhi::ResourceStates::Common : nvrhi::ResourceStates::ShaderResource);
-		commandList->writeTexture(handle, 0, 0, tex->GetPixels(), (size_t)tex->GetPitch());
-		commandList->setTextureState(handle, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-		commandList->commitBarriers();
-		m_RenderCommandBuffer->RT_End();
-		m_RenderCommandBuffer->RT_Submit();
+		uint32_t slot = static_cast<uint32_t>(tex->TexID);
+		const bool known = tex->Status == ImTextureStatus_WantUpdates && m_Registry->ImGuiOwnedTextures.contains(slot);
+		if (known)
+			m_Registry->PersistentTextures[slot] = { image, ResolveRange(*image, AllSubresources) };
+		else
+			slot = static_cast<uint32_t>(RegisterPersistentTexture(image));
+		m_Registry->ImGuiOwnedTextures[slot] = image;
 
 		tex->SetTexID((ImTextureID)slot);
 		tex->SetStatus(ImTextureStatus_OK);
@@ -324,8 +299,8 @@ namespace Lux {
 		auto it = m_Registry->ImGuiOwnedTextures.find(slot);
 		if (it != m_Registry->ImGuiOwnedTextures.end())
 		{
-			// Release our reference. Any in-flight snapshot holds its own ref (m_TextureKeepAlives),
-			// so the GPU resource survives until the render thread is done with it.
+			// Release our reference. Any in-flight snapshot holds its own ref, so the image survives
+			// until the render thread is done with it.
 			m_Registry->ImGuiOwnedTextures.erase(it);
 			if (slot < m_Registry->PersistentTextures.size())
 				m_Registry->PersistentTextures[slot] = {}; // stop resolving to a freed texture
@@ -339,18 +314,9 @@ namespace Lux {
 	// RegisterPersistentTexture  (delegates to shared registry)
 	// -----------------------------------------------------------------------
 
-	ImTextureID ImGuiRenderer::RegisterPersistentTexture(nvrhi::ITexture* texture,
-		nvrhi::TextureSubresourceSet subresources)
+	ImTextureID ImGuiRenderer::RegisterPersistentTexture(const Ref<Image2D>& image, TextureSubresourceRange subresources)
 	{
-		LUX_CORE_ASSERT(texture, "RegisterPersistentTexture called with null texture!");
-
-		nvrhi::TextureSubresourceSet resolved = subresources;
-		const nvrhi::TextureDesc& texDesc = texture->getDesc();
-
-		if (resolved.numMipLevels == nvrhi::TextureSubresourceSet::AllMipLevels)
-			resolved.numMipLevels = texDesc.mipLevels - resolved.baseMipLevel;
-		if (resolved.numArraySlices == nvrhi::TextureSubresourceSet::AllArraySlices)
-			resolved.numArraySlices = texDesc.arraySize - resolved.baseArraySlice;
+		LUX_CORE_ASSERT(image && image->GetImageInfo().ImageHandle, "RegisterPersistentTexture called with a null image!");
 
 		uint32_t index;
 		if (!m_Registry->FreePersistentSlots.empty())
@@ -368,7 +334,7 @@ namespace Lux {
 		if (m_Registry->PersistentTextures.size() <= index)
 			m_Registry->PersistentTextures.resize(index + 1);
 
-		m_Registry->PersistentTextures[index] = { texture, resolved };
+		m_Registry->PersistentTextures[index] = { image, ResolveRange(*image, subresources) };
 		return (ImTextureID)(uintptr_t)index;
 	}
 
@@ -381,27 +347,9 @@ namespace Lux {
 		bool forceOpaque,
 		bool isGrayscale)
 	{
-		LUX_CORE_ASSERT(image, "CreateFrameTexture called with a null image!");
-		return RegisterFrameTexture(image->GetHandle(), ToNVRHI(subresources), forceOpaque, isGrayscale, image);
-	}
+		LUX_CORE_ASSERT(image && image->GetImageInfo().ImageHandle, "CreateFrameTexture called with a null image!");
 
-	ImTextureID ImGuiRenderer::RegisterFrameTexture(nvrhi::ITexture* texture,
-		nvrhi::TextureSubresourceSet subresources,
-		bool forceOpaque,
-		bool isGrayscale,
-		Ref<Image2D> keepAlive)
-	{
-		LUX_CORE_ASSERT(texture, "CreateFrameTexture called with null texture!");
-
-		nvrhi::TextureSubresourceSet resolved = subresources;
-		const nvrhi::TextureDesc& texDesc = texture->getDesc();
-
-		if (resolved.numMipLevels == nvrhi::TextureSubresourceSet::AllMipLevels)
-			resolved.numMipLevels = texDesc.mipLevels - resolved.baseMipLevel;
-		if (resolved.numArraySlices == nvrhi::TextureSubresourceSet::AllArraySlices)
-			resolved.numArraySlices = texDesc.arraySize - resolved.baseArraySlice;
-
-		ImGuiTextureInfo key{ texture, resolved, forceOpaque, isGrayscale, std::move(keepAlive) };
+		ImGuiTextureInfo key{ image, ResolveRange(*image, subresources), forceOpaque, isGrayscale };
 
 		auto it = m_Registry->FrameTextureMap.find(key);
 		if (it != m_Registry->FrameTextureMap.end())
@@ -424,15 +372,8 @@ namespace Lux {
 	{
 		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 
-		nvrhi::TextureSubresourceSet resolved = texInfo.Subresources;
-		const nvrhi::TextureDesc& texDesc = texInfo.Texture->getDesc();
-
-		if (resolved.numMipLevels == nvrhi::TextureSubresourceSet::AllMipLevels)
-			resolved.numMipLevels = texDesc.mipLevels - resolved.baseMipLevel;
-		if (resolved.numArraySlices == nvrhi::TextureSubresourceSet::AllArraySlices)
-			resolved.numArraySlices = texDesc.arraySize - resolved.baseArraySlice;
-
-		ImGuiTextureInfo key{ texInfo.Texture, resolved };
+		nvrhi::ITexture* texture = texInfo.Image->GetImageInfo().ImageHandle;
+		const BindingKey key{ texture, texInfo.Range };
 
 		auto iter = m_BindingsCache.find(key);
 		if (iter != m_BindingsCache.end())
@@ -441,7 +382,7 @@ namespace Lux {
 		nvrhi::BindingSetDesc desc;
 		desc.bindings = {
 			nvrhi::BindingSetItem::PushConstants(0, sizeof(float) * 2),
-			nvrhi::BindingSetItem::Texture_SRV(0, texInfo.Texture, nvrhi::Format::UNKNOWN, resolved),
+			nvrhi::BindingSetItem::Texture_SRV(0, texture, nvrhi::Format::UNKNOWN, ToNVRHI(texInfo.Range)),
 			nvrhi::BindingSetItem::Sampler(1, m_FontSampler)
 		};
 
@@ -642,11 +583,11 @@ namespace Lux {
 				const ImGuiTextureInfo& texInfo = snapshot->ResolveTexture(handle);
 
 				// In Release the assert is compiled out; a handle we couldn't resolve (see
-				// ResolveTexture) yields a null texture. GetBindingSet would deref it, and even a
+				// ResolveTexture) yields a null image. GetBindingSet would deref it, and even a
 				// cached binding set feeds a null texture into nvrhi's requireTextureState and
 				// crashes. Skip the command instead of drawing garbage.
-				LUX_CORE_ASSERT(texInfo.Texture, "Texture is null in ImGuiTextureInfo!");
-				if (!texInfo.Texture)
+				LUX_CORE_ASSERT(texInfo.Image, "Image is null in ImGuiTextureInfo!");
+				if (!texInfo.Image || !texInfo.Image->GetImageInfo().ImageHandle)
 					continue;
 
 				drawState.bindings = { GetBindingSet(texInfo) };

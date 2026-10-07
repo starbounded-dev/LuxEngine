@@ -778,7 +778,7 @@ namespace Lux {
 		{
 			m_CommandList = RenderCommandBuffer::Create(1, "TextureCube");
 			// Copies into an NVRHI staging texture, whose state only NVRHI's automatic barriers manage.
-			m_CommandList->SetAutomaticBarriersOnly();
+			m_CommandList->SetBarrierMode(RenderCommandBuffer::BarrierMode::Automatic);
 		}
 
 		m_CommandList->RT_Begin();

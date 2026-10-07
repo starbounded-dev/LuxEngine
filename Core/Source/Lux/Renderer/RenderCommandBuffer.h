@@ -94,11 +94,18 @@ namespace Lux {
 		void RT_BeginRequirementLog();
 		std::vector<const void*> RT_EndRequirementLog();
 		const ResourceStateTracker& RT_GetTracker() const { return m_Tracker; }
-		// Keeps NVRHI's automatic barriers regardless of Renderer.ExplicitBarriers, for command
-		// buffers whose operations the tracker cannot express on NVRHI: readbacks into staging
-		// textures (no public state API) and ImGui (own texture tracking). Call before the first
-		// RT_Begin. NRI Phases 11 and 13 remove the need.
-		void SetAutomaticBarriersOnly() { m_AutomaticBarriersOnly = true; }
+		// Which barriers the next RT_Begin records with.
+		enum class BarrierMode : uint8_t
+		{
+			// Renderer.ExplicitBarriers and Renderer.NRIGraphics decide.
+			Settings,
+			// NVRHI's automatic barriers, whatever the settings: for work the tracker cannot express
+			// on NVRHI, such as readbacks into staging textures (no public state API; NRI Phase 13).
+			Automatic,
+			// The tracker's, whatever the settings: for work recorded with NRI.
+			Explicit,
+		};
+		void SetBarrierMode(BarrierMode mode) { m_BarrierMode = mode; }
 
 		// NRI recording inside this command buffer (NRI migration Phase 9, plan §2.2 I3/I4). Between
 		// RT_BeginNRISegment and RT_EndNRISegment only NRI records, into a non-owning NRI wrapper of
@@ -209,7 +216,7 @@ namespace Lux {
 		ResourceStateTracker m_Tracker;
 		NVRHIBarrierEmitter m_BarrierEmitter;
 		bool m_ExplicitBarriers = false;
-		bool m_AutomaticBarriersOnly = false;
+		BarrierMode m_BarrierMode = BarrierMode::Settings;
 		std::vector<const void*> m_RequirementLog;
 		// Mirrors NVRHI's automatic-barrier change detection, so explicit mode emits the same
 		// barriers: bound sets are re-required when they change, after a copy/clear/write requirement

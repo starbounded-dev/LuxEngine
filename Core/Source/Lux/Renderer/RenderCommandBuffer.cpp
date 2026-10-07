@@ -254,7 +254,12 @@ namespace Lux {
 
 		// Read once per command buffer; the settings themselves are latched once per frame. NRI render
 		// passes take their barriers from the tracker, so NRI graphics implies explicit barriers.
-		m_ExplicitBarriers = !m_AutomaticBarriersOnly && (Renderer::RT_ExplicitBarriersEnabled() || Renderer::RT_NRIGraphicsEnabled());
+		switch (m_BarrierMode)
+		{
+			case BarrierMode::Automatic:	m_ExplicitBarriers = false; break;
+			case BarrierMode::Explicit:		m_ExplicitBarriers = true; break;
+			default:						m_ExplicitBarriers = Renderer::RT_ExplicitBarriersEnabled() || Renderer::RT_NRIGraphicsEnabled(); break;
+		}
 		m_ActiveCommandBuffer->setEnableAutomaticBarriers(!m_ExplicitBarriers);
 		m_BarrierEmitter.SetCommandList(m_ActiveCommandBuffer);
 		m_Tracker.Begin(&m_BarrierEmitter);

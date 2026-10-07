@@ -68,22 +68,18 @@ namespace Lux
 
 	struct ImGuiTextureInfo
 	{
-		nvrhi::ITexture* Texture = nullptr;
-		nvrhi::TextureSubresourceSet Subresources = nvrhi::AllSubresources;
+		// Keeps the image alive until the frame that draws it has been rendered: the draw snapshot
+		// copies this struct.
+		Ref<Image2D> Image;
+		// Resolved: no AllMips / AllLayers.
+		TextureSubresourceRange Range;
 		bool ForceOpaque = false;
 		bool IsGrayscale = false;
-		// Keeps an engine image alive until the frame that draws it has been rendered (the draw
-		// snapshot copies this struct). Null for ImGui-owned textures. Not part of the key: Texture
-		// already identifies the image.
-		Ref<Image2D> Image;
 
 		bool operator==(const ImGuiTextureInfo& other) const
 		{
-			return Texture == other.Texture
-				&& Subresources.baseMipLevel == other.Subresources.baseMipLevel
-				&& Subresources.numMipLevels == other.Subresources.numMipLevels
-				&& Subresources.baseArraySlice == other.Subresources.baseArraySlice
-				&& Subresources.numArraySlices == other.Subresources.numArraySlices
+			return Image.Raw() == other.Image.Raw()
+				&& Range == other.Range
 				&& ForceOpaque == other.ForceOpaque
 				&& IsGrayscale == other.IsGrayscale;
 		}
@@ -93,11 +89,11 @@ namespace Lux
 	{
 		size_t operator()(const ImGuiTextureInfo& info) const
 		{
-			size_t h = std::hash<void*>()(info.Texture);
-			h ^= std::hash<uint32_t>()(info.Subresources.baseMipLevel) << 1;
-			h ^= std::hash<uint32_t>()(info.Subresources.numMipLevels) << 2;
-			h ^= std::hash<uint32_t>()(info.Subresources.baseArraySlice) << 3;
-			h ^= std::hash<uint32_t>()(info.Subresources.numArraySlices) << 4;
+			size_t h = std::hash<const void*>()(info.Image.Raw());
+			h ^= std::hash<uint32_t>()(info.Range.BaseMip) << 1;
+			h ^= std::hash<uint32_t>()(info.Range.MipCount) << 2;
+			h ^= std::hash<uint32_t>()(info.Range.BaseLayer) << 3;
+			h ^= std::hash<uint32_t>()(info.Range.LayerCount) << 4;
 			h ^= std::hash<bool>()(info.ForceOpaque) << 5;
 			h ^= std::hash<bool>()(info.IsGrayscale) << 6;
 			return h;
@@ -138,9 +134,9 @@ namespace Lux
 		// Lets ImGui's create/destroy of atlas textures recycle slots instead of exhausting the 64.
 		std::vector<uint32_t> FreePersistentSlots;
 
-		// GPU textures ImGui owns (font atlas etc.), serviced via the 1.92 texture system and kept
-		// alive here — PersistentTextures stores only a non-owning pointer. Keyed by persistent slot.
-		std::unordered_map<uint32_t, NRITexture> ImGuiOwnedTextures;
+		// The images ImGui owns (font atlas etc.), serviced via the 1.92 texture system. Keyed by
+		// persistent slot.
+		std::unordered_map<uint32_t, Ref<Image2D>> ImGuiOwnedTextures;
 
 		// Per-frame textures: indices PersistentHandleCount .. N
 		// Cleared at the start of each new frame by NewFrame().
@@ -180,9 +176,9 @@ namespace Lux
 
 		ImDrawData m_DrawData;
 		std::vector<ImDrawList*> m_OwnedDrawLists;
+		// Copies of the registry's tables; their Refs keep every drawn image alive.
 		std::vector<ImGuiTextureInfo> m_PersistentTextures;
 		std::vector<ImGuiTextureInfo> m_FrameTextures;
-		std::vector<nvrhi::TextureHandle> m_TextureKeepAlives;
 		uint32_t m_FrameCounter = 0;
 	};
 
@@ -218,8 +214,7 @@ namespace Lux
 		float GetGPUTime() const;
 
 		// Register a persistent texture (indices 0-63) - survives across frames.
-		ImTextureID RegisterPersistentTexture(nvrhi::ITexture* texture,
-			nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources);
+		ImTextureID RegisterPersistentTexture(const Ref<Image2D>& image, TextureSubresourceRange subresources = AllSubresources);
 
 		// Get a per-frame texture handle (indices 64+) - valid only for the
 		// current frame.  Safe to call from any renderer that shares the registry.
@@ -232,10 +227,6 @@ namespace Lux
 		std::shared_ptr<ImGuiTextureRegistry> GetRegistry() const { return m_Registry; }
 
 	private:
-		// The raw-texture path behind CreateFrameTexture. NRI migration Phase 11 retires it.
-		ImTextureID RegisterFrameTexture(nvrhi::ITexture* texture, nvrhi::TextureSubresourceSet subresources,
-			bool forceOpaque, bool isGrayscale, Ref<Image2D> keepAlive);
-
 		bool ReallocateBuffer(NRIBuffer& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer);
 		nvrhi::GraphicsPipelineHandle GetOrCreatePipeline(VulkanSwapChain* swapchain);
 		nvrhi::IBindingSet* GetBindingSet(const ImGuiTextureInfo& texInfo);
@@ -265,8 +256,24 @@ namespace Lux
 		nvrhi::GraphicsPipelineDesc  m_BasePSODesc;
 
 		// Binding set cache is per-renderer (device objects are global, this is
-		// just a lookup optimisation and is cheap to rebuild per viewport).
-		std::unordered_map<ImGuiTextureInfo, nvrhi::BindingSetHandle, ImGuiTextureInfoHash> m_BindingsCache;
+		// just a lookup optimisation and is cheap to rebuild per viewport). Keyed by the image's
+		// current NVRHI texture, which changes when the image is recreated in place.
+		struct BindingKey
+		{
+			nvrhi::ITexture* Texture = nullptr;
+			TextureSubresourceRange Range;
+			bool operator==(const BindingKey&) const = default;
+		};
+		struct BindingKeyHash
+		{
+			size_t operator()(const BindingKey& key) const
+			{
+				return std::hash<const void*>()(key.Texture) ^ (std::hash<uint32_t>()(key.Range.BaseMip) << 1)
+					^ (std::hash<uint32_t>()(key.Range.MipCount) << 2) ^ (std::hash<uint32_t>()(key.Range.BaseLayer) << 3)
+					^ (std::hash<uint32_t>()(key.Range.LayerCount) << 4);
+			}
+		};
+		std::unordered_map<BindingKey, nvrhi::BindingSetHandle, BindingKeyHash> m_BindingsCache;
 
 		std::vector<ImDrawVert> m_VertexBufferData;
 		std::vector<ImDrawIdx>  m_IndexBufferData;

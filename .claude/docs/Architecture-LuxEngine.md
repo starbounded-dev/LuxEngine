@@ -243,8 +243,9 @@ reads NRI's `QueryVideoMemoryInfo`.
 `ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). With `Renderer.ExplicitBarriers`
 on, NVRHI's automatic barriers are off and the tracker places every barrier: the commit functions
 require what the graphics/compute/meshlet state binds, copy/clear/write sites call `RT_Require*`,
-and intra-pass transitions call `RT_Transition*`. Readback and ImGui command buffers stay automatic
-(`SetAutomaticBarriersOnly`).
+and intra-pass transitions call `RT_Transition*`. A command buffer's `SetBarrierMode` can override
+the settings: readbacks stay `Automatic`, the ImGui renderer is `Automatic` on NVRHI and `Explicit`
+on NRI.
 The render graph declares how each pass touches each resource (`AccessKind`) and models storage
 buffers (`AddExternalBuffer`); `SceneRenderer` passes `m_CommandBuffer` to `Execute`, which requires
 each pass's entry states in one batch when explicit barriers are on.
