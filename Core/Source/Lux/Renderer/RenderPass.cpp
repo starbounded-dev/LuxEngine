@@ -156,6 +156,13 @@ namespace Lux {
 		return sets;
 	}
 
+	nri::DescriptorSet* RenderPass::GetNRIDescriptorSet(uint32_t frameIndex, uint32_t set) const
+	{
+		if (set == BindlessTextureTable::DescriptorSet)
+			return m_BindlessTextures ? m_BindlessTextures->RT_GetNRISet(frameIndex) : nullptr;
+		return m_DescriptorSetManager.GetNRIDescriptorSet(frameIndex, set);
+	}
+
 	Ref<Pipeline> RenderPass::GetPipeline() const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

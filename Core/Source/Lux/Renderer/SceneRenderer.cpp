@@ -7406,14 +7406,21 @@ namespace Lux {
 
 		Ref<SceneRenderer> instance = this;
 
-		// Pass begin: marker, explicit depth clear, descriptor prepare. The
+		// Pass begin: marker, descriptor prepare, explicit depth clear. The
 		// per-draw meshlet state carries the framebuffer/viewport, so there is no
-		// graphics-state commit here (this is not a vertex-pipeline pass).
+		// graphics-state commit here (this is not a vertex-pipeline pass). With NRI
+		// graphics the pass opens as an NRI render pass, the clear a load op.
 		Renderer::Submit([instance]() mutable {
 			Ref<RenderCommandBuffer> cmd = instance->m_CommandBuffer;
 			cmd->RT_BeginMarker("PreDepthMeshletPass");
 
+			instance->m_PreDepthMeshletPass->Prepare();
+
 			Ref<Framebuffer> framebuffer = instance->m_PreDepthMeshletPipeline->GetSpecification().TargetFramebuffer;
+			const std::array<bool, nvrhi::c_MaxRenderTargets> noColorClears = {};
+			if (Renderer::RT_BeginRenderPassWithNRI(*cmd, *instance->m_PreDepthMeshletPass, noColorClears, framebuffer->HasDepthAttachment()))
+				return;
+
 			if (framebuffer->HasDepthAttachment())
 			{
 				const auto& clearValues = framebuffer->GetClearValues();
@@ -7421,8 +7428,6 @@ namespace Lux {
 				cmd->RT_RequireDepthAttachmentClear(framebuffer->GetHandle());
 				nvrhi::utils::ClearDepthStencilAttachment(cmd->GetActive(), framebuffer->GetHandle(), depthStencil.Depth, depthStencil.Stencil);
 			}
-
-			instance->m_PreDepthMeshletPass->Prepare();
 		});
 
 		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
@@ -7442,6 +7447,7 @@ namespace Lux {
 		}
 
 		Renderer::Submit([instance]() mutable {
+			instance->m_CommandBuffer->RT_EndNRIRenderPass();
 			instance->m_CommandBuffer->RT_EndMarker();
 		});
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
@@ -7481,8 +7487,6 @@ namespace Lux {
 			meshletState.bindings.resize(1);
 		meshletState.bindings[0] = meshletBindingSet;
 
-		cmd->RT_CommitMeshletState(meshletState);
-
 		struct MeshletPushConstants
 		{
 			uint32_t ObjectIndexBase = 0;
@@ -7493,10 +7497,16 @@ namespace Lux {
 		pushConstants.ObjectIndexBase = params.ObjectIndexBase;
 		pushConstants.MeshletOffset = lod.MeshletOffset;
 		pushConstants.MeshletCount = lod.MeshletCount;
-		cmd->GetActive()->setPushConstants(&pushConstants, sizeof(pushConstants));
 
 		// One task workgroup culls 32 meshlets; Y = instance index.
-		cmd->GetActive()->dispatchMesh(DivideRoundUp(lod.MeshletCount, 32u), dc.InstanceCount, 1);
+		const glm::uvec3 groups = { DivideRoundUp(lod.MeshletCount, 32u), dc.InstanceCount, 1 };
+		if (cmd->RT_InNRIRenderPass()
+			&& Renderer::RT_DrawMeshTasksWithNRI(*cmd, meshletState, meshSource->RT_GetOrCreateNRIMeshletSet(*shader), &pushConstants, sizeof(pushConstants), groups))
+			return;
+
+		cmd->RT_CommitMeshletState(meshletState);
+		cmd->GetActive()->setPushConstants(&pushConstants, sizeof(pushConstants));
+		cmd->GetActive()->dispatchMesh(groups.x, groups.y, groups.z);
 	}
 
 	void SceneRenderer::HZBCompute()
@@ -8883,8 +8893,6 @@ namespace Lux {
 			}
 		}
 
-		cmd->RT_CommitGraphicsState();
-
 		// ── Push constants ────────────────────────────────────────────────────
 		Buffer materialUniforms = material ? material->GetUniformStorageBuffer() : Buffer();
 		const uint64_t pushConstantSize = std::max<uint64_t>(sizeof(MeshDrawPushConstants), materialUniforms.Size);
@@ -8903,9 +8911,45 @@ namespace Lux {
 		pc.LightIndex = lightIndex;
 		pc.BoneTransformBase = 0;
 		pc.BoneTransformStride = 0;
+
+		const bool indirect = useIndirect && params.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max();
+		const uint32_t instanceCount = useVisibleObjectIndexes ? params.VisibleInstanceCount : dc.InstanceCount;
+		if (cmd->RT_InNRIRenderPass())
+		{
+			if (!indirect && instanceCount == 0)
+				return;
+
+			Renderer::NRIIndexedDraw draw;
+			draw.MaterialInstance = material.Raw();
+			draw.Vertices = vertexBuffer.Raw();
+			draw.Indices = indexBuffer.Raw();
+			draw.Constants = pushConstants.data();
+			draw.ConstantsSize = static_cast<uint32_t>(pushConstants.size());
+			Ref<StorageBuffer> indirectArguments = indirect ? m_SBSIndirectDrawCommands->RT_Get() : nullptr;
+			if (indirectArguments)
+			{
+				gs.indirectParams = indirectArguments->GetHandle();
+				draw.IndirectArguments = indirectArguments.Raw();
+				draw.IndirectOffset = params.IndirectDrawOffsetBytes;
+			}
+			else
+			{
+				const SubmeshLOD lod = meshSource->GetSubmeshLOD(dc.SubmeshIndex, dc.LODIndex);
+				draw.IndexCount = lod.IndexCount;
+				draw.InstanceCount = instanceCount;
+				draw.FirstIndex = lod.BaseIndex;
+				draw.VertexOffset = static_cast<int32_t>(lod.BaseVertex);
+			}
+
+			if (Renderer::RT_DrawIndexedWithNRI(*cmd, draw))
+				return;
+			gs.indirectParams = nullptr;
+		}
+
+		cmd->RT_CommitGraphicsState();
 		cmd->GetActive()->setPushConstants(pushConstants.data(), pushConstants.size());
 
-		if (useIndirect && params.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
+		if (indirect)
 		{
 			gs.indirectParams = m_SBSIndirectDrawCommands->RT_Get()->GetHandle();
 			cmd->RT_CommitGraphicsState();
@@ -8913,7 +8957,6 @@ namespace Lux {
 			return;
 		}
 
-		const uint32_t instanceCount = useVisibleObjectIndexes ? params.VisibleInstanceCount : dc.InstanceCount;
 		if (instanceCount == 0)
 			return;
 

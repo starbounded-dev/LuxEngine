@@ -379,6 +379,11 @@ set per frame in flight. Fill it once while building it, and replace the whole g
 inputs change, never `Write` into a group a frame in flight may read. Shaders sample through
 separate `texture*` and `sampler` bindings; combined `sampler2D` uniforms are rejected.
 
+Record NVRHI commands through `RenderCommandBuffer::GetActive()`, and do not hold the returned
+command list across an NRI draw: `GetActive()` closes an open NRI rendering scope first
+(`Rendering.md § NRI device`), but the draw reopens it, and the held list would then record inside
+it.
+
 ### Configuration macros
 
 `LUX_PLATFORM_WINDOWS` / `LUX_PLATFORM_LINUX`, `LUX_DEBUG` / `LUX_RELEASE` / `LUX_DIST`,

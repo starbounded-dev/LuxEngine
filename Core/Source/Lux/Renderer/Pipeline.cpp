@@ -405,6 +405,8 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		ReleaseNRIPipeline();
+		m_NRIDynamicShadingRate = false;
+		m_NRIVertexStrides = {};
 
 		const std::string& name = m_Specification.DebugName.empty() ? m_Specification.Shader->GetName() : m_Specification.DebugName;
 		Ref<VulkanShader> shader = m_Specification.Shader.As<VulkanShader>();
@@ -494,8 +496,9 @@ namespace Lux {
 			: nri::CullMode::NONE;
 		pipelineDesc.rasterization.frontCounterClockwise = rasterState.frontCounterClockwise;
 		pipelineDesc.rasterization.conservativeRaster = rasterState.conservativeRasterEnable;
-		pipelineDesc.rasterization.shadingRate = desc.shadingRateState.enabled;
-		if (!problem && desc.shadingRateState.enabled && RHIDevice::GetDesc().tiers.shadingRate == 0)
+		// NVRHI's mesh pipelines take no shading-rate state (MeshletPipelineDesc has none).
+		pipelineDesc.rasterization.shadingRate = desc.shadingRateState.enabled && !isMeshletPipeline;
+		if (!problem && pipelineDesc.rasterization.shadingRate && RHIDevice::GetDesc().tiers.shadingRate == 0)
 			problem = "it uses variable rate shading, which NRI reports as unsupported";
 		// NVRHI enables depth bias only for a non-zero constant bias.
 		if (rasterState.depthBias != 0)
@@ -566,6 +569,10 @@ namespace Lux {
 		}
 
 		api.SetDebugName(m_NRIPipeline, name.c_str());
+
+		m_NRIDynamicShadingRate = pipelineDesc.rasterization.shadingRate;
+		for (uint32_t i = 0; i < streamCount; i++)
+			m_NRIVertexStrides[streams[i].bindingSlot] = streams[i].stride;
 	}
 
 	bool Pipeline::IsDynamicLineWidth() const

@@ -57,8 +57,10 @@ namespace Lux {
 
 		const nvrhi::BufferDesc& desc = buffer->getDesc();
 		tracked.Handle = buffer;
-		const bool untracked = desc.isVolatile || desc.cpuAccess != nvrhi::CpuAccessMode::None || !desc.keepInitialState;
-		tracked.RestingState = untracked ? ResourceState::Unknown : FromNVRHI(desc.initialState);
+		// NVRHI never transitions volatile or CPU-visible buffers.
+		tracked.Untracked = desc.isVolatile || desc.cpuAccess != nvrhi::CpuAccessMode::None;
+		const bool modelled = !tracked.Untracked && desc.keepInitialState;
+		tracked.RestingState = modelled ? FromNVRHI(desc.initialState) : ResourceState::Unknown;
 		return tracked;
 	}
 

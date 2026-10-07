@@ -34,6 +34,7 @@ namespace Lux {
 		m_TexturesToCheck.clear();
 		m_BuffersToCheck.clear();
 		m_Stats = {};
+		m_PendingBarriers = false;
 	}
 
 	void ResourceStateTracker::End()
@@ -75,7 +76,10 @@ namespace Lux {
 
 		// Without a resting state the starting state is unknown, so the backend owns the bookkeeping.
 		if (texture.RestingState == ResourceState::Unknown)
+		{
+			m_PendingBarriers = true;
 			return;
+		}
 
 		const uint32_t baseMip = glm::min(range.BaseMip, texture.MipCount);
 		const uint32_t mipCount = range.MipCount == TextureSubresourceRange::AllMips ? texture.MipCount - baseMip : glm::min(range.MipCount, texture.MipCount - baseMip);
@@ -96,7 +100,10 @@ namespace Lux {
 		if (wholeTexture && entry.Subresources.empty())
 		{
 			if (entry.Whole != state || IsUnorderedAccess(state))
+			{
 				m_Stats.Transitions++;
+				m_PendingBarriers = true;
+			}
 			entry.Whole = state;
 		}
 		else
@@ -110,7 +117,10 @@ namespace Lux {
 				{
 					ResourceState& current = entry.Subresources[SubresourceIndex(texture, mip, layer)];
 					if (current != state || IsUnorderedAccess(state))
+					{
 						m_Stats.Transitions++;
+						m_PendingBarriers = true;
+					}
 					current = state;
 				}
 			}
@@ -130,7 +140,11 @@ namespace Lux {
 			m_RequirementLog->push_back(buffer.Handle);
 
 		if (buffer.RestingState == ResourceState::Unknown)
+		{
+			if (!buffer.Untracked)
+				m_PendingBarriers = true;
 			return;
+		}
 
 		auto [it, inserted] = m_Buffers.try_emplace(buffer.Handle);
 		BufferEntry& entry = it->second;
@@ -141,7 +155,10 @@ namespace Lux {
 		}
 
 		if (entry.State != state || IsUnorderedAccess(state))
+		{
 			m_Stats.Transitions++;
+			m_PendingBarriers = true;
+		}
 		entry.State = state;
 
 		m_BuffersToCheck.push_back(buffer.Handle);
@@ -151,6 +168,7 @@ namespace Lux {
 	{
 		if (m_Emitter)
 			m_Emitter->Commit();
+		m_PendingBarriers = false;
 	}
 
 	ResourceState ResourceStateTracker::GetSubresourceState(const TextureEntry& entry, uint32_t mip, uint32_t layer) const

@@ -26,8 +26,11 @@ namespace Lux {
 	struct TrackedBuffer
 	{
 		void* Handle = nullptr;
-		// Unknown for buffers whose state is not tracked at all (volatile or CPU-visible).
+		// Unknown when the tracker does not model the buffer: the backend tracks it itself, or (Untracked)
+		// not at all.
 		ResourceState RestingState = ResourceState::Unknown;
+		// The backend never transitions it (volatile or CPU-visible), so requiring it needs no barrier.
+		bool Untracked = false;
 	};
 
 	// Turns requirements into backend barriers. NVRHIBarrierEmitter until NRI Phase 13.
@@ -70,6 +73,10 @@ namespace Lux {
 		void Require(const TrackedTexture& texture, TextureSubresourceRange range, ResourceState state);
 		void Require(const TrackedBuffer& buffer, ResourceState state);
 		void Commit();
+		// True when a requirement since the last Commit may need a barrier: a modelled transition, or
+		// a resource the backend tracks without a model here. NRI render passes commit those outside
+		// their rendering scopes (NRI migration Phase 10).
+		bool HasPendingBarriers() const { return m_PendingBarriers; }
 
 		// Debug: while set, every required texture/buffer handle is appended to `log` (the render
 		// graph checks a pass's requirements against its declared accesses). Survives Begin().
@@ -109,6 +116,7 @@ namespace Lux {
 		std::vector<const void*> m_TexturesToCheck;
 		std::vector<const void*> m_BuffersToCheck;
 		Stats m_Stats;
+		bool m_PendingBarriers = false;
 	};
 
 }

@@ -58,7 +58,74 @@ namespace Lux {
 			return true;
 		}
 
+		// Root constants up to this size are compared with the last ones set, so repeats are skipped.
+		constexpr uint32_t k_NRIRootConstantCacheSize = 256;
+
+		// NVRHI's viewport, as NRI's default top-left origin flips it: the same negative-height
+		// VkViewport NVRHI records (VKViewportWithDXCoords), so the Y convention is unchanged.
+		nri::Viewport ToNRIViewport(const nvrhi::Viewport& viewport)
+		{
+			return { viewport.minX, viewport.minY, viewport.maxX - viewport.minX, viewport.maxY - viewport.minY, viewport.minZ, viewport.maxZ, false };
+		}
+
+		nri::Rect ToNRIRect(const nvrhi::Rect& rect)
+		{
+			return { static_cast<int16_t>(rect.minX), static_cast<int16_t>(rect.minY),
+				static_cast<nri::Dim_t>(std::abs(rect.maxX - rect.minX)), static_cast<nri::Dim_t>(std::abs(rect.maxY - rect.minY)) };
+		}
+
+		nri::ShadingRate ToNRIShadingRate(nvrhi::VariableShadingRate rate)
+		{
+			switch (rate)
+			{
+				case nvrhi::VariableShadingRate::e1x2:	return nri::ShadingRate::FRAGMENT_SIZE_1X2;
+				case nvrhi::VariableShadingRate::e2x1:	return nri::ShadingRate::FRAGMENT_SIZE_2X1;
+				case nvrhi::VariableShadingRate::e2x2:	return nri::ShadingRate::FRAGMENT_SIZE_2X2;
+				case nvrhi::VariableShadingRate::e2x4:	return nri::ShadingRate::FRAGMENT_SIZE_2X4;
+				case nvrhi::VariableShadingRate::e4x2:	return nri::ShadingRate::FRAGMENT_SIZE_4X2;
+				case nvrhi::VariableShadingRate::e4x4:	return nri::ShadingRate::FRAGMENT_SIZE_4X4;
+				default:								return nri::ShadingRate::FRAGMENT_SIZE_1X1;
+			}
+		}
+
+		// NRI accepts combiners other than KEEP from shading-rate tier 2 on.
+		nri::ShadingRateCombiner ToNRIShadingRateCombiner(nvrhi::ShadingRateCombiner combiner)
+		{
+			if (RHIDevice::GetDesc().tiers.shadingRate < 2)
+				return nri::ShadingRateCombiner::KEEP;
+
+			switch (combiner)
+			{
+				case nvrhi::ShadingRateCombiner::Override:		return nri::ShadingRateCombiner::REPLACE;
+				case nvrhi::ShadingRateCombiner::Min:			return nri::ShadingRateCombiner::MIN;
+				case nvrhi::ShadingRateCombiner::Max:			return nri::ShadingRateCombiner::MAX;
+				case nvrhi::ShadingRateCombiner::ApplyRelative:	return nri::ShadingRateCombiner::SUM;
+				default:										return nri::ShadingRateCombiner::KEEP;
+			}
+		}
+
 	}
+
+	struct RenderCommandBuffer::NRIRenderState
+	{
+		bool Active = false;
+		// Inside CmdBeginRendering; false while the pass is suspended for NVRHI.
+		bool Rendering = false;
+		std::string Name;
+		NRIRenderPassDesc Desc;
+		nvrhi::static_vector<nri::Viewport, nvrhi::c_MaxViewports> Viewports;
+		nvrhi::static_vector<nri::Rect, nvrhi::c_MaxViewports> Scissors;
+		nri::ShadingRateDesc ShadingRate = {};
+
+		// What the open rendering scope has bound; reset whenever a scope opens.
+		std::array<nri::DescriptorSet*, nvrhi::c_MaxBindingLayouts> BoundSets = {};
+		nri::Buffer* VertexBuffer = nullptr;
+		uint32_t VertexStride = 0;
+		nri::Buffer* IndexBuffer = nullptr;
+		std::array<uint8_t, k_NRIRootConstantCacheSize> RootConstants = {};
+		// 0 when nothing is cached.
+		uint32_t RootConstantsSize = 0;
+	};
 
 #if LUX_ENABLE_PROFILING
 	// Null until the device manager has built the context, and permanently null if that
@@ -71,7 +138,7 @@ namespace Lux {
 #endif
 
 	RenderCommandBuffer::RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, GPUQueue queue)
-		: m_Queue(queue), m_DebugName(debugName)
+		: m_Queue(queue), m_NRIRender(CreateScope<NRIRenderState>()), m_DebugName(debugName)
 	{
 		if (count == 0)
 		{
@@ -177,12 +244,14 @@ namespace Lux {
 
 		m_ActiveCommandBuffer->open();
 
-		// Read once per command buffer; the setting itself is latched once per frame.
-		m_ExplicitBarriers = !m_AutomaticBarriersOnly && Renderer::RT_ExplicitBarriersEnabled();
+		// Read once per command buffer; the settings themselves are latched once per frame. NRI render
+		// passes take their barriers from the tracker, so NRI graphics implies explicit barriers.
+		m_ExplicitBarriers = !m_AutomaticBarriersOnly && (Renderer::RT_ExplicitBarriersEnabled() || Renderer::RT_NRIGraphicsEnabled());
 		m_ActiveCommandBuffer->setEnableAutomaticBarriers(!m_ExplicitBarriers);
 		m_BarrierEmitter.SetCommandList(m_ActiveCommandBuffer);
 		m_Tracker.Begin(&m_BarrierEmitter);
 		RT_ForgetCommittedState();
+		*m_NRIRender = {};
 
 		auto device = Application::GetGraphicsDevice();
 
@@ -268,6 +337,12 @@ namespace Lux {
 	void RenderCommandBuffer::RT_End()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		if (m_NRIRender->Active)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "NRI render pass '{}' was still open at the end of {}", m_NRIRender->Name, m_DebugName);
+			RT_EndNRIRenderPass();
+		}
+
 		RT_EndMarker();
 
 		if (m_QueryEnabled)
@@ -340,7 +415,10 @@ namespace Lux {
 			}
 		}
 
-		m_ActiveCommandBuffer->commitBarriers();
+		// NVRHI may have a rendering scope of its own open (a draw that fell back to it); clearState
+		// ends it. Committing through the tracker clears its pending flag too.
+		m_ActiveCommandBuffer->clearState();
+		m_Tracker.Commit();
 		m_InNRISegment = true;
 		return m_NRICommandBuffer;
 	}
@@ -361,6 +439,250 @@ namespace Lux {
 		// A wrapper only describes the VkCommandBuffer; nothing on the GPU refers to it.
 		RHIDevice::API().DestroyCommandBuffer(m_NRICommandBuffer);
 		m_NRICommandBuffer = nullptr;
+	}
+
+	nvrhi::CommandListHandle RenderCommandBuffer::GetActive()
+	{
+		RT_SuspendNRIRendering("an NVRHI command");
+		return m_ActiveCommandBuffer;
+	}
+
+	bool RenderCommandBuffer::RT_BeginNRIRenderPass(const NRIRenderPassDesc& desc, std::string_view name, const nvrhi::ViewportState& viewport, const nvrhi::VariableRateShadingState& shadingRate)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		NRIRenderState& state = *m_NRIRender;
+		LUX_CORE_ASSERT(!state.Active, "NRI render pass '{}' begun inside '{}' ({})", name, state.Name, m_DebugName);
+		LUX_CORE_ASSERT(m_ExplicitBarriers, "NRI render passes take their barriers from the tracker ({})", m_DebugName);
+		LUX_CORE_ASSERT(desc.PipelineLayout && desc.Pipeline);
+
+		state = {};
+		state.Active = true;
+		state.Name = name;
+		state.Desc = desc;
+		RT_SetNRIViewportState(viewport);
+		RT_SetNRIShadingRate(shadingRate);
+		if (!RT_OpenNRIRendering(true))
+		{
+			state = {};
+			return false;
+		}
+		return true;
+	}
+
+	void RenderCommandBuffer::RT_EndNRIRenderPass()
+	{
+		if (!m_NRIRender->Active)
+			return;
+
+		RT_CloseNRIRendering();
+		*m_NRIRender = {};
+	}
+
+	bool RenderCommandBuffer::RT_InNRIRenderPass() const
+	{
+		return m_NRIRender->Active;
+	}
+
+	const RenderCommandBuffer::NRIRenderPassDesc& RenderCommandBuffer::RT_GetNRIRenderPass() const
+	{
+		return m_NRIRender->Desc;
+	}
+
+	std::string_view RenderCommandBuffer::RT_GetNRIRenderPassName() const
+	{
+		return m_NRIRender->Name;
+	}
+
+	nri::CommandBuffer* RenderCommandBuffer::RT_OpenNRIRendering(bool passStart)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		NRIRenderState& state = *m_NRIRender;
+		nri::CommandBuffer* commandBuffer = RT_BeginNRISegment();
+		if (!commandBuffer)
+			return nullptr;
+
+		const NRIRenderPassDesc& desc = state.Desc;
+		std::array<nri::AttachmentDesc, nvrhi::c_MaxRenderTargets> colors = {};
+		for (uint32_t i = 0; i < desc.ColorAttachmentCount; i++)
+		{
+			const std::array<float, 4>& clear = desc.ClearColorValues[i];
+			nri::AttachmentDesc& color = colors[i];
+			color.descriptor = desc.ColorAttachments[i];
+			color.clearValue.color.f = { clear[0], clear[1], clear[2], clear[3] };
+			color.loadOp = passStart && desc.ClearColor[i] ? nri::LoadOp::CLEAR : nri::LoadOp::LOAD;
+			color.storeOp = nri::StoreOp::STORE;
+		}
+
+		nri::RenderingDesc renderingDesc = {};
+		renderingDesc.colors = desc.ColorAttachmentCount ? colors.data() : nullptr;
+		renderingDesc.colorNum = desc.ColorAttachmentCount;
+		renderingDesc.depth.descriptor = desc.DepthAttachment;
+		renderingDesc.depth.clearValue.depthStencil = { desc.ClearDepthValue, 0 };
+		renderingDesc.depth.loadOp = passStart && desc.ClearDepth ? nri::LoadOp::CLEAR : nri::LoadOp::LOAD;
+		renderingDesc.depth.storeOp = nri::StoreOp::STORE;
+
+		const NRIInterface& api = RHIDevice::API();
+		api.CmdBeginRendering(*commandBuffer, renderingDesc);
+		state.Rendering = true;
+
+		// The pass state is rebound in every scope: NVRHI may have bound its own in between.
+		if (!state.Viewports.empty())
+			api.CmdSetViewports(*commandBuffer, state.Viewports.data(), static_cast<uint32_t>(state.Viewports.size()));
+		if (!state.Scissors.empty())
+			api.CmdSetScissors(*commandBuffer, state.Scissors.data(), static_cast<uint32_t>(state.Scissors.size()));
+		api.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::GRAPHICS, *desc.PipelineLayout);
+		api.CmdSetPipeline(*commandBuffer, *desc.Pipeline);
+		// The one raw Vulkan call in the renderer: NRI has no line-width state, and the fork's
+		// LUX-1 patch makes it dynamic on line pipelines (CmdSetPipeline just set 1).
+		if (desc.LineWidth > 0.0f)
+			vk::CommandBuffer(static_cast<VkCommandBuffer>(api.GetCommandBufferNativeObject(commandBuffer))).setLineWidth(desc.LineWidth);
+		if (desc.DynamicShadingRate)
+			api.CmdSetShadingRate(*commandBuffer, state.ShadingRate);
+
+		state.BoundSets = {};
+		state.VertexBuffer = nullptr;
+		state.VertexStride = 0;
+		state.IndexBuffer = nullptr;
+		state.RootConstantsSize = 0;
+		for (uint32_t setIndex = 0; setIndex < desc.DescriptorSets.size(); setIndex++)
+		{
+			if (desc.DescriptorSets[setIndex])
+				RT_SetNRIDescriptorSet(setIndex, desc.DescriptorSets[setIndex]);
+		}
+		return commandBuffer;
+	}
+
+	void RenderCommandBuffer::RT_CloseNRIRendering()
+	{
+		NRIRenderState& state = *m_NRIRender;
+		if (!state.Rendering)
+			return;
+
+		RHIDevice::API().CmdEndRendering(*m_NRICommandBuffer);
+		state.Rendering = false;
+		RT_EndNRISegment();
+	}
+
+	void RenderCommandBuffer::RT_SuspendNRIRendering(const char* reason)
+	{
+		if (!m_NRIRender->Rendering)
+			return;
+
+		RT_CloseNRIRendering();
+	}
+
+	void RenderCommandBuffer::RT_SetNRIViewportState(const nvrhi::ViewportState& viewport)
+	{
+		NRIRenderState& state = *m_NRIRender;
+		state.Viewports.resize(0);
+		for (const nvrhi::Viewport& source : viewport.viewports)
+			state.Viewports.push_back(ToNRIViewport(source));
+		state.Scissors.resize(0);
+		for (const nvrhi::Rect& source : viewport.scissorRects)
+			state.Scissors.push_back(ToNRIRect(source));
+
+		if (!state.Rendering)
+			return;
+
+		const NRIInterface& api = RHIDevice::API();
+		if (!state.Viewports.empty())
+			api.CmdSetViewports(*m_NRICommandBuffer, state.Viewports.data(), static_cast<uint32_t>(state.Viewports.size()));
+		if (!state.Scissors.empty())
+			api.CmdSetScissors(*m_NRICommandBuffer, state.Scissors.data(), static_cast<uint32_t>(state.Scissors.size()));
+	}
+
+	void RenderCommandBuffer::RT_SetNRIShadingRate(const nvrhi::VariableRateShadingState& shadingRate)
+	{
+		NRIRenderState& state = *m_NRIRender;
+		state.ShadingRate.shadingRate = ToNRIShadingRate(shadingRate.shadingRate);
+		state.ShadingRate.primitiveCombiner = ToNRIShadingRateCombiner(shadingRate.pipelinePrimitiveCombiner);
+		state.ShadingRate.attachmentCombiner = ToNRIShadingRateCombiner(shadingRate.imageCombiner);
+
+		if (state.Rendering && state.Desc.DynamicShadingRate)
+			RHIDevice::API().CmdSetShadingRate(*m_NRICommandBuffer, state.ShadingRate);
+	}
+
+	nri::CommandBuffer* RenderCommandBuffer::RT_BeginNRIDraw()
+	{
+		NRIRenderState& state = *m_NRIRender;
+		if (!state.Active)
+			return nullptr;
+
+		// Barriers cannot be recorded inside rendering: commit them between two scopes.
+		if (m_Tracker.HasPendingBarriers())
+		{
+			RT_SuspendNRIRendering("a barrier");
+			m_Tracker.Commit();
+			RT_CrossCheckStates("NRI draw barriers");
+		}
+
+		if (state.Rendering)
+			return m_NRICommandBuffer;
+		return RT_OpenNRIRendering(false);
+	}
+
+	void RenderCommandBuffer::RT_SetNRIDescriptorSet(uint32_t setIndex, nri::DescriptorSet* descriptorSet)
+	{
+		NRIRenderState& state = *m_NRIRender;
+		LUX_CORE_ASSERT(state.Rendering && setIndex < state.BoundSets.size());
+		if (state.BoundSets[setIndex] == descriptorSet)
+			return;
+
+		state.BoundSets[setIndex] = descriptorSet;
+		nri::SetDescriptorSetDesc setDesc = {};
+		setDesc.setIndex = setIndex;
+		setDesc.descriptorSet = descriptorSet;
+		setDesc.bindPoint = nri::BindPoint::GRAPHICS;
+		RHIDevice::API().CmdSetDescriptorSet(*m_NRICommandBuffer, setDesc);
+	}
+
+	void RenderCommandBuffer::RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride)
+	{
+		NRIRenderState& state = *m_NRIRender;
+		LUX_CORE_ASSERT(state.Rendering && buffer);
+		if (state.VertexBuffer == buffer && state.VertexStride == stride)
+			return;
+
+		state.VertexBuffer = buffer;
+		state.VertexStride = stride;
+		const nri::VertexBufferDesc vertexBuffer = { buffer, 0, stride };
+		RHIDevice::API().CmdSetVertexBuffers(*m_NRICommandBuffer, 0, &vertexBuffer, 1);
+	}
+
+	void RenderCommandBuffer::RT_SetNRIIndexBuffer(nri::Buffer* buffer)
+	{
+		NRIRenderState& state = *m_NRIRender;
+		LUX_CORE_ASSERT(state.Rendering && buffer);
+		if (state.IndexBuffer == buffer)
+			return;
+
+		state.IndexBuffer = buffer;
+		RHIDevice::API().CmdSetIndexBuffer(*m_NRICommandBuffer, *buffer, 0, nri::IndexType::UINT32);
+	}
+
+	void RenderCommandBuffer::RT_SetNRIRootConstants(const void* data, uint32_t size)
+	{
+		NRIRenderState& state = *m_NRIRender;
+		LUX_CORE_ASSERT(state.Rendering && data && size);
+		if (size == state.RootConstantsSize && std::memcmp(state.RootConstants.data(), data, size) == 0)
+			return;
+
+		if (size <= state.RootConstants.size())
+		{
+			std::memcpy(state.RootConstants.data(), data, size);
+			state.RootConstantsSize = size;
+		}
+		else
+		{
+			state.RootConstantsSize = 0;
+		}
+
+		nri::SetRootConstantsDesc rootConstants = {};
+		rootConstants.rootConstantIndex = 0;
+		rootConstants.data = data;
+		rootConstants.size = size;
+		rootConstants.bindPoint = nri::BindPoint::GRAPHICS;
+		RHIDevice::API().CmdSetRootConstants(*m_NRICommandBuffer, rootConstants);
 	}
 
 	void RenderCommandBuffer::RT_Submit()
@@ -444,19 +766,19 @@ namespace Lux {
 		UnlockQueue();
 	}
 
+	// Labels and checkpoints are legal inside rendering, so markers do not close an NRI scope.
 	void RenderCommandBuffer::RT_BeginMarker(const std::string& label)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		nvrhi::CommandListHandle commandList = GetActive();
-		commandList->beginMarker(label.c_str());
+		m_ActiveCommandBuffer->beginMarker(label.c_str());
 		if (Aftermath::IsEnabled())
-			Aftermath::SetCheckpoint(static_cast<VkCommandBuffer>(commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer)), label);
+			Aftermath::SetCheckpoint(static_cast<VkCommandBuffer>(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer)), label);
 	}
 
 	void RenderCommandBuffer::RT_EndMarker()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		GetActive()->endMarker();
+		m_ActiveCommandBuffer->endMarker();
 	}
 
 	void RenderCommandBuffer::RT_CommitGraphicsState()
@@ -471,6 +793,13 @@ namespace Lux {
 				m_GraphicsState.shadingRateState.imageCombiner = nvrhi::ShadingRateCombiner::Override;
 		}
 
+		RT_SuspendNRIRendering("an NVRHI draw");
+		RT_RequireGraphicsState();
+		m_ActiveCommandBuffer->setGraphicsState(m_GraphicsState);
+	}
+
+	void RenderCommandBuffer::RT_RequireGraphicsState()
+	{
 		if (m_ExplicitBarriers)
 		{
 			// The same requirements NVRHI's insertGraphicsResourceBarriers makes, under the same
@@ -500,13 +829,12 @@ namespace Lux {
 			m_CommittedMeshletState = {};
 			RT_CrossCheckStates("graphics state");
 		}
-
-		m_ActiveCommandBuffer->setGraphicsState(m_GraphicsState);
 	}
 
 	void RenderCommandBuffer::RT_CommitComputeState()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		RT_SuspendNRIRendering("a compute dispatch");
 		if (m_ExplicitBarriers)
 		{
 			RT_RequireBindingSets(m_ComputeState.bindings, m_CommittedComputeState.bindings);
@@ -528,6 +856,13 @@ namespace Lux {
 	void RenderCommandBuffer::RT_CommitMeshletState(const nvrhi::MeshletState& meshletState)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		RT_SuspendNRIRendering("an NVRHI mesh draw");
+		RT_RequireMeshletState(meshletState);
+		m_ActiveCommandBuffer->setMeshletState(meshletState);
+	}
+
+	void RenderCommandBuffer::RT_RequireMeshletState(const nvrhi::MeshletState& meshletState)
+	{
 		if (m_ExplicitBarriers)
 		{
 			RT_RequireBindingSets(meshletState.bindings, m_CommittedMeshletState.bindings);
@@ -545,8 +880,6 @@ namespace Lux {
 			m_CommittedComputeState = {};
 			RT_CrossCheckStates("meshlet state");
 		}
-
-		m_ActiveCommandBuffer->setMeshletState(meshletState);
 	}
 
 	void RenderCommandBuffer::RT_RequireBindingSets(const nvrhi::BindingSetVector& bindings, const nvrhi::BindingSetVector& committed)
@@ -687,6 +1020,8 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_CommitBarriers()
 	{
+		if (m_Tracker.HasPendingBarriers())
+			RT_SuspendNRIRendering("a barrier");
 		m_Tracker.Commit();
 		if (m_ExplicitBarriers)
 			RT_CrossCheckStates("explicit barriers");
@@ -734,6 +1069,8 @@ namespace Lux {
 
 		nvrhi::ITimerQuery* queryPtr = timerQuery.Get();
 
+		// NVRHI resets the query pool here, which is illegal inside rendering.
+		RT_SuspendNRIRendering("a timer query");
 		device->resetTimerQuery(queryPtr);
 		m_ActiveCommandBuffer->beginTimerQuery(queryPtr);
 
@@ -772,6 +1109,8 @@ namespace Lux {
 
 		uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
 		commandBufferIndex %= m_CommandLists.size();
+
+		RT_SuspendNRIRendering("a timer query");
 
 		// Pop the top query from the stack
 		std::string name = std::move(m_TimerQueryStack.back());

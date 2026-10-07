@@ -227,6 +227,18 @@ reads NRI's `QueryVideoMemoryInfo`.
 - With `Renderer.NRICompute`, `Renderer::DispatchCompute` records through NRI inside a
   `RenderCommandBuffer` NRI segment. NVRHI still owns the command lists, submission and barriers.
 
+**NRI graphics** (Phase 10; details in `Rendering.md § NRI device`):
+- `Pipeline` builds an NRI twin of its NVRHI pipeline, `Framebuffer` NRI attachment views, and
+  `MeshSource` NRI meshlet sets.
+- With `Renderer.NRIGraphics`, `Renderer::BeginRenderPass` opens an NRI render pass on the
+  `RenderCommandBuffer` (`RT_BeginNRIRenderPass`). The draw entry points (`RenderQuad`,
+  `RenderGeometry`, `SubmitFullscreenQuad*`, `SceneRenderer::RT_DrawStaticMesh*`) record through
+  `Renderer::RT_DrawIndexedWithNRI` / `RT_DrawMeshTasksWithNRI` and keep their NVRHI path as the
+  fallback.
+- `RenderCommandBuffer::GetActive()` closes an open NRI rendering scope, so NVRHI commands stay
+  legal anywhere. NVRHI still owns the command lists, submission and barriers; the tracker supplies
+  those barriers, since NRI graphics implies explicit barriers.
+
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
 `ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). With `Renderer.ExplicitBarriers`
 on, NVRHI's automatic barriers are off and the tracker places every barrier: the commit functions

@@ -289,6 +289,19 @@ namespace Lux {
 			}
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TextDisabled("Compute passes are recorded with NRI instead of NVRHI (verification).");
+
+			// NRI graphics — render passes and draws are recorded with NRI inside the NVRHI command
+			// buffers (NRI migration Phase 10). Applies at the next frame.
+			bool nriGraphics = settings.Get("Renderer.NRIGraphics", "false") != "false";
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("NRI Graphics", nriGraphics))
+			{
+				settings.Set("Renderer.NRIGraphics", nriGraphics ? "true" : "false");
+				settings.Serialize();
+				Renderer::SetNRIGraphicsEnabled(nriGraphics);
+			}
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TextDisabled("Render passes are recorded with NRI instead of NVRHI; implies explicit barriers (verification).");
 		}
 
 		ImGui::Spacing();

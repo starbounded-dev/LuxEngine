@@ -491,7 +491,7 @@ namespace Lux {
 			workGroups = glm::max(workGroups, { 1 });
 			Renderer::DispatchCompute(renderCommandBuffer, computePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
 
-			Renderer::Submit([renderCommandBuffer, instance]()
+			Renderer::Submit([renderCommandBuffer, instance]() mutable
 				{
 					nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 					commandList->commitBarriers();
@@ -720,7 +720,7 @@ namespace Lux {
 				workGroups = glm::max(workGroups, { 1 });
 				Renderer::DispatchCompute(renderCommandBuffer, computePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
 
-				Renderer::Submit([renderCommandBuffer, instance]()
+				Renderer::Submit([renderCommandBuffer, instance]() mutable
 					{
 						nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
 						commandList->commitBarriers();

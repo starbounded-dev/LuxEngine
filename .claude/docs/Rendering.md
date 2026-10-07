@@ -274,6 +274,9 @@ NVRHI's Vulkan backend converts every `nvrhi::Viewport` to a **negative-height**
 convention: NDC `y = +1` is pixel row 0 (`gl_FragCoord.y = 0`, top of the image). The projection
 matrices are plain GLM (no Y flip), so the rasterized image is upright.
 
+NRI graphics (Phase 10) keeps the convention: NRI's viewports default to a top-left origin
+(`originBottomLeft = false`) and record the same negative-height `VkViewport`.
+
 Any code that converts a **pixel/UV coordinate to NDC by hand** must therefore use
 `ndc.y = 1 - uv.y * 2`, not `uv * 2 - 1`. Getting this wrong mirrors the mapping vertically and
 does not look like a flip — it looks like data from the wrong screen region (the clustered light
@@ -330,7 +333,8 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 Every GPU access needs its resource in the right state (layout + access). Two modes exist, chosen
 by the `Renderer.ExplicitBarriers` setting (Application Settings; latched once per render frame):
 
-- **Off (default during NRI Phase 4):** NVRHI's automatic barriers place transitions.
+- **Off (default during NRI Phase 4):** NVRHI's automatic barriers place transitions. NRI graphics
+  (`Renderer.NRIGraphics`) turns explicit barriers on regardless.
 - **On:** NVRHI's automatic barriers are off for every `RenderCommandBuffer` and the renderer's
   `ResourceStateTracker` (`Renderer/RHI/`) places them, through `NVRHIBarrierEmitter`.
 
@@ -433,6 +437,35 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
     pending barriers committed, and only NRI records until it ends. The end calls NVRHI
     `clearState`, so NVRHI rebinds everything afterwards.
   - A shader missing an NRI object falls back to NVRHI, logged once per shader.
+- **NRI graphics** (setting `Renderer.NRIGraphics`, default off, latched per render frame). NRI
+  passes take their barriers from the tracker, so the setting turns explicit barriers on for every
+  command buffer that is not `SetAutomaticBarriersOnly`.
+  - **The NRI twins.**
+    - Every `Pipeline` has one (`GetNRIPipeline`), translated from the finished NVRHI desc so the
+      two cannot drift.
+    - Every framebuffer has NRI attachment views (`GetNRIColorAttachment`/`GetNRIDepthAttachment`,
+      rebuilt with the NVRHI framebuffer).
+    - Meshes have NRI meshlet sets (`MeshSource::RT_GetOrCreateNRIMeshletSet`).
+  - **Passes.** `Renderer::BeginRenderPass` (and the meshlet pre-depth pass) open an **NRI render
+    pass** (`RenderCommandBuffer::RT_BeginNRIRenderPass`):
+    - its clears become load ops;
+    - the pipeline, layout, viewport, line width, shading rate and the pass's sets are bound once
+      per rendering scope;
+    - the draws (`Renderer::RT_DrawIndexedWithNRI` / `RT_DrawMeshTasksWithNRI`) bind only set 0,
+      the vertex and index buffers and the root constants, and repeats are skipped.
+  - **NVRHI never records inside an NRI rendering scope.** These close the scope first:
+    `GetActive()`, the `RT_Commit*` functions, `RT_CommitBarriers` with barriers pending, and
+    timer queries. The next draw reopens it, with the attachments loaded and the pass state
+    rebound. That is NVRHI's implicit render-pass splitting made explicit. Barriers a draw needs
+    are committed between two scopes (`ResourceStateTracker::HasPendingBarriers`). Debug markers
+    are legal inside a scope and do not close it. Record NVRHI commands only through `GetActive()`,
+    and never hold its command list across an NRI draw.
+  - **Fallback.** A pass or draw NRI cannot record goes through NVRHI, logged once per pipeline as
+    `NRI graphics: '<pass>' renders through NVRHI: <reason>`. Read-only depth, 3D attachments,
+    triangle fans and stencil are among the reasons.
+  - **The line-width exception.** NRI has no line-width state. The fork's LUX-1 patch makes it
+    dynamic on line pipelines, and `RenderCommandBuffer::RT_OpenNRIRendering` sets it with the one
+    raw `vkCmdSetLineWidth` in the renderer.
 
 ---
 

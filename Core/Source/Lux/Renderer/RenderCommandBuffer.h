@@ -14,8 +14,10 @@
 
 #include "nvrhi/nvrhi.h"
 
+#include <array>
 #include <atomic>
 #include <mutex>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -28,7 +30,12 @@
 #endif
 
 namespace nri {
+	struct Buffer;
 	struct CommandBuffer;
+	struct Descriptor;
+	struct DescriptorSet;
+	struct Pipeline;
+	struct PipelineLayout;
 }
 
 namespace Lux {
@@ -102,7 +109,65 @@ namespace Lux {
 		nri::CommandBuffer* RT_BeginNRISegment();
 		void RT_EndNRISegment();
 
-		nvrhi::CommandListHandle GetActive() const { return m_ActiveCommandBuffer; }
+		// NRI render passes (NRI migration Phase 10, Renderer.NRIGraphics). Render thread.
+		//
+		// A pass begun with RT_BeginNRIRenderPass records through NRI, in NRI rendering scopes inside
+		// the NVRHI command list, until RT_EndNRIRenderPass. NVRHI may not record inside such a scope,
+		// so every NVRHI entry point here (GetActive, the commits, timer queries) closes it first and
+		// the next draw reopens it, with the attachments loaded and the pass state rebound: NVRHI's
+		// implicit render pass splitting, made explicit. Barriers are the tracker's (NRI passes need
+		// RT_UsesExplicitBarriers); pending ones are committed between scopes.
+		struct NRIRenderPassDesc
+		{
+			std::array<nri::Descriptor*, nvrhi::c_MaxRenderTargets> ColorAttachments = {};
+			// Clears happen when the pass opens; a reopened scope loads.
+			std::array<bool, nvrhi::c_MaxRenderTargets> ClearColor = {};
+			std::array<std::array<float, 4>, nvrhi::c_MaxRenderTargets> ClearColorValues = {};
+			uint32_t ColorAttachmentCount = 0;
+			nri::Descriptor* DepthAttachment = nullptr;
+			bool ClearDepth = false;
+			float ClearDepthValue = 0.0f;
+
+			nri::PipelineLayout* PipelineLayout = nullptr;
+			nri::Pipeline* Pipeline = nullptr;
+			// The pass's descriptor sets by NRI set index; null ones are not bound by the pass.
+			std::array<nri::DescriptorSet*, nvrhi::c_MaxBindingLayouts> DescriptorSets = {};
+			// Width of line pipelines (0: the pipeline's static width) and whether the pipeline takes
+			// its shading rate dynamically.
+			float LineWidth = 0.0f;
+			bool DynamicShadingRate = false;
+
+			// For the draws: the NRI set index of set 0 (UINT32_MAX when the shader has none), the
+			// stride of vertex buffer 0 and whether the layout has root constants.
+			uint32_t DrawSetIndex = UINT32_MAX;
+			uint32_t VertexStride = 0;
+			bool RootConstants = false;
+		};
+		// False, with nothing recorded, when NRI cannot record into this command list (logged).
+		bool RT_BeginNRIRenderPass(const NRIRenderPassDesc& desc, std::string_view name, const nvrhi::ViewportState& viewport, const nvrhi::VariableRateShadingState& shadingRate);
+		void RT_EndNRIRenderPass();
+		bool RT_InNRIRenderPass() const;
+		const NRIRenderPassDesc& RT_GetNRIRenderPass() const;
+		std::string_view RT_GetNRIRenderPassName() const;
+		void RT_SetNRIViewportState(const nvrhi::ViewportState& viewport);
+		void RT_SetNRIShadingRate(const nvrhi::VariableRateShadingState& shadingRate);
+		// Before a draw: commits pending barriers outside rendering, then (re)opens the rendering
+		// scope. The command buffer to draw into, null when none can be opened (logged).
+		nri::CommandBuffer* RT_BeginNRIDraw();
+		// Bind for the next draws; repeated arguments are skipped. After RT_BeginNRIDraw.
+		void RT_SetNRIDescriptorSet(uint32_t setIndex, nri::DescriptorSet* descriptorSet);
+		void RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride);
+		// 32-bit indices.
+		void RT_SetNRIIndexBuffer(nri::Buffer* buffer);
+		void RT_SetNRIRootConstants(const void* data, uint32_t size);
+		// The explicit-barrier requirements RT_CommitGraphicsState / RT_CommitMeshletState make,
+		// without committing the state to NVRHI. No-ops with automatic barriers.
+		void RT_RequireGraphicsState();
+		void RT_RequireMeshletState(const nvrhi::MeshletState& meshletState);
+
+		// The NVRHI command list, for recording NVRHI commands. Closes an open NRI rendering scope
+		// first (see RT_BeginNRIRenderPass).
+		nvrhi::CommandListHandle GetActive();
 		nvrhi::CommandListHandle Get(uint32_t index = 0) const { LUX_CORE_VERIFY(index < m_CommandLists.size());  return m_CommandLists[index]; }
 
 		// The queue this command buffer records/submits on (Graphics by default).
@@ -133,6 +198,10 @@ namespace Lux {
 		void RT_ForgetCommittedState();
 		void RT_CrossCheckStates(const char* context);
 		void DestroyNRIWrapper();
+		nri::CommandBuffer* RT_OpenNRIRendering(bool passStart);
+		void RT_CloseNRIRendering();
+		// Closes the rendering scope because `reason` cannot be recorded inside it.
+		void RT_SuspendNRIRendering(const char* reason);
 	private:
 		GPUQueue m_Queue = GPUQueue::Graphics;
 		uint64_t m_LastExecutionInstance = 0;
@@ -152,6 +221,9 @@ namespace Lux {
 		// destroyed by RT_End) and whether a segment is open.
 		nri::CommandBuffer* m_NRICommandBuffer = nullptr;
 		bool m_InNRISegment = false;
+		// The NRI render pass (NRI types, so defined in the .cpp).
+		struct NRIRenderState;
+		Scope<NRIRenderState> m_NRIRender;
 		nvrhi::GraphicsState m_CommittedGraphicsState;
 		nvrhi::ComputeState m_CommittedComputeState;
 		nvrhi::MeshletState m_CommittedMeshletState;

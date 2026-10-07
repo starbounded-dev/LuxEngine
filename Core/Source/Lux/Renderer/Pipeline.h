@@ -16,6 +16,8 @@
 
 #include "nvrhi/nvrhi.h"
 
+#include <array>
+
 namespace nri {
 	struct Pipeline;
 }
@@ -41,6 +43,10 @@ namespace Lux {
 		// over the shader's NRI layout, for vertex and mesh-shader pipelines alike, and created and
 		// recreated with it. Null if NRI cannot express or create it (logged).
 		nri::Pipeline* GetNRIPipeline() const { return m_NRIPipeline; }
+		// Whether the NRI pipeline takes its shading rate dynamically, and the stride of vertex buffer
+		// `slot` (NRI vertex strides are dynamic, set with the buffers).
+		bool HasNRIDynamicShadingRate() const { return m_NRIDynamicShadingRate; }
+		uint32_t GetNRIVertexStride(uint32_t slot) const { return slot < m_NRIVertexStrides.size() ? m_NRIVertexStrides[slot] : 0; }
 
 		void Invalidate();
 		void RT_Invalidate();
@@ -60,6 +66,8 @@ namespace Lux {
 		nvrhi::GraphicsPipelineHandle m_Handle = nullptr;
 		nvrhi::MeshletPipelineHandle m_MeshletHandle = nullptr;
 		nri::Pipeline* m_NRIPipeline = nullptr;
+		bool m_NRIDynamicShadingRate = false;
+		std::array<uint32_t, nvrhi::c_MaxVertexAttributes> m_NRIVertexStrides = {};
 		PipelineSpecification m_Specification;
 	};
 

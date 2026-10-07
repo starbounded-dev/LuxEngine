@@ -153,6 +153,14 @@ namespace Lux {
 		// render frame.
 		static void SetNRIComputeEnabled(bool enabled);
 		static bool IsNRIComputeEnabled();
+		// NRI graphics (setting Renderer.NRIGraphics, NRI migration Phase 10): render passes and draws
+		// are recorded with NRI inside the NVRHI command buffers. NRI passes take their barriers from
+		// the tracker, so this implies explicit barriers. Any thread; takes effect at the next render
+		// frame.
+		static void SetNRIGraphicsEnabled(bool enabled);
+		static bool IsNRIGraphicsEnabled();
+		// Render thread, and command buffers begun off it: the value latched for the current render frame.
+		static bool RT_NRIGraphicsEnabled();
 		// Effective mode: the setting is on AND a dedicated transfer queue exists.
 		static bool UseAsyncTransferQueue();
 		// True once Shutdown has drained the queues (the device is idle).
@@ -236,6 +244,35 @@ namespace Lux {
 		static void SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides);
 		static void RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount = 0);
 		static void RT_BindMaterialDescriptorSet(nvrhi::BindingSetVector& bindings, Ref<Shader> pipelineShader, Ref<Material> material, uint32_t set = 0);
+
+		// One indexed draw recorded through NRI (NRI migration Phase 10).
+		struct NRIIndexedDraw
+		{
+			// The material whose binding set the caller placed at set 0 of the graphics state, if any.
+			const Material* MaterialInstance = nullptr;
+			const VertexBuffer* Vertices = nullptr;
+			const IndexBuffer* Indices = nullptr;
+			const void* Constants = nullptr;
+			uint32_t ConstantsSize = 0;
+			uint32_t IndexCount = 0;
+			uint32_t InstanceCount = 1;
+			uint32_t FirstIndex = 0;
+			int32_t VertexOffset = 0;
+			// When set, the arguments are the DrawIndexedIndirectCommand at IndirectOffset instead.
+			const StorageBuffer* IndirectArguments = nullptr;
+			uint64_t IndirectOffset = 0;
+		};
+		// Render thread. Opens `renderPass` (already prepared) as an NRI render pass, clearing the
+		// attachments flagged. False, with nothing recorded, when NRI graphics is off or the pass
+		// cannot be recorded with NRI (logged once per pipeline); the caller then uses NVRHI.
+		static bool RT_BeginRenderPassWithNRI(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, nvrhi::c_MaxRenderTargets>& clearColor, bool clearDepth);
+		// Render thread, inside a render pass: records `draw` through NRI when the pass is an NRI one,
+		// with the command buffer's graphics state set up as for the NVRHI draw. False when it is not,
+		// or this draw cannot be (logged once per pipeline); the caller then draws through NVRHI.
+		static bool RT_DrawIndexedWithNRI(RenderCommandBuffer& renderCommandBuffer, const NRIIndexedDraw& draw);
+		// The same for a mesh-task draw: `meshletState` as it would be committed to NVRHI, and
+		// `meshletSet` the NRI twin of its set 0.
+		static bool RT_DrawMeshTasksWithNRI(RenderCommandBuffer& renderCommandBuffer, const nvrhi::MeshletState& meshletState, nri::DescriptorSet* meshletSet, const void* constants, uint32_t constantsSize, const glm::uvec3& groups);
 		static void ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, const glm::vec4& clearColor, TextureSubresourceRange subresources);
 		static void CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 		static void BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
