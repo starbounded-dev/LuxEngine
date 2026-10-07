@@ -58,8 +58,17 @@ SOFTWARE.
 #include "Lux/Renderer/Image.h"
 #include "Lux/Renderer/RenderCommandBuffer.h"
 
+namespace nri {
+	struct DescriptorPool;
+	struct DescriptorSet;
+	struct Pipeline;
+	struct Texture;
+	enum class Format : uint8_t;
+}
+
 namespace Lux
 {
+	class VulkanShader;
 	class VulkanSwapChain;
 
 	// --------------------------------------------------------------------
@@ -192,6 +201,9 @@ namespace Lux
 		static constexpr uint32_t PersistentHandleCount = ImGuiTextureRegistry::PersistentHandleCount;
 
 		ImGuiRenderer() = default;
+		~ImGuiRenderer();
+		ImGuiRenderer(const ImGuiRenderer&) = delete;
+		ImGuiRenderer& operator=(const ImGuiRenderer&) = delete;
 
 		// If sharedRegistry is null a fresh registry is created (main renderer).
 		// Pass the main renderer's registry to all per-viewport renderers.
@@ -227,15 +239,17 @@ namespace Lux
 		std::shared_ptr<ImGuiTextureRegistry> GetRegistry() const { return m_Registry; }
 
 	private:
-		bool ReallocateBuffer(NRIBuffer& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer);
+		// Host-visible buffers are written through Map; the others through a command list.
+		bool ReallocateBuffer(NRIBuffer& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer, bool hostVisible = false);
 		nvrhi::GraphicsPipelineHandle GetOrCreatePipeline(VulkanSwapChain* swapchain);
 		nvrhi::IBindingSet* GetBindingSet(const ImGuiTextureInfo& texInfo);
 		bool UpdateGeometry(ImDrawData* drawData);
 
-		// Helpers for ProcessTextures(). Create/update uploads the full pixel buffer into an nvrhi
-		// texture registered in the shared registry; destroy releases it and reclaims the slot.
+		// Helpers for ProcessTextures(). Create/update uploads the full pixel buffer into an image
+		// registered in the shared registry; destroy releases it and reclaims the slot.
 		void CreateOrUpdateImGuiTexture(ImTextureData* tex);
 		void DestroyImGuiTexture(ImTextureData* tex);
+
 
 	private:
 		// Shared across all ImGuiRenderer instances for this ImGui context.
@@ -285,5 +299,56 @@ namespace Lux
 		};
 
 		std::map<VulkanSwapChain*, SwapchainPipelineCache> m_PipelineCache;
+
+		// NRI path (Renderer.NRIImGui, NRI migration Phase 11). Render thread, except Init.
+		struct NRISetKey
+		{
+			const nri::Texture* Texture = nullptr;
+			TextureSubresourceRange Range;
+			bool operator==(const NRISetKey&) const = default;
+		};
+		struct NRISetKeyHash
+		{
+			size_t operator()(const NRISetKey& key) const
+			{
+				return std::hash<const void*>()(key.Texture) ^ (std::hash<uint32_t>()(key.Range.BaseMip) << 1)
+					^ (std::hash<uint32_t>()(key.Range.MipCount) << 2) ^ (std::hash<uint32_t>()(key.Range.BaseLayer) << 3);
+			}
+		};
+		struct NRIDescriptorPool
+		{
+			nri::DescriptorPool* Pool = nullptr;
+			uint32_t Capacity = 0;
+			uint32_t Used = 0;
+		};
+		// The NRI resources of one frame slot: geometry written through Map, and descriptor pools
+		// reset when the slot comes round again (its previous frame has retired by then).
+		struct NRIFrameResources
+		{
+			NRIBuffer VertexBuffer;
+			NRIBuffer IndexBuffer;
+			std::vector<NRIDescriptorPool> DescriptorPools;
+			std::unordered_map<NRISetKey, nri::DescriptorSet*, NRISetKeyHash> DescriptorSets;
+		};
+
+		// False, with nothing recorded, when NRI cannot draw into `swapchain` (logged once) or the
+		// geometry cannot be uploaded; the NVRHI path then draws.
+		bool RenderWithNRI(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain, bool clearTarget);
+		// One pipeline per target format. Null when NRI cannot make it (logged once per format).
+		nri::Pipeline* GetOrCreateNRIPipeline(nri::Format format);
+		bool UpdateNRIGeometry(NRIFrameResources& frame, ImDrawData* drawData);
+		// The set binding `texInfo`'s image and the sampler, allocated once per frame slot and image.
+		// Null when it cannot be made (logged).
+		nri::DescriptorSet* GetNRIDescriptorSet(NRIFrameResources& frame, const ImGuiTextureInfo& texInfo);
+		nri::DescriptorSet* AllocateNRIDescriptorSet(NRIFrameResources& frame);
+
+		Ref<VulkanShader> m_Shader;
+		Ref<Sampler> m_NRISampler;
+		uint32_t m_NRISetIndex = 0;
+		uint32_t m_NRITextureRange = 0;
+		uint32_t m_NRISamplerRange = 0;
+		std::unordered_map<nri::Format, nri::Pipeline*> m_NRIPipelines;
+		std::array<NRIFrameResources, RendererConfig::MaxFramesInFlight> m_NRIFrames;
+		bool m_ReportedNRIFallback = false;
 	};
 }

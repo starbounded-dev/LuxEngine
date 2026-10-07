@@ -580,6 +580,11 @@ namespace Lux {
 		return GetFramebuffer(GetCurrentBackBufferIndex());
 	}
 
+	nri::Format VulkanSwapChain::GetNRIColorFormat() const
+	{
+		return nri::nriConvertVKFormatToNRI(static_cast<uint32_t>(m_SwapChainFormat.format));
+	}
+
 	nri::Descriptor* VulkanSwapChain::GetCurrentNRIColorAttachment() const
 	{
 		return m_SwapChainIndex < m_SwapChainImages.size() ? m_SwapChainImages[m_SwapChainIndex].RHIColorAttachment : nullptr;

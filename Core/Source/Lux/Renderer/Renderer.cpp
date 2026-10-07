@@ -304,6 +304,9 @@ namespace Lux {
 	static std::atomic<bool> s_RTNRIGraphics = false;
 	// Pipelines whose pass or draws fell back to NVRHI; logged once each. Render thread.
 	static std::unordered_set<const void*> s_ReportedNRIGraphicsFallbacks;
+	// Setting (Renderer.NRIImGui), latched by RT_BeginFrame. Render thread only once latched.
+	static std::atomic<bool> s_NRIImGuiRequested = false;
+	static bool s_RTNRIImGui = false;
 	// Copy-queue execution instance of the most recent async upload flush (0 = none
 	// yet). Consumers wait on it before reading uploaded resources.
 	static std::atomic<uint64_t> s_LastUploadInstance = 0;
@@ -920,6 +923,21 @@ namespace Lux {
 	bool Renderer::RT_NRIGraphicsEnabled()
 	{
 		return s_RTNRIGraphics.load(std::memory_order_relaxed);
+	}
+
+	void Renderer::SetNRIImGuiEnabled(bool enabled)
+	{
+		s_NRIImGuiRequested.store(enabled, std::memory_order_relaxed);
+	}
+
+	bool Renderer::IsNRIImGuiEnabled()
+	{
+		return s_NRIImGuiRequested.load(std::memory_order_relaxed);
+	}
+
+	bool Renderer::RT_NRIImGuiEnabled()
+	{
+		return s_RTNRIImGui;
 	}
 
 	void Renderer::RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record)
@@ -2207,6 +2225,7 @@ namespace Lux {
 		s_RTExplicitBarriers.store(s_ExplicitBarriersRequested.load(std::memory_order_relaxed), std::memory_order_relaxed);
 		s_RTNRICompute = s_NRIComputeRequested.load(std::memory_order_relaxed);
 		s_RTNRIGraphics.store(s_NRIGraphicsRequested.load(std::memory_order_relaxed), std::memory_order_relaxed);
+		s_RTNRIImGui = s_NRIImGuiRequested.load(std::memory_order_relaxed);
 
 		// Close the ending frame: its event covers everything submitted while it was current. The
 		// lock keeps the event in order with other threads' submissions, as in Present().

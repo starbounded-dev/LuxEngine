@@ -15,6 +15,7 @@
 namespace nri {
 	struct Descriptor;
 	struct Texture;
+	enum class Format : uint8_t;
 }
 
 struct GLFWwindow;
@@ -44,6 +45,8 @@ namespace Lux {
 		// The NRI color-attachment view of the acquired back buffer (NRI migration Phase 10). Render
 		// thread, after BeginFrame; null before the first acquire.
 		nri::Descriptor* GetCurrentNRIColorAttachment() const;
+		// The NRI format of the back buffers (and of their color-attachment views).
+		nri::Format GetNRIColorFormat() const;
 
 		uint32_t GetWidth() const { return m_Width; }
 		uint32_t GetHeight() const { return m_Height; }

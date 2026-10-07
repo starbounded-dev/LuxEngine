@@ -302,6 +302,19 @@ namespace Lux {
 			}
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TextDisabled("Render passes are recorded with NRI instead of NVRHI; implies explicit barriers (verification).");
+
+			// NRI ImGui — the UI is drawn with NRI into the swapchain (NRI migration Phase 11).
+			// Applies at the next frame.
+			bool nriImGui = settings.Get("Renderer.NRIImGui", "false") != "false";
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("NRI ImGui", nriImGui))
+			{
+				settings.Set("Renderer.NRIImGui", nriImGui ? "true" : "false");
+				settings.Serialize();
+				Renderer::SetNRIImGuiEnabled(nriImGui);
+			}
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TextDisabled("The UI is drawn with NRI instead of NVRHI (verification).");
 		}
 
 		ImGui::Spacing();

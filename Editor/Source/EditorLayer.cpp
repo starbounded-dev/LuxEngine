@@ -384,6 +384,8 @@ namespace Lux {
 			Application::Get().GetSettings().Get("Renderer.NRICompute", "false") != "false");
 		Renderer::SetNRIGraphicsEnabled(
 			Application::Get().GetSettings().Get("Renderer.NRIGraphics", "false") != "false");
+		Renderer::SetNRIImGuiEnabled(
+			Application::Get().GetSettings().Get("Renderer.NRIImGui", "false") != "false");
 
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();

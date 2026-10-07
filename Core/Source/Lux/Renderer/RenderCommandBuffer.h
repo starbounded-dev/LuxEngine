@@ -157,6 +157,8 @@ namespace Lux {
 		const NRIRenderPassDesc& RT_GetNRIRenderPass() const;
 		std::string_view RT_GetNRIRenderPassName() const;
 		void RT_SetNRIViewportState(const nvrhi::ViewportState& viewport);
+		// Replaces the scissor rectangles with `scissor`, keeping the viewports.
+		void RT_SetNRIScissor(const nvrhi::Rect& scissor);
 		void RT_SetNRIShadingRate(const nvrhi::VariableRateShadingState& shadingRate);
 		// Before a draw: commits pending barriers outside rendering, then (re)opens the rendering
 		// scope. The command buffer to draw into, null when none can be opened (logged).
@@ -164,8 +166,7 @@ namespace Lux {
 		// Bind for the next draws; repeated arguments are skipped. After RT_BeginNRIDraw.
 		void RT_SetNRIDescriptorSet(uint32_t setIndex, nri::DescriptorSet* descriptorSet);
 		void RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride);
-		// 32-bit indices.
-		void RT_SetNRIIndexBuffer(nri::Buffer* buffer);
+		void RT_SetNRIIndexBuffer(nri::Buffer* buffer, bool use16BitIndices = false);
 		void RT_SetNRIRootConstants(const void* data, uint32_t size);
 		// The explicit-barrier requirements RT_CommitGraphicsState / RT_CommitMeshletState make,
 		// without committing the state to NVRHI. No-ops with automatic barriers.

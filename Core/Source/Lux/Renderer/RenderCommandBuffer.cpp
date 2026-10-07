@@ -130,6 +130,7 @@ namespace Lux {
 		nri::Buffer* VertexBuffer = nullptr;
 		uint32_t VertexStride = 0;
 		nri::Buffer* IndexBuffer = nullptr;
+		bool IndexBuffer16 = false;
 		std::array<uint8_t, k_NRIRootConstantCacheSize> RootConstants = {};
 		// 0 when nothing is cached.
 		uint32_t RootConstantsSize = 0;
@@ -615,6 +616,15 @@ namespace Lux {
 			api.CmdSetScissors(*m_NRICommandBuffer, state.Scissors.data(), static_cast<uint32_t>(state.Scissors.size()));
 	}
 
+	void RenderCommandBuffer::RT_SetNRIScissor(const nvrhi::Rect& scissor)
+	{
+		NRIRenderState& state = *m_NRIRender;
+		state.Scissors.resize(1);
+		state.Scissors[0] = ToNRIRect(scissor);
+		if (state.Rendering)
+			RHIDevice::API().CmdSetScissors(*m_NRICommandBuffer, state.Scissors.data(), 1);
+	}
+
 	void RenderCommandBuffer::RT_SetNRIShadingRate(const nvrhi::VariableRateShadingState& shadingRate)
 	{
 		NRIRenderState& state = *m_NRIRender;
@@ -673,15 +683,16 @@ namespace Lux {
 		RHIDevice::API().CmdSetVertexBuffers(*m_NRICommandBuffer, 0, &vertexBuffer, 1);
 	}
 
-	void RenderCommandBuffer::RT_SetNRIIndexBuffer(nri::Buffer* buffer)
+	void RenderCommandBuffer::RT_SetNRIIndexBuffer(nri::Buffer* buffer, bool use16BitIndices)
 	{
 		NRIRenderState& state = *m_NRIRender;
 		LUX_CORE_ASSERT(state.Rendering && buffer);
-		if (state.IndexBuffer == buffer)
+		if (state.IndexBuffer == buffer && state.IndexBuffer16 == use16BitIndices)
 			return;
 
 		state.IndexBuffer = buffer;
-		RHIDevice::API().CmdSetIndexBuffer(*m_NRICommandBuffer, *buffer, 0, nri::IndexType::UINT32);
+		state.IndexBuffer16 = use16BitIndices;
+		RHIDevice::API().CmdSetIndexBuffer(*m_NRICommandBuffer, *buffer, 0, use16BitIndices ? nri::IndexType::UINT16 : nri::IndexType::UINT32);
 	}
 
 	void RenderCommandBuffer::RT_SetNRIRootConstants(const void* data, uint32_t size)

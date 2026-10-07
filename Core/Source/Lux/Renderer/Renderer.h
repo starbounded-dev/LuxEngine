@@ -161,6 +161,12 @@ namespace Lux {
 		static bool IsNRIGraphicsEnabled();
 		// Render thread, and command buffers begun off it: the value latched for the current render frame.
 		static bool RT_NRIGraphicsEnabled();
+		// NRI ImGui (setting Renderer.NRIImGui, NRI migration Phase 11): the editor UI, including
+		// platform windows, is drawn with NRI. Any thread; takes effect at the next render frame.
+		static void SetNRIImGuiEnabled(bool enabled);
+		static bool IsNRIImGuiEnabled();
+		// Render thread: the value latched for the current render frame.
+		static bool RT_NRIImGuiEnabled();
 		// Effective mode: the setting is on AND a dedicated transfer queue exists.
 		static bool UseAsyncTransferQueue();
 		// True once Shutdown has drained the queues (the device is idle).
