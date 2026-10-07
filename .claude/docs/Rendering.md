@@ -458,7 +458,10 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
     timer queries. The next draw reopens it, with the attachments loaded and the pass state
     rebound. That is NVRHI's implicit render-pass splitting made explicit. Barriers a draw needs
     are committed between two scopes (`ResourceStateTracker::HasPendingBarriers`). Debug markers
-    are legal inside a scope and do not close it. Record NVRHI commands only through `GetActive()`,
+    are legal inside a scope and do not close it. In Debug, every split is reported once per pass
+    and reason (`NRI render pass '<pass>' (<command buffer>) is split by <reason> inside it`): the
+    inside-rendering audit. Each split stores and reloads the attachments, so a reported command
+    belongs before the pass or after it. Record NVRHI commands only through `GetActive()`,
     and never hold its command list across an NRI draw.
   - **Fallback.** A pass or draw NRI cannot record goes through NVRHI, logged once per pipeline as
     `NRI graphics: '<pass>' renders through NVRHI: <reason>`. Read-only depth, 3D attachments,

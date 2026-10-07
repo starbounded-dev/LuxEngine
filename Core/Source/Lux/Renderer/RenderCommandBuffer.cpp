@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "RenderCommandBuffer.h"
 
+#include "Lux/Core/Hash.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
@@ -61,6 +62,12 @@ namespace Lux {
 		// Root constants up to this size are compared with the last ones set, so repeats are skipped.
 		constexpr uint32_t k_NRIRootConstantCacheSize = 256;
 
+#ifdef LUX_DEBUG
+		// The inside-rendering audit (NRI migration Phase 10): pass and reason of every NRI render pass
+		// split already reported. Render thread.
+		std::unordered_set<uint64_t> s_ReportedNRISplits;
+#endif
+
 		// NVRHI's viewport, as NRI's default top-left origin flips it: the same negative-height
 		// VkViewport NVRHI records (VKViewportWithDXCoords), so the Y convention is unchanged.
 		nri::Viewport ToNRIViewport(const nvrhi::Viewport& viewport)
@@ -112,6 +119,7 @@ namespace Lux {
 		// Inside CmdBeginRendering; false while the pass is suspended for NVRHI.
 		bool Rendering = false;
 		std::string Name;
+		uint32_t NameHash = 0;
 		NRIRenderPassDesc Desc;
 		nvrhi::static_vector<nri::Viewport, nvrhi::c_MaxViewports> Viewports;
 		nvrhi::static_vector<nri::Rect, nvrhi::c_MaxViewports> Scissors;
@@ -458,6 +466,7 @@ namespace Lux {
 		state = {};
 		state.Active = true;
 		state.Name = name;
+		state.NameHash = Hash::GenerateFNVHash(name);
 		state.Desc = desc;
 		RT_SetNRIViewportState(viewport);
 		RT_SetNRIShadingRate(shadingRate);
@@ -569,6 +578,16 @@ namespace Lux {
 			return;
 
 		RT_CloseNRIRendering();
+
+#ifdef LUX_DEBUG
+		// Each split stores the attachments and loads them again; report where passes split, once
+		// per pass and reason (reasons are literals, so their addresses identify them).
+		const uint64_t key = (static_cast<uint64_t>(m_NRIRender->NameHash) << 32) ^ static_cast<uint64_t>(reinterpret_cast<uintptr_t>(reason));
+		if (s_ReportedNRISplits.insert(key).second)
+			LUX_CORE_WARN_TAG("Renderer", "NRI render pass '{}' ({}) is split by {} inside it", m_NRIRender->Name, m_DebugName, reason);
+#else
+		(void)reason;
+#endif
 	}
 
 	void RenderCommandBuffer::RT_SetNRIViewportState(const nvrhi::ViewportState& viewport)
