@@ -11,11 +11,14 @@
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/UniformBuffer.h"
 #include "Lux/Renderer/VertexBuffer.h"
+#include "Lux/Renderer/RHI/DescriptorSetGroup.h"
 
 #include <vector>
 #include <glm/glm.hpp>
 
 namespace Lux {
+
+	class VulkanShader;
 
 	struct Vertex
 	{
@@ -248,6 +251,9 @@ namespace Lux {
 		// Render-thread only: binding set for the meshlet SSBOs (set 0 of the
 		// meshlet shader), created lazily against the shader's binding layout.
 		nvrhi::BindingSetHandle RT_GetOrCreateMeshletBindingSet(nvrhi::IBindingLayout* layout);
+		// Render-thread only: the NRI twin of that set (NRI migration Phase 10), created the same way
+		// against the meshlet shader's NRI layout. Null when it cannot be built (logged once per layout).
+		nri::DescriptorSet* RT_GetOrCreateNRIMeshletSet(const VulkanShader& shader);
 
 		// CPU-side position access that works whether or not the full vertex
 		// array was compacted away (the standalone runtime keeps positions only —
@@ -306,6 +312,10 @@ namespace Lux {
 		NRIBuffer m_MeshletTriangleBuffer;
 		nvrhi::BindingSetHandle m_MeshletBindingSet;
 		nvrhi::IBindingLayout* m_MeshletBindingSetLayout = nullptr;
+		// The NRI meshlet set and the layout it was built for. The layout is kept when the build
+		// failed too, so the failure is logged once.
+		Ref<DescriptorSetGroup> m_NRIMeshletSet;
+		const nri::PipelineLayout* m_NRIMeshletSetLayout = nullptr;
 
 		inline static bool s_BuildMeshlets = false;
 

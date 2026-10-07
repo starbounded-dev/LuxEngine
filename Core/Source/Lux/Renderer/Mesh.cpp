@@ -8,6 +8,8 @@
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Math/Math.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Asset/AssetManager.h"
 
@@ -515,6 +517,8 @@ namespace Lux
 		m_MeshletTriangleBuffer.Reset();
 		m_MeshletBindingSet = nullptr;
 		m_MeshletBindingSetLayout = nullptr;
+		m_NRIMeshletSet = nullptr;
+		m_NRIMeshletSetLayout = nullptr;
 		if (s_BuildMeshlets)
 		{
 			std::vector<MeshletDesc> meshlets;
@@ -592,6 +596,59 @@ namespace Lux
 		m_MeshletBindingSet = Application::GetGraphicsDevice()->createBindingSet(setDesc, layout);
 		m_MeshletBindingSetLayout = layout;
 		return m_MeshletBindingSet;
+	}
+
+	nri::DescriptorSet* MeshSource::RT_GetOrCreateNRIMeshletSet(const VulkanShader& shader)
+	{
+		const nri::PipelineLayout* layout = shader.GetNRIPipelineLayout();
+		if (layout && layout == m_NRIMeshletSetLayout)
+			return m_NRIMeshletSet ? m_NRIMeshletSet->Get(0) : nullptr;
+
+		// Not cached: the buffers may still be on their way.
+		if (!layout || !m_MeshletBuffer || !m_MeshletVertexBuffer || !m_MeshletTriangleBuffer || !m_VertexBuffer || !m_VertexBuffer->GetRHIBuffer())
+			return nullptr;
+
+		m_NRIMeshletSet = nullptr;
+		m_NRIMeshletSetLayout = layout;
+
+		const std::string meshName = m_FilePath.empty() ? std::string("<memory>") : m_FilePath;
+		const uint32_t setIndex = shader.GetNRISetIndex(0);
+		if (setIndex == VulkanShader::k_NoNRISet)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[MeshSource] No NRI meshlet set for '{}': {} has no NRI set 0", meshName, shader.GetName());
+			return nullptr;
+		}
+
+		// One instance: the meshlet buffers are fixed for the mesh, so the set is written once.
+		Ref<DescriptorSetGroup> group = Ref<DescriptorSetGroup>::Create(*shader.GetNRIPipelineLayout(), setIndex, shader.GetNRIPoolDesc(0, 1), 1, 0, "MeshletSet");
+		if (!group->IsValid())
+			return nullptr;
+
+		// The bindings of RT_GetOrCreateMeshletBindingSet: read-only raw buffers 0-3.
+		const std::array<nri::Buffer*, 4> buffers = { m_MeshletBuffer.Get(), m_MeshletVertexBuffer.Get(), m_MeshletTriangleBuffer.Get(), m_VertexBuffer->GetRHIBuffer() };
+		const auto& storageBuffers = shader.GetShaderDescriptorSets()[0].StorageBuffers;
+		for (uint32_t binding = 0; binding < buffers.size(); binding++)
+		{
+			const uint32_t rangeIndex = shader.GetNRIRangeIndex(0, binding);
+			if (rangeIndex == VulkanShader::k_NoNRISet)
+				continue;
+
+			const auto storageIt = storageBuffers.find(binding);
+			if (storageIt == storageBuffers.end() || !storageIt->second.ReadOnly)
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "[MeshSource] No NRI meshlet set for '{}': {} binding {} is not a read-only storage buffer", meshName, shader.GetName(), binding);
+				return nullptr;
+			}
+
+			// GetNRIBufferView logs its own failures.
+			const nri::Descriptor* view = GetNRIBufferView(buffers[binding], nri::BufferView::BYTE_ADDRESS_BUFFER);
+			if (!view)
+				return nullptr;
+			group->Write(0, rangeIndex, 0, &view, 1);
+		}
+
+		m_NRIMeshletSet = group;
+		return m_NRIMeshletSet->Get(0);
 	}
 
 	static std::string LevelToSpaces(uint32_t level)
