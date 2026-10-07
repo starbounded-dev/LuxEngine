@@ -470,6 +470,21 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - **The line-width exception.** NRI has no line-width state. The fork's LUX-1 patch makes it
     dynamic on line pipelines, and `RenderCommandBuffer::RT_OpenNRIRendering` sets it with the one
     raw `vkCmdSetLineWidth` in the renderer.
+- **NRI ImGui** (setting `Renderer.NRIImGui`, default off, latched per render frame;
+  `ImGuiRenderer::RenderWithNRI`). The UI and the platform windows draw into their swapchains
+  through an NRI render pass, with the command buffer in the `Explicit` barrier mode.
+  - **Textures are `Image2D`s**, the font atlas included, registered with a resolved subresource
+    range. Each draw samples a one-layer 2D view of that range.
+  - **Per frame slot:** host-visible vertex and index buffers written through `NRIBuffer::Map`, and
+    descriptor pools reset when the slot comes round again. A full pool is skipped (counted, so
+    NRI never reports it exhausted), and the next one doubles in size.
+  - **States are required before the pass opens:** the back buffer as a render target, every drawn
+    image as a shader resource. The pass therefore never splits.
+  - **Pipelines are per swapchain format.** The main window's is made in `Init`; a platform window
+    of another format gets its pipeline when first drawn.
+  - **Fallback:** a missing pipeline, view or set range (logged once), or a failed geometry upload
+    (logged by the buffer's creation), draws that frame through the NVRHI path with nothing
+    recorded by NRI.
 
 ---
 

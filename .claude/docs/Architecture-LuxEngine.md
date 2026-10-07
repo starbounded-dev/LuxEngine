@@ -239,6 +239,11 @@ reads NRI's `QueryVideoMemoryInfo`.
   legal anywhere. NVRHI still owns the command lists, submission and barriers; the tracker supplies
   those barriers, since NRI graphics implies explicit barriers.
 
+**NRI ImGui** (Phase 11; details in `Rendering.md § NRI device`): ImGui textures, the atlas
+included, are `Image2D`s in the shared `ImGuiTextureRegistry`. With `Renderer.NRIImGui`,
+`ImGuiRenderer::RenderToSwapchain` draws through NRI (`RenderWithNRI`) and keeps its NVRHI path as
+the fallback. The NRI path owns its pipelines, per-frame-slot geometry and descriptor pools.
+
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
 `ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). With `Renderer.ExplicitBarriers`
 on, NVRHI's automatic barriers are off and the tracker places every barrier: the commit functions
