@@ -920,8 +920,7 @@ namespace Lux {
 		m_Tracker.Require(DescribeBuffer(handle), state);
 	}
 
-	// NVRHI's ICommandList::setResourceStatesForFramebuffer and the pass's binding sets, through the
-	// tracker.
+	// The attachment states NVRHI's setResourceStatesForFramebuffer required, and the pass's sets.
 	void RenderCommandBuffer::RT_RequireNRIRenderPass()
 	{
 		const NRIRenderPassDesc& desc = m_NRIRender->Desc;

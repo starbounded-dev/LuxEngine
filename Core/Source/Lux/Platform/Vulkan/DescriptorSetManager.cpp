@@ -96,9 +96,9 @@ namespace Lux {
 			return GetNRITextureView(imageInfo->RHITexture, GetNRIViewKey(imageInfo->RHITexture, imageInfo->Dimension, imageInfo->ImageView, storage));
 		}
 
-		// The NRI descriptor for element `element` of `input` in frame slot `frameIndex`, as BakeSet
-		// binds it through NVRHI, and what it accesses, added to `uses` with the subresources and
-		// state NVRHI required for the binding. Null (and nothing added) when the resource is missing.
+		// The NRI descriptor for element `element` of `input` in frame slot `frameIndex`, and what it
+		// accesses, added to `uses` with the subresources and state NVRHI's binding sets required for
+		// it. Null (and nothing added) when the resource is missing.
 		nri::Descriptor* GetNRIDescriptor(const RenderPassInput& input, size_t element, uint32_t frameIndex, bool storageBufferReadOnly, DescriptorSetUses& uses)
 		{
 			const Ref<RefCounted>& resource = input.Input[element];
@@ -715,7 +715,7 @@ namespace Lux {
 		// Start each update from a clean slate. Entries are re-added below by the
 		// handle-comparison loop (and by Bake() for still-null deferred resources);
 		// without this clear the set stays non-empty after the first invalidation,
-		// so every subsequent frame re-Bakes ALL binding sets for ALL frames in
+		// so every subsequent frame re-Bakes ALL descriptor sets for ALL frames in
 		// flight — permanent per-frame descriptor churn across every dynamic pass.
 		InvalidatedInputResources.clear();
 
