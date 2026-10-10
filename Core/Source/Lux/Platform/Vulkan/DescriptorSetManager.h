@@ -269,10 +269,12 @@ namespace Lux {
 		uint32_t GetFirstSetIndex() const;
 		nvrhi::BindingSetHandle GetBindingSet(uint32_t frameIndex) const;
 		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const;
-		// The NRI descriptor set of set number `set` for `frameIndex` (NRI migration Phase 9), built
-		// alongside the NVRHI binding sets with the same inputs. Null when the shader declares
-		// nothing in that set or NRI failed to build it.
-		nri::DescriptorSet* GetNRIDescriptorSet(uint32_t frameIndex, uint32_t set) const;
+		// The NRI descriptor set of set number `set` for `frameIndex`, with what it accesses. Empty when
+		// the shader declares nothing in that set or NRI failed to build it.
+		BoundDescriptorSet GetDescriptorSet(uint32_t frameIndex, uint32_t set) const;
+		// True when set number `set` is this manager's to build (it has inputs there), so an empty
+		// GetDescriptorSet means the build failed rather than that the set is someone else's.
+		bool ManagesSet(uint32_t set) const;
 		bool IsInputValid(std::string_view name) const;
 		const RenderInputDeclaration* GetInputDeclaration(std::string_view name) const;
 	private:

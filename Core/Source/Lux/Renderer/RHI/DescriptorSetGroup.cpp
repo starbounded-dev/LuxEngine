@@ -29,6 +29,7 @@ namespace Lux {
 			return;
 		}
 		m_Sets = std::move(sets);
+		m_Uses.resize(instanceCount);
 	}
 
 	DescriptorSetGroup::~DescriptorSetGroup()
@@ -41,6 +42,22 @@ namespace Lux {
 			{
 				RHIDevice::API().DestroyDescriptorPool(pool);
 			});
+	}
+
+	void DescriptorSetUses::AddTexture(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state)
+	{
+		if (!texture.Handle)
+			return;
+		Textures.push_back({ texture, range, state });
+		HasStorageUses |= state == ResourceState::UnorderedAccess;
+	}
+
+	void DescriptorSetUses::AddBuffer(const TrackedBuffer& buffer, ResourceState state)
+	{
+		if (!buffer.Handle)
+			return;
+		Buffers.push_back({ buffer, state });
+		HasStorageUses |= state == ResourceState::UnorderedAccess;
 	}
 
 	void DescriptorSetGroup::Write(uint32_t instance, uint32_t rangeIndex, uint32_t baseDescriptor, const nri::Descriptor* const* descriptors, uint32_t descriptorCount)

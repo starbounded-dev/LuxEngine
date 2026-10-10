@@ -141,32 +141,6 @@ namespace Lux {
 		static void SetAsyncTransferQueueEnabled(bool enabled);
 		static bool IsAsyncTransferQueueEnabled();
 
-		// Explicit barriers (setting Renderer.ExplicitBarriers, NRI migration Phase 4): NVRHI's
-		// automatic barriers are turned off and every GPU access is required through the
-		// RenderCommandBuffer's ResourceStateTracker. Any thread; takes effect at the next render frame.
-		static void SetExplicitBarriersEnabled(bool enabled);
-		static bool IsExplicitBarriersEnabled();
-		// Render thread: the value latched for the current render frame.
-		static bool RT_ExplicitBarriersEnabled();
-		// NRI compute (setting Renderer.NRICompute, NRI migration Phase 9): compute dispatches are
-		// recorded with NRI inside the NVRHI command buffers. Any thread; takes effect at the next
-		// render frame.
-		static void SetNRIComputeEnabled(bool enabled);
-		static bool IsNRIComputeEnabled();
-		// NRI graphics (setting Renderer.NRIGraphics, NRI migration Phase 10): render passes and draws
-		// are recorded with NRI inside the NVRHI command buffers. NRI passes take their barriers from
-		// the tracker, so this implies explicit barriers. Any thread; takes effect at the next render
-		// frame.
-		static void SetNRIGraphicsEnabled(bool enabled);
-		static bool IsNRIGraphicsEnabled();
-		// Render thread, and command buffers begun off it: the value latched for the current render frame.
-		static bool RT_NRIGraphicsEnabled();
-		// NRI ImGui (setting Renderer.NRIImGui, NRI migration Phase 11): the editor UI, including
-		// platform windows, is drawn with NRI. Any thread; takes effect at the next render frame.
-		static void SetNRIImGuiEnabled(bool enabled);
-		static bool IsNRIImGuiEnabled();
-		// Render thread: the value latched for the current render frame.
-		static bool RT_NRIImGuiEnabled();
 		// Effective mode: the setting is on AND a dedicated transfer queue exists.
 		static bool UseAsyncTransferQueue();
 		// True once Shutdown has drained the queues (the device is idle).
@@ -249,13 +223,16 @@ namespace Lux {
 		static void SubmitFullscreenQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material);
 		static void SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides);
 		static void RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount = 0);
-		static void RT_BindMaterialDescriptorSet(nvrhi::BindingSetVector& bindings, Ref<Shader> pipelineShader, Ref<Material> material, uint32_t set = 0);
+		// Render thread: `material`'s set 0, prepared for this frame, when its layout matches
+		// `pipelineShader`'s set 0. Empty otherwise (or without a material); a draw then keeps the
+		// pass's own set 0.
+		static BoundDescriptorSet RT_GetMaterialDescriptorSet(const Ref<Shader>& pipelineShader, Material* material);
 
-		// One indexed draw recorded through NRI (NRI migration Phase 10).
-		struct NRIIndexedDraw
+		// One indexed draw (NRI migration Phase 10).
+		struct IndexedDraw
 		{
-			// The material whose binding set the caller placed at set 0 of the graphics state, if any.
-			const Material* MaterialInstance = nullptr;
+			// The draw's set 0, a material's (RT_GetMaterialDescriptorSet); empty keeps the pass's own.
+			BoundDescriptorSet MaterialSet;
 			const VertexBuffer* Vertices = nullptr;
 			const IndexBuffer* Indices = nullptr;
 			const void* Constants = nullptr;
@@ -269,16 +246,15 @@ namespace Lux {
 			uint64_t IndirectOffset = 0;
 		};
 		// Render thread. Opens `renderPass` (already prepared) as an NRI render pass, clearing the
-		// attachments flagged. False, with nothing recorded, when NRI graphics is off or the pass
-		// cannot be recorded with NRI (logged once per pipeline); the caller then uses NVRHI.
-		static bool RT_BeginRenderPassWithNRI(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, nvrhi::c_MaxRenderTargets>& clearColor, bool clearDepth);
-		// Render thread, inside a render pass: records `draw` through NRI when the pass is an NRI one,
-		// with the command buffer's graphics state set up as for the NVRHI draw. False when it is not,
-		// or this draw cannot be (logged once per pipeline); the caller then draws through NVRHI.
-		static bool RT_DrawIndexedWithNRI(RenderCommandBuffer& renderCommandBuffer, const NRIIndexedDraw& draw);
-		// The same for a mesh-task draw: `meshletState` as it would be committed to NVRHI, and
-		// `meshletSet` the NRI twin of its set 0.
-		static bool RT_DrawMeshTasksWithNRI(RenderCommandBuffer& renderCommandBuffer, const nvrhi::MeshletState& meshletState, nri::DescriptorSet* meshletSet, const void* constants, uint32_t constantsSize, const glm::uvec3& groups);
+		// attachments flagged. False, with nothing recorded, when the pass cannot be recorded (logged
+		// once per pipeline); its draws are then skipped, as RT_DrawIndexed skips them outside a pass.
+		static bool RT_BeginRenderPass(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, nvrhi::c_MaxRenderTargets>& clearColor, bool clearDepth);
+		// Render thread, inside a pass begun with RT_BeginRenderPass: records `draw`. False, with
+		// nothing recorded, outside such a pass or when the draw cannot be recorded (logged once per
+		// pipeline).
+		static bool RT_DrawIndexed(RenderCommandBuffer& renderCommandBuffer, const IndexedDraw& draw);
+		// The same for a mesh-task draw, with `meshletSet` at set 0.
+		static bool RT_DrawMeshTasks(RenderCommandBuffer& renderCommandBuffer, const BoundDescriptorSet& meshletSet, const void* constants, uint32_t constantsSize, const glm::uvec3& groups);
 		static void ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, const glm::vec4& clearColor, TextureSubresourceRange subresources);
 		static void CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 		static void BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);

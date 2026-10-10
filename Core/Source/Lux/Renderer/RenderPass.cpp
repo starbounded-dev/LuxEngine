@@ -156,11 +156,21 @@ namespace Lux {
 		return sets;
 	}
 
-	nri::DescriptorSet* RenderPass::GetNRIDescriptorSet(uint32_t frameIndex, uint32_t set) const
+	BoundDescriptorSet RenderPass::GetDescriptorSet(uint32_t frameIndex, uint32_t set) const
 	{
-		if (set == BindlessTextureTable::DescriptorSet)
-			return m_BindlessTextures ? m_BindlessTextures->RT_GetNRISet(frameIndex) : nullptr;
-		return m_DescriptorSetManager.GetNRIDescriptorSet(frameIndex, set);
+		if (set != BindlessTextureTable::DescriptorSet)
+			return m_DescriptorSetManager.GetDescriptorSet(frameIndex, set);
+
+		if (!m_BindlessTextures)
+		{
+			if (!m_ReportedMissingBindlessTable)
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "Render pass '{}' reads bindless textures but has no table", m_Specification.DebugName);
+				m_ReportedMissingBindlessTable = true;
+			}
+			return {};
+		}
+		return m_BindlessTextures->RT_GetDescriptorSet(frameIndex);
 	}
 
 	Ref<Pipeline> RenderPass::GetPipeline() const

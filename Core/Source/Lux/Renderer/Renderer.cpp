@@ -287,26 +287,9 @@ namespace Lux {
 	// graphics queue instead is spec-correct. Opt back in via the setting once the
 	// copy path does proper queue-family-ownership transfers.
 	static std::atomic<bool> s_AsyncTransferEnabled = false;
-	// Setting (Renderer.ExplicitBarriers), written from any thread. RT_BeginFrame latches it into
-	// s_RTExplicitBarriers so every command buffer in a frame uses the same mode. Atomic because the
-	// few command buffers begun off the render thread (readbacks) read it too.
-	static std::atomic<bool> s_ExplicitBarriersRequested = false;
-	static std::atomic<bool> s_RTExplicitBarriers = false;
-	// Setting (Renderer.NRICompute), latched by RT_BeginFrame like the one above. Render thread only
-	// once latched.
-	static std::atomic<bool> s_NRIComputeRequested = false;
-	static bool s_RTNRICompute = false;
-	// Shaders whose NRI dispatch fell back to NVRHI; logged once each. Render thread.
-	static std::unordered_set<const VulkanShader*> s_ReportedNRIComputeFallbacks;
-	// Setting (Renderer.NRIGraphics), latched by RT_BeginFrame. Atomic like s_RTExplicitBarriers:
-	// command buffers begun off the render thread read it in RT_Begin.
-	static std::atomic<bool> s_NRIGraphicsRequested = false;
-	static std::atomic<bool> s_RTNRIGraphics = false;
-	// Pipelines whose pass or draws fell back to NVRHI; logged once each. Render thread.
-	static std::unordered_set<const void*> s_ReportedNRIGraphicsFallbacks;
-	// Setting (Renderer.NRIImGui), latched by RT_BeginFrame. Render thread only once latched.
-	static std::atomic<bool> s_NRIImGuiRequested = false;
-	static bool s_RTNRIImGui = false;
+	// Pipelines and shaders whose passes, draws or dispatches are skipped; logged once each. Render
+	// thread.
+	static std::unordered_set<const void*> s_ReportedSkippedWork;
 	// Copy-queue execution instance of the most recent async upload flush (0 = none
 	// yet). Consumers wait on it before reading uploaded resources.
 	static std::atomic<uint64_t> s_LastUploadInstance = 0;
@@ -344,81 +327,60 @@ namespace Lux {
 		return state;
 	}
 
-	// Records a compute dispatch with NRI into the NVRHI command buffer (Renderer.NRICompute). The
-	// NVRHI compute state is already committed, so the barriers are in place and only the recording
-	// API differs: the same pipeline, sets and push constants, bound through NRI. False when an NRI
-	// object is missing; the caller then dispatches through NVRHI, and the reason is logged (once per
-	// shader for a missing object) so a partial NRI frame is visible.
-	static bool RT_DispatchComputeWithNRI(RenderCommandBuffer& commandBuffer, const ComputePass& computePass, const Material* material, const glm::uvec3& workGroups, const Buffer& constants)
+	// Logs once per pipeline or shader (`key`) that work recorded with it is skipped, and why.
+	static void ReportSkipped(const void* key, std::string_view name, const char* reason)
+	{
+		if (s_ReportedSkippedWork.insert(key).second)
+			LUX_CORE_ERROR_TAG("Renderer", "'{}' is not rendered: {}", name, reason);
+	}
+
+	// Records one compute dispatch: the pass's sets, and the material's at set 0 when it has a
+	// compatible one there. Skipped, logged once per shader, when an NRI object is missing.
+	static void RT_RecordDispatch(RenderCommandBuffer& commandBuffer, const ComputePass& computePass, Material* material, const glm::uvec3& workGroups, const Buffer& constants)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<VulkanShader> shader = computePass.GetShader().As<VulkanShader>();
-		nri::PipelineLayout* layout = shader->GetNRIPipelineLayout();
-		nri::Pipeline* pipeline = computePass.GetPipeline()->GetNRIPipeline();
-		const char* missing = !layout ? "pipeline layout" : (!pipeline ? "pipeline" : nullptr);
+		RenderCommandBuffer::NRIDispatchDesc desc;
+		desc.PipelineLayout = shader->GetNRIPipelineLayout();
+		desc.Pipeline = computePass.GetPipeline()->GetNRIPipeline();
+		const char* problem = !desc.PipelineLayout ? "it has no NRI pipeline layout"
+			: !desc.Pipeline ? "it has no NRI pipeline"
+			: !commandBuffer.RT_UsesExplicitBarriers() ? "its command buffer records with automatic barriers"
+			: nullptr;
 
-		// The sets NVRHI binds: the pass's, and the material's in the set it occupies.
 		const uint32_t frameIndex = Renderer::RT_GetCurrentFrameIndex();
-		const nvrhi::BindingSetVector& bindings = commandBuffer.GetComputeState().bindings;
-		std::array<nri::SetDescriptorSetDesc, 8> sets = {};
-		uint32_t setCount = 0;
-		for (uint32_t set = 0; !missing && set < bindings.size() && set < sets.size(); set++)
+		const BoundDescriptorSet materialSet = Renderer::RT_GetMaterialDescriptorSet(computePass.GetShader(), material);
+		const uint32_t setCount = static_cast<uint32_t>(std::min(shader->GetShaderDescriptorSets().size(), desc.DescriptorSets.size()));
+		for (uint32_t set = 0; !problem && set < setCount; set++)
 		{
 			const uint32_t setIndex = shader->GetNRISetIndex(set);
-			// NVRHI binds an empty placeholder where the shader declares nothing.
-			if (!bindings[set] || setIndex == VulkanShader::k_NoNRISet)
+			if (setIndex == VulkanShader::k_NoNRISet)
 				continue;
 
-			const bool isMaterialSet = material && bindings[set] == material->GetBindingSet(frameIndex).Get();
-			nri::DescriptorSet* descriptorSet = isMaterialSet ? material->GetNRIDescriptorSet(frameIndex) : computePass.GetNRIDescriptorSet(frameIndex, set);
-			if (!descriptorSet)
-			{
-				missing = "descriptor set";
-				break;
-			}
-
-			nri::SetDescriptorSetDesc& setDesc = sets[setCount++];
-			setDesc.setIndex = setIndex;
-			setDesc.descriptorSet = descriptorSet;
-			setDesc.bindPoint = nri::BindPoint::COMPUTE;
+			const BoundDescriptorSet bound = set == 0 && materialSet.Set ? materialSet : computePass.GetDescriptorSet(frameIndex, set);
+			if (!bound.Set && computePass.ManagesDescriptorSet(set))
+				problem = "one of its descriptor sets could not be built";
+			desc.DescriptorSets[setIndex] = bound;
 		}
 
-		if (missing)
+		if (problem)
 		{
-			if (s_ReportedNRIComputeFallbacks.insert(shader.Raw()).second)
-				LUX_CORE_ERROR_TAG("Renderer", "NRI compute: {} has no NRI {}; it is dispatched through NVRHI", shader->GetName(), missing);
-			return false;
+			ReportSkipped(shader.Raw(), shader->GetName(), problem);
+			return;
 		}
-
-		nri::CommandBuffer* nriCommandBuffer = commandBuffer.RT_BeginNRISegment();
-		if (!nriCommandBuffer)
-			return false;
-
-		const NRIInterface& api = RHIDevice::API();
-		api.CmdSetPipelineLayout(*nriCommandBuffer, nri::BindPoint::COMPUTE, *layout);
-		api.CmdSetPipeline(*nriCommandBuffer, *pipeline);
-		for (uint32_t i = 0; i < setCount; i++)
-			api.CmdSetDescriptorSet(*nriCommandBuffer, sets[i]);
 
 		if (constants && shader->HasNRIRootConstants())
 		{
-			nri::SetRootConstantsDesc rootConstants = {};
-			rootConstants.rootConstantIndex = 0;
-			rootConstants.data = constants.Data;
-			rootConstants.size = static_cast<uint32_t>(constants.Size);
-			rootConstants.bindPoint = nri::BindPoint::COMPUTE;
-			api.CmdSetRootConstants(*nriCommandBuffer, rootConstants);
+			desc.RootConstants = constants.Data;
+			desc.RootConstantsSize = static_cast<uint32_t>(constants.Size);
 		}
 
-		api.CmdDispatch(*nriCommandBuffer, { workGroups.x, workGroups.y, workGroups.z });
-		commandBuffer.RT_EndNRISegment();
-		return true;
-	}
+		nri::CommandBuffer* nriCommandBuffer = commandBuffer.RT_BeginNRIDispatch(desc);
+		if (!nriCommandBuffer)
+			return;
 
-	static void ReportNRIGraphicsFallback(const void* pipeline, std::string_view passName, const char* reason)
-	{
-		if (s_ReportedNRIGraphicsFallbacks.insert(pipeline).second)
-			LUX_CORE_ERROR_TAG("Renderer", "NRI graphics: '{}' renders through NVRHI: {}", passName, reason);
+		RHIDevice::API().CmdDispatch(*nriCommandBuffer, { workGroups.x, workGroups.y, workGroups.z });
+		commandBuffer.RT_EndNRISegment();
 	}
 
 	static RendererAPI* InitRendererAPI()
@@ -885,61 +847,6 @@ namespace Lux {
 		return s_AsyncTransferEnabled.load(std::memory_order_relaxed);
 	}
 
-	void Renderer::SetExplicitBarriersEnabled(bool enabled)
-	{
-		s_ExplicitBarriersRequested.store(enabled, std::memory_order_relaxed);
-	}
-
-	bool Renderer::IsExplicitBarriersEnabled()
-	{
-		return s_ExplicitBarriersRequested.load(std::memory_order_relaxed);
-	}
-
-	bool Renderer::RT_ExplicitBarriersEnabled()
-	{
-		return s_RTExplicitBarriers.load(std::memory_order_relaxed);
-	}
-
-	void Renderer::SetNRIComputeEnabled(bool enabled)
-	{
-		s_NRIComputeRequested.store(enabled, std::memory_order_relaxed);
-	}
-
-	bool Renderer::IsNRIComputeEnabled()
-	{
-		return s_NRIComputeRequested.load(std::memory_order_relaxed);
-	}
-
-	void Renderer::SetNRIGraphicsEnabled(bool enabled)
-	{
-		s_NRIGraphicsRequested.store(enabled, std::memory_order_relaxed);
-	}
-
-	bool Renderer::IsNRIGraphicsEnabled()
-	{
-		return s_NRIGraphicsRequested.load(std::memory_order_relaxed);
-	}
-
-	bool Renderer::RT_NRIGraphicsEnabled()
-	{
-		return s_RTNRIGraphics.load(std::memory_order_relaxed);
-	}
-
-	void Renderer::SetNRIImGuiEnabled(bool enabled)
-	{
-		s_NRIImGuiRequested.store(enabled, std::memory_order_relaxed);
-	}
-
-	bool Renderer::IsNRIImGuiEnabled()
-	{
-		return s_NRIImGuiRequested.load(std::memory_order_relaxed);
-	}
-
-	bool Renderer::RT_NRIImGuiEnabled()
-	{
-		return s_RTNRIImGui;
-	}
-
 	void Renderer::RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -1039,9 +946,7 @@ namespace Lux {
 			{
 				renderCommandBuffer->RT_BeginMarker(renderPass->GetSpecification().DebugName);
 
-				Ref<Pipeline> pipeline = renderPass->GetSpecification().Pipeline;
-				Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
-
+				Ref<Framebuffer> framebuffer = renderPass->GetSpecification().Pipeline->GetSpecification().TargetFramebuffer;
 				const FramebufferSpecification& framebufferSpec = framebuffer->GetSpecification();
 				const auto& attachmentSpecs = framebufferSpec.Attachments.Attachments;
 
@@ -1058,64 +963,9 @@ namespace Lux {
 				}
 				const bool clearDepth = framebuffer->HasDepthAttachment() && (explicitClear || framebufferSpec.ClearDepthOnLoad);
 
-				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
-				graphicsState.pipeline = pipeline->GetHandle();
-				LUX_CORE_ASSERT(graphicsState.pipeline);
-				graphicsState.framebuffer = framebuffer->GetHandle();
-				LUX_CORE_ASSERT(graphicsState.framebuffer);
-
-				// The graphics state persists on the command buffer across passes.
-				// Clear any vertex/index bindings left by a previous draw before we
-				// commit here: pass-begin does not draw, and a stale binding whose
-				// buffer handle has since been released would commit VK_NULL_HANDLE
-				// (vkCmdBindVertexBuffers: pBuffers[0] is VK_NULL_HANDLE). Each draw
-				// sets its own vertex/index buffers immediately before drawing.
-				graphicsState.vertexBuffers = {};
-				graphicsState.indexBuffer = nvrhi::IndexBufferBinding{};
-
-				// Viewport and scissor
-				const uint32_t framebufferWidth = framebuffer->GetWidth();
-				const uint32_t framebufferHeight = framebuffer->GetHeight();
-				float fbWidth = (float)framebufferWidth;
-				float fbHeight = (float)framebufferHeight;
-				graphicsState.viewport.viewports = { nvrhi::Viewport(fbWidth, fbHeight) };
-				graphicsState.viewport.scissorRects = { nvrhi::Rect(static_cast<int>(framebufferWidth), static_cast<int>(framebufferHeight)) };
-
-				graphicsState.lineWidth = 0.0f;
-				if (renderPass->GetPipeline()->IsDynamicLineWidth())
-					graphicsState.lineWidth = renderPass->GetPipeline()->GetSpecification().LineWidth;
-				graphicsState.shadingRateState = MakeFragmentShadingRateState(FragmentShadingRate::Rate1x1);
-
+				// The clears are the pass's load ops.
 				renderPass->Prepare();
-				auto bindingSets = renderPass->GetBindingSets(Renderer::RT_GetCurrentFrameIndex());
-				graphicsState.bindings = bindingSets;
-
-				// NRI graphics records the pass itself, its clears as load ops. The graphics state
-				// above still serves any draw that falls back to NVRHI.
-				if (RT_BeginRenderPassWithNRI(*renderCommandBuffer, *renderPass, clearColor, clearDepth))
-					return;
-
-				const auto& clearValues = framebuffer->GetClearValues();
-				for (uint32_t i = 0; i < colorAttachmentCount && i < clearColor.size(); i++)
-				{
-					if (!clearColor[i])
-						continue;
-
-					nvrhi::Color color = nvrhi::Color(clearValues[i].Color.float32[0], clearValues[i].Color.float32[1],
-						clearValues[i].Color.float32[2], clearValues[i].Color.float32[3]);
-
-					renderCommandBuffer->RT_RequireColorAttachmentClear(framebuffer->GetHandle(), i);
-					nvrhi::utils::ClearColorAttachment(renderCommandBuffer->GetActive(), framebuffer->GetHandle(), i, color);
-				}
-
-				if (clearDepth)
-				{
-					const auto& depthStencil = clearValues[clearValues.size() - 1].DepthStencil;
-					renderCommandBuffer->RT_RequireDepthAttachmentClear(framebuffer->GetHandle());
-					nvrhi::utils::ClearDepthStencilAttachment(renderCommandBuffer->GetActive(), framebuffer->GetHandle(), depthStencil.Depth, depthStencil.Stencil);
-				}
-
-				renderCommandBuffer->RT_CommitGraphicsState();
+				RT_BeginRenderPass(*renderCommandBuffer, *renderPass, clearColor, clearDepth);
 			});
 	}
 
@@ -1124,15 +974,11 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_VERIFY(renderCommandBuffer);
 
+		// Inside a render pass only: every pass begins at 1x1, as NVRHI's did.
 		Renderer::Submit([renderCommandBuffer, rate]() mutable
 		{
-			nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
-			graphicsState.shadingRateState = MakeFragmentShadingRateState(rate);
-
 			if (renderCommandBuffer->RT_InNRIRenderPass())
-				renderCommandBuffer->RT_SetNRIShadingRate(graphicsState.shadingRateState);
-			else if (graphicsState.pipeline && graphicsState.framebuffer)
-				renderCommandBuffer->RT_CommitGraphicsState();
+				renderCommandBuffer->RT_SetNRIShadingRate(MakeFragmentShadingRateState(rate));
 		});
 	}
 
@@ -1146,23 +992,18 @@ namespace Lux {
 			});
 	}
 
+	// Viewport and scissor apply inside a render pass only: every pass begins with the full
+	// framebuffer, as NVRHI's did.
 	void Renderer::SetViewport(Ref<RenderCommandBuffer> renderCommandBuffer, uint32_t x, uint32_t y, uint32_t width, uint32_t height)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, x, y, width, height]() mutable
 			{
-				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
-				graphicsState.viewport.viewports = { nvrhi::Viewport(
-					static_cast<float>(x) ,
-					static_cast<float>(x + width),
-					static_cast<float>(y),
-					static_cast<float>(y + height),
-					0.0f, 1.0f
-				) };
 				if (renderCommandBuffer->RT_InNRIRenderPass())
-					renderCommandBuffer->RT_SetNRIViewportState(graphicsState.viewport);
-				else
-					renderCommandBuffer->RT_CommitGraphicsState();
+				{
+					renderCommandBuffer->RT_SetNRIViewport(nvrhi::Viewport(static_cast<float>(x), static_cast<float>(x + width),
+						static_cast<float>(y), static_cast<float>(y + height), 0.0f, 1.0f));
+				}
 			});
 	}
 
@@ -1171,17 +1012,11 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, x, y, width, height]() mutable
 			{
-				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
-				graphicsState.viewport.scissorRects = { nvrhi::Rect(
-					static_cast<int>(x),
-					static_cast<int>(x + width),
-					static_cast<int>(y),
-					static_cast<int>(y + height)
-				) };
 				if (renderCommandBuffer->RT_InNRIRenderPass())
-					renderCommandBuffer->RT_SetNRIViewportState(graphicsState.viewport);
-				else
-					renderCommandBuffer->RT_CommitGraphicsState();
+				{
+					renderCommandBuffer->RT_SetNRIScissor(nvrhi::Rect(static_cast<int>(x), static_cast<int>(x + width),
+						static_cast<int>(y), static_cast<int>(y + height)));
+				}
 			});
 	}
 
@@ -1193,21 +1028,7 @@ namespace Lux {
 		Renderer::Submit([renderCommandBuffer, computePass]() mutable
 			{
 				renderCommandBuffer->RT_BeginMarker(computePass->GetSpecification().DebugName);
-
-				Ref<PipelineCompute> pipeline = computePass->GetPipeline();
-
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-
-				nvrhi::ComputeState& computeState = renderCommandBuffer->GetComputeState();
-				computeState.pipeline = pipeline->GetHandle();
-				LUX_CORE_ASSERT(computeState.pipeline);
-
 				computePass->Prepare();
-
-				auto bindingSets = computePass->GetBindingSets(Renderer::RT_GetCurrentFrameIndex());
-				computeState.bindings = bindingSets;
-
-				renderCommandBuffer->RT_CommitComputeState();
 			});
 	}
 
@@ -1228,31 +1049,8 @@ namespace Lux {
 
 		Renderer::Submit([renderCommandBuffer, computePass, material, workGroups, pushConstantBuffer]() mutable
 			{
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-
-				nvrhi::ComputeState& computeState = renderCommandBuffer->GetComputeState();
-
-				// Bind material descriptor set if exists
-				if (material)
-				{
-					Renderer::RT_BindMaterialDescriptorSet(computeState.bindings, computePass->GetShader(), material);
-				}
-
-				renderCommandBuffer->RT_CommitComputeState();
-
-				if (s_RTNRICompute && RT_DispatchComputeWithNRI(*renderCommandBuffer, *computePass, material.Raw(), workGroups, pushConstantBuffer))
-				{
-					pushConstantBuffer.Release();
-					return;
-				}
-
-				if (pushConstantBuffer)
-				{
-					commandList->setPushConstants(pushConstantBuffer.Data, pushConstantBuffer.Size);
-					pushConstantBuffer.Release();
-				}
-
-				commandList->dispatch(workGroups.x, workGroups.y, workGroups.z);
+				RT_RecordDispatch(*renderCommandBuffer, *computePass, material.Raw(), workGroups, pushConstantBuffer);
+				pushConstantBuffer.Release();
 			});
 	}
 
@@ -1603,52 +1401,16 @@ namespace Lux {
 			{
 				LUX_PROFILE_FUNC("VulkanRenderer::RenderQuad");
 
-				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+				const Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
 
-				{
-					nvrhi::VertexBufferBinding vertexBufferBinding;
-					vertexBufferBinding.buffer = s_RendererData->QuadVertexBuffer->GetHandle();
-					vertexBufferBinding.slot = 0;
-					vertexBufferBinding.offset = 0;
-
-					graphicsState.vertexBuffers = { vertexBufferBinding };
-				}
-
-				{
-					nvrhi::IndexBufferBinding indexBufferBinding;
-					indexBufferBinding.buffer = s_RendererData->QuadIndexBuffer->GetHandle();
-					indexBufferBinding.format = nvrhi::Format::R32_UINT;
-					indexBufferBinding.offset = 0;
-
-					graphicsState.indexBuffer = indexBufferBinding;
-				}
-
-				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
-
-				Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
-
-				NRIIndexedDraw draw;
-				draw.MaterialInstance = material.Raw();
+				IndexedDraw draw;
+				draw.MaterialSet = RT_GetMaterialDescriptorSet(pipeline->GetShader(), material.Raw());
 				draw.Vertices = s_RendererData->QuadVertexBuffer.Raw();
 				draw.Indices = s_RendererData->QuadIndexBuffer.Raw();
 				draw.Constants = uniformStorageBuffer.Data;
 				draw.ConstantsSize = static_cast<uint32_t>(uniformStorageBuffer.Size);
 				draw.IndexCount = s_RendererData->QuadIndexBuffer->GetCount();
-				if (RT_DrawIndexedWithNRI(*renderCommandBuffer, draw))
-					return;
-
-				renderCommandBuffer->RT_CommitGraphicsState();
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-
-				if (uniformStorageBuffer)
-					commandList->setPushConstants(uniformStorageBuffer.Data, uniformStorageBuffer.Size);
-
-				nvrhi::DrawArguments drawArgs{};
-				drawArgs.vertexCount = s_RendererData->QuadIndexBuffer->GetCount();
-				drawArgs.startIndexLocation = 0;
-				drawArgs.startVertexLocation = 0;
-				drawArgs.instanceCount = 1;
-				commandList->drawIndexed(drawArgs);
+				RT_DrawIndexed(*renderCommandBuffer, draw);
 			});
 	}
 
@@ -1657,130 +1419,80 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([renderCommandBuffer, pipeline, material, vertexBuffer, indexBuffer, transform, indexCount]() mutable
 			{
-				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
-
-				nvrhi::VertexBufferBinding vertexBufferBinding;
-				vertexBufferBinding.buffer = vertexBuffer->GetHandle();
-				vertexBufferBinding.slot = 0;
-				vertexBufferBinding.offset = 0;
-				graphicsState.vertexBuffers = { vertexBufferBinding };
-
-				nvrhi::IndexBufferBinding indexBufferBinding;
-				indexBufferBinding.buffer = indexBuffer->GetHandle();
-				indexBufferBinding.format = nvrhi::Format::R32_UINT;
-				indexBufferBinding.offset = 0;
-				graphicsState.indexBuffer = indexBufferBinding;
-
-				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
-
-				NRIIndexedDraw draw;
-				draw.MaterialInstance = material.Raw();
+				IndexedDraw draw;
+				draw.MaterialSet = RT_GetMaterialDescriptorSet(pipeline->GetShader(), material.Raw());
 				draw.Vertices = vertexBuffer.Raw();
 				draw.Indices = indexBuffer.Raw();
 				draw.Constants = &transform;
 				draw.ConstantsSize = sizeof(glm::mat4);
 				draw.IndexCount = indexCount;
-				if (RT_DrawIndexedWithNRI(*renderCommandBuffer, draw))
-					return;
-
-				renderCommandBuffer->RT_CommitGraphicsState();
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-
-				commandList->setPushConstants(&transform, sizeof(glm::mat4));
-
-				nvrhi::DrawArguments drawArgs;
-				drawArgs.vertexCount = indexCount;
-				drawArgs.startIndexLocation = 0;
-				drawArgs.startVertexLocation = 0;
-				commandList->drawIndexed(drawArgs);
+				RT_DrawIndexed(*renderCommandBuffer, draw);
 			});
 	}
 
-	void Renderer::RT_BindMaterialDescriptorSet(nvrhi::BindingSetVector& bindings, Ref<Shader> pipelineShader, Ref<Material> material, uint32_t set)
+	BoundDescriptorSet Renderer::RT_GetMaterialDescriptorSet(const Ref<Shader>& pipelineShader, Material* material)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!material)
-		{
-			if (bindings.size() > set)
-				bindings[set] = nullptr;
-			return;
-		}
+			return {};
 
 		material->Prepare();
-
-		if (!material->IsDescriptorSetCompatible(pipelineShader, set))
-		{
-			if (bindings.size() > set)
-				bindings[set] = nullptr;
-			return;
-		}
-
-		nvrhi::BindingSetHandle bindingSet = material->GetBindingSet(Renderer::RT_GetCurrentFrameIndex());
-		if (!bindingSet)
-		{
-			if (bindings.size() > set)
-				bindings[set] = nullptr;
-			return;
-		}
-
-		if (bindings.size() <= set)
-			bindings.resize(set + 1);
-
-		bindings[set] = bindingSet;
+		if (!material->IsDescriptorSetCompatible(pipelineShader, 0))
+			return {};
+		return material->GetDescriptorSet(Renderer::RT_GetCurrentFrameIndex());
 	}
 
-	bool Renderer::RT_BeginRenderPassWithNRI(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, nvrhi::c_MaxRenderTargets>& clearColor, bool clearDepth)
+	bool Renderer::RT_BeginRenderPass(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, nvrhi::c_MaxRenderTargets>& clearColor, bool clearDepth)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (!s_RTNRIGraphics.load(std::memory_order_relaxed) || !renderCommandBuffer.RT_UsesExplicitBarriers())
-			return false;
-
 		Ref<Pipeline> pipeline = renderPass.GetPipeline();
 		Ref<VulkanShader> shader = pipeline->GetShader().As<VulkanShader>();
 		Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
 		const std::string& passName = renderPass.GetSpecification().DebugName;
 
-		const char* problem = !pipeline->GetNRIPipeline() ? "its pipeline has no NRI twin"
+		const char* problem = !renderCommandBuffer.RT_UsesExplicitBarriers() ? "its command buffer records with automatic barriers"
+			: !pipeline->GetNRIPipeline() ? "its pipeline has no NRI pipeline"
 			: !shader->GetNRIPipelineLayout() ? "its shader has no NRI layout"
 			: !framebuffer->HasNRIAttachments() ? "its framebuffer has no NRI attachments"
 			: framebuffer->HasStaleAttachments() ? "its framebuffer has stale attachments"
 			: nullptr;
 
-		// The pass's own sets, where NVRHI binds them. A set the pass leaves to its materials is null
-		// here and bound by the draws.
+		// The pass's own sets. A set the pass leaves to its materials is empty here and bound by the
+		// draws.
 		RenderCommandBuffer::NRIRenderPassDesc desc;
 		const uint32_t frameIndex = RT_GetCurrentFrameIndex();
-		const nvrhi::BindingSetVector bindings = renderPass.GetBindingSets(frameIndex);
-		for (uint32_t set = 0; !problem && set < bindings.size(); set++)
+		const uint32_t setCount = static_cast<uint32_t>(std::min(shader->GetShaderDescriptorSets().size(), desc.DescriptorSets.size()));
+		for (uint32_t set = 0; !problem && set < setCount; set++)
 		{
 			const uint32_t setIndex = shader->GetNRISetIndex(set);
-			if (!bindings[set] || setIndex == VulkanShader::k_NoNRISet)
+			if (setIndex == VulkanShader::k_NoNRISet)
 				continue;
 
-			desc.DescriptorSets[setIndex] = renderPass.GetNRIDescriptorSet(frameIndex, set);
-			if (!desc.DescriptorSets[setIndex])
-				problem = "one of its descriptor sets has no NRI twin";
+			desc.DescriptorSets[setIndex] = renderPass.GetDescriptorSet(frameIndex, set);
+			if (!desc.DescriptorSets[setIndex].Set && renderPass.ManagesDescriptorSet(set))
+				problem = "one of its descriptor sets could not be built";
 		}
 
 		if (problem)
 		{
-			ReportNRIGraphicsFallback(pipeline.Raw(), passName, problem);
+			ReportSkipped(pipeline.Raw(), passName, problem);
 			return false;
 		}
 
-		// The attachments and clears of NVRHI's framebuffer and BeginRenderPass.
+		// The framebuffer's attachments, required as render targets when the pass opens, and its clears.
 		const std::vector<ClearValue>& clearValues = framebuffer->GetClearValues();
+		const TextureSubresourceRange attachmentRange = framebuffer->GetAttachmentRange();
 		desc.ColorAttachmentCount = static_cast<uint32_t>(framebuffer->GetColorAttachmentCount());
 		for (uint32_t i = 0; i < desc.ColorAttachmentCount; i++)
 		{
 			const ClearColorValue& clear = clearValues[i].Color;
-			desc.ColorAttachments[i] = framebuffer->GetNRIColorAttachment(i);
+			desc.ColorAttachments[i] = { framebuffer->GetNRIColorAttachment(i), framebuffer->GetColorAttachmentTexture(i), attachmentRange };
 			desc.ClearColor[i] = clearColor[i];
 			desc.ClearColorValues[i] = { clear.float32[0], clear.float32[1], clear.float32[2], clear.float32[3] };
 		}
 		if (framebuffer->HasDepthAttachment())
 		{
-			desc.DepthAttachment = framebuffer->GetNRIDepthAttachment();
+			desc.DepthAttachment = { framebuffer->GetNRIDepthAttachment(), framebuffer->GetDepthAttachmentTexture(), attachmentRange };
 			desc.ClearDepth = clearDepth;
 			desc.ClearDepthValue = clearValues.back().DepthStencil.Depth;
 		}
@@ -1793,17 +1505,7 @@ namespace Lux {
 		desc.VertexStride = pipeline->GetNRIVertexStride(0);
 		desc.RootConstants = shader->HasNRIRootConstants();
 
-		// The pass-level requirements (attachments, the pass's sets), made through the graphics state
-		// as for NVRHI so the draws' change detection continues from them.
-		nvrhi::GraphicsState& graphicsState = renderCommandBuffer.GetGraphicsState();
-		graphicsState.framebuffer = framebuffer->GetHandle();
-		graphicsState.bindings = bindings;
-		graphicsState.vertexBuffers = {};
-		graphicsState.indexBuffer = nvrhi::IndexBufferBinding{};
-		graphicsState.indirectParams = nullptr;
-		renderCommandBuffer.RT_RequireGraphicsState();
-
-		// The full-framebuffer viewport and the 1x1 shading rate BeginRenderPass gives NVRHI.
+		// The full-framebuffer viewport and the 1x1 shading rate every pass begins with.
 		const uint32_t width = framebuffer->GetWidth();
 		const uint32_t height = framebuffer->GetHeight();
 		nvrhi::ViewportState viewport;
@@ -1812,60 +1514,40 @@ namespace Lux {
 		return renderCommandBuffer.RT_BeginNRIRenderPass(desc, passName, viewport, MakeFragmentShadingRateState(FragmentShadingRate::Rate1x1));
 	}
 
-	bool Renderer::RT_DrawIndexedWithNRI(RenderCommandBuffer& renderCommandBuffer, const NRIIndexedDraw& draw)
+	bool Renderer::RT_DrawIndexed(RenderCommandBuffer& renderCommandBuffer, const IndexedDraw& draw)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!renderCommandBuffer.RT_InNRIRenderPass())
 			return false;
 
+		// Set 0 belongs to the draw: its material's, or else the pass's own.
 		const RenderCommandBuffer::NRIRenderPassDesc& pass = renderCommandBuffer.RT_GetNRIRenderPass();
-		const nvrhi::GraphicsState& graphicsState = renderCommandBuffer.GetGraphicsState();
-		const uint32_t frameIndex = RT_GetCurrentFrameIndex();
-
-		// Set 0 belongs to the draw: its material's set, or else the pass's own (which NVRHI also keeps
-		// bound when the draw leaves a hole there).
-		const char* problem = nullptr;
-		nri::DescriptorSet* drawSet = nullptr;
-		if (pass.DrawSetIndex != VulkanShader::k_NoNRISet)
-		{
-			nvrhi::IBindingSet* binding = graphicsState.bindings.empty() ? nullptr : graphicsState.bindings[0];
-			if (binding && draw.MaterialInstance && binding == draw.MaterialInstance->GetBindingSet(frameIndex).Get())
-				drawSet = draw.MaterialInstance->GetNRIDescriptorSet(frameIndex);
-			else
-				drawSet = pass.DescriptorSets[pass.DrawSetIndex];
-
-			if (!drawSet)
-				problem = binding ? "a draw's set 0 has no NRI twin" : "a draw leaves set 0 unbound";
-		}
-
-		nri::Buffer* vertexBuffer = draw.Vertices ? draw.Vertices->GetRHIBuffer() : nullptr;
-		nri::Buffer* indexBuffer = draw.Indices ? draw.Indices->GetRHIBuffer() : nullptr;
-		nri::Buffer* indirectBuffer = draw.IndirectArguments ? draw.IndirectArguments->GetRHIBuffer() : nullptr;
-		if (!problem && (!vertexBuffer || !indexBuffer || (draw.IndirectArguments && !indirectBuffer)))
-			problem = "a draw's buffer has no NRI buffer";
-
+		const bool drawSetUnbound = pass.DrawSetIndex != VulkanShader::k_NoNRISet && !draw.MaterialSet.Set && !pass.DescriptorSets[pass.DrawSetIndex].Set;
+		const char* problem = drawSetUnbound ? "a draw leaves set 0 unbound"
+			: !draw.Vertices || !draw.Vertices->GetRHIBuffer() || !draw.Indices || !draw.Indices->GetRHIBuffer() ? "a draw's vertex or index buffer has no NRI buffer"
+			: draw.IndirectArguments && !draw.IndirectArguments->GetRHIBuffer() ? "a draw's indirect arguments have no NRI buffer"
+			: nullptr;
 		if (problem)
 		{
-			ReportNRIGraphicsFallback(pass.Pipeline, renderCommandBuffer.RT_GetNRIRenderPassName(), problem);
+			ReportSkipped(pass.Pipeline, renderCommandBuffer.RT_GetNRIRenderPassName(), problem);
 			return false;
 		}
 
-		renderCommandBuffer.RT_RequireGraphicsState();
-		nri::CommandBuffer* commandBuffer = renderCommandBuffer.RT_BeginNRIDraw();
+		RenderCommandBuffer::NRIDrawBindings bindings;
+		bindings.DrawSet = draw.MaterialSet;
+		bindings.VertexBuffer = &draw.Vertices->GetBuffer();
+		bindings.IndexBuffer = &draw.Indices->GetBuffer();
+		bindings.IndirectArguments = draw.IndirectArguments ? &draw.IndirectArguments->GetBuffer() : nullptr;
+		bindings.RootConstants = draw.Constants;
+		bindings.RootConstantsSize = draw.ConstantsSize;
+		nri::CommandBuffer* commandBuffer = renderCommandBuffer.RT_BeginNRIDraw(bindings);
 		if (!commandBuffer)
 			return false;
 
-		if (drawSet)
-			renderCommandBuffer.RT_SetNRIDescriptorSet(pass.DrawSetIndex, drawSet);
-		renderCommandBuffer.RT_SetNRIVertexBuffer(vertexBuffer, pass.VertexStride);
-		renderCommandBuffer.RT_SetNRIIndexBuffer(indexBuffer);
-		if (draw.Constants && draw.ConstantsSize && pass.RootConstants)
-			renderCommandBuffer.RT_SetNRIRootConstants(draw.Constants, draw.ConstantsSize);
-
 		const NRIInterface& api = RHIDevice::API();
-		if (indirectBuffer)
+		if (draw.IndirectArguments)
 		{
-			api.CmdDrawIndexedIndirect(*commandBuffer, *indirectBuffer, draw.IndirectOffset, 1, sizeof(DrawIndexedIndirectCommand), nullptr, 0);
+			api.CmdDrawIndexedIndirect(*commandBuffer, *draw.IndirectArguments->GetRHIBuffer(), draw.IndirectOffset, 1, sizeof(DrawIndexedIndirectCommand), nullptr, 0);
 			return true;
 		}
 
@@ -1878,7 +1560,7 @@ namespace Lux {
 		return true;
 	}
 
-	bool Renderer::RT_DrawMeshTasksWithNRI(RenderCommandBuffer& renderCommandBuffer, const nvrhi::MeshletState& meshletState, nri::DescriptorSet* meshletSet, const void* constants, uint32_t constantsSize, const glm::uvec3& groups)
+	bool Renderer::RT_DrawMeshTasks(RenderCommandBuffer& renderCommandBuffer, const BoundDescriptorSet& meshletSet, const void* constants, uint32_t constantsSize, const glm::uvec3& groups)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!renderCommandBuffer.RT_InNRIRenderPass())
@@ -1888,22 +1570,22 @@ namespace Lux {
 		const NRIInterface& api = RHIDevice::API();
 		const char* problem = !api.CmdDrawMeshTasks ? "NRI has no mesh shader interface"
 			: pass.DrawSetIndex == VulkanShader::k_NoNRISet ? "its mesh shader has no NRI set 0"
-			: !meshletSet ? "a mesh has no NRI meshlet set"
+			: !meshletSet.Set ? "a mesh has no meshlet set"
 			: nullptr;
 		if (problem)
 		{
-			ReportNRIGraphicsFallback(pass.Pipeline, renderCommandBuffer.RT_GetNRIRenderPassName(), problem);
+			ReportSkipped(pass.Pipeline, renderCommandBuffer.RT_GetNRIRenderPassName(), problem);
 			return false;
 		}
 
-		renderCommandBuffer.RT_RequireMeshletState(meshletState);
-		nri::CommandBuffer* commandBuffer = renderCommandBuffer.RT_BeginNRIDraw();
+		RenderCommandBuffer::NRIDrawBindings bindings;
+		bindings.DrawSet = meshletSet;
+		bindings.RootConstants = constants;
+		bindings.RootConstantsSize = constantsSize;
+		nri::CommandBuffer* commandBuffer = renderCommandBuffer.RT_BeginNRIDraw(bindings);
 		if (!commandBuffer)
 			return false;
 
-		renderCommandBuffer.RT_SetNRIDescriptorSet(pass.DrawSetIndex, meshletSet);
-		if (constants && constantsSize && pass.RootConstants)
-			renderCommandBuffer.RT_SetNRIRootConstants(constants, constantsSize);
 		api.CmdDrawMeshTasks(*commandBuffer, { groups.x, groups.y, groups.z });
 		return true;
 	}
@@ -1986,52 +1668,16 @@ namespace Lux {
 					return;
 				}
 
-				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
+				const Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
 
-				{
-					nvrhi::VertexBufferBinding vertexBufferBinding;
-					vertexBufferBinding.buffer = s_RendererData->QuadVertexBuffer->GetHandle();
-					vertexBufferBinding.slot = 0;
-					vertexBufferBinding.offset = 0;
-
-					graphicsState.vertexBuffers = { vertexBufferBinding };
-				}
-
-				{
-					nvrhi::IndexBufferBinding indexBufferBinding;
-					indexBufferBinding.buffer = s_RendererData->QuadIndexBuffer->GetHandle();
-					indexBufferBinding.format = nvrhi::Format::R32_UINT;
-					indexBufferBinding.offset = 0;
-
-					graphicsState.indexBuffer = indexBufferBinding;
-				}
-
-				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
-
-				Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
-
-				NRIIndexedDraw draw;
-				draw.MaterialInstance = material.Raw();
+				IndexedDraw draw;
+				draw.MaterialSet = RT_GetMaterialDescriptorSet(pipeline->GetShader(), material.Raw());
 				draw.Vertices = s_RendererData->QuadVertexBuffer.Raw();
 				draw.Indices = s_RendererData->QuadIndexBuffer.Raw();
 				draw.Constants = uniformStorageBuffer.Data;
 				draw.ConstantsSize = static_cast<uint32_t>(uniformStorageBuffer.Size);
 				draw.IndexCount = s_RendererData->QuadIndexBuffer->GetCount();
-				if (RT_DrawIndexedWithNRI(*renderCommandBuffer, draw))
-					return;
-
-				renderCommandBuffer->RT_CommitGraphicsState();
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-
-				if (uniformStorageBuffer)
-					commandList->setPushConstants(uniformStorageBuffer.Data, uniformStorageBuffer.Size);
-
-				nvrhi::DrawArguments drawArgs{};
-				drawArgs.vertexCount = s_RendererData->QuadIndexBuffer->GetCount();
-				drawArgs.startIndexLocation = 0;
-				drawArgs.startVertexLocation = 0;
-				drawArgs.instanceCount = 1;
-				commandList->drawIndexed(drawArgs);
+				RT_DrawIndexed(*renderCommandBuffer, draw);
 			});
 	}
 
@@ -2060,28 +1706,6 @@ namespace Lux {
 					return;
 				}
 
-				nvrhi::GraphicsState& graphicsState = renderCommandBuffer->GetGraphicsState();
-
-				{
-					nvrhi::VertexBufferBinding vertexBufferBinding;
-					vertexBufferBinding.buffer = s_RendererData->QuadVertexBuffer->GetHandle();
-					vertexBufferBinding.slot = 0;
-					vertexBufferBinding.offset = 0;
-
-					graphicsState.vertexBuffers = { vertexBufferBinding };
-				}
-
-				{
-					nvrhi::IndexBufferBinding indexBufferBinding;
-					indexBufferBinding.buffer = s_RendererData->QuadIndexBuffer->GetHandle();
-					indexBufferBinding.format = nvrhi::Format::R32_UINT;
-					indexBufferBinding.offset = 0;
-
-					graphicsState.indexBuffer = indexBufferBinding;
-				}
-
-				Renderer::RT_BindMaterialDescriptorSet(graphicsState.bindings, pipeline->GetShader(), material);
-
 				// Build combined push constants: vertex overrides first, then fragment overrides
 				Buffer combinedPushConstants;
 				uint64_t offset = 0;
@@ -2104,40 +1728,19 @@ namespace Lux {
 					}
 				}
 
-				NRIIndexedDraw draw;
-				draw.MaterialInstance = material.Raw();
+				IndexedDraw draw;
+				draw.MaterialSet = RT_GetMaterialDescriptorSet(pipeline->GetShader(), material.Raw());
 				draw.Vertices = s_RendererData->QuadVertexBuffer.Raw();
 				draw.Indices = s_RendererData->QuadIndexBuffer.Raw();
 				draw.Constants = combinedPushConstants.Data;
 				draw.ConstantsSize = static_cast<uint32_t>(offset);
 				draw.IndexCount = s_RendererData->QuadIndexBuffer->GetCount();
-				if (RT_DrawIndexedWithNRI(*renderCommandBuffer, draw))
-				{
-					combinedPushConstants.Release();
-					vertexPushConstantBuffer.Release();
-					fragmentPushConstantBuffer.Release();
-					return;
-				}
+				RT_DrawIndexed(*renderCommandBuffer, draw);
 
-				renderCommandBuffer->RT_CommitGraphicsState();
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-
-				if (combinedPushConstants)
-				{
-					commandList->setPushConstants(combinedPushConstants.Data, offset);
-					combinedPushConstants.Release();
-				}
-
-				nvrhi::DrawArguments drawArgs{};
-				drawArgs.vertexCount = s_RendererData->QuadIndexBuffer->GetCount();
-				drawArgs.startIndexLocation = 0;
-				drawArgs.startVertexLocation = 0;
-				drawArgs.instanceCount = 1;
-				commandList->drawIndexed(drawArgs);
-
+				combinedPushConstants.Release();
 				vertexPushConstantBuffer.Release();
 				fragmentPushConstantBuffer.Release();
-	});
+		});
 	}
 
 	Ref<Texture2D> Renderer::GetWhiteTexture()
@@ -2221,11 +1824,6 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 		const uint32_t slotCount = s_Config.FramesInFlight;
-
-		s_RTExplicitBarriers.store(s_ExplicitBarriersRequested.load(std::memory_order_relaxed), std::memory_order_relaxed);
-		s_RTNRICompute = s_NRIComputeRequested.load(std::memory_order_relaxed);
-		s_RTNRIGraphics.store(s_NRIGraphicsRequested.load(std::memory_order_relaxed), std::memory_order_relaxed);
-		s_RTNRIImGui = s_NRIImGuiRequested.load(std::memory_order_relaxed);
 
 		// Close the ending frame: its event covers everything submitted while it was current. The
 		// lock keeps the event in order with other threads' submissions, as in Present().

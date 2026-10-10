@@ -36,6 +36,7 @@ namespace Lux {
 		uint64_t GetSize() const { return m_Size; }
 		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
 		nri::Buffer* GetRHIBuffer() const { return m_Buffer.Get(); }
+		const NRIBuffer& GetBuffer() const { return m_Buffer; }
 	public:
 		VertexBuffer(const Buffer buffer);
 		VertexBuffer(uint64_t size);

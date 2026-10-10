@@ -21,7 +21,7 @@ somewhere else.
 | Static class members | `s_PascalCase` | `s_Instance`, `s_UniformBuffers` |
 | File-scope constants | `k_PascalCase` / `kPascalCase` | `kHLSLConstantBufferPrefix` |
 | Macros | `LUX_SCREAMING_SNAKE` | `LUX_CORE_ASSERT`, `LUX_PROFILE_FUNCTION` |
-| Render-thread-only methods | `RT_` prefix | `RT_GetCurrentFrameIndex`, `RT_BindMaterialDescriptorSet` |
+| Render-thread-only methods | `RT_` prefix | `RT_GetCurrentFrameIndex`, `RT_GetMaterialDescriptorSet` |
 
 **The `RT_` prefix is load-bearing, not decorative.** A function named `RT_*` may only be called
 from the render thread (or from inside a `Renderer::Submit` lambda, which runs there). Adding a

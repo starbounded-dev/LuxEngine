@@ -52,7 +52,8 @@ namespace Lux {
 		void OnShaderReloaded();
 
 		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const { return m_DescriptorSetManager.GetBindingSets(frameIndex); }
-		nri::DescriptorSet* GetNRIDescriptorSet(uint32_t frameIndex, uint32_t set) const { return m_DescriptorSetManager.GetNRIDescriptorSet(frameIndex, set); }
+		BoundDescriptorSet GetDescriptorSet(uint32_t frameIndex, uint32_t set) const { return m_DescriptorSetManager.GetDescriptorSet(frameIndex, set); }
+		bool ManagesDescriptorSet(uint32_t set) const { return m_DescriptorSetManager.ManagesSet(set); }
 
 		virtual Ref<PipelineCompute> GetPipeline() const;
 

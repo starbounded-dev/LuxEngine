@@ -28,6 +28,7 @@ namespace Lux {
 
 		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
 		nri::Buffer* GetRHIBuffer() const { return m_Buffer.Get(); }
+		const NRIBuffer& GetBuffer() const { return m_Buffer; }
 	public:
 		IndexBuffer(const Buffer buffer);
 		IndexBuffer(uint64_t size);

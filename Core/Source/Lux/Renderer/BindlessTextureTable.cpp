@@ -202,9 +202,9 @@ namespace Lux {
 		return m_Frames.empty() ? nullptr : m_Frames[frameIndex % m_Frames.size()].Table.Get();
 	}
 
-	nri::DescriptorSet* BindlessTextureTable::RT_GetNRISet(uint32_t frameIndex) const
+	BoundDescriptorSet BindlessTextureTable::RT_GetDescriptorSet(uint32_t frameIndex) const
 	{
-		return m_Frames.empty() || !m_NRISets ? nullptr : m_NRISets->Get(frameIndex % static_cast<uint32_t>(m_Frames.size()));
+		return m_Frames.empty() || !m_NRISets ? BoundDescriptorSet{} : m_NRISets->Bind(frameIndex % static_cast<uint32_t>(m_Frames.size()));
 	}
 
 }

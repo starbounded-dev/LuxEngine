@@ -190,6 +190,29 @@ namespace Lux {
 		return index < m_NRIColorAttachments.size() ? m_NRIColorAttachments[index] : nullptr;
 	}
 
+	nvrhi::ITexture* Framebuffer::GetColorAttachmentTexture(uint32_t index) const
+	{
+		if (m_Specification.SwapChainTarget)
+			return index == 0 ? Application::Get().GetWindow().GetSwapChain().GetCurrentBackBuffer() : nullptr;
+
+		return index < m_AttachmentImages.size() && m_AttachmentImages[index] ? m_AttachmentImages[index]->GetHandle().Get() : nullptr;
+	}
+
+	nvrhi::ITexture* Framebuffer::GetDepthAttachmentTexture() const
+	{
+		return m_DepthAttachmentImage ? m_DepthAttachmentImage->GetHandle().Get() : nullptr;
+	}
+
+	TextureSubresourceRange Framebuffer::GetAttachmentRange() const
+	{
+		if (m_Specification.SwapChainTarget)
+			return AllSubresources;
+
+		// NVRHI's attachment subresources: mip 0 of layer 0, or of the attached layer.
+		const uint32_t layer = m_Specification.ExistingImageLayer != static_cast<uint32_t>(-1) ? m_Specification.ExistingImageLayer : 0;
+		return { 0, 1, layer, 1 };
+	}
+
 	bool Framebuffer::HasNRIAttachments() const
 	{
 		if (m_Specification.SwapChainTarget)

@@ -127,7 +127,7 @@ GPU.
 
 ### The `RT_` prefix
 
-A function named `RT_*` (`RT_GetCurrentFrameIndex`, `RT_BindMaterialDescriptorSet`,
+A function named `RT_*` (`RT_GetCurrentFrameIndex`, `RT_GetMaterialDescriptorSet`,
 `RT_BeginGPUPerfMarker`) may only run on the render thread — i.e. from inside a `Submit` lambda or
 from render-thread code. Calling one from the main thread reads the wrong frame index at best.
 Non-`RT_` counterparts exist where both are meaningful (`GetCurrentFrameIndex` vs

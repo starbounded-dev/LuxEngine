@@ -218,11 +218,11 @@ namespace Lux
 		// frame on the main thread AFTER ImGui::Render() and before snapshotting draw data.
 		void ProcessTextures();
 
+		// Render thread. Draws the snapshot into the acquired back buffer and waits for its acquire.
 		// clearTarget = false draws over whatever the target already holds, for a swapchain the
-		// application has already rendered into (the runtime composites its overlay onto the game frame).
-		bool Render(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, nvrhi::GraphicsPipelineHandle pipeline, nvrhi::FramebufferHandle framebuffer, VkSemaphore waitSemaphore = nullptr, bool clearTarget = true);
+		// application has already rendered into (the runtime composites its overlay onto the game
+		// frame). False, with only the acquire waited for, when the UI cannot be drawn (logged once).
 		bool RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain, bool clearTarget = true);
-		void BackbufferResizing();
 		float GetGPUTime() const;
 
 		// Register a persistent texture (indices 0-63) - survives across frames.
@@ -239,116 +239,63 @@ namespace Lux
 		std::shared_ptr<ImGuiTextureRegistry> GetRegistry() const { return m_Registry; }
 
 	private:
-		// Host-visible buffers are written through Map; the others through a command list.
-		bool ReallocateBuffer(NRIBuffer& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer, bool hostVisible = false);
-		nvrhi::GraphicsPipelineHandle GetOrCreatePipeline(VulkanSwapChain* swapchain);
-		nvrhi::IBindingSet* GetBindingSet(const ImGuiTextureInfo& texInfo);
-		bool UpdateGeometry(ImDrawData* drawData);
-
 		// Helpers for ProcessTextures(). Create/update uploads the full pixel buffer into an image
 		// registered in the shared registry; destroy releases it and reclaims the slot.
 		void CreateOrUpdateImGuiTexture(ImTextureData* tex);
 		void DestroyImGuiTexture(ImTextureData* tex);
 
+		struct SetKey
+		{
+			const nri::Texture* Texture = nullptr;
+			TextureSubresourceRange Range;
+			bool operator==(const SetKey&) const = default;
+		};
+		struct SetKeyHash
+		{
+			size_t operator()(const SetKey& key) const
+			{
+				return std::hash<const void*>()(key.Texture) ^ (std::hash<uint32_t>()(key.Range.BaseMip) << 1)
+					^ (std::hash<uint32_t>()(key.Range.MipCount) << 2) ^ (std::hash<uint32_t>()(key.Range.BaseLayer) << 3);
+			}
+		};
+		struct DescriptorPool
+		{
+			nri::DescriptorPool* Pool = nullptr;
+			uint32_t Capacity = 0;
+			uint32_t Used = 0;
+		};
+		// The resources of one frame slot: geometry written through Map, and descriptor pools reset
+		// when the slot comes round again (its previous frame has retired by then). Render thread.
+		struct FrameResources
+		{
+			NRIBuffer VertexBuffer;
+			NRIBuffer IndexBuffer;
+			std::vector<DescriptorPool> DescriptorPools;
+			std::unordered_map<SetKey, nri::DescriptorSet*, SetKeyHash> DescriptorSets;
+		};
+
+		// Host-visible: written through Map.
+		bool ReallocateBuffer(NRIBuffer& buffer, size_t requiredSize, size_t reallocateSize, bool isIndexBuffer);
+		// One pipeline per target format. Null when NRI cannot make it (logged once per format).
+		nri::Pipeline* GetOrCreatePipeline(nri::Format format);
+		bool UpdateGeometry(FrameResources& frame, ImDrawData* drawData);
+		// The set binding `texInfo`'s image and the sampler, allocated once per frame slot and image.
+		// Null when it cannot be made (logged).
+		nri::DescriptorSet* GetDescriptorSet(FrameResources& frame, const ImGuiTextureInfo& texInfo);
+		nri::DescriptorSet* AllocateDescriptorSet(FrameResources& frame);
 
 	private:
 		// Shared across all ImGuiRenderer instances for this ImGui context.
 		std::shared_ptr<ImGuiTextureRegistry> m_Registry;
 
 		Ref<RenderCommandBuffer> m_RenderCommandBuffer;
-
-		nvrhi::ShaderHandle       m_VertexShader;
-		nvrhi::ShaderHandle       m_PixelShader;
-		nvrhi::InputLayoutHandle  m_ShaderAttribLayout;
-
-		nvrhi::SamplerHandle      m_FontSampler;
-
-		NRIBuffer                 m_VertexBuffer;
-		NRIBuffer                 m_IndexBuffer;
-
-		nvrhi::BindingLayoutHandle   m_BindingLayout;
-		nvrhi::GraphicsPipelineDesc  m_BasePSODesc;
-
-		// Binding set cache is per-renderer (device objects are global, this is
-		// just a lookup optimisation and is cheap to rebuild per viewport). Keyed by the image's
-		// current NVRHI texture, which changes when the image is recreated in place.
-		struct BindingKey
-		{
-			nvrhi::ITexture* Texture = nullptr;
-			TextureSubresourceRange Range;
-			bool operator==(const BindingKey&) const = default;
-		};
-		struct BindingKeyHash
-		{
-			size_t operator()(const BindingKey& key) const
-			{
-				return std::hash<const void*>()(key.Texture) ^ (std::hash<uint32_t>()(key.Range.BaseMip) << 1)
-					^ (std::hash<uint32_t>()(key.Range.MipCount) << 2) ^ (std::hash<uint32_t>()(key.Range.BaseLayer) << 3)
-					^ (std::hash<uint32_t>()(key.Range.LayerCount) << 4);
-			}
-		};
-		std::unordered_map<BindingKey, nvrhi::BindingSetHandle, BindingKeyHash> m_BindingsCache;
-
-		std::vector<ImDrawVert> m_VertexBufferData;
-		std::vector<ImDrawIdx>  m_IndexBufferData;
-
-		struct SwapchainPipelineCache
-		{
-			std::array<nvrhi::FramebufferHandle, 3> Framebuffers;
-			std::array<nvrhi::GraphicsPipelineHandle, 3> Pipelines;
-		};
-
-		std::map<VulkanSwapChain*, SwapchainPipelineCache> m_PipelineCache;
-
-		// NRI path (Renderer.NRIImGui, NRI migration Phase 11). Render thread, except Init.
-		struct NRISetKey
-		{
-			const nri::Texture* Texture = nullptr;
-			TextureSubresourceRange Range;
-			bool operator==(const NRISetKey&) const = default;
-		};
-		struct NRISetKeyHash
-		{
-			size_t operator()(const NRISetKey& key) const
-			{
-				return std::hash<const void*>()(key.Texture) ^ (std::hash<uint32_t>()(key.Range.BaseMip) << 1)
-					^ (std::hash<uint32_t>()(key.Range.MipCount) << 2) ^ (std::hash<uint32_t>()(key.Range.BaseLayer) << 3);
-			}
-		};
-		struct NRIDescriptorPool
-		{
-			nri::DescriptorPool* Pool = nullptr;
-			uint32_t Capacity = 0;
-			uint32_t Used = 0;
-		};
-		// The NRI resources of one frame slot: geometry written through Map, and descriptor pools
-		// reset when the slot comes round again (its previous frame has retired by then).
-		struct NRIFrameResources
-		{
-			NRIBuffer VertexBuffer;
-			NRIBuffer IndexBuffer;
-			std::vector<NRIDescriptorPool> DescriptorPools;
-			std::unordered_map<NRISetKey, nri::DescriptorSet*, NRISetKeyHash> DescriptorSets;
-		};
-
-		// False, with nothing recorded, when NRI cannot draw into `swapchain` (logged once) or the
-		// geometry cannot be uploaded; the NVRHI path then draws.
-		bool RenderWithNRI(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain, bool clearTarget);
-		// One pipeline per target format. Null when NRI cannot make it (logged once per format).
-		nri::Pipeline* GetOrCreateNRIPipeline(nri::Format format);
-		bool UpdateNRIGeometry(NRIFrameResources& frame, ImDrawData* drawData);
-		// The set binding `texInfo`'s image and the sampler, allocated once per frame slot and image.
-		// Null when it cannot be made (logged).
-		nri::DescriptorSet* GetNRIDescriptorSet(NRIFrameResources& frame, const ImGuiTextureInfo& texInfo);
-		nri::DescriptorSet* AllocateNRIDescriptorSet(NRIFrameResources& frame);
-
 		Ref<VulkanShader> m_Shader;
-		Ref<Sampler> m_NRISampler;
-		uint32_t m_NRISetIndex = 0;
-		uint32_t m_NRITextureRange = 0;
-		uint32_t m_NRISamplerRange = 0;
-		std::unordered_map<nri::Format, nri::Pipeline*> m_NRIPipelines;
-		std::array<NRIFrameResources, RendererConfig::MaxFramesInFlight> m_NRIFrames;
-		bool m_ReportedNRIFallback = false;
+		Ref<Sampler> m_Sampler;
+		uint32_t m_SetIndex = 0;
+		uint32_t m_TextureRange = 0;
+		uint32_t m_SamplerRange = 0;
+		std::unordered_map<nri::Format, nri::Pipeline*> m_Pipelines;
+		std::array<FrameResources, RendererConfig::MaxFramesInFlight> m_Frames;
+		bool m_ReportedSkippedFrames = false;
 	};
 }

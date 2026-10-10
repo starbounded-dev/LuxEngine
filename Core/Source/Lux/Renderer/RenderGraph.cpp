@@ -844,11 +844,8 @@ namespace Lux {
 
 	void RenderGraph::Execute(const CompileResult& compileResult, const Ref<RenderCommandBuffer>& commandBuffer) const
 	{
-		// Pass-entry requirements are only emitted with explicit barriers on, so skip building them
-		// otherwise. If the render thread latches a different value this frame, the draws' and
-		// dispatches' own requirements still cover every access; entry requirements only batch them.
-		const bool requireAccesses = commandBuffer && Renderer::IsExplicitBarriersEnabled()
-			&& compileResult.EntryRequirementOffsets.size() == m_Passes.size() + 1;
+		// Entry requirements only batch the draws' and dispatches' own, which cover every access too.
+		const bool requireAccesses = commandBuffer && compileResult.EntryRequirementOffsets.size() == m_Passes.size() + 1;
 
 		auto resolve = [this](ResourceHandle resource) -> ResolvedResource
 			{

@@ -248,12 +248,10 @@ namespace Lux {
 		// meshlet building is enabled (set once at startup from GPU support).
 		static void SetBuildMeshlets(bool build) { s_BuildMeshlets = build; }
 		bool HasMeshlets() const { return static_cast<bool>(m_MeshletBuffer); }
-		// Render-thread only: binding set for the meshlet SSBOs (set 0 of the
-		// meshlet shader), created lazily against the shader's binding layout.
-		nvrhi::BindingSetHandle RT_GetOrCreateMeshletBindingSet(nvrhi::IBindingLayout* layout);
-		// Render-thread only: the NRI twin of that set (NRI migration Phase 10), created the same way
-		// against the meshlet shader's NRI layout. Null when it cannot be built (logged once per layout).
-		nri::DescriptorSet* RT_GetOrCreateNRIMeshletSet(const VulkanShader& shader);
+		// Render-thread only: the set of the meshlet SSBOs (set 0 of the meshlet shader), created on
+		// first draw against the shader's NRI layout, which the mesh does not own. Empty when it cannot
+		// be built (logged once per layout) or the buffers are not there yet.
+		BoundDescriptorSet RT_GetOrCreateMeshletSet(const VulkanShader& shader);
 
 		// CPU-side position access that works whether or not the full vertex
 		// array was compacted away (the standalone runtime keeps positions only —
@@ -310,12 +308,10 @@ namespace Lux {
 		NRIBuffer m_MeshletBuffer;
 		NRIBuffer m_MeshletVertexBuffer;
 		NRIBuffer m_MeshletTriangleBuffer;
-		nvrhi::BindingSetHandle m_MeshletBindingSet;
-		nvrhi::IBindingLayout* m_MeshletBindingSetLayout = nullptr;
-		// The NRI meshlet set and the layout it was built for. The layout is kept when the build
-		// failed too, so the failure is logged once.
-		Ref<DescriptorSetGroup> m_NRIMeshletSet;
-		const nri::PipelineLayout* m_NRIMeshletSetLayout = nullptr;
+		// The meshlet set and the layout it was built for. The layout is kept when the build failed
+		// too, so the failure is logged once.
+		Ref<DescriptorSetGroup> m_MeshletSet;
+		const nri::PipelineLayout* m_MeshletSetLayout = nullptr;
 
 		inline static bool s_BuildMeshlets = false;
 

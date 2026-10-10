@@ -378,14 +378,6 @@ namespace Lux {
 		// Renderer::UseAsyncTransferQueue / ApplicationSettingsPanel Threading page.
 		Renderer::SetAsyncTransferQueueEnabled(
 			Application::Get().GetSettings().Get("Renderer.AsyncTransferQueue", "false") != "false");
-		Renderer::SetExplicitBarriersEnabled(
-			Application::Get().GetSettings().Get("Renderer.ExplicitBarriers", "false") != "false");
-		Renderer::SetNRIComputeEnabled(
-			Application::Get().GetSettings().Get("Renderer.NRICompute", "false") != "false");
-		Renderer::SetNRIGraphicsEnabled(
-			Application::Get().GetSettings().Get("Renderer.NRIGraphics", "false") != "false");
-		Renderer::SetNRIImGuiEnabled(
-			Application::Get().GetSettings().Get("Renderer.NRIImGui", "false") != "false");
 
 		/////////// Configure Panels ///////////
 		m_PanelManager = CreateScope<PanelManager>();

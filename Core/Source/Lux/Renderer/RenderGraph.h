@@ -209,9 +209,9 @@ namespace Lux {
 		uint64_t ComputeStructureHash() const;
 		CompileResult Execute() const;
 		void Execute(const CompileResult& compileResult) const;
-		// Also requires each pass's declared accesses on `commandBuffer` before the pass runs (a no-op
-		// unless Renderer.ExplicitBarriers is on). In Debug it checks, per pass, for requirements on
-		// graph resources the pass did not declare (see GetRuntimeDiagnostics).
+		// Also requires each pass's declared accesses on `commandBuffer` before the pass runs (emitted
+		// only with explicit barriers). In Debug it checks, per pass, for requirements on graph
+		// resources the pass did not declare (see GetRuntimeDiagnostics).
 		void Execute(const CompileResult& compileResult, const Ref<RenderCommandBuffer>& commandBuffer) const;
 		std::vector<ResourceLifetime> BuildAliasPlan() const;
 		static bool RunValidationSelfTests(std::vector<std::string>* failures = nullptr);

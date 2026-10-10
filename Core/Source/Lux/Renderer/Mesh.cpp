@@ -9,6 +9,7 @@
 #include "Lux/Math/Math.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/NVRHIBarrierEmitter.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Asset/AssetManager.h"
@@ -515,10 +516,8 @@ namespace Lux
 		m_MeshletBuffer.Reset();
 		m_MeshletVertexBuffer.Reset();
 		m_MeshletTriangleBuffer.Reset();
-		m_MeshletBindingSet = nullptr;
-		m_MeshletBindingSetLayout = nullptr;
-		m_NRIMeshletSet = nullptr;
-		m_NRIMeshletSetLayout = nullptr;
+		m_MeshletSet = nullptr;
+		m_MeshletSetLayout = nullptr;
 		if (s_BuildMeshlets)
 		{
 			std::vector<MeshletDesc> meshlets;
@@ -549,83 +548,35 @@ namespace Lux
 		}
 	}
 
-	nvrhi::BindingSetHandle MeshSource::RT_GetOrCreateMeshletBindingSet(nvrhi::IBindingLayout* layout)
-	{
-		if (m_MeshletBindingSet && m_MeshletBindingSetLayout == layout)
-			return m_MeshletBindingSet;
-
-		if (!layout || !m_MeshletBuffer || !m_MeshletVertexBuffer || !m_MeshletTriangleBuffer || !m_VertexBuffer || !m_VertexBuffer->GetHandle())
-			return nullptr;
-
-		const nvrhi::BindingLayoutDesc* layoutDesc = layout->getDesc();
-		if (!layoutDesc)
-			return nullptr;
-
-		// Mirror the meshlet shader's set-0 layout: raw-buffer SRVs at
-		// binding 0 = meshlet descs, 1 = meshlet vertices, 2 = meshlet triangles,
-		// 3 = the shared render vertex buffer.
-		nvrhi::BindingSetDesc setDesc;
-		for (const nvrhi::BindingLayoutItem& item : layoutDesc->bindings)
-		{
-			switch (item.type)
-			{
-				case nvrhi::ResourceType::PushConstants:
-					setDesc.addItem(nvrhi::BindingSetItem::PushConstants(item.slot, item.size));
-					break;
-				case nvrhi::ResourceType::RawBuffer_SRV:
-				{
-					nvrhi::IBuffer* buffer = nullptr;
-					switch (item.slot)
-					{
-						case 0: buffer = m_MeshletBuffer.GetHandle(); break;
-						case 1: buffer = m_MeshletVertexBuffer.GetHandle(); break;
-						case 2: buffer = m_MeshletTriangleBuffer.GetHandle(); break;
-						case 3: buffer = m_VertexBuffer->GetHandle(); break;
-					}
-					if (!buffer)
-						return nullptr;
-					setDesc.addItem(nvrhi::BindingSetItem::RawBuffer_SRV(item.slot, buffer));
-					break;
-				}
-				default:
-					LUX_CORE_ERROR("MeshSource: unexpected resource type in the meshlet binding layout (slot {})", item.slot);
-					return nullptr;
-			}
-		}
-
-		m_MeshletBindingSet = Application::GetGraphicsDevice()->createBindingSet(setDesc, layout);
-		m_MeshletBindingSetLayout = layout;
-		return m_MeshletBindingSet;
-	}
-
-	nri::DescriptorSet* MeshSource::RT_GetOrCreateNRIMeshletSet(const VulkanShader& shader)
+	BoundDescriptorSet MeshSource::RT_GetOrCreateMeshletSet(const VulkanShader& shader)
 	{
 		const nri::PipelineLayout* layout = shader.GetNRIPipelineLayout();
-		if (layout && layout == m_NRIMeshletSetLayout)
-			return m_NRIMeshletSet ? m_NRIMeshletSet->Get(0) : nullptr;
+		if (layout && layout == m_MeshletSetLayout)
+			return m_MeshletSet ? m_MeshletSet->Bind(0) : BoundDescriptorSet{};
 
 		// Not cached: the buffers may still be on their way.
 		if (!layout || !m_MeshletBuffer || !m_MeshletVertexBuffer || !m_MeshletTriangleBuffer || !m_VertexBuffer || !m_VertexBuffer->GetRHIBuffer())
-			return nullptr;
+			return {};
 
-		m_NRIMeshletSet = nullptr;
-		m_NRIMeshletSetLayout = layout;
+		m_MeshletSet = nullptr;
+		m_MeshletSetLayout = layout;
 
 		const std::string meshName = m_FilePath.empty() ? std::string("<memory>") : m_FilePath;
 		const uint32_t setIndex = shader.GetNRISetIndex(0);
 		if (setIndex == VulkanShader::k_NoNRISet)
 		{
-			LUX_CORE_ERROR_TAG("Renderer", "[MeshSource] No NRI meshlet set for '{}': {} has no NRI set 0", meshName, shader.GetName());
-			return nullptr;
+			LUX_CORE_ERROR_TAG("Renderer", "[MeshSource] No meshlet set for '{}': {} has no NRI set 0", meshName, shader.GetName());
+			return {};
 		}
 
 		// One instance: the meshlet buffers are fixed for the mesh, so the set is written once.
 		Ref<DescriptorSetGroup> group = Ref<DescriptorSetGroup>::Create(*shader.GetNRIPipelineLayout(), setIndex, shader.GetNRIPoolDesc(0, 1), 1, 0, "MeshletSet");
 		if (!group->IsValid())
-			return nullptr;
+			return {};
 
-		// The bindings of RT_GetOrCreateMeshletBindingSet: read-only raw buffers 0-3.
-		const std::array<nri::Buffer*, 4> buffers = { m_MeshletBuffer.Get(), m_MeshletVertexBuffer.Get(), m_MeshletTriangleBuffer.Get(), m_VertexBuffer->GetRHIBuffer() };
+		// Read-only raw buffers: 0 = meshlet descs, 1 = meshlet vertices, 2 = meshlet triangles,
+		// 3 = the shared render vertex buffer.
+		const std::array<const NRIBuffer*, 4> buffers = { &m_MeshletBuffer, &m_MeshletVertexBuffer, &m_MeshletTriangleBuffer, &m_VertexBuffer->GetBuffer() };
 		const auto& storageBuffers = shader.GetShaderDescriptorSets()[0].StorageBuffers;
 		for (uint32_t binding = 0; binding < buffers.size(); binding++)
 		{
@@ -636,19 +587,20 @@ namespace Lux
 			const auto storageIt = storageBuffers.find(binding);
 			if (storageIt == storageBuffers.end() || !storageIt->second.ReadOnly)
 			{
-				LUX_CORE_ERROR_TAG("Renderer", "[MeshSource] No NRI meshlet set for '{}': {} binding {} is not a read-only storage buffer", meshName, shader.GetName(), binding);
-				return nullptr;
+				LUX_CORE_ERROR_TAG("Renderer", "[MeshSource] No meshlet set for '{}': {} binding {} is not a read-only storage buffer", meshName, shader.GetName(), binding);
+				return {};
 			}
 
 			// GetNRIBufferView logs its own failures.
-			const nri::Descriptor* view = GetNRIBufferView(buffers[binding], nri::BufferView::BYTE_ADDRESS_BUFFER);
+			const nri::Descriptor* view = GetNRIBufferView(buffers[binding]->Get(), nri::BufferView::BYTE_ADDRESS_BUFFER);
 			if (!view)
-				return nullptr;
+				return {};
 			group->Write(0, rangeIndex, 0, &view, 1);
+			group->GetUses(0).AddBuffer(DescribeBuffer(buffers[binding]->GetHandle()), ResourceState::ShaderResource);
 		}
 
-		m_NRIMeshletSet = group;
-		return m_NRIMeshletSet->Get(0);
+		m_MeshletSet = group;
+		return m_MeshletSet->Bind(0);
 	}
 
 	static std::string LevelToSpaces(uint32_t level)

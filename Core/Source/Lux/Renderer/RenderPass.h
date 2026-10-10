@@ -59,10 +59,10 @@ namespace Lux {
 		// The managed sets, plus the bindless texture table at its set when the shader declares it.
 		// Render thread.
 		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const;
-		// The NRI twin of GetBindingSets(frameIndex)[set] (NRI migration Phase 10): a managed set, or
-		// the bindless table's at BindlessTextureTable::DescriptorSet. Null when there is none.
-		// Render thread.
-		nri::DescriptorSet* GetNRIDescriptorSet(uint32_t frameIndex, uint32_t set) const;
+		// A managed set, or the bindless table's at BindlessTextureTable::DescriptorSet (a missing table
+		// is logged once). Empty when there is none. Render thread.
+		BoundDescriptorSet GetDescriptorSet(uint32_t frameIndex, uint32_t set) const;
+		bool ManagesDescriptorSet(uint32_t set) const { return m_DescriptorSetManager.ManagesSet(set); }
 
 		// The table this pass's shader reads through BindlessTextureTable::DescriptorSet. Set once,
 		// before the pass is first drawn.

@@ -7406,10 +7406,7 @@ namespace Lux {
 
 		Ref<SceneRenderer> instance = this;
 
-		// Pass begin: marker, descriptor prepare, explicit depth clear. The
-		// per-draw meshlet state carries the framebuffer/viewport, so there is no
-		// graphics-state commit here (this is not a vertex-pipeline pass). With NRI
-		// graphics the pass opens as an NRI render pass, the clear a load op.
+		// Pass begin: marker, descriptor prepare, and the render pass, its depth clear a load op.
 		Renderer::Submit([instance]() mutable {
 			Ref<RenderCommandBuffer> cmd = instance->m_CommandBuffer;
 			cmd->RT_BeginMarker("PreDepthMeshletPass");
@@ -7418,16 +7415,7 @@ namespace Lux {
 
 			Ref<Framebuffer> framebuffer = instance->m_PreDepthMeshletPipeline->GetSpecification().TargetFramebuffer;
 			const std::array<bool, nvrhi::c_MaxRenderTargets> noColorClears = {};
-			if (Renderer::RT_BeginRenderPassWithNRI(*cmd, *instance->m_PreDepthMeshletPass, noColorClears, framebuffer->HasDepthAttachment()))
-				return;
-
-			if (framebuffer->HasDepthAttachment())
-			{
-				const auto& clearValues = framebuffer->GetClearValues();
-				const auto& depthStencil = clearValues[clearValues.size() - 1].DepthStencil;
-				cmd->RT_RequireDepthAttachmentClear(framebuffer->GetHandle());
-				nvrhi::utils::ClearDepthStencilAttachment(cmd->GetActive(), framebuffer->GetHandle(), depthStencil.Depth, depthStencil.Stencil);
-			}
+			Renderer::RT_BeginRenderPass(*cmd, *instance->m_PreDepthMeshletPass, noColorClears, framebuffer->HasDepthAttachment());
 		});
 
 		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
@@ -7465,27 +7453,11 @@ namespace Lux {
 		if (lod.MeshletCount == 0 || !meshSource->HasMeshlets())
 			return; // still streaming, or built before meshlet support was known
 
-		Ref<Pipeline> pipeline = m_PreDepthMeshletPipeline;
-		Ref<VulkanShader> shader = Ref<VulkanShader>(pipeline->GetShader());
-		const auto& bindingLayouts = shader->GetAllDescriptorSetLayouts();
-		if (bindingLayouts.empty())
+		// Empty while the meshlet buffers stream in, or when the set cannot be built (logged once).
+		Ref<VulkanShader> shader = Ref<VulkanShader>(m_PreDepthMeshletPipeline->GetShader());
+		const BoundDescriptorSet meshletSet = meshSource->RT_GetOrCreateMeshletSet(*shader);
+		if (!meshletSet.Set)
 			return;
-
-		nvrhi::BindingSetHandle meshletBindingSet = meshSource->RT_GetOrCreateMeshletBindingSet(bindingLayouts[0]);
-		if (!meshletBindingSet)
-			return;
-
-		Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
-
-		nvrhi::MeshletState meshletState;
-		meshletState.pipeline = pipeline->GetMeshletHandle();
-		meshletState.framebuffer = framebuffer->GetHandle();
-		meshletState.viewport.addViewport(nvrhi::Viewport((float)framebuffer->GetWidth(), (float)framebuffer->GetHeight()));
-		meshletState.viewport.addScissorRect(nvrhi::Rect((int)framebuffer->GetWidth(), (int)framebuffer->GetHeight()));
-		meshletState.bindings = m_PreDepthMeshletPass->GetBindingSets(Renderer::RT_GetCurrentFrameIndex());
-		if (meshletState.bindings.empty())
-			meshletState.bindings.resize(1);
-		meshletState.bindings[0] = meshletBindingSet;
 
 		struct MeshletPushConstants
 		{
@@ -7500,13 +7472,7 @@ namespace Lux {
 
 		// One task workgroup culls 32 meshlets; Y = instance index.
 		const glm::uvec3 groups = { DivideRoundUp(lod.MeshletCount, 32u), dc.InstanceCount, 1 };
-		if (cmd->RT_InNRIRenderPass()
-			&& Renderer::RT_DrawMeshTasksWithNRI(*cmd, meshletState, meshSource->RT_GetOrCreateNRIMeshletSet(*shader), &pushConstants, sizeof(pushConstants), groups))
-			return;
-
-		cmd->RT_CommitMeshletState(meshletState);
-		cmd->GetActive()->setPushConstants(&pushConstants, sizeof(pushConstants));
-		cmd->GetActive()->dispatchMesh(groups.x, groups.y, groups.z);
+		Renderer::RT_DrawMeshTasks(*cmd, meshletSet, &pushConstants, sizeof(pushConstants), groups);
 	}
 
 	void SceneRenderer::HZBCompute()
@@ -8847,25 +8813,11 @@ namespace Lux {
 			return;
 
 		const auto& submesh = meshSource->GetSubmeshes()[dc.SubmeshIndex];
-		nvrhi::GraphicsState& gs = cmd->GetGraphicsState();
 
-		// ── Vertex buffer ─────────────────────────────────────────────────────
-		nvrhi::VertexBufferBinding vbb;
-		vbb.buffer = vertexBuffer->GetHandle();
-		vbb.slot = 0;
-		vbb.offset = 0;
-		gs.vertexBuffers = { vbb };
-
-		// ── Index buffer ──────────────────────────────────────────────────────
-		nvrhi::IndexBufferBinding ibb;
-		ibb.buffer = indexBuffer->GetHandle();
-		ibb.format = nvrhi::Format::R32_UINT;
-		ibb.offset = 0;
-		gs.indexBuffer = ibb;
-		gs.indirectParams = nullptr;
-
-		// ── Legacy material descriptor set 0 ─────────────────────────────────
+		// ── Material descriptor set 0 ─────────────────────────────────────────
+		// Without one the draw keeps the pass's own set 0.
 		Ref<Material> material;
+		BoundDescriptorSet materialSet;
 		if (bindMaterial)
 		{
 			material = dc.OverrideMaterial;
@@ -8887,10 +8839,7 @@ namespace Lux {
 			if (!material)
 				material = Renderer::GetDefaultWhiteMaterial();
 
-			if (material)
-			{
-				Renderer::RT_BindMaterialDescriptorSet(gs.bindings, pipelineShader, material);
-			}
+			materialSet = Renderer::RT_GetMaterialDescriptorSet(pipelineShader, material.Raw());
 		}
 
 		// ── Push constants ────────────────────────────────────────────────────
@@ -8914,60 +8863,30 @@ namespace Lux {
 
 		const bool indirect = useIndirect && params.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max();
 		const uint32_t instanceCount = useVisibleObjectIndexes ? params.VisibleInstanceCount : dc.InstanceCount;
-		if (cmd->RT_InNRIRenderPass())
-		{
-			if (!indirect && instanceCount == 0)
-				return;
-
-			Renderer::NRIIndexedDraw draw;
-			draw.MaterialInstance = material.Raw();
-			draw.Vertices = vertexBuffer.Raw();
-			draw.Indices = indexBuffer.Raw();
-			draw.Constants = pushConstants.data();
-			draw.ConstantsSize = static_cast<uint32_t>(pushConstants.size());
-			Ref<StorageBuffer> indirectArguments = indirect ? m_SBSIndirectDrawCommands->RT_Get() : nullptr;
-			if (indirectArguments)
-			{
-				gs.indirectParams = indirectArguments->GetHandle();
-				draw.IndirectArguments = indirectArguments.Raw();
-				draw.IndirectOffset = params.IndirectDrawOffsetBytes;
-			}
-			else
-			{
-				const SubmeshLOD lod = meshSource->GetSubmeshLOD(dc.SubmeshIndex, dc.LODIndex);
-				draw.IndexCount = lod.IndexCount;
-				draw.InstanceCount = instanceCount;
-				draw.FirstIndex = lod.BaseIndex;
-				draw.VertexOffset = static_cast<int32_t>(lod.BaseVertex);
-			}
-
-			if (Renderer::RT_DrawIndexedWithNRI(*cmd, draw))
-				return;
-			gs.indirectParams = nullptr;
-		}
-
-		cmd->RT_CommitGraphicsState();
-		cmd->GetActive()->setPushConstants(pushConstants.data(), pushConstants.size());
-
-		if (indirect)
-		{
-			gs.indirectParams = m_SBSIndirectDrawCommands->RT_Get()->GetHandle();
-			cmd->RT_CommitGraphicsState();
-			cmd->GetActive()->drawIndexedIndirect(params.IndirectDrawOffsetBytes, 1);
-			return;
-		}
-
-		if (instanceCount == 0)
+		if (!indirect && instanceCount == 0)
 			return;
 
-		const SubmeshLOD lod = meshSource->GetSubmeshLOD(dc.SubmeshIndex, dc.LODIndex);
-
-		nvrhi::DrawArguments drawArgs{};
-		drawArgs.vertexCount = lod.IndexCount;
-		drawArgs.startIndexLocation = lod.BaseIndex;
-		drawArgs.startVertexLocation = lod.BaseVertex;
-		drawArgs.instanceCount = instanceCount;
-		cmd->GetActive()->drawIndexed(drawArgs);
+		Renderer::IndexedDraw draw;
+		draw.MaterialSet = materialSet;
+		draw.Vertices = vertexBuffer.Raw();
+		draw.Indices = indexBuffer.Raw();
+		draw.Constants = pushConstants.data();
+		draw.ConstantsSize = static_cast<uint32_t>(pushConstants.size());
+		Ref<StorageBuffer> indirectArguments = indirect ? m_SBSIndirectDrawCommands->RT_Get() : nullptr;
+		if (indirectArguments)
+		{
+			draw.IndirectArguments = indirectArguments.Raw();
+			draw.IndirectOffset = params.IndirectDrawOffsetBytes;
+		}
+		else
+		{
+			const SubmeshLOD lod = meshSource->GetSubmeshLOD(dc.SubmeshIndex, dc.LODIndex);
+			draw.IndexCount = lod.IndexCount;
+			draw.InstanceCount = instanceCount;
+			draw.FirstIndex = lod.BaseIndex;
+			draw.VertexOffset = static_cast<int32_t>(lod.BaseVertex);
+		}
+		Renderer::RT_DrawIndexed(*cmd, draw);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────

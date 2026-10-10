@@ -5,6 +5,8 @@
 #include "DescriptorSetManager.h"
 
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/NVRHIBarrierEmitter.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "Lux/Debug/Profiler.h"
@@ -95,32 +97,49 @@ namespace Lux {
 		}
 
 		// The NRI descriptor for element `element` of `input` in frame slot `frameIndex`, as BakeSet
-		// binds it through NVRHI. Null when the resource is missing.
-		nri::Descriptor* GetNRIDescriptor(const RenderPassInput& input, size_t element, uint32_t frameIndex, bool storageBufferReadOnly)
+		// binds it through NVRHI, and what it accesses, added to `uses` with the subresources and
+		// state NVRHI required for the binding. Null (and nothing added) when the resource is missing.
+		nri::Descriptor* GetNRIDescriptor(const RenderPassInput& input, size_t element, uint32_t frameIndex, bool storageBufferReadOnly, DescriptorSetUses& uses)
 		{
 			const Ref<RefCounted>& resource = input.Input[element];
 			const nri::BufferView storageView = storageBufferReadOnly ? nri::BufferView::BYTE_ADDRESS_BUFFER : nri::BufferView::STORAGE_BYTE_ADDRESS_BUFFER;
+			const ResourceState storageState = storageBufferReadOnly ? ResourceState::ShaderResource : ResourceState::UnorderedAccess;
+			const ResourceState textureState = input.IsWriteable ? ResourceState::UnorderedAccess : ResourceState::ShaderResource;
+			const auto useBuffer = [&uses](const NRIBuffer& buffer, nri::BufferView view, ResourceState state) -> nri::Descriptor*
+			{
+				nri::Descriptor* descriptor = GetNRIBufferView(buffer.Get(), view);
+				if (descriptor)
+					uses.AddBuffer(DescribeBuffer(buffer.GetHandle()), state);
+				return descriptor;
+			};
+			const auto useTexture = [&uses](const ImageInfo* imageInfo, nri::Descriptor* descriptor, const nvrhi::TextureSubresourceSet& subresources, ResourceState state) -> nri::Descriptor*
+			{
+				if (descriptor)
+					uses.AddTexture(DescribeTexture(imageInfo->ImageHandle), FromNVRHI(subresources), state);
+				return descriptor;
+			};
+
 			switch (input.Type)
 			{
 				case RenderResourceType::UniformBuffer:
 				{
 					Ref<UniformBuffer> buffer = resource.As<UniformBuffer>();
-					return buffer ? GetNRIBufferView(buffer->GetRHIBuffer(), nri::BufferView::CONSTANT_BUFFER) : nullptr;
+					return buffer ? useBuffer(buffer->GetBuffer(), nri::BufferView::CONSTANT_BUFFER, ResourceState::ConstantBuffer) : nullptr;
 				}
 				case RenderResourceType::UniformBufferSet:
 				{
 					Ref<UniformBufferSet> buffers = resource.As<UniformBufferSet>();
-					return buffers ? GetNRIBufferView(buffers->Get(frameIndex)->GetRHIBuffer(), nri::BufferView::CONSTANT_BUFFER) : nullptr;
+					return buffers ? useBuffer(buffers->Get(frameIndex)->GetBuffer(), nri::BufferView::CONSTANT_BUFFER, ResourceState::ConstantBuffer) : nullptr;
 				}
 				case RenderResourceType::StorageBuffer:
 				{
 					Ref<StorageBuffer> buffer = resource.As<StorageBuffer>();
-					return buffer ? GetNRIBufferView(buffer->GetRHIBuffer(), storageView) : nullptr;
+					return buffer ? useBuffer(buffer->GetBuffer(), storageView, storageState) : nullptr;
 				}
 				case RenderResourceType::StorageBufferSet:
 				{
 					Ref<StorageBufferSet> buffers = resource.As<StorageBufferSet>();
-					return buffers ? GetNRIBufferView(buffers->Get(frameIndex)->GetRHIBuffer(), storageView) : nullptr;
+					return buffers ? useBuffer(buffers->Get(frameIndex)->GetBuffer(), storageView, storageState) : nullptr;
 				}
 				case RenderResourceType::Texture2D:
 				{
@@ -131,17 +150,21 @@ namespace Lux {
 					const ImageInfo* imageInfo = static_cast<const ImageInfo*>(texture->GetDescriptorInfo());
 					if (!imageInfo || !imageInfo->RHITexture)
 						return nullptr;
-					return GetNRITextureView(imageInfo->RHITexture, GetNRIViewKey(imageInfo->RHITexture, imageInfo->Dimension, nvrhi::AllSubresources, false));
+					nri::Descriptor* view = GetNRITextureView(imageInfo->RHITexture, GetNRIViewKey(imageInfo->RHITexture, imageInfo->Dimension, nvrhi::AllSubresources, false));
+					return useTexture(imageInfo, view, nvrhi::AllSubresources, ResourceState::ShaderResource);
 				}
 				case RenderResourceType::TextureCube:
 				{
 					Ref<TextureCube> texture = resource.As<TextureCube>();
-					return texture ? GetNRITextureDescriptor(static_cast<const ImageInfo*>(texture->GetDescriptorInfo()), input.IsWriteable) : nullptr;
+					const ImageInfo* imageInfo = texture ? static_cast<const ImageInfo*>(texture->GetDescriptorInfo()) : nullptr;
+					// The whole cube, as NVRHI's binding (its subresources are the default).
+					return imageInfo ? useTexture(imageInfo, GetNRITextureDescriptor(imageInfo, input.IsWriteable), nvrhi::AllSubresources, textureState) : nullptr;
 				}
 				case RenderResourceType::Image2D:
 				{
 					Ref<RendererResource> image = resource.As<RendererResource>();
-					return image ? GetNRITextureDescriptor(static_cast<const ImageInfo*>(image->GetDescriptorInfo()), input.IsWriteable) : nullptr;
+					const ImageInfo* imageInfo = image ? static_cast<const ImageInfo*>(image->GetDescriptorInfo()) : nullptr;
+					return imageInfo ? useTexture(imageInfo, GetNRITextureDescriptor(imageInfo, input.IsWriteable), imageInfo->ImageView, textureState) : nullptr;
 				}
 				case RenderResourceType::Sampler:
 				{
@@ -807,7 +830,7 @@ namespace Lux {
 
 				descriptors.assign(elementCount, nullptr);
 				for (size_t element = 0; element < elementCount; element++)
-					descriptors[element] = Utils::GetNRIDescriptor(input, element, frameIndex, storageBufferReadOnly);
+					descriptors[element] = Utils::GetNRIDescriptor(input, element, frameIndex, storageBufferReadOnly, group->GetUses(frameIndex));
 
 				// Write each run of present descriptors; a missing resource is deferred exactly as
 				// BakeSet defers it (InvalidatedInputResources) and the next bake fills it.
@@ -1047,13 +1070,18 @@ namespace Lux {
 		return result;
 	}
 
-	nri::DescriptorSet* DescriptorSetManager::GetNRIDescriptorSet(uint32_t frameIndex, uint32_t set) const
+	BoundDescriptorSet DescriptorSetManager::GetDescriptorSet(uint32_t frameIndex, uint32_t set) const
 	{
 		if (set >= m_NRISets.size() || !m_NRISets[set])
-			return nullptr;
+			return {};
 
 		const uint32_t frameCount = Renderer::GetConfig().FramesInFlight;
-		return m_NRISets[set]->Get(frameCount ? frameIndex % frameCount : 0);
+		return m_NRISets[set]->Bind(frameCount ? frameIndex % frameCount : 0);
+	}
+
+	bool DescriptorSetManager::ManagesSet(uint32_t set) const
+	{
+		return set >= m_Specification.StartSet && set <= m_Specification.EndSet && InputResources.contains(set);
 	}
 
 	bool DescriptorSetManager::IsInputValid(std::string_view name) const

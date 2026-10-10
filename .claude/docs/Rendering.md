@@ -163,9 +163,9 @@ validation. `SceneRenderer` owns one (`m_RenderGraph`) and rebuilds its descript
 - `Compile()` → `CompileResult` with execution order, culled passes, resource lifetimes, alias
   groups, typed `Diagnostic`s, and per-pass **entry requirements** (the state of every resource the
   pass uses in a single state).
-- `Execute(compileResult, commandBuffer)` runs the surviving passes' callbacks. With explicit
-  barriers on (`§ Resource states`) it first requires each pass's entry requirements in one batch;
-  a resource the pass uses in several states (an in-place mip chain) is left to its dispatches.
+- `Execute(compileResult, commandBuffer)` runs the surviving passes' callbacks. It first requires
+  each pass's entry requirements in one batch (`§ Resource states`); a resource the pass uses in
+  several states (an in-place mip chain) is left to its dispatches.
 
 `DebugName` is an always-set pointer to the pass's string literal, kept **last** in the struct so the
 positional aggregate initializers in the validation self-tests still map to
@@ -199,8 +199,8 @@ like "my pass does nothing" — not like a hash bug.
 `DiagnosticCode` covers `ReadBeforeWrite`, `UnwrittenExternalRead`, `DeadWrite`,
 `ReadWriteSameResource`, `DuplicatePassName`, `DuplicateTextureName`, `InvalidPassFlags`,
 `EmptyExecutablePass`, `AliasLifetimeConflict`, `AliasIncompatibleResource`, `NullBuffer`,
-`UndeclaredAccess`, and more. `UndeclaredAccess` (Info) is found while executing, in Debug with
-explicit barriers on: a pass required a graph resource it did not declare — the case that can turn
+`UndeclaredAccess`, and more. `UndeclaredAccess` (Info) is found while executing, in Debug: a pass
+required a graph resource it did not declare — the case that can turn
 into a use-after-alias. `GetRuntimeDiagnostics()` returns them; the snapshot lists them per pass. They surface
 in the Renderer Debugger panel via `SceneRenderer::RenderGraphDebugSnapshot`.
 
@@ -330,13 +330,9 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 
 ## Resource states
 
-Every GPU access needs its resource in the right state (layout + access). Two modes exist, chosen
-by the `Renderer.ExplicitBarriers` setting (Application Settings; latched once per render frame):
-
-- **Off (default during NRI Phase 4):** NVRHI's automatic barriers place transitions. NRI graphics
-  (`Renderer.NRIGraphics`) turns explicit barriers on regardless.
-- **On:** NVRHI's automatic barriers are off for every `RenderCommandBuffer` and the renderer's
-  `ResourceStateTracker` (`Renderer/RHI/`) places them, through `NVRHIBarrierEmitter`.
+Every GPU access needs its resource in the right state (layout + access). NVRHI's automatic
+barriers are off for every `RenderCommandBuffer`, and the renderer's `ResourceStateTracker`
+(`Renderer/RHI/`) places the barriers, through `NVRHIBarrierEmitter`.
 
 The model:
 
@@ -345,25 +341,27 @@ The model:
   `Attachment` → `RenderTarget`/`DepthWrite`, `Storage` → `UnorderedAccess`, vertex/index buffers →
   `VertexBuffer`/`IndexBuffer`, GPU-only storage → `UnorderedAccess`). Each `RenderCommandBuffer`
   owns a tracker; resources enter it at their resting state and `RT_End` returns them there.
-- **Where requirements come from.** `RT_CommitGraphicsState` / `RT_CommitComputeState` /
-  `RT_CommitMeshletState` require everything in the state: bound binding sets (SRV →
-  `ShaderResource`, UAV → `UnorderedAccess`, constant buffers), vertex/index/indirect buffers and
-  framebuffer attachments. They mirror NVRHI's automatic change detection exactly (re-require on
-  change, after a copy/clear/write, and always for sets with UAV bindings — which is what places UAV
-  barriers between dispatches), so the two modes emit the same barriers. Code that touches a
-  resource outside a commit requires it first: `RT_RequireTextureState`/`RT_RequireBufferState`
-  for copies, clears and writes (emitted only with explicit barriers on), and
-  `RT_TransitionTextureState`/`RT_TransitionBufferState` + `RT_CommitBarriers` for transitions the
-  code always needed (mip chains, compute → indirect; emitted in both modes).
-- **Barrier mode** (`RenderCommandBuffer::SetBarrierMode`, read at each `RT_Begin`): `Settings` (the
-  default), `Automatic` for readbacks into NVRHI staging textures (until NRI Phase 13) and the ImGui
-  renderer's NVRHI path, and `Explicit` for the ImGui renderer's NRI path.
-- **Bindless descriptor tables** are untracked, as in NVRHI; material textures are in their resting
-  `ShaderResource` state whenever a command buffer starts or ends.
+- **Where requirements come from.** NRI passes, draws and dispatches require what they bind:
+  `RT_BeginNRIRenderPass` the attachments (`RenderTarget`, `DepthWrite`) and the pass's sets,
+  `RT_BeginNRIDraw` the draw's set 0 and its vertex, index and indirect buffers, and
+  `RT_BeginNRIDispatch` the dispatch's sets. A set's resources are its `DescriptorSetUses`, recorded
+  by its owner while it writes the set (SRV → `ShaderResource`, UAV → `UnorderedAccess`, constant
+  buffers), with the subresources NVRHI's binding sets required. Change detection is NVRHI's: a
+  binding is re-required when it changes, after a copy/clear/write, when the bind point switches
+  between graphics and compute, and always for sets with storage uses (which is what places UAV
+  barriers between dispatches). Code that touches a resource outside a pass, draw or dispatch
+  requires it first: `RT_RequireTextureState`/`RT_RequireBufferState` for copies, clears and
+  writes, and `RT_TransitionTextureState`/`RT_TransitionBufferState` + `RT_CommitBarriers` for
+  transitions the code always needed (mip chains, compute → indirect).
+- **Barrier mode** (`RenderCommandBuffer::SetBarrierMode`, read at each `RT_Begin`): `Explicit` (the
+  default), or `Automatic` for readbacks into NVRHI staging textures (until NRI Phase 13), which may
+  not draw or dispatch.
+- **Bindless descriptor tables** are untracked, as in NVRHI (their group records no uses); material
+  textures are in their resting `ShaderResource` state whenever a command buffer starts or ends.
 
 **Never call NVRHI's `setTextureState`/`setBufferState` or write a Vulkan barrier by hand — ask the
-command buffer's tracker.** In Debug with explicit barriers on, every commit cross-checks the
-tracker against NVRHI's own state and logs `Tracker/NVRHI state mismatch` once per resource.
+command buffer's tracker.** In Debug, every requirement round cross-checks the tracker against
+NVRHI's own state and logs `Tracker/NVRHI state mismatch` once per resource.
 
 ---
 
@@ -430,61 +428,58 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - **No combined image samplers.** NRI has none, so shaders declare `texture2D` plus a `sampler`
     and combine them at the sample (`sampler2D(u_Tex, r_Sampler)`). Reflection logs an error for a
     combined `sampler2D` uniform.
-- **NRI compute** (setting `Renderer.NRICompute`, default off, latched per render frame):
-  - `DispatchCompute` still commits NVRHI's compute state, so barriers stay NVRHI's. It then binds
-    and dispatches with NRI inside an **NRI segment**.
-  - A segment (`RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment`) wraps the NVRHI
-    command list's `VkCommandBuffer` in a non-owning NRI command buffer. It starts with NVRHI's
-    pending barriers committed, and only NRI records until it ends. The end calls NVRHI
-    `clearState`, so NVRHI rebinds everything afterwards.
-  - A shader missing an NRI object falls back to NVRHI, logged once per shader.
-- **NRI graphics** (setting `Renderer.NRIGraphics`, default off, latched per render frame). NRI
-  passes take their barriers from the tracker, so the setting turns explicit barriers on for every
-  command buffer in the `Settings` barrier mode.
-  - **The NRI twins.**
-    - Every `Pipeline` has one (`GetNRIPipeline`), translated from the finished NVRHI desc so the
-      two cannot drift.
+- **Recording.** Every draw and dispatch is recorded with NRI (NRI migration Phases 9-12), inside
+  NVRHI's command lists; NVRHI keeps the command lists, submission, queries, uploads and barrier
+  emission.
+  - **Segments.** `RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment` wrap the NVRHI
+    command list's `VkCommandBuffer` in a non-owning NRI command buffer. A segment starts with the
+    pending barriers committed, and only NRI records until it ends.
+  - **The NRI objects.**
+    - Every `Pipeline` has an NRI pipeline (`GetNRIPipeline`), translated from the finished NVRHI
+      desc so the two cannot drift.
     - Every framebuffer has NRI attachment views (`GetNRIColorAttachment`/`GetNRIDepthAttachment`,
       rebuilt with the NVRHI framebuffer).
-    - Meshes have NRI meshlet sets (`MeshSource::RT_GetOrCreateNRIMeshletSet`).
+    - Meshes have meshlet sets (`MeshSource::RT_GetOrCreateMeshletSet`).
   - **Passes.** `Renderer::BeginRenderPass` (and the meshlet pre-depth pass) open an **NRI render
     pass** (`RenderCommandBuffer::RT_BeginNRIRenderPass`):
     - its clears become load ops;
     - the pipeline, layout, viewport, line width, shading rate and the pass's sets are bound once
       per rendering scope;
-    - the draws (`Renderer::RT_DrawIndexedWithNRI` / `RT_DrawMeshTasksWithNRI`) bind only set 0,
-      the vertex and index buffers and the root constants, and repeats are skipped.
+    - the draws (`Renderer::RT_DrawIndexed` / `RT_DrawMeshTasks`, through `RT_BeginNRIDraw`) bind
+      only set 0, the vertex and index buffers and the root constants, and repeats are skipped.
+  - **Dispatches.** `Renderer::DispatchCompute` binds the pass's sets and the material's at set 0
+    through `RT_BeginNRIDispatch`, inside a segment.
   - **NVRHI never records inside an NRI rendering scope.** These close the scope first:
-    `GetActive()`, the `RT_Commit*` functions, `RT_CommitBarriers` with barriers pending, and
-    timer queries. The next draw reopens it, with the attachments loaded and the pass state
-    rebound. That is NVRHI's implicit render-pass splitting made explicit. Barriers a draw needs
-    are committed between two scopes (`ResourceStateTracker::HasPendingBarriers`). Debug markers
-    are legal inside a scope and do not close it. In Debug, every split is reported once per pass
-    and reason (`NRI render pass '<pass>' (<command buffer>) is split by <reason> inside it`): the
-    inside-rendering audit. Each split stores and reloads the attachments, so a reported command
-    belongs before the pass or after it. Record NVRHI commands only through `GetActive()`,
-    and never hold its command list across an NRI draw.
-  - **Fallback.** A pass or draw NRI cannot record goes through NVRHI, logged once per pipeline as
-    `NRI graphics: '<pass>' renders through NVRHI: <reason>`. Read-only depth, 3D attachments,
-    triangle fans and stencil are among the reasons.
+    `GetActive()`, dispatches, `RT_CommitBarriers` with barriers pending, and timer queries. The
+    next draw reopens it, with the attachments loaded and the pass state rebound. That is NVRHI's
+    implicit render-pass splitting made explicit. Barriers a draw needs are committed between two
+    scopes (`ResourceStateTracker::HasPendingBarriers`). Debug markers are legal inside a scope and
+    do not close it. In Debug, every split is reported once per pass and reason (`NRI render pass
+    '<pass>' (<command buffer>) is split by <reason> inside it`): the inside-rendering audit. Each
+    split stores and reloads the attachments, so a reported command belongs before the pass or
+    after it. Record NVRHI commands only through `GetActive()`, and never hold its command list
+    across an NRI draw.
+  - **Skipped work.** A pass, draw or dispatch NRI cannot record is skipped, logged once per
+    pipeline or shader as `'<pass>' is not rendered: <reason>`; a pass that does not open skips its
+    draws. Read-only depth, 3D attachments, triangle fans and stencil are among the reasons (Lux
+    uses none of them).
   - **The line-width exception.** NRI has no line-width state. The fork's LUX-1 patch makes it
     dynamic on line pipelines, and `RenderCommandBuffer::RT_OpenNRIRendering` sets it with the one
     raw `vkCmdSetLineWidth` in the renderer.
-- **NRI ImGui** (setting `Renderer.NRIImGui`, default off, latched per render frame;
-  `ImGuiRenderer::RenderWithNRI`). The UI and the platform windows draw into their swapchains
-  through an NRI render pass, with the command buffer in the `Explicit` barrier mode.
+- **ImGui** (`ImGuiRenderer::RenderToSwapchain`). The UI and the platform windows draw into their
+  swapchains through an NRI render pass.
   - **Textures are `Image2D`s**, the font atlas included, registered with a resolved subresource
     range. Each draw samples a one-layer 2D view of that range.
   - **Per frame slot:** host-visible vertex and index buffers written through `NRIBuffer::Map`, and
     descriptor pools reset when the slot comes round again. A full pool is skipped (counted, so
     NRI never reports it exhausted), and the next one doubles in size.
-  - **States are required before the pass opens:** the back buffer as a render target, every drawn
-    image as a shader resource. The pass therefore never splits.
+  - **Every drawn image is required before the pass opens**, so the pass never splits; its sets
+    record no uses.
   - **Pipelines are per swapchain format.** The main window's is made in `Init`; a platform window
     of another format gets its pipeline when first drawn.
-  - **Fallback:** a missing pipeline, view or set range (logged once), or a failed geometry upload
-    (logged by the buffer's creation), draws that frame through the NVRHI path with nothing
-    recorded by NRI.
+  - **A frame the UI cannot be drawn into** (no pipeline, view or set range, logged once; or a
+    failed geometry upload, logged by the buffer's creation) still waits for the swapchain acquire,
+    and presents what the back buffer holds.
 
 ---
 

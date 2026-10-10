@@ -263,58 +263,6 @@ namespace Lux {
 				ImGui::TextDisabled("Uploads meshes/textures on the GPU's dedicated copy queue.");
 			else
 				ImGui::TextDisabled("No dedicated transfer queue on this GPU; uploads use the graphics queue.");
-
-			// Explicit barriers — the renderer's own resource state tracker places every GPU barrier
-			// instead of NVRHI's automatic ones (NRI migration Phase 4). Applies at the next frame.
-			bool explicitBarriers = settings.Get("Renderer.ExplicitBarriers", "false") != "false";
-			ImGuiEx::BeginPropertyGrid();
-			if (ImGuiEx::Property("Explicit Barriers", explicitBarriers))
-			{
-				settings.Set("Renderer.ExplicitBarriers", explicitBarriers ? "true" : "false");
-				settings.Serialize();
-				Renderer::SetExplicitBarriersEnabled(explicitBarriers);
-			}
-			ImGuiEx::EndPropertyGrid();
-			ImGui::TextDisabled("The renderer's resource state tracker places every GPU barrier (verification).");
-
-			// NRI compute — compute dispatches are recorded with NRI inside the NVRHI command
-			// buffers (NRI migration Phase 9). Applies at the next frame.
-			bool nriCompute = settings.Get("Renderer.NRICompute", "false") != "false";
-			ImGuiEx::BeginPropertyGrid();
-			if (ImGuiEx::Property("NRI Compute", nriCompute))
-			{
-				settings.Set("Renderer.NRICompute", nriCompute ? "true" : "false");
-				settings.Serialize();
-				Renderer::SetNRIComputeEnabled(nriCompute);
-			}
-			ImGuiEx::EndPropertyGrid();
-			ImGui::TextDisabled("Compute passes are recorded with NRI instead of NVRHI (verification).");
-
-			// NRI graphics — render passes and draws are recorded with NRI inside the NVRHI command
-			// buffers (NRI migration Phase 10). Applies at the next frame.
-			bool nriGraphics = settings.Get("Renderer.NRIGraphics", "false") != "false";
-			ImGuiEx::BeginPropertyGrid();
-			if (ImGuiEx::Property("NRI Graphics", nriGraphics))
-			{
-				settings.Set("Renderer.NRIGraphics", nriGraphics ? "true" : "false");
-				settings.Serialize();
-				Renderer::SetNRIGraphicsEnabled(nriGraphics);
-			}
-			ImGuiEx::EndPropertyGrid();
-			ImGui::TextDisabled("Render passes are recorded with NRI instead of NVRHI; implies explicit barriers (verification).");
-
-			// NRI ImGui — the UI is drawn with NRI into the swapchain (NRI migration Phase 11).
-			// Applies at the next frame.
-			bool nriImGui = settings.Get("Renderer.NRIImGui", "false") != "false";
-			ImGuiEx::BeginPropertyGrid();
-			if (ImGuiEx::Property("NRI ImGui", nriImGui))
-			{
-				settings.Set("Renderer.NRIImGui", nriImGui ? "true" : "false");
-				settings.Serialize();
-				Renderer::SetNRIImGuiEnabled(nriImGui);
-			}
-			ImGuiEx::EndPropertyGrid();
-			ImGui::TextDisabled("The UI is drawn with NRI instead of NVRHI (verification).");
 		}
 
 		ImGui::Spacing();

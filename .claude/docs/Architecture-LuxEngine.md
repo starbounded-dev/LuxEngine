@@ -200,17 +200,16 @@ cache (stage strings) and `ShaderPack.lsp` store them. Renderer `.cpp`s convert 
 with `ToNVRHI`/`FromNVRHI` from `RHI/NVRHIInterop.h`, which goes away with NVRHI. Still backend
 until later NRI phases: `Image2D::GetHandle`/`ImageInfo` and the buffers' `GetHandle` (NVRHI
 wrapper handles of NRI-owned resources since P8; removed in P13), `RecordResourceUpload` (P13),
-`RT_BindMaterialDescriptorSet` (until NVRHI stops binding sets, P10/P13), and device bring-up in `Window.cpp` (P14). Shader handles
-live on `VulkanShader` (`GetHandle(ShaderStage)`), not the abstract `Shader`.
+and device bring-up in `Window.cpp` (P14). Shader handles live on `VulkanShader`
+(`GetHandle(ShaderStage)`), not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
 `VulkanDeviceManager` created. It never owns them; NVRHI keeps driving the same device until it is
 removed. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
 the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. NRI submits
-to the same `VkQueue`s as NVRHI, so NRI submissions hold `RenderCommandBuffer::LockQueue`. Nothing
-renders through NRI by default yet (`Renderer.NRICompute` opts compute in, below). Device
-features: see `Rendering.md § NRI device`.
+to the same `VkQueue`s as NVRHI, so NRI submissions hold `RenderCommandBuffer::LockQueue`. Every
+draw and dispatch records through NRI (below). Device features: see `Rendering.md § NRI device`.
 
 **GPU memory is NRI's** (Phase 8): `Image2D`, `VertexBuffer`, `IndexBuffer`, `UniformBuffer`,
 `StorageBuffer`, meshlet buffers and the ImGui renderer own an `NRITexture`/`NRIBuffer`
@@ -219,41 +218,39 @@ frees both through the GPU deletion queue. `ImageInfo::RHITexture` is the NRI te
 images also get non-owning NRI wrappers and color-attachment views. `Renderer::GetGPUMemoryStats`
 reads NRI's `QueryVideoMemoryInfo`.
 
-**NRI descriptors and compute** (Phase 9; details in `Rendering.md § NRI device`):
+**NRI descriptors** (Phase 9; details in `Rendering.md § NRI device`):
 - `VulkanShader` builds an NRI pipeline layout with its NVRHI binding layouts, and
-  `PipelineCompute` builds an NRI pipeline with its NVRHI one.
-- `DescriptorSetManager` (and so `Material` and `ComputePass`) and `BindlessTextureTable` build
-  NRI descriptor sets (`DescriptorSetGroup`) from the same inputs as their NVRHI binding sets.
-- With `Renderer.NRICompute`, `Renderer::DispatchCompute` records through NRI inside a
-  `RenderCommandBuffer` NRI segment. NVRHI still owns the command lists, submission and barriers.
+  `PipelineCompute` an NRI compute pipeline with its NVRHI one.
+- `DescriptorSetManager` (and so `RenderPass`, `ComputePass` and `Material`), `BindlessTextureTable`
+  and `MeshSource` build NRI descriptor sets (`DescriptorSetGroup`), each with the resources it
+  accesses (`DescriptorSetUses`). The managers still build NVRHI binding sets from the same inputs,
+  which nothing binds.
 
-**NRI graphics** (Phase 10; details in `Rendering.md § NRI device`):
-- `Pipeline` builds an NRI twin of its NVRHI pipeline, `Framebuffer` NRI attachment views, and
-  `MeshSource` NRI meshlet sets.
-- With `Renderer.NRIGraphics`, `Renderer::BeginRenderPass` opens an NRI render pass on the
-  `RenderCommandBuffer` (`RT_BeginNRIRenderPass`). The draw entry points (`RenderQuad`,
-  `RenderGeometry`, `SubmitFullscreenQuad*`, `SceneRenderer::RT_DrawStaticMesh*`) record through
-  `Renderer::RT_DrawIndexedWithNRI` / `RT_DrawMeshTasksWithNRI` and keep their NVRHI path as the
-  fallback.
-- `RenderCommandBuffer::GetActive()` closes an open NRI rendering scope, so NVRHI commands stay
-  legal anywhere. NVRHI still owns the command lists, submission and barriers; the tracker supplies
-  those barriers, since NRI graphics implies explicit barriers.
-
-**NRI ImGui** (Phase 11; details in `Rendering.md § NRI device`): ImGui textures, the atlas
-included, are `Image2D`s in the shared `ImGuiTextureRegistry`. With `Renderer.NRIImGui`,
-`ImGuiRenderer::RenderToSwapchain` draws through NRI (`RenderWithNRI`) and keeps its NVRHI path as
-the fallback. The NRI path owns its pipelines, per-frame-slot geometry and descriptor pools.
+**Recording on NRI** (Phases 10-12; details in `Rendering.md § NRI device`). Everything is recorded
+with NRI inside NVRHI's command lists; NVRHI keeps the command lists, submission, queries, uploads
+and barrier emission.
+- `Pipeline` builds an NRI pipeline beside its NVRHI one, and `Framebuffer` NRI attachment views.
+- `Renderer::BeginRenderPass` opens an NRI render pass on the `RenderCommandBuffer`
+  (`RT_BeginNRIRenderPass`). The draw entry points (`RenderQuad`, `RenderGeometry`,
+  `SubmitFullscreenQuad*`, `SceneRenderer::RT_DrawStaticMesh*`) record through
+  `Renderer::RT_DrawIndexed` / `RT_DrawMeshTasks` (`RenderCommandBuffer::RT_BeginNRIDraw`), and
+  `DispatchCompute` through `RenderCommandBuffer::RT_BeginNRIDispatch`. Work NRI cannot record is
+  skipped and logged once per pipeline or shader.
+- `RenderCommandBuffer::GetActive()` closes an open NRI rendering scope, so NVRHI commands (copies,
+  clears, queries) stay legal anywhere.
+- `ImGuiRenderer::RenderToSwapchain` draws the UI into each swapchain with its own per-format
+  pipelines, per-frame-slot geometry and descriptor pools. ImGui textures, the atlas included, are
+  `Image2D`s in the shared `ImGuiTextureRegistry`.
 
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
-`ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). With `Renderer.ExplicitBarriers`
-on, NVRHI's automatic barriers are off and the tracker places every barrier: the commit functions
-require what the graphics/compute/meshlet state binds, copy/clear/write sites call `RT_Require*`,
-and intra-pass transitions call `RT_Transition*`. A command buffer's `SetBarrierMode` can override
-the settings: readbacks stay `Automatic`, the ImGui renderer is `Automatic` on NVRHI and `Explicit`
-on NRI.
+`ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). NVRHI's automatic barriers are off
+and the tracker places every barrier: NRI passes, draws and dispatches require what they bind
+(attachments, descriptor-set uses, vertex/index/indirect buffers), copy/clear/write sites call
+`RT_Require*`, and intra-pass transitions `RT_Transition*`. Readbacks into NVRHI staging textures
+record with `SetBarrierMode(Automatic)` until P13.
 The render graph declares how each pass touches each resource (`AccessKind`) and models storage
 buffers (`AddExternalBuffer`); `SceneRenderer` passes `m_CommandBuffer` to `Execute`, which requires
-each pass's entry states in one batch when explicit barriers are on.
+each pass's entry states in one batch.
 
 **Read `.claude/docs/Rendering.md` before changing anything here.** The invariants that are easy to
 break and hard to see: the global `(set, binding)` namespace, pipeline caching, frame-numbered

@@ -7,6 +7,7 @@
 #include <map>
 
 #include "Lux/Renderer/RendererTypes.h"
+#include "Lux/Renderer/RHI/RHITypes.h"
 #include "Image.h"
 
 #include "nvrhi/nvrhi.h"
@@ -151,6 +152,12 @@ namespace Lux {
 		nri::Descriptor* GetNRIDepthAttachment() const { return m_NRIDepthAttachment; }
 		// True when every attachment has an NRI view (the reason is logged when not).
 		bool HasNRIAttachments() const;
+		// The textures behind the attachment views and the subresources each view covers (mip 0 and
+		// the attached layer, or the whole back buffer of a swapchain target), for the barrier
+		// tracker. Render thread for a swapchain target.
+		nvrhi::ITexture* GetColorAttachmentTexture(uint32_t index) const;
+		nvrhi::ITexture* GetDepthAttachmentTexture() const;
+		TextureSubresourceRange GetAttachmentRange() const;
 
 		const std::vector<ClearValue>& GetClearValues() const { return m_ClearValues; }
 
