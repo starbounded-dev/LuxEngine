@@ -95,7 +95,6 @@ namespace Lux {
 		imageSpec.Width = spec.Width;
 		imageSpec.Height = spec.Height;
 		imageSpec.Mips = mipCount; // Allocate all mip levels
-		imageSpec.CreateSampler = false;
 		imageSpec.Transfer = true;
 
 		Ref<Image2D> srgbImage = Image2D::Create(imageSpec);
@@ -109,14 +108,6 @@ namespace Lux {
 
 		Renderer::Submit([srgbImage, srgbTexture, mipCount, spec, texture, commandBuffer]() mutable
 			{
-
-				nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-				nvrhi::SamplerDesc samplerDesc;
-				samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = Utils::NVRHISamplerFilter(spec.SamplerFilter);
-				samplerDesc.addressU = ToNVRHI(spec.SamplerWrap);
-				samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
-				samplerDesc.maxAnisotropy = spec.MaxAnisotropy;
-				srgbImage->GetImageInfo().Sampler = device->createSampler(samplerDesc);
 
 				// Copy all mip levels from source texture to SRGBA texture using GPU copy
 				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
@@ -176,7 +167,6 @@ namespace Lux {
 		imageSpec.Height = m_Specification.Height;
 		imageSpec.Mips = m_Specification.GenerateMips ? GetMipLevelCount() : 1;
 		imageSpec.DebugName = specification.DebugName;
-		imageSpec.CreateSampler = false;
 		imageSpec.MipBias = specification.MipBias;
 		m_Image = Image2D::Create(imageSpec);
 
@@ -212,7 +202,6 @@ namespace Lux {
 		imageSpec.Height = m_Specification.Height;
 		imageSpec.Mips = m_Specification.GenerateMips ? GetMipLevelCount() : 1;
 		imageSpec.DebugName = specification.DebugName;
-		imageSpec.CreateSampler = false;
 		imageSpec.MipBias = specification.MipBias;
 		m_Image = Image2D::Create(imageSpec);
 
@@ -270,7 +259,6 @@ namespace Lux {
 		imageSpec.Height = m_Specification.Height;
 		imageSpec.Mips = m_Specification.GenerateMips ? Texture2D::GetMipLevelCount() : 1;
 		imageSpec.DebugName = specification.DebugName;
-		imageSpec.CreateSampler = false;
 		imageSpec.MipBias = specification.MipBias;
 		if (specification.Storage)
 			imageSpec.Usage = ImageUsage::Storage;
@@ -315,7 +303,6 @@ namespace Lux {
 		imageSpec.Width = m_Specification.Width;
 		imageSpec.Height = m_Specification.Height;
 		imageSpec.Mips = mipCount;
-		imageSpec.CreateSampler = false;
 		imageSpec.Transfer = true;
 		if (!m_ImageData) // TODO(Yan): better management for this, probably from texture spec
 			imageSpec.Usage = ImageUsage::Storage;
@@ -329,19 +316,6 @@ namespace Lux {
 		{
 			SetData(m_ImageData);
 		}
-
-		////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		// CREATE TEXTURE SAMPLER (owned by Image)
-		////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-		nvrhi::SamplerDesc samplerDesc;
-		samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = Utils::NVRHISamplerFilter(m_Specification.SamplerFilter);
-		samplerDesc.addressU = ToNVRHI(m_Specification.SamplerWrap);
-		samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
-		samplerDesc.maxAnisotropy = m_Specification.MaxAnisotropy;
-		samplerDesc.mipBias = m_Specification.MipBias;
-
-		info.Sampler = device->createSampler(samplerDesc);
 
 
 		if (m_ImageData && m_Specification.GenerateMips && mipCount > 1)

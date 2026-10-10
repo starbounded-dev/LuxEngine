@@ -40,8 +40,6 @@ namespace Lux {
 		uint32_t GetBackBufferCount();
 		vk::Semaphore GetAcquiredImageSemaphore() const { return m_AcquiredSemaphore; }
 
-		nvrhi::IFramebuffer* GetCurrentFramebuffer();
-		nvrhi::IFramebuffer* GetFramebuffer(uint32_t index);
 		// The NRI color-attachment view of the acquired back buffer (NRI migration Phase 10). Render
 		// thread, after BeginFrame; null before the first acquire.
 		nri::Descriptor* GetCurrentNRIColorAttachment() const;
@@ -57,8 +55,6 @@ namespace Lux {
 		// semaphore and crash. Cleared by Create().
 		bool NeedsRecreate() const { return m_NeedsRecreate; }
 
-		void BackBufferResizing();
-		void BackBufferResized();
 	private:
 		bool IsSurfaceZeroSized() const;
 	public:
@@ -70,8 +66,6 @@ namespace Lux {
 		std::array<vk::Semaphore, 3> m_AcquireSemaphores;
 		std::vector<vk::Semaphore> m_PresentSemaphores; // One per swapchain image
 		vk::Semaphore m_AcquiredSemaphore;
-
-		std::vector<nvrhi::FramebufferHandle> m_SwapChainFramebuffers;
 
 		vk::SurfaceFormatKHR m_SwapChainFormat;
 		vk::SwapchainKHR m_SwapChain;

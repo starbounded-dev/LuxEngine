@@ -16,6 +16,7 @@
 
 namespace nri {
 	struct Descriptor;
+	struct Texture;
 	enum class Format : uint8_t;
 }
 
@@ -137,18 +138,16 @@ namespace Lux {
 		bool HasDepthAttachment() const { return (bool)m_DepthAttachmentImage; }
 
 		// True when an attachment image's current GPU texture no longer matches the
-		// handle baked into this framebuffer's desc. Images are recreated in place
-		// (same Ref, new nvrhi handle) on resize/aliasing changes; a framebuffer
-		// that shares them (ExistingImages) keeps rendering into the orphaned old
-		// texture until it is re-invalidated — this detects that state.
+		// texture its attachment view was built for. Images are recreated in place
+		// (same Ref, new texture) on resize/aliasing changes; a framebuffer that
+		// shares them (ExistingImages) would render into the orphaned old texture
+		// until it is re-invalidated — this detects that state.
 		bool HasStaleAttachments() const;
 
-		virtual nvrhi::FramebufferHandle GetHandle() const;
-		const nvrhi::FramebufferDesc& GetFramebufferDesc() const { return m_FramebufferDesc; }
-
-		// NRI attachment views (NRI migration Phase 10): the images, mip, layer and formats of the
-		// NVRHI framebuffer, rebuilt with it and owned by the images' view caches. A swapchain target
-		// returns the acquired back buffer's view (render thread). Null when NRI has no such view.
+		// NRI attachment views (NRI migration Phase 10): mip 0 of each image (of the attached layer
+		// when one is set), in the attachment's format, rebuilt by RT_Invalidate and owned by the
+		// images' view caches. A swapchain target returns the acquired back buffer's view (render
+		// thread). Null when NRI has no such view.
 		nri::Descriptor* GetNRIColorAttachment(uint32_t index) const;
 		nri::Descriptor* GetNRIDepthAttachment() const { return m_NRIDepthAttachment; }
 		// True when every attachment has an NRI view (the reason is logged when not).
@@ -182,8 +181,10 @@ namespace Lux {
 	private:
 		FramebufferSpecification m_Specification;
 
-		nvrhi::FramebufferHandle m_Handle = nullptr;
-		nvrhi::FramebufferDesc m_FramebufferDesc;
+		// The textures the attachment views were built for (HasStaleAttachments). Compared, never
+		// dereferenced.
+		std::array<const nri::Texture*, nvrhi::c_MaxRenderTargets> m_ViewTextures = {};
+		const nri::Texture* m_DepthViewTexture = nullptr;
 		// Fixed storage: the render thread reads these while a main-thread invalidation rewrites them.
 		std::array<nri::Descriptor*, nvrhi::c_MaxRenderTargets> m_NRIColorAttachments = {};
 		nri::Descriptor* m_NRIDepthAttachment = nullptr;

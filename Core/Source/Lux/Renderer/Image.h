@@ -109,7 +109,6 @@ namespace Lux {
 		// sampled with an ordinary sampler2D - shaders need sampler2DMS and an explicit
 		// sample index. Only valid for ImageUsage::Attachment, and mips must be 1.
 		uint32_t Samples = 1;
-		bool CreateSampler = true;
 		float MipBias = 0.0f;
 	};
 
@@ -122,7 +121,6 @@ namespace Lux {
 		nri::Texture* RHITexture = nullptr;
 		nvrhi::TextureHandle ImageHandle = nullptr;
 		nvrhi::TextureSubresourceSet ImageView = nvrhi::AllSubresources;
-		nvrhi::SamplerHandle Sampler = nullptr;
 		nvrhi::ResourceStates State = nvrhi::ResourceStates::Unknown;
 		nvrhi::TextureDimension Dimension = nvrhi::TextureDimension::Unknown;
 	};
@@ -553,8 +551,7 @@ namespace Lux {
 
 		void Invalidate();
 
-		nvrhi::SamplerHandle GetHandle() const { return m_Handle; }
-		// The same sampler as an NRI descriptor (null if NRI failed to create it).
+		// The sampler's NRI descriptor (null if NRI failed to create it).
 		nri::Descriptor* GetRHIDescriptor() const { return m_RHIDescriptor; }
 		virtual ResourceDescriptorInfo GetDescriptorInfo() const override { return (ResourceDescriptorInfo)this; }
 	public:
@@ -564,7 +561,6 @@ namespace Lux {
 	private:
 		SamplerSpecification m_Specification;
 
-		nvrhi::SamplerHandle m_Handle;
 		nri::Descriptor* m_RHIDescriptor = nullptr;
 	};
 

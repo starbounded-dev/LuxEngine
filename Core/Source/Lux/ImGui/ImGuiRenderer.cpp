@@ -243,7 +243,6 @@ namespace Lux {
 		specification.Transfer = true;
 		specification.Width = static_cast<uint32_t>(tex->Width);
 		specification.Height = static_cast<uint32_t>(tex->Height);
-		specification.CreateSampler = false;
 
 		Ref<Image2D> image = Image2D::Create(specification);
 		image->Invalidate();

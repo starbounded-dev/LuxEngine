@@ -31,20 +31,14 @@ namespace Lux {
 			}
 		}
 
-		// The NRI twin of an NVRHI attachment view: the same image, mip, layers and format (UNKNOWN
-		// = the image's own), as NVRHI's createFramebuffer resolves them. Null, with `outProblem`
-		// set, for attachments NRI views are not built for here.
-		nri::Descriptor* GetNRIAttachmentView(const Ref<Image2D>& image, const nvrhi::FramebufferAttachment& attachment, bool depth, const char*& outProblem)
+		// The attachment view of `image`: mip 0 of `range`'s layers, in `format` (UNKNOWN = the image's
+		// own). Null, with `outProblem` set, for attachments NRI views are not built for here.
+		nri::Descriptor* GetNRIAttachmentView(const Ref<Image2D>& image, const TextureSubresourceRange& range, nri::Format format, bool depth, const char*& outProblem)
 		{
 			nri::Texture* texture = image ? image->GetImageInfo().RHITexture : nullptr;
 			if (!texture)
 			{
 				outProblem = "an attachment has no NRI texture";
-				return nullptr;
-			}
-			if (depth && attachment.isReadOnly)
-			{
-				outProblem = "read-only depth attachments are not translated";
 				return nullptr;
 			}
 			if (RHIDevice::API().GetTextureDesc(*texture).type == nri::TextureType::TEXTURE_3D)
@@ -55,11 +49,11 @@ namespace Lux {
 
 			NRITextureViewKey key;
 			key.Type = depth ? nri::TextureView::DEPTH_STENCIL_ATTACHMENT : nri::TextureView::COLOR_ATTACHMENT;
-			key.MipOffset = attachment.subresources.baseMipLevel;
+			key.MipOffset = range.BaseMip;
 			key.MipNum = 1;
-			key.LayerOffset = attachment.subresources.baseArraySlice;
-			key.LayerNum = attachment.subresources.numArraySlices == nvrhi::TextureSubresourceSet::AllArraySlices ? 0 : attachment.subresources.numArraySlices;
-			key.Format = ToNRIFormat(attachment.format);
+			key.LayerOffset = range.BaseLayer;
+			key.LayerNum = range.LayerCount == TextureSubresourceRange::AllLayers ? 0 : range.LayerCount;
+			key.Format = format;
 
 			// GetNRITextureView logs its own failures.
 			nri::Descriptor* view = GetNRITextureView(texture, key);
@@ -174,14 +168,6 @@ namespace Lux {
 		return m_Height;
 	}
 
-	nvrhi::FramebufferHandle Framebuffer::GetHandle() const
-	{
-		if (m_Specification.SwapChainTarget)
-			return Application::Get().GetWindow().GetSwapChain().GetCurrentFramebuffer();
-
-		return m_Handle;
-	}
-
 	nri::Descriptor* Framebuffer::GetNRIColorAttachment(uint32_t index) const
 	{
 		if (m_Specification.SwapChainTarget)
@@ -269,17 +255,17 @@ namespace Lux {
 
 	bool Framebuffer::HasStaleAttachments() const
 	{
-		if (!m_Handle)
+		if (m_Specification.SwapChainTarget)
 			return false;
 
-		for (size_t i = 0; i < m_AttachmentImages.size() && i < m_FramebufferDesc.colorAttachments.size(); i++)
+		for (size_t i = 0; i < m_AttachmentImages.size() && i < m_ViewTextures.size(); i++)
 		{
 			const Ref<Image2D>& image = m_AttachmentImages[i];
-			if (image && image->GetHandle().Get() != m_FramebufferDesc.colorAttachments[i].texture)
+			if (image && image->GetImageInfo().RHITexture != m_ViewTextures[i])
 				return true;
 		}
 
-		if (m_DepthAttachmentImage && m_DepthAttachmentImage->GetHandle().Get() != m_FramebufferDesc.depthAttachment.texture)
+		if (m_DepthAttachmentImage && m_DepthAttachmentImage->GetImageInfo().RHITexture != m_DepthViewTexture)
 			return true;
 
 		return false;
@@ -309,8 +295,6 @@ namespace Lux {
 
 		Release();
 
-		std::vector<nvrhi::FramebufferAttachment> attachmentDescriptions;
-
 		m_ClearValues.resize(m_Specification.Attachments.Attachments.size());
 
 		bool createImages = m_AttachmentImages.empty();
@@ -318,9 +302,11 @@ namespace Lux {
 		if (m_Specification.ExistingFramebuffer)
 			m_AttachmentImages.clear();
 
-		// TODO(Yan): what about load/store ops?
-		nvrhi::FramebufferDesc framebufferDesc;
-
+		// Every attachment covers mip 0 of the attached layer (layer 0 without one).
+		const TextureSubresourceRange attachmentRange = GetAttachmentRange();
+		uint32_t colorAttachmentCount = 0;
+		std::array<const nri::Texture*, nvrhi::c_MaxRenderTargets> viewTextures = {};
+		const nri::Texture* depthViewTexture = nullptr;
 		std::array<nri::Descriptor*, nvrhi::c_MaxRenderTargets> nriColorAttachments = {};
 		nri::Descriptor* nriDepthAttachment = nullptr;
 		std::array<nri::Format, nvrhi::c_MaxRenderTargets> nriColorFormats = {};
@@ -331,7 +317,6 @@ namespace Lux {
 		const char* nriProblem = nullptr;
 
 		uint32_t attachmentIndex = 0;
-		uint32_t nvrhiAttachmentIndex = 0;
 		for (const auto& attachmentSpec : m_Specification.Attachments.Attachments)
 		{
 			if (Utils::IsDepthFormat(attachmentSpec.Format))
@@ -362,16 +347,9 @@ namespace Lux {
 
 				LUX_CORE_VERIFY(m_DepthAttachmentImage->GetHandle(), "Framebuffer \"{}\" depth attachment {} has no valid image", m_Specification.DebugName, attachmentIndex);
 
-				nvrhi::FramebufferAttachment& depthAttachment = framebufferDesc.depthAttachment;
-				depthAttachment.texture = m_DepthAttachmentImage->GetHandle();
-				depthAttachment.format = Utils::NVRHIFormat(attachmentSpec.Format);
-				if (m_Specification.ExistingImageLayer != -1)
-				{
-					depthAttachment.subresources.baseArraySlice = m_Specification.ExistingImageLayer;
-					depthAttachment.subresources.numArraySlices = 1;
-				}
-				nriDepthAttachment = GetNRIAttachmentView(m_DepthAttachmentImage, depthAttachment, true, nriProblem);
-				nriDepthFormat = ToNRIFormat(depthAttachment.format);
+				nriDepthFormat = ToNRIFormat(Utils::NVRHIFormat(attachmentSpec.Format));
+				nriDepthAttachment = GetNRIAttachmentView(m_DepthAttachmentImage, attachmentRange, nriDepthFormat, true, nriProblem);
+				depthViewTexture = m_DepthAttachmentImage->GetImageInfo().RHITexture;
 				depthSampleCount = m_DepthAttachmentImage->GetSpecification().Samples;
 
 				m_ClearValues[attachmentIndex].DepthStencil = { m_Specification.DepthClearValue, 0 };
@@ -432,16 +410,11 @@ namespace Lux {
 
 				LUX_CORE_VERIFY(colorAttachmentImage->GetHandle(), "Framebuffer \"{}\" color attachment {} has no valid image", m_Specification.DebugName, attachmentIndex);
 
-				nvrhi::FramebufferAttachment& colorAttachment = framebufferDesc.colorAttachments.emplace_back();
-				colorAttachment.texture = colorAttachmentImage->GetHandle();
-				colorAttachment.format = Utils::NVRHIFormat(attachmentSpec.Format);
-				if (m_Specification.ExistingImageLayer != -1)
-				{
-					colorAttachment.subresources.baseArraySlice = m_Specification.ExistingImageLayer;
-					colorAttachment.subresources.numArraySlices = 1;
-				}
-				nriColorAttachments[framebufferDesc.colorAttachments.size() - 1] = GetNRIAttachmentView(colorAttachmentImage, colorAttachment, false, nriProblem);
-				nriColorFormats[framebufferDesc.colorAttachments.size() - 1] = ToNRIFormat(colorAttachment.format);
+				LUX_CORE_VERIFY(colorAttachmentCount < nriColorAttachments.size(), "Framebuffer \"{}\" has more than {} color attachments", m_Specification.DebugName, nriColorAttachments.size());
+				const uint32_t colorIndex = colorAttachmentCount++;
+				nriColorFormats[colorIndex] = ToNRIFormat(Utils::NVRHIFormat(attachmentSpec.Format));
+				nriColorAttachments[colorIndex] = GetNRIAttachmentView(colorAttachmentImage, attachmentRange, nriColorFormats[colorIndex], false, nriProblem);
+				viewTextures[colorIndex] = colorAttachmentImage->GetImageInfo().RHITexture;
 				if (colorSampleCount == 0)
 					colorSampleCount = colorAttachmentImage->GetSpecification().Samples;
 
@@ -452,11 +425,8 @@ namespace Lux {
 			attachmentIndex++;
 		}
 
-
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		m_Handle = device->createFramebuffer(framebufferDesc);
-		m_FramebufferDesc = framebufferDesc;
-
+		m_ViewTextures = viewTextures;
+		m_DepthViewTexture = depthViewTexture;
 		m_NRIColorAttachments = nriColorAttachments;
 		m_NRIDepthAttachment = nriDepthAttachment;
 		m_NRIColorFormats = nriColorFormats;

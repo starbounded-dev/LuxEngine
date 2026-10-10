@@ -287,8 +287,6 @@ namespace Lux {
 			}
 		}
 
-		BackBufferResized();
-
 		m_NeedsRecreate = false;
 		return true;
 	}
@@ -302,13 +300,10 @@ namespace Lux {
 			vulkanDeviceManager->m_VulkanDevice.waitIdle();
 		}
 
-		// The nvrhi framebuffers and texture handles own image views onto the swap chain's images,
-		// so they have to be released - and actually collected, since nvrhi defers destruction -
-		// before vkDestroySwapchainKHR takes those images away.
-		// NOTE: BackBufferResizing() also clears the framebuffers on the OnResize() path; doing it
-		//       here as well keeps Destroy() correct on every path (shutdown, Resize(), re-entry).
-		m_SwapChainFramebuffers.clear();
-		// Both threads are idle here (the GPU too), so the NRI wrappers go now, not via the queue.
+		// The nvrhi texture handles and NRI views reference the swap chain's images, so they have to be
+		// released - and actually collected, since nvrhi defers destruction - before
+		// vkDestroySwapchainKHR takes those images away. Both threads are idle here (the GPU too), so
+		// the NRI wrappers go now, not via the queue.
 		for (SwapChainImage& image : m_SwapChainImages)
 		{
 			if (image.RHIColorAttachment)
@@ -380,7 +375,6 @@ namespace Lux {
 
 		m_Width = width;
 		m_Height = height;
-		BackBufferResizing();
 		Resize();
 	}
 
@@ -530,25 +524,6 @@ namespace Lux {
 		}
 	}
 
-	void VulkanSwapChain::BackBufferResizing()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		m_SwapChainFramebuffers.clear();
-	}
-
-	void VulkanSwapChain::BackBufferResized()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		auto device = Application::Get().GetGraphicsDevice();
-		uint32_t backBufferCount = GetBackBufferCount();
-		m_SwapChainFramebuffers.resize(backBufferCount);
-		for (uint32_t index = 0; index < backBufferCount; index++)
-		{
-			m_SwapChainFramebuffers[index] = device->createFramebuffer(
-				nvrhi::FramebufferDesc().addColorAttachment(GetBackBuffer(index)));
-		}
-	}
-
 	nvrhi::ITexture* VulkanSwapChain::GetCurrentBackBuffer()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -574,12 +549,6 @@ namespace Lux {
 		return uint32_t(m_SwapChainImages.size());
 	}
 
-	nvrhi::IFramebuffer* VulkanSwapChain::GetCurrentFramebuffer()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return GetFramebuffer(GetCurrentBackBufferIndex());
-	}
-
 	nri::Format VulkanSwapChain::GetNRIColorFormat() const
 	{
 		return nri::nriConvertVKFormatToNRI(static_cast<uint32_t>(m_SwapChainFormat.format));
@@ -588,15 +557,6 @@ namespace Lux {
 	nri::Descriptor* VulkanSwapChain::GetCurrentNRIColorAttachment() const
 	{
 		return m_SwapChainIndex < m_SwapChainImages.size() ? m_SwapChainImages[m_SwapChainIndex].RHIColorAttachment : nullptr;
-	}
-
-	nvrhi::IFramebuffer* VulkanSwapChain::GetFramebuffer(uint32_t index)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		if (index < m_SwapChainFramebuffers.size())
-			return m_SwapChainFramebuffers[index];
-
-		return nullptr;
 	}
 
 

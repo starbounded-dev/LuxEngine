@@ -33,12 +33,16 @@ findings here to must-fix.
 | `SceneRenderer` | `Renderer/SceneRenderer.h` | Owns and drives the `RenderGraph`; the whole deferred pipeline lives here |
 | `Renderer2D` / `DebugRenderer` | `Renderer/Renderer2D.h`, `DebugRenderer.h` | Batched 2D (quads, circles, lines, MSDF text) and debug primitives |
 
-Below that sits **NVRHI** (`Core/vendor/nvrhi`) over Vulkan. `LUX_HAS_VULKAN` is always defined;
-`NVRHI-D3D11` / `NVRHI-D3D12` are built but the `Platform/DX11` / `DX12` engine sources are
-`removefiles`'d — that scaffolding is intentional, not dead code.
+Below that sit **NRI** (`Core/vendor/NRI`: GPU memory, descriptors, pipelines and all recording)
+and **NVRHI** (`Core/vendor/nvrhi`: command lists, submission, queries, uploads and barrier
+emission, until NRI migration Phases 13-15), both over one Vulkan device (`§ NRI device`).
+`LUX_HAS_VULKAN` is always defined; `NVRHI-D3D11` / `NVRHI-D3D12` are built but the
+`Platform/DX11` / `DX12` engine sources are `removefiles`'d — that scaffolding is intentional, not
+dead code.
 
 Renderer types (`Texture2D`, `Image2D`, `Pipeline`, `Framebuffer`, the buffers) are concrete
-classes over NVRHI handles. `Shader` is the one abstract type, implemented by `VulkanShader`.
+classes over NRI objects; textures and buffers also hand out NVRHI wrapper handles until Phase 13.
+`Shader` is the one abstract type, implemented by `VulkanShader`.
 `Platform/Vulkan/` holds only what NVRHI does not provide: `VulkanDeviceManager` (instance,
 device, queues, validation callback), `VulkanSwapChain`, `VulkanShader` + `ShaderCompiler/`,
 `DescriptorSetManager`, and the Aftermath `Debug/` sources.
@@ -391,7 +395,7 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
 - **NRI owns GPU memory; NVRHI renders through wrappers** (Phase 8, temporary until NVRHI is
   removed). Every texture and buffer is an `NRITexture` / `NRIBuffer` (`Renderer/RHI/
   NVRHIWrappers.h`): an NRI committed resource plus `createHandleForNativeTexture/Buffer` with the
-  same NVRHI desc as before, so framebuffers, barriers and uploads are unchanged. The
+  same NVRHI desc as before, so barriers, copies and uploads are unchanged. The
   NRI desc is derived from the NVRHI desc (format through the VkFormat; images EXCLUSIVE like
   NVRHI's), and the memory location from `cpuAccess` (Write → HOST_UPLOAD, Read → HOST_READBACK,
   else DEVICE). Rules:
@@ -442,7 +446,8 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
       target framebuffer's attachment formats and sample count; a shader with a mesh stage makes a
       mesh-shader pipeline. `PipelineCompute` has a compute one.
     - Every framebuffer has NRI attachment views (`GetNRIColorAttachment`/`GetNRIDepthAttachment`,
-      rebuilt with the NVRHI framebuffer).
+      rebuilt by `RT_Invalidate`); there is no NVRHI framebuffer, and a sampler is only its NRI
+      descriptor.
     - Meshes have meshlet sets (`MeshSource::RT_GetOrCreateMeshletSet`).
   - **Passes.** `Renderer::BeginRenderPass` (and the meshlet pre-depth pass) open an **NRI render
     pass** (`RenderCommandBuffer::RT_BeginNRIRenderPass`):

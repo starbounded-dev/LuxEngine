@@ -62,7 +62,6 @@ namespace Lux {
 
 		m_Info.RHITexture = nullptr;
 		m_Info.ImageHandle = nullptr;
-		m_Info.Sampler = nullptr;
 		m_Texture.Reset();
 		m_GPUAllocationSize = 0;
 		m_PerLayerImageViews.clear();
@@ -240,29 +239,17 @@ namespace Lux {
 			LUX_CORE_VERIFY(!Utils::IsBlockCompressed(m_Specification.Format));
 		}
 
-		// Build the new texture (and sampler) into locals while the old handle is still live and
+		// Build the new texture into locals while the old handle is still live and
 		// readable by other threads. NRI owns the image; NVRHI gets a wrapper with this same desc.
 		NRITexture newTexture = NRITexture::Create(textureDesc);
 		const nvrhi::TextureHandle newHandle = newTexture.GetHandle();
 
 		// Creation fails (empty) when the image or its memory allocation fails, which would
-		// otherwise only show up much later as an access violation once the null texture reaches
-		// createFramebuffer/BindingSet. Fail here, where the image and its size are still known.
+		// otherwise only show up much later as an access violation once the null texture reaches an
+		// attachment view or descriptor set. Fail here, where the image and its size are still known.
 		LUX_CORE_VERIFY(newHandle, "Failed to create image \"{}\" ({}x{}, {} mip(s), {} layer(s), ~{} MB) - the GPU is most likely out of memory",
 			m_Specification.DebugName, textureDesc.width, textureDesc.height, textureDesc.mipLevels, textureDesc.arraySize,
 			Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers) / (1024 * 1024));
-
-		nvrhi::SamplerHandle newSampler;
-		if (m_Specification.CreateSampler)
-		{
-			nvrhi::SamplerDesc samplerDesc;
-			samplerDesc.minFilter = samplerDesc.magFilter = samplerDesc.mipFilter = !Utils::IsIntegerBased(m_Specification.Format);
-			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToEdge;
-			samplerDesc.addressV = samplerDesc.addressW = samplerDesc.addressU;
-			samplerDesc.mipBias = m_Specification.MipBias;
-
-			newSampler = device->createSampler(samplerDesc);
-		}
 
 		auto newAllocationSize = Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers);
 		if (m_Specification.Dimension == TextureDimension::Texture3D)
@@ -274,7 +261,6 @@ namespace Lux {
 		nri::Texture* const oldTexture = m_Info.RHITexture;
 		m_Info.ImageHandle = newHandle;
 		m_Info.RHITexture = newTexture.Get();
-		m_Info.Sampler = newSampler;
 		m_Info.Dimension = textureDesc.dimension;
 		m_GPUAllocationSize = newAllocationSize;
 
@@ -503,19 +489,7 @@ namespace Lux {
 	void Sampler::Invalidate()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		const auto desc = nvrhi::SamplerDesc()
-			.setMipBias(m_Specification.MipBias)
-			.setMaxAnisotropy(m_Specification.MaxAnisotropy)
-			.setAllAddressModes(ToNVRHI(m_Specification.AddressMode))
-			.setMinFilter(m_Specification.MinFilter)
-			.setMagFilter(m_Specification.MagFilter)
-			.setMipFilter(m_Specification.MipFilter);
-
-		auto device = Application::GetGraphicsDevice();
-		m_Handle = device->createSampler(desc);
-
-		// The NRI twin of the NVRHI sampler above (nvrhi::SamplerDesc defaults: no LOD clamp, no
-		// comparison, isInteger off).
+		// No LOD clamp, no comparison (the NVRHI sampler's defaults).
 		const nri::Filter filter[2] = { nri::Filter::NEAREST, nri::Filter::LINEAR };
 		const nri::AddressMode addressMode = m_Specification.AddressMode == TextureWrap::Repeat ? nri::AddressMode::REPEAT : nri::AddressMode::CLAMP_TO_EDGE;
 		nri::SamplerDesc samplerDesc = {};
