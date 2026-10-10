@@ -11,46 +11,6 @@
 
 namespace Lux {
 
-	namespace {
-		static const nvrhi::BindingLayoutDesc* GetDescriptorSetLayoutDesc(Ref<Shader> shader, uint32_t set)
-		{
-			if (!shader)
-				return nullptr;
-
-			Ref<VulkanShader> vulkanShader = shader.As<VulkanShader>();
-			const auto& descriptorSets = vulkanShader->GetShaderDescriptorSets();
-			if (set >= descriptorSets.size() || !descriptorSets[set])
-				return nullptr;
-
-			nvrhi::BindingLayoutHandle layout = vulkanShader->GetDescriptorSetLayout(set);
-			return layout ? layout->getDesc() : nullptr;
-		}
-
-		static bool BindingLayoutsMatch(const nvrhi::BindingLayoutDesc& lhs, const nvrhi::BindingLayoutDesc& rhs)
-		{
-			if (lhs.bindings.size() != rhs.bindings.size())
-				return false;
-
-			for (const nvrhi::BindingLayoutItem& lhsItem : lhs.bindings)
-			{
-				bool found = false;
-				for (const nvrhi::BindingLayoutItem& rhsItem : rhs.bindings)
-				{
-					if (lhsItem == rhsItem)
-					{
-						found = true;
-						break;
-					}
-				}
-
-				if (!found)
-					return false;
-			}
-
-			return true;
-		}
-	}
-
 	Material::Material(Ref<Shader> shader, const std::string& name)
 		: m_Shader(shader), m_Name(name)
 	{
@@ -359,23 +319,16 @@ namespace Lux {
 
 	bool Material::IsDescriptorSetCompatible(Ref<Shader> pipelineShader, uint32_t set) const
 	{
-		const nvrhi::BindingLayoutDesc* materialLayout = GetDescriptorSetLayoutDesc(m_Shader, set);
-		const nvrhi::BindingLayoutDesc* pipelineLayout = GetDescriptorSetLayoutDesc(pipelineShader, set);
-		if (!materialLayout || !pipelineLayout)
+		if (!m_Shader || !pipelineShader)
 			return false;
 
-		return BindingLayoutsMatch(*materialLayout, *pipelineLayout);
+		return m_Shader.As<VulkanShader>()->IsNRISetCompatible(set, *pipelineShader.As<VulkanShader>());
 	}
 
 	void Material::Prepare()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_DescriptorSetManager.InvalidateAndUpdate();
-	}
-
-	nvrhi::BindingSetHandle Material::GetBindingSet(uint32_t frameIndex) const
-	{
-		return m_DescriptorSetManager.GetBindingSet(frameIndex);
 	}
 
 }

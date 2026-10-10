@@ -219,12 +219,11 @@ images also get non-owning NRI wrappers and color-attachment views. `Renderer::G
 reads NRI's `QueryVideoMemoryInfo`.
 
 **NRI descriptors** (Phase 9; details in `Rendering.md § NRI device`):
-- `VulkanShader` builds an NRI pipeline layout with its NVRHI binding layouts, and
-  `PipelineCompute` an NRI compute pipeline.
+- `VulkanShader` builds an NRI pipeline layout from its reflection, and `PipelineCompute` an NRI
+  compute pipeline.
 - `DescriptorSetManager` (and so `RenderPass`, `ComputePass` and `Material`), `BindlessTextureTable`
   and `MeshSource` build NRI descriptor sets (`DescriptorSetGroup`), each with the resources it
-  accesses (`DescriptorSetUses`). The managers still build NVRHI binding sets from the same inputs,
-  which nothing binds.
+  accesses (`DescriptorSetUses`). There are no NVRHI binding sets or layouts.
 
 **Recording on NRI** (Phases 10-12; details in `Rendering.md § NRI device`). Everything is recorded
 with NRI inside NVRHI's command lists; NVRHI keeps the command lists, submission, queries, uploads
@@ -281,7 +280,7 @@ Structurally:
   bump, UV tiling/offset/rotation, alpha mode + cutoff, two-sided). They reach shaders through the GPU material table
   (`Rendering.md § The GPU material table`); `MaterialSerializer` writes them as YAML keys (the
   asset pack stores the same YAML) and migrates pre-emissive-colour files as data.
-- **Material textures are bindless through NVRHI descriptor tables.** Each `SceneRenderer` owns a
+- **Material textures are bindless through NRI descriptor sets.** Each `SceneRenderer` owns a
   `BindlessTextureTable` (one table per frame in flight, up to 16384 slots) that every material pass
   reads at the reserved descriptor set 4; a texture change is one slot write, not one `SetInput` per
   pass. Ownership, threading and the reserved-set rule are in `Rendering.md § Bindless textures`.

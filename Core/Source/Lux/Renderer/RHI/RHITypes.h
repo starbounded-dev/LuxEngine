@@ -86,6 +86,9 @@ namespace Lux {
 
 	inline constexpr TextureSubresourceRange AllSubresources{};
 
+	// Descriptor-set numbers a pipeline layout has at most (0 to MaxDescriptorSets - 1).
+	inline constexpr uint32_t MaxDescriptorSets = 8;
+
 	// Same order as nvrhi::CommandQueue.
 	enum class GPUQueue : uint8_t
 	{

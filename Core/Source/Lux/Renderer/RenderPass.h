@@ -55,10 +55,7 @@ namespace Lux {
 		void OnShaderReloaded();
 
 		bool HasDescriptorSets() const;
-		uint32_t GetBindingSetCount() const { return m_DescriptorSetManager.GetBindingSetCount(); }
-		// The managed sets, plus the bindless texture table at its set when the shader declares it.
-		// Render thread.
-		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const;
+		uint32_t GetDescriptorSetCount() const { return m_DescriptorSetManager.GetDescriptorSetCount(); }
 		// A managed set, or the bindless table's at BindlessTextureTable::DescriptorSet (a missing table
 		// is logged once). Empty when there is none. Render thread.
 		BoundDescriptorSet GetDescriptorSet(uint32_t frameIndex, uint32_t set) const;

@@ -125,7 +125,7 @@ the device to idle and drains the rest.
 
 The same wait is what makes per-frame slots safe: `RT_GetCurrentFrameIndex()` is
 `RT_GetFrameNumber() % FramesInFlight`, so a slot (command lists, `UniformBufferSet`/
-`StorageBufferSet::RT_Get`, `DescriptorSetManager` binding sets, `BindlessTextureTable` tables) is
+`StorageBufferSet::RT_Get`, `DescriptorSetManager` descriptor sets, `BindlessTextureTable` tables) is
 reused only after the GPU has finished the frame that last used it. It is **not** the swapchain
 image; use `VulkanSwapChain::GetCurrentBackBufferIndex()` for anything per-swapchain-image.
 `FramesInFlight` is clamped to `RendererConfig::MaxFramesInFlight` (3), the capacity of the fixed
@@ -391,7 +391,7 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
 - **NRI owns GPU memory; NVRHI renders through wrappers** (Phase 8, temporary until NVRHI is
   removed). Every texture and buffer is an `NRITexture` / `NRIBuffer` (`Renderer/RHI/
   NVRHIWrappers.h`): an NRI committed resource plus `createHandleForNativeTexture/Buffer` with the
-  same NVRHI desc as before, so binding sets, framebuffers, barriers and uploads are unchanged. The
+  same NVRHI desc as before, so framebuffers, barriers and uploads are unchanged. The
   NRI desc is derived from the NVRHI desc (format through the VkFormat; images EXCLUSIVE like
   NVRHI's), and the memory location from `cpuAccess` (Write → HOST_UPLOAD, Read → HOST_READBACK,
   else DEVICE). Rules:
@@ -404,24 +404,27 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - **Destruction is the owner's job**: destroying or reassigning an `NRITexture`/`NRIBuffer` frees
     the NVRHI handle and then the NRI resource through `Renderer::SubmitResourceFree`. A copied
     `nvrhi::TextureHandle`/`BufferHandle` keeps only the wrapper alive, never the image or buffer,
-    so nothing may use a handle after its owner is gone — even if a binding set still holds it.
+    so nothing may use a handle after its owner is gone.
   - Staging textures (readback) are still NVRHI's until Phase 13.
-- **NRI descriptors sit beside NVRHI's** (Phase 9), built from the same inputs at the same time:
-  - **Pipeline layouts**: one per `VulkanShader`, built when its descriptors are
-    (`CreateDescriptors` → `GetNRIPipelineLayout`):
+- **Descriptors** (NRI migration Phases 9 and 12):
+  - **Pipeline layouts**: one per `VulkanShader`, built from its reflection when its input
+    declarations are (`CreateDescriptors` → `GetNRIPipelineLayout`):
     - register space = set number;
     - one NRI set per non-empty set (`GetNRISetIndex(set)`, `k_NoNRISet` for an empty one);
     - all stages;
     - set 4 is the shared bindless range;
     - push constants are root constant 0.
 
-    NRI compute pipelines are created with the NVRHI ones (`PipelineCompute::GetNRIPipeline`).
+    A material's set can be bound in a pipeline's layout when `VulkanShader::IsNRISetCompatible`:
+    the same ranges (and, for set 0, the same root constants).
   - **Descriptor sets**: a `DescriptorSetGroup` (`RHI/DescriptorSetGroup.h`) is a pool holding
-    one set per frame in flight. It is written while it is built and **never rewritten**.
-    `DescriptorSetManager::BakeSet` replaces the set's group on every bake, as NVRHI replaces
-    binding sets, and the old group is freed through the GPU deletion queue. Each
-    `BindlessTextureTable` keeps one group and writes it under the same no-in-flight-reader rule
-    as its NVRHI tables (`RT_GetNRISet`).
+    one set per frame in flight, and what each set accesses (`DescriptorSetUses`, for the barrier
+    tracker). It is written while it is built and **never rewritten**.
+    `DescriptorSetManager::BakeSet` replaces the set's group on every bake, and the old group is
+    freed through the GPU deletion queue. `InvalidateAndUpdate` rebakes a set when an input's NRI
+    resource (buffer, texture or sampler descriptor) differs from the one it was baked with.
+    Each `BindlessTextureTable` keeps one group and writes a frame's set only while no frame in
+    flight reads it (`RT_GetDescriptorSet`).
   - **Views**: `NRITexture::GetNRITextureView(key)` and `NRIBuffer::GetNRIBufferView` are an
     on-demand cache keyed per resource, like NVRHI's own view cache. They are destroyed with the
     resource. A `Sampler` owns its NRI descriptor (`GetRHIDescriptor`).
@@ -495,7 +498,7 @@ crash or corruption on some driver even if it renders correctly on yours.
   or missing barrier.
 - For frame-indexed storage buffers, pass the `StorageBufferSet` to
   `PipelineCompute::BufferMemoryBarrier`; it resolves `RT_Get()` when recording, just like the
-  binding sets. Main-thread `Get()` may select a different buffer. Indirect draw consumers need
+  descriptor sets. Main-thread `Get()` may select a different buffer. Indirect draw consumers need
   `ResourceAccessFlags::IndirectCommandRead` (`ResourceState::IndirectArgument`), not a shader-read
   state; the barrier is an `RT_TransitionBufferState` on the command buffer's tracker.
 - GPU-written storage (including mesh-culling visible indices and indirect arguments) must use
@@ -658,26 +661,26 @@ size in step. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4
 
 ### Bindless textures — set 4 is reserved
 
-`u_GPUMaterialTextures[]` is an unsized array backed by NVRHI descriptor tables
+`u_GPUMaterialTextures[]` is an unsized array backed by NRI descriptor sets
 (`Renderer/BindlessTextureTable.h`). **Descriptor set 4 is reserved for it: no other shader resource
-may use set 4.** Its layout is process-wide (`BindlessTextureTable::Init`, called by `Renderer::Init`
-before any shader loads); `VulkanShader::CreateDescriptors` substitutes that layout for set 4 instead
-of reflecting one, and `DescriptorSetManager` (sets 0–3) never sees it. Capacity is
+may use set 4.** Its range is process-wide (`BindlessTextureTable::Init`, called by `Renderer::Init`
+before any shader loads); every NRI pipeline layout that declares set 4 uses that range
+(`BindlessTextureTable::GetNRIRange`) instead of reflecting one, and `DescriptorSetManager` (sets 0–3)
+never sees it. Capacity is
 `BindlessTextureTable::MaxCapacity` (16384, mirrored by `GPU_TEXTURE_SCENE_MAX_TEXTURES` in
 `MaterialScene.glslh` — change both together), clamped to the device's sampled-image limits and
 logged at startup.
 
 Tables are per owner and per frame in flight: each `SceneRenderer` owns a `BindlessTextureTable`
 (its own texture index space — the viewport, material preview and thumbnailer do not share one), and
-that holds one NVRHI descriptor table per frame in flight (plus the NRI sets beside them, `§ NRI
-device`). NVRHI's bindless layouts are
-partially-bound but **not** update-after-bind, so a table may only be written while no in-flight
+that holds one NRI descriptor set per frame in flight (`§ NRI device`). The bindless range is
+partially-bound but **not** update-after-bind, so a set may only be written while no in-flight
 frame reads it. `SetSlot` (main thread) records a write; `Flush` hands the writes to the render
-thread, which queues them for every frame's table and writes the current frame's; other tables
-catch up when their frame index comes round. Writes are skipped when the slot's image handle is
-unchanged, and full sweeps resend every slot so hot-reloaded textures (same `Ref`, new image)
-update. `RenderPass::SetBindlessTextures` gives a pass its table; `RenderPass::GetBindingSets` then
-places the current frame's table at index 4 whenever the pass's shader declares set 4. Unwritten
+thread, which queues them for every frame's set and writes the current frame's; other sets catch
+up when their frame index comes round. Writes are skipped when the slot's texture is unchanged,
+and full sweeps resend every slot so hot-reloaded textures (same `Ref`, new image) update.
+`RenderPass::SetBindlessTextures` gives a pass its table; `RenderPass::GetDescriptorSet` then
+returns the current frame's set for set 4 whenever the pass's shader declares it. Unwritten
 slots are legal because the owner writes every index it hands out (slot 0 is the fallback). The
 shaders that include `MaterialScene.glslh` must enable `GL_EXT_nonuniform_qualifier` (they already do)
 for the unsized array.

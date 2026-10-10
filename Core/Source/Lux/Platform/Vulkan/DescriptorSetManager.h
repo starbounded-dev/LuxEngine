@@ -252,23 +252,24 @@ namespace Lux {
 		bool IsInvalidated(uint32_t set, uint32_t binding) const;
 		bool Validate();
 		void Bake();
-		// Rebuilds the binding sets of a single descriptor-set index across all
-		// frames in flight (granular alternative to a full Bake).
+		// Rebuilds the descriptor sets of a single descriptor-set index across all
+		// frames in flight (granular alternative to a full Bake): a new group, written
+		// from the inputs. The previous group is released, not rewritten, because a
+		// frame in flight may still read it (the inputs can change several times per frame).
 		void BakeSet(uint32_t set);
-		// Rebuilds declarations, input maps and binding sets from the shader's
+		// Rebuilds declarations, input maps and descriptor sets from the shader's
 		// current reflection after an in-place shader recompile, preserving
-		// previously bound inputs by name. Without this, baked binding sets keep
-		// referencing the binding layouts the recompile released.
+		// previously bound inputs by name. Without this, baked sets keep
+		// referencing the pipeline layout the recompile released.
 		void OnShaderReloaded();
 
 		std::set<uint32_t> HasBufferSets() const;
 		void InvalidateAndUpdate();
 
 		bool HasDescriptorSets() const;
-		uint32_t GetBindingSetCount() const;
+		// The descriptor sets built, every frame's counted (memory statistics).
+		uint32_t GetDescriptorSetCount() const;
 		uint32_t GetFirstSetIndex() const;
-		nvrhi::BindingSetHandle GetBindingSet(uint32_t frameIndex) const;
-		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const;
 		// The NRI descriptor set of set number `set` for `frameIndex`, with what it accesses. Empty when
 		// the shader declares nothing in that set or NRI failed to build it.
 		BoundDescriptorSet GetDescriptorSet(uint32_t frameIndex, uint32_t set) const;
@@ -279,18 +280,17 @@ namespace Lux {
 		const RenderInputDeclaration* GetInputDeclaration(std::string_view name) const;
 	private:
 		void Init();
-		void BakeNRISet(uint32_t set);
 	private:
 		DescriptorSetManagerSpecification m_Specification;
 		State m_State = State::None;
 
-		// Per-frame in flight
-		nvrhi::static_vector<nvrhi::static_vector<nvrhi::BindingSetHandle, nvrhi::c_MaxBindingLayouts>, RendererConfig::MaxFramesInFlight> m_BindingSets;
-		// Frame->set->binding
-		nvrhi::static_vector<std::map<uint32_t, std::map<uint32_t, std::vector<nvrhi::ResourceHandle>>>, RendererConfig::MaxFramesInFlight> m_BindingSetHandles;
-		// Set number -> one set per frame in flight. Replaced, never rewritten, by each bake of the set.
-		// A fixed array like m_BindingSets: a bake swaps one entry and never restructures storage.
-		std::array<Ref<DescriptorSetGroup>, 8> m_NRISets;
+		// Frame->set->binding->element: the resource each element was baked with (its NRI buffer,
+		// texture or sampler descriptor; null when missing), which InvalidateAndUpdate compares with
+		// the inputs' current ones. Compared, never dereferenced.
+		std::vector<std::map<uint32_t, std::map<uint32_t, std::vector<const void*>>>> m_BakedResources;
+		// Set number -> one set per frame in flight. Replaced, never rewritten, by each bake of the
+		// set. A fixed array: a bake swaps one entry and never restructures storage.
+		std::array<Ref<DescriptorSetGroup>, MaxDescriptorSets> m_NRISets;
 
 	};
 

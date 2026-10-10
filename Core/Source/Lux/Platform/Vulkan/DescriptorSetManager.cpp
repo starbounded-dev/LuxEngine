@@ -176,18 +176,64 @@ namespace Lux {
 			}
 		}
 
-		inline nvrhi::ResourceType GetBindingLayoutType(nvrhi::BindingLayoutHandle bindingLayout, uint32_t binding)
+		// What InvalidateAndUpdate compares to tell that element `element` of `input` changed since its
+		// set was baked: the NRI resource behind it (an image recreated in place gets a new texture,
+		// a reallocated buffer a new buffer). Null when the resource is missing.
+		const void* GetResourceIdentity(const RenderPassInput& input, size_t element, uint32_t frameIndex)
 		{
-			const nvrhi::BindingLayoutDesc* desc = bindingLayout->getDesc();
-			if (!desc)
-				return nvrhi::ResourceType::None;
-
-			for (const auto& item : desc->bindings)
+			const Ref<RefCounted>& resource = input.Input[element];
+			const auto imageIdentity = [](const RendererResource* image) -> const void*
 			{
-				if (item.slot == binding)
-					return item.type;
+				const ImageInfo* imageInfo = image ? static_cast<const ImageInfo*>(image->GetDescriptorInfo()) : nullptr;
+				return imageInfo ? imageInfo->RHITexture : nullptr;
+			};
+
+			switch (input.Type)
+			{
+				case RenderResourceType::UniformBuffer:
+				{
+					Ref<UniformBuffer> buffer = resource.As<UniformBuffer>();
+					return buffer ? buffer->GetRHIBuffer() : nullptr;
+				}
+				case RenderResourceType::UniformBufferSet:
+				{
+					Ref<UniformBufferSet> buffers = resource.As<UniformBufferSet>();
+					return buffers ? buffers->Get(frameIndex)->GetRHIBuffer() : nullptr;
+				}
+				case RenderResourceType::StorageBuffer:
+				{
+					Ref<StorageBuffer> buffer = resource.As<StorageBuffer>();
+					return buffer ? buffer->GetRHIBuffer() : nullptr;
+				}
+				case RenderResourceType::StorageBufferSet:
+				{
+					Ref<StorageBufferSet> buffers = resource.As<StorageBufferSet>();
+					return buffers ? buffers->Get(frameIndex)->GetRHIBuffer() : nullptr;
+				}
+				case RenderResourceType::Texture2D:
+				{
+					// A missing texture is bound as the white one.
+					Ref<Texture2D> texture = resource.As<Texture2D>();
+					return imageIdentity(texture ? texture.Raw() : Renderer::GetWhiteTexture().Raw());
+				}
+				case RenderResourceType::TextureCube:
+				case RenderResourceType::Image2D:
+					return imageIdentity(resource.As<RendererResource>().Raw());
+				case RenderResourceType::Sampler:
+				{
+					Ref<RendererResource> sampler = resource.As<RendererResource>();
+					return sampler ? static_cast<const Sampler*>(sampler->GetDescriptorInfo())->GetRHIDescriptor() : nullptr;
+				}
+				default:
+					return nullptr;
 			}
-			return nvrhi::ResourceType::None;
+		}
+
+		// Textures and images bind every element; buffers, cubes and samplers element 0 only.
+		size_t GetBoundElementCount(const RenderPassInput& input)
+		{
+			const bool isArray = input.Type == RenderResourceType::Texture2D || input.Type == RenderResourceType::Image2D;
+			return isArray ? input.Input.size() : std::min<size_t>(input.Input.size(), 1);
 		}
 
 	}
@@ -218,7 +264,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		const auto& shaderDescriptorSets = m_Specification.Shader->GetShaderDescriptorSets();
 		uint32_t framesInFlight = Renderer::GetConfig().FramesInFlight;
-		m_BindingSetHandles.resize(framesInFlight);
+		m_BakedResources.resize(framesInFlight);
 
 		for (uint32_t set = m_Specification.StartSet; set <= m_Specification.EndSet; set++)
 		{
@@ -284,7 +330,7 @@ namespace Lux {
 				}
 
 				for (uint32_t frameIndex = 0; frameIndex < framesInFlight; frameIndex++)
-					m_BindingSetHandles[frameIndex][set][binding].resize(inputDecl.Count);
+					m_BakedResources[frameIndex][set][binding].resize(inputDecl.Count);
 
 			}
 		}
@@ -294,7 +340,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 
-		// An in-place shader recompile released the binding layouts the baked
+		// An in-place shader recompile released the pipeline layout the baked
 		// sets were created against and may have changed the reflected set/
 		// binding map. Rebuild everything from the new reflection, keeping the
 		// previously bound inputs — names are the stable key across
@@ -313,10 +359,8 @@ namespace Lux {
 		InputDeclarations.clear();
 		InputResources.clear();
 		InvalidatedInputResources.clear();
-		for (auto& frameHandles : m_BindingSetHandles)
-			frameHandles.clear();
-		for (auto& set : m_BindingSets)
-			set = {};
+		for (auto& frameResources : m_BakedResources)
+			frameResources.clear();
 		// Built against the released layout; Bake() below rebuilds them.
 		for (Ref<DescriptorSetGroup>& group : m_NRISets)
 			group = nullptr;
@@ -575,232 +619,42 @@ namespace Lux {
 			return;
 		}
 
-		uint32_t descriptorSetCount = Renderer::GetConfig().FramesInFlight;
-
-		m_BindingSets.resize(descriptorSetCount);
-		for (auto& set : m_BindingSets)
-			set = {};
-
 		for (const auto& [set, setData] : InputResources)
 			BakeSet(set);
-
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-#if 1
-		for (uint32_t frameIndex = 0; frameIndex < descriptorSetCount; frameIndex++)
-		{
-			if (!m_BindingSets[frameIndex].empty() && m_BindingSets[frameIndex][0] == nullptr)
-			{
-				nvrhi::BindingLayoutHandle bindingLayout = m_Specification.Shader->GetDescriptorSetLayout(0);
-
-				nvrhi::BindingSetDesc bindingSetDesc;
-				m_BindingSets[frameIndex][0] = device->createBindingSet(bindingSetDesc, bindingLayout);
-			}
-		}
-#endif
 	}
 
-	// Rebuilds the binding sets for one descriptor-set index across all frames
-	// in flight. Bake() calls this for every set; InvalidateAndUpdate calls it
-	// only for the sets whose inputs actually changed, instead of re-creating
-	// every binding set of every set on any single change.
+	// Bake() calls this for every set; InvalidateAndUpdate calls it only for the sets whose inputs
+	// actually changed, instead of re-creating every set on any single change.
 	void DescriptorSetManager::BakeSet(uint32_t set)
 	{
-		auto setIt = InputResources.find(set);
-		if (setIt == InputResources.end())
-			return;
-		const auto& setData = setIt->second;
-
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-		const uint32_t descriptorSetCount = Renderer::GetConfig().FramesInFlight;
-		if (m_BindingSets.size() < descriptorSetCount)
-			m_BindingSets.resize(descriptorSetCount);
-
-		{
-			for (uint32_t frameIndex = 0; frameIndex < descriptorSetCount; frameIndex++)
-			{
-				nvrhi::BindingLayoutHandle bindingLayout = m_Specification.Shader->GetDescriptorSetLayout(set);
-
-				nvrhi::BindingSetDesc bindingSetDesc;
-
-				if (m_BindingSets[frameIndex].size() <= set)
-					m_BindingSets[frameIndex].resize(set + 1);
-
-				auto& bindingSetHandleMap = m_BindingSetHandles[frameIndex].at(set);
-				std::vector<std::vector<nvrhi::TextureHandle>> imageInfoStorage;
-				uint32_t imageInfoStorageIndex = 0;
-
-				for (const auto& [binding, input] : setData)
-				{
-					auto& storedHandles = bindingSetHandleMap.at(binding);
-					storedHandles.resize(input.Input.size());
-
-					// VkWriteDescriptorSet& writeDescriptor = storedWriteDescriptor.WriteDescriptorSet;
-					// writeDescriptor.dstSet = descriptorSet;
-
-					switch (input.Type)
-					{
-						case RenderResourceType::UniformBuffer:
-						{
-							Ref<UniformBuffer> buffer = input.Input[0].As<UniformBuffer>();
-							nvrhi::BufferHandle handle = buffer->GetHandle();
-							bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::ConstantBuffer(binding, handle));
-							storedHandles[0] = handle;
-
-							// Defer if resource doesn't exist
-							if (buffer->GetHandle() == nullptr)
-								InvalidatedInputResources[set][binding] = input;
-
-							break;
-						}
-						case RenderResourceType::UniformBufferSet:
-						{
-							Ref<UniformBufferSet> buffer = input.Input[0].As<UniformBufferSet>();
-							nvrhi::BufferHandle handle = buffer->Get(frameIndex)->GetHandle();
-							bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::ConstantBuffer(binding, handle));
-							storedHandles[0] = handle;
-
-							break;
-						}
-						case RenderResourceType::StorageBuffer:
-						{
-							Ref<StorageBuffer> buffer = input.Input[0].As<StorageBuffer>();
-							nvrhi::BufferHandle handle = buffer->GetHandle();
-							nvrhi::ResourceType layoutType = Utils::GetBindingLayoutType(bindingLayout, binding);
-							if (layoutType == nvrhi::ResourceType::RawBuffer_SRV)
-								bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::RawBuffer_SRV(binding, handle));
-							else
-								bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::RawBuffer_UAV(binding, handle));
-							storedHandles[0] = handle;
-
-							break;
-						}
-						case RenderResourceType::StorageBufferSet:
-						{
-							Ref<StorageBufferSet> buffer = input.Input[0].As<StorageBufferSet>();
-							nvrhi::BufferHandle handle = buffer->Get(frameIndex)->GetHandle();
-							nvrhi::ResourceType layoutType = Utils::GetBindingLayoutType(bindingLayout, binding);
-							if (layoutType == nvrhi::ResourceType::RawBuffer_SRV)
-								bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::RawBuffer_SRV(binding, handle));
-							else
-								bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::RawBuffer_UAV(binding, handle));
-							storedHandles[0] = handle;
-
-							break;
-						}
-						case RenderResourceType::Texture2D:
-						{
-							for (size_t i = 0; i < input.Input.size(); i++)
-							{
-								Ref<Texture2D> texture = input.Input[i].As<Texture2D>();
-								if (texture == nullptr)
-									texture = Renderer::GetWhiteTexture();
-
-								nvrhi::TextureHandle handle = texture->GetHandle();
-								nvrhi::BindingSetItem bindingSetItem = nvrhi::BindingSetItem::Texture_SRV(binding, handle);
-								bindingSetItem.arrayElement = (uint32_t)i;
-								bindingSetDesc.bindings.push_back(bindingSetItem);
-								
-								storedHandles[i] = handle;
-							}
-		
-							break;
-						}
-						case RenderResourceType::TextureCube:
-						{
-							Ref<TextureCube> texture = input.Input[0].As<TextureCube>();
-							ImageInfo* imageInfo = (ImageInfo*)texture->GetDescriptorInfo();
-							
-							nvrhi::TextureHandle handle = imageInfo->ImageHandle;
-
-							nvrhi::BindingSetItem bindingSetItem = input.IsWriteable
-								? nvrhi::BindingSetItem::Texture_UAV(binding, handle)
-								: nvrhi::BindingSetItem::Texture_SRV(binding, handle);
-
-							bindingSetItem.dimension = imageInfo->Dimension;
-							LUX_CORE_ASSERT(bindingSetItem.dimension == nvrhi::TextureDimension::TextureCube);
-
-							bindingSetDesc.bindings.push_back(bindingSetItem);
-							storedHandles[0] = handle;
-
-							break;
-						}
-						case RenderResourceType::Image2D:
-						{
-							for (size_t i = 0; i < input.Input.size(); i++)
-							{
-								Ref<RendererResource> image = input.Input[i].As<RendererResource>();
-								// Defer if resource doesn't exist
-								if (image == nullptr)
-								{
-									InvalidatedInputResources[set][binding] = input;
-									break;
-								}
-
-								ImageInfo* imageInfo = (ImageInfo*)image->GetDescriptorInfo();
-								nvrhi::TextureHandle handle = imageInfo->ImageHandle;
-
-								nvrhi::BindingSetItem bindingSetItem = input.IsWriteable
-									? nvrhi::BindingSetItem::Texture_UAV(binding, handle)
-									: nvrhi::BindingSetItem::Texture_SRV(binding, handle);
-
-								bindingSetItem.arrayElement = (uint32_t)i;
-								bindingSetItem.subresources = imageInfo->ImageView;
-								bindingSetItem.dimension = imageInfo->Dimension;
-
-								bindingSetDesc.bindings.push_back(bindingSetItem);
-								storedHandles[i] = handle;
-							}
-
-							break;
-						}
-						case RenderResourceType::Sampler:
-						{
-							Ref<RendererResource> sampler = input.Input[0].As<RendererResource>();
-							// Defer if resource doesn't exist
-							if (sampler == nullptr)
-							{
-								InvalidatedInputResources[set][binding] = input;
-								break;
-							}
-
-							nvrhi::SamplerHandle handle = ((Sampler*)sampler->GetDescriptorInfo())->GetHandle();
-							bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::Sampler(binding, handle));
-							storedHandles[0] = handle;
-
-							break;
-						}
-					}
-				}
-
-				if (!bindingSetDesc.bindings.empty())
-				{
-					m_BindingSets[frameIndex][set] = device->createBindingSet(bindingSetDesc, bindingLayout);
-				}
-			}
-		}
-
-		BakeNRISet(set);
-	}
-
-	// The NRI twin of BakeSet: a new group for `set` with every frame's descriptors written from the
-	// same inputs. The previous group is released, not rewritten, because a frame in flight may
-	// still read it (the inputs can change several times per frame).
-	void DescriptorSetManager::BakeNRISet(uint32_t set)
-	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (set >= m_NRISets.size())
+		auto setIt = InputResources.find(set);
+		if (setIt == InputResources.end() || set >= m_NRISets.size())
 			return;
 		m_NRISets[set] = nullptr;
 
-		auto setIt = InputResources.find(set);
+		// What every element is baked with, recorded whether or not the set can be built, so a set
+		// that fails is not rebuilt every frame.
+		const uint32_t frameCount = Renderer::GetConfig().FramesInFlight;
+		for (uint32_t frameIndex = 0; frameIndex < frameCount; frameIndex++)
+		{
+			for (const auto& [binding, input] : setIt->second)
+			{
+				std::vector<const void*>& baked = m_BakedResources[frameIndex].at(set).at(binding);
+				baked.assign(input.Input.size(), nullptr);
+				const size_t elementCount = Utils::GetBoundElementCount(input);
+				for (size_t element = 0; element < elementCount; element++)
+					baked[element] = Utils::GetResourceIdentity(input, element, frameIndex);
+			}
+		}
+
 		const VulkanShader& shader = *m_Specification.Shader;
 		nri::PipelineLayout* layout = shader.GetNRIPipelineLayout();
 		const uint32_t setIndex = shader.GetNRISetIndex(set);
 		// No layout is already logged; no set index means the shader declares nothing to bind there.
-		if (setIt == InputResources.end() || !layout || setIndex == VulkanShader::k_NoNRISet)
+		if (!layout || setIndex == VulkanShader::k_NoNRISet)
 			return;
 
-		const uint32_t frameCount = Renderer::GetConfig().FramesInFlight;
 		Ref<DescriptorSetGroup> group = Ref<DescriptorSetGroup>::Create(*layout, setIndex, shader.GetNRIPoolDesc(set, frameCount), frameCount, 0, m_Specification.DebugName.c_str());
 		if (!group->IsValid())
 			return;
@@ -823,21 +677,18 @@ namespace Lux {
 					storageBufferReadOnly = storageIt != storageBuffers.end() && storageIt->second.ReadOnly;
 				}
 
-				// Buffers are never arrays here (BakeSet binds element 0 only).
-				const bool isBuffer = input.Type == RenderResourceType::UniformBuffer || input.Type == RenderResourceType::UniformBufferSet
-					|| input.Type == RenderResourceType::StorageBuffer || input.Type == RenderResourceType::StorageBufferSet;
-				const size_t elementCount = isBuffer ? 1 : input.Input.size();
-
+				const size_t elementCount = Utils::GetBoundElementCount(input);
 				descriptors.assign(elementCount, nullptr);
 				for (size_t element = 0; element < elementCount; element++)
 					descriptors[element] = Utils::GetNRIDescriptor(input, element, frameIndex, storageBufferReadOnly, group->GetUses(frameIndex));
 
-				// Write each run of present descriptors; a missing resource is deferred exactly as
-				// BakeSet defers it (InvalidatedInputResources) and the next bake fills it.
+				// Write each run of present descriptors. A missing resource is deferred: its baked
+				// identity is null, so InvalidateAndUpdate rebakes the set once it exists.
 				for (size_t first = 0; first < elementCount;)
 				{
 					if (!descriptors[first])
 					{
+						InvalidatedInputResources[set][binding] = input;
 						first++;
 						continue;
 					}
@@ -878,108 +729,19 @@ namespace Lux {
 				// A declared input may have no resource bound yet — e.g. a pass that
 				// just recompiled into a variant which newly declares a resource (the
 				// AO passes newly declare Camera when GTAO is toggled on) before the
-				// owning pass has rebound it. Dereferencing the null Ref below would
-				// crash the render thread, so skip it here and let the pass's rebind +
+				// owning pass has rebound it. Skip it here and let the pass's rebind +
 				// Bake() pick it up once the resource is available. Validate() likewise
-				// treats a null resource as a soft failure rather than crashing.
+				// treats a null resource as a soft failure.
 				if (input.Input.empty() || input.Input[0] == nullptr)
 					continue;
 
-				const auto& bindingSetHandleArray = m_BindingSetHandles[currentFrameIndex].at(set).at(binding);
-				const auto& bindingSetHandle = bindingSetHandleArray[0];
-
-				switch (input.Type)
+				const std::vector<const void*>& baked = m_BakedResources[currentFrameIndex].at(set).at(binding);
+				const size_t elementCount = Utils::GetBoundElementCount(input);
+				for (size_t element = 0; element < elementCount; element++)
 				{
-					case RenderResourceType::UniformBuffer:
+					if (element >= baked.size() || Utils::GetResourceIdentity(input, element, currentFrameIndex) != baked[element])
 					{
-
-						nvrhi::BufferHandle handle = input.Input[0].As<UniformBuffer>()->GetHandle();
-						if (handle != bindingSetHandle)
-						{
-							InvalidatedInputResources[set][binding] = input;
-							break;
-						}
-						break;
-					}
-					case RenderResourceType::UniformBufferSet:
-					{
-						nvrhi::BufferHandle handle = input.Input[0].As<UniformBufferSet>()->Get(currentFrameIndex)->GetHandle();
-						if (handle != bindingSetHandle)
-						{
-							InvalidatedInputResources[set][binding] = input;
-							break;
-						}
-						break;
-					}
-					case RenderResourceType::StorageBuffer:
-					{
-						nvrhi::BufferHandle handle = input.Input[0].As<StorageBuffer>()->GetHandle();
-						if (handle != bindingSetHandle)
-						{
-							InvalidatedInputResources[set][binding] = input;
-							break;
-						}
-						break;
-					}
-					case RenderResourceType::StorageBufferSet:
-					{
-						nvrhi::BufferHandle handle = input.Input[0].As<StorageBufferSet>()->Get(currentFrameIndex)->GetHandle();
-						if (handle != bindingSetHandle)
-						{
-							InvalidatedInputResources[set][binding] = input;
-							break;
-						}
-						break;
-					}
-					case RenderResourceType::Texture2D:
-					{
-						for (size_t i = 0; i < input.Input.size(); i++)
-						{
-							Ref<Texture2D> texture = input.Input[i].As<Texture2D>();
-							if (texture == nullptr)
-								texture = Renderer::GetWhiteTexture(); // TODO(Yan): error texture
-
-							if (texture->GetHandle() != bindingSetHandleArray[i])
-							{
-								InvalidatedInputResources[set][binding] = input;
-								break;
-							}
-						}
-						break;
-					}
-					case RenderResourceType::TextureCube:
-					{
-						nvrhi::TextureHandle handle = input.Input[0].As<TextureCube>()->GetHandle();
-						if (handle != bindingSetHandle)
-						{
-							InvalidatedInputResources[set][binding] = input;
-							break;
-						}
-						break;
-					}
-					case RenderResourceType::Image2D:
-					{
-						for (size_t i = 0; i < input.Input.size(); i++)
-						{
-							Ref<RendererResource> image = input.Input[i].As<RendererResource>();
-							nvrhi::TextureHandle handle = ((ImageInfo*)image->GetDescriptorInfo())->ImageHandle;
-							if (handle != bindingSetHandleArray[i])
-							{
-								InvalidatedInputResources[set][binding] = input;
-								break;
-							}
-						}
-						break;
-					}
-					case RenderResourceType::Sampler:
-					{
-						Ref<RendererResource> image = input.Input[0].As<RendererResource>();
-						nvrhi::SamplerHandle handle = ((Sampler*)image->GetDescriptorInfo())->GetHandle();
-						if (handle != bindingSetHandle)
-						{
-							InvalidatedInputResources[set][binding] = input;
-							break;
-						}
+						InvalidatedInputResources[set][binding] = input;
 						break;
 					}
 				}
@@ -1008,20 +770,17 @@ namespace Lux {
 
 	bool DescriptorSetManager::HasDescriptorSets() const
 	{
-		return !m_BindingSets.empty() && !m_BindingSets[0].empty();
+		return std::any_of(m_NRISets.begin(), m_NRISets.end(), [](const Ref<DescriptorSetGroup>& group) { return group && group->IsValid(); });
 	}
 
-	uint32_t DescriptorSetManager::GetBindingSetCount() const
+	uint32_t DescriptorSetManager::GetDescriptorSetCount() const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t count = 0;
-		for (const auto& frameBindingSets : m_BindingSets)
+		for (const Ref<DescriptorSetGroup>& group : m_NRISets)
 		{
-			for (const auto& bindingSet : frameBindingSets)
-			{
-				if (bindingSet != nullptr)
-					count++;
-			}
+			if (group && group->IsValid())
+				count += Renderer::GetConfig().FramesInFlight;
 		}
 		return count;
 	}
@@ -1034,40 +793,6 @@ namespace Lux {
 
 		// Return first key (key == descriptor set index)
 		return InputResources.begin()->first;
-	}
-
-	nvrhi::BindingSetHandle DescriptorSetManager::GetBindingSet(uint32_t frameIndex) const
-	{
-		if (m_BindingSets.empty())
-			return nullptr;
-
-		if (frameIndex > 0 && m_BindingSets.size() == 1)
-			frameIndex = 0; // Frame index is irrelevant for this type of render pass
-		else if (frameIndex >= m_BindingSets.size())
-			frameIndex %= static_cast<uint32_t>(m_BindingSets.size());
-
-		if (m_BindingSets[frameIndex].empty())
-			return nullptr;
-
-		return m_BindingSets[frameIndex][0];
-	}
-
-	nvrhi::BindingSetVector DescriptorSetManager::GetBindingSets(uint32_t frameIndex) const
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		if (m_BindingSets.empty())
-			return {};
-
-		if (frameIndex > 0 && m_BindingSets.size() == 1)
-			frameIndex = 0; // Frame index is irrelevant for this type of render pass
-		else if (frameIndex >= m_BindingSets.size())
-			frameIndex %= static_cast<uint32_t>(m_BindingSets.size());
-
-		nvrhi::BindingSetVector result(m_BindingSets[frameIndex].size());
-		for (size_t i = 0; i < result.size(); i++)
-			result[i] = m_BindingSets[frameIndex][i];
-		
-		return result;
 	}
 
 	BoundDescriptorSet DescriptorSetManager::GetDescriptorSet(uint32_t frameIndex, uint32_t set) const

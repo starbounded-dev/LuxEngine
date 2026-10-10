@@ -55,9 +55,6 @@ namespace Lux {
 
 		void SetReflectionData(const ReflectionData& reflectionData);
 
-		nvrhi::BindingLayoutHandle GetDescriptorSetLayout(uint32_t set = 0) { return m_DescriptorSetLayouts[set]; }
-		const nvrhi::BindingLayoutVector& GetAllDescriptorSetLayouts() const { return m_DescriptorSetLayouts; }
-
 		ShaderResource::UniformBuffer& GetUniformBuffer(const uint32_t binding = 0, const uint32_t set = 0) { LUX_CORE_ASSERT(m_ReflectionData.ShaderDescriptorSets.at(set).UniformBuffers.size() > binding); return m_ReflectionData.ShaderDescriptorSets.at(set).UniformBuffers.at(binding); }
 		uint32_t GetUniformBufferCount(const uint32_t set = 0)
 		{
@@ -74,10 +71,10 @@ namespace Lux {
 		// The SPIR-V the driver gets for `stage` (empty if the shader has no such stage).
 		const std::vector<uint32_t>& GetSPIRV(ShaderStage stage) const;
 
-		// NRI pipeline layout built from the reflection with the NVRHI binding layouts (NRI migration
-		// Phase 9): one descriptor set per declared set number (register space = set number,
-		// StageBits::ALL so equal bindings mean compatible set layouts), the shared bindless range
-		// for set 4, one root-constant block for the push constants. Null if NRI rejected it.
+		// NRI pipeline layout built from the reflection (NRI migration Phase 9): one descriptor set per
+		// declared set number (register space = set number, StageBits::ALL so equal bindings mean
+		// compatible set layouts), the shared bindless range for set 4, one root-constant block for
+		// the push constants. Null if NRI rejected it.
 		nri::PipelineLayout* GetNRIPipelineLayout() const { return m_NRIPipelineLayout; }
 		// Position of descriptor set `set` in the NRI layout (SetDescriptorSetDesc::setIndex), or
 		// k_NoNRISet when the shader declares nothing there.
@@ -88,6 +85,10 @@ namespace Lux {
 		// A pool that holds `instanceCount` copies of set `set`.
 		nri::DescriptorPoolDesc GetNRIPoolDesc(uint32_t set, uint32_t instanceCount) const;
 		bool HasNRIRootConstants() const { return !m_ReflectionData.PushConstantRanges.empty(); }
+		// True when a set built for this shader's set `set` can be bound in `other`'s layout: both
+		// declare the same ranges there (and, for set 0, the same root constants, as the NVRHI binding
+		// layouts compared their push constants).
+		bool IsNRISetCompatible(uint32_t set, const VulkanShader& other) const;
 	private:
 		// The SPIR-V of every stage, which NRI pipelines are created from.
 		void SetShaderData(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData);
@@ -102,16 +103,25 @@ namespace Lux {
 		std::map<ShaderStage, std::vector<uint32_t>> m_ShaderData;
 		ReflectionData m_ReflectionData;
 
-		nvrhi::BindingLayoutVector m_DescriptorSetLayouts;
+		// One NRI descriptor range, as the layout declares it (NRI types stay out of this header).
+		struct NRIRange
+		{
+			uint32_t Binding = 0;
+			uint32_t DescriptorNum = 0;
+			uint32_t Type = 0;
+			uint32_t Flags = 0;
+			bool operator==(const NRIRange&) const = default;
+		};
 
 		nri::PipelineLayout* m_NRIPipelineLayout = nullptr;
-		std::array<uint32_t, 8> m_NRISetIndices = MakeNoNRISets();
-		// Per set number: the binding of each NRI range, in range order.
-		std::array<std::vector<uint32_t>, 8> m_NRIRangeBindings;
+		std::array<uint32_t, MaxDescriptorSets> m_NRISetIndices = MakeNoNRISets();
+		// Per set number: the NRI ranges, in binding (= range) order.
+		std::array<std::vector<NRIRange>, MaxDescriptorSets> m_NRIRanges;
+		uint32_t m_NRIRootConstantSize = 0;
 
-		static constexpr std::array<uint32_t, 8> MakeNoNRISets()
+		static constexpr std::array<uint32_t, MaxDescriptorSets> MakeNoNRISets()
 		{
-			std::array<uint32_t, 8> sets = {};
+			std::array<uint32_t, MaxDescriptorSets> sets = {};
 			sets.fill(k_NoNRISet);
 			return sets;
 		}

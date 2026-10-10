@@ -93,13 +93,13 @@ namespace Lux {
 		uint32_t NameHash = 0;
 		NRIRenderPassDesc Desc;
 		// The groups of Desc.DescriptorSets: their uses are re-required inside the pass.
-		std::array<Ref<const DescriptorSetGroup>, nvrhi::c_MaxBindingLayouts> PassGroups;
+		std::array<Ref<const DescriptorSetGroup>, MaxDescriptorSets> PassGroups;
 		nvrhi::static_vector<nri::Viewport, nvrhi::c_MaxViewports> Viewports;
 		nvrhi::static_vector<nri::Rect, nvrhi::c_MaxViewports> Scissors;
 		nri::ShadingRateDesc ShadingRate = {};
 
 		// What the open rendering scope has bound; reset whenever a scope opens.
-		std::array<nri::DescriptorSet*, nvrhi::c_MaxBindingLayouts> BoundSets = {};
+		std::array<nri::DescriptorSet*, MaxDescriptorSets> BoundSets = {};
 		nri::Buffer* VertexBuffer = nullptr;
 		uint32_t VertexStride = 0;
 		nri::Buffer* IndexBuffer = nullptr;

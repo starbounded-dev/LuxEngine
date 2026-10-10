@@ -132,7 +132,7 @@ namespace Lux {
 			nri::Pipeline* Pipeline = nullptr;
 			// The pass's descriptor sets by NRI set index, required and bound when the pass opens; empty
 			// ones are not bound by the pass. Their groups are kept alive until the pass ends.
-			std::array<BoundDescriptorSet, nvrhi::c_MaxBindingLayouts> DescriptorSets = {};
+			std::array<BoundDescriptorSet, MaxDescriptorSets> DescriptorSets = {};
 			// Width of line pipelines (0: the pipeline's static width) and whether the pipeline takes
 			// its shading rate dynamically.
 			float LineWidth = 0.0f;
@@ -184,7 +184,7 @@ namespace Lux {
 			nri::PipelineLayout* PipelineLayout = nullptr;
 			nri::Pipeline* Pipeline = nullptr;
 			// By NRI set index; empty ones are not bound.
-			std::array<BoundDescriptorSet, nvrhi::c_MaxBindingLayouts> DescriptorSets = {};
+			std::array<BoundDescriptorSet, MaxDescriptorSets> DescriptorSets = {};
 			const void* RootConstants = nullptr;
 			uint32_t RootConstantsSize = 0;
 		};
@@ -260,7 +260,7 @@ namespace Lux {
 		struct RequiredBindings
 		{
 			RequiredBindPoint BindPoint = RequiredBindPoint::None;
-			std::array<nri::DescriptorSet*, nvrhi::c_MaxBindingLayouts> Sets = {};
+			std::array<nri::DescriptorSet*, MaxDescriptorSets> Sets = {};
 			nvrhi::IBuffer* VertexBuffer = nullptr;
 			nvrhi::IBuffer* IndexBuffer = nullptr;
 			nvrhi::IBuffer* IndirectArguments = nullptr;

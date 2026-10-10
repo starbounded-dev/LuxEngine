@@ -19,7 +19,6 @@ namespace Lux {
 		// ordinary textures (G-buffer inputs, shadow maps, environment maps, BRDF LUT...).
 		constexpr uint32_t k_ReservedSampledImages = 64;
 
-		nvrhi::BindingLayoutHandle s_Layout;
 		uint32_t s_Capacity = 0;
 		// Declares only the bindless set; tables allocate their NRI sets from it.
 		nri::PipelineLayout* s_NRILayout = nullptr;
@@ -42,15 +41,6 @@ namespace Lux {
 		else
 			LUX_CORE_INFO_TAG("Renderer", "Bindless textures: {} slots", s_Capacity);
 
-		nvrhi::BindlessLayoutDesc desc;
-		desc.visibility = nvrhi::ShaderType::All;
-		desc.firstSlot = 0;
-		desc.maxCapacity = s_Capacity;
-		desc.layoutType = nvrhi::BindlessLayoutDesc::LayoutType::Immutable;
-		desc.registerSpaces = { nvrhi::BindingLayoutItem::Texture_SRV(0) };
-		s_Layout = device->createBindlessLayout(desc);
-		LUX_CORE_VERIFY(s_Layout, "Failed to create the bindless texture layout");
-
 		const nri::DescriptorRangeDesc range = GetNRIRange();
 		nri::DescriptorSetDesc setDesc = {};
 		setDesc.registerSpace = DescriptorSet;
@@ -69,7 +59,6 @@ namespace Lux {
 
 	void BindlessTextureTable::Shutdown()
 	{
-		s_Layout = nullptr;
 		s_Capacity = 0;
 		if (s_NRILayout)
 		{
@@ -78,11 +67,6 @@ namespace Lux {
 					RHIDevice::API().DestroyPipelineLayout(layout);
 				});
 		}
-	}
-
-	nvrhi::BindingLayoutHandle BindlessTextureTable::GetLayout()
-	{
-		return s_Layout;
 	}
 
 	uint32_t BindlessTextureTable::GetCapacity()
@@ -103,19 +87,15 @@ namespace Lux {
 
 	BindlessTextureTable::BindlessTextureTable()
 	{
-		LUX_CORE_VERIFY(s_Layout, "BindlessTextureTable::Init must run before tables are created");
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		LUX_CORE_VERIFY(s_NRILayout, "BindlessTextureTable::Init must run before tables are created");
 
 		// Unwritten slots are legal (partially bound) as long as no shader reads them; the owner
 		// writes every index it hands out, and slot 0 is the fallback the shaders use.
 		m_Frames.resize(Renderer::GetConfig().FramesInFlight);
 		for (FrameTable& frame : m_Frames)
 		{
-			frame.Table = device->createDescriptorTable(s_Layout);
-			LUX_CORE_VERIFY(frame.Table, "Failed to create a bindless texture table");
-			device->resizeDescriptorTable(frame.Table, s_Capacity, false);
 			frame.Written.resize(s_Capacity);
-			frame.WrittenHandles.resize(s_Capacity, nullptr);
+			frame.WrittenTextures.resize(s_Capacity, nullptr);
 			frame.Queued.emplace_back(0, Renderer::GetWhiteTexture());
 		}
 
@@ -162,44 +142,39 @@ namespace Lux {
 		if (m_Frames.empty())
 			return;
 
-		// This frame's previous use finished before the frame index came round again, so its
-		// table is free to write; the passes recorded after this read the new contents.
-		FrameTable& frame = m_Frames[frameIndex % m_Frames.size()];
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		// This frame's previous use finished before the frame index came round again, so its set is
+		// free to write; the passes recorded after this read the new contents.
+		const uint32_t frameSlot = frameIndex % static_cast<uint32_t>(m_Frames.size());
+		FrameTable& frame = m_Frames[frameSlot];
+		// The group logged its own failure to build; there is nothing to write into.
+		if (!m_NRISets->IsValid())
+		{
+			frame.Queued.clear();
+			return;
+		}
+
 		for (auto& [slot, texture] : frame.Queued)
 		{
-			nvrhi::TextureHandle handle = texture->GetHandle();
-			if (!handle || frame.WrittenHandles[slot] == handle.Get())
+			const ImageInfo* imageInfo = static_cast<const ImageInfo*>(texture->GetDescriptorInfo());
+			const nri::Texture* rhiTexture = imageInfo ? imageInfo->RHITexture : nullptr;
+			if (!rhiTexture || frame.WrittenTextures[slot] == rhiTexture)
 			{
 				frame.Written[slot] = texture;
 				continue;
 			}
-			if (!device->writeDescriptorTable(frame.Table, nvrhi::BindingSetItem::Texture_SRV(slot, handle)))
+
+			const nri::Descriptor* view = GetNRITextureView(imageInfo->RHITexture, { nri::TextureView::TEXTURE, 0, 0, 0, 1 });
+			if (!view)
 			{
-				LUX_CORE_ERROR_TAG("Renderer", "Failed to write bindless texture slot {}", slot);
+				LUX_CORE_ERROR_TAG("Renderer", "Bindless texture slot {} has no NRI view", slot);
 				continue;
 			}
-
-			// The NRI set of this frame follows the same rule: no frame in flight reads it.
-			if (m_NRISets->IsValid())
-			{
-				const ImageInfo* imageInfo = static_cast<const ImageInfo*>(texture->GetDescriptorInfo());
-				const nri::Descriptor* view = imageInfo ? GetNRITextureView(imageInfo->RHITexture, { nri::TextureView::TEXTURE, 0, 0, 0, 1 }) : nullptr;
-				if (view)
-					m_NRISets->Write(frameIndex % static_cast<uint32_t>(m_Frames.size()), 0, slot, &view, 1);
-				else
-					LUX_CORE_ERROR_TAG("Renderer", "Bindless texture slot {} has no NRI view", slot);
-			}
+			m_NRISets->Write(frameSlot, 0, slot, &view, 1);
 
 			frame.Written[slot] = texture;
-			frame.WrittenHandles[slot] = handle.Get();
+			frame.WrittenTextures[slot] = rhiTexture;
 		}
 		frame.Queued.clear();
-	}
-
-	nvrhi::IDescriptorTable* BindlessTextureTable::RT_GetTable(uint32_t frameIndex) const
-	{
-		return m_Frames.empty() ? nullptr : m_Frames[frameIndex % m_Frames.size()].Table.Get();
 	}
 
 	BoundDescriptorSet BindlessTextureTable::RT_GetDescriptorSet(uint32_t frameIndex) const

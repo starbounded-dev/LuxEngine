@@ -3577,7 +3577,7 @@ namespace Lux {
 
 				addFramebuffer(pass->GetTargetFramebuffer());
 
-				memoryStats.DescriptorSetCount += pass->GetBindingSetCount();
+				memoryStats.DescriptorSetCount += pass->GetDescriptorSetCount();
 			};
 
 		auto addComputePass = [&](const Ref<ComputePass>& pass)
@@ -3585,7 +3585,7 @@ namespace Lux {
 				if (!pass)
 					return;
 
-				memoryStats.DescriptorSetCount += pass->GetBindingSetCount();
+				memoryStats.DescriptorSetCount += pass->GetDescriptorSetCount();
 			};
 
 		for (const Ref<RenderPass>& pass : m_ShadowMapPasses)

@@ -41,7 +41,7 @@ namespace Lux {
 		Ref<Image2D> GetOutput(uint32_t index);
 		Ref<Image2D> GetDepthOutput();
 		bool HasDescriptorSets() const;
-		uint32_t GetBindingSetCount() const { return m_DescriptorSetManager.GetBindingSetCount(); }
+		uint32_t GetDescriptorSetCount() const { return m_DescriptorSetManager.GetDescriptorSetCount(); }
 		uint32_t GetFirstSetIndex() const;
 
 		bool Validate();
@@ -51,7 +51,6 @@ namespace Lux {
 		// place; re-bakes the descriptor sets against the new binding layouts.
 		void OnShaderReloaded();
 
-		nvrhi::BindingSetVector GetBindingSets(uint32_t frameIndex) const { return m_DescriptorSetManager.GetBindingSets(frameIndex); }
 		BoundDescriptorSet GetDescriptorSet(uint32_t frameIndex, uint32_t set) const { return m_DescriptorSetManager.GetDescriptorSet(frameIndex, set); }
 		bool ManagesDescriptorSet(uint32_t set) const { return m_DescriptorSetManager.ManagesSet(set); }
 

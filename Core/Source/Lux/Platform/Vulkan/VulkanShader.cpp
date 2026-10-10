@@ -70,7 +70,6 @@ namespace Lux {
 	void VulkanShader::Release()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_DescriptorSetLayouts.resize(0);
 		ReleaseNRIPipelineLayout();
 	}
 
@@ -84,18 +83,28 @@ namespace Lux {
 				RHIDevice::API().DestroyPipelineLayout(layout);
 			});
 		m_NRISetIndices.fill(k_NoNRISet);
-		for (std::vector<uint32_t>& bindings : m_NRIRangeBindings)
-			bindings.clear();
+		for (std::vector<NRIRange>& ranges : m_NRIRanges)
+			ranges.clear();
+		m_NRIRootConstantSize = 0;
 	}
 
 	uint32_t VulkanShader::GetNRIRangeIndex(uint32_t set, uint32_t binding) const
 	{
-		if (set >= m_NRIRangeBindings.size())
+		if (set >= m_NRIRanges.size())
 			return k_NoNRISet;
 
-		const std::vector<uint32_t>& bindings = m_NRIRangeBindings[set];
-		auto it = std::lower_bound(bindings.begin(), bindings.end(), binding);
-		return it != bindings.end() && *it == binding ? static_cast<uint32_t>(it - bindings.begin()) : k_NoNRISet;
+		const std::vector<NRIRange>& ranges = m_NRIRanges[set];
+		auto it = std::lower_bound(ranges.begin(), ranges.end(), binding, [](const NRIRange& range, uint32_t value) { return range.Binding < value; });
+		return it != ranges.end() && it->Binding == binding ? static_cast<uint32_t>(it - ranges.begin()) : k_NoNRISet;
+	}
+
+	bool VulkanShader::IsNRISetCompatible(uint32_t set, const VulkanShader& other) const
+	{
+		if (set >= m_NRISetIndices.size() || m_NRISetIndices[set] == k_NoNRISet || m_NRISetIndices[set] != other.m_NRISetIndices[set])
+			return false;
+		if (set == 0 && m_NRIRootConstantSize != other.m_NRIRootConstantSize)
+			return false;
+		return m_NRIRanges[set] == other.m_NRIRanges[set];
 	}
 
 	nri::DescriptorPoolDesc VulkanShader::GetNRIPoolDesc(uint32_t set, uint32_t instanceCount) const
@@ -191,7 +200,7 @@ namespace Lux {
 				continue;
 
 			for (const nri::DescriptorRangeDesc& range : setRanges)
-				m_NRIRangeBindings[set].push_back(range.baseRegisterIndex);
+				m_NRIRanges[set].push_back({ range.baseRegisterIndex, range.descriptorNum, static_cast<uint32_t>(range.descriptorType), static_cast<uint32_t>(range.flags) });
 
 			m_NRISetIndices[set] = static_cast<uint32_t>(setDescs.size());
 			nri::DescriptorSetDesc& setDesc = setDescs.emplace_back();
@@ -206,6 +215,7 @@ namespace Lux {
 			rootConstant.size = std::max(rootConstant.size, range.Offset + range.Size);
 		rootConstant.size = (rootConstant.size + 3u) & ~3u;
 		rootConstant.shaderStages = nri::StageBits::ALL;
+		m_NRIRootConstantSize = rootConstant.size;
 
 		nri::PipelineLayoutDesc layoutDesc = {};
 		// No root descriptors; keep the (unused) root space clear of every set.
@@ -228,8 +238,9 @@ namespace Lux {
 			LUX_CORE_ERROR_TAG("Renderer", "Failed to create the NRI pipeline layout of shader {}", m_Name);
 			m_NRIPipelineLayout = nullptr;
 			m_NRISetIndices.fill(k_NoNRISet);
-			for (std::vector<uint32_t>& bindings : m_NRIRangeBindings)
-				bindings.clear();
+			for (std::vector<NRIRange>& ranges : m_NRIRanges)
+				ranges.clear();
+			m_NRIRootConstantSize = 0;
 			return;
 		}
 
@@ -280,219 +291,55 @@ namespace Lux {
 	void VulkanShader::CreateDescriptors()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		//LUX_CORE_VERIFY(false);
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
+		// The input declarations DescriptorSetManager binds by name, then the NRI layout. The bindless
+		// set's one unsized array is shared by every shader that declares it and is not an input.
+		const auto dimensionInputType = [](uint32_t dimension, RenderInputType oneD, RenderInputType twoD, RenderInputType threeD, RenderInputType volume)
+		{
+			switch (dimension)
+			{
+				case 1:		return oneD;
+				case 2:		return twoD;
+				case 3:		return threeD;
+				case 4:		return volume;
+				default:	break;
+			}
+			LUX_CORE_ASSERT(false);
+			return RenderInputType::None;
+		};
 
-		m_DescriptorSetLayouts.resize(m_ReflectionData.ShaderDescriptorSets.size());
 		for (uint32_t set = 0; set < m_ReflectionData.ShaderDescriptorSets.size(); set++)
 		{
-			auto& shaderDescriptorSet = m_ReflectionData.ShaderDescriptorSets[set];
-
-			// The bindless set is one unsized texture array shared by every shader that declares it,
-			// so it uses the renderer's layout rather than one reflected per shader.
 			if (set == BindlessTextureTable::DescriptorSet)
-			{
-				m_DescriptorSetLayouts[set] = BindlessTextureTable::GetLayout();
 				continue;
-			}
-			
-			std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
 
-			nvrhi::BindingLayoutDesc bindingLayoutDesc;
-			bindingLayoutDesc.visibility = nvrhi::ShaderType::None;
-
-			if (set == 0 && !m_ReflectionData.PushConstantRanges.empty())
+			auto& shaderDescriptorSet = m_ReflectionData.ShaderDescriptorSets[set];
+			const auto declare = [&](const std::string& name, uint32_t binding, RenderInputType type, uint32_t count)
 			{
-				uint32_t index = 0;
-				for (const ShaderResource::PushConstantRange& pushConstantRange : m_ReflectionData.PushConstantRanges)
-				{
-					bindingLayoutDesc.visibility = static_cast<nvrhi::ShaderType>(
-					static_cast<uint32_t>(bindingLayoutDesc.visibility) | 
-					static_cast<uint32_t>(pushConstantRange.ShaderStage));
-					bindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::PushConstants(index++, pushConstantRange.Size));
-				}
-			}
+				RenderInputDeclaration& inputDecl = shaderDescriptorSet.InputDeclarations[name];
+				inputDecl.Type = type;
+				inputDecl.Set = set;
+				inputDecl.Binding = binding;
+				inputDecl.Name = name;
+				inputDecl.Count = count;
+			};
 
 			for (auto& [binding, uniformBuffer] : shaderDescriptorSet.UniformBuffers)
-			{
-				RenderInputDeclaration& inputDecl = shaderDescriptorSet.InputDeclarations[uniformBuffer.Name];
-				inputDecl.Type = RenderInputType::UniformBuffer;
-				inputDecl.Set = set;
-				inputDecl.Binding = binding;
-				inputDecl.Name = uniformBuffer.Name;
-				inputDecl.Count = 1;
-
-				bindingLayoutDesc.visibility = static_cast<nvrhi::ShaderType>(
-				static_cast<uint32_t>(bindingLayoutDesc.visibility) | 
-				static_cast<uint32_t>(uniformBuffer.ShaderStage));
-				bindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::ConstantBuffer(binding));
-			}
-
+				declare(uniformBuffer.Name, binding, RenderInputType::UniformBuffer, 1);
 			for (auto& [binding, storageBuffer] : shaderDescriptorSet.StorageBuffers)
-			{
-				RenderInputDeclaration& inputDecl = shaderDescriptorSet.InputDeclarations[storageBuffer.Name];
-				inputDecl.Type = RenderInputType::StorageBuffer;
-				inputDecl.Set = set;
-				inputDecl.Binding = binding;
-				inputDecl.Name = storageBuffer.Name;
-				inputDecl.Count = 1;
-
-				bindingLayoutDesc.visibility = static_cast<nvrhi::ShaderType>(
-				static_cast<uint32_t>(bindingLayoutDesc.visibility) | 
-				static_cast<uint32_t>(storageBuffer.ShaderStage));
-				if (storageBuffer.ReadOnly)
-					bindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::RawBuffer_SRV(binding));
-				else
-					bindingLayoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::RawBuffer_UAV(binding));
-			}
-
+				declare(storageBuffer.Name, binding, RenderInputType::StorageBuffer, 1);
 			for (auto& [binding, imageSampler] : shaderDescriptorSet.ImageSamplers)
+				declare(imageSampler.Name, binding, dimensionInputType(imageSampler.Dimension, RenderInputType::ImageSampler1D, RenderInputType::ImageSampler2D, RenderInputType::ImageSampler3D, RenderInputType::ImageSampler3DVolume), imageSampler.ArraySize);
+			for (auto& [binding, texture] : shaderDescriptorSet.SeparateTextures)
+				declare(texture.Name, binding, dimensionInputType(texture.Dimension, RenderInputType::ImageSampler1D, RenderInputType::ImageSampler2D, RenderInputType::ImageSampler3D, RenderInputType::ImageSampler3DVolume), texture.ArraySize);
+			for (auto& [binding, sampler] : shaderDescriptorSet.SeparateSamplers)
 			{
-				RenderInputDeclaration& inputDecl = shaderDescriptorSet.InputDeclarations[imageSampler.Name];
-				switch (imageSampler.Dimension)
-				{
-					case 1:
-						inputDecl.Type = RenderInputType::ImageSampler1D;
-						break;
-					case 2:
-						inputDecl.Type = RenderInputType::ImageSampler2D;
-						break;
-					case 3:
-						inputDecl.Type = RenderInputType::ImageSampler3D;
-						break;
-					case 4:
-						inputDecl.Type = RenderInputType::ImageSampler3DVolume;
-						break;
-					default:
-						LUX_CORE_ASSERT(false);
-				}
-
-				inputDecl.Set = set;
-				inputDecl.Binding = binding;
-				inputDecl.Name = imageSampler.Name;
-				inputDecl.Count = imageSampler.ArraySize;
-
-				nvrhi::BindingLayoutItem bindingLayoutItem = nvrhi::BindingLayoutItem::Texture_SRV(binding);
-				bindingLayoutItem.size = imageSampler.ArraySize;
-
-			bindingLayoutDesc.visibility = static_cast<nvrhi::ShaderType>(
-				static_cast<uint32_t>(bindingLayoutDesc.visibility) | 
-				static_cast<uint32_t>(imageSampler.ShaderStage));
-			bindingLayoutDesc.bindings.push_back(bindingLayoutItem);
-		}
-
-		for (auto& [binding, imageSampler] : shaderDescriptorSet.SeparateTextures)
-			{
-				RenderInputDeclaration& inputDecl = shaderDescriptorSet.InputDeclarations[imageSampler.Name];
-				switch (imageSampler.Dimension)
-				{
-					case 1:
-						inputDecl.Type = RenderInputType::ImageSampler1D;
-						break;
-					case 2:
-						inputDecl.Type = RenderInputType::ImageSampler2D;
-						break;
-					case 3:
-						inputDecl.Type = RenderInputType::ImageSampler3D;
-						break;
-					case 4:
-						inputDecl.Type = RenderInputType::ImageSampler3DVolume;
-						break;
-					default:
-						LUX_CORE_ASSERT(false);
-
-				}
-				inputDecl.Set = set;
-				inputDecl.Binding = binding;
-				inputDecl.Name = imageSampler.Name;
-
-				inputDecl.Count = imageSampler.ArraySize;
-
-				nvrhi::BindingLayoutItem bindingLayoutItem = nvrhi::BindingLayoutItem::Texture_SRV(binding);
-				bindingLayoutItem.size = imageSampler.ArraySize;
-
-			bindingLayoutDesc.visibility = static_cast<nvrhi::ShaderType>(
-				static_cast<uint32_t>(bindingLayoutDesc.visibility) | 
-				static_cast<uint32_t>(imageSampler.ShaderStage));
-			bindingLayoutDesc.bindings.push_back(bindingLayoutItem);
-		}
-
-		for (auto& [binding, imageSampler] : shaderDescriptorSet.SeparateSamplers)
-			{
-				RenderInputDeclaration& inputDecl = shaderDescriptorSet.InputDeclarations[imageSampler.Name];
-				switch (imageSampler.Dimension)
-				{
-					case 0:
-						inputDecl.Type = RenderInputType::ImageSampler;
-						break;
-					case 1:
-						inputDecl.Type = RenderInputType::ImageSampler1D;
-						break;
-					case 2:
-						inputDecl.Type = RenderInputType::ImageSampler2D;
-						break;
-					case 3:
-						inputDecl.Type = RenderInputType::ImageSampler3D;
-						break;
-					case 4:
-						inputDecl.Type = RenderInputType::ImageSampler3DVolume;
-						break;
-					default:
-						LUX_CORE_ASSERT(false);
-
-				}
-
-				inputDecl.Set = set;
-				inputDecl.Binding = binding;
-				inputDecl.Name = imageSampler.Name;
-				inputDecl.Count = imageSampler.ArraySize;
-
-				nvrhi::BindingLayoutItem bindingLayoutItem = nvrhi::BindingLayoutItem::Sampler(binding);
-				bindingLayoutItem.size = imageSampler.ArraySize;
-
-			bindingLayoutDesc.visibility = static_cast<nvrhi::ShaderType>(
-				static_cast<uint32_t>(bindingLayoutDesc.visibility) | 
-				static_cast<uint32_t>(imageSampler.ShaderStage));
-			bindingLayoutDesc.bindings.push_back(bindingLayoutItem);
-		}
-
-		for (auto& [binding, imageSampler] : shaderDescriptorSet.StorageImages)
-			{
-				RenderInputDeclaration& inputDecl = shaderDescriptorSet.InputDeclarations[imageSampler.Name];
-				switch (imageSampler.Dimension)
-				{
-					case 1:
-						inputDecl.Type = RenderInputType::StorageImage1D;
-						break;
-					case 2:
-						inputDecl.Type = RenderInputType::StorageImage2D;
-						break;
-					case 3:
-						inputDecl.Type = RenderInputType::StorageImage3D;
-						break;
-					case 4:
-						inputDecl.Type = RenderInputType::StorageImage3DVolume;
-						break;
-					default:
-						LUX_CORE_ASSERT(false);
-
-				}
-
-				inputDecl.Set = set;
-				inputDecl.Binding = binding;
-				inputDecl.Name = imageSampler.Name;
-				inputDecl.Count = imageSampler.ArraySize;
-
-				nvrhi::BindingLayoutItem bindingLayoutItem = nvrhi::BindingLayoutItem::Texture_UAV(binding);
-				bindingLayoutItem.size = imageSampler.ArraySize;
-
-			bindingLayoutDesc.visibility = static_cast<nvrhi::ShaderType>(
-				static_cast<uint32_t>(bindingLayoutDesc.visibility) | 
-				static_cast<uint32_t>(imageSampler.ShaderStage));
-			bindingLayoutDesc.bindings.push_back(bindingLayoutItem);
-		}
-		
-		m_DescriptorSetLayouts[set] = device->createBindingLayout(bindingLayoutDesc);
+				// Separate samplers are reflected with dimension 0.
+				const RenderInputType type = sampler.Dimension == 0 ? RenderInputType::ImageSampler
+					: dimensionInputType(sampler.Dimension, RenderInputType::ImageSampler1D, RenderInputType::ImageSampler2D, RenderInputType::ImageSampler3D, RenderInputType::ImageSampler3DVolume);
+				declare(sampler.Name, binding, type, sampler.ArraySize);
+			}
+			for (auto& [binding, image] : shaderDescriptorSet.StorageImages)
+				declare(image.Name, binding, dimensionInputType(image.Dimension, RenderInputType::StorageImage1D, RenderInputType::StorageImage2D, RenderInputType::StorageImage3D, RenderInputType::StorageImage3DVolume), image.ArraySize);
 		}
 
 		CreateNRIPipelineLayout();

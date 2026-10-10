@@ -128,7 +128,6 @@ namespace Lux {
 
 		bool IsDescriptorSetCompatible(Ref<Shader> pipelineShader, uint32_t set = 0) const;
 		void Prepare();
-		nvrhi::BindingSetHandle GetBindingSet(uint32_t frameIndex) const;
 		// The material's set (set 0); empty if NRI could not build it.
 		BoundDescriptorSet GetDescriptorSet(uint32_t frameIndex) const { return m_DescriptorSetManager.GetDescriptorSet(frameIndex, 0); }
 
