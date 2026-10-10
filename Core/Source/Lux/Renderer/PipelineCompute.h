@@ -32,9 +32,8 @@ namespace Lux {
 
 		void CreatePipeline();
 
-		nvrhi::ComputePipelineHandle GetHandle() const { return m_Handle; }
-		// The NRI compute pipeline over the shader's NRI layout (NRI migration Phase 9), created and
-		// recreated with the NVRHI pipeline. Null if NRI rejected it.
+		// The compute pipeline over the shader's NRI layout, recreated by CreatePipeline. Null if NRI
+		// rejected it (logged).
 		nri::Pipeline* GetNRIPipeline() const { return m_NRIPipeline; }
 		Ref<Shader> GetShader() const { return m_Shader; }
 	public:
@@ -47,7 +46,6 @@ namespace Lux {
 		void ReleaseNRIPipeline();
 	private:
 		Ref<Shader> m_Shader;
-		nvrhi::ComputePipelineHandle m_Handle = nullptr;
 		nri::Pipeline* m_NRIPipeline = nullptr;
 	};
 

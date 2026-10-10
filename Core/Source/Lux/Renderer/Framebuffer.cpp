@@ -203,6 +203,14 @@ namespace Lux {
 		return m_DepthAttachmentImage ? m_DepthAttachmentImage->GetHandle().Get() : nullptr;
 	}
 
+	nri::Format Framebuffer::GetNRIColorFormat(uint32_t index) const
+	{
+		if (m_Specification.SwapChainTarget)
+			return index == 0 ? Application::Get().GetWindow().GetSwapChain().GetNRIColorFormat() : nri::Format::UNKNOWN;
+
+		return index < m_NRIColorFormats.size() ? m_NRIColorFormats[index] : nri::Format::UNKNOWN;
+	}
+
 	TextureSubresourceRange Framebuffer::GetAttachmentRange() const
 	{
 		if (m_Specification.SwapChainTarget)
@@ -315,6 +323,11 @@ namespace Lux {
 
 		std::array<nri::Descriptor*, nvrhi::c_MaxRenderTargets> nriColorAttachments = {};
 		nri::Descriptor* nriDepthAttachment = nullptr;
+		std::array<nri::Format, nvrhi::c_MaxRenderTargets> nriColorFormats = {};
+		nri::Format nriDepthFormat = nri::Format::UNKNOWN;
+		// The first color attachment's, or the depth attachment's, as in NVRHI's framebuffer info.
+		uint32_t colorSampleCount = 0;
+		uint32_t depthSampleCount = 0;
 		const char* nriProblem = nullptr;
 
 		uint32_t attachmentIndex = 0;
@@ -358,6 +371,8 @@ namespace Lux {
 					depthAttachment.subresources.numArraySlices = 1;
 				}
 				nriDepthAttachment = GetNRIAttachmentView(m_DepthAttachmentImage, depthAttachment, true, nriProblem);
+				nriDepthFormat = ToNRIFormat(depthAttachment.format);
+				depthSampleCount = m_DepthAttachmentImage->GetSpecification().Samples;
 
 				m_ClearValues[attachmentIndex].DepthStencil = { m_Specification.DepthClearValue, 0 };
 
@@ -426,6 +441,9 @@ namespace Lux {
 					colorAttachment.subresources.numArraySlices = 1;
 				}
 				nriColorAttachments[framebufferDesc.colorAttachments.size() - 1] = GetNRIAttachmentView(colorAttachmentImage, colorAttachment, false, nriProblem);
+				nriColorFormats[framebufferDesc.colorAttachments.size() - 1] = ToNRIFormat(colorAttachment.format);
+				if (colorSampleCount == 0)
+					colorSampleCount = colorAttachmentImage->GetSpecification().Samples;
 
 				const auto& clearColor = m_Specification.ClearColor;
 				m_ClearValues[attachmentIndex].Color = { {clearColor.r, clearColor.g, clearColor.b, clearColor.a } };
@@ -441,9 +459,12 @@ namespace Lux {
 
 		m_NRIColorAttachments = nriColorAttachments;
 		m_NRIDepthAttachment = nriDepthAttachment;
+		m_NRIColorFormats = nriColorFormats;
+		m_NRIDepthFormat = nriDepthFormat;
+		m_SampleCount = std::max(colorSampleCount ? colorSampleCount : depthSampleCount, 1u);
 		m_HasNRIAttachments = !nriProblem;
 		if (nriProblem)
-			LUX_CORE_ERROR_TAG("Renderer", "[Framebuffer] {} has no NRI attachments ({}); its passes render through NVRHI", m_Specification.DebugName, nriProblem);
+			LUX_CORE_ERROR_TAG("Renderer", "[Framebuffer] {} has no NRI attachments ({}); its passes are not rendered", m_Specification.DebugName, nriProblem);
 	}
 
 }

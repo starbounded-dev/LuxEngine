@@ -435,8 +435,9 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
     command list's `VkCommandBuffer` in a non-owning NRI command buffer. A segment starts with the
     pending barriers committed, and only NRI records until it ends.
   - **The NRI objects.**
-    - Every `Pipeline` has an NRI pipeline (`GetNRIPipeline`), translated from the finished NVRHI
-      desc so the two cannot drift.
+    - Every `Pipeline` has an NRI pipeline (`GetNRIPipeline`), built from its specification for the
+      target framebuffer's attachment formats and sample count; a shader with a mesh stage makes a
+      mesh-shader pipeline. `PipelineCompute` has a compute one.
     - Every framebuffer has NRI attachment views (`GetNRIColorAttachment`/`GetNRIDepthAttachment`,
       rebuilt with the NVRHI framebuffer).
     - Meshes have meshlet sets (`MeshSource::RT_GetOrCreateMeshletSet`).

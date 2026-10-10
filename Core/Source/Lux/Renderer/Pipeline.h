@@ -32,17 +32,11 @@ namespace Lux {
 		PipelineSpecification& GetSpecification() { return m_Specification; }
 		const PipelineSpecification& GetSpecification() const { return m_Specification; }
 
-		nvrhi::GraphicsPipelineHandle GetHandle() { return m_Handle; }
-
-		// Meshlet pipelines (shader has a mesh stage) get a MeshletPipeline
-		// instead of a graphics pipeline; GetHandle() stays null for them.
-		nvrhi::MeshletPipelineHandle GetMeshletHandle() { return m_MeshletHandle; }
-		bool IsMeshletPipeline() const { return m_MeshletHandle != nullptr; }
-
-		// The NRI twin of the NVRHI pipeline (NRI migration Phase 10): built from the same desc
-		// over the shader's NRI layout, for vertex and mesh-shader pipelines alike, and created and
-		// recreated with it. Null if NRI cannot express or create it (logged).
+		// The NRI pipeline: built from the specification over the shader's NRI layout, for the target
+		// framebuffer's formats, and recreated by Invalidate. A shader with a mesh stage makes a
+		// mesh-shader pipeline. Null if NRI cannot express or create it (logged).
 		nri::Pipeline* GetNRIPipeline() const { return m_NRIPipeline; }
+		bool IsMeshletPipeline() const { return m_IsMeshletPipeline && m_NRIPipeline; }
 		// Whether the NRI pipeline takes its shading rate dynamically, and the stride of vertex buffer
 		// `slot` (NRI vertex strides are dynamic, set with the buffers).
 		bool HasNRIDynamicShadingRate() const { return m_NRIDynamicShadingRate; }
@@ -53,6 +47,7 @@ namespace Lux {
 
 		Ref<Shader> GetShader() const { return m_Specification.Shader; }
 
+		// Line pipelines take their width when a pass opens (the NRI fork's LUX-1).
 		bool IsDynamicLineWidth() const;
 
 	public:
@@ -60,12 +55,10 @@ namespace Lux {
 
 		virtual ~Pipeline();
 	private:
-		void CreateNRIPipeline(const nvrhi::GraphicsPipelineDesc& desc, const nvrhi::VertexAttributeDesc* vertexAttributes, uint32_t vertexAttributeCount, bool isMeshletPipeline);
 		void ReleaseNRIPipeline();
 	private:
-		nvrhi::GraphicsPipelineHandle m_Handle = nullptr;
-		nvrhi::MeshletPipelineHandle m_MeshletHandle = nullptr;
 		nri::Pipeline* m_NRIPipeline = nullptr;
+		bool m_IsMeshletPipeline = false;
 		bool m_NRIDynamicShadingRate = false;
 		std::array<uint32_t, nvrhi::c_MaxVertexAttributes> m_NRIVertexStrides = {};
 		PipelineSpecification m_Specification;

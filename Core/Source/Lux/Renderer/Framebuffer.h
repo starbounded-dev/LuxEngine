@@ -16,6 +16,7 @@
 
 namespace nri {
 	struct Descriptor;
+	enum class Format : uint8_t;
 }
 
 namespace Lux {
@@ -158,6 +159,12 @@ namespace Lux {
 		nvrhi::ITexture* GetColorAttachmentTexture(uint32_t index) const;
 		nvrhi::ITexture* GetDepthAttachmentTexture() const;
 		TextureSubresourceRange GetAttachmentRange() const;
+		// The formats of the attachment views and the attachments' sample count, which pipelines
+		// rendering into this framebuffer are built for. UNKNOWN past the last color attachment, and
+		// for the depth format without a depth attachment.
+		nri::Format GetNRIColorFormat(uint32_t index) const;
+		nri::Format GetNRIDepthFormat() const { return m_NRIDepthFormat; }
+		uint32_t GetSampleCount() const { return m_SampleCount; }
 
 		const std::vector<ClearValue>& GetClearValues() const { return m_ClearValues; }
 
@@ -181,6 +188,9 @@ namespace Lux {
 		std::array<nri::Descriptor*, nvrhi::c_MaxRenderTargets> m_NRIColorAttachments = {};
 		nri::Descriptor* m_NRIDepthAttachment = nullptr;
 		bool m_HasNRIAttachments = false;
+		std::array<nri::Format, nvrhi::c_MaxRenderTargets> m_NRIColorFormats = {};
+		nri::Format m_NRIDepthFormat = {};
+		uint32_t m_SampleCount = 1;
 
 		uint32_t m_Width = 0, m_Height = 0;
 

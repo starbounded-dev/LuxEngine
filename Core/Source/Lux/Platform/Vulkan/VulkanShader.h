@@ -55,10 +55,6 @@ namespace Lux {
 
 		void SetReflectionData(const ReflectionData& reflectionData);
 
-		nvrhi::ShaderHandle GetHandle() const { return m_ShaderHandles.begin()->second; }
-		nvrhi::ShaderHandle GetHandle(ShaderStage stage) const;
-		const std::map<ShaderStage, nvrhi::ShaderHandle>& GetHandles() const { return m_ShaderHandles; }
-
 		nvrhi::BindingLayoutHandle GetDescriptorSetLayout(uint32_t set = 0) { return m_DescriptorSetLayouts[set]; }
 		const nvrhi::BindingLayoutVector& GetAllDescriptorSetLayouts() const { return m_DescriptorSetLayouts; }
 
@@ -93,13 +89,12 @@ namespace Lux {
 		nri::DescriptorPoolDesc GetNRIPoolDesc(uint32_t set, uint32_t instanceCount) const;
 		bool HasNRIRootConstants() const { return !m_ReflectionData.PushConstantRanges.empty(); }
 	private:
-		void LoadAndCreateShaders(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData);
+		// The SPIR-V of every stage, which NRI pipelines are created from.
+		void SetShaderData(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData);
 		void CreateDescriptors();
 		void CreateNRIPipelineLayout();
 		void ReleaseNRIPipelineLayout();
 	private:
-		std::map<ShaderStage, nvrhi::ShaderHandle> m_ShaderHandles;
-
 		std::filesystem::path m_AssetPath;
 		std::string m_Name;
 		bool m_DisableOptimization = false;

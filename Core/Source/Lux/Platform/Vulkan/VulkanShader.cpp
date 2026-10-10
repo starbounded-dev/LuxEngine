@@ -262,25 +262,14 @@ namespace Lux {
 		return Hash::GenerateFNVHash(m_AssetPath.string());
 	}
 
-	void VulkanShader::LoadAndCreateShaders(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData)
+	void VulkanShader::SetShaderData(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_ShaderData = shaderData;
 
-		nvrhi::IDevice* device = Application::Get().GetWindow().GetDeviceManager()->GetDevice();
-		m_ShaderHandles.clear();
-
-		std::string moduleName;
-		for (auto [stage, data] : shaderData)
+		for (const auto& [stage, data] : shaderData)
 		{
 			LUX_CORE_ASSERT(data.size());
-
-
-			nvrhi::ShaderDesc desc;
-			desc.shaderType = ToNVRHI(stage);
-			desc.debugName = m_Name;
-			desc.entryName = "main";
-			m_ShaderHandles[stage] = device->createShader(desc, data.data(), data.size() * sizeof(uint32_t));
 			// The binary the driver gets, so a GPU crash dump can map its shader addresses.
 			Aftermath::AddShaderBinary(data.data(), data.size());
 		}
@@ -570,12 +559,6 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_ReflectionData = reflectionData;
-	}
-
-	nvrhi::ShaderHandle VulkanShader::GetHandle(ShaderStage stage) const
-	{
-		LUX_CORE_VERIFY(m_ShaderHandles.contains(stage));
-		return m_ShaderHandles.at(stage);
 	}
 
 }

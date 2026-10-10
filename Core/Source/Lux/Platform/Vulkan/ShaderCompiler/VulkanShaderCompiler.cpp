@@ -665,7 +665,7 @@ namespace Lux {
 			return nullptr;
 		}
 
-		shader->LoadAndCreateShaders(compiler->GetSPIRVData());
+		shader->SetShaderData(compiler->GetSPIRVData());
 		shader->SetReflectionData(compiler->m_ReflectionData);
 		shader->CreateDescriptors();
 
@@ -684,7 +684,7 @@ namespace Lux {
 
 		shader->Release();
 
-		shader->LoadAndCreateShaders(compiler->GetSPIRVData());
+		shader->SetShaderData(compiler->GetSPIRVData());
 		shader->SetReflectionData(compiler->m_ReflectionData);
 		shader->CreateDescriptors();
 

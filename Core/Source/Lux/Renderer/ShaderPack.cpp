@@ -93,7 +93,7 @@ namespace Lux {
 		serializer.SetStreamPosition(shaderProgramInfo.ReflectionDataOffset);
 		vulkanShader->TryReadReflectionData(&serializer);
 
-		vulkanShader->LoadAndCreateShaders(shaderModules);
+		vulkanShader->SetShaderData(shaderModules);
 		vulkanShader->CreateDescriptors();
 
 		//Renderer::AcknowledgeParsedGlobalMacros(compiler->GetAcknowledgedMacros(), vulkanShader);

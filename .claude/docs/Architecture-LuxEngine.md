@@ -200,8 +200,8 @@ cache (stage strings) and `ShaderPack.lsp` store them. Renderer `.cpp`s convert 
 with `ToNVRHI`/`FromNVRHI` from `RHI/NVRHIInterop.h`, which goes away with NVRHI. Still backend
 until later NRI phases: `Image2D::GetHandle`/`ImageInfo` and the buffers' `GetHandle` (NVRHI
 wrapper handles of NRI-owned resources since P8; removed in P13), `RecordResourceUpload` (P13),
-and device bring-up in `Window.cpp` (P14). Shader handles live on `VulkanShader`
-(`GetHandle(ShaderStage)`), not the abstract `Shader`.
+and device bring-up in `Window.cpp` (P14). SPIR-V lives on `VulkanShader` (`GetSPIRV(ShaderStage)`),
+not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
@@ -220,7 +220,7 @@ reads NRI's `QueryVideoMemoryInfo`.
 
 **NRI descriptors** (Phase 9; details in `Rendering.md § NRI device`):
 - `VulkanShader` builds an NRI pipeline layout with its NVRHI binding layouts, and
-  `PipelineCompute` an NRI compute pipeline with its NVRHI one.
+  `PipelineCompute` an NRI compute pipeline.
 - `DescriptorSetManager` (and so `RenderPass`, `ComputePass` and `Material`), `BindlessTextureTable`
   and `MeshSource` build NRI descriptor sets (`DescriptorSetGroup`), each with the resources it
   accesses (`DescriptorSetUses`). The managers still build NVRHI binding sets from the same inputs,
@@ -229,7 +229,9 @@ reads NRI's `QueryVideoMemoryInfo`.
 **Recording on NRI** (Phases 10-12; details in `Rendering.md § NRI device`). Everything is recorded
 with NRI inside NVRHI's command lists; NVRHI keeps the command lists, submission, queries, uploads
 and barrier emission.
-- `Pipeline` builds an NRI pipeline beside its NVRHI one, and `Framebuffer` NRI attachment views.
+- `Pipeline` builds its NRI pipeline from its specification, the shader's SPIR-V and the
+  framebuffer's attachment formats (`Framebuffer::GetNRIColorFormat`/`GetNRIDepthFormat`), and
+  `Framebuffer` builds NRI attachment views.
 - `Renderer::BeginRenderPass` opens an NRI render pass on the `RenderCommandBuffer`
   (`RT_BeginNRIRenderPass`). The draw entry points (`RenderQuad`, `RenderGeometry`,
   `SubmitFullscreenQuad*`, `SceneRenderer::RT_DrawStaticMesh*`) record through
