@@ -406,9 +406,7 @@ namespace Lux {
 		ImDrawData* drawData = snapshot ? snapshot->GetDrawData() : nullptr;
 		if (!snapshot || problem || !UpdateGeometry(frame, drawData))
 		{
-			// The acquire must still be waited for, or its semaphore is still signaled when the image
-			// comes round again. The frame presents what the back buffer holds.
-			m_RenderCommandBuffer->RT_Wait(swapchain->GetAcquiredImageSemaphore());
+			// The frame presents what the back buffer holds; Present waits for the acquire.
 			return false;
 		}
 
@@ -522,8 +520,8 @@ namespace Lux {
 		}
 
 		m_RenderCommandBuffer->RT_End();
-		m_RenderCommandBuffer->RT_Wait(swapchain->GetAcquiredImageSemaphore());
-		m_RenderCommandBuffer->RT_Submit();
+		// The first submission that touches the back buffer waits for its acquire.
+		m_RenderCommandBuffer->RT_Submit(swapchain->TakeAcquireSemaphore());
 		return true;
 	}
 

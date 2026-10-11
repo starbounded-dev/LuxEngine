@@ -11,6 +11,7 @@
 
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
+#include "Lux/Renderer/RHI/RHIQueueTimeline.h"
 
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
@@ -503,6 +504,7 @@ namespace Lux {
 
 		// NRI owns every GPU texture and buffer (NRI migration Phase 8), so there is no fallback.
 		LUX_CORE_VERIFY(RHIDevice::Init(createInfo), "Failed to wrap the Vulkan device in NRI");
+		RHIQueueTimeline::Init();
 
 #ifdef LUX_DEBUG
 		// Blocking, like Tracy's GPU context init: the render thread has nothing to submit yet.
@@ -528,6 +530,7 @@ namespace Lux {
 		}
 
 		// Before the device manager: NRI wraps the VkDevice that NVRHI and the manager own.
+		RHIQueueTimeline::Shutdown();
 		RHIDevice::Shutdown();
 
 		if (m_DeviceManager)

@@ -34,6 +34,7 @@ namespace nri {
 	struct CommandBuffer;
 	struct Descriptor;
 	struct DescriptorSet;
+	struct Fence;
 	struct Pipeline;
 	struct PipelineLayout;
 	struct QueryPool;
@@ -41,6 +42,7 @@ namespace nri {
 
 namespace Lux {
 
+	class CommandBufferPool;
 	class NRIBuffer;
 
 	class RenderCommandBuffer : public RefCounted
@@ -57,12 +59,12 @@ namespace Lux {
 
 		void RT_Begin(bool continueFrame = false);
 		void RT_End();
-		void RT_Submit();
-		void RT_Submit(VkSemaphore waitSemaphore);
-
-		void RT_Wait(VkSemaphore waitSemaphore);
-		// Blocks until this command buffer's last submission has finished on the GPU (an NRI fence
-		// signalled on its queue after it). False, and logged, when the wait could not be set up.
+		// Submits what RT_End closed, after the uploads (Renderer::FlushResourceUploads), the
+		// cross-queue waits added for its queue (Renderer::QueueWaitForCommandList) and
+		// `waitSemaphore`, an NRI wrapper of a binary semaphore; optional. A command buffer that
+		// draws to the back buffer passes VulkanSwapChain::TakeAcquireSemaphore().
+		void RT_Submit(nri::Fence* waitSemaphore = nullptr);
+		// Blocks until this command buffer's last submission has finished on the GPU.
 		bool RT_WaitForCompletion();
 
 		void RT_BeginMarker(const std::string& label);
@@ -86,11 +88,9 @@ namespace Lux {
 		std::vector<const void*> RT_EndRequirementLog();
 		const ResourceStateTracker& RT_GetTracker() const { return m_Tracker; }
 
-		// NRI recording inside this command buffer (NRI migration Phase 9, plan §2.2 I3/I4). Between
-		// RT_BeginNRISegment and RT_EndNRISegment only NRI records, into a non-owning NRI wrapper of
-		// the NVRHI command list's VkCommandBuffer. The segment starts with pending barriers committed.
-		// Render thread, between RT_Begin and RT_End. Null, with no segment open, when NRI could not
-		// wrap the command list (logged by RT_Begin).
+		// Raw NRI recording into the open command buffer (NRI migration Phase 9). The segment starts
+		// with pending barriers committed. Render thread, between RT_Begin and RT_End. Null, with no
+		// segment open, when RT_Begin got no command buffer (logged by the pool).
 		nri::CommandBuffer* RT_BeginNRISegment();
 		void RT_EndNRISegment();
 		// Copies and clears through NRI (NRI migration Phase 13), which cannot record inside a
@@ -197,13 +197,12 @@ namespace Lux {
 		// cannot wrap the command list (logged).
 		nri::CommandBuffer* RT_BeginNRIDispatch(const NRIDispatchDesc& desc);
 
-		nvrhi::CommandListHandle Get(uint32_t index = 0) const { LUX_CORE_VERIFY(index < m_CommandLists.size());  return m_CommandLists[index]; }
 
 		// The queue this command buffer records/submits on (Graphics by default).
 		GPUQueue GetQueue() const { return m_Queue; }
-		// The nvrhi execution-instance id returned by the most recent submit on this
-		// buffer's queue. Feed it to Renderer::QueueWaitForCommandList so another
-		// queue can wait for this buffer's work to finish (cross-queue sync).
+		// The RHIQueueTimeline value of the most recent submission on this buffer's
+		// queue. Feed it to Renderer::QueueWaitForCommandList so another queue can
+		// wait for this buffer's work to finish (cross-queue sync).
 		uint64_t GetLastExecutionInstance() const { return m_LastExecutionInstance; }
 
 		// Most recently resolved frame-level GPU time, in milliseconds. Not indexed by
@@ -231,7 +230,6 @@ namespace Lux {
 		void RT_RequireBuffer(const void*& required, const NRIBuffer* buffer, ResourceState state);
 		// The open pass's attachments and sets.
 		void RT_RequireNRIRenderPass();
-		void DestroyNRIWrapper();
 		nri::CommandBuffer* RT_OpenNRIRendering(bool passStart);
 		void RT_CloseNRIRendering();
 		// Closes the rendering scope because `reason` cannot be recorded inside it.
@@ -266,15 +264,21 @@ namespace Lux {
 		};
 		RequiredBindings m_RequiredBindings;
 		bool m_BindingStatesDirty = true;
-		// The NRI wrapper of the open command list (created by RT_Begin, destroyed by RT_End; the
-		// barriers are recorded into it) and whether a segment is open.
+		// The command buffer being recorded (between RT_Begin and RT_End; null when the pool failed)
+		// and whether a segment is open.
 		nri::CommandBuffer* m_NRICommandBuffer = nullptr;
 		bool m_InNRISegment = false;
 		// The NRI render pass (NRI types, so defined in the .cpp).
 		struct NRIRenderState;
 		Scope<NRIRenderState> m_NRIRender;
 
-		nvrhi::static_vector<nvrhi::CommandListHandle, RendererConfig::MaxFramesInFlight> m_CommandLists;
+		// NRI command buffers (NRI migration Phase 13), recycled once their submission completes.
+		// The slot count is the frame-in-flight slots the queries are kept for.
+		Scope<CommandBufferPool> m_CommandBuffers;
+		uint32_t m_SlotCount = 1;
+		bool m_Recording = false;
+		// Closed by RT_End, submitted by RT_Submit.
+		nri::CommandBuffer* m_RecordedCommandBuffer = nullptr;
 		// Published by the render thread, read by the main thread (profiling panels).
 		//
 		// Deliberately a single latest value rather than a per-frame slot. The render
@@ -295,7 +299,6 @@ namespace Lux {
 
 		std::string m_DebugName;
 
-		nvrhi::CommandListHandle m_ActiveCommandBuffer;
 
 		// GPU timing and pipeline statistics (NRI migration Phase 13), one slot per command list. A
 		// slot's pools are reset by its first RT_Begin of a render frame, every RT_End copies what

@@ -37,7 +37,7 @@ not just the render thread.
 | Context | Allowed | Forbidden |
 |---|---|---|
 | **Main (application) thread** | ImGui, GLFW/OS window + input, scene/ECS mutation, asset registry mutation, filling the render command queue via `Renderer::Submit` | Direct nvrhi command-list recording; long blocking work (file I/O, network, subprocess, asset import) |
-| **Render thread** | nvrhi command lists, GPU submission, swapchain present, `RT_*` functions, resource release queue | ImGui *building* (see below), ECS access, `Application::Get()` state mutation |
+| **Render thread** | NRI command buffers, GPU submission, swapchain present, `RT_*` functions, resource release queue | ImGui *building* (see below), ECS access, `Application::Get()` state mutation |
 | **JobSystem workers** | Data-parallel compute over disjoint indices (transform/cull fan-out) | ImGui, nvrhi, ECS mutation, anything order-dependent |
 | **Asset worker** (`EditorAssetSystem` / `RuntimeAssetSystem`) | File I/O, decode, import; creating GPU resources *via* `Renderer::Submit` | Touching the asset registry directly; ImGui; direct nvrhi calls |
 | **Jolt's internal pool** | Physics jobs Jolt schedules itself | Anything engine-side |
@@ -120,9 +120,9 @@ the failure mode of getting it wrong is a corrupted command buffer, not a clean 
 
 `Renderer::SubmitResourceFree` mirrors the same branching, but the release always lands on the
 render thread, tagged with the render frame number current at that point in the command stream.
-`Renderer::RT_BeginFrame()`, run first in every render-thread frame, closes the ending frame behind
-a graphics-queue event query, waits for frame N − `FramesInFlight` and retires the releases up to
-it, so a release never runs while a submission that could reference the resource is still on the
+`Renderer::RT_BeginFrame()`, run first in every render-thread frame, closes the ending frame at the
+graphics queue's latest timeline value (`RHIQueueTimeline`), waits for frame N − `FramesInFlight`
+and retires the releases up to it, so a release never runs while a submission that could reference the resource is still on the
 GPU. Staging memory (`StagingStream::Retire`) is recycled the same way, so retire a stream only once
 the submission that reads it is recorded on the render thread or queued there.
 
@@ -315,9 +315,10 @@ consequences of not doing so are silent cross-shader binding corruption. See
   `linkoptions { "-Wl,--no-as-needed,-latomic,--as-needed" }`. MSVC doesn't need the equivalent
   because it links the runtime support in statically.
 - `std::mutex` + `std::scoped_lock` for compound state.
-- `RenderCommandBuffer::LockQueue` / `UnlockQueue` serialize submissions to the shared `VkQueue`s.
-  NVRHI's and NRI's (`RHIDevice`) go to the same queues, so every submit from either library holds
-  it, for the submit call only.
+- `RenderCommandBuffer::LockQueue` / `UnlockQueue` serialize access to the `VkQueue`s: every
+  submission (`RHIQueueTimeline::Submit`, which takes it itself), the waits added for the next one,
+  `vkQueuePresentKHR` and `RHIDevice`'s self-test hold it, for the call only. Never hold it around
+  `RHIQueueTimeline::Submit`.
 - `Lux::Thread` (named, joinable) and `Lux::ThreadSignal` (`Core/Thread.h`) for engine-owned threads —
   named threads show up in Tracy and in the debugger, so prefer them over a bare `std::thread`.
 - `LUX_PROFILE_THREAD("Name")` at the top of any new thread body.

@@ -287,7 +287,7 @@ namespace Lux {
 
 		// Cross-queue ordering: make the next submission on waitQueue wait until
 		// the given execution instance (from RenderCommandBuffer::GetLastExecutionInstance,
-		// i.e. executeCommandList's return) on executionQueue has completed. Must be
+		// an RHIQueueTimeline value) on executionQueue has completed. Must be
 		// called on the render thread, between the two queues' submits. Used to build
 		// async-compute overlap (e.g. graphics waits for the compute light-cull).
 		static void QueueWaitForCommandList(GPUQueue waitQueue, GPUQueue executionQueue, uint64_t instance);

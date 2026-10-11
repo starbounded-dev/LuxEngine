@@ -10,11 +10,13 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include <array>
 #include <vector>
 #include <queue>
 
 namespace nri {
 	struct Descriptor;
+	struct Fence;
 	struct Texture;
 	enum class Format : uint8_t;
 }
@@ -39,7 +41,11 @@ namespace Lux {
 		nvrhi::ITexture* GetBackBuffer(uint32_t index);
 		uint32_t GetCurrentBackBufferIndex();
 		uint32_t GetBackBufferCount();
-		vk::Semaphore GetAcquiredImageSemaphore() const { return m_AcquiredSemaphore; }
+		// The NRI wrapper of the acquired image's binary semaphore, handed out once per frame: the
+		// first submission that touches the back buffer waits for it (RenderCommandBuffer::
+		// RT_Submit), and Present waits for it when nothing did. Null after that. Render thread,
+		// after BeginFrame.
+		nri::Fence* TakeAcquireSemaphore() { return std::exchange(m_AcquiredSemaphore, nullptr); }
 
 		// The NRI color-attachment view of the acquired back buffer (NRI migration Phase 10), and the
 		// back buffer as the resource state tracker sees it (resting in Present). Render thread,
@@ -68,7 +74,10 @@ namespace Lux {
 
 		std::array<vk::Semaphore, 3> m_AcquireSemaphores;
 		std::vector<vk::Semaphore> m_PresentSemaphores; // One per swapchain image
-		vk::Semaphore m_AcquiredSemaphore;
+		// Their NRI wrappers, for NRI submissions (RHIQueueTimeline); created and destroyed with them.
+		std::array<nri::Fence*, 3> m_AcquireFences = {};
+		std::vector<nri::Fence*> m_PresentFences;
+		nri::Fence* m_AcquiredSemaphore = nullptr;
 
 		vk::SurfaceFormatKHR m_SwapChainFormat;
 		vk::SwapchainKHR m_SwapChain;
@@ -90,7 +99,7 @@ namespace Lux {
 		std::vector<SwapChainImage> m_SwapChainImages;
 		uint32_t m_SwapChainIndex = uint32_t(-1);
 
-		std::queue<nvrhi::EventQueryHandle> m_FramesInFlight;
-		std::vector<nvrhi::EventQueryHandle> m_QueryPool;
+		// Graphics timeline values of the presented frames still on the GPU.
+		std::queue<uint64_t> m_FramesInFlight;
 	};
 }

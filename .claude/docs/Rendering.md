@@ -33,9 +33,10 @@ findings here to must-fix.
 | `SceneRenderer` | `Renderer/SceneRenderer.h` | Owns and drives the `RenderGraph`; the whole deferred pipeline lives here |
 | `Renderer2D` / `DebugRenderer` | `Renderer/Renderer2D.h`, `DebugRenderer.h` | Batched 2D (quads, circles, lines, MSDF text) and debug primitives |
 
-Below that sit **NRI** (`Core/vendor/NRI`: GPU memory, descriptors, pipelines and all recording)
-and **NVRHI** (`Core/vendor/nvrhi`: command lists, submission, queries, uploads and barrier
-emission, until NRI migration Phases 13-15), both over one Vulkan device (`§ NRI device`).
+Below that sits **NRI** (`Core/vendor/NRI`: GPU memory, descriptors, pipelines, command buffers,
+all recording and submission). **NVRHI** (`Core/vendor/nvrhi`) is left with the device bring-up
+and the wrapper handles of NRI resources, until NRI migration Phases 13-15; both drive one Vulkan
+device (`§ NRI device`).
 `LUX_HAS_VULKAN` is always defined; `NVRHI-D3D11` / `NVRHI-D3D12` are built but the
 `Platform/DX11` / `DX12` engine sources are `removefiles`'d — that scaffolding is intentional, not
 dead code.
@@ -114,21 +115,20 @@ If you need a pipeline variant per frame, you actually need a **permutation** �
 ## Invariant 3 — GPU resources are freed through the release queue
 
 A resource still referenced by an in-flight command buffer must not be destroyed when the CPU drops
-its last `Ref`. NVRHI's own reference tracking covers its own objects, but **not descriptor tables**
-(command lists do not keep a `DescriptorTable` alive) and **not GPU memory**: textures and buffers
-are NRI-owned (`NRITexture`/`NRIBuffer`, below), and their owners free through this queue.
+its last `Ref`. NRI command buffers keep nothing alive: textures, buffers, descriptor sets and
+pipelines are NRI-owned, and their owners free them through this queue.
 
 Use `Renderer::SubmitResourceFree(lambda)` (the lambda must be copyable). It is queued on the
 render thread into the `GPUDeletionQueue` (`Renderer/RHI/`), tagged with the render frame number
 current at that point in the command stream; it mirrors `Renderer::Submit`'s thread branching.
 `Renderer::RT_BeginFrame()` runs first in every render frame (`Application::Run`'s `BeginFrame`
-lambda, before the swapchain acquire): it closes the ending frame behind a graphics-queue event
-query (so the event also covers work queued after `Present`), advances the frame number, waits for
-frame N − `FramesInFlight`, and retires every release queued up to that frame. Shutdown waits for
-the device to idle and drains the rest.
+lambda, before the swapchain acquire): it closes the ending frame at the graphics queue's latest
+timeline value (`RHIQueueTimeline`, so it also covers work queued after `Present`), advances the
+frame number, waits for frame N − `FramesInFlight`, and retires every release queued up to that
+frame. Shutdown waits for the device to idle and drains the rest.
 
 The same wait is what makes per-frame slots safe: `RT_GetCurrentFrameIndex()` is
-`RT_GetFrameNumber() % FramesInFlight`, so a slot (command lists, `UniformBufferSet`/
+`RT_GetFrameNumber() % FramesInFlight`, so a slot (query slots, `UniformBufferSet`/
 `StorageBufferSet::RT_Get`, `DescriptorSetManager` descriptor sets, `BindlessTextureTable` tables) is
 reused only after the GPU has finished the frame that last used it. It is **not** the swapchain
 image; use `VulkanSwapChain::GetCurrentBackBufferIndex()` for anything per-swapchain-image.
@@ -449,12 +449,23 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - **No combined image samplers.** NRI has none, so shaders declare `texture2D` plus a `sampler`
     and combine them at the sample (`sampler2D(u_Tex, r_Sampler)`). Reflection logs an error for a
     combined `sampler2D` uniform.
-- **Recording.** Every draw, dispatch, barrier, copy, clear, upload and readback is recorded with
-  NRI (NRI migration Phases 9-13), inside NVRHI's command lists, queries and markers included;
-  NVRHI keeps only the command lists and their submission.
-  - **Segments.** `RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment` wrap the NVRHI
-    command list's `VkCommandBuffer` in a non-owning NRI command buffer. A segment starts with the
-    pending barriers committed, and only NRI records until it ends.
+- **Command buffers and submission** (NRI migration Phase 13). A `RenderCommandBuffer` records into
+  NRI command buffers from its `CommandBufferPool` (`Renderer/RHI/`): one per frame-in-flight slot
+  to start with, each with its own allocator, reused once the GPU has finished its last submission
+  and grown, like NVRHI's command lists, when all are in flight. `RHIQueueTimeline` submits under
+  `RenderCommandBuffer::LockQueue` and keeps one NRI timeline fence per queue: a submission's value
+  is what `GetLastExecutionInstance` returns, what `Renderer::QueueWaitForCommandList` makes another
+  queue wait for (added waits go with that queue's next command buffer submission, not with the
+  upload batch flushed ahead of it), what `RT_WaitForCompletion` blocks on, and what frame pacing
+  (`Renderer::RT_BeginFrame`, `VulkanSwapChain::Present`) waits for. A binary semaphore wait is
+  passed with the submission that needs it: the swapchain hands out its acquire semaphore once per
+  frame (`TakeAcquireSemaphore`), to the first command buffer that draws to the back buffer, and
+  `Present` waits for it itself when nothing did, in the signal-only submission that also signals
+  the present semaphore. A queue the device does not have (no compute family) records on graphics.
+- **Recording.** Every draw, dispatch, barrier, copy, clear, upload, readback, query and marker is
+  recorded with NRI (NRI migration Phases 9-13).
+  - **Segments.** `RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment` hand out the open
+    command buffer for raw NRI recording. A segment starts with the pending barriers committed.
   - **The NRI objects.**
     - Every `Pipeline` has an NRI pipeline (`GetNRIPipeline`), built from its specification for the
       target framebuffer's attachment formats and sample count; a shader with a mesh stage makes a
@@ -491,7 +502,7 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
     it. In Debug, every split is reported once per pass and reason (`NRI render pass
     '<pass>' (<command buffer>) is split by <reason> inside it`): the inside-rendering audit. Each
     split stores and reloads the attachments, so a reported command belongs before the pass or
-    after it. NVRHI records nothing: it only opens, closes and submits its command lists.
+    after it.
   - **Skipped work.** A pass, draw or dispatch NRI cannot record is skipped, logged once per
     pipeline or shader as `'<pass>' is not rendered: <reason>`; a pass that does not open skips its
     draws. Read-only depth, 3D attachments, triangle fans and stencil are among the reasons (Lux
@@ -651,7 +662,7 @@ above the refresh rate additionally requires `IMMEDIATE`.
 
 ## Batched resource uploads and the async transfer queue
 
-Buffer/texture constructors record initial-data uploads into **one shared command list** via
+Buffer/texture constructors record initial-data uploads into **one shared command buffer** via
 `Renderer::RecordResourceUpload(record)`, flushed by `Renderer::FlushResourceUploads()` before every
 `RenderCommandBuffer` submission. The reason is in the header: a `vkQueueSubmit` per mesh/texture is
 a load hitch and contends the graphics queue against the render thread.

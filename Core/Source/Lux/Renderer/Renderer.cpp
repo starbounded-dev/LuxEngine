@@ -19,7 +19,9 @@
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Renderer/BindlessTextureTable.h"
 #include "Lux/Renderer/StorageImageClear.h"
+#include "Lux/Renderer/RHI/CommandBufferPool.h"
 #include "Lux/Renderer/RHI/GPUDeletionQueue.h"
+#include "Lux/Renderer/RHI/RHIQueueTimeline.h"
 #include "Lux/Renderer/RHI/StagingMemory.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
@@ -172,9 +174,8 @@ namespace Lux {
 	void Renderer::QueueWaitForCommandList(GPUQueue waitQueue, GPUQueue executionQueue, uint64_t instance)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		// nvrhi tracks a completion timeline per queue; this inserts the wait on
-		// waitQueue for executionQueue's instance without any manual semaphores.
-		Application::GetGraphicsDevice()->queueWaitForCommandList(ToNVRHI(waitQueue), ToNVRHI(executionQueue), instance);
+		// The next submission on waitQueue waits on executionQueue's timeline fence.
+		RHIQueueTimeline::AddWait(waitQueue, executionQueue, instance);
 	}
 
 	Ref<PipelineCompute> Renderer::GetOrCreateMipGenPipeline(Ref<Shader> shader)
@@ -258,13 +259,12 @@ namespace Lux {
 	constexpr static uint32_t s_RenderCommandQueueCount = 2;
 	static RenderCommandQueue* s_CommandQueue[s_RenderCommandQueueCount];
 	static std::atomic<uint32_t> s_RenderCommandQueueSubmissionIndex = 0;
-	// Render-thread frame bookkeeping (RT_BeginFrame). A frame is closed behind a graphics-queue
-	// event when the next one begins, so the event also covers work queued after Present; slot
-	// N % FramesInFlight holds frame N's event until frame N + FramesInFlight waits on it. An
-	// event, not frame counting: NVRHI does not keep descriptor tables alive from command lists,
-	// and Present() skips its pacing when an acquire fails.
+	// Render-thread frame bookkeeping (RT_BeginFrame). A frame is closed when the next one begins,
+	// at the graphics queue's latest timeline value, so it also covers work queued after Present;
+	// slot N % FramesInFlight holds frame N's value until frame N + FramesInFlight waits for it. A
+	// GPU value, not frame counting: Present() skips its pacing when an acquire fails.
 	static uint64_t s_RTFrameNumber = 0;
-	static nvrhi::EventQueryHandle s_FrameCompletionEvents[RendererConfig::MaxFramesInFlight];
+	static uint64_t s_FrameCompletionValues[RendererConfig::MaxFramesInFlight] = {};
 	static GPUDeletionQueue s_ResourceFreeQueue;
 	// Set at the end of Shutdown; SubmitResourceFree then releases immediately.
 	static std::atomic<bool> s_ShutDown = false;
@@ -274,25 +274,24 @@ namespace Lux {
 	static std::vector<std::function<void()>> s_BackgroundThreadSubmitQueue;
 	static std::mutex s_BackgroundThreadSubmitMutex;
 
-	static std::mutex s_ResourceUploadMutex;
-	static nvrhi::CommandListHandle s_ResourceUploadCommandList;
-	static bool s_ResourceUploadListOpen = false;
-	// What the open upload list records with (NRI migration Phase 13): an NRI wrapper of its
-	// command buffer, a barrier tracker and the staging memory its copies read. Created on the
+	// The upload batch (NRI migration Phase 13): an NRI command buffer from the pool of the queue
+	// it submits to, a barrier tracker, and the staging memory its copies read. Created on the
 	// first upload (the swapchain's come before Renderer::Init), deleted by Shutdown.
 	struct ResourceUploadBatch
 	{
+		CommandBufferPool GraphicsCommandBuffers{ GPUQueue::Graphics, 1, "Upload batch" };
+		// Created when async transfer is first used.
+		Scope<CommandBufferPool> CopyCommandBuffers;
+		// The pool and command buffer of the open batch.
+		CommandBufferPool* Pool = nullptr;
 		nri::CommandBuffer* CommandBuffer = nullptr;
 		ResourceStateTracker Tracker;
 		NRIBarrierEmitter Emitter;
 		StagingStream Staging{ "Upload batch" };
 	};
+	static std::mutex s_ResourceUploadMutex;
 	static ResourceUploadBatch* s_ResourceUploadBatch = nullptr;
-	static bool s_ReportedUploadWrapFailure = false;
-	// Queue type the currently-cached upload list was created for. Command lists
-	// are bound to a queue at creation, so a live toggle of async transfer means
-	// retiring the list and making a new one of the other type.
-	static bool s_ResourceUploadListIsCopyQueue = false;
+	static bool s_ResourceUploadOpen = false;
 	// Setting (Renderer.AsyncTransferQueue). Effective only when the device also
 	// has a dedicated transfer queue — see Renderer::UseAsyncTransferQueue.
 	// Default OFF: keepInitialState resources (vertex/index buffers, textures) are
@@ -667,10 +666,9 @@ namespace Lux {
 			vkDeviceWaitIdle(device);
 		}
 
-		// Execute any batched uploads still pending, then release the shared list. The batch's
-		// staging memory is released with the deletion queue below.
+		// Execute any batched uploads still pending, then release the batch. Its command buffers and
+		// staging memory are released with the deletion queue below, once the GPU is idle again.
 		FlushResourceUploads();
-		s_ResourceUploadCommandList = nullptr;
 		delete s_ResourceUploadBatch;
 		s_ResourceUploadBatch = nullptr;
 
@@ -697,8 +695,6 @@ namespace Lux {
 			graphicsDevice->waitForIdle();
 		s_ResourceFreeQueue.DrainAll();
 		StagingStream::Shutdown();
-		for (nvrhi::EventQueryHandle& event : s_FrameCompletionEvents)
-			event = nullptr;
 
 		if (graphicsDevice)
 		{
@@ -872,53 +868,34 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		std::scoped_lock lock(s_ResourceUploadMutex);
-
-		const bool useCopyQueue = UseAsyncTransferQueue();
-
-		// If the effective queue changed since the cached list was made (a live
-		// toggle), retire it so we recreate on the right queue. Only when idle —
-		// a list mid-batch keeps its queue until it is flushed.
-		if (s_ResourceUploadCommandList && !s_ResourceUploadListOpen &&
-			s_ResourceUploadListIsCopyQueue != useCopyQueue)
-			s_ResourceUploadCommandList = nullptr;
-
-		if (!s_ResourceUploadCommandList)
-		{
-			nvrhi::CommandListParameters clParams;
-			clParams.setQueueType(useCopyQueue ? nvrhi::CommandQueue::Copy : nvrhi::CommandQueue::Graphics);
-			s_ResourceUploadCommandList = Application::GetGraphicsDevice()->createCommandList(clParams);
-			s_ResourceUploadListIsCopyQueue = useCopyQueue;
-		}
-
 		if (!s_ResourceUploadBatch)
 			s_ResourceUploadBatch = lnew ResourceUploadBatch();
 		ResourceUploadBatch& batch = *s_ResourceUploadBatch;
 
-		if (!s_ResourceUploadListOpen)
+		if (!s_ResourceUploadOpen)
 		{
-			s_ResourceUploadCommandList->open();
-			// NVRHI records nothing here: the batch's barriers are the tracker's.
-			s_ResourceUploadCommandList->setEnableAutomaticBarriers(false);
-			s_ResourceUploadListOpen = true;
+			// The queue is chosen per batch, so a live toggle of async transfer applies from the
+			// next one.
+			if (UseAsyncTransferQueue())
+			{
+				if (!batch.CopyCommandBuffers)
+					batch.CopyCommandBuffers = CreateScope<CommandBufferPool>(GPUQueue::Copy, 1, "Upload batch (copy)");
+				batch.Pool = batch.CopyCommandBuffers.get();
+			}
+			else
+			{
+				batch.Pool = &batch.GraphicsCommandBuffers;
+			}
 
-			// Non-owning, like RenderCommandBuffer's: NRI never frees a command buffer it did not
-			// allocate. Destroyed when the batch is flushed.
-			nri::CommandBufferVKDesc wrapperDesc = {};
-			wrapperDesc.vkCommandBuffer = s_ResourceUploadCommandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
-			wrapperDesc.queueType = s_ResourceUploadListIsCopyQueue ? nri::QueueType::COPY : nri::QueueType::GRAPHICS;
-			if (RHIDevice::API().CreateCommandBufferVK(RHIDevice::Get(), wrapperDesc, batch.CommandBuffer) != nri::Result::SUCCESS)
-				batch.CommandBuffer = nullptr;
+			// Null, logged by the pool, when NRI fails: the batch then records nothing.
+			batch.CommandBuffer = batch.Pool->Begin();
 			batch.Emitter.SetCommandBuffer(batch.CommandBuffer);
 			batch.Tracker.Begin(&batch.Emitter);
+			s_ResourceUploadOpen = true;
 		}
 
 		if (!batch.CommandBuffer)
-		{
-			if (!s_ReportedUploadWrapFailure)
-				LUX_CORE_ERROR_TAG("Renderer", "Resource uploads dropped: NRI could not wrap the upload command list");
-			s_ReportedUploadWrapFailure = true;
 			return;
-		}
 
 		UploadContext context(*batch.CommandBuffer, batch.Tracker, batch.Emitter, batch.Staging);
 		record(context);
@@ -927,46 +904,34 @@ namespace Lux {
 	void Renderer::FlushResourceUploads()
 	{
 		std::scoped_lock lock(s_ResourceUploadMutex);
-		if (!s_ResourceUploadListOpen)
+		if (!s_ResourceUploadOpen)
 			return;
 
 		LUX_PROFILE_SCOPE("Renderer::FlushResourceUploads");
 		ResourceUploadBatch& batch = *s_ResourceUploadBatch;
+		s_ResourceUploadOpen = false;
 		// Every uploaded resource goes back to its resting state, where the command buffers that
 		// read it start.
 		batch.Tracker.End();
 		batch.Emitter.SetCommandBuffer(nullptr);
-		if (batch.CommandBuffer)
-		{
-			RHIDevice::API().DestroyCommandBuffer(batch.CommandBuffer);
-			batch.CommandBuffer = nullptr;
-		}
+		nri::CommandBuffer* commandBuffer = std::exchange(batch.CommandBuffer, nullptr);
+		if (!commandBuffer || !batch.Pool->End(*commandBuffer))
+			return;
 
-		s_ResourceUploadCommandList->close();
-		s_ResourceUploadListOpen = false;
+		const GPUQueue queue = batch.Pool->GetQueue();
+		RHIQueueTimeline::Submission submission;
+		submission.CommandBuffers = { &commandBuffer, 1 };
+		// Waits added for the queue belong to the command buffer this flush runs ahead of.
+		submission.TakesAddedWaits = false;
+		const uint64_t value = RHIQueueTimeline::Submit(queue, submission);
+		if (value)
+			batch.Pool->MarkSubmitted(*commandBuffer, value);
 
-		auto device = Application::GetGraphicsDevice();
-
-		// All queue submissions in the engine are serialized by the single queue
-		// mutex (nvrhi command-list execution is not internally thread-safe), so we
-		// take it here too even though the copy queue is a distinct GPU queue.
-		RenderCommandBuffer::LockQueue();
-		if (s_ResourceUploadListIsCopyQueue)
-		{
-			// Submit on the dedicated transfer queue and record its execution
-			// instance. Consumers (graphics/compute) wait on it before reading the
-			// uploaded resources — see RenderCommandBuffer::RT_Submit.
-			const uint64_t instance = device->executeCommandList(s_ResourceUploadCommandList, nvrhi::CommandQueue::Copy);
-			s_LastUploadInstance.store(instance, std::memory_order_release);
-		}
-		else
-		{
-			// Fallback: inline on the graphics queue. Same-queue submission order
-			// guarantees the following render command list sees the uploads, so no
-			// cross-queue wait is needed.
-			device->executeCommandList(s_ResourceUploadCommandList);
-		}
-		RenderCommandBuffer::UnlockQueue();
+		// On the transfer queue, consumers (graphics/compute) wait for this value before reading
+		// the uploaded resources — see RenderCommandBuffer::RT_Submit. On the graphics queue,
+		// submission order is enough.
+		if (queue == GPUQueue::Copy && value)
+			s_LastUploadInstance.store(value, std::memory_order_release);
 
 		// The submission is on the queue: the staging memory comes back once this frame retires.
 		batch.Staging.Retire();
@@ -1882,18 +1847,11 @@ namespace Lux {
 	void Renderer::RT_BeginFrame()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 		const uint32_t slotCount = s_Config.FramesInFlight;
 
-		// Close the ending frame: its event covers everything submitted while it was current. The
-		// lock keeps the event in order with other threads' submissions, as in Present().
-		nvrhi::EventQueryHandle& closing = s_FrameCompletionEvents[s_RTFrameNumber % slotCount];
-		if (!closing)
-			closing = device->createEventQuery();
-		RenderCommandBuffer::LockQueue();
-		device->resetEventQuery(closing);
-		device->setEventQuery(closing, nvrhi::CommandQueue::Graphics);
-		RenderCommandBuffer::UnlockQueue();
+		// Close the ending frame: the graphics queue's latest value covers everything submitted to
+		// it while the frame was current.
+		s_FrameCompletionValues[s_RTFrameNumber % slotCount] = RHIQueueTimeline::GetSubmittedValue(GPUQueue::Graphics);
 
 		s_RTFrameNumber++;
 		if (s_RTFrameNumber < slotCount)
@@ -1903,7 +1861,7 @@ namespace Lux {
 		// on the GPU, so the wait normally returns at once; it only blocks after frames that skipped
 		// Present()'s pacing.
 		const uint64_t retiringFrame = s_RTFrameNumber - slotCount;
-		device->waitEventQuery(s_FrameCompletionEvents[retiringFrame % slotCount]);
+		RHIQueueTimeline::Wait(GPUQueue::Graphics, s_FrameCompletionValues[retiringFrame % slotCount]);
 		s_ResourceFreeQueue.RT_Retire(retiringFrame);
 
 #ifdef LUX_DEBUG

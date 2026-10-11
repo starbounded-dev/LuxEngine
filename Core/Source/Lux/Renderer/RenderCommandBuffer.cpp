@@ -11,7 +11,9 @@
 #include "Lux/Renderer/RHI/NVRHIWrappers.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
+#include "Lux/Renderer/RHI/CommandBufferPool.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
+#include "Lux/Renderer/RHI/RHIQueueTimeline.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
 #include <cstring>
@@ -128,16 +130,17 @@ namespace Lux {
 			count = Renderer::GetConfig().FramesInFlight;
 		}
 
-		auto device = Application::GetGraphicsDevice();
+		// A queue the device does not have records on graphics instead; waits on the missing queue
+		// are then dropped (RHIQueueTimeline::AddWait), and graphics runs in order anyway.
+		if (!RHIQueueTimeline::HasQueue(m_Queue))
+		{
+			LUX_CORE_WARN_TAG("Renderer", "{}: the device has no {} queue; recording on graphics", m_DebugName, static_cast<int>(m_Queue));
+			m_Queue = GPUQueue::Graphics;
+		}
 
-		// Command lists are bound to a queue type at creation; a Compute list can
-		// only be executed on the compute queue (COPY/COMPUTE expose a subset of
-		// methods). Graphics (the default) is unchanged from before.
-		nvrhi::CommandListParameters clParams;
-		clParams.setQueueType(ToNVRHI(m_Queue));
-
-		for (uint32_t i = 0; i < count; i++)
-			m_CommandLists.push_back(device->createCommandList(clParams));
+		// One command buffer per slot to start with; the pool grows if they are all in flight.
+		m_SlotCount = count;
+		m_CommandBuffers = CreateScope<CommandBufferPool>(m_Queue, count, m_DebugName);
 
 #ifdef LUX_DIST
 		// GPU timer/statistics queries exist to feed the editor's profiling
@@ -233,26 +236,12 @@ namespace Lux {
 	void RenderCommandBuffer::RT_Begin(bool continueFrame)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
-		commandBufferIndex %= m_CommandLists.size();
+		LUX_CORE_ASSERT(!m_Recording, "RT_Begin inside RT_Begin/RT_End ({})", m_DebugName);
+		const uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex() % m_SlotCount;
 
-		m_ActiveCommandBuffer = m_CommandLists[commandBufferIndex];
-
-		m_ActiveCommandBuffer->open();
-
-		// Every barrier is the tracker's; NVRHI records no resource commands.
-		m_ActiveCommandBuffer->setEnableAutomaticBarriers(false);
-
-		// The NRI wrapper every barrier, segment and NRI pass records into. Non-owning: NRI never
-		// frees a command buffer it did not allocate.
-		nri::CommandBufferVKDesc wrapperDesc = {};
-		wrapperDesc.vkCommandBuffer = m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
-		wrapperDesc.queueType = ToNRIQueueType(m_Queue);
-		if (RHIDevice::API().CreateCommandBufferVK(RHIDevice::Get(), wrapperDesc, m_NRICommandBuffer) != nri::Result::SUCCESS)
-		{
-			LUX_CORE_ERROR_TAG("Renderer", "Failed to wrap command buffer {} in NRI", m_DebugName);
-			m_NRICommandBuffer = nullptr;
-		}
+		// Everything records into this NRI command buffer; null (logged by the pool) records nothing.
+		m_NRICommandBuffer = m_CommandBuffers->Begin();
+		m_Recording = true;
 		m_BarrierEmitter.SetCommandBuffer(m_NRICommandBuffer);
 		m_Tracker.Begin(&m_BarrierEmitter);
 		m_RequiredBindings = {};
@@ -307,23 +296,20 @@ namespace Lux {
 
 		LUX_CORE_ASSERT(!m_InNRISegment, "RT_End inside an NRI segment ({})", m_DebugName);
 		m_BarrierEmitter.SetCommandBuffer(nullptr);
-		DestroyNRIWrapper();
-
-		m_ActiveCommandBuffer->close();
-
-		m_ActiveCommandBuffer = nullptr;
-
+		if (m_NRICommandBuffer && m_CommandBuffers->End(*m_NRICommandBuffer))
+			m_RecordedCommandBuffer = m_NRICommandBuffer;
+		m_NRICommandBuffer = nullptr;
+		m_Recording = false;
 	}
 
 	RenderCommandBuffer::~RenderCommandBuffer()
 	{
-		DestroyNRIWrapper();
 		DestroyQuerySlots();
 	}
 
 	nri::CommandBuffer* RenderCommandBuffer::RT_BeginNRISegment()
 	{
-		LUX_CORE_ASSERT(m_ActiveCommandBuffer, "RT_BeginNRISegment outside RT_Begin/RT_End ({})", m_DebugName);
+		LUX_CORE_ASSERT(m_Recording, "RT_BeginNRISegment outside RT_Begin/RT_End ({})", m_DebugName);
 		LUX_CORE_ASSERT(!m_InNRISegment, "Nested NRI segment ({})", m_DebugName);
 
 		// RT_Begin logged a failed wrap.
@@ -367,16 +353,6 @@ namespace Lux {
 
 		RHIDevice::API().CmdCopyBuffer(*commandBuffer, *buffer.Get(), offset, *source.Buffer, source.Offset, size);
 		RT_EndNRISegment();
-	}
-
-	void RenderCommandBuffer::DestroyNRIWrapper()
-	{
-		if (!m_NRICommandBuffer)
-			return;
-
-		// A wrapper only describes the VkCommandBuffer; nothing on the GPU refers to it.
-		RHIDevice::API().DestroyCommandBuffer(m_NRICommandBuffer);
-		m_NRICommandBuffer = nullptr;
 	}
 
 	bool RenderCommandBuffer::RT_BeginNRIRenderPass(const NRIRenderPassDesc& desc, std::string_view name, const nvrhi::ViewportState& viewport, const nvrhi::VariableRateShadingState& shadingRate)
@@ -723,35 +699,15 @@ namespace Lux {
 		RHIDevice::API().CmdSetRootConstants(*m_NRICommandBuffer, rootConstants);
 	}
 
-	void RenderCommandBuffer::RT_Submit()
+	void RenderCommandBuffer::RT_Submit(nri::Fence* waitSemaphore)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		RT_Submit(VK_NULL_HANDLE);
-	}
-
-	void RenderCommandBuffer::RT_Submit(VkSemaphore waitSemaphore)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		LUX_CORE_TRACE_TAG("Renderer", "Submitting Render Command Buffer {}", m_DebugName);
+		LUX_CORE_ASSERT(!m_Recording, "RT_Submit inside RT_Begin/RT_End ({})", m_DebugName);
 
 		// Flush batched resource uploads first: anything this command list may
 		// consume (mesh buffers, texture data) must reach the queue ahead of it.
 		// Cheap no-op when nothing is pending.
 		Renderer::FlushResourceUploads();
-
-		auto device = Application::GetGraphicsDevice();
-
-		// TODO(Yan): fences
-
-		uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
-		commandBufferIndex %= m_CommandLists.size();
-
-		LockQueue();
-		if (waitSemaphore)
-		{
-			auto vulkanDevice = static_cast<nvrhi::vulkan::IDevice*>(device);
-			vulkanDevice->queueWaitForSemaphore(ToNVRHI(m_Queue), waitSemaphore, 0);
-		}
 
 		// If asset uploads were flushed on the dedicated transfer queue, make this
 		// queue wait for that copy to complete before it reads the uploaded mesh/
@@ -760,59 +716,29 @@ namespace Lux {
 		if (Renderer::ConsumePendingUpload(m_Queue, uploadInstance))
 			Renderer::QueueWaitForCommandList(m_Queue, GPUQueue::Copy, uploadInstance);
 
-		// Execute on this buffer's queue (Graphics unless this is a compute
-		// command buffer) and keep the returned instance id so another queue can
-		// wait on it via Renderer::QueueWaitForCommandList.
-		m_LastExecutionInstance = device->executeCommandList(m_CommandLists[commandBufferIndex], ToNVRHI(m_Queue));
-		UnlockQueue();
+		// A recording that failed submits nothing, but the waits still go out (an acquired
+		// swapchain image's semaphore must be waited for), so the queue sees a submission anyway.
+		nri::CommandBuffer* commandBuffer = std::exchange(m_RecordedCommandBuffer, nullptr);
+		RHIQueueTimeline::Submission submission;
+		if (commandBuffer)
+			submission.CommandBuffers = { &commandBuffer, 1 };
+		submission.WaitSemaphore = waitSemaphore;
+		const uint64_t value = RHIQueueTimeline::Submit(m_Queue, submission);
+		if (commandBuffer && value)
+			m_CommandBuffers->MarkSubmitted(*commandBuffer, value);
+		// The value another queue waits for (Renderer::QueueWaitForCommandList).
+		if (value)
+			m_LastExecutionInstance = value;
 
 		// The writes' staging memory comes back once this frame retires.
 		m_Staging.Retire();
-
 	}
 
 	bool RenderCommandBuffer::RT_WaitForCompletion()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		const NRIInterface& api = RHIDevice::API();
-		nri::Queue* queue = RHIDevice::GetQueue(m_Queue);
-		nri::Fence* fence = nullptr;
-		if (!queue || api.CreateFence(RHIDevice::Get(), 0, fence) != nri::Result::SUCCESS)
-		{
-			LUX_CORE_ERROR_TAG("Renderer", "Cannot wait for {}: NRI could not create a fence", m_DebugName);
-			return false;
-		}
-
-		// A signal-only submission: it completes after everything submitted to the queue before it.
-		nri::FenceSubmitDesc signal = {};
-		signal.fence = fence;
-		signal.value = 1;
-		nri::QueueSubmitDesc submitDesc = {};
-		submitDesc.signalFences = &signal;
-		submitDesc.signalFenceNum = 1;
-
-		LockQueue();
-		const nri::Result result = api.QueueSubmit(*queue, submitDesc);
-		UnlockQueue();
-		if (result == nri::Result::SUCCESS)
-			api.Wait(*fence, 1);
-		else
-			LUX_CORE_ERROR_TAG("Renderer", "Cannot wait for {}: the fence submission failed", m_DebugName);
-
-		Renderer::SubmitResourceFree([fence]()
-			{
-				RHIDevice::API().DestroyFence(fence);
-			});
-		return result == nri::Result::SUCCESS;
-	}
-
-	void RenderCommandBuffer::RT_Wait(VkSemaphore waitSemaphore)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		auto device = static_cast<nvrhi::vulkan::IDevice*>(Application::GetGraphicsDevice());
-		LockQueue();
-		device->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, waitSemaphore, 0);
-		UnlockQueue();
+		RHIQueueTimeline::Wait(m_Queue, m_LastExecutionInstance);
+		return true;
 	}
 
 	// Labels and checkpoints are legal inside rendering, so markers do not close an NRI scope.

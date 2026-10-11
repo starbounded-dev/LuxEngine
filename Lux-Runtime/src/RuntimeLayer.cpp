@@ -329,8 +329,7 @@ namespace Lux
 
 		Renderer::Submit([commandBuffer, swapChain]() mutable
 		{
-			vk::Semaphore acquiredSemaphore = swapChain->GetAcquiredImageSemaphore();
-			commandBuffer->RT_Submit((VkSemaphore)acquiredSemaphore);
+			commandBuffer->RT_Submit(swapChain->TakeAcquireSemaphore());
 		});
 	}
 

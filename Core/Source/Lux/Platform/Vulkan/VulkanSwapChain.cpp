@@ -8,6 +8,7 @@
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
+#include "Lux/Renderer/RHI/RHIQueueTimeline.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
 
 #include <GLFW/glfw3.h>
@@ -294,6 +295,21 @@ namespace Lux {
 				const vk::Result semRes = vulkanDeviceManager->m_VulkanDevice.createSemaphore(&semCI, nullptr, &m_PresentSemaphores[i]);
 				LUX_CORE_VERIFY(semRes == vk::Result::eSuccess);
 			}
+
+			// Non-owning NRI wrappers: submissions wait for and signal them through NRI.
+			const NRIInterface& api = RHIDevice::API();
+			auto wrap = [&](vk::Semaphore semaphore)
+				{
+					nri::Fence* fence = nullptr;
+					const nri::FenceVKDesc fenceDesc = { reinterpret_cast<uint64_t>(static_cast<VkSemaphore>(semaphore)) };
+					LUX_CORE_VERIFY(api.CreateFenceVK(RHIDevice::Get(), fenceDesc, fence) == nri::Result::SUCCESS, "Failed to wrap a swap chain semaphore in NRI");
+					return fence;
+				};
+			for (size_t i = 0; i < m_AcquireSemaphores.size(); ++i)
+				m_AcquireFences[i] = wrap(m_AcquireSemaphores[i]);
+			m_PresentFences.resize(m_PresentSemaphores.size());
+			for (size_t i = 0; i < m_PresentSemaphores.size(); ++i)
+				m_PresentFences[i] = wrap(m_PresentSemaphores[i]);
 		}
 
 		m_NeedsRecreate = false;
@@ -331,6 +347,20 @@ namespace Lux {
 			m_SwapChain = nullptr;
 		}
 
+		// The wrappers first; they do not own the semaphores.
+		for (nri::Fence* fence : m_PresentFences)
+		{
+			if (fence)
+				RHIDevice::API().DestroyFence(fence);
+		}
+		m_PresentFences.clear();
+		for (nri::Fence*& fence : m_AcquireFences)
+		{
+			if (fence)
+				RHIDevice::API().DestroyFence(fence);
+			fence = nullptr;
+		}
+
 		for (auto& semaphore : m_PresentSemaphores)
 		{
 			if (semaphore)
@@ -349,8 +379,8 @@ namespace Lux {
 			}
 		}
 
-		// Aliases one of m_AcquireSemaphores, so it dangles once those are destroyed
-		m_AcquiredSemaphore = vk::Semaphore();
+		// Aliases one of m_AcquireFences, so it dangles once those are destroyed
+		m_AcquiredSemaphore = nullptr;
 	}
 
 	bool VulkanSwapChain::IsSurfaceZeroSized() const
@@ -398,7 +428,6 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("VulkanSwapChain::BeginFrame");
 
-		auto device = static_cast<nvrhi::vulkan::IDevice*>(Application::Get().GetGraphicsDevice());
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
 
 		m_ImageAcquired = false;
@@ -422,7 +451,7 @@ namespace Lux {
 		if (res == vk::Result::eErrorDeviceLost)
 			VulkanDeviceManager::ReportDeviceLost("vkAcquireNextImageKHR");
 
-		m_AcquiredSemaphore = semaphore;
+		m_AcquiredSemaphore = m_AcquireFences[m_AcquireSemaphoreIndex];
 		m_AcquireSemaphoreIndex = (m_AcquireSemaphoreIndex + 1) % m_AcquireSemaphores.size();
 
 		// Recreation is NEVER done here: destroying the swapchain would waitIdle and then destroy
@@ -461,18 +490,28 @@ namespace Lux {
 		m_ImageAcquired = false;
 
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
-		auto device = static_cast<nvrhi::vulkan::IDevice*>(Application::Get().GetGraphicsDevice());
 
-		// Use the semaphore corresponding to the current swapchain image index
-		// This ensures proper synchronization without semaphore reuse conflicts
-		const auto& semaphore = m_PresentSemaphores[m_SwapChainIndex];
+		// Uploads first: a back buffer nothing rendered to still needs its first transition.
+		Renderer::FlushResourceUploads();
+
+		// A submission with no work signals the image's present semaphore after everything before
+		// it, and waits for the acquire if nothing rendered this frame. One present semaphore per
+		// image avoids reuse conflicts.
+		RHIQueueTimeline::Submission submission;
+		submission.WaitSemaphore = TakeAcquireSemaphore();
+		submission.SignalSemaphore = m_PresentFences[m_SwapChainIndex];
+		const uint64_t frameValue = RHIQueueTimeline::Submit(GPUQueue::Graphics, submission);
+		if (!frameValue)
+		{
+			// Nothing will signal the present semaphore (logged by the submission).
+			m_NeedsRecreate = true;
+			return;
+		}
 
 		RenderCommandBuffer::LockQueue();
-		device->queueSignalSemaphore(nvrhi::CommandQueue::Graphics, semaphore, 0);
-		device->executeCommandLists(nullptr, 0);
-
 		{
 			LUX_PROFILE_SCOPE("PresentKHR");
+			const vk::Semaphore semaphore = m_PresentSemaphores[m_SwapChainIndex];
 			vk::PresentInfoKHR info = vk::PresentInfoKHR()
 				.setWaitSemaphoreCount(1)
 				.setPWaitSemaphores(&semaphore)
@@ -490,7 +529,6 @@ namespace Lux {
 			else
 				LUX_CORE_VERIFY(res == vk::Result::eSuccess);
 		}
-
 		RenderCommandBuffer::UnlockQueue();
 
 #ifndef _WIN32
@@ -500,37 +538,16 @@ namespace Lux {
 		}
 #endif
 
+		// Frame pacing: at most maxFramesInFlight presented frames on the GPU.
 		{
-			LUX_PROFILE_SCOPE("WaitEventQuery");
-
+			LUX_PROFILE_SCOPE("WaitForFramesInFlight");
 			while (m_FramesInFlight.size() >= vulkanDeviceManager->m_DeviceParams.maxFramesInFlight)
 			{
-				auto query = m_FramesInFlight.front();
+				RHIQueueTimeline::Wait(GPUQueue::Graphics, m_FramesInFlight.front());
 				m_FramesInFlight.pop();
-
-				device->waitEventQuery(query);
-
-				m_QueryPool.push_back(query);
 			}
 		}
-
-		{
-			LUX_PROFILE_SCOPE("OtherEventQuery");
-			nvrhi::EventQueryHandle query;
-			if (!m_QueryPool.empty())
-			{
-				query = m_QueryPool.back();
-				m_QueryPool.pop_back();
-			}
-			else
-			{
-				query = device->createEventQuery();
-			}
-
-			device->resetEventQuery(query);
-			device->setEventQuery(query, nvrhi::CommandQueue::Graphics);
-			m_FramesInFlight.push(query);
-		}
+		m_FramesInFlight.push(frameValue);
 	}
 
 	nvrhi::ITexture* VulkanSwapChain::GetCurrentBackBuffer()

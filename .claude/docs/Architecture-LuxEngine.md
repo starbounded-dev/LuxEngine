@@ -205,10 +205,12 @@ not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
-`VulkanDeviceManager` created. It never owns them; NVRHI keeps driving the same device until it is
-removed. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
-the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. NRI submits
-to the same `VkQueue`s as NVRHI, so NRI submissions hold `RenderCommandBuffer::LockQueue`. Every
+`VulkanDeviceManager` created. It never owns them; NVRHI still wraps the same device (bring-up and
+resource wrapper handles) until it is removed. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
+the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. Every
+submission goes through `RHIQueueTimeline` (`Renderer/RHI/RHIQueueTimeline.h`, created by
+`Window::CreateRHIDevice` after `RHIDevice::Init`): one NRI timeline fence per queue, submissions
+under `RenderCommandBuffer::LockQueue`, cross-queue waits, CPU waits. Every
 draw and dispatch records through NRI (below). Device features: see `Rendering.md § NRI device`.
 
 **GPU memory is NRI's** (Phase 8): `Image2D`, `VertexBuffer`, `IndexBuffer`, `UniformBuffer`,
@@ -226,8 +228,10 @@ reads NRI's `QueryVideoMemoryInfo`.
   accesses (`DescriptorSetUses`). There are no NVRHI binding sets or layouts.
 
 **Recording on NRI** (Phases 10-13; details in `Rendering.md § NRI device`). Everything is recorded
-with NRI inside NVRHI's command lists, barriers, copies and clears included; NVRHI keeps the command
-lists and their submission.
+into NRI command buffers (`CommandBufferPool`) and submitted through `RHIQueueTimeline`; NVRHI
+records and submits nothing. `VulkanSwapChain` exposes NRI wrappers of its acquire semaphore
+(`TakeAcquireSemaphore`, once per frame) and signals its present semaphore in a signal-only NRI
+submission.
 - `Pipeline` builds its NRI pipeline from its specification, the shader's SPIR-V and the
   framebuffer's attachment formats (`Framebuffer::GetNRIColorFormat`/`GetNRIDepthFormat`), and
   `Framebuffer` builds NRI attachment views.
@@ -255,7 +259,7 @@ lists and their submission.
 
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
 `ResourceStateTracker` + `NRIBarrierEmitter` (`Renderer/RHI/`), which record every barrier as an
-NRI barrier into the command list's NRI wrapper. Resources are named by tracked descriptions made
+NRI barrier into the open NRI command buffer. Resources are named by tracked descriptions made
 when they are created (`NRITexture`/`NRIBuffer::GetTracked`, `ImageInfo::Tracked`). NVRHI's automatic
 barriers are off and the tracker places every barrier: NRI passes, draws and dispatches require what they bind
 (attachments, descriptor-set uses, vertex/index/indirect buffers), copy/clear/write sites call

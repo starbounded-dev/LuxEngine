@@ -385,8 +385,10 @@ commits the barriers. Write GPU-only buffers with `RT_WriteBuffer`, and record a
 data through `Renderer::RecordResourceUpload`'s `UploadContext`; never allocate staging memory by
 hand (`StagingStream` recycles it after the GPU is done). Clear a storage image with
 `Renderer::ClearImage` and a `StorageImageClear` built next to the image's other views, not with a
-raw clear. Read textures back with `ReadbackTexture` (`Renderer/TextureReadback.h`). Record no
-NVRHI commands: NVRHI only opens, closes and submits `RenderCommandBuffer`'s command lists.
+raw clear. Read textures back with `ReadbackTexture` (`Renderer/TextureReadback.h`). Submit only
+through `RenderCommandBuffer::RT_Submit` (or `RHIQueueTimeline::Submit`); pass a swapchain's
+acquire semaphore with the submission that draws to the back buffer
+(`VulkanSwapChain::TakeAcquireSemaphore`).
 
 ### Configuration macros
 

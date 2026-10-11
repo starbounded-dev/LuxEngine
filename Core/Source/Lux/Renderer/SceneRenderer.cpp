@@ -3968,7 +3968,7 @@ namespace Lux {
 		// camera + light UBOs), so with EnableAsyncCompute they run on the compute
 		// queue in FlushDrawList *before* this graphics graph and are omitted here.
 		// Their SSBO outputs (light grids/index lists) feed deferred lighting; the
-		// cross-queue ordering is a queueWaitForCommandList, not a graph edge; the
+		// cross-queue ordering is a QueueWaitForCommandList, not a graph edge; the
 		// in-graph readers then see the light buffers as external inputs. A cross-queue
 		// graph edge is a follow-up (NRI migration plan, follow-ups).
 		if (!m_Options.EnableAsyncCompute)
