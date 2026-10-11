@@ -84,25 +84,46 @@ namespace Lux {
 		uint64_t m_Offset = 0;
 	};
 
-	// A texture subresource staged for an upload (StageTextureData).
+	// One texture subresource as NRI copies it to or from a buffer: rows of texel blocks at NRI's
+	// row alignment (DeviceDesc::memoryAlignment), depth slices packed (Vulkan addresses them by row
+	// count), starting at a multiple of OffsetAlignment. Depth formats copy their depth plane only.
+	struct TextureCopyLayout
+	{
+		uint32_t Mip = 0;
+		uint32_t Layer = 0;
+		// Bytes of texel blocks in one row, and rows of blocks in one slice.
+		uint32_t RowSize = 0;
+		uint32_t RowCount = 0;
+		uint32_t SliceCount = 1;
+		uint32_t RowPitch = 0;
+		uint64_t OffsetAlignment = 1;
+		bool DepthPlane = false;
+
+		uint32_t GetSlicePitch() const { return RowPitch * RowCount; }
+		uint64_t GetSize() const { return static_cast<uint64_t>(GetSlicePitch()) * SliceCount; }
+		// The tightly packed size: RowSize per row.
+		uint64_t GetPackedSize() const { return static_cast<uint64_t>(RowSize) * RowCount * SliceCount; }
+	};
+
+	// False, and logged, when `texture` has no mip `mip` or layer `layer`.
+	bool GetTextureCopyLayout(nri::Texture& texture, uint32_t mip, uint32_t layer, TextureCopyLayout& layout);
+
+	// A texture subresource staged for an upload.
 	struct StagedTextureData
 	{
 		StagingStream::Allocation Source;
-		uint32_t RowPitch = 0;
-		uint32_t SlicePitch = 0;
-		uint32_t Mip = 0;
-		uint32_t Layer = 0;
-		// Depth formats upload their depth plane only.
-		bool DepthPlane = false;
+		TextureCopyLayout Layout;
 	};
 
 	// Stages mip `mip` of layer `layer` of `texture` from `data`: rows of `rowPitch` bytes (rows of
-	// blocks for compressed formats), one depth slice after another, repacked at NRI's row
-	// alignment (DeviceDesc::memoryAlignment). False, and logged, when the subresource does not
-	// exist, `rowPitch` is shorter than a row, or staging fails.
+	// blocks for compressed formats), one depth slice after another. False, and logged, when the
+	// subresource does not exist, `rowPitch` is shorter than a row, or staging fails.
 	bool StageTextureData(StagingStream& stream, nri::Texture& texture, uint32_t layer, uint32_t mip, const void* data, uint64_t rowPitch, StagedTextureData& staged);
 
 	// Records the copy of `staged` into `texture`, which must be in CopyDest.
 	void CmdUploadStagedTexture(nri::CommandBuffer& commandBuffer, nri::Texture& texture, const StagedTextureData& staged);
+	// Records the copy of the subresource `layout` describes into `buffer` at `offset` (a multiple of
+	// layout.OffsetAlignment). The texture must be in CopySource.
+	void CmdReadbackTexture(nri::CommandBuffer& commandBuffer, nri::Buffer& buffer, uint64_t offset, nri::Texture& texture, const TextureCopyLayout& layout);
 
 }

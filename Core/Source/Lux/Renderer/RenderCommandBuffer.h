@@ -62,6 +62,9 @@ namespace Lux {
 		void RT_Submit(VkSemaphore waitSemaphore);
 
 		void RT_Wait(VkSemaphore waitSemaphore);
+		// Blocks until this command buffer's last submission has finished on the GPU (an NRI fence
+		// signalled on its queue after it). False, and logged, when the wait could not be set up.
+		bool RT_WaitForCompletion();
 
 		void RT_BeginMarker(const std::string& label);
 		void RT_EndMarker();
@@ -70,7 +73,7 @@ namespace Lux {
 		// barriers are off): NRI passes, draws and dispatches require what they bind, and code that
 		// touches a resource outside them requires it first.
 		//   RT_Require*:    a copy, clear or write; also re-requires the bindings of the next draw or
-		//                   dispatch, as NVRHI did. Emitted only with explicit barriers.
+		//                   dispatch, as NVRHI did.
 		//   RT_Transition*: a transition the code always needed (mip chains, compute->indirect).
 		// Resources are named by their tracked descriptions (NRITexture/NRIBuffer::GetTracked,
 		// ImageInfo::Tracked); empty ones are ignored.
@@ -79,21 +82,10 @@ namespace Lux {
 		void RT_TransitionTextureState(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state);
 		void RT_TransitionBufferState(const TrackedBuffer& buffer, ResourceState state);
 		void RT_CommitBarriers();
-		bool RT_UsesExplicitBarriers() const { return m_ExplicitBarriers; }
 		// Debug (render graph): collect the handles of every requirement until RT_EndRequirementLog.
 		void RT_BeginRequirementLog();
 		std::vector<const void*> RT_EndRequirementLog();
 		const ResourceStateTracker& RT_GetTracker() const { return m_Tracker; }
-		// Which barriers the next RT_Begin records with.
-		enum class BarrierMode : uint8_t
-		{
-			// The tracker's: everything recorded with NRI needs them.
-			Explicit,
-			// NVRHI's automatic barriers, for work the tracker cannot express on NVRHI: readbacks into
-			// staging textures (no public state API; NRI Phase 13). Nothing may be drawn or dispatched.
-			Automatic,
-		};
-		void SetBarrierMode(BarrierMode mode) { m_BarrierMode = mode; }
 
 		// NRI recording inside this command buffer (NRI migration Phase 9, plan §2.2 I3/I4). Between
 		// RT_BeginNRISegment and RT_EndNRISegment only NRI records, into a non-owning NRI wrapper of
@@ -115,11 +107,11 @@ namespace Lux {
 		// NRI render passes (NRI migration Phase 10). Render thread.
 		//
 		// A pass begun with RT_BeginNRIRenderPass records through NRI, in NRI rendering scopes inside
-		// the NVRHI command list, until RT_EndNRIRenderPass. NVRHI may not record inside such a scope,
-		// so every NVRHI entry point here (GetActive, dispatches, timer queries) closes it first and
-		// the next draw reopens it, with the attachments loaded and the pass state rebound: NVRHI's
-		// implicit render pass splitting, made explicit. Barriers are the tracker's (NRI passes need
-		// RT_UsesExplicitBarriers); pending ones are committed between scopes.
+		// the NVRHI command list, until RT_EndNRIRenderPass. Work that cannot record inside such a
+		// scope (dispatches, copies, clears, timer queries) closes it first and the next draw reopens
+		// it, with the attachments loaded and the pass state rebound: NVRHI's implicit render pass
+		// splitting, made explicit. Barriers are the tracker's; pending ones are committed between
+		// scopes.
 		struct NRIAttachment
 		{
 			nri::Descriptor* View = nullptr;
@@ -206,9 +198,6 @@ namespace Lux {
 		// cannot wrap the command list (logged).
 		nri::CommandBuffer* RT_BeginNRIDispatch(const NRIDispatchDesc& desc);
 
-		// The NVRHI command list, for recording NVRHI commands. Closes an open NRI rendering scope
-		// first (see RT_BeginNRIRenderPass).
-		nvrhi::CommandListHandle GetActive();
 		nvrhi::CommandListHandle Get(uint32_t index = 0) const { LUX_CORE_VERIFY(index < m_CommandLists.size());  return m_CommandLists[index]; }
 
 		// The queue this command buffer records/submits on (Graphics by default).
@@ -261,8 +250,6 @@ namespace Lux {
 		NRIBarrierEmitter m_BarrierEmitter;
 		// What RT_WriteBuffer copies from; retired at each RT_Submit.
 		StagingStream m_Staging{ "Command buffer writes" };
-		bool m_ExplicitBarriers = false;
-		BarrierMode m_BarrierMode = BarrierMode::Explicit;
 		std::vector<const void*> m_RequirementLog;
 		// What the last draws or dispatch required, for NVRHI's automatic-barrier change detection
 		// (kept so the barriers stay the ones NVRHI placed): bindings are re-required when they change,

@@ -178,72 +178,93 @@ namespace Lux {
 		pages.clear();
 	}
 
-	bool StageTextureData(StagingStream& stream, nri::Texture& texture, uint32_t layer, uint32_t mip, const void* data, uint64_t rowPitch, StagedTextureData& staged)
+	bool GetTextureCopyLayout(nri::Texture& texture, uint32_t mip, uint32_t layer, TextureCopyLayout& layout)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		const NRIInterface& api = RHIDevice::API();
-		const nri::TextureDesc& desc = api.GetTextureDesc(texture);
-		if (mip >= desc.mipNum || layer >= std::max<uint32_t>(1u, desc.layerNum) || !data)
+		const nri::TextureDesc& desc = RHIDevice::API().GetTextureDesc(texture);
+		if (mip >= desc.mipNum || layer >= std::max<uint32_t>(1u, desc.layerNum))
 		{
-			LUX_CORE_ERROR_TAG("Renderer", "Texture upload to mip {} of layer {} skipped: the texture has {} mip(s) and {} layer(s)", mip, layer, desc.mipNum, desc.layerNum);
+			LUX_CORE_ERROR_TAG("Renderer", "Texture copy of mip {} of layer {} skipped: the texture has {} mip(s) and {} layer(s)", mip, layer, desc.mipNum, desc.layerNum);
 			return false;
 		}
 
 		const nri::FormatProps& format = *nri::nriGetFormatProps(desc.format);
+		layout.Mip = mip;
+		layout.Layer = layer;
+		layout.DepthPlane = format.isDepth;
+		// The depth plane of D32S8 is copied as four-byte depth texels (the NRI fork's patch).
+		const uint32_t stride = desc.format == nri::Format::D32_SFLOAT_S8_UINT ? 4u : format.stride;
+
 		const uint32_t width = std::max(1u, static_cast<uint32_t>(desc.width) >> mip);
 		const uint32_t height = std::max(1u, static_cast<uint32_t>(desc.height) >> mip);
-		const uint32_t depth = desc.type == nri::TextureType::TEXTURE_3D ? std::max(1u, static_cast<uint32_t>(desc.depth) >> mip) : 1u;
-		const uint32_t rowSize = (width + format.blockWidth - 1) / format.blockWidth * format.stride;
-		const uint32_t rowCount = (height + format.blockHeight - 1) / format.blockHeight;
-		if (rowPitch < rowSize)
+		layout.SliceCount = desc.type == nri::TextureType::TEXTURE_3D ? std::max(1u, static_cast<uint32_t>(desc.depth) >> mip) : 1u;
+		layout.RowSize = (width + format.blockWidth - 1) / format.blockWidth * stride;
+		layout.RowCount = (height + format.blockHeight - 1) / format.blockHeight;
+
+		const nri::DeviceDesc& deviceDesc = RHIDevice::GetDesc();
+		const uint32_t rowAlignment = std::lcm(std::max(1u, deviceDesc.memoryAlignment.uploadBufferTextureRow), stride);
+		layout.RowPitch = static_cast<uint32_t>(AlignUp(layout.RowSize, rowAlignment));
+		layout.OffsetAlignment = std::lcm(static_cast<uint64_t>(std::max(1u, deviceDesc.memoryAlignment.uploadBufferTextureSlice)), static_cast<uint64_t>(stride));
+		return true;
+	}
+
+	bool StageTextureData(StagingStream& stream, nri::Texture& texture, uint32_t layer, uint32_t mip, const void* data, uint64_t rowPitch, StagedTextureData& staged)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		TextureCopyLayout& layout = staged.Layout;
+		if (!data || !GetTextureCopyLayout(texture, mip, layer, layout))
+			return false;
+		if (rowPitch < layout.RowSize)
 		{
-			LUX_CORE_ERROR_TAG("Renderer", "Texture upload to mip {} of layer {} skipped: a {} row is {} bytes, the data's rows are {}", mip, layer, format.name, rowSize, rowPitch);
+			LUX_CORE_ERROR_TAG("Renderer", "Texture upload to mip {} of layer {} skipped: a row is {} bytes, the data's rows are {}", mip, layer, layout.RowSize, rowPitch);
 			return false;
 		}
 
-		// Vulkan addresses slices by row count, so slices stay packed; rows and the start take
-		// NRI's alignment, which includes the texel block size.
-		const nri::DeviceDesc& deviceDesc = RHIDevice::GetDesc();
-		const uint32_t rowAlignment = std::lcm(std::max(1u, deviceDesc.memoryAlignment.uploadBufferTextureRow), static_cast<uint32_t>(format.stride));
-		const uint64_t offsetAlignment = std::lcm(static_cast<uint64_t>(std::max(1u, deviceDesc.memoryAlignment.uploadBufferTextureSlice)), static_cast<uint64_t>(format.stride));
-		const uint32_t stagedRowPitch = static_cast<uint32_t>(AlignUp(rowSize, rowAlignment));
-		const uint32_t stagedSlicePitch = stagedRowPitch * rowCount;
-
 		const uint8_t* source = static_cast<const uint8_t*>(data);
-		staged.Source = stream.Write(static_cast<uint64_t>(stagedSlicePitch) * depth, offsetAlignment, [&](uint8_t* destination)
+		staged.Source = stream.Write(layout.GetSize(), layout.OffsetAlignment, [&](uint8_t* destination)
 			{
-				if (stagedRowPitch == rowPitch)
+				if (layout.RowPitch == rowPitch)
 				{
-					std::memcpy(destination, source, static_cast<size_t>(stagedSlicePitch) * depth);
+					std::memcpy(destination, source, layout.GetSize());
 					return;
 				}
-				for (uint32_t row = 0; row < rowCount * depth; row++)
-					std::memcpy(destination + static_cast<size_t>(row) * stagedRowPitch, source + static_cast<size_t>(row) * rowPitch, rowSize);
+				for (uint32_t row = 0; row < layout.RowCount * layout.SliceCount; row++)
+					std::memcpy(destination + static_cast<size_t>(row) * layout.RowPitch, source + static_cast<size_t>(row) * rowPitch, layout.RowSize);
 			});
-		if (!staged.Source)
-			return false;
+		return static_cast<bool>(staged.Source);
+	}
 
-		staged.RowPitch = stagedRowPitch;
-		staged.SlicePitch = stagedSlicePitch;
-		staged.Mip = mip;
-		staged.Layer = layer;
-		staged.DepthPlane = format.isDepth;
-		return true;
+	namespace {
+
+		void GetCopyDescs(const TextureCopyLayout& layout, uint64_t offset, nri::TextureRegionDesc& region, nri::TextureDataLayoutDesc& dataLayout)
+		{
+			// Width, height and depth 0: the whole mip.
+			region = {};
+			region.mipOffset = static_cast<nri::Dim_t>(layout.Mip);
+			region.layerOffset = static_cast<nri::Dim_t>(layout.Layer);
+			region.planes = layout.DepthPlane ? nri::PlaneBits::DEPTH : nri::PlaneBits::ALL;
+
+			dataLayout = {};
+			dataLayout.offset = offset;
+			dataLayout.rowPitch = layout.RowPitch;
+			dataLayout.slicePitch = layout.GetSlicePitch();
+		}
+
 	}
 
 	void CmdUploadStagedTexture(nri::CommandBuffer& commandBuffer, nri::Texture& texture, const StagedTextureData& staged)
 	{
-		// Width, height and depth 0: the whole mip.
-		nri::TextureRegionDesc region = {};
-		region.mipOffset = static_cast<nri::Dim_t>(staged.Mip);
-		region.layerOffset = static_cast<nri::Dim_t>(staged.Layer);
-		region.planes = staged.DepthPlane ? nri::PlaneBits::DEPTH : nri::PlaneBits::ALL;
+		nri::TextureRegionDesc region;
+		nri::TextureDataLayoutDesc dataLayout;
+		GetCopyDescs(staged.Layout, staged.Source.Offset, region, dataLayout);
+		RHIDevice::API().CmdUploadBufferToTexture(commandBuffer, texture, region, *staged.Source.Buffer, dataLayout);
+	}
 
-		nri::TextureDataLayoutDesc layout = {};
-		layout.offset = staged.Source.Offset;
-		layout.rowPitch = staged.RowPitch;
-		layout.slicePitch = staged.SlicePitch;
-		RHIDevice::API().CmdUploadBufferToTexture(commandBuffer, texture, region, *staged.Source.Buffer, layout);
+	void CmdReadbackTexture(nri::CommandBuffer& commandBuffer, nri::Buffer& buffer, uint64_t offset, nri::Texture& texture, const TextureCopyLayout& layout)
+	{
+		nri::TextureRegionDesc region;
+		nri::TextureDataLayoutDesc dataLayout;
+		GetCopyDescs(layout, offset, region, dataLayout);
+		RHIDevice::API().CmdReadbackTextureToBuffer(commandBuffer, buffer, dataLayout, texture, region);
 	}
 
 }

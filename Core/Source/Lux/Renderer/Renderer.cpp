@@ -360,7 +360,6 @@ namespace Lux {
 		desc.Pipeline = computePass.GetPipeline()->GetNRIPipeline();
 		const char* problem = !desc.PipelineLayout ? "it has no NRI pipeline layout"
 			: !desc.Pipeline ? "it has no NRI pipeline"
-			: !commandBuffer.RT_UsesExplicitBarriers() ? "its command buffer records with automatic barriers"
 			: nullptr;
 
 		const uint32_t frameIndex = Renderer::RT_GetCurrentFrameIndex();
@@ -1510,8 +1509,7 @@ namespace Lux {
 		Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
 		const std::string& passName = renderPass.GetSpecification().DebugName;
 
-		const char* problem = !renderCommandBuffer.RT_UsesExplicitBarriers() ? "its command buffer records with automatic barriers"
-			: !pipeline->GetNRIPipeline() ? "its pipeline has no NRI pipeline"
+		const char* problem = !pipeline->GetNRIPipeline() ? "its pipeline has no NRI pipeline"
 			: !shader->GetNRIPipelineLayout() ? "its shader has no NRI layout"
 			: !framebuffer->HasNRIAttachments() ? "its framebuffer has no NRI attachments"
 			: framebuffer->HasStaleAttachments() ? "its framebuffer has stale attachments"

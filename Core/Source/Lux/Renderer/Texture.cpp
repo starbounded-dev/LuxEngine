@@ -7,6 +7,7 @@
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
+#include "Lux/Renderer/TextureReadback.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
@@ -635,13 +636,6 @@ namespace Lux {
 		renderCommandBuffer->Begin();
 
 		Ref<TextureCube> instance = this;
-		//Renderer::Submit([renderCommandBuffer, instance]()
-		//{
-		//	nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-		//
-		//	commandList->setTextureState(instance->m_Image->GetImageInfo().ImageHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-		//	commandList->commitBarriers();
-		//});
 
 		Renderer::BeginComputePass(renderCommandBuffer, computePass);
 
@@ -700,14 +694,6 @@ namespace Lux {
 
 		Renderer::EndComputePass(renderCommandBuffer, computePass);
 
-		//Renderer::Submit([renderCommandBuffer, instance]()
-		//{
-		//	nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-		//
-		//	commandList->setTextureState(instance->m_Image->GetImageInfo().ImageHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-		//	commandList->commitBarriers();
-		//});
-
 		renderCommandBuffer->End();
 		renderCommandBuffer->Submit();
 	}
@@ -721,82 +707,21 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		buffer.Release();
 
-		nvrhi::TextureHandle texture = m_Image ? m_Image->GetHandle() : nullptr;
-		if (!texture)
+		if (!m_Image)
 			return;
-
-		const ImageFormat format = m_Specification.Format;
-		const uint32_t mipCount = m_Image->GetSpecification().Mips;
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-
-		auto stagingDesc = nvrhi::TextureDesc()
-			.setFormat(Utils::NVRHIFormat(format))
-			.setDimension(nvrhi::TextureDimension::TextureCube)
-			.setWidth(m_Specification.Width)
-			.setHeight(m_Specification.Height)
-			.setMipLevels(mipCount)
-			.setArraySize(6)
-			.setDebugName("TextureCube readback");
-		nvrhi::StagingTextureHandle stagingTexture = device->createStagingTexture(stagingDesc, nvrhi::CpuAccessMode::Read);
-		if (!stagingTexture)
-		{
-			LUX_CORE_ERROR_TAG("Renderer", "TextureCube '{}': could not create a readback staging texture", m_Specification.DebugName);
-			return;
-		}
 
 		if (!m_CommandList)
-		{
 			m_CommandList = RenderCommandBuffer::Create(1, "TextureCube");
-			// Copies into an NVRHI staging texture, whose state only NVRHI's automatic barriers manage.
-			m_CommandList->SetBarrierMode(RenderCommandBuffer::BarrierMode::Automatic);
-		}
 
-		m_CommandList->RT_Begin();
+		const uint32_t mipCount = m_Image->GetSpecification().Mips;
+		std::vector<TextureSubresource> subresources;
+		subresources.reserve(static_cast<size_t>(mipCount) * 6);
 		for (uint32_t mip = 0; mip < mipCount; mip++)
 		{
 			for (uint32_t face = 0; face < 6; face++)
-			{
-				nvrhi::TextureSlice slice;
-				slice.mipLevel = mip;
-				slice.arraySlice = face;
-				m_CommandList->GetActive()->copyTexture(stagingTexture, slice, texture, slice);
-			}
+				subresources.push_back({ mip, face });
 		}
-		m_CommandList->RT_End();
-		m_CommandList->RT_Submit();
-
-		// Mapping waits for the copy to finish.
-		buffer.Allocate(Utils::GetImageMemorySize(format, m_Specification.Width, m_Specification.Height, mipCount, 6));
-		byte* dst = buffer.As<byte>();
-		for (uint32_t mip = 0; mip < mipCount; mip++)
-		{
-			const uint32_t mipWidth = glm::max(1u, m_Specification.Width >> mip);
-			const uint32_t mipHeight = glm::max(1u, m_Specification.Height >> mip);
-			const uint64_t rowSize = Utils::GetImageMemoryRowPitch(format, mipWidth);
-			const uint32_t rowCount = Utils::GetImageMemoryRowCount(format, mipHeight);
-
-			for (uint32_t face = 0; face < 6; face++)
-			{
-				nvrhi::TextureSlice slice;
-				slice.mipLevel = mip;
-				slice.arraySlice = face;
-
-				size_t rowPitch = 0;
-				const byte* src = static_cast<const byte*>(device->mapStagingTexture(stagingTexture, slice, nvrhi::CpuAccessMode::Read, &rowPitch));
-				if (!src)
-				{
-					LUX_CORE_ERROR_TAG("Renderer", "TextureCube '{}': could not map readback mip {} face {}", m_Specification.DebugName, mip, face);
-					buffer.Release();
-					return;
-				}
-
-				for (uint32_t row = 0; row < rowCount; row++)
-					memcpy(dst + row * rowSize, src + row * rowPitch, rowSize);
-				dst += rowSize * rowCount;
-
-				device->unmapStagingTexture(stagingTexture);
-			}
-		}
+		ReadbackTexture(*m_CommandList, m_Image->GetImageInfo().Tracked, subresources, buffer, m_Specification.DebugName);
 	}
 
 	// Inverse of CopyToHostBuffer, same layout. Mips beyond the image's own count are ignored.

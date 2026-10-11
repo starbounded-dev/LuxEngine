@@ -367,18 +367,19 @@ The model:
   requires it first: `RT_RequireTextureState`/`RT_RequireBufferState` for copies, clears and
   writes, and `RT_TransitionTextureState`/`RT_TransitionBufferState` + `RT_CommitBarriers` for
   transitions the code always needed (mip chains, compute → indirect).
-- **Barrier mode** (`RenderCommandBuffer::SetBarrierMode`, read at each `RT_Begin`): `Explicit` (the
-  default), or `Automatic` for readbacks into NVRHI staging textures (until NRI Phase 13), which may
-  not draw or dispatch.
+- **Readbacks** (`ReadbackTexture`, `Renderer/TextureReadback.h`: `Image2D`/`TextureCube::
+  CopyToHostBuffer`) require the texture as `CopySource`, record `CmdReadbackTextureToBuffer` into a
+  HOST_READBACK buffer, add a global barrier into host reads (the tracker has no host state, and a
+  fence wait alone does not make device writes visible to the host), submit, and wait with
+  `RenderCommandBuffer::RT_WaitForCompletion` (an NRI fence signalled after the submission). Rows
+  come back tightly packed.
 - **Bindless descriptor tables** are untracked, as in NVRHI (their group records no uses); material
   textures are in their resting `ShaderResource` state whenever a command buffer starts or ends.
 
 **Never write a barrier by hand — ask the command buffer's tracker.** Copies and clears record
 through NRI after their requirements, inside `RT_BeginNRITransfer` (`§ NRI device`), which commits
-them. An NVRHI command still recorded through `GetActive()` (the staging readbacks, until the
-rest of NRI Phase 13) does not commit the tracker's barriers: call
-`RT_CommitBarriers()` between its requirements and the command. NRI validation (Debug) checks every
-barrier's access against the resource's usage.
+them. The one exception is the readbacks' barrier into host reads, a state the tracker does not
+have. NRI validation (Debug) checks every barrier's access against the resource's usage.
 
 ---
 
@@ -448,9 +449,9 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - **No combined image samplers.** NRI has none, so shaders declare `texture2D` plus a `sampler`
     and combine them at the sample (`sampler2D(u_Tex, r_Sampler)`). Reflection logs an error for a
     combined `sampler2D` uniform.
-- **Recording.** Every draw, dispatch, barrier, copy, clear and upload is recorded with NRI (NRI
-  migration Phases 9-13), inside NVRHI's command lists; NVRHI keeps the command lists, submission,
-  queries and staging readbacks.
+- **Recording.** Every draw, dispatch, barrier, copy, clear, upload and readback is recorded with
+  NRI (NRI migration Phases 9-13), inside NVRHI's command lists; NVRHI keeps the command lists,
+  submission, timer queries and markers.
   - **Segments.** `RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment` wrap the NVRHI
     command list's `VkCommandBuffer` in a non-owning NRI command buffer. A segment starts with the
     pending barriers committed, and only NRI records until it ends.
@@ -481,17 +482,15 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
     `UnorderedAccess`. A clear keeps the texture it was built for: owners rebuild it with the
     image's other views (resize, re-aliasing). Non-storage images have no clear; attachments clear
     through their pass's load ops.
-  - **NVRHI never records inside an NRI rendering scope.** These close the scope first:
-    `GetActive()`, dispatches, copies and clears (`RT_BeginNRITransfer`), `RT_CommitBarriers` with
-    barriers pending, and timer queries. The
-    next draw reopens it, with the attachments loaded and the pass state rebound. That is NVRHI's
-    implicit render-pass splitting made explicit. Barriers a draw needs are committed between two
+  - **Rendering scopes split for work that cannot record inside them.** These close the scope
+    first: dispatches, copies and clears (`RT_BeginNRITransfer`), `RT_CommitBarriers` with barriers
+    pending, and NVRHI timer queries. The next draw reopens it, with the attachments loaded and the
+    pass state rebound. That is NVRHI's implicit render-pass splitting made explicit. Barriers a draw needs are committed between two
     scopes (`ResourceStateTracker::HasPendingBarriers`). Debug markers are legal inside a scope and
     do not close it. In Debug, every split is reported once per pass and reason (`NRI render pass
     '<pass>' (<command buffer>) is split by <reason> inside it`): the inside-rendering audit. Each
     split stores and reloads the attachments, so a reported command belongs before the pass or
-    after it. Record NVRHI commands only through `GetActive()`, and never hold its command list
-    across an NRI draw.
+    after it. NVRHI records nothing but markers and timer queries.
   - **Skipped work.** A pass, draw or dispatch NRI cannot record is skipped, logged once per
     pipeline or shader as `'<pass>' is not rendered: <reason>`; a pass that does not open skips its
     draws. Read-only depth, 3D attachments, triangle fans and stencil are among the reasons (Lux

@@ -13,6 +13,7 @@
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "RenderCommandBuffer.h"
+#include "TextureReadback.h"
 
 namespace Lux {
 
@@ -380,76 +381,12 @@ namespace Lux {
 			return;
 		}
 
-		nvrhi::IDevice* device = Application::Get().GetWindow().GetDeviceManager()->GetDevice();
-
 		if (!m_CommandList)
-		{
 			m_CommandList = RenderCommandBuffer::Create(1, "Image2D");
-			// Copies into an NVRHI staging texture, whose state only NVRHI's automatic barriers manage.
-			m_CommandList->SetBarrierMode(RenderCommandBuffer::BarrierMode::Automatic);
-		}
 
-		auto stagingDesc = nvrhi::TextureDesc()
-			.setFormat(Utils::NVRHIFormat(m_Specification.Format))
-			.setDimension(nvrhi::TextureDimension::Texture2D)
-			.setWidth(m_Specification.Width)
-			.setHeight(m_Specification.Height)
-			.setDepth(1)
-			.setMipLevels(m_Specification.Mips)
-			.setArraySize(m_Specification.Layers);
-
-		nvrhi::StagingTextureHandle stagingTexture = device->createStagingTexture(stagingDesc, nvrhi::CpuAccessMode::Read);
-
-		nvrhi::TextureSlice textureSlice;
-
-		uint32_t mipCount = 1; // TODO(Yan): not sure what the orig code was doing...
-		// mipCount = m_Specification.Mips;
-
-		m_CommandList->RT_Begin();
-
-		//commandList->beginTrackingTextureState(m_Info.ImageHandle, nvrhi::AllSubresources, m_Info.State);
-		//commandList->setTextureState(m_Info.ImageHandle, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
-		for (uint32_t mip = 0; mip < mipCount; mip++)
-		{
-			textureSlice.mipLevel = mip;
-			m_CommandList->GetActive()->copyTexture(stagingTexture, textureSlice, m_Info.ImageHandle, textureSlice);
-		}
-		//commandList->setTextureState(m_Info.ImageHandle, nvrhi::AllSubresources, m_Info.State);
-
-		m_CommandList->RT_End();
-		m_CommandList->RT_Submit();
-
-		// Row pitch and row count, not width x height x BPP: BPP is 0 for block-compressed
-		// formats, which made every BC texture read back as an empty buffer.
-		const uint64_t rowSize = Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width);
-		const uint32_t rowCount = Utils::GetImageMemoryRowCount(m_Specification.Format, m_Specification.Height);
-		buffer.Allocate(rowSize * rowCount);
-		for (uint32_t mip = 0; mip < mipCount; mip++)
-		{
-			textureSlice.mipLevel = mip;
-			size_t rowPitch;
-			void* data = device->mapStagingTexture(stagingTexture, textureSlice, nvrhi::CpuAccessMode::Read, &rowPitch);
-			if (!data)
-			{
-				// Nothing is mapped, so there is nothing to unmap.
-				buffer.Release();
-				return;
-			}
-
-			if (rowPitch == rowSize)
-			{
-				memcpy(buffer.Data, data, buffer.Size);
-			}
-			else
-			{
-				byte* dst = static_cast<byte*>(buffer.Data);
-				const byte* src = static_cast<const byte*>(data);
-				for (uint32_t y = 0; y < rowCount; y++)
-					memcpy(dst + y * rowSize, src + y * rowPitch, rowSize);
-			}
-
-			device->unmapStagingTexture(stagingTexture);
-		}
+		// Mip 0 of layer 0, rows tightly packed (Utils::GetImageMemoryRowPitch).
+		const TextureSubresource subresource;
+		ReadbackTexture(*m_CommandList, m_Info.Tracked, { &subresource, 1 }, buffer, m_Specification.DebugName);
 	}
 
 	ImageView::ImageView(const ImageViewSpecification& specification)

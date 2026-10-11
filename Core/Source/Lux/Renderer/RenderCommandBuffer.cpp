@@ -226,8 +226,8 @@ namespace Lux {
 
 		m_ActiveCommandBuffer->open();
 
-		m_ExplicitBarriers = m_BarrierMode == BarrierMode::Explicit;
-		m_ActiveCommandBuffer->setEnableAutomaticBarriers(!m_ExplicitBarriers);
+		// Every barrier is the tracker's; NVRHI records no resource commands.
+		m_ActiveCommandBuffer->setEnableAutomaticBarriers(false);
 
 		// The NRI wrapper every barrier, segment and NRI pass records into. Non-owning: NRI never
 		// frees a command buffer it did not allocate.
@@ -371,8 +371,7 @@ namespace Lux {
 
 		// Every resource the command buffer touched returns to its resting state, where the next
 		// command buffer, on any queue, starts.
-		if (m_ExplicitBarriers)
-			m_Tracker.End();
+		m_Tracker.End();
 
 		LUX_CORE_ASSERT(!m_InNRISegment, "RT_End inside an NRI segment ({})", m_DebugName);
 		m_BarrierEmitter.SetCommandBuffer(nullptr);
@@ -413,7 +412,6 @@ namespace Lux {
 
 	nri::CommandBuffer* RenderCommandBuffer::RT_BeginNRITransfer()
 	{
-		LUX_CORE_ASSERT(m_ExplicitBarriers, "NRI copies and clears take their barriers from the tracker ({})", m_DebugName);
 		RT_SuspendNRIRendering("a copy or clear");
 		return RT_BeginNRISegment();
 	}
@@ -448,18 +446,11 @@ namespace Lux {
 		m_NRICommandBuffer = nullptr;
 	}
 
-	nvrhi::CommandListHandle RenderCommandBuffer::GetActive()
-	{
-		RT_SuspendNRIRendering("an NVRHI command");
-		return m_ActiveCommandBuffer;
-	}
-
 	bool RenderCommandBuffer::RT_BeginNRIRenderPass(const NRIRenderPassDesc& desc, std::string_view name, const nvrhi::ViewportState& viewport, const nvrhi::VariableRateShadingState& shadingRate)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		NRIRenderState& state = *m_NRIRender;
 		LUX_CORE_ASSERT(!state.Active, "NRI render pass '{}' begun inside '{}' ({})", name, state.Name, m_DebugName);
-		LUX_CORE_ASSERT(m_ExplicitBarriers, "NRI render passes take their barriers from the tracker ({})", m_DebugName);
 		LUX_CORE_ASSERT(desc.PipelineLayout && desc.Pipeline);
 
 		state = {};
@@ -475,14 +466,11 @@ namespace Lux {
 		// The attachments are required whenever a pass opens; the sets under the draws' change
 		// detection, so a draw that binds the pass's own set 0 again requires nothing. The buffers
 		// are forgotten, as NVRHI's pass began without any.
-		if (m_ExplicitBarriers)
-		{
-			RT_BeginRequirements(RequiredBindPoint::Graphics);
-			m_RequiredBindings.VertexBuffer = nullptr;
-			m_RequiredBindings.IndexBuffer = nullptr;
-			m_RequiredBindings.IndirectArguments = nullptr;
-			RT_RequireNRIRenderPass();
-		}
+		RT_BeginRequirements(RequiredBindPoint::Graphics);
+		m_RequiredBindings.VertexBuffer = nullptr;
+		m_RequiredBindings.IndexBuffer = nullptr;
+		m_RequiredBindings.IndirectArguments = nullptr;
+		RT_RequireNRIRenderPass();
 
 		if (!RT_OpenNRIRendering(true))
 		{
@@ -664,17 +652,14 @@ namespace Lux {
 		const BoundDescriptorSet& drawSet = !hasDrawSet ? bindings.DrawSet
 			: bindings.DrawSet.Set ? bindings.DrawSet : pass.DescriptorSets[pass.DrawSetIndex];
 
-		if (m_ExplicitBarriers)
-		{
-			// Forgotten requirements include the pass's: NVRHI re-required its whole graphics state.
-			if (RT_BeginRequirements(RequiredBindPoint::Graphics))
-				RT_RequireNRIRenderPass();
-			if (hasDrawSet)
-				RT_RequireSet(pass.DrawSetIndex, drawSet);
-			RT_RequireBuffer(m_RequiredBindings.VertexBuffer, bindings.VertexBuffer, ResourceState::VertexBuffer);
-			RT_RequireBuffer(m_RequiredBindings.IndexBuffer, bindings.IndexBuffer, ResourceState::IndexBuffer);
-			RT_RequireBuffer(m_RequiredBindings.IndirectArguments, bindings.IndirectArguments, ResourceState::IndirectArgument);
-		}
+		// Forgotten requirements include the pass's: NVRHI re-required its whole graphics state.
+		if (RT_BeginRequirements(RequiredBindPoint::Graphics))
+			RT_RequireNRIRenderPass();
+		if (hasDrawSet)
+			RT_RequireSet(pass.DrawSetIndex, drawSet);
+		RT_RequireBuffer(m_RequiredBindings.VertexBuffer, bindings.VertexBuffer, ResourceState::VertexBuffer);
+		RT_RequireBuffer(m_RequiredBindings.IndexBuffer, bindings.IndexBuffer, ResourceState::IndexBuffer);
+		RT_RequireBuffer(m_RequiredBindings.IndirectArguments, bindings.IndirectArguments, ResourceState::IndirectArgument);
 
 		// Barriers cannot be recorded inside rendering: commit them between two scopes.
 		if (m_Tracker.HasPendingBarriers())
@@ -701,16 +686,12 @@ namespace Lux {
 	nri::CommandBuffer* RenderCommandBuffer::RT_BeginNRIDispatch(const NRIDispatchDesc& desc)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		LUX_CORE_ASSERT(m_ExplicitBarriers, "NRI dispatches take their barriers from the tracker ({})", m_DebugName);
 		LUX_CORE_ASSERT(desc.PipelineLayout && desc.Pipeline);
 		RT_SuspendNRIRendering("a compute dispatch");
 
-		if (m_ExplicitBarriers)
-		{
-			RT_BeginRequirements(RequiredBindPoint::Compute);
-			for (uint32_t setIndex = 0; setIndex < desc.DescriptorSets.size(); setIndex++)
-				RT_RequireSet(setIndex, desc.DescriptorSets[setIndex]);
-		}
+		RT_BeginRequirements(RequiredBindPoint::Compute);
+		for (uint32_t setIndex = 0; setIndex < desc.DescriptorSets.size(); setIndex++)
+			RT_RequireSet(setIndex, desc.DescriptorSets[setIndex]);
 
 		// The segment starts with the pending barriers committed.
 		nri::CommandBuffer* commandBuffer = RT_BeginNRISegment();
@@ -884,6 +865,41 @@ namespace Lux {
 #endif
 	}
 
+	bool RenderCommandBuffer::RT_WaitForCompletion()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		const NRIInterface& api = RHIDevice::API();
+		nri::Queue* queue = RHIDevice::GetQueue(m_Queue);
+		nri::Fence* fence = nullptr;
+		if (!queue || api.CreateFence(RHIDevice::Get(), 0, fence) != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Cannot wait for {}: NRI could not create a fence", m_DebugName);
+			return false;
+		}
+
+		// A signal-only submission: it completes after everything submitted to the queue before it.
+		nri::FenceSubmitDesc signal = {};
+		signal.fence = fence;
+		signal.value = 1;
+		nri::QueueSubmitDesc submitDesc = {};
+		submitDesc.signalFences = &signal;
+		submitDesc.signalFenceNum = 1;
+
+		LockQueue();
+		const nri::Result result = api.QueueSubmit(*queue, submitDesc);
+		UnlockQueue();
+		if (result == nri::Result::SUCCESS)
+			api.Wait(*fence, 1);
+		else
+			LUX_CORE_ERROR_TAG("Renderer", "Cannot wait for {}: the fence submission failed", m_DebugName);
+
+		Renderer::SubmitResourceFree([fence]()
+			{
+				RHIDevice::API().DestroyFence(fence);
+			});
+		return result == nri::Result::SUCCESS;
+	}
+
 	void RenderCommandBuffer::RT_Wait(VkSemaphore waitSemaphore)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -965,22 +981,18 @@ namespace Lux {
 
 	void RenderCommandBuffer::RT_RequireTextureState(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state)
 	{
-		if (!m_ExplicitBarriers)
-			return;
 		m_Tracker.Require(texture, range, state);
 		m_BindingStatesDirty = true;
 	}
 
 	void RenderCommandBuffer::RT_RequireBufferState(const TrackedBuffer& buffer, ResourceState state)
 	{
-		if (!m_ExplicitBarriers)
-			return;
 		m_Tracker.Require(buffer, state);
 		m_BindingStatesDirty = true;
 	}
 
-	// Unlike RT_Require*, a transition does not mark bound sets dirty: NVRHI's setTextureState does
-	// not either (only copies, clears and writes do), and explicit mode mirrors automatic mode.
+	// Unlike RT_Require*, a transition does not mark bound sets dirty: NVRHI's setTextureState did
+	// not either (only copies, clears and writes did), and the tracker keeps NVRHI's barriers.
 	void RenderCommandBuffer::RT_TransitionTextureState(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state)
 	{
 		m_Tracker.Require(texture, range, state);

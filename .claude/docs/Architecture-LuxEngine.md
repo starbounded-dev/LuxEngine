@@ -227,7 +227,7 @@ reads NRI's `QueryVideoMemoryInfo`.
 
 **Recording on NRI** (Phases 10-13; details in `Rendering.md § NRI device`). Everything is recorded
 with NRI inside NVRHI's command lists, barriers, copies and clears included; NVRHI keeps the command
-lists, submission, queries and staging readbacks.
+lists, submission, timer queries and markers.
 - `Pipeline` builds its NRI pipeline from its specification, the shader's SPIR-V and the
   framebuffer's attachment formats (`Framebuffer::GetNRIColorFormat`/`GetNRIDepthFormat`), and
   `Framebuffer` builds NRI attachment views.
@@ -247,8 +247,8 @@ lists, submission, queries and staging readbacks.
   stages through a `StagingStream` (`Renderer/RHI/StagingMemory.h`); command buffers write buffers
   with `RenderCommandBuffer::RT_WriteBuffer`. New textures and swapchain images get their first
   transition (undefined → resting state) in the batch.
-- `RenderCommandBuffer::GetActive()` closes an open NRI rendering scope, so the NVRHI commands that
-  remain (staging readbacks, queries) stay legal anywhere.
+- NVRHI records only markers and timer queries into its command lists; a timer query closes an open
+  NRI rendering scope first.
 - `ImGuiRenderer::RenderToSwapchain` draws the UI into each swapchain with its own per-format
   pipelines, per-frame-slot geometry and descriptor pools. ImGui textures, the atlas included, are
   `Image2D`s in the shared `ImGuiTextureRegistry`.
@@ -259,8 +259,9 @@ NRI barrier into the command list's NRI wrapper. Resources are named by tracked 
 when they are created (`NRITexture`/`NRIBuffer::GetTracked`, `ImageInfo::Tracked`). NVRHI's automatic
 barriers are off and the tracker places every barrier: NRI passes, draws and dispatches require what they bind
 (attachments, descriptor-set uses, vertex/index/indirect buffers), copy/clear/write sites call
-`RT_Require*`, and intra-pass transitions `RT_Transition*`. Readbacks into NVRHI staging textures
-record with `SetBarrierMode(Automatic)` until P13.
+`RT_Require*`, and intra-pass transitions `RT_Transition*`. Texture readbacks
+(`Renderer/TextureReadback.h`) copy into an NRI HOST_READBACK buffer and wait on an NRI fence
+(`RenderCommandBuffer::RT_WaitForCompletion`).
 The render graph declares how each pass touches each resource (`AccessKind`) and models storage
 buffers (`AddExternalBuffer`); `SceneRenderer` passes `m_CommandBuffer` to `Execute`, which requires
 each pass's entry states in one batch.
