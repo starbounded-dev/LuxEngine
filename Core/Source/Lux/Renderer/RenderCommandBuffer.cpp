@@ -413,8 +413,29 @@ namespace Lux {
 
 	nri::CommandBuffer* RenderCommandBuffer::RT_BeginNRITransfer()
 	{
+		LUX_CORE_ASSERT(m_ExplicitBarriers, "NRI copies and clears take their barriers from the tracker ({})", m_DebugName);
 		RT_SuspendNRIRendering("a copy or clear");
 		return RT_BeginNRISegment();
+	}
+
+	void RenderCommandBuffer::RT_WriteBuffer(const NRIBuffer& buffer, const void* data, uint64_t size, uint64_t offset)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		if (!buffer || !data || size == 0)
+			return;
+
+		// vkCmdCopyBuffer takes any offset; 16 keeps the staged data vector-aligned.
+		const StagingStream::Allocation source = m_Staging.Write(data, size, 16);
+		if (!source)
+			return;
+
+		RT_RequireBufferState(buffer.GetTracked(), ResourceState::CopyDest);
+		nri::CommandBuffer* commandBuffer = RT_BeginNRITransfer();
+		if (!commandBuffer)
+			return;
+
+		RHIDevice::API().CmdCopyBuffer(*commandBuffer, *buffer.Get(), offset, *source.Buffer, source.Offset, size);
+		RT_EndNRISegment();
 	}
 
 	void RenderCommandBuffer::DestroyNRIWrapper()
@@ -841,6 +862,9 @@ namespace Lux {
 		// wait on it via Renderer::QueueWaitForCommandList.
 		m_LastExecutionInstance = device->executeCommandList(m_CommandLists[commandBufferIndex], ToNVRHI(m_Queue));
 		UnlockQueue();
+
+		// The writes' staging memory comes back once this frame retires.
+		m_Staging.Retire();
 
 #ifdef CMD_BUFFER_USE_VULKAN_QUERIES
 		if (m_QueryEnabled)

@@ -35,6 +35,7 @@ namespace Lux {
 	class RenderPass;
 	class ComputePass;
 	class StorageImageClear;
+	class UploadContext;
 
 	// Unified draw command for mesh rendering - consolidates parameters for all mesh draw variants
 	struct MeshDrawCommand
@@ -132,8 +133,9 @@ namespace Lux {
 		// submission (see RT_Submit), so uploads always reach the GPU queue ahead
 		// of any command list that could consume them. Thread-safe; the record
 		// callback runs synchronously, so callers may free their CPU data on
-		// return (nvrhi stages it into the command list at record time).
-		static void RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record);
+		// return (UploadContext stages it at record time). The callback must not
+		// record another upload (the batch lock is held).
+		static void RecordResourceUpload(const std::function<void(UploadContext&)>& record);
 		static void FlushResourceUploads();
 
 		// Async transfer queue: when enabled AND the device has a dedicated transfer

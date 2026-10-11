@@ -53,7 +53,8 @@ namespace Lux {
 	//
 	// UnorderedAccess -> UnorderedAccess counts as a transition (a UAV barrier), as in NVRHI.
 	//
-	// Threading: render thread only, owned by one RenderCommandBuffer.
+	// Threading: one thread at a time, owned by one RenderCommandBuffer (render thread) or by the
+	// upload batch (any thread, under its lock).
 	class ResourceStateTracker
 	{
 	public:

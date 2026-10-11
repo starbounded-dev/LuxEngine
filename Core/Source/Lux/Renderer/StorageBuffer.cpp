@@ -5,6 +5,7 @@
 #include "StorageBuffer.h"
 
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/UploadContext.h"
 
 namespace Lux {
 
@@ -63,10 +64,7 @@ namespace Lux {
 
 		if (m_Specification.GPUOnly)
 		{
-			cmd->RT_RequireBufferState(m_Buffer.GetTracked(), ResourceState::CopyDest);
-			// NVRHI's writeBuffer does not commit the tracker's barriers.
-			cmd->RT_CommitBarriers();
-			cmd->GetActive()->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size, offset);
+			cmd->RT_WriteBuffer(m_Buffer, buffer.Data, buffer.Size, offset);
 			return;
 		}
 

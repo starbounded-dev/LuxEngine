@@ -6,6 +6,7 @@
 
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
@@ -562,14 +563,14 @@ namespace Lux {
 		if (m_LocalStorage)
 		{
 			// Shared upload batch — see Renderer::RecordResourceUpload.
-			Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+			Renderer::RecordResourceUpload([&](UploadContext& upload)
 			{
 				// NOTE(Yan): ONLY WORKS FOR MIP 0!
 				const uint8_t* data = m_LocalStorage.As<uint8_t>();
 				uint64_t stride = m_LocalStorage.Size / 6;
 				for (uint32_t i = 0; i < 6; i++)
 				{
-					uploadList->writeTexture(GetHandle(), i, 0, data, Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width));
+					upload.WriteTexture(m_Image->GetImageInfo().Tracked, i, 0, data, Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width));
 					data += stride;
 				}
 			});
@@ -803,8 +804,8 @@ namespace Lux {
 	void TextureCube::CopyFromBuffer(const Buffer& buffer, uint32_t mips)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		nvrhi::TextureHandle texture = m_Image ? m_Image->GetHandle() : nullptr;
-		if (!buffer || !texture || mips == 0)
+		const TrackedTexture texture = m_Image ? m_Image->GetImageInfo().Tracked : TrackedTexture{};
+		if (!buffer || !texture.Handle || mips == 0)
 			return;
 
 		const ImageFormat format = m_Specification.Format;
@@ -816,7 +817,7 @@ namespace Lux {
 			return;
 		}
 
-		Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+		Renderer::RecordResourceUpload([&](UploadContext& upload)
 		{
 			const byte* src = static_cast<const byte*>(buffer.Data);
 			for (uint32_t mip = 0; mip < mipCount; mip++)
@@ -828,7 +829,7 @@ namespace Lux {
 
 				for (uint32_t face = 0; face < 6; face++)
 				{
-					uploadList->writeTexture(texture, face, mip, src, rowPitch);
+					upload.WriteTexture(texture, face, mip, src, rowPitch);
 					src += faceSize;
 				}
 			}

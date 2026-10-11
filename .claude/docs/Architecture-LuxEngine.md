@@ -199,8 +199,8 @@ scene and serialization code use these, never NVRHI types. Values equal NVRHI's
 cache (stage strings) and `ShaderPack.lsp` store them. Renderer `.cpp`s convert at the NVRHI call
 with `ToNVRHI`/`FromNVRHI` from `RHI/NVRHIInterop.h`, which goes away with NVRHI. Still backend
 until later NRI phases: `Image2D::GetHandle`/`ImageInfo` and the buffers' `GetHandle` (NVRHI
-wrapper handles of NRI-owned resources since P8; removed in P13), `RecordResourceUpload` (P13),
-and device bring-up in `Window.cpp` (P14). SPIR-V lives on `VulkanShader` (`GetSPIRV(ShaderStage)`),
+wrapper handles of NRI-owned resources since P8; removed in P13) and device bring-up in
+`Window.cpp` (P14). `RecordResourceUpload` callbacks take an `UploadContext` (P13). SPIR-V lives on `VulkanShader` (`GetSPIRV(ShaderStage)`),
 not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
@@ -227,7 +227,7 @@ reads NRI's `QueryVideoMemoryInfo`.
 
 **Recording on NRI** (Phases 10-13; details in `Rendering.md § NRI device`). Everything is recorded
 with NRI inside NVRHI's command lists, barriers, copies and clears included; NVRHI keeps the command
-lists, submission, queries, uploads (`writeBuffer`/`writeTexture`) and staging readbacks.
+lists, submission, queries and staging readbacks.
 - `Pipeline` builds its NRI pipeline from its specification, the shader's SPIR-V and the
   framebuffer's attachment formats (`Framebuffer::GetNRIColorFormat`/`GetNRIDepthFormat`), and
   `Framebuffer` builds NRI attachment views.
@@ -242,8 +242,13 @@ lists, submission, queries, uploads (`writeBuffer`/`writeTexture`) and staging r
   (`Renderer/StorageImageClear.h`), which owns the descriptor set NRI clears through; its owner
   rebuilds it with the image's views. `Renderer::Init`/`Shutdown` create and free the layout clears
   bind.
+- Uploads: `Renderer::RecordResourceUpload` hands its callback an `UploadContext`
+  (`Renderer/RHI/UploadContext.h`) over the shared upload batch, which has its own tracker and
+  stages through a `StagingStream` (`Renderer/RHI/StagingMemory.h`); command buffers write buffers
+  with `RenderCommandBuffer::RT_WriteBuffer`. New textures and swapchain images get their first
+  transition (undefined → resting state) in the batch.
 - `RenderCommandBuffer::GetActive()` closes an open NRI rendering scope, so the NVRHI commands that
-  remain (`writeBuffer`, staging readbacks, queries) stay legal anywhere.
+  remain (staging readbacks, queries) stay legal anywhere.
 - `ImGuiRenderer::RenderToSwapchain` draws the UI into each swapchain with its own per-format
   pipelines, per-frame-slot geometry and descriptor pools. ImGui textures, the atlas included, are
   `Image2D`s in the shared `ImGuiTextureRegistry`.

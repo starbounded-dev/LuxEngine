@@ -8,6 +8,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
+#include "Lux/Renderer/RHI/UploadContext.h"
 
 #include <nvrhi/vulkan.h>
 
@@ -174,6 +175,13 @@ namespace Lux {
 		result.m_Tracked.MipCount = std::max(1u, static_cast<uint32_t>(nriDesc.mipNum));
 		result.m_Tracked.LayerCount = std::max(1u, static_cast<uint32_t>(nriDesc.layerNum));
 		result.m_Tracked.RestingState = desc.keepInitialState ? FromNVRHI(desc.initialState) : ResourceState::Unknown;
+
+		// The texture starts undefined; the upload batch moves it to its resting state before any
+		// submission (as NVRHI's first command list did, from Common).
+		Renderer::RecordResourceUpload([&](UploadContext& upload)
+			{
+				upload.InitializeTexture(result.m_Tracked);
+			});
 		return result;
 	}
 

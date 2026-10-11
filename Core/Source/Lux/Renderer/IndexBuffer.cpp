@@ -6,6 +6,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/UploadContext.h"
 
 namespace Lux {
 
@@ -25,9 +26,9 @@ namespace Lux {
 		LUX_CORE_VERIFY(m_Buffer, "Failed to create a {} byte index buffer", buffer.Size);
 
 		// Shared upload batch — see VertexBuffer(Buffer) for rationale.
-		Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+		Renderer::RecordResourceUpload([&](UploadContext& upload)
 		{
-			uploadList->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size);
+			upload.WriteBuffer(m_Buffer, buffer.Data, buffer.Size);
 		});
 	}
 

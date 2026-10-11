@@ -381,7 +381,9 @@ separate `texture*` and `sampler` bindings; combined `sampler2D` uniforms are re
 
 Record copies and clears with NRI between `RenderCommandBuffer::RT_BeginNRITransfer()` and
 `RT_EndNRISegment()`, after their `RT_Require*`: the transfer closes an open NRI rendering scope and
-commits the barriers. Clear a storage image with `Renderer::ClearImage` and a `StorageImageClear`
+commits the barriers. Write GPU-only buffers with `RT_WriteBuffer`, and record a resource's initial
+data through `Renderer::RecordResourceUpload`'s `UploadContext`; never allocate staging memory by
+hand (`StagingStream` recycles it after the GPU is done). Clear a storage image with `Renderer::ClearImage` and a `StorageImageClear`
 built next to the image's other views, not with a raw clear. Record the NVRHI commands that remain
 through `GetActive()`, and do not hold the returned command list across an NRI draw: `GetActive()`
 closes an open NRI rendering scope first (`Rendering.md § NRI device`), but the draw reopens it, and

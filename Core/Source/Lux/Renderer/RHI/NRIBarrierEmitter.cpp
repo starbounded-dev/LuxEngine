@@ -6,6 +6,8 @@
 
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
+#include <atomic>
+
 namespace Lux {
 
 	namespace {
@@ -81,8 +83,8 @@ namespace Lux {
 			return { static_cast<nri::AccessBits>(access), layout, stageBits };
 		}
 
-		// Render thread. Reported once, so a broken frame is visible without flooding the log.
-		bool s_ReportedMissingCommandBuffer = false;
+		// Reported once, so a broken frame is visible without flooding the log.
+		std::atomic<bool> s_ReportedMissingCommandBuffer = false;
 
 	}
 
@@ -123,9 +125,8 @@ namespace Lux {
 
 		if (!m_CommandBuffer)
 		{
-			if (!s_ReportedMissingCommandBuffer)
+			if (!s_ReportedMissingCommandBuffer.exchange(true))
 				LUX_CORE_ERROR_TAG("Renderer", "NRI barriers dropped: the command buffer has no NRI command buffer");
-			s_ReportedMissingCommandBuffer = true;
 		}
 		else
 		{

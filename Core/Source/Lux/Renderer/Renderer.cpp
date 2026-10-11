@@ -20,6 +20,8 @@
 #include "Lux/Renderer/BindlessTextureTable.h"
 #include "Lux/Renderer/StorageImageClear.h"
 #include "Lux/Renderer/RHI/GPUDeletionQueue.h"
+#include "Lux/Renderer/RHI/StagingMemory.h"
+#include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Project/Project.h"
@@ -275,6 +277,18 @@ namespace Lux {
 	static std::mutex s_ResourceUploadMutex;
 	static nvrhi::CommandListHandle s_ResourceUploadCommandList;
 	static bool s_ResourceUploadListOpen = false;
+	// What the open upload list records with (NRI migration Phase 13): an NRI wrapper of its
+	// command buffer, a barrier tracker and the staging memory its copies read. Created on the
+	// first upload (the swapchain's come before Renderer::Init), deleted by Shutdown.
+	struct ResourceUploadBatch
+	{
+		nri::CommandBuffer* CommandBuffer = nullptr;
+		ResourceStateTracker Tracker;
+		NRIBarrierEmitter Emitter;
+		StagingStream Staging{ "Upload batch" };
+	};
+	static ResourceUploadBatch* s_ResourceUploadBatch = nullptr;
+	static bool s_ReportedUploadWrapFailure = false;
 	// Queue type the currently-cached upload list was created for. Command lists
 	// are bound to a queue at creation, so a live toggle of async transfer means
 	// retiring the list and making a new one of the other type.
@@ -413,6 +427,7 @@ namespace Lux {
 		// Before any shader is loaded: material shaders take their bindless set layout from here.
 		BindlessTextureTable::Init();
 		StorageImageClear::Init();
+		StagingStream::Init();
 
 		Renderer::SetGlobalMacroInShaders("__HZ_REFLECTION_OCCLUSION_METHOD", "0");
 		Renderer::SetGlobalMacroInShaders("__HZ_AO_METHOD", std::format("{}", (int)ShaderDef::GetAOMethod(true)));
@@ -653,9 +668,12 @@ namespace Lux {
 			vkDeviceWaitIdle(device);
 		}
 
-		// Execute any batched uploads still pending, then release the shared list.
+		// Execute any batched uploads still pending, then release the shared list. The batch's
+		// staging memory is released with the deletion queue below.
 		FlushResourceUploads();
 		s_ResourceUploadCommandList = nullptr;
+		delete s_ResourceUploadBatch;
+		s_ResourceUploadBatch = nullptr;
 
 
 #if LUX_HAS_SHADER_COMPILER
@@ -679,6 +697,7 @@ namespace Lux {
 		if (graphicsDevice)
 			graphicsDevice->waitForIdle();
 		s_ResourceFreeQueue.DrainAll();
+		StagingStream::Shutdown();
 		for (nvrhi::EventQueryHandle& event : s_FrameCompletionEvents)
 			event = nullptr;
 
@@ -850,7 +869,7 @@ namespace Lux {
 		return s_AsyncTransferEnabled.load(std::memory_order_relaxed);
 	}
 
-	void Renderer::RecordResourceUpload(const std::function<void(nvrhi::ICommandList*)>& record)
+	void Renderer::RecordResourceUpload(const std::function<void(UploadContext&)>& record)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		std::scoped_lock lock(s_ResourceUploadMutex);
@@ -872,13 +891,38 @@ namespace Lux {
 			s_ResourceUploadListIsCopyQueue = useCopyQueue;
 		}
 
+		if (!s_ResourceUploadBatch)
+			s_ResourceUploadBatch = lnew ResourceUploadBatch();
+		ResourceUploadBatch& batch = *s_ResourceUploadBatch;
+
 		if (!s_ResourceUploadListOpen)
 		{
 			s_ResourceUploadCommandList->open();
+			// NVRHI records nothing here: the batch's barriers are the tracker's.
+			s_ResourceUploadCommandList->setEnableAutomaticBarriers(false);
 			s_ResourceUploadListOpen = true;
+
+			// Non-owning, like RenderCommandBuffer's: NRI never frees a command buffer it did not
+			// allocate. Destroyed when the batch is flushed.
+			nri::CommandBufferVKDesc wrapperDesc = {};
+			wrapperDesc.vkCommandBuffer = s_ResourceUploadCommandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+			wrapperDesc.queueType = s_ResourceUploadListIsCopyQueue ? nri::QueueType::COPY : nri::QueueType::GRAPHICS;
+			if (RHIDevice::API().CreateCommandBufferVK(RHIDevice::Get(), wrapperDesc, batch.CommandBuffer) != nri::Result::SUCCESS)
+				batch.CommandBuffer = nullptr;
+			batch.Emitter.SetCommandBuffer(batch.CommandBuffer);
+			batch.Tracker.Begin(&batch.Emitter);
 		}
 
-		record(s_ResourceUploadCommandList);
+		if (!batch.CommandBuffer)
+		{
+			if (!s_ReportedUploadWrapFailure)
+				LUX_CORE_ERROR_TAG("Renderer", "Resource uploads dropped: NRI could not wrap the upload command list");
+			s_ReportedUploadWrapFailure = true;
+			return;
+		}
+
+		UploadContext context(*batch.CommandBuffer, batch.Tracker, batch.Emitter, batch.Staging);
+		record(context);
 	}
 
 	void Renderer::FlushResourceUploads()
@@ -888,6 +932,17 @@ namespace Lux {
 			return;
 
 		LUX_PROFILE_SCOPE("Renderer::FlushResourceUploads");
+		ResourceUploadBatch& batch = *s_ResourceUploadBatch;
+		// Every uploaded resource goes back to its resting state, where the command buffers that
+		// read it start.
+		batch.Tracker.End();
+		batch.Emitter.SetCommandBuffer(nullptr);
+		if (batch.CommandBuffer)
+		{
+			RHIDevice::API().DestroyCommandBuffer(batch.CommandBuffer);
+			batch.CommandBuffer = nullptr;
+		}
+
 		s_ResourceUploadCommandList->close();
 		s_ResourceUploadListOpen = false;
 
@@ -913,6 +968,9 @@ namespace Lux {
 			device->executeCommandList(s_ResourceUploadCommandList);
 		}
 		RenderCommandBuffer::UnlockQueue();
+
+		// The submission is on the queue: the staging memory comes back once this frame retires.
+		batch.Staging.Retire();
 	}
 
 	bool Renderer::ConsumePendingUpload(GPUQueue consumingQueue, uint64_t& outInstance)

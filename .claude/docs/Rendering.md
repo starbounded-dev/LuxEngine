@@ -347,7 +347,10 @@ The model:
   open, fixed when it is created: the desc's `keepInitialState` initial state (`ImageUsage::Texture`
   → `ShaderResource`, `Attachment` → `RenderTarget`/`DepthWrite`, `Storage` → `UnorderedAccess`,
   vertex/index buffers → `VertexBuffer`/`IndexBuffer`, GPU-only storage → `UnorderedAccess`,
-  swapchain images → `Present`). The tracker names a resource by its tracked description
+  swapchain images → `Present`). A texture is created undefined: `NRITexture::Create` and
+  `VulkanSwapChain::Create` record its first transition into its resting state in the upload batch
+  (`UploadContext::InitializeTexture`), which is submitted before any command buffer that could use
+  it (NVRHI did the same from `Common` on a texture's first command list). The tracker names a resource by its tracked description
   (`NRITexture`/`NRIBuffer::GetTracked`, `ImageInfo::Tracked`,
   `VulkanSwapChain::GetCurrentTrackedBackBuffer`), whose handle is the NRI texture or buffer.
   CPU-visible buffers are untracked. Each `RenderCommandBuffer` owns a tracker; resources enter it at
@@ -372,8 +375,8 @@ The model:
 
 **Never write a barrier by hand — ask the command buffer's tracker.** Copies and clears record
 through NRI after their requirements, inside `RT_BeginNRITransfer` (`§ NRI device`), which commits
-them. An NVRHI command still recorded through `GetActive()` (`writeBuffer` and the staging
-readbacks, until the rest of NRI Phase 13) does not commit the tracker's barriers: call
+them. An NVRHI command still recorded through `GetActive()` (the staging readbacks, until the
+rest of NRI Phase 13) does not commit the tracker's barriers: call
 `RT_CommitBarriers()` between its requirements and the command. NRI validation (Debug) checks every
 barrier's access against the resource's usage.
 
@@ -412,7 +415,7 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - **Never call `device->createTexture` / `createBuffer`** — use `NRITexture::Create` /
     `NRIBuffer::Create`. Volatile NVRHI buffers are not supported.
   - **CPU writes go through `NRIBuffer::Map`/`Unmap`** — NVRHI cannot map memory it did not allocate.
-    GPU-side `writeBuffer`/`writeTexture` on the NVRHI handle keep working. `Map` never waits for
+    GPU-side writes are NRI copies from staging memory (`§ Batched resource uploads`). `Map` never waits for
     the GPU, unlike NVRHI's `mapBuffer`, which waited for copies that used the buffer. A readback
     buffer must be mapped only after the fence of the copy into it.
   - **Destruction is the owner's job**: destroying or reassigning an `NRITexture`/`NRIBuffer` frees
@@ -445,9 +448,9 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - **No combined image samplers.** NRI has none, so shaders declare `texture2D` plus a `sampler`
     and combine them at the sample (`sampler2D(u_Tex, r_Sampler)`). Reflection logs an error for a
     combined `sampler2D` uniform.
-- **Recording.** Every draw, dispatch, barrier, copy and clear is recorded with NRI (NRI migration
-  Phases 9-13), inside NVRHI's command lists; NVRHI keeps the command lists, submission, queries,
-  uploads (`writeBuffer`/`writeTexture`) and staging readbacks.
+- **Recording.** Every draw, dispatch, barrier, copy, clear and upload is recorded with NRI (NRI
+  migration Phases 9-13), inside NVRHI's command lists; NVRHI keeps the command lists, submission,
+  queries and staging readbacks.
   - **Segments.** `RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment` wrap the NVRHI
     command list's `VkCommandBuffer` in a non-owning NRI command buffer. A segment starts with the
     pending barriers committed, and only NRI records until it ends.
@@ -530,7 +533,8 @@ crash or corruption on some driver even if it renders correctly on yours.
 - GPU-written storage (including mesh-culling visible indices and indirect arguments) must use
   `GPUOnly = true`. CPU-visible buffers have no tracked state (the tracker's `DescribeBuffer` gives
   them no resting state, and NVRHI skips them), so no barrier can protect them; CPU initialization
-  of GPU storage goes through `writeBuffer` on the upload command list.
+  of GPU storage goes through `UploadContext::WriteBuffer` in the upload batch, or
+  `RenderCommandBuffer::RT_WriteBuffer` in a command buffer.
 - PCSS uses constant-index Poisson lookups. Dynamic indexing of the local 64-sample array expands
   into repeated per-fragment scratch arrays on RADV Renoir and can cause a GPU timeout.
   `python3 tests/rendering/run_shadow_shader.py` compiles/validates deferred lighting and checks
@@ -643,8 +647,19 @@ Buffer/texture constructors record initial-data uploads into **one shared comman
 `RenderCommandBuffer` submission. The reason is in the header: a `vkQueueSubmit` per mesh/texture is
 a load hitch and contends the graphics queue against the render thread.
 
-The record callback runs synchronously, so callers may free their CPU data on return (nvrhi stages
-it into the command list at record time).
+The callback gets an `UploadContext` (`Renderer/RHI/UploadContext.h`) and runs synchronously under
+the batch lock, so callers may free their CPU data on return, and must not start another upload from
+inside it. `WriteBuffer` and `WriteTexture` stage the data, require the destination as `CopyDest`
+through the batch's own tracker, and record `CmdCopyBuffer` / `CmdUploadBufferToTexture`
+(texture rows are repacked at NRI's row alignment; mips and layers are written one at a time). The
+flush returns every resource to its resting state, submits, and retires the staging memory.
+
+**Staging memory** is a `StagingStream` (`Renderer/RHI/StagingMemory.h`): 4 MiB HOST_UPLOAD pages
+handed out linearly (larger uploads get a page of their own), recycled through the deletion queue
+once the frame that submitted their copies completes. The batch and every `RenderCommandBuffer`
+own one; `RenderCommandBuffer::RT_WriteBuffer` (GPU-only `StorageBuffer::RT_SetData`,
+`VertexBuffer::RT_SetData`) stages into the command buffer's stream, retired at `RT_Submit`.
+`Renderer::Init` creates the pool's first pages.
 
 When enabled *and* the device has a dedicated transfer queue, the batch is submitted on the copy
 queue: `SetAsyncTransferQueueEnabled` / `IsAsyncTransferQueueEnabled` / `UseAsyncTransferQueue`
@@ -654,6 +669,10 @@ queue: `SetAsyncTransferQueueEnabled` / `IsAsyncTransferQueueEnabled` / `UseAsyn
 
 **If you add a new consumer queue, you must wait on pending uploads.** Skipping the wait produces
 reads of not-yet-uploaded memory — intermittent, GPU-dependent, and very hard to attribute.
+
+The copy-queue path is still not valid Vulkan: the batch's barriers (first transitions and the
+return to resting states) use graphics stages and accesses, and the resources are EXCLUSIVE with no
+queue-ownership transfer. That is why the toggle is off by default.
 
 ---
 

@@ -6,7 +6,9 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Debug/Profiler.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
+#include "Lux/Renderer/RHI/UploadContext.h"
 
 #include <GLFW/glfw3.h>
 
@@ -256,6 +258,11 @@ namespace Lux {
 			LUX_CORE_VERIFY(api.CreateTextureVK(RHIDevice::Get(), textureVKDesc, sci.RHITexture) == nri::Result::SUCCESS, "Failed to wrap a swap chain image in NRI");
 			sci.Tracked.Handle = sci.RHITexture;
 			sci.Tracked.RestingState = ResourceState::Present;
+			// The image starts undefined; the upload batch moves it to Present before any submission.
+			Renderer::RecordResourceUpload([&](UploadContext& upload)
+				{
+					upload.InitializeTexture(sci.Tracked);
+				});
 
 			nri::TextureViewDesc viewDesc = {};
 			viewDesc.texture = sci.RHITexture;

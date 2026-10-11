@@ -11,6 +11,7 @@
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
 #include "Lux/Renderer/RHI/NRIBarrierEmitter.h"
 #include "Lux/Renderer/RHI/RHITypes.h"
+#include "Lux/Renderer/RHI/StagingMemory.h"
 #include "Lux/Renderer/RendererConfig.h"
 
 #include "nvrhi/nvrhi.h"
@@ -106,6 +107,10 @@ namespace Lux {
 		// then opens a segment as RT_BeginNRISegment. Require the states first; the segment commits
 		// them. Null, with no segment open, as there.
 		nri::CommandBuffer* RT_BeginNRITransfer();
+		// Render thread, between RT_Begin and RT_End: stages `size` bytes of `data` and records their
+		// copy into `buffer` at `offset`, with the buffer required as CopyDest. The staging memory is
+		// recycled after this command buffer's submission.
+		void RT_WriteBuffer(const NRIBuffer& buffer, const void* data, uint64_t size, uint64_t offset = 0);
 
 		// NRI render passes (NRI migration Phase 10). Render thread.
 		//
@@ -254,6 +259,8 @@ namespace Lux {
 
 		ResourceStateTracker m_Tracker;
 		NRIBarrierEmitter m_BarrierEmitter;
+		// What RT_WriteBuffer copies from; retired at each RT_Submit.
+		StagingStream m_Staging{ "Command buffer writes" };
 		bool m_ExplicitBarriers = false;
 		BarrierMode m_BarrierMode = BarrierMode::Explicit;
 		std::vector<const void*> m_RequirementLog;

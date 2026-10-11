@@ -123,7 +123,14 @@ render thread, tagged with the render frame number current at that point in the 
 `Renderer::RT_BeginFrame()`, run first in every render-thread frame, closes the ending frame behind
 a graphics-queue event query, waits for frame N − `FramesInFlight` and retires the releases up to
 it, so a release never runs while a submission that could reference the resource is still on the
-GPU.
+GPU. Staging memory (`StagingStream::Retire`) is recycled the same way, so retire a stream only once
+the submission that reads it is recorded on the render thread or queued there.
+
+`Renderer::RecordResourceUpload` may be called from any thread: the callback records into the shared
+upload batch (its NRI command buffer, tracker and staging stream) under the batch lock, and
+`FlushResourceUploads` submits it on the render thread before every command buffer submission. A
+callback must not create a texture or start another upload: `NRITexture::Create` records the
+texture's first transition through the same lock.
 
 ### The `RT_` prefix
 

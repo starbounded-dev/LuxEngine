@@ -8,6 +8,7 @@
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Math/Math.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Platform/Vulkan/VulkanShader.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Project/Project.h"
@@ -343,9 +344,9 @@ namespace Lux
 			LUX_CORE_VERIFY(buffer, "Failed to create meshlet buffer \"{}\" ({} bytes)", debugName, size);
 
 			// The record callback runs immediately; reading from stack-local data is safe.
-			Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+			Renderer::RecordResourceUpload([&](UploadContext& upload)
 			{
-				uploadList->writeBuffer(buffer.GetHandle(), data, size);
+				upload.WriteBuffer(buffer, data, size);
 			});
 			return buffer;
 		}

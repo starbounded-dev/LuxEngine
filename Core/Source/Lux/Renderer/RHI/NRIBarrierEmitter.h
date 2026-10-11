@@ -20,7 +20,7 @@ namespace Lux {
 	// g_ResourceStateMap), so the barriers stay the ones NVRHI placed; UnorderedAccess also covers
 	// storage clears.
 	//
-	// Threading: render thread only, owned by one RenderCommandBuffer.
+	// Threading: one thread at a time, owned with its tracker (ResourceStateTracker).
 	class NRIBarrierEmitter final : public IBarrierEmitter
 	{
 	public:

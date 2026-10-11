@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "ResourceStateTracker.h"
 
+#include <mutex>
 #include <unordered_set>
 
 namespace Lux {
@@ -28,11 +29,14 @@ namespace Lux {
 			return current != state || IsUnorderedAccess(state);
 		}
 
-		// Render thread only. Process-wide so a recurring problem is reported once, not every frame.
+		// Process-wide so a recurring problem is reported once, not every frame. Locked: the upload
+		// batch's tracker runs on any thread.
+		std::mutex s_ReportedUntrackableMutex;
 		std::unordered_set<const void*> s_ReportedUntrackable;
 
 		void ReportUntrackable(const void* handle, const char* kind)
 		{
+			std::scoped_lock lock(s_ReportedUntrackableMutex);
 			if (s_ReportedUntrackable.insert(handle).second)
 				LUX_CORE_ERROR_TAG("Renderer", "Resource state tracker: {} {} has no resting state; its requirements are ignored", kind, handle);
 		}

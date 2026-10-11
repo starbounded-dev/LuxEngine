@@ -8,6 +8,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
@@ -361,9 +362,9 @@ namespace Lux {
 		{
 			// Shared upload batch — one vkQueueSubmit per texture causes load
 			// hitches; see Renderer::RecordResourceUpload.
-			Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+			Renderer::RecordResourceUpload([&](UploadContext& upload)
 			{
-				uploadList->writeTexture(m_Info.ImageHandle, 0, 0, buffer.Data, Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width));
+				upload.WriteTexture(m_Info.Tracked, 0, 0, buffer.Data, Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width));
 			});
 
 			m_Info.State = nvrhi::ResourceStates::ShaderResource;

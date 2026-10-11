@@ -6,6 +6,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/UploadContext.h"
 
 namespace Lux {
 
@@ -30,9 +31,9 @@ namespace Lux {
 		// a dedicated command list per buffer (one vkQueueSubmit per mesh causes
 		// load hitches, and the list used to be retained for the buffer's whole
 		// lifetime).
-		Renderer::RecordResourceUpload([&](nvrhi::ICommandList* uploadList)
+		Renderer::RecordResourceUpload([&](UploadContext& upload)
 		{
-			uploadList->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size);
+			upload.WriteBuffer(m_Buffer, buffer.Data, buffer.Size);
 		});
 	}
 
@@ -59,17 +60,10 @@ namespace Lux {
 		if (buffer.Size == 0)
 			return;
 
-		if (!m_CommandList)
-			m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
-
-		//m_CommandList->RT_Begin();
-		//m_CommandList->GetActive()->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size, offset);
 		LUX_CORE_ASSERT(offset + buffer.Size <= m_Size);
 		void* mappedBuffer = m_Buffer.Map(offset, buffer.Size);
 		std::memcpy(mappedBuffer, buffer.Data, buffer.Size);
 		m_Buffer.Unmap();
-		//m_CommandList->RT_End();
-		//m_CommandList->RT_Submit();
 	}
 
 	void VertexBuffer::SetData(const void* data, uint64_t size, uint64_t offset)
@@ -87,11 +81,9 @@ namespace Lux {
 		if (!m_CommandList)
 			m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
 
+		LUX_CORE_ASSERT(offset + buffer.Size <= m_Size);
 		m_CommandList->RT_Begin();
-		m_CommandList->RT_RequireBufferState(m_Buffer.GetTracked(), ResourceState::CopyDest);
-		// NVRHI's writeBuffer does not commit the tracker's barriers.
-		m_CommandList->RT_CommitBarriers();
-		m_CommandList->GetActive()->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size);
+		m_CommandList->RT_WriteBuffer(m_Buffer, buffer.Data, buffer.Size, offset);
 		m_CommandList->RT_End();
 		m_CommandList->RT_Submit();
 	}
