@@ -228,7 +228,18 @@ namespace Lux {
 
 		m_ExplicitBarriers = m_BarrierMode == BarrierMode::Explicit;
 		m_ActiveCommandBuffer->setEnableAutomaticBarriers(!m_ExplicitBarriers);
-		m_BarrierEmitter.SetCommandList(m_ActiveCommandBuffer);
+
+		// The NRI wrapper every barrier, segment and NRI pass records into. Non-owning: NRI never
+		// frees a command buffer it did not allocate.
+		nri::CommandBufferVKDesc wrapperDesc = {};
+		wrapperDesc.vkCommandBuffer = m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+		wrapperDesc.queueType = ToNRIQueueType(m_Queue);
+		if (RHIDevice::API().CreateCommandBufferVK(RHIDevice::Get(), wrapperDesc, m_NRICommandBuffer) != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Failed to wrap command buffer {} in NRI", m_DebugName);
+			m_NRICommandBuffer = nullptr;
+		}
+		m_BarrierEmitter.SetCommandBuffer(m_NRICommandBuffer);
 		m_Tracker.Begin(&m_BarrierEmitter);
 		m_RequiredBindings = {};
 		m_BindingStatesDirty = true;
@@ -358,12 +369,13 @@ namespace Lux {
 			m_ActiveTimerQuery = nullptr;
 		}
 
-		// NVRHI's close() would restore keepInitialState resources too; the tracker does it so its
-		// model ends where the next command buffer starts, which the NRI emitter will rely on.
+		// Every resource the command buffer touched returns to its resting state, where the next
+		// command buffer, on any queue, starts.
 		if (m_ExplicitBarriers)
 			m_Tracker.End();
 
 		LUX_CORE_ASSERT(!m_InNRISegment, "RT_End inside an NRI segment ({})", m_DebugName);
+		m_BarrierEmitter.SetCommandBuffer(nullptr);
 		DestroyNRIWrapper();
 
 		m_ActiveCommandBuffer->close();
@@ -382,19 +394,9 @@ namespace Lux {
 		LUX_CORE_ASSERT(m_ActiveCommandBuffer, "RT_BeginNRISegment outside RT_Begin/RT_End ({})", m_DebugName);
 		LUX_CORE_ASSERT(!m_InNRISegment, "Nested NRI segment ({})", m_DebugName);
 
+		// RT_Begin logged a failed wrap.
 		if (!m_NRICommandBuffer)
-		{
-			// Non-owning: NRI never frees a command buffer it did not allocate.
-			nri::CommandBufferVKDesc desc = {};
-			desc.vkCommandBuffer = m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
-			desc.queueType = ToNRIQueueType(m_Queue);
-			if (RHIDevice::API().CreateCommandBufferVK(RHIDevice::Get(), desc, m_NRICommandBuffer) != nri::Result::SUCCESS)
-			{
-				LUX_CORE_ERROR_TAG("Renderer", "Failed to wrap command buffer {} in NRI", m_DebugName);
-				m_NRICommandBuffer = nullptr;
-				return nullptr;
-			}
-		}
+			return nullptr;
 
 		// Committing through the tracker clears its pending flag too. NVRHI draws and dispatches
 		// nothing, so it never has a rendering scope or bound state of its own to clear.
@@ -453,7 +455,6 @@ namespace Lux {
 			m_RequiredBindings.IndexBuffer = nullptr;
 			m_RequiredBindings.IndirectArguments = nullptr;
 			RT_RequireNRIRenderPass();
-			RT_CrossCheckStates("NRI render pass");
 		}
 
 		if (!RT_OpenNRIRendering(true))
@@ -646,7 +647,6 @@ namespace Lux {
 			RT_RequireBuffer(m_RequiredBindings.VertexBuffer, bindings.VertexBuffer, ResourceState::VertexBuffer);
 			RT_RequireBuffer(m_RequiredBindings.IndexBuffer, bindings.IndexBuffer, ResourceState::IndexBuffer);
 			RT_RequireBuffer(m_RequiredBindings.IndirectArguments, bindings.IndirectArguments, ResourceState::IndirectArgument);
-			RT_CrossCheckStates("NRI draw");
 		}
 
 		// Barriers cannot be recorded inside rendering: commit them between two scopes.
@@ -654,7 +654,6 @@ namespace Lux {
 		{
 			RT_SuspendNRIRendering("a barrier");
 			m_Tracker.Commit();
-			RT_CrossCheckStates("NRI draw barriers");
 		}
 
 		nri::CommandBuffer* commandBuffer = state.Rendering ? m_NRICommandBuffer : RT_OpenNRIRendering(false);
@@ -684,7 +683,6 @@ namespace Lux {
 			RT_BeginRequirements(RequiredBindPoint::Compute);
 			for (uint32_t setIndex = 0; setIndex < desc.DescriptorSets.size(); setIndex++)
 				RT_RequireSet(setIndex, desc.DescriptorSets[setIndex]);
-			RT_CrossCheckStates("NRI dispatch");
 		}
 
 		// The segment starts with the pending barriers committed.
@@ -910,14 +908,13 @@ namespace Lux {
 			m_Tracker.Require(use.Buffer, use.State);
 	}
 
-	void RenderCommandBuffer::RT_RequireBuffer(nvrhi::IBuffer*& required, const NRIBuffer* buffer, ResourceState state)
+	void RenderCommandBuffer::RT_RequireBuffer(const void*& required, const NRIBuffer* buffer, ResourceState state)
 	{
-		nvrhi::IBuffer* handle = buffer ? buffer->GetHandle().Get() : nullptr;
-		if (!handle || handle == required)
+		if (!buffer || !buffer->GetTracked().Handle || buffer->GetTracked().Handle == required)
 			return;
 
-		required = handle;
-		m_Tracker.Require(DescribeBuffer(handle), state);
+		required = buffer->GetTracked().Handle;
+		m_Tracker.Require(buffer->GetTracked(), state);
 	}
 
 	// The attachment states NVRHI's setResourceStatesForFramebuffer required, and the pass's sets.
@@ -927,49 +924,41 @@ namespace Lux {
 		for (uint32_t i = 0; i < desc.ColorAttachmentCount; i++)
 		{
 			const NRIAttachment& attachment = desc.ColorAttachments[i];
-			if (attachment.Texture)
-				m_Tracker.Require(DescribeTexture(attachment.Texture), attachment.Range, ResourceState::RenderTarget);
+			m_Tracker.Require(attachment.Texture, attachment.Range, ResourceState::RenderTarget);
 		}
-		if (desc.DepthAttachment.Texture)
-			m_Tracker.Require(DescribeTexture(desc.DepthAttachment.Texture), desc.DepthAttachment.Range, ResourceState::DepthWrite);
+		if (desc.DepthAttachment.Texture.Handle)
+			m_Tracker.Require(desc.DepthAttachment.Texture, desc.DepthAttachment.Range, ResourceState::DepthWrite);
 
 		for (uint32_t setIndex = 0; setIndex < desc.DescriptorSets.size(); setIndex++)
 			RT_RequireSet(setIndex, desc.DescriptorSets[setIndex]);
 	}
 
-	void RenderCommandBuffer::RT_CrossCheckStates(const char* context)
-	{
-#ifdef LUX_DEBUG
-		m_Tracker.CrossCheck(context);
-#endif
-	}
-
-	void RenderCommandBuffer::RT_RequireTextureState(nvrhi::ITexture* texture, const TextureSubresourceRange& range, ResourceState state)
+	void RenderCommandBuffer::RT_RequireTextureState(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state)
 	{
 		if (!m_ExplicitBarriers)
 			return;
-		m_Tracker.Require(DescribeTexture(texture), range, state);
+		m_Tracker.Require(texture, range, state);
 		m_BindingStatesDirty = true;
 	}
 
-	void RenderCommandBuffer::RT_RequireBufferState(nvrhi::IBuffer* buffer, ResourceState state)
+	void RenderCommandBuffer::RT_RequireBufferState(const TrackedBuffer& buffer, ResourceState state)
 	{
 		if (!m_ExplicitBarriers)
 			return;
-		m_Tracker.Require(DescribeBuffer(buffer), state);
+		m_Tracker.Require(buffer, state);
 		m_BindingStatesDirty = true;
 	}
 
 	// Unlike RT_Require*, a transition does not mark bound sets dirty: NVRHI's setTextureState does
 	// not either (only copies, clears and writes do), and explicit mode mirrors automatic mode.
-	void RenderCommandBuffer::RT_TransitionTextureState(nvrhi::ITexture* texture, const TextureSubresourceRange& range, ResourceState state)
+	void RenderCommandBuffer::RT_TransitionTextureState(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state)
 	{
-		m_Tracker.Require(DescribeTexture(texture), range, state);
+		m_Tracker.Require(texture, range, state);
 	}
 
-	void RenderCommandBuffer::RT_TransitionBufferState(nvrhi::IBuffer* buffer, ResourceState state)
+	void RenderCommandBuffer::RT_TransitionBufferState(const TrackedBuffer& buffer, ResourceState state)
 	{
-		m_Tracker.Require(DescribeBuffer(buffer), state);
+		m_Tracker.Require(buffer, state);
 	}
 
 	void RenderCommandBuffer::RT_BeginRequirementLog()
@@ -989,8 +978,6 @@ namespace Lux {
 		if (m_Tracker.HasPendingBarriers())
 			RT_SuspendNRIRendering("a barrier");
 		m_Tracker.Commit();
-		if (m_ExplicitBarriers)
-			RT_CrossCheckStates("explicit barriers");
 	}
 
 	float RenderCommandBuffer::GetExecutionGPUTime() const

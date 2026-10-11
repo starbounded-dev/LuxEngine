@@ -119,6 +119,8 @@ namespace Lux {
 	{
 		// The NRI texture that owns the image (Image2D::m_Texture); ImageHandle is NVRHI's view of it.
 		nri::Texture* RHITexture = nullptr;
+		// RHITexture as the resource state tracker sees it.
+		TrackedTexture Tracked;
 		nvrhi::TextureHandle ImageHandle = nullptr;
 		nvrhi::TextureSubresourceSet ImageView = nvrhi::AllSubresources;
 		nvrhi::ResourceStates State = nvrhi::ResourceStates::Unknown;

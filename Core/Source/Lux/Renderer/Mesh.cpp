@@ -9,7 +9,6 @@
 #include "Lux/Math/Math.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Platform/Vulkan/VulkanShader.h"
-#include "Lux/Renderer/RHI/NVRHIBarrierEmitter.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Asset/AssetManager.h"
@@ -596,7 +595,7 @@ namespace Lux
 			if (!view)
 				return {};
 			group->Write(0, rangeIndex, 0, &view, 1);
-			group->GetUses(0).AddBuffer(DescribeBuffer(buffers[binding]->GetHandle()), ResourceState::ShaderResource);
+			group->GetUses(0).AddBuffer(buffers[binding]->GetTracked(), ResourceState::ShaderResource);
 		}
 
 		m_MeshletSet = group;

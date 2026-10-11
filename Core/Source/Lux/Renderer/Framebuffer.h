@@ -155,8 +155,8 @@ namespace Lux {
 		// The textures behind the attachment views and the subresources each view covers (mip 0 and
 		// the attached layer, or the whole back buffer of a swapchain target), for the barrier
 		// tracker. Render thread for a swapchain target.
-		nvrhi::ITexture* GetColorAttachmentTexture(uint32_t index) const;
-		nvrhi::ITexture* GetDepthAttachmentTexture() const;
+		TrackedTexture GetColorAttachmentTexture(uint32_t index) const;
+		TrackedTexture GetDepthAttachmentTexture() const;
 		TextureSubresourceRange GetAttachmentRange() const;
 		// The formats of the attachment views and the attachments' sample count, which pipelines
 		// rendering into this framebuffer are built for. UNKNOWN past the last color attachment, and

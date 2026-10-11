@@ -1312,8 +1312,7 @@ namespace Lux {
 				// Commit barriers between mip levels to ensure writes complete before next iteration
 				Renderer::Submit([commandBuffer]() mutable
 					{
-						nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
-						commandList->commitBarriers();
+						commandBuffer->RT_CommitBarriers();
 					});
 			}
 
@@ -1601,7 +1600,9 @@ namespace Lux {
 				const auto& spec = image->GetSpecification();
 				const std::string markerName = "ClearImage: " + (spec.DebugName.empty() ? std::string("Image2D") : spec.DebugName);
 				renderCommandBuffer->RT_BeginMarker(markerName);
-				renderCommandBuffer->RT_RequireTextureState(image->GetHandle(), subresources, ResourceState::CopyDest);
+				renderCommandBuffer->RT_RequireTextureState(image->GetImageInfo().Tracked, subresources, ResourceState::CopyDest);
+				// NVRHI's clearTextureFloat does not commit the tracker's barriers.
+				renderCommandBuffer->RT_CommitBarriers();
 				commandList->clearTextureFloat(image->GetHandle(), ToNVRHI(subresources), nvrhi::Color(clearColor.r, clearColor.g, clearColor.b, clearColor.a));
 				renderCommandBuffer->RT_EndMarker();
 			});
@@ -1640,8 +1641,10 @@ namespace Lux {
 				dstSlice.setArraySlice(layer);
 
 				const TextureSubresourceRange layerRange{ 0, 1, layer, 1 };
-				renderCommandBuffer->RT_RequireTextureState(sourceImage->GetHandle(), layerRange, ResourceState::CopySource);
-				renderCommandBuffer->RT_RequireTextureState(destinationImage->GetHandle(), layerRange, ResourceState::CopyDest);
+				renderCommandBuffer->RT_RequireTextureState(sourceImage->GetImageInfo().Tracked, layerRange, ResourceState::CopySource);
+				renderCommandBuffer->RT_RequireTextureState(destinationImage->GetImageInfo().Tracked, layerRange, ResourceState::CopyDest);
+				// NVRHI's copyTexture does not commit the tracker's barriers.
+				renderCommandBuffer->RT_CommitBarriers();
 				commandList->copyTexture(destinationImage->GetHandle(), dstSlice, sourceImage->GetHandle(), srcSlice);
 			}
 		});

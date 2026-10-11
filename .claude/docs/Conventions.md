@@ -382,7 +382,8 @@ separate `texture*` and `sampler` bindings; combined `sampler2D` uniforms are re
 Record NVRHI commands through `RenderCommandBuffer::GetActive()`, and do not hold the returned
 command list across an NRI draw: `GetActive()` closes an open NRI rendering scope first
 (`Rendering.md § NRI device`), but the draw reopens it, and the held list would then record inside
-it.
+it. An NVRHI command that touches a resource needs `RT_CommitBarriers()` after its `RT_Require*`:
+NVRHI does not commit the tracker's barriers.
 
 ### Configuration macros
 

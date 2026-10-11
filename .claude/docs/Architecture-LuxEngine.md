@@ -244,8 +244,10 @@ and barrier emission.
   `Image2D`s in the shared `ImGuiTextureRegistry`.
 
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
-`ResourceStateTracker` + `NVRHIBarrierEmitter` (`Renderer/RHI/`). NVRHI's automatic barriers are off
-and the tracker places every barrier: NRI passes, draws and dispatches require what they bind
+`ResourceStateTracker` + `NRIBarrierEmitter` (`Renderer/RHI/`), which record every barrier as an
+NRI barrier into the command list's NRI wrapper. Resources are named by tracked descriptions made
+when they are created (`NRITexture`/`NRIBuffer::GetTracked`, `ImageInfo::Tracked`). NVRHI's automatic
+barriers are off and the tracker places every barrier: NRI passes, draws and dispatches require what they bind
 (attachments, descriptor-set uses, vertex/index/indirect buffers), copy/clear/write sites call
 `RT_Require*`, and intra-pass transitions `RT_Transition*`. Readbacks into NVRHI staging textures
 record with `SetBarrierMode(Automatic)` until P13.

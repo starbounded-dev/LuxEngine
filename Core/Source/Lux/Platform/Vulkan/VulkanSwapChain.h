@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Lux/Core/Base.h"
+#include "Lux/Renderer/RHI/ResourceStateTracker.h"
 
 #include "nvrhi/nvrhi.h"
 
@@ -40,9 +41,11 @@ namespace Lux {
 		uint32_t GetBackBufferCount();
 		vk::Semaphore GetAcquiredImageSemaphore() const { return m_AcquiredSemaphore; }
 
-		// The NRI color-attachment view of the acquired back buffer (NRI migration Phase 10). Render
-		// thread, after BeginFrame; null before the first acquire.
+		// The NRI color-attachment view of the acquired back buffer (NRI migration Phase 10), and the
+		// back buffer as the resource state tracker sees it (resting in Present). Render thread,
+		// after BeginFrame; null / empty before the first acquire.
 		nri::Descriptor* GetCurrentNRIColorAttachment() const;
+		TrackedTexture GetCurrentTrackedBackBuffer() const;
 		// The NRI format of the back buffers (and of their color-attachment views).
 		nri::Format GetNRIColorFormat() const;
 
@@ -82,6 +85,7 @@ namespace Lux {
 			// through them until NRI draws (migration P10/P14).
 			nri::Texture* RHITexture = nullptr;
 			nri::Descriptor* RHIColorAttachment = nullptr;
+			TrackedTexture Tracked;
 		};
 		std::vector<SwapChainImage> m_SwapChainImages;
 		uint32_t m_SwapChainIndex = uint32_t(-1);

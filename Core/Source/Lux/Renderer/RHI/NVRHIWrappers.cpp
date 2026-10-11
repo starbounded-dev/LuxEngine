@@ -6,6 +6,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include <nvrhi/vulkan.h>
@@ -71,6 +72,8 @@ namespace Lux {
 
 		// NVRHI's buffer usage (vulkan-buffer.cpp createBuffer). NRI gives a buffer STORAGE_BUFFER
 		// usage when it is structured or byte-address, and adds TRANSFER_SRC/DST and device address.
+		// Raw-view and UAV buffers also get NRI's shader-resource usages: NRI validation checks
+		// barrier access against them (they add texel-buffer usage only).
 		nri::BufferUsageBits ToNRIBufferUsage(const nvrhi::BufferDesc& desc)
 		{
 			nri::BufferUsageBits usage = nri::BufferUsageBits::NONE;
@@ -82,9 +85,9 @@ namespace Lux {
 				usage |= nri::BufferUsageBits::ARGUMENT;
 			if (desc.isConstantBuffer)
 				usage |= nri::BufferUsageBits::CONSTANT;
-			if (desc.canHaveTypedViews)
+			if (desc.canHaveTypedViews || desc.canHaveRawViews || desc.canHaveUAVs)
 				usage |= nri::BufferUsageBits::SHADER_RESOURCE;
-			if (desc.canHaveTypedViews && desc.canHaveUAVs)
+			if (desc.canHaveUAVs)
 				usage |= nri::BufferUsageBits::SHADER_RESOURCE_STORAGE;
 			return usage;
 		}
@@ -112,7 +115,7 @@ namespace Lux {
 	}
 
 	NRITexture::NRITexture(NRITexture&& other) noexcept
-		: m_Texture(std::exchange(other.m_Texture, nullptr)), m_Handle(std::move(other.m_Handle))
+		: m_Texture(std::exchange(other.m_Texture, nullptr)), m_Handle(std::move(other.m_Handle)), m_Tracked(std::exchange(other.m_Tracked, {}))
 	{
 	}
 
@@ -123,6 +126,7 @@ namespace Lux {
 			Reset();
 			m_Texture = std::exchange(other.m_Texture, nullptr);
 			m_Handle = std::move(other.m_Handle);
+			m_Tracked = std::exchange(other.m_Tracked, {});
 		}
 		return *this;
 	}
@@ -165,6 +169,11 @@ namespace Lux {
 
 		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 		result.m_Handle = device->createHandleForNativeTexture(nvrhi::ObjectTypes::VK_Image, nvrhi::Object(api.GetTextureNativeObject(result.m_Texture)), desc);
+
+		result.m_Tracked.Handle = result.m_Texture;
+		result.m_Tracked.MipCount = std::max(1u, static_cast<uint32_t>(nriDesc.mipNum));
+		result.m_Tracked.LayerCount = std::max(1u, static_cast<uint32_t>(nriDesc.layerNum));
+		result.m_Tracked.RestingState = desc.keepInitialState ? FromNVRHI(desc.initialState) : ResourceState::Unknown;
 		return result;
 	}
 
@@ -184,6 +193,7 @@ namespace Lux {
 				RHIDevice::API().DestroyTexture(texture);
 			});
 		m_Handle = nullptr;
+		m_Tracked = {};
 	}
 
 	NRIBuffer::~NRIBuffer()
@@ -192,7 +202,7 @@ namespace Lux {
 	}
 
 	NRIBuffer::NRIBuffer(NRIBuffer&& other) noexcept
-		: m_Buffer(std::exchange(other.m_Buffer, nullptr)), m_Handle(std::move(other.m_Handle))
+		: m_Buffer(std::exchange(other.m_Buffer, nullptr)), m_Handle(std::move(other.m_Handle)), m_Tracked(std::exchange(other.m_Tracked, {}))
 	{
 	}
 
@@ -203,6 +213,7 @@ namespace Lux {
 			Reset();
 			m_Buffer = std::exchange(other.m_Buffer, nullptr);
 			m_Handle = std::move(other.m_Handle);
+			m_Tracked = std::exchange(other.m_Tracked, {});
 		}
 		return *this;
 	}
@@ -233,6 +244,10 @@ namespace Lux {
 
 		nvrhi::IDevice* device = Application::GetGraphicsDevice();
 		result.m_Handle = device->createHandleForNativeBuffer(nvrhi::ObjectTypes::VK_Buffer, nvrhi::Object(api.GetBufferNativeObject(result.m_Buffer)), desc);
+
+		result.m_Tracked.Handle = result.m_Buffer;
+		result.m_Tracked.Untracked = desc.cpuAccess != nvrhi::CpuAccessMode::None;
+		result.m_Tracked.RestingState = !result.m_Tracked.Untracked && desc.keepInitialState ? FromNVRHI(desc.initialState) : ResourceState::Unknown;
 		return result;
 	}
 
@@ -252,6 +267,7 @@ namespace Lux {
 				RHIDevice::API().DestroyBuffer(buffer);
 			});
 		m_Handle = nullptr;
+		m_Tracked = {};
 	}
 
 	void* NRIBuffer::Map(uint64_t offset, uint64_t size) const

@@ -176,17 +176,17 @@ namespace Lux {
 		return index < m_NRIColorAttachments.size() ? m_NRIColorAttachments[index] : nullptr;
 	}
 
-	nvrhi::ITexture* Framebuffer::GetColorAttachmentTexture(uint32_t index) const
+	TrackedTexture Framebuffer::GetColorAttachmentTexture(uint32_t index) const
 	{
 		if (m_Specification.SwapChainTarget)
-			return index == 0 ? Application::Get().GetWindow().GetSwapChain().GetCurrentBackBuffer() : nullptr;
+			return index == 0 ? Application::Get().GetWindow().GetSwapChain().GetCurrentTrackedBackBuffer() : TrackedTexture{};
 
-		return index < m_AttachmentImages.size() && m_AttachmentImages[index] ? m_AttachmentImages[index]->GetHandle().Get() : nullptr;
+		return index < m_AttachmentImages.size() && m_AttachmentImages[index] ? m_AttachmentImages[index]->GetImageInfo().Tracked : TrackedTexture{};
 	}
 
-	nvrhi::ITexture* Framebuffer::GetDepthAttachmentTexture() const
+	TrackedTexture Framebuffer::GetDepthAttachmentTexture() const
 	{
-		return m_DepthAttachmentImage ? m_DepthAttachmentImage->GetHandle().Get() : nullptr;
+		return m_DepthAttachmentImage ? m_DepthAttachmentImage->GetImageInfo().Tracked : TrackedTexture{};
 	}
 
 	nri::Format Framebuffer::GetNRIColorFormat(uint32_t index) const

@@ -116,17 +116,26 @@ namespace Lux {
 			ResourceState State = ResourceState::Unknown;
 			std::string Name;
 
-			// Render thread: the backend object this frame uses (alias source and frame slot resolved).
-			void* RT_GetHandle()
+			// Render thread: the texture or buffer this frame uses (alias source and frame slot
+			// resolved), as the resource state tracker names it. Empty for the other kind.
+			TrackedTexture RT_GetTexture() const
 			{
-				if (Image)
-					return Image->GetHandle().Get();
+				return Image ? Image->GetImageInfo().Tracked : TrackedTexture{};
+			}
+
+			TrackedBuffer RT_GetBuffer()
+			{
 				if (Set)
 				{
 					Ref<StorageBuffer> buffer = Set->RT_Get();
-					return buffer ? buffer->GetHandle().Get() : nullptr;
+					return buffer ? buffer->GetBuffer().GetTracked() : TrackedBuffer{};
 				}
-				return Buffer ? Buffer->GetHandle().Get() : nullptr;
+				return Buffer ? Buffer->GetBuffer().GetTracked() : TrackedBuffer{};
+			}
+
+			const void* RT_GetHandle()
+			{
+				return Image ? RT_GetTexture().Handle : RT_GetBuffer().Handle;
 			}
 		};
 
@@ -916,13 +925,10 @@ namespace Lux {
 						{
 							for (ResolvedResource& entry : entries)
 							{
-								void* handle = entry.RT_GetHandle();
-								if (!handle)
-									continue;
 								if (entry.Image)
-									cmd->RT_RequireTextureState(static_cast<nvrhi::ITexture*>(handle), entry.Range, entry.State);
+									cmd->RT_RequireTextureState(entry.RT_GetTexture(), entry.Range, entry.State);
 								else
-									cmd->RT_RequireBufferState(static_cast<nvrhi::IBuffer*>(handle), entry.State);
+									cmd->RT_RequireBufferState(entry.RT_GetBuffer(), entry.State);
 							}
 							cmd->RT_CommitBarriers();
 						});

@@ -11,41 +11,39 @@
 
 namespace Lux {
 
-	// A texture as the tracker sees it. Handle is the backend object (nvrhi::ITexture* until NRI
-	// Phase 13); only the barrier emitter dereferences it.
+	// A texture as the tracker sees it, described once when the texture is created (NRITexture,
+	// swapchain images). Handle is the nri::Texture*; only the barrier emitter dereferences it.
 	struct TrackedTexture
 	{
 		void* Handle = nullptr;
 		uint32_t MipCount = 1;
 		uint32_t LayerCount = 1;
-		// The state the texture is in between command buffers. Unknown when the backend tracks the
-		// texture's state itself (no resting state): requirements are still forwarded, not modelled.
+		// The state the texture is in between command buffers. Every texture has one: a texture
+		// without it cannot be tracked (logged, its requirements ignored).
 		ResourceState RestingState = ResourceState::Unknown;
 	};
 
+	// Described once when the buffer is created (NRIBuffer). Handle is the nri::Buffer*.
 	struct TrackedBuffer
 	{
 		void* Handle = nullptr;
-		// Unknown when the tracker does not model the buffer: the backend tracks it itself, or (Untracked)
-		// not at all.
+		// Unknown for an untracked buffer.
 		ResourceState RestingState = ResourceState::Unknown;
-		// The backend never transitions it (volatile or CPU-visible), so requiring it needs no barrier.
+		// CPU-visible: written through Map and read straight from host memory, never transitioned
+		// (the queue submit makes host writes visible), so requiring it needs no barrier.
 		bool Untracked = false;
 	};
 
-	// Turns requirements into backend barriers. NVRHIBarrierEmitter until NRI Phase 13.
+	// Records the transitions the tracker works out (NRIBarrierEmitter). `before` is the state the
+	// subresources are in now; `range` is resolved (no AllMips / AllLayers).
 	class IBarrierEmitter
 	{
 	public:
 		virtual ~IBarrierEmitter() = default;
 
-		virtual void RequireTexture(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state) = 0;
-		virtual void RequireBuffer(const TrackedBuffer& buffer, ResourceState state) = 0;
+		virtual void TransitionTexture(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState before, ResourceState after) = 0;
+		virtual void TransitionBuffer(const TrackedBuffer& buffer, ResourceState before, ResourceState after) = 0;
 		virtual void Commit() = 0;
-
-		// Debug cross-check: the backend's own view of a state, when it keeps one.
-		virtual bool QueryTextureState(const TrackedTexture& texture, uint32_t mip, uint32_t layer, ResourceState& outState) const { return false; }
-		virtual bool QueryBufferState(const TrackedBuffer& buffer, ResourceState& outState) const { return false; }
 	};
 
 	// Per command buffer: which state every resource touched so far is in, at subresource
@@ -73,9 +71,8 @@ namespace Lux {
 		void Require(const TrackedTexture& texture, TextureSubresourceRange range, ResourceState state);
 		void Require(const TrackedBuffer& buffer, ResourceState state);
 		void Commit();
-		// True when a requirement since the last Commit may need a barrier: a modelled transition, or
-		// a resource the backend tracks without a model here. NRI render passes commit those outside
-		// their rendering scopes (NRI migration Phase 10).
+		// True when a requirement since the last Commit made a transition. NRI render passes commit
+		// those outside their rendering scopes (NRI migration Phase 10).
 		bool HasPendingBarriers() const { return m_PendingBarriers; }
 
 		// Debug: while set, every required texture/buffer handle is appended to `log` (the render
@@ -86,10 +83,6 @@ namespace Lux {
 		ResourceState GetState(const void* textureHandle, uint32_t mip, uint32_t layer) const;
 		ResourceState GetState(const void* bufferHandle) const;
 		const Stats& GetStats() const { return m_Stats; }
-
-		// Debug: compares the model with the emitter's backend state for every resource touched since
-		// the last check and logs the first mismatch per resource.
-		void CrossCheck(const char* context);
 
 	private:
 		struct TextureEntry
@@ -113,8 +106,6 @@ namespace Lux {
 		std::vector<const void*>* m_RequirementLog = nullptr;
 		std::unordered_map<const void*, TextureEntry> m_Textures;
 		std::unordered_map<const void*, BufferEntry> m_Buffers;
-		std::vector<const void*> m_TexturesToCheck;
-		std::vector<const void*> m_BuffersToCheck;
 		Stats m_Stats;
 		bool m_PendingBarriers = false;
 	};

@@ -88,7 +88,9 @@ namespace Lux {
 			m_CommandList = RenderCommandBuffer::Create(1, "VertexBuffer");
 
 		m_CommandList->RT_Begin();
-		m_CommandList->RT_RequireBufferState(m_Buffer.GetHandle(), ResourceState::CopyDest);
+		m_CommandList->RT_RequireBufferState(m_Buffer.GetTracked(), ResourceState::CopyDest);
+		// NVRHI's writeBuffer does not commit the tracker's barriers.
+		m_CommandList->RT_CommitBarriers();
 		m_CommandList->GetActive()->writeBuffer(m_Buffer.GetHandle(), buffer.Data, buffer.Size);
 		m_CommandList->RT_End();
 		m_CommandList->RT_Submit();

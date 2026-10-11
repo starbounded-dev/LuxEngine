@@ -122,8 +122,10 @@ namespace Lux {
 					dstSlice.mipLevel = mip;
 
 					const TextureSubresourceRange mipRange{ mip, 1, 0, 1 };
-					commandBuffer->RT_RequireTextureState(texture->GetHandle(), mipRange, ResourceState::CopySource);
-					commandBuffer->RT_RequireTextureState(srgbTexture->GetHandle(), mipRange, ResourceState::CopyDest);
+					commandBuffer->RT_RequireTextureState(texture->GetImage()->GetImageInfo().Tracked, mipRange, ResourceState::CopySource);
+					commandBuffer->RT_RequireTextureState(srgbImage->GetImageInfo().Tracked, mipRange, ResourceState::CopyDest);
+					// NVRHI's copyTexture does not commit the tracker's barriers.
+					commandBuffer->RT_CommitBarriers();
 					commandList->copyTexture(srgbTexture->GetHandle(), dstSlice, texture->GetHandle(), srcSlice);
 				}
 
@@ -420,7 +422,7 @@ namespace Lux {
 			{
 				LUX_CORE_WARN("{}: Generating mips for format {}", instance->m_Specification.DebugName, Utils::ImageFormatToString(instance->m_Specification.Format));
 
-				renderCommandBuffer->RT_TransitionTextureState(instance->m_Image->GetImageInfo().ImageHandle, AllSubresources, ResourceState::UnorderedAccess);
+				renderCommandBuffer->RT_TransitionTextureState(instance->m_Image->GetImageInfo().Tracked, AllSubresources, ResourceState::UnorderedAccess);
 				renderCommandBuffer->RT_CommitBarriers();
 			});
 
@@ -467,8 +469,7 @@ namespace Lux {
 
 			Renderer::Submit([renderCommandBuffer, instance]() mutable
 				{
-					nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-					commandList->commitBarriers();
+					renderCommandBuffer->RT_CommitBarriers();
 				});
 		}
 
@@ -476,7 +477,7 @@ namespace Lux {
 
 		Renderer::Submit([renderCommandBuffer, instance]() mutable
 			{
-				renderCommandBuffer->RT_TransitionTextureState(instance->m_Image->GetImageInfo().ImageHandle, AllSubresources, ResourceState::ShaderResource);
+				renderCommandBuffer->RT_TransitionTextureState(instance->m_Image->GetImageInfo().Tracked, AllSubresources, ResourceState::ShaderResource);
 				renderCommandBuffer->RT_CommitBarriers();
 			});
 
@@ -696,8 +697,7 @@ namespace Lux {
 
 				Renderer::Submit([renderCommandBuffer, instance]() mutable
 					{
-						nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-						commandList->commitBarriers();
+						renderCommandBuffer->RT_CommitBarriers();
 					});
 			}
 		}

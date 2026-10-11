@@ -424,7 +424,7 @@ namespace Lux {
 					continue;
 				const ImGuiTextureInfo& texInfo = snapshot->ResolveTexture(static_cast<uint64_t>(drawCommand.GetTexID()));
 				if (texInfo.Image && texInfo.Image->GetImageInfo().ImageHandle)
-					m_RenderCommandBuffer->RT_RequireTextureState(texInfo.Image->GetImageInfo().ImageHandle, texInfo.Range, ResourceState::ShaderResource);
+					m_RenderCommandBuffer->RT_RequireTextureState(texInfo.Image->GetImageInfo().Tracked, texInfo.Range, ResourceState::ShaderResource);
 			}
 		}
 
@@ -443,7 +443,7 @@ namespace Lux {
 		pushConstants.Flags = 0;
 
 		RenderCommandBuffer::NRIRenderPassDesc passDesc;
-		passDesc.ColorAttachments[0] = { target, swapchain->GetCurrentBackBuffer(), AllSubresources };
+		passDesc.ColorAttachments[0] = { target, swapchain->GetCurrentTrackedBackBuffer(), AllSubresources };
 		passDesc.ClearColor[0] = clearTarget;
 		passDesc.ClearColorValues[0] = { 1.0f, 0.0f, 1.0f, 1.0f };
 		passDesc.ColorAttachmentCount = 1;

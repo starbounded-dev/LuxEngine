@@ -15,14 +15,27 @@ namespace Lux {
 			return (state & ResourceState::UnorderedAccess) != 0;
 		}
 
-		// Same layout as NVRHI's calcSubresource, so per-subresource comparisons line up.
+		// Mip-major per layer.
 		uint32_t SubresourceIndex(const TrackedTexture& texture, uint32_t mip, uint32_t layer)
 		{
 			return mip + layer * texture.MipCount;
 		}
 
-		// Render thread only. Process-wide so a recurring mismatch is reported once, not every frame.
-		std::unordered_set<const void*> s_ReportedMismatches;
+		// A transition is needed to change state, and from UnorderedAccess to itself (the UAV barrier
+		// between two writes).
+		bool NeedsTransition(ResourceState current, ResourceState state)
+		{
+			return current != state || IsUnorderedAccess(state);
+		}
+
+		// Render thread only. Process-wide so a recurring problem is reported once, not every frame.
+		std::unordered_set<const void*> s_ReportedUntrackable;
+
+		void ReportUntrackable(const void* handle, const char* kind)
+		{
+			if (s_ReportedUntrackable.insert(handle).second)
+				LUX_CORE_ERROR_TAG("Renderer", "Resource state tracker: {} {} has no resting state; its requirements are ignored", kind, handle);
+		}
 
 	}
 
@@ -31,8 +44,6 @@ namespace Lux {
 		m_Emitter = emitter;
 		m_Textures.clear();
 		m_Buffers.clear();
-		m_TexturesToCheck.clear();
-		m_BuffersToCheck.clear();
 		m_Stats = {};
 		m_PendingBarriers = false;
 	}
@@ -60,8 +71,6 @@ namespace Lux {
 
 		m_Textures.clear();
 		m_Buffers.clear();
-		m_TexturesToCheck.clear();
-		m_BuffersToCheck.clear();
 	}
 
 	void ResourceStateTracker::Require(const TrackedTexture& texture, TextureSubresourceRange range, ResourceState state)
@@ -70,14 +79,13 @@ namespace Lux {
 			return;
 
 		m_Stats.Requirements++;
-		m_Emitter->RequireTexture(texture, range, state);
 		if (m_RequirementLog)
 			m_RequirementLog->push_back(texture.Handle);
 
-		// Without a resting state the starting state is unknown, so the backend owns the bookkeeping.
+		// Without a resting state the starting state is unknown.
 		if (texture.RestingState == ResourceState::Unknown)
 		{
-			m_PendingBarriers = true;
+			ReportUntrackable(texture.Handle, "texture");
 			return;
 		}
 
@@ -99,34 +107,41 @@ namespace Lux {
 		const bool wholeTexture = baseMip == 0 && mipCount == texture.MipCount && baseLayer == 0 && layerCount == texture.LayerCount;
 		if (wholeTexture && entry.Subresources.empty())
 		{
-			if (entry.Whole != state || IsUnorderedAccess(state))
+			if (NeedsTransition(entry.Whole, state))
 			{
+				m_Emitter->TransitionTexture(entry.Info, { 0, texture.MipCount, 0, texture.LayerCount }, entry.Whole, state);
 				m_Stats.Transitions++;
 				m_PendingBarriers = true;
 			}
 			entry.Whole = state;
+			return;
 		}
-		else
-		{
-			if (entry.Subresources.empty())
-				entry.Subresources.assign(static_cast<size_t>(texture.MipCount) * texture.LayerCount, entry.Whole);
 
-			for (uint32_t layer = baseLayer; layer < baseLayer + layerCount; layer++)
+		if (entry.Subresources.empty())
+			entry.Subresources.assign(static_cast<size_t>(texture.MipCount) * texture.LayerCount, entry.Whole);
+
+		// One transition per run of mips of a layer that are in the same state.
+		for (uint32_t layer = baseLayer; layer < baseLayer + layerCount; layer++)
+		{
+			uint32_t mip = baseMip;
+			while (mip < baseMip + mipCount)
 			{
-				for (uint32_t mip = baseMip; mip < baseMip + mipCount; mip++)
+				const ResourceState before = entry.Subresources[SubresourceIndex(texture, mip, layer)];
+				uint32_t runEnd = mip + 1;
+				while (runEnd < baseMip + mipCount && entry.Subresources[SubresourceIndex(texture, runEnd, layer)] == before)
+					runEnd++;
+
+				if (NeedsTransition(before, state))
 				{
-					ResourceState& current = entry.Subresources[SubresourceIndex(texture, mip, layer)];
-					if (current != state || IsUnorderedAccess(state))
-					{
-						m_Stats.Transitions++;
-						m_PendingBarriers = true;
-					}
-					current = state;
+					m_Emitter->TransitionTexture(entry.Info, { mip, runEnd - mip, layer, 1 }, before, state);
+					m_Stats.Transitions++;
+					m_PendingBarriers = true;
 				}
+				for (uint32_t runMip = mip; runMip < runEnd; runMip++)
+					entry.Subresources[SubresourceIndex(texture, runMip, layer)] = state;
+				mip = runEnd;
 			}
 		}
-
-		m_TexturesToCheck.push_back(texture.Handle);
 	}
 
 	void ResourceStateTracker::Require(const TrackedBuffer& buffer, ResourceState state)
@@ -135,14 +150,14 @@ namespace Lux {
 			return;
 
 		m_Stats.Requirements++;
-		m_Emitter->RequireBuffer(buffer, state);
 		if (m_RequirementLog)
 			m_RequirementLog->push_back(buffer.Handle);
 
+		if (buffer.Untracked)
+			return;
 		if (buffer.RestingState == ResourceState::Unknown)
 		{
-			if (!buffer.Untracked)
-				m_PendingBarriers = true;
+			ReportUntrackable(buffer.Handle, "buffer");
 			return;
 		}
 
@@ -154,14 +169,13 @@ namespace Lux {
 			entry.State = buffer.RestingState;
 		}
 
-		if (entry.State != state || IsUnorderedAccess(state))
+		if (NeedsTransition(entry.State, state))
 		{
+			m_Emitter->TransitionBuffer(entry.Info, entry.State, state);
 			m_Stats.Transitions++;
 			m_PendingBarriers = true;
 		}
 		entry.State = state;
-
-		m_BuffersToCheck.push_back(buffer.Handle);
 	}
 
 	void ResourceStateTracker::Commit()
@@ -190,65 +204,6 @@ namespace Lux {
 	{
 		auto it = m_Buffers.find(bufferHandle);
 		return it != m_Buffers.end() ? it->second.State : ResourceState::Unknown;
-	}
-
-	void ResourceStateTracker::CrossCheck(const char* context)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_Emitter)
-			return;
-
-		for (const void* handle : m_TexturesToCheck)
-		{
-			auto it = m_Textures.find(handle);
-			if (it == m_Textures.end() || s_ReportedMismatches.contains(handle))
-				continue;
-
-			const TextureEntry& entry = it->second;
-			for (uint32_t layer = 0; layer < entry.Info.LayerCount; layer++)
-			{
-				bool mismatch = false;
-				for (uint32_t mip = 0; mip < entry.Info.MipCount; mip++)
-				{
-					ResourceState backendState;
-					if (!m_Emitter->QueryTextureState(entry.Info, mip, layer, backendState))
-						break;
-
-					const ResourceState trackedState = GetSubresourceState(entry, mip, layer);
-					if (backendState != trackedState)
-					{
-						LUX_CORE_ERROR_TAG("Renderer", "Tracker/NVRHI state mismatch in {}: texture {} mip {} layer {} is 0x{:X} in the tracker, 0x{:X} in NVRHI",
-							context, handle, mip, layer, static_cast<uint32_t>(trackedState), static_cast<uint32_t>(backendState));
-						s_ReportedMismatches.insert(handle);
-						mismatch = true;
-						break;
-					}
-				}
-				if (mismatch)
-					break;
-			}
-		}
-
-		for (const void* handle : m_BuffersToCheck)
-		{
-			auto it = m_Buffers.find(handle);
-			if (it == m_Buffers.end() || s_ReportedMismatches.contains(handle))
-				continue;
-
-			ResourceState backendState;
-			if (!m_Emitter->QueryBufferState(it->second.Info, backendState))
-				continue;
-
-			if (backendState != it->second.State)
-			{
-				LUX_CORE_ERROR_TAG("Renderer", "Tracker/NVRHI state mismatch in {}: buffer {} is 0x{:X} in the tracker, 0x{:X} in NVRHI",
-					context, handle, static_cast<uint32_t>(it->second.State), static_cast<uint32_t>(backendState));
-				s_ReportedMismatches.insert(handle);
-			}
-		}
-
-		m_TexturesToCheck.clear();
-		m_BuffersToCheck.clear();
 	}
 
 }

@@ -5,7 +5,6 @@
 #include "DescriptorSetManager.h"
 
 #include "Lux/Renderer/Renderer.h"
-#include "Lux/Renderer/RHI/NVRHIBarrierEmitter.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
@@ -109,13 +108,13 @@ namespace Lux {
 			{
 				nri::Descriptor* descriptor = GetNRIBufferView(buffer.Get(), view);
 				if (descriptor)
-					uses.AddBuffer(DescribeBuffer(buffer.GetHandle()), state);
+					uses.AddBuffer(buffer.GetTracked(), state);
 				return descriptor;
 			};
 			const auto useTexture = [&uses](const ImageInfo* imageInfo, nri::Descriptor* descriptor, const nvrhi::TextureSubresourceSet& subresources, ResourceState state) -> nri::Descriptor*
 			{
 				if (descriptor)
-					uses.AddTexture(DescribeTexture(imageInfo->ImageHandle), FromNVRHI(subresources), state);
+					uses.AddTexture(imageInfo->Tracked, FromNVRHI(subresources), state);
 				return descriptor;
 			};
 

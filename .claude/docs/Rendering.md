@@ -336,15 +336,22 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 
 Every GPU access needs its resource in the right state (layout + access). NVRHI's automatic
 barriers are off for every `RenderCommandBuffer`, and the renderer's `ResourceStateTracker`
-(`Renderer/RHI/`) places the barriers, through `NVRHIBarrierEmitter`.
+(`Renderer/RHI/`) places the barriers: it works out each transition (before and after state, per
+run of subresources) and `NRIBarrierEmitter` records them as NRI barriers, batched until the
+tracker commits. Each state's access, layout and stages are NVRHI's Vulkan ones, except that the
+copy states wait on all commands (NRI's `COPY` stage covers copies only, not clears and fills).
 
 The model:
 
 - **Resting states.** Every resource has one, the state it is in whenever no command buffer is
-  open: the NVRHI `keepInitialState` initial state today (`ImageUsage::Texture` → `ShaderResource`,
-  `Attachment` → `RenderTarget`/`DepthWrite`, `Storage` → `UnorderedAccess`, vertex/index buffers →
-  `VertexBuffer`/`IndexBuffer`, GPU-only storage → `UnorderedAccess`). Each `RenderCommandBuffer`
-  owns a tracker; resources enter it at their resting state and `RT_End` returns them there.
+  open, fixed when it is created: the desc's `keepInitialState` initial state (`ImageUsage::Texture`
+  → `ShaderResource`, `Attachment` → `RenderTarget`/`DepthWrite`, `Storage` → `UnorderedAccess`,
+  vertex/index buffers → `VertexBuffer`/`IndexBuffer`, GPU-only storage → `UnorderedAccess`,
+  swapchain images → `Present`). The tracker names a resource by its tracked description
+  (`NRITexture`/`NRIBuffer::GetTracked`, `ImageInfo::Tracked`,
+  `VulkanSwapChain::GetCurrentTrackedBackBuffer`), whose handle is the NRI texture or buffer.
+  CPU-visible buffers are untracked. Each `RenderCommandBuffer` owns a tracker; resources enter it at
+  their resting state and `RT_End` returns them there.
 - **Where requirements come from.** NRI passes, draws and dispatches require what they bind:
   `RT_BeginNRIRenderPass` the attachments (`RenderTarget`, `DepthWrite`) and the pass's sets,
   `RT_BeginNRIDraw` the draw's set 0 and its vertex, index and indirect buffers, and
@@ -363,9 +370,10 @@ The model:
 - **Bindless descriptor tables** are untracked, as in NVRHI (their group records no uses); material
   textures are in their resting `ShaderResource` state whenever a command buffer starts or ends.
 
-**Never call NVRHI's `setTextureState`/`setBufferState` or write a Vulkan barrier by hand — ask the
-command buffer's tracker.** In Debug, every requirement round cross-checks the tracker against
-NVRHI's own state and logs `Tracker/NVRHI state mismatch` once per resource.
+**Never write a barrier by hand — ask the command buffer's tracker.** An NVRHI command still
+recorded through `GetActive()` (copies, clears, `writeBuffer`, until the rest of NRI Phase 13)
+does not commit the tracker's barriers: call `RT_CommitBarriers()` between its requirements and the
+command. NRI validation (Debug) checks every barrier's access against the resource's usage.
 
 ---
 

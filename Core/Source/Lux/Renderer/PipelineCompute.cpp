@@ -234,11 +234,11 @@ namespace Lux {
 		// before first use (a StorageBufferSet's RT_Get() included). A barrier on a buffer that is not
 		// allocated is a no-op — the new buffer starts in its initial state — so skip it instead of
 		// failing a shipped VERIFY.
-		nvrhi::BufferHandle handle = storageBuffer ? storageBuffer->GetHandle() : nullptr;
-		if (!handle)
+		const TrackedBuffer buffer = storageBuffer ? storageBuffer->GetBuffer().GetTracked() : TrackedBuffer{};
+		if (!buffer.Handle)
 			return;
 		renderCommandBuffer->RT_BeginMarker(markerName);
-		renderCommandBuffer->RT_TransitionBufferState(handle, FromNVRHI(MapAccessFlagsToResourceState(toAccess)));
+		renderCommandBuffer->RT_TransitionBufferState(buffer, FromNVRHI(MapAccessFlagsToResourceState(toAccess)));
 		renderCommandBuffer->RT_CommitBarriers();
 		renderCommandBuffer->RT_EndMarker();
 	}
@@ -256,16 +256,14 @@ namespace Lux {
 		Renderer::Submit([renderCommandBuffer, image, toAccess, markerName]() mutable
 			{
 				// During a viewport/window resize the image can be mid-recreation: RT_Invalidate()
-				// calls Release() (nulling the handle) before allocating the new texture, so its GPU
-				// handle is momentarily null. A barrier on a resource that isn't currently allocated
-				// is meaningless (it gets its initial state when recreated), so skip it rather than
-				// passing null into nvrhi, which crashed on the render thread (requireTextureState).
-				// Reading into a local also keeps the texture alive across the barrier.
-				nvrhi::TextureHandle handle = image ? image->GetHandle() : nullptr;
-				if (!handle)
+				// calls Release() before allocating the new texture, so it momentarily has none. A
+				// barrier on a resource that isn't currently allocated is meaningless (it gets its
+				// resting state when recreated), so skip it.
+				const TrackedTexture texture = image ? image->GetImageInfo().Tracked : TrackedTexture{};
+				if (!texture.Handle)
 					return;
 				renderCommandBuffer->RT_BeginMarker(markerName);
-				renderCommandBuffer->RT_TransitionTextureState(handle, AllSubresources, FromNVRHI(MapAccessFlagsToResourceState(toAccess)));
+				renderCommandBuffer->RT_TransitionTextureState(texture, AllSubresources, FromNVRHI(MapAccessFlagsToResourceState(toAccess)));
 				renderCommandBuffer->RT_CommitBarriers();
 				renderCommandBuffer->RT_EndMarker();
 			});

@@ -9,7 +9,7 @@
 
 #include "PipelineSpecification.h"
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
-#include "Lux/Renderer/RHI/NVRHIBarrierEmitter.h"
+#include "Lux/Renderer/RHI/NRIBarrierEmitter.h"
 #include "Lux/Renderer/RHI/RHITypes.h"
 #include "Lux/Renderer/RendererConfig.h"
 
@@ -71,10 +71,12 @@ namespace Lux {
 		//   RT_Require*:    a copy, clear or write; also re-requires the bindings of the next draw or
 		//                   dispatch, as NVRHI did. Emitted only with explicit barriers.
 		//   RT_Transition*: a transition the code always needed (mip chains, compute->indirect).
-		void RT_RequireTextureState(nvrhi::ITexture* texture, const TextureSubresourceRange& range, ResourceState state);
-		void RT_RequireBufferState(nvrhi::IBuffer* buffer, ResourceState state);
-		void RT_TransitionTextureState(nvrhi::ITexture* texture, const TextureSubresourceRange& range, ResourceState state);
-		void RT_TransitionBufferState(nvrhi::IBuffer* buffer, ResourceState state);
+		// Resources are named by their tracked descriptions (NRITexture/NRIBuffer::GetTracked,
+		// ImageInfo::Tracked); empty ones are ignored.
+		void RT_RequireTextureState(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state);
+		void RT_RequireBufferState(const TrackedBuffer& buffer, ResourceState state);
+		void RT_TransitionTextureState(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state);
+		void RT_TransitionBufferState(const TrackedBuffer& buffer, ResourceState state);
 		void RT_CommitBarriers();
 		bool RT_UsesExplicitBarriers() const { return m_ExplicitBarriers; }
 		// Debug (render graph): collect the handles of every requirement until RT_EndRequirementLog.
@@ -94,9 +96,9 @@ namespace Lux {
 
 		// NRI recording inside this command buffer (NRI migration Phase 9, plan §2.2 I3/I4). Between
 		// RT_BeginNRISegment and RT_EndNRISegment only NRI records, into a non-owning NRI wrapper of
-		// the NVRHI command list's VkCommandBuffer. The segment starts with pending barriers committed
-		// (emitted through NVRHI until Phase 13). Render thread, between RT_Begin and RT_End. Null, with
-		// no segment open, when NRI cannot wrap the command list (logged).
+		// the NVRHI command list's VkCommandBuffer. The segment starts with pending barriers committed.
+		// Render thread, between RT_Begin and RT_End. Null, with no segment open, when NRI could not
+		// wrap the command list (logged by RT_Begin).
 		nri::CommandBuffer* RT_BeginNRISegment();
 		void RT_EndNRISegment();
 
@@ -113,7 +115,7 @@ namespace Lux {
 			nri::Descriptor* View = nullptr;
 			// The texture and subresources the view covers, required as a render target (or depth
 			// write) when the pass opens.
-			nvrhi::ITexture* Texture = nullptr;
+			TrackedTexture Texture;
 			TextureSubresourceRange Range;
 		};
 
@@ -228,10 +230,9 @@ namespace Lux {
 		// its committed state in both cases).
 		bool RT_BeginRequirements(RequiredBindPoint bindPoint);
 		void RT_RequireSet(uint32_t setIndex, const BoundDescriptorSet& set);
-		void RT_RequireBuffer(nvrhi::IBuffer*& required, const NRIBuffer* buffer, ResourceState state);
+		void RT_RequireBuffer(const void*& required, const NRIBuffer* buffer, ResourceState state);
 		// The open pass's attachments and sets.
 		void RT_RequireNRIRenderPass();
-		void RT_CrossCheckStates(const char* context);
 		void DestroyNRIWrapper();
 		nri::CommandBuffer* RT_OpenNRIRendering(bool passStart);
 		void RT_CloseNRIRendering();
@@ -247,7 +248,7 @@ namespace Lux {
 		uint64_t m_LastExecutionInstance = 0;
 
 		ResourceStateTracker m_Tracker;
-		NVRHIBarrierEmitter m_BarrierEmitter;
+		NRIBarrierEmitter m_BarrierEmitter;
 		bool m_ExplicitBarriers = false;
 		BarrierMode m_BarrierMode = BarrierMode::Explicit;
 		std::vector<const void*> m_RequirementLog;
@@ -261,14 +262,14 @@ namespace Lux {
 		{
 			RequiredBindPoint BindPoint = RequiredBindPoint::None;
 			std::array<nri::DescriptorSet*, MaxDescriptorSets> Sets = {};
-			nvrhi::IBuffer* VertexBuffer = nullptr;
-			nvrhi::IBuffer* IndexBuffer = nullptr;
-			nvrhi::IBuffer* IndirectArguments = nullptr;
+			const void* VertexBuffer = nullptr;
+			const void* IndexBuffer = nullptr;
+			const void* IndirectArguments = nullptr;
 		};
 		RequiredBindings m_RequiredBindings;
 		bool m_BindingStatesDirty = true;
-		// The NRI wrapper of the open command list (created by the first segment after RT_Begin,
-		// destroyed by RT_End) and whether a segment is open.
+		// The NRI wrapper of the open command list (created by RT_Begin, destroyed by RT_End; the
+		// barriers are recorded into it) and whether a segment is open.
 		nri::CommandBuffer* m_NRICommandBuffer = nullptr;
 		bool m_InNRISegment = false;
 		// The NRI render pass (NRI types, so defined in the .cpp).

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "Lux/Renderer/RHI/ResourceStateTracker.h"
+
 #include <nvrhi/nvrhi.h>
 
 #include <cstdint>
@@ -48,11 +50,15 @@ namespace Lux {
 
 		nri::Texture* Get() const { return m_Texture; }
 		const nvrhi::TextureHandle& GetHandle() const { return m_Handle; }
+		// The texture as the resource state tracker sees it: its resting state is the desc's
+		// keepInitialState initial state.
+		const TrackedTexture& GetTracked() const { return m_Tracked; }
 		explicit operator bool() const { return m_Texture != nullptr; }
 
 	private:
 		nri::Texture* m_Texture = nullptr;
 		nvrhi::TextureHandle m_Handle;
+		TrackedTexture m_Tracked;
 	};
 
 	// Which view of a texture (an NRI descriptor). Counts of 0 mean "the rest of the texture".
@@ -104,11 +110,15 @@ namespace Lux {
 
 		nri::Buffer* Get() const { return m_Buffer; }
 		const nvrhi::BufferHandle& GetHandle() const { return m_Handle; }
+		// The buffer as the resource state tracker sees it: CPU-visible buffers are untracked, the
+		// others rest in the desc's keepInitialState initial state.
+		const TrackedBuffer& GetTracked() const { return m_Tracked; }
 		explicit operator bool() const { return m_Buffer != nullptr; }
 
 	private:
 		nri::Buffer* m_Buffer = nullptr;
 		nvrhi::BufferHandle m_Handle;
+		TrackedBuffer m_Tracked;
 	};
 
 }

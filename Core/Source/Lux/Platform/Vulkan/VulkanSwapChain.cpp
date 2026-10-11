@@ -254,6 +254,8 @@ namespace Lux {
 			textureVKDesc.layerNum = 1;
 			textureVKDesc.sampleNum = 1;
 			LUX_CORE_VERIFY(api.CreateTextureVK(RHIDevice::Get(), textureVKDesc, sci.RHITexture) == nri::Result::SUCCESS, "Failed to wrap a swap chain image in NRI");
+			sci.Tracked.Handle = sci.RHITexture;
+			sci.Tracked.RestingState = ResourceState::Present;
 
 			nri::TextureViewDesc viewDesc = {};
 			viewDesc.texture = sci.RHITexture;
@@ -557,6 +559,11 @@ namespace Lux {
 	nri::Descriptor* VulkanSwapChain::GetCurrentNRIColorAttachment() const
 	{
 		return m_SwapChainIndex < m_SwapChainImages.size() ? m_SwapChainImages[m_SwapChainIndex].RHIColorAttachment : nullptr;
+	}
+
+	TrackedTexture VulkanSwapChain::GetCurrentTrackedBackBuffer() const
+	{
+		return m_SwapChainIndex < m_SwapChainImages.size() ? m_SwapChainImages[m_SwapChainIndex].Tracked : TrackedTexture{};
 	}
 
 

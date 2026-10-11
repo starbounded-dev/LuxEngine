@@ -7674,9 +7674,11 @@ namespace Lux {
 			{
 				for (Ref<StorageBufferSet> bufferSet : { pointGrid, spotGrid, counter })
 				{
-					nvrhi::IBuffer* buffer = bufferSet->RT_Get()->GetHandle();
-					commandBuffer->RT_RequireBufferState(buffer, ResourceState::CopyDest);
-					commandBuffer->GetActive()->clearBufferUInt(buffer, 0u);
+					Ref<StorageBuffer> buffer = bufferSet->RT_Get();
+					commandBuffer->RT_RequireBufferState(buffer->GetBuffer().GetTracked(), ResourceState::CopyDest);
+					// NVRHI's clearBufferUInt does not commit the tracker's barriers.
+					commandBuffer->RT_CommitBarriers();
+					commandBuffer->GetActive()->clearBufferUInt(buffer->GetHandle(), 0u);
 				}
 			});
 			return;
@@ -7688,9 +7690,11 @@ namespace Lux {
 		Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
 		Renderer::Submit([commandBuffer, counter]() mutable
 		{
-			nvrhi::IBuffer* buffer = counter->RT_Get()->GetHandle();
-			commandBuffer->RT_RequireBufferState(buffer, ResourceState::CopyDest);
-			commandBuffer->GetActive()->clearBufferUInt(buffer, 0u);
+			Ref<StorageBuffer> buffer = counter->RT_Get();
+			commandBuffer->RT_RequireBufferState(buffer->GetBuffer().GetTracked(), ResourceState::CopyDest);
+			// NVRHI's clearBufferUInt does not commit the tracker's barriers.
+			commandBuffer->RT_CommitBarriers();
+			commandBuffer->GetActive()->clearBufferUInt(buffer->GetHandle(), 0u);
 		});
 
 		constexpr uint32_t kThreadsPerGroup = 64;
@@ -8154,15 +8158,13 @@ namespace Lux {
 			std::string markerName = std::format("Barrier PreConvolution mip {} {}", mip, label);
 			Renderer::Submit([commandBuffer, preConvolutedImage, mip, state, markerName]() mutable
 			{
-				// During a viewport resize the pre-convolution image can be mid-recreation with a
-				// null GPU handle; a barrier on an unallocated resource is meaningless, so skip it
-				// rather than passing null into nvrhi (crashes in requireTextureState). Reading into
-				// a local also keeps the texture alive across the barrier.
-				nvrhi::TextureHandle handle = preConvolutedImage ? preConvolutedImage->GetHandle() : nullptr;
-				if (!handle)
+				// During a viewport resize the pre-convolution image can be mid-recreation with no GPU
+				// texture; a barrier on an unallocated resource is meaningless, so skip it.
+				const TrackedTexture texture = preConvolutedImage ? preConvolutedImage->GetImageInfo().Tracked : TrackedTexture{};
+				if (!texture.Handle)
 					return;
 				commandBuffer->RT_BeginMarker(markerName);
-				commandBuffer->RT_TransitionTextureState(handle, { mip, 1, 0, 1 }, state);
+				commandBuffer->RT_TransitionTextureState(texture, { mip, 1, 0, 1 }, state);
 				commandBuffer->RT_CommitBarriers();
 				commandBuffer->RT_EndMarker();
 			});
@@ -8486,10 +8488,10 @@ namespace Lux {
 			Renderer::Submit([commandBuffer, image, mip, state, markerName]() mutable
 			{
 				commandBuffer->RT_BeginMarker(markerName);
-				// Skip a null handle: during a resize the bloom mip image can be mid-recreation,
-				// and passing null to nvrhi crashes in requireTextureState (see PreConvolutionCompute).
-				if (nvrhi::TextureHandle handle = image->GetHandle())
-					commandBuffer->RT_TransitionTextureState(handle, { mip, 1, 0, 1 }, state);
+				// Skip a missing texture: during a resize the bloom mip image can be mid-recreation
+				// (see PreConvolutionCompute).
+				if (const TrackedTexture& texture = image->GetImageInfo().Tracked; texture.Handle)
+					commandBuffer->RT_TransitionTextureState(texture, { mip, 1, 0, 1 }, state);
 				commandBuffer->RT_CommitBarriers();
 				commandBuffer->RT_EndMarker();
 			});

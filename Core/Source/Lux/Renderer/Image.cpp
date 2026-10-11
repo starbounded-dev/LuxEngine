@@ -61,6 +61,7 @@ namespace Lux {
 		}
 
 		m_Info.RHITexture = nullptr;
+		m_Info.Tracked = {};
 		m_Info.ImageHandle = nullptr;
 		m_Texture.Reset();
 		m_GPUAllocationSize = 0;
@@ -261,6 +262,7 @@ namespace Lux {
 		nri::Texture* const oldTexture = m_Info.RHITexture;
 		m_Info.ImageHandle = newHandle;
 		m_Info.RHITexture = newTexture.Get();
+		m_Info.Tracked = newTexture.GetTracked();
 		m_Info.Dimension = textureDesc.dimension;
 		m_GPUAllocationSize = newAllocationSize;
 
