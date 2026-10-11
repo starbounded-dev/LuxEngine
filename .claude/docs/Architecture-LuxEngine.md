@@ -227,7 +227,7 @@ reads NRI's `QueryVideoMemoryInfo`.
 
 **Recording on NRI** (Phases 10-13; details in `Rendering.md § NRI device`). Everything is recorded
 with NRI inside NVRHI's command lists, barriers, copies and clears included; NVRHI keeps the command
-lists, submission, timer queries and markers.
+lists and their submission.
 - `Pipeline` builds its NRI pipeline from its specification, the shader's SPIR-V and the
   framebuffer's attachment formats (`Framebuffer::GetNRIColorFormat`/`GetNRIDepthFormat`), and
   `Framebuffer` builds NRI attachment views.
@@ -247,8 +247,8 @@ lists, submission, timer queries and markers.
   stages through a `StagingStream` (`Renderer/RHI/StagingMemory.h`); command buffers write buffers
   with `RenderCommandBuffer::RT_WriteBuffer`. New textures and swapchain images get their first
   transition (undefined → resting state) in the batch.
-- NVRHI records only markers and timer queries into its command lists; a timer query closes an open
-  NRI rendering scope first.
+- Queries and markers are NRI too: timestamp and pipeline-statistics query pools per command list
+  slot, read back a frame-in-flight later, and `CmdBeginAnnotation` markers. NVRHI records nothing.
 - `ImGuiRenderer::RenderToSwapchain` draws the UI into each swapchain with its own per-format
   pipelines, per-frame-slot geometry and descriptor pools. ImGui textures, the atlas included, are
   `Image2D`s in the shared `ImGuiTextureRegistry`.
@@ -1179,7 +1179,7 @@ configs), `LUX_PROFILE_*` (Tracy, off in Dist / `--no-tracy`). Details in
 GPU work is profiled separately: `VulkanDeviceManager` owns a `TracyVkCtx` (created in
 `CreateDevice`, destroyed in `DestroyDevice`, exposed by `GetGPUProfilerContext()`), and
 `RenderCommandBuffer::RT_BeginTimerQuery` / `RT_EndTimerQuery` emit a Tracy GPU zone alongside the
-engine's own nvrhi timer query. This is the only place Tracy's Vulkan header is used outside
+engine's own NRI timestamp query. This is the only place Tracy's Vulkan header is used outside
 `Platform/Vulkan/` — it is deliberately kept out of `Debug/Profiler.h`, which reaches nearly every
 translation unit through the PCH. See `.claude/docs/Rendering.md § GPU timing has two consumers`.
 

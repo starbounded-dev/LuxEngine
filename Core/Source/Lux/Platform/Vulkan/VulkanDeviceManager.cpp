@@ -507,6 +507,8 @@ namespace Lux {
 		auto maintenance4Features = vk::PhysicalDeviceMaintenance4Features();
 		auto maintenance5Features = vk::PhysicalDeviceMaintenance5Features();
 		auto maintenance6Features = vk::PhysicalDeviceMaintenance6Features();
+		// NRI's pipeline-statistics query pools count task and mesh invocations when the device can.
+		auto supportedMeshShader = vk::PhysicalDeviceMeshShaderFeaturesEXT();
 
 		// Put the user-provided extension structure at the end of the chain
 		pNext = m_DeviceParams.physicalDeviceFeatures2Extensions;
@@ -517,6 +519,7 @@ namespace Lux {
 		APPEND_EXTENSION(maintenance4Supported, maintenance4Features);
 		APPEND_EXTENSION(!vulkan14 && maintenance5Supported, maintenance5Features);
 		APPEND_EXTENSION(!vulkan14 && maintenance6Supported, maintenance6Features);
+		APPEND_EXTENSION(meshletsSupported, supportedMeshShader);
 
 		physicalDeviceFeatures2.pNext = pNext;
 		m_VulkanPhysicalDevice.getFeatures2(&physicalDeviceFeatures2);
@@ -557,7 +560,8 @@ namespace Lux {
 		// (Feature::Meshlets checks EXT, dispatchMesh calls drawMeshTasksEXT).
 		auto meshletFeatures = vk::PhysicalDeviceMeshShaderFeaturesEXT()
 			.setTaskShader(true)
-			.setMeshShader(true);
+			.setMeshShader(true)
+			.setMeshShaderQueries(supportedMeshShader.meshShaderQueries);
 		auto vrsFeatures = vk::PhysicalDeviceFragmentShadingRateFeaturesKHR()
 			.setPipelineFragmentShadingRate(true)
 			.setPrimitiveFragmentShadingRate(true)

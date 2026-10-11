@@ -450,8 +450,8 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
     and combine them at the sample (`sampler2D(u_Tex, r_Sampler)`). Reflection logs an error for a
     combined `sampler2D` uniform.
 - **Recording.** Every draw, dispatch, barrier, copy, clear, upload and readback is recorded with
-  NRI (NRI migration Phases 9-13), inside NVRHI's command lists; NVRHI keeps the command lists,
-  submission, timer queries and markers.
+  NRI (NRI migration Phases 9-13), inside NVRHI's command lists, queries and markers included;
+  NVRHI keeps only the command lists and their submission.
   - **Segments.** `RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment` wrap the NVRHI
     command list's `VkCommandBuffer` in a non-owning NRI command buffer. A segment starts with the
     pending barriers committed, and only NRI records until it ends.
@@ -483,14 +483,15 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
     image's other views (resize, re-aliasing). Non-storage images have no clear; attachments clear
     through their pass's load ops.
   - **Rendering scopes split for work that cannot record inside them.** These close the scope
-    first: dispatches, copies and clears (`RT_BeginNRITransfer`), `RT_CommitBarriers` with barriers
-    pending, and NVRHI timer queries. The next draw reopens it, with the attachments loaded and the
-    pass state rebound. That is NVRHI's implicit render-pass splitting made explicit. Barriers a draw needs are committed between two
-    scopes (`ResourceStateTracker::HasPendingBarriers`). Debug markers are legal inside a scope and
-    do not close it. In Debug, every split is reported once per pass and reason (`NRI render pass
+    first: dispatches, copies and clears (`RT_BeginNRITransfer`), and `RT_CommitBarriers` with
+    barriers pending. The next draw reopens it, with the attachments loaded and the pass state
+    rebound. That is NVRHI's implicit render-pass splitting made explicit. Barriers a draw needs are
+    committed between two scopes (`ResourceStateTracker::HasPendingBarriers`). Debug markers
+    (`CmdBeginAnnotation`) and timer queries (timestamps) are legal inside a scope and do not close
+    it. In Debug, every split is reported once per pass and reason (`NRI render pass
     '<pass>' (<command buffer>) is split by <reason> inside it`): the inside-rendering audit. Each
     split stores and reloads the attachments, so a reported command belongs before the pass or
-    after it. NVRHI records nothing but markers and timer queries.
+    after it. NVRHI records nothing: it only opens, closes and submits its command lists.
   - **Skipped work.** A pass, draw or dispatch NRI cannot record is skipped, logged once per
     pipeline or shader as `'<pass>' is not rendered: <reason>`; a pass that does not open skips its
     draws. Read-only depth, 3D attachments, triangle fans and stencil are among the reasons (Lux
@@ -575,7 +576,7 @@ Render Stats panel; a new pass should appear there.
 `Renderer::BeginGPUPerfMarker` / `EndGPUPerfMarker` funnel into
 `RenderCommandBuffer::RT_BeginTimerQuery` / `RT_EndTimerQuery`, and that pair feeds **both**:
 
-1. the engine's own nvrhi timer queries, read back by the Renderer Debugger's Pass Timings table, and
+1. the engine's own NRI timestamp queries, read back by the Renderer Debugger's Pass Timings table, and
 2. a **Tracy GPU zone**, so the same pass appears on Tracy's GPU timeline.
 
 So wrapping a new pass in `BeginProfiledGPU` is all that is needed — do not add Tracy GPU zones by
@@ -590,11 +591,20 @@ Two rules if you touch this path:
   therefore force-closes any zone still open before collecting.
 - `TracyVkCollect` runs in `RT_End`, outside any render pass and before `close()`.
 
+The queries (NRI migration Phase 13) live in one `QuerySlot` per command list slot: a TIMESTAMP pool
+(2048), a PIPELINE_STATISTICS pool (graphics queues, one query per segment) and a HOST_READBACK
+results buffer. The slot's first `RT_Begin` of a render frame publishes the slot's previous frame and
+resets the pools; every `RT_End` copies what it wrote (`CmdCopyQueries`) and adds a barrier into host
+reads. Reading the previous frame then is safe because frame pacing has retired it, which is why
+queries need one command list per frame in flight (`Create(0, …)`; others get none, with a
+warning). A timer name used several times in a frame reports its total.
+
 The frame total (`GetExecutionGPUTime`, shown as "GPU" in the viewport HUD and read by dynamic
-resolution) is a separate frame-level timer query opened in `RT_Begin`. A frame that is split
-mid-way — End, Submit, then Begin again, as the WorldOverlay2D pass does — must resume with
-**`Begin(/*continueFrame*/ true)`**. Each segment then gets its own query and the published total is
-their sum. A plain `Begin()` there starts a new measurement and the total covers only the tail.
+resolution) is a separate frame-level timestamp pair written in `RT_Begin` and `RT_End`. A frame
+that is split mid-way — End, Submit, then Begin again, as the WorldOverlay2D pass does — must resume
+with **`Begin(/*continueFrame*/ true)`**. Each segment then gets its own pair (and pipeline
+statistics) and the published total is their sum. A plain `Begin()` there starts a new measurement
+and the total covers only the tail.
 
 The HUD's "CPU" figure is `max(MainThreadWorkTime, RenderThreadWorkTime)`, and the render-thread
 timer includes `Present`'s frames-in-flight wait. On a GPU-bound frame it therefore reads high;

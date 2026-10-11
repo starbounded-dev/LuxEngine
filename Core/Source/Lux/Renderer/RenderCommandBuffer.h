@@ -23,8 +23,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-//pipeline queries require direct vulkan access, this can toggle that
-#define CMD_BUFFER_USE_VULKAN_QUERIES
 #include <vulkan/vulkan.h>
 
 #if LUX_ENABLE_PROFILING
@@ -38,6 +36,7 @@ namespace nri {
 	struct DescriptorSet;
 	struct Pipeline;
 	struct PipelineLayout;
+	struct QueryPool;
 }
 
 namespace Lux {
@@ -108,7 +107,7 @@ namespace Lux {
 		//
 		// A pass begun with RT_BeginNRIRenderPass records through NRI, in NRI rendering scopes inside
 		// the NVRHI command list, until RT_EndNRIRenderPass. Work that cannot record inside such a
-		// scope (dispatches, copies, clears, timer queries) closes it first and the next draw reopens
+		// scope (dispatches, copies, clears) closes it first and the next draw reopens
 		// it, with the attachments loaded and the pass state rebound: NVRHI's implicit render pass
 		// splitting, made explicit. Barriers are the tracker's; pending ones are committed between
 		// scopes.
@@ -276,11 +275,6 @@ namespace Lux {
 		Scope<NRIRenderState> m_NRIRender;
 
 		nvrhi::static_vector<nvrhi::CommandListHandle, RendererConfig::MaxFramesInFlight> m_CommandLists;
-		// Frame-level timer queries: one per submitted segment of the frame, per frame index.
-		// A frame split by Begin(true) records several segments; the published time is their sum.
-		nvrhi::static_vector<std::vector<nvrhi::TimerQueryHandle>, RendererConfig::MaxFramesInFlight> m_TimerQueries;
-		nvrhi::static_vector<uint32_t, RendererConfig::MaxFramesInFlight> m_TimerSegmentCounts;
-
 		// Published by the render thread, read by the main thread (profiling panels).
 		//
 		// Deliberately a single latest value rather than a per-frame slot. The render
@@ -297,19 +291,62 @@ namespace Lux {
 		// always reported correctly for exactly this reason.
 		std::atomic<float> m_LastGPUWorkTime = 0.0f;
 
-		bool m_QueryEnabled;
+		bool m_QueryEnabled = false;
 
 		std::string m_DebugName;
 
 		nvrhi::CommandListHandle m_ActiveCommandBuffer;
-		nvrhi::TimerQueryHandle m_ActiveTimerQuery;
 
-		std::string lastpop;
+		// GPU timing and pipeline statistics (NRI migration Phase 13), one slot per command list. A
+		// slot's pools are reset by its first RT_Begin of a render frame, every RT_End copies what
+		// it wrote into Results, and the slot's next frame reads them back, once frame pacing has
+		// retired that GPU work (hence one slot per frame in flight).
+		static constexpr uint32_t k_MaxTimestamps = 2048;
+		// Begin/End pairs per frame with pipeline statistics (Begin(true) splits a frame).
+		static constexpr uint32_t k_MaxQuerySegments = 16;
+		struct QuerySegment
+		{
+			uint32_t BeginTimestamp = 0;
+			uint32_t EndTimestamp = 0;
+			uint32_t Statistics = 0;
+			bool Ended = false;
+		};
+		struct QueryTimer
+		{
+			std::string Name;
+			uint32_t BeginTimestamp = 0;
+			uint32_t EndTimestamp = 0;
+		};
+		struct QuerySlot
+		{
+			nri::QueryPool* Timestamps = nullptr;
+			// Null without device support, and on non-graphics queues.
+			nri::QueryPool* Statistics = nullptr;
+			// HOST_READBACK: k_MaxTimestamps timestamps, then one statistics record per segment.
+			nri::Buffer* Results = nullptr;
+			// The render frame the queries belong to.
+			uint64_t Frame = UINT64_MAX;
+			uint32_t TimestampCount = 0;
+			uint32_t CopiedTimestampCount = 0;
+			uint32_t StatisticsCount = 0;
+			std::vector<QuerySegment> Segments;
+			std::vector<QueryTimer> Timers;
+		};
+		bool CreateQuerySlots(uint32_t count);
+		void DestroyQuerySlots();
+		void RT_BeginQuerySegment(QuerySlot& slot, bool continueFrame);
+		void RT_EndQuerySegment(QuerySlot& slot);
+		void RT_ResolveQueries(const QuerySlot& slot);
 
-		// String-based timer query storage - allocated on demand
-		nvrhi::static_vector<std::unordered_map<std::string, nvrhi::TimerQueryHandle>, RendererConfig::MaxFramesInFlight> m_NamedTimerQueries;
+		std::vector<QuerySlot> m_QuerySlots;
+		// The slot and segment of the open command list (null when it measures nothing).
+		QuerySlot* m_ActiveQuerySlot = nullptr;
+		QuerySegment* m_ActiveSegment = nullptr;
+		uint64_t m_StatisticsSize = 0;
+		bool m_ReportedTimerOverflow = false;
+		// Open timers: name and begin timestamp (UINT32_MAX when not measured).
+		std::vector<std::pair<std::string, uint32_t>> m_TimerQueryStack;
 		std::unordered_map<std::string, float> m_NamedTimerQueryResults;
-		std::vector<std::string> m_TimerQueryStack;  // Stack of active timer queries
 
 #if LUX_ENABLE_PROFILING
 		// Tracy GPU zones, pushed and popped in lockstep with m_TimerQueryStack so every
@@ -324,15 +361,11 @@ namespace Lux {
 		std::vector<Scope<tracy::VkCtxScope>> m_TracyGPUZones;
 #endif
 
-		// Same publishing rule as m_LastGPUWorkTime: written on the render thread from
-		// whichever query pool was just submitted, read on the main thread. Atomic for
+		// Same publishing rule as m_LastGPUWorkTime: written on the render thread when a frame's
+		// queries are read back, read on the main thread. Atomic for
 		// the same reason - these seven counters are read as a set, and a torn read
 		// would report vertex and fragment totals from different frames.
 		std::atomic<PipelineStatistics> m_LastPipelineStatistics = PipelineStatistics{};
 
-#ifdef CMD_BUFFER_USE_VULKAN_QUERIES
-		uint32_t m_PipelineQueryCount = 0;
-		std::vector<VkQueryPool> m_PipelineStatisticsQueryPools;
-#endif
 	};
 }

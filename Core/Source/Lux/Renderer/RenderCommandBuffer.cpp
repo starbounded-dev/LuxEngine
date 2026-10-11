@@ -144,53 +144,67 @@ namespace Lux {
 		// panels; shipping builds skip the per-frame query begin/end/poll cost.
 		enableQueries = false;
 #endif
-		m_QueryEnabled = enableQueries;
-
-		if (enableQueries)
+		// A slot's results are read when it is next begun, which frame pacing makes safe only for
+		// one slot per frame in flight.
+		if (enableQueries && count < Renderer::GetConfig().FramesInFlight)
 		{
-			for (uint32_t i = 0; i < count; i++)
-			{
-				m_TimerQueries.push_back({ device->createTimerQuery() });
-				m_TimerSegmentCounts.push_back(0);
-
-				m_NamedTimerQueries.emplace_back();
-			}
-
-#ifdef CMD_BUFFER_USE_VULKAN_QUERIES
-
-			vk::QueryPoolCreateInfo queryPoolCreateInfo = {};
-
-			// Pipeline statistics queries
-			m_PipelineQueryCount = 7;
-			queryPoolCreateInfo.queryType = vk::QueryType::ePipelineStatistics;
-			queryPoolCreateInfo.queryCount = m_PipelineQueryCount;
-			queryPoolCreateInfo.pipelineStatistics =
-				vk::QueryPipelineStatisticFlagBits::eInputAssemblyVertices |
-				vk::QueryPipelineStatisticFlagBits::eInputAssemblyPrimitives |
-				vk::QueryPipelineStatisticFlagBits::eVertexShaderInvocations |
-				vk::QueryPipelineStatisticFlagBits::eClippingInvocations |
-				vk::QueryPipelineStatisticFlagBits::eClippingPrimitives |
-				vk::QueryPipelineStatisticFlagBits::eFragmentShaderInvocations |
-				vk::QueryPipelineStatisticFlagBits::eComputeShaderInvocations;
-
-			vk::Device vkdevice = vk::Device(device->getNativeObject(nvrhi::ObjectTypes::VK_Device));
-
-			m_PipelineStatisticsQueryPools.resize(count);
-			for (auto& pipelineStatisticsQueryPool : m_PipelineStatisticsQueryPools)
-			{
-				vk::QueryPool qp;
-				//@TODO we are not destroying these cleanly
-				auto r = vkdevice.createQueryPool(&queryPoolCreateInfo, nullptr, &qp);
-
-				pipelineStatisticsQueryPool = qp;
-			}
-
-			// Timestamp queries
-			vk::QueryPoolCreateInfo timestampQueryPoolCreateInfo = {};
-			timestampQueryPoolCreateInfo.queryType = vk::QueryType::eTimestamp;
-			timestampQueryPoolCreateInfo.queryCount = 2; // Begin and end timestamps
-#endif
+			LUX_CORE_WARN_TAG("Renderer", "{}: GPU queries need one command list per frame in flight; disabled", m_DebugName);
+			enableQueries = false;
 		}
+		m_QueryEnabled = enableQueries && CreateQuerySlots(count);
+	}
+
+	bool RenderCommandBuffer::CreateQuerySlots(uint32_t count)
+	{
+		const NRIInterface& api = RHIDevice::API();
+		const nri::DeviceDesc& deviceDesc = RHIDevice::GetDesc();
+		if (!deviceDesc.features.timestamp)
+		{
+			LUX_CORE_WARN_TAG("Renderer", "{}: the device has no timestamp queries; GPU timing disabled", m_DebugName);
+			return false;
+		}
+
+		// Pipeline statistics count graphics work, so only graphics queues take them.
+		const bool statistics = deviceDesc.features.pipelineStatistics && m_Queue == GPUQueue::Graphics;
+		m_QuerySlots.resize(count);
+		for (QuerySlot& slot : m_QuerySlots)
+		{
+			bool created = api.CreateQueryPool(RHIDevice::Get(), { nri::QueryType::TIMESTAMP, k_MaxTimestamps }, slot.Timestamps) == nri::Result::SUCCESS;
+			if (created && statistics)
+				created = api.CreateQueryPool(RHIDevice::Get(), { nri::QueryType::PIPELINE_STATISTICS, k_MaxQuerySegments }, slot.Statistics) == nri::Result::SUCCESS;
+			if (created && slot.Statistics)
+				m_StatisticsSize = api.GetQuerySize(*slot.Statistics);
+
+			nri::BufferDesc resultsDesc = {};
+			resultsDesc.size = k_MaxTimestamps * sizeof(uint64_t) + k_MaxQuerySegments * m_StatisticsSize;
+			if (created)
+				created = api.CreateCommittedBuffer(RHIDevice::Get(), nri::MemoryLocation::HOST_READBACK, 0.0f, resultsDesc, slot.Results) == nri::Result::SUCCESS;
+			if (!created)
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "{}: NRI could not create the GPU query pools; GPU timing disabled", m_DebugName);
+				DestroyQuerySlots();
+				return false;
+			}
+		}
+		return true;
+	}
+
+	void RenderCommandBuffer::DestroyQuerySlots()
+	{
+		for (QuerySlot& slot : m_QuerySlots)
+		{
+			Renderer::SubmitResourceFree([timestamps = slot.Timestamps, statistics = slot.Statistics, results = slot.Results]()
+				{
+					const NRIInterface& api = RHIDevice::API();
+					if (timestamps)
+						api.DestroyQueryPool(timestamps);
+					if (statistics)
+						api.DestroyQueryPool(statistics);
+					if (results)
+						api.DestroyBuffer(results);
+				});
+		}
+		m_QuerySlots.clear();
 	}
 
 	void RenderCommandBuffer::Begin(bool continueFrame)
@@ -245,85 +259,12 @@ namespace Lux {
 		m_BindingStatesDirty = true;
 		*m_NRIRender = {};
 
-		auto device = Application::GetGraphicsDevice();
-
-		if (m_QueryEnabled)
-		{
-			std::vector<nvrhi::TimerQueryHandle>& segmentQueries = m_TimerQueries[commandBufferIndex];
-			uint32_t& segmentCount = m_TimerSegmentCounts[commandBufferIndex];
-
-			// A new frame on this index: publish the previous frame's total (every segment it
-			// recorded) BEFORE the queries are reset for reuse. If any segment is not ready yet
-			// the previous value stays in place; the panels then show the last resolved frame
-			// rather than a partial sum.
-			bool frameResolved = !continueFrame && segmentCount > 0;
-			float frameTimeInMs = 0.0f;
-			for (uint32_t segment = 0; frameResolved && segment < segmentCount; segment++)
-			{
-				if (device->pollTimerQuery(segmentQueries[segment]))
-					frameTimeInMs += device->getTimerQueryTime(segmentQueries[segment]) * 1000.0f;
-				else
-					frameResolved = false;
-			}
-
-			if (frameResolved)
-			{
-				const float previous = m_LastGPUWorkTime.load(std::memory_order_relaxed);
-
-				// Seed on the first resolved sample, otherwise the average crawls up from
-				// zero over dozens of frames and reads as a bogus sub-millisecond frame.
-				const float smoothed = previous > 0.0f
-					? frameTimeInMs * kGPUTimeSmoothing + previous * (1.0f - kGPUTimeSmoothing)
-					: frameTimeInMs;
-
-				m_LastGPUWorkTime.store(smoothed, std::memory_order_relaxed);
-			}
-
-			if (!continueFrame)
-				segmentCount = 0;
-			if (segmentCount == segmentQueries.size())
-				segmentQueries.push_back(device->createTimerQuery());
-			m_ActiveTimerQuery = segmentQueries[segmentCount++];
-
-			// Reset and begin this segment's timer query
-			device->resetTimerQuery(m_ActiveTimerQuery);
-
-			//do the same with the smaller queries
-			for (auto& [name, timerQuery] : m_NamedTimerQueries[commandBufferIndex])
-			{
-				if (device->pollTimerQuery(timerQuery))
-				{
-					float timeInSeconds = device->getTimerQueryTime(timerQuery);
-					float timeInMs = timeInSeconds * 1000.0f;
-					auto it = m_NamedTimerQueryResults.find(name);
-					if (it != m_NamedTimerQueryResults.end())
-					{
-						//moving average
-						m_NamedTimerQueryResults[name] = timeInMs * 0.1 + it->second * 0.9;
-					}
-					else
-					{
-						m_NamedTimerQueryResults[name] = timeInMs;
-					}
-				}
-			}
-
-			m_ActiveCommandBuffer->beginTimerQuery(m_ActiveTimerQuery);
-		}
+		m_ActiveQuerySlot = nullptr;
+		m_ActiveSegment = nullptr;
+		if (m_QueryEnabled && m_NRICommandBuffer)
+			RT_BeginQuerySegment(m_QuerySlots[commandBufferIndex], continueFrame);
 
 		RT_BeginMarker(m_DebugName);
-
-#ifdef CMD_BUFFER_USE_VULKAN_QUERIES
-
-		if (m_QueryEnabled)
-		{
-			vk::CommandBuffer cmd = vk::CommandBuffer(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
-
-			// Pipeline stats query
-			cmd.resetQueryPool(m_PipelineStatisticsQueryPools[commandBufferIndex], 0, m_PipelineQueryCount);
-			cmd.beginQuery(m_PipelineStatisticsQueryPools[commandBufferIndex], 0, vk::QueryControlFlags{});
-		}
-#endif
 	}
 
 	void RenderCommandBuffer::RT_End()
@@ -337,37 +278,28 @@ namespace Lux {
 
 		RT_EndMarker();
 
-		if (m_QueryEnabled)
+		if (!m_TimerQueryStack.empty())
 		{
-			m_ActiveCommandBuffer->endTimerQuery(m_ActiveTimerQuery);
-
-
-			uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
-			commandBufferIndex %= m_CommandLists.size();
-#ifdef CMD_BUFFER_USE_VULKAN_QUERIES
-			vk::CommandBuffer cmd = vk::CommandBuffer(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
-
-			cmd.endQuery(m_PipelineStatisticsQueryPools[commandBufferIndex], 0);
-#endif
+			LUX_CORE_WARN_TAG("Renderer", "{}: timer query '{}' was not ended", m_DebugName, m_TimerQueryStack.back().first);
+			m_TimerQueryStack.clear();
+		}
+		if (m_ActiveQuerySlot)
+			RT_EndQuerySegment(*m_ActiveQuerySlot);
 
 #if LUX_ENABLE_PROFILING
-			// Any zone still open at the end of the buffer is a begin/end mismatch. It has
-			// to be closed HERE, while the command buffer is still recording: ~VkCtxScope
-			// issues a vkCmdWriteTimestamp, which is illegal once close() has run.
-			m_TracyGPUZones.clear();
+		// Any zone still open at the end of the buffer is a begin/end mismatch. It has to be closed
+		// HERE, while the command buffer is still recording: ~VkCtxScope issues a
+		// vkCmdWriteTimestamp, which is illegal once recording has ended.
+		m_TracyGPUZones.clear();
 
-			// Tracy resolves its timestamps here, once per submitted segment of this
-			// buffer. Must be outside a render pass, which the endTimerQuery above
-			// guarantees, and must precede close().
+		// Tracy resolves its timestamps here, once per submitted segment of this buffer: outside a
+		// render pass (the pass ended above) and before recording ends.
+		if (m_QueryEnabled && m_NRICommandBuffer)
+		{
 			if (TracyVkCtx tracyContext = GetTracyGPUContext())
-			{
-				VkCommandBuffer vkCommandBuffer = VkCommandBuffer(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
-				TracyVkCollect(tracyContext, vkCommandBuffer);
-			}
-#endif
-
-			m_ActiveTimerQuery = nullptr;
+				TracyVkCollect(tracyContext, static_cast<VkCommandBuffer>(RHIDevice::API().GetCommandBufferNativeObject(m_NRICommandBuffer)));
 		}
+#endif
 
 		// Every resource the command buffer touched returns to its resting state, where the next
 		// command buffer, on any queue, starts.
@@ -386,6 +318,7 @@ namespace Lux {
 	RenderCommandBuffer::~RenderCommandBuffer()
 	{
 		DestroyNRIWrapper();
+		DestroyQuerySlots();
 	}
 
 	nri::CommandBuffer* RenderCommandBuffer::RT_BeginNRISegment()
@@ -808,17 +741,6 @@ namespace Lux {
 
 		auto device = Application::GetGraphicsDevice();
 
-		if (m_QueryEnabled)
-		{
-			if (m_TimerQueryStack.size() > 0)
-			{
-				LUX_CORE_WARN("Mismatched timer queries '{}'!", m_TimerQueryStack[0]);
-				m_TimerQueryStack.clear();
-				// The matching Tracy zones were already closed in RT_End, which is the last
-				// point at which the command buffer was still recording. Nothing to do here.
-			}
-		}
-
 		// TODO(Yan): fences
 
 		uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
@@ -847,22 +769,6 @@ namespace Lux {
 		// The writes' staging memory comes back once this frame retires.
 		m_Staging.Retire();
 
-#ifdef CMD_BUFFER_USE_VULKAN_QUERIES
-		if (m_QueryEnabled)
-		{
-			vk::Device vkdevice = vk::Device(device->getNativeObject(nvrhi::ObjectTypes::VK_Device));
-
-			PipelineStatistics resolved = {};
-			const vk::Result queryResult = vkdevice.getQueryPoolResults(m_PipelineStatisticsQueryPools[commandBufferIndex], 0, 1,
-				sizeof(PipelineStatistics), static_cast<void*>(&resolved), vk::DeviceSize(sizeof(uint64_t)), vk::QueryResultFlagBits::e64);
-
-			// eNotReady is routine - the query simply has not landed yet - and Vulkan
-			// leaves the destination untouched in that case. Publishing it anyway would
-			// overwrite a good sample with zeros, so keep the previous frame's counters.
-			if (queryResult == vk::Result::eSuccess)
-				m_LastPipelineStatistics.store(resolved, std::memory_order_relaxed);
-		}
-#endif
 	}
 
 	bool RenderCommandBuffer::RT_WaitForCompletion()
@@ -913,15 +819,19 @@ namespace Lux {
 	void RenderCommandBuffer::RT_BeginMarker(const std::string& label)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_ActiveCommandBuffer->beginMarker(label.c_str());
+		if (!m_NRICommandBuffer)
+			return;
+		const NRIInterface& api = RHIDevice::API();
+		api.CmdBeginAnnotation(*m_NRICommandBuffer, label.c_str(), nri::BGRA_UNUSED);
 		if (Aftermath::IsEnabled())
-			Aftermath::SetCheckpoint(static_cast<VkCommandBuffer>(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer)), label);
+			Aftermath::SetCheckpoint(static_cast<VkCommandBuffer>(api.GetCommandBufferNativeObject(m_NRICommandBuffer)), label);
 	}
 
 	void RenderCommandBuffer::RT_EndMarker()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_ActiveCommandBuffer->endMarker();
+		if (m_NRICommandBuffer)
+			RHIDevice::API().CmdEndAnnotation(*m_NRICommandBuffer);
 	}
 
 	bool RenderCommandBuffer::RT_BeginRequirements(RequiredBindPoint bindPoint)
@@ -1037,44 +947,175 @@ namespace Lux {
 		return m_LastPipelineStatistics.load(std::memory_order_relaxed);
 	}
 
-	void RenderCommandBuffer::RT_BeginTimerQuery(const std::string& name)
+	void RenderCommandBuffer::RT_BeginQuerySegment(QuerySlot& slot, bool continueFrame)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_QueryEnabled)
+		const NRIInterface& api = RHIDevice::API();
+		const uint64_t frame = Renderer::RT_GetFrameNumber();
+		if (slot.Frame != frame)
 		{
+			// The slot's last frame has retired (one slot per frame in flight): publish it, then
+			// reset the pools for this frame. Outside rendering, ahead of every query of the frame.
+			RT_ResolveQueries(slot);
+			slot.Frame = frame;
+			slot.TimestampCount = 0;
+			slot.CopiedTimestampCount = 0;
+			slot.StatisticsCount = 0;
+			slot.Segments.clear();
+			slot.Timers.clear();
+			api.CmdResetQueries(*m_NRICommandBuffer, *slot.Timestamps, 0, k_MaxTimestamps);
+			if (slot.Statistics)
+				api.CmdResetQueries(*m_NRICommandBuffer, *slot.Statistics, 0, k_MaxQuerySegments);
+		}
+		else if (!continueFrame)
+		{
+			// A new measurement within the frame: the earlier segments no longer count.
+			slot.Segments.clear();
+		}
+
+		m_ActiveQuerySlot = &slot;
+		// Two timestamps per segment are always kept for it; past the limits the segment is not
+		// measured.
+		if (slot.TimestampCount + 2 > k_MaxTimestamps || slot.StatisticsCount == k_MaxQuerySegments)
+		{
+			m_ActiveSegment = nullptr;
 			return;
 		}
 
-		auto device = Application::GetGraphicsDevice();
+		QuerySegment& segment = slot.Segments.emplace_back();
+		segment.BeginTimestamp = slot.TimestampCount++;
+		segment.EndTimestamp = slot.TimestampCount++;
+		segment.Statistics = slot.StatisticsCount++;
+		m_ActiveSegment = &segment;
+		api.CmdEndQuery(*m_NRICommandBuffer, *slot.Timestamps, segment.BeginTimestamp);
+		if (slot.Statistics)
+			api.CmdBeginQuery(*m_NRICommandBuffer, *slot.Statistics, segment.Statistics);
+	}
 
-		uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
-		commandBufferIndex %= m_CommandLists.size();
-
-		// Get or create the timer query for this name
-		auto& timerQuery = m_NamedTimerQueries[commandBufferIndex][name];
-		if (!timerQuery)
+	void RenderCommandBuffer::RT_EndQuerySegment(QuerySlot& slot)
+	{
+		const NRIInterface& api = RHIDevice::API();
+		if (m_ActiveSegment)
 		{
-			timerQuery = device->createTimerQuery();
-			if (!timerQuery)
+			if (slot.Statistics)
+				api.CmdEndQuery(*m_NRICommandBuffer, *slot.Statistics, m_ActiveSegment->Statistics);
+			api.CmdEndQuery(*m_NRICommandBuffer, *slot.Timestamps, m_ActiveSegment->EndTimestamp);
+			if (slot.Statistics)
+				api.CmdCopyQueries(*m_NRICommandBuffer, *slot.Statistics, m_ActiveSegment->Statistics, 1, *slot.Results, k_MaxTimestamps * sizeof(uint64_t) + m_ActiveSegment->Statistics * m_StatisticsSize);
+			m_ActiveSegment->Ended = true;
+		}
+
+		// Everything this command list wrote: the segment's timestamps and its timers'.
+		if (slot.TimestampCount > slot.CopiedTimestampCount)
+		{
+			api.CmdCopyQueries(*m_NRICommandBuffer, *slot.Timestamps, slot.CopiedTimestampCount, slot.TimestampCount - slot.CopiedTimestampCount,
+				*slot.Results, slot.CopiedTimestampCount * sizeof(uint64_t));
+			slot.CopiedTimestampCount = slot.TimestampCount;
+		}
+
+		// A fence wait does not make device writes visible to the host; this barrier does (the
+		// tracker has no host state, and NRI takes host access only in global barriers).
+		nri::GlobalBarrierDesc toHost = {};
+		toHost.before = { nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY };
+		toHost.after = { nri::AccessBits::HOST_READ, nri::StageBits::HOST };
+		nri::BarrierDesc barrierDesc = {};
+		barrierDesc.globals = &toHost;
+		barrierDesc.globalNum = 1;
+		api.CmdBarrier(*m_NRICommandBuffer, barrierDesc);
+
+		m_ActiveSegment = nullptr;
+		m_ActiveQuerySlot = nullptr;
+	}
+
+	void RenderCommandBuffer::RT_ResolveQueries(const QuerySlot& slot)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		if (slot.Frame == UINT64_MAX || (slot.Segments.empty() && slot.Timers.empty()))
+			return;
+
+		const NRIInterface& api = RHIDevice::API();
+		const uint8_t* results = static_cast<const uint8_t*>(api.MapBuffer(*slot.Results, 0, nri::WHOLE_SIZE));
+		const uint64_t* timestamps = reinterpret_cast<const uint64_t*>(results);
+		const double millisecondsPerTick = 1000.0 / static_cast<double>(RHIDevice::GetDesc().other.timestampFrequencyHz);
+		auto elapsed = [&](uint32_t begin, uint32_t end)
 			{
-				LUX_CORE_ERROR("Failed to create timer query for '{}'!", name);
-				return;
+				return static_cast<float>(static_cast<double>(timestamps[end] - timestamps[begin]) * millisecondsPerTick);
+			};
+
+		// The frame total is the sum of its segments (Begin(true) splits a frame).
+		float frameTime = 0.0f;
+		bool measured = false;
+		PipelineStatistics statistics;
+		for (const QuerySegment& segment : slot.Segments)
+		{
+			if (!segment.Ended)
+				continue;
+			frameTime += elapsed(segment.BeginTimestamp, segment.EndTimestamp);
+			measured = true;
+
+			if (slot.Statistics)
+			{
+				nri::PipelineStatisticsDesc counters;
+				std::memcpy(&counters, results + k_MaxTimestamps * sizeof(uint64_t) + segment.Statistics * m_StatisticsSize, sizeof(counters));
+				statistics.InputAssemblyVertices += counters.inputVertexNum;
+				statistics.InputAssemblyPrimitives += counters.inputPrimitiveNum;
+				statistics.VertexShaderInvocations += counters.vertexShaderInvocationNum;
+				statistics.ClippingInvocations += counters.rasterizerInPrimitiveNum;
+				statistics.ClippingPrimitives += counters.rasterizerOutPrimitiveNum;
+				statistics.FragmentShaderInvocations += counters.fragmentShaderInvocationNum;
+				statistics.ComputeShaderInvocations += counters.computeShaderInvocationNum;
 			}
 		}
 
-		nvrhi::ITimerQuery* queryPtr = timerQuery.Get();
+		if (measured)
+		{
+			// Seed on the first sample, otherwise the average crawls up from zero over dozens of
+			// frames and reads as a bogus sub-millisecond frame.
+			const float previous = m_LastGPUWorkTime.load(std::memory_order_relaxed);
+			m_LastGPUWorkTime.store(previous > 0.0f ? frameTime * kGPUTimeSmoothing + previous * (1.0f - kGPUTimeSmoothing) : frameTime, std::memory_order_relaxed);
+			if (slot.Statistics)
+				m_LastPipelineStatistics.store(statistics, std::memory_order_relaxed);
+		}
 
-		// NVRHI resets the query pool here, which is illegal inside rendering.
-		RT_SuspendNRIRendering("a timer query");
-		device->resetTimerQuery(queryPtr);
-		m_ActiveCommandBuffer->beginTimerQuery(queryPtr);
+		// A timer used more than once in the frame reports its total.
+		std::unordered_map<std::string_view, float> frameTimers;
+		for (const QueryTimer& timer : slot.Timers)
+			frameTimers[timer.Name] += elapsed(timer.BeginTimestamp, timer.EndTimestamp);
+		for (const auto& [name, time] : frameTimers)
+		{
+			auto [it, inserted] = m_NamedTimerQueryResults.try_emplace(std::string(name), time);
+			if (!inserted)
+				it->second = time * kGPUTimeSmoothing + it->second * (1.0f - kGPUTimeSmoothing);
+		}
+
+		api.UnmapBuffer(*slot.Results);
+	}
+
+	void RenderCommandBuffer::RT_BeginTimerQuery(const std::string& name)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		if (!m_ActiveQuerySlot)
+			return;
+
+		// Timestamps are legal inside rendering, so a timer does not split an NRI render pass. One
+		// timestamp stays free for each open timer's end.
+		QuerySlot& slot = *m_ActiveQuerySlot;
+		uint32_t begin = UINT32_MAX;
+		if (slot.TimestampCount + 2 + m_TimerQueryStack.size() <= k_MaxTimestamps)
+		{
+			begin = slot.TimestampCount++;
+			RHIDevice::API().CmdEndQuery(*m_NRICommandBuffer, *slot.Timestamps, begin);
+		}
+		else if (!m_ReportedTimerOverflow)
+		{
+			LUX_CORE_WARN_TAG("Renderer", "{}: more than {} GPU timestamps in a frame; '{}' and later timers are not measured", m_DebugName, k_MaxTimestamps, name);
+			m_ReportedTimerOverflow = true;
+		}
 
 #if LUX_ENABLE_PROFILING
-		// Opened after nvrhi's beginTimerQuery (which closes any active render pass) so
-		// the Tracy zone and the engine's own timer bracket the same span.
+		// The Tracy zone brackets the same span as the engine's own timer.
 		if (TracyVkCtx tracyContext = GetTracyGPUContext())
 		{
-			VkCommandBuffer vkCommandBuffer = VkCommandBuffer(m_ActiveCommandBuffer->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
+			VkCommandBuffer vkCommandBuffer = static_cast<VkCommandBuffer>(RHIDevice::API().GetCommandBufferNativeObject(m_NRICommandBuffer));
 			m_TracyGPUZones.push_back(CreateScope<tracy::VkCtxScope>(
 				tracyContext,
 				uint32_t(__LINE__), __FILE__, std::strlen(__FILE__),
@@ -1084,51 +1125,38 @@ namespace Lux {
 		}
 #endif
 
-		// Push onto the stack
-		m_TimerQueryStack.push_back(name);
+		m_TimerQueryStack.emplace_back(name, begin);
 	}
 
 	void RenderCommandBuffer::RT_EndTimerQuery()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_QueryEnabled)
-		{
+		if (!m_ActiveQuerySlot)
 			return;
-		}
 
 		if (m_TimerQueryStack.empty())
 		{
-			LUX_CORE_WARN("Mismatched GPU Queries!, last was {}", lastpop);
+			LUX_CORE_WARN_TAG("Renderer", "{}: a timer query ended that was not begun", m_DebugName);
 			return;
 		}
 
-		uint32_t commandBufferIndex = Renderer::RT_GetCurrentFrameIndex();
-		commandBufferIndex %= m_CommandLists.size();
-
-		RT_SuspendNRIRendering("a timer query");
-
-		// Pop the top query from the stack
-		std::string name = std::move(m_TimerQueryStack.back());
+		auto [name, begin] = std::move(m_TimerQueryStack.back());
 		m_TimerQueryStack.pop_back();
 
 #if LUX_ENABLE_PROFILING
-		// Popped alongside the name rather than after the lookup below, so a missing
-		// query cannot leave a Tracy zone open and desynchronise the two stacks.
-		// Destroying the scope is what writes the closing timestamp.
+		// Popped alongside the name, so the two stacks stay in step. Destroying the scope writes
+		// the closing timestamp.
 		if (!m_TracyGPUZones.empty())
 			m_TracyGPUZones.pop_back();
 #endif
 
-		auto it = m_NamedTimerQueries[commandBufferIndex].find(name);
-		if (it == m_NamedTimerQueries[commandBufferIndex].end() || !it->second)
-		{
-			LUX_CORE_ERROR("Mismatched GPU Queries! {}", name);
+		if (begin == UINT32_MAX)
 			return;
-		}
 
-		auto& timerQuery = it->second;
-		m_ActiveCommandBuffer->endTimerQuery(timerQuery.Get());
-		lastpop = name;
+		QuerySlot& slot = *m_ActiveQuerySlot;
+		const uint32_t end = slot.TimestampCount++;
+		RHIDevice::API().CmdEndQuery(*m_NRICommandBuffer, *slot.Timestamps, end);
+		slot.Timers.push_back({ std::move(name), begin, end });
 	}
 
 	float RenderCommandBuffer::GetTimerQueryTime(const std::string& name) const
