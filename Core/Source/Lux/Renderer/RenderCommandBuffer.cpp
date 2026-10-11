@@ -411,6 +411,12 @@ namespace Lux {
 		m_InNRISegment = false;
 	}
 
+	nri::CommandBuffer* RenderCommandBuffer::RT_BeginNRITransfer()
+	{
+		RT_SuspendNRIRendering("a copy or clear");
+		return RT_BeginNRISegment();
+	}
+
 	void RenderCommandBuffer::DestroyNRIWrapper()
 	{
 		if (!m_NRICommandBuffer)

@@ -370,10 +370,12 @@ The model:
 - **Bindless descriptor tables** are untracked, as in NVRHI (their group records no uses); material
   textures are in their resting `ShaderResource` state whenever a command buffer starts or ends.
 
-**Never write a barrier by hand — ask the command buffer's tracker.** An NVRHI command still
-recorded through `GetActive()` (copies, clears, `writeBuffer`, until the rest of NRI Phase 13)
-does not commit the tracker's barriers: call `RT_CommitBarriers()` between its requirements and the
-command. NRI validation (Debug) checks every barrier's access against the resource's usage.
+**Never write a barrier by hand — ask the command buffer's tracker.** Copies and clears record
+through NRI after their requirements, inside `RT_BeginNRITransfer` (`§ NRI device`), which commits
+them. An NVRHI command still recorded through `GetActive()` (`writeBuffer` and the staging
+readbacks, until the rest of NRI Phase 13) does not commit the tracker's barriers: call
+`RT_CommitBarriers()` between its requirements and the command. NRI validation (Debug) checks every
+barrier's access against the resource's usage.
 
 ---
 
@@ -443,9 +445,9 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   - **No combined image samplers.** NRI has none, so shaders declare `texture2D` plus a `sampler`
     and combine them at the sample (`sampler2D(u_Tex, r_Sampler)`). Reflection logs an error for a
     combined `sampler2D` uniform.
-- **Recording.** Every draw and dispatch is recorded with NRI (NRI migration Phases 9-12), inside
-  NVRHI's command lists; NVRHI keeps the command lists, submission, queries, uploads and barrier
-  emission.
+- **Recording.** Every draw, dispatch, barrier, copy and clear is recorded with NRI (NRI migration
+  Phases 9-13), inside NVRHI's command lists; NVRHI keeps the command lists, submission, queries,
+  uploads (`writeBuffer`/`writeTexture`) and staging readbacks.
   - **Segments.** `RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment` wrap the NVRHI
     command list's `VkCommandBuffer` in a non-owning NRI command buffer. A segment starts with the
     pending barriers committed, and only NRI records until it ends.
@@ -466,8 +468,19 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
       only set 0, the vertex and index buffers and the root constants, and repeats are skipped.
   - **Dispatches.** `Renderer::DispatchCompute` binds the pass's sets and the material's at set 0
     through `RT_BeginNRIDispatch`, inside a segment.
+  - **Copies and clears** (NRI Phase 13) record inside `RT_BeginNRITransfer`, which closes an open
+    rendering scope and opens a segment: `Renderer::CopyImage` and `Texture2D::CreateFromSRGB` are
+    `CmdCopyTexture` (`CopySource` → `CopyDest`), and buffer zero-fills are `CmdZeroBuffer`
+    (`CopyDest`). `Renderer::ClearImage` clears one mip of a storage image through a
+    `StorageImageClear`: NRI clears storage only through a view held by a bound descriptor set
+    (`CmdClearStorage`), so the clear owns a one-set group with that view, built once, and binds
+    it with a shared one-set compute layout (`StorageImageClear::Init`). The image is cleared in
+    `UnorderedAccess`. A clear keeps the texture it was built for: owners rebuild it with the
+    image's other views (resize, re-aliasing). Non-storage images have no clear; attachments clear
+    through their pass's load ops.
   - **NVRHI never records inside an NRI rendering scope.** These close the scope first:
-    `GetActive()`, dispatches, `RT_CommitBarriers` with barriers pending, and timer queries. The
+    `GetActive()`, dispatches, copies and clears (`RT_BeginNRITransfer`), `RT_CommitBarriers` with
+    barriers pending, and timer queries. The
     next draw reopens it, with the attachments loaded and the pass state rebound. That is NVRHI's
     implicit render-pass splitting made explicit. Barriers a draw needs are committed between two
     scopes (`ResourceStateTracker::HasPendingBarriers`). Debug markers are legal inside a scope and

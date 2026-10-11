@@ -7,6 +7,7 @@
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "Lux/Asset/TextureImporter.h"
 
@@ -106,29 +107,23 @@ namespace Lux {
 		Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, "CreateFromSRGB-CopyMips");
 		commandBuffer->Begin();
 
-		Renderer::Submit([srgbImage, srgbTexture, mipCount, spec, texture, commandBuffer]() mutable
+		Renderer::Submit([srgbImage, texture, mipCount, commandBuffer]() mutable
 			{
+				// Every mip, in one copy: both images have the same size, mips and one layer.
+				const ImageInfo& source = texture->GetImage()->GetImageInfo();
+				const ImageInfo& destination = srgbImage->GetImageInfo();
+				if (!source.RHITexture || !destination.RHITexture)
+					return;
 
-				// Copy all mip levels from source texture to SRGBA texture using GPU copy
-				nvrhi::CommandListHandle commandList = commandBuffer->GetActive();
+				const TextureSubresourceRange mips{ 0, mipCount, 0, 1 };
+				commandBuffer->RT_RequireTextureState(source.Tracked, mips, ResourceState::CopySource);
+				commandBuffer->RT_RequireTextureState(destination.Tracked, mips, ResourceState::CopyDest);
+				nri::CommandBuffer* nriCommandBuffer = commandBuffer->RT_BeginNRITransfer();
+				if (!nriCommandBuffer)
+					return;
 
-				// Copy each mip level from source to destination
-				for (uint32_t mip = 0; mip < mipCount; mip++)
-				{
-					nvrhi::TextureSlice srcSlice;
-					srcSlice.mipLevel = mip;
-
-					nvrhi::TextureSlice dstSlice;
-					dstSlice.mipLevel = mip;
-
-					const TextureSubresourceRange mipRange{ mip, 1, 0, 1 };
-					commandBuffer->RT_RequireTextureState(texture->GetImage()->GetImageInfo().Tracked, mipRange, ResourceState::CopySource);
-					commandBuffer->RT_RequireTextureState(srgbImage->GetImageInfo().Tracked, mipRange, ResourceState::CopyDest);
-					// NVRHI's copyTexture does not commit the tracker's barriers.
-					commandBuffer->RT_CommitBarriers();
-					commandList->copyTexture(srgbTexture->GetHandle(), dstSlice, texture->GetHandle(), srcSlice);
-				}
-
+				RHIDevice::API().CmdCopyTexture(*nriCommandBuffer, *destination.RHITexture, nullptr, *source.RHITexture, nullptr);
+				commandBuffer->RT_EndNRISegment();
 			});
 
 		commandBuffer->End();

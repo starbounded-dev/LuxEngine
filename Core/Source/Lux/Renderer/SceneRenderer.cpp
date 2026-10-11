@@ -14,6 +14,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Platform/Vulkan/VulkanShader.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include <nvrhi/utils.h>
 
@@ -2876,6 +2877,7 @@ namespace Lux {
 				viewSpec.DebugName = "PreIntegrationVisibilityTexture-" + std::to_string(mip);
 				m_PreIntegrationVisibilityTexture.ImageViews[mip - 1] = ImageView::Create(viewSpec);
 			}
+			m_PreIntegrationVisibilityClear = Ref<StorageImageClear>::Create(m_PreIntegrationVisibilityTexture.Texture->GetImage(), 0);
 
 			CreatePreIntegrationPassMaterials();
 		}
@@ -4730,6 +4732,8 @@ namespace Lux {
 
 		invalidateViews(m_HierarchicalDepthTexture.ImageViews);
 		invalidateViews(m_PreIntegrationVisibilityTexture.ImageViews);
+		if (m_PreIntegrationVisibilityTexture.Texture)
+			m_PreIntegrationVisibilityClear = Ref<StorageImageClear>::Create(m_PreIntegrationVisibilityTexture.Texture->GetImage(), 0);
 		invalidateViews(m_PreConvolutedTexture.ImageViews);
 		for (BloomComputeTextures& bloomTexture : m_BloomComputeTextures)
 			invalidateViews(bloomTexture.ImageViews);
@@ -7560,7 +7564,7 @@ namespace Lux {
 	void SceneRenderer::PreIntegration()
 	{
 		ScopedCPUProfile cpuProfile(*this, "PreIntegration");
-		if (!m_PreIntegrationPass || !m_PreIntegrationVisibilityTexture.Texture || m_PreIntegrationMaterials.empty())
+		if (!m_PreIntegrationPass || !m_PreIntegrationVisibilityTexture.Texture || !m_PreIntegrationVisibilityClear || m_PreIntegrationMaterials.empty())
 			return;
 
 		Ref<Texture2D> visibilityTexture = m_PreIntegrationVisibilityTexture.Texture;
@@ -7569,7 +7573,7 @@ namespace Lux {
 			return;
 
 		Ref<Image2D> visibilityImage = visibilityTexture->GetImage();
-		Renderer::ClearImage(m_CommandBuffer, visibilityImage, glm::vec4(1.0f), visibilityImage->GetMipImageView(0));
+		Renderer::ClearImage(m_CommandBuffer, m_PreIntegrationVisibilityClear, glm::vec4(1.0f));
 
 		struct PreIntegrationComputePushConstants
 		{
@@ -7672,14 +7676,19 @@ namespace Lux {
 			Ref<StorageBufferSet> counter = m_SBSClusterLightCounter;
 			Renderer::Submit([commandBuffer, pointGrid, spotGrid, counter]() mutable
 			{
-				for (Ref<StorageBufferSet> bufferSet : { pointGrid, spotGrid, counter })
-				{
-					Ref<StorageBuffer> buffer = bufferSet->RT_Get();
+				const std::array<Ref<StorageBuffer>, 3> buffers = { pointGrid->RT_Get(), spotGrid->RT_Get(), counter->RT_Get() };
+				for (const Ref<StorageBuffer>& buffer : buffers)
 					commandBuffer->RT_RequireBufferState(buffer->GetBuffer().GetTracked(), ResourceState::CopyDest);
-					// NVRHI's clearBufferUInt does not commit the tracker's barriers.
-					commandBuffer->RT_CommitBarriers();
-					commandBuffer->GetActive()->clearBufferUInt(buffer->GetHandle(), 0u);
+				nri::CommandBuffer* nriCommandBuffer = commandBuffer->RT_BeginNRITransfer();
+				if (!nriCommandBuffer)
+					return;
+
+				for (const Ref<StorageBuffer>& buffer : buffers)
+				{
+					if (nri::Buffer* nriBuffer = buffer->GetBuffer().Get())
+						RHIDevice::API().CmdZeroBuffer(*nriCommandBuffer, *nriBuffer, 0, nri::WHOLE_SIZE);
 				}
+				commandBuffer->RT_EndNRISegment();
 			});
 			return;
 		}
@@ -7691,10 +7700,17 @@ namespace Lux {
 		Renderer::Submit([commandBuffer, counter]() mutable
 		{
 			Ref<StorageBuffer> buffer = counter->RT_Get();
+			nri::Buffer* nriBuffer = buffer->GetBuffer().Get();
+			if (!nriBuffer)
+				return;
+
 			commandBuffer->RT_RequireBufferState(buffer->GetBuffer().GetTracked(), ResourceState::CopyDest);
-			// NVRHI's clearBufferUInt does not commit the tracker's barriers.
-			commandBuffer->RT_CommitBarriers();
-			commandBuffer->GetActive()->clearBufferUInt(buffer->GetHandle(), 0u);
+			nri::CommandBuffer* nriCommandBuffer = commandBuffer->RT_BeginNRITransfer();
+			if (!nriCommandBuffer)
+				return;
+
+			RHIDevice::API().CmdZeroBuffer(*nriCommandBuffer, *nriBuffer, 0, nri::WHOLE_SIZE);
+			commandBuffer->RT_EndNRISegment();
 		});
 
 		constexpr uint32_t kThreadsPerGroup = 64;

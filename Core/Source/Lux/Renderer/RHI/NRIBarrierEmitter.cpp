@@ -21,7 +21,8 @@ namespace Lux {
 		// One state bit, as NVRHI's Vulkan backend maps it: shader, constant-buffer and present states
 		// use all commands. NRI's COPY stage covers copies only, not the clears and fills
 		// (vkCmdClearColorImage, vkCmdFillBuffer, vkCmdUpdateBuffer) NVRHI's transfer stage did, so the
-		// copy states use all commands too.
+		// copy states use all commands too. Storage images are cleared in UnorderedAccess
+		// (CmdClearStorage, a transfer write on Vulkan), so that state adds CLEAR_STORAGE access.
 		StateMapping MapStateBit(ResourceState bit)
 		{
 			using Access = nri::AccessBits;
@@ -35,7 +36,7 @@ namespace Lux {
 				case ResourceState::IndexBuffer:		return { Access::INDEX_BUFFER, Layout::UNDEFINED, Stages::INDEX_INPUT };
 				case ResourceState::IndirectArgument:	return { Access::ARGUMENT_BUFFER, Layout::UNDEFINED, Stages::INDIRECT };
 				case ResourceState::ShaderResource:		return { Access::SHADER_RESOURCE, Layout::SHADER_RESOURCE, Stages::ALL };
-				case ResourceState::UnorderedAccess:	return { Access::SHADER_RESOURCE_STORAGE, Layout::SHADER_RESOURCE_STORAGE, Stages::ALL };
+				case ResourceState::UnorderedAccess:	return { Access::SHADER_RESOURCE_STORAGE | Access::CLEAR_STORAGE, Layout::SHADER_RESOURCE_STORAGE, Stages::ALL };
 				case ResourceState::RenderTarget:		return { Access::COLOR_ATTACHMENT, Layout::COLOR_ATTACHMENT, Stages::COLOR_ATTACHMENT };
 				case ResourceState::DepthWrite:			return { Access::DEPTH_STENCIL_ATTACHMENT, Layout::DEPTH_STENCIL_ATTACHMENT, Stages::DEPTH_STENCIL_ATTACHMENT };
 				case ResourceState::DepthRead:			return { Access::DEPTH_STENCIL_ATTACHMENT_READ, Layout::DEPTH_STENCIL_READONLY, Stages::DEPTH_STENCIL_ATTACHMENT };

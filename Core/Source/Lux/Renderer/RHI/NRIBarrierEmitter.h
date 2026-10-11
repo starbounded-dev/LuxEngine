@@ -17,7 +17,8 @@ namespace Lux {
 
 	// Records the tracker's transitions as NRI barriers (NRI migration Phase 13), batched until
 	// Commit. Each state's access, layout and stages are NVRHI's Vulkan ones (vulkan-constants.cpp
-	// g_ResourceStateMap), so the barriers stay the ones NVRHI placed.
+	// g_ResourceStateMap), so the barriers stay the ones NVRHI placed; UnorderedAccess also covers
+	// storage clears.
 	//
 	// Threading: render thread only, owned by one RenderCommandBuffer.
 	class NRIBarrierEmitter final : public IBarrierEmitter

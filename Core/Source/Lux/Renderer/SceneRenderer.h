@@ -19,6 +19,7 @@
 #include "Lux/Renderer/Texture.h"
 #include "Lux/Renderer/UniformBufferSet.h"
 #include "Lux/Renderer/StorageBufferSet.h"
+#include "Lux/Renderer/StorageImageClear.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/DebugRenderer.h"
@@ -1461,6 +1462,9 @@ namespace Lux {
 
 		Ref<ComputePass> m_PreIntegrationPass;
 		MippedTexture    m_PreIntegrationVisibilityTexture;
+		// Mip 0 of the visibility texture, cleared to fully visible every frame; rebuilt with the
+		// texture's views.
+		Ref<StorageImageClear> m_PreIntegrationVisibilityClear;
 		std::vector<Ref<Material>> m_PreIntegrationMaterials;
 
 		Ref<ComputePass> m_PreConvolutionComputePass;

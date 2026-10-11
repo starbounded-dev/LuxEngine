@@ -34,6 +34,7 @@ namespace Lux {
 	class ShaderLibrary;
 	class RenderPass;
 	class ComputePass;
+	class StorageImageClear;
 
 	// Unified draw command for mesh rendering - consolidates parameters for all mesh draw variants
 	struct MeshDrawCommand
@@ -255,7 +256,8 @@ namespace Lux {
 		static bool RT_DrawIndexed(RenderCommandBuffer& renderCommandBuffer, const IndexedDraw& draw);
 		// The same for a mesh-task draw, with `meshletSet` at set 0.
 		static bool RT_DrawMeshTasks(RenderCommandBuffer& renderCommandBuffer, const BoundDescriptorSet& meshletSet, const void* constants, uint32_t constantsSize, const glm::uvec3& groups);
-		static void ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, const glm::vec4& clearColor, TextureSubresourceRange subresources);
+		// Clears a storage image mip prepared by `clear` (see StorageImageClear).
+		static void ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageImageClear> clear, const glm::vec4& clearColor);
 		static void CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 		static void BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 

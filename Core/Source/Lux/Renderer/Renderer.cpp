@@ -18,6 +18,7 @@
 #include "Lux/Core/Timer.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Renderer/BindlessTextureTable.h"
+#include "Lux/Renderer/StorageImageClear.h"
 #include "Lux/Renderer/RHI/GPUDeletionQueue.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Platform/Vulkan/VulkanSwapChain.h"
@@ -411,6 +412,7 @@ namespace Lux {
 
 		// Before any shader is loaded: material shaders take their bindless set layout from here.
 		BindlessTextureTable::Init();
+		StorageImageClear::Init();
 
 		Renderer::SetGlobalMacroInShaders("__HZ_REFLECTION_OCCLUSION_METHOD", "0");
 		Renderer::SetGlobalMacroInShaders("__HZ_AO_METHOD", std::format("{}", (int)ShaderDef::GetAOMethod(true)));
@@ -623,6 +625,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		s_GlobalShaderInfo.PermutationCache.SaveToFile(s_ShaderPermutationCachePath);
 		BindlessTextureTable::Shutdown();
+		StorageImageClear::Shutdown();
 
 		{
 			std::scoped_lock lock(s_ShaderDependenciesMutex);
@@ -1589,21 +1592,16 @@ namespace Lux {
 		return true;
 	}
 
-	void Renderer::ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> image, const glm::vec4& clearColor, TextureSubresourceRange subresources)
+	void Renderer::ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageImageClear> clear, const glm::vec4& clearColor)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		Renderer::Submit([renderCommandBuffer, image, clearColor, subresources]() mutable
+		LUX_CORE_VERIFY(renderCommandBuffer);
+		LUX_CORE_VERIFY(clear);
+
+		Renderer::Submit([renderCommandBuffer, clear, clearColor]() mutable
 			{
-				nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-				if (!commandList || !image || !image->GetHandle())
-					return;
-				const auto& spec = image->GetSpecification();
-				const std::string markerName = "ClearImage: " + (spec.DebugName.empty() ? std::string("Image2D") : spec.DebugName);
-				renderCommandBuffer->RT_BeginMarker(markerName);
-				renderCommandBuffer->RT_RequireTextureState(image->GetImageInfo().Tracked, subresources, ResourceState::CopyDest);
-				// NVRHI's clearTextureFloat does not commit the tracker's barriers.
-				renderCommandBuffer->RT_CommitBarriers();
-				commandList->clearTextureFloat(image->GetHandle(), ToNVRHI(subresources), nvrhi::Color(clearColor.r, clearColor.g, clearColor.b, clearColor.a));
+				renderCommandBuffer->RT_BeginMarker("ClearImage: " + clear->GetDebugName());
+				clear->RT_Record(*renderCommandBuffer, clearColor);
 				renderCommandBuffer->RT_EndMarker();
 			});
 	}
@@ -1617,8 +1615,9 @@ namespace Lux {
 
 		Renderer::Submit([renderCommandBuffer, sourceImage, destinationImage]() mutable
 		{
-			nvrhi::CommandListHandle commandList = renderCommandBuffer->GetActive();
-			if (!commandList || !sourceImage->GetHandle() || !destinationImage->GetHandle())
+			const ImageInfo& source = sourceImage->GetImageInfo();
+			const ImageInfo& destination = destinationImage->GetImageInfo();
+			if (!source.RHITexture || !destination.RHITexture)
 				return;
 
 			const uint32_t copyWidth = std::min(sourceImage->GetWidth(), destinationImage->GetWidth());
@@ -1630,23 +1629,25 @@ namespace Lux {
 			const uint32_t destinationLayerCount = glm::max(1u, destinationImage->GetSpecification().Layers);
 			const uint32_t copyLayerCount = glm::min(sourceLayerCount, destinationLayerCount);
 
+			const TextureSubresourceRange layers{ 0, 1, 0, copyLayerCount };
+			renderCommandBuffer->RT_RequireTextureState(source.Tracked, layers, ResourceState::CopySource);
+			renderCommandBuffer->RT_RequireTextureState(destination.Tracked, layers, ResourceState::CopyDest);
+			nri::CommandBuffer* commandBuffer = renderCommandBuffer->RT_BeginNRITransfer();
+			if (!commandBuffer)
+				return;
+
+			const NRIInterface& api = RHIDevice::API();
 			for (uint32_t layer = 0; layer < copyLayerCount; layer++)
 			{
-				nvrhi::TextureSlice srcSlice;
-				srcSlice.setSize(copyWidth, copyHeight, 1);
-				srcSlice.setArraySlice(layer);
-
-				nvrhi::TextureSlice dstSlice;
-				dstSlice.setSize(copyWidth, copyHeight, 1);
-				dstSlice.setArraySlice(layer);
-
-				const TextureSubresourceRange layerRange{ 0, 1, layer, 1 };
-				renderCommandBuffer->RT_RequireTextureState(sourceImage->GetImageInfo().Tracked, layerRange, ResourceState::CopySource);
-				renderCommandBuffer->RT_RequireTextureState(destinationImage->GetImageInfo().Tracked, layerRange, ResourceState::CopyDest);
-				// NVRHI's copyTexture does not commit the tracker's barriers.
-				renderCommandBuffer->RT_CommitBarriers();
-				commandList->copyTexture(destinationImage->GetHandle(), dstSlice, sourceImage->GetHandle(), srcSlice);
+				nri::TextureRegionDesc region = {};
+				region.width = static_cast<nri::Dim_t>(copyWidth);
+				region.height = static_cast<nri::Dim_t>(copyHeight);
+				region.depth = 1;
+				region.layerOffset = static_cast<nri::Dim_t>(layer);
+				region.planes = nri::PlaneBits::ALL;
+				api.CmdCopyTexture(*commandBuffer, *destination.RHITexture, &region, *source.RHITexture, &region);
 			}
+			renderCommandBuffer->RT_EndNRISegment();
 		});
 	}
 

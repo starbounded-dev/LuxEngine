@@ -101,6 +101,11 @@ namespace Lux {
 		// wrap the command list (logged by RT_Begin).
 		nri::CommandBuffer* RT_BeginNRISegment();
 		void RT_EndNRISegment();
+		// Copies and clears through NRI (NRI migration Phase 13), which cannot record inside a
+		// rendering scope: closes an open one (the next draw reopens it, as after an NVRHI command),
+		// then opens a segment as RT_BeginNRISegment. Require the states first; the segment commits
+		// them. Null, with no segment open, as there.
+		nri::CommandBuffer* RT_BeginNRITransfer();
 
 		// NRI render passes (NRI migration Phase 10). Render thread.
 		//

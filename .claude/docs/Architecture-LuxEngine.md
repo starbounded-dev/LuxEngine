@@ -225,9 +225,9 @@ reads NRI's `QueryVideoMemoryInfo`.
   and `MeshSource` build NRI descriptor sets (`DescriptorSetGroup`), each with the resources it
   accesses (`DescriptorSetUses`). There are no NVRHI binding sets or layouts.
 
-**Recording on NRI** (Phases 10-12; details in `Rendering.md § NRI device`). Everything is recorded
-with NRI inside NVRHI's command lists; NVRHI keeps the command lists, submission, queries, uploads
-and barrier emission.
+**Recording on NRI** (Phases 10-13; details in `Rendering.md § NRI device`). Everything is recorded
+with NRI inside NVRHI's command lists, barriers, copies and clears included; NVRHI keeps the command
+lists, submission, queries, uploads (`writeBuffer`/`writeTexture`) and staging readbacks.
 - `Pipeline` builds its NRI pipeline from its specification, the shader's SPIR-V and the
   framebuffer's attachment formats (`Framebuffer::GetNRIColorFormat`/`GetNRIDepthFormat`), and
   `Framebuffer` builds NRI attachment views.
@@ -237,8 +237,13 @@ and barrier emission.
   `Renderer::RT_DrawIndexed` / `RT_DrawMeshTasks` (`RenderCommandBuffer::RT_BeginNRIDraw`), and
   `DispatchCompute` through `RenderCommandBuffer::RT_BeginNRIDispatch`. Work NRI cannot record is
   skipped and logged once per pipeline or shader.
-- `RenderCommandBuffer::GetActive()` closes an open NRI rendering scope, so NVRHI commands (copies,
-  clears, queries) stay legal anywhere.
+- Copies and clears are NRI commands inside `RenderCommandBuffer::RT_BeginNRITransfer` (it closes an
+  open NRI rendering scope). Storage-image clears go through a `StorageImageClear`
+  (`Renderer/StorageImageClear.h`), which owns the descriptor set NRI clears through; its owner
+  rebuilds it with the image's views. `Renderer::Init`/`Shutdown` create and free the layout clears
+  bind.
+- `RenderCommandBuffer::GetActive()` closes an open NRI rendering scope, so the NVRHI commands that
+  remain (`writeBuffer`, staging readbacks, queries) stay legal anywhere.
 - `ImGuiRenderer::RenderToSwapchain` draws the UI into each swapchain with its own per-format
   pipelines, per-frame-slot geometry and descriptor pools. ImGui textures, the atlas included, are
   `Image2D`s in the shared `ImGuiTextureRegistry`.
