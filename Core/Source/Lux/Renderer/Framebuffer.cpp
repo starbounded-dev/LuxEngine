@@ -226,12 +226,12 @@ namespace Lux {
 		if (!forceRecreate && (m_Width == width && m_Height == height))
 			return;
 
-		// RT_Invalidate destroys and recreates the nvrhi images and framebuffer immediately, on
+		// RT_Invalidate destroys and recreates the images and attachment views immediately, on
 		// whichever thread called Resize - despite the RT_ prefix, this is the main thread. If the
 		// render thread is still draining its queue it can be issuing commands against the very
-		// resources being freed, which surfaces either as heap corruption when the old framebuffer
-		// handle is finally released, or as a near-null dereference inside the driver's
-		// vkCmdPipelineBarrier2 when commitBarriers touches a destroyed image. Dragging a dock
+		// resources being freed, which surfaces either as heap corruption when the old attachments
+		// are finally released, or as a near-null dereference inside the driver's
+		// vkCmdPipelineBarrier2 when a barrier touches a destroyed image. Dragging a dock
 		// splitter resizes every frame, so the window is wide open.
 		//
 		// Drain the render thread first, the same way swap chain recreation does (see Window.cpp).

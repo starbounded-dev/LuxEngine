@@ -251,7 +251,7 @@ namespace Lux {
 		// What the last draws or dispatch required, for NVRHI's automatic-barrier change detection
 		// (kept so the barriers stay the ones NVRHI placed): bindings are re-required when they change,
 		// after a copy/clear/write requirement (m_BindingStatesDirty; explicit transitions leave it
-		// alone, as NVRHI's setTextureState did), and always when a set has storage uses (that
+		// alone, as NVRHI's explicit transitions did), and always when a set has storage uses (that
 		// re-require is what places UAV barriers between dispatches). Raw pointers, compared and never
 		// dereferenced; reset by RT_Begin.
 		struct RequiredBindings

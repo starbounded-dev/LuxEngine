@@ -31,7 +31,6 @@ namespace Lux {
 
 		void Invalidate();
 
-		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
 		nri::Buffer* GetRHIBuffer() const { return m_Buffer.Get(); }
 		const NRIBuffer& GetBuffer() const { return m_Buffer; }
 		uint64_t GetSize() const { return m_BufferDesc.byteSize; }

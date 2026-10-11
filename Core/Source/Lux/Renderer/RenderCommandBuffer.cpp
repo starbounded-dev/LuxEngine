@@ -827,8 +827,9 @@ namespace Lux {
 		m_BindingStatesDirty = true;
 	}
 
-	// Unlike RT_Require*, a transition does not mark bound sets dirty: NVRHI's setTextureState did
-	// not either (only copies, clears and writes did), and the tracker keeps NVRHI's barriers.
+	// Unlike RT_Require*, a transition does not mark bound sets dirty: NVRHI's explicit state
+	// transitions did not either (only copies, clears and writes did), and the tracker keeps
+	// NVRHI's barriers.
 	void RenderCommandBuffer::RT_TransitionTextureState(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState state)
 	{
 		m_Tracker.Require(texture, range, state);

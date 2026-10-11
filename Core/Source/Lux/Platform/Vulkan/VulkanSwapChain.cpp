@@ -45,7 +45,6 @@ namespace Lux {
 		Destroy();
 
 		const auto& deviceParams = Application::Get().GetGraphicsDeviceManager()->GetDeviceParams();
-		auto device = Application::Get().GetGraphicsDevice();
 
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
 
@@ -233,17 +232,6 @@ namespace Lux {
 			SwapChainImage sci;
 			sci.image = image;
 
-			nvrhi::TextureDesc textureDesc;
-			textureDesc.width = m_Width;
-			textureDesc.height = m_Height;
-			textureDesc.format = deviceParams.swapChainFormat;
-			textureDesc.debugName = "Swap chain image";
-			textureDesc.initialState = nvrhi::ResourceStates::Present;
-			textureDesc.keepInitialState = true;
-			textureDesc.isRenderTarget = true;
-
-			sci.rhiHandle = device->createHandleForNativeTexture(nvrhi::ObjectTypes::VK_Image, nvrhi::Object(sci.image), textureDesc);
-
 			const NRIInterface& api = RHIDevice::API();
 			nri::TextureVKDesc textureVKDesc = {};
 			textureVKDesc.vkImage = reinterpret_cast<uint64_t>(static_cast<VkImage>(image));
@@ -325,10 +313,9 @@ namespace Lux {
 			vulkanDeviceManager->m_VulkanDevice.waitIdle();
 		}
 
-		// The nvrhi texture handles and NRI views reference the swap chain's images, so they have to be
-		// released - and actually collected, since nvrhi defers destruction - before
+		// The NRI wrappers and views reference the swap chain's images, so they go before
 		// vkDestroySwapchainKHR takes those images away. Both threads are idle here (the GPU too), so
-		// the NRI wrappers go now, not via the queue.
+		// they go now, not via the queue.
 		for (SwapChainImage& image : m_SwapChainImages)
 		{
 			if (image.RHIColorAttachment)
@@ -337,9 +324,6 @@ namespace Lux {
 				RHIDevice::API().DestroyTexture(image.RHITexture);
 		}
 		m_SwapChainImages.clear();
-
-		if (nvrhi::IDevice* device = vulkanDeviceManager->GetDevice())
-			device->runGarbageCollection();
 
 		if (m_SwapChain)
 		{
@@ -548,20 +532,6 @@ namespace Lux {
 			}
 		}
 		m_FramesInFlight.push(frameValue);
-	}
-
-	nvrhi::ITexture* VulkanSwapChain::GetCurrentBackBuffer()
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return m_SwapChainImages[m_SwapChainIndex].rhiHandle;
-	}
-
-	nvrhi::ITexture* VulkanSwapChain::GetBackBuffer(uint32_t index)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		if (index < m_SwapChainImages.size())
-			return m_SwapChainImages[index].rhiHandle;
-		return nullptr;
 	}
 
 	uint32_t VulkanSwapChain::GetCurrentBackBufferIndex()

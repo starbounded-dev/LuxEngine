@@ -55,7 +55,8 @@ namespace Lux {
 	public:
 		virtual ~Texture() {}
 
-		virtual nvrhi::TextureHandle GetHandle() const = 0;
+		// The NRI texture (renderer-internal); null when there is none.
+		virtual nri::Texture* GetHandle() const = 0;
 
 		virtual ImageFormat GetFormat() const = 0;
 		virtual uint32_t GetWidth() const = 0;
@@ -92,7 +93,7 @@ namespace Lux {
 		void Resize(const glm::uvec2& size);
 		void Resize(const uint32_t width, const uint32_t height);
 
-		virtual nvrhi::TextureHandle GetHandle() const override { return m_Image->GetHandle(); }
+		virtual nri::Texture* GetHandle() const override { return m_Image->GetHandle(); }
 		virtual ImageFormat GetFormat() const override { return m_Specification.Format; }
 		virtual uint32_t GetWidth() const override { return m_Specification.Width; }
 		virtual uint32_t GetHeight() const override { return m_Specification.Height; }
@@ -120,7 +121,7 @@ namespace Lux {
 		static AssetType GetStaticType() { return AssetType::Texture; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
-		virtual uint64_t GetHash() const { return (uint64_t)m_Image->GetHandle().Get(); }
+		virtual uint64_t GetHash() const { return reinterpret_cast<uint64_t>(m_Image->GetHandle()); }
 	public:
 		Texture2D(const TextureSpecification& specification, const std::filesystem::path& filepath);
 		Texture2D(const TextureSpecification& specification, Buffer data = Buffer());
@@ -148,7 +149,7 @@ namespace Lux {
 
 		void Release();
 
-		virtual nvrhi::TextureHandle GetHandle() const override { return m_Image->GetHandle(); }
+		virtual nri::Texture* GetHandle() const override { return m_Image->GetHandle(); }
 		virtual ImageFormat GetFormat() const override { return m_Specification.Format; }
 
 		virtual uint32_t GetWidth() const override { return m_Specification.Width; }
@@ -158,7 +159,7 @@ namespace Lux {
 		virtual uint32_t GetMipLevelCount() const override;
 		virtual std::pair<uint32_t, uint32_t> GetMipSize(uint32_t mip) const override;
 
-		virtual uint64_t GetHash() const override { return (uint64_t)GetHandle().Get(); }
+		virtual uint64_t GetHash() const override { return reinterpret_cast<uint64_t>(GetHandle()); }
 
 		Ref<Image2D> GetImage() const { return m_Image; }
 

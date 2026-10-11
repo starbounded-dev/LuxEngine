@@ -35,14 +35,14 @@ findings here to must-fix.
 
 Below that sits **NRI** (`Core/vendor/NRI`: GPU memory, descriptors, pipelines, command buffers,
 all recording and submission). **NVRHI** (`Core/vendor/nvrhi`) is left with the device bring-up
-and the wrapper handles of NRI resources, until NRI migration Phases 13-15; both drive one Vulkan
-device (`§ NRI device`).
+and its desc structs and enums, until NRI migration Phases 14-15; both drive one Vulkan device
+(`§ NRI device`).
 `LUX_HAS_VULKAN` is always defined; `NVRHI-D3D11` / `NVRHI-D3D12` are built but the
 `Platform/DX11` / `DX12` engine sources are `removefiles`'d — that scaffolding is intentional, not
 dead code.
 
 Renderer types (`Texture2D`, `Image2D`, `Pipeline`, `Framebuffer`, the buffers) are concrete
-classes over NRI objects; textures and buffers also hand out NVRHI wrapper handles until Phase 13.
+classes over NRI objects; `GetHandle()` on images and textures is the NRI texture.
 `Shader` is the one abstract type, implemented by `VulkanShader`.
 `Platform/Vulkan/` holds only what NVRHI does not provide: `VulkanDeviceManager` (instance,
 device, queues, validation callback), `VulkanSwapChain`, `VulkanShader` + `ShaderCompiler/`,
@@ -406,24 +406,20 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
 - **Errors.** NRI messages go to the log as `[NRI] …` under the `Renderer` tag. An NRI error breaks
   into the debugger in Debug, like a failed assert, and only logs otherwise. NRI validation is on in
   Debug.
-- **NRI owns GPU memory; NVRHI renders through wrappers** (Phase 8, temporary until NVRHI is
-  removed). Every texture and buffer is an `NRITexture` / `NRIBuffer` (`Renderer/RHI/
-  NVRHIWrappers.h`): an NRI committed resource plus `createHandleForNativeTexture/Buffer` with the
-  same NVRHI desc as before, so barriers, copies and uploads are unchanged. The
-  NRI desc is derived from the NVRHI desc (format through the VkFormat; images EXCLUSIVE like
-  NVRHI's), and the memory location from `cpuAccess` (Write → HOST_UPLOAD, Read → HOST_READBACK,
-  else DEVICE). Rules:
+- **NRI owns GPU memory** (Phase 8; NVRHI's wrapper handles went in Phase 13). Every texture and
+  buffer is an `NRITexture` / `NRIBuffer` (`Renderer/RHI/NVRHIWrappers.h`): an NRI committed
+  resource, still described by an NVRHI desc until Phase 15. The NRI desc is derived from it
+  (format through the VkFormat; images EXCLUSIVE like NVRHI's), and the memory location from
+  `cpuAccess` (Write → HOST_UPLOAD, Read → HOST_READBACK, else DEVICE). Rules:
   - **Never call `device->createTexture` / `createBuffer`** — use `NRITexture::Create` /
     `NRIBuffer::Create`. Volatile NVRHI buffers are not supported.
-  - **CPU writes go through `NRIBuffer::Map`/`Unmap`** — NVRHI cannot map memory it did not allocate.
+  - **CPU writes go through `NRIBuffer::Map`/`Unmap`** (CPU-visible buffers only).
     GPU-side writes are NRI copies from staging memory (`§ Batched resource uploads`). `Map` never waits for
     the GPU, unlike NVRHI's `mapBuffer`, which waited for copies that used the buffer. A readback
     buffer must be mapped only after the fence of the copy into it.
   - **Destruction is the owner's job**: destroying or reassigning an `NRITexture`/`NRIBuffer` frees
-    the NVRHI handle and then the NRI resource through `Renderer::SubmitResourceFree`. A copied
-    `nvrhi::TextureHandle`/`BufferHandle` keeps only the wrapper alive, never the image or buffer,
-    so nothing may use a handle after its owner is gone.
-  - Staging textures (readback) are still NVRHI's until Phase 13.
+    the NRI resource and its views through `Renderer::SubmitResourceFree`. A raw `nri::Texture*`
+    or `nri::Buffer*` keeps nothing alive, so nothing may use one after its owner is gone.
 - **Descriptors** (NRI migration Phases 9 and 12):
   - **Pipeline layouts**: one per `VulkanShader`, built from its reflection when its input
     declarations are (`CreateDescriptors` → `GetNRIPipelineLayout`):

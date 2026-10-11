@@ -18,9 +18,9 @@ namespace nri {
 	enum class TextureView : uint8_t;
 }
 
-// From NRI migration Phase 8, NRI allocates and owns GPU textures and buffers while NVRHI keeps
-// rendering through non-owning handles to the same VkImage/VkBuffer (plan §2.2, I6). These two
-// owners hold both halves. They go away with NVRHI (Phase 15).
+// NRI allocates and owns GPU textures and buffers (NRI migration Phase 8); NVRHI's wrapper handles
+// of them went with the last NVRHI recording (Phase 13). They are still described with NVRHI's desc
+// structs until Phase 15.
 
 namespace Lux {
 
@@ -28,9 +28,8 @@ namespace Lux {
 	// attachment identically. UNKNOWN when NRI has no such format.
 	nri::Format ToNRIFormat(nvrhi::Format format);
 
-	// A texture NRI owns, plus the NVRHI handle for the same image. Move-only. Destroying or
-	// replacing it frees both through Renderer::SubmitResourceFree, once the frames that may use it
-	// have retired: the NVRHI handle first, then the NRI texture.
+	// A texture NRI owns. Move-only. Destroying or replacing it frees it, and its views, through
+	// Renderer::SubmitResourceFree once the frames that may use it have retired.
 	class NRITexture
 	{
 	public:
@@ -42,14 +41,13 @@ namespace Lux {
 		NRITexture& operator=(const NRITexture&) = delete;
 
 		// Any thread. The NRI texture is created from `desc` (same format, size, mips, layers and
-		// usage) and the NVRHI handle wraps it with `desc`, so NVRHI sees exactly what it would have
-		// created. Empty, and logged, when NRI has no matching format or fails to create it.
+		// usage as NVRHI would have created). Empty, and logged, when NRI has no matching format or
+		// fails to create it.
 		static NRITexture Create(const nvrhi::TextureDesc& desc);
 
 		void Reset();
 
 		nri::Texture* Get() const { return m_Texture; }
-		const nvrhi::TextureHandle& GetHandle() const { return m_Handle; }
 		// The texture as the resource state tracker sees it: its resting state is the desc's
 		// keepInitialState initial state.
 		const TrackedTexture& GetTracked() const { return m_Tracked; }
@@ -57,7 +55,6 @@ namespace Lux {
 
 	private:
 		nri::Texture* m_Texture = nullptr;
-		nvrhi::TextureHandle m_Handle;
 		TrackedTexture m_Tracked;
 	};
 
@@ -109,7 +106,9 @@ namespace Lux {
 		void Unmap() const;
 
 		nri::Buffer* Get() const { return m_Buffer; }
-		const nvrhi::BufferHandle& GetHandle() const { return m_Handle; }
+		// The size the buffer was created with (the NRI buffer may be larger: Vulkan has no empty
+		// buffers).
+		uint64_t GetSize() const { return m_Size; }
 		// The buffer as the resource state tracker sees it: CPU-visible buffers are untracked, the
 		// others rest in the desc's keepInitialState initial state.
 		const TrackedBuffer& GetTracked() const { return m_Tracked; }
@@ -117,7 +116,7 @@ namespace Lux {
 
 	private:
 		nri::Buffer* m_Buffer = nullptr;
-		nvrhi::BufferHandle m_Handle;
+		uint64_t m_Size = 0;
 		TrackedBuffer m_Tracked;
 	};
 

@@ -64,7 +64,6 @@ namespace Lux {
 
 		m_Info.RHITexture = nullptr;
 		m_Info.Tracked = {};
-		m_Info.ImageHandle = nullptr;
 		m_Texture.Reset();
 		m_GPUAllocationSize = 0;
 		m_PerLayerImageViews.clear();
@@ -242,15 +241,14 @@ namespace Lux {
 			LUX_CORE_VERIFY(!Utils::IsBlockCompressed(m_Specification.Format));
 		}
 
-		// Build the new texture into locals while the old handle is still live and
-		// readable by other threads. NRI owns the image; NVRHI gets a wrapper with this same desc.
+		// Build the new texture into a local while the old one is still live and readable by other
+		// threads.
 		NRITexture newTexture = NRITexture::Create(textureDesc);
-		const nvrhi::TextureHandle newHandle = newTexture.GetHandle();
 
 		// Creation fails (empty) when the image or its memory allocation fails, which would
 		// otherwise only show up much later as an access violation once the null texture reaches an
 		// attachment view or descriptor set. Fail here, where the image and its size are still known.
-		LUX_CORE_VERIFY(newHandle, "Failed to create image \"{}\" ({}x{}, {} mip(s), {} layer(s), ~{} MB) - the GPU is most likely out of memory",
+		LUX_CORE_VERIFY(newTexture, "Failed to create image \"{}\" ({}x{}, {} mip(s), {} layer(s), ~{} MB) - the GPU is most likely out of memory",
 			m_Specification.DebugName, textureDesc.width, textureDesc.height, textureDesc.mipLevels, textureDesc.arraySize,
 			Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers) / (1024 * 1024));
 
@@ -258,11 +256,10 @@ namespace Lux {
 		if (m_Specification.Dimension == TextureDimension::Texture3D)
 			newAllocationSize *= glm::max(m_Specification.Depth, 1u);
 
-		// Swap the freshly-built resources in. Assign ImageHandle first, as a single store, so a
-		// concurrent render-thread reader (GetHandle) observes either the old texture or the new
-		// one — never a null handle mid-recreation.
+		// Swap the freshly-built resources in. RHITexture is a single store, so a concurrent
+		// render-thread reader (GetHandle) observes either the old texture or the new one — never a
+		// null texture mid-recreation.
 		nri::Texture* const oldTexture = m_Info.RHITexture;
-		m_Info.ImageHandle = newHandle;
 		m_Info.RHITexture = newTexture.Get();
 		m_Info.Tracked = newTexture.GetTracked();
 		m_Info.Dimension = textureDesc.dimension;

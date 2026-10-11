@@ -113,15 +113,15 @@ namespace Lux {
 	};
 
 	// ── Renderer backend ────────────────────────────────────────────────────────────────────────
-	// The live NVRHI objects behind an image. Renderer implementation files only (descriptor
-	// binding, ImGui); goes away when images move to NRI (NRI migration Phase 8).
+	// The GPU objects behind an image. Renderer implementation files only (descriptor binding,
+	// ImGui). The subresource, state and dimension fields are NVRHI types until NRI migration
+	// Phase 15.
 	struct ImageInfo
 	{
-		// The NRI texture that owns the image (Image2D::m_Texture); ImageHandle is NVRHI's view of it.
+		// The NRI texture that owns the image (Image2D::m_Texture).
 		nri::Texture* RHITexture = nullptr;
 		// RHITexture as the resource state tracker sees it.
 		TrackedTexture Tracked;
-		nvrhi::TextureHandle ImageHandle = nullptr;
 		nvrhi::TextureSubresourceSet ImageView = nvrhi::AllSubresources;
 		nvrhi::ResourceStates State = nvrhi::ResourceStates::Unknown;
 		nvrhi::TextureDimension Dimension = nvrhi::TextureDimension::Unknown;
@@ -137,7 +137,8 @@ namespace Lux {
 		virtual void Invalidate() = 0;
 		virtual void Release() = 0;
 
-		virtual nvrhi::TextureHandle GetHandle() const = 0;
+		// The NRI texture (renderer-internal); null when the image has none.
+		virtual nri::Texture* GetHandle() const = 0;
 
 		virtual uint32_t GetWidth() const = 0;
 		virtual uint32_t GetHeight() const = 0;
@@ -171,7 +172,7 @@ namespace Lux {
 	public:
 		static Ref<Image2D> Create(const ImageSpecification& specification) { return Ref<Image2D>::Create(specification); }
 
-		bool IsValid() const { return m_TransientAliasSource ? m_TransientAliasSource->IsValid() : m_Info.ImageHandle != nullptr; }
+		bool IsValid() const { return m_TransientAliasSource ? m_TransientAliasSource->IsValid() : m_Info.RHITexture != nullptr; }
 		bool IsTransientAlias() const { return m_TransientAliasSource != nullptr; }
 		Ref<Image2D> GetTransientAliasSource() const { return m_TransientAliasSource; }
 		void SetTransientAliasSource(Ref<Image2D> source);
@@ -191,7 +192,7 @@ namespace Lux {
 		virtual void Invalidate() override;
 		virtual void Release() override;
 
-		virtual nvrhi::TextureHandle GetHandle() const override { return m_TransientAliasSource ? m_TransientAliasSource->GetHandle() : m_Info.ImageHandle; }
+		virtual nri::Texture* GetHandle() const override { return m_TransientAliasSource ? m_TransientAliasSource->GetHandle() : m_Info.RHITexture; }
 		virtual uint32_t GetWidth() const override { return m_Specification.Width; }
 		virtual uint32_t GetHeight() const override { return m_Specification.Height; }
 		virtual glm::uvec2 GetSize() const override { return { m_Specification.Width, m_Specification.Height }; }
@@ -229,7 +230,7 @@ namespace Lux {
 
 		virtual uint64_t GetGPUMemoryUsage() const override { return m_TransientAliasSource ? 0 : m_GPUAllocationSize; }
 
-		virtual uint64_t GetHash() const override { return (uint64_t)GetHandle().Get(); }
+		virtual uint64_t GetHash() const override { return reinterpret_cast<uint64_t>(GetHandle()); }
 
 		// Debug: visits every live image under the registry lock, so none can be released
 		// mid-visit (images are created/resized on the render thread). `fn` must not create or

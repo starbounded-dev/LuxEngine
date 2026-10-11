@@ -37,8 +37,6 @@ namespace Lux {
 		bool BeginFrame();
 		void Present();
 
-		nvrhi::ITexture* GetCurrentBackBuffer();
-		nvrhi::ITexture* GetBackBuffer(uint32_t index);
 		uint32_t GetCurrentBackBufferIndex();
 		uint32_t GetBackBufferCount();
 		// The NRI wrapper of the acquired image's binary semaphore, handed out once per frame: the
@@ -89,9 +87,7 @@ namespace Lux {
 		struct SwapChainImage
 		{
 			vk::Image image;
-			nvrhi::TextureHandle rhiHandle;
-			// Non-owning NRI wrapper of `image` and its color-attachment view; nothing renders
-			// through them until NRI draws (migration P10/P14).
+			// Non-owning NRI wrapper of `image` and its color-attachment view.
 			nri::Texture* RHITexture = nullptr;
 			nri::Descriptor* RHIColorAttachment = nullptr;
 			TrackedTexture Tracked;

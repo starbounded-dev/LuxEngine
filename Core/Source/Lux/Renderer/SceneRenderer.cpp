@@ -3542,10 +3542,10 @@ namespace Lux {
 
 		auto addRenderTargetImage = [&](const Ref<Image2D>& image)
 			{
-				if (!image || image->GetHandle() == nullptr)
+				if (!image || !image->GetHandle())
 					return;
 
-				const uint64_t handle = reinterpret_cast<uint64_t>(image->GetHandle().Get());
+				const uint64_t handle = reinterpret_cast<uint64_t>(image->GetHandle());
 				if (!renderTargetImageHandles.insert(handle).second)
 					return;
 
@@ -6916,11 +6916,11 @@ namespace Lux {
 				if (!indexData.empty())
 				{
 					const uint32_t indexBytes = (uint32_t)(sizeof(uint32_t) * indexData.size());
-					if (instance->m_SBSObjectIndexes->RT_Get()->GetHandle()->getDesc().byteSize < indexBytes)
+					if (instance->m_SBSObjectIndexes->RT_Get()->GetSize() < indexBytes)
 						instance->m_SBSObjectIndexes->Resize(indexBytes * 2u);
 					instance->m_SBSObjectIndexes->RT_Get()->RT_SetData(cmd, indexData.data(), indexBytes);
 
-					if (instance->m_SBSVisibleObjectIndexes->RT_Get()->GetHandle()->getDesc().byteSize < indexBytes)
+					if (instance->m_SBSVisibleObjectIndexes->RT_Get()->GetSize() < indexBytes)
 						instance->m_SBSVisibleObjectIndexes->Resize(indexBytes * 2u);
 				}
 
@@ -6933,7 +6933,7 @@ namespace Lux {
 				if (!cullDrawData.empty())
 				{
 					const uint32_t cullDrawBytes = (uint32_t)(sizeof(MeshCullDrawData) * cullDrawData.size());
-					if (instance->m_SBSMeshCullDrawData->RT_Get()->GetHandle()->getDesc().byteSize < cullDrawBytes)
+					if (instance->m_SBSMeshCullDrawData->RT_Get()->GetSize() < cullDrawBytes)
 						instance->m_SBSMeshCullDrawData->Resize(cullDrawBytes * 2u);
 					instance->m_SBSMeshCullDrawData->RT_Get()->RT_SetData(cmd, cullDrawData.data(), cullDrawBytes);
 				}
@@ -6941,7 +6941,7 @@ namespace Lux {
 				if (!indirectCommands.empty())
 				{
 					const uint32_t indirectBytes = (uint32_t)(sizeof(DrawIndexedIndirectCommand) * indirectCommands.size());
-					if (instance->m_SBSIndirectDrawCommands->RT_Get()->GetHandle()->getDesc().byteSize < indirectBytes)
+					if (instance->m_SBSIndirectDrawCommands->RT_Get()->GetSize() < indirectBytes)
 						instance->m_SBSIndirectDrawCommands->Resize(indirectBytes * 2u);
 					instance->m_SBSIndirectDrawCommands->RT_Get()->RT_SetData(cmd, indirectCommands.data(), indirectBytes);
 				}
@@ -6950,7 +6950,7 @@ namespace Lux {
 				if (totalGPUSceneInstances > 0)
 				{
 					const uint32_t gpuSceneBytes = totalGPUSceneInstances * (uint32_t)sizeof(GPUSceneInstanceData);
-					if (instance->m_SBSGPUSceneInstances->RT_Get()->GetHandle()->getDesc().byteSize < gpuSceneBytes)
+					if (instance->m_SBSGPUSceneInstances->RT_Get()->GetSize() < gpuSceneBytes)
 						instance->m_SBSGPUSceneInstances->Resize(gpuSceneBytes * 2u);
 				}
 
@@ -6988,7 +6988,7 @@ namespace Lux {
 				if (totalGPUMaterials > 0)
 				{
 					const uint32_t gpuMaterialBytes = totalGPUMaterials * (uint32_t)sizeof(GPUMaterialData);
-					if (instance->m_SBSGPUMaterials->RT_Get()->GetHandle()->getDesc().byteSize < gpuMaterialBytes)
+					if (instance->m_SBSGPUMaterials->RT_Get()->GetSize() < gpuMaterialBytes)
 						instance->m_SBSGPUMaterials->Resize(gpuMaterialBytes * 2u);
 				}
 
@@ -8827,7 +8827,7 @@ namespace Lux {
 		// pBuffers[0] is VK_NULL_HANDLE) and then crashes on the null dereference.
 		Ref<VertexBuffer> vertexBuffer = meshSource->GetVertexBuffer();
 		Ref<IndexBuffer>  indexBuffer = meshSource->GetIndexBuffer();
-		if (!vertexBuffer || !indexBuffer || !vertexBuffer->GetHandle() || !indexBuffer->GetHandle())
+		if (!vertexBuffer || !indexBuffer || !vertexBuffer->GetBuffer() || !indexBuffer->GetBuffer())
 			return;
 
 		const auto& submesh = meshSource->GetSubmeshes()[dc.SubmeshIndex];

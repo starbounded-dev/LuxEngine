@@ -34,7 +34,6 @@ namespace Lux {
 		void RT_SetData(const void* data, uint64_t size, uint64_t offset = 0);
 
 		uint64_t GetSize() const { return m_Size; }
-		nvrhi::BufferHandle GetHandle() const { return m_Buffer.GetHandle(); }
 		nri::Buffer* GetRHIBuffer() const { return m_Buffer.Get(); }
 		const NRIBuffer& GetBuffer() const { return m_Buffer; }
 	public:

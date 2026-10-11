@@ -198,15 +198,15 @@ scene and serialization code use these, never NVRHI types. Values equal NVRHI's
 (`RHI/NVRHIInterop.cpp` proves it with `static_assert`s), because shader reflection, the shader
 cache (stage strings) and `ShaderPack.lsp` store them. Renderer `.cpp`s convert at the NVRHI call
 with `ToNVRHI`/`FromNVRHI` from `RHI/NVRHIInterop.h`, which goes away with NVRHI. Still backend
-until later NRI phases: `Image2D::GetHandle`/`ImageInfo` and the buffers' `GetHandle` (NVRHI
-wrapper handles of NRI-owned resources since P8; removed in P13) and device bring-up in
-`Window.cpp` (P14). `RecordResourceUpload` callbacks take an `UploadContext` (P13). SPIR-V lives on `VulkanShader` (`GetSPIRV(ShaderStage)`),
+until later NRI phases: `ImageInfo`'s NVRHI-typed fields and the NVRHI descs NRI resources are
+created from (P15), and device bring-up in `Window.cpp` (P14). `Image2D`/`Texture::GetHandle()` is
+the NRI texture (renderer-internal); buffers have no handle getter (`GetBuffer()`). `RecordResourceUpload` callbacks take an `UploadContext` (P13). SPIR-V lives on `VulkanShader` (`GetSPIRV(ShaderStage)`),
 not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
-`VulkanDeviceManager` created. It never owns them; NVRHI still wraps the same device (bring-up and
-resource wrapper handles) until it is removed. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
+`VulkanDeviceManager` created. It never owns them; NVRHI still wraps the same device for bring-up
+until it is removed. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
 the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. Every
 submission goes through `RHIQueueTimeline` (`Renderer/RHI/RHIQueueTimeline.h`, created by
 `Window::CreateRHIDevice` after `RHIDevice::Init`): one NRI timeline fence per queue, submissions
@@ -215,8 +215,8 @@ draw and dispatch records through NRI (below). Device features: see `Rendering.m
 
 **GPU memory is NRI's** (Phase 8): `Image2D`, `VertexBuffer`, `IndexBuffer`, `UniformBuffer`,
 `StorageBuffer`, meshlet buffers and the ImGui renderer own an `NRITexture`/`NRIBuffer`
-(`Renderer/RHI/NVRHIWrappers.h`), which pairs the NRI resource with a non-owning NVRHI handle and
-frees both through the GPU deletion queue. `ImageInfo::RHITexture` is the NRI texture; swapchain
+(`Renderer/RHI/NVRHIWrappers.h`), which frees the NRI resource and its views through the GPU
+deletion queue. `ImageInfo::RHITexture` is the NRI texture; swapchain
 images also get non-owning NRI wrappers and color-attachment views. `Renderer::GetGPUMemoryStats`
 reads NRI's `QueryVideoMemoryInfo`.
 
@@ -1294,8 +1294,9 @@ luxengine/
 │   │       ├── Renderer/          # Renderer, SceneRenderer, RenderGraph, Renderer2D,
 │   │       │                      #   RenderScene/GPUScene, Material, Shader, Pipeline, Mesh, UI/,
 │   │       │                      #   RHI/ (renderer vocabulary, RHIDevice (NRI), state tracker,
-│   │       │                      #   GPU deletion queue, temporary NVRHI interop + NRI-owned
-│   │       │                      #   resource wrappers)
+│   │       │                      #   GPU deletion queue, queue timeline, command buffer
+│   │       │                      #   pools, staging, upload context, temporary NVRHI interop,
+│   │       │                      #   NRI-owned resources)
 │   │       ├── Scene/             # Scene, Entity, Components, SceneSerializer, Prefab
 │   │       ├── Physics/           # PhysicsSystem/Scene/Body/Shapes + JoltPhysics/
 │   │       ├── Physics2D/         # Box2D

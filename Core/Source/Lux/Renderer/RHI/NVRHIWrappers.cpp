@@ -4,7 +4,6 @@
 #include "lpch.h"
 #include "NVRHIWrappers.h"
 
-#include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
@@ -116,7 +115,7 @@ namespace Lux {
 	}
 
 	NRITexture::NRITexture(NRITexture&& other) noexcept
-		: m_Texture(std::exchange(other.m_Texture, nullptr)), m_Handle(std::move(other.m_Handle)), m_Tracked(std::exchange(other.m_Tracked, {}))
+		: m_Texture(std::exchange(other.m_Texture, nullptr)), m_Tracked(std::exchange(other.m_Tracked, {}))
 	{
 	}
 
@@ -126,7 +125,6 @@ namespace Lux {
 		{
 			Reset();
 			m_Texture = std::exchange(other.m_Texture, nullptr);
-			m_Handle = std::move(other.m_Handle);
 			m_Tracked = std::exchange(other.m_Tracked, {});
 		}
 		return *this;
@@ -168,9 +166,6 @@ namespace Lux {
 		}
 		api.SetDebugName(result.m_Texture, desc.debugName.c_str());
 
-		nvrhi::IDevice* device = Application::GetGraphicsDevice();
-		result.m_Handle = device->createHandleForNativeTexture(nvrhi::ObjectTypes::VK_Image, nvrhi::Object(api.GetTextureNativeObject(result.m_Texture)), desc);
-
 		result.m_Tracked.Handle = result.m_Texture;
 		result.m_Tracked.MipCount = std::max(1u, static_cast<uint32_t>(nriDesc.mipNum));
 		result.m_Tracked.LayerCount = std::max(1u, static_cast<uint32_t>(nriDesc.layerNum));
@@ -188,19 +183,14 @@ namespace Lux {
 	void NRITexture::Reset()
 	{
 		if (!m_Texture)
-		{
-			m_Handle = nullptr;
 			return;
-		}
 
 		LUX_CORE_ASSERT(RHIDevice::IsInitialized(), "NRI texture released after the NRI device was destroyed");
-		Renderer::SubmitResourceFree([texture = std::exchange(m_Texture, nullptr), handle = std::move(m_Handle)]() mutable
+		Renderer::SubmitResourceFree([texture = std::exchange(m_Texture, nullptr)]()
 			{
-				handle = nullptr;
 				DestroyViews(s_TextureViews, texture);
 				RHIDevice::API().DestroyTexture(texture);
 			});
-		m_Handle = nullptr;
 		m_Tracked = {};
 	}
 
@@ -210,7 +200,7 @@ namespace Lux {
 	}
 
 	NRIBuffer::NRIBuffer(NRIBuffer&& other) noexcept
-		: m_Buffer(std::exchange(other.m_Buffer, nullptr)), m_Handle(std::move(other.m_Handle)), m_Tracked(std::exchange(other.m_Tracked, {}))
+		: m_Buffer(std::exchange(other.m_Buffer, nullptr)), m_Size(std::exchange(other.m_Size, 0)), m_Tracked(std::exchange(other.m_Tracked, {}))
 	{
 	}
 
@@ -220,7 +210,7 @@ namespace Lux {
 		{
 			Reset();
 			m_Buffer = std::exchange(other.m_Buffer, nullptr);
-			m_Handle = std::move(other.m_Handle);
+			m_Size = std::exchange(other.m_Size, 0);
 			m_Tracked = std::exchange(other.m_Tracked, {});
 		}
 		return *this;
@@ -250,9 +240,7 @@ namespace Lux {
 		}
 		api.SetDebugName(result.m_Buffer, desc.debugName.c_str());
 
-		nvrhi::IDevice* device = Application::GetGraphicsDevice();
-		result.m_Handle = device->createHandleForNativeBuffer(nvrhi::ObjectTypes::VK_Buffer, nvrhi::Object(api.GetBufferNativeObject(result.m_Buffer)), desc);
-
+		result.m_Size = desc.byteSize;
 		result.m_Tracked.Handle = result.m_Buffer;
 		result.m_Tracked.Untracked = desc.cpuAccess != nvrhi::CpuAccessMode::None;
 		result.m_Tracked.RestingState = !result.m_Tracked.Untracked && desc.keepInitialState ? FromNVRHI(desc.initialState) : ResourceState::Unknown;
@@ -262,25 +250,21 @@ namespace Lux {
 	void NRIBuffer::Reset()
 	{
 		if (!m_Buffer)
-		{
-			m_Handle = nullptr;
 			return;
-		}
 
 		LUX_CORE_ASSERT(RHIDevice::IsInitialized(), "NRI buffer released after the NRI device was destroyed");
-		Renderer::SubmitResourceFree([buffer = std::exchange(m_Buffer, nullptr), handle = std::move(m_Handle)]() mutable
+		Renderer::SubmitResourceFree([buffer = std::exchange(m_Buffer, nullptr)]()
 			{
-				handle = nullptr;
 				DestroyViews(s_BufferViews, buffer);
 				RHIDevice::API().DestroyBuffer(buffer);
 			});
-		m_Handle = nullptr;
+		m_Size = 0;
 		m_Tracked = {};
 	}
 
 	void* NRIBuffer::Map(uint64_t offset, uint64_t size) const
 	{
-		LUX_CORE_ASSERT(m_Buffer && m_Handle->getDesc().cpuAccess != nvrhi::CpuAccessMode::None, "Only CPU-visible buffers can be mapped");
+		LUX_CORE_ASSERT(m_Buffer && m_Tracked.Untracked, "Only CPU-visible buffers can be mapped");
 		return RHIDevice::API().MapBuffer(*m_Buffer, offset, size);
 	}
 

@@ -28,11 +28,11 @@ namespace Lux {
 		// `range` with AllMips / AllLayers resolved against the image's current texture.
 		TextureSubresourceRange ResolveRange(const Image2D& image, TextureSubresourceRange range)
 		{
-			const nvrhi::TextureDesc& desc = image.GetImageInfo().ImageHandle->getDesc();
+			const TrackedTexture& texture = image.GetImageInfo().Tracked;
 			if (range.MipCount == TextureSubresourceRange::AllMips)
-				range.MipCount = desc.mipLevels - range.BaseMip;
+				range.MipCount = texture.MipCount - range.BaseMip;
 			if (range.LayerCount == TextureSubresourceRange::AllLayers)
-				range.LayerCount = desc.arraySize - range.BaseLayer;
+				range.LayerCount = texture.LayerCount - range.BaseLayer;
 			return range;
 		}
 
@@ -283,7 +283,7 @@ namespace Lux {
 
 	ImTextureID ImGuiRenderer::RegisterPersistentTexture(const Ref<Image2D>& image, TextureSubresourceRange subresources)
 	{
-		LUX_CORE_ASSERT(image && image->GetImageInfo().ImageHandle, "RegisterPersistentTexture called with a null image!");
+		LUX_CORE_ASSERT(image && image->GetImageInfo().RHITexture, "RegisterPersistentTexture called with a null image!");
 
 		uint32_t index;
 		if (!m_Registry->FreePersistentSlots.empty())
@@ -314,7 +314,7 @@ namespace Lux {
 		bool forceOpaque,
 		bool isGrayscale)
 	{
-		LUX_CORE_ASSERT(image && image->GetImageInfo().ImageHandle, "CreateFrameTexture called with a null image!");
+		LUX_CORE_ASSERT(image && image->GetImageInfo().RHITexture, "CreateFrameTexture called with a null image!");
 
 		ImGuiTextureInfo key{ image, ResolveRange(*image, subresources), forceOpaque, isGrayscale };
 
@@ -337,7 +337,7 @@ namespace Lux {
 
 	bool ImGuiRenderer::ReallocateBuffer(NRIBuffer& buffer, size_t requiredSize, size_t reallocateSize, const bool indexBuffer)
 	{
-		if (!buffer || size_t(buffer.GetHandle()->getDesc().byteSize) < requiredSize)
+		if (!buffer || size_t(buffer.GetSize()) < requiredSize)
 		{
 			nvrhi::BufferDesc desc;
 			desc.byteSize = uint32_t(reallocateSize);
@@ -421,7 +421,7 @@ namespace Lux {
 				if (drawCommand.UserCallback)
 					continue;
 				const ImGuiTextureInfo& texInfo = snapshot->ResolveTexture(static_cast<uint64_t>(drawCommand.GetTexID()));
-				if (texInfo.Image && texInfo.Image->GetImageInfo().ImageHandle)
+				if (texInfo.Image && texInfo.Image->GetImageInfo().RHITexture)
 					m_RenderCommandBuffer->RT_RequireTextureState(texInfo.Image->GetImageInfo().Tracked, texInfo.Range, ResourceState::ShaderResource);
 			}
 		}
@@ -474,7 +474,7 @@ namespace Lux {
 					}
 
 					const ImGuiTextureInfo& texInfo = snapshot->ResolveTexture(static_cast<uint64_t>(drawCommand.GetTexID()));
-					if (!texInfo.Image || !texInfo.Image->GetImageInfo().ImageHandle)
+					if (!texInfo.Image || !texInfo.Image->GetImageInfo().RHITexture)
 						continue;
 
 					const ImVec2 clipMin(std::max((drawCommand.ClipRect.x - clipOffset.x) * clipScale.x, 0.0f),
