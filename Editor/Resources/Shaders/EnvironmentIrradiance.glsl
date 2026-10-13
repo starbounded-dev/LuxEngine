@@ -7,7 +7,7 @@
 // Computes diffuse irradiance cubemap convolution for image-based lighting.
 // Uses quasi Monte Carlo sampling with Hammersley sequence.
 
-layout(binding = 0, rgba32f) restrict writeonly uniform imageCube o_IrradianceMap;
+layout(binding = 0, rgba32f) restrict writeonly uniform image2DArray o_IrradianceMap;
 layout(binding = 1) uniform textureCube u_RadianceMap;
 
 layout(push_constant) uniform Uniforms
@@ -18,7 +18,7 @@ layout(push_constant) uniform Uniforms
 layout(local_size_x=32, local_size_y=32, local_size_z=1) in;
 void main()
 {
-	vec3 N = GetCubeMapTexCoord(vec2(imageSize(o_IrradianceMap)));
+	vec3 N = GetCubeMapTexCoord(vec2(imageSize(o_IrradianceMap).xy));
 	
 	vec3 S, T;
 	ComputeBasisVectors(N, S, T);

@@ -17,7 +17,7 @@ vec2 SampleHammersley(uint i)
 }
 
 //const int NumMipLevels = 1;
-layout(binding = 0, rgba16f) restrict writeonly uniform imageCube outputTexture;//[NumMipLevels];
+layout(binding = 0, rgba16f) restrict writeonly uniform image2DArray outputTexture;//[NumMipLevels];
 layout(binding = 1) uniform textureCube inputTexture;
 
 layout (push_constant) uniform Uniforms
@@ -33,7 +33,7 @@ layout(local_size_x=32, local_size_y=32, local_size_z=1) in;
 void main(void)
 {
 	// Make sure we won't write past output when computing higher mipmap levels.
-	ivec2 outputSize = imageSize(outputTexture);
+	ivec2 outputSize = imageSize(outputTexture).xy;
 	if(gl_GlobalInvocationID.x >= outputSize.x || gl_GlobalInvocationID.y >= outputSize.y) {
 		return;
 	}
@@ -44,7 +44,7 @@ void main(void)
 	float wt = 4.0 * PI / (6 * inputSize.x * inputSize.y);
 	
 	// Approximation: Assume zero viewing angle (isotropic reflections).
-	vec3 N = GetCubeMapTexCoord(vec2(imageSize(outputTexture)));
+	vec3 N = GetCubeMapTexCoord(vec2(imageSize(outputTexture).xy));
 	vec3 Lo = N;
 	
 	vec3 S, T;

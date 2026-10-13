@@ -163,7 +163,9 @@ namespace Lux {
 			}
 			case RenderInputType::StorageImage2D:
 			{
-				return inputResource == RenderResourceType::Image2D;
+				// Cube maps are written as image2DArray: a cube's storage view is a 2D array (NRI has
+				// no storage cube view), and Vulkan requires the shader image to match the view.
+				return inputResource == RenderResourceType::Image2D || inputResource == RenderResourceType::TextureCube;
 			}
 			case RenderInputType::StorageImage3D:
 			{

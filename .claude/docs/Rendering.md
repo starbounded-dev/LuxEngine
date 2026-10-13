@@ -259,6 +259,11 @@ HLSL-only.
 Runtime entry points: `Renderer::ReloadShaders(forceCompile)`, `UpdateDirtyShaders()`,
 `WarmUpShaderPipelines()`, `GetShaderPermutationCacheSize()`.
 
+**Cube maps are written as `image2DArray`, never `imageCube`.** A storage view of a cube is a 2D
+array (NRI has no storage cube view, as D3D12 has none), and Vulkan requires the shader image to
+match the view type. The face is the array layer, so `imageStore(img, ivec3(x, y, face), ...)` is
+unchanged; `imageSize` returns an `ivec3`, so take `.xy`. Sampled cubes stay `textureCube`.
+
 **When a shader stops working after an edit, suspect the cache first.** Delete
 `Resources/Cache/Shader/` and relaunch before debugging the shader itself. A stale registry entry
 looks exactly like a broken shader.

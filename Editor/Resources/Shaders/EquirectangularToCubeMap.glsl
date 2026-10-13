@@ -4,13 +4,13 @@
 #include <EnvironmentMapping.glslh>
 #include <Samplers.glslh>
 
-layout(binding = 0, rgba16f) restrict writeonly uniform imageCube o_CubeMap;
+layout(binding = 0, rgba16f) restrict writeonly uniform image2DArray o_CubeMap;
 layout(binding = 1) uniform texture2D u_EquirectangularTex;
 
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 void main()
 {
-	vec3 cubeTC = GetCubeMapTexCoord(vec2(imageSize(o_CubeMap)));
+	vec3 cubeTC = GetCubeMapTexCoord(vec2(imageSize(o_CubeMap).xy));
 
     // Calculate sampling coords for equirectangular texture
 	// https://en.wikipedia.org/wiki/Spherical_coordinate_system#Cartesian_coordinates

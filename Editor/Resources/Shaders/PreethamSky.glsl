@@ -12,7 +12,7 @@ const float TWO_PI = 6.28318530718;
 const float SKY_LUMINANCE_SCALE = 0.04;
 const float SUN_ANGULAR_RADIUS = 0.00465; // 0.53 degree apparent diameter / 2
 
-layout(binding = 0, rgba32f) restrict writeonly uniform imageCube o_CubeMap;
+layout(binding = 0, rgba32f) restrict writeonly uniform image2DArray o_CubeMap;
 
 layout(push_constant) uniform Uniforms
 {
@@ -35,7 +35,7 @@ float DecodeAngle(float value)
 
 vec3 GetCubeMapTexCoord()
 {
-	ivec2 size = imageSize(o_CubeMap);
+	ivec2 size = imageSize(o_CubeMap).xy;
 	vec2 st = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) / vec2(size);
 	vec2 uv = vec2(2.0 * st.x - 1.0, 1.0 - 2.0 * st.y);
 
@@ -169,7 +169,7 @@ vec3 CalculateSunDisk(vec3 viewDirection, vec3 sunDirection, float turbidity, fl
 
 void main()
 {
-	ivec2 size = imageSize(o_CubeMap);
+	ivec2 size = imageSize(o_CubeMap).xy;
 	if (gl_GlobalInvocationID.x >= uint(size.x) || gl_GlobalInvocationID.y >= uint(size.y) || gl_GlobalInvocationID.z >= 6u)
 		return;
 
