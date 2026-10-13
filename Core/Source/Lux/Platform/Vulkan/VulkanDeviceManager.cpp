@@ -450,6 +450,16 @@ namespace Lux {
 		if (aftermathEnabled)
 			enabledExtensions.device.insert(std::begin(Aftermath::k_DeviceExtensions), std::end(Aftermath::k_DeviceExtensions));
 
+		// NRI treats VK_KHR_ray_tracing_pipeline and VK_KHR_ray_tracing_maintenance1 as a pair: with
+		// the pipeline extension it loads vkCmdTraceRaysIndirect2KHR, and it cannot wrap the device
+		// when that is missing. Lux uses no ray-tracing pipelines, so a device without maintenance1
+		// goes without the pipeline extension rather than failing to start.
+		if (enabledExtensions.device.count(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) && !enabledExtensions.device.count(VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME))
+		{
+			enabledExtensions.device.erase(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+			LUX_CORE_INFO_TAG("Renderer", "Ray-tracing pipelines off: the device has no {}, which NRI needs with them", VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME);
+		}
+
 		const vk::PhysicalDeviceProperties physicalDeviceProperties = m_VulkanPhysicalDevice.getProperties();
 		m_RendererString = std::string(physicalDeviceProperties.deviceName.data());
 		m_DeviceAPIVersion = std::min(m_InstanceAPIVersion, physicalDeviceProperties.apiVersion);
@@ -457,6 +467,7 @@ namespace Lux {
 
 		bool accelStructSupported = false;
 		bool rayPipelineSupported = false;
+		bool rayTracingMaintenance1Supported = false;
 		bool rayQuerySupported = false;
 		bool meshletsSupported = false;
 		bool vrsSupported = false;
@@ -474,6 +485,8 @@ namespace Lux {
 				accelStructSupported = true;
 			else if (ext == VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
 				rayPipelineSupported = true;
+			else if (ext == VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME)
+				rayTracingMaintenance1Supported = true;
 			else if (ext == VK_KHR_RAY_QUERY_EXTENSION_NAME)
 				rayQuerySupported = true;
 			else if (ext == VK_EXT_MESH_SHADER_EXTENSION_NAME)
@@ -509,6 +522,7 @@ namespace Lux {
 		auto maintenance6Features = vk::PhysicalDeviceMaintenance6Features();
 		// NRI's pipeline-statistics query pools count task and mesh invocations when the device can.
 		auto supportedMeshShader = vk::PhysicalDeviceMeshShaderFeaturesEXT();
+		auto supportedRayTracingMaintenance1 = vk::PhysicalDeviceRayTracingMaintenance1FeaturesKHR();
 
 		// Put the user-provided extension structure at the end of the chain
 		pNext = m_DeviceParams.physicalDeviceFeatures2Extensions;
@@ -520,6 +534,7 @@ namespace Lux {
 		APPEND_EXTENSION(!vulkan14 && maintenance5Supported, maintenance5Features);
 		APPEND_EXTENSION(!vulkan14 && maintenance6Supported, maintenance6Features);
 		APPEND_EXTENSION(meshletsSupported, supportedMeshShader);
+		APPEND_EXTENSION(rayTracingMaintenance1Supported, supportedRayTracingMaintenance1);
 
 		physicalDeviceFeatures2.pNext = pNext;
 		m_VulkanPhysicalDevice.getFeatures2(&physicalDeviceFeatures2);
@@ -556,6 +571,9 @@ namespace Lux {
 			.setRayTraversalPrimitiveCulling(true);
 		auto rayQueryFeatures = vk::PhysicalDeviceRayQueryFeaturesKHR()
 			.setRayQuery(true);
+		auto rayTracingMaintenance1Features = vk::PhysicalDeviceRayTracingMaintenance1FeaturesKHR()
+			.setRayTracingMaintenance1(supportedRayTracingMaintenance1.rayTracingMaintenance1)
+			.setRayTracingPipelineTraceRaysIndirect2(rayPipelineSupported && supportedRayTracingMaintenance1.rayTracingPipelineTraceRaysIndirect2);
 		// NVRHI's Vulkan backend implements meshlets via VK_EXT_mesh_shader
 		// (Feature::Meshlets checks EXT, dispatchMesh calls drawMeshTasksEXT).
 		auto meshletFeatures = vk::PhysicalDeviceMeshShaderFeaturesEXT()
@@ -580,6 +598,7 @@ namespace Lux {
 		pNext = nullptr;
 		APPEND_EXTENSION(accelStructSupported, accelStructFeatures)
 			APPEND_EXTENSION(rayPipelineSupported, rayPipelineFeatures)
+			APPEND_EXTENSION(rayTracingMaintenance1Supported, rayTracingMaintenance1Features)
 			APPEND_EXTENSION(rayQuerySupported, rayQueryFeatures)
 			APPEND_EXTENSION(meshletsSupported, meshletFeatures)
 			APPEND_EXTENSION(vrsSupported, vrsFeatures)

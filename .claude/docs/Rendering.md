@@ -397,6 +397,13 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   can use implicitly (and the 1.1/1.2 bits the descriptor work will need) whenever supported, and
   the KHR extensions on 1.3 devices. **Do not use an NRI `DeviceDesc` feature that
   `VulkanDeviceManager` does not enable**; add it there first.
+- **Extensions NRI expects in pairs.** NRI creates its own devices with some extensions together
+  and loads their functions as if they always were: with `VK_KHR_ray_tracing_pipeline` it loads
+  `vkCmdTraceRaysIndirect2KHR` from `VK_KHR_ray_tracing_maintenance1`, and `nriCreateDeviceFromVKDevice`
+  fails when that is missing. `VulkanDeviceManager` enables maintenance1 (and its features) with the
+  ray-tracing extensions, and leaves the pipeline extension off on a device without it (Lux uses no
+  ray-tracing pipelines). Mesh-shader statistics need `meshShaderQueries` (enabled when supported;
+  fork patch LUX-2). Check `DeviceVK::ResolveDispatchTable` before enabling a new extension.
 - **Surface extensions.** The fork loads a platform's surface function only when its instance
   extension is enabled. GLFW enables just the one its window system uses (on X11 usually
   `VK_KHR_xcb_surface`), so an NRI swapchain on X11 needs `VK_KHR_xlib_surface` enabled first
