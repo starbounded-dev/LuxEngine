@@ -99,9 +99,8 @@ namespace Lux {
 		// Returned by reference for any handle we can't resolve. Its Image is null, so the draw
 		// loop skips the command. The asserts below still fire in Debug to pinpoint the bad handle,
 		// but in Release they are compiled out — without the explicit bounds checks an out-of-range
-		// or stale handle would read the vector out of bounds and hand null/garbage to nvrhi
-		// (the requireTextureState crash). ImGui 1.92 makes this reachable: a draw cmd can reference
-		// an ImTextureData whose TexID this legacy backend never set (GetTexID() == invalid).
+		// or stale handle would read the vector out of bounds and hand a null or garbage image to
+		// the draw loop.
 		static const ImGuiTextureInfo s_InvalidTexture{};
 
 		const uint32_t textureIndex = static_cast<uint32_t>(handle & 0xFFFFFFFFull);

@@ -142,6 +142,8 @@ namespace Lux {
 		// loads don't stall the graphics queue. Toggle is live (Renderer.AsyncTransferQueue).
 		static void SetAsyncTransferQueueEnabled(bool enabled);
 		static bool IsAsyncTransferQueueEnabled();
+		// Whether the device has a dedicated transfer queue (otherwise async transfer is a no-op).
+		static bool HasDedicatedTransferQueue();
 
 		// Effective mode: the setting is on AND a dedicated transfer queue exists.
 		static bool UseAsyncTransferQueue();

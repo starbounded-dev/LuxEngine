@@ -57,12 +57,12 @@ namespace Lux {
 		deviceParams.Decorated = m_Specification.Decorated;
 		deviceParams.swapChainBufferCount = m_Specification.SwapChainBufferCount;
 		deviceParams.enableRayTracingExtensions = true;
-		// Give nvrhi a dedicated compute queue so render passes can be scheduled
+		// Give the device a dedicated compute queue so render passes can be scheduled
 		// async on it (GTAO / SSR / light-cull / bloom overlapping graphics work).
 		// Desktop NVIDIA always exposes a compute-capable queue family, so device
 		// creation still succeeds; nothing submits async until EnableAsyncCompute.
 		deviceParams.enableComputeQueue = true;
-		// Give nvrhi a dedicated transfer (copy) queue so mesh/texture uploads and
+		// Give the device a dedicated transfer (copy) queue so mesh/texture uploads and
 		// asset streaming don't contend with the graphics queue against frame
 		// rendering. This only *requests* the queue; it is optional — device
 		// creation still succeeds when the GPU has no dedicated transfer family
@@ -218,23 +218,21 @@ namespace Lux {
 			}
 		}
 
-		nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
+		m_DeviceManager = lnew VulkanDeviceManager(m_WindowHandle);
 
-		m_DeviceManager = DeviceManager::Create(api, m_WindowHandle);
-
-		if (!m_DeviceManager->CreateDevice(deviceParams, m_Specification.Title.c_str()))
+		if (!m_DeviceManager->CreateDevice(deviceParams))
 		{
-			LUX_CORE_ERROR("Cannot initialize a {} graphics device.", (uint8_t)api);
+			LUX_CORE_ERROR("Cannot initialize a Vulkan device.");
 			return;
 		}
 		else
 		{
-			LUX_CORE_INFO("Successfully created {} device!", (uint8_t)api);
+			LUX_CORE_INFO("Successfully created the Vulkan device!");
 		}
 
 		CreateRHIDevice(deviceParams.enableDebugRuntime);
 
-		bool rayQuerySupported = m_DeviceManager->GetDevice()->queryFeatureSupport(nvrhi::Feature::RayQuery);
+		const bool rayQuerySupported = m_DeviceManager->GetEnabledDeviceExtensions().contains(VK_KHR_RAY_QUERY_EXTENSION_NAME);
 
 		if (!rayQuerySupported)
 		{
@@ -440,7 +438,7 @@ namespace Lux {
 		// Before the window: the swapchain owns the window's surface.
 		m_SwapChain.reset();
 
-		// Before the device manager: NRI wraps the VkDevice that NVRHI and the manager own.
+		// Before the device manager: NRI wraps the VkDevice the manager owns.
 		RHIQueueTimeline::Shutdown();
 		RHIDevice::Shutdown();
 

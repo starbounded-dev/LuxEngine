@@ -295,7 +295,6 @@ namespace Lux {
 				Renderer::Submit([&]()
 					{
 						m_Window->Present();
-						GetGraphicsDevice()->runGarbageCollection();
 					});
 
 				m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % Renderer::GetConfig().FramesInFlight;

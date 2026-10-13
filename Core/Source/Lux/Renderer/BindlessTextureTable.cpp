@@ -26,13 +26,10 @@ namespace Lux {
 
 	void BindlessTextureTable::Init()
 	{
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-
-		VkPhysicalDeviceProperties properties{};
-		const VkPhysicalDevice physicalDevice = (VkPhysicalDevice)device->getNativeObject(nvrhi::ObjectTypes::VK_PhysicalDevice);
-		vkGetPhysicalDeviceProperties(physicalDevice, &properties);
-		const uint32_t stageLimit = properties.limits.maxPerStageDescriptorSampledImages;
-		const uint32_t setLimit = properties.limits.maxDescriptorSetSampledImages;
+		// maxPerStageDescriptorSampledImages and maxDescriptorSetSampledImages.
+		const nri::DeviceDesc& deviceDesc = RHIDevice::GetDesc();
+		const uint32_t stageLimit = deviceDesc.shaderStage.descriptorTextureMaxNum;
+		const uint32_t setLimit = deviceDesc.descriptorSet.textureMaxNum;
 		const uint32_t deviceLimit = std::min(stageLimit, setLimit);
 		s_Capacity = deviceLimit > k_ReservedSampledImages ? std::min(MaxCapacity, deviceLimit - k_ReservedSampledImages) : 0;
 		LUX_CORE_VERIFY(s_Capacity > 0, "The GPU's sampled-image descriptor limits ({}, {}) leave no room for bindless textures", stageLimit, setLimit);

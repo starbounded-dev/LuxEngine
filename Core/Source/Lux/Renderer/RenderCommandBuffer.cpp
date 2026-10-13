@@ -71,7 +71,7 @@ namespace Lux {
 	// failed - every caller must tolerate it rather than assume GPU zones are available.
 	static TracyVkCtx GetTracyGPUContext()
 	{
-		auto* deviceManager = static_cast<VulkanDeviceManager*>(Application::Get().GetGraphicsDeviceManager());
+		auto* deviceManager = Application::Get().GetGraphicsDeviceManager();
 		return deviceManager ? deviceManager->GetGPUProfilerContext() : nullptr;
 	}
 #endif

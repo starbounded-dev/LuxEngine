@@ -247,8 +247,7 @@ namespace Lux {
 			// dedicated copy queue so asset streaming doesn't stall rendering.
 			// Applies live; no-op when the GPU has no dedicated transfer queue.
 			bool asyncTransfer = settings.Get("Renderer.AsyncTransferQueue", "false") != "false";
-			const bool transferAvailable = Application::GetGraphicsDeviceManager() &&
-				Application::GetGraphicsDeviceManager()->IsTransferQueueAvailable();
+			const bool transferAvailable = Renderer::HasDedicatedTransferQueue();
 
 			ImGuiEx::BeginPropertyGrid();
 			if (ImGuiEx::Property("Async Transfer Queue", asyncTransfer))

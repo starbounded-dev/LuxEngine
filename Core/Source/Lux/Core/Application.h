@@ -19,7 +19,6 @@
 #include <chrono>
 #include <deque>
 
-namespace nvrhi { class IDevice; }
 
 namespace Lux {
 
@@ -163,8 +162,8 @@ namespace Lux {
 
 		static bool IsRuntime() { return s_IsRuntime; }
 
-		static DeviceManager* GetGraphicsDeviceManager() { return Application::Get().GetWindow().GetDeviceManager(); }
-		static nvrhi::IDevice* GetGraphicsDevice() { return GetGraphicsDeviceManager()->GetDevice(); }
+		// The Vulkan device bring-up and the swapchain settings; the GPU API itself is RHIDevice.
+		static VulkanDeviceManager* GetGraphicsDeviceManager() { return Application::Get().GetWindow().GetDeviceManager(); }
 	private:
 		void ProcessEvents();
 		// Blocks until this frame's deadline, when a target frame rate is set.

@@ -837,8 +837,13 @@ namespace Lux {
 	{
 		if (!s_AsyncTransferEnabled.load(std::memory_order_relaxed))
 			return false;
-		auto* deviceManager = Application::GetGraphicsDeviceManager();
-		return deviceManager && deviceManager->IsTransferQueueAvailable();
+		return HasDedicatedTransferQueue();
+	}
+
+	bool Renderer::HasDedicatedTransferQueue()
+	{
+		// RHIDevice has a copy queue only when the device has a dedicated transfer family.
+		return RHIDevice::IsInitialized() && RHIDevice::GetQueue(GPUQueue::Copy);
 	}
 
 	void Renderer::SetAsyncTransferQueueEnabled(bool enabled)

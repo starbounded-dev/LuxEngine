@@ -46,16 +46,13 @@ freely, subject to the following restrictions:
 3. This notice may not be removed or altered from any source
    distribution.
 */
-#include "Lux/Renderer/DeviceManager.h"
-#include "Lux/Core/Window.h"
 #include "Lux/Debug/Profiler.h"
 
+#include <functional>
 #include <string>
 #include <queue>
 #include <unordered_set>
-
-#include <nvrhi/vulkan.h>
-#include <nvrhi/validation.h>
+#include <vector>
 
 #include <vulkan/vulkan.hpp>
 
@@ -67,9 +64,66 @@ freely, subject to the following restrictions:
 
 #include <format>
 
+struct GLFWwindow;
+
 namespace Lux {
 
-	class VulkanDeviceManager : public DeviceManager
+	struct InstanceParameters
+	{
+		bool enableDebugRuntime = false;
+		bool headlessDevice = false;
+
+		std::vector<std::string> requiredVulkanInstanceExtensions;
+		std::vector<std::string> requiredVulkanLayers;
+		std::vector<std::string> optionalVulkanInstanceExtensions;
+		std::vector<std::string> optionalVulkanLayers;
+	};
+
+	struct DeviceCreationParameters : public InstanceParameters
+	{
+		bool Decorated = true;
+		int windowPosX = -1;            // -1 means use default placement
+		int windowPosY = -1;
+		uint32_t refreshRate = 0;
+		uint32_t swapChainBufferCount = 3;
+		uint32_t maxFramesInFlight = 2;
+		bool vsyncEnabled = false;
+		// Only consulted when vsyncEnabled is false: picks IMMEDIATE over MAILBOX.
+		bool preferImmediatePresentMode = false;
+		bool enableRayTracingExtensions = false;
+		bool enableComputeQueue = false;
+		bool enableCopyQueue = false;
+
+		// Index of the physical device on which to initialize the device. Negative values mean
+		// automatic detection.
+		int adapterIndex = -1;
+
+		// set to true to enable DPI scale factors to be computed per monitor
+		// this will keep the on-screen window size in pixels constant
+		//
+		// if set to false, the DPI scale factors will be constant but the system
+		// may scale the contents of the window based on DPI
+		//
+		// note that the backbuffer size is never updated automatically; if the app
+		// wishes to scale up rendering based on DPI, then it must set this to true
+		// and respond to DPI scale factor changes by resizing the backbuffer explicitly
+		bool enablePerMonitorDPI = false;
+
+		std::vector<std::string> requiredVulkanDeviceExtensions;
+		std::vector<std::string> optionalVulkanDeviceExtensions;
+		std::vector<size_t> ignoredVulkanValidationMessageLocations;
+		std::function<void(VkDeviceCreateInfo&)> deviceCreateInfoCallback;
+
+		// This pointer specifies an optional structure to be put at the end of the chain for 'vkGetPhysicalDeviceFeatures2' call.
+		// The structure may also be a chain, and must be alive during the device initialization process.
+		// The elements of this structure will be populated before 'deviceCreateInfoCallback' is called,
+		// thereby allowing applications to determine if certain features may be enabled on the device.
+		void* physicalDeviceFeatures2Extensions = nullptr;
+	};
+
+	// Brings up the Vulkan instance, device and queues that RHIDevice wraps in NRI, and holds the
+	// swapchain settings (DeviceCreationParameters) every RHISwapChain is built with.
+	class VulkanDeviceManager
 	{
 	public:
 		struct QueueFamilyIndices
@@ -79,23 +133,43 @@ namespace Lux {
 			int32_t Transfer = -1;
 		};
 	public:
-		VulkanDeviceManager(GLFWwindow* windowHandle)
+		explicit VulkanDeviceManager(GLFWwindow* windowHandle)
+			: m_WindowHandle(windowHandle)
 		{
-			m_WindowHandle = windowHandle;
 		}
 
-		[[nodiscard]] nvrhi::IDevice* GetDevice() const override
-		{
-			if (m_ValidationLayer)
-				return m_ValidationLayer;
+		bool CreateDevice(const DeviceCreationParameters& params);
+		void Shutdown();
 
-			return m_NvrhiDevice;
+		const DeviceCreationParameters& GetDeviceParams() const { return m_DeviceParams; }
+
+		// returns the screen coordinate to pixel coordinate scale factor
+		void GetDPIScaleInfo(float& x, float& y) const
+		{
+			x = m_DPIScaleFactorX;
+			y = m_DPIScaleFactorY;
+		}
+		void SetDPIScale(float x, float y)
+		{
+			m_DPIScaleFactorX = x;
+			m_DPIScaleFactorY = y;
 		}
 
-		[[nodiscard]] nvrhi::GraphicsAPI GetGraphicsAPI() const override
-		{
-			return nvrhi::GraphicsAPI::VULKAN;
-		}
+		// Swapchain settings, read when a swapchain is (re)created: the caller recreates it for a
+		// change to take effect (Window::SetVSync and friends).
+		void SetVsyncEnabled(bool enabled) { m_DeviceParams.vsyncEnabled = enabled; }
+		// This is a frame-rate control, not just a memory knob. Under MAILBOX the
+		// presentation engine releases images on the compositor's schedule, so the count
+		// sets the ceiling at roughly (count - 1) x display refresh under DWM. FIFO is
+		// always refresh-locked regardless, and the practical range is small: more images
+		// buy throughput at the cost of latency and VRAM.
+		[[nodiscard]] uint32_t GetSwapChainBufferCount() const { return m_DeviceParams.swapChainBufferCount; }
+		void SetSwapChainBufferCount(uint32_t count) { m_DeviceParams.swapChainBufferCount = count; }
+		// Which uncapped present mode to pick when vsync is off (Rendering.md § Present mode).
+		[[nodiscard]] bool PrefersImmediatePresentMode() const { return m_DeviceParams.preferImmediatePresentMode; }
+		void SetPreferImmediatePresentMode(bool prefer) { m_DeviceParams.preferImmediatePresentMode = prefer; }
+
+		const char* GetRendererString() const { return m_RendererString.c_str(); }
 
 		vk::Instance GetVulkanInstance() const { return m_VulkanInstance; }
 		vk::PhysicalDevice GetVulkanPhysicalDevice() const { return m_VulkanPhysicalDevice; }
@@ -111,7 +185,10 @@ namespace Lux {
 		// A lost device is fatal: waits for the Aftermath GPU crash dump (when enabled), logs where it
 		// went, then ends the process. Any thread; `where` names the call that saw VK_ERROR_DEVICE_LOST.
 		[[noreturn]] static void ReportDeviceLost(std::string_view where);
-		[[nodiscard]] bool IsTransferQueueAvailable() const override { return m_TransferQueueAvailable; }
+		// True when the device was created with a dedicated transfer (copy) queue. False when
+		// enableCopyQueue was off or the GPU has no dedicated transfer family; async asset uploads
+		// then fall back to the graphics queue.
+		[[nodiscard]] bool IsTransferQueueAvailable() const { return m_TransferQueueAvailable; }
 
 #if LUX_ENABLE_PROFILING
 		// Tracy GPU context for the graphics queue. Valid between CreateDevice and
@@ -119,25 +196,16 @@ namespace Lux {
 		// emitted on the render thread by RenderCommandBuffer's timer-query pair.
 		[[nodiscard]] TracyVkCtx GetGPUProfilerContext() const { return m_TracyGPUContext; }
 #endif
-	protected:
-		virtual bool CreateInstanceInternal() override;
-		virtual bool CreateDevice() override;
-		virtual void DestroyDevice() override;
-
-		const char* GetRendererString() const override
-		{
-			return m_RendererString.c_str();
-		}
-
 	private:
+		bool CreateInstanceInternal();
+		bool CreateDevice();
+		void DestroyDevice();
+
 		bool createInstance();
-		bool createWindowSurface();
 		void installDebugCallback();
 		bool pickPhysicalDevice();
 		bool FindQueueFamilies(vk::PhysicalDevice physicalDevice);
 		bool createDevice();
-		bool createSwapChain();
-		void destroySwapChain();
 
 		struct VulkanExtensionSet
 		{
@@ -214,10 +282,12 @@ namespace Lux {
 		vk::Queue m_ComputeQueue;
 		vk::Queue m_TransferQueue;
 
-		nvrhi::vulkan::DeviceHandle m_NvrhiDevice;
-		nvrhi::DeviceHandle m_ValidationLayer;
+		DeviceCreationParameters m_DeviceParams;
+		GLFWwindow* m_WindowHandle = nullptr;
+		// current DPI scale info (updated when window moves)
+		float m_DPIScaleFactorX = 1.f;
+		float m_DPIScaleFactorY = 1.f;
 
-		bool m_BufferDeviceAddressSupported = false;
 		// True once the logical device was created with a dedicated transfer queue.
 		bool m_TransferQueueAvailable = false;
 
@@ -228,8 +298,7 @@ namespace Lux {
 		// graphics queue Tracy binds to, so the context's lifetime must match theirs.
 		TracyVkCtx m_TracyGPUContext = nullptr;
 		// Tracy drives its init command buffer itself - recording, submitting, and
-		// calling vkQueueWaitIdle several times - so it needs a pool of its own rather
-		// than anything nvrhi tracks.
+		// calling vkQueueWaitIdle several times - so it needs a pool of its own.
 		vk::CommandPool m_TracyGPUCommandPool;
 #endif
 

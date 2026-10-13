@@ -51,6 +51,8 @@ freely, subject to the following restrictions:
 
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
 
+#include <GLFW/glfw3.h>
+
 #include <cstring>
 
 // Define the Vulkan dynamic dispatcher - this needs to occur in exactly one cpp file in the program.
@@ -188,7 +190,7 @@ namespace Lux {
 
 		if (res != vk::Result::eSuccess)
 		{
-			LUX_CORE_ERROR("Call to vkEnumerateInstanceVersion failed, error code = {}", nvrhi::vulkan::resultToString(VkResult(res)));
+			LUX_CORE_ERROR("Call to vkEnumerateInstanceVersion failed, error code = {}", vk::to_string(res));
 			return false;
 		}
 
@@ -223,7 +225,7 @@ namespace Lux {
 		res = vk::createInstance(&info, nullptr, &m_VulkanInstance);
 		if (res != vk::Result::eSuccess)
 		{
-			LUX_CORE_ERROR("Failed to create a Vulkan instance, error code = {}", nvrhi::vulkan::resultToString(VkResult(res)));
+			LUX_CORE_ERROR("Failed to create a Vulkan instance, error code = {}", vk::to_string(res));
 			return false;
 		}
 
@@ -658,7 +660,7 @@ namespace Lux {
 		const vk::Result res = m_VulkanPhysicalDevice.createDevice(&deviceDesc, nullptr, &m_VulkanDevice);
 		if (res != vk::Result::eSuccess)
 		{
-			LUX_CORE_ERROR("Failed to create a Vulkan physical device, error code = {}", nvrhi::vulkan::resultToString(VkResult(res)));
+			LUX_CORE_ERROR("Failed to create a Vulkan physical device, error code = {}", vk::to_string(res));
 			return false;
 		}
 
@@ -671,9 +673,6 @@ namespace Lux {
 
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanDevice);
 		Aftermath::OnDeviceCreated(static_cast<VkDevice>(m_VulkanDevice), VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr);
-
-		// remember the bufferDeviceAddress feature enablement
-		m_BufferDeviceAddressSupported = vulkan12features.bufferDeviceAddress;
 
 		LUX_CORE_INFO("Created Vulkan device: {}", m_RendererString.c_str());
 
@@ -720,45 +719,10 @@ namespace Lux {
 		CHECK(FindQueueFamilies(m_VulkanPhysicalDevice))
 		CHECK(createDevice())
 
-		auto vecInstanceExt = stringSetToVector(enabledExtensions.instance);
-		auto vecLayers = stringSetToVector(enabledExtensions.layers);
-		auto vecDeviceExt = stringSetToVector(enabledExtensions.device);
-
-		nvrhi::vulkan::DeviceDesc deviceDesc;
-		deviceDesc.errorCB = &DefaultMessageCallback::GetInstance();
-		deviceDesc.instance = m_VulkanInstance;
-		deviceDesc.physicalDevice = m_VulkanPhysicalDevice;
-		deviceDesc.device = m_VulkanDevice;
-		deviceDesc.graphicsQueue = m_GraphicsQueue;
-		deviceDesc.graphicsQueueIndex = m_QueueFamilyIndices.Graphics;
-		deviceDesc.maxTimerQueries = 2048; // Increased from default 256 for GPU profiling
-		if (m_DeviceParams.enableComputeQueue)
-		{
-			deviceDesc.computeQueue = m_ComputeQueue;
-			deviceDesc.computeQueueIndex = m_QueueFamilyIndices.Compute;
-		}
 		if (m_TransferQueueAvailable)
-		{
-			deviceDesc.transferQueue = m_TransferQueue;
-			deviceDesc.transferQueueIndex = m_QueueFamilyIndices.Transfer;
 			LUX_CORE_INFO_TAG("Renderer", "Dedicated transfer queue enabled (family {}) for async asset uploads.", m_QueueFamilyIndices.Transfer);
-		}
 		else if (m_DeviceParams.enableCopyQueue)
-		{
 			LUX_CORE_INFO_TAG("Renderer", "No dedicated transfer queue on this GPU; asset uploads use the graphics queue.");
-		}
-		deviceDesc.instanceExtensions = vecInstanceExt.data();
-		deviceDesc.numInstanceExtensions = vecInstanceExt.size();
-		deviceDesc.deviceExtensions = vecDeviceExt.data();
-		deviceDesc.numDeviceExtensions = vecDeviceExt.size();
-		deviceDesc.bufferDeviceAddressSupported = m_BufferDeviceAddressSupported;
-
-		m_NvrhiDevice = nvrhi::vulkan::createDevice(deviceDesc);
-
-		if (m_DeviceParams.enableNvrhiValidationLayer)
-		{
-			m_ValidationLayer = nvrhi::validation::createValidationLayer(m_NvrhiDevice);
-		}
 
 #if LUX_ENABLE_PROFILING
 		CreateGPUProfilerContext();
@@ -834,16 +798,6 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 
-		// nvrhi defers the actual destruction of released resources until garbage collection runs,
-		// so without a final pass here they are still alive when vkDestroyDevice is called
-		if (m_NvrhiDevice)
-		{
-			m_NvrhiDevice->waitForIdle();
-			m_NvrhiDevice->runGarbageCollection();
-		}
-
-		m_NvrhiDevice = nullptr;
-		m_ValidationLayer = nullptr;
 		m_RendererString.clear();
 
 #if LUX_ENABLE_PROFILING
@@ -895,10 +849,15 @@ namespace Lux {
 		std::abort();
 	}
 
-	DeviceManager* DeviceManager::CreateVK(GLFWwindow* windowHandle)
+	bool VulkanDeviceManager::CreateDevice(const DeviceCreationParameters& params)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return new VulkanDeviceManager(windowHandle);
+		m_DeviceParams = params;
+		return CreateInstanceInternal() && CreateDevice();
+	}
+
+	void VulkanDeviceManager::Shutdown()
+	{
+		DestroyDevice();
 	}
 
 }

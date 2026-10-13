@@ -6,7 +6,6 @@
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Events/Event.h"
 
-#include "Lux/Renderer/DeviceManager.h"
 
 #include <functional>
 #include <filesystem>
@@ -34,6 +33,7 @@ namespace Lux {
 	};
 
 	class RHISwapChain;
+	class VulkanDeviceManager;
 
 	class Window
 	{
@@ -78,7 +78,7 @@ namespace Lux {
 		inline GLFWwindow* GetNativeWindow() const { return m_WindowHandle; }
 
 		virtual RHISwapChain& GetSwapChain();
-		DeviceManager* GetDeviceManager() { return m_DeviceManager; }
+		VulkanDeviceManager* GetDeviceManager() { return m_DeviceManager; }
 
 		// High DPI scale factor
 		inline static float s_HighDPIScaleFactor;
@@ -99,7 +99,7 @@ namespace Lux {
 		void CreateRHIDevice(bool enableValidation);
 		virtual void Shutdown();
 	private:
-		DeviceManager* m_DeviceManager = nullptr;
+		VulkanDeviceManager* m_DeviceManager = nullptr;
 		GLFWwindow* m_WindowHandle = nullptr;
 		GLFWcursor* m_ImGuiMouseCursors[9] = { 0 };
 		WindowSpecification m_Specification;
