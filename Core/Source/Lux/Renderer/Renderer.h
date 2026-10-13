@@ -251,7 +251,7 @@ namespace Lux {
 		// Render thread. Opens `renderPass` (already prepared) as an NRI render pass, clearing the
 		// attachments flagged. False, with nothing recorded, when the pass cannot be recorded (logged
 		// once per pipeline); its draws are then skipped, as RT_DrawIndexed skips them outside a pass.
-		static bool RT_BeginRenderPass(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, nvrhi::c_MaxRenderTargets>& clearColor, bool clearDepth);
+		static bool RT_BeginRenderPass(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, MaxRenderTargets>& clearColor, bool clearDepth);
 		// Render thread, inside a pass begun with RT_BeginRenderPass: records `draw`. False, with
 		// nothing recorded, outside such a pass or when the draw cannot be recorded (logged once per
 		// pipeline).

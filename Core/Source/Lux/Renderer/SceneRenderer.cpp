@@ -4370,7 +4370,7 @@ namespace Lux {
 			if (texture.Image)
 			{
 				textureInfo.AliasedNow = texture.Image->IsTransientAlias();
-				textureInfo.CurrentState = FromNVRHI(texture.Image->GetImageInfo().State);
+				textureInfo.RestingState = texture.Image->GetImageInfo().Tracked.RestingState;
 			}
 		}
 
@@ -7418,7 +7418,7 @@ namespace Lux {
 			instance->m_PreDepthMeshletPass->Prepare();
 
 			Ref<Framebuffer> framebuffer = instance->m_PreDepthMeshletPipeline->GetSpecification().TargetFramebuffer;
-			const std::array<bool, nvrhi::c_MaxRenderTargets> noColorClears = {};
+			const std::array<bool, MaxRenderTargets> noColorClears = {};
 			Renderer::RT_BeginRenderPass(*cmd, *instance->m_PreDepthMeshletPass, noColorClears, framebuffer->HasDepthAttachment());
 		});
 

@@ -10,7 +10,6 @@
 #include "Lux/Renderer/RHI/RHITypes.h"
 #include "Image.h"
 
-#include "nvrhi/nvrhi.h"
 
 #include <array>
 
@@ -183,13 +182,13 @@ namespace Lux {
 
 		// The textures the attachment views were built for (HasStaleAttachments). Compared, never
 		// dereferenced.
-		std::array<const nri::Texture*, nvrhi::c_MaxRenderTargets> m_ViewTextures = {};
+		std::array<const nri::Texture*, MaxRenderTargets> m_ViewTextures = {};
 		const nri::Texture* m_DepthViewTexture = nullptr;
 		// Fixed storage: the render thread reads these while a main-thread invalidation rewrites them.
-		std::array<nri::Descriptor*, nvrhi::c_MaxRenderTargets> m_NRIColorAttachments = {};
+		std::array<nri::Descriptor*, MaxRenderTargets> m_NRIColorAttachments = {};
 		nri::Descriptor* m_NRIDepthAttachment = nullptr;
 		bool m_HasNRIAttachments = false;
-		std::array<nri::Format, nvrhi::c_MaxRenderTargets> m_NRIColorFormats = {};
+		std::array<nri::Format, MaxRenderTargets> m_NRIColorFormats = {};
 		nri::Format m_NRIDepthFormat = {};
 		uint32_t m_SampleCount = 1;
 

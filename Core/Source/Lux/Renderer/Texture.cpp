@@ -8,7 +8,6 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Renderer/TextureReadback.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "Lux/Asset/TextureImporter.h"
@@ -291,8 +290,6 @@ namespace Lux {
 	void Texture2D::Invalidate()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-
 		m_Image->Release();
 
 		uint32_t mipCount = m_Specification.GenerateMips ? GetMipLevelCount() : 1;
@@ -601,15 +598,9 @@ namespace Lux {
 		return { width, height };
 	}
 
-	nvrhi::TextureSubresourceSet TextureCube::CreateImageViewSingleMip(uint32_t mip)
+	TextureSubresourceRange TextureCube::CreateImageViewSingleMip(uint32_t mip)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		nvrhi::TextureSubresourceSet tss;
-		tss.baseMipLevel = mip;
-		tss.numMipLevels = 1;
-		tss.baseArraySlice = 0;
-		tss.numArraySlices = 6;
-		return tss;
+		return { mip, 1, 0, 6 };
 	}
 
 	void TextureCube::GenerateMips()

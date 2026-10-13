@@ -8,7 +8,6 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Renderer/Image.h"
 
-#include "nvrhi/nvrhi.h"
 
 #include <filesystem>
 
@@ -168,7 +167,7 @@ namespace Lux {
 		void CopyToHostBuffer(Buffer& buffer);
 		void CopyFromBuffer(const Buffer& buffer, uint32_t mips);
 
-		nvrhi::TextureSubresourceSet CreateImageViewSingleMip(uint32_t mip);
+		TextureSubresourceRange CreateImageViewSingleMip(uint32_t mip);
 	public:
 		TextureCube(const TextureSpecification& specification, Buffer data);
 

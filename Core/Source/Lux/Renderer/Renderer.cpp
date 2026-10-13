@@ -979,7 +979,7 @@ namespace Lux {
 				// can keep its contents (e.g. a shared image another pass already wrote) while
 				// the rest clear. Depth is the last attachment, so color index i is attachments[i].
 				const uint32_t colorAttachmentCount = static_cast<uint32_t>(framebuffer->GetColorAttachmentCount());
-				std::array<bool, nvrhi::c_MaxRenderTargets> clearColor = {};
+				std::array<bool, MaxRenderTargets> clearColor = {};
 				for (uint32_t i = 0; i < colorAttachmentCount && i < clearColor.size(); i++)
 				{
 					const AttachmentLoadOp loadOp = i < attachmentSpecs.size() ? attachmentSpecs[i].LoadOp : AttachmentLoadOp::Inherit;
@@ -1466,7 +1466,7 @@ namespace Lux {
 		return material->GetDescriptorSet(Renderer::RT_GetCurrentFrameIndex());
 	}
 
-	bool Renderer::RT_BeginRenderPass(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, nvrhi::c_MaxRenderTargets>& clearColor, bool clearDepth)
+	bool Renderer::RT_BeginRenderPass(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, MaxRenderTargets>& clearColor, bool clearDepth)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Pipeline> pipeline = renderPass.GetPipeline();

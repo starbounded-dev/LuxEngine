@@ -122,10 +122,10 @@ namespace Lux {
 
 		struct NRIRenderPassDesc
 		{
-			std::array<NRIAttachment, nvrhi::c_MaxRenderTargets> ColorAttachments = {};
+			std::array<NRIAttachment, MaxRenderTargets> ColorAttachments = {};
 			// Clears happen when the pass opens; a reopened scope loads.
-			std::array<bool, nvrhi::c_MaxRenderTargets> ClearColor = {};
-			std::array<std::array<float, 4>, nvrhi::c_MaxRenderTargets> ClearColorValues = {};
+			std::array<bool, MaxRenderTargets> ClearColor = {};
+			std::array<std::array<float, 4>, MaxRenderTargets> ClearColorValues = {};
 			uint32_t ColorAttachmentCount = 0;
 			NRIAttachment DepthAttachment;
 			bool ClearDepth = false;

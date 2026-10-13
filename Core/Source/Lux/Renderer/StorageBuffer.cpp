@@ -12,15 +12,13 @@ namespace Lux {
 	StorageBuffer::StorageBuffer(uint32_t size, const StorageBufferSpecification& specification)
 		: m_Specification(specification)
 	{
-		m_BufferDesc = nvrhi::BufferDesc()
-			.setByteSize(size)
-			.setCanHaveRawViews(true)
-			.setCanHaveUAVs(true)
-			.setIsDrawIndirectArgs(m_Specification.DrawIndirect)
-			.setInitialState(nvrhi::ResourceStates::UnorderedAccess)
-			.setKeepInitialState(true) // enable fully automatic state tracking
-			.setCpuAccess(m_Specification.GPUOnly ? nvrhi::CpuAccessMode::None : nvrhi::CpuAccessMode::Write)
-			.setDebugName(m_Specification.DebugName);
+		m_BufferDesc.Size = size;
+		m_BufferDesc.CanHaveRawViews = true;
+		m_BufferDesc.CanHaveUAVs = true;
+		m_BufferDesc.IsDrawIndirectArgs = m_Specification.DrawIndirect;
+		m_BufferDesc.RestingState = ResourceState::UnorderedAccess;
+		m_BufferDesc.Access = m_Specification.GPUOnly ? CPUAccess::None : CPUAccess::Write;
+		m_BufferDesc.DebugName = m_Specification.DebugName;
 
 		Invalidate();
 	}
@@ -30,10 +28,10 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		// Replacing m_Buffer hands the old one to the GPU deletion queue.
 		m_Buffer = NRIBuffer::Create(m_BufferDesc);
-		LUX_CORE_VERIFY(m_Buffer, "Failed to create storage buffer \"{}\" ({} bytes)", m_Specification.DebugName, m_BufferDesc.byteSize);
+		LUX_CORE_VERIFY(m_Buffer, "Failed to create storage buffer \"{}\" ({} bytes)", m_Specification.DebugName, m_BufferDesc.Size);
 
 		if (!m_Specification.GPUOnly)
-			m_LocalStorage.Reallocate(m_BufferDesc.byteSize);
+			m_LocalStorage.Reallocate(m_BufferDesc.Size);
 	}
 
 	void StorageBuffer::SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint32_t offset)
@@ -60,7 +58,7 @@ namespace Lux {
 		if (buffer.Size == 0)
 			return;
 
-		LUX_CORE_ASSERT(offset + buffer.Size <= m_BufferDesc.byteSize);
+		LUX_CORE_ASSERT(offset + buffer.Size <= m_BufferDesc.Size);
 
 		if (m_Specification.GPUOnly)
 		{
@@ -82,7 +80,7 @@ namespace Lux {
 	void StorageBuffer::Resize(uint32_t size)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_BufferDesc.setByteSize(size);
+		m_BufferDesc.Size = size;
 		Invalidate();
 	}
 

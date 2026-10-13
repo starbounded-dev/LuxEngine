@@ -500,7 +500,8 @@ namespace Lux {
 			bool Transient = false;
 			bool AllowAlias = false;
 			bool AliasedNow = false;
-			ResourceState CurrentState = ResourceState::Unknown;
+			// The state the image is in between command buffers.
+			ResourceState RestingState = ResourceState::Unknown;
 			uint32_t FirstWriter = UINT32_MAX;
 			uint32_t LastReader = UINT32_MAX;
 			std::vector<uint32_t> Consumers;

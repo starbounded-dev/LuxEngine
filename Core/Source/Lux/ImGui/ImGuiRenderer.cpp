@@ -347,20 +347,13 @@ namespace Lux {
 	{
 		if (!buffer || size_t(buffer.GetSize()) < requiredSize)
 		{
-			nvrhi::BufferDesc desc;
-			desc.byteSize = uint32_t(reallocateSize);
-			desc.structStride = 0;
-			desc.debugName = indexBuffer ? "ImGui index buffer" : "ImGui vertex buffer";
-			desc.canHaveUAVs = false;
-			desc.isVertexBuffer = !indexBuffer;
-			desc.isIndexBuffer = indexBuffer;
-			desc.isDrawIndirectArgs = false;
-			desc.isVolatile = false;
+			RHIBufferDesc desc;
+			desc.Size = reallocateSize;
+			desc.DebugName = indexBuffer ? "ImGui index buffer" : "ImGui vertex buffer";
+			desc.IsVertexBuffer = !indexBuffer;
+			desc.IsIndexBuffer = indexBuffer;
 			// Written through Map, so never transitioned.
-			desc.cpuAccess = nvrhi::CpuAccessMode::Write;
-			desc.initialState = indexBuffer ? nvrhi::ResourceStates::IndexBuffer
-				: nvrhi::ResourceStates::VertexBuffer;
-			desc.keepInitialState = true;
+			desc.Access = CPUAccess::Write;
 
 			// Replacing the buffer hands the old one to the GPU deletion queue.
 			buffer = NRIBuffer::Create(desc);

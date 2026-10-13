@@ -89,6 +89,11 @@ namespace Lux {
 	// Descriptor-set numbers a pipeline layout has at most (0 to MaxDescriptorSets - 1).
 	inline constexpr uint32_t MaxDescriptorSets = 8;
 
+	// What the renderer's fixed-size arrays hold at most (NVRHI's limits, kept).
+	inline constexpr uint32_t MaxRenderTargets = 8;
+	inline constexpr uint32_t MaxViewports = 16;
+	inline constexpr uint32_t MaxVertexAttributes = 16;
+
 	// Same order as nvrhi::CommandQueue.
 	enum class GPUQueue : uint8_t
 	{

@@ -202,7 +202,7 @@ namespace Lux {
 		// Vertex input: the layouts' elements at locations 0..n in order, one stream (binding slot) per
 		// layout that has elements.
 		const std::array<const VertexBufferLayout*, 3> layouts = { &m_Specification.Layout, &m_Specification.InstanceLayout, &m_Specification.BoneInfluenceLayout };
-		std::array<nri::VertexAttributeDesc, nvrhi::c_MaxVertexAttributes> attributes = {};
+		std::array<nri::VertexAttributeDesc, MaxVertexAttributes> attributes = {};
 		std::array<nri::VertexStreamDesc, layouts.size()> streams = {};
 		uint32_t attributeCount = 0;
 		uint32_t streamCount = 0;
@@ -265,7 +265,7 @@ namespace Lux {
 
 		// Output merger: one blend state per color attachment of the framebuffer.
 		const uint32_t colorCount = static_cast<uint32_t>(framebuffer->GetColorAttachmentCount());
-		std::array<nri::ColorAttachmentDesc, nvrhi::c_MaxRenderTargets> colors = {};
+		std::array<nri::ColorAttachmentDesc, MaxRenderTargets> colors = {};
 		if (!problem && colorCount > colors.size())
 			problem = "its framebuffer has more color attachments than NRI takes";
 		for (uint32_t i = 0; !problem && i < colorCount; i++)

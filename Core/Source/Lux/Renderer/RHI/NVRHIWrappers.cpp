@@ -5,11 +5,8 @@
 #include "NVRHIWrappers.h"
 
 #include "Lux/Renderer/Renderer.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
-
-#include <nvrhi/vulkan.h>
 
 #include <map>
 #include <mutex>
@@ -40,14 +37,14 @@ namespace Lux {
 			views.erase(it);
 		}
 
-		nri::TextureType ToNRITextureType(nvrhi::TextureDimension dimension)
+		nri::TextureType ToNRITextureType(TextureDimension dimension)
 		{
 			switch (dimension)
 			{
-				case nvrhi::TextureDimension::Texture1D:
-				case nvrhi::TextureDimension::Texture1DArray:
+				case TextureDimension::Texture1D:
+				case TextureDimension::Texture1DArray:
 					return nri::TextureType::TEXTURE_1D;
-				case nvrhi::TextureDimension::Texture3D:
+				case TextureDimension::Texture3D:
 					return nri::TextureType::TEXTURE_3D;
 				default:
 					// 2D, 2D arrays, cubes (6 layers each) and multisampled 2D.
@@ -55,58 +52,52 @@ namespace Lux {
 			}
 		}
 
-		// NVRHI's image usage (vulkan-texture.cpp pickImageUsage); NRI adds TRANSFER_SRC/DST itself.
-		nri::TextureUsageBits ToNRITextureUsage(const nvrhi::TextureDesc& desc)
+		// NRI adds TRANSFER_SRC/DST itself.
+		nri::TextureUsageBits ToNRITextureUsage(const RHITextureDesc& desc)
 		{
 			nri::TextureUsageBits usage = nri::TextureUsageBits::NONE;
-			if (desc.isShaderResource)
+			if (desc.IsShaderResource)
 				usage |= nri::TextureUsageBits::SHADER_RESOURCE;
-			if (desc.isUAV)
+			if (desc.IsUAV)
 				usage |= nri::TextureUsageBits::SHADER_RESOURCE_STORAGE;
-			if (desc.isRenderTarget)
-				usage |= nvrhi::getFormatInfo(desc.format).hasDepth ? nri::TextureUsageBits::DEPTH_STENCIL_ATTACHMENT : nri::TextureUsageBits::COLOR_ATTACHMENT;
-			if (desc.isShadingRateSurface)
+			if (desc.IsRenderTarget)
+				usage |= nri::nriGetFormatProps(desc.Format)->isDepth ? nri::TextureUsageBits::DEPTH_STENCIL_ATTACHMENT : nri::TextureUsageBits::COLOR_ATTACHMENT;
+			if (desc.IsShadingRateSurface)
 				usage |= nri::TextureUsageBits::SHADING_RATE_ATTACHMENT;
 			return usage;
 		}
 
-		// NVRHI's buffer usage (vulkan-buffer.cpp createBuffer). NRI gives a buffer STORAGE_BUFFER
-		// usage when it is structured or byte-address, and adds TRANSFER_SRC/DST and device address.
-		// Raw-view and UAV buffers also get NRI's shader-resource usages: NRI validation checks
-		// barrier access against them (they add texel-buffer usage only).
-		nri::BufferUsageBits ToNRIBufferUsage(const nvrhi::BufferDesc& desc)
+		// NRI gives a buffer STORAGE_BUFFER usage when it is structured or byte-address, and adds
+		// TRANSFER_SRC/DST and device address. Raw-view and UAV buffers also get the shader-resource
+		// usages: NRI validation checks barrier access against them.
+		nri::BufferUsageBits ToNRIBufferUsage(const RHIBufferDesc& desc)
 		{
 			nri::BufferUsageBits usage = nri::BufferUsageBits::NONE;
-			if (desc.isVertexBuffer)
+			if (desc.IsVertexBuffer)
 				usage |= nri::BufferUsageBits::VERTEX;
-			if (desc.isIndexBuffer)
+			if (desc.IsIndexBuffer)
 				usage |= nri::BufferUsageBits::INDEX;
-			if (desc.isDrawIndirectArgs)
+			if (desc.IsDrawIndirectArgs)
 				usage |= nri::BufferUsageBits::ARGUMENT;
-			if (desc.isConstantBuffer)
+			if (desc.IsConstantBuffer)
 				usage |= nri::BufferUsageBits::CONSTANT;
-			if (desc.canHaveTypedViews || desc.canHaveRawViews || desc.canHaveUAVs)
+			if (desc.CanHaveRawViews || desc.CanHaveUAVs)
 				usage |= nri::BufferUsageBits::SHADER_RESOURCE;
-			if (desc.canHaveUAVs)
+			if (desc.CanHaveUAVs)
 				usage |= nri::BufferUsageBits::SHADER_RESOURCE_STORAGE;
 			return usage;
 		}
 
-		nri::MemoryLocation ToNRIMemoryLocation(nvrhi::CpuAccessMode cpuAccess)
+		nri::MemoryLocation ToNRIMemoryLocation(CPUAccess access)
 		{
-			switch (cpuAccess)
+			switch (access)
 			{
-				case nvrhi::CpuAccessMode::Write: return nri::MemoryLocation::HOST_UPLOAD;
-				case nvrhi::CpuAccessMode::Read:  return nri::MemoryLocation::HOST_READBACK;
-				default:                          return nri::MemoryLocation::DEVICE;
+				case CPUAccess::Write: return nri::MemoryLocation::HOST_UPLOAD;
+				case CPUAccess::Read:  return nri::MemoryLocation::HOST_READBACK;
+				default:               return nri::MemoryLocation::DEVICE;
 			}
 		}
 
-	}
-
-	nri::Format ToNRIFormat(nvrhi::Format format)
-	{
-		return nri::nriConvertVKFormatToNRI(static_cast<uint32_t>(nvrhi::vulkan::convertFormat(format)));
 	}
 
 	NRITexture::~NRITexture()
@@ -130,52 +121,51 @@ namespace Lux {
 		return *this;
 	}
 
-	NRITexture NRITexture::Create(const nvrhi::TextureDesc& desc)
+	NRITexture NRITexture::Create(const RHITextureDesc& desc)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		if (desc.Format == nri::Format::UNKNOWN)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Texture \"{}\" has no format", desc.DebugName);
+			return {};
+		}
+
 		const NRIInterface& api = RHIDevice::API();
-		const bool volume = desc.dimension == nvrhi::TextureDimension::Texture3D;
+		const bool volume = desc.Dimension == TextureDimension::Texture3D;
 
 		nri::TextureDesc nriDesc = {};
-		nriDesc.type = ToNRITextureType(desc.dimension);
+		nriDesc.type = ToNRITextureType(desc.Dimension);
 		nriDesc.usage = ToNRITextureUsage(desc);
-		nriDesc.format = ToNRIFormat(desc.format);
-		nriDesc.width = static_cast<nri::Dim_t>(desc.width);
-		nriDesc.height = static_cast<nri::Dim_t>(desc.height);
-		nriDesc.depth = static_cast<nri::Dim_t>(volume ? desc.depth : 1);
-		nriDesc.mipNum = static_cast<nri::Dim_t>(desc.mipLevels);
-		nriDesc.layerNum = static_cast<nri::Dim_t>(volume ? 1 : desc.arraySize);
-		nriDesc.sampleNum = static_cast<nri::Sample_t>(desc.sampleCount);
+		nriDesc.format = desc.Format;
+		nriDesc.width = static_cast<nri::Dim_t>(desc.Width);
+		nriDesc.height = static_cast<nri::Dim_t>(desc.Height);
+		nriDesc.depth = static_cast<nri::Dim_t>(volume ? desc.Depth : 1);
+		nriDesc.mipNum = static_cast<nri::Dim_t>(desc.MipLevels);
+		nriDesc.layerNum = static_cast<nri::Dim_t>(volume ? 1 : desc.ArraySize);
+		nriDesc.sampleNum = static_cast<nri::Sample_t>(desc.SampleCount);
 		// Attachments stay EXCLUSIVE, as NVRHI created them: CONCURRENT costs them compression (DCC) on
 		// some GPUs. NRI validation rejects EXCLUSIVE on anything else, so the rest take NRI's
 		// CONCURRENT default, which also needs no queue ownership transfer on the compute/copy queues.
 		constexpr nri::TextureUsageBits attachmentUsage = nri::TextureUsageBits::COLOR_ATTACHMENT | nri::TextureUsageBits::DEPTH_STENCIL_ATTACHMENT | nri::TextureUsageBits::SHADING_RATE_ATTACHMENT;
 		nriDesc.sharingMode = (nriDesc.usage & attachmentUsage) ? nri::SharingMode::EXCLUSIVE : nri::SharingMode::CONCURRENT;
 
-		const char* formatName = nvrhi::getFormatInfo(desc.format).name;
-		if (nriDesc.format == nri::Format::UNKNOWN)
-		{
-			LUX_CORE_ERROR_TAG("Renderer", "NRI has no format matching {} (texture \"{}\")", formatName, desc.debugName);
-			return {};
-		}
-
 		NRITexture result;
 		if (api.CreateCommittedTexture(RHIDevice::Get(), nri::MemoryLocation::DEVICE, 0.0f, nriDesc, result.m_Texture) != nri::Result::SUCCESS)
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "NRI failed to create texture \"{}\" ({}x{}x{}, {} mip(s), {} layer(s), {})",
-				desc.debugName, desc.width, desc.height, desc.depth, desc.mipLevels, desc.arraySize, formatName);
+				desc.DebugName, desc.Width, desc.Height, desc.Depth, desc.MipLevels, desc.ArraySize, nri::nriGetFormatProps(desc.Format)->name);
 			result.m_Texture = nullptr;
 			return result;
 		}
-		api.SetDebugName(result.m_Texture, desc.debugName.c_str());
+		api.SetDebugName(result.m_Texture, desc.DebugName.c_str());
 
 		result.m_Tracked.Handle = result.m_Texture;
 		result.m_Tracked.MipCount = std::max(1u, static_cast<uint32_t>(nriDesc.mipNum));
 		result.m_Tracked.LayerCount = std::max(1u, static_cast<uint32_t>(nriDesc.layerNum));
-		result.m_Tracked.RestingState = desc.keepInitialState ? FromNVRHI(desc.initialState) : ResourceState::Unknown;
+		result.m_Tracked.RestingState = desc.RestingState;
 
 		// The texture starts undefined; the upload batch moves it to its resting state before any
-		// submission (as NVRHI's first command list did, from Common).
+		// submission.
 		Renderer::RecordResourceUpload([&](UploadContext& upload)
 			{
 				upload.InitializeTexture(result.m_Tracked);
@@ -219,34 +209,33 @@ namespace Lux {
 		return *this;
 	}
 
-	NRIBuffer NRIBuffer::Create(const nvrhi::BufferDesc& desc)
+	NRIBuffer NRIBuffer::Create(const RHIBufferDesc& desc)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		LUX_CORE_ASSERT(!desc.isVolatile, "Volatile buffers are NVRHI upload memory, not NRI-owned buffers");
 		const NRIInterface& api = RHIDevice::API();
 
 		nri::BufferDesc nriDesc = {};
-		// Vulkan forbids zero-size buffers; the NVRHI desc keeps the requested size.
-		nriDesc.size = std::max(desc.byteSize, k_MinBufferSize);
-		nriDesc.structureStride = desc.structStride;
-		// NVRHI gives raw-view and UAV buffers STORAGE_BUFFER usage; NRI does for byte-address buffers.
-		nriDesc.byteAddress = desc.canHaveRawViews || desc.canHaveUAVs;
+		// Vulkan forbids zero-size buffers; GetSize keeps the requested size.
+		nriDesc.size = std::max(desc.Size, k_MinBufferSize);
+		nriDesc.structureStride = desc.StructStride;
+		// Raw-view and UAV buffers are storage buffers, which NRI makes byte-address buffers.
+		nriDesc.byteAddress = desc.CanHaveRawViews || desc.CanHaveUAVs;
 		nriDesc.usage = ToNRIBufferUsage(desc);
 
 		NRIBuffer result;
-		if (api.CreateCommittedBuffer(RHIDevice::Get(), ToNRIMemoryLocation(desc.cpuAccess), 0.0f, nriDesc, result.m_Buffer) != nri::Result::SUCCESS)
+		if (api.CreateCommittedBuffer(RHIDevice::Get(), ToNRIMemoryLocation(desc.Access), 0.0f, nriDesc, result.m_Buffer) != nri::Result::SUCCESS)
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "NRI failed to create buffer \"{}\" ({} bytes, CPU access {})",
-				desc.debugName, desc.byteSize, static_cast<int>(desc.cpuAccess));
+				desc.DebugName, desc.Size, static_cast<int>(desc.Access));
 			result.m_Buffer = nullptr;
 			return result;
 		}
-		api.SetDebugName(result.m_Buffer, desc.debugName.c_str());
+		api.SetDebugName(result.m_Buffer, desc.DebugName.c_str());
 
-		result.m_Size = desc.byteSize;
+		result.m_Size = desc.Size;
 		result.m_Tracked.Handle = result.m_Buffer;
-		result.m_Tracked.Untracked = desc.cpuAccess != nvrhi::CpuAccessMode::None;
-		result.m_Tracked.RestingState = !result.m_Tracked.Untracked && desc.keepInitialState ? FromNVRHI(desc.initialState) : ResourceState::Unknown;
+		result.m_Tracked.Untracked = desc.Access != CPUAccess::None;
+		result.m_Tracked.RestingState = result.m_Tracked.Untracked ? ResourceState::Unknown : desc.RestingState;
 		return result;
 	}
 

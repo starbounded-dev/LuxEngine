@@ -15,12 +15,11 @@ namespace Lux {
 	{
 		// TODO(Yan): render thread? if yes then we need to copy to m_LocalData...
 
-		auto indexBufferDesc = nvrhi::BufferDesc()
-			.setByteSize(buffer.Size)
-			.setIsIndexBuffer(true)
-			.setInitialState(nvrhi::ResourceStates::IndexBuffer)
-			.setKeepInitialState(true) // enable fully automatic state tracking
-			.setDebugName("IndexBuffer");
+		RHIBufferDesc indexBufferDesc;
+		indexBufferDesc.Size = buffer.Size;
+		indexBufferDesc.IsIndexBuffer = true;
+		indexBufferDesc.RestingState = ResourceState::IndexBuffer;
+		indexBufferDesc.DebugName = "IndexBuffer";
 
 		m_Buffer = NRIBuffer::Create(indexBufferDesc);
 		LUX_CORE_VERIFY(m_Buffer, "Failed to create a {} byte index buffer", buffer.Size);
@@ -35,12 +34,11 @@ namespace Lux {
 	IndexBuffer::IndexBuffer(uint64_t size)
 		: m_Size(size)
 	{
-		auto indexBufferDesc = nvrhi::BufferDesc()
-			.setByteSize(size)
-			.setIsIndexBuffer(true)
-			.setInitialState(nvrhi::ResourceStates::IndexBuffer)
-			.setKeepInitialState(true) // enable fully automatic state tracking
-			.setDebugName("IndexBuffer");
+		RHIBufferDesc indexBufferDesc;
+		indexBufferDesc.Size = size;
+		indexBufferDesc.IsIndexBuffer = true;
+		indexBufferDesc.RestingState = ResourceState::IndexBuffer;
+		indexBufferDesc.DebugName = "IndexBuffer";
 
 		m_Buffer = NRIBuffer::Create(indexBufferDesc);
 		LUX_CORE_VERIFY(m_Buffer, "Failed to create a {} byte index buffer", size);

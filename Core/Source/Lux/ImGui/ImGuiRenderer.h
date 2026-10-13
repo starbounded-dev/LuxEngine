@@ -51,7 +51,6 @@ SOFTWARE.
 #include <unordered_map>
 #include <stdint.h>
 
-#include "nvrhi/nvrhi.h"
 
 #include <imgui.h>
 

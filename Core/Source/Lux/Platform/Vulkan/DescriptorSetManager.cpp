@@ -5,7 +5,6 @@
 #include "DescriptorSetManager.h"
 
 #include "Lux/Renderer/Renderer.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "Lux/Debug/Profiler.h"
@@ -42,34 +41,34 @@ namespace Lux {
 				|| inputType == RenderInputType::StorageBuffer;
 		}
 
-		// The NRI view matching an NVRHI texture binding: NVRHI's dimension (Unknown = the texture's
-		// own) and subresources, SRV or UAV. NVRHI UAVs and non-array views cover a single mip / layer.
-		NRITextureViewKey GetNRIViewKey(nri::Texture* texture, nvrhi::TextureDimension dimension, const nvrhi::TextureSubresourceSet& subresources, bool storage)
+		// The NRI view of a texture binding: the dimension (Unknown = the texture's own) and
+		// subresources, sampled or storage. Storage and non-array views cover a single mip / layer.
+		NRITextureViewKey GetNRIViewKey(nri::Texture* texture, TextureDimension dimension, const TextureSubresourceRange& subresources, bool storage)
 		{
-			if (dimension == nvrhi::TextureDimension::Unknown)
+			if (dimension == TextureDimension::Unknown)
 			{
 				const nri::TextureDesc& desc = RHIDevice::API().GetTextureDesc(*texture);
 				if (desc.type == nri::TextureType::TEXTURE_3D)
-					dimension = nvrhi::TextureDimension::Texture3D;
+					dimension = TextureDimension::Texture3D;
 				else
-					dimension = desc.layerNum > 1 ? nvrhi::TextureDimension::Texture2DArray : nvrhi::TextureDimension::Texture2D;
+					dimension = desc.layerNum > 1 ? TextureDimension::Texture2DArray : TextureDimension::Texture2D;
 			}
 
 			bool array = false;
 			NRITextureViewKey key;
 			switch (dimension)
 			{
-				case nvrhi::TextureDimension::Texture2DArray:
-				case nvrhi::TextureDimension::Texture2DMSArray:
+				case TextureDimension::Texture2DArray:
+				case TextureDimension::Texture2DMSArray:
 					key.Type = storage ? nri::TextureView::STORAGE_TEXTURE_ARRAY : nri::TextureView::TEXTURE_ARRAY;
 					array = true;
 					break;
-				case nvrhi::TextureDimension::TextureCube:
+				case TextureDimension::TextureCube:
 					// Storage views of cubes are 2D arrays, as in NVRHI.
 					key.Type = storage ? nri::TextureView::STORAGE_TEXTURE_ARRAY : nri::TextureView::TEXTURE_CUBE;
 					array = true;
 					break;
-				case nvrhi::TextureDimension::TextureCubeArray:
+				case TextureDimension::TextureCubeArray:
 					key.Type = storage ? nri::TextureView::STORAGE_TEXTURE_ARRAY : nri::TextureView::TEXTURE_CUBE_ARRAY;
 					array = true;
 					break;
@@ -78,11 +77,11 @@ namespace Lux {
 					break;
 			}
 
-			key.MipOffset = subresources.baseMipLevel;
-			key.MipNum = storage ? 1 : (subresources.numMipLevels == nvrhi::TextureSubresourceSet::AllMipLevels ? 0 : subresources.numMipLevels);
-			key.LayerOffset = subresources.baseArraySlice;
+			key.MipOffset = subresources.BaseMip;
+			key.MipNum = storage ? 1 : (subresources.MipCount == TextureSubresourceRange::AllMips ? 0 : subresources.MipCount);
+			key.LayerOffset = subresources.BaseLayer;
 			if (array)
-				key.LayerNum = subresources.numArraySlices == nvrhi::TextureSubresourceSet::AllArraySlices ? 0 : subresources.numArraySlices;
+				key.LayerNum = subresources.LayerCount == TextureSubresourceRange::AllLayers ? 0 : subresources.LayerCount;
 			else
 				key.LayerNum = 1;
 			return key;
@@ -96,7 +95,7 @@ namespace Lux {
 		}
 
 		// The NRI descriptor for element `element` of `input` in frame slot `frameIndex`, and what it
-		// accesses, added to `uses` with the subresources and state NVRHI's binding sets required for
+		// accesses, added to `uses` with the subresources and state the binding requires for
 		// it. Null (and nothing added) when the resource is missing.
 		nri::Descriptor* GetNRIDescriptor(const RenderPassInput& input, size_t element, uint32_t frameIndex, bool storageBufferReadOnly, DescriptorSetUses& uses)
 		{
@@ -111,10 +110,10 @@ namespace Lux {
 					uses.AddBuffer(buffer.GetTracked(), state);
 				return descriptor;
 			};
-			const auto useTexture = [&uses](const ImageInfo* imageInfo, nri::Descriptor* descriptor, const nvrhi::TextureSubresourceSet& subresources, ResourceState state) -> nri::Descriptor*
+			const auto useTexture = [&uses](const ImageInfo* imageInfo, nri::Descriptor* descriptor, const TextureSubresourceRange& subresources, ResourceState state) -> nri::Descriptor*
 			{
 				if (descriptor)
-					uses.AddTexture(imageInfo->Tracked, FromNVRHI(subresources), state);
+					uses.AddTexture(imageInfo->Tracked, subresources, state);
 				return descriptor;
 			};
 
@@ -145,19 +144,19 @@ namespace Lux {
 					Ref<Texture2D> texture = resource.As<Texture2D>();
 					if (!texture)
 						texture = Renderer::GetWhiteTexture();
-					// NVRHI binds the whole texture with its own dimension.
+					// The whole texture, with its own dimension.
 					const ImageInfo* imageInfo = static_cast<const ImageInfo*>(texture->GetDescriptorInfo());
 					if (!imageInfo || !imageInfo->RHITexture)
 						return nullptr;
-					nri::Descriptor* view = GetNRITextureView(imageInfo->RHITexture, GetNRIViewKey(imageInfo->RHITexture, imageInfo->Dimension, nvrhi::AllSubresources, false));
-					return useTexture(imageInfo, view, nvrhi::AllSubresources, ResourceState::ShaderResource);
+					nri::Descriptor* view = GetNRITextureView(imageInfo->RHITexture, GetNRIViewKey(imageInfo->RHITexture, imageInfo->Dimension, AllSubresources, false));
+					return useTexture(imageInfo, view, AllSubresources, ResourceState::ShaderResource);
 				}
 				case RenderResourceType::TextureCube:
 				{
 					Ref<TextureCube> texture = resource.As<TextureCube>();
 					const ImageInfo* imageInfo = texture ? static_cast<const ImageInfo*>(texture->GetDescriptorInfo()) : nullptr;
-					// The whole cube, as NVRHI's binding (its subresources are the default).
-					return imageInfo ? useTexture(imageInfo, GetNRITextureDescriptor(imageInfo, input.IsWriteable), nvrhi::AllSubresources, textureState) : nullptr;
+					// The whole cube (its subresources are the default).
+					return imageInfo ? useTexture(imageInfo, GetNRITextureDescriptor(imageInfo, input.IsWriteable), AllSubresources, textureState) : nullptr;
 				}
 				case RenderResourceType::Image2D:
 				{

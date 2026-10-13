@@ -14,13 +14,11 @@ namespace Lux {
 	{
 		m_LocalData.Allocate(size);
 
-		auto bufferDesc = nvrhi::BufferDesc()
-			.setByteSize(size)
-			.setIsConstantBuffer(true)
-			.setCpuAccess(nvrhi::CpuAccessMode::Write)
-			.setInitialState(nvrhi::ResourceStates::ConstantBuffer)
-			.setKeepInitialState(true) // enable fully automatic state tracking
-			.setDebugName(m_DebugName.c_str());
+		RHIBufferDesc bufferDesc;
+		bufferDesc.Size = size;
+		bufferDesc.IsConstantBuffer = true;
+		bufferDesc.Access = CPUAccess::Write;
+		bufferDesc.DebugName = m_DebugName;
 
 		m_Buffer = NRIBuffer::Create(bufferDesc);
 		LUX_CORE_VERIFY(m_Buffer, "Failed to create uniform buffer \"{}\" ({} bytes)", m_DebugName, size);

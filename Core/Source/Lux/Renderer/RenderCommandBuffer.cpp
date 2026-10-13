@@ -95,8 +95,8 @@ namespace Lux {
 		NRIRenderPassDesc Desc;
 		// The groups of Desc.DescriptorSets: their uses are re-required inside the pass.
 		std::array<Ref<const DescriptorSetGroup>, MaxDescriptorSets> PassGroups;
-		nvrhi::static_vector<nri::Viewport, nvrhi::c_MaxViewports> Viewports;
-		nvrhi::static_vector<nri::Rect, nvrhi::c_MaxViewports> Scissors;
+		nvrhi::static_vector<nri::Viewport, MaxViewports> Viewports;
+		nvrhi::static_vector<nri::Rect, MaxViewports> Scissors;
 		nri::ShadingRateDesc ShadingRate = {};
 
 		// What the open rendering scope has bound; reset whenever a scope opens.
@@ -421,7 +421,7 @@ namespace Lux {
 			return nullptr;
 
 		const NRIRenderPassDesc& desc = state.Desc;
-		std::array<nri::AttachmentDesc, nvrhi::c_MaxRenderTargets> colors = {};
+		std::array<nri::AttachmentDesc, MaxRenderTargets> colors = {};
 		for (uint32_t i = 0; i < desc.ColorAttachmentCount; i++)
 		{
 			const std::array<float, 4>& clear = desc.ClearColorValues[i];

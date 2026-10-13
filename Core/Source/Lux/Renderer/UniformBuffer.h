@@ -10,7 +10,6 @@
 
 #include "Lux/Renderer/RHI/NVRHIWrappers.h"
 
-#include "nvrhi/nvrhi.h"
 
 namespace Lux {
 

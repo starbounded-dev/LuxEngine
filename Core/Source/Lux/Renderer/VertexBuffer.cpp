@@ -15,14 +15,13 @@ namespace Lux {
 	{
 		// TODO(Yan): render thread? if yes then we need to copy to m_LocalData...
 
-		auto vertexBufferDesc = nvrhi::BufferDesc()
-			.setByteSize(buffer.Size)
-			.setIsVertexBuffer(true)
-			// Raw SRV so the mesh-shader path can fetch vertices directly.
-			.setCanHaveRawViews(true)
-			.setInitialState(nvrhi::ResourceStates::VertexBuffer)
-			.setKeepInitialState(true) // enable fully automatic state tracking
-			.setDebugName("VertexBuffer");
+		RHIBufferDesc vertexBufferDesc;
+		vertexBufferDesc.Size = buffer.Size;
+		vertexBufferDesc.IsVertexBuffer = true;
+		// Raw SRV so the mesh-shader path can fetch vertices directly.
+		vertexBufferDesc.CanHaveRawViews = true;
+		vertexBufferDesc.RestingState = ResourceState::VertexBuffer;
+		vertexBufferDesc.DebugName = "VertexBuffer";
 
 		m_Buffer = NRIBuffer::Create(vertexBufferDesc);
 		LUX_CORE_VERIFY(m_Buffer, "Failed to create a {} byte vertex buffer", buffer.Size);
@@ -42,13 +41,11 @@ namespace Lux {
 	{
 		m_LocalData.Allocate(size);
 
-		auto vertexBufferDesc = nvrhi::BufferDesc()
-			.setByteSize(size)
-			.setIsVertexBuffer(true)
-			.setInitialState(nvrhi::ResourceStates::VertexBuffer)
-			.setKeepInitialState(true) // enable fully automatic state tracking
-			.setCpuAccess(nvrhi::CpuAccessMode::Write)
-			.setDebugName("VertexBuffer");
+		RHIBufferDesc vertexBufferDesc;
+		vertexBufferDesc.Size = size;
+		vertexBufferDesc.IsVertexBuffer = true;
+		vertexBufferDesc.Access = CPUAccess::Write;
+		vertexBufferDesc.DebugName = "VertexBuffer";
 
 		m_Buffer = NRIBuffer::Create(vertexBufferDesc);
 		LUX_CORE_VERIFY(m_Buffer, "Failed to create a {} byte vertex buffer", size);

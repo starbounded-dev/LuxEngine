@@ -11,8 +11,6 @@
 #include "Lux/Renderer/RHI/RHITypes.h"
 #include "Lux/Renderer/RHI/NVRHIWrappers.h"
 
-#include "nvrhi/nvrhi.h"
-
 #include <glm/gtc/integer.hpp>
 
 namespace Lux {
@@ -114,17 +112,16 @@ namespace Lux {
 
 	// ── Renderer backend ────────────────────────────────────────────────────────────────────────
 	// The GPU objects behind an image. Renderer implementation files only (descriptor binding,
-	// ImGui). The subresource, state and dimension fields are NVRHI types until NRI migration
-	// Phase 15.
+	// ImGui).
 	struct ImageInfo
 	{
 		// The NRI texture that owns the image (Image2D::m_Texture).
 		nri::Texture* RHITexture = nullptr;
 		// RHITexture as the resource state tracker sees it.
 		TrackedTexture Tracked;
-		nvrhi::TextureSubresourceSet ImageView = nvrhi::AllSubresources;
-		nvrhi::ResourceStates State = nvrhi::ResourceStates::Unknown;
-		nvrhi::TextureDimension Dimension = nvrhi::TextureDimension::Unknown;
+		// The subresources a view of the image covers (all of them for the image itself).
+		TextureSubresourceRange ImageView = AllSubresources;
+		TextureDimension Dimension = TextureDimension::Unknown;
 	};
 
 	class RenderCommandBuffer;
@@ -262,40 +259,8 @@ namespace Lux {
 
 	namespace Utils {
 
-		inline nvrhi::Format NVRHIFormat(ImageFormat format)
-		{
-			switch (format)
-			{
-			case ImageFormat::RED8UN:               return nvrhi::Format::R8_UNORM;
-			case ImageFormat::RED8UI:               return nvrhi::Format::R8_UINT;
-			case ImageFormat::RED16UI:              return nvrhi::Format::R16_UINT;
-			case ImageFormat::RED32UI:              return nvrhi::Format::R32_UINT;
-			case ImageFormat::RG32UI:               return nvrhi::Format::RG32_UINT;
-			case ImageFormat::RED32F:               return nvrhi::Format::R32_FLOAT;
-			case ImageFormat::RG8:                  return nvrhi::Format::RG8_UNORM;
-			case ImageFormat::RG16F:                return nvrhi::Format::RG16_FLOAT;
-			case ImageFormat::RG32F:                return nvrhi::Format::RG32_FLOAT;
-			case ImageFormat::RGBA:                 return nvrhi::Format::RGBA8_UNORM;
-			case ImageFormat::SRGBA:                return nvrhi::Format::SRGBA8_UNORM;
-			case ImageFormat::RGBA16F:              return nvrhi::Format::RGBA16_FLOAT;
-			case ImageFormat::RGBA32F:              return nvrhi::Format::RGBA32_FLOAT;
-			case ImageFormat::B10R11G11UF:          return nvrhi::Format::R11G11B10_FLOAT;
-			case ImageFormat::BC1:                  return nvrhi::Format::BC1_UNORM;
-			case ImageFormat::BC1_SRGB:             return nvrhi::Format::BC1_UNORM_SRGB;
-			case ImageFormat::BC3:                  return nvrhi::Format::BC3_UNORM;
-			case ImageFormat::BC3_SRGB:             return nvrhi::Format::BC3_UNORM_SRGB;
-			case ImageFormat::BC5:                  return nvrhi::Format::BC5_UNORM;
-			case ImageFormat::BC5_SNORM:            return nvrhi::Format::BC5_SNORM;
-			case ImageFormat::BC7:                  return nvrhi::Format::BC7_UNORM;
-			case ImageFormat::BC7_SRGB:             return nvrhi::Format::BC7_UNORM_SRGB;
-			case ImageFormat::DEPTH32FSTENCIL8UINT: return nvrhi::Format::D32S8;
-			case ImageFormat::DEPTH32F:             return nvrhi::Format::D32;
-			case ImageFormat::DEPTH24STENCIL8:      return nvrhi::Format::D24S8;
-			}
-
-			LUX_CORE_ASSERT(false);
-			return nvrhi::Format::UNKNOWN;
-		}
+		// The NRI format of an image format; asserts and returns UNKNOWN for one with no GPU format.
+		nri::Format NRIFormat(ImageFormat format);
 
 		inline uint32_t GetImageFormatBPP(ImageFormat format);
 
@@ -524,7 +489,7 @@ namespace Lux {
 		void Invalidate();
 		void RT_Invalidate();
 
-		const nvrhi::TextureSubresourceSet& GetImageView() const { return m_TextureSubresourceSet; }
+		const TextureSubresourceRange& GetImageView() const { return m_SubresourceRange; }
 		virtual ResourceDescriptorInfo GetDescriptorInfo() const override { return (ResourceDescriptorInfo)&m_ImageInfo; }
 	public:
 		ImageView(const ImageViewSpecification& specification);
@@ -534,7 +499,7 @@ namespace Lux {
 		ImageViewSpecification m_Specification;
 		ImageInfo m_ImageInfo;
 
-		nvrhi::TextureSubresourceSet m_TextureSubresourceSet;
+		TextureSubresourceRange m_SubresourceRange;
 	};
 
 	struct SamplerSpecification

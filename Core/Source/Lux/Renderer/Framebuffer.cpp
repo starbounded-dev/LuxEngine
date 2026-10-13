@@ -305,11 +305,11 @@ namespace Lux {
 		// Every attachment covers mip 0 of the attached layer (layer 0 without one).
 		const TextureSubresourceRange attachmentRange = GetAttachmentRange();
 		uint32_t colorAttachmentCount = 0;
-		std::array<const nri::Texture*, nvrhi::c_MaxRenderTargets> viewTextures = {};
+		std::array<const nri::Texture*, MaxRenderTargets> viewTextures = {};
 		const nri::Texture* depthViewTexture = nullptr;
-		std::array<nri::Descriptor*, nvrhi::c_MaxRenderTargets> nriColorAttachments = {};
+		std::array<nri::Descriptor*, MaxRenderTargets> nriColorAttachments = {};
 		nri::Descriptor* nriDepthAttachment = nullptr;
-		std::array<nri::Format, nvrhi::c_MaxRenderTargets> nriColorFormats = {};
+		std::array<nri::Format, MaxRenderTargets> nriColorFormats = {};
 		nri::Format nriDepthFormat = nri::Format::UNKNOWN;
 		// The first color attachment's, or the depth attachment's, as in NVRHI's framebuffer info.
 		uint32_t colorSampleCount = 0;
@@ -347,7 +347,7 @@ namespace Lux {
 
 				LUX_CORE_VERIFY(m_DepthAttachmentImage->GetHandle(), "Framebuffer \"{}\" depth attachment {} has no valid image", m_Specification.DebugName, attachmentIndex);
 
-				nriDepthFormat = ToNRIFormat(Utils::NVRHIFormat(attachmentSpec.Format));
+				nriDepthFormat = Utils::NRIFormat(attachmentSpec.Format);
 				nriDepthAttachment = GetNRIAttachmentView(m_DepthAttachmentImage, attachmentRange, nriDepthFormat, true, nriProblem);
 				depthViewTexture = m_DepthAttachmentImage->GetImageInfo().RHITexture;
 				depthSampleCount = m_DepthAttachmentImage->GetSpecification().Samples;
@@ -412,7 +412,7 @@ namespace Lux {
 
 				LUX_CORE_VERIFY(colorAttachmentCount < nriColorAttachments.size(), "Framebuffer \"{}\" has more than {} color attachments", m_Specification.DebugName, nriColorAttachments.size());
 				const uint32_t colorIndex = colorAttachmentCount++;
-				nriColorFormats[colorIndex] = ToNRIFormat(Utils::NVRHIFormat(attachmentSpec.Format));
+				nriColorFormats[colorIndex] = Utils::NRIFormat(attachmentSpec.Format);
 				nriColorAttachments[colorIndex] = GetNRIAttachmentView(colorAttachmentImage, attachmentRange, nriColorFormats[colorIndex], false, nriProblem);
 				viewTextures[colorIndex] = colorAttachmentImage->GetImageInfo().RHITexture;
 				if (colorSampleCount == 0)

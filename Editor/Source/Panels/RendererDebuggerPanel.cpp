@@ -224,7 +224,7 @@ namespace Lux {
 
 		std::string ResourceSummary(const SceneRenderer::RenderGraphTextureDebugInfo& texture, const std::string& accessState)
 		{
-			return std::format("#{} {} [{}] {} {}x{} mips {} layers {} life {} alias {} state {}",
+			return std::format("#{} {} [{}] {} {}x{} mips {} layers {} life {} alias {} resting {}",
 				texture.Resource,
 				texture.Name,
 				accessState,
@@ -235,7 +235,7 @@ namespace Lux {
 				texture.Layers,
 				LifetimeToString(texture),
 				AliasToString(texture.AliasGroup),
-				ResourceStateToString(texture.CurrentState));
+				ResourceStateToString(texture.RestingState));
 		}
 
 		std::string RenderGraphPassFlagsToString(uint32_t flags)
@@ -1354,12 +1354,12 @@ namespace Lux {
 					texture.Height,
 					texture.Mips,
 					texture.Layers);
-				ImGui::TextDisabled("Lifetime: %s, first writer: %s, last reader: %s, alias: %s, live state: %s",
+				ImGui::TextDisabled("Lifetime: %s, first writer: %s, last reader: %s, alias: %s, resting state: %s",
 					LifetimeToString(texture).c_str(),
 					RenderGraphPassIndexToString(snapshot, texture.FirstWriter).c_str(),
 					RenderGraphPassIndexToString(snapshot, texture.LastReader).c_str(),
 					AliasToString(texture.AliasGroup).c_str(),
-					ResourceStateToString(texture.CurrentState).c_str());
+					ResourceStateToString(texture.RestingState).c_str());
 				ImGui::TextDisabled("Consumers: %s", RenderGraphConsumerListToString(snapshot, texture.Consumers).c_str());
 				ImGui::TextDisabled("Memory: %s, transient: %s, aliasable: %s, currently aliased: %s",
 					Utils::BytesToString(texture.EstimatedBytes).c_str(),

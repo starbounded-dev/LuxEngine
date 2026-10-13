@@ -14,7 +14,6 @@
 
 #include "PipelineSpecification.h"
 
-#include "nvrhi/nvrhi.h"
 
 #include <array>
 
@@ -60,7 +59,7 @@ namespace Lux {
 		nri::Pipeline* m_NRIPipeline = nullptr;
 		bool m_IsMeshletPipeline = false;
 		bool m_NRIDynamicShadingRate = false;
-		std::array<uint32_t, nvrhi::c_MaxVertexAttributes> m_NRIVertexStrides = {};
+		std::array<uint32_t, MaxVertexAttributes> m_NRIVertexStrides = {};
 		PipelineSpecification m_Specification;
 	};
 

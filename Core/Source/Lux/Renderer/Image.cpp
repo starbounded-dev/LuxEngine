@@ -9,7 +9,6 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "RenderCommandBuffer.h"
@@ -24,6 +23,42 @@ namespace Lux {
 
 	// NVRHI samplers leave the LOD range unclamped.
 	static constexpr float k_SamplerMaxLod = 1000.0f;
+
+	nri::Format Utils::NRIFormat(ImageFormat format)
+	{
+		switch (format)
+		{
+			case ImageFormat::RED8UN:               return nri::Format::R8_UNORM;
+			case ImageFormat::RED8UI:               return nri::Format::R8_UINT;
+			case ImageFormat::RED16UI:              return nri::Format::R16_UINT;
+			case ImageFormat::RED32UI:              return nri::Format::R32_UINT;
+			case ImageFormat::RG32UI:               return nri::Format::RG32_UINT;
+			case ImageFormat::RED32F:               return nri::Format::R32_SFLOAT;
+			case ImageFormat::RG8:                  return nri::Format::RG8_UNORM;
+			case ImageFormat::RG16F:                return nri::Format::RG16_SFLOAT;
+			case ImageFormat::RG32F:                return nri::Format::RG32_SFLOAT;
+			case ImageFormat::RGBA:                 return nri::Format::RGBA8_UNORM;
+			case ImageFormat::SRGBA:                return nri::Format::RGBA8_SRGB;
+			case ImageFormat::RGBA16F:              return nri::Format::RGBA16_SFLOAT;
+			case ImageFormat::RGBA32F:              return nri::Format::RGBA32_SFLOAT;
+			case ImageFormat::B10R11G11UF:          return nri::Format::R11_G11_B10_UFLOAT;
+			case ImageFormat::BC1:                  return nri::Format::BC1_RGBA_UNORM;
+			case ImageFormat::BC1_SRGB:             return nri::Format::BC1_RGBA_SRGB;
+			case ImageFormat::BC3:                  return nri::Format::BC3_RGBA_UNORM;
+			case ImageFormat::BC3_SRGB:             return nri::Format::BC3_RGBA_SRGB;
+			case ImageFormat::BC5:                  return nri::Format::BC5_RG_UNORM;
+			case ImageFormat::BC5_SNORM:            return nri::Format::BC5_RG_SNORM;
+			case ImageFormat::BC7:                  return nri::Format::BC7_RGBA_UNORM;
+			case ImageFormat::BC7_SRGB:             return nri::Format::BC7_RGBA_SRGB;
+			case ImageFormat::DEPTH32FSTENCIL8UINT: return nri::Format::D32_SFLOAT_S8_UINT;
+			case ImageFormat::DEPTH32F:             return nri::Format::D32_SFLOAT;
+			case ImageFormat::DEPTH24STENCIL8:      return nri::Format::D24_UNORM_S8_UINT;
+			default:                                break;
+		}
+
+		LUX_CORE_ASSERT(false);
+		return nri::Format::UNKNOWN;
+	}
 
 	Image2D::Image2D(const ImageSpecification& specification)
 		: m_Specification(specification)
@@ -151,8 +186,6 @@ namespace Lux {
 			return;
 		}
 
-		nvrhi::DeviceHandle device = Application::GetGraphicsDevice();
-
 		// NOTE: deliberately no Release() here. Release() nulls m_Info.ImageHandle before the
 		// replacement texture exists, and Invalidate() runs RT_Invalidate on the MAIN thread while
 		// the render thread reads GetHandle() (e.g. deferred compute-pass barriers). That null
@@ -161,60 +194,49 @@ namespace Lux {
 		// store, so a concurrent reader always sees a valid handle — the old one or the new one,
 		// never null. The old texture is released after the swap.
 
-		// Safety net since nvrhi has both Texture2D and Texture2DArray, but we should
+		// Safety net since there are both Texture2D and Texture2DArray, but we should
 		// use the latter if image has many layers since subresource resolution will
 		// result in not using anything above the first layer if Texture2D is set
 		if (m_Specification.Layers > 1 && m_Specification.Dimension == TextureDimension::Texture2D)
 			m_Specification.Dimension = TextureDimension::Texture2DArray;
 
-		nvrhi::TextureDesc textureDesc;
-		textureDesc.debugName = m_Specification.DebugName;
-		textureDesc.dimension = ToNVRHI(m_Specification.Dimension);
-		textureDesc.format = Utils::NVRHIFormat(m_Specification.Format);
-		textureDesc.width = m_Specification.Width;
-		textureDesc.height = m_Specification.Height;
-		textureDesc.mipLevels = m_Specification.Mips;
-		textureDesc.arraySize = m_Specification.Layers;
+		RHITextureDesc textureDesc;
+		textureDesc.DebugName = m_Specification.DebugName;
+		textureDesc.Dimension = m_Specification.Dimension;
+		textureDesc.Format = Utils::NRIFormat(m_Specification.Format);
+		textureDesc.Width = m_Specification.Width;
+		textureDesc.Height = m_Specification.Height;
+		textureDesc.MipLevels = m_Specification.Mips;
+		textureDesc.ArraySize = m_Specification.Layers;
 		// A multisampled image has no mip chain and must be a render target - the API
 		// cannot generate mips for one, and a sampled-only MS texture is not useful.
-		textureDesc.sampleCount = glm::max(1u, m_Specification.Samples);
-		if (textureDesc.sampleCount > 1)
+		textureDesc.SampleCount = glm::max(1u, m_Specification.Samples);
+		if (textureDesc.SampleCount > 1)
 		{
 			LUX_CORE_VERIFY(m_Specification.Usage == ImageUsage::Attachment,
 				"Image \"{}\": multisampling is only valid for attachments", m_Specification.DebugName);
-			textureDesc.mipLevels = 1;
+			textureDesc.MipLevels = 1;
 		}
 
 		// Volume (3D) textures use the depth field and a single array slice.
 		if (m_Specification.Dimension == TextureDimension::Texture3D)
 		{
-			textureDesc.depth = glm::max(m_Specification.Depth, 1u);
-			textureDesc.arraySize = 1;
+			textureDesc.Depth = glm::max(m_Specification.Depth, 1u);
+			textureDesc.ArraySize = 1;
 		}
 
 		// NOTE(Yan): tiling?
 
-		textureDesc.isRenderTarget = m_Specification.Usage == ImageUsage::Attachment;
-		textureDesc.isUAV = m_Specification.Usage == ImageUsage::Storage;
+		textureDesc.IsRenderTarget = m_Specification.Usage == ImageUsage::Attachment;
+		textureDesc.IsUAV = m_Specification.Usage == ImageUsage::Storage;
 
 		// Always has source/dest?
 		if (m_Specification.Usage == ImageUsage::Texture)
-		{
-			textureDesc.initialState = nvrhi::ResourceStates::ShaderResource;
-			textureDesc.keepInitialState = true;
-		}
+			textureDesc.RestingState = ResourceState::ShaderResource;
 		else if (m_Specification.Usage == ImageUsage::Attachment)
-		{
-			textureDesc.initialState = Utils::IsDepthFormat(m_Specification.Format) ?
-				nvrhi::ResourceStates::DepthWrite : nvrhi::ResourceStates::RenderTarget;
-			textureDesc.keepInitialState = true;
-		}
+			textureDesc.RestingState = Utils::IsDepthFormat(m_Specification.Format) ? ResourceState::DepthWrite : ResourceState::RenderTarget;
 		else if (m_Specification.Usage == ImageUsage::Storage)
-		{
-			textureDesc.initialState = Utils::IsDepthFormat(m_Specification.Format) ?
-				nvrhi::ResourceStates::DepthWrite : nvrhi::ResourceStates::UnorderedAccess;
-			textureDesc.keepInitialState = true;
-		}
+			textureDesc.RestingState = Utils::IsDepthFormat(m_Specification.Format) ? ResourceState::DepthWrite : ResourceState::UnorderedAccess;
 
 		// UAV (STORAGE usage) disables framebuffer/delta-color compression on many
 		// GPUs — a bandwidth tax on every render-target read/write. Grant it only
@@ -231,9 +253,9 @@ namespace Lux {
 			&& m_Specification.Usage != ImageUsage::HostRead
 			&& m_Specification.Mips > 1;
 		if (formatSupportsUAV && (m_Specification.Usage == ImageUsage::Storage || isComputeMipTarget))
-			textureDesc.isUAV = true;
+			textureDesc.IsUAV = true;
 
-		if (textureDesc.isUAV)
+		if (textureDesc.IsUAV)
 		{
 			LUX_CORE_VERIFY(!Utils::IsDepthFormat(m_Specification.Format));
 			LUX_CORE_VERIFY(m_Specification.Format != ImageFormat::SRGB);
@@ -249,7 +271,7 @@ namespace Lux {
 		// otherwise only show up much later as an access violation once the null texture reaches an
 		// attachment view or descriptor set. Fail here, where the image and its size are still known.
 		LUX_CORE_VERIFY(newTexture, "Failed to create image \"{}\" ({}x{}, {} mip(s), {} layer(s), ~{} MB) - the GPU is most likely out of memory",
-			m_Specification.DebugName, textureDesc.width, textureDesc.height, textureDesc.mipLevels, textureDesc.arraySize,
+			m_Specification.DebugName, textureDesc.Width, textureDesc.Height, textureDesc.MipLevels, textureDesc.ArraySize,
 			Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers) / (1024 * 1024));
 
 		auto newAllocationSize = Utils::GetImageMemorySize(m_Specification.Format, m_Specification.Width, m_Specification.Height, m_Specification.Mips, m_Specification.Layers);
@@ -262,7 +284,7 @@ namespace Lux {
 		nri::Texture* const oldTexture = m_Info.RHITexture;
 		m_Info.RHITexture = newTexture.Get();
 		m_Info.Tracked = newTexture.GetTracked();
-		m_Info.Dimension = textureDesc.dimension;
+		m_Info.Dimension = textureDesc.Dimension;
 		m_GPUAllocationSize = newAllocationSize;
 
 		{
@@ -364,8 +386,6 @@ namespace Lux {
 			{
 				upload.WriteTexture(m_Info.Tracked, 0, 0, buffer.Data, Utils::GetImageMemoryRowPitch(m_Specification.Format, m_Specification.Width));
 			});
-
-			m_Info.State = nvrhi::ResourceStates::ShaderResource;
 		}
 	}
 
@@ -403,18 +423,18 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_ImageInfo = m_Specification.Image->GetImageInfo();
 
-		m_TextureSubresourceSet.baseMipLevel = m_Specification.Mip;
-		m_TextureSubresourceSet.numMipLevels = m_Specification.MipCount == 0
+		m_SubresourceRange.BaseMip = m_Specification.Mip;
+		m_SubresourceRange.MipCount = m_Specification.MipCount == 0
 			? m_Specification.Image->GetSpecification().Mips
 			: m_Specification.MipCount;
 
-		m_TextureSubresourceSet.baseArraySlice = m_Specification.Layer;
-		m_TextureSubresourceSet.numArraySlices = m_Specification.LayerCount == 0
+		m_SubresourceRange.BaseLayer = m_Specification.Layer;
+		m_SubresourceRange.LayerCount = m_Specification.LayerCount == 0
 			? m_Specification.Image->GetSpecification().Layers
 			: m_Specification.LayerCount;
 
-		m_ImageInfo.ImageView = m_TextureSubresourceSet;
-		m_ImageInfo.Dimension = ToNVRHI(m_Specification.Dimension);
+		m_ImageInfo.ImageView = m_SubresourceRange;
+		m_ImageInfo.Dimension = m_Specification.Dimension;
 	}
 
 	Sampler::Sampler(const SamplerSpecification& specification)

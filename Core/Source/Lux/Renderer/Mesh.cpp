@@ -333,12 +333,11 @@ namespace Lux
 			if (size == 0)
 				return {};
 
-			auto bufferDesc = nvrhi::BufferDesc()
-				.setByteSize(size)
-				.setCanHaveRawViews(true)
-				.setInitialState(nvrhi::ResourceStates::ShaderResource)
-				.setKeepInitialState(true)
-				.setDebugName(debugName);
+			RHIBufferDesc bufferDesc;
+			bufferDesc.Size = size;
+			bufferDesc.CanHaveRawViews = true;
+			bufferDesc.RestingState = ResourceState::ShaderResource;
+			bufferDesc.DebugName = debugName;
 
 			NRIBuffer buffer = NRIBuffer::Create(bufferDesc);
 			LUX_CORE_VERIFY(buffer, "Failed to create meshlet buffer \"{}\" ({} bytes)", debugName, size);
