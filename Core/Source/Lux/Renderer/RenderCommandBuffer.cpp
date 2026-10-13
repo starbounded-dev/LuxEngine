@@ -7,7 +7,7 @@
 #include "Lux/Core/Hash.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
-#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
 #include "Lux/Renderer/RHI/CommandBufferPool.h"
@@ -44,7 +44,7 @@ namespace Lux {
 	struct RenderCommandBuffer::NRIRenderState
 	{
 		bool Active = false;
-		// Inside CmdBeginRendering; false while the pass is suspended for NVRHI.
+		// Inside CmdBeginRendering; false while the pass is suspended (a copy, clear or dispatch).
 		bool Rendering = false;
 		std::string Name;
 		uint32_t NameHash = 0;
@@ -271,8 +271,7 @@ namespace Lux {
 		if (!m_NRICommandBuffer)
 			return nullptr;
 
-		// Committing through the tracker clears its pending flag too. NVRHI draws and dispatches
-		// nothing, so it never has a rendering scope or bound state of its own to clear.
+		// Committing through the tracker clears its pending flag too.
 		m_Tracker.Commit();
 		m_InNRISegment = true;
 		return m_NRICommandBuffer;
@@ -401,7 +400,7 @@ namespace Lux {
 		api.CmdBeginRendering(*commandBuffer, renderingDesc);
 		state.Rendering = true;
 
-		// The pass state is rebound in every scope: NVRHI may have bound its own in between.
+		// The pass state is rebound in every scope: a dispatch in between binds its own.
 		api.CmdSetViewports(*commandBuffer, &state.Viewport, 1);
 		api.CmdSetScissors(*commandBuffer, &state.Scissor, 1);
 		api.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::GRAPHICS, *desc.PipelineLayout);

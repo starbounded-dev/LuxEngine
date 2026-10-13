@@ -175,7 +175,7 @@ Check in this order; stop at the first hit.
 ### E. Device lost, TDR, or "works on one GPU, broken on another"
 
 1. **Run with the validation layer and read the first error, not the loudest.** After a device is
-   lost, the timeline semaphore reads `UINT64_MAX`, nvrhi retires every command buffer at once, and a
+   lost, the timeline semaphore reads `UINT64_MAX`, every command buffer retires at once, and a
    burst of `vkDestroyDescriptorPool` errors follows. That burst is the aftermath. Scan backwards
    for the earliest shader-module or pipeline-creation error.
 2. **A `vkCreateShaderModule` capability error is never cosmetic.** "SPIR-V Capability X was

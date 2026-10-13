@@ -1235,8 +1235,8 @@ namespace Lux {
 			spec.DebugName = "ObjectIndexes";
 			m_SBSObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
 
-			// Compute writes these outputs. NVRHI skips state transitions for
-			// CPU-visible buffers, so use GPU storage with staged CPU uploads.
+			// Compute writes these outputs. CPU-visible buffers are untracked (no barriers), so use GPU
+			// storage with staged CPU uploads.
 			spec.GPUOnly = true;
 			spec.DebugName = "VisibleObjectIndexes";
 			m_SBSVisibleObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);

@@ -9,7 +9,7 @@
 #include "RendererResource.h"
 
 #include "Lux/Renderer/RHI/RHITypes.h"
-#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
 
 #include <glm/gtc/integer.hpp>
 

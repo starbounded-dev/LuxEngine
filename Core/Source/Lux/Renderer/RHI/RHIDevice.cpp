@@ -287,7 +287,7 @@ namespace Lux {
 			submitDesc.signalFences = &signal;
 			submitDesc.signalFenceNum = 1;
 
-			// NVRHI submits to the same VkQueue.
+			// Every submission holds the queue lock (RHIQueueTimeline).
 			RenderCommandBuffer::LockQueue();
 			const nri::Result submitResult = api.QueueSubmit(queue, submitDesc);
 			RenderCommandBuffer::UnlockQueue();

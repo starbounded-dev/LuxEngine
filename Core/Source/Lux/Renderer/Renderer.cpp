@@ -1977,7 +1977,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		// Driver-reported device-local usage and budget (VK_EXT_memory_budget, through NRI). It is
-		// process-wide, so it covers NVRHI's remaining allocations as well as NRI's.
+		// process-wide, so it covers allocations outside NRI's (Tracy's query pool) too.
 		GPUMemoryStats result;
 		if (!RHIDevice::IsInitialized())
 			return result;

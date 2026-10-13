@@ -10,7 +10,7 @@
 
 #include "RenderCommandBuffer.h"
 
-#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
 
 
 namespace Lux {
@@ -41,7 +41,7 @@ namespace Lux {
 
 		virtual ~VertexBuffer() = default;
 	private:
-		NRIBuffer m_Buffer; // NRI-owned; NVRHI renders through its handle
+		NRIBuffer m_Buffer;
 		Ref<RenderCommandBuffer> m_CommandList;
 
 		uint64_t m_Size = 0;

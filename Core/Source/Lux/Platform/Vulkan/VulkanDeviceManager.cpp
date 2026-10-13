@@ -437,7 +437,7 @@ namespace Lux {
 		}
 
 		// Aftermath crash dumps must be enabled before the device exists. Its extensions then reach
-		// NVRHI and NRI through enabledExtensions like any other.
+		// NRI through enabledExtensions like any other.
 		const bool aftermathSupported = std::all_of(std::begin(Aftermath::k_DeviceExtensions), std::end(Aftermath::k_DeviceExtensions), [&](const char* name)
 		{
 			return std::any_of(deviceExtensions.begin(), deviceExtensions.end(), [&](const vk::ExtensionProperties& ext) { return std::string_view(ext.extensionName.data()) == name; });
@@ -567,8 +567,7 @@ namespace Lux {
 		auto rayTracingMaintenance1Features = vk::PhysicalDeviceRayTracingMaintenance1FeaturesKHR()
 			.setRayTracingMaintenance1(supportedRayTracingMaintenance1.rayTracingMaintenance1)
 			.setRayTracingPipelineTraceRaysIndirect2(rayPipelineSupported && supportedRayTracingMaintenance1.rayTracingPipelineTraceRaysIndirect2);
-		// NVRHI's Vulkan backend implements meshlets via VK_EXT_mesh_shader
-		// (Feature::Meshlets checks EXT, dispatchMesh calls drawMeshTasksEXT).
+		// Mesh shaders are VK_EXT_mesh_shader (NRI's CmdDrawMeshTasks is vkCmdDrawMeshTasksEXT).
 		auto meshletFeatures = vk::PhysicalDeviceMeshShaderFeaturesEXT()
 			.setTaskShader(true)
 			.setMeshShader(true)

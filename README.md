@@ -431,7 +431,7 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 ## Honest limitations
 
 - **No macOS, no mobile, no consoles.** Windows and Linux x64 only.
-- **Vulkan only.** No DirectX, Metal, or OpenGL backends (NVRHI is vendored but not the active path).
+- **Vulkan only.** No DirectX, Metal, or OpenGL backends. The renderer is on NVIDIA NRI's Vulkan backend; Direct3D branches are reserved but unbuilt.
 - **FMOD and Vercidium Audio are hard requirements.** There is no fallback backend — the build will not generate without both SDKs, and neither is redistributable, so there is no zero-setup path.
 - **No skeletal animation yet.** Skeleton/bone import scaffolding and animated-mesh shader variants exist, but the animation importer and playback system are not wired up. Static meshes only, in practice.
 - **No particle system.**

@@ -47,8 +47,7 @@ graph TB
         SR --> RG[RenderGraph]
         SR --> R2D[Renderer2D]
         SR --> DBG[DebugRenderer]
-        REN --> NVRHI[nvrhi / Vulkan]
-        REN --> NRI[NRI / Vulkan, wraps the same device]
+        REN --> NRI[NRI / Vulkan, on Lux's device]
     end
 
     subgraph SceneGraph["Scene / ECS"]
@@ -176,12 +175,13 @@ per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.
 ### 2.2 Window / Platform
 
 `Window` (`Core/Source/Lux/Core/Window.h`) is created via `Window::Create(WindowSpecification)` and
-owns the GLFW window, the `DeviceManager`, and the `RHISwapChain` (NRI's SwapChain extension, which
-owns the surface; `Rendering.md § NRI device`).
-`Application::GetGraphicsDeviceManager()` / `GetGraphicsDevice()` are the shortcuts to the nvrhi
-device. `Window::Init` also wraps the same Vulkan device in NRI (`RHIDevice::Init`, right after
-`CreateDevice`; Debug runs `RHIDevice::RunSelfTest` there), and `Window::Shutdown` destroys the NRI
-device after the swapchain, before the device manager.
+owns the GLFW window, the `VulkanDeviceManager` (instance, device and queues, and the swapchain
+settings in its `DeviceCreationParameters`), and the `RHISwapChain` (NRI's SwapChain extension,
+which owns the surface; `Rendering.md § NRI device`). `Application::GetGraphicsDeviceManager()` is
+the shortcut to the device manager; the GPU API itself is `RHIDevice`. `Window::Init` wraps the
+Vulkan device in NRI (`RHIDevice::Init`, right after `CreateDevice`; Debug runs
+`RHIDevice::RunSelfTest` there), and `Window::Shutdown` destroys the NRI device after the
+swapchain, before the device manager.
 
 Platform-specific implementations are separate translation units under
 `Core/Platform/Windows/` and `Core/Platform/Linux/` (`*FileSystem.cpp`, `*Thread.cpp`,
@@ -190,24 +190,21 @@ the file to **both** folders — not with `#ifdef` in shared code.
 
 ### 2.3 Renderer
 
-Three layers (`Renderer` facade → `SceneRenderer` → `Renderer2D`/`DebugRenderer`) over NVRHI/Vulkan.
+Three layers (`Renderer` facade → `SceneRenderer` → `Renderer2D`/`DebugRenderer`) over NRI/Vulkan.
 
 **Renderer vocabulary is `Renderer/RHI/RHITypes.h`**: `ShaderStage`, `TextureDimension`,
-`TextureSubresourceRange` (a default range is *every* mip and layer, unlike NVRHI's),
-`GPUQueue`, `ResourceState`, `DrawIndexedIndirectCommand`. Public renderer headers, editor,
-scene and serialization code use these, never NVRHI types. Values equal NVRHI's
-(`RHI/NVRHIInterop.cpp` proves it with `static_assert`s), because shader reflection, the shader
-cache (stage strings) and `ShaderPack.lsp` store them. Renderer `.cpp`s convert at the NVRHI call
-with `ToNVRHI`/`FromNVRHI` from `RHI/NVRHIInterop.h`, which goes away with NVRHI. Still backend
-until later NRI phases: `ImageInfo`'s NVRHI-typed fields and the NVRHI descs NRI resources are
-created from (P15), and device bring-up in `Window.cpp` (P14). `Image2D`/`Texture::GetHandle()` is
+`TextureSubresourceRange` (a default range is *every* mip and layer), `GPUQueue`, `ResourceState`,
+`DrawIndexedIndirectCommand`, and the render-target/viewport/vertex-attribute limits. Public
+renderer headers, editor, scene and serialization code use these, never NRI types. The values are
+NVRHI's, kept, because shader reflection, the shader cache (stage strings) and `ShaderPack.lsp`
+store them (`RHITypes.cpp` checks them). Textures and buffers are described by `RHITextureDesc` /
+`RHIBufferDesc` (`RHI/RHIResources.h`). `Image2D`/`Texture::GetHandle()` is
 the NRI texture (renderer-internal); buffers have no handle getter (`GetBuffer()`). `RecordResourceUpload` callbacks take an `UploadContext` (P13). SPIR-V lives on `VulkanShader` (`GetSPIRV(ShaderStage)`),
 not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
-`VulkanDeviceManager` created. It never owns them; NVRHI still wraps the same device for bring-up
-until it is removed. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
+`VulkanDeviceManager` created. It never owns them. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
 the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. Every
 submission goes through `RHIQueueTimeline` (`Renderer/RHI/RHIQueueTimeline.h`, created by
 `Window::CreateRHIDevice` after `RHIDevice::Init`): one NRI timeline fence per queue, submissions
@@ -216,7 +213,7 @@ draw and dispatch records through NRI (below). Device features: see `Rendering.m
 
 **GPU memory is NRI's** (Phase 8): `Image2D`, `VertexBuffer`, `IndexBuffer`, `UniformBuffer`,
 `StorageBuffer`, meshlet buffers and the ImGui renderer own an `NRITexture`/`NRIBuffer`
-(`Renderer/RHI/NVRHIWrappers.h`), which frees the NRI resource and its views through the GPU
+(`Renderer/RHI/RHIResources.h`), which frees the NRI resource and its views through the GPU
 deletion queue. `ImageInfo::RHITexture` is the NRI texture; swapchain
 images also get non-owning NRI wrappers and color-attachment views. `Renderer::GetGPUMemoryStats`
 reads NRI's `QueryVideoMemoryInfo`.
@@ -226,11 +223,11 @@ reads NRI's `QueryVideoMemoryInfo`.
   compute pipeline.
 - `DescriptorSetManager` (and so `RenderPass`, `ComputePass` and `Material`), `BindlessTextureTable`
   and `MeshSource` build NRI descriptor sets (`DescriptorSetGroup`), each with the resources it
-  accesses (`DescriptorSetUses`). There are no NVRHI binding sets or layouts.
+  accesses (`DescriptorSetUses`).
 
 **Recording on NRI** (Phases 10-13; details in `Rendering.md § NRI device`). Everything is recorded
-into NRI command buffers (`CommandBufferPool`) and submitted through `RHIQueueTimeline`; NVRHI
-records and submits nothing. `RHISwapChain` hands out its acquire semaphore
+into NRI command buffers (`CommandBufferPool`) and submitted through `RHIQueueTimeline`.
+`RHISwapChain` hands out its acquire semaphore
 (`TakeAcquireSemaphore`, once per frame) and signals its present semaphore in a signal-only NRI
 submission.
 - `Pipeline` builds its NRI pipeline from its specification, the shader's SPIR-V and the
@@ -253,7 +250,7 @@ submission.
   with `RenderCommandBuffer::RT_WriteBuffer`. New textures and swapchain images get their first
   transition (undefined → resting state) in the batch.
 - Queries and markers are NRI too: timestamp and pipeline-statistics query pools per command list
-  slot, read back a frame-in-flight later, and `CmdBeginAnnotation` markers. NVRHI records nothing.
+  slot, read back a frame-in-flight later, and `CmdBeginAnnotation` markers.
 - `ImGuiRenderer::RenderToSwapchain` draws the UI into each swapchain with its own per-format
   pipelines, per-frame-slot geometry and descriptor pools. ImGui textures, the atlas included, are
   `Image2D`s in the shared `ImGuiTextureRegistry`.
@@ -261,8 +258,8 @@ submission.
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
 `ResourceStateTracker` + `NRIBarrierEmitter` (`Renderer/RHI/`), which record every barrier as an
 NRI barrier into the open NRI command buffer. Resources are named by tracked descriptions made
-when they are created (`NRITexture`/`NRIBuffer::GetTracked`, `ImageInfo::Tracked`). NVRHI's automatic
-barriers are off and the tracker places every barrier: NRI passes, draws and dispatches require what they bind
+when they are created (`NRITexture`/`NRIBuffer::GetTracked`, `ImageInfo::Tracked`). The tracker
+places every barrier: NRI passes, draws and dispatches require what they bind
 (attachments, descriptor-set uses, vertex/index/indirect buffers), copy/clear/write sites call
 `RT_Require*`, and intra-pass transitions `RT_Transition*`. Texture readbacks
 (`Renderer/TextureReadback.h`) copy into an NRI HOST_READBACK buffer and wait on an NRI fence
@@ -326,8 +323,9 @@ Structurally:
   attachment repair, and the graph declares only color as the tone-mapping output.
 - Compute-to-draw barriers accept `StorageBufferSet` and resolve its render-frame buffer at
   recording time. Mesh culling, cluster lighting and exposure use this path; indirect draw
-  arguments transition to NVRHI `IndirectArgument` before consumption. Mesh-culling output
-  buffers use GPU-only storage with staged CPU initialization so NVRHI tracks their transitions.
+  arguments transition to `ResourceState::IndirectArgument` before consumption. Mesh-culling output
+  buffers use GPU-only storage with staged CPU initialization so the tracker tracks their
+  transitions.
 
 ### 2.4 Scene / ECS
 
@@ -1200,8 +1198,8 @@ are trusted; don't sprinkle defensive checks for impossible states. Prefer RAII 
 `LUX_CORE_VERIFY` is the assert that survives into Dist; use it for invariants that must hold in a
 shipped build.
 
-A lost GPU device is fatal: every `VK_ERROR_DEVICE_LOST` the engine sees (NVRHI's `Device Removed!`
-submit message, swapchain acquire and present) goes to `VulkanDeviceManager::ReportDeviceLost`,
+A lost GPU device is fatal: every device loss the engine sees (a queue submit, swapchain acquire or
+present returning `DEVICE_LOST`) goes to `VulkanDeviceManager::ReportDeviceLost`,
 which waits for the Nsight Aftermath crash dump when Aftermath is enabled (`Platform/Vulkan/Debug/
 Aftermath.h`: NVIDIA, Debug and Release), logs its path and aborts. There is no device-loss recovery.
 
@@ -1296,7 +1294,7 @@ luxengine/
 │   │       │                      #   RenderScene/GPUScene, Material, Shader, Pipeline, Mesh, UI/,
 │   │       │                      #   RHI/ (renderer vocabulary, RHIDevice (NRI), state tracker,
 │   │       │                      #   GPU deletion queue, queue timeline, command buffer
-│   │       │                      #   pools, staging, upload context, temporary NVRHI interop,
+│   │       │                      #   pools, staging, upload context, swapchain,
 │   │       │                      #   NRI-owned resources)
 │   │       ├── Scene/             # Scene, Entity, Components, SceneSerializer, Prefab
 │   │       ├── Physics/           # PhysicsSystem/Scene/Body/Shapes + JoltPhysics/
@@ -1309,7 +1307,7 @@ luxengine/
 │   │       ├── ImGui/             # ImGuiLayer, ImGuiEx, ImGuiUtilities, Colors, Fonts, ImGuizmo
 │   │       ├── Project/           # Project, ProjectSerializer, UserPreferences, TieringSettings
 │   │       ├── Serialization/     # AssetPack, streams, runtime serializers
-│   │       ├── Platform/Vulkan/   # nvrhi/Vulkan backend, DescriptorSetManager, ShaderCompiler/,
+│   │       ├── Platform/Vulkan/   # Vulkan device bring-up, DescriptorSetManager, ShaderCompiler/,
 │   │       │                      #   Debug/ (Aftermath GPU crash dumps)
 │   │       ├── Utilities/         # FileSystem, StringUtils, FileDialogs, CommandLineParser
 │   │       ├── Reflection/        # TypeDescriptor / TypeName / TypeUtils
@@ -1317,8 +1315,8 @@ luxengine/
 │   │       ├── Social/            # DiscordSocial
 │   │       ├── Tiering/           # TieringSerializer
 │   │       └── Embed/             # LuxIcon.embed
-│   ├── Platform/{Windows,Linux}/  # Per-platform FileSystem / Thread / RenderThread
-│   └── vendor/                    # Box2D, JoltPhysics, GLFW, imgui, nvrhi, NRI (fork), Coral, tracy,
+│   ├── Platform/{Windows,Linux}/  # Per-platform FileSystem / Thread / RenderThread / NativeWindow
+│   └── vendor/                    # Box2D, JoltPhysics, GLFW, imgui, NRI (fork), Coral, tracy,
 │                                  #   msdf-atlas-gen, NFD-Extended, rapidyaml, FastNoise, …
 ├── ScriptCore/                    # C# scripting assembly (.NET 9)
 ├── Editor/

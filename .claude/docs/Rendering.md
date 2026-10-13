@@ -16,7 +16,7 @@ Read this before touching anything under `Core/Source/Lux/Renderer/` or
 - `Core/Source/Lux/Renderer/**` — especially `Renderer.{h,cpp}`, `SceneRenderer.{h,cpp}`,
   `RenderGraph.{h,cpp}`, `RenderCommandQueue`, `RenderCommandBuffer`, `Material`, `Pipeline`,
   `Shader`, `StorageBufferSet` / `UniformBufferSet`.
-- `Core/Source/Lux/Platform/Vulkan/**` — the nvrhi/Vulkan backend, `DescriptorSetManager`,
+- `Core/Source/Lux/Platform/Vulkan/**` — the Vulkan backend pieces, `DescriptorSetManager`,
   `ShaderCompiler/**`, `VulkanDeviceManager`.
 - `Editor/Resources/Shaders/**` — the shader corpus itself.
 
@@ -34,17 +34,16 @@ findings here to must-fix.
 | `Renderer2D` / `DebugRenderer` | `Renderer/Renderer2D.h`, `DebugRenderer.h` | Batched 2D (quads, circles, lines, MSDF text) and debug primitives |
 
 Below that sits **NRI** (`Core/vendor/NRI`: GPU memory, descriptors, pipelines, command buffers,
-all recording and submission). **NVRHI** (`Core/vendor/nvrhi`) is left with the device bring-up
-and its desc structs and enums, until NRI migration Phases 14-15; both drive one Vulkan device
-(`§ NRI device`).
-`LUX_HAS_VULKAN` is always defined; `NVRHI-D3D11` / `NVRHI-D3D12` are built but the
-`Platform/DX11` / `DX12` engine sources are `removefiles`'d — that scaffolding is intentional, not
-dead code.
+all recording, submission and presentation), on the Vulkan device Lux creates (`§ NRI device`).
+NVRHI, which Lux ran on before the migration (`docs/NRI_MIGRATION_PLAN.md`), is gone.
+`LUX_HAS_VULKAN` is always defined; the `Platform/DX11` / `DX12` engine sources are
+`removefiles`'d and the D3D branches in `RHI/RHIDevice.h` are reserved — that scaffolding is
+intentional, not dead code.
 
 Renderer types (`Texture2D`, `Image2D`, `Pipeline`, `Framebuffer`, the buffers) are concrete
 classes over NRI objects; `GetHandle()` on images and textures is the NRI texture.
 `Shader` is the one abstract type, implemented by `VulkanShader`.
-`Platform/Vulkan/` holds only what NVRHI does not provide: `VulkanDeviceManager` (instance,
+`Platform/Vulkan/` holds only what NRI does not provide: `VulkanDeviceManager` (instance,
 device, queues, validation callback), `VulkanShader` + `ShaderCompiler/`, `DescriptorSetManager`,
 and the Aftermath `Debug/` sources. The swapchain is `Renderer/RHI/RHISwapChain`, on NRI.
 
@@ -135,11 +134,8 @@ image; use `RHISwapChain::GetCurrentBackBufferIndex()` for anything per-swapchai
 `FramesInFlight` is clamped to `RendererConfig::MaxFramesInFlight` (3), the capacity of the fixed
 per-frame arrays.
 
-Never call `delete`, `nvrhi` `Handle` reset, or a Vulkan destroy directly from main-thread code that
-could still be referenced this frame.
-
-`GetGraphicsDevice()->runGarbageCollection()` is called once per frame at present time in
-`Application::Run` — do not sprinkle extra calls; it is not a fix for a lifetime bug.
+Never call `delete`, an NRI destroy, or a Vulkan destroy directly from main-thread code that could
+still be referenced this frame.
 
 ---
 
@@ -276,15 +272,12 @@ edit the matching GLSL block in the same change.
 
 ---
 
-## Screen-space Y convention — NVRHI flips the viewport
+## Screen-space Y convention — the viewport is flipped
 
-NVRHI's Vulkan backend converts every `nvrhi::Viewport` to a **negative-height** `VkViewport`
-(`VKViewportWithDXCoords`, `Core/vendor/nvrhi/src/vulkan/vulkan-graphics.cpp`), i.e. D3D
-convention: NDC `y = +1` is pixel row 0 (`gl_FragCoord.y = 0`, top of the image). The projection
-matrices are plain GLM (no Y flip), so the rasterized image is upright.
-
-NRI graphics (Phase 10) keeps the convention: NRI's viewports default to a top-left origin
-(`originBottomLeft = false`) and record the same negative-height `VkViewport`.
+Lux's viewports use NRI's default top-left origin (`originBottomLeft = false`), which NRI records
+as a **negative-height** `VkViewport`, i.e. D3D convention: NDC `y = +1` is pixel row 0
+(`gl_FragCoord.y = 0`, top of the image). The projection matrices are plain GLM (no Y flip), so the
+rasterized image is upright. (NVRHI recorded the same viewport, so the convention predates NRI.)
 
 Any code that converts a **pixel/UV coordinate to NDC by hand** must therefore use
 `ndc.y = 1 - uv.y * 2`, not `uv * 2 - 1`. Getting this wrong mirrors the mapping vertically and
@@ -392,9 +385,9 @@ have. NRI validation (Debug) checks every barrier's access against the resource'
 
 ## NRI device
 
-During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries drive **one**
-`VkDevice`: `VulkanDeviceManager` creates it, NVRHI wraps it, and `RHIDevice::Init`
-(`Renderer/RHI/RHIDevice.h`) wraps it again with `nriCreateDeviceFromVKDevice`.
+Lux creates the `VkDevice` (`VulkanDeviceManager`), and `RHIDevice::Init`
+(`Renderer/RHI/RHIDevice.h`) wraps it with `nriCreateDeviceFromVKDevice`, so Aftermath and the Tracy
+context see the same device NRI drives.
 
 - **NRI reads feature support from the physical device, not from what Lux enabled** (Vulkan has no
   query for enabled features). Extension-backed features are safe: NRI only queries an extension's
@@ -416,8 +409,9 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   checking that they loaded. `VulkanDeviceManager` therefore requires
   `VK_KHR_get_surface_capabilities2` with a window, and `VK_KHR_xlib_surface` on X11, where GLFW
   enables only `VK_KHR_xcb_surface`.
-- **One queue lock.** NRI and NVRHI submit to the same `VkQueue`s; every NRI `QueueSubmit` and
-  `QueuePresent` holds `RenderCommandBuffer::LockQueue`.
+- **One queue lock.** Every NRI `QueueSubmit` and `QueuePresent` holds
+  `RenderCommandBuffer::LockQueue`, which also orders them against the cross-queue waits added for
+  the next submission.
 - **Swapchain** (`Renderer/RHI/RHISwapChain`, NRI migration Phase 14). Each window's swapchain (the
   main window, every ImGui platform window, the runtime player) is an NRI `SwapChain`, which owns
   the surface. `GetNRIWindow` (`Core/Platform/<OS>/<OS>NativeWindow.cpp`) gives NRI the HWND, or
@@ -438,14 +432,13 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
 - **Errors.** NRI messages go to the log as `[NRI] …` under the `Renderer` tag. An NRI error breaks
   into the debugger in Debug, like a failed assert, and only logs otherwise. NRI validation is on in
   Debug.
-- **NRI owns GPU memory** (Phase 8; NVRHI's wrapper handles went in Phase 13). Every texture and
-  buffer is an `NRITexture` / `NRIBuffer` (`Renderer/RHI/NVRHIWrappers.h`): an NRI committed
-  resource, still described by an NVRHI desc until Phase 15. The NRI desc is derived from it
-  (format through the VkFormat; attachments EXCLUSIVE like NVRHI's images, other textures
-  CONCURRENT, as NRI validation requires), and the memory location from
-  `cpuAccess` (Write → HOST_UPLOAD, Read → HOST_READBACK, else DEVICE). Rules:
-  - **Never call `device->createTexture` / `createBuffer`** — use `NRITexture::Create` /
-    `NRIBuffer::Create`. Volatile NVRHI buffers are not supported.
+- **NRI owns GPU memory** (Phase 8). Every texture and buffer is an `NRITexture` / `NRIBuffer`
+  (`Renderer/RHI/RHIResources.h`): an NRI committed resource described by an `RHITextureDesc` /
+  `RHIBufferDesc` (Phase 15): NRI formats (`Utils::NRIFormat` for image formats), usage flags and
+  a resting state. Attachments are EXCLUSIVE (DCC), other textures CONCURRENT, as NRI validation
+  requires; a buffer's memory comes from `Access` (Write → HOST_UPLOAD, Read → HOST_READBACK, else
+  DEVICE). Rules:
+  - **Create GPU resources only with `NRITexture::Create` / `NRIBuffer::Create`.**
   - **CPU writes go through `NRIBuffer::Map`/`Unmap`** (CPU-visible buffers only).
     GPU-side writes are NRI copies from staging memory (`§ Batched resource uploads`). `Map` never waits for
     the GPU, unlike NVRHI's `mapBuffer`, which waited for copies that used the buffer. A readback
@@ -572,7 +565,7 @@ crash or corruption on some driver even if it renders correctly on yours.
   state; the barrier is an `RT_TransitionBufferState` on the command buffer's tracker.
 - GPU-written storage (including mesh-culling visible indices and indirect arguments) must use
   `GPUOnly = true`. CPU-visible buffers have no tracked state (the tracker's `DescribeBuffer` gives
-  them no resting state, and NVRHI skips them), so no barrier can protect them; CPU initialization
+  them no resting state), so no barrier can protect them; CPU initialization
   of GPU storage goes through `UploadContext::WriteBuffer` in the upload batch, or
   `RenderCommandBuffer::RT_WriteBuffer` in a command buffer.
 - PCSS uses constant-index Poisson lookups. Dynamic indexing of the local 64-sample array expands
@@ -581,8 +574,8 @@ crash or corruption on some driver even if it renders correctly on yours.
   its SPIR-V for these local copies (use `--sdk-bin` if the Vulkan tools are not bundled).
 - Nvidia Aftermath GPU crash dumps (`Platform/Vulkan/Debug/Aftermath.{h,cpp}`) are active on NVIDIA
   in Debug and Release, and compiled out of Dist and `--no-aftermath`. The library is loaded at
-  runtime, so the engine starts normally without it. A device loss (NVRHI's `Device Removed!`
-  message, or `VK_ERROR_DEVICE_LOST` from acquire/present) goes through
+  runtime, so the engine starts normally without it. A device loss (`DEVICE_LOST` from a queue
+  submit, acquire or present) goes through
   `VulkanDeviceManager::ReportDeviceLost`, which waits for the dump, logs its path and aborts.
   Dumps go to `<log directory>/GPUCrashDumps/`, with the last `RT_BeginMarker` label per command
   buffer in `.markers.txt` (Vulkan checkpoints store only a pointer, so names are resolved in-process).

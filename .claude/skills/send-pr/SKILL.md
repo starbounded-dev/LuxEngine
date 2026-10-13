@@ -69,7 +69,7 @@ unexpected state with no log — all rejected. Use `LUX_CORE_ERROR_TAG` / `LUX_C
 Every new call must be legal on the thread it runs on. Check against `.claude/docs/Threading.md`:
 
 - No ImGui outside the main thread (including inside a `Renderer::Submit` lambda).
-- No nvrhi/Vulkan calls from the main thread outside `Renderer::Submit`.
+- No NRI/Vulkan calls from the main thread outside `Renderer::Submit`.
 - No ECS or asset-registry mutation off the main thread.
 - `RT_`-prefixed functions only from the render thread.
 - New threads use `Lux::Thread` and call `LUX_PROFILE_THREAD`.
@@ -115,7 +115,7 @@ layering was violated. See the dependency table in `Architecture-LuxEngine.md §
 
 New files: confirm project regeneration is required and say so in the PR body. New premake option:
 one `newoption` + one `BuildOptions.OPTIONS` entry. New dependency: `Dependencies.lua` only. Don't
-edit vendored submodules — reopen the project in `premake5.lua` the way Coral/NVRHI/Tracy are
+edit vendored submodules — reopen the project in `premake5.lua` the way Coral/Tracy are
 handled.
 
 A change that makes an editor feature require software the game maker must install separately

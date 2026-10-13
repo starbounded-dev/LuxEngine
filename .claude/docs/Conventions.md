@@ -359,19 +359,19 @@ one-line constant.
 
 `Source/Lux/Platform/DX11/` and `DX12/` are `removefiles`'d in `Core/premake5.lua` and their
 `LUX_HAS_DX11` / `LUX_HAS_DX12` branches look dead. They are reserved scaffolding for a future
-backend (NVRHI already builds `NVRHI-D3D11` / `NVRHI-D3D12`). **Do not sweep them as dead code.**
+backend, which would come through NRI's D3D11/D3D12 support; the reserved `RHIDevice` branches and
+guarded D3D includes are in `Renderer/RHI/RHIDevice.h`. **Do not sweep them as dead code.**
 
 ### Renderer vocabulary lives in `Renderer/RHI/RHITypes.h`
 
 Name `ShaderStage`, `TextureDimension`, `TextureSubresourceRange`, `GPUQueue`, `ResourceState` and
-`DrawIndexedIndirectCommand` from that header. Don't name backend types (`nvrhi::*`, `Vk*`) outside
-renderer implementation `.cpp`s; those convert at the call with `ToNVRHI`/`FromNVRHI`
-(`RHI/NVRHIInterop.h`). Note that `TextureSubresourceRange{}` covers every mip and layer, while
-`nvrhi::TextureSubresourceSet{}` is mip 0, layer 0 only.
+`DrawIndexedIndirectCommand` from that header. Don't name backend types (`nri::*`, `Vk*`) outside
+renderer implementation files. Note that `TextureSubresourceRange{}` covers every mip and layer.
 
-GPU textures and buffers are created as `NRITexture::Create(nvrhiDesc)` / `NRIBuffer::Create(nvrhiDesc)`
-(`RHI/NVRHIWrappers.h`), never `device->createTexture`/`createBuffer`, and CPU-visible buffers are
-written through `NRIBuffer::Map`/`Unmap`. Keep the owner as a member; its destructor frees through
+GPU textures and buffers are created as `NRITexture::Create(RHITextureDesc)` /
+`NRIBuffer::Create(RHIBufferDesc)` (`RHI/RHIResources.h`; image formats through
+`Utils::NRIFormat`), and CPU-visible buffers (`CPUAccess::Write`/`Read`) are written through
+`NRIBuffer::Map`/`Unmap`. Keep the owner as a member; its destructor frees through
 the GPU deletion queue (`Rendering.md § NRI device`).
 
 NRI descriptor sets come from a `DescriptorSetGroup` (`RHI/DescriptorSetGroup.h`), which holds one

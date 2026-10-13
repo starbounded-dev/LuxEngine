@@ -36,10 +36,10 @@ not just the render thread.
 
 | Context | Allowed | Forbidden |
 |---|---|---|
-| **Main (application) thread** | ImGui, GLFW/OS window + input, scene/ECS mutation, asset registry mutation, filling the render command queue via `Renderer::Submit` | Direct nvrhi command-list recording; long blocking work (file I/O, network, subprocess, asset import) |
+| **Main (application) thread** | ImGui, GLFW/OS window + input, scene/ECS mutation, asset registry mutation, filling the render command queue via `Renderer::Submit` | Direct NRI command-buffer recording; long blocking work (file I/O, network, subprocess, asset import) |
 | **Render thread** | NRI command buffers, GPU submission, swapchain present, `RT_*` functions, resource release queue | ImGui *building* (see below), ECS access, `Application::Get()` state mutation |
-| **JobSystem workers** | Data-parallel compute over disjoint indices (transform/cull fan-out) | ImGui, nvrhi, ECS mutation, anything order-dependent |
-| **Asset worker** (`EditorAssetSystem` / `RuntimeAssetSystem`) | File I/O, decode, import; creating GPU resources *via* `Renderer::Submit` | Touching the asset registry directly; ImGui; direct nvrhi calls |
+| **JobSystem workers** | Data-parallel compute over disjoint indices (transform/cull fan-out) | ImGui, NRI, ECS mutation, anything order-dependent |
+| **Asset worker** (`EditorAssetSystem` / `RuntimeAssetSystem`) | File I/O, decode, import; creating GPU resources *via* `Renderer::Submit` | Touching the asset registry directly; ImGui; direct NRI calls |
 | **Jolt's internal pool** | Physics jobs Jolt schedules itself | Anything engine-side |
 | **Simulation thread** | (scaffolded, currently unwired — see below) | — |
 

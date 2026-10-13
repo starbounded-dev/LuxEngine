@@ -4,7 +4,7 @@
 #include "lpch.h"
 #include "UploadContext.h"
 
-#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RHI/StagingMemory.h"
 

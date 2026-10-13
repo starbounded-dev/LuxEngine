@@ -95,7 +95,7 @@ namespace Lux {
 		nri::CommandBuffer* RT_BeginNRISegment();
 		void RT_EndNRISegment();
 		// Copies and clears through NRI (NRI migration Phase 13), which cannot record inside a
-		// rendering scope: closes an open one (the next draw reopens it, as after an NVRHI command),
+		// rendering scope: closes an open one (the next draw reopens it),
 		// then opens a segment as RT_BeginNRISegment. Require the states first; the segment commits
 		// them. Null, with no segment open, as there.
 		nri::CommandBuffer* RT_BeginNRITransfer();
@@ -106,8 +106,8 @@ namespace Lux {
 
 		// NRI render passes (NRI migration Phase 10). Render thread.
 		//
-		// A pass begun with RT_BeginNRIRenderPass records through NRI, in NRI rendering scopes inside
-		// the NVRHI command list, until RT_EndNRIRenderPass. Work that cannot record inside such a
+		// A pass begun with RT_BeginNRIRenderPass records in NRI rendering scopes until
+		// RT_EndNRIRenderPass. Work that cannot record inside such a
 		// scope (dispatches, copies, clears) closes it first and the next draw reopens
 		// it, with the attachments loaded and the pass state rebound: NVRHI's implicit render pass
 		// splitting, made explicit. Barriers are the tracker's; pending ones are committed between

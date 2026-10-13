@@ -8,7 +8,7 @@
 
 #include "RenderCommandBuffer.h"
 
-#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
 
 
 namespace Lux {
@@ -46,7 +46,7 @@ namespace Lux {
 	private:
 		StorageBufferSpecification m_Specification;
 
-		NRIBuffer m_Buffer; // NRI-owned; NVRHI renders through its handle
+		NRIBuffer m_Buffer;
 		RHIBufferDesc m_BufferDesc;
 		Buffer m_LocalStorage;
 	};

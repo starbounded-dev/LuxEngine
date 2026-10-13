@@ -178,7 +178,7 @@ For each new piece of the design, answer every row. "N/A" needs a reason.
 | Concern | Question | Authority |
 |---|---|---|
 | System | Which system owns it? Which may it depend on? | Architecture Part 1 |
-| Thread | Which thread does each new function run on, under **both** `MultiThreaded` and `SingleThreaded`? ImGui main-only; nvrhi via `Renderer::Submit`; no ECS or asset-registry mutation off the main thread | `Threading.md` |
+| Thread | Which thread does each new function run on, under **both** `MultiThreaded` and `SingleThreaded`? ImGui main-only; GPU work via `Renderer::Submit`; no ECS or asset-registry mutation off the main thread | `Threading.md` |
 | Ownership | `Ref<T>` or `Scope<T>`? Who frees GPU resources, and through `Renderer::SubmitResourceFree`? Does a mid-session teardown (scene switch, subsystem toggle) free anything an in-flight frame may still reference? Then the plan must drain the GPU first — there is no dedicated helper for this today, so name the mechanism | `Conventions.md`, `Rendering.md` |
 | Renderer data flow | Does the renderer read it? Then it enters through `FrameRenderPacket`, not an ECS read at submission | `Rendering.md` |
 | Renderer invariants | New `(set, binding)` grepped for collisions? Pipelines created once in `Init()`? New `PassDesc` / `TextureDesc` fields folded into `ComputeStructureHash()`? Accurate `Reads` / `Writes`? Feature-gated to zero cost when off? | `Rendering.md` |

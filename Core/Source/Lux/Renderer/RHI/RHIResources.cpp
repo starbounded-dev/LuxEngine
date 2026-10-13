@@ -2,7 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
-#include "NVRHIWrappers.h"
+#include "RHIResources.h"
 
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"

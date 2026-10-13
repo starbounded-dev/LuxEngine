@@ -7,7 +7,7 @@
 #include "Lux/Renderer/Image.h"
 #include "Lux/Renderer/RenderCommandBuffer.h"
 #include "Lux/Renderer/Renderer.h"
-#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 namespace Lux {

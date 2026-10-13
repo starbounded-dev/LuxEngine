@@ -9,7 +9,7 @@
 #include "Lux/Renderer/RendererAPI.h"
 
 #include "Lux/Platform/Vulkan/VulkanShader.h"
-#include "Lux/Renderer/RHI/NVRHIWrappers.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include <array>
