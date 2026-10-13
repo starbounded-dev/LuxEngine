@@ -7,7 +7,7 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
-#include "Lux/Platform/Vulkan/VulkanSwapChain.h"
+#include "Lux/Renderer/RHI/RHISwapChain.h"
 
 namespace Lux {
 

@@ -388,7 +388,7 @@ hand (`StagingStream` recycles it after the GPU is done). Clear a storage image 
 raw clear. Read textures back with `ReadbackTexture` (`Renderer/TextureReadback.h`). Submit only
 through `RenderCommandBuffer::RT_Submit` (or `RHIQueueTimeline::Submit`); pass a swapchain's
 acquire semaphore with the submission that draws to the back buffer
-(`VulkanSwapChain::TakeAcquireSemaphore`).
+(`RHISwapChain::TakeAcquireSemaphore`).
 
 ### Configuration macros
 

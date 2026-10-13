@@ -295,7 +295,7 @@ namespace Lux {
 		// Main thread: the slot the frame being built uses (Application's frame counter).
 		static uint32_t GetCurrentFrameIndex();
 		// Render thread: the per-frame resource slot, RT_GetFrameNumber() % FramesInFlight. Not the
-		// swapchain image (that is VulkanSwapChain::GetCurrentBackBufferIndex), which is not
+		// swapchain image (that is RHISwapChain::GetCurrentBackBufferIndex), which is not
 		// sequential under MAILBOX. RT_BeginFrame guarantees the GPU has finished the frame that
 		// last used this slot.
 		static uint32_t RT_GetCurrentFrameIndex();

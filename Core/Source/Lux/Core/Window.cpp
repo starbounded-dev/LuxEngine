@@ -12,8 +12,8 @@
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RHI/RHIQueueTimeline.h"
+#include "Lux/Renderer/RHI/RHISwapChain.h"
 
-#include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 
 #include <imgui.h>
@@ -24,45 +24,6 @@
 namespace Lux {
 
 #include "Lux/Embed/LuxIcon.embed"
-
-	static const struct
-	{
-		nvrhi::Format format;
-		uint32_t redBits;
-		uint32_t greenBits;
-		uint32_t blueBits;
-		uint32_t alphaBits;
-		uint32_t depthBits;
-		uint32_t stencilBits;
-	} formatInfo[] = {
-		{ nvrhi::Format::UNKNOWN,            0,  0,  0,  0,  0,  0, },
-		{ nvrhi::Format::R8_UINT,            8,  0,  0,  0,  0,  0, },
-		{ nvrhi::Format::RG8_UINT,           8,  8,  0,  0,  0,  0, },
-		{ nvrhi::Format::RG8_UNORM,          8,  8,  0,  0,  0,  0, },
-		{ nvrhi::Format::R16_UINT,          16,  0,  0,  0,  0,  0, },
-		{ nvrhi::Format::R16_UNORM,         16,  0,  0,  0,  0,  0, },
-		{ nvrhi::Format::R16_FLOAT,         16,  0,  0,  0,  0,  0, },
-		{ nvrhi::Format::RGBA8_UNORM,        8,  8,  8,  8,  0,  0, },
-		{ nvrhi::Format::RGBA8_SNORM,        8,  8,  8,  8,  0,  0, },
-		{ nvrhi::Format::BGRA8_UNORM,        8,  8,  8,  8,  0,  0, },
-		{ nvrhi::Format::SRGBA8_UNORM,       8,  8,  8,  8,  0,  0, },
-		{ nvrhi::Format::SBGRA8_UNORM,       8,  8,  8,  8,  0,  0, },
-		{ nvrhi::Format::R10G10B10A2_UNORM, 10, 10, 10,  2,  0,  0, },
-		{ nvrhi::Format::R11G11B10_FLOAT,   11, 11, 10,  0,  0,  0, },
-		{ nvrhi::Format::RG16_UINT,         16, 16,  0,  0,  0,  0, },
-		{ nvrhi::Format::RG16_FLOAT,        16, 16,  0,  0,  0,  0, },
-		{ nvrhi::Format::R32_UINT,          32,  0,  0,  0,  0,  0, },
-		{ nvrhi::Format::R32_FLOAT,         32,  0,  0,  0,  0,  0, },
-		{ nvrhi::Format::RGBA16_FLOAT,      16, 16, 16, 16,  0,  0, },
-		{ nvrhi::Format::RGBA16_UNORM,      16, 16, 16, 16,  0,  0, },
-		{ nvrhi::Format::RGBA16_SNORM,      16, 16, 16, 16,  0,  0, },
-		{ nvrhi::Format::RG32_UINT,         32, 32,  0,  0,  0,  0, },
-		{ nvrhi::Format::RG32_FLOAT,        32, 32,  0,  0,  0,  0, },
-		{ nvrhi::Format::RGB32_UINT,        32, 32, 32,  0,  0,  0, },
-		{ nvrhi::Format::RGB32_FLOAT,       32, 32, 32,  0,  0,  0, },
-		{ nvrhi::Format::RGBA32_UINT,       32, 32, 32, 32,  0,  0, },
-		{ nvrhi::Format::RGBA32_FLOAT,      32, 32, 32, 32,  0,  0, },
-	};
 
 	static void GLFWErrorCallback(int error, const char* description)
 	{
@@ -116,8 +77,6 @@ namespace Lux {
 		// frame — serializing the two and wasting the triple-buffering. 2 is the
 		// low-latency sweet spot (one frame ahead); 3 trades latency for more throughput.
 		deviceParams.maxFramesInFlight = 2;
-		deviceParams.backBufferWidth = m_Specification.Width;
-		deviceParams.backBufferHeight = m_Specification.Height;
 		deviceParams.vsyncEnabled = m_Specification.VSync;
 		deviceParams.preferImmediatePresentMode = m_Specification.PreferImmediatePresentMode;
 		// The Khronos validation layer intercepts every Vulkan call — a large CPU tax in
@@ -167,25 +126,6 @@ namespace Lux {
 
 		glfwDefaultWindowHints();
 
-		bool foundFormat = false;
-		for (const auto& info : formatInfo)
-		{
-			if (info.format == deviceParams.swapChainFormat)
-			{
-				glfwWindowHint(GLFW_RED_BITS, info.redBits);
-				glfwWindowHint(GLFW_GREEN_BITS, info.greenBits);
-				glfwWindowHint(GLFW_BLUE_BITS, info.blueBits);
-				glfwWindowHint(GLFW_ALPHA_BITS, info.alphaBits);
-				glfwWindowHint(GLFW_DEPTH_BITS, info.depthBits);
-				glfwWindowHint(GLFW_STENCIL_BITS, info.stencilBits);
-				foundFormat = true;
-				break;
-			}
-		}
-
-		assert(foundFormat);
-
-		glfwWindowHint(GLFW_SAMPLES, deviceParams.swapChainSampleCount);
 		glfwWindowHint(GLFW_REFRESH_RATE, deviceParams.refreshRate);
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -305,13 +245,8 @@ namespace Lux {
 			LUX_CORE_INFO("rayQuerySupported=true");
 		}
 
-		if (!deviceParams.headlessDevice)
-			CreateWindowSurface();
-
-		m_DeviceManager->InitSurfaceCapabilities(*(uint64_t*)&m_WindowSurface);
-
-		m_SwapChain = lnew VulkanSwapChain(m_WindowSurface);
-		m_SwapChain->Create(m_Data.Width, m_Data.Height);
+		m_SwapChain = CreateScope<RHISwapChain>(m_WindowHandle);
+		m_SwapChain->Create();
 
 		//glfwMaximizeWindow(m_Window);
 		m_Data.Self = this;
@@ -471,18 +406,6 @@ namespace Lux {
 
 	}
 
-	bool Window::CreateWindowSurface()
-	{
-		const VkResult res = glfwCreateWindowSurface(((VulkanDeviceManager*)m_DeviceManager)->GetVulkanInstance(), m_WindowHandle, nullptr, &m_WindowSurface);
-		if (res != VK_SUCCESS)
-		{
-			LUX_CORE_ERROR("Failed to create a GLFW window surface, error code = {}", nvrhi::vulkan::resultToString(res));
-			return false;
-		}
-
-		return true;
-	}
-
 	void Window::CreateRHIDevice(bool enableValidation)
 	{
 		const auto* vulkanDeviceManager = static_cast<VulkanDeviceManager*>(m_DeviceManager);
@@ -514,20 +437,8 @@ namespace Lux {
 
 	void Window::Shutdown()
 	{
-		if (m_SwapChain)
-		{
-			m_SwapChain->Destroy();
-			ldelete m_SwapChain;
-			m_SwapChain = nullptr;
-		}
-
-		if (m_WindowSurface)
-		{
-			auto vInstance = ((VulkanDeviceManager*)m_DeviceManager)->GetVulkanInstance();
-			LUX_CORE_VERIFY(vInstance);
-			vInstance.destroySurfaceKHR(m_WindowSurface);
-			m_WindowSurface = nullptr;
-		}
+		// Before the window: the swapchain owns the window's surface.
+		m_SwapChain.reset();
 
 		// Before the device manager: NRI wraps the VkDevice that NVRHI and the manager own.
 		RHIQueueTimeline::Shutdown();
@@ -564,13 +475,13 @@ namespace Lux {
 
 		// Recreate the swapchain here — this runs only after BlockUntilRenderComplete(), so both
 		// the main and render threads are idle and no acquire/present semaphore has a pending
-		// signal. NeedsRecreate() covers eSuboptimal/eOutOfDate reported by BeginFrame/Present
-		// (e.g. a resize the size callback didn't catch, or a DPI change); SizeDirty covers the
-		// window/framebuffer size callbacks. Create() re-queries the surface extent regardless.
+		// signal. NeedsRecreate() covers an out-of-date swapchain reported by BeginFrame/Present
+		// (e.g. a resize the size callback didn't catch); SizeDirty covers the window/framebuffer
+		// size callbacks. OnResize() reads the framebuffer size itself.
 		if (m_Data.SizeDirty || m_SwapChain->NeedsRecreate())
 		{
 			m_Data.SizeDirty = false;
-			m_SwapChain->OnResize(m_Data.Width, m_Data.Height);
+			m_SwapChain->OnResize();
 		}
 
 		// Apply a pending VSync change. ProcessEvents runs when both the main and
@@ -595,7 +506,7 @@ namespace Lux {
 			m_SwapChainBufferCountDirty = false;
 			m_PresentModeDirty = false;
 
-			m_SwapChain->OnResize(m_Data.Width, m_Data.Height);
+			m_SwapChain->OnResize();
 		}
 	}
 
@@ -624,7 +535,7 @@ namespace Lux {
 	void Window::SetSwapChainBufferCount(uint32_t count)
 	{
 		// Vulkan requires at least 2, and the surface's own maximum is applied when the
-		// swapchain is built (VulkanSwapChain::Create clamps to surfaceCaps). The upper
+		// swapchain is built (NRI clamps to the surface caps). The upper
 		// bound here just keeps the request sane; more images is latency and VRAM, and
 		// past a handful it buys nothing.
 		count = std::clamp(count, 2u, 8u);
@@ -690,7 +601,7 @@ namespace Lux {
 		glfwSetWindowTitle(m_WindowHandle, m_Data.Title.c_str());
 	}
 
-	VulkanSwapChain& Window::GetSwapChain()
+	RHISwapChain& Window::GetSwapChain()
 	{
 		return *m_SwapChain;
 	}

@@ -25,7 +25,7 @@
 #include "Lux/Renderer/RHI/StagingMemory.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
-#include "Lux/Platform/Vulkan/VulkanSwapChain.h"
+#include "Lux/Renderer/RHI/RHISwapChain.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Utilities/StringUtils.h"
 

@@ -14,7 +14,6 @@
 #include "Lux/Renderer/RHI/CommandBufferPool.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RHI/RHIQueueTimeline.h"
-#include "Lux/Platform/Vulkan/VulkanSwapChain.h"
 
 #include <cstring>
 #include <unordered_map>

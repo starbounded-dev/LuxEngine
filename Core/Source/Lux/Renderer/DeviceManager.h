@@ -58,12 +58,8 @@ namespace Lux
         bool Decorated = true;
         int windowPosX = -1;            // -1 means use default placement
         int windowPosY = -1;
-        uint32_t backBufferWidth = 1280;
-        uint32_t backBufferHeight = 720;
         uint32_t refreshRate = 0;
         uint32_t swapChainBufferCount = 3;
-        nvrhi::Format swapChainFormat = nvrhi::Format::RGBA8_UNORM;
-        uint32_t swapChainSampleCount = 1;
         uint32_t maxFramesInFlight = 2;
         bool enableNvrhiValidationLayer = false;
         bool vsyncEnabled = false;
@@ -113,7 +109,6 @@ namespace Lux
         static DeviceManager* Create(nvrhi::GraphicsAPI api, GLFWwindow* windowHandle);
 
         bool CreateDevice(const DeviceCreationParameters& params, const char* windowTitle);
-        virtual bool InitSurfaceCapabilities(uint64_t surfaceHandle) = 0;
 
 		const DeviceCreationParameters& GetDeviceParams() const { return m_DeviceParams; }
 

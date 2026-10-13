@@ -69,7 +69,7 @@ namespace nri {
 namespace Lux
 {
 	class VulkanShader;
-	class VulkanSwapChain;
+	class RHISwapChain;
 
 	// --------------------------------------------------------------------
 	// Texture info for ImGui rendering
@@ -222,7 +222,7 @@ namespace Lux
 		// clearTarget = false draws over whatever the target already holds, for a swapchain the
 		// application has already rendered into (the runtime composites its overlay onto the game
 		// frame). False, with only the acquire waited for, when the UI cannot be drawn (logged once).
-		bool RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain, bool clearTarget = true);
+		bool RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, RHISwapChain* swapchain, bool clearTarget = true);
 		float GetGPUTime() const;
 
 		// Register a persistent texture (indices 0-63) - survives across frames.

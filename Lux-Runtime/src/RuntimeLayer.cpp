@@ -16,7 +16,7 @@
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Utilities/StringUtils.h"
-#include "Lux/Platform/Vulkan/VulkanSwapChain.h"
+#include "Lux/Renderer/RHI/RHISwapChain.h"
 
 #include <format>
 
@@ -325,7 +325,7 @@ namespace Lux
 	void RuntimeLayer::SubmitCommandBufferToSwapChain()
 	{
 		Ref<RenderCommandBuffer> commandBuffer = m_CommandBuffer;
-		VulkanSwapChain* swapChain = &Application::Get().GetWindow().GetSwapChain();
+		RHISwapChain* swapChain = &Application::Get().GetWindow().GetSwapChain();
 
 		Renderer::Submit([commandBuffer, swapChain]() mutable
 		{

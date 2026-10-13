@@ -33,7 +33,7 @@ namespace Lux {
 		std::filesystem::path IconPath;
 	};
 
-	class VulkanSwapChain;
+	class RHISwapChain;
 
 	class Window
 	{
@@ -77,7 +77,7 @@ namespace Lux {
 
 		inline GLFWwindow* GetNativeWindow() const { return m_WindowHandle; }
 
-		virtual VulkanSwapChain& GetSwapChain();
+		virtual RHISwapChain& GetSwapChain();
 		DeviceManager* GetDeviceManager() { return m_DeviceManager; }
 
 		// High DPI scale factor
@@ -95,7 +95,6 @@ namespace Lux {
 	public:
 		static Window* Create(const WindowSpecification& specification = WindowSpecification());
 	private:
-		bool CreateWindowSurface();
 		// Wraps the Vulkan device in NRI (RHIDevice) and, in Debug, runs its self-test.
 		void CreateRHIDevice(bool enableValidation);
 		virtual void Shutdown();
@@ -117,12 +116,10 @@ namespace Lux {
 		WindowData m_Data;
 		float m_LastFrameTime = 0.0f;
 
-		VulkanSwapChain* m_SwapChain;
+		Scope<RHISwapChain> m_SwapChain;
 		bool m_VSyncDirty = false; // pending VSync change, applied in ProcessEvents
 		bool m_SwapChainBufferCountDirty = false; // pending image-count change, same path
 		bool m_PresentModeDirty = false;          // pending Immediate/Mailbox change, same path
-
-		VkSurfaceKHR m_WindowSurface;
 
 		friend class DeviceManager;
 	};

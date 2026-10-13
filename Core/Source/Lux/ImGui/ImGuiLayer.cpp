@@ -11,9 +11,7 @@
 #include "Lux/Core/Input.h"
 
 #include "Lux/Renderer/Renderer.h"
-
-#include "Lux/Platform/Vulkan/VulkanSwapChain.h"
-#include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
+#include "Lux/Renderer/RHI/RHISwapChain.h"
 
 #include "Lux/Renderer/RendererAPI.h"
 
@@ -224,7 +222,7 @@ namespace Lux {
 	{
 		ImGuiID ViewportID = 0;
 		bool WindowOwned = false;
-		std::unique_ptr<VulkanSwapChain> SC;
+		Scope<RHISwapChain> SC;
 		std::unique_ptr<ImGuiRenderer> Renderer;
 	};
 
@@ -247,16 +245,9 @@ namespace Lux {
 		s_ViewportData[viewport->ID] = data;
 		viewport->RendererUserData = data.Raw();
 
-		vk::Instance vInstance = ((VulkanDeviceManager*)Application::GetGraphicsDeviceManager())->GetVulkanInstance();
-
-		// Create surface
-		ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
-		vk::SurfaceKHR surface;
-		VkResult err = (VkResult)platform_io.Platform_CreateVkSurface(viewport, *(ImU64*)&vInstance, nullptr, (ImU64*)&surface);
-		LUX_CORE_ASSERT(err == VkResult::VK_SUCCESS);
-
-		data->SC = std::make_unique<VulkanSwapChain>(surface);
-		data->SC->Create((uint32_t)viewport->Size.x, (uint32_t)viewport->Size.y);
+		// The GLFW backend's platform handle is the viewport's GLFWwindow.
+		data->SC = CreateScope<RHISwapChain>(static_cast<GLFWwindow*>(viewport->PlatformHandle));
+		data->SC->Create();
 		data->WindowOwned = true;
 
 		data->Renderer = std::make_unique<ImGuiRenderer>();
@@ -274,10 +265,11 @@ namespace Lux {
 		viewport->RendererUserData = nullptr;
 	}
 
-	static void ImGuiRenderer_SetWindowSize(ImGuiViewport* viewport, ImVec2 size)
+	static void ImGuiRenderer_SetWindowSize(ImGuiViewport* viewport, ImVec2)
 	{
+		// The swapchain takes the window's framebuffer size, not the viewport's (unscaled) size.
 		ImGuiViewportData* vd = GetViewportData(viewport);
-		vd->SC->OnResize((uint32_t)size.x, (uint32_t)size.y);
+		vd->SC->OnResize();
 	}
 
 	static void ImGuiRenderer_RenderWindow(ImGuiViewport* viewport, void*)
@@ -300,9 +292,6 @@ namespace Lux {
 	void ImGuiLayer::InitPlatformInterface()
 	{
 		ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
-		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-			IM_ASSERT(platform_io.Platform_CreateVkSurface != NULL && "Platform needs to setup the CreateVkSurface handler.");
-
 		platform_io.Renderer_CreateWindow = ImGuiRenderer_CreateWindow;
 		platform_io.Renderer_DestroyWindow = ImGuiRenderer_DestroyWindow;
 		platform_io.Renderer_SetWindowSize = ImGuiRenderer_SetWindowSize;
@@ -480,7 +469,7 @@ namespace Lux {
 		if (auto snapshot = ImGuiDrawDataSnapshot::Create(ImGui::GetDrawData(), registry))
 		{
 			ImGuiRenderer* renderer = m_ImGuiRenderer.get();
-			VulkanSwapChain* swapchain = &Application::Get().GetWindow().GetSwapChain();
+			RHISwapChain* swapchain = &Application::Get().GetWindow().GetSwapChain();
 			const bool clearTarget = m_ClearMainViewport;
 			m_PendingRenderTasks.emplace_back([renderer, swapchain, snapshot, clearTarget]()
 			{
@@ -498,6 +487,12 @@ namespace Lux {
 				auto snapshot = ImGuiDrawDataSnapshot::Create(viewport->DrawData, registry);
 				if (!viewportData || !viewportData->SC || !viewportData->Renderer || !snapshot)
 					continue;
+
+				// Only the main window's swapchain is rebuilt in Window::ProcessEvents; a platform
+				// window's is rebuilt here, with the render thread idle, when its last frame found it
+				// out of date without a resize (e.g. moved to another monitor).
+				if (viewportData->SC->NeedsRecreate())
+					viewportData->SC->OnResize();
 
 				m_PendingRenderTasks.emplace_back([weakViewportData = WeakRef<ImGuiViewportData>(viewportData), viewportID = viewport->ID, snapshot]()
 				{

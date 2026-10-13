@@ -62,7 +62,7 @@ namespace Lux {
 		// Submits what RT_End closed, after the uploads (Renderer::FlushResourceUploads), the
 		// cross-queue waits added for its queue (Renderer::QueueWaitForCommandList) and
 		// `waitSemaphore`, an NRI wrapper of a binary semaphore; optional. A command buffer that
-		// draws to the back buffer passes VulkanSwapChain::TakeAcquireSemaphore().
+		// draws to the back buffer passes RHISwapChain::TakeAcquireSemaphore().
 		void RT_Submit(nri::Fence* waitSemaphore = nullptr);
 		// Blocks until this command buffer's last submission has finished on the GPU.
 		bool RT_WaitForCompletion();

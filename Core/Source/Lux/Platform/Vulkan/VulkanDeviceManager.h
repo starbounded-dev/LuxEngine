@@ -77,7 +77,6 @@ namespace Lux {
 			int32_t Graphics = -1;
 			int32_t Compute = -1;
 			int32_t Transfer = -1;
-			int32_t Present = -1;
 		};
 	public:
 		VulkanDeviceManager(GLFWwindow* windowHandle)
@@ -123,7 +122,6 @@ namespace Lux {
 	protected:
 		virtual bool CreateInstanceInternal() override;
 		virtual bool CreateDevice() override;
-		virtual bool InitSurfaceCapabilities(uint64_t surfaceHandle) override;
 		virtual void DestroyDevice() override;
 
 		const char* GetRendererString() const override
@@ -215,12 +213,10 @@ namespace Lux {
 		vk::Queue m_GraphicsQueue;
 		vk::Queue m_ComputeQueue;
 		vk::Queue m_TransferQueue;
-		vk::Queue m_PresentQueue;
 
 		nvrhi::vulkan::DeviceHandle m_NvrhiDevice;
 		nvrhi::DeviceHandle m_ValidationLayer;
 
-		bool m_SwapChainMutableFormatSupported = false;
 		bool m_BufferDeviceAddressSupported = false;
 		// True once the logical device was created with a dedicated transfer queue.
 		bool m_TransferQueueAvailable = false;
@@ -295,8 +291,6 @@ namespace Lux {
 
 			return VK_FALSE;
 		}
-
-		friend class VulkanSwapChain;
 	};
 
 }

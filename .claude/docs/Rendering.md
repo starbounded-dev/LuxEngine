@@ -17,7 +17,7 @@ Read this before touching anything under `Core/Source/Lux/Renderer/` or
   `RenderGraph.{h,cpp}`, `RenderCommandQueue`, `RenderCommandBuffer`, `Material`, `Pipeline`,
   `Shader`, `StorageBufferSet` / `UniformBufferSet`.
 - `Core/Source/Lux/Platform/Vulkan/**` — the nvrhi/Vulkan backend, `DescriptorSetManager`,
-  `ShaderCompiler/**`, `VulkanSwapChain`, `VulkanDeviceManager`.
+  `ShaderCompiler/**`, `VulkanDeviceManager`.
 - `Editor/Resources/Shaders/**` — the shader corpus itself.
 
 Changes in these paths are reviewed at higher rigour than ordinary engine code; `/cr` promotes
@@ -45,8 +45,8 @@ Renderer types (`Texture2D`, `Image2D`, `Pipeline`, `Framebuffer`, the buffers) 
 classes over NRI objects; `GetHandle()` on images and textures is the NRI texture.
 `Shader` is the one abstract type, implemented by `VulkanShader`.
 `Platform/Vulkan/` holds only what NVRHI does not provide: `VulkanDeviceManager` (instance,
-device, queues, validation callback), `VulkanSwapChain`, `VulkanShader` + `ShaderCompiler/`,
-`DescriptorSetManager`, and the Aftermath `Debug/` sources.
+device, queues, validation callback), `VulkanShader` + `ShaderCompiler/`, `DescriptorSetManager`,
+and the Aftermath `Debug/` sources. The swapchain is `Renderer/RHI/RHISwapChain`, on NRI.
 
 ---
 
@@ -131,7 +131,7 @@ The same wait is what makes per-frame slots safe: `RT_GetCurrentFrameIndex()` is
 `RT_GetFrameNumber() % FramesInFlight`, so a slot (query slots, `UniformBufferSet`/
 `StorageBufferSet::RT_Get`, `DescriptorSetManager` descriptor sets, `BindlessTextureTable` tables) is
 reused only after the GPU has finished the frame that last used it. It is **not** the swapchain
-image; use `VulkanSwapChain::GetCurrentBackBufferIndex()` for anything per-swapchain-image.
+image; use `RHISwapChain::GetCurrentBackBufferIndex()` for anything per-swapchain-image.
 `FramesInFlight` is clamped to `RendererConfig::MaxFramesInFlight` (3), the capacity of the fixed
 per-frame arrays.
 
@@ -353,13 +353,13 @@ The model:
   → `ShaderResource`, `Attachment` → `RenderTarget`/`DepthWrite`, `Storage` → `UnorderedAccess`,
   vertex/index buffers → `VertexBuffer`/`IndexBuffer`, GPU-only storage → `UnorderedAccess`,
   swapchain images → `Present`). A texture is created undefined: `NRITexture::Create` and
-  `VulkanSwapChain::Create` record its first transition into its resting state in the upload batch
+  `RHISwapChain::Create` record its first transition into its resting state in the upload batch
   (`UploadContext::InitializeTexture`), which is submitted before any command buffer that could use
-  it (NVRHI did the same from `Common` on a texture's first command list). `VulkanSwapChain::Destroy`
+  it (NVRHI did the same from `Common` on a texture's first command list). `RHISwapChain::Destroy`
   flushes the batch before it destroys the images, which would otherwise invalidate the batch and
   every upload in it. The tracker names a resource by its tracked description
   (`NRITexture`/`NRIBuffer::GetTracked`, `ImageInfo::Tracked`,
-  `VulkanSwapChain::GetCurrentTrackedBackBuffer`), whose handle is the NRI texture or buffer.
+  `RHISwapChain::GetCurrentTrackedBackBuffer`), whose handle is the NRI texture or buffer.
   CPU-visible buffers are untracked. Each `RenderCommandBuffer` owns a tracker; resources enter it at
   their resting state and `RT_End` returns them there.
 - **Where requirements come from.** NRI passes, draws and dispatches require what they bind:
@@ -412,11 +412,29 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   ray-tracing pipelines). Mesh-shader statistics need `meshShaderQueries` (enabled when supported;
   fork patch LUX-2). Check `DeviceVK::ResolveDispatchTable` before enabling a new extension.
 - **Surface extensions.** The fork loads a platform's surface function only when its instance
-  extension is enabled. GLFW enables just the one its window system uses (on X11 usually
-  `VK_KHR_xcb_surface`), so an NRI swapchain on X11 needs `VK_KHR_xlib_surface` enabled first
-  (Phase 14).
-- **One queue lock.** NRI and NVRHI submit to the same `VkQueue`s; every NRI `QueueSubmit` holds
-  `RenderCommandBuffer::LockQueue`.
+  extension is enabled, and NRI's swapchain calls the `get_surface_capabilities2` queries without
+  checking that they loaded. `VulkanDeviceManager` therefore requires
+  `VK_KHR_get_surface_capabilities2` with a window, and `VK_KHR_xlib_surface` on X11, where GLFW
+  enables only `VK_KHR_xcb_surface`.
+- **One queue lock.** NRI and NVRHI submit to the same `VkQueue`s; every NRI `QueueSubmit` and
+  `QueuePresent` holds `RenderCommandBuffer::LockQueue`.
+- **Swapchain** (`Renderer/RHI/RHISwapChain`, NRI migration Phase 14). Each window's swapchain (the
+  main window, every ImGui platform window, the runtime player) is an NRI `SwapChain`, which owns
+  the surface. `GetNRIWindow` (`Core/Platform/<OS>/<OS>NativeWindow.cpp`) gives NRI the HWND, or
+  the Wayland or X11 handles, and only those files include the window-system headers.
+  - **Size and format:** the window's framebuffer size, skipped at 0x0. NRI snaps it to the
+    surface's extent. The format is NRI's `BT709_G22_8BIT`: 8-bit UNORM in the sRGB color space,
+    RGBA before BGRA, so anything drawn to the back buffer takes its format from
+    `GetNRIColorFormat`.
+  - **Semaphores:** a ring of acquire semaphores, `max(images, maxFramesInFlight + 1)` long, so
+    one is reused only after the frame that waited for it completed; one present semaphore per
+    image.
+  - **Out of date:** NRI returns `OUT_OF_DATE` from an acquire or present without logging it (fork
+    patch LUX-3), and the swapchain flags `NeedsRecreate`. `Window::ProcessEvents` rebuilds the
+    main window's; `ImGuiLayer::End` rebuilds a platform window's. NRI reports a suboptimal
+    swapchain as success, so a resize is caught by the size callbacks.
+  - **Presenting queue:** NRI presents from the queue that created the swapchain, the graphics
+    queue, so with a window `FindQueueFamilies` picks a graphics family that can present.
 - **Errors.** NRI messages go to the log as `[NRI] …` under the `Renderer` tag. An NRI error breaks
   into the debugger in Debug, like a failed assert, and only logs otherwise. NRI validation is on in
   Debug.
@@ -468,7 +486,7 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
   is what `GetLastExecutionInstance` returns, what `Renderer::QueueWaitForCommandList` makes another
   queue wait for (added waits go with that queue's next command buffer submission, not with the
   upload batch flushed ahead of it), what `RT_WaitForCompletion` blocks on, and what frame pacing
-  (`Renderer::RT_BeginFrame`, `VulkanSwapChain::Present`) waits for. A binary semaphore wait is
+  (`Renderer::RT_BeginFrame`, `RHISwapChain::Present`) waits for. A binary semaphore wait is
   passed with the submission that needs it: the swapchain hands out its acquire semaphore once per
   frame (`TakeAcquireSemaphore`), to the first command buffer that draws to the back buffer, and
   `Present` waits for it itself when nothing did, in the signal-only submission that also signals
@@ -654,6 +672,10 @@ focused. `IMMEDIATE` is the only mode the spec guarantees will not block on vbla
 way a windowed surface exceeds the refresh rate. Selected by
 `DeviceCreationParameters::preferImmediatePresentMode` (editor: Application Settings → Present Mode),
 applied through `Window::SetPreferImmediatePresentMode` on the deferred swapchain-recreate path.
+`RHISwapChain` turns the settings into NRI flags: VSync is `VSYNC` (FIFO), IMMEDIATE is
+`ALLOW_TEARING`, and MAILBOX is no flag. NRI falls back to FIFO when the surface lacks the mode
+(the raw-Vulkan swapchain tried the other uncapped mode first). Never set `ALLOW_TEARING` with
+`VSYNC`: NRI would pick FIFO_RELAXED.
 
 Two consequences that cost real debugging time:
 

@@ -73,7 +73,7 @@ Three different indices exist, and they are not interchangeable:
 |---|---|---|
 | `Renderer::GetCurrentFrameIndex()` | main | `Application`'s frame counter mod `FramesInFlight` (e.g. `Renderer2D` vertex buffers) |
 | `Renderer::RT_GetCurrentFrameIndex()` | render | the render frame slot, `RT_GetFrameNumber() % FramesInFlight`; safe to reuse because `RT_BeginFrame` waited for the GPU |
-| `VulkanSwapChain::GetCurrentBackBufferIndex()` | render | the acquired swapchain image; not sequential under MAILBOX |
+| `RHISwapChain::GetCurrentBackBufferIndex()` | render | the acquired swapchain image; not sequential under MAILBOX |
 
 Two consequences worth internalising:
 

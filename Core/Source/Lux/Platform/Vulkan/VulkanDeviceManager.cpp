@@ -89,6 +89,12 @@ namespace Lux {
 			{
 				enabledExtensions.instance.insert(std::string(glfwExt[i]));
 			}
+
+			// The NRI swapchain (RHISwapChain) queries surfaces through get_surface_capabilities2, and
+			// on X11 creates an Xlib surface, where GLFW asks only for the XCB one.
+			enabledExtensions.instance.insert(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+			if (glfwGetPlatform() == GLFW_PLATFORM_X11)
+				enabledExtensions.instance.insert("VK_KHR_xlib_surface");
 		}
 
 		// add instance extensions requested by the user
@@ -244,9 +250,6 @@ namespace Lux {
 	bool VulkanDeviceManager::pickPhysicalDevice()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		VkFormat requestedFormat = nvrhi::vulkan::convertFormat(m_DeviceParams.swapChainFormat);
-		vk::Extent2D requestedExtent(m_DeviceParams.backBufferWidth, m_DeviceParams.backBufferHeight);
-
 		auto devices = m_VulkanInstance.enumeratePhysicalDevices();
 
 		int firstDevice = 0;
@@ -357,10 +360,13 @@ namespace Lux {
 		{
 			const auto& queueFamily = props[i];
 
+			// The swapchain presents from the graphics queue (RHISwapChain), so with a window that
+			// family must be able to present.
 			if (m_QueueFamilyIndices.Graphics == -1)
 			{
 				if (queueFamily.queueCount > 0 &&
-					(queueFamily.queueFlags & vk::QueueFlagBits::eGraphics))
+					(queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) &&
+					(m_DeviceParams.headlessDevice || glfwGetPhysicalDevicePresentationSupport(m_VulkanInstance, physicalDevice, i)))
 				{
 					m_QueueFamilyIndices.Graphics = i;
 				}
@@ -386,19 +392,9 @@ namespace Lux {
 					m_QueueFamilyIndices.Transfer = i;
 				}
 			}
-
-			if (m_QueueFamilyIndices.Present == -1)
-			{
-				if (queueFamily.queueCount > 0 &&
-					glfwGetPhysicalDevicePresentationSupport(m_VulkanInstance, physicalDevice, i))
-				{
-					m_QueueFamilyIndices.Present = i;
-				}
-			}
 		}
 
 		if (m_QueueFamilyIndices.Graphics == -1 ||
-			m_QueueFamilyIndices.Present == -1 && !m_DeviceParams.headlessDevice ||
 			(m_QueueFamilyIndices.Compute == -1 && m_DeviceParams.enableComputeQueue))
 		{
 			return false;
@@ -501,8 +497,6 @@ namespace Lux {
 				maintenance5Supported = true;
 			else if (ext == VK_KHR_MAINTENANCE_6_EXTENSION_NAME)
 				maintenance6Supported = true;
-			else if (ext == VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME)
-				m_SwapChainMutableFormatSupported = true;
 		}
 
 #define APPEND_EXTENSION(condition, desc) if (condition) { (desc).pNext = pNext; pNext = &(desc); }  // NOLINT(cppcoreguidelines-macro-usage)
@@ -541,9 +535,6 @@ namespace Lux {
 
 		std::unordered_set<int> uniqueQueueFamilies = {
 			m_QueueFamilyIndices.Graphics };
-
-		if (!m_DeviceParams.headlessDevice)
-			uniqueQueueFamilies.insert(m_QueueFamilyIndices.Present);
 
 		if (m_DeviceParams.enableComputeQueue)
 			uniqueQueueFamilies.insert(m_QueueFamilyIndices.Compute);
@@ -677,8 +668,6 @@ namespace Lux {
 		m_TransferQueueAvailable = m_DeviceParams.enableCopyQueue && m_QueueFamilyIndices.Transfer != -1;
 		if (m_TransferQueueAvailable)
 			m_VulkanDevice.getQueue(m_QueueFamilyIndices.Transfer, 0, &m_TransferQueue);
-		if (!m_DeviceParams.headlessDevice)
-			m_VulkanDevice.getQueue(m_QueueFamilyIndices.Present, 0, &m_PresentQueue);
 
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(m_VulkanDevice);
 		Aftermath::OnDeviceCreated(static_cast<VkDevice>(m_VulkanDevice), VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr);
@@ -727,14 +716,6 @@ namespace Lux {
 			optionalExtensions.device.insert(name);
 		}
 
-		if (!m_DeviceParams.headlessDevice)
-		{
-			// Need to adjust the swap chain format before creating the device because it affects physical device selection
-			if (m_DeviceParams.swapChainFormat == nvrhi::Format::SRGBA8_UNORM)
-				m_DeviceParams.swapChainFormat = nvrhi::Format::SBGRA8_UNORM;
-			else if (m_DeviceParams.swapChainFormat == nvrhi::Format::RGBA8_UNORM)
-				m_DeviceParams.swapChainFormat = nvrhi::Format::BGRA8_UNORM;
-		}
 		CHECK(pickPhysicalDevice())
 		CHECK(FindQueueFamilies(m_VulkanPhysicalDevice))
 		CHECK(createDevice())
@@ -846,12 +827,6 @@ namespace Lux {
 		}
 	}
 #endif
-
-	bool VulkanDeviceManager::InitSurfaceCapabilities(uint64_t surfaceHandle)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		return true;
-	}
 
 #undef CHECK
 

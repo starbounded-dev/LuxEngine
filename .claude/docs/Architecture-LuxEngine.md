@@ -176,15 +176,16 @@ per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.
 ### 2.2 Window / Platform
 
 `Window` (`Core/Source/Lux/Core/Window.h`) is created via `Window::Create(WindowSpecification)` and
-owns the GLFW window, the `DeviceManager`, and the `VulkanSwapChain`.
+owns the GLFW window, the `DeviceManager`, and the `RHISwapChain` (NRI's SwapChain extension, which
+owns the surface; `Rendering.md § NRI device`).
 `Application::GetGraphicsDeviceManager()` / `GetGraphicsDevice()` are the shortcuts to the nvrhi
 device. `Window::Init` also wraps the same Vulkan device in NRI (`RHIDevice::Init`, right after
 `CreateDevice`; Debug runs `RHIDevice::RunSelfTest` there), and `Window::Shutdown` destroys the NRI
-device after the swapchain and surface, before the device manager.
+device after the swapchain, before the device manager.
 
 Platform-specific implementations are separate translation units under
 `Core/Platform/Windows/` and `Core/Platform/Linux/` (`*FileSystem.cpp`, `*Thread.cpp`,
-`*RenderThread.cpp`), selected by a premake glob on `os.target()`. Add a platform behaviour by adding
+`*RenderThread.cpp`, `*NativeWindow.cpp`), selected by a premake glob on `os.target()`. Add a platform behaviour by adding
 the file to **both** folders — not with `#ifdef` in shared code.
 
 ### 2.3 Renderer
@@ -229,7 +230,7 @@ reads NRI's `QueryVideoMemoryInfo`.
 
 **Recording on NRI** (Phases 10-13; details in `Rendering.md § NRI device`). Everything is recorded
 into NRI command buffers (`CommandBufferPool`) and submitted through `RHIQueueTimeline`; NVRHI
-records and submits nothing. `VulkanSwapChain` exposes NRI wrappers of its acquire semaphore
+records and submits nothing. `RHISwapChain` hands out its acquire semaphore
 (`TakeAcquireSemaphore`, once per frame) and signals its present semaphore in a signal-only NRI
 submission.
 - `Pipeline` builds its NRI pipeline from its specification, the shader's SPIR-V and the

@@ -12,7 +12,7 @@
 #include "Lux/Platform/Vulkan/VulkanShader.h"
 #include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
-#include "Lux/Platform/Vulkan/VulkanSwapChain.h"
+#include "Lux/Renderer/RHI/RHISwapChain.h"
 
 #include <format>
 
@@ -380,7 +380,7 @@ namespace Lux {
 	// run after the main renderer can still resolve their texture handles.
 	// -----------------------------------------------------------------------
 
-	bool ImGuiRenderer::RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, VulkanSwapChain* swapchain, bool clearTarget)
+	bool ImGuiRenderer::RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, RHISwapChain* swapchain, bool clearTarget)
 	{
 		LUX_PROFILE_FUNC("ImGuiRenderer::RenderToSwapchain");
 
