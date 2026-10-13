@@ -162,6 +162,10 @@ project "Editor"
 		kind "WindowedApp"
 		optimize "Full"
 		symbols "Off"
+		-- Core's Dist ISA: one LTO program must be built for one target, or headers shared with
+		-- Core compile differently on each side (-Wodr at the Dist link).
+		vectorextensions "AVX2"
+		isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
 		defines { "LUX_DIST" }
 
 		ProcessDependencies("Dist")

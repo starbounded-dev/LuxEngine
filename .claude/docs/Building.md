@@ -100,6 +100,12 @@ crash. Keep it **Debug-only**; do not add it back to `Release` or `Dist`.
 `LUX_CORE_VERIFY` is enabled in **every** config (`LUX_ENABLE_VERIFY` is unconditional in
 `Assert.h`) — it is the assert that survives into Dist.
 
+`Release` and `Dist` target AVX2 (`vectorextensions "AVX2"`, `isaextensions { "BMI", "POPCNT",
+"LZCNT", "F16C" }`) in **Core, Editor and Lux-Runtime alike**. Projects linked into one program must
+share the target: with LTO, headers shared with Core compile differently on each side, and the
+Dist link reports it as `-Wodr` ("violates the C++ One Definition Rule") on `RenderCommandBuffer`
+methods. Change the target in all three `premake5.lua` files together.
+
 ---
 
 ## Optional features
