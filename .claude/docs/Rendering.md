@@ -416,7 +416,8 @@ During the NVRHI → NRI migration (`docs/NRI_MIGRATION_PLAN.md`) both libraries
 - **NRI owns GPU memory** (Phase 8; NVRHI's wrapper handles went in Phase 13). Every texture and
   buffer is an `NRITexture` / `NRIBuffer` (`Renderer/RHI/NVRHIWrappers.h`): an NRI committed
   resource, still described by an NVRHI desc until Phase 15. The NRI desc is derived from it
-  (format through the VkFormat; images EXCLUSIVE like NVRHI's), and the memory location from
+  (format through the VkFormat; attachments EXCLUSIVE like NVRHI's images, other textures
+  CONCURRENT, as NRI validation requires), and the memory location from
   `cpuAccess` (Write → HOST_UPLOAD, Read → HOST_READBACK, else DEVICE). Rules:
   - **Never call `device->createTexture` / `createBuffer`** — use `NRITexture::Create` /
     `NRIBuffer::Create`. Volatile NVRHI buffers are not supported.
@@ -694,8 +695,9 @@ queue: `SetAsyncTransferQueueEnabled` / `IsAsyncTransferQueueEnabled` / `UseAsyn
 reads of not-yet-uploaded memory — intermittent, GPU-dependent, and very hard to attribute.
 
 The copy-queue path is still not valid Vulkan: the batch's barriers (first transitions and the
-return to resting states) use graphics stages and accesses, and the resources are EXCLUSIVE with no
-queue-ownership transfer. That is why the toggle is off by default.
+return to resting states) use graphics stages and accesses, and attachment textures are EXCLUSIVE
+with no queue-ownership transfer (other textures and all buffers are CONCURRENT). That is why the
+toggle is off by default.
 
 ---
 

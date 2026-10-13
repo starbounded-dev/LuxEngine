@@ -146,8 +146,11 @@ namespace Lux {
 		nriDesc.mipNum = static_cast<nri::Dim_t>(desc.mipLevels);
 		nriDesc.layerNum = static_cast<nri::Dim_t>(volume ? 1 : desc.arraySize);
 		nriDesc.sampleNum = static_cast<nri::Sample_t>(desc.sampleCount);
-		// As NVRHI creates images. NRI's CONCURRENT default would also cost compression on some GPUs.
-		nriDesc.sharingMode = nri::SharingMode::EXCLUSIVE;
+		// Attachments stay EXCLUSIVE, as NVRHI created them: CONCURRENT costs them compression (DCC) on
+		// some GPUs. NRI validation rejects EXCLUSIVE on anything else, so the rest take NRI's
+		// CONCURRENT default, which also needs no queue ownership transfer on the compute/copy queues.
+		constexpr nri::TextureUsageBits attachmentUsage = nri::TextureUsageBits::COLOR_ATTACHMENT | nri::TextureUsageBits::DEPTH_STENCIL_ATTACHMENT | nri::TextureUsageBits::SHADING_RATE_ATTACHMENT;
+		nriDesc.sharingMode = (nriDesc.usage & attachmentUsage) ? nri::SharingMode::EXCLUSIVE : nri::SharingMode::CONCURRENT;
 
 		const char* formatName = nvrhi::getFormatInfo(desc.format).name;
 		if (nriDesc.format == nri::Format::UNKNOWN)
