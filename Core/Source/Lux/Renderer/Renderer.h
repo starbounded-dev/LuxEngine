@@ -26,7 +26,6 @@
 #include "SceneEnvironment.h"
 #include "Texture.h"
 
-#include "nvrhi/nvrhi.h"
 #include "Lux/Scene/Scene.h"
 
 namespace Lux {

@@ -13,10 +13,8 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Platform/Vulkan/VulkanShader.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
-#include <nvrhi/utils.h>
 
 // SMAA's precomputed lookup tables ship as headers in the reference implementation
 // (github.com/iryoku/smaa, MIT) rather than as loadable assets. They are optional: without

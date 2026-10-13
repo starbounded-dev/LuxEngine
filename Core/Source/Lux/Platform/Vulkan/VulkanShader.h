@@ -9,7 +9,6 @@
 #include "Lux/Renderer/Shader.h"
 #include "VulkanShaderResource.h"
 
-#include "nvrhi/nvrhi.h"
 
 #include <array>
 

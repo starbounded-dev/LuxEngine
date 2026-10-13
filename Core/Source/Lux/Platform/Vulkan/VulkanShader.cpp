@@ -16,7 +16,6 @@
 #include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/Renderer/BindlessTextureTable.h"
 #include "Lux/Renderer/Renderer.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Utilities/StringUtils.h"
 

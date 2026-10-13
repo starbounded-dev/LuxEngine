@@ -10,7 +10,6 @@
 #include "Lux/Debug/Profiler.h"
 
 #include "Lux/Platform/Vulkan/VulkanShader.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RHI/RHISwapChain.h"
 
@@ -452,11 +451,10 @@ namespace Lux {
 		passDesc.VertexStride = sizeof(ImDrawVert);
 		passDesc.RootConstants = true;
 
-		nvrhi::ViewportState viewport;
-		viewport.viewports = { nvrhi::Viewport(framebufferWidth, framebufferHeight) };
-		viewport.scissorRects = { nvrhi::Rect(static_cast<int>(framebufferWidth), static_cast<int>(framebufferHeight)) };
+		const nri::Viewport viewport = { 0.0f, 0.0f, framebufferWidth, framebufferHeight, 0.0f, 1.0f, false };
+		const nri::Rect scissor = { 0, 0, static_cast<nri::Dim_t>(framebufferWidth), static_cast<nri::Dim_t>(framebufferHeight) };
 
-		if (m_RenderCommandBuffer->RT_BeginNRIRenderPass(passDesc, "ImGui", viewport, nvrhi::VariableRateShadingState()))
+		if (m_RenderCommandBuffer->RT_BeginNRIRenderPass(passDesc, "ImGui", viewport, scissor, {}))
 		{
 			const ImVec2 clipOffset = drawData->DisplayPos;
 			const ImVec2 clipScale = drawData->FramebufferScale;
@@ -503,7 +501,10 @@ namespace Lux {
 					if (!commandBuffer)
 						continue;
 
-					m_RenderCommandBuffer->RT_SetNRIScissor(nvrhi::Rect(static_cast<int>(clipMin.x), static_cast<int>(clipMax.x), static_cast<int>(clipMin.y), static_cast<int>(clipMax.y)));
+					const int clipLeft = static_cast<int>(clipMin.x);
+					const int clipTop = static_cast<int>(clipMin.y);
+					m_RenderCommandBuffer->RT_SetNRIScissor({ static_cast<int16_t>(clipLeft), static_cast<int16_t>(clipTop),
+						static_cast<nri::Dim_t>(static_cast<int>(clipMax.x) - clipLeft), static_cast<nri::Dim_t>(static_cast<int>(clipMax.y) - clipTop) });
 
 					nri::DrawIndexedDesc draw = {};
 					draw.indexNum = drawCommand.ElemCount;

@@ -14,8 +14,6 @@
 #include "Lux/Renderer/RHI/StagingMemory.h"
 #include "Lux/Renderer/RendererConfig.h"
 
-#include "nvrhi/nvrhi.h"
-
 #include <array>
 #include <atomic>
 #include <mutex>
@@ -38,6 +36,9 @@ namespace nri {
 	struct Pipeline;
 	struct PipelineLayout;
 	struct QueryPool;
+	struct Rect;
+	struct ShadingRateDesc;
+	struct Viewport;
 }
 
 namespace Lux {
@@ -149,17 +150,18 @@ namespace Lux {
 		};
 		// Requires the attachments and the pass's sets, then opens the pass. False, with nothing
 		// recorded, when NRI cannot record into this command list (logged).
-		bool RT_BeginNRIRenderPass(const NRIRenderPassDesc& desc, std::string_view name, const nvrhi::ViewportState& viewport, const nvrhi::VariableRateShadingState& shadingRate);
+		// Viewport origin is top-left (NRI's default, the negative-height VkViewport); the shading
+		// rate applies to pipelines with a dynamic one.
+		bool RT_BeginNRIRenderPass(const NRIRenderPassDesc& desc, std::string_view name, const nri::Viewport& viewport, const nri::Rect& scissor, const nri::ShadingRateDesc& shadingRate);
 		void RT_EndNRIRenderPass();
 		bool RT_InNRIRenderPass() const;
 		const NRIRenderPassDesc& RT_GetNRIRenderPass() const;
 		std::string_view RT_GetNRIRenderPassName() const;
-		void RT_SetNRIViewportState(const nvrhi::ViewportState& viewport);
-		// Replace the viewports with `viewport` (keeping the scissor rectangles), or the scissor
-		// rectangles with `scissor` (keeping the viewports).
-		void RT_SetNRIViewport(const nvrhi::Viewport& viewport);
-		void RT_SetNRIScissor(const nvrhi::Rect& scissor);
-		void RT_SetNRIShadingRate(const nvrhi::VariableRateShadingState& shadingRate);
+		// Replace the viewport (keeping the scissor rectangle), the scissor rectangle (keeping the
+		// viewport) or the shading rate of the open pass.
+		void RT_SetNRIViewport(const nri::Viewport& viewport);
+		void RT_SetNRIScissor(const nri::Rect& scissor);
+		void RT_SetNRIShadingRate(const nri::ShadingRateDesc& shadingRate);
 
 		// What one draw in the open NRI render pass binds.
 		struct NRIDrawBindings

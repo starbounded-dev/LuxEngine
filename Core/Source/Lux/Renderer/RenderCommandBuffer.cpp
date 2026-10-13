@@ -7,7 +7,6 @@
 #include "Lux/Core/Hash.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/NVRHIWrappers.h"
 #include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
@@ -40,49 +39,6 @@ namespace Lux {
 		std::unordered_set<uint64_t> s_ReportedNRISplits;
 #endif
 
-		// NVRHI's viewport, as NRI's default top-left origin flips it: the same negative-height
-		// VkViewport NVRHI records (VKViewportWithDXCoords), so the Y convention is unchanged.
-		nri::Viewport ToNRIViewport(const nvrhi::Viewport& viewport)
-		{
-			return { viewport.minX, viewport.minY, viewport.maxX - viewport.minX, viewport.maxY - viewport.minY, viewport.minZ, viewport.maxZ, false };
-		}
-
-		nri::Rect ToNRIRect(const nvrhi::Rect& rect)
-		{
-			return { static_cast<int16_t>(rect.minX), static_cast<int16_t>(rect.minY),
-				static_cast<nri::Dim_t>(std::abs(rect.maxX - rect.minX)), static_cast<nri::Dim_t>(std::abs(rect.maxY - rect.minY)) };
-		}
-
-		nri::ShadingRate ToNRIShadingRate(nvrhi::VariableShadingRate rate)
-		{
-			switch (rate)
-			{
-				case nvrhi::VariableShadingRate::e1x2:	return nri::ShadingRate::FRAGMENT_SIZE_1X2;
-				case nvrhi::VariableShadingRate::e2x1:	return nri::ShadingRate::FRAGMENT_SIZE_2X1;
-				case nvrhi::VariableShadingRate::e2x2:	return nri::ShadingRate::FRAGMENT_SIZE_2X2;
-				case nvrhi::VariableShadingRate::e2x4:	return nri::ShadingRate::FRAGMENT_SIZE_2X4;
-				case nvrhi::VariableShadingRate::e4x2:	return nri::ShadingRate::FRAGMENT_SIZE_4X2;
-				case nvrhi::VariableShadingRate::e4x4:	return nri::ShadingRate::FRAGMENT_SIZE_4X4;
-				default:								return nri::ShadingRate::FRAGMENT_SIZE_1X1;
-			}
-		}
-
-		// NRI accepts combiners other than KEEP from shading-rate tier 2 on.
-		nri::ShadingRateCombiner ToNRIShadingRateCombiner(nvrhi::ShadingRateCombiner combiner)
-		{
-			if (RHIDevice::GetDesc().tiers.shadingRate < 2)
-				return nri::ShadingRateCombiner::KEEP;
-
-			switch (combiner)
-			{
-				case nvrhi::ShadingRateCombiner::Override:		return nri::ShadingRateCombiner::REPLACE;
-				case nvrhi::ShadingRateCombiner::Min:			return nri::ShadingRateCombiner::MIN;
-				case nvrhi::ShadingRateCombiner::Max:			return nri::ShadingRateCombiner::MAX;
-				case nvrhi::ShadingRateCombiner::ApplyRelative:	return nri::ShadingRateCombiner::SUM;
-				default:										return nri::ShadingRateCombiner::KEEP;
-			}
-		}
-
 	}
 
 	struct RenderCommandBuffer::NRIRenderState
@@ -95,8 +51,8 @@ namespace Lux {
 		NRIRenderPassDesc Desc;
 		// The groups of Desc.DescriptorSets: their uses are re-required inside the pass.
 		std::array<Ref<const DescriptorSetGroup>, MaxDescriptorSets> PassGroups;
-		nvrhi::static_vector<nri::Viewport, MaxViewports> Viewports;
-		nvrhi::static_vector<nri::Rect, MaxViewports> Scissors;
+		nri::Viewport Viewport = {};
+		nri::Rect Scissor = {};
 		nri::ShadingRateDesc ShadingRate = {};
 
 		// What the open rendering scope has bound; reset whenever a scope opens.
@@ -354,7 +310,7 @@ namespace Lux {
 		RT_EndNRISegment();
 	}
 
-	bool RenderCommandBuffer::RT_BeginNRIRenderPass(const NRIRenderPassDesc& desc, std::string_view name, const nvrhi::ViewportState& viewport, const nvrhi::VariableRateShadingState& shadingRate)
+	bool RenderCommandBuffer::RT_BeginNRIRenderPass(const NRIRenderPassDesc& desc, std::string_view name, const nri::Viewport& viewport, const nri::Rect& scissor, const nri::ShadingRateDesc& shadingRate)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		NRIRenderState& state = *m_NRIRender;
@@ -368,8 +324,9 @@ namespace Lux {
 		state.Desc = desc;
 		for (size_t i = 0; i < desc.DescriptorSets.size(); i++)
 			state.PassGroups[i] = desc.DescriptorSets[i].Group;
-		RT_SetNRIViewportState(viewport);
-		RT_SetNRIShadingRate(shadingRate);
+		state.Viewport = viewport;
+		state.Scissor = scissor;
+		state.ShadingRate = shadingRate;
 
 		// The attachments are required whenever a pass opens; the sets under the draws' change
 		// detection, so a draw that binds the pass's own set 0 again requires nothing. The buffers
@@ -445,10 +402,8 @@ namespace Lux {
 		state.Rendering = true;
 
 		// The pass state is rebound in every scope: NVRHI may have bound its own in between.
-		if (!state.Viewports.empty())
-			api.CmdSetViewports(*commandBuffer, state.Viewports.data(), static_cast<uint32_t>(state.Viewports.size()));
-		if (!state.Scissors.empty())
-			api.CmdSetScissors(*commandBuffer, state.Scissors.data(), static_cast<uint32_t>(state.Scissors.size()));
+		api.CmdSetViewports(*commandBuffer, &state.Viewport, 1);
+		api.CmdSetScissors(*commandBuffer, &state.Scissor, 1);
 		api.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::GRAPHICS, *desc.PipelineLayout);
 		api.CmdSetPipeline(*commandBuffer, *desc.Pipeline);
 		// The one raw Vulkan call in the renderer: NRI has no line-width state, and the fork's
@@ -500,51 +455,26 @@ namespace Lux {
 #endif
 	}
 
-	void RenderCommandBuffer::RT_SetNRIViewportState(const nvrhi::ViewportState& viewport)
+	void RenderCommandBuffer::RT_SetNRIViewport(const nri::Viewport& viewport)
 	{
 		NRIRenderState& state = *m_NRIRender;
-		state.Viewports.resize(0);
-		for (const nvrhi::Viewport& source : viewport.viewports)
-			state.Viewports.push_back(ToNRIViewport(source));
-		state.Scissors.resize(0);
-		for (const nvrhi::Rect& source : viewport.scissorRects)
-			state.Scissors.push_back(ToNRIRect(source));
-
-		if (!state.Rendering)
-			return;
-
-		const NRIInterface& api = RHIDevice::API();
-		if (!state.Viewports.empty())
-			api.CmdSetViewports(*m_NRICommandBuffer, state.Viewports.data(), static_cast<uint32_t>(state.Viewports.size()));
-		if (!state.Scissors.empty())
-			api.CmdSetScissors(*m_NRICommandBuffer, state.Scissors.data(), static_cast<uint32_t>(state.Scissors.size()));
-	}
-
-	void RenderCommandBuffer::RT_SetNRIViewport(const nvrhi::Viewport& viewport)
-	{
-		NRIRenderState& state = *m_NRIRender;
-		state.Viewports.resize(1);
-		state.Viewports[0] = ToNRIViewport(viewport);
+		state.Viewport = viewport;
 		if (state.Rendering)
-			RHIDevice::API().CmdSetViewports(*m_NRICommandBuffer, state.Viewports.data(), 1);
+			RHIDevice::API().CmdSetViewports(*m_NRICommandBuffer, &state.Viewport, 1);
 	}
 
-	void RenderCommandBuffer::RT_SetNRIScissor(const nvrhi::Rect& scissor)
+	void RenderCommandBuffer::RT_SetNRIScissor(const nri::Rect& scissor)
 	{
 		NRIRenderState& state = *m_NRIRender;
-		state.Scissors.resize(1);
-		state.Scissors[0] = ToNRIRect(scissor);
+		state.Scissor = scissor;
 		if (state.Rendering)
-			RHIDevice::API().CmdSetScissors(*m_NRICommandBuffer, state.Scissors.data(), 1);
+			RHIDevice::API().CmdSetScissors(*m_NRICommandBuffer, &state.Scissor, 1);
 	}
 
-	void RenderCommandBuffer::RT_SetNRIShadingRate(const nvrhi::VariableRateShadingState& shadingRate)
+	void RenderCommandBuffer::RT_SetNRIShadingRate(const nri::ShadingRateDesc& shadingRate)
 	{
 		NRIRenderState& state = *m_NRIRender;
-		state.ShadingRate.shadingRate = ToNRIShadingRate(shadingRate.shadingRate);
-		state.ShadingRate.primitiveCombiner = ToNRIShadingRateCombiner(shadingRate.pipelinePrimitiveCombiner);
-		state.ShadingRate.attachmentCombiner = ToNRIShadingRateCombiner(shadingRate.imageCombiner);
-
+		state.ShadingRate = shadingRate;
 		if (state.Rendering && state.Desc.DynamicShadingRate)
 			RHIDevice::API().CmdSetShadingRate(*m_NRICommandBuffer, state.ShadingRate);
 	}

@@ -9,7 +9,6 @@
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Image.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 namespace Lux {
@@ -104,31 +103,31 @@ namespace Lux {
 		}
 	}
 
-	static nvrhi::ResourceStates MapAccessFlagsToResourceState(ResourceAccessFlags accessFlags)
+	static ResourceState MapAccessFlagsToResourceState(ResourceAccessFlags accessFlags)
 	{
-		nvrhi::ResourceStates state = nvrhi::ResourceStates::Unknown;
+		ResourceState state = ResourceState::Unknown;
 
 		if ((uint32_t)accessFlags & (uint32_t)ResourceAccessFlags::ShaderRead)
-			state = state | nvrhi::ResourceStates::ShaderResource;
+			state = state | ResourceState::ShaderResource;
 		if ((uint32_t)accessFlags & (uint32_t)ResourceAccessFlags::ShaderWrite)
-			state = state | nvrhi::ResourceStates::UnorderedAccess;
+			state = state | ResourceState::UnorderedAccess;
 		if ((uint32_t)accessFlags & (uint32_t)ResourceAccessFlags::TransferRead)
-			state = state | nvrhi::ResourceStates::CopySource;
+			state = state | ResourceState::CopySource;
 		if ((uint32_t)accessFlags & (uint32_t)ResourceAccessFlags::TransferWrite)
-			state = state | nvrhi::ResourceStates::CopyDest;
+			state = state | ResourceState::CopyDest;
 		if ((uint32_t)accessFlags & (uint32_t)ResourceAccessFlags::ColorAttachmentWrite)
-			state = state | nvrhi::ResourceStates::RenderTarget;
+			state = state | ResourceState::RenderTarget;
 		if ((uint32_t)accessFlags & (uint32_t)ResourceAccessFlags::DepthStencilAttachmentRead)
-			state = state | nvrhi::ResourceStates::DepthRead;
+			state = state | ResourceState::DepthRead;
 		if ((uint32_t)accessFlags & (uint32_t)ResourceAccessFlags::DepthStencilAttachmentWrite)
-			state = state | nvrhi::ResourceStates::DepthWrite;
+			state = state | ResourceState::DepthWrite;
 
 		if ((static_cast<uint32_t>(accessFlags) & static_cast<uint32_t>(ResourceAccessFlags::IndirectCommandRead)) != 0)
-			state = state | nvrhi::ResourceStates::IndirectArgument;
+			state = state | ResourceState::IndirectArgument;
 
 		// Default to ShaderResource if no specific flags matched
-		if (state == nvrhi::ResourceStates::Unknown)
-			state = nvrhi::ResourceStates::ShaderResource;
+		if (state == ResourceState::Unknown)
+			state = ResourceState::ShaderResource;
 
 		return state;
 	}
@@ -238,7 +237,7 @@ namespace Lux {
 		if (!buffer.Handle)
 			return;
 		renderCommandBuffer->RT_BeginMarker(markerName);
-		renderCommandBuffer->RT_TransitionBufferState(buffer, FromNVRHI(MapAccessFlagsToResourceState(toAccess)));
+		renderCommandBuffer->RT_TransitionBufferState(buffer, MapAccessFlagsToResourceState(toAccess));
 		renderCommandBuffer->RT_CommitBarriers();
 		renderCommandBuffer->RT_EndMarker();
 	}
@@ -263,7 +262,7 @@ namespace Lux {
 				if (!texture.Handle)
 					return;
 				renderCommandBuffer->RT_BeginMarker(markerName);
-				renderCommandBuffer->RT_TransitionTextureState(texture, AllSubresources, FromNVRHI(MapAccessFlagsToResourceState(toAccess)));
+				renderCommandBuffer->RT_TransitionTextureState(texture, AllSubresources, MapAccessFlagsToResourceState(toAccess));
 				renderCommandBuffer->RT_CommitBarriers();
 				renderCommandBuffer->RT_EndMarker();
 			});

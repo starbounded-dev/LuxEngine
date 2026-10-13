@@ -24,7 +24,6 @@
 #include "Lux/Renderer/RHI/RHIQueueTimeline.h"
 #include "Lux/Renderer/RHI/StagingMemory.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
-#include "Lux/Renderer/RHI/NVRHIInterop.h"
 #include "Lux/Renderer/RHI/RHISwapChain.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Utilities/StringUtils.h"
@@ -32,8 +31,6 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Renderer/MaterialAsset.h"
 
-#include "nvrhi/nvrhi.h"
-#include "nvrhi/utils.h"
 
 #if LUX_HAS_SHADER_COMPILER
 #include "Lux/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
@@ -308,37 +305,41 @@ namespace Lux {
 	// yet). Consumers wait on it before reading uploaded resources.
 	static std::atomic<uint64_t> s_LastUploadInstance = 0;
 	// Highest upload instance each consuming queue has already inserted a wait for,
-	// indexed by nvrhi::CommandQueue (Graphics=0, Compute=1, Copy=2). Avoids
+	// indexed by GPUQueue (Graphics=0, Compute=1, Copy=2). Avoids
 	// redundant per-submit waits on an upload that's already been synchronized.
 	static std::atomic<uint64_t> s_QueueWaitedUploadInstance[(size_t)GPUQueue::Count] = {};
 
-	static nvrhi::VariableShadingRate ToNVRHIShadingRate(FragmentShadingRate rate)
+	static nri::ShadingRate ToNRIShadingRate(FragmentShadingRate rate)
 	{
 		switch (rate)
 		{
-			case FragmentShadingRate::Rate1x2: return nvrhi::VariableShadingRate::e1x2;
-			case FragmentShadingRate::Rate2x1: return nvrhi::VariableShadingRate::e2x1;
-			case FragmentShadingRate::Rate2x2: return nvrhi::VariableShadingRate::e2x2;
-			case FragmentShadingRate::Rate2x4: return nvrhi::VariableShadingRate::e2x4;
-			case FragmentShadingRate::Rate4x2: return nvrhi::VariableShadingRate::e4x2;
-			case FragmentShadingRate::Rate4x4: return nvrhi::VariableShadingRate::e4x4;
+			case FragmentShadingRate::Rate1x2: return nri::ShadingRate::FRAGMENT_SIZE_1X2;
+			case FragmentShadingRate::Rate2x1: return nri::ShadingRate::FRAGMENT_SIZE_2X1;
+			case FragmentShadingRate::Rate2x2: return nri::ShadingRate::FRAGMENT_SIZE_2X2;
+			case FragmentShadingRate::Rate2x4: return nri::ShadingRate::FRAGMENT_SIZE_2X4;
+			case FragmentShadingRate::Rate4x2: return nri::ShadingRate::FRAGMENT_SIZE_4X2;
+			case FragmentShadingRate::Rate4x4: return nri::ShadingRate::FRAGMENT_SIZE_4X4;
 			case FragmentShadingRate::Rate1x1:
 			default:
-				return nvrhi::VariableShadingRate::e1x1;
+				return nri::ShadingRate::FRAGMENT_SIZE_1X1;
 		}
 	}
 
-	static nvrhi::VariableRateShadingState MakeFragmentShadingRateState(FragmentShadingRate rate)
+	// The rate replaces the primitive and attachment rates. Without VRS it stays 1x1; below
+	// shading-rate tier 2, where NRI takes only KEEP combiners, nothing is combined.
+	static nri::ShadingRateDesc MakeFragmentShadingRate(FragmentShadingRate rate)
 	{
-		nvrhi::VariableRateShadingState state;
+		nri::ShadingRateDesc desc = {};
 		if (!Renderer::SupportsVariableRateShading())
-			return state;
+			return desc;
 
-		state.enabled = true;
-		state.shadingRate = ToNVRHIShadingRate(rate);
-		state.pipelinePrimitiveCombiner = nvrhi::ShadingRateCombiner::Override;
-		state.imageCombiner = nvrhi::ShadingRateCombiner::Override;
-		return state;
+		desc.shadingRate = ToNRIShadingRate(rate);
+		if (RHIDevice::GetDesc().tiers.shadingRate >= 2)
+		{
+			desc.primitiveCombiner = nri::ShadingRateCombiner::REPLACE;
+			desc.attachmentCombiner = nri::ShadingRateCombiner::REPLACE;
+		}
+		return desc;
 	}
 
 	// Logs once per pipeline or shader (`key`) that work recorded with it is skipped, and why.
@@ -656,15 +657,9 @@ namespace Lux {
 		// destroy them at exit and call into an already-destroyed VkDevice (shutdown AV in the driver).
 		MaterialAsset::ReleaseSharedResources();
 
-		auto* deviceManager = Application::Get().GetWindow().GetDeviceManager();
-		nvrhi::DeviceHandle graphicsDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
-
 		// Wait for device to become idle before cleanup.
-		if (graphicsDevice)
-		{
-			VkDevice device = (VkDevice)graphicsDevice->getNativeObject(nvrhi::ObjectTypes::VK_Device);
-			vkDeviceWaitIdle(device);
-		}
+		if (RHIDevice::IsInitialized())
+			RHIDevice::API().DeviceWaitIdle(&RHIDevice::Get());
 
 		// Execute any batched uploads still pending, then release the batch. Its command buffers and
 		// staging memory are released with the deletion queue below, once the GPU is idle again.
@@ -691,18 +686,10 @@ namespace Lux {
 		}
 
 		// Everything is idle once the device is, so every pending release can run.
-		if (graphicsDevice)
-			graphicsDevice->waitForIdle();
+		if (RHIDevice::IsInitialized())
+			RHIDevice::API().DeviceWaitIdle(&RHIDevice::Get());
 		s_ResourceFreeQueue.DrainAll();
 		StagingStream::Shutdown();
-
-		if (graphicsDevice)
-		{
-			graphicsDevice->waitForIdle();
-			graphicsDevice->runGarbageCollection();
-			graphicsDevice->waitForIdle();
-			graphicsDevice->runGarbageCollection();
-		}
 
 		delete s_CommandQueue[0];
 		delete s_CommandQueue[1];
@@ -1003,7 +990,7 @@ namespace Lux {
 		Renderer::Submit([renderCommandBuffer, rate]() mutable
 		{
 			if (renderCommandBuffer->RT_InNRIRenderPass())
-				renderCommandBuffer->RT_SetNRIShadingRate(MakeFragmentShadingRateState(rate));
+				renderCommandBuffer->RT_SetNRIShadingRate(MakeFragmentShadingRate(rate));
 		});
 	}
 
@@ -1026,8 +1013,7 @@ namespace Lux {
 			{
 				if (renderCommandBuffer->RT_InNRIRenderPass())
 				{
-					renderCommandBuffer->RT_SetNRIViewport(nvrhi::Viewport(static_cast<float>(x), static_cast<float>(x + width),
-						static_cast<float>(y), static_cast<float>(y + height), 0.0f, 1.0f));
+					renderCommandBuffer->RT_SetNRIViewport({ static_cast<float>(x), static_cast<float>(y), static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f, false });
 				}
 			});
 	}
@@ -1039,8 +1025,7 @@ namespace Lux {
 			{
 				if (renderCommandBuffer->RT_InNRIRenderPass())
 				{
-					renderCommandBuffer->RT_SetNRIScissor(nvrhi::Rect(static_cast<int>(x), static_cast<int>(x + width),
-						static_cast<int>(y), static_cast<int>(y + height)));
+					renderCommandBuffer->RT_SetNRIScissor({ static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<nri::Dim_t>(width), static_cast<nri::Dim_t>(height) });
 				}
 			});
 	}
@@ -1531,10 +1516,9 @@ namespace Lux {
 		// The full-framebuffer viewport and the 1x1 shading rate every pass begins with.
 		const uint32_t width = framebuffer->GetWidth();
 		const uint32_t height = framebuffer->GetHeight();
-		nvrhi::ViewportState viewport;
-		viewport.viewports = { nvrhi::Viewport(static_cast<float>(width), static_cast<float>(height)) };
-		viewport.scissorRects = { nvrhi::Rect(static_cast<int>(width), static_cast<int>(height)) };
-		return renderCommandBuffer.RT_BeginNRIRenderPass(desc, passName, viewport, MakeFragmentShadingRateState(FragmentShadingRate::Rate1x1));
+		const nri::Viewport viewport = { 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f, false };
+		const nri::Rect scissor = { 0, 0, static_cast<nri::Dim_t>(width), static_cast<nri::Dim_t>(height) };
+		return renderCommandBuffer.RT_BeginNRIRenderPass(desc, passName, viewport, scissor, MakeFragmentShadingRate(FragmentShadingRate::Rate1x1));
 	}
 
 	bool Renderer::RT_DrawIndexed(RenderCommandBuffer& renderCommandBuffer, const IndexedDraw& draw)
@@ -1899,13 +1883,14 @@ namespace Lux {
 
 	bool Renderer::SupportsMeshShaders()
 	{
-		static const bool s_Supported = Application::GetGraphicsDevice()->queryFeatureSupport(nvrhi::Feature::Meshlets);
+		static const bool s_Supported = RHIDevice::GetDesc().features.meshShader;
 		return s_Supported;
 	}
 
 	bool Renderer::SupportsVariableRateShading()
 	{
-		static const bool s_Supported = Application::GetGraphicsDevice()->queryFeatureSupport(nvrhi::Feature::VariableRateShading);
+		// Attachment shading rates (and the combiners), NRI's tier 2.
+		static const bool s_Supported = RHIDevice::GetDesc().tiers.shadingRate >= 2;
 		return s_Supported;
 	}
 

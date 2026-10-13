@@ -6,11 +6,12 @@
 #include <cstdint>
 #include <string_view>
 
-// Renderer vocabulary that engine, editor and serialization code may name. Backend types (NVRHI
-// today, NRI after the migration) stay inside renderer .cpp files; NVRHIInterop.h converts.
+// Renderer vocabulary that engine, editor and serialization code may name. Backend (NRI) types stay
+// inside renderer implementation files.
 //
-// Values mirror NVRHI's exactly. Shader reflection and ShaderPack files store ShaderStage raw, and
-// the shader cache stores its string form, so neither the values nor the strings may change.
+// The values are NVRHI's, kept when it went. Shader reflection and ShaderPack files store ShaderStage
+// raw, and the shader cache stores its string form, so neither the values nor the strings may change
+// (RHITypes.cpp checks them).
 
 #define LUX_RHI_ENUM_FLAG_OPERATORS(T) \
 	constexpr T operator|(T a, T b) { return T(uint32_t(a) | uint32_t(b)); } \
@@ -70,7 +71,7 @@ namespace Lux {
 		Texture3D
 	};
 
-	// Unlike nvrhi::TextureSubresourceSet, a default range covers every mip and layer.
+	// A default range covers every mip and layer.
 	struct TextureSubresourceRange
 	{
 		static constexpr uint32_t AllMips = ~0u;
@@ -94,7 +95,6 @@ namespace Lux {
 	inline constexpr uint32_t MaxViewports = 16;
 	inline constexpr uint32_t MaxVertexAttributes = 16;
 
-	// Same order as nvrhi::CommandQueue.
 	enum class GPUQueue : uint8_t
 	{
 		Graphics = 0,
