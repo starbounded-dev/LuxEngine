@@ -308,6 +308,10 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		VulkanDeviceManager* vulkanDeviceManager = (VulkanDeviceManager*)Application::Get().GetGraphicsDeviceManager();
+		// The open upload batch may hold the first transitions of these images (Create records them).
+		// Submitted now, the wait below covers it; destroying the images under a batch still being
+		// recorded would invalidate it, and every upload in it with it.
+		Renderer::FlushResourceUploads();
 		if (vulkanDeviceManager->m_VulkanDevice)
 		{
 			vulkanDeviceManager->m_VulkanDevice.waitIdle();

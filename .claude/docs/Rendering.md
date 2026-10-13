@@ -355,7 +355,9 @@ The model:
   swapchain images → `Present`). A texture is created undefined: `NRITexture::Create` and
   `VulkanSwapChain::Create` record its first transition into its resting state in the upload batch
   (`UploadContext::InitializeTexture`), which is submitted before any command buffer that could use
-  it (NVRHI did the same from `Common` on a texture's first command list). The tracker names a resource by its tracked description
+  it (NVRHI did the same from `Common` on a texture's first command list). `VulkanSwapChain::Destroy`
+  flushes the batch before it destroys the images, which would otherwise invalidate the batch and
+  every upload in it. The tracker names a resource by its tracked description
   (`NRITexture`/`NRIBuffer::GetTracked`, `ImageInfo::Tracked`,
   `VulkanSwapChain::GetCurrentTrackedBackBuffer`), whose handle is the NRI texture or buffer.
   CPU-visible buffers are untracked. Each `RenderCommandBuffer` owns a tracker; resources enter it at
