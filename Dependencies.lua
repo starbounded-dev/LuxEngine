@@ -241,10 +241,6 @@ Dependencies = {
 		LibName = "ImGui",
 		IncludeDir = "%{wks.location}/Core/vendor/imgui",
 	},
-	NVRHI = {
-		LibName = { "NVRHI", "NVRHI-Vulkan" },
-		IncludeDir = "%{wks.location}/Core/vendor/nvrhi/include"
-	},
 	NRI = {
 		-- Dependents before dependencies: GNU ld resolves static archives left to right.
 		LibName = { "NRI", "NRI-VK", "NRI-Validation", "NRI-NONE", "NRI-Shared" },

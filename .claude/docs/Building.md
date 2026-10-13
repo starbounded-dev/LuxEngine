@@ -59,8 +59,8 @@ scripts/Linux-RenderDoc.sh      # the editor inside RenderDoc (LUX_RENDERDOC=1 L
 `Linux-Build.sh` is one-shot and idempotent: it checks prerequisites (`dotnet make clang pkg-config
 curl tar`, plus `gtk+-3.0` for NFD-Extended file dialogs), syncs submodules, locates or downloads a
 **pinned, checksum-verified** premake (`5.0.0-beta4`) into `vendor/bin/premake5`, downloads a
-**pinned** Vulkan SDK (`1.4.335.0` — the vendored NVRHI requires `1.4.318`+; override with
-`VULKAN_VERSION`) into
+**pinned** Vulkan SDK (`1.4.335.0`, for Lux's own Vulkan code and the shader tools: NRI brings its
+own headers; override with `VULKAN_VERSION`) into
 `Core/vendor/VulkanSDK/x86_64` if the vendored copy is missing, generates makefiles, and builds.
 Only the Windows premake binary is committed — any file named `premake5` is gitignored, and the
 Vulkan SDK itself is gitignored — so a clean checkout has neither and the script fetches both on
@@ -153,7 +153,6 @@ stdin isn't a TTY, `Menu.py` degrades to plain prompts so the same path works un
 | Runtime | `Lux-Runtime` | Standalone runtime player |
 | Dependencies | Box2D, JoltPhysics, GLFW, imgui, Tracy, NFD-Extended, Coral.Native, Coral.Managed, Coral.Generator (stub) | |
 | Dependencies/Text | msdf-atlas-gen | |
-| Dependencies/Renderer | NVRHI, NVRHI-Vulkan, NVRHI-D3D11, NVRHI-D3D12 | |
 | Dependencies/Renderer | NRI, NRI-VK, NRI-Validation, NRI-NONE, NRI-Shared | NRI's own `premake5.lua` (see below) |
 
 **C# is built by MSBuild inside the solution.** `Coral.Managed` and `ScriptCore` are
@@ -171,10 +170,6 @@ those edits wouldn't travel with the repo and would break fresh checkouts:
   `Debug-AS`/`Dist`.
 - **`Coral.Generator`** is a `kind "Utility"` stub so `Coral.Managed`'s `dependson` resolves at our
   pinned commit.
-- **NVRHI**'s cmake-branch premake expects `HazelRootDirectory` and `DefaultTargetParams` from the
-  original Hazel build system; both are defined in `premake5.lua` (the former pointing at
-  `scripts/compat`). The NVRHI projects are then reopened to add Vulkan include dirs and
-  `NVRHI_WITH_RTXMU=1`.
 - **Tracy** on Linux force-includes `<cstring>` (its `TracyFastVector.hpp` uses `memcpy` in a
   template instantiated before `<string.h>` is fully parsed under GCC).
 
@@ -374,8 +369,7 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 - `LUX_DIR` — repo root. Set by `Setup.py` via `setx` on Windows; derived from the script location
   on Linux.
 - `VULKAN_SDK` — used if set, otherwise the vendored `Core/vendor/VulkanSDK/x86_64` on Linux.
-  `Dependencies.lua` and the NVRHI project overrides both read it, so they compile against the same
-  Vulkan headers (a mismatch produces C++ wrapper ABI errors).
+  `Dependencies.lua` reads it for Core's Vulkan headers and libraries.
 - `VULKAN_VERSION`, `PREMAKE_VERSION` — override the pins in `scripts/Linux-Fetch.sh`.
 - `BUILD_CONFIG`, `JOBS` — consumed by `scripts/Linux-Build.sh`.
 - `LUX_GOLDEN_*` — read by the editor's golden-image capture (`Rendering.md § Golden image

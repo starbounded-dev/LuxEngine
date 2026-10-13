@@ -169,43 +169,6 @@ group "Dependencies/Text"
 group ""
 
 group "Dependencies/Renderer"
-	-- nvrhi's cmake-branch premake5.lua expects these symbols from the original Hazel
-	-- build system.  Define them here so we don't have to modify the submodule.
-	HazelRootDirectory = path.getabsolute("scripts/compat")
-
-	function DefaultTargetParams(preserveFilter)
-		filter "configurations:Debug or configurations:Debug-AS"
-			runtime "Debug"
-		filter "configurations:Release or configurations:Dist"
-			runtime "Release"
-		if preserveFilter then
-			filter {}
-		end
-	end
-
-	include "Core/vendor/nvrhi"
-
-	-- Override nvrhi projects to add Vulkan headers, defines, and fix X11 macro pollution.
-	-- Use the same VULKAN_SDK path as Dependencies.lua so nvrhi and Core compile against
-	-- the same Vulkan header version (avoids C++ wrapper ABI mismatches).
-	project "NVRHI-Vulkan"
-		defines { "NVRHI_WITH_RTXMU=1" }
-		filter "system:windows"
-			defines { "VK_USE_PLATFORM_WIN32_KHR" }
-			includedirs { "%{VULKAN_SDK}/Include" }
-		filter "system:linux"
-			includedirs { "%{VULKAN_SDK}/include" }
-		filter {}
-
-	project "NVRHI-D3D11"
-		defines { "NVRHI_WITH_RTXMU=1" }
-
-	project "NVRHI-D3D12"
-		defines { "NVRHI_WITH_RTXMU=1" }
-
-	project "NVRHI"
-		defines { "NVRHI_WITH_RTXMU=1" }
-
 	-- NRI (fork starbounded-dev/NRI, branch "lux") carries its own premake5.lua.
 	include "Core/vendor/NRI"
 group ""
