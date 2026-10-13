@@ -56,7 +56,9 @@ Detection helpers: `Application::IsMainThread()` / `Application::GetMainThreadID
 2. `ProcessEvents()` — poll OS events **while both threads are idle**.
 3. `RenderImGui()` + `m_ImGuiLayer->End()` — build the UI. Dear ImGui's GLFW backend performs native
    window operations that must run on the thread owning the window, so the UI is *built and
-   snapshotted* here, on the main thread, while the render thread is idle.
+   snapshotted* here, on the main thread, while the render thread is idle. A snapshot is drawn one
+   frame later, after the next `ProcessTextures()` may have destroyed an ImGui-owned texture it
+   uses, so `ImGuiDrawDataSnapshot::Create` resolves every command's texture ID when it is taken.
 4. `m_RenderThread.NextFrame()` then `Kick()` — hand the previous frame's queue to the render thread
    and start it.
 5. `Renderer::BeginFrame()`, `Renderer::ExecuteBackgroundThreadSubmits()`, layer `OnUpdate`,

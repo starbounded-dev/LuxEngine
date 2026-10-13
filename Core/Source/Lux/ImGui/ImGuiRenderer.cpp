@@ -68,6 +68,13 @@ namespace Lux {
 			clonedDrawList->_IdxWritePtr = clonedDrawList->IdxBuffer.Data + clonedDrawList->IdxBuffer.Size;
 			clonedDrawList->_VtxCurrentIdx = (unsigned int)clonedDrawList->VtxBuffer.Size;
 
+			// Resolve each command's texture now, while ProcessTextures() has just run. A TexRef to
+			// an ImGui-owned ImTextureData reads its TexID when drawn, and by then the main thread
+			// may have destroyed it (a growing font atlas replaces its texture), leaving the render
+			// thread an invalid ID.
+			for (ImDrawCmd& command : clonedDrawList->CmdBuffer)
+				command.TexRef = ImTextureRef(command.GetTexID());
+
 			snapshot->m_OwnedDrawLists.push_back(clonedDrawList);
 			snapshot->m_DrawData.AddDrawList(clonedDrawList);
 		}
@@ -218,8 +225,9 @@ namespace Lux {
 					CreateOrUpdateImGuiTexture(tex);
 					break;
 				case ImTextureStatus_WantDestroy:
-					// UnusedFrames > 0 guarantees the texture isn't referenced by the draw data we
-					// just snapshotted, so releasing our reference now is safe.
+					// UnusedFrames > 0: this frame's draw data does not use the texture. Snapshots still
+					// queued for the render thread hold their own refs and resolved IDs, so releasing
+					// ours now is safe.
 					if (tex->UnusedFrames > 0)
 						DestroyImGuiTexture(tex);
 					break;
