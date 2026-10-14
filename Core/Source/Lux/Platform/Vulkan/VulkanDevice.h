@@ -56,11 +56,7 @@ freely, subject to the following restrictions:
 
 #include <vulkan/vulkan.hpp>
 
-#if LUX_ENABLE_PROFILING
-// Only pulled in here, not in Profiler.h: TracyVulkan.hpp needs the Vulkan headers, and
-// Profiler.h reaches nearly every translation unit through the PCH.
-#include <tracy/TracyVulkan.hpp>
-#endif
+#include "Lux/Platform/Vulkan/VulkanGPUProfiler.h"
 
 #include <format>
 
@@ -194,7 +190,7 @@ namespace Lux {
 		// Tracy GPU context for the graphics queue. Valid between CreateDevice and
 		// DestroyDevice; null if creation failed, which callers must tolerate. Zones are
 		// emitted on the render thread by RenderCommandBuffer's timer-query pair.
-		[[nodiscard]] TracyVkCtx GetGPUProfilerContext() const { return m_TracyGPUContext; }
+		[[nodiscard]] TracyVkCtx GetGPUProfilerContext() const { return m_GPUProfiler.GetContext(); }
 #endif
 	private:
 		bool CreateInstanceInternal();
@@ -294,19 +290,10 @@ namespace Lux {
 		vk::detail::DynamicLoader m_dynamicLoader;
 
 #if LUX_ENABLE_PROFILING
-		// Owned here because this class owns the physical device, logical device, and
-		// graphics queue Tracy binds to, so the context's lifetime must match theirs.
-		TracyVkCtx m_TracyGPUContext = nullptr;
-		// Tracy drives its init command buffer itself - recording, submitting, and
-		// calling vkQueueWaitIdle several times - so it needs a pool of its own.
-		vk::CommandPool m_TracyGPUCommandPool;
+		VulkanGPUProfiler m_GPUProfiler;
 #endif
 
 	private:
-#if LUX_ENABLE_PROFILING
-		void CreateGPUProfilerContext();
-		void DestroyGPUProfilerContext();
-#endif
 
 		static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugCallback(
 			VkDebugReportFlagsEXT flags,
