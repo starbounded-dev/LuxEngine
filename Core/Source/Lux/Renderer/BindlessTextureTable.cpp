@@ -8,7 +8,6 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
-#include <vulkan/vulkan.h>
 #include <algorithm>
 
 namespace Lux {

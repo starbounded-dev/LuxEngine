@@ -16,8 +16,8 @@ Read this before touching anything under `Core/Source/Lux/Renderer/` or
 - `Core/Source/Lux/Renderer/**` — especially `Renderer.{h,cpp}`, `SceneRenderer.{h,cpp}`,
   `RenderGraph.{h,cpp}`, `RenderCommandQueue`, `RenderCommandBuffer`, `Material`, `Pipeline`,
   `Shader`, `StorageBufferSet` / `UniformBufferSet`.
-- `Core/Source/Lux/Platform/Vulkan/**` — the Vulkan backend pieces, `DescriptorSetManager`,
-  `ShaderCompiler/**`, `VulkanDevice`.
+- `Core/Source/Lux/Platform/Vulkan/**` — `VulkanDevice`, `VulkanGPUProfiler`, `ShaderCompiler/**`,
+  Aftermath `Debug/`.
 - `Editor/Resources/Shaders/**` — the shader corpus itself.
 
 Changes in these paths are reviewed at higher rigour than ordinary engine code; `/cr` promotes
@@ -43,9 +43,11 @@ intentional, not dead code.
 Renderer types (`Texture2D`, `Image2D`, `Pipeline`, `Framebuffer`, the buffers) are concrete
 classes over NRI objects; `GetHandle()` on images and textures is the NRI texture.
 `Shader` is the one abstract type, implemented by `RHIShader`.
-`Platform/Vulkan/` holds only what NRI does not provide: `VulkanDevice` (instance,
-device, queues, validation callback), `RHIShader` + `ShaderCompiler/`, `DescriptorSetManager`,
-and the Aftermath `Debug/` sources. The swapchain is `Renderer/RHI/RHISwapChain`, on NRI.
+`Platform/Vulkan/` holds only what NRI does not provide: `VulkanDevice` (instance, device, queues,
+validation callback), `VulkanGPUProfiler` (Tracy's GPU context), `ShaderCompiler/` (the SPIR-V
+toolchain) and the Aftermath `Debug/` sources (`§ Raw Vulkan outside Platform/Vulkan/`). The shader
+object is `Renderer/RHI/RHIShader`, descriptor sets `Renderer/DescriptorSetManager`, the swapchain
+`Renderer/RHI/RHISwapChain`.
 
 ---
 
@@ -549,6 +551,21 @@ context see the same device NRI drives.
 
 ---
 
+## Raw Vulkan outside `Platform/Vulkan/`
+
+`Platform/Vulkan/` is the only place that talks Vulkan: `VulkanDevice` (instance, device, queues,
+the device NRI wraps), `VulkanGPUProfiler` (Tracy's context), `Debug/` (Aftermath) and
+`ShaderCompiler/` (the SPIR-V toolchain). Everything else goes through NRI. The exceptions, each
+with its reason; add to this list rather than growing it silently:
+
+| Where | What | Why |
+|---|---|---|
+| `Core/Window.cpp` (`CreateRHIDevice`) | `VkInstance`/`VkPhysicalDevice`/`VkDevice` casts | Hands Lux's device to `nriCreateDeviceFromVKDevice` |
+| `Core/Window.h` | `#include <vulkan/vulkan.h>` before GLFW | GLFW declares its Vulkan functions (`glfwGetPhysicalDevicePresentationSupport`) only when Vulkan is included first |
+| `Renderer/RenderCommandBuffer.cpp` | `vkCmdSetLineWidth` on the native command buffer | NRI has no line-width state (fork patch LUX-1; D15) |
+| `Renderer/RenderCommandBuffer.{h,cpp}` | `VkCommandBuffer` for `TracyVkCollect` / `tracy::VkCtxScope` and `Aftermath::SetCheckpoint` | Tracy's and Aftermath's APIs take the native command buffer |
+| `Renderer/RHI/RHITypes.cpp` | `static_assert`s on `VkDrawIndexedIndirectCommand` and `VkDescriptorBufferInfo` | The GPU reads indirect draws in that layout; reflection files store the old descriptor-info layout |
+
 ## Validation errors are bugs
 
 Vulkan validation output (`VulkanDevice::vulkanDebugCallback`) is not noise. A validation
@@ -613,8 +630,9 @@ Render Stats panel; a new pass should appear there.
 2. a **Tracy GPU zone**, so the same pass appears on Tracy's GPU timeline.
 
 So wrapping a new pass in `BeginProfiledGPU` is all that is needed — do not add Tracy GPU zones by
-hand. The `TracyVkCtx` is owned by `VulkanDevice` (created in `CreateDevice`, destroyed in
-`DestroyDevice` before `vkDestroyDevice`) and reached via `GetGPUProfilerContext()`, which may be
+hand. The `TracyVkCtx` is a `VulkanGPUProfiler` that `VulkanDevice` owns (created in
+`CreateDevice`, destroyed in `DestroyDevice` before `vkDestroyDevice`) and reached via
+`GetGPUProfilerContext()`, which may be
 null if creation failed; every consumer must tolerate that.
 
 Two rules if you touch this path:

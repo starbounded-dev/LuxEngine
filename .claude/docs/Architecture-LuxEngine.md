@@ -95,7 +95,7 @@ graph TB
 | Application / Core | `Core/Source/Lux/Core/` | `Application.h`, `Layer.h`, `RenderThread.h`, `JobSystem.h`, `Ref.h`, `Base.h` |
 | Window / Platform | `Core/Source/Lux/Core/`, `Core/Platform/{Windows,Linux}/` | `Window.h`, `Thread.h` |
 | Renderer | `Core/Source/Lux/Renderer/` | `Renderer.h`, `SceneRenderer.h`, `RenderGraph.h`, `FrameRenderPacket.h` |
-| Vulkan backend | `Core/Source/Lux/Platform/Vulkan/` | `VulkanDevice.h`, `DescriptorSetManager.h`, `ShaderCompiler/` |
+| Vulkan backend | `Core/Source/Lux/Platform/Vulkan/` | `VulkanDevice.h`, `VulkanGPUProfiler.h`, `ShaderCompiler/`, `Debug/` (Aftermath) |
 | Scene / ECS | `Core/Source/Lux/Scene/` | `Scene.h`, `Entity.h`, `Components.h`, `SceneSerializer.h` |
 | Physics 3D | `Core/Source/Lux/Physics/` (+ `JoltPhysics/`) | `PhysicsSystem.h`, `PhysicsScene.h`, `PhysicsShapes.h` |
 | Physics 2D | `Core/Source/Lux/Physics2D/` | via `Scene.h` |
@@ -1179,8 +1179,8 @@ add the type, declare the class with the event macros, handle it in the relevant
 configs), `LUX_PROFILE_*` (Tracy, off in Dist / `--no-tracy`). Details in
 `.claude/docs/Conventions.md`.
 
-GPU work is profiled separately: `VulkanDevice` owns a `TracyVkCtx` (created in
-`CreateDevice`, destroyed in `DestroyDevice`, exposed by `GetGPUProfilerContext()`), and
+GPU work is profiled separately: `VulkanDevice` owns a `VulkanGPUProfiler`, Tracy's `TracyVkCtx`
+(created in `CreateDevice`, destroyed in `DestroyDevice`, exposed by `GetGPUProfilerContext()`), and
 `RenderCommandBuffer::RT_BeginTimerQuery` / `RT_EndTimerQuery` emit a Tracy GPU zone alongside the
 engine's own NRI timestamp query. This is the only place Tracy's Vulkan header is used outside
 `Platform/Vulkan/` — it is deliberately kept out of `Debug/Profiler.h`, which reaches nearly every
@@ -1294,8 +1294,8 @@ luxengine/
 │   │       │                      #   RenderScene/GPUScene, Material, Shader, Pipeline, Mesh, UI/,
 │   │       │                      #   RHI/ (renderer vocabulary, RHIDevice (NRI), state tracker,
 │   │       │                      #   GPU deletion queue, queue timeline, command buffer
-│   │       │                      #   pools, staging, upload context, swapchain,
-│   │       │                      #   NRI-owned resources)
+│   │       │                      #   pools, staging, upload context, swapchain, RHIShader,
+│   │       │                      #   NRI-owned resources); DescriptorSetManager, ShaderReflection.h
 │   │       ├── Scene/             # Scene, Entity, Components, SceneSerializer, Prefab
 │   │       ├── Physics/           # PhysicsSystem/Scene/Body/Shapes + JoltPhysics/
 │   │       ├── Physics2D/         # Box2D
@@ -1307,8 +1307,8 @@ luxengine/
 │   │       ├── ImGui/             # ImGuiLayer, ImGuiEx, ImGuiUtilities, Colors, Fonts, ImGuizmo
 │   │       ├── Project/           # Project, ProjectSerializer, UserPreferences, TieringSettings
 │   │       ├── Serialization/     # AssetPack, streams, runtime serializers
-│   │       ├── Platform/Vulkan/   # Vulkan device bring-up, DescriptorSetManager, ShaderCompiler/,
-│   │       │                      #   Debug/ (Aftermath GPU crash dumps)
+│   │       ├── Platform/Vulkan/   # VulkanDevice (device bring-up), VulkanGPUProfiler (Tracy),
+│   │       │                      #   ShaderCompiler/, Debug/ (Aftermath GPU crash dumps)
 │   │       ├── Utilities/         # FileSystem, StringUtils, FileDialogs, CommandLineParser
 │   │       ├── Reflection/        # TypeDescriptor / TypeName / TypeUtils
 │   │       ├── Debug/             # Profiler.h (Tracy wrappers)

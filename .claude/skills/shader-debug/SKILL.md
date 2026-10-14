@@ -174,7 +174,8 @@ Check in this order; stop at the first hit.
 
 ### E. Device lost, TDR, or "works on one GPU, broken on another"
 
-1. **Run with the validation layer and read the first error, not the loudest.** After a device is
+1. **Run with the validation layer and read the first error, not the loudest.** Debug runs both the
+   Khronos layer and NRI's (`[NRI]` lines, which break into the debugger). After a device is
    lost, the timeline semaphore reads `UINT64_MAX`, every command buffer retires at once, and a
    burst of `vkDestroyDescriptorPool` errors follows. That burst is the aftermath. Scan backwards
    for the earliest shader-module or pipeline-creation error.

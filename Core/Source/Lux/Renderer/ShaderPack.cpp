@@ -74,11 +74,11 @@ namespace Lux {
 			shaderName = found != std::string::npos ? shaderName.substr(0, found) : name;
 		}
 
-		Ref<RHIShader> vulkanShader = Ref<RHIShader>::Create();
-		vulkanShader->m_Name = shaderName;
-		vulkanShader->m_AssetPath = name;
-		//vulkanShader->TryReadReflectionData(&serializer);
-		// vulkanShader->m_DisableOptimization =
+		Ref<RHIShader> rhiShader = Ref<RHIShader>::Create();
+		rhiShader->m_Name = shaderName;
+		rhiShader->m_AssetPath = name;
+		//rhiShader->TryReadReflectionData(&serializer);
+		// rhiShader->m_DisableOptimization =
 
 		std::map<ShaderStage, std::vector<uint32_t>> shaderModules;
 		for (uint32_t index : shaderProgramInfo.ModuleIndices)
@@ -91,14 +91,14 @@ namespace Lux {
 		}
 
 		serializer.SetStreamPosition(shaderProgramInfo.ReflectionDataOffset);
-		vulkanShader->TryReadReflectionData(&serializer);
+		rhiShader->TryReadReflectionData(&serializer);
 
-		vulkanShader->SetShaderData(shaderModules);
-		vulkanShader->CreateDescriptors();
+		rhiShader->SetShaderData(shaderModules);
+		rhiShader->CreateDescriptors();
 
-		//Renderer::AcknowledgeParsedGlobalMacros(compiler->GetAcknowledgedMacros(), vulkanShader);
-		//Renderer::OnShaderReloaded(vulkanShader->GetHash());
-		return vulkanShader;
+		//Renderer::AcknowledgeParsedGlobalMacros(compiler->GetAcknowledgedMacros(), rhiShader);
+		//Renderer::OnShaderReloaded(rhiShader->GetHash());
+		return rhiShader;
 	}
 
 	Ref<ShaderPack> ShaderPack::CreateFromLibrary(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& path)
@@ -119,11 +119,11 @@ namespace Lux {
 		uint32_t shaderModuleIndexArraySize = 0;
 		for (const auto& [name, shader] : shaderMap)
 		{
-			Ref<RHIShader> vulkanShader = shader.As<RHIShader>();
-			const auto& shaderData = vulkanShader->m_ShaderData;
+			Ref<RHIShader> rhiShader = shader.As<RHIShader>();
+			const auto& shaderData = rhiShader->m_ShaderData;
 
 			shaderPackFile.Header.ShaderModuleCount += (uint32_t)shaderData.size();
-			auto& shaderProgramInfo = shaderPackFile.Index.ShaderPrograms[(uint32_t)vulkanShader->GetHash()];
+			auto& shaderProgramInfo = shaderPackFile.Index.ShaderPrograms[(uint32_t)rhiShader->GetHash()];
 
 			for (int i = 0; i < (int)shaderData.size(); i++)
 				shaderProgramInfo.ModuleIndices.emplace_back(shaderModuleIndex++);
@@ -153,14 +153,14 @@ namespace Lux {
 		serializer.WriteZero(shaderPackFile.Header.ShaderModuleCount * sizeof(ShaderPackFile::ShaderModuleInfo));
 		for (const auto& [name, shader] : shaderMap)
 		{
-			Ref<RHIShader> vulkanShader = shader.As<RHIShader>();
+			Ref<RHIShader> rhiShader = shader.As<RHIShader>();
 
 			// Serialize reflection data
-			shaderPackFile.Index.ShaderPrograms[(uint32_t)vulkanShader->GetHash()].ReflectionDataOffset = serializer.GetStreamPosition();
-			vulkanShader->SerializeReflectionData(&serializer);
+			shaderPackFile.Index.ShaderPrograms[(uint32_t)rhiShader->GetHash()].ReflectionDataOffset = serializer.GetStreamPosition();
+			rhiShader->SerializeReflectionData(&serializer);
 
 			// Serialize SPIR-V data
-			const auto& shaderData = vulkanShader->m_ShaderData;
+			const auto& shaderData = rhiShader->m_ShaderData;
 			for (const auto& [stage, data] : shaderData)
 			{
 				auto& indexShaderModule = shaderPackFile.Index.ShaderModules.emplace_back();
