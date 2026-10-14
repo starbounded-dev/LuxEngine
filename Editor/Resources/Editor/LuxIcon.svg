@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>LuxEngine</title>
+  <rect x="0.5" y="0.5" width="255" height="255" rx="15.5" fill="#0C0D0F" stroke="#2B2F35"/>
+  <g transform="translate(56 56) scale(12)" shape-rendering="crispEdges">
+    <path fill="#EDEAE3" d="M0 0H4V8H12V12H0Z"/>
+    <rect fill="#FFB224" x="8" y="0" width="4" height="4"/>
+  </g>
+</svg>

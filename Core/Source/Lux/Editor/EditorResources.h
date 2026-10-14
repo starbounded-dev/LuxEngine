@@ -107,7 +107,6 @@ namespace Lux {
 		inline static Ref<Texture2D> PinAudioDisconnectIcon = nullptr;
 
 		// Textures
-		inline static Ref<Texture2D> HazelLogoTexture = nullptr;
 		inline static Ref<Texture2D> CheckerboardTexture = nullptr;
 		inline static Ref<Texture2D> ShadowTexture = nullptr;
 		inline static Ref<Texture2D> TranslucentTexture = nullptr;
@@ -191,7 +190,7 @@ namespace Lux {
 			PNGFileIcon = LoadTexture("ContentBrowser/PNG.png", "PNGFileIcon", spec);
 			JPGFileIcon = LoadTexture("ContentBrowser/JPG.png", "JPGFileIcon", spec);
 			MaterialFileIcon = LoadTexture("ContentBrowser/Material.png", "MaterialFileIcon", spec);
-			SceneFileIcon = LoadTexture("Hazel-IconLogo-2023.png", "SceneFileIcon", spec);
+			SceneFileIcon = LoadTexture("LuxMark.png", "SceneFileIcon", spec);
 			PrefabFileIcon = LoadTexture("ContentBrowser/Prefab.png", "PrefabFileIcon", spec);
 			FontFileIcon = LoadTexture("ContentBrowser/Font.png", "FontFileIcon", spec);
 			AnimationFileIcon = LoadTexture("ContentBrowser/Animation.png", "AnimationFileIcon", spec);
@@ -214,7 +213,6 @@ namespace Lux {
 			PinAudioDisconnectIcon = LoadTexture("NodeGraph/Pins/AudioDisconnect.png", "AudioDisconnect", spec);
 
 			// Textures (dont forget to .Reset() these in EditorResources::Shutdown())
-			HazelLogoTexture = LoadTexture("HazelLogo_Light.png");
 			CheckerboardTexture = LoadTexture("Checkerboard.tga");
 			ShadowTexture = LoadTexture("Panels/Shadow.png", "ShadowTexture", spec);
 			TranslucentTexture = LoadTexture("Panels/Translucent.png", "TranslucentTexture", spec);
@@ -319,7 +317,6 @@ namespace Lux {
 			PinAudioDisconnectIcon.Reset();
 
 			// Textures
-			HazelLogoTexture.Reset();
 			CheckerboardTexture.Reset();
 			ShadowTexture.Reset();
 			TranslucentTexture.Reset();

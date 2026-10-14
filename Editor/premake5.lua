@@ -38,6 +38,10 @@ project "Editor"
 	filter "system:windows"
 		systemversion "latest"
 		defines { "LUX_PLATFORM_WINDOWS" }
+		files {
+			"Editor.rc",
+			"resource.h"
+		}
 
 		-- We link the release SDK in every configuration, so copy that DLL everywhere too.
 		-- discord_krisp.dll is deliberately not copied: it's only needed for voice chat.

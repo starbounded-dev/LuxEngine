@@ -147,7 +147,7 @@ namespace Lux
 		specification.EnableImGui = true; // Shared accessibility menu and caption/cue overlay.
 #endif
 		specification.VSync = true;
-		specification.IconPath = "Resources/Editor/Hazel-IconLogo-2023.png";
+		specification.IconPath = "Resources/Editor/LuxIcon.png";
 		specification.RenderConfig.FramesInFlight = 3;
 		// Base policy from App.lsettings (defaults to multi-threaded); RuntimeSettings.yaml may override per-game.
 		{
