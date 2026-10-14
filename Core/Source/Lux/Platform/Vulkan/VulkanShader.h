@@ -7,7 +7,7 @@
 #include <unordered_set>
 
 #include "Lux/Renderer/Shader.h"
-#include "VulkanShaderResource.h"
+#include "Lux/Renderer/ShaderReflection.h"
 
 
 #include <array>
