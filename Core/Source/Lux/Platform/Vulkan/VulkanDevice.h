@@ -123,7 +123,7 @@ namespace Lux {
 
 	// Brings up the Vulkan instance, device and queues that RHIDevice wraps in NRI, and holds the
 	// swapchain settings (DeviceCreationParameters) every RHISwapChain is built with.
-	class VulkanDeviceManager
+	class VulkanDevice
 	{
 	public:
 		struct QueueFamilyIndices
@@ -133,7 +133,7 @@ namespace Lux {
 			int32_t Transfer = -1;
 		};
 	public:
-		explicit VulkanDeviceManager(GLFWwindow* windowHandle)
+		explicit VulkanDevice(GLFWwindow* windowHandle)
 			: m_WindowHandle(windowHandle)
 		{
 		}
@@ -318,7 +318,7 @@ namespace Lux {
 			const char* msg,
 			void* userData)
 		{
-			const VulkanDeviceManager* manager = (const VulkanDeviceManager*)userData;
+			const VulkanDevice* manager = (const VulkanDevice*)userData;
 
 			if (manager)
 			{

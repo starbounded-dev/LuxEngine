@@ -33,7 +33,7 @@ namespace Lux {
 	};
 
 	class RHISwapChain;
-	class VulkanDeviceManager;
+	class VulkanDevice;
 
 	class Window
 	{
@@ -78,7 +78,7 @@ namespace Lux {
 		inline GLFWwindow* GetNativeWindow() const { return m_WindowHandle; }
 
 		virtual RHISwapChain& GetSwapChain();
-		VulkanDeviceManager* GetDeviceManager() { return m_DeviceManager; }
+		VulkanDevice* GetDeviceManager() { return m_DeviceManager; }
 
 		// High DPI scale factor
 		inline static float s_HighDPIScaleFactor;
@@ -99,7 +99,7 @@ namespace Lux {
 		void CreateRHIDevice(bool enableValidation);
 		virtual void Shutdown();
 	private:
-		VulkanDeviceManager* m_DeviceManager = nullptr;
+		VulkanDevice* m_DeviceManager = nullptr;
 		GLFWwindow* m_WindowHandle = nullptr;
 		GLFWcursor* m_ImGuiMouseCursors[9] = { 0 };
 		WindowSpecification m_Specification;

@@ -4,7 +4,7 @@
 #include "lpch.h"
 #include "RHIQueueTimeline.h"
 
-#include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
+#include "Lux/Platform/Vulkan/VulkanDevice.h"
 #include "Lux/Renderer/RenderCommandBuffer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
@@ -104,7 +104,7 @@ namespace Lux {
 
 		const nri::Result result = RHIDevice::API().QueueSubmit(*nriQueue, submitDesc);
 		if (result == nri::Result::DEVICE_LOST)
-			VulkanDeviceManager::ReportDeviceLost("QueueSubmit");
+			VulkanDevice::ReportDeviceLost("QueueSubmit");
 		if (result != nri::Result::SUCCESS)
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "Queue submission failed (NRI result {})", static_cast<int>(result));

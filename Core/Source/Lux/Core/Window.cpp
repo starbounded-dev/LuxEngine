@@ -14,7 +14,7 @@
 #include "Lux/Renderer/RHI/RHIQueueTimeline.h"
 #include "Lux/Renderer/RHI/RHISwapChain.h"
 
-#include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
+#include "Lux/Platform/Vulkan/VulkanDevice.h"
 
 #include <imgui.h>
 #include "stb_image.h"
@@ -66,7 +66,7 @@ namespace Lux {
 		// asset streaming don't contend with the graphics queue against frame
 		// rendering. This only *requests* the queue; it is optional — device
 		// creation still succeeds when the GPU has no dedicated transfer family
-		// (see VulkanDeviceManager::FindQueueFamilies), and uploads then fall back
+		// (see VulkanDevice::FindQueueFamilies), and uploads then fall back
 		// to the graphics queue. Routing is gated at runtime by
 		// Renderer::SetAsyncTransferQueueEnabled (setting Renderer.AsyncTransferQueue).
 		deviceParams.enableCopyQueue = true;
@@ -218,7 +218,7 @@ namespace Lux {
 			}
 		}
 
-		m_DeviceManager = lnew VulkanDeviceManager(m_WindowHandle);
+		m_DeviceManager = lnew VulkanDevice(m_WindowHandle);
 
 		if (!m_DeviceManager->CreateDevice(deviceParams))
 		{
@@ -406,8 +406,8 @@ namespace Lux {
 
 	void Window::CreateRHIDevice(bool enableValidation)
 	{
-		const auto* vulkanDeviceManager = static_cast<VulkanDeviceManager*>(m_DeviceManager);
-		const VulkanDeviceManager::QueueFamilyIndices& families = vulkanDeviceManager->GetQueueFamilyIndices();
+		const auto* vulkanDeviceManager = static_cast<VulkanDevice*>(m_DeviceManager);
+		const VulkanDevice::QueueFamilyIndices& families = vulkanDeviceManager->GetQueueFamilyIndices();
 
 		RHIDeviceCreateInfo createInfo;
 		createInfo.Instance = static_cast<VkInstance>(vulkanDeviceManager->GetVulkanInstance());

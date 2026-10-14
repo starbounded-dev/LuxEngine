@@ -47,7 +47,7 @@ freely, subject to the following restrictions:
    distribution.
 */
 #include "lpch.h"
-#include "VulkanDeviceManager.h"
+#include "VulkanDevice.h"
 
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
 
@@ -71,7 +71,7 @@ namespace Lux {
 		return ret;
 	}
 
-	bool VulkanDeviceManager::createInstance()
+	bool VulkanDevice::createInstance()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!m_DeviceParams.headlessDevice)
@@ -234,7 +234,7 @@ namespace Lux {
 		return true;
 	}
 
-	void VulkanDeviceManager::installDebugCallback()
+	void VulkanDevice::installDebugCallback()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		auto info = vk::DebugReportCallbackCreateInfoEXT()
@@ -249,7 +249,7 @@ namespace Lux {
 		LUX_CORE_VERIFY(res == vk::Result::eSuccess);
 	}
 
-	bool VulkanDeviceManager::pickPhysicalDevice()
+	bool VulkanDevice::pickPhysicalDevice()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		auto devices = m_VulkanInstance.enumeratePhysicalDevices();
@@ -353,7 +353,7 @@ namespace Lux {
 		return false;
 	}
 
-	bool VulkanDeviceManager::FindQueueFamilies(vk::PhysicalDevice physicalDevice)
+	bool VulkanDevice::FindQueueFamilies(vk::PhysicalDevice physicalDevice)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		auto props = physicalDevice.getQueueFamilyProperties();
@@ -409,7 +409,7 @@ namespace Lux {
 		return true;
 	}
 
-	bool VulkanDeviceManager::createDevice()
+	bool VulkanDevice::createDevice()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		// figure out which optional extensions are supported
@@ -680,7 +680,7 @@ namespace Lux {
 
 #define CHECK(a) if (!(a)) { return false; }
 
-	bool VulkanDeviceManager::CreateInstanceInternal()
+	bool VulkanDevice::CreateInstanceInternal()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_DeviceParams.enableDebugRuntime)
@@ -696,7 +696,7 @@ namespace Lux {
 		return createInstance();
 	}
 
-	bool VulkanDeviceManager::CreateDevice()
+	bool VulkanDevice::CreateDevice()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (m_DeviceParams.enableDebugRuntime)
@@ -731,7 +731,7 @@ namespace Lux {
 	}
 
 #if LUX_ENABLE_PROFILING
-	void VulkanDeviceManager::CreateGPUProfilerContext()
+	void VulkanDevice::CreateGPUProfilerContext()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 
@@ -773,7 +773,7 @@ namespace Lux {
 		LUX_CORE_INFO_TAG("Renderer", "Tracy GPU profiler context created on the graphics queue.");
 	}
 
-	void VulkanDeviceManager::DestroyGPUProfilerContext()
+	void VulkanDevice::DestroyGPUProfilerContext()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 
@@ -793,7 +793,7 @@ namespace Lux {
 
 #undef CHECK
 
-	void VulkanDeviceManager::DestroyDevice()
+	void VulkanDevice::DestroyDevice()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 
@@ -824,7 +824,7 @@ namespace Lux {
 		}
 	}
 
-	void VulkanDeviceManager::ReportDeviceLost(std::string_view where)
+	void VulkanDevice::ReportDeviceLost(std::string_view where)
 	{
 		// Several threads can see the loss; the first reports, the others wait for the process to end.
 		static std::atomic_flag s_Reported;
@@ -848,13 +848,13 @@ namespace Lux {
 		std::abort();
 	}
 
-	bool VulkanDeviceManager::CreateDevice(const DeviceCreationParameters& params)
+	bool VulkanDevice::CreateDevice(const DeviceCreationParameters& params)
 	{
 		m_DeviceParams = params;
 		return CreateInstanceInternal() && CreateDevice();
 	}
 
-	void VulkanDeviceManager::Shutdown()
+	void VulkanDevice::Shutdown()
 	{
 		DestroyDevice();
 	}

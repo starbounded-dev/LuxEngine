@@ -201,7 +201,7 @@ premake5.lua           # Workspace definition
 - `SceneRenderer` is the main high-level renderer. It owns and drives the `RenderGraph`.
 - `RenderGraph` manages passes, scratch-resource reuse, and compile caching. Passes are skipped (zero cost) when their feature is off.
 - The pipeline is deferred PBR with a G-buffer, clustered (froxel) light culling, and a separate forward pass for transparents.
-- Renderer types (`Texture`, `Image`, `Pipeline`, buffers) are concrete classes over NRI objects (NVIDIA NRI, the `Core/vendor/NRI` fork). `Core/Source/Lux/Platform/Vulkan/` holds only the Vulkan pieces NRI does not provide: `VulkanDeviceManager` (instance, device, queues), `RHIShader` + `ShaderCompiler/`, `DescriptorSetManager`, and the Aftermath `Debug/` sources. The swapchain is `Renderer/RHI/RHISwapChain`.
+- Renderer types (`Texture`, `Image`, `Pipeline`, buffers) are concrete classes over NRI objects (NVIDIA NRI, the `Core/vendor/NRI` fork). `Core/Source/Lux/Platform/Vulkan/` holds only the Vulkan pieces NRI does not provide: `VulkanDevice` (instance, device, queues), `RHIShader` + `ShaderCompiler/`, `DescriptorSetManager`, and the Aftermath `Debug/` sources. The swapchain is `Renderer/RHI/RHISwapChain`.
 - `Renderer2D` provides a 2D batch renderer (quads, circles, lines, MSDF text).
 - Shader hot-reload and SPIR-V reflection caching are handled by `VulkanShaderCompiler` / `VulkanShaderCache`.
 - On Linux, HLSL shaders are compiled by shelling out to `dxc`. `HlslIncluder.cpp` is excluded from Linux builds.

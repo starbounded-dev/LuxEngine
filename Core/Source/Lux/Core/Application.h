@@ -163,7 +163,7 @@ namespace Lux {
 		static bool IsRuntime() { return s_IsRuntime; }
 
 		// The Vulkan device bring-up and the swapchain settings; the GPU API itself is RHIDevice.
-		static VulkanDeviceManager* GetGraphicsDeviceManager() { return Application::Get().GetWindow().GetDeviceManager(); }
+		static VulkanDevice* GetGraphicsDeviceManager() { return Application::Get().GetWindow().GetDeviceManager(); }
 	private:
 		void ProcessEvents();
 		// Blocks until this frame's deadline, when a target frame rate is set.

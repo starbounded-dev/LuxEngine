@@ -6,7 +6,7 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Debug/Profiler.h"
-#include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
+#include "Lux/Platform/Vulkan/VulkanDevice.h"
 #include "Lux/Renderer/RenderCommandBuffer.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
@@ -217,7 +217,7 @@ namespace Lux {
 		uint32_t index = 0;
 		const nri::Result result = RHIDevice::API().AcquireNextTexture(*m_SwapChain, *semaphore, index);
 		if (result == nri::Result::DEVICE_LOST)
-			VulkanDeviceManager::ReportDeviceLost("AcquireNextTexture");
+			VulkanDevice::ReportDeviceLost("AcquireNextTexture");
 
 		if (result != nri::Result::SUCCESS)
 		{
@@ -276,7 +276,7 @@ namespace Lux {
 		if (result == nri::Result::OUT_OF_DATE)
 			m_NeedsRecreate = true;
 		else if (result == nri::Result::DEVICE_LOST)
-			VulkanDeviceManager::ReportDeviceLost("QueuePresent");
+			VulkanDevice::ReportDeviceLost("QueuePresent");
 		else
 			LUX_CORE_VERIFY(result == nri::Result::SUCCESS, "NRI failed to present (see the [NRI] error above)");
 

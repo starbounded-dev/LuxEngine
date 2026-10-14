@@ -22,7 +22,7 @@
 // driver) runs normally, without crash dumps. Dumps are written to <log directory>/GPUCrashDumps.
 namespace Lux::Aftermath {
 
-	// VulkanDeviceManager enables these, plus VkDeviceDiagnosticsConfigCreateInfoNV, when
+	// VulkanDevice enables these, plus VkDeviceDiagnosticsConfigCreateInfoNV, when
 	// Initialize succeeds.
 	inline constexpr const char* k_DeviceExtensions[] = {
 		VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME,

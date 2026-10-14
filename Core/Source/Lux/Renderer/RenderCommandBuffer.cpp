@@ -8,7 +8,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
 #include "Lux/Renderer/RHI/RHIResources.h"
-#include "Lux/Platform/Vulkan/VulkanDeviceManager.h"
+#include "Lux/Platform/Vulkan/VulkanDevice.h"
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
 #include "Lux/Renderer/RHI/CommandBufferPool.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"

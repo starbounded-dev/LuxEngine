@@ -26,7 +26,7 @@ namespace Lux {
 		else
 		{
 			// X11 (and XWayland). NRI creates an Xlib surface, so VK_KHR_xlib_surface must be enabled
-			// (VulkanDeviceManager does when the platform is X11).
+			// (VulkanDevice does when the platform is X11).
 			nriWindow.x11.dpy = glfwGetX11Display();
 			nriWindow.x11.window = static_cast<uint64_t>(glfwGetX11Window(window));
 		}

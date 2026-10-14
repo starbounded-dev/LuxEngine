@@ -53,7 +53,7 @@ namespace Lux {
 
 	nri::QueueType ToNRIQueueType(GPUQueue queue);
 
-	// The Vulkan device RHIDevice wraps, as VulkanDeviceManager created it. Handles are the raw
+	// The Vulkan device RHIDevice wraps, as VulkanDevice created it. Handles are the raw
 	// VkInstance, VkPhysicalDevice and VkDevice.
 	struct RHIDeviceCreateInfo
 	{
@@ -69,7 +69,7 @@ namespace Lux {
 		bool EnableValidation = false;
 	};
 
-	// The NRI device. It wraps the VkDevice that VulkanDeviceManager creates (so Aftermath and the
+	// The NRI device. It wraps the VkDevice that VulkanDevice creates (so Aftermath and the
 	// Tracy context see the same device) and never owns the native device, queues or instance.
 	// Destruction order: RHIDevice, then vkDestroyDevice.
 	//

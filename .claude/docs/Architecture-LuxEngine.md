@@ -95,7 +95,7 @@ graph TB
 | Application / Core | `Core/Source/Lux/Core/` | `Application.h`, `Layer.h`, `RenderThread.h`, `JobSystem.h`, `Ref.h`, `Base.h` |
 | Window / Platform | `Core/Source/Lux/Core/`, `Core/Platform/{Windows,Linux}/` | `Window.h`, `Thread.h` |
 | Renderer | `Core/Source/Lux/Renderer/` | `Renderer.h`, `SceneRenderer.h`, `RenderGraph.h`, `FrameRenderPacket.h` |
-| Vulkan backend | `Core/Source/Lux/Platform/Vulkan/` | `VulkanDeviceManager.h`, `DescriptorSetManager.h`, `ShaderCompiler/` |
+| Vulkan backend | `Core/Source/Lux/Platform/Vulkan/` | `VulkanDevice.h`, `DescriptorSetManager.h`, `ShaderCompiler/` |
 | Scene / ECS | `Core/Source/Lux/Scene/` | `Scene.h`, `Entity.h`, `Components.h`, `SceneSerializer.h` |
 | Physics 3D | `Core/Source/Lux/Physics/` (+ `JoltPhysics/`) | `PhysicsSystem.h`, `PhysicsScene.h`, `PhysicsShapes.h` |
 | Physics 2D | `Core/Source/Lux/Physics2D/` | via `Scene.h` |
@@ -175,7 +175,7 @@ per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.
 ### 2.2 Window / Platform
 
 `Window` (`Core/Source/Lux/Core/Window.h`) is created via `Window::Create(WindowSpecification)` and
-owns the GLFW window, the `VulkanDeviceManager` (instance, device and queues, and the swapchain
+owns the GLFW window, the `VulkanDevice` (instance, device and queues, and the swapchain
 settings in its `DeviceCreationParameters`), and the `RHISwapChain` (NRI's SwapChain extension,
 which owns the surface; `Rendering.md § NRI device`). `Application::GetGraphicsDeviceManager()` is
 the shortcut to the device manager; the GPU API itself is `RHIDevice`. `Window::Init` wraps the
@@ -204,7 +204,7 @@ not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
-`VulkanDeviceManager` created. It never owns them. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
+`VulkanDevice` created. It never owns them. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
 the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. Every
 submission goes through `RHIQueueTimeline` (`Renderer/RHI/RHIQueueTimeline.h`, created by
 `Window::CreateRHIDevice` after `RHIDevice::Init`): one NRI timeline fence per queue, submissions
@@ -1179,7 +1179,7 @@ add the type, declare the class with the event macros, handle it in the relevant
 configs), `LUX_PROFILE_*` (Tracy, off in Dist / `--no-tracy`). Details in
 `.claude/docs/Conventions.md`.
 
-GPU work is profiled separately: `VulkanDeviceManager` owns a `TracyVkCtx` (created in
+GPU work is profiled separately: `VulkanDevice` owns a `TracyVkCtx` (created in
 `CreateDevice`, destroyed in `DestroyDevice`, exposed by `GetGPUProfilerContext()`), and
 `RenderCommandBuffer::RT_BeginTimerQuery` / `RT_EndTimerQuery` emit a Tracy GPU zone alongside the
 engine's own NRI timestamp query. This is the only place Tracy's Vulkan header is used outside
@@ -1199,7 +1199,7 @@ are trusted; don't sprinkle defensive checks for impossible states. Prefer RAII 
 shipped build.
 
 A lost GPU device is fatal: every device loss the engine sees (a queue submit, swapchain acquire or
-present returning `DEVICE_LOST`) goes to `VulkanDeviceManager::ReportDeviceLost`,
+present returning `DEVICE_LOST`) goes to `VulkanDevice::ReportDeviceLost`,
 which waits for the Nsight Aftermath crash dump when Aftermath is enabled (`Platform/Vulkan/Debug/
 Aftermath.h`: NVIDIA, Debug and Release), logs its path and aborts. There is no device-loss recovery.
 

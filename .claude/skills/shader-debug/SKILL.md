@@ -180,7 +180,7 @@ Check in this order; stop at the first hit.
    for the earliest shader-module or pipeline-creation error.
 2. **A `vkCreateShaderModule` capability error is never cosmetic.** "SPIR-V Capability X was
    declared, but <feature> is required" means the module is illegal; the driver may run it until it
-   faults far from the cause. Enable the device feature (`VulkanDeviceManager.cpp`) or change the
+   faults far from the cause. Enable the device feature (`VulkanDevice.cpp`) or change the
    shader.
 3. **Validate the SPIR-V offline** with `spirv-val` (below). Vendors differ in what they tolerate.
 4. **Known vendor trap:** dynamic indexing of a large local constant array (the PCSS Poisson table)
@@ -190,7 +190,7 @@ Check in this order; stop at the first hit.
 5. **Nsight Aftermath is active on NVIDIA in Debug and Release** (not Dist, not `--no-aftermath`;
    `Platform/Vulkan/Debug/Aftermath.{h,cpp}`). The startup log says either `Aftermath GPU crash
    dumps enabled (written to …)` or `Aftermath unavailable (…)` with the reason (non-NVIDIA GPU,
-   library missing, driver too old). On a device loss, `VulkanDeviceManager::ReportDeviceLost` waits
+   library missing, driver too old). On a device loss, `VulkanDevice::ReportDeviceLost` waits
    for the dump, logs its path and ends the process. `<log directory>/GPUCrashDumps/` then holds
    `Lux_<time>.nv-gpudmp` (open in Nsight Graphics), its `.json` decoding, `.markers.txt` (the last
    `RT_BeginMarker` label each command buffer reached) and `shader-*.nvdbg` files. Debug adds
@@ -235,7 +235,7 @@ difference: the engine's own preprocessor also handles `#pragma stage` inside he
 ### Validation layer
 
 - **Debug** builds enable it (`enableDebugRuntime` under `LUX_DEBUG`, `Core/Source/Lux/Core/Window.cpp`).
-  `VulkanDeviceManager::vulkanDebugCallback` sends errors to the engine log and the Log panel as
+  `VulkanDevice::vulkanDebugCallback` sends errors to the engine log and the Log panel as
   `Vulkan validation error:` blocks. It skips any location listed in
   `ignoredVulkanValidationMessageLocations` — never add one to quiet a message.
 - **Release**, without code changes: force `VK_LAYER_KHRONOS_validation` with Vulkan Configurator

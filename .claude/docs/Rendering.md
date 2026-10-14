@@ -17,7 +17,7 @@ Read this before touching anything under `Core/Source/Lux/Renderer/` or
   `RenderGraph.{h,cpp}`, `RenderCommandQueue`, `RenderCommandBuffer`, `Material`, `Pipeline`,
   `Shader`, `StorageBufferSet` / `UniformBufferSet`.
 - `Core/Source/Lux/Platform/Vulkan/**` — the Vulkan backend pieces, `DescriptorSetManager`,
-  `ShaderCompiler/**`, `VulkanDeviceManager`.
+  `ShaderCompiler/**`, `VulkanDevice`.
 - `Editor/Resources/Shaders/**` — the shader corpus itself.
 
 Changes in these paths are reviewed at higher rigour than ordinary engine code; `/cr` promotes
@@ -43,7 +43,7 @@ intentional, not dead code.
 Renderer types (`Texture2D`, `Image2D`, `Pipeline`, `Framebuffer`, the buffers) are concrete
 classes over NRI objects; `GetHandle()` on images and textures is the NRI texture.
 `Shader` is the one abstract type, implemented by `RHIShader`.
-`Platform/Vulkan/` holds only what NRI does not provide: `VulkanDeviceManager` (instance,
+`Platform/Vulkan/` holds only what NRI does not provide: `VulkanDevice` (instance,
 device, queues, validation callback), `RHIShader` + `ShaderCompiler/`, `DescriptorSetManager`,
 and the Aftermath `Debug/` sources. The swapchain is `Renderer/RHI/RHISwapChain`, on NRI.
 
@@ -385,7 +385,7 @@ have. NRI validation (Debug) checks every barrier's access against the resource'
 
 ## NRI device
 
-Lux creates the `VkDevice` (`VulkanDeviceManager`), and `RHIDevice::Init`
+Lux creates the `VkDevice` (`VulkanDevice`), and `RHIDevice::Init`
 (`Renderer/RHI/RHIDevice.h`) wraps it with `nriCreateDeviceFromVKDevice`, so Aftermath and the Tracy
 context see the same device NRI drives.
 
@@ -393,20 +393,20 @@ context see the same device NRI drives.
   query for enabled features). Extension-backed features are safe: NRI only queries an extension's
   feature struct when the extension is in the list Lux passes. Core features are not: NRI uses
   Vulkan 1.3 `synchronization2` and 1.4 `maintenance5`/`maintenance6`/push descriptors on its own
-  whenever the GPU has them. So `VulkanDeviceManager::createDevice` enables every core feature NRI
+  whenever the GPU has them. So `VulkanDevice::createDevice` enables every core feature NRI
   can use implicitly (and the 1.1/1.2 bits the descriptor work will need) whenever supported, and
   the KHR extensions on 1.3 devices. **Do not use an NRI `DeviceDesc` feature that
-  `VulkanDeviceManager` does not enable**; add it there first.
+  `VulkanDevice` does not enable**; add it there first.
 - **Extensions NRI expects in pairs.** NRI creates its own devices with some extensions together
   and loads their functions as if they always were: with `VK_KHR_ray_tracing_pipeline` it loads
   `vkCmdTraceRaysIndirect2KHR` from `VK_KHR_ray_tracing_maintenance1`, and `nriCreateDeviceFromVKDevice`
-  fails when that is missing. `VulkanDeviceManager` enables maintenance1 (and its features) with the
+  fails when that is missing. `VulkanDevice` enables maintenance1 (and its features) with the
   ray-tracing extensions, and leaves the pipeline extension off on a device without it (Lux uses no
   ray-tracing pipelines). Mesh-shader statistics need `meshShaderQueries` (enabled when supported;
   fork patch LUX-2). Check `DeviceVK::ResolveDispatchTable` before enabling a new extension.
 - **Surface extensions.** The fork loads a platform's surface function only when its instance
   extension is enabled, and NRI's swapchain calls the `get_surface_capabilities2` queries without
-  checking that they loaded. `VulkanDeviceManager` therefore requires
+  checking that they loaded. `VulkanDevice` therefore requires
   `VK_KHR_get_surface_capabilities2` with a window, and `VK_KHR_xlib_surface` on X11, where GLFW
   enables only `VK_KHR_xcb_surface`.
 - **One queue lock.** Every NRI `QueueSubmit` and `QueuePresent` holds
@@ -551,7 +551,7 @@ context see the same device NRI drives.
 
 ## Validation errors are bugs
 
-Vulkan validation output (`VulkanDeviceManager::vulkanDebugCallback`) is not noise. A validation
+Vulkan validation output (`VulkanDevice::vulkanDebugCallback`) is not noise. A validation
 error means a real object-lifetime, layout, or synchronisation mismatch that will manifest as a
 crash or corruption on some driver even if it renders correctly on yours.
 
@@ -576,7 +576,7 @@ crash or corruption on some driver even if it renders correctly on yours.
   in Debug and Release, and compiled out of Dist and `--no-aftermath`. The library is loaded at
   runtime, so the engine starts normally without it. A device loss (`DEVICE_LOST` from a queue
   submit, acquire or present) goes through
-  `VulkanDeviceManager::ReportDeviceLost`, which waits for the dump, logs its path and aborts.
+  `VulkanDevice::ReportDeviceLost`, which waits for the dump, logs its path and aborts.
   Dumps go to `<log directory>/GPUCrashDumps/`, with the last `RT_BeginMarker` label per command
   buffer in `.markers.txt` (Vulkan checkpoints store only a pointer, so names are resolved in-process).
   Shaders are registered for address mapping in `RHIShader::LoadAndCreateShaders`.
@@ -613,7 +613,7 @@ Render Stats panel; a new pass should appear there.
 2. a **Tracy GPU zone**, so the same pass appears on Tracy's GPU timeline.
 
 So wrapping a new pass in `BeginProfiledGPU` is all that is needed — do not add Tracy GPU zones by
-hand. The `TracyVkCtx` is owned by `VulkanDeviceManager` (created in `CreateDevice`, destroyed in
+hand. The `TracyVkCtx` is owned by `VulkanDevice` (created in `CreateDevice`, destroyed in
 `DestroyDevice` before `vkDestroyDevice`) and reached via `GetGPUProfilerContext()`, which may be
 null if creation failed; every consumer must tolerate that.
 
