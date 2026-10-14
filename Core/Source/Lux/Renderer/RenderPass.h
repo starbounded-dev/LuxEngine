@@ -5,7 +5,7 @@
 
 #include "Lux/Core/Base.h"
 
-#include "Lux/Platform/Vulkan/DescriptorSetManager.h"
+#include "Lux/Renderer/DescriptorSetManager.h"
 
 #include "Pipeline.h"
 #include "BindlessTextureTable.h"

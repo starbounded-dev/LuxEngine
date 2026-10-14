@@ -7,7 +7,7 @@
 
 #include "Lux/Renderer/Shader.h"
 #include "Lux/Renderer/Texture.h"
-#include "Lux/Platform/Vulkan/DescriptorSetManager.h"
+#include "Lux/Renderer/DescriptorSetManager.h"
 
 #include <unordered_set>
 

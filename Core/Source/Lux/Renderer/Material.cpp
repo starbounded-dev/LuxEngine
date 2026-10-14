@@ -7,7 +7,7 @@
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
 
-#include "Lux/Platform/Vulkan/DescriptorSetManager.h"
+#include "Lux/Renderer/DescriptorSetManager.h"
 
 namespace Lux {
 

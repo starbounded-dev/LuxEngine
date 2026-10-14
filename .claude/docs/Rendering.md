@@ -102,7 +102,7 @@ them.
 - **Process-wide shared pipelines** go through `Renderer::GetOrCreateMipGenPipeline(shader)`. That
   accessor exists because mip generation was building hundreds of identical pipelines at load —
   don't reintroduce that pattern with a new local cache.
-- **Descriptor sets** are managed by `DescriptorSetManager` (`Platform/Vulkan/DescriptorSetManager.h`),
+- **Descriptor sets** are managed by `DescriptorSetManager` (`Renderer/DescriptorSetManager.h`),
   which covers sets `StartSet = 0 … EndSet = 3`. `IsDynamic` (default true) makes it re-check
   resources for change; `Validate()` then `Bake()` is the commit path. Bind by **name** via
   `SetInput("Camera", …)`, not by raw slot.
