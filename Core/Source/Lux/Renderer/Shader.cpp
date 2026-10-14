@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "Lux/Renderer/Renderer.h"
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 
 #if LUX_HAS_SHADER_COMPILER
 #include "Lux/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
@@ -27,7 +27,7 @@ namespace Lux {
 		{
 		case RendererAPIType::None: return nullptr;
 		case RendererAPIType::Vulkan:
-			result = Ref<VulkanShader>::Create(filepath, forceCompile, disableOptimization);
+			result = Ref<RHIShader>::Create(filepath, forceCompile, disableOptimization);
 			break;
 		}
 		return result;

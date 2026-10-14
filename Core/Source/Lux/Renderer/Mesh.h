@@ -18,7 +18,7 @@
 
 namespace Lux {
 
-	class VulkanShader;
+	class RHIShader;
 
 	struct Vertex
 	{
@@ -251,7 +251,7 @@ namespace Lux {
 		// Render-thread only: the set of the meshlet SSBOs (set 0 of the meshlet shader), created on
 		// first draw against the shader's NRI layout, which the mesh does not own. Empty when it cannot
 		// be built (logged once per layout) or the buffers are not there yet.
-		BoundDescriptorSet RT_GetOrCreateMeshletSet(const VulkanShader& shader);
+		BoundDescriptorSet RT_GetOrCreateMeshletSet(const RHIShader& shader);
 
 		// CPU-side position access that works whether or not the full vertex
 		// array was compacted away (the standalone runtime keeps positions only —

@@ -41,7 +41,7 @@ namespace Lux {
 
 		DescriptorSetManagerSpecification dmSpec;
 		dmSpec.DebugName = m_Name.empty() ? std::format("{} (Material)", m_Shader->GetName()) : m_Name;
-		dmSpec.Shader = m_Shader.As<VulkanShader>();
+		dmSpec.Shader = m_Shader.As<RHIShader>();
 		dmSpec.StartSet = 0;
 		dmSpec.EndSet = 0;
 		dmSpec.IsDynamic = false;
@@ -322,7 +322,7 @@ namespace Lux {
 		if (!m_Shader || !pipelineShader)
 			return false;
 
-		return m_Shader.As<VulkanShader>()->IsNRISetCompatible(set, *pipelineShader.As<VulkanShader>());
+		return m_Shader.As<RHIShader>()->IsNRISetCompatible(set, *pipelineShader.As<RHIShader>());
 	}
 
 	void Material::Prepare()

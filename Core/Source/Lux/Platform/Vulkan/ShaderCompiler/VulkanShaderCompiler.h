@@ -9,7 +9,7 @@
 
 #include "Lux/Renderer/ShaderReflection.h"
 #include "Lux/Platform/Vulkan/ShaderCompiler/ShaderCompilerUtils.h"
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 
 #include "ShaderPreprocessing/ShaderPreprocessor.h"
 
@@ -36,7 +36,7 @@ namespace Lux {
 		bool operator!= (const StageData& other) const noexcept { return !(*this == other); }
 	};
 
-	class VulkanShader;
+	class RHIShader;
 
 	class VulkanShaderCompiler : public RefCounted
 	{
@@ -50,8 +50,8 @@ namespace Lux {
 
 		static void ClearUniformBuffers();
 
-		static Ref<VulkanShader> Compile(const std::filesystem::path& shaderSourcePath, bool forceCompile = false, bool disableOptimization = false);
-		static bool TryRecompile(Ref<VulkanShader> shader);
+		static Ref<RHIShader> Compile(const std::filesystem::path& shaderSourcePath, bool forceCompile = false, bool disableOptimization = false);
+		static bool TryRecompile(Ref<RHIShader> shader);
 	private:
 		std::map<ShaderStage, std::string> PreProcess(const std::string& source);
 		std::map<ShaderStage, std::string> PreProcessGLSL(const std::string& source);
@@ -86,7 +86,7 @@ namespace Lux {
 		std::map<ShaderStage, std::vector<uint32_t>> m_SPIRVDebugData, m_SPIRVData;
 
 		// Reflection info
-		VulkanShader::ReflectionData m_ReflectionData;
+		RHIShader::ReflectionData m_ReflectionData;
 
 		// Names of macros that are parsed from shader.
 		// These are used to reliably get informattion about what shaders need what macros
@@ -95,7 +95,7 @@ namespace Lux {
 
 		std::map<ShaderStage, StageData> m_StagesMetadata;
 		
-		friend class VulkanShader;
+		friend class RHIShader;
 		friend class VulkanShaderCache;
 		friend class ShaderPack;
 	};

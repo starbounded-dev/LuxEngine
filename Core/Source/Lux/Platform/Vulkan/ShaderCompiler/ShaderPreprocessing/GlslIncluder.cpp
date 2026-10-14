@@ -7,7 +7,7 @@
 #include "Lux/Utilities/StringUtils.h"
 #include <libshaderc_util/io_shaderc.h>
 #include "Lux/Core/Hash.h"
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 
 
 namespace Lux {

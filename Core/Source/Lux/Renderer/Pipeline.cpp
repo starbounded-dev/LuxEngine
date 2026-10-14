@@ -8,7 +8,7 @@
 
 #include "Lux/Renderer/RendererAPI.h"
 
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 #include "Lux/Renderer/RHI/RHIResources.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
@@ -167,7 +167,7 @@ namespace Lux {
 		m_NRIVertexStrides = {};
 
 		const std::string& name = m_Specification.DebugName.empty() ? m_Specification.Shader->GetName() : m_Specification.DebugName;
-		Ref<VulkanShader> shader = m_Specification.Shader.As<VulkanShader>();
+		Ref<RHIShader> shader = m_Specification.Shader.As<RHIShader>();
 		Ref<Framebuffer> framebuffer = m_Specification.TargetFramebuffer;
 		nri::PipelineLayout* layout = shader->GetNRIPipelineLayout();
 		m_IsMeshletPipeline = !shader->GetSPIRV(ShaderStage::Mesh).empty();

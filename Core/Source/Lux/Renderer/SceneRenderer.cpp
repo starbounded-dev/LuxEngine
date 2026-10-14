@@ -12,7 +12,7 @@
 #include "Lux/Core/Math/Frustum.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 
@@ -7456,7 +7456,7 @@ namespace Lux {
 			return; // still streaming, or built before meshlet support was known
 
 		// Empty while the meshlet buffers stream in, or when the set cannot be built (logged once).
-		Ref<VulkanShader> shader = Ref<VulkanShader>(m_PreDepthMeshletPipeline->GetShader());
+		Ref<RHIShader> shader = Ref<RHIShader>(m_PreDepthMeshletPipeline->GetShader());
 		const BoundDescriptorSet meshletSet = meshSource->RT_GetOrCreateMeshletSet(*shader);
 		if (!meshletSet.Set)
 			return;

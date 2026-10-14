@@ -9,7 +9,7 @@
 #include "Lux/Math/Math.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Asset/AssetManager.h"
@@ -547,7 +547,7 @@ namespace Lux
 		}
 	}
 
-	BoundDescriptorSet MeshSource::RT_GetOrCreateMeshletSet(const VulkanShader& shader)
+	BoundDescriptorSet MeshSource::RT_GetOrCreateMeshletSet(const RHIShader& shader)
 	{
 		const nri::PipelineLayout* layout = shader.GetNRIPipelineLayout();
 		if (layout && layout == m_MeshletSetLayout)
@@ -562,7 +562,7 @@ namespace Lux
 
 		const std::string meshName = m_FilePath.empty() ? std::string("<memory>") : m_FilePath;
 		const uint32_t setIndex = shader.GetNRISetIndex(0);
-		if (setIndex == VulkanShader::k_NoNRISet)
+		if (setIndex == RHIShader::k_NoNRISet)
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "[MeshSource] No meshlet set for '{}': {} has no NRI set 0", meshName, shader.GetName());
 			return {};
@@ -580,7 +580,7 @@ namespace Lux
 		for (uint32_t binding = 0; binding < buffers.size(); binding++)
 		{
 			const uint32_t rangeIndex = shader.GetNRIRangeIndex(0, binding);
-			if (rangeIndex == VulkanShader::k_NoNRISet)
+			if (rangeIndex == RHIShader::k_NoNRISet)
 				continue;
 
 			const auto storageIt = storageBuffers.find(binding);

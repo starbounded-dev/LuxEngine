@@ -76,7 +76,7 @@ These are the facts the triage relies on. Each is from the source, not from conv
 
 - **Ctrl+Shift+R** (Edit → Reload All Shaders) force-recompiles every shader. Renderer Debugger →
   **Shaders** tab has Reload All and a per-shader Reload.
-- Reload runs on the render thread (`VulkanShader::Reload` → `Renderer::Submit`). Dependents are
+- Reload runs on the render thread (`RHIShader::Reload` → `Renderer::Submit`). Dependents are
   rebuilt by `Renderer::OnShaderReloaded` **only if they were registered** with
   `Renderer::RegisterShaderDependency`. An unregistered pipeline keeps the old module forever —
   reload "does nothing" for that one pass.

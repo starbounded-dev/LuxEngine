@@ -199,7 +199,7 @@ renderer headers, editor, scene and serialization code use these, never NRI type
 NVRHI's, kept, because shader reflection, the shader cache (stage strings) and `ShaderPack.lsp`
 store them (`RHITypes.cpp` checks them). Textures and buffers are described by `RHITextureDesc` /
 `RHIBufferDesc` (`RHI/RHIResources.h`). `Image2D`/`Texture::GetHandle()` is
-the NRI texture (renderer-internal); buffers have no handle getter (`GetBuffer()`). `RecordResourceUpload` callbacks take an `UploadContext` (P13). SPIR-V lives on `VulkanShader` (`GetSPIRV(ShaderStage)`),
+the NRI texture (renderer-internal); buffers have no handle getter (`GetBuffer()`). `RecordResourceUpload` callbacks take an `UploadContext` (P13). SPIR-V lives on `RHIShader` (`GetSPIRV(ShaderStage)`),
 not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
@@ -219,7 +219,7 @@ images also get non-owning NRI wrappers and color-attachment views. `Renderer::G
 reads NRI's `QueryVideoMemoryInfo`.
 
 **NRI descriptors** (Phase 9; details in `Rendering.md § NRI device`):
-- `VulkanShader` builds an NRI pipeline layout from its reflection, and `PipelineCompute` an NRI
+- `RHIShader` builds an NRI pipeline layout from its reflection, and `PipelineCompute` an NRI
   compute pipeline.
 - `DescriptorSetManager` (and so `RenderPass`, `ComputePass` and `Material`), `BindlessTextureTable`
   and `MeshSource` build NRI descriptor sets (`DescriptorSetGroup`), each with the resources it

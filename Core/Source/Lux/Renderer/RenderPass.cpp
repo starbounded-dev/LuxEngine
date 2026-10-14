@@ -5,7 +5,7 @@
 #include "RenderPass.h"
 
 #include "Renderer.h"
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 
 #include "Lux/Renderer/RendererAPI.h"
 
@@ -18,7 +18,7 @@ namespace Lux {
 
 		DescriptorSetManagerSpecification dmSpec;
 		dmSpec.DebugName = spec.DebugName;
-		dmSpec.Shader = spec.Pipeline->GetSpecification().Shader.As<VulkanShader>();
+		dmSpec.Shader = spec.Pipeline->GetSpecification().Shader.As<RHIShader>();
 		dmSpec.StartSet = spec.StartSet;
 		m_DescriptorSetManager = DescriptorSetManager(dmSpec);
 

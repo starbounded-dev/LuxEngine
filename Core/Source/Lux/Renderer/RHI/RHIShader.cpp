@@ -2,12 +2,12 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
-#include "VulkanShader.h"
+#include "RHIShader.h"
 
-#include "Debug/Aftermath.h"
+#include "Lux/Platform/Vulkan/Debug/Aftermath.h"
 
 #if LUX_HAS_SHADER_COMPILER
-#include "ShaderCompiler/VulkanShaderCompiler.h"
+#include "Lux/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 #endif
 
 #include "Lux/Core/Application.h"
@@ -48,7 +48,7 @@ namespace Lux {
 
 	}
 
-	VulkanShader::VulkanShader(const std::string& path, bool forceCompile, bool disableOptimization)
+	RHIShader::RHIShader(const std::string& path, bool forceCompile, bool disableOptimization)
 		: m_AssetPath(path), m_DisableOptimization(disableOptimization)
 	{
 		// TODO: This should be more "general"
@@ -60,18 +60,18 @@ namespace Lux {
 		Reload(forceCompile);
 	}
 
-	VulkanShader::~VulkanShader()
+	RHIShader::~RHIShader()
 	{
 		ReleaseNRIPipelineLayout();
 	}
 
-	void VulkanShader::Release()
+	void RHIShader::Release()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		ReleaseNRIPipelineLayout();
 	}
 
-	void VulkanShader::ReleaseNRIPipelineLayout()
+	void RHIShader::ReleaseNRIPipelineLayout()
 	{
 		if (!m_NRIPipelineLayout)
 			return;
@@ -86,7 +86,7 @@ namespace Lux {
 		m_NRIRootConstantSize = 0;
 	}
 
-	uint32_t VulkanShader::GetNRIRangeIndex(uint32_t set, uint32_t binding) const
+	uint32_t RHIShader::GetNRIRangeIndex(uint32_t set, uint32_t binding) const
 	{
 		if (set >= m_NRIRanges.size())
 			return k_NoNRISet;
@@ -96,7 +96,7 @@ namespace Lux {
 		return it != ranges.end() && it->Binding == binding ? static_cast<uint32_t>(it - ranges.begin()) : k_NoNRISet;
 	}
 
-	bool VulkanShader::IsNRISetCompatible(uint32_t set, const VulkanShader& other) const
+	bool RHIShader::IsNRISetCompatible(uint32_t set, const RHIShader& other) const
 	{
 		if (set >= m_NRISetIndices.size() || m_NRISetIndices[set] == k_NoNRISet || m_NRISetIndices[set] != other.m_NRISetIndices[set])
 			return false;
@@ -105,7 +105,7 @@ namespace Lux {
 		return m_NRIRanges[set] == other.m_NRIRanges[set];
 	}
 
-	nri::DescriptorPoolDesc VulkanShader::GetNRIPoolDesc(uint32_t set, uint32_t instanceCount) const
+	nri::DescriptorPoolDesc RHIShader::GetNRIPoolDesc(uint32_t set, uint32_t instanceCount) const
 	{
 		nri::DescriptorPoolDesc poolDesc = {};
 		poolDesc.descriptorSetMaxNum = instanceCount;
@@ -132,13 +132,13 @@ namespace Lux {
 		return poolDesc;
 	}
 
-	const std::vector<uint32_t>& VulkanShader::GetSPIRV(ShaderStage stage) const
+	const std::vector<uint32_t>& RHIShader::GetSPIRV(ShaderStage stage) const
 	{
 		auto it = m_ShaderData.find(stage);
 		return it != m_ShaderData.end() ? it->second : s_NoSPIRV;
 	}
 
-	void VulkanShader::CreateNRIPipelineLayout()
+	void RHIShader::CreateNRIPipelineLayout()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		ReleaseNRIPipelineLayout();
@@ -245,7 +245,7 @@ namespace Lux {
 		RHIDevice::API().SetDebugName(m_NRIPipelineLayout, m_Name.c_str());
 	}
 
-	void VulkanShader::RT_Reload(const bool forceCompile)
+	void RHIShader::RT_Reload(const bool forceCompile)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 #if LUX_HAS_SHADER_COMPILER 
@@ -256,7 +256,7 @@ namespace Lux {
 #endif
 	}
 
-	void VulkanShader::Reload(bool forceCompile)
+	void RHIShader::Reload(bool forceCompile)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Renderer::Submit([instance = Ref(this), forceCompile]() mutable
@@ -265,13 +265,13 @@ namespace Lux {
 		});
 	}
 
-	size_t VulkanShader::GetHash() const
+	size_t RHIShader::GetHash() const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		return Hash::GenerateFNVHash(m_AssetPath.string());
 	}
 
-	void VulkanShader::SetShaderData(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData)
+	void RHIShader::SetShaderData(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_ShaderData = shaderData;
@@ -286,7 +286,7 @@ namespace Lux {
 
 
 	
-	void VulkanShader::CreateDescriptors()
+	void RHIShader::CreateDescriptors()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		// The input declarations DescriptorSetManager binds by name, then the NRI layout. The bindless
@@ -344,18 +344,18 @@ namespace Lux {
 	}
 
 
-	const std::unordered_map<std::string, ShaderResourceDeclaration>& VulkanShader::GetResources() const
+	const std::unordered_map<std::string, ShaderResourceDeclaration>& RHIShader::GetResources() const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		return m_ReflectionData.Resources;
 	}
 
-	void VulkanShader::AddShaderReloadedCallback(const ShaderReloadedCallback& callback)
+	void RHIShader::AddShaderReloadedCallback(const ShaderReloadedCallback& callback)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 	}
 
-	bool VulkanShader::TryReadReflectionData(StreamReader* serializer)
+	bool RHIShader::TryReadReflectionData(StreamReader* serializer)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		uint32_t shaderDescriptorSetCount;
@@ -380,7 +380,7 @@ namespace Lux {
 		return true;
 	}
 
-	void VulkanShader::SerializeReflectionData(StreamWriter* serializer)
+	void RHIShader::SerializeReflectionData(StreamWriter* serializer)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		serializer->WriteRaw<uint32_t>((uint32_t)m_ReflectionData.ShaderDescriptorSets.size());
@@ -400,7 +400,7 @@ namespace Lux {
 		serializer->WriteArray(m_ReflectionData.PushConstantRanges);
 	}
 
-	void VulkanShader::SetReflectionData(const ReflectionData& reflectionData)
+	void RHIShader::SetReflectionData(const ReflectionData& reflectionData)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_ReflectionData = reflectionData;

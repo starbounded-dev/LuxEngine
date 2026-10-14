@@ -8,7 +8,7 @@
 
 #include "Lux/Serialization/FileStream.h"
 
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 
 namespace Lux {
 
@@ -74,7 +74,7 @@ namespace Lux {
 			shaderName = found != std::string::npos ? shaderName.substr(0, found) : name;
 		}
 
-		Ref<VulkanShader> vulkanShader = Ref<VulkanShader>::Create();
+		Ref<RHIShader> vulkanShader = Ref<RHIShader>::Create();
 		vulkanShader->m_Name = shaderName;
 		vulkanShader->m_AssetPath = name;
 		//vulkanShader->TryReadReflectionData(&serializer);
@@ -119,7 +119,7 @@ namespace Lux {
 		uint32_t shaderModuleIndexArraySize = 0;
 		for (const auto& [name, shader] : shaderMap)
 		{
-			Ref<VulkanShader> vulkanShader = shader.As<VulkanShader>();
+			Ref<RHIShader> vulkanShader = shader.As<RHIShader>();
 			const auto& shaderData = vulkanShader->m_ShaderData;
 
 			shaderPackFile.Header.ShaderModuleCount += (uint32_t)shaderData.size();
@@ -153,7 +153,7 @@ namespace Lux {
 		serializer.WriteZero(shaderPackFile.Header.ShaderModuleCount * sizeof(ShaderPackFile::ShaderModuleInfo));
 		for (const auto& [name, shader] : shaderMap)
 		{
-			Ref<VulkanShader> vulkanShader = shader.As<VulkanShader>();
+			Ref<RHIShader> vulkanShader = shader.As<RHIShader>();
 
 			// Serialize reflection data
 			shaderPackFile.Index.ShaderPrograms[(uint32_t)vulkanShader->GetHash()].ReflectionDataOffset = serializer.GetStreamPosition();

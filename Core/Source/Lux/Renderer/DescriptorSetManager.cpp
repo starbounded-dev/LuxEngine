@@ -646,11 +646,11 @@ namespace Lux {
 			}
 		}
 
-		const VulkanShader& shader = *m_Specification.Shader;
+		const RHIShader& shader = *m_Specification.Shader;
 		nri::PipelineLayout* layout = shader.GetNRIPipelineLayout();
 		const uint32_t setIndex = shader.GetNRISetIndex(set);
 		// No layout is already logged; no set index means the shader declares nothing to bind there.
-		if (!layout || setIndex == VulkanShader::k_NoNRISet)
+		if (!layout || setIndex == RHIShader::k_NoNRISet)
 			return;
 
 		Ref<DescriptorSetGroup> group = Ref<DescriptorSetGroup>::Create(*layout, setIndex, shader.GetNRIPoolDesc(set, frameCount), frameCount, 0, m_Specification.DebugName.c_str());
@@ -664,7 +664,7 @@ namespace Lux {
 			for (const auto& [binding, input] : setIt->second)
 			{
 				const uint32_t rangeIndex = shader.GetNRIRangeIndex(set, binding);
-				if (rangeIndex == VulkanShader::k_NoNRISet || input.Input.empty())
+				if (rangeIndex == RHIShader::k_NoNRISet || input.Input.empty())
 					continue;
 
 				bool storageBufferReadOnly = false;

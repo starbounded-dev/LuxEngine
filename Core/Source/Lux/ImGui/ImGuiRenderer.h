@@ -67,7 +67,7 @@ namespace nri {
 
 namespace Lux
 {
-	class VulkanShader;
+	class RHIShader;
 	class RHISwapChain;
 
 	// --------------------------------------------------------------------
@@ -288,7 +288,7 @@ namespace Lux
 		std::shared_ptr<ImGuiTextureRegistry> m_Registry;
 
 		Ref<RenderCommandBuffer> m_RenderCommandBuffer;
-		Ref<VulkanShader> m_Shader;
+		Ref<RHIShader> m_Shader;
 		Ref<Sampler> m_Sampler;
 		uint32_t m_SetIndex = 0;
 		uint32_t m_TextureRange = 0;

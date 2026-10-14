@@ -19,7 +19,7 @@ namespace nri {
 
 namespace Lux {
 
-	class VulkanShader : public Shader
+	class RHIShader : public Shader
 	{
 	public:
 		struct ReflectionData
@@ -32,9 +32,9 @@ namespace Lux {
 	public:
 		static constexpr uint32_t k_NoNRISet = UINT32_MAX;
 	public:
-		VulkanShader() = default;
-		VulkanShader(const std::string& path, bool forceCompile, bool disableOptimization);
-		virtual ~VulkanShader();
+		RHIShader() = default;
+		RHIShader(const std::string& path, bool forceCompile, bool disableOptimization);
+		virtual ~RHIShader();
 		void Release();
 
 		void Reload(bool forceCompile = false) override;
@@ -87,7 +87,7 @@ namespace Lux {
 		// True when a set built for this shader's set `set` can be bound in `other`'s layout: both
 		// declare the same ranges there (and, for set 0, the same root constants, as the NVRHI binding
 		// layouts compared their push constants).
-		bool IsNRISetCompatible(uint32_t set, const VulkanShader& other) const;
+		bool IsNRISetCompatible(uint32_t set, const RHIShader& other) const;
 	private:
 		// The SPIR-V of every stage, which NRI pipelines are created from.
 		void SetShaderData(const std::map<ShaderStage, std::vector<uint32_t>>& shaderData);

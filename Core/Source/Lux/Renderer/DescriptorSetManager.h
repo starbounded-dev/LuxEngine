@@ -9,7 +9,7 @@
 #include "Lux/Renderer/RendererConfig.h"
 #include "Lux/Renderer/Texture.h"
 
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
 
 #include <set>
@@ -191,7 +191,7 @@ namespace Lux {
 
 	struct DescriptorSetManagerSpecification
 	{
-		Ref<VulkanShader> Shader;
+		Ref<RHIShader> Shader;
 		std::string DebugName;
 
 		// Which descriptor sets should be managed

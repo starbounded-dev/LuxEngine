@@ -4,7 +4,7 @@
 #include "lpch.h"
 #include "PipelineCompute.h"
 
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
@@ -168,7 +168,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		ReleaseNRIPipeline();
 
-		Ref<VulkanShader> shader = m_Shader.As<VulkanShader>();
+		Ref<RHIShader> shader = m_Shader.As<RHIShader>();
 		nri::PipelineLayout* layout = shader->GetNRIPipelineLayout();
 		const std::vector<uint32_t>& spirv = shader->GetSPIRV(ShaderStage::Compute);
 		if (!layout || spirv.empty())

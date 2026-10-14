@@ -354,7 +354,7 @@ namespace Lux {
 	static void RT_RecordDispatch(RenderCommandBuffer& commandBuffer, const ComputePass& computePass, Material* material, const glm::uvec3& workGroups, const Buffer& constants)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		Ref<VulkanShader> shader = computePass.GetShader().As<VulkanShader>();
+		Ref<RHIShader> shader = computePass.GetShader().As<RHIShader>();
 		RenderCommandBuffer::NRIDispatchDesc desc;
 		desc.PipelineLayout = shader->GetNRIPipelineLayout();
 		desc.Pipeline = computePass.GetPipeline()->GetNRIPipeline();
@@ -368,7 +368,7 @@ namespace Lux {
 		for (uint32_t set = 0; !problem && set < setCount; set++)
 		{
 			const uint32_t setIndex = shader->GetNRISetIndex(set);
-			if (setIndex == VulkanShader::k_NoNRISet)
+			if (setIndex == RHIShader::k_NoNRISet)
 				continue;
 
 			const BoundDescriptorSet bound = set == 0 && materialSet.Set ? materialSet : computePass.GetDescriptorSet(frameIndex, set);
@@ -1460,7 +1460,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Pipeline> pipeline = renderPass.GetPipeline();
-		Ref<VulkanShader> shader = pipeline->GetShader().As<VulkanShader>();
+		Ref<RHIShader> shader = pipeline->GetShader().As<RHIShader>();
 		Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
 		const std::string& passName = renderPass.GetSpecification().DebugName;
 
@@ -1478,7 +1478,7 @@ namespace Lux {
 		for (uint32_t set = 0; !problem && set < setCount; set++)
 		{
 			const uint32_t setIndex = shader->GetNRISetIndex(set);
-			if (setIndex == VulkanShader::k_NoNRISet)
+			if (setIndex == RHIShader::k_NoNRISet)
 				continue;
 
 			desc.DescriptorSets[setIndex] = renderPass.GetDescriptorSet(frameIndex, set);
@@ -1534,7 +1534,7 @@ namespace Lux {
 
 		// Set 0 belongs to the draw: its material's, or else the pass's own.
 		const RenderCommandBuffer::NRIRenderPassDesc& pass = renderCommandBuffer.RT_GetNRIRenderPass();
-		const bool drawSetUnbound = pass.DrawSetIndex != VulkanShader::k_NoNRISet && !draw.MaterialSet.Set && !pass.DescriptorSets[pass.DrawSetIndex].Set;
+		const bool drawSetUnbound = pass.DrawSetIndex != RHIShader::k_NoNRISet && !draw.MaterialSet.Set && !pass.DescriptorSets[pass.DrawSetIndex].Set;
 		const char* problem = drawSetUnbound ? "a draw leaves set 0 unbound"
 			: !draw.Vertices || !draw.Vertices->GetRHIBuffer() || !draw.Indices || !draw.Indices->GetRHIBuffer() ? "a draw's vertex or index buffer has no NRI buffer"
 			: draw.IndirectArguments && !draw.IndirectArguments->GetRHIBuffer() ? "a draw's indirect arguments have no NRI buffer"
@@ -1581,7 +1581,7 @@ namespace Lux {
 		const RenderCommandBuffer::NRIRenderPassDesc& pass = renderCommandBuffer.RT_GetNRIRenderPass();
 		const NRIInterface& api = RHIDevice::API();
 		const char* problem = !api.CmdDrawMeshTasks ? "NRI has no mesh shader interface"
-			: pass.DrawSetIndex == VulkanShader::k_NoNRISet ? "its mesh shader has no NRI set 0"
+			: pass.DrawSetIndex == RHIShader::k_NoNRISet ? "its mesh shader has no NRI set 0"
 			: !meshletSet.Set ? "a mesh has no meshlet set"
 			: nullptr;
 		if (problem)

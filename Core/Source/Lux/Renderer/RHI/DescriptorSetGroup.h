@@ -69,7 +69,7 @@ namespace Lux {
 	class DescriptorSetGroup : public RefCounted
 	{
 	public:
-		// Any thread. `setIndex` is the set's position in the layout (VulkanShader::GetNRISetIndex).
+		// Any thread. `setIndex` is the set's position in the layout (RHIShader::GetNRISetIndex).
 		// Invalid (and logged) when NRI cannot create the pool or allocate the sets.
 		DescriptorSetGroup(nri::PipelineLayout& layout, uint32_t setIndex, const nri::DescriptorPoolDesc& poolDesc,
 			uint32_t instanceCount, uint32_t variableDescriptorNum, const char* debugName);

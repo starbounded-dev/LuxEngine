@@ -10,7 +10,7 @@
 #include "ShaderPreprocessing/HlslIncluder.h"
 
 #include "Lux/Core/Hash.h"
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Serialization/FileStream.h"
 #include "Lux/Utilities/StringUtils.h"
@@ -641,7 +641,7 @@ namespace Lux {
 			Log::GetEditorConsoleLogger()->error("{}", message);
 	}
 
-	Ref<VulkanShader> VulkanShaderCompiler::Compile(const std::filesystem::path& shaderSourcePath, bool forceCompile, bool disableOptimization)
+	Ref<RHIShader> VulkanShaderCompiler::Compile(const std::filesystem::path& shaderSourcePath, bool forceCompile, bool disableOptimization)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		// Set name
@@ -651,7 +651,7 @@ namespace Lux {
 		found = name.find_last_of('.');
 		name = found != std::string::npos ? name.substr(0, found) : name;
 
-		Ref<VulkanShader> shader = Ref<VulkanShader>::Create();
+		Ref<RHIShader> shader = Ref<RHIShader>::Create();
 		shader->m_AssetPath = shaderSourcePath;
 		shader->m_Name = name;
 		shader->m_DisableOptimization = disableOptimization;
@@ -674,7 +674,7 @@ namespace Lux {
 		return shader;
 	}
 
-	bool VulkanShaderCompiler::TryRecompile(Ref<VulkanShader> shader)
+	bool VulkanShaderCompiler::TryRecompile(Ref<RHIShader> shader)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<VulkanShaderCompiler> compiler = Ref<VulkanShaderCompiler>::Create(shader->m_AssetPath, shader->m_DisableOptimization);

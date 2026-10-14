@@ -42,9 +42,9 @@ intentional, not dead code.
 
 Renderer types (`Texture2D`, `Image2D`, `Pipeline`, `Framebuffer`, the buffers) are concrete
 classes over NRI objects; `GetHandle()` on images and textures is the NRI texture.
-`Shader` is the one abstract type, implemented by `VulkanShader`.
+`Shader` is the one abstract type, implemented by `RHIShader`.
 `Platform/Vulkan/` holds only what NRI does not provide: `VulkanDeviceManager` (instance,
-device, queues, validation callback), `VulkanShader` + `ShaderCompiler/`, `DescriptorSetManager`,
+device, queues, validation callback), `RHIShader` + `ShaderCompiler/`, `DescriptorSetManager`,
 and the Aftermath `Debug/` sources. The swapchain is `Renderer/RHI/RHISwapChain`, on NRI.
 
 ---
@@ -447,7 +447,7 @@ context see the same device NRI drives.
     the NRI resource and its views through `Renderer::SubmitResourceFree`. A raw `nri::Texture*`
     or `nri::Buffer*` keeps nothing alive, so nothing may use one after its owner is gone.
 - **Descriptors** (NRI migration Phases 9 and 12):
-  - **Pipeline layouts**: one per `VulkanShader`, built from its reflection when its input
+  - **Pipeline layouts**: one per `RHIShader`, built from its reflection when its input
     declarations are (`CreateDescriptors` → `GetNRIPipelineLayout`):
     - register space = set number;
     - one NRI set per non-empty set (`GetNRISetIndex(set)`, `k_NoNRISet` for an empty one);
@@ -455,7 +455,7 @@ context see the same device NRI drives.
     - set 4 is the shared bindless range;
     - push constants are root constant 0.
 
-    A material's set can be bound in a pipeline's layout when `VulkanShader::IsNRISetCompatible`:
+    A material's set can be bound in a pipeline's layout when `RHIShader::IsNRISetCompatible`:
     the same ranges (and, for set 0, the same root constants).
   - **Descriptor sets**: a `DescriptorSetGroup` (`RHI/DescriptorSetGroup.h`) is a pool holding
     one set per frame in flight, and what each set accesses (`DescriptorSetUses`, for the barrier
@@ -579,7 +579,7 @@ crash or corruption on some driver even if it renders correctly on yours.
   `VulkanDeviceManager::ReportDeviceLost`, which waits for the dump, logs its path and aborts.
   Dumps go to `<log directory>/GPUCrashDumps/`, with the last `RT_BeginMarker` label per command
   buffer in `.markers.txt` (Vulkan checkpoints store only a pointer, so names are resolved in-process).
-  Shaders are registered for address mapping in `VulkanShader::LoadAndCreateShaders`.
+  Shaders are registered for address mapping in `RHIShader::LoadAndCreateShaders`.
 
 Known-good debugging recipe for device-lost on scene transitions: drain the GPU before tearing down
 per-scene GPU state. Freeing in-flight descriptor pools on a scene switch is a real failure mode this

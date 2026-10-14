@@ -9,7 +9,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Debug/Profiler.h"
 
-#include "Lux/Platform/Vulkan/VulkanShader.h"
+#include "Lux/Renderer/RHI/RHIShader.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RHI/RHISwapChain.h"
 
@@ -145,7 +145,7 @@ namespace Lux {
 			: std::make_shared<ImGuiTextureRegistry>();
 
 		m_RenderCommandBuffer = RenderCommandBuffer::Create(0, "ImGuiRenderer", true);
-		m_Shader = Renderer::GetShaderLibrary()->Get("ImGui").As<VulkanShader>();
+		m_Shader = Renderer::GetShaderLibrary()->Get("ImGui").As<RHIShader>();
 
 		// Repeat addressing and linear filtering (the renderer's repeat sampler is anisotropic), and
 		// the pipeline for the main window's format, made now rather than on the first frame. A
@@ -381,7 +381,7 @@ namespace Lux {
 			: !pipeline ? "no NRI pipeline for the target format"
 			: !target ? "the back buffer has no NRI view"
 			: !m_Sampler->GetRHIDescriptor() ? "the sampler has no NRI descriptor"
-			: (m_SetIndex == VulkanShader::k_NoNRISet || m_TextureRange == VulkanShader::k_NoNRISet || m_SamplerRange == VulkanShader::k_NoNRISet) ? "the ImGui shader's set 0 has no NRI ranges"
+			: (m_SetIndex == RHIShader::k_NoNRISet || m_TextureRange == RHIShader::k_NoNRISet || m_SamplerRange == RHIShader::k_NoNRISet) ? "the ImGui shader's set 0 has no NRI ranges"
 			: nullptr;
 		if (problem && !m_ReportedSkippedFrames)
 		{

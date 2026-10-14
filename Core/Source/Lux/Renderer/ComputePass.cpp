@@ -17,7 +17,7 @@ namespace Lux {
 
 		DescriptorSetManagerSpecification dmSpec;
 		dmSpec.DebugName = spec.DebugName;
-		dmSpec.Shader = spec.Pipeline->GetShader().As<VulkanShader>();
+		dmSpec.Shader = spec.Pipeline->GetShader().As<RHIShader>();
 		dmSpec.StartSet = 1;
 		m_DescriptorSetManager = DescriptorSetManager(dmSpec);
 
