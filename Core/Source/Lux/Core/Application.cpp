@@ -109,7 +109,8 @@ namespace Lux {
 		else
 			m_Window->CenterWindow();
 		m_Window->SetResizable(specification.Resizable);
-		m_Window->Show();
+		if (!specification.DeferWindowShow)
+			m_Window->Show();
 
 		if (m_Specification.EnableImGui)
 		{
@@ -200,6 +201,44 @@ namespace Lux {
 
 		for (int i = 0; i < m_LayerStack.Size(); i++)
 			m_LayerStack[i]->OnImGuiRender();
+	}
+
+	void Application::RenderStartupFrame(const std::function<void()>& drawImGui)
+	{
+		LUX_PROFILE_FUNCTION("Application::RenderStartupFrame");
+		LUX_CORE_ASSERT(IsMainThread(), "Startup frames build ImGui, which is main-thread only");
+		LUX_CORE_VERIFY(m_ImGuiLayer, "RenderStartupFrame needs the ImGui layer");
+
+		// One iteration of Run()'s frame, minus everything that belongs to the layers: their
+		// updates, their UI, the event queue, audio and Discord.
+		m_RenderThread.BlockUntilRenderComplete();
+
+		m_InStartupFrame = true;
+		m_Window->ProcessEvents();
+		m_InStartupFrame = false;
+
+		m_ImGuiLayer->Begin();
+		drawImGui();
+		m_ImGuiLayer->End();
+
+		m_RenderThread.NextFrame();
+		m_RenderThread.Kick();
+
+		Renderer::Submit([this]()
+			{
+				Renderer::RT_BeginFrame();
+				m_Window->BeginFrame();
+			});
+		Renderer::BeginFrame();
+		Renderer::ExecuteBackgroundThreadSubmits();
+		m_ImGuiLayer->SubmitDrawData();
+		Renderer::EndFrame();
+		Renderer::Submit([this]()
+			{
+				m_Window->Present();
+			});
+
+		m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % Renderer::GetConfig().FramesInFlight;
 	}
 
 	void Application::SyncEvents()
@@ -435,6 +474,10 @@ namespace Lux {
 		dispatcher.Dispatch<WindowResizeEvent>([this](WindowResizeEvent& e) { return OnWindowResize(e); });
 		dispatcher.Dispatch<WindowMinimizeEvent>([this](WindowMinimizeEvent& e) { return OnWindowMinimize(e); });
 		dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent& e) { return OnWindowClose(e); });
+
+		// A startup frame runs inside a layer's OnAttach, so the layers are not ready for events.
+		if (m_InStartupFrame)
+			return;
 
 		for (auto it = m_LayerStack.end(); it != m_LayerStack.begin(); )
 		{

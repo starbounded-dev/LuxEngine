@@ -65,6 +65,11 @@ Detection helpers: `Application::IsMainThread()` / `Application::GetMainThreadID
    `DiscordSocial::Update()`, `m_ImGuiLayer->SubmitDrawData()`, `Renderer::EndFrame()`.
 6. `m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % Renderer::GetConfig().FramesInFlight`.
 
+`Application::RenderStartupFrame` is the only other place a frame is produced: before `Run()`, from
+inside a layer's `OnAttach`, for the startup splash. It is one iteration of the steps above minus the
+layers (no `OnUpdate` / `OnImGuiRender`, OS events not dispatched to layers, the event queue left
+alone), so the same render-thread handshake holds under both threading policies.
+
 On the render thread the frame starts with `Renderer::RT_BeginFrame()` (inside the first submitted
 lambda, before `m_Window->BeginFrame()`'s swapchain acquire) and ends with the `Present` lambda.
 Three different indices exist, and they are not interchangeable:

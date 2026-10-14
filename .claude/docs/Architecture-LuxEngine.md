@@ -150,6 +150,19 @@ deserialized, `JobSystem::Init` runs, then `m_RenderThread.Run()`, and only *the
 created. The threading policy is therefore read from `App.lsettings` in `LuxEditorApp.cpp` *before*
 the `Application` object exists, because `RenderThread` is constructed with it.
 
+**Startup splash.** `ApplicationSpecification::DeferWindowShow` leaves the window hidden after
+construction; the client shows it with `GetWindow().Show()`. `StartupSplash`
+(`Core/Source/Lux/Core/StartupSplash.h`, board 06 of the brand sheet) is the loading splash a layer
+creates at the top of its `OnAttach` and destroys when it is ready. The static
+`StartupSplash::Report(progress, status)` (a no-op when no splash is up, so any startup code may call
+it) draws one frame through `Application::RenderStartupFrame`: one `Run()` iteration whose only UI is
+the splash, with OS events polled but not dispatched to layers (`m_InStartupFrame`) and the event
+queue left for `Run()`. With ImGui platform viewports (Windows) the splash is a borderless OS window of
+its own and the hidden main window is shown when the splash is destroyed; without them (Linux) it
+draws in the main window, which it shows on creation. The editor sets `DeferWindowShow`. Because the
+splash renders ImGui's first frame from inside `OnAttach`, `io.IniFilename` must be set before the first
+`Report` (ImGui loads the ini on its first frame).
+
 **Per-user data** lives in `FileSystem::GetPersistentStoragePath()` — `%APPDATA%\LuxEngine` on
 Windows, `$XDG_DATA_HOME/LuxEngine` (default `~/.local/share/LuxEngine`) on Linux. The editor keeps
 everything machine-local there: `App.lsettings` (`ApplicationSpecification::SettingsPath`, which
@@ -534,7 +547,10 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   never run against a missing project. `CloseProject` returns there (stop Play, exit prefab mode,
   empty scene, `Project::SetActive(nullptr)`); `CreateProject` writes a new `.luxproj` + asset tree
   and opens it; `OpenProject` resets to an empty scene when the project has no start scene.
-  `UserPreferences::ShowSplashScreen` controls the startup splash.
+  `UserPreferences::ShowSplashScreen` controls the startup splash. It is not the *loading* splash:
+  that is Core's `StartupSplash` (§ 2.1), which `EditorLayer::OnAttach` and `OpenProject` report
+  their steps to before the welcome card opens. Both banners use the brand art
+  (`ImGuiEx::Draw::LuxMark` / `DotGrid`, `Colors::Brand`).
 - `Editor/Source/RuntimeExportUtils.{h,cpp}` builds the standalone runtime package. Each export
   (`EditorLayer::ExportRuntimeNow`) first deletes the `<Game>-<Platform>` output folder, but only
   when it holds `Assets/Project.luxruntime` from a previous export; any other non-empty folder at

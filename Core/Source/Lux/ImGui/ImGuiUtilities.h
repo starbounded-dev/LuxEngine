@@ -12,6 +12,8 @@
 #include <imgui/imgui_internal.h>
 #include <imgui/misc/cpp/imgui_stdlib.h>
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 #include <string>
 
@@ -274,6 +276,33 @@ namespace Lux::ImGuiEx {
 					ImGui::PopColumnsBackground();
 				else if (ImGui::GetCurrentTable() != nullptr)
 					ImGui::TablePopBackgroundChannel();
+			}
+		}
+
+		//=========================================================================================
+		/// Brand
+
+		// The Lux mark (Resources/Editor/LuxMark.svg): an L, the left column and bottom row of a
+		// 3x3 grid, plus one cell of light in the top-right corner. The cell size is floored to
+		// whole pixels and `topLeft` snapped to them, so the mark stays crisp at any scale.
+		inline void LuxMark(ImDrawList* drawList, ImVec2 topLeft, float size, ImU32 inkColour, ImU32 lightColour)
+		{
+			const float cell = std::max(1.0f, std::floor(size / 3.0f));
+			const float x = std::floor(topLeft.x), y = std::floor(topLeft.y), extent = cell * 3.0f;
+			drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + cell, y + extent), inkColour);
+			drawList->AddRectFilled(ImVec2(x + cell, y + 2.0f * cell), ImVec2(x + extent, y + extent), inkColour);
+			drawList->AddRectFilled(ImVec2(x + 2.0f * cell, y), ImVec2(x + extent, y + cell), lightColour);
+		}
+
+		// The brand's dot-grid texture: square dots of `dotSize` every `pitch` pixels across
+		// [min, max), the first half a pitch in. For empty states and key art, never behind text.
+		inline void DotGrid(ImDrawList* drawList, ImVec2 min, ImVec2 max, float pitch, float dotSize, ImU32 colour)
+		{
+			const float half = dotSize * 0.5f;
+			for (float y = min.y + pitch * 0.5f; y < max.y; y += pitch)
+			{
+				for (float x = min.x + pitch * 0.5f; x < max.x; x += pitch)
+					drawList->AddRectFilled(ImVec2(x - half, y - half), ImVec2(x + half, y + half), colour);
 			}
 		}
 	}

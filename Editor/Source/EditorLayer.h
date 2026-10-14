@@ -13,6 +13,7 @@
 #include "Panels/LightSettingsPanel.h"
 #include "CommandPalette.h"
 #include "SplashScreen.h"
+#include "Lux/Core/StartupSplash.h"
 #include "Lux/Editor/EditorConsolePanel.h"
 
 #include "Lux/Asset/Asset.h"
@@ -243,6 +244,7 @@ namespace Lux
 
 		Scope<CommandPalette> m_CommandPalette;
 		Scope<SplashScreen> m_SplashScreen;   // startup / Help → Splash Screen; forced while no project is open
+		Scope<StartupSplash> m_StartupSplash; // the loading splash; exists only during OnAttach
 
 		// Viewport camera bookmarks: Ctrl+<1-9> sets, <1-9> jumps (session-only for now).
 		struct CameraBookmark

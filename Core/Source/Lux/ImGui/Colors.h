@@ -6,6 +6,17 @@
 
 namespace Colors
 {
+	// The Lux brand sheet's tokens, for brand surfaces only: the Lux mark, the startup splash and the
+	// welcome banner. Editor UI uses Theme.
+	namespace Brand
+	{
+		constexpr auto ground = IM_COL32(12, 13, 15, 255);          // `void` #0C0D0F
+		constexpr auto line = IM_COL32(43, 47, 53, 255);            // `line` #2B2F35, hairlines
+		constexpr auto ink = IM_COL32(237, 234, 227, 255);          // `ink` #EDEAE3
+		constexpr auto inkMuted = IM_COL32(156, 158, 162, 255);     // `ink-muted` #9C9EA2
+		constexpr auto lux = IM_COL32(255, 178, 36, 255);           // `lux` #FFB224, the mark's light cell
+	}
+
 	// To experiment with editor theme live you can change these constexpr into static
 	// members of a static "Theme" class and add a quick ImGui window to adjust the colour values
 	namespace Theme
@@ -19,9 +30,6 @@ namespace Colors
 		// Signature accent + its brighter relative. Monochrome otherwise — no secondary hue.
 		constexpr auto accent = IM_COL32(200, 255, 77, 255);        // #C8FF4D acid lime
 		constexpr auto highlight = IM_COL32(214, 255, 140, 255);    // brighter lime
-
-		// The light cell of the Lux mark (brand `lux`, #FFB224). Logo only — not a UI accent.
-		constexpr auto brandLux = IM_COL32(255, 178, 36, 255);
 
 		// Neutral warm-graphite surfaces (a faint warm/amber tint reads more crafted than flat gray).
 		constexpr auto background = IM_COL32(34, 31, 28, 255);

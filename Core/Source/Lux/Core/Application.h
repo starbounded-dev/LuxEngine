@@ -32,6 +32,9 @@ namespace Lux {
 		std::string WorkingDirectory;
 		bool StartMaximized = true;
 		bool Resizable = true;
+		// Leave the window hidden after construction; the client shows it with GetWindow().Show().
+		// The editor does, once its startup splash (its own OS window) closes.
+		bool DeferWindowShow = false;
 		bool EnableImGui = true;
 		//ScriptEngineConfig ScriptConfig;
 		RendererConfig RenderConfig;
@@ -81,6 +84,12 @@ namespace Lux {
 		void PopLayer(Layer* layer);
 		void PopOverlay(Layer* layer);
 		void RenderImGui();
+
+		// Renders one frame outside Run() whose only UI is `drawImGui`, for a splash shown while a
+		// layer's OnAttach is still loading. Main thread, before Run(). OS events are polled so the
+		// windows stay responsive, but none reach the layers (they may be half attached) and the
+		// event queue is left for Run().
+		void RenderStartupFrame(const std::function<void()>& drawImGui);
 
 		void AddEventCallback(const EventCallbackFn& eventCallback) { m_EventCallbacks.push_back(eventCallback); }
 
@@ -176,6 +185,7 @@ namespace Lux {
 		std::unique_ptr<Window> m_Window;
 		ApplicationSpecification m_Specification;
 		bool m_Running = true, m_Minimized = false;
+		bool m_InStartupFrame = false;   // inside RenderStartupFrame: OnEvent stops before the layers
 		LayerStack m_LayerStack;
 		ImGuiLayer* m_ImGuiLayer = nullptr; // Stays null when EnableImGui is off (Dist runtime).
 		Timestep m_Frametime;

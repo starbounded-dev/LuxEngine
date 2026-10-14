@@ -320,6 +320,11 @@ Use the named constants (`Theme::accent`, `Theme::background`, `Theme::titlebar`
 `Theme::textError`, `Theme::selection`, `Theme::groupHeader`, `Theme::muted`, …). The theme is
 `constexpr` so a new colour means adding a constant, not a literal at the call site.
 
+`Colors::Brand` (same header) holds the brand sheet's tokens (`ground`, `line`, `ink`, `inkMuted`,
+`lux`) for brand surfaces only: the Lux mark, the startup splash, the welcome banner. Editor UI stays
+on `Theme`. Draw the mark and the dot texture with `ImGuiEx::Draw::LuxMark` / `Draw::DotGrid`
+(`ImGuiUtilities.h`) rather than re-deriving their geometry.
+
 ### Assets and project — `AssetManager`, `Project`
 
 `AssetManager::` (`Asset/AssetManager.h`) is the **only** entry point to assets from outside the

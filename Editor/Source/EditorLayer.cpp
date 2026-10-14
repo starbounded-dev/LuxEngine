@@ -362,12 +362,14 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
 
-		EditorResources::Init();
-
-		// Per-user, like App.lsettings. ImGui reads the ini lazily on the first frame, so setting it
-		// here (before any frame) is enough; it keeps a pointer, hence the member string.
+		// Per-user, like App.lsettings. ImGui reads the ini lazily on its first frame, so this has to
+		// come before the startup splash draws one; it keeps a pointer, hence the member string.
 		m_ImGuiIniPath = (FileSystem::GetPersistentStoragePath() / "imgui.ini").string();
 		ImGui::GetIO().IniFilename = m_ImGuiIniPath.c_str();
+
+		m_StartupSplash = CreateScope<StartupSplash>();
+		StartupSplash::Report(0.05f, "Loading editor resources");
+		EditorResources::Init();
 
 		LoadEditorPreferences();
 		LoadUserPreferences();
@@ -380,6 +382,7 @@ namespace Lux {
 			Application::Get().GetSettings().Get("Renderer.AsyncTransferQueue", "false") != "false");
 
 		/////////// Configure Panels ///////////
+		StartupSplash::Report(0.2f, "Setting up panels");
 		m_PanelManager = CreateScope<PanelManager>();
 
 		m_SceneHierarchyPanel = m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
@@ -498,6 +501,7 @@ namespace Lux {
 			m_SplashScreen = CreateScope<SplashScreen>(std::move(splashCallbacks));
 		}
 
+		StartupSplash::Report(0.35f, "Starting the scene renderer");
 		m_IconPlay = LoadTextureFromPath("Resources/Editor/Viewport/Play.png");
 		m_IconPause = LoadTextureFromPath("Resources/Editor/Viewport/Pause.png");
 		m_IconSimulate = LoadTextureFromPath("Resources/Editor/Viewport/Simulate.png");
@@ -634,6 +638,9 @@ namespace Lux {
 			return m_EditorScene != previousScene;
 		};
 		m_GoldenCapture = GoldenCapture::CreateFromEnvironment(std::move(goldenHooks));
+
+		StartupSplash::Report(1.0f, "Ready");
+		m_StartupSplash.reset();   // shows the main window
 	}
 
 	void EditorLayer::OnDetach()
@@ -1584,18 +1591,10 @@ namespace Lux {
 
 		// --- LUX wordmark: the Lux mark + the Display wordmark. ---
 		const float kNoWrap = std::numeric_limits<float>::max();
-		const float markX = std::floor(windowPos.x + 14.0f);
+		const float markX = windowPos.x + 14.0f;
 		const float markSize = 15.0f; // a multiple of 3 keeps every cell of the 3x3 mark on whole pixels
 		const float markCY = windowPos.y + m_TitlebarHeight * 0.5f;
-		{
-			// Same geometry as Resources/Editor/LuxMark.svg: an L (left column + bottom row) and one
-			// cell of light in the top-right corner.
-			const float cell = markSize / 3.0f;
-			const float x = markX, y = std::floor(markCY - markSize * 0.5f);
-			drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + cell, y + markSize), Colors::Theme::textBrighter);
-			drawList->AddRectFilled(ImVec2(x + cell, y + 2.0f * cell), ImVec2(x + markSize, y + markSize), Colors::Theme::textBrighter);
-			drawList->AddRectFilled(ImVec2(x + 2.0f * cell, y), ImVec2(x + markSize, y + cell), Colors::Theme::brandLux);
-		}
+		ImGuiEx::Draw::LuxMark(drawList, ImVec2(markX, markCY - markSize * 0.5f), markSize, Colors::Theme::textBrighter, Colors::Brand::lux);
 		const float fontScale = ImGuiEx::Fonts::GetScale();
 		ImFont* displayFont = ImGuiEx::Fonts::Get("Display");
 		const float wordmarkSize = 17.0f * fontScale;
@@ -3324,17 +3323,20 @@ namespace Lux {
 
 	void EditorLayer::OpenProject(const std::filesystem::path& path)
 	{
+		StartupSplash::Report(0.5f, std::format("Loading {}", path.filename().string()));
 		if (Project::Load(path))
 		{
 			AddRecentProject(path);
 			if (m_SplashScreen)
 				m_SplashScreen->Close();
+			StartupSplash::Report(0.7f, "Loading the start scene");
 			AssetHandle startScene = Project::GetActive()->GetConfig().StartSceneHandle;
 			if (startScene)
 				OpenScene(startScene);
 			else
 				NewScene();   // don't carry the previous project's scene (and its asset handles) over
 			m_PanelManager->OnProjectChanged(Project::GetActive());
+			StartupSplash::Report(0.9f, "Loading audio banks");
 			LoadAudioBanksForActiveProject();
 			if (m_SceneRenderer)
 				m_SceneRenderer->ApplyProjectSettings(Project::GetActive()->GetConfig().SceneRenderer);

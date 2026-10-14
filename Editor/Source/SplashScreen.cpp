@@ -34,7 +34,7 @@ namespace Lux {
 		constexpr float k_Rounding = 14.0f;
 		constexpr float k_BannerHeight = 212.0f;
 		constexpr float k_FormBannerHeight = 104.0f;
-		constexpr float k_StripeHeight = 3.0f;
+		constexpr float k_StripeHeight = 1.0f;   // the hairline under the banner
 		constexpr float k_PadX = 28.0f;
 		constexpr float k_BodyTopPad = 26.0f;
 		constexpr float k_BodyBottomPad = 24.0f;
@@ -57,9 +57,18 @@ namespace Lux {
 		constexpr float k_SmallSize = 12.0f;
 		constexpr float k_CaptionSize = 11.0f;
 
-		// The "light" motif in the banner: concentric rings around a lit point, banner-local.
-		constexpr ImVec2 k_LightCenter = { 560.0f, 86.0f };
-		constexpr ImVec2 k_FormLightCenter = { 640.0f, 52.0f };
+		// Banner art from board 06 of the Lux brand sheet: the dot grid over the banner's right part
+		// and the Lux mark in its top-right corner. Banner-local.
+		constexpr float k_DotPitch = 16.0f;
+		constexpr float k_DotSize = 1.5f;
+		constexpr float k_MarkClearSpace = 16.0f;
+		constexpr float k_TextGroundPad = 8.0f;
+		constexpr float k_BannerDotsLeft = 384.0f;
+		constexpr float k_BannerMarkSize = 72.0f;      // 24 px cells
+		constexpr float k_BannerMarkInset = 32.0f;
+		constexpr float k_FormDotsLeft = 560.0f;
+		constexpr float k_FormMarkSize = 48.0f;        // 16 px cells
+		constexpr float k_FormMarkInset = 28.0f;
 
 		// Folders EditorLayer::CreateProject makes, shown in the "Will create" preview.
 		constexpr std::array k_CreatedFolders = { "Assets/Scenes", "Assets/Scripts/Source", "Assets/Materials", "Assets/Meshes/Source", "Assets/Textures" };
@@ -167,22 +176,27 @@ namespace Lux {
 			return max.x - min.x;
 		}
 
-		// Concentric rings + crosshair around a lit point: the banner's "Lux" motif.
-		void DrawLightMotif(ImDrawList* drawList, ImVec2 center, float scale)
+		// The banner's brand art (board 06): the dot grid from `dotsLeft` to the right edge, and the Lux
+		// mark `markInset` in from the top-right corner with the dots kept clear of it.
+		void DrawBannerArt(ImDrawList* drawList, ImVec2 bannerMin, ImVec2 bannerMax, float dotsLeft, float markSize, float markInset)
 		{
-			const float k = S(scale);
-			const float rings[] = { 30.0f, 58.0f, 92.0f };
-			const float ringAlpha[] = { 0.45f, 0.22f, 0.10f };
-			for (int i = 0; i < 3; i++)
-				drawList->AddCircle(center, rings[i] * k, WithAlpha(Theme::accent, ringAlpha[i]), 64, S(1.0f));
-			drawList->AddCircle(center, 10.0f * k, Theme::accent, 32, S(2.0f));
-			drawList->AddCircleFilled(center, 4.0f * k, Theme::accent, 16);
+			ImGuiEx::Draw::DotGrid(drawList, ImVec2(bannerMin.x + S(dotsLeft), bannerMin.y), ImVec2(bannerMax.x, bannerMax.y - S(k_StripeHeight)),
+				S(k_DotPitch), std::max(1.0f, S(k_DotSize)), Colors::Brand::inkMuted);
 
-			const ImU32 ray = WithAlpha(Theme::accent, 0.7f);
-			drawList->AddLine(ImVec2(center.x, center.y - 20.0f * k), ImVec2(center.x, center.y - 46.0f * k), ray, S(1.5f));
-			drawList->AddLine(ImVec2(center.x, center.y + 20.0f * k), ImVec2(center.x, center.y + 46.0f * k), ray, S(1.5f));
-			drawList->AddLine(ImVec2(center.x - 20.0f * k, center.y), ImVec2(center.x - 52.0f * k, center.y), ray, S(1.5f));
-			drawList->AddLine(ImVec2(center.x + 20.0f * k, center.y), ImVec2(center.x + 52.0f * k, center.y), ray, S(1.5f));
+			const float size = S(markSize);
+			const float clear = S(k_MarkClearSpace);
+			const ImVec2 markMin(bannerMax.x - S(markInset) - size, bannerMin.y + S(markInset));
+			drawList->AddRectFilled(ImVec2(markMin.x - clear, markMin.y - clear), ImVec2(markMin.x + size + clear, markMin.y + size + clear), Colors::Brand::ground);
+			ImGuiEx::Draw::LuxMark(drawList, markMin, size, Colors::Brand::ink, Colors::Brand::lux);
+		}
+
+		// Banner text on a patch of ground: the dot grid never runs behind text.
+		void DrawTextOnGround(ImDrawList* drawList, const char* font, float size, ImVec2 pos, ImU32 colour, const char* text)
+		{
+			const ImVec2 textSize = MeasureText(font, size, text);
+			const float pad = S(k_TextGroundPad);
+			drawList->AddRectFilled(ImVec2(pos.x - pad, pos.y - pad), ImVec2(pos.x + textSize.x + pad, pos.y + textSize.y + pad), Colors::Brand::ground);
+			DrawText(drawList, font, size, pos, colour, text);
 		}
 
 		enum class ButtonKind { Primary, Secondary };
@@ -396,39 +410,28 @@ namespace Lux {
 		// ---- Banner --------------------------------------------------------------------------
 		{
 			const ImVec2 bannerMax(origin.x + S(k_Width), origin.y + S(k_BannerHeight));
-			drawList->AddRectFilled(origin, bannerMax, Theme::titlebar, S(k_Rounding), ImDrawFlags_RoundCornersTop);
+			drawList->AddRectFilled(origin, bannerMax, Colors::Brand::ground, S(k_Rounding), ImDrawFlags_RoundCornersTop);
 			drawList->PushClipRect(origin, bannerMax, true);
+			DrawBannerArt(drawList, origin, bannerMax, k_BannerDotsLeft, k_BannerMarkSize, k_BannerMarkInset);
 
-			// A viewport-style ground grid receding to a vanishing point, then the light motif.
-			const ImVec2 vanish(origin.x + S(k_Width * 0.5f), origin.y + S(118.0f));
-			for (int i = 0; i < 8; i++)
-				drawList->AddLine(vanish, ImVec2(origin.x + S(-200.0f + static_cast<float>(i) * 160.0f), bannerMax.y), Theme::groupHeader, S(1.0f));
-			for (const float y : { 150.0f, 170.0f, 186.0f, 199.0f, 208.0f })
-				drawList->AddLine(ImVec2(origin.x, origin.y + S(y)), ImVec2(bannerMax.x, origin.y + S(y)), Theme::groupHeader, S(1.0f));
-			DrawLightMotif(drawList, ImVec2(origin.x + S(k_LightCenter.x), origin.y + S(k_LightCenter.y)), 1.0f);
+			// Studio label top left; title + subtitle bottom left; version and build bottom right.
+			DrawTextOnGround(drawList, "Mono", k_CaptionSize, ImVec2(origin.x + S(32.0f), origin.y + S(28.0f)), Colors::Brand::inkMuted, "LUX STUDIO");
 
-			// Build line + version pill, top right.
-			const ImVec2 versionSize = MeasureText("Mono", k_CaptionSize, LUX_VERSION);
-			const ImVec2 pillMin(bannerMax.x - S(20.0f) - versionSize.x - S(16.0f), origin.y + S(18.0f));
-			const ImVec2 pillMax(bannerMax.x - S(20.0f), pillMin.y + versionSize.y + S(6.0f));
-			drawList->AddRectFilled(pillMin, pillMax, Theme::accent, S(999.0f));
-			DrawText(drawList, "Mono", k_CaptionSize, ImVec2(pillMin.x + S(8.0f), pillMin.y + S(3.0f)), Theme::titlebar, LUX_VERSION);
-			const std::string build = std::format("{} {} {}", LUX_BUILD_CONFIG_NAME, k_MiddleDot, LUX_BUILD_PLATFORM_NAME);
-			const ImVec2 buildSize = MeasureText("Mono", k_CaptionSize, build.c_str());
-			DrawText(drawList, "Mono", k_CaptionSize, ImVec2(pillMin.x - S(8.0f) - buildSize.x, pillMin.y + S(3.0f)), Theme::textCaption, build.c_str());
-
-			// Title + subtitle, bottom left.
 			const char* title = firstLaunch ? "Welcome to LuxEngine" : "LuxEngine";
 			const char* subtitle = firstLaunch ? "Create your first project, or open one you already have." : "Open a project, or start a new one.";
 			const ImVec2 subtitleSize = MeasureText("Small", k_SubtitleSize, subtitle);
 			const ImVec2 titleSize = MeasureText("Display", k_TitleSize, title);
 			const float subtitleY = bannerMax.y - S(k_StripeHeight + 23.0f) - subtitleSize.y;
 			const float titleY = subtitleY - S(8.0f) - titleSize.y;
-			DrawText(drawList, "Display", k_TitleSize, ImVec2(origin.x + S(32.0f), titleY), Theme::textBrighter, title);
-			DrawText(drawList, "Small", k_SubtitleSize, ImVec2(origin.x + S(32.0f), subtitleY), Theme::textCaption, subtitle);
+			DrawTextOnGround(drawList, "Display", k_TitleSize, ImVec2(origin.x + S(32.0f), titleY), Colors::Brand::ink, title);
+			DrawTextOnGround(drawList, "Small", k_SubtitleSize, ImVec2(origin.x + S(32.0f), subtitleY), Colors::Brand::inkMuted, subtitle);
+
+			const std::string build = std::format("{} {} {} {} {}", LUX_VERSION, k_MiddleDot, LUX_BUILD_CONFIG_NAME, k_MiddleDot, LUX_BUILD_PLATFORM_NAME);
+			const ImVec2 buildSize = MeasureText("Mono", k_CaptionSize, build.c_str());
+			DrawTextOnGround(drawList, "Mono", k_CaptionSize, ImVec2(bannerMax.x - S(32.0f) - buildSize.x, subtitleY + subtitleSize.y - buildSize.y), Colors::Brand::inkMuted, build.c_str());
 
 			drawList->PopClipRect();
-			drawList->AddRectFilled(ImVec2(origin.x, bannerMax.y - S(k_StripeHeight)), bannerMax, Theme::accent);
+			drawList->AddRectFilled(ImVec2(origin.x, bannerMax.y - S(k_StripeHeight)), bannerMax, Colors::Brand::line);
 			ImGui::Dummy(S(k_Width, k_BannerHeight));
 		}
 
@@ -694,11 +697,11 @@ namespace Lux {
 		// ---- Header ------------------------------------------------------------------------------
 		{
 			const ImVec2 bannerMax(origin.x + S(k_Width), origin.y + S(k_FormBannerHeight));
-			drawList->AddRectFilled(origin, bannerMax, Theme::titlebar, S(k_Rounding), ImDrawFlags_RoundCornersTop);
+			drawList->AddRectFilled(origin, bannerMax, Colors::Brand::ground, S(k_Rounding), ImDrawFlags_RoundCornersTop);
 			drawList->PushClipRect(origin, bannerMax, true);
-			DrawLightMotif(drawList, ImVec2(origin.x + S(k_FormLightCenter.x), origin.y + S(k_FormLightCenter.y)), 0.8f);
+			DrawBannerArt(drawList, origin, bannerMax, k_FormDotsLeft, k_FormMarkSize, k_FormMarkInset);
 			drawList->PopClipRect();
-			drawList->AddRectFilled(ImVec2(origin.x, bannerMax.y - S(k_StripeHeight)), bannerMax, Theme::accent);
+			drawList->AddRectFilled(ImVec2(origin.x, bannerMax.y - S(k_StripeHeight)), bannerMax, Colors::Brand::line);
 
 			const float innerHeight = S(k_FormBannerHeight - k_StripeHeight);
 			ImGui::SetCursorPos(ImVec2(S(20.0f), (innerHeight - S(k_FieldHeight)) * 0.5f));
@@ -710,8 +713,8 @@ namespace Lux {
 			const ImVec2 titleSize = MeasureText("Display", k_FormTitleSize, "New Project");
 			const ImVec2 subtitleSize = MeasureText("Small", k_NoteSize, subtitle);
 			const float textTop = origin.y + (innerHeight - titleSize.y - S(4.0f) - subtitleSize.y) * 0.5f;
-			DrawText(drawList, "Display", k_FormTitleSize, ImVec2(origin.x + S(78.0f), textTop), Theme::textBrighter, "New Project");
-			DrawText(drawList, "Small", k_NoteSize, ImVec2(origin.x + S(78.0f), textTop + titleSize.y + S(4.0f)), Theme::textCaption, subtitle);
+			DrawText(drawList, "Display", k_FormTitleSize, ImVec2(origin.x + S(78.0f), textTop), Colors::Brand::ink, "New Project");
+			DrawTextOnGround(drawList, "Small", k_NoteSize, ImVec2(origin.x + S(78.0f), textTop + titleSize.y + S(4.0f)), Colors::Brand::inkMuted, subtitle);
 
 			ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
 			ImGui::Dummy(S(k_Width, k_FormBannerHeight));

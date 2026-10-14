@@ -81,6 +81,7 @@ namespace Lux {
 		specification.WindowWidth = 1600;
 		specification.WindowHeight = 900;
 		specification.StartMaximized = true;
+		specification.DeferWindowShow = true;   // EditorLayer shows it once the startup splash closes
 		specification.VSync = true;
 		specification.SettingsPath = FileSystem::GetPersistentStoragePath() / "App.lsettings";
 		//specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
