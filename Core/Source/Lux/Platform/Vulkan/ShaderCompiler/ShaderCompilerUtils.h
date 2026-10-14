@@ -9,8 +9,6 @@
 
 #include <shaderc/shaderc.h>
 
-#include <vulkan/vulkan_core.h>
-
 
 namespace Lux { namespace ShaderUtils {
 

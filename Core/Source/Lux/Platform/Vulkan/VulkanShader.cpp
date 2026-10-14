@@ -4,7 +4,6 @@
 #include "lpch.h"
 #include "VulkanShader.h"
 
-#include "VulkanShaderUtils.h"
 #include "Debug/Aftermath.h"
 
 #if LUX_HAS_SHADER_COMPILER

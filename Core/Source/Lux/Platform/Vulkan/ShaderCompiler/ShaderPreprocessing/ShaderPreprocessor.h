@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "Lux/Platform/Vulkan/VulkanShaderUtils.h"
+#include "Lux/Platform/Vulkan/ShaderCompiler/ShaderCompilerUtils.h"
 #include "Lux/Renderer/Shader.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -11,8 +11,6 @@
 #include <format>
 #include <sstream>
 #include <unordered_set>
-
-enum VkShaderStageFlagBits;
 
 namespace Lux {
 	namespace PreprocessUtils {

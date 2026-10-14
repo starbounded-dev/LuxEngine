@@ -4,7 +4,7 @@
 #include "lpch.h"
 #include "VulkanShaderCache.h"
 #include "Lux/Core/Hash.h"
-#include "Lux/Platform/Vulkan/VulkanShaderUtils.h"
+#include "Lux/Platform/Vulkan/ShaderCompiler/ShaderCompilerUtils.h"
 
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/SerializationMacros.h"

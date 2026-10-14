@@ -8,7 +8,7 @@
 #include "Lux/Renderer/RHI/RHITypes.h"
 
 #include "Lux/Renderer/ShaderReflection.h"
-#include "Lux/Platform/Vulkan/VulkanShaderUtils.h"
+#include "Lux/Platform/Vulkan/ShaderCompiler/ShaderCompilerUtils.h"
 #include "Lux/Platform/Vulkan/VulkanShader.h"
 
 #include "ShaderPreprocessing/ShaderPreprocessor.h"
