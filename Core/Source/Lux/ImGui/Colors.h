@@ -20,6 +20,9 @@ namespace Colors
 		constexpr auto accent = IM_COL32(200, 255, 77, 255);        // #C8FF4D acid lime
 		constexpr auto highlight = IM_COL32(214, 255, 140, 255);    // brighter lime
 
+		// The light cell of the Lux mark (brand `lux`, #FFB224). Logo only — not a UI accent.
+		constexpr auto brandLux = IM_COL32(255, 178, 36, 255);
+
 		// Neutral warm-graphite surfaces (a faint warm/amber tint reads more crafted than flat gray).
 		constexpr auto background = IM_COL32(34, 31, 28, 255);
 		constexpr auto backgroundDark = IM_COL32(24, 22, 20, 255);

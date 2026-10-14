@@ -23,7 +23,9 @@
 
 namespace Lux {
 
+#ifndef LUX_PLATFORM_WINDOWS
 #include "Lux/Embed/LuxIcon.embed"
+#endif
 
 	static void GLFWErrorCallback(int error, const char* description)
 	{
@@ -211,10 +213,16 @@ namespace Lux {
 
 			if (useEmbedded)
 			{
+#ifdef LUX_PLATFORM_WINDOWS
+				// Nothing to do: the exe's GLFW_ICON resource (Editor.rc / Lux-Runtime.rc) is already the
+				// window-class icon at every size from 16 to 256 px. The taskbar shows the class icon, so
+				// overriding it here would only swap in a rescaled 256 px PNG for the title bar and Alt+Tab.
+#else
 				// Use embedded Lux icon
 				icon.pixels = stbi_load_from_memory(g_LuxIconPNG, sizeof(g_LuxIconPNG), &icon.width, &icon.height, &channels, 4);
 				glfwSetWindowIcon(m_WindowHandle, 1, &icon);
 				stbi_image_free(icon.pixels);
+#endif
 			}
 		}
 

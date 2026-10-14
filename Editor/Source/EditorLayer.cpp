@@ -1582,18 +1582,19 @@ namespace Lux {
 
 		drawList->AddLine(ImVec2(windowPos.x, windowPos.y + m_TitlebarHeight), ImVec2(windowPos.x + window->Size.x, windowPos.y + m_TitlebarHeight), Colors::Theme::backgroundDark);
 
-		// --- LUX wordmark: a vector mark + the Display wordmark (replaces the Hazel logo). ---
+		// --- LUX wordmark: the Lux mark + the Display wordmark. ---
 		const float kNoWrap = std::numeric_limits<float>::max();
-		const float markX = windowPos.x + 14.0f;
-		const float markSize = 16.0f;
+		const float markX = std::floor(windowPos.x + 14.0f);
+		const float markSize = 15.0f; // a multiple of 3 keeps every cell of the 3x3 mark on whole pixels
 		const float markCY = windowPos.y + m_TitlebarHeight * 0.5f;
 		{
-			// An "L" in the accent lime plus a play-chevron in text colour — the mock's Lux glyph.
-			const float x = markX, y = markCY - markSize * 0.5f, s = markSize;
-			drawList->AddLine(ImVec2(x + s * 0.14f, y + s * 0.12f), ImVec2(x + s * 0.14f, y + s * 0.88f), Colors::Theme::accent, 2.0f);
-			drawList->AddLine(ImVec2(x + s * 0.14f, y + s * 0.88f), ImVec2(x + s * 0.56f, y + s * 0.88f), Colors::Theme::accent, 2.0f);
-			drawList->AddLine(ImVec2(x + s * 0.56f, y + s * 0.12f), ImVec2(x + s * 0.90f, y + s * 0.50f), Colors::Theme::textBrighter, 2.0f);
-			drawList->AddLine(ImVec2(x + s * 0.90f, y + s * 0.50f), ImVec2(x + s * 0.56f, y + s * 0.88f), Colors::Theme::textBrighter, 2.0f);
+			// Same geometry as Resources/Editor/LuxMark.svg: an L (left column + bottom row) and one
+			// cell of light in the top-right corner.
+			const float cell = markSize / 3.0f;
+			const float x = markX, y = std::floor(markCY - markSize * 0.5f);
+			drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + cell, y + markSize), Colors::Theme::textBrighter);
+			drawList->AddRectFilled(ImVec2(x + cell, y + 2.0f * cell), ImVec2(x + markSize, y + markSize), Colors::Theme::textBrighter);
+			drawList->AddRectFilled(ImVec2(x + 2.0f * cell, y), ImVec2(x + markSize, y + cell), Colors::Theme::brandLux);
 		}
 		const float fontScale = ImGuiEx::Fonts::GetScale();
 		ImFont* displayFont = ImGuiEx::Fonts::Get("Display");

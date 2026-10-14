@@ -49,7 +49,8 @@ END
 // Icon
 //
 
-MAINICON                ICON                    "Resources\\Editor\\LuxIcon.ico"
+// Named GLFW_ICON so GLFW registers it as the window-class icon (what the taskbar shows).
+GLFW_ICON               ICON                    "Resources\\Editor\\LuxIcon.ico"
 
 /////////////////////////////////////////////////////////////////////////////
 //
