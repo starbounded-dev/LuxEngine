@@ -318,6 +318,11 @@ namespace Lux {
 			//ScriptEngine::InitializeRuntimeDuplicatedEntities();
 			Input::ClearReleasedKeys();
 
+			// Release the events deferred during this frame (DispatchEvent without
+			// DispatchImmediately) to the next ProcessEvents. Until they are sync'd they block the
+			// whole queue, including every QueueEvent behind them.
+			SyncEvents();
+
 			float time = GetTime();
 			m_Frametime = time - m_LastFrameTime;
 			m_TimeStep = glm::min<float>(m_Frametime, 0.0333f);
@@ -407,24 +412,21 @@ namespace Lux {
 
 		m_Window->ProcessEvents();
 
-		// Note (0x): we have no control over what func() does.  holding this lock while calling func() is a bad idea:
-		// 1) func() might be slow (means we hold the lock for ages)
-		// 2) func() might result in events getting queued, in which case we have a deadlock
-		std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
-
-		// Process custom event queue, up until we encounter an event that is not yet sync'd
-		// If application queues such events, then it is the application's responsibility to call
-		// SyncEvents() at the appropriate time.
-		while (m_EventQueue.size() > 0)
+		// Take the synced prefix of the queue, up to the first event not yet sync'd, and run it
+		// unlocked: a func() may be slow, and one that queues another event would deadlock on the
+		// lock. Events queued while these run are processed on the next call.
+		std::deque<std::pair<bool, std::function<void()>>> readyEvents;
 		{
-			const auto& [synced, func] = m_EventQueue.front();
-			if (!synced)
+			std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
+			while (!m_EventQueue.empty() && m_EventQueue.front().first)
 			{
-				break;
+				readyEvents.push_back(std::move(m_EventQueue.front()));
+				m_EventQueue.pop_front();
 			}
-			func();
-			m_EventQueue.pop_front();
 		}
+
+		for (auto& entry : readyEvents)
+			entry.second();
 	}
 
 	void Application::OnEvent(Event& event)

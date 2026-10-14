@@ -262,11 +262,17 @@ not stable.
 `Application` has a two-stage event queue guarded by `m_EventQueueMutex`:
 
 - `QueueEvent(fn)` / `DispatchEvent<TEvent>(args...)` are safe to call from any thread.
-- Queued events are **not** processed until `SyncEvents()` marks them ready and `ProcessEvents()`
-  runs them on the main thread.
+- `ProcessEvents()` (top of the main loop) runs them on the main thread, in order, up to the first
+  entry not yet sync'd. It runs them outside the lock, so a queued function may queue more; those
+  run on the next call.
+- `QueueEvent` entries are sync'd on arrival and run at the next `ProcessEvents()`.
+  `DispatchEvent<T>` entries wait for `SyncEvents()`, which `Application::Run` calls once at the
+  end of every frame, so they dispatch one frame later.
 
-The header explains why: an asset thread dispatching `AssetReloaded` must not have that event
-processed until the asset thread has synced its assets back to the main thread. Use
+The header explains the deferral: an asset thread dispatching `AssetReloaded` must not have that
+event processed until the asset thread has synced its assets back to the main thread. An unsync'd
+entry blocks everything queued behind it, so a deferred dispatch must always be followed by a
+`SyncEvents()`; the per-frame call guarantees that. Use
 `DispatchEvent<T, /*DispatchImmediately=*/true>` only from the main thread.
 
 ---

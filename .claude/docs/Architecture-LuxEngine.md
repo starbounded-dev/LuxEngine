@@ -169,8 +169,10 @@ runtime each supply one.
 **Frame loop** — see `.claude/docs/Threading.md § The frame loop` for the exact ordering. Do not add
 per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.
 
-**Events** are two-stage: `QueueEvent` / `DispatchEvent<T>` are thread-safe and deferred until
-`SyncEvents()`; `DispatchEvent<T, true>` dispatches immediately (main thread only).
+**Events** are two-stage: `QueueEvent` / `DispatchEvent<T>` are thread-safe and run by the next
+`ProcessEvents()` on the main thread; `DispatchEvent<T>` additionally waits for `SyncEvents()`,
+which `Application::Run` calls at the end of every frame. `DispatchEvent<T, true>` dispatches
+immediately (main thread only).
 
 ### 2.2 Window / Platform
 
