@@ -153,7 +153,10 @@ the `Application` object exists, because `RenderThread` is constructed with it.
 **Startup splash.** `ApplicationSpecification::DeferWindowShow` leaves the window hidden after
 construction; the client shows it with `GetWindow().Show()`. `StartupSplash`
 (`Core/Source/Lux/Core/StartupSplash.h`, board 06 of the brand sheet) is the loading splash a layer
-creates at the top of its `OnAttach` and destroys when it is ready. The static
+creates at the top of its `OnAttach`. After `OnAttach` the layer calls `DrawUntilPresented()` from its
+`OnImGuiRender` and destroys the splash when that returns false, three frames in: by then its first
+frames have been presented into the still-hidden main window, so the window appears already drawn
+rather than as an empty (debug-magenta) frame covering the splash. The static
 `StartupSplash::Report(progress, status)` (a no-op when no splash is up, so any startup code may call
 it) draws one frame through `Application::RenderStartupFrame`: one `Run()` iteration whose only UI is
 the splash, with OS events polled but not dispatched to layers (`m_InStartupFrame`) and the event

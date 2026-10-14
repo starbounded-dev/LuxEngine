@@ -43,6 +43,11 @@ namespace Lux {
 
 		constexpr const char* k_VersionLine = LUX_VERSION " \xC2\xB7 " LUX_BUILD_CONFIG_NAME " \xC2\xB7 Vulkan";
 
+		// Run() presents a frame while it builds the next, so after this many hand-off frames the
+		// owner's first two frames are in the main window's swapchain. The first is not enough: the
+		// dockspace lays itself out during it.
+		constexpr uint32_t k_HandOffFrames = 3;
+
 	}
 
 	StartupSplash::StartupSplash()
@@ -65,13 +70,24 @@ namespace Lux {
 
 	void StartupSplash::Report(float progress, std::string status)
 	{
-		if (!s_Instance)
+		// Hand-off frames are Run()'s own; a startup frame there would nest inside one.
+		if (!s_Instance || s_Instance->m_HandOffFrames > 0)
 			return;
 
 		LUX_CORE_ASSERT(Application::IsMainThread(), "The startup splash is drawn with ImGui, on the main thread");
 		s_Instance->m_Progress = std::clamp(progress, 0.0f, 1.0f);
 		s_Instance->m_Status = std::move(status);
 		Application::Get().RenderStartupFrame([]() { s_Instance->Draw(); });
+	}
+
+	bool StartupSplash::DrawUntilPresented()
+	{
+		if (m_HandOffFrames >= k_HandOffFrames)
+			return false;
+
+		m_HandOffFrames++;
+		Draw();
+		return true;
 	}
 
 	void StartupSplash::Draw() const
@@ -98,6 +114,9 @@ namespace Lux {
 		ImGuiEx::ScopedColour background(ImGuiCol_WindowBg, Colors::Brand::ground);
 		if (ImGui::Begin("##lux_startup_splash", nullptr, flags))
 		{
+			// Over the owner's windows during the hand-off when it shares their viewport (Linux).
+			ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+
 			ImDrawList* drawList = ImGui::GetWindowDrawList();
 			const ImVec2 origin = ImGui::GetWindowPos();
 			const ImVec2 max(origin.x + size.x, origin.y + size.y);

@@ -80,6 +80,7 @@ namespace Lux
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
 		void UI_AboutPopup();
+		void UI_StartupSplashHandOff();
 		void RegisterCommands();
 		void SetCameraBookmark(int slot);       // 1..9, captures the current editor camera
 		void JumpToCameraBookmark(int slot);
@@ -244,7 +245,7 @@ namespace Lux
 
 		Scope<CommandPalette> m_CommandPalette;
 		Scope<SplashScreen> m_SplashScreen;   // startup / Help → Splash Screen; forced while no project is open
-		Scope<StartupSplash> m_StartupSplash; // the loading splash; exists only during OnAttach
+		Scope<StartupSplash> m_StartupSplash; // the loading splash: OnAttach, then the first few frames
 
 		// Viewport camera bookmarks: Ctrl+<1-9> sets, <1-9> jumps (session-only for now).
 		struct CameraBookmark

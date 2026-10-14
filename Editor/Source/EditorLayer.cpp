@@ -639,8 +639,9 @@ namespace Lux {
 		};
 		m_GoldenCapture = GoldenCapture::CreateFromEnvironment(std::move(goldenHooks));
 
+		// The splash stays up through the first frames (UI_StartupSplashHandOff), so the main window
+		// appears with the editor already drawn in it.
 		StartupSplash::Report(1.0f, "Ready");
-		m_StartupSplash.reset();   // shows the main window
 	}
 
 	void EditorLayer::OnDetach()
@@ -868,6 +869,7 @@ namespace Lux {
 				m_SplashScreen->OnImGuiRender(m_TitlebarHeight);
 				UI_AboutPopup();
 				ImGui::End(); // Lux Editor
+				UI_StartupSplashHandOff();
 				return;
 			}
 
@@ -1092,6 +1094,14 @@ namespace Lux {
 		}
 
 		ImGui::End(); // Lux Editor
+		UI_StartupSplashHandOff();
+	}
+
+	void EditorLayer::UI_StartupSplashHandOff()
+	{
+		// After every editor window, so the splash is drawn over them where it shares their viewport.
+		if (m_StartupSplash && !m_StartupSplash->DrawUntilPresented())
+			m_StartupSplash.reset();   // shows the main window, the editor already presented into it
 	}
 
 	void EditorLayer::UI_AboutPopup()
