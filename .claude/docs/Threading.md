@@ -21,6 +21,9 @@ to move between them.
 
 The runtime (`Lux-Runtime`) also defaults to `Multi`, overridable per project.
 
+The environment variable `LUX_THREADING_POLICY` (`Single` / `Multi`) overrides the editor setting
+for one launch and is never saved; `tests/rendering/threading_ab.py` uses it to compare the two.
+
 So on Windows, main and render are **different threads**, and cross-thread reasoning is required.
 Do not assume "editor means single-threaded" — that is true of some other Hazel-derived engines and
 is **false here**. The user can force `Single` from the Application Settings panel, so correct code

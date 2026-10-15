@@ -102,6 +102,11 @@ namespace Lux {
 #else
 			specification.CoreThreadingPolicy = Lux::ThreadingPolicyFromString(settings.Get("Core.ThreadingPolicy", "Multi"));
 #endif
+
+			// LUX_THREADING_POLICY (Single / Multi) overrides the setting for this launch only and
+			// is never saved; tests/rendering/golden_run.py --threading uses it.
+			if (FileSystem::HasEnvironmentVariable("LUX_THREADING_POLICY"))
+				specification.CoreThreadingPolicy = Lux::ThreadingPolicyFromString(FileSystem::GetEnvironmentVariable("LUX_THREADING_POLICY"));
 		}
 
 		return new LuxEditor(specification);

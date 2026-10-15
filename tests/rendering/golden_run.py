@@ -4,7 +4,7 @@
 Capture a labelled set (one editor launch per scene / feature variant):
 
     golden_run.py --label nvrhi-baseline [--config release] [--features] [--scenes FMODDemo,Physics]
-                  [--sync-validation] [--timeout 900]
+                  [--sync-validation] [--threading single|multi] [--timeout 900]
 
 Compare two labelled sets (every capture present in both):
 
@@ -72,6 +72,8 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         "LUX_GOLDEN_SELFTEST": "1" if selftest else "0",
         "LUX_SKIP_BUILD": "1",
     })
+    if args.threading:
+        env["LUX_THREADING_POLICY"] = args.threading.capitalize()
     if args.sync_validation:
         env["VK_LAYER_ENABLES"] = "VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
         env["VK_KHRONOS_VALIDATION_VALIDATE_SYNC"] = "true"
@@ -137,7 +139,7 @@ def capture(args):
 
     ids = sorted({vid for result in results for vid in result["validationIds"]})
     (label_dir / "validation.txt").write_text("\n".join(ids) + ("\n" if ids else ""), encoding="utf-8")
-    summary = {"label": args.label, "config": args.config, "size": args.size, "runs": results}
+    summary = {"label": args.label, "config": args.config, "size": args.size, "threading": args.threading or "setting", "runs": results}
     (label_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
     failed = [result["name"] for result in results if result["status"] != "OK"]
@@ -195,6 +197,8 @@ def main():
     parser.add_argument("--frame", type=int, default=300)
     parser.add_argument("--perf-frames", type=int, default=300)
     parser.add_argument("--timeout", type=int, default=900, help="seconds per editor launch")
+    parser.add_argument("--threading", choices=["single", "multi"],
+                        help="force the editor's threading policy for these launches (default: the user setting)")
     parser.add_argument("--sync-validation", action="store_true", help="enable synchronization validation (Debug builds)")
     parser.add_argument("--max-bad-percent", type=float, default=0.05)
     args = parser.parse_args()

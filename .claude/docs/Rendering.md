@@ -317,6 +317,7 @@ python3 tests/rendering/golden_run.py --label before --features          # captu
 python3 tests/rendering/golden_run.py --label after --features
 python3 tests/rendering/golden_run.py --compare before after              # per-capture PASS/FAIL + diff PNGs
 python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look at one capture
+python3 tests/rendering/threading_ab.py                                   # build, then Single vs Multi
 ```
 
 - **Captures live in `bin/golden/<label>/`** and are never committed.
@@ -328,7 +329,12 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
   exposure is warned about, for example) and pin it in the capture. Never loosen the tolerance to
   hide it.
 - **Perf numbers come from script-launched windows, so they are unfocused.** Compare them only with
-  other script-launched runs (see "Present mode" below).
+  other script-launched runs (see "Present mode" below). `<name>.perf.json` averages the whole
+  main-loop iteration (`frameMs`), GPU, main- and render-thread work, and every pass.
+- **`--threading single|multi` forces the editor's threading policy** for those launches through
+  `LUX_THREADING_POLICY`, without touching the user's setting. `threading_ab.py` builds (Windows:
+  `Win-GenProjects.py --last`, then MSBuild), captures both policies alternately (`--runs`, default
+  3), and prints per-scene medians plus an image comparison between the two.
 
 ---
 

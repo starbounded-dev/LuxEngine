@@ -457,6 +457,7 @@ namespace Lux {
 		m_CPUTime += stats.TotalCPUTime;
 		m_MainThreadWorkTime += timers.MainThreadWorkTime;
 		m_RenderThreadWorkTime += timers.RenderThreadWorkTime;
+		m_FrameTime += Application::Get().GetFrametime().GetMilliseconds();
 
 		for (const SceneRenderer::PassProfile& profile : stats.PassProfiles)
 		{
@@ -479,6 +480,7 @@ namespace Lux {
 		json += std::format("  \"scene\": \"{}\",\n", m_ScenePath.generic_string());
 		json += std::format("  \"width\": {},\n  \"height\": {},\n", m_Size.x, m_Size.y);
 		json += std::format("  \"frames\": {},\n", m_PerfSamples);
+		json += std::format("  \"frameMs\": {:.4f},\n", m_FrameTime / samples);
 		json += std::format("  \"gpuMs\": {:.4f},\n", m_GPUTime / samples);
 		json += std::format("  \"sceneRendererCpuMs\": {:.4f},\n", m_CPUTime / samples);
 		json += std::format("  \"mainThreadMs\": {:.4f},\n", m_MainThreadWorkTime / samples);

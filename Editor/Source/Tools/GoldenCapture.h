@@ -138,6 +138,8 @@ namespace Lux {
 		double m_CPUTime = 0.0;
 		double m_MainThreadWorkTime = 0.0;
 		double m_RenderThreadWorkTime = 0.0;
+		// Whole main-loop iterations, so captures under the two threading policies compare.
+		double m_FrameTime = 0.0;
 		std::map<std::string, PassTiming> m_PassTimings;
 	};
 
