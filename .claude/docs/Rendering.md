@@ -327,7 +327,11 @@ python3 tests/rendering/threading_ab.py                                   # buil
 - **Check determinism first.** Two captures of the same build must compare clean before a
   comparison across builds means anything. If they don't, find what still varies (automatic
   exposure is warned about, for example) and pin it in the capture. Never loosen the tolerance to
-  hide it.
+  hide it. Two captures can each be stable and still differ from each other. That pattern usually
+  means an ordering decided by heap addresses. The transparent pass draws in the order of its sort
+  keys, without a depth sort. Until 2026-10-16 its material key was the `Material` pointer, so
+  Benchmark's two glass materials swapped blend order between runs. A sort key that changes what is
+  drawn must come from a stable ID such as an asset handle.
 - **A TIMEOUT with the editor sitting on its startup scene means it never saw `LUX_GOLDEN_DIR`.**
   The capture and `LUX_THREADING_POLICY` read the process environment through
   `FileSystem::HasEnvironmentVariable`. On Windows that helper used to read only the persistent user
