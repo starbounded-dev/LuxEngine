@@ -107,16 +107,9 @@ namespace Lux {
 
 	bool FileSystem::HasEnvironmentVariable(const std::string& key)
 	{
-		HKEY hKey;
-		LSTATUS lOpenStatus = RegOpenKeyExA(HKEY_CURRENT_USER, "Environment", 0, KEY_ALL_ACCESS, &hKey);
-
-		if (lOpenStatus == ERROR_SUCCESS)
-		{
-			lOpenStatus = RegQueryValueExA(hKey, key.c_str(), 0, NULL, NULL, NULL);
-			RegCloseKey(hKey);
-		}
-
-		return lOpenStatus == ERROR_SUCCESS;
+		// The process environment, as on Linux. Variables a launcher sets for this process (LUX_GOLDEN_*,
+		// LUX_THREADING_POLICY) never reach HKCU\Environment, which only holds persistent user variables.
+		return !GetEnvironmentVariable(key).empty();
 	}
 
 	bool FileSystem::SetEnvironmentVariable(const std::string& key, const std::string& value)

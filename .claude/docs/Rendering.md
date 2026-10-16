@@ -328,6 +328,11 @@ python3 tests/rendering/threading_ab.py                                   # buil
   comparison across builds means anything. If they don't, find what still varies (automatic
   exposure is warned about, for example) and pin it in the capture. Never loosen the tolerance to
   hide it.
+- **A TIMEOUT with the editor sitting on its startup scene means it never saw `LUX_GOLDEN_DIR`.**
+  The capture and `LUX_THREADING_POLICY` read the process environment through
+  `FileSystem::HasEnvironmentVariable`. On Windows that helper used to read only the persistent user
+  variables in `HKCU\Environment`, so until 2026-10-16 every scripted capture there timed out and
+  `--threading` was ignored. A working run logs `[GoldenCapture] scene '…'` right after startup.
 - **Perf numbers come from script-launched windows, so they are unfocused.** Compare them only with
   other script-launched runs (see "Present mode" below). `<name>.perf.json` averages the whole
   main-loop iteration (`frameMs`), GPU, main- and render-thread work, and every pass.
