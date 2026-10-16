@@ -607,11 +607,11 @@ namespace Lux {
 		float ColorTemperature = 6500.0f;     // Kelvin
 		bool UseColorTemperature = false;
 		float LightSize = 0.5f;
-		float MinRadius = 1.0f;
-		float Radius = 10.0f;
+		float MinRadius = 1.0f; // unused since physical (inverse-square) falloff; still serialized
+		float Radius = 10.0f;   // range: the falloff window reaches zero here
 		bool CastsShadows = true;
 		bool SoftShadows = true;
-		float Falloff = 1.0f;
+		float Falloff = 1.0f;   // unused since physical (inverse-square) falloff; still serialized
 
 		PointLightComponent() = default;
 		PointLightComponent(const PointLightComponent&) = default;

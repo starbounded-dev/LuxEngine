@@ -39,6 +39,8 @@ layout(set = 1, binding = 12) uniform texture2D u_GBufferBaseColor;
 layout(set = 1, binding = 13) uniform texture2D u_GBufferNormal;
 layout(set = 1, binding = 14) uniform texture2D u_GBufferMetalRoughAO;
 layout(set = 1, binding = 15) uniform utexture2D u_GBufferMaterialObjectID;
+// Resolved GTAO (the AO Composite pass), or white when GTAO is off.
+layout(set = 1, binding = 16) uniform texture2D u_AmbientOcclusion;
 layout(set = 1, binding = 17) uniform texture2D u_DepthTexture;
 
 layout(set = 3, binding = 5) uniform texture2D u_BRDFLUTTexture;
@@ -192,10 +194,11 @@ void main()
 	directLighting += CalculatePointLights(F0, worldPosition);
 	directLighting += CalculateSpotLightsShadowed(F0, worldPosition, u_SpotShadowTexture);
 
-	// Material AO occludes the ambient/IBL term only (specular via specular occlusion
-	// inside the IBL evaluation), not direct lighting. Screen-space GTAO is applied
-	// separately in the AO composite pass.
-	vec3 iblLighting = IBL(F0, Lr, max(gbuffer.AmbientOcclusion, 0.0)) * u_Scene.EnvironmentMapIntensity;
+	// Material AO and screen-space GTAO occlude the ambient/IBL term only (specular through specular
+	// occlusion inside the IBL evaluation). Direct light already has shadow-map visibility.
+	float screenSpaceAO = texture(sampler2D(u_AmbientOcclusion, r_PointSampler), v_TexCoord).r;
+	float ambientOcclusion = max(gbuffer.AmbientOcclusion, 0.0) * screenSpaceAO;
+	vec3 iblLighting = IBL(F0, Lr, ambientOcclusion) * u_Scene.EnvironmentMapIntensity;
 	// Emission is already in scene color (the G-buffer pass writes it); this pass blends additively
 	// on top of it, so it outputs lighting only.
 	vec3 color = directLighting + iblLighting;

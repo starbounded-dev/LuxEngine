@@ -229,10 +229,24 @@ not a warning; only warnings and errors reach the log.
 6. Gate optional passes on their feature flag so they are skipped at zero cost when off.
 
 Existing pass order, for orientation: shadow maps → PreDepth → HZB → mesh culling → cluster build →
-cluster light culling → skybox → sky atmosphere → selected geometry → GBuffer → deferred lighting →
-GTAO (+ denoise, temporal) → AO composite → pre-convolution → SSR (+ temporal, composite) →
+cluster light culling → skybox → sky atmosphere → selected geometry → GBuffer → GTAO (+ denoise,
+temporal) → AO composite → deferred lighting → pre-convolution → SSR (+ temporal, composite) →
 volumetric clouds (+ temporal, composite) → atmospheric fog → transparent forward → wireframe →
 jump flood → TAA → auto exposure → bloom → composite → SMAA → DOF.
+
+**AO is indirect-only.** The AO composite resolves GTAO into its own `RED8UN` image, and deferred
+lighting multiplies it into the IBL term only (with material AO, which also drives specular
+occlusion). Direct light already has shadow-map visibility, so AO must never multiply the lit scene
+color. `SceneRenderer::BeginScene` binds `u_AmbientOcclusion` every frame, inside its render-thread
+submit: the resolved image when GTAO is on, the white texture when it is off.
+
+**Direct lighting is physical.** Every analytic light goes through `LuxEvaluateDirectBRDF`
+(`PBR.glslh`): Frostbite diffuse with Lambert's 1/π, GGX with height-correlated Smith visibility,
+Turquin multiscatter compensation. Point and spot lights fall off as inverse-square, windowed to zero
+at their range (`LuxPunctualLightAttenuation`). Intensities therefore mean what `PhysicalLight.h`
+says: a directional light's radiance × multiplier is illuminance, a point or spot light's is
+intensity. Point lights' `Falloff` and `MinRadius` are no longer read (still serialized); spot
+`Falloff` remains the PCSS light size.
 
 ---
 

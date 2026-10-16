@@ -80,6 +80,109 @@ float LuxSpecularOcclusion(float NdotV, float ao, float roughness)
 	return clamp(pow(NdotV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Analytic (punctual and directional) light response. Light intensities are physical: a
+// directional light's Radiance * Multiplier is illuminance, a point or spot light's is intensity
+// with inverse-square falloff (PhysicalLight.h converts lux / lumens / candela into them).
+// ---------------------------------------------------------------------------------------------
+
+// GGX alpha floor so the distribution stays finite on mirror-smooth surfaces [Walter 2007].
+const float LUX_MIN_GGX_ALPHA = 0.0064;
+// Inverse-square floor (distance >= 0.1), so a surface touching a light does not divide by zero.
+const float LUX_MIN_LIGHT_DISTANCE_SQ = 0.01;
+// Specular firefly guard for delta lights; scales the whole colour so it keeps its saturation.
+const float LUX_MAX_DIRECT_SPECULAR = 10.0;
+
+float LuxRoughnessToAlpha(float roughness)
+{
+	return max(roughness * roughness, LUX_MIN_GGX_ALPHA);
+}
+
+float LuxDistributionGGX(float NdotH, float alpha)
+{
+	float a2 = alpha * alpha;
+	float denom = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
+	return a2 / (PI * denom * denom);
+}
+
+// Height-correlated Smith masking-shadowing in visibility form, G / (4 NdotL NdotV)
+// [Heitz 2014; Lagarde 2014].
+float LuxVisibilitySmithGGXCorrelated(float NdotV, float NdotL, float alpha)
+{
+	float a2 = alpha * alpha;
+	float lambdaV = NdotL * sqrt(NdotV * NdotV * (1.0 - a2) + a2);
+	float lambdaL = NdotV * sqrt(NdotL * NdotL * (1.0 - a2) + a2);
+	return 0.5 / max(lambdaV + lambdaL, 1e-7);
+}
+
+// Renormalized Disney diffuse, Lambert's 1/PI included [Lagarde 2014; Burley 2012].
+vec3 LuxDiffuseFrostbite(vec3 albedo, float roughness, float NdotV, float NdotL, float LdotH)
+{
+	float energyBias = mix(0.0, 0.5, roughness);
+	float energyFactor = mix(1.0, 1.0 / 1.51, roughness);
+	float fd90 = energyBias + 2.0 * LdotH * LdotH * roughness;
+	float lightScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotL, 5.0);
+	float viewScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotV, 5.0);
+	return albedo * (lightScatter * viewScatter * energyFactor / PI);
+}
+
+// Analytic split-sum (scale, bias) fit, so direct light can compute the single-scatter albedo
+// without the LUT [Karis 2014, after Lazarov 2013].
+vec2 LuxEnvBRDFApprox(float roughness, float NdotV)
+{
+	const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+	const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+	vec4 r = roughness * c0 + c1;
+	float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+	return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
+// Multiplier (>= 1) restoring the energy a single-scatter GGX lobe loses at high roughness
+// [Turquin 2019].
+vec3 LuxMultiScatterCompensation(vec3 F0, float roughness, float NdotV)
+{
+	vec2 dfg = LuxEnvBRDFApprox(roughness, NdotV);
+	float Ess = dfg.x + dfg.y;
+	return 1.0 + F0 * (1.0 / max(Ess, 1e-3) - 1.0);
+}
+
+vec3 LuxPreservedSaturationClamp(vec3 color, float maxValue)
+{
+	float largest = max(color.r, max(color.g, color.b));
+	return largest <= maxValue ? color : color * (maxValue / largest);
+}
+
+// Outgoing radiance per unit of light illuminance arriving from direction L, cosine included.
+vec3 LuxEvaluateDirectBRDF(vec3 F0, vec3 albedo, float metalness, float roughness, vec3 N, vec3 V, vec3 L)
+{
+	float NdotL = max(dot(N, L), 0.0);
+	if (NdotL <= 0.0)
+		return vec3(0.0);
+
+	vec3 H = normalize(L + V);
+	float NdotV = max(dot(N, V), 1e-4);
+	float NdotH = max(dot(N, H), 0.0);
+	float VdotH = max(dot(V, H), 0.0);
+
+	vec3 F = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+	float alpha = LuxRoughnessToAlpha(roughness);
+
+	vec3 diffuse = (1.0 - F) * (1.0 - metalness) * LuxDiffuseFrostbite(albedo, roughness, NdotV, NdotL, VdotH);
+	vec3 specular = LuxDistributionGGX(NdotH, alpha) * LuxVisibilitySmithGGXCorrelated(NdotV, NdotL, alpha) * F
+		* LuxMultiScatterCompensation(F0, roughness, NdotV);
+	specular = LuxPreservedSaturationClamp(specular, LUX_MAX_DIRECT_SPECULAR);
+
+	return (diffuse + specular) * NdotL;
+}
+
+// Inverse-square falloff windowed to reach exactly zero at the light's range [Karis 2013].
+float LuxPunctualLightAttenuation(float distanceSq, float range)
+{
+	float ratio = distanceSq / max(range * range, 1e-4);
+	float window = clamp(1.0 - ratio * ratio, 0.0, 1.0);
+	return (window * window) / max(distanceSq, LUX_MIN_LIGHT_DISTANCE_SQ);
+}
+
 // Energy-preserving image-based lighting (single + multiple scattering), after
 // Carmelo J. Fdez-Agera, "A Multiple-Scattering Microfacet Model for Real-Time
 // Image-based Lighting". The multiple-scattering term re-introduces the energy a

@@ -1840,6 +1840,8 @@ namespace Lux {
 			m_DeferredLightingPass = RenderPass::Create(rpSpec);
 			BindSceneRenderPassInputs(m_DeferredLightingPass, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth | PassInputGBuffer);
 			m_DeferredLightingPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
+			// Rebound every frame in BeginScene: the resolved GTAO image, or white when GTAO is off.
+			m_DeferredLightingPass->SetInput("u_AmbientOcclusion", Renderer::GetWhiteTexture());
 			m_DeferredLightingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_DeferredLightingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
 			LUX_CORE_VERIFY(m_DeferredLightingPass->Validate());
@@ -1923,11 +1925,11 @@ namespace Lux {
 			FramebufferSpecification aoFramebufferSpec;
 			aoFramebufferSpec.Width = m_ViewportWidth;
 			aoFramebufferSpec.Height = m_ViewportHeight;
-			aoFramebufferSpec.Attachments = { ImageFormat::RGBA16F };
-			aoFramebufferSpec.ExistingImages[0] = GetSceneColorOutput();
+			// Resolves GTAO to a full-resolution occlusion image that deferred lighting applies to
+			// indirect light only; direct light already has shadow-map visibility.
+			aoFramebufferSpec.Attachments = { ImageFormat::RED8UN };
 			aoFramebufferSpec.ClearColorOnLoad = false;
-			aoFramebufferSpec.Blend = true;
-			aoFramebufferSpec.BlendMode = FramebufferBlendMode::Zero_SrcColor;
+			aoFramebufferSpec.Blend = false;
 			aoFramebufferSpec.DebugName = "AO-Composite";
 
 			PipelineSpecification aoPipelineSpec;
@@ -4023,11 +4025,40 @@ namespace Lux {
 				{ { visibleObjectIndexes, AccessKind::StorageRead }, { indirectArgs, AccessKind::IndirectArgs } });
 		}
 
+		// GTAO runs on GBuffer depth/normals, before deferred lighting: the AO composite resolves it to a
+		// full-resolution occlusion image that lighting applies to indirect light only.
+		std::vector<RenderGraph::ResourceHandle> aoFinalOutputs;
+		std::vector<RenderGraph::ResourceHandle> aoResolvedOutputs;
+		if (m_Options.EnableGTAO)
+		{
+			const RenderGraph::ResourceHandle gtaoOutput = addTexture("GTAO Output", m_GTAOOutputImage);
+			const RenderGraph::ResourceHandle gtaoDenoise = addTexture("GTAO Denoise", m_GTAODenoiseImage);
+			const RenderGraph::ResourceHandle gtaoEdges = addTexture("GTAO Edges", m_GTAOEdgesOutputImage);
+
+			std::vector<RenderGraph::ResourceHandle> gtaoReads = gbufferOutputs;
+			appendResources(gtaoReads, preDepthOutputs);
+			appendResources(gtaoReads, hzbOutputs);
+			addPass("GTAO", gtaoReads, { gtaoOutput, gtaoEdges }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::GTAOCompute));
+			addPass("GTAO Denoise", { gtaoOutput, gtaoEdges }, { gtaoDenoise, gtaoOutput }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::GTAODenoiseCompute));
+
+			aoFinalOutputs = { gtaoOutput, gtaoDenoise };
+
+			if (m_AOCompositePass)
+			{
+				std::vector<RenderGraph::ResourceHandle> aoCompositeReads = gbufferOutputs;
+				appendResources(aoCompositeReads, preDepthOutputs);
+				appendResources(aoCompositeReads, aoFinalOutputs);
+				aoResolvedOutputs = addRenderPassResources("AO Composite", m_AOCompositePass);
+				addPass("AO Composite", aoCompositeReads, aoResolvedOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AOComposite));
+			}
+		}
+
 		{
 			std::vector<RenderGraph::ResourceHandle> deferredReads = gbufferOutputs;
 			appendResources(deferredReads, preDepthOutputs);
 			appendResources(deferredReads, shadowOutputs);
 			appendResources(deferredReads, sceneColorCurrent);
+			appendResources(deferredReads, aoResolvedOutputs);
 			std::vector<RenderGraph::ResourceHandle> deferredOutputs = addRenderPassResources("Deferred Lighting", m_DeferredLightingPass);
 			addPass("Deferred Lighting", deferredReads, deferredOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::DeferredLightingPass),
 				{
@@ -4038,37 +4069,6 @@ namespace Lux {
 					{ spotLightIndexList, AccessKind::StorageRead },
 				});
 			sceneColorCurrent = deferredOutputs;
-
-			geometryOutputs = gbufferOutputs;
-			appendResources(geometryOutputs, sceneColorCurrent);
-		}
-
-		// GTAO runs on GBuffer depth/normals. The fullscreen AO composite then
-		// multiplies the deferred scene color using the resolved AO image.
-		std::vector<RenderGraph::ResourceHandle> aoFinalOutputs;
-		if (m_Options.EnableGTAO)
-		{
-			const RenderGraph::ResourceHandle gtaoOutput = addTexture("GTAO Output", m_GTAOOutputImage);
-			const RenderGraph::ResourceHandle gtaoDenoise = addTexture("GTAO Denoise", m_GTAODenoiseImage);
-			const RenderGraph::ResourceHandle gtaoEdges = addTexture("GTAO Edges", m_GTAOEdgesOutputImage);
-
-			std::vector<RenderGraph::ResourceHandle> gtaoReads = geometryOutputs;
-			appendResources(gtaoReads, hzbOutputs);
-			addPass("GTAO", gtaoReads, { gtaoOutput, gtaoEdges }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::GTAOCompute));
-			addPass("GTAO Denoise", { gtaoOutput, gtaoEdges }, { gtaoDenoise, gtaoOutput }, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::GTAODenoiseCompute));
-
-			aoFinalOutputs = { gtaoOutput, gtaoDenoise };
-
-			if (m_AOCompositePass)
-			{
-				std::vector<RenderGraph::ResourceHandle> aoCompositeReads = geometryOutputs;
-				appendResources(aoCompositeReads, preDepthOutputs);
-				appendResources(aoCompositeReads, aoFinalOutputs);
-				appendResources(aoCompositeReads, sceneColorCurrent);
-				std::vector<RenderGraph::ResourceHandle> aoCompositeOutputs = addRenderPassResources("AO Composite", m_AOCompositePass);
-				addPass("AO Composite", aoCompositeReads, aoCompositeOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AOComposite));
-				sceneColorCurrent = aoCompositeOutputs;
-			}
 
 			geometryOutputs = gbufferOutputs;
 			appendResources(geometryOutputs, sceneColorCurrent);
@@ -5451,12 +5451,19 @@ namespace Lux {
 		// runtime scene out) a main-thread write released the old cube mid-read -> double free.
 		Ref<TextureCube> radianceMap = GetEnvironmentRadianceMap(m_FrameEnvironment.Environment);
 		Ref<TextureCube> irradianceMap = GetEnvironmentIrradianceMap(m_FrameEnvironment.Environment);
-		Renderer::Submit([deferredPass = m_DeferredLightingPass, transparentPass = m_GeometryPassTransparent, radianceMap, irradianceMap]() mutable
+		// Resolved GTAO for deferred lighting's indirect term; the AO Composite pass writes it earlier
+		// in the frame whenever GTAO is on.
+		Ref<Image2D> ambientOcclusion = (m_Options.EnableGTAO && m_AOCompositePass) ? m_AOCompositePass->GetOutput(0) : nullptr;
+		Renderer::Submit([deferredPass = m_DeferredLightingPass, transparentPass = m_GeometryPassTransparent, radianceMap, irradianceMap, ambientOcclusion]() mutable
 		{
 			if (deferredPass)
 			{
 				deferredPass->SetInput("u_EnvRadianceTex", radianceMap);
 				deferredPass->SetInput("u_EnvIrradianceTex", irradianceMap);
+				if (ambientOcclusion)
+					deferredPass->SetInput("u_AmbientOcclusion", ambientOcclusion);
+				else
+					deferredPass->SetInput("u_AmbientOcclusion", Renderer::GetWhiteTexture());
 			}
 			if (transparentPass)
 			{

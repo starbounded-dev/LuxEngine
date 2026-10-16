@@ -3708,22 +3708,6 @@ namespace Lux {
 					});
 				}
 
-				if (ImGuiEx::Property("Falloff", firstComponent.Falloff, 0.01f, 0.0f, 10.0f))
-				{
-					ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
-					{
-						component.Falloff = firstComponent.Falloff;
-					});
-				}
-
-				if (ImGuiEx::Property("Min Radius", firstComponent.MinRadius, 0.001f, 0.0f, 1.0f))
-				{
-					ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
-					{
-						component.MinRadius = firstComponent.MinRadius;
-					});
-				}
-
 				if (ImGuiEx::Property("Light Size", firstComponent.LightSize, 0.01f, 0.0f, 10.0f))
 				{
 					ApplyToSelection<PointLightComponent>(m_Context, selectedEntities, [&firstComponent](PointLightComponent& component, Entity)
