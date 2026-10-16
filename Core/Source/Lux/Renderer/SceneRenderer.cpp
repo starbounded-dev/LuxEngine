@@ -5983,7 +5983,12 @@ namespace Lux {
 				? resolvedOverrideMaterial
 				: (materialAsset ? materialAsset->GetMaterial() : Renderer::GetDefaultWhiteMaterial());
 			const uint64_t meshSortKey = (uint64_t)meshKeyHandle;
-			const uint64_t materialSortKey = sortMaterial ? SortKeyFromRef(sortMaterial.Raw()) : (uint64_t)keyMaterialHandle;
+			// The transparent pass draws in sort order without a depth sort, so this key fixes the blend
+			// order of overlapping glass. A material asset sorts by its handle: a heap address changes
+			// with async load order, and the image would change from run to run.
+			const uint64_t materialSortKey = materialHandle
+				? static_cast<uint64_t>(materialHandle)
+				: (sortMaterial ? SortKeyFromRef(sortMaterial.Raw()) : static_cast<uint64_t>(keyMaterialHandle));
 			Ref<Shader> sortShader = sortMaterial ? sortMaterial->GetShader() : nullptr;
 			const uint64_t shaderSortKey = sortShader ? SortKeyFromRef(sortShader.Raw()) : 0;
 

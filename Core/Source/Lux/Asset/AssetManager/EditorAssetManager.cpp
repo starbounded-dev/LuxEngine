@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <fstream>
 #include <map>
+#include <sstream>
 #include "Lux/Serialization/Yaml.h"
 
 namespace Lux
@@ -20,29 +21,6 @@ namespace Lux
 	namespace
 	{
 		AssetMetadata s_NullMetadata;
-
-		std::string AssetStatusToString(AssetStatus status)
-		{
-			switch (status)
-			{
-			case AssetStatus::None:    return "None";
-			case AssetStatus::Ready:   return "Ready";
-			case AssetStatus::Invalid: return "Invalid";
-			case AssetStatus::Loading: return "Loading";
-			case AssetStatus::Missing: return "Missing";
-			}
-
-			return "None";
-		}
-
-		AssetStatus AssetStatusFromString(const std::string& status)
-		{
-			if (status == "Ready")   return AssetStatus::Ready;
-			if (status == "Invalid") return AssetStatus::Invalid;
-			if (status == "Loading") return AssetStatus::Loading;
-			if (status == "Missing") return AssetStatus::Missing;
-			return AssetStatus::None;
-		}
 
 		template<typename TAsset>
 		void RegisterMaterialTableDependencies(EditorAssetManager& manager, const Ref<TAsset>& asset)
@@ -724,11 +702,6 @@ namespace Lux
 			metadata.Handle = node["Handle"].as<uint64_t>();
 			metadata.FilePath = node["FilePath"].as<std::string>();
 			metadata.Type = AssetTypeFromString(node["Type"].as<std::string>());
-			if (node["FileLastWriteTime"])
-				metadata.FileLastWriteTime = node["FileLastWriteTime"].as<uint64_t>();
-			if (node["Status"])
-				metadata.Status = AssetStatusFromString(node["Status"].as<std::string>());
-
 			metadata.IsDataLoaded = false;
 			SetMetadata(metadata.Handle, metadata);
 		}
@@ -809,26 +782,20 @@ namespace Lux
 
 		std::filesystem::create_directories(assetRegistryPath.parent_path());
 
+		// Only what identifies an asset is persisted. Status and FileLastWriteTime describe this
+		// session: every entry loads as not loaded, and ProcessDirectory re-reads each file's
+		// timestamp at startup, so writing them out would only churn the tracked registry.
 		struct AssetRegistryEntry
 		{
 			std::string FilePath;
 			AssetType Type = AssetType::None;
-			uint64_t FileLastWriteTime = 0;
-			AssetStatus Status = AssetStatus::None;
 		};
 
 		std::map<uint64_t, AssetRegistryEntry> sortedEntries;
 		{
 			std::shared_lock lock(m_AssetRegistryMutex);
 			for (const auto& [handle, metadata] : m_AssetRegistry)
-			{
-				sortedEntries[(uint64_t)handle] = {
-					metadata.FilePath.generic_string(),
-					metadata.Type,
-					metadata.FileLastWriteTime,
-					metadata.Status
-				};
-			}
+				sortedEntries[static_cast<uint64_t>(handle)] = { metadata.FilePath.generic_string(), metadata.Type };
 		}
 
 		Yaml::Writer out;
@@ -840,12 +807,19 @@ namespace Lux
 			out << Yaml::Key << "Handle" << Yaml::Value << handle;
 			out << Yaml::Key << "FilePath" << Yaml::Value << entry.FilePath;
 			out << Yaml::Key << "Type" << Yaml::Value << std::string(AssetTypeToString(entry.Type));
-			out << Yaml::Key << "FileLastWriteTime" << Yaml::Value << entry.FileLastWriteTime;
-			out << Yaml::Key << "Status" << Yaml::Value << AssetStatusToString(entry.Status);
 			out << Yaml::EndMap;
 		}
 		out << Yaml::EndSeq;
 		out << Yaml::EndMap;
+
+		// Leave an unchanged registry untouched, so a launch that imports nothing writes nothing.
+		if (std::ifstream existing(assetRegistryPath); existing.is_open())
+		{
+			std::stringstream existingContent;
+			existingContent << existing.rdbuf();
+			if (existingContent.str() == out.c_str())
+				return;
+		}
 
 		std::ofstream fout(assetRegistryPath);
 		if (!fout.is_open())

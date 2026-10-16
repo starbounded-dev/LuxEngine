@@ -1,6 +1,6 @@
 # YAML value oracle reference: <fnv1a64 of normalized tree> <scalars> <maps> <sequences> <path>
 # Regenerate only when a data change is intended: python tests/yaml/run.py --write
-9c8a295d3b467440 3101 311 1 Editor/LuxSampleProject/Assets/AssetRegistry.lzr
+b2a02550f3e5f6fe 1861 311 1 Editor/LuxSampleProject/Assets/AssetRegistry.lzr
 d3a60eaf92afaec1 32 2 2 Editor/LuxSampleProject/Assets/Materials/Benchmark/Bench_000.lmat
 d89488f0fd16d57d 34 2 2 Editor/LuxSampleProject/Assets/Materials/Benchmark/Bench_001.lmat
 7b833eaa8cf06eba 32 2 2 Editor/LuxSampleProject/Assets/Materials/Benchmark/Bench_002.lmat

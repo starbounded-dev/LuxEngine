@@ -9,6 +9,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Material.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Utilities/StringUtils.h"
 
 #include <fstream>
 #include <sstream>
@@ -428,7 +429,10 @@ namespace Lux
 		if (serializedMaterial.empty())
 			return;
 
-		if (ReadMaterialYAML(metadata) == serializedMaterial)
+		// The YAML writer ends a document with a newline; files from the older emitter (every committed
+		// .lmat) do not. That alone is no change, and rewriting for it would dirty each imported material
+		// whenever its mesh source loads.
+		if (Utils::String::TrimWhitespace(ReadMaterialYAML(metadata)) == Utils::String::TrimWhitespace(serializedMaterial))
 			return;
 
 		std::ofstream fout(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
