@@ -112,7 +112,9 @@ vec3 LuxEvaluateImageBasedLighting(
 	vec3 reflectionVector = RotateVectorAboutY(envMapRotation, normalize(reflectionDirection));
 	vec3 specularIrradiance = SampleLinearLOD(envRadiance, reflectionVector, reflectionMip).rgb;
 
-	vec2 brdf = SampleLinear(brdfLut, vec2(NdotV, roughness)).rg;
+	// Mip 0: (NdotV, roughness) is not a screen UV, so derivative-based LOD would pick arbitrary mips
+	// at silhouettes and on normal-mapped detail, banding along NdotV contours.
+	vec2 brdf = SampleLinearLOD(brdfLut, vec2(NdotV, roughness), 0.0).rg;
 
 	// Single-scattering specular reflectance (FssEss) and white-furnace energy (Ess).
 	vec3 Fr = max(vec3(1.0 - roughness), F0) - F0;

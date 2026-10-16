@@ -534,6 +534,7 @@ namespace Lux {
 		{
 			TextureSpecification spec;
 			spec.SamplerWrap = TextureWrap::Clamp;
+			spec.GenerateMips = false; // a lookup table, always read at mip 0
 			s_Data->BRDFLutTexture = Texture2D::Create(spec, std::filesystem::path("Resources/Renderer/BRDF_LUT.png"));
 		}
 

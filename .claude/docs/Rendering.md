@@ -261,6 +261,15 @@ Runtime entry points: `Renderer::ReloadShaders(forceCompile)`, `UpdateDirtyShade
 array (NRI has no storage cube view, as D3D12 has none), and Vulkan requires the shader image to
 match the view type. The face is the array layer, so `imageStore(img, ivec3(x, y, face), ...)` is
 unchanged; `imageSize` returns an `ivec3`, so take `.xy`. Sampled cubes stay `textureCube`.
+A compute pass that writes a cube face maps each invocation to its texel **centre**,
+`(gl_GlobalInvocationID.xy + 0.5) / size` (`GetCubeMapTexCoord`, `PreethamSky.glsl`). The corner
+is half a texel off, which on the small mips rough surfaces read aims a 1x1 face at a cube corner.
+
+**Lookup tables are read at an explicit mip 0 and created without mips.** The BRDF LUT is indexed
+by `(NdotV, roughness)`, not a screen UV, so derivative-based LOD picks arbitrary mips wherever
+neighbouring pixels differ (silhouettes, normal-mapped detail) and bands there. Use
+`SampleLinearLOD(lut, uv, 0.0)`, and `GenerateMips = false` on the texture. Any new LUT (LTC area
+lights, for example) follows the same rule.
 
 **When a shader stops working after an edit, suspect the cache first.** Delete
 `Resources/Cache/Shader/` and relaunch before debugging the shader itself. A stale registry entry
