@@ -31,12 +31,15 @@ struct PointLight
 	vec3 Position;
 	float Multiplier;
 	vec3 Radiance;
-	float MinRadius;
-	float Radius;
-	float Falloff;
+	uint ShadowIndex;  // first of six spot-atlas tiles, one per cube face (+X, -X, +Y, -Y, +Z, -Z)
+	float Radius;      // range: the falloff window reaches zero here
+	float AtlasScale;  // atlas tile size in UV (1 / grid size)
 	float LightSize;
-	bool CastsShadows;
+	uint ShadowFlags;  // POINT_LIGHT_SHADOW_*
 };
+
+const uint POINT_LIGHT_SHADOW_CASTS = 1u;
+const uint POINT_LIGHT_SHADOW_SOFT = 2u;
 
 layout(std140, set = 1, binding = 6) uniform PointLightData
 {
@@ -71,9 +74,12 @@ layout(std140, set = 1, binding = 7) uniform SpotLightData
 	SpotLight Lights[1024];
 } u_SpotLights;
 
+// Spot-light tiles plus six per shadowed point light; matches SceneRenderer::MaxShadowAtlasTiles.
+#define SHADOW_ATLAS_MAX_TILES 64
+
 layout(std140, set = 1, binding = 8) uniform SpotShadowData
 {
-	mat4 Mats[16];
+	mat4 Mats[SHADOW_ATLAS_MAX_TILES];
 	uint Count;
 	vec3 Padding;
 } u_SpotLightMatrices;

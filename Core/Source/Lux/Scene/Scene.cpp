@@ -1940,10 +1940,9 @@ namespace Lux {
 				pl.Radiance = PhysicalLight::EffectiveRadiance(pointLight.Radiance, pointLight.UseColorTemperature, pointLight.ColorTemperature);
 				pl.Intensity = PhysicalLight::PointIntensity(pointLight.Unit, pointLight.Intensity);
 				pl.Radius = pointLight.Radius;
-				pl.Falloff = pointLight.Falloff;
-				pl.MinRadius = pointLight.MinRadius;
 				pl.LightSize = pointLight.LightSize;
-				pl.CastsShadows = pointLight.CastsShadows ? 1u : 0u;
+				pl.ShadowFlags = (pointLight.CastsShadows ? PointLightShadowCasts : 0u)
+					| (pointLight.SoftShadows ? PointLightShadowSoft : 0u);
 
 				lightEnv.PointLights.push_back(pl);
 			}

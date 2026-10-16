@@ -132,11 +132,18 @@ namespace Lux {
 		glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
 		float     Intensity = 0.0f;      // 0 = disabled
 		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
-		float     MinRadius = 0.001f;
-		float     Radius = 25.0f;
-		float     Falloff = 1.0f;
+		uint32_t  ShadowIndex = 0;   // first of six spot-atlas tiles (+X, -X, +Y, -Y, +Z, -Z); set by SceneRenderer
+		float     Radius = 25.0f;    // range: the falloff window reaches zero here
+		float     AtlasScale = 1.0f; // atlas tile size in UV; set by SceneRenderer
 		float     LightSize = 0.5f;
-		uint32_t  CastsShadows = 0;
+		uint32_t  ShadowFlags = 0;   // PointLightShadowFlags
+	};
+
+	// PointLight::ShadowFlags; mirrors POINT_LIGHT_SHADOW_* in Buffers.glslh.
+	enum PointLightShadowFlags : uint32_t
+	{
+		PointLightShadowCasts = 1u << 0,
+		PointLightShadowSoft = 1u << 1,
 	};
 
 	struct SpotLight
@@ -412,6 +419,11 @@ namespace Lux {
 	public:
 		static constexpr uint32_t ShadowCascadeCount = 4;
 		static constexpr uint32_t MaxSpotShadows = 16;
+		// Point lights take six spot-atlas tiles each (one per cube face).
+		static constexpr uint32_t MaxPointShadows = 8;
+		// Tiles in the shared spot/point shadow atlas; mirrors SHADOW_ATLAS_MAX_TILES in Buffers.glslh.
+		static constexpr uint32_t MaxShadowAtlasTiles = 64;
+		static_assert(MaxSpotShadows + 6 * MaxPointShadows <= MaxShadowAtlasTiles);
 		// Clustered (froxel) light culling grid — see CLUSTERED_DEFERRED_PLAN.md.
 		static constexpr uint32_t ClusterGridX = 16;
 		static constexpr uint32_t ClusterGridY = 9;
@@ -1254,7 +1266,7 @@ namespace Lux {
 
 		struct UBSpotShadow
 		{
-			glm::mat4 ViewProjection[MaxSpotShadows];
+			glm::mat4 ViewProjection[MaxShadowAtlasTiles];
 			uint32_t Count = 0;
 			glm::vec3 Padding{};
 		} m_SpotShadowUB;
@@ -1434,7 +1446,8 @@ namespace Lux {
 		uint32_t         m_SpotShadowMapSize = 2048;
 		uint32_t         m_SpotShadowAtlasGridSize = 1;
 		uint32_t         m_SpotShadowTileSize = 2048;
-		uint32_t         m_SpotShadowCount = 0;
+		uint32_t         m_SpotShadowCount = 0;      // atlas tiles in use: spot lights + 6 per point light
+		uint32_t         m_SpotShadowLightCount = 0; // spot lights with shadows
 
 		// ── Pre-depth pass ────────────────────────────────────────────────────
 		Ref<Pipeline>    m_PreDepthPipeline;
@@ -1686,7 +1699,7 @@ namespace Lux {
 		};
 		std::unordered_map<MeshKey, ShadowTransformMapData, MeshKeyHasher> m_ShadowMeshTransformMap;
 		std::array<Frustum, ShadowCascadeCount> m_ShadowCascadeFrustums;
-		std::array<Frustum, MaxSpotShadows> m_SpotShadowFrustums;
+		std::array<Frustum, MaxShadowAtlasTiles> m_SpotShadowFrustums;
 		uint32_t m_ShadowCascadeFrustumCount = 0;
 		uint32_t m_SpotShadowFrustumCount = 0;
 

@@ -311,6 +311,8 @@ namespace Lux {
 							defaultSampler = Renderer::GetPointSampler();
 						else if (name == "r_LinearSampler")
 							defaultSampler = Renderer::GetClampSampler();
+						else if (name == "r_ShadowSampler")
+							defaultSampler = Renderer::GetShadowSampler();
 
 						for (size_t i = 0; i < input.Input.size(); i++)
 							input.Input[i] = defaultSampler;

@@ -314,6 +314,20 @@ namespace Lux {
 				renderPass->SetInput(name, std::forward<TInput>(input));
 		}
 
+		// Point-light shadows: one spot-atlas tile per cube face, in the order PointShadowFace
+		// (ShadowMapping.glslh) selects them. 2 * atan(1 / 0.9) is a little over 90 degrees, so the face
+		// picked by the major axis lands in [0.05, 0.95] of its tile and filter taps stay inside it.
+		constexpr float k_PointShadowFaceFOV = 1.67596244f;
+		constexpr float k_PointShadowNearPlane = 0.1f;
+		const glm::vec3 k_PointShadowFaceDirections[6] = {
+			{ 1.0f, 0.0f, 0.0f }, { -1.0f, 0.0f, 0.0f },
+			{ 0.0f, 1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f },
+			{ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } };
+		const glm::vec3 k_PointShadowFaceUps[6] = {
+			{ 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f },
+			{ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f },
+			{ 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+
 		SceneRendererOptions::ShadowResolutionTier SanitizeShadowResolutionTier(uint32_t tier)
 		{
 			if (tier > static_cast<uint32_t>(SceneRendererOptions::ShadowResolutionTier::Tier_8K))
@@ -2636,6 +2650,7 @@ namespace Lux {
 			if (m_ShadowMapPass)
 				SetRenderPassInputIfValid(renderPass, "u_ShadowMapTexture", m_ShadowMapPass->GetDepthOutput());
 			SetRenderPassInputIfValid(renderPass, "u_SpotShadowTexture", m_SpotShadowMapImage);
+			SetRenderPassInputIfValid(renderPass, "r_ShadowSampler", Renderer::GetShadowSampler());
 		}
 		if (hasInput(PassInputMaterialScene))
 		{
@@ -5015,21 +5030,13 @@ namespace Lux {
 		}
 
 
-		// ── Point lights uniform buffer ───────────────────────────────────────
+		// ── Point lights (uploaded below, once the shadow atlas assigns their tiles) ──
 		{
 			const auto& pointLights = m_SceneData.SceneLightEnvironment.PointLights;
 			m_PointLightsUB.Count = (uint32_t)glm::min((size_t)256, pointLights.size());
 			if (m_PointLightsUB.Count > 0)
 				std::memcpy(m_PointLightsUB.PointLights, pointLights.data(),
 					sizeof(PointLight) * m_PointLightsUB.Count);
-
-			auto plData = m_PointLightsUB;
-			uint32_t plSize = (uint32_t)(16ull + sizeof(PointLight) * plData.Count);
-			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, plData, plSize]() mutable {
-				instance->m_UBSPointLights->RT_Get()->RT_SetData(
-					instance->m_UploadCommandBuffer, &plData, plSize);
-				});
 		}
 
 		// ── Spot lights uniform buffer + shadow data ─────────────────────────-
@@ -5050,9 +5057,48 @@ namespace Lux {
 				uint32_t ResolutionTier = 0;
 			};
 
-			// Candidate scoring/sorting and atlas sizing only matter when spot
-			// lights exist; with none, skip straight to the (16-byte) UBO upload.
-			if (m_SpotLightsUB.Count > 0)
+			// Point lights share the atlas: six tiles each, one per cube face.
+			struct PointShadowCandidate
+			{
+				uint32_t Index = 0;
+				float Score = 0.0f;
+			};
+
+			std::vector<PointShadowCandidate> pointShadowCandidates;
+			for (uint32_t i = 0; i < m_PointLightsUB.Count; i++)
+			{
+				PointLight& light = m_PointLightsUB.PointLights[i];
+				light.ShadowIndex = 0;
+				light.AtlasScale = 1.0f;
+				if ((light.ShadowFlags & PointLightShadowCasts) == 0)
+					continue;
+
+				// A light whose whole lit sphere lies beyond the shadow distance casts nothing visible.
+				const glm::vec3 toLight = light.Position - m_SceneUB.CameraPosition;
+				const float distanceSquared = glm::dot(toLight, toLight);
+				if (glm::sqrt(distanceSquared) - light.Radius > m_Options.MaxShadowDistance)
+				{
+					light.ShadowFlags = 0;
+					continue;
+				}
+
+				const float luminance = glm::max(CalculateLightLuminance(light.Radiance), 0.001f);
+				const float score = light.Intensity * luminance * light.Radius / glm::max(1.0f, distanceSquared);
+				pointShadowCandidates.push_back({ i, score });
+			}
+
+			std::sort(pointShadowCandidates.begin(), pointShadowCandidates.end(), [](const PointShadowCandidate& a, const PointShadowCandidate& b)
+			{
+				if (a.Score == b.Score)
+					return a.Index < b.Index;
+				return a.Score > b.Score;
+			});
+
+			m_SpotShadowLightCount = 0;
+
+			// Candidate scoring/sorting and atlas sizing only matter when shadowed lights
+			// may exist; with none, skip straight to the (16-byte) UBO upload.
+			if (m_SpotLightsUB.Count > 0 || !pointShadowCandidates.empty())
 			{
 			std::vector<SpotShadowCandidate> shadowCandidates;
 			shadowCandidates.reserve(m_SpotLightsUB.Count);
@@ -5094,6 +5140,12 @@ namespace Lux {
 			});
 
 			const uint32_t selectedShadowCount = glm::min((uint32_t)shadowCandidates.size(), (uint32_t)MaxSpotShadows);
+			const uint32_t selectedPointShadowCount = std::min({ (uint32_t)pointShadowCandidates.size(), MaxPointShadows,
+				(MaxShadowAtlasTiles - selectedShadowCount) / 6u });
+			std::array<bool, 256> selectedPointShadowCasters{};
+			for (uint32_t i = 0; i < selectedPointShadowCount; i++)
+				selectedPointShadowCasters[pointShadowCandidates[i].Index] = true;
+			const uint32_t selectedTileCount = selectedShadowCount + 6u * selectedPointShadowCount;
 			std::array<bool, 256> selectedShadowCasters{};
 			uint32_t maxSelectedTier = 1;
 			for (uint32_t i = 0; i < selectedShadowCount; i++)
@@ -5103,8 +5155,8 @@ namespace Lux {
 			}
 
 			m_SpotShadowMapSize = ResolveShadowResolutionTier(maxSelectedTier);
-			m_SpotShadowAtlasGridSize = (uint32_t)glm::ceil(glm::sqrt((float)glm::max(1u, selectedShadowCount)));
-			m_SpotShadowAtlasGridSize = glm::max(1u, glm::min(m_SpotShadowAtlasGridSize, 4u));
+			m_SpotShadowAtlasGridSize = (uint32_t)glm::ceil(glm::sqrt((float)glm::max(1u, selectedTileCount)));
+			m_SpotShadowAtlasGridSize = glm::max(1u, glm::min(m_SpotShadowAtlasGridSize, 8u));
 			m_SpotShadowTileSize = m_SpotShadowMapSize / m_SpotShadowAtlasGridSize;
 
 			bool spotShadowFramebufferResized = false;
@@ -5142,6 +5194,7 @@ namespace Lux {
 
 			uint64_t spotShadowStateHash = 1469598103934665603ull;
 			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedShadowCount);
+			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedPointShadowCount);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, maxSelectedTier);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowMapSize);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowAtlasGridSize);
@@ -5193,6 +5246,36 @@ namespace Lux {
 				m_SpotShadowFrustumCount = glm::max(m_SpotShadowFrustumCount, atlasIndex + 1u);
 			}
 
+			m_SpotShadowLightCount = m_SpotShadowCount;
+
+			const float atlasTileScale = 1.0f / (float)m_SpotShadowAtlasGridSize;
+			for (uint32_t i = 0; i < m_PointLightsUB.Count; i++)
+			{
+				PointLight& light = m_PointLightsUB.PointLights[i];
+				if (!selectedPointShadowCasters[i])
+				{
+					light.ShadowFlags = 0;
+					continue;
+				}
+
+				spotShadowStateHash = HashVec3(spotShadowStateHash, light.Position);
+				spotShadowStateHash = HashCombine(spotShadowStateHash, HashFloat(light.Radius));
+
+				light.ShadowIndex = m_SpotShadowCount;
+				light.AtlasScale = atlasTileScale;
+
+				const glm::mat4 proj = glm::perspective(k_PointShadowFaceFOV, 1.0f, k_PointShadowNearPlane, glm::max(light.Radius, 2.0f * k_PointShadowNearPlane));
+				for (uint32_t face = 0; face < 6; face++)
+				{
+					const uint32_t atlasIndex = m_SpotShadowCount++;
+					const glm::mat4 view = glm::lookAt(light.Position, light.Position + k_PointShadowFaceDirections[face], k_PointShadowFaceUps[face]);
+					const glm::mat4 viewProjection = proj * view;
+					m_SpotShadowUB.ViewProjection[atlasIndex] = viewProjection;
+					m_SpotShadowFrustums[atlasIndex] = Frustum::FromViewProjection(viewProjection);
+					m_SpotShadowFrustumCount = glm::max(m_SpotShadowFrustumCount, atlasIndex + 1u);
+				}
+			}
+
 			m_SpotShadowUB.Count = m_SpotShadowCount;
 			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowCount);
 
@@ -5223,7 +5306,7 @@ namespace Lux {
 			auto slData = m_SpotLightsUB;
 			uint32_t slSize = (uint32_t)(16ull + sizeof(SpotLight) * slData.Count);
 			auto spotShadowData = m_SpotShadowUB;
-			uint32_t spotShadowSize = (uint32_t)(sizeof(glm::mat4) * MaxSpotShadows + 16ull);
+			uint32_t spotShadowSize = (uint32_t)(sizeof(glm::mat4) * MaxShadowAtlasTiles + 16ull);
 			Ref<SceneRenderer> instance = this;
 			Renderer::Submit([instance, slData, slSize]() mutable {
 				instance->m_UBSSpotLights->RT_Get()->RT_SetData(
@@ -5233,6 +5316,13 @@ namespace Lux {
 			Renderer::Submit([instance, spotShadowData, spotShadowSize]() mutable {
 				instance->m_UBSSpotShadow->RT_Get()->RT_SetData(
 					instance->m_UploadCommandBuffer, &spotShadowData, spotShadowSize);
+				});
+
+			auto plData = m_PointLightsUB;
+			uint32_t plSize = (uint32_t)(16ull + sizeof(PointLight) * plData.Count);
+			Renderer::Submit([instance, plData, plSize]() mutable {
+				instance->m_UBSPointLights->RT_Get()->RT_SetData(
+					instance->m_UploadCommandBuffer, &plData, plSize);
 				});
 		}
 
@@ -8798,7 +8888,7 @@ namespace Lux {
 		// Real HZB occlusion rejection counts require reading the post-compute counters back from the GPU.
 		m_Statistics.CulledInstances = lateCulledInstances + m_Statistics.FrustumCulledInstances + m_Statistics.OcclusionCulledInstances;
 
-		m_Statistics.SpotlightShadowcasters = m_SpotShadowCount;
+		m_Statistics.SpotlightShadowcasters = m_SpotShadowLightCount;
 #endif
 
 		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime();

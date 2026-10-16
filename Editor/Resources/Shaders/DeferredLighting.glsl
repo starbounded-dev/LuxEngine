@@ -45,6 +45,10 @@ layout(set = 1, binding = 17) uniform texture2D u_DepthTexture;
 
 layout(set = 3, binding = 5) uniform texture2D u_BRDFLUTTexture;
 
+// Directional shadow normal-offset bias, in shadow-map texels along the surface normal.
+const float DIR_SHADOW_NORMAL_BIAS_TEXELS = 1.5;
+const float DIR_SHADOW_MIN_NORMAL_BIAS = 0.2;
+
 bool ReconstructPositionFromDepth(float deviceDepth, out vec3 worldPosition, out vec3 viewPosition)
 {
 	vec4 world = u_Camera.InverseViewProjectionMatrix * vec4(v_ClipPosition, deviceDepth, 1.0);
@@ -91,11 +95,21 @@ float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition)
 	ShadowFade = distanceToCamera - (shadowDistance - transitionDistance);
 	ShadowFade = clamp(1.0 - (ShadowFade / transitionDistance), 0.0, 1.0);
 
+	// Normal-offset receiver bias [Valient 2007], sized to each cascade's world-space texel so it
+	// hides the depth steps between caster facets without over-biasing the near cascades. It grows at
+	// grazing angles but keeps a floor head-on, where faceted meshes still differ from their smooth normal.
+	float shadowMapResolution = float(textureSize(sampler2DArray(u_ShadowMapTexture, r_LinearSampler), 0).x);
+	float NdotL = max(dot(m_Params.Normal, u_Scene.DirectionalLights.Direction), 0.0);
+	float normalBiasTexels = DIR_SHADOW_NORMAL_BIAS_TEXELS * max(1.0 - NdotL, DIR_SHADOW_MIN_NORMAL_BIAS);
+
 	vec4 shadowCoordsClip[4];
-	shadowCoordsClip[0] = u_DirShadow.DirLightMatrices[0] * vec4(worldPosition, 1.0);
-	shadowCoordsClip[1] = u_DirShadow.DirLightMatrices[1] * vec4(worldPosition, 1.0);
-	shadowCoordsClip[2] = u_DirShadow.DirLightMatrices[2] * vec4(worldPosition, 1.0);
-	shadowCoordsClip[3] = u_DirShadow.DirLightMatrices[3] * vec4(worldPosition, 1.0);
+	for (int i = 0; i < 4; i++)
+	{
+		mat4 lightMatrix = u_DirShadow.DirLightMatrices[i];
+		float texelWorldSize = 2.0 / max(length(vec3(lightMatrix[0][0], lightMatrix[1][0], lightMatrix[2][0])) * shadowMapResolution, 1e-6);
+		vec3 biasedPosition = worldPosition + m_Params.Normal * (texelWorldSize * normalBiasTexels);
+		shadowCoordsClip[i] = lightMatrix * vec4(biasedPosition, 1.0);
+	}
 
 	vec3 shadowCoords[4];
 	shadowCoords[0] = shadowCoordsClip[0].xyz / shadowCoordsClip[0].w;
@@ -191,7 +205,7 @@ void main()
 
 	float shadowScale = CalculateDirectionalShadow(worldPosition, viewPosition);
 	vec3 directLighting = CalculateDirLights(F0) * shadowScale;
-	directLighting += CalculatePointLights(F0, worldPosition);
+	directLighting += CalculatePointLightsShadowed(F0, worldPosition, u_SpotShadowTexture);
 	directLighting += CalculateSpotLightsShadowed(F0, worldPosition, u_SpotShadowTexture);
 
 	// Material AO and screen-space GTAO occlude the ambient/IBL term only (specular through specular

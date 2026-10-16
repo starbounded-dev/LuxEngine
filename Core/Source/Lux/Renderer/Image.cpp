@@ -446,7 +446,7 @@ namespace Lux {
 	void Sampler::Invalidate()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		// No LOD clamp, no comparison (the NVRHI sampler's defaults).
+		// No LOD clamp (the NVRHI sampler's default); comparison only for shadow samplers.
 		const nri::Filter filter[2] = { nri::Filter::NEAREST, nri::Filter::LINEAR };
 		const nri::AddressMode addressMode = m_Specification.AddressMode == TextureWrap::Repeat ? nri::AddressMode::REPEAT : nri::AddressMode::CLAMP_TO_EDGE;
 		nri::SamplerDesc samplerDesc = {};
@@ -456,6 +456,7 @@ namespace Lux {
 		samplerDesc.mipMin = 0.0f;
 		samplerDesc.mipMax = k_SamplerMaxLod;
 		samplerDesc.addressModes = { addressMode, addressMode, addressMode };
+		samplerDesc.compareOp = m_Specification.DepthCompare ? nri::CompareOp::LESS_EQUAL : nri::CompareOp::NONE;
 		if (RHIDevice::API().CreateSampler(RHIDevice::Get(), samplerDesc, m_RHIDescriptor) != nri::Result::SUCCESS)
 			m_RHIDescriptor = nullptr;
 	}

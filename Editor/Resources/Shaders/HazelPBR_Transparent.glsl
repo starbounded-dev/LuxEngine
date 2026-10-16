@@ -322,7 +322,7 @@ void main()
 	shadowScale = 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0f, 1.0f);
 
 	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
-	lightContribution += CalculatePointLights(F0, Input.WorldPosition);
+	lightContribution += CalculatePointLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += CalculateSpotLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += emissive;
 

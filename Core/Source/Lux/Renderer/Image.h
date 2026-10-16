@@ -510,6 +510,9 @@ namespace Lux {
 		bool MinFilter = true;
 		bool MagFilter = true;
 		bool MipFilter = true;
+		// Shadow comparison: sampling a depth texture returns the fraction of the filter footprint
+		// where reference <= stored depth (standard-Z shadow maps), filtered by the hardware.
+		bool DepthCompare = false;
 	};
 
 	class Sampler : public RendererResource

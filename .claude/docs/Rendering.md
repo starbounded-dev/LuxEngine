@@ -248,6 +248,26 @@ says: a directional light's radiance × multiplier is illuminance, a point or sp
 intensity. Point lights' `Falloff` and `MinRadius` are no longer read (still serialized); spot
 `Falloff` remains the PCSS light size.
 
+**Shadow maps are sampled through `r_ShadowSampler`** (`(set 3, binding 8)`,
+`Renderer::GetShadowSampler()`): a linear depth-comparison sampler, so each hard or PCF tap is a
+hardware 2x2 PCF (`sampler2DShadow` / `sampler2DArrayShadow`, reference ≤ stored, standard-Z shadow
+maps). PCSS blocker searches still read raw depth. `DescriptorSetManager` defaults the name to it.
+
+**Point lights shadow through the spot atlas.** A shadowed point light takes six consecutive atlas
+tiles, one per cube face (+X, −X, +Y, −Y, +Z, −Z); `PointLight::ShadowIndex` is the first tile and
+`AtlasScale` the tile size. Each face renders at 2·atan(1/0.9) ≈ 96°, so the face the shader picks
+by the major axis (`PointShadowFace`) always lands in [0.05, 0.95] of its tile and filter taps
+never cross a seam. The atlas holds `MaxShadowAtlasTiles` (64, `SHADOW_ATLAS_MAX_TILES` in
+`Buffers.glslh`; change both) in up to an 8x8 grid: up to 16 spot lights first, then up to
+`MaxPointShadows` (8) point lights scored by intensity and distance. Spot and point tiles share the
+spot shadow pass, its per-tile frustum culling and its static/dynamic cache. The point-light buffer
+is uploaded after this selection, because the selection writes the tile fields.
+
+**Directional shadows use a normal-offset bias** in deferred lighting: the receiver moves along its
+normal by 1.5 texels of its cascade (texel size from the cascade's orthographic matrix,
+`2 / (|row 0| × resolution)`), scaled up at grazing angles. Forward passes compute cascade
+coordinates in the vertex stage and keep the depth bias only.
+
 ---
 
 ## Shaders

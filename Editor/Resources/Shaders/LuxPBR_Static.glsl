@@ -338,7 +338,7 @@ void main()
 
 	// Direct lighting
 	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
-	lightContribution += CalculatePointLights(F0, Input.WorldPosition);
+	lightContribution += CalculatePointLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += CalculateSpotLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += m_Params.Albedo * materialEmission;
 

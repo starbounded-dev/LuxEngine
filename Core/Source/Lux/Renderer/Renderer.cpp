@@ -126,6 +126,7 @@ namespace Lux {
 		Ref<Sampler> SamplerClamp = nullptr;
 		Ref<Sampler> SamplerPoint = nullptr;
 		Ref<Sampler> SamplerRepeat = nullptr;
+		Ref<Sampler> SamplerShadow = nullptr;
 
 		int32_t DrawCallCount = 0;
 		int32_t DrawInstanceCount = 0;
@@ -2030,6 +2031,20 @@ namespace Lux {
 		}
 
 		return s_RendererData->SamplerRepeat;
+	}
+
+	Ref<Sampler> Renderer::GetShadowSampler()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		if (!s_RendererData->SamplerShadow)
+		{
+			SamplerSpecification spec;
+			spec.MipFilter = false;
+			spec.DepthCompare = true;
+			s_RendererData->SamplerShadow = Sampler::Create(spec);
+		}
+
+		return s_RendererData->SamplerShadow;
 	}
 
 	int Renderer::GetDrawcallCount()

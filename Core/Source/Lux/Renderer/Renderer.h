@@ -334,6 +334,8 @@ namespace Lux {
 		static Ref<Sampler> GetClampSampler();
 		static Ref<Sampler> GetPointSampler();
 		static Ref<Sampler> GetRepeatSampler();
+		// Linear depth-comparison sampler for shadow maps (r_ShadowSampler): hardware 2x2 PCF.
+		static Ref<Sampler> GetShadowSampler();
 		static Ref<Sampler> GetDefaultSampler() { return GetClampSampler(); }
 
 		static int GetDrawcallCount();
