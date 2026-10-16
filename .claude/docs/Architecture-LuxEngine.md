@@ -475,6 +475,13 @@ Rules:
   counts loads queued, in flight, or finished but not yet synced; zero means editor streaming is
   idle. The golden capture uses it to wait before it reads back a frame.
 - Dependencies: `RegisterDependency(dep, handle)` so a reloaded texture notifies its materials.
+- Opening the editor must not modify tracked project files. `AssetRegistry.lzr` stores only
+  `Handle`, `FilePath`, and `Type`. `Status` and `FileLastWriteTime` stay in memory because they
+  describe the current session. `ProcessDirectory` re-reads every timestamp at startup. The
+  registry is written only when its content changes. A serializer that runs during load (mesh
+  import re-serializes each source material) compares its output with the file and skips an
+  unchanged write. `MaterialSerializer` ignores a missing final newline, so legacy `.lmat` files
+  are not rewritten.
 
 ### 2.9 Editor
 
