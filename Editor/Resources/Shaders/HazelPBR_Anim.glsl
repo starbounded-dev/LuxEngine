@@ -170,7 +170,7 @@ vec3 IBL(vec3 F0, vec3 Lr)
 		m_Params.Metalness,
 		m_Params.NdotV,
 		F0,
-		u_MaterialUniforms.EnvMapRotation);
+		u_MaterialUniforms.EnvMapRotation + u_Scene.EnvironmentMapRotation);
 }
 
 
@@ -238,7 +238,7 @@ void main()
 	// View normals
 	o_ViewNormalsLuminance.xyz = Input.CameraView * m_Params.Normal;
 
-	m_Params.View = normalize(u_Scene.CameraPosition - Input.WorldPosition);
+	m_Params.View = GetViewDirection(Input.WorldPosition);
 	m_Params.NdotV = max(dot(m_Params.Normal, m_Params.View), 0.0);
 
 	// Specular reflection vector

@@ -208,7 +208,7 @@ vec3 LuxEvaluateImageBasedLighting(
 	NdotV = clamp(NdotV, 0.0, 1.0);
 	float ao = clamp(ambientOcclusion, 0.0, 1.0);
 
-	vec3 irradiance = SampleLinear(envIrradiance, normal).rgb;
+	vec3 irradiance = SampleLinear(envIrradiance, RotateVectorAboutY(envMapRotation, normal)).rgb;
 
 	int envRadianceMipCount = textureQueryLevels(samplerCube(envRadiance, r_LinearSampler));
 	float reflectionMip = LuxRoughnessToReflectionMip(roughness, envRadianceMipCount);

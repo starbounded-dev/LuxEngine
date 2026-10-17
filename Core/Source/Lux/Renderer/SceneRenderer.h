@@ -673,7 +673,7 @@ namespace Lux {
 
 		// Call before BeginScene to update the scene state consumed by the render passes.
 		void SetLightEnvironment(const LightEnvironment& lightEnvironment);
-		void SetEnvironment(Ref<Environment> environment, float intensity = 1.0f, float skyboxLod = 0.0f);
+		void SetEnvironment(Ref<Environment> environment, float intensity = 1.0f, float skyboxLod = 0.0f, float rotationDegrees = 0.0f);
 		// Scene-wide post-processing. Replaces the removed per-volume blending: the scene
 		// authors one set of values and they apply everywhere.
 		void SetPostProcessSettings(const PostProcessSettings& postProcessSettings);
@@ -1168,6 +1168,7 @@ namespace Lux {
 			Ref<Environment> Environment;
 			float EnvironmentIntensity = 1.0f;
 			float SkyboxLod = 0.0f;
+			float EnvironmentRotation = 0.0f; // degrees about +Y
 			PostProcessSettings PostProcess;
 			bool BloomEnabled = false;
 			bool DOFEnabled = false;
@@ -1236,6 +1237,9 @@ namespace Lux {
 			glm::mat4 PreviousViewProjection = glm::mat4(1.0f);
 			glm::vec2 Jitter = { 0.0f, 0.0f };
 			glm::vec2 PreviousJitter = { 0.0f, 0.0f };
+			// Non-zero for an orthographic projection; DepthUnpackConsts is then affine.
+			int32_t   IsOrthographic = 0;
+			int32_t   Padding[3]{};
 		} m_CameraUB;
 
 		struct DirLightGPU
@@ -1251,6 +1255,8 @@ namespace Lux {
 			DirLightGPU Lights;
 			glm::vec3   CameraPosition;
 			float       EnvironmentMapIntensity = 1.0f;
+			float       EnvironmentMapRotation = 0.0f; // degrees about +Y
+			glm::vec3   Padding{};
 		} m_SceneUB;
 
 		struct UBShadow
@@ -1395,6 +1401,7 @@ namespace Lux {
 			Ref<Environment>    SceneEnvironment;
 			float               SceneEnvironmentIntensity = 1.0f;
 			float               SkyboxLod = 0.0f;
+			float               EnvironmentRotation = 0.0f; // degrees about +Y
 			LightEnvironment    SceneLightEnvironment;
 		} m_SceneData;
 		ResolvedFrameEnvironment m_FrameEnvironment;

@@ -55,9 +55,7 @@ const int FOREGROUND_PROBE_TAPS = 6;
 
 float LinearizeDepth(const float screenDepth)
 {
-	float depthLinearizeMul = u_Camera.DepthUnpackConsts.x;
-	float depthLinearizeAdd = u_Camera.DepthUnpackConsts.y;
-	return depthLinearizeMul / (depthLinearizeAdd - screenDepth);
+	return LinearizeDeviceDepth(screenDepth);
 }
 
 float GetBlurSize(float depth, float focusPoint, float focusScale)

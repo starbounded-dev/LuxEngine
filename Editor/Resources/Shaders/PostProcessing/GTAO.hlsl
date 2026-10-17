@@ -90,7 +90,9 @@ uint XeGTAO_FLOAT4_to_R8G8B8A8_UNORM(lpfloat4 unpackedInput)
 float3 XeGTAO_ComputeViewspacePosition(const float2 screenPos, const float viewspaceDepth)
 {
     float3 ret;
-    ret.xy = mad(u_Camera.NDCToViewMul, screenPos.xy, u_Camera.NDCToViewAdd) * viewspaceDepth;
+    ret.xy = mad(u_Camera.NDCToViewMul, screenPos.xy, u_Camera.NDCToViewAdd);
+    if (u_Camera.IsOrthographic == 0)
+        ret.xy *= viewspaceDepth;
     ret.z = viewspaceDepth;
     return ret;
 }
@@ -190,6 +192,8 @@ float LinearizeDepth(const float screenDepth)
 {
     float depthLinearizeMul = u_Camera.DepthUnpackConsts.x;
     float depthLinearizeAdd = u_Camera.DepthUnpackConsts.y;
+    if (u_Camera.IsOrthographic != 0)
+        return depthLinearizeMul * screenDepth + depthLinearizeAdd;
     // Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
     return depthLinearizeMul / (depthLinearizeAdd - screenDepth);
 }

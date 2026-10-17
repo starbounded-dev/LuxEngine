@@ -23,6 +23,7 @@ layout(std140, set = 1, binding = 5) uniform SceneData
 	DirectionalLight DirectionalLights;
 	vec3 CameraPosition; // Offset = 32
 	float EnvironmentMapIntensity;
+	float EnvironmentMapRotation; // degrees about +Y (the sky light's rotation)
 } u_Scene;
 
 
@@ -115,7 +116,26 @@ layout(std140, set = 2, binding = 0) uniform Camera
 	mat4 PreviousViewProjectionMatrix;
 	vec2 Jitter;
 	vec2 PreviousJitter;
+	int IsOrthographic; // DepthUnpackConsts is then affine: depth = x * deviceDepth + y
 } u_Camera;
+
+// Positive view-space depth of a device depth value, for either projection.
+float LinearizeDeviceDepth(float deviceDepth)
+{
+	vec2 unpack = u_Camera.DepthUnpackConsts;
+	if (u_Camera.IsOrthographic != 0)
+		return unpack.x * deviceDepth + unpack.y;
+	return unpack.x / (unpack.y - deviceDepth);
+}
+
+// Unit vector from a surface toward the viewer. An orthographic camera views along one axis, so
+// every surface sees it from the camera's backward axis rather than from its position.
+vec3 GetViewDirection(vec3 worldPosition)
+{
+	if (u_Camera.IsOrthographic != 0)
+		return normalize(u_Camera.InverseViewMatrix[2].xyz);
+	return normalize(u_Scene.CameraPosition - worldPosition);
+}
 
 layout(std140, set = 2, binding = 1) uniform RendererData
 {

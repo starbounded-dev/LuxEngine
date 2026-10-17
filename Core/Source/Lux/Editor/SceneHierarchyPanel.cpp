@@ -3869,6 +3869,14 @@ namespace Lux {
 					});
 				}
 
+				if (ImGuiEx::Property("Rotation", firstComponent.Rotation, 0.5f, -180.0f, 180.0f, "Turns the sky, and the light it gives, about the vertical axis (degrees)"))
+				{
+					ApplyToSelection<SkyLightComponent>(m_Context, selectedEntities, [&firstComponent](SkyLightComponent& component, Entity)
+					{
+						component.Rotation = firstComponent.Rotation;
+					});
+				}
+
 				bool lodChanged = false;
 				Ref<AssetManagerBase> assetManager = Project::GetAssetManager();
 				if (firstComponent.SceneEnvironment && assetManager && assetManager->IsAssetHandleValid(firstComponent.SceneEnvironment))

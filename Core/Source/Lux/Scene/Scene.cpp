@@ -1977,10 +1977,11 @@ namespace Lux {
 		return lightEnv;
 	}
 
-	Ref<Environment> Scene::CollectEnvironment(float& outIntensity, float& outLod) const
+	Ref<Environment> Scene::CollectEnvironment(float& outIntensity, float& outLod, float& outRotation) const
 	{
 		outIntensity = 1.0f;
 		outLod = 0.0f;
+		outRotation = 0.0f;
 		Ref<Environment> fallbackEnvironment = Renderer::GetDefaultEnvironment();
 		if (!fallbackEnvironment)
 			fallbackEnvironment = Renderer::GetEmptyEnvironment();
@@ -1991,6 +1992,7 @@ namespace Lux {
 			const auto& skyLight = view.get<const SkyLightComponent>(entity);
 			outIntensity = skyLight.Intensity;
 			outLod = skyLight.Lod;
+			outRotation = skyLight.Rotation;
 
 			if (skyLight.DynamicSky)
 			{
@@ -2319,7 +2321,7 @@ namespace Lux {
 
 		// Collect light / environment / volumes (all read-only on the registry)
 		packet.Lights = CollectLightEnvironment();
-		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod);
+		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod, packet.EnvironmentRotation);
 		packet.PostProcess = m_PostProcessSettings;
 
 		// Mesh proxies, 2D overlay items and physics-collider debug meshes
@@ -2514,7 +2516,7 @@ namespace Lux {
 			return;
 
 		renderer->SetLightEnvironment(packet.Lights);
-		renderer->SetEnvironment(packet.SkyEnvironment, packet.EnvironmentIntensity, packet.EnvironmentLod);
+		renderer->SetEnvironment(packet.SkyEnvironment, packet.EnvironmentIntensity, packet.EnvironmentLod, packet.EnvironmentRotation);
 		renderer->SetPostProcessSettings(packet.PostProcess);
 
 		renderer->BeginScene(packet.Camera);
@@ -2600,7 +2602,7 @@ namespace Lux {
 		packet.Overlay2DViewProjection = cameraComp.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix;
 
 		packet.Lights = CollectLightEnvironment();
-		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod);
+		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod, packet.EnvironmentRotation);
 		packet.PostProcess = m_PostProcessSettings;
 
 		// Submit all static meshes (no selection highlight in runtime)

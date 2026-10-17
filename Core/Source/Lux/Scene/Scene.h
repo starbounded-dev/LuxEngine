@@ -177,7 +177,7 @@ namespace Lux {
 
 		// Collect environment/skybox from the first SkyLightComponent entity.
 		// Falls back to the renderer default environment when no explicit skylight is configured.
-		Ref<Environment> CollectEnvironment(float& outIntensity, float& outLod) const;
+		Ref<Environment> CollectEnvironment(float& outIntensity, float& outLod, float& outRotation) const;
 
 
 		// Submit all StaticMeshComponent entities to the SceneRenderer

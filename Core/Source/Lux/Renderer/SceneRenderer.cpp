@@ -319,6 +319,11 @@ namespace Lux {
 		// picked by the major axis lands in [0.05, 0.95] of its tile and filter taps stay inside it.
 		constexpr float k_PointShadowFaceFOV = 1.67596244f;
 		constexpr float k_PointShadowNearPlane = 0.1f;
+
+		// Clustered light culling slices depth exponentially from the near plane, which must be
+		// positive. An orthographic camera's near plane can be zero or negative (SceneCamera
+		// defaults to -1); fragments in front of this floor all land in the first slice.
+		constexpr float k_MinClusterNearPlane = 0.01f;
 		const glm::vec3 k_PointShadowFaceDirections[6] = {
 			{ 1.0f, 0.0f, 0.0f }, { -1.0f, 0.0f, 0.0f },
 			{ 0.0f, 1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f },
@@ -2500,15 +2505,18 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_GridRenderPass->Validate());
 			m_GridRenderPass->Bake();
 
-			constexpr float gridScale = 16.025f;
-			constexpr float gridSize = 0.025f;
+			// Grid.glsl draws the floor grid around the camera; colours are in display space (the pass
+			// draws over the composited image).
 			m_GridMaterial = Material::Create(pipelineSpec.Shader, "Grid");
-			const static glm::mat4 transform =
-				glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f))
-				* glm::scale(glm::mat4(1.0f), glm::vec3(8.0f));
-			m_GridMaterial->Set("u_Settings.Transform", transform);
-			m_GridMaterial->Set("u_Settings.Scale", gridScale);
-			m_GridMaterial->Set("u_Settings.Size", gridSize);
+			m_GridMaterial->Set("u_Settings.XAxisColor", glm::vec4(0.86f, 0.30f, 0.30f, 0.90f));
+			m_GridMaterial->Set("u_Settings.ZAxisColor", glm::vec4(0.30f, 0.50f, 0.92f, 0.90f));
+			m_GridMaterial->Set("u_Settings.MinorColor", glm::vec4(0.55f, 0.55f, 0.55f, 0.30f));
+			m_GridMaterial->Set("u_Settings.MajorColor", glm::vec4(0.70f, 0.70f, 0.70f, 0.55f));
+			m_GridMaterial->Set("u_Settings.BaseCellSize", 1.0f);
+			m_GridMaterial->Set("u_Settings.FadeDistance", 150.0f);
+			m_GridMaterial->Set("u_Settings.AxisLineWidthPx", 2.0f);
+			m_GridMaterial->Set("u_Settings.MinorLineWidthPx", 1.0f);
+			m_GridMaterial->Set("u_Settings.MajorLineWidthPx", 1.5f);
 		}
 
 		// ── Physics collider debug materials ─────────────────────────────────
@@ -3207,11 +3215,12 @@ namespace Lux {
 		RefreshFrameEnvironment();
 	}
 
-	void SceneRenderer::SetEnvironment(Ref<Environment> environment, float intensity, float skyboxLod)
+	void SceneRenderer::SetEnvironment(Ref<Environment> environment, float intensity, float skyboxLod, float rotationDegrees)
 	{
 		m_SceneData.SceneEnvironment = environment;
 		m_SceneData.SceneEnvironmentIntensity = intensity;
 		m_SceneData.SkyboxLod = skyboxLod;
+		m_SceneData.EnvironmentRotation = rotationDegrees;
 		RefreshFrameEnvironment();
 	}
 
@@ -3253,6 +3262,7 @@ namespace Lux {
 		frame.Environment = m_SceneData.SceneEnvironment;
 		frame.EnvironmentIntensity = m_SceneData.SceneEnvironmentIntensity;
 		frame.SkyboxLod = m_SceneData.SkyboxLod;
+		frame.EnvironmentRotation = m_SceneData.EnvironmentRotation;
 		frame.PostProcess = GetEffectivePostProcessSettings(m_SceneData.SceneCamera.Camera.GetExposure());
 
 		frame.BloomEnabled = frame.PostProcess.BloomEnabled;
@@ -4944,16 +4954,28 @@ namespace Lux {
 			m_CameraUB.Jitter = glm::vec2(0.0f);
 			m_CameraUB.PreviousJitter = glm::vec2(0.0f);
 
-			// Depth linearization for GTAO-style effects (kept for forward compat)
-			float depthLinearizeMul = -m_CameraUB.Projection[3][2];
-			float depthLinearizeAdd = m_CameraUB.Projection[2][2];
-			if (depthLinearizeMul * depthLinearizeAdd < 0) depthLinearizeAdd = -depthLinearizeAdd;
-			m_CameraUB.DepthUnpackConsts = { depthLinearizeMul, depthLinearizeAdd };
-
 			const float* P = glm::value_ptr(camera.Camera.GetProjectionMatrix());
+			const bool isOrthographic = m_CameraUB.Projection[3][3] == 1.0f;
+			m_CameraUB.IsOrthographic = isOrthographic ? 1 : 0;
 			m_CameraUB.NDCToViewMul = { 2.0f / P[0],  2.0f / P[5] };
-			m_CameraUB.NDCToViewAdd = { -1.0f,        -1.0f };
 			m_CameraUB.CameraTanHalfFOV = { 1.0f / P[0],  1.0f / P[5] };
+
+			if (isOrthographic)
+			{
+				// Orthographic depth is affine in view depth: depth = mul * deviceDepth + add. View x/y
+				// do not scale with depth, so NDCToView maps a [0, 1] screen position straight to them.
+				m_CameraUB.DepthUnpackConsts = { -1.0f / m_CameraUB.Projection[2][2], m_CameraUB.Projection[3][2] / m_CameraUB.Projection[2][2] };
+				m_CameraUB.NDCToViewAdd = { -(1.0f + P[12]) / P[0], -(1.0f + P[13]) / P[5] };
+			}
+			else
+			{
+				// Depth linearization for GTAO-style effects (kept for forward compat)
+				float depthLinearizeMul = -m_CameraUB.Projection[3][2];
+				float depthLinearizeAdd = m_CameraUB.Projection[2][2];
+				if (depthLinearizeMul * depthLinearizeAdd < 0) depthLinearizeAdd = -depthLinearizeAdd;
+				m_CameraUB.DepthUnpackConsts = { depthLinearizeMul, depthLinearizeAdd };
+				m_CameraUB.NDCToViewAdd = { -1.0f, -1.0f };
+			}
 
 			auto cameraData = m_CameraUB;
 			Ref<SceneRenderer> instance = this;
@@ -5020,6 +5042,7 @@ namespace Lux {
 			m_SceneUB.Lights.ShadowAmount = dirLight.ShadowAmount;
 			m_SceneUB.CameraPosition = glm::vec3(glm::inverse(camera.ViewMatrix)[3]);
 			m_SceneUB.EnvironmentMapIntensity = m_FrameEnvironment.EnvironmentIntensity;
+			m_SceneUB.EnvironmentMapRotation = m_FrameEnvironment.EnvironmentRotation;
 
 			auto sceneData = m_SceneUB;
 			Ref<SceneRenderer> instance = this;
@@ -5514,7 +5537,7 @@ namespace Lux {
 			// Clustered light culling: near/far drive the exponential Z-slice mapping
 			// (must match ClusterBuildPass). Grid dims are compile-time in Cluster.glslh.
 			m_RendererDataUB.ClusterZParams = {
-				m_SceneData.SceneCamera.Near,
+				glm::max(m_SceneData.SceneCamera.Near, k_MinClusterNearPlane),
 				m_SceneData.SceneCamera.Far,
 				0.0f,
 				0.0f
@@ -7731,7 +7754,7 @@ namespace Lux {
 		push.ScreenSizeNearFar = {
 			static_cast<float>(glm::max(1u, m_ViewportWidth)),
 			static_cast<float>(glm::max(1u, m_ViewportHeight)),
-			m_SceneData.SceneCamera.Near,
+			glm::max(m_SceneData.SceneCamera.Near, k_MinClusterNearPlane),
 			m_SceneData.SceneCamera.Far
 		};
 		push.GridSize = { ClusterGridX, ClusterGridY, ClusterGridZ, 0u };
@@ -7886,10 +7909,11 @@ namespace Lux {
 		// Set on the render thread, which reads the material in Prepare / the push constants; see
 		// the environment bindings in BeginScene for the race a main-thread Set caused.
 		Renderer::Submit([material = m_SkyboxMaterial, radianceMap, lod = m_FrameEnvironment.SkyboxLod,
-			intensity = m_FrameEnvironment.EnvironmentIntensity]() mutable
+			intensity = m_FrameEnvironment.EnvironmentIntensity, rotation = m_FrameEnvironment.EnvironmentRotation]() mutable
 		{
 			material->Set("u_Uniforms.TextureLod", lod);
 			material->Set("u_Uniforms.Intensity", intensity);
+			material->Set("u_Uniforms.Rotation", rotation);
 			material->Set("u_Texture", radianceMap);
 		});
 

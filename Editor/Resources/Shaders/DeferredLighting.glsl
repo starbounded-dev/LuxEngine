@@ -73,7 +73,7 @@ vec3 IBL(vec3 F0, vec3 Lr, float ao)
 		m_Params.Metalness,
 		m_Params.NdotV,
 		F0,
-		0.0,
+		u_Scene.EnvironmentMapRotation,
 		ao);
 }
 
@@ -197,7 +197,7 @@ void main()
 	m_Params.Roughness = max(gbuffer.Roughness, 0.05);
 	m_Params.Metalness = clamp(gbuffer.Metalness, 0.0, 1.0);
 	m_Params.Normal = worldNormal;
-	m_Params.View = normalize(u_Scene.CameraPosition - worldPosition);
+	m_Params.View = GetViewDirection(worldPosition);
 	m_Params.NdotV = max(dot(m_Params.Normal, m_Params.View), 0.0);
 
 	vec3 F0 = mix(LuxDielectricF0(gbuffer.Specular), m_Params.Albedo, m_Params.Metalness);

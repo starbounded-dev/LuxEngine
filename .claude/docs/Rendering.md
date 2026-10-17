@@ -263,6 +263,26 @@ never cross a seam. The atlas holds `MaxShadowAtlasTiles` (64, `SHADOW_ATLAS_MAX
 spot shadow pass, its per-tile frustum culling and its static/dynamic cache. The point-light buffer
 is uploaded after this selection, because the selection writes the tile fields.
 
+**Orthographic cameras are handled in every depth- and view-dependent shader.** `UBCamera` ends
+with `IsOrthographic` (set when `Projection[3][3] == 1`); the GLSL `Camera` block in `Buffers.glslh`,
+its inline copy in `ClusterBuild.glsl` and the HLSL `Camera` in `Include/HLSL/Buffers.hlslh` all
+declare it, so edit the three together. For an orthographic camera `DepthUnpackConsts` is affine and
+`NDCToView` is not multiplied by depth. Linearize depth with `LinearizeDeviceDepth` and get the view
+vector with `GetViewDirection` (both `Buffers.glslh`) rather than `u_Scene.CameraPosition -
+position`. Cluster AABBs use parallel rays, and the cluster near plane is clamped to 0.01 because
+an orthographic near plane can be zero or negative.
+
+**The sky light's `Rotation`** (degrees about +Y) reaches the renderer through the frame packet
+(`EnvironmentRotation`) into `SceneData.EnvironmentMapRotation`. Deferred and forward IBL add it to
+any per-material rotation, and the skybox rotates by the same amount (`u_Uniforms.Rotation`), so
+the sky and its lighting stay aligned. `LuxEvaluateImageBasedLighting` rotates the irradiance lookup
+as well as the reflection lookup.
+
+**The editor floor grid** (`Grid.glsl`, `SceneRenderer::GridPass`) draws a camera-centred square
+on y = 0 over the composited image. Lines keep a constant pixel width and fade to their average
+coverage below a pixel, the cell size steps by powers of ten with a crossfade, and the X and Z axes
+have their own colours. Its colours and widths are set once on `m_GridMaterial` in `Init()`.
+
 **Directional shadows use a normal-offset bias** in deferred lighting: the receiver moves along its
 normal by 1.5 texels of its cascade (texel size from the cascade's orthographic matrix,
 `2 / (|row 0| × resolution)`), scaled up at grazing angles. Forward passes compute cascade

@@ -32,6 +32,7 @@ layout(std140, set = 2, binding = 0) uniform Camera
 	mat4 PreviousViewProjectionMatrix;
 	vec2 Jitter;
 	vec2 PreviousJitter;
+	int IsOrthographic; // DepthUnpackConsts is then affine: depth = x * deviceDepth + y
 } u_Camera;
 
 layout(std430, set = 1, binding = 20) writeonly buffer ClusterAABBBuffer
@@ -103,11 +104,23 @@ void main()
 	float tileNear = -zNear * pow(zFar / zNear, float(c.z)      / float(grid.z));
 	float tileFar  = -zNear * pow(zFar / zNear, float(c.z + 1u) / float(grid.z));
 
-	const vec3 eye = vec3(0.0);
-	vec3 minNear = LineIntersectZPlane(eye, minView, tileNear);
-	vec3 minFar  = LineIntersectZPlane(eye, minView, tileFar);
-	vec3 maxNear = LineIntersectZPlane(eye, maxView, tileNear);
-	vec3 maxFar  = LineIntersectZPlane(eye, maxView, tileFar);
+	vec3 minNear, minFar, maxNear, maxFar;
+	if (u_Camera.IsOrthographic != 0)
+	{
+		// Orthographic tile rays are parallel to the view axis: the corners keep their x and y.
+		minNear = vec3(minView.xy, tileNear);
+		minFar  = vec3(minView.xy, tileFar);
+		maxNear = vec3(maxView.xy, tileNear);
+		maxFar  = vec3(maxView.xy, tileFar);
+	}
+	else
+	{
+		const vec3 eye = vec3(0.0);
+		minNear = LineIntersectZPlane(eye, minView, tileNear);
+		minFar  = LineIntersectZPlane(eye, minView, tileFar);
+		maxNear = LineIntersectZPlane(eye, maxView, tileNear);
+		maxFar  = LineIntersectZPlane(eye, maxView, tileFar);
+	}
 
 	vec3 aabbMin = min(min(minNear, minFar), min(maxNear, maxFar));
 	vec3 aabbMax = max(max(minNear, minFar), max(maxNear, maxFar));

@@ -415,6 +415,7 @@ namespace Lux {
 				out << Yaml::Key << "EnvironmentMap" << Yaml::Value << (AssetManager::GetMemoryAsset(skyLight.SceneEnvironment) ? (AssetHandle)0 : skyLight.SceneEnvironment);
 				out << Yaml::Key << "Intensity" << Yaml::Value << skyLight.Intensity;
 				out << Yaml::Key << "Lod" << Yaml::Value << skyLight.Lod;
+				out << Yaml::Key << "Rotation" << Yaml::Value << skyLight.Rotation;
 				out << Yaml::Key << "DynamicSky" << Yaml::Value << skyLight.DynamicSky;
 				if (skyLight.DynamicSky)
 					out << Yaml::Key << "TurbidityAzimuthInclination" << Yaml::Value << skyLight.TurbidityAzimuthInclination;
@@ -998,6 +999,7 @@ namespace Lux {
 					component.SceneEnvironment = skyLight["EnvironmentMap"].as<uint64_t>(0);
 					component.Intensity = skyLight["Intensity"].as<float>(1.0f);
 					component.Lod = skyLight["Lod"].as<float>(0.0f);
+					component.Rotation = skyLight["Rotation"].as<float>(0.0f);
 					component.DynamicSky = skyLight["DynamicSky"].as<bool>(false);
 					component.TurbidityAzimuthInclination = skyLight["TurbidityAzimuthInclination"].as<glm::vec3>(glm::vec3{ 2.0f, 0.0f, 0.0f });
 				}

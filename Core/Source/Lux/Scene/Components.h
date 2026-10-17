@@ -642,6 +642,7 @@ namespace Lux {
 		AssetHandle SceneEnvironment = 0;
 		float Intensity = 1.0f;
 		float Lod = 0.0f;
+		float Rotation = 0.0f; // degrees about +Y; turns the sky and the lighting it gives together
 		bool DynamicSky = false;
 		glm::vec3 TurbidityAzimuthInclination = { 2.0f, 0.0f, 0.0f };
 

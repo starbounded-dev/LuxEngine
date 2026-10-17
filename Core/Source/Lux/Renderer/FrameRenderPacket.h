@@ -72,6 +72,7 @@ namespace Lux {
 		Ref<Environment> SkyEnvironment;
 		float EnvironmentIntensity = 1.0f;
 		float EnvironmentLod = 0.0f;
+		float EnvironmentRotation = 0.0f; // degrees about +Y
 		PostProcessSettings PostProcess;
 
 		Ref<RenderScene> Meshes;

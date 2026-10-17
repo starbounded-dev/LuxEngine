@@ -165,10 +165,7 @@ vec3 ComputeViewspacePosition(const vec2 screenPos, const float viewspaceDepth)
 //// From XeGTAO
 float ScreenSpaceToViewSpaceDepth(const float screenDepth)
 {
-	float depthLinearizeMul = u_Camera.DepthUnpackConsts.x;
-	float depthLinearizeAdd = u_Camera.DepthUnpackConsts.y;
-	// Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
-	return depthLinearizeMul / (depthLinearizeAdd - screenDepth);
+	return LinearizeDeviceDepth(screenDepth);
 }
 
 void InitialAdvanceRay(vec3 origin, vec3 direction, vec3 invDirection, vec2 currentMipResolution, vec2 currentMipResolutionInv, vec2 floorOffset, vec2 uvOffset, out vec3 position, out float currentT)

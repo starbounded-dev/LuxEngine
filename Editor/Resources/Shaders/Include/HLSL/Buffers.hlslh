@@ -12,6 +12,11 @@ struct Camera
 	float2 NDCToViewAdd;
 	float2 DepthUnpackConsts;
 	float2 CameraTanHalfFOV;
+	float4x4 UnjitteredViewProjectionMatrix;
+	float4x4 PreviousViewProjectionMatrix;
+	float2 Jitter;
+	float2 PreviousJitter;
+	int IsOrthographic; // DepthUnpackConsts is then affine: depth = x * deviceDepth + y
 };
 [[vk::binding(0,2)]] ConstantBuffer<Camera> u_Camera;
 
