@@ -4957,15 +4957,17 @@ namespace Lux {
 			const float* P = glm::value_ptr(camera.Camera.GetProjectionMatrix());
 			const bool isOrthographic = m_CameraUB.Projection[3][3] == 1.0f;
 			m_CameraUB.IsOrthographic = isOrthographic ? 1 : 0;
-			m_CameraUB.NDCToViewMul = { 2.0f / P[0],  2.0f / P[5] };
 			m_CameraUB.CameraTanHalfFOV = { 1.0f / P[0],  1.0f / P[5] };
+			// NDCToView maps a [0, 1] screen position (row 0 at the top) to view-space x right, y up:
+			// XeGTAO's convention, shared by GTAO and SSR. Perspective scales the result by view depth.
+			m_CameraUB.NDCToViewMul = { 2.0f / P[0], -2.0f / P[5] };
 
 			if (isOrthographic)
 			{
 				// Orthographic depth is affine in view depth: depth = mul * deviceDepth + add. View x/y
 				// do not scale with depth, so NDCToView maps a [0, 1] screen position straight to them.
 				m_CameraUB.DepthUnpackConsts = { -1.0f / m_CameraUB.Projection[2][2], m_CameraUB.Projection[3][2] / m_CameraUB.Projection[2][2] };
-				m_CameraUB.NDCToViewAdd = { -(1.0f + P[12]) / P[0], -(1.0f + P[13]) / P[5] };
+				m_CameraUB.NDCToViewAdd = { -(1.0f + P[12]) / P[0], (1.0f - P[13]) / P[5] };
 			}
 			else
 			{
@@ -4974,7 +4976,7 @@ namespace Lux {
 				float depthLinearizeAdd = m_CameraUB.Projection[2][2];
 				if (depthLinearizeMul * depthLinearizeAdd < 0) depthLinearizeAdd = -depthLinearizeAdd;
 				m_CameraUB.DepthUnpackConsts = { depthLinearizeMul, depthLinearizeAdd };
-				m_CameraUB.NDCToViewAdd = { -1.0f, -1.0f };
+				m_CameraUB.NDCToViewAdd = { -1.0f / P[0], 1.0f / P[5] };
 			}
 
 			auto cameraData = m_CameraUB;

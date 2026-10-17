@@ -157,7 +157,9 @@ ivec2 GetDepthMipResolution(int mipLevel)
 vec3 ComputeViewspacePosition(const vec2 screenPos, const float viewspaceDepth)
 {
 	vec3 ret;
-	ret.xy = (u_Camera.NDCToViewMul * screenPos.xy + u_Camera.NDCToViewAdd) * viewspaceDepth;
+	ret.xy = u_Camera.NDCToViewMul * screenPos.xy + u_Camera.NDCToViewAdd;
+	if (u_Camera.IsOrthographic == 0)
+		ret.xy *= viewspaceDepth;
 	ret.z = -viewspaceDepth;
 	return ret;
 }
@@ -354,18 +356,18 @@ void main()
 	//const vec4 albedo = vec4(1,1,1,1);//SampleLinear(u_InputColor, uv);
 	//const vec2 metalnessRoughness = vec2(1,0.7);
 
+	// View space here is the renderer's (x right, y up, z toward the viewer), as is the G-buffer normal.
 	vec3 normalVS = SampleLinear(u_Normal, uv).xyz;
-	//Y Flip from vulkan->nvrhi
-	normalVS.y *= -1;
 
 	const float depthVS = ScreenSpaceToViewSpaceDepth(depth);
 	const vec3 positionVS = ComputeViewspacePosition(uv, depthVS);
-	const vec3 toPositionVS = normalize(positionVS.xyz);
+	const vec3 toPositionVS = (u_Camera.IsOrthographic != 0) ? vec3(0.0, 0.0, -1.0) : normalize(positionVS.xyz);
 	const vec3 reflectVS = reflect(toPositionVS, normalVS);
 	const vec4 positionPrimeSS4 = u_Camera.ProjectionMatrix * vec4(positionVS.xyz + reflectVS, 1.0f);
 	vec3 positionPrimeSS = (positionPrimeSS4.xyz / positionPrimeSS4.w);
 	
-	positionPrimeSS.xy = positionPrimeSS.xy * 0.5f + 0.5f;
+	// NDC y = +1 is the top row (negative-height viewport), so v runs opposite to NDC y.
+	positionPrimeSS.xy = vec2(positionPrimeSS.x * 0.5f + 0.5f, 0.5f - positionPrimeSS.y * 0.5f);
 
 	const vec3 positionSS = vec3(uv, depth);
 	const vec3 reflectSS = vec3(positionPrimeSS - positionSS);

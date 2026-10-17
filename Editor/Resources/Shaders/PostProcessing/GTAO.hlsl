@@ -236,7 +236,8 @@ void XeGTAO_MainPass(const int2 outputPixCoord, const int2 inputPixCoords, lpflo
 #endif
 
     const float3 pixCenterPos = XeGTAO_ComputeViewspacePosition(normalizedScreenPos, viewspaceZ);
-    const lpfloat3 viewVec = (lpfloat3)normalize(-pixCenterPos);
+    // Toward the camera; an orthographic camera views every pixel along -z.
+    const lpfloat3 viewVec = (u_Camera.IsOrthographic != 0) ? lpfloat3(0, 0, -1) : (lpfloat3)normalize(-pixCenterPos);
 
     // prevents normals that are facing away from the view vector - xeGTAO struggles with extreme cases, but in Vanilla it seems rare so it's disabled by default
     // viewspaceNormal = normalize( viewspaceNormal + max( 0, -dot( viewspaceNormal, viewVec ) ) * viewVec );

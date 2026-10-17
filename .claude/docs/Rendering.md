@@ -267,7 +267,11 @@ is uploaded after this selection, because the selection writes the tile fields.
 with `IsOrthographic` (set when `Projection[3][3] == 1`); the GLSL `Camera` block in `Buffers.glslh`,
 its inline copy in `ClusterBuild.glsl` and the HLSL `Camera` in `Include/HLSL/Buffers.hlslh` all
 declare it, so edit the three together. For an orthographic camera `DepthUnpackConsts` is affine and
-`NDCToView` is not multiplied by depth. Linearize depth with `LinearizeDeviceDepth` and get the view
+`NDCToView` is not multiplied by depth. `NDCToViewMul`/`NDCToViewAdd` are XeGTAO's: a [0, 1]
+screen position (row 0 at the top) maps to view-space x right, y **up**, i.e.
+`Mul = (2·tanX, −2·tanY)`, `Add = (−tanX, tanY)`. GTAO's slice stepping assumes that convention, and
+SSR works in the renderer's view space with G-buffer normals as they are (no y flip), reprojecting
+with `v = 0.5 − 0.5·ndc.y`. Linearize depth with `LinearizeDeviceDepth` and get the view
 vector with `GetViewDirection` (both `Buffers.glslh`) rather than `u_Scene.CameraPosition -
 position`. Cluster AABBs use parallel rays, and the cluster near plane is clamped to 0.01 because
 an orthographic near plane can be zero or negative.
