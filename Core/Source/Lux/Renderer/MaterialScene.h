@@ -103,12 +103,15 @@ namespace Lux {
 		uint32_t MaterialCount = 0;
 	};
 
+	// Maps a material's texture to its bindless slot. Colour maps ask for TextureColorSpace::SRGB.
+	using GPUTextureResolver = std::function<GPUTextureIndex(AssetHandle, TextureColorSpace)>;
+
 	class MaterialScene
 	{
 	public:
 		MaterialScene();
 
-		void SetTextureResolver(std::function<GPUTextureIndex(AssetHandle)> textureResolver);
+		void SetTextureResolver(GPUTextureResolver textureResolver);
 		void BeginSync(uint32_t frameIndex);
 		RenderMaterialID UpsertMaterial(AssetHandle materialHandle, bool forceDirty = false);
 		RenderMaterialID UpsertOverrideMaterial(uint64_t overrideKey, const Ref<Material>& material, bool transparent, bool forceDirty = false);
@@ -129,7 +132,7 @@ namespace Lux {
 		static GPUMaterialData GetFallbackMaterialData();
 		static GPUMaterialData BuildGPUMaterialData(
 			const GPUMaterialBuildInput& input,
-			const std::function<GPUTextureIndex(AssetHandle)>& resolveTextureIndex);
+			const GPUTextureResolver& resolveTextureIndex);
 
 	private:
 		enum class MaterialKeyType : uint32_t
@@ -160,7 +163,7 @@ namespace Lux {
 		};
 
 		RenderMaterialID UpsertMaterial(MaterialKey key, GPUMaterialData data, bool forceDirty);
-		GPUTextureIndex ResolveTextureIndex(AssetHandle textureHandle);
+		GPUTextureIndex ResolveTextureIndex(AssetHandle textureHandle, TextureColorSpace colorSpace);
 		void MarkMaterialDirty(RenderMaterialID materialID);
 		void EnsureFallbackMaterial();
 
@@ -169,14 +172,14 @@ namespace Lux {
 		uint32_t m_DirtyMaterialCount = 0;
 		uint64_t m_Version = 0;
 		GPUTextureIndex m_NextTextureIndex = 1;
-		std::function<GPUTextureIndex(AssetHandle)> m_TextureResolver;
+		GPUTextureResolver m_TextureResolver;
 
 		std::vector<GPUMaterialData> m_Materials;
 		std::vector<MaterialKey> m_MaterialKeys;
 		std::vector<uint32_t> m_LastTouchedFrames;
 		std::vector<RenderMaterialID> m_FreeMaterialIDs;
 		std::unordered_map<MaterialKey, RenderMaterialID, MaterialKeyHasher> m_MaterialIDByKey;
-		std::unordered_map<AssetHandle, GPUTextureIndex> m_TextureIndexByHandle;
+		std::unordered_map<GPUTextureSlot, GPUTextureIndex, GPUTextureSlotHasher> m_TextureIndexBySlot;
 
 		std::vector<RenderMaterialID> m_DirtyMaterialIDs;
 		std::vector<MaterialSceneDirtyRange> m_DirtyRanges;

@@ -5786,17 +5786,18 @@ namespace Lux {
 		return m_MeshPasses[passIndex];
 	}
 
-	GPUTextureIndex SceneRenderer::ResolveTransientGPUTextureIndex(AssetHandle textureHandle)
+	GPUTextureIndex SceneRenderer::ResolveTransientGPUTextureIndex(AssetHandle textureHandle, TextureColorSpace colorSpace)
 	{
 		if (!textureHandle)
 			return InvalidGPUTextureIndex;
 
-		auto [it, inserted] = m_TransientGPUTextureIndexByHandle.try_emplace(textureHandle, InvalidGPUTextureIndex);
+		const GPUTextureSlot slot{ textureHandle, colorSpace };
+		auto [it, inserted] = m_TransientGPUTextureIndexBySlot.try_emplace(slot, InvalidGPUTextureIndex);
 		if (inserted || it->second == InvalidGPUTextureIndex)
 		{
-			it->second = (GPUTextureIndex)m_TransientGPUTextureHandles.size();
-			m_TransientGPUTextureHandles.push_back(textureHandle);
-			m_NextTransientGPUTextureIndex = (GPUTextureIndex)m_TransientGPUTextureHandles.size();
+			it->second = (GPUTextureIndex)m_TransientGPUTextureSlots.size();
+			m_TransientGPUTextureSlots.push_back(slot);
+			m_NextTransientGPUTextureIndex = (GPUTextureIndex)m_TransientGPUTextureSlots.size();
 		}
 
 		return EncodeTransientGPUTextureIndex(it->second);
@@ -5842,7 +5843,7 @@ namespace Lux {
 
 		GPUMaterialData materialData = MaterialScene::BuildGPUMaterialData(
 			input,
-			[this](AssetHandle textureHandle) { return ResolveTransientGPUTextureIndex(textureHandle); });
+			[this](AssetHandle textureHandle, TextureColorSpace colorSpace) { return ResolveTransientGPUTextureIndex(textureHandle, colorSpace); });
 
 		const uint32_t transientMaterialIndex = (uint32_t)m_TransientGPUMaterials.size();
 		materialData.Metadata.z = EncodeTransientRenderMaterialIndex(transientMaterialIndex);
@@ -5917,8 +5918,8 @@ namespace Lux {
 		m_TransientGPUSceneInstances.clear();
 		m_TransientGPUMaterials.clear();
 		m_TransientGPUMaterialIndexByKey.clear();
-		m_TransientGPUTextureHandles.clear();
-		m_TransientGPUTextureIndexByHandle.clear();
+		m_TransientGPUTextureSlots.clear();
+		m_TransientGPUTextureIndexBySlot.clear();
 		m_NextTransientGPUTextureIndex = 0;
 		m_MeshTransformMap.clear();
 		m_ShadowMeshTransformMap.clear();
@@ -6409,7 +6410,7 @@ namespace Lux {
 		const MaterialScene* submittedMaterialScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetMaterialScene() : nullptr;
 		const TextureScene* submittedTextureScene = m_SubmittedRenderScene ? &m_SubmittedRenderScene->GetTextureScene() : nullptr;
 
-		std::vector<AssetHandle>& gpuTextureHandles = m_ScratchTextureHandles;
+		std::vector<GPUTextureSlot>& gpuTextureSlots = m_ScratchTextureSlots;
 		// Skip re-copying the whole texture table when the same TextureScene is
 		// submitted with an unchanged version — the scratch already holds the
 		// persistent rows (plus last frame's transients, truncated below).
@@ -6420,40 +6421,41 @@ namespace Lux {
 		{
 			if (submittedTextureScene)
 			{
-				const std::vector<AssetHandle>& src = submittedTextureScene->GetTextureHandles();
-				gpuTextureHandles.assign(src.begin(), src.end());
+				const std::vector<GPUTextureSlot>& src = submittedTextureScene->GetTextureSlots();
+				gpuTextureSlots.assign(src.begin(), src.end());
 			}
 			else
 			{
-				gpuTextureHandles.clear();
+				gpuTextureSlots.clear();
 			}
-			if (gpuTextureHandles.empty())
-				gpuTextureHandles.push_back(AssetHandle(0));
+			if (gpuTextureSlots.empty())
+				gpuTextureSlots.emplace_back();
 
 			m_ScratchTextureSceneKey = (const void*)submittedTextureScene;
 			m_ScratchTextureSceneVersion = submittedTextureScene
 				? submittedTextureScene->GetVersion()
 				: std::numeric_limits<uint64_t>::max();
-			m_ScratchPersistentTextureCount = (uint32_t)gpuTextureHandles.size();
+			m_ScratchPersistentTextureCount = (uint32_t)gpuTextureSlots.size();
 		}
 		else
 		{
 			// Unchanged table: just drop the transient handles appended last frame.
-			gpuTextureHandles.resize(m_ScratchPersistentTextureCount);
+			gpuTextureSlots.resize(m_ScratchPersistentTextureCount);
 		}
 		const uint32_t persistentTextureCount = m_ScratchPersistentTextureCount;
-		for (AssetHandle transientTextureHandle : m_TransientGPUTextureHandles)
-			gpuTextureHandles.push_back(transientTextureHandle);
+		for (const GPUTextureSlot& transientTextureSlot : m_TransientGPUTextureSlots)
+			gpuTextureSlots.push_back(transientTextureSlot);
 
 		uint32_t textureTableOverflowCount = 0;
-		if (gpuTextureHandles.size() > MaxGPUTextureSceneTextures())
+		if (gpuTextureSlots.size() > MaxGPUTextureSceneTextures())
 		{
-			textureTableOverflowCount = (uint32_t)(gpuTextureHandles.size() - MaxGPUTextureSceneTextures());
-			gpuTextureHandles.resize(MaxGPUTextureSceneTextures());
+			textureTableOverflowCount = (uint32_t)(gpuTextureSlots.size() - MaxGPUTextureSceneTextures());
+			gpuTextureSlots.resize(MaxGPUTextureSceneTextures());
 		}
 
-		auto resolveMaterialTexture = [](AssetHandle textureHandle) -> Ref<Texture2D>
+		auto resolveMaterialTexture = [](const GPUTextureSlot& slot) -> Ref<Texture2D>
 			{
+				const AssetHandle textureHandle = slot.Handle;
 				if (!textureHandle || !Project::GetAssetManager() || !AssetManager::IsAssetHandleValid(textureHandle))
 					return Renderer::GetWhiteTexture();
 
@@ -6463,6 +6465,10 @@ namespace Lux {
 				Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(textureHandle);
 				if (!texture || !texture->Loaded())
 					return Renderer::GetWhiteTexture();
+
+				// Colour slots bind the sRGB copy, so the sampler decodes them to linear.
+				if (slot.ColorSpace == TextureColorSpace::SRGB)
+					return MaterialAsset::GetSRGBTexture(textureHandle, texture);
 
 				return texture;
 			};
@@ -6488,9 +6494,9 @@ namespace Lux {
 
 		auto resolveSlot = [&](uint32_t textureIndex)
 		{
-			const AssetHandle textureHandle = textureIndex < gpuTextureHandles.size() ? gpuTextureHandles[textureIndex] : AssetHandle(0);
-			Ref<Texture2D> texture = resolveMaterialTexture(textureHandle);
-			if (textureHandle && texture.Raw() == Renderer::GetWhiteTexture().Raw())
+			const GPUTextureSlot slot = textureIndex < gpuTextureSlots.size() ? gpuTextureSlots[textureIndex] : GPUTextureSlot{};
+			Ref<Texture2D> texture = resolveMaterialTexture(slot);
+			if (slot.Handle && texture.Raw() == Renderer::GetWhiteTexture().Raw())
 			{
 				missingTextureDescriptorCount++;
 				m_PendingTextureResolveSlots.push_back(textureIndex); // still streaming — retry next frame
@@ -6510,10 +6516,10 @@ namespace Lux {
 			// Only the slots in use, plus any a shrunken table left behind (reset to white): the
 			// table is large, and a sweep costs an asset lookup per slot.
 			const uint32_t sweepEnd = glm::min(MaxGPUTextureSceneTextures(),
-				glm::max((uint32_t)gpuTextureHandles.size(), m_ResolvedTextureSlotCount));
+				glm::max((uint32_t)gpuTextureSlots.size(), m_ResolvedTextureSlotCount));
 			for (uint32_t textureIndex = 0; textureIndex < sweepEnd; textureIndex++)
 				resolveSlot(textureIndex);
-			m_ResolvedTextureSlotCount = (uint32_t)gpuTextureHandles.size();
+			m_ResolvedTextureSlotCount = (uint32_t)gpuTextureSlots.size();
 			m_MissingTextureDescriptorCount = missingTextureDescriptorCount;
 		}
 		else
@@ -6527,7 +6533,7 @@ namespace Lux {
 			}
 
 			// Transient slots change every frame; always resolve their region.
-			const uint32_t transientEnd = glm::min((uint32_t)gpuTextureHandles.size(), MaxGPUTextureSceneTextures());
+			const uint32_t transientEnd = glm::min((uint32_t)gpuTextureSlots.size(), MaxGPUTextureSceneTextures());
 			for (uint32_t textureIndex = persistentTextureCount; textureIndex < transientEnd; textureIndex++)
 				resolveSlot(textureIndex);
 			m_ResolvedTextureSlotCount = glm::max(m_ResolvedTextureSlotCount, transientEnd);
@@ -6589,7 +6595,7 @@ namespace Lux {
 				materialData.TextureIndices[textureSlot] = resolveUploadedTextureIndex(materialData.TextureIndices[textureSlot]);
 		}
 		const uint32_t uploadedMaterialCount = persistentMaterialCount + (uint32_t)transientGPUMaterialData.size();
-		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureHandles.size();
+		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureSlots.size();
 
 		auto resolveInstanceData = [this, persistentGPUSceneInstances](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
 			{
@@ -6861,7 +6867,7 @@ namespace Lux {
 			snapshot.TransientMaterialCount = (uint32_t)transientGPUMaterialData.size();
 			snapshot.UploadedMaterialCount = uploadedMaterialCount;
 			snapshot.PersistentTextureCount = persistentTextureCount;
-			snapshot.TransientTextureCount = (uint32_t)m_TransientGPUTextureHandles.size();
+			snapshot.TransientTextureCount = (uint32_t)m_TransientGPUTextureSlots.size();
 			snapshot.UploadedTextureCount = uploadedTextureCount;
 			snapshot.MissingTextureDescriptorCount = missingTextureDescriptorCount;
 			snapshot.TextureTableOverflowCount = textureTableOverflowCount;

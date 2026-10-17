@@ -884,6 +884,15 @@ slots are legal because the owner writes every index it hands out (slot 0 is the
 shaders that include `MaterialScene.glslh` must enable `GL_EXT_nonuniform_qualifier` (they already do)
 for the unsized array.
 
+**Colour maps take sRGB slots.** A slot is a `GPUTextureSlot`, a texture asset plus a
+`TextureColorSpace` (`Renderer/TextureScene.h`). Texture assets load as RGBA8 UNORM. The albedo and
+emissive maps are resolved with `TextureColorSpace::SRGB`, and `SceneRenderer` binds those slots to
+`MaterialAsset::GetSRGBTexture`, the shared sRGB copy that the per-material `u_AlbedoTexture` also
+uses. The sampler decodes them, so shaders never call `ToLinear` on a material texture sample. A
+texture used both as colour and as data takes two slots. Data maps (normal, metalness, roughness,
+occlusion, height) stay `Linear`. Only RGBA8 sources get a copy: float and block-compressed textures
+are bound as they are.
+
 Rows are built by `MaterialScene::BuildGPUMaterialData` from the `MaterialAsset` (its own values and
 `MaterialSurfaceParameters`), never from the shader push-constant block. A new material input must
 default to the value that reproduces today's shading, so an older `.lmat` renders unchanged.

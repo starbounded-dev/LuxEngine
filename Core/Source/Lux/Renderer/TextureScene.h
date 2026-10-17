@@ -15,6 +15,36 @@ namespace Lux {
 	inline constexpr GPUTextureIndex InvalidGPUTextureIndex = std::numeric_limits<GPUTextureIndex>::max();
 	inline constexpr GPUTextureIndex FallbackGPUTextureIndex = 0;
 
+	// Colour textures (albedo, emissive) are bound through their sRGB copy, so the sampler decodes
+	// them to linear and their mips are averaged in linear space. Data textures are bound as stored.
+	enum class TextureColorSpace : uint8_t
+	{
+		Linear = 0,
+		SRGB = 1
+	};
+
+	// One bindless texture slot: the same texture used as colour and as data takes two slots.
+	struct GPUTextureSlot
+	{
+		AssetHandle Handle = 0;
+		TextureColorSpace ColorSpace = TextureColorSpace::Linear;
+
+		bool operator==(const GPUTextureSlot& other) const
+		{
+			return Handle == other.Handle && ColorSpace == other.ColorSpace;
+		}
+	};
+
+	struct GPUTextureSlotHasher
+	{
+		size_t operator()(const GPUTextureSlot& slot) const
+		{
+			size_t seed = std::hash<AssetHandle>{}(slot.Handle);
+			seed ^= std::hash<uint32_t>{}((uint32_t)slot.ColorSpace) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+			return seed;
+		}
+	};
+
 	struct TextureSceneDirtyRange
 	{
 		uint32_t FirstTexture = 0;
@@ -27,11 +57,11 @@ namespace Lux {
 		TextureScene();
 
 		void BeginSync(uint32_t frameIndex);
-		GPUTextureIndex UpsertTexture(AssetHandle textureHandle, bool forceDirty = false);
+		GPUTextureIndex UpsertTexture(AssetHandle textureHandle, TextureColorSpace colorSpace = TextureColorSpace::Linear, bool forceDirty = false);
 		void EndSync();
 		void Clear();
 
-		const std::vector<AssetHandle>& GetTextureHandles() const { return m_TextureHandles; }
+		const std::vector<GPUTextureSlot>& GetTextureSlots() const { return m_TextureSlots; }
 		// Monotonic change counter: bumped whenever the texture table mutates
 		// (MarkTextureDirty / Clear). Lets consumers skip re-copying the table on
 		// frames where nothing changed. Never reset.
@@ -39,7 +69,7 @@ namespace Lux {
 		const std::vector<TextureSceneDirtyRange>& GetDirtyRanges() const { return m_DirtyRanges; }
 		bool HasDirtyTextures() const { return m_DirtyTextureCount > 0; }
 		uint32_t GetDirtyTextureCount() const { return m_DirtyTextureCount; }
-		size_t GetActiveTextureCount() const { return m_TextureIndexByHandle.size(); }
+		size_t GetActiveTextureCount() const { return m_TextureIndexBySlot.size(); }
 
 	private:
 		void EnsureFallbackTexture();
@@ -50,10 +80,10 @@ namespace Lux {
 		uint32_t m_DirtyTextureCount = 0;
 		uint64_t m_Version = 0;
 
-		std::vector<AssetHandle> m_TextureHandles;
+		std::vector<GPUTextureSlot> m_TextureSlots;
 		std::vector<uint32_t> m_LastTouchedFrames;
 		std::vector<GPUTextureIndex> m_FreeTextureIndices;
-		std::unordered_map<AssetHandle, GPUTextureIndex> m_TextureIndexByHandle;
+		std::unordered_map<GPUTextureSlot, GPUTextureIndex, GPUTextureSlotHasher> m_TextureIndexBySlot;
 
 		std::vector<GPUTextureIndex> m_DirtyTextureIndices;
 		std::vector<TextureSceneDirtyRange> m_DirtyRanges;

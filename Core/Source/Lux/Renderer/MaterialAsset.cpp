@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <mutex>
 #include <unordered_map>
 
 namespace Lux {
@@ -34,7 +35,10 @@ namespace Lux {
 		Ref<Texture2D> Texture;
 	};
 
-	static std::unordered_map<AssetHandle, SRGBTextureCacheEntry> s_SRGBAlbedoTextureCache;
+	// Keyed by texture asset. Material assets fill it and SceneRenderer reads it for the bindless
+	// colour slots, from whichever threads load assets and build frames.
+	static std::unordered_map<AssetHandle, SRGBTextureCacheEntry> s_SRGBTextureCache;
+	static std::mutex s_SRGBTextureCacheMutex;
 
 	enum MaterialDebugFlags : uint32_t
 	{
@@ -46,18 +50,20 @@ namespace Lux {
 		MaterialDebug_RoughnessMap = BIT(5)
 	};
 
-	static Ref<Texture2D> GetAlbedoTextureForMaterial(AssetHandle handle, const Ref<Texture2D>& texture)
+	Ref<Texture2D> MaterialAsset::GetSRGBTexture(AssetHandle textureHandle, const Ref<Texture2D>& texture)
 	{
 		if (!texture)
 			return nullptr;
 
-		const ImageFormat format = texture->GetFormat();
-		if (format == ImageFormat::SRGBA || format == ImageFormat::SRGB)
+		// Only 8-bit RGBA holds sRGB-encoded bytes that can be reinterpreted. sRGB textures need no copy,
+		// float textures are already linear, and block-compressed ones keep their authored format.
+		if (texture->GetFormat() != ImageFormat::RGBA)
 			return texture;
 
 #ifndef LUX_HEADLESS
 		const uint64_t sourceHash = texture->GetHash();
-		auto& cacheEntry = s_SRGBAlbedoTextureCache[handle];
+		std::scoped_lock lock(s_SRGBTextureCacheMutex);
+		auto& cacheEntry = s_SRGBTextureCache[textureHandle];
 		if (!cacheEntry.Texture || cacheEntry.SourceHash != sourceHash || cacheEntry.Texture->GetSize() != texture->GetSize() || cacheEntry.Texture->GetMipLevelCount() != texture->GetMipLevelCount())
 		{
 			cacheEntry.SourceHash = sourceHash;
@@ -72,7 +78,8 @@ namespace Lux {
 
 	void MaterialAsset::ReleaseSharedResources()
 	{
-		s_SRGBAlbedoTextureCache.clear();
+		std::scoped_lock lock(s_SRGBTextureCacheMutex);
+		s_SRGBTextureCache.clear();
 	}
 
 	MaterialAsset::MaterialAsset(bool transparent)
@@ -206,11 +213,12 @@ namespace Lux {
 			{
 				// Skip building the sRGB copy for a shader that has no albedo slot to put it in.
 				if (m_Material->FindResourceDeclaration(s_AlbedoMapUniform))
-					WriteTexture(s_AlbedoMapUniform, GetAlbedoTextureForMaterial(handle, texture));
+					WriteTexture(s_AlbedoMapUniform, GetSRGBTexture(handle, texture));
 			}
 			else
 			{
-				s_SRGBAlbedoTextureCache.erase(handle);
+				std::scoped_lock lock(s_SRGBTextureCacheMutex);
+				s_SRGBTextureCache.erase(handle);
 				ClearAlbedoMap();
 			}
 		}

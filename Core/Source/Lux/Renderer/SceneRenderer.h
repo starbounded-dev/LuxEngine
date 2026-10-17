@@ -1042,7 +1042,7 @@ namespace Lux {
 		MeshPassState& GetMeshPass(MeshPassType passType);
 		const MeshPassState& GetMeshPass(MeshPassType passType) const;
 		RenderMaterialID GetOrCreateTransientRenderMaterialID(AssetHandle materialHandle, const Ref<MaterialAsset>& materialAsset, const Ref<Material>& overrideMaterial, bool transparent);
-		GPUTextureIndex ResolveTransientGPUTextureIndex(AssetHandle textureHandle);
+		GPUTextureIndex ResolveTransientGPUTextureIndex(AssetHandle textureHandle, TextureColorSpace colorSpace);
 		StaticDrawCommand& SubmitMeshPassDraw(MeshPassType passType,
 			const MeshKey& key,
 			Ref<StaticMesh> staticMesh,
@@ -1643,8 +1643,8 @@ namespace Lux {
 		std::vector<GPUSceneInstanceData>    m_TransientGPUSceneInstances;
 		std::vector<GPUMaterialData>         m_TransientGPUMaterials;
 		std::unordered_map<uint64_t, uint32_t> m_TransientGPUMaterialIndexByKey;
-		std::vector<AssetHandle> m_TransientGPUTextureHandles;
-		std::unordered_map<AssetHandle, GPUTextureIndex> m_TransientGPUTextureIndexByHandle;
+		std::vector<GPUTextureSlot> m_TransientGPUTextureSlots;
+		std::unordered_map<GPUTextureSlot, GPUTextureIndex, GPUTextureSlotHasher> m_TransientGPUTextureIndexBySlot;
 		GPUTextureIndex m_NextTransientGPUTextureIndex = 0;
 
 		// Per-frame scratch buffers reused across frames (cleared, capacity retained)
@@ -1653,7 +1653,7 @@ namespace Lux {
 		std::vector<uint32_t>                          m_ScratchVisibleObjectIndexData;
 		std::vector<MeshCullDrawData>                  m_ScratchMeshCullDrawData;
 		std::vector<DrawIndexedIndirectCommand> m_ScratchIndirectDrawData;
-		std::vector<AssetHandle>                       m_ScratchTextureHandles;
+		std::vector<GPUTextureSlot>                    m_ScratchTextureSlots;
 		std::vector<GPUMaterialData>                   m_ScratchMaterialData;
 		std::vector<GPUMaterialData>                   m_ScratchTransientMaterialData;
 

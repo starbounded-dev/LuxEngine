@@ -317,6 +317,8 @@ Structurally:
   `BindlessTextureTable` (one table per frame in flight, up to 16384 slots) that every material pass
   reads at the reserved descriptor set 4; a texture change is one slot write, not one `SetInput` per
   pass. Ownership, threading and the reserved-set rule are in `Rendering.md § Bindless textures`.
+  Slots are keyed by texture and colour space (`GPUTextureSlot`): `MaterialScene` resolves albedo and
+  emissive maps as sRGB, and `SceneRenderer` binds those to `MaterialAsset::GetSRGBTexture`.
 - **Cutout materials are alpha-tested in pre-depth as well as the G-buffer.** `MaterialAlphaMode::Cutout`
   becomes `GPUMaterialAlphaMode::Masked` in the material row, with the authored threshold in
   `Surface.z`. `PreDepth.glsl` therefore reads the material table, and `m_PreDepthPass` binds

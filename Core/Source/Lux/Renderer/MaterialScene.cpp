@@ -105,7 +105,7 @@ namespace Lux {
 		EnsureFallbackMaterial();
 	}
 
-	void MaterialScene::SetTextureResolver(std::function<GPUTextureIndex(AssetHandle)> textureResolver)
+	void MaterialScene::SetTextureResolver(GPUTextureResolver textureResolver)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_TextureResolver = std::move(textureResolver);
@@ -124,7 +124,7 @@ namespace Lux {
 
 	GPUMaterialData MaterialScene::BuildGPUMaterialData(
 		const GPUMaterialBuildInput& input,
-		const std::function<GPUTextureIndex(AssetHandle)>& resolveTextureIndex)
+		const GPUTextureResolver& resolveTextureIndex)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		GPUMaterialData data = GetFallbackMaterialData();
@@ -175,7 +175,8 @@ namespace Lux {
 		if (twoSided)
 			flags |= GPUMaterialFlags::TwoSided;
 
-		auto assignTexture = [&](AssetHandle textureHandle, GPUMaterialFlags presentFlag, uint32_t& textureSlot)
+		auto assignTexture = [&](AssetHandle textureHandle, GPUMaterialFlags presentFlag, uint32_t& textureSlot,
+			TextureColorSpace colorSpace = TextureColorSpace::Linear)
 			{
 				if (!textureHandle)
 					return;
@@ -187,7 +188,7 @@ namespace Lux {
 				}
 
 				flags |= presentFlag;
-				textureSlot = resolveTextureIndex ? resolveTextureIndex(textureHandle) : InvalidGPUTextureIndex;
+				textureSlot = resolveTextureIndex ? resolveTextureIndex(textureHandle, colorSpace) : InvalidGPUTextureIndex;
 			};
 
 		// Without an asset (a bare override material) emission keeps tinting by the base colour.
@@ -195,7 +196,7 @@ namespace Lux {
 
 		if (materialAsset)
 		{
-			assignTexture(materialAsset->GetAlbedoMapHandle(), GPUMaterialFlags::HasAlbedoTexture, data.TextureIndices.x);
+			assignTexture(materialAsset->GetAlbedoMapHandle(), GPUMaterialFlags::HasAlbedoTexture, data.TextureIndices.x, TextureColorSpace::SRGB);
 
 			const bool useNormalMap = (fromAsset ? materialAsset->IsUsingNormalMap() : ReadMaterialBool(material, s_UseNormalMapUniform, false))
 				&& materialAsset->GetNormalMapHandle();
@@ -224,7 +225,7 @@ namespace Lux {
 				-sinRotation * surface.UVTiling.y, cosRotation * surface.UVTiling.y);
 			data.UVOffset = glm::vec4(surface.UVOffset, 0.0f, 0.0f);
 
-			assignTexture(surface.EmissiveMap, GPUMaterialFlags::HasEmissiveTexture, data.ExtraTextureIndices.x);
+			assignTexture(surface.EmissiveMap, GPUMaterialFlags::HasEmissiveTexture, data.ExtraTextureIndices.x, TextureColorSpace::SRGB);
 			assignTexture(surface.OcclusionMap, GPUMaterialFlags::HasOcclusionTexture, data.ExtraTextureIndices.y);
 			assignTexture(surface.HeightMap, GPUMaterialFlags::HasHeightTexture, data.ExtraTextureIndices.z);
 			data.ExtraTextureIndices.w =
@@ -285,7 +286,7 @@ namespace Lux {
 		if (Project::GetAssetManager())
 			input.MaterialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
 
-		GPUMaterialData data = BuildGPUMaterialData(input, [this](AssetHandle textureHandle) { return ResolveTextureIndex(textureHandle); });
+		GPUMaterialData data = BuildGPUMaterialData(input, [this](AssetHandle textureHandle, TextureColorSpace colorSpace) { return ResolveTextureIndex(textureHandle, colorSpace); });
 		return UpsertMaterial(key, data, forceDirty);
 	}
 
@@ -298,7 +299,7 @@ namespace Lux {
 		GPUMaterialBuildInput input;
 		input.OverrideMaterial = material;
 		input.Transparent = transparent;
-		GPUMaterialData data = BuildGPUMaterialData(input, [this](AssetHandle textureHandle) { return ResolveTextureIndex(textureHandle); });
+		GPUMaterialData data = BuildGPUMaterialData(input, [this](AssetHandle textureHandle, TextureColorSpace colorSpace) { return ResolveTextureIndex(textureHandle, colorSpace); });
 		return UpsertMaterial({ overrideKey, MaterialKeyType::Override }, data, forceDirty);
 	}
 
@@ -347,15 +348,15 @@ namespace Lux {
 		return materialID;
 	}
 
-	GPUTextureIndex MaterialScene::ResolveTextureIndex(AssetHandle textureHandle)
+	GPUTextureIndex MaterialScene::ResolveTextureIndex(AssetHandle textureHandle, TextureColorSpace colorSpace)
 	{
 		if (!textureHandle)
 			return InvalidGPUTextureIndex;
 
 		if (m_TextureResolver)
-			return m_TextureResolver(textureHandle);
+			return m_TextureResolver(textureHandle, colorSpace);
 
-		auto [it, inserted] = m_TextureIndexByHandle.try_emplace(textureHandle, InvalidGPUTextureIndex);
+		auto [it, inserted] = m_TextureIndexBySlot.try_emplace(GPUTextureSlot{ textureHandle, colorSpace }, InvalidGPUTextureIndex);
 		if (inserted || it->second == InvalidGPUTextureIndex)
 			it->second = m_NextTextureIndex++;
 
@@ -426,7 +427,7 @@ namespace Lux {
 		m_LastTouchedFrames.clear();
 		m_FreeMaterialIDs.clear();
 		m_MaterialIDByKey.clear();
-		m_TextureIndexByHandle.clear();
+		m_TextureIndexBySlot.clear();
 		m_TextureResolver = {};
 		m_DirtyMaterialIDs.clear();
 		m_DirtyRanges.clear();

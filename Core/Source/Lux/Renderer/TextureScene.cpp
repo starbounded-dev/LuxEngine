@@ -32,10 +32,10 @@ namespace Lux {
 	void TextureScene::EnsureFallbackTexture()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_TextureHandles.empty())
+		if (!m_TextureSlots.empty())
 			return;
 
-		m_TextureHandles.push_back(AssetHandle(0));
+		m_TextureSlots.emplace_back();
 		m_LastTouchedFrames.push_back(m_FrameIndex);
 	}
 
@@ -50,16 +50,17 @@ namespace Lux {
 		m_LastTouchedFrames[FallbackGPUTextureIndex] = m_FrameIndex;
 	}
 
-	GPUTextureIndex TextureScene::UpsertTexture(AssetHandle textureHandle, bool forceDirty)
+	GPUTextureIndex TextureScene::UpsertTexture(AssetHandle textureHandle, TextureColorSpace colorSpace, bool forceDirty)
 	{
 		if (!IsTextureHandleValid(textureHandle))
 			return InvalidGPUTextureIndex;
 
-		auto idIt = m_TextureIndexByHandle.find(textureHandle);
+		const GPUTextureSlot slot{ textureHandle, colorSpace };
+		auto idIt = m_TextureIndexBySlot.find(slot);
 		GPUTextureIndex textureIndex = InvalidGPUTextureIndex;
 		bool created = false;
 
-		if (idIt == m_TextureIndexByHandle.end())
+		if (idIt == m_TextureIndexBySlot.end())
 		{
 			created = true;
 			if (!m_FreeTextureIndices.empty())
@@ -69,13 +70,13 @@ namespace Lux {
 			}
 			else
 			{
-				textureIndex = (GPUTextureIndex)m_TextureHandles.size();
-				m_TextureHandles.emplace_back();
+				textureIndex = (GPUTextureIndex)m_TextureSlots.size();
+				m_TextureSlots.emplace_back();
 				m_LastTouchedFrames.emplace_back(0);
 			}
 
-			m_TextureIndexByHandle[textureHandle] = textureIndex;
-			m_TextureHandles[textureIndex] = textureHandle;
+			m_TextureIndexBySlot[slot] = textureIndex;
+			m_TextureSlots[textureIndex] = slot;
 		}
 		else
 		{
@@ -93,17 +94,17 @@ namespace Lux {
 	void TextureScene::EndSync()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		for (GPUTextureIndex textureIndex = 1; textureIndex < m_TextureHandles.size(); textureIndex++)
+		for (GPUTextureIndex textureIndex = 1; textureIndex < m_TextureSlots.size(); textureIndex++)
 		{
 			if (m_LastTouchedFrames[textureIndex] == m_FrameIndex)
 				continue;
 
-			const AssetHandle textureHandle = m_TextureHandles[textureIndex];
-			if (!textureHandle)
+			const GPUTextureSlot slot = m_TextureSlots[textureIndex];
+			if (!slot.Handle)
 				continue;
 
-			m_TextureIndexByHandle.erase(textureHandle);
-			m_TextureHandles[textureIndex] = AssetHandle(0);
+			m_TextureIndexBySlot.erase(slot);
+			m_TextureSlots[textureIndex] = {};
 			m_LastTouchedFrames[textureIndex] = 0;
 			m_FreeTextureIndices.push_back(textureIndex);
 			MarkTextureDirty(textureIndex);
@@ -146,10 +147,10 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex = 0;
 		m_DirtyTextureCount = 0;
-		m_TextureHandles.clear();
+		m_TextureSlots.clear();
 		m_LastTouchedFrames.clear();
 		m_FreeTextureIndices.clear();
-		m_TextureIndexByHandle.clear();
+		m_TextureIndexBySlot.clear();
 		m_DirtyTextureIndices.clear();
 		m_DirtyRanges.clear();
 		m_Version++;
@@ -159,7 +160,7 @@ namespace Lux {
 	void TextureScene::MarkTextureDirty(GPUTextureIndex textureIndex)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (textureIndex >= m_TextureHandles.size())
+		if (textureIndex >= m_TextureSlots.size())
 			return;
 
 		m_DirtyTextureIndices.push_back(textureIndex);

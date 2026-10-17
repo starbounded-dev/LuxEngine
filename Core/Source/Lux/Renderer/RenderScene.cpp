@@ -115,7 +115,7 @@ namespace Lux {
 		m_FrameStaticMeshProxyOrder.clear();
 		m_GPUScene.BeginSync(m_FrameIndex);
 		m_TextureScene.BeginSync(m_FrameIndex);
-		m_MaterialScene.SetTextureResolver([this](AssetHandle textureHandle) { return m_TextureScene.UpsertTexture(textureHandle); });
+		m_MaterialScene.SetTextureResolver([this](AssetHandle textureHandle, TextureColorSpace colorSpace) { return m_TextureScene.UpsertTexture(textureHandle, colorSpace); });
 		m_MaterialScene.BeginSync(m_FrameIndex);
 	}
 

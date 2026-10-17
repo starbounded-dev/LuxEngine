@@ -126,7 +126,12 @@ namespace Lux {
 		void SetShadowCasting(bool castsShadows) { return m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
 		void UpdateMaterialComplexityMetadata();
 
-		// Drops the shared sRGB albedo-view cache. Must run before the graphics device is destroyed:
+		// The shared sRGB copy of a colour texture (albedo, emissive): the same bytes read as sRGB, with
+		// a mip chain averaged in linear space. Built on first use and rebuilt when the source changes.
+		// Returns the texture itself when it already is sRGB. Any thread.
+		static Ref<Texture2D> GetSRGBTexture(AssetHandle textureHandle, const Ref<Texture2D>& texture);
+
+		// Drops the shared sRGB texture cache. Must run before the graphics device is destroyed:
 		// the cache is a file-scope static, so without this its textures are freed by the CRT at exit.
 		static void ReleaseSharedResources();
 
