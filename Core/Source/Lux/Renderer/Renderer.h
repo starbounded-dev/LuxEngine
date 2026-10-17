@@ -282,7 +282,7 @@ namespace Lux {
 
 		// Returns a process-wide cached compute pipeline for the given shader,
 		// creating it on first use. Used by Texture GenerateMips so the
-		// LinearSample / LinearSampleUInt mip generator is built once instead of
+		// LinearSample / LinearSampleUInt / LinearSampleSRGB mip generator is built once instead of
 		// once per texture (was hundreds of redundant pipeline builds at load).
 		static Ref<PipelineCompute> GetOrCreateMipGenPipeline(Ref<Shader> shader);
 

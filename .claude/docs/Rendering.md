@@ -329,6 +329,13 @@ neighbouring pixels differ (silhouettes, normal-mapped detail) and bands there. 
 `SampleLinearLOD(lut, uv, 0.0)`, and `GenerateMips = false` on the texture. Any new LUT (LTC area
 lights, for example) follows the same rule.
 
+**sRGB colour mips are averaged in linear space.** `Texture2D::GenerateMips` on an `SRGBA` texture
+(sRGB images cannot be storage images) copies mip 0 into an RGBA8 scratch image, builds the chain
+with `LinearSampleSRGB.glsl` (decode, 2x2 average, encode), and copies it back.
+`Texture2D::CreateFromSRGB` copies only mip 0 and regenerates this way, because the RGBA source's
+chain was averaged on the encoded bytes, which darkens it. Mip sizes are `max(size >> mip, 1)` and
+dispatches round up. A truncated `size / 8` leaves the edge texels of odd-sized levels unwritten.
+
 **When a shader stops working after an edit, suspect the cache first.** Delete
 `Resources/Cache/Shader/` and relaunch before debugging the shader itself. A stale registry entry
 looks exactly like a broken shader.

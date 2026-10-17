@@ -64,7 +64,7 @@ namespace std {
 namespace Lux {
 
 	// Cache of compute pipelines keyed by shader hash, shared across the whole
-	// process. Currently only the mip generator (LinearSample / LinearSampleUInt)
+	// process. Currently only the mip generator (LinearSample / LinearSampleUInt / LinearSampleSRGB)
 	// uses it; before, GenerateMips built a fresh pipeline per texture.
 	static std::unordered_map<size_t, Ref<PipelineCompute>> s_MipGenPipelineCache;
 	static std::mutex s_MipGenPipelineCacheMutex;
@@ -445,6 +445,7 @@ namespace Lux {
 		// NOTE: some shaders (compute) need to have optimization disabled because of a shaderc internal error
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSample.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSampleUInt.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSampleSRGB.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ImGui.hlsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HZB.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Static.glsl");

@@ -45,6 +45,74 @@ namespace Lux {
 			return result;
 		}
 
+		// Records a compute downsample of every mip of image after the first, each level read from the
+		// one above. Level sizes match the GPU's: each side halves, rounding down, and never below 1.
+		static void RecordMipDownsample(Ref<RenderCommandBuffer> commandBuffer, Ref<Image2D> image, Ref<Shader> shader)
+		{
+			ComputePassSpecification spec;
+			spec.DebugName = "LinearSample";
+			spec.Pipeline = Renderer::GetOrCreateMipGenPipeline(shader); // cached: built once, not per texture
+			Ref<ComputePass> computePass = ComputePass::Create(spec);
+
+			Renderer::Submit([commandBuffer, image]() mutable
+				{
+					commandBuffer->RT_TransitionTextureState(image->GetImageInfo().Tracked, AllSubresources, ResourceState::UnorderedAccess);
+					commandBuffer->RT_CommitBarriers();
+				});
+
+			Renderer::BeginComputePass(commandBuffer, computePass);
+
+			struct PushConstants
+			{
+				glm::vec2 TexelSize;
+				int SourceMip;
+			} pushConstants;
+
+			ImageViewSpecification srcImageViewSpec;
+			srcImageViewSpec.Image = image;
+			srcImageViewSpec.MipCount = 1;
+
+			ImageViewSpecification dstImageViewSpec = srcImageViewSpec;
+
+			const ImageSpecification& imageSpec = image->GetSpecification();
+			for (uint32_t mip = 1; mip < imageSpec.Mips; mip++)
+			{
+				const uint32_t mipWidth = glm::max(imageSpec.Width >> mip, 1u);
+				const uint32_t mipHeight = glm::max(imageSpec.Height >> mip, 1u);
+
+				dstImageViewSpec.Mip = mip;
+				srcImageViewSpec.Mip = mip - 1;
+
+				Ref<ImageView> srcImageView = ImageView::Create(srcImageViewSpec);
+				Ref<ImageView> dstImageView = ImageView::Create(dstImageViewSpec);
+
+				Ref<Material> material = Material::Create(shader);
+
+				material->Set("u_InputTexture", srcImageView);
+				material->Set("o_OutputTexture", dstImageView);
+
+				pushConstants.TexelSize = { 1.0f / static_cast<float>(mipWidth), 1.0f / static_cast<float>(mipHeight) };
+				pushConstants.SourceMip = mip - 1;
+
+				// Rounded up: a truncated count leaves the last columns and rows of odd-sized levels unwritten.
+				const glm::uvec3 workGroups{ (mipWidth + 7) / 8, (mipHeight + 7) / 8, 1 };
+				Renderer::DispatchCompute(commandBuffer, computePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+
+				Renderer::Submit([commandBuffer]() mutable
+					{
+						commandBuffer->RT_CommitBarriers();
+					});
+			}
+
+			Renderer::EndComputePass(commandBuffer, computePass);
+
+			Renderer::Submit([commandBuffer, image]() mutable
+				{
+					commandBuffer->RT_TransitionTextureState(image->GetImageInfo().Tracked, AllSubresources, ResourceState::ShaderResource);
+					commandBuffer->RT_CommitBarriers();
+				});
+		}
+
 	}
 
 	//////////////////////////////////////////////////////////////////////////////////
@@ -76,27 +144,26 @@ namespace Lux {
 	Ref<Texture2D> Texture2D::CreateFromSRGB(Ref<Texture2D> texture)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		// The source texture should already have mipmaps generated (it's RGBA, which supports compute-based mip generation)
-		// We copy all mip levels from the source and disable mip generation on the SRGBA texture
-		// because SRGB formats cannot be used as storage images in compute shaders
-
-		uint32_t mipCount = texture->GetMipLevelCount();
+		// The same bytes, read as sRGB. Only mip 0 is copied: the source's chain was averaged on the
+		// encoded bytes, which darkens it, so the sRGB texture builds its own in linear space.
+		const uint32_t mipCount = texture->GetImage()->GetSpecification().Mips;
 
 		TextureSpecification spec;
 		spec.Width = texture->GetWidth();
 		spec.Height = texture->GetHeight();
 		spec.Format = ImageFormat::SRGBA;
-		spec.GenerateMips = false; // SRGBA cannot be used as storage image for compute-based mip generation
+		spec.GenerateMips = false; // the chain is generated below, once the image holds mip 0
 		spec.SamplerWrap = texture->m_Specification.SamplerWrap;
 		spec.SamplerFilter = texture->m_Specification.SamplerFilter;
 		spec.MaxAnisotropy = texture->m_Specification.MaxAnisotropy;
+		spec.DebugName = texture->m_Specification.DebugName + " (sRGB)";
 
-		// Create the SRGBA image with all mip levels pre-allocated (matching source texture)
 		ImageSpecification imageSpec;
+		imageSpec.DebugName = spec.DebugName;
 		imageSpec.Format = ImageFormat::SRGBA;
 		imageSpec.Width = spec.Width;
 		imageSpec.Height = spec.Height;
-		imageSpec.Mips = mipCount; // Allocate all mip levels
+		imageSpec.Mips = mipCount;
 		imageSpec.Transfer = true;
 
 		Ref<Image2D> srgbImage = Image2D::Create(imageSpec);
@@ -105,30 +172,37 @@ namespace Lux {
 		Ref<Texture2D> srgbTexture = Ref<Texture2D>::Create(spec);
 		srgbTexture->m_Image = srgbImage;
 
-		Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, "CreateFromSRGB-CopyMips");
+		Ref<RenderCommandBuffer> commandBuffer = RenderCommandBuffer::Create(1, "CreateFromSRGB-CopyMip0");
 		commandBuffer->Begin();
 
-		Renderer::Submit([srgbImage, texture, mipCount, commandBuffer]() mutable
+		Renderer::Submit([srgbImage, texture, commandBuffer]() mutable
 			{
-				// Every mip, in one copy: both images have the same size, mips and one layer.
 				const ImageInfo& source = texture->GetImage()->GetImageInfo();
 				const ImageInfo& destination = srgbImage->GetImageInfo();
 				if (!source.RHITexture || !destination.RHITexture)
 					return;
 
-				const TextureSubresourceRange mips{ 0, mipCount, 0, 1 };
-				commandBuffer->RT_RequireTextureState(source.Tracked, mips, ResourceState::CopySource);
-				commandBuffer->RT_RequireTextureState(destination.Tracked, mips, ResourceState::CopyDest);
+				const TextureSubresourceRange topMip{ 0, 1, 0, 1 };
+				commandBuffer->RT_RequireTextureState(source.Tracked, topMip, ResourceState::CopySource);
+				commandBuffer->RT_RequireTextureState(destination.Tracked, topMip, ResourceState::CopyDest);
 				nri::CommandBuffer* nriCommandBuffer = commandBuffer->RT_BeginNRITransfer();
 				if (!nriCommandBuffer)
 					return;
 
-				RHIDevice::API().CmdCopyTexture(*nriCommandBuffer, *destination.RHITexture, nullptr, *source.RHITexture, nullptr);
+				nri::TextureRegionDesc region = {};
+				region.width = static_cast<nri::Dim_t>(srgbImage->GetSpecification().Width);
+				region.height = static_cast<nri::Dim_t>(srgbImage->GetSpecification().Height);
+				region.depth = 1;
+				region.planes = nri::PlaneBits::ALL;
+				RHIDevice::API().CmdCopyTexture(*nriCommandBuffer, *destination.RHITexture, &region, *source.RHITexture, &region);
 				commandBuffer->RT_EndNRISegment();
 			});
 
 		commandBuffer->End();
 		commandBuffer->Submit();
+
+		if (mipCount > 1)
+			srgbTexture->GenerateMips();
 
 		return srgbTexture;
 	}
@@ -310,12 +384,8 @@ namespace Lux {
 
 		if (m_ImageData)
 		{
-			SetData(m_ImageData);
+			SetData(m_ImageData); // also generates the mip chain
 		}
-
-
-		if (m_ImageData && m_Specification.GenerateMips && mipCount > 1)
-			GenerateMips();
 
 		// TODO(Yan): option for local storage
 		m_ImageData.Release();
@@ -385,12 +455,9 @@ namespace Lux {
 	void Texture2D::GenerateMips()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		// SRGB/SRGBA formats cannot be used as storage images in compute shaders
-		// Skip compute-based mip generation for these formats
-		if (m_Specification.Format == ImageFormat::SRGB || m_Specification.Format == ImageFormat::SRGBA)
+		if (m_Specification.Format == ImageFormat::SRGB)
 		{
-			LUX_CORE_WARN("Texture2D::GenerateMips - Skipping compute-based mip generation for SRGB/SRGBA format texture '{}'. "
-				"SRGB formats do not support storage image operations required for compute shaders.", m_Specification.DebugName);
+			LUX_CORE_WARN("Texture2D::GenerateMips - Skipping mip generation for 3-channel SRGB texture '{}'. Use SRGBA.", m_Specification.DebugName);
 			return;
 		}
 		if (Utils::IsBlockCompressed(m_Specification.Format))
@@ -400,84 +467,78 @@ namespace Lux {
 			return;
 		}
 
+		LUX_CORE_WARN("{}: Generating mips for format {}", m_Specification.DebugName, Utils::ImageFormatToString(m_Specification.Format));
+
 		Ref<RenderCommandBuffer> renderCommandBuffer = RenderCommandBuffer::Create(1, std::format("Texture2D::GenerateMips - {}", m_Specification.DebugName));
-
-		Ref<Shader> shader = Renderer::GetShaderLibrary()->Get(Utils::IsIntegerBased(m_Specification.Format) ? "LinearSampleUInt" : "LinearSample");
-
-		ComputePassSpecification spec;
-		spec.DebugName = "LinearSample";
-		spec.Pipeline = Renderer::GetOrCreateMipGenPipeline(shader); // cached: built once, not per texture
-		Ref<ComputePass> computePass = ComputePass::Create(spec);
-
 		renderCommandBuffer->Begin();
 
-		Ref<Texture2D> instance = this;
-		Renderer::Submit([renderCommandBuffer, instance]() mutable
-			{
-				LUX_CORE_WARN("{}: Generating mips for format {}", instance->m_Specification.DebugName, Utils::ImageFormatToString(instance->m_Specification.Format));
-
-				renderCommandBuffer->RT_TransitionTextureState(instance->m_Image->GetImageInfo().Tracked, AllSubresources, ResourceState::UnorderedAccess);
-				renderCommandBuffer->RT_CommitBarriers();
-			});
-
-		Renderer::BeginComputePass(renderCommandBuffer, computePass);
-
-		struct PushConstants
+		if (m_Specification.Format != ImageFormat::SRGBA)
 		{
-			glm::vec2 TexelSize;
-			int SourceMip;
-		} pushConstants;
-
-		ImageViewSpecification srcImageViewSpec;
-		srcImageViewSpec.Image = m_Image;
-		srcImageViewSpec.MipCount = 1;
-
-		ImageViewSpecification dstImageViewSpec = srcImageViewSpec;
-
-		float targetMipWidth = static_cast<float>(m_Specification.Width);
-		float targetMipHeight = static_cast<float>(m_Specification.Height);
-
-		const auto mipLevels = GetMipLevelCount();
-		for (uint32_t mip = 1; mip < mipLevels; mip++)
+			Ref<Shader> shader = Renderer::GetShaderLibrary()->Get(Utils::IsIntegerBased(m_Specification.Format) ? "LinearSampleUInt" : "LinearSample");
+			Utils::RecordMipDownsample(renderCommandBuffer, m_Image, shader);
+		}
+		else
 		{
-			targetMipWidth /= 2;
-			targetMipHeight /= 2;
+			// sRGB images cannot be storage images, so the chain is built in an RGBA copy of mip 0, with a
+			// downsample that averages in linear space, and then copied back.
+			const ImageSpecification& imageSpec = m_Image->GetSpecification();
+			ImageSpecification scratchSpec;
+			scratchSpec.DebugName = m_Specification.DebugName + " (sRGB mip chain)";
+			scratchSpec.Format = ImageFormat::RGBA;
+			scratchSpec.Width = imageSpec.Width;
+			scratchSpec.Height = imageSpec.Height;
+			scratchSpec.Mips = imageSpec.Mips;
+			scratchSpec.Transfer = true;
+			Ref<Image2D> scratch = Image2D::Create(scratchSpec);
+			scratch->Invalidate();
 
-			dstImageViewSpec.Mip = mip;
-			srcImageViewSpec.Mip = mip - 1;
-
-			Ref<ImageView> srcImageView = ImageView::Create(srcImageViewSpec);
-			Ref<ImageView> dstImageView = ImageView::Create(dstImageViewSpec);
-
-			Ref<Material> material = Material::Create(shader);
-
-			material->Set("u_InputTexture", srcImageView);
-			material->Set("o_OutputTexture", dstImageView);
-
-			pushConstants.TexelSize = { 1.0f / targetMipWidth , 1.0f / targetMipHeight };
-			pushConstants.SourceMip = mip - 1;
-
-			glm::uvec3 workGroups{ targetMipWidth / 8, targetMipHeight / 8, 1 };
-			workGroups = glm::max(workGroups, { 1 });
-			Renderer::DispatchCompute(renderCommandBuffer, computePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-
-			Renderer::Submit([renderCommandBuffer, instance]() mutable
+			Ref<Image2D> image = m_Image;
+			Renderer::Submit([renderCommandBuffer, image, scratch]() mutable
 				{
-					renderCommandBuffer->RT_CommitBarriers();
+					const ImageInfo& source = image->GetImageInfo();
+					const ImageInfo& destination = scratch->GetImageInfo();
+					if (!source.RHITexture || !destination.RHITexture)
+						return;
+
+					const TextureSubresourceRange topMip{ 0, 1, 0, 1 };
+					renderCommandBuffer->RT_RequireTextureState(source.Tracked, topMip, ResourceState::CopySource);
+					renderCommandBuffer->RT_RequireTextureState(destination.Tracked, topMip, ResourceState::CopyDest);
+					nri::CommandBuffer* nriCommandBuffer = renderCommandBuffer->RT_BeginNRITransfer();
+					if (!nriCommandBuffer)
+						return;
+
+					nri::TextureRegionDesc region = {};
+					region.width = static_cast<nri::Dim_t>(image->GetSpecification().Width);
+					region.height = static_cast<nri::Dim_t>(image->GetSpecification().Height);
+					region.depth = 1;
+					region.planes = nri::PlaneBits::ALL;
+					RHIDevice::API().CmdCopyTexture(*nriCommandBuffer, *destination.RHITexture, &region, *source.RHITexture, &region);
+					renderCommandBuffer->RT_EndNRISegment();
+				});
+
+			Utils::RecordMipDownsample(renderCommandBuffer, scratch, Renderer::GetShaderLibrary()->Get("LinearSampleSRGB"));
+
+			Renderer::Submit([renderCommandBuffer, image, scratch]() mutable
+				{
+					const ImageInfo& source = scratch->GetImageInfo();
+					const ImageInfo& destination = image->GetImageInfo();
+					if (!source.RHITexture || !destination.RHITexture)
+						return;
+
+					// Every mip, in one copy: mip 0 is the same in both, the rest are the new chain.
+					renderCommandBuffer->RT_RequireTextureState(source.Tracked, AllSubresources, ResourceState::CopySource);
+					renderCommandBuffer->RT_RequireTextureState(destination.Tracked, AllSubresources, ResourceState::CopyDest);
+					nri::CommandBuffer* nriCommandBuffer = renderCommandBuffer->RT_BeginNRITransfer();
+					if (!nriCommandBuffer)
+						return;
+
+					RHIDevice::API().CmdCopyTexture(*nriCommandBuffer, *destination.RHITexture, nullptr, *source.RHITexture, nullptr);
+					renderCommandBuffer->RT_EndNRISegment();
 				});
 		}
 
-		Renderer::EndComputePass(renderCommandBuffer, computePass);
-
-		Renderer::Submit([renderCommandBuffer, instance]() mutable
-			{
-				renderCommandBuffer->RT_TransitionTextureState(instance->m_Image->GetImageInfo().Tracked, AllSubresources, ResourceState::ShaderResource);
-				renderCommandBuffer->RT_CommitBarriers();
-			});
-
 		renderCommandBuffer->End();
 		renderCommandBuffer->Submit();
-
 	}
 
 	void Texture2D::CopyToHostBuffer(Buffer& buffer)
@@ -647,16 +708,13 @@ namespace Lux {
 		const auto mipLevels = GetMipLevelCount();
 		for (uint32_t face = 0; face < 6; face++)
 		{
-			float targetMipWidth = static_cast<float>(m_Specification.Width);
-			float targetMipHeight = static_cast<float>(m_Specification.Height);
-
 			srcImageViewSpec.Layer = face;
 			dstImageViewSpec.Layer = face;
 
 			for (uint32_t mip = 1; mip < mipLevels; mip++)
 			{
-				targetMipWidth /= 2;
-				targetMipHeight /= 2;
+				const uint32_t mipWidth = glm::max(m_Specification.Width >> mip, 1u);
+				const uint32_t mipHeight = glm::max(m_Specification.Height >> mip, 1u);
 
 				srcImageViewSpec.Mip = mip - 1;
 				dstImageViewSpec.Mip = mip;
@@ -669,11 +727,10 @@ namespace Lux {
 				material->Set("u_InputTexture", srcImageView);
 				material->Set("o_OutputTexture", dstImageView);
 
-				pushConstants.TexelSize = { 1.0f / targetMipWidth , 1.0f / targetMipHeight };
+				pushConstants.TexelSize = { 1.0f / static_cast<float>(mipWidth), 1.0f / static_cast<float>(mipHeight) };
 				pushConstants.SourceMip = mip - 1;
 
-				glm::uvec3 workGroups{ targetMipWidth / 8, targetMipHeight / 8, 1 };
-				workGroups = glm::max(workGroups, { 1 });
+				const glm::uvec3 workGroups{ (mipWidth + 7) / 8, (mipHeight + 7) / 8, 1 };
 				Renderer::DispatchCompute(renderCommandBuffer, computePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
 
 				Renderer::Submit([renderCommandBuffer, instance]() mutable
