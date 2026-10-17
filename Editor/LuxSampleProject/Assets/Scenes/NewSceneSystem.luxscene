@@ -39,7 +39,7 @@ Entities:
       CastsShadows: true
       SoftShadows: true
       Falloff: 1
-      Intensity: 2.6
+      Intensity: 1045.9577
       Unit: 0
       ColorTemperature: 6500
       UseColorTemperature: false

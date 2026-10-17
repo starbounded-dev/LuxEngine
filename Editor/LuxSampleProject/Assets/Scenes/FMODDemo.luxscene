@@ -174,7 +174,7 @@ Entities:
       Rotation: [-0.8, -0.5, 0]
       Scale: [1, 1, 1]
     DirectionalLightComponent:
-      Intensity: 3
+      Intensity: 9.4248
       Radiance: [1, 0.94, 0.85]
       Unit: 0
       ColorTemperature: 6500
