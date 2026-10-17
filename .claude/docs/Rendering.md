@@ -245,13 +245,31 @@ submit: the resolved image when GTAO is on, the white texture when it is off.
 Turquin multiscatter compensation. Point and spot lights fall off as inverse-square, windowed to zero
 at their range (`LuxPunctualLightAttenuation`). Intensities therefore mean what `PhysicalLight.h`
 says: a directional light's radiance × multiplier is illuminance, a point or spot light's is
-intensity. Point lights' `Falloff` and `MinRadius` are no longer read (still serialized); spot
-`Falloff` remains the PCSS light size.
+intensity. Point lights' `Falloff` and `MinRadius` are no longer read (still serialized). Spot
+`Falloff` is the emitter diameter in metres for PCSS: the editor labels it "Light Size", and the GPU
+`SpotLight` calls it `LightSize`.
 
 **Shadow maps are sampled through `r_ShadowSampler`** (`(set 3, binding 8)`,
 `Renderer::GetShadowSampler()`): a linear depth-comparison sampler, so each hard or PCF tap is a
 hardware 2x2 PCF (`sampler2DShadow` / `sampler2DArrayShadow`, reference ≤ stored, standard-Z shadow
 maps). PCSS blocker searches still read raw depth. `DescriptorSetManager` defaults the name to it.
+
+**PCSS taps come from a CPU-built kernel.** `RendererData.ShadowKernel` holds `ShadowKernelSize` (32,
+`SHADOW_KERNEL_SIZE` in `Buffers.glslh`; change both) unit-disk offsets: `xy` a Vogel disk over
+`ShadowFilterSampleCount`, `zw` one over `ShadowBlockerSampleCount`
+(`SceneRenderer::UpdateShadowKernel`). The counts are `SceneRendererOptions::ShadowBlockerSamples` /
+`ShadowFilterSamples`, set by the shadow quality tier and saved with the project. A blocker search
+that finds every valid tap occluded returns fully shadowed without filtering. That is exact because
+the filter radius is clamped to the search radius.
+
+**Spot and point PCSS work in linear depth.** A spot tile or point face is `P * V` with a
+perspective, [0, 1]-depth `P`. So the receiver's linear depth is its `clip.w`, and a stored depth `d`
+linearizes as `B / (d + A)`, with `A` and `B` read from rows 2 and 3 of the tile matrix
+(`GetSpotShadowProjection`); no near/far data is uploaded. The blocker search covers the emitter's
+projection at the near plane, and the filter radius is the penumbra half-width at the receiver,
+`lightRadius · (receiver − blocker) / blocker`. Both are converted to tile UV with `0.5 · P[0][0] /
+depth`. The search is capped at 0.05 tile UV, the margin point-light faces keep, so taps never read
+a neighbouring tile.
 
 **Point lights shadow through the spot atlas.** A shadowed point light takes six consecutive atlas
 tiles, one per cube face (+X, −X, +Y, −Y, +Z, −Z); `PointLight::ShadowIndex` is the first tile and
@@ -674,8 +692,9 @@ crash or corruption on some driver even if it renders correctly on yours.
   them no resting state), so no barrier can protect them; CPU initialization
   of GPU storage goes through `UploadContext::WriteBuffer` in the upload batch, or
   `RenderCommandBuffer::RT_WriteBuffer` in a command buffer.
-- PCSS uses constant-index Poisson lookups. Dynamic indexing of the local 64-sample array expands
-  into repeated per-fragment scratch arrays on RADV Renoir and can cause a GPU timeout.
+- PCSS reads its taps from the `RendererData` uniform buffer (`ShadowKernel`), never from a local
+  array. Dynamic indexing of a local sample array expands into repeated per-fragment scratch arrays
+  on RADV Renoir and can cause a GPU timeout.
   `python3 tests/rendering/run_shadow_shader.py` compiles/validates deferred lighting and checks
   its SPIR-V for these local copies (use `--sdk-bin` if the Vulkan tools are not bundled).
 - Nvidia Aftermath GPU crash dumps (`Platform/Vulkan/Debug/Aftermath.{h,cpp}`) are active on NVIDIA

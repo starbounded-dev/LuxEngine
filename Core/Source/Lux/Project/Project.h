@@ -159,6 +159,8 @@ namespace Lux
 		float ShadowCascadeTransitionFade = 1.0f;
 		uint32_t ShadowFilterMode = 2; // SceneRendererOptions::ShadowFilterMode::Hybrid
 		uint32_t DirectionalPCSSCascadeCount = 1;
+		uint32_t ShadowBlockerSamples = 16; // PCSS taps, 1..SceneRenderer::ShadowKernelSize
+		uint32_t ShadowFilterSamples = 24;
 		float ShadowPCFRadiusTexels = 1.25f;
 		float SpotShadowPCFRadiusTexels = 1.5f;
 		uint32_t ShadowResolution = 1; // SceneRendererOptions::ShadowResolutionTier (Tier_2K)

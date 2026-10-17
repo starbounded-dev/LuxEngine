@@ -155,7 +155,7 @@ namespace Lux {
 		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
 		float     Range = 25.0f;
 		float     Angle = 45.0f;
-		float     Falloff = 1.0f;
+		float     LightSize = 1.0f; // emitter diameter in metres (SpotLightComponent::Falloff), sets the PCSS penumbra
 		uint32_t  ShadowIndex = 0;
 		uint32_t  SoftShadows = 0;
 		uint32_t  CastsShadows = 0;
@@ -268,6 +268,9 @@ namespace Lux {
 		float ShadowCascadeTransitionFade = 1.0f;
 		ShadowFilterMode ShadowFilter = ShadowFilterMode::Hybrid;
 		uint32_t DirectionalPCSSCascadeCount = 1;
+		// PCSS taps per pixel, 1..SceneRenderer::ShadowKernelSize. Set by the shadow quality tier.
+		uint32_t ShadowBlockerSamples = 16;
+		uint32_t ShadowFilterSamples = 24;
 		float ShadowPCFRadiusTexels = 1.25f;
 		float SpotShadowPCFRadiusTexels = 1.5f;
 		ShadowResolutionTier ShadowResolution = ShadowResolutionTier::Tier_2K;
@@ -418,6 +421,8 @@ namespace Lux {
 	{
 	public:
 		static constexpr uint32_t ShadowCascadeCount = 4;
+		// Entries in RendererData.ShadowKernel, mirrored by SHADOW_KERNEL_SIZE in Buffers.glslh.
+		static constexpr uint32_t ShadowKernelSize = 32;
 		static constexpr uint32_t MaxSpotShadows = 16;
 		// Point lights take six spot-atlas tiles each (one per cube face).
 		static constexpr uint32_t MaxPointShadows = 8;
@@ -646,6 +651,8 @@ namespace Lux {
 		void SetViewportSize(uint32_t width, uint32_t height);
 		void RefreshRenderResolutionScale();
 		void UpdateGTAOData();
+		// Rebuilds RendererData.ShadowKernel when the PCSS sample counts change.
+		void UpdateShadowKernel(uint32_t blockerSamples, uint32_t filterSamples);
 
 		// Per-category tier appliers. Each owns a disjoint slice of SceneRendererOptions
 		// (plus the matching m_BloomSettings / m_DOFSettings / m_SSROptions fields) and
@@ -1306,9 +1313,14 @@ namespace Lux {
 			uint32_t  ActiveShadowCascadeCount = 3;
 			uint32_t  ShadowFilterMode = (uint32_t)SceneRendererOptions::ShadowFilterMode::Hybrid;
 			uint32_t  DirectionalPCSSCascadeCount = 1;
-			uint32_t  ShadowFilterPadding = 0;
+			uint32_t  ShadowBlockerSampleCount = 16;
 			glm::vec4 ShadowFilterParams = { 1.25f, 1.5f, 0.0f, 0.0f }; // x=dir PCF texels, y=spot PCF texels
+			uint32_t  ShadowFilterSampleCount = 24;
+			uint32_t  ShadowKernelPadding[3] = { 0, 0, 0 };
+			// xy = filter tap i, zw = blocker-search tap i; each a Vogel disk over its own count.
+			glm::vec4 ShadowKernel[ShadowKernelSize] = {};
 		} m_RendererDataUB;
+		static_assert(sizeof(UBRendererData) == 656, "UBRendererData must match the GLSL std140 RendererData block.");
 
 		struct UBScreenData
 		{

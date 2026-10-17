@@ -59,8 +59,8 @@ namespace Lux {
 
 		constexpr float k_CameraOrbitDistance = 10.0f;
 
-		// LUX_GOLDEN_OPTIONS names that map straight onto a SceneRendererOptions flag. Bloom, DOF and
-		// Colliders are handled separately in GoldenCapture::ApplyOptions.
+		// LUX_GOLDEN_OPTIONS names that map straight onto a SceneRendererOptions flag. Bloom, DOF,
+		// Colliders and PCSS are handled separately in GoldenCapture::ApplyOptions.
 		struct BoolOption
 		{
 			std::string_view Name;
@@ -81,7 +81,7 @@ namespace Lux {
 			{ "SoftShadows", &SceneRendererOptions::SoftShadows },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -251,6 +251,12 @@ namespace Lux {
 			{
 				options.ShowPhysicsColliders = enabled;
 				options.PhysicsColliderMode = SceneRendererOptions::PhysicsColliderView::All;
+			}
+			else if (name == "PCSS")
+			{
+				// PCSS for every soft shadow (spot and point lights included), instead of Hybrid's
+				// near directional cascades only.
+				options.ShadowFilter = enabled ? SceneRendererOptions::ShadowFilterMode::PCSS : SceneRendererOptions::ShadowFilterMode::Hybrid;
 			}
 		}
 	}

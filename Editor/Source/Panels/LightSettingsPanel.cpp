@@ -184,7 +184,7 @@ namespace Lux {
 
 				ImGuiEx::Property("Intensity", light.Intensity, 0.1f, 0.0f, 100.0f);
 				ImGuiEx::Property("Range", light.Range, 0.1f, 0.0f, 100.0f);
-				ImGuiEx::Property("Falloff", light.Falloff, 0.1f, 0.0f, 10.0f);
+				ImGuiEx::Property("Light Size", light.Falloff, 0.01f, 0.0f, 10.0f);
 				ImGuiEx::Property("Angle", light.Angle, 1.0f, 0.0f, 180.0f);
 				ImGuiEx::Property("Angle Atten", light.AngleAttenuation, 0.1f, 0.0f, 1.0f);
 				ImGuiEx::Property("Cast Shadows", light.CastsShadows);

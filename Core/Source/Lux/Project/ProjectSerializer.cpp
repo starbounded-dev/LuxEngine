@@ -261,6 +261,8 @@ namespace Lux
 			out << Yaml::Key << "CascadeFade" << Yaml::Value << settings.ShadowCascadeTransitionFade;
 			out << Yaml::Key << "FilterMode" << Yaml::Value << settings.ShadowFilterMode;
 			out << Yaml::Key << "DirectionalPCSSCascades" << Yaml::Value << settings.DirectionalPCSSCascadeCount;
+			out << Yaml::Key << "PCSSBlockerSamples" << Yaml::Value << settings.ShadowBlockerSamples;
+			out << Yaml::Key << "PCSSFilterSamples" << Yaml::Value << settings.ShadowFilterSamples;
 			out << Yaml::Key << "PCFRadiusTexels" << Yaml::Value << settings.ShadowPCFRadiusTexels;
 			out << Yaml::Key << "SpotPCFRadiusTexels" << Yaml::Value << settings.SpotShadowPCFRadiusTexels;
 			out << Yaml::Key << "ResolutionLimit" << Yaml::Value << ShadowResolutionToString(settings.ShadowResolution);
@@ -358,6 +360,8 @@ namespace Lux
 				settings.ShadowCascadeTransitionFade = shadows["CascadeFade"].as<float>(settings.ShadowCascadeTransitionFade);
 				settings.ShadowFilterMode = shadows["FilterMode"].as<uint32_t>(settings.ShadowFilterMode);
 				settings.DirectionalPCSSCascadeCount = shadows["DirectionalPCSSCascades"].as<uint32_t>(settings.DirectionalPCSSCascadeCount);
+				settings.ShadowBlockerSamples = shadows["PCSSBlockerSamples"].as<uint32_t>(settings.ShadowBlockerSamples);
+				settings.ShadowFilterSamples = shadows["PCSSFilterSamples"].as<uint32_t>(settings.ShadowFilterSamples);
 				settings.ShadowPCFRadiusTexels = shadows["PCFRadiusTexels"].as<float>(settings.ShadowPCFRadiusTexels);
 				settings.SpotShadowPCFRadiusTexels = shadows["SpotPCFRadiusTexels"].as<float>(settings.SpotShadowPCFRadiusTexels);
 				Yaml::Node shadowResolution = shadows["ResolutionLimit"] ? shadows["ResolutionLimit"] : shadows["ShadowResolution"];
@@ -470,6 +474,8 @@ namespace Lux
 			serializer.WriteRaw(settings.SpotShadowPCFRadiusTexels);
 			serializer.WriteRaw(settings.FixedRenderWidth);
 			serializer.WriteRaw(settings.FixedRenderHeight);
+			serializer.WriteRaw(settings.ShadowBlockerSamples);
+			serializer.WriteRaw(settings.ShadowFilterSamples);
 		}
 
 		void ReadSceneRendererRuntimeSettings(FileStreamReader& stream, ProjectSceneRendererSettings& settings, uint32_t version)
@@ -605,6 +611,12 @@ namespace Lux
 			{
 				stream.ReadRaw(settings.FixedRenderWidth);
 				stream.ReadRaw(settings.FixedRenderHeight);
+			}
+
+			if (version >= 26)
+			{
+				stream.ReadRaw(settings.ShadowBlockerSamples);
+				stream.ReadRaw(settings.ShadowFilterSamples);
 			}
 
 			if (version >= 7)

@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Shadows -------------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Shadows", { "Soft Shadows", "Shadow Culling", "Max Distance", "Distance Fade", "Active Cascades", "Split Lambda", "Near Offset", "Far Offset", "Cascade Fade", "Filter", "PCSS Cascades", "PCF Radius", "Spot PCF Radius", "Resolution Limit" }))
+		if (CardHasMatch(queryLower, "Shadows", { "Soft Shadows", "Shadow Culling", "Max Distance", "Distance Fade", "Active Cascades", "Split Lambda", "Near Offset", "Far Offset", "Cascade Fade", "Filter", "PCSS Cascades", "PCSS Blocker Samples", "PCSS Filter Samples", "PCF Radius", "Spot PCF Radius", "Resolution Limit" }))
 		{
 			if (BeginSettingsCard("card_shadows", LUX_ICON_SUN_O, "Shadows", m_CardShadows, searching))
 			{
@@ -696,6 +696,10 @@ namespace Lux {
 				}
 				if (match("PCSS Cascades"))
 					projectSettingsChanged |= ImGuiEx::Property("PCSS Cascades", options.DirectionalPCSSCascadeCount, 0u, options.ActiveShadowCascadeCount);
+				if (match("PCSS Blocker Samples"))
+					projectSettingsChanged |= ImGuiEx::Property("PCSS Blocker Samples", options.ShadowBlockerSamples, 1u, SceneRenderer::ShadowKernelSize);
+				if (match("PCSS Filter Samples"))
+					projectSettingsChanged |= ImGuiEx::Property("PCSS Filter Samples", options.ShadowFilterSamples, 1u, SceneRenderer::ShadowKernelSize);
 				if (match("PCF Radius"))
 					projectSettingsChanged |= ImGuiEx::Property("PCF Radius", options.ShadowPCFRadiusTexels, 0.05f, 0.25f, 8.0f);
 				if (match("Spot PCF Radius"))

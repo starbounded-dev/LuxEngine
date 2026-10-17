@@ -3811,7 +3811,7 @@ namespace Lux {
 					});
 				}
 
-				if (ImGuiEx::Property("Falloff", firstComponent.Falloff, 0.01f, 0.0f, 10.0f))
+				if (ImGuiEx::Property("Light Size", firstComponent.Falloff, 0.01f, 0.0f, 10.0f))
 				{
 					ApplyToSelection<SpotLightComponent>(m_Context, selectedEntities, [&firstComponent](SpotLightComponent& component, Entity)
 					{

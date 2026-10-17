@@ -639,11 +639,15 @@ namespace Lux {
 		m_Options.ShadowPCFRadiusTexels = 1.25f;
 		m_Options.SpotShadowPCFRadiusTexels = 1.5f;
 		m_Options.ShadowFade = 25.0f;
+		m_Options.ShadowBlockerSamples = 16;
+		m_Options.ShadowFilterSamples = 24;
 
 		switch (level)
 		{
 			case QualityPreset::Low:
 				m_Options.SoftShadows = false;
+				m_Options.ShadowBlockerSamples = 8;
+				m_Options.ShadowFilterSamples = 12;
 				m_Options.ActiveShadowCascadeCount = 2;
 				m_Options.ShadowFilter = SceneRendererOptions::ShadowFilterMode::TunedPCF;
 				m_Options.DirectionalPCSSCascadeCount = 0;
@@ -670,6 +674,7 @@ namespace Lux {
 			case QualityPreset::Ultra:
 				m_Options.ActiveShadowCascadeCount = 4;
 				m_Options.DirectionalPCSSCascadeCount = 2;
+				m_Options.ShadowFilterSamples = 32;
 				m_Options.ShadowPCFRadiusTexels = 1.5f;
 				m_Options.SpotShadowPCFRadiusTexels = 1.75f;
 				m_Options.ShadowResolution = SceneRendererOptions::ShadowResolutionTier::Tier_4K;
@@ -678,6 +683,8 @@ namespace Lux {
 			case QualityPreset::Cinematic:
 				m_Options.ActiveShadowCascadeCount = 4;
 				m_Options.DirectionalPCSSCascadeCount = 2;
+				m_Options.ShadowBlockerSamples = 32;
+				m_Options.ShadowFilterSamples = 32;
 				m_Options.ShadowPCFRadiusTexels = 1.75f;
 				m_Options.SpotShadowPCFRadiusTexels = 2.0f;
 				// Deliberately 2K, not 8K: an 8K directional atlas is a large per-frame
@@ -692,6 +699,35 @@ namespace Lux {
 			default:
 				break;
 		}
+	}
+
+	void SceneRenderer::UpdateShadowKernel(uint32_t blockerSamples, uint32_t filterSamples)
+	{
+		blockerSamples = std::clamp(blockerSamples, 1u, ShadowKernelSize);
+		filterSamples = std::clamp(filterSamples, 1u, ShadowKernelSize);
+		if (blockerSamples == m_RendererDataUB.ShadowBlockerSampleCount
+			&& filterSamples == m_RendererDataUB.ShadowFilterSampleCount
+			&& m_RendererDataUB.ShadowKernel[0] != glm::vec4(0.0f))
+			return;
+
+		// A Vogel (golden-angle) disk per count: n points cover the unit disk evenly for any n, and
+		// each set is built for its own count, so a lower tier is a coarser disk, not a clipped one.
+		constexpr float goldenAngle = 2.39996323f;
+		auto vogelTap = [](uint32_t index, uint32_t count)
+			{
+				const float radius = std::sqrt((static_cast<float>(index) + 0.5f) / static_cast<float>(count));
+				const float angle = static_cast<float>(index) * goldenAngle;
+				return glm::vec2(radius * std::cos(angle), radius * std::sin(angle));
+			};
+
+		for (uint32_t i = 0; i < ShadowKernelSize; i++)
+		{
+			const glm::vec2 filterTap = i < filterSamples ? vogelTap(i, filterSamples) : glm::vec2(0.0f);
+			const glm::vec2 blockerTap = i < blockerSamples ? vogelTap(i, blockerSamples) : glm::vec2(0.0f);
+			m_RendererDataUB.ShadowKernel[i] = glm::vec4(filterTap, blockerTap);
+		}
+		m_RendererDataUB.ShadowBlockerSampleCount = blockerSamples;
+		m_RendererDataUB.ShadowFilterSampleCount = filterSamples;
 	}
 
 	void SceneRenderer::ApplyAmbientOcclusionQuality(QualityPreset level)
@@ -1089,6 +1125,8 @@ namespace Lux {
 		m_Options.ShadowCascadeTransitionFade = std::max(0.0f, settings.ShadowCascadeTransitionFade);
 		m_Options.ShadowFilter = SanitizeShadowFilterMode(settings.ShadowFilterMode);
 		m_Options.DirectionalPCSSCascadeCount = glm::min(settings.DirectionalPCSSCascadeCount, m_Options.ActiveShadowCascadeCount);
+		m_Options.ShadowBlockerSamples = std::clamp(settings.ShadowBlockerSamples, 1u, ShadowKernelSize);
+		m_Options.ShadowFilterSamples = std::clamp(settings.ShadowFilterSamples, 1u, ShadowKernelSize);
 		m_Options.ShadowPCFRadiusTexels = std::clamp(settings.ShadowPCFRadiusTexels, 0.25f, 8.0f);
 		m_Options.SpotShadowPCFRadiusTexels = std::clamp(settings.SpotShadowPCFRadiusTexels, 0.25f, 8.0f);
 		m_Options.ShadowResolution = SanitizeShadowResolutionTier(settings.ShadowResolution);
@@ -1184,6 +1222,8 @@ namespace Lux {
 		settings.ShadowCascadeTransitionFade = m_Options.ShadowCascadeTransitionFade;
 		settings.ShadowFilterMode = static_cast<uint32_t>(SanitizeShadowFilterMode(static_cast<uint32_t>(m_Options.ShadowFilter)));
 		settings.DirectionalPCSSCascadeCount = glm::min(m_Options.DirectionalPCSSCascadeCount, settings.ActiveShadowCascadeCount);
+		settings.ShadowBlockerSamples = std::clamp(m_Options.ShadowBlockerSamples, 1u, ShadowKernelSize);
+		settings.ShadowFilterSamples = std::clamp(m_Options.ShadowFilterSamples, 1u, ShadowKernelSize);
 		settings.ShadowPCFRadiusTexels = m_Options.ShadowPCFRadiusTexels;
 		settings.SpotShadowPCFRadiusTexels = m_Options.SpotShadowPCFRadiusTexels;
 		settings.ShadowResolution = static_cast<uint32_t>(SanitizeShadowResolutionTier(static_cast<uint32_t>(m_Options.ShadowResolution)));
@@ -5533,6 +5573,7 @@ namespace Lux {
 				0.0f,
 				0.0f
 			};
+			UpdateShadowKernel(m_Options.ShadowBlockerSamples, m_Options.ShadowFilterSamples);
 			m_RendererDataUB.ShowCascades = m_Options.ShowShadowCascades;
 			m_RendererDataUB.ShowLightComplexity = m_Options.ShowLightComplexity;
 			m_RendererDataUB.ShowMaterialComplexity = m_Options.ShowMaterialComplexity;

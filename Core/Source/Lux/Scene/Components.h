@@ -627,7 +627,7 @@ namespace Lux {
 		float Range = 10.0f;
 		float Angle = 45.0f;
 		float AngleAttenuation = 1.0f;
-		float Falloff = 1.0f;
+		float Falloff = 1.0f; // emitter diameter in metres for PCSS soft shadows ("Light Size" in the editor; key kept for scenes)
 		bool CastsShadows = false;
 		bool SoftShadows = false;
 		float ShadowDistance = 0.0f; // 0 = Range

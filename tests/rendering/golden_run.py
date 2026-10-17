@@ -43,6 +43,7 @@ FEATURE_VARIANTS = {
     "noVRS": "VRS=0",
     "noOcclusionCulling": "OcclusionCulling=0",
     "noSoftShadows": "SoftShadows=0",
+    "PCSS": "PCSS=1",
     "asyncCompute": "AsyncCompute=1",
     "meshShaders": "MeshShaders=1",
 }

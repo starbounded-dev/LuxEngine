@@ -1964,7 +1964,7 @@ namespace Lux {
 				sl.Range = spotLight.Range;
 				sl.Angle = spotLight.Angle;
 				sl.AngleAttenuation = spotLight.AngleAttenuation;
-				sl.Falloff = spotLight.Falloff;
+				sl.LightSize = spotLight.Falloff;
 				sl.SoftShadows = spotLight.SoftShadows ? 1u : 0u;
 				sl.CastsShadows = spotLight.CastsShadows ? 1u : 0u;
 				sl.ShadowDistance = spotLight.ShadowDistance;

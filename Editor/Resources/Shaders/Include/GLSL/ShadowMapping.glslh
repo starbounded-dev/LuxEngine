@@ -105,73 +105,6 @@ float SearchRegionRadiusUV(float zWorld)
 	return lightRadiusUV * (zWorld - light_zNear) / zWorld;
 }
 
-const vec2 PoissonDistribution[64] = vec2[](
-	vec2(-0.94201624, -0.39906216),
-	vec2(0.94558609, -0.76890725),
-	vec2(-0.094184101, -0.92938870),
-	vec2(0.34495938, 0.29387760),
-	vec2(-0.91588581, 0.45771432),
-	vec2(-0.81544232, -0.87912464),
-	vec2(-0.38277543, 0.27676845),
-	vec2(0.97484398, 0.75648379),
-	vec2(0.44323325, -0.97511554),
-	vec2(0.53742981, -0.47373420),
-	vec2(-0.26496911, -0.41893023),
-	vec2(0.79197514, 0.19090188),
-	vec2(-0.24188840, 0.99706507),
-	vec2(-0.81409955, 0.91437590),
-	vec2(0.19984126, 0.78641367),
-	vec2(0.14383161, -0.14100790),
-	vec2(-0.413923, -0.439757),
-	vec2(-0.979153, -0.201245),
-	vec2(-0.865579, -0.288695),
-	vec2(-0.243704, -0.186378),
-	vec2(-0.294920, -0.055748),
-	vec2(-0.604452, -0.544251),
-	vec2(-0.418056, -0.587679),
-	vec2(-0.549156, -0.415877),
-	vec2(-0.238080, -0.611761),
-	vec2(-0.267004, -0.459702),
-	vec2(-0.100006, -0.229116),
-	vec2(-0.101928, -0.380382),
-	vec2(-0.681467, -0.700773),
-	vec2(-0.763488, -0.543386),
-	vec2(-0.549030, -0.750749),
-	vec2(-0.809045, -0.408738),
-	vec2(-0.388134, -0.773448),
-	vec2(-0.429392, -0.894892),
-	vec2(-0.131597, 0.065058),
-	vec2(-0.275002, 0.102922),
-	vec2(-0.106117, -0.068327),
-	vec2(-0.294586, -0.891515),
-	vec2(-0.629418, 0.379387),
-	vec2(-0.407257, 0.339748),
-	vec2(0.071650, -0.384284),
-	vec2(0.022018, -0.263793),
-	vec2(0.003879, -0.136073),
-	vec2(-0.137533, -0.767844),
-	vec2(-0.050874, -0.906068),
-	vec2(0.114133, -0.070053),
-	vec2(0.163314, -0.217231),
-	vec2(-0.100262, -0.587992),
-	vec2(-0.004942, 0.125368),
-	vec2(0.035302, -0.619310),
-	vec2(0.195646, -0.459022),
-	vec2(0.303969, -0.346362),
-	vec2(-0.678118, 0.685099),
-	vec2(-0.628418, 0.507978),
-	vec2(-0.508473, 0.458753),
-	vec2(0.032134, -0.782030),
-	vec2(0.122595, 0.280353),
-	vec2(-0.043643, 0.312119),
-	vec2(0.132993, 0.085170),
-	vec2(-0.192106, 0.285848),
-	vec2(0.183621, -0.713242),
-	vec2(0.265220, -0.596716),
-	vec2(-0.009628, -0.483058),
-	vec2(-0.018516, 0.435703)
-	);
-
 const vec2 poissonDisk[16] = vec2[](
 	vec2(-0.94201624, -0.39906216),
 	vec2(0.94558609, -0.76890725),
@@ -191,133 +124,92 @@ const vec2 poissonDisk[16] = vec2[](
 	vec2(0.14383161, -0.14100790)
 	);
 
-vec2 SamplePoisson(int index)
+// PCSS taps come from RendererData.ShadowKernel (SceneRenderer::BuildShadowKernel): unit-disk offsets
+// whose counts follow the shadow quality tier.
+uint GetShadowBlockerSampleCount()
 {
-	// Constant indices keep the sample table in shader constants. A dynamically
-	// indexed local array is duplicated into per-fragment scratch by some drivers.
-	switch (index % 64)
-	{
-		case 0: return PoissonDistribution[0];
-		case 1: return PoissonDistribution[1];
-		case 2: return PoissonDistribution[2];
-		case 3: return PoissonDistribution[3];
-		case 4: return PoissonDistribution[4];
-		case 5: return PoissonDistribution[5];
-		case 6: return PoissonDistribution[6];
-		case 7: return PoissonDistribution[7];
-		case 8: return PoissonDistribution[8];
-		case 9: return PoissonDistribution[9];
-		case 10: return PoissonDistribution[10];
-		case 11: return PoissonDistribution[11];
-		case 12: return PoissonDistribution[12];
-		case 13: return PoissonDistribution[13];
-		case 14: return PoissonDistribution[14];
-		case 15: return PoissonDistribution[15];
-		case 16: return PoissonDistribution[16];
-		case 17: return PoissonDistribution[17];
-		case 18: return PoissonDistribution[18];
-		case 19: return PoissonDistribution[19];
-		case 20: return PoissonDistribution[20];
-		case 21: return PoissonDistribution[21];
-		case 22: return PoissonDistribution[22];
-		case 23: return PoissonDistribution[23];
-		case 24: return PoissonDistribution[24];
-		case 25: return PoissonDistribution[25];
-		case 26: return PoissonDistribution[26];
-		case 27: return PoissonDistribution[27];
-		case 28: return PoissonDistribution[28];
-		case 29: return PoissonDistribution[29];
-		case 30: return PoissonDistribution[30];
-		case 31: return PoissonDistribution[31];
-		case 32: return PoissonDistribution[32];
-		case 33: return PoissonDistribution[33];
-		case 34: return PoissonDistribution[34];
-		case 35: return PoissonDistribution[35];
-		case 36: return PoissonDistribution[36];
-		case 37: return PoissonDistribution[37];
-		case 38: return PoissonDistribution[38];
-		case 39: return PoissonDistribution[39];
-		case 40: return PoissonDistribution[40];
-		case 41: return PoissonDistribution[41];
-		case 42: return PoissonDistribution[42];
-		case 43: return PoissonDistribution[43];
-		case 44: return PoissonDistribution[44];
-		case 45: return PoissonDistribution[45];
-		case 46: return PoissonDistribution[46];
-		case 47: return PoissonDistribution[47];
-		case 48: return PoissonDistribution[48];
-		case 49: return PoissonDistribution[49];
-		case 50: return PoissonDistribution[50];
-		case 51: return PoissonDistribution[51];
-		case 52: return PoissonDistribution[52];
-		case 53: return PoissonDistribution[53];
-		case 54: return PoissonDistribution[54];
-		case 55: return PoissonDistribution[55];
-		case 56: return PoissonDistribution[56];
-		case 57: return PoissonDistribution[57];
-		case 58: return PoissonDistribution[58];
-		case 59: return PoissonDistribution[59];
-		case 60: return PoissonDistribution[60];
-		case 61: return PoissonDistribution[61];
-		case 62: return PoissonDistribution[62];
-		default: return PoissonDistribution[63];
-	}
+	return clamp(u_RendererData.ShadowBlockerSampleCount, 1u, uint(SHADOW_KERNEL_SIZE));
 }
+
+uint GetShadowFilterSampleCount()
+{
+	return clamp(u_RendererData.ShadowFilterSampleCount, 1u, uint(SHADOW_KERNEL_SIZE));
+}
+
+vec2 ShadowFilterTap(uint index)
+{
+	return u_RendererData.ShadowKernel[index].xy;
+}
+
+vec2 ShadowBlockerTap(uint index)
+{
+	return u_RendererData.ShadowKernel[index].zw;
+}
+
+// A PCSS blocker search. AverageDepth is negative when no tap is occluded. AllOccluded means every
+// valid tap is: the filter footprint never exceeds the search footprint, so the receiver is fully
+// shadowed and the filter pass is skipped.
+struct ShadowBlockerSearch
+{
+	float AverageDepth;
+	bool AllOccluded;
+};
 
 /////////////////////////////////////////////
 // Directional Shadows
 /////////////////////////////////////////////
 
-float FindBlockerDistance_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvLightSize)
+ShadowBlockerSearch FindBlockers_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords)
 {
 	cascade = ClampDirectionalCascade(cascade);
 	float bias = GetDirShadowBias();
 
-	int numBlockerSearchSamples = 64;
-	int blockers = 0;
-	float avgBlockerDistance = 0;
-
+	ShadowBlockerSearch result = ShadowBlockerSearch(-1.0, false);
 	vec2 uv = ShadowCoordsToUV(shadowCoords.xy);
 	if (!IsDirectionalShadowSampleValid(shadowCoords, uv))
-		return -1;
+		return result;
 
+	uint sampleCount = GetShadowBlockerSampleCount();
+	uint validSamples = 0u;
+	uint blockers = 0u;
+	float blockerDepthSum = 0.0;
 	float searchWidth = SearchRegionRadiusUV(shadowCoords.z);
-	for (int i = 0; i < numBlockerSearchSamples; i++)
+	for (uint i = 0u; i < sampleCount; i++)
 	{
-		vec2 sampleUV = uv + SamplePoisson(i) * searchWidth;
+		vec2 sampleUV = uv + ShadowBlockerTap(i) * searchWidth;
 		if (!IsDirectionalShadowSampleValid(shadowCoords, sampleUV))
 			continue;
 
+		validSamples++;
 		float z = SampleLinearLOD(shadowMap, vec3(sampleUV, cascade), 0).r;
 		if (z < (shadowCoords.z - bias))
 		{
 			blockers++;
-			avgBlockerDistance += z;
+			blockerDepthSum += z;
 		}
 	}
 
-	if (blockers > 0)
-		return avgBlockerDistance / float(blockers);
-
-	return -1;
-} 
+	if (blockers > 0u)
+	{
+		result.AverageDepth = blockerDepthSum / float(blockers);
+		result.AllOccluded = blockers == validSamples;
+	}
+	return result;
+}
 
 float PCF_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvRadius)
 {
 	cascade = ClampDirectionalCascade(cascade);
 	float bias = GetDirShadowBias();
-	int numPCFSamples = 64;
 	vec2 uv = ShadowCoordsToUV(shadowCoords.xy);
 	if (!IsDirectionalShadowSampleValid(shadowCoords, uv))
 		return 1.0;
 
-	float sum = 0;
-	for (int i = 0; i < numPCFSamples; i++)
-	{
-		vec2 offset = SamplePoisson(i) * uvRadius;
-		sum += SampleDirectionalShadowVisibility(shadowMap, cascade, shadowCoords, uv + offset, bias);
-	}
-	return ApplyDirectionalShadowFades(sum / numPCFSamples, uv);
+	uint sampleCount = GetShadowFilterSampleCount();
+	float sum = 0.0;
+	for (uint i = 0u; i < sampleCount; i++)
+		sum += SampleDirectionalShadowVisibility(shadowMap, cascade, shadowCoords, uv + ShadowFilterTap(i) * uvRadius, bias);
+	return ApplyDirectionalShadowFades(sum / float(sampleCount), uv);
 }
 
 float NV_PCF_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvRadius)
@@ -362,17 +254,20 @@ float TunedPCF_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 sha
 float RawPCSS_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvLightSize)
 {
 	cascade = ClampDirectionalCascade(cascade);
-	float blockerDistance = FindBlockerDistance_DirectionalLight(shadowMap, cascade, shadowCoords, uvLightSize);
-	if (blockerDistance == -1) // No occlusion
+	ShadowBlockerSearch blockers = FindBlockers_DirectionalLight(shadowMap, cascade, shadowCoords);
+	if (blockers.AverageDepth < 0.0) // No occlusion
 		return 1.0f;
+	if (blockers.AllOccluded)
+		return ApplyDirectionalShadowFades(0.0, ShadowCoordsToUV(shadowCoords.xy));
 
+	float blockerDistance = blockers.AverageDepth;
 	float penumbraWidth = (shadowCoords.z - blockerDistance) / blockerDistance;
 
 	float NEAR = 0.01; // Should this value be tweakable?
 	float uvRadius = penumbraWidth * uvLightSize * NEAR / max(shadowCoords.z, 0.001f); // Do we need to divide by shadowCoords.z?
 	uvRadius = min(uvRadius, 0.002f);
 	return PCF_DirectionalLight(shadowMap, cascade, shadowCoords, uvRadius);
-} 
+}
 
 float PCSS_DirectionalLight(texture2DArray shadowMap, uint cascade, vec3 shadowCoords, float uvLightSize)
 {
@@ -426,53 +321,49 @@ float HardShadows_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasSc
 	return ApplySpotShadowFades(visibility, shadowCoords.xy);
 }
 
-float FindBlockerDistance_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float uvLightSize)
+// A spot tile or point-light face is a perspective projection with depth in [0, 1], stored as P * V
+// with V rigid. So clip.w is the linear depth along the light's axis, and clip.z = -A * clip.w + B:
+// a stored depth d linearizes as B / (d + A). Row 0 has length P[0][0], so a lateral metre at linear
+// depth w spans 0.5 * P[0][0] / w of the tile.
+struct SpotShadowProjection
 {
-	int numBlockerSearchSamples = 16;
-	int blockers = 0;
-	float avgBlockerDistance = 0;
+	float DepthA;
+	float DepthB;
+	float UVPerMetre; // tile UV per lateral metre at unit depth
+};
 
-	if (!IsSpotShadowSampleValid(shadowCoords, shadowCoords.xy))
-		return -1;
+SpotShadowProjection GetSpotShadowProjection(mat4 viewProjection)
+{
+	vec3 row0 = vec3(viewProjection[0][0], viewProjection[1][0], viewProjection[2][0]);
+	vec4 row2 = vec4(viewProjection[0][2], viewProjection[1][2], viewProjection[2][2], viewProjection[3][2]);
+	vec4 row3 = vec4(viewProjection[0][3], viewProjection[1][3], viewProjection[2][3], viewProjection[3][3]);
 
-	float searchWidth = 0.01 * atlasScale;  // Scale search by atlas
-	for (int i = 0; i < numBlockerSearchSamples; i++)
-	{
-		vec2 sampleUV = shadowCoords.xy + SamplePoisson(i) * searchWidth;
-		if (!IsSpotShadowSampleValid(shadowCoords, sampleUV))
-			continue;
-
-		vec2 atlasUV = sampleUV * atlasScale + atlasOffset;
-		float z = SampleLinearLOD(shadowMap, atlasUV, 0).r;
-		if (z < (shadowCoords.z - SPOT_SHADOW_BIAS))
-		{
-			blockers++;
-			avgBlockerDistance += z;
-		}
-	}
-
-	if (blockers > 0)
-		return avgBlockerDistance / float(blockers);
-
-	return -1;
+	SpotShadowProjection projection;
+	projection.DepthA = -dot(row2.xyz, row3.xyz) / max(dot(row3.xyz, row3.xyz), 1e-12);
+	projection.DepthB = row2.w + projection.DepthA * row3.w;
+	projection.UVPerMetre = 0.5 * length(row0);
+	return projection;
 }
 
-
-float PCF_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float uvRadius)
+float LinearizeSpotShadowDepth(SpotShadowProjection projection, float deviceDepth)
 {
-	float scaledRadius = uvRadius * atlasScale;  // Scale radius by atlas
-	int numPCFSamples = 64;
+	return projection.DepthB / (deviceDepth + projection.DepthA);
+}
+
+// The widest blocker search, in tile UV. Point-light faces keep a 5% margin to their tile edge, so a
+// search no wider than that never reads a neighbouring tile.
+const float SPOT_PCSS_MAX_SEARCH_UV = 0.05;
+
+float PCF_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float localRadius)
+{
 	if (!IsSpotShadowSampleValid(shadowCoords, shadowCoords.xy))
 		return 1.0;
 
-	float sum = 0;
-	for (int i = 0; i < numPCFSamples; i++)
-	{
-		vec2 offset = SamplePoisson(i) * scaledRadius;
-		vec2 sampleUV = shadowCoords.xy + offset;
-		sum += SampleSpotShadowVisibility(shadowMap, atlasOffset, atlasScale, shadowCoords, sampleUV);
-	}
-	return ApplySpotShadowFades(sum / float(numPCFSamples), shadowCoords.xy);
+	uint sampleCount = GetShadowFilterSampleCount();
+	float sum = 0.0;
+	for (uint i = 0u; i < sampleCount; i++)
+		sum += SampleSpotShadowVisibility(shadowMap, atlasOffset, atlasScale, shadowCoords, shadowCoords.xy + ShadowFilterTap(i) * localRadius);
+	return ApplySpotShadowFades(sum / float(sampleCount), shadowCoords.xy);
 }
 
 
@@ -494,24 +385,60 @@ float TunedPCF_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale
 	return ApplySpotShadowFades(sum / 18.0, shadowCoords.xy);
 }
 
-float RawPCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float uvLightSize)
+// receiverDepth is the receiver's clip.w in the tile (its linear depth), lightSize the emitter
+// diameter in metres. Radii are in the tile's local UV.
+float RawPCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float receiverDepth, uint tile, float lightSize)
 {
-	float blockerDistance = FindBlockerDistance_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords, uvLightSize);
-	if (blockerDistance == -1) // No occlusion
-		return 1.0f;
+	if (!IsSpotShadowSampleValid(shadowCoords, shadowCoords.xy))
+		return 1.0;
 
-	float penumbraWidth = (shadowCoords.z - blockerDistance) / blockerDistance;
+	SpotShadowProjection projection = GetSpotShadowProjection(u_SpotLightMatrices.Mats[tile]);
+	float lightRadius = 0.5 * max(lightSize, 0.0);
+	float nearPlane = projection.DepthB / projection.DepthA;
+	float texelUV = 1.0 / max(float(textureSize(sampler2D(shadowMap, r_LinearSampler), 0).x) * atlasScale, 1.0);
 
-	float NEAR = 1.0;
-	float uvRadius = penumbraWidth * uvLightSize * NEAR / max(shadowCoords.z, 0.001f);
-	uvRadius = min(uvRadius, 0.002f);
-	return PCF_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords, uvRadius);
+	// An occluder at depth z between the receiver and the emitter sits within
+	// lightRadius * (receiverDepth - z) / receiverDepth metres of the receiver's ray, which projects
+	// widest at the near plane.
+	float searchRadius = lightRadius * projection.UVPerMetre * max(receiverDepth - nearPlane, 0.0) / max(receiverDepth * nearPlane, 1e-6);
+	searchRadius = clamp(searchRadius, texelUV, SPOT_PCSS_MAX_SEARCH_UV);
+
+	uint sampleCount = GetShadowBlockerSampleCount();
+	uint validSamples = 0u;
+	uint blockers = 0u;
+	float blockerDepthSum = 0.0;
+	for (uint i = 0u; i < sampleCount; i++)
+	{
+		vec2 sampleUV = shadowCoords.xy + ShadowBlockerTap(i) * searchRadius;
+		if (!IsSpotShadowSampleValid(shadowCoords, sampleUV))
+			continue;
+
+		validSamples++;
+		float z = SampleLinearLOD(shadowMap, sampleUV * atlasScale + atlasOffset, 0).r;
+		if (z < (shadowCoords.z - SPOT_SHADOW_BIAS))
+		{
+			blockers++;
+			blockerDepthSum += LinearizeSpotShadowDepth(projection, z);
+		}
+	}
+
+	if (blockers == 0u)
+		return 1.0;
+	if (blockers == validSamples)
+		return ApplySpotShadowFades(0.0, shadowCoords.xy);
+
+	// Penumbra half-width at the receiver, lightRadius * (receiver - blocker) / blocker metres,
+	// converted to tile UV at the receiver's depth. Capped by the search so the early-out stays exact.
+	float blockerDepth = blockerDepthSum / float(blockers);
+	float filterRadius = lightRadius * (receiverDepth - blockerDepth) / max(blockerDepth, 1e-4) * projection.UVPerMetre / max(receiverDepth, 1e-4);
+	filterRadius = clamp(filterRadius, texelUV, searchRadius);
+	return PCF_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords, filterRadius);
 }
 
-float PCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float uvLightSize)
+float PCSS_SpotLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float receiverDepth, uint tile, float lightSize)
 {
 	if (u_RendererData.ShadowFilterMode == LUX_SHADOW_FILTER_PCSS)
-		return RawPCSS_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords, uvLightSize);
+		return RawPCSS_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords, receiverDepth, tile, lightSize);
 
 	return TunedPCF_SpotLight(shadowMap, atlasOffset, atlasScale, shadowCoords);
 }
@@ -559,7 +486,7 @@ vec3 CalculateSpotLightsShadowed(in vec3 F0, vec3 worldPos, texture2D SpotAtlas)
 				vec2 atlasOffset = vec2(light.AtlasOffsetX, light.AtlasOffsetY);
 				float atlasScale = light.AtlasScale;
 				attenuation *= light.SoftShadows
-					? PCSS_SpotLight(SpotAtlas, atlasOffset, atlasScale, shadowMapCoords, light.Falloff)
+					? PCSS_SpotLight(SpotAtlas, atlasOffset, atlasScale, shadowMapCoords, coords.w, light.ShadowIndex, light.LightSize)
 					: HardShadows_SpotLight(SpotAtlas, atlasOffset, atlasScale, shadowMapCoords);
 			}
 		}
@@ -603,7 +530,7 @@ float SamplePointLightShadow(PointLight light, vec3 worldPos, texture2D shadowAt
 	uint gridSize = uint(round(1.0 / max(light.AtlasScale, 1e-4)));
 	vec2 atlasOffset = vec2(float(tile % gridSize), float(tile / gridSize)) * light.AtlasScale;
 	return (light.ShadowFlags & POINT_LIGHT_SHADOW_SOFT) != 0u
-		? PCSS_SpotLight(shadowAtlas, atlasOffset, light.AtlasScale, shadowMapCoords, light.LightSize)
+		? PCSS_SpotLight(shadowAtlas, atlasOffset, light.AtlasScale, shadowMapCoords, coords.w, tile, light.LightSize)
 		: HardShadows_SpotLight(shadowAtlas, atlasOffset, light.AtlasScale, shadowMapCoords);
 }
 

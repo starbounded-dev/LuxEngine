@@ -57,7 +57,7 @@ struct SpotLight
 	vec3 Radiance;
 	float Range;
 	float Angle;
-	float Falloff;
+	float LightSize;     // emitter diameter in metres, sets the PCSS penumbra (SpotLightComponent::Falloff)
 	uint ShadowIndex;
 	bool SoftShadows;
 	bool CastsShadows;	
@@ -137,6 +137,9 @@ vec3 GetViewDirection(vec3 worldPosition)
 	return normalize(u_Scene.CameraPosition - worldPosition);
 }
 
+// Entries in RendererData.ShadowKernel. Mirrors SceneRenderer::ShadowKernelSize.
+#define SHADOW_KERNEL_SIZE 32
+
 layout(std140, set = 2, binding = 1) uniform RendererData
 {
 	uniform vec4 CascadeSplits;
@@ -160,8 +163,15 @@ layout(std140, set = 2, binding = 1) uniform RendererData
 	uniform uint ActiveShadowCascadeCount;
 	uniform uint ShadowFilterMode;
 	uniform uint DirectionalPCSSCascadeCount;
-	uniform uint ShadowFilterPadding;
+	uniform uint ShadowBlockerSampleCount; // PCSS blocker-search taps, 1..SHADOW_KERNEL_SIZE
 	uniform vec4 ShadowFilterParams; // x = directional PCF radius in texels, y = spot PCF radius in texels
+	uniform uint ShadowFilterSampleCount;  // PCSS filter taps, 1..SHADOW_KERNEL_SIZE
+	uniform uint ShadowKernelPadding0;
+	uniform uint ShadowKernelPadding1;
+	uniform uint ShadowKernelPadding2;
+	// Unit-disk sample offsets built on the CPU: xy = filter tap i of ShadowFilterSampleCount,
+	// zw = blocker-search tap i of ShadowBlockerSampleCount. Each set is a Vogel disk over its own count.
+	uniform vec4 ShadowKernel[SHADOW_KERNEL_SIZE];
 } u_RendererData;
 
 layout(std140, set = 2, binding = 2) uniform ScreenData
