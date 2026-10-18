@@ -22,40 +22,428 @@ PostProcess:
   GradeGamma: [1, 1, 1]
   Gain: [1, 1, 1]
 Entities:
-  - Entity: 260440025664254057
+  - Entity: 8254060153359741392
     TagComponent:
-      Tag: Back Wall
-    Parent: 7010016380193777032
-    Children:
-      []
+      Tag: Waypoint 8
+    Parent: 1081602475336362382
+    Children: []
     TransformComponent:
-      Position: [0, 1.5002626, -6.850001]
-      Rotation: [0, -0, 0]
-      Scale: [14, 2.9966385, 0.3045589]
+      Position: [11, 2.6, 0.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 4772017211827074826
+    TagComponent:
+      Tag: Waypoint 7
+    Parent: 1081602475336362382
+    Children: []
+    TransformComponent:
+      Position: [7, 3.2, -12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 772659898067695419
+    TagComponent:
+      Tag: Waypoint 6
+    Parent: 1081602475336362382
+    Children: []
+    TransformComponent:
+      Position: [-7, 3.2, -12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 4488478707812109672
+    TagComponent:
+      Tag: Waypoint 5
+    Parent: 1081602475336362382
+    Children: []
+    TransformComponent:
+      Position: [-11, 2.6, 0.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 2165622951087975528
+    TagComponent:
+      Tag: Waypoint 4
+    Parent: 1081602475336362382
+    Children: []
+    TransformComponent:
+      Position: [-5, 2, 7]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 6118548909371510221
+    TagComponent:
+      Tag: Waypoint 3
+    Parent: 1081602475336362382
+    Children: []
+    TransformComponent:
+      Position: [0, 1.6, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 6835283809601491885
+    TagComponent:
+      Tag: Waypoint 2
+    Parent: 1081602475336362382
+    Children: []
+    TransformComponent:
+      Position: [4.5, 1.7, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 5221699181655248599
+    TagComponent:
+      Tag: Waypoint 1
+    Parent: 1081602475336362382
+    Children: []
+    TransformComponent:
+      Position: [10, 2.2, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 1081602475336362382
+    TagComponent:
+      Tag: Showcase Camera Path (C)
+    Parent: 0
+    Children:
+      - Handle: 5221699181655248599
+      - Handle: 6835283809601491885
+      - Handle: 6118548909371510221
+      - Handle: 2165622951087975528
+      - Handle: 4488478707812109672
+      - Handle: 772659898067695419
+      - Handle: 4772017211827074826
+      - Handle: 8254060153359741392
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: LuxSample.CameraPath
+      ScriptID: 781295930
+  - Entity: 7084163309628590718
+    TagComponent:
+      Tag: Door Panel
+    Parent: 8712929662064711685
+    Children: []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 2.1, 0.1]
     StaticMeshComponent:
       AssetID: 5047013130077771705
       MaterialTable:
-        0: 452586649420571484
+        0: 13888570423779183036
+      Visible: true
+  - Entity: 8712929662064711685
+    TagComponent:
+      Tag: Door - Audio Portal (F)
+    Parent: 7010016380193777032
+    Children:
+      - Handle: 7084163309628590718
+    TransformComponent:
+      Position: [0, 1.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: LuxSample.SlidingDoor
+      ScriptID: 3167468948
+    AudioPortalComponent:
+      Enabled: true
+      ZoneA: 0
+      ZoneB: 0
+      HalfExtents: [0.6, 1.05, 0.05]
+      Open: 0
+      BlendDistance: 5
+      Material: Wood
+  - Entity: 7010016380193777032
+    TagComponent:
+      Tag: Building
+    Folder: true
+    Parent: 0
+    Children:
+      - Handle: 73040000000000002
+      - Handle: 73040000000000003
+      - Handle: 11208467829056693847
+      - Handle: 16344437922393548024
+      - Handle: 15491283630166138703
+      - Handle: 260440025664254057
+      - Handle: 8712929662064711685
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 73040000000000001
+    TagComponent:
+      Tag: Listener Camera - RMB + WASD
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [12.793255, 1.1563914, 1.7371556]
+      Rotation: [0.008309745, 7.7223644, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: LuxSample.FlyCamera
+      ScriptID: 3987114672
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 45
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+    AudioListenerComponent:
+      Active: true
+      ListenerIndex: 0
+      Weight: 1
+      UseAttenuationTarget: false
+      AttenuationTarget: 0
+  - Entity: 73040000000000002
+    TagComponent:
+      Tag: Floor - VA mesh collider
+    Parent: 7010016380193777032
+    Children: []
+    TransformComponent:
+      Position: [0, -0.25, 0]
+      Rotation: [0, -0, 0]
+      Scale: [14, 0.5, 14]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 13888570423779183036
       Visible: true
     MeshColliderComponent:
-      ColliderAsset: 0
+      ColliderAsset: 5047013130077771705
       SubmeshIndex: 0
       UseSharedShape: false
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Brick
+      AcousticMaterial: Wood
       AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: 2
-  - Entity: 15491283630166138703
+  - Entity: 73040000000000003
     TagComponent:
-      Tag: Left Wall
+      Tag: Front Wall Left
     Parent: 7010016380193777032
-    Children:
-      []
+    Children: []
     TransformComponent:
-      Position: [-6.8393145, 1.319755, -3.2356684]
+      Position: [-3.8, 1.5, 0]
+      Rotation: [0, -0, 0]
+      Scale: [6.4, 3, 0.35]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 3580326328630172300
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Plaster
+      AcousticFromMaterial: true
+      AcousticMotion: 0
+      CollisionComplexity: 2
+  - Entity: 73040000000000004
+    TagComponent:
+      Tag: FMOD Emitter - Fart
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 1, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    ScriptComponent:
+      ClassName: LuxSample.FmodAudioDemo
+      ScriptID: 326709275
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 9784983076328690787
+      Visible: true
+    AudioSourceComponent:
+      VolumeMultiplier: 0.7
+      PitchMultiplier: 1
+      PlayOnAwake: false
+      Priority: 128
+      DistanceCulling: true
+      EventGuid: '{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}'
+      EventPath: ""
+      EventBank: ""
+      ParameterOverrides: []
+  - Entity: 73040000000000008
+    TagComponent:
+      Tag: Music Emitter - MusicAmbiance
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-2.5, 1.6, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 0.4, 0.4]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 9784983076328690787
+      Visible: true
+    AudioSourceComponent:
+      VolumeMultiplier: 0.5
+      PitchMultiplier: 1
+      PlayOnAwake: true
+      Priority: 128
+      DistanceCulling: true
+      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+      EventPath: ""
+      EventBank: ""
+      ParameterOverrides: []
+  - Entity: 73040000000000009
+    TagComponent:
+      Tag: Front Wall Right
+    Parent: 7010016380193777032
+    Children: []
+    TransformComponent:
+      Position: [3.8, 1.5, 0]
+      Rotation: [0, -0, 0]
+      Scale: [6.4, 3, 0.35]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 3580326328630172300
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Plaster
+      AcousticFromMaterial: true
+      AcousticMotion: 0
+      CollisionComplexity: 2
+  - Entity: 73040000000000010
+    TagComponent:
+      Tag: Door Lintel
+    Parent: 7010016380193777032
+    Children: []
+    TransformComponent:
+      Position: [0, 2.55, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1.2, 0.9, 0.35]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 3580326328630172300
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Plaster
+      AcousticFromMaterial: true
+      AcousticMotion: 0
+      CollisionComplexity: 2
+  - Entity: 73040000000000011
+    TagComponent:
+      Tag: Rug
+    Parent: 7010016380193777032
+    Children: []
+    TransformComponent:
+      Position: [-1.5, 0.02, -4]
+      Rotation: [0, -0, 0]
+      Scale: [4, 0.04, 3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 11795118881602129835
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5047013130077771705
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Carpet
+      AcousticFromMaterial: true
+      AcousticMotion: 0
+      CollisionComplexity: 2
+  - Entity: 73040000000000005
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.8, -0.5, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 9.4248
+      Radiance: [1, 0.94, 0.85]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 73040000000000006
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.5
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.6]
+  - Entity: 73040000000000007
+    TagComponent:
+      Tag: Controls
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-4, 4, 1]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 0.4, 0.4]
+    TextComponent:
+      TextString: 'FMOD AUDIO DEMO
+
+        K: Replay source   P: Pause source
+
+        L: One-shot   I: Independent instance
+
+        O: Stop source + instance
+
+        F: Open / close door   C: Camera path
+
+        RMB + WASD: Move listener'
+      FontHandle: 0
+      Color: [0.95, 0.95, 1, 1]
+      LineSpacing: 0.25
+      Kerning: 0
+      MaxWidth: 32
+      ScreenSpace: false
+      DropShadow: false
+      ShadowDistance: 0
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 11208467829056693847
+    TagComponent:
+      Tag: Right Wall
+    Parent: 7010016380193777032
+    Children: []
+    TransformComponent:
+      Position: [6.8317194, 1.3669102, -3.4816613]
       Rotation: [0, -0, 0]
       Scale: [0.3, 2.8, 7]
     StaticMeshComponent:
@@ -78,8 +466,7 @@ Entities:
     TagComponent:
       Tag: Roof
     Parent: 7010016380193777032
-    Children:
-      []
+    Children: []
     TransformComponent:
       Position: [0, 2.8474393, -3.2055612]
       Rotation: [0, -0, 0]
@@ -100,14 +487,13 @@ Entities:
       AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: 2
-  - Entity: 11208467829056693847
+  - Entity: 15491283630166138703
     TagComponent:
-      Tag: Right Wall
+      Tag: Left Wall
     Parent: 7010016380193777032
-    Children:
-      []
+    Children: []
     TransformComponent:
-      Position: [6.8317194, 1.3669102, -3.4816613]
+      Position: [-6.8393145, 1.319755, -3.2356684]
       Rotation: [0, -0, 0]
       Scale: [0.3, 2.8, 7]
     StaticMeshComponent:
@@ -126,470 +512,28 @@ Entities:
       AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: 2
-  - Entity: 73040000000000007
+  - Entity: 260440025664254057
     TagComponent:
-      Tag: Controls
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [-4, 4, 1]
-      Rotation: [0, 0, 0]
-      Scale: [0.4, 0.4, 0.4]
-    TextComponent:
-      TextString: "FMOD AUDIO DEMO\nK: Replay source   P: Pause source\nL: One-shot   I: Independent instance\nO: Stop source + instance\nF: Open / close door   C: Camera path\nRMB + WASD: Move listener"
-      FontHandle: 0
-      Color: [0.95, 0.95, 1, 1]
-      LineSpacing: 0.25
-      Kerning: 0
-      MaxWidth: 32
-      ScreenSpace: false
-      DropShadow: false
-      ShadowDistance: 0
-      ShadowColor: [0, 0, 0, 1]
-  - Entity: 73040000000000006
-    TagComponent:
-      Tag: Sky
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SkyLightComponent:
-      EnvironmentMap: 0
-      Intensity: 0.5
-      Lod: 0
-      DynamicSky: true
-      TurbidityAzimuthInclination: [2, 0, 0.6]
-  - Entity: 73040000000000005
-    TagComponent:
-      Tag: Sun
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [-0.8, -0.5, 0]
-      Scale: [1, 1, 1]
-    DirectionalLightComponent:
-      Intensity: 9.4248
-      Radiance: [1, 0.94, 0.85]
-      Unit: 0
-      ColorTemperature: 6500
-      UseColorTemperature: false
-      CastShadows: true
-      SoftShadows: true
-      LightSize: 0.5
-      ShadowAmount: 1
-      ShadowDistance: 0
-      ShadowResolutionTier: 2
-  - Entity: 73040000000000011
-    TagComponent:
-      Tag: Rug
+      Tag: Back Wall
     Parent: 7010016380193777032
-    Children:
-      []
+    Children: []
     TransformComponent:
-      Position: [-1.5, 0.02, -4]
+      Position: [0, 1.5002626, -6.850001]
       Rotation: [0, -0, 0]
-      Scale: [4, 0.04, 3]
+      Scale: [14, 2.9966385, 0.3045589]
     StaticMeshComponent:
       AssetID: 5047013130077771705
       MaterialTable:
-        0: 11795118881602129835
+        0: 452586649420571484
       Visible: true
     MeshColliderComponent:
-      ColliderAsset: 5047013130077771705
+      ColliderAsset: 0
       SubmeshIndex: 0
       UseSharedShape: false
       Density: 1
       Friction: 0.5
       Restitution: 0
-      AcousticMaterial: Carpet
+      AcousticMaterial: Brick
       AcousticFromMaterial: true
       AcousticMotion: 0
       CollisionComplexity: 2
-  - Entity: 73040000000000010
-    TagComponent:
-      Tag: Door Lintel
-    Parent: 7010016380193777032
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 2.55, 0]
-      Rotation: [0, -0, 0]
-      Scale: [1.2, 0.9, 0.35]
-    StaticMeshComponent:
-      AssetID: 5047013130077771705
-      MaterialTable:
-        0: 3580326328630172300
-      Visible: true
-    MeshColliderComponent:
-      ColliderAsset: 5047013130077771705
-      SubmeshIndex: 0
-      UseSharedShape: false
-      Density: 1
-      Friction: 0.5
-      Restitution: 0
-      AcousticMaterial: Plaster
-      AcousticFromMaterial: true
-      AcousticMotion: 0
-      CollisionComplexity: 2
-  - Entity: 73040000000000009
-    TagComponent:
-      Tag: Front Wall Right
-    Parent: 7010016380193777032
-    Children:
-      []
-    TransformComponent:
-      Position: [3.8, 1.5, 0]
-      Rotation: [0, -0, 0]
-      Scale: [6.4, 3, 0.35]
-    StaticMeshComponent:
-      AssetID: 5047013130077771705
-      MaterialTable:
-        0: 3580326328630172300
-      Visible: true
-    MeshColliderComponent:
-      ColliderAsset: 5047013130077771705
-      SubmeshIndex: 0
-      UseSharedShape: false
-      Density: 1
-      Friction: 0.5
-      Restitution: 0
-      AcousticMaterial: Plaster
-      AcousticFromMaterial: true
-      AcousticMotion: 0
-      CollisionComplexity: 2
-  - Entity: 73040000000000008
-    TagComponent:
-      Tag: Music Emitter - MusicAmbiance
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [-2.5, 1.6, -5]
-      Rotation: [0, 0, 0]
-      Scale: [0.4, 0.4, 0.4]
-    StaticMeshComponent:
-      AssetID: 9685142686327195147
-      MaterialTable:
-        0: 9784983076328690787
-      Visible: true
-    AudioSourceComponent:
-      VolumeMultiplier: 0.5
-      PitchMultiplier: 1
-      PlayOnAwake: true
-      Priority: 128
-      DistanceCulling: true
-      EventGuid: "{755abc01-cd89-4daf-a27b-04d57b807b3d}"
-      EventPath: ""
-      EventBank: ""
-      ParameterOverrides:
-        []
-  - Entity: 73040000000000004
-    TagComponent:
-      Tag: FMOD Emitter - Fart
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 1, -3]
-      Rotation: [0, 0, 0]
-      Scale: [0.7, 0.7, 0.7]
-    ScriptComponent:
-      ClassName: LuxSample.FmodAudioDemo
-      ScriptID: 326709275
-      StoredFields:
-        - ID: 4158056058
-          Name: PlayOnStart
-          Type: Bool
-          Data: true
-        - ID: 2314636909
-          Name: Volume
-          Type: Float
-          Data: 0.7
-    StaticMeshComponent:
-      AssetID: 9685142686327195147
-      MaterialTable:
-        0: 9784983076328690787
-      Visible: true
-    AudioSourceComponent:
-      VolumeMultiplier: 0.7
-      PitchMultiplier: 1
-      PlayOnAwake: false
-      Priority: 128
-      DistanceCulling: true
-      EventGuid: "{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}"
-      EventPath: ""
-      EventBank: ""
-      ParameterOverrides:
-        []
-  - Entity: 73040000000000003
-    TagComponent:
-      Tag: Front Wall Left
-    Parent: 7010016380193777032
-    Children:
-      []
-    TransformComponent:
-      Position: [-3.8, 1.5, 0]
-      Rotation: [0, -0, 0]
-      Scale: [6.4, 3, 0.35]
-    StaticMeshComponent:
-      AssetID: 5047013130077771705
-      MaterialTable:
-        0: 3580326328630172300
-      Visible: true
-    MeshColliderComponent:
-      ColliderAsset: 5047013130077771705
-      SubmeshIndex: 0
-      UseSharedShape: false
-      Density: 1
-      Friction: 0.5
-      Restitution: 0
-      AcousticMaterial: Plaster
-      AcousticFromMaterial: true
-      AcousticMotion: 0
-      CollisionComplexity: 2
-  - Entity: 73040000000000002
-    TagComponent:
-      Tag: Floor - VA mesh collider
-    Parent: 7010016380193777032
-    Children:
-      []
-    TransformComponent:
-      Position: [0, -0.25, 0]
-      Rotation: [0, -0, 0]
-      Scale: [14, 0.5, 14]
-    StaticMeshComponent:
-      AssetID: 5047013130077771705
-      MaterialTable:
-        0: 13888570423779183036
-      Visible: true
-    MeshColliderComponent:
-      ColliderAsset: 5047013130077771705
-      SubmeshIndex: 0
-      UseSharedShape: false
-      Density: 1
-      Friction: 0.5
-      Restitution: 0
-      AcousticMaterial: Wood
-      AcousticFromMaterial: true
-      AcousticMotion: 0
-      CollisionComplexity: 2
-  - Entity: 73040000000000001
-    TagComponent:
-      Tag: Listener Camera - RMB + WASD
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [12.793255, 1.1563914, 1.7371556]
-      Rotation: [0.008309745, 7.7223644, 0]
-      Scale: [1, 1, 1]
-    ScriptComponent:
-      ClassName: LuxSample.FlyCamera
-      ScriptID: 3987114672
-      StoredFields:
-        - ID: 3495151719
-          Name: Speed
-          Type: Float
-          Data: 5
-        - ID: 15508422
-          Name: RumbleOnSprint
-          Type: Bool
-          Data: true
-        - ID: 978505095
-          Name: SprintMultiplier
-          Type: Float
-          Data: 3
-        - ID: 2911448432
-          Name: MouseSensitivity
-          Type: Float
-          Data: 0.0025
-        - ID: 4237734323
-          Name: GamepadLookSpeed
-          Type: Float
-          Data: 2.5
-        - ID: 2657756844
-          Name: InvertGamepadY
-          Type: Bool
-          Data: true
-        - ID: 224242787
-          Name: AdaptiveTriggers
-          Type: Bool
-          Data: true
-        - ID: 2532514871
-          Name: Gamepad
-          Type: Int
-          Data: -1
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 45
-        PerspectiveNear: 0.1
-        PerspectiveFar: 100
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-    AudioListenerComponent:
-      Active: true
-      ListenerIndex: 0
-      Weight: 1
-      UseAttenuationTarget: false
-      AttenuationTarget: 0
-  - Entity: 7010016380193777032
-    TagComponent:
-      Tag: Building
-    Folder: true
-    Parent: 0
-    Children:
-      - Handle: 73040000000000002
-      - Handle: 73040000000000003
-      - Handle: 11208467829056693847
-      - Handle: 16344437922393548024
-      - Handle: 15491283630166138703
-      - Handle: 260440025664254057
-      - Handle: 8712929662064711685
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 8712929662064711685
-    TagComponent:
-      Tag: Door - Audio Portal (F)
-    Parent: 7010016380193777032
-    Children:
-      - Handle: 7084163309628590718
-    TransformComponent:
-      Position: [0, 1.05, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    ScriptComponent:
-      ClassName: LuxSample.SlidingDoor
-    AudioPortalComponent:
-      Enabled: true
-      ZoneA: 0
-      ZoneB: 0
-      HalfExtents: [0.6, 1.05, 0.05]
-      Open: 0
-      BlendDistance: 5
-      Material: Wood
-  - Entity: 7084163309628590718
-    TagComponent:
-      Tag: Door Panel
-    Parent: 8712929662064711685
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1.2, 2.1, 0.1]
-    StaticMeshComponent:
-      AssetID: 5047013130077771705
-      MaterialTable:
-        0: 13888570423779183036
-      Visible: true
-  - Entity: 1081602475336362382
-    TagComponent:
-      Tag: Showcase Camera Path (C)
-    Parent: 0
-    Children:
-      - Handle: 5221699181655248599
-      - Handle: 6835283809601491885
-      - Handle: 6118548909371510221
-      - Handle: 2165622951087975528
-      - Handle: 4488478707812109672
-      - Handle: 772659898067695419
-      - Handle: 4772017211827074826
-      - Handle: 8254060153359741392
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    ScriptComponent:
-      ClassName: LuxSample.CameraPath
-  - Entity: 5221699181655248599
-    TagComponent:
-      Tag: Waypoint 1
-    Parent: 1081602475336362382
-    Children:
-      []
-    TransformComponent:
-      Position: [10, 2.2, 10]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 6835283809601491885
-    TagComponent:
-      Tag: Waypoint 2
-    Parent: 1081602475336362382
-    Children:
-      []
-    TransformComponent:
-      Position: [4.5, 1.7, 6]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 6118548909371510221
-    TagComponent:
-      Tag: Waypoint 3
-    Parent: 1081602475336362382
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 1.6, 4]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 2165622951087975528
-    TagComponent:
-      Tag: Waypoint 4
-    Parent: 1081602475336362382
-    Children:
-      []
-    TransformComponent:
-      Position: [-5, 2, 7]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 4488478707812109672
-    TagComponent:
-      Tag: Waypoint 5
-    Parent: 1081602475336362382
-    Children:
-      []
-    TransformComponent:
-      Position: [-11, 2.6, 0.5]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 772659898067695419
-    TagComponent:
-      Tag: Waypoint 6
-    Parent: 1081602475336362382
-    Children:
-      []
-    TransformComponent:
-      Position: [-7, 3.2, -12]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 4772017211827074826
-    TagComponent:
-      Tag: Waypoint 7
-    Parent: 1081602475336362382
-    Children:
-      []
-    TransformComponent:
-      Position: [7, 3.2, -12]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 8254060153359741392
-    TagComponent:
-      Tag: Waypoint 8
-    Parent: 1081602475336362382
-    Children:
-      []
-    TransformComponent:
-      Position: [11, 2.6, 0.5]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]

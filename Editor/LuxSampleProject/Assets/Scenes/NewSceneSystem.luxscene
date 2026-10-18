@@ -1,12 +1,12 @@
 Scene: New Scene
 PostProcess:
   Exposure: 1
-  ExposureMode: 0
-  Aperture: 1
-  ShutterSpeed: 0.2
-  ISO: 400
-  ExposureEV100: 1.15
-  ExposureCompensation: 0.8
+  ExposureMode: 3
+  Aperture: 16
+  ShutterSpeed: 0.008
+  ISO: 100
+  ExposureEV100: 12
+  ExposureCompensation: 0
   AutoMinEV100: -2
   AutoMaxEV100: 16
   AutoAdaptationSpeedUp: 3
@@ -14,7 +14,7 @@ PostProcess:
   ColorFilter: [1, 1, 1]
   Saturation: 1
   Contrast: 1
-  Gamma: 2.22
+  Gamma: 2.2
   Tonemap: 0
   WhiteTemperature: 0
   WhiteTint: 0
@@ -22,36 +22,70 @@ PostProcess:
   GradeGamma: [1, 1, 1]
   Gain: [1, 1, 1]
 Entities:
-  - Entity: 8091695794772928150
+  - Entity: 7022982668959240531
     TagComponent:
-      Tag: Spot Light
-    Parent: 7022982668959240531
+      Tag: Light
+    Parent: 0
     Children:
-      []
+      - Handle: 12726918091783066847
+      - Handle: 8091695794772928150
     TransformComponent:
-      Position: [-5.0007577, 1.4311785, -1.6500168]
-      Rotation: [-3.0578167, 0.9508554, 0.012217305]
-      Scale: [1, 0.99995023, 0.9999302]
-    SpotLightComponent:
-      Radiance: [1, 1, 1]
-      Angle: 90
-      AngleAttenuation: 3.18
-      CastsShadows: true
-      SoftShadows: true
-      Falloff: 1
-      Intensity: 1045.9577
-      Unit: 0
-      ColorTemperature: 6500
-      UseColorTemperature: false
-      Range: 24.5
-      ShadowDistance: 0
-      ShadowResolutionTier: 1
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 12726918091783066847
+    TagComponent:
+      Tag: Sky Light
+    Parent: 7022982668959240531
+    Children: []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 958788097531993663
+      Intensity: 0.24
+      Lod: 0
+      Rotation: 0
+      DynamicSky: false
+  - Entity: 16805889847351497941
+    TagComponent:
+      Tag: Sponza
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 5094136855824747147
+      MaterialTable: {}
+      Visible: true
+  - Entity: 14121814355416061655
+    TagComponent:
+      Tag: LuxWelcome
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [5, 3.1, -1.5017263]
+      Rotation: [0, -2.3994787, 0]
+      Scale: [1, 1, 1]
+    TextComponent:
+      TextString: Welcome to Lux
+      FontHandle: 0
+      Color: [1, 0, 1, 1]
+      LineSpacing: 1
+      Kerning: -0.1
+      MaxWidth: 19.8
+      ScreenSpace: true
+      DropShadow: true
+      ShadowDistance: 3.48
+      ShadowColor: [0, 0, 0, 1]
   - Entity: 1639952346674441217
     TagComponent:
       Tag: Camera
     Parent: 0
-    Children:
-      []
+    Children: []
     TransformComponent:
       Position: [-6, 0.4, 0.903]
       Rotation: [0.039060928, -1.2501556, 0]
@@ -70,65 +104,26 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
-  - Entity: 14121814355416061655
+  - Entity: 8091695794772928150
     TagComponent:
-      Tag: LuxWelcome
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [5, 3.1, -1.5017263]
-      Rotation: [0, -2.3994787, 0]
-      Scale: [1, 1, 1]
-    TextComponent:
-      TextString: Welcome to Lux
-      FontHandle: 0
-      Color: [1, 0, 1, 1]
-      LineSpacing: 1
-      Kerning: -0.1
-      MaxWidth: 19.8
-      ScreenSpace: true
-      DropShadow: true
-      ShadowDistance: 3.48
-      ShadowColor: [0, 0, 0, 1]
-  - Entity: 16805889847351497941
-    TagComponent:
-      Tag: Sponza
-    Parent: 0
-    Children:
-      []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    StaticMeshComponent:
-      AssetID: 5094136855824747147
-      MaterialTable:
-        {}
-      Visible: true
-  - Entity: 12726918091783066847
-    TagComponent:
-      Tag: Sky Light
+      Tag: Spot Light
     Parent: 7022982668959240531
-    Children:
-      []
+    Children: []
     TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SkyLightComponent:
-      EnvironmentMap: 17181252949308778436
-      Intensity: 0.24
-      Lod: 0
-      DynamicSky: false
-  - Entity: 7022982668959240531
-    TagComponent:
-      Tag: Light
-    Parent: 0
-    Children:
-      - Handle: 12726918091783066847
-      - Handle: 8091695794772928150
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
+      Position: [-5.0007577, 1.4311785, -1.6500168]
+      Rotation: [-3.0578167, 0.9508554, 0.012217305]
+      Scale: [1, 0.99995023, 0.9999302]
+    SpotLightComponent:
+      Radiance: [1, 1, 1]
+      Angle: 90
+      AngleAttenuation: 1.83
+      CastsShadows: true
+      SoftShadows: true
+      Falloff: 2.41
+      Intensity: 125.9
+      Unit: 2
+      ColorTemperature: 7100
+      UseColorTemperature: true
+      Range: 21.7
+      ShadowDistance: 0
+      ShadowResolutionTier: 1
