@@ -30,7 +30,7 @@ Project:
       MeshLODs: true
       MeshLODDistanceScale: 1
       VariableRateShading: true
-      MeshShaders: true
+      MeshShaders: false
       GTAO: true
       GTAOBentNormals: true
       GTAODenoisePasses: 8
