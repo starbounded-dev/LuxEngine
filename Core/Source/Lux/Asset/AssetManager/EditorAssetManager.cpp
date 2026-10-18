@@ -87,8 +87,11 @@ namespace Lux
 		if (auto memoryAsset = GetMemoryAsset(assetHandle))
 			return memoryAsset->GetAssetType();
 
-		AssetMetadata metadata = GetMetadata(assetHandle);
-		return metadata.IsValid() ? metadata.Type : AssetType::None;
+		// Read the entry in place: GetMetadata returns a copy, and copying an AssetMetadata copies
+		// its path. These lookups run per mesh and per material every frame.
+		std::shared_lock lock(m_AssetRegistryMutex);
+		const auto it = m_AssetRegistry.find(assetHandle);
+		return it != m_AssetRegistry.end() && it->second.IsValid() ? it->second.Type : AssetType::None;
 	}
 
 	Ref<Asset> EditorAssetManager::GetAsset(AssetHandle assetHandle)
@@ -222,7 +225,12 @@ namespace Lux
 
 	bool EditorAssetManager::IsAssetHandleValid(AssetHandle assetHandle)
 	{
-		return GetMemoryAsset(assetHandle) != nullptr || GetMetadata(assetHandle).IsValid();
+		if (GetMemoryAsset(assetHandle))
+			return true;
+
+		std::shared_lock lock(m_AssetRegistryMutex);
+		const auto it = m_AssetRegistry.find(assetHandle);
+		return it != m_AssetRegistry.end() && it->second.IsValid();
 	}
 
 	Ref<Asset> EditorAssetManager::GetMemoryAsset(AssetHandle handle)
@@ -625,6 +633,21 @@ namespace Lux
 	{
 		if (auto memoryAsset = GetMemoryAsset(assetHandle))
 			return memoryAsset;
+
+		// Already loaded (the per-frame case): answer from the registry entry in place, without
+		// copying its metadata.
+		{
+			std::shared_lock lock(m_AssetRegistryMutex);
+			const auto it = m_AssetRegistry.find(assetHandle);
+			if (it == m_AssetRegistry.end() || !it->second.IsValid())
+				return nullptr;
+
+			if (it->second.IsDataLoaded)
+			{
+				if (const auto loaded = m_LoadedAssets.find(assetHandle); loaded != m_LoadedAssets.end())
+					return loaded->second;
+			}
+		}
 
 		AssetMetadata metadata = GetMetadata(assetHandle);
 		if (!metadata.IsValid())
