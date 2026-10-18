@@ -423,6 +423,21 @@ namespace Lux {
 		static constexpr uint32_t ShadowCascadeCount = 4;
 		// Entries in RendererData.ShadowKernel, mirrored by SHADOW_KERNEL_SIZE in Buffers.glslh.
 		static constexpr uint32_t ShadowKernelSize = 32;
+
+		// The editor floor grid's look (Grid.glsl). Colours are display-space RGBA, since the grid
+		// draws over the composited image; widths are in pixels.
+		struct GridSettings
+		{
+			glm::vec4 XAxisColor = { 0.86f, 0.30f, 0.30f, 0.90f };
+			glm::vec4 ZAxisColor = { 0.30f, 0.50f, 0.92f, 0.90f };
+			glm::vec4 MinorColor = { 0.55f, 0.55f, 0.55f, 0.30f };
+			glm::vec4 MajorColor = { 0.70f, 0.70f, 0.70f, 0.55f };
+			float CellSize = 1.0f;       // finest cell, metres
+			float FadeDistance = 150.0f; // the grid fades out by this distance from the camera
+			float AxisLineWidth = 2.0f;
+			float MinorLineWidth = 1.0f;
+			float MajorLineWidth = 1.5f;
+		};
 		static constexpr uint32_t MaxSpotShadows = 16;
 		// Point lights take six spot-atlas tiles each (one per cube face).
 		static constexpr uint32_t MaxPointShadows = 8;
@@ -649,6 +664,9 @@ namespace Lux {
 
 		void SetScene(Ref<Scene> scene);
 		void SetViewportSize(uint32_t width, uint32_t height);
+		// Main thread. Values are clamped to a usable range.
+		void SetGridSettings(const GridSettings& settings);
+		const GridSettings& GetGridSettings() const { return m_GridSettings; }
 		void RefreshRenderResolutionScale();
 		void UpdateGTAOData();
 		// Rebuilds RendererData.ShadowKernel when the PCSS sample counts change.
@@ -1639,6 +1657,7 @@ namespace Lux {
 		// ── Editor grid ───────────────────────────────────────────────────────
 		Ref<RenderPass>  m_GridRenderPass;
 		Ref<Material>    m_GridMaterial;
+		GridSettings     m_GridSettings;
 
 		// ── Physics collider debug ────────────────────────────────────────────
 		Ref<Material>    m_SimpleColliderMaterial;

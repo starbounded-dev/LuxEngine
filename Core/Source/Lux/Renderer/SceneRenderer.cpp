@@ -701,6 +701,31 @@ namespace Lux {
 		}
 	}
 
+	void SceneRenderer::SetGridSettings(const GridSettings& settings)
+	{
+		m_GridSettings = settings;
+		for (glm::vec4* color : { &m_GridSettings.XAxisColor, &m_GridSettings.ZAxisColor, &m_GridSettings.MinorColor, &m_GridSettings.MajorColor })
+			*color = glm::clamp(*color, glm::vec4(0.0f), glm::vec4(1.0f));
+		m_GridSettings.CellSize = std::clamp(m_GridSettings.CellSize, 0.001f, 1000.0f);
+		m_GridSettings.FadeDistance = std::clamp(m_GridSettings.FadeDistance, 1.0f, 100000.0f);
+		m_GridSettings.AxisLineWidth = std::clamp(m_GridSettings.AxisLineWidth, 0.5f, 10.0f);
+		m_GridSettings.MinorLineWidth = std::clamp(m_GridSettings.MinorLineWidth, 0.5f, 10.0f);
+		m_GridSettings.MajorLineWidth = std::clamp(m_GridSettings.MajorLineWidth, 0.5f, 10.0f);
+
+		if (!m_GridMaterial)
+			return;
+
+		m_GridMaterial->Set("u_Settings.XAxisColor", m_GridSettings.XAxisColor);
+		m_GridMaterial->Set("u_Settings.ZAxisColor", m_GridSettings.ZAxisColor);
+		m_GridMaterial->Set("u_Settings.MinorColor", m_GridSettings.MinorColor);
+		m_GridMaterial->Set("u_Settings.MajorColor", m_GridSettings.MajorColor);
+		m_GridMaterial->Set("u_Settings.BaseCellSize", m_GridSettings.CellSize);
+		m_GridMaterial->Set("u_Settings.FadeDistance", m_GridSettings.FadeDistance);
+		m_GridMaterial->Set("u_Settings.AxisLineWidthPx", m_GridSettings.AxisLineWidth);
+		m_GridMaterial->Set("u_Settings.MinorLineWidthPx", m_GridSettings.MinorLineWidth);
+		m_GridMaterial->Set("u_Settings.MajorLineWidthPx", m_GridSettings.MajorLineWidth);
+	}
+
 	void SceneRenderer::UpdateShadowKernel(uint32_t blockerSamples, uint32_t filterSamples)
 	{
 		blockerSamples = std::clamp(blockerSamples, 1u, ShadowKernelSize);
@@ -2548,15 +2573,7 @@ namespace Lux {
 			// Grid.glsl draws the floor grid around the camera; colours are in display space (the pass
 			// draws over the composited image).
 			m_GridMaterial = Material::Create(pipelineSpec.Shader, "Grid");
-			m_GridMaterial->Set("u_Settings.XAxisColor", glm::vec4(0.86f, 0.30f, 0.30f, 0.90f));
-			m_GridMaterial->Set("u_Settings.ZAxisColor", glm::vec4(0.30f, 0.50f, 0.92f, 0.90f));
-			m_GridMaterial->Set("u_Settings.MinorColor", glm::vec4(0.55f, 0.55f, 0.55f, 0.30f));
-			m_GridMaterial->Set("u_Settings.MajorColor", glm::vec4(0.70f, 0.70f, 0.70f, 0.55f));
-			m_GridMaterial->Set("u_Settings.BaseCellSize", 1.0f);
-			m_GridMaterial->Set("u_Settings.FadeDistance", 150.0f);
-			m_GridMaterial->Set("u_Settings.AxisLineWidthPx", 2.0f);
-			m_GridMaterial->Set("u_Settings.MinorLineWidthPx", 1.0f);
-			m_GridMaterial->Set("u_Settings.MajorLineWidthPx", 1.5f);
+			SetGridSettings(m_GridSettings);
 		}
 
 		// ── Physics collider debug materials ─────────────────────────────────

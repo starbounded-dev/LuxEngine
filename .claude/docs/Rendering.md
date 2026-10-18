@@ -303,7 +303,9 @@ as well as the reflection lookup.
 **The editor floor grid** (`Grid.glsl`, `SceneRenderer::GridPass`) draws a camera-centred square
 on y = 0 over the composited image. Lines keep a constant pixel width and fade to their average
 coverage below a pixel, the cell size steps by powers of ten with a crossfade, and the X and Z axes
-have their own colours. Its colours and widths are set once on `m_GridMaterial` in `Init()`.
+have their own colours. Colours, widths, cell size and fade distance are
+`SceneRenderer::GridSettings` (`SetGridSettings`, main thread). The editor keeps them as
+`Editor.Grid.*` preferences (Application Settings → Viewport → Grid).
 
 **Directional shadows use a normal-offset bias** in deferred lighting: the receiver moves along its
 normal by 1.5 texels of its cascade (texel size from the cascade's orthographic matrix,

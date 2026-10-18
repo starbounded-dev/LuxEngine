@@ -6,6 +6,7 @@
 #include "Lux/Editor/EditorPanel.h"
 #include "Lux/ImGui/ImGuiLayer.h"
 #include "Lux/Project/UserPreferences.h"
+#include "Lux/Renderer/SceneRenderer.h"
 
 #include <functional>
 #include <vector>
@@ -42,6 +43,8 @@ namespace Lux {
 			bool* ShowEntityIcons = nullptr;
 			bool* ShowViewportPerformanceHUD = nullptr;
 			bool* ShowPhysicsColliders = nullptr;
+			// The editor floor grid's colours, line widths, cell size and fade distance.
+			SceneRenderer::GridSettings* Grid = nullptr;
 			// ImGui gamepad navigation of the editor UI (suspended during Play), and which controller
 			// drives it (empty GUID = Auto).
 			bool* GamepadNavigation = nullptr;

@@ -456,6 +456,7 @@ namespace Lux {
 		editorPreferencesBindings.ShowEntityIcons = &m_ShowEntityIcons;
 		editorPreferencesBindings.ShowViewportPerformanceHUD = &m_ShowViewportPerformanceHUD;
 		editorPreferencesBindings.ShowPhysicsColliders = &m_ShowPhysicsColliders;
+		editorPreferencesBindings.Grid = &m_GridSettings;
 		editorPreferencesBindings.GamepadNavigation = &m_GamepadNavigation;
 		editorPreferencesBindings.GamepadNavigationDevice = &m_GamepadNavigationDevice;
 		editorPreferencesBindings.SimpleLayout = &m_SimpleLayout;
@@ -3059,6 +3060,52 @@ namespace Lux {
 		ImGui::End();
 	}
 
+	namespace {
+
+		// Grid preferences live under "Editor.Grid.*", one float per channel.
+		constexpr std::string_view k_ColorChannels = "RGBA";
+
+		void LoadGridColor(const ApplicationSettings& settings, std::string_view key, glm::vec4& color)
+		{
+			for (int channel = 0; channel < 4; channel++)
+				color[channel] = settings.GetFloat(std::format("Editor.Grid.{}.{}", key, k_ColorChannels[channel]), color[channel]);
+		}
+
+		void SaveGridColor(ApplicationSettings& settings, std::string_view key, const glm::vec4& color)
+		{
+			for (int channel = 0; channel < 4; channel++)
+				settings.SetFloat(std::format("Editor.Grid.{}.{}", key, k_ColorChannels[channel]), color[channel]);
+		}
+
+		void LoadGridPreferences(const ApplicationSettings& settings, SceneRenderer::GridSettings& grid)
+		{
+			grid = SceneRenderer::GridSettings{};
+			LoadGridColor(settings, "XAxisColor", grid.XAxisColor);
+			LoadGridColor(settings, "ZAxisColor", grid.ZAxisColor);
+			LoadGridColor(settings, "MinorColor", grid.MinorColor);
+			LoadGridColor(settings, "MajorColor", grid.MajorColor);
+			grid.CellSize = settings.GetFloat("Editor.Grid.CellSize", grid.CellSize);
+			grid.FadeDistance = settings.GetFloat("Editor.Grid.FadeDistance", grid.FadeDistance);
+			grid.AxisLineWidth = settings.GetFloat("Editor.Grid.AxisLineWidth", grid.AxisLineWidth);
+			grid.MinorLineWidth = settings.GetFloat("Editor.Grid.MinorLineWidth", grid.MinorLineWidth);
+			grid.MajorLineWidth = settings.GetFloat("Editor.Grid.MajorLineWidth", grid.MajorLineWidth);
+		}
+
+		void SaveGridPreferences(ApplicationSettings& settings, const SceneRenderer::GridSettings& grid)
+		{
+			SaveGridColor(settings, "XAxisColor", grid.XAxisColor);
+			SaveGridColor(settings, "ZAxisColor", grid.ZAxisColor);
+			SaveGridColor(settings, "MinorColor", grid.MinorColor);
+			SaveGridColor(settings, "MajorColor", grid.MajorColor);
+			settings.SetFloat("Editor.Grid.CellSize", grid.CellSize);
+			settings.SetFloat("Editor.Grid.FadeDistance", grid.FadeDistance);
+			settings.SetFloat("Editor.Grid.AxisLineWidth", grid.AxisLineWidth);
+			settings.SetFloat("Editor.Grid.MinorLineWidth", grid.MinorLineWidth);
+			settings.SetFloat("Editor.Grid.MajorLineWidth", grid.MajorLineWidth);
+		}
+
+	}
+
 	void EditorLayer::LoadEditorPreferences()
 	{
 		auto& settings = Application::Get().GetSettings();
@@ -3077,6 +3124,7 @@ namespace Lux {
 		m_ShowEntityIcons = settings.GetInt("Editor.ShowEntityIcons", 1) != 0;
 		m_ShowViewportPerformanceHUD = settings.GetInt("Editor.ShowViewportPerformanceHUD", 1) != 0;
 		m_ShowPhysicsColliders = settings.GetInt("Editor.ShowPhysicsColliders", 0) != 0;
+		LoadGridPreferences(settings, m_GridSettings);
 		m_GamepadNavigation = settings.GetInt("Editor.GamepadNavigation", 0) != 0;
 		m_GamepadNavigationDevice.GUID = settings.Get("Editor.GamepadNavigationGUID");
 		m_GamepadNavigationDevice.Name = settings.Get("Editor.GamepadNavigationName");
@@ -3101,6 +3149,7 @@ namespace Lux {
 		settings.SetInt("Editor.ShowEntityIcons", m_ShowEntityIcons ? 1 : 0);
 		settings.SetInt("Editor.ShowViewportPerformanceHUD", m_ShowViewportPerformanceHUD ? 1 : 0);
 		settings.SetInt("Editor.ShowPhysicsColliders", m_ShowPhysicsColliders ? 1 : 0);
+		SaveGridPreferences(settings, m_GridSettings);
 		settings.SetInt("Editor.GamepadNavigation", m_GamepadNavigation ? 1 : 0);
 		settings.Set("Editor.GamepadNavigationGUID", m_GamepadNavigationDevice.GUID);
 		settings.Set("Editor.GamepadNavigationName", m_GamepadNavigationDevice.Name);
@@ -3148,7 +3197,11 @@ namespace Lux {
 		Application::Get().GetWindow().SetPreferImmediatePresentMode(m_PreferImmediatePresentMode);
 
 		if (m_SceneRenderer)
+		{
 			m_SceneRenderer->GetOptions().ShowPhysicsColliders = m_ShowPhysicsColliders;
+			m_SceneRenderer->SetGridSettings(m_GridSettings);
+			m_GridSettings = m_SceneRenderer->GetGridSettings(); // clamped
+		}
 	}
 
 	void EditorLayer::LoadUserPreferences()

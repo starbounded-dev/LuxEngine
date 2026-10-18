@@ -331,6 +331,7 @@ namespace Lux
 		int m_GizmoType = -1;
 
 		bool m_ShowPhysicsColliders = false;
+		SceneRenderer::GridSettings m_GridSettings;
 		bool m_ShowBoundingBoxes = false;
 		AssetHandle m_LastInvalidBoundsMesh = 0;
 		bool m_ShowEntityIcons = true;

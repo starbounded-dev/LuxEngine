@@ -355,6 +355,34 @@ namespace Lux {
 			notifyBindings = true;
 		ImGuiEx::EndPropertyGrid();
 
+		if (m_Bindings.Grid)
+		{
+			SceneRenderer::GridSettings& grid = *m_Bindings.Grid;
+
+			ImGui::Spacing();
+			ImGui::TextUnformatted("Grid");
+			ImGui::Separator();
+
+			ImGuiEx::BeginPropertyGrid();
+			notifyBindings |= ImGuiEx::PropertyColor("X Axis Colour", grid.XAxisColor);
+			notifyBindings |= ImGuiEx::PropertyColor("Z Axis Colour", grid.ZAxisColor);
+			notifyBindings |= ImGuiEx::PropertyColor("Minor Line Colour", grid.MinorColor);
+			notifyBindings |= ImGuiEx::PropertyColor("Major Line Colour", grid.MajorColor);
+			notifyBindings |= ImGuiEx::Property("Axis Line Width", grid.AxisLineWidth, 0.05f, 0.5f, 10.0f, "Pixels.");
+			notifyBindings |= ImGuiEx::Property("Minor Line Width", grid.MinorLineWidth, 0.05f, 0.5f, 10.0f, "Pixels.");
+			notifyBindings |= ImGuiEx::Property("Major Line Width", grid.MajorLineWidth, 0.05f, 0.5f, 10.0f, "Pixels.");
+			notifyBindings |= ImGuiEx::Property("Cell Size", grid.CellSize, 0.01f, 0.001f, 1000.0f,
+				"Finest cell in metres. Coarser cells step up by powers of ten as the camera moves away.");
+			notifyBindings |= ImGuiEx::Property("Fade Distance", grid.FadeDistance, 1.0f, 1.0f, 100000.0f, "Metres from the camera.");
+			ImGuiEx::EndPropertyGrid();
+
+			if (ImGui::Button("Reset Grid"))
+			{
+				grid = SceneRenderer::GridSettings{};
+				notifyBindings = true;
+			}
+		}
+
 		if (m_Bindings.GamepadNavigation)
 		{
 			ImGui::Spacing();
