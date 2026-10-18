@@ -240,6 +240,20 @@ occlusion). Direct light already has shadow-map visibility, so AO must never mul
 color. `SceneRenderer::BeginScene` binds `u_AmbientOcclusion` every frame, inside its render-thread
 submit: the resolved image when GTAO is on, the white texture when it is off.
 
+**GTAO has two estimators and up to three noise passes, all per frame.** `CBGTAOData` (push constants,
+mirrored by `GTAOConstants` in `GTAO.hlsl`; 88 bytes, asserted) carries:
+- **`VisibilityBitmask`**: switches XeGTAO's horizon integral for a 32-sector visibility bitmask
+  (Therrien et al. 2023). Each sample occludes only the sectors between its front surface and a point
+  `Thickness` metres behind it, so thin objects stop darkening everything under their horizon. Sectors
+  are spaced in `sin` of the angle from the normal, so each covers equal cosine-weighted area and the
+  result stays comparable to GTAO's integral. This mode does not bend normals.
+- **`NoisePassCount`** (1–3): re-runs the slices with the noise shifted along R2 and averages them. This
+  is spatial supersampling, not accumulation.
+
+Sky pixels (reverse-Z device depth 0) exit early. The options are
+`SceneRendererOptions::GTAOVisibilityBitmask` / `GTAOThickness` / `GTAONoisePasses`. The AO quality
+tier sets the noise passes (Ultra 2, Cinematic 3); the bitmask is opt-in.
+
 **Direct lighting is physical.** Every analytic light goes through `LuxEvaluateDirectBRDF`
 (`PBR.glslh`): Frostbite diffuse with Lambert's 1/π, GGX with height-correlated Smith visibility,
 Turquin multiscatter compensation. Point and spot lights fall off as inverse-square, windowed to zero

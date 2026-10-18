@@ -287,6 +287,12 @@ namespace Lux {
 		// ApplyAmbientOcclusionQuality - using XeGTAO's own preset values.
 		uint32_t GTAOSliceCount = 9;
 		uint32_t GTAOStepsPerSlice = 3;
+		// Visibility-bitmask GTAO: occluders are GTAOThickness metres deep instead of infinitely
+		// thick, so thin objects darken less. Off = XeGTAO's horizon integral.
+		bool  GTAOVisibilityBitmask = false;
+		float GTAOThickness = 0.5f;
+		// 1..3 sampling passes per pixel with shifted noise, averaged (spatial, no history).
+		uint32_t GTAONoisePasses = 1;
 		bool  EnableSSR = true;
 		ShaderDef::AOMethod ReflectionOcclusionMethod = ShaderDef::AOMethod::None;
 		bool  EnableJumpFlood = true;
@@ -1367,8 +1373,12 @@ namespace Lux {
 			float ShadowTolerance = 0.0f;
 			uint32_t SliceCount = 9;
 			uint32_t StepsPerSlice = 3;
-			float Padding = 0.0f;
+			float Thickness = 0.5f;
+			uint32_t VisibilityBitmask = 0;
+			uint32_t NoisePassCount = 1;
+			glm::vec2 Padding = { 0.0f, 0.0f };
 		} m_GTAODataCB;
+		static_assert(sizeof(CBGTAOData) == 88, "CBGTAOData must match GTAOConstants in GTAO.hlsl.");
 
 		struct GTAODenoiseConstants
 		{

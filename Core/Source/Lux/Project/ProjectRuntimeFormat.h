@@ -14,6 +14,7 @@ namespace Lux
 		struct FileHeader
 		{
 			char Header[4] = { 'L', 'P', 'R', 'J' };
+			// 27: GTAO visibility bitmask, thickness and noise passes close the scene-renderer block
 			// 26: PCSS blocker/filter sample counts close the scene-renderer block
 			// 25: bounded occlusion settings follow performance budgets
 			// 24: fixed render width/height close the scene-renderer block
@@ -26,7 +27,7 @@ namespace Lux
 			// 17: explicit AudioBankManifest follows the unchanged fixed ProjectInfo block
 			// 16: GTAO slice/step sample counts
 			// 15: removed all temporal settings (TAA, SMAA T2x, GTAO/SSR accumulation)
-			uint32_t Version = 26;
+			uint32_t Version = 27;
 		};
 
 		struct Audio

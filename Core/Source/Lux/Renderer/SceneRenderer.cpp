@@ -762,6 +762,7 @@ namespace Lux {
 
 		m_Options.EnableGTAO = true;
 		m_Options.GTAOBentNormals = false;
+		m_Options.GTAONoisePasses = 1;
 		// NEVER enabled by a tier. Temporal accumulation reprojects last frame's AO, which
 		// smears ghosting behind anything that moves. Cost is paid with spatial denoise
 		// passes and full-resolution AO instead - see the denoise counts below.
@@ -794,6 +795,7 @@ namespace Lux {
 				m_Options.GTAOBentNormals = true;
 				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 				m_Options.GTAODenoisePasses = 6;
+				m_Options.GTAONoisePasses = 2;
 				m_Options.GTAOSliceCount = 9;
 				m_Options.GTAOStepsPerSlice = 3;
 				break;
@@ -801,6 +803,7 @@ namespace Lux {
 				m_Options.GTAOBentNormals = true;
 				m_Options.GTAOResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 				m_Options.GTAODenoisePasses = 8;
+				m_Options.GTAONoisePasses = 3;
 				m_Options.GTAOSliceCount = 9;
 				m_Options.GTAOStepsPerSlice = 3;
 				break;
@@ -1117,6 +1120,9 @@ namespace Lux {
 		m_Options.GTAODenoisePasses = settings.GTAODenoisePasses;
 		m_Options.GTAOSliceCount = std::clamp(settings.GTAOSliceCount, 1u, 9u);
 		m_Options.GTAOStepsPerSlice = std::clamp(settings.GTAOStepsPerSlice, 1u, 4u);
+		m_Options.GTAOVisibilityBitmask = settings.GTAOVisibilityBitmask;
+		m_Options.GTAOThickness = std::clamp(settings.GTAOThickness, 0.01f, 10.0f);
+		m_Options.GTAONoisePasses = std::clamp(settings.GTAONoisePasses, 1u, 3u);
 		m_Options.AOShadowTolerance = settings.AOShadowTolerance;
 		m_Options.EnableSSR = settings.EnableSSR;
 		m_Options.GTAOResolutionScale = SanitizeEffectResolutionScale(settings.GTAOResolutionScale);
@@ -1213,6 +1219,9 @@ namespace Lux {
 		settings.GTAODenoisePasses = m_Options.GTAODenoisePasses;
 		settings.GTAOSliceCount = m_Options.GTAOSliceCount;
 		settings.GTAOStepsPerSlice = m_Options.GTAOStepsPerSlice;
+		settings.GTAOVisibilityBitmask = m_Options.GTAOVisibilityBitmask;
+		settings.GTAOThickness = m_Options.GTAOThickness;
+		settings.GTAONoisePasses = m_Options.GTAONoisePasses;
 		settings.AOShadowTolerance = m_Options.AOShadowTolerance;
 		settings.EnableSSR = m_Options.EnableSSR;
 		settings.GTAOResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
@@ -5086,6 +5095,9 @@ namespace Lux {
 			m_GTAODataCB.ShadowTolerance = m_Options.AOShadowTolerance;
 			m_GTAODataCB.SliceCount = m_Options.GTAOSliceCount;
 			m_GTAODataCB.StepsPerSlice = m_Options.GTAOStepsPerSlice;
+			m_GTAODataCB.VisibilityBitmask = m_Options.GTAOVisibilityBitmask ? 1u : 0u;
+			m_GTAODataCB.Thickness = std::clamp(m_Options.GTAOThickness, 0.01f, 10.0f);
+			m_GTAODataCB.NoisePassCount = std::clamp(m_Options.GTAONoisePasses, 1u, 3u);
 
 			m_Options.SSRResolutionScale = GetSSRQualityResolutionScale(m_Options.SSRQuality);
 			m_SSROptions.ResolutionScale = GetEffectResolutionDivisor(m_Options.SSRResolutionScale);

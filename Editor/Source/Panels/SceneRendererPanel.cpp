@@ -613,7 +613,7 @@ namespace Lux {
 		}
 
 		// ---- Screen-Space Effects ------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Screen Space Effects", { "GTAO", "GTAO Bent Normals", "GTAO Resolution", "GTAO Denoise Passes", "AO Shadow Tolerance", "SSR", "SSR Quality", "SMAA", "SMAA Threshold", "SMAA Local Contrast", "Jump Flood Outline", "Async Compute" }))
+		if (CardHasMatch(queryLower, "Screen Space Effects", { "GTAO", "GTAO Bent Normals", "GTAO Visibility Bitmask", "GTAO Thickness", "GTAO Noise Passes", "GTAO Resolution", "GTAO Denoise Passes", "AO Shadow Tolerance", "SSR", "SSR Quality", "SMAA", "SMAA Threshold", "SMAA Local Contrast", "Jump Flood Outline", "Async Compute" }))
 		{
 			if (BeginSettingsCard("card_ss", LUX_ICON_MAGIC, "Screen-Space Effects", m_CardScreenSpace, searching))
 			{
@@ -621,6 +621,12 @@ namespace Lux {
 				bool gtaoSettingsChanged = false;
 				gtaoSettingsChanged |= toggle("GTAO", options.EnableGTAO);
 				gtaoSettingsChanged |= toggle("GTAO Bent Normals", options.GTAOBentNormals);
+				projectSettingsChanged |= toggle("GTAO Visibility Bitmask", options.GTAOVisibilityBitmask);
+				if (options.GTAOVisibilityBitmask && match("GTAO Thickness"))
+					projectSettingsChanged |= ImGuiEx::Property("GTAO Thickness", options.GTAOThickness, 0.01f, 0.01f, 10.0f,
+						"Assumed depth of every occluder, in metres. Thin values let light past thin objects.");
+				if (match("GTAO Noise Passes"))
+					projectSettingsChanged |= ImGuiEx::Property("GTAO Noise Passes", options.GTAONoisePasses, 1u, 3u);
 				if (match("GTAO Resolution") && DrawEffectScaleProperty("GTAO Resolution", options.GTAOResolutionScale))
 				{
 					screenSpaceResourcesChanged = true;

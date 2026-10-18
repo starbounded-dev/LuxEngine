@@ -79,6 +79,7 @@ namespace Lux {
 			{ "AsyncCompute", &SceneRendererOptions::EnableAsyncCompute },
 			{ "OcclusionCulling", &SceneRendererOptions::EnableOcclusionCulling },
 			{ "SoftShadows", &SceneRendererOptions::SoftShadows },
+			{ "GTAOBitmask", &SceneRendererOptions::GTAOVisibilityBitmask },
 		};
 
 		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS" };

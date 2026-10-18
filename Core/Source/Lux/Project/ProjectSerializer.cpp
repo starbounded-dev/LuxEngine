@@ -224,6 +224,9 @@ namespace Lux
 			out << Yaml::Key << "GTAODenoisePasses" << Yaml::Value << settings.GTAODenoisePasses;
 			out << Yaml::Key << "GTAOSliceCount" << Yaml::Value << settings.GTAOSliceCount;
 			out << Yaml::Key << "GTAOStepsPerSlice" << Yaml::Value << settings.GTAOStepsPerSlice;
+			out << Yaml::Key << "GTAOVisibilityBitmask" << Yaml::Value << settings.GTAOVisibilityBitmask;
+			out << Yaml::Key << "GTAOThickness" << Yaml::Value << settings.GTAOThickness;
+			out << Yaml::Key << "GTAONoisePasses" << Yaml::Value << settings.GTAONoisePasses;
 			out << Yaml::Key << "AOShadowTolerance" << Yaml::Value << settings.AOShadowTolerance;
 			out << Yaml::Key << "SSR" << Yaml::Value << settings.EnableSSR;
 			out << Yaml::Key << "JumpFloodOutline" << Yaml::Value << settings.EnableJumpFlood;
@@ -322,6 +325,9 @@ namespace Lux
 				settings.GTAODenoisePasses = rendering["GTAODenoisePasses"].as<int>(settings.GTAODenoisePasses);
 				settings.GTAOSliceCount = rendering["GTAOSliceCount"].as<uint32_t>(settings.GTAOSliceCount);
 				settings.GTAOStepsPerSlice = rendering["GTAOStepsPerSlice"].as<uint32_t>(settings.GTAOStepsPerSlice);
+				settings.GTAOVisibilityBitmask = rendering["GTAOVisibilityBitmask"].as<bool>(settings.GTAOVisibilityBitmask);
+				settings.GTAOThickness = rendering["GTAOThickness"].as<float>(settings.GTAOThickness);
+				settings.GTAONoisePasses = rendering["GTAONoisePasses"].as<uint32_t>(settings.GTAONoisePasses);
 				settings.AOShadowTolerance = rendering["AOShadowTolerance"].as<float>(settings.AOShadowTolerance);
 				settings.EnableSSR = rendering["SSR"].as<bool>(settings.EnableSSR);
 				settings.EnableJumpFlood = rendering["JumpFloodOutline"].as<bool>(settings.EnableJumpFlood);
@@ -476,6 +482,9 @@ namespace Lux
 			serializer.WriteRaw(settings.FixedRenderHeight);
 			serializer.WriteRaw(settings.ShadowBlockerSamples);
 			serializer.WriteRaw(settings.ShadowFilterSamples);
+			serializer.WriteRaw(settings.GTAOVisibilityBitmask);
+			serializer.WriteRaw(settings.GTAOThickness);
+			serializer.WriteRaw(settings.GTAONoisePasses);
 		}
 
 		void ReadSceneRendererRuntimeSettings(FileStreamReader& stream, ProjectSceneRendererSettings& settings, uint32_t version)
@@ -617,6 +626,13 @@ namespace Lux
 			{
 				stream.ReadRaw(settings.ShadowBlockerSamples);
 				stream.ReadRaw(settings.ShadowFilterSamples);
+			}
+
+			if (version >= 27)
+			{
+				stream.ReadRaw(settings.GTAOVisibilityBitmask);
+				stream.ReadRaw(settings.GTAOThickness);
+				stream.ReadRaw(settings.GTAONoisePasses);
 			}
 
 			if (version >= 7)

@@ -44,6 +44,7 @@ FEATURE_VARIANTS = {
     "noOcclusionCulling": "OcclusionCulling=0",
     "noSoftShadows": "SoftShadows=0",
     "PCSS": "PCSS=1",
+    "GTAOBitmask": "GTAOBitmask=1",
     "asyncCompute": "AsyncCompute=1",
     "meshShaders": "MeshShaders=1",
 }

@@ -121,6 +121,9 @@ namespace Lux
 		// because the tier in the project file is only a label on load.
 		uint32_t GTAOSliceCount = 9;
 		uint32_t GTAOStepsPerSlice = 3;
+		bool GTAOVisibilityBitmask = false;
+		float GTAOThickness = 0.5f;
+		uint32_t GTAONoisePasses = 1;
 		float AOShadowTolerance = 1.0f;
 		bool EnableSSR = true;
 		bool EnableJumpFlood = true;
