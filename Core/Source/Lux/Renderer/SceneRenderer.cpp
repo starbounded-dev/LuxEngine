@@ -6153,8 +6153,6 @@ namespace Lux {
 
 				if (materialHandle)
 					materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
-				if (materialAsset)
-					materialAsset->UpdateMaterialComplexityMetadata();
 
 				if (!materialAsset)
 					resolvedOverrideMaterial = Renderer::GetDefaultWhiteMaterial();
@@ -9050,10 +9048,7 @@ namespace Lux {
 
 				if (matHandle)
 					if (auto matAsset = AssetManager::GetAsset<MaterialAsset>(matHandle))
-					{
-						matAsset->UpdateMaterialComplexityMetadata();
 						material = matAsset->GetMaterial();
-					}
 			}
 
 			if (!material)

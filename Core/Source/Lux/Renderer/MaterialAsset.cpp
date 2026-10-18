@@ -115,6 +115,7 @@ namespace Lux {
 		read(s_EmissionUniform, m_Values.Emission);
 		read(s_TransparencyUniform, m_Values.Transparency);
 		read(s_UseNormalMapUniform, m_Values.UseNormalMap);
+		UpdateMaterialComplexityMetadata();
 	}
 
 	MaterialAsset::~MaterialAsset()
