@@ -23,9 +23,10 @@ namespace Lux {
 		RefCounted(RefCounted&&) noexcept {}
 		RefCounted& operator=(RefCounted&&) noexcept { return *this; }
 
-		void IncRefCount() const
+		// Returns the new count: 1 means this reference brought the object to life.
+		uint32_t IncRefCount() const
 		{
-			++m_RefCount;
+			return ++m_RefCount;
 		}
 		// Returns the new (post-decrement) count so callers can decide deletion from the atomic
 		// operation itself. Decrementing and then separately loading the count is a double-free
@@ -207,8 +208,11 @@ namespace Lux {
 		{
 			if (m_Instance)
 			{
-				m_Instance->IncRefCount();
-				RefUtils::AddToLiveReferences((void*)m_Instance);
+				// The registry only needs the object while it lives, so register on the first reference
+				// alone. Every copy used to take the registry mutex and hash the pointer, which made Ref
+				// copies a measurable share of main-thread time.
+				if (m_Instance->IncRefCount() == 1)
+					RefUtils::AddToLiveReferences((void*)m_Instance);
 			}
 		}
 
