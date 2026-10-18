@@ -2325,7 +2325,9 @@ namespace Lux {
 		packet.PostProcess = m_PostProcessSettings;
 
 		// Mesh proxies, 2D overlay items and physics-collider debug meshes
+		Timer meshSyncTimer;
 		packet.Meshes = SyncRenderScene(isSelected);
+		packet.MeshSyncMs = meshSyncTimer.ElapsedMillis();
 		CaptureDraw2D(packet);
 		CaptureColliderDebug(packet, renderer, isSelected);
 		CaptureAudioZones(packet, isSelected);
@@ -2520,6 +2522,8 @@ namespace Lux {
 		renderer->SetPostProcessSettings(packet.PostProcess);
 
 		renderer->BeginScene(packet.Camera);
+		// The sync ran while the packet was built, before BeginScene reset the frame's profiles.
+		renderer->RecordStageCPUProfile("RenderSceneSync", packet.MeshSyncMs);
 
 		{
 			LUX_PROFILE_SCOPE("Scene::SubmitMeshes");
@@ -2606,7 +2610,9 @@ namespace Lux {
 		packet.PostProcess = m_PostProcessSettings;
 
 		// Submit all static meshes (no selection highlight in runtime)
+		Timer meshSyncTimer;
 		packet.Meshes = SyncRenderSceneMirror(m_RuntimeRenderScene, nullptr);
+		packet.MeshSyncMs = meshSyncTimer.ElapsedMillis();
 		CaptureDraw2D(packet);
 		CaptureColliderDebug(packet, renderer, nullptr);
 

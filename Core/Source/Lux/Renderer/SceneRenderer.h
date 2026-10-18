@@ -672,6 +672,10 @@ namespace Lux {
 		void SetViewportSize(uint32_t width, uint32_t height);
 		// Main thread. Values are clamped to a usable range.
 		void SetGridSettings(const GridSettings& settings);
+		// Records a CPU stage of the frame (render-scene sync, submit, flush) as a pass profile, between
+		// BeginScene and the end of EndScene. Stages enclose pass zones, so they are kept out of
+		// Statistics::TotalCPUTime. Main thread.
+		void RecordStageCPUProfile(const char* name, float milliseconds);
 		const GridSettings& GetGridSettings() const { return m_GridSettings; }
 		void RefreshRenderResolutionScale();
 		void UpdateGTAOData();
@@ -1218,6 +1222,17 @@ namespace Lux {
 		void BuildIndirectDrawCommand(const StaticDrawCommand& dc,
 			const TransformMapData& tmd,
 			std::vector<DrawIndexedIndirectCommand>& drawCommands);
+
+		// Times a stage for RecordStageCPUProfile.
+		struct ScopedStageProfile
+		{
+			ScopedStageProfile(SceneRenderer& renderer, const char* name) : Renderer(renderer), Name(name) {}
+			~ScopedStageProfile() { Renderer.RecordStageCPUProfile(Name, ProfileTimer.ElapsedMillis()); }
+
+			SceneRenderer& Renderer;
+			const char* Name = "";
+			Timer ProfileTimer;
+		};
 
 		struct ScopedCPUProfile
 		{

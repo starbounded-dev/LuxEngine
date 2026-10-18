@@ -5,6 +5,7 @@
 
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Ref.h"
+#include "Lux/Core/UUID.h"
 #include "Lux/Renderer/SceneRenderer.h"
 
 #include <glm/glm.hpp>
@@ -14,6 +15,8 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace Lux {
 
@@ -36,7 +39,10 @@ namespace Lux {
 	//   LUX_GOLDEN_IDLE_FRAMES  consecutive frames with no pending asset loads required (default 60)
 	//   LUX_GOLDEN_TIMEOUT      frames after which a capture still waiting on loads fails (default 6000)
 	//   LUX_GOLDEN_PERF_FRAMES  frames averaged into <name>.perf.json after the capture (default 300)
-	//   LUX_GOLDEN_OPTIONS      comma-separated Name=Value renderer overrides, e.g. "SSR=0,GTAO=1"
+	//   LUX_GOLDEN_OPTIONS      comma-separated Name=Value renderer overrides, e.g. "SSR=0,GTAO=1".
+	//                           MoveEntities=N moves the first N static-mesh entities (by UUID) along a
+	//                           loop every frame and captures on a frame where the loop is back at
+	//                           its start, so the image must match the unmoved capture.
 	//   LUX_GOLDEN_SELFTEST     "1" also runs RenderGraph::RunValidationSelfTests
 	//   LUX_GOLDEN_EXIT         "0" keeps the editor open afterwards (default: close)
 	//
@@ -97,6 +103,8 @@ namespace Lux {
 		void ParseOptions(const std::string& options);
 		void ApplyOptions(SceneRenderer& renderer) const;
 		void ComputeCameraPose(Scene& scene);
+		void MoveEntities(Scene& scene);
+		void RestoreMovedEntities();
 		void RequestReadback(Ref<SceneRenderer> renderer);
 		void AccumulatePerf(const SceneRenderer& renderer);
 		void WritePerf() const;
@@ -133,6 +141,13 @@ namespace Lux {
 		} m_CameraPose;
 
 		Ref<CaptureResult> m_Result;
+
+		// MoveEntities: the moved entities' original translations, and the loop phase applied this frame.
+		uint32_t m_MoveEntityCount = 0;
+		uint32_t m_MoveFrame = 0;
+		uint32_t m_MovePhase = 0;
+		Scene* m_MovedScene = nullptr;
+		std::vector<std::pair<UUID, glm::vec3>> m_MovedEntities;
 
 		double m_GPUTime = 0.0;
 		double m_CPUTime = 0.0;

@@ -13,8 +13,8 @@ in `.claude/docs/Architecture-LuxEngine.md` § 2.3 / 2.4 and `.claude/docs/Rende
 - **Goal:** stop rebuilding and resubmitting ~7k unchanged static meshes every frame; let the GPU
   decide per-frame visibility and LOD.
 - **Success:** on Benchmark (Release, 1280x720, golden harness), main-thread time spent in render
-  scene sync + submit + draw-list flush drops from ≈13 ms (≈88% of a ≈14.7 ms main thread, Phase 0
-  confirms) to **under 1.5 ms** for a frame where nothing changed; every golden capture stays
+  scene sync + submit + draw-list flush drops from **17.3 ms** (98% of a 17.7 ms main thread,
+  measured in Phase 0) to **under 1.5 ms** for a frame where nothing changed; every golden capture stays
   pixel-identical (max diff ≤ 1); moving, editing, hiding, selecting, adding and removing meshes
   still render correctly that same frame.
 - **Non-goals:** animated (skinned) meshes, sprites/2D, GPU cost of the passes, Release memory
@@ -118,9 +118,11 @@ the shadow-cache invalidation hashes are replaced by dirty signals from the chan
 **Goal:** a per-stage CPU breakdown in `perf.json`, and an automated test that moves objects.
 
 **Changes**
-- `Renderer/SceneRenderer.h/.cpp` — **NEW** public `RecordExternalCPUProfile(name, ms)` (wraps the
-  private `RecordCPUProfile`); `ScopedCPUProfile` zones `"SubmitRenderScene"`, `"FlushDrawList"`.
-- `Scene/Scene.cpp` — time `SyncRenderSceneMirror` and record it as `"RenderSceneSync"`.
+- `Renderer/SceneRenderer.h/.cpp` — **NEW** public `RecordStageCPUProfile(name, ms)` and
+  `ScopedStageProfile`; stage zones `"SubmitRenderScene"`, `"FlushDrawList"` (kept out of
+  `TotalCPUTime`, because they enclose pass zones).
+- `Scene/Scene.cpp` — time the mirror sync into **NEW** `FrameRenderPacket::MeshSyncMs`;
+  `SubmitRenderPacket` records it as `"RenderSceneSync"` after `BeginScene`.
 - `Editor/Source/Tools/GoldenCapture.cpp` — **NEW** option `MoveEntities=N`: before each frame,
   offset the first N `StaticMeshComponent` entities (by UUID order) by a translation that is a pure
   function of the frame number; restore at exit. `tests/rendering/golden_run.py` — **NEW**
@@ -130,6 +132,12 @@ the shadow-cache invalidation hashes are replaced by dirty signals from the chan
 no behaviour change); perf.json shows the three new zones; the moving capture is deterministic
 (3 runs pixel-identical to each other).
 **Exit:** baseline table recorded in this file (Part 4). **Rollback:** revert; zones are inert.
+
+**Status: done 2026-10-18.** The moving captures are identical to each other and match the unmoved
+capture within `golden_compare` tolerance (37 px, max 18, in the capsule rack: coplanar surfaces
+whose draw order changes when meshes move). One default run (the first launch after the rebuild)
+rendered 0.28% differently from the other two, which matched earlier sessions exactly — a
+pre-existing first-launch flake to keep in mind when reading a single run.
 
 ### Phase 1 — Unchanged meshes cost nothing in the sync
 
@@ -229,8 +237,15 @@ pass.
   every phase.
 - Perf: perf.json medians, A-B-A in one session (session drift was 22→31 ms for the same code).
 - Editor scenarios list in Phase 1, re-run after Phases 2–5.
-- Baseline table (filled in Phase 0): RenderSceneSync / SubmitRenderScene / FlushDrawList / main
-  thread / frame.
+- Baseline (Phase 0, 2026-10-18, Release at 42bc7805 + Phase 0, medians of 3, one session):
+
+  | Variant | RenderSceneSync | SubmitRenderScene | FlushDrawList | Main thread | Frame | GPU |
+  |---|---|---|---|---|---|---|
+  | default | 7.61 ms | 8.09 ms | 1.57 ms | 17.70 ms | 20.87 ms | 2.86 ms |
+  | `MoveEntities=256` | 7.41 ms | 7.60 ms | 1.54 ms | 16.82 ms | 19.66 ms | 4.47 ms |
+
+  Moving costs the same as static today because every mesh is rebuilt every frame either way; after
+  Phase 1–2 the moving row shows what changes cost, the default row what retention saves.
 
 ## Part 5 — Risks
 

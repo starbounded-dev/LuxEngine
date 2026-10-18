@@ -76,6 +76,7 @@ namespace Lux {
 		PostProcessSettings PostProcess;
 
 		Ref<RenderScene> Meshes;
+		float MeshSyncMs = 0.0f; // CPU time of the render-scene sync that produced Meshes
 
 		std::vector<Draw2DItem> Draw2D;
 		std::vector<DebugLine> AudioZoneLines;
@@ -86,6 +87,7 @@ namespace Lux {
 			Valid = false;
 			SkyEnvironment = nullptr;
 			Meshes = nullptr;
+			MeshSyncMs = 0.0f;
 			Draw2D.clear();
 			AudioZoneLines.clear();
 			ColliderDebug.clear();

@@ -444,7 +444,11 @@ namespace Lux {
 			"GridPass",
 			"Renderer2D",
 			"DOF",
-			"SMAA"
+			"SMAA",
+			// CPU stages (RecordStageCPUProfile)
+			"RenderSceneSync",
+			"SubmitRenderScene",
+			"FlushDrawList"
 		});
 
 		uint32_t NextPowerOfTwo(uint32_t value)
@@ -3537,6 +3541,13 @@ namespace Lux {
 		m_Statistics.TotalCPUTime += cpuTime;
 	}
 
+	void SceneRenderer::RecordStageCPUProfile(const char* name, float milliseconds)
+	{
+		PassProfile& profile = GetOrCreatePassProfile(name);
+		profile.CPUTime += milliseconds;
+		profile.Active = true;
+	}
+
 	void SceneRenderer::BeginProfiledGPU(const char* name)
 	{
 		PassProfile& profile = GetOrCreatePassProfile(name);
@@ -5668,6 +5679,7 @@ namespace Lux {
 	void SceneRenderer::SubmitRenderScene(const Ref<RenderScene>& renderScene)
 	{
 		LUX_CORE_ASSERT(m_Active, "SubmitRenderScene called outside BeginScene/EndScene");
+		ScopedStageProfile stageProfile(*this, "SubmitRenderScene");
 
 		m_SubmittedRenderScene = renderScene;
 		if (!renderScene)
@@ -6440,6 +6452,7 @@ namespace Lux {
 	void SceneRenderer::FlushDrawList()
 	{
 		LUX_PROFILE_FUNCTION("SceneRenderer::FlushDrawList");
+		ScopedStageProfile stageProfile(*this, "FlushDrawList");
 		// Clear lists and bail if GPU resources not ready
 		auto clearAll = [this]()
 			{

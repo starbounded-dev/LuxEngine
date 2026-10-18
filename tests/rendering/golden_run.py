@@ -45,6 +45,7 @@ FEATURE_VARIANTS = {
     "noSoftShadows": "SoftShadows=0",
     "PCSS": "PCSS=1",
     "GTAOBitmask": "GTAOBitmask=1",
+    "moving": "MoveEntities=256",
     "asyncCompute": "AsyncCompute=1",
     "meshShaders": "MeshShaders=1",
 }

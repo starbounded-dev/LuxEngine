@@ -59,6 +59,10 @@ namespace Lux {
 
 		constexpr float k_CameraOrbitDistance = 10.0f;
 
+		// MoveEntities: a closed loop of k_MovePeriod frames that starts and ends at the original pose.
+		constexpr uint32_t k_MovePeriod = 16;
+		constexpr float k_MoveAmplitude = 0.5f; // metres
+
 		// LUX_GOLDEN_OPTIONS names that map straight onto a SceneRendererOptions flag. Bloom, DOF,
 		// Colliders and PCSS are handled separately in GoldenCapture::ApplyOptions.
 		struct BoolOption
@@ -82,7 +86,7 @@ namespace Lux {
 			{ "GTAOBitmask", &SceneRendererOptions::GTAOVisibilityBitmask },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -177,6 +181,8 @@ namespace Lux {
 		m_RunSelfTest = ParseBool(GetEnv("LUX_GOLDEN_SELFTEST"));
 		m_ExitWhenDone = GetEnv("LUX_GOLDEN_EXIT") != "0";
 		ParseOptions(GetEnv("LUX_GOLDEN_OPTIONS"));
+		if (const auto it = m_Options.find("MoveEntities"); it != m_Options.end())
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), m_MoveEntityCount);
 
 		FileSystem::CreateDirectory(m_OutputDirectory);
 
@@ -326,6 +332,54 @@ namespace Lux {
 		camera.SetActive(false);
 		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw);
 		ApplyOptions(renderer);
+
+		if (m_MoveEntityCount > 0)
+			MoveEntities(scene);
+	}
+
+	void GoldenCapture::MoveEntities(Scene& scene)
+	{
+		if (!m_MovedScene)
+		{
+			m_MovedScene = &scene;
+
+			std::vector<std::pair<UUID, glm::vec3>> candidates;
+			for (const entt::entity handle : scene.GetAllEntitiesWith<StaticMeshComponent>())
+			{
+				Entity entity = { handle, &scene };
+				candidates.emplace_back(entity.GetUUID(), entity.GetComponent<TransformComponent>().Translation);
+			}
+
+			std::sort(candidates.begin(), candidates.end(), [](const auto& lhs, const auto& rhs) { return (uint64_t)lhs.first < (uint64_t)rhs.first; });
+			candidates.resize(std::min<size_t>(candidates.size(), m_MoveEntityCount));
+			m_MovedEntities = std::move(candidates);
+			LUX_CORE_INFO_TAG("Editor", "[GoldenCapture] moving {} static-mesh entities every frame", m_MovedEntities.size());
+		}
+
+		m_MovePhase = m_MoveFrame++ % k_MovePeriod;
+		const float angle = glm::two_pi<float>() * (float)m_MovePhase / (float)k_MovePeriod;
+		const glm::vec3 offset = k_MoveAmplitude * glm::vec3(std::sin(angle), 0.0f, 1.0f - std::cos(angle));
+
+		for (const auto& [entityID, original] : m_MovedEntities)
+		{
+			if (Entity entity = scene.TryGetEntityWithUUID(entityID))
+				entity.GetComponent<TransformComponent>().Translation = original + offset;
+		}
+	}
+
+	void GoldenCapture::RestoreMovedEntities()
+	{
+		if (!m_MovedScene)
+			return;
+
+		for (const auto& [entityID, original] : m_MovedEntities)
+		{
+			if (Entity entity = m_MovedScene->TryGetEntityWithUUID(entityID))
+				entity.GetComponent<TransformComponent>().Translation = original;
+		}
+
+		m_MovedEntities.clear();
+		m_MovedScene = nullptr;
 	}
 
 	void GoldenCapture::ComputeCameraPose(Scene& scene)
@@ -364,7 +418,9 @@ namespace Lux {
 				const bool streamingIdle = !assetManager || assetManager->GetPendingAsyncLoadCount() == 0;
 				m_IdleFrames = streamingIdle ? m_IdleFrames + 1 : 0;
 
-				if (m_SceneFrames >= m_MinFrames && m_IdleFrames >= m_IdleFramesRequired && renderer && renderer->IsReady())
+				// With MoveEntities, capture only on a frame rendered at the loop's start (the original pose).
+				const bool atRestPose = m_MoveEntityCount == 0 || m_MovePhase == 0;
+				if (m_SceneFrames >= m_MinFrames && m_IdleFrames >= m_IdleFramesRequired && atRestPose && renderer && renderer->IsReady())
 				{
 					RequestReadback(renderer);
 					m_Stage = Stage::WaitForReadback;
@@ -528,6 +584,7 @@ namespace Lux {
 		if (m_Stage == Stage::Done)
 			return;
 		m_Stage = Stage::Done;
+		RestoreMovedEntities();
 
 		// golden_run.py reads this marker to tell a finished capture from a crash or timeout.
 		std::ofstream file(m_OutputDirectory / (m_Name + ".status"), std::ios::trunc);

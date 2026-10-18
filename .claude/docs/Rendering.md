@@ -417,6 +417,12 @@ It waits until `LUX_GOLDEN_FRAME` frames have passed **and** asset streaming has
 `Renderer::Submit` lambda and writes `<name>.lximg` (a 32-byte header plus raw texels). After that
 it averages `<name>.perf.json` over `LUX_GOLDEN_PERF_FRAMES`, writes `<name>.status`, and closes
 the editor. `LUX_GOLDEN_OPTIONS` (e.g. `SSR=0,Bloom=0`) overrides individual renderer options.
+`MoveEntities=N` moves the first N static-mesh entities (by UUID) around a 16-frame loop every frame
+and captures only on a frame at the loop's start, so the image must match the unmoved capture while
+the perf frames exercise the changed-mesh path. Besides the passes, `perf.json` lists three CPU
+stages recorded with `SceneRenderer::RecordStageCPUProfile`: `RenderSceneSync` (the mirror sync,
+carried in `FrameRenderPacket::MeshSyncMs`), `SubmitRenderScene` and `FlushDrawList`. Stages enclose
+pass zones, so they are not added to `sceneRendererCpuMs`.
 
 Drive it with the scripts, not by hand:
 
