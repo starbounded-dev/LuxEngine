@@ -105,12 +105,6 @@ namespace Lux {
 		EnsureFallbackMaterial();
 	}
 
-	void MaterialScene::SetTextureResolver(GPUTextureResolver textureResolver)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		m_TextureResolver = std::move(textureResolver);
-	}
-
 	GPUMaterialData MaterialScene::GetFallbackMaterialData()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -249,8 +243,7 @@ namespace Lux {
 			return;
 
 		m_Materials.push_back(GetFallbackMaterialData());
-		m_MaterialKeys.push_back({});
-		m_LastTouchedFrames.push_back(m_FrameIndex);
+		m_Rows.emplace_back();
 	}
 
 	void MaterialScene::BeginSync(uint32_t frameIndex)
@@ -261,33 +254,66 @@ namespace Lux {
 		m_DirtyMaterialIDs.clear();
 		m_DirtyRanges.clear();
 		EnsureFallbackMaterial();
-		m_LastTouchedFrames[InvalidRenderMaterialID] = m_FrameIndex;
 	}
 
-	RenderMaterialID MaterialScene::UpsertMaterial(AssetHandle materialHandle, bool forceDirty)
+	RenderMaterialID MaterialScene::AllocateMaterialRow(MaterialKey key)
+	{
+		RenderMaterialID materialID = InvalidRenderMaterialID;
+		if (!m_FreeMaterialIDs.empty())
+		{
+			materialID = m_FreeMaterialIDs.back();
+			m_FreeMaterialIDs.pop_back();
+		}
+		else
+		{
+			materialID = (RenderMaterialID)m_Materials.size();
+			m_Materials.emplace_back();
+			m_Rows.emplace_back();
+		}
+
+		m_MaterialIDByKey[key] = materialID;
+		m_Rows[materialID] = {};
+		m_Rows[materialID].Key = key;
+		m_Rows[materialID].LastTouchedFrame = m_FrameIndex;
+		// A new row is always uploaded, even when its data matches what the slot held before.
+		MarkMaterialDirty(materialID);
+		return materialID;
+	}
+
+	RenderMaterialID MaterialScene::AcquireMaterial(AssetHandle materialHandle)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!materialHandle)
 			return InvalidRenderMaterialID;
 
-		// Many meshes share a material, so it is upserted once per referencing submesh.
-		// Its data cannot change within one sync, so rebuild it only on the first touch
-		// this frame — rebuilding validates every texture through the asset manager.
 		const MaterialKey key{ (uint64_t)materialHandle, MaterialKeyType::Asset };
-		if (!forceDirty)
+		if (auto idIt = m_MaterialIDByKey.find(key); idIt != m_MaterialIDByKey.end())
 		{
-			auto idIt = m_MaterialIDByKey.find(key);
-			if (idIt != m_MaterialIDByKey.end() && m_LastTouchedFrames[idIt->second] == m_FrameIndex)
-				return idIt->second;
+			MaterialRow& row = m_Rows[idIt->second];
+			row.RefCount++;
+			row.LastTouchedFrame = m_FrameIndex;
+			return idIt->second;
 		}
 
-		GPUMaterialBuildInput input;
-		input.MaterialHandle = materialHandle;
+		const RenderMaterialID materialID = AllocateMaterialRow(key);
+		MaterialRow& row = m_Rows[materialID];
+		row.RefCount = 1;
 		if (Project::GetAssetManager())
-			input.MaterialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+			row.Asset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
 
-		GPUMaterialData data = BuildGPUMaterialData(input, [this](AssetHandle textureHandle, TextureColorSpace colorSpace) { return ResolveTextureIndex(textureHandle, colorSpace); });
-		return UpsertMaterial(key, data, forceDirty);
+		BuildAssetMaterialRow(materialID);
+		return materialID;
+	}
+
+	void MaterialScene::ReleaseMaterial(RenderMaterialID materialID)
+	{
+		if (materialID == InvalidRenderMaterialID || materialID >= m_Rows.size())
+			return;
+
+		MaterialRow& row = m_Rows[materialID];
+		LUX_CORE_ASSERT(row.RefCount > 0, "MaterialScene: material released more often than acquired");
+		if (row.RefCount > 0)
+			row.RefCount--;
 	}
 
 	RenderMaterialID MaterialScene::UpsertOverrideMaterial(uint64_t overrideKey, const Ref<Material>& material, bool transparent, bool forceDirty)
@@ -296,92 +322,106 @@ namespace Lux {
 		if (!overrideKey || !material)
 			return InvalidRenderMaterialID;
 
+		const MaterialKey key{ overrideKey, MaterialKeyType::Override };
+		auto idIt = m_MaterialIDByKey.find(key);
+		const RenderMaterialID materialID = idIt != m_MaterialIDByKey.end() ? idIt->second : AllocateMaterialRow(key);
+		m_Rows[materialID].LastTouchedFrame = m_FrameIndex;
+
 		GPUMaterialBuildInput input;
 		input.OverrideMaterial = material;
 		input.Transparent = transparent;
-		GPUMaterialData data = BuildGPUMaterialData(input, [this](AssetHandle textureHandle, TextureColorSpace colorSpace) { return ResolveTextureIndex(textureHandle, colorSpace); });
-		return UpsertMaterial({ overrideKey, MaterialKeyType::Override }, data, forceDirty);
+		BuildMaterialRow(materialID, input, forceDirty);
+		return materialID;
 	}
 
-	RenderMaterialID MaterialScene::UpsertMaterial(MaterialKey key, GPUMaterialData data, bool forceDirty)
+	void MaterialScene::BuildAssetMaterialRow(RenderMaterialID materialID)
+	{
+		MaterialRow& row = m_Rows[materialID];
+		row.BuiltRevision = row.Asset ? row.Asset->GetRevision() : 0;
+
+		GPUMaterialBuildInput input;
+		input.MaterialHandle = (AssetHandle)row.Key.SourceID;
+		input.MaterialAsset = row.Asset;
+		BuildMaterialRow(materialID, input, false);
+	}
+
+	void MaterialScene::BuildMaterialRow(RenderMaterialID materialID, const GPUMaterialBuildInput& input, bool forceDirty)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (!key.SourceID)
-			return InvalidRenderMaterialID;
+		MaterialRow& row = m_Rows[materialID];
 
-		auto idIt = m_MaterialIDByKey.find(key);
-		RenderMaterialID materialID = InvalidRenderMaterialID;
-		bool created = false;
-		if (idIt == m_MaterialIDByKey.end())
-		{
-			created = true;
-			if (!m_FreeMaterialIDs.empty())
+		// Acquire the new texture set before releasing the old one, so a texture both use keeps its slot.
+		std::vector<GPUTextureIndex> previousTextures = std::move(row.Textures);
+		row.Textures.clear();
+		GPUMaterialData data = BuildGPUMaterialData(input, [this, &row](AssetHandle textureHandle, TextureColorSpace colorSpace)
 			{
-				materialID = m_FreeMaterialIDs.back();
-				m_FreeMaterialIDs.pop_back();
-			}
-			else
-			{
-				materialID = (RenderMaterialID)m_Materials.size();
-				m_Materials.emplace_back();
-				m_MaterialKeys.emplace_back();
-				m_LastTouchedFrames.emplace_back(0);
-			}
+				if (!m_TextureScene)
+					return InvalidGPUTextureIndex;
 
-			m_MaterialIDByKey[key] = materialID;
-			m_MaterialKeys[materialID] = key;
-		}
-		else
+				const GPUTextureIndex textureIndex = m_TextureScene->AcquireTexture(textureHandle, colorSpace);
+				if (textureIndex != InvalidGPUTextureIndex)
+					row.Textures.push_back(textureIndex);
+				return textureIndex;
+			});
+
+		if (m_TextureScene)
 		{
-			materialID = idIt->second;
+			for (GPUTextureIndex textureIndex : previousTextures)
+				m_TextureScene->ReleaseTexture(textureIndex);
 		}
 
 		data.Metadata.z = materialID;
-		m_LastTouchedFrames[materialID] = m_FrameIndex;
-
-		if (created || forceDirty || !MaterialDataEquals(m_Materials[materialID], data))
+		if (forceDirty || !MaterialDataEquals(m_Materials[materialID], data))
 		{
 			m_Materials[materialID] = data;
 			MarkMaterialDirty(materialID);
 		}
-
-		return materialID;
 	}
 
-	GPUTextureIndex MaterialScene::ResolveTextureIndex(AssetHandle textureHandle, TextureColorSpace colorSpace)
+	void MaterialScene::FreeMaterialRow(RenderMaterialID materialID)
 	{
-		if (!textureHandle)
-			return InvalidGPUTextureIndex;
+		MaterialRow& row = m_Rows[materialID];
+		if (m_TextureScene)
+		{
+			for (GPUTextureIndex textureIndex : row.Textures)
+				m_TextureScene->ReleaseTexture(textureIndex);
+		}
 
-		if (m_TextureResolver)
-			return m_TextureResolver(textureHandle, colorSpace);
-
-		auto [it, inserted] = m_TextureIndexBySlot.try_emplace(GPUTextureSlot{ textureHandle, colorSpace }, InvalidGPUTextureIndex);
-		if (inserted || it->second == InvalidGPUTextureIndex)
-			it->second = m_NextTextureIndex++;
-
-		return it->second;
+		m_MaterialIDByKey.erase(row.Key);
+		row = {};
+		m_Materials[materialID] = GetFallbackMaterialData();
+		m_Materials[materialID].Metadata.z = materialID;
+		m_FreeMaterialIDs.push_back(materialID);
+		MarkMaterialDirty(materialID);
 	}
 
 	void MaterialScene::EndSync()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		for (RenderMaterialID materialID = 1; materialID < m_Materials.size(); materialID++)
+		const bool hasAssetManager = Project::GetAssetManager() != nullptr;
+		for (RenderMaterialID materialID = 1; materialID < m_Rows.size(); materialID++)
 		{
-			if (m_LastTouchedFrames[materialID] == m_FrameIndex)
+			MaterialRow& row = m_Rows[materialID];
+			if (!row.Key.SourceID)
 				continue;
 
-			const MaterialKey key = m_MaterialKeys[materialID];
-			if (!key.SourceID)
+			// Released this frame or earlier, or an override nobody upserted this frame.
+			if (row.RefCount == 0 && row.LastTouchedFrame != m_FrameIndex)
+			{
+				FreeMaterialRow(materialID);
+				continue;
+			}
+
+			if (row.Key.Type != MaterialKeyType::Asset)
 				continue;
 
-			m_MaterialIDByKey.erase(key);
-			m_MaterialKeys[materialID] = {};
-			m_LastTouchedFrames[materialID] = 0;
-			m_Materials[materialID] = GetFallbackMaterialData();
-			m_Materials[materialID].Metadata.z = materialID;
-			m_FreeMaterialIDs.push_back(materialID);
-			MarkMaterialDirty(materialID);
+			// A reload replaces the asset object; an edit bumps its revision. Both rebuild the row.
+			Ref<MaterialAsset> asset = hasAssetManager ? AssetManager::GetAsset<MaterialAsset>((AssetHandle)row.Key.SourceID) : nullptr;
+			if (asset.Raw() != row.Asset.Raw() || (asset && asset->GetRevision() != row.BuiltRevision))
+			{
+				row.Asset = std::move(asset);
+				BuildAssetMaterialRow(materialID);
+			}
 		}
 
 		if (m_DirtyMaterialIDs.empty())
@@ -419,16 +459,22 @@ namespace Lux {
 	void MaterialScene::Clear()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		// Return the rows' texture references, so the TextureScene can be kept or cleared after this.
+		if (m_TextureScene)
+		{
+			for (const MaterialRow& row : m_Rows)
+			{
+				for (GPUTextureIndex textureIndex : row.Textures)
+					m_TextureScene->ReleaseTexture(textureIndex);
+			}
+		}
+
 		m_FrameIndex = 0;
 		m_DirtyMaterialCount = 0;
-		m_NextTextureIndex = 1;
 		m_Materials.clear();
-		m_MaterialKeys.clear();
-		m_LastTouchedFrames.clear();
+		m_Rows.clear();
 		m_FreeMaterialIDs.clear();
 		m_MaterialIDByKey.clear();
-		m_TextureIndexBySlot.clear();
-		m_TextureResolver = {};
 		m_DirtyMaterialIDs.clear();
 		m_DirtyRanges.clear();
 		m_Version++;

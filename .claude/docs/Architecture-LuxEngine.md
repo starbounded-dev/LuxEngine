@@ -298,7 +298,11 @@ Structurally:
   post (TAA, auto-exposure, bloom, composite, SMAA, DOF).
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
-  maintains them. A scene keeps two mirrors: one for editor-camera views and one for the
+  maintains them through `RenderScene::SyncStaticMesh(entityID, StaticMeshSyncInputs)`, which
+  updates the retained proxy in place and does nothing more for an unchanged one. Material rows and
+  texture slots are reference counted by the proxies' instances and rebuilt from
+  `MaterialAsset::GetRevision()` (`Rendering.md § The GPU material table`). `MaterialTable` is
+  changed only through its setters, which bump `MaterialTable::GetRevision()`. A scene keeps two mirrors: one for editor-camera views and one for the
   primary-camera path (`BuildRenderPacketRuntime`), because a mirror feeds exactly one
   `SceneRenderer` (`Rendering.md § Feeding the renderer from the scene`).
 - `MaterialAsset` owns its scalar properties (albedo, metalness, roughness, emission, transparency,

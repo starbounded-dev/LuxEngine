@@ -106,15 +106,24 @@ namespace Lux {
 	// Maps a material's texture to its bindless slot. Colour maps ask for TextureColorSpace::SRGB.
 	using GPUTextureResolver = std::function<GPUTextureIndex(AssetHandle, TextureColorSpace)>;
 
+	// The GPU material table of one RenderScene. Asset materials are reference counted: a row lives
+	// while something holds it, and is rebuilt only when its MaterialAsset object or that asset's
+	// revision changes. Rows hold references on their textures' slots in the TextureScene.
 	class MaterialScene
 	{
 	public:
 		MaterialScene();
 
-		void SetTextureResolver(GPUTextureResolver textureResolver);
+		// The texture slots material rows reference. Set once by the owning RenderScene.
+		void SetTextureScene(TextureScene* textureScene) { m_TextureScene = textureScene; }
 		void BeginSync(uint32_t frameIndex);
-		RenderMaterialID UpsertMaterial(AssetHandle materialHandle, bool forceDirty = false);
+		// Takes a reference on the material's row, building it on first use. Each acquired ID is
+		// released exactly once with ReleaseMaterial. Handle 0 returns InvalidRenderMaterialID.
+		RenderMaterialID AcquireMaterial(AssetHandle materialHandle);
+		void ReleaseMaterial(RenderMaterialID materialID);
+		// Unreferenced: an override row lives while it is upserted every frame.
 		RenderMaterialID UpsertOverrideMaterial(uint64_t overrideKey, const Ref<Material>& material, bool transparent, bool forceDirty = false);
+		// Rebuilds asset rows whose asset changed, then frees rows nothing holds.
 		void EndSync();
 		void Clear();
 
@@ -127,7 +136,6 @@ namespace Lux {
 		bool HasDirtyMaterials() const { return m_DirtyMaterialCount > 0; }
 		uint32_t GetDirtyMaterialCount() const { return m_DirtyMaterialCount; }
 		size_t GetActiveMaterialCount() const { return m_MaterialIDByKey.size(); }
-		uint32_t GetTextureIndexCount() const { return m_TextureResolver ? 0 : (m_NextTextureIndex > 0 ? m_NextTextureIndex - 1 : 0); }
 
 		static GPUMaterialData GetFallbackMaterialData();
 		static GPUMaterialData BuildGPUMaterialData(
@@ -162,8 +170,21 @@ namespace Lux {
 			}
 		};
 
-		RenderMaterialID UpsertMaterial(MaterialKey key, GPUMaterialData data, bool forceDirty);
-		GPUTextureIndex ResolveTextureIndex(AssetHandle textureHandle, TextureColorSpace colorSpace);
+		// CPU state of one row of m_Materials.
+		struct MaterialRow
+		{
+			MaterialKey Key;
+			uint32_t RefCount = 0;
+			uint32_t LastTouchedFrame = 0;
+			Ref<MaterialAsset> Asset;  // asset rows: the object the row was built from
+			uint64_t BuiltRevision = 0; // asset rows: Asset->GetRevision() when built
+			std::vector<GPUTextureIndex> Textures; // slots the row holds a reference on
+		};
+
+		RenderMaterialID AllocateMaterialRow(MaterialKey key);
+		void BuildAssetMaterialRow(RenderMaterialID materialID);
+		void BuildMaterialRow(RenderMaterialID materialID, const GPUMaterialBuildInput& input, bool forceDirty);
+		void FreeMaterialRow(RenderMaterialID materialID);
 		void MarkMaterialDirty(RenderMaterialID materialID);
 		void EnsureFallbackMaterial();
 
@@ -171,15 +192,12 @@ namespace Lux {
 		uint32_t m_FrameIndex = 0;
 		uint32_t m_DirtyMaterialCount = 0;
 		uint64_t m_Version = 0;
-		GPUTextureIndex m_NextTextureIndex = 1;
-		GPUTextureResolver m_TextureResolver;
+		TextureScene* m_TextureScene = nullptr;
 
 		std::vector<GPUMaterialData> m_Materials;
-		std::vector<MaterialKey> m_MaterialKeys;
-		std::vector<uint32_t> m_LastTouchedFrames;
+		std::vector<MaterialRow> m_Rows;
 		std::vector<RenderMaterialID> m_FreeMaterialIDs;
 		std::unordered_map<MaterialKey, RenderMaterialID, MaterialKeyHasher> m_MaterialIDByKey;
-		std::unordered_map<GPUTextureSlot, GPUTextureIndex, GPUTextureSlotHasher> m_TextureIndexBySlot;
 
 		std::vector<RenderMaterialID> m_DirtyMaterialIDs;
 		std::vector<MaterialSceneDirtyRange> m_DirtyRanges;

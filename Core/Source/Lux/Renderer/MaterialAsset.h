@@ -123,8 +123,13 @@ namespace Lux {
 		void SetSurfaceParameters(const MaterialSurfaceParameters& parameters);
 
 		bool IsShadowCasting() const { return !m_Material->GetFlag(MaterialFlag::DisableShadowCasting); }
-		void SetShadowCasting(bool castsShadows) { return m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
+		void SetShadowCasting(bool castsShadows) { m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); m_Revision++; }
 		void UpdateMaterialComplexityMetadata();
+
+		// Bumped by every change to the asset's values, maps, surface parameters, shadow casting or
+		// material. MaterialScene rebuilds a material's GPU row only when this (or the asset object)
+		// changes, so a new setter must bump it too.
+		uint64_t GetRevision() const { return m_Revision; }
 
 		// The shared sRGB copy of a colour texture (albedo, emissive): the same bytes read as sRGB, with
 		// a mip chain averaged in linear space. Built on first use and rebuilt when the source changes.
@@ -139,7 +144,7 @@ namespace Lux {
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
 		Ref<Material> GetMaterial() const { return m_Material; }
-		void SetMaterial(Ref<Material> material) { m_Material = material; }
+		void SetMaterial(Ref<Material> material) { m_Material = material; m_Revision++; }
 
 		bool IsTransparent() const { return m_Transparent; }
 
@@ -155,6 +160,7 @@ namespace Lux {
 		void WriteTexture(const std::string& name, const Ref<Texture2D>& texture);
 	private:
 		Ref<Material> m_Material;
+		uint64_t m_Revision = 1;
 
 		// The asset's own copy of its scalar properties. The shader's push-constant block is not a
 		// reliable store: the opaque shader has no Transparency member and the transparent shader
@@ -202,16 +208,20 @@ namespace Lux {
 			LUX_CORE_VERIFY(HasMaterial(materialIndex));
 			return m_Materials.at(materialIndex);
 		}
-		std::map<uint32_t, AssetHandle>& GetMaterials() { return m_Materials; }
+		// Read-only: change the table through SetMaterial / ClearMaterial / Clear, which count the change.
 		const std::map<uint32_t, AssetHandle>& GetMaterials() const { return m_Materials; }
 
 		uint32_t GetMaterialCount() const { return m_MaterialCount; }
-		void SetMaterialCount(uint32_t materialCount) { m_MaterialCount = materialCount; }
+		void SetMaterialCount(uint32_t materialCount) { m_MaterialCount = materialCount; m_Revision++; }
 
 		void Clear();
+
+		// Bumped by every change, so the render scene re-reads a table only when it changed.
+		uint64_t GetRevision() const { return m_Revision; }
 	private:
 		std::map<uint32_t, AssetHandle> m_Materials;
 		uint32_t m_MaterialCount;
+		uint64_t m_Revision = 1;
 	};
 
 }

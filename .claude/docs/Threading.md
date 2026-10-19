@@ -192,7 +192,7 @@ Two cores are reserved for the main and render threads, leaving headroom for Jol
   or when `count <= minChunk`.
 
 `fn` must be safe to run concurrently across disjoint indices — no shared writes without
-synchronisation. The current production use is `Scene::SyncRenderScene`'s transform/bounds
+synchronisation. The current production use is `Scene::SyncRenderScene`'s world-transform
 computation (`Scene.cpp`), which writes only per-item output slots.
 
 Because `ParallelFor` also executes on the calling thread, it is **not** a place to block: a job that

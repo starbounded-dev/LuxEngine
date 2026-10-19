@@ -27,6 +27,7 @@ namespace Lux {
 		AssetHandle StaticMeshHandle = 0;
 		AssetHandle MeshSourceHandle = 0;
 		uint64_t MaterialHash = 0;
+		uint64_t MaterialTableRevision = 0; // MaterialTable->GetRevision() when MaterialHash was taken
 
 		Ref<StaticMesh> StaticMesh;
 		Ref<MeshSource> MeshSource;
@@ -42,6 +43,19 @@ namespace Lux {
 		RenderProxyDirtyFlags DirtyFlags = RenderProxyDirtyFlags::None;
 		uint32_t LastDirtyFrame = 0;
 		uint32_t LastTouchedFrame = 0;
+		uint64_t Revision = 0; // bumped on every frame the proxy changed (DirtyFlags != None)
+	};
+
+	// What the scene knows about one static-mesh entity this frame. SyncStaticMesh compares it with
+	// the retained proxy in place, so an unchanged entity costs a few compares.
+	struct StaticMeshSyncInputs
+	{
+		AssetHandle StaticMeshHandle = 0;
+		// The component's material overrides. Null or empty uses the static mesh's own table.
+		const Ref<MaterialTable>* ComponentMaterialTable = nullptr;
+		glm::mat4 WorldTransform{ 1.0f };
+		bool Visible = true;
+		bool Selected = false;
 	};
 
 	struct RenderSceneSyncStats
@@ -61,15 +75,28 @@ namespace Lux {
 		uint32_t TextureSceneDirtyTextures = 0;
 	};
 
+	// The renderer's retained copy of a scene's static meshes. Each frame the scene calls BeginSync,
+	// SyncStaticMesh for every drawable entity, then EndSync, which drops the proxies not synced.
+	// Proxies, material rows and texture slots persist across frames and are only rebuilt when their
+	// inputs change. Main thread.
 	class RenderScene : public RefCounted
 	{
 	public:
+		RenderScene();
+		RenderScene(const RenderScene&) = delete;
+		RenderScene& operator=(const RenderScene&) = delete;
+
 		void BeginSync();
-		RenderPrimitiveID UpsertStaticMesh(StaticMeshRenderProxy proxy);
+		// Returns InvalidRenderPrimitiveID, and leaves the entity to be dropped, when its mesh does not resolve.
+		RenderPrimitiveID SyncStaticMesh(UUID entityID, const StaticMeshSyncInputs& inputs);
 		void EndSync();
 		void Clear();
 
+		// The visible proxies synced this frame, in sync order.
 		const std::vector<const StaticMeshRenderProxy*>& GetStaticMeshProxies() const { return m_StaticMeshProxies; }
+		// Primitives created or changed this frame, and primitives removed this frame.
+		const std::vector<RenderPrimitiveID>& GetChangedPrimitives() const { return m_ChangedPrimitives; }
+		const std::vector<RenderPrimitiveID>& GetRemovedPrimitives() const { return m_RemovedPrimitives; }
 		const StaticMeshRenderProxy* FindStaticMeshProxy(UUID entityID) const;
 		const GPUScene& GetGPUScene() const { return m_GPUScene; }
 		GPUScene& GetGPUScene() { return m_GPUScene; }
@@ -84,10 +111,11 @@ namespace Lux {
 
 	private:
 		RenderPrimitiveID GetOrCreatePrimitiveID(UUID entityID);
-		RenderMaterialID ResolveRenderMaterialID(const StaticMeshRenderProxy& proxy, uint32_t submeshIndex);
+		// Takes a reference on the submesh's material row; the instance's Metadata.z holds it.
+		RenderMaterialID AcquireRenderMaterialID(const StaticMeshRenderProxy& proxy, uint32_t submeshIndex);
+		void ReleaseInstanceMaterials(const StaticMeshRenderProxy& proxy);
 		void RebuildStaticMeshGPUInstances(StaticMeshRenderProxy& proxy, bool forceDirty, const glm::mat4& previousWorldTransform);
 		void RefreshStaticMeshGPUInstances(StaticMeshRenderProxy& proxy);
-		void TouchStaticMeshMaterials(StaticMeshRenderProxy& proxy);
 
 	private:
 		uint32_t m_FrameIndex = 0;
@@ -101,8 +129,12 @@ namespace Lux {
 		std::unordered_map<UUID, RenderPrimitiveID> m_PrimitiveIDsByEntity;
 		std::unordered_map<UUID, StaticMeshRenderProxy> m_StaticMeshProxiesByEntity;
 
-		std::vector<UUID> m_FrameStaticMeshProxyOrder;
+		// Pointers into m_StaticMeshProxiesByEntity: its nodes do not move on insert, and EndSync only
+		// erases proxies that were not synced (so are not in the list).
 		std::vector<const StaticMeshRenderProxy*> m_StaticMeshProxies;
+		std::vector<RenderPrimitiveID> m_ChangedPrimitives;
+		std::vector<RenderPrimitiveID> m_RemovedPrimitives;
+		std::vector<RenderMaterialID> m_MaterialReleaseScratch;
 	};
 
 }

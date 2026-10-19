@@ -165,6 +165,7 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_Values.AlbedoColor = color;
 		WriteUniform(s_AlbedoColorUniform, color);
+		m_Revision++;
 	}
 
 	void MaterialAsset::SetMetalness(float value)
@@ -378,6 +379,9 @@ namespace Lux {
 	void MaterialAsset::UpdateMaterialComplexityMetadata()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		// Every setter except SetAlbedoColor, SetShadowCasting and SetMaterial (which count their own)
+		// funnels through here, so this is where a change is counted.
+		m_Revision++;
 		if (!m_Material || !m_Material->FindUniformDeclaration(s_MaterialComplexityScoreUniform))
 			return;
 
@@ -484,6 +488,7 @@ namespace Lux {
 		m_Materials[index] = material;
 		if (index >= m_MaterialCount)
 			m_MaterialCount = index + 1;
+		m_Revision++;
 	}
 
 	void MaterialTable::ClearMaterial(uint32_t index)
@@ -493,12 +498,14 @@ namespace Lux {
 		m_Materials.erase(index);
 		if (index >= m_MaterialCount)
 			m_MaterialCount = index + 1;
+		m_Revision++;
 	}
 
 	void MaterialTable::Clear()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_Materials.clear();
+		m_Revision++;
 	}
 
 }

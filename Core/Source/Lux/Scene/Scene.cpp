@@ -2049,7 +2049,8 @@ namespace Lux {
 	{
 		struct StaticMeshSyncItem
 		{
-			StaticMeshRenderProxy Proxy;
+			UUID EntityID = 0;
+			StaticMeshSyncInputs Inputs;
 			Entity EntityHandle;
 			bool HasParent = false;
 		};
@@ -2060,56 +2061,24 @@ namespace Lux {
 		renderScene->BeginSync();
 
 		// Per-call scratch: thread_local (not a Scene member) because Scene.h only
-		// forward-declares the render types. Cleared at both ends of the call so no
-		// Ref<>s outlive it — only raw capacity is retained across frames.
+		// forward-declares the render types. Items hold no Ref<>s, so only raw capacity
+		// is retained across frames.
 		static thread_local std::vector<StaticMeshSyncItem> syncItems;
 		syncItems.clear();
 		auto view = m_Registry.view<const TransformComponent, const StaticMeshComponent>();
 		for (auto e : view)
 		{
-			Entity entity = { e, const_cast<Scene*>(this) };
-			const UUID entityID = entity.GetUUID();
 			const auto& meshComp = view.get<const StaticMeshComponent>(e);
-
 			if (!meshComp.StaticMesh)
 				continue;
 
-			Ref<StaticMesh> staticMesh;
-			Ref<MeshSource> meshSource;
-			AssetHandle meshSourceHandle = 0;
-
-			const StaticMeshRenderProxy* previousProxy = renderScene->FindStaticMeshProxy(entityID);
-			if (previousProxy && previousProxy->StaticMeshHandle == meshComp.StaticMesh && previousProxy->StaticMesh && previousProxy->MeshSource)
-			{
-				staticMesh = previousProxy->StaticMesh;
-				meshSource = previousProxy->MeshSource;
-				meshSourceHandle = previousProxy->MeshSourceHandle;
-			}
-			else
-			{
-				staticMesh = StaticMesh::GetOrCreateRuntime(meshComp.StaticMesh);
-				if (!staticMesh)
-					continue;
-
-				meshSourceHandle = staticMesh->GetMeshSource();
-				meshSource = AssetManager::GetAsset<MeshSource>(meshSourceHandle);
-				if (!meshSource)
-					continue;
-			}
-
-			Ref<MaterialTable> materialTable = meshComp.MaterialTable && !meshComp.MaterialTable->GetMaterials().empty()
-				? meshComp.MaterialTable
-				: staticMesh->GetMaterials();
-
+			Entity entity = { e, const_cast<Scene*>(this) };
 			StaticMeshSyncItem& syncItem = syncItems.emplace_back();
-			syncItem.Proxy.EntityID = entityID;
-			syncItem.Proxy.StaticMeshHandle = meshComp.StaticMesh;
-			syncItem.Proxy.MeshSourceHandle = meshSourceHandle;
-			syncItem.Proxy.StaticMesh = staticMesh;
-			syncItem.Proxy.MeshSource = meshSource;
-			syncItem.Proxy.MaterialTable = materialTable;
-			syncItem.Proxy.Visible = meshComp.Visible;
-			syncItem.Proxy.Selected = isSelected ? isSelected(entity) : false;
+			syncItem.EntityID = entity.GetUUID();
+			syncItem.Inputs.StaticMeshHandle = meshComp.StaticMesh;
+			syncItem.Inputs.ComponentMaterialTable = &meshComp.MaterialTable;
+			syncItem.Inputs.Visible = meshComp.Visible;
+			syncItem.Inputs.Selected = isSelected ? isSelected(entity) : false;
 
 			// Defer world-transform computation to the parallel pass below (it's the expensive,
 			// write-disjoint part). Just record the entity and whether it needs a hierarchy walk.
@@ -2130,25 +2099,22 @@ namespace Lux {
 				// read-only); others just decompose their local transform. SyncRenderScene is const and
 				// runs with no concurrent registry writes, so these registry reads are safe across threads.
 				if (syncItem.HasParent)
-					syncItem.Proxy.WorldTransform = GetWorldSpaceTransformMatrix(syncItem.EntityHandle);
+					syncItem.Inputs.WorldTransform = GetWorldSpaceTransformMatrix(syncItem.EntityHandle);
 				else
-					syncItem.Proxy.WorldTransform = syncItem.EntityHandle.GetComponent<TransformComponent>().GetTransform();
-
-				const BoundingSphere localBounds = syncItem.Proxy.MeshSource->GetBoundingBox().ToBoundingSphere();
-				syncItem.Proxy.WorldBounds = BoundingSphere::Transform(localBounds, syncItem.Proxy.WorldTransform);
+					syncItem.Inputs.WorldTransform = syncItem.EntityHandle.GetComponent<TransformComponent>().GetTransform();
 			};
 
-		// Fan out the per-proxy transform/bounds math across the job pool. Each index writes only its
+		// Fan out the per-entity transform math across the job pool. Each index writes only its
 		// own syncItem, so the indices are disjoint and safe to process concurrently. The minimum chunk
 		// keeps small scenes on the calling thread (JobSystem runs inline when single-threaded anyway).
 		constexpr size_t parallelTransformThreshold = 512;
 		JobSystem::ParallelFor(syncItems.size(), computeItem, parallelTransformThreshold);
 
-		for (StaticMeshSyncItem& syncItem : syncItems)
-			renderScene->UpsertStaticMesh(std::move(syncItem.Proxy));
+		// The render scene compares each entity with its retained proxy in place; an unchanged one
+		// costs a few compares. Mesh resolution and bounds happen there, only when they changed.
+		for (const StaticMeshSyncItem& syncItem : syncItems)
+			renderScene->SyncStaticMesh(syncItem.EntityID, syncItem.Inputs);
 
-		// Release the Ref<>s now rather than at thread_local destruction, which
-		// would race engine shutdown (asset manager teardown, LUX_TRACK_MEMORY).
 		syncItems.clear();
 
 		renderScene->EndSync();

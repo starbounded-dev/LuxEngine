@@ -56,8 +56,13 @@ namespace Lux {
 	public:
 		TextureScene();
 
-		void BeginSync(uint32_t frameIndex);
-		GPUTextureIndex UpsertTexture(AssetHandle textureHandle, TextureColorSpace colorSpace = TextureColorSpace::Linear, bool forceDirty = false);
+		void BeginSync();
+		// Takes a reference on the texture's bindless slot, allocating the slot on first use. Returns
+		// InvalidGPUTextureIndex (and takes no reference) for a handle that is not a texture asset.
+		// Each acquired index is released exactly once with ReleaseTexture.
+		GPUTextureIndex AcquireTexture(AssetHandle textureHandle, TextureColorSpace colorSpace = TextureColorSpace::Linear);
+		void ReleaseTexture(GPUTextureIndex textureIndex);
+		// Frees the slots whose last reference was released this frame.
 		void EndSync();
 		void Clear();
 
@@ -76,13 +81,14 @@ namespace Lux {
 		void MarkTextureDirty(GPUTextureIndex textureIndex);
 
 	private:
-		uint32_t m_FrameIndex = 0;
 		uint32_t m_DirtyTextureCount = 0;
 		uint64_t m_Version = 0;
 
 		std::vector<GPUTextureSlot> m_TextureSlots;
-		std::vector<uint32_t> m_LastTouchedFrames;
+		std::vector<uint32_t> m_RefCounts;
 		std::vector<GPUTextureIndex> m_FreeTextureIndices;
+		// Slots whose count reached zero this frame; EndSync frees those still at zero.
+		std::vector<GPUTextureIndex> m_ReleasedTextureIndices;
 		std::unordered_map<GPUTextureSlot, GPUTextureIndex, GPUTextureSlotHasher> m_TextureIndexBySlot;
 
 		std::vector<GPUTextureIndex> m_DirtyTextureIndices;

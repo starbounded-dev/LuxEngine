@@ -31,7 +31,7 @@ namespace Lux {
 			return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
 		}
 
-		uint64_t HashMaterialTable(const Ref<MaterialTable>& materialTable)
+		uint64_t HashMaterialTable(const MaterialTable* materialTable)
 		{
 			if (!materialTable)
 				return 0;
@@ -100,6 +100,11 @@ namespace Lux {
 		}
 	}
 
+	RenderScene::RenderScene()
+	{
+		m_MaterialScene.SetTextureScene(&m_TextureScene);
+	}
+
 	void RenderScene::BeginSync()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -112,10 +117,11 @@ namespace Lux {
 		}
 
 		m_LastSyncStats = {};
-		m_FrameStaticMeshProxyOrder.clear();
+		m_StaticMeshProxies.clear();
+		m_ChangedPrimitives.clear();
+		m_RemovedPrimitives.clear();
 		m_GPUScene.BeginSync(m_FrameIndex);
-		m_TextureScene.BeginSync(m_FrameIndex);
-		m_MaterialScene.SetTextureResolver([this](AssetHandle textureHandle, TextureColorSpace colorSpace) { return m_TextureScene.UpsertTexture(textureHandle, colorSpace); });
+		m_TextureScene.BeginSync();
 		m_MaterialScene.BeginSync(m_FrameIndex);
 	}
 
@@ -132,7 +138,7 @@ namespace Lux {
 		return it->second;
 	}
 
-	RenderMaterialID RenderScene::ResolveRenderMaterialID(const StaticMeshRenderProxy& proxy, uint32_t submeshIndex)
+	RenderMaterialID RenderScene::AcquireRenderMaterialID(const StaticMeshRenderProxy& proxy, uint32_t submeshIndex)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!proxy.MeshSource)
@@ -163,49 +169,95 @@ namespace Lux {
 		if (!materialHandle && materialIndex < proxy.MeshSource->GetMaterials().size())
 			materialHandle = proxy.MeshSource->GetMaterials()[materialIndex];
 
-		return m_MaterialScene.UpsertMaterial(materialHandle);
+		return m_MaterialScene.AcquireMaterial(materialHandle);
 	}
 
-	RenderPrimitiveID RenderScene::UpsertStaticMesh(StaticMeshRenderProxy proxy)
+	void RenderScene::ReleaseInstanceMaterials(const StaticMeshRenderProxy& proxy)
+	{
+		for (const GPUSceneInstanceRef& instanceRef : proxy.SubmeshInstances)
+			m_MaterialScene.ReleaseMaterial(instanceRef.Data.Metadata.z);
+	}
+
+	RenderPrimitiveID RenderScene::SyncStaticMesh(UUID entityID, const StaticMeshSyncInputs& inputs)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if ((uint64_t)proxy.EntityID == 0)
+		if ((uint64_t)entityID == 0 || !inputs.StaticMeshHandle)
 			return InvalidRenderPrimitiveID;
 
-		proxy.PrimitiveID = GetOrCreatePrimitiveID(proxy.EntityID);
-		proxy.LastTouchedFrame = m_FrameIndex;
-		proxy.MaterialHash = HashMaterialTable(proxy.MaterialTable);
-
-		const UUID entityID = proxy.EntityID;
-		const auto existingIt = m_StaticMeshProxiesByEntity.find(entityID);
-		const bool created = existingIt == m_StaticMeshProxiesByEntity.end();
-		glm::mat4 previousWorldTransform = proxy.WorldTransform;
-
+		auto [proxyIt, created] = m_StaticMeshProxiesByEntity.try_emplace(entityID);
+		StaticMeshRenderProxy& proxy = proxyIt->second;
 		RenderProxyDirtyFlags dirtyFlags = created ? RenderProxyDirtyFlags::Created : RenderProxyDirtyFlags::None;
-		if (!created)
+
+		// Resolve the meshes only when the handle changed (or nothing resolved yet).
+		bool meshChanged = false;
+		if (created || proxy.StaticMeshHandle != inputs.StaticMeshHandle || !proxy.StaticMesh || !proxy.MeshSource)
 		{
-			const StaticMeshRenderProxy& previousProxy = existingIt->second;
-			previousWorldTransform = previousProxy.WorldTransform;
-			if (previousProxy.StaticMeshHandle != proxy.StaticMeshHandle
-				|| previousProxy.MeshSourceHandle != proxy.MeshSourceHandle
-				|| previousProxy.StaticMesh.Raw() != proxy.StaticMesh.Raw()
-				|| previousProxy.MeshSource.Raw() != proxy.MeshSource.Raw())
+			Ref<StaticMesh> staticMesh = StaticMesh::GetOrCreateRuntime(inputs.StaticMeshHandle);
+			const AssetHandle meshSourceHandle = staticMesh ? staticMesh->GetMeshSource() : AssetHandle(0);
+			Ref<MeshSource> meshSource = staticMesh ? AssetManager::GetAsset<MeshSource>(meshSourceHandle) : nullptr;
+			if (!meshSource)
 			{
-				dirtyFlags |= RenderProxyDirtyFlags::Mesh;
+				// Not drawable: an existing proxy is left unsynced, so EndSync drops it.
+				if (created)
+					m_StaticMeshProxiesByEntity.erase(proxyIt);
+				return InvalidRenderPrimitiveID;
 			}
 
-			if (previousProxy.MaterialHash != proxy.MaterialHash)
+			meshChanged = proxy.StaticMeshHandle != inputs.StaticMeshHandle
+				|| proxy.MeshSourceHandle != meshSourceHandle
+				|| proxy.StaticMesh.Raw() != staticMesh.Raw()
+				|| proxy.MeshSource.Raw() != meshSource.Raw();
+			proxy.StaticMeshHandle = inputs.StaticMeshHandle;
+			proxy.MeshSourceHandle = meshSourceHandle;
+			proxy.StaticMesh = std::move(staticMesh);
+			proxy.MeshSource = std::move(meshSource);
+		}
+
+		if (created)
+		{
+			proxy.EntityID = entityID;
+			proxy.PrimitiveID = GetOrCreatePrimitiveID(entityID);
+		}
+		else if (meshChanged)
+		{
+			dirtyFlags |= RenderProxyDirtyFlags::Mesh;
+		}
+
+		// The table is hashed only when it is a different table or it was edited.
+		const bool useComponentTable = inputs.ComponentMaterialTable && *inputs.ComponentMaterialTable
+			&& !(*inputs.ComponentMaterialTable)->GetMaterials().empty();
+		Ref<MaterialTable> meshMaterials = useComponentTable ? nullptr : proxy.StaticMesh->GetMaterials();
+		const MaterialTable* materialTable = useComponentTable ? inputs.ComponentMaterialTable->Raw() : meshMaterials.Raw();
+		const uint64_t materialTableRevision = materialTable ? materialTable->GetRevision() : 0;
+		if (created || materialTable != proxy.MaterialTable.Raw() || materialTableRevision != proxy.MaterialTableRevision)
+		{
+			const uint64_t materialHash = HashMaterialTable(materialTable);
+			if (!created && materialHash != proxy.MaterialHash)
 				dirtyFlags |= RenderProxyDirtyFlags::Material;
 
-			if (!MatrixEquals(previousProxy.WorldTransform, proxy.WorldTransform) || !BoundsEquals(previousProxy.WorldBounds, proxy.WorldBounds))
+			proxy.MaterialTable = useComponentTable ? *inputs.ComponentMaterialTable : meshMaterials;
+			proxy.MaterialTableRevision = materialTableRevision;
+			proxy.MaterialHash = materialHash;
+		}
+
+		glm::mat4 previousWorldTransform = created ? inputs.WorldTransform : proxy.WorldTransform;
+		if (created || meshChanged || !MatrixEquals(proxy.WorldTransform, inputs.WorldTransform))
+		{
+			const BoundingSphere localBounds = proxy.MeshSource->GetBoundingBox().ToBoundingSphere();
+			const BoundingSphere worldBounds = BoundingSphere::Transform(localBounds, inputs.WorldTransform);
+			if (!created && (!MatrixEquals(proxy.WorldTransform, inputs.WorldTransform) || !BoundsEquals(proxy.WorldBounds, worldBounds)))
 				dirtyFlags |= RenderProxyDirtyFlags::Transform;
 
-			if (previousProxy.Visible != proxy.Visible)
-				dirtyFlags |= RenderProxyDirtyFlags::Visibility;
-
-			if (previousProxy.Selected != proxy.Selected)
-				dirtyFlags |= RenderProxyDirtyFlags::Selection;
+			proxy.WorldTransform = inputs.WorldTransform;
+			proxy.WorldBounds = worldBounds;
 		}
+
+		if (!created && proxy.Visible != inputs.Visible)
+			dirtyFlags |= RenderProxyDirtyFlags::Visibility;
+		if (!created && proxy.Selected != inputs.Selected)
+			dirtyFlags |= RenderProxyDirtyFlags::Selection;
+		proxy.Visible = inputs.Visible;
+		proxy.Selected = inputs.Selected;
 
 		const bool gpuInstanceTopologyDirty = created
 			|| HasDirtyFlag(dirtyFlags, RenderProxyDirtyFlags::Mesh)
@@ -221,31 +273,33 @@ namespace Lux {
 
 			RebuildStaticMeshGPUInstances(proxy, true, previousWorldTransform);
 		}
-		else if (!created)
+		else if (dirtyFlags != RenderProxyDirtyFlags::None || proxy.DirtyFlags != RenderProxyDirtyFlags::None)
 		{
-			proxy.SubmeshInstances = existingIt->second.SubmeshInstances;
 			// The GPUScene is persistent — EndSync only re-uploads instances that were marked
-			// dirty, and never prunes untouched ones. So a fully static proxy does not need a
-			// per-frame refresh (this ran every frame for every static mesh — ~1.3ms on Sponza).
+			// dirty, and never prunes untouched ones. So a fully static proxy needs no refresh.
 			// Refresh only when the proxy changed this frame, OR changed last frame: that one
 			// settle frame lets a mesh that just stopped moving zero its motion-vector
-			// previous-transform before we stop refreshing it (avoids lingering TAA ghosting).
-			if (dirtyFlags != RenderProxyDirtyFlags::None || existingIt->second.DirtyFlags != RenderProxyDirtyFlags::None)
-				RefreshStaticMeshGPUInstances(proxy);
-			else if (proxy.Visible)
-				TouchStaticMeshMaterials(proxy);
+			// previous-transform before we stop refreshing it.
+			RefreshStaticMeshGPUInstances(proxy);
 		}
+		// An unchanged proxy does nothing: its material rows stay alive through the references its
+		// instances hold, and MaterialScene rebuilds a row itself when the material asset changes.
 
+		if (dirtyFlags != RenderProxyDirtyFlags::None)
+		{
+			proxy.LastDirtyFrame = m_FrameIndex;
+			proxy.Revision++;
+			m_ChangedPrimitives.push_back(proxy.PrimitiveID);
+		}
 		proxy.DirtyFlags = dirtyFlags;
-		proxy.LastDirtyFrame = dirtyFlags != RenderProxyDirtyFlags::None
-			? m_FrameIndex
-			: (created ? m_FrameIndex : existingIt->second.LastDirtyFrame);
+		proxy.LastTouchedFrame = m_FrameIndex;
 
 		AccumulateDirtyStats(m_LastSyncStats, dirtyFlags);
 
-		auto [it, inserted] = m_StaticMeshProxiesByEntity.insert_or_assign(entityID, std::move(proxy));
-		m_FrameStaticMeshProxyOrder.push_back(entityID);
-		return it->second.PrimitiveID;
+		if (proxy.Visible)
+			m_StaticMeshProxies.push_back(&proxy);
+
+		return proxy.PrimitiveID;
 	}
 
 	void RenderScene::EndSync()
@@ -255,7 +309,9 @@ namespace Lux {
 		{
 			if (it->second.LastTouchedFrame != m_FrameIndex)
 			{
+				ReleaseInstanceMaterials(it->second);
 				m_GPUScene.RemovePrimitive(it->second.PrimitiveID);
+				m_RemovedPrimitives.push_back(it->second.PrimitiveID);
 				m_PrimitiveIDsByEntity.erase(it->first);
 				it = m_StaticMeshProxiesByEntity.erase(it);
 				m_LastSyncStats.RemovedProxies++;
@@ -266,23 +322,8 @@ namespace Lux {
 			}
 		}
 
-		m_StaticMeshProxies.clear();
-		m_StaticMeshProxies.reserve(m_FrameStaticMeshProxyOrder.size());
-
-		for (UUID entityID : m_FrameStaticMeshProxyOrder)
-		{
-			auto it = m_StaticMeshProxiesByEntity.find(entityID);
-			if (it == m_StaticMeshProxiesByEntity.end())
-				continue;
-
-			const StaticMeshRenderProxy& proxy = it->second;
-			if (proxy.LastTouchedFrame != m_FrameIndex || !proxy.Visible || !proxy.StaticMesh || !proxy.MeshSource)
-				continue;
-
-			m_StaticMeshProxies.push_back(&proxy);
-		}
-
 		m_GPUScene.EndSync();
+		// MaterialScene first: freeing its rows releases texture slots the TextureScene then frees.
 		m_MaterialScene.EndSync();
 		m_TextureScene.EndSync();
 		m_LastSyncStats.StaticMeshProxyCount = (uint32_t)m_StaticMeshProxiesByEntity.size();
@@ -299,11 +340,12 @@ namespace Lux {
 		m_NextPrimitiveID = 1;
 		m_PrimitiveIDsByEntity.clear();
 		m_StaticMeshProxiesByEntity.clear();
-		m_FrameStaticMeshProxyOrder.clear();
 		m_StaticMeshProxies.clear();
+		m_ChangedPrimitives.clear();
+		m_RemovedPrimitives.clear();
 		m_GPUScene.Clear();
-		m_TextureScene.Clear();
 		m_MaterialScene.Clear();
+		m_TextureScene.Clear();
 		m_LastSyncStats = {};
 	}
 
@@ -320,36 +362,44 @@ namespace Lux {
 	void RenderScene::RebuildStaticMeshGPUInstances(StaticMeshRenderProxy& proxy, bool forceDirty, const glm::mat4& previousWorldTransform)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		// Release the old instances' materials after acquiring the new ones, so a shared row is kept.
+		m_MaterialReleaseScratch.clear();
+		for (const GPUSceneInstanceRef& instanceRef : proxy.SubmeshInstances)
+			m_MaterialReleaseScratch.push_back(instanceRef.Data.Metadata.z);
 		proxy.SubmeshInstances.clear();
-		if (!proxy.StaticMesh || !proxy.MeshSource)
-			return;
 
-		const auto& submeshData = proxy.MeshSource->GetSubmeshes();
-		const GPUSceneInstanceFlags flags = BuildGPUSceneInstanceFlags(proxy);
-
-		for (uint32_t submeshIndex : proxy.StaticMesh->GetSubmeshes())
+		if (proxy.StaticMesh && proxy.MeshSource)
 		{
-			if (submeshIndex >= submeshData.size())
-				continue;
+			const auto& submeshData = proxy.MeshSource->GetSubmeshes();
+			const GPUSceneInstanceFlags flags = BuildGPUSceneInstanceFlags(proxy);
 
-			const Submesh& submesh = submeshData[submeshIndex];
-			const glm::mat4 submeshTransform = proxy.WorldTransform * submesh.Transform;
-			const glm::mat4 previousSubmeshTransform = previousWorldTransform * submesh.Transform;
-			const RenderMaterialID materialID = ResolveRenderMaterialID(proxy, submeshIndex);
+			for (uint32_t submeshIndex : proxy.StaticMesh->GetSubmeshes())
+			{
+				if (submeshIndex >= submeshData.size())
+					continue;
 
-			GPUSceneInstanceData instanceData;
-			WriteTransformRows(instanceData.TransformRows, submeshTransform);
-			WriteTransformRows(instanceData.PreviousTransformRows, previousSubmeshTransform);
-			instanceData.BoundsSphere = CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform);
-			instanceData.Metadata = glm::uvec4(proxy.PrimitiveID, submeshIndex, materialID, (uint32_t)flags);
-			instanceData.ObjectData = BuildGPUSceneObjectData(proxy.EntityID);
+				const Submesh& submesh = submeshData[submeshIndex];
+				const glm::mat4 submeshTransform = proxy.WorldTransform * submesh.Transform;
+				const glm::mat4 previousSubmeshTransform = previousWorldTransform * submesh.Transform;
+				const RenderMaterialID materialID = AcquireRenderMaterialID(proxy, submeshIndex);
 
-			GPUSceneInstanceRef& instanceRef = proxy.SubmeshInstances.emplace_back();
-			instanceRef.InstanceID = m_GPUScene.UpsertInstance(instanceData, forceDirty);
-			instanceRef.Data = instanceRef.InstanceID != InvalidGPUSceneInstanceID
-				? m_GPUScene.GetInstance(instanceRef.InstanceID)
-				: instanceData;
+				GPUSceneInstanceData instanceData;
+				WriteTransformRows(instanceData.TransformRows, submeshTransform);
+				WriteTransformRows(instanceData.PreviousTransformRows, previousSubmeshTransform);
+				instanceData.BoundsSphere = CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform);
+				instanceData.Metadata = glm::uvec4(proxy.PrimitiveID, submeshIndex, materialID, (uint32_t)flags);
+				instanceData.ObjectData = BuildGPUSceneObjectData(proxy.EntityID);
+
+				GPUSceneInstanceRef& instanceRef = proxy.SubmeshInstances.emplace_back();
+				instanceRef.InstanceID = m_GPUScene.UpsertInstance(instanceData, forceDirty);
+				instanceRef.Data = instanceRef.InstanceID != InvalidGPUSceneInstanceID
+					? m_GPUScene.GetInstance(instanceRef.InstanceID)
+					: instanceData;
+			}
 		}
+
+		for (RenderMaterialID materialID : m_MaterialReleaseScratch)
+			m_MaterialScene.ReleaseMaterial(materialID);
 	}
 
 	void RenderScene::RefreshStaticMeshGPUInstances(StaticMeshRenderProxy& proxy)
@@ -359,29 +409,13 @@ namespace Lux {
 		for (GPUSceneInstanceRef& instanceRef : proxy.SubmeshInstances)
 		{
 			const uint32_t submeshIndex = GetGPUSceneSubmeshIndex(instanceRef.Data);
-			const RenderMaterialID materialID = ResolveRenderMaterialID(proxy, submeshIndex);
+			const RenderMaterialID materialID = AcquireRenderMaterialID(proxy, submeshIndex);
+			m_MaterialScene.ReleaseMaterial(instanceRef.Data.Metadata.z);
 			instanceRef.Data.PreviousTransformRows[0] = instanceRef.Data.TransformRows[0];
 			instanceRef.Data.PreviousTransformRows[1] = instanceRef.Data.TransformRows[1];
 			instanceRef.Data.PreviousTransformRows[2] = instanceRef.Data.TransformRows[2];
 			instanceRef.Data.Metadata.z = materialID;
 			instanceRef.Data.Metadata.w = (uint32_t)flags;
-			instanceRef.InstanceID = m_GPUScene.UpsertInstance(instanceRef.Data);
-			if (instanceRef.InstanceID != InvalidGPUSceneInstanceID)
-				instanceRef.Data = m_GPUScene.GetInstance(instanceRef.InstanceID);
-		}
-	}
-
-	void RenderScene::TouchStaticMeshMaterials(StaticMeshRenderProxy& proxy)
-	{
-		LUX_PROFILE_FUNCTION_AUTO;
-		for (GPUSceneInstanceRef& instanceRef : proxy.SubmeshInstances)
-		{
-			const uint32_t submeshIndex = GetGPUSceneSubmeshIndex(instanceRef.Data);
-			const RenderMaterialID materialID = ResolveRenderMaterialID(proxy, submeshIndex);
-			if (materialID == instanceRef.Data.Metadata.z)
-				continue;
-
-			instanceRef.Data.Metadata.z = materialID;
 			instanceRef.InstanceID = m_GPUScene.UpsertInstance(instanceRef.Data);
 			if (instanceRef.InstanceID != InvalidGPUSceneInstanceID)
 				instanceRef.Data = m_GPUScene.GetInstance(instanceRef.InstanceID);

@@ -36,21 +36,19 @@ namespace Lux {
 			return;
 
 		m_TextureSlots.emplace_back();
-		m_LastTouchedFrames.push_back(m_FrameIndex);
+		m_RefCounts.push_back(0);
 	}
 
-	void TextureScene::BeginSync(uint32_t frameIndex)
+	void TextureScene::BeginSync()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_FrameIndex = frameIndex;
 		m_DirtyTextureCount = 0;
 		m_DirtyTextureIndices.clear();
 		m_DirtyRanges.clear();
 		EnsureFallbackTexture();
-		m_LastTouchedFrames[FallbackGPUTextureIndex] = m_FrameIndex;
 	}
 
-	GPUTextureIndex TextureScene::UpsertTexture(AssetHandle textureHandle, TextureColorSpace colorSpace, bool forceDirty)
+	GPUTextureIndex TextureScene::AcquireTexture(AssetHandle textureHandle, TextureColorSpace colorSpace)
 	{
 		if (!IsTextureHandleValid(textureHandle))
 			return InvalidGPUTextureIndex;
@@ -72,7 +70,7 @@ namespace Lux {
 			{
 				textureIndex = (GPUTextureIndex)m_TextureSlots.size();
 				m_TextureSlots.emplace_back();
-				m_LastTouchedFrames.emplace_back(0);
+				m_RefCounts.emplace_back(0);
 			}
 
 			m_TextureIndexBySlot[slot] = textureIndex;
@@ -83,32 +81,40 @@ namespace Lux {
 			textureIndex = idIt->second;
 		}
 
-		m_LastTouchedFrames[textureIndex] = m_FrameIndex;
+		m_RefCounts[textureIndex]++;
 
-		if (created || forceDirty)
+		if (created)
 			MarkTextureDirty(textureIndex);
 
 		return textureIndex;
 	}
 
+	void TextureScene::ReleaseTexture(GPUTextureIndex textureIndex)
+	{
+		if (textureIndex == FallbackGPUTextureIndex || textureIndex >= m_TextureSlots.size())
+			return;
+
+		LUX_CORE_ASSERT(m_RefCounts[textureIndex] > 0, "TextureScene: texture slot released more often than acquired");
+		if (m_RefCounts[textureIndex] > 0 && --m_RefCounts[textureIndex] == 0)
+			m_ReleasedTextureIndices.push_back(textureIndex);
+	}
+
 	void TextureScene::EndSync()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		for (GPUTextureIndex textureIndex = 1; textureIndex < m_TextureSlots.size(); textureIndex++)
+		// A slot released and acquired again within the frame keeps its index.
+		for (GPUTextureIndex textureIndex : m_ReleasedTextureIndices)
 		{
-			if (m_LastTouchedFrames[textureIndex] == m_FrameIndex)
-				continue;
-
 			const GPUTextureSlot slot = m_TextureSlots[textureIndex];
-			if (!slot.Handle)
+			if (m_RefCounts[textureIndex] != 0 || !slot.Handle)
 				continue;
 
 			m_TextureIndexBySlot.erase(slot);
 			m_TextureSlots[textureIndex] = {};
-			m_LastTouchedFrames[textureIndex] = 0;
 			m_FreeTextureIndices.push_back(textureIndex);
 			MarkTextureDirty(textureIndex);
 		}
+		m_ReleasedTextureIndices.clear();
 
 		if (m_DirtyTextureIndices.empty())
 			return;
@@ -145,11 +151,11 @@ namespace Lux {
 	void TextureScene::Clear()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		m_FrameIndex = 0;
 		m_DirtyTextureCount = 0;
 		m_TextureSlots.clear();
-		m_LastTouchedFrames.clear();
+		m_RefCounts.clear();
 		m_FreeTextureIndices.clear();
+		m_ReleasedTextureIndices.clear();
 		m_TextureIndexBySlot.clear();
 		m_DirtyTextureIndices.clear();
 		m_DirtyRanges.clear();

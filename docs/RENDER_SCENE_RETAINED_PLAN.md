@@ -160,6 +160,25 @@ material editor (updates), toggle `Visible`, select/deselect, delete and undo an
 **Exit:** sync target met, all checks pass. **Rollback:** revert the phase commit.
 **Docs:** `Rendering.md` (lifetime rule), `Architecture-LuxEngine.md` § 2.4.
 
+**Status: done 2026-10-18, sync target narrowly missed (1.23 ms, not < 1 ms).** As built:
+`RenderScene::SyncStaticMesh(entityID, StaticMeshSyncInputs)` resolves meshes only when the handle
+changes, recomputes bounds only when the transform or mesh changes, and rehashes the material table
+only when the table or its **NEW** `MaterialTable::GetRevision()` changes (`MaterialTable`'s
+mutable `GetMaterials()` was removed so every edit is counted). The visible list is filled during
+the sync. Material rows (`AcquireMaterial` / `ReleaseMaterial`) and texture slots
+(`AcquireTexture` / `ReleaseTexture`) are reference counted; `MaterialScene::EndSync` rebuilds a
+row when the asset object or `MaterialAsset::GetRevision()` changes. `SetAlbedoColor` and
+`SetMaterial` did not reach `UpdateMaterialComplexityMetadata`, so they bump the revision themselves.
+Golden: Benchmark default + all 15 feature variants match HEAD in the same session (`p1A` vs
+`p1B2`, worst `debugCategories` 2 px); `moving` is pixel-identical to Phase 0's moving capture.
+Perf A-B-A (medians of 3): sync 6.42 / **1.23** / 6.13 ms, main thread 15.02 / **9.98** / 14.34 ms,
+frame 15.85 / **10.82** / 15.67 ms; Submit and Flush unchanged (Phase 2). Moving (single runs):
+sync 6.17 → 1.28–1.39 ms. The remaining sync is the O(entities) scan (view walk, selection
+callback, parallel transforms, one hash lookup and compare per entity) — not yet sampled.
+Not done: the editor scenarios (material edit, Visible toggle, select, delete/undo, Play/Stop).
+An intermittent access violation inside NRI command recording, mostly at shutdown, hit both the
+HEAD and Phase 1 builds in this session (event log); it is not caused by this phase.
+
 ### Phase 2 — Cached submit records and persistent buckets (old plan's A1)
 
 **Goal:** `SubmitRenderScene` + `FlushDrawList` < 2.5 ms with CPU culling/LOD still per frame.
@@ -246,6 +265,13 @@ pass.
 
   Moving costs the same as static today because every mesh is rebuilt every frame either way; after
   Phase 1–2 the moving row shows what changes cost, the default row what retention saves.
+
+  After Phase 1 (A-B-A in one session, see the Phase 1 status for the A rows):
+
+  | Variant | RenderSceneSync | SubmitRenderScene | FlushDrawList | Main thread | Frame | GPU |
+  |---|---|---|---|---|---|---|
+  | default | 1.23 ms | 7.13 ms | 1.35 ms | 9.98 ms | 10.82 ms | 2.00 ms |
+  | `MoveEntities=256` (1 run) | 1.28 ms | 6.57 ms | 1.25 ms | 9.33 ms | 12.33 ms | 4.30 ms |
 
 ## Part 5 — Risks
 

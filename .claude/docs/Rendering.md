@@ -879,7 +879,13 @@ Renderer submission must go through the frame packet, not the live ECS:
   into a `FrameRenderPacket` (`Renderer/FrameRenderPacket.h`).
 - `Scene::SubmitRenderPacket` replays that packet without touching the registry.
 - `Scene::SyncRenderScene` maintains the persistent render-side `RenderScene` /
-  `StaticMeshRenderProxy` / `GPUScene` state, with dirty flags.
+  `StaticMeshRenderProxy` / `GPUScene` state, with dirty flags. Each frame it passes every drawable
+  entity's `StaticMeshSyncInputs` (mesh handle, component material table, world transform,
+  visibility, selection) to `RenderScene::SyncStaticMesh`, which compares them with the retained
+  proxy **in place**: an unchanged entity costs a few compares, and meshes, bounds and the
+  material-table hash are only recomputed when their inputs changed (`MaterialTable::GetRevision`).
+  Entities not synced in a frame are dropped in `EndSync`. `GetChangedPrimitives` /
+  `GetRemovedPrimitives` list what changed this frame.
 - **A `RenderScene` mirror feeds exactly one `SceneRenderer`.** Each renderer uploads only the
   `GPUScene` rows dirtied since the previous sync, so two renderers syncing one mirror in the same
   frame would each miss what the other's sync consumed (the second sees stale transforms). `Scene`
@@ -937,6 +943,15 @@ are bound as they are.
 Rows are built by `MaterialScene::BuildGPUMaterialData` from the `MaterialAsset` (its own values and
 `MaterialSurfaceParameters`), never from the shader push-constant block. A new material input must
 default to the value that reproduces today's shading, so an older `.lmat` renders unchanged.
+
+**Rows and texture slots are reference counted, not touched every frame.** Each GPU instance holds
+a reference on its material row (`MaterialScene::AcquireMaterial` / `ReleaseMaterial`, the ID in
+`Metadata.z`), and each row holds references on its texture slots (`TextureScene::AcquireTexture` /
+`ReleaseTexture`). `EndSync` frees what nothing holds, so a material or slot ID stays stable while it
+is used, including on invisible proxies. A row is rebuilt only when its `MaterialAsset` object
+changes (a reload) or `MaterialAsset::GetRevision()` does, so **every `MaterialAsset` setter must bump
+the revision** — a setter that does not leaves the GPU row stale until the next reload.
+`UpsertOverrideMaterial` rows are unreferenced and live while they are upserted every frame.
 
 **Emission does not go through the G-buffer.** `GBuffer_Static` writes emissive radiance straight
 into scene color (the G-buffer framebuffer borrows the scene-color image as attachment 5, with
