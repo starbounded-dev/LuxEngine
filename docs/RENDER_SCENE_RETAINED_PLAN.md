@@ -202,6 +202,19 @@ HEAD and Phase 1 builds in this session (event log); it is not caused by this ph
 **Verification:** as Phase 1, plus `EnableMeshShaders=1` (`MeshShaders=1` golden variant) and
 `noOcclusionCulling` variants identical; Renderer Debugger culling stats unchanged.
 **Exit:** targets met. This is a **shippable stopping point** if Phases 3–4 are deferred.
+
+**Status 2026-10-19: step 1 done, target not yet met.** Step 1 (no change to draw output):
+per-proxy submit cache (`m_ProxySubmitCache`: material resolution, asset, sort keys, flags);
+`SubmitMeshPassDraw` counts repeat keys before touching the draw-command cache; per-pass sort keys
+read once per frame; shadow-caster motion in a dense vector with an exact row compare instead of a
+hashed `unordered_map`; transform-bucket vectors recycled through a pool; the submesh world
+transform computed only where it is used; `Ref` parameters by const reference. A-B-A against
+Phase 1 (one session, medians of 3): SubmitRenderScene 9.66 / **4.48** / 8.68 ms, FlushDrawList
+1.76 / 1.87 / 1.62 ms, main thread 12.54 / **7.70** / 11.24 ms; the Benchmark default image is
+pixel-identical in all three B runs. The golden feature variants were not run for this step (the
+user chose perf-only verification). Remaining: Submit + Flush 6.35 ms vs the 2.5 ms target — the
+per-instance culling/LOD and two hash lookups per pass per instance, and the flush (object-index
+build, `CalculateShadowCasterHashes`). Next is a sampler profile, then persistent buckets.
 **Docs:** `Rendering.md` § draw lists.
 
 ### Phase 3 — GPU LOD and visibility for the main view

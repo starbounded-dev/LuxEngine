@@ -5685,6 +5685,29 @@ namespace Lux {
 		if (!renderScene)
 			return;
 
+		// Cached proxy submit data holds material assets and resolved handles: any table edit, material
+		// reload or edit, or a different (or cleared) scene starts a new epoch, so every entry rebuilds.
+		const uint64_t sceneGeneration = renderScene->GetGeneration();
+		const uint64_t tableRevision = MaterialTable::GetGlobalRevision();
+		const uint64_t materialRevision = renderScene->GetMaterialScene().GetAssetRevision();
+		if (m_ProxySubmitCacheScene != renderScene.Raw() || m_ProxySubmitCacheSceneGeneration != sceneGeneration)
+			m_ProxySubmitCache.clear();
+		if (m_ProxySubmitCacheScene != renderScene.Raw() || m_ProxySubmitCacheSceneGeneration != sceneGeneration
+			|| m_ProxySubmitCacheTableRevision != tableRevision || m_ProxySubmitCacheMaterialRevision != materialRevision)
+		{
+			m_ProxySubmitCacheEpoch++;
+			m_ProxySubmitCacheScene = renderScene.Raw();
+			m_ProxySubmitCacheSceneGeneration = sceneGeneration;
+			m_ProxySubmitCacheTableRevision = tableRevision;
+			m_ProxySubmitCacheMaterialRevision = materialRevision;
+		}
+		// Removed primitives release the assets their entries hold.
+		for (RenderPrimitiveID primitiveID : renderScene->GetRemovedPrimitives())
+		{
+			if (primitiveID < m_ProxySubmitCache.size())
+				m_ProxySubmitCache[primitiveID] = {};
+		}
+
 		for (const StaticMeshRenderProxy* proxy : renderScene->GetStaticMeshProxies())
 		{
 			if (!proxy || !proxy->Visible || !proxy->StaticMesh || !proxy->MeshSource)
@@ -5936,18 +5959,28 @@ namespace Lux {
 
 	SceneRenderer::StaticDrawCommand& SceneRenderer::SubmitMeshPassDraw(MeshPassType passType,
 		const MeshKey& key,
-		Ref<StaticMesh> staticMesh,
-		Ref<MeshSource> meshSource,
-		Ref<MaterialTable> materialTable,
+		const Ref<StaticMesh>& staticMesh,
+		const Ref<MeshSource>& meshSource,
+		const Ref<MaterialTable>& materialTable,
 		uint32_t submeshIndex,
 		uint32_t lodIndex,
 		AssetHandle materialHandle,
-		Ref<Material> overrideMaterial,
+		const Ref<Material>& overrideMaterial,
 		uint64_t pipelineSortKey,
 		uint64_t shaderSortKey,
 		uint64_t materialSortKey,
 		uint64_t meshSortKey)
 	{
+		// Most instances share a key already drawn this frame: they only add to its count, and the
+		// command (from the key's first instance) is not looked up again.
+		MeshPassState& pass = GetMeshPass(passType);
+		auto [drawIt, inserted] = pass.DrawList.try_emplace(key);
+		if (!inserted)
+		{
+			drawIt->second.InstanceCount++;
+			return drawIt->second;
+		}
+
 		MeshDrawCommandCacheKey cacheKey;
 		cacheKey.PassType = passType;
 		cacheKey.Key = key;
@@ -5983,16 +6016,43 @@ namespace Lux {
 			cacheIt->second.LastUsedFrame = m_MeshDrawCommandCacheFrame;
 		}
 
-		MeshPassState& pass = GetMeshPass(passType);
-		auto [drawIt, inserted] = pass.DrawList.try_emplace(key);
-		if (inserted)
+		drawIt->second = cacheIt->second.Command;
+		drawIt->second.InstanceCount = 1;
+		return drawIt->second;
+	}
+
+	SceneRenderer::TransformMapData& SceneRenderer::GetMeshTransformBucket(const MeshKey& key)
+	{
+		auto [it, inserted] = m_MeshTransformMap.try_emplace(key);
+		if (inserted && !m_ObjectIndexVectorPool.empty())
 		{
-			drawIt->second = cacheIt->second.Command;
-			drawIt->second.InstanceCount = 0;
+			it->second.ObjectIndices = std::move(m_ObjectIndexVectorPool.back());
+			m_ObjectIndexVectorPool.pop_back();
 		}
 
-		drawIt->second.InstanceCount++;
-		return drawIt->second;
+		return it->second;
+	}
+
+	SceneRenderer::ShadowTransformMapData& SceneRenderer::GetShadowTransformBucket(const MeshKey& key)
+	{
+		auto [it, inserted] = m_ShadowMeshTransformMap.try_emplace(key);
+		if (inserted)
+		{
+			auto takePooled = [this](std::vector<uint32_t>& objectIndices)
+				{
+					if (m_ObjectIndexVectorPool.empty())
+						return;
+
+					objectIndices = std::move(m_ObjectIndexVectorPool.back());
+					m_ObjectIndexVectorPool.pop_back();
+				};
+
+			for (TransformMapData& cascade : it->second.Cascades)
+				takePooled(cascade.ObjectIndices);
+			takePooled(it->second.Spot.ObjectIndices);
+		}
+
+		return it->second;
 	}
 
 	void SceneRenderer::ClearFrameMeshPasses()
@@ -6003,6 +6063,25 @@ namespace Lux {
 		m_TransientGPUTextureSlots.clear();
 		m_TransientGPUTextureIndexBySlot.clear();
 		m_NextTransientGPUTextureIndex = 0;
+
+		// The buckets are rebuilt every frame; their vectors go to the pool so next frame's buckets
+		// reuse the capacity. The pool never holds more vectors than the most buckets one frame had.
+		auto recycle = [this](std::vector<uint32_t>& objectIndices)
+			{
+				if (objectIndices.capacity() == 0)
+					return;
+
+				objectIndices.clear();
+				m_ObjectIndexVectorPool.push_back(std::move(objectIndices));
+			};
+		for (auto& [key, tmd] : m_MeshTransformMap)
+			recycle(tmd.ObjectIndices);
+		for (auto& [key, shadowTmd] : m_ShadowMeshTransformMap)
+		{
+			for (TransformMapData& cascade : shadowTmd.Cascades)
+				recycle(cascade.ObjectIndices);
+			recycle(shadowTmd.Spot.ObjectIndices);
+		}
 		m_MeshTransformMap.clear();
 		m_ShadowMeshTransformMap.clear();
 
@@ -6034,15 +6113,14 @@ namespace Lux {
 		if (!instanceData || IsTransientGPUSceneInstanceIndex(sceneInstanceIndex))
 			return true;
 
-		uint64_t transformHash = 1469598103934665603ull;
-		transformHash = HashVec4(transformHash, instanceData->TransformRows[0]);
-		transformHash = HashVec4(transformHash, instanceData->TransformRows[1]);
-		transformHash = HashVec4(transformHash, instanceData->TransformRows[2]);
+		if (sceneInstanceIndex >= m_ShadowCasterMotion.size())
+			m_ShadowCasterMotion.resize((size_t)sceneInstanceIndex + 1);
 
 		ShadowCasterMotionState& state = m_ShadowCasterMotion[sceneInstanceIndex];
-		if (state.TransformHash != transformHash)
+		if (!state.Tracked || std::memcmp(state.TransformRows, instanceData->TransformRows, sizeof(state.TransformRows)) != 0)
 		{
-			state.TransformHash = transformHash;
+			std::memcpy(state.TransformRows, instanceData->TransformRows, sizeof(state.TransformRows));
+			state.Tracked = true;
 			state.StableFrames = 0;
 		}
 		else
@@ -6059,8 +6137,9 @@ namespace Lux {
 		if (IsTransientGPUSceneInstanceIndex(sceneInstanceIndex))
 			return false;
 
-		const auto it = m_ShadowCasterMotion.find(sceneInstanceIndex);
-		return it != m_ShadowCasterMotion.end() && it->second.StableFrames >= StaticShadowCasterStableFrames;
+		return sceneInstanceIndex < m_ShadowCasterMotion.size()
+			&& m_ShadowCasterMotion[sceneInstanceIndex].Tracked
+			&& m_ShadowCasterMotion[sceneInstanceIndex].StableFrames >= StaticShadowCasterStableFrames;
 	}
 
 	void SceneRenderer::CalculateShadowCasterHashes(uint64_t& outStaticDirectionalHash, uint64_t& outDynamicDirectionalHash, uint64_t& outStaticSpotHash, uint64_t& outDynamicSpotHash) const
@@ -6130,20 +6209,128 @@ namespace Lux {
 		}
 	}
 
+	SceneRenderer::SubmeshSubmitData SceneRenderer::BuildSubmeshSubmitData(const Ref<StaticMesh>& staticMesh,
+		const Ref<MeshSource>& meshSource,
+		const Ref<MaterialTable>& materialTable,
+		const Ref<Material>& overrideMaterial,
+		uint32_t submeshIndex)
+	{
+		const Submesh& submesh = meshSource->GetSubmeshes()[submeshIndex];
+		SubmeshSubmitData data;
+
+		// Resolve material handle
+		data.OverrideMaterial = overrideMaterial;
+		const bool hasExplicitOverrideMaterial = overrideMaterial != nullptr;
+		if (!data.OverrideMaterial)
+		{
+			data.MaterialHandle = ResolveStaticMeshMaterialHandle(materialTable, staticMesh, meshSource, submesh.MaterialIndex);
+
+			if (data.MaterialHandle)
+				data.MaterialAsset = AssetManager::GetAsset<MaterialAsset>(data.MaterialHandle);
+
+			if (!data.MaterialAsset)
+				data.OverrideMaterial = Renderer::GetDefaultWhiteMaterial();
+		}
+
+		LUX_CORE_ASSERT(data.OverrideMaterial || data.MaterialAsset, "No material found for submesh {}", submeshIndex);
+
+		const bool missingMaterialAsset = !hasExplicitOverrideMaterial && data.MaterialHandle && !data.MaterialAsset;
+		data.Transparent = data.MaterialAsset ? data.MaterialAsset->IsTransparent() : (data.OverrideMaterial && data.OverrideMaterial->GetFlag(MaterialFlag::Blend));
+		data.MaterialSceneOverride = missingMaterialAsset ? nullptr : data.OverrideMaterial;
+
+		data.MeshKeyHandle = GetStaticMeshKeyHandle(staticMesh);
+		data.KeyMaterialHandle = data.OverrideMaterial
+			? AssetHandle((uint64_t)data.OverrideMaterial.Raw())
+			: data.MaterialHandle;
+		const Ref<Material> sortMaterial = data.OverrideMaterial
+			? data.OverrideMaterial
+			: (data.MaterialAsset ? data.MaterialAsset->GetMaterial() : Renderer::GetDefaultWhiteMaterial());
+		data.MeshSortKey = (uint64_t)data.MeshKeyHandle;
+		// The transparent pass draws in sort order without a depth sort, so this key fixes the blend
+		// order of overlapping glass. A material asset sorts by its handle: a heap address changes
+		// with async load order, and the image would change from run to run.
+		data.MaterialSortKey = data.MaterialHandle
+			? static_cast<uint64_t>(data.MaterialHandle)
+			: (sortMaterial ? SortKeyFromRef(sortMaterial.Raw()) : static_cast<uint64_t>(data.KeyMaterialHandle));
+		const Ref<Shader> sortShader = sortMaterial ? sortMaterial->GetShader() : nullptr;
+		data.ShaderSortKey = sortShader ? SortKeyFromRef(sortShader.Raw()) : 0;
+
+		data.CastsShadows = data.OverrideMaterial
+			? true // override materials always cast shadows
+			: (data.MaterialAsset && data.MaterialAsset->IsShadowCasting());
+		return data;
+	}
+
+	const SceneRenderer::ProxySubmitCacheEntry& SceneRenderer::GetProxySubmitData(const StaticMeshRenderProxy& proxy)
+	{
+		if (proxy.PrimitiveID >= m_ProxySubmitCache.size())
+			m_ProxySubmitCache.resize((size_t)proxy.PrimitiveID + 1);
+
+		ProxySubmitCacheEntry& entry = m_ProxySubmitCache[proxy.PrimitiveID];
+		if (entry.Epoch == m_ProxySubmitCacheEpoch && entry.ProxyRevision == proxy.Revision && entry.EntityID == proxy.EntityID)
+			return entry;
+
+		entry.Epoch = m_ProxySubmitCacheEpoch;
+		entry.ProxyRevision = proxy.Revision;
+		entry.EntityID = proxy.EntityID;
+		entry.Submeshes.clear();
+		entry.Submeshes.reserve(proxy.SubmeshInstances.size());
+		const size_t submeshCount = proxy.MeshSource ? proxy.MeshSource->GetSubmeshes().size() : 0;
+		for (const GPUSceneInstanceRef& instanceRef : proxy.SubmeshInstances)
+		{
+			const uint32_t submeshIndex = GetGPUSceneSubmeshIndex(instanceRef.Data);
+			entry.Submeshes.push_back(submeshIndex < submeshCount
+				? BuildSubmeshSubmitData(proxy.StaticMesh, proxy.MeshSource, proxy.MaterialTable, nullptr, submeshIndex)
+				: SubmeshSubmitData{});
+		}
+
+		return entry;
+	}
+
+	const SceneRenderer::PassSortKeys& SceneRenderer::GetPassSortKeys()
+	{
+		// The pass materials and pipelines do not change within a frame.
+		if (m_PassSortKeys.Frame == m_MeshDrawCommandCacheFrame)
+			return m_PassSortKeys;
+
+		PassSortKeys& keys = m_PassSortKeys;
+		keys.Frame = m_MeshDrawCommandCacheFrame;
+		keys.GeometryPipeline = SortKeyFromRef(m_GeometryPipeline.Raw());
+		keys.TransparentGeometryPipeline = SortKeyFromRef(m_TransparentGeometryPipeline.Raw());
+		keys.PreDepthPipeline = SortKeyFromRef(m_PreDepthPipeline.Raw());
+		keys.PreDepthShader = m_PreDepthMaterial && m_PreDepthMaterial->GetShader()
+			? SortKeyFromRef(m_PreDepthMaterial->GetShader().Raw()) : 0;
+		keys.PreDepthMaterial = SortKeyFromRef(m_PreDepthMaterial.Raw());
+		keys.SelectedPipeline = m_SelectedGeometryPass ? SortKeyFromRef(m_SelectedGeometryPass->GetPipeline().Raw()) : 0;
+		keys.SelectedShader = m_SelectedGeometryMaterial && m_SelectedGeometryMaterial->GetShader()
+			? SortKeyFromRef(m_SelectedGeometryMaterial->GetShader().Raw()) : 0;
+		keys.SelectedMaterial = SortKeyFromRef(m_SelectedGeometryMaterial.Raw());
+		keys.WireframePipeline = m_GeometryWireframePass ? SortKeyFromRef(m_GeometryWireframePass->GetPipeline().Raw()) : 0;
+		keys.WireframeShader = m_WireframeMaterial && m_WireframeMaterial->GetShader()
+			? SortKeyFromRef(m_WireframeMaterial->GetShader().Raw()) : 0;
+		keys.WireframeMaterial = SortKeyFromRef(m_WireframeMaterial.Raw());
+		keys.ShadowPipeline = m_ShadowMapPass ? SortKeyFromRef(m_ShadowMapPass->GetPipeline().Raw()) : 0;
+		keys.ShadowShader = m_ShadowPassMaterial && m_ShadowPassMaterial->GetShader()
+			? SortKeyFromRef(m_ShadowPassMaterial->GetShader().Raw()) : 0;
+		keys.ShadowMaterial = SortKeyFromRef(m_ShadowPassMaterial.Raw());
+		return keys;
+	}
+
 	void SceneRenderer::SubmitStaticMeshInternal(
-		Ref<StaticMesh>    staticMesh,
-		Ref<MeshSource>    meshSource,
-		Ref<MaterialTable> materialTable,
+		const Ref<StaticMesh>&    staticMesh,
+		const Ref<MeshSource>&    meshSource,
+		const Ref<MaterialTable>& materialTable,
 		const glm::mat4& transform,
-		Ref<Material>      overrideMaterial,
+		const Ref<Material>&      overrideMaterial,
 		bool               isSelected,
 		const StaticMeshRenderProxy* renderProxy)
 	{
 		LUX_CORE_ASSERT(m_Active, "SubmitStaticMesh called outside BeginScene/EndScene");
 
 		const auto& submeshData = meshSource->GetSubmeshes();
+		const PassSortKeys& passSortKeys = GetPassSortKeys();
 
-		auto submitSubmesh = [&](uint32_t submeshIndex, const GPUSceneInstanceRef* gpuSceneInstanceRef)
+		auto submitSubmesh = [&](uint32_t submeshIndex, const GPUSceneInstanceRef* gpuSceneInstanceRef, const SubmeshSubmitData& data)
 		{
 			if (submeshIndex >= submeshData.size())
 				return;
@@ -6151,65 +6338,23 @@ namespace Lux {
 			const auto& submesh = submeshData[submeshIndex];
 			const GPUSceneInstanceData* gpuSceneInstance = gpuSceneInstanceRef ? &gpuSceneInstanceRef->Data : nullptr;
 
-			const glm::mat4 submeshTransform = transform * submesh.Transform;
+			// Only the paths without a GPUScene row need the submesh's world transform.
+			auto submeshTransform = [&]() { return transform * submesh.Transform; };
 
-			// Resolve material handle
-			AssetHandle materialHandle = 0;
-			Ref<MaterialAsset> materialAsset;
-			Ref<Material> resolvedOverrideMaterial = overrideMaterial;
-			const bool hasExplicitOverrideMaterial = resolvedOverrideMaterial != nullptr;
-
-			if (!resolvedOverrideMaterial)
-			{
-				materialHandle = ResolveStaticMeshMaterialHandle(materialTable, staticMesh, meshSource, submesh.MaterialIndex);
-
-				if (materialHandle)
-					materialAsset = AssetManager::GetAsset<MaterialAsset>(materialHandle);
-
-				if (!materialAsset)
-					resolvedOverrideMaterial = Renderer::GetDefaultWhiteMaterial();
-			}
-
-			LUX_CORE_ASSERT(resolvedOverrideMaterial || materialAsset, "No material found for submesh {}", submeshIndex);
-
-			const bool missingMaterialAsset = !hasExplicitOverrideMaterial && materialHandle && !materialAsset;
-			const bool isTransparent = materialAsset ? materialAsset->IsTransparent() : (resolvedOverrideMaterial && resolvedOverrideMaterial->GetFlag(MaterialFlag::Blend));
-			Ref<Material> materialSceneOverride = resolvedOverrideMaterial;
-			if (missingMaterialAsset)
-				materialSceneOverride = nullptr;
-
-			const AssetHandle meshKeyHandle = GetStaticMeshKeyHandle(staticMesh);
-			const AssetHandle keyMaterialHandle = resolvedOverrideMaterial
-				? AssetHandle((uint64_t)resolvedOverrideMaterial.Raw())
-				: materialHandle;
-			Ref<Material> sortMaterial = resolvedOverrideMaterial
-				? resolvedOverrideMaterial
-				: (materialAsset ? materialAsset->GetMaterial() : Renderer::GetDefaultWhiteMaterial());
-			const uint64_t meshSortKey = (uint64_t)meshKeyHandle;
-			// The transparent pass draws in sort order without a depth sort, so this key fixes the blend
-			// order of overlapping glass. A material asset sorts by its handle: a heap address changes
-			// with async load order, and the image would change from run to run.
-			const uint64_t materialSortKey = materialHandle
-				? static_cast<uint64_t>(materialHandle)
-				: (sortMaterial ? SortKeyFromRef(sortMaterial.Raw()) : static_cast<uint64_t>(keyMaterialHandle));
-			Ref<Shader> sortShader = sortMaterial ? sortMaterial->GetShader() : nullptr;
-			const uint64_t shaderSortKey = sortShader ? SortKeyFromRef(sortShader.Raw()) : 0;
-
-			// ── Shadow pass list ──────────────────────────────────────────────
-			const bool castsShadows = resolvedOverrideMaterial
-				? true // override materials always cast shadows
-				: (materialAsset && materialAsset->IsShadowCasting());
+			const bool isTransparent = data.Transparent;
+			const bool castsShadows = data.CastsShadows;
+			const AssetHandle meshKeyHandle = data.MeshKeyHandle;
 
 			const glm::vec4 boundsSphereData = gpuSceneInstance
 				? gpuSceneInstance->BoundsSphere
-				: CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform);
+				: CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform());
 			const BoundingSphere boundsSphere{ glm::vec3(boundsSphereData), boundsSphereData.w };
 			const bool mainViewVisible = IsMainViewVisible(boundsSphere);
 			const uint32_t directionalShadowCascadeMask = castsShadows ? GetDirectionalShadowCascadeMask(boundsSphere) : 0;
 			const bool spotShadowVisible = castsShadows && IsSpotShadowCasterVisible(boundsSphere);
 			const bool shadowVisible = directionalShadowCascadeMask != 0 || spotShadowVisible;
 			const uint32_t lodIndex = SelectStaticMeshLOD(*meshSource, submeshIndex, boundsSphere);
-			const MeshKey materialKey{ meshKeyHandle, keyMaterialHandle, submeshIndex, lodIndex, false, false };
+			const MeshKey materialKey{ meshKeyHandle, data.KeyMaterialHandle, submeshIndex, lodIndex, false, false };
 			const MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, false };
 			const MeshKey selectedMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, true, false };
 
@@ -6232,12 +6377,12 @@ namespace Lux {
 			else
 			{
 				const RenderMaterialID transientMaterialID = GetOrCreateTransientRenderMaterialID(
-					materialHandle,
-					materialAsset,
-					materialSceneOverride,
+					data.MaterialHandle,
+					data.MaterialAsset,
+					data.MaterialSceneOverride,
 					isTransparent);
 				const uint32_t transientIndex = (uint32_t)m_TransientGPUSceneInstances.size();
-				GPUSceneInstanceData transientInstance = BuildTransientGPUSceneInstanceData(submeshTransform, boundsSphereData, submeshIndex, transientMaterialID);
+				GPUSceneInstanceData transientInstance = BuildTransientGPUSceneInstanceData(submeshTransform(), boundsSphereData, submeshIndex, transientMaterialID);
 				transientInstance.ObjectData.z = transientIndex;
 				m_TransientGPUSceneInstances.push_back(transientInstance);
 				sceneInstanceIndex = EncodeTransientGPUSceneInstanceIndex(transientIndex);
@@ -6247,9 +6392,8 @@ namespace Lux {
 			{
 				// ── Main draw list ────────────────────────────────────────────────
 				const MeshKey mainPassKey = isTransparent ? materialKey : bindlessMeshKey;
-				m_MeshTransformMap[mainPassKey].ObjectIndices.push_back(sceneInstanceIndex);
+				GetMeshTransformBucket(mainPassKey).ObjectIndices.push_back(sceneInstanceIndex);
 
-				Ref<Pipeline> geometryPipeline = isTransparent ? m_TransparentGeometryPipeline : m_GeometryPipeline;
 				SubmitMeshPassDraw(isTransparent ? MeshPassType::Transparent : MeshPassType::Opaque,
 					mainPassKey,
 					staticMesh,
@@ -6257,17 +6401,15 @@ namespace Lux {
 					isTransparent ? materialTable : nullptr,
 					submeshIndex,
 					lodIndex,
-					isTransparent ? materialHandle : AssetHandle(0),
-					isTransparent ? resolvedOverrideMaterial : nullptr,
-					SortKeyFromRef(geometryPipeline.Raw()),
-					isTransparent ? shaderSortKey : 0,
-					isTransparent ? materialSortKey : 0,
-					meshSortKey);
+					isTransparent ? data.MaterialHandle : AssetHandle(0),
+					isTransparent ? data.OverrideMaterial : nullptr,
+					isTransparent ? passSortKeys.TransparentGeometryPipeline : passSortKeys.GeometryPipeline,
+					isTransparent ? data.ShaderSortKey : 0,
+					isTransparent ? data.MaterialSortKey : 0,
+					data.MeshSortKey);
 
 				if (!isTransparent)
 				{
-					const uint64_t preDepthShaderSortKey = m_PreDepthMaterial && m_PreDepthMaterial->GetShader()
-						? SortKeyFromRef(m_PreDepthMaterial->GetShader().Raw()) : 0;
 					SubmitMeshPassDraw(MeshPassType::DepthPrepass,
 						bindlessMeshKey,
 						staticMesh,
@@ -6277,19 +6419,17 @@ namespace Lux {
 						lodIndex,
 						AssetHandle(0),
 						m_PreDepthMaterial,
-						SortKeyFromRef(m_PreDepthPipeline.Raw()),
-						preDepthShaderSortKey,
-						SortKeyFromRef(m_PreDepthMaterial.Raw()),
-						meshSortKey);
+						passSortKeys.PreDepthPipeline,
+						passSortKeys.PreDepthShader,
+						passSortKeys.PreDepthMaterial,
+						data.MeshSortKey);
 				}
 
 				// ── Selected list ─────────────────────────────────────────────────
 				if (isSelected)
 				{
-					m_MeshTransformMap[selectedMeshKey].ObjectIndices.push_back(sceneInstanceIndex);
+					GetMeshTransformBucket(selectedMeshKey).ObjectIndices.push_back(sceneInstanceIndex);
 
-					const uint64_t selectedShaderSortKey = m_SelectedGeometryMaterial && m_SelectedGeometryMaterial->GetShader()
-						? SortKeyFromRef(m_SelectedGeometryMaterial->GetShader().Raw()) : 0;
 					SubmitMeshPassDraw(MeshPassType::SelectedMask,
 						selectedMeshKey,
 						staticMesh,
@@ -6299,13 +6439,11 @@ namespace Lux {
 						lodIndex,
 						AssetHandle(0),
 						m_SelectedGeometryMaterial,
-						m_SelectedGeometryPass ? SortKeyFromRef(m_SelectedGeometryPass->GetPipeline().Raw()) : 0,
-						selectedShaderSortKey,
-						SortKeyFromRef(m_SelectedGeometryMaterial.Raw()),
-						meshSortKey);
+						passSortKeys.SelectedPipeline,
+						passSortKeys.SelectedShader,
+						passSortKeys.SelectedMaterial,
+						data.MeshSortKey);
 
-					const uint64_t wireframeShaderSortKey = m_WireframeMaterial && m_WireframeMaterial->GetShader()
-						? SortKeyFromRef(m_WireframeMaterial->GetShader().Raw()) : 0;
 					SubmitMeshPassDraw(MeshPassType::Wireframe,
 						selectedMeshKey,
 						staticMesh,
@@ -6315,10 +6453,10 @@ namespace Lux {
 						lodIndex,
 						AssetHandle(0),
 						m_WireframeMaterial,
-						m_GeometryWireframePass ? SortKeyFromRef(m_GeometryWireframePass->GetPipeline().Raw()) : 0,
-						wireframeShaderSortKey,
-						SortKeyFromRef(m_WireframeMaterial.Raw()),
-						meshSortKey);
+						passSortKeys.WireframePipeline,
+						passSortKeys.WireframeShader,
+						passSortKeys.WireframeMaterial,
+						data.MeshSortKey);
 				}
 			}
 
@@ -6329,7 +6467,7 @@ namespace Lux {
 					? UpdateShadowCasterMotion(sceneInstanceIndex, gpuSceneInstance)
 					: true;
 				const MeshKey shadowKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, !dynamicShadowCaster };
-				ShadowTransformMapData& shadowTransformData = m_ShadowMeshTransformMap[shadowKey];
+				ShadowTransformMapData& shadowTransformData = GetShadowTransformBucket(shadowKey);
 				for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 				{
 					if ((directionalShadowCascadeMask & (1u << cascade)) != 0)
@@ -6338,8 +6476,6 @@ namespace Lux {
 				if (spotShadowVisible)
 					shadowTransformData.Spot.ObjectIndices.push_back(sceneInstanceIndex);
 
-				const uint64_t shadowShaderSortKey = m_ShadowPassMaterial && m_ShadowPassMaterial->GetShader()
-					? SortKeyFromRef(m_ShadowPassMaterial->GetShader().Raw()) : 0;
 				SubmitMeshPassDraw(MeshPassType::ShadowDepth,
 					shadowKey,
 					staticMesh,
@@ -6349,23 +6485,33 @@ namespace Lux {
 					lodIndex,
 					AssetHandle(0),
 					m_ShadowPassMaterial,
-					m_ShadowMapPass ? SortKeyFromRef(m_ShadowMapPass->GetPipeline().Raw()) : 0,
-					shadowShaderSortKey,
-					SortKeyFromRef(m_ShadowPassMaterial.Raw()),
-					meshSortKey);
+					passSortKeys.ShadowPipeline,
+					passSortKeys.ShadowShader,
+					passSortKeys.ShadowMaterial,
+					data.MeshSortKey);
 			}
 		};
 
 		if (renderProxy && !renderProxy->SubmeshInstances.empty())
 		{
-			for (const GPUSceneInstanceRef& instanceRef : renderProxy->SubmeshInstances)
-				submitSubmesh(GetGPUSceneSubmeshIndex(instanceRef.Data), &instanceRef);
+			// A proxy's material resolution and sort keys are cached; only the camera-dependent work runs.
+			const ProxySubmitCacheEntry& submitData = GetProxySubmitData(*renderProxy);
+			for (size_t instance = 0; instance < renderProxy->SubmeshInstances.size(); instance++)
+			{
+				const GPUSceneInstanceRef& instanceRef = renderProxy->SubmeshInstances[instance];
+				submitSubmesh(GetGPUSceneSubmeshIndex(instanceRef.Data), &instanceRef, submitData.Submeshes[instance]);
+			}
 
 			return;
 		}
 
 		for (uint32_t submeshIndex : staticMesh->GetSubmeshes())
-			submitSubmesh(submeshIndex, nullptr);
+		{
+			if (submeshIndex >= submeshData.size())
+				continue;
+
+			submitSubmesh(submeshIndex, nullptr, BuildSubmeshSubmitData(staticMesh, meshSource, materialTable, overrideMaterial, submeshIndex));
+		}
 	}
 
 	void SceneRenderer::SubmitPhysicsStaticDebugMesh(Ref<StaticMesh> staticMesh,
@@ -6411,7 +6557,7 @@ namespace Lux {
 				transientMaterialID);
 			transientInstance.ObjectData.z = transientIndex;
 			m_TransientGPUSceneInstances.push_back(transientInstance);
-			m_MeshTransformMap[key].ObjectIndices.push_back(EncodeTransientGPUSceneInstanceIndex(transientIndex));
+			GetMeshTransformBucket(key).ObjectIndices.push_back(EncodeTransientGPUSceneInstanceIndex(transientIndex));
 
 			SubmitMeshPassDraw(passType,
 				key,
@@ -6793,12 +6939,10 @@ namespace Lux {
 		uint64_t dynamicSpotShadowCasterHash = 0;
 		CalculateShadowCasterHashes(staticDirectionalShadowCasterHash, dynamicDirectionalShadowCasterHash, staticSpotShadowCasterHash, dynamicSpotShadowCasterHash);
 
-		for (auto it = m_ShadowCasterMotion.begin(); it != m_ShadowCasterMotion.end();)
+		for (ShadowCasterMotionState& state : m_ShadowCasterMotion)
 		{
-			if (m_ShadowMotionFrameIndex - it->second.LastTouchedFrame > Renderer::GetConfig().FramesInFlight + StaticShadowCasterStableFrames)
-				it = m_ShadowCasterMotion.erase(it);
-			else
-				++it;
+			if (state.Tracked && m_ShadowMotionFrameIndex - state.LastTouchedFrame > Renderer::GetConfig().FramesInFlight + StaticShadowCasterStableFrames)
+				state = {};
 		}
 
 		const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];

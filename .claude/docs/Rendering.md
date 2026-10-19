@@ -888,6 +888,13 @@ Renderer submission must go through the frame packet, not the live ECS:
   unchanged entity never reads its proxy. Material tables are not read per entity either: an edit
   to any table bumps `MaterialTable::GetGlobalRevision()`, and that frame every entity takes the
   full path. **So a `MaterialTable` may only change through its setters.**
+- `SceneRenderer::SubmitRenderScene` caches each proxy's camera-independent submit data (resolved
+  material handle and asset, transparency, shadow casting, sort keys) in `m_ProxySubmitCache`,
+  indexed by `RenderPrimitiveID`. An entry is reused while the proxy's `Revision` holds; every entry
+  is dropped when the scene (`RenderScene::GetGeneration`, unique per instance and `Clear`), any
+  material table (`MaterialTable::GetGlobalRevision`) or any material asset
+  (`MaterialScene::GetAssetRevision`) changes. Anything new the submit reads from a material or mesh
+  must be covered by one of those signals, or a cached proxy keeps the old value.
   Entities not synced in a frame are dropped in `EndSync`. `GetChangedPrimitives` /
   `GetRemovedPrimitives` list what changed this frame.
 - **A `RenderScene` mirror feeds exactly one `SceneRenderer`.** Each renderer uploads only the

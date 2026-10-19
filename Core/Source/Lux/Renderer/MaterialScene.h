@@ -132,6 +132,9 @@ namespace Lux {
 		// (MarkMaterialDirty / Clear). Lets consumers skip re-copying the table on
 		// frames where nothing changed. Never reset.
 		uint64_t GetVersion() const { return m_Version; }
+		// Bumped when a row is rebuilt because its MaterialAsset object or revision changed (a reload
+		// or an edit), whether or not its GPU data changed: CPU caches of asset state compare it.
+		uint64_t GetAssetRevision() const { return m_AssetRevision; }
 		const std::vector<MaterialSceneDirtyRange>& GetDirtyRanges() const { return m_DirtyRanges; }
 		bool HasDirtyMaterials() const { return m_DirtyMaterialCount > 0; }
 		uint32_t GetDirtyMaterialCount() const { return m_DirtyMaterialCount; }
@@ -192,6 +195,7 @@ namespace Lux {
 		uint32_t m_FrameIndex = 0;
 		uint32_t m_DirtyMaterialCount = 0;
 		uint64_t m_Version = 0;
+		uint64_t m_AssetRevision = 1;
 		TextureScene* m_TextureScene = nullptr;
 
 		std::vector<GPUMaterialData> m_Materials;

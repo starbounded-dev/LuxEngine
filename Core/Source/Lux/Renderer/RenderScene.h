@@ -110,6 +110,9 @@ namespace Lux {
 		size_t GetStaticMeshProxyCount() const { return m_StaticMeshProxiesByEntity.size(); }
 		size_t GetVisibleStaticMeshProxyCount() const { return m_StaticMeshProxies.size(); }
 		uint32_t GetFrameIndex() const { return m_FrameIndex; }
+		// Unique across every RenderScene and renewed by Clear (which restarts primitive IDs), so a
+		// cache keyed by RenderPrimitiveID can tell a cleared or reallocated scene from the one it saw.
+		uint64_t GetGeneration() const { return m_Generation; }
 
 	private:
 		RenderPrimitiveID GetOrCreatePrimitiveID(UUID entityID);
@@ -139,6 +142,7 @@ namespace Lux {
 
 	private:
 		uint32_t m_FrameIndex = 0;
+		uint64_t m_Generation = 0;
 		RenderPrimitiveID m_NextPrimitiveID = 1;
 
 		GPUScene m_GPUScene;

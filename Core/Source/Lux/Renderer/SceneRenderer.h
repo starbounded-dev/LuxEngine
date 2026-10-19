@@ -1059,14 +1059,71 @@ namespace Lux {
 			const glm::mat4& transform,
 			Ref<Material>    material);
 
+		// Camera-independent submit data of one submesh: which material it draws with, how it sorts,
+		// whether it is transparent or casts shadows. A proxy's is cached (m_ProxySubmitCache).
+		struct SubmeshSubmitData
+		{
+			AssetHandle MaterialHandle = 0;
+			Ref<MaterialAsset> MaterialAsset;
+			Ref<Material> OverrideMaterial;      // the explicit override, or the default material when the asset is missing
+			Ref<Material> MaterialSceneOverride; // what a transient material row is built from
+			AssetHandle MeshKeyHandle = 0;
+			AssetHandle KeyMaterialHandle = 0;
+			uint64_t MeshSortKey = 0;
+			uint64_t MaterialSortKey = 0;
+			uint64_t ShaderSortKey = 0;
+			bool Transparent = false;
+			bool CastsShadows = false;
+		};
+
+		// A proxy's SubmeshSubmitData, parallel to its SubmeshInstances. Valid while the proxy's
+		// Revision and m_ProxySubmitCacheEpoch are unchanged.
+		struct ProxySubmitCacheEntry
+		{
+			uint64_t Epoch = 0;
+			uint64_t ProxyRevision = 0;
+			UUID EntityID = 0;
+			std::vector<SubmeshSubmitData> Submeshes;
+		};
+
+		// Sort keys of the fixed per-pass materials and pipelines, read once per frame instead of
+		// once per submesh.
+		struct PassSortKeys
+		{
+			uint32_t Frame = std::numeric_limits<uint32_t>::max();
+			uint64_t GeometryPipeline = 0;
+			uint64_t TransparentGeometryPipeline = 0;
+			uint64_t PreDepthPipeline = 0;
+			uint64_t PreDepthShader = 0;
+			uint64_t PreDepthMaterial = 0;
+			uint64_t SelectedPipeline = 0;
+			uint64_t SelectedShader = 0;
+			uint64_t SelectedMaterial = 0;
+			uint64_t WireframePipeline = 0;
+			uint64_t WireframeShader = 0;
+			uint64_t WireframeMaterial = 0;
+			uint64_t ShadowPipeline = 0;
+			uint64_t ShadowShader = 0;
+			uint64_t ShadowMaterial = 0;
+		};
+
 		void SubmitStaticMeshProxy(const StaticMeshRenderProxy& proxy);
-		void SubmitStaticMeshInternal(Ref<StaticMesh>    staticMesh,
-			Ref<MeshSource>    meshSource,
-			Ref<MaterialTable> materialTable,
+		void SubmitStaticMeshInternal(const Ref<StaticMesh>& staticMesh,
+			const Ref<MeshSource>& meshSource,
+			const Ref<MaterialTable>& materialTable,
 			const glm::mat4& transform,
-			Ref<Material>      overrideMaterial,
+			const Ref<Material>& overrideMaterial,
 			bool               isSelected,
 			const StaticMeshRenderProxy* renderProxy = nullptr);
+		static SubmeshSubmitData BuildSubmeshSubmitData(const Ref<StaticMesh>& staticMesh,
+			const Ref<MeshSource>& meshSource,
+			const Ref<MaterialTable>& materialTable,
+			const Ref<Material>& overrideMaterial,
+			uint32_t submeshIndex);
+		// The proxy's cached submit data, rebuilt when the proxy or any material input changed.
+		const ProxySubmitCacheEntry& GetProxySubmitData(const StaticMeshRenderProxy& proxy);
+		const PassSortKeys& GetPassSortKeys();
+		TransformMapData& GetMeshTransformBucket(const MeshKey& key);
 		bool IsMainViewVisible(const BoundingSphere& bounds) const;
 		uint32_t GetDirectionalShadowCascadeMask(const BoundingSphere& bounds) const;
 		bool IsSpotShadowCasterVisible(const BoundingSphere& bounds) const;
@@ -1080,13 +1137,13 @@ namespace Lux {
 		GPUTextureIndex ResolveTransientGPUTextureIndex(AssetHandle textureHandle, TextureColorSpace colorSpace);
 		StaticDrawCommand& SubmitMeshPassDraw(MeshPassType passType,
 			const MeshKey& key,
-			Ref<StaticMesh> staticMesh,
-			Ref<MeshSource> meshSource,
-			Ref<MaterialTable> materialTable,
+			const Ref<StaticMesh>& staticMesh,
+			const Ref<MeshSource>& meshSource,
+			const Ref<MaterialTable>& materialTable,
 			uint32_t submeshIndex,
 			uint32_t lodIndex,
 			AssetHandle materialHandle,
-			Ref<Material> overrideMaterial,
+			const Ref<Material>& overrideMaterial,
 			uint64_t pipelineSortKey,
 			uint64_t shaderSortKey,
 			uint64_t materialSortKey,
@@ -1696,6 +1753,19 @@ namespace Lux {
 
 		// GPUScene indirection for all submitted meshes this frame.
 		std::unordered_map<MeshKey, TransformMapData, MeshKeyHasher>  m_MeshTransformMap;
+		// ObjectIndices vectors of last frame's buckets, handed to this frame's new buckets so the
+		// per-frame maps do not regrow their vectors from empty every frame.
+		std::vector<std::vector<uint32_t>> m_ObjectIndexVectorPool;
+
+		// Submit data per proxy, indexed by RenderPrimitiveID, for m_ProxySubmitCacheScene. The epoch
+		// moves (dropping every entry) when the scene, any MaterialTable or any material asset changes.
+		std::vector<ProxySubmitCacheEntry> m_ProxySubmitCache;
+		const RenderScene* m_ProxySubmitCacheScene = nullptr;
+		uint64_t m_ProxySubmitCacheEpoch = 1;
+		uint64_t m_ProxySubmitCacheSceneGeneration = 0;
+		uint64_t m_ProxySubmitCacheTableRevision = 0;
+		uint64_t m_ProxySubmitCacheMaterialRevision = 0;
+		PassSortKeys m_PassSortKeys;
 		std::vector<GPUSceneInstanceData>    m_TransientGPUSceneInstances;
 		std::vector<GPUMaterialData>         m_TransientGPUMaterials;
 		std::unordered_map<uint64_t, uint32_t> m_TransientGPUMaterialIndexByKey;
@@ -1761,6 +1831,7 @@ namespace Lux {
 			TransformMapData Spot;
 		};
 		std::unordered_map<MeshKey, ShadowTransformMapData, MeshKeyHasher> m_ShadowMeshTransformMap;
+		ShadowTransformMapData& GetShadowTransformBucket(const MeshKey& key);
 		std::array<Frustum, ShadowCascadeCount> m_ShadowCascadeFrustums;
 		std::array<Frustum, MaxShadowAtlasTiles> m_SpotShadowFrustums;
 		uint32_t m_ShadowCascadeFrustumCount = 0;
@@ -1814,11 +1885,13 @@ namespace Lux {
 		static constexpr uint32_t StaticShadowCasterStableFrames = 4;
 		struct ShadowCasterMotionState
 		{
-			uint64_t TransformHash = 0;
+			glm::vec4 TransformRows[3]{};
 			uint32_t StableFrames = 0;
 			uint32_t LastTouchedFrame = 0;
+			bool Tracked = false;
 		};
-		std::unordered_map<uint32_t, ShadowCasterMotionState> m_ShadowCasterMotion;
+		// Indexed by GPUScene row (dense), so tracking a caster is an array access, not a hash lookup.
+		std::vector<ShadowCasterMotionState> m_ShadowCasterMotion;
 		uint32_t m_ShadowMotionFrameIndex = 0;
 		uint64_t m_LastSpotShadowStateHash = 0;
 		glm::vec3 m_CachedShadowCameraPosition{ 0.0f };

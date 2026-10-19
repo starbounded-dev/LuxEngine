@@ -421,6 +421,7 @@ namespace Lux {
 			{
 				row.Asset = std::move(asset);
 				BuildAssetMaterialRow(materialID);
+				m_AssetRevision++;
 			}
 		}
 
@@ -474,6 +475,7 @@ namespace Lux {
 		m_Materials.clear();
 		m_Rows.clear();
 		m_FreeMaterialIDs.clear();
+		m_AssetRevision++;
 		m_MaterialIDByKey.clear();
 		m_DirtyMaterialIDs.clear();
 		m_DirtyRanges.clear();

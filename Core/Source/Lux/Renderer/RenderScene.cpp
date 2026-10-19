@@ -8,6 +8,7 @@
 #include "Lux/Asset/AssetManager.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <utility>
 
@@ -24,6 +25,12 @@ namespace Lux {
 		{
 			return std::memcmp(&lhs.Center, &rhs.Center, sizeof(glm::vec3)) == 0
 				&& lhs.Radius == rhs.Radius;
+		}
+
+		uint64_t NextRenderSceneGeneration()
+		{
+			static std::atomic<uint64_t> s_NextGeneration{ 1 };
+			return s_NextGeneration.fetch_add(1, std::memory_order_relaxed);
 		}
 
 		uint64_t HashCombine(uint64_t seed, uint64_t value)
@@ -101,6 +108,7 @@ namespace Lux {
 	}
 
 	RenderScene::RenderScene()
+		: m_Generation(NextRenderSceneGeneration())
 	{
 		m_MaterialScene.SetTextureScene(&m_TextureScene);
 	}
@@ -411,6 +419,7 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_FrameIndex = 0;
+		m_Generation = NextRenderSceneGeneration();
 		m_NextPrimitiveID = 1;
 		m_PrimitiveIDsByEntity.clear();
 		m_StaticMeshProxiesByEntity.clear();
