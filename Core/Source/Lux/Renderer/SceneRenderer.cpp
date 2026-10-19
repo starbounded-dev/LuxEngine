@@ -6194,9 +6194,12 @@ namespace Lux {
 					if (!instanceData)
 						continue;
 
-					hash = HashVec4(hash, instanceData->TransformRows[0]);
-					hash = HashVec4(hash, instanceData->TransformRows[1]);
-					hash = HashVec4(hash, instanceData->TransformRows[2]);
+					// The rows' bits 64 at a time: the hash is only compared with last frame's.
+					uint64_t rowBits[6];
+					static_assert(sizeof(rowBits) == sizeof(instanceData->TransformRows));
+					std::memcpy(rowBits, instanceData->TransformRows, sizeof(rowBits));
+					for (uint64_t bits : rowBits)
+						hash = HashCombine(hash, bits);
 				}
 			};
 
@@ -6358,6 +6361,22 @@ namespace Lux {
 			const MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, false };
 			const MeshKey selectedMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, true, false };
 
+			// Adds this instance to a bucket's draw: the bucket's first instance creates the draw (one
+			// draw-list lookup), every later one only counts, so a bucket costs one hash per instance.
+			auto submitDraw = [&](StaticDrawCommand*& command, MeshPassType passType, const MeshKey& key,
+				const Ref<MaterialTable>& drawMaterialTable, AssetHandle drawMaterialHandle, const Ref<Material>& drawMaterial,
+				uint64_t pipelineSortKey, uint64_t shaderSortKey, uint64_t materialSortKey)
+				{
+					if (command)
+					{
+						command->InstanceCount++;
+						return;
+					}
+
+					command = &SubmitMeshPassDraw(passType, key, staticMesh, meshSource, drawMaterialTable, submeshIndex, lodIndex,
+						drawMaterialHandle, drawMaterial, pipelineSortKey, shaderSortKey, materialSortKey, data.MeshSortKey);
+				};
+
 			m_FrameCullingStats.SubmittedInstances++;
 			if (!mainViewVisible)
 				m_FrameCullingStats.MainViewCulledInstances++;
@@ -6392,71 +6411,58 @@ namespace Lux {
 			{
 				// ── Main draw list ────────────────────────────────────────────────
 				const MeshKey mainPassKey = isTransparent ? materialKey : bindlessMeshKey;
-				GetMeshTransformBucket(mainPassKey).ObjectIndices.push_back(sceneInstanceIndex);
+				TransformMapData& mainBucket = GetMeshTransformBucket(mainPassKey);
+				mainBucket.ObjectIndices.push_back(sceneInstanceIndex);
 
-				SubmitMeshPassDraw(isTransparent ? MeshPassType::Transparent : MeshPassType::Opaque,
+				const MeshPassType mainPassType = isTransparent ? MeshPassType::Transparent : MeshPassType::Opaque;
+				submitDraw(mainBucket.PassCommands[(size_t)mainPassType],
+					mainPassType,
 					mainPassKey,
-					staticMesh,
-					meshSource,
 					isTransparent ? materialTable : nullptr,
-					submeshIndex,
-					lodIndex,
 					isTransparent ? data.MaterialHandle : AssetHandle(0),
 					isTransparent ? data.OverrideMaterial : nullptr,
 					isTransparent ? passSortKeys.TransparentGeometryPipeline : passSortKeys.GeometryPipeline,
 					isTransparent ? data.ShaderSortKey : 0,
-					isTransparent ? data.MaterialSortKey : 0,
-					data.MeshSortKey);
+					isTransparent ? data.MaterialSortKey : 0);
 
 				if (!isTransparent)
 				{
-					SubmitMeshPassDraw(MeshPassType::DepthPrepass,
+					submitDraw(mainBucket.PassCommands[(size_t)MeshPassType::DepthPrepass],
+						MeshPassType::DepthPrepass,
 						bindlessMeshKey,
-						staticMesh,
-						meshSource,
 						nullptr,
-						submeshIndex,
-						lodIndex,
 						AssetHandle(0),
 						m_PreDepthMaterial,
 						passSortKeys.PreDepthPipeline,
 						passSortKeys.PreDepthShader,
-						passSortKeys.PreDepthMaterial,
-						data.MeshSortKey);
+						passSortKeys.PreDepthMaterial);
 				}
 
 				// ── Selected list ─────────────────────────────────────────────────
 				if (isSelected)
 				{
-					GetMeshTransformBucket(selectedMeshKey).ObjectIndices.push_back(sceneInstanceIndex);
+					TransformMapData& selectedBucket = GetMeshTransformBucket(selectedMeshKey);
+					selectedBucket.ObjectIndices.push_back(sceneInstanceIndex);
 
-					SubmitMeshPassDraw(MeshPassType::SelectedMask,
+					submitDraw(selectedBucket.PassCommands[(size_t)MeshPassType::SelectedMask],
+						MeshPassType::SelectedMask,
 						selectedMeshKey,
-						staticMesh,
-						meshSource,
 						nullptr,
-						submeshIndex,
-						lodIndex,
 						AssetHandle(0),
 						m_SelectedGeometryMaterial,
 						passSortKeys.SelectedPipeline,
 						passSortKeys.SelectedShader,
-						passSortKeys.SelectedMaterial,
-						data.MeshSortKey);
+						passSortKeys.SelectedMaterial);
 
-					SubmitMeshPassDraw(MeshPassType::Wireframe,
+					submitDraw(selectedBucket.PassCommands[(size_t)MeshPassType::Wireframe],
+						MeshPassType::Wireframe,
 						selectedMeshKey,
-						staticMesh,
-						meshSource,
 						nullptr,
-						submeshIndex,
-						lodIndex,
 						AssetHandle(0),
 						m_WireframeMaterial,
 						passSortKeys.WireframePipeline,
 						passSortKeys.WireframeShader,
-						passSortKeys.WireframeMaterial,
-						data.MeshSortKey);
+						passSortKeys.WireframeMaterial);
 				}
 			}
 
@@ -6476,19 +6482,15 @@ namespace Lux {
 				if (spotShadowVisible)
 					shadowTransformData.Spot.ObjectIndices.push_back(sceneInstanceIndex);
 
-				SubmitMeshPassDraw(MeshPassType::ShadowDepth,
+				submitDraw(shadowTransformData.ShadowCommand,
+					MeshPassType::ShadowDepth,
 					shadowKey,
-					staticMesh,
-					meshSource,
 					nullptr,
-					submeshIndex,
-					lodIndex,
 					AssetHandle(0),
 					m_ShadowPassMaterial,
 					passSortKeys.ShadowPipeline,
 					passSortKeys.ShadowShader,
-					passSortKeys.ShadowMaterial,
-					data.MeshSortKey);
+					passSortKeys.ShadowMaterial);
 			}
 		};
 

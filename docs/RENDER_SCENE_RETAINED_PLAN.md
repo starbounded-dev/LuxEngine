@@ -215,6 +215,22 @@ pixel-identical in all three B runs. The golden feature variants were not run fo
 user chose perf-only verification). Remaining: Submit + Flush 6.35 ms vs the 2.5 ms target — the
 per-instance culling/LOD and two hash lookups per pass per instance, and the flush (object-index
 build, `CalculateShadowCasterHashes`). Next is a sampler profile, then persistent buckets.
+
+**Step 2 (2026-10-19, no change to draw output).** A sampler profile after step 1 put the per-submesh
+submit lambda at 27% self (culling, LOD, bucket appends) and `MeshKeyHasher` + two draw-list /
+transform-map lookups per pass at ~15%. Changes: `MeshKeyHasher` is a multiply-xorshift mix
+(MSVC's `std::hash<uint64_t>` is byte-wise FNV; draw order never depends on map order because
+`BuildSortedDrawCommandOrder` sorts on every key field); each transform bucket remembers its draw
+per pass (`TransformMapData::PassCommands`, `ShadowTransformMapData::ShadowCommand`), so an opaque
+instance costs one hash lookup instead of three and a shadow instance one instead of two;
+`CalculateShadowCasterHashes` hashes the rows 64 bits at a time. A-B-A against step 1 (medians of
+3, this session ran faster than the step 1 session): SubmitRenderScene 3.91 / **3.27** / 3.93 ms,
+FlushDrawList 1.48 / **1.26** / 1.50 ms, main thread 6.34 / **5.53** / 6.42 ms; default image
+pixel-identical. **Submit + Flush is 4.53 ms, target 2.5 ms not met.** What remains is the
+per-instance camera work itself — main-view, cascade and spot frustum tests and LOD selection for
+~10k submeshes, plus the per-instance bucket append — which this phase keeps on the CPU by design;
+Phase 3 moves exactly that to the GPU. Closing the gap on the CPU would need instance buckets that
+persist across frames and are only edited when an instance's visibility or LOD changes.
 **Docs:** `Rendering.md` § draw lists.
 
 ### Phase 3 — GPU LOD and visibility for the main view

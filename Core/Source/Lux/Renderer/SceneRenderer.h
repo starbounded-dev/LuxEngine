@@ -901,13 +901,24 @@ namespace Lux {
 		{
 			size_t operator()(const MeshKey& key) const
 			{
-				size_t seed = std::hash<uint64_t>{}((uint64_t)key.MeshHandle);
-				seed ^= std::hash<uint64_t>{}((uint64_t)key.MaterialHandle) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
-				seed ^= std::hash<uint32_t>{}(key.SubmeshIndex) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
-				seed ^= std::hash<uint32_t>{}(key.LODIndex) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
-				seed ^= std::hash<bool>{}(key.IsSelected) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
-				seed ^= std::hash<bool>{}(key.StaticShadowCaster) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
-				return seed;
+				// Multiply-xorshift mixing: this runs several times per submitted instance, and MSVC's
+				// std::hash<uint64_t> is byte-wise FNV-1a. Draw order never depends on map order
+				// (BuildSortedDrawCommandOrder sorts on every key field), so the hash is free to change.
+				auto mix = [](uint64_t value)
+					{
+						value ^= value >> 32;
+						value *= 0xd6e8feb86659fd93ull;
+						value ^= value >> 32;
+						value *= 0xd6e8feb86659fd93ull;
+						value ^= value >> 32;
+						return value;
+					};
+
+				uint64_t hash = mix((uint64_t)key.MeshHandle);
+				hash = mix(hash ^ (uint64_t)key.MaterialHandle);
+				hash = mix(hash ^ ((uint64_t)key.SubmeshIndex | ((uint64_t)key.LODIndex << 32)));
+				hash = mix(hash ^ ((uint64_t)key.IsSelected | ((uint64_t)key.StaticShadowCaster << 1)));
+				return (size_t)hash;
 			}
 		};
 
@@ -1020,6 +1031,9 @@ namespace Lux {
 			uint32_t              VisibleObjectIndexBase = 0;
 			uint32_t              VisibleInstanceCount = 0;
 			uint32_t              IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
+			// This bucket's draw in each pass, set by its first instance: later instances only count.
+			// Valid for the frame (the draw lists and this map are cleared together).
+			std::array<StaticDrawCommand*, MeshPassTypeCount> PassCommands{};
 		};
 
 		// Snapshot of the TransformMapData scalars RT_DrawStaticMesh needs.
@@ -1829,6 +1843,7 @@ namespace Lux {
 		{
 			std::array<TransformMapData, ShadowCascadeCount> Cascades;
 			TransformMapData Spot;
+			StaticDrawCommand* ShadowCommand = nullptr; // as TransformMapData::PassCommands
 		};
 		std::unordered_map<MeshKey, ShadowTransformMapData, MeshKeyHasher> m_ShadowMeshTransformMap;
 		ShadowTransformMapData& GetShadowTransformBucket(const MeshKey& key);
