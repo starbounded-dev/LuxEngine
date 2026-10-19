@@ -228,7 +228,8 @@ not a warning; only warnings and errors reach the log.
    `{ { visibleObjectIndexes, AccessKind::StorageRead } }`; register a buffer with `addBuffer`.
 6. Gate optional passes on their feature flag so they are skipped at zero cost when off.
 
-Existing pass order, for orientation: shadow maps → PreDepth → HZB → mesh culling → cluster build →
+Existing pass order, for orientation: shadow maps → early mesh culling (cull groups only) → PreDepth →
+HZB → mesh culling → cluster build →
 cluster light culling → skybox → sky atmosphere → selected geometry → GBuffer → GTAO (+ denoise,
 temporal) → AO composite → deferred lighting → pre-convolution → SSR (+ temporal, composite) →
 volumetric clouds (+ temporal, composite) → atmospheric fog → transparent forward → wireframe →
@@ -709,11 +710,24 @@ crash or corruption on some driver even if it renders correctly on yours.
   descriptor sets. Main-thread `Get()` may select a different buffer. Indirect draw consumers need
   `ResourceAccessFlags::IndirectCommandRead` (`ResourceState::IndirectArgument`), not a shader-read
   state; the barrier is an `RT_TransitionBufferState` on the command buffer's tracker.
-- GPU-written storage (including mesh-culling visible indices and indirect arguments) must use
-  `GPUOnly = true`. CPU-visible buffers have no tracked state (the tracker's `DescribeBuffer` gives
+- GPU-written storage (including mesh-culling visible indices, indirect arguments and
+  `ObjectIndexes`, which the early mesh cull writes) must use `GPUOnly = true`. CPU-visible buffers have no tracked state (the tracker's `DescribeBuffer` gives
   them no resting state), so no barrier can protect them; CPU initialization
   of GPU storage goes through `UploadContext::WriteBuffer` in the upload batch, or
   `RenderCommandBuffer::RT_WriteBuffer` in a command buffer.
+- **Main-view cull groups (GPU LOD).** With GPU-driven rendering on and the mesh-shader prepass not
+  in use (`SceneRenderer::CanUseGPUCullGroups`), every proxy instance joins a `CullGroup` keyed by
+  mesh, submesh and (transparent only) material key, with `MeshKey::GPUCullGroup` set. The CPU does
+  no main-view culling or LOD for them; groups persist across frames and are rebuilt only when the
+  submitted scene's change list or the submit-cache epoch moved. `FlushDrawList` expands each group
+  into one draw per LOD (`ExpandCullGroupDraws`) with its own visible range and indirect args, and
+  `MeshCulling.glsl` picks each instance's LOD with `SelectStaticMeshLOD`'s metric. **Edit the LOD
+  metric in both places**, or the GPU and CPU paths pick different LODs. An early dispatch of the same
+  shader (frustum and LOD, no HZB, `EarlyPass`) writes the depth prepass's instances into
+  `ObjectIndexes`; the prepass draws cull-group draws indirect from it, so prepass and G-buffer
+  agree on every instance's LOD (the G-buffer depth-tests EQUAL). Selection outlines, shadows and
+  non-proxy submissions keep the CPU path. `MeshCullDrawData` is three `uvec4` per cull draw and
+  mirrors the shader's block.
 - PCSS reads its taps from the `RendererData` uniform buffer (`ShadowKernel`), never from a local
   array. Dynamic indexing of a local sample array expands into repeated per-fragment scratch arrays
   on RADV Renoir and can cause a GPU timeout.

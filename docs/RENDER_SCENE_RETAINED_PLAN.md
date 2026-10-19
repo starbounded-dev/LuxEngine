@@ -262,6 +262,27 @@ GPU time per pass not worse by more than 0.2 ms; Debug + sync validation run cle
 **Exit:** main-view CPU cost independent of instance count. **Rollback:** option off → Phase 2 path.
 **Docs:** `Rendering.md` § GPU culling, § Performance rules.
 
+**Status 2026-10-19: implemented, golden identical, Debug validation run blocked.** As built: proxy
+instances with a GPUScene row join persistent main-view `CullGroup`s (mesh, submesh, and material key
+when transparent; `MeshKey::GPUCullGroup`), rebuilt during a submit only when the scene's change list
+or the submit-cache epoch moved. `FlushDrawList` expands each group into one draw per LOD
+(`ExpandCullGroupDraws`), each with its own visible range and indirect args; `MeshCulling.glsl`
+(three `uvec4` per cull record, LOD thresholds packed, no new binding) picks each instance's LOD with
+`SelectStaticMeshLOD`'s metric. An early dispatch of the same shader (`EarlyPass`, frustum + LOD, no
+HZB) writes the prepass's instances into `ObjectIndexes` (now `GPUOnly`), and the prepass draws
+cull-group draws indirect. Selection outlines, shadows and non-proxy submissions keep the CPU path;
+gated off with the mesh-shader prepass. Golden: Benchmark default + 15 variants pixel-identical to
+Phase 2 (`p2C` vs `p3A`; one `noSSR` run showed a stray selection outline from a click during the
+capture, its re-run was identical). Perf A-B-A against Phase 2 (medians of 3): SubmitRenderScene
+3.40 / **2.91** / 3.30 ms, FlushDrawList 1.26 / 1.37 / 1.24 ms, main thread 5.64 / **5.22** / 5.52 ms;
+GPU: early cull 0.05 ms, other passes within noise. Debug + sync validation: blocked at first by an
+unrelated ImGui assert and transfer-queue barrier errors (fixed in 0155a567); the Debug build of
+this checkout (Phase 3 included) then captured Benchmark with 0 validation ids. Open: at Debug exit,
+VMA reports "Unfreed dedicated allocations" (first observable now; not yet attributed — the
+renderer's caches hold mesh and material Refs until the SceneRenderer is destroyed, as its
+draw-command cache already did). What remains per instance on the CPU is shadow culling/LOD
+(Phase 4).
+
 ### Phase 4 — GPU shadow culling and dirty-driven shadow caches
 
 **Goal:** shadow lists built on the GPU; no per-frame transform hashing of casters.

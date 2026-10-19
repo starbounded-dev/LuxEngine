@@ -88,6 +88,23 @@ namespace Lux {
 			return reinterpret_cast<uint64_t>(object);
 		}
 
+		// MeshCulling.glsl's push constants, for both its dispatches: edit both together.
+		struct MeshCullingPushConstants
+		{
+			glm::mat4 ViewProjection;
+			glm::vec4 HZBUVFactorAndViewportSize;
+			uint32_t DrawCount = 0;
+			uint32_t FrustumCullingEnabled = 1;
+			uint32_t OcclusionCullingEnabled = 0;
+			uint32_t NumDepthMips = 1;
+			float DepthBias = 0.001f;
+			float BoundsScale = 1.05f;
+			uint32_t LODEnabled = 0;
+			uint32_t EarlyPass = 0;
+			glm::vec4 CameraPositionAndLODScale{ 0.0f };
+		};
+		static_assert(sizeof(MeshCullingPushConstants) == 128, "MeshCulling.glsl push constants");
+
 		constexpr uint32_t TransientGPUSceneInstanceFlag = 0x80000000u;
 		constexpr uint32_t TransientGPUSceneInstanceMask = ~TransientGPUSceneInstanceFlag;
 		constexpr uint32_t TransientRenderMaterialFlag = 0x80000000u;
@@ -1327,14 +1344,13 @@ namespace Lux {
 
 		// ── Storage buffer sets (start with generous initial capacity) ─────────
 		{
+			// Compute writes these outputs (the early mesh cull writes into ObjectIndexes too). CPU-visible
+			// buffers are untracked (no barriers), so use GPU storage with staged CPU uploads.
 			StorageBufferSpecification spec;
-			spec.GPUOnly = false;
+			spec.GPUOnly = true;
 			spec.DebugName = "ObjectIndexes";
 			m_SBSObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
 
-			// Compute writes these outputs. CPU-visible buffers are untracked (no barriers), so use GPU
-			// storage with staged CPU uploads.
-			spec.GPUOnly = true;
 			spec.DebugName = "VisibleObjectIndexes";
 			m_SBSVisibleObjectIndexes = StorageBufferSet::Create(spec, sizeof(uint32_t) * 4096);
 
@@ -1726,6 +1742,22 @@ namespace Lux {
 			m_MeshCullingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			LUX_CORE_VERIFY(m_MeshCullingPass->Validate());
 			m_MeshCullingPass->Bake();
+
+			// The early cull writes its instances into ObjectIndexes (past every CPU-built range), where the
+			// depth prepass reads them: its output binding is the ObjectIndexes buffer itself.
+			ComputePassSpecification earlySpec;
+			earlySpec.DebugName = "MeshEarlyCulling";
+			earlySpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("MeshCulling"));
+			m_MeshEarlyCullingPass = ComputePass::Create(earlySpec);
+			m_MeshEarlyCullingPass->SetInput("MeshCullDrawData", m_SBSMeshCullDrawData);
+			m_MeshEarlyCullingPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			m_MeshEarlyCullingPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+			m_MeshEarlyCullingPass->SetInput("VisibleObjectIndexes", m_SBSObjectIndexes);
+			m_MeshEarlyCullingPass->SetInput("IndirectDrawCommands", m_SBSIndirectDrawCommands);
+			m_MeshEarlyCullingPass->SetInput("u_HZB", m_HierarchicalDepthTexture.Texture);
+			m_MeshEarlyCullingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
+			LUX_CORE_VERIFY(m_MeshEarlyCullingPass->Validate());
+			m_MeshEarlyCullingPass->Bake();
 		}
 
 		// ── Cluster build pass (froxel AABB grid) ────────────────────────────
@@ -4029,6 +4061,7 @@ namespace Lux {
 		// Storage buffers passes communicate through. Invalid when a set does not exist.
 		using AccessKind = RenderGraph::AccessKind;
 		const RenderGraph::ResourceHandle visibleObjectIndexes = addBuffer("Visible Object Indexes", m_SBSVisibleObjectIndexes);
+		const RenderGraph::ResourceHandle objectIndexes = addBuffer("Object Indexes", m_SBSObjectIndexes);
 		const RenderGraph::ResourceHandle indirectDrawCommands = addBuffer("Indirect Draw Commands", m_SBSIndirectDrawCommands);
 		// Draw passes read the culled indirect arguments only with GPU-driven rendering on.
 		const RenderGraph::ResourceHandle indirectArgs = m_Options.EnableGPUDrivenRendering ? indirectDrawCommands : RenderGraph::InvalidResource;
@@ -4047,14 +4080,26 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> shadowOutputs = directionalShadowOutputs;
 		appendResources(shadowOutputs, spotShadowOutputs);
 
+		// With cull groups the early cull (frustum and LOD) writes the prepass's instances into ObjectIndexes
+		// and its indirect args; the prepass then draws those indirect.
 		std::vector<RenderGraph::ResourceHandle> preDepthOutputs = addRenderPassResources("PreDepth", m_PreDepthPass);
-		addPass("PreDepth", {}, preDepthOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::PreDepthPass));
+		if (m_UseGPUCullGroups)
+		{
+			addPass("Early Mesh Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::EarlyMeshCullingPass),
+				{ { objectIndexes, AccessKind::StorageReadWrite }, { indirectDrawCommands, AccessKind::StorageReadWrite } });
+			addPass("PreDepth", {}, preDepthOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::PreDepthPass),
+				{ { objectIndexes, AccessKind::StorageRead }, { indirectDrawCommands, AccessKind::IndirectArgs } });
+		}
+		else
+		{
+			addPass("PreDepth", {}, preDepthOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::PreDepthPass));
+		}
 
 		std::vector<RenderGraph::ResourceHandle> hzbOutputs;
 		hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
 		addPass("HZB", preDepthOutputs, hzbOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::HZBCompute));
 		addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass),
-			{ { visibleObjectIndexes, AccessKind::StorageWrite }, { indirectDrawCommands, AccessKind::StorageReadWrite } });
+			{ { objectIndexes, AccessKind::StorageRead }, { visibleObjectIndexes, AccessKind::StorageWrite }, { indirectDrawCommands, AccessKind::StorageReadWrite } });
 
 		// PreIntegration's visibility pyramid is consumed only by SSR — skip the
 		// whole pass (and its per-mip dispatches) when SSR is off. The vector stays
@@ -4902,6 +4947,9 @@ namespace Lux {
 		m_FrameCullingStats = {};
 		m_MeshDrawCommandCacheFrame++;
 		m_ShadowMotionFrameIndex++;
+		m_UseGPUCullGroups = CanUseGPUCullGroups();
+		m_CullGroupsSubmitted = false;
+		m_CullGroupsFrozen = false;
 		m_ShadowCascadeFrustumCount = 0;
 		m_SpotShadowFrustumCount = 0;
 		m_SubmittedRenderScene = nullptr;
@@ -5708,6 +5756,28 @@ namespace Lux {
 				m_ProxySubmitCache[primitiveID] = {};
 		}
 
+		// Cull groups are kept while nothing they were built from changed: the same scene, synced once
+		// since (so its change list covers everything), with no created, changed or removed primitive
+		// and no new submit-cache epoch. Otherwise this submit rebuilds them.
+		m_CullGroupsSubmitted = true;
+		const bool cullGroupsCurrent = m_CullGroupsValid
+			&& m_CullGroupsScene == renderScene.Raw()
+			&& m_CullGroupsSceneGeneration == sceneGeneration
+			&& m_CullGroupsSceneFrame + 1 == renderScene->GetFrameIndex()
+			&& m_CullGroupsSubmitEpoch == m_ProxySubmitCacheEpoch
+			&& renderScene->GetChangedPrimitives().empty()
+			&& renderScene->GetRemovedPrimitives().empty();
+		m_CullGroupsFrozen = m_UseGPUCullGroups && cullGroupsCurrent;
+		if (!m_CullGroupsFrozen)
+		{
+			ClearCullGroups();
+			m_CullGroupsValid = m_UseGPUCullGroups;
+		}
+		m_CullGroupsScene = renderScene.Raw();
+		m_CullGroupsSceneGeneration = sceneGeneration;
+		m_CullGroupsSceneFrame = renderScene->GetFrameIndex();
+		m_CullGroupsSubmitEpoch = m_ProxySubmitCacheEpoch;
+
 		for (const StaticMeshRenderProxy* proxy : renderScene->GetStaticMeshProxies())
 		{
 			if (!proxy || !proxy->Visible || !proxy->StaticMesh || !proxy->MeshSource)
@@ -6094,6 +6164,7 @@ namespace Lux {
 		}
 
 		m_MeshCullDrawCount = 0;
+		m_EarlyCullDrawCount = 0;
 		PruneMeshDrawCommandCache();
 	}
 
@@ -6319,6 +6390,83 @@ namespace Lux {
 		return keys;
 	}
 
+	bool SceneRenderer::CanUseGPUCullGroups() const
+	{
+		const bool meshletPrepass = m_Options.EnableMeshShaders && m_PreDepthMeshletPass && m_PreDepthMeshletPipeline
+			&& m_PreDepthMeshletPipeline->IsMeshletPipeline();
+		return m_Options.EnableGPUDrivenRendering && m_MeshCullingPass && m_MeshEarlyCullingPass && !meshletPrepass;
+	}
+
+	void SceneRenderer::AddToCullGroup(const SubmeshSubmitData& data, const Ref<StaticMesh>& staticMesh, const Ref<MeshSource>& meshSource,
+		const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex)
+	{
+		// Transparent draws bind their material, so they group by material key as the CPU path does.
+		MeshKey key{ data.MeshKeyHandle, data.Transparent ? data.KeyMaterialHandle : AssetHandle(0), submeshIndex, 0, false, false };
+		key.GPUCullGroup = true;
+
+		auto [it, inserted] = m_CullGroups.try_emplace(key);
+		CullGroup& group = it->second;
+		if (inserted)
+		{
+			group.Key = key;
+			group.StaticMesh = staticMesh;
+			group.MeshSource = meshSource;
+			group.SubmeshIndex = submeshIndex;
+			group.Transparent = data.Transparent;
+			group.MeshSortKey = data.MeshSortKey;
+			if (data.Transparent)
+			{
+				group.MaterialTable = materialTable;
+				group.MaterialHandle = data.MaterialHandle;
+				group.OverrideMaterial = data.OverrideMaterial;
+				group.ShaderSortKey = data.ShaderSortKey;
+				group.MaterialSortKey = data.MaterialSortKey;
+			}
+		}
+
+		group.ObjectIndices.push_back(sceneInstanceIndex);
+	}
+
+	void SceneRenderer::ClearCullGroups()
+	{
+		m_CullGroups.clear();
+		m_CullGroupsValid = false;
+	}
+
+	void SceneRenderer::ExpandCullGroupDraws()
+	{
+		const PassSortKeys& passSortKeys = GetPassSortKeys();
+		for (auto& [groupKey, group] : m_CullGroups)
+		{
+			group.LODCount = m_Options.EnableMeshLODs
+				? glm::clamp(group.MeshSource->GetSubmeshLODCount(group.SubmeshIndex), 1u, MaxCullGroupLODs)
+				: 1u;
+
+			for (uint32_t lodIndex = 0; lodIndex < group.LODCount; lodIndex++)
+			{
+				MeshKey key = groupKey;
+				key.LODIndex = lodIndex;
+				// Every group draw is indirect; LOD 0 carries the group's instance count for the statistics.
+				const uint32_t instanceCount = lodIndex == 0 ? (uint32_t)group.ObjectIndices.size() : 0u;
+
+				if (group.Transparent)
+				{
+					SubmitMeshPassDraw(MeshPassType::Transparent, key, group.StaticMesh, group.MeshSource, group.MaterialTable,
+						group.SubmeshIndex, lodIndex, group.MaterialHandle, group.OverrideMaterial,
+						passSortKeys.TransparentGeometryPipeline, group.ShaderSortKey, group.MaterialSortKey, group.MeshSortKey).InstanceCount = instanceCount;
+					continue;
+				}
+
+				SubmitMeshPassDraw(MeshPassType::Opaque, key, group.StaticMesh, group.MeshSource, nullptr,
+					group.SubmeshIndex, lodIndex, AssetHandle(0), nullptr,
+					passSortKeys.GeometryPipeline, 0, 0, group.MeshSortKey).InstanceCount = instanceCount;
+				SubmitMeshPassDraw(MeshPassType::DepthPrepass, key, group.StaticMesh, group.MeshSource, nullptr,
+					group.SubmeshIndex, lodIndex, AssetHandle(0), m_PreDepthMaterial,
+					passSortKeys.PreDepthPipeline, passSortKeys.PreDepthShader, passSortKeys.PreDepthMaterial, group.MeshSortKey).InstanceCount = instanceCount;
+			}
+		}
+	}
+
 	void SceneRenderer::SubmitStaticMeshInternal(
 		const Ref<StaticMesh>&    staticMesh,
 		const Ref<MeshSource>&    meshSource,
@@ -6352,10 +6500,29 @@ namespace Lux {
 				? gpuSceneInstance->BoundsSphere
 				: CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform());
 			const BoundingSphere boundsSphere{ glm::vec3(boundsSphereData), boundsSphereData.w };
-			const bool mainViewVisible = IsMainViewVisible(boundsSphere);
+			// A proxy instance with a GPUScene row joins its cull group: the GPU culls it for the main view
+			// and picks its LOD there. Only its selection outline and its shadows still need the CPU here.
+			const bool gpuCullGroup = m_UseGPUCullGroups && gpuSceneInstanceRef && gpuSceneInstanceRef->InstanceID != InvalidGPUSceneInstanceID;
+			if (gpuCullGroup && !m_CullGroupsFrozen)
+				AddToCullGroup(data, staticMesh, meshSource, materialTable, submeshIndex, gpuSceneInstanceRef->InstanceID);
+
+			const bool mainViewVisible = (!gpuCullGroup || isSelected) && IsMainViewVisible(boundsSphere);
 			const uint32_t directionalShadowCascadeMask = castsShadows ? GetDirectionalShadowCascadeMask(boundsSphere) : 0;
 			const bool spotShadowVisible = castsShadows && IsSpotShadowCasterVisible(boundsSphere);
 			const bool shadowVisible = directionalShadowCascadeMask != 0 || spotShadowVisible;
+
+			m_FrameCullingStats.SubmittedInstances++;
+			if (!gpuCullGroup && !mainViewVisible)
+				m_FrameCullingStats.MainViewCulledInstances++;
+			if (castsShadows && !shadowVisible)
+				m_FrameCullingStats.ShadowCulledInstances++;
+			if (!mainViewVisible && !shadowVisible)
+			{
+				if (!gpuCullGroup)
+					m_FrameCullingStats.FullyCulledInstances++;
+				return;
+			}
+
 			const uint32_t lodIndex = SelectStaticMeshLOD(*meshSource, submeshIndex, boundsSphere);
 			const MeshKey materialKey{ meshKeyHandle, data.KeyMaterialHandle, submeshIndex, lodIndex, false, false };
 			const MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, false };
@@ -6376,17 +6543,6 @@ namespace Lux {
 					command = &SubmitMeshPassDraw(passType, key, staticMesh, meshSource, drawMaterialTable, submeshIndex, lodIndex,
 						drawMaterialHandle, drawMaterial, pipelineSortKey, shaderSortKey, materialSortKey, data.MeshSortKey);
 				};
-
-			m_FrameCullingStats.SubmittedInstances++;
-			if (!mainViewVisible)
-				m_FrameCullingStats.MainViewCulledInstances++;
-			if (castsShadows && !shadowVisible)
-				m_FrameCullingStats.ShadowCulledInstances++;
-			if (!mainViewVisible && !shadowVisible)
-			{
-				m_FrameCullingStats.FullyCulledInstances++;
-				return;
-			}
 
 			uint32_t sceneInstanceIndex = InvalidGPUSceneInstanceID;
 			if (gpuSceneInstanceRef && gpuSceneInstanceRef->InstanceID != InvalidGPUSceneInstanceID)
@@ -6410,32 +6566,36 @@ namespace Lux {
 			if (mainViewVisible)
 			{
 				// ── Main draw list ────────────────────────────────────────────────
-				const MeshKey mainPassKey = isTransparent ? materialKey : bindlessMeshKey;
-				TransformMapData& mainBucket = GetMeshTransformBucket(mainPassKey);
-				mainBucket.ObjectIndices.push_back(sceneInstanceIndex);
-
-				const MeshPassType mainPassType = isTransparent ? MeshPassType::Transparent : MeshPassType::Opaque;
-				submitDraw(mainBucket.PassCommands[(size_t)mainPassType],
-					mainPassType,
-					mainPassKey,
-					isTransparent ? materialTable : nullptr,
-					isTransparent ? data.MaterialHandle : AssetHandle(0),
-					isTransparent ? data.OverrideMaterial : nullptr,
-					isTransparent ? passSortKeys.TransparentGeometryPipeline : passSortKeys.GeometryPipeline,
-					isTransparent ? data.ShaderSortKey : 0,
-					isTransparent ? data.MaterialSortKey : 0);
-
-				if (!isTransparent)
+				// (A cull-group instance is drawn from its group.)
+				if (!gpuCullGroup)
 				{
-					submitDraw(mainBucket.PassCommands[(size_t)MeshPassType::DepthPrepass],
-						MeshPassType::DepthPrepass,
-						bindlessMeshKey,
-						nullptr,
-						AssetHandle(0),
-						m_PreDepthMaterial,
-						passSortKeys.PreDepthPipeline,
-						passSortKeys.PreDepthShader,
-						passSortKeys.PreDepthMaterial);
+					const MeshKey mainPassKey = isTransparent ? materialKey : bindlessMeshKey;
+					TransformMapData& mainBucket = GetMeshTransformBucket(mainPassKey);
+					mainBucket.ObjectIndices.push_back(sceneInstanceIndex);
+
+					const MeshPassType mainPassType = isTransparent ? MeshPassType::Transparent : MeshPassType::Opaque;
+					submitDraw(mainBucket.PassCommands[(size_t)mainPassType],
+						mainPassType,
+						mainPassKey,
+						isTransparent ? materialTable : nullptr,
+						isTransparent ? data.MaterialHandle : AssetHandle(0),
+						isTransparent ? data.OverrideMaterial : nullptr,
+						isTransparent ? passSortKeys.TransparentGeometryPipeline : passSortKeys.GeometryPipeline,
+						isTransparent ? data.ShaderSortKey : 0,
+						isTransparent ? data.MaterialSortKey : 0);
+
+					if (!isTransparent)
+					{
+						submitDraw(mainBucket.PassCommands[(size_t)MeshPassType::DepthPrepass],
+							MeshPassType::DepthPrepass,
+							bindlessMeshKey,
+							nullptr,
+							AssetHandle(0),
+							m_PreDepthMaterial,
+							passSortKeys.PreDepthPipeline,
+							passSortKeys.PreDepthShader,
+							passSortKeys.PreDepthMaterial);
+					}
 				}
 
 				// ── Selected list ─────────────────────────────────────────────────
@@ -6629,6 +6789,11 @@ namespace Lux {
 		visibleObjectIndexData.clear();
 		meshCullDrawData.clear();
 		indirectDrawData.clear();
+
+		// Cull groups draw only in a frame that submitted their scene (their rows are that scene's).
+		const bool drawCullGroups = m_UseGPUCullGroups && m_CullGroupsSubmitted && !m_CullGroups.empty();
+		if (drawCullGroups)
+			ExpandCullGroupDraws();
 
 		for (MeshPassState& pass : m_MeshPasses)
 			BuildSortedDrawCommandOrder(pass.DrawList, pass.DrawOrder, pass.OrderCacheHash);
@@ -6901,6 +7066,98 @@ namespace Lux {
 			uploadShadowBucket(shadowTmd.Spot);
 		}
 
+		// Cull groups: their instances once in ObjectIndexes; after every CPU-built range, LODCount visible
+		// ranges each in VisibleObjectIndexes (late cull) and, for opaque groups, in ObjectIndexes (early
+		// cull). The GPU fills those ranges, so the buffers are sized for them but they are not uploaded.
+		uint32_t requiredObjectIndexCount = 0;
+		uint32_t requiredVisibleObjectIndexCount = 0;
+		if (drawCullGroups)
+		{
+			for (auto& [groupKey, group] : m_CullGroups)
+			{
+				group.ObjectIndexBase = cursor;
+				objectIndexData.insert(objectIndexData.end(), group.ObjectIndices.begin(), group.ObjectIndices.end());
+				cursor += (uint32_t)group.ObjectIndices.size();
+			}
+
+			uint32_t earlyCursor = cursor;
+			for (auto& [groupKey, group] : m_CullGroups)
+			{
+				const uint32_t instanceCount = (uint32_t)group.ObjectIndices.size();
+				group.VisibleObjectIndexBase = visibleCursor;
+				visibleCursor += instanceCount * group.LODCount;
+				group.EarlyObjectIndexBase = earlyCursor;
+				if (!group.Transparent)
+					earlyCursor += instanceCount * group.LODCount;
+
+				for (uint32_t lodIndex = 0; lodIndex < group.LODCount; lodIndex++)
+				{
+					MeshKey key = groupKey;
+					key.LODIndex = lodIndex;
+					TransformMapData& tmd = m_MeshTransformMap[key];
+					tmd.ObjectIndexBase = group.ObjectIndexBase;
+					tmd.VisibleObjectIndexBase = group.VisibleObjectIndexBase + lodIndex * instanceCount;
+					tmd.VisibleInstanceCount = 0; // decided on the GPU
+					tmd.IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
+					tmd.EarlyObjectIndexBase = group.EarlyObjectIndexBase + lodIndex * instanceCount;
+					tmd.EarlyIndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
+				}
+			}
+
+			requiredObjectIndexCount = earlyCursor;
+			requiredVisibleObjectIndexCount = visibleCursor;
+		}
+		requiredObjectIndexCount = glm::max(requiredObjectIndexCount, (uint32_t)objectIndexData.size());
+		requiredVisibleObjectIndexCount = glm::max(requiredVisibleObjectIndexCount, requiredObjectIndexCount);
+
+		// One cull record per group: its late draws' args, then (opaque) its early draws' args.
+		m_EarlyCullDrawCount = 0;
+		if (drawCullGroups)
+		{
+			for (auto& [groupKey, group] : m_CullGroups)
+			{
+				const uint32_t instanceCount = (uint32_t)group.ObjectIndices.size();
+				MeshCullDrawData cullDraw;
+				cullDraw.ObjectIndexBase = group.ObjectIndexBase;
+				cullDraw.InstanceCount = instanceCount;
+				cullDraw.VisibleObjectIndexBase = group.VisibleObjectIndexBase;
+				cullDraw.IndirectArgsBase = (uint32_t)indirectDrawData.size();
+				cullDraw.LODCountAndFlags = group.LODCount | (group.Transparent ? 0u : MeshCullEarlyDrawFlag);
+				for (uint32_t lodIndex = 1; lodIndex < group.LODCount; lodIndex++)
+					cullDraw.LODDistanceMultipliers[lodIndex - 1] = group.MeshSource->GetSubmeshLOD(group.SubmeshIndex, lodIndex).DistanceMultiplier;
+				cullDraw.EarlyObjectIndexBase = group.EarlyObjectIndexBase;
+
+				const uint32_t argsSets = group.Transparent ? 1u : 2u;
+				for (uint32_t argsSet = 0; argsSet < argsSets; argsSet++)
+				{
+					for (uint32_t lodIndex = 0; lodIndex < group.LODCount; lodIndex++)
+					{
+						MeshKey key = groupKey;
+						key.LODIndex = lodIndex;
+						TransformMapData& tmd = m_MeshTransformMap[key];
+						const uint32_t offsetBytes = (uint32_t)(indirectDrawData.size() * sizeof(DrawIndexedIndirectCommand));
+						if (argsSet == 0)
+							tmd.IndirectDrawOffsetBytes = offsetBytes;
+						else
+							tmd.EarlyIndirectDrawOffsetBytes = offsetBytes;
+
+						const SubmeshLOD lod = group.MeshSource->GetSubmeshLOD(group.SubmeshIndex, lodIndex);
+						DrawIndexedIndirectCommand args;
+						args.IndexCount = lod.IndexCount;
+						args.InstanceCount = 0; // written by the cull
+						args.FirstIndex = lod.BaseIndex;
+						args.VertexOffset = (int32_t)lod.BaseVertex;
+						args.FirstInstance = 0;
+						indirectDrawData.push_back(args);
+					}
+				}
+
+				meshCullDrawData.push_back(cullDraw);
+				if (!group.Transparent)
+					m_EarlyCullDrawCount++;
+			}
+		}
+
 		auto registerIndirectDraws = [this, &meshCullDrawData, &indirectDrawData](const DrawCommandList& drawList, const DrawCommandOrder& drawOrder)
 			{
 				for (const MeshKey& key : drawOrder)
@@ -6918,13 +7175,13 @@ namespace Lux {
 					if (tmd.IndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max())
 						continue;
 
-					tmd.IndirectDrawOffsetBytes = (uint32_t)(indirectDrawData.size() * sizeof(DrawIndexedIndirectCommand));
-					meshCullDrawData.push_back({
-						tmd.ObjectIndexBase,
-						(uint32_t)tmd.ObjectIndices.size(),
-						tmd.VisibleObjectIndexBase,
-						0
-					});
+					MeshCullDrawData cullDraw;
+					cullDraw.ObjectIndexBase = tmd.ObjectIndexBase;
+					cullDraw.InstanceCount = (uint32_t)tmd.ObjectIndices.size();
+					cullDraw.VisibleObjectIndexBase = tmd.VisibleObjectIndexBase;
+					cullDraw.IndirectArgsBase = (uint32_t)indirectDrawData.size();
+					meshCullDrawData.push_back(cullDraw);
+					tmd.IndirectDrawOffsetBytes = cullDraw.IndirectArgsBase * (uint32_t)sizeof(DrawIndexedIndirectCommand);
 					BuildIndirectDrawCommand(dc, tmd, indirectDrawData);
 				}
 			};
@@ -7266,20 +7523,23 @@ namespace Lux {
 				transientSceneData = std::move(transientGPUSceneData),
 				materialData = gpuMaterialData,
 				transientMaterialData = transientGPUMaterialData,
+				requiredObjectIndexCount, requiredVisibleObjectIndexCount,
 				persistentSceneCount, persistentGPUMaterialCount]() mutable {
 
 				Ref<RenderCommandBuffer> cmd = instance->m_UploadCommandBuffer;
 
-				// Grow ObjectIndexes SSBO if needed
+				// Grow ObjectIndexes SSBO if needed. Both buffers also hold the ranges the culls fill.
 				if (!indexData.empty())
 				{
 					const uint32_t indexBytes = (uint32_t)(sizeof(uint32_t) * indexData.size());
-					if (instance->m_SBSObjectIndexes->RT_Get()->GetSize() < indexBytes)
-						instance->m_SBSObjectIndexes->Resize(indexBytes * 2u);
+					const uint32_t objectBytes = (uint32_t)(sizeof(uint32_t) * requiredObjectIndexCount);
+					if (instance->m_SBSObjectIndexes->RT_Get()->GetSize() < objectBytes)
+						instance->m_SBSObjectIndexes->Resize(objectBytes * 2u);
 					instance->m_SBSObjectIndexes->RT_Get()->RT_SetData(cmd, indexData.data(), indexBytes);
 
-					if (instance->m_SBSVisibleObjectIndexes->RT_Get()->GetSize() < indexBytes)
-						instance->m_SBSVisibleObjectIndexes->Resize(indexBytes * 2u);
+					const uint32_t visibleBytes = (uint32_t)(sizeof(uint32_t) * requiredVisibleObjectIndexCount);
+					if (instance->m_SBSVisibleObjectIndexes->RT_Get()->GetSize() < visibleBytes)
+						instance->m_SBSVisibleObjectIndexes->Resize(visibleBytes * 2u);
 				}
 
 				if (!visibleIndexData.empty())
@@ -7747,13 +8007,17 @@ namespace Lux {
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
-			const MeshDrawParams params(it->second);
 			StaticDrawCommand drawCmd = drawIt->second;
 
+			// A cull-group draw takes the early cull's instances (frustum and GPU-chosen LOD), indirect;
+			// a CPU-bucketed draw takes all its instances.
+			const bool earlyCulled = key.GPUCullGroup && it->second.EarlyIndirectDrawOffsetBytes != std::numeric_limits<uint32_t>::max();
+			const MeshDrawParams params = earlyCulled ? MeshDrawParams::EarlyCull(it->second) : MeshDrawParams(it->second);
+
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, params]() mutable {
+			Renderer::Submit([instance, drawCmd, params, earlyCulled]() mutable {
 				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/false, /*useIndirect=*/false);
+					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/false, /*useIndirect=*/earlyCulled);
 				});
 		}
 
@@ -8093,19 +8357,7 @@ namespace Lux {
 		if (!m_Options.EnableGPUDrivenRendering || !m_MeshCullingPass || m_MeshCullDrawCount == 0)
 			return;
 
-		struct MeshCullingPushConstants
-		{
-			glm::mat4 ViewProjection;
-			glm::vec4 HZBUVFactorAndViewportSize;
-			uint32_t DrawCount = 0;
-			uint32_t FrustumCullingEnabled = 1;
-			uint32_t OcclusionCullingEnabled = 0;
-			uint32_t NumDepthMips = 1;
-			float DepthBias = 0.001f;
-			float BoundsScale = 1.05f;
-			uint32_t Padding0 = 0;
-			uint32_t Padding1 = 0;
-		} pushConstants;
+		MeshCullingPushConstants pushConstants;
 
 		pushConstants.ViewProjection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix() * m_SceneData.SceneCamera.ViewMatrix;
 		pushConstants.HZBUVFactorAndViewportSize = {
@@ -8122,6 +8374,8 @@ namespace Lux {
 		pushConstants.NumDepthMips = hzbOcclusionReady ? hzbMipCount : 0u;
 		pushConstants.DepthBias = m_Options.OcclusionDepthBias;
 		pushConstants.BoundsScale = m_Options.OcclusionBoundsScale;
+		pushConstants.LODEnabled = m_Options.EnableMeshLODs ? 1u : 0u;
+		pushConstants.CameraPositionAndLODScale = glm::vec4(m_SceneData.CameraPosition, m_Options.MeshLODDistanceScale);
 
 		BeginProfiledGPU("MeshCullingPass");
 		Renderer::BeginComputePass(m_CommandBuffer, m_MeshCullingPass);
@@ -8129,6 +8383,36 @@ namespace Lux {
 		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSVisibleObjectIndexes, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands, PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_MeshCullingPass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::EarlyMeshCullingPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "EarlyMeshCullingPass");
+		if (!m_UseGPUCullGroups || !m_MeshEarlyCullingPass || m_EarlyCullDrawCount == 0 || m_MeshCullDrawCount == 0)
+			return;
+
+		// Frustum and LOD only: the HZB does not exist yet.
+		MeshCullingPushConstants pushConstants;
+		pushConstants.OcclusionCullingEnabled = 0;
+		pushConstants.NumDepthMips = 0;
+		pushConstants.DepthBias = 0.0f;
+		pushConstants.BoundsScale = 1.0f;
+		pushConstants.EarlyPass = 1;
+
+		pushConstants.ViewProjection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix() * m_SceneData.SceneCamera.ViewMatrix;
+		pushConstants.HZBUVFactorAndViewportSize = { 1.0f, 1.0f, (float)glm::max(1u, m_ViewportWidth), (float)glm::max(1u, m_ViewportHeight) };
+		pushConstants.DrawCount = m_MeshCullDrawCount;
+		pushConstants.FrustumCullingEnabled = m_Options.EnableFrustumCulling ? 1u : 0u;
+		pushConstants.LODEnabled = m_Options.EnableMeshLODs ? 1u : 0u;
+		pushConstants.CameraPositionAndLODScale = glm::vec4(m_SceneData.CameraPosition, m_Options.MeshLODDistanceScale);
+
+		BeginProfiledGPU("EarlyMeshCullingPass");
+		Renderer::BeginComputePass(m_CommandBuffer, m_MeshEarlyCullingPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_MeshEarlyCullingPass, nullptr, { m_MeshCullDrawCount, 1, 1 }, Buffer(&pushConstants, sizeof(pushConstants)));
+		m_MeshEarlyCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSObjectIndexes, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_MeshEarlyCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands, PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
+		Renderer::EndComputePass(m_CommandBuffer, m_MeshEarlyCullingPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 

@@ -875,6 +875,9 @@ namespace Lux {
 			uint32_t    LODIndex;
 			bool        IsSelected;
 			bool        StaticShadowCaster;
+			// A draw expanded from a GPU cull group (the GPU picks its instances and their LOD), kept
+			// apart from the CPU-bucketed draw of the same mesh, submesh and LOD.
+			bool        GPUCullGroup = false;
 
 			bool operator<(const MeshKey& o) const
 			{
@@ -883,7 +886,8 @@ namespace Lux {
 				if (LODIndex != o.LODIndex)       return LODIndex < o.LODIndex;
 				if (MaterialHandle != o.MaterialHandle) return MaterialHandle < o.MaterialHandle;
 				if (StaticShadowCaster != o.StaticShadowCaster) return StaticShadowCaster < o.StaticShadowCaster;
-				return IsSelected < o.IsSelected;
+				if (IsSelected != o.IsSelected) return IsSelected < o.IsSelected;
+				return GPUCullGroup < o.GPUCullGroup;
 			}
 
 			bool operator==(const MeshKey& o) const
@@ -893,7 +897,8 @@ namespace Lux {
 					&& SubmeshIndex == o.SubmeshIndex
 					&& LODIndex == o.LODIndex
 					&& IsSelected == o.IsSelected
-					&& StaticShadowCaster == o.StaticShadowCaster;
+					&& StaticShadowCaster == o.StaticShadowCaster
+					&& GPUCullGroup == o.GPUCullGroup;
 			}
 		};
 
@@ -917,7 +922,7 @@ namespace Lux {
 				uint64_t hash = mix((uint64_t)key.MeshHandle);
 				hash = mix(hash ^ (uint64_t)key.MaterialHandle);
 				hash = mix(hash ^ ((uint64_t)key.SubmeshIndex | ((uint64_t)key.LODIndex << 32)));
-				hash = mix(hash ^ ((uint64_t)key.IsSelected | ((uint64_t)key.StaticShadowCaster << 1)));
+				hash = mix(hash ^ ((uint64_t)key.IsSelected | ((uint64_t)key.StaticShadowCaster << 1) | ((uint64_t)key.GPUCullGroup << 2)));
 				return (size_t)hash;
 			}
 		};
@@ -1031,6 +1036,10 @@ namespace Lux {
 			uint32_t              VisibleObjectIndexBase = 0;
 			uint32_t              VisibleInstanceCount = 0;
 			uint32_t              IndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
+			// Cull-group draws only: the early cull's instances (in ObjectIndexes) and indirect args,
+			// which the depth prepass draws.
+			uint32_t              EarlyObjectIndexBase = 0;
+			uint32_t              EarlyIndirectDrawOffsetBytes = std::numeric_limits<uint32_t>::max();
 			// This bucket's draw in each pass, set by its first instance: later instances only count.
 			// Valid for the frame (the draw lists and this map are cleared together).
 			std::array<StaticDrawCommand*, MeshPassTypeCount> PassCommands{};
@@ -1056,14 +1065,57 @@ namespace Lux {
 				, IndirectDrawOffsetBytes(tmd.IndirectDrawOffsetBytes)
 			{
 			}
+
+			// The depth prepass's view of a cull-group draw: the early cull's instances and args.
+			static MeshDrawParams EarlyCull(const TransformMapData& tmd)
+			{
+				MeshDrawParams params;
+				params.ObjectIndexBase = tmd.EarlyObjectIndexBase;
+				params.IndirectDrawOffsetBytes = tmd.EarlyIndirectDrawOffsetBytes;
+				return params;
+			}
 		};
 
+		// One workgroup of MeshCulling.glsl. Mirrors the three uvec4 its MeshCullDrawData block reads per
+		// draw: edit both in the same change.
 		struct MeshCullDrawData
 		{
 			uint32_t ObjectIndexBase = 0;
 			uint32_t InstanceCount = 0;
+			uint32_t VisibleObjectIndexBase = 0; // LOD l's visible instances at + l * InstanceCount
+			uint32_t IndirectArgsBase = 0;       // LOD l's args at + l; the early cull's at + LOD count + l
+			uint32_t LODCountAndFlags = 1;       // low byte LOD count, MeshCullEarlyDrawFlag when the early cull draws it
+			float    LODDistanceMultipliers[3] = {}; // SubmeshLOD::DistanceMultiplier of LOD 1..3
+			uint32_t EarlyObjectIndexBase = 0;   // the early cull writes LOD l's instances at + l * InstanceCount
+			uint32_t Padding[3] = {};
+		};
+		static_assert(sizeof(MeshCullDrawData) == 48, "MeshCullDrawData is three uvec4 in MeshCulling.glsl");
+		static constexpr uint32_t MeshCullEarlyDrawFlag = 0x100u;
+		static constexpr uint32_t MaxCullGroupLODs = 4;
+
+		// A main-view GPU cull group: every proxy instance of one mesh submesh (and, when transparent,
+		// one material key). MeshCulling.glsl culls the instances and sorts them into one draw per LOD,
+		// so no per-instance visibility or LOD work runs on the CPU for the main view. Groups persist
+		// across frames and are rebuilt only when the submitted scene's static meshes change.
+		struct CullGroup
+		{
+			MeshKey Key{};                // LODIndex 0; the per-LOD draws differ only in LODIndex
+			Ref<StaticMesh> StaticMesh;
+			Ref<MeshSource> MeshSource;
+			Ref<MaterialTable> MaterialTable; // transparent draws only
+			AssetHandle MaterialHandle = 0;   // transparent draws only
+			Ref<Material> OverrideMaterial;   // transparent draws only
+			uint64_t ShaderSortKey = 0;
+			uint64_t MaterialSortKey = 0;
+			uint64_t MeshSortKey = 0;
+			uint32_t SubmeshIndex = 0;
+			bool Transparent = false;
+			std::vector<uint32_t> ObjectIndices; // persistent GPUScene rows
+			// This frame's layout, set by FlushDrawList.
+			uint32_t LODCount = 1;
+			uint32_t ObjectIndexBase = 0;
 			uint32_t VisibleObjectIndexBase = 0;
-			uint32_t Padding = 0;
+			uint32_t EarlyObjectIndexBase = 0;
 		};
 
 		// Internal helper for the debug-mesh submission path.
@@ -1138,6 +1190,14 @@ namespace Lux {
 		const ProxySubmitCacheEntry& GetProxySubmitData(const StaticMeshRenderProxy& proxy);
 		const PassSortKeys& GetPassSortKeys();
 		TransformMapData& GetMeshTransformBucket(const MeshKey& key);
+		// True when the main view is culled and LOD-selected on the GPU through cull groups this frame:
+		// GPU-driven rendering on and the mesh-shader prepass (which needs CPU LOD buckets) not in use.
+		bool CanUseGPUCullGroups() const;
+		void AddToCullGroup(const SubmeshSubmitData& data, const Ref<StaticMesh>& staticMesh, const Ref<MeshSource>& meshSource,
+			const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex);
+		void ClearCullGroups();
+		// Adds every cull group's per-LOD draws to the pass draw lists (FlushDrawList, before sorting).
+		void ExpandCullGroupDraws();
 		bool IsMainViewVisible(const BoundingSphere& bounds) const;
 		uint32_t GetDirectionalShadowCascadeMask(const BoundingSphere& bounds) const;
 		bool IsSpotShadowCasterVisible(const BoundingSphere& bounds) const;
@@ -1178,6 +1238,7 @@ namespace Lux {
 		void HZBCompute();
 		void PreIntegration();
 		void MeshCullingPass();
+		void EarlyMeshCullingPass();
 		void ClusterBuildPass();
 		void ClusterLightCullingPass();
 		void SkyboxPass();
@@ -1592,6 +1653,9 @@ namespace Lux {
 
 		// ── Tiled light culling ──────────────────────────────────────────────
 		Ref<ComputePass> m_MeshCullingPass;
+		// The same shader in early mode: frustum and LOD only, before the depth prepass, writing into
+		// ObjectIndexes (its VisibleObjectIndexes binding is the ObjectIndexes buffer).
+		Ref<ComputePass> m_MeshEarlyCullingPass;
 		Ref<ComputePass> m_ClusterBuildPass;        // builds m_SBSClusterAABBs
 		Ref<ComputePass> m_ClusterLightCullingPass; // assigns lights to clusters
 		uint32_t         m_MeshCullDrawCount = 0;
@@ -1780,6 +1844,19 @@ namespace Lux {
 		uint64_t m_ProxySubmitCacheTableRevision = 0;
 		uint64_t m_ProxySubmitCacheMaterialRevision = 0;
 		PassSortKeys m_PassSortKeys;
+
+		// Main-view cull groups (CanUseGPUCullGroups). Rebuilt during a submit only when the scene's
+		// static meshes changed since the frame they were built for; otherwise kept ("frozen").
+		std::unordered_map<MeshKey, CullGroup, MeshKeyHasher> m_CullGroups;
+		bool m_UseGPUCullGroups = false;        // this frame (BeginScene)
+		bool m_CullGroupsFrozen = false;        // this frame keeps last frame's groups
+		bool m_CullGroupsSubmitted = false;     // a render scene was submitted this frame
+		bool m_CullGroupsValid = false;
+		const RenderScene* m_CullGroupsScene = nullptr;
+		uint64_t m_CullGroupsSceneGeneration = 0;
+		uint32_t m_CullGroupsSceneFrame = 0;
+		uint64_t m_CullGroupsSubmitEpoch = 0;
+		uint32_t m_EarlyCullDrawCount = 0;
 		std::vector<GPUSceneInstanceData>    m_TransientGPUSceneInstances;
 		std::vector<GPUMaterialData>         m_TransientGPUMaterials;
 		std::unordered_map<uint64_t, uint32_t> m_TransientGPUMaterialIndexByKey;

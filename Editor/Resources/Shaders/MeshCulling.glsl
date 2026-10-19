@@ -3,6 +3,12 @@
 
 #include <Samplers.glslh>
 
+// Three uvec4 per cull draw, mirroring SceneRenderer::MeshCullDrawData (edit both together):
+//   [0] x ObjectIndexBase, y InstanceCount, z VisibleObjectIndexBase (LOD l at + l * InstanceCount),
+//       w IndirectArgsBase (LOD l's args at + l; the early cull's at + LODCount + l)
+//   [1] x LOD count (low byte) | 0x100 when the early cull draws it, yzw floatBits of the
+//       DistanceMultiplier of LOD 1..3
+//   [2] x EarlyObjectIndexBase (the early cull writes LOD l's instances at + l * InstanceCount)
 layout(std430, set = 1, binding = 0) readonly buffer MeshCullDrawData
 {
 	uvec4 Draws[];
@@ -49,8 +55,9 @@ layout(push_constant) uniform PushConstants
 	uint NumDepthMips;
 	float DepthBias;
 	float BoundsScale;
-	uint _Padding0;
-	uint _Padding1;
+	uint LODEnabled;
+	uint EarlyPass; // 1: the early cull (frustum and LOD only) for the depth prepass
+	vec4 CameraPositionAndLODScale; // xyz camera position, w MeshLODDistanceScale
 } u_PushConstants;
 
 vec4 NormalizePlane(vec4 plane)
@@ -150,6 +157,27 @@ bool IsSphereOccluded(vec4 sphere)
 	return closestDeviceZ > nearestDeviceZ + u_PushConstants.DepthBias;
 }
 
+// SceneRenderer::SelectStaticMeshLOD on the GPU: the same metric and thresholds, so a draw split
+// into LODs here picks what the CPU path would.
+uint SelectLOD(vec4 sphere, uint lodCount, uvec4 lodData)
+{
+	if (u_PushConstants.LODEnabled == 0u || lodCount <= 1u)
+		return 0u;
+
+	precise float radius = max(sphere.w, 0.001);
+	precise float cameraDistance = max(distance(u_PushConstants.CameraPositionAndLODScale.xyz, sphere.xyz) - radius, 0.0);
+	precise float lodMetric = cameraDistance / (radius * u_PushConstants.CameraPositionAndLODScale.w);
+
+	uint selectedLOD = 0u;
+	for (uint lodIndex = 1u; lodIndex < lodCount; lodIndex++)
+	{
+		if (lodMetric < uintBitsToFloat(lodData[lodIndex]))
+			break;
+		selectedLOD = lodIndex;
+	}
+	return selectedLOD;
+}
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 void main()
 {
@@ -157,14 +185,22 @@ void main()
 	if (drawIndex >= u_PushConstants.DrawCount)
 		return;
 
-	uvec4 draw = r_MeshCullDrawData.Draws[drawIndex];
+	uvec4 draw = r_MeshCullDrawData.Draws[drawIndex * 3u + 0u];
+	uvec4 lodData = r_MeshCullDrawData.Draws[drawIndex * 3u + 1u];
+	uvec4 early = r_MeshCullDrawData.Draws[drawIndex * 3u + 2u];
+	uint lodCount = clamp(lodData.x & 0xFFu, 1u, 4u);
+	bool earlyPass = u_PushConstants.EarlyPass != 0u;
+	// The early cull only feeds the depth prepass's draws.
+	if (earlyPass && (lodData.x & 0x100u) == 0u)
+		return;
+
 	uint objectIndexBase = draw.x;
 	uint instanceCount = draw.y;
-	uint visibleObjectIndexBase = draw.z;
-	uint indirectArgsBase = drawIndex * 5u;
+	uint visibleObjectIndexBase = earlyPass ? early.x : draw.z;
+	uint indirectArgsBase = (draw.w + (earlyPass ? lodCount : 0u)) * 5u;
 
-	if (gl_LocalInvocationIndex == 0)
-		b_IndirectDrawCommands.Data[indirectArgsBase + 1u] = 0u;
+	if (gl_LocalInvocationIndex < lodCount)
+		b_IndirectDrawCommands.Data[indirectArgsBase + gl_LocalInvocationIndex * 5u + 1u] = 0u;
 
 	// barrier() orders execution and, in compute, implies a memory barrier for SHARED
 	// variables only - buffer writes need this explicitly. Without it the plain store
@@ -181,10 +217,11 @@ void main()
 		uint objectIndex = r_ObjectIndexes.Indices[objectIndexBase + instanceIndex];
 		vec4 boundsSphere = r_GPUSceneInstances.Instances[objectIndex].BoundsSphere;
 
-		if (IsSphereVisible(boundsSphere) && !IsSphereOccluded(boundsSphere))
+		if (IsSphereVisible(boundsSphere) && (earlyPass || !IsSphereOccluded(boundsSphere)))
 		{
-			uint visibleOffset = atomicAdd(b_IndirectDrawCommands.Data[indirectArgsBase + 1u], 1u);
-			o_VisibleObjectIndexes.Indices[visibleObjectIndexBase + visibleOffset] = objectIndex;
+			uint lod = SelectLOD(boundsSphere, lodCount, lodData);
+			uint visibleOffset = atomicAdd(b_IndirectDrawCommands.Data[indirectArgsBase + lod * 5u + 1u], 1u);
+			o_VisibleObjectIndexes.Indices[visibleObjectIndexBase + lod * instanceCount + visibleOffset] = objectIndex;
 		}
 	}
 }
