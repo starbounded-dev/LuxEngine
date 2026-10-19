@@ -182,8 +182,8 @@ Perf A-B-A (medians of 3): sync 6.42 / **1.23** / 6.13 ms, main thread 15.02 / *
 frame 15.85 / **10.82** / 15.67 ms; Submit and Flush unchanged (Phase 2). Moving (single runs):
 sync 6.17 → 1.28–1.39 ms. The remaining sync is the O(entities) scan (view walk, selection
 callback, parallel transforms, one hash lookup and compare per entity) — not yet sampled.
-Not done: the editor scenarios (material edit, Visible toggle, select, delete/undo, Play/Stop) —
-left to a manual pass. Side finding: `EditorLayer::CastMousePick` ray-tests every entity every frame
+Editor scenarios (material edit, Visible toggle, select, delete/undo, Play/Stop) passed in a manual
+pass by the user on 2026-10-19. Side finding: `EditorLayer::CastMousePick` ray-tests every entity every frame
 (~17% of the Benchmark main thread in the sampler), outside this plan.
 An intermittent access violation inside NRI command recording, mostly at shutdown, hit both the
 HEAD and Phase 1 builds in this session (event log); it is not caused by this phase.
