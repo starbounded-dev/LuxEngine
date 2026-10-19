@@ -67,7 +67,8 @@ namespace Lux {
 		{
 			// ---- Compact list row: small icon, name, type ----
 			const float rowHeight = ImGui::GetFrameHeight() + 6.0f;
-			const float rowWidth = ImGui::GetContentRegionAvail().x;
+			// At least a pixel wide: InvisibleButton asserts on a zero size.
+			const float rowWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x);
 
 			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 			ImGui::InvisibleButton("##ItemButton", ImVec2(rowWidth, rowHeight));

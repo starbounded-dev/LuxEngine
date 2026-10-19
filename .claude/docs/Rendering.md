@@ -864,10 +864,12 @@ queue: `SetAsyncTransferQueueEnabled` / `IsAsyncTransferQueueEnabled` / `UseAsyn
 **If you add a new consumer queue, you must wait on pending uploads.** Skipping the wait produces
 reads of not-yet-uploaded memory — intermittent, GPU-dependent, and very hard to attribute.
 
-The copy-queue path is still not valid Vulkan: the batch's barriers (first transitions and the
-return to resting states) use graphics stages and accesses, and attachment textures are EXCLUSIVE
-with no queue-ownership transfer (other textures and all buffers are CONCURRENT). That is why the
-toggle is off by default.
+The batch's emitter knows its queue (`NRIBarrierEmitter::SetQueue`). On the copy queue its
+barriers keep only copy accesses and use ALL stages, which Vulkan expands to that queue's transfer
+stages; the layout change to the resting state stays. A transfer-only queue cannot name a shader
+read, so visibility to the reading queue comes from its timeline-semaphore wait, not the barrier.
+The path is still not fully valid: attachment textures are EXCLUSIVE with no queue-ownership
+transfer (other textures and all buffers are CONCURRENT). That is why the toggle is off by default.
 
 ---
 

@@ -201,7 +201,9 @@ namespace Lux {
 			// Header row: chevron + accent icon + title, the whole strip toggling the card.
 			const float headerHeight = ImGui::GetFrameHeight();
 			const ImVec2 headerMin = ImGui::GetCursorScreenPos();
-			ImGui::InvisibleButton("##card_header", ImVec2(ImGui::GetContentRegionAvail().x, headerHeight));
+			// At least a pixel wide: a card in a window with no width left would pass 0, which
+			// InvisibleButton asserts on.
+			ImGui::InvisibleButton("##card_header", ImVec2(std::max(1.0f, ImGui::GetContentRegionAvail().x), headerHeight));
 			if (ImGui::IsItemClicked() && !forceOpen)
 				open = !open;
 			const bool hovered = ImGui::IsItemHovered();

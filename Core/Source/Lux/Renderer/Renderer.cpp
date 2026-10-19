@@ -885,6 +885,7 @@ namespace Lux {
 			// Null, logged by the pool, when NRI fails: the batch then records nothing.
 			batch.CommandBuffer = batch.Pool->Begin();
 			batch.Emitter.SetCommandBuffer(batch.CommandBuffer);
+			batch.Emitter.SetQueue(batch.Pool->GetQueue());
 			batch.Tracker.Begin(&batch.Emitter);
 			s_ResourceUploadOpen = true;
 		}

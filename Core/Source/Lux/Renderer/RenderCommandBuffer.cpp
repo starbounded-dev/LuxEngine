@@ -198,6 +198,7 @@ namespace Lux {
 		m_NRICommandBuffer = m_CommandBuffers->Begin();
 		m_Recording = true;
 		m_BarrierEmitter.SetCommandBuffer(m_NRICommandBuffer);
+		m_BarrierEmitter.SetQueue(m_Queue);
 		m_Tracker.Begin(&m_BarrierEmitter);
 		m_RequiredBindings = {};
 		m_BindingStatesDirty = true;

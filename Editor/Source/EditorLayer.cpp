@@ -1650,9 +1650,14 @@ namespace Lux {
 		m_TitleBarDragRectMin = ImVec2(dragZoneMinX, 0.0f);
 		m_TitleBarDragRectMax = ImVec2(dragZoneMaxX, m_TitlebarHeight);
 
-		ImGui::SetNextItemAllowOverlap();
-		ImGui::SetCursorPos(ImVec2(dragZoneMinX, 0.0f));
-		ImGui::InvisibleButton("##titleBarDragZone", ImVec2(std::max(0.0f, dragZoneMaxX - dragZoneMinX), m_TitlebarHeight));
+		// A window narrower than the logo plus the window controls (the first frames of a hidden
+		// or zero-size window) leaves no drag zone, and InvisibleButton asserts on a zero size.
+		if (const float dragZoneWidth = dragZoneMaxX - dragZoneMinX; dragZoneWidth >= 1.0f)
+		{
+			ImGui::SetNextItemAllowOverlap();
+			ImGui::SetCursorPos(ImVec2(dragZoneMinX, 0.0f));
+			ImGui::InvisibleButton("##titleBarDragZone", ImVec2(dragZoneWidth, m_TitlebarHeight));
+		}
 
 		ImGui::SuspendLayout();
 		{

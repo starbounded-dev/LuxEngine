@@ -83,6 +83,17 @@ namespace Lux {
 			return { static_cast<nri::AccessBits>(access), layout, stageBits };
 		}
 
+		// What a copy-queue barrier may name (vkCmdPipelineBarrier2 on a transfer-only family): copy
+		// accesses only, and ALL stages, which Vulkan expands to that queue's transfer stages.
+		nri::AccessLayoutStage RestrictToCopyQueue(nri::AccessLayoutStage state)
+		{
+			constexpr uint32_t copyAccess = static_cast<uint32_t>(nri::AccessBits::COPY_SOURCE) | static_cast<uint32_t>(nri::AccessBits::COPY_DESTINATION);
+			state.access = static_cast<nri::AccessBits>(static_cast<uint32_t>(state.access) & copyAccess);
+			if (state.stages != nri::StageBits::NONE)
+				state.stages = nri::StageBits::ALL;
+			return state;
+		}
+
 		// Reported once, so a broken frame is visible without flooding the log.
 		std::atomic<bool> s_ReportedMissingCommandBuffer = false;
 
@@ -93,8 +104,13 @@ namespace Lux {
 
 	void NRIBarrierEmitter::TransitionTexture(const TrackedTexture& texture, const TextureSubresourceRange& range, ResourceState before, ResourceState after)
 	{
-		const nri::AccessLayoutStage source = MapState(before, false);
-		const nri::AccessLayoutStage destination = MapState(after, true);
+		nri::AccessLayoutStage source = MapState(before, false);
+		nri::AccessLayoutStage destination = MapState(after, true);
+		if (m_Queue == GPUQueue::Copy)
+		{
+			source = RestrictToCopyQueue(source);
+			destination = RestrictToCopyQueue(destination);
+		}
 
 		nri::TextureBarrierDesc& barrier = m_Textures.emplace_back();
 		barrier.texture = static_cast<nri::Texture*>(texture.Handle);
@@ -109,8 +125,13 @@ namespace Lux {
 
 	void NRIBarrierEmitter::TransitionBuffer(const TrackedBuffer& buffer, ResourceState before, ResourceState after)
 	{
-		const nri::AccessLayoutStage source = MapState(before, false);
-		const nri::AccessLayoutStage destination = MapState(after, true);
+		nri::AccessLayoutStage source = MapState(before, false);
+		nri::AccessLayoutStage destination = MapState(after, true);
+		if (m_Queue == GPUQueue::Copy)
+		{
+			source = RestrictToCopyQueue(source);
+			destination = RestrictToCopyQueue(destination);
+		}
 
 		nri::BufferBarrierDesc& barrier = m_Buffers.emplace_back();
 		barrier.buffer = static_cast<nri::Buffer*>(buffer.Handle);
