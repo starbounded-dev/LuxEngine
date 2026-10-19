@@ -44,11 +44,27 @@ namespace Lux {
 
 	void RenderThread::Terminate()
 	{
-		m_IsRunning = false;
+		// The frame kicked last may still be executing. Kicking over its Busy state let the render
+		// thread set Idle and exit with the final submitted frame never run, so Renderer::Shutdown
+		// replayed that whole frame on the main thread after the renderer was torn down (null
+		// StorageImageClear layout -> AV in CmdSetPipelineLayout).
+		BlockUntilRenderComplete();
+
+		// Run the final submitted frame on the render thread while the renderer is still alive.
 		Pump();
 
 		if (m_ThreadingPolicy == ThreadingPolicy::MultiThreaded)
+		{
+			// Release the render thread from its wait for the next kick. It executes the empty render
+			// queue (nothing was submitted since the pump), then sees m_IsRunning and returns.
+			m_IsRunning = false;
+			Kick();
 			m_RenderThread.Join();
+		}
+		else
+		{
+			m_IsRunning = false;
+		}
 
 		s_RenderThreadID = std::thread::id();
 	}
