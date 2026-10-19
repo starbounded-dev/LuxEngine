@@ -231,6 +231,9 @@ per-instance camera work itself — main-view, cascade and spot frustum tests an
 ~10k submeshes, plus the per-instance bucket append — which this phase keeps on the CPU by design;
 Phase 3 moves exactly that to the GPU. Closing the gap on the CPU would need instance buckets that
 persist across frames and are only edited when an instance's visibility or LOD changes.
+Golden (2026-10-19, after step 2): Benchmark default + all 15 feature variants (including
+`meshShaders`, `noOcclusionCulling`, `colliders`, `moving`) are pixel-identical to the Phase 1 set
+(`p1C` vs `p2C`, 0 px), and `moving` still matches Phase 0.
 **Docs:** `Rendering.md` § draw lists.
 
 ### Phase 3 — GPU LOD and visibility for the main view
