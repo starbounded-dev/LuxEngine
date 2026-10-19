@@ -55,6 +55,106 @@ namespace Lux {
 			return materialTable;
 		}
 
+		// One "StoredFields" entry, from a FieldStorage (live while playing) or from a StoredField
+		// kept for a script the loaded assembly lacks.
+		template<typename TField>
+		static void SerializeStoredField(Yaml::Writer& out, uint32_t fieldID, const TField& field)
+		{
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "ID" << Yaml::Value << fieldID;
+			out << Yaml::Key << "Name" << Yaml::Value << std::string(field.GetName());
+			out << Yaml::Key << "Type" << Yaml::Value << DataTypeToString(field.GetType());
+
+			if (field.IsArray())
+			{
+				// Arrays serialize as a raw byte sequence to stay lossless.
+				out << Yaml::Key << "Array" << Yaml::Value << true;
+				out << Yaml::Key << "Data" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq;
+				const Buffer& buf = field.ValueBuffer();
+				for (uint64_t i = 0; i < buf.Size; i++)
+					out << static_cast<uint32_t>(static_cast<const uint8_t*>(buf.Data)[i]);
+				out << Yaml::EndSeq;
+			}
+			else
+			{
+				out << Yaml::Key << "Data" << Yaml::Value;
+				switch (field.GetType())
+				{
+					case DataType::SByte:      out << static_cast<int32_t>(field.template GetValue<int8_t>()); break;
+					case DataType::Byte:       out << static_cast<uint32_t>(field.template GetValue<uint8_t>()); break;
+					case DataType::Short:      out << field.template GetValue<int16_t>(); break;
+					case DataType::UShort:     out << field.template GetValue<uint16_t>(); break;
+					case DataType::Int:        out << field.template GetValue<int32_t>(); break;
+					case DataType::UInt:       out << field.template GetValue<uint32_t>(); break;
+					case DataType::Long:       out << field.template GetValue<int64_t>(); break;
+					case DataType::ULong:      out << field.template GetValue<uint64_t>(); break;
+					case DataType::Float:      out << field.template GetValue<float>(); break;
+					case DataType::Double:     out << field.template GetValue<double>(); break;
+					case DataType::Vector2:    out << field.template GetValue<glm::vec2>(); break;
+					case DataType::Vector3:    out << field.template GetValue<glm::vec3>(); break;
+					case DataType::Vector4:    out << field.template GetValue<glm::vec4>(); break;
+					case DataType::Bool:       out << (field.template GetValue<uint32_t>() != 0); break;
+					default:                   out << field.template GetValue<uint64_t>(); break; // Entity + asset-refs (UUID)
+				}
+			}
+			out << Yaml::EndMap;
+		}
+
+		template<typename T>
+		static void SetStoredFieldValue(StoredField& field, const T& value)
+		{
+			field.Value.resize(sizeof(T));
+			std::memcpy(field.Value.data(), &value, sizeof(T));
+		}
+
+		// Reads a "StoredFields" list without script metadata, so it can be kept when the script
+		// does not resolve.
+		static std::vector<StoredField> DeserializeStoredFields(const Yaml::Node& storedFields)
+		{
+			std::vector<StoredField> fields;
+			if (!storedFields)
+				return fields;
+
+			for (const auto sf : storedFields)
+			{
+				StoredField& field = fields.emplace_back();
+				field.ID = sf["ID"].as<uint32_t>(0);
+				field.Name = sf["Name"].as<std::string>("");
+				field.Type = DataTypeFromString(sf["Type"].as<std::string>("Float"));
+				field.Array = sf["Array"] && sf["Array"].as<bool>(false);
+
+				const auto dataNode = sf["Data"];
+				if (field.Array)
+				{
+					field.Value.resize(dataNode.size());
+					for (size_t i = 0; i < field.Value.size(); i++)
+						field.Value[i] = static_cast<std::byte>(dataNode[i].as<uint32_t>(0));
+					continue;
+				}
+
+				switch (field.Type)
+				{
+					case DataType::SByte:   SetStoredFieldValue(field, static_cast<int8_t>(dataNode.as<int32_t>(0))); break;
+					case DataType::Byte:    SetStoredFieldValue(field, static_cast<uint8_t>(dataNode.as<uint32_t>(0))); break;
+					case DataType::Short:   SetStoredFieldValue(field, dataNode.as<int16_t>(0)); break;
+					case DataType::UShort:  SetStoredFieldValue(field, dataNode.as<uint16_t>(0)); break;
+					case DataType::Int:     SetStoredFieldValue(field, dataNode.as<int32_t>(0)); break;
+					case DataType::UInt:    SetStoredFieldValue(field, dataNode.as<uint32_t>(0)); break;
+					case DataType::Long:    SetStoredFieldValue(field, dataNode.as<int64_t>(0)); break;
+					case DataType::ULong:   SetStoredFieldValue(field, dataNode.as<uint64_t>(0)); break;
+					case DataType::Float:   SetStoredFieldValue(field, dataNode.as<float>(0.0f)); break;
+					case DataType::Double:  SetStoredFieldValue(field, dataNode.as<double>(0.0)); break;
+					case DataType::Vector2: SetStoredFieldValue(field, dataNode.as<glm::vec2>(glm::vec2(0.0f))); break;
+					case DataType::Vector3: SetStoredFieldValue(field, dataNode.as<glm::vec3>(glm::vec3(0.0f))); break;
+					case DataType::Vector4: SetStoredFieldValue(field, dataNode.as<glm::vec4>(glm::vec4(0.0f))); break;
+					case DataType::Bool:    SetStoredFieldValue(field, uint32_t{ dataNode.as<bool>(false) ? 1u : 0u }); break;
+					default:                SetStoredFieldValue(field, dataNode.as<uint64_t>(0)); break; // Entity + asset-refs
+				}
+			}
+
+			return fields;
+		}
+
 		static bool ContainsLegacyOrDeferredSceneData(const Yaml::Node& entity)
 		{
 			if (entity["RelationshipComponent"])
@@ -235,53 +335,35 @@ namespace Lux {
 				out << Yaml::Key << "ClassName" << Yaml::Value << script.ClassName;
 				out << Yaml::Key << "ScriptID" << Yaml::Value << (uint64_t)script.ScriptID;
 
-				// Serialize the per-entity FieldStorage buffers (owned by the Scene).
+				// Per-entity field values (owned by the Scene). A script missing from the loaded assembly
+				// has no FieldStorage; the values read for it are written back unchanged.
 				const ScriptStorage& storage = entity.GetScene()->GetScriptStorage();
-				auto storageIt = storage.EntityStorage.find(entity.GetUUID());
-				if (storageIt != storage.EntityStorage.end() && !storageIt->second.Fields.empty())
+				const UUID entityID = entity.GetUUID();
+				auto storageIt = storage.EntityStorage.find(entityID);
+				if (storageIt != storage.EntityStorage.end() && storageIt->second.ScriptID == script.ScriptID)
+				{
+					if (!storageIt->second.Fields.empty())
+					{
+						// By ID, so equal values always write equal text (undo snapshot diffs, prefab
+						// override detection) whatever order the map holds them in.
+						std::vector<std::pair<uint32_t, const FieldStorage*>> fields;
+						fields.reserve(storageIt->second.Fields.size());
+						for (const auto& [fieldID, fieldStorage] : storageIt->second.Fields)
+							fields.emplace_back(fieldID, &fieldStorage);
+						std::sort(fields.begin(), fields.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+
+						out << Yaml::Key << "StoredFields" << Yaml::Value << Yaml::BeginSeq;
+						for (const auto& [fieldID, fieldStorage] : fields)
+							SerializeStoredField(out, fieldID, *fieldStorage);
+						out << Yaml::EndSeq;
+					}
+				}
+				else if (const UnresolvedScriptStorage* unresolved = storage.FindUnresolvedStorage(script.ScriptID, entityID);
+					unresolved && !unresolved->Fields.empty())
 				{
 					out << Yaml::Key << "StoredFields" << Yaml::Value << Yaml::BeginSeq;
-					for (const auto& [fieldID, fieldStorage] : storageIt->second.Fields)
-					{
-						out << Yaml::BeginMap;
-						out << Yaml::Key << "ID" << Yaml::Value << fieldID;
-						out << Yaml::Key << "Name" << Yaml::Value << std::string(fieldStorage.GetName());
-						out << Yaml::Key << "Type" << Yaml::Value << DataTypeToString(fieldStorage.GetType());
-
-						if (fieldStorage.IsArray())
-						{
-							// Arrays serialize as a raw byte sequence to stay lossless.
-							out << Yaml::Key << "Array" << Yaml::Value << true;
-							out << Yaml::Key << "Data" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq;
-							const Buffer& buf = fieldStorage.ValueBuffer();
-							for (uint64_t i = 0; i < buf.Size; i++)
-								out << (uint32_t)((uint8_t*)buf.Data)[i];
-							out << Yaml::EndSeq;
-						}
-						else
-						{
-							out << Yaml::Key << "Data" << Yaml::Value;
-							switch (fieldStorage.GetType())
-							{
-								case DataType::SByte:      out << (int32_t)fieldStorage.GetValue<int8_t>(); break;
-								case DataType::Byte:       out << (uint32_t)fieldStorage.GetValue<uint8_t>(); break;
-								case DataType::Short:      out << fieldStorage.GetValue<int16_t>(); break;
-								case DataType::UShort:     out << fieldStorage.GetValue<uint16_t>(); break;
-								case DataType::Int:        out << fieldStorage.GetValue<int32_t>(); break;
-								case DataType::UInt:       out << fieldStorage.GetValue<uint32_t>(); break;
-								case DataType::Long:       out << fieldStorage.GetValue<int64_t>(); break;
-								case DataType::ULong:      out << fieldStorage.GetValue<uint64_t>(); break;
-								case DataType::Float:      out << fieldStorage.GetValue<float>(); break;
-								case DataType::Double:     out << fieldStorage.GetValue<double>(); break;
-								case DataType::Vector2:    out << fieldStorage.GetValue<glm::vec2>(); break;
-								case DataType::Vector3:    out << fieldStorage.GetValue<glm::vec3>(); break;
-								case DataType::Vector4:    out << fieldStorage.GetValue<glm::vec4>(); break;
-								case DataType::Bool:       out << (fieldStorage.GetValue<uint32_t>() != 0); break;
-								default:                   out << (uint64_t)fieldStorage.GetValue<uint64_t>(); break; // Entity + asset-refs (UUID)
-							}
-						}
-						out << Yaml::EndMap;
-					}
+					for (const StoredField& field : unresolved->Fields)
+						SerializeStoredField(out, field.ID, field);
 					out << Yaml::EndSeq;
 				}
 
@@ -843,60 +925,10 @@ namespace Lux {
 					component.ScriptID = script["ScriptID"].as<uint64_t>(
 						component.ClassName.empty() ? 0 : (uint64_t)Hash::GenerateFNVHash(component.ClassName));
 
-					const auto& scriptEngine = ScriptEngine::GetInstance();
-					UUID entityID = deserializedEntity.GetUUID();
-
-					if (scriptEngine.IsValidScript(component.ScriptID))
-					{
-						auto& storage = scene->GetScriptStorage();
-						if (!storage.EntityStorage.contains(entityID))
-							storage.InitializeEntityStorage(component.ScriptID, entityID);
-						auto& entityStorage = storage.EntityStorage.at(entityID);
-
-						if (const auto storedFields = script["StoredFields"])
-						{
-							for (const auto sf : storedFields)
-							{
-								uint32_t fieldID = sf["ID"].as<uint32_t>(0);
-								DataType type = DataTypeFromString(sf["Type"].as<std::string>("Float"));
-								auto fieldIt = entityStorage.Fields.find(fieldID);
-								if (fieldIt == entityStorage.Fields.end())
-									continue;
-
-								FieldStorage& fs = fieldIt->second;
-								const auto dataNode = sf["Data"];
-
-								if (sf["Array"] && sf["Array"].as<bool>(false))
-								{
-									size_t n = dataNode.size();
-									Buffer& buf = fs.ValueBuffer();
-									buf.Allocate(n);
-									for (size_t i = 0; i < n; i++)
-										((uint8_t*)buf.Data)[i] = (uint8_t)dataNode[i].as<uint32_t>(0);
-									continue;
-								}
-
-								switch (type)
-								{
-									case DataType::SByte:   fs.SetValue<int8_t>((int8_t)dataNode.as<int32_t>(0)); break;
-									case DataType::Byte:    fs.SetValue<uint8_t>((uint8_t)dataNode.as<uint32_t>(0)); break;
-									case DataType::Short:   fs.SetValue<int16_t>(dataNode.as<int16_t>(0)); break;
-									case DataType::UShort:  fs.SetValue<uint16_t>(dataNode.as<uint16_t>(0)); break;
-									case DataType::Int:     fs.SetValue<int32_t>(dataNode.as<int32_t>(0)); break;
-									case DataType::UInt:    fs.SetValue<uint32_t>(dataNode.as<uint32_t>(0)); break;
-									case DataType::Long:    fs.SetValue<int64_t>(dataNode.as<int64_t>(0)); break;
-									case DataType::ULong:   fs.SetValue<uint64_t>(dataNode.as<uint64_t>(0)); break;
-									case DataType::Float:   fs.SetValue<float>(dataNode.as<float>(0.0f)); break;
-									case DataType::Double:  fs.SetValue<double>(dataNode.as<double>(0.0)); break;
-									case DataType::Vector2: fs.SetValue<glm::vec2>(dataNode.as<glm::vec2>(glm::vec2(0.0f))); break;
-									case DataType::Vector3: fs.SetValue<glm::vec3>(dataNode.as<glm::vec3>(glm::vec3(0.0f))); break;
-									case DataType::Vector4: fs.SetValue<glm::vec4>(dataNode.as<glm::vec4>(glm::vec4(0.0f))); break;
-									case DataType::Bool:    fs.SetValue<uint32_t>(dataNode.as<bool>(false) ? 1u : 0u); break;
-									default:                fs.SetValue<uint64_t>(dataNode.as<uint64_t>(0)); break; // Entity + asset-refs
-								}
-							}
-						}
-					}
+					// Applied now if the loaded assembly has the script, kept verbatim for the next save
+					// (and for when it resolves) otherwise.
+					scene->GetScriptStorage().RestoreEntityFields(component.ScriptID, deserializedEntity.GetUUID(),
+						DeserializeStoredFields(script["StoredFields"]));
 				}
 
 				if (const auto mesh = entity["MeshComponent"])
@@ -1899,6 +1931,52 @@ namespace Lux {
 				fail(std::format("entity {} missing after round-trip", (uint64_t)handle));
 			else if (it->second != block)
 				fail(std::format("entity {} YAML differs after round-trip", (uint64_t)handle));
+		}
+
+		// Field values of a script the loaded assembly lacks (no project defines this class) are
+		// kept from the file, carried by Scene::Copy (open scene, Play) and saved back unchanged.
+		{
+			Ref<Scene> scriptScene = Ref<Scene>::Create();
+			Entity scripted = scriptScene->CreateEntity("Scripted");
+			auto& script = scripted.AddComponent<ScriptComponent>();
+			script.ClassName = "Lux.SelfTest.UnresolvedScript";
+			script.ScriptID = static_cast<uint64_t>(Hash::GenerateFNVHash(script.ClassName));
+
+			auto makeField = [](uint32_t id, const char* name, DataType type, const auto& value)
+			{
+				StoredField field;
+				field.ID = id;
+				field.Name = name;
+				field.Type = type;
+				SetStoredFieldValue(field, value);
+				return field;
+			};
+
+			std::vector<StoredField> fields;
+			fields.push_back(makeField(1, "Speed", DataType::Float, 12.0f));
+			fields.push_back(makeField(2, "PlayOnStart", DataType::Bool, uint32_t{ 1 }));
+			fields.push_back(makeField(3, "Offset", DataType::Vector3, glm::vec3(1.0f, -2.0f, 0.5f)));
+			fields.push_back(makeField(4, "Target", DataType::Entity, static_cast<uint64_t>(scripted.GetUUID())));
+			StoredField& waypoints = fields.emplace_back(makeField(5, "Waypoints", DataType::Float, 1.0f));
+			waypoints.Array = true;
+			scriptScene->GetScriptStorage().RestoreEntityFields(script.ScriptID, scripted.GetUUID(), fields);
+
+			std::string scriptMeta;
+			const std::string block = SceneSerializer(scriptScene).SerializeEntitySnapshots(scriptMeta)[scripted.GetUUID()];
+			if (block.find("StoredFields") == std::string::npos || block.find("Waypoints") == std::string::npos)
+				fail("unresolved script fields were not saved");
+
+			Ref<Scene> reloaded = Ref<Scene>::Create();
+			if (!SceneSerializer(reloaded).DeserializeFromSnapshots(scriptMeta, { block }))
+			{
+				fail("scene with an unresolved script did not reload");
+			}
+			else
+			{
+				std::string copiedMeta;
+				if (SceneSerializer(Scene::Copy(reloaded)).SerializeEntitySnapshots(copiedMeta)[scripted.GetUUID()] != block)
+					fail("unresolved script fields changed across load, Scene::Copy and save");
+			}
 		}
 
 		return ok;

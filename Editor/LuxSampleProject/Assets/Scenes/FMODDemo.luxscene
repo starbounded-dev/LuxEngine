@@ -178,6 +178,39 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.FlyCamera
       ScriptID: 3987114672
+      StoredFields:
+        - ID: 3495151719
+          Name: Speed
+          Type: Float
+          Data: 5
+        - ID: 15508422
+          Name: RumbleOnSprint
+          Type: Bool
+          Data: true
+        - ID: 978505095
+          Name: SprintMultiplier
+          Type: Float
+          Data: 3
+        - ID: 2911448432
+          Name: MouseSensitivity
+          Type: Float
+          Data: 0.0025
+        - ID: 4237734323
+          Name: GamepadLookSpeed
+          Type: Float
+          Data: 2.5
+        - ID: 2657756844
+          Name: InvertGamepadY
+          Type: Bool
+          Data: true
+        - ID: 224242787
+          Name: AdaptiveTriggers
+          Type: Bool
+          Data: true
+        - ID: 2532514871
+          Name: Gamepad
+          Type: Int
+          Data: -1
     CameraComponent:
       Camera:
         ProjectionType: 0
@@ -257,6 +290,15 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.FmodAudioDemo
       ScriptID: 326709275
+      StoredFields:
+        - ID: 4158056058
+          Name: PlayOnStart
+          Type: Bool
+          Data: true
+        - ID: 2314636909
+          Name: Volume
+          Type: Float
+          Data: 0.7
     StaticMeshComponent:
       AssetID: 9685142686327195147
       MaterialTable:

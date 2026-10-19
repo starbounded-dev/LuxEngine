@@ -159,6 +159,7 @@ namespace Lux {
 			AudioListener::Apply({});
 		}
 		m_EntityMap.clear();
+		m_ScriptStorage.Clear();   // FieldStorage buffers are released by hand
 		OnPhysics2DStop();
 		OnPhysics3DStop();
 		OnRaytracedAudioStop();
@@ -251,6 +252,9 @@ namespace Lux {
 
 		// Copy components (except IDComponent and TagComponent)
 		CopyComponent(AllComponents{}, dstSceneRegistry, srcSceneRegistry, enttMap);
+
+		// Script field values sit beside the components, keyed by the same UUIDs.
+		other->m_ScriptStorage.CopyTo(newScene->m_ScriptStorage);
 
 		return newScene;
 	}
@@ -1126,6 +1130,7 @@ namespace Lux {
 		{
 			Entity destination = CreateEntity(source.GetName());
 			CopyComponentIfExists(DuplicateComponents{}, destination, source);
+			m_ScriptStorage.CopyEntityFields(source.GetUUID(), m_ScriptStorage, destination.GetUUID());
 			entityMap[source.GetUUID()] = destination.GetUUID();
 
 			// TagComponent isn't in DuplicateComponents (name is set above); carry the editor lock/label.
@@ -1189,6 +1194,7 @@ namespace Lux {
 			{
 				Entity destination = CreateEntity(source.GetName());
 				CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
+				source.GetScene()->m_ScriptStorage.CopyEntityFields(source.GetUUID(), m_ScriptStorage, destination.GetUUID());
 				entityMap[source.GetUUID()] = destination.GetUUID();
 
 				auto& prefabComponent = destination.AddOrReplaceComponent<PrefabComponent>();
@@ -1334,6 +1340,7 @@ namespace Lux {
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
 		ReconcileComponents(PrefabSyncComponents{}, destination, source);
+		source.GetScene()->m_ScriptStorage.CopyEntityFields(source.GetUUID(), destination.GetScene()->m_ScriptStorage, destination.GetUUID());
 		if (destination.HasComponent<AudioPortalComponent>())
 		{
 			auto& portal = destination.GetComponent<AudioPortalComponent>();
@@ -1597,6 +1604,7 @@ namespace Lux {
 		}
 
 		CopyComponent(AllComponents{}, target->m_Registry, m_Registry, enttMap);
+		m_ScriptStorage.CopyTo(target->m_ScriptStorage);
 		target->SortEntities();
 	}
 

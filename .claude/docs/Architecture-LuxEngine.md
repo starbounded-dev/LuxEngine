@@ -404,8 +404,12 @@ orchestrators.
 - The registry is **not** thread-safe; mutation is main-thread only.
 - Destroying an entity mid-iteration invalidates views — use `SubmitToDestroyEntity`, which defers
   into `m_PostUpdateQueue`.
-- `Scene::Copy` / `CopyTo` back play-mode duplication; a component that isn't copied there silently
-  vanishes on Play.
+- `Scene::Copy` / `CopyTo` back play-mode duplication, scene open (the editor edits a copy of the
+  scene asset) and prefab edit mode; a component that isn't copied there silently vanishes on Play.
+  They copy the `ScriptStorage` too, so script field values reach Play and survive open → save.
+  Paths that copy a `ScriptComponent` to another UUID or scene (`DuplicateEntity`, prefab
+  instantiation, `Prefab::Create`, `ReconcilePrefabComponents`) copy its values with
+  `ScriptStorage::CopyEntityFields`; a new such path must too, or the copy starts from defaults.
 
 ### 2.5 Physics (3D — Jolt)
 
@@ -442,7 +446,17 @@ No abstraction layer — Box2D is small enough to use directly.
 - `ScriptGlue.cpp` registers every internal call. **All new internal calls go there** — never in
   `ScriptEngine.{h,cpp}`.
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
-  scene); live objects are `CSharpObject` instances on the `Scene`.
+  scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
+  loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:
+  its scene-file values sit in `ScriptStorage::UnresolvedStorage` as `StoredField`s (an entity is
+  in exactly one of the two maps), are saved back unchanged, and are applied once the script
+  resolves. `RestoreEntityFields` is the deserializer's entry point; `SynchronizeStorage` binds a
+  storage to the loaded assembly (demotes vanished scripts, re-types changed fields, promotes
+  resolved ones) and runs after every reload and inside `CopyTo`. `InitializeEntityStorage` also
+  applies kept values. `FieldStorage::IsArray` is cached, since `m_Type` dangles after a reload.
+  Defaults come from the C# initializers (`BuildAssemblyCache`, bools as `Coral::Bool32`); fields
+  without one (references, bool arrays) start zeroed. Resolved `StoredFields` are written sorted
+  by field ID, so equal values always serialize to equal text (undo diffs, prefab overrides).
 - `ScriptBuilder` shells out to build the project's C# assembly.
 - `ScriptFieldMetadata::HasMethod(name)` gates lifecycle invocation so the engine doesn't call hooks
   a script doesn't define.

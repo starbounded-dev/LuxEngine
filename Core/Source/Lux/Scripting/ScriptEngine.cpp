@@ -479,7 +479,13 @@ namespace Lux {
 					case DataType::Vector2: fieldMetadata.SetDefaultValue<glm::vec2>(temp); break;
 					case DataType::Vector3: fieldMetadata.SetDefaultValue<glm::vec3>(temp); break;
 					case DataType::Vector4: fieldMetadata.SetDefaultValue<glm::vec4>(temp); break;
-					default: break; // Bool + asset-refs default to zero-initialized storage.
+					case DataType::Bool:
+						// Coral marshals a bool field as a Bool32. A bool array keeps the empty
+						// default: its elements are one byte managed-side but four in FieldStorage.
+						if (!fieldMetadata.ManagedType->IsSZArray())
+							fieldMetadata.SetDefaultValue<Coral::Bool32>(temp);
+						break;
+					default: break; // Asset and entity references default to zero-initialized storage.
 				}
 			}
 

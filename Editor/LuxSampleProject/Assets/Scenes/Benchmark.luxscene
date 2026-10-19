@@ -31326,6 +31326,11 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.SlidingDoor
       ScriptID: 3167468948
+      StoredFields:
+        - ID: 686198658
+          Name: StartOpen
+          Type: Bool
+          Data: true
     AudioPortalComponent:
       Enabled: true
       ZoneA: 16100000000000006378
@@ -31670,6 +31675,11 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.SlidingDoor
       ScriptID: 3167468948
+      StoredFields:
+        - ID: 686198658
+          Name: StartOpen
+          Type: Bool
+          Data: false
     AudioPortalComponent:
       Enabled: true
       ZoneA: 16100000000000006364
@@ -32014,6 +32024,11 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.SlidingDoor
       ScriptID: 3167468948
+      StoredFields:
+        - ID: 686198658
+          Name: StartOpen
+          Type: Bool
+          Data: true
     AudioPortalComponent:
       Enabled: true
       ZoneA: 16100000000000006350
@@ -32358,6 +32373,11 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.SlidingDoor
       ScriptID: 3167468948
+      StoredFields:
+        - ID: 686198658
+          Name: StartOpen
+          Type: Bool
+          Data: false
     AudioPortalComponent:
       Enabled: true
       ZoneA: 16100000000000006336
@@ -32702,6 +32722,11 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.SlidingDoor
       ScriptID: 3167468948
+      StoredFields:
+        - ID: 686198658
+          Name: StartOpen
+          Type: Bool
+          Data: true
     AudioPortalComponent:
       Enabled: true
       ZoneA: 16100000000000006322
@@ -33046,6 +33071,11 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.SlidingDoor
       ScriptID: 3167468948
+      StoredFields:
+        - ID: 686198658
+          Name: StartOpen
+          Type: Bool
+          Data: false
     AudioPortalComponent:
       Enabled: true
       ZoneA: 16100000000000006308
@@ -129079,6 +129109,15 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.FmodAudioDemo
       ScriptID: 326709275
+      StoredFields:
+        - ID: 4158056058
+          Name: PlayOnStart
+          Type: Bool
+          Data: false
+        - ID: 2314636909
+          Name: Volume
+          Type: Float
+          Data: 0.6
     StaticMeshComponent:
       AssetID: 9685142686327195147
       MaterialTable:
@@ -129351,6 +129390,19 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.CameraPath
       ScriptID: 781295930
+      StoredFields:
+        - ID: 2562080374
+          Name: SecondsPerPoint
+          Type: Float
+          Data: 5
+        - ID: 86435466
+          Name: Loop
+          Type: Bool
+          Data: true
+        - ID: 1683546667
+          Name: PlayOnStart
+          Type: Bool
+          Data: true
   - Entity: 16100000000000000006
     TagComponent:
       Tag: Listener Camera - RMB + WASD
@@ -129363,6 +129415,15 @@ Entities:
     ScriptComponent:
       ClassName: LuxSample.FlyCamera
       ScriptID: 3987114672
+      StoredFields:
+        - ID: 3495151719
+          Name: Speed
+          Type: Float
+          Data: 12
+        - ID: 978505095
+          Name: SprintMultiplier
+          Type: Float
+          Data: 3
     CameraComponent:
       Camera:
         ProjectionType: 0

@@ -10,13 +10,17 @@
 #include <Coral/Type.hpp>
 #include <Coral/Array.hpp>
 
+#include <cstddef>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 // Ported from Hazel's ScriptEntityStorage. Per-entity script field VALUES live here (owned by
 // the Scene, serialized with it); reflection METADATA lives in ScriptEngine. FieldStorage is
 // dual-mode: a serializable byte buffer when idle, a live managed-field proxy when playing.
+// Values of a script the loaded app assembly lacks are kept as StoredFields until it resolves.
 namespace Lux {
 
 	enum class DataType
@@ -140,11 +144,11 @@ namespace Lux {
 	public:
 		std::string_view GetName() const { return m_Name; }
 		DataType GetType() const { return m_DataType; }
-		bool IsArray() const { return m_Type->IsSZArray(); }
+		bool IsArray() const { return m_IsArray; }
 
 		uint64_t GetLength() const
 		{
-			LUX_CORE_VERIFY(m_Type->IsSZArray());
+			LUX_CORE_VERIFY(m_IsArray);
 			return m_ValueBuffer.Size / DataTypeSize(m_DataType);
 		}
 
@@ -180,7 +184,7 @@ namespace Lux {
 		template<typename T>
 		void SetValue(const T& value, uint64_t index)
 		{
-			LUX_CORE_VERIFY(m_Type->IsSZArray());
+			LUX_CORE_VERIFY(m_IsArray);
 
 			if (m_Instance)
 			{
@@ -245,6 +249,8 @@ namespace Lux {
 		std::string m_Name;
 		Coral::Type* m_Type = nullptr;
 		DataType m_DataType = DataType::Float;
+		// Cached from m_Type, which dangles once a reload unloads the assembly that owned it.
+		bool m_IsArray = false;
 		Buffer m_ValueBuffer;
 
 		Coral::ManagedObject* m_Instance = nullptr;
@@ -271,6 +277,41 @@ namespace Lux {
 		}
 	}
 
+	// One scene-file "StoredFields" entry, held without script metadata. The value uses
+	// FieldStorage's buffer layout, and the getters mirror an idle FieldStorage's so the
+	// serializer writes either one the same way.
+	struct StoredField
+	{
+		uint32_t ID = 0;
+		std::string Name;
+		DataType Type = DataType::Float;
+		bool Array = false;
+		std::vector<std::byte> Value;
+
+		std::string_view GetName() const { return Name; }
+		DataType GetType() const { return Type; }
+		bool IsArray() const { return Array; }
+
+		// Non-owning view of Value.
+		Buffer ValueBuffer() const { return Buffer(Value.data(), Value.size()); }
+
+		template<typename T>
+		T GetValue() const
+		{
+			T value{};
+			if (Value.size() >= sizeof(T))
+				std::memcpy(&value, Value.data(), sizeof(T));
+			return value;
+		}
+	};
+
+	// Field values of an entity whose script is not in the loaded app assembly, in file order.
+	struct UnresolvedScriptStorage
+	{
+		UUID ScriptID;
+		std::vector<StoredField> Fields;
+	};
+
 	struct EntityScriptStorage
 	{
 		UUID ScriptID;
@@ -282,17 +323,45 @@ namespace Lux {
 	{
 		std::unordered_map<UUID, EntityScriptStorage> EntityStorage;
 
+		// Entities whose script did not resolve when their values were read (no app assembly, or
+		// the class is gone). An entity is in at most one of the two maps. These values are saved
+		// back unchanged and move into EntityStorage once the script resolves.
+		std::unordered_map<UUID, UnresolvedScriptStorage> UnresolvedStorage;
+
+		// Initializes the fields to the script defaults, then applies any values kept for the
+		// entity in UnresolvedStorage.
 		void InitializeEntityStorage(UUID scriptID, UUID entityID);
 		void ShutdownEntityStorage(UUID scriptID, UUID entityID);
 
+		// Sets an entity's field values as read from a scene file: applied to its storage when the
+		// script resolves, kept in UnresolvedStorage otherwise.
+		void RestoreEntityFields(UUID scriptID, UUID entityID, std::vector<StoredField> fields);
+
+		// The values kept for an entity whose script `scriptID` did not resolve, or null.
+		const UnresolvedScriptStorage* FindUnresolvedStorage(UUID scriptID, UUID entityID) const;
+
+		// Binds storage to the loaded app assembly: values of scripts it lacks move to
+		// UnresolvedStorage, fields follow the scripts' current declarations, and values kept
+		// for scripts it now has are applied. Run after every assembly (re)load.
 		void SynchronizeStorage();
 
+		// Replaces `other`'s contents with a copy of this storage, bound to the loaded assembly.
 		void CopyTo(ScriptStorage& other) const;
 		void CopyEntityStorage(UUID entityID, UUID targetEntityID, ScriptStorage& targetStorage) const;
+
+		// Gives `targetEntityID` in `target` (which may be this storage) a copy of `entityID`'s
+		// values, resolved or kept, replacing its own; with none here, the target's are removed.
+		// For entity duplication and the prefab paths, which copy the ScriptComponent alongside.
+		// A target with a live script instance is left alone.
+		void CopyEntityFields(UUID entityID, ScriptStorage& target, UUID targetEntityID) const;
 		void Clear();
 
 	private:
 		void InitializeFieldStorage(EntityScriptStorage& storage, uint32_t fieldID, const FieldMetadata& fieldMetadata);
+		void ReleaseEntityStorage(UUID entityID);
+
+		static void CopyFieldStorage(const FieldStorage& source, FieldStorage& destination);
+		static void ApplyStoredField(EntityScriptStorage& storage, const StoredField& field);
 	};
 
 }

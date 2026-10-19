@@ -4830,6 +4830,24 @@ namespace Lux {
 	{
 		SceneSerializer serializer(scene);
 		serializer.Serialize(Project::GetActiveAssetDirectory() / path);
+
+		// Their field values are saved back as loaded, so nothing is lost, but they cannot be
+		// edited until the assembly has the class; say so, as saving used to drop them silently.
+		const ScriptEngine& scriptEngine = ScriptEngine::GetInstance();
+		uint32_t unresolvedScripts = 0;
+		auto scriptView = scene->GetAllEntitiesWith<ScriptComponent>();
+		for (auto entity : scriptView)
+		{
+			const auto& script = scriptView.get<ScriptComponent>(entity);
+			if (!script.ClassName.empty() && !scriptEngine.IsValidScript(script.ScriptID))
+				unresolvedScripts++;
+		}
+
+		if (unresolvedScripts > 0)
+		{
+			LUX_CORE_WARN_TAG("Scripting", "Saved '{}' with {} script{} missing from the loaded C# assembly; their field values were kept as loaded.",
+				path.filename().string(), unresolvedScripts, unresolvedScripts == 1 ? "" : "s");
+		}
 	}
 
 	void EditorLayer::ResetRendererDebugViews()
