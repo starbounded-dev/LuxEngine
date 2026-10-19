@@ -53,17 +53,13 @@ namespace Lux {
 		// Run the final submitted frame on the render thread while the renderer is still alive.
 		Pump();
 
+		m_IsRunning = false;
 		if (m_ThreadingPolicy == ThreadingPolicy::MultiThreaded)
 		{
 			// Release the render thread from its wait for the next kick. It executes the empty render
 			// queue (nothing was submitted since the pump), then sees m_IsRunning and returns.
-			m_IsRunning = false;
 			Kick();
 			m_RenderThread.Join();
-		}
-		else
-		{
-			m_IsRunning = false;
 		}
 
 		s_RenderThreadID = std::thread::id();
