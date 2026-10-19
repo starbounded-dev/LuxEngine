@@ -52,7 +52,7 @@ namespace Lux {
 		~RenderThread();
 
 		void Run();
-		bool IsRunning() const { return m_IsRunning; }
+		bool IsRunning() const { return m_IsRunning.load(std::memory_order_acquire); }
 		void Terminate();
 
 		void Wait(State waitForState);
@@ -72,7 +72,7 @@ namespace Lux {
 
 		Thread m_RenderThread;
 
-		bool m_IsRunning = false;
+		std::atomic<bool> m_IsRunning = false;
 
 		std::atomic<uint32_t> m_AppThreadFrame = 0;
 	};

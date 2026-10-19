@@ -167,6 +167,15 @@ outside the main loop (e.g. during a resize).
 `Renderer::WaitAndRender(RenderThread*)` is the render thread's body: it swaps the double-buffered
 command queues (`Renderer::SwapQueues`) and executes the submission queue.
 
+**Never `Kick()` while the render thread is `Busy`.** `Set(Kick)` overwrites `Busy`; the render thread
+then sets `Idle` when it finishes and the kick is lost. Every kick must follow
+`BlockUntilRenderComplete()`. `Terminate()` used to break this rule. When the previous frame was still
+running at exit, the final submitted frame never ran on the render thread, and
+`Renderer::Shutdown` replayed it on the main thread after the renderer was torn down. The result was an
+intermittent exit AV in `CmdSetPipelineLayout` from the nulled `StorageImageClear` layout.
+`Terminate()` now waits, pumps that last frame on the render thread, then kicks once more so the thread
+sees `IsRunning() == false` and returns.
+
 ---
 
 ## JobSystem
