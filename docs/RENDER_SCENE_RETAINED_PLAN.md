@@ -160,7 +160,14 @@ material editor (updates), toggle `Visible`, select/deselect, delete and undo an
 **Exit:** sync target met, all checks pass. **Rollback:** revert the phase commit.
 **Docs:** `Rendering.md` (lifetime rule), `Architecture-LuxEngine.md` § 2.4.
 
-**Status: done 2026-10-18, sync target narrowly missed (1.23 ms, not < 1 ms).** As built:
+**Status: done 2026-10-19, sync target met (0.53 ms).** First pass 2026-10-18 reached 1.23 ms; a
+second pass (sub-stage timers showed the per-entity `SyncStaticMesh` loop at 0.68 ms of a 1.15 ms
+sync) added a dense per-entity record of last frame's inputs in sync order, so an unchanged entity
+is a sequential compare that never touches its proxy, plus `MaterialTable::GetGlobalRevision()` so
+no table is read per entity while none changed, and skips `EndSync`'s removal walk when every proxy
+was synced. Loop 0.68 → 0.10 ms. A-B-A against the first pass (one session, medians of 3): sync
+1.27 / **0.53** / 1.28 ms, main thread 10.17 / **9.98** / 10.49 ms; golden default + 15 variants
+identical to the first pass, `moving` identical to Phase 0; moving sync 0.85 ms. First pass as built:
 `RenderScene::SyncStaticMesh(entityID, StaticMeshSyncInputs)` resolves meshes only when the handle
 changes, recomputes bounds only when the transform or mesh changes, and rehashes the material table
 only when the table or its **NEW** `MaterialTable::GetRevision()` changes (`MaterialTable`'s
@@ -175,7 +182,9 @@ Perf A-B-A (medians of 3): sync 6.42 / **1.23** / 6.13 ms, main thread 15.02 / *
 frame 15.85 / **10.82** / 15.67 ms; Submit and Flush unchanged (Phase 2). Moving (single runs):
 sync 6.17 → 1.28–1.39 ms. The remaining sync is the O(entities) scan (view walk, selection
 callback, parallel transforms, one hash lookup and compare per entity) — not yet sampled.
-Not done: the editor scenarios (material edit, Visible toggle, select, delete/undo, Play/Stop).
+Not done: the editor scenarios (material edit, Visible toggle, select, delete/undo, Play/Stop) —
+left to a manual pass. Side finding: `EditorLayer::CastMousePick` ray-tests every entity every frame
+(~17% of the Benchmark main thread in the sampler), outside this plan.
 An intermittent access violation inside NRI command recording, mostly at shutdown, hit both the
 HEAD and Phase 1 builds in this session (event log); it is not caused by this phase.
 

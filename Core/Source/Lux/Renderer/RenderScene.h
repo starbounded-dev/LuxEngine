@@ -32,6 +32,8 @@ namespace Lux {
 		Ref<StaticMesh> StaticMesh;
 		Ref<MeshSource> MeshSource;
 		Ref<MaterialTable> MaterialTable;
+		// StaticMesh's own table. A StaticMesh sets it only when constructed, and StaticMesh keeps it alive.
+		const ::Lux::MaterialTable* MeshMaterialTable = nullptr;
 
 		glm::mat4 WorldTransform{ 1.0f };
 		BoundingSphere WorldBounds;
@@ -114,6 +116,24 @@ namespace Lux {
 		// Takes a reference on the submesh's material row; the instance's Metadata.z holds it.
 		RenderMaterialID AcquireRenderMaterialID(const StaticMeshRenderProxy& proxy, uint32_t submeshIndex);
 		void ReleaseInstanceMaterials(const StaticMeshRenderProxy& proxy);
+		// The inputs an entity was last synced from, kept densely in sync order so an unchanged entity
+		// is a sequential compare that never touches its proxy.
+		struct StaticMeshSyncRecord
+		{
+			StaticMeshRenderProxy* Proxy = nullptr;
+			UUID EntityID = 0;
+			RenderPrimitiveID PrimitiveID = InvalidRenderPrimitiveID;
+			AssetHandle StaticMeshHandle = 0;
+			const MaterialTable* ComponentMaterialTable = nullptr;
+			glm::mat4 WorldTransform{ 1.0f };
+			bool Visible = true;
+			bool Selected = false;
+			bool Dirty = false; // changed that frame, so the next frame must refresh it (settle frame)
+		};
+
+		// Last frame's record for this entity, searched just ahead of the cursor: the scene syncs in
+		// the same order every frame, so this finds it without hashing, and skips a few removed ones.
+		const StaticMeshSyncRecord* FindPreviousSyncRecord(UUID entityID);
 		void RebuildStaticMeshGPUInstances(StaticMeshRenderProxy& proxy, bool forceDirty, const glm::mat4& previousWorldTransform);
 		void RefreshStaticMeshGPUInstances(StaticMeshRenderProxy& proxy);
 
@@ -135,6 +155,17 @@ namespace Lux {
 		std::vector<RenderPrimitiveID> m_ChangedPrimitives;
 		std::vector<RenderPrimitiveID> m_RemovedPrimitives;
 		std::vector<RenderMaterialID> m_MaterialReleaseScratch;
+
+		// This frame's and last frame's records, in sync order. Last frame's proxies were all synced,
+		// so EndSync kept them and the Proxy pointers are valid.
+		std::vector<StaticMeshSyncRecord> m_SyncOrder;
+		std::vector<StaticMeshSyncRecord> m_PreviousSyncOrder;
+		size_t m_SyncCursor = 0;
+		// Proxies synced this frame: EndSync skips its removal walk when that is all of them.
+		size_t m_SyncedProxyCount = 0;
+		// MaterialTable::GetGlobalRevision() at the last sync; when it moved, every entity re-reads its table.
+		uint64_t m_MaterialTableGlobalRevision = 0;
+		bool m_MaterialTablesChanged = true;
 	};
 
 }

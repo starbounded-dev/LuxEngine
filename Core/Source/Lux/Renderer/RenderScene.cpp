@@ -120,6 +120,12 @@ namespace Lux {
 		m_StaticMeshProxies.clear();
 		m_ChangedPrimitives.clear();
 		m_RemovedPrimitives.clear();
+		m_SyncOrder.clear();
+		m_SyncCursor = 0;
+		m_SyncedProxyCount = 0;
+		const uint64_t materialTableGlobalRevision = MaterialTable::GetGlobalRevision();
+		m_MaterialTablesChanged = materialTableGlobalRevision != m_MaterialTableGlobalRevision;
+		m_MaterialTableGlobalRevision = materialTableGlobalRevision;
 		m_GPUScene.BeginSync(m_FrameIndex);
 		m_TextureScene.BeginSync();
 		m_MaterialScene.BeginSync(m_FrameIndex);
@@ -178,14 +184,59 @@ namespace Lux {
 			m_MaterialScene.ReleaseMaterial(instanceRef.Data.Metadata.z);
 	}
 
+	const RenderScene::StaticMeshSyncRecord* RenderScene::FindPreviousSyncRecord(UUID entityID)
+	{
+		constexpr size_t searchAhead = 8;
+		const size_t end = std::min(m_SyncCursor + searchAhead, m_PreviousSyncOrder.size());
+		for (size_t index = m_SyncCursor; index < end; index++)
+		{
+			if (m_PreviousSyncOrder[index].EntityID == entityID)
+			{
+				m_SyncCursor = index + 1;
+				return &m_PreviousSyncOrder[index];
+			}
+		}
+
+		return nullptr;
+	}
+
 	RenderPrimitiveID RenderScene::SyncStaticMesh(UUID entityID, const StaticMeshSyncInputs& inputs)
 	{
-		LUX_PROFILE_FUNCTION_AUTO;
 		if ((uint64_t)entityID == 0 || !inputs.StaticMeshHandle)
 			return InvalidRenderPrimitiveID;
 
-		auto [proxyIt, created] = m_StaticMeshProxiesByEntity.try_emplace(entityID);
-		StaticMeshRenderProxy& proxy = proxyIt->second;
+		const MaterialTable* componentMaterialTable = inputs.ComponentMaterialTable ? inputs.ComponentMaterialTable->Raw() : nullptr;
+		StaticMeshRenderProxy* proxyPtr = nullptr;
+		bool created = false;
+		if (const StaticMeshSyncRecord* record = FindPreviousSyncRecord(entityID))
+		{
+			// Unchanged since last frame, which did not change it either: nothing to do, and the
+			// proxy is not even read. (EndSync marks it synced if it has to look for removals.)
+			// A changed material table anywhere sends every entity down the full path that frame.
+			if (!record->Dirty && !m_MaterialTablesChanged
+				&& record->StaticMeshHandle == inputs.StaticMeshHandle
+				&& record->ComponentMaterialTable == componentMaterialTable
+				&& record->Visible == inputs.Visible
+				&& record->Selected == inputs.Selected
+				&& MatrixEquals(record->WorldTransform, inputs.WorldTransform))
+			{
+				m_SyncOrder.push_back(*record);
+				m_SyncedProxyCount++;
+				if (record->Visible)
+					m_StaticMeshProxies.push_back(record->Proxy);
+				return record->PrimitiveID;
+			}
+
+			proxyPtr = record->Proxy;
+		}
+		else
+		{
+			auto [proxyIt, inserted] = m_StaticMeshProxiesByEntity.try_emplace(entityID);
+			proxyPtr = &proxyIt->second;
+			created = inserted;
+		}
+
+		StaticMeshRenderProxy& proxy = *proxyPtr;
 		RenderProxyDirtyFlags dirtyFlags = created ? RenderProxyDirtyFlags::Created : RenderProxyDirtyFlags::None;
 
 		// Resolve the meshes only when the handle changed (or nothing resolved yet).
@@ -199,7 +250,7 @@ namespace Lux {
 			{
 				// Not drawable: an existing proxy is left unsynced, so EndSync drops it.
 				if (created)
-					m_StaticMeshProxiesByEntity.erase(proxyIt);
+					m_StaticMeshProxiesByEntity.erase(entityID);
 				return InvalidRenderPrimitiveID;
 			}
 
@@ -211,6 +262,7 @@ namespace Lux {
 			proxy.MeshSourceHandle = meshSourceHandle;
 			proxy.StaticMesh = std::move(staticMesh);
 			proxy.MeshSource = std::move(meshSource);
+			proxy.MeshMaterialTable = proxy.StaticMesh->GetMaterials().Raw();
 		}
 
 		if (created)
@@ -226,8 +278,7 @@ namespace Lux {
 		// The table is hashed only when it is a different table or it was edited.
 		const bool useComponentTable = inputs.ComponentMaterialTable && *inputs.ComponentMaterialTable
 			&& !(*inputs.ComponentMaterialTable)->GetMaterials().empty();
-		Ref<MaterialTable> meshMaterials = useComponentTable ? nullptr : proxy.StaticMesh->GetMaterials();
-		const MaterialTable* materialTable = useComponentTable ? inputs.ComponentMaterialTable->Raw() : meshMaterials.Raw();
+		const MaterialTable* materialTable = useComponentTable ? inputs.ComponentMaterialTable->Raw() : proxy.MeshMaterialTable;
 		const uint64_t materialTableRevision = materialTable ? materialTable->GetRevision() : 0;
 		if (created || materialTable != proxy.MaterialTable.Raw() || materialTableRevision != proxy.MaterialTableRevision)
 		{
@@ -235,7 +286,7 @@ namespace Lux {
 			if (!created && materialHash != proxy.MaterialHash)
 				dirtyFlags |= RenderProxyDirtyFlags::Material;
 
-			proxy.MaterialTable = useComponentTable ? *inputs.ComponentMaterialTable : meshMaterials;
+			proxy.MaterialTable = useComponentTable ? *inputs.ComponentMaterialTable : proxy.StaticMesh->GetMaterials();
 			proxy.MaterialTableRevision = materialTableRevision;
 			proxy.MaterialHash = materialHash;
 		}
@@ -292,7 +343,20 @@ namespace Lux {
 			m_ChangedPrimitives.push_back(proxy.PrimitiveID);
 		}
 		proxy.DirtyFlags = dirtyFlags;
+		if (proxy.LastTouchedFrame != m_FrameIndex)
+			m_SyncedProxyCount++;
 		proxy.LastTouchedFrame = m_FrameIndex;
+
+		StaticMeshSyncRecord& record = m_SyncOrder.emplace_back();
+		record.Proxy = &proxy;
+		record.EntityID = entityID;
+		record.PrimitiveID = proxy.PrimitiveID;
+		record.StaticMeshHandle = inputs.StaticMeshHandle;
+		record.ComponentMaterialTable = componentMaterialTable;
+		record.WorldTransform = inputs.WorldTransform;
+		record.Visible = inputs.Visible;
+		record.Selected = inputs.Selected;
+		record.Dirty = dirtyFlags != RenderProxyDirtyFlags::None;
 
 		AccumulateDirtyStats(m_LastSyncStats, dirtyFlags);
 
@@ -305,7 +369,15 @@ namespace Lux {
 	void RenderScene::EndSync()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		for (auto it = m_StaticMeshProxiesByEntity.begin(); it != m_StaticMeshProxiesByEntity.end();)
+		// Only walk the proxies when some were not synced this frame. Unchanged proxies were not
+		// stamped during the sync, so stamp every synced one first.
+		if (m_SyncedProxyCount < m_StaticMeshProxiesByEntity.size())
+		{
+			for (const StaticMeshSyncRecord& record : m_SyncOrder)
+				record.Proxy->LastTouchedFrame = m_FrameIndex;
+		}
+
+		for (auto it = m_StaticMeshProxiesByEntity.begin(); m_SyncedProxyCount < m_StaticMeshProxiesByEntity.size() && it != m_StaticMeshProxiesByEntity.end();)
 		{
 			if (it->second.LastTouchedFrame != m_FrameIndex)
 			{
@@ -321,6 +393,8 @@ namespace Lux {
 				++it;
 			}
 		}
+
+		std::swap(m_SyncOrder, m_PreviousSyncOrder);
 
 		m_GPUScene.EndSync();
 		// MaterialScene first: freeing its rows releases texture slots the TextureScene then frees.
@@ -343,6 +417,11 @@ namespace Lux {
 		m_StaticMeshProxies.clear();
 		m_ChangedPrimitives.clear();
 		m_RemovedPrimitives.clear();
+		m_SyncOrder.clear();
+		m_PreviousSyncOrder.clear();
+		m_SyncCursor = 0;
+		m_SyncedProxyCount = 0;
+		m_MaterialTablesChanged = true;
 		m_GPUScene.Clear();
 		m_MaterialScene.Clear();
 		m_TextureScene.Clear();

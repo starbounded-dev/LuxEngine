@@ -472,6 +472,8 @@ namespace Lux {
 	MaterialTable::MaterialTable(uint32_t materialCount)
 		: m_MaterialCount(materialCount)
 	{
+		// A new table may reuse a freed one's address, which the render scene compares by pointer.
+		MarkChanged();
 	}
 
 	MaterialTable::MaterialTable(Ref<MaterialTable> other)
@@ -488,7 +490,7 @@ namespace Lux {
 		m_Materials[index] = material;
 		if (index >= m_MaterialCount)
 			m_MaterialCount = index + 1;
-		m_Revision++;
+		MarkChanged();
 	}
 
 	void MaterialTable::ClearMaterial(uint32_t index)
@@ -498,14 +500,14 @@ namespace Lux {
 		m_Materials.erase(index);
 		if (index >= m_MaterialCount)
 			m_MaterialCount = index + 1;
-		m_Revision++;
+		MarkChanged();
 	}
 
 	void MaterialTable::Clear()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_Materials.clear();
-		m_Revision++;
+		MarkChanged();
 	}
 
 }

@@ -884,6 +884,10 @@ Renderer submission must go through the frame packet, not the live ECS:
   visibility, selection) to `RenderScene::SyncStaticMesh`, which compares them with the retained
   proxy **in place**: an unchanged entity costs a few compares, and meshes, bounds and the
   material-table hash are only recomputed when their inputs changed (`MaterialTable::GetRevision`).
+  The compare runs against a dense record of last frame's inputs, kept in sync order, so an
+  unchanged entity never reads its proxy. Material tables are not read per entity either: an edit
+  to any table bumps `MaterialTable::GetGlobalRevision()`, and that frame every entity takes the
+  full path. **So a `MaterialTable` may only change through its setters.**
   Entities not synced in a frame are dropped in `EndSync`. `GetChangedPrimitives` /
   `GetRemovedPrimitives` list what changed this frame.
 - **A `RenderScene` mirror feeds exactly one `SceneRenderer`.** Each renderer uploads only the

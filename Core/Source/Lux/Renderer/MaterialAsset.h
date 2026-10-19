@@ -7,6 +7,7 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Renderer/Material.h"
 
+#include <atomic>
 #include <map>
 
 namespace Lux {
@@ -212,16 +213,23 @@ namespace Lux {
 		const std::map<uint32_t, AssetHandle>& GetMaterials() const { return m_Materials; }
 
 		uint32_t GetMaterialCount() const { return m_MaterialCount; }
-		void SetMaterialCount(uint32_t materialCount) { m_MaterialCount = materialCount; m_Revision++; }
+		void SetMaterialCount(uint32_t materialCount) { m_MaterialCount = materialCount; MarkChanged(); }
 
 		void Clear();
 
 		// Bumped by every change, so the render scene re-reads a table only when it changed.
 		uint64_t GetRevision() const { return m_Revision; }
+		// Bumped by a change to any table: while it holds still, no table needs re-reading at all.
+		static uint64_t GetGlobalRevision() { return s_GlobalRevision.load(std::memory_order_relaxed); }
+	private:
+		void MarkChanged() { m_Revision++; s_GlobalRevision.fetch_add(1, std::memory_order_relaxed); }
+
 	private:
 		std::map<uint32_t, AssetHandle> m_Materials;
 		uint32_t m_MaterialCount;
 		uint64_t m_Revision = 1;
+		// Tables are also built by asset loads on worker threads.
+		inline static std::atomic<uint64_t> s_GlobalRevision{ 1 };
 	};
 
 }
