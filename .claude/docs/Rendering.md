@@ -228,7 +228,8 @@ not a warning; only warnings and errors reach the log.
    `{ { visibleObjectIndexes, AccessKind::StorageRead } }`; register a buffer with `addBuffer`.
 6. Gate optional passes on their feature flag so they are skipped at zero cost when off.
 
-Existing pass order, for orientation: shadow maps → early mesh culling (cull groups only) → PreDepth →
+Existing pass order, for orientation: shadow mesh culling (cull groups only) → shadow maps → early mesh
+culling (cull groups only) → PreDepth →
 HZB → mesh culling → cluster build →
 cluster light culling → skybox → sky atmosphere → selected geometry → GBuffer → GTAO (+ denoise,
 temporal) → AO composite → deferred lighting → pre-convolution → SSR (+ temporal, composite) →
@@ -727,7 +728,20 @@ crash or corruption on some driver even if it renders correctly on yours.
   `ObjectIndexes`; the prepass draws cull-group draws indirect from it, so prepass and G-buffer
   agree on every instance's LOD (the G-buffer depth-tests EQUAL). Selection outlines, shadows and
   non-proxy submissions keep the CPU path. `MeshCullDrawData` is three `uvec4` per cull draw and
-  mirrors the shader's block.
+  mirrors the shader's block. **The LOD metric lives in `Include/GLSL/MeshLOD.glslh`**, shared by both
+  cull shaders.
+- **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
+  moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
+  `ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame a caster settles. A caster still
+  moving keeps the CPU shadow path (exact lists, `UpdateShadowCasterMotion`). `ShadowCulling.glsl`
+  runs before the shadow passes only when a static cache re-renders, and appends each instance to its
+  (cascade or spot atlas, LOD) slot, testing the CPU's own `Frustum` planes (packed after the cull
+  records) and the tiny-caster cull of `ShouldCullTinyDirectionalShadowCaster`; the static caches
+  draw those slots indirect. These casters are not in `CalculateShadowCasterHashes`: the static caches
+  re-render when the static caster set changes or when what the GPU cull reads from the camera
+  changes (`ShadowCullCameraState`: position, tiny-caster pixels per radian, LOD settings). **Edit the
+  tiny-caster rule in both places.** On a frame with the groups kept, `SubmitRenderScene` skips every
+  non-selected proxy they cover.
 - PCSS reads its taps from the `RendererData` uniform buffer (`ShadowKernel`), never from a local
   array. Dynamic indexing of a local sample array expands into repeated per-fragment scratch arrays
   on RADV Renoir and can cause a GPU timeout.

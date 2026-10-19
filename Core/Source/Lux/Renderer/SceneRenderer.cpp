@@ -54,6 +54,17 @@ namespace Lux {
 
 	namespace
 	{
+		// splitmix64's finalizer: an even spread for hashes that are summed (order-independent sets).
+		uint64_t MixHash(uint64_t value)
+		{
+			value ^= value >> 30;
+			value *= 0xbf58476d1ce4e5b9ull;
+			value ^= value >> 27;
+			value *= 0x94d049bb133111ebull;
+			value ^= value >> 31;
+			return value;
+		}
+
 		uint64_t HashCombine(uint64_t seed, uint64_t value)
 		{
 			return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
@@ -1758,6 +1769,19 @@ namespace Lux {
 			m_MeshEarlyCullingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			LUX_CORE_VERIFY(m_MeshEarlyCullingPass->Validate());
 			m_MeshEarlyCullingPass->Bake();
+
+			// The shadow cull writes the shadow passes' instances into ObjectIndexes as well.
+			ComputePassSpecification shadowSpec;
+			shadowSpec.DebugName = "ShadowCulling";
+			shadowSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("ShadowCulling"));
+			m_ShadowCullingPass = ComputePass::Create(shadowSpec);
+			m_ShadowCullingPass->SetInput("MeshCullDrawData", m_SBSMeshCullDrawData);
+			m_ShadowCullingPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			m_ShadowCullingPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+			m_ShadowCullingPass->SetInput("VisibleObjectIndexes", m_SBSObjectIndexes);
+			m_ShadowCullingPass->SetInput("IndirectDrawCommands", m_SBSIndirectDrawCommands);
+			LUX_CORE_VERIFY(m_ShadowCullingPass->Validate());
+			m_ShadowCullingPass->Bake();
 		}
 
 		// ── Cluster build pass (froxel AABB grid) ────────────────────────────
@@ -4074,8 +4098,21 @@ namespace Lux {
 
 		std::vector<RenderGraph::ResourceHandle> directionalShadowOutputs = { addTexture("Directional Shadow Atlas", m_ShadowMapImage) };
 		std::vector<RenderGraph::ResourceHandle> spotShadowOutputs = { addTexture("Spot Shadow Atlas", m_SpotShadowMapImage) };
-		addPass("Directional Shadow Maps", {}, directionalShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ShadowMapPass));
-		addPass("Spot Shadow Maps", {}, spotShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SpotShadowMapPass));
+		if (m_UseGPUCullGroups)
+		{
+			// The shadow cull writes the shadow passes' instances and indirect args.
+			addPass("Shadow Mesh Culling", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::ShadowMeshCullingPass),
+				{ { objectIndexes, AccessKind::StorageReadWrite }, { indirectDrawCommands, AccessKind::StorageReadWrite } });
+			addPass("Directional Shadow Maps", {}, directionalShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ShadowMapPass),
+				{ { objectIndexes, AccessKind::StorageRead }, { indirectDrawCommands, AccessKind::IndirectArgs } });
+			addPass("Spot Shadow Maps", {}, spotShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SpotShadowMapPass),
+				{ { objectIndexes, AccessKind::StorageRead }, { indirectDrawCommands, AccessKind::IndirectArgs } });
+		}
+		else
+		{
+			addPass("Directional Shadow Maps", {}, directionalShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ShadowMapPass));
+			addPass("Spot Shadow Maps", {}, spotShadowOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::SpotShadowMapPass));
+		}
 
 		std::vector<RenderGraph::ResourceHandle> shadowOutputs = directionalShadowOutputs;
 		appendResources(shadowOutputs, spotShadowOutputs);
@@ -5766,7 +5803,8 @@ namespace Lux {
 			&& m_CullGroupsSceneFrame + 1 == renderScene->GetFrameIndex()
 			&& m_CullGroupsSubmitEpoch == m_ProxySubmitCacheEpoch
 			&& renderScene->GetChangedPrimitives().empty()
-			&& renderScene->GetRemovedPrimitives().empty();
+			&& renderScene->GetRemovedPrimitives().empty()
+			&& renderScene->GetFrameIndex() < m_NextStaticCasterFrame;
 		m_CullGroupsFrozen = m_UseGPUCullGroups && cullGroupsCurrent;
 		if (!m_CullGroupsFrozen)
 		{
@@ -5778,9 +5816,22 @@ namespace Lux {
 		m_CullGroupsSceneFrame = renderScene->GetFrameIndex();
 		m_CullGroupsSubmitEpoch = m_ProxySubmitCacheEpoch;
 
+		// With the groups kept, a proxy whose every instance is in them needs nothing from the CPU this
+		// frame: its main view and shadows are culled on the GPU. Only a selected one still draws an outline.
+		auto coveredByCullGroups = [](const StaticMeshRenderProxy& proxy)
+			{
+				if (proxy.Selected || proxy.SubmeshInstances.empty())
+					return false;
+
+				return std::all_of(proxy.SubmeshInstances.begin(), proxy.SubmeshInstances.end(),
+					[](const GPUSceneInstanceRef& instanceRef) { return instanceRef.InstanceID != InvalidGPUSceneInstanceID; });
+			};
+
 		for (const StaticMeshRenderProxy* proxy : renderScene->GetStaticMeshProxies())
 		{
 			if (!proxy || !proxy->Visible || !proxy->StaticMesh || !proxy->MeshSource)
+				continue;
+			if (m_CullGroupsFrozen && coveredByCullGroups(*proxy))
 				continue;
 
 			SubmitStaticMeshProxy(*proxy);
@@ -6165,6 +6216,7 @@ namespace Lux {
 
 		m_MeshCullDrawCount = 0;
 		m_EarlyCullDrawCount = 0;
+		m_ShadowCullDrawCount = 0;
 		PruneMeshDrawCommandCache();
 	}
 
@@ -6398,7 +6450,7 @@ namespace Lux {
 	}
 
 	void SceneRenderer::AddToCullGroup(const SubmeshSubmitData& data, const Ref<StaticMesh>& staticMesh, const Ref<MeshSource>& meshSource,
-		const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex)
+		const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex, bool staticCaster)
 	{
 		// Transparent draws bind their material, so they group by material key as the CPU path does.
 		MeshKey key{ data.MeshKeyHandle, data.Transparent ? data.KeyMaterialHandle : AssetHandle(0), submeshIndex, 0, false, false };
@@ -6425,11 +6477,35 @@ namespace Lux {
 		}
 
 		group.ObjectIndices.push_back(sceneInstanceIndex);
+
+		// A caster still moving takes the CPU shadow path.
+		if (!data.CastsShadows || !staticCaster)
+			return;
+
+		MeshKey shadowKey{ data.MeshKeyHandle, 0, submeshIndex, 0, false, true };
+		shadowKey.GPUCullGroup = true;
+		auto [shadowIt, shadowInserted] = m_ShadowCullGroups.try_emplace(shadowKey);
+		ShadowCullGroup& shadowGroup = shadowIt->second;
+		if (shadowInserted)
+		{
+			shadowGroup.Key = shadowKey;
+			shadowGroup.StaticMesh = staticMesh;
+			shadowGroup.MeshSource = meshSource;
+			shadowGroup.MeshSortKey = data.MeshSortKey;
+			shadowGroup.SubmeshIndex = submeshIndex;
+		}
+
+		shadowGroup.ObjectIndices.push_back(sceneInstanceIndex);
+		// Order-independent: the sum over the static casters' rows.
+		m_ShadowStaticCasterSetHash += MixHash((uint64_t)sceneInstanceIndex + 1u);
 	}
 
 	void SceneRenderer::ClearCullGroups()
 	{
 		m_CullGroups.clear();
+		m_ShadowCullGroups.clear();
+		m_NextStaticCasterFrame = std::numeric_limits<uint32_t>::max();
+		m_ShadowStaticCasterSetHash = 0;
 		m_CullGroupsValid = false;
 	}
 
@@ -6463,6 +6539,23 @@ namespace Lux {
 				SubmitMeshPassDraw(MeshPassType::DepthPrepass, key, group.StaticMesh, group.MeshSource, nullptr,
 					group.SubmeshIndex, lodIndex, AssetHandle(0), m_PreDepthMaterial,
 					passSortKeys.PreDepthPipeline, passSortKeys.PreDepthShader, passSortKeys.PreDepthMaterial, group.MeshSortKey).InstanceCount = instanceCount;
+			}
+		}
+
+		// One static shadow draw per LOD.
+		for (auto& [groupKey, group] : m_ShadowCullGroups)
+		{
+			group.LODCount = m_Options.EnableMeshLODs
+				? glm::clamp(group.MeshSource->GetSubmeshLODCount(group.SubmeshIndex), 1u, MaxCullGroupLODs)
+				: 1u;
+
+			for (uint32_t lodIndex = 0; lodIndex < group.LODCount; lodIndex++)
+			{
+				MeshKey key = groupKey;
+				key.LODIndex = lodIndex;
+				SubmitMeshPassDraw(MeshPassType::ShadowDepth, key, group.StaticMesh, group.MeshSource, nullptr,
+					group.SubmeshIndex, lodIndex, AssetHandle(0), m_ShadowPassMaterial,
+					passSortKeys.ShadowPipeline, passSortKeys.ShadowShader, passSortKeys.ShadowMaterial, group.MeshSortKey).InstanceCount = lodIndex == 0 ? (uint32_t)group.ObjectIndices.size() : 0u;
 			}
 		}
 	}
@@ -6502,19 +6595,29 @@ namespace Lux {
 			const BoundingSphere boundsSphere{ glm::vec3(boundsSphereData), boundsSphereData.w };
 			// A proxy instance with a GPUScene row joins its cull group: the GPU culls it for the main view
 			// and picks its LOD there. Only its selection outline and its shadows still need the CPU here.
+			// A static caster's shadows are culled on the GPU too, from its shadow cull group; one still
+			// moving keeps the CPU shadow path. A caster is static once it has not moved for
+			// StaticShadowCasterStableFrames syncs.
 			const bool gpuCullGroup = m_UseGPUCullGroups && gpuSceneInstanceRef && gpuSceneInstanceRef->InstanceID != InvalidGPUSceneInstanceID;
+			const uint32_t sceneFrame = m_SubmittedRenderScene ? m_SubmittedRenderScene->GetFrameIndex() : 0u;
+			const bool staticCaster = gpuCullGroup && renderProxy && sceneFrame - renderProxy->LastMovedFrame >= StaticShadowCasterStableFrames;
 			if (gpuCullGroup && !m_CullGroupsFrozen)
-				AddToCullGroup(data, staticMesh, meshSource, materialTable, submeshIndex, gpuSceneInstanceRef->InstanceID);
+			{
+				AddToCullGroup(data, staticMesh, meshSource, materialTable, submeshIndex, gpuSceneInstanceRef->InstanceID, staticCaster);
+				if (castsShadows && !staticCaster && renderProxy)
+					m_NextStaticCasterFrame = glm::min(m_NextStaticCasterFrame, renderProxy->LastMovedFrame + StaticShadowCasterStableFrames);
+			}
 
 			const bool mainViewVisible = (!gpuCullGroup || isSelected) && IsMainViewVisible(boundsSphere);
-			const uint32_t directionalShadowCascadeMask = castsShadows ? GetDirectionalShadowCascadeMask(boundsSphere) : 0;
-			const bool spotShadowVisible = castsShadows && IsSpotShadowCasterVisible(boundsSphere);
+			const bool cpuShadows = castsShadows && !staticCaster;
+			const uint32_t directionalShadowCascadeMask = cpuShadows ? GetDirectionalShadowCascadeMask(boundsSphere) : 0;
+			const bool spotShadowVisible = cpuShadows && IsSpotShadowCasterVisible(boundsSphere);
 			const bool shadowVisible = directionalShadowCascadeMask != 0 || spotShadowVisible;
 
 			m_FrameCullingStats.SubmittedInstances++;
 			if (!gpuCullGroup && !mainViewVisible)
 				m_FrameCullingStats.MainViewCulledInstances++;
-			if (castsShadows && !shadowVisible)
+			if (cpuShadows && !shadowVisible)
 				m_FrameCullingStats.ShadowCulledInstances++;
 			if (!mainViewVisible && !shadowVisible)
 			{
@@ -7079,6 +7182,12 @@ namespace Lux {
 				objectIndexData.insert(objectIndexData.end(), group.ObjectIndices.begin(), group.ObjectIndices.end());
 				cursor += (uint32_t)group.ObjectIndices.size();
 			}
+			for (auto& [groupKey, group] : m_ShadowCullGroups)
+			{
+				group.ObjectIndexBase = cursor;
+				objectIndexData.insert(objectIndexData.end(), group.ObjectIndices.begin(), group.ObjectIndices.end());
+				cursor += (uint32_t)group.ObjectIndices.size();
+			}
 
 			uint32_t earlyCursor = cursor;
 			for (auto& [groupKey, group] : m_CullGroups)
@@ -7104,7 +7213,15 @@ namespace Lux {
 				}
 			}
 
-			requiredObjectIndexCount = earlyCursor;
+			// The shadow cull's ranges: one per (target, LOD) slot, each as large as the group.
+			uint32_t shadowCursor = earlyCursor;
+			for (auto& [groupKey, group] : m_ShadowCullGroups)
+			{
+				group.OutputBase = shadowCursor;
+				shadowCursor += ShadowCullTargetCount * group.LODCount * (uint32_t)group.ObjectIndices.size();
+			}
+
+			requiredObjectIndexCount = shadowCursor;
 			requiredVisibleObjectIndexCount = visibleCursor;
 		}
 		requiredObjectIndexCount = glm::max(requiredObjectIndexCount, (uint32_t)objectIndexData.size());
@@ -7192,11 +7309,99 @@ namespace Lux {
 		registerIndirectDraws(GetMeshPass(MeshPassType::PhysicsCollider).DrawList, GetMeshPass(MeshPassType::PhysicsCollider).DrawOrder);
 		m_MeshCullDrawCount = (uint32_t)meshCullDrawData.size();
 
+		// Shadow cull groups (ShadowCulling.glsl): their records after the main view's, then the frustum
+		// planes (the CPU's own, so the GPU tests what GetDirectionalShadowCascadeMask would).
+		m_ShadowCullDrawCount = 0;
+		m_ShadowCullRecordBase = (uint32_t)meshCullDrawData.size();
+		if (drawCullGroups && !m_ShadowCullGroups.empty())
+		{
+			for (auto& [groupKey, group] : m_ShadowCullGroups)
+			{
+				const uint32_t instanceCount = (uint32_t)group.ObjectIndices.size();
+				group.IndirectArgsBase = (uint32_t)indirectDrawData.size();
+
+				// Args in slot order: target * LODCount + lod.
+				for (uint32_t target = 0; target < ShadowCullTargetCount; target++)
+				{
+					for (uint32_t lodIndex = 0; lodIndex < group.LODCount; lodIndex++)
+					{
+						const SubmeshLOD lod = group.MeshSource->GetSubmeshLOD(group.SubmeshIndex, lodIndex);
+						DrawIndexedIndirectCommand args;
+						args.IndexCount = lod.IndexCount;
+						args.InstanceCount = 0; // written by the cull
+						args.FirstIndex = lod.BaseIndex;
+						args.VertexOffset = (int32_t)lod.BaseVertex;
+						args.FirstInstance = 0;
+						indirectDrawData.push_back(args);
+					}
+				}
+
+				for (uint32_t lodIndex = 0; lodIndex < group.LODCount; lodIndex++)
+				{
+					MeshKey key = groupKey;
+					key.LODIndex = lodIndex;
+					ShadowTransformMapData& shadowTmd = m_ShadowMeshTransformMap[key];
+					auto setTarget = [&](TransformMapData& tmd, uint32_t target)
+						{
+							const uint32_t slot = target * group.LODCount + lodIndex;
+							tmd.ObjectIndexBase = group.OutputBase + slot * instanceCount;
+							tmd.IndirectDrawOffsetBytes = (group.IndirectArgsBase + slot) * (uint32_t)sizeof(DrawIndexedIndirectCommand);
+							tmd.VisibleInstanceCount = instanceCount; // candidates; the cull decides
+						};
+					for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+						setTarget(shadowTmd.Cascades[cascade], cascade);
+					setTarget(shadowTmd.Spot, ShadowCascadeCount);
+				}
+
+				MeshCullDrawData cullDraw;
+				cullDraw.ObjectIndexBase = group.ObjectIndexBase;
+				cullDraw.InstanceCount = instanceCount;
+				cullDraw.VisibleObjectIndexBase = group.OutputBase;
+				cullDraw.IndirectArgsBase = group.IndirectArgsBase;
+				cullDraw.LODCountAndFlags = group.LODCount;
+				for (uint32_t lodIndex = 1; lodIndex < group.LODCount; lodIndex++)
+					cullDraw.LODDistanceMultipliers[lodIndex - 1] = group.MeshSource->GetSubmeshLOD(group.SubmeshIndex, lodIndex).DistanceMultiplier;
+				meshCullDrawData.push_back(cullDraw);
+				m_ShadowCullDrawCount++;
+			}
+
+			// Six planes per frustum: the four cascades, then each spot tile.
+			std::vector<glm::vec4>& planes = m_ScratchShadowCullPlanes;
+			planes.clear();
+			for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
+				planes.insert(planes.end(), std::begin(m_ShadowCascadeFrustums[cascade].Planes), std::end(m_ShadowCascadeFrustums[cascade].Planes));
+			for (uint32_t spot = 0; spot < m_SpotShadowFrustumCount; spot++)
+				planes.insert(planes.end(), std::begin(m_SpotShadowFrustums[spot].Planes), std::end(m_SpotShadowFrustums[spot].Planes));
+			while (planes.size() % 3 != 0)
+				planes.emplace_back(0.0f);
+
+			m_ShadowCullFrustumBase = (uint32_t)meshCullDrawData.size() * 3u;
+			const size_t planeRecordStart = meshCullDrawData.size();
+			meshCullDrawData.resize(planeRecordStart + planes.size() / 3);
+			static_assert(sizeof(MeshCullDrawData) == 3 * sizeof(glm::vec4));
+			std::memcpy(&meshCullDrawData[planeRecordStart], planes.data(), planes.size() * sizeof(glm::vec4));
+		}
+
 		uint64_t staticDirectionalShadowCasterHash = 0;
 		uint64_t dynamicDirectionalShadowCasterHash = 0;
 		uint64_t staticSpotShadowCasterHash = 0;
 		uint64_t dynamicSpotShadowCasterHash = 0;
 		CalculateShadowCasterHashes(staticDirectionalShadowCasterHash, dynamicDirectionalShadowCasterHash, staticSpotShadowCasterHash, dynamicSpotShadowCasterHash);
+
+		// Shadow cull groups (static casters) are not in those hashes (the GPU culls them): the static caches
+		// re-render when the static caster set or what the GPU cull reads from the camera (LOD, tiny
+		// casters) changed. Moving casters are on the CPU path, so in the hashes.
+		bool groupStaticShadowCastersChanged = false;
+		if (m_UseGPUCullGroups && m_CullGroupsSubmitted)
+		{
+			const ShadowCullCameraState cameraState = GetShadowCullCameraState();
+			groupStaticShadowCastersChanged = m_ShadowStaticCasterSetHash != m_LastShadowStaticCasterSetHash
+				|| !m_ShadowCullCameraStateValid
+				|| !(cameraState == m_ShadowCullCameraState);
+			m_LastShadowStaticCasterSetHash = m_ShadowStaticCasterSetHash;
+			m_ShadowCullCameraState = cameraState;
+			m_ShadowCullCameraStateValid = true;
+		}
 
 		for (ShadowCasterMotionState& state : m_ShadowCasterMotion)
 		{
@@ -7206,9 +7411,9 @@ namespace Lux {
 
 		const auto& dirLight = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
 		const bool directionalShadowsEnabled = dirLight.Intensity > 0.0f && dirLight.CastShadows;
-		const bool staticDirectionalShadowCastersChanged = staticDirectionalShadowCasterHash != m_LastStaticShadowCasterHash;
+		const bool staticDirectionalShadowCastersChanged = staticDirectionalShadowCasterHash != m_LastStaticShadowCasterHash || groupStaticShadowCastersChanged;
 		const bool dynamicDirectionalShadowCastersChanged = dynamicDirectionalShadowCasterHash != m_LastDynamicShadowCasterHash;
-		const bool staticSpotShadowCastersChanged = staticSpotShadowCasterHash != m_LastStaticSpotShadowCasterHash;
+		const bool staticSpotShadowCastersChanged = staticSpotShadowCasterHash != m_LastStaticSpotShadowCasterHash || groupStaticShadowCastersChanged;
 		const bool dynamicSpotShadowCastersChanged = dynamicSpotShadowCasterHash != m_LastDynamicSpotShadowCasterHash;
 		if (staticDirectionalShadowCastersChanged)
 			m_StaticShadowMapCacheValid = false;
@@ -7750,6 +7955,12 @@ namespace Lux {
 	// Individual pass implementations
 	// ─────────────────────────────────────────────────────────────────────────
 
+	bool SceneRenderer::HasShadowCasterCandidates(const MeshKey& key, const TransformMapData& tmd)
+	{
+		// A shadow cull group's bucket lists no instances on the CPU, only how many it may draw.
+		return key.GPUCullGroup ? tmd.VisibleInstanceCount > 0 : !tmd.ObjectIndices.empty();
+	}
+
 	void SceneRenderer::ShadowMapPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "ShadowMapPass");
@@ -7796,7 +8007,7 @@ namespace Lux {
 
 				for (uint32_t cascade = 0; cascade < activeShadowCascadeCount; cascade++)
 				{
-					if (!transformIt->second.Cascades[cascade].ObjectIndices.empty())
+					if (HasShadowCasterCandidates(key, transformIt->second.Cascades[cascade]))
 						return true;
 				}
 			}
@@ -7811,7 +8022,7 @@ namespace Lux {
 					continue;
 
 				const auto transformIt = m_ShadowMeshTransformMap.find(key);
-				if (transformIt != m_ShadowMeshTransformMap.end() && !transformIt->second.Cascades[cascade].ObjectIndices.empty())
+				if (transformIt != m_ShadowMeshTransformMap.end() && HasShadowCasterCandidates(key, transformIt->second.Cascades[cascade]))
 					return true;
 			}
 			return false;
@@ -7832,17 +8043,18 @@ namespace Lux {
 				if (it == m_ShadowMeshTransformMap.end()) continue;
 
 				const auto& cascadeTmd = it->second.Cascades[cascade];
-				const uint32_t instCount = (uint32_t)cascadeTmd.ObjectIndices.size();
-				if (instCount == 0) continue;
+				if (!HasShadowCasterCandidates(key, cascadeTmd)) continue;
 
+				// A shadow cull group's draw is indirect: the GPU wrote its instances and count.
 				StaticDrawCommand drawCmd = drawIt->second;
-				drawCmd.InstanceCount = instCount;
+				drawCmd.InstanceCount = (uint32_t)cascadeTmd.ObjectIndices.size();
+				const bool indirect = key.GPUCullGroup;
 
 				const MeshDrawParams params(cascadeTmd);
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, params, cascade]() mutable {
+				Renderer::Submit([instance, drawCmd, params, cascade, indirect]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, cascade);
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, cascade, /*useVisibleObjectIndexes=*/false, indirect);
 					});
 				drewCaster = true;
 			}
@@ -7917,7 +8129,7 @@ namespace Lux {
 					continue;
 
 				const auto transformIt = m_ShadowMeshTransformMap.find(key);
-				if (transformIt != m_ShadowMeshTransformMap.end() && !transformIt->second.Spot.ObjectIndices.empty())
+				if (transformIt != m_ShadowMeshTransformMap.end() && HasShadowCasterCandidates(key, transformIt->second.Spot))
 					return true;
 			}
 			return false;
@@ -7935,17 +8147,17 @@ namespace Lux {
 				auto it = m_ShadowMeshTransformMap.find(key);
 				if (it == m_ShadowMeshTransformMap.end()) continue;
 				const auto& spotTmd = it->second.Spot;
-				const uint32_t instCount = (uint32_t)spotTmd.ObjectIndices.size();
-				if (instCount == 0) continue;
+				if (!HasShadowCasterCandidates(key, spotTmd)) continue;
 
 				StaticDrawCommand drawCmd = drawIt->second;
-				drawCmd.InstanceCount = instCount;
+				drawCmd.InstanceCount = (uint32_t)spotTmd.ObjectIndices.size();
+				const bool indirect = key.GPUCullGroup;
 
 				const MeshDrawParams params(spotTmd);
 				Ref<SceneRenderer> instance = this;
-				Renderer::Submit([instance, drawCmd, params, shadowIndex]() mutable {
+				Renderer::Submit([instance, drawCmd, params, shadowIndex, indirect]() mutable {
 					instance->RT_DrawStaticMesh(
-						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, shadowIndex);
+						instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, shadowIndex, /*useVisibleObjectIndexes=*/false, indirect);
 					});
 			}
 		};
@@ -8413,6 +8625,63 @@ namespace Lux {
 		m_MeshEarlyCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSObjectIndexes, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		m_MeshEarlyCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands, PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_MeshEarlyCullingPass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	SceneRenderer::ShadowCullCameraState SceneRenderer::GetShadowCullCameraState() const
+	{
+		ShadowCullCameraState state;
+		state.CameraPosition = m_SceneData.CameraPosition;
+		// ShouldCullTinyDirectionalShadowCaster's pixels per radian.
+		const float fovRadians = glm::radians(glm::clamp(m_SceneData.SceneCamera.FOV, 1.0f, 179.0f));
+		const float viewportHeight = (float)glm::max(m_OutputViewportHeight, 1u);
+		state.TinyCasterPixelsPerRadian = viewportHeight * 0.5f / glm::max(std::tan(fovRadians * 0.5f), 0.001f);
+		state.LODDistanceScale = m_Options.MeshLODDistanceScale;
+		state.LODEnabled = m_Options.EnableMeshLODs;
+		state.ShadowCullingEnabled = m_Options.EnableShadowCulling;
+		return state;
+	}
+
+	void SceneRenderer::ShadowMeshCullingPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "ShadowMeshCullingPass");
+		// The groups hold static casters: only a static cache about to re-render reads this frame's lists.
+		if (!m_UseGPUCullGroups || !m_ShadowCullingPass || m_ShadowCullDrawCount == 0
+			|| (m_StaticShadowMapCacheValid && m_StaticSpotShadowMapCacheValid))
+			return;
+
+		// ShadowCulling.glsl's push constants.
+		struct ShadowCullingPushConstants
+		{
+			glm::vec4 CameraPositionAndLODScale{ 0.0f };
+			uint32_t DrawCount = 0;
+			uint32_t RecordBase = 0;
+			uint32_t FrustumBase = 0;
+			uint32_t CascadeCount = 0;
+			uint32_t SpotCount = 0;
+			uint32_t LODEnabled = 0;
+			uint32_t ShadowCullingEnabled = 0;
+			float TinyCasterPixelsPerRadian = 0.0f;
+		} pushConstants;
+		static_assert(sizeof(ShadowCullingPushConstants) == 48, "ShadowCulling.glsl push constants");
+
+		const ShadowCullCameraState cameraState = GetShadowCullCameraState();
+		pushConstants.CameraPositionAndLODScale = glm::vec4(cameraState.CameraPosition, cameraState.LODDistanceScale);
+		pushConstants.DrawCount = m_ShadowCullDrawCount;
+		pushConstants.RecordBase = m_ShadowCullRecordBase;
+		pushConstants.FrustumBase = m_ShadowCullFrustumBase;
+		pushConstants.CascadeCount = m_ShadowCascadeFrustumCount;
+		pushConstants.SpotCount = m_SpotShadowFrustumCount;
+		pushConstants.LODEnabled = cameraState.LODEnabled ? 1u : 0u;
+		pushConstants.ShadowCullingEnabled = cameraState.ShadowCullingEnabled ? 1u : 0u;
+		pushConstants.TinyCasterPixelsPerRadian = cameraState.TinyCasterPixelsPerRadian;
+
+		BeginProfiledGPU("ShadowMeshCullingPass");
+		Renderer::BeginComputePass(m_CommandBuffer, m_ShadowCullingPass);
+		Renderer::DispatchCompute(m_CommandBuffer, m_ShadowCullingPass, nullptr, { m_ShadowCullDrawCount, 1, 1 }, Buffer(&pushConstants, sizeof(pushConstants)));
+		m_ShadowCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSObjectIndexes, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+		m_ShadowCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands, PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
+		Renderer::EndComputePass(m_CommandBuffer, m_ShadowCullingPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 

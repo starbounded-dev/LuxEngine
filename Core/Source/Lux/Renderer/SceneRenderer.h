@@ -1118,6 +1118,28 @@ namespace Lux {
 			uint32_t EarlyObjectIndexBase = 0;
 		};
 
+		// A shadow cull group: every static shadow caster (unmoved for StaticShadowCasterStableFrames) among
+		// the cull-group instances of one mesh submesh. ShadowCulling.glsl culls them per cascade and for the
+		// spot atlas and sorts them into one draw per (target, LOD) for the static shadow caches. A caster
+		// still moving takes the CPU shadow path: its lists are exact, and it is re-synced anyway.
+		// Built and kept with the main cull groups.
+		struct ShadowCullGroup
+		{
+			MeshKey Key{}; // LODIndex 0, StaticShadowCaster true; the draws set LODIndex
+			Ref<StaticMesh> StaticMesh;
+			Ref<MeshSource> MeshSource;
+			uint64_t MeshSortKey = 0;
+			uint32_t SubmeshIndex = 0;
+			std::vector<uint32_t> ObjectIndices;
+			// This frame's layout, set by FlushDrawList.
+			uint32_t LODCount = 1;
+			uint32_t ObjectIndexBase = 0;
+			uint32_t OutputBase = 0;
+			uint32_t IndirectArgsBase = 0;
+		};
+		static constexpr uint32_t ShadowCullTargetCount = 5; // the cascades, then the spot atlas (ShadowCulling.glsl)
+		static_assert(ShadowCascadeCount == 4, "ShadowCulling.glsl has four cascade targets");
+
 		// Internal helper for the debug-mesh submission path.
 		void SubmitStaticDebugMesh(MeshPassType passType,
 			Ref<StaticMesh>  staticMesh,
@@ -1193,8 +1215,10 @@ namespace Lux {
 		// True when the main view is culled and LOD-selected on the GPU through cull groups this frame:
 		// GPU-driven rendering on and the mesh-shader prepass (which needs CPU LOD buckets) not in use.
 		bool CanUseGPUCullGroups() const;
+		// staticCaster: the instance has not moved for StaticShadowCasterStableFrames; only such a caster
+		// joins a shadow cull group.
 		void AddToCullGroup(const SubmeshSubmitData& data, const Ref<StaticMesh>& staticMesh, const Ref<MeshSource>& meshSource,
-			const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex);
+			const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex, bool staticCaster);
 		void ClearCullGroups();
 		// Adds every cull group's per-LOD draws to the pass draw lists (FlushDrawList, before sorting).
 		void ExpandCullGroupDraws();
@@ -1239,6 +1263,7 @@ namespace Lux {
 		void PreIntegration();
 		void MeshCullingPass();
 		void EarlyMeshCullingPass();
+		void ShadowMeshCullingPass();
 		void ClusterBuildPass();
 		void ClusterLightCullingPass();
 		void SkyboxPass();
@@ -1656,6 +1681,9 @@ namespace Lux {
 		// The same shader in early mode: frustum and LOD only, before the depth prepass, writing into
 		// ObjectIndexes (its VisibleObjectIndexes binding is the ObjectIndexes buffer).
 		Ref<ComputePass> m_MeshEarlyCullingPass;
+		// ShadowCulling.glsl: per cascade and for the spot atlas, before the shadow passes; its output binding
+		// is the ObjectIndexes buffer too.
+		Ref<ComputePass> m_ShadowCullingPass;
 		Ref<ComputePass> m_ClusterBuildPass;        // builds m_SBSClusterAABBs
 		Ref<ComputePass> m_ClusterLightCullingPass; // assigns lights to clusters
 		uint32_t         m_MeshCullDrawCount = 0;
@@ -1857,6 +1885,33 @@ namespace Lux {
 		uint32_t m_CullGroupsSceneFrame = 0;
 		uint64_t m_CullGroupsSubmitEpoch = 0;
 		uint32_t m_EarlyCullDrawCount = 0;
+
+		// Shadow cull groups, rebuilt and kept with m_CullGroups. Static casters change set when a dynamic one
+		// settles, so the groups are also rebuilt at m_NextStaticCasterFrame (a RenderScene frame index).
+		std::unordered_map<MeshKey, ShadowCullGroup, MeshKeyHasher> m_ShadowCullGroups;
+		uint32_t m_NextStaticCasterFrame = std::numeric_limits<uint32_t>::max();
+		// Order-independent hash of the static casters: the static shadow caches re-render when it moves.
+		uint64_t m_ShadowStaticCasterSetHash = 0;
+		uint64_t m_LastShadowStaticCasterSetHash = 0;
+		// This frame's shadow cull dispatch: its records and the frustum planes in m_SBSMeshCullDrawData.
+		uint32_t m_ShadowCullDrawCount = 0;
+		uint32_t m_ShadowCullRecordBase = 0;
+		uint32_t m_ShadowCullFrustumBase = 0;
+		// What the GPU shadow cull's LOD and tiny-caster tests read: the static caches re-render when it changes.
+		struct ShadowCullCameraState
+		{
+			glm::vec3 CameraPosition{ 0.0f };
+			float TinyCasterPixelsPerRadian = 0.0f;
+			float LODDistanceScale = 0.0f;
+			bool LODEnabled = false;
+			bool ShadowCullingEnabled = false;
+
+			bool operator==(const ShadowCullCameraState& other) const = default;
+		};
+		ShadowCullCameraState GetShadowCullCameraState() const;
+		ShadowCullCameraState m_ShadowCullCameraState;
+		bool m_ShadowCullCameraStateValid = false;
+		std::vector<glm::vec4> m_ScratchShadowCullPlanes;
 		std::vector<GPUSceneInstanceData>    m_TransientGPUSceneInstances;
 		std::vector<GPUMaterialData>         m_TransientGPUMaterials;
 		std::unordered_map<uint64_t, uint32_t> m_TransientGPUMaterialIndexByKey;
@@ -1924,6 +1979,8 @@ namespace Lux {
 		};
 		std::unordered_map<MeshKey, ShadowTransformMapData, MeshKeyHasher> m_ShadowMeshTransformMap;
 		ShadowTransformMapData& GetShadowTransformBucket(const MeshKey& key);
+		// Whether a shadow bucket may draw in a target: a cull group's lists only a candidate count.
+		static bool HasShadowCasterCandidates(const MeshKey& key, const TransformMapData& tmd);
 		std::array<Frustum, ShadowCascadeCount> m_ShadowCascadeFrustums;
 		std::array<Frustum, MaxShadowAtlasTiles> m_SpotShadowFrustums;
 		uint32_t m_ShadowCascadeFrustumCount = 0;

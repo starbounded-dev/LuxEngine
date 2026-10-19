@@ -2,6 +2,7 @@
 #pragma stage : comp
 
 #include <Samplers.glslh>
+#include <MeshLOD.glslh>
 
 // Three uvec4 per cull draw, mirroring SceneRenderer::MeshCullDrawData (edit both together):
 //   [0] x ObjectIndexBase, y InstanceCount, z VisibleObjectIndexBase (LOD l at + l * InstanceCount),
@@ -157,27 +158,6 @@ bool IsSphereOccluded(vec4 sphere)
 	return closestDeviceZ > nearestDeviceZ + u_PushConstants.DepthBias;
 }
 
-// SceneRenderer::SelectStaticMeshLOD on the GPU: the same metric and thresholds, so a draw split
-// into LODs here picks what the CPU path would.
-uint SelectLOD(vec4 sphere, uint lodCount, uvec4 lodData)
-{
-	if (u_PushConstants.LODEnabled == 0u || lodCount <= 1u)
-		return 0u;
-
-	precise float radius = max(sphere.w, 0.001);
-	precise float cameraDistance = max(distance(u_PushConstants.CameraPositionAndLODScale.xyz, sphere.xyz) - radius, 0.0);
-	precise float lodMetric = cameraDistance / (radius * u_PushConstants.CameraPositionAndLODScale.w);
-
-	uint selectedLOD = 0u;
-	for (uint lodIndex = 1u; lodIndex < lodCount; lodIndex++)
-	{
-		if (lodMetric < uintBitsToFloat(lodData[lodIndex]))
-			break;
-		selectedLOD = lodIndex;
-	}
-	return selectedLOD;
-}
-
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 void main()
 {
@@ -219,7 +199,8 @@ void main()
 
 		if (IsSphereVisible(boundsSphere) && (earlyPass || !IsSphereOccluded(boundsSphere)))
 		{
-			uint lod = SelectLOD(boundsSphere, lodCount, lodData);
+			uint lod = SelectMeshLOD(boundsSphere, u_PushConstants.CameraPositionAndLODScale.xyz, u_PushConstants.CameraPositionAndLODScale.w,
+				u_PushConstants.LODEnabled != 0u, lodCount, lodData);
 			uint visibleOffset = atomicAdd(b_IndirectDrawCommands.Data[indirectArgsBase + lod * 5u + 1u], 1u);
 			o_VisibleObjectIndexes.Indices[visibleObjectIndexBase + lod * instanceCount + visibleOffset] = objectIndex;
 		}

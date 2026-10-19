@@ -44,6 +44,7 @@ namespace Lux {
 
 		RenderProxyDirtyFlags DirtyFlags = RenderProxyDirtyFlags::None;
 		uint32_t LastDirtyFrame = 0;
+		uint32_t LastMovedFrame = 0; // last frame created, given a new mesh or moved (a shadow caster settles from here)
 		uint32_t LastTouchedFrame = 0;
 		uint64_t Revision = 0; // bumped on every frame the proxy changed (DirtyFlags != None)
 	};

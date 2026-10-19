@@ -344,6 +344,8 @@ namespace Lux {
 		// An unchanged proxy does nothing: its material rows stay alive through the references its
 		// instances hold, and MaterialScene rebuilds a row itself when the material asset changes.
 
+		if (created || HasDirtyFlag(dirtyFlags, RenderProxyDirtyFlags::Mesh) || HasDirtyFlag(dirtyFlags, RenderProxyDirtyFlags::Transform))
+			proxy.LastMovedFrame = m_FrameIndex;
 		if (dirtyFlags != RenderProxyDirtyFlags::None)
 		{
 			proxy.LastDirtyFrame = m_FrameIndex;

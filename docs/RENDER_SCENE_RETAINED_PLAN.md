@@ -298,6 +298,38 @@ draw-command cache already did). What remains per instance on the CPU is shadow 
 
 **Playbook — Add a new render pass**, for each shadow cull node: same five steps as Phase 3.
 
+**Status 2026-10-19: implemented and verified; one open GPU question (moving scenes).** Golden:
+default + 15 variants identical to Phase 3 (`p3A` vs `p4A`; `noSSR` checked against the clean re-run,
+and `debugCategories` flips between two pre-existing states — its image equals Phase 1's `p1A`).
+Perf A-B-A against Phase 3 (medians of 3): SubmitRenderScene 3.16 / **0.30** / 3.22 ms, main thread
+5.66 / **2.87** / 5.84 ms, frame 6.65 / **4.25** / 6.85 ms; FlushDrawList unchanged (~1.5 ms). With
+nothing moving the shadow passes and the shadow cull stay at 0 ms GPU (cached). Debug + sync
+validation: 0 validation ids.
+Moving scenes, A-B-A of `MoveEntities=256` against Phase 3: the first version cost +0.7 ms GPU (shadow
+cull 0.32 ms re-culling every static caster each moving frame, ShadowMapPass +0.3 ms from indirect
+dynamic draws). Fixed by keeping moving casters on the CPU shadow path (groups hold static casters
+only) and running the shadow cull only when a static cache re-renders: GPU 5.44 / 5.78 / 5.54 ms,
+shadow cull 0 ms, frame 8.25 / **6.92** / 8.17 ms, main thread 7.09 / **5.09** / 6.56 ms, moving images
+identical. **Open:** ShadowMapPass stays ~0.2 ms above Phase 3 on moving frames (2.96–3.07 vs
+2.2–2.9 ms) although its draws, the static cache and the cull are now the same; declaring the shadow
+passes' buffer reads only on cull frames did not change it (reverted). Needs a GPU capture.
+As built: a shadow-casting cull-group instance that is static — its proxy has not moved (**NEW**
+`StaticMeshRenderProxy::LastMovedFrame`) for `StaticShadowCasterStableFrames` syncs — joins a
+`ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame one settles
+(`m_NextStaticCasterFrame`). A caster still moving keeps the CPU shadow path (exact lists,
+`UpdateShadowCasterMotion`, `CalculateShadowCasterHashes`). **NEW** `ShadowCulling.glsl` (same buffers
+and slots as `MeshCulling.glsl`, no new binding) runs before the shadow passes only when a static
+cache re-renders, and appends each instance to its (cascade or spot atlas, LOD) slot, testing the
+CPU's own `Frustum` planes (packed after the cull records) and the tiny-caster rule; the static
+caches draw those slots indirect. The LOD metric moved to **NEW** `Include/GLSL/MeshLOD.glslh`,
+shared by both cull shaders. Instead of hashing the static casters' transforms, the static caches
+re-render when the static caster set (an order-independent hash) or the cull's camera inputs
+(`ShadowCullCameraState`) change. With the groups kept, `SubmitRenderScene` skips every non-selected
+proxy they cover. Behaviour change: while the camera moves, the static caches re-render on any
+position change (the CPU path only did when an LOD, tiny-caster or cascade membership changed); a
+static camera renders them once as before. Golden on the final build (`p4E`): default + 15 variants
+identical to Phase 3 (`noSSR` against its clean re-run; `debugCategories` in its Phase 1 `p1A` state).
+
 **Verification:** golden identical (PCSS and default); `moving` variant: moved casters' shadows
 correct; shadow cache still skips renders when nothing moves (pass GPU ≈ 0 in perf.json).
 **Docs:** `Rendering.md` shadow section.

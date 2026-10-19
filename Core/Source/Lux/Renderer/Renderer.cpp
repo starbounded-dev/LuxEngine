@@ -492,6 +492,7 @@ namespace Lux {
 		if (Renderer::SupportsMeshShaders())
 			Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Meshlet.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/MeshCulling.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ShadowCulling.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterBuild.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterLightCulling.glsl");
 

@@ -1,0 +1,26 @@
+#ifndef LUX_MESH_LOD_GLSLH
+#define LUX_MESH_LOD_GLSLH
+
+// SceneRenderer::SelectStaticMeshLOD on the GPU: the same metric and thresholds, so a draw the GPU
+// splits into LODs picks what the CPU path would. Edit both together.
+//   lodData.x low byte: LOD count (1..4); lodData.yzw: floatBits of SubmeshLOD::DistanceMultiplier of LOD 1..3
+uint SelectMeshLOD(vec4 sphere, vec3 cameraPosition, float lodDistanceScale, bool lodEnabled, uint lodCount, uvec4 lodData)
+{
+	if (!lodEnabled || lodCount <= 1u)
+		return 0u;
+
+	precise float radius = max(sphere.w, 0.001);
+	precise float cameraDistance = max(distance(cameraPosition, sphere.xyz) - radius, 0.0);
+	precise float lodMetric = cameraDistance / (radius * lodDistanceScale);
+
+	uint selectedLOD = 0u;
+	for (uint lodIndex = 1u; lodIndex < lodCount; lodIndex++)
+	{
+		if (lodMetric < uintBitsToFloat(lodData[lodIndex]))
+			break;
+		selectedLOD = lodIndex;
+	}
+	return selectedLOD;
+}
+
+#endif

@@ -294,7 +294,7 @@ Structurally:
 
 - `SceneRenderer` owns a `RenderGraph` and rebuilds its description each frame, caching the compile
   behind a structure hash. The pipeline is deferred PBR: G-buffer, clustered (froxel) light culling,
-  HZB + GPU mesh culling (with GPU LOD through persistent main-view cull groups), GTAO, SSR, volumetric clouds, sky atmosphere, transparent forward, then
+  HZB + GPU mesh culling (with GPU LOD through persistent main-view and shadow cull groups), GTAO, SSR, volumetric clouds, sky atmosphere, transparent forward, then
   post (TAA, auto-exposure, bloom, composite, SMAA, DOF).
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
