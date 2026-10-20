@@ -171,6 +171,10 @@ namespace Lux {
 		// MaterialTable::GetGlobalRevision() at the last sync; when it moved, every entity re-reads its table.
 		uint64_t m_MaterialTableGlobalRevision = 0;
 		bool m_MaterialTablesChanged = true;
+		// AssetManager::GetDataGeneration() at the last sync; when it moved (an asset was reloaded), every
+		// entity looks its mesh up again, so a reloaded mesh replaces the one its proxy holds.
+		uint64_t m_AssetDataGeneration = 0;
+		bool m_AssetDataChanged = true;
 	};
 
 }

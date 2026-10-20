@@ -4987,6 +4987,7 @@ namespace Lux {
 		m_UseGPUCullGroups = CanUseGPUCullGroups();
 		m_CullGroupsSubmitted = false;
 		m_CullGroupsFrozen = false;
+		m_ShadowCullDispatched = false;
 		m_ShadowCascadeFrustumCount = 0;
 		m_SpotShadowFrustumCount = 0;
 		m_SubmittedRenderScene = nullptr;
@@ -8676,6 +8677,7 @@ namespace Lux {
 		pushConstants.ShadowCullingEnabled = cameraState.ShadowCullingEnabled ? 1u : 0u;
 		pushConstants.TinyCasterPixelsPerRadian = cameraState.TinyCasterPixelsPerRadian;
 
+		m_ShadowCullDispatched = true;
 		BeginProfiledGPU("ShadowMeshCullingPass");
 		Renderer::BeginComputePass(m_CommandBuffer, m_ShadowCullingPass);
 		Renderer::DispatchCompute(m_CommandBuffer, m_ShadowCullingPass, nullptr, { m_ShadowCullDrawCount, 1, 1 }, Buffer(&pushConstants, sizeof(pushConstants)));
@@ -9701,6 +9703,26 @@ namespace Lux {
 		m_Statistics.CulledInstances = lateCulledInstances + m_Statistics.FrustumCulledInstances + m_Statistics.OcclusionCulledInstances;
 
 		m_Statistics.SpotlightShadowcasters = m_SpotShadowLightCount;
+
+		Statistics::RetainedSceneStatistics& retained = m_Statistics.RetainedScene;
+		retained = {};
+		if (m_SubmittedRenderScene)
+		{
+			retained.Proxies = (uint32_t)m_SubmittedRenderScene->GetStaticMeshProxyCount();
+			retained.ChangedProxies = (uint32_t)m_SubmittedRenderScene->GetChangedPrimitives().size();
+			retained.RemovedProxies = (uint32_t)m_SubmittedRenderScene->GetRemovedPrimitives().size();
+		}
+		retained.CachedSubmitEntries = (uint32_t)std::count_if(m_ProxySubmitCache.begin(), m_ProxySubmitCache.end(),
+			[this](const ProxySubmitCacheEntry& entry) { return entry.Epoch == m_ProxySubmitCacheEpoch; });
+		retained.GPUCullGroups = m_UseGPUCullGroups;
+		retained.CullGroupsKept = m_CullGroupsFrozen;
+		retained.CullGroups = (uint32_t)m_CullGroups.size();
+		for (const auto& [groupKey, group] : m_CullGroups)
+			retained.CullGroupInstances += (uint32_t)group.ObjectIndices.size();
+		retained.ShadowCullGroups = (uint32_t)m_ShadowCullGroups.size();
+		for (const auto& [groupKey, group] : m_ShadowCullGroups)
+			retained.StaticShadowCasters += (uint32_t)group.ObjectIndices.size();
+		retained.ShadowCullRan = m_ShadowCullDispatched;
 #endif
 
 		m_Statistics.TotalGPUTime = m_CommandBuffer->GetExecutionGPUTime();

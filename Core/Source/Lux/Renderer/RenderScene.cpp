@@ -134,6 +134,9 @@ namespace Lux {
 		const uint64_t materialTableGlobalRevision = MaterialTable::GetGlobalRevision();
 		m_MaterialTablesChanged = materialTableGlobalRevision != m_MaterialTableGlobalRevision;
 		m_MaterialTableGlobalRevision = materialTableGlobalRevision;
+		const uint64_t assetDataGeneration = AssetManager::GetDataGeneration();
+		m_AssetDataChanged = assetDataGeneration != m_AssetDataGeneration;
+		m_AssetDataGeneration = assetDataGeneration;
 		m_GPUScene.BeginSync(m_FrameIndex);
 		m_TextureScene.BeginSync();
 		m_MaterialScene.BeginSync(m_FrameIndex);
@@ -221,7 +224,7 @@ namespace Lux {
 			// Unchanged since last frame, which did not change it either: nothing to do, and the
 			// proxy is not even read. (EndSync marks it synced if it has to look for removals.)
 			// A changed material table anywhere sends every entity down the full path that frame.
-			if (!record->Dirty && !m_MaterialTablesChanged
+			if (!record->Dirty && !m_MaterialTablesChanged && !m_AssetDataChanged
 				&& record->StaticMeshHandle == inputs.StaticMeshHandle
 				&& record->ComponentMaterialTable == componentMaterialTable
 				&& record->Visible == inputs.Visible
@@ -247,9 +250,9 @@ namespace Lux {
 		StaticMeshRenderProxy& proxy = *proxyPtr;
 		RenderProxyDirtyFlags dirtyFlags = created ? RenderProxyDirtyFlags::Created : RenderProxyDirtyFlags::None;
 
-		// Resolve the meshes only when the handle changed (or nothing resolved yet).
+		// Resolve the meshes only when the handle changed, nothing resolved yet, or an asset was reloaded.
 		bool meshChanged = false;
-		if (created || proxy.StaticMeshHandle != inputs.StaticMeshHandle || !proxy.StaticMesh || !proxy.MeshSource)
+		if (created || m_AssetDataChanged || proxy.StaticMeshHandle != inputs.StaticMeshHandle || !proxy.StaticMesh || !proxy.MeshSource)
 		{
 			Ref<StaticMesh> staticMesh = StaticMesh::GetOrCreateRuntime(inputs.StaticMeshHandle);
 			const AssetHandle meshSourceHandle = staticMesh ? staticMesh->GetMeshSource() : AssetHandle(0);
@@ -433,6 +436,7 @@ namespace Lux {
 		m_SyncCursor = 0;
 		m_SyncedProxyCount = 0;
 		m_MaterialTablesChanged = true;
+		m_AssetDataChanged = true;
 		m_GPUScene.Clear();
 		m_MaterialScene.Clear();
 		m_TextureScene.Clear();

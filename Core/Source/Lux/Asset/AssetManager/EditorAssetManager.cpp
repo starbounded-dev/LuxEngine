@@ -159,6 +159,7 @@ namespace Lux
 		if (!LoadAssetData(metadata, asset))
 			return false;
 
+		MarkDataChanged();
 		UpdateDependents(assetHandle);
 		return asset != nullptr;
 	}
@@ -393,6 +394,7 @@ namespace Lux
 				SetMetadata(metadata.Handle, metadata);
 				RegisterAssetDependencies(response.Asset);
 				UpdateDependents(metadata.Handle);
+				MarkDataChanged();
 			}
 			else
 			{

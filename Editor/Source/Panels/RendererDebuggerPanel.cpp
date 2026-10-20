@@ -718,6 +718,24 @@ namespace Lux {
 			ImGui::EndTable();
 		}
 
+		// The retained render scene: with nothing changing, "Changed Proxies" stays 0 and the cull groups
+		// are kept, so the CPU does no per-instance work.
+		const SceneRenderer::Statistics::RetainedSceneStatistics& retained = stats.RetainedScene;
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Retained Scene");
+		if (ImGui::BeginTable("##renderer_debugger_retained_scene", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+		{
+			DrawStat("Proxies", retained.Proxies);
+			DrawStat("Changed / Removed", std::format("{} / {}", retained.ChangedProxies, retained.RemovedProxies).c_str());
+			DrawStat("Cached Submit Entries", retained.CachedSubmitEntries);
+			DrawStat("GPU Cull Groups", retained.GPUCullGroups
+				? std::format("{} groups, {} instances ({})", retained.CullGroups, retained.CullGroupInstances, retained.CullGroupsKept ? "kept" : "rebuilt").c_str()
+				: "off (CPU culling)");
+			DrawStat("Shadow Cull Groups", std::format("{} groups, {} static casters", retained.ShadowCullGroups, retained.StaticShadowCasters).c_str());
+			DrawStat("Shadow Cull This Frame", retained.ShadowCullRan ? "ran (static cache re-rendered)" : "skipped (cache valid)");
+			ImGui::EndTable();
+		}
+
 		if (Ref<Renderer2D> renderer2D = m_Context->GetRenderer2D())
 		{
 			Renderer2D::DrawStatistics renderer2DDrawStats = renderer2D->GetDrawStats();

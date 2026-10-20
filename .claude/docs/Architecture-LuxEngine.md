@@ -495,6 +495,11 @@ Rules:
   counts loads queued, in flight, or finished but not yet synced; zero means editor streaming is
   idle. The golden capture uses it to wait before it reads back a frame.
 - Dependencies: `RegisterDependency(dep, handle)` so a reloaded texture notifies its materials.
+- `AssetManagerBase::GetDataGeneration()` (facade `AssetManager::GetDataGeneration()`) is bumped
+  whenever a loaded asset's data is replaced: `ReloadData`, an asynchronous load landing in
+  `SyncWithAssetThread`, a runtime-pack reload. A cache that holds asset objects by handle compares it
+  instead of looking every asset up each frame (`RenderScene` re-resolves its meshes when it moves).
+  A new path that replaces a loaded asset must call `MarkDataChanged()`.
 - Opening the editor must not modify tracked project files. `AssetRegistry.lzr` stores only
   `Handle`, `FilePath`, and `Type`. `Status` and `FileLastWriteTime` stay in memory because they
   describe the current session. `ProcessDirectory` re-reads every timestamp at startup. The

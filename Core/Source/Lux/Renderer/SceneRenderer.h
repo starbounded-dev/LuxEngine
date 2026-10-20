@@ -507,6 +507,23 @@ namespace Lux {
 			uint32_t SavedDraws = 0;
 			uint32_t SpotlightShadowcasters = 0;
 			uint32_t SpotlightShadowsCulled = 0;
+
+			// The retained render scene: what this frame changed, and what is kept between frames.
+			struct RetainedSceneStatistics
+			{
+				uint32_t Proxies = 0;
+				uint32_t ChangedProxies = 0;      // created or changed in this frame's sync
+				uint32_t RemovedProxies = 0;
+				uint32_t CachedSubmitEntries = 0; // proxies whose submit data is cached and current
+				uint32_t CullGroups = 0;
+				uint32_t CullGroupInstances = 0;
+				uint32_t ShadowCullGroups = 0;
+				uint32_t StaticShadowCasters = 0;
+				bool     GPUCullGroups = false;   // the main view and static shadows are culled on the GPU
+				bool     CullGroupsKept = false;  // kept from last frame: no per-instance CPU work
+				bool     ShadowCullRan = false;   // a static shadow cache re-rendered from the GPU cull
+			} RetainedScene;
+
 			float    TotalCPUTime = 0.0f;
 			float    TotalGPUTime = 0.0f;
 			PipelineStatistics PipelineStats;
@@ -1895,6 +1912,7 @@ namespace Lux {
 		uint64_t m_LastShadowStaticCasterSetHash = 0;
 		// This frame's shadow cull dispatch: its records and the frustum planes in m_SBSMeshCullDrawData.
 		uint32_t m_ShadowCullDrawCount = 0;
+		bool m_ShadowCullDispatched = false; // statistics: the shadow cull ran this frame
 		uint32_t m_ShadowCullRecordBase = 0;
 		uint32_t m_ShadowCullFrustumBase = 0;
 		// What the GPU shadow cull's LOD and tiny-caster tests read: the static caches re-render when it changes.

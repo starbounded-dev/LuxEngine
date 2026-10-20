@@ -70,6 +70,13 @@ namespace Lux
 			return Project::GetAssetManager()->ReloadData(handle);
 		}
 
+		// AssetManagerBase::GetDataGeneration of the active project's asset manager; 0 without one.
+		static uint64_t GetDataGeneration()
+		{
+			Ref<AssetManagerBase> assetManager = Project::GetAssetManager();
+			return assetManager ? assetManager->GetDataGeneration() : 0;
+		}
+
 		static void ReloadDataAsync(AssetHandle handle)
 		{
 			Project::GetAssetManager()->ReloadDataAsync(handle);

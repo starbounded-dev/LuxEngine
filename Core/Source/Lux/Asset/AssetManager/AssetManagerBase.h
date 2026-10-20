@@ -6,6 +6,7 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Asset/AssetTypes.h"
 
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -47,5 +48,15 @@ namespace Lux
 
 		virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) = 0;
 		virtual const AssetMap& GetLoadedAssets() = 0;
+
+		// Bumped whenever a loaded asset's data is replaced (a reload, or an asynchronous load landing).
+		// Caches that hold asset objects by handle compare it to know when to look them up again.
+		uint64_t GetDataGeneration() const { return m_DataGeneration.load(std::memory_order_relaxed); }
+
+	protected:
+		void MarkDataChanged() { m_DataGeneration.fetch_add(1, std::memory_order_relaxed); }
+
+	private:
+		std::atomic<uint64_t> m_DataGeneration{ 1 };
 	};
 }

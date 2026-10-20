@@ -98,6 +98,7 @@ namespace Lux
 		if (asset)
 		{
 			m_LoadedAssets[assetHandle] = asset;
+			MarkDataChanged();
 			UpdateDependents(assetHandle);
 		}
 

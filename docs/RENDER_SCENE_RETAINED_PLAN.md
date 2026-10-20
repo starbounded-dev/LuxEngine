@@ -344,6 +344,23 @@ every path, unique IDs, stable `PushID` in any loop) and look at them in the edi
 moving and with `MoveEntities` running. Final A-B-A against Phase 0 and the success criteria. Docs
 pass.
 
+**Status 2026-10-19: done.** The user's editor pass (Play/Stop, prefab edit mode, hot reload of a mesh and a material, the Retained Scene rows with nothing moving and moving) passed. Golden on the final
+build (`p5A`): default + 15 variants identical to Phase 4 (`debugCategories` in its other known
+state, equal to `p1B2`), 0 validation ids. Single-threaded policy (`--threading single`): identical
+to the multi-threaded image, 0 validation ids (sync 1.59 ms there: the transform pass runs inline).
+Final A-B-A against Phase 0 in the Part 4 table. Done: **NEW**
+`SceneRenderer::Statistics::RetainedScene` and a "Retained Scene" table in the Renderer Debugger's
+GPU Scene tab (one table, unique ID, no loops; closed on its only path). The open question on
+hot-reloaded meshes is answered — a proxy kept the `StaticMesh`/`MeshSource` it first resolved
+while the handle stayed the same, so a reload never reached it (pre-existing, carried over from
+before Phase 1); fixed with **NEW** `AssetManagerBase::GetDataGeneration()` (bumped by `ReloadData`,
+async loads landing, runtime-pack reloads), which `RenderScene` compares to re-resolve every mesh on
+the frame it moves. Scene switch / Play / `Clear`: every renderer cache keys on the render scene's
+unique generation, so a new mirror rebuilds them on its first submit; no new GPU allocations to
+tear down. Lux-Runtime builds (Release). Linux: the new code is portable C++20 and the Linux build
+uses clang (`Linux-Build.sh`), which accepts the `Ref<T> T;` members the new structs share with
+`StaticDrawCommand`; not built on Linux here.
+
 ## Part 4 — Verification (whole plan)
 
 - Golden: default + every `FEATURE_VARIANTS` entry + `moving`, pixel-identical to Phase 0 after
@@ -366,6 +383,27 @@ pass.
   |---|---|---|---|---|---|---|
   | default | 1.23 ms | 7.13 ms | 1.35 ms | 9.98 ms | 10.82 ms | 2.00 ms |
   | `MoveEntities=256` (1 run) | 1.28 ms | 6.57 ms | 1.25 ms | 9.33 ms | 12.33 ms | 4.30 ms |
+
+- **Final result (2026-10-19, after Phase 5).** A-B-A in one session, Phase 0's build (`8346bfd0`)
+  vs the final build, Benchmark default, medians of 3:
+
+  | | RenderSceneSync | SubmitRenderScene | FlushDrawList | Sync + submit + flush | Main thread | Frame |
+  |---|---|---|---|---|---|---|
+  | Phase 0 (A1) | 8.35 ms | 8.61 ms | 1.77 ms | 18.73 ms | 19.00 ms | 23.00 ms |
+  | **Final (B)** | **0.68 ms** | **0.26 ms** | **1.44 ms** | **2.38 ms** | **2.69 ms** | **6.92 ms** |
+  | Phase 0 (A2) | 7.94 ms | 8.41 ms | 1.66 ms | 18.01 ms | 18.39 ms | 22.15 ms |
+
+  Against the success criteria: sync + submit + flush fell ~7.7x (18.4 → 2.38 ms) but **misses the
+  < 1.5 ms target**, almost entirely because of `FlushDrawList` (1.44 ms: the object-index build,
+  the bindless texture and material tables, `CalculateShadowCasterHashes` for the CPU-path casters);
+  the frame is 3.3x faster and main-thread time 7x lower. Images: the final build's Benchmark capture
+  is pixel-identical to Phase 0's own (`p1A` vs `p5A`, 0 px), and every phase matched the one before
+  it across the golden set. Caveat for reading old builds: shaders compile from source at runtime,
+  so an old exe loads the current `MeshCulling.glsl`, whose layout changed in Phase 3; Phase 0's exe
+  now renders nondeterministically (two of its runs differ by 13%) and its GPU numbers are not
+  comparable, while its CPU numbers are. The same applied to the Phase 3 A-B-A's A arm (CPU columns
+  only were used). Open after the plan: `FlushDrawList` (~1.4 ms) and the moving-scene
+  ShadowMapPass +0.2 ms (Phase 4).
 
 ## Part 5 — Risks
 
