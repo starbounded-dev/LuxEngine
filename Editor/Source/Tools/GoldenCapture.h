@@ -43,6 +43,9 @@ namespace Lux {
 	//                           MoveEntities=N moves the first N static-mesh entities (by UUID) along a
 	//                           loop every frame and captures on a frame where the loop is back at
 	//                           its start, so the image must match the unmoved capture.
+	//                           MoveStop=K (with MoveEntities) stops them at the loop's start once
+	//                           the capture could happen and captures K frames later, while the
+	//                           renderer still treats them as settling: their shadows must be there.
 	//   LUX_GOLDEN_SELFTEST     "1" also runs RenderGraph::RunValidationSelfTests
 	//   LUX_GOLDEN_EXIT         "0" keeps the editor open afterwards (default: close)
 	//
@@ -146,6 +149,10 @@ namespace Lux {
 		uint32_t m_MoveEntityCount = 0;
 		uint32_t m_MoveFrame = 0;
 		uint32_t m_MovePhase = 0;
+		// MoveStop: frames to wait after the entities stop (0 = never stop), and frames waited so far.
+		uint32_t m_MoveStopFrames = 0;
+		bool m_MoveStopped = false;
+		uint32_t m_FramesSinceMoveStop = 0;
 		Scene* m_MovedScene = nullptr;
 		std::vector<std::pair<UUID, glm::vec3>> m_MovedEntities;
 

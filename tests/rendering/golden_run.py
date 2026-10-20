@@ -46,6 +46,7 @@ FEATURE_VARIANTS = {
     "PCSS": "PCSS=1",
     "GTAOBitmask": "GTAOBitmask=1",
     "moving": "MoveEntities=256",
+    "settling": "MoveEntities=256,MoveStop=2",
     "asyncCompute": "AsyncCompute=1",
     "meshShaders": "MeshShaders=1",
 }

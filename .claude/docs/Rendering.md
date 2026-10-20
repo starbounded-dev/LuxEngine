@@ -421,8 +421,11 @@ it averages `<name>.perf.json` over `LUX_GOLDEN_PERF_FRAMES`, writes `<name>.sta
 the editor. `LUX_GOLDEN_OPTIONS` (e.g. `SSR=0,Bloom=0`) overrides individual renderer options.
 `MoveEntities=N` moves the first N static-mesh entities (by UUID) around a 16-frame loop every frame
 and captures only on a frame at the loop's start, so the image must match the unmoved capture while
-the perf frames exercise the changed-mesh path. Besides the passes, `perf.json` lists three CPU
-stages recorded with `SceneRenderer::RecordStageCPUProfile`: `RenderSceneSync` (the mirror sync,
+the perf frames exercise the changed-mesh path. `MoveStop=K` (with `MoveEntities`) stops them at the
+loop's start once the capture could happen and captures K frames later, inside the renderer's
+settle window (`StaticShadowCasterStableFrames`), so a caster that just stopped must still cast its
+shadow (golden variant `settling`). Besides the passes, `perf.json` lists three CPU stages recorded
+with `SceneRenderer::RecordStageCPUProfile`: `RenderSceneSync` (the mirror sync,
 carried in `FrameRenderPacket::MeshSyncMs`), `SubmitRenderScene` and `FlushDrawList`. Stages enclose
 pass zones, so they are not added to `sceneRendererCpuMs`.
 
@@ -740,10 +743,14 @@ crash or corruption on some driver even if it renders correctly on yours.
   draw those slots indirect. These casters are not in `CalculateShadowCasterHashes`: the static caches
   re-render when the static caster set changes or when what the GPU cull reads from the camera
   changes (`ShadowCullCameraState`: position, tiny-caster pixels per radian, LOD settings). **Edit the
-  tiny-caster rule in both places.** On a frame with the groups kept, `SubmitRenderScene` skips every
-  non-selected proxy they cover. The Renderer Debugger's GPU Scene tab shows this state
-  (`Statistics::RetainedScene`): changed proxies, cached submit entries, cull groups kept or
-  rebuilt, static casters, whether the shadow cull ran.
+  tiny-caster rule in both places.** The groups are kept on a frame whose only changes are moves of
+  proxies outside the shadow cull groups (a move updates its GPUScene rows in place; a moving caster
+  shadows from the CPU path either way); a static caster that starts moving, any other change, or a
+  caster due to settle rebuilds them. On a frame with the groups kept, `SubmitRenderScene` skips every
+  proxy they cover that is not selected and has not moved within `StaticShadowCasterStableFrames`
+  (those still cast their shadows from the CPU, settling included). The Renderer Debugger's GPU
+  Scene tab shows this state (`Statistics::RetainedScene`): changed proxies, cached submit entries,
+  cull groups kept or rebuilt, static casters, whether the shadow cull ran.
 - **Shadow caches.** The directional cascades and the spot atlas are `DEPTH32F` (no stencil) and each
   keeps a static cache image: the shadow map is the static depth plus the dynamic casters drawn over
   it. A frame with dynamic casters copies the cache into the map first (bandwidth-bound: ~0.3 ms per

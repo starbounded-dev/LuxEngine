@@ -1904,9 +1904,13 @@ namespace Lux {
 		uint32_t m_EarlyCullDrawCount = 0;
 
 		// Shadow cull groups, rebuilt and kept with m_CullGroups. Static casters change set when a dynamic one
-		// settles, so the groups are also rebuilt at m_NextStaticCasterFrame (a RenderScene frame index).
+		// settles, so the groups are also rebuilt at m_NextStaticCasterFrame (a RenderScene frame index),
+		// which every submit recomputes from the casters still moving or settling.
 		std::unordered_map<MeshKey, ShadowCullGroup, MeshKeyHasher> m_ShadowCullGroups;
 		uint32_t m_NextStaticCasterFrame = std::numeric_limits<uint32_t>::max();
+		// By RenderPrimitiveID: 1 when the proxy is in a shadow cull group. Moving one of these changes the
+		// groups, so it rebuilds them; moving any other proxy keeps them.
+		std::vector<uint8_t> m_ShadowCullGroupPrimitives;
 		// Order-independent hash of the static casters: the static shadow caches re-render when it moves.
 		uint64_t m_ShadowStaticCasterSetHash = 0;
 		uint64_t m_LastShadowStaticCasterSetHash = 0;

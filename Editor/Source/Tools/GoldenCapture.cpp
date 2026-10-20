@@ -86,7 +86,7 @@ namespace Lux {
 			{ "GTAOBitmask", &SceneRendererOptions::GTAOVisibilityBitmask },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -183,6 +183,8 @@ namespace Lux {
 		ParseOptions(GetEnv("LUX_GOLDEN_OPTIONS"));
 		if (const auto it = m_Options.find("MoveEntities"); it != m_Options.end())
 			std::from_chars(it->second.data(), it->second.data() + it->second.size(), m_MoveEntityCount);
+		if (const auto it = m_Options.find("MoveStop"); it != m_Options.end())
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), m_MoveStopFrames);
 
 		FileSystem::CreateDirectory(m_OutputDirectory);
 
@@ -339,6 +341,9 @@ namespace Lux {
 
 	void GoldenCapture::MoveEntities(Scene& scene)
 	{
+		if (m_MoveStopped)
+			return;
+
 		if (!m_MovedScene)
 		{
 			m_MovedScene = &scene;
@@ -420,7 +425,27 @@ namespace Lux {
 
 				// With MoveEntities, capture only on a frame rendered at the loop's start (the original pose).
 				const bool atRestPose = m_MoveEntityCount == 0 || m_MovePhase == 0;
-				if (m_SceneFrames >= m_MinFrames && m_IdleFrames >= m_IdleFramesRequired && atRestPose && renderer && renderer->IsReady())
+				const bool canCapture = m_SceneFrames >= m_MinFrames && m_IdleFrames >= m_IdleFramesRequired && renderer && renderer->IsReady();
+				if (m_MoveEntityCount > 0 && m_MoveStopFrames > 0)
+				{
+					// MoveStop: stop on a rest-pose frame, then capture exactly MoveStop frames later.
+					if (m_MoveStopped)
+						m_FramesSinceMoveStop++;
+					else if (canCapture && atRestPose)
+						m_MoveStopped = true;
+
+					if (m_MoveStopped && m_FramesSinceMoveStop == m_MoveStopFrames)
+					{
+						RequestReadback(renderer);
+						m_Stage = Stage::WaitForReadback;
+					}
+					else if (m_SceneFrames >= m_TimeoutFrames)
+					{
+						Finish(false, std::format("asset streaming never went idle within {} frames", m_TimeoutFrames));
+					}
+					break;
+				}
+				if (canCapture && atRestPose)
 				{
 					RequestReadback(renderer);
 					m_Stage = Stage::WaitForReadback;

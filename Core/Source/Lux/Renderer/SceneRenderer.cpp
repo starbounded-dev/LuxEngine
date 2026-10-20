@@ -5795,18 +5795,44 @@ namespace Lux {
 				m_ProxySubmitCache[primitiveID] = {};
 		}
 
+		// A move updates the proxy's GPUScene rows in place (same instance IDs) and the GPU culls read the
+		// new transforms, so a frame whose only changes are moves of proxies outside the shadow cull
+		// groups (moving casters take the CPU shadow path either way) changes nothing the groups hold.
+		// Every changed primitive must be a visible proxy checked here: a hidden one may have left a group.
+		const uint32_t sceneFrame = renderScene->GetFrameIndex();
+		auto onlyCPUShadowProxiesMoved = [&]()
+			{
+				const std::vector<RenderPrimitiveID>& changedPrimitives = renderScene->GetChangedPrimitives();
+				if (changedPrimitives.empty())
+					return true;
+
+				size_t movedProxies = 0;
+				for (const StaticMeshRenderProxy* proxy : renderScene->GetStaticMeshProxies())
+				{
+					if (!proxy || proxy->LastDirtyFrame != sceneFrame)
+						continue;
+					if (proxy->DirtyFlags != RenderProxyDirtyFlags::Transform)
+						return false;
+					if (proxy->PrimitiveID < m_ShadowCullGroupPrimitives.size() && m_ShadowCullGroupPrimitives[proxy->PrimitiveID])
+						return false;
+					movedProxies++;
+				}
+				return movedProxies == changedPrimitives.size();
+			};
+
 		// Cull groups are kept while nothing they were built from changed: the same scene, synced once
-		// since (so its change list covers everything), with no created, changed or removed primitive
-		// and no new submit-cache epoch. Otherwise this submit rebuilds them.
+		// since (so its change list covers everything), no created or removed primitive, no change but
+		// the moves above, no static caster due to settle, and no new submit-cache epoch. Otherwise this
+		// submit rebuilds them.
 		m_CullGroupsSubmitted = true;
 		const bool cullGroupsCurrent = m_CullGroupsValid
 			&& m_CullGroupsScene == renderScene.Raw()
 			&& m_CullGroupsSceneGeneration == sceneGeneration
-			&& m_CullGroupsSceneFrame + 1 == renderScene->GetFrameIndex()
+			&& m_CullGroupsSceneFrame + 1 == sceneFrame
 			&& m_CullGroupsSubmitEpoch == m_ProxySubmitCacheEpoch
-			&& renderScene->GetChangedPrimitives().empty()
 			&& renderScene->GetRemovedPrimitives().empty()
-			&& renderScene->GetFrameIndex() < m_NextStaticCasterFrame;
+			&& sceneFrame < m_NextStaticCasterFrame
+			&& onlyCPUShadowProxiesMoved();
 		m_CullGroupsFrozen = m_UseGPUCullGroups && cullGroupsCurrent;
 		if (!m_CullGroupsFrozen)
 		{
@@ -5815,14 +5841,20 @@ namespace Lux {
 		}
 		m_CullGroupsScene = renderScene.Raw();
 		m_CullGroupsSceneGeneration = sceneGeneration;
-		m_CullGroupsSceneFrame = renderScene->GetFrameIndex();
+		m_CullGroupsSceneFrame = sceneFrame;
 		m_CullGroupsSubmitEpoch = m_ProxySubmitCacheEpoch;
+		// Recomputed by this submit from the casters still moving or settling (a rebuild reset it above).
+		m_NextStaticCasterFrame = std::numeric_limits<uint32_t>::max();
 
 		// With the groups kept, a proxy whose every instance is in them needs nothing from the CPU this
-		// frame: its main view and shadows are culled on the GPU. Only a selected one still draws an outline.
-		auto coveredByCullGroups = [](const StaticMeshRenderProxy& proxy)
+		// frame: its main view and static shadows are culled on the GPU. A selected one still draws an
+		// outline, and one that moved within StaticShadowCasterStableFrames still casts its shadows from
+		// the CPU path, settling included.
+		auto coveredByCullGroups = [sceneFrame](const StaticMeshRenderProxy& proxy)
 			{
 				if (proxy.Selected || proxy.SubmeshInstances.empty())
+					return false;
+				if (sceneFrame - proxy.LastMovedFrame < StaticShadowCasterStableFrames)
 					return false;
 
 				return std::all_of(proxy.SubmeshInstances.begin(), proxy.SubmeshInstances.end(),
@@ -6506,6 +6538,7 @@ namespace Lux {
 	{
 		m_CullGroups.clear();
 		m_ShadowCullGroups.clear();
+		m_ShadowCullGroupPrimitives.clear();
 		m_NextStaticCasterFrame = std::numeric_limits<uint32_t>::max();
 		m_ShadowStaticCasterSetHash = 0;
 		m_CullGroupsValid = false;
@@ -6606,9 +6639,15 @@ namespace Lux {
 			if (gpuCullGroup && !m_CullGroupsFrozen)
 			{
 				AddToCullGroup(data, staticMesh, meshSource, materialTable, submeshIndex, gpuSceneInstanceRef->InstanceID, staticCaster);
-				if (castsShadows && !staticCaster && renderProxy)
-					m_NextStaticCasterFrame = glm::min(m_NextStaticCasterFrame, renderProxy->LastMovedFrame + StaticShadowCasterStableFrames);
+				if (castsShadows && staticCaster)
+				{
+					if (renderProxy->PrimitiveID >= m_ShadowCullGroupPrimitives.size())
+						m_ShadowCullGroupPrimitives.resize((size_t)renderProxy->PrimitiveID + 1, 0);
+					m_ShadowCullGroupPrimitives[renderProxy->PrimitiveID] = 1;
+				}
 			}
+			if (gpuCullGroup && castsShadows && !staticCaster && renderProxy)
+				m_NextStaticCasterFrame = glm::min(m_NextStaticCasterFrame, renderProxy->LastMovedFrame + StaticShadowCasterStableFrames);
 
 			const bool mainViewVisible = (!gpuCullGroup || isSelected) && IsMainViewVisible(boundsSphere);
 			const bool cpuShadows = castsShadows && !staticCaster;
