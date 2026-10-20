@@ -744,6 +744,13 @@ crash or corruption on some driver even if it renders correctly on yours.
   non-selected proxy they cover. The Renderer Debugger's GPU Scene tab shows this state
   (`Statistics::RetainedScene`): changed proxies, cached submit entries, cull groups kept or
   rebuilt, static casters, whether the shadow cull ran.
+- **Shadow caches.** The directional cascades and the spot atlas are `DEPTH32F` (no stencil) and each
+  keeps a static cache image: the shadow map is the static depth plus the dynamic casters drawn over
+  it. A frame with dynamic casters copies the cache into the map first (bandwidth-bound: ~0.3 ms per
+  4096² cascade on an RTX 4070 Ti). A frame without them renders static casters straight into the
+  map and copies nothing; the cache is filled from the map the first frame dynamic casters need it
+  (`m_StaticShadowCacheImageStale`, `m_ShadowMapHoldsStaticOnly` and their spot twins). A new path
+  that writes a shadow map or its cache must keep those flags true to what the images hold.
 - PCSS reads its taps from the `RendererData` uniform buffer (`ShadowKernel`), never from a local
   array. Dynamic indexing of a local sample array expands into repeated per-fragment scratch arrays
   on RADV Renoir and can cause a GPU timeout.

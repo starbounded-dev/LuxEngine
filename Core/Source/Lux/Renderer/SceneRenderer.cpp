@@ -1430,7 +1430,8 @@ namespace Lux {
 			ImageSpecification shadowMapSpec;
 			shadowMapSpec.DebugName = "ShadowMapArray";
 			shadowMapSpec.Dimension = TextureDimension::Texture2DArray;
-			shadowMapSpec.Format = ImageFormat::Depth;
+			// Depth only: nothing uses a shadow map's stencil, and a stencil plane doubles the cache copy.
+			shadowMapSpec.Format = ImageFormat::DEPTH32F;
 			shadowMapSpec.Usage = ImageUsage::Attachment;
 			shadowMapSpec.Width = 4096;
 			shadowMapSpec.Height = 4096;
@@ -1449,7 +1450,7 @@ namespace Lux {
 				FramebufferSpecification fbSpec;
 				fbSpec.Width = 4096;
 				fbSpec.Height = 4096;
-				fbSpec.Attachments = { ImageFormat::Depth };
+				fbSpec.Attachments = { ImageFormat::DEPTH32F };
 				fbSpec.DepthClearValue = 1.0f;
 				fbSpec.DebugName = "ShadowMap-Cascade" + std::to_string(cascade);
 				fbSpec.ExistingImage = m_ShadowMapImage;
@@ -1526,7 +1527,7 @@ namespace Lux {
 			ImageSpecification spotShadowSpec;
 			spotShadowSpec.DebugName = "SpotShadowAtlas";
 			spotShadowSpec.Dimension = TextureDimension::Texture2D;
-			spotShadowSpec.Format = ImageFormat::Depth;
+			spotShadowSpec.Format = ImageFormat::DEPTH32F;
 			spotShadowSpec.Usage = ImageUsage::Attachment;
 			spotShadowSpec.Width = m_SpotShadowMapSize;
 			spotShadowSpec.Height = m_SpotShadowMapSize;
@@ -1541,7 +1542,7 @@ namespace Lux {
 			FramebufferSpecification fbSpec;
 			fbSpec.Width = m_SpotShadowMapSize;
 			fbSpec.Height = m_SpotShadowMapSize;
-			fbSpec.Attachments = { ImageFormat::Depth };
+			fbSpec.Attachments = { ImageFormat::DEPTH32F };
 			fbSpec.DepthClearValue = 1.0f;
 			fbSpec.DebugName = "SpotShadowAtlas";
 			fbSpec.ExistingImage = m_SpotShadowMapImage;
@@ -7984,6 +7985,8 @@ namespace Lux {
 			}
 			m_DirectionalShadowMapCacheValid = true;
 			m_StaticShadowMapCacheValid = true;
+			m_StaticShadowCacheImageStale = false;
+			m_ShadowMapHoldsStaticOnly = true;
 			m_DirectionalShadowMapNeedsRender = false;
 			return;
 		}
@@ -8063,19 +8066,34 @@ namespace Lux {
 			return drewCaster;
 		};
 
+		// Without dynamic casters the static casters render straight into the shadow map, and the copy is
+		// skipped; the cache image is only needed once dynamic casters must be redrawn over a clean base.
+		const bool hasDynamicCasters = hasShadowCasters(false);
 		if (!m_StaticShadowMapCacheValid)
 		{
+			const auto& staticPasses = hasDynamicCasters ? m_ShadowMapStaticCachePasses : m_ShadowMapPasses;
 			for (uint32_t cascade = 0; cascade < activeShadowCascadeCount; cascade++)
 			{
-				Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapStaticCachePasses[cascade], /*explicitClear=*/true);
+				Renderer::BeginRenderPass(m_CommandBuffer, staticPasses[cascade], /*explicitClear=*/true);
 				drawShadowCasters(cascade, true);
 				Renderer::EndRenderPass(m_CommandBuffer);
 			}
 			m_StaticShadowMapCacheValid = true;
+			m_StaticShadowCacheImageStale = !hasDynamicCasters;
+			m_ShadowMapHoldsStaticOnly = !hasDynamicCasters;
 		}
 
-		const bool hasDynamicCasters = hasShadowCasters(false);
-		Renderer::CopyImage(m_CommandBuffer, m_ShadowMapStaticCacheImage, m_ShadowMapImage);
+		if (m_StaticShadowCacheImageStale && hasDynamicCasters)
+		{
+			// The shadow map holds exactly the static depth: keep it in the cache, then draw over it.
+			Renderer::CopyImage(m_CommandBuffer, m_ShadowMapImage, m_ShadowMapStaticCacheImage);
+			m_StaticShadowCacheImageStale = false;
+		}
+		else if (!m_ShadowMapHoldsStaticOnly)
+		{
+			Renderer::CopyImage(m_CommandBuffer, m_ShadowMapStaticCacheImage, m_ShadowMapImage);
+		}
+		m_ShadowMapHoldsStaticOnly = !hasDynamicCasters;
 
 		if (hasDynamicCasters)
 		{
@@ -8108,6 +8126,8 @@ namespace Lux {
 			Renderer::EndRenderPass(m_CommandBuffer);
 			m_SpotShadowMapCacheValid = true;
 			m_StaticSpotShadowMapCacheValid = true;
+			m_StaticSpotShadowCacheImageStale = false;
+			m_SpotShadowMapHoldsStaticOnly = true;
 			m_SpotShadowMapNeedsRender = false;
 			return;
 		}
@@ -8176,16 +8196,28 @@ namespace Lux {
 			Renderer::SetViewport(m_CommandBuffer, 0, 0, atlasSize, atlasSize);
 		};
 
+		// Same rule as the directional cascades: no dynamic casters, no copy.
+		const bool hasDynamicCasters = hasShadowCasters(false);
 		if (!m_StaticSpotShadowMapCacheValid)
 		{
-			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowStaticCachePass, /*explicitClear=*/true);
+			Renderer::BeginRenderPass(m_CommandBuffer, hasDynamicCasters ? m_SpotShadowStaticCachePass : m_SpotShadowMapPass, /*explicitClear=*/true);
 			drawSpotAtlas(true);
 			Renderer::EndRenderPass(m_CommandBuffer);
 			m_StaticSpotShadowMapCacheValid = true;
+			m_StaticSpotShadowCacheImageStale = !hasDynamicCasters;
+			m_SpotShadowMapHoldsStaticOnly = !hasDynamicCasters;
 		}
 
-		const bool hasDynamicCasters = hasShadowCasters(false);
-		Renderer::CopyImage(m_CommandBuffer, m_SpotShadowStaticCacheImage, m_SpotShadowMapImage);
+		if (m_StaticSpotShadowCacheImageStale && hasDynamicCasters)
+		{
+			Renderer::CopyImage(m_CommandBuffer, m_SpotShadowMapImage, m_SpotShadowStaticCacheImage);
+			m_StaticSpotShadowCacheImageStale = false;
+		}
+		else if (!m_SpotShadowMapHoldsStaticOnly)
+		{
+			Renderer::CopyImage(m_CommandBuffer, m_SpotShadowStaticCacheImage, m_SpotShadowMapImage);
+		}
+		m_SpotShadowMapHoldsStaticOnly = !hasDynamicCasters;
 
 		if (hasDynamicCasters)
 		{

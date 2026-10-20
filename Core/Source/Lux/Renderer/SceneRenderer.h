@@ -2038,9 +2038,16 @@ namespace Lux {
 		bool  m_DirectionalShadowMapCacheValid = false;
 		bool  m_DirectionalShadowMapNeedsRender = true;
 		bool  m_StaticShadowMapCacheValid = false;
+		// Where the current static caster depth lives. With no dynamic casters the static casters render
+		// straight into the shadow map and the cache image goes stale; it is filled from the map the first
+		// frame dynamic casters need it. HoldsStaticOnly: the shadow map has no dynamic depth in it.
+		bool  m_StaticShadowCacheImageStale = false;
+		bool  m_ShadowMapHoldsStaticOnly = false;
 		bool  m_SpotShadowMapCacheValid = false;
 		bool  m_SpotShadowMapNeedsRender = true;
 		bool  m_StaticSpotShadowMapCacheValid = false;
+		bool  m_StaticSpotShadowCacheImageStale = false;
+		bool  m_SpotShadowMapHoldsStaticOnly = false;
 		uint64_t m_LastStaticShadowCasterHash = 0;
 		uint64_t m_LastDynamicShadowCasterHash = 0;
 		uint64_t m_LastStaticSpotShadowCasterHash = 0;
