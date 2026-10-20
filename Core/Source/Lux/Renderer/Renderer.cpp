@@ -680,19 +680,33 @@ namespace Lux {
 
 		delete s_Data;
 
-		// The render thread has already stopped during application shutdown.
-		// Drain any resource-free commands queued by destructors on the main thread
-		// before running the per-frame release queues.
-		for (uint32_t i = 0; i < s_RenderCommandQueueCount; i++)
+		// The render thread has already stopped during application shutdown. Drain any
+		// resource-free commands queued by destructors on the main thread, then run the per-frame
+		// release queue (everything is idle once the device is). A release can drop the last Ref to
+		// further GPU objects, whose frees land in the command queues again: a BindlessTextureTable's
+		// frame tables hold the white texture and every material texture. Repeat until nothing is
+		// left, or those textures outlive the device.
+		auto commandsPending = []()
 		{
-			if (s_CommandQueue[i])
-				s_CommandQueue[i]->Execute();
-		}
+			for (uint32_t i = 0; i < s_RenderCommandQueueCount; i++)
+			{
+				if (s_CommandQueue[i] && !s_CommandQueue[i]->IsEmpty())
+					return true;
+			}
+			return false;
+		};
+		do
+		{
+			for (uint32_t i = 0; i < s_RenderCommandQueueCount; i++)
+			{
+				if (s_CommandQueue[i])
+					s_CommandQueue[i]->Execute();
+			}
 
-		// Everything is idle once the device is, so every pending release can run.
-		if (RHIDevice::IsInitialized())
-			RHIDevice::API().DeviceWaitIdle(&RHIDevice::Get());
-		s_ResourceFreeQueue.DrainAll();
+			if (RHIDevice::IsInitialized())
+				RHIDevice::API().DeviceWaitIdle(&RHIDevice::Get());
+			s_ResourceFreeQueue.DrainAll();
+		} while (commandsPending() || s_ResourceFreeQueue.GetPendingCount() > 0);
 		StagingStream::Shutdown();
 
 		delete s_CommandQueue[0];

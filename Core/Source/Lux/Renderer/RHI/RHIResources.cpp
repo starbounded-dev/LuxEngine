@@ -8,6 +8,7 @@
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
 
+#include <format>
 #include <map>
 #include <mutex>
 #include <unordered_map>
@@ -36,6 +37,39 @@ namespace Lux {
 				RHIDevice::API().DestroyDescriptor(descriptor);
 			views.erase(it);
 		}
+
+#ifdef LUX_DEBUG
+		// Every NRITexture/NRIBuffer from creation until NRI destroys it, described for
+		// ReportLiveNRIResources.
+		std::mutex s_LiveMutex;
+		std::unordered_map<const void*, std::string> s_LiveResources;
+
+		void TrackLive(const void* resource, std::string description)
+		{
+			std::scoped_lock lock(s_LiveMutex);
+			s_LiveResources[resource] = std::move(description);
+		}
+
+		void TrackLive(const nri::Texture* texture, const RHITextureDesc& desc)
+		{
+			TrackLive(texture, std::format("texture \"{}\" ({}x{}x{}, {} mip(s), {} layer(s))", desc.DebugName, desc.Width, desc.Height, desc.Depth, desc.MipLevels, desc.ArraySize));
+		}
+
+		void TrackLive(const nri::Buffer* buffer, const RHIBufferDesc& desc)
+		{
+			TrackLive(buffer, std::format("buffer \"{}\" ({} bytes, CPU access {})", desc.DebugName, desc.Size, static_cast<int>(desc.Access)));
+		}
+
+		void UntrackLive(const void* resource)
+		{
+			std::scoped_lock lock(s_LiveMutex);
+			s_LiveResources.erase(resource);
+		}
+#else
+		void TrackLive(const nri::Texture*, const RHITextureDesc&) {}
+		void TrackLive(const nri::Buffer*, const RHIBufferDesc&) {}
+		void UntrackLive(const void*) {}
+#endif
 
 		nri::TextureType ToNRITextureType(TextureDimension dimension)
 		{
@@ -158,6 +192,7 @@ namespace Lux {
 			return result;
 		}
 		api.SetDebugName(result.m_Texture, desc.DebugName.c_str());
+		TrackLive(result.m_Texture, desc);
 
 		result.m_Tracked.Handle = result.m_Texture;
 		result.m_Tracked.MipCount = std::max(1u, static_cast<uint32_t>(nriDesc.mipNum));
@@ -182,6 +217,7 @@ namespace Lux {
 		Renderer::SubmitResourceFree([texture = std::exchange(m_Texture, nullptr)]()
 			{
 				DestroyViews(s_TextureViews, texture);
+				UntrackLive(texture);
 				RHIDevice::API().DestroyTexture(texture);
 			});
 		m_Tracked = {};
@@ -231,6 +267,7 @@ namespace Lux {
 			return result;
 		}
 		api.SetDebugName(result.m_Buffer, desc.DebugName.c_str());
+		TrackLive(result.m_Buffer, desc);
 
 		result.m_Size = desc.Size;
 		result.m_Tracked.Handle = result.m_Buffer;
@@ -248,6 +285,7 @@ namespace Lux {
 		Renderer::SubmitResourceFree([buffer = std::exchange(m_Buffer, nullptr)]()
 			{
 				DestroyViews(s_BufferViews, buffer);
+				UntrackLive(buffer);
 				RHIDevice::API().DestroyBuffer(buffer);
 			});
 		m_Size = 0;
@@ -326,6 +364,18 @@ namespace Lux {
 			view = nullptr;
 		}
 		return view;
+	}
+
+	size_t ReportLiveNRIResources()
+	{
+#ifdef LUX_DEBUG
+		std::scoped_lock lock(s_LiveMutex);
+		for (const auto& [resource, description] : s_LiveResources)
+			LUX_CORE_ERROR_TAG("Renderer", "[RHI] Leaked NRI {}", description);
+		return s_LiveResources.size();
+#else
+		return 0;
+#endif
 	}
 
 }

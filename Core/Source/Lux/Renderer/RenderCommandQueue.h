@@ -16,6 +16,7 @@ namespace Lux {
 		void* Allocate(RenderCommandFn func, uint32_t size);
 
 		void Execute();
+		bool IsEmpty() const { return m_CommandCount == 0; }
 	private:
 		uint8_t* m_CommandBuffer;
 		uint8_t* m_CommandBufferPtr;

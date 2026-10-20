@@ -5,6 +5,7 @@
 #include "RHIDevice.h"
 
 #include "Lux/Renderer/RenderCommandBuffer.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
 
 namespace Lux {
 
@@ -172,6 +173,8 @@ namespace Lux {
 		if (!s_Data)
 			return;
 
+		if (const size_t leaked = ReportLiveNRIResources())
+			LUX_CORE_ERROR_TAG("Renderer", "[RHI] {} NRI texture(s)/buffer(s) outlive the device", leaked);
 		nri::nriDestroyDevice(s_Data->Device);
 		ldelete s_Data;
 		s_Data = nullptr;

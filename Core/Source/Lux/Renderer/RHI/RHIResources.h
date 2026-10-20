@@ -122,6 +122,11 @@ namespace Lux {
 	nri::Descriptor* GetNRITextureView(nri::Texture* texture, const NRITextureViewKey& key);
 	nri::Descriptor* GetNRIBufferView(nri::Buffer* buffer, nri::BufferView type);
 
+	// Debug builds: logs every NRITexture and NRIBuffer NRI has not destroyed yet and returns how
+	// many there are (0 elsewhere). RHIDevice::Shutdown calls it just before destroying the device,
+	// where each one is a leak (VMA asserts on them in vmaDestroyAllocator).
+	size_t ReportLiveNRIResources();
+
 	// A buffer NRI owns; same rules as NRITexture. CPU-visible buffers (CPUAccess::Write or Read) are
 	// mapped.
 	class NRIBuffer
