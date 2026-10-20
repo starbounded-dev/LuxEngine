@@ -5189,7 +5189,9 @@ namespace Lux {
 			m_GTAODataCB.ResolutionScale = gtaoResolutionScale;
 			m_GTAODataCB.NDCToViewMul_x_PixelSize = m_CameraUB.NDCToViewMul * gtaoPixelSize;
 			m_GTAODataCB.HZBUVFactor = m_SSROptions.HZBUvFactor;
-			m_GTAODataCB.NoiseIndex = (int)(Renderer::GetCurrentFrameIndex() % 64);
+			// Fixed noise: with no temporal resolve, a per-frame index only makes the AO noise cycle with the
+			// frame-in-flight slot (a visible 3-frame shimmer, and captures that depend on the frame's phase).
+			m_GTAODataCB.NoiseIndex = 0;
 			m_GTAODataCB.ShadowTolerance = m_Options.AOShadowTolerance;
 			m_GTAODataCB.SliceCount = m_Options.GTAOSliceCount;
 			m_GTAODataCB.StepsPerSlice = m_Options.GTAOStepsPerSlice;

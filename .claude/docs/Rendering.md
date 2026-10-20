@@ -251,6 +251,9 @@ mirrored by `GTAOConstants` in `GTAO.hlsl`; 88 bytes, asserted) carries:
   result stays comparable to GTAO's integral. This mode does not bend normals.
 - **`NoisePassCount`** (1–3): re-runs the slices with the noise shifted along R2 and averages them. This
   is spatial supersampling, not accumulation.
+- **`NoiseIndex`** is always 0. XeGTAO rotates its noise per frame only for a TAA to resolve; fed the
+  frame-in-flight slot it made the AO noise cycle every 3 frames (shimmer, and golden captures that
+  depended on the frame's phase).
 
 Sky pixels (reverse-Z device depth 0) exit early. The options are
 `SceneRendererOptions::GTAOVisibilityBitmask` / `GTAOThickness` / `GTAONoisePasses`. The AO quality
