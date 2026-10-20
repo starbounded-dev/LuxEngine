@@ -32,8 +32,9 @@ namespace Lux {
 		std::string WorkingDirectory;
 		bool StartMaximized = true;
 		bool Resizable = true;
-		// Leave the window hidden after construction; the client shows it with GetWindow().Show().
-		// The editor does, once its startup splash (its own OS window) closes.
+		// Leave the window hidden and unplaced after construction; the client places it
+		// (Application::PlaceWindow) and shows it (GetWindow().Show()). The editor's StartupSplash does
+		// both: it may first show the window at the splash's own size.
 		bool DeferWindowShow = false;
 		bool EnableImGui = true;
 		//ScriptEngineConfig ScriptConfig;
@@ -90,6 +91,11 @@ namespace Lux {
 		// windows stay responsive, but none reach the layers (they may be half attached) and the
 		// event queue is left for Run().
 		void RenderStartupFrame(const std::function<void()>& drawImGui);
+
+		// Puts the main window where the specification asks: maximized (StartMaximized) or centred.
+		// The constructor does it unless DeferWindowShow is set. Maximizing is up to the window
+		// manager, which may apply it a few events later.
+		void PlaceWindow();
 
 		void AddEventCallback(const EventCallbackFn& eventCallback) { m_EventCallbacks.push_back(eventCallback); }
 

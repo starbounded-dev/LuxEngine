@@ -150,10 +150,12 @@ deserialized, `JobSystem::Init` runs, then `m_RenderThread.Run()`, and only *the
 created. The threading policy is therefore read from `App.lsettings` in `LuxEditorApp.cpp` *before*
 the `Application` object exists, because `RenderThread` is constructed with it.
 
-**Startup splash.** `ApplicationSpecification::DeferWindowShow` leaves the window hidden after
-construction; the client shows it with `GetWindow().Show()`. `StartupSplash`
+**Startup splash.** `ApplicationSpecification::DeferWindowShow` leaves the window hidden and unplaced
+after construction; the client places it with `Application::PlaceWindow()` (maximized or centred, per
+the specification) and shows it with `GetWindow().Show()`. A deferred window is not maximized while
+hidden because X11 cannot restore it before it is shown. `StartupSplash`
 (`Core/Source/Lux/Core/StartupSplash.h`, board 06 of the brand sheet) is the loading splash a layer
-creates at the top of its `OnAttach`. After `OnAttach` the layer calls `DrawUntilPresented()` from its
+creates at the top of its `OnAttach` and `Finish()`es at the end of it. After `OnAttach` the layer calls `DrawUntilPresented()` from its
 `OnImGuiRender` and destroys the splash when that returns false, three frames in: by then its first
 frames have been presented into the still-hidden main window, so the window appears already drawn
 rather than as an empty (debug-magenta) frame covering the splash. The static
@@ -161,8 +163,12 @@ rather than as an empty (debug-magenta) frame covering the splash. The static
 it) draws one frame through `Application::RenderStartupFrame`: one `Run()` iteration whose only UI is
 the splash, with OS events polled but not dispatched to layers (`m_InStartupFrame`) and the event
 queue left for `Run()`. With ImGui platform viewports (Windows) the splash is a borderless OS window of
-its own and the hidden main window is shown when the splash is destroyed; without them (Linux) it
-draws in the main window, which it shows on creation. The editor sets `DeferWindowShow`. Because the
+its own; it places the hidden main window on creation and shows it when destroyed. Without them
+(Linux) the splash can only draw in the main window, so on creation it sizes that window to the card
+(960x540 at UI scale), centres and shows it; `Finish()` sets it back to `WindowWidth x WindowHeight`
+(the size an unmaximize returns to), places it, and draws startup frames until the window manager has
+maximized it (up to 30), because a frame laid out at the card's size would pull floating ImGui
+windows into it and ImGui saves that. The editor sets `DeferWindowShow`. Because the
 splash renders ImGui's first frame from inside `OnAttach`, `io.IniFilename` must be set before the first
 `Report` (ImGui loads the ini on its first frame).
 

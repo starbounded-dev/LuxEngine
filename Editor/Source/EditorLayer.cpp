@@ -643,6 +643,7 @@ namespace Lux {
 		// The splash stays up through the first frames (UI_StartupSplashHandOff), so the main window
 		// appears with the editor already drawn in it.
 		StartupSplash::Report(1.0f, "Ready");
+		m_StartupSplash->Finish();
 	}
 
 	void EditorLayer::OnDetach()

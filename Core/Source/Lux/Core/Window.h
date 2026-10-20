@@ -71,6 +71,8 @@ namespace Lux {
 		virtual void Maximize();
 		virtual void CenterWindow();
 		virtual void Show();
+		// Window (not framebuffer) size; not for a fullscreen window, where GLFW changes the video mode.
+		virtual void SetSize(uint32_t width, uint32_t height);
 
 		virtual const std::string& GetTitle() const { return m_Data.Title; }
 		virtual void SetTitle(const std::string& title);

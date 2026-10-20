@@ -104,13 +104,14 @@ namespace Lux {
 		// Render one frame (TODO: maybe make a func called Pump or something)
 		m_RenderThread.Pump();
 
-		if (specification.StartMaximized)
-			m_Window->Maximize();
-		else
-			m_Window->CenterWindow();
 		m_Window->SetResizable(specification.Resizable);
+		// A deferred window is placed by whoever shows it: on X11 a window maximized while hidden
+		// cannot be restored before it is shown.
 		if (!specification.DeferWindowShow)
+		{
+			PlaceWindow();
 			m_Window->Show();
+		}
 
 		if (m_Specification.EnableImGui)
 		{
@@ -205,6 +206,14 @@ namespace Lux {
 
 		for (int i = 0; i < m_LayerStack.Size(); i++)
 			m_LayerStack[i]->OnImGuiRender();
+	}
+
+	void Application::PlaceWindow()
+	{
+		if (m_Specification.StartMaximized)
+			m_Window->Maximize();
+		else
+			m_Window->CenterWindow();
 	}
 
 	void Application::RenderStartupFrame(const std::function<void()>& drawImGui)

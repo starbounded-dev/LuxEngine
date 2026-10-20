@@ -48,6 +48,9 @@ namespace Lux {
 		// dockspace lays itself out during it.
 		constexpr uint32_t k_HandOffFrames = 3;
 
+		// Finish() draws at most this many frames (about half a second) waiting for the maximize.
+		constexpr uint32_t k_MaximizeWaitFrames = 30;
+
 	}
 
 	StartupSplash::StartupSplash()
@@ -57,9 +60,25 @@ namespace Lux {
 		s_Instance = this;
 		m_OwnWindow = (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0;
 
-		// Without platform viewports the splash can only draw inside the main window.
+		// Without platform viewports the splash can only draw inside the main window, so that window
+		// is the card until Finish(). Otherwise (own window, or a fullscreen main window, which keeps
+		// its mode) the main window is placed now, while it is still hidden.
+		Application& app = Application::Get();
+		Window& window = app.GetWindow();
+		m_WindowIsCard = !m_OwnWindow && !app.GetSpecification().Fullscreen;
+		if (m_WindowIsCard)
+		{
+			const float scale = ImGuiEx::Fonts::GetScale();
+			window.SetSize(static_cast<uint32_t>(std::round(k_Width * scale)), static_cast<uint32_t>(std::round(k_Height * scale)));
+			window.CenterWindow();
+		}
+		else
+		{
+			app.PlaceWindow();
+		}
+
 		if (!m_OwnWindow)
-			Application::Get().GetWindow().Show();
+			window.Show();
 	}
 
 	StartupSplash::~StartupSplash()
@@ -71,7 +90,7 @@ namespace Lux {
 	void StartupSplash::Report(float progress, std::string status)
 	{
 		// Hand-off frames are Run()'s own; a startup frame there would nest inside one.
-		if (!s_Instance || s_Instance->m_HandOffFrames > 0)
+		if (!s_Instance || s_Instance->m_Finished)
 			return;
 
 		LUX_CORE_ASSERT(Application::IsMainThread(), "The startup splash is drawn with ImGui, on the main thread");
@@ -80,8 +99,43 @@ namespace Lux {
 		Application::Get().RenderStartupFrame([]() { s_Instance->Draw(); });
 	}
 
+	void StartupSplash::Finish()
+	{
+		LUX_CORE_ASSERT(Application::IsMainThread(), "The startup splash is drawn with ImGui, on the main thread");
+		LUX_CORE_ASSERT(!m_Finished, "StartupSplash::Finish called twice");
+		m_Finished = true;
+		if (!m_WindowIsCard)
+			return;
+
+		Application& app = Application::Get();
+		Window& window = app.GetWindow();
+		const ApplicationSpecification& specification = app.GetSpecification();
+
+		// The application's size first, even when maximizing: the window manager restores a
+		// maximized window to the size it had before, which would otherwise be the card's.
+		window.SetSize(specification.WindowWidth, specification.WindowHeight);
+		app.PlaceWindow();
+		m_WindowIsCard = false;
+		if (!specification.StartMaximized)
+			return;
+
+		// A frame laid out at a smaller size would pull floating ImGui windows into it, and ImGui
+		// saves where they end up, so the owner's first frame has to wait for the maximize.
+		GLFWwindow* nativeWindow = window.GetNativeWindow();
+		for (uint32_t frame = 0; frame < k_MaximizeWaitFrames; frame++)
+		{
+			if (glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED))
+				return;
+			app.RenderStartupFrame([this]() { Draw(); });
+		}
+
+		if (!glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED))
+			LUX_CORE_WARN_TAG("StartupSplash", "The window manager has not maximized the main window after {} frames; continuing at its current size", k_MaximizeWaitFrames);
+	}
+
 	bool StartupSplash::DrawUntilPresented()
 	{
+		LUX_CORE_ASSERT(m_Finished, "Call StartupSplash::Finish at the end of OnAttach, before the hand-off frames");
 		if (m_HandOffFrames >= k_HandOffFrames)
 			return false;
 

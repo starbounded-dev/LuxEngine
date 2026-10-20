@@ -590,6 +590,10 @@ namespace Lux {
 
 	void Window::CenterWindow()
 	{
+		// Wayland clients cannot position their windows (GLFW reports an error); the compositor does.
+		if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND)
+			return;
+
 		const GLFWvidmode* videmode = glfwGetVideoMode(glfwGetPrimaryMonitor());
 		int x = (videmode->width / 2) - (m_Data.Width / 2);
 		int y = (videmode->height / 2) - (m_Data.Height / 2);
@@ -599,6 +603,14 @@ namespace Lux {
 	void Window::Show()
 	{
 		glfwShowWindow(m_WindowHandle);
+	}
+
+	void Window::SetSize(uint32_t width, uint32_t height)
+	{
+		glfwSetWindowSize(m_WindowHandle, static_cast<int>(width), static_cast<int>(height));
+		// CenterWindow reads these, and on X11 the size callback only arrives with a later event.
+		m_Data.Width = width;
+		m_Data.Height = height;
 	}
 
 	void Window::SetTitle(const std::string& title)
