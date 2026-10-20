@@ -1,6 +1,6 @@
 # LuxEngine [![License](https://img.shields.io/github/license/starbounded-dev/luxengine.svg)](LICENSE) [![Build LuxEngine](https://github.com/starbounded-dev/LuxEngine/actions/workflows/main.yml/badge.svg)](https://github.com/starbounded-dev/LuxEngine/actions/workflows/main.yml)
 
-![LuxEngine](/Resources/Branding/LuxEngineLogo.png?raw=true "LuxEngine")
+<img src="Resources/Branding/LuxEngineLogo.png" alt="LuxEngine" title="LuxEngine" width="256">
 
 LuxEngine is a C++20, Vulkan-only 3D game engine and editor for **Windows and Linux**, in active development. Its architecture descends from [Hazel](https://github.com/TheCherno/Hazel), but it has grown well beyond that starting point: a deferred, clustered PBR renderer with a render graph, Jolt physics, C# scripting, a UUID-based asset pipeline with runtime asset packs, an FMOD Studio + ray-traced acoustics audio stack, and a docking ImGui editor with a standalone runtime player.
 
