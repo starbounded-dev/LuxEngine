@@ -12,6 +12,7 @@
 #include "Lux/Renderer/VertexBuffer.h"
 #include "Lux/Renderer/IndexBuffer.h"
 
+#include <assimp/GltfMaterial.h>
 #include <assimp/Importer.hpp>
 #include <assimp/material.h>
 #include <assimp/pbrmaterial.h>
@@ -26,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstring>
 #include <fstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -339,7 +341,15 @@ namespace Lux
 					baseColor = aiColor4D(diffuseColor.r, diffuseColor.g, diffuseColor.b, opacity);
 			}
 
-			const bool transparent = baseColor.a < 0.999f || opacity < 0.999f;
+			// glTF states its alpha handling outright, and its MASK / BLEND alpha usually lives only in
+			// the base colour texture (factor 1), which the factor test below cannot see. MASK is a
+			// cutout on the opaque path; BLEND takes the transparent one.
+			aiString gltfAlphaMode;
+			const bool hasGltfAlphaMode = assimpMaterial && assimpMaterial->Get(AI_MATKEY_GLTF_ALPHAMODE, gltfAlphaMode) == AI_SUCCESS;
+			const bool alphaMasked = hasGltfAlphaMode && std::strcmp(gltfAlphaMode.C_Str(), "MASK") == 0;
+			const bool alphaBlended = hasGltfAlphaMode && std::strcmp(gltfAlphaMode.C_Str(), "BLEND") == 0;
+
+			const bool transparent = !alphaMasked && (alphaBlended || baseColor.a < 0.999f || opacity < 0.999f);
 			Ref<MaterialAsset> materialAsset = Ref<MaterialAsset>::Create(transparent);
 			materialAsset->Handle = materialHandle;
 			if (!materialAsset->GetMaterial())
@@ -396,6 +406,21 @@ namespace Lux
 			}
 
 			surface.OcclusionMap = ImportTextureReference(meshPath, scene, assimpMaterial, { aiTextureType_AMBIENT_OCCLUSION, aiTextureType_LIGHTMAP }, textureCache);
+
+			if (alphaMasked)
+			{
+				surface.AlphaMode = MaterialAlphaMode::Cutout;
+				float alphaCutoff = surface.AlphaThreshold;
+				assimpMaterial->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff);
+				surface.AlphaThreshold = std::clamp(alphaCutoff, 0.0f, 1.0f);
+			}
+
+			// Assimp reports glTF doubleSided here: foliage and chain cards are single quads meant to be
+			// seen from both sides.
+			int twoSided = 0;
+			if (assimpMaterial && assimpMaterial->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS)
+				surface.TwoSided = twoSided != 0;
+
 			materialAsset->SetSurfaceParameters(surface);
 
 			AssetImporter::Serialize(editorAssetManager->GetMetadata(materialHandle), materialAsset.As<Asset>());

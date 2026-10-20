@@ -9,4 +9,6 @@ Material:
   NormalMap: Meshes/Source/Sponza/14170708867020035030.jpg
   MetalnessMap: Meshes/Source/Sponza/1219024358953944284.jpg
   RoughnessMap: Meshes/Source/Sponza/1219024358953944284.jpg
+  AlphaMode: Cutout
+  TwoSided: true
   MaterialFlags: 6
