@@ -397,21 +397,32 @@ namespace Lux {
 		renderingDesc.depth.loadOp = passStart && desc.ClearDepth ? nri::LoadOp::CLEAR : nri::LoadOp::LOAD;
 		renderingDesc.depth.storeOp = nri::StoreOp::STORE;
 
-		const NRIInterface& api = RHIDevice::API();
-		api.CmdBeginRendering(*commandBuffer, renderingDesc);
+		RHIDevice::API().CmdBeginRendering(*commandBuffer, renderingDesc);
 		state.Rendering = true;
 
 		// The pass state is rebound in every scope: a dispatch in between binds its own.
-		api.CmdSetViewports(*commandBuffer, &state.Viewport, 1);
-		api.CmdSetScissors(*commandBuffer, &state.Scissor, 1);
-		api.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::GRAPHICS, *desc.PipelineLayout);
-		api.CmdSetPipeline(*commandBuffer, *desc.Pipeline);
+		RT_BindNRIPassState();
+		return commandBuffer;
+	}
+
+	void RenderCommandBuffer::RT_BindNRIPassState()
+	{
+		NRIRenderState& state = *m_NRIRender;
+		LUX_CORE_ASSERT(state.Rendering);
+		const NRIRenderPassDesc& desc = state.Desc;
+		nri::CommandBuffer& commandBuffer = *m_NRICommandBuffer;
+
+		const NRIInterface& api = RHIDevice::API();
+		api.CmdSetViewports(commandBuffer, &state.Viewport, 1);
+		api.CmdSetScissors(commandBuffer, &state.Scissor, 1);
+		api.CmdSetPipelineLayout(commandBuffer, nri::BindPoint::GRAPHICS, *desc.PipelineLayout);
+		api.CmdSetPipeline(commandBuffer, *desc.Pipeline);
 		// The one raw Vulkan call in the renderer: NRI has no line-width state, and the fork's
 		// LUX-1 patch makes it dynamic on line pipelines (CmdSetPipeline just set 1).
 		if (desc.LineWidth > 0.0f)
-			vk::CommandBuffer(static_cast<VkCommandBuffer>(api.GetCommandBufferNativeObject(commandBuffer))).setLineWidth(desc.LineWidth);
+			vk::CommandBuffer(static_cast<VkCommandBuffer>(api.GetCommandBufferNativeObject(&commandBuffer))).setLineWidth(desc.LineWidth);
 		if (desc.DynamicShadingRate)
-			api.CmdSetShadingRate(*commandBuffer, state.ShadingRate);
+			api.CmdSetShadingRate(commandBuffer, state.ShadingRate);
 
 		state.BoundSets = {};
 		state.VertexBuffer = nullptr;
@@ -423,7 +434,36 @@ namespace Lux {
 			if (desc.DescriptorSets[setIndex].Set)
 				RT_SetNRIDescriptorSet(setIndex, desc.DescriptorSets[setIndex].Set);
 		}
-		return commandBuffer;
+	}
+
+	void RenderCommandBuffer::RT_SwitchNRIRenderPassPipeline(const NRIRenderPassDesc& desc)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		NRIRenderState& state = *m_NRIRender;
+		LUX_CORE_ASSERT(state.Active, "NRI pipeline switch outside a render pass ({})", m_DebugName);
+		LUX_CORE_ASSERT(desc.PipelineLayout && desc.Pipeline);
+		if (!state.Active)
+			return;
+
+		NRIRenderPassDesc& pass = state.Desc;
+		pass.PipelineLayout = desc.PipelineLayout;
+		pass.Pipeline = desc.Pipeline;
+		pass.DescriptorSets = desc.DescriptorSets;
+		pass.LineWidth = desc.LineWidth;
+		pass.DynamicShadingRate = desc.DynamicShadingRate;
+		pass.DrawSetIndex = desc.DrawSetIndex;
+		pass.VertexStride = desc.VertexStride;
+		pass.RootConstants = desc.RootConstants;
+		for (size_t i = 0; i < desc.DescriptorSets.size(); i++)
+			state.PassGroups[i] = desc.DescriptorSets[i].Group;
+
+		// Required now; a barrier they need is committed by the next draw, which then reopens the
+		// scope with this state bound.
+		for (uint32_t setIndex = 0; setIndex < pass.DescriptorSets.size(); setIndex++)
+			RT_RequireSet(setIndex, pass.DescriptorSets[setIndex]);
+
+		if (state.Rendering)
+			RT_BindNRIPassState();
 	}
 
 	void RenderCommandBuffer::RT_CloseNRIRendering()

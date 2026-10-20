@@ -642,6 +642,14 @@ context see the same device NRI drives.
       per rendering scope;
     - the draws (`Renderer::RT_DrawIndexed` / `RT_DrawMeshTasks`, through `RT_BeginNRIDraw`) bind
       only set 0, the vertex and index buffers and the root constants, and repeats are skipped.
+    - **variant pipelines switch inside the pass, without splitting it.**
+      `Renderer::SwitchRenderPassPipeline` (`RT_SwitchRenderPassPipeline`, through
+      `RenderCommandBuffer::RT_SwitchNRIRenderPassPipeline`) replaces the open pass's pipeline,
+      layout and sets with a pass's sets and either its own pipeline or a variant built on the same
+      shader. The attachments, viewport and scissor stay. The new sets are required at the switch,
+      and any barrier they need is committed by the next draw. A variant must render to the open
+      pass's attachment formats, which is all a dynamic-rendering pipeline depends on, so one
+      variant serves every pass of that format.
   - **Dispatches.** `Renderer::DispatchCompute` binds the pass's sets and the material's at set 0
     through `RT_BeginNRIDispatch`, inside a segment.
   - **Copies and clears** (NRI Phase 13) record inside `RT_BeginNRITransfer`, which closes an open
@@ -736,6 +744,15 @@ crash or corruption on some driver even if it renders correctly on yours.
   non-proxy submissions keep the CPU path. `MeshCullDrawData` is three `uvec4` per cull draw and
   mirrors the shader's block. **The LOD metric lives in `Include/GLSL/MeshLOD.glslh`**, shared by both
   cull shaders.
+- **Raster variants are part of the draw key.** `MeshKey::TwoSided` comes from
+  `MaterialScene::ResolveRasterState`, the resolution that also builds the material's GPU row, so a
+  bucket's pipeline matches the material data its shaders read. Both the CPU buckets and the cull
+  groups set it. A two-sided material's prepass and G-buffer draws use `m_PreDepthTwoSidedPipeline`
+  and `m_GeometryTwoSidedPipeline`, which do no culling. Those two must stay in step, because the
+  G-buffer depth-tests EQUAL against the prepass. Draws sort by pipeline (`PassSortKeys`), so a pass
+  switches pipeline at most once per variant. `GBuffer_Static` flips the normal and tangent frame on
+  back faces (glTF's double-sided rule); a culling pipeline never draws one. The mesh-shader prepass
+  has no variants: it culls back faces and does not alpha-test.
 - **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
   moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
   `ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame a caster settles. A caster still

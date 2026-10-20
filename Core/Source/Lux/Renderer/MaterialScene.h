@@ -97,6 +97,15 @@ namespace Lux {
 		bool Transparent = false;
 	};
 
+	// What picks a material's raster pipelines, resolved as its GPU row resolves its flags and alpha
+	// mode, so a draw bucket keyed on it uses the pipeline its shaders expect.
+	struct GPUMaterialRasterState
+	{
+		bool TwoSided = false;
+		// Cutout: alpha-tested against the row's cutoff.
+		bool AlphaMasked = false;
+	};
+
 	struct MaterialSceneDirtyRange
 	{
 		uint32_t FirstMaterial = 0;
@@ -144,6 +153,9 @@ namespace Lux {
 		static GPUMaterialData BuildGPUMaterialData(
 			const GPUMaterialBuildInput& input,
 			const GPUTextureResolver& resolveTextureIndex);
+		// The raster state of the row BuildGPUMaterialData builds from the same asset, override and
+		// transparency.
+		static GPUMaterialRasterState ResolveRasterState(const Ref<MaterialAsset>& materialAsset, const Ref<Material>& overrideMaterial, bool transparent);
 
 	private:
 		enum class MaterialKeyType : uint32_t

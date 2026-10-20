@@ -139,10 +139,7 @@ namespace Lux {
 
 		const bool transparent = input.Transparent || (materialAsset && materialAsset->IsTransparent());
 		const bool shadowCasting = materialAsset ? materialAsset->IsShadowCasting() : !material->GetFlag(MaterialFlag::DisableShadowCasting);
-		// The authored asset property is the source of truth; MaterialFlag::TwoSided remains
-		// honoured so a bare override Material (which has no asset) can still opt in.
-		const bool twoSided = material->GetFlag(MaterialFlag::TwoSided)
-			|| (materialAsset && materialAsset->GetSurfaceParameters().TwoSided);
+		const bool twoSided = ResolveRasterState(materialAsset, input.OverrideMaterial, input.Transparent).TwoSided;
 
 		// A material asset owns its values; only a bare override material is read from its shader
 		// block, which may not declare every member.
@@ -234,6 +231,24 @@ namespace Lux {
 			InvalidRenderMaterialID,
 			PackFloatBits(envMapRotation));
 		return data;
+	}
+
+	GPUMaterialRasterState MaterialScene::ResolveRasterState(const Ref<MaterialAsset>& materialAsset, const Ref<Material>& overrideMaterial, bool transparent)
+	{
+		const Ref<Material> material = overrideMaterial ? overrideMaterial : (materialAsset ? materialAsset->GetMaterial() : nullptr);
+		if (!material)
+			return {};
+
+		GPUMaterialRasterState state;
+		// The authored asset property is the source of truth; MaterialFlag::TwoSided remains
+		// honoured so a bare override Material (which has no asset) can still opt in.
+		state.TwoSided = material->GetFlag(MaterialFlag::TwoSided)
+			|| (materialAsset && materialAsset->GetSurfaceParameters().TwoSided);
+
+		const bool fromAsset = materialAsset && !overrideMaterial;
+		transparent = transparent || (materialAsset && materialAsset->IsTransparent());
+		state.AlphaMasked = ResolveAlphaMode(materialAsset, fromAsset, transparent) == GPUMaterialAlphaMode::Masked;
+		return state;
 	}
 
 	void MaterialScene::EnsureFallbackMaterial()

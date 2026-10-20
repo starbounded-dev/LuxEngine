@@ -154,11 +154,15 @@ void main()
 		occlusion = mix(1.0, occlusionSample, gpuMaterial.Emissive.w);
 	}
 
-	vec3 worldNormal = normalize(Input.Normal);
+	// Only a two-sided material's pipeline draws back faces. They are lit as the side the camera
+	// sees, glTF's double-sided rule: the normal and tangent frame flip.
+	const float faceSign = gl_FrontFacing ? 1.0 : -1.0;
+	const vec3 vertexNormal = Input.Normal * faceSign;
+	vec3 worldNormal = normalize(vertexNormal);
 	if (materialUseNormalMap)
 	{
 		vec4 normalTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.y, uv, materialMipBias);
-		worldNormal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb, gpuMaterial.Surface.y);
+		worldNormal = LuxApplyNormalMap(vertexNormal, Input.WorldNormals * faceSign, normalTexColor.rgb, gpuMaterial.Surface.y);
 	}
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE))
 	{

@@ -1627,6 +1627,11 @@ namespace Lux {
 			m_PreDepthPipeline = Pipeline::Create(pipelineSpec);
 			m_PreDepthMaterial = Material::Create(pipelineSpec.Shader, "PreDepth");
 
+			PipelineSpecification twoSidedPipelineSpec = pipelineSpec;
+			twoSidedPipelineSpec.DebugName = "PreDepth-TwoSided";
+			twoSidedPipelineSpec.BackfaceCulling = false;
+			m_PreDepthTwoSidedPipeline = Pipeline::Create(twoSidedPipelineSpec);
+
 			RenderPassSpecification rpSpec;
 			rpSpec.DebugName = "PreDepthPass";
 			rpSpec.Pipeline = m_PreDepthPipeline;
@@ -1874,6 +1879,11 @@ namespace Lux {
 			pipelineSpec.DepthOperator = DepthCompareOperator::Equal;
 			pipelineSpec.DepthWrite = false;
 			m_GeometryPipeline = Pipeline::Create(pipelineSpec);
+
+			PipelineSpecification twoSidedPipelineSpec = pipelineSpec;
+			twoSidedPipelineSpec.DebugName = "GBuffer-Static-TwoSided";
+			twoSidedPipelineSpec.BackfaceCulling = false;
+			m_GeometryTwoSidedPipeline = Pipeline::Create(twoSidedPipelineSpec);
 
 			RenderPassSpecification rpSpec;
 			rpSpec.DebugName = "GBufferPass";
@@ -6420,6 +6430,10 @@ namespace Lux {
 		data.CastsShadows = data.OverrideMaterial
 			? true // override materials always cast shadows
 			: (data.MaterialAsset && data.MaterialAsset->IsShadowCasting());
+
+		// From what the instance's GPU material row is built from, so the bucket and the row agree.
+		const GPUMaterialRasterState rasterState = MaterialScene::ResolveRasterState(data.MaterialAsset, data.MaterialSceneOverride, data.Transparent);
+		data.TwoSided = rasterState.TwoSided;
 		return data;
 	}
 
@@ -6458,8 +6472,10 @@ namespace Lux {
 		PassSortKeys& keys = m_PassSortKeys;
 		keys.Frame = m_MeshDrawCommandCacheFrame;
 		keys.GeometryPipeline = SortKeyFromRef(m_GeometryPipeline.Raw());
+		keys.GeometryTwoSidedPipeline = SortKeyFromRef(m_GeometryTwoSidedPipeline.Raw());
 		keys.TransparentGeometryPipeline = SortKeyFromRef(m_TransparentGeometryPipeline.Raw());
 		keys.PreDepthPipeline = SortKeyFromRef(m_PreDepthPipeline.Raw());
+		keys.PreDepthTwoSidedPipeline = SortKeyFromRef(m_PreDepthTwoSidedPipeline.Raw());
 		keys.PreDepthShader = m_PreDepthMaterial && m_PreDepthMaterial->GetShader()
 			? SortKeyFromRef(m_PreDepthMaterial->GetShader().Raw()) : 0;
 		keys.PreDepthMaterial = SortKeyFromRef(m_PreDepthMaterial.Raw());
@@ -6491,6 +6507,7 @@ namespace Lux {
 		// Transparent draws bind their material, so they group by material key as the CPU path does.
 		MeshKey key{ data.MeshKeyHandle, data.Transparent ? data.KeyMaterialHandle : AssetHandle(0), submeshIndex, 0, false, false };
 		key.GPUCullGroup = true;
+		key.TwoSided = data.TwoSided && !data.Transparent;
 
 		auto [it, inserted] = m_CullGroups.try_emplace(key);
 		CullGroup& group = it->second;
@@ -6572,10 +6589,12 @@ namespace Lux {
 
 				SubmitMeshPassDraw(MeshPassType::Opaque, key, group.StaticMesh, group.MeshSource, nullptr,
 					group.SubmeshIndex, lodIndex, AssetHandle(0), nullptr,
-					passSortKeys.GeometryPipeline, 0, 0, group.MeshSortKey).InstanceCount = instanceCount;
+					key.TwoSided ? passSortKeys.GeometryTwoSidedPipeline : passSortKeys.GeometryPipeline,
+					0, 0, group.MeshSortKey).InstanceCount = instanceCount;
 				SubmitMeshPassDraw(MeshPassType::DepthPrepass, key, group.StaticMesh, group.MeshSource, nullptr,
 					group.SubmeshIndex, lodIndex, AssetHandle(0), m_PreDepthMaterial,
-					passSortKeys.PreDepthPipeline, passSortKeys.PreDepthShader, passSortKeys.PreDepthMaterial, group.MeshSortKey).InstanceCount = instanceCount;
+					key.TwoSided ? passSortKeys.PreDepthTwoSidedPipeline : passSortKeys.PreDepthPipeline,
+					passSortKeys.PreDepthShader, passSortKeys.PreDepthMaterial, group.MeshSortKey).InstanceCount = instanceCount;
 			}
 		}
 
@@ -6671,7 +6690,9 @@ namespace Lux {
 
 			const uint32_t lodIndex = SelectStaticMeshLOD(*meshSource, submeshIndex, boundsSphere);
 			const MeshKey materialKey{ meshKeyHandle, data.KeyMaterialHandle, submeshIndex, lodIndex, false, false };
-			const MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, false };
+			// The opaque passes' key: a two-sided material's draws take their no-cull pipelines.
+			MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, false };
+			bindlessMeshKey.TwoSided = data.TwoSided && !isTransparent;
 			const MeshKey selectedMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, true, false };
 
 			// Adds this instance to a bucket's draw: the bucket's first instance creates the draw (one
@@ -6726,7 +6747,8 @@ namespace Lux {
 						isTransparent ? materialTable : nullptr,
 						isTransparent ? data.MaterialHandle : AssetHandle(0),
 						isTransparent ? data.OverrideMaterial : nullptr,
-						isTransparent ? passSortKeys.TransparentGeometryPipeline : passSortKeys.GeometryPipeline,
+						isTransparent ? passSortKeys.TransparentGeometryPipeline
+							: (bindlessMeshKey.TwoSided ? passSortKeys.GeometryTwoSidedPipeline : passSortKeys.GeometryPipeline),
 						isTransparent ? data.ShaderSortKey : 0,
 						isTransparent ? data.MaterialSortKey : 0);
 
@@ -6738,7 +6760,7 @@ namespace Lux {
 							nullptr,
 							AssetHandle(0),
 							m_PreDepthMaterial,
-							passSortKeys.PreDepthPipeline,
+							bindlessMeshKey.TwoSided ? passSortKeys.PreDepthTwoSidedPipeline : passSortKeys.PreDepthPipeline,
 							passSortKeys.PreDepthShader,
 							passSortKeys.PreDepthMaterial);
 					}
@@ -8285,13 +8307,21 @@ namespace Lux {
 
 		Renderer::BeginRenderPass(m_CommandBuffer, m_PreDepthPass, /*explicitClear=*/true);
 
+		// Draws sort by pipeline, so the two-sided ones come together: one switch to their pipeline.
 		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
+		bool twoSidedPipeline = false;
 		for (const MeshKey& key : depthPass.DrawOrder)
 		{
 			const auto drawIt = depthPass.DrawList.find(key);
 			if (drawIt == depthPass.DrawList.end()) continue;
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
+
+			if (key.TwoSided != twoSidedPipeline)
+			{
+				twoSidedPipeline = key.TwoSided;
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_PreDepthPass, twoSidedPipeline ? m_PreDepthTwoSidedPipeline : nullptr);
+			}
 
 			StaticDrawCommand drawCmd = drawIt->second;
 
@@ -8827,13 +8857,21 @@ namespace Lux {
 		BeginProfiledGPU("GBufferPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPass);
 
+		// The same culling as the prepass, whose depth this pass tests for equality.
 		const MeshPassState& opaquePass = GetMeshPass(MeshPassType::Opaque);
+		bool twoSidedPipeline = false;
 		for (const MeshKey& key : opaquePass.DrawOrder)
 		{
 			const auto drawIt = opaquePass.DrawList.find(key);
 			if (drawIt == opaquePass.DrawList.end()) continue;
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
+
+			if (key.TwoSided != twoSidedPipeline)
+			{
+				twoSidedPipeline = key.TwoSided;
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPass, twoSidedPipeline ? m_GeometryTwoSidedPipeline : nullptr);
+			}
 
 			StaticDrawCommand drawCmd = drawIt->second;
 			const MeshDrawParams params(it->second);

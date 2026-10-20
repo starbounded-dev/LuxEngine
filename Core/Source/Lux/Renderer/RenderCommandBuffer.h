@@ -154,6 +154,11 @@ namespace Lux {
 		// rate applies to pipelines with a dynamic one.
 		bool RT_BeginNRIRenderPass(const NRIRenderPassDesc& desc, std::string_view name, const nri::Viewport& viewport, const nri::Rect& scissor, const nri::ShadingRateDesc& shadingRate);
 		void RT_EndNRIRenderPass();
+		// Replaces the open pass's pipeline, layout and descriptor sets, with the draw state that
+		// comes with them, by `desc`'s (its attachment fields are ignored), keeping the attachments,
+		// viewport and scissor. For a pass's variant pipelines (no culling, alpha tested) without
+		// splitting its rendering scope: they must render to the pass's attachment formats.
+		void RT_SwitchNRIRenderPassPipeline(const NRIRenderPassDesc& desc);
 		bool RT_InNRIRenderPass() const;
 		const NRIRenderPassDesc& RT_GetNRIRenderPass() const;
 		std::string_view RT_GetNRIRenderPassName() const;
@@ -233,6 +238,8 @@ namespace Lux {
 		// The open pass's attachments and sets.
 		void RT_RequireNRIRenderPass();
 		nri::CommandBuffer* RT_OpenNRIRendering(bool passStart);
+		// Binds the pass state into the open rendering scope, forgetting what the draws bound.
+		void RT_BindNRIPassState();
 		void RT_CloseNRIRendering();
 		// Closes the rendering scope because `reason` cannot be recorded inside it.
 		void RT_SuspendNRIRendering(const char* reason);

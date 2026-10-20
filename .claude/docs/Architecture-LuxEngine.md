@@ -269,7 +269,9 @@ submission.
   `SubmitFullscreenQuad*`, `SceneRenderer::RT_DrawStaticMesh*`) record through
   `Renderer::RT_DrawIndexed` / `RT_DrawMeshTasks` (`RenderCommandBuffer::RT_BeginNRIDraw`), and
   `DispatchCompute` through `RenderCommandBuffer::RT_BeginNRIDispatch`. Work NRI cannot record is
-  skipped and logged once per pipeline or shader.
+  skipped and logged once per pipeline or shader. `Renderer::SwitchRenderPassPipeline`
+  (`RenderCommandBuffer::RT_SwitchNRIRenderPassPipeline`) swaps the open pass's pipeline, layout and
+  sets for a variant without splitting the pass.
 - Copies and clears are NRI commands inside `RenderCommandBuffer::RT_BeginNRITransfer` (it closes an
   open NRI rendering scope). Storage-image clears go through a `StorageImageClear`
   (`Renderer/StorageImageClear.h`), which owns the descriptor set NRI clears through; its owner
@@ -347,6 +349,14 @@ Structurally:
   does **not** alpha-test yet: with mesh shaders enabled, cutout geometry writes full depth.
   `MaterialAlphaMode::Blend` on a non-transparent asset resolves to Opaque — such a material is not
   in the sorted forward pass, so reporting Blend would describe a mode the frame never runs.
+  `AssimpMeshImporter` maps glTF `alphaMode` onto this: MASK becomes Cutout with the file's
+  `alphaCutoff`, and BLEND becomes a transparent asset.
+- **Two-sided materials draw without back-face culling in pre-depth and the G-buffer.**
+  `MaterialSurfaceParameters::TwoSided` (glTF `doubleSided` on import) and
+  `MaterialFlag::TwoSided` resolve through `MaterialScene::ResolveRasterState` into
+  `MeshKey::TwoSided`. Those draws use the two passes' no-cull variant pipelines, switched inside
+  each pass (the raster-variant rule in `Rendering.md`). `GBuffer_Static` lights back faces with the normal
+  flipped.
 - `FrameRenderPacket` is the per-frame snapshot that decouples submission from the live registry.
 - `RendererConfig::FramesInFlight` defaults to 3.
 - Selection outline jump-flood inputs are rebound inside the render queue for each iteration,

@@ -196,6 +196,9 @@ namespace Lux {
 
 		// Render Pass API
 		static void BeginRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, bool explicitClear = false);
+		// Inside an open pass: the draws that follow use `pipeline` (null: `renderPass`'s own) with
+		// `renderPass`'s descriptor sets. See RT_SwitchRenderPassPipeline.
+		static void SwitchRenderPassPipeline(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, Ref<Pipeline> pipeline = nullptr);
 		static void EndRenderPass(Ref<RenderCommandBuffer> renderCommandBuffer);
 
 		// Dynamic viewport/scissor control
@@ -253,6 +256,13 @@ namespace Lux {
 		// attachments flagged. False, with nothing recorded, when the pass cannot be recorded (logged
 		// once per pipeline); its draws are then skipped, as RT_DrawIndexed skips them outside a pass.
 		static bool RT_BeginRenderPass(RenderCommandBuffer& renderCommandBuffer, RenderPass& renderPass, const std::array<bool, MaxRenderTargets>& clearColor, bool clearDepth);
+		// Render thread, inside a pass begun with RT_BeginRenderPass: the draws that follow bind
+		// `pipeline` (null: `renderPass`'s own) with `renderPass`'s descriptor sets (prepared), in the
+		// open pass's attachments, viewport and scissor. A pass's variant pipelines (no culling, alpha
+		// tested) switch this way without splitting its rendering scope, so `pipeline` must use
+		// `renderPass`'s shader, and both must render to the open pass's attachment formats. False,
+		// with nothing changed, when the pipeline cannot be bound (logged once per pipeline).
+		static bool RT_SwitchRenderPassPipeline(RenderCommandBuffer& renderCommandBuffer, const RenderPass& renderPass, const Pipeline* pipeline = nullptr);
 		// Render thread, inside a pass begun with RT_BeginRenderPass: records `draw`. False, with
 		// nothing recorded, outside such a pass or when the draw cannot be recorded (logged once per
 		// pipeline).

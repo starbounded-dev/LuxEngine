@@ -350,6 +350,42 @@ namespace Lux {
 			LUX_CORE_ERROR_TAG("Renderer", "'{}' is not rendered: {}", name, reason);
 	}
 
+	// Fills the pipeline half of an NRI pass: `pipeline` with `renderPass`'s descriptor sets (prepared
+	// for this frame). Why it cannot be recorded, or null.
+	static const char* RT_FillNRIPassPipeline(const RenderPass& renderPass, const Pipeline& pipeline, RenderCommandBuffer::NRIRenderPassDesc& desc)
+	{
+		Ref<RHIShader> shader = pipeline.GetShader().As<RHIShader>();
+		if (!pipeline.GetNRIPipeline())
+			return "its pipeline has no NRI pipeline";
+		if (!shader->GetNRIPipelineLayout())
+			return "its shader has no NRI layout";
+
+		// The pass's own sets. A set the pass leaves to its materials is empty here and bound by the
+		// draws.
+		const uint32_t frameIndex = Renderer::RT_GetCurrentFrameIndex();
+		const uint32_t setCount = static_cast<uint32_t>(std::min(shader->GetShaderDescriptorSets().size(), desc.DescriptorSets.size()));
+		desc.DescriptorSets = {};
+		for (uint32_t set = 0; set < setCount; set++)
+		{
+			const uint32_t setIndex = shader->GetNRISetIndex(set);
+			if (setIndex == RHIShader::k_NoNRISet)
+				continue;
+
+			desc.DescriptorSets[setIndex] = renderPass.GetDescriptorSet(frameIndex, set);
+			if (!desc.DescriptorSets[setIndex].Set && renderPass.ManagesDescriptorSet(set))
+				return "one of its descriptor sets could not be built";
+		}
+
+		desc.PipelineLayout = shader->GetNRIPipelineLayout();
+		desc.Pipeline = pipeline.GetNRIPipeline();
+		desc.LineWidth = pipeline.IsDynamicLineWidth() ? pipeline.GetSpecification().LineWidth : 0.0f;
+		desc.DynamicShadingRate = pipeline.HasNRIDynamicShadingRate();
+		desc.DrawSetIndex = shader->GetNRISetIndex(0);
+		desc.VertexStride = pipeline.GetNRIVertexStride(0);
+		desc.RootConstants = shader->HasNRIRootConstants();
+		return nullptr;
+	}
+
 	// Records one compute dispatch: the pass's sets, and the material's at set 0 when it has a
 	// compatible one there. Skipped, logged once per shader, when an NRI object is missing.
 	static void RT_RecordDispatch(RenderCommandBuffer& commandBuffer, const ComputePass& computePass, Material* material, const glm::uvec3& workGroups, const Buffer& constants)
@@ -1005,6 +1041,16 @@ namespace Lux {
 			});
 	}
 
+	void Renderer::SwitchRenderPassPipeline(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<RenderPass> renderPass, Ref<Pipeline> pipeline)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		Renderer::Submit([renderCommandBuffer, renderPass, pipeline]() mutable
+			{
+				renderPass->Prepare();
+				RT_SwitchRenderPassPipeline(*renderCommandBuffer, *renderPass, pipeline.Raw());
+			});
+	}
+
 	void Renderer::SetFragmentShadingRate(Ref<RenderCommandBuffer> renderCommandBuffer, FragmentShadingRate rate)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -1479,31 +1525,13 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Pipeline> pipeline = renderPass.GetPipeline();
-		Ref<RHIShader> shader = pipeline->GetShader().As<RHIShader>();
 		Ref<Framebuffer> framebuffer = pipeline->GetSpecification().TargetFramebuffer;
 		const std::string& passName = renderPass.GetSpecification().DebugName;
 
-		const char* problem = !pipeline->GetNRIPipeline() ? "its pipeline has no NRI pipeline"
-			: !shader->GetNRIPipelineLayout() ? "its shader has no NRI layout"
-			: !framebuffer->HasNRIAttachments() ? "its framebuffer has no NRI attachments"
-			: framebuffer->HasStaleAttachments() ? "its framebuffer has stale attachments"
-			: nullptr;
-
-		// The pass's own sets. A set the pass leaves to its materials is empty here and bound by the
-		// draws.
 		RenderCommandBuffer::NRIRenderPassDesc desc;
-		const uint32_t frameIndex = RT_GetCurrentFrameIndex();
-		const uint32_t setCount = static_cast<uint32_t>(std::min(shader->GetShaderDescriptorSets().size(), desc.DescriptorSets.size()));
-		for (uint32_t set = 0; !problem && set < setCount; set++)
-		{
-			const uint32_t setIndex = shader->GetNRISetIndex(set);
-			if (setIndex == RHIShader::k_NoNRISet)
-				continue;
-
-			desc.DescriptorSets[setIndex] = renderPass.GetDescriptorSet(frameIndex, set);
-			if (!desc.DescriptorSets[setIndex].Set && renderPass.ManagesDescriptorSet(set))
-				problem = "one of its descriptor sets could not be built";
-		}
+		const char* problem = !framebuffer->HasNRIAttachments() ? "its framebuffer has no NRI attachments"
+			: framebuffer->HasStaleAttachments() ? "its framebuffer has stale attachments"
+			: RT_FillNRIPassPipeline(renderPass, *pipeline, desc);
 
 		if (problem)
 		{
@@ -1529,20 +1557,33 @@ namespace Lux {
 			desc.ClearDepthValue = clearValues.back().DepthStencil.Depth;
 		}
 
-		desc.PipelineLayout = shader->GetNRIPipelineLayout();
-		desc.Pipeline = pipeline->GetNRIPipeline();
-		desc.LineWidth = pipeline->IsDynamicLineWidth() ? pipeline->GetSpecification().LineWidth : 0.0f;
-		desc.DynamicShadingRate = pipeline->HasNRIDynamicShadingRate();
-		desc.DrawSetIndex = shader->GetNRISetIndex(0);
-		desc.VertexStride = pipeline->GetNRIVertexStride(0);
-		desc.RootConstants = shader->HasNRIRootConstants();
-
 		// The full-framebuffer viewport and the 1x1 shading rate every pass begins with.
 		const uint32_t width = framebuffer->GetWidth();
 		const uint32_t height = framebuffer->GetHeight();
 		const nri::Viewport viewport = { 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f, false };
 		const nri::Rect scissor = { 0, 0, static_cast<nri::Dim_t>(width), static_cast<nri::Dim_t>(height) };
 		return renderCommandBuffer.RT_BeginNRIRenderPass(desc, passName, viewport, scissor, MakeFragmentShadingRate(FragmentShadingRate::Rate1x1));
+	}
+
+	bool Renderer::RT_SwitchRenderPassPipeline(RenderCommandBuffer& renderCommandBuffer, const RenderPass& renderPass, const Pipeline* pipeline)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		Ref<Pipeline> passPipeline = renderPass.GetPipeline();
+		const Pipeline& target = pipeline ? *pipeline : *passPipeline;
+		LUX_CORE_ASSERT(target.GetShader() == passPipeline->GetShader(), "Pipeline '{}' does not use the shader of pass '{}'",
+			target.GetSpecification().DebugName, renderPass.GetSpecification().DebugName);
+		if (!renderCommandBuffer.RT_InNRIRenderPass())
+			return false;
+
+		RenderCommandBuffer::NRIRenderPassDesc desc;
+		if (const char* problem = RT_FillNRIPassPipeline(renderPass, target, desc))
+		{
+			ReportSkipped(&target, target.GetSpecification().DebugName, problem);
+			return false;
+		}
+
+		renderCommandBuffer.RT_SwitchNRIRenderPassPipeline(desc);
+		return true;
 	}
 
 	bool Renderer::RT_DrawIndexed(RenderCommandBuffer& renderCommandBuffer, const IndexedDraw& draw)

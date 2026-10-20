@@ -895,6 +895,10 @@ namespace Lux {
 			// A draw expanded from a GPU cull group (the GPU picks its instances and their LOD), kept
 			// apart from the CPU-bucketed draw of the same mesh, submesh and LOD.
 			bool        GPUCullGroup = false;
+			// The material's raster variant (MaterialScene::ResolveRasterState), so each draw has one
+			// pipeline: a two-sided material's depth-prepass and G-buffer draws take those passes'
+			// no-cull pipelines.
+			bool        TwoSided = false;
 
 			bool operator<(const MeshKey& o) const
 			{
@@ -904,7 +908,8 @@ namespace Lux {
 				if (MaterialHandle != o.MaterialHandle) return MaterialHandle < o.MaterialHandle;
 				if (StaticShadowCaster != o.StaticShadowCaster) return StaticShadowCaster < o.StaticShadowCaster;
 				if (IsSelected != o.IsSelected) return IsSelected < o.IsSelected;
-				return GPUCullGroup < o.GPUCullGroup;
+				if (GPUCullGroup != o.GPUCullGroup) return GPUCullGroup < o.GPUCullGroup;
+				return TwoSided < o.TwoSided;
 			}
 
 			bool operator==(const MeshKey& o) const
@@ -915,7 +920,8 @@ namespace Lux {
 					&& LODIndex == o.LODIndex
 					&& IsSelected == o.IsSelected
 					&& StaticShadowCaster == o.StaticShadowCaster
-					&& GPUCullGroup == o.GPUCullGroup;
+					&& GPUCullGroup == o.GPUCullGroup
+					&& TwoSided == o.TwoSided;
 			}
 		};
 
@@ -939,7 +945,8 @@ namespace Lux {
 				uint64_t hash = mix((uint64_t)key.MeshHandle);
 				hash = mix(hash ^ (uint64_t)key.MaterialHandle);
 				hash = mix(hash ^ ((uint64_t)key.SubmeshIndex | ((uint64_t)key.LODIndex << 32)));
-				hash = mix(hash ^ ((uint64_t)key.IsSelected | ((uint64_t)key.StaticShadowCaster << 1) | ((uint64_t)key.GPUCullGroup << 2)));
+				hash = mix(hash ^ ((uint64_t)key.IsSelected | ((uint64_t)key.StaticShadowCaster << 1) | ((uint64_t)key.GPUCullGroup << 2)
+					| ((uint64_t)key.TwoSided << 3)));
 				return (size_t)hash;
 			}
 		};
@@ -1179,6 +1186,7 @@ namespace Lux {
 			uint64_t ShaderSortKey = 0;
 			bool Transparent = false;
 			bool CastsShadows = false;
+			bool TwoSided = false; // MaterialScene::ResolveRasterState
 		};
 
 		// A proxy's SubmeshSubmitData, parallel to its SubmeshInstances. Valid while the proxy's
@@ -1197,8 +1205,10 @@ namespace Lux {
 		{
 			uint32_t Frame = std::numeric_limits<uint32_t>::max();
 			uint64_t GeometryPipeline = 0;
+			uint64_t GeometryTwoSidedPipeline = 0;
 			uint64_t TransparentGeometryPipeline = 0;
 			uint64_t PreDepthPipeline = 0;
+			uint64_t PreDepthTwoSidedPipeline = 0;
 			uint64_t PreDepthShader = 0;
 			uint64_t PreDepthMaterial = 0;
 			uint64_t SelectedPipeline = 0;
@@ -1687,6 +1697,8 @@ namespace Lux {
 
 		// ── Pre-depth pass ────────────────────────────────────────────────────
 		Ref<Pipeline>    m_PreDepthPipeline;
+		// Without back-face culling, for two-sided materials' draws (MeshKey::TwoSided).
+		Ref<Pipeline>    m_PreDepthTwoSidedPipeline;
 		Ref<Material>    m_PreDepthMaterial;
 		Ref<RenderPass>  m_PreDepthPass;
 		// Mesh-shader variant (created only when VK_EXT_mesh_shader is available).
@@ -1813,6 +1825,7 @@ namespace Lux {
 		Ref<Framebuffer> m_GeometryPassFramebuffer;     // GBuffer attachments
 		Ref<Framebuffer> m_SceneColorFramebuffer;       // HDR scene color shared by deferred/forward lighting
 		Ref<Pipeline>    m_GeometryPipeline;            // opaque GBuffer
+		Ref<Pipeline>    m_GeometryTwoSidedPipeline;    // opaque GBuffer without culling (MeshKey::TwoSided)
 		Ref<Pipeline>    m_TransparentGeometryPipeline; // transparent forward PBR
 		Ref<Pipeline>    m_DeferredLightingPipeline;    // fullscreen deferred lighting
 		Ref<RenderPass>  m_GeometryPass;                // opaque GBuffer
