@@ -169,13 +169,17 @@ namespace Lux {
 	void Application::PushLayer(Layer* layer)
 	{
 		m_LayerStack.PushLayer(layer);
+		m_AttachingLayer = true;
 		layer->OnAttach();
+		m_AttachingLayer = false;
 	}
 
 	void Application::PushOverlay(Layer* layer)
 	{
 		m_LayerStack.PushOverlay(layer);
+		m_AttachingLayer = true;
 		layer->OnAttach();
+		m_AttachingLayer = false;
 	}
 
 	void Application::PopLayer(Layer* layer)
@@ -475,8 +479,10 @@ namespace Lux {
 		dispatcher.Dispatch<WindowMinimizeEvent>([this](WindowMinimizeEvent& e) { return OnWindowMinimize(e); });
 		dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent& e) { return OnWindowClose(e); });
 
-		// A startup frame runs inside a layer's OnAttach, so the layers are not ready for events.
-		if (m_InStartupFrame)
+		// A layer is on the stack before its OnAttach builds its members, and OnAttach can pump the
+		// window: startup frames poll events, and on Wayland glfwShowWindow's roundtrip delivers the
+		// configure (a resize) synchronously. The layers are not ready for events until it returns.
+		if (m_InStartupFrame || m_AttachingLayer)
 			return;
 
 		for (auto it = m_LayerStack.end(); it != m_LayerStack.begin(); )

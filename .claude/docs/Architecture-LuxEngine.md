@@ -180,7 +180,10 @@ them. Nothing per-user belongs in the repo.
 
 **Layers** (`Layer.h`, `LayerStack.h`): `OnAttach` / `OnDetach` / `OnUpdate(Timestep)` /
 `OnImGuiRender` / `OnEvent`. `PushLayer` for regular, `PushOverlay` for top. The editor and the
-runtime each supply one.
+runtime each supply one. A layer is on the stack before its `OnAttach` runs, but no layer receives
+events until it returns (`m_AttachingLayer`): `OnAttach` can pump the window before the layer's
+members exist (startup frames, and on Wayland `glfwShowWindow`'s roundtrip delivers a resize
+synchronously), so `OnEvent` may assume a fully attached layer.
 
 **Frame loop** — see `.claude/docs/Threading.md § The frame loop` for the exact ordering. Do not add
 per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.

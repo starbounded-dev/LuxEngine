@@ -186,6 +186,7 @@ namespace Lux {
 		ApplicationSpecification m_Specification;
 		bool m_Running = true, m_Minimized = false;
 		bool m_InStartupFrame = false;   // inside RenderStartupFrame: OnEvent stops before the layers
+		bool m_AttachingLayer = false;   // inside a layer's OnAttach: OnEvent stops before the layers
 		LayerStack m_LayerStack;
 		ImGuiLayer* m_ImGuiLayer = nullptr; // Stays null when EnableImGui is off (Dist runtime).
 		Timestep m_Frametime;
