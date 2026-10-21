@@ -108,6 +108,7 @@ graph TB
 | Project | `Core/Source/Lux/Project/` | `Project.h`, `ProjectSerializer.h`, `UserPreferences.h` |
 | Serialization | `Core/Source/Lux/Serialization/` | `AssetPack.h`, `StreamReader/Writer.h` |
 | Social | `Core/Source/Lux/Social/` | `DiscordSocial.h` |
+| VR | `Core/Source/Lux/VR/` | `VRSession.h`, `LuxOpticTracker.h`, `LuxOpticConfig.h`, `StereoRig.h` |
 | Build | repo root | `premake5.lua`, `Dependencies.lua`, `scripts/` |
 
 ### System dependency rules
@@ -121,6 +122,7 @@ Violations block the editor/runtime split and are rejected in review.
 | Renderer / SceneRenderer | Scene (read, via packet), Asset, Core | `Editor/Source/**`, Physics, ScriptEngine |
 | ScriptEngine | Scene, Asset, Core (via ScriptGlue) | Renderer, `Editor/Source/**` |
 | Asset system | Core, Project | Renderer internals, `Editor/Source/**` |
+| VR | Scene (frame packet build/submit), Renderer, Core (`HID`, `Thread`, `Input`), Utilities, Serialization | `Editor/Source/**`, Physics, ScriptEngine; and nothing in Scene or Renderer includes VR |
 | Editor panels | everything in `Core` | — (engine code never includes editor-app headers) |
 
 Two notes specific to LuxEngine:
@@ -631,7 +633,10 @@ controller by GUID into `GamepadFamily` (Xbox = GLFW's "xinput" GUID prefix or v
 - `Lux::HID` (`HID.h`/`HID.cpp`, `Core/Platform/{Windows,Linux}/*HID.cpp`: SetupAPI+hid.lib / hidraw)
   with `HID::DeviceGroup` = every USB device of one model. USB only by design: any Bluetooth output
   report flips PlayStation pads into enhanced input mode, which DirectInput/GLFW cannot read until
-  reconnect; Bluetooth pads are skipped with a one-time warning.
+  reconnect; Bluetooth pads are skipped with a one-time warning. `HID::InputDevice` reads input
+  reports with a timeout (Windows: overlapped `ReadFile`, queue cut to the minimum 2 reports and
+  flushed on open; Linux: `poll` + `read`), for the VR head tracker (§ 2.16). `Enumerate` may run on
+  any thread, a handle or `InputDevice` on one thread at a time, `DeviceGroup` on main only.
 - `DualSense.*`: USB report 0x02 (48 B) — trigger effects always; rumble too on Windows.
   `DualShock4.*`: USB report 0x05 (32 B), motor flag only (lightbar untouched). Windows only in practice.
 - `PlatformRumble` (`GamepadRumble.h`, `Core/Platform/<OS>/<OS>GamepadRumble.cpp`): Windows = XInput
@@ -1217,6 +1222,39 @@ SDK callbacks land on the main thread and presence state needs no locking.
 `MetaHelpers.h`. Compile-time type-name and structure helpers used by the script and serialization
 layers.
 
+### 2.16 VR
+
+Native, 3DoF output for the **LUX OPTIC** DIY headset (an IMU tracker over USB HID, two panels
+driven as one extra monitor), without SteamVR. The phased plan is `docs/VR_PLAN.md`; this section
+describes what is built: Phase 1 is head-tracked **mono** in `Lux-Runtime`, with no stereo,
+distortion or headset window yet.
+
+- `VRSession` (`VR/VRSession.h`, `RefCounted`, main thread) is what a host owns: Lux-Runtime with
+  `--vr` (or `VR: true` in `RuntimeSettings.yaml`). `OnUpdate` follows the tracker and the mouse
+  fallback (hold Alt and move the mouse while no tracker is connected). `OnKeyPressed` takes `Ctrl+F5`
+  recenter, `Ctrl+F6` stats, `Ctrl+F8` reload the settings. `Render(scene, renderer, size)` builds the
+  scene's **runtime** frame packet (`BuildRenderPacketRuntime`), rewrites its camera and overlay
+  matrices for the head, forces DOF off, and `SubmitRenderPacket`s it. That is one sync of
+  `m_RuntimeRenderScene` per frame, as the plain runtime path does. It keeps one packet as a member
+  for its list capacity and `Reset`s it after the submit, so it holds no scene resources between frames.
+- `StereoRig` (free functions) is the head math. The scene camera is the body: its position and
+  **heading** only. The head rotation goes on top, so the game's pitch and roll never tilt the
+  horizon. Eyes are offset ±IPD/2 along the head's X; the projection is a symmetric reverse-Z
+  `Camera::SetPerspectiveProjectionMatrix` of the configured FOV. `ApplyEyeCamera` edits the packet's
+  camera in place (exposure kept). The tracker's axes are the engine's (+X right, +Y up, −Z forward),
+  so there is no conversion.
+- `LuxOpticTracker` reads input report 1 (w, x, y, z little-endian floats, ~1000/s, USB 303A:1001)
+  on its own `Lux::Thread` "Head Tracker" through `HID::InputDevice`. It drains to the newest
+  report, reconnects every 500 ms, and shares the pose under a mutex. The destructor joins; reads time
+  out at 100 ms, so stopping is bounded. `Recenter` is yaw-only.
+- `LuxOpticConfig` is the headset's measurements and calibration in `LuxOptic.yaml` under
+  `FileSystem::GetPersistentStoragePath()`: per machine, shared by the editor and every export,
+  never in a project. `VRSession` writes the defaults when the file is missing and otherwise only
+  reads it. Missing keys keep defaults; bad or out-of-range values are clamped and logged once per
+  load.
+- Runtime ImGui overlays (the accessibility menu) are skipped while VR is on: screen-space UI does
+  not belong on a headset.
+
 ---
 
 ## Part 3: Cross-Cutting Concerns
@@ -1375,6 +1413,7 @@ luxengine/
 │   │       ├── Reflection/        # TypeDescriptor / TypeName / TypeUtils
 │   │       ├── Debug/             # Profiler.h (Tracy wrappers)
 │   │       ├── Social/            # DiscordSocial
+│   │       ├── VR/                # VRSession, LuxOpticTracker, LuxOpticConfig, StereoRig
 │   │       ├── Tiering/           # TieringSerializer
 │   │       └── Embed/             # LuxIcon.embed
 │   ├── Platform/{Windows,Linux}/  # Per-platform FileSystem / Thread / RenderThread / NativeWindow

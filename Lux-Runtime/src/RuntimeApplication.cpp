@@ -35,7 +35,7 @@ namespace Lux
 			return projectPath / s_RuntimeProjectFile;
 		}
 
-		void ApplyRuntimeSettings(ApplicationSpecification& specification, const std::filesystem::path& projectPath)
+		void ApplyRuntimeSettings(ApplicationSpecification& specification, const std::filesystem::path& projectPath, bool& enableVR)
 		{
 			const std::filesystem::path runtimeProjectFile = ResolveRuntimeProjectFile(projectPath);
 			const std::filesystem::path settingsFile = runtimeProjectFile.parent_path() / s_RuntimeSettingsFile;
@@ -62,6 +62,8 @@ namespace Lux
 			specification.WindowHeight = runtimeNode["WindowHeight"].as<uint32_t>(specification.WindowHeight);
 			specification.Fullscreen = runtimeNode["Fullscreen"].as<bool>(specification.Fullscreen);
 			specification.VSync = runtimeNode["VSync"].as<bool>(specification.VSync);
+			// A game made for the LUX OPTIC headset can start in VR without --vr.
+			enableVR = runtimeNode["VR"].as<bool>(enableVR);
 
 			// Optional per-game threading override (defaults to whatever CreateApplication resolved).
 			const std::string threadingPolicy = runtimeNode["ThreadingPolicy"].as<std::string>("");
@@ -96,8 +98,8 @@ namespace Lux
 	class RuntimeApplication : public Application
 	{
 	public:
-		RuntimeApplication(const ApplicationSpecification& specification, std::filesystem::path projectPath)
-			: Application(specification), m_ProjectPath(std::move(projectPath))
+		RuntimeApplication(const ApplicationSpecification& specification, std::filesystem::path projectPath, bool enableVR)
+			: Application(specification), m_ProjectPath(std::move(projectPath)), m_EnableVR(enableVR)
 		{
 			s_IsRuntime = true;
 
@@ -108,11 +110,12 @@ namespace Lux
 
 		void OnInit() override
 		{
-			PushLayer(new RuntimeLayer(m_ProjectPath));
+			PushLayer(new RuntimeLayer(m_ProjectPath, m_EnableVR));
 		}
 
 	private:
 		std::filesystem::path m_ProjectPath;
+		bool m_EnableVR = false;
 	};
 
 	Application* CreateApplication(int argc, char** argv)
@@ -154,9 +157,20 @@ namespace Lux
 			ApplicationSettings settings("App.lsettings");
 			specification.CoreThreadingPolicy = ThreadingPolicyFromString(settings.Get("Core.ThreadingPolicy", "Multi"));
 		}
-		ApplyRuntimeSettings(specification, projectPath);
+		bool enableVR = false;
+		ApplyRuntimeSettings(specification, projectPath, enableVR);
+
+		// --vr wins over the settings file. It takes no value, so a raw argument right after it was
+		// meant as the project path; the parser cannot tell, so say how to write it instead.
+		if (cli.HaveOpt("vr"))
+		{
+			enableVR = true;
+			if (const std::string_view value = cli.GetOpt("vr"); !value.empty())
+				LUX_CORE_WARN_TAG("VR", "'--vr' takes no value but was given '{}'. Put the project path first, or pass it as --project=<path>.", value);
+		}
+
 		ApplyRuntimeShaderPack(specification, projectPath);
 
-		return new RuntimeApplication(specification, projectPath);
+		return new RuntimeApplication(specification, projectPath, enableVR);
 	}
 }

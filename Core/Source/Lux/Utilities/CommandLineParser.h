@@ -22,6 +22,7 @@ namespace Lux {
 		/// e.g. `-C foo': `GetOpt("C")' -> `"foo"'
 		/// `opt' is taken in the form *without* the leading `-' or `/'
 		std::string_view GetOpt(const std::string& name);
+		/// Whether a named option was given at all, with or without a value
 		bool HaveOpt(const std::string& name);
 
 	private:

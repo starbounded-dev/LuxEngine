@@ -15,6 +15,9 @@ namespace Lux::HID {
 
 	namespace {
 
+		// The HID class driver's minimum input queue (its default is 32 reports).
+		constexpr ULONG kMinInputBuffers = 2;
+
 		std::string ToUTF8(const wchar_t* wide)
 		{
 			const int size = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
@@ -121,6 +124,121 @@ namespace Lux::HID {
 	{
 		if (device != InvalidDevice)
 			CloseHandle(reinterpret_cast<HANDLE>(device));
+	}
+
+	struct InputDevice::Impl
+	{
+		HANDLE Handle = INVALID_HANDLE_VALUE;
+		HANDLE ReadEvent = nullptr;
+		OVERLAPPED Overlapped{};
+		// ReadFile must be given room for a whole report (InputReportByteLength), and a read that
+		// timed out stays pending into this buffer, so it belongs to the device, not the caller.
+		std::vector<uint8_t> Report;
+		bool ReadPending = false;
+	};
+
+	InputDevice::InputDevice()
+		: m_Impl(CreateScope<Impl>())
+	{
+	}
+
+	InputDevice::~InputDevice()
+	{
+		Close();
+	}
+
+	bool InputDevice::Open(const std::string& path)
+	{
+		Close();
+
+		HANDLE handle = CreateFileW(ToWide(path).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+		if (handle == INVALID_HANDLE_VALUE)
+			return false;
+
+		size_t reportSize = 0;
+		PHIDP_PREPARSED_DATA preparsed = nullptr;
+		if (HidD_GetPreparsedData(handle, &preparsed))
+		{
+			HIDP_CAPS caps{};
+			if (HidP_GetCaps(preparsed, &caps) == HIDP_STATUS_SUCCESS)
+				reportSize = caps.InputReportByteLength;
+			HidD_FreePreparsedData(preparsed);
+		}
+
+		HANDLE readEvent = reportSize > 0 ? CreateEventW(nullptr, TRUE, FALSE, nullptr) : nullptr;
+		if (!readEvent)
+		{
+			// No input reports on this collection, or no event to wait on.
+			CloseHandle(handle);
+			return false;
+		}
+
+		HidD_SetNumInputBuffers(handle, kMinInputBuffers);
+		HidD_FlushQueue(handle);
+
+		m_Impl->Handle = handle;
+		m_Impl->ReadEvent = readEvent;
+		m_Impl->Report.assign(reportSize, 0);
+		m_Impl->ReadPending = false;
+		return true;
+	}
+
+	void InputDevice::Close()
+	{
+		if (m_Impl->Handle == INVALID_HANDLE_VALUE)
+			return;
+
+		if (m_Impl->ReadPending)
+		{
+			// The pending read still writes into Report and Overlapped: wait until it is cancelled.
+			CancelIoEx(m_Impl->Handle, &m_Impl->Overlapped);
+			DWORD ignored = 0;
+			GetOverlappedResult(m_Impl->Handle, &m_Impl->Overlapped, &ignored, TRUE);
+			m_Impl->ReadPending = false;
+		}
+
+		CloseHandle(m_Impl->ReadEvent);
+		CloseHandle(m_Impl->Handle);
+		m_Impl->ReadEvent = nullptr;
+		m_Impl->Handle = INVALID_HANDLE_VALUE;
+	}
+
+	bool InputDevice::IsOpen() const
+	{
+		return m_Impl->Handle != INVALID_HANDLE_VALUE;
+	}
+
+	int InputDevice::Read(uint8_t* buffer, size_t size, uint32_t timeoutMs)
+	{
+		if (!IsOpen())
+			return -1;
+
+		if (!m_Impl->ReadPending)
+		{
+			m_Impl->Overlapped = {};
+			m_Impl->Overlapped.hEvent = m_Impl->ReadEvent;
+			ResetEvent(m_Impl->ReadEvent);
+			if (!ReadFile(m_Impl->Handle, m_Impl->Report.data(), static_cast<DWORD>(m_Impl->Report.size()), nullptr, &m_Impl->Overlapped)
+				&& GetLastError() != ERROR_IO_PENDING)
+				return -1;
+
+			m_Impl->ReadPending = true;
+		}
+
+		const DWORD wait = WaitForSingleObject(m_Impl->ReadEvent, timeoutMs);
+		if (wait == WAIT_TIMEOUT)
+			return 0;
+		if (wait != WAIT_OBJECT_0)
+			return -1;   // the read stays pending; Close cancels it
+
+		m_Impl->ReadPending = false;
+		DWORD bytesRead = 0;
+		if (!GetOverlappedResult(m_Impl->Handle, &m_Impl->Overlapped, &bytesRead, FALSE))
+			return -1;   // unplugged
+
+		const size_t copied = std::min(static_cast<size_t>(bytesRead), size);
+		std::memcpy(buffer, m_Impl->Report.data(), copied);
+		return static_cast<int>(copied);
 	}
 
 }

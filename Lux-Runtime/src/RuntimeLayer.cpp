@@ -41,8 +41,8 @@ namespace Lux
 		}
 	}
 
-	RuntimeLayer::RuntimeLayer(std::filesystem::path projectPath)
-		: m_ProjectPath(std::move(projectPath))
+	RuntimeLayer::RuntimeLayer(std::filesystem::path projectPath, bool enableVR)
+		: m_ProjectPath(std::move(projectPath)), m_EnableVR(enableVR)
 	{
 	}
 
@@ -75,11 +75,17 @@ namespace Lux
 		if (ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer())
 			imguiLayer->SetClearMainViewport(false);
 
+		if (m_EnableVR)
+			m_VRSession = Ref<VRSession>::Create();
+
 		OnScenePlay();
 	}
 
 	void RuntimeLayer::OnDetach()
 	{
+		// Stops the tracker thread.
+		m_VRSession = nullptr;
+
 		OnSceneStop();
 
 		if (m_SceneRenderer)
@@ -238,6 +244,11 @@ namespace Lux
 
 	void RuntimeLayer::OnImGuiRender()
 	{
+		// Screen-space UI drawn over the image would sit flat, undistorted and at the same place in
+		// both eyes of the headset. VR UI belongs in the world (docs/VR_PLAN.md follow-ups).
+		if (m_VRSession)
+			return;
+
 		if (!m_RuntimeScene || !AudioAccessibility::IsActive() || !AudioAccessibility::GetConfig().BuiltInUI)
 			return;
 		const bool wasOpen = m_ShowAudioAccessibility;
@@ -298,7 +309,15 @@ namespace Lux
 		m_Renderer2DProjection = glm::ortho(0.0f, (float)width, 0.0f, (float)height);
 
 		m_RuntimeScene->OnUpdateRuntime(ts);
-		m_RuntimeScene->OnRenderRuntime(m_SceneRenderer);
+		if (m_VRSession)
+		{
+			m_VRSession->OnUpdate();
+			m_VRSession->Render(m_RuntimeScene, m_SceneRenderer, { width, height });
+		}
+		else
+		{
+			m_RuntimeScene->OnRenderRuntime(m_SceneRenderer);
+		}
 
 		DrawRuntimeOverlay();
 		SubmitFinalImageToSwapChain();
@@ -335,24 +354,27 @@ namespace Lux
 
 	void RuntimeLayer::DrawRuntimeOverlay()
 	{
-		if (!m_Renderer2D || (!m_ShowDebugDisplay && !ShouldShowIntroVersion()))
+		const bool showVRStats = m_VRSession && m_VRSession->IsStatsVisible();
+		if (!m_Renderer2D || (!m_ShowDebugDisplay && !showVRStats && !ShouldShowIntroVersion()))
 			return;
 
 		m_Renderer2D->SetTargetFramebuffer(m_SceneRenderer->GetExternalCompositeFramebuffer());
 		m_Renderer2D->BeginScene(m_Renderer2DProjection, glm::mat4(1.0f));
 
+		glm::vec2 statsPosition = { 20.0f, (float)m_Height - 35.0f };
 		if (m_ShowDebugDisplay)
-			DrawDebugStats();
+			DrawDebugStats(statsPosition);
+		if (showVRStats)
+			DrawVRStats(statsPosition);
 		if (ShouldShowIntroVersion())
 			DrawVersionInfo();
 
 		m_Renderer2D->EndScene();
 	}
 
-	void RuntimeLayer::DrawDebugStats()
+	void RuntimeLayer::DrawDebugStats(glm::vec2& position)
 	{
 		const float fontSize = 22.0f;
-		glm::vec2 position = { 20.0f, (float)m_Height - 35.0f };
 
 		DrawString(std::format("{} fps", m_FramesPerSecond), position, { 0.2f, 1.0f, 0.2f, 1.0f }, fontSize);
 		position.y -= fontSize;
@@ -367,6 +389,27 @@ namespace Lux
 		DrawString(std::format("{}/{} VRAM", Utils::BytesToString(gpuStats.Used), Utils::BytesToString(gpuStats.TotalAvailable)), position, { 0.2f, 1.0f, 0.2f, 1.0f }, fontSize);
 		position.y -= fontSize;
 		DrawString(std::format("{} draws, {} instances", Renderer::GetDrawcallCount(), Renderer::GetInstanceCount()), position, { 0.2f, 1.0f, 0.2f, 1.0f }, fontSize);
+		// The next block starts after a blank line.
+		position.y -= 2.0f * fontSize;
+	}
+
+	void RuntimeLayer::DrawVRStats(glm::vec2& position)
+	{
+		const float fontSize = 22.0f;
+		const glm::vec4 color = { 0.4f, 0.8f, 1.0f, 1.0f };
+		const VRSession::Stats stats = m_VRSession->GetStats();
+
+		if (stats.TrackerConnected)
+			DrawString(std::format("VR  tracker connected, {} reports/s", stats.TrackerReportsPerSecond), position, color, fontSize);
+		else
+			DrawString(stats.MouseHead ? "VR  no tracker: mouse head" : "VR  no tracker: hold Alt and move the mouse to turn the head", position, color, fontSize);
+		position.y -= fontSize;
+		DrawString(std::format("yaw {:6.1f}  pitch {:6.1f}  roll {:6.1f}", stats.HeadYawPitchRoll.x, stats.HeadYawPitchRoll.y, stats.HeadYawPitchRoll.z), position, color, fontSize);
+		position.y -= fontSize;
+		DrawString(std::format("{:.2f} ms frame, {:.2f} ms GPU", m_FrameTime, m_GPUTime), position, color, fontSize);
+		position.y -= fontSize;
+		DrawString("Ctrl+F5 recenter  Ctrl+F6 hide  Ctrl+F8 reload settings", position, color, fontSize);
+		position.y -= 2.0f * fontSize;
 	}
 
 	void RuntimeLayer::DrawVersionInfo()
@@ -425,7 +468,7 @@ namespace Lux
 				return true;
 			}
 
-			return false;
+			return m_VRSession && m_VRSession->OnKeyPressed(keyEvent);
 		});
 	}
 }

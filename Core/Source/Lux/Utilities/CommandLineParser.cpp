@@ -66,7 +66,9 @@ namespace Lux {
 		return "";
 	}
 
-	bool CommandLineParser::HaveOpt(const std::string& name) {
-		return !GetOpt(name).empty();
+	bool CommandLineParser::HaveOpt(const std::string& name)
+	{
+		// Presence, not a value: a flag such as `--vr' at the end of the command line has none.
+		return std::any_of(m_Opts.begin(), m_Opts.end(), [&name](const Opt& opt) { return !opt.raw && opt.name == name; });
 	}
 }

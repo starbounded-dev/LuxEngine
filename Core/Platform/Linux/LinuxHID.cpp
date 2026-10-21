@@ -5,8 +5,10 @@
 #include "Lux/Core/HID.h"
 
 #include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <filesystem>
 #include <fstream>
 
@@ -70,6 +72,71 @@ namespace Lux::HID {
 	{
 		if (device != InvalidDevice)
 			::close((int)device);
+	}
+
+	// hidraw queues reports per open file, from the moment it was opened, so there is nothing stale
+	// to flush; it has no queue-size control, and readers drain to the newest report themselves.
+	struct InputDevice::Impl
+	{
+		int File = -1;
+	};
+
+	InputDevice::InputDevice()
+		: m_Impl(CreateScope<Impl>())
+	{
+	}
+
+	InputDevice::~InputDevice()
+	{
+		Close();
+	}
+
+	bool InputDevice::Open(const std::string& path)
+	{
+		Close();
+
+		// Read access to /dev/hidrawN needs a udev rule as well (e.g. TAG+="uaccess" for the device).
+		const int file = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (file < 0)
+			return false;
+
+		m_Impl->File = file;
+		return true;
+	}
+
+	void InputDevice::Close()
+	{
+		if (m_Impl->File < 0)
+			return;
+
+		::close(m_Impl->File);
+		m_Impl->File = -1;
+	}
+
+	bool InputDevice::IsOpen() const
+	{
+		return m_Impl->File >= 0;
+	}
+
+	int InputDevice::Read(uint8_t* buffer, size_t size, uint32_t timeoutMs)
+	{
+		if (!IsOpen())
+			return -1;
+
+		pollfd request{ m_Impl->File, POLLIN, 0 };
+		const int ready = ::poll(&request, 1, static_cast<int>(timeoutMs));
+		if (ready < 0)
+			return errno == EINTR ? 0 : -1;
+		if (ready == 0)
+			return 0;
+		if (request.revents & (POLLERR | POLLHUP | POLLNVAL))
+			return -1;   // unplugged
+
+		const ssize_t bytesRead = ::read(m_Impl->File, buffer, size);
+		if (bytesRead < 0)
+			return (errno == EAGAIN || errno == EINTR) ? 0 : -1;
+
+		return static_cast<int>(bytesRead);
 	}
 
 }

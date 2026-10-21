@@ -44,6 +44,7 @@ not just the render thread.
 | **JobSystem workers** | Data-parallel compute over disjoint indices (transform/cull fan-out) | ImGui, NRI, ECS mutation, anything order-dependent |
 | **Asset worker** (`EditorAssetSystem` / `RuntimeAssetSystem`) | File I/O, decode, import; creating GPU resources *via* `Renderer::Submit` | Touching the asset registry directly; ImGui; direct NRI calls |
 | **Jolt's internal pool** | Physics jobs Jolt schedules itself | Anything engine-side |
+| **VR head tracker** (`LuxOpticTracker`, "Head Tracker", only while a `VRSession` exists) | Blocking HID reads (100 ms timeout) and writing the latest pose under its mutex; logging | Everything else: no ECS, assets, ImGui, `Renderer::Submit` or NRI. It runs under **both** policies, because it never touches the engine |
 | **Simulation thread** | (scaffolded, currently unwired — see below) | — |
 
 Detection helpers: `Application::IsMainThread()` / `Application::GetMainThreadID()`, and

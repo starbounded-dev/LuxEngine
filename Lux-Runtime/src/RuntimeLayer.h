@@ -7,6 +7,7 @@
 
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Serialization/AssetPack.h"
+#include "Lux/VR/VRSession.h"
 
 #include <filesystem>
 
@@ -17,7 +18,8 @@ namespace Lux
 	class RuntimeLayer : public Layer
 	{
 	public:
-		explicit RuntimeLayer(std::filesystem::path projectPath);
+		// `enableVR`: render through a VRSession (--vr, or VR in RuntimeSettings.yaml).
+		RuntimeLayer(std::filesystem::path projectPath, bool enableVR);
 		virtual ~RuntimeLayer() = default;
 
 		void OnAttach() override;
@@ -38,7 +40,9 @@ namespace Lux
 		void SubmitCommandBufferToSwapChain();
 
 		void DrawRuntimeOverlay();
-		void DrawDebugStats();
+		// Both draw downwards from `position` and leave it below their last line.
+		void DrawDebugStats(glm::vec2& position);
+		void DrawVRStats(glm::vec2& position);
 		void DrawVersionInfo();
 		void DrawString(const std::string& text, const glm::vec2& position, const glm::vec4& color = glm::vec4(1.0f), float size = 24.0f, bool shadow = true);
 		void UpdateFPSStat();
@@ -53,6 +57,9 @@ namespace Lux
 		Ref<SceneRenderer> m_SceneRenderer;
 		Ref<Renderer2D> m_Renderer2D;
 		Ref<AssetPack> m_AssetPack;
+
+		bool m_EnableVR = false;
+		Ref<VRSession> m_VRSession;
 
 		Ref<RenderCommandBuffer> m_CommandBuffer;
 		Ref<Framebuffer> m_SwapChainFramebuffer;
