@@ -5,7 +5,7 @@ panels behind magnifier lenses, driven as one extra monitor), without SteamVR. T
 reading the tracker to a calibrated, lens-corrected stereo image on the headset. It is a planning
 document, not a description of what exists. Once phases land, `.claude/docs/Architecture-LuxEngine.md`
 (the new § 2.16 VR) is the authority for what is built. Hardware facts and the protocol come from
-`vr/VR_SUPPORT.md`; where that guide and the engine disagree, this plan follows the engine and says
+`docs/VR_SUPPORT.md`; where that guide and the engine disagree, this plan follows the engine and says
 so (§ Deviations from VR_SUPPORT.md).
 
 ## Goal card
@@ -97,7 +97,7 @@ means the code exists but has never been used this way.
 | Dynamic resolution per renderer | ⚠️ Conflict | `SceneRendererOptions::ResolutionScaleMode::Dynamic` follows each renderer's own GPU time |
 | Temporal techniques | ✅ None ship | `SceneRenderer.h:313`: removed outright |
 | Earlier VR / stereo / OpenXR work | ❌ None | `git log` and source grep find nothing |
-| Hardware | Tracker ✅ (`vr/tracker_test.cpp` works for the user); display board ❌ not received; lenses not chosen | `vr/VR_SUPPORT.md § 1` |
+| Hardware | Tracker ✅ (`vr/tracker_test.cpp` works for the user); display board ❌ not received; lenses not chosen | `docs/VR_SUPPORT.md § 1` |
 
 ---
 
