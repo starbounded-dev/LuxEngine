@@ -36,7 +36,8 @@ void main()
 	mat4 transform = GetInstanceTransform(objectIndex);
 	vec4 worldPosition = transform * vec4(a_Position, 1.0);
 
-	OutputTexCoord = a_TexCoord;
+	// The UVs GBuffer_Static samples, or the two passes discard different texels.
+	OutputTexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
 	OutputObjectIndex = objectIndex;
 	OutputViewPosition = vec3(u_Camera.ViewMatrix * worldPosition);
 

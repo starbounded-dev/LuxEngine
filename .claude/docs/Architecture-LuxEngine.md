@@ -344,7 +344,7 @@ Structurally:
   `GPUMaterials`, `r_MaterialSampler` and `RendererData` plus its `BindlessTextureTable` (the
   bindless `u_GPUMaterialTextures`, set 4) — bound explicitly, not via `BindSceneRenderPassInputs(PassInputMaterialScene)`, because that would
   also rebind `ObjectIndexes` to the *visible* set and pre-depth uses the unculled one. The two
-  passes must discard identically (same UV, same mip bias, same cutoff) or the G-buffer fails its
+  passes must discard identically (same UV — the G-buffer's `(u, 1 − v)` — same mip bias, same cutoff) or the G-buffer fails its
   depth-equal test, so `GetMaterialMipBias` is duplicated verbatim in both shaders. `PreDepth_Meshlet`
   does **not** alpha-test yet: with mesh shaders enabled, cutout geometry writes full depth.
   Shadows alpha-test too: a Cutout caster (`MeshKey::AlphaMasked`) draws through

@@ -30,7 +30,8 @@ void main()
 	uint objectIndex = u_Renderer.ObjectIndexBase + gl_InstanceIndex;
 	mat4 transform = GetInstanceTransform(objectIndex);
 
-	OutputTexCoord = a_TexCoord;
+	// The UVs GBuffer_Static samples, so the shadow is cut from the mask that is drawn.
+	OutputTexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
 	OutputObjectIndex = objectIndex;
 	gl_Position = u_SpotLightMatrices.Mats[u_Renderer.LightIndex] * transform * vec4(a_Position, 1.0);
 }
