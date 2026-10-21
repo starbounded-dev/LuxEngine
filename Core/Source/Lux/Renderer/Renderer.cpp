@@ -497,8 +497,10 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Wireframe_Anim.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Skybox.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap_Masked.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap_Anim.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SpotShadowMap.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SpotShadowMap_Masked.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SpotShadowMap_Anim.glsl");
 
 		//SSR

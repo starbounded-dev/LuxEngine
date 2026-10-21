@@ -1516,6 +1516,27 @@ namespace Lux {
 
 			m_ShadowMapPass = m_ShadowMapPasses[0];
 			m_ShadowPassMaterial = Material::Create(shadowPassShader, "ShadowPass");
+
+			// Alpha-tested casters: one pipeline serves every cascade pass, which all render DEPTH32F.
+			{
+				PipelineSpecification maskedPipelineSpec = m_ShadowMapPass->GetPipeline()->GetSpecification();
+				maskedPipelineSpec.DebugName = "DirShadowMap-Masked";
+				maskedPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("DirShadowMap_Masked");
+
+				RenderPassSpecification maskedRPSpec;
+				maskedRPSpec.DebugName = "ShadowMapMaskedPass";
+				maskedRPSpec.Pipeline = Pipeline::Create(maskedPipelineSpec);
+
+				m_ShadowMapMaskedPass = RenderPass::Create(maskedRPSpec);
+				m_ShadowMapMaskedPass->SetInput("ShadowData", m_UBSShadow);
+				m_ShadowMapMaskedPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+				m_ShadowMapMaskedPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+				SetRenderPassInputIfValid(m_ShadowMapMaskedPass, "GPUMaterials", m_SBSGPUMaterials);
+				SetRenderPassInputIfValid(m_ShadowMapMaskedPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
+				m_ShadowMapMaskedPass->SetBindlessTextures(m_BindlessTextures);
+				LUX_CORE_VERIFY(m_ShadowMapMaskedPass->Validate());
+				m_ShadowMapMaskedPass->Bake();
+			}
 		}
 
 		// ── Spot shadow atlas (single depth atlas) ───────────────────────────
@@ -1603,6 +1624,24 @@ namespace Lux {
 			m_SpotShadowDynamicPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
 			LUX_CORE_VERIFY(m_SpotShadowDynamicPass->Validate());
 			m_SpotShadowDynamicPass->Bake();
+
+			PipelineSpecification maskedPipelineSpec = pipelineSpec;
+			maskedPipelineSpec.DebugName = "SpotShadowMap-Masked";
+			maskedPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("SpotShadowMap_Masked");
+
+			RenderPassSpecification maskedRPSpec;
+			maskedRPSpec.DebugName = "SpotShadowMaskedPass";
+			maskedRPSpec.Pipeline = Pipeline::Create(maskedPipelineSpec);
+
+			m_SpotShadowMaskedPass = RenderPass::Create(maskedRPSpec);
+			m_SpotShadowMaskedPass->SetInput("SpotShadowData", m_UBSSpotShadow);
+			m_SpotShadowMaskedPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
+			m_SpotShadowMaskedPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+			SetRenderPassInputIfValid(m_SpotShadowMaskedPass, "GPUMaterials", m_SBSGPUMaterials);
+			SetRenderPassInputIfValid(m_SpotShadowMaskedPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
+			m_SpotShadowMaskedPass->SetBindlessTextures(m_BindlessTextures);
+			LUX_CORE_VERIFY(m_SpotShadowMaskedPass->Validate());
+			m_SpotShadowMaskedPass->Bake();
 
 			m_SpotShadowPassMaterial = Material::Create(pipelineSpec.Shader, "SpotShadowPass");
 		}
@@ -3765,9 +3804,11 @@ namespace Lux {
 			addRenderPass(pass);
 		for (const Ref<RenderPass>& pass : m_ShadowMapDynamicPasses)
 			addRenderPass(pass);
+		addRenderPass(m_ShadowMapMaskedPass);
 		addRenderPass(m_SpotShadowMapPass);
 		addRenderPass(m_SpotShadowStaticCachePass);
 		addRenderPass(m_SpotShadowDynamicPass);
+		addRenderPass(m_SpotShadowMaskedPass);
 		addRenderPass(m_PreDepthPass);
 		addRenderPass(m_AOCompositePass);
 		addRenderPass(m_AODebugPass);
@@ -6354,6 +6395,8 @@ namespace Lux {
 				hash = HashCombine(hash, key.LODIndex);
 				hash = HashCombine(hash, dc.MeshSortKey);
 				hash = HashCombine(hash, dc.MaterialSortKey);
+				// An alpha-tested caster's shadow follows its material (alpha texture, cutoff).
+				hash = HashCombine(hash, key.AlphaMasked ? m_ProxySubmitCacheMaterialRevision : 0u);
 				hash = HashCombine(hash, bucketIndex);
 				hash = HashCombine(hash, tmd.ObjectIndices.size());
 
@@ -6434,6 +6477,7 @@ namespace Lux {
 		// From what the instance's GPU material row is built from, so the bucket and the row agree.
 		const GPUMaterialRasterState rasterState = MaterialScene::ResolveRasterState(data.MaterialAsset, data.MaterialSceneOverride, data.Transparent);
 		data.TwoSided = rasterState.TwoSided;
+		data.AlphaMasked = rasterState.AlphaMasked;
 		return data;
 	}
 
@@ -6488,6 +6532,7 @@ namespace Lux {
 			? SortKeyFromRef(m_WireframeMaterial->GetShader().Raw()) : 0;
 		keys.WireframeMaterial = SortKeyFromRef(m_WireframeMaterial.Raw());
 		keys.ShadowPipeline = m_ShadowMapPass ? SortKeyFromRef(m_ShadowMapPass->GetPipeline().Raw()) : 0;
+		keys.ShadowMaskedPipeline = m_ShadowMapMaskedPass ? SortKeyFromRef(m_ShadowMapMaskedPass->GetPipeline().Raw()) : 0;
 		keys.ShadowShader = m_ShadowPassMaterial && m_ShadowPassMaterial->GetShader()
 			? SortKeyFromRef(m_ShadowPassMaterial->GetShader().Raw()) : 0;
 		keys.ShadowMaterial = SortKeyFromRef(m_ShadowPassMaterial.Raw());
@@ -6537,6 +6582,7 @@ namespace Lux {
 
 		MeshKey shadowKey{ data.MeshKeyHandle, 0, submeshIndex, 0, false, true };
 		shadowKey.GPUCullGroup = true;
+		shadowKey.AlphaMasked = data.AlphaMasked;
 		auto [shadowIt, shadowInserted] = m_ShadowCullGroups.try_emplace(shadowKey);
 		ShadowCullGroup& shadowGroup = shadowIt->second;
 		if (shadowInserted)
@@ -6549,8 +6595,10 @@ namespace Lux {
 		}
 
 		shadowGroup.ObjectIndices.push_back(sceneInstanceIndex);
-		// Order-independent: the sum over the static casters' rows.
-		m_ShadowStaticCasterSetHash += MixHash((uint64_t)sceneInstanceIndex + 1u);
+		// Order-independent: the sum over the static casters' rows. An alpha-tested caster's shadow also
+		// follows its material (alpha texture, cutoff); a material edit rebuilds the groups.
+		const uint64_t casterKey = (uint64_t)sceneInstanceIndex + 1u;
+		m_ShadowStaticCasterSetHash += MixHash(data.AlphaMasked ? HashCombine(casterKey, m_ProxySubmitCacheMaterialRevision) : casterKey);
 	}
 
 	void SceneRenderer::ClearCullGroups()
@@ -6611,7 +6659,8 @@ namespace Lux {
 				key.LODIndex = lodIndex;
 				SubmitMeshPassDraw(MeshPassType::ShadowDepth, key, group.StaticMesh, group.MeshSource, nullptr,
 					group.SubmeshIndex, lodIndex, AssetHandle(0), m_ShadowPassMaterial,
-					passSortKeys.ShadowPipeline, passSortKeys.ShadowShader, passSortKeys.ShadowMaterial, group.MeshSortKey).InstanceCount = lodIndex == 0 ? (uint32_t)group.ObjectIndices.size() : 0u;
+					key.AlphaMasked ? passSortKeys.ShadowMaskedPipeline : passSortKeys.ShadowPipeline,
+					passSortKeys.ShadowShader, passSortKeys.ShadowMaterial, group.MeshSortKey).InstanceCount = lodIndex == 0 ? (uint32_t)group.ObjectIndices.size() : 0u;
 			}
 		}
 	}
@@ -6800,7 +6849,9 @@ namespace Lux {
 				const bool dynamicShadowCaster = gpuSceneInstance && !IsTransientGPUSceneInstanceIndex(sceneInstanceIndex)
 					? UpdateShadowCasterMotion(sceneInstanceIndex, gpuSceneInstance)
 					: true;
-				const MeshKey shadowKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, !dynamicShadowCaster };
+				// A Cutout caster draws through the alpha-tested shadow pipelines.
+				MeshKey shadowKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, !dynamicShadowCaster };
+				shadowKey.AlphaMasked = data.AlphaMasked;
 				ShadowTransformMapData& shadowTransformData = GetShadowTransformBucket(shadowKey);
 				for (uint32_t cascade = 0; cascade < ShadowCascadeCount; cascade++)
 				{
@@ -6816,7 +6867,7 @@ namespace Lux {
 					nullptr,
 					AssetHandle(0),
 					m_ShadowPassMaterial,
-					passSortKeys.ShadowPipeline,
+					shadowKey.AlphaMasked ? passSortKeys.ShadowMaskedPipeline : passSortKeys.ShadowPipeline,
 					passSortKeys.ShadowShader,
 					passSortKeys.ShadowMaterial);
 			}
@@ -8095,9 +8146,12 @@ namespace Lux {
 			return false;
 		};
 
-		auto drawShadowCasters = [&](uint32_t cascade, bool staticCasters)
+		// `openPass` is the cascade pass the draws record into; alpha-masked casters switch to the
+		// masked pipeline inside it, and back. Draws sort by pipeline, so that is one switch each way.
+		auto drawShadowCasters = [&](const Ref<RenderPass>& openPass, uint32_t cascade, bool staticCasters)
 		{
 			bool drewCaster = false;
+			bool maskedPipeline = false;
 
 			for (const MeshKey& key : shadowPass.DrawOrder)
 			{
@@ -8111,6 +8165,12 @@ namespace Lux {
 
 				const auto& cascadeTmd = it->second.Cascades[cascade];
 				if (!HasShadowCasterCandidates(key, cascadeTmd)) continue;
+
+				if (key.AlphaMasked != maskedPipeline)
+				{
+					maskedPipeline = key.AlphaMasked;
+					Renderer::SwitchRenderPassPipeline(m_CommandBuffer, maskedPipeline ? m_ShadowMapMaskedPass : openPass);
+				}
 
 				// A shadow cull group's draw is indirect: the GPU wrote its instances and count.
 				StaticDrawCommand drawCmd = drawIt->second;
@@ -8138,7 +8198,7 @@ namespace Lux {
 			for (uint32_t cascade = 0; cascade < activeShadowCascadeCount; cascade++)
 			{
 				Renderer::BeginRenderPass(m_CommandBuffer, staticPasses[cascade], /*explicitClear=*/true);
-				drawShadowCasters(cascade, true);
+				drawShadowCasters(staticPasses[cascade], cascade, true);
 				Renderer::EndRenderPass(m_CommandBuffer);
 			}
 			m_StaticShadowMapCacheValid = true;
@@ -8165,7 +8225,7 @@ namespace Lux {
 				if (!hasShadowCastersForCascade(cascade, false))
 					continue;
 				Renderer::BeginRenderPass(m_CommandBuffer, m_ShadowMapDynamicPasses[cascade], /*explicitClear=*/false);
-				drawShadowCasters(cascade, false);
+				drawShadowCasters(m_ShadowMapDynamicPasses[cascade], cascade, false);
 				Renderer::EndRenderPass(m_CommandBuffer);
 			}
 		}
@@ -8219,7 +8279,9 @@ namespace Lux {
 			return false;
 		};
 
-		auto drawSpotShadowCasters = [&](uint32_t shadowIndex, bool staticCasters)
+		// As the directional cascades: alpha-masked casters switch to the masked pipeline inside
+		// `openPass` and back. `maskedPipeline` is what the pass has bound, across the atlas tiles.
+		auto drawSpotShadowCasters = [&](const Ref<RenderPass>& openPass, bool& maskedPipeline, uint32_t shadowIndex, bool staticCasters)
 		{
 			for (const MeshKey& key : shadowPass.DrawOrder)
 			{
@@ -8232,6 +8294,12 @@ namespace Lux {
 				if (it == m_ShadowMeshTransformMap.end()) continue;
 				const auto& spotTmd = it->second.Spot;
 				if (!HasShadowCasterCandidates(key, spotTmd)) continue;
+
+				if (key.AlphaMasked != maskedPipeline)
+				{
+					maskedPipeline = key.AlphaMasked;
+					Renderer::SwitchRenderPassPipeline(m_CommandBuffer, maskedPipeline ? m_SpotShadowMaskedPass : openPass);
+				}
 
 				StaticDrawCommand drawCmd = drawIt->second;
 				drawCmd.InstanceCount = (uint32_t)spotTmd.ObjectIndices.size();
@@ -8246,14 +8314,15 @@ namespace Lux {
 			}
 		};
 
-		auto drawSpotAtlas = [&](bool staticCasters)
+		auto drawSpotAtlas = [&](const Ref<RenderPass>& openPass, bool staticCasters)
 		{
+			bool maskedPipeline = false;
 			for (uint32_t shadowIndex = 0; shadowIndex < m_SpotShadowCount; shadowIndex++)
 			{
 				const uint32_t tileX = shadowIndex % tilesPerRow;
 				const uint32_t tileY = shadowIndex / tilesPerRow;
 				Renderer::SetViewport(m_CommandBuffer, tileX * tileSize, tileY * tileSize, tileSize, tileSize);
-				drawSpotShadowCasters(shadowIndex, staticCasters);
+				drawSpotShadowCasters(openPass, maskedPipeline, shadowIndex, staticCasters);
 			}
 
 			Renderer::SetViewport(m_CommandBuffer, 0, 0, atlasSize, atlasSize);
@@ -8263,8 +8332,9 @@ namespace Lux {
 		const bool hasDynamicCasters = hasShadowCasters(false);
 		if (!m_StaticSpotShadowMapCacheValid)
 		{
-			Renderer::BeginRenderPass(m_CommandBuffer, hasDynamicCasters ? m_SpotShadowStaticCachePass : m_SpotShadowMapPass, /*explicitClear=*/true);
-			drawSpotAtlas(true);
+			const Ref<RenderPass>& staticPass = hasDynamicCasters ? m_SpotShadowStaticCachePass : m_SpotShadowMapPass;
+			Renderer::BeginRenderPass(m_CommandBuffer, staticPass, /*explicitClear=*/true);
+			drawSpotAtlas(staticPass, true);
 			Renderer::EndRenderPass(m_CommandBuffer);
 			m_StaticSpotShadowMapCacheValid = true;
 			m_StaticSpotShadowCacheImageStale = !hasDynamicCasters;
@@ -8285,7 +8355,7 @@ namespace Lux {
 		if (hasDynamicCasters)
 		{
 			Renderer::BeginRenderPass(m_CommandBuffer, m_SpotShadowDynamicPass, /*explicitClear=*/false);
-			drawSpotAtlas(false);
+			drawSpotAtlas(m_SpotShadowDynamicPass, false);
 			Renderer::EndRenderPass(m_CommandBuffer);
 		}
 

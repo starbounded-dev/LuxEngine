@@ -897,8 +897,9 @@ namespace Lux {
 			bool        GPUCullGroup = false;
 			// The material's raster variant (MaterialScene::ResolveRasterState), so each draw has one
 			// pipeline: a two-sided material's depth-prepass and G-buffer draws take those passes'
-			// no-cull pipelines.
+			// no-cull pipelines, and a Cutout material's shadow draws the alpha-tested shadow ones.
 			bool        TwoSided = false;
+			bool        AlphaMasked = false;
 
 			bool operator<(const MeshKey& o) const
 			{
@@ -909,7 +910,8 @@ namespace Lux {
 				if (StaticShadowCaster != o.StaticShadowCaster) return StaticShadowCaster < o.StaticShadowCaster;
 				if (IsSelected != o.IsSelected) return IsSelected < o.IsSelected;
 				if (GPUCullGroup != o.GPUCullGroup) return GPUCullGroup < o.GPUCullGroup;
-				return TwoSided < o.TwoSided;
+				if (TwoSided != o.TwoSided) return TwoSided < o.TwoSided;
+				return AlphaMasked < o.AlphaMasked;
 			}
 
 			bool operator==(const MeshKey& o) const
@@ -921,7 +923,8 @@ namespace Lux {
 					&& IsSelected == o.IsSelected
 					&& StaticShadowCaster == o.StaticShadowCaster
 					&& GPUCullGroup == o.GPUCullGroup
-					&& TwoSided == o.TwoSided;
+					&& TwoSided == o.TwoSided
+					&& AlphaMasked == o.AlphaMasked;
 			}
 		};
 
@@ -946,7 +949,7 @@ namespace Lux {
 				hash = mix(hash ^ (uint64_t)key.MaterialHandle);
 				hash = mix(hash ^ ((uint64_t)key.SubmeshIndex | ((uint64_t)key.LODIndex << 32)));
 				hash = mix(hash ^ ((uint64_t)key.IsSelected | ((uint64_t)key.StaticShadowCaster << 1) | ((uint64_t)key.GPUCullGroup << 2)
-					| ((uint64_t)key.TwoSided << 3)));
+					| ((uint64_t)key.TwoSided << 3) | ((uint64_t)key.AlphaMasked << 4)));
 				return (size_t)hash;
 			}
 		};
@@ -1186,7 +1189,9 @@ namespace Lux {
 			uint64_t ShaderSortKey = 0;
 			bool Transparent = false;
 			bool CastsShadows = false;
-			bool TwoSided = false; // MaterialScene::ResolveRasterState
+			// MaterialScene::ResolveRasterState
+			bool TwoSided = false;
+			bool AlphaMasked = false;
 		};
 
 		// A proxy's SubmeshSubmitData, parallel to its SubmeshInstances. Valid while the proxy's
@@ -1218,6 +1223,7 @@ namespace Lux {
 			uint64_t WireframeShader = 0;
 			uint64_t WireframeMaterial = 0;
 			uint64_t ShadowPipeline = 0;
+			uint64_t ShadowMaskedPipeline = 0;
 			uint64_t ShadowShader = 0;
 			uint64_t ShadowMaterial = 0;
 		};
@@ -1681,6 +1687,9 @@ namespace Lux {
 		Ref<Image2D>     m_ShadowMapStaticCacheImage;
 		std::array<Ref<RenderPass>, ShadowCascadeCount> m_ShadowMapStaticCachePasses;
 		std::array<Ref<RenderPass>, ShadowCascadeCount> m_ShadowMapDynamicPasses;
+		// Never begun: alpha-masked casters (MeshKey::AlphaMasked) switch to its alpha-tested pipeline
+		// and sets inside whichever cascade pass is open.
+		Ref<RenderPass>  m_ShadowMapMaskedPass;
 
 		// ── Spot shadow atlas ───────────────────────────────────────────────
 		Ref<Image2D>     m_SpotShadowMapImage;
@@ -1688,6 +1697,8 @@ namespace Lux {
 		Ref<Image2D>     m_SpotShadowStaticCacheImage;
 		Ref<RenderPass>  m_SpotShadowStaticCachePass;
 		Ref<RenderPass>  m_SpotShadowDynamicPass;
+		// The spot atlas's m_ShadowMapMaskedPass.
+		Ref<RenderPass>  m_SpotShadowMaskedPass;
 		Ref<Material>    m_SpotShadowPassMaterial;
 		uint32_t         m_SpotShadowMapSize = 2048;
 		uint32_t         m_SpotShadowAtlasGridSize = 1;

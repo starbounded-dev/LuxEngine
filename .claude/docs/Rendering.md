@@ -744,15 +744,22 @@ crash or corruption on some driver even if it renders correctly on yours.
   non-proxy submissions keep the CPU path. `MeshCullDrawData` is three `uvec4` per cull draw and
   mirrors the shader's block. **The LOD metric lives in `Include/GLSL/MeshLOD.glslh`**, shared by both
   cull shaders.
-- **Raster variants are part of the draw key.** `MeshKey::TwoSided` comes from
-  `MaterialScene::ResolveRasterState`, the resolution that also builds the material's GPU row, so a
-  bucket's pipeline matches the material data its shaders read. Both the CPU buckets and the cull
-  groups set it. A two-sided material's prepass and G-buffer draws use `m_PreDepthTwoSidedPipeline`
+- **Raster variants are part of the draw key.** `MeshKey::TwoSided` and `MeshKey::AlphaMasked` come
+  from `MaterialScene::ResolveRasterState`, the resolution that also builds the material's GPU row,
+  so a bucket's pipeline matches the material data its shaders read. Both the CPU buckets and the cull
+  groups set them. A two-sided material's prepass and G-buffer draws use `m_PreDepthTwoSidedPipeline`
   and `m_GeometryTwoSidedPipeline`, which do no culling. Those two must stay in step, because the
   G-buffer depth-tests EQUAL against the prepass. Draws sort by pipeline (`PassSortKeys`), so a pass
   switches pipeline at most once per variant. `GBuffer_Static` flips the normal and tangent frame on
-  back faces (glTF's double-sided rule); a culling pipeline never draws one. The mesh-shader prepass
-  has no variants: it culls back faces and does not alpha-test.
+  back faces (glTF's double-sided rule); a culling pipeline never draws one. A Cutout caster's shadow
+  draws (`AlphaMasked`) switch, inside whichever cascade or spot-atlas pass is open, to
+  `m_ShadowMapMaskedPass` / `m_SpotShadowMaskedPass`. Those passes are never begun: they hold the
+  alpha-tested `DirShadowMap_Masked` / `SpotShadowMap_Masked` pipelines and their sets (the
+  material table, bindless textures and `r_MaterialSampler`). Every other caster keeps the
+  depth-only shadow shaders, which have no fragment work. A masked shadow depends on its material,
+  so its static-cache hashes include `MaterialScene::GetAssetRevision`, and a material edit
+  re-renders the static shadow caches. The mesh-shader prepass has no variants: it culls back faces
+  and does not alpha-test. Skinned meshes (`*_Anim` shaders) have none either.
 - **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
   moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
   `ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame a caster settles. A caster still
