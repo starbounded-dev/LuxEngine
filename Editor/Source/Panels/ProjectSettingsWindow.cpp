@@ -89,10 +89,8 @@ namespace Lux {
 		using RuntimeExport::FileExists;
 		using RuntimeExport::FindRepositoryRootFrom;
 		using RuntimeExport::GetRuntimeExecutablePath;
-		using RuntimeExport::BuildRuntimeExecutable;
 		using RuntimeExport::ResolveScriptProjectFile;
 		using RuntimeExport::IsScriptModuleOutdated;
-		using RuntimeExport::BuildScriptModule;
 
 		constexpr RuntimeExportTarget s_RuntimeExportTargets[] = {
 			RuntimeExportTarget::Debug,
@@ -101,7 +99,8 @@ namespace Lux {
 		};
 	}
 
-	ProjectSettingsWindow::ProjectSettingsWindow()
+	ProjectSettingsWindow::ProjectSettingsWindow(RuntimeExport::RuntimeBuildJob& runtimeBuildJob)
+		: m_RuntimeBuildJob(runtimeBuildJob)
 	{
 	}
 
@@ -412,15 +411,30 @@ namespace Lux {
 				"Script Module: %s", scriptModuleStale ? "stale" : "found");
 		drawStatus("DotNet", std::filesystem::exists(dotnet, ec), "found", "missing");
 
-		if (ImGui::Button("Build Runtime"))
-			BuildRuntimeExecutable(runtime.TargetConfig);
+		// The build runs on EditorLayer's worker; the export window shares it, so both disable together.
+		const bool building = m_RuntimeBuildJob.IsRunning();
+		{
+			ImGuiEx::ScopedDisable disableWhileBuilding(building);
+			if (ImGui::Button("Build Runtime"))
+				m_RuntimeBuildJob.Start(runtime.TargetConfig, true, false);
 
-		ImGui::SameLine();
-		if (ImGui::Button("Build Scripts"))
-			BuildScriptModule(runtime.TargetConfig);
+			ImGui::SameLine();
+			if (ImGui::Button("Build Scripts"))
+				m_RuntimeBuildJob.Start(runtime.TargetConfig, false, true);
+		}
 
 		ImGui::SameLine();
 		ImGui::TextDisabled("Dist exports skip .pdb files.");
+
+		if (building)
+		{
+			ImGui::TextUnformatted(m_RuntimeBuildJob.GetStatusText().c_str());
+		}
+		else if (!m_RuntimeBuildJob.GetLastError().empty())
+		{
+			ImGuiEx::ScopedColour errorText(ImGuiCol_Text, Colors::Theme::textError);
+			ImGui::TextWrapped("%s", m_RuntimeBuildJob.GetLastError().c_str());
+		}
 
 		ImGui::TreePop();
 	}

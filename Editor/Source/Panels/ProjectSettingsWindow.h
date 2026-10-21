@@ -8,10 +8,13 @@
 
 namespace Lux {
 
+	namespace RuntimeExport { class RuntimeBuildJob; }
+
 	class ProjectSettingsWindow : public EditorPanel
 	{
 	public:
-		ProjectSettingsWindow();
+		// The build job is EditorLayer's, shared with the export window so only one build runs.
+		explicit ProjectSettingsWindow(RuntimeExport::RuntimeBuildJob& runtimeBuildJob);
 		virtual ~ProjectSettingsWindow() = default;
 
 		virtual void OnImGuiRender(bool& isOpen) override;
@@ -32,6 +35,7 @@ namespace Lux {
 		void RenderLogSettings();
 
 	private:
+		RuntimeExport::RuntimeBuildJob& m_RuntimeBuildJob;
 		Ref<Project> m_Project;
 		AssetHandle m_DefaultScene = 0;
 		AssetHandle m_RuntimeIcon = 0;

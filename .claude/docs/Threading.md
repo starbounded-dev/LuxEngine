@@ -46,6 +46,7 @@ not just the render thread.
 | **Jolt's internal pool** | Physics jobs Jolt schedules itself | Anything engine-side |
 | **VR head tracker** (`LuxOpticTracker`, "Head Tracker", only while a `VRSession` exists) | Blocking HID reads (100 ms timeout) and writing the latest pose under its mutex; logging | Everything else: no ECS, assets, ImGui, `Renderer::Submit` or NRI. It runs under **both** policies, because it never touches the engine |
 | **spdlog flusher** (`spdlog::flush_every`, started by `Log::Init`) | Flushing the registered loggers once a second, so a custom sink's `flush_()` runs off the logging thread | Anything engine-side |
+| **Editor build worker** (`RuntimeExport::RuntimeBuildJob`, "Runtime Build", only while a build runs) | The blocking MSBuild/make/dotnet subprocess for Lux-Runtime and script builds, on paths the main thread resolved in `Start`; file-existence checks; logging | `Project` (including `Project::GetActive()`), ImGui, ECS, assets, `Renderer::Submit`. It is a `Lux::Thread`, not a job, so it runs off the main thread under **both** policies. The main thread collects the result with `Poll()` at the top of `EditorLayer::OnImGuiRender` and resumes a waiting export there |
 | **Simulation thread** | (scaffolded, currently unwired — see below) | — |
 
 Detection helpers: `Application::IsMainThread()` / `Application::GetMainThreadID()`, and
@@ -363,6 +364,7 @@ Walk up the call graph until you hit one of:
 - inside a `Renderer::Submit` lambda, or any `RT_*` function → **render thread**
 - `Renderer::WaitAndRender` / `RenderThreadFunc` → **render thread**
 - `EditorAssetSystem::WorkerThread` → **asset worker**
+- the lambda `RuntimeBuildJob::Start` dispatches (`BuildRuntimeExecutable`, `BuildScriptModule`) → **editor build worker**
 - a `JobSystem::ParallelFor` / `Submit` callback → **a job worker or the calling thread**
 
 Still unsure? Add `LUX_CORE_ASSERT(Application::IsMainThread(), "...")` (or
