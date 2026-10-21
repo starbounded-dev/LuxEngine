@@ -7,7 +7,9 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Renderer/Material.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <map>
 
 namespace Lux {
@@ -30,6 +32,14 @@ namespace Lux {
 		Cutout,
 		Blend
 	};
+
+	// A Cutout cutoff as the 1/255 step that keys its coverage-preserving albedo
+	// (GPUTextureSlot::AlphaCoverageCutoff, MaterialAsset::GetAlphaCoverageTexture). 0, nothing to
+	// preserve, for a cutoff every texel passes.
+	inline uint8_t GetAlphaCoverageCutoffKey(float alphaThreshold)
+	{
+		return static_cast<uint8_t>(std::clamp(std::round(alphaThreshold * 255.0f), 0.0f, 255.0f));
+	}
 
 	// The "Lux Standard" surface inputs beyond the basic PBR set. Defaults reproduce the shading of
 	// materials authored before these existed, so a file without them renders unchanged.
@@ -136,9 +146,15 @@ namespace Lux {
 		// a mip chain averaged in linear space. Built on first use and rebuilt when the source changes.
 		// Returns the texture itself when it already is sRGB. Any thread.
 		static Ref<Texture2D> GetSRGBTexture(AssetHandle textureHandle, const Ref<Texture2D>& texture);
+		// The shared copy of a Cutout material's albedo whose mips keep mip 0's alpha-test coverage at the
+		// cutoff `alphaCoverageCutoff` stands for (GetAlphaCoverageCutoffKey), so foliage does not thin
+		// out with distance. Otherwise as GetSRGBTexture, which it returns for a texture the chain cannot
+		// be built from (anything but 8-bit RGBA) or a cutoff of 0. Any thread.
+		static Ref<Texture2D> GetAlphaCoverageTexture(AssetHandle textureHandle, const Ref<Texture2D>& texture, uint8_t alphaCoverageCutoff);
 
-		// Drops the shared sRGB texture cache. Must run before the graphics device is destroyed:
-		// the cache is a file-scope static, so without this its textures are freed by the CRT at exit.
+		// Drops the shared sRGB and alpha-coverage texture caches. Must run before the graphics device is
+		// destroyed: the caches are file-scope statics, so without this their textures are freed by the
+		// CRT at exit.
 		static void ReleaseSharedResources();
 
 		static AssetType GetStaticType() { return AssetType::Material; }
@@ -159,6 +175,8 @@ namespace Lux {
 		template<typename T>
 		void WriteUniform(const std::string& name, const T& value);
 		void WriteTexture(const std::string& name, const Ref<Texture2D>& texture);
+		// Binds the albedo map's copy for the current alpha mode: coverage-preserving for Cutout, else sRGB.
+		void WriteAlbedoTexture(AssetHandle handle, const Ref<Texture2D>& texture);
 	private:
 		Ref<Material> m_Material;
 		uint64_t m_Revision = 1;

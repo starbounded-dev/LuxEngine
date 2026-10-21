@@ -48,12 +48,11 @@ namespace Lux {
 		EnsureFallbackTexture();
 	}
 
-	GPUTextureIndex TextureScene::AcquireTexture(AssetHandle textureHandle, TextureColorSpace colorSpace)
+	GPUTextureIndex TextureScene::AcquireTexture(const GPUTextureSlot& slot)
 	{
-		if (!IsTextureHandleValid(textureHandle))
+		if (!IsTextureHandleValid(slot.Handle))
 			return InvalidGPUTextureIndex;
 
-		const GPUTextureSlot slot{ textureHandle, colorSpace };
 		auto idIt = m_TextureIndexBySlot.find(slot);
 		GPUTextureIndex textureIndex = InvalidGPUTextureIndex;
 		bool created = false;

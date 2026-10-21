@@ -6099,12 +6099,11 @@ namespace Lux {
 		return m_MeshPasses[passIndex];
 	}
 
-	GPUTextureIndex SceneRenderer::ResolveTransientGPUTextureIndex(AssetHandle textureHandle, TextureColorSpace colorSpace)
+	GPUTextureIndex SceneRenderer::ResolveTransientGPUTextureIndex(const GPUTextureSlot& slot)
 	{
-		if (!textureHandle)
+		if (!slot.Handle)
 			return InvalidGPUTextureIndex;
 
-		const GPUTextureSlot slot{ textureHandle, colorSpace };
 		auto [it, inserted] = m_TransientGPUTextureIndexBySlot.try_emplace(slot, InvalidGPUTextureIndex);
 		if (inserted || it->second == InvalidGPUTextureIndex)
 		{
@@ -6156,7 +6155,7 @@ namespace Lux {
 
 		GPUMaterialData materialData = MaterialScene::BuildGPUMaterialData(
 			input,
-			[this](AssetHandle textureHandle, TextureColorSpace colorSpace) { return ResolveTransientGPUTextureIndex(textureHandle, colorSpace); });
+			[this](const GPUTextureSlot& slot) { return ResolveTransientGPUTextureIndex(slot); });
 
 		const uint32_t transientMaterialIndex = (uint32_t)m_TransientGPUMaterials.size();
 		materialData.Metadata.z = EncodeTransientRenderMaterialIndex(transientMaterialIndex);
@@ -7079,9 +7078,14 @@ namespace Lux {
 				if (!texture || !texture->Loaded())
 					return Renderer::GetWhiteTexture();
 
-				// Colour slots bind the sRGB copy, so the sampler decodes them to linear.
+				// Colour slots bind the sRGB copy, so the sampler decodes them to linear; a Cutout material's
+				// albedo binds the copy whose mips keep their coverage at its cutoff.
 				if (slot.ColorSpace == TextureColorSpace::SRGB)
-					return MaterialAsset::GetSRGBTexture(textureHandle, texture);
+				{
+					return slot.AlphaCoverageCutoff
+						? MaterialAsset::GetAlphaCoverageTexture(textureHandle, texture, slot.AlphaCoverageCutoff)
+						: MaterialAsset::GetSRGBTexture(textureHandle, texture);
+				}
 
 				return texture;
 			};

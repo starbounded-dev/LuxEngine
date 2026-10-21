@@ -1265,7 +1265,7 @@ namespace Lux {
 		MeshPassState& GetMeshPass(MeshPassType passType);
 		const MeshPassState& GetMeshPass(MeshPassType passType) const;
 		RenderMaterialID GetOrCreateTransientRenderMaterialID(AssetHandle materialHandle, const Ref<MaterialAsset>& materialAsset, const Ref<Material>& overrideMaterial, bool transparent);
-		GPUTextureIndex ResolveTransientGPUTextureIndex(AssetHandle textureHandle, TextureColorSpace colorSpace);
+		GPUTextureIndex ResolveTransientGPUTextureIndex(const GPUTextureSlot& slot);
 		StaticDrawCommand& SubmitMeshPassDraw(MeshPassType passType,
 			const MeshKey& key,
 			const Ref<StaticMesh>& staticMesh,

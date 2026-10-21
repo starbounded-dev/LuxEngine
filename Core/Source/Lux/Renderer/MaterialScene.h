@@ -112,8 +112,9 @@ namespace Lux {
 		uint32_t MaterialCount = 0;
 	};
 
-	// Maps a material's texture to its bindless slot. Colour maps ask for TextureColorSpace::SRGB.
-	using GPUTextureResolver = std::function<GPUTextureIndex(AssetHandle, TextureColorSpace)>;
+	// Maps a material's texture to its bindless slot. Colour maps ask for TextureColorSpace::SRGB, and a
+	// Cutout material's albedo for its alpha-coverage cutoff too.
+	using GPUTextureResolver = std::function<GPUTextureIndex(const GPUTextureSlot&)>;
 
 	// The GPU material table of one RenderScene. Asset materials are reference counted: a row lives
 	// while something holds it, and is rebuilt only when its MaterialAsset object or that asset's

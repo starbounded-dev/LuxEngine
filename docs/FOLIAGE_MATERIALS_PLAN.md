@@ -229,8 +229,9 @@ Each phase builds (Debug, Core then Editor), passes the offline shader check (`g
 
 ## Part 3 — Risks
 
-- **Variant memory.** Each Cutout albedo adds a texture of the same size (about 5.3 MB for
-  1024² RGBA8 with mips). The variants are visible in the editor's memory stats.
+- **Variant memory.** A Cutout material binds its coverage variant instead of the plain sRGB copy,
+  and the copy it stops binding is released once nothing else holds it. So the extra memory is only
+  for a texture that Cutout and non-Cutout materials share: about 5.3 MB for 1024² RGBA8 with mips.
 - **Translucency shadow cost.** A second shadow lookup for translucent pixels. It is bounded by
   how many there are, and checked in Phase 3 against the `ShadowKernel` rules.
 - **GPU material row growth** (144 → 176 bytes). Storage sizes use `sizeof`; grep confirms no

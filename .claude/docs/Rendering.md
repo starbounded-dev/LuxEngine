@@ -1027,6 +1027,17 @@ texture used both as colour and as data takes two slots. Data maps (normal, meta
 occlusion, height) stay `Linear`. Only RGBA8 sources get a copy: float and block-compressed textures
 are bound as they are.
 
+**A Cutout albedo binds a coverage-preserving copy.** When a row resolves Masked, its albedo slot
+carries `GPUTextureSlot::AlphaCoverageCutoff`, the cutoff in 1/255 steps
+(`GetAlphaCoverageCutoffKey`). `resolveMaterialTexture` then binds
+`MaterialAsset::GetAlphaCoverageTexture` instead of the sRGB copy. That variant's mips come from
+`Texture2D::GenerateMips(cutoff)`: the box-filtered chain, then each level's alpha rescaled so the
+share of texels at or above the cutoff matches mip 0's (Castaño). The new cutoff is solved from a
+256-bin histogram per mip (`AlphaCoverageHistogram.glsl`, `AlphaCoverageScale.glsl`, storage buffer
+at set 1, binding 26). `MaterialAsset` builds the variant when its albedo, alpha mode or cutoff
+changes. Every pass that alpha-tests samples this one slot, so the prepass, G-buffer and shadows stay
+in agreement.
+
 Rows are built by `MaterialScene::BuildGPUMaterialData` from the `MaterialAsset` (its own values and
 `MaterialSurfaceParameters`), never from the shader push-constant block. A new material input must
 default to the value that reproduces today's shading, so an older `.lmat` renders unchanged.
