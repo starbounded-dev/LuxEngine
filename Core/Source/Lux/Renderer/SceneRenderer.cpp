@@ -1984,6 +1984,11 @@ namespace Lux {
 			pipelineSpec.DepthWrite = false;
 			m_TransparentGeometryPipeline = Pipeline::Create(pipelineSpec);
 
+			PipelineSpecification backFacesPipelineSpec = pipelineSpec;
+			backFacesPipelineSpec.DebugName = "TransparentForward-BackFaces";
+			backFacesPipelineSpec.FrontFaceCulling = true;
+			m_TransparentBackFacesPipeline = Pipeline::Create(backFacesPipelineSpec);
+
 			rpSpec.DebugName = "TransparentForwardPass";
 			rpSpec.Pipeline = m_TransparentGeometryPipeline;
 			m_GeometryPassTransparent = RenderPass::Create(rpSpec);
@@ -6551,7 +6556,7 @@ namespace Lux {
 		// Transparent draws bind their material, so they group by material key as the CPU path does.
 		MeshKey key{ data.MeshKeyHandle, data.Transparent ? data.KeyMaterialHandle : AssetHandle(0), submeshIndex, 0, false, false };
 		key.GPUCullGroup = true;
-		key.TwoSided = data.TwoSided && !data.Transparent;
+		key.TwoSided = data.TwoSided;
 
 		auto [it, inserted] = m_CullGroups.try_emplace(key);
 		CullGroup& group = it->second;
@@ -6737,7 +6742,9 @@ namespace Lux {
 			}
 
 			const uint32_t lodIndex = SelectStaticMeshLOD(*meshSource, submeshIndex, boundsSphere);
-			const MeshKey materialKey{ meshKeyHandle, data.KeyMaterialHandle, submeshIndex, lodIndex, false, false };
+			// The transparent pass's key: a two-sided material's draws record back faces, then front faces.
+			MeshKey materialKey{ meshKeyHandle, data.KeyMaterialHandle, submeshIndex, lodIndex, false, false };
+			materialKey.TwoSided = data.TwoSided;
 			// The opaque passes' key: a two-sided material's draws take their no-cull pipelines.
 			MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, false };
 			bindlessMeshKey.TwoSided = data.TwoSided && !isTransparent;
@@ -8995,10 +9002,23 @@ namespace Lux {
 			const MeshDrawParams params(it->second);
 
 			Ref<SceneRenderer> instance = this;
-			Renderer::Submit([instance, drawCmd, params]() mutable {
-				instance->RT_DrawStaticMesh(
-					instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
-				});
+			auto submitDraw = [&]()
+				{
+					Renderer::Submit([instance, drawCmd, params]() mutable {
+						instance->RT_DrawStaticMesh(
+							instance->m_CommandBuffer, drawCmd, params, /*bindMaterial=*/false, 0, /*useVisibleObjectIndexes=*/true, instance->m_Options.EnableGPUDrivenRendering);
+						});
+				};
+
+			// A two-sided transparent blends its far side in before its near side: back faces, then front
+			// faces (HDRP's "back then front"). The draw order between materials stays the sort's.
+			if (key.TwoSided)
+			{
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPassTransparent, m_TransparentBackFacesPipeline);
+				submitDraw();
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPassTransparent);
+			}
+			submitDraw();
 		}
 
 		Renderer::EndRenderPass(m_CommandBuffer);

@@ -897,7 +897,8 @@ namespace Lux {
 			bool        GPUCullGroup = false;
 			// The material's raster variant (MaterialScene::ResolveRasterState), so each draw has one
 			// pipeline: a two-sided material's depth-prepass and G-buffer draws take those passes'
-			// no-cull pipelines, and a Cutout material's shadow draws the alpha-tested shadow ones.
+			// no-cull pipelines (a two-sided transparent draws its back faces, then its front faces), and
+			// a Cutout material's shadow draws the alpha-tested shadow ones.
 			bool        TwoSided = false;
 			bool        AlphaMasked = false;
 
@@ -1838,6 +1839,7 @@ namespace Lux {
 		Ref<Pipeline>    m_GeometryPipeline;            // opaque GBuffer
 		Ref<Pipeline>    m_GeometryTwoSidedPipeline;    // opaque GBuffer without culling (MeshKey::TwoSided)
 		Ref<Pipeline>    m_TransparentGeometryPipeline; // transparent forward PBR
+		Ref<Pipeline>    m_TransparentBackFacesPipeline; // the same, back faces only: a two-sided transparent's first draw
 		Ref<Pipeline>    m_DeferredLightingPipeline;    // fullscreen deferred lighting
 		Ref<RenderPass>  m_GeometryPass;                // opaque GBuffer
 		Ref<RenderPass>  m_GeometryPassTransparent;     // transparent forward

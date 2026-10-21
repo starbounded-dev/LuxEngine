@@ -75,9 +75,9 @@ namespace Lux {
 		MaterialAlphaMode AlphaMode = MaterialAlphaMode::Opaque;
 		float AlphaThreshold = 0.5f;
 
-		// Disables backface culling for this material in the depth and G-buffer passes. Shadow
-		// cascades already render without culling (to avoid peter-panning), so this does not
-		// change them.
+		// Disables backface culling for this material in the depth and G-buffer passes; a transparent
+		// material draws its back faces, then its front faces. Shadow cascades already render without
+		// culling (to avoid peter-panning), so this does not change them.
 		bool TwoSided = false;
 
 		// Diffuse transmission (glTF KHR_materials_diffuse_transmission): the share of the diffuse

@@ -656,12 +656,9 @@ namespace Lux
 			if (ImGuiEx::Property("Cast Shadows", castShadows, "", false))
 				material->SetShadowCasting(castShadows);
 
-			// Only the opaque passes have a no-cull variant so far.
-			if (!transparent)
-			{
-				surfaceChanged |= ImGuiEx::Property("Two Sided", surface.TwoSided,
-					"Draws back faces too, lit from the side the camera sees. For leaves, chains and other single-sheet cards.", false);
-			}
+			surfaceChanged |= ImGuiEx::Property("Two Sided", surface.TwoSided,
+				"Draws back faces too, lit from the side the camera sees. For leaves, chains and other single-sheet cards; "
+				"a transparent material blends its far side in first.", false);
 
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();

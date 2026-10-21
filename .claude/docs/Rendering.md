@@ -751,7 +751,11 @@ crash or corruption on some driver even if it renders correctly on yours.
   and `m_GeometryTwoSidedPipeline`, which do no culling. Those two must stay in step, because the
   G-buffer depth-tests EQUAL against the prepass. Draws sort by pipeline (`PassSortKeys`), so a pass
   switches pipeline at most once per variant. `GBuffer_Static` flips the normal and tangent frame on
-  back faces (glTF's double-sided rule); a culling pipeline never draws one. A Cutout caster's shadow
+  back faces (glTF's double-sided rule); a culling pipeline never draws one. A two-sided transparent
+  records each draw twice: through `m_TransparentBackFacesPipeline`
+  (`PipelineSpecification::FrontFaceCulling`), then through the default pipeline, so its far side
+  blends in first. Its sort keys are unchanged, so blend order between materials does not move, and
+  `HazelPBR_Transparent` flips the normal on back faces too. A Cutout caster's shadow
   draws (`AlphaMasked`) switch, inside whichever cascade or spot-atlas pass is open, to
   `m_ShadowMapMaskedPass` / `m_SpotShadowMaskedPass`. Those passes are never begun: they hold the
   alpha-tested `DirShadowMap_Masked` / `SpotShadowMap_Masked` pipelines and their sets (the

@@ -247,7 +247,9 @@ namespace Lux {
 
 		// Rasterization.
 		pipelineDesc.rasterization.fillMode = m_Specification.Wireframe ? nri::FillMode::WIREFRAME : nri::FillMode::SOLID;
-		pipelineDesc.rasterization.cullMode = m_Specification.BackfaceCulling ? nri::CullMode::BACK : nri::CullMode::NONE;
+		pipelineDesc.rasterization.cullMode = m_Specification.FrontFaceCulling ? nri::CullMode::FRONT
+			: m_Specification.BackfaceCulling ? nri::CullMode::BACK
+			: nri::CullMode::NONE;
 		pipelineDesc.rasterization.frontCounterClockwise = true;
 		// Mesh pipelines take no shading-rate state, as NVRHI's meshlet pipelines had none.
 		pipelineDesc.rasterization.shadingRate = Renderer::SupportsVariableRateShading() && !m_IsMeshletPipeline;

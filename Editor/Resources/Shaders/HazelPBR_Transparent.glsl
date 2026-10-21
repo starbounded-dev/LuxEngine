@@ -212,15 +212,18 @@ void main()
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.0, 1.0);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
-	// Normals (either from vertex or map)
-	m_Params.Normal = normalize(Input.Normal);
+	// Normals (either from vertex or map). A two-sided material's back-faces draw is lit as the side
+	// the camera sees, as GBuffer_Static does: the normal and tangent frame flip.
+	const float faceSign = gl_FrontFacing ? 1.0 : -1.0;
+	const vec3 vertexNormal = Input.Normal * faceSign;
+	m_Params.Normal = normalize(vertexNormal);
 	if (materialUseNormalMap)
 	{
 		vec4 normalTexColor = SampleMaterialSceneTexture(
 			gpuMaterial.TextureIndices.y,
 			uv,
 			materialMipBias);
-		m_Params.Normal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb, gpuMaterial.Surface.y);
+		m_Params.Normal = LuxApplyNormalMap(vertexNormal, Input.WorldNormals * faceSign, normalTexColor.rgb, gpuMaterial.Surface.y);
 	}
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE))
 	{
