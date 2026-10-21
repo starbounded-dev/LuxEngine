@@ -10,6 +10,7 @@
 #include "Lux/Utilities/StringUtils.h"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <format>
 
@@ -49,6 +50,10 @@ namespace Lux {
 	// Each run logs to its own files (LUX_<date>_<time>_<pid>.log), so two editors open at once don't
 	// truncate each other's logs. Only the newest sessions are kept.
 	static constexpr size_t s_MaxLogSessions = 10;
+
+	// How stale the files may be after a kill or a hang: lines below warn level are only written out
+	// by the periodic flush.
+	static constexpr std::chrono::seconds s_LogFlushInterval{ 1 };
 
 	static uint32_t GetCurrentProcessID()
 	{
@@ -136,6 +141,18 @@ namespace Lux {
 		s_EditorConsoleLogger = std::make_shared<spdlog::logger>("Console", editorConsoleSinks.begin(), editorConsoleSinks.end());
 		s_EditorConsoleLogger->set_level(spdlog::level::trace);
 
+		// The file sinks buffer 4 KiB through stdio, and a killed process (Visual Studio's Stop
+		// Debugging, a crash) never writes that buffer out: it would lose its last lines, usually the
+		// error that explains the kill. So warnings and errors flush as they are logged, and everything
+		// else once a second, which also covers a hung process. flush_every only reaches registered
+		// loggers.
+		for (const auto& logger : { s_CoreLogger, s_ClientLogger, s_EditorConsoleLogger })
+		{
+			logger->flush_on(spdlog::level::warn);
+			spdlog::register_logger(logger);
+		}
+		spdlog::flush_every(s_LogFlushInterval);
+
 		SetDefaultTagSettings();
 	}
 
@@ -144,7 +161,8 @@ namespace Lux {
 		s_EditorConsoleLogger.reset();
 		s_ClientLogger.reset();
 		s_CoreLogger.reset();
-		spdlog::drop_all();
+		// Joins the flusher thread, then drops (and so closes) the registered loggers.
+		spdlog::shutdown();
 	}
 
 	void Log::SetDefaultTagSettings()

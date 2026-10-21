@@ -181,7 +181,9 @@ defaults to `./App.lsettings` for Lux-Runtime), `imgui.ini` (`io.IniFilename`, s
 `EditorLayer::OnAttach`), `EditorLayout.yaml`, `UserPreferences.yaml`, and `logs/` (the editor
 defines `LUX_LOGS_IN_PERSISTENT_STORAGE` before including `EntryPoint.h`; Lux-Runtime logs to
 `./logs`). Every run writes its own `LUX_<date>_<pid>.log` / `APP_<date>_<pid>.log`, so concurrent
-instances don't clobber each other; `Log::Init` keeps the newest 10 sessions. Help → Open User Data
+instances don't clobber each other; `Log::Init` keeps the newest 10 sessions. Warnings and errors
+are flushed to the files as they are logged, and spdlog's flusher thread flushes everything else once
+a second, so a killed or hung process still leaves its last error on disk. Help → Open User Data
 Folder opens the folder. `MigrateLegacyUserData` in `LuxEditorApp.cpp` copies files from the pre-2026-09-28
 locations (`./App.lsettings`, `./imgui.ini`, the old `.../Editor` folder) when the new folder lacks
 them. Nothing per-user belongs in the repo.

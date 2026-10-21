@@ -45,6 +45,7 @@ not just the render thread.
 | **Asset worker** (`EditorAssetSystem` / `RuntimeAssetSystem`) | File I/O, decode, import; creating GPU resources *via* `Renderer::Submit` | Touching the asset registry directly; ImGui; direct NRI calls |
 | **Jolt's internal pool** | Physics jobs Jolt schedules itself | Anything engine-side |
 | **VR head tracker** (`LuxOpticTracker`, "Head Tracker", only while a `VRSession` exists) | Blocking HID reads (100 ms timeout) and writing the latest pose under its mutex; logging | Everything else: no ECS, assets, ImGui, `Renderer::Submit` or NRI. It runs under **both** policies, because it never touches the engine |
+| **spdlog flusher** (`spdlog::flush_every`, started by `Log::Init`) | Flushing the registered loggers once a second, so a custom sink's `flush_()` runs off the logging thread | Anything engine-side |
 | **Simulation thread** | (scaffolded, currently unwired — see below) | — |
 
 Detection helpers: `Application::IsMainThread()` / `Application::GetMainThreadID()`, and
