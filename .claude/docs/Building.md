@@ -281,6 +281,15 @@ Git LFS content wasn't pulled. `git lfs pull`, or re-run `scripts\Setup.bat`.
 build `Core` (not just `Editor`), and confirm the .NET 9 SDK is installed so the C# projects
 actually built.
 
+### Windows: "nethost.dll was not found" (Editor, Lux-Runtime, or an exported game)
+
+Coral links `nethost.lib`, so the exe needs `nethost.dll` beside it. The Editor and Lux-Runtime
+post-build steps copy it from the .NET SDK pack `Coral.Native/premake5.lua` found
+(`CORAL_NETHOST_BASE_PATH`). Runtime export copies every DLL in the Lux-Runtime output folder, so an
+exported game gets it from there. Before this copy existed, only hand-placed copies in the Debug and
+Release folders made it work, and Dist exports shipped without it. Regenerate and relink after
+pulling the change: an up-to-date exe does not rerun post-build commands.
+
 ### Linux runtime fails to load `Archivo-Bold.ttf`
 
 The runtime needs `Resources/Fonts/Archivo/static/Archivo-Bold.ttf` relative to its working

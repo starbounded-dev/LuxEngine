@@ -65,6 +65,12 @@ project "Editor"
 			}
 		end
 
+		-- Coral links nethost.lib on Windows (never statically), so the exe cannot start without
+		-- nethost.dll beside it. Take it from the .NET SDK pack Coral.Native found.
+		postbuildcommands {
+			'{COPY} "' .. _G["CORAL_NETHOST_BASE_PATH"] .. 'nethost.dll" "%{cfg.targetdir}"',
+		}
+
 	filter { "system:windows", "configurations:Debug or configurations:Debug-AS" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.dll" "%{cfg.targetdir}"',
