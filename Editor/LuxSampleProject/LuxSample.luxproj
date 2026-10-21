@@ -8,7 +8,7 @@ Project:
   AnimationPath: Animation
   ScriptModulePath: Scripts/Binaries/LuxSample.dll
   DefaultNamespace: LuxSample
-  StartScene: Scenes/FMODDemo.luxscene
+  StartScene: Scenes/NewSceneSystem.luxscene
   AutomaticallyReloadAssembly: true
   AutoSave: true
   AutoSaveInterval: 300
@@ -20,7 +20,7 @@ Project:
     VSync: false
     IconPath: Textures/luxLogo.png
     IconHandle: 3523050505664199236
-    TargetConfig: Release
+    TargetConfig: Dist
   SceneRenderer:
     Rendering:
       QualityPreset: Cinematic
@@ -36,8 +36,11 @@ Project:
       GTAODenoisePasses: 8
       GTAOSliceCount: 9
       GTAOStepsPerSlice: 3
+      GTAOVisibilityBitmask: false
+      GTAOThickness: 0.5
+      GTAONoisePasses: 1
       AOShadowTolerance: 1
-      SSR: false
+      SSR: true
       JumpFloodOutline: true
       RenderScaleMode: Scale100
       FixedRenderWidth: 1920
@@ -61,26 +64,28 @@ Project:
     Shadows:
       SoftShadows: true
       ShadowCulling: true
-      MaxDistance: 450
+      MaxDistance: 201
       DistanceFade: 50
       ActiveCascadeCount: 4
       SplitLambda: 0.82
       NearOffset: 0
       FarOffset: 50
       CascadeFade: 1
-      FilterMode: 2
+      FilterMode: 1
       DirectionalPCSSCascades: 2
+      PCSSBlockerSamples: 16
+      PCSSFilterSamples: 24
       PCFRadiusTexels: 1.75
       SpotPCFRadiusTexels: 2
-      ResolutionLimit: 2K
+      ResolutionLimit: 8K
     PostFX:
       Bloom:
         Enabled: true
-        ResolutionScale: 1
+        ResolutionScale: 4
         Threshold: 1
         Knee: 0.1
         UpsampleScale: 1
-        Intensity: 1
+        Intensity: 0.33
         DirtIntensity: 1
       DOF:
         Enabled: true
@@ -123,8 +128,7 @@ Project:
     StudioBankOutputPath: Build/Desktop
     RebuildBanksOnPlay: true
     EnableLiveUpdate: true
-    AcousticMaterials:
-      {}
+    AcousticMaterials: {}
     SurfaceTable: 0
     DialogueTable: 0
     DialogueLanguage: en
@@ -161,10 +165,8 @@ Project:
         Dialogue: ""
         UI: ""
         Ambience: ""
-      Events:
-        {}
-      SpeakerColors:
-        {}
+      Events: {}
+      SpeakerColors: {}
     Performance:
       MuteWhenUnfocused: false
       RealVoices: 64

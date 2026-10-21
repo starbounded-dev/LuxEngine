@@ -1,7 +1,7 @@
 Scene: New Scene
 PostProcess:
   Exposure: 1
-  ExposureMode: 3
+  ExposureMode: 0
   Aperture: 16
   ShutterSpeed: 0.008
   ISO: 100
@@ -22,77 +22,51 @@ PostProcess:
   GradeGamma: [1, 1, 1]
   Gain: [1, 1, 1]
 Entities:
-  - Entity: 7022982668959240531
-    TagComponent:
-      Tag: Light
-    Parent: 0
-    Children:
-      - Handle: 12726918091783066847
-      - Handle: 8091695794772928150
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-  - Entity: 12726918091783066847
-    TagComponent:
-      Tag: Sky Light
-    Parent: 7022982668959240531
-    Children: []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SkyLightComponent:
-      EnvironmentMap: 958788097531993663
-      Intensity: 0.24
-      Lod: 0
-      Rotation: 0
-      DynamicSky: false
-  - Entity: 16805889847351497941
-    TagComponent:
-      Tag: Sponza
-    Parent: 0
-    Children: []
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    StaticMeshComponent:
-      AssetID: 5094136855824747147
-      MaterialTable: {}
-      Visible: true
-  - Entity: 14121814355416061655
-    TagComponent:
-      Tag: LuxWelcome
-    Parent: 0
-    Children: []
-    TransformComponent:
-      Position: [5, 3.1, -1.5017263]
-      Rotation: [0, -2.3994787, 0]
-      Scale: [1, 1, 1]
-    TextComponent:
-      TextString: Welcome to Lux
-      FontHandle: 0
-      Color: [1, 0, 1, 1]
-      LineSpacing: 1
-      Kerning: -0.1
-      MaxWidth: 19.8
-      ScreenSpace: true
-      DropShadow: true
-      ShadowDistance: 3.48
-      ShadowColor: [0, 0, 0, 1]
-  - Entity: 1639952346674441217
+  - Entity: 11990470919303431615
     TagComponent:
       Tag: Camera
     Parent: 0
     Children: []
     TransformComponent:
-      Position: [-6, 0.4, 0.903]
-      Rotation: [0.039060928, -1.2501556, 0]
-      Scale: [0.9999999, 1, 0.9999999]
+      Position: [-7.12, 5.28, -1.94]
+      Rotation: [2.8096445, -1.3118039, -3.1415877]
+      Scale: [0.99999917, 1, 0.9999997]
     ScriptComponent:
       ClassName: LuxSample.FlyCamera
       ScriptID: 3987114672
+      StoredFields:
+        - ID: 15508422
+          Name: RumbleOnSprint
+          Type: Bool
+          Data: true
+        - ID: 224242787
+          Name: AdaptiveTriggers
+          Type: Bool
+          Data: true
+        - ID: 978505095
+          Name: SprintMultiplier
+          Type: Float
+          Data: 3
+        - ID: 2532514871
+          Name: Gamepad
+          Type: Int
+          Data: -1
+        - ID: 2657756844
+          Name: InvertGamepadY
+          Type: Bool
+          Data: false
+        - ID: 2911448432
+          Name: MouseSensitivity
+          Type: Float
+          Data: 0.0025
+        - ID: 3495151719
+          Name: Speed
+          Type: Float
+          Data: 5
+        - ID: 4237734323
+          Name: GamepadLookSpeed
+          Type: Float
+          Data: 2.5
     CameraComponent:
       Camera:
         ProjectionType: 0
@@ -127,3 +101,83 @@ Entities:
       Range: 21.7
       ShadowDistance: 0
       ShadowResolutionTier: 1
+  - Entity: 14121814355416061655
+    TagComponent:
+      Tag: LuxWelcome
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [5, 3.1, -1.5017263]
+      Rotation: [0, -2.3994787, 0]
+      Scale: [1, 1, 1]
+    TextComponent:
+      TextString: Welcome to Lux
+      FontHandle: 0
+      Color: [1, 0, 1, 1]
+      LineSpacing: 1
+      Kerning: -0.1
+      MaxWidth: 19.8
+      ScreenSpace: true
+      DropShadow: true
+      ShadowDistance: 3.48
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 16805889847351497941
+    TagComponent:
+      Tag: Sponza
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 5094136855824747147
+      MaterialTable: {}
+      Visible: true
+  - Entity: 12726918091783066847
+    TagComponent:
+      Tag: Sky Light
+    Parent: 7022982668959240531
+    Children: []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 958788097531993663
+      Intensity: 0.24
+      Lod: 0
+      Rotation: 0
+      DynamicSky: false
+  - Entity: 7022982668959240531
+    TagComponent:
+      Tag: Light
+    Parent: 0
+    Children:
+      - Handle: 12726918091783066847
+      - Handle: 8091695794772928150
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 7686710839852339089
+    TagComponent:
+      Tag: Point Light
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-5.7803264, 9.922574, -0.0970566]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 1, 1]
+      Intensity: 1000
+      Unit: 0
+      ColorTemperature: 4150
+      UseColorTemperature: true
+      CastShadows: true
+      SoftShadows: true
+      MinRadius: 1
+      Radius: 87.7
+      LightSize: 4.82
+      Falloff: 1
