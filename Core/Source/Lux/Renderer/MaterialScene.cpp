@@ -227,6 +227,14 @@ namespace Lux {
 			assignTexture(surface.EmissiveMap, GPUMaterialFlags::HasEmissiveTexture, data.ExtraTextureIndices.x, TextureColorSpace::SRGB);
 			assignTexture(surface.OcclusionMap, GPUMaterialFlags::HasOcclusionTexture, data.ExtraTextureIndices.y);
 			assignTexture(surface.HeightMap, GPUMaterialFlags::HasHeightTexture, data.ExtraTextureIndices.z);
+
+			// Thin-surface diffuse transmission is a deferred-lighting term; the transparent forward
+			// path has none, so its rows keep a factor of 0.
+			if (!transparent && surface.DiffuseTransmission > 0.0f)
+			{
+				data.Transmission = glm::vec4(ToLinearColor(surface.DiffuseTransmissionColor), glm::clamp(surface.DiffuseTransmission, 0.0f, 1.0f));
+				assignTexture(surface.DiffuseTransmissionMap, GPUMaterialFlags::HasTransmissionTexture, data.TransmissionTextureIndices.x);
+			}
 			data.ExtraTextureIndices.w =
 				((uint32_t)surface.MetalnessChannel << GPUMaterialChannelShiftMetalness)
 				| ((uint32_t)surface.RoughnessChannel << GPUMaterialChannelShiftRoughness)

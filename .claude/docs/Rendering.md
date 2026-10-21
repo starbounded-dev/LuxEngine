@@ -990,7 +990,9 @@ Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`
 std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
 `Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
-size in step. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+size in step. A row is 11 `vec4` (176 bytes). The last two hold diffuse transmission:
+`Transmission` (linear colour, w = factor, 0 for none and for every transparent row) and
+`TransmissionTextureIndices.x` (the factor map, read from alpha). Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
 
 ### Bindless textures — set 4 is reserved
 

@@ -80,6 +80,14 @@ namespace Lux {
 		// change them.
 		bool TwoSided = false;
 
+		// Diffuse transmission (glTF KHR_materials_diffuse_transmission): the share of the diffuse
+		// light that passes through to the far side instead of reflecting, tinted by
+		// DiffuseTransmissionColor, with the map's alpha multiplying the factor. For thin surfaces lit
+		// from behind, such as leaves. 0 is shading without it. Opaque and Cutout materials only.
+		float DiffuseTransmission = 0.0f;
+		glm::vec3 DiffuseTransmissionColor{ 1.0f };
+		AssetHandle DiffuseTransmissionMap = 0;
+
 		bool operator==(const MaterialSurfaceParameters& other) const = default;
 	};
 

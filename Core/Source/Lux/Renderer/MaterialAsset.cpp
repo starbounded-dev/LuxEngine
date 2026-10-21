@@ -486,7 +486,8 @@ namespace Lux {
 			flags |= MaterialDebug_AlbedoMap;
 			textureCount++;
 		}
-		textureCount += (m_Surface.EmissiveMap ? 1 : 0) + (m_Surface.OcclusionMap ? 1 : 0) + (m_Surface.HeightMap ? 1 : 0);
+		textureCount += (m_Surface.EmissiveMap ? 1 : 0) + (m_Surface.OcclusionMap ? 1 : 0) + (m_Surface.HeightMap ? 1 : 0)
+			+ (m_Surface.DiffuseTransmissionMap ? 1 : 0);
 		if (usingNormalMap)
 		{
 			flags |= MaterialDebug_NormalMap;

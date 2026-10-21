@@ -26,7 +26,7 @@ exists. `.claude/docs/Architecture-LuxEngine.md` (the Cutout and Two-sided bulle
 
 | Decision | Choice | Consequence |
 |---|---|---|
-| Coverage at distance | Coverage-preserving mips (Castaño), user's choice | One extra sRGB texture per (Cutout albedo, cutoff); no per-pixel cost |
+| Coverage at distance | Coverage-preserving mips (Castaño), user's choice | A Cutout albedo binds a coverage variant instead of its sRGB copy; no per-pixel cost |
 | Coverage solve | 256-bin alpha histogram per mip on the GPU | Exact for 8-bit alpha, no readback, no binary search |
 | Translucency model | glTF `KHR_materials_diffuse_transmission`, user's choice | Energy-conserving; a later importer maps 1:1 |
 | Translucency storage | Factor in G-buffer `normal.w` (`Reserved0`, read by nothing today); colour from the material row via `MaterialID` | No new G-buffer target; no colour texture in v1 |
@@ -78,9 +78,9 @@ Nothing above was profiled; "working" means read in source and, where noted, see
   shaders before the copy back.
   - `AlphaCoverageHistogram.glsl` counts each mip's alpha into 256 bins (shared-memory atomics,
     one storage buffer of `mips × 256` uints).
-  - `AlphaCoverageScale.glsl` takes mip 0's coverage at the cutoff, finds the cutoff that gives mip
-    *m* the same coverage (a suffix sum over its histogram), and rescales that mip's alpha in place
-    by `cutoff / cutoff'`.
+  - `AlphaCoverageScale.glsl` takes mip 0's coverage at the cutoff, finds the bin whose coverage on
+    mip *m* is closest to it, and writes mip *m* with its alpha rescaled by `cutoff / cutoff'` into a
+    second RGBA8 chain, which is copied into the sRGB image. Mip 0 passes through.
   - Mips downsample from the unscaled level above (Castaño), so the scaling never compounds.
 - Every alpha-tested pass samples the same bindless slot, so prepass, G-buffer and shadows stay in
   agreement.

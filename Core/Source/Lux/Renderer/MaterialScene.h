@@ -44,7 +44,8 @@ namespace Lux {
 		OverrideMaterial = BIT(11),
 		HasEmissiveTexture = BIT(12),
 		HasOcclusionTexture = BIT(13),
-		HasHeightTexture = BIT(14)
+		HasHeightTexture = BIT(14),
+		HasTransmissionTexture = BIT(15)
 	};
 
 	inline constexpr GPUMaterialFlags operator|(GPUMaterialFlags lhs, GPUMaterialFlags rhs)
@@ -86,8 +87,10 @@ namespace Lux {
 		glm::vec4 UVTransform = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); // 2x2 matrix columns (xy, zw): rotation x tiling
 		glm::vec4 UVOffset = glm::vec4(0.0f); // xy offset, zw reserved
 		glm::uvec4 ExtraTextureIndices = glm::uvec4(InvalidGPUTextureIndex, InvalidGPUTextureIndex, InvalidGPUTextureIndex, GPUMaterialDefaultChannelSelects); // x emissive, y occlusion, z height, w channel selects
+		glm::vec4 Transmission = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f); // rgb linear diffuse transmission colour, w factor (0 = none)
+		glm::uvec4 TransmissionTextureIndices = glm::uvec4(InvalidGPUTextureIndex, 0u, 0u, 0u); // x factor map (alpha), yzw reserved
 	};
-	static_assert(sizeof(GPUMaterialData) == 9 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
+	static_assert(sizeof(GPUMaterialData) == 11 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
 
 	struct GPUMaterialBuildInput
 	{
