@@ -365,14 +365,24 @@ namespace Lux::RuntimeExport {
 			return result;
 		};
 
-		const std::filesystem::path msbuildPath = "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/MSBuild.exe";
-		const std::string msbuild = FileExists(msbuildPath) ? msbuildPath.string() : "MSBuild.exe";
+		// vswhere ships with every VS 2017+ installer and finds MSBuild for any edition or version;
+		// PATH is the fallback.
+		//
+		// Building the .vcxproj outside the solution defaults $(SolutionDir) to each project's own
+		// folder, and premake writes %{wks.location} as $(SolutionDir), so Core's post-build would
+		// copy Coral from Core\Core\vendor. Pass the root the solution build uses. No trailing
+		// backslash: generated uses are "$(SolutionDir)\...", and PowerShell quotes an argument
+		// with spaces, where a final backslash would escape the closing quote.
 		const std::string command =
-			"powershell -NoProfile -ExecutionPolicy Bypass -Command \"& "
-			+ QuotePowerShellArgument(msbuild) + " "
+			"powershell -NoProfile -ExecutionPolicy Bypass -Command \""
+			"$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\\Installer\\vswhere.exe'; "
+			"$msbuild = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\\**\\Bin\\MSBuild.exe' | Select-Object -First 1 }; "
+			"if (-not $msbuild) { $msbuild = 'MSBuild.exe' }; "
+			"& $msbuild "
 			+ QuotePowerShellArgument(projectFile.string())
 			+ " /t:Build /p:Configuration=" + RuntimeExportTargetToString(target)
-			+ " /p:Platform=x64 /m:1 /nr:false /v:minimal\"";
+			+ " /p:Platform=x64 " + QuotePowerShellArgument("/p:SolutionDir=" + repositoryRoot.string())
+			+ " /m:1 /nr:false /v:minimal\"";
 #endif
 
 		LUX_CONSOLE_LOG_INFO("Building Lux-Runtime ({})...", RuntimeExportTargetToString(target));
